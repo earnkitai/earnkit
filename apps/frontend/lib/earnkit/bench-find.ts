@@ -222,8 +222,10 @@ export type Seen = StandSeen & {
     path?: boolean;
     /** v4.8 Task 2: the gap stage asked it (its yes: the agent does the step, then calls find); `draft`, the draft stage. */
     gap?: boolean; draft?: boolean;
-    /** v4.8 Task 2 fix round 2 (F5, the draft's ask): the blanks it asked for. */
+    /** v4.8 Task 2 fix round 2 (F5, the draft's ask): the blanks it asked for (fix round 3: cleared once answered). */
     blanks?: string[];
+    /** v4.8 Task 2 fix round 3 (5): the gap ask behind "I'm checking the code now": its yes re-checks. */
+    checking?: boolean;
     /** v4.8 Task 2 (kind 'check_fits' on the path): the project's name, for the gap stage's steps. */
     name?: string;
   };
@@ -823,17 +825,26 @@ async function pathGapCommit(o: ViewIn, plan: PathPlan & { move: Exclude<Move, {
 
 /** Fix round 2 (F3): the reply while the Builder Codes re-check goes on in the background. */
 export const CHECKING_LINE = "I'm checking the code now. Give it a minute, then say ok.";
-export const CHECKING_NOTE = "When they say ok, call find again (EarnKit is reading their code on GitHub). Don't show this note.";
+export const CHECKING_NOTE = "When they say ok, call tell with move_up: { kind: 'qualify', project_key, answer: 'yes' } (a no: answer 'no'), then follow its note (EarnKit is reading their code on GitHub). Don't show this note.";
 /** Fix round 2 (F3): the path reply while the re-check runs: nothing stored but the session kept alive. */
 async function pathCheckingView(o: ViewIn, plan: PathPlan): Promise<{ view: BenchView; fields: Reply; stand: Standing }> {
   const { id, now, read } = o;
   const v = plan.facts;
-  await markSaid(id, [], now);
+  const key = v.project.key;
+  // Fix round 3 (5): its own ask (the gap ask, `checking`): a no parks Base, an ok (a yes) re-checks.
+  const q = plan.extra.get(BASE_GRANTS_ID)?.qualify;
+  const stored = {
+    kind: 'qualify', key, program_id: BASE_GRANTS_ID, path: true, gap: true, checking: true,
+    ...(q && { qualify: { grant: q.grant, steps: q.steps, first: q.steps[0], name: v.project.name, codes_missing: q.missing.includes('codes') } }),
+  };
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
+      || jsonb_build_object('bench_ask', ${sql().json(stored as never)}::jsonb, 'said', ${saidSql([], now)})
+    WHERE builder_id = ${id}`.catch(logged('path checking'));
   const view: BenchView = {
     state: v.state, variant: v.variant, project: v.project, rank: read.ranks.bench, streak: v.streak, target: null, handle: v.handle, link: null,
-    fund: [], due: [], ask: { kind: 'none', project_key: null, line: '' }, held: null, path: CHECKING_LINE, pathLead: null, pathNote: CHECKING_NOTE.replace(/ Don't show this note\.$/, ''),
+    fund: [], due: [], ask: { kind: 'qualify', project_key: key, line: '', program_id: BASE_GRANTS_ID }, held: null, path: CHECKING_LINE, pathLead: null, pathNote: CHECKING_NOTE.replace(/ Don't show this note\.$/, ''),
   };
-  return { view, fields: { ...standingFields(v.stand) }, stand: v.stand };
+  return { view, fields: { move_up: { kind: 'qualify', project_key: key, agent_note: QUALIFY_NOTE }, ...standingFields(v.stand) }, stand: v.stand };
 }
 
 /**
@@ -1911,7 +1922,7 @@ const declineKeyOf = (asked: NonNullable<Seen['bench_ask']>) =>
  * The builder's yes or no to the Bench's question (tools.ts moveUpAnswer routes it here). Only the ask stored with the last reply is answered; anything else is
  * "Okay." with nothing changed. A no is noted (standing_seen.declined) and clears the ask; the next reply asks its state's step again.
  */
-export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'tokenDeps' | 'builderTokenDeps'> & Partial<Pick<ToolContext, 'sharedClient'>>, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no'; live_url?: string; via?: 'coin' }): Promise<Reply> {
+export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'tokenDeps' | 'builderTokenDeps'> & Partial<Pick<ToolContext, 'sharedClient'>>, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no'; live_url?: string; via?: 'coin'; blanks?: string }): Promise<Reply> {
   const id = ctx.installationId;
   const now = new Date();
   const okay = { show_to_builder: NOTED_LINE };
@@ -2055,6 +2066,8 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
     case 'qualify':
       // 2026-10-22: the steps the question was asked with (the program's rules, the ones not known met). Fix round 1:
       // the yes is remembered (qualify_given), so the next replies move on to the ship step for DECLINE_MS.
+      // v4.8 Task 2 fix round 3 (5): the ok to "I'm checking the code now" (it may carry no steps).
+      if (asked.path === true && asked.checking === true && asked.program_id) return gapDoYes(ctx, id, asked, now);
       if (!asked.qualify?.steps?.length || !asked.key) return okay;
       await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{qualify_given}',
           COALESCE(standing_seen->'qualify_given', '{}'::jsonb) || jsonb_build_object(${asked.key.toLowerCase()}::text, ${now.toISOString()}::text))
@@ -2109,7 +2122,7 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       if (asked.program_id) await recordApplyYes(id, asked.program_id, now);
       // v4.8 Task 2: the path's "Want me to start?": the draft stage. A yes to the draft's own ask (fix round 2, F5)
       // re-asks its blanks, or with none moves the path to submit; never a second draft.
-      if (asked.path === true && asked.draft === true) return draftYes(id, asked, now);
+      if (asked.path === true && asked.draft === true) return draftYes(id, asked, now, m.blanks);
       if (asked.path === true && asked.program_id) return pathDraft(ctx, id, asked, now);
       return asked.program_id
         ? { show_to_builder: '', agent_note: APPLY_YES_NOTE(asked.program_id), lead: { program_id: asked.program_id, ...(asked.repo && { repo: asked.repo }) } }
@@ -2198,19 +2211,28 @@ async function gapDoYes(ctx: Pick<ToolContext, 'ownInstallationId'>, id: number,
   const q = asked.qualify;
   // Fix round 2 (F10): the hook's "Go?" lands here straight from the hook, so the path moves to gap here too.
   const path: Path = { stage: 'gap', program_id: asked.program_id!, at: now.toISOString() };
-  if (!hosted && asked.kind === 'qualify' && q?.name && qualifyGapSteps(q.steps as QualifyStep[]).some((s) => s.doable)) {
-    await sql()`UPDATE builder_profiles SET standing_seen = (jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{gap_did}',
+  // Fix round 3 (7): a yes to a step on Base's gap, by either agent, stamps gap_did, so the next find re-checks the
+  // code (never waiting for the daily refresh).
+  const stamp = () => sql()`UPDATE builder_profiles SET standing_seen = (jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{gap_did}',
         COALESCE(standing_seen->'gap_did', '{}'::jsonb) || jsonb_build_object(${asked.program_id!}::text, ${now.toISOString()}::text)) - 'gap_check_failed')
         || jsonb_build_object('path', ${sql().json(path as never)}::jsonb)
       WHERE builder_id = ${id}`.catch(logged('gap did'));
+  // Fix round 3 (5): "ok" to "I'm checking the code now": check again on the next find, never add the codes again.
+  if (asked.checking === true) {
+    await stamp();
+    return { show_to_builder: '', agent_note: withMentor("The builder said ok: call find now, so EarnKit checks their code again. Don't show this note.") };
+  }
+  if (asked.kind === 'qualify' && asked.program_id === BASE_GRANTS_ID) await stamp();
+  if (!hosted && asked.kind === 'qualify' && q?.name && qualifyGapSteps(q.steps as QualifyStep[]).some((s) => s.doable)) {
     const codesNote = q.codes_missing === false ? QUALIFY_CODES_CHECK_NOTE : QUALIFY_CODES_NOTE;
     return {
       show_to_builder: qualifyCodesYes(q.name, q.codes_missing !== false),
       agent_note: withMentor(`${codesNote.replace(/\s*Don't show this note\.$/, '')} ${GAP_DO_NOTE}`),
     };
   }
-  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('path', ${sql().json(path as never)}::jsonb)
-    WHERE builder_id = ${id}`.catch(logged('gap help'));
+  if (!(asked.kind === 'qualify' && asked.program_id === BASE_GRANTS_ID))
+    await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('path', ${sql().json(path as never)}::jsonb)
+      WHERE builder_id = ${id}`.catch(logged('gap help'));
   return { show_to_builder: '', agent_note: withMentor(hosted ? GAP_HELP_NOTE_HOSTED : GAP_HELP_NOTE) };
 }
 
@@ -2224,7 +2246,7 @@ const DRAFT_GUARD = 'Never tell them they qualify or that an application was sen
 export const founderBriefNote = (program: string, key: string | null, o: { record: boolean } = { record: true }) =>
   `The builder said yes to drafting their ${program} application. Its questions aren't public, so write a short founder brief right under "Here's your draft:": ` +
   `what the project does, who it is for, its traction ${recordWords(o.record)}, and why now. ` +
-  `${o.record ? "Keep the verified record's lines. " : ''}Never fill the blanks yourself; once they reply with them, add them to the brief and show it ready to paste. ${DRAFT_GUARD} ` +
+  `${o.record ? "Keep the verified record's lines. " : ''}Never fill the blanks yourself; once they reply with them, call tell with move_up: { kind: 'apply', project_key: ${JSON.stringify(key)}, answer: 'yes', blanks: their reply }, add them to the brief and show it ready to paste. ${DRAFT_GUARD} ` +
   `A no: call tell with move_up: { kind: 'apply', project_key: ${JSON.stringify(key)}, answer: 'no' }.`;
 /**
  * v4.8 Task 2: the draft's agent note for a program with questions: prepare's fields, drafted. Fix round 2 (F1): the
@@ -2260,6 +2282,10 @@ async function heldAnswers(id: number, key: string | null, reqs: SubmissionRequi
     const [c] = await sql()<{ codes: string[] | null }[]>`SELECT codes FROM repo_builder_codes WHERE repo_key = ${key.toLowerCase()} AND found`.catch(() => []);
     if (c?.codes?.[0]) fills[codeReq.key] = c.codes[0];
   }
+  // Fix round 3 (4): a payout wallet field is EarnKit's to fill when the builder proved one (their signature).
+  const walletReq = reqs.find((r) => r.required && (r.key === 'payout_wallet' || /payout wallet/i.test(r.label)));
+  const wallet = walletReq ? await provenWallet(id).catch(() => null) : null;
+  if (walletReq && wallet) fills[walletReq.key] = wallet;
   const used = record.find((l) => l.startsWith('Used by '));
   const usage = reqs.find((r) => r.required && r.kind === 'traction');
   if (used && usage) fills[usage.key] = used;
@@ -2304,12 +2330,33 @@ async function pathDraft(ctx: Partial<Pick<ToolContext, 'sharedClient'>>, id: nu
 }
 
 /**
+ * Fix round 3 (1): the path's draft for `programId` was finished with the builder's answers (prepare with
+ * coach_asked): its stored blanks are cleared, so a yes after them moves on instead of re-asking. Never throws.
+ */
+export async function draftAnswered(id: number, programId: string): Promise<void> {
+  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, '{bench_ask,blanks}', '[]'::jsonb)
+    WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'program_id' = ${programId} AND standing_seen->'bench_ask'->>'draft' = 'true'
+      AND standing_seen->'path'->>'stage' = 'draft' AND standing_seen->'path'->>'program_id' = ${programId}`.catch(logged('draft answered'));
+}
+
+/**
  * Fix round 2 (F5): a yes to the draft's own ask. Its blanks still empty (a bare "ok"): "I need {blanks} to finish it.
  * Reply with them." and the ask stays (a no still parks). No blanks: the path moves to `submit` (Task 3 renders that
  * stage) with "It's ready. Submit at {link}.". Never throws on its own writes.
  */
-async function draftYes(id: number, asked: NonNullable<Seen['bench_ask']>, now: Date): Promise<Reply> {
+async function draftYes(id: number, asked: NonNullable<Seen['bench_ask']>, now: Date, answers?: string): Promise<Reply> {
   const blanks = Array.isArray(asked.blanks) ? asked.blanks.filter((b): b is string => typeof b === 'string') : [];
+  // Fix round 3 (1): the yes carries their answers: the blanks are answered (cleared; the text is never stored), and
+  // the agent finishes the draft; the next yes moves to submit.
+  if (blanks.length > 0 && answers?.trim()) {
+    await storeAsk(id, { ...asked, blanks: [] });
+    return {
+      show_to_builder: '',
+      agent_note: withMentor("The builder answered the blanks: add their words to the draft as they gave them (for a program with fields, call prepare again with every answer and coach_asked: true) and show it finished, ready to paste. Don't show this note."),
+      move_up: { kind: 'apply', project_key: asked.key, agent_note: APPLY_NOTE },
+    };
+  }
+  // A bare yes with no answers given yet: re-ask them.
   if (blanks.length > 0) {
     await storeAsk(id, asked);
     return { show_to_builder: blanksAgain(blanks), agent_note: withMentor("Their answers to the blanks: add them to the draft and finish it as the draft's note said. Don't show this note."), move_up: { kind: 'apply', project_key: asked.key, agent_note: APPLY_NOTE } };

@@ -8700,4 +8700,11 @@ A yes on the path moves the stage on (bench-find.ts benchMoveUp, asks stored wit
   MENTOR_NOTE and the draft notes carry "Never tell them they qualify or that an application was sent."; with no record
   the draft notes say to leave traction out. Lists use ", and" at any count. A grant the builder took up past the hook
   stays a bestMove move after its passed step was raised.
+- Fix round 3: tell move_up takes `blanks` (the builder's reply to a draft's blanks, never stored); a yes carrying it,
+  or a yes after prepare ran with coach_asked (draftAnswered clears the stored blanks), never re-asks. withFacts puts
+  PATH_ANSWER_FIRST ("If they asked a question, answer it first in one short line from the facts.") before MENTOR_NOTE
+  on find and score path replies. The repeated hook offer names Builder Codes. A proven payout wallet fills a payout
+  wallet field; "code" makes a blank only as a builder, referral, invite, promo, access or discount code. The checking
+  reply stores its own gap ask (`checking`): a no parks Base, an ok re-checks. Any yes to a Base gap step (hosted too)
+  stamps gap_did.
 

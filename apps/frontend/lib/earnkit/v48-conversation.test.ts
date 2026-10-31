@@ -19,7 +19,7 @@ import type { RepoFit } from './present';
 import { isoWeekOf } from './weeks';
 import { backfillMondays } from './week-facts';
 import {
-  CAN_DO, FOUNDER_BLANKS, MENTOR_NOTE, blanksAgain, readyToSubmit, SESSION_MS, bestMove, blanksAsk, closeWords, draftBlanks, draftReply, gapClosedReply, gapProof, gapReply, gapStillReply, pathReply, programName, proofLine, readPath, sessionOf,
+  CAN_DO, FOUNDER_BLANKS, MENTOR_NOTE, PATH_ANSWER_FIRST, CODES_OFFER, blanksAgain, readyToSubmit, SESSION_MS, bestMove, blanksAsk, closeWords, draftBlanks, draftReply, gapClosedReply, gapProof, gapReply, gapStillReply, pathReply, programName, proofLine, readPath, sessionOf,
   type GapGrant, type InvestorProgram, type MoveCtx, type MoveProgram,
 } from './conversation';
 import { qualifyGapSteps, BUILDER_CODES_GUIDE } from './bench-reply';
@@ -31,6 +31,8 @@ import { shipLogBlock, shipLogFacts } from './ship-log-facts';
  * v4.8 Task 1: the path, session memory and the agent note. The copy is the target conversation's (section A's
  * opener); the agent rewords it per MENTOR_NOTE, so show_to_builder carries the target text and these tests pin it.
  */
+/** Fix round 3 (2): a find or score path reply's note: a short answer-first sentence, then the mentor note. */
+const PATH_NOTE_OF = (m: string) => `If they asked a question, answer it first in one short line from the facts. ${m}`;
 const BAD = /—|\bcoins?\b|\bpoints?\b|\p{Extended_Pictographic}/iu;
 const NOW = new Date('2026-10-31T19:00:00Z');
 const PT = 'America/Los_Angeles';
@@ -191,6 +193,9 @@ test('pathReply: a grant with a gap gives its money, the gap and "Want the steps
   assert.equal(c.reply, 'go');
   const h = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'closest', program: BASE, raise: true }, said: new Set(r.said), hosted: true });
   assert.equal(h.show_to_builder, 'Jenil, your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes.\n\nWant the steps?');
+  // Fix round 3 (3): the same offer again in the session names Builder Codes.
+  const again = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'closest', program: BASE, raise: true }, said: new Set([...r.said, ...c.said]) });
+  assert.equal(again.show_to_builder, `Builder Codes are still the one step to Base Builder Grant. ${CODES_OFFER}`);
   for (const s of [r.show_to_builder, c.show_to_builder, h.show_to_builder]) {
     assert.doesNotMatch(s, BAD);
     assert.equal((s.match(/\?/g) ?? []).length, 1, s);
@@ -219,6 +224,7 @@ after(async () => {
   await sql().end();
 });
 const RUN = String(process.pid % 100000);
+const PATH_NOTE = PATH_NOTE_OF(MENTOR_NOTE);
 type R = Awaited<ReturnType<typeof mcpCall>>;
 const show = (r: R) => String(r.reply?.show_to_builder ?? '');
 const moveUp = (r: R) => r.reply?.move_up as { kind: string; project_key: string | null; agent_note: string } | undefined;
@@ -291,7 +297,7 @@ test("the owner-like builder's first find is A's opener; the next find in the se
   assert.doesNotMatch(s, BAD);
   assert.doesNotMatch(s, /Open now|Ask me anytime/);
   // The agent note is the mentor note; a yes drafts it (the apply ask, stored for tell).
-  assert.equal(r.reply?.note, MENTOR_NOTE);
+  assert.equal(r.reply?.note, PATH_NOTE);
   assert.equal(moveUp(r)?.kind, 'apply');
   assert.deepEqual((r.reply?.lead as { program_id: string }).program_id, sr.id);
   const seen = await seenOf(b.id);
@@ -381,7 +387,7 @@ test('a shared client with no X of its own gets no path reply, and nothing is wr
   }
   for (const r of replies) {
     assert.doesNotMatch(show(r), /speedrun|Want me to start\?|Want the steps\?/, show(r));
-    assert.notEqual(r.reply?.note, MENTOR_NOTE);
+    assert.ok(!String(r.reply?.note).endsWith(MENTOR_NOTE));
   }
   const after = await seenOf(b.id);
   for (const k of ['path', 'said', 'path_raised']) assert.deepEqual(after[k], before[k], k);
@@ -458,7 +464,7 @@ test('fix round 3 (F2): a failed read of what the builder told EarnKit about mak
   const s = show(r);
   assert.ok(!s.includes(sr.title), s);
   assert.doesNotMatch(s, /Want me to start\?|Want the steps\?/, s);
-  assert.notEqual(r.reply?.note, MENTOR_NOTE);
+  assert.ok(!String(r.reply?.note).endsWith(MENTOR_NOTE));
   const seen = await seenOf(b.id);
   assert.equal(seen.path, undefined);
   assert.notEqual((seen.bench_ask as { path?: boolean } | undefined)?.path, true);
@@ -549,6 +555,12 @@ test("draftBlanks (fix round 2, F1): a founder brief for a16z; Base's blanks are
   const held = draftBlanks(base, { builder_code: 'bc_abc', usage_numbers: 'Used by 40 people in the last 30 days, verified onchain' });
   assert.deepEqual(held.blanks, ['a note on the founding team', 'a Loom product demo']);
   assert.deepEqual(held.later, []);
+  // Fix round 3 (4): "code" only as a code the builder supplies; a held payout wallet is no blank.
+  const fields = (rs: { key: string; label: string; type?: string }[]) => ({ investment: false, submission_requirements: rs.map((r) => ({ ...r, required: true, from: 'builder' as const, kind: 'other', todo: r.label.toLowerCase() })) });
+  const f = draftBlanks(fields([{ key: 'codebase', label: 'Describe your codebase and source code' }, { key: 'referral', label: 'Referral code' }, { key: 'payout_wallet', label: 'Payout wallet' }]), {});
+  assert.deepEqual(f.blanks, ['referral code', 'payout wallet']);
+  assert.deepEqual(f.drafted, ['Describe your codebase and source code']);
+  assert.deepEqual(draftBlanks(fields([{ key: 'payout_wallet', label: 'Payout wallet' }]), { payout_wallet: '0xabc' }).blanks, []);
   // F9: one list style at any count; F5: the re-ask and the ready line.
   assert.equal(blanksAsk(['a', 'b', 'c']), "Three blanks only you can fill: a, b, and c. Reply with them and I'll finish it.");
   assert.equal(blanksAgain(['a note on the founding team', 'a Loom product demo']), 'I need a note on the founding team, and a Loom product demo to finish it. Reply with them.');
@@ -604,8 +616,14 @@ test('"sure" on the hook gives a draft with the verified record and A\'s two bla
   // F5: a bare "ok" with the blanks still empty re-asks them, and the ask stays.
   const ok = await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes' });
   assert.equal(show(ok), "I need who's on the team, and any money you've raised to finish it. Reply with them.");
+  // Fix round 3 (1): a yes carrying their answers never re-asks: the blanks are cleared (the words never stored).
+  const answered = await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes', blanks: 'just me, nothing raised' });
+  assert.equal(show(answered), '');
+  assert.match(noteOf(answered), /answered the blanks/);
+  const after = (await seenOf(b.id)).bench_ask as { blanks: string[] };
+  assert.deepEqual(after.blanks, []);
+  assert.doesNotMatch(JSON.stringify(after), /nothing raised/);
   // With no blanks left, a yes moves the path to submit (Task 3 renders the stage).
-  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, '{bench_ask,blanks}', '[]'::jsonb) WHERE builder_id = ${b.id}`;
   const ready = await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes' });
   assert.match(show(ready), /^It's ready\. Submit at \S+\.$/, show(ready));
   assert.equal(((await seenOf(b.id)).path as { stage: string }).stage, 'submit');
@@ -631,7 +649,7 @@ test("the Base gap (fix round 2, F10): the hook offers to add Builder Codes; a y
   const still = await find(b);
   assert.equal(show(still), `Still on Base Builder Grant: add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. Guide: ${GUIDE} You're live on Base. Want me to do it now?`);
   assert.equal(moveUp(still)?.kind, 'qualify');
-  assert.equal(still.reply?.note, MENTOR_NOTE);
+  assert.equal(still.reply?.note, PATH_NOTE);
   // F2: no new yes, so no new check: still the step.
   assert.ok(show(await find(b)).startsWith('Still on Base Builder Grant: '));
   // Pushed now; its yes stamps a new yes, so find checks again and they're confirmed.
@@ -640,7 +658,7 @@ test("the Base gap (fix round 2, F10): the hook offers to add Builder Codes; a y
   const done = await find(b);
   assert.equal(show(done), A_CODES_IN_PROOF);
   assert.equal(moveUp(done)?.kind, 'apply');
-  assert.equal(done.reply?.note, MENTOR_NOTE);
+  assert.equal(done.reply?.note, PATH_NOTE);
   const seen = await seenOf(b.id);
   assert.deepEqual({ ...(seen.path as object), at: undefined }, { stage: 'draft', program_id: 'base-builder-grants', at: undefined });
   // Its yes is the Base draft: EarnKit fills the confirmed Builder Code; contact details wait for submit; at most 2 blanks.
@@ -650,6 +668,10 @@ test("the Base gap (fix round 2, F10): the hook offers to add Builder Codes; a y
   assert.equal(draft.split('\n\n').at(-1), "Two blanks only you can fill: a note on the founding team, and your key usage numbers. Reply with both and I'll finish it.");
   assert.match(noteOf(dr), /EarnKit already holds these, use them as given: builder_code: bc_earnkit\./);
   assert.match(noteOf(dr), /mark these as drafted for them to check: How does your product make money today\?/);
+  // Fix round 3 (1): prepare with their answers (coach_asked) answers the blanks: a yes after it never re-asks.
+  await mcpCall(b.ctx as never, 'prepare', { program_id: 'base-builder-grants', project: { name: 'EarnKit', repo_url: `https://github.com/${b.key}` }, coach_asked: true });
+  assert.deepEqual(((await seenOf(b.id)).bench_ask as { blanks: string[] }).blanks, []);
+  assert.doesNotMatch(show(await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes' })), /^I need/);
 });
 
 test('fix round 2 (F3): a slow re-check answers "I\'m checking the code now..." and goes on in the background', db, async () => {
@@ -669,11 +691,18 @@ test('fix round 2 (F3): a slow re-check answers "I\'m checking the code now..." 
   try {
     const r = await find(b);
     assert.equal(show(r), "I'm checking the code now. Give it a minute, then say ok.");
-    assert.match(String(r.reply?.note), /^When they say ok, call find again/);
+    assert.ok(String(r.reply?.note).startsWith(`${PATH_ANSWER_FIRST} When they say ok, call tell`), String(r.reply?.note));
+    // Fix round 3 (5): its own ask: a no would park Base; an ok re-checks, never "add the codes" again.
+    const ask = (await seenOf(b.id)).bench_ask as { kind: string; path: boolean; checking: boolean };
+    assert.deepEqual([ask.kind, ask.path, ask.checking], ['qualify', true, true]);
+    assert.equal(moveUp(r)?.kind, 'qualify');
   } finally {
     RECHECK_WAIT.ms = wait;
   }
   await codesSettled();
+  const ok = await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' });
+  assert.match(noteOf(ok), /call find now, so EarnKit checks their code again/);
+  assert.doesNotMatch(show(ok) + noteOf(ok), /Adding Builder Codes|add Base's Builder Code/);
   assert.equal(show(await find(b)), A_CODES_IN_PROOF);
 });
 
@@ -697,6 +726,8 @@ test('F3: a hosted agent gets the steps to do itself, nothing marked; its no par
   const help = await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' });
   assert.match(noteOf(help), /in short plain steps they can do themselves.*then call find/);
   assert.doesNotMatch(noteOf(help), /this folder|in their code here/);
+  // Fix round 3 (7): the hosted yes stamps gap_did too, so the next find re-checks the code.
+  assert.ok(((await seenOf(b.id)).gap_did as Record<string, string>)['base-builder-grants']);
   // The next find mid-gap: the step again with the help ask (fix round 1, T2-4); a no to it parks Base.
   const still = await find(b);
   assert.match(show(still), /^Still on Base Builder Grant: add Base's Builder Code .* Want help with it now\?$/, show(still));

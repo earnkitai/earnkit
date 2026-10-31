@@ -134,7 +134,7 @@ import { hideUpdate, postUpdate, setShipTitles } from './updates';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchIdentity, benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
 import { REPO_KEY, dropMainProject, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
-import { APPLY_OUTCOME_NOTE, BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, recordApplyYes, keepBenchMatch, legacyCoinAnswer, tokenAsk, tokenExisting, keptBenchMatch, mainProjectName, mainProjectNameFor, rankAnswer, rememberProjectName, signedOutNow } from './bench-find';
+import { APPLY_OUTCOME_NOTE, BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, draftAnswered, recordApplyYes, keepBenchMatch, legacyCoinAnswer, tokenAsk, tokenExisting, keptBenchMatch, mainProjectName, mainProjectNameFor, rankAnswer, rememberProjectName, signedOutNow } from './bench-find';
 import { CHAIN_EXPLAINED, CHAIN_NAMES, type Chain } from './chains';
 import { provenWallet } from './wallet-proof';
 import { walletChangeReply } from './wallet-offer';
@@ -143,7 +143,7 @@ import { scoreReply } from './score-tool';
 import { aboutFacts, replyFacts, type ReplyFacts } from './reply-facts';
 import { agentReach } from './agent-reach';
 import { ANSWER_FIRST_NOTE, NOTED_LINE } from './stand-text';
-import { MENTOR_NOTE } from './conversation';
+import { MENTOR_NOTE, PATH_ANSWER_FIRST } from './conversation';
 import { startRefresh } from './stand-view';
 import { attributionFor, chainOf } from './attribution';
 import type { ReaderDeps } from './source-readers';
@@ -2453,6 +2453,8 @@ export const TellToolInput = z
         answer: z.enum(['yes', 'no']),
         // v2.12.1 T9: a go_live yes again, with the GitHub Pages link once it loads.
         live_url: z.string().max(300).optional(),
+        // v4.8 Task 2 fix round 3: the builder's reply to a draft's blanks (bench-find.ts draftYes; never stored).
+        blanks: z.string().max(2000).optional(),
       })
       .strict()
       .optional(),
@@ -2500,7 +2502,7 @@ const defined = (o: Reply): Reply => Object.fromEntries(Object.entries(o).filter
  * last Bench reply stored); the agent's kind is never trusted, and a yes to a step that is no longer the
  * current one (or another project's) changes nothing (bench-find.ts benchMoveUp).
  */
-const moveUpAnswer = (ctx: ToolContext, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no'; live_url?: string }): Promise<Reply> => benchMoveUp(ctx, m);
+const moveUpAnswer = (ctx: ToolContext, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no'; live_url?: string; blanks?: string }): Promise<Reply> => benchMoveUp(ctx, m);
 
 /**
  * v3.1 cold read (owner-approved): a program that wants a chain the project has no code for, in plain words: "Circle
@@ -2659,6 +2661,10 @@ async function draftWithSteps(
 export function withFacts<T extends object>(reply: T, facts: ReplyFacts): T {
   const r = reply as T & { note?: unknown; agent_note?: unknown };
   // v4.8 Task 1: a path reply's mentor note asks the agent to reword it, so the "exactly as written" note never joins it.
+  // v4.8 Task 2 fix round 3 (2): it gets a short answer-first sentence that fits the mentor note instead, so a question
+  // asked mid-path is still answered first.
+  if (typeof r.note === 'string' && r.note.endsWith(MENTOR_NOTE))
+    return { ...reply, facts, ...(!r.note.startsWith(PATH_ANSWER_FIRST) && { note: `${PATH_ANSWER_FIRST} ${r.note}` }) } as T;
   const noted = [r.note, r.agent_note].some((n) => typeof n === 'string' && (n.includes(ANSWER_FIRST_NOTE) || n.endsWith(MENTOR_NOTE)));
   return { ...reply, facts, ...(!noted && { note: typeof r.note === 'string' && r.note ? `${ANSWER_FIRST_NOTE} ${r.note}` : ANSWER_FIRST_NOTE }) } as T;
 }
@@ -2717,6 +2723,8 @@ export const tools = {
     const { deploy, tips, ...prep } = PrepareInput.parse(input);
     // v3.1 cold read (one name everywhere): the name the builder's project goes by here is remembered for every reply.
     if (!ctx.sharedClient) await rememberProjectName(ctx.installationId, prep.project, new Date());
+    // v4.8 Task 2 fix round 3: the path's draft finished with the builder's answers (coach_asked): its blanks are answered.
+    if (prep.coach_asked === true && !ctx.sharedClient) await draftAnswered(ctx.installationId, prep.program_id);
     // v3.1 (spec 3.2, 3.4), "Apply with this page": a curated program is drafted, never entered here (R15: unlisted
     // refused). A host, deploy or build step runs first and its lines join the draft; never the confirm line.
     if (!tips) {

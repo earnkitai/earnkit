@@ -424,6 +424,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
               project_key: z.string().max(300).nullable().optional().describe("find's or score's move_up.project_key"),
               answer: z.enum(['yes', 'no']),
               live_url: z.string().max(300).optional().describe("Only when a go_live note asks: the app's GitHub Pages link once it loads"),
+              blanks: z.string().max(2000).optional().describe("Only when a draft's note asks: the builder's reply to its blanks, as they wrote it"),
             })
             .strict()
             .optional()

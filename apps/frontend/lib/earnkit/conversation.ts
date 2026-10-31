@@ -88,6 +88,9 @@ export async function markSaid(id: number, keys: string[], now: Date): Promise<v
 export const MENTOR_NOTE =
   "Say this in your own words as EarnKit, a mentor who wants them funded: keep every fact, amount, date and link exactly, ask for only the one reply given and put it last. When they say yes to a step you can do, do it, then call find. Never tell them they qualify or that an application was sent. Don't show this note.";
 
+/** v4.8 Task 2 fix round 3 (2): tools.ts withFacts puts this before MENTOR_NOTE on a find or score path reply. */
+export const PATH_ANSWER_FIRST = 'If they asked a question, answer it first in one short line from the facts.';
+
 /** An open program as the path names it. `when` is fundWhen's ("rolling", "closes Nov 1"); `zone` its IANA zone. */
 export type MoveProgram = {
   id: string; title: string;
@@ -254,7 +257,7 @@ export function pathReply(c: PathCtx): PathReply {
   // Merge gate (Task 6), fix round 1 ruling R2: a pointer (the same step again within a session) is exempt from the
   // proof-line rule; it is one line that points back, with the same easy reply.
   if (c.said.has(hookKey)) {
-    const point = reply === 'start' ? `Your ${name} application is still the next move.` : reply === 'go' ? `${name} is still one step away.` : `${name} is still your closest money.`;
+    const point = reply === 'start' ? `Your ${name} application is still the next move.` : reply === 'go' ? `Builder Codes are still the one step to ${name}.` : `${name} is still your closest money.`;
     return { stage: 'hook', program_id: p.id, show_to_builder: `${point} ${ask}`, said: [], reply };
   }
   const proof = proofLine(c.project, c.streak, p.investment);
@@ -391,7 +394,7 @@ const ASK_KINDS = ['team', 'traction', 'demo_video'] as const;
  */
 const mustAsk = (r: DraftReq & { type?: string }) =>
   (ASK_KINDS as readonly string[]).includes(r.kind ?? '') || r.type === 'url' || r.type === 'choice'
-  || /amount|usd|location|code|wallet|consent/i.test(`${r.key} ${r.label}`);
+  || /amount|usd|location|wallet|consent|\b(builder|referral|invite|promo|access|discount) code\b/i.test(`${r.key.replace(/_/g, ' ')} ${r.label}`);
 /**
  * What the draft is and which blanks only the builder can fill (fix round 2, F1):
  * - an investor program with no public questions (every required field is a contact detail): a short founder brief,
