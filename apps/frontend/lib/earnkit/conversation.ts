@@ -282,8 +282,12 @@ export function pathReply(c: PathCtx): PathReply {
  *   streak, live link, page link, revenue under its own rules), and the blanks only the builder can fill, asked once.
  */
 
-/** One step toward a grant: its line, the guide link (shown after the mark) and whether the agent can do it in the repo. */
-export type GapStep = { text: string; link?: string; doable: boolean };
+/**
+ * One step toward a grant: its line, the guide link (shown after the mark), whether the agent can do it in the repo,
+ * and (fix round 1, T2-2) the offer said before "Go?" when it is the one step ("I can add them and push the change,
+ * about 10 minutes.").
+ */
+export type GapStep = { text: string; link?: string; doable: boolean; offer?: string };
 /** The gap stage's easy replies: one step the agent can do; the first of several it can do; help (it can do none). */
 export const GAP_GO = 'Go?';
 export const GAP_FIRST_ASK = 'Want me to do the first one now?';
@@ -299,15 +303,31 @@ export type GapReply = { show_to_builder: string; reply: 'go' | 'first' | 'help'
  * it), "Want me to do the first one now?" (several, the first one the agent's), else the help ask. A `hosted` agent
  * (agent-reach.ts: no folder of the code) can do none, so nothing is marked (fix F3). Pure.
  */
-export function gapReply(program: string, steps: GapStep[], hosted: boolean): GapReply {
+export function gapReply(program: string, steps: GapStep[], hosted: boolean, proof: string | null = null): GapReply {
   const can = (s: GapStep) => s.doable && !hosted;
   const ordered = [...steps.filter(can), ...steps.filter((s) => !can(s))];
   const n = ordered.length;
   const head = `${n === 1 ? 'Your next step' : `Your next ${n} steps`} toward ${programName(program)}:`;
   const lines = ordered.map((s, i) => `${i + 1}. ${s.text}${can(s) ? ` ${CAN_DO}` : ''}${s.link ? ` Guide: ${s.link}` : ''}`);
   const reply: GapReply['reply'] = ordered.length > 0 && can(ordered[0]) ? (n === 1 ? 'go' : 'first') : 'help';
-  const ask = reply === 'go' ? GAP_GO : reply === 'first' ? GAP_FIRST_ASK : n === 1 ? GAP_HELP_ASK_ONE : GAP_HELP_ASK;
-  return { show_to_builder: `${[head, ...lines].join('\n')}\n\n${ask}`, reply, steps: ordered };
+  const ask = reply === 'go' ? (ordered[0].offer ? `${ordered[0].offer} ${GAP_GO}` : GAP_GO) : reply === 'first' ? GAP_FIRST_ASK : n === 1 ? GAP_HELP_ASK_ONE : GAP_HELP_ASK;
+  // Fix round 1 (T2-6): one proof line, before the easy reply.
+  return { show_to_builder: `${[head, ...lines].join('\n')}\n\n${proof ? `${proof} ` : ''}${ask}`, reply, steps: ordered };
+}
+
+/** Fix round 1 (T2-4): the mid-gap ask (steps already given): the agent can do the step, else help with it. */
+export const GAP_DO_IT_ASK = 'Want me to do it now?';
+/**
+ * Fix round 1 (T2-4): a find while the path is at `gap` (the steps already given): "Still on {program}: {first
+ * remaining step}. {proof} Want me to do it now?" (help, when the agent can't do it), never "Want the steps?" again. Pure.
+ */
+export function gapStillReply(program: string, steps: GapStep[], hosted: boolean, proof: string | null): { show_to_builder: string; reply: 'go' | 'help' } {
+  const can = (s: GapStep) => s.doable && !hosted;
+  const step = steps.find(can) ?? steps[0];
+  const text = step.text.replace(/\.$/, '');
+  const reply = can(step) ? 'go' : 'help';
+  const line = `Still on ${programName(program)}: ${text.charAt(0).toLowerCase()}${text.slice(1)}.${step.link ? ` Guide: ${step.link}` : ''}`;
+  return { show_to_builder: [line, proof, reply === 'go' ? GAP_DO_IT_ASK : GAP_HELP_ASK_ONE].filter(Boolean).join(' '), reply };
 }
 
 /** The draft offer once a grant's last gap is closed: "Want me to draft the Base application next?". */
@@ -317,9 +337,10 @@ export const draftNextAsk = (org: string) => `Want me to draft the ${org} applic
  * (target conversation A, exact): "Builder Codes are in. You now meet Base's first requirement. Want me to draft the
  * Base application next?". Another grant: "{program}'s steps are done." and the same offer. Pure.
  */
-export function gapClosedReply(c: { org: string; title: string; codes: boolean }): string {
+export function gapClosedReply(c: { org: string; title: string; codes: boolean; proof?: string | null }): string {
   const done = c.codes ? `Builder Codes are in. You now meet ${c.org}'s first requirement.` : `${programName(c.title)}'s steps are done.`;
-  return `${done} ${draftNextAsk(c.org)}`;
+  // Fix round 1 (T2-6): one proof line, before the offer.
+  return [done, c.proof, draftNextAsk(c.org)].filter(Boolean).join(' ');
 }
 
 /** An investor program with no public questions: the founder brief's two blanks (target conversation A, exact). */
@@ -355,4 +376,14 @@ export function draftBlanks(p: { investment: boolean; submission_requirements: r
   const required = p.submission_requirements.filter((r) => r.required);
   if (p.investment && required.every((r) => r.kind === 'contact')) return { brief: true, blanks: [...FOUNDER_BLANKS] };
   return { brief: false, blanks: required.filter((r) => r.from === 'builder' && !held[r.key]?.trim()).map((r) => r.todo ?? r.label.toLowerCase()) };
+}
+
+/**
+ * Fix round 1 (T2-6): the gap stage's proof line, from what EarnKit knows. Base, with its remaining steps: neither
+ * "put it on Base" nor "get people using it" left, "You're live on Base."; only Base's met, "You're on Base."; else
+ * (and for another grant) proofLine's streak and live line. Null with nothing known. Pure.
+ */
+export function gapProof(p: { name: string; live: boolean }, streak: number, baseSteps: readonly string[] | null): string | null {
+  if (baseSteps && !baseSteps.includes('base')) return baseSteps.includes('use') ? "You're on Base." : "You're live on Base.";
+  return proofLine(p, streak, false);
 }

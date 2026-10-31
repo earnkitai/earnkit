@@ -8681,4 +8681,9 @@ A yes on the path moves the stage on (bench-find.ts benchMoveUp, asks stored wit
   stored (draft: true): a yes to it is "Okay.", a no parks the program.
 - A no at any stage parks the program ('path:<id>', DECLINE_MS); the next find hooks the next bestMove program. A
   builder past the hook on a program keeps that stage when the hook's words are repeated (pathCommit).
+- Fix round 1: Builder Codes' one-step ask is "I can add them and push the change, about 10 minutes. Go?" (the yes
+  covers the push). A find mid-gap (steps given, not closed) is pathGapCommit's "Still on {program}: {first remaining
+  step}. {proof} Want me to do it now?" (help ask when the agent can't), never "Want the steps?" again. The steps reply
+  and the steps-done reply carry one proof line (conversation.ts gapProof: "You're live on Base." / "You're on Base."
+  from Base's remaining steps, else the streak and live line).
 

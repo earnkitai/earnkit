@@ -44,7 +44,7 @@ import { targetIn, weeklyTarget } from './weekly-target';
 import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, markOffered, momentDue, momentSummary, momentPlace, momentReady, openShare, takeMoment, weekNumber } from './weekly-moment';
 import { isoWeekOf } from './weeks';
 import { weekCommunityUsd } from './community';
-import { streaksFor } from './streak';
+import { streakOfBuilder, streaksFor } from './streak';
 import { personal, readStanding, standingLeads, standingParagraph, streakOnly, toldAppliedSql, type Standing } from './standing';
 import { OUTCOME_SHARE_NOTE, claimNudge, outcomeShareLine, pickNudge, type NudgePick } from './nudges';
 import {
@@ -70,7 +70,7 @@ import { agentReach, rememberNoFolder, type AgentReach } from './agent-reach';
 import { DECLINE_MS, draftedRecently } from './policy-constants';
 import { programZone } from './deadline';
 import {
-  MENTOR_NOTE, OLDER_SAID, SESSION_MS, bestMove, draftBlanks, draftReply, gapClosedReply, gapReply, markSaid, pathReply, programName, readPath, saidSql, sessionOf,
+  MENTOR_NOTE, OLDER_SAID, SESSION_MS, bestMove, draftBlanks, draftReply, gapClosedReply, gapProof, gapReply, gapStillReply, proofLine, markSaid, pathReply, programName, readPath, saidSql, sessionOf,
   type GapStep,
   type GapGrant, type InvestorProgram, type Move, type MoveProgram, type Path,
 } from './conversation';
@@ -741,6 +741,43 @@ async function pathCommit(o: ViewIn, plan: PathPlan & { move: Exclude<Move, { ki
 }
 
 /**
+ * Fix round 1 (T2-4): a find while the path is at `gap` on the program bestMove kept (the steps already given):
+ * conversation.ts gapStillReply, "Still on {program}: {first remaining step}. {proof} Want me to do it now?" (the help
+ * ask for a hosted agent or a step it can't do). The gap ask is stored again (gap: true, path), so a yes is the step and
+ * a no parks the program; the session is kept alive. Null with no remaining step known (the hook answers). One UPDATE.
+ */
+async function pathGapCommit(o: ViewIn, plan: PathPlan & { move: Exclude<Move, { kind: 'quiet' }> }): Promise<{ view: BenchView; fields: Reply; stand: Standing } | null> {
+  const { id, now, read } = o;
+  const { move, facts: v, extra } = plan;
+  const key = v.project.key;
+  const pid = move.program.id;
+  const more = extra.get(pid);
+  const hosted = (o.reach ?? (await agentReach(o.own, id))).hosted;
+  const stored: NonNullable<Seen['bench_ask']> = more?.qualify
+    ? {
+        kind: 'qualify', key, program_id: pid, program: move.program.title, path: true, gap: true,
+        qualify: { grant: more.qualify.grant, steps: more.qualify.steps, first: more.qualify.steps[0], name: v.project.name, hosted, codes_missing: more.qualify.missing.includes('codes') },
+      }
+    : { kind: 'check_fits', key, program_id: pid, program: move.program.title, needs: more?.needs ?? [], name: v.project.name, path: true, gap: true };
+  const { title, steps } = await gapStepsOf(stored);
+  if (steps.length === 0) return null;
+  const proof = gapProof({ name: v.project.name, live: v.project.live || v.siteLive }, v.streak, more?.qualify ? more.qualify.steps : null);
+  const out = gapStillReply(title, steps, hosted, proof);
+  const nextPath: Path = { stage: 'gap', program_id: pid, at: now.toISOString(), ...(plan.path?.picked && { picked: true as const }) };
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
+      || jsonb_build_object('path', ${sql().json(nextPath as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb, 'said', ${saidSql([], now)})
+    WHERE builder_id = ${id}`.catch(logged('path gap'));
+  const kind = stored.kind as BenchAskKind;
+  const note = kind === 'qualify' ? QUALIFY_NOTE : CHECK_FITS_ASK_NOTE;
+  const view: BenchView = {
+    state: v.state, variant: v.variant, project: v.project, rank: read.ranks.bench, streak: v.streak, target: null, handle: v.handle, link: null,
+    fund: [], due: [], ask: { kind, project_key: key, line: '', program_id: pid }, held: null, path: out.show_to_builder, pathLead: null,
+  };
+  const rankLines = [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x));
+  return { view, fields: { move_up: { kind, project_key: key, agent_note: note }, ...(rankLines.length > 0 && { rank_lines: rankLines }), ...standingFields(v.stand) }, stand: v.stand };
+}
+
+/**
  * v4.8 Task 2: the reply once the path's gap is closed (conversation.ts gapClosedReply: Base, "Builder Codes are in. You
  * now meet Base's first requirement. Want me to draft the Base application next?"). The path moves to `draft`; the
  * question is stored as the apply ask (path), so a yes is the draft and a no parks the program. Said once a session;
@@ -753,7 +790,9 @@ async function pathClosedCommit(o: ViewIn, plan: PathPlan & { closed: NonNullabl
   const pid = closed.program.id;
   const saidKey = `closed:${pid}`;
   const again = sessionOf(read.seen, now).said.has(saidKey);
-  const show = again ? `Your ${programName(closed.program.title)} application is still the next move. Want me to start?` : gapClosedReply({ org: closed.org, title: closed.program.title, codes: closed.codes });
+  // Fix round 1 (T2-6): one proof line (Base closed: every step met, so live on Base).
+  const proof = gapProof({ name: v.project.name, live: v.project.live || v.siteLive }, v.streak, closed.program.id === BASE_GRANTS_ID ? [] : null);
+  const show = again ? `Your ${programName(closed.program.title)} application is still the next move. Want me to start?` : gapClosedReply({ org: closed.org, title: closed.program.title, codes: closed.codes, proof });
   const stored = { kind: 'apply', key, program_id: pid, path: true };
   const nextPath: Path = { stage: 'draft', program_id: pid, at: now.toISOString(), ...(plan.path?.picked && plan.path.program_id === pid && { picked: true as const }) };
   await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) - 'gap_did')
@@ -883,6 +922,11 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
       const midPath = move.kind !== 'quiet' && plan.path !== null && (plan.path.stage !== 'hook' || plan.path.program_id === move.program.id);
       // Task 2: the path's gap closed: the draft offer leads (mid-path).
       if (plan.closed) return pathClosedCommit(o, { ...plan, closed: plan.closed });
+      // Fix round 1 (T2-4): mid-gap on the program bestMove kept: the first remaining step, never "Want the steps?".
+      if (move.kind !== 'quiet' && plan.path?.stage === 'gap' && plan.path.program_id === move.program.id) {
+        const still = await pathGapCommit(o, { ...plan, move });
+        if (still) return still;
+      }
       if (move.kind === 'quiet') pathQuiet = true;
       else if (move.kind !== 'closest' || midPath || sessionOf(read.seen, now).said.has(OLDER_SAID)) return pathCommit(o, { ...plan, move });
       else deferred = { ...plan, move };
@@ -2048,22 +2092,36 @@ const setupStep = (x: string) => {
  * path moves to `gap` and the steps' question is stored (gap: true, path), so a yes is the agent doing it and a no parks
  * the program. One UPDATE. Never throws on its own reads and writes.
  */
+/**
+ * v4.8 Task 2: a path gap ask's program title and steps (Base: qualifyGapSteps of the stored offer; another grant:
+ * programNeeds' gaps as lines plus the program file's setup). A failed program read is its needs only. Never throws.
+ */
+async function gapStepsOf(asked: Pick<NonNullable<Seen['bench_ask']>, 'kind' | 'program_id' | 'program' | 'qualify' | 'needs' | 'name'>): Promise<{ title: string; steps: GapStep[] }> {
+  const pid = asked.program_id!;
+  if (asked.kind === 'qualify' && asked.qualify?.steps?.length)
+    return { title: asked.program ?? asked.qualify.grant.name ?? pid, steps: qualifyGapSteps(asked.qualify.steps as QualifyStep[]) };
+  const row = await getProgramRow(pid).catch(() => null);
+  const name = asked.name?.trim() || 'your project';
+  return {
+    title: asked.program ?? row?.title ?? pid,
+    steps: [...(Array.isArray(asked.needs) ? asked.needs : []).map((n) => ({ text: needStep(name, n), doable: false })), ...(row?.setup ?? []).map((x) => ({ text: setupStep(x), doable: false }))],
+  };
+}
+/** Fix round 1 (T2-6): the gap reply's proof line on tell (no find read in hand): the streak and live read now. Never throws. */
+async function gapProofNow(id: number, asked: NonNullable<Seen['bench_ask']>, now: Date): Promise<string | null> {
+  const base = asked.kind === 'qualify' && asked.qualify?.steps?.length ? asked.qualify.steps : null;
+  if (base && !base.includes('base')) return gapProof({ name: '', live: false }, 0, base);
+  const name = asked.qualify?.name ?? asked.name ?? '';
+  const [streak, live] = await Promise.all([streakOfBuilder(id, now).catch(() => 0), asked.key ? liveOrUsersKnown(id, asked.key) : Promise.resolve(false)]);
+  return name ? proofLine({ name, live }, streak, false) : null;
+}
+
 async function gapYes(ctx: Pick<ToolContext, 'ownInstallationId'>, id: number, asked: NonNullable<Seen['bench_ask']>, now: Date): Promise<Reply> {
   const pid = asked.program_id!;
   const hosted = (await agentReach(ctx.ownInstallationId ?? id, id)).hosted;
-  let title = asked.program ?? pid;
-  let steps: GapStep[];
-  if (asked.kind === 'qualify' && asked.qualify?.steps?.length) {
-    steps = qualifyGapSteps(asked.qualify.steps as QualifyStep[]);
-    title = asked.program ?? asked.qualify.grant.name ?? title;
-  } else {
-    const row = await getProgramRow(pid).catch(() => null);
-    title = asked.program ?? row?.title ?? title;
-    const name = asked.name?.trim() || 'your project';
-    steps = [...(Array.isArray(asked.needs) ? asked.needs : []).map((n) => ({ text: needStep(name, n), doable: false })), ...(row?.setup ?? []).map((x) => ({ text: setupStep(x), doable: false }))];
-  }
+  const { title, steps } = await gapStepsOf(asked);
   if (steps.length === 0) return { show_to_builder: NOTED_LINE };
-  const g = gapReply(title, steps, hosted);
+  const g = gapReply(title, steps, hosted, await gapProofNow(id, asked, now));
   const stored = { ...asked, gap: true, ...(asked.qualify && { qualify: { ...asked.qualify, hosted } }) };
   const path: Path = { stage: 'gap', program_id: pid, at: now.toISOString() };
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)

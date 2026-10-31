@@ -215,15 +215,15 @@ test("the owner's state through find: the path's Base hook with the approved gap
 
   // v4.8 Task 2: the hook asked "Want the steps?", so the yes is the gap stage: the one step, marked, then "Go?".
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
-  assert.equal(show(yes), gapReply('Base Builder Grant Program', qualifyGapSteps(['codes']), false).show_to_builder);
-  assert.ok(show(yes).endsWith('I can do this. Guide: https://docs.base.org/base-chain/builder-codes/builder-codes\n\nGo?'), show(yes));
+  assert.equal(show(yes), gapReply('Base Builder Grant Program', qualifyGapSteps(['codes']), false, "You're live on Base.").show_to_builder);
+  assert.ok(show(yes).endsWith("I can do this. Guide: https://docs.base.org/base-chain/builder-codes/builder-codes\n\nYou're live on Base. I can add them and push the change, about 10 minutes. Go?"), show(yes));
   assert.ok(String(yes.reply?.agent_note).endsWith(MENTOR_NOTE));
   assert.equal((yes.reply?.move_up as { kind?: string } | undefined)?.kind, 'qualify');
   const [{ g }] = await sql()<{ g: Record<string, string> | null }[]>`SELECT standing_seen->'qualify_given' AS g FROM builder_profiles WHERE builder_id = ${c.id}`;
   assert.equal(typeof g?.[key], 'string');
-  // Mid-path: the next find in the session stays on Base's gap with a one-line pointer, never the same block.
+  // Mid-path (fix round 1, T2-4): the next find stays on Base's gap with its first remaining step, never "Want the steps?".
   const next = show(await mcpCall(ctx, 'find', {}));
-  assert.equal(next, 'Base Builder Grant is still your closest money. Want the steps?');
+  assert.match(next, /^Still on Base Builder Grant: add Base's Builder Code to your app, .* Want me to do it now\?$/, next);
 });
 
 test('a no to the codes question is remembered and never asked again', db, async () => {
@@ -250,7 +250,7 @@ test('fix round 1 (R1): a hosted agent is asked for the steps; its yes is the st
   assert.equal((r.reply?.move_up as { kind: string }).kind, 'qualify');
   // v4.8 Task 2 (F3): the gap stage's steps, nothing marked for a hosted agent; its yes walks the builder through it.
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
-  assert.equal(show(yes), gapReply('Base Builder Grant Program', qualifyGapSteps(['codes']), true).show_to_builder);
+  assert.equal(show(yes), gapReply('Base Builder Grant Program', qualifyGapSteps(['codes']), true, "You're live on Base.").show_to_builder);
   assert.doesNotMatch(show(yes), /Adding Builder Codes|I can do this/);
   const help = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
   assert.match(String(help.reply?.agent_note), /in short plain steps they can do themselves/);

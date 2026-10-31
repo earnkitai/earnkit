@@ -236,8 +236,9 @@ test('no fit: the path to Base\'s grant; its yes returns the remaining steps and
   // v4.8 Task 2: the hook asked for the steps, so its yes is the gap stage: the steps, the one the agent can do marked
   // and first, then "Want me to do the first one now?".
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
-  assert.equal(show(yes), gapReply('Base Builder Grant Program', qualifyGapSteps(['codes', 'use']), false).show_to_builder);
-  assert.ok(show(yes).endsWith('\n\nWant me to do the first one now?'), show(yes));
+  // Fix round 1 (T2-6): on Base, so the proof line is "You're on Base.".
+  assert.equal(show(yes), gapReply('Base Builder Grant Program', qualifyGapSteps(['codes', 'use']), false, "You're on Base.").show_to_builder);
+  assert.ok(show(yes).endsWith("\n\nYou're on Base. Want me to do the first one now?"), show(yes));
   assert.ok(String(yes.reply?.agent_note).endsWith(MENTOR_NOTE));
   // Its yes is the agent adding Builder Codes (then find); a third yes is "Okay.".
   assert.match(show(await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } })), /^Adding Builder Codes to Kit/);
@@ -302,7 +303,10 @@ test('a private repo: the titles question after the connect yes, once; its yes t
   assert.equal((await sql()`SELECT 1 FROM repo_builder_codes_attempts WHERE repo_key = ${key}`).length, 1, 'the check was attempted');
   // v4.8 Task 2: the hook's yes is the gap stage: the 3 steps, Builder Codes (the agent's) marked and first.
   const yes2 = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
-  assert.equal(rule(show(yes2)), gapReply('Base Builder Grant Program', qualifyGapSteps(['base', 'codes', 'use']), false).show_to_builder);
+  // Fix round 1 (T2-6): with one proof line before the easy reply (the streak and live line, from what EarnKit knows).
+  const block = gapReply('Base Builder Grant Program', qualifyGapSteps(['base', 'codes', 'use']), false).show_to_builder;
+  assert.ok(rule(show(yes2)).startsWith(block.slice(0, block.lastIndexOf('\n\n') + 2)), show(yes2));
+  assert.ok(show(yes2).endsWith('Want me to do the first one now?'), show(yes2));
   assert.ok(String(yes2.reply?.agent_note).endsWith(MENTOR_NOTE));
 });
 

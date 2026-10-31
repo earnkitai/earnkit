@@ -19,7 +19,7 @@ import type { RepoFit } from './present';
 import { isoWeekOf } from './weeks';
 import { backfillMondays } from './week-facts';
 import {
-  CAN_DO, FOUNDER_BLANKS, MENTOR_NOTE, SESSION_MS, bestMove, blanksAsk, closeWords, draftBlanks, draftReply, gapClosedReply, gapReply, pathReply, programName, proofLine, readPath, sessionOf,
+  CAN_DO, FOUNDER_BLANKS, MENTOR_NOTE, SESSION_MS, bestMove, blanksAsk, closeWords, draftBlanks, draftReply, gapClosedReply, gapProof, gapReply, gapStillReply, pathReply, programName, proofLine, readPath, sessionOf,
   type GapGrant, type InvestorProgram, type MoveCtx, type MoveProgram,
 } from './conversation';
 import { qualifyGapSteps, BUILDER_CODES_GUIDE } from './bench-reply';
@@ -481,12 +481,18 @@ const GUIDE = `https://${BUILDER_CODES_GUIDE}`;
 /** Target conversation A, exact: the draft's one easy reply for an investor program with no public questions. */
 const A_BLANKS = "Two blanks only you can fill: who's on the team, and any money you've raised. Reply with both and I'll finish it.";
 const A_CODES_IN = "Builder Codes are in. You now meet Base's first requirement. Want me to draft the Base application next?";
+/** Fix round 1 (T2-2): the one-step offer covers the push. */
+const OFFER = 'I can add them and push the change, about 10 minutes. Go?';
+/** Fix round 1 (T2-6): the steps-done reply's proof line. */
+const A_CODES_IN_PROOF = "Builder Codes are in. You now meet Base's first requirement. You're live on Base. Want me to draft the Base application next?";
 
 test('gapReply: the steps, each one the agent can do marked and first; "Go?" for one, the first one for several, help when it can do none', () => {
   const one = gapReply('Base Builder Grant Program', qualifyGapSteps(['codes']), false);
   assert.equal(one.show_to_builder,
-    `Your next step toward Base Builder Grant:\n1. Add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. ${CAN_DO} Guide: ${GUIDE}\n\nGo?`);
+    `Your next step toward Base Builder Grant:\n1. Add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. ${CAN_DO} Guide: ${GUIDE}\n\n${OFFER}`);
   assert.equal(one.reply, 'go');
+  // Fix round 1 (T2-6): one proof line, before the easy reply.
+  assert.ok(gapReply('Base Builder Grant Program', qualifyGapSteps(['codes']), false, "You're live on Base.").show_to_builder.endsWith(`\n\nYou're live on Base. ${OFFER}`));
   // F3: a hosted agent (no folder of the code) can do none: nothing is marked, the help ask.
   const hosted = gapReply('Base Builder Grant Program', qualifyGapSteps(['codes']), true);
   assert.doesNotMatch(hosted.show_to_builder, /I can do this/);
@@ -510,6 +516,13 @@ test('gapReply: the steps, each one the agent can do marked and first; "Go?" for
 
 test('the gap closed and the draft: target A word for word', () => {
   assert.equal(gapClosedReply({ org: 'Base', title: 'Base Builder Grant Program', codes: true }), A_CODES_IN);
+  assert.equal(gapClosedReply({ org: 'Base', title: 'Base Builder Grant Program', codes: true, proof: gapProof({ name: 'EarnKit', live: true }, 6, []) }), A_CODES_IN_PROOF);
+  assert.equal(gapProof({ name: 'EarnKit', live: true }, 6, ['codes', 'use']), "You're on Base.");
+  assert.equal(gapProof({ name: 'EarnKit', live: true }, 6, ['base', 'codes']), "You've shipped 6 weeks in a row and EarnKit is live.");
+  // Fix round 1 (T2-4): mid-gap, the first remaining step, never "Want the steps?".
+  assert.equal(gapStillReply('Base Builder Grant Program', qualifyGapSteps(['codes']), false, "You're live on Base.").show_to_builder,
+    `Still on Base Builder Grant: add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. Guide: ${GUIDE} You're live on Base. Want me to do it now?`);
+  assert.ok(gapStillReply('Base Builder Grant Program', qualifyGapSteps(['codes']), true, null).show_to_builder.endsWith('Want help with it now?'));
   assert.equal(blanksAsk(FOUNDER_BLANKS), A_BLANKS);
   assert.equal(blanksAsk(['your Telegram username']), "One blank only you can fill: your Telegram username. Reply with it and I'll finish it.");
   const d = draftReply(['From your ship log:', '6 weeks in a row', 'Page: earnkit.com/jenilt'], FOUNDER_BLANKS);
@@ -576,9 +589,14 @@ test("the Base gap: Builder Codes steps with \"Go?\"; a yes is the agent's to do
   // F3: Claude Code has the folder: the steps are marked, and the one step is "Go?".
   const steps = await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' });
   assert.equal(show(steps),
-    `Your next step toward Base Builder Grant:\n1. Add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. ${CAN_DO} Guide: ${GUIDE}\n\nGo?`);
+    `Your next step toward Base Builder Grant:\n1. Add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. ${CAN_DO} Guide: ${GUIDE}\n\nYou're live on Base. ${OFFER}`);
   assert.equal(steps.reply?.move_up && (steps.reply.move_up as { kind: string }).kind, 'qualify');
   assert.deepEqual({ ...((await seenOf(b.id)).path as object), at: undefined }, { stage: 'gap', program_id: 'base-builder-grants', at: undefined });
+  // Fix round 1 (T2-4): a find mid-gap is the first remaining step, never "Want the steps?" again; its yes is the step.
+  const still = await find(b);
+  assert.equal(show(still), `Still on Base Builder Grant: add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. Guide: ${GUIDE} You're live on Base. Want me to do it now?`);
+  assert.equal(moveUp(still)?.kind, 'qualify');
+  assert.equal(still.reply?.note, MENTOR_NOTE);
   // "Go?" yes: the agent adds them here, then calls find (the mentor note's do-it-then-find).
   const go = await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' });
   assert.match(show(go), /^Adding Builder Codes to EarnKit/, show(go));
@@ -588,7 +606,7 @@ test("the Base gap: Builder Codes steps with \"Go?\"; a yes is the agent's to do
   b.gh.repos[b.key].files = { 'src/codes.ts': `export const SUFFIX = '0x046d617961000a${BUILDER_CODES_SUFFIX}';` };
   (b.ctx as { codesFetch?: typeof fetch }).codesFetch = b.gh;
   const done = await find(b);
-  assert.equal(show(done), A_CODES_IN);
+  assert.equal(show(done), A_CODES_IN_PROOF);
   assert.equal(moveUp(done)?.kind, 'apply');
   assert.equal(done.reply?.note, MENTOR_NOTE);
   const seen = await seenOf(b.id);
@@ -605,15 +623,15 @@ test('F3: a hosted agent gets the steps to do itself, nothing marked; its no par
   await sql()`UPDATE builder_profiles SET standing_seen = (standing_seen - 'declined') || '{"no_folder": true}'::jsonb WHERE builder_id = ${b.id}`;
   assert.equal(moveUp(await find(b))?.kind, 'qualify');
   const steps = await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' });
-  assert.equal(show(steps), `Your next step toward Base Builder Grant:\n1. Add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. Guide: ${GUIDE}\n\nWant help with it now?`);
+  assert.equal(show(steps), `Your next step toward Base Builder Grant:\n1. Add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. Guide: ${GUIDE}\n\nYou're live on Base. Want help with it now?`);
   // Its yes: the agent walks them through it (never "here in this folder"), then calls find.
   const help = await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' });
   assert.match(noteOf(help), /in short plain steps they can do themselves.*then call find/);
   assert.doesNotMatch(noteOf(help), /this folder|in their code here/);
-  // Asked again (the hook, then its steps), a no parks Base.
-  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'said' - 'qualify_given' WHERE builder_id = ${b.id}`;
-  assert.equal(moveUp(await find(b))?.kind, 'qualify');
-  await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' });
+  // The next find mid-gap: the step again with the help ask (fix round 1, T2-4); a no to it parks Base.
+  const still = await find(b);
+  assert.match(show(still), /^Still on Base Builder Grant: add Base's Builder Code .* Want help with it now\?$/, show(still));
+  assert.doesNotMatch(show(still), /I can do this|Want the steps\?/);
   await tell(b, { kind: 'qualify', project_key: b.key, answer: 'no' });
   assert.ok(((await seenOf(b.id)).declined as Record<string, string>)['path:base-builder-grants']);
   assert.doesNotMatch(show(await find(b)), /Base Builder Grant|Builder Codes/);
