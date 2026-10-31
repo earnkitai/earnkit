@@ -1,10 +1,11 @@
+import { createHash } from 'node:crypto';
 import { sql } from './db';
 import { siteUrl } from './entry-text';
 import { usdRate } from './fx';
 import { RateLimitError, clientIp, enforce, hit } from './rate-limit';
 import { REVENUE_MIN } from './ship-log-facts';
 import { USED_STALE_DAYS } from './site-data';
-import { open, seal } from './secret-box';
+import { boxReady, open, seal } from './secret-box';
 import { linkPerson, upgradeOf, upgradeToken } from './wallet-proof';
 
 /**
@@ -17,10 +18,18 @@ import { linkPerson, upgradeOf, upgradeToken } from './wallet-proof';
  * shows only GET /v1/accounts/{id}. We call /v1/account (it returns our own id) and name that permission "Account" in
  * the page copy, as the plan's exact copy does. Write permissions imply read, so a Write key also passes the reads.
  *
- * v4.7.1 T3: a key must also be unable to move money. After the reads, checkKey POSTs /v1/refunds, /v1/payouts and
- * (final review) /v1/transfers with no parameters: a restricted key without that Write permission gets 403 (permission
- * error); a key with it gets 400 (refunds need a charge or payment_intent, payouts an amount and currency, transfers an
- * amount, currency and destination), so nothing is ever created. All three must be 403. A 400 is refused as write access; any other answer or a failed call is refused as "try again" (fail closed).
+ * v4.7.3 T2: a key must also be unable to change anything. After the reads, checkKey POSTs an empty update to each of
+ * WRITE_PROBES (one made-up object id per write permission, e.g. /v1/customers/cus_ekprobe), in parallel. Stripe checks
+ * the key's permission before it looks up the object (community sources in the v4.7.1 notes; not confirmed by official
+ * docs, the owner's real-key test confirms it), so a key without that Write permission gets 403. A key with it passes the
+ * permission check, then finds no such object (404) or no parameters (400). An update of an object that does not exist
+ * can neither create nor change anything, so a probe is harmless whatever the key can do. All must be 403. A 400 or 404
+ * is refused as write access; a 401 is a rejected key; any other answer or a failed call is refused as "try again".
+ *
+ * v4.7.3 T1: the key is sealed with EARNKIT_STRIPE_SECRET (secret-box.ts, no fallback). Unset, Stripe is off: no link,
+ * the page and the POST say STRIPE_TEXT.off, the daily read skips. A link connects once: a stored connection records
+ * stripeUseKey(token) in wallet_proof_uses in the same transaction, so the page then says STRIPE_TEXT.used and a POST is
+ * refused before any Stripe call; a refused paste records nothing and the link stays usable.
  */
 export const STRIPE_PURPOSE = 'stripe';
 /** `method` defaults to GET; only checkKey's write probes pass 'POST', and never with a body. */
@@ -51,7 +60,18 @@ export const STRIPE_TEXT = {
   label: 'Restricted key',
   doneTitle: 'Done',
   disconnected: 'Stripe disconnected. EarnKit deleted the key.',
+  off: "Stripe connect isn't available right now. Try again later.",
+  used: 'This link was already used. Ask your agent for a new Stripe link.',
 } as const;
+/** v4.7.3 T1: the one-use mark of a Stripe link in wallet_proof_uses (distinct from the wallet page's tokenUseKey). */
+export const stripeUseKey = (token: string) => createHash('sha256').update(`stripe:${token}`).digest('hex');
+const linkUsed = async (token: string) => (await sql()`SELECT 1 FROM wallet_proof_uses WHERE use_hash = ${stripeUseKey(token)}`).length > 0;
+/** Thrown inside the store transaction to roll it back (the connection and the use mark go together or not at all). */
+class StoreRefused extends Error {
+  constructor(readonly line: string) {
+    super('stripe store refused');
+  }
+}
 export const missingLine = (what: string) => `This key can't read ${what}. Add Read on ${what} and paste it again.`;
 /** v4.7.1 T3: for a read with no sure dashboard label (balance, account), name the thing plainly; never invent a label. */
 export const missingReadLine = (thing: string) => `This key can't read your ${thing}. Give it read access only, then paste it again.`;
@@ -110,13 +130,24 @@ export const hostMatches = (stripeHost: string, siteHosts: string[]) =>
       (stripeHost.split('.').length >= 2 && !SHARED_SUFFIXES.has(stripeHost) && s.endsWith(`.${stripeHost}`)),
   );
 
+/** One update of a made-up object per write permission. A 403 means the key cannot write there. Paths join to /v1/. */
+export const WRITE_PROBES = [
+  'customers/cus_ekprobe', 'products/prod_ekprobe', 'prices/price_ekprobe', 'plans/ekprobe', 'coupons/ekprobe',
+  'promotion_codes/promo_ekprobe', 'subscriptions/sub_ekprobe', 'invoices/in_ekprobe', 'invoiceitems/ii_ekprobe',
+  'payment_intents/pi_ekprobe', 'setup_intents/seti_ekprobe', 'payment_links/plink_ekprobe', 'charges/ch_ekprobe',
+  'refunds/re_ekprobe', 'payouts/po_ekprobe', 'transfers/tr_ekprobe', 'disputes/dp_ekprobe',
+  'webhook_endpoints/we_ekprobe', 'tax_rates/txr_ekprobe', 'credit_notes/cn_ekprobe', 'billing_portal/configurations/bpc_ekprobe',
+  'topups/tu_ekprobe', 'checkout/sessions/cs_ekprobe', 'payment_methods/pm_ekprobe', 'subscription_schedules/sub_sched_ekprobe', 'quotes/qt_ekprobe',
+];
+
 export type CheckResult = { ok: true; accountId: string; host: string } | { ok: false; line: string };
 const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' ? (v as Record<string, unknown>) : {});
 
 /**
- * Runs the four reads, the ownership rule, then the three write probes. A 401 is a rejected key, a 403 names the missing
+ * Runs the four reads, the ownership rule, then the write probes. A 401 is a rejected key, a 403 names the missing
  * permission, anything else (a thrown call, 5xx, an odd answer) is "try again". On the probes a 403 is the pass, a 400
- * is write access, anything else is "try again". Nothing here returns or logs the key.
+ * or 404 is write access, a 401 is a rejected key, anything else is "try again". It logs one line of probe statuses
+ * (resource:status, no key, no account id) for the real-key test. Nothing here returns or logs the key.
  */
 export async function checkKey(builderId: number, key: string, call: StripeCall): Promise<CheckResult> {
   const get = async (path: string, method?: 'POST'): Promise<{ status: number; body: unknown } | null> => {
@@ -152,23 +183,26 @@ export async function checkKey(builderId: number, key: string, call: StripeCall)
     if (r.status === 403) return { ok: false, line: missing };
     if (r.status !== 200) return { ok: false, line: STRIPE_TEXT.unreachable };
   }
-  // v4.7.1 T3: the key must not move money. Each probe is a POST with no params; only a 403 passes (see the header).
-  // v4.7.1 final review: transfers too (a Connect platform key could move money to a connected account).
-  for (const path of ['/v1/refunds', '/v1/payouts', '/v1/transfers'] as const) {
-    const r = await get(path, 'POST');
-    if (!r) return { ok: false, line: STRIPE_TEXT.unreachable };
-    if (r.status === 400) return { ok: false, line: STRIPE_TEXT.writeAccess };
-    if (r.status !== 403) return { ok: false, line: STRIPE_TEXT.unreachable };
-  }
+  // v4.7.3 T2: the key must not change anything. Every probe is a bodiless update of a made-up object; only 403 passes.
+  const probes = await Promise.all(WRITE_PROBES.map((p) => get(`/v1/${p}`, 'POST')));
+  console.info('[stripe] probes', WRITE_PROBES.map((p, i) => `${p.slice(0, p.lastIndexOf('/'))}:${probes[i]?.status ?? 'err'}`).join(' '));
+  if (probes.some((r) => r && (r.status === 400 || r.status === 404))) return { ok: false, line: STRIPE_TEXT.writeAccess };
+  if (probes.some((r) => r && r.status === 401)) return { ok: false, line: STRIPE_TEXT.rejected };
+  if (probes.some((r) => !r || r.status !== 403)) return { ok: false, line: STRIPE_TEXT.unreachable };
   return { ok: true, accountId: acct.id, host };
 }
 
 export type ConnectResult = { ok: true; line: string } | { ok: false; line: string };
-/** Checks the kind, then the key, then stores it sealed (an upsert: pasting again replaces the key and clears 'broken'). */
+/**
+ * Off (no EARNKIT_STRIPE_SECRET), the link, its one use, then the kind, the key, and stores it sealed (an upsert: a new
+ * link pasted again replaces the key and clears 'broken'). The connection and the link's use mark commit together.
+ */
 export async function connectStripe(token: string, key: string, now: Date, call: StripeCall = stripeFetch): Promise<ConnectResult> {
+  if (!boxReady(STRIPE_PURPOSE)) return { ok: false, line: STRIPE_TEXT.off };
   const who = await linkPerson(token, now, STRIPE_PURPOSE);
   if (!who.ok) return { ok: false, line: STRIPE_TEXT.expired };
   const id = who.id;
+  if (await linkUsed(token)) return { ok: false, line: STRIPE_TEXT.used };
   const k = key.trim();
   const kind = keyKind(k);
   if (kind === 'secret') return { ok: false, line: STRIPE_TEXT.secretKey };
@@ -181,18 +215,33 @@ export async function connectStripe(token: string, key: string, now: Date, call:
   // A link may create a connection or rotate the key of the same account, never swap in a different account.
   const [mine] = await sql()<{ account_id: string }[]>`SELECT account_id FROM stripe_connections WHERE builder_id = ${id}`;
   if (mine && mine.account_id !== c.accountId) return { ok: false, line: STRIPE_TEXT.alreadyConnected };
+  const sealed = seal(k, STRIPE_PURPOSE);
   try {
-    // The write itself enforces "never swap accounts": a conflicting row of another account is not updated (no row back).
-    const won = await sql()`
-      INSERT INTO stripe_connections (builder_id, sealed_key, account_id, site_host, state, connected_at, broken_at)
-      VALUES (${id}, ${seal(k, STRIPE_PURPOSE)}, ${c.accountId}, ${c.host}, 'ok', ${now}, NULL)
-      ON CONFLICT (builder_id) DO UPDATE SET sealed_key = EXCLUDED.sealed_key, site_host = EXCLUDED.site_host,
-        state = 'ok', connected_at = EXCLUDED.connected_at, broken_at = NULL
-        WHERE stripe_connections.account_id = EXCLUDED.account_id
-      RETURNING builder_id`;
-    if (won.length === 0) return { ok: false, line: STRIPE_TEXT.alreadyConnected };
+    await sql().begin(async (tx) => {
+      // The write itself enforces "never swap accounts": a conflicting row of another account is not updated (no row back).
+      const won = await tx`
+        INSERT INTO stripe_connections (builder_id, sealed_key, account_id, site_host, state, connected_at, broken_at)
+        VALUES (${id}, ${sealed}, ${c.accountId}, ${c.host}, 'ok', ${now}, NULL)
+        ON CONFLICT (builder_id) DO UPDATE SET sealed_key = EXCLUDED.sealed_key, site_host = EXCLUDED.site_host,
+          state = 'ok', connected_at = EXCLUDED.connected_at, broken_at = NULL
+          WHERE stripe_connections.account_id = EXCLUDED.account_id
+        RETURNING builder_id`;
+      if (won.length === 0) throw new StoreRefused(STRIPE_TEXT.alreadyConnected);
+      // One use: a second paste of this link that got past linkUsed (a race) loses here and its upsert rolls back.
+      const [fresh] = await tx`INSERT INTO wallet_proof_uses (use_hash, used_at) VALUES (${stripeUseKey(token)}, ${now}) ON CONFLICT (use_hash) DO NOTHING RETURNING 1`;
+      if (!fresh) throw new StoreRefused(STRIPE_TEXT.used);
+    });
   } catch (err) {
-    if ((err as { code?: string })?.code === '23505') return { ok: false, line: STRIPE_TEXT.taken };
+    if (err instanceof StoreRefused) return { ok: false, line: err.line };
+    // The unique account index can fire in a race on one link before the use mark is reached: if this link is now used,
+    // say so; otherwise another builder took the account.
+    if ((err as { code?: string })?.code === '23505') {
+      try {
+        return { ok: false, line: (await linkUsed(token)) ? STRIPE_TEXT.used : STRIPE_TEXT.taken };
+      } catch {
+        return { ok: false, line: STRIPE_TEXT.failed };
+      }
+    }
     console.error('[stripe] store', err instanceof Error ? err.name : 'error');
     return { ok: false, line: STRIPE_TEXT.failed };
   }
@@ -210,20 +259,26 @@ export async function stripeKey(builderId: number): Promise<string | null> {
   return r ? open(r.sealed_key, STRIPE_PURPOSE) : null;
 }
 
-/** The connect page's link for this person: a fresh 30-minute token of the 'stripe' purpose (null without EARNKIT_AUTH_SECRET). */
+/**
+ * The connect page's link for this person: a fresh 30-minute token of the 'stripe' purpose. Null without
+ * EARNKIT_STRIPE_SECRET (v4.7.3: no box, no ask) or EARNKIT_AUTH_SECRET (which signs the token).
+ */
 export function stripeLink(builderId: number, now: Date): string | null {
+  if (!boxReady(STRIPE_PURPOSE)) return null;
   const t = upgradeToken(builderId, now, undefined, STRIPE_PURPOSE);
   return t ? `${siteUrl()}/connect/stripe?t=${encodeURIComponent(t)}` : null;
 }
 
 export type StripePage = { kind: 'gone'; line: string } | { kind: 'connect'; token: string; handle: string; connected: boolean };
-/** What the connect page shows for this link (expired, busy, or the form). */
+/** What the connect page shows for this link (off, expired, busy, used, or the form). */
 export async function stripePageState(
   token: string, now: Date, o: { ip?: string; limit?: (ip: string) => Promise<unknown> } = {},
 ): Promise<StripePage> {
+  if (!boxReady(STRIPE_PURPOSE)) return { kind: 'gone', line: STRIPE_TEXT.off };
   const who = await linkPerson(token, now, STRIPE_PURPOSE, () => (o.limit ?? ((ip: string) => enforce('stripePage', ip, STRIPE_TEXT.busy)))(o.ip ?? 'unknown'));
   if (!who.ok) return { kind: 'gone', line: who.why === 'busy' ? STRIPE_TEXT.busy : STRIPE_TEXT.expired };
   const id = who.id;
+  if (await linkUsed(token)) return { kind: 'gone', line: STRIPE_TEXT.used };
   const [c] = await sql()`SELECT 1 FROM stripe_connections WHERE builder_id = ${id}`;
   return { kind: 'connect', token, handle: who.handle, connected: Boolean(c) };
 }
@@ -254,6 +309,7 @@ export async function stripePost(request: Request, deps: RouteDeps = {}): Promis
     if (err instanceof RateLimitError) return json({ ok: false, line: STRIPE_TEXT.busy }, 429);
     throw err;
   }
+  if (!boxReady(STRIPE_PURPOSE)) return json({ ok: false, line: STRIPE_TEXT.off }, 503);
   if (typeof b.t !== 'string' || typeof b.key !== 'string' || builderId === null) return json({ ok: false, line: STRIPE_TEXT.expired }, 400);
   let r: ConnectResult;
   try {
@@ -434,8 +490,8 @@ export async function runStripeRevenue(
   now: Date,
   o: { deadline: number; call?: StripeCall; rate?: StripeRate; only?: number[]; limit?: number },
 ): Promise<{ due: number; stored: number; note?: string }> {
-  // Without the secret no key can be opened: skip the whole step (no claim, no state change) and say so.
-  if (!process.env.EARNKIT_AUTH_SECRET) return { due: 0, stored: 0, note: 'EARNKIT_AUTH_SECRET is not set, Stripe not read' };
+  // Without the box's secret no key can be opened: skip the whole step (no claim, no state change) and say so.
+  if (!boxReady(STRIPE_PURPOSE)) return { due: 0, stored: 0, note: 'EARNKIT_STRIPE_SECRET is not set, Stripe not read' };
   const due = await stripeDue(now, o);
   const day = now.toISOString().slice(0, 10);
   const call = o.call ?? stripeFetch;
@@ -505,7 +561,7 @@ export async function stripeAskDue(
 /**
  * v4.7 T3: the Stripe line's link for a draft of a program that wants revenue (tools.ts prepare): when stripeAskDue
  * holds, claimed once in one guarded UPDATE (standing_seen.stripe_asked; a broken connection's re-offer,
- * stripe_reoffered), so a second draft offers nothing. Null otherwise: no link (no EARNKIT_AUTH_SECRET: nothing
+ * stripe_reoffered), so a second draft offers nothing. Null otherwise: no link (no EARNKIT_STRIPE_SECRET or EARNKIT_AUTH_SECRET: nothing
  * claimed), not due, already claimed, or a read error (logged). Never throws.
  */
 export async function takeStripeDraftLink(builderId: number, now: Date): Promise<string | null> {

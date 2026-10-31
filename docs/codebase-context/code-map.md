@@ -2625,6 +2625,9 @@ purpose); `stripe.ts` (`StripeCall`, `keyKind`, `checkKey` with the ownership ru
 `stripeKey`, `stripeLink`, `stripePageState`, `stripePost`; `stripe_connections` in schema.sql, private); `app/connect/stripe/` (page, StripeForm, `key/route.ts` POST)
 (page, StripeForm, POST at key/route.ts); `wallet-proof.ts upgradeToken/upgradeOf` take a `purpose` ('upgrade' wallet, 'stripe');
 `rate-limit.ts` `stripePage`/`stripeConnect`. Tests: `v46-stripe.test.ts`.
+v4.7.3 Task 1: `secret-box.ts` keys the 'stripe' purpose from EARNKIT_STRIPE_SECRET (no fallback; `boxReady`); `stripe.ts`
+`STRIPE_TEXT.off`/`used`, `stripeUseKey` (one-use mark in `wallet_proof_uses`, written in the store transaction); StripeForm is a
+password field. Tests: `v473-stripe.test.ts`.
 
 v4.6 Task 2 (daily Stripe read): `stripe.ts` adds `stripeRevenue` (30-day net from balance transactions, MRR, payers/top share from charges),
 `runStripeRevenue` (once per UTC day, `stripeDue`, 401/403 marks `broken`), `latestStripe`, `STRIPE_PAGES`; `fx.ts` `usdRate` (Frankfurter, cached in

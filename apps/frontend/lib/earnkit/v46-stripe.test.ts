@@ -26,12 +26,14 @@ import { committedProgram } from './fixtures/program-file';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { STRIPE_DISCONNECTED, STRIPE_NEVER_KEY, STRIPE_NOT_CONNECTED, STRIPE_NO_LINK, benchStepKey, stateAsk, stripeDraftLine, stripeDraftNote } from './bench-reply';
-import { STRIPE_DECLINED_KEY, stripeAskDue } from './stripe';
+import { WRITE_PROBES, STRIPE_DECLINED_KEY, stripeAskDue } from './stripe';
 import { TELL_DESCRIPTION_BENCH } from './mcp';
 import { RESERVED_ROUTES } from './reserved-routes';
 import StripeForm from '../../app/connect/stripe/StripeForm';
 
 process.env.EARNKIT_AUTH_SECRET = 'test-secret';
+// v4.7.3 T1: the Stripe box has its own secret (no fallback to EARNKIT_AUTH_SECRET).
+process.env.EARNKIT_STRIPE_SECRET = 'test-stripe-secret-0123456789-abcdefghijklmnopqrstuvwxyz';
 process.env.EARNKIT_URL = 'https://earnkit.com';
 (globalThis as { React?: typeof React }).React = React;
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -82,10 +84,11 @@ test('secret-box: round trip; wrong purpose, rotated secret, tampering and junk 
   assert.notEqual(seal(KEY, 'stripe'), s, 'a fresh iv each time');
   assert.equal(open(s.slice(0, -2) + 'AA', 'stripe'), null);
   assert.equal(open('junk', 'stripe'), null);
-  const was = process.env.EARNKIT_AUTH_SECRET;
-  process.env.EARNKIT_AUTH_SECRET = 'rotated';
+  // v4.7.3 T1: the stripe box rotates with EARNKIT_STRIPE_SECRET, not EARNKIT_AUTH_SECRET.
+  const was = process.env.EARNKIT_STRIPE_SECRET;
+  process.env.EARNKIT_STRIPE_SECRET = 'rotated-0123456789-abcdefghijklmnopqrstuvwxyz';
   assert.equal(open(s, 'stripe'), null);
-  process.env.EARNKIT_AUTH_SECRET = was;
+  process.env.EARNKIT_STRIPE_SECRET = was;
   assert.equal(open(s, 'stripe'), KEY);
 });
 
@@ -118,7 +121,7 @@ test('checkKey: ok; subdomain match; each missing permission; site mismatch; no 
   assert.equal(sub.ok, true);
   const c = fake({ url: 'https://myapp.com' });
   await checkKey(id, KEY, c);
-  assert.deepEqual(c.calls, ['/v1/account', '/v1/balance_transactions?limit=1', '/v1/charges?limit=1', '/v1/subscriptions?limit=1', 'POST /v1/refunds', 'POST /v1/payouts', 'POST /v1/transfers']);
+  assert.deepEqual(c.calls, ['/v1/account', '/v1/balance_transactions?limit=1', '/v1/charges?limit=1', '/v1/subscriptions?limit=1', ...WRITE_PROBES.map((p) => `POST /v1/${p}`)]);
   for (const [path, line] of [['/v1/account', missingReadLine('account')], ['/v1/balance_transactions', missingReadLine('balance')], ['/v1/charges', missingLine('Charges')], ['/v1/subscriptions', missingLine('Subscriptions')]] as const)
     assert.deepEqual(await checkKey(id, KEY, fake({ url: 'https://myapp.com' }, { [path]: { status: 403 } })), { ok: false, line });
   // v4.7.1 T3 fix 1: no invented permission label in builder copy.
@@ -139,33 +142,34 @@ test('v4.7.1 T3: write access is refused (400 on any probe); read-only (403 on a
   const url = 'https://probe.example.com';
   const write = 'This key can change your Stripe account. Make a restricted key with read access only, then paste it here.';
   assert.equal(STRIPE_TEXT.writeAccess, write);
-  // Read-only: all three probes 403, accepted; the probes are exactly three bodiless POSTs, after the reads.
+  // Read-only: every probe 403, accepted; the probes are bodiless POSTs to WRITE_PROBES, after the reads.
   const seen: [string, string | undefined][] = [];
   const base = fake({ url });
   const spy: StripeCall = async (...a) => { seen.push([a[0], a[2]]); return base(...a); };
   assert.equal((await checkKey(id, KEY, spy)).ok, true);
-  assert.deepEqual(seen.filter((s) => s[1] === 'POST').map((s) => s[0]), ['/v1/refunds', '/v1/payouts', '/v1/transfers']);
+  assert.deepEqual(seen.filter((s) => s[1] === 'POST').map((s) => s[0]).sort(), WRITE_PROBES.map((p) => `/v1/${p}`).sort());
   assert.ok(seen.filter((s) => s[1] !== 'POST').every((s) => s[1] === undefined || s[1] === 'GET'), 'reads stay GETs');
-  // Write access on refunds, on payouts only, on transfers only (final review), or on all: refused with the exact copy.
-  for (const over of [{ 'POST /v1/refunds': { status: 400 } }, { 'POST /v1/payouts': { status: 400 } }, { 'POST /v1/transfers': { status: 400 } },
-    { 'POST /v1/refunds': { status: 400 }, 'POST /v1/payouts': { status: 400 }, 'POST /v1/transfers': { status: 400 } }])
+  // Write access on refunds, on payouts only, on transfers only, or on all: refused with the exact copy (400 or 404).
+  for (const over of [{ 'POST /v1/refunds/re_ekprobe': { status: 400 } }, { 'POST /v1/payouts/po_ekprobe': { status: 404 } }, { 'POST /v1/transfers/tr_ekprobe': { status: 400 } },
+    { 'POST /v1/refunds/re_ekprobe': { status: 400 }, 'POST /v1/payouts/po_ekprobe': { status: 404 }, 'POST /v1/transfers/tr_ekprobe': { status: 400 } }])
     assert.deepEqual(await checkKey(id, KEY, fake({ url }, over)), { ok: false, line: write }, JSON.stringify(over));
-  // Any other status, or a thrown probe, fails closed with the generic copy.
-  for (const status of [500, 200, 401, 429])
-    for (const path of ['POST /v1/refunds', 'POST /v1/payouts', 'POST /v1/transfers'])
+  // Any other status, or a thrown probe, fails closed (401 is rejected, the rest generic).
+  for (const status of [500, 200, 429])
+    for (const path of ['POST /v1/refunds/re_ekprobe', 'POST /v1/payouts/po_ekprobe', 'POST /v1/transfers/tr_ekprobe'])
       assert.deepEqual(await checkKey(id, KEY, fake({ url }, { [path]: { status } })), { ok: false, line: STRIPE_TEXT.unreachable }, `${path} ${status}`);
+  assert.deepEqual(await checkKey(id, KEY, fake({ url }, { 'POST /v1/refunds/re_ekprobe': { status: 401 } })), { ok: false, line: STRIPE_TEXT.rejected });
   const probeBoom = (which: string): StripeCall => async (path, key, method) => {
     if (method === 'POST' && path === which) throw new Error(`timeout ${key}`);
     return fake({ url })(path, key, method);
   };
-  for (const which of ['/v1/refunds', '/v1/payouts', '/v1/transfers']) assert.deepEqual(await checkKey(id, KEY, probeBoom(which)), { ok: false, line: STRIPE_TEXT.unreachable });
+  for (const which of ['/v1/refunds/re_ekprobe', '/v1/payouts/po_ekprobe', '/v1/transfers/tr_ekprobe']) assert.deepEqual(await checkKey(id, KEY, probeBoom(which)), { ok: false, line: STRIPE_TEXT.unreachable });
   // Nothing stored on any refusal (connectStripe path), and the probes never run before the ownership check.
   const t = upgradeToken(id, NOW, undefined, 'stripe')!;
-  assert.deepEqual(await connectStripe(t, KEY, NOW, fake({ url }, { 'POST /v1/payouts': { status: 400 } })), { ok: false, line: write });
+  assert.deepEqual(await connectStripe(t, KEY, NOW, fake({ url }, { 'POST /v1/payouts/po_ekprobe': { status: 400 } })), { ok: false, line: write });
   // Final review: a key whose only write is transfers is refused, nothing stored.
-  assert.deepEqual(await connectStripe(t, KEY, NOW, fake({ url }, { 'POST /v1/transfers': { status: 400 } })), { ok: false, line: write });
-  assert.deepEqual(await connectStripe(t, KEY, NOW, fake({ url }, { 'POST /v1/refunds': { status: 500 } })), { ok: false, line: STRIPE_TEXT.unreachable });
-  assert.deepEqual(await connectStripe(t, KEY, NOW, probeBoom('/v1/payouts')), { ok: false, line: STRIPE_TEXT.unreachable });
+  assert.deepEqual(await connectStripe(t, KEY, NOW, fake({ url }, { 'POST /v1/transfers/tr_ekprobe': { status: 400 } })), { ok: false, line: write });
+  assert.deepEqual(await connectStripe(t, KEY, NOW, fake({ url }, { 'POST /v1/refunds/re_ekprobe': { status: 500 } })), { ok: false, line: STRIPE_TEXT.unreachable });
+  assert.deepEqual(await connectStripe(t, KEY, NOW, probeBoom('/v1/payouts/po_ekprobe')), { ok: false, line: STRIPE_TEXT.unreachable });
   assert.equal((await sql()`SELECT 1 FROM stripe_connections WHERE builder_id = ${id}`).length, 0, 'nothing stored');
   const m = fake({ url: 'https://friend.io' });
   await checkKey(id, KEY, m);
@@ -218,13 +222,15 @@ test('connect stores the key sealed; sk_live_ and test keys are never stored; a 
   assert.ok(!dump.includes('rk_live_SEEDED'));
   // Pasting again replaces the key and clears 'broken'.
   await sql()`UPDATE stripe_connections SET state = 'broken', broken_at = now() WHERE builder_id = ${id}`;
-  assert.equal((await connectStripe(t, KEY + 'B', NOW, call)).ok, true);
+  // v4.7.3 T1: a link connects once, so each later paste is on a new link.
+  assert.deepEqual(await connectStripe(t, KEY + 'B', NOW, call), { ok: false, line: STRIPE_TEXT.used });
+  assert.equal((await connectStripe(upgradeToken(id, NOW, undefined, 'stripe')!, KEY + 'B', NOW, call)).ok, true);
   const [again] = await sql()`SELECT state, broken_at FROM stripe_connections WHERE builder_id = ${id}`;
   assert.deepEqual([again.state, again.broken_at], ['ok', null]);
   // Key rotation for the same account updates the sealed key; a different account never replaces the connection.
   const [before] = await sql()<{ sealed_key: string }[]>`SELECT sealed_key FROM stripe_connections WHERE builder_id = ${id}`;
   assert.equal(await stripeKey(id), KEY + 'B');
-  const swap = await connectStripe(t, KEY + 'C', NOW, fake({ id: `acct_${hex()}`, url: 'https://store.example.com' }));
+  const swap = await connectStripe(upgradeToken(id, NOW, undefined, 'stripe')!, KEY + 'C', NOW, fake({ id: `acct_${hex()}`, url: 'https://store.example.com' }));
   assert.deepEqual(swap, { ok: false, line: 'Stripe is already connected. Ask your agent to disconnect it first, then use a new link.' });
   const [after_] = await sql()<{ sealed_key: string; account_id: string }[]>`SELECT sealed_key, account_id FROM stripe_connections WHERE builder_id = ${id}`;
   assert.deepEqual([after_.sealed_key, after_.account_id], [before.sealed_key, acct], 'the old row is untouched');
@@ -320,7 +326,9 @@ test('route: origin, no or expired token, bad body, a rate limit; the key never 
     assert.deepEqual(r1.body, { ok: false, line: STRIPE_TEXT.unreachable });
     const ok = await grab(await post({ t, key: KEY }, { call: fake({ url: 'https://route.example.com' }) }));
     assert.deepEqual([ok.status, ok.body], [200, { ok: true, line: STRIPE_TEXT.saved }]);
-    const sk = await grab(await post({ t, key: 'sk_live_SEEDEDfullSECRET' }));
+    // v4.7.3 T1: the used link refuses before the key is looked at; a new link refuses the full secret key.
+    assert.equal((await grab(await post({ t, key: 'sk_live_SEEDEDfullSECRET' }))).body.line, STRIPE_TEXT.used);
+    const sk = await grab(await post({ t: upgradeToken(id, now, undefined, 'stripe')!, key: 'sk_live_SEEDEDfullSECRET' }));
     assert.equal(sk.body.line, STRIPE_TEXT.secretKey);
     for (const o of outs) assert.ok(!o.includes('SEEDED'), 'no response holds the key');
     assert.ok(!logs.join('\n').includes('SEEDED'), 'no log holds the key');
@@ -340,8 +348,9 @@ test('page and form: the exact copy, a masked text field, the key goes nowhere b
   const html = renderToStaticMarkup(React.createElement(StripeForm, { token: 'tok', text: STRIPE_TEXT }));
   assert.ok(html.includes('Connect Stripe, read-only'));
   for (const s of STRIPE_TEXT.steps) assert.ok(html.includes(s.replace(/'/g, '&#x27;')) || html.includes(s));
-  assert.ok(html.includes('type="text"') && !html.includes('type="password"'));
-  for (const a of ['data-1p-ignore', 'data-lpignore="true"', 'autoComplete="off"', 'spellCheck="false"', '-webkit-text-security:disc'])
+  // v4.7.3 T1: a password field (no text-security style); the password-manager ignore attributes stay.
+  assert.ok(html.includes('type="password"') && !html.includes('type="text"') && !html.toLowerCase().includes('text-security'));
+  for (const a of ['data-1p-ignore', 'data-lpignore="true"', 'autoComplete="off"', 'spellCheck="false"'])
     assert.ok(html.toLowerCase().includes(a.toLowerCase()), a);
   const all = JSON.stringify(STRIPE_TEXT);
   assert.ok(!/[—–]/.test(all) && !/coin|points/i.test(all), 'no em dashes, no coin, no points');
@@ -644,31 +653,31 @@ test('fix round 1 (M2): a sealed key that will not open marks the connection bro
   assert.ok(c.broken_at);
 });
 
-test('fix round 2 (N1): with the secret unset nothing is read, claimed or broken; a rotated secret marks broken', dbTest, async () => {
+test('fix round 2 (N1): with the Stripe secret unset nothing is read, claimed or broken; a rotated secret marks broken', dbTest, async () => {
   const b = await builder(null);
   await sql()`INSERT INTO stripe_connections (builder_id, sealed_key, account_id, site_host) VALUES (${b}, ${seal(KEY, 'stripe')}, ${`acct_${hex()}`}, 'x.com')`;
   const call = stripeFake({ bts: fiveBts(), charges: five() });
   const opts = { deadline: Date.now() + 5000, call, rate: rate1, only: [b] };
-  const was = process.env.EARNKIT_AUTH_SECRET;
+  const was = process.env.EARNKIT_STRIPE_SECRET;
   try {
-    delete process.env.EARNKIT_AUTH_SECRET;
+    delete process.env.EARNKIT_STRIPE_SECRET;
     const r = await runStripeRevenue(NOW, opts);
     assert.equal(r.stored, 0);
-    assert.match(r.note ?? '', /EARNKIT_AUTH_SECRET/);
+    assert.match(r.note ?? '', /EARNKIT_STRIPE_SECRET/);
     assert.ok(!JSON.stringify(r).includes(KEY));
     assert.equal(call.calls.length, 0);
     assert.equal((await sql()`SELECT state FROM stripe_connections WHERE builder_id = ${b}`)[0].state, 'ok');
     // Back with the secret: the day was not claimed, so it reads now.
-    process.env.EARNKIT_AUTH_SECRET = was;
+    process.env.EARNKIT_STRIPE_SECRET = was;
     assert.deepEqual(await runStripeRevenue(NOW, opts), { due: 1, stored: 1 });
     // A rotated (wrong) secret with the secret present: broken.
     const b2 = await builder(null);
     await sql()`INSERT INTO stripe_connections (builder_id, sealed_key, account_id, site_host) VALUES (${b2}, ${seal(KEY, 'stripe')}, ${`acct_${hex()}`}, 'x.com')`;
-    process.env.EARNKIT_AUTH_SECRET = 'rotated-secret';
+    process.env.EARNKIT_STRIPE_SECRET = 'rotated-secret-0123456789-abcdefghijklmnopqrstuvwxyz';
     await runStripeRevenue(NOW, { ...opts, only: [b2] });
     assert.equal((await sql()`SELECT state FROM stripe_connections WHERE builder_id = ${b2}`)[0].state, 'broken');
   } finally {
-    process.env.EARNKIT_AUTH_SECRET = was;
+    process.env.EARNKIT_STRIPE_SECRET = was;
   }
 });
 

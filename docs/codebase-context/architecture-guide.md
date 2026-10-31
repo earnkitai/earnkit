@@ -8521,10 +8521,22 @@ v4.6 Stripe key store (the ownership rule stops casual misuse only; a cooperatin
 so wallet links and Stripe links never open each other's page). The key is checked with read-only GETs through an injectable
 `StripeCall`, must belong to an account whose website is one of the builder's verified sites, and is stored sealed
 (`secret-box.ts`) in `stripe_connections`. The key is never logged, returned, evented or stored in plaintext; `sk_live_` and test
-keys are refused before any call. v4.7.1 T3: after the reads and the ownership rule, `checkKey` probes write access with
-bodiless POSTs to `/v1/refunds` and `/v1/payouts` (`StripeCall`'s optional `method`); both must be 403 (no permission). A 400
-(the key has write access, and the call fails on missing params, so nothing is created) is refused with `STRIPE_TEXT.writeAccess`.
-Any other answer or a failed call is refused as unreachable (fail closed). Nothing is stored on refusal. The daily read never probes.
+keys are refused before any call. v4.7.3 T2: after the reads and the ownership rule, `checkKey` sends `WRITE_PROBES` (26 bodiless
+POST updates of made-up object ids, one per write permission, e.g. `/v1/customers/cus_ekprobe`; `StripeCall`'s optional `method`)
+in parallel. A key without that Write permission gets 403 (Stripe checks the permission before it looks up the object; unconfirmed
+by official docs, the owner's real-key test confirms it). All must be 403. A 400 or 404 on any is write access
+(`STRIPE_TEXT.writeAccess`); else a 401 is `rejected`; any other answer or a failed call is "try again" (fail closed). An update of
+a missing object creates and changes nothing. `checkKey` logs one line `[stripe] probes customers:403 checkout/sessions:403 ...`
+(full probe path minus the id, no key, no account id) for reading the real-key test from the logs. Nothing is stored on refusal.
+The daily read never probes. Issuing and accounts are deliberately not probed (they can answer "not enabled" before the permission check).
+v4.7.3 Task 1 (env): `EARNKIT_STRIPE_SECRET` (32 or more characters; shorter counts as unset) seals and opens the Stripe key (`secret-box.ts`, purpose 'stripe'; it never falls
+back to `EARNKIT_AUTH_SECRET`, which still signs the link tokens). Unset, Stripe connect is off: `stripeLink` is null (no ask,
+no link), the page and the POST answer `STRIPE_TEXT.off` (POST 503), `connectStripe` makes no call, and the daily read returns
+the note `EARNKIT_STRIPE_SECRET is not set, Stripe not read`. Changing it breaks every stored connection (marked `broken` on the
+next read, re-offered once). A link connects once: a stored connection inserts `stripeUseKey(token)` (sha256 of `stripe:<token>`)
+into `wallet_proof_uses` in the same transaction as the upsert, so the page then shows `STRIPE_TEXT.used` and a POST is refused
+before any Stripe call; a refused paste writes nothing and the link stays usable. The wallet flow's one-day prune of
+`wallet_proof_uses` cannot reopen a Stripe link (links expire after 30 minutes). The paste field is `type="password"`.
 
 - **Daily Stripe read (v4.6 Task 2).** After `runRevenue`, the cron reads each `stripe_connections` row in state `ok` at most once a UTC day
   (rate-limit claim `stripe:<id>:<day>`, own slice via `builderCodesSliceEnd`). Net = balance transactions `charge`/`payment` minus `refund`/

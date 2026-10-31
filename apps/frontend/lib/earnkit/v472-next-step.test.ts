@@ -42,14 +42,14 @@ const INVEST = { title: 'a16z speedrun SR008', amount: 'up to $1M', when: 'close
 test('openNowLine: the owner line, with total and investment', () => {
   assert.equal(
     openNowLine(GRANTS, { total: '$105.5K', invest: INVEST }),
-    'Open now: $105.5K in grants. Arc Microgrants, 500 USDC × 8 grants, closes Nov 1. Base Builder Grant Program, $5,000, rolling. a16z speedrun SR008, up to $1M investment, closes Nov 1.',
+    'Open now: $105.5K in grants, plus a16z speedrun SR008, up to $1M investment, closes Nov 1. Arc Microgrants, 500 USDC × 8 grants, closes Nov 1. Base Builder Grant Program, $5,000, rolling.',
   );
 });
 
 test('openNowLine: no total, no "in grants." sentence', () => {
   const t = openNowLine(GRANTS, { total: null, invest: INVEST })!;
-  assert.ok(t.startsWith('Open now: Arc Microgrants'), t);
-  assert.ok(!t.includes('in grants.'), t);
+  assert.ok(t.startsWith('Open now: a16z speedrun SR008, up to $1M investment, closes Nov 1. Arc Microgrants'), t);
+  assert.ok(!t.includes('in grants'), t);
 });
 
 test('openNowLine: no investment, no investment part', () => {
@@ -62,7 +62,7 @@ test('openNowLine: no investment, no investment part', () => {
 test('openNowInvestment: first open investment, never "up to up to"', () => {
   const i = openNowInvestment([ARC, A16Z], NOW, new Set());
   assert.equal(i?.id, 'a16z');
-  assert.equal(openNowLine(GRANTS, { invest: i })!.endsWith('a16z speedrun SR008, up to $1M investment, closes Nov 1.'), true);
+  assert.equal(openNowLine(GRANTS, { invest: i })!.startsWith('Open now: a16z speedrun SR008, up to $1M investment, closes Nov 1. '), true);
   assert.ok(!/up to up to/i.test(openNowLine(GRANTS, { invest: i })!));
 });
 
@@ -159,7 +159,7 @@ test('benchView: a ranked builder with no fit hears the total and the investment
   const a = await builder('inv1', []);
   const first = show(await find(a));
   const money = first.split('\n\n')[0];
-  assert.match(money, /^Open now: \$[\d.,]+[KM]?\+? in grants\. /, first);
+  assert.match(money, /^Open now: \$[\d.,]+[KM]?\+? in grants[.,] /, first);
   assert.ok(money.includes(`${inv.title}, up to $1M investment, ${inv.when}.`) || money.includes(`${inv.title}, up to $1,000,000 investment, ${inv.when}.`), money);
   assert.ok(!/up to up to/i.test(money), money);
   // The investment is never summed into the figure: the total has no seven-figure part for it.
@@ -182,7 +182,7 @@ test('a non-owning nudge lands right after the Open now paragraph, with the tota
   };
   const ps = benchReply(v).split('\n\n');
   assert.equal(ps[0], openNowLine(open, { total: '$105.5K', invest: INVEST }));
-  assert.ok(ps[0].startsWith('Open now: $105.5K in grants. ') && ps[0].endsWith('a16z speedrun SR008, up to $1M investment, closes Nov 1.'), ps[0]);
+  assert.ok(ps[0].startsWith('Open now: $105.5K in grants, plus a16z speedrun SR008, up to $1M investment, closes Nov 1. '), ps[0]);
   assert.equal(ps[1], fridayNudge(6));
 });
 
@@ -205,7 +205,7 @@ test('needsWhy and needsAsk: the exact copy', () => {
   // Final review 3 (ruled copy): no known gap.
   assert.equal(needsWhy('Kit', 'Arc Microgrants: Built with Arc Studio', []), "EarnKit can't see what Arc Microgrants would need from Kit yet.");
   assert.equal(needsAsk('EarnKit', 'Arc Microgrants: Built with Arc Studio', ['on Arc mainnet']), 'Want the steps to get EarnKit ready for Arc Microgrants?');
-  assert.equal(needsAsk('Kit', 'Arc Microgrants: Built with Arc Studio', []), "Want me to check Arc Microgrants's requirements for Kit?");
+  assert.equal(needsAsk('Kit', 'Arc Microgrants: Built with Arc Studio', []), "Want me to check Arc Microgrants' requirements for Kit?");
   for (const s of [needsWhy('Kit', 'A', ['on Arc mainnet']), needsWhy('Kit', 'A', []), needsAsk('Kit', 'A', ['x']), needsAsk('Kit', 'A', [])]) assert.doesNotMatch(s, BAD);
   // Final review 4: the yes never runs find again; its note names the gaps and asks nothing after.
   const note = needsYesNote('Arc Microgrants', ['on Arc mainnet']);
@@ -262,9 +262,16 @@ test('Review Focus 1: no fit, two open programs: A three times with its gap, the
   for (let i = 1; i <= 3; i++) {
     const r = await find(b);
     const s = show(r);
-    assert.equal(last(s), gapAsk(A.title), `find ${i}: ${s}`);
-    assert.ok(s.split('\n\n').at(-2)!.startsWith(`${A.title} needs Kit on Arc mainnet`), s);
-    assert.equal(moveUpOf(r)?.why, s.split('\n\n').at(-2));
+    // v4.7.3 T3: the first showing has the why paragraph and the full question; later showings, the short question only.
+    const why = `${A.title} needs Kit on Arc mainnet.`;
+    if (i === 1) {
+      assert.equal(last(s), gapAsk(A.title), `find ${i}: ${s}`);
+      assert.equal(s.split('\n\n').at(-2), why, s);
+    } else {
+      assert.equal(last(s), needsAsk('Kit', A.title, ['on Arc mainnet'], true), `find ${i}: ${s}`);
+      assert.ok(!s.includes('needs Kit on Arc mainnet'), s);
+    }
+    assert.equal(moveUpOf(r)?.why, why);
     assert.equal(moveUpOf(r)?.kind, 'check_fits');
     assert.equal((s.match(/\?/g) ?? []).length, 1, s);
     assert.doesNotMatch(s, BAD);
@@ -444,7 +451,7 @@ test('final review 7: the total is /api/stats open_money_usd', db, async () => {
   await program('arc-microgrants-studio', 'ta', 4);
   const b = await builder('nt', []);
   const s = show(await find(b));
-  const total = /^Open now: (\$[\d.,]+[KM]?\+?) in grants\. /.exec(s)?.[1];
+  const total = /^Open now: (\$[\d.,]+[KM]?\+?) in grants[.,] /.exec(s)?.[1];
   assert.equal(total, moneyText((await readStats()).open_money_usd), s);
 });
 
