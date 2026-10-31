@@ -10,8 +10,13 @@ import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:cr
  * auth secret leaking no longer opens them). Unset: seal throws, open gives null, boxReady('stripe') is false. Every other
  * purpose keeps EARNKIT_AUTH_SECRET.
  */
-const secretFor = (purpose: string): string | undefined =>
-  purpose === 'stripe' ? process.env.EARNKIT_STRIPE_SECRET : process.env.EARNKIT_AUTH_SECRET;
+const STRIPE_SECRET_MIN = 32;
+// A stripe secret shorter than 32 characters counts as unset (too weak to derive a key from).
+const secretFor = (purpose: string): string | undefined => {
+  if (purpose !== 'stripe') return process.env.EARNKIT_AUTH_SECRET;
+  const s = process.env.EARNKIT_STRIPE_SECRET;
+  return s && s.length >= STRIPE_SECRET_MIN ? s : undefined;
+};
 const keyFor = (purpose: string): Buffer | null => {
   const secret = secretFor(purpose);
   if (!secret) return null;

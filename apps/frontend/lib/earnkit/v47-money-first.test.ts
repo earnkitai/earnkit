@@ -39,7 +39,7 @@ process.env.X_CLIENT_SECRET = 'sec';
 process.env.EARNKIT_URL = 'https://earnkit.com';
 process.env.EARNKIT_AUTH_SECRET ??= 'v47-money-first-secret';
 // v4.7.3 T1: the Stripe link needs the Stripe box's own secret.
-process.env.EARNKIT_STRIPE_SECRET ??= 'v47-money-first-stripe-secret';
+process.env.EARNKIT_STRIPE_SECRET ??= 'v47-money-first-stripe-secret-0123456789-abcdefghijklmnopqrstuvwxyz';
 
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {

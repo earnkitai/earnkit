@@ -33,7 +33,7 @@ import StripeForm from '../../app/connect/stripe/StripeForm';
 
 process.env.EARNKIT_AUTH_SECRET = 'test-secret';
 // v4.7.3 T1: the Stripe box has its own secret (no fallback to EARNKIT_AUTH_SECRET).
-process.env.EARNKIT_STRIPE_SECRET = 'test-stripe-secret';
+process.env.EARNKIT_STRIPE_SECRET = 'test-stripe-secret-0123456789-abcdefghijklmnopqrstuvwxyz';
 process.env.EARNKIT_URL = 'https://earnkit.com';
 (globalThis as { React?: typeof React }).React = React;
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -86,7 +86,7 @@ test('secret-box: round trip; wrong purpose, rotated secret, tampering and junk 
   assert.equal(open('junk', 'stripe'), null);
   // v4.7.3 T1: the stripe box rotates with EARNKIT_STRIPE_SECRET, not EARNKIT_AUTH_SECRET.
   const was = process.env.EARNKIT_STRIPE_SECRET;
-  process.env.EARNKIT_STRIPE_SECRET = 'rotated';
+  process.env.EARNKIT_STRIPE_SECRET = 'rotated-0123456789-abcdefghijklmnopqrstuvwxyz';
   assert.equal(open(s, 'stripe'), null);
   process.env.EARNKIT_STRIPE_SECRET = was;
   assert.equal(open(s, 'stripe'), KEY);
@@ -673,7 +673,7 @@ test('fix round 2 (N1): with the Stripe secret unset nothing is read, claimed or
     // A rotated (wrong) secret with the secret present: broken.
     const b2 = await builder(null);
     await sql()`INSERT INTO stripe_connections (builder_id, sealed_key, account_id, site_host) VALUES (${b2}, ${seal(KEY, 'stripe')}, ${`acct_${hex()}`}, 'x.com')`;
-    process.env.EARNKIT_STRIPE_SECRET = 'rotated-secret';
+    process.env.EARNKIT_STRIPE_SECRET = 'rotated-secret-0123456789-abcdefghijklmnopqrstuvwxyz';
     await runStripeRevenue(NOW, { ...opts, only: [b2] });
     assert.equal((await sql()`SELECT state FROM stripe_connections WHERE builder_id = ${b2}`)[0].state, 'broken');
   } finally {

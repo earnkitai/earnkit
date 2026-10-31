@@ -137,6 +137,7 @@ export const WRITE_PROBES = [
   'payment_intents/pi_ekprobe', 'setup_intents/seti_ekprobe', 'payment_links/plink_ekprobe', 'charges/ch_ekprobe',
   'refunds/re_ekprobe', 'payouts/po_ekprobe', 'transfers/tr_ekprobe', 'disputes/dp_ekprobe',
   'webhook_endpoints/we_ekprobe', 'tax_rates/txr_ekprobe', 'credit_notes/cn_ekprobe', 'billing_portal/configurations/bpc_ekprobe',
+  'topups/tu_ekprobe', 'checkout/sessions/cs_ekprobe', 'payment_methods/pm_ekprobe', 'subscription_schedules/sub_sched_ekprobe', 'quotes/qt_ekprobe',
 ];
 
 export type CheckResult = { ok: true; accountId: string; host: string } | { ok: false; line: string };
@@ -184,7 +185,7 @@ export async function checkKey(builderId: number, key: string, call: StripeCall)
   }
   // v4.7.3 T2: the key must not change anything. Every probe is a bodiless update of a made-up object; only 403 passes.
   const probes = await Promise.all(WRITE_PROBES.map((p) => get(`/v1/${p}`, 'POST')));
-  console.info('[stripe] probes', WRITE_PROBES.map((p, i) => `${p.split('/')[0]}:${probes[i]?.status ?? 'err'}`).join(' '));
+  console.info('[stripe] probes', WRITE_PROBES.map((p, i) => `${p.slice(0, p.lastIndexOf('/'))}:${probes[i]?.status ?? 'err'}`).join(' '));
   if (probes.some((r) => r && (r.status === 400 || r.status === 404))) return { ok: false, line: STRIPE_TEXT.writeAccess };
   if (probes.some((r) => r && r.status === 401)) return { ok: false, line: STRIPE_TEXT.rejected };
   if (probes.some((r) => !r || r.status !== 403)) return { ok: false, line: STRIPE_TEXT.unreachable };

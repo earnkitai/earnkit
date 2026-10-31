@@ -12,9 +12,9 @@ import { upgradeToken } from './wallet-proof';
  * v4.7.3 Task 1: the Stripe box has its own secret (EARNKIT_STRIPE_SECRET, never EARNKIT_AUTH_SECRET), a link connects
  * once, and the paste field is a password field. Review Focus 2, 3 and 4.
  */
-process.env.EARNKIT_AUTH_SECRET = 'v473-auth-secret';
+process.env.EARNKIT_AUTH_SECRET = 'v473-auth-secret-0123456789-abcdefghijklmnopqrstuvwxyz';
 process.env.EARNKIT_URL = 'https://earnkit.com';
-const STRIPE_SECRET = 'v473-stripe-secret';
+const STRIPE_SECRET = 'v473-stripe-secret-0123456789-abcdefghijklmnopqrstuvwxyz';
 process.env.EARNKIT_STRIPE_SECRET = STRIPE_SECRET;
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
@@ -82,10 +82,10 @@ test('secret-box: the stripe purpose needs EARNKIT_STRIPE_SECRET and never falls
   // A box sealed while the stripe secret was unset can't exist; one sealed with it opens only with it.
   const box = seal('rk_live_BOX', 'stripe');
   const auth = process.env.EARNKIT_AUTH_SECRET;
-  process.env.EARNKIT_AUTH_SECRET = 'a-rotated-auth-secret';
+  process.env.EARNKIT_AUTH_SECRET = 'a-rotated-auth-secret-0123456789-abcdefghijklmnopqrstuvwxyz';
   assert.equal(open(box, 'stripe'), 'rk_live_BOX', 'the auth secret changing leaves the stripe box openable');
   process.env.EARNKIT_AUTH_SECRET = auth;
-  process.env.EARNKIT_STRIPE_SECRET = 'a-rotated-stripe-secret';
+  process.env.EARNKIT_STRIPE_SECRET = 'a-rotated-stripe-secret-0123456789-abcdefghijklmnopqrstuvwxyz';
   assert.equal(open(box, 'stripe'), null, 'a changed stripe secret opens nothing');
   process.env.EARNKIT_STRIPE_SECRET = STRIPE_SECRET;
   assert.equal(open(box, 'stripe'), 'rk_live_BOX');
@@ -237,10 +237,11 @@ const probeFake = (url: string, over: Record<string, number | 'throw'> = {}) => 
 };
 
 test('v4.7.3 T2: WRITE_PROBES is the exact update list, all with ids that cannot exist', () => {
-  assert.equal(WRITE_PROBES.length, 21);
-  assert.equal(new Set(WRITE_PROBES).size, 21);
-  for (const p of ['customers/cus_ekprobe', 'plans/ekprobe', 'refunds/re_ekprobe', 'payouts/po_ekprobe', 'transfers/tr_ekprobe', 'billing_portal/configurations/bpc_ekprobe'])
+  assert.equal(WRITE_PROBES.length, 26);
+  assert.equal(new Set(WRITE_PROBES).size, 26);
+  for (const p of ['customers/cus_ekprobe', 'plans/ekprobe', 'refunds/re_ekprobe', 'payouts/po_ekprobe', 'transfers/tr_ekprobe', 'billing_portal/configurations/bpc_ekprobe', 'topups/tu_ekprobe', 'checkout/sessions/cs_ekprobe', 'payment_methods/pm_ekprobe', 'subscription_schedules/sub_sched_ekprobe', 'quotes/qt_ekprobe'])
     assert.ok(WRITE_PROBES.includes(p), p);
+  assert.ok(!WRITE_PROBES.some((p) => /^(issuing|accounts)\//.test(p)), 'no issuing or accounts probe');
   assert.ok(WRITE_PROBES.every((p) => /\/[a-z_]*ekprobe$/.test(p)), 'every probe targets a made-up object');
 });
 
@@ -285,7 +286,7 @@ test('v4.7.3 T2: three pastes at once on one link: one success, one connection, 
   }
 });
 
-test('v4.7.3 T2 fix: checkKey logs one line of 21 probe statuses, never the key or the account id', dbTest, async () => {
+test('v4.7.3 T2 fix: checkKey logs one line of 21 probe statuses (full path minus id), never the key or the account id', dbTest, async () => {
   const id = await builder('https://log73.example.com');
   const key = 'rk_live_LOGSECRET99';
   const lines: string[] = [];
@@ -298,7 +299,8 @@ test('v4.7.3 T2 fix: checkKey logs one line of 21 probe statuses, never the key 
   }
   const l = lines.filter((x) => x.startsWith('[stripe] probes'));
   assert.equal(l.length, 1);
-  assert.equal((l[0].match(/:403/g) ?? []).length, 21);
+  assert.equal((l[0].match(/:403/g) ?? []).length, 26);
+  assert.ok(l[0].includes('checkout/sessions:403') && l[0].includes('billing_portal/configurations:403'));
   assert.ok(!l[0].includes(key) && !l[0].includes('LOGSECRET') && !l[0].includes('acct_'));
 });
 
@@ -332,5 +334,19 @@ test('v4.7.3 T2 fix: the unique-account index firing on a store gives taken, or 
       await sql().unsafe(`DROP TRIGGER ${fn} ON stripe_connections`);
       await sql().unsafe(`DROP FUNCTION ${fn}()`);
     }
+  }
+});
+
+test('v4.7.3 final: an EARNKIT_STRIPE_SECRET shorter than 32 characters counts as unset', () => {
+  const was = process.env.EARNKIT_STRIPE_SECRET;
+  try {
+    process.env.EARNKIT_STRIPE_SECRET = 'x'.repeat(31);
+    assert.equal(boxReady('stripe'), false);
+    assert.throws(() => seal('rk_live_S', 'stripe'));
+    process.env.EARNKIT_STRIPE_SECRET = 'x'.repeat(32);
+    assert.equal(boxReady('stripe'), true);
+    assert.equal(open(seal('rk_live_S', 'stripe'), 'stripe'), 'rk_live_S');
+  } finally {
+    process.env.EARNKIT_STRIPE_SECRET = was;
   }
 });
