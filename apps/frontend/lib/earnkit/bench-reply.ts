@@ -396,9 +396,14 @@ export const openNowLine = (a: AlsoOpen[] | null | undefined, o: { total?: strin
   // without the total sentence (no grant listed to back it). Null with nothing left.
   (!a || a.length === 0) && !o.invest ? null : [
     'Open now:',
-    ...(o.total && a && a.length > 0 ? [`${o.total} in grants.`] : []),
+    // v4.7.3 T3 (exact copy): the investment right after the total: "$105.5K in grants, plus a16z speedrun SR008, up to $1M investment, closes Nov 1."
+    ...(() => {
+      const inv = o.invest ? `${shortTitle(o.invest.title)}, ${o.invest.amount} investment, ${o.invest.when}.` : null;
+      const total = o.total && a && a.length > 0 ? o.total : null;
+      if (total && inv) return [`${total} in grants, plus ${inv}`];
+      return [...(total ? [`${total} in grants.`] : []), ...(inv ? [inv] : [])];
+    })(),
     ...(a ?? []).map((x) => `${shortTitle(x.title)}, ${x.amount}, ${x.when}.`),
-    ...(o.invest ? [`${shortTitle(o.invest.title)}, ${o.invest.amount} investment, ${o.invest.when}.`] : []),
   ].join(' ');
 /**
  * v4.7.2 T2 (exact copy, "Needs why"): the ranked check_fits ask's why names the gap: "Arc Microgrants needs EarnKit on
@@ -416,8 +421,12 @@ export function needsWhy(name: string, program: string, needs: string[]): string
  * v4.7.2 T2 (exact copy, "Needs question"): the ranked check_fits ask's question; final review 3 (ruled copy): with no
  * known gap, "Want me to check Arc Microgrants's requirements for Kit?". Pure.
  */
-export const needsAsk = (name: string, program: string, needs: string[]) =>
-  needs.length === 0 ? `Want me to check ${shortTitle(program)}'s requirements for ${name}?` : `Want the steps to get ${name} ready for ${shortTitle(program)}?`;
+export const needsAsk = (name: string, program: string, needs: string[], later = false) =>
+  needs.length === 0
+    ? `Want me to check ${possessive(shortTitle(program))} requirements${later ? '' : ` for ${name}`}?`
+    : later ? `Want the ${shortTitle(program)} steps?` : `Want the steps to get ${name} ready for ${shortTitle(program)}?`;
+/** v4.7.3 T3: a title's possessive: "Arc Microgrants'" after an "s", "Kit's" otherwise. Pure. */
+export const possessive = (title: string) => (title.endsWith('s') ? `${title}'` : `${title}'s`);
 /**
  * The no-fit reply's one question, by the first step left (v4.3, owner-approved): Builder Codes, "Want me to add
  * Builder Codes to EarnKit?" (fix round 1, ruling R1: an agent with no folder of the code (`hosted`) can't add it, so
@@ -650,7 +659,7 @@ export function replyState(i: { signedIn: boolean; project: BenchProject | null;
 export const rankedState = (s: ReplyState) => s === 'ranked';
 
 /** v4.7.2 T2: the open program the ranked needs ask names, and what it needs that EarnKit doesn't see (bench-find.ts programNeeds). */
-export type NeedsAsk = { id: string; title: string; needs: string[] };
+export type NeedsAsk = { id: string; title: string; needs: string[]; /** v4.7.3 T3: shown before and unanswered: the short ask, no why paragraph. */ later?: boolean };
 export type BenchView = {
   state: ReplyState; variant: Variant; project: BenchProject | null;
   /** The rank phrase (rank.ts shownRankLine: "#3 of 40 builders", "Top 4% of builders"; null under RANK_MIN_POOL), ranked only. */
@@ -818,7 +827,7 @@ export function stateAsk(
   if (v.state === 'ranked' && v.post) return { kind: 'post', project_key: key, line: POST_ASK };
   if (v.state === 'ranked' && v.share) return { kind: 'share', project_key: key, line: MOMENT_ASK };
   // v4.7.1 T1: no fit, so what the project would need for the first open grant, once, ahead of the quieter asks.
-  if (v.state === 'ranked' && v.checkFits) return { kind: 'check_fits', project_key: key, line: needsAsk(name, v.checkFits.title, v.checkFits.needs) };
+  if (v.state === 'ranked' && v.checkFits) return { kind: 'check_fits', project_key: key, line: needsAsk(name, v.checkFits.title, v.checkFits.needs, v.checkFits.later === true) };
   // GTM W2: the Monday check-in, once, on a client that can schedule (before the optional wallet step).
   if (v.state === 'ranked' && v.checkin) return { kind: 'checkin', project_key: key, line: CHECKIN_ASK };
   // v3.1 wallet proof: the optional wallet step, once, in the first reply after setup with no other question.
@@ -1027,7 +1036,7 @@ function rankedBody(v: BenchView, name: string, ask: string): string {
   const target = nag && !v.held && v.ask.kind === 'none' ? ship : null;
   // v4.7.2 T2: the check_fits ask's why names the program's gap (needsWhy).
   const why = v.held ? null : v.ask.kind === 'ship' ? shipWhyOf(v.target, v.streak) : v.ask.kind === 'checkin' ? CHECKIN_WHY
-    : v.ask.kind === 'check_fits' && v.checkFits ? needsWhy(name, v.checkFits.title, v.checkFits.needs) : null;
+    : v.ask.kind === 'check_fits' && v.checkFits && !v.checkFits.later ? needsWhy(name, v.checkFits.title, v.checkFits.needs) : null;
   // The why and its question are something to say, so no standing is added for them (orStanding). v4.7.1 T1: nor for
   // the open grants, which lead.
   if (why) return paras([open], [standing, ...v.due, moneyLine(v), target], [why], [ask]);

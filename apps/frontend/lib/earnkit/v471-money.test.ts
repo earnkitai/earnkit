@@ -241,7 +241,7 @@ test('Review Focus 1: no fit, qualify declined, 2 open grants: money first, chec
     SELECT count(*)::int AS sooner FROM programs WHERE status = 'active' AND ends_at > now() AND ends_at < ${new Date(Date.now() + 4 * 3_600_000)} AND id NOT IN (${a.id}, ${b2.id})`;
   if (sooner === 0) {
     // v4.7.2 T1: the total in grants leads, and the soonest open investment (when one is open) ends it.
-    assert.match(money, new RegExp(`^Open now: (?:\\$[\\d.,]+[KM]?\\+? in grants\\. )?${(cellA + ' ' + cellB).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?: [^\\n]+ investment, [^\\n]+\\.)?$`), s);
+    assert.match(money, new RegExp(`^Open now: (?:\\$[\\d.,]+[KM]?\\+? in grants(?:\\.|, plus [^\\n]+ investment, [^\\n]+?\\.) )?${(cellA + ' ' + cellB).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`), s);
     assert.ok([needsAsk('Kit', a.title, ['x']), needsAsk('Kit', a.title, [])].includes(paras.at(-1)!), s);
   }
   // v4.7.2 T2: the why names the program's gap (a Base copy: no contract rule), and the question offers the steps.

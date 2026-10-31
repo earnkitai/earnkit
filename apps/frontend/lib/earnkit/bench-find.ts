@@ -709,7 +709,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   const early = fitsCould ? (qualifyKeptAway(project.key, qualifyIn) ? null : await qualifyOffer(id, project.key, qualifyIn)) : undefined;
   // Final review 5: what this reply already knows (a live project or link, the matcher's and the row's chains) counts.
   const needsAlso = { chains: [...(row?.chains ?? []), ...(o.known?.onBase ? ['base'] : [])], live: project?.live === true || siteLive || o.known?.live === true };
-  const checkFits = fitsCould && !early ? await needsOf(id, project.key, needFor!, o.cards.find((c) => c.id === needFor!.id), needsAlso) : null;
+  const checkFits = fitsCould && !early ? await needsOf(id, project.key, needFor!, o.cards.find((c) => c.id === needFor!.id), needsAlso, (read.seen.needs_unanswered?.[needFor!.id] ?? 0) >= 1) : null;
   const checkin = quiet && !more && !checkFits && handle !== null && reach.schedules && !read.seen.checkin && checkinAskDue(read.seen, now) && (await takeCheckinAsk(id, now));
   const wallet = ((quiet && !checkin && !checkFits) || (githubNo && !baseAsk)) && !more && handle !== null ? await walletOfferDue(id, now) : null;
   // 2026-10-23: a main project with no commits in STALE_WEEKS: one light nudge, claimed once.
@@ -1176,14 +1176,14 @@ export async function needsKnown(
  * row read names no needs (the "can't see what it would need" copy), never a gap it doesn't know. Never throws.
  */
 async function needsOf(
-  id: number, key: string, g: { id: string; title: string }, card: Card | undefined, also: { chains?: string[]; live?: boolean },
-): Promise<{ id: string; title: string; needs: string[] }> {
+  id: number, key: string, g: { id: string; title: string }, card: Card | undefined, also: { chains?: string[]; live?: boolean }, later = false,
+): Promise<{ id: string; title: string; needs: string[]; later: boolean }> {
   const fromCard = card && card.needs_contract !== undefined && card.needs_live !== undefined ? card : null;
   const [facts, known] = await Promise.all([
     fromCard ?? getProgramRow(g.id).catch(() => null),
     needsKnown(id, key, also),
   ]);
-  return { id: g.id, title: g.title, needs: facts ? programNeeds(facts, known) : [] };
+  return { id: g.id, title: g.title, needs: facts ? programNeeds(facts, known) : [], later };
 }
 /**
  * v4.7.2 T2: a program the needs ask may name: not Base's grant (its own qualify steps), not said no to or answered yes

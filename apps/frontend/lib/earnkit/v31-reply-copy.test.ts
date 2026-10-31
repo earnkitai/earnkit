@@ -157,7 +157,7 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   const s8 = rule(show(await mcpCall(ctx, 'find', {})));
   // v4.7.2 T1: the open paragraph leads with the total in grants and ends with the soonest open investment (live programs,
   // so the figure and the investment are matched by shape).
-  assert.match(s8, /^Open now: (?:\$[\d.,]+[KM]?\+? in grants\. )?Circle Developer Grants, \$5,000 to \$100,000 USDC grants, rolling\.(?: [^\n]+ investment, [^\n]+\.)?\n/, s8);
+  assert.match(s8, /^Open now: (?:\$[\d.,]+[KM]?\+? in grants(?:\.|, plus [^\n]+ investment, [^\n]+?\.) )?Circle Developer Grants, \$5,000 to \$100,000 USDC grants, rolling\.\n/, s8);
   assert.equal(
     s8.slice(s8.indexOf('\n')),
     // v4.7 T4: the ship ask's why line in place of the points line, its own paragraph.
