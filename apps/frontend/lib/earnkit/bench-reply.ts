@@ -392,10 +392,11 @@ export const shortTitle = (title: string) => title.split(':')[0].trim();
  * Null with none. Pure.
  */
 export const openNowLine = (a: AlsoOpen[] | null | undefined, o: { total?: string | null; invest?: AlsoOpen | null } = {}) =>
-  !a || a.length === 0 ? null : [
+  // v4.7.2 T2 fix round 1 (ruling B): with no open grant, an open investment or a total still makes the line.
+  (!a || a.length === 0) && !o.total && !o.invest ? null : [
     'Open now:',
     ...(o.total ? [`${o.total} in grants.`] : []),
-    ...a.map((x) => `${shortTitle(x.title)}, ${x.amount}, ${x.when}.`),
+    ...(a ?? []).map((x) => `${shortTitle(x.title)}, ${x.amount}, ${x.when}.`),
     ...(o.invest ? [`${shortTitle(o.invest.title)}, ${o.invest.amount} investment, ${o.invest.when}.`] : []),
   ].join(' ');
 /**

@@ -300,3 +300,93 @@ test('Review Focus 5: a builder with a fit gets the money-first apply reply, no 
   assert.equal(show(r), applyAsk(p.title, '$5,000', closeDayOf({ summary: p.summary, ends_at: ends })!));
   assert.equal(moveUpOf(r)?.kind, 'apply');
 });
+
+/** v4.7.2 Task 2 fix round 1. Each DB test's program closes sooner than the ones before it, so it leads openNow. */
+test('ruling B: no open grant, an investment or a total still makes the Open now line; the quiet reply ends with ASKS_HINT', () => {
+  assert.equal(openNowLine([], { total: '$9K', invest: INVEST }), 'Open now: $9K in grants. a16z speedrun SR008, up to $1M investment, closes Nov 1.');
+  assert.equal(openNowLine([], { total: null, invest: INVEST }), 'Open now: a16z speedrun SR008, up to $1M investment, closes Nov 1.');
+  assert.equal(openNowLine([], { total: '$9K', invest: null }), 'Open now: $9K in grants.');
+  assert.equal(openNowLine([], { total: null, invest: null }), null);
+  const base: BenchView = {
+    state: 'ranked', variant: null, project: { key: 'maya/kit', name: 'Kit', confirmed: true, live: true, weeks: 6 }, rank: '#3 of 40 builders', streak: 6,
+    target: null, handle: 'maya', link: null, fund: [], due: [], ask: { kind: 'none', project_key: 'maya/kit', line: '' }, held: null,
+    standingShown: true, nagShown: true, openNow: [], openTotal: null, openInvest: INVEST,
+  };
+  const quiet = benchReply(base);
+  assert.ok(quiet.startsWith('Open now: a16z speedrun SR008, up to $1M investment, closes Nov 1.'), quiet);
+  assert.equal(last(quiet), ASKS_HINT, quiet);
+  assert.ok(!quiet.includes('?'), quiet);
+  // The needs ask naming only the investment: the money paragraph leads, the why, then the question.
+  const checkFits = { id: 'a16z', title: INVEST.title, needs: [] };
+  const cf = benchReply({ ...base, checkFits, ask: stateAsk({ state: 'ranked', variant: null, project: base.project, link: null, checkFits }) });
+  const ps = cf.split('\n\n');
+  assert.equal(ps[0], 'Open now: a16z speedrun SR008, up to $1M investment, closes Nov 1.', cf);
+  assert.equal(ps.at(-2), 'Nothing EarnKit can see rules Kit out of a16z speedrun SR008.', cf);
+  assert.equal(ps.at(-1), 'Want the steps to get Kit ready for a16z speedrun SR008?', cf);
+  // No grant, no investment, no total: no line, and no hint (nothing open to point at).
+  const none = benchReply({ ...base, openInvest: null });
+  assert.ok(!none.includes('Open now') && !none.includes(ASKS_HINT), none);
+});
+
+test('Review Focus 4: a no to A moves straight to B and clears A\'s count', db, async () => {
+  const A = await program('arc-microgrants-studio', 'qa', 8);
+  const B = await program('base-builder-grants', 'qb', 9);
+  const b = await builder('nq', []);
+  await declineOthers(b.id, [A.id, B.id]);
+  assert.equal(last(show(await find(b))), needsAsk('Kit', A.title));
+  const counted = await seenOf(b.id);
+  assert.equal((counted.needs_unanswered as Record<string, number>)[A.id], 1);
+  await mcpCall(b.ctx as never, 'tell', { move_up: { kind: 'check_fits', project_key: b.key, answer: 'no' } });
+  const after = await seenOf(b.id);
+  assert.equal((after.needs_unanswered as Record<string, number> | undefined)?.[A.id], undefined);
+  assert.ok((after.declined as Record<string, string>)[`needs:${A.id}`]);
+  const next = show(await find(b));
+  assert.equal(last(next), needsAsk('Kit', B.title), next);
+  // The grants list still names the declined grant A.
+  assert.ok(next.split('\n\n')[0].includes(`${A.title}, `), next);
+});
+
+test('ruling A: a no to the needs ask for an investment keeps it out of the investment slot', db, async () => {
+  const G = await program('arc-microgrants-studio', 'ia', 7);
+  const I = await investment('ii');
+  const b = await builder('ni', []);
+  await declineOthers(b.id, [G.id, I.id]);
+  const first = show(await find(b));
+  assert.ok(first.split('\n\n')[0].includes(`${I.title}, up to $1M investment`) || first.split('\n\n')[0].includes(`${I.title}, up to $1,000,000 investment`), first);
+  assert.equal(last(first), needsAsk('Kit', G.title), first);
+  await mcpCall(b.ctx as never, 'tell', { move_up: { kind: 'check_fits', project_key: b.key, answer: 'no' } });
+  const second = show(await find(b));
+  assert.equal(last(second), needsAsk('Kit', I.title), second);
+  await mcpCall(b.ctx as never, 'tell', { move_up: { kind: 'check_fits', project_key: b.key, answer: 'no' } });
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('checkin', 'no', 'ship_asked', now()::text) WHERE builder_id = ${b.id}`;
+  const third = show(await find(b));
+  assert.ok(!third.includes(I.title), third);
+  // The declined grant G still shows in the grants list; nothing left to ask, so ASKS_HINT.
+  assert.ok(third.split('\n\n')[0].includes(`${G.title}, `), third);
+  assert.equal(last(third), ASKS_HINT, third);
+});
+
+const seenOf = async (id: number) =>
+  (await sql()<{ s: Record<string, unknown> }[]>`SELECT standing_seen AS s FROM builder_profiles WHERE builder_id = ${id}`)[0].s;
+
+test('a needs showing on a held or a nudge-owned reply is never counted', db, async () => {
+  const A = await program('arc-microgrants-studio', 'ha', 6);
+  // Held: a confirmed entry for a rolling program (Base's grant): its submit step is the reply's held question.
+  const h = await builder('nh', []);
+  await declineOthers(h.id, [A.id]);
+  await sql()`INSERT INTO projects (program_id, name, installation_id, confirmed_at) VALUES ('base-builder-grants', 'Kit', ${h.id}, now())`;
+  const held = await find(h);
+  assert.notEqual(moveUpOf(held)?.kind, 'check_fits', show(held));
+  assert.ok(!show(held).includes(needsAsk('Kit', A.title)), show(held));
+  assert.equal(((await seenOf(h.id)).needs_unanswered as Record<string, number> | undefined)?.[A.id], undefined);
+  // Nudge-owned: an accepted outcome from before this week whose post isn't shared yet owns the one question.
+  const o = await builder('no', []);
+  await declineOthers(o.id, [A.id]);
+  const code = Array.from({ length: 10 }, () => 'abcdefghijklmnopqrstuvwxyz234567'[Math.floor(Math.random() * 32)]).join('');
+  const made = new Date(Date.now() - 8 * 86_400_000);
+  await sql()`INSERT INTO post_drafts (code, builder_id, project_key, moment, moment_key, shape, text, proof_url, created_at, expires_at)
+    VALUES (${code}, ${o.id}, ${o.key}, 'accepted', ${`accepted:${A.id}`}, 'accepted', 'Kit was accepted.', 'https://example.com/news', ${made}, ${new Date(made.getTime() + 14 * 86_400_000)})`;
+  const owned = await find(o);
+  assert.equal(moveUpOf(owned)?.kind, 'outcome_share', show(owned));
+  assert.equal(((await seenOf(o.id)).needs_unanswered as Record<string, number> | undefined)?.[A.id], undefined);
+});

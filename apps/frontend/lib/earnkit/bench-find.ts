@@ -640,7 +640,11 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   const openNow = pitching ? openNowGrants(o.cards, now, openSkip) : [];
   // v4.7.2 T1: the total (the landing chip's figure, investments never in it) and the soonest open investment, same gate.
   const openTotal = pitching ? moneyText(openMoneyUsd(o.cards, now)) : null;
-  const openInvest = pitching ? openNowInvestment(o.cards, now, openSkip) : null;
+  // v4.7.2 T2 fix round 1 (ruling A): a no to the needs ask (declined['needs:<id>'] within DECLINE_MS) also keeps that
+  // program out of the investment slot; the grants list still names a declined grant.
+  const needsNo = Object.entries(read.seen.declined ?? {})
+    .filter(([k, at]) => k.startsWith('needs:') && now.getTime() - Date.parse(at) < DECLINE_MS).map(([k]) => k.slice('needs:'.length));
+  const openInvest = pitching ? openNowInvestment(o.cards, now, new Set([...openSkip, ...needsNo])) : null;
   // v3 Stage 1 (spec 5.1): the connect weeks, once a person, before (and in place of) this reply's weekly moment.
   // Task 16: the Best fit rides on the offer, so its yes offers to draft it.
   const connect = rankedFree && !more && project && handle && !held ? await connectMoment(id, project.key, now, open[0] ?? null) : null;
@@ -1103,7 +1107,7 @@ export function programNeeds(
 ): string[] {
   const out: string[] = [];
   const chain = p.needs_contract?.toLowerCase();
-  if (chain && !known.chains.has(chain)) out.push(`on ${Object.hasOwn(CHAIN_NAMES, chain) ? CHAIN_NAMES[chain as Chain] : chain} mainnet`);
+  if (chain && !known.chains.has(chain)) out.push(`on ${chainName(chain)} mainnet`);
   if (p.needs_repo === true && !known.repo) out.push('in a public repo');
   if (!known.live && (p.submission_requirements ?? []).some((r) => r.required && r.project_field === 'live_url')) out.push('live at a link');
   return out;
@@ -1115,10 +1119,10 @@ export function programNeeds(
  */
 export async function needsKnown(id: number, key: string, chains: string[] = []): Promise<{ chains: Set<string>; repo: boolean; live: boolean }> {
   const [on, repo, live] = await Promise.all([
-    Promise.all(chains.map(async (c) => ((await onChainKnown(id, key, c).catch(() => false)) ? c.toLowerCase() : null))),
+    Promise.all(chains.map(async (c) => ((await onChainKnown(id, key, c)) ? c.toLowerCase() : null))),
     sql()<{ yes: boolean }[]>`SELECT EXISTS (SELECT 1 FROM builder_sources WHERE builder_id = ${id} AND lower(project_key) = lower(${key})
       AND kind = 'repo' AND state = 'verified') AS yes`.then((r) => r[0]?.yes === true).catch(() => false),
-    liveOrUsersKnown(id, key).catch(() => false),
+    liveOrUsersKnown(id, key),
   ]);
   return { chains: new Set(on.filter((c): c is string => c !== null)), repo, live };
 }
