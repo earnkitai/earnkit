@@ -8739,3 +8739,11 @@ A yes on the path moves the stage on (bench-find.ts benchMoveUp, asks stored wit
   alone). It leads every path reply (hook, mid-gap, submit pointer, the deferred closest grant); with the gap closed it
   is "{since} {program} is still open and you now meet its first requirement.\n\nDraft it now? It takes me a few
   minutes." (stillOpenLine, DRAFT_NOW_ASK).
+- Fix round 1: a grant raised in this session stays bestMove's move while the path is on it (MoveCtx.raisedNow), so a
+  second find is its one-line pointer ("Builder Codes are still the one step to ... Go?") and the stored ask stays.
+  "sent" is only move_up answer 'sent' (tell schema) or program_status applied; a plain yes to the submit ask is
+  SENT_AGAIN ("Once it's submitted, reply "sent" and I'll keep track of it.") with the ask kept. The "sent" tell keeps
+  its other replies (first) and puts the path reply last. A path at track is not mid-path (F1's older moments apply).
+  "Since" says "opened" only for a program new to this builder (seenBefore), the close as submitBy words it, compares
+  scores only under the page's calibration, and leaves announced results to find's alerts opener. The passed line for
+  Builder Codes reads "You passed on them ..., but they're now ...".

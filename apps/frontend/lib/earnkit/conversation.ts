@@ -122,6 +122,11 @@ export type MoveCtx = {
   skip: Set<string>;
   /** Grants whose passed step was already raised once (standing_seen.path_raised). */
   raised: Set<string>;
+  /**
+   * Task 3 fix round 1 (1): of those, the ones raised in this session: while the path is on one of them, it stays the
+   * move (its pointer is the reply), so a second find never drops the step the builder was just asked.
+   */
+  raisedNow?: Set<string>;
   path: Path | null;
 };
 export type Move =
@@ -171,7 +176,7 @@ export function bestMove(ctx: MoveCtx): Move {
   // step was raised (they took it up).
   const onPast = (g: GapGrant) => ctx.path?.program_id === g.id && ctx.path.stage !== 'hook';
   const closest = grants
-    .filter((g) => !g.passed || onPast(g) || (g.gaps.length === 1 && !ctx.raised.has(g.id)))
+    .filter((g) => !g.passed || onPast(g) || (g.gaps.length === 1 && (!ctx.raised.has(g.id) || (ctx.path?.program_id === g.id && ctx.raisedNow?.has(g.id) === true))))
     .sort((a, b) => a.gaps.length - b.gaps.length || byClose(a, b));
   const moves: Exclude<Move, { kind: 'quiet' }>[] = [
     ...fits.map((program) => ({ kind: 'fit' as const, program })),
@@ -279,7 +284,7 @@ export function pathReply(c: PathCtx): PathReply {
     const pays = p.amount ? (m.kind === 'closest' ? `: ${p.amount}` : ` pays ${p.amount}`) : m.kind === 'closest' ? '' : ' is open';
     money = `${head}${pays}${closes ? `, closing ${closes}` : ''}. ${g.gap}`;
     // Task 3: a passed step raised (its one gap, once: path_raised) says so, once (target A).
-    if (m.kind === 'closest' && m.raise) money += ` ${passedLine(g.passedAt ?? null, c.now)}`;
+    if (m.kind === 'closest' && m.raise) money += ` ${passedLine(g.passedAt ?? null, c.now, g.gaps.length === 1 && g.gaps[0] === 'codes')}`;
   }
   const first = [money, proof && !proofSaid ? proof : null].filter(Boolean).join(' ');
   const second = reply === 'start' ? draftOffer(c.project.live) : ask;
@@ -479,6 +484,8 @@ export function submitPointer(p: Pick<MoveProgram, 'title' | 'when' | 'ends_at' 
   return `Your ${programName(p.title)} application is ready to submit${closes}. Reply "sent" once it's in.`;
 }
 
+/** Task 3 fix round 1 (2): a plain yes or ok to the submit ask is never "sent": the one easy reply again. */
+export const SENT_AGAIN = `Once it's submitted, reply "sent" and I'll keep track of it.`;
 /** The track stage's acknowledgement (target conversation A, exact). */
 export const TRACK_ACK = "Nice, I'm tracking it.";
 /**
@@ -507,9 +514,10 @@ export function agoWords(at: string, now: Date): string {
 }
 /**
  * The passed-step line (target A, said once: bestMove raises a passed step once, standing_seen.path_raised): "You
- * passed on it {when}, but it's now the only gap to that money." Pure.
+ * passed on it {when}, but it's now the only gap to that money." (`them`: Builder Codes, "You passed on them ... they're"). Pure.
  */
-export const passedLine = (at: string | null, now: Date) => `You passed on it${at ? ` ${agoWords(at, now)}` : ''}, but it's now the only gap to that money.`;
+export const passedLine = (at: string | null, now: Date, them = false) =>
+  `You passed on ${them ? 'them' : 'it'}${at ? ` ${agoWords(at, now)}` : ''}, but ${them ? "they're" : "it's"} now the only gap to that money.`;
 
 /** "Since earlier today", "Since yesterday", "Since Thursday" (within a week), else "Since Oct 24" (UTC days). Pure. */
 export function sinceDay(at: string, now: Date): string {
@@ -523,8 +531,8 @@ export function sinceDay(at: string, now: Date): string {
  * What changed since the last session, from stored facts only (bench-find.ts sinceFacts). Each part is present only
  * when EarnKit holds both sides of the change: `streak` (then and now, streak.ts over the stored commit weeks), `score`
  * (the last public daily score on or before the last session's day, builder_scores, and the page's score now),
- * `opened` (programs the path names that opened since), `closing` (the path's program, closing within 48 hours, when
- * the step's own words don't already say it) and `outcomes` (results announced since: "you won Base Batches").
+ * `opened` (programs the path names that opened since, new to this builder) and `closing` (the path's program, closing
+ * within 48 hours, when the step's own words don't already say it). Announced results lead find on their own (alerts).
  */
 export type SinceFacts = {
   last: string;
@@ -532,11 +540,10 @@ export type SinceFacts = {
   score?: { before: number; now: number } | null;
   opened?: string[];
   closing?: { program: string; when: string } | null;
-  outcomes?: string[];
 };
 /**
  * The fresh session's lead (target A, "Two days later"): "Since {day}: 1 more week shipped, so your streak is 7 weeks
- * and your score is up to 79." then any opened program, outcome or close, each a short sentence. Null when nothing
+ * and your score is up to 79." then any opened program or close, each a short sentence. Null when nothing
  * changed (the step alone answers). Never a guessed change: a side EarnKit doesn't hold leaves that part out. Pure.
  */
 export function sinceLine(f: SinceFacts, now: Date): string | null {
@@ -546,7 +553,6 @@ export function sinceLine(f: SinceFacts, now: Date): string | null {
   const first = ship && score ? `${ship} and ${score}` : ship ?? score;
   const parts = [
     first ? `${first}.` : null,
-    ...(f.outcomes ?? []).map((o) => `${o}.`),
     ...(f.opened ?? []).map((p) => `${p} opened.`),
     f.closing ? `${f.closing.program} closes ${f.closing.when}.` : null,
   ].filter((x): x is string => x !== null);

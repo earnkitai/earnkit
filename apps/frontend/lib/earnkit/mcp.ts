@@ -422,7 +422,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
             .object({
               kind: z.string().max(20).optional().describe("find's or score's move_up.kind; 'token' when the builder said no to their token, or asked to launch it"),
               project_key: z.string().max(300).nullable().optional().describe("find's or score's move_up.project_key"),
-              answer: z.enum(['yes', 'no']),
+              answer: z.enum(['yes', 'no', 'sent']).describe("yes or no; 'sent' only when they say the application is in (\"sent\", \"submitted\", \"done, it's in\"), never for a plain ok"),
               live_url: z.string().max(300).optional().describe("Only when a go_live note asks: the app's GitHub Pages link once it loads"),
               blanks: z.string().max(2000).optional().describe("Only when a draft's note asks: the builder's reply to its blanks, as they wrote it"),
             })

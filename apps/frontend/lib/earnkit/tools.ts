@@ -2450,7 +2450,8 @@ export const TellToolInput = z
       .object({
         kind: z.string().max(20).optional(),
         project_key: z.string().max(300).nullable().optional(),
-        answer: z.enum(['yes', 'no']),
+        // v4.8 Task 3 fix round 1 (2): 'sent' only when the builder says the application is in (the submit ask).
+        answer: z.enum(['yes', 'no', 'sent']),
         // v2.12.1 T9: a go_live yes again, with the GitHub Pages link once it loads.
         live_url: z.string().max(300).optional(),
         // v4.8 Task 2 fix round 3: the builder's reply to a draft's blanks (bench-find.ts draftYes; never stored).
@@ -2767,8 +2768,9 @@ export const tools = {
     void x_handle;
     const statements = defined(rest);
     const replies: Reply[] = [];
-    // v4.8 Task 3: a yes to the path's submit ask ("sent") is the application told as applied (program_status applied).
-    const sentFor = move_up?.answer === 'yes' && !ctx.sharedClient ? await submitAsked(ctx.installationId, move_up).catch(() => null) : null;
+    // v4.8 Task 3 (fix round 1, 2): move_up answer 'sent' to the path's submit ask is the application told as applied
+    // (program_status applied). A plain yes is never "sent" (benchMoveUp asks for it again); 'sent' to any other ask is "Okay.".
+    const sentFor = move_up?.answer === 'sent' && !ctx.sharedClient ? await submitAsked(ctx.installationId, move_up).catch(() => null) : null;
     if (sentFor) statements.program_status = [...(Array.isArray(statements.program_status) ? statements.program_status : []), { program_id: sentFor, status: 'applied' }];
     // v2.12 spec 8: "hide" and "show". v2.12.1 T8: the card and the move-up answers.
     if (ctx.sharedClient && (profile || card || move_up || coin || token || update || updates || main_project || wallet || builder_code || stripe))
@@ -2779,7 +2781,9 @@ export const tools = {
       else if (profile) replies.push({ show_to_builder: await setHidden(ctx.installationId, profile === 'hide') });
       if (card === 'yes') replies.push(await cardYes(ctx.installationId, ctx.ownInstallationId ?? ctx.installationId));
       if (card === 'skip') replies.push({ show_to_builder: SKIPPED_LINE });
-      if (move_up && !sentFor) replies.push(await moveUpAnswer(ctx, move_up));
+      if (move_up?.answer === 'sent') {
+        if (!sentFor) replies.push({ show_to_builder: NOTED_LINE });
+      } else if (move_up) replies.push(await moveUpAnswer(ctx, { ...move_up, answer: move_up.answer }));
       // Launch ready L2: the repo to rank instead (only one this person proved with the App).
       if (main_project) replies.push(await rankAnswer(ctx, saidKey(main_project)));
       // v3.1 wallet proof: a fresh signing link; the wallet proven with it becomes the reward recipient.
@@ -2851,7 +2855,20 @@ export const tools = {
         const next = withFacts(await findReply({}, ctx), await replyFacts(ctx));
         const shown = typeof next.show_to_builder === 'string' ? next.show_to_builder : '';
         const lead = trackLead(track.odds, shown !== '' && String(next.note ?? '').endsWith(MENTOR_NOTE));
-        return { ...next, saved: replies.flatMap((r) => (Array.isArray(r.saved) ? r.saved : [])), show_to_builder: shown ? `${lead}\n\n${shown}` : lead };
+        // Fix round 1 (3): every other reply of this tell is kept, first; the path reply goes last, so its easy reply
+        // ends the message. The plain save's "nothing to show" note and the applied-outside line ("Saved: you applied
+        // to ...", which the tracking line says) are dropped.
+        const saved = replies.flatMap((r) => (Array.isArray(r.saved) ? r.saved : []));
+        const others = replies
+          .filter((r) => !(typeof r.show_to_builder === 'string' && r.show_to_builder.startsWith('Saved: you applied to ')))
+          .map((r) => {
+            const { saved: _s, agent_note, ...rest } = r;
+            const note = typeof agent_note === 'string' ? agent_note.replace(TELL_SAVED_NOTE, '').trim() : '';
+            return { ...rest, ...(note && { agent_note: note }) };
+          })
+          .filter((r) => Object.entries(r).some(([k, v]) => !(k === 'show_to_builder' && v === '')));
+        const path: Reply = { ...next, show_to_builder: shown ? `${lead}\n\n${shown}` : lead };
+        return { ...joinReplies([...others, path]), saved };
       }
     }
     // v4.2 Task 3 (F10): a question asked mid-setup arrives with the next ask (a move_up answer or token 'ask'); give the

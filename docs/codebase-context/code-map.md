@@ -1790,6 +1790,7 @@ apps/frontend/
                                bench-find.ts pathSubmit (draft -> submit), SENT_NOTE, submitAsked, pathTrack (-> track),
                                submitWaiting / pathSubmitCommit (the submit pointer), sinceFor + withSince (fresh session);
                                tools.ts tell runs find after "sent" and leads with trackLead.
+                               Fix round 1: SENT_AGAIN, MoveCtx.raisedNow, passedLine(them), seenBefore; tell move_up answer 'sent'.
     bench-find.ts(+test)       GTM W2 (2026-10-23): link-only projects (a Lovable or Bolt live_url, no repo) take the no-GitHub path
                                (noCode: the picker link, github_no, the walk-through; linkName/YOUR_APP, reportedName: never the
                                host); backing before hot post and apply (boundedBacking first), connectBacking in the connect yes;

@@ -73,7 +73,7 @@ import { DECLINE_MS, draftedRecently } from './policy-constants';
 import { closeDay, programZone, zoneAbbr } from './deadline';
 import type { ProgramRow as ProgramFileRow } from './programs';
 import {
-  MENTOR_NOTE, OLDER_SAID, SESSION_MS, bestMove, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProof, submitBy, submitReply, submitPointer, sinceLine, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, closeWords, type SinceFacts, gapReply, gapStillReply, proofLine, markSaid, pathReply, programName, readPath, saidSql, sessionOf,
+  MENTOR_NOTE, OLDER_SAID, SESSION_MS, bestMove, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProof, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofLine, markSaid, pathReply, programName, readPath, saidSql, sessionOf,
   type GapStep,
   type GapGrant, type InvestorProgram, type Move, type MoveProgram, type Path,
 } from './conversation';
@@ -732,7 +732,10 @@ async function pathPlan(o: ViewIn, v: PathFacts, told: Set<string>): Promise<Pat
     const noAt = seen.declined?.[benchStepKey('needs', c.id)];
     return { ...moveProgram(c), gaps: needs, gap: needs.length > 0 ? needsWhy(v.project.name, c.title, needs) : '', passed: recent(noAt), passedAt: recent(noAt) ? noAt : null, doable: false };
   }))).filter((g): g is GapGrant => g !== null);
-  const move = bestMove({ now, fits, grants, investors, skip, raised: new Set(Object.keys(seen.path_raised ?? {})), path });
+  // Fix round 1 (1): a grant raised in this session stays the move while the path is on it (its pointer answers).
+  const live = !sessionOf(seen, now).fresh;
+  const raisedNow = new Set(Object.entries(seen.path_raised ?? {}).filter(([, at]) => live && now.getTime() - Date.parse(at) < SESSION_MS).map(([k]) => k));
+  const move = bestMove({ now, fits, grants, investors, skip, raised: new Set(Object.keys(seen.path_raised ?? {})), raisedNow, path });
   return { move, facts: v, fitRows, extra, path, closed, checking };
 }
 
@@ -800,14 +803,28 @@ async function pathCommit(o: ViewIn, plan: PathPlan & { move: Exclude<Move, { ki
 const withSince = (since: string | null, show: string) => (since ? `${since}\n\n${show}` : show);
 
 /**
+ * v4.8 Task 3 fix round 1 (5): the builder met `programId` before: on the stored path, the stored ask, asked to apply,
+ * drafted, raised, given its steps (Base) or said no to. Pure.
+ */
+function seenBefore(seen: Seen, programId: string, key: string): boolean {
+  const path = readPath(seen);
+  const declined = Object.keys(seen.declined ?? {});
+  return path?.program_id === programId || seen.bench_ask?.program_id === programId
+    || Boolean(seen.apply_asked?.[programId] || seen.apply_yes?.[programId] || seen.path_raised?.[programId])
+    || declined.some((k) => k === `apply:${programId}` || k === `path:${programId}` || k === `needs:${programId}`)
+    || (programId === BASE_GRANTS_ID && (declined.includes(benchStepKey('qualify', key)) || Boolean(seen.qualify_given?.[key.toLowerCase()])));
+}
+
+/**
  * v4.8 Task 3: what changed since the last session, for a fresh one only (sessionOf; the last session is
  * standing_seen.said.at), from stored facts: the streak then (streak.ts over the stored weeks, as of that day; only across
  * an ISO week, as a streak moves by weeks) and now; the last public daily score on or before that day (builder_scores,
  * this calibration, from that day or the one before, so a stale row never stands for then) and the page's score now;
- * the path's program opened since (programs.opened_at); it closing within 48 hours, when the step's own words don't say so (`saysClose`); results announced since (entry_outcomes, never a
- * self-report). A side not stored leaves that part out. Null when nothing changed or it isn't a new session. Never throws.
+ * the path's program opened since and new to this builder (programs.opened_at, seenBefore); it closing within 48 hours
+ * (submitBy's words), when the step's own words don't say so (`saysClose`). Fix round 1: results announced since are
+ * not repeated here (find's alerts opener, "Since you last checked: ...", already leads with them). A side not stored leaves that part out. Null when nothing changed or it isn't a new session. Never throws.
  */
-async function sinceFor(o: ViewIn, v: Pick<PathFacts, 'streak' | 'stand'>, focus: { program: MoveProgram; saysClose: boolean } | null): Promise<string | null> {
+async function sinceFor(o: ViewIn, v: Pick<PathFacts, 'streak' | 'stand' | 'project'>, focus: { program: MoveProgram; saysClose: boolean } | null): Promise<string | null> {
   const { id, now, read } = o;
   if (!sessionOf(read.seen, now).fresh) return null;
   const at = (read.seen.said as { at?: unknown } | undefined)?.at;
@@ -818,25 +835,27 @@ async function sinceFor(o: ViewIn, v: Pick<PathFacts, 'streak' | 'stand'>, focus
     logged(what)(err);
     return fallback;
   };
-  const [then, before, opened, results] = await Promise.all([
+  const [then, before, opened] = await Promise.all([
     isoWeekOf(last) !== isoWeekOf(now) ? streaksFor([id], last).then((m) => m.get(id)?.streak ?? null).catch(quiet('since streak', null)) : Promise.resolve(null),
     v.stand.score !== null
       ? sql()<{ score: number }[]>`SELECT s.score FROM builder_scores s WHERE s.builder_id = ${id} AND s.day <= ${day}::date AND s.day >= ${day}::date - 1
-          AND s.calibration = ${LIVE_CALIBRATION_V2} AND s.ranked AND ${publicRow()} ORDER BY s.day DESC LIMIT 1`.catch(quiet('since score', []))
+          AND s.calibration = ${LIVE_CALIBRATION_V2} AND s.ranked AND ${publicRow()}
+          AND EXISTS (SELECT 1 FROM builder_live l WHERE l.builder_id = ${id} AND l.calibration = s.calibration)
+          ORDER BY s.day DESC LIMIT 1`.catch(quiet('since score', []))
       : Promise.resolve([]),
     focus ? sql()<{ opened_at: Date | null }[]>`SELECT opened_at FROM programs WHERE id = ${focus.program.id}`.catch(quiet('since opened', [])) : Promise.resolve([]),
-    sql()<{ title: string; result: string }[]>`SELECT g.title, e.result FROM entry_outcomes e JOIN projects p ON p.id = e.project_id JOIN programs g ON g.id = e.program_id
-      WHERE p.installation_id = ${id} AND e.basis <> 'self_reported' AND e.captured_at > ${last} ORDER BY e.captured_at`.catch(quiet('since outcomes', [])),
   ]);
   const f = focus?.program;
   const facts: SinceFacts = {
     last: at,
     streak: then !== null ? { before: then, now: v.streak } : null,
     score: before[0] && v.stand.score !== null ? { before: Number(before[0].score), now: v.stand.score } : null,
-    opened: f && opened[0]?.opened_at && new Date(opened[0].opened_at).getTime() > last.getTime() ? [programName(f.title)] : [],
+    // Fix round 1 (5): "opened" only for a program new to this builder: opened after the last session and never on their
+    // path, asked, drafted, raised or said no to (a reopened program they're on is no news; opened_at alone resets).
+    opened: f && opened[0]?.opened_at && new Date(opened[0].opened_at).getTime() > last.getTime() && !seenBefore(read.seen, f.id, v.project.key) ? [programName(f.title)] : [],
+    // Fix round 1 (6): the close as the submit step says it ("tomorrow 11:59 PM PT"), in the program's zone.
     closing: f && !focus.saysClose && f.ends_at && f.when !== 'rolling' && Date.parse(f.ends_at) > now.getTime() && Date.parse(f.ends_at) - now.getTime() <= NOW_WINDOW_MS
-      ? { program: programName(f.title), when: closeWords(f.ends_at, f.zone, now) } : null,
-    outcomes: results.map((r) => (r.result === 'won' ? `You won ${programName(r.title)}` : r.result === 'placed' ? `You placed in ${programName(r.title)}` : `${programName(r.title)} announced its results`)),
+      ? { program: programName(f.title), when: submitBy(f.ends_at, f.zone, now, zoneAbbr(f.zone)) } : null,
   };
   return sinceLine(facts, now);
 }
@@ -1089,7 +1108,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
       const sinceOf = (program: MoveProgram, saysClose: boolean) => sinceFor(o, facts, { program, saysClose });
       // Fix round 3: an older moment waits for the closest grant only at the hook, never for a builder already on that
       // program (mid-path), and once a session.
-      const midPath = move.kind !== 'quiet' && plan.path !== null && (plan.path.stage !== 'hook' || plan.path.program_id === move.program.id);
+      // Fix round 1 (9): a path left at track (no next program at "sent") is no longer mid-path.
+      const midPath = move.kind !== 'quiet' && plan.path !== null && ((plan.path.stage !== 'hook' && plan.path.stage !== 'track') || plan.path.program_id === move.program.id);
       // Task 2: the path's gap closed: the draft offer leads (mid-path).
       if (plan.closed) return pathClosedCommit(o, { ...plan, closed: plan.closed }, await sinceOf(plan.closed.program, false));
       // Fix round 2 (F3): the re-check runs past its wait: one easy reply, "ok" (the gap ask stays, so a no parks).
@@ -2214,6 +2234,11 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       // v4.0 Task 8 fix round 1: the yes to the accepted nudge's "Want to share it?": its post's one-tap link.
       return typeof asked.link === 'string' && /^https:\/\//.test(asked.link) ? { show_to_builder: outcomeShareLine(asked.link) } : okay;
     case 'apply': {
+      // v4.8 Task 3 fix round 1 (2): a plain yes or ok to the submit ask is never "sent": the ask again (kept).
+      if (asked.path === true && asked.submit === true) {
+        await storeAsk(id, asked);
+        return { show_to_builder: SENT_AGAIN, agent_note: withMentor(SENT_NOTE), move_up: { kind: 'apply', project_key: asked.key, agent_note: SENT_NOTE } };
+      }
       // v4.2 Task 5: the closing-soon nudge's yes ("Your draft is ready. Want to send it?"): the entry's ready kit with its link.
       const ready = asked.program_id ? await readyDraft(id, asked.program_id).catch(() => null) : null;
       if (ready) return ready;
@@ -2460,10 +2485,10 @@ async function draftYes(id: number, asked: NonNullable<Seen['bench_ask']>, now: 
 }
 
 /**
- * v4.8 Task 3: how "sent" is told. The submit ask is stored as an apply ask (`submit`), so an agent that answers it with
- * move_up yes is read as sent too (tools.ts tell, submitAsked).
+ * v4.8 Task 3: how "sent" is told. The submit ask is stored as an apply ask (`submit`); fix round 1 (2): only move_up
+ * answer 'sent' (tools.ts tell, submitAsked) or program_status applied records it, never a plain yes.
  */
-export const SENT_NOTE = "When they say it's sent, call tell with program_status: [{ program_id, status: 'applied' }] (program_id as given here). A no: move_up { kind: 'apply', project_key, answer: 'no' }. Don't show this note.";
+export const SENT_NOTE = "Only when they say the application is in (\"sent\", \"submitted\", \"done, it's in\"), call tell with move_up: { kind: 'apply', project_key, answer: 'sent' } (or program_status: [{ program_id, status: 'applied' }], program_id as given here). A plain ok or yes is not sent: answer 'yes'. A no: answer 'no'. Don't show this note.";
 /** v4.8 Task 3: the contact fields a program's form asks for at submit ("your email"), never a draft blank (ruling T2-1). Pure. */
 const contactFields = (reqs: readonly SubmissionRequirement[] | null | undefined) =>
   (reqs ?? []).filter((r) => r.required && r.kind === 'contact').map((r) => r.todo ?? r.label.toLowerCase());
@@ -2495,7 +2520,7 @@ async function pathSubmit(id: number, asked: NonNullable<Seen['bench_ask']>, now
 }
 
 /**
- * v4.8 Task 3: the program a yes to the stored submit ask is "sent" for (tools.ts tell records it applied), or null
+ * v4.8 Task 3: the program a 'sent' answer to the stored submit ask is for (tools.ts tell records it applied), or null
  * when the stored ask is not the path's submit ask. Never throws.
  */
 export async function submitAsked(id: number, m: { kind?: string; project_key?: string | null }): Promise<string | null> {
