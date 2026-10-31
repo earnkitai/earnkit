@@ -391,8 +391,13 @@ export const shortTitle = (title: string) => title.split(':')[0].trim();
  * Program, $5,000, rolling." (fix round 1, R1: "Open now:" once, the grants joined by a space); the cells as alsoLine's.
  * Null with none. Pure.
  */
-export const openNowLine = (a: AlsoOpen[] | null | undefined) =>
-  !a || a.length === 0 ? null : `Open now: ${a.map((x) => `${shortTitle(x.title)}, ${x.amount}, ${x.when}.`).join(' ')}`;
+export const openNowLine = (a: AlsoOpen[] | null | undefined, o: { total?: string | null; invest?: AlsoOpen | null } = {}) =>
+  !a || a.length === 0 ? null : [
+    'Open now:',
+    ...(o.total ? [`${o.total} in grants.`] : []),
+    ...a.map((x) => `${shortTitle(x.title)}, ${x.amount}, ${x.when}.`),
+    ...(o.invest ? [`${shortTitle(o.invest.title)}, ${o.invest.amount} investment, ${o.invest.when}.`] : []),
+  ].join(' ');
 /** v4.7.1 T1 (exact copy, "check_fits ask"): the ranked check_fits ask's why line and its question. Pure. */
 export const checkFitsWhy = (name: string) => `None of these fit ${name} on what EarnKit can see yet.`;
 export const checkNeedsAsk = (name: string, title: string) => `Want me to check what ${name} would need for ${shortTitle(title)}?`;
@@ -684,6 +689,9 @@ export type BenchView = {
   standingText?: string;
   /** v4.7.1 T1: ranked with no unapplied fit: up to two open grants, soonest deadline first (bench-find.ts openNowGrants). */
   openNow?: AlsoOpen[];
+  /** v4.7.2 T1: the money paragraph's total (moneyText of the open grants) and the soonest open investment. */
+  openTotal?: string | null;
+  openInvest?: AlsoOpen | null;
   /**
    * v4.7.1 T1 fix round 2 (R6): the fit moneyPara pitches: the first shown fit not applied to nor drafted; null: none (the
    * open grants instead). Absent (a pure caller): the Best fit, else the first fit line.
@@ -832,10 +840,11 @@ const standingOf = (v: BenchView, name: string) =>
  * v4.7.1 T1: the open grants paragraph, only with no fit line (moneyLine's fit), so a fit's reply stays v4.7's. Final
  * review (R6): a pitch of null (every fit applied or drafted) shows it too. Pure.
  */
+const openOf = (v: Pick<BenchView, 'openTotal' | 'openInvest'>) => ({ total: v.openTotal, invest: v.openInvest });
 const openNowOf = (v: BenchView) =>
   v.held ? null
-    : v.pitch === null ? openNowLine(v.openNow)
-    : v.pitch || v.best || v.fund.some((f) => f.kind === 'fits') ? null : openNowLine(v.openNow);
+    : v.pitch === null ? openNowLine(v.openNow, openOf(v))
+    : v.pitch || v.best || v.fund.some((f) => f.kind === 'fits') ? null : openNowLine(v.openNow, openOf(v));
 /**
  * v4.7.1 T1 fix round 1: the money for a reply shape that shows no moneyLine (wallet, token, new repo, the Monday block,
  * a post, connect without a Best fit): the fit line (a builder whose fits are all drafted or applied), else the open
@@ -844,7 +853,7 @@ const openNowOf = (v: BenchView) =>
 const moneyPara = (v: BenchView) => {
   if (v.held) return null;
   const fit = v.pitch !== undefined ? v.pitch : (v.best ?? v.fund.find((f): f is Extract<FundLine, { kind: 'fits' }> => f.kind === 'fits'));
-  return fit ? qualifyLine(fit) : openNowLine(v.openNow);
+  return fit ? qualifyLine(fit) : openNowLine(v.openNow, openOf(v));
 };
 /** v4.7.1 T1 fix round 1: the project's name as every ranked line says it (rankedBody, stateAsk and askWhy). Pure. */
 export const replyName = (v: Pick<BenchView, 'project'>) => v.project?.name ?? '';

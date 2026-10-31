@@ -237,7 +237,8 @@ test('Review Focus 1: no fit, qualify declined, 2 open grants: money first, chec
   const [{ sooner }] = await sql()<{ sooner: number }[]>`
     SELECT count(*)::int AS sooner FROM programs WHERE status = 'active' AND ends_at > now() AND ends_at < ${new Date(Date.now() + 4 * 3_600_000)} AND id NOT IN (${a.id}, ${b2.id})`;
   if (sooner === 0) {
-    assert.equal(money, `Open now: ${cellA} ${cellB}`, s);
+    // v4.7.2 T1: the total in grants leads, and the soonest open investment (when one is open) ends it.
+    assert.match(money, new RegExp(`^Open now: (?:\\$[\\d.,]+[KM]?\\+? in grants\\. )?${(cellA + ' ' + cellB).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?: [^\\n]+ investment, [^\\n]+\\.)?$`), s);
     assert.equal(paras.at(-1), checkNeedsAsk('Kit', a.title), s);
   }
   assert.equal(paras.at(-2), checkFitsWhy('Kit'), s);

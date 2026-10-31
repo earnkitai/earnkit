@@ -25,6 +25,7 @@ import {
   FITS_MAX, fundWhen, scoreFits, showable, standBase, startRefresh, takeNews,
   type Seen as StandSeen, type StandBase,
 } from './stand-view';
+import { moneyText, openMoneyUsd } from './pool';
 import { byDeadline, byRelevance, canApply, enteredIds, fullProgramTable, layout, noFitLine, submitStep, submitStepLine, type Card, type FirstMessage, type RepoFit, type YourRepos } from './present';
 import type { ReaderDeps } from './source-readers';
 import { NO_USERS_YET, creditsMainnet, type Detection } from './match';
@@ -631,7 +632,11 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   // or holds a recent draft for (draftedRecently); left out of the open grants and of the fit line moneyPara shows.
   const pitching = Boolean(ranked && project && !taken && !held && !moneyFirst);
   const noPitch = pitching ? await notPitched(id, read.seen, now) : new Set<string>();
-  const openNow = pitching ? openNowGrants(o.cards, now, new Set([...o.skip, ...noPitch])) : [];
+  const openSkip = new Set([...o.skip, ...noPitch]);
+  const openNow = pitching ? openNowGrants(o.cards, now, openSkip) : [];
+  // v4.7.2 T1: the total (the landing chip's figure, investments never in it) and the soonest open investment, same gate.
+  const openTotal = pitching ? moneyText(openMoneyUsd(o.cards, now)) : null;
+  const openInvest = pitching ? openNowInvestment(o.cards, now, openSkip) : null;
   // v3 Stage 1 (spec 5.1): the connect weeks, once a person, before (and in place of) this reply's weekly moment.
   // Task 16: the Best fit rides on the offer, so its yes offers to draft it.
   const connect = rankedFree && !more && project && handle && !held ? await connectMoment(id, project.key, now, open[0] ?? null) : null;
@@ -781,6 +786,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
     noGithub, ask: finalAsk, held, best: shownBest && realFit(shownBest) ? shownBest : null, connect, moment, open: state !== 'ranked' ? openGrant(o.cards, now, o.skip) : null, qualify, post: event,
     also: qualify && finalAsk.kind === 'qualify' ? alsoOpen(o.cards, now, o.skip, qualify.program_id) : [],
     openNow: openNow.map(({ id: _id, ...g }) => g),
+    openTotal, openInvest: openInvest ? { title: openInvest.title, amount: openInvest.amount, when: openInvest.when } : null,
     // Fix round 2 (R6): the fit moneyPara may pitch: the first shown fit not applied to nor drafted (null: none).
     // v4.7.1 final review: every ranked reply's fit line (moneyLine) follows it too; left out while money first applies
     // (undefined), so a moneyFirst builder's fit replies stay v4.7's word for word.
@@ -905,6 +911,22 @@ export function openNowGrants(cards: Card[], now: Date, skip: Set<string>): (Als
     .sort((a, b) => at(a) - at(b) || byRelevance(a, b))
     .slice(0, 2)
     .map((c) => ({ id: c.id, title: c.title, amount: upToCell(prizeOf(c)), when: fundWhen(c) }));
+}
+
+/**
+ * v4.7.2 T1: the soonest-closing open investment (an accelerator) the builder hasn't applied to, for the money paragraph
+ * (bench-reply.ts openNowLine). The filters are showable's, except that an investment is kept; openNowGrants' order
+ * (soonest deadline, rolling last, byRelevance among equals). The amount cell keeps its "up to" and drops prizeOf's
+ * trailing "investment" (the line adds it once). Null with none. Pure.
+ */
+export function openNowInvestment(cards: Card[], now: Date, skip: Set<string>): (AlsoOpen & { id: string }) | null {
+  const at = (c: Card) => (fundWhen(c) === 'rolling' || !c.ends_at ? Infinity : new Date(c.ends_at).getTime());
+  const c = cards
+    .filter((x) => x.investment === true && showable({ ...x, investment: false }, now, skip))
+    .sort((a, b) => at(a) - at(b) || byRelevance(a, b))[0];
+  if (!c) return null;
+  const amount = prizeOf(c).replace(/\s+investment$/i, '').replace(/^up to\s+/i, 'up to ');
+  return { id: c.id, title: c.title, amount, when: fundWhen(c) };
 }
 
 /** 2026-10-23 Base onboarding: Base Builder Grants is open and shown (the walk-through's last step drafts it). Pure. */
