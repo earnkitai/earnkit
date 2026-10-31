@@ -17,6 +17,7 @@ import { walletSetupAsk } from './bench-reply';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
 import { isoWeekOf } from './weeks';
+import { backfillMondays } from './week-facts';
 import {
   MENTOR_NOTE, SESSION_MS, bestMove, closeWords, pathReply, programName, proofLine, readPath, sessionOf,
   type GapGrant, type InvestorProgram, type MoveCtx, type MoveProgram,
@@ -376,4 +377,59 @@ test('a shared client with no X of its own gets no path reply, and nothing is wr
   for (const k of ['path', 'said', 'path_raised']) assert.deepEqual(after[k], before[k], k);
   // (The signed-out reply stores its own sign-in ask, as before v4.8; never a path ask.)
   assert.notEqual((after.bench_ask as { path?: boolean } | undefined)?.path, true);
+});
+
+test('fix round 2 (F9): with no X name the reply greets no name, never the handle', () => {
+  const move = bestMove(ctx({ investors: [A16Z] }));
+  const r = pathReply({ now: NOW, first: null, project: { name: 'EarnKit', live: true }, streak: 6, move: move as never, said: new Set() });
+  assert.ok(r.show_to_builder.startsWith('a16z speedrun SR008 closes tomorrow night: up to $1M. '), r.show_to_builder);
+  const c = pathReply({ now: NOW, first: null, project: { name: 'EarnKit', live: false }, streak: 0, move: { kind: 'closest', program: BASE, raise: true }, said: new Set() });
+  assert.equal(c.show_to_builder, 'Your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes.\n\nWant the steps?');
+});
+
+/** The connect weeks due again (v3-connect.test.ts's backfill): the older moment the closest grant waits behind. */
+async function connectDueFor(b: { id: number; key: string }) {
+  for (const [i, monday] of backfillMondays(new Date()).entries())
+    await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${b.id}, ${b.key}, ${monday}, ${sql().json({ checked: true, shipped_code: { n: i + 2 } } as never)})
+      ON CONFLICT (project_key, week) DO UPDATE SET facts = EXCLUDED.facts`;
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'connect_done' - 'connect_open' WHERE builder_id = ${b.id}`;
+}
+
+test('fix round 2 (F1): steps 1 to 4 lead even with the connect weeks due', db, async () => {
+  const sr = await speedrun(30);
+  const b = await owner('f1a');
+  await connectDueFor(b);
+  const s = show(await find(b));
+  assert.ok(s.startsWith(`Jenil, ${sr.title} closes `) && s.endsWith('Want me to start?'), s);
+  assert.doesNotMatch(s, /Make your shipping log public/, s);
+});
+
+test('fix round 2 (F1): with only the closest grant, the connect weeks go first, once a session; then the path', db, async () => {
+  await sql()`UPDATE programs SET status = 'closed' WHERE id NOT LIKE ${`v48-${process.pid}-arcc`}`;
+  const arc = committedProgram('arc-microgrants-studio', { keepContract: true });
+  const p = ProgramFile.parse({ ...arc, id: `v48-${process.pid}-arcc`, title: `Arc Close ${RUN}`, ends_at: new Date(Date.now() + 20 * 86_400_000).toISOString(), status: 'active', starts_at: null });
+  await upsertProgram(p);
+  const b = await owner('f1b');
+  await connectDueFor(b);
+  const first = await find(b);
+  assert.equal(moveUp(first)?.kind, 'connect', show(first));
+  assert.match(show(first), /Make your shipping log public on /);
+  assert.ok(((await seenOf(b.id)).said as { keys: string[] }).keys.includes('older'));
+  // The next call in the session: the path's closest grant (one older moment a session).
+  const second = show(await find(b));
+  assert.ok(second.startsWith(`Jenil, your closest money is Arc Close ${RUN}: `), second);
+  assert.ok(second.endsWith('Want the steps?'), second);
+});
+
+test('fix round 2 (F4): a v4.7 silence stand-aside never parks a program; an explicit no does', db, async () => {
+  const sr = await speedrun(30);
+  const b = await owner('f4');
+  const at = new Date().toISOString();
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen
+      || jsonb_build_object('apply_silent', jsonb_build_object(${sr.id}::text, ${at}::text))
+      || jsonb_build_object('declined', COALESCE(standing_seen->'declined', '{}'::jsonb) || jsonb_build_object(${`apply:${sr.id}`}::text, ${at}::text))
+    WHERE builder_id = ${b.id}`;
+  assert.ok(show(await find(b)).includes(sr.title), 'silence: still the hook');
+  await sql()`UPDATE builder_profiles SET standing_seen = (standing_seen - 'apply_silent' - 'said') WHERE builder_id = ${b.id}`;
+  assert.ok(!show(await find(b)).includes(sr.title), 'an explicit no parks it');
 });

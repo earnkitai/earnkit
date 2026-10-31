@@ -55,16 +55,26 @@ export function sessionOf(seen: { said?: unknown } | null | undefined, now: Date
 }
 
 /**
+ * Fix round 2 (F5): the new standing_seen.said value as a SQL fragment (it reads the row's own said), so a caller can
+ * write it in the same UPDATE as its other keys.
+ */
+export function saidSql(keys: string[], now: Date) {
+  const cutoff = new Date(now.getTime() - SESSION_MS).toISOString();
+  return sql()`jsonb_build_object(
+      'at', ${now.toISOString()}::text,
+      'keys', COALESCE((SELECT jsonb_agg(DISTINCT k) FROM jsonb_array_elements_text(
+        CASE WHEN standing_seen->'said'->>'at' > ${cutoff} AND jsonb_typeof(standing_seen->'said'->'keys') = 'array'
+          THEN standing_seen->'said'->'keys' ELSE '[]'::jsonb END || ${sql().json(keys as never)}::jsonb) AS k), '[]'::jsonb))`;
+}
+/** Fix round 2 (F1): the session key an older moment (connect, the Monday block, a post, the check-in) was said under. */
+export const OLDER_SAID = 'older';
+
+/**
  * Records `keys` as said in this session and stamps it `now` (an empty list only keeps the session alive). Keys said
  * before SESSION_MS of quiet are dropped first, in the same UPDATE. Never throws.
  */
 export async function markSaid(id: number, keys: string[], now: Date): Promise<void> {
-  const cutoff = new Date(now.getTime() - SESSION_MS).toISOString();
-  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('said', jsonb_build_object(
-      'at', ${now.toISOString()}::text,
-      'keys', COALESCE((SELECT jsonb_agg(DISTINCT k) FROM jsonb_array_elements_text(
-        CASE WHEN standing_seen->'said'->>'at' > ${cutoff} AND jsonb_typeof(standing_seen->'said'->'keys') = 'array'
-          THEN standing_seen->'said'->'keys' ELSE '[]'::jsonb END || ${sql().json(keys as never)}::jsonb) AS k), '[]'::jsonb)))
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('said', ${saidSql(keys, now)})
     WHERE builder_id = ${id}`.catch((err: unknown) => {
     console.error('[conversation] mark said', err instanceof Error ? err.name : 'error');
   });
@@ -196,8 +206,8 @@ export const draftOffer = (live: boolean) => `I can draft your application from 
 
 export type PathCtx = {
   now: Date;
-  /** The builder's first name (bench-reply.ts firstName). */
-  first: string;
+  /** The builder's first name from X (bench-reply.ts firstName); null without one: the reply greets no name (F9). */
+  first: string | null;
   project: { name: string; live: boolean };
   streak: number;
   move: Exclude<Move, { kind: 'quiet' }>;
@@ -239,12 +249,13 @@ export function pathReply(c: PathCtx): PathReply {
   const proofSaid = proofKey !== null && c.said.has(proofKey);
   const dated = p.ends_at !== null && p.when !== 'rolling';
   const closes = dated ? closeWords(p.ends_at!, p.zone, c.now) : null;
+  const hi = c.first ? `${c.first}, ` : '';
   let money: string;
   if (reply === 'start') {
-    money = closes ? `${c.first}, ${name} closes ${closes}${p.amount ? `: ${p.amount}` : ''}.` : `${c.first}, ${name} is open now${p.amount ? `: ${p.amount}` : ''}.`;
+    money = `${hi}${closes ? `${name} closes ${closes}${p.amount ? `: ${p.amount}` : ''}.` : `${name} is open now${p.amount ? `: ${p.amount}` : ''}.`}`;
   } else {
     const g = p as GapGrant;
-    const head = m.kind === 'closest' ? `${c.first}, your closest money is ${name}` : `${c.first}, ${name}`;
+    const head = m.kind === 'closest' ? (c.first ? `${c.first}, your closest money is ${name}` : `Your closest money is ${name}`) : `${hi}${name}`;
     const pays = p.amount ? (m.kind === 'closest' ? `: ${p.amount}` : ` pays ${p.amount}`) : m.kind === 'closest' ? '' : ' is open';
     money = `${head}${pays}${closes ? `, closing ${closes}` : ''}. ${g.gap}`;
   }

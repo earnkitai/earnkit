@@ -12,7 +12,7 @@ import * as React from 'react';
 import { bannedInBench } from './fixtures/banned-words';
 import { HERO_SUB, STEPS } from './site-copy';
 import { fakeGitHub } from './fixtures/fake-github-branch';
-import { INTRO_LINE, SHIP_ASK, STATE_COPY, applyAsk, pickRepoAsk, stateAsk } from './bench-reply';
+import { INTRO_LINE, SHIP_ASK, STATE_COPY, pickRepoAsk, stateAsk } from './bench-reply';
 import { INSTALL_APP_NOTE, START_NOTE, START_YES_NOTE } from './bench-find';
 import { ownLinks, postUpdate } from './updates';
 import { proveByApp } from './repo-proof';
@@ -393,7 +393,7 @@ test('A.2 through find (R8, R12, v3.1 spec 3.2): a project with a fit is offered
     // v3.1 spec 3.2: the rolling fit is first offered as a draft. v4.8 Task 1: the path's hook (its money, then the draft
     // offer), and the same step again this session is its pointer; once declined (and the path parked), the step is to
     // ship with the fit named.
-    assert.ok(r.show_to_builder.includes(` ${prog.title.split(':')[0]} is open now: up to $10,000.`), r.show_to_builder);
+    assert.ok(r.show_to_builder.includes(`${prog.title.split(':')[0]} is open now: up to $10,000.`), r.show_to_builder);
     assert.ok(r.show_to_builder.endsWith('Want me to start?'), r.show_to_builder);
     assert.equal(r.move_up?.kind, 'apply');
     const again = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(prog.id, key) }) });

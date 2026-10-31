@@ -483,7 +483,7 @@ export const MOMENT_ASK = 'Looks right?';
 /**
  * v4.0 Task 7 (approved copy 5, "Every Monday"): the opener, the week's table (a blank first header: plain surfaces read
  * "Label: value", reply-format.ts), the cheer under it when the community sent $100 or double last week, the post link
- * (no post: the page), then `ask`. Never names the token. Pure.
+ * (no post: the page), `money` (the Best fit's line, when there is one), the why, then `ask`. Never names the token. Pure.
  */
 export function mondayReply(m: MomentView, page: string, ask: string, why: string | null = null, money: string | null = null): string {
   const facts = { score: m.score, change: m.change, streak: m.week, usd: m.community.usd, lastWeekUsd: m.community.lastWeekUsd };
@@ -493,7 +493,7 @@ export function mondayReply(m: MomentView, page: string, ask: string, why: strin
     table,
     [communityRow(facts.usd, facts.lastWeekUsd)?.cheer ? CHEER_LINE : null],
     [m.post ? `Your post is ready to share: ${m.post.link}` : pageLine(page)],
-    // v4.7.1 T1: with no fit, the open grants (openNowLine), before the why.
+    // v4.7.1 T1 fix round 1: a fit's line (rankedBody's moneyPara), before the why (v4.8: never the retired open grants).
     [money],
     // v4.7 T4: the share step's why, just before its question.
     [why],

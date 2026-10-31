@@ -67,8 +67,8 @@ import { agentReach, rememberNoFolder, type AgentReach } from './agent-reach';
 import { DECLINE_MS, draftedRecently } from './policy-constants';
 import { programZone } from './deadline';
 import {
-  MENTOR_NOTE, bestMove, markSaid, pathReply, readPath, sessionOf, setPath,
-  type GapGrant, type InvestorProgram, type MoveProgram,
+  MENTOR_NOTE, OLDER_SAID, bestMove, markSaid, pathReply, readPath, saidSql, sessionOf,
+  type GapGrant, type InvestorProgram, type Move, type MoveProgram, type Path,
 } from './conversation';
 export { displayName };
 
@@ -320,6 +320,8 @@ type BenchRead = {
   liveUrl: string | null;
   /** GTM W2: the name the agent reported for the one project (identity), if any. */
   reportedName: string | null;
+  /** v4.8 fix round 2 (F5, F9): the X display name (the path's greeting), read with the profile. */
+  xName: string | null;
 };
 const EMPTY_BASE: StandBase = { standing: { ranked: false, rank: 0, total: 0 }, claimed: false, handle: null, signInLink: null };
 const NO_RANK: RankLines = { bench: null, line: null, chains: [], listed: false };
@@ -331,8 +333,8 @@ const logged = (where: string) => (err: unknown) => {
 async function benchRead(id: number, own: number, now: Date): Promise<BenchRead> {
   // v2.14: `own` (the caller's own installation) is the one an X sign-in link is for.
   const stand = await standBase(id, { own }).catch(logged('stand'));
-  const [p] = await sql()<{ main: string | null; seen: unknown; identity: unknown }[]>`
-    SELECT main_project_key AS main, standing_seen AS seen, identity FROM builder_profiles WHERE builder_id = ${id}`.catch(
+  const [p] = await sql()<{ main: string | null; seen: unknown; identity: unknown; x_name: string | null }[]>`
+    SELECT main_project_key AS main, standing_seen AS seen, identity, x_name FROM builder_profiles WHERE builder_id = ${id}`.catch(
     () => [],
   );
   const main = p?.main ?? null;
@@ -361,6 +363,7 @@ async function benchRead(id: number, own: number, now: Date): Promise<BenchRead>
     parts: live?.parts ?? null,
     liveUrl: main ? reportedLive(p?.identity, main) : null,
     reportedName: main ? identityName(p?.identity, main) : null,
+    xName: p?.x_name ?? null,
   };
 }
 
@@ -528,19 +531,36 @@ async function codesFor(id: number, key: string, now: Date, f: typeof fetch | un
 
 
 /**
- * v4.8 Task 1: the programs the path never names: entered or hidden (`skip`), told EarnKit about (any status, the group's
- * applied ones too: notPitched), drafted within DECLINE_MS, or said no to as the path's hook ('apply:<id>') or step
- * ('path:<id>', Task 2) within DECLINE_MS. A failed read leaves those out (never throws).
+ * v4.8 Task 1 fix round 2 (F2, F5): the programs the builder told EarnKit about, read once per reply: this installation's
+ * builder_program_status (any status) and the group's applied ones (standing.ts toldAppliedSql). Null on a failed read,
+ * so the path fails closed (no hook) and the older reply's R6 keeps its drafts-only fallback. Never throws.
  */
-async function pathSkip(id: number, seen: Seen, now: Date, skip: Set<string>): Promise<Set<string>> {
-  const told = await sql()<{ program_id: string }[]>`SELECT program_id FROM builder_program_status WHERE installation_id = ${id}`.catch((err: unknown) => {
-    logged('path told')(err);
-    return [];
+async function toldIds(id: number): Promise<Set<string> | null> {
+  const db = sql();
+  const rows = await db<{ program_id: string }[]>`
+    SELECT program_id FROM builder_program_status WHERE installation_id = ${id}
+    UNION SELECT program_id FROM (${toldAppliedSql(db, id)}) t`.catch((err: unknown) => {
+    logged('told')(err);
+    return null;
   });
+  return rows ? new Set(rows.map((r) => r.program_id)) : null;
+}
+/** v4.7.1 R6, v4.8 fix round 2: never pitched: told about (`told`) or drafted within DECLINE_MS. Pure. */
+const notPitched = (told: Set<string> | null, seen: Seen, now: Date) =>
+  new Set([...(told ?? []), ...Object.keys(seen.apply_yes ?? {}).filter((p) => draftedRecently(seen, p, now))]);
+/**
+ * v4.8 Task 1: the programs the path never names: entered or hidden (`skip`), told about or drafted (notPitched), or
+ * said no to as the path's hook ('apply:<id>') or step ('path:<id>', Task 2) within DECLINE_MS. Fix round 2 (F4): a v4.7
+ * silence stand-aside (best-fit.ts withoutSilentDeclines: apply_silent at the same time) is no no. Pure.
+ */
+function pathSkip(told: Set<string>, seen: Seen, now: Date, skip: Set<string>): Set<string> {
+  // withoutSilentDeclines' rule (best-fit.ts imports this file, so it is not imported here).
+  const silent = seen.apply_silent ?? {};
   const parked = Object.entries(seen.declined ?? {})
+    .filter(([k, at]) => !(k.startsWith('apply:') && silent[k.slice('apply:'.length)] === at))
     .filter(([k, at]) => (k.startsWith('apply:') || k.startsWith('path:')) && now.getTime() - Date.parse(at) < DECLINE_MS)
     .map(([k]) => k.slice(k.indexOf(':') + 1));
-  return new Set([...skip, ...(await notPitched(id, seen, now)), ...told.map((t) => t.program_id), ...parked]);
+  return new Set([...skip, ...notPitched(told, seen, now), ...parked]);
 }
 /** v4.8 Task 1: a program's prize part as the path says it ("up to $1M", never "investment"), null with no amount. Pure. */
 const pathAmount = (c: Pick<Card, 'summary' | 'investment'>): string | null => {
@@ -553,24 +573,27 @@ const moveProgram = (c: Card): MoveProgram => ({
 });
 /** v4.8 Task 1: an investor program is gathered for the path only this close to its deadline (bestMove's own window). */
 const INVESTOR_READ_MS = 7 * 86_400_000;
+/** v4.8 fix round 2 (F1): the older moments that go first while the path only has the closest grant (once a session). */
+const OLDER_MOMENTS: readonly string[] = ['connect', 'share', 'post', 'checkin'];
+
+type PathFacts = { state: BenchView['state']; variant: Variant; project: BenchProject; streak: number; handle: string; stand: Standing; siteLive: boolean; chains: string[] };
+/** v4.8 Task 1: what bestMove chose and what the reply needs to say and store it (pathPlan's result). */
+type PathPlan = {
+  move: Move; facts: PathFacts; fitRows: Fit[]; extra: Map<string, { qualify?: QualifyOffer; needs?: string[] }>; path: Path | null;
+};
 
 /**
- * v4.8 Task 1: the path's reply for a ranked builder (conversation.ts): the facts bestMove reads (the real fits, each
- * open grant's gaps from base-qualify.ts qualifyOffer or programNeeds, the investor programs closing within a week with
- * the program file's odds, what to skip), then pathReply's hook. Its question is stored as the existing asks (a fit or
- * investor program: 'apply', whose yes drafts it; Base's gap: 'qualify'; another grant's: 'check_fits'), so tell's yes
- * and no work today; the path (standing_seen.path) and the session's parts said are written. Null when bestMove is
- * quiet (the older asks answer). Never throws on its own reads.
+ * v4.8 Task 1: the path's facts for a ranked builder (reads only): the real fits, each open grant's gaps (Base from
+ * base-qualify.ts qualifyOffer, another from programNeeds against needsKnown, read once a project: F5), the investor
+ * programs closing within a week (odds left null until Task 3 reads them: F5), what to skip (`told`: toldIds), and
+ * bestMove's choice. Never throws on its own reads.
  */
-async function pathView(
-  o: ViewIn,
-  v: { state: BenchView['state']; variant: Variant; project: BenchProject; streak: number; handle: string; stand: Standing; siteLive: boolean; chains: string[] },
-): Promise<{ view: BenchView; fields: Reply; stand: Standing } | null> {
+async function pathPlan(o: ViewIn, v: PathFacts, told: Set<string>): Promise<PathPlan> {
   const { id, now, read } = o;
   const seen = read.seen;
   const key = v.project.key;
   const recent = (at: string | undefined) => Boolean(at && now.getTime() - Date.parse(at) < DECLINE_MS);
-  const skip = await pathSkip(id, seen, now, o.skip);
+  const skip = pathSkip(told, seen, now, o.skip);
   const cardOf = new Map(o.cards.map((c) => [c.id, c]));
   const fitRows = (o.applies ?? o.fits).filter((f) => realFit(f) && f.investment !== true);
   const fits: MoveProgram[] = fitRows.map((f) => {
@@ -579,18 +602,17 @@ async function pathView(
   });
   const fitIds = new Set(fits.map((f) => f.id));
   const t = now.getTime();
-  const investorCards = o.cards.filter((c) => c.investment === true && !skip.has(c.id) && showable({ ...c, investment: false }, now, skip)
-    && c.ends_at && new Date(c.ends_at).getTime() > t && new Date(c.ends_at).getTime() - t <= INVESTOR_READ_MS);
-  const investors: InvestorProgram[] = await Promise.all(investorCards.map(async (c) => {
-    // Honest odds only from the program file (difficulty_override.basis), never estimated.
-    const row = await getProgramRow(c.id).catch(() => null);
-    const basis = (row?.difficulty_override as { basis?: unknown } | null | undefined)?.basis;
-    return { ...moveProgram(c), odds: typeof basis === 'string' && basis.trim() ? basis.trim() : null };
-  }));
+  const investors: InvestorProgram[] = o.cards
+    .filter((c) => c.investment === true && !skip.has(c.id) && showable({ ...c, investment: false }, now, skip)
+      && c.ends_at && new Date(c.ends_at).getTime() > t && new Date(c.ends_at).getTime() - t <= INVESTOR_READ_MS)
+    .map((c) => ({ ...moveProgram(c), odds: null }));
   // The gap engine: each open grant the project doesn't fit, with what it needs.
-  const also = { chains: [...v.chains, ...(o.known?.onBase ? ['base'] : [])], live: v.project.live || v.siteLive || o.known?.live === true };
   const extra = new Map<string, { qualify?: QualifyOffer; needs?: string[] }>();
   const grantCards = o.cards.filter((c) => !fitIds.has(c.id) && !skip.has(c.id) && c.investment !== true && programKind(c).startsWith('grant') && showable(c, now, skip));
+  const others = grantCards.filter((c) => c.id !== BASE_GRANTS_ID);
+  const known = others.length > 0
+    ? await needsKnown(id, key, { chains: [...v.chains, ...(o.known?.onBase ? ['base'] : [])], live: v.project.live || v.siteLive || o.known?.live === true })
+    : null;
   const grants = (await Promise.all(grantCards.map(async (c): Promise<GapGrant | null> => {
     if (c.id === BASE_GRANTS_ID) {
       // A no to Base's steps (declined 'qualify:<key>') is a passed step, raised once when it is the one gap.
@@ -604,32 +626,35 @@ async function pathView(
       const doable = offer.steps.length === 1 && offer.steps[0] === 'codes';
       return { ...moveProgram(c), gaps: offer.steps, gap: qualifyGap(v.project.name, offer), passed, doable };
     }
-    const n = await needsOf(id, key, { id: c.id, title: c.title }, c, also);
-    extra.set(c.id, { needs: n.needs });
+    // Final review 9's rule: the facts from the Card, else the program row; a failed row read names no needs.
+    const facts = c.needs_contract !== undefined && c.needs_live !== undefined ? c : await getProgramRow(c.id).catch(() => null);
+    const needs = facts && known ? programNeeds(facts, known) : [];
+    extra.set(c.id, { needs });
     // programNeeds' gaps (a chain's mainnet, a public repo, a live link) are never steps the agent does in the repo, so
     // never a one-step (fix round 1, R1). None known: it can apply now (bestMove names it only when closing within 48 hours).
-    return { ...moveProgram(c), gaps: n.needs, gap: n.needs.length > 0 ? needsWhy(v.project.name, c.title, n.needs) : '', passed: recent(seen.declined?.[benchStepKey('needs', c.id)]), doable: false };
+    return { ...moveProgram(c), gaps: needs, gap: needs.length > 0 ? needsWhy(v.project.name, c.title, needs) : '', passed: recent(seen.declined?.[benchStepKey('needs', c.id)]), doable: false };
   }))).filter((g): g is GapGrant => g !== null);
   const path = readPath(seen);
   const move = bestMove({ now, fits, grants, investors, skip, raised: new Set(Object.keys(seen.path_raised ?? {})), path });
-  if (move.kind === 'quiet') return null;
+  return { move, facts: v, fitRows, extra, path };
+}
 
-  const [who] = await sql()<{ name: string | null }[]>`SELECT x_name AS name FROM builder_profiles WHERE builder_id = ${id}`.catch(() => []);
-  const session = sessionOf(seen, now);
-  const out = pathReply({ now, first: firstName(who?.name ?? null, v.handle), project: { name: v.project.name, live: v.project.live || v.siteLive }, streak: v.streak, move, said: session.said });
-  if (path?.program_id !== out.program_id || path?.stage !== out.stage) await setPath(id, { stage: out.stage, program_id: out.program_id, picked: path?.picked === true && path.program_id === out.program_id }, now);
-  await markSaid(id, out.said, now);
-  if (move.kind === 'closest' && move.raise && out.said.length > 0)
-    await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{path_raised}',
-        COALESCE(standing_seen->'path_raised', '{}'::jsonb) || jsonb_build_object(${out.program_id}::text, ${now.toISOString()}::text))
-      WHERE builder_id = ${id}`.catch(logged('path raised'));
-
-  // v3.1 Task 7, kept: hooking Base's grant as a fit starts its Builder Codes check in the background (for the draft).
-  if (out.program_id === BASE_GRANTS_ID && out.reply === 'start') await codesFor(id, key, now, o.codesFetch);
-  // The question, stored as the existing ask its yes and no already answer.
+/**
+ * v4.8 Task 1: the path's reply for a plan bestMove filled (pathReply's hook). Its question is stored as the existing
+ * asks (a fit or investor program: 'apply', whose yes drafts it; Base's gap: 'qualify'; another grant's: 'check_fits'),
+ * so tell's yes and no work today. Fix round 2 (F5): the path, the session's parts said, the stored ask and a raised
+ * passed step are one UPDATE. Never throws on its own writes.
+ */
+async function pathCommit(o: ViewIn, plan: PathPlan & { move: Exclude<Move, { kind: 'quiet' }> }): Promise<{ view: BenchView; fields: Reply; stand: Standing }> {
+  const { id, now, read } = o;
+  const { move, facts: v, fitRows, extra, path } = plan;
+  const key = v.project.key;
+  // F9: greeted by the X name's first word, else no name (never the handle).
+  const first = read.xName ? firstName(read.xName, null) : null;
+  const session = sessionOf(read.seen, now);
+  const out = pathReply({ now, first: first === 'there' ? null : first, project: { name: v.project.name, live: v.project.live || v.siteLive }, streak: v.streak, move, said: session.said });
   const fit = fitRows.find((f) => f.program_id === out.program_id);
   const more = extra.get(out.program_id);
-  const program = move.program;
   // `path`: a no to it also parks the program for the path ('path:<id>', DECLINE_MS): never asked again this session.
   const stored: Record<string, unknown> = out.reply === 'start'
     ? { kind: 'apply', key, program_id: out.program_id, path: true, ...(fit?.repo && { repo: fit.repo }) }
@@ -639,8 +664,19 @@ async function pathView(
           // hosted: the hook asked "Want the steps?", so its yes gives the steps (Task 2's gap stage does the step).
           qualify: { grant: more.qualify.grant, steps: more.qualify.steps, first: more.qualify.steps[0], name: v.project.name, hosted: true, codes_missing: more.qualify.missing.includes('codes') },
         }
-      : { kind: 'check_fits', key, program: program.title, program_id: out.program_id, needs: more?.needs ?? [], path: true };
-  await storeAsk(id, stored);
+      : { kind: 'check_fits', key, program: move.program.title, program_id: out.program_id, needs: more?.needs ?? [], path: true };
+  const nextPath: Path = {
+    stage: out.stage, program_id: out.program_id, at: now.toISOString(),
+    ...(path?.picked && path.program_id === out.program_id && { picked: true as const }),
+  };
+  const raise = move.kind === 'closest' && move.raise && out.said.length > 0;
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
+      || jsonb_build_object('path', ${sql().json(nextPath as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb, 'said', ${saidSql(out.said, now)})
+      || CASE WHEN ${raise} THEN jsonb_build_object('path_raised', COALESCE(standing_seen->'path_raised', '{}'::jsonb)
+           || jsonb_build_object(${out.program_id}::text, ${now.toISOString()}::text)) ELSE '{}'::jsonb END
+    WHERE builder_id = ${id}`.catch(logged('path'));
+  // v3.1 Task 7, kept: hooking Base's grant as a fit starts its Builder Codes check in the background (for the draft).
+  if (out.program_id === BASE_GRANTS_ID && out.reply === 'start') await codesFor(id, key, now, o.codesFetch);
   const kind = stored.kind as BenchAskKind;
   const note = kind === 'apply' ? APPLY_NOTE : kind === 'qualify' ? QUALIFY_NOTE : CHECK_FITS_ASK_NOTE;
   const view: BenchView = {
@@ -755,16 +791,26 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   // asks below (connect, the Monday block, posts, check-in, wallet, token, new repo, titles, then the ship line).
   // The path read the programs and had none to name (or parked them), so no older program ask (Base's qualify) is made.
   let pathQuiet = false;
+  // Fix round 2 (F1): the path has only the closest grant (bestMove step 5): the older moments go first, once a session.
+  let deferred: (PathPlan & { move: Exclude<Move, { kind: 'quiet' }> }) | null = null;
+  // Fix round 2 (F5): one nudge pick a reply (re-picked only for a milestone, whose line names the Best fit).
+  let nudgeFirst: NudgePick | null | undefined;
+  // Fix round 2 (F2, F5): what the builder told EarnKit about, read once; null (a failed read): the path makes no hook.
+  const told = ranked && project && !taken ? await toldIds(id) : new Set<string>();
   // A person only (reply-facts.ts personal; v4.7.2 final review 10, R7): a shared client that is no person gets no path
   // and no path reads or writes (standing_seen.path, said, bench_ask).
   if (o.personal && rankedFree && !more && project && !taken && !held && handle !== null) {
-    const nudgeFirst = await pickNudge(id, now, { project: project.name, best: null });
-    if (!(nudgeFirst?.ask && nudgeFirst.line)) {
-      const led = await pathView(o, { state, variant, project, streak, handle, stand, siteLive, chains: row?.chains ?? [] });
-      if (led) return led;
-      pathQuiet = true;
+    nudgeFirst = await pickNudge(id, now, { project: project.name, best: null });
+    if (!(nudgeFirst?.ask && nudgeFirst.line) && told) {
+      const plan = await pathPlan(o, { state, variant, project, streak, handle, stand, siteLive, chains: row?.chains ?? [] }, told);
+      const move = plan.move;
+      if (move.kind === 'quiet') pathQuiet = true;
+      else if (move.kind !== 'closest' || sessionOf(read.seen, now).said.has(OLDER_SAID)) return pathCommit(o, { ...plan, move });
+      else deferred = { ...plan, move };
     }
   }
+  // F1: while the closest grant waits, only an older moment may answer (the quieter asks stay for a quiet path).
+  const momentsOnly = deferred !== null;
   // Launch ready L5: the weekly target, the ship step's points line lead (ranks only, never another builder's name).
   const aim = ranked ? await targetIn(id, read.parts, now) : null;
   const target = aim ? weeklyTarget(aim) : null;
@@ -774,7 +820,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   // are the money line, the fund lines and the apply step (long shots stay in the "What can I earn?" table).
   const realFits = o.fits.filter(realFit);
   // v4.7.1 fix round 2 (R6), kept in v4.8: a program told applied or drafted is never pitched (the Best fit, the fit lines).
-  const noPitch = ranked && project && !taken ? await notPitched(id, read.seen, now) : new Set<string>();
+  const noPitch = ranked && project && !taken ? notPitched(told, read.seen, now) : new Set<string>();
   const open = ranked && project && !taken && !held
     ? ((await bestApplies(id, (o.applies ?? o.fits.slice(0, 3)).filter(realFit), read.seen, o.skip, now)) ?? []).filter((f) => !noPitch.has(f.program_id))
     : [];
@@ -802,7 +848,9 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
     && !(await momentWouldShow(o.own, id, project.key, now)) && (await claimNudge(id, now, o.nudge.keep)));
   if (standIn) held = null;
   const nudgeOk = standIn || Boolean(rankedFree && !more && project && handle && !held && !connect && !hot);
-  const peek = !nudgeOk ? null : standIn ? o.nudge! : await pickNudge(id, now, { project: project!.name, best: best && realFit(best) ? best.title : null });
+  const peek = !nudgeOk ? null : standIn ? o.nudge!
+    : nudgeFirst !== undefined && nudgeFirst?.kind !== 'milestone' ? nudgeFirst
+    : await pickNudge(id, now, { project: project!.name, best: best && realFit(best) ? best.title : null });
   const askMoment = !standIn && peek?.ask && peek.line ? await weeklyMoment(o.own, id, project!.key, handle!, row?.commit_weeks ?? [], now) : null;
   const owns = standIn || Boolean(peek?.ask && peek.line && !askMoment && (await claimNudge(id, now, peek.keep)));
   // Launch ready L6: the weekly moment, once a week per installation, never over a held question.
@@ -821,17 +869,17 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   const reach = o.reach ?? (await agentReach(o.own, id));
   const qualifyIn = { cards: o.cards, skip: o.skip, seen: read.seen, now, declineMs: DECLINE_MS, codesFetch: o.codesFetch, known: o.known };
   const checkin = quiet && !more && handle !== null && reach.schedules && !read.seen.checkin && checkinAskDue(read.seen, now) && (await takeCheckinAsk(id, now));
-  const wallet = ((quiet && !checkin) || (githubNo && !baseAsk)) && !more && handle !== null ? await walletOfferDue(id, now) : null;
+  const wallet = ((quiet && !checkin && !momentsOnly) || (githubNo && !baseAsk)) && !more && handle !== null ? await walletOfferDue(id, now) : null;
   // 2026-10-23: a main project with no commits in STALE_WEEKS: one light nudge, claimed once.
   // Fix round: never within NEW_REPO_GRACE_DAYS of connecting it (its weeks may not be read yet).
   // v4.2 Task 6 (F11): the one-time token offer for an earlier builder, in a quiet reply (never beside another question,
   // never during setup: step 3 is not due); claimed below only once this reply carries it.
-  const tokenOffer = quiet && !more && !checkin && !wallet && !walletSetup && handle !== null && (await tokenOfferDue(id));
+  const tokenOffer = quiet && !momentsOnly && !more && !checkin && !wallet && !walletSetup && handle !== null && (await tokenOfferDue(id));
   // v4.7 T3: the Stripe ask left the reply order: it rides on a draft for a program that wants revenue (tools.ts prepare).
-  const newRepo = quiet && !more && !checkin && !wallet && !tokenOffer && handle !== null && !read.seen.new_repo_asked && staleRepo(row?.commit_weeks ?? [], now)
+  const newRepo = quiet && !momentsOnly && !more && !checkin && !wallet && !tokenOffer && handle !== null && !read.seen.new_repo_asked && staleRepo(row?.commit_weeks ?? [], now)
     && !(await connectedSince(id, project.key, now)) && (await takeOnce(id, 'new_repo_asked', now));
-  const titles = quiet && !more && !checkin && !wallet && !tokenOffer && !newRepo && handle !== null && (await titlesAskDue(id, project.key, now)) && (await takeTitlesAsk(id, now));
-  const qualify = quiet && !pathQuiet && !checkin && !wallet && !tokenOffer && !newRepo && !titles && realFits.length === 0
+  const titles = quiet && !momentsOnly && !more && !checkin && !wallet && !tokenOffer && !newRepo && handle !== null && (await titlesAskDue(id, project.key, now)) && (await takeTitlesAsk(id, now));
+  const qualify = quiet && !pathQuiet && !momentsOnly && !checkin && !wallet && !tokenOffer && !newRepo && !titles && realFits.length === 0
     ? await qualifyOffer(id, project.key, qualifyIn)
     : null;
   const link = state === 'signed_out' ? signIn : noCode ? pick : state === 'ranked' ? null : install;
@@ -868,6 +916,12 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   if (finalAsk.kind === 'token' && !(await takeTokenOffer(id, now))) finalAsk = stateAsk({ ...asks, tokenOffer: false, wallet: null });
   // v4.0: step 3 the same way (another reply claimed it first: this one asks the next step, or nothing).
   if (finalAsk.kind === 'wallet_setup' && !(await takeWalletAsk(id, now, true))) finalAsk = stateAsk({ ...asks, walletSetup: null, wallet: null });
+  // Fix round 2 (F1): the closest grant waited for an older moment; with none to show, it is the reply after all. One
+  // shown counts for the session (standing_seen.said 'older'), so the next call is the path.
+  if (deferred) {
+    if (!OLDER_MOMENTS.includes(finalAsk.kind)) return pathCommit(o, deferred);
+    await markSaid(id, [OLDER_SAID], now);
+  }
   if (finalAsk.kind === 'ship' && !held) await sql()`
     UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('ship_asked', ${now.toISOString()}::text)
     WHERE builder_id = ${id}`.catch(logged('ship asked'));
@@ -999,21 +1053,6 @@ export function alsoOpen(cards: Card[], now: Date, skip: Set<string>, not: strin
     .sort(byRelevance)
     .slice(0, 2)
     .map((c) => ({ title: c.title, amount: upToCell(prizeOf(c)), when: fundWhen(c) }));
-}
-
-/**
- * v4.7.1 T1 fix round 2 (R6): the programs a ranked reply never pitches: told applied (standing.ts toldAppliedSql, the
- * group's builder_program_status but not_interested) or drafted within DECLINE_MS (draftedRecently). A failed read: the
- * drafts alone (never throws).
- */
-async function notPitched(id: number, seen: Seen, now: Date): Promise<Set<string>> {
-  const db = sql();
-  const told = await db<{ program_id: string }[]>`SELECT program_id FROM (${toldAppliedSql(db, id)}) t`.catch((err: unknown) => {
-    logged('not pitched')(err);
-    return [];
-  });
-  const drafted = Object.keys(seen.apply_yes ?? {}).filter((p) => draftedRecently(seen, p, now));
-  return new Set([...told.map((t) => t.program_id), ...drafted]);
 }
 
 /**
@@ -1207,22 +1246,6 @@ export async function needsKnown(
     also.live === true ? Promise.resolve(true) : liveOrUsersKnown(id, key),
   ]);
   return { chains: new Set([...chains, ...(also.chains ?? []).map((c) => c.toLowerCase())]), repo, live };
-}
-/**
- * v4.7.2 T2, v4.8 Task 1 (the gap engine): what open grant `g` needs from the project, its id and title
- * (programNeeds). Final review 9: the facts come from its Card (programs.ts programCard reads them from listPrograms'
- * row); a Card without them (a caller's own list) reads the program row (getProgramRow) beside needsKnown. A failed
- * row read names no needs (the "can't see what it would need" copy), never a gap it doesn't know. Never throws.
- */
-async function needsOf(
-  id: number, key: string, g: { id: string; title: string }, card: Card | undefined, also: { chains?: string[]; live?: boolean }, later = false,
-): Promise<{ id: string; title: string; needs: string[]; later: boolean }> {
-  const fromCard = card && card.needs_contract !== undefined && card.needs_live !== undefined ? card : null;
-  const [facts, known] = await Promise.all([
-    fromCard ?? getProgramRow(g.id).catch(() => null),
-    needsKnown(id, key, also),
-  ]);
-  return { id: g.id, title: g.title, needs: facts ? programNeeds(facts, known) : [], later };
 }
 /** The apply ask for `programId`, claimed once a program (standing_seen.apply_asked, one guarded UPDATE). Never throws. */
 async function takeApplyAsk(id: number, programId: string, now: Date): Promise<boolean> {
