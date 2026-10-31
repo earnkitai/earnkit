@@ -155,14 +155,14 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   // connect reply and hasn't changed, so it isn't repeated; the points line is this week's first).
   // v4.7.1 final review (R6): Base's application is drafted now, so it is never pitched again: the open grants instead.
   const s8 = rule(show(await mcpCall(ctx, 'find', {})));
-  assert.equal(s8, [
-    'Open now: Circle Developer Grants, $5,000 to $100,000 USDC grants, rolling.',
+  // v4.7.2 T1: the open paragraph leads with the total in grants and ends with the soonest open investment (live programs,
+  // so the figure and the investment are matched by shape).
+  assert.match(s8, /^Open now: (?:\$[\d.,]+[KM]?\+? in grants\. )?Circle Developer Grants, \$5,000 to \$100,000 USDC grants, rolling\.(?: [^\n]+ investment, [^\n]+\.)?\n/, s8);
+  assert.equal(
+    s8.slice(s8.indexOf('\n')),
     // v4.7 T4: the ship ask's why line in place of the points line, its own paragraph.
-    '',
-    'Shipping this week keeps your 4-week streak and lifts your score.',
-    '',
-    'Want me to suggest one small thing to ship?',
-  ].join('\n'));
+    '\n\nShipping this week keeps your 4-week streak and lifts your score.\n\nWant me to suggest one small thing to ship?',
+  );
 
   // Step 7: Monday. Last week (Oct 12) ranked #1 of 13 and is week 4 in a row (code Sep 21 to Oct 17).
   mock.timers.setTime(Date.parse('2026-10-19T16:00:00Z'));

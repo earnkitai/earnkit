@@ -17,7 +17,7 @@ import {
   grantProgramName, liveNoGithub, pickRepoAsk, qualifySteps, walletOffer, youreIn,
   type BenchView,
 } from './bench-reply';
-import { walletSetupAsk } from './bench-reply';
+import { ASKS_HINT, walletSetupAsk } from './bench-reply';
 import { proofAsk } from './post-reply';
 import { factsAck } from './builder-memory';
 import { siteFormLine, youAddLine } from './submit-kit';
@@ -254,7 +254,9 @@ test('the status line only when it changed, the points line once a week; score a
   }
   const two = show(r2);
   assert.doesNotMatch(two, /points/, two);
-  assert.equal(two.split('\n').length, 1, two);
+  // v4.7.2 T2 (no program left): the quiet reply ends with ASKS_HINT, its own paragraph, after the one money line.
+  assert.equal(two.split('\n\n').at(-1), ASKS_HINT, two);
+  assert.equal(two.slice(0, -ASKS_HINT.length).trim().split('\n').length, 1, two);
   const st = await seen(b.id);
   assert.equal(typeof st.status_seen, 'string');
   assert.equal(typeof st.nag_week, 'string');

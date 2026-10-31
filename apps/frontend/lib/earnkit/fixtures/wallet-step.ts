@@ -10,11 +10,16 @@ export async function walletOffered(builderId: number): Promise<void> {
 }
 
 /**
- * v4.7.1 T1: marks the ranked check_fits ask as asked already (standing_seen.check_fits_asked), for a test about another
- * ranked step of a builder with no fit (v471-money.test.ts covers check_fits itself). The open grants still lead.
+ * v4.7.1 T1: marks the ranked check_fits ask as asked already, for a test about another ranked step of a builder with no
+ * fit (v471-money.test.ts and v472-next-step.test.ts cover check_fits itself). The open grants still lead. v4.7.2 T2: the
+ * ask is per program now (check_fits_asked is never read), so this says no to it ('needs:<id>', at `at`) for every
+ * program in the table; a program added after this call can still be asked.
  */
-export async function checkFitsAsked(builderId: number): Promise<void> {
-  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('check_fits_asked', now()::text) WHERE builder_id = ${builderId}`;
+export async function checkFitsAsked(builderId: number, at = new Date().toISOString()): Promise<void> {
+  const rows = await sql()<{ id: string }[]>`SELECT id FROM programs`;
+  const declined = Object.fromEntries(rows.map((r) => [`needs:${r.id}`, at]));
+  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{declined}',
+    COALESCE(standing_seen->'declined', '{}'::jsonb) || ${sql().json(declined as never)}::jsonb) WHERE builder_id = ${builderId}`;
 }
 
 /**

@@ -7,7 +7,7 @@ import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
 import { fakeGitHub } from './fixtures/fake-github';
 import { appEnv, installApp } from './fixtures/app-install';
-import { walletOffered } from './fixtures/wallet-step';
+import { checkFitsAsked, walletOffered } from './fixtures/wallet-step';
 import { withEnv } from './fixtures/find';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
@@ -178,8 +178,10 @@ async function ranked(tag: string, client: string, o: { seen?: Record<string, un
   await installApp({ builderId: p.id, repoKey: key, login: p.login, gh });
   await sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${p.id} AND kind = 'repo'`;
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || ${sql().json({
-    connect_done: new Date().toISOString(), new_repo_asked: new Date().toISOString(), check_fits_asked: new Date().toISOString(), qualify_given: { [key]: new Date().toISOString() }, ...(o.seen ?? {}),
+    connect_done: new Date().toISOString(), new_repo_asked: new Date().toISOString(), qualify_given: { [key]: new Date().toISOString() }, ...(o.seen ?? {}),
   } as never)}::jsonb WHERE builder_id = ${p.id}`;
+  // v4.7.2 T2: the needs ask (check_fits) said no to for every program, so these tests reach the check-in and ship asks.
+  await checkFitsAsked(p.id);
   return { ...p, ctx, key, gh, gid };
 }
 

@@ -8598,3 +8598,19 @@ v4.7's reply word for word. With no fit and no qualify due, the ask is `check_fi
 would need for Arc Microgrants?", its why "None of these fit Kit on what EarnKit can see yet."), never naming Base's
 grant; its yes runs find and reads that program's requirements. Ranked replies show v4.7's standing paragraph in place
 of `standingLine`, under the same changed-only key (`status_seen` still holds the old line, so nothing re-shows).
+v4.7.2 Task 2 (the why names the gap, 2026-10-31): the ranked `check_fits` ask is per program, not once a person. It names
+the first open program of the money paragraph (open grants, then the open investment; never Base's grant) not said no
+to or answered yes within DECLINE_MS (`declined['needs:<id>']`, `standing_seen.needs_yes`) and not shown
+APPLY_UNANSWERED_MAX times unanswered (`standing_seen.needs_unanswered`, apply_unanswered's rule: then it stands aside
+as a no). Its why is `needsWhy` ("Arc Microgrants needs EarnKit on Arc mainnet."), from `programNeeds` on the program row
+(`getProgramRow`: needs_contract, needs_repo, a required live_url field) against `needsKnown` (`onChainKnown`, a verified
+repo, `liveOrUsersKnown`); the question is `needsAsk` ("Want the steps to get EarnKit ready for Arc Microgrants?"). With no
+program left, the quiet ranked reply showing the open grants ends with `ASKS_HINT` and no question.
+`check_fits_asked` stays in old rows, never read.
+v4.7.2 final review: the needs ask names open grants only (never the investment, which the money line names), for a
+person only (`o.personal`). Three unanswered showings mark `needs_silent` (held DECLINE_MS, not a no); only an explicit
+no (`declined['needs:<id>']`) keeps an investment out of the slot. No known gap: "EarnKit can't see what {program} would
+need from {name} yet." / "Want me to check {program}'s requirements for {name}?". A yes never runs find: `needsYesNote`
+lists the program's requirements with the stored gaps. Facts come from the Card (`needs_contract`, `needs_live` from
+programCard); "in a public repo" clears only on a repo read public (`public_at` or the latest reading). The total is
+/api/stats' figure (`openMoneyNow` reads every active program); with no grant listed, the Open now line drops it.
