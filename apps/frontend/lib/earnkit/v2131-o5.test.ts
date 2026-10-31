@@ -10,7 +10,8 @@ import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
-import { INTRO_LINE, SHIP_ASK } from './bench-reply';
+import { SHIP_ASK } from './bench-reply';
+import { isOpener } from './fixtures/opener';
 import { GitHubError } from './match-projects';
 import { RateLimitError } from './rate-limit';
 import { TWIST_QUESTION, WALLET_ASK, buildingLine, twistQuestion } from './fresh-build';
@@ -115,19 +116,19 @@ test('O5 N1 (F16) the first find and score answer in under 3 s while GitHub has 
       assert.equal(gh.answered(), 0, 'none had answered when the reply went out');
       // v2.14 spec 2: not counted until the App is installed (no proof branch, no GitHub read for it).
       // v2.14 T9: unsigned: not on the Bench yet, and the sign-in link is the one link (no App link: it needs a page).
-      assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE, r.show_to_builder);
+      assert.ok(isOpener(r.show_to_builder), r.show_to_builder);
       assert.equal(links(r.show_to_builder).length, 1);
       assert.match(links(r.show_to_builder)[0]!, /\/signin\//);
-      assert.ok(r.show_to_builder.endsWith('Done with step 1?'));
+      assert.ok(isOpener(r.show_to_builder), r.show_to_builder);
       assert.equal(r.proof, undefined);
       const t2 = Date.now();
       const r2 = await find(id, {});
       assert.ok(Date.now() - t2 < 3000, `the second find took ${Date.now() - t2} ms`);
-      assert.equal(r2.show_to_builder.split('\n')[0], INTRO_LINE);
+      assert.ok(isOpener(r2.show_to_builder), r2.show_to_builder);
       const t1 = Date.now();
       const s = (await tools.score({}, { installationId: id } as never)) as R;
       assert.ok(Date.now() - t1 < 3000, `score took ${Date.now() - t1} ms`);
-      assert.equal(s.show_to_builder.split('\n')[0], INTRO_LINE);
+      assert.ok(isOpener(s.show_to_builder), s.show_to_builder);
     } finally {
       gh.release();
       globalThis.fetch = was;
@@ -210,7 +211,7 @@ test('O5 N6 (P5) no project: never a grant claimed for a build that can\'t enter
     assert.ok(!r.show_to_builder.includes(`${ava.title} pays`), r.show_to_builder);
     assert.doesNotMatch(r.show_to_builder, /a small app|tip jar/);
     // v2.14 T9: signed out: the sign-in question.
-    assert.ok(r.show_to_builder.endsWith('Done with step 1?'), r.show_to_builder);
+    assert.ok(isOpener(r.show_to_builder), r.show_to_builder);
     assert.equal(r.build_offer, undefined);
     // A chat-only agent: the same rule.
     const c = await install();
@@ -237,7 +238,7 @@ test('O5 N13 confirmed but not claimed: the last line never says "on the Bench" 
     const id = await person({ main: key, projects: [{ key, name: 'Hello-World', confirmed: true }] });
     const r = await find(id, {}, NO_MATCH);
     // v2.14 T9: signed out, it is not on the Bench yet (the stand line), and the question is the sign-in.
-    assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE, r.show_to_builder);
+    assert.ok(isOpener(r.show_to_builder), r.show_to_builder);
     assert.doesNotMatch(r.show_to_builder, /is on the leaderboard|post what you ship/, r.show_to_builder);
     assert.equal(r.move_up?.kind, 'sign_in');
     assert.notEqual(r.move_up?.kind, 'updates');
@@ -249,10 +250,10 @@ test('O5 N15, v2.14: a chat-only agent with a project: not counted yet (the App 
     const key = `${uniq('ch')}/earny`;
     const id = await install();
     const r = await find(id, { ...named(key), agent_can_build: false }, NO_MATCH);
-    assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE, r.show_to_builder);
+    assert.ok(isOpener(r.show_to_builder), r.show_to_builder);
     assert.notEqual(r.move_up?.kind, 'updates');
-    assert.ok(r.show_to_builder.endsWith('Done with step 1?'), r.show_to_builder);
-    assert.equal(questions(r.show_to_builder), 1);
+    // v4.8 Task 4: the opener's one easy reply is a number (no question).
+    assert.equal(questions(r.show_to_builder), 0);
   }),
 );
 

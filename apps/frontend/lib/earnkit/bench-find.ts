@@ -25,7 +25,7 @@ import {
   FITS_MAX, fundWhen, scoreFits, showable, standBase, startRefresh, takeNews,
   type Seen as StandSeen, type StandBase,
 } from './stand-view';
-import { openMoneyUsd } from './pool';
+import { moneyText, openMoneyUsd, usdCompact } from './pool';
 import { byDeadline, byRelevance, canApply, enteredIds, fullProgramTable, layout, noFitLine, submitStep, submitStepLine, type Card, type FirstMessage, type RepoFit, type YourRepos } from './present';
 import type { ReaderDeps } from './source-readers';
 import { NO_USERS_YET, creditsMainnet, type Detection } from './match';
@@ -55,7 +55,7 @@ import {
 } from './connect-moment';
 import { POST_NOTE, eventPost, redraftAnswer, weeklyPost } from './post-reply';
 import { EMAIL_NOTE, WHICH_EMAIL, askWeeklyEmail, digestEnabled, saveWeeklyEmail } from './digest';
-import { pagePath } from './reserved-routes';
+import { pagePath, pageUrl } from './reserved-routes';
 import { prizeOf, shortWallet, siteUrl, upToCell } from './entry-text';
 import { programKind } from './site-copy';
 import { BASE_GRANTS_ID } from './builder-code';
@@ -73,7 +73,7 @@ import { DECLINE_MS, draftedRecently } from './policy-constants';
 import { closeDay, programZone, zoneAbbr } from './deadline';
 import type { ProgramRow as ProgramFileRow } from './programs';
 import {
-  MENTOR_NOTE, OLDER_SAID, SESSION_MS, bestMove, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProof, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofLine, markSaid, pathReply, programName, readPath, saidSql, sessionOf,
+  MENTOR_NOTE, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, type OpenerProgram, type MoveCtx, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProof, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofLine, markSaid, pathReply, programName, readPath, saidSql, sessionOf,
   type GapStep,
   type GapGrant, type InvestorProgram, type Move, type MoveProgram, type Path,
 } from './conversation';
@@ -296,6 +296,11 @@ export type Seen = StandSeen & {
   lovable_prompt?: string;
   /** v3.1 answerable replies (spec 6): the UTC day (YYYY-MM-DD) the connect step's full pitch was last shown. */
   pitch_day?: string;
+  /**
+   * v4.8 Task 4: the new builder's opener: the numbered programs shown (ids in order, so a number resolves later), when,
+   * and when the first reply after connecting said the profile line (once).
+   */
+  opener?: { ids?: unknown; at?: string; connected?: string };
 };
 type Reply = Record<string, unknown>;
 
@@ -534,6 +539,8 @@ type ViewIn = {
   more?: boolean;
   /** v3.1 cold read: what find's own match read of the one project (a Base deploy, a live link), for Base's steps. */
   known?: { onBase: boolean; live: boolean };
+  /** v4.8 Task 4: find {program}: a program the builder named or picked (a number from the opener's list). */
+  named?: string;
 };
 
 /** Test only: resolves when every running Builder Codes check has finished. */
@@ -606,6 +613,8 @@ type PathPlan = {
   closed: { program: MoveProgram; org: string; codes: boolean } | null;
   /** Fix round 2 (F3): the path's Builder Codes re-check is still running past RECHECK_WAIT: the reply says so. */
   checking: boolean;
+  /** v4.8 Task 4: what bestMove chose from, so a no-fit pick can be set aside and the closest money chosen. */
+  ctx: MoveCtx;
 };
 /** v4.8 Task 2: after a yes to the agent adding a step, find checks the code again for this long, at most once a minute. */
 /**
@@ -735,8 +744,8 @@ async function pathPlan(o: ViewIn, v: PathFacts, told: Set<string>): Promise<Pat
   // Fix round 1 (1): a grant raised in this session stays the move while the path is on it (its pointer answers).
   const live = !sessionOf(seen, now).fresh;
   const raisedNow = new Set(Object.entries(seen.path_raised ?? {}).filter(([, at]) => live && now.getTime() - Date.parse(at) < SESSION_MS).map(([k]) => k));
-  const move = bestMove({ now, fits, grants, investors, skip, raised: new Set(Object.keys(seen.path_raised ?? {})), raisedNow, path });
-  return { move, facts: v, fitRows, extra, path, closed, checking };
+  const ctx: MoveCtx = { now, fits, grants, investors, skip, raised: new Set(Object.keys(seen.path_raised ?? {})), raisedNow, path };
+  return { move: bestMove(ctx), facts: v, fitRows, extra, path, closed, checking, ctx };
 }
 
 /**
@@ -745,18 +754,22 @@ async function pathPlan(o: ViewIn, v: PathFacts, told: Set<string>): Promise<Pat
  * so tell's yes and no work today. Fix round 2 (F5): the path, the session's parts said, the stored ask and a raised
  * passed step are one UPDATE. Never throws on its own writes.
  */
-async function pathCommit(o: ViewIn, plan: PathPlan & { move: Exclude<Move, { kind: 'quiet' }> }, since: string | null = null): Promise<{ view: BenchView; fields: Reply; stand: Standing }> {
+async function pathCommit(
+  o: ViewIn, plan: PathPlan & { move: Exclude<Move, { kind: 'quiet' }> }, since: string | null = null,
+  /** v4.8 Task 4: a sentence before the hook in its paragraph (it greets no one then), and the steps ask (never "Go?"). */
+  pre: { inline?: string | null; steps?: boolean; keep?: boolean } = {},
+): Promise<{ view: BenchView; fields: Reply; stand: Standing }> {
   const { id, now, read } = o;
   const { move, facts: v, fitRows, extra, path } = plan;
   const key = v.project.key;
   // F9: greeted by the X name's first word, else no name (never the handle). Task 3: the first hook after "sent" (the
   // path at track) follows the tracking line in the same reply, so it greets no one.
   const afterSent = path?.stage === 'track' && now.getTime() - Date.parse(path.at) < AFTER_SENT_MS;
-  const first = read.xName && !afterSent ? firstName(read.xName, null) : null;
+  const first = read.xName && !afterSent && !pre.inline ? firstName(read.xName, null) : null;
   const session = sessionOf(read.seen, now);
   // Task 2 (F3, as before v4.8): what the caller's agent can do (agent-reach.ts); a hosted one does no step itself.
   const hosted = (o.reach ?? (await agentReach(o.own, id))).hosted;
-  const out = pathReply({ now, first: first === 'there' ? null : first, project: { name: v.project.name, live: v.project.live || v.siteLive }, streak: v.streak, move, said: session.said, hosted });
+  const out = pathReply({ now, first: first === 'there' ? null : first, project: { name: v.project.name, live: v.project.live || v.siteLive }, streak: v.streak, move, said: session.said, hosted, steps: pre.steps });
   const fit = fitRows.find((f) => f.program_id === out.program_id);
   const more = extra.get(out.program_id);
   // `path`: a no to it also parks the program for the path ('path:<id>', DECLINE_MS): never asked again this session.
@@ -773,7 +786,8 @@ async function pathCommit(o: ViewIn, plan: PathPlan & { move: Exclude<Move, { ki
   // Task 2: a builder past the hook on this program keeps their stage (the hook's words again are its pointer).
   const nextPath: Path = {
     stage: path && path.program_id === out.program_id && path.stage !== 'hook' ? path.stage : out.stage, program_id: out.program_id, at: now.toISOString(),
-    ...(path?.picked && path.program_id === out.program_id && { picked: true as const }),
+    // v4.8 Task 4: the closest money offered for a pick that doesn't fit stays the path's program (`keep`), as a pick.
+    ...(((path?.picked && path.program_id === out.program_id) || pre.keep) && { picked: true as const }),
   };
   const raise = move.kind === 'closest' && move.raise && out.said.length > 0;
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
@@ -788,7 +802,7 @@ async function pathCommit(o: ViewIn, plan: PathPlan & { move: Exclude<Move, { ki
   const view: BenchView = {
     state: v.state, variant: v.variant, project: v.project, rank: read.ranks.bench, streak: v.streak, target: null, handle: v.handle, link: null,
     fund: [], due: [], ask: { kind, project_key: key, line: '', program_id: out.program_id }, held: null,
-    path: withSince(since, out.show_to_builder), pathLead: out.reply === 'start' ? { program_id: out.program_id, ...(fit?.repo && { repo: fit.repo }) } : null,
+    path: withSince(since, pre.inline ? `${pre.inline} ${out.show_to_builder}` : out.show_to_builder), pathLead: out.reply === 'start' ? { program_id: out.program_id, ...(fit?.repo && { repo: fit.repo }) } : null,
   };
   const rankLines = [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x));
   const fields: Reply = {
@@ -989,6 +1003,131 @@ async function pathClosedCommit(o: ViewIn, plan: PathPlan & { closed: NonNullabl
   return { view, fields: { move_up: { kind: 'apply', project_key: key, agent_note: APPLY_NOTE }, ...(rankLines.length > 0 && { rank_lines: rankLines }), ...standingFields(v.stand) }, stand: v.stand };
 }
 
+/*
+ * v4.8 Task 4: the new builder (target conversation B): the opener before GitHub is connected, the pick, and the first
+ * reply after connecting (conversation.ts openerReply, pickedReply, connectedLine, noFitWhy).
+ */
+/** The opener's money for a program: "$5K to $100K" with a stated minimum below the top, else pathAmount's. Pure. */
+const openerAmount = (c: Card): string | null =>
+  c.min_award_usd && c.max_award_usd && c.min_award_usd < c.max_award_usd ? `${usdCompact(c.min_award_usd)} to ${usdCompact(c.max_award_usd)}` : pathAmount(c);
+const openerProgram = (c: Card): OpenerProgram => ({ id: c.id, title: c.title, amount: openerAmount(c), when: fundWhen(c), investment: c.investment === true });
+/**
+ * The opener's programs, from the live cards (ruling): 1. the top open grant by money; 2. the best rolling grant (the
+ * most money among the rolling ones, never #1); 3. the soonest-closing open investor program. Each is skipped when there
+ * is none, so fewer than 3 are numbered as they come. Never an entered or hidden program (`skip`), a sponsor's or an
+ * EarnKit campaign (showable). Pure.
+ */
+export function openerPrograms(cards: Card[], now: Date, skip: Set<string>): OpenerProgram[] {
+  const grants = cards
+    .filter((c) => c.investment !== true && programKind(c).startsWith('grant') && showable(c, now, skip) && (c.max_award_usd ?? 0) > 0)
+    .sort((a, b) => (b.max_award_usd ?? 0) - (a.max_award_usd ?? 0) || byRelevance(a, b));
+  const top = grants[0];
+  const rolling = grants.find((c) => c !== top && fundWhen(c) === 'rolling');
+  const investor = cards
+    .filter((c) => c.investment === true && showable({ ...c, investment: false }, now, skip))
+    .sort((a, b) => closeAt(a) - closeAt(b) || byRelevance(a, b))[0];
+  return [top, rolling, investor].filter((c): c is Card => Boolean(c)).map(openerProgram);
+}
+/** The opener's stored list (standing_seen.opener.ids) as programs, or null when none is stored or one is gone. Pure. */
+function openerShown(seen: Seen, cards: Card[]): OpenerProgram[] | null {
+  const ids = seen.opener?.ids;
+  if (!Array.isArray(ids) || ids.length === 0 || !ids.every((x) => typeof x === 'string')) return null;
+  const list = (ids as string[]).map((id) => cards.find((c) => c.id === id));
+  return list.every((c): c is Card => Boolean(c)) ? list.map(openerProgram) : null;
+}
+/**
+ * find {program} against the opener's list: a program shown (its id), 'outside' (a number past the list, a list gone),
+ * or null (no list, nothing named, or a name not on it). A pick stores the path's program at `hook`, picked, until the
+ * first reply after connecting says the profile line (then a named program is Task 5's direct question). Never throws.
+ */
+async function takePick(o: ViewIn): Promise<{ id: string; title: string } | 'outside' | null> {
+  const seen = o.read.seen;
+  if (!o.named?.trim() || !o.personal || !seen.opener || seen.opener.connected) return null;
+  const list = openerShown(seen, o.cards);
+  if (!list) return 'outside';
+  const hit = resolvePick(o.named, list);
+  if (hit === null || hit === 'outside') return hit;
+  const path: Path = { stage: 'hook', program_id: hit, at: o.now.toISOString(), picked: true };
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('path', ${sql().json(path as never)}::jsonb)
+    WHERE builder_id = ${o.id}`.catch(logged('pick'));
+  // This reply reads the pick too.
+  seen.path = path;
+  return { id: hit, title: list.find((p) => p.id === hit)!.title };
+}
+/**
+ * The signed-out reply (target B's opener): the opener once a session (its list stored), a pick's "Got it", or the list
+ * again in one short line (a number outside it, a name not on it, or the opener said already this session). One link,
+ * the sign-in link the signed-out reply already uses. Null with no program to number (the setup reply answers). The
+ * sign-in step stays the stored ask. One UPDATE. Never throws on its own writes.
+ */
+async function openerView(o: ViewIn, link: string, pick: Awaited<ReturnType<typeof takePick>>, stand: Standing): Promise<{ view: BenchView; fields: Reply; stand: Standing } | null> {
+  const { id, now, read } = o;
+  const programs = openerPrograms(o.cards, now, o.skip);
+  if (programs.length === 0) return null;
+  const said = sessionOf(read.seen, now).said;
+  const shown = openerShown(read.seen, o.cards);
+  let show: string;
+  let opener: Record<string, unknown> | null = null;
+  if (pick && pick !== 'outside') show = pickedReply(pick.title, link, false);
+  else if (shown && (pick === 'outside' || o.named?.trim() || said.has('opener'))) show = openerAgain(shown, link, false);
+  else {
+    show = openerReply({ total: moneyText(openMoneyUsd(o.cards, now)), programs, link, github: false });
+    opener = { ids: programs.map((p) => p.id), at: now.toISOString() };
+  }
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
+      || CASE WHEN ${opener !== null} THEN jsonb_build_object('opener', ${sql().json((opener ?? {}) as never)}::jsonb) ELSE '{}'::jsonb END
+      || jsonb_build_object('said', ${saidSql(opener ? ['opener'] : [], now)}, 'bench_ask', ${sql().json({ kind: 'sign_in', key: null } as never)}::jsonb)
+    WHERE builder_id = ${id}`.catch(logged('opener'));
+  const view: BenchView = {
+    state: 'signed_out', variant: null, project: null, rank: null, streak: stand.streak, target: null, handle: null, link,
+    fund: [], due: [], ask: { kind: 'sign_in', project_key: null, line: '' }, held: null, path: show, pathLead: null, pathNote: OPENER_NOTE,
+  };
+  // The sign-in step stays the stored ask (a "done" or yes to connecting is tell's sign_in, as before).
+  return { view, fields: { move_up: { kind: 'sign_in', project_key: null, agent_note: BENCH_MOVE_UP_NOTE }, ...standingFields(stand) }, stand };
+}
+/**
+ * Why the pick isn't the hook, in one line (conversation.ts noFitWhy), from facts EarnKit holds: the path's gaps for
+ * that grant (Base's sentence; another grant's programNeeds), else its one chain the project isn't on. Null when none is
+ * known (the sentence is left out). Pure.
+ */
+function pickWhy(plan: PathPlan, cards: Card[], pick: string, known: ViewIn['known']): string | null {
+  const v = plan.facts;
+  const g = plan.ctx.grants.find((x) => x.id === pick);
+  const c = cards.find((x) => x.id === pick);
+  if (g && g.gaps.length > 0) return noFitWhy(g.title, g.id === BASE_GRANTS_ID ? { name: v.project.name, gap: g.gap } : { name: v.project.name, needs: g.gaps });
+  const chains = c?.any_chain ? [] : (c?.chains ?? []);
+  const mine = new Set([...v.chains, ...(known?.onBase ? ['base'] : [])].map((x) => x.toLowerCase()));
+  if (c && chains.length === 1 && !mine.has(chains[0])) return noFitWhy(c.title, { name: v.project.name, chain: chainName(chains[0]) });
+  return null;
+}
+/**
+ * The first path reply after connecting, for a builder who saw the opener (target B's second message, once): the
+ * connected line, then the pick's fit. The pick bestMove keeps (a fit, the investor program, a grant on the path) is
+ * hooked as always; a pick that is no move gets why (pickWhy, when known) and the closest money: the closest grant
+ * with its gap, asked "Want the steps?" (else the path's next move). No pick: the path's move. Null with nothing to
+ * hook (the line waits). Never throws on its own writes.
+ */
+async function connectedCommit(o: ViewIn, plan: PathPlan): Promise<{ view: BenchView; fields: Reply; stand: Standing } | null> {
+  const { id, now, read } = o;
+  const v = plan.facts;
+  const pick = plan.path?.picked && plan.path.stage === 'hook' ? plan.path.program_id : null;
+  const st = read.base.standing;
+  const line = connectedLine({ page: pageUrl(v.handle), score: v.stand.score, rank: st.ranked ? { n: st.rank, m: st.total } : null });
+  let done: { view: BenchView; fields: Reply; stand: Standing } | null = null;
+  if (plan.move.kind !== 'quiet' && (!pick || plan.move.program.id === pick)) done = await pathCommit(o, { ...plan, move: plan.move }, line);
+  else if (pick) {
+    const skip = new Set([...plan.ctx.skip, pick]);
+    const grantMove = bestMove({ ...plan.ctx, fits: [], investors: [], skip, path: null });
+    const alt = grantMove.kind !== 'quiet' ? grantMove : bestMove({ ...plan.ctx, skip, path: null });
+    if (alt.kind === 'quiet') return null;
+    const move: Exclude<Move, { kind: 'quiet' }> = alt.kind === 'one_step' ? { kind: 'closest', program: alt.program, raise: false } : alt;
+    done = await pathCommit(o, { ...plan, move }, line, { inline: pickWhy(plan, o.cards, pick, o.known), steps: true, keep: true });
+  } else return null;
+  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, '{opener,connected}', to_jsonb(${now.toISOString()}::text))
+    WHERE builder_id = ${id} AND jsonb_typeof(standing_seen->'opener') = 'object'`.catch(logged('opener connected'));
+  return done;
+}
+
 /**
  * The one view find and score share (F19), in one of the four states (R16a): the project, the rank and streak, the
  * money (the Best fit, the fits, backing, the upcoming program; the signed-out reply's open grant), the one link and the
@@ -1050,6 +1189,13 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   const stand = state === 'signed_out' || !o.personal
     ? streakOnly(streak)
     : await readStanding(id, { lines: read.ranks, parts: read.parts, streak, fits: (taken ? [] : o.fits).filter(realFit), cards: o.cards, now });
+  // v4.8 Task 4: a number or a name from the opener's list (find {program}) is the path's program, in any state; signed
+  // out (a person, with the sign-in link), the reply is target B's opener, the pick's "Got it" or the list again.
+  const picked = await takePick(o);
+  if (state === 'signed_out' && o.personal && signIn) {
+    const opener = await openerView(o, signIn, picked, stand);
+    if (opener) return opener;
+  }
   // v4.0 Task 5: the first reply after setup step 3 settled (a wallet signed on the page, the agent never told) is the
   // setup-done reply, once, in place of the state's reply (so no other step is claimed unshown).
   if (!o.more && !held && handle !== null && state !== 'signed_out' && read.seen.setup_asked && !read.seen.setup_done) {
@@ -1103,6 +1249,12 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
       const waiting = submitWaiting(o, told);
       if (waiting) return pathSubmitCommit(o, facts, waiting, await sinceFor(o, facts, { program: moveProgram(waiting), saysClose: true }));
       const plan = await pathPlan(o, facts, told);
+      // v4.8 Task 4: the first path reply after connecting, for a builder who saw the opener: the profile line and the
+      // pick's fit, once (setup step 3, a held question and an owning nudge came first, above).
+      if (read.seen.opener && !read.seen.opener.connected && (!plan.path || plan.path.stage === 'hook')) {
+        const hello = await connectedCommit(o, plan);
+        if (hello) return hello;
+      }
       const move = plan.move;
       // Task 3: a fresh session opens with what changed since the last one (the step's own words say a hook's close).
       const sinceOf = (program: MoveProgram, saysClose: boolean) => sinceFor(o, facts, { program, saysClose });
@@ -1819,7 +1971,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
     : undefined;
   const { view, fields } = await benchView({
     id, now, read, own, signedOut, personal: await personal(ctx).catch(() => false), name, fits, applies, nudge, cards: a.cards, upcoming: a.upcoming ?? [], skip, held, due, live,
-    codesFetch: ctx.codesFetch, known, more: a.more,
+    codesFetch: ctx.codesFetch, known, more: a.more, named: a.named,
   });
   // Fix round 1 (R3): never on a nudge-owned reply or step 3 (their question stays last, step 3 word for word).
   // Final review F9: never between a post and its question (benchView opens no post on "show more"; belt and braces).
@@ -1853,7 +2005,8 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
     note: view.path ? [view.pathNote, MENTOR_NOTE].filter(Boolean).join(' ') : [ANSWER_FIRST_NOTE, lead ? EARN_NOTE : null].filter(Boolean).join(' '),
     ...fields,
     // v4.2 Task 4 (F6): the lead is the money line's program (view.best, the applyCandidates pick), never a second rule.
-    ...(!view.path && leadFit && !submit && !taken && { lead: leadOf(view.best?.program_id ?? leadFit.program_id, leadFit) }),
+    // v4.8 Task 4: the signed-out opener keeps the lead (the fit the agent prepares), as the setup reply did.
+    ...((!view.path || view.state === 'signed_out') && leadFit && !submit && !taken && { lead: leadOf(view.best?.program_id ?? leadFit.program_id, leadFit) }),
     ...(view.pathLead && { lead: view.pathLead }),
     ...(submit && { lead: { program_id: submit.card.id, step: 'submit', ...(submit.entry.id !== undefined && { project_id: submit.entry.id }) } }),
   };
@@ -1903,7 +2056,7 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
     show_to_builder: [view.standingLed ? fields.standing : null, signedIn, walletNews, benchReply(view)].filter(Boolean).join('\n\n'),
     ...fields,
     note: view.path ? [view.pathNote, MENTOR_NOTE].filter(Boolean).join(' ') : [ANSWER_FIRST_NOTE, leadFit && view.variant !== 'taken' ? EARN_NOTE : null].filter(Boolean).join(' '),
-    ...(!view.path && leadFit && view.variant !== 'taken' && { lead: { program_id: view.best?.program_id ?? leadFit.program_id } }),
+    ...((!view.path || view.state === 'signed_out') && leadFit && view.variant !== 'taken' && { lead: { program_id: view.best?.program_id ?? leadFit.program_id } }),
     ...(view.pathLead && { lead: view.pathLead }),
   };
 }

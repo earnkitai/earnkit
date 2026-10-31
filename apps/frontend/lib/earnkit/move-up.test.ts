@@ -17,7 +17,8 @@ import { productOdds, productScore, traction, type Detection } from './match';
 import { newProgramOf, openCuratedRows, repoCanWin, type FitRepo } from './alerts';
 import { scoreFits } from './stand-view';
 import { fitLines, fitWhy } from './bench-find';
-import { INTRO_LINE, SHIP_ASK, STATE_COPY, VARIANT_COPY } from './bench-reply';
+import { SHIP_ASK, STATE_COPY, VARIANT_COPY } from './bench-reply';
+import { assertOpener } from './fixtures/opener';
 import type { RepoFit } from './present';
 import { endsOnRankedStep } from './fixtures/ranked-step';
 import { padPool } from './fixtures/rank-pool';
@@ -203,8 +204,8 @@ test('R16a: the steps\' copy before the account has a page, one table (signed_ou
 test('R16a through mcpCall: signed out, no project and not counted keep their own step; only ranked asks to ship', db, async () => {
   const out = await agent();
   const s1 = String((await mcpCall(out.ctx, 'find', {})).reply?.show_to_builder);
-  assert.ok(s1.startsWith(INTRO_LINE), s1);
-  assert.match(s1, /\n1\. Sign in with X: https:\/\/\S+\n/);
+  // v4.8 Task 4: signed out, target B's opener with the sign-in link.
+  assertOpener(s1);
   const none = await agent('nop');
   const s2 = String((await mcpCall(none.ctx, 'find', {})).reply?.show_to_builder);
   // Launch ready L2: the repo picker's install link, never a GitHub URL asked for.

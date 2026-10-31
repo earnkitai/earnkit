@@ -16,6 +16,7 @@ import { upsertProgram } from './programs';
 import { SIGN_IN_NOTES, signinGet } from './x-link';
 import type { XOAuthDeps, XUser } from './x-oauth';
 import { INTRO_LINE } from './bench-reply';
+import { assertOpener, isOpener } from './fixtures/opener';
 import { endsOnRankedStep } from './fixtures/ranked-step';
 import { padPool } from './fixtures/rank-pool';
 
@@ -33,7 +34,8 @@ const links = (s: string) => s.match(/https?:\/\/\S+/g) ?? [];
 function rule(reply: Record<string, unknown> | null) {
   const s = String(reply?.show_to_builder ?? '');
   assert.ok(links(s).length <= 1, s);
-  assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 1, s);
+  // v4.8 Task 4: target B's opener ends in a number to reply with and its one link (no question).
+  assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, isOpener(s) ? 0 : 1, s);
   return s;
 }
 async function agent(o: { x?: string } = {}) {
@@ -50,8 +52,8 @@ async function agent(o: { x?: string } = {}) {
 test('9.8 state 1, not signed in: the sign-in link and its question', db, async () => {
   const a = await agent();
   const s = rule((await mcpCall(a.ctx, 'find', {})).reply);
-  assert.ok(s.startsWith(INTRO_LINE), s);
-  assert.match(s, /1\. Sign in with X: https:\/\/earnkit\.com\/signin\/[A-Za-z0-9_-]{22}\n2\. Connect your code\n3\. Add your wallet\n\nDone with step 1\?$/);
+  // v4.8 Task 4: target B's opener, its one link the sign-in link (last).
+  assert.match(assertOpener(s), /^https:\/\/earnkit\.com\/signin\/[A-Za-z0-9_-]{22}$/);
   const yes = await mcpCall(a.ctx, 'tell', { move_up: { kind: 'sign_in', project_key: null, answer: 'yes' } });
   assert.match(String(yes.reply?.agent_note), /sign_in_code/);
 });
@@ -132,7 +134,7 @@ test('9.12 D5: X off: a new install is answered as signed in with no page: money
 test('9.13 D14: the link score shows is minted for the calling installation; its code binds through find; that reply names the account first', db, async () => {
   const a = await agent();
   const s = rule((await mcpCall(a.ctx, 'score', {})).reply);
-  assert.ok(s.startsWith(INTRO_LINE), s);
+  assertOpener(s);
   const link = links(s)[0]!;
   assert.match(link, /^https:\/\/earnkit\.com\/signin\/[A-Za-z0-9_-]{22}$/);
   const [row] = await sql()<{ installation_id: number }[]>`SELECT installation_id FROM x_signin_links WHERE link_hash = encode(sha256(${link.split('/').pop()!}::bytea), 'hex')`;
@@ -174,7 +176,7 @@ test('9.15 fix round 1: signed out with a results question due: the sign-in ques
   const s = rule(out.reply);
   assert.equal(links(s).length, 1);
   assert.match(links(s)[0]!, /\/signin\//);
-  assert.ok(s.endsWith('Done with step 1?'), s);
+  assert.ok(isOpener(s), s);
   assert.equal(out.reply?.ask_outcome, undefined);
   const [row] = await sql()<{ at: Date | null }[]>`SELECT outcome_asked_at AS at FROM projects WHERE id = ${pid}`;
   assert.equal(row.at, null, 'not used up while signed out');

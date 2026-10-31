@@ -15,6 +15,7 @@ import { X_ON, avalanche, dropAvalanche, dropPrograms, find, fitsFor, install, p
 import { pathQuiet } from './fixtures/wallet-step';
 import type { Starter } from './starters';
 import { INTRO_LINE } from './bench-reply';
+import { assertOpener } from './fixtures/opener';
 import { endsOnRankedStep } from './fixtures/ranked-step';
 import { padPool } from './fixtures/rank-pool';
 
@@ -56,9 +57,8 @@ test('8.6 a fresh install with identity.project: v2.14 T9 signed out: not on the
   benchOn(async () => {
     const id = await install();
     const r = await find(id, { identity: { github_login: `mayav${RUN}`, project: { name: 'Recipe planner', what: 'a recipe planner', repo: `mayav${RUN}/recipes` } } }, { matchProjects: async () => ({ checked: 1, scored: 0, fits: [] }) });
-    const lines = r.show_to_builder.split('\n');
-    assert.equal(lines[0], INTRO_LINE);
-    assert.match(r.show_to_builder, /1\. Sign in with X: https:\/\/\S+\/signin\/[A-Za-z0-9_-]{22}\n2\. Connect your code\n3\. Add your wallet\n\nDone with step 1\?$/);
+    // v4.8 Task 4: target B's opener, its one link the sign-in link (last).
+    assertOpener(r.show_to_builder);
     assert.equal(r.move_up?.kind, 'sign_in');
     // v2.14 T7: no claim link and no claim ask.
     assert.equal((r as { claim?: unknown }).claim, undefined);
@@ -110,8 +110,8 @@ test('8.8 no project, signed out: the sign-in question; no build offer (v2.14 A1
       const id = await install();
       // v2.14 T7: no claim ask first; an unsigned install gets the start ask at once.
       const r = await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
-      assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE);
-      assert.ok(r.show_to_builder.endsWith('Done with step 1?'), r.show_to_builder);
+      // v4.8 Task 4: target B's opener, ending in its one link.
+      assertOpener(r.show_to_builder);
       assert.equal(r.build_offer, undefined);
       assert.equal(r.move_up?.kind, 'sign_in');
     } finally {
@@ -185,7 +185,7 @@ test('8.25 (final fix wave) find.identity reaches the handler through the MCP sc
       identity: { github_login: 'lee', project: { name: 'TipJar', what: 'a tip jar', live_url: 'https://tip.example.com' } },
     });
     assert.equal(r.isError, false, r.text);
-    assert.equal(String(r.reply?.show_to_builder).split('\n')[0], INTRO_LINE);
+    assertOpener(String(r.reply?.show_to_builder));
     const [p] = await sql()<{ reported_github: string | null; identity: { projects?: { name: string; what: string | null }[] } | null }[]>`
       SELECT reported_github, identity FROM builder_profiles WHERE builder_id = ${id}`;
     assert.equal(p.reported_github, 'lee');

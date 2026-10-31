@@ -11,7 +11,8 @@ import { verifyMessage } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { fakeGitHub } from './fixtures/fake-github';
 import { installApp } from './fixtures/app-install';
-import { NO_GITHUB_HINT, TOKEN_NO_LINE, benchReply, pickRepoAgain, pickRepoAsk, programsTable, setupDoneLead, stateAsk, walletSetupAsk, type BenchProject, type BenchView } from './bench-reply';
+import { NO_GITHUB_HINT, STATE_COPY, TOKEN_NO_LINE, benchReply, pickRepoAgain, pickRepoAsk, programsTable, setupDoneLead, stateAsk, walletSetupAsk, type BenchProject, type BenchView } from './bench-reply';
+import { assertOpener } from './fixtures/opener';
 import { setupDoneFor, setupRows } from './bench-find';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
@@ -97,7 +98,7 @@ async function newcomer(tag: string) {
   return { ctx, id: c.id, handle };
 }
 
-test('(a) signed out: the intro block with the sign-in link in item 1, ending "Done with step 1?", no token', db, async () => {
+test('(a) signed out: v4.8 Task 4, target B\'s opener with the sign-in link last, no token; with nothing open to number, the intro block ending "Done with step 1?"', db, async () => {
   const t = `ek_v4s_out_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Grok');
   const c = (await connectInstallation(t))!;
@@ -105,10 +106,11 @@ test('(a) signed out: the intro block with the sign-in link in item 1, ending "D
   const s = show(await mcpCall(ctx, 'find', { agent_can_build: false }));
   const link = linkOf(s);
   assert.match(link, /^https:\/\/\S+\/signin\/[A-Za-z0-9_-]{22}$/, s);
-  const grant = s.match(/ (Up to \$[\d,]+ is open from [^.\n]+ right now\.)\n/)?.[1] ?? null;
-  assert.equal(s, intro(grant, link));
-  assert.ok(s.endsWith('Done with step 1?'), s);
+  assert.equal(assertOpener(s), link);
   assert.doesNotMatch(s, /token|coin/i, s);
+  // Nothing open to number (every program closed in this read): the v4.0 intro block, word for word.
+  const none = benchReply({ state: 'signed_out', variant: null, project: null, rank: null, streak: 0, target: null, handle: null, link, fund: [], due: [], ask: { kind: 'sign_in', project_key: null, line: STATE_COPY.signed_out.ask(link) }, held: null });
+  assert.equal(none, intro(null, link));
 });
 
 test('(b) first reply after sign-in, GitHub unknown: the welcome, step 2 of 3 with its link, no Lovable or Bolt hint', db, async () => {

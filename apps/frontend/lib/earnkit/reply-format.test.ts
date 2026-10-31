@@ -66,6 +66,16 @@ const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => { if (process.env.DATABASE_URL) await sql().end(); });
 
 test('mcpCall: a Muse installation gets no | and no ** in its setup reply; Grok Bot keeps them', db, async () => {
+  // v4.8 Task 4: with programs open, the signed-out reply is target B's opener (no bold); this test is about the setup
+  // block's formatting, so nothing is open to number while it runs.
+  const open = await sql()<{ id: string }[]>`UPDATE programs SET status = 'closed' WHERE status = 'active' RETURNING id`;
+  try {
+    await setupReplies();
+  } finally {
+    await sql()`UPDATE programs SET status = 'active' WHERE id = ANY(${open.map((r) => r.id)}::text[])`;
+  }
+});
+async function setupReplies() {
   for (const [name, plain] of [['Muse', true], ['Grok Bot', false]] as const) {
     const t = `ek_v4t6_${name.replace(/\W/g, '')}_${process.pid}_${Math.random().toString(36).slice(2)}`;
     await saveInstallation(t, undefined, false, name);
@@ -77,7 +87,7 @@ test('mcpCall: a Muse installation gets no | and no ** in its setup reply; Grok 
     if (plain) assert.doesNotMatch(text, /[|]|\*\*/, text);
     else assert.match(text, /\*\*/, text);
   }
-});
+}
 
 test('plain: a URL with __ survives; an empty rest cell is just the first cell', () => {
   assert.equal(formatReply('Open https://earnkit.com/r/foo__bar__baz now', 'plain'), 'Open https://earnkit.com/r/foo__bar__baz now');

@@ -1791,6 +1791,11 @@ apps/frontend/
                                submitWaiting / pathSubmitCommit (the submit pointer), sinceFor + withSince (fresh session);
                                tools.ts tell runs find after "sent" and leads with trackLead.
                                Fix round 1: SENT_AGAIN, MoveCtx.raisedNow, passedLine(them), seenBefore; tell move_up answer 'sent'.
+                               v4.8 Task 4 (target B): OpenerProgram, openerHead, openerReply, openerAgain, pickedReply,
+                               resolvePick, connectedLine, noFitWhy, OPENER_NOTE, PathCtx.steps. bench-find.ts openerPrograms,
+                               openerView (signed out), takePick (find {program} -> path picked), pickWhy, connectedCommit
+                               (standing_seen.opener { ids, at, connected }), PathPlan.ctx, pathCommit `pre`. Test fixture:
+                               fixtures/opener.ts (assertOpener, isOpener).
     bench-find.ts(+test)       GTM W2 (2026-10-23): link-only projects (a Lovable or Bolt live_url, no repo) take the no-GitHub path
                                (noCode: the picker link, github_no, the walk-through; linkName/YOUR_APP, reportedName: never the
                                host); backing before hot post and apply (boundedBacking first), connectBacking in the connect yes;

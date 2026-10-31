@@ -14,6 +14,7 @@ import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { benchCardFacts, benchRows, filterHref, profileData } from './bench-data';
 import { INTRO_LINE, STATE_COPY, VARIANT_COPY } from './bench-reply';
+import { assertOpener } from './fixtures/opener';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
 import { FORMULA_V2 } from './score-v2';
 import { rankSplit } from './rank';
@@ -202,12 +203,13 @@ test('R10: signed out while ranked (an anonymous ranked row): "not on the leader
     VALUES (${a.id}, 30, '{}'::jsonb, true, 0, 0, ${FORMULA_V2}, ${LIVE_CALIBRATION_V2}, now(), now())
     ON CONFLICT (builder_id) DO UPDATE SET score = 30, ranked = true, calibration = ${LIVE_CALIBRATION_V2}, pending = NULL, read_at = now()`;
   const r = (await mcpCall(a.ctx, 'find', {})).reply;
-  const s = oneStatusOneStep(r);
-  assert.ok(s.startsWith(INTRO_LINE), s);
+  // v4.8 Task 4: signed out, target B's list (said this session: one short line), its one easy reply a number.
+  const s = String(r?.show_to_builder ?? '');
+  assertOpener(s, { again: true });
   assert.doesNotMatch(s, RANKED);
   assert.deepEqual(r?.rank_lines ?? [], []);
   const score = (await mcpCall(a.ctx, 'score', {})).reply;
-  oneStatusOneStep(score);
+  assertOpener(String(score?.show_to_builder ?? ''), { again: true });
   assert.deepEqual(score?.rank_lines ?? [], []);
 });
 

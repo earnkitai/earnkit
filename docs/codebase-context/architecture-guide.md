@@ -8747,3 +8747,28 @@ A yes on the path moves the stage on (bench-find.ts benchMoveUp, asks stored wit
   "Since" says "opened" only for a program new to this builder (seenBefore), the close as submitBy words it, compares
   scores only under the page's calibration, and leaves announced results to find's alerts opener. The passed line for
   Builder Codes reads "You passed on them ..., but they're now ...".
+
+## v4.8 Task 4: the new builder (target B) (2026-10-31)
+
+- **The opener.** A person's signed-out find with programs open (bench-find.ts openerView, before the setup reply) is
+  conversation.ts openerReply: "I'm EarnKit. I get builders funded for what they ship, and there's {moneyText(openMoneyUsd(cards))}
+  in grants open right now.", then up to three numbered programs (openerPrograms: the top open grant by money; the best
+  rolling grant, never #1; the soonest-closing open investor program, "(investor program)"), each "{name}: {amount},
+  {when}" ("$5K to $100K" from min/max_award_usd, else the summary's prize), then "Reply with a number, and connect here
+  so I can check if your work fits: {sign-in link}" (the existing sign-in link; "connect GitHub here" only for the repo
+  picker's link). The list is stored (standing_seen.opener.ids). Once a session; again in the session, or after a
+  number outside the list or a name not on it, openerAgain's one line. The sign-in step stays the stored ask and
+  move_up (tell sign_in), the lead is kept, the note is OPENER_NOTE + MENTOR_NOTE. Nothing open: the v4.0 setup reply.
+  A shared client with no X (o.personal false) keeps the setup reply.
+- **The pick.** find {program} (a number, "#2", or a name) against the stored list (takePick, conversation.ts
+  resolvePick) stores path { stage: hook, program_id, picked } in any state until the connected line is said; signed
+  out the reply is pickedReply ("Got it: {name}. Connect here ...: {link}").
+- **After connecting.** The first ranked path reply for a builder who saw the opener (opener.connected unset), after
+  setup step 3, a held question and an owning nudge, is connectedCommit: connectedLine ("Connected. I'll track every
+  commit you push, so your profile stays current without you lifting a finger: earnkit.com/{handle}, score {n}, #N of
+  M builders." the score when the page has one, the rank when M >= 2), then the pick bestMove keeps (a fit, the
+  investor program, a grant on the path) hooked as always; a pick that is no move gets pickWhy's one line (Base's gap
+  sentence, programNeeds' gaps, or "they fund apps on {chain}, and {project} isn't on {chain} yet."; left out when
+  unknown), then the closest grant (one_step shown as closest, "Want the steps?", kept as the path's picked program).
+  opener.connected is stamped so it is said once.
+

@@ -8,7 +8,8 @@ import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, claimX, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
-import { INTRO_LINE, OTHER_PROJECT_ASK, SHIP_ASK, STATE_COPY, VARIANT_COPY } from './bench-reply';
+import { OTHER_PROJECT_ASK, SHIP_ASK, STATE_COPY, VARIANT_COPY } from './bench-reply';
+import { isOpener } from './fixtures/opener';
 import { mainProjectOf } from './main-project';
 
 /**
@@ -45,7 +46,7 @@ test('O2.1c no project, nothing EarnKit can build (deploys off): no "Pick someth
     const r = await find(id, { agent_can_build: true }, { freshDeps: { ...OWN_FRESH, deployOn: () => false } });
     assert.doesNotMatch(r.show_to_builder, /Pick something to build/);
     // Task 16 step 1: signed out, the first reply.
-    assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE);
+    assert.ok(isOpener(r.show_to_builder), r.show_to_builder);
     // v2.14 T9: signed out: the sign-in link is the one ask.
     assert.equal(r.move_up?.kind, 'sign_in');
     assert.equal((r as { claim?: unknown }).claim, undefined);

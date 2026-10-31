@@ -24,7 +24,7 @@ import { profileSite } from './site-data';
 import type { ToolContext } from './tools';
 import type { XOAuthDeps, XUser } from './x-oauth';
 import { padPool } from './fixtures/rank-pool';
-import { INTRO_LINE } from './bench-reply';
+import { assertOpener, isOpener } from './fixtures/opener';
 
 /**
  * v2.14 T12: the spec's acceptance 1 to 5 as one brand-new builder lives them, through the real routes
@@ -100,7 +100,8 @@ function rule(r: McpResult): string {
   assert.ok(links(s).length + bareLinks(s).length <= 2, s);
   const [bare] = bareLinks(s);
   if (bare && links(s)[0]) assert.ok(!links(s)[0]!.includes(bare), `the page is not linked twice: ${s}`);
-  assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 1, s);
+  // v4.8 Task 4: target B's opener ends in a number to reply with and its one link (no question).
+  assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, isOpener(s) ? 0 : 1, s);
   assert.doesNotMatch(s, /raise|fundrais/i, s);
   assert.equal(r.reply?.schedule_weekly_update, undefined, 'nobody is asked to schedule anything');
   return s;
@@ -227,8 +228,7 @@ test('12.6 the fallback client: signed out, the link page, the paste code throug
   await saveInstallation(token, undefined, false, 'Cursor');
   const ctx = ctxOf((await connectInstallation(token))!);
   const out = rule(await mcpCall(ctx, 'find', {}));
-  assert.ok(out.startsWith(`${INTRO_LINE}\n\n`), out);
-  const link = links(out)[0]!;
+  const link = assertOpener(out);
   assert.match(link, /^https:\/\/earnkit\.com\/signin\/[A-Za-z0-9_-]{22}$/);
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'sign_in', project_key: null, answer: 'yes' } });
   assert.match(String(yes.reply?.agent_note), /sign_in_code/);

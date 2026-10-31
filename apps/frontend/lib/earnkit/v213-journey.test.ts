@@ -21,7 +21,8 @@ import { resolveHandle } from './profiles';
 import { refreshPerson, REFRESH_BUDGET_MS, rescorePerson } from './person-score';
 import { mainConfirmed, mainProjectOf } from './main-project';
 import { benchCardFacts, benchRows, parseBenchFilter, profileData } from './bench-data';
-import { INTRO_LINE, VARIANT_COPY } from './bench-reply';
+import { VARIANT_COPY } from './bench-reply';
+import { assertOpener } from './fixtures/opener';
 import { saveVerification } from './github-verify';
 import { rootOf } from './identity';
 import { proveByApp } from './repo-proof';
@@ -528,7 +529,8 @@ test('16.1 acceptance 1, with a project: the first reply names it (v2.14 T7: no 
   MAYA.id = id;
   const r1 = await call('find', { identity: { github_login: 'maya', project: RECIPES_PROJECT } }, ctx(id));
   // v2.14 T9: signed out, the sign-in link is the one question (Task 16 step 1).
-  assert.equal(r1.show_to_builder.split('\n')[0], INTRO_LINE, r1.show_to_builder);
+  // v4.8 Task 4: target B's opener, its one link the sign-in link.
+  assertOpener(r1.show_to_builder);
   assert.equal(r1.move_up?.kind, 'sign_in');
   // v2.14 T7: no claim link or claim ask.
   assert.equal(r1.claim, undefined);
@@ -568,7 +570,7 @@ test('16.1b review focus 3: a second person naming maya/recipes (already on the 
   EVE = await newInstall();
   xUser = { id: 'x-eve', username: 'eve_ships', name: 'Eve', avatar: null };
   const r = await call('find', { identity: { github_login: 'eve', project: { ...RECIPES_PROJECT, name: 'My recipes' } } }, ctx(EVE));
-  assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE, r.show_to_builder);
+  assertOpener(r.show_to_builder);
   await signInX(EVE);
   await advanceRefreshGuard(EVE, 61_000);
   const again = await call('find', {}, ctx(EVE));

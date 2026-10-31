@@ -12,7 +12,8 @@ import * as React from 'react';
 import { bannedInBench } from './fixtures/banned-words';
 import { HERO_SUB, STEPS } from './site-copy';
 import { fakeGitHub } from './fixtures/fake-github-branch';
-import { INTRO_LINE, SHIP_ASK, STATE_COPY, pickRepoAsk, stateAsk } from './bench-reply';
+import { SHIP_ASK, STATE_COPY, pickRepoAsk, stateAsk } from './bench-reply';
+import { isOpener } from './fixtures/opener';
 import { INSTALL_APP_NOTE, START_NOTE, START_YES_NOTE } from './bench-find';
 import { ownLinks, postUpdate } from './updates';
 import { proveByApp } from './repo-proof';
@@ -108,7 +109,7 @@ test('1.3 the tester\'s shape (github_user + repos + a live link): identity and 
     assert.deepEqual(sources.map((s) => `${s.kind}:${s.ref}`), [`repo:${key}`, 'site:https://earnkit.com']);
     // v2.14 spec 2: not counted until the read-only App is installed (no proof branch).
     // v2.14 T9: unsigned: not on the Bench yet (the sign-in link is the question).
-    assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE, r.show_to_builder);
+    assert.ok(isOpener(r.show_to_builder), r.show_to_builder);
     assert.equal(r.proof, undefined);
     const [s] = await sql()<{ state: string }[]>`SELECT state FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo'`;
     assert.equal(s.state, 'proposed');
@@ -195,8 +196,9 @@ test('4.1 (v2.14 T7) an unsigned install with a project: no claim link, no claim
     assert.equal((r as { claim?: unknown }).claim, undefined);
     assert.doesNotMatch(r.show_to_builder, /claim/i);
     assert.ok(links(r.show_to_builder).length <= 1);
-    assert.equal(questions(r.show_to_builder), 1);
-    assert.ok(r.show_to_builder.endsWith('Done with step 1?'), r.show_to_builder);
+    // v4.8 Task 4: target B's opener, its one easy reply a number (no question), its one link last.
+    assert.equal(questions(r.show_to_builder), 0);
+    assert.ok(isOpener(r.show_to_builder), r.show_to_builder);
   }));
 
 // ---- 5. Private and org repos through the read-only GitHub App -----------------------------------
@@ -290,12 +292,12 @@ test('5.2 App on, a private org repo: unclaimed, no App link (v2.14 T7: no claim
       const id = await install();
       // Unclaimed: no App link yet (S7: it names the page); v2.14 T9: the sign-in link is the one link and question.
       const r1 = await find(id, named(key, login), NO_MATCH);
-      assert.equal(r1.show_to_builder.split('\n')[0], INTRO_LINE, r1.show_to_builder);
+      assert.ok(isOpener(r1.show_to_builder), r1.show_to_builder);
       assert.equal(links(r1.show_to_builder).length, 1, r1.show_to_builder);
       assert.match(links(r1.show_to_builder)[0], /\/signin\//);
       assert.equal(r1.move_up?.kind, 'sign_in');
-      assert.equal(questions(r1.show_to_builder), 1);
-      assert.ok(r1.show_to_builder.endsWith('Done with step 1?'));
+      // v4.8 Task 4: the opener's one easy reply is a number (no question).
+      assert.equal(questions(r1.show_to_builder), 0);
       assert.notEqual(r1.move_up?.kind, 'install_app');
       assert.equal(r1.proof, undefined);
       // Claimed: the install link is the one link (v2.13.4: the page named without https), the question last.
@@ -453,7 +455,7 @@ test('R4 (M1) a slow App token mint never holds the reply: find answers in time 
     const ms = Date.now() - t0;
     assert.ok(ms < 3000, `find took ${ms} ms`);
     // Unsigned (v2.14 T9): not on the Bench yet; the reply came in time.
-    assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE, r.show_to_builder);
+    assert.ok(isOpener(r.show_to_builder), r.show_to_builder);
     assert.equal(r.proof, undefined);
   }));
 

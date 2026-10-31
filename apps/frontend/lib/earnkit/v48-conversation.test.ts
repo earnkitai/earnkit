@@ -18,13 +18,15 @@ import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
 import { isoWeekOf } from './weeks';
 import { backfillMondays } from './week-facts';
+import { X_ON, withEnv } from './fixtures/find';
 import {
-  CAN_DO, FOUNDER_BLANKS, MENTOR_NOTE, PATH_ANSWER_FIRST, CODES_OFFER, blanksAgain, SESSION_MS, SENT_ASK, TRACK_ACK, agoWords, passedLine, sinceLine, submitBy, submitPointer, submitReply, trackLead, bestMove, blanksAsk, closeWords, draftBlanks, draftReply, gapClosedReply, gapProof, gapReply, gapStillReply, pathReply, programName, proofLine, readPath, sessionOf,
+  CAN_DO, connectedLine, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, FOUNDER_BLANKS, MENTOR_NOTE, PATH_ANSWER_FIRST, CODES_OFFER, blanksAgain, SESSION_MS, SENT_ASK, TRACK_ACK, agoWords, passedLine, sinceLine, submitBy, submitPointer, submitReply, trackLead, bestMove, blanksAsk, closeWords, draftBlanks, draftReply, gapClosedReply, gapProof, gapReply, gapStillReply, pathReply, programName, proofLine, readPath, sessionOf,
   type GapGrant, type InvestorProgram, type MoveCtx, type MoveProgram,
 } from './conversation';
 import { qualifyGapSteps, BUILDER_CODES_GUIDE } from './bench-reply';
 import { BUILDER_CODES_SUFFIX } from './builder-code';
-import { RECHECK_WAIT, codesSettled, founderBriefNote, questionsDraftNote } from './bench-find';
+import { RECHECK_WAIT, codesSettled, founderBriefNote, openerPrograms, questionsDraftNote } from './bench-find';
+import type { Card } from './present';
 import { shipLogBlock, shipLogFacts } from './ship-log-facts';
 
 /**
@@ -1021,4 +1023,224 @@ test('a new session after more shipping opens with "Since ...", the streak and s
   // Nothing changed since the last session: the step alone.
   await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, '{said,at}', to_jsonb(${new Date(Date.now() - SESSION_MS - 1000).toISOString()}::text)) WHERE builder_id = ${b.id}`;
   assert.equal(show(await find(b)), A_CODES_IN_PROOF);
+});
+
+/*
+ * v4.8 Task 4: the new builder (target conversation B). Before GitHub is connected, the first reply names three open
+ * programs (the top grant by money, the best rolling grant, the soonest investor program) with one link; a number or a
+ * program name is stored as the path's program; the first reply after connecting is the profile and tracking line, then
+ * the pick's fit (or why not, in one line, and the closest money).
+ */
+const OPENER_TAIL = (link: string) => `Reply with a number, and connect here so I can check if your work fits: ${link}`;
+test('the opener, the pick and the connected line (pure): target B, one link, never a claim they qualify', () => {
+  const list = [
+    { id: 'circle-developer-grants', title: 'Circle Developer Grants', amount: '$5K to $100K', when: 'rolling', investment: false },
+    { id: 'base-builder-grants', title: 'Base Builder Grant Program', amount: 'up to $5,000', when: 'rolling', investment: false },
+    { id: 'a16z-speedrun', title: 'a16z speedrun SR008', amount: 'up to $1M', when: 'closes Nov 1', investment: true },
+  ];
+  const s = openerReply({ total: '$105K', programs: list, link: 'https://earnkit.com/signin/abc', github: false });
+  assert.equal(s, [
+    "I'm EarnKit. I get builders funded for what they ship, and there's $105K in grants open right now.",
+    '',
+    '1. Circle Developer Grants: $5K to $100K, rolling',
+    '2. Base Builder Grant: up to $5,000, rolling',
+    '3. a16z speedrun SR008 (investor program): up to $1M, closes Nov 1',
+    '',
+    OPENER_TAIL('https://earnkit.com/signin/abc'),
+  ].join('\n'));
+  // The repo picker's link (X sign-in off) says GitHub; with fewer programs, only those are numbered.
+  const two = openerReply({ total: null, programs: list.slice(0, 2), link: 'L', github: true });
+  assert.equal(two, "I'm EarnKit. I get builders funded for what they ship.\n\n1. Circle Developer Grants: $5K to $100K, rolling\n2. Base Builder Grant: up to $5,000, rolling\n\nReply with a number, and connect GitHub here so I can check if your work fits: L");
+  for (const x of [s, two]) assert.doesNotMatch(x, BAD);
+  // A number or a name resolves to the program shown; a number outside the list is 'outside'; anything else null.
+  assert.equal(resolvePick('2', list), 'base-builder-grants');
+  assert.equal(resolvePick(' #3. ', list), 'a16z-speedrun');
+  assert.equal(resolvePick('circle', list), 'circle-developer-grants');
+  assert.equal(resolvePick('The Base Builder Grant', list), 'base-builder-grants');
+  assert.equal(resolvePick('7', list), 'outside');
+  assert.equal(resolvePick('0', list), 'outside');
+  assert.equal(resolvePick('something else', list), null);
+  // The list again, in one short line, with the same one link.
+  assert.equal(openerAgain(list, 'L', false), 'Reply 1 for Circle Developer Grants, 2 for Base Builder Grant or 3 for a16z speedrun SR008, and connect here so I can check if your work fits: L');
+  assert.equal(pickedReply('Base Builder Grant Program', 'L', false), 'Got it: Base Builder Grant. Connect here so I can check if your work fits: L');
+  // The connected line: the page, the score, "#N of M builders" only with M of 2 or more.
+  const head = "Connected. I'll track every commit you push, so your profile stays current without you lifting a finger: ";
+  assert.equal(connectedLine({ page: 'earnkit.com/maya', score: 54, rank: { n: 3, m: 40 } }), `${head}earnkit.com/maya, score 54, #3 of 40 builders.`);
+  assert.equal(connectedLine({ page: 'earnkit.com/maya', score: 54, rank: { n: 1, m: 1 } }), `${head}earnkit.com/maya, score 54.`);
+  assert.equal(connectedLine({ page: 'earnkit.com/maya', score: null, rank: null }), `${head}earnkit.com/maya.`);
+  // Why a pick doesn't fit, in one line, from the program's own facts.
+  assert.equal(noFitWhy('Circle Developer Grants', { chain: 'Arc', name: 'EarnKit' }), "For Circle Developer Grants: they fund apps on Arc, and EarnKit isn't on Arc yet.");
+  assert.equal(noFitWhy('Arc Microgrants: Built with Arc Studio', { needs: ['on Arc mainnet', 'live at a link'], name: 'EarnKit' }), "For Arc Microgrants: EarnKit isn't on Arc mainnet, and live at a link yet.");
+  assert.equal(noFitWhy('Base Builder Grant Program', { gap: 'EarnKit is one step away: add Builder Codes.', name: 'EarnKit' }), 'For Base Builder Grant: EarnKit is one step away: add Builder Codes.');
+  // The closest money after a no-fit pick asks for the steps (never "Go?"), with the closest head.
+  const c = pathReply({ now: NOW, first: null, project: { name: 'EarnKit', live: true }, streak: 0, move: { kind: 'closest', program: { ...BASE, passed: false }, raise: false }, said: new Set(), steps: true });
+  assert.equal(c.reply, 'steps');
+  assert.equal(c.show_to_builder, 'Your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes. EarnKit is live.\n\nWant the steps?');
+});
+
+test('openerPrograms (pure): the top grant by money, the best rolling grant (never the same one), the soonest investor program; fewer, numbered as they come', () => {
+  const card = (o: Partial<Card> & { id: string }): Card => ({ title: o.id, summary: 'up to $1,000 · rolling', status: 'active', ...o } as Card);
+  const circle = card({ id: 'circle', title: 'Circle Developer Grants', summary: '$5,000 to $100,000 USDC grants · rolling', max_award_usd: 100000, min_award_usd: 5000 });
+  const base = card({ id: 'base', title: 'Base Builder Grant Program', summary: 'up to $5,000 · rolling', max_award_usd: 5000 });
+  const dated = card({ id: 'dated', title: 'Big Grant', summary: 'up to $200,000 · closes Nov 20', max_award_usd: 200000, ends_at: new Date('2026-11-21T00:00:00Z') });
+  const a16z = card({ id: 'a16z', title: 'a16z speedrun SR008', summary: 'up to $1M · closes Nov 1, 11:59 PM PT', max_award_usd: 1000000, investment: true, ends_at: new Date('2026-11-02T07:59:59Z') });
+  const later = card({ id: 'later', title: 'Later Fund', summary: 'up to $500K · closes Dec 1', max_award_usd: 500000, investment: true, ends_at: new Date('2026-12-02T00:00:00Z') });
+  const ids = (cs: Card[], skip: string[] = []) => openerPrograms(cs, NOW, new Set(skip)).map((p) => p.id);
+  // Target B's world: Circle is the top grant by money and rolling, so the best rolling grant is the next one, Base.
+  assert.deepEqual(ids([base, circle, later, a16z]), ['circle', 'base', 'a16z']);
+  // A dated top grant: the best rolling grant is Circle.
+  assert.deepEqual(ids([base, circle, dated, a16z]), ['dated', 'circle', 'a16z']);
+  // Fewer than three: what exists; an entered or hidden program is never numbered.
+  assert.deepEqual(ids([circle, a16z]), ['circle', 'a16z']);
+  assert.deepEqual(ids([circle, base, a16z], ['circle']), ['base', 'a16z']);
+  assert.deepEqual(ids([]), []);
+  const [c, b, a] = openerPrograms([base, circle, a16z], NOW, new Set());
+  assert.deepEqual([c.amount, c.when, b.amount, a.amount, a.investment], ['$5K to $100K', 'rolling', 'up to $5,000', 'up to $1M', true]);
+  assert.match(a.when, /^closes Nov 1$/);
+});
+
+const X_SECRET = { ...X_ON, EARNKIT_AUTH_SECRET: process.env.EARNKIT_AUTH_SECRET || 'v48-b-secret' };
+/** A new builder: installed in Claude Code, not signed in with X, no project connected (target B). */
+async function newcomer(tag: string) {
+  n++;
+  const t = `ek_v48_${tag}_${RUN}_${Math.random().toString(36).slice(2)}`;
+  await saveInstallation(t, undefined, false, 'Claude Code');
+  const c = (await connectInstallation(t))!;
+  const handle = `nb${tag}${RUN}`.slice(0, 15);
+  const key = `${handle}/earnkit`;
+  const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 0, fits: [] })) as never };
+  return { t, ctx, id: c.id, own: c.own, key, handle, gh: null as ReturnType<typeof fakeGitHub> | null };
+}
+type Newcomer = Awaited<ReturnType<typeof newcomer>>;
+/** find while signed out (X sign-in on). */
+const outFind = (b: Newcomer, args: Record<string, unknown> = {}) => withEnv(X_SECRET, () => mcpCall(b.ctx as never, 'find', args));
+/**
+ * The builder signs in with X and connects EarnKit's repo through the App (live, on Base, shipping this week), as
+ * owner() does; `wallet`: setup step 3 answered already (else it is due).
+ */
+async function connectB(b: Newcomer, o: { wallet?: boolean } = {}) {
+  assert.ok((await attachToX(b.own, { id: `49${RUN}${n}${b.handle.length}`, username: b.handle, name: 'Maya Lin', avatar: null }, new Date())).ok);
+  const c = (await connectInstallation(b.t))!;
+  assert.equal(c.id, b.id, 'a new X account keeps the installation as its own root');
+  if (o.wallet !== false) await walletOffered(c.id);
+  const chains: Detection = { base: { mainnet: true, testnet: false, evidence: 'deployed contract', basis: 'deployed' } };
+  const ps = productScore({ active: true, young: true, original: true, readme: true, deployed: true, owned: true });
+  const tr = { tx_count: 120, live_ok: true, commits_90d: 25 };
+  const product = { ...ps, traction: traction(tr), ...productOdds(ps, tr, ps.score) };
+  const facts = { name: 'earnkit', url: `https://github.com/${b.key}`, homepage: 'https://earnkit.com', created_at: '2025-01-01T00:00:00Z', chains, commits_in_window: {}, product, live_verified: true, tx_count: 120, commits_90d: 25 };
+  const fits: RepoFit[] = [{ repo: 'earnkit', repo_url: `https://github.com/${b.key}`, key: b.key, product, facts, live_verified: true, verdicts: [] }];
+  b.ctx = { ...b.ctx, matchProjects: (async () => ({ checked: 1, scored: 1, fits })) as never };
+  await mcpCall(b.ctx as never, 'find', { identity: { project: { name: 'EarnKit', repo: `https://github.com/${b.key}`, live_url: 'https://earnkit.com' } } });
+  const gid = 49000 + n * 10 + (Number(RUN) % 7);
+  b.gh = fakeGitHub({ [b.key]: { id: gid, owner: b.handle, installation: gid + 1 } });
+  await installApp({ builderId: c.id, repoKey: b.key, login: b.handle, gh: b.gh });
+  await sql()`UPDATE builder_projects SET commit_weeks = ${[isoWeekOf(new Date())]}::text[], shipped = true, kind = 'app' WHERE builder_id = ${c.id} AND lower(project_key) = lower(${b.key})`;
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('connect_done', now()::text) WHERE builder_id = ${c.id}`;
+}
+/** Target B's world: Base's and Circle's rolling grants and an a16z speedrun copy closing in 30 hours, nothing else open. */
+async function worldB() {
+  const sr = await speedrun(30);
+  await only([sr.id, 'base-builder-grants', 'circle-developer-grants']);
+  return sr;
+}
+const CONNECTED = "Connected. I'll track every commit you push, so your profile stays current without you lifting a finger: ";
+
+test("B: a signed-out builder's first find is the opener: three numbered programs, the grants total and exactly one link", db, async () => {
+  const sr = await worldB();
+  const b = await newcomer('op');
+  const r = await outFind(b);
+  const s = show(r);
+  const lines = s.split('\n');
+  assert.equal(lines[0], "I'm EarnKit. I get builders funded for what they ship, and there's $105K in grants open right now.", s);
+  assert.equal(lines[2], '1. Circle Developer Grants: $5K to $100K, rolling', s);
+  assert.equal(lines[3], '2. Base Builder Grant: up to $5,000, rolling', s);
+  assert.match(lines[4], new RegExp(`^3\\. ${sr.title} \\(investor program\\): up to \\$1M, closes [A-Z][a-z]{2} \\d{1,2}$`), s);
+  const links = s.match(/https?:\/\/\S+/g) ?? [];
+  assert.equal(links.length, 1, s);
+  assert.match(links[0], /\/signin\//);
+  assert.equal(lines.at(-1), OPENER_TAIL(links[0]));
+  assert.equal(lines.length, 7, s);
+  assert.doesNotMatch(s, BAD);
+  assert.doesNotMatch(s, /Setup takes about a minute|EarnKit gets you paid/);
+  assert.match(String(r.reply?.note), /call find with program/);
+  // The numbered list is stored, so a number resolves later.
+  assert.deepEqual(((await seenOf(b.id)).opener as { ids: string[] }).ids, ['circle-developer-grants', 'base-builder-grants', sr.id]);
+  // The same session again (an older agent calling find): the list in one short line, never the whole opener.
+  assert.equal(show(await outFind(b)), `Reply 1 for Circle Developer Grants, 2 for Base Builder Grant or 3 for ${sr.title}, and connect here so I can check if your work fits: ${links[0]}`);
+});
+
+test('B: "2" or a name is stored as the path\'s program; a number outside the list gets the list again', db, async () => {
+  const sr = await worldB();
+  const b = await newcomer('pk');
+  const link = (show(await outFind(b)).match(/https?:\/\/\S+/) ?? [''])[0];
+  const out = show(await outFind(b, { program: '7' }));
+  assert.equal(out, `Reply 1 for Circle Developer Grants, 2 for Base Builder Grant or 3 for ${sr.title}, and connect here so I can check if your work fits: ${link}`);
+  assert.equal((await seenOf(b.id)).path, undefined);
+  assert.equal(show(await outFind(b, { program: '2' })), `Got it: Base Builder Grant. Connect here so I can check if your work fits: ${link}`);
+  assert.deepEqual({ ...((await seenOf(b.id)).path as object), at: undefined }, { stage: 'hook', program_id: 'base-builder-grants', at: undefined, picked: true });
+  // A name picks too (the builder changed their mind).
+  assert.match(show(await outFind(b, { program: 'Circle' })), /^Got it: Circle Developer Grants\. /);
+  assert.equal(((await seenOf(b.id)).path as { program_id: string }).program_id, 'circle-developer-grants');
+});
+
+test('B: picking Circle (target B\'s "2"; 1 in the ruled order) and connecting: the profile line, why Circle is not a fit, the Base hook; "yes" gives the steps', db, async () => {
+  await worldB();
+  const b = await newcomer('cn');
+  await outFind(b);
+  // In this world Circle is the top grant by money (1) and Base the next rolling one (2): the builder picks Circle.
+  assert.match(show(await outFind(b, { program: 'Circle Developer Grants' })), /^Got it: Circle Developer Grants\. /);
+  await connectB(b);
+  const r = await find(b);
+  const s = show(r);
+  const [p1, p2, p3, ...rest] = s.split('\n\n');
+  assert.match(p1, new RegExp(`^${CONNECTED.replace(/[.?]/g, '\\$&')}earnkit\\.com/${b.handle}(, score \\d+)?(, #\\d+ of \\d+ builders)?\\.$`, 'i'), s);
+  assert.match(p2, /^For Circle Developer Grants: they fund apps on Arc, and EarnKit isn't on Arc yet\. Your closest money is Base Builder Grant: up to \$5,000\. [^\n]*Builder Codes[^\n]*$/, s);
+  assert.equal(p3, 'Want the steps?', s);
+  assert.equal(rest.length, 0, s);
+  assert.doesNotMatch(s, BAD);
+  assert.doesNotMatch(s, /qualify for|you qualify/i);
+  assert.equal(r.reply?.note, PATH_NOTE);
+  assert.equal(moveUp(r)?.kind, 'qualify');
+  const seen = await seenOf(b.id);
+  // The closest money offered stays the path's program (as a pick), so the next reply is still about it.
+  assert.deepEqual({ ...(seen.path as object), at: undefined }, { stage: 'hook', program_id: 'base-builder-grants', at: undefined, picked: true });
+  assert.ok((seen.opener as { connected?: string }).connected);
+  // "yes": the steps, each one the agent can do marked, then one easy reply.
+  const y = show(await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' }));
+  assert.match(y, /^Your next step toward Base Builder Grant:\n1\. [^\n]*Builder Code[^\n]*I can do this\./, y);
+  assert.match(y, /(Go\?|Want me to do the first one now\?)$/, y);
+  assert.doesNotMatch(y, BAD);
+  // Said once: the next find in the session is the gap's step, never the connected line again.
+  const again = show(await find(b));
+  assert.match(again, /^Still on Base Builder Grant: /, again);
+});
+
+test('B: a pick that fits (here the investor program) is hooked for its draft right after the connected line', db, async () => {
+  const sr = await worldB();
+  const b = await newcomer('fit');
+  await outFind(b);
+  await outFind(b, { program: '3' });
+  await connectB(b);
+  const s = show(await find(b));
+  const [p1, p2, p3] = s.split('\n\n');
+  assert.ok(p1.startsWith(CONNECTED), s);
+  assert.match(p2, new RegExp(`^Maya, ${sr.title} closes [^:]+: up to \\$1M\\.`), s);
+  assert.equal(p3, 'I can draft your application from your commits and live product in a few minutes. Want me to start?');
+  assert.equal(((await seenOf(b.id)).path as { program_id: string; picked?: boolean }).program_id, sr.id);
+});
+
+test('B: setup step 3 still comes first, word for word; the connected line waits for the next reply', db, async () => {
+  await worldB();
+  const b = await newcomer('s3');
+  await outFind(b);
+  await outFind(b, { program: '1' });
+  await connectB(b, { wallet: false });
+  const r = await find(b);
+  const s = show(r);
+  assert.equal(moveUp(r)?.kind, 'wallet_setup', s);
+  const link = s.match(/no fee: (\S+)/)?.[1] ?? '';
+  assert.equal(s, walletSetupAsk('EarnKit', link));
+  const seen = await seenOf(b.id);
+  assert.equal((seen.opener as { connected?: string }).connected, undefined);
+  assert.equal((seen.path as { program_id: string }).program_id, 'circle-developer-grants');
 });

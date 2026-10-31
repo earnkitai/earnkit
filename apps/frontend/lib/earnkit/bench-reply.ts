@@ -859,7 +859,8 @@ export function benchReply(v: BenchView): string {
   const name = replyName(v);
   // 2026-10-22 (owner): no points lines in the first two replies.
   // v4.0 approved copy 1: the head line, what EarnKit does (with the open grant), then the three steps.
-  if (v.state === 'signed_out') return paras([INTRO_LINE], [introWhat(v.open ?? null)], [v.ask.line]);
+  // v4.8 Task 4: target B's opener (bench-find.ts openerView) when there are programs to number.
+  if (v.state === 'signed_out') return v.path ?? paras([INTRO_LINE], [introWhat(v.open ?? null)], [v.ask.line]);
   // v4.0 Task 5: the first reply after setup step 3 settled (benchView claims it once).
   if (v.setupDone) return v.setupDone;
   const step2 = !v.held && isStep2(v.ask);

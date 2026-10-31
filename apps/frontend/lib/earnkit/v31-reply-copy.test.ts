@@ -59,20 +59,21 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   await saveInstallation(t, undefined, false, 'Claude Code');
   const c0 = (await connectInstallation(t))!;
   const none = (async () => ({ checked: 0, scored: 0, fits: [] })) as never;
-  const s1 = rule(show(await mcpCall({ installationId: c0.id, ownInstallationId: c0.own, sharedClient: false, matchProjects: none }, 'find', {})));
+  // v4.8 Task 4: target B's opener: the grants total, three numbered programs (the top grant by money, the best rolling
+  // grant, the soonest investor program), then the number and the one link. Its one easy reply is a number (no question).
+  const s1 = show(await mcpCall({ installationId: c0.id, ownInstallationId: c0.own, sharedClient: false, matchProjects: none }, 'find', {}));
+  assert.equal(links(s1).length, 1, s1);
+  assert.equal(questions(s1), 0, s1);
   const signIn = links(s1)[0]!;
   assert.match(signIn, /^https:\/\/earnkit\.com\/signin\/[A-Za-z0-9_-]{22}$/);
   assert.equal(s1, [
-    '**EarnKit gets you paid for building.**',
+    "I'm EarnKit. I get builders funded for what they ship, and there's $105K in grants open right now.",
     '',
-    'Every week I read what you ship, rank you against other builders, and find grants and programs you qualify for. Up to $5,000 is open from Base right now.',
+    '1. Circle Developer Grants: $5K to $100K, rolling',
+    '2. Base Builder Grant: up to $5,000, rolling',
+    '3. a16z speedrun SR008 (investor program): up to $1M, closes Nov 1',
     '',
-    'Setup takes about a minute:',
-    `1. Sign in with X: ${signIn}`,
-    '2. Connect your code',
-    '3. Add your wallet',
-    '',
-    'Done with step 1?',
+    `Reply with a number, and connect here so I can check if your work fits: ${signIn}`,
   ].join('\n'));
 
   // Step 2: signed in, no repo (the picker), then a named repo the App can't count yet (its install link).

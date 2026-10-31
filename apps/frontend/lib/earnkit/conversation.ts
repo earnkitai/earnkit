@@ -234,6 +234,8 @@ export type PathCtx = {
   said: Set<string>;
   /** Fix round 2 (F10): the caller's agent has no folder of the code (agent-reach.ts hosted): it does no step itself. */
   hosted?: boolean;
+  /** v4.8 Task 4: the hook asks for the steps (target B's closest money after a pick that doesn't fit), never "Go?". */
+  steps?: boolean;
 };
 /** Fix round 2 (F10): a local agent's offer for a grant whose one gap is Builder Codes (target A). */
 export const CODES_OFFER = 'I can add them and push the change, about 10 minutes. Go?';
@@ -259,7 +261,7 @@ export function pathReply(c: PathCtx): PathReply {
   const p = m.program;
   const name = programName(p.title);
   // Fix round 2 (F10): one gap the agent can do (Builder Codes) and a local agent: the hook offers to do it, "Go?".
-  const doIt = (m.kind === 'one_step' || m.kind === 'closest') && m.program.doable && m.program.gaps.length === 1 && c.hosted !== true;
+  const doIt = (m.kind === 'one_step' || m.kind === 'closest') && m.program.doable && m.program.gaps.length === 1 && c.hosted !== true && c.steps !== true;
   const reply: PathReply['reply'] = m.kind === 'fit' || m.kind === 'now' || m.kind === 'investor' ? 'start' : doIt ? 'go' : 'steps';
   const ask = reply === 'start' ? START_ASK : reply === 'go' ? CODES_OFFER : STEPS_ASK;
   const hookKey = `hook:${p.id}`;
@@ -564,3 +566,85 @@ export const DRAFT_NOW_ASK = 'Draft it now? It takes me a few minutes.';
 /** "Base Builder Grant is still open and you now meet its first requirement." (the closed gap, in a fresh session). Pure. */
 export const stillOpenLine = (title: string, codes: boolean) =>
   `${programName(title)} is still open${codes ? ' and you now meet its first requirement' : ' and its steps are done'}.`;
+
+/*
+ * v4.8 Task 4: the new builder (target conversation B).
+ * - Before GitHub is connected, the first reply is the opener: what EarnKit does and the grants total, three numbered
+ *   open programs (bench-find.ts openerPrograms: the top grant by money, the best rolling grant, the soonest investor
+ *   program) and the one link the signed-out reply already uses. The numbered list is kept (standing_seen.opener).
+ * - A number or a program's name (find {program}) picks one: the path's program at `hook`, `picked`.
+ * - The first path reply after connecting says the profile and the tracking line once, then the pick's fit: a fit (or
+ *   the investor program, or a grant the path keeps) is hooked as always; otherwise why not, in one line from the
+ *   program's own facts, then the closest money and "Want the steps?". Never a claim that they qualify.
+ */
+
+/** A program the opener numbers: its title, its money ("up to $5,000", "$5K to $100K"), when ("rolling", "closes Nov 1"). */
+export type OpenerProgram = { id: string; title: string; amount: string | null; when: string; investment: boolean };
+/** The opener's first line: what EarnKit does, and the open grants' total when there is one. Pure. */
+export const openerHead = (total: string | null) =>
+  `I'm EarnKit. I get builders funded for what they ship${total ? `, and there's ${total} in grants open right now` : ''}.`;
+/** "1. Base Builder Grant: up to $5,000, rolling"; an investor program says so. Pure. */
+const openerLine = (p: OpenerProgram, i: number) =>
+  `${i + 1}. ${programName(p.title)}${p.investment ? ' (investor program)' : ''}: ${p.amount ? `${p.amount}, ` : ''}${p.when}`;
+/**
+ * What the one link does, in words: the repo picker's link (X sign-in off) connects GitHub; the X sign-in link is the
+ * first step of connecting, so it is never called GitHub (ruling: the copy never says a link does what it doesn't). Pure.
+ */
+const connectWords = (github: boolean) => (github ? 'connect GitHub here' : 'connect here');
+const fitsAsk = (github: boolean, link: string) => `${connectWords(github)} so I can check if your work fits: ${link}`;
+/** Target B's opener: the head, the numbered programs, then the number and the one link (last). Pure. */
+export function openerReply(o: { total: string | null; programs: readonly OpenerProgram[]; link: string; github: boolean }): string {
+  return `${openerHead(o.total)}\n\n${o.programs.map(openerLine).join('\n')}\n\nReply with a number, and ${fitsAsk(o.github, o.link)}`;
+}
+/** "1 for A, 2 for B or 3 for C". Pure. */
+const orList = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} or ${xs.at(-1)}`);
+/**
+ * The list again in one short line (a number outside it, or the opener already said this session): "Reply 1 for
+ * Circle Developer Grants, 2 for Base Builder Grant or 3 for a16z speedrun SR008, and connect here ...: {link}". Pure.
+ */
+export const openerAgain = (programs: readonly Pick<OpenerProgram, 'title'>[], link: string, github: boolean) =>
+  `Reply ${orList(programs.map((p, i) => `${i + 1} for ${programName(p.title)}`))}, and ${fitsAsk(github, link)}`;
+/** A pick before connecting: "Got it: Base Builder Grant. Connect here so I can check if your work fits: {link}". Pure. */
+export const pickedReply = (title: string, link: string, github: boolean) => {
+  const ask = fitsAsk(github, link);
+  return `Got it: ${programName(title)}. ${ask.charAt(0).toUpperCase()}${ask.slice(1)}`;
+};
+/**
+ * The builder's pick against the numbered list shown: "2", "#2" or "2." is that program ('outside' past the list); a
+ * name is the program whose name it holds, or that holds it (3 letters or more). Null when nothing matches. Pure.
+ */
+export function resolvePick(input: string, list: readonly Pick<OpenerProgram, 'id' | 'title'>[]): string | 'outside' | null {
+  const t = input.trim().toLowerCase();
+  const num = /^#?(\d{1,3})\.?$/.exec(t);
+  if (num) {
+    const i = Number(num[1]) - 1;
+    return i >= 0 && i < list.length ? list[i].id : 'outside';
+  }
+  if (t.length < 3) return null;
+  const hit = list.find((p) => {
+    const name = programName(p.title).toLowerCase();
+    return name.includes(t) || t.includes(name) || p.title.toLowerCase().includes(t);
+  });
+  return hit?.id ?? null;
+}
+/**
+ * The first line after connecting (target B, said once): "Connected. I'll track every commit you push, so your profile
+ * stays current without you lifting a finger: earnkit.com/maya, score 54, #3 of 40 builders." The score only when the
+ * page shows one, the rank only with 2 or more builders. Pure.
+ */
+export function connectedLine(o: { page: string; score: number | null; rank: { n: number; m: number } | null }): string {
+  const parts = [o.page, o.score !== null ? `score ${o.score}` : null, o.rank && o.rank.m >= 2 ? `#${o.rank.n} of ${o.rank.m} builders` : null];
+  return `Connected. I'll track every commit you push, so your profile stays current without you lifting a finger: ${parts.filter(Boolean).join(', ')}.`;
+}
+/**
+ * Why the pick doesn't fit, in one line, from the program's own facts: its one chain the project isn't on ("they fund
+ * apps on Arc, and EarnKit isn't on Arc yet."), programNeeds' gaps ("EarnKit isn't on Arc mainnet yet."), or the
+ * path's gap sentence (Base's qualifyGap). Pure.
+ */
+export function noFitWhy(title: string, w: { name: string; chain?: string; needs?: readonly string[]; gap?: string }): string {
+  const why = w.chain ? `they fund apps on ${w.chain}, and ${w.name} isn't on ${w.chain} yet.`
+    : w.needs?.length ? `${w.name} isn't ${andComma(w.needs)} yet.` : (w.gap ?? '');
+  return `For ${programName(title)}: ${why}`;
+}
+/** The opener's agent note: a number or a program's name goes back to find as `program`. */
+export const OPENER_NOTE = "When they reply with a number or a program's name, call find with program set to their reply.";
