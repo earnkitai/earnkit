@@ -20,12 +20,12 @@ import { isoWeekOf } from './weeks';
 import { backfillMondays } from './week-facts';
 import { X_ON, withEnv } from './fixtures/find';
 import {
-  CAN_DO, connectedLine, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, FOUNDER_BLANKS, MENTOR_NOTE, PATH_ANSWER_FIRST, CODES_OFFER, blanksAgain, SESSION_MS, SENT_ASK, TRACK_ACK, agoWords, passedLine, sinceLine, submitBy, submitPointer, submitReply, trackLead, bestMove, blanksAsk, closeWords, draftBlanks, draftReply, gapClosedReply, gapProof, gapReply, gapStillReply, pathReply, programName, proofLine, readPath, sessionOf,
+  CAN_DO, connectedLine, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, FOUNDER_BLANKS, MENTOR_NOTE, PATH_ANSWER_FIRST, CODES_OFFER, blanksAgain, SESSION_MS, SENT_ASK, TRACK_ACK, agoWords, passedLine, sinceLine, submitBy, submitPointer, submitReply, trackLead, bestMove, blanksAsk, closeWords, draftBlanks, draftReply, gapClosedReply, gapProof, gapReply, gapStillReply, pathReply, programName, proofLine, readPath, sessionOf,
   type GapGrant, type InvestorProgram, type MoveCtx, type MoveProgram,
 } from './conversation';
 import { qualifyGapSteps, BUILDER_CODES_GUIDE } from './bench-reply';
 import { BUILDER_CODES_SUFFIX } from './builder-code';
-import { RECHECK_WAIT, codesSettled, founderBriefNote, openerPrograms, questionsDraftNote } from './bench-find';
+import { PUSHED_ASK, RECHECK_WAIT, codesSettled, founderBriefNote, openerPrograms, questionsDraftNote } from './bench-find';
 import type { Card } from './present';
 import { shipLogBlock, shipLogFacts } from './ship-log-facts';
 
@@ -644,6 +644,11 @@ test("the Base gap (fix round 2, F10): the hook offers to add Builder Codes; a y
   // "Go?" yes: the agent adds them, pushes, then calls find (the mentor note's do-it-then-find).
   const go = await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' });
   assert.match(show(go), /^Adding Builder Codes to EarnKit/, show(go));
+  // Fix round 0 (8): it ends in the path's next easy reply ("ok", stored as the re-check ask: its yes checks the code).
+  assert.ok(show(go).endsWith(`\n\n${PUSHED_ASK}`), show(go));
+  assert.equal(show(go).split('\n\n').length, 2, show(go));
+  const ok = (await seenOf(b.id)).bench_ask as { kind: string; checking?: boolean; path?: boolean; program_id?: string };
+  assert.deepEqual([ok.kind, ok.checking, ok.path, ok.program_id], ['qualify', true, true, 'base-builder-grants']);
   assert.match(noteOf(go), /commit and push it .* and call find/);
   assert.ok(noteOf(go).endsWith(MENTOR_NOTE), noteOf(go));
   assert.deepEqual({ ...((await seenOf(b.id)).path as object), at: undefined }, { stage: 'gap', program_id: 'base-builder-grants', at: undefined });
@@ -1067,7 +1072,13 @@ test('the opener, the pick and the connected line (pure): target B, one link, ne
   const head = "Connected. I'll track every commit you push, so your profile stays current without you lifting a finger: ";
   assert.equal(connectedLine({ page: 'earnkit.com/maya', score: 54, rank: { n: 3, m: 40 } }), `${head}earnkit.com/maya, score 54, #3 of 40 builders.`);
   assert.equal(connectedLine({ page: 'earnkit.com/maya', score: 54, rank: { n: 1, m: 1 } }), `${head}earnkit.com/maya, score 54.`);
-  assert.equal(connectedLine({ page: 'earnkit.com/maya', score: null, rank: null }), `${head}earnkit.com/maya.`);
+  // Fix round 0 (4): a score of 0 or none: no score and no rank, and the profile "fills in".
+  const fills = "Connected. I'll track every commit you push, so your profile fills in without you lifting a finger: earnkit.com/maya.";
+  assert.equal(connectedLine({ page: 'earnkit.com/maya', score: null, rank: null }), fills);
+  assert.equal(connectedLine({ page: 'earnkit.com/maya', score: 0, rank: { n: 30, m: 30 } }), fills);
+  assert.equal(connectedLine({ page: 'earnkit.com/maya', score: null, rank: { n: 3, m: 40 } }), fills);
+  // Fix round 0 (7): a picked investor program not close yet, one line before the closest money.
+  assert.equal(investorLater('a16z speedrun SR008'), "a16z speedrun SR008 is an investor program, so I'll help you prepare when it gets closer.");
   // Why a pick doesn't fit, in one line, from the program's own facts.
   assert.equal(noFitWhy('Circle Developer Grants', { chain: 'Arc', name: 'EarnKit' }), "For Circle Developer Grants: they fund apps on Arc, and EarnKit isn't on Arc yet.");
   assert.equal(noFitWhy('Arc Microgrants: Built with Arc Studio', { needs: ['on Arc mainnet', 'live at a link'], name: 'EarnKit' }), "For Arc Microgrants: EarnKit isn't on Arc mainnet, and live at a link yet.");
@@ -1078,7 +1089,7 @@ test('the opener, the pick and the connected line (pure): target B, one link, ne
   assert.equal(c.show_to_builder, 'Your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes. EarnKit is live.\n\nWant the steps?');
 });
 
-test('openerPrograms (pure): the top grant by money, the best rolling grant (never the same one), the soonest investor program; fewer, numbered as they come', () => {
+test('openerPrograms (pure, fix round 0 (1)): Base\'s grant (else the best rolling grant), the largest other open grant, the soonest investor program; fewer, numbered as they come', () => {
   const card = (o: Partial<Card> & { id: string }): Card => ({ title: o.id, summary: 'up to $1,000 · rolling', status: 'active', ...o } as Card);
   const circle = card({ id: 'circle', title: 'Circle Developer Grants', summary: '$5,000 to $100,000 USDC grants · rolling', max_award_usd: 100000, min_award_usd: 5000 });
   const base = card({ id: 'base', title: 'Base Builder Grant Program', summary: 'up to $5,000 · rolling', max_award_usd: 5000 });
@@ -1086,15 +1097,18 @@ test('openerPrograms (pure): the top grant by money, the best rolling grant (nev
   const a16z = card({ id: 'a16z', title: 'a16z speedrun SR008', summary: 'up to $1M · closes Nov 1, 11:59 PM PT', max_award_usd: 1000000, investment: true, ends_at: new Date('2026-11-02T07:59:59Z') });
   const later = card({ id: 'later', title: 'Later Fund', summary: 'up to $500K · closes Dec 1', max_award_usd: 500000, investment: true, ends_at: new Date('2026-12-02T00:00:00Z') });
   const ids = (cs: Card[], skip: string[] = []) => openerPrograms(cs, NOW, new Set(skip)).map((p) => p.id);
-  // Target B's world: Circle is the top grant by money and rolling, so the best rolling grant is the next one, Base.
-  assert.deepEqual(ids([base, circle, later, a16z]), ['circle', 'base', 'a16z']);
-  // A dated top grant: the best rolling grant is Circle.
-  assert.deepEqual(ids([base, circle, dated, a16z]), ['dated', 'circle', 'a16z']);
+  const baseId = { ...base, id: 'base-builder-grants' };
+  // Target B's order: Base's grant first, then the largest other open grant (Circle), then the soonest investor program.
+  assert.deepEqual(ids([circle, baseId, later, a16z]), ['base-builder-grants', 'circle', 'a16z']);
+  // The largest other grant may be a dated one.
+  assert.deepEqual(ids([baseId, circle, dated, a16z]), ['base-builder-grants', 'dated', 'a16z']);
+  // Base's grant closed (or not shown): the best rolling grant first, then the largest other.
+  assert.deepEqual(ids([circle, dated, a16z]), ['circle', 'dated', 'a16z']);
+  assert.deepEqual(ids([baseId, circle, a16z], ['base-builder-grants']), ['circle', 'a16z']);
   // Fewer than three: what exists; an entered or hidden program is never numbered.
   assert.deepEqual(ids([circle, a16z]), ['circle', 'a16z']);
-  assert.deepEqual(ids([circle, base, a16z], ['circle']), ['base', 'a16z']);
   assert.deepEqual(ids([]), []);
-  const [c, b, a] = openerPrograms([base, circle, a16z], NOW, new Set());
+  const [b, c, a] = openerPrograms([baseId, circle, a16z], NOW, new Set());
   assert.deepEqual([c.amount, c.when, b.amount, a.amount, a.investment], ['$5K to $100K', 'rolling', 'up to $5,000', 'up to $1M', true]);
   assert.match(a.when, /^closes Nov 1$/);
 });
@@ -1143,7 +1157,7 @@ async function worldB() {
   await only([sr.id, 'base-builder-grants', 'circle-developer-grants']);
   return sr;
 }
-const CONNECTED = "Connected. I'll track every commit you push, so your profile stays current without you lifting a finger: ";
+const CONNECTED = "Connected. I'll track every commit you push, so your profile ";
 
 test("B: a signed-out builder's first find is the opener: three numbered programs, the grants total and exactly one link", db, async () => {
   const sr = await worldB();
@@ -1152,8 +1166,8 @@ test("B: a signed-out builder's first find is the opener: three numbered program
   const s = show(r);
   const lines = s.split('\n');
   assert.equal(lines[0], "I'm EarnKit. I get builders funded for what they ship, and there's $105K in grants open right now.", s);
-  assert.equal(lines[2], '1. Circle Developer Grants: $5K to $100K, rolling', s);
-  assert.equal(lines[3], '2. Base Builder Grant: up to $5,000, rolling', s);
+  assert.equal(lines[2], '1. Base Builder Grant: up to $5,000, rolling', s);
+  assert.equal(lines[3], '2. Circle Developer Grants: $5K to $100K, rolling', s);
   assert.match(lines[4], new RegExp(`^3\\. ${sr.title} \\(investor program\\): up to \\$1M, closes [A-Z][a-z]{2} \\d{1,2}$`), s);
   const links = s.match(/https?:\/\/\S+/g) ?? [];
   assert.equal(links.length, 1, s);
@@ -1164,9 +1178,9 @@ test("B: a signed-out builder's first find is the opener: three numbered program
   assert.doesNotMatch(s, /Setup takes about a minute|EarnKit gets you paid/);
   assert.match(String(r.reply?.note), /call find with program/);
   // The numbered list is stored, so a number resolves later.
-  assert.deepEqual(((await seenOf(b.id)).opener as { ids: string[] }).ids, ['circle-developer-grants', 'base-builder-grants', sr.id]);
+  assert.deepEqual(((await seenOf(b.id)).opener as { ids: string[] }).ids, ['base-builder-grants', 'circle-developer-grants', sr.id]);
   // The same session again (an older agent calling find): the list in one short line, never the whole opener.
-  assert.equal(show(await outFind(b)), `Reply 1 for Circle Developer Grants, 2 for Base Builder Grant or 3 for ${sr.title}, and connect here so I can check if your work fits: ${links[0]}`);
+  assert.equal(show(await outFind(b)), `Reply 1 for Base Builder Grant, 2 for Circle Developer Grants or 3 for ${sr.title}, and connect here so I can check if your work fits: ${links[0]}`);
 });
 
 test('B: "2" or a name is stored as the path\'s program; a number outside the list gets the list again', db, async () => {
@@ -1174,26 +1188,26 @@ test('B: "2" or a name is stored as the path\'s program; a number outside the li
   const b = await newcomer('pk');
   const link = (show(await outFind(b)).match(/https?:\/\/\S+/) ?? [''])[0];
   const out = show(await outFind(b, { program: '7' }));
-  assert.equal(out, `Reply 1 for Circle Developer Grants, 2 for Base Builder Grant or 3 for ${sr.title}, and connect here so I can check if your work fits: ${link}`);
+  assert.equal(out, `Reply 1 for Base Builder Grant, 2 for Circle Developer Grants or 3 for ${sr.title}, and connect here so I can check if your work fits: ${link}`);
   assert.equal((await seenOf(b.id)).path, undefined);
-  assert.equal(show(await outFind(b, { program: '2' })), `Got it: Base Builder Grant. Connect here so I can check if your work fits: ${link}`);
-  assert.deepEqual({ ...((await seenOf(b.id)).path as object), at: undefined }, { stage: 'hook', program_id: 'base-builder-grants', at: undefined, picked: true });
+  assert.equal(show(await outFind(b, { program: '2' })), `Got it: Circle Developer Grants. Connect here so I can check if your work fits: ${link}`);
+  assert.deepEqual({ ...((await seenOf(b.id)).path as object), at: undefined }, { stage: 'hook', program_id: 'circle-developer-grants', at: undefined, picked: true });
   // A name picks too (the builder changed their mind).
-  assert.match(show(await outFind(b, { program: 'Circle' })), /^Got it: Circle Developer Grants\. /);
-  assert.equal(((await seenOf(b.id)).path as { program_id: string }).program_id, 'circle-developer-grants');
+  assert.match(show(await outFind(b, { program: 'Base' })), /^Got it: Base Builder Grant\. /);
+  assert.equal(((await seenOf(b.id)).path as { program_id: string }).program_id, 'base-builder-grants');
 });
 
-test('B: picking Circle (target B\'s "2"; 1 in the ruled order) and connecting: the profile line, why Circle is not a fit, the Base hook; "yes" gives the steps', db, async () => {
+test('B: "2" (Circle) and connecting: the profile line, why Circle is not a fit, the Base hook; "yes" gives the steps', db, async () => {
   await worldB();
   const b = await newcomer('cn');
   await outFind(b);
-  // In this world Circle is the top grant by money (1) and Base the next rolling one (2): the builder picks Circle.
-  assert.match(show(await outFind(b, { program: 'Circle Developer Grants' })), /^Got it: Circle Developer Grants\. /);
+  assert.match(show(await outFind(b, { program: '2' })), /^Got it: Circle Developer Grants\. /);
   await connectB(b);
   const r = await find(b);
   const s = show(r);
   const [p1, p2, p3, ...rest] = s.split('\n\n');
-  assert.match(p1, new RegExp(`^${CONNECTED.replace(/[.?]/g, '\\$&')}earnkit\\.com/${b.handle}(, score \\d+)?(, #\\d+ of \\d+ builders)?\\.$`, 'i'), s);
+  // Fix round 0 (4): the page's score is 0 here, so neither the score nor the rank: the profile "fills in".
+  assert.equal(p1, `Connected. I'll track every commit you push, so your profile fills in without you lifting a finger: earnkit.com/${b.handle.toLowerCase()}.`, s);
   assert.match(p2, /^For Circle Developer Grants: they fund apps on Arc, and EarnKit isn't on Arc yet\. Your closest money is Base Builder Grant: up to \$5,000\. [^\n]*Builder Codes[^\n]*$/, s);
   assert.equal(p3, 'Want the steps?', s);
   assert.equal(rest.length, 0, s);
@@ -1204,7 +1218,7 @@ test('B: picking Circle (target B\'s "2"; 1 in the ruled order) and connecting: 
   const seen = await seenOf(b.id);
   // The closest money offered stays the path's program (as a pick), so the next reply is still about it.
   assert.deepEqual({ ...(seen.path as object), at: undefined }, { stage: 'hook', program_id: 'base-builder-grants', at: undefined, picked: true });
-  assert.ok((seen.opener as { connected?: string }).connected);
+  assert.ok(seen.connected_said);
   // "yes": the steps, each one the agent can do marked, then one easy reply.
   const y = show(await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' }));
   assert.match(y, /^Your next step toward Base Builder Grant:\n1\. [^\n]*Builder Code[^\n]*I can do this\./, y);
@@ -1213,6 +1227,13 @@ test('B: picking Circle (target B\'s "2"; 1 in the ruled order) and connecting: 
   // Said once: the next find in the session is the gap's step, never the connected line again.
   const again = show(await find(b));
   assert.match(again, /^Still on Base Builder Grant: /, again);
+  // Fix round 0 (5): once a builder, whatever else writes the opener: a later opener record (a new signed-out agent of
+  // theirs) and a new session never bring it back.
+  assert.ok((await seenOf(b.id)).connected_said);
+  await sql()`UPDATE builder_profiles SET standing_seen = (standing_seen - 'path') || jsonb_build_object('opener', jsonb_build_object('ids', '["base-builder-grants"]'::jsonb, 'at', now()::text)) WHERE builder_id = ${b.id}`;
+  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, '{said,at}', to_jsonb(${new Date(Date.now() - SESSION_MS - 1000).toISOString()}::text)) WHERE builder_id = ${b.id}`;
+  const later = show(await find(b));
+  assert.doesNotMatch(later, /Connected\./, later);
 });
 
 test('B: a pick that fits (here the investor program) is hooked for its draft right after the connected line', db, async () => {
@@ -1233,7 +1254,7 @@ test('B: setup step 3 still comes first, word for word; the connected line waits
   await worldB();
   const b = await newcomer('s3');
   await outFind(b);
-  await outFind(b, { program: '1' });
+  await outFind(b, { program: '2' });
   await connectB(b, { wallet: false });
   const r = await find(b);
   const s = show(r);
@@ -1241,6 +1262,48 @@ test('B: setup step 3 still comes first, word for word; the connected line waits
   const link = s.match(/no fee: (\S+)/)?.[1] ?? '';
   assert.equal(s, walletSetupAsk('EarnKit', link));
   const seen = await seenOf(b.id);
-  assert.equal((seen.opener as { connected?: string }).connected, undefined);
+  assert.equal(seen.connected_said, undefined);
   assert.equal((seen.path as { program_id: string }).program_id, 'circle-developer-grants');
+});
+
+test('B fix round 0 (7): a picked investor program not close yet says so in one line, then the closest money', db, async () => {
+  const sr = await speedrun(20 * 24);
+  await only([sr.id, 'base-builder-grants', 'circle-developer-grants']);
+  const b = await newcomer('inv');
+  assert.match(show(await outFind(b)), new RegExp(`\\n3\\. ${sr.title} \\(investor program\\): `));
+  await outFind(b, { program: '3' });
+  await connectB(b);
+  const s = show(await find(b));
+  const [p1, p2, p3, ...rest] = s.split('\n\n');
+  assert.ok(p1.startsWith(CONNECTED), s);
+  assert.match(p2, new RegExp(`^${sr.title} is an investor program, so I'll help you prepare when it gets closer\\. Your closest money is Base Builder Grant: up to \\$5,000\\. `), s);
+  assert.equal(p3, 'Want the steps?', s);
+  assert.equal(rest.length, 0, s);
+  assert.doesNotMatch(s, BAD);
+});
+
+test('B fix round 0 (6): sign-in that moves the installation to an existing page carries the pick and the opener list, unless that page has a path', db, async () => {
+  await worldB();
+  // A page this X account already holds (another agent of theirs, signed in before), with no path yet.
+  const xid = `47${RUN}${Math.random().toString(10).slice(2, 8)}`;
+  const user = { id: xid, username: `cv${RUN}${xid.slice(-3)}`.slice(0, 15), name: 'Maya Lin', avatar: null };
+  const t1 = `ek_v48_cv1_${RUN}_${Math.random().toString(36).slice(2)}`;
+  await saveInstallation(t1, undefined, false, 'Cursor');
+  const first = (await connectInstallation(t1))!;
+  assert.ok((await attachToX(first.own, user, new Date())).ok);
+  const root = (await connectInstallation(t1))!.id;
+  const b = await newcomer('cv');
+  await outFind(b);
+  await outFind(b, { program: '2' });
+  assert.ok((await attachToX(b.own, user, new Date())).ok);
+  assert.equal((await connectInstallation(b.t))!.id, root, 'the installation joined the existing page');
+  const seen = await seenOf(root);
+  assert.deepEqual({ ...(seen.path as object), at: undefined }, { stage: 'hook', program_id: 'circle-developer-grants', at: undefined, picked: true });
+  assert.deepEqual((seen.opener as { ids: string[] }).ids, ['base-builder-grants', 'circle-developer-grants', (seen.opener as { ids: string[] }).ids[2]]);
+  // A page with a path of its own keeps it (nothing is carried).
+  const c = await newcomer('cw');
+  await outFind(c);
+  await outFind(c, { program: '1' });
+  assert.ok((await attachToX(c.own, user, new Date())).ok);
+  assert.equal(((await seenOf(root)).path as { program_id: string }).program_id, 'circle-developer-grants');
 });

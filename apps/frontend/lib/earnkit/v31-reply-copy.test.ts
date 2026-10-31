@@ -59,8 +59,8 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   await saveInstallation(t, undefined, false, 'Claude Code');
   const c0 = (await connectInstallation(t))!;
   const none = (async () => ({ checked: 0, scored: 0, fits: [] })) as never;
-  // v4.8 Task 4: target B's opener: the grants total, three numbered programs (the top grant by money, the best rolling
-  // grant, the soonest investor program), then the number and the one link. Its one easy reply is a number (no question).
+  // v4.8 Task 4: target B's opener: the grants total, three numbered programs (Base's grant, the largest other open grant,
+  // the soonest investor program), then the number and the one link. Its one easy reply is a number (no question).
   const s1 = show(await mcpCall({ installationId: c0.id, ownInstallationId: c0.own, sharedClient: false, matchProjects: none }, 'find', {}));
   assert.equal(links(s1).length, 1, s1);
   assert.equal(questions(s1), 0, s1);
@@ -69,8 +69,8 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   assert.equal(s1, [
     "I'm EarnKit. I get builders funded for what they ship, and there's $105K in grants open right now.",
     '',
-    '1. Circle Developer Grants: $5K to $100K, rolling',
-    '2. Base Builder Grant: up to $5,000, rolling',
+    '1. Base Builder Grant: up to $5,000, rolling',
+    '2. Circle Developer Grants: $5K to $100K, rolling',
     '3. a16z speedrun SR008 (investor program): up to $1M, closes Nov 1',
     '',
     `Reply with a number, and connect here so I can check if your work fits: ${signIn}`,

@@ -1796,6 +1796,8 @@ apps/frontend/
                                openerView (signed out), takePick (find {program} -> path picked), pickWhy, connectedCommit
                                (standing_seen.opener { ids, at, connected }), PathPlan.ctx, pathCommit `pre`. Test fixture:
                                fixtures/opener.ts (assertOpener, isOpener).
+                               Fix round 0: investorLater, connected_said, PUSHED_ASK (gapDoYes), x-install.ts attachOnce
+                               carries path + opener to the joined page.
     bench-find.ts(+test)       GTM W2 (2026-10-23): link-only projects (a Lovable or Bolt live_url, no repo) take the no-GitHub path
                                (noCode: the picker link, github_no, the walk-through; linkName/YOUR_APP, reportedName: never the
                                host); backing before hot post and apply (boundedBacking first), connectBacking in the connect yes;

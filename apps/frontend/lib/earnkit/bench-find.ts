@@ -73,7 +73,7 @@ import { DECLINE_MS, draftedRecently } from './policy-constants';
 import { closeDay, programZone, zoneAbbr } from './deadline';
 import type { ProgramRow as ProgramFileRow } from './programs';
 import {
-  MENTOR_NOTE, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, type OpenerProgram, type MoveCtx, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProof, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofLine, markSaid, pathReply, programName, readPath, saidSql, sessionOf,
+  MENTOR_NOTE, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, type OpenerProgram, type MoveCtx, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProof, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofLine, markSaid, pathReply, programName, readPath, saidSql, sessionOf,
   type GapStep,
   type GapGrant, type InvestorProgram, type Move, type MoveProgram, type Path,
 } from './conversation';
@@ -297,10 +297,11 @@ export type Seen = StandSeen & {
   /** v3.1 answerable replies (spec 6): the UTC day (YYYY-MM-DD) the connect step's full pitch was last shown. */
   pitch_day?: string;
   /**
-   * v4.8 Task 4: the new builder's opener: the numbered programs shown (ids in order, so a number resolves later), when,
-   * and when the first reply after connecting said the profile line (once).
+   * v4.8 Task 4: the new builder's opener: the numbered programs shown (ids in order, so a number resolves later) and when.
    */
-  opener?: { ids?: unknown; at?: string; connected?: string };
+  opener?: { ids?: unknown; at?: string };
+  /** v4.8 Task 4 fix round 0 (5): when the connected line was said (once a builder, never again). */
+  connected_said?: string;
 };
 type Reply = Record<string, unknown>;
 
@@ -1012,17 +1013,18 @@ const openerAmount = (c: Card): string | null =>
   c.min_award_usd && c.max_award_usd && c.min_award_usd < c.max_award_usd ? `${usdCompact(c.min_award_usd)} to ${usdCompact(c.max_award_usd)}` : pathAmount(c);
 const openerProgram = (c: Card): OpenerProgram => ({ id: c.id, title: c.title, amount: openerAmount(c), when: fundWhen(c), investment: c.investment === true });
 /**
- * The opener's programs, from the live cards (ruling): 1. the top open grant by money; 2. the best rolling grant (the
- * most money among the rolling ones, never #1); 3. the soonest-closing open investor program. Each is skipped when there
- * is none, so fewer than 3 are numbered as they come. Never an entered or hidden program (`skip`), a sponsor's or an
- * EarnKit campaign (showable). Pure.
+ * The opener's programs, from the live cards (fix round 0 (1), target B's order): 1. Base Builder Grants (the closest
+ * money, the grant the signed-out reply already named), or with it closed or not shown, the best rolling grant (the most
+ * money among the rolling ones); 2. the largest other open grant by money; 3. the soonest-closing open investor
+ * program. Each is skipped when there is none, so fewer than 3 are numbered as they come. Never an entered or hidden
+ * program (`skip`), a sponsor's or an EarnKit campaign (showable). Pure.
  */
 export function openerPrograms(cards: Card[], now: Date, skip: Set<string>): OpenerProgram[] {
   const grants = cards
     .filter((c) => c.investment !== true && programKind(c).startsWith('grant') && showable(c, now, skip) && (c.max_award_usd ?? 0) > 0)
     .sort((a, b) => (b.max_award_usd ?? 0) - (a.max_award_usd ?? 0) || byRelevance(a, b));
-  const top = grants[0];
-  const rolling = grants.find((c) => c !== top && fundWhen(c) === 'rolling');
+  const top = grants.find((c) => c.id === BASE_GRANTS_ID) ?? grants.find((c) => fundWhen(c) === 'rolling');
+  const rolling = grants.find((c) => c !== top);
   const investor = cards
     .filter((c) => c.investment === true && showable({ ...c, investment: false }, now, skip))
     .sort((a, b) => closeAt(a) - closeAt(b) || byRelevance(a, b))[0];
@@ -1042,7 +1044,7 @@ function openerShown(seen: Seen, cards: Card[]): OpenerProgram[] | null {
  */
 async function takePick(o: ViewIn): Promise<{ id: string; title: string } | 'outside' | null> {
   const seen = o.read.seen;
-  if (!o.named?.trim() || !o.personal || !seen.opener || seen.opener.connected) return null;
+  if (!o.named?.trim() || !o.personal || !seen.opener || seen.connected_said) return null;
   const list = openerShown(seen, o.cards);
   if (!list) return 'outside';
   const hit = resolvePick(o.named, list);
@@ -1113,19 +1115,30 @@ async function connectedCommit(o: ViewIn, plan: PathPlan): Promise<{ view: Bench
   const pick = plan.path?.picked && plan.path.stage === 'hook' ? plan.path.program_id : null;
   const st = read.base.standing;
   const line = connectedLine({ page: pageUrl(v.handle), score: v.stand.score, rank: st.ranked ? { n: st.rank, m: st.total } : null });
-  let done: { view: BenchView; fields: Reply; stand: Standing } | null = null;
-  if (plan.move.kind !== 'quiet' && (!pick || plan.move.program.id === pick)) done = await pathCommit(o, { ...plan, move: plan.move }, line);
-  else if (pick) {
+  let commit: () => Promise<{ view: BenchView; fields: Reply; stand: Standing }>;
+  if (plan.move.kind !== 'quiet' && (!pick || plan.move.program.id === pick)) {
+    const move = plan.move;
+    commit = () => pathCommit(o, { ...plan, move }, line);
+  } else if (pick) {
     const skip = new Set([...plan.ctx.skip, pick]);
     const grantMove = bestMove({ ...plan.ctx, fits: [], investors: [], skip, path: null });
     const alt = grantMove.kind !== 'quiet' ? grantMove : bestMove({ ...plan.ctx, skip, path: null });
     if (alt.kind === 'quiet') return null;
     const move: Exclude<Move, { kind: 'quiet' }> = alt.kind === 'one_step' ? { kind: 'closest', program: alt.program, raise: false } : alt;
-    done = await pathCommit(o, { ...plan, move }, line, { inline: pickWhy(plan, o.cards, pick, o.known), steps: true, keep: true });
+    // Fix round 0 (7): a picked investor program outside the path's window: why it waits, before the closest money.
+    const card = o.cards.find((c) => c.id === pick);
+    const later = card?.investment === true && !plan.ctx.investors.some((p) => p.id === pick) ? investorLater(card.title) : null;
+    commit = () => pathCommit(o, { ...plan, move }, line, { inline: later ?? pickWhy(plan, o.cards, pick, o.known), steps: true, keep: true });
   } else return null;
-  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, '{opener,connected}', to_jsonb(${now.toISOString()}::text))
-    WHERE builder_id = ${id} AND jsonb_typeof(standing_seen->'opener') = 'object'`.catch(logged('opener connected'));
-  return done;
+  // Fix round 0 (5): once a builder (standing_seen.connected_said, claimed in one guarded UPDATE before it is shown), so
+  // it never repeats, whatever later rewrites the opener record.
+  const [claimed] = await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('connected_said', ${now.toISOString()}::text)
+    WHERE builder_id = ${id} AND NOT COALESCE(standing_seen ? 'connected_said', false) RETURNING 1`.catch((err: unknown) => {
+    logged('connected said')(err);
+    return [];
+  });
+  if (!claimed) return null;
+  return commit();
 }
 
 /**
@@ -1251,7 +1264,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
       const plan = await pathPlan(o, facts, told);
       // v4.8 Task 4: the first path reply after connecting, for a builder who saw the opener: the profile line and the
       // pick's fit, once (setup step 3, a held question and an owning nudge came first, above).
-      if (read.seen.opener && !read.seen.opener.connected && (!plan.path || plan.path.stage === 'hook')) {
+      if (read.seen.opener && !read.seen.connected_said && (!plan.path || plan.path.stage === 'hook')) {
         const hello = await connectedCommit(o, plan);
         if (hello) return hello;
       }
@@ -2415,6 +2428,8 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
 /** v4.8 Task 2: a path reply's agent note: `note` (its own "Don't show this note." dropped), then MENTOR_NOTE. Pure. */
 const withMentor = (note: string) =>
   `${note.replace(/\s*Don't show this note\.$/, '').replace(/\s*Never tell them they qualify or that an application was sent\./g, '')} ${MENTOR_NOTE}`;
+/** v4.8 Task 4 fix round 0 (8): the Builder Codes yes's one easy reply, once the agent has pushed the change. */
+export const PUSHED_ASK = "Say ok once it's pushed, and I'll check the code.";
 /** v4.8 Task 2: the gap step's yes for an agent with the code: do the step here, push it, then call find (EarnKit checks it on GitHub). */
 export const GAP_DO_NOTE =
   'The builder said yes to the step marked "I can do this": do it now in their code here, show them the change, then commit and push it (EarnKit checks the code on GitHub) and call find. ' +
@@ -2503,8 +2518,11 @@ async function gapDoYes(ctx: Pick<ToolContext, 'ownInstallationId'>, id: number,
   if (asked.kind === 'qualify' && asked.program_id === BASE_GRANTS_ID) await stamp();
   if (!hosted && asked.kind === 'qualify' && q?.name && qualifyGapSteps(q.steps as QualifyStep[]).some((s) => s.doable)) {
     const codesNote = q.codes_missing === false ? QUALIFY_CODES_CHECK_NOTE : QUALIFY_CODES_NOTE;
+    // Fix round 0 (8, the merge gate): the reply ends in the path's next easy reply, "ok" once it's pushed, stored as
+    // the re-check ask (its yes checks the code again, its no parks Base).
+    await storeAsk(id, { ...asked, checking: true });
     return {
-      show_to_builder: qualifyCodesYes(q.name, q.codes_missing !== false),
+      show_to_builder: `${qualifyCodesYes(q.name, q.codes_missing !== false)}\n\n${PUSHED_ASK}`,
       agent_note: withMentor(`${codesNote.replace(/\s*Don't show this note\.$/, '')} ${GAP_DO_NOTE}`),
     };
   }

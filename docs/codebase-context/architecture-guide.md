@@ -8771,4 +8771,12 @@ A yes on the path moves the stage on (bench-find.ts benchMoveUp, asks stored wit
   sentence, programNeeds' gaps, or "they fund apps on {chain}, and {project} isn't on {chain} yet."; left out when
   unknown), then the closest grant (one_step shown as closest, "Want the steps?", kept as the path's picked program).
   opener.connected is stamped so it is said once.
+- Fix round 0: the opener's order is target B's (Base Builder Grants, else the best rolling grant; then the largest
+  other open grant; then the soonest investor program). The connected line names the score (and "#N of M", M >= 2)
+  only above 0, else "... so your profile fills in without you lifting a finger: earnkit.com/{handle}."; it is said
+  once a builder (standing_seen.connected_said, claimed in one guarded UPDATE). A picked investor program outside the
+  path's window says conversation.ts investorLater before the closest money. x-install.ts attachOnce carries
+  standing_seen.path and .opener to the page an installation joins when that page has no path. The path's Builder
+  Codes yes (gapDoYes) ends in PUSHED_ASK ("Say ok once it's pushed, and I'll check the code."), stored as the
+  re-check ask (checking).
 

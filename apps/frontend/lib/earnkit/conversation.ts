@@ -628,14 +628,18 @@ export function resolvePick(input: string, list: readonly Pick<OpenerProgram, 'i
   return hit?.id ?? null;
 }
 /**
- * The first line after connecting (target B, said once): "Connected. I'll track every commit you push, so your profile
- * stays current without you lifting a finger: earnkit.com/maya, score 54, #3 of 40 builders." The score only when the
- * page shows one, the rank only with 2 or more builders. Pure.
+ * The first line after connecting (target B, said once a builder): "Connected. I'll track every commit you push, so your
+ * profile stays current without you lifting a finger: earnkit.com/maya, score 54, #3 of 40 builders." (the rank only
+ * with 2 or more builders). Fix round 0 (4): a score of 0 or none says neither the score nor the rank: "... so your
+ * profile fills in without you lifting a finger: earnkit.com/maya.". Pure.
  */
 export function connectedLine(o: { page: string; score: number | null; rank: { n: number; m: number } | null }): string {
-  const parts = [o.page, o.score !== null ? `score ${o.score}` : null, o.rank && o.rank.m >= 2 ? `#${o.rank.n} of ${o.rank.m} builders` : null];
+  if (o.score === null || o.score <= 0) return `Connected. I'll track every commit you push, so your profile fills in without you lifting a finger: ${o.page}.`;
+  const parts = [o.page, `score ${o.score}`, o.rank && o.rank.m >= 2 ? `#${o.rank.n} of ${o.rank.m} builders` : null];
   return `Connected. I'll track every commit you push, so your profile stays current without you lifting a finger: ${parts.filter(Boolean).join(', ')}.`;
 }
+/** Fix round 0 (7): a picked investor program not within the path's window, said before the closest money. Pure. */
+export const investorLater = (title: string) => `${programName(title)} is an investor program, so I'll help you prepare when it gets closer.`;
 /**
  * Why the pick doesn't fit, in one line, from the program's own facts: its one chain the project isn't on ("they fund
  * apps on Arc, and EarnKit isn't on Arc yet."), programNeeds' gaps ("EarnKit isn't on Arc mainnet yet."), or the

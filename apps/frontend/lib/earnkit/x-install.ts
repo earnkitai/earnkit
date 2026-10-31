@@ -237,6 +237,14 @@ async function attachOnce(own: number, user: XUser, now: Date): Promise<AttachRe
       if (held) {
         root = held.root;
         if (mine !== root) {
+          // v4.8 Task 4 fix round 0 (6): the new builder's pick (standing_seen.path) and the opener's numbered list come
+          // along to the page it joins, only when that page has no path of its own (before the fresh profile goes).
+          await tx`UPDATE builder_profiles t SET standing_seen = COALESCE(t.standing_seen, '{}'::jsonb)
+              || CASE WHEN jsonb_typeof(s.standing_seen->'path') = 'object' THEN jsonb_build_object('path', s.standing_seen->'path') ELSE '{}'::jsonb END
+              || CASE WHEN jsonb_typeof(s.standing_seen->'opener') = 'object' THEN jsonb_build_object('opener', s.standing_seen->'opener') ELSE '{}'::jsonb END
+            FROM builder_profiles s
+            WHERE t.builder_id = ${root} AND s.builder_id = ${mine} AND NOT COALESCE(t.standing_seen ? 'path', false)
+              AND (jsonb_typeof(s.standing_seen->'path') = 'object' OR jsonb_typeof(s.standing_seen->'opener') = 'object')`;
           await tx`UPDATE installations SET builder_id = ${root} WHERE id = ${own}`;
           if (f.fresh) await tx`DELETE FROM builder_profiles WHERE builder_id = ${own} AND x_user_id IS NULL`;
         }
