@@ -2663,3 +2663,6 @@ v4.7.2 Task 2: `bench-find.ts` `programNeeds` (pure), `needsKnown`, `needsAskabl
 `base-qualify.ts` `onChainKnown` (`onBaseKnown` wraps it); `bench-reply.ts` `needsWhy`, `needsAsk`, `NeedsAsk`,
 `BenchView.checkFits` `{ id, title, needs }`, `quietHint` (ASKS_HINT ends the quiet reply); `checkFitsWhy`/`checkNeedsAsk`
 removed. Fixture `checkFitsAsked` now declines the needs ask for every program. Tests: `v472-next-step.test.ts`.
+Final review: `needsYesNote` replaces `checkNeedsNote`; `openMoneyNow` (the /api/stats total); `needsKnown(id, key, also)`
+(one chains read, public repo only); `needsOf` uses Card `needs_contract`/`needs_live` (present.ts Card, programs.ts
+programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.

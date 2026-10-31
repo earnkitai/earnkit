@@ -67,6 +67,10 @@ export type Card = {
    * sees "needs a repo" on it; only `false` (known) makes it a no-repo builder's offer.
    */
   needs_repo?: boolean;
+  /** v4.7.2 final review (9, programs.ts programCard): the chain a contract must be on, null for none; absent: not read. */
+  needs_contract?: Chain | null;
+  /** v4.7.2 final review (9): a live link is a required submission field (programs.ts programCard). */
+  needs_live?: boolean;
   /** v2.8 Ruling 13 (plan): the program fits any chain (its tile reads "Any chain"). */
   any_chain?: boolean;
   /** v2.8 Ruling C5: the award is an investment ("up to $1M investment"). */

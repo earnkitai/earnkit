@@ -120,16 +120,17 @@ export const APPLY_NOTE = "A yes or no to the question: call tell with move_up: 
 /** 2026-10-22: the titles question's note; a yes turns titles on (updates.ts setShipTitles). */
 export const TITLES_NOTE = "A yes or no to the question: call tell with move_up: { kind: 'titles', project_key, answer } (project_key as given here). Don't show this note.";
 /** v4.2 Task 10: the yes to "Want me to check which of these fits...": run the fit check. */
-/** v4.7.1 T1 fix round 1: the shared stem of CHECK_FITS_NOTE and checkNeedsNote. */
-const CHECK_FITS_STEM = 'The builder said yes to checking which programs fit their project: call find now with the same identity, then show its reply.';
-export const CHECK_FITS_NOTE = `${CHECK_FITS_STEM} Don't show this note.`;
+export const CHECK_FITS_NOTE = "The builder said yes to checking which programs fit their project: call find now with the same identity, then show its reply. Don't show this note.";
 /**
- * v4.7.1 T1: CHECK_FITS_NOTE for the ranked check_fits ask ("Want me to check what Kit would need for Arc Microgrants?"):
- * also read that program's requirements and list what the project would need. Pure.
+ * v4.7.2 final review 4: the yes to the ranked needs ask ("Want the steps to get Kit ready for Arc Microgrants?") never
+ * runs find again: the agent reads that program's requirements and lists what the project needs for each, the gaps
+ * EarnKit saw (`needs`, programNeeds' words) among them; never a claim that it qualifies, and no question after. Pure.
  */
-export const checkNeedsNote = (program: string) =>
-  `${CHECK_FITS_STEM} Then read ${program}'s requirements (its program page or the source find links) and list, in short plain lines, what the project would need to meet each one. ` +
-  "Never tell them they qualify or that an application was sent. Don't show this note.";
+export const needsYesNote = (program: string, needs: string[]) =>
+  `The builder said yes to the steps to get their project ready for ${program}. Don't call find. Read ${program}'s requirements (its program page or the source link find gave) ` +
+  'and list, in short plain lines, what the project needs for each one. ' +
+  (needs.length > 0 ? `EarnKit already sees these gaps; include them: ${needs.join('; ')}. ` : 'EarnKit sees no gap of its own yet. ') +
+  "Never tell them they qualify or that an application was sent, and ask no question after the list. Don't show this note.";
 /**
  * Final review 3: the setup-done reply's own questions have their own kinds (closest: the closest program's one step;
  * check_fits: check which programs fit), so their no is never a no to Base's grant steps (declined['qualify:<key>']).
@@ -197,6 +198,8 @@ export type Seen = StandSeen & {
     kind: BenchAskKind | string; key: string | null; program_id?: string; repo?: string; qualify?: Pick<QualifyOffer, 'grant' | 'steps'> & { first?: QualifyStep; name?: string; hosted?: boolean; codes_missing?: boolean };
     /** v4.2 (kind 'closest', from setup done; final review 3): the closest program's title and the one step it needs. */
     program?: string; step?: string;
+    /** v4.7.2 final review 4 (kind 'check_fits'): the gaps the needs ask named, for its yes's note. */
+    needs?: string[];
     /** v3.1 one-tap posts (kind 'post'): the post's code, its head line and its moment (post-reply.ts). */
     code?: string; head?: string; moment?: unknown;
     /** v4.0 Task 8 fix round 1 (kind 'outcome_share'): the outcome post's short link. */
@@ -250,6 +253,8 @@ export type Seen = StandSeen & {
   needs_unanswered?: Record<string, number>;
   /** v4.7.2 T2: a yes to the needs ask ({ [program_id]: iso }): that program is not asked again for DECLINE_MS. */
   needs_yes?: Record<string, string>;
+  /** v4.7.2 final review 2: the needs ask stood aside after APPLY_UNANSWERED_MAX unanswered showings ({ [program_id]: iso }), for DECLINE_MS. */
+  needs_silent?: Record<string, string>;
   /** v3.1 cold read: the standing line last shown (name, rank and streak), so it is shown again only when it changed. */
   status_seen?: string;
   /** v3.1 cold read: the ISO week the shipping points line was last shown (at most once a week). */
@@ -639,7 +644,9 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   const openSkip = new Set([...o.skip, ...noPitch]);
   const openNow = pitching ? openNowGrants(o.cards, now, openSkip) : [];
   // v4.7.2 T1: the total (the landing chip's figure, investments never in it) and the soonest open investment, same gate.
-  const openTotal = pitching ? moneyText(openMoneyUsd(o.cards, now)) : null;
+  // Final review 7: from every active program (/api/stats open_money_usd's own read), not this reply's cards, so find and
+  // score say the landing chip's figure.
+  const openTotal = pitching ? moneyText(await openMoneyNow(now, o.cards)) : null;
   // v4.7.2 T2 fix round 1 (ruling A): a no to the needs ask (declined['needs:<id>'] within DECLINE_MS) also keeps that
   // program out of the investment slot; the grants list still names a declined grant.
   const needsNo = Object.entries(read.seen.declined ?? {})
@@ -688,7 +695,9 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   // declined or told already. v4.7.2 T2: per program, not once a person: the open grants then the open investment
   // (the money paragraph's order), each until a yes or no (DECLINE_MS) or APPLY_UNANSWERED_MAX showings unanswered
   // (then it stands aside as a no would, apply_unanswered's rule). standing_seen.check_fits_asked is never read.
-  const needsPool = quiet && !more && realFits.length === 0 ? [...openNow, ...(openInvest ? [openInvest] : [])].filter((g) => g.id !== BASE_GRANTS_ID) : [];
+  // Final review 1: never the investment (a program that takes a company is never offered unprompted, v3.1): named in
+  // the money line, never asked about. Final review 10: a person only (a shared client: no needs ask, no reads or writes).
+  const needsPool = o.personal && quiet && !more && realFits.length === 0 ? openNow.filter((g) => g.id !== BASE_GRANTS_ID) : [];
   const needsSilent = needsPool.filter((g) => (read.seen.needs_unanswered?.[g.id] ?? 0) >= APPLY_UNANSWERED_MAX).map((g) => g.id);
   if (needsSilent.length > 0) await needsStandAside(id, needsSilent, now);
   const needFor = needsPool.find((g) => needsAskable(read.seen, g.id, now)) ?? null;
@@ -697,7 +706,9 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   // Fix round 1: a still-due qualify keeps its place, so check_fits reads it first, only while check_fits could be asked
   // and the cheap checks (qualifyKeptAway: declined, answered, not shown) leave it possible; reused in qualify's own slot.
   const early = fitsCould ? (qualifyKeptAway(project.key, qualifyIn) ? null : await qualifyOffer(id, project.key, qualifyIn)) : undefined;
-  const checkFits = fitsCould && !early ? await needsOf(id, project.key, needFor!) : null;
+  // Final review 5: what this reply already knows (a live project or link, the matcher's and the row's chains) counts.
+  const needsAlso = { chains: [...(row?.chains ?? []), ...(o.known?.onBase ? ['base'] : [])], live: project?.live === true || siteLive || o.known?.live === true };
+  const checkFits = fitsCould && !early ? await needsOf(id, project.key, needFor!, o.cards.find((c) => c.id === needFor!.id), needsAlso) : null;
   const checkin = quiet && !more && !checkFits && handle !== null && reach.schedules && !read.seen.checkin && checkinAskDue(read.seen, now) && (await takeCheckinAsk(id, now));
   const wallet = ((quiet && !checkin && !checkFits) || (githubNo && !baseAsk)) && !more && handle !== null ? await walletOfferDue(id, now) : null;
   // 2026-10-23: a main project with no commits in STALE_WEEKS: one light nudge, claimed once.
@@ -770,7 +781,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
     ...((finalAsk.kind === 'wallet' || finalAsk.kind === 'wallet_setup') && { at: now.toISOString() }),
     // v4.7.1 T1: the open grant the ranked check_fits ask named, so its yes reads that program's requirements.
     // v4.7.2 T2: and its id, for the yes (needs_yes), the no (declined['needs:<id>']) and the unanswered count.
-    ...(finalAsk.kind === 'check_fits' && checkFits && { program: checkFits.title, program_id: checkFits.id }),
+    ...(finalAsk.kind === 'check_fits' && checkFits && { program: checkFits.title, program_id: checkFits.id, needs: checkFits.needs }),
   };
   if (finalAsk.kind !== 'post') await sql()`
     UPDATE builder_profiles SET standing_seen = CASE WHEN ${stored === null} THEN COALESCE(standing_seen, '{}'::jsonb) - 'bench_ask'
@@ -929,6 +940,19 @@ export function openNowGrants(cards: Card[], now: Date, skip: Set<string>): (Als
     .map((c) => ({ id: c.id, title: c.title, amount: upToCell(prizeOf(c)), when: fundWhen(c) }));
 }
 
+/**
+ * v4.7.2 final review 7: /api/stats open_money_usd for `now`: openMoneyUsd over every active program, read and rounded
+ * as stats.ts readStats and statsFrom do. A failed read: `fallback`'s sum. Never throws.
+ */
+async function openMoneyNow(now: Date, fallback: Card[]): Promise<number> {
+  const rows = await sql()<{ max_award_usd: string | number | null; investment: boolean | null; status: string; campaign: unknown; source: string; starts_at: Date | null; ends_at: Date | null }[]>`
+    SELECT max_award_usd, investment, status, campaign, source, starts_at, ends_at FROM programs WHERE status = 'active'`.catch((err: unknown) => {
+    logged('open money')(err);
+    return null;
+  });
+  if (!rows) return openMoneyUsd(fallback, now);
+  return Math.round(openMoneyUsd(rows.map((r) => ({ ...r, max_award_usd: r.max_award_usd == null ? null : Number(r.max_award_usd) })), now));
+}
 /** v4.7.1 T1: a program's close time for the open-now order: rolling or undated last. Pure. */
 const closeAt = (c: Card) => (fundWhen(c) === 'rolling' || !c.ends_at ? Infinity : new Date(c.ends_at).getTime());
 /**
@@ -1098,44 +1122,67 @@ async function standAside(id: number, programIds: string[], now: Date): Promise<
 }
 /**
  * v4.7.2 T2 (exact copy, "Needs why"): what a program needs that EarnKit doesn't know the project has, in this order: on
- * its `needs_contract` chain's mainnet (the project not known on that chain), in a public repo (`needs_repo`, no verified
- * repo), live at a link (a required submission field filled from live_url, no live link known). Pure.
+ * its `needs_contract` chain's mainnet (the project not known on that chain), in a public repo (`needs_repo`, no public
+ * verified repo), live at a link (a required submission field filled from live_url, `needs_live` on a Card, no live link
+ * known). Pure.
  */
 export function programNeeds(
-  p: { needs_contract?: string | null; needs_repo?: boolean | null; submission_requirements?: { required: boolean; project_field?: string | null }[] | null },
+  p: {
+    needs_contract?: string | null; needs_repo?: boolean | null; needs_live?: boolean;
+    submission_requirements?: { required: boolean; project_field?: string | null }[] | null;
+  },
   known: { chains: Set<string>; repo: boolean; live: boolean },
 ): string[] {
   const out: string[] = [];
   const chain = p.needs_contract?.toLowerCase();
   if (chain && !known.chains.has(chain)) out.push(`on ${chainName(chain)} mainnet`);
   if (p.needs_repo === true && !known.repo) out.push('in a public repo');
-  if (!known.live && (p.submission_requirements ?? []).some((r) => r.required && r.project_field === 'live_url')) out.push('live at a link');
+  const live = p.needs_live ?? (p.submission_requirements ?? []).some((r) => r.required && r.project_field === 'live_url');
+  if (!known.live && live) out.push('live at a link');
   return out;
 }
 /**
- * v4.7.2 T2: what EarnKit knows of `key`'s project for programNeeds: the `chains` it is known on (onChainKnown, each
- * asked), a verified repo (builder_sources kind repo, verified) and a live link (liveOrUsersKnown). A failed read is not
- * known. Never throws.
+ * v4.7.2 T2: what EarnKit knows of `key`'s project for programNeeds, OR what this reply already knows (`also`: final
+ * review 5):
+ * - chains: its row's chains or a non-rejected contract the agent reported (onChainKnown's two sources, every chain in
+ *   one read)
+ * - repo: a verified repo source read public (final review 6: builder_sources.public_at set by the App's read, or its
+ *   latest reading saying not private); a private or never-read one never clears "in a public repo"
+ * - live: liveOrUsersKnown
+ * A failed read is not known. Never throws.
  */
-export async function needsKnown(id: number, key: string, chains: string[] = []): Promise<{ chains: Set<string>; repo: boolean; live: boolean }> {
-  const [on, repo, live] = await Promise.all([
-    Promise.all(chains.map(async (c) => ((await onChainKnown(id, key, c)) ? c.toLowerCase() : null))),
-    sql()<{ yes: boolean }[]>`SELECT EXISTS (SELECT 1 FROM builder_sources WHERE builder_id = ${id} AND lower(project_key) = lower(${key})
-      AND kind = 'repo' AND state = 'verified') AS yes`.then((r) => r[0]?.yes === true).catch(() => false),
-    liveOrUsersKnown(id, key),
+export async function needsKnown(
+  id: number, key: string, also: { chains?: string[]; live?: boolean } = {},
+): Promise<{ chains: Set<string>; repo: boolean; live: boolean }> {
+  const [chains, repo, live] = await Promise.all([
+    sql()<{ c: string }[]>`
+      SELECT DISTINCT lower(c) AS c FROM (
+        SELECT unnest(chains) AS c FROM builder_projects WHERE builder_id = ${id} AND lower(project_key) = lower(${key})
+        UNION ALL SELECT split_part(ref, ':', 1) FROM builder_sources WHERE builder_id = ${id} AND lower(project_key) = lower(${key})
+          AND kind = 'contract' AND state <> 'rejected' AND ref LIKE '%:%') x`.then((r) => r.map((x) => x.c)).catch(() => [] as string[]),
+    sql()<{ yes: boolean }[]>`SELECT EXISTS (SELECT 1 FROM builder_sources b WHERE b.builder_id = ${id} AND lower(b.project_key) = lower(${key})
+      AND b.kind = 'repo' AND b.state = 'verified' AND (b.public_at IS NOT NULL
+        OR (SELECT r.signals->'private' = 'false'::jsonb FROM source_readings r WHERE r.source_id = b.id ORDER BY r.day DESC LIMIT 1))) AS yes`
+      .then((r) => r[0]?.yes === true).catch(() => false),
+    also.live === true ? Promise.resolve(true) : liveOrUsersKnown(id, key),
   ]);
-  return { chains: new Set(on.filter((c): c is string => c !== null)), repo, live };
+  return { chains: new Set([...chains, ...(also.chains ?? []).map((c) => c.toLowerCase())]), repo, live };
 }
 /**
- * v4.7.2 T2: the needs ask for `g` (an open program of the money paragraph): its id, title and what it needs
- * (programNeeds on its program row, programs.ts getProgramRow: Card carries neither needs_contract nor the submission
- * fields). A failed read names no needs ("Nothing EarnKit can see rules ... out"), never a gap it doesn't know. Never throws.
+ * v4.7.2 T2: the needs ask for `g` (an open grant of the money paragraph): its id, title and what it needs
+ * (programNeeds). Final review 9: the facts come from its Card (programs.ts programCard reads them from listPrograms'
+ * row); a Card without them (a caller's own list) reads the program row (getProgramRow) beside needsKnown. A failed
+ * row read names no needs (the "can't see what it would need" copy), never a gap it doesn't know. Never throws.
  */
-async function needsOf(id: number, key: string, g: { id: string; title: string }): Promise<{ id: string; title: string; needs: string[] }> {
-  const row = await getProgramRow(g.id).catch(() => null);
-  if (!row) return { id: g.id, title: g.title, needs: [] };
-  const known = await needsKnown(id, key, row.needs_contract ? [row.needs_contract] : []);
-  return { id: g.id, title: g.title, needs: programNeeds(row, known) };
+async function needsOf(
+  id: number, key: string, g: { id: string; title: string }, card: Card | undefined, also: { chains?: string[]; live?: boolean },
+): Promise<{ id: string; title: string; needs: string[] }> {
+  const fromCard = card && card.needs_contract !== undefined && card.needs_live !== undefined ? card : null;
+  const [facts, known] = await Promise.all([
+    fromCard ?? getProgramRow(g.id).catch(() => null),
+    needsKnown(id, key, also),
+  ]);
+  return { id: g.id, title: g.title, needs: facts ? programNeeds(facts, known) : [] };
 }
 /**
  * v4.7.2 T2: a program the needs ask may name: not Base's grant (its own qualify steps), not said no to or answered yes
@@ -1148,6 +1195,9 @@ export function needsAskable(seen: Seen, programId: string, now: Date): boolean 
   if (no && t - Date.parse(no) < DECLINE_MS) return false;
   const yes = seen.needs_yes?.[programId];
   if (yes && t - Date.parse(yes) < DECLINE_MS) return false;
+  // Final review 2: stood aside after APPLY_UNANSWERED_MAX unanswered showings (needs_silent), for DECLINE_MS.
+  const silent = seen.needs_silent?.[programId];
+  if (silent && t - Date.parse(silent) < DECLINE_MS) return false;
   return (seen.needs_unanswered?.[programId] ?? 0) < APPLY_UNANSWERED_MAX;
 }
 /** v4.7.2 T2: one more unanswered showing of `programId`'s needs ask (standing_seen.needs_unanswered; countApplyShown's rule). Never throws. */
@@ -1163,14 +1213,15 @@ async function resetNeedsShown(id: number, programId: string): Promise<void> {
     WHERE builder_id = ${id} AND standing_seen->'needs_unanswered' ? ${programId}`.catch(logged('needs answered'));
 }
 /**
- * v4.7.2 T2: programs whose needs ask went unanswered APPLY_UNANSWERED_MAX times stand aside as a no would (standAside's
- * rule): declined ('needs:<id>', DECLINE_MS), their counts cleared. Never throws.
+ * v4.7.2 T2: programs whose needs ask went unanswered APPLY_UNANSWERED_MAX times stand aside (standAside's rule), their
+ * counts cleared. Final review 2: silence is not a no, so they are marked needs_silent (the candidate filter holds them
+ * DECLINE_MS), never declined: only an explicit no keeps a program out of the investment slot. Never throws.
  */
 async function needsStandAside(id: number, programIds: string[], now: Date): Promise<void> {
   const at = now.toISOString();
-  const declined = Object.fromEntries(programIds.map((p) => [benchStepKey('needs', p), at]));
+  const silent = Object.fromEntries(programIds.map((p) => [p, at]));
   await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(jsonb_set(COALESCE(standing_seen, '{}'::jsonb),
-        '{declined}', COALESCE(standing_seen->'declined', '{}'::jsonb) || ${sql().json(declined as never)}::jsonb),
+        '{needs_silent}', COALESCE(standing_seen->'needs_silent', '{}'::jsonb) || ${sql().json(silent as never)}::jsonb),
         '{needs_unanswered}', COALESCE(standing_seen->'needs_unanswered', '{}'::jsonb) - ${programIds}::text[])
     WHERE builder_id = ${id}`.catch(logged('needs aside'));
 }
@@ -1815,12 +1866,12 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       }
     case 'check_fits':
       // v4.2 (setup done, final review 3's own kind): the yes is find run again, to check which programs fit. v4.7.1 T1:
-      // the ranked ask named an open grant (asked.program): the note adds reading its requirements. v4.7.2 T2: the yes
-      // is remembered (needs_yes), so that program is not asked again for DECLINE_MS.
+      // the ranked ask named an open grant (asked.program). v4.7.2 T2: the yes is remembered (needs_yes), so that program
+      // is not asked again for DECLINE_MS; final review 4: its note lists the program's needs, with no find again.
       if (asked.program_id) await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{needs_yes}',
           COALESCE(standing_seen->'needs_yes', '{}'::jsonb) || jsonb_build_object(${asked.program_id}::text, ${now.toISOString()}::text))
         WHERE builder_id = ${id}`.catch(logged('needs yes'));
-      return { show_to_builder: '', agent_note: asked.program ? checkNeedsNote(asked.program) : CHECK_FITS_NOTE };
+      return { show_to_builder: '', agent_note: asked.program ? needsYesNote(asked.program, Array.isArray(asked.needs) ? asked.needs : []) : CHECK_FITS_NOTE };
     case 'closest':
       // v4.2 (setup done, final review 3's own kind): the closest program's one step, never a draft.
       if (!asked.program || !asked.step) return okay;

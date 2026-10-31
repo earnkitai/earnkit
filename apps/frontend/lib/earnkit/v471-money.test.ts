@@ -17,7 +17,7 @@ import {
   ASKS_HINT, CHECKIN_ASK, CHECKIN_WHY, MOMENT_ASK, POST_ASK, POST_WHY, SHARE_WHY, SHIP_ASK, TOKEN_OFFER, applyAsk, askWhy, benchReply, needsAsk, needsWhy, openNowLine,
   qualifyLine, stateAsk, type BenchView, type MomentView,
 } from './bench-reply';
-import { CHECK_FITS_ASK_NOTE, CHECK_FITS_NOTE, checkNeedsNote, openNowGrants } from './bench-find';
+import { CHECK_FITS_ASK_NOTE, needsYesNote, openNowGrants } from './bench-find';
 import type { Card } from './present';
 import { fridayNudge } from './nudges';
 import { productOdds, productScore, traction, type Detection } from './match';
@@ -69,9 +69,9 @@ test('exact copy: the open money paragraph and the check_fits ask', () => {
   assert.equal(openNowLine([]), null);
   // v4.7.2 T2: the why names the gap and the question offers the steps (v472-next-step.test.ts has the full copy).
   assert.equal(needsWhy('Kit', OPEN[0].title, ['on Arc mainnet']), 'Arc Microgrants needs Kit on Arc mainnet.');
-  assert.equal(needsAsk('Kit', OPEN[0].title), 'Want the steps to get Kit ready for Arc Microgrants?');
-  assert.ok(checkNeedsNote('Arc Microgrants').startsWith(CHECK_FITS_NOTE.replace(" Don't show this note.", '')));
-  assert.match(checkNeedsNote('Arc Microgrants'), /Arc Microgrants's requirements.*what the project would need.*Don't show this note\.$/);
+  assert.equal(needsAsk('Kit', OPEN[0].title, ['on Arc mainnet']), 'Want the steps to get Kit ready for Arc Microgrants?');
+  // v4.7.2 final review 4: the yes's note reads the requirements, never runs find again.
+  assert.match(needsYesNote('Arc Microgrants', []), /Don't call find\. Read Arc Microgrants's requirements.*what the project needs for each one.*Don't show this note\.$/);
 });
 
 test('open now: grants only, soonest deadline first, rolling last, two at most', () => {
@@ -100,7 +100,7 @@ test('pure: no fit, the open grants lead every non-money ask and the quiet reply
   assert.equal(paras[0], openNowLine(OPEN));
   // v4.7.2 T2: the why names the program's gap.
   assert.equal(paras.at(-2), needsWhy(name, OPEN[0].title, need.needs));
-  assert.equal(paras.at(-1), needsAsk(name, OPEN[0].title));
+  assert.equal(paras.at(-1), needsAsk(name, OPEN[0].title, need.needs));
   assert.equal(askWhy(checkFits), needsWhy(name, OPEN[0].title, need.needs));
   // The check-in, wallet and quiet replies carry it first too.
   for (const ask of [
@@ -242,11 +242,12 @@ test('Review Focus 1: no fit, qualify declined, 2 open grants: money first, chec
   if (sooner === 0) {
     // v4.7.2 T1: the total in grants leads, and the soonest open investment (when one is open) ends it.
     assert.match(money, new RegExp(`^Open now: (?:\\$[\\d.,]+[KM]?\\+? in grants\\. )?${(cellA + ' ' + cellB).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?: [^\\n]+ investment, [^\\n]+\\.)?$`), s);
-    assert.equal(paras.at(-1), needsAsk('Kit', a.title), s);
+    assert.ok([needsAsk('Kit', a.title, ['x']), needsAsk('Kit', a.title, [])].includes(paras.at(-1)!), s);
   }
   // v4.7.2 T2: the why names the program's gap (a Base copy: no contract rule), and the question offers the steps.
-  assert.match(paras.at(-2)!, /^([^\n]+ needs Kit [^\n]+\.|Nothing EarnKit can see rules Kit out of [^\n]+\.)$/, s);
-  assert.match(paras.at(-1)!, /^Want the steps to get Kit ready for [^?]+\?$/, s);
+  // Final review 3: with no gap known, "EarnKit can't see what ..." and "Want me to check ...'s requirements for Kit?".
+  assert.match(paras.at(-2)!, /^([^\n]+ needs Kit [^\n]+\.|EarnKit can't see what [^\n]+ would need from Kit yet\.)$/, s);
+  assert.match(paras.at(-1)!, /^(Want the steps to get Kit ready for [^?]+|Want me to check [^?]+'s requirements for Kit)\?$/, s);
   assert.equal(moveUp(first)?.kind, 'check_fits');
   assert.equal(moveUp(first)?.why, paras.at(-2));
   assert.ok(moveUp(first)?.agent_note.startsWith(CHECK_FITS_ASK_NOTE.replace(" Don't show this note.", '')));
@@ -255,16 +256,16 @@ test('Review Focus 1: no fit, qualify declined, 2 open grants: money first, chec
   assert.equal((s.match(/\?/g) ?? []).length, 1, s);
   // The yes reads that program's requirements.
   const yes = await mcpCall(b.ctx as never, 'tell', { move_up: { kind: 'check_fits', project_key: b.key, answer: 'yes' } });
-  const named = /ready for ([^?]+)\?$/.exec(paras.at(-1)!)![1];
+  const named = (/ready for ([^?]+)\?$/.exec(paras.at(-1)!) ?? /check ([^?]+)'s requirements for Kit\?$/.exec(paras.at(-1)!))![1];
   const note = String(yes.reply?.agent_note);
-  assert.ok(note.startsWith(CHECK_FITS_NOTE.replace(" Don't show this note.", '')), note);
-  assert.ok(note.includes(`${named}`) && /requirements/.test(note), note);
-  if (named === a.title) assert.equal(note, checkNeedsNote(a.title));
+  // v4.7.2 final review 4: no find again; the note reads that program's requirements.
+  assert.equal(String(yes.reply?.show_to_builder ?? ''), '');
+  assert.ok(note.includes(`ready for ${named}. Don't call find.`) && /requirements/.test(note), note);
 
   // v4.7.2 T2: per program: the next find never asks that program again (another open program may be asked), and
   // still leads with the money.
   const second = await find(b);
-  assert.ok(!show(second).includes(`ready for ${named}?`), show(second));
+  assert.ok(!show(second).includes(`ready for ${named}?`) && !show(second).includes(`check ${named}'s requirements`), show(second));
   assert.match(show(second), /^Open now: /, show(second));
   if (moveUp(second)?.kind === 'checkin') assert.equal(show(second).split('\n\n').at(-2), CHECKIN_WHY);
 

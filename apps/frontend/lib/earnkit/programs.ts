@@ -359,7 +359,7 @@ export function programCard(
     | 'difficulty_override'
     | 'winners_per_round'
     | 'rules'
-  > & { status?: ProgramRow['status']; opens_note?: string | null; in_person?: boolean; token_policy?: TokenPolicy; starts_at?: Date | null; match_precision?: string | null; submission_url?: string | null; fresh_build?: { starter: string } | null; agent_completable?: boolean; pitch?: { who: string; for: string } | null; tz?: string | null },
+  > & { status?: ProgramRow['status']; opens_note?: string | null; in_person?: boolean; token_policy?: TokenPolicy; starts_at?: Date | null; match_precision?: string | null; submission_url?: string | null; fresh_build?: { starter: string } | null; agent_completable?: boolean; pitch?: { who: string; for: string } | null; tz?: string | null; needs_contract?: Chain | null },
   tracks: string[],
   /** A sponsor campaign's identity (sponsor-verify.ts); unverified when not given. */
   identity: SponsorIdentity = UNVERIFIED,
@@ -406,6 +406,10 @@ export function programCard(
     builder_fields: p.submission_requirements.filter((r) => r.required && r.from === 'builder').length,
     // v2.8.1 §B8: no-repo builders see "needs a repo" on it; only false makes it their offer.
     needs_repo: p.needs_repo ?? undefined,
+    // v4.7.2 final review (9): the needs ask's facts (bench-find.ts programNeeds), read here with no second query: the
+    // contract chain (only when the caller selected it) and whether a live link is a required submission field.
+    ...(p.needs_contract !== undefined && { needs_contract: p.needs_contract }),
+    needs_live: p.submission_requirements.some((r) => r.required && r.project_field === 'live_url'),
     // Shown in the campaigns table, not as a program card (v2.4 §1).
     earnkit_campaign: p.campaign?.kind === 'earnkit',
     // v2.5 §1: curated build ideas for builders with no repo.

@@ -8607,3 +8607,10 @@ as a no). Its why is `needsWhy` ("Arc Microgrants needs EarnKit on Arc mainnet."
 repo, `liveOrUsersKnown`); the question is `needsAsk` ("Want the steps to get EarnKit ready for Arc Microgrants?"). With no
 program left, the quiet ranked reply showing the open grants ends with `ASKS_HINT` and no question.
 `check_fits_asked` stays in old rows, never read.
+v4.7.2 final review: the needs ask names open grants only (never the investment, which the money line names), for a
+person only (`o.personal`). Three unanswered showings mark `needs_silent` (held DECLINE_MS, not a no); only an explicit
+no (`declined['needs:<id>']`) keeps an investment out of the slot. No known gap: "EarnKit can't see what {program} would
+need from {name} yet." / "Want me to check {program}'s requirements for {name}?". A yes never runs find: `needsYesNote`
+lists the program's requirements with the stored gaps. Facts come from the Card (`needs_contract`, `needs_live` from
+programCard); "in a public repo" clears only on a repo read public (`public_at` or the latest reading). The total is
+/api/stats' figure (`openMoneyNow` reads every active program); with no grant listed, the Open now line drops it.

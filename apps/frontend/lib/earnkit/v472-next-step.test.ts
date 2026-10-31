@@ -14,7 +14,9 @@ import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { closeDayOf } from './entry-text';
 import { ASKS_HINT, SHIP_ASK, applyAsk, askWhy, benchReply, needsAsk, needsWhy, openNowLine, stateAsk, type BenchView } from './bench-reply';
-import { checkNeedsNote, openNowGrants, openNowInvestment, programNeeds } from './bench-find';
+import { needsKnown, needsYesNote, openNowGrants, openNowInvestment, programNeeds } from './bench-find';
+import { listPrograms } from './programs';
+import { readStats } from './stats';
 import { moneyText, openMoneyUsd } from './pool';
 import { fridayNudge } from './nudges';
 import { productOdds, productScore, traction, type Detection } from './match';
@@ -200,9 +202,15 @@ test('needsWhy and needsAsk: the exact copy', () => {
   assert.equal(needsWhy('EarnKit', 'Arc Microgrants: Built with Arc Studio', ['on Arc mainnet']), 'Arc Microgrants needs EarnKit on Arc mainnet.');
   assert.equal(needsWhy('Kit', 'Arc Microgrants', ['on Arc mainnet', 'in a public repo']), 'Arc Microgrants needs Kit on Arc mainnet and in a public repo.');
   assert.equal(needsWhy('Kit', 'Arc Microgrants', ['on Arc mainnet', 'in a public repo', 'live at a link']), 'Arc Microgrants needs Kit on Arc mainnet, in a public repo and live at a link.');
-  assert.equal(needsWhy('Kit', 'Arc Microgrants', []), 'Nothing EarnKit can see rules Kit out of Arc Microgrants.');
-  assert.equal(needsAsk('EarnKit', 'Arc Microgrants: Built with Arc Studio'), 'Want the steps to get EarnKit ready for Arc Microgrants?');
-  for (const s of [needsWhy('Kit', 'A', ['on Arc mainnet']), needsWhy('Kit', 'A', []), needsAsk('Kit', 'A')]) assert.doesNotMatch(s, BAD);
+  // Final review 3 (ruled copy): no known gap.
+  assert.equal(needsWhy('Kit', 'Arc Microgrants: Built with Arc Studio', []), "EarnKit can't see what Arc Microgrants would need from Kit yet.");
+  assert.equal(needsAsk('EarnKit', 'Arc Microgrants: Built with Arc Studio', ['on Arc mainnet']), 'Want the steps to get EarnKit ready for Arc Microgrants?');
+  assert.equal(needsAsk('Kit', 'Arc Microgrants: Built with Arc Studio', []), "Want me to check Arc Microgrants's requirements for Kit?");
+  for (const s of [needsWhy('Kit', 'A', ['on Arc mainnet']), needsWhy('Kit', 'A', []), needsAsk('Kit', 'A', ['x']), needsAsk('Kit', 'A', [])]) assert.doesNotMatch(s, BAD);
+  // Final review 4: the yes never runs find again; its note names the gaps and asks nothing after.
+  const note = needsYesNote('Arc Microgrants', ['on Arc mainnet']);
+  assert.ok(note.includes("Don't call find") && note.includes('on Arc mainnet') && /ask no question/.test(note) && /Never tell them they qualify/.test(note), note);
+  assert.ok(needsYesNote('Arc Microgrants', []).includes('EarnKit sees no gap of its own yet.'));
 });
 
 test('the quiet ranked reply with open grants ends with ASKS_HINT and has no question', () => {
@@ -242,6 +250,9 @@ async function declineOthers(id: number, keep: string[]) {
 }
 const last = (s: string) => s.split('\n\n').at(-1)!;
 const moveUpOf = (r: Awaited<ReturnType<typeof mcpCall>>) => r.reply?.move_up as { kind: string; why?: string; agent_note: string } | undefined;
+/** The needs ask for `title`, with a gap ("Want the steps ...") or without ("Want me to check ...'s requirements"). */
+const asksFor = (line: string, title: string) => line === needsAsk('Kit', title, ['x']) || line === needsAsk('Kit', title, []);
+const gapAsk = (title: string) => needsAsk('Kit', title, ['on Arc mainnet']);
 
 test('Review Focus 1: no fit, two open programs: A three times with its gap, then B, then a no to B gives ASKS_HINT', db, async () => {
   const A = await program('arc-microgrants-studio', 'na', 10);
@@ -251,7 +262,7 @@ test('Review Focus 1: no fit, two open programs: A three times with its gap, the
   for (let i = 1; i <= 3; i++) {
     const r = await find(b);
     const s = show(r);
-    assert.equal(last(s), needsAsk('Kit', A.title), `find ${i}: ${s}`);
+    assert.equal(last(s), gapAsk(A.title), `find ${i}: ${s}`);
     assert.ok(s.split('\n\n').at(-2)!.startsWith(`${A.title} needs Kit on Arc mainnet`), s);
     assert.equal(moveUpOf(r)?.why, s.split('\n\n').at(-2));
     assert.equal(moveUpOf(r)?.kind, 'check_fits');
@@ -259,8 +270,12 @@ test('Review Focus 1: no fit, two open programs: A three times with its gap, the
     assert.doesNotMatch(s, BAD);
   }
   const fourth = await find(b);
-  assert.equal(last(show(fourth)), needsAsk('Kit', B.title), show(fourth));
-  assert.ok(/^(Need nb \d+ needs Kit .+\.|Nothing EarnKit can see rules Kit out of Need nb \d+\.)$/.test(show(fourth).split('\n\n').at(-2)!), show(fourth));
+  assert.ok(asksFor(last(show(fourth)), B.title), show(fourth));
+  assert.ok(/^(Need nb \d+ needs Kit .+\.|EarnKit can't see what Need nb \d+ would need from Kit yet\.)$/.test(show(fourth).split('\n\n').at(-2)!), show(fourth));
+  // Final review 2: three showings unanswered is silence (needs_silent), never a no (declined).
+  const aside = await seenOf(b.id);
+  assert.ok((aside.needs_silent as Record<string, string>)[A.id]);
+  assert.equal((aside.declined as Record<string, string>)[`needs:${A.id}`], undefined);
   // A no to B, with nothing else due (check-in answered, ship asked today).
   const no = await mcpCall(b.ctx as never, 'tell', { move_up: { kind: 'check_fits', project_key: b.key, answer: 'no' } });
   assert.ok(!String(no.reply?.show_to_builder).includes('?'));
@@ -280,13 +295,16 @@ test('Review Focus 4: a yes to the needs ask reads that program, and it is not a
   const B = await program('base-builder-grants', 'yb', 21);
   const b = await builder('ny', []);
   await declineOthers(b.id, [A.id, B.id]);
-  assert.equal(last(show(await find(b))), needsAsk('Kit', A.title));
+  assert.equal(last(show(await find(b))), gapAsk(A.title));
   const yes = await mcpCall(b.ctx as never, 'tell', { move_up: { kind: 'check_fits', project_key: b.key, answer: 'yes' } });
-  assert.equal(yes.reply?.agent_note, checkNeedsNote(A.title));
+  // Final review 4: no find again; the note lists what the program needs, with the gap EarnKit saw.
+  assert.equal(String(yes.reply?.show_to_builder ?? ''), '');
+  const note = String(yes.reply?.agent_note);
+  assert.ok(note.startsWith(needsYesNote(A.title, []).split(" Don't call find.")[0]) && note.includes('on Arc mainnet') && !/call find now/.test(note), note);
   const [seen] = await sql()<{ s: Record<string, unknown> }[]>`SELECT standing_seen AS s FROM builder_profiles WHERE builder_id = ${b.id}`;
   assert.ok((seen.s.needs_yes as Record<string, string>)[A.id]);
   assert.equal((seen.s.needs_unanswered as Record<string, number> | undefined)?.[A.id], undefined);
-  for (let i = 0; i < 2; i++) assert.ok(!show(await find(b)).includes(needsAsk('Kit', A.title)));
+  for (let i = 0; i < 2; i++) assert.ok(!show(await find(b)).includes(gapAsk(A.title)));
 });
 
 test('Review Focus 5: a builder with a fit gets the money-first apply reply, no needs ask', db, async () => {
@@ -303,9 +321,10 @@ test('Review Focus 5: a builder with a fit gets the money-first apply reply, no 
 
 /** v4.7.2 Task 2 fix round 1. Each DB test's program closes sooner than the ones before it, so it leads openNow. */
 test('ruling B: no open grant, an investment or a total still makes the Open now line; the quiet reply ends with ASKS_HINT', () => {
-  assert.equal(openNowLine([], { total: '$9K', invest: INVEST }), 'Open now: $9K in grants. a16z speedrun SR008, up to $1M investment, closes Nov 1.');
+  // Final review 8: no grant listed, no total sentence; the investment part stays; nothing left, null.
+  assert.equal(openNowLine([], { total: '$9K', invest: INVEST }), 'Open now: a16z speedrun SR008, up to $1M investment, closes Nov 1.');
   assert.equal(openNowLine([], { total: null, invest: INVEST }), 'Open now: a16z speedrun SR008, up to $1M investment, closes Nov 1.');
-  assert.equal(openNowLine([], { total: '$9K', invest: null }), 'Open now: $9K in grants.');
+  assert.equal(openNowLine([], { total: '$9K', invest: null }), null);
   assert.equal(openNowLine([], { total: null, invest: null }), null);
   const base: BenchView = {
     state: 'ranked', variant: null, project: { key: 'maya/kit', name: 'Kit', confirmed: true, live: true, weeks: 6 }, rank: '#3 of 40 builders', streak: 6,
@@ -316,13 +335,6 @@ test('ruling B: no open grant, an investment or a total still makes the Open now
   assert.ok(quiet.startsWith('Open now: a16z speedrun SR008, up to $1M investment, closes Nov 1.'), quiet);
   assert.equal(last(quiet), ASKS_HINT, quiet);
   assert.ok(!quiet.includes('?'), quiet);
-  // The needs ask naming only the investment: the money paragraph leads, the why, then the question.
-  const checkFits = { id: 'a16z', title: INVEST.title, needs: [] };
-  const cf = benchReply({ ...base, checkFits, ask: stateAsk({ state: 'ranked', variant: null, project: base.project, link: null, checkFits }) });
-  const ps = cf.split('\n\n');
-  assert.equal(ps[0], 'Open now: a16z speedrun SR008, up to $1M investment, closes Nov 1.', cf);
-  assert.equal(ps.at(-2), 'Nothing EarnKit can see rules Kit out of a16z speedrun SR008.', cf);
-  assert.equal(ps.at(-1), 'Want the steps to get Kit ready for a16z speedrun SR008?', cf);
   // No grant, no investment, no total: no line, and no hint (nothing open to point at).
   const none = benchReply({ ...base, openInvest: null });
   assert.ok(!none.includes('Open now') && !none.includes(ASKS_HINT), none);
@@ -333,7 +345,7 @@ test('Review Focus 4: a no to A moves straight to B and clears A\'s count', db, 
   const B = await program('base-builder-grants', 'qb', 9);
   const b = await builder('nq', []);
   await declineOthers(b.id, [A.id, B.id]);
-  assert.equal(last(show(await find(b))), needsAsk('Kit', A.title));
+  assert.equal(last(show(await find(b))), gapAsk(A.title));
   const counted = await seenOf(b.id);
   assert.equal((counted.needs_unanswered as Record<string, number>)[A.id], 1);
   await mcpCall(b.ctx as never, 'tell', { move_up: { kind: 'check_fits', project_key: b.key, answer: 'no' } });
@@ -341,27 +353,33 @@ test('Review Focus 4: a no to A moves straight to B and clears A\'s count', db, 
   assert.equal((after.needs_unanswered as Record<string, number> | undefined)?.[A.id], undefined);
   assert.ok((after.declined as Record<string, string>)[`needs:${A.id}`]);
   const next = show(await find(b));
-  assert.equal(last(next), needsAsk('Kit', B.title), next);
+  assert.ok(asksFor(last(next), B.title), next);
   // The grants list still names the declined grant A.
   assert.ok(next.split('\n\n')[0].includes(`${A.title}, `), next);
 });
 
-test('ruling A: a no to the needs ask for an investment keeps it out of the investment slot', db, async () => {
+test('ruling A, final review 1 and 2: the investment is never asked; only an explicit no keeps it out of the slot', db, async () => {
   const G = await program('arc-microgrants-studio', 'ia', 7);
   const I = await investment('ii');
   const b = await builder('ni', []);
   await declineOthers(b.id, [G.id, I.id]);
+  const named = (s: string) => s.split('\n\n')[0].includes(`${I.title}, up to $1M investment`) || s.split('\n\n')[0].includes(`${I.title}, up to $1,000,000 investment`);
   const first = show(await find(b));
-  assert.ok(first.split('\n\n')[0].includes(`${I.title}, up to $1M investment`) || first.split('\n\n')[0].includes(`${I.title}, up to $1,000,000 investment`), first);
-  assert.equal(last(first), needsAsk('Kit', G.title), first);
-  await mcpCall(b.ctx as never, 'tell', { move_up: { kind: 'check_fits', project_key: b.key, answer: 'no' } });
-  const second = show(await find(b));
-  assert.equal(last(second), needsAsk('Kit', I.title), second);
+  assert.ok(named(first), first);
+  assert.equal(last(first), gapAsk(G.title), first);
+  // A no to G: the investment is named but never asked about (nothing else due: ASKS_HINT).
   await mcpCall(b.ctx as never, 'tell', { move_up: { kind: 'check_fits', project_key: b.key, answer: 'no' } });
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('checkin', 'no', 'ship_asked', now()::text) WHERE builder_id = ${b.id}`;
+  const second = show(await find(b));
+  assert.ok(named(second), second);
+  assert.equal(last(second), ASKS_HINT, second);
+  assert.ok(!second.includes(`ready for ${I.title}`) && !second.includes(`check ${I.title}`), second);
+  // Silence (needs_silent) keeps it named; an explicit no (declined['needs:<id>']) keeps it out; G still named.
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('needs_silent', jsonb_build_object(${I.id}::text, now()::text)) WHERE builder_id = ${b.id}`;
+  assert.ok(named(show(await find(b))));
+  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, '{declined}', standing_seen->'declined' || jsonb_build_object(${`needs:${I.id}`}::text, now()::text)) WHERE builder_id = ${b.id}`;
   const third = show(await find(b));
   assert.ok(!third.includes(I.title), third);
-  // The declined grant G still shows in the grants list; nothing left to ask, so ASKS_HINT.
   assert.ok(third.split('\n\n')[0].includes(`${G.title}, `), third);
   assert.equal(last(third), ASKS_HINT, third);
 });
@@ -377,7 +395,7 @@ test('a needs showing on a held or a nudge-owned reply is never counted', db, as
   await sql()`INSERT INTO projects (program_id, name, installation_id, confirmed_at) VALUES ('base-builder-grants', 'Kit', ${h.id}, now())`;
   const held = await find(h);
   assert.notEqual(moveUpOf(held)?.kind, 'check_fits', show(held));
-  assert.ok(!show(held).includes(needsAsk('Kit', A.title)), show(held));
+  assert.ok(!show(held).includes(gapAsk(A.title)), show(held));
   assert.equal(((await seenOf(h.id)).needs_unanswered as Record<string, number> | undefined)?.[A.id], undefined);
   // Nudge-owned: an accepted outcome from before this week whose post isn't shared yet owns the one question.
   const o = await builder('no', []);
@@ -389,4 +407,56 @@ test('a needs showing on a held or a nudge-owned reply is never counted', db, as
   const owned = await find(o);
   assert.equal(moveUpOf(owned)?.kind, 'outcome_share', show(owned));
   assert.equal(((await seenOf(o.id)).needs_unanswered as Record<string, number> | undefined)?.[A.id], undefined);
+});
+
+/** v4.7.2 final review. */
+test('final review 11: a builder with a fit gets the v4.7.1 reply, word for word', () => {
+  const P = { key: 'maya/kit', name: 'Kit', confirmed: true, live: true, weeks: 6 };
+  const fit = { kind: 'fits' as const, title: 'Base Builder Grant Program', amount: '$5,000', when: 'rolling' };
+  const v: BenchView = {
+    state: 'ranked', variant: null, project: P, rank: '#3 of 40 builders', streak: 6, target: null, handle: 'maya', link: null,
+    fund: [fit], due: [], held: null, standingShown: true, nagShown: true, standingText: 'Score 77 · #3 of 40 builders. 6 weeks shipping in a row.',
+    best: { ...fit, program_id: 'base-builder-grants', why: 'You deployed on Base and your app is live.', codes: null },
+    ask: { kind: 'ship', project_key: P.key, line: SHIP_ASK }, openNow: [{ title: 'Arc Microgrants', amount: '500 USDC', when: 'closes Nov 1' }], openTotal: '$105.5K', openInvest: INVEST,
+  };
+  // The strings v4.7.1's bench-reply.ts (7a7b3b39) gives for this view.
+  assert.equal(benchReply(v), 'Score 77 · #3 of 40 builders. 6 weeks shipping in a row.\nYou qualify for the Base Builder Grant Program, up to $5,000.\n\nShipping this week keeps your 6-week streak and lifts your score.\n\nWant me to suggest one small thing to ship?');
+  assert.equal(benchReply({ ...v, ask: { kind: 'none', project_key: P.key, line: '' } }), 'Score 77 · #3 of 40 builders. 6 weeks shipping in a row.\nYou qualify for the Base Builder Grant Program, up to $5,000.\nShip code this week.');
+});
+
+test('final review 5, 6, 9: the reply\'s own facts count; only a public repo clears "in a public repo"; the Card carries the facts', db, async () => {
+  const A = await program('arc-microgrants-studio', 'ka', 5);
+  const b = await builder('nk', []);
+  await sql()`UPDATE builder_sources SET public_at = NULL WHERE builder_id = ${b.id} AND kind = 'repo'`;
+  await sql()`DELETE FROM source_readings WHERE source_id IN (SELECT id FROM builder_sources WHERE builder_id = ${b.id} AND kind = 'repo')`;
+  assert.equal((await needsKnown(b.id, b.key)).repo, false, 'never read public: not cleared');
+  await sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${b.id} AND kind = 'repo'`;
+  assert.equal((await needsKnown(b.id, b.key)).repo, true, 'read public: cleared');
+  const also = await needsKnown(b.id, b.key, { chains: ['ARC'], live: true });
+  assert.ok(also.chains.has('arc') && also.live);
+  const card = (await listPrograms()).find((c) => c.id === A.id)!;
+  assert.equal(card.needs_contract, 'arc');
+  assert.equal(card.needs_live, true);
+  assert.deepEqual(programNeeds(card, also), []);
+});
+
+test('final review 7: the total is /api/stats open_money_usd', db, async () => {
+  await program('arc-microgrants-studio', 'ta', 4);
+  const b = await builder('nt', []);
+  const s = show(await find(b));
+  const total = /^Open now: (\$[\d.,]+[KM]?\+?) in grants\. /.exec(s)?.[1];
+  assert.equal(total, moneyText((await readStats()).open_money_usd), s);
+});
+
+test('final review 10: a shared client with no X of its own gets no needs ask (and no needs reads or writes)', db, async () => {
+  const A = await program('arc-microgrants-studio', 'sa', 3);
+  const b = await builder('ns', []);
+  await declineOthers(b.id, [A.id]);
+  const t = `ek_v472_shared_${RUN}_${Math.random().toString(36).slice(2)}`;
+  await saveInstallation(t, undefined, false, 'Claude Code');
+  const other = (await connectInstallation(t))!.own;
+  const shared = { ...(b.ctx as object), sharedClient: true, ownInstallationId: other };
+  const r = await mcpCall(shared as never, 'find', {});
+  assert.notEqual(moveUpOf(r)?.kind, 'check_fits', show(r));
+  assert.equal(((await seenOf(b.id)).needs_unanswered as Record<string, number> | undefined)?.[A.id], undefined);
 });

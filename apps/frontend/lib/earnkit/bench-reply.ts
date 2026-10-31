@@ -392,10 +392,11 @@ export const shortTitle = (title: string) => title.split(':')[0].trim();
  * Null with none. Pure.
  */
 export const openNowLine = (a: AlsoOpen[] | null | undefined, o: { total?: string | null; invest?: AlsoOpen | null } = {}) =>
-  // v4.7.2 T2 fix round 1 (ruling B): with no open grant, an open investment or a total still makes the line.
-  (!a || a.length === 0) && !o.total && !o.invest ? null : [
+  // v4.7.2 T2 fix round 1 (ruling B): with no open grant, an open investment still makes the line; final review 8: then
+  // without the total sentence (no grant listed to back it). Null with nothing left.
+  (!a || a.length === 0) && !o.invest ? null : [
     'Open now:',
-    ...(o.total ? [`${o.total} in grants.`] : []),
+    ...(o.total && a && a.length > 0 ? [`${o.total} in grants.`] : []),
     ...(a ?? []).map((x) => `${shortTitle(x.title)}, ${x.amount}, ${x.when}.`),
     ...(o.invest ? [`${shortTitle(o.invest.title)}, ${o.invest.amount} investment, ${o.invest.when}.`] : []),
   ].join(' ');
@@ -406,12 +407,17 @@ export const openNowLine = (a: AlsoOpen[] | null | undefined, o: { total?: strin
  */
 export function needsWhy(name: string, program: string, needs: string[]): string {
   const p = shortTitle(program);
-  if (needs.length === 0) return `Nothing EarnKit can see rules ${name} out of ${p}.`;
+  // v4.7.2 final review 3 (ruled copy): no known gap.
+  if (needs.length === 0) return `EarnKit can't see what ${p} would need from ${name} yet.`;
   const list = needs.length === 1 ? needs[0] : `${needs.slice(0, -1).join(', ')} and ${needs.at(-1)}`;
   return `${p} needs ${name} ${list}.`;
 }
-/** v4.7.2 T2 (exact copy, "Needs question"): the ranked check_fits ask's question. Pure. */
-export const needsAsk = (name: string, program: string) => `Want the steps to get ${name} ready for ${shortTitle(program)}?`;
+/**
+ * v4.7.2 T2 (exact copy, "Needs question"): the ranked check_fits ask's question; final review 3 (ruled copy): with no
+ * known gap, "Want me to check Arc Microgrants's requirements for Kit?". Pure.
+ */
+export const needsAsk = (name: string, program: string, needs: string[]) =>
+  needs.length === 0 ? `Want me to check ${shortTitle(program)}'s requirements for ${name}?` : `Want the steps to get ${name} ready for ${shortTitle(program)}?`;
 /**
  * The no-fit reply's one question, by the first step left (v4.3, owner-approved): Builder Codes, "Want me to add
  * Builder Codes to EarnKit?" (fix round 1, ruling R1: an agent with no folder of the code (`hosted`) can't add it, so
@@ -812,7 +818,7 @@ export function stateAsk(
   if (v.state === 'ranked' && v.post) return { kind: 'post', project_key: key, line: POST_ASK };
   if (v.state === 'ranked' && v.share) return { kind: 'share', project_key: key, line: MOMENT_ASK };
   // v4.7.1 T1: no fit, so what the project would need for the first open grant, once, ahead of the quieter asks.
-  if (v.state === 'ranked' && v.checkFits) return { kind: 'check_fits', project_key: key, line: needsAsk(name, v.checkFits.title) };
+  if (v.state === 'ranked' && v.checkFits) return { kind: 'check_fits', project_key: key, line: needsAsk(name, v.checkFits.title, v.checkFits.needs) };
   // GTM W2: the Monday check-in, once, on a client that can schedule (before the optional wallet step).
   if (v.state === 'ranked' && v.checkin) return { kind: 'checkin', project_key: key, line: CHECKIN_ASK };
   // v3.1 wallet proof: the optional wallet step, once, in the first reply after setup with no other question.
