@@ -2871,6 +2871,20 @@ export const tools = {
         return { ...joinReplies([...others, path]), saved };
       }
     }
+    // v4.8 Task 4 fix round 1 (1, 3): a reply that hands off to the path (then_find: the setup-done line before B's second
+    // message, the ok to re-check the code, the help with a gap step) is followed by find's reply, run here, so the
+    // builder never sees an empty reply and the message ends in find's one easy reply. The other replies come first.
+    const handOff = ctx.sharedClient ? -1 : replies.findIndex((r) => r.then_find === true);
+    if (handOff >= 0) {
+      const next = withFacts(await findReply({}, ctx), await replyFacts(ctx));
+      const shown = typeof next.show_to_builder === 'string' ? next.show_to_builder : '';
+      const { then_find: _t, show_to_builder: lead, ...hand } = replies[handOff];
+      const others = replies.filter((_, i) => i !== handOff).map(({ then_find: _x, ...r }) => r)
+        .filter((r) => Object.entries(r).some(([k, v]) => !(k === 'show_to_builder' && v === '')));
+      const first = typeof lead === 'string' && lead ? lead : '';
+      const path: Reply = { ...hand, ...next, ...(typeof hand.agent_note === 'string' && { agent_note: hand.agent_note }), show_to_builder: [first, shown].filter(Boolean).join('\n\n') };
+      return joinReplies([...others, path]);
+    }
     // v4.2 Task 3 (F10): a question asked mid-setup arrives with the next ask (a move_up answer or token 'ask'); give the
     // agent the about facts to answer it (small: about only, never the builder's own data here).
     const joined = joinReplies(replies);

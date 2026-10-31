@@ -18,7 +18,11 @@ export const STAGES: readonly Stage[] = ['hook', 'gap', 'draft', 'submit', 'trac
  * when the path has no program yet. `picked`: the builder chose the program (Task 4), so the path keeps it even at the
  * hook stage; a hook EarnKit chose is picked again on every reply (bestMove).
  */
-export type Path = { stage: Stage; program_id: string | null; at: string; picked?: true };
+export type Path = {
+  stage: Stage; program_id: string | null; at: string; picked?: true;
+  /** v4.8 Task 4 fix round 1 (8): the hook asked for the steps (target B's closest money), so its pointer does too. */
+  steps?: true;
+};
 
 /** The stored path, or null when there is none or it isn't one EarnKit wrote. Pure. */
 export function readPath(seen: { path?: unknown } | null | undefined): Path | null {
@@ -28,7 +32,11 @@ export function readPath(seen: { path?: unknown } | null | undefined): Path | nu
   if (typeof stage !== 'string' || !(STAGES as readonly string[]).includes(stage)) return null;
   if (program_id !== null && program_id !== undefined && typeof program_id !== 'string') return null;
   if (typeof at !== 'string' || Number.isNaN(Date.parse(at))) return null;
-  return { stage: stage as Stage, program_id: program_id ?? null, at, ...((p as { picked?: unknown }).picked === true && { picked: true as const }) };
+  return {
+    stage: stage as Stage, program_id: program_id ?? null, at,
+    ...((p as { picked?: unknown }).picked === true && { picked: true as const }),
+    ...((p as { steps?: unknown }).steps === true && { steps: true as const }),
+  };
 }
 
 /** Writes the builder's path (standing_seen.path), stamped `now`. Never throws. */
@@ -570,12 +578,14 @@ export const stillOpenLine = (title: string, codes: boolean) =>
 /*
  * v4.8 Task 4: the new builder (target conversation B).
  * - Before GitHub is connected, the first reply is the opener: what EarnKit does and the grants total, three numbered
- *   open programs (bench-find.ts openerPrograms: the top grant by money, the best rolling grant, the soonest investor
- *   program) and the one link the signed-out reply already uses. The numbered list is kept (standing_seen.opener).
+ *   open programs (bench-find.ts openerPrograms, target B's order: Base Builder Grants, else the best rolling grant;
+ *   the largest other open grant; the soonest investor program) and the one link the signed-out reply already uses.
+ *   The numbered list is kept (standing_seen.opener).
  * - A number or a program's name (find {program}) picks one: the path's program at `hook`, `picked`.
- * - The first path reply after connecting says the profile and the tracking line once, then the pick's fit: a fit (or
- *   the investor program, or a grant the path keeps) is hooked as always; otherwise why not, in one line from the
- *   program's own facts, then the closest money and "Want the steps?". Never a claim that they qualify.
+ * - The first path reply after connecting says the profile and the tracking line once a builder (connected_said),
+ *   then the pick's fit (pickHook): the pick whenever it is a move on its own; otherwise why not, in one line from the
+ *   program's own facts, then the path's real top move without it (the closest money, "Want the steps?" for a grant).
+ *   Never a claim that they qualify.
  */
 
 /** A program the opener numbers: its title, its money ("up to $5,000", "$5K to $100K"), when ("rolling", "closes Nov 1"). */
@@ -620,12 +630,33 @@ export function resolvePick(input: string, list: readonly Pick<OpenerProgram, 'i
     const i = Number(num[1]) - 1;
     return i >= 0 && i < list.length ? list[i].id : 'outside';
   }
-  if (t.length < 3) return null;
-  const hit = list.find((p) => {
+  // Fix round 1 (6): a generic word names no program; a name more than one program holds is no pick either.
+  if (t.length < 3 || GENERIC_PICK.test(t)) return null;
+  const hits = list.filter((p) => {
     const name = programName(p.title).toLowerCase();
     return name.includes(t) || t.includes(name) || p.title.toLowerCase().includes(t);
   });
-  return hit?.id ?? null;
+  return hits.length === 1 ? hits[0].id : null;
+}
+/** Words every program name could hold ("the grant", "investor program", "builder"): never a pick on their own. */
+const GENERIC_PICK = /^(?:the |a |an )?(?:grants?|programs?|investor(?: programs?)?|investments?|builders?|developers?|funds?|funding|money)$/;
+/**
+ * Fix round 1 (2): what the first reply after connecting hooks for a pick. The pick itself whenever it is a move on its
+ * own (a real fit, an investor program inside the window, a grant whose gap the path names), whatever else ranks above
+ * it (`pick`). Otherwise the path's real top move without the pick and without investor programs (the closest money:
+ * a real fit still beats a gap grant), a one-step grant shown as the closest, asked for the steps (`steps`); with no
+ * grant or fit, any move. Null with nothing to hook. Pure.
+ */
+export function pickHook(ctx: MoveCtx, pick: string): { move: Exclude<Move, { kind: 'quiet' }>; pick: boolean; steps: boolean } | null {
+  const only = <P extends { id: string }>(xs: P[]) => xs.filter((x) => x.id === pick);
+  const own = bestMove({ ...ctx, fits: only(ctx.fits), grants: only(ctx.grants), investors: only(ctx.investors), path: null });
+  if (own.kind !== 'quiet') return { move: own, pick: true, steps: false };
+  const skip = new Set([...ctx.skip, pick]);
+  const near = bestMove({ ...ctx, investors: [], skip, path: null });
+  const alt = near.kind !== 'quiet' ? near : bestMove({ ...ctx, skip, path: null });
+  if (alt.kind === 'quiet') return null;
+  if (alt.kind === 'one_step') return { move: { kind: 'closest', program: alt.program, raise: false }, pick: false, steps: true };
+  return { move: alt, pick: false, steps: alt.kind === 'closest' };
 }
 /**
  * The first line after connecting (target B, said once a builder): "Connected. I'll track every commit you push, so your

@@ -1794,10 +1794,12 @@ apps/frontend/
                                v4.8 Task 4 (target B): OpenerProgram, openerHead, openerReply, openerAgain, pickedReply,
                                resolvePick, connectedLine, noFitWhy, OPENER_NOTE, PathCtx.steps. bench-find.ts openerPrograms,
                                openerView (signed out), takePick (find {program} -> path picked), pickWhy, connectedCommit
-                               (standing_seen.opener { ids, at, connected }), PathPlan.ctx, pathCommit `pre`. Test fixture:
+                               (standing_seen.opener { ids, titles, at }), PathPlan.ctx, pathCommit `pre`. Test fixture:
                                fixtures/opener.ts (assertOpener, isOpener).
                                Fix round 0: investorLater, connected_said, PUSHED_ASK (gapDoYes), x-install.ts attachOnce
                                carries path + opener to the joined page.
+                               Fix round 1: pickHook, Path.steps, GENERIC_PICK; bench-find.ts openerRecord, pickGoneLine,
+                               ViewIn.ahead, SetupDone.then_find; tools.ts tell runs find after a then_find reply.
     bench-find.ts(+test)       GTM W2 (2026-10-23): link-only projects (a Lovable or Bolt live_url, no repo) take the no-GitHub path
                                (noCode: the picker link, github_no, the walk-through; linkName/YOUR_APP, reportedName: never the
                                host); backing before hot post and apply (boundedBacking first), connectBacking in the connect yes;

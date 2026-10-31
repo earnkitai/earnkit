@@ -241,11 +241,12 @@ test('no fit: the path to Base\'s grant; its yes returns the remaining steps and
   assert.ok(show(yes).endsWith("\n\nYou're on Base. Want me to do the first one now?"), show(yes));
   assert.ok(String(yes.reply?.agent_note).endsWith(MENTOR_NOTE));
   // Its yes is the agent adding Builder Codes (then find), ending in "ok once it's pushed" (v4.8 Task 4 fix round 0: the
-  // merge gate's one easy reply); a third yes is that ok: EarnKit checks the code again on the next find.
-  assert.match(show(await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } })), /^Adding Builder Codes to Kit[^]*\n\nSay ok once it's pushed, and I'll check the code\.$/);
+  // merge gate's one easy reply); a third yes is that ok: EarnKit checks the code again (find, run in that tell).
+  assert.match(show(await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } })), /^Adding Builder Codes to Kit[^]*\n\nSay ok once the change is pushed, and I'll check it\.$/);
+  // Task 4 fix round 1 (3): the ok runs find in the same tell, so its reply (never an empty one) ends in one easy reply.
   const ok = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
-  assert.equal(show(ok), '');
-  assert.match(String(ok.reply?.agent_note), /call find now, so EarnKit checks their code again/);
+  rule(show(ok));
+  assert.doesNotMatch(String(ok.reply?.agent_note ?? ''), /call find now/);
   // Fix round 1: the yes is remembered: the next find moves on to the ship step, never the same question.
   await checkFitsAsked(c.id);
   const next = await mcpCall(ctx, 'find', {});

@@ -8752,31 +8752,41 @@ A yes on the path moves the stage on (bench-find.ts benchMoveUp, asks stored wit
 
 - **The opener.** A person's signed-out find with programs open (bench-find.ts openerView, before the setup reply) is
   conversation.ts openerReply: "I'm EarnKit. I get builders funded for what they ship, and there's {moneyText(openMoneyUsd(cards))}
-  in grants open right now.", then up to three numbered programs (openerPrograms: the top open grant by money; the best
-  rolling grant, never #1; the soonest-closing open investor program, "(investor program)"), each "{name}: {amount},
-  {when}" ("$5K to $100K" from min/max_award_usd, else the summary's prize), then "Reply with a number, and connect here
-  so I can check if your work fits: {sign-in link}" (the existing sign-in link; "connect GitHub here" only for the repo
-  picker's link). The list is stored (standing_seen.opener.ids). Once a session; again in the session, or after a
-  number outside the list or a name not on it, openerAgain's one line. The sign-in step stays the stored ask and
-  move_up (tell sign_in), the lead is kept, the note is OPENER_NOTE + MENTOR_NOTE. Nothing open: the v4.0 setup reply.
-  A shared client with no X (o.personal false) keeps the setup reply.
-- **The pick.** find {program} (a number, "#2", or a name) against the stored list (takePick, conversation.ts
-  resolvePick) stores path { stage: hook, program_id, picked } in any state until the connected line is said; signed
-  out the reply is pickedReply ("Got it: {name}. Connect here ...: {link}").
-- **After connecting.** The first ranked path reply for a builder who saw the opener (opener.connected unset), after
-  setup step 3, a held question and an owning nudge, is connectedCommit: connectedLine ("Connected. I'll track every
-  commit you push, so your profile stays current without you lifting a finger: earnkit.com/{handle}, score {n}, #N of
-  M builders." the score when the page has one, the rank when M >= 2), then the pick bestMove keeps (a fit, the
-  investor program, a grant on the path) hooked as always; a pick that is no move gets pickWhy's one line (Base's gap
-  sentence, programNeeds' gaps, or "they fund apps on {chain}, and {project} isn't on {chain} yet."; left out when
-  unknown), then the closest grant (one_step shown as closest, "Want the steps?", kept as the path's picked program).
-  opener.connected is stamped so it is said once.
-- Fix round 0: the opener's order is target B's (Base Builder Grants, else the best rolling grant; then the largest
-  other open grant; then the soonest investor program). The connected line names the score (and "#N of M", M >= 2)
-  only above 0, else "... so your profile fills in without you lifting a finger: earnkit.com/{handle}."; it is said
-  once a builder (standing_seen.connected_said, claimed in one guarded UPDATE). A picked investor program outside the
-  path's window says conversation.ts investorLater before the closest money. x-install.ts attachOnce carries
-  standing_seen.path and .opener to the page an installation joins when that page has no path. The path's Builder
-  Codes yes (gapDoYes) ends in PUSHED_ASK ("Say ok once it's pushed, and I'll check the code."), stored as the
-  re-check ask (checking).
+  in grants open right now.", then up to three numbered programs (openerPrograms, target B's order: Base Builder Grants,
+  else the best rolling grant; then the largest other open grant by money; then the soonest-closing open investor
+  program, "(investor program)"; never one told applied, entered or hidden), each "{name}: {amount}, {when}" ("$5K to
+  $100K" from min/max_award_usd, else the summary's prize), then "Reply with a number, and connect here so I can check if
+  your work fits: {sign-in link}". The link is the X sign-in link, whose page ends at a paste code (x-install.ts
+  linkSignedIn branch), so the copy never says GitHub ("connect GitHub here" only for the repo picker's link). The list
+  is stored (standing_seen.opener { ids, titles, at }). Once a session; again in the session, or after a number outside
+  the list or a name not on it, openerAgain's one line. The sign-in step stays the stored ask and move_up (tell
+  sign_in), the lead is kept, the note is OPENER_NOTE + MENTOR_NOTE. Nothing open: the v4.0 setup reply. A shared
+  client with no X (o.personal false) keeps the setup reply.
+- **The pick.** find {program} (a number, "#2", or a name only one listed program holds; generic words never pick)
+  against the stored list (takePick, conversation.ts resolvePick) stores path { stage: hook, program_id, picked } until
+  the connected line is said, never over a path past the hook on another program unless the list was shown after it
+  moved. A pick closed or not shown to them now, or told applied, is one line ("{name} isn't open now." / "You've
+  already applied to {name}.") and the list again, fresh and stored. Signed out the reply is pickedReply ("Got it:
+  {name}. Connect here ...: {link}"); signed in before the code is connected, "Got it: {name}." above the step's reply.
+- **After connecting.** The first ranked path reply for a builder who saw the opener (standing_seen.connected_said
+  unset, claimed in one guarded UPDATE: once a builder), after setup step 3, a held question and an owning nudge, is
+  connectedCommit: connectedLine ("Connected. I'll track every commit you push, so your profile stays current without
+  you lifting a finger: earnkit.com/{handle}, score {n}, #N of M builders.", the rank when M >= 2; a score of 0 or none:
+  "... so your profile fills in without you lifting a finger: earnkit.com/{handle}."), then conversation.ts pickHook:
+  the pick whenever it is a move on its own (a real fit, an investor program in its window, a grant whose gap the
+  path names), whatever ranks above it; else pickWhy's one line (Base's gap sentence, programNeeds' gaps, or "they
+  fund apps on {chain}, and {project} isn't on {chain} yet."; left out when unknown; a picked investor program outside
+  its window says investorLater instead), then the path's real top move without the pick and without investor
+  programs (a fit beats a gap grant; a one-step grant shown as the closest, "Want the steps?", Path.steps so its
+  pointer asks the same), kept as the path's picked program.
+- **Setup done hands off.** With a pick pending (opener seen, connected_said unset), setupDoneFor returns only the done
+  line (setupDoneLead, no table, no draft ask) with `then_find`: on find, benchView puts it ahead of the same reply's
+  path (ViewIn.ahead); on tell (the wallet no, the token answer), tools.ts tell runs find and returns the line, then
+  find's reply.
+- **tell's hand-offs (then_find).** tools.ts tell runs find after a reply marked then_find and returns one reply: the
+  other replies first, then the marked reply's line (if any) and find's reply. gapDoYes marks the ok to re-check the
+  code and the help with a gap step. The path's Builder Codes yes ends in PUSHED_ASK ("Say ok once the change is
+  pushed, and I'll check it."), stored as the re-check ask (checking).
+- **Sign-in carry-over.** x-install.ts attachOnce, when an installation's own profile joins another page with no path:
+  its path (picked, at the hook) and opener list go along; to a page with a project, connected_said is stamped.
 
