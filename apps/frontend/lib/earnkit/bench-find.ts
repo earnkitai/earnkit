@@ -752,7 +752,9 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   // asks below (connect, the Monday block, posts, check-in, wallet, token, new repo, titles, then the ship line).
   // The path read the programs and had none to name (or parked them), so no older program ask (Base's qualify) is made.
   let pathQuiet = false;
-  if (rankedFree && !more && project && !taken && !held && handle !== null) {
+  // A person only (reply-facts.ts personal; v4.7.2 final review 10, R7): a shared client that is no person gets no path
+  // and no path reads or writes (standing_seen.path, said, bench_ask).
+  if (o.personal && rankedFree && !more && project && !taken && !held && handle !== null) {
     const nudgeFirst = await pickNudge(id, now, { project: project.name, best: null });
     if (!(nudgeFirst?.ask && nudgeFirst.line)) {
       const led = await pathView(o, { state, variant, project, streak, handle, stand, siteLive, chains: row?.chains ?? [] });

@@ -316,3 +316,37 @@ test("a no to a grant's gap hook (Base's steps) parks it for the path; nothing a
   const next = show(await find(b));
   assert.doesNotMatch(next, /Base Builder Grant|Builder Codes/, next);
 });
+
+test('a shared client with no X of its own gets no path reply, and nothing is written to standing_seen', db, async () => {
+  await speedrun(30);
+  const b = await owner('sh');
+  const before = await seenOf(b.id);
+  const t = `ek_v48_shared_${RUN}_${Math.random().toString(36).slice(2)}`;
+  await saveInstallation(t, undefined, false, 'Claude Code');
+  const other = (await connectInstallation(t))!.own;
+  const shared = { ...(b.ctx as object), sharedClient: true, ownInstallationId: other };
+  // Through both tools, with X sign-in on and off. (benchView's o.personal gate is the backstop: today a shared client
+  // with no X of its own is answered before benchView, signed out or by the shared reply.)
+  const x = { id: process.env.X_CLIENT_ID, secret: process.env.X_CLIENT_SECRET };
+  const replies: R[] = [];
+  for (const off of [false, true]) {
+    if (off) {
+      delete process.env.X_CLIENT_ID;
+      delete process.env.X_CLIENT_SECRET;
+    }
+    try {
+      for (const tool of ['find', 'score'] as const) replies.push(await mcpCall(shared as never, tool, {}));
+    } finally {
+      process.env.X_CLIENT_ID = x.id;
+      process.env.X_CLIENT_SECRET = x.secret;
+    }
+  }
+  for (const r of replies) {
+    assert.doesNotMatch(show(r), /speedrun|Want me to start\?|Want the steps\?/, show(r));
+    assert.notEqual(r.reply?.note, MENTOR_NOTE);
+  }
+  const after = await seenOf(b.id);
+  for (const k of ['path', 'said', 'path_raised']) assert.deepEqual(after[k], before[k], k);
+  // (The signed-out reply stores its own sign-in ask, as before v4.8; never a path ask.)
+  assert.notEqual((after.bench_ask as { path?: boolean } | undefined)?.path, true);
+});
