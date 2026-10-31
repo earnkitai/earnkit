@@ -836,11 +836,12 @@ function moneyLine(v: BenchView, o: { upcoming: boolean } = { upcoming: true }):
  */
 const standingOf = (v: BenchView, name: string) =>
   v.standingText === undefined ? standingLine(name, v.rank, v.streak, v.earned ?? 0) : v.standingText || `${name} is on EarnKit.`;
+/** v4.7.2 T1: the money paragraph's total and investment, as openNowLine takes them. Pure. */
+const openOf = (v: Pick<BenchView, 'openTotal' | 'openInvest'>) => ({ total: v.openTotal, invest: v.openInvest });
 /**
  * v4.7.1 T1: the open grants paragraph, only with no fit line (moneyLine's fit), so a fit's reply stays v4.7's. Final
  * review (R6): a pitch of null (every fit applied or drafted) shows it too. Pure.
  */
-const openOf = (v: Pick<BenchView, 'openTotal' | 'openInvest'>) => ({ total: v.openTotal, invest: v.openInvest });
 const openNowOf = (v: BenchView) =>
   v.held ? null
     : v.pitch === null ? openNowLine(v.openNow, openOf(v))

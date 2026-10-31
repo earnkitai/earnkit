@@ -905,14 +905,15 @@ async function notPitched(id: number, seen: Seen, now: Date): Promise<Set<string
  * (none excluded), soonest deadline first, rolling ones last (byRelevance among equals), up to two. Pure.
  */
 export function openNowGrants(cards: Card[], now: Date, skip: Set<string>): (AlsoOpen & { id: string })[] {
-  const at = (c: Card) => (fundWhen(c) === 'rolling' || !c.ends_at ? Infinity : new Date(c.ends_at).getTime());
   return cards
     .filter((c) => programKind(c).startsWith('grant') && showable(c, now, skip))
-    .sort((a, b) => at(a) - at(b) || byRelevance(a, b))
+    .sort((a, b) => closeAt(a) - closeAt(b) || byRelevance(a, b))
     .slice(0, 2)
     .map((c) => ({ id: c.id, title: c.title, amount: upToCell(prizeOf(c)), when: fundWhen(c) }));
 }
 
+/** v4.7.1 T1: a program's close time for the open-now order: rolling or undated last. Pure. */
+const closeAt = (c: Card) => (fundWhen(c) === 'rolling' || !c.ends_at ? Infinity : new Date(c.ends_at).getTime());
 /**
  * v4.7.2 T1: the soonest-closing open investment (an accelerator) the builder hasn't applied to, for the money paragraph
  * (bench-reply.ts openNowLine). The filters are showable's, except that an investment is kept; openNowGrants' order
@@ -920,10 +921,9 @@ export function openNowGrants(cards: Card[], now: Date, skip: Set<string>): (Als
  * trailing "investment" (the line adds it once). Null with none. Pure.
  */
 export function openNowInvestment(cards: Card[], now: Date, skip: Set<string>): (AlsoOpen & { id: string }) | null {
-  const at = (c: Card) => (fundWhen(c) === 'rolling' || !c.ends_at ? Infinity : new Date(c.ends_at).getTime());
   const c = cards
     .filter((x) => x.investment === true && showable({ ...x, investment: false }, now, skip))
-    .sort((a, b) => at(a) - at(b) || byRelevance(a, b))[0];
+    .sort((a, b) => closeAt(a) - closeAt(b) || byRelevance(a, b))[0];
   if (!c) return null;
   const amount = prizeOf(c).replace(/\s+investment$/i, '').replace(/^up to\s+/i, 'up to ');
   return { id: c.id, title: c.title, amount, when: fundWhen(c) };
