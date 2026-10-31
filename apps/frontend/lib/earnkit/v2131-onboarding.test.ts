@@ -3,6 +3,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { sql } from './db';
+import { checkFitsAsked } from './fixtures/wallet-step';
 import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
@@ -134,6 +135,8 @@ test('O2 fix round 1 (ruling 3), R8: every state ends on one next step with a ye
     const cf = await find(id, {}, NO_MATCH);
     assert.equal(cf.move_up?.kind, 'check_fits', cf.show_to_builder);
     assert.equal(lastQ(cf.show_to_builder).length, 1);
+    // v4.7.2 T2: the needs ask is per open program; every one answered, the ship question.
+    await checkFitsAsked(id);
     const r = await find(id, {}, NO_MATCH);
     // v3.1 cold read: the points line was this week's already (at most once an ISO week): the reply ends on the question.
     assert.ok(r.show_to_builder.endsWith(SHIP_ASK), r.show_to_builder);

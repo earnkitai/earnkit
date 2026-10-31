@@ -5,6 +5,7 @@ import { randomBytes } from 'node:crypto';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
+import { checkFitsAsked } from './fixtures/wallet-step';
 import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
@@ -182,6 +183,8 @@ test('O5 N5, v2.14 A16, R8: a confirmed project moves up by shipping (Task 16: t
     const cf = await find(id, {}, NO_MATCH);
     assert.equal(cf.move_up?.kind, 'check_fits', cf.show_to_builder);
     assert.match(cf.show_to_builder, /^Open now: /);
+    // v4.7.2 T2: the needs ask is per open program; every one answered, the ship step.
+    await checkFitsAsked(id);
     const r = await find(id, {}, NO_MATCH);
     assert.match(r.show_to_builder, /^Open now: /);
     // v3.1 cold read: the points line was this week's already (at most once an ISO week): the reply ends on the question.

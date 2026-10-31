@@ -7,14 +7,14 @@ import { fakeGitHub } from './fixtures/fake-github';
 import { appEnv, installApp } from './fixtures/app-install';
 import { committedProgram } from './fixtures/program-file';
 import { dropRunPrograms } from './fixtures/programs-cleanup';
-import { walletOffered } from './fixtures/wallet-step';
+import { checkFitsAsked, walletOffered } from './fixtures/wallet-step';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { closeDayOf } from './entry-text';
 import {
-  CHECKIN_ASK, CHECKIN_WHY, MOMENT_ASK, POST_ASK, POST_WHY, SHARE_WHY, SHIP_ASK, TOKEN_OFFER, applyAsk, askWhy, benchReply, checkFitsWhy, checkNeedsAsk, openNowLine,
+  ASKS_HINT, CHECKIN_ASK, CHECKIN_WHY, MOMENT_ASK, POST_ASK, POST_WHY, SHARE_WHY, SHIP_ASK, TOKEN_OFFER, applyAsk, askWhy, benchReply, needsAsk, needsWhy, openNowLine,
   qualifyLine, stateAsk, type BenchView, type MomentView,
 } from './bench-reply';
 import { CHECK_FITS_ASK_NOTE, CHECK_FITS_NOTE, checkNeedsNote, openNowGrants } from './bench-find';
@@ -67,8 +67,9 @@ test('exact copy: the open money paragraph and the check_fits ask', () => {
   );
   assert.equal(openNowLine(OPEN.slice(0, 1)), 'Open now: Arc Microgrants, 500 USDC × 8 grants, closes Nov 1.');
   assert.equal(openNowLine([]), null);
-  assert.equal(checkFitsWhy('Kit'), 'None of these fit Kit on what EarnKit can see yet.');
-  assert.equal(checkNeedsAsk('Kit', OPEN[0].title), 'Want me to check what Kit would need for Arc Microgrants?');
+  // v4.7.2 T2: the why names the gap and the question offers the steps (v472-next-step.test.ts has the full copy).
+  assert.equal(needsWhy('Kit', OPEN[0].title, ['on Arc mainnet']), 'Arc Microgrants needs Kit on Arc mainnet.');
+  assert.equal(needsAsk('Kit', OPEN[0].title), 'Want the steps to get Kit ready for Arc Microgrants?');
   assert.ok(checkNeedsNote('Arc Microgrants').startsWith(CHECK_FITS_NOTE.replace(" Don't show this note.", '')));
   assert.match(checkNeedsNote('Arc Microgrants'), /Arc Microgrants's requirements.*what the project would need.*Don't show this note\.$/);
 });
@@ -92,13 +93,15 @@ test('open now: grants only, soonest deadline first, rolling last, two at most',
 
 test('pure: no fit, the open grants lead every non-money ask and the quiet reply; a fit keeps v4.7 word for word', () => {
   const name = 'Kit';
-  const checkFits = ranked({ openNow: OPEN, ask: stateAsk({ state: 'ranked', variant: null, project: P, link: null, checkFits: OPEN[0].title, checkin: true }) });
+  const need = { id: 'arc', title: OPEN[0].title, needs: ['on Arc mainnet'] };
+  const checkFits = ranked({ openNow: OPEN, checkFits: need, ask: stateAsk({ state: 'ranked', variant: null, project: P, link: null, checkFits: need, checkin: true }) });
   assert.equal(checkFits.ask.kind, 'check_fits', 'check_fits goes ahead of the check-in');
   const paras = benchReply(checkFits).split('\n\n');
   assert.equal(paras[0], openNowLine(OPEN));
-  assert.equal(paras.at(-2), checkFitsWhy(name));
-  assert.equal(paras.at(-1), checkNeedsAsk(name, OPEN[0].title));
-  assert.equal(askWhy(checkFits), checkFitsWhy(name));
+  // v4.7.2 T2: the why names the program's gap.
+  assert.equal(paras.at(-2), needsWhy(name, OPEN[0].title, need.needs));
+  assert.equal(paras.at(-1), needsAsk(name, OPEN[0].title));
+  assert.equal(askWhy(checkFits), needsWhy(name, OPEN[0].title, need.needs));
   // The check-in, wallet and quiet replies carry it first too.
   for (const ask of [
     { kind: 'checkin' as const, project_key: P.key, line: CHECKIN_ASK },
@@ -239,38 +242,44 @@ test('Review Focus 1: no fit, qualify declined, 2 open grants: money first, chec
   if (sooner === 0) {
     // v4.7.2 T1: the total in grants leads, and the soonest open investment (when one is open) ends it.
     assert.match(money, new RegExp(`^Open now: (?:\\$[\\d.,]+[KM]?\\+? in grants\\. )?${(cellA + ' ' + cellB).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?: [^\\n]+ investment, [^\\n]+\\.)?$`), s);
-    assert.equal(paras.at(-1), checkNeedsAsk('Kit', a.title), s);
+    assert.equal(paras.at(-1), needsAsk('Kit', a.title), s);
   }
-  assert.equal(paras.at(-2), checkFitsWhy('Kit'), s);
-  assert.match(paras.at(-1)!, /^Want me to check what Kit would need for [^?]+\?$/, s);
+  // v4.7.2 T2: the why names the program's gap (a Base copy: no contract rule), and the question offers the steps.
+  assert.match(paras.at(-2)!, /^([^\n]+ needs Kit [^\n]+\.|Nothing EarnKit can see rules Kit out of [^\n]+\.)$/, s);
+  assert.match(paras.at(-1)!, /^Want the steps to get Kit ready for [^?]+\?$/, s);
   assert.equal(moveUp(first)?.kind, 'check_fits');
-  assert.equal(moveUp(first)?.why, checkFitsWhy('Kit'));
+  assert.equal(moveUp(first)?.why, paras.at(-2));
   assert.ok(moveUp(first)?.agent_note.startsWith(CHECK_FITS_ASK_NOTE.replace(" Don't show this note.", '')));
   assert.doesNotMatch(s, BAD);
   assert.doesNotMatch(s, /Kit · /);
   assert.equal((s.match(/\?/g) ?? []).length, 1, s);
   // The yes reads that program's requirements.
   const yes = await mcpCall(b.ctx as never, 'tell', { move_up: { kind: 'check_fits', project_key: b.key, answer: 'yes' } });
-  const named = /would need for ([^?]+)\?$/.exec(paras.at(-1)!)![1];
+  const named = /ready for ([^?]+)\?$/.exec(paras.at(-1)!)![1];
   const note = String(yes.reply?.agent_note);
   assert.ok(note.startsWith(CHECK_FITS_NOTE.replace(" Don't show this note.", '')), note);
   assert.ok(note.includes(`${named}`) && /requirements/.test(note), note);
   if (named === a.title) assert.equal(note, checkNeedsNote(a.title));
 
-  // Once only: the next find asks something else, and still leads with the money.
+  // v4.7.2 T2: per program: the next find never asks that program again (another open program may be asked), and
+  // still leads with the money.
   const second = await find(b);
-  assert.notEqual(moveUp(second)?.kind, 'check_fits');
+  assert.ok(!show(second).includes(`ready for ${named}?`), show(second));
   assert.match(show(second), /^Open now: /, show(second));
   if (moveUp(second)?.kind === 'checkin') assert.equal(show(second).split('\n\n').at(-2), CHECKIN_WHY);
 
-  // The quiet reply (check-in answered, ship asked today): the money, no standing line, no why.
+  // The quiet reply (check-in answered, ship asked today; v4.7.2 T2: every program's needs ask answered): the money, no
+  // standing line, no why, and ASKS_HINT last.
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('checkin', 'no', 'ship_asked', now()::text) WHERE builder_id = ${b.id}`;
+  await checkFitsAsked(b.id);
   const quiet = await find(b);
   const q = show(quiet);
   assert.ok(q.includes('Open now:'), q);
   assert.match(q, /^Open now: [^\n]+\.$/m, q);
   assert.doesNotMatch(q, /·/);
   assert.equal(moveUp(quiet)?.why, undefined);
+  assert.equal(q.split('\n\n').at(-1), ASKS_HINT, q);
+  assert.ok(!q.includes('?'), q);
   assert.doesNotMatch(q, BAD);
 });
 

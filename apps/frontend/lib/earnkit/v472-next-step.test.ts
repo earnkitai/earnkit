@@ -13,8 +13,8 @@ import { attachToX } from './x-install';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { closeDayOf } from './entry-text';
-import { SHIP_ASK, benchReply, openNowLine, type BenchView } from './bench-reply';
-import { openNowGrants, openNowInvestment } from './bench-find';
+import { ASKS_HINT, SHIP_ASK, applyAsk, askWhy, benchReply, needsAsk, needsWhy, openNowLine, stateAsk, type BenchView } from './bench-reply';
+import { checkNeedsNote, openNowGrants, openNowInvestment, programNeeds } from './bench-find';
 import { moneyText, openMoneyUsd } from './pool';
 import { fridayNudge } from './nudges';
 import { productOdds, productScore, traction, type Detection } from './match';
@@ -182,4 +182,121 @@ test('a non-owning nudge lands right after the Open now paragraph, with the tota
   assert.equal(ps[0], openNowLine(open, { total: '$105.5K', invest: INVEST }));
   assert.ok(ps[0].startsWith('Open now: $105.5K in grants. ') && ps[0].endsWith('a16z speedrun SR008, up to $1M investment, closes Nov 1.'), ps[0]);
   assert.equal(ps[1], fridayNudge(6));
+});
+
+/** v4.7.2 Task 2: the why names the gap, and every reply has a next step. */
+const BAD = /—|\bcoins?\b|\bpoints?\b|\p{Extended_Pictographic}/iu;
+const ARC_FILE = committedProgram('arc-microgrants-studio', { keepContract: true });
+
+test('programNeeds: Arc with Arc not known gives "on Arc mainnet"; all known gives none; all three in order', () => {
+  assert.deepEqual(programNeeds(ARC_FILE, { chains: new Set(['base']), repo: true, live: true }), ['on Arc mainnet']);
+  assert.deepEqual(programNeeds(ARC_FILE, { chains: new Set(['arc']), repo: true, live: true }), []);
+  assert.deepEqual(programNeeds(ARC_FILE, { chains: new Set(), repo: false, live: false }), ['on Arc mainnet', 'in a public repo', 'live at a link']);
+  // No contract, no repo rule, no live field: nothing to name.
+  assert.deepEqual(programNeeds({ needs_contract: null, needs_repo: false, submission_requirements: [] }, { chains: new Set(), repo: false, live: false }), []);
+});
+
+test('needsWhy and needsAsk: the exact copy', () => {
+  assert.equal(needsWhy('EarnKit', 'Arc Microgrants: Built with Arc Studio', ['on Arc mainnet']), 'Arc Microgrants needs EarnKit on Arc mainnet.');
+  assert.equal(needsWhy('Kit', 'Arc Microgrants', ['on Arc mainnet', 'in a public repo']), 'Arc Microgrants needs Kit on Arc mainnet and in a public repo.');
+  assert.equal(needsWhy('Kit', 'Arc Microgrants', ['on Arc mainnet', 'in a public repo', 'live at a link']), 'Arc Microgrants needs Kit on Arc mainnet, in a public repo and live at a link.');
+  assert.equal(needsWhy('Kit', 'Arc Microgrants', []), 'Nothing EarnKit can see rules Kit out of Arc Microgrants.');
+  assert.equal(needsAsk('EarnKit', 'Arc Microgrants: Built with Arc Studio'), 'Want the steps to get EarnKit ready for Arc Microgrants?');
+  for (const s of [needsWhy('Kit', 'A', ['on Arc mainnet']), needsWhy('Kit', 'A', []), needsAsk('Kit', 'A')]) assert.doesNotMatch(s, BAD);
+});
+
+test('the quiet ranked reply with open grants ends with ASKS_HINT and has no question', () => {
+  const open = [{ title: 'Arc Microgrants: Built with Studio', amount: '500 USDC × 8 grants', when: 'closes Nov 1' }];
+  const v: BenchView = {
+    state: 'ranked', variant: null, project: { key: 'maya/kit', name: 'Kit', confirmed: true, live: true, weeks: 6 }, rank: '#3 of 40 builders', streak: 6,
+    target: null, handle: 'maya', link: null, fund: [], due: [], ask: { kind: 'none', project_key: 'maya/kit', line: '' }, held: null,
+    standingShown: true, nagShown: true, openNow: open, openTotal: '$105.5K', openInvest: INVEST,
+  };
+  const s = benchReply(v);
+  assert.equal(s.split('\n\n').at(-1), ASKS_HINT, s);
+  assert.ok(!s.includes('?'), s);
+  // The check_fits ask: the why names the gap, the question is last.
+  const ask = { ...v, checkFits: { id: 'arc', title: open[0].title, needs: ['on Arc mainnet'] } };
+  const cf = benchReply({ ...ask, ask: stateAsk({ state: 'ranked', variant: null, project: ask.project, link: null, checkFits: ask.checkFits }) });
+  const ps = cf.split('\n\n');
+  assert.equal(ps.at(-1), 'Want the steps to get Kit ready for Arc Microgrants?', cf);
+  assert.equal(ps.at(-2), 'Arc Microgrants needs Kit on Arc mainnet.', cf);
+  assert.equal(askWhy({ ...ask, ask: { kind: 'check_fits', project_key: 'maya/kit', line: '' } }), 'Arc Microgrants needs Kit on Arc mainnet.');
+});
+
+/** A copy of a committed program, open, closing `minutes` from now; Arc keeps its contract rule. */
+async function program(file: string, tag: string, minutes: number) {
+  const base = committedProgram(file, { keepContract: file.startsWith('arc') });
+  const id = `v472-${process.pid}-${tag}`;
+  const ends = new Date(Date.now() + minutes * 60_000);
+  const p = ProgramFile.parse({ ...base, id, title: `Need ${tag} ${RUN}`, summary: 'up to $5,000', ends_at: ends.toISOString(), status: 'active', starts_at: null });
+  await upsertProgram(p);
+  return { id, title: p.title };
+}
+/** Every open program but `keep` said no to (the needs ask), so the test's own two are the only candidates. */
+async function declineOthers(id: number, keep: string[]) {
+  const rows = await sql()<{ id: string }[]>`SELECT id FROM programs WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now()) AND NOT (id = ANY(${keep}::text[]))`;
+  const declined = Object.fromEntries(rows.map((r) => [`needs:${r.id}`, new Date().toISOString()]));
+  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{declined}',
+    COALESCE(standing_seen->'declined', '{}'::jsonb) || ${sql().json(declined as never)}::jsonb) WHERE builder_id = ${id}`;
+}
+const last = (s: string) => s.split('\n\n').at(-1)!;
+const moveUpOf = (r: Awaited<ReturnType<typeof mcpCall>>) => r.reply?.move_up as { kind: string; why?: string; agent_note: string } | undefined;
+
+test('Review Focus 1: no fit, two open programs: A three times with its gap, then B, then a no to B gives ASKS_HINT', db, async () => {
+  const A = await program('arc-microgrants-studio', 'na', 10);
+  const B = await program('base-builder-grants', 'nb', 20);
+  const b = await builder('nd', []);
+  await declineOthers(b.id, [A.id, B.id]);
+  for (let i = 1; i <= 3; i++) {
+    const r = await find(b);
+    const s = show(r);
+    assert.equal(last(s), needsAsk('Kit', A.title), `find ${i}: ${s}`);
+    assert.ok(s.split('\n\n').at(-2)!.startsWith(`${A.title} needs Kit on Arc mainnet`), s);
+    assert.equal(moveUpOf(r)?.why, s.split('\n\n').at(-2));
+    assert.equal(moveUpOf(r)?.kind, 'check_fits');
+    assert.equal((s.match(/\?/g) ?? []).length, 1, s);
+    assert.doesNotMatch(s, BAD);
+  }
+  const fourth = await find(b);
+  assert.equal(last(show(fourth)), needsAsk('Kit', B.title), show(fourth));
+  assert.ok(/^(Need nb \d+ needs Kit .+\.|Nothing EarnKit can see rules Kit out of Need nb \d+\.)$/.test(show(fourth).split('\n\n').at(-2)!), show(fourth));
+  // A no to B, with nothing else due (check-in answered, ship asked today).
+  const no = await mcpCall(b.ctx as never, 'tell', { move_up: { kind: 'check_fits', project_key: b.key, answer: 'no' } });
+  assert.ok(!String(no.reply?.show_to_builder).includes('?'));
+  const [seen] = await sql()<{ s: Record<string, unknown> }[]>`SELECT standing_seen AS s FROM builder_profiles WHERE builder_id = ${b.id}`;
+  assert.ok((seen.s.declined as Record<string, string>)[`needs:${B.id}`]);
+  assert.equal((seen.s.needs_unanswered as Record<string, number> | undefined)?.[B.id], undefined);
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('checkin', 'no', 'ship_asked', now()::text) WHERE builder_id = ${b.id}`;
+  const fifth = show(await find(b));
+  assert.equal(last(fifth), ASKS_HINT, fifth);
+  assert.ok(!fifth.includes('?'), fifth);
+  assert.match(fifth, /^Open now: /, fifth);
+  assert.doesNotMatch(fifth, BAD);
+});
+
+test('Review Focus 4: a yes to the needs ask reads that program, and it is not asked again', db, async () => {
+  const A = await program('arc-microgrants-studio', 'ya', 11);
+  const B = await program('base-builder-grants', 'yb', 21);
+  const b = await builder('ny', []);
+  await declineOthers(b.id, [A.id, B.id]);
+  assert.equal(last(show(await find(b))), needsAsk('Kit', A.title));
+  const yes = await mcpCall(b.ctx as never, 'tell', { move_up: { kind: 'check_fits', project_key: b.key, answer: 'yes' } });
+  assert.equal(yes.reply?.agent_note, checkNeedsNote(A.title));
+  const [seen] = await sql()<{ s: Record<string, unknown> }[]>`SELECT standing_seen AS s FROM builder_profiles WHERE builder_id = ${b.id}`;
+  assert.ok((seen.s.needs_yes as Record<string, string>)[A.id]);
+  assert.equal((seen.s.needs_unanswered as Record<string, number> | undefined)?.[A.id], undefined);
+  for (let i = 0; i < 2; i++) assert.ok(!show(await find(b)).includes(needsAsk('Kit', A.title)));
+});
+
+test('Review Focus 5: a builder with a fit gets the money-first apply reply, no needs ask', db, async () => {
+  const base = committedProgram('base-builder-grants');
+  const id = `v472-${process.pid}-fit`;
+  const ends = new Date(Date.now() + 20 * 86_400_000);
+  const p = ProgramFile.parse({ ...base, id, title: `Fit ${RUN}`, summary: 'up to $5,000', ends_at: ends.toISOString(), status: 'active' });
+  await upsertProgram(p);
+  const b = await builder('nfit', [id]);
+  const r = await find(b);
+  assert.equal(show(r), applyAsk(p.title, '$5,000', closeDayOf({ summary: p.summary, ends_at: ends })!));
+  assert.equal(moveUpOf(r)?.kind, 'apply');
 });

@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
 import { person } from './fixtures/find';
+import { checkFitsAsked } from './fixtures/wallet-step';
 import { computeScoreV2 } from './score-v2';
 import { isoWeekOf, lastFinishedMonday } from './weeks';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
@@ -48,8 +49,9 @@ async function builder(tag: string, ages: number[], last: number) {
   const key = `${tag}${RUN}/app`;
   const handle = `${tag}${RUN}`.slice(0, 15);
   // v4.3: a no to Base's grant steps (the qualify reply carries no ship line), so the ranked step is the ship step.
-  // v4.7.1 T1: check_fits (no fit) asked already too.
-  const id = await person({ main: key, claimed: handle, ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z', declined: { [`qualify:${key}`]: new Date().toISOString() }, check_fits_asked: new Date().toISOString() }, projects: [{ key, name: 'App', confirmed: true }] });
+  // v4.7.1 T1: check_fits (no fit) asked already too (v4.7.2 T2: said no to for every program, checkFitsAsked).
+  const id = await person({ main: key, claimed: handle, ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z', declined: { [`qualify:${key}`]: new Date().toISOString() } }, projects: [{ key, name: 'App', confirmed: true }] });
+  await checkFitsAsked(id);
   const now = new Date();
   const s = computeScoreV2({ ships: [], commitWeeks: ages.map((i) => isoWeekOf(new Date(now.getTime() - i * 7 * DAY))) }, now);
   await sql()`UPDATE builder_live SET score = ${s.score}, parts = ${sql().json(s.parts as never)} WHERE builder_id = ${id}`;

@@ -46,16 +46,20 @@ export function qualifyStatus(m: { v: Verdict | null; chains: Detection } | null
 }
 
 /**
- * v3.1 GTM W3: whether `key`'s project is known on Base: its row's chains (a confirmed contract, an EarnKit deploy, a
- * coin) or a contract the agent reported on Base (a non-rejected builder_sources contract "base:0x..."). Never throws.
+ * v4.7.2 T2 (generalized from v3.1 GTM W3's onBaseKnown): whether `key`'s project is known on `chain`: its row's chains
+ * (a confirmed contract, an EarnKit deploy, a coin) or a contract the agent reported on that chain (a non-rejected
+ * builder_sources contract "<chain>:0x..."). A failed read is false. Never throws.
  */
-export async function onBaseKnown(id: number, key: string): Promise<boolean> {
+export async function onChainKnown(id: number, key: string, chain: string): Promise<boolean> {
+  const c = chain.toLowerCase();
   const [r] = await sql()<{ on: boolean }[]>`
-    SELECT EXISTS (SELECT 1 FROM builder_projects WHERE builder_id = ${id} AND lower(project_key) = lower(${key}) AND 'base' = ANY(chains))
+    SELECT EXISTS (SELECT 1 FROM builder_projects WHERE builder_id = ${id} AND lower(project_key) = lower(${key}) AND ${c} = ANY(chains))
       OR EXISTS (SELECT 1 FROM builder_sources WHERE builder_id = ${id} AND lower(project_key) = lower(${key}) AND kind = 'contract'
-        AND state <> 'rejected' AND ref ILIKE 'base:%') AS on`.catch(() => [{ on: false }]);
+        AND state <> 'rejected' AND ref ILIKE ${`${c}:%`}) AS on`.catch(() => [{ on: false }]);
   return r?.on === true;
 }
+/** v3.1 GTM W3: whether `key`'s project is known on Base (onChainKnown). Never throws. */
+export const onBaseKnown = (id: number, key: string): Promise<boolean> => onChainKnown(id, key, 'base');
 
 /**
  * v3.1 cold read: whether `key`'s project is known live or used: a site (verified or reported), a live app row (shipped app), or users

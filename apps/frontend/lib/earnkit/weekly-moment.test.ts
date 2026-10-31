@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
 import { person } from './fixtures/find';
+import { checkFitsAsked } from './fixtures/wallet-step';
 import { computeScoreV2 } from './score-v2';
 import { isoWeekOf, lastFinishedMonday } from './weeks';
 import { profileData } from './bench-data';
@@ -69,7 +70,9 @@ async function builder(tag: string, name: string, ages: number[]) {
   const handle = `${tag}${RUN}`.slice(0, 15);
   // v3 Stage 1 Task 5: past the connect offer (answered once), so last week's row is the weekly moment's (v3-connect.test.ts).
   // v4.3: a no to Base's grant steps (within DECLINE_MS of every clock here), so the ranked step is the ship step.
-  const id = await person({ main: key, claimed: handle, ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z', declined: { [`qualify:${key}`]: '2026-10-01T00:00:00.000Z' }, check_fits_asked: '2026-10-01T00:00:00.000Z' }, projects: [{ key, name: 'App', confirmed: true }] });
+  const id = await person({ main: key, claimed: handle, ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z', declined: { [`qualify:${key}`]: '2026-10-01T00:00:00.000Z' } }, projects: [{ key, name: 'App', confirmed: true }] });
+  // v4.7.1 T1: check_fits (no fit) asked already (v4.7.2 T2: said no to for every program, within DECLINE_MS of every clock here).
+  await checkFitsAsked(id, '2026-10-01T00:00:00.000Z');
   await sql()`UPDATE builder_profiles SET x_name = ${name} WHERE builder_id = ${id}`;
   await setWeeks(id, ages);
   return { id, key, handle };
@@ -116,7 +119,7 @@ test('L5.4 through find and score: a ranked builder mid-week gets the weekly tar
   assert.equal((f.reply?.move_up as { kind: string }).kind, 'ship');
   // v4.7 T4: the weekly target stays on the quiet reply (the ship question just asked).
   await quiet(me.id);
-  assert.match(show(await mcpCall(ctx(me.id), 'score', {})), /\nShip code this week to pass #1\.$/);
+  assert.match(show(await mcpCall(ctx(me.id), 'score', {})), /\nShip code this week to pass #1\.\n\nAsk me anytime: where do I stand, what can I apply to, or draft my application\.$/);
   // No ranked day last week: the moment is skipped and the week stays unclaimed.
   assert.doesNotMatch(s, /Last week|Week \d+ done/);
   assert.equal((await sql()<{ w: string | null }[]>`SELECT moment_week AS w FROM installations WHERE id = ${me.id}`)[0].w, null);
@@ -130,7 +133,7 @@ test('L5.4 through find and score: a ranked builder mid-week gets the weekly tar
   await setWeeks(ana.id, [1, 2, 3, 4, 5, 6, 7, 8]);
   await quiet(me.id);
   const behind = show(await mcpCall(ctx(me.id), 'score', {}));
-  assert.match(behind, /\nShip code this week to move toward #1\.$/, behind);
+  assert.match(behind, /\nShip code this week to move toward #1\.\n\nAsk me anytime: where do I stand, what can I apply to, or draft my application\.$/, behind);
 
   // After shipping (this week has commits): done, and what next week adds.
   await setWeeks(me.id, [0, 1, 2, 3]);
@@ -149,11 +152,11 @@ test('L5.5 #1 holds; tied at the top holds too', db, async () => {
   assert.match(show(await mcpCall(ctx(top.id), 'find', {})), TARGET_WHY('Ship code this week to hold #1.'));
   await quiet(top.id);
   const t = show(await mcpCall(ctx(top.id), 'score', {}));
-  assert.match(t, /\nShip code this week to hold #1\.$/, t);
+  assert.match(t, /\nShip code this week to hold #1\.\n\nAsk me anytime: where do I stand, what can I apply to, or draft my application\.$/, t);
   await builder('wttie', 'Tie', [1, 2]);
   await quiet(top.id);
   const tied = show(await mcpCall(ctx(top.id), 'score', {}));
-  assert.match(tied, /\nShip code this week to hold #1\.$/, tied);
+  assert.match(tied, /\nShip code this week to hold #1\.\n\nAsk me anytime: where do I stand, what can I apply to, or draft my application\.$/, tied);
   assert.equal((await profileData(top.id, new Date()))!.target, 'Code this week holds #1.');
 });
 

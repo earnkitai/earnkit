@@ -215,7 +215,8 @@ test('through find: every move_up with an ask in Exact copy carries its why (and
   await mcpCall(b.ctx, 'tell', { submitted: { program_id: p.id } });
   const visible: Record<string, string> = { checkin: CHECKIN_WHY, share: SHARE_WHY, post: POST_WHY };
   const seen = new Set<string>();
-  for (let i = 0; i < 5; i++) {
+  // v4.7.2 T2: the needs ask (check_fits) is per open program now, so the loop runs past up to three of them.
+  for (let i = 0; i < 8; i++) {
     const x = await mcpCall(b.ctx, 'find', {});
     const m = moveUp(x);
     const s = show(x);
@@ -228,10 +229,14 @@ test('through find: every move_up with an ask in Exact copy carries its why (and
       assert.equal(m.why, visible[m.kind]);
       assert.equal(s.split('\n\n').at(-2), m.why, s);
     } else if (m.kind === 'apply' || m.kind === 'qualify') assert.ok(m.why && s.includes(m.why), s);
+    // v4.7.2 T2: the needs ask's why (the program's gap) is its own paragraph just before the question.
+    else if (m.kind === 'check_fits') assert.equal(s.split('\n\n').at(-2), m.why, s);
     if (m.why) assert.ok(m.agent_note.includes(WHY_NOTE), m.agent_note);
     assert.doesNotMatch(s, BAD, s);
     // A no moves past the qualify step (kept away), so the quieter asks come up.
     if (m.kind === 'qualify') await mcpCall(b.ctx, 'tell', { move_up: { kind: 'qualify', project_key: m.project_key, answer: 'no' } });
+    // v4.7.2 T2: a no to the needs ask declines that program only, so the next open program (or a quieter ask) comes up.
+    if (m.kind === 'check_fits') await mcpCall(b.ctx, 'tell', { move_up: { kind: 'check_fits', project_key: m.project_key, answer: 'no' } });
   }
   assert.ok([...seen].some((k) => ['ship', 'checkin', 'share', 'post'].includes(k)), [...seen].join(','));
 });

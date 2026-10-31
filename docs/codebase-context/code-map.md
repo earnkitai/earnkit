@@ -2658,3 +2658,8 @@ ship; never names Base's grant; its yes `checkNeedsNote`). `bench-reply.ts` `ope
 `shortTitle`; rankedBody leads every non-money ask and the quiet reply with the open grants (a fit's reply unchanged);
 `standingText` (standing.ts `standingParagraph`) replaces `standingLine` in replies (the line stays the change key);
 `askWhy` is null for `none`. Fixture `fixtures/wallet-step.ts checkFitsAsked`. Tests: `v471-money.test.ts`.
+v4.7.2 Task 2: `bench-find.ts` `programNeeds` (pure), `needsKnown`, `needsAskable`, `needsOf` (reads `getProgramRow`),
+`countNeedsShown`/`resetNeedsShown`/`needsStandAside`, `declineKeyOf` ('needs:<id>' for the ranked check_fits no);
+`base-qualify.ts` `onChainKnown` (`onBaseKnown` wraps it); `bench-reply.ts` `needsWhy`, `needsAsk`, `NeedsAsk`,
+`BenchView.checkFits` `{ id, title, needs }`, `quietHint` (ASKS_HINT ends the quiet reply); `checkFitsWhy`/`checkNeedsAsk`
+removed. Fixture `checkFitsAsked` now declines the needs ask for every program. Tests: `v472-next-step.test.ts`.

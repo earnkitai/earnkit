@@ -12,7 +12,7 @@ import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { TOKEN_OFFER, TOKEN_OFFER_LEAD, setupDoneLead, setupTokenOffer, walletSetupAsk } from './bench-reply';
 import { tokenOfferDue } from './wallet-offer';
-import { moneyStepDone } from './fixtures/wallet-step';
+import { checkFitsAsked, moneyStepDone } from './fixtures/wallet-step';
 import { walletLink, walletMessage, walletPost } from './wallet-proof';
 import { tradeUrl } from './builder-token';
 import type { ReaderDeps } from './source-readers';
@@ -286,6 +286,8 @@ test('(g) Review Focus 2: a step-3 skip shows no offer; a wallet proven later ge
   const first = await mcpCall(b.ctx, 'find', {});
   assert.equal(kindOf(first), 'apply', show(first));
   await mcpCall(b.ctx, 'tell', { submitted: { program_id: ROLLING } });
+  // v4.7.2 T2: with no fit left, the needs ask (per open program) comes ahead of the offer; every one answered here.
+  await checkFitsAsked(b.id);
   // Then the ranked offer, once, in a quiet reply.
   const replies: string[] = [];
   for (let i = 0; i < 6; i++) replies.push(show(await mcpCall(b.ctx, 'find', {})));
