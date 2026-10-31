@@ -1783,8 +1783,13 @@ apps/frontend/
                                pathClosedCommit; bench-reply.ts qualifyGapSteps.
                                Fix round 1: gapStillReply / pathGapCommit (mid-gap "Still on ..."), gapProof, GapStep.offer.
                                Fix round 2: CODES_OFFER (hook "Go?"), draftBlanks { blanks (max 2), later, drafted }, andComma,
-                               blanksAgain, readyToSubmit; bench-find.ts codesConfirmed ('found'|'missing'|'checking',
+                               blanksAgain; bench-find.ts codesConfirmed ('found'|'missing'|'checking',
                                RECHECK_WAIT), pathCheckingView, draftYes; base-qualify.ts qualifyOffer `allMet`.
+                               v4.8 Task 3: SENT_ASK, submitBy, submitReply, submitPointer, TRACK_ACK, trackLead, agoWords,
+                               passedLine (GapGrant.passedAt), sinceDay, SinceFacts, sinceLine, stillOpenLine, DRAFT_NOW_ASK.
+                               bench-find.ts pathSubmit (draft -> submit), SENT_NOTE, submitAsked, pathTrack (-> track),
+                               submitWaiting / pathSubmitCommit (the submit pointer), sinceFor + withSince (fresh session);
+                               tools.ts tell runs find after "sent" and leads with trackLead.
     bench-find.ts(+test)       GTM W2 (2026-10-23): link-only projects (a Lovable or Bolt live_url, no repo) take the no-GitHub path
                                (noCode: the picker link, github_no, the walk-through; linkName/YOUR_APP, reportedName: never the
                                host); backing before hot post and apply (boundedBacking first), connectBacking in the connect yes;

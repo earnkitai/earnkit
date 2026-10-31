@@ -7,7 +7,7 @@ import { zoneParts } from './deadline';
  * (a yes, a number or "sent"), and a part already said in this session is never said again (standing_seen.said).
  * bench-find.ts gathers the facts (fits, open grants and their gaps, investor programs, what to skip); everything here is
  * pure except setPath and markSaid, the two writes. Task 1 builds the `hook` stage; Task 2 the `gap` and `draft` stages
- * (below); Tasks 3 to 5 add the rest.
+ * (below); Task 3 `submit`, `track` and the fresh session's "Since {day}" (at the end); Tasks 4 and 5 add the rest.
  */
 
 /** The path's stages: hook (an open program named for them), gap, draft, submit (waiting for "sent"), track. */
@@ -104,7 +104,11 @@ export type MoveProgram = {
  * DECLINE_MS) and `doable` (its one gap is a step the agent can do in the repo, like Builder Codes; never a chain
  * deployment such as "on Arc mainnet", a live product or making a repo public).
  */
-export type GapGrant = MoveProgram & { gaps: string[]; gap: string; passed: boolean; doable: boolean };
+export type GapGrant = MoveProgram & {
+  gaps: string[]; gap: string; passed: boolean; doable: boolean;
+  /** v4.8 Task 3: when the builder passed on the step (iso), for the passed-step line; absent when unknown. */
+  passedAt?: string | null;
+};
 /** An investor program, with its odds sentence only when the program file states them (difficulty_override.basis). */
 export type InvestorProgram = MoveProgram & { odds: string | null };
 export type MoveCtx = {
@@ -274,6 +278,8 @@ export function pathReply(c: PathCtx): PathReply {
     const head = m.kind === 'closest' ? (c.first ? `${c.first}, your closest money is ${name}` : `Your closest money is ${name}`) : `${hi}${name}`;
     const pays = p.amount ? (m.kind === 'closest' ? `: ${p.amount}` : ` pays ${p.amount}`) : m.kind === 'closest' ? '' : ' is open';
     money = `${head}${pays}${closes ? `, closing ${closes}` : ''}. ${g.gap}`;
+    // Task 3: a passed step raised (its one gap, once: path_raised) says so, once (target A).
+    if (m.kind === 'closest' && m.raise) money += ` ${passedLine(g.passedAt ?? null, c.now)}`;
   }
   const first = [money, proof && !proofSaid ? proof : null].filter(Boolean).join(' ');
   const second = reply === 'start' ? draftOffer(c.project.live) : ask;
@@ -361,8 +367,6 @@ export const FOUNDER_BLANKS: readonly string[] = ["who's on the team", "any mone
 export const andComma = (xs: readonly string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')}, and ${xs.at(-1)}`);
 /** Fix round 2 (F5): a yes to the draft with its blanks still empty: "I need {blanks} to finish it. Reply with them." Pure. */
 export const blanksAgain = (blanks: readonly string[]) => `I need ${andComma(blanks)} to finish it. ${blanks.length === 1 ? 'Reply with it.' : 'Reply with them.'}`;
-/** Fix round 2 (F5): a yes to a draft with no blanks: the path moves to submit (Task 3 renders the stage). Pure. */
-export const readyToSubmit = (link: string | null) => (link ? `It's ready. Submit at ${link}.` : "It's ready to submit.");
 const COUNT = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
 /**
  * The draft's one easy reply: the blanks only the builder can fill, asked as one reply. Two (target A, exact): "Two
@@ -427,3 +431,130 @@ export function gapProof(p: { name: string; live: boolean }, streak: number, bas
   if (baseSteps && !baseSteps.includes('base')) return baseSteps.includes('use') ? "You're on Base." : "You're live on Base.";
   return proofLine(p, streak, false);
 }
+
+/*
+ * v4.8 Task 3: submit, track and the fresh session's "Since {day}" opener.
+ * - submit: the finished draft's submit link and deadline in the program's own zone, the contact fields typed on the
+ *   form (Task 2 ruling T2-1), then one easy reply: "sent".
+ * - track: "sent" is `tell program_status applied`; the reply acknowledges it, gives the program file's odds when it
+ *   states them (difficulty_override.basis), then hooks the next bestMove program.
+ * - a fresh session: what changed since the last one (stored facts only) leads, then the path's current step.
+ */
+
+/** The submit stage's one easy reply (target conversation A, exact). */
+export const SENT_ASK = `Reply "sent" once it's in, and I'll keep track of it for you.`;
+
+/** "11:59 PM". Pure. */
+const clock = (hour: number, minute: number) => `${hour % 12 === 0 ? 12 : hour % 12}:${String(minute).padStart(2, '0')} ${hour < 12 ? 'AM' : 'PM'}`;
+
+/**
+ * When a dated program's submissions close, in the program's own zone (deadline.ts zoneParts, closeDay's rule): "tonight
+ * 11:59 PM PT" is said "today 11:59 PM PT", "tomorrow 11:59 PM PT", else its day, "Nov 5 11:59 PM PT". A zone with no
+ * short name (deadline.ts zoneAbbr) says the day only, so the time is never read in the wrong zone. Pure.
+ */
+export function submitBy(endsAt: string, zone: string, now: Date, abbr: string | null): string {
+  const end = zoneParts(new Date(endsAt), zone);
+  const day = end.day === zoneParts(now, zone).day ? 'today'
+    : end.day === zoneParts(new Date(now.getTime() + 86_400_000), zone).day ? 'tomorrow' : end.day;
+  return abbr ? `${day} ${clock(end.hour, end.minute)} ${abbr}` : day;
+}
+
+/**
+ * The submit stage's reply (target conversation A): "Done, it's ready to paste. Submit at {link} before {by}." then
+ * the contact details the form asks for (typed there, never a draft blank: ruling T2-1), then SENT_ASK. A program with
+ * no link or no deadline leaves that part out. Pure.
+ */
+export function submitReply(c: { link: string | null; by: string | null; contacts: readonly string[] }): string {
+  const where = c.link ? ` Submit at ${c.link}${c.by ? ` before ${c.by}` : ''}.` : c.by ? ` Submit it before ${c.by}.` : '';
+  const form = c.contacts.length > 0 ? ` The form also asks for ${andComma(c.contacts)}.` : '';
+  return `Done, it's ready to paste.${where}${form}\n\n${SENT_ASK}`;
+}
+
+/**
+ * A later find while the path waits at submit (never the full draft again): "Your {program} application is ready to
+ * submit, closes {when}. Reply "sent" once it's in." (a rolling program: no close). Pure.
+ */
+export function submitPointer(p: Pick<MoveProgram, 'title' | 'when' | 'ends_at' | 'zone'>, now: Date): string {
+  const closes = p.ends_at && p.when !== 'rolling' ? `, closes ${closeWords(p.ends_at, p.zone, now)}` : '';
+  return `Your ${programName(p.title)} application is ready to submit${closes}. Reply "sent" once it's in.`;
+}
+
+/** The track stage's acknowledgement (target conversation A, exact). */
+export const TRACK_ACK = "Nice, I'm tracking it.";
+/**
+ * The track reply's lead: TRACK_ACK, then the program file's odds (difficulty_override.basis, as written, its first letter
+ * raised) and, when the next program is hooked in the same reply (`next`), "so let's line up money that's closer.". No
+ * odds stated: the acknowledgement alone (never an invented rate). Pure.
+ */
+export function trackLead(odds: string | null, next: boolean): string {
+  const o = odds?.trim().replace(/\.$/, '');
+  if (!o) return TRACK_ACK;
+  return `${TRACK_ACK} ${o.charAt(0).toUpperCase()}${o.slice(1)}${next ? ", so let's line up money that's closer." : '.'}`;
+}
+
+/** Whole UTC days from `at` to `now`. Pure. */
+const daysAgo = (at: string, now: Date) => Math.round((Date.parse(now.toISOString().slice(0, 10)) - Date.parse(new Date(at).toISOString().slice(0, 10))) / 86_400_000);
+const weekday = (at: string) => new Date(at).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+const monthDay = (at: string) => new Date(at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+/** "earlier today", "yesterday", "on Tuesday" (within a week), "last week", "on Oct 3" (UTC days). Pure. */
+export function agoWords(at: string, now: Date): string {
+  const days = daysAgo(at, now);
+  if (days <= 0) return 'earlier today';
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `on ${weekday(at)}`;
+  if (days < 14) return 'last week';
+  return `on ${monthDay(at)}`;
+}
+/**
+ * The passed-step line (target A, said once: bestMove raises a passed step once, standing_seen.path_raised): "You
+ * passed on it {when}, but it's now the only gap to that money." Pure.
+ */
+export const passedLine = (at: string | null, now: Date) => `You passed on it${at ? ` ${agoWords(at, now)}` : ''}, but it's now the only gap to that money.`;
+
+/** "Since earlier today", "Since yesterday", "Since Thursday" (within a week), else "Since Oct 24" (UTC days). Pure. */
+export function sinceDay(at: string, now: Date): string {
+  const days = daysAgo(at, now);
+  if (days <= 0) return 'Since earlier today';
+  if (days === 1) return 'Since yesterday';
+  return `Since ${days < 7 ? weekday(at) : monthDay(at)}`;
+}
+
+/**
+ * What changed since the last session, from stored facts only (bench-find.ts sinceFacts). Each part is present only
+ * when EarnKit holds both sides of the change: `streak` (then and now, streak.ts over the stored commit weeks), `score`
+ * (the last public daily score on or before the last session's day, builder_scores, and the page's score now),
+ * `opened` (programs the path names that opened since), `closing` (the path's program, closing within 48 hours, when
+ * the step's own words don't already say it) and `outcomes` (results announced since: "you won Base Batches").
+ */
+export type SinceFacts = {
+  last: string;
+  streak?: { before: number; now: number } | null;
+  score?: { before: number; now: number } | null;
+  opened?: string[];
+  closing?: { program: string; when: string } | null;
+  outcomes?: string[];
+};
+/**
+ * The fresh session's lead (target A, "Two days later"): "Since {day}: 1 more week shipped, so your streak is 7 weeks
+ * and your score is up to 79." then any opened program, outcome or close, each a short sentence. Null when nothing
+ * changed (the step alone answers). Never a guessed change: a side EarnKit doesn't hold leaves that part out. Pure.
+ */
+export function sinceLine(f: SinceFacts, now: Date): string | null {
+  const more = f.streak ? f.streak.now - f.streak.before : 0;
+  const ship = f.streak && more > 0 ? `${more} more ${more === 1 ? 'week' : 'weeks'} shipped, so your streak is ${weeks(f.streak.now)}` : null;
+  const score = f.score && f.score.now !== f.score.before ? `your score is ${f.score.now > f.score.before ? 'up' : 'down'} to ${f.score.now}` : null;
+  const first = ship && score ? `${ship} and ${score}` : ship ?? score;
+  const parts = [
+    first ? `${first}.` : null,
+    ...(f.outcomes ?? []).map((o) => `${o}.`),
+    ...(f.opened ?? []).map((p) => `${p} opened.`),
+    f.closing ? `${f.closing.program} closes ${f.closing.when}.` : null,
+  ].filter((x): x is string => x !== null);
+  return parts.length > 0 ? `${sinceDay(f.last, now)}: ${parts.join(' ')}` : null;
+}
+
+/** The fresh session's draft offer once the path's gap is closed (target A, "Two days later", exact ask). */
+export const DRAFT_NOW_ASK = 'Draft it now? It takes me a few minutes.';
+/** "Base Builder Grant is still open and you now meet its first requirement." (the closed gap, in a fresh session). Pure. */
+export const stillOpenLine = (title: string, codes: boolean) =>
+  `${programName(title)} is still open${codes ? ' and you now meet its first requirement' : ' and its steps are done'}.`;

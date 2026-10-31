@@ -45,6 +45,8 @@ import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, markOffered, moment
 import { isoWeekOf } from './weeks';
 import { weekCommunityUsd } from './community';
 import { streakOfBuilder, streaksFor } from './streak';
+import { publicRow } from './builder-score';
+import { LIVE_CALIBRATION_V2 } from './score-calibration';
 import { personal, readStanding, standingLeads, standingParagraph, streakOnly, toldAppliedSql, type Standing } from './standing';
 import { OUTCOME_SHARE_NOTE, claimNudge, outcomeShareLine, pickNudge, type NudgePick } from './nudges';
 import {
@@ -68,9 +70,10 @@ import { provenWallet } from './wallet-proof';
 import { stripeLink } from './stripe';
 import { agentReach, rememberNoFolder, type AgentReach } from './agent-reach';
 import { DECLINE_MS, draftedRecently } from './policy-constants';
-import { programZone } from './deadline';
+import { closeDay, programZone, zoneAbbr } from './deadline';
+import type { ProgramRow as ProgramFileRow } from './programs';
 import {
-  MENTOR_NOTE, OLDER_SAID, SESSION_MS, bestMove, blanksAgain, draftBlanks, draftReply, gapClosedReply, readyToSubmit, gapProof, gapReply, gapStillReply, proofLine, markSaid, pathReply, programName, readPath, saidSql, sessionOf,
+  MENTOR_NOTE, OLDER_SAID, SESSION_MS, bestMove, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProof, submitBy, submitReply, submitPointer, sinceLine, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, closeWords, type SinceFacts, gapReply, gapStillReply, proofLine, markSaid, pathReply, programName, readPath, saidSql, sessionOf,
   type GapStep,
   type GapGrant, type InvestorProgram, type Move, type MoveProgram, type Path,
 } from './conversation';
@@ -228,6 +231,8 @@ export type Seen = StandSeen & {
     checking?: boolean;
     /** v4.8 Task 2 (kind 'check_fits' on the path): the project's name, for the gap stage's steps. */
     name?: string;
+    /** v4.8 Task 3 (kind 'apply' on the path): the submit ask; its yes is "sent" (tools.ts tell, submitAsked). */
+    submit?: boolean;
   };
   /** v4.8 Task 2: when the builder said yes to the agent doing a gap step ({ [program_id]: iso }); find checks the code again. */
   gap_did?: Record<string, string>;
@@ -586,6 +591,8 @@ const pathAmount = (c: Pick<Card, 'summary' | 'investment'>): string | null => {
 const moveProgram = (c: Card): MoveProgram => ({
   id: c.id, title: c.title, amount: pathAmount(c), when: fundWhen(c), ends_at: isoOf(c.ends_at), zone: programZone(c), investment: c.investment === true,
 });
+/** v4.8 Task 3: the find tell runs right after "sent" (tools.ts) sees the path at track this recently. */
+const AFTER_SENT_MS = 5 * 60_000;
 /** v4.8 Task 1: an investor program is gathered for the path only this close to its deadline (bestMove's own window). */
 const INVESTOR_READ_MS = 7 * 86_400_000;
 /** v4.8 fix round 2 (F1): the older moments that go first while the path only has the closest grant (once a session). */
@@ -710,7 +717,7 @@ async function pathPlan(o: ViewIn, v: PathFacts, told: Set<string>): Promise<Pat
       extra.set(c.id, { qualify: offer });
       // Fix round 1 (R1): a one-step only when that step is one the agent can do in the repo (Builder Codes).
       const doable = offer.steps.length === 1 && offer.steps[0] === 'codes';
-      return { ...moveProgram(c), gaps: offer.steps, gap: qualifyGap(v.project.name, offer), passed, doable };
+      return { ...moveProgram(c), gaps: offer.steps, gap: qualifyGap(v.project.name, offer), passed, passedAt: passed ? seen.declined![noKey] : null, doable };
     }
     // Final review 9's rule: the facts from the Card, else the program row. Fix round 3: a failed row read is unknown, never
     // "no gap" (the grant is no move), so only a known read lets a grant be an apply-now move.
@@ -722,7 +729,8 @@ async function pathPlan(o: ViewIn, v: PathFacts, told: Set<string>): Promise<Pat
     if (closing === c.id && needs.length === 0) closed = { program: moveProgram(c), org: programName(c.title), codes: false };
     // programNeeds' gaps (a chain's mainnet, a public repo, a live link) are never steps the agent does in the repo, so
     // never a one-step (fix round 1, R1). None: it can apply now (bestMove names it only when closing within 48 hours).
-    return { ...moveProgram(c), gaps: needs, gap: needs.length > 0 ? needsWhy(v.project.name, c.title, needs) : '', passed: recent(seen.declined?.[benchStepKey('needs', c.id)]), doable: false };
+    const noAt = seen.declined?.[benchStepKey('needs', c.id)];
+    return { ...moveProgram(c), gaps: needs, gap: needs.length > 0 ? needsWhy(v.project.name, c.title, needs) : '', passed: recent(noAt), passedAt: recent(noAt) ? noAt : null, doable: false };
   }))).filter((g): g is GapGrant => g !== null);
   const move = bestMove({ now, fits, grants, investors, skip, raised: new Set(Object.keys(seen.path_raised ?? {})), path });
   return { move, facts: v, fitRows, extra, path, closed, checking };
@@ -734,12 +742,14 @@ async function pathPlan(o: ViewIn, v: PathFacts, told: Set<string>): Promise<Pat
  * so tell's yes and no work today. Fix round 2 (F5): the path, the session's parts said, the stored ask and a raised
  * passed step are one UPDATE. Never throws on its own writes.
  */
-async function pathCommit(o: ViewIn, plan: PathPlan & { move: Exclude<Move, { kind: 'quiet' }> }): Promise<{ view: BenchView; fields: Reply; stand: Standing }> {
+async function pathCommit(o: ViewIn, plan: PathPlan & { move: Exclude<Move, { kind: 'quiet' }> }, since: string | null = null): Promise<{ view: BenchView; fields: Reply; stand: Standing }> {
   const { id, now, read } = o;
   const { move, facts: v, fitRows, extra, path } = plan;
   const key = v.project.key;
-  // F9: greeted by the X name's first word, else no name (never the handle).
-  const first = read.xName ? firstName(read.xName, null) : null;
+  // F9: greeted by the X name's first word, else no name (never the handle). Task 3: the first hook after "sent" (the
+  // path at track) follows the tracking line in the same reply, so it greets no one.
+  const afterSent = path?.stage === 'track' && now.getTime() - Date.parse(path.at) < AFTER_SENT_MS;
+  const first = read.xName && !afterSent ? firstName(read.xName, null) : null;
   const session = sessionOf(read.seen, now);
   // Task 2 (F3, as before v4.8): what the caller's agent can do (agent-reach.ts); a hosted one does no step itself.
   const hosted = (o.reach ?? (await agentReach(o.own, id))).hosted;
@@ -775,7 +785,7 @@ async function pathCommit(o: ViewIn, plan: PathPlan & { move: Exclude<Move, { ki
   const view: BenchView = {
     state: v.state, variant: v.variant, project: v.project, rank: read.ranks.bench, streak: v.streak, target: null, handle: v.handle, link: null,
     fund: [], due: [], ask: { kind, project_key: key, line: '', program_id: out.program_id }, held: null,
-    path: out.show_to_builder, pathLead: out.reply === 'start' ? { program_id: out.program_id, ...(fit?.repo && { repo: fit.repo }) } : null,
+    path: withSince(since, out.show_to_builder), pathLead: out.reply === 'start' ? { program_id: out.program_id, ...(fit?.repo && { repo: fit.repo }) } : null,
   };
   const rankLines = [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x));
   const fields: Reply = {
@@ -786,13 +796,94 @@ async function pathCommit(o: ViewIn, plan: PathPlan & { move: Exclude<Move, { ki
   return { view, fields, stand: v.stand };
 }
 
+/** v4.8 Task 3: a fresh session's "Since {day}: ..." line before the step's own words (one paragraph). Pure. */
+const withSince = (since: string | null, show: string) => (since ? `${since}\n\n${show}` : show);
+
+/**
+ * v4.8 Task 3: what changed since the last session, for a fresh one only (sessionOf; the last session is
+ * standing_seen.said.at), from stored facts: the streak then (streak.ts over the stored weeks, as of that day; only across
+ * an ISO week, as a streak moves by weeks) and now; the last public daily score on or before that day (builder_scores,
+ * this calibration, from that day or the one before, so a stale row never stands for then) and the page's score now;
+ * the path's program opened since (programs.opened_at); it closing within 48 hours, when the step's own words don't say so (`saysClose`); results announced since (entry_outcomes, never a
+ * self-report). A side not stored leaves that part out. Null when nothing changed or it isn't a new session. Never throws.
+ */
+async function sinceFor(o: ViewIn, v: Pick<PathFacts, 'streak' | 'stand'>, focus: { program: MoveProgram; saysClose: boolean } | null): Promise<string | null> {
+  const { id, now, read } = o;
+  if (!sessionOf(read.seen, now).fresh) return null;
+  const at = (read.seen.said as { at?: unknown } | undefined)?.at;
+  if (typeof at !== 'string' || Number.isNaN(Date.parse(at))) return null;
+  const last = new Date(at);
+  const day = last.toISOString().slice(0, 10);
+  const quiet = <T,>(what: string, fallback: T) => (err: unknown) => {
+    logged(what)(err);
+    return fallback;
+  };
+  const [then, before, opened, results] = await Promise.all([
+    isoWeekOf(last) !== isoWeekOf(now) ? streaksFor([id], last).then((m) => m.get(id)?.streak ?? null).catch(quiet('since streak', null)) : Promise.resolve(null),
+    v.stand.score !== null
+      ? sql()<{ score: number }[]>`SELECT s.score FROM builder_scores s WHERE s.builder_id = ${id} AND s.day <= ${day}::date AND s.day >= ${day}::date - 1
+          AND s.calibration = ${LIVE_CALIBRATION_V2} AND s.ranked AND ${publicRow()} ORDER BY s.day DESC LIMIT 1`.catch(quiet('since score', []))
+      : Promise.resolve([]),
+    focus ? sql()<{ opened_at: Date | null }[]>`SELECT opened_at FROM programs WHERE id = ${focus.program.id}`.catch(quiet('since opened', [])) : Promise.resolve([]),
+    sql()<{ title: string; result: string }[]>`SELECT g.title, e.result FROM entry_outcomes e JOIN projects p ON p.id = e.project_id JOIN programs g ON g.id = e.program_id
+      WHERE p.installation_id = ${id} AND e.basis <> 'self_reported' AND e.captured_at > ${last} ORDER BY e.captured_at`.catch(quiet('since outcomes', [])),
+  ]);
+  const f = focus?.program;
+  const facts: SinceFacts = {
+    last: at,
+    streak: then !== null ? { before: then, now: v.streak } : null,
+    score: before[0] && v.stand.score !== null ? { before: Number(before[0].score), now: v.stand.score } : null,
+    opened: f && opened[0]?.opened_at && new Date(opened[0].opened_at).getTime() > last.getTime() ? [programName(f.title)] : [],
+    closing: f && !focus.saysClose && f.ends_at && f.when !== 'rolling' && Date.parse(f.ends_at) > now.getTime() && Date.parse(f.ends_at) - now.getTime() <= NOW_WINDOW_MS
+      ? { program: programName(f.title), when: closeWords(f.ends_at, f.zone, now) } : null,
+    outcomes: results.map((r) => (r.result === 'won' ? `You won ${programName(r.title)}` : r.result === 'placed' ? `You placed in ${programName(r.title)}` : `${programName(r.title)} announced its results`)),
+  };
+  return sinceLine(facts, now);
+}
+
+/**
+ * v4.8 Task 3: the program the path waits at submit for ("sent" not said yet): still open, never told about (any
+ * status), entered, hidden or parked (a no within DECLINE_MS). Null otherwise (the path moves on). Pure.
+ */
+function submitWaiting(o: ViewIn, told: Set<string>): Card | null {
+  const path = readPath(o.read.seen);
+  if (path?.stage !== 'submit' || !path.program_id) return null;
+  // Drafted is no reason here (the draft is the point), so apply_yes is left out of the skip.
+  if (pathSkip(told, { ...o.read.seen, apply_yes: {} }, o.now, o.skip).has(path.program_id)) return null;
+  const c = o.cards.find((x) => x.id === path.program_id);
+  if (!c || (c.ends_at && new Date(c.ends_at).getTime() <= o.now.getTime())) return null;
+  return c;
+}
+
+/**
+ * v4.8 Task 3: a find while the path waits at submit: one line that points back, never the full draft again
+ * (conversation.ts submitPointer: "Your {program} application is ready to submit, closes {when}. Reply "sent" once it's
+ * in."). The submit ask is stored again (a no parks it, a yes is "sent"). One UPDATE. Never throws on its own writes.
+ */
+async function pathSubmitCommit(o: ViewIn, v: PathFacts, card: Card, since: string | null): Promise<{ view: BenchView; fields: Reply; stand: Standing }> {
+  const { id, now, read } = o;
+  const key = v.project.key;
+  const stored = { kind: 'apply', key, program_id: card.id, path: true, submit: true };
+  const nextPath: Path = { stage: 'submit', program_id: card.id, at: now.toISOString() };
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
+      || jsonb_build_object('path', ${sql().json(nextPath as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb, 'said', ${saidSql([`submit:${card.id}`], now)})
+    WHERE builder_id = ${id}`.catch(logged('path submit'));
+  const view: BenchView = {
+    state: v.state, variant: v.variant, project: v.project, rank: read.ranks.bench, streak: v.streak, target: null, handle: v.handle, link: null,
+    fund: [], due: [], ask: { kind: 'apply', project_key: key, line: '', program_id: card.id }, held: null,
+    path: withSince(since, submitPointer(moveProgram(card), now)), pathLead: { program_id: card.id }, pathNote: SENT_NOTE.replace(/ Don't show this note\.$/, ''),
+  };
+  const rankLines = [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x));
+  return { view, fields: { move_up: { kind: 'apply', project_key: key, agent_note: SENT_NOTE }, ...(rankLines.length > 0 && { rank_lines: rankLines }), ...standingFields(v.stand) }, stand: v.stand };
+}
+
 /**
  * Fix round 1 (T2-4): a find while the path is at `gap` on the program bestMove kept (the steps already given):
  * conversation.ts gapStillReply, "Still on {program}: {first remaining step}. {proof} Want me to do it now?" (the help
  * ask for a hosted agent or a step it can't do). The gap ask is stored again (gap: true, path), so a yes is the step and
  * a no parks the program; the session is kept alive. Null with no remaining step known (the hook answers). One UPDATE.
  */
-async function pathGapCommit(o: ViewIn, plan: PathPlan & { move: Exclude<Move, { kind: 'quiet' }> }): Promise<{ view: BenchView; fields: Reply; stand: Standing } | null> {
+async function pathGapCommit(o: ViewIn, plan: PathPlan & { move: Exclude<Move, { kind: 'quiet' }> }, since: string | null = null): Promise<{ view: BenchView; fields: Reply; stand: Standing } | null> {
   const { id, now, read } = o;
   const { move, facts: v, extra } = plan;
   const key = v.project.key;
@@ -817,7 +908,7 @@ async function pathGapCommit(o: ViewIn, plan: PathPlan & { move: Exclude<Move, {
   const note = kind === 'qualify' ? QUALIFY_NOTE : CHECK_FITS_ASK_NOTE;
   const view: BenchView = {
     state: v.state, variant: v.variant, project: v.project, rank: read.ranks.bench, streak: v.streak, target: null, handle: v.handle, link: null,
-    fund: [], due: [], ask: { kind, project_key: key, line: '', program_id: pid }, held: null, path: out.show_to_builder, pathLead: null,
+    fund: [], due: [], ask: { kind, project_key: key, line: '', program_id: pid }, held: null, path: withSince(since, out.show_to_builder), pathLead: null,
   };
   const rankLines = [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x));
   return { view, fields: { move_up: { kind, project_key: key, agent_note: note }, ...(rankLines.length > 0 && { rank_lines: rankLines }), ...standingFields(v.stand) }, stand: v.stand };
@@ -853,7 +944,7 @@ async function pathCheckingView(o: ViewIn, plan: PathPlan): Promise<{ view: Benc
  * question is stored as the apply ask (path), so a yes is the draft and a no parks the program. Said once a session;
  * again, the hook's one-line pointer. One UPDATE. Never throws on its own writes.
  */
-async function pathClosedCommit(o: ViewIn, plan: PathPlan & { closed: NonNullable<PathPlan['closed']> }): Promise<{ view: BenchView; fields: Reply; stand: Standing }> {
+async function pathClosedCommit(o: ViewIn, plan: PathPlan & { closed: NonNullable<PathPlan['closed']> }, since: string | null = null): Promise<{ view: BenchView; fields: Reply; stand: Standing }> {
   const { id, now, read } = o;
   const { closed, facts: v } = plan;
   const key = v.project.key;
@@ -862,7 +953,10 @@ async function pathClosedCommit(o: ViewIn, plan: PathPlan & { closed: NonNullabl
   const again = sessionOf(read.seen, now).said.has(saidKey);
   // Fix round 1 (T2-6): one proof line (Base closed: every step met, so live on Base).
   const proof = gapProof({ name: v.project.name, live: v.project.live || v.siteLive }, v.streak, closed.program.id === BASE_GRANTS_ID ? [] : null);
-  const show = again ? `Your ${programName(closed.program.title)} application is still the next move. Want me to start?` : gapClosedReply({ org: closed.org, title: closed.program.title, codes: closed.codes, proof });
+  // Task 3: a fresh session with something changed (target A, "Two days later"): what changed, the program still open
+  // and its gap closed, then the draft offer.
+  const show = since ? `${since} ${stillOpenLine(closed.program.title, closed.codes)}\n\n${DRAFT_NOW_ASK}`
+    : again ? `Your ${programName(closed.program.title)} application is still the next move. Want me to start?` : gapClosedReply({ org: closed.org, title: closed.program.title, codes: closed.codes, proof });
   const stored = { kind: 'apply', key, program_id: pid, path: true };
   const nextPath: Path = { stage: 'draft', program_id: pid, at: now.toISOString(), ...(plan.path?.picked && plan.path.program_id === pid && { picked: true as const }) };
   await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) - 'gap_did')
@@ -985,22 +1079,28 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   if (o.personal && rankedFree && !more && project && !taken && !held && handle !== null) {
     nudgeFirst = await pickNudge(id, now, { project: project.name, best: null });
     if (!(nudgeFirst?.ask && nudgeFirst.line) && told) {
-      const plan = await pathPlan(o, { state, variant, project, streak, handle, stand, siteLive, chains: row?.chains ?? [] }, told);
+      const facts: PathFacts = { state, variant, project, streak, handle, stand, siteLive, chains: row?.chains ?? [] };
+      // Task 3: the path waiting at submit ("sent" not said yet): one line pointing back, never the draft again.
+      const waiting = submitWaiting(o, told);
+      if (waiting) return pathSubmitCommit(o, facts, waiting, await sinceFor(o, facts, { program: moveProgram(waiting), saysClose: true }));
+      const plan = await pathPlan(o, facts, told);
       const move = plan.move;
+      // Task 3: a fresh session opens with what changed since the last one (the step's own words say a hook's close).
+      const sinceOf = (program: MoveProgram, saysClose: boolean) => sinceFor(o, facts, { program, saysClose });
       // Fix round 3: an older moment waits for the closest grant only at the hook, never for a builder already on that
       // program (mid-path), and once a session.
       const midPath = move.kind !== 'quiet' && plan.path !== null && (plan.path.stage !== 'hook' || plan.path.program_id === move.program.id);
       // Task 2: the path's gap closed: the draft offer leads (mid-path).
-      if (plan.closed) return pathClosedCommit(o, { ...plan, closed: plan.closed });
+      if (plan.closed) return pathClosedCommit(o, { ...plan, closed: plan.closed }, await sinceOf(plan.closed.program, false));
       // Fix round 2 (F3): the re-check runs past its wait: one easy reply, "ok" (the gap ask stays, so a no parks).
       if (plan.checking) return pathCheckingView(o, plan);
       // Fix round 1 (T2-4): mid-gap on the program bestMove kept: the first remaining step, never "Want the steps?".
       if (move.kind !== 'quiet' && plan.path?.stage === 'gap' && plan.path.program_id === move.program.id) {
-        const still = await pathGapCommit(o, { ...plan, move });
+        const still = await pathGapCommit(o, { ...plan, move }, await sinceOf(move.program, false));
         if (still) return still;
       }
       if (move.kind === 'quiet') pathQuiet = true;
-      else if (move.kind !== 'closest' || midPath || sessionOf(read.seen, now).said.has(OLDER_SAID)) return pathCommit(o, { ...plan, move });
+      else if (move.kind !== 'closest' || midPath || sessionOf(read.seen, now).said.has(OLDER_SAID)) return pathCommit(o, { ...plan, move }, await sinceOf(move.program, true));
       else deferred = { ...plan, move };
     }
   }
@@ -1114,7 +1214,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   // Fix round 2 (F1): the closest grant waited for an older moment; with none to show, it is the reply after all. One
   // shown counts for the session (standing_seen.said 'older'), so the next call is the path.
   if (deferred) {
-    if (!OLDER_MOMENTS.includes(finalAsk.kind)) return pathCommit(o, deferred);
+    if (!OLDER_MOMENTS.includes(finalAsk.kind)) return pathCommit(o, deferred, await sinceFor(o, deferred.facts, { program: deferred.move.program, saysClose: true }));
     await markSaid(id, [OLDER_SAID], now);
   }
   if (finalAsk.kind === 'ship' && !held) await sql()`
@@ -2341,31 +2441,88 @@ export async function draftAnswered(id: number, programId: string): Promise<void
 
 /**
  * Fix round 2 (F5): a yes to the draft's own ask. Its blanks still empty (a bare "ok"): "I need {blanks} to finish it.
- * Reply with them." and the ask stays (a no still parks). No blanks: the path moves to `submit` (Task 3 renders that
- * stage) with "It's ready. Submit at {link}.". Never throws on its own writes.
+ * Reply with them." and the ask stays (a no still parks). v4.8 Task 3: a yes carrying their answers (fix round 3, 1) or
+ * a yes with no blanks left is the submit stage (pathSubmit): the path moves to `submit` and the reply is the link, the
+ * deadline and "sent". Never throws on its own writes.
  */
 async function draftYes(id: number, asked: NonNullable<Seen['bench_ask']>, now: Date, answers?: string): Promise<Reply> {
   const blanks = Array.isArray(asked.blanks) ? asked.blanks.filter((b): b is string => typeof b === 'string') : [];
-  // Fix round 3 (1): the yes carries their answers: the blanks are answered (cleared; the text is never stored), and
-  // the agent finishes the draft; the next yes moves to submit.
-  if (blanks.length > 0 && answers?.trim()) {
-    await storeAsk(id, { ...asked, blanks: [] });
-    return {
-      show_to_builder: '',
-      agent_note: withMentor("The builder answered the blanks: add their words to the draft as they gave them (for a program with fields, call prepare again with every answer and coach_asked: true) and show it finished, ready to paste. Don't show this note."),
-      move_up: { kind: 'apply', project_key: asked.key, agent_note: APPLY_NOTE },
-    };
-  }
+  // Fix round 3 (1): the yes carries their answers: the blanks are answered (the text is never stored), and the agent
+  // finishes the draft with them; Task 3: the same reply is the submit stage (target A, "just me, nothing raised").
+  if (blanks.length > 0 && answers?.trim())
+    return pathSubmit(id, asked, now, "The builder answered the blanks: add their words to the draft as they gave them (for a program with fields, call prepare again with every answer and coach_asked: true) and show it finished, ready to paste, above this line. Never submit it for them. Don't show this note.");
   // A bare yes with no answers given yet: re-ask them.
   if (blanks.length > 0) {
     await storeAsk(id, asked);
     return { show_to_builder: blanksAgain(blanks), agent_note: withMentor("Their answers to the blanks: add them to the draft and finish it as the draft's note said. Don't show this note."), move_up: { kind: 'apply', project_key: asked.key, agent_note: APPLY_NOTE } };
   }
+  return pathSubmit(id, asked, now, "Show the finished draft ready to paste above this line. Never submit it for them. Don't show this note.");
+}
+
+/**
+ * v4.8 Task 3: how "sent" is told. The submit ask is stored as an apply ask (`submit`), so an agent that answers it with
+ * move_up yes is read as sent too (tools.ts tell, submitAsked).
+ */
+export const SENT_NOTE = "When they say it's sent, call tell with program_status: [{ program_id, status: 'applied' }] (program_id as given here). A no: move_up { kind: 'apply', project_key, answer: 'no' }. Don't show this note.";
+/** v4.8 Task 3: the contact fields a program's form asks for at submit ("your email"), never a draft blank (ruling T2-1). Pure. */
+const contactFields = (reqs: readonly SubmissionRequirement[] | null | undefined) =>
+  (reqs ?? []).filter((r) => r.required && r.kind === 'contact').map((r) => r.todo ?? r.label.toLowerCase());
+/** v4.8 Task 3: a dated program's submit-by words in its own zone (conversation.ts submitBy), null for a rolling one. Pure. */
+const submitByOf = (p: Pick<ProgramFileRow, 'summary' | 'tz' | 'ends_at'>, now: Date) => {
+  if (!closeDay(p) || !p.ends_at) return null;
+  const zone = programZone(p);
+  return submitBy(new Date(p.ends_at).toISOString(), zone, now, zoneAbbr(zone));
+};
+/**
+ * v4.8 Task 3: the submit stage (conversation.ts submitReply: "Done, it's ready to paste. Submit at {link} before
+ * {deadline}." then the form's contact fields and SENT_ASK). The path moves to `submit`, and its question is stored as
+ * the submit ask (kind apply, `submit`), so a no parks the program and a yes is "sent". One UPDATE. Never throws.
+ */
+async function pathSubmit(id: number, asked: NonNullable<Seen['bench_ask']>, now: Date, note: string): Promise<Reply> {
   const program = await getProgramRow(asked.program_id!).catch(() => null);
   const path: Path = { stage: 'submit', program_id: asked.program_id!, at: now.toISOString() };
-  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('path', ${sql().json(path as never)}::jsonb)
+  const stored = { kind: 'apply', key: asked.key, program_id: asked.program_id, path: true, submit: true };
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
+      || jsonb_build_object('path', ${sql().json(path as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb)
     WHERE builder_id = ${id}`.catch(logged('draft submit'));
-  return { show_to_builder: readyToSubmit(program?.submission_url ?? null), agent_note: withMentor("Show the finished draft ready to paste above this line. Never submit it for them. Don't show this note.") };
+  const show = submitReply({ link: program?.submission_url ?? null, by: program ? submitByOf(program, now) : null, contacts: contactFields(program?.submission_requirements) });
+  return {
+    show_to_builder: show,
+    agent_note: withMentor(`${note.replace(/\s*Don't show this note\.$/, '')} ${SENT_NOTE}`),
+    move_up: { kind: 'apply', project_key: asked.key, agent_note: SENT_NOTE },
+    lead: { program_id: asked.program_id, step: 'submit' },
+  };
+}
+
+/**
+ * v4.8 Task 3: the program a yes to the stored submit ask is "sent" for (tools.ts tell records it applied), or null
+ * when the stored ask is not the path's submit ask. Never throws.
+ */
+export async function submitAsked(id: number, m: { kind?: string; project_key?: string | null }): Promise<string | null> {
+  const asked = await benchAsked(id, { ...m, kind: m.kind ?? 'apply' });
+  return asked?.kind === 'apply' && asked.path === true && asked.submit === true && asked.program_id ? asked.program_id : null;
+}
+
+/**
+ * v4.8 Task 3: "sent" for the path's program (tell program_status applied, already stored): the path moves to `track`
+ * and the reply's lead is conversation.ts trackLead (TRACK_ACK and the program file's odds, difficulty_override.basis).
+ * Null when none of `programIds` is the path's program at draft or submit (another tell). The next find then hooks the
+ * next bestMove program (the applied one is told, so never again). Never throws.
+ */
+export async function pathTrack(id: number, programIds: readonly string[], now: Date): Promise<{ program_id: string; odds: string | null } | null> {
+  const [p] = await sql()<{ seen: Seen | null }[]>`SELECT standing_seen AS seen FROM builder_profiles WHERE builder_id = ${id}`.catch((err: unknown) => {
+    logged('path track')(err);
+    return [];
+  });
+  const path = readPath(p?.seen);
+  // Only with the draft in their hands (draft or submit): any other tell stays a plain save (no find run inside it).
+  if (!path?.program_id || !programIds.includes(path.program_id) || (path.stage !== 'draft' && path.stage !== 'submit')) return null;
+  const next: Path = { stage: 'track', program_id: path.program_id, at: now.toISOString() };
+  await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) - 'bench_ask') || jsonb_build_object('path', ${sql().json(next as never)}::jsonb)
+    WHERE builder_id = ${id}`.catch(logged('path track'));
+  const row = await getProgramRow(path.program_id).catch(() => null);
+  const odds = row?.difficulty_override && 'basis' in row.difficulty_override && typeof row.difficulty_override.basis === 'string' ? row.difficulty_override.basis : null;
+  return { program_id: path.program_id, odds };
 }
 
 /** Stores `ask` as the Bench's question (its yes or no is answered as asked). */

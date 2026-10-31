@@ -134,7 +134,7 @@ import { hideUpdate, postUpdate, setShipTitles } from './updates';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchIdentity, benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
 import { REPO_KEY, dropMainProject, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
-import { APPLY_OUTCOME_NOTE, BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, draftAnswered, recordApplyYes, keepBenchMatch, legacyCoinAnswer, tokenAsk, tokenExisting, keptBenchMatch, mainProjectName, mainProjectNameFor, rankAnswer, rememberProjectName, signedOutNow } from './bench-find';
+import { APPLY_OUTCOME_NOTE, BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, draftAnswered, pathTrack, submitAsked, recordApplyYes, keepBenchMatch, legacyCoinAnswer, tokenAsk, tokenExisting, keptBenchMatch, mainProjectName, mainProjectNameFor, rankAnswer, rememberProjectName, signedOutNow } from './bench-find';
 import { CHAIN_EXPLAINED, CHAIN_NAMES, type Chain } from './chains';
 import { provenWallet } from './wallet-proof';
 import { walletChangeReply } from './wallet-offer';
@@ -143,7 +143,7 @@ import { scoreReply } from './score-tool';
 import { aboutFacts, replyFacts, type ReplyFacts } from './reply-facts';
 import { agentReach } from './agent-reach';
 import { ANSWER_FIRST_NOTE, NOTED_LINE } from './stand-text';
-import { MENTOR_NOTE, PATH_ANSWER_FIRST } from './conversation';
+import { MENTOR_NOTE, PATH_ANSWER_FIRST, trackLead } from './conversation';
 import { startRefresh } from './stand-view';
 import { attributionFor, chainOf } from './attribution';
 import type { ReaderDeps } from './source-readers';
@@ -2767,6 +2767,9 @@ export const tools = {
     void x_handle;
     const statements = defined(rest);
     const replies: Reply[] = [];
+    // v4.8 Task 3: a yes to the path's submit ask ("sent") is the application told as applied (program_status applied).
+    const sentFor = move_up?.answer === 'yes' && !ctx.sharedClient ? await submitAsked(ctx.installationId, move_up).catch(() => null) : null;
+    if (sentFor) statements.program_status = [...(Array.isArray(statements.program_status) ? statements.program_status : []), { program_id: sentFor, status: 'applied' }];
     // v2.12 spec 8: "hide" and "show". v2.12.1 T8: the card and the move-up answers.
     if (ctx.sharedClient && (profile || card || move_up || coin || token || update || updates || main_project || wallet || builder_code || stripe))
       replies.push({ show_to_builder: '', agent_note: SHARED_PROFILE_NOTE });
@@ -2776,7 +2779,7 @@ export const tools = {
       else if (profile) replies.push({ show_to_builder: await setHidden(ctx.installationId, profile === 'hide') });
       if (card === 'yes') replies.push(await cardYes(ctx.installationId, ctx.ownInstallationId ?? ctx.installationId));
       if (card === 'skip') replies.push({ show_to_builder: SKIPPED_LINE });
-      if (move_up) replies.push(await moveUpAnswer(ctx, move_up));
+      if (move_up && !sentFor) replies.push(await moveUpAnswer(ctx, move_up));
       // Launch ready L2: the repo to rank instead (only one this person proved with the App).
       if (main_project) replies.push(await rankAnswer(ctx, saidKey(main_project)));
       // v3.1 wallet proof: a fresh signing link; the wallet proven with it becomes the reward recipient.
@@ -2834,6 +2837,21 @@ export const tools = {
         // The reply now shows something: the saved note's "nothing to show" no longer holds.
         for (const x of replies) if (typeof x.agent_note === 'string') x.agent_note = x.agent_note.replace(TELL_SAVED_NOTE, 'Saved.');
         replies.push(r);
+      }
+    }
+    // v4.8 Task 3: "sent" for the path's program (told applied, or submitted): the path moves to track and the same reply
+    // acknowledges it (with the program file's odds), then hooks the next program (find, run here: one reply).
+    if (!ctx.sharedClient) {
+      const applied = [
+        ...(told?.success ? (told.data.program_status ?? []).filter((x) => x.status === 'applied').map((x) => x.program_id) : []),
+        ...(submitted ? [submitted.program_id] : []),
+      ];
+      const track = applied.length > 0 ? await pathTrack(ctx.installationId, applied, new Date()) : null;
+      if (track) {
+        const next = withFacts(await findReply({}, ctx), await replyFacts(ctx));
+        const shown = typeof next.show_to_builder === 'string' ? next.show_to_builder : '';
+        const lead = trackLead(track.odds, shown !== '' && String(next.note ?? '').endsWith(MENTOR_NOTE));
+        return { ...next, saved: replies.flatMap((r) => (Array.isArray(r.saved) ? r.saved : [])), show_to_builder: shown ? `${lead}\n\n${shown}` : lead };
       }
     }
     // v4.2 Task 3 (F10): a question asked mid-setup arrives with the next ask (a move_up answer or token 'ask'); give the

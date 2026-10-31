@@ -8708,3 +8708,34 @@ A yes on the path moves the stage on (bench-find.ts benchMoveUp, asks stored wit
   reply stores its own gap ask (`checking`): a no parks Base, an ok re-checks. Any yes to a Base gap step (hosted too)
   stamps gap_did.
 
+
+## v4.8 Task 3: submit, track and the next program; "Since {day}" (2026-10-31)
+
+- **draft to submit.** A yes to the draft's ask carrying the builder's answers (move_up.blanks), or a yes with no blanks
+  left, is bench-find.ts pathSubmit: the path moves to `submit` and the reply is conversation.ts submitReply ("Done,
+  it's ready to paste. Submit at {submission_url} before {by}." where `by` is submitBy in the program's own zone, e.g.
+  "tomorrow 11:59 PM PT"; then "The form also asks for {contact fields}." (ruling T2-1); then SENT_ASK, `Reply "sent"
+  once it's in, and I'll keep track of it for you.`). The submit ask is stored (kind apply, `submit: true`); SENT_NOTE
+  tells the agent to record "sent" with tell program_status applied. Task 2's temporary readyToSubmit is gone.
+- **submit pointer.** A find while the path waits at submit for a program still open and never told about or parked
+  (submitWaiting) is pathSubmitCommit's one line: "Your {program} application is ready to submit, closes {when}. Reply
+  "sent" once it's in." (conversation.ts submitPointer), never the draft again. It leads the path (before bestMove: the
+  drafted program is skipped there).
+- **sent to track.** tools.ts tell: a program told applied (program_status, `submitted`, or a yes to the stored submit
+  ask, read by submitAsked and turned into program_status applied) that is the path's program at draft or submit is
+  pathTrack: path -> `track`, the stored ask cleared. The same tell then runs find and returns one reply: conversation.ts
+  trackLead ("Nice, I'm tracking it." plus the program file's difficulty_override.basis as written, and "so let's line
+  up money that's closer." when find's reply is a path reply), then find's reply (the next bestMove program, the applied
+  one told so never hooked again; pathCommit greets no name right after "sent", AFTER_SENT_MS). Any other tell is a
+  plain save as before (no find run inside it, so no one-time offer is claimed there).
+- **passed-step line.** pathReply adds conversation.ts passedLine ("You passed on it {when}, but it's now the only gap
+  to that money.", agoWords from the stored decline, GapGrant.passedAt) to a closest grant raised once (`raise`).
+- **Since {day}.** In a fresh session (sessionOf; the last session is standing_seen.said.at), sinceFor reads stored
+  facts only: the streak then (streak.ts streaksFor as of that day, only across an ISO week) and now; the last public
+  daily score (builder_scores, v2-shipping, ranked) from that day or the day before and the page's score now; the path
+  program's programs.opened_at after it; the program closing within 48 hours when the step doesn't say so; results
+  announced since (entry_outcomes, never self-reports). conversation.ts sinceLine joins them ("Since Thursday: 1 more
+  week shipped, so your streak is 7 weeks and your score is up to 79.") or returns null (nothing changed: the step
+  alone). It leads every path reply (hook, mid-gap, submit pointer, the deferred closest grant); with the gap closed it
+  is "{since} {program} is still open and you now meet its first requirement.\n\nDraft it now? It takes me a few
+  minutes." (stillOpenLine, DRAFT_NOW_ASK).
