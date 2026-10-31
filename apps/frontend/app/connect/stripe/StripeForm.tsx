@@ -4,7 +4,11 @@ import { useRef, useState } from 'react';
 import { PILL_BLUE } from '../../components/site/ui';
 import type { STRIPE_TEXT } from '../../../lib/earnkit/stripe';
 
-/** v4.6: the paste step. A same-origin POST to /connect/stripe/key; the key is cleared from the field once sent. */
+/**
+ * v4.6: the paste step. A same-origin POST to /connect/stripe/key. v4.7.3 T1: a password field (masked by the browser,
+ * never offered to autofill or password managers), emptied before the request goes out, so a failed send means a
+ * fresh paste and the key never stays on screen.
+ */
 export default function StripeForm({ token, text }: { token: string; text: typeof STRIPE_TEXT }) {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
@@ -17,11 +21,11 @@ export default function StripeForm({ token, text }: { token: string; text: typeo
     e.preventDefault();
     const key = field.current?.value ?? '';
     if (!key.trim()) return;
+    if (field.current) field.current.value = '';
     setBusy(true);
     setStatus('');
     try {
       const r = await fetch('/connect/stripe/key', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ t: token, key }) });
-      if (field.current) field.current.value = '';
       const j = (await r.json()) as { line?: string };
       if (r.ok) {
         setDone(j.line ?? text.saved);
@@ -30,7 +34,6 @@ export default function StripeForm({ token, text }: { token: string; text: typeo
       }
       setStatus(j.line || text.failed);
     } catch {
-      if (field.current) field.current.value = '';
       setStatus(text.failed);
     }
     setBusy(false);
@@ -58,9 +61,8 @@ export default function StripeForm({ token, text }: { token: string; text: typeo
       <label className="flex flex-col gap-2 text-[15px] text-s-card-body">
         {text.label}
         <input
-          ref={field} type="text" name="stripe-read-key" required spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off"
+          ref={field} type="password" name="stripe-read-key" required spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off"
           data-1p-ignore data-lpignore="true" data-form-type="other" placeholder={text.placeholder}
-          style={{ WebkitTextSecurity: 'disc' } as React.CSSProperties}
           className="min-h-11 rounded-xl border border-s-chip-line bg-transparent px-4 text-[16px] text-s-text"
         />
       </label>

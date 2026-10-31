@@ -8525,6 +8525,14 @@ keys are refused before any call. v4.7.1 T3: after the reads and the ownership r
 bodiless POSTs to `/v1/refunds` and `/v1/payouts` (`StripeCall`'s optional `method`); both must be 403 (no permission). A 400
 (the key has write access, and the call fails on missing params, so nothing is created) is refused with `STRIPE_TEXT.writeAccess`.
 Any other answer or a failed call is refused as unreachable (fail closed). Nothing is stored on refusal. The daily read never probes.
+v4.7.3 Task 1 (env): `EARNKIT_STRIPE_SECRET` seals and opens the Stripe key (`secret-box.ts`, purpose 'stripe'; it never falls
+back to `EARNKIT_AUTH_SECRET`, which still signs the link tokens). Unset, Stripe connect is off: `stripeLink` is null (no ask,
+no link), the page and the POST answer `STRIPE_TEXT.off` (POST 503), `connectStripe` makes no call, and the daily read returns
+the note `EARNKIT_STRIPE_SECRET is not set, Stripe not read`. Changing it breaks every stored connection (marked `broken` on the
+next read, re-offered once). A link connects once: a stored connection inserts `stripeUseKey(token)` (sha256 of `stripe:<token>`)
+into `wallet_proof_uses` in the same transaction as the upsert, so the page then shows `STRIPE_TEXT.used` and a POST is refused
+before any Stripe call; a refused paste writes nothing and the link stays usable. The wallet flow's one-day prune of
+`wallet_proof_uses` cannot reopen a Stripe link (links expire after 30 minutes). The paste field is `type="password"`.
 
 - **Daily Stripe read (v4.6 Task 2).** After `runRevenue`, the cron reads each `stripe_connections` row in state `ok` at most once a UTC day
   (rate-limit claim `stripe:<id>:<day>`, own slice via `builderCodesSliceEnd`). Net = balance transactions `charge`/`payment` minus `refund`/
