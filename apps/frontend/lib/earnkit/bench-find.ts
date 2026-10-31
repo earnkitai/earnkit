@@ -600,12 +600,15 @@ async function pathView(
       const offer = await qualifyOffer(id, key, { cards: o.cards, skip, seen: { ...seen, declined }, now, declineMs: DECLINE_MS, codesFetch: o.codesFetch, known: o.known });
       if (!offer || offer.steps.length === 0) return null;
       extra.set(c.id, { qualify: offer });
-      return { ...moveProgram(c), gaps: offer.steps, gap: qualifyGap(v.project.name, offer), passed };
+      // Fix round 1 (R1): a one-step only when that step is one the agent can do in the repo (Builder Codes).
+      const doable = offer.steps.length === 1 && offer.steps[0] === 'codes';
+      return { ...moveProgram(c), gaps: offer.steps, gap: qualifyGap(v.project.name, offer), passed, doable };
     }
     const n = await needsOf(id, key, { id: c.id, title: c.title }, c, also);
-    if (n.needs.length === 0) return null;
     extra.set(c.id, { needs: n.needs });
-    return { ...moveProgram(c), gaps: n.needs, gap: needsWhy(v.project.name, c.title, n.needs), passed: recent(seen.declined?.[benchStepKey('needs', c.id)]) };
+    // programNeeds' gaps (a chain's mainnet, a public repo, a live link) are never steps the agent does in the repo, so
+    // never a one-step (fix round 1, R1). None known: it can apply now (bestMove names it only when closing within 48 hours).
+    return { ...moveProgram(c), gaps: n.needs, gap: n.needs.length > 0 ? needsWhy(v.project.name, c.title, n.needs) : '', passed: recent(seen.declined?.[benchStepKey('needs', c.id)]), doable: false };
   }))).filter((g): g is GapGrant => g !== null);
   const path = readPath(seen);
   const move = bestMove({ now, fits, grants, investors, skip, raised: new Set(Object.keys(seen.path_raised ?? {})), path });

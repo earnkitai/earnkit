@@ -174,7 +174,9 @@ test('(e) a taken repo or a program in builder_program_status: no Best fit, no a
   const r0 = await find(b);
   const s = show(r0);
   assert.doesNotMatch(s, /I can draft it/, s);
-  assert.notEqual(kind(r0), 'apply');
+  // v4.8 Task 1: the program told about is never the hook (the path may name another program).
+  assert.doesNotMatch(s, /Base Builder Grant/, s);
+  assert.notEqual((r0.reply?.lead as { program_id?: string } | undefined)?.program_id, ROLLING);
   // Another person holds the repo.
   const t = `ek_v31bf_e2_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Claude Code');

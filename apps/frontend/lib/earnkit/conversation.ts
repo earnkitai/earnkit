@@ -85,11 +85,12 @@ export type MoveProgram = {
   when: string; ends_at: string | null; zone: string; investment: boolean;
 };
 /**
- * An open grant the project doesn't fit yet, with what it needs: `gaps` (each a step, 1 or more), `gap` (the sentence
- * naming them, bench-reply.ts qualifyGap or needsWhy) and `passed` (the builder passed on these steps within
- * DECLINE_MS).
+ * An open grant the project doesn't fit, with what it needs: `gaps` (each a step; none known: it can apply now), `gap`
+ * (the sentence naming them, bench-reply.ts qualifyGap or needsWhy), `passed` (the builder passed on these steps within
+ * DECLINE_MS) and `doable` (its one gap is a step the agent can do in the repo, like Builder Codes; never a chain
+ * deployment such as "on Arc mainnet", a live product or making a repo public).
  */
-export type GapGrant = MoveProgram & { gaps: string[]; gap: string; passed: boolean };
+export type GapGrant = MoveProgram & { gaps: string[]; gap: string; passed: boolean; doable: boolean };
 /** An investor program, with its odds sentence only when the program file states them (difficulty_override.basis). */
 export type InvestorProgram = MoveProgram & { odds: string | null };
 export type MoveCtx = {
@@ -107,6 +108,8 @@ export type MoveCtx = {
 };
 export type Move =
   | { kind: 'fit'; program: MoveProgram }
+  /** Closing within NOW_WINDOW_MS with no gap: a grant with none known, or an investor program. */
+  | { kind: 'now'; program: MoveProgram | InvestorProgram }
   | { kind: 'one_step'; program: GapGrant }
   | { kind: 'investor'; program: InvestorProgram }
   /** `raise`: the one gap is a step the builder passed on, raised this once. */
@@ -115,16 +118,20 @@ export type Move =
 
 /** An investor program is a move only this close to its deadline. */
 export const INVESTOR_WINDOW_MS = 7 * 86_400_000;
+/** Fix round 1 (R1): a program the builder can apply to now with no gap leads when it closes this soon. */
+export const NOW_WINDOW_MS = 48 * 60 * 60_000;
 const closeAt = (p: Pick<MoveProgram, 'ends_at'>) => (p.ends_at ? Date.parse(p.ends_at) : Infinity);
 const byClose = <P extends Pick<MoveProgram, 'ends_at'>>(a: P, b: P) => closeAt(a) - closeAt(b);
 
 /**
- * The program the path leads with, in this order (architecture):
+ * The program the path leads with, in this order (fix round 1, controller ruling R1):
  * 1. a real fit not applied to or drafted, closing first (rolling last);
- * 2. a grant one step away (a step the builder passed on doesn't count here);
- * 3. an investor program closing within INVESTOR_WINDOW_MS, soonest first, with its odds when stated;
- * 4. the closest grant by number of gaps (a passed step only when it is the one gap, and only once);
- * 5. otherwise quiet: the reply's older asks (check-in, wallet, token, new repo, titles, then the ship line).
+ * 2. a program (grant or investor) closing within NOW_WINDOW_MS (48 hours) the builder can apply to now with no gap;
+ * 3. a grant one step away where that step is one the agent can do in the repo (`doable`: Builder Codes; a chain
+ *    deployment never counts), not a step the builder passed on;
+ * 4. an investor program closing within INVESTOR_WINDOW_MS, soonest first, with its odds when stated;
+ * 5. the closest grant by number of gaps (a passed step only when it is the one gap, and only once);
+ * 6. otherwise quiet: the reply's older asks (check-in, wallet, token, new repo, titles, then the ship line).
  * Anything in `skip` is never a move. A program on the stored path that is still one of 1 to 4 keeps its place when
  * the builder is on it: they picked it, or said yes past the hook (gap, draft, submit, track). An investor program is
  * never a fit. Pure.
@@ -133,14 +140,18 @@ export function bestMove(ctx: MoveCtx): Move {
   const t = ctx.now.getTime();
   const open = <P extends MoveProgram>(p: P) => !ctx.skip.has(p.id) && closeAt(p) > t;
   const fits = ctx.fits.filter((p) => open(p) && !p.investment).sort(byClose);
+  const soon = (p: MoveProgram, ms: number) => closeAt(p) - t <= ms;
+  const noGap = ctx.grants.filter((g) => open(g) && !g.investment && g.gaps.length === 0 && soon(g, NOW_WINDOW_MS));
   const grants = ctx.grants.filter((g) => open(g) && !g.investment && g.gaps.length > 0);
-  const oneStep = grants.filter((g) => g.gaps.length === 1 && !g.passed).sort(byClose);
-  const investors = ctx.investors.filter((p) => open(p) && p.investment && closeAt(p) - t <= INVESTOR_WINDOW_MS).sort(byClose);
+  const investors = ctx.investors.filter((p) => open(p) && p.investment && soon(p, INVESTOR_WINDOW_MS)).sort(byClose);
+  const now: (MoveProgram | InvestorProgram)[] = [...noGap, ...investors.filter((p) => soon(p, NOW_WINDOW_MS))].sort(byClose);
+  const oneStep = grants.filter((g) => g.gaps.length === 1 && g.doable && !g.passed).sort(byClose);
   const closest = grants
     .filter((g) => !g.passed || (g.gaps.length === 1 && !ctx.raised.has(g.id)))
     .sort((a, b) => a.gaps.length - b.gaps.length || byClose(a, b));
   const moves: Exclude<Move, { kind: 'quiet' }>[] = [
     ...fits.map((program) => ({ kind: 'fit' as const, program })),
+    ...now.map((program) => ({ kind: 'now' as const, program })),
     ...oneStep.map((program) => ({ kind: 'one_step' as const, program })),
     ...investors.map((program) => ({ kind: 'investor' as const, program })),
     ...closest.filter((g) => !oneStep.includes(g)).map((program) => ({ kind: 'closest' as const, program, raise: program.passed })),
@@ -214,14 +225,16 @@ export function pathReply(c: PathCtx): PathReply {
   const m = c.move;
   const p = m.program;
   const name = programName(p.title);
-  const reply: PathReply['reply'] = m.kind === 'fit' || m.kind === 'investor' ? 'start' : 'steps';
+  const reply: PathReply['reply'] = m.kind === 'fit' || m.kind === 'now' || m.kind === 'investor' ? 'start' : 'steps';
   const ask = reply === 'start' ? START_ASK : STEPS_ASK;
   const hookKey = `hook:${p.id}`;
+  // Merge gate (Task 6), fix round 1 ruling R2: a pointer (the same step again within a session) is exempt from the
+  // proof-line rule; it is one line that points back, with the same easy reply.
   if (c.said.has(hookKey)) {
     const point = reply === 'start' ? `Your ${name} application is still the next move.` : `${name} is still your closest money.`;
     return { stage: 'hook', program_id: p.id, show_to_builder: `${point} ${ask}`, said: [], reply };
   }
-  const proof = proofLine(c.project, c.streak, m.kind === 'investor');
+  const proof = proofLine(c.project, c.streak, p.investment);
   const proofKey = proof ? `proof:${proof}` : null;
   const proofSaid = proofKey !== null && c.said.has(proofKey);
   const dated = p.ends_at !== null && p.when !== 'rolling';

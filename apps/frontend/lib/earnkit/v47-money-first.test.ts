@@ -12,7 +12,7 @@ import { fakeGitHub } from './fixtures/fake-github';
 import { appEnv, installApp } from './fixtures/app-install';
 import { committedProgram } from './fixtures/program-file';
 import { dropRunPrograms } from './fixtures/programs-cleanup';
-import { walletOffered } from './fixtures/wallet-step';
+import { pathQuiet, walletOffered } from './fixtures/wallet-step';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { ProgramFile } from './program-file';
@@ -115,9 +115,12 @@ test('the quieter asks wait while an open fit is unapplied, and come back once i
   const b = await builder('w', [p.id]);
   assert.equal(kind(await find(b)), 'apply');
   await mcpCall(b.ctx, 'tell', { submitted: { program_id: p.id } });
+  // v4.8 Task 1: told applied, it is never the hook again (the path may name another program; parked, the quieter asks).
+  assert.ok(!show(await find(b)).includes(p.title));
+  await pathQuiet(b.id);
   const after = await find(b);
   assert.notEqual(kind(after), 'apply', show(after));
-  assert.doesNotMatch(show(after), /I can draft it/);
+  assert.doesNotMatch(show(after), /I can draft it|Want me to start/);
 });
 
 test('fix round 1 (R11): stateAsk puts the apply ask before an event post', () => {

@@ -38,40 +38,63 @@ const A16Z: InvestorProgram = {
 };
 const BASE: GapGrant = {
   ...prog({ id: 'base-builder-grants', title: 'Base Builder Grant Program', amount: 'up to $5,000' }),
-  gaps: ['codes'], gap: 'EarnKit is one step away: add Builder Codes.', passed: true,
+  gaps: ['codes'], gap: 'EarnKit is one step away: add Builder Codes.', passed: true, doable: true,
 };
+/** Arc Microgrants' chain gap: never a step the agent does in the repo. */
+const ARC: GapGrant = {
+  ...prog({ id: 'arc', title: 'Arc Microgrants: Built with Arc Studio', amount: '500 USDC × 8 grants', when: 'closes Nov 1', ends_at: '2026-11-02T04:59:00Z', zone: 'America/New_York' }),
+  gaps: ['on Arc mainnet'], gap: 'Arc Microgrants needs EarnKit on Arc mainnet.', passed: false, doable: false,
+};
+const gap = (id: string, gaps: string[], o: Partial<GapGrant> = {}): GapGrant => ({ ...prog({ id }), gaps, gap: 'x', passed: false, doable: false, ...o });
 const ctx = (o: Partial<MoveCtx> = {}): MoveCtx => ({ now: NOW, fits: [], grants: [], investors: [], skip: new Set(), raised: new Set(), path: null, ...o });
 
-test('bestMove: the stated order (fit, one step, investor in 7 days, closest by gaps, quiet)', () => {
+test('bestMove (fix round 1, R1): fit; no gap closing in 48 hours; an agent-doable one step; investor in 7 days; closest; quiet', () => {
   const fitSoon = prog({ id: 'fit-soon', ends_at: '2026-11-05T00:00:00Z', when: 'closes Nov 5' });
   const fitRolling = prog({ id: 'fit-rolling' });
-  const one: GapGrant = { ...prog({ id: 'one' }), gaps: ['on Arc mainnet'], gap: 'One needs EarnKit on Arc mainnet.', passed: false };
-  const two: GapGrant = { ...prog({ id: 'two' }), gaps: ['a', 'b'], gap: 'x', passed: false };
-  const three: GapGrant = { ...prog({ id: 'three' }), gaps: ['a', 'b', 'c'], gap: 'x', passed: false };
-  // 1. A real fit, closing first (rolling last).
-  assert.deepEqual(bestMove(ctx({ fits: [fitRolling, fitSoon], grants: [one], investors: [A16Z] })), { kind: 'fit', program: fitSoon });
-  // 2. A grant one step away beats an investor program.
-  assert.equal(bestMove(ctx({ grants: [two, one], investors: [A16Z] })).kind, 'one_step');
-  // 3. The investor program closing within 7 days, with the program file's odds.
-  const inv = bestMove(ctx({ grants: [three, two], investors: [A16Z] }));
+  const codes = gap('codes', ['codes'], { doable: true });
+  const two = gap('two', ['a', 'b']);
+  const three = gap('three', ['a', 'b', 'c']);
+  // 5 days out: an investor program, not within 48 hours.
+  const week = { ...A16Z, id: 'week', ends_at: '2026-11-05T19:00:00Z' };
+  // 1. A real fit, closing first (rolling last), before anything else.
+  assert.deepEqual(bestMove(ctx({ fits: [fitRolling, fitSoon], grants: [codes, ARC], investors: [A16Z] })), { kind: 'fit', program: fitSoon });
+  // 2. A program closing within 48 hours with no gap: an investor program (a16z) or a grant with no gap known.
+  assert.deepEqual(bestMove(ctx({ grants: [codes, ARC], investors: [A16Z, week] })), { kind: 'now', program: A16Z });
+  const noGap = gap('nogap', [], { ends_at: '2026-11-01T12:00:00Z', when: 'closes Nov 1' });
+  assert.deepEqual(bestMove(ctx({ grants: [noGap, codes] })), { kind: 'now', program: noGap });
+  // ... a no-gap grant further out is never a move on its own.
+  assert.deepEqual(bestMove(ctx({ grants: [gap('later', [], { ends_at: '2026-11-20T00:00:00Z' })] })), { kind: 'quiet' });
+  // 3. A grant one step away, the step one the agent can do (Builder Codes), before an investor program in 7 days.
+  assert.deepEqual(bestMove(ctx({ grants: [two, codes], investors: [week] })), { kind: 'one_step', program: codes });
+  // 4. The investor program closing within 7 days, with the program file's odds.
+  const inv = bestMove(ctx({ grants: [three, two], investors: [week] }));
   assert.equal(inv.kind, 'investor');
   assert.equal(inv.kind === 'investor' && inv.program.odds, A16Z.odds);
   // ... only within 7 days of its close.
   const later = { ...A16Z, id: 'later', ends_at: '2026-11-18T23:59:59Z' };
+  // 5. The closest grant by number of gaps.
   const closest = bestMove(ctx({ grants: [three, two], investors: [later] }));
-  // 4. The closest grant by number of gaps.
-  assert.equal(closest.kind, 'closest');
   assert.equal(closest.kind === 'closest' && closest.program.id, 'two');
-  // 5. Nothing: quiet.
+  // 6. Nothing: quiet.
   assert.deepEqual(bestMove(ctx({ investors: [later] })), { kind: 'quiet' });
   // A closed program is never a move.
   assert.deepEqual(bestMove(ctx({ fits: [prog({ id: 'gone', ends_at: '2026-10-30T00:00:00Z' })] })), { kind: 'quiet' });
 });
 
+test("bestMove (fix round 1, R1): Arc's chain gap is never a one-step; it waits behind an investor program", () => {
+  const week = { ...A16Z, id: 'week', ends_at: '2026-11-05T19:00:00Z' };
+  // One gap, but a chain deployment: not step 3, so the investor program in 7 days leads.
+  assert.equal(bestMove(ctx({ grants: [ARC], investors: [week] })).kind, 'investor');
+  // Alone, it is only ever the closest grant (step 5), never a one_step.
+  assert.equal(bestMove(ctx({ grants: [ARC] })).kind, 'closest');
+  // The owner's real day: a16z closes within 48 hours with no gap, so it leads Arc (and Base, passed on).
+  assert.deepEqual(bestMove(ctx({ grants: [ARC, BASE], investors: [A16Z] })), { kind: 'now', program: A16Z });
+});
+
 test('bestMove: a passed step is raised once, only when it is the one gap, never ahead of an investor program', () => {
   // A's opener: Base's one gap (Builder Codes) was passed on, so a16z leads.
-  assert.equal(bestMove(ctx({ grants: [BASE], investors: [A16Z] })).kind, 'investor');
-  // With a16z applied to, Base is raised as the closest, this once.
+  assert.equal(bestMove(ctx({ grants: [BASE], investors: [A16Z] })).kind, 'now');
+  // After "sent" (a16z applied to), Base is raised as the closest, this once.
   const raised = bestMove(ctx({ grants: [BASE], investors: [A16Z], skip: new Set(['a16z-speedrun']) }));
   assert.deepEqual(raised, { kind: 'closest', program: BASE, raise: true });
   assert.deepEqual(bestMove(ctx({ grants: [BASE], raised: new Set([BASE.id]) })), { kind: 'quiet' });
@@ -84,11 +107,11 @@ test('bestMove (Review Focus 4): an investor program is never a fit; applied to 
   assert.deepEqual(bestMove(ctx({ fits: [A16Z] })), { kind: 'quiet' });
   const fit = prog({ id: 'fit' });
   // Applied to or drafted (skip): never the hook, so the next move leads.
-  assert.equal(bestMove(ctx({ fits: [fit], investors: [A16Z], skip: new Set(['fit']) })).kind, 'investor');
+  assert.equal(bestMove(ctx({ fits: [fit], investors: [A16Z], skip: new Set(['fit']) })).kind, 'now');
   assert.deepEqual(bestMove(ctx({ fits: [fit], investors: [A16Z], skip: new Set(['fit', 'a16z-speedrun']) })), { kind: 'quiet' });
   // The stored path keeps its program while it is still a move and the builder is on it: picked (Task 4 stores a new
   // builder's pick before ranking) or past the hook.
-  const one: GapGrant = { ...prog({ id: 'one' }), gaps: ['x'], gap: 'x', passed: false };
+  const one = gap('one', ['codes'], { doable: true });
   const at = NOW.toISOString();
   for (const path of [{ stage: 'hook' as const, program_id: 'one', at, picked: true as const }, { stage: 'gap' as const, program_id: 'one', at }]) {
     const kept = bestMove(ctx({ fits: [fit], grants: [one], path }));
@@ -138,7 +161,7 @@ const A_OPENER =
 
 test("pathReply: the owner's opener is section A's, word for word; the same hook again is a one-line pointer", () => {
   const move = bestMove(ctx({ grants: [BASE], investors: [A16Z] }));
-  assert.equal(move.kind, 'investor');
+  assert.equal(move.kind, 'now');
   const r = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move: move as Exclude<typeof move, { kind: 'quiet' }>, said: new Set() });
   assert.equal(r.show_to_builder, A_OPENER);
   assert.equal(r.stage, 'hook');
@@ -153,7 +176,7 @@ test("pathReply: the owner's opener is section A's, word for word; the same hook
 });
 
 test('pathReply: a grant with a gap gives its money, the gap and "Want the steps?"; a proof said already is left out', () => {
-  const one: GapGrant = { ...prog({ id: 'arc', title: 'Arc Microgrants: Built with Arc Studio', amount: '500 USDC × 8 grants', when: 'closes Nov 1', ends_at: '2026-11-02T03:59:00Z', zone: 'America/New_York' }), gaps: ['on Arc mainnet'], gap: 'Arc Microgrants needs EarnKit on Arc mainnet.', passed: false };
+  const one: GapGrant = { ...prog({ id: 'arc', title: 'Arc Microgrants: Built with Arc Studio', amount: '500 USDC × 8 grants', when: 'closes Nov 1', ends_at: '2026-11-02T03:59:00Z', zone: 'America/New_York' }), gaps: ['on Arc mainnet'], gap: 'Arc Microgrants needs EarnKit on Arc mainnet.', passed: false, doable: false };
   const r = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'one_step', program: one }, said: new Set() });
   assert.equal(r.show_to_builder,
     "Jenil, Arc Microgrants pays 500 USDC × 8 grants, closing tomorrow night. Arc Microgrants needs EarnKit on Arc mainnet. You've shipped 6 weeks in a row and EarnKit is live.\n\nWant the steps?");
@@ -193,12 +216,12 @@ const seenOf = async (id: number) =>
   (await sql()<{ s: Record<string, unknown> }[]>`SELECT standing_seen AS s FROM builder_profiles WHERE builder_id = ${id}`)[0].s;
 
 /**
- * An a16z speedrun copy (the program file's odds), closing `hours` from now. In this file's own database every other
- * dated program (the committed a16z, Alliance, Arc Microgrants) is closed, so the test never depends on the real dates;
- * Base's and Circle's rolling grants stay open (Base's one gap, Builder Codes, was passed on).
+ * An a16z speedrun copy (the program file's odds), closing `hours` from now. In this file's own database the other
+ * investor programs (the committed a16z, Alliance) are closed, so the hook is this copy whatever the real date; the
+ * grants stay open (fix round 1: Arc Microgrants' chain gap never outranks it).
  */
 async function speedrun(hours: number) {
-  await sql()`UPDATE programs SET status = 'closed' WHERE id NOT IN ('base-builder-grants', 'circle-developer-grants') AND id NOT LIKE ${`v48-${process.pid}-%`}`;
+  await sql()`UPDATE programs SET status = 'closed' WHERE investment AND id NOT LIKE ${`v48-${process.pid}-%`}`;
   const file = committedProgram('a16z-speedrun');
   const id = `v48-${process.pid}-a16z`;
   const ends = new Date(Date.now() + hours * 3_600_000);
@@ -244,6 +267,9 @@ const find = (b: { ctx: unknown }) => mcpCall(b.ctx as never, 'find', {});
 
 test("the owner-like builder's first find is A's opener; the next find in the session points back, never the same block", db, async () => {
   const sr = await speedrun(30);
+  // Fix round 1 (R1): an open Arc Microgrants copy closing sooner, one chain gap away: never a one-step, so a16z leads.
+  const arc = committedProgram('arc-microgrants-studio', { keepContract: true });
+  await upsertProgram(ProgramFile.parse({ ...arc, id: `v48-${process.pid}-arc`, ends_at: new Date(Date.now() + 20 * 3_600_000).toISOString(), status: 'active', starts_at: null }));
   const b = await owner('a');
   const r = await find(b);
   const s = show(r);
@@ -302,7 +328,8 @@ test('setup step 3 still comes before the path, word for word', db, async () => 
 });
 
 test("a no to a grant's gap hook (Base's steps) parks it for the path; nothing asks it again this session", db, async () => {
-  await sql()`UPDATE programs SET status = 'closed' WHERE id NOT IN ('base-builder-grants', 'circle-developer-grants') AND id NOT LIKE ${`v48-${process.pid}-%`}`;
+  // Only Base's and Circle's rolling grants open (the earlier tests' a16z copies closed too).
+  await sql()`UPDATE programs SET status = 'closed' WHERE id NOT IN ('base-builder-grants', 'circle-developer-grants')`;
   const b = await owner('gap');
   // Base's steps not passed on here: Builder Codes (unknown) is its one gap.
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'declined' WHERE builder_id = ${b.id}`;

@@ -289,7 +289,8 @@ test('bug 2 and 3: repo facts acknowledged; the name given in prepare wins in ev
   const r = await tell(b, { repo_facts: [{ repo: b.key, mainnet_chains: ['base'], has_users: true }] });
   assert.equal(show(r), 'Noted: live on Base with users.');
   await mcpCall(b.ctx, 'prepare', { program_id: 'base-builder-grants', project: { name: 'KitFlow', repo_url: `https://github.com/${b.key}` } }).catch(() => null);
-  // v4.8 Task 1: the path's hook names the project as the builder named it (its gap sentence).
+  // v4.8 Task 1: the path's hook names the project as the builder named it (Base's gap sentence; the only program left).
+  await pathQuiet(b.id, { except: ['base-builder-grants'] });
   const s = show(await find(b));
   assert.match(s, /KitFlow/, s);
   assert.doesNotMatch(s, /\bKit\b/, s);
