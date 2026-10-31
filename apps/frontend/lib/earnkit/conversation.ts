@@ -142,9 +142,12 @@ const byClose = <P extends Pick<MoveProgram, 'ends_at'>>(a: P, b: P) => closeAt(
  * 4. an investor program closing within INVESTOR_WINDOW_MS, soonest first, with its odds when stated;
  * 5. the closest grant by number of gaps (a passed step only when it is the one gap, and only once);
  * 6. otherwise quiet: the reply's older asks (check-in, wallet, token, new repo, titles, then the ship line).
- * Anything in `skip` is never a move. A program on the stored path that is still one of 1 to 4 keeps its place when
+ * Anything in `skip` is never a move. A program on the stored path that is still one of 1 to 5 keeps its place when
  * the builder is on it: they picked it, or said yes past the hook (gap, draft, submit, track). An investor program is
  * never a fit. Pure.
+ * bench-find.ts (fix rounds 2 and 3): the path leads on steps 1 to 4. On step 5 an older moment (connect, the Monday
+ * block, a post, the check-in) may answer first, once a session, and only at the hook while the path is not already
+ * on that program; a builder mid-path (past the hook, or already hooked on it) always gets the path.
  */
 export function bestMove(ctx: MoveCtx): Move {
   const t = ctx.now.getTime();

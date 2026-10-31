@@ -433,3 +433,37 @@ test('fix round 2 (F4): a v4.7 silence stand-aside never parks a program; an exp
   await sql()`UPDATE builder_profiles SET standing_seen = (standing_seen - 'apply_silent' - 'said') WHERE builder_id = ${b.id}`;
   assert.ok(!show(await find(b)).includes(sr.title), 'an explicit no parks it');
 });
+
+test('fix round 3 (F2): a failed read of what the builder told EarnKit about makes no hook; the older reply answers', db, async () => {
+  const sr = await speedrun(30);
+  const b = await owner('f2');
+  // builder_program_status unreadable for this one call (this file's own database).
+  await sql()`ALTER TABLE builder_program_status RENAME TO builder_program_status_gone`;
+  let r: R;
+  try {
+    r = await find(b);
+  } finally {
+    await sql()`ALTER TABLE builder_program_status_gone RENAME TO builder_program_status`;
+  }
+  const s = show(r);
+  assert.ok(!s.includes(sr.title), s);
+  assert.doesNotMatch(s, /Want me to start\?|Want the steps\?/, s);
+  assert.notEqual(r.reply?.note, MENTOR_NOTE);
+  const seen = await seenOf(b.id);
+  assert.equal(seen.path, undefined);
+  assert.notEqual((seen.bench_ask as { path?: boolean } | undefined)?.path, true);
+});
+
+test('fix round 3: the closest grant never waits for an older moment once the builder is on it', db, async () => {
+  await sql()`UPDATE programs SET status = 'closed' WHERE id NOT LIKE ${`v48-${process.pid}-arcm`}`;
+  const arc = committedProgram('arc-microgrants-studio', { keepContract: true });
+  const p = ProgramFile.parse({ ...arc, id: `v48-${process.pid}-arcm`, title: `Arc Mid ${RUN}`, ends_at: new Date(Date.now() + 20 * 86_400_000).toISOString(), status: 'active', starts_at: null });
+  await upsertProgram(p);
+  const b = await owner('f3m');
+  await connectDueFor(b);
+  // Already on that program (its hook, a session ago): the path, not the connect weeks.
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('path', jsonb_build_object('stage', 'hook', 'program_id', ${p.id}::text, 'at', now()::text)) WHERE builder_id = ${b.id}`;
+  const s = show(await find(b));
+  assert.ok(s.startsWith(`Jenil, your closest money is Arc Mid ${RUN}: `), s);
+  assert.doesNotMatch(s, /Make your shipping log public/, s);
+});

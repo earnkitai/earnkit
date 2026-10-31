@@ -7,6 +7,7 @@ import { appEnv, installApp } from './fixtures/app-install';
 import { committedProgram } from './fixtures/program-file';
 import { dropRunPrograms } from './fixtures/programs-cleanup';
 import { withEnv } from './fixtures/find';
+import { pathQuiet } from './fixtures/wallet-step';
 import { codesSettled } from './bench-find';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
@@ -171,12 +172,13 @@ test('(d) a no parks the program for the path for 30 days; then it leads again',
 test('(e) a taken repo or a program in builder_program_status: no Best fit, no ask', db, async () => {
   const b = await builder('e', [ROLLING]);
   await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status, round_label) VALUES (${b.id}, '', ${ROLLING}, 'rejected', 'an older round')`;
+  // v4.8 Task 1: every other program parked for the path, so any apply ask could only be the program told about.
+  await pathQuiet(b.id, { except: [ROLLING] });
   const r0 = await find(b);
   const s = show(r0);
-  assert.doesNotMatch(s, /I can draft it/, s);
-  // v4.8 Task 1: the program told about is never the hook (the path may name another program).
+  assert.doesNotMatch(s, /I can draft it|Want me to start\?/, s);
+  assert.notEqual(kind(r0), 'apply');
   assert.doesNotMatch(s, /Base Builder Grant/, s);
-  assert.notEqual((r0.reply?.lead as { program_id?: string } | undefined)?.program_id, ROLLING);
   // Another person holds the repo.
   const t = `ek_v31bf_e2_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Claude Code');

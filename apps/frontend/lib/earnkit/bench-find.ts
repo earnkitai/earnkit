@@ -626,12 +626,14 @@ async function pathPlan(o: ViewIn, v: PathFacts, told: Set<string>): Promise<Pat
       const doable = offer.steps.length === 1 && offer.steps[0] === 'codes';
       return { ...moveProgram(c), gaps: offer.steps, gap: qualifyGap(v.project.name, offer), passed, doable };
     }
-    // Final review 9's rule: the facts from the Card, else the program row; a failed row read names no needs.
+    // Final review 9's rule: the facts from the Card, else the program row. Fix round 3: a failed row read is unknown, never
+    // "no gap" (the grant is no move), so only a known read lets a grant be an apply-now move.
     const facts = c.needs_contract !== undefined && c.needs_live !== undefined ? c : await getProgramRow(c.id).catch(() => null);
-    const needs = facts && known ? programNeeds(facts, known) : [];
+    if (!facts || !known) return null;
+    const needs = programNeeds(facts, known);
     extra.set(c.id, { needs });
     // programNeeds' gaps (a chain's mainnet, a public repo, a live link) are never steps the agent does in the repo, so
-    // never a one-step (fix round 1, R1). None known: it can apply now (bestMove names it only when closing within 48 hours).
+    // never a one-step (fix round 1, R1). None: it can apply now (bestMove names it only when closing within 48 hours).
     return { ...moveProgram(c), gaps: needs, gap: needs.length > 0 ? needsWhy(v.project.name, c.title, needs) : '', passed: recent(seen.declined?.[benchStepKey('needs', c.id)]), doable: false };
   }))).filter((g): g is GapGrant => g !== null);
   const path = readPath(seen);
@@ -804,8 +806,11 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
     if (!(nudgeFirst?.ask && nudgeFirst.line) && told) {
       const plan = await pathPlan(o, { state, variant, project, streak, handle, stand, siteLive, chains: row?.chains ?? [] }, told);
       const move = plan.move;
+      // Fix round 3: an older moment waits for the closest grant only at the hook, never for a builder already on that
+      // program (mid-path), and once a session.
+      const midPath = move.kind !== 'quiet' && plan.path !== null && (plan.path.stage !== 'hook' || plan.path.program_id === move.program.id);
       if (move.kind === 'quiet') pathQuiet = true;
-      else if (move.kind !== 'closest' || sessionOf(read.seen, now).said.has(OLDER_SAID)) return pathCommit(o, { ...plan, move });
+      else if (move.kind !== 'closest' || midPath || sessionOf(read.seen, now).said.has(OLDER_SAID)) return pathCommit(o, { ...plan, move });
       else deferred = { ...plan, move };
     }
   }
