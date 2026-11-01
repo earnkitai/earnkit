@@ -8919,11 +8919,14 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
 - **Where.** app/mcp/route.ts `withAliases`, in its one JSON parse and before the alias step: `scrubToolCalls`
   (lib/earnkit/secrets.ts) replaces each match of `SECRET_PATTERNS` in every string of each `tools/call`'s
   `params.arguments` (single and batch bodies) with `[key removed]`, so no tool, log or table ever sees the key. Other
-  methods and non-JSON bodies pass through as before. Patterns: Stripe sk/rk/pk live/test and whsec, GitHub
-  gh[opsur]_ and github_pat_, Anthropic sk-ant-, OpenAI sk-proj-/sk-svcacct-/sk-admin- (20+) and legacy sk- (40+
-  letters and digits only), AWS AKIA, PEM private keys (label and body bounded: at most a 10,000-character scan per
-  BEGIN). Raw 64-hex is never matched (tx hashes). /mcp has no body cap, so a string over MAX_SCRUB_CHARS (200,000)
-  is not scanned; the route logs `[mcp] scrub skipped long arg`.
+  methods and non-JSON bodies pass through as before. Patterns (edges are "not a letter or digit", so
+  `token_sk_live_...` is caught): Stripe sk_/rk_ live/test (16+ characters with a digit; pk_ is public and left alone)
+  and whsec_, GitHub gh[opsur]_ and github_pat_, Anthropic sk-ant-, OpenAI sk-proj-/sk-svcacct-/sk-admin- (20+) and
+  legacy sk- (40+ letters and digits only), AWS AKIA and ASIA. PEM private keys use a linear pass (scrubPem: indexOf
+  over the BEGIN markers, one cached next END; a body of at most PEM_MAX_BODY 10,000 characters), never a regex
+  (a lazy body rescans from every BEGIN). Raw 64-hex is never matched (tx hashes). Every string is scanned.
+- **Body cap.** withAliases reads the POST body with readCapped (Content-Length, then while reading): over
+  MAX_MCP_BODY_BYTES (1 MB) it answers 413 with a JSON-RPC error (BODY_TOO_LARGE), never parsed or logged.
 - **Log.** Only `[mcp] scrubbed {n}`, never the value.
 - **Reply.** The scrubbed calls' ids are kept; `withScrubNotes` (after forOldNames) rewrites their replies: the first
   text content, a JSON object (every successful tool reply), gets a top-level `scrub_note: SCRUB_LINE` as its first key;

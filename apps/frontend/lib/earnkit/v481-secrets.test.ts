@@ -5,15 +5,14 @@ import { join } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { z } from 'zod';
-import { KEY_REMOVED, MAX_SCRUB_CHARS, SCRUB_LINE, scrubSecrets, scrubToolCalls, withScrubNote, withScrubNotes } from './secrets';
+import { BODY_TOO_LARGE, KEY_REMOVED, MAX_MCP_BODY_BYTES, PEM_MAX_BODY, SCRUB_LINE, readCapped, scrubPem, scrubSecrets, scrubToolCalls, withScrubNote, withScrubNotes } from './secrets';
 
 // v4.8.1 Task 4 (R6). Every key here is built by concatenation, so no committed string looks like a live key.
 const A = 'a1B2c3D4e5F6g7H8i9J0kLmNoPqRsTuVwXyZ';
 const KEYS: Record<string, string> = {
   stripeSecret: 'sk_' + 'live_' + A.slice(0, 24),
-  stripeRestricted: 'rk_' + 'live_' + 'x'.repeat(24),
-  stripeTest: 'sk_' + 'test_' + A.slice(0, 10),
-  stripePublishable: 'pk_' + 'live_' + A.slice(0, 12),
+  stripeRestricted: 'rk_' + 'live_' + 'x'.repeat(23) + '7',
+  stripeTest: 'sk_' + 'test_' + A.slice(0, 16),
   webhook: 'wh' + 'sec_' + A.slice(0, 20),
   githubOauth: 'gh' + 'o_' + A.slice(0, 32),
   githubPat: 'gh' + 'p_' + A.slice(0, 36),
@@ -24,6 +23,7 @@ const KEYS: Record<string, string> = {
   openaiServiceAccount: 'sk-' + 'svcacct-' + A.slice(0, 20) + '_' + A.slice(0, 8),
   openaiAdmin: 'sk-' + 'admin-' + A.slice(0, 24),
   aws: 'AK' + 'IA' + 'ABCDEFGHIJ234567',
+  awsTemporary: 'AS' + 'IA' + 'QRSTUVWXYZ234567',
   pem: '-----BEGIN ' + 'RSA PRIVATE KEY-----\nMIIBOgIBAAJBAK' + A + '\n-----END RSA PRIVATE KEY-----',
 };
 
@@ -46,7 +46,7 @@ test('T4.2 a tx hash, a wallet and a GitHub link are untouched', () => {
 
 test('T4.2b a repo or word starting sk- is untouched; real OpenAI shapes are still caught', () => {
   for (const text of ['https://github.com/lee/sk-learn-tutorial-for-beginners', 'github.com/lee/sk-learn-tutorial-for-beginners', 'sk-learn', 'I use sk-learn daily']) {
-    assert.deepEqual(scrubSecrets(text), { value: text, removed: 0, skipped: 0 });
+    assert.deepEqual(scrubSecrets(text), { value: text, removed: 0 });
   }
   assert.equal(KEYS.openai.length, 51);
   assert.equal(scrubSecrets(`legacy ${KEYS.openai}`).removed, 1);
@@ -56,26 +56,97 @@ test('T4.2b a repo or word starting sk- is untouched; real OpenAI shapes are sti
   assert.equal(scrubSecrets(KEYS.anthropic).removed, 1);
 });
 
-test('T4.9 fix 2: 100KB of BEGIN markers with no END scrubs in under 200 ms', () => {
+test('T4.9 fix 3 (F2): a 1 MB body of BEGIN markers scrubs in under 1,000 ms, with one END at the end and with none', () => {
   const marker = '-----BEGIN ' + 'PRIVATE KEY-----\n';
-  const text = marker.repeat(Math.ceil(100_000 / marker.length)).slice(0, 100_000);
-  const start = performance.now();
-  const r = scrubSecrets({ note: text });
-  const ms = performance.now() - start;
-  assert.equal(r.removed, 0);
-  assert.ok(ms < 200, `took ${ms.toFixed(1)} ms`);
-  // A full key with a long label still goes.
-  assert.equal(scrubSecrets(KEYS.pem).removed, 1);
+  const end = '-----END ' + 'PRIVATE KEY-----';
+  const n = MAX_MCP_BODY_BYTES;
+  const noEnd = marker.repeat(Math.ceil(n / marker.length)).slice(0, n);
+  const trailingEnd = noEnd.slice(0, n - end.length) + end;
+  for (const [name, text] of [['no END', noEnd], ['trailing END', trailingEnd]] as const) {
+    const body = JSON.parse(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'tell', arguments: { note: text } } }));
+    const start = performance.now();
+    const r = scrubToolCalls(body);
+    const ms = performance.now() - start;
+    assert.ok(ms < 1_000, `${name} took ${ms.toFixed(1)} ms`);
+    // With the END: only the last BEGIN, within PEM_MAX_BODY of it, goes.
+    assert.equal(r.removed, name === 'no END' ? 0 : 1, name);
+  }
 });
 
-test('T4.10 fix 2: a string over MAX_SCRUB_CHARS is left unscanned and counted as skipped', () => {
-  const long = KEYS.stripeSecret + ' ' + 'a'.repeat(MAX_SCRUB_CHARS);
-  const r = scrubSecrets({ a: [long], b: KEYS.aws });
+test('T4.10 fix 3 (F1): scrubPem agrees with the bounded regex it replaced', () => {
+  const OLD = /-----BEGIN [A-Z ]{0,40}PRIVATE KEY-----[\s\S]{0,10000}?-----END [A-Z ]{0,40}PRIVATE KEY-----/g;
+  const B = (label: string) => '-----BEGIN ' + label + 'PRIVATE KEY-----';
+  const E = (label: string) => '-----END ' + label + 'PRIVATE KEY-----';
+  const cases = [
+    `a ${B('RSA ')}\nbody\n${E('RSA ')} b`,
+    `${B('')}x${E('')} mid ${B('EC ')}y${E('EC ')}`,
+    `${B('')}${B('')}x${E('')}`,
+    `${B('')}${'z'.repeat(PEM_MAX_BODY)}${E('')}`,
+    `${B('')}${'z'.repeat(PEM_MAX_BODY + 1)}${E('')}`,
+    `${B('')}${'z'.repeat(PEM_MAX_BODY + 1)}${B('')}short${E('')}`,
+    `${B('X'.repeat(41) + ' ')}x${E('')}`,
+    `${B('')}x-----END lower PRIVATE KEY----- y${E('')}`,
+    `${B('')}x${E('X'.repeat(41) + ' ')}`,
+    '-----BEGIN PUBLIC KEY-----x-----END PUBLIC KEY-----',
+    `${E('')} before ${B('')}`,
+  ];
+  for (const c of cases) {
+    let count = 0;
+    const expected = c.replace(OLD, () => {
+      count += 1;
+      return KEY_REMOVED;
+    });
+    assert.deepEqual(scrubPem(c), { value: expected, removed: count }, c.slice(0, 80));
+  }
+});
+
+test('T4.11 fix 3 (F1): /mcp reads at most 1 MB; over that is a 413 JSON-RPC error', async () => {
+  assert.equal(await readCapped(new Request('http://x/mcp', { method: 'POST', body: '{"a":1}' })), '{"a":1}');
+  const big = 'a'.repeat(MAX_MCP_BODY_BYTES + 1);
+  assert.equal(await readCapped(new Request('http://x/mcp', { method: 'POST', body: big })), null);
+  // A chunked body (no Content-Length) stops being read at the cap.
+  let pulled = 0;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(c) {
+      pulled += 1;
+      if (pulled > 100) return c.close();
+      c.enqueue(new Uint8Array(64 * 1024));
+    },
+  });
+  const chunked = new Request('http://x/mcp', { method: 'POST', body: stream, duplex: 'half' } as RequestInit);
+  assert.equal(await readCapped(chunked), null);
+  assert.ok(pulled < 30, `read ${pulled} chunks`);
+  // A Content-Length over the cap is refused before reading.
+  const declared = new Request('http://x/mcp', { method: 'POST', body: 'x', headers: { 'content-length': String(MAX_MCP_BODY_BYTES + 1) } });
+  assert.equal(await readCapped(declared), null);
+  assert.deepEqual(BODY_TOO_LARGE.error.code, -32600);
+  const src = readFileSync(join(__dirname, '../../app/mcp/route.ts'), 'utf8');
+  assert.match(src, /const raw = await readCapped\(request\);\n\s+if \(raw === null\) return json\(BODY_TOO_LARGE, 413\);/);
+  assert.ok(!/scrub skipped/.test(src));
+});
+
+test('T4.12 fix 3 (F4): a __proto__ argument key survives a scrub', () => {
+  const input = JSON.parse(`{"__proto__":{"x":"hi"},"y":"${KEYS.stripeSecret}"}`);
+  const r = scrubSecrets(input);
   assert.equal(r.removed, 1);
-  assert.equal(r.skipped, 1);
-  const body = scrubToolCalls({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'tell', arguments: { x: long } } });
-  assert.equal(body.removed, 0);
-  assert.equal(body.skipped, 1);
+  assert.deepEqual(Object.keys(r.value as object), ['__proto__', 'y']);
+  assert.equal(Object.getPrototypeOf(r.value), Object.prototype);
+  assert.equal(JSON.stringify(r.value), `{"__proto__":{"x":"hi"},"y":"${KEY_REMOVED}"}`);
+});
+
+test('T4.13 fix 3 (F5): Stripe-shaped names and publishable keys are untouched', () => {
+  for (const text of ['sk_' + 'test_fixtures', 'sk_' + 'live_settings', 'rk_' + 'live_' + 'x'.repeat(30), 'pk_' + 'live_' + A.slice(0, 24), 'sk_' + 'live_' + A.slice(0, 15)]) {
+    assert.deepEqual(scrubSecrets(text), { value: text, removed: 0 }, text);
+  }
+});
+
+test('T4.14 fix 3 (F6): a key glued to an identifier with _ is caught; AWS ASIA keys too', () => {
+  assert.deepEqual(scrubSecrets('token_' + KEYS.stripeSecret), { value: 'token_' + KEY_REMOVED, removed: 1 });
+  assert.deepEqual(scrubSecrets('my_' + KEYS.githubPat + '_x'), { value: 'my_' + KEY_REMOVED + '_x', removed: 1 });
+  assert.deepEqual(scrubSecrets('aws=' + KEYS.awsTemporary), { value: 'aws=' + KEY_REMOVED, removed: 1 });
+  // Still not inside a longer word.
+  assert.equal(scrubSecrets('x' + KEYS.stripeSecret).removed, 0);
+  assert.equal(scrubSecrets('X' + KEYS.awsTemporary).removed, 0);
 });
 
 test('T4.3 nested arrays and objects are scrubbed, and removed counts every match', () => {
@@ -185,6 +256,5 @@ test('T4.8 route.ts scrubs in withAliases before the alias step and marks replie
   assert.ok(fn.indexOf('scrubToolCalls(parsed)') > 0);
   assert.ok(fn.indexOf('scrubToolCalls(parsed)') < fn.indexOf('aliasedIds('));
   assert.match(fn, /console\.log\(`\[mcp\] scrubbed \$\{scrub\.removed\}`\)/);
-  assert.match(fn, /if \(scrub\.skipped > 0\) console\.log\('\[mcp\] scrub skipped long arg'\)/);
   assert.match(src, /withScrubNotes\(await forOldNames\(/);
 });

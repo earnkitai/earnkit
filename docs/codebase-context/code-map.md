@@ -507,7 +507,8 @@ apps/frontend/
                                deployerOf (creation tx sender), checkOwnership (fork refusal via
                                GitHub repoFacts, fetcher and Alchemy DeployerLookup (alchemyDeployer) injectable;
                                recordSubmission passes deps through for the e2e)
-    secrets.ts                 v4.8.1 Task 4 (R6): SECRET_PATTERNS, SCRUB_LINE, scrubSecrets (pure walk, removed count),
+    secrets.ts                 v4.8.1 Task 4 (R6): SECRET_PATTERNS, scrubPem (linear PEM pass), SCRUB_LINE,
+                               readCapped + MAX_MCP_BODY_BYTES + BODY_TOO_LARGE (1 MB, 413), scrubSecrets (pure walk, removed count),
                                scrubToolCalls (tools/call arguments, single/batch, ids), withScrubNote(s) (scrub_note
                                on JSON replies, else a prefixed line); tests in v481-secrets.test.ts
     sanctions.ts(+test)        Chainalysis isSanctioned oracle on Base mainnet only (skipped with a

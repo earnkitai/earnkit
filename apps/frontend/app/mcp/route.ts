@@ -5,7 +5,7 @@ import { connectInstallation, type Caller } from '../../lib/earnkit/installation
 import { earnkitCampaignOpen } from '../../lib/earnkit/leaderboard';
 import { createMcpServer } from '../../lib/earnkit/mcp';
 import { publicOrigin } from '../../lib/earnkit/oauth';
-import { scrubToolCalls, withScrubNotes } from '../../lib/earnkit/secrets';
+import { BODY_TOO_LARGE, readCapped, scrubToolCalls, withScrubNotes } from '../../lib/earnkit/secrets';
 
 /**
  * v2.10 item 4 (R17): a POSTed JSON body with an old tool name in a `tools/call` is rewritten to the
@@ -14,15 +14,17 @@ import { scrubToolCalls, withScrubNotes } from '../../lib/earnkit/secrets';
  *
  * v4.8.1 Task 4 (R6): in the same parse, and first, each `tools/call`'s arguments are scrubbed of secret
  * keys (secrets.ts scrubToolCalls), so neither the alias step, the transport nor any tool sees them. Only
- * the count is logged; `scrubbed` holds the calls' ids so their replies lead with SCRUB_LINE.
+ * the count is logged; `scrubbed` holds the calls' ids so their replies lead with SCRUB_LINE. Fix 3: a body over
+ * MAX_MCP_BODY_BYTES (1 MB) is answered 413 before it is parsed (never logged).
  */
 type Aliased = { request: Request; old: Map<string | number, string>; scrubbed: Set<string | number> };
 
-async function withAliases(request: Request): Promise<Aliased> {
+async function withAliases(request: Request): Promise<Aliased | Response> {
   const none = new Map<string | number, string>();
   const clean = new Set<string | number>();
   if (request.method !== 'POST' || !/application\/json/i.test(request.headers.get('content-type') ?? '')) return { request, old: none, scrubbed: clean };
-  const raw = await request.text();
+  const raw = await readCapped(request);
+  if (raw === null) return json(BODY_TOO_LARGE, 413);
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -31,7 +33,6 @@ async function withAliases(request: Request): Promise<Aliased> {
   }
   const scrub = scrubToolCalls(parsed);
   if (scrub.removed > 0) console.log(`[mcp] scrubbed ${scrub.removed}`);
-  if (scrub.skipped > 0) console.log('[mcp] scrub skipped long arg');
   const now = new Date();
   // v2.10.1 B5: which calls used an old name, so their replies name only the tools that client lists.
   const old = aliasedIds(scrub.body, now);
@@ -109,6 +110,7 @@ async function handle(request: Request) {
     { campaignOpen },
   ).connect(transport);
   const aliased = await withAliases(request);
+  if (aliased instanceof Response) return aliased;
   const response = await withScrubNotes(await forOldNames(await transport.handleRequest(aliased.request), aliased.old), aliased.scrubbed);
 
   const headers = new Headers(response.headers);
