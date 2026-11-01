@@ -222,7 +222,8 @@ test("the owner's state through find: the path's Base hook offers to add Builder
   assert.equal(typeof g?.[key], 'string');
   // Mid-path (fix round 1, T2-4): the next find stays on Base's gap with its first remaining step, never "Want the steps?".
   const next = show(await mcpCall(ctx, 'find', {}));
-  assert.match(next, /^Still on Base Builder Grant: add Base's Builder Code to your app, .* Want me to do it now\?$/, next);
+  // v4.8.1 final fix (8): the guide link ends its line, so the step can span two lines.
+  assert.match(next, /^Still on Base Builder Grant: add Base's Builder Code to your app, [\s\S]* Want me to do it now\?$/, next);
 });
 
 test('a no to the codes question is remembered and never asked again', db, async () => {
