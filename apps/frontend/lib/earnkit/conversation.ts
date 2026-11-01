@@ -418,8 +418,13 @@ export function gapClosedReply(c: { org: string; title: string; codes: boolean; 
 export const FOUNDER_BLANKS: readonly string[] = ["who's on the team", "any money you've raised"];
 /** Fix round 2 (F9): one list style at any count: "a", "a, and b", "a, b, and c". Pure. */
 export const andComma = (xs: readonly string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')}, and ${xs.at(-1)}`);
-/** Fix round 2 (F5): a yes to the draft with its blanks still empty: "I need {blanks} to finish it. Reply with them." Pure. */
-export const blanksAgain = (blanks: readonly string[]) => `I need ${andComma(blanks)} to finish it. ${blanks.length === 1 ? 'Reply with it.' : 'Reply with them.'}`;
+/** Task 6 fix round 1b: the blanks' one approved reply line: "Reply with it|both|them and I'll finish it.". Pure. */
+const finishLine = (n: number) => `Reply with ${n === 1 ? 'it' : n === 2 ? 'both' : 'them'} and I'll finish it.`;
+/**
+ * Fix round 2 (F5): a yes to the draft with its blanks still empty: "I need {blanks}. Reply with both and I'll finish
+ * it." (it, both or them, as blanksAsk; Task 6 fix round 1b). Pure.
+ */
+export const blanksAgain = (blanks: readonly string[]) => `I need ${andComma(blanks)}. ${finishLine(blanks.length)}`;
 const COUNT = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
 /**
  * The draft's one easy reply: the blanks only the builder can fill, asked as one reply. Two (target A, exact): "Two
@@ -431,8 +436,7 @@ export function blanksAsk(blanks: readonly string[]): string {
   if (n === 0) return 'Want me to finish it?';
   const count = COUNT[n] ?? String(n);
   const list = andComma(blanks);
-  const reply = n === 1 ? 'Reply with it' : n === 2 ? 'Reply with both' : 'Reply with them';
-  return `${count} ${n === 1 ? 'blank' : 'blanks'} only you can fill: ${list}. ${reply} and I'll finish it.`;
+  return `${count} ${n === 1 ? 'blank' : 'blanks'} only you can fill: ${list}. ${finishLine(n)}`;
 }
 /** The draft stage's reply: "Here's your draft:", the verified record's lines, then the blanks ask (last). Pure. */
 export const draftReply = (record: readonly string[], blanks: readonly string[]) =>

@@ -103,7 +103,7 @@ export function lazyNext(r: Reply, o: { blanks: string; pushed: string }): Turn 
   if (!m) return null;
   const ask = { kind: m.kind, project_key: m.project_key ?? null };
   if (/\breply "sent"/i.test(end)) return { says: 'sent', tell: { move_up: { ...ask, answer: 'sent' } } };
-  if (end.endsWith(BOTH)) return { says: o.blanks, tell: { move_up: { ...ask, answer: 'yes', blanks: o.blanks } } };
+  if (BLANKS_REPLY.test(sentences(end).at(-1) ?? '')) return { says: o.blanks, tell: { move_up: { ...ask, answer: 'yes', blanks: o.blanks } } };
   if (/\?$/.test(end) || /\bsay ok\b/i.test(end)) return { says: 'ok', tell: { move_up: { ...ask, answer: 'yes' } } };
   return null;
 }
@@ -184,8 +184,11 @@ const unquoted = (s: string) =>
 /** A paragraph's sentences (a "." inside a link or a number never ends one). */
 const sentences = (p: string) => norm(p).split(/(?<=[.!?])\s+/).filter(Boolean);
 
-/** The approved blanks ask (target A), the one easy reply that is neither a yes nor a word. */
-export const BOTH = "Reply with both and I'll finish it.";
+/**
+ * The approved blanks ask (target A, and its 1 and 3+ forms, fix round 1b), the one easy reply that is neither a yes
+ * nor a word: exactly "Reply with it|both|them and I'll finish it.".
+ */
+export const BLANKS_REPLY = /^Reply with (?:it|both|them) and I'll finish it\.$/;
 /** A question a yes answers: it opens on a yes/no word, and offers no choice and asks for nothing open. */
 const YES_NO = /^(?:want|should|shall|can|could|do|does|did|is|are|will|would|go|draft|ready|start|ok|okay|add)\b/i;
 const NOT_YES_NO = /\bor\b|\b(?:tell me|let me know|what|which|something|anything|who|whom|whose|how|why|where|when)\b/i;
@@ -211,7 +214,7 @@ const signInLink = () => {
 /**
  * Rule 1: the last sentence is one easy reply, and the visible text asks one question at most. The easy replies: a
  * yes/no question (last, nothing after it, no choice, nothing open asked for), one named word (reply "sent", say ok, a
- * number), the approved blanks ask (BOTH, exact), or a last line that ends in EarnKit's sign-in link while the reply's
+ * number), the approved blanks ask (BLANKS_REPLY, exact), or a last line that ends in EarnKit's sign-in link while the reply's
  * stored ask is sign_in (the builder's reply is the tap).
  */
 function easyReply(r: Reply): string | null {
@@ -224,7 +227,7 @@ function easyReply(r: Reply): string | null {
     return last.includes('?') ? 'a question before the sign-in link' : null;
   }
   const s = sentences(last).at(-1) ?? '';
-  if (s === BOTH) return null;
+  if (BLANKS_REPLY.test(s)) return null;
   if (s.endsWith('?')) {
     if (!YES_NO.test(s)) return `not a yes/no question: "${s}"`;
     if (NOT_YES_NO.test(s)) return `a choice or an open question: "${s}"`;

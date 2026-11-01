@@ -608,7 +608,10 @@ test("draftBlanks (fix round 2, F1): a founder brief for a16z; Base's blanks are
   assert.deepEqual(draftBlanks(fields([{ key: 'payout_wallet', label: 'Payout wallet' }]), { payout_wallet: '0xabc' }).blanks, []);
   // F9: one list style at any count; F5: the re-ask and the ready line.
   assert.equal(blanksAsk(['a', 'b', 'c']), "Three blanks only you can fill: a, b, and c. Reply with them and I'll finish it.");
-  assert.equal(blanksAgain(['a note on the founding team', 'a Loom product demo']), 'I need a note on the founding team, and a Loom product demo to finish it. Reply with them.');
+  // Task 6 fix round 1b: the re-ask has the blanks ask's approved shape, "Reply with it|both|them and I'll finish it.".
+  assert.equal(blanksAgain(['a note on the founding team', 'a Loom product demo']), "I need a note on the founding team, and a Loom product demo. Reply with both and I'll finish it.");
+  assert.equal(blanksAgain(['a demo']), "I need a demo. Reply with it and I'll finish it.");
+  assert.equal(blanksAgain(['a', 'b', 'c']), "I need a, b, and c. Reply with them and I'll finish it.");
 });
 
 test('the draft notes (fix round 2, F7, F8): the guard always; with no verified record, never invented traction', () => {
@@ -659,7 +662,7 @@ test('"sure" on the hook gives a draft with the verified record and A\'s two bla
   assert.match(noteOf(r), /Never tell them they qualify or that an application was sent\./);
   // F5: a bare "ok" with the blanks still empty re-asks them, and the ask stays.
   const ok = await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes' });
-  assert.equal(show(ok), "I need who's on the team, and any money you've raised to finish it. Reply with them.");
+  assert.equal(show(ok), "I need who's on the team, and any money you've raised. Reply with both and I'll finish it.");
   // Fix round 3 (1): a yes carrying their answers never re-asks: the blanks are cleared (the words never stored).
   // Task 3: that same reply is the submit stage (target A, "just me, nothing raised").
   const answered = await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes', blanks: 'just me, nothing raised' });
@@ -1848,6 +1851,9 @@ test('gateFailures (Task 6): a good reply passes; every kind of break is caught 
     "Say ok once the change is pushed, and I'll check it.", "I'm checking the code now. Give it a minute, then say ok.", "Say ok once it's done, and I'll check it.",
     "Two blanks only you can fill: who's on the team, and any money you've raised. Reply with both and I'll finish it.", 'Reply with a number.'])
     assert.deepEqual(rules([gr(ok)]), [], ok);
+  // Fix round 1b: the draft's blanks asks (1, 2, 3+ blanks) and the re-ask, one approved shape.
+  for (const blanks of [['your demo video'], [...FOUNDER_BLANKS], ['a', 'b', 'c'], ['a', 'b', 'c', 'd']])
+    for (const ask of [blanksAsk(blanks), blanksAgain(blanks)]) assert.deepEqual(rules([gr(ask)]), [], ask);
   // ... the sign-in link last, while the stored ask is sign_in (the opener, the pick).
   for (const ok of [`Reply with a number, and connect here so I can check if your work fits: ${SIGNIN_URL}`, `Got it: Circle. Connect here so I can check if your work fits: ${SIGNIN_URL}`])
     assert.deepEqual(rules([signIn(ok)]), [], ok);
@@ -1858,7 +1864,7 @@ test('gateFailures (Task 6): a good reply passes; every kind of break is caught 
   for (const bad of ['Want me to start? Or tell me what else you need.', 'Want help with it now? ok', 'Draft it now? It takes me a few minutes.',
     'Do you want Base, Arc or Circle?', 'Want the steps or the draft?', 'Can you tell me what your product does?', 'Is there something specific you want to build next?',
     'Reply with a number. Also tell me about your team, your raise and your goals.', 'Reply "sent" once in. Your team size?', 'Reply with it whenever.',
-    "One blank only you can fill: your demo video. Reply with it and I'll finish it.", 'Here is your plan. Connect here to see more: https://evil.example/x',
+    "Reply with it and finish it yourself.", 'Reply with them.', 'Here is your plan. Connect here to see more: https://evil.example/x',
     `Reply with a number, or tell me about your plans.`])
     assert.deepEqual(rules([gr(bad)]), ['0:easy_reply'], bad);
   assert.deepEqual(rules([signIn('Here is your plan. Connect here to see more: https://evil.example/signin/ctZ7e0DoAzqmuAQTYGh8gg')]), ['0:easy_reply']);

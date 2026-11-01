@@ -2841,8 +2841,8 @@ export async function draftAnswered(id: number, programId: string): Promise<void
 }
 
 /**
- * Fix round 2 (F5): a yes to the draft's own ask. Its blanks still empty (a bare "ok"): "I need {blanks} to finish it.
- * Reply with them." and the ask stays (a no still parks). v4.8 Task 3: a yes carrying their answers (fix round 3, 1) or
+ * Fix round 2 (F5): a yes to the draft's own ask. Its blanks still empty (a bare "ok"): "I need {blanks}. Reply with
+ * both and I'll finish it." and the ask stays (a no still parks). v4.8 Task 3: a yes carrying their answers (fix round 3, 1) or
  * a yes with no blanks left is the submit stage (pathSubmit): the path moves to `submit` and the reply is the link, the
  * deadline and "sent". Never throws on its own writes.
  */
