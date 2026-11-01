@@ -5,33 +5,41 @@ import { connectInstallation, type Caller } from '../../lib/earnkit/installation
 import { earnkitCampaignOpen } from '../../lib/earnkit/leaderboard';
 import { createMcpServer } from '../../lib/earnkit/mcp';
 import { publicOrigin } from '../../lib/earnkit/oauth';
+import { scrubToolCalls, withScrubNotes } from '../../lib/earnkit/secrets';
 
 /**
  * v2.10 item 4 (R17): a POSTed JSON body with an old tool name in a `tools/call` is rewritten to the
  * new tool and its arguments before the transport sees it, and each use is logged by name only (never
  * an argument). A body that isn't JSON passes through untouched.
+ *
+ * v4.8.1 Task 4 (R6): in the same parse, and first, each `tools/call`'s arguments are scrubbed of secret
+ * keys (secrets.ts scrubToolCalls), so neither the alias step, the transport nor any tool sees them. Only
+ * the count is logged; `scrubbed` holds the calls' ids so their replies lead with SCRUB_LINE.
  */
-type Aliased = { request: Request; old: Map<string | number, string> };
+type Aliased = { request: Request; old: Map<string | number, string>; scrubbed: Set<string | number> };
 
 async function withAliases(request: Request): Promise<Aliased> {
   const none = new Map<string | number, string>();
-  if (request.method !== 'POST' || !/application\/json/i.test(request.headers.get('content-type') ?? '')) return { request, old: none };
+  const clean = new Set<string | number>();
+  if (request.method !== 'POST' || !/application\/json/i.test(request.headers.get('content-type') ?? '')) return { request, old: none, scrubbed: clean };
   const raw = await request.text();
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return { request: new Request(request.url, { method: request.method, headers: request.headers, body: raw }), old: none };
+    return { request: new Request(request.url, { method: request.method, headers: request.headers, body: raw }), old: none, scrubbed: clean };
   }
+  const scrub = scrubToolCalls(parsed);
+  if (scrub.removed > 0) console.log(`[mcp] scrubbed ${scrub.removed}`);
   const now = new Date();
   // v2.10.1 B5: which calls used an old name, so their replies name only the tools that client lists.
-  const old = aliasedIds(parsed, now);
-  const { body, changed } = await rewriteAliases(parsed, now, (o, next) => console.log(`[mcp] alias ${o} -> ${next}`));
-  if (!changed) return { request: new Request(request.url, { method: request.method, headers: request.headers, body: raw }), old: none };
+  const old = aliasedIds(scrub.body, now);
+  const { body, changed } = await rewriteAliases(scrub.body, now, (o, next) => console.log(`[mcp] alias ${o} -> ${next}`));
+  if (!changed && scrub.removed === 0) return { request: new Request(request.url, { method: request.method, headers: request.headers, body: raw }), old: none, scrubbed: clean };
   // The rewritten body has its own length.
   const headers = new Headers(request.headers);
   headers.delete('content-length');
-  return { request: new Request(request.url, { method: request.method, headers, body: JSON.stringify(body) }), old };
+  return { request: new Request(request.url, { method: request.method, headers, body: JSON.stringify(body) }), old: changed ? old : none, scrubbed: scrub.ids };
 }
 
 /**
@@ -100,7 +108,7 @@ async function handle(request: Request) {
     { campaignOpen },
   ).connect(transport);
   const aliased = await withAliases(request);
-  const response = await forOldNames(await transport.handleRequest(aliased.request), aliased.old);
+  const response = await withScrubNotes(await forOldNames(await transport.handleRequest(aliased.request), aliased.old), aliased.scrubbed);
 
   const headers = new Headers(response.headers);
   for (const [k, v] of Object.entries(CORS)) headers.set(k, v);

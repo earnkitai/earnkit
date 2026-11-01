@@ -352,7 +352,9 @@ apps/frontend/
                                withAliases rewrites old tool names (aliases.ts) before the transport and logs
                                "[mcp] alias <old> -> <new>" (names only); imports lib/earnkit relatively (tests load it);
                                v2.10.1 B5 (fix round 1 I3): forOldNames answers an old-name call as plain JSON, each tool
-                               named in both forms (forOldClient), with tools_note
+                               named in both forms (forOldClient), with tools_note; v4.8.1 Task 4 (R6): withAliases
+                               scrubs tools/call arguments first (secrets.ts scrubToolCalls, logs "[mcp] scrubbed {n}"),
+                               withScrubNotes puts SCRUB_LINE on those calls' replies
   app/oauth/{register,authorize,token}/   OAuth for MCP clients (v2.14 T4: authorize signs in with X,
                                x-install.ts; authorize/route.ts calls authorizeGet(request) only)
   app/x/callback/route.ts      v2.14 T4: xSignInCallback (install sign-in; T5: a link sign-in shows the paste code); else 404 (T7: the claim flow is gone)
@@ -505,6 +507,9 @@ apps/frontend/
                                deployerOf (creation tx sender), checkOwnership (fork refusal via
                                GitHub repoFacts, fetcher and Alchemy DeployerLookup (alchemyDeployer) injectable;
                                recordSubmission passes deps through for the e2e)
+    secrets.ts                 v4.8.1 Task 4 (R6): SECRET_PATTERNS, SCRUB_LINE, scrubSecrets (pure walk, removed count),
+                               scrubToolCalls (tools/call arguments, single/batch, ids), withScrubNote(s) (scrub_note
+                               on JSON replies, else a prefixed line); tests in v481-secrets.test.ts
     sanctions.ts(+test)        Chainalysis isSanctioned oracle on Base mainnet only (skipped with a
                                note elsewhere; injectable): screenWallet (entry, create),
                                screenWinners (award plans, fallback execute,

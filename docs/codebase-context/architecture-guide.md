@@ -111,7 +111,7 @@ agent (Grok Bot, Muse, Claude, Cursor…) ──HTTPS──> /mcp
     -> the client's redirect with a code carrying the X user (signed) -> POST /oauth/token
     -> token = installation row, bound to the X account (attachToX); the client stores the token
     (a client serving many builders, or X unset: approved at once, anonymous, as before v2.14)
-  then: Bearer token -> /mcp (old tool names rewritten: aliases.ts) -> lib/earnkit/mcp.ts
+  then: Bearer token -> /mcp (secret keys scrubbed: secrets.ts; old tool names rewritten: aliases.ts) -> lib/earnkit/mcp.ts
         -> lib/earnkit/tools.ts (find, prepare, confirm, tell -> handlers) -> Postgres
 stdio-only clients: npx mcp-remote https://earnkit.com/mcp
 Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm programs:sync ──> Postgres
@@ -8913,3 +8913,20 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
   This supersedes the "still the next move" / "still the one step to" / "still your closest money" pointers above.
 - **Fit copy (R5).** fitCell for one chain the project is not on: "Not yet: they look for apps on {chain}" (supersedes
   "Not yet: needs Arc" above).
+
+## v4.8.1 Task 4: secret scrub on every tool call (2026-11-01, ruling R6)
+
+- **Where.** app/mcp/route.ts `withAliases`, in its one JSON parse and before the alias step: `scrubToolCalls`
+  (lib/earnkit/secrets.ts) replaces each match of `SECRET_PATTERNS` in every string of each `tools/call`'s
+  `params.arguments` (single and batch bodies) with `[key removed]`, so no tool, log or table ever sees the key. Other
+  methods and non-JSON bodies pass through as before. Patterns: Stripe sk/rk/pk live/test and whsec, GitHub
+  gh[opsur]_ and github_pat_, Anthropic sk-ant-, OpenAI sk-/sk-proj-, AWS AKIA, PEM private keys. Raw 64-hex is never
+  matched (tx hashes).
+- **Log.** Only `[mcp] scrubbed {n}`, never the value.
+- **Reply.** The scrubbed calls' ids are kept; `withScrubNotes` (after forOldNames) rewrites their replies: the first
+  text content, a JSON object (every successful tool reply), gets a top-level `scrub_note: SCRUB_LINE` as its first key;
+  a non-JSON text (an error line) is prefixed with SCRUB_LINE and a blank line. The hosted transport answers in plain
+  JSON (enableJsonResponse), so there is no SSE case; a non-200 or non-JSON response passes through unmarked (the call
+  was still scrubbed).
+- **Known overreach.** The OpenAI pattern also matches any word starting `sk-` followed by 20+ word/dash characters
+  (a repo named `sk-learn-tutorial-for-beginners`); that text becomes `[key removed]`.
