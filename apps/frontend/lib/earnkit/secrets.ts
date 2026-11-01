@@ -212,9 +212,17 @@ export function scrubToolCalls(body: unknown): { body: unknown; removed: number;
 
 /**
  * One JSON-RPC reply to a scrubbed call: the first text content carries SCRUB_LINE. A JSON object text
- * (every successful tool reply, mcp.ts run) gets it as a top-level `scrub_note`; any other text (an error
- * line) is prefixed with SCRUB_LINE and a blank line. A JSON-RPC error (no result) is returned as is. Pure.
+ * (every successful tool reply, mcp.ts run) gets it as a top-level `scrub_note`, and (final review 7: every agent note
+ * says to show `show_to_builder`, so a note field alone is never shown) at the start of `show_to_builder`, followed by
+ * a blank line, wherever the reply has one; the easy reply stays last. Any other text (an error line) is prefixed with
+ * SCRUB_LINE and a blank line. A JSON-RPC error (no result) is returned as is. Pure.
  */
+const withShowLine = (r: Record<string, unknown>) => {
+  const show = r.show_to_builder;
+  const out: Record<string, unknown> = { scrub_note: SCRUB_LINE, ...r };
+  if (typeof show === 'string') out.show_to_builder = show ? `${SCRUB_LINE}\n\n${show}` : SCRUB_LINE;
+  return out;
+};
 export function withScrubNote(message: unknown): unknown {
   const m = message as { result?: { content?: { type?: string; text?: unknown }[] } };
   if (!m || typeof m !== 'object' || !m.result || !Array.isArray(m.result.content)) return message;
@@ -226,7 +234,7 @@ export function withScrubNote(message: unknown): unknown {
     const parsed = JSON.parse(c.text) as unknown;
     text =
       parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-        ? JSON.stringify({ scrub_note: SCRUB_LINE, ...parsed })
+        ? JSON.stringify(withShowLine(parsed as Record<string, unknown>))
         : `${SCRUB_LINE}\n\n${c.text}`;
   } catch {
     text = `${SCRUB_LINE}\n\n${c.text}`;

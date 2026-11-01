@@ -200,14 +200,26 @@ test('T4.5 only tools/call arguments are scrubbed, in single and batch bodies; i
   assert.equal(none.ids.size, 0);
 });
 
-test('T4.6 the reply note: JSON text gets scrub_note first; other text is prefixed with a blank line', () => {
+test('T4.6 the reply note: JSON text gets scrub_note first and SCRUB_LINE leads show_to_builder; other text is prefixed with a blank line', () => {
   const ok = withScrubNote({ id: 1, result: { content: [{ type: 'text', text: JSON.stringify({ show_to_builder: 'Hi' }) }] } }) as {
     result: { content: { text: string }[] };
   };
   const parsed = JSON.parse(ok.result.content[0].text);
   assert.equal(Object.keys(parsed)[0], 'scrub_note');
   assert.equal(parsed.scrub_note, SCRUB_LINE);
-  assert.equal(parsed.show_to_builder, 'Hi');
+  // Final review 7: the builder reads show_to_builder, so the line leads it, then a blank line; the easy reply stays last.
+  assert.equal(parsed.show_to_builder, `${SCRUB_LINE}\n\nHi`);
+  assert.ok(parsed.show_to_builder.startsWith(SCRUB_LINE));
+  // No show_to_builder: scrub_note only, nothing added.
+  const bare = JSON.parse((withScrubNote({ id: 1, result: { content: [{ type: 'text', text: JSON.stringify({ agent_note: 'n' }) }] } }) as {
+    result: { content: { text: string }[] };
+  }).result.content[0].text);
+  assert.deepEqual(bare, { scrub_note: SCRUB_LINE, agent_note: 'n' });
+  // An empty show_to_builder is the line alone.
+  const empty = JSON.parse((withScrubNote({ id: 1, result: { content: [{ type: 'text', text: JSON.stringify({ show_to_builder: '' }) }] } }) as {
+    result: { content: { text: string }[] };
+  }).result.content[0].text);
+  assert.equal(empty.show_to_builder, SCRUB_LINE);
   const err = withScrubNote({ id: 1, result: { content: [{ type: 'text', text: 'Invalid input: x' }], isError: true } }) as {
     result: { content: { text: string }[]; isError: boolean };
   };
@@ -253,6 +265,7 @@ test('T4.7 pipeline as the route runs it: rk_live in a nested argument reaches t
     const replies = JSON.parse(text) as { id: number; result: { content: { text: string }[] } }[];
     const reply = replies.find((r) => r.id === 2)!;
     assert.equal(JSON.parse(reply.result.content[0].text).scrub_note, SCRUB_LINE);
+    assert.equal(JSON.parse(reply.result.content[0].text).show_to_builder, `${SCRUB_LINE}\n\nSaved.`);
     assert.deepEqual(replies.find((r) => r.id === 1)!.result, {}, 'the ping reply is untouched');
     assert.ok(!text.includes(key));
   } finally {
