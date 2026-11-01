@@ -97,3 +97,35 @@ export const proofHostAllowed = (raw: string) => {
  * "Optimism.IO." can't pass as another host. Pure.
  */
 export const normalHost = (host: string) => host.toLowerCase().replace(/\.+$/, '');
+
+/**
+ * v4.9 Task 2 fix 1 (security review): a host's registrable domain: its last two labels, or three when the last two are
+ * a known public suffix of more than one label (MULTI_SUFFIXES, "co.uk"). Normalized first. Pure.
+ */
+export function registrableDomain(host: string): string {
+  const labels = normalHost(host).split('.');
+  const two = labels.slice(-2).join('.');
+  return MULTI_SUFFIXES.has(two) ? labels.slice(-3).join('.') : two;
+}
+
+/**
+ * v4.9 Task 2 fix 1: the submit platforms an API program may send builders to on another domain than its source
+ * (subdomains count). docs.google.com only under /forms.
+ */
+export const API_SUBMIT_HOSTS = [
+  'docs.google.com', 'forms.gle', 'typeform.com', 'tally.so', 'dorahacks.io', 'questbook.app', 'devfolio.co', 'ethglobal.com',
+  'hackquest.io',
+] as const;
+
+/**
+ * Whether an API program may submit at `host` (with `path` when the link has one): the source's registrable domain, or
+ * an API_SUBMIT_HOSTS platform (docs.google.com only under /forms; a bare host has no path to check). Pure.
+ */
+export function apiSubmitHostAllowed(host: string, sourceHost: string, path?: string): boolean {
+  const h = normalHost(host);
+  if (registrableDomain(h) === registrableDomain(sourceHost)) return true;
+  const platform = API_SUBMIT_HOSTS.find((p) => h === p || h.endsWith(`.${p}`));
+  if (!platform) return false;
+  if (platform === 'docs.google.com' && path !== undefined) return path === '/forms' || path.startsWith('/forms/');
+  return true;
+}

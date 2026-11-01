@@ -8,7 +8,9 @@ import { sql } from './db';
 import { bearerMatches, json } from './http';
 import { programProblems, schemaProblems } from './program-checks';
 import { ProgramFile, categoryOf, isOptimismUrl } from './program-file';
-import { upsertProgram } from './programs';
+import { ApiRowTakenError, upsertProgram } from './programs';
+import { apiTextProblems, cleanApiProgram } from './api-program-text';
+import { apiSubmitHostAllowed, normalHost, registrableDomain } from './submit-hosts';
 import { RateLimitError, enforce } from './rate-limit';
 import { FETCH_TIMEOUT_MS, HttpStatusError, safeProbe } from './safe-fetch';
 import { readCapped } from './secrets';
@@ -35,7 +37,17 @@ export const PROGRAMS_BODY_MAX = 256 * 1024;
  * campaign pays out), and the other owner-only fields `fresh_build`, `starters` and `difficulty_override`.
  * `agent_completable` stays allowed.
  */
-export const API_FORBIDDEN = ['proof_hosts', 'x_handles', 'logo', 'campaign', 'fresh_build', 'starters', 'difficulty_override'] as const;
+export const API_FORBIDDEN = [
+  'proof_hosts',
+  'x_handles',
+  'logo',
+  'campaign',
+  'fresh_build',
+  'starters',
+  'difficulty_override',
+  // Fix 1 (review F3): proof-shaped (its host and caller-written regex go to agents).
+  'submission_proof',
+] as const;
 export const API_ID = /^[a-z0-9-]{3,64}$/;
 /** verified_at may be at most this many days old. */
 export const VERIFIED_MAX_AGE_DAYS = 7;
@@ -47,11 +59,22 @@ const DAY_MS = 86_400_000;
 /** UTC+14 is the earliest zone: a bot's "today" there is never refused as the future. */
 const EARLIEST_ZONE_MS = 14 * 3_600_000;
 
+/** Fix 1 (review F4): the off switch, trimmed and case-insensitive. */
+const OFF_VALUES = new Set(['off', '0', 'false']);
+
 /** The token is set (R6: at least 32 characters) and the off switch isn't thrown. */
 export function programsApiOn(env: NodeJS.ProcessEnv = process.env): boolean {
   const token = env.EARNKIT_PROGRAMS_TOKEN;
-  return Boolean(token && token.length >= 32) && env.EARNKIT_PROGRAMS_API !== 'off';
+  return Boolean(token && token.length >= 32) && !OFF_VALUES.has((env.EARNKIT_PROGRAMS_API ?? '').trim().toLowerCase());
 }
+
+/** Fix 1 (review F5): what a failure log may say: the error's name and postgres code, never its message. */
+const errTag = (err: unknown) => {
+  const e = err as { name?: unknown; code?: unknown } | null;
+  const name = typeof e?.name === 'string' ? e.name.replace(/[^\w]/g, '').slice(0, 40) : 'unknown';
+  const code = typeof e?.code === 'string' ? e.code.replace(/[^\w]/g, '').slice(0, 10) : null;
+  return code ? `${name} ${code}` : name;
+};
 
 /** R4: the owner-only fields present in a raw program body. Pure. */
 export const forbiddenFields = (raw: Record<string, unknown>): string[] =>
@@ -86,6 +109,24 @@ export function apiRuleProblems(p: ProgramFile, now: Date): string[] {
     else if (isIP(host.replace(/^\[(.*)\]$/, '$1'))) problems.push(`${key}: use the program's domain name, not an IP address`);
     else if (isOptimismUrl(url)) problems.push(`${key}: Optimism programs are not listed`);
   }
+  // Fix 1 (security review): builders' answers go only to the program's own domain or a known submit platform.
+  const source = hostOf(p.source_url);
+  if (source !== null && problems.every((x) => !x.startsWith('source_url'))) {
+    const allowed = (host: string, path?: string) => apiSubmitHostAllowed(host, source, path);
+    const sub = new URL(p.submission_url);
+    if (problems.every((x) => !x.startsWith('submission_url')) && !allowed(sub.hostname, sub.pathname))
+      problems.push(`submission_url: ${normalHost(sub.hostname)} is neither on ${registrableDomain(source)} (the source's domain) nor a known submit platform`);
+    if (p.form) {
+      const f = new URL(p.form.url);
+      if (!allowed(f.hostname, f.pathname)) problems.push(`form.url: ${normalHost(f.hostname)} is neither on the source's domain nor a known submit platform`);
+    }
+    if (p.submit_host !== undefined && !allowed(p.submit_host))
+      problems.push(`submit_host: ${p.submit_host} is neither on the source's domain nor a known submit platform`);
+    if (p.submit_api && p.submit_host === undefined && !allowed(sub.hostname, sub.pathname))
+      problems.push('submit_api: its host is neither on the source\'s domain nor a known submit platform');
+  }
+  // Fix 1 (review F2): builder- and agent-facing text carries no links, markdown links or HTML.
+  problems.push(...apiTextProblems(p));
   return problems;
 }
 
@@ -129,6 +170,8 @@ export type WriteDeps = {
   programsDir?: string | null;
   /** Counts one authenticated call; throws a RateLimitError when over the limit. Default LIMITS.programsWrite. */
   limit?: () => Promise<unknown>;
+  /** Tests only: runs inside the write transaction right after the row is read (a sync racing the write). */
+  afterRead?: () => Promise<void>;
 };
 
 type Result = 'created' | 'updated' | 'unchanged' | 'closed';
@@ -155,8 +198,8 @@ async function audit(
 async function auditRefusal(action: string, id: unknown, result: string, problems: string[]) {
   const program_id = safeId(id);
   console.log(`[programs-api] ${action} ${program_id ?? '-'} ${result}`);
-  await audit(sql(), { program_id, action, result, reason: problems.join('; ').slice(0, 1_000) }).catch(() =>
-    console.error('[programs-api] audit write failed'),
+  await audit(sql(), { program_id, action, result, reason: problems.join('; ').slice(0, 1_000) }).catch((err: unknown) =>
+    console.error(`[programs-api] audit write failed: ${errTag(err)}`),
   );
 }
 
@@ -219,6 +262,8 @@ async function upsertAction(raw: Record<string, unknown>, deps: Required<Omit<Wr
     return refused(400, linkProblems);
   }
 
+  // Fix 1 (F2): stored already plain, so every read path (not only MCP output) gets plain text.
+  const clean = cleanApiProgram(p);
   let result: Result;
   try {
     result = await sql().begin(async (tx) => {
@@ -226,14 +271,17 @@ async function upsertAction(raw: Record<string, unknown>, deps: Required<Omit<Wr
       const [row] = await tx<{ source: string }[]>`SELECT source FROM programs WHERE id = ${p.id} FOR UPDATE`;
       if (row && row.source !== 'api') throw new Curated();
       const before = row ? await snapshot(tx, p.id) : null;
-      await upsertProgram(p, 'api', tx);
+      await deps.afterRead();
+      // Fix 1 (F1): upsertProgram updates only an api row (ApiRowTakenError otherwise), and reports a fresh insert, so
+      // a row another writer inserted after the read above is never overwritten, and two creates aren't both "created".
+      const { inserted } = await upsertProgram(clean, 'api', tx);
       if (before !== null && isDeepStrictEqual(before, await snapshot(tx, p.id))) throw new Unchanged();
-      const r: Result = row ? 'updated' : 'created';
-      await audit(tx, { program_id: p.id, action: 'upsert', result: r, body: p });
+      const r: Result = inserted ? 'created' : 'updated';
+      await audit(tx, { program_id: p.id, action: 'upsert', result: r, body: clean });
       return r;
     });
   } catch (err) {
-    if (err instanceof Curated) {
+    if (err instanceof Curated || err instanceof ApiRowTakenError) {
       await auditRefusal('upsert', p.id, 'curated', [curatedLine(p.id)]);
       return refused(409, [curatedLine(p.id)]);
     }
@@ -294,7 +342,7 @@ export async function programsWritePost(request: Request, deps: WriteDeps = {}):
     await (deps.limit ?? (() => enforce('programsWrite', 'owner', 'Too many program writes this hour.')))();
   } catch (err) {
     if (err instanceof RateLimitError) return json({ ok: false, error: err.message }, 429, { 'Retry-After': String(err.retryAfter) });
-    console.error('[programs-api] rate limit check failed');
+    console.error(`[programs-api] rate limit check failed: ${errTag(err)}`);
     return json({ ok: false, error: 'EarnKit is busy. Try again in a minute.' }, 503, { 'Retry-After': '30' });
   }
   const text = await readCapped(request, PROGRAMS_BODY_MAX).catch(() => null);
@@ -311,7 +359,12 @@ export async function programsWritePost(request: Request, deps: WriteDeps = {}):
     warnedNoDir = true;
     console.warn('[programs-api] programs/ not found; the row check alone guards curated ids');
   }
-  const full = { now: deps.now ?? new Date(), checkLink: deps.checkLink ?? ((u: string) => probeLink(u)), programsDir };
+  const full = {
+    now: deps.now ?? new Date(),
+    checkLink: deps.checkLink ?? ((u: string) => probeLink(u)),
+    programsDir,
+    afterRead: deps.afterRead ?? (async () => {}),
+  };
   try {
     const envelope = Envelope.safeParse(body);
     if (!envelope.success) {
@@ -321,8 +374,8 @@ export async function programsWritePost(request: Request, deps: WriteDeps = {}):
     }
     const e = envelope.data;
     return e.action === 'upsert' ? await upsertAction(e.program, full) : await closeAction(e.id, e.reason, full);
-  } catch {
-    console.error('[programs-api] write failed');
+  } catch (err) {
+    console.error(`[programs-api] write failed: ${errTag(err)}`);
     return json({ ok: false, error: 'EarnKit is busy. Try again in a minute.' }, 503, { 'Retry-After': '30' });
   }
 }

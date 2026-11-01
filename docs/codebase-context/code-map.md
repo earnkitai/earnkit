@@ -1385,6 +1385,9 @@ apps/frontend/
                                curated 409 (programs/ file or non-api row), probeLink (safeProbe; 401/403/429 pass), then upsertProgram(p,
                                'api') in a tx with an unchanged snapshot check; program_writes audit rows;
                                noteFileTakeover for programs-sync. Tests: v49-programs-api.test.ts
+    api-program-text.ts        v4.9 T2 fix 1: an API program's text: apiTextProblems (write-time: no links, markdown
+                               links or HTML), cleanApiProgram (stored plain), apiRowText/apiTrackText (plainText on
+                               read for source 'api' rows in programs.ts), API_CONTENT (the written-by envelope)
     payout.ts(+test)           payoutAccount (CAMPAIGN_PAYOUT_PRIVATE_KEY, with or without 0x: Ruling 7), payoutRpc, payWinner (sign,
                                store, broadcast; stale/manual handling; optional place), payRanked
                                (per-place amounts, any ERC-20, every v2.4 rule, openSends nonce

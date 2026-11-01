@@ -27,7 +27,7 @@ export type AlsoProgram = {
   ends_at: Date | null;
   status: 'active' | 'closed' | 'upcoming' | 'unlisted';
   campaign: boolean;
-  source: 'file' | 'sponsor';
+  source: 'file' | 'sponsor' | 'api';
   /**
    * Ruling C23: an investment program (a16z speedrun). Never in Also qualifies: its form isn't
    * public, so "Still needed" can't be counted, and it is never shown as a prize.
