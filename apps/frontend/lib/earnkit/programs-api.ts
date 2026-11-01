@@ -9,7 +9,7 @@ import { bearerMatches, json } from './http';
 import { programProblems, schemaProblems } from './program-checks';
 import { ProgramFile, categoryOf, isOptimismUrl } from './program-file';
 import { ApiRowTakenError, upsertProgram } from './programs';
-import { apiTextProblems, notWritableFields } from './api-program-text';
+import { apiTextProblems, apiUrlProblem, notWritableFields } from './api-program-text';
 import { apiSubmitHostAllowed, normalHost, sourceSiteName } from './submit-hosts';
 import { RateLimitError, enforce } from './rate-limit';
 import { FETCH_TIMEOUT_MS, HttpStatusError, safeProbe } from './safe-fetch';
@@ -92,7 +92,10 @@ export function apiRuleProblems(p: ProgramFile, now: Date): string[] {
   for (const key of urlKeys) {
     const url = p[key]!;
     const host = hostOf(url);
-    if (!url.startsWith('https://') || host === null) problems.push(`${key}: must be https`);
+    // Fix round 4 (N1): printable ASCII, normalized, no fragment or userinfo, no hidden characters.
+    const urlProblem = apiUrlProblem(key, url);
+    if (urlProblem) problems.push(urlProblem);
+    else if (!url.startsWith('https://') || host === null) problems.push(`${key}: must be https`);
     // Security review: a trailing dot or an IP literal never names a program's own site (and dodges host checks).
     else if (host.endsWith('.')) problems.push(`${key}: no trailing dot in the host name`);
     else if (isIP(host.replace(/^\[(.*)\]$/, '$1'))) problems.push(`${key}: use the program's domain name, not an IP address`);

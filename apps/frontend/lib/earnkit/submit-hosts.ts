@@ -148,6 +148,9 @@ export const API_SHARED_SITES = [
   'web.app', 'firebaseapp.com', 'webflow.io', 'framer.website', 'framer.app', 'onrender.com', 'fly.dev', 'replit.app',
   'repl.co', 'wixsite.com', 'carrd.co', 'blogspot.com', 'hashnode.dev', 'azurewebsites.net', 'amazonaws.com',
   'cloudfront.net', 'gitbook.io', 'glitch.me', 'surge.sh',
+  // Fix round 4: and these.
+  'wordpress.com', 'gitlab.io', 'workers.dev', 'deno.dev', 'railway.app', 'myshopify.com', 'bubbleapps.io',
+  'translate.goog', 'eth.limo', 'dweb.link', 'mypinata.cloud',
 ] as const;
 /** Of those, the hosts where one host name serves many owners by path (github.com/<owner>, sites.google.com/<site>). */
 export const API_PATH_OWNED = [

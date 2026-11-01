@@ -50,15 +50,44 @@ const MARKDOWN_LINK = /!?\[[^\]\n]{0,500}\]\s{0,3}\(|^\s{0,3}\[[^\]\n]{1,200}\]:
 // Fix round 3 (HIGH): invisible characters an agent reads but a person doesn't see. Controls but newline and tab, every
 // format character (bidi controls, zero-width characters, tag characters U+E0000-E007F), private use and unassigned.
 const HIDDEN = /[^\P{Cc}\n\t]|\p{Cf}|\p{Co}|\p{Cn}/u;
-// Variation selectors, allowed only right after an emoji or pictograph.
-const STRAY_VS = /(?<!\p{Extended_Pictographic})[\uFE00-\uFE0F\u{E0100}-\u{E01EF}]/u;
+// Fix round 4 (N3): invisible letters and marks: Hangul fillers, the combining grapheme joiner, Mongolian free
+// variation selectors, Khmer invisible vowels, the Braille blank, and the line and paragraph separators.
+const INVISIBLE = /[\u115F\u1160\u3164\uFFA0\u034F\u180B-\u180F\u17B4\u17B5\u2800\u2028\u2029]/u;
+// Fix round 4 (N3): variation selectors. Only U+FE0E or U+FE0F, right after an emoji or pictograph; every other one
+// (U+FE00-FE0D, U+E0100-E01EF) is refused anywhere, which closes the one-byte-per-emoji channel.
+const STRAY_VS = /[\uFE00-\uFE0D\u{E0100}-\u{E01EF}]|(?<!\p{Extended_Pictographic})[\uFE0E\uFE0F]/u;
+// Fix round 4 (N2): a lone surrogate (not well-formed UTF-16), which Postgres would store as U+FFFD.
+const LONE_SURROGATE = /\p{Cs}/u;
 const codePoint = (c: string) => `U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}`;
 
-/** Fix round 3: hidden characters and text that isn't NFKC-normalized, or null. Pure. */
+/** Fix rounds 3-4: hidden characters, malformed UTF-16 and text that isn't NFKC-normalized, or null. Pure. */
 export function hiddenTextProblem(field: string, value: string): string | null {
-  const hidden = HIDDEN.exec(value) ?? STRAY_VS.exec(value);
+  const lone = LONE_SURROGATE.exec(value);
+  if (lone) return `${field}: not well-formed text (a lone surrogate ${codePoint(lone[0])}); send valid UTF-8`;
+  const hidden = HIDDEN.exec(value) ?? INVISIBLE.exec(value) ?? STRAY_VS.exec(value);
   if (hidden) return `${field}: no hidden, control or format characters (${codePoint(hidden[0])}); plain visible text only`;
   if (value.normalize('NFKC') !== value) return `${field}: send plain normalized text (NFKC); no full-width or compatibility characters`;
+  return null;
+}
+
+/**
+ * Fix round 4 (N1): a URL field (source_url, submission_url, pool_source_url) is quoted verbatim in EarnKit's own
+ * sentences, so it must be printable ASCII with no spaces, already normalized (equal to `new URL(v).href`), with no
+ * fragment and no username or password. Returns the problem or null. Pure.
+ */
+export function apiUrlProblem(field: string, value: string): string | null {
+  const hidden = hiddenTextProblem(field, value);
+  if (hidden) return hidden;
+  if (!/^[\x21-\x7E]+$/.test(value)) return `${field}: printable ASCII only, no spaces; percent-encode anything else`;
+  let u: URL;
+  try {
+    u = new URL(value);
+  } catch {
+    return `${field}: not a valid URL`;
+  }
+  if (value.includes('#') || u.hash !== '') return `${field}: no fragment (#)`;
+  if (u.username !== '' || u.password !== '') return `${field}: no username or password in the URL`;
+  if (u.href !== value) return `${field}: send the normalized URL (${u.href})`;
   return null;
 }
 
