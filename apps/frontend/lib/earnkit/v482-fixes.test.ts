@@ -1,7 +1,9 @@
 import './fixtures/no-network-checks';
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
-import { passedLine, pointerReply } from './conversation';
+import { moneyLine, passedLine, pointerReply } from './conversation';
+import { committedProgram } from './fixtures/program-file';
+import type { Card } from './present';
 import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
 import { fakeGitHub } from './fixtures/fake-github';
@@ -13,7 +15,7 @@ import { attachToX } from './x-install';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
 import { isoWeekOf } from './weeks';
-import { MORE_ASK, codesSettled } from './bench-find';
+import { MORE_ASK, closingPrograms, codesSettled } from './bench-find';
 import { GitHubBudgetStop, type ReaderDeps } from './source-readers';
 import { dropRunPrograms } from './fixtures/programs-cleanup';
 
@@ -125,4 +127,59 @@ test('v4.8.2 R1: a no to the reasoned pointer still parks the program', db, asyn
   const [row] = await sql()<{ d: Record<string, string> | null }[]>`SELECT standing_seen->'declined' AS d FROM builder_profiles WHERE builder_id = ${b.id}`;
   assert.ok(Object.keys(row.d ?? {}).some((k) => k.startsWith('path:')), JSON.stringify(row.d));
   assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), [], t);
+});
+
+/*
+ * v4.8.2 Task 2 (R3): the money line names what closes within 48 hours, any category, at most 2, soonest first:
+ * "Open now: {total} in grants. Closing soon: {A} ({amount}, in N hours) and {B} (...)."
+ */
+const H = 3_600_000;
+/** A committed program file as a live card (programs.ts programCard's fields the money line reads), closing `h` hours after NOW. */
+const fileCard = (name: string, h: number | null, o: Partial<Card> = {}): Card => {
+  const f = committedProgram(name);
+  return {
+    id: f.id, title: f.title, summary: f.summary, tag: f.tag ?? null, each_time: [], status: 'active', investment: f.investment === true,
+    ends_at: h === null ? null : new Date(NOW.getTime() + h * H), tz: f.tz ?? null, ...o,
+  } as Card;
+};
+const ownerCards = () => [fileCard('base-builder-grants', null), fileCard('arc-microgrants-studio', 14.5), fileCard('a16z-speedrun', 19.5)];
+const none = new Set<string | null>();
+
+test('v4.8.2 R3: on the owner shape the money line names Arc and a16z, soonest first, with the table\'s amount cells', () => {
+  assert.equal(moneyLine('$105.5K', closingPrograms(ownerCards(), NOW, new Set(), none), NOW),
+    'Open now: $105.5K in grants. Closing soon: Arc Microgrants (500 USDC × 8 grants, in 14 hours) and a16z speedrun SR008 (investor program, up to $1M, in 19 hours).');
+  // The total at 0: only the closing sentence; nothing closing: only the total; neither: no line.
+  assert.equal(moneyLine(null, closingPrograms(ownerCards(), NOW, new Set(), none), NOW),
+    'Closing soon: Arc Microgrants (500 USDC × 8 grants, in 14 hours) and a16z speedrun SR008 (investor program, up to $1M, in 19 hours).');
+  assert.equal(moneyLine('$105.5K', [], NOW), 'Open now: $105.5K in grants.');
+  assert.equal(moneyLine(null, [], NOW), null);
+  // An unknown amount: the parenthesis holds the time (an investor program keeps its kind).
+  const arc = closingPrograms(ownerCards(), NOW, new Set(), none)[0];
+  assert.equal(moneyLine('$1K', [{ ...arc, amount: null }], NOW), 'Open now: $1K in grants. Closing soon: Arc Microgrants (in 14 hours).');
+  assert.doesNotMatch(moneyLine('$105.5K', closingPrograms(ownerCards(), NOW, new Set(), none), NOW)!, BAD);
+});
+
+test('v4.8.2 R3: a declined, applied or drafted Arc is left out', () => {
+  // pathSkip's set: applied (told), drafted, a no (declined, parked) all land in skip.
+  assert.equal(moneyLine('$105.5K', closingPrograms(ownerCards(), NOW, new Set(['arc-microgrants-studio']), none), NOW),
+    'Open now: $105.5K in grants. Closing soon: a16z speedrun SR008 (investor program, up to $1M, in 19 hours).');
+});
+
+test("v4.8.2 R3: a reply about Arc doesn't name Arc; a picked path's program is left out, an unpicked old hook's is not", () => {
+  const ids = (led: Set<string | null>) => closingPrograms(ownerCards(), NOW, new Set(), led).map((p) => p.id);
+  assert.deepEqual(ids(new Set(['arc-microgrants-studio', null])), ['a16z-speedrun']);
+  assert.deepEqual(ids(new Set(['base-builder-grants', 'a16z-speedrun'])), ['arc-microgrants-studio']);
+  assert.deepEqual(ids(new Set(['base-builder-grants', null])), ['arc-microgrants-studio', 'a16z-speedrun']);
+});
+
+test('v4.8.2 R3: a program 50 hours out is not named; at most 2; never upcoming, unlisted or closed', () => {
+  const far = [fileCard('base-builder-grants', null), fileCard('arc-microgrants-studio', 50), fileCard('a16z-speedrun', 19.5)];
+  assert.deepEqual(closingPrograms(far, NOW, new Set(), none).map((p) => p.id), ['a16z-speedrun']);
+  const three = [...ownerCards(), fileCard('circle-developer-grants', 2.5)];
+  assert.deepEqual(closingPrograms(three, NOW, new Set(), none).map((p) => p.id), ['circle-developer-grants', 'arc-microgrants-studio']);
+  const hidden = [fileCard('arc-microgrants-studio', 14.5, { status: 'upcoming' }), fileCard('a16z-speedrun', 19.5, { status: 'unlisted' }), fileCard('circle-developer-grants', -1)];
+  assert.deepEqual(closingPrograms(hidden, NOW, new Set(), none), []);
+  // Two rounds with one name: the sooner only, then the next program.
+  const twice = [...ownerCards(), fileCard('arc-microgrants-studio', 16.5, { id: 'arc-round-2' })];
+  assert.deepEqual(closingPrograms(twice, NOW, new Set(), none).map((p) => p.id), ['arc-microgrants-studio', 'a16z-speedrun']);
 });

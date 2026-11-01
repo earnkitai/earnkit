@@ -8957,6 +8957,16 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
   weekday under 48 hours. Left as is: landing.ts's cached "Closes Nov 1".
 - **R-4, the investor clause.** moneyFor leaves out the stored path's program only when it was picked or is past the
   hook (bestMove's `on` rule); an unpicked hook from an older session no longer hides it.
+- **v4.8.2 Task 2 (R3), Closing soon.** The investor clause is gone (moneyInvestor removed). moneyLine(total, closing,
+  now) is "Open now: {total} in grants. Closing soon: {A} ({amount}, in N hours)[ and {B} (...)]." with an investor
+  program's parenthesis "investor program, up to $1M, in 19 hours" and an unknown amount leaving only the time (an
+  investor keeps "investor program"). A total of 0 drops the first sentence, nothing closing drops the second, neither:
+  no line. bench-find.ts closingPrograms(cards, now, skip, led) picks from the builder's live cards, any category
+  (showable with the investor read as a grant: open curated only, never upcoming, unlisted, sponsored or hidden), the
+  amount being the programs table's (pathAmount); conversation.ts closingSoon keeps those closing within CLOSING_SOON_MS
+  (48 hours), not in the path's skip (applied, declined, parked, drafted) or `led` (the reply's program, and the stored
+  path's only when picked or past the hook, R-4), soonest first, one per programName (two "Arc Microgrants" rounds: the
+  sooner), at most CLOSING_SOON_MAX (2). Still once a session under `money:total`. Tests: v482-fixes.test.ts.
 - **Parked 5 and 6.** The Stripe pattern is "a digit and 16+ characters, or 24+ characters". The draft-ready pointer
   stores `readyStored` (the program's own ask, else the blanks ask with none left, never `{}`), and `pathDrafted` counts a
   draft yes only within DECLINE_MS (draftedRecently).

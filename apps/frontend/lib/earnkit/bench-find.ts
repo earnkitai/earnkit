@@ -74,7 +74,7 @@ import { DECLINE_MS, draftedRecently } from './policy-constants';
 import { closeDay, programZone, zoneAbbr } from './deadline';
 import type { ProgramRow as ProgramFileRow } from './programs';
 import {
-  MENTOR_NOTE, MONEY_SAID, moneyInvestor, moneyLine, withMoneyLine, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, pickHook, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, submitNoRush, tooSoonLine, keepDraftLine, type OpenerProgram, type MoveCtx, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProofOf, helpReply, helpWaiting, helpParked, closeWords, HELP_DONE_ASK, backOnLine, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofOf, markSaid, pathReply, programName, readPath, saidSql, sessionOf, pointerReply, START_ASK, SENT_SHORT, blanksAsk,
+  MENTOR_NOTE, MONEY_SAID, closingSoon, moneyLine, withMoneyLine, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, pickHook, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, submitNoRush, tooSoonLine, keepDraftLine, type OpenerProgram, type MoveCtx, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProofOf, helpReply, helpWaiting, helpParked, closeWords, HELP_DONE_ASK, backOnLine, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofOf, markSaid, pathReply, programName, readPath, saidSql, sessionOf, pointerReply, START_ASK, SENT_SHORT, blanksAsk,
   ANSWERED_FIRST, ASK_SAID, PROGRAMS_AGAIN, fitCell, fitOrder, grantFact, programsAnswer, standingAgain, standingAnswer, standingSaid, whatItIs, type GrantFact, type GrantRow, type InvestorRow, type StandingFacts,
   type GapStep,
   type GapGrant, type InvestorProgram, type Move, type MoveProgram, type Path, type Stage,
@@ -973,21 +973,32 @@ export function readyStored(stage: Stage | null, ownAsk: Record<string, unknown>
 /** v4.8 Task 3: a fresh session's "Since {day}: ..." line before the step's own words (one paragraph). Pure. */
 const withSince = (since: string | null, show: string) => (since ? `${since}\n\n${show}` : show);
 /**
+ * v4.8.2 Task 2 (R3): the programs the money line's "Closing soon" names (conversation.ts closingSoon) from the
+ * builder's live cards, any category: open curated ones only (showable, an investor program read as a grant, the
+ * programs answer's own rule: never upcoming, unlisted, sponsored, hidden or agent-incompletable), each with the
+ * programs table's amount (pathAmount). Pure.
+ */
+export function closingPrograms(cards: readonly Card[], now: Date, skip: Set<string>, led: ReadonlySet<string | null>): MoveProgram[] {
+  const open = cards.filter((c) => showable({ ...c, investment: false }, now, skip)).map(moveProgram);
+  return closingSoon(open, now, skip, led);
+}
+/**
  * v4.8.1 Task 2 (R3): the money line (conversation.ts moneyLine) for this session's first path reply about `programId`,
  * else null: never after a direct answer (o.brief; a programs answer marks MONEY_SAID, its tables say the money), and
- * once a session (MONEY_SAID). The investor clause never names the program the reply is about, nor a program the
- * builder picked or is past the hook on (the stored path's, by bestMove's `on` rule).
+ * once a session (MONEY_SAID). v4.8.2 Task 2: its "Closing soon" (closingPrograms) never names a program the path
+ * skips (applied to, declined, parked, drafted), the program the reply is about, nor a program the builder picked or
+ * is past the hook on (the stored path's, by bestMove's `on` rule).
  * One read (openMoneyNow) when due. Never throws.
  */
 async function moneyFor(o: ViewIn, plan: Pick<PathPlan, 'ctx' | 'path'>, programId: string): Promise<string | null> {
   if (o.brief || sessionOf(o.read.seen, o.now).said.has(MONEY_SAID)) return null;
   // v4.8.1 final fix (R-4): bestMove's own `on` rule: a stored path counts only when picked or past the hook (an unpicked
-  // hook left from an older session is no lead, so its program can still be the clause).
+  // hook left from an older session is no lead, so its program can still be named).
   const on = plan.path && (plan.path.picked || plan.path.stage !== 'hook') ? plan.path.program_id : null;
-  const investor = moneyInvestor(plan.ctx.investors, o.now, plan.ctx.skip, new Set([programId, on]));
+  const closing = closingPrograms(o.cards, o.now, plan.ctx.skip, new Set([programId, on]));
   // Fix round 1 (F3): /api/stats' figure (openMoneyNow: every active program), read only when the line is due; the
   // builder's cards leave out hidden and agent-incompletable programs.
-  return moneyLine(moneyText(await openMoneyNow(o.now, o.cards)), investor, o.now);
+  return moneyLine(moneyText(await openMoneyNow(o.now, o.cards)), closing, o.now);
 }
 
 /**

@@ -357,7 +357,9 @@ test("the owner-like builder who picked a16z: the first find is A's opener; the 
   const s = show(r);
   // v4.8.1 Task 2 (R3): the session's first path reply says the open total just before the easy reply.
   const [p1, money, p2] = s.split('\n\n');
-  assert.match(money, /^Open now: \$[\d.]+[KM]?\+? in grants\.$/, s);
+  // v4.8.2 Task 2 (R3): then what closes within 48 hours (the Arc copy), never the picked a16z copy the reply is about.
+  assert.match(money, /^Open now: \$[\d.]+[KM]?\+? in grants\.( Closing soon: .+\.)?$/, s);
+  assert.ok(!money.includes(sr.title), s);
   assert.match(p1, new RegExp(`^Jenil, ${sr.title} closes (in \\d+ hours?|in under an hour|[A-Z][a-z]{2} \\d{1,2}): up to \\$1M\\. You've shipped \\d+ weeks? in a row and EarnKit is live, which is the traction they ask about\\.$`), s);
   assert.equal(p2, 'I can draft your application from your commits and live product in a few minutes. Want me to start?', s);
   assert.equal(s.split('\n\n').length, 3, s);

@@ -2,7 +2,7 @@ import './fixtures/no-network-checks';
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CODES_OFFER, MONEY_SAID, POINT_MORE, gapStillReply, SESSION_MS, bestMove, blanksAsk, closeWords, fitCell, pathReply, pointerReply, moneyInvestor, moneyLine, pickHook, submitBy, submitNoRush, submitPointer, withMoneyLine,
+  CODES_OFFER, MONEY_SAID, POINT_MORE, gapStillReply, SESSION_MS, bestMove, blanksAsk, closeWords, fitCell, pathReply, pointerReply, closingSoon, moneyLine, pickHook, submitBy, submitNoRush, submitPointer, withMoneyLine,
   type GapGrant, type InvestorProgram, type MoveCtx, type MoveProgram,
 } from './conversation';
 import { sql } from './db';
@@ -162,26 +162,25 @@ test("v4.8.1 R2: submitBy says the program-zone day and time, and the hours left
   assert.equal(submitNoRush({ ...pr, ends_at: inHours(5 * 24) }, NOW), 'No rush, it stays ready until Nov 6. Reply "sent" once it\'s in.');
 });
 
-test('v4.8.1 R3: the money line, its investor clause and its place', () => {
-  assert.equal(moneyLine('$115K', null, NOW), 'Open now: $115K in grants.');
-  assert.equal(moneyLine('$115K', A16Z, NOW), 'Open now: $115K in grants. a16z speedrun SR008 (investor program, up to $1M) closes in 20 hours.');
-  assert.equal(moneyLine('$115K', { ...A16Z, amount: null }, NOW), 'Open now: $115K in grants. a16z speedrun SR008 (investor program) closes in 20 hours.');
-  // A total of 0 (moneyText null): no line.
-  assert.equal(moneyLine(null, A16Z, NOW), null);
+test('v4.8.1 R3: the money line, its closing clause and its place', () => {
+  // v4.8.2 Task 2: the investor clause became "Closing soon" (any category, within 48 hours, at most 2).
+  assert.equal(moneyLine('$115K', [], NOW), 'Open now: $115K in grants.');
+  assert.equal(moneyLine('$115K', [A16Z], NOW), 'Open now: $115K in grants. Closing soon: a16z speedrun SR008 (investor program, up to $1M, in 20 hours).');
+  assert.equal(moneyLine('$115K', [{ ...A16Z, amount: null }], NOW), 'Open now: $115K in grants. Closing soon: a16z speedrun SR008 (investor program, in 20 hours).');
+  // A total of 0 (moneyText null): the closing sentence only; with nothing closing, no line.
+  assert.equal(moneyLine(null, [A16Z], NOW), 'Closing soon: a16z speedrun SR008 (investor program, up to $1M, in 20 hours).');
+  assert.equal(moneyLine(null, [], NOW), null);
   // Fix round 1 (F5): a close already passed: no clause.
-  assert.equal(moneyLine('$115K', { ...A16Z, ends_at: inHours(-1) }, NOW), 'Open now: $115K in grants.');
-  // The investor: soonest first, within INVESTOR_WINDOW_MS, never skipped, never the program the reply or path is on.
-  const later = { ...A16Z, id: 'later', ends_at: inHours(100) };
-  const far = { ...A16Z, id: 'far', ends_at: inHours(24 * 8) };
+  assert.equal(moneyLine('$115K', [{ ...A16Z, ends_at: inHours(-1) }], NOW), 'Open now: $115K in grants.');
+  // Soonest first, within CLOSING_SOON_MS (48 hours), never skipped, never the program the reply or path is on.
+  const later = { ...A16Z, id: 'later', title: 'Later Runway', ends_at: inHours(40) };
+  const far = { ...A16Z, id: 'far', ends_at: inHours(50) };
   const none = new Set<string | null>();
-  assert.equal(moneyInvestor([later, A16Z, far], NOW, new Set(), none), A16Z);
-  assert.equal(moneyInvestor([later, A16Z, far], NOW, new Set([A16Z.id]), none), later);
-  assert.equal(moneyInvestor([later, A16Z, far], NOW, new Set(), new Set([A16Z.id, null])), later);
-  assert.equal(moneyInvestor([far], NOW, new Set(), none), null);
-  assert.equal(moneyInvestor([{ ...A16Z, ends_at: inHours(-1) }], NOW, new Set(), none), null);
-  // Its own paragraph just before the last one.
-  assert.equal(withMoneyLine('Hook.\n\nWant the steps?', 'Open now: $1K in grants.'), 'Hook.\n\nOpen now: $1K in grants.\n\nWant the steps?');
-  assert.equal(withMoneyLine('Since Thursday: x.\n\nHook.\n\nGo?', 'M.'), 'Since Thursday: x.\n\nHook.\n\nM.\n\nGo?');
+  assert.deepEqual(closingSoon([later, A16Z, far], NOW, new Set(), none), [A16Z, later]);
+  assert.deepEqual(closingSoon([later, A16Z, far], NOW, new Set([A16Z.id]), none), [later]);
+  assert.deepEqual(closingSoon([later, A16Z, far], NOW, new Set(), new Set([A16Z.id, null])), [later]);
+  assert.deepEqual(closingSoon([far], NOW, new Set(), none), []);
+  assert.deepEqual(closingSoon([{ ...A16Z, ends_at: inHours(-1) }], NOW, new Set(), none), []);
   // Fix round 1 (ruling a): never above the greeting; a one-paragraph reply is split before its easy reply.
   assert.equal(withMoneyLine('Base is still your closest money. Want the steps?', 'M.'), 'Base is still your closest money.\n\nM.\n\nWant the steps?');
   const guide = "Jenil, Base Builder Grant pays up to $5,000. Add Base's Builder Code. Guide: https://docs.base.org/base-chain/builder-codes/builder-codes You're live on Base. Want me to do it now?";
@@ -195,7 +194,7 @@ test('v4.8.1 R3: the money line, its investor clause and its place', () => {
   // One sentence: the line first.
   assert.equal(withMoneyLine('Want me to start?', 'M.'), 'M.\n\nWant me to start?');
   assert.equal(withMoneyLine('Hook.', null), 'Hook.');
-  assert.doesNotMatch(moneyLine('$115K', A16Z, NOW)!, BAD);
+  assert.doesNotMatch(moneyLine('$115K', [A16Z], NOW)!, BAD);
 });
 
 appEnv();
@@ -262,7 +261,7 @@ test('v4.8.1 R3: the first find of a session says "Open now: $" once, just befor
   assert.equal(count(first.show), 1, t);
   const ps = first.show.split('\n\n');
   assert.ok(ps.length >= 2, t);
-  assert.match(ps.at(-2)!, /^Open now: \$[\d.,]+[KM]?\+? in grants\.( .+ \(investor program(, [^)]+)?\) closes .+\.)?$/, t);
+  assert.match(ps.at(-2)!, /^Open now: \$[\d.,]+[KM]?\+? in grants\.( Closing soon: [^()]+ \([^)]*in (\d+ hours?|under an hour)\)( and [^()]+ \([^)]*in (\d+ hours?|under an hour)\))?\.)?$/, t);
   assert.ok(first.said.includes(MONEY_SAID), t);
   assert.equal(count(second.show), 0, t);
   assert.equal(count(fresh.show), 1, t);
@@ -316,7 +315,8 @@ test("v4.8.1 fix round 1 (F6): the investor clause names a controlled investor p
   await open();
   const [hook] = await converse(b.ctx as never, [{ find: {} }], { builderId: b.id });
   assert.doesNotMatch(hook.show.split('\n\n')[0], new RegExp(title), hook.show);
-  assert.equal(moneyPara(hook.show)?.replace(/^Open now: \S+ in grants\. /, ''), `${title} (investor program, up to $1M) closes in 1 hour.`, hook.show);
+  // v4.8.2 Task 2: the copy closes soonest, so "Closing soon" names it first (a second program may follow).
+  assert.ok(moneyPara(hook.show)?.replace(/^Open now: \S+ in grants\. /, '').startsWith(`Closing soon: ${title} (investor program, up to $1M, in 1 hour)`), hook.show);
   // The builder picked the copy: the reply is about it, so the clause never names it.
   const p = await ownerDb('ivp', { pick: id });
   await open();
@@ -601,7 +601,8 @@ test("v4.8.1 final fix (R-4): an unpicked hook left on an investor program doesn
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('path', jsonb_build_object('stage', 'hook', 'program_id', ${id}::text, 'at', now()::text)) WHERE builder_id = ${b.id}`;
   const [r] = await converse(b.ctx as never, [{ find: {} }], { builderId: b.id });
   assert.match(r.show.split('\n\n')[0], /^Jenil, [^\n]*Base Builder Grant/, r.show);
-  assert.equal(moneyPara(r.show)?.replace(/^Open now: \S+ in grants\. /, ''), `${title} (investor program, up to $1M) closes in 1 hour.`, r.show);
+  // v4.8.2 Task 2: the copy closes soonest, so "Closing soon" names it first (a second program may follow).
+  assert.ok(moneyPara(r.show)?.replace(/^Open now: \S+ in grants\. /, '').startsWith(`Closing soon: ${title} (investor program, up to $1M, in 1 hour)`), r.show);
   // Picked, it is the reply's own program, so the clause never names it.
   const p = await ownerDb('r4p', { pick: id });
   await open();

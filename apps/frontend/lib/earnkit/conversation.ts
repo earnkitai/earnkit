@@ -244,28 +244,41 @@ export function closeWords(endsAt: string, zone: string, now: Date): string {
  */
 /** The session key the money line is said under. */
 export const MONEY_SAID = 'money:total';
+/** v4.8.2 Task 2 (R3): the money line names programs closing this soon (under 48 hours, so hoursLeft always has words). */
+export const CLOSING_SOON_MS = 48 * 60 * 60_000;
+/** v4.8.2 Task 2 (R3): at most this many programs in the money line's "Closing soon". */
+export const CLOSING_SOON_MAX = 2;
+/** A program as the money line's "Closing soon" names it (bench-find.ts closingPrograms builds these from live cards). */
+export type ClosingProgram = Pick<MoveProgram, 'id' | 'title' | 'amount' | 'ends_at' | 'zone' | 'investment'>;
 /**
- * The investor program the money line names: open, not skipped (applied to, declined, parked), closing within
- * INVESTOR_WINDOW_MS, and never one in `led` (the program the reply is about, and a program the builder picked or is
- * past the hook on: the ruling's "led on"); the soonest first. Null with none. Pure.
+ * v4.8.2 Task 2 (R3): the programs the money line's "Closing soon" names, any category: open, closing within
+ * CLOSING_SOON_MS, never in `skip` (applied to, declined, parked, drafted, entered or hidden: bench-find.ts pathSkip)
+ * and never in `led` (the program the reply is about, and a program the builder picked or is past the hook on: the
+ * v4.8.1 ruling's "led on"); soonest first, at most CLOSING_SOON_MAX. Unlisted and upcoming programs never reach it
+ * (bench-find.ts closingPrograms reads only open curated cards). One name is said once (the sooner). Pure.
  */
-export function moneyInvestor<P extends MoveProgram>(investors: readonly P[], now: Date, skip: ReadonlySet<string>, led: ReadonlySet<string | null>): P | null {
+export function closingSoon<P extends ClosingProgram>(programs: readonly P[], now: Date, skip: ReadonlySet<string>, led: ReadonlySet<string | null>): P[] {
   const t = now.getTime();
-  return investors
-    .filter((p) => p.investment && !skip.has(p.id) && !led.has(p.id) && closeAt(p) > t && closeAt(p) - t <= INVESTOR_WINDOW_MS)
-    .sort(byClose)[0] ?? null;
+  return programs
+    .filter((p) => !skip.has(p.id) && !led.has(p.id) && closeAt(p) > t && closeAt(p) - t < CLOSING_SOON_MS)
+    .sort(byClose)
+    // Two programs with one name (two rounds of "Arc Microgrants: ..."): only the sooner is named, never "Arc and Arc".
+    .filter((p, i, all) => all.findIndex((q) => programName(q.title) === programName(p.title)) === i)
+    .slice(0, CLOSING_SOON_MAX);
 }
+/** "Arc Microgrants (500 USDC × 8 grants, in 14 hours)", "a16z speedrun SR008 (investor program, up to $1M, in 19 hours)". Pure. */
+const closingName = (p: ClosingProgram, now: Date) =>
+  `${programName(p.title)} (${[p.investment ? 'investor program' : null, p.amount, closeWords(p.ends_at!, p.zone, now)].filter(Boolean).join(', ')})`;
 /**
- * "Open now: {total} in grants." and, with an investor program (moneyInvestor), " {Investor} (investor program,
- * {amount}) closes {closeWords}." `total` is moneyText(openMoneyNow(now, cards)), /api/stats' figure; null (0): no line.
- * Pure.
+ * "Open now: {total} in grants. Closing soon: {A} ({amount}, in N hours)[ and {B} (...)]." (v4.8.2 Task 2, R3; it
+ * replaced v4.8.1's one investor clause). `total` is moneyText(openMoneyNow(now, cards)), /api/stats' figure, null at 0
+ * (the first sentence left out); `closing` is closingSoon's list (none: the second sentence left out; a close already
+ * passed is dropped). Neither: no line. Pure.
  */
-export function moneyLine(total: string | null, investor: Pick<MoveProgram, 'title' | 'amount' | 'ends_at' | 'zone'> | null, now: Date): string | null {
-  if (!total) return null;
-  const inv = investor?.ends_at && Date.parse(investor.ends_at) > now.getTime()
-    ? ` ${programName(investor.title)} (investor program${investor.amount ? `, ${investor.amount}` : ''}) closes ${closeWords(investor.ends_at, investor.zone, now)}.`
-    : '';
-  return `Open now: ${total} in grants.${inv}`;
+export function moneyLine(total: string | null, closing: readonly ClosingProgram[], now: Date): string | null {
+  const names = closing.filter((p) => p.ends_at && Date.parse(p.ends_at) > now.getTime()).map((p) => closingName(p, now));
+  const parts = [total ? `Open now: ${total} in grants.` : null, names.length > 0 ? `Closing soon: ${names.join(' and ')}.` : null];
+  return parts.filter(Boolean).join(' ') || null;
 }
 /** Words a period ends without ending the sentence ("e.g.", "U.S."). */
 const NO_END = /(?:^|\s)(?:e\.g|i\.e|vs|etc|Mr|Mrs|Ms|Dr|St|Inc|Ltd|[A-Z](?:\.[A-Z])*)\.$/;
