@@ -1,7 +1,7 @@
 import './fixtures/no-network-checks';
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
-import { moneyLine, passedLine, pointerReply } from './conversation';
+import { PATH_ANSWER_FIRST, moneyLine, passedLine, pointerReply } from './conversation';
 import { committedProgram } from './fixtures/program-file';
 import type { Card } from './present';
 import { sql } from './db';
@@ -15,7 +15,7 @@ import { attachToX } from './x-install';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
 import { isoWeekOf } from './weeks';
-import { MORE_ASK, closingPrograms, codesSettled } from './bench-find';
+import { MORE_ASK, NAME_ASK, WAIT_NOTE, closingPrograms, codesSettled } from './bench-find';
 import { GitHubBudgetStop, type ReaderDeps } from './source-readers';
 import { dropPrograms, dropRunPrograms } from './fixtures/programs-cleanup';
 import { ProgramFile } from './program-file';
@@ -34,18 +34,19 @@ const NOW = new Date('2026-11-01T10:31:00Z');
 const BAD = /—|\bcoins?\b|\bpoints?\b|\p{Extended_Pictographic}/iu;
 const POINTER = 'Base Builder Grant is still your best move: up to $5,000, one step away. I can add Builder Codes and push the change, about 10 minutes. Go?';
 
-test('v4.8.2 R2: the passed-step line says only that it is the only gap', () => {
-  assert.equal(passedLine('2026-10-22T09:00:00Z', NOW, true), "They're now the only gap to that money.");
-  assert.equal(passedLine('2026-10-22T09:00:00Z', NOW), "It's now the only gap to that money.");
-  assert.equal(passedLine(null, NOW, true), "They're now the only gap to that money.");
-  assert.equal(passedLine(null, NOW), "It's now the only gap to that money.");
+test('v4.8.2 R2: the passed-step line says only that it is the only gap (final fix F5: Builder Codes named)', () => {
+  assert.equal(passedLine(true), 'Builder Codes are now the only gap to that money.');
+  assert.equal(passedLine(), "It's now the only gap to that money.");
 });
 
 test('v4.8.2 R1: the second pointer is "more", never the short "Reply no" pointer', () => {
   const facts = { id: 'base', title: 'Base Builder Grant', amount: 'up to $5,000', when: 'rolling', ends_at: null, zone: 'UTC', gaps: 1, stage: 'hook' as const, drafted: false };
   const first = pointerReply(facts, 'Go?', new Set(), NOW);
-  assert.deepEqual(first, { text: 'Base Builder Grant is still your best move: up to $5,000, one step away. Go?', said: ['point:base'], more: false, ready: false });
-  assert.deepEqual(pointerReply(facts, 'Go?', new Set(first.said), NOW), { text: MORE_ASK, said: [], more: true, ready: false });
+  assert.deepEqual(first, { text: 'Base Builder Grant is still your best move: up to $5,000, one step away. Go?', said: ['point:base'], more: false, ready: false, again: false });
+  const more = pointerReply(facts, 'Go?', new Set(first.said), NOW);
+  assert.deepEqual(more, { text: MORE_ASK, said: ['more:base'], more: true, ready: false, again: false });
+  // v4.8.2 final fix (F1): the "more" line a second time this session is `again` (the agent is told to wait).
+  assert.deepEqual(pointerReply(facts, 'Go?', new Set([...first.said, ...more.said]), NOW), { text: MORE_ASK, said: ['more:base'], more: true, ready: false, again: true });
 });
 
 appEnv();
@@ -104,15 +105,39 @@ test('v4.8.2 R1+R2: five plain finds on the owner shape: the hook, the reasoned 
   const t = transcript(replies);
   assert.equal(replies.length, 5, t);
   assert.ok(replies[0].hook, t);
-  assert.match(replies[0].show, /Builder Codes[^\n]*\. They're now the only gap to that money\./, t);
+  assert.match(replies[0].show, /Builder Codes[^\n]*\. Builder Codes are now the only gap to that money\./, t);
   assert.equal(replies[1].show, POINTER, t);
   for (const r of replies.slice(2)) {
     assert.equal(r.show, MORE_ASK, t);
     assert.equal((r.reply?.move_up as { kind: string }).kind, 'more', t);
   }
+  // v4.8.2 final fix (F1): the first "more" (find 3) is a plain ask; from the second (finds 4 and 5) the agent note
+  // tells the agent to wait for the builder (no find until they speak). The builder text is the same.
+  const note = (r: (typeof replies)[number]) => String(r.reply?.note ?? '');
+  assert.ok(!note(replies[2]).includes(WAIT_NOTE), note(replies[2]));
+  // (tools.ts withFacts puts PATH_ANSWER_FIRST first on every find path note; the wait note follows it.)
+  for (const r of replies.slice(3)) assert.ok(note(r).startsWith(`${PATH_ANSWER_FIRST} ${WAIT_NOTE} `), note(r));
+  for (const r of replies.slice(0, 3)) assert.ok(!note(r).includes(WAIT_NOTE), note(r));
   for (const r of replies) {
     assert.doesNotMatch(r.show, /Reply "no"|Still Base|You passed/, t);
     assert.doesNotMatch(r.show, BAD, t);
+  }
+  assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), [], t);
+});
+
+test('v4.8.2 final fix (F1): after the programs answer, the name ask again carries the wait note', db, async () => {
+  const b = await ownerDb('ptw');
+  const replies = await converse(b.ctx as never, [
+    { find: {} }, { find: {} }, { find: {} },
+    { says: 'more', tell: { move_up: { kind: 'more', project_key: b.key, answer: 'yes' } } },
+    { find: {} }, { find: {} },
+  ], { builderId: b.id });
+  const t = transcript(replies);
+  assert.ok(replies[3].show.endsWith(NAME_ASK), t);
+  for (const r of replies.slice(4)) {
+    assert.equal(r.show, NAME_ASK, t);
+    assert.equal((r.reply?.move_up as { kind: string }).kind, 'name', t);
+    assert.ok(String(r.reply?.note ?? '').startsWith(`${PATH_ANSWER_FIRST} ${WAIT_NOTE} `), String(r.reply?.note));
   }
   assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), [], t);
 });
@@ -185,6 +210,9 @@ test('v4.8.2 R3: a program 50 hours out is not named; at most 2; never upcoming,
   assert.deepEqual(closingPrograms(three, NOW, new Set(), none).map((p) => p.id), ['circle-developer-grants', 'arc-microgrants-studio']);
   const hidden = [fileCard('arc-microgrants-studio', 14.5, { status: 'upcoming' }), fileCard('a16z-speedrun', 19.5, { status: 'unlisted' }), fileCard('circle-developer-grants', -1)];
   assert.deepEqual(closingPrograms(hidden, NOW, new Set(), none), []);
+  // v4.8.2 final fix (F3): a reply about one Arc round names no other open "Arc Microgrants" round (left out by name).
+  const other = [...ownerCards(), fileCard('arc-microgrants-studio', 10, { id: 'arc-round-2' })];
+  assert.deepEqual(closingPrograms(other, NOW, new Set(), new Set(['arc-microgrants-studio', null])).map((p) => p.id), ['a16z-speedrun']);
   // Two rounds with one name: the sooner only, then the next program.
   const twice = [...ownerCards(), fileCard('arc-microgrants-studio', 16.5, { id: 'arc-round-2' })];
   assert.deepEqual(closingPrograms(twice, NOW, new Set(), none).map((p) => p.id), ['arc-microgrants-studio', 'a16z-speedrun']);
@@ -215,6 +243,21 @@ test('v4.8.2 R4: summaryIn swaps only the close part; without hours left the sum
   assert.equal(summaryIn('$50K in prizes · opens soon', 'in 3 hours'), '$50K in prizes · opens soon');
   // The prize part is never touched, even when it starts with "closes".
   assert.equal(summaryIn('closes fund · closes Nov 1', 'in 2 hours'), 'closes fund · closes in 2 hours');
+  // v4.8.2 final fix (F2): any part with a month and day keeps its words before the date ("regular deadline ...").
+  assert.equal(summaryIn('$400K at admission · regular deadline Nov 18', 'in 30 hours'), '$400K at admission · regular deadline in 30 hours');
+  assert.equal(summaryIn('$50K in prizes · submit by Nov 7, 9:00 AM IST', 'in 5 hours'), '$50K in prizes · submit in 5 hours');
+  assert.equal(summaryIn('$50K in prizes · Nov 7', 'in 5 hours'), '$50K in prizes · closes in 5 hours');
+  assert.equal(summaryIn('$400K at admission · regular deadline Nov 18', null), '$400K at admission · regular deadline Nov 18');
+});
+
+test("v4.8.2 final fix (F2): Alliance's find object under 48 hours: no month and day in the summary", () => {
+  const f = committedProgram('alliance-all19');
+  const p = withClosesIn({ id: f.id, summary: f.summary, ends_at: inH(30.5) }, NOW);
+  assert.equal(p.closes_in, 'in 30 hours');
+  assert.equal(p.summary, '$400K at admission · regular deadline in 30 hours');
+  assert.doesNotMatch(p.summary, /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d/);
+  // 48 hours or more out: the summary as committed.
+  assert.equal(withClosesIn({ id: f.id, summary: f.summary, ends_at: inH(72) }, NOW).summary, f.summary);
 });
 
 test('v4.8.2 R4: the guide header and the "Ends" cell say the hours left under 48 hours, the zone day after', () => {

@@ -413,18 +413,20 @@ export function pointerWhy(p: PointerFacts, now: Date): string | null {
 /**
  * The pointer and the session parts it says (markSaid). First (`point:{id}` not said): "{Program} is still your best
  * move: {money}, {why}. {ask}" (an unknown amount or reason is left out with its comma). Second and later: POINT_MORE,
- * `more` set (the caller stores the 'more' ask). `ready`: the reason is "your draft is ready" (its ask is readyAsk). Pure.
+ * `more` set (the caller stores the 'more' ask), said as `more:{id}`. `ready`: the reason is "your draft is ready" (its
+ * ask is readyAsk). v4.8.2 final fix (F1): `again`, the "more" line was said already this session (the caller's agent
+ * note then tells the agent to wait for the builder: bench-reply.ts WAIT_NOTE). Pure.
  */
-export type Pointer = { text: string; said: string[]; more: boolean; ready: boolean };
+export type Pointer = { text: string; said: string[]; more: boolean; ready: boolean; again: boolean };
 export function pointerReply(p: PointerFacts, ask: string, said: ReadonlySet<string>, now: Date): Pointer {
   const name = programName(p.title);
   if (!said.has(`point:${p.id}`)) {
     const why = pointerWhy(p, now);
     const ready = why === 'your draft is ready';
     const facts = [p.amount, why].filter((x): x is string => Boolean(x));
-    return { text: `${name} is still your best move${facts.length > 0 ? `: ${facts.join(', ')}` : ''}. ${ready && p.readyAsk ? p.readyAsk : ask}`, said: [`point:${p.id}`], more: false, ready };
+    return { text: `${name} is still your best move${facts.length > 0 ? `: ${facts.join(', ')}` : ''}. ${ready && p.readyAsk ? p.readyAsk : ask}`, said: [`point:${p.id}`], more: false, ready, again: false };
   }
-  return { text: POINT_MORE, said: [], more: true, ready: false };
+  return { text: POINT_MORE, said: [`more:${p.id}`], more: true, ready: false, again: said.has(`more:${p.id}`) };
 }
 /** Fix round 2 (F10): a local agent's offer for a grant whose one gap is Builder Codes (target A). */
 /** v4.8.1 final fix (R-2): it names its step, so it reads right after the money line or alone in a pointer. */
@@ -437,7 +439,7 @@ export type PathReply = {
   /** The easy reply it ends with. */
   reply: 'start' | 'steps' | 'go';
   /** v4.8.1 Task 3 fix round 1: a pointer's MORE_ASK (stored as the 'more' ask) or "your draft is ready" (its own ask). */
-  pointer?: { more: boolean; ready: boolean };
+  pointer?: { more: boolean; ready: boolean; again: boolean };
 };
 
 /**
@@ -465,7 +467,7 @@ export function pathReply(c: PathCtx): PathReply {
       // v4.8.1 Task 3 (R4): the same step pointed back to says why once, then is short, never the same line twice.
       const gaps = m.kind === 'one_step' || m.kind === 'closest' ? (p as GapGrant).gaps.length : 0;
       const pt = pointerReply({ ...p, gaps, stage: c.stage ?? null, drafted: c.drafted === true, readyAsk: c.readyAsk ?? null }, ask, c.said, c.now);
-      return { stage: 'hook', program_id: p.id, show_to_builder: pt.text, said: pt.said, reply, pointer: { more: pt.more, ready: pt.ready } };
+      return { stage: 'hook', program_id: p.id, show_to_builder: pt.text, said: pt.said, reply, pointer: { more: pt.more, ready: pt.ready, again: pt.again } };
     }
     const point = reply === 'start' ? `Your ${name} application is the next move.` : reply === 'go' ? `${name} is one step away.` : `${name} is your closest money.`;
     return { stage: 'hook', program_id: p.id, show_to_builder: `${point} ${ask}`, said: [hookKey, `money:${p.id}`], reply };
@@ -485,7 +487,7 @@ export function pathReply(c: PathCtx): PathReply {
     const pays = p.amount ? (m.kind === 'closest' ? `: ${p.amount}` : ` pays ${p.amount}`) : m.kind === 'closest' ? '' : ' is open';
     money = `${head}${pays}${closes ? `, closing ${closes}` : ''}. ${g.gap}`;
     // Task 3: a passed step raised (its one gap, once: path_raised) says so, once (target A).
-    if (m.kind === 'closest' && m.raise) money += ` ${passedLine(g.passedAt ?? null, c.now, g.gaps.length === 1 && g.gaps[0] === 'codes')}`;
+    if (m.kind === 'closest' && m.raise) money += ` ${passedLine(g.gaps.length === 1 && g.gaps[0] === 'codes')}`;
   }
   const first = [money, proof].filter(Boolean).join(' ');
   const second = reply === 'start' ? draftOffer(c.project.live) : ask;
@@ -760,10 +762,10 @@ const weekday = (at: string) => new Date(at).toLocaleDateString('en-US', { weekd
 const monthDay = (at: string) => new Date(at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 /**
  * The passed-step line (target A, said once: bestMove raises a passed step once, standing_seen.path_raised): "It's now the
- * only gap to that money." (`them`: Builder Codes, "They're ..."). v4.8.2 Task 1 (R2): it never says when or that the
- * builder passed (no guilt); `at` and `now` are kept for the callers. Pure.
+ * only gap to that money." (`codes`: the one gap is Builder Codes, "Builder Codes are now ...", v4.8.2 final fix F5).
+ * v4.8.2 Task 1 (R2): it never says when or that the builder passed (no guilt). Pure.
  */
-export const passedLine = (_at: string | null, _now: Date, them = false) => `${them ? "They're" : "It's"} now the only gap to that money.`;
+export const passedLine = (codes = false) => (codes ? 'Builder Codes are now the only gap to that money.' : "It's now the only gap to that money.");
 
 /** "Since earlier today", "Since yesterday", "Since Thursday" (within a week), else "Since Oct 24" (UTC days). Pure. */
 export function sinceDay(at: string, now: Date): string {

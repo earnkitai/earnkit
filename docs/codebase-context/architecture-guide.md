@@ -8747,7 +8747,8 @@ A yes on the path moves the stage on (bench-find.ts benchMoveUp, asks stored wit
   its other replies (first) and puts the path reply last. A path at track is not mid-path (F1's older moments apply).
   "Since" says "opened" only for a program new to this builder (seenBefore), the close as submitBy words it, compares
   scores only under the page's calibration, and leaves announced results to find's alerts opener. The passed line for
-  Builder Codes reads "They're now the only gap to that money." (v4.8.2).
+  Builder Codes reads "Builder Codes are now the only gap to that money." (v4.8.2 final fix F5; passedLine(codes)
+  takes only that flag).
 
 ## v4.8 Task 4: the new builder (target B) (2026-10-31)
 
@@ -8966,11 +8967,14 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
   amount being the programs table's (pathAmount); conversation.ts closingSoon keeps those closing within CLOSING_SOON_MS
   (48 hours), not in the path's skip (applied, declined, parked, drafted) or `led` (the reply's program, and the stored
   path's only when picked or past the hook, R-4), soonest first, one per programName (two "Arc Microgrants" rounds: the
-  sooner), at most CLOSING_SOON_MAX (2). Still once a session under `money:total`. Tests: v482-fixes.test.ts.
+  sooner), at most CLOSING_SOON_MAX (2). Still once a session under `money:total`. Final fix (F3): closingPrograms also
+  leaves out any program sharing a led program's programName (another round with its own id). Tests: v482-fixes.test.ts.
 - **v4.8.2 Task 3 (R4), agents get hours left.** Every program object in an MCP tool's structured output says the time
   left, never a program-zone day an agent might repeat to a builder in another zone. entry-text.ts `closesIn(c, now)`
   (hoursLeft words under 48 hours, else null; null for rolling or no ends_at), `summaryIn(summary, left)` (the close part
-  after " · " that starts with "closes" becomes "closes in 14 hours"), `withClosesIn(p, now)` and `endsCell(c, now?)`.
+  after " · " that starts with "closes" becomes "closes in 14 hours"; final fix F2: any other part with a month and day
+  keeps its words before the date, "regular deadline Nov 18" becoming "regular deadline in 30 hours", a trailing
+  "by"/"on" dropped, a bare date "closes in ..."), `withClosesIn(p, now)` and `endsCell(c, now?)`.
   tools.ts `agentPrograms(programs, now)` builds find's `programs` (both the Bench and the v2.11 branches of
   list_programs) with `closes_in` and the hours-left summary; `deadline` stays ISO. get_program adds `closes_in` (from its
   ISO deadline; fix 1: null unless the program is open, so upcoming is null). guide.ts programGuide(p, now, { hours })
@@ -8979,6 +8983,11 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
   (fullProgramTable, the matched and open tables) use endsCell with the message's `now`. Unchanged: site pages (app/),
   emails, also_qualifies `ends` (alsoQualifies already drops programs ending within 2 days), internal `summary` reads
   (programCard, alsoProgramFacts, upsertProgram). Tests: v482-fixes.test.ts.
+- **v4.8.2 final fix (F1), wait note.** pointerReply's "more" branch says `more:{id}` and sets `again` when that key was
+  said already this session (Pointer.again, PathReply.pointer.again). pathCommit and pathClosedCommit then set the view's
+  pathNote to bench-reply.ts WAIT_NOTE ("EarnKit already asked this and the builder hasn't answered. ... don't call find
+  until they speak."), so from the second "more" (or the name ask after the programs answer) the agent note says to
+  wait; the find note reads PATH_ANSWER_FIRST, WAIT_NOTE, then MENTOR_NOTE. The builder text is unchanged.
 - **Parked 5 and 6.** The Stripe pattern is "a digit and 16+ characters, or 24+ characters". The draft-ready pointer
   stores `readyStored` (the program's own ask, else the blanks ask with none left, never `{}`), and `pathDrafted` counts a
   draft yes only within DECLINE_MS (draftedRecently).

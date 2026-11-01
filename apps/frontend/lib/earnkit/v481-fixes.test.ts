@@ -337,7 +337,7 @@ const facts = (o: Partial<Parameters<typeof pointerReply>[0]> = {}): Parameters<
 
 test('v4.8.1 R4: the first pointer says the money and why, then the stage\'s own easy reply', () => {
   const none = new Set<string>();
-  assert.deepEqual(pointerReply(facts(), 'Go?', none, NOW), { text: 'Base Builder Grant is still your best move: up to $5,000, one step away. Go?', said: [`point:${BASE.id}`], more: false, ready: false });
+  assert.deepEqual(pointerReply(facts(), 'Go?', none, NOW), { text: 'Base Builder Grant is still your best move: up to $5,000, one step away. Go?', said: [`point:${BASE.id}`], more: false, ready: false, again: false });
   assert.equal(pointerReply(facts({ gaps: 3 }), 'Want the steps?', none, NOW).text, 'Base Builder Grant is still your best move: up to $5,000, 3 steps away. Want the steps?');
   // The draft stage, drafted: "your draft is ready" (ahead of a close), then the stage's own ask (fix round 1, minor 1:
   // the blanks ask for a draft, "sent" at submit), never "Want me to start?".
@@ -361,7 +361,7 @@ test('v4.8.1 R4 (v4.8.2 R1): the second and later pointers offer every program',
   const twice = new Set([`point:${BASE.id}`]);
   // Fix round 1 (important 2), v4.8.2 R1: the second is the quiet reply's MORE_ASK (no short "Reply no" pointer),
   // flagged so the caller stores the 'more' ask.
-  assert.deepEqual(pointerReply(facts(), 'Go?', twice, NOW), { text: POINT_MORE, said: [], more: true, ready: false });
+  assert.deepEqual(pointerReply(facts(), 'Go?', twice, NOW), { text: POINT_MORE, said: [`more:${BASE.id}`], more: true, ready: false, again: false });
   assert.equal(POINT_MORE, MORE_ASK);
   assert.equal(POINT_MORE, 'Reply "more" and I\'ll show every program open now.');
   // Keyed per program: another program's pointer starts at its first.
@@ -379,12 +379,12 @@ test('v4.8.1 R5: a chain gap says what the program looks for', () => {
 });
 
 test('v4.8.1 R4 (v4.8.2 R1): five plain finds on the owner\'s shape: the hook, the pointer with its reason, then "more"; the gate passes', db, async () => {
-  // The owner fixture (Builder Codes passed on today): the hook raises Base once with "They're now the only gap".
+  // The owner fixture (Builder Codes passed on today): the hook raises Base once with "Builder Codes are now the only gap".
   const b = await ownerDb('pt5');
   const replies = await converse(b.ctx as never, Array.from({ length: 5 }, () => ({ find: {} })), { builderId: b.id });
   const t = transcript(replies);
   assert.equal(replies.length, 5, t);
-  assert.match(replies[0].show, /They're now the only gap to that money/, t);
+  assert.match(replies[0].show, /Builder Codes are now the only gap to that money/, t);
   assert.ok(replies[0].hook, t);
   assert.equal(replies[1].show, 'Base Builder Grant is still your best move: up to $5,000, one step away. I can add Builder Codes and push the change, about 10 minutes. Go?', t);
   // v4.8.2 R1: the third and later are the "more" line (its one easy reply, which the gate lets repeat); the first

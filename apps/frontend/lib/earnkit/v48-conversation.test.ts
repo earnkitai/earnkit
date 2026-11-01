@@ -237,10 +237,10 @@ test('pathReply: a grant with a gap gives its money, the gap and "Want the steps
   const c = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'closest', program: BASE, raise: true }, said: new Set(r.said) });
   // Fix round 2 (F10): one gap a local agent can do (Builder Codes): the hook offers to do it; a hosted agent keeps the steps.
   // Task 3: the passed step raised says so, once (target A).
-  assert.equal(c.show_to_builder, "Jenil, your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes. They're now the only gap to that money.\n\nI can add Builder Codes and push the change, about 10 minutes. Go?");
+  assert.equal(c.show_to_builder, "Jenil, your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes. Builder Codes are now the only gap to that money.\n\nI can add Builder Codes and push the change, about 10 minutes. Go?");
   assert.equal(c.reply, 'go');
   const h = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'closest', program: BASE, raise: true }, said: new Set(r.said), hosted: true });
-  assert.equal(h.show_to_builder, "Jenil, your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes. They're now the only gap to that money.\n\nWant the steps?");
+  assert.equal(h.show_to_builder, "Jenil, your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes. Builder Codes are now the only gap to that money.\n\nWant the steps?");
   // Fix round 3 (3): the same offer again in the session names Builder Codes.
   const again = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'closest', program: BASE, raise: true }, said: new Set([...r.said, ...c.said]) });
   assert.equal(again.show_to_builder, `Base Builder Grant is still your best move: up to $5,000, one step away. I can add Builder Codes and push the change, about 10 minutes. Go?`);
@@ -358,7 +358,9 @@ test("the owner-like builder who picked a16z: the first find is A's opener; the 
   // v4.8.1 Task 2 (R3): the session's first path reply says the open total just before the easy reply.
   const [p1, money, p2] = s.split('\n\n');
   // v4.8.2 Task 2 (R3): then what closes within 48 hours (the Arc copy), never the picked a16z copy the reply is about.
-  assert.match(money, /^Open now: \$[\d.]+[KM]?\+? in grants\.( Closing soon: .+\.)?$/, s);
+  // v4.8.2 final fix (F4): the Arc copy is named (the real pipeline: tools.ts cards to closingPrograms).
+  assert.match(money, /^Open now: \$[\d.]+[KM]?\+? in grants\. Closing soon: .+\.$/, s);
+  assert.ok(money.includes('Arc Microgrants (500 USDC × 8 grants, in '), s);
   assert.ok(!money.includes(sr.title), s);
   assert.match(p1, new RegExp(`^Jenil, ${sr.title} closes (in \\d+ hours?|in under an hour|[A-Z][a-z]{2} \\d{1,2}): up to \\$1M\\. You've shipped \\d+ weeks? in a row and EarnKit is live, which is the traction they ask about\\.$`), s);
   assert.equal(p2, 'I can draft your application from your commits and live product in a few minutes. Want me to start?', s);
@@ -473,7 +475,7 @@ test('fix round 2 (F9): with no X name the reply greets no name, never the handl
   const r = pathReply({ now: NOW, first: null, project: { name: 'EarnKit', live: true }, streak: 6, move: move as never, said: new Set() });
   assert.ok(r.show_to_builder.startsWith('a16z speedrun SR008 closes in 36 hours: up to $1M. '), r.show_to_builder);
   const c = pathReply({ now: NOW, first: null, project: { name: 'EarnKit', live: false }, streak: 0, move: { kind: 'closest', program: BASE, raise: true }, said: new Set() });
-  assert.equal(c.show_to_builder, "Your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes. They're now the only gap to that money.\n\nI can add Builder Codes and push the change, about 10 minutes. Go?");
+  assert.equal(c.show_to_builder, "Your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes. Builder Codes are now the only gap to that money.\n\nI can add Builder Codes and push the change, about 10 minutes. Go?");
 });
 
 /** The connect weeks due again (v3-connect.test.ts's backfill): the older moment the closest grant waits behind. */
@@ -893,10 +895,10 @@ test('the submit stage, the pointer and the track lead (pure): target A word for
 
 test('the passed-step line and "Since {day}" (pure): stored changes only; nothing changed, nothing said', () => {
   // v4.8.2 Task 1 (R2): the passed-step line never says when or that the builder passed.
-  assert.equal(passedLine('2026-10-22T09:00:00Z', NOW), "It's now the only gap to that money.");
-  assert.equal(passedLine('2026-10-22T09:00:00Z', NOW, true), "They're now the only gap to that money.");
+  assert.equal(passedLine(), "It's now the only gap to that money.");
+  assert.equal(passedLine(true), "Builder Codes are now the only gap to that money.");
   const raised = pathReply({ now: NOW, first: null, project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'closest', program: { ...BASE, passedAt: '2026-10-22T09:00:00Z' }, raise: true }, said: new Set() });
-  assert.match(raised.show_to_builder, /add Builder Codes\. They're now the only gap to that money\. /);
+  assert.match(raised.show_to_builder, /add Builder Codes\. Builder Codes are now the only gap to that money\. /);
   // Not raised (a step not passed on): no such line.
   assert.doesNotMatch(pathReply({ now: NOW, first: null, project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'one_step', program: { ...BASE, passed: false } }, said: new Set() }).show_to_builder, /passed/);
   const thu = '2026-10-29T15:00:00Z';
@@ -931,7 +933,7 @@ test('"sent" records the program as applied and hooks Base in the same reply, wi
   const s = show(sent);
   const [lead, hook, ask] = s.split('\n\n');
   assert.equal(lead, "Nice, I'm tracking it. Speedrun says fewer than 0.4% of applicants are accepted, so let's line up money that's closer.", s);
-  assert.match(hook, /^Your closest money is Base Builder Grant: up to \$5,000\. [^\n]*Builder Codes[^\n]*\. They're now the only gap to that money\./, s);
+  assert.match(hook, /^Your closest money is Base Builder Grant: up to \$5,000\. [^\n]*Builder Codes[^\n]*\. Builder Codes are now the only gap to that money\./, s);
   assert.equal(ask, OFFER, s);
   assert.equal(s.split('\n\n').length, 3, s);
   assert.doesNotMatch(s, BAD);
@@ -2311,7 +2313,7 @@ test('final F2: after "sent", with Arc closing tonight on a chain gap, the lead 
   const b = await atSubmit('ff2', sr.id);
   const s = show(await mcpCall(b.ctx as never, 'tell', { program_status: [{ program_id: sr.id, status: 'applied' }] }));
   const [, hook, ask] = s.split('\n\n');
-  assert.match(hook, /^Your closest money is Base Builder Grant: up to \$5,000\. [^\n]*Builder Codes[^\n]*They're now the only gap to that money\./, s);
+  assert.match(hook, /^Your closest money is Base Builder Grant: up to \$5,000\. [^\n]*Builder Codes[^\n]*Builder Codes are now the only gap to that money\./, s);
   assert.doesNotMatch(s, /Arc/, s);
   assert.equal(ask, OFFER, s);
 });

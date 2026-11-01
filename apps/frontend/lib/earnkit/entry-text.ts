@@ -101,14 +101,26 @@ export function closesIn(c: { summary: string; ends_at?: Date | string | null },
   return hoursLeft(new Date(c.ends_at).toISOString(), now);
 }
 
+/** v4.8.2 final fix (F2): a month and day in a summary part ("Nov 18", "Nov 7, 9:00 AM IST" from its month on). */
+const DATED = /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{1,2}\b/;
 /**
  * v4.8.2 Task 3 (R4): the summary an agent gets: with a `closes_in`, its close part (a part after " · " that starts
- * with "closes") reads "closes {closes_in}" ("500 USDC × 8 grants · closes in 14 hours"); else the summary as is. Pure.
+ * with "closes") reads "closes {closes_in}" ("500 USDC × 8 grants · closes in 14 hours"); else the summary as is.
+ * v4.8.2 final fix (F2): any other part after the prize with a month and day keeps its own words before the date, the
+ * date (and what follows it) becoming the hours left: "regular deadline Nov 18" reads "regular deadline in 30 hours",
+ * "submit by Nov 7, 9:00 AM IST" reads "submit in 30 hours" (a trailing "by" or "on" dropped), a bare date "closes in
+ * 30 hours". Pure.
  */
 export function summaryIn(summary: string, left: string | null): string {
   if (!left) return summary;
   const [prize, ...parts] = summary.split(' · ');
-  return [prize, ...parts.map((p) => (/^closes\b/.test(p.trim()) ? `closes ${left}` : p))].join(' · ');
+  return [prize, ...parts.map((p) => {
+    if (/^closes\b/.test(p.trim())) return `closes ${left}`;
+    const at = p.search(DATED);
+    if (at < 0) return p;
+    const words = p.slice(0, at).replace(/[\s:,]+$/, '').replace(/\s*\b(?:by|on)$/i, '').trim();
+    return `${words || 'closes'} ${left}`;
+  })].join(' · ');
 }
 
 /**

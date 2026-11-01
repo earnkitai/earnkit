@@ -39,7 +39,7 @@ import {
   type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
-import { MORE_NOTE, NAME_ASK, NAME_NOTE, EXISTING_NOT_TOKEN, TOKEN_OFFER, TOKEN_OFFER_QUESTION, TOKEN_ON_ITS_WAY, WALLET_SETUP_SKIPPED, existingTokenLine, setupTokenOffer, displayName, firstName, isStep2, setupDoneLead, setupDoneReply, type ProgramRow, type SetupOutcome } from './bench-reply';
+import { MORE_NOTE, NAME_ASK, NAME_NOTE, WAIT_NOTE, EXISTING_NOT_TOKEN, TOKEN_OFFER, TOKEN_OFFER_QUESTION, TOKEN_ON_ITS_WAY, WALLET_SETUP_SKIPPED, existingTokenLine, setupTokenOffer, displayName, firstName, isStep2, setupDoneLead, setupDoneReply, type ProgramRow, type SetupOutcome } from './bench-reply';
 import { targetIn, weeklyTarget } from './weekly-target';
 import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, markOffered, momentDue, momentSummary, momentPlace, momentReady, openShare, takeMoment, weekNumber } from './weekly-moment';
 import { isoWeekOf } from './weeks';
@@ -93,7 +93,7 @@ export { displayName };
 const APPROVED_CONNECT = 'Done. Your weeks are posted.';
 // v4.7 T4: the why note helpers live in bench-reply.ts (post-reply.ts uses them too); re-exported here.
 export { WHY_NOTE, whyNote, withWhy } from './bench-reply';
-export { MORE_ASK, NAME_ASK } from './bench-reply';
+export { MORE_ASK, NAME_ASK, WAIT_NOTE } from './bench-reply';
 export const BENCH_MOVE_UP_NOTE = 'A yes or no to the question: call tell with move_up: { kind, project_key, answer } (kind and project_key as given here). Do the steps it returns yourself; never ask the builder to edit files.';
 /**
  * R8: the ranked state's step, "Ship this week to climb.": a yes is one small, real thing to ship this week
@@ -930,6 +930,8 @@ async function pathCommit(
     state: v.state, variant: v.variant, project: v.project, rank: read.ranks.bench, streak: v.streak, target: null, handle: v.handle, link: null,
     fund: [], due: [], ask: { kind, project_key: key, line: '', program_id: out.program_id }, held: null,
     path: withMoneyLine(withSince(since, pre.inline ? `${pre.inline} ${out.show_to_builder}` : out.show_to_builder), money), pathLead: out.reply === 'start' && !out.pointer?.more ? { program_id: out.program_id, ...(fit?.repo && { repo: fit.repo }) } : null,
+    // v4.8.2 final fix (F1): the "more" line again this session: the agent waits for the builder (no find until they speak).
+    ...(out.pointer?.more && out.pointer.again && { pathNote: WAIT_NOTE }),
   };
   const rankLines = [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x));
   const fields: Reply = {
@@ -976,11 +978,13 @@ const withSince = (since: string | null, show: string) => (since ? `${since}\n\n
  * v4.8.2 Task 2 (R3): the programs the money line's "Closing soon" names (conversation.ts closingSoon) from the
  * builder's live cards, any category: open curated ones only (showable, an investor program read as a grant, the
  * programs answer's own rule: never upcoming, unlisted, sponsored, hidden or agent-incompletable), each with the
- * programs table's amount (pathAmount). Pure.
+ * programs table's amount (pathAmount). A led program is left out by id and by name (v4.8.2 final fix F3). Pure.
  */
 export function closingPrograms(cards: readonly Card[], now: Date, skip: Set<string>, led: ReadonlySet<string | null>): MoveProgram[] {
   const open = cards.filter((c) => showable({ ...c, investment: false }, now, skip)).map(moveProgram);
-  return closingSoon(open, now, skip, led);
+  // v4.8.2 final fix (F3): a led program's name is left out too (another round of "Arc Microgrants: ..." with its own id).
+  const ledNames = new Set(cards.filter((c) => led.has(c.id)).map((c) => programName(c.title)));
+  return closingSoon(open.filter((p) => !ledNames.has(programName(p.title))), now, skip, led);
 }
 /**
  * v4.8.1 Task 2 (R3): the money line (conversation.ts moneyLine) for this session's first path reply about `programId`,
@@ -1219,6 +1223,8 @@ async function pathClosedCommit(o: ViewIn, plan: PathPlan & { closed: NonNullabl
   const view: BenchView = {
     state: v.state, variant: v.variant, project: v.project, rank: read.ranks.bench, streak: v.streak, target: null, handle: v.handle, link: null,
     fund: [], due: [], ask: { kind: point?.more ? moreKind : 'apply', project_key: key, line: '', program_id: pid }, held: null, path: withMoneyLine(show, money), pathLead: point?.more ? null : { program_id: pid },
+    // v4.8.2 final fix (F1): as pathCommit, the "more" line again this session tells the agent to wait.
+    ...(point?.more && point.again && { pathNote: WAIT_NOTE }),
   };
   const rankLines = [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x));
   const moveUp = point?.more ? { kind: moreKind, project_key: key, agent_note: named ? NAME_NOTE : MORE_NOTE } : { kind: 'apply' as const, project_key: key, agent_note: APPLY_NOTE };

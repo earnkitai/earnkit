@@ -1786,7 +1786,8 @@ apps/frontend/
                                tag) closing within 7 days; a picked or past-the-hook program keeps its place; else quiet), pathReply
                                (Task 1: the hook only: A's opener for a fit or investor, "Want the steps?" for a gap; a hook said
                                this session is pointerReply: v4.8.1 R4, the reason once, then "more" (v4.8.2: no short
-                               "Still {Program}. Reply no ..."; v482-fixes.test.ts)), closeWords (v4.8.1 R2: "in N hours" under 48 h, else the zone's day),
+                               "Still {Program}. Reply no ..."; final fix F1: a second "more" sets `again`, so
+                               bench-find.ts adds bench-reply.ts WAIT_NOTE to the agent note; v482-fixes.test.ts)), closeWords (v4.8.1 R2: "in N hours" under 48 h, else the zone's day),
                                moneyLine/closingSoon/withMoneyLine/MONEY_SAID (v4.8.1 R3: "Open now: $X in grants." once a
                                session, before the easy reply; v4.8.2 Task 2: then "Closing soon: {A} (...) and {B} (...)."
                                within 48 h, at most 2, from bench-find.ts closingPrograms; v481/v482-fixes.test.ts), proofLine, programName. bench-find.ts pathView
