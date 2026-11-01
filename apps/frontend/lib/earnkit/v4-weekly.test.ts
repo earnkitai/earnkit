@@ -241,7 +241,8 @@ test('(d, end to end) the Monday email carries the same facts as plain lines', d
     const m = sent[0]!;
     // v4.7 T5 (R16): the standing on top carries the one score; the subject and the week block carry none.
     assert.equal(m.subject, 'Your week on EarnKit');
-    assert.match(m.text, /^Score \d+/);
+    // Final review 9: a score of 0 is said as no part (the streak leads the standing).
+    assert.match(m.text, /^(?:Score [1-9]\d*\. )?5 weeks shipping in a row\./, m.text);
     assert.ok(m.text.includes([
       'Your week is ready, Maya. You shipped the new meal planner. Nice work.',
       '',

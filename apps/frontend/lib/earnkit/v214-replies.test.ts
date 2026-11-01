@@ -81,7 +81,9 @@ test('9.10 state 3, a project without the App: the install link; then state 4 on
   await pathQuiet(a.id);
   const four = rule((await mcpCall(a.ctx, 'find', {})).reply);
   // v4.7.1 T1: the standing is v4.7's paragraph ("Score 14 · #1 of 10 builders. ..."), never the old name line.
-  assert.match(four, new RegExp(`(?:Kit is on the leaderboard: |Score \\d+ · )(#\\d+ of \\d+ builders?|Top \\d+(\\.\\d)?% of builders)`));
+  // Final review 9: a score of 0 says neither the score nor the rank. The rank is still the ship line's.
+  assert.match(four, /(?:Score [1-9]\d* · |hold |toward )(#\d+|Top \d+(\.\d)?%)/, four);
+  assert.doesNotMatch(four, /^Score 0\b/m, four);
 });
 
 test('9.11 R16a: shipping weekly is the ranked state; Task 16: the standing line carries the streak', db, async () => {
@@ -99,7 +101,8 @@ test('9.11 R16a: shipping weekly is the ranked state; Task 16: the standing line
   const reply = (await mcpCall(a.ctx, 'score', {})).reply;
   const s = rule(reply);
   // Task 16: the standing line carries the streak. v4.7 T2: score's standing paragraph does, first.
-  assert.match(s, /^Score \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\. 3 weeks shipping in a row\. /);
+  // Final review 9: a score of 0 says neither the score nor the rank.
+  assert.match(s, /^(?:Score [1-9]\d* · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\. )?3 weeks shipping in a row\. /, s);
   assert.ok(s.startsWith(`${reply?.standing}\n\n`), s);
   assert.ok(endsOnRankedStep(s), s);
   assert.equal(reply?.streak, 3);

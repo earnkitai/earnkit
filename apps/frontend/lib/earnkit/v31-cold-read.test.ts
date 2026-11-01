@@ -244,7 +244,8 @@ test('the status line only when it changed, the points line once a week; score a
   const one = show(await find(b));
   clean(one);
   // v4.7.1 T1: the standing is v4.7's paragraph, never the old "Kit is on EarnKit." line while it has a part.
-  assert.match(one, /^Score \d+\. No grants won yet\./, one);
+  // Final review 9: a score of 0 says neither the score nor the rank. With no other part, the name line.
+  assert.match(one, /^Kit is on EarnKit\./, one);
   // Later replies this week: once the one-time questions are asked, nothing else to say, so the unchanged standing alone
   // (no points line again this week).
   let r2 = await find(b);
@@ -264,8 +265,8 @@ test('the status line only when it changed, the points line once a week; score a
   // v4.7 T2: score always says where they stand: its standing paragraph first (never points).
   const sr = await mcpCall(b.ctx, 'score', {});
   const score = show(sr);
-  assert.ok(score.startsWith(String(sr.reply?.standing)), score);
-  assert.match(score, /^Score \d+\. No grants won yet\./, score);
+  // Final review 9: a score of 0 is no part, so with nothing else to stand on, the name line.
+  assert.match(score, /^Kit is on EarnKit\./, score);
   assert.doesNotMatch(score, /points/, score);
 });
 

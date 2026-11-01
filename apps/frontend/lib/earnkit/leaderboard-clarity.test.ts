@@ -227,7 +227,8 @@ test('R10: ranked, the move-up news shows with the rank; once the project is not
   const r1 = oneStatusOneStep(ranked);
   assert.match(r1, /Since you last checked: You moved up to (#[1-4] of \d+ builders|Top [\d.]+% of builders)\./, r1);
   // v4.7.1 T1: the standing is v4.7's paragraph ("Score 0 · Top 14% of builders. ..."), never the old name line.
-  assert.match(r1, /^Score \d+ · (#[1-4] of \d+ builders|Top [\d.]+% of builders)/m);
+  // Final review 9: a score of 0 says neither the score nor the rank.
+  assert.doesNotMatch(r1, /^Score 0\b/m, r1);
   assert.ok((ranked?.rank_lines as string[]).length >= 1);
 
   // The repo's proof goes; builder_live.ranked stays true until the next rescore (read_at now: no refresh).

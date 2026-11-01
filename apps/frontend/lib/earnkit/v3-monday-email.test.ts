@@ -162,10 +162,11 @@ test('(c) sendDigests mails the moment for a checked week', db, () =>
     // v4.7 T5 (R16): the standing on top carries the one score, so the subject has none.
     assert.equal(m.subject, 'Your week on EarnKit');
     // v4.0 Task 7: the Monday block as plain lines (v4.7 T5: under the builder's standing paragraph).
-    assert.match(m.text, /^Score \d+\. [^\n]*\n\nYour week is ready, /, m.text);
+    // Final review 9: a score of 0 is said as no part (the streak leads the standing).
+    assert.match(m.text, /^(?:Score [1-9]\d*\. )?1 week shipping\. [^\n]*\n\nYour week is ready, /, m.text);
     // R16: one score figure per email: the standing's, never the week's "Shipping score" line.
     assert.doesNotMatch(m.text, /Shipping score/);
-    assert.equal((`${m.subject}\n${m.text}`.match(/\bScore \d+|Shipping \d+/gi) ?? []).length, 1, m.text);
+    assert.ok((`${m.subject}\n${m.text}`.match(/\bScore \d+|Shipping \d+/gi) ?? []).length <= 1, m.text);
     assert.match(m.text, /\n\nLooks right: https:\/\/earnkit\.com\/api\/week\?t=\S+\nHide this week: https:\/\/earnkit\.com\/api\/week\?t=\S+/);
     // v4.0 Task 7: the greeting may use the builder's own handle (no X name), which this fixture shares with the repo owner.
     assert.ok(!(m.text.match(/https:\/\/\S+/g) ?? []).some((u) => u.includes(me.key.split('/')[0]!)), 'no link names the repo');
@@ -285,7 +286,7 @@ test('(e) an unchecked week is pending: not sent, not considered', db, () =>
     await sql()`UPDATE project_updates SET facts = facts || '{"checked": true}'::jsonb WHERE builder_id = ${me.id} AND week = ${LAST}`;
     const later = await sendDigests(new Date(MONDAY + 3_600_000), { mail, only: [me.id] });
     assert.equal(later.sent, 1);
-    assert.match(sent[0]!.text, /^(?:Score \d+\. [^\n]*\n\n)?Your week is ready, /);
+    assert.match(sent[0]!.text, /^(?:[^\n]*\n\n)?Your week is ready, /);
   }),
 );
 

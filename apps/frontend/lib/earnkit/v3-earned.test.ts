@@ -358,7 +358,8 @@ test('(d) the profile shows Earned as the third number and the waiting line; the
   // v4.0 Task 11: no coin intro post and no backing line; the stand line carries Earned.
   const r = show(await find(b));
   // v4.7.1 T1: the reply's standing is v4.7's paragraph (prizes won, not token fees); Earned stays in the JSON below.
-  assert.match(r, /^Score \d+\. 1 week shipping\. No grants won yet\.$/m, r);
+  // Final review 9: a score of 0 is said as no part.
+  assert.match(r, /^1 week shipping\. No grants won yet\.$/m, r);
   assert.equal(standLine(r), '', 'no old stand line');
   assert.doesNotMatch(r, /Backing|backers|\bcoin/i, r);
   assert.ok(links(r).length <= 1, r);

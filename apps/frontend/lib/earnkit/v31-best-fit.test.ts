@@ -159,7 +159,8 @@ test('(c) v4.0 Task 11: no backing offer before apply, even with EARNKIT_RAISING
 test('(d) a no parks the program for the path for 30 days; then it leads again', db, async () => {
   const b = await builder('d', [ROLLING]);
   assert.equal(kind(await find(b)), 'apply');
-  assert.equal(show(await tell(b, { move_up: { kind: 'apply', project_key: b.key, answer: 'no' } })), 'Okay.');
+  // Final review F7: a path no is one line, then find's next step in the same reply.
+  assert.ok(show(await tell(b, { move_up: { kind: 'apply', project_key: b.key, answer: 'no' } })).startsWith("No problem, I'll set "));
   const s = show(await find(b));
   assert.doesNotMatch(s, /Base Builder Grant is open now|I can draft it/, s);
   await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(jsonb_set(standing_seen, ${['declined', `apply:${ROLLING}`]}::text[], to_jsonb(${new Date(Date.now() - 31 * DAY).toISOString()}::text)),

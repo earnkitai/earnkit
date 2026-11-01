@@ -170,7 +170,7 @@ export const transcript = (rs: readonly Reply[]) =>
 /*
  * The merge gate, rule by rule, on what the builder sees (Reply.show). Each failure names the turn, the rule and why.
  */
-export type GateRule = 'empty' | 'easy_reply' | 'repeat' | 'proof' | 'copy' | 'claim';
+export type GateRule = 'empty' | 'easy_reply' | 'repeat' | 'proof' | 'copy' | 'claim' | 'step';
 export type GateFailure = { turn: number; rule: GateRule; reason: string };
 
 function paragraphs(s: string) {
@@ -297,6 +297,19 @@ const CLAIMS: RegExp[] = [
 ];
 
 /**
+ * Final review F3: the steps a reply names, lowercased: the numbered lines under "Your next step(s) toward ...", and the
+ * step after "Let's do it now:", "Not done yet:", "Still on {program}:", "one step away:" or "First:" (up to its first
+ * period). A step in the gap stage's own words, so the same step in new wording around it is still the same step.
+ */
+const STEP_AFTER = /(?:Let's do it now|Not done yet|Still on [^:\n]+|one step away|First): ([^.\n]+)/g;
+function stepsNamed(show: string): string[] {
+  const listed = /\bnext (?:\d+ )?steps? toward\b/i.test(show) ? [...show.matchAll(/^\s*\d+\.\s+([^.\n]+)/gm)].map((m) => m[1]) : [];
+  return [...listed, ...[...show.matchAll(STEP_AFTER)].map((m) => m[1])].map((x) => norm(x).toLowerCase()).filter((x) => x.length >= 8);
+}
+/** Final review F3: one step may be said in at most this many replies of one session. */
+export const STEP_MAX_REPLIES = 2;
+
+/**
  * Every reply that breaks the merge gate (implementer contract), with its turn and why; [] when all pass. `names`: the
  * builder's own project name and handle, the only subjects "{name} is live" counts as proof for (fix round 2, minor 2).
  */
@@ -305,6 +318,20 @@ export function gateFailures(replies: readonly Reply[], o: { names?: readonly st
   const out: GateFailure[] = [];
   /** Per session: each paragraph said (and whether it was the easy reply), the proof facts said, and whether one was. */
   const said = new Map<number, { units: Map<string, boolean>; facts: Set<string>; proof: boolean }>();
+  // Final review F3 (rule 3, the step): every step named in a session, then how many of its replies say each one.
+  const steps = new Map<number, Set<string>>();
+  for (const r of replies) for (const st of stepsNamed(r.show)) steps.set(r.session, (steps.get(r.session) ?? new Set()).add(st));
+  const stepCount = new Map<string, number>();
+  for (const r of replies) {
+    const low = norm(r.show).toLowerCase();
+    for (const st of steps.get(r.session) ?? []) {
+      if (!low.includes(st)) continue;
+      const k = `${r.session}|${st}`;
+      const c = (stepCount.get(k) ?? 0) + 1;
+      stepCount.set(k, c);
+      if (c === STEP_MAX_REPLIES + 1) out.push({ turn: r.turn, rule: 'step', reason: `the step "${st}" in more than ${STEP_MAX_REPLIES} replies this session` });
+    }
+  }
   for (const r of replies) {
     const fail = (rule: GateRule, reason: string) => out.push({ turn: r.turn, rule, reason });
     if (!r.show.trim()) {
@@ -348,5 +375,5 @@ export function gateFailures(replies: readonly Reply[], o: { names?: readonly st
     const claim = CLAIMS.map((re) => r.show.match(re)?.[0]).find(Boolean);
     if (claim) fail('claim', `"${claim}"`);
   }
-  return out;
+  return out.sort((a, b) => a.turn - b.turn);
 }

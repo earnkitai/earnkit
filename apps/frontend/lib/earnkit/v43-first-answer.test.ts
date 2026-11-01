@@ -19,8 +19,7 @@ import {
   QUALIFY_CODES_CHECK_NOTE, QUALIFY_CODES_NOTE, alsoLine, walletSetupAsk, TOKEN_OFFER, benchReply, qualifyAsk, qualifyCodesYes, qualifyGap, qualifyHead, qualifySteps, stateAsk,
   type BenchView, type OpenGrant, type QualifyOffer, type QualifyStep,
 } from './bench-reply';
-import { qualifyGapSteps } from './bench-reply';
-import { CODES_OFFER, MENTOR_NOTE, gapReply } from './conversation';
+import { CODES_OFFER, MENTOR_NOTE } from './conversation';
 import { BASE_GRANTS_ID } from './builder-code';
 import { productOdds, productScore, traction, type Detection } from './match';
 import { presentFirstMessage, programUpdates, type Card, type RepoFit } from './present';
@@ -248,11 +247,11 @@ test('fix round 1 (R1): a hosted agent is asked for the steps; its yes is the st
   const r = await mcpCall(ctx, 'find', {});
   assert.match(show(r), BASE_HOOK(CODES_GAP), show(r));
   assert.equal((r.reply?.move_up as { kind: string }).kind, 'qualify');
-  // v4.8 Task 2 (F3): the gap stage's steps, nothing marked for a hosted agent; its yes walks the builder through it.
-  const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
-  assert.equal(show(yes), gapReply('Base Builder Grant Program', qualifyGapSteps(['codes']), true, "You're live on Base.").show_to_builder);
-  assert.doesNotMatch(show(yes), /Adding Builder Codes|I can do this/);
+  // Final review F3: its one step is one a hosted agent can't do, so the yes is the help itself (it walks the builder
+  // through it), nothing marked.
   const help = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
+  assert.ok(show(help).startsWith("Let's do it now: add Base's Builder Code"), show(help));
+  assert.doesNotMatch(show(help), /I can do this/);
   assert.match(String(help.reply?.agent_note), /in short plain steps they can do themselves/);
   assert.doesNotMatch(show(help), /Adding Builder Codes/);
 });
@@ -506,7 +505,7 @@ async function streakBuilder(tag: string, streak: number) {
 test('v4.3 Task 3: standing through find and score for a real streak of 6, 1 and 0', db, async () => {
   await start();
   // v4.7 T2: the weeks part of the whole standing (after the page's score and rank).
-  for (const [tag, streak, want] of [['sa', 6, '. 6 weeks shipping in a row. '], ['sb', 1, '. 1 week shipping. '], ['sc', 0, null]] as const) {
+  for (const [tag, streak, want] of [['sa', 6, '6 weeks shipping in a row. '], ['sb', 1, '1 week shipping. '], ['sc', 0, null]] as const) {
     const ctx = await streakBuilder(tag, streak);
     for (const tool of ['find', 'score'] as const) {
       const reply = (await mcpCall(ctx, tool, {})).reply as Record<string, unknown>;

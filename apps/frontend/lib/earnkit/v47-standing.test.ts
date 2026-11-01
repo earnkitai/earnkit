@@ -61,7 +61,10 @@ test('each part only when true: no rank under the pool, no wins, no applications
 test('fix round 1 (R5): the standing leads only with a score or a streak part', () => {
   assert.equal(standingLeads(BARE), false);
   assert.equal(standingLeads({ ...BARE, wonUsd: 5000, applied: 2 }), false);
-  assert.equal(standingLeads({ ...BARE, score: 0 }), true);
+  // Final review 9: a score of 0 is said as no part, so alone it never leads; with a next deadline it does.
+  assert.equal(standingLeads({ ...BARE, score: 0 }), false);
+  assert.equal(standingLeads({ ...BARE, score: 0, next: { program: 'a16z CSX', day: 'Nov 1' } }), true);
+  assert.equal(standingLeads({ ...BARE, score: 77 }), true);
   assert.equal(standingLeads({ ...BARE, streak: 1 }), true);
 });
 

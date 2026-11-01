@@ -136,8 +136,9 @@ test('R8, R12, R16a through find and score (Task 16): the standing line, one mon
   const s = String(r.show_to_builder);
   const lines = s.split('\n');
   // v4.7.1 T1: the standing is v4.7's paragraph (the page's score and rank), never "Kit · #1 of 10 builders".
-  assert.match(lines[0], /^Score \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)/, s);
-  assert.equal(lines[0], r.standing, s);
+  // Final review 9: a score of 0 says neither the score nor the rank. With no other part, the name line.
+  assert.equal(lines[0], 'Kit is on EarnKit.', s);
+  assert.doesNotMatch(s, /^Score 0\b/m, s);
   // v3.1 F4: no why sentence in the reply (the page keeps it); Task 16: no page line, no list of fits.
   assert.doesNotMatch(s, /No code in the last 12 weeks|Code in \d+ of the last 12 weeks|Your page|Ways to get funded/, s);
   assert.match(lines[1], FIT_LINE, s);
@@ -155,9 +156,10 @@ test('R8, R12, R16a through find and score (Task 16): the standing line, one mon
   const sc = (await mcpCall(a.ctx, 'score', {})).reply!;
   const t = String(sc.show_to_builder);
   // v4.7 T2: score leads with the standing paragraph (the page's score and rank), so no "Kit · " line of its own.
-  assert.ok(t.startsWith(`${sc.standing}\n\n`), t);
+  // Final review 9: a score of 0 with nothing else to stand on: the name line, as find's.
+  assert.ok(t.startsWith('Kit is on EarnKit.\n'), t);
   assert.doesNotMatch(t, /^Kit · /m);
-  assert.equal(t.split('\n')[2], lines[1], `score names the same Best fit: ${t}`);
+  assert.equal(t.split('\n')[1], lines[1], `score names the same Best fit: ${t}`);
   // GTM W2: the ship question was just asked (find), so score asks nothing (once in 7 days); v3.1 cold read: the points
   // line was shown this week (find), so score leaves it out too (at most once an ISO week).
   assert.ok(!t.includes('?') && !/points/.test(t), t);

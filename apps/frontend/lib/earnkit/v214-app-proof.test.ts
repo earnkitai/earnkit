@@ -78,7 +78,9 @@ test('6.2 the setup URL proves the repo (github_app), rescoring at once: the nex
   const r = await mcpCall(p.ctx, 'find', {});
   // R4, R16c: read at connect with no commits, it ranks at 0 and the stand line is the score line.
   // v4.7.1 T1: the standing paragraph ("Score 0 · #1 of 10 builders. ..."), never "Notes · #1 of 10 builders".
-  assert.match(String(r.reply?.show_to_builder), /^Score 0 · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\. /m);
+  // Final review 9: a score of 0 says neither the score nor the rank. With no other part, the name line.
+  assert.match(String(r.reply?.show_to_builder), /^Notes is on EarnKit\./);
+  assert.doesNotMatch(String(r.reply?.show_to_builder), /^Score 0\b/m);
 });
 
 /** A person who named `key` and installed the App on it through the setup URL (appSetup, proveByApp). */

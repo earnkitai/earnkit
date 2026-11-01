@@ -162,7 +162,8 @@ const byClose = <P extends Pick<MoveProgram, 'ends_at'>>(a: P, b: P) => closeAt(
  * 3. a grant one step away where that step is one the agent can do in the repo (`doable`: Builder Codes; a chain
  *    deployment never counts), not a step the builder passed on;
  * 4. an investor program closing within INVESTOR_WINDOW_MS, soonest first, with its odds when stated;
- * 5. the closest grant by number of gaps (a passed step only when it is the one gap, and only once);
+ * 5. the closest grant by number of gaps, the agent-doable one first at equal gaps (a passed step only when it is the
+ *    one gap, and only once); never one whose gap the agent can't do that closes within NOW_WINDOW_MS (final review F2);
  * 6. otherwise quiet: the reply's older asks (check-in, wallet, token, new repo, titles, then the ship line).
  * Anything in `skip` is never a move. A program on the stored path that is still one of 1 to 5 keeps its place when
  * the builder is on it: they picked it, or said yes past the hook (gap, draft, submit, track). An investor program is
@@ -184,9 +185,13 @@ export function bestMove(ctx: MoveCtx): Move {
   // Task 2 fix round 2: a grant the builder said yes to past the hook (gap, draft) stays a move even once its passed
   // step was raised (they took it up).
   const onPast = (g: GapGrant) => ctx.path?.program_id === g.id && ctx.path.stage !== 'hook';
+  // Final review F2: a grant whose gap the agent can't do (a chain deployment, a live product) and that closes within
+  // NOW_WINDOW_MS can't be won in time, so it never leads (unless the builder is already on it); at equal gaps, the
+  // agent-doable one comes first, then the close.
   const closest = grants
+    .filter((g) => g.doable || onPast(g) || !soon(g, NOW_WINDOW_MS))
     .filter((g) => !g.passed || onPast(g) || (g.gaps.length === 1 && (!ctx.raised.has(g.id) || (ctx.path?.program_id === g.id && ctx.raisedNow?.has(g.id) === true))))
-    .sort((a, b) => a.gaps.length - b.gaps.length || byClose(a, b));
+    .sort((a, b) => a.gaps.length - b.gaps.length || Number(b.doable) - Number(a.doable) || byClose(a, b));
   const moves: Exclude<Move, { kind: 'quiet' }>[] = [
     ...fits.map((program) => ({ kind: 'fit' as const, program })),
     ...now.map((program) => ({ kind: 'now' as const, program })),
@@ -379,12 +384,21 @@ export const GAP_DO_IT_ASK = 'Want me to do it now?';
  * Fix round 1 (T2-4): a find while the path is at `gap` (the steps already given): "Still on {program}: {first
  * remaining step}. {proof} Want me to do it now?" (help, when the agent can't do it), never "Want the steps?" again. Pure.
  */
-export function gapStillReply(program: string, steps: GapStep[], hosted: boolean, proof: string | null): { show_to_builder: string; reply: 'go' | 'help' } {
+/** Final review F5: the money a fresh session's gap opener says once ("{first}, ", the amount, the close words). */
+export type GapMoney = { first: string | null; amount: string | null; closes: string | null };
+export function gapStillReply(program: string, steps: GapStep[], hosted: boolean, proof: string | null, money: GapMoney | null = null): { show_to_builder: string; reply: 'go' | 'help' } {
   const can = (s: GapStep) => s.doable && !hosted;
   const step = steps.find(can) ?? steps[0];
   const text = step.text.replace(/\.$/, '');
   const reply = can(step) ? 'go' : 'help';
-  const line = `Still on ${programName(program)}: ${text.charAt(0).toLowerCase()}${text.slice(1)}.${step.link ? ` Guide: ${step.link}` : ''}`;
+  const words = `${text.charAt(0).toLowerCase()}${text.slice(1)}`;
+  const name = programName(program);
+  // Final review F5: a fresh session says the money once: "Base Builder Grant pays up to $5,000, and you're one step
+  // away: {step}." (several: "you're 2 steps away. First: {step}.").
+  const head = money
+    ? `${money.first ? `${money.first}, ` : ''}${name} ${money.amount ? `pays ${money.amount}` : 'is open'}${money.closes ? `, closing ${money.closes}` : ''}, and you're ${steps.length === 1 ? `one step away: ${words}` : `${steps.length} steps away. First: ${words}`}.`
+    : `Still on ${name}: ${words}.`;
+  const line = `${head}${step.link ? ` Guide: ${step.link}` : ''}`;
   return { show_to_builder: [line, proof, reply === 'go' ? GAP_DO_IT_ASK : GAP_HELP_ASK_ONE].filter(Boolean).join(' '), reply };
 }
 
@@ -396,8 +410,11 @@ const helpStepWords = (s: GapStep) => {
 };
 /** The yes to "Want help with it now?": "Let's do it now: {step}. Guide: {link}", then HELP_DONE_ASK. Pure. */
 export const helpReply = (step: GapStep) => `Let's do it now: ${helpStepWords(step)}.${step.link ? ` Guide: ${step.link}` : ''}\n\n${HELP_DONE_ASK}`;
-/** An ok to HELP_DONE_ASK with the step still not done: one different line, the same ask. Pure. */
-export const helpNotYet = (step: GapStep) => `Not done yet: ${helpStepWords(step)}. ${HELP_DONE_ASK}`;
+/**
+ * Final review F3 (the parked T4 copy): a find while the agent is helping with a step (before their ok): one short line
+ * that never says the step again, then HELP_DONE_ASK. Pure.
+ */
+export const helpWaiting = (title: string) => `Take your time with the ${programName(title)} step. ${HELP_DONE_ASK}`;
 /**
  * Task 6 fix round 2 (1): a help park whose step is met since: what changed, so the program is back on. "You're on Arc
  * now, so Arc Microgrants is back on." (a chain's mainnet); "Builder Codes are in, so ..."; else "That step is done, so
@@ -795,6 +812,8 @@ export const ANSWERED_FIRST = 'Their question is already answered first in show_
 export const PROGRAMS_AGAIN = 'Same list as earlier.';
 /** The mentor line after the investor programs (owner decision 2026-10-31: an offer to help prepare). */
 export const PREPARE_LINE = 'If one of these is your plan, I can help you prepare.';
+/** Final review 9 (the parked T5 line): PREPARE_LINE with one investor program. */
+export const PREPARE_LINE_ONE = "If it's your plan, I can help you prepare.";
 /** A grant's step as the fit cell says it: Base's steps (bench-reply.ts QualifyStep) and programNeeds' gaps. */
 const STEP_WORDS: Record<string, string> = {
   codes: 'add Builder Codes', base: 'put the app on Base', use: 'get people using it', 'in a public repo': 'make the repo public', 'live at a link': 'go live at a link',
@@ -860,7 +879,7 @@ export function programsAnswer(grants: readonly GrantRow[], investors: readonly 
   const i = investors.length >= TABLE_FROM
     ? `Investor programs:\n\n${table(['Program', 'Money', 'Closes', 'What it is'], investors.map((r) => [programName(r.title), moneyCell(r.amount), closesCell(r.when), r.what]))}`
     : investors.map(investorLine).join('\n');
-  return `${g}\n\n${i}\n\n${PREPARE_LINE}`;
+  return `${g}\n\n${i}\n\n${investors.length === 1 ? PREPARE_LINE_ONE : PREPARE_LINE}`;
 }
 /** A program file's description as "What it is": its first sentence, else "Investor program". Pure. */
 export function whatItIs(description: string | null | undefined): string {

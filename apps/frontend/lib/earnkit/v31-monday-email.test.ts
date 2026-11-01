@@ -156,7 +156,8 @@ test('(b) a rolling Base fit: "Base Builder Grant Program is open (rolling), and
   assert.equal(r.sent, 1, JSON.stringify(r));
   assert.equal(sent[0]!.subject, 'Your EarnKit week');
   // v4.7 T5: the builder's standing paragraph on top, then the money line.
-  assert.match(sent[0]!.text, /^Score \d+\. [^\n]*\n\nBase Builder Grant Program is open \(rolling\), and your draft is one yes away\.\n\nAsk your agent "What can I earn\?" to start\.\n\nDeadline alerts and a Monday summary\. Unsubscribe: /, sent[0]!.text);
+  // Final review 9: a score of 0 is no part, so no standing paragraph with nothing else to say.
+  assert.match(sent[0]!.text, /^(?:Score [1-9]\d*\. [^\n]*\n\n)?Base Builder Grant Program is open \(rolling\), and your draft is one yes away\.\n\nAsk your agent "What can I earn\?" to start\.\n\nDeadline alerts and a Monday summary\. Unsubscribe: /, sent[0]!.text);
   // A shared client's or a per-login subscription has no verified person: no money line.
   assert.deepEqual((await digestFacts({ ...sub(b, 'b@example.com'), shared: true }, new Date())).money, []);
   assert.deepEqual((await digestFacts({ ...sub(b, 'b@example.com'), login: 'someone' }, new Date())).money, []);
