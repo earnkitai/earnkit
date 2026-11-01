@@ -1,0 +1,51 @@
+{
+  "id": "arbitrum-open-house-sao-paulo",
+  "organizer": "Arbitrum Foundation",
+  "title": "Arbitrum Open House São Paulo: Online Buildathon",
+  "description": "The Arbitrum Foundation's next online buildathon, hosted on HackQuest: 115,000 USDC across an Overall track, a Promising Products track and milestone grants. At least 1 of 3 prizes in each track is reserved for a project building on Robinhood Chain. Existing projects are welcome. Registration opens Dec 24, 2026.",
+  "source_url": "https://www.hackquest.io/hackathons/Arbitrum-Open-House-Sao-Paulo-Online-Buildathon",
+  "submission_url": "https://www.hackquest.io/hackathons/Arbitrum-Open-House-Sao-Paulo-Online-Buildathon",
+  "reward": "115,000 USDC prize pool: Overall 40,000 / 20,000 / 10,000; Promising Products 7,000 / 5,000 / 3,000; up to 30,000 USDC in milestone-based grants",
+  "summary": "115,000 USDC prize pool · registration opens Dec 24",
+  "max_award_usd": 40000,
+  "pool_usd": 115000,
+  "tag": "long shot",
+  "submission_proof": null,
+  "starts_at": null,
+  "ends_at": null,
+  "verified_at": "2026-11-01",
+  "status": "upcoming",
+  "opens_note": "Registration opens Dec 24, 2026 on HackQuest; submissions run Feb 8 to Mar 1, 2027.",
+  "existing_work": "allowed",
+  "needs_repo": true,
+  "chains": [
+    "robinhood"
+  ],
+  "setup": [],
+  "each_time": [],
+  "rules": [
+    "Online buildathon. HackQuest lists registration from Dec 24, 2026 to Mar 1, 2027, submissions from Feb 8 to Mar 1, 2027, and rewards announced Mar 8, 2027.",
+    "Your project must be deployed on an Arbitrum chain to qualify, for example Arbitrum Sepolia, Arbitrum One or Robinhood Chain.",
+    "At minimum 1 of 3 prizes in the Overall and Promising Products tracks is reserved for a project building on Robinhood Chain (and 1 of 3 for one building on Arbitrum).",
+    "Bring an existing project or start from scratch. Build with Solidity or with Stylus (Rust).",
+    "All prizes are subject to development-tied milestones. Grants are milestone-based and case by case; selection isn't guaranteed.",
+    "Submission requirements are not published yet."
+  ],
+  "submission_requirements": [],
+  "tracks": [],
+  "starters": [],
+  "difficulty_override": null,
+  "judging": {
+    "criteria": [
+      { "text": "Smart contract quality" },
+      { "text": "Product-market fit" },
+      { "text": "Innovation and creativity" },
+      { "text": "Real problem solving" },
+      { "text": "Extra consideration for integrating Paxos' USDG stablecoin" }
+    ],
+    "source_url": "https://www.hackquest.io/hackathons/Arbitrum-Open-House-Sao-Paulo-Online-Buildathon"
+  },
+  "x_handles": [
+    "ArbitrumDevs"
+  ]
+}

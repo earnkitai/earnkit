@@ -114,8 +114,8 @@ test('(b) tile order: active first; Base, then any chain, then the rest; grants 
   // v3 Stage 2 final review: the committed set on Oct 20 (open or upcoming), as the landing lists it.
   const listed = fileCards().filter((c) => c.status === 'upcoming' || openCurated(c, now));
   assert.deepEqual(landingFrom(listed, stats, now).tiles.map((t) => t.id), [
-    'base-builder-grants', 'ethglobal-mumbai', 'a16z-speedrun', 'alliance-all19', 'arc-microgrants-studio', 'circle-developer-grants',
-    'avalanche-team1-mini-grants', 'base-batches-005', 'monad-nitro',
+    'base-builder-grants', 'base-ecosystem-fund', 'ethglobal-mumbai', 'a16z-speedrun', 'alliance-all19', 'z-fellows', 'arc-microgrants-studio',
+    'circle-developer-grants', 'avalanche-team1-mini-grants', 'arc-builders-fund', 'base-batches-005', 'monad-nitro', 'arbitrum-open-house-sao-paulo',
   ]);
 });
 
@@ -137,12 +137,13 @@ test('(c) the money total excludes investments, pool-only and in-person programs
   assert.equal(openMoneyWords([{ ...textOnly, reward: '' }], now), null, 'no amount and no prize text: nothing to name');
   assert.equal(openMoneyUsd([inPerson, textOnly], now), 0);
   // The committed files on Oct 20: Avalanche, Base, Circle and Arc Microgrants: Built with Arc Studio count ($115.5K); a16z speedrun and Alliance (accelerators)
-  // and ETHGlobal Mumbai (in person, no stated per-winner amount) are named, not counted.
+  // and ETHGlobal Mumbai (in person, no stated per-winner amount) are named, not counted. Nov 1: Z Fellows, Base Ecosystem Fund and
+  // Arc Builders Fund (accelerators) are named too.
   const files = fileCards();
   assert.equal(openMoneyUsd(files, now), 115500);
-  assert.equal(openMoneyWords(files, now), 'Plus 2 accelerators and 1 hackathon.');
+  assert.equal(openMoneyWords(files, now), 'Plus 5 accelerators and 1 hackathon.');
   assert.equal(landingFrom(files, { ...stats, open_money_usd: openMoneyUsd(files, now) }, now).open_text, '$115.5K in grants and prizes open');
-  assert.equal(landingFrom(files, stats, now).open_more, 'Plus 2 accelerators and 1 hackathon.');
+  assert.equal(landingFrom(files, stats, now).open_more, 'Plus 5 accelerators and 1 hackathon.');
   assert.equal(committedProgram('ethglobal-mumbai').max_award_usd, undefined, 'no per-winner amount the source does not state');
   const landing = landingFrom([a16z, circle, eth], { ...stats, open_money_usd: openMoneyUsd([a16z, circle, eth], now) }, now);
   assert.equal(landing.open_text, '$100K in grants and prizes open');
