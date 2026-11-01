@@ -8871,3 +8871,20 @@ an investor move is always `kind: 'investor'`. MoveProgram carries `longShot` (b
 program file's `tag === 'long shot'`). A program the builder picked or is past the hook on still keeps its place
 wherever it ranks (a long-shot grant at any close), so a builder who picks a16z still gets its draft, submit and track.
 
+
+## v4.8.1 Task 2: deadlines in hours left, the money total once a session (2026-11-01, rulings R2 and R3)
+
+- **Deadline words (R2).** conversation.ts closeWords says the time left under 48 hours ("in 20 hours", "in 1 hour",
+  "in under an hour"; whole hours rounded down, the same in every zone), else the program-zone day ("Nov 5"); never
+  "tonight" or "tomorrow". submitBy is "{day}, {clock} {abbr}" with " (in {n} hours)" under 48 hours (no abbr: the day,
+  then the hours), so the submit step reads "before Nov 1, 11:59 PM PT (in 20 hours)". submitNoRush says "until it
+  closes in 20 hours" (a day: "until Nov 5"). This supersedes the "tomorrow 11:59 PM PT" examples in the v4.8 Task 3
+  notes above.
+- **Money line (R3).** The session's first path reply from find (bench-find.ts pathCommit, pathGapCommit,
+  pathClosedCommit: a hook or pointer, the gap step, the draft offer, a "Since" opener) carries conversation.ts
+  moneyLine, "Open now: {moneyText(openMoneyUsd(cards))} in grants.", plus " {Investor} (investor program, {amount})
+  closes {closeWords}." for the soonest open investor program within INVESTOR_WINDOW_MS that is not skipped and not the
+  reply's or the stored path's program (moneyInvestor). withMoneyLine sets it as its own paragraph just before the last
+  one (first in a one-paragraph reply). Said once a session under `money:total` (MONEY_SAID), in the same said UPDATE.
+  Never on a direct answer (o.brief), the held submit pointer, the code re-check line or the setup steps; the signed-out
+  opener's head already says the total, so it marks `money:total` too.

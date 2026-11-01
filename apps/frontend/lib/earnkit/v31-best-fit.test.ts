@@ -116,7 +116,7 @@ const ROLLING_BEST = qualifyLine({ title: ROLLING_TITLE, amount: '$5,000', when:
 
 /** v4.8 Task 1: the path's hook for a fit (conversation.ts pathReply): its money line, then the draft offer. */
 const hookOf = (title: string, when: string | null) =>
-  new RegExp(`^bf, ${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} ${when ? 'closes [^:]+' : 'is open now'}: up to \\$5,000\\.( [^\\n]+)?\\n\\nI can draft your application from your commits( and live product)? in a few minutes\\. Want me to start\\?$`);
+  new RegExp(`^bf, ${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} ${when ? 'closes [^:]+' : 'is open now'}: up to \\$5,000\\.( [^\\n]+)?(\\n\\nOpen now: [^\\n]+ in grants\\.[^\\n]*)?\\n\\nI can draft your application from your commits( and live product)? in a few minutes\\. Want me to start\\?$`);
 /** The same hook again in the session: one line that points back. */
 const pointerOf = (title: string) => `Your ${title.replace(/\s+Program$/, '')} application is still the next move. Want me to start?`;
 

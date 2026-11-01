@@ -74,7 +74,7 @@ import { DECLINE_MS, draftedRecently } from './policy-constants';
 import { closeDay, programZone, zoneAbbr } from './deadline';
 import type { ProgramRow as ProgramFileRow } from './programs';
 import {
-  MENTOR_NOTE, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, pickHook, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, submitNoRush, tooSoonLine, keepDraftLine, type OpenerProgram, type MoveCtx, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProofOf, helpReply, helpWaiting, helpParked, closeWords, HELP_DONE_ASK, backOnLine, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofOf, markSaid, pathReply, programName, readPath, saidSql, sessionOf,
+  MENTOR_NOTE, MONEY_SAID, moneyInvestor, moneyLine, withMoneyLine, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, pickHook, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, submitNoRush, tooSoonLine, keepDraftLine, type OpenerProgram, type MoveCtx, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProofOf, helpReply, helpWaiting, helpParked, closeWords, HELP_DONE_ASK, backOnLine, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofOf, markSaid, pathReply, programName, readPath, saidSql, sessionOf,
   ANSWERED_FIRST, ASK_SAID, PROGRAMS_AGAIN, fitCell, fitOrder, grantFact, programsAnswer, standingAgain, standingAnswer, standingSaid, whatItIs, type GrantFact, type GrantRow, type InvestorRow, type StandingFacts,
   type GapStep,
   type GapGrant, type InvestorProgram, type Move, type MoveProgram, type Path,
@@ -897,8 +897,9 @@ async function pathCommit(
   };
   // Task 5 fix round 1 (5): the brief pointer never says the passed-step line, so it raises nothing (said later in full).
   const raise = move.kind === 'closest' && move.raise && out.said.length > 0 && !o.brief;
+  const money = moneyFor(o, plan, out.program_id);
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
-      || jsonb_build_object('path', ${sql().json(nextPath as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb, 'said', ${saidSql(out.said, now)})
+      || jsonb_build_object('path', ${sql().json(nextPath as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb, 'said', ${saidSql([...out.said, ...(money ? [MONEY_SAID] : [])], now)})
       || CASE WHEN ${raise} THEN jsonb_build_object('path_raised', COALESCE(standing_seen->'path_raised', '{}'::jsonb)
            || jsonb_build_object(${out.program_id}::text, ${now.toISOString()}::text)) ELSE '{}'::jsonb END
     WHERE builder_id = ${id}`.catch(logged('path'));
@@ -909,7 +910,7 @@ async function pathCommit(
   const view: BenchView = {
     state: v.state, variant: v.variant, project: v.project, rank: read.ranks.bench, streak: v.streak, target: null, handle: v.handle, link: null,
     fund: [], due: [], ask: { kind, project_key: key, line: '', program_id: out.program_id }, held: null,
-    path: withSince(since, pre.inline ? `${pre.inline} ${out.show_to_builder}` : out.show_to_builder), pathLead: out.reply === 'start' ? { program_id: out.program_id, ...(fit?.repo && { repo: fit.repo }) } : null,
+    path: withMoneyLine(withSince(since, pre.inline ? `${pre.inline} ${out.show_to_builder}` : out.show_to_builder), money), pathLead: out.reply === 'start' ? { program_id: out.program_id, ...(fit?.repo && { repo: fit.repo }) } : null,
   };
   const rankLines = [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x));
   const fields: Reply = {
@@ -931,6 +932,16 @@ const greetingOf = (xName: string | null, said: ReadonlySet<string>) => {
 
 /** v4.8 Task 3: a fresh session's "Since {day}: ..." line before the step's own words (one paragraph). Pure. */
 const withSince = (since: string | null, show: string) => (since ? `${since}\n\n${show}` : show);
+/**
+ * v4.8.1 Task 2 (R3): the money line (conversation.ts moneyLine) for this session's first path reply about `programId`,
+ * else null: never after a direct answer (o.brief: its tables say the money), and once a session (MONEY_SAID). The
+ * investor clause never names the program the reply is about or the stored path's. Pure.
+ */
+function moneyFor(o: ViewIn, plan: Pick<PathPlan, 'ctx' | 'path'>, programId: string): string | null {
+  if (o.brief || sessionOf(o.read.seen, o.now).said.has(MONEY_SAID)) return null;
+  const investor = moneyInvestor(plan.ctx.investors, o.now, plan.ctx.skip, new Set([programId, plan.path?.program_id ?? null]));
+  return moneyLine(moneyText(openMoneyUsd(o.cards, o.now)), investor, o.now);
+}
 
 /**
  * v4.8 Task 3 fix round 1 (5): the builder met `programId` before: on the stored path, the stored ask, asked to apply,
@@ -985,7 +996,7 @@ async function sinceFor(o: ViewIn, v: Pick<PathFacts, 'streak' | 'stand' | 'proj
     // Fix round 1 (5): "opened" only for a program new to this builder: opened after the last session and never on their
     // path, asked, drafted, raised or said no to (a reopened program they're on is no news; opened_at alone resets).
     opened: f && opened[0]?.opened_at && new Date(opened[0].opened_at).getTime() > last.getTime() && !seenBefore(read.seen, f.id, v.project.key) ? [programName(f.title)] : [],
-    // Fix round 1 (6): the close as the submit step says it ("tomorrow 11:59 PM PT"), in the program's zone.
+    // Fix round 1 (6): the close as the submit step says it ("Nov 1, 11:59 PM PT (in 20 hours)"), in the program's zone.
     closing: f && !focus.saysClose && f.ends_at && f.when !== 'rolling' && Date.parse(f.ends_at) > now.getTime() && Date.parse(f.ends_at) - now.getTime() <= NOW_WINDOW_MS
       ? { program: programName(f.title), when: submitBy(f.ends_at, f.zone, now, zoneAbbr(f.zone)) } : null,
   };
@@ -1072,7 +1083,8 @@ async function pathGapCommit(o: ViewIn, plan: PathPlan & { move: Exclude<Move, {
   const out = !helping ? still
     : money ? { show_to_builder: `${still.show_to_builder.replace(/ Want (?:help with it|me to do it) now\?$/, '')} ${HELP_DONE_ASK}`, reply: 'help' as const }
       : { show_to_builder: helpWaiting(title), reply: 'help' as const };
-  const keys = [...(proof?.keys ?? []), ...(money ? [`money:${pid}`] : []), ...(greet ? [GREET_SAID] : [])];
+  const total = moneyFor(o, plan, pid);
+  const keys = [...(proof?.keys ?? []), ...(money ? [`money:${pid}`] : []), ...(greet ? [GREET_SAID] : []), ...(total ? [MONEY_SAID] : [])];
   const nextPath: Path = { stage: 'gap', program_id: pid, at: now.toISOString(), ...(plan.path?.picked && { picked: true as const }) };
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
       || jsonb_build_object('path', ${sql().json(nextPath as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb, 'said', ${saidSql(keys, now)})
@@ -1081,7 +1093,7 @@ async function pathGapCommit(o: ViewIn, plan: PathPlan & { move: Exclude<Move, {
   const note = kind === 'qualify' ? QUALIFY_NOTE : CHECK_FITS_ASK_NOTE;
   const view: BenchView = {
     state: v.state, variant: v.variant, project: v.project, rank: read.ranks.bench, streak: v.streak, target: null, handle: v.handle, link: null,
-    fund: [], due: [], ask: { kind, project_key: key, line: '', program_id: pid }, held: null, path: withSince(since, out.show_to_builder), pathLead: null,
+    fund: [], due: [], ask: { kind, project_key: key, line: '', program_id: pid }, held: null, path: withMoneyLine(withSince(since, out.show_to_builder), total), pathLead: null,
   };
   const rankLines = [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x));
   return { view, fields: { move_up: { kind, project_key: key, agent_note: note }, ...(rankLines.length > 0 && { rank_lines: rankLines }), ...standingFields(v.stand) }, stand: v.stand };
@@ -1134,12 +1146,13 @@ async function pathClosedCommit(o: ViewIn, plan: PathPlan & { closed: NonNullabl
     : again ? `Your ${programName(closed.program.title)} application is still the next move. Want me to start?` : gapClosedReply({ org: closed.org, title: closed.program.title, codes: closed.codes, proof });
   const stored = { kind: 'apply', key, program_id: pid, path: true };
   const nextPath: Path = { stage: 'draft', program_id: pid, at: now.toISOString(), ...(plan.path?.picked && plan.path.program_id === pid && { picked: true as const }) };
+  const money = moneyFor(o, plan, pid);
   await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) - 'gap_did')
-      || jsonb_build_object('path', ${sql().json(nextPath as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb, 'said', ${saidSql(again ? [] : [saidKey, ...(since ? [] : (proofOut?.keys ?? []))], now)})
+      || jsonb_build_object('path', ${sql().json(nextPath as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb, 'said', ${saidSql([...(again ? [] : [saidKey, ...(since ? [] : (proofOut?.keys ?? []))]), ...(money ? [MONEY_SAID] : [])], now)})
     WHERE builder_id = ${id}`.catch(logged('path closed'));
   const view: BenchView = {
     state: v.state, variant: v.variant, project: v.project, rank: read.ranks.bench, streak: v.streak, target: null, handle: v.handle, link: null,
-    fund: [], due: [], ask: { kind: 'apply', project_key: key, line: '', program_id: pid }, held: null, path: show, pathLead: { program_id: pid },
+    fund: [], due: [], ask: { kind: 'apply', project_key: key, line: '', program_id: pid }, held: null, path: withMoneyLine(show, money), pathLead: { program_id: pid },
   };
   const rankLines = [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x));
   return { view, fields: { move_up: { kind: 'apply', project_key: key, agent_note: APPLY_NOTE }, ...(rankLines.length > 0 && { rank_lines: rankLines }), ...standingFields(v.stand) }, stand: v.stand };
@@ -1272,9 +1285,10 @@ async function openerView(o: ViewIn, link: string, pick: Pick_, stand: Standing)
     show = openerReply({ total: moneyText(openMoneyUsd(o.cards, now)), programs, link, github: false });
     opener = openerRecord(programs, now);
   }
+  // v4.8.1 Task 2 (R3): the opener's head says the open total, so it counts as the session's money line (MONEY_SAID).
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
       || CASE WHEN ${opener !== null} THEN jsonb_build_object('opener', ${sql().json((opener ?? {}) as never)}::jsonb) ELSE '{}'::jsonb END
-      || jsonb_build_object('said', ${saidSql(opener && !(pick && typeof pick === 'object') ? ['opener'] : [], now)}, 'bench_ask', ${sql().json({ kind: 'sign_in', key: null } as never)}::jsonb)
+      || jsonb_build_object('said', ${saidSql(opener && !(pick && typeof pick === 'object') ? ['opener', MONEY_SAID] : [], now)}, 'bench_ask', ${sql().json({ kind: 'sign_in', key: null } as never)}::jsonb)
     WHERE builder_id = ${id}`.catch(logged('opener'));
   const view: BenchView = {
     state: 'signed_out', variant: null, project: null, rank: null, streak: stand.streak, target: null, handle: null, link,

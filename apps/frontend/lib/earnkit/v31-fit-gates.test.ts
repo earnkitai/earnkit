@@ -231,7 +231,7 @@ test('(e) mcpCall find for a ranked builder whose kept match holds both: the rep
     // v4.8 Task 1: the hook says the program's name without " Program".
     assert.equal(named(s, [ALLIANCE_TITLE, BASE_TITLE.replace(/\s+Program$/, '')]), BASE_TITLE.replace(/\s+Program$/, ''), s);
     // v4.8 Task 1: the path's hook for the fit (a rolling grant: "is open now"), then the draft offer.
-    assert.match(s, /^\S+, Base Builder Grant is open now: up to \$5,000\.( [^\n]+)?\n\nI can draft your application from your commits( and live product)? in a few minutes\. Want me to start\?$/, s);
+    assert.match(s, /^\S+, Base Builder Grant is open now: up to \$5,000\.( [^\n]+)?(\n\nOpen now: [^\n]+ in grants\.[^\n]*)?\n\nI can draft your application from your commits( and live product)? in a few minutes\. Want me to start\?$/, s);
     assert.doesNotMatch(s, /Alliance/, s);
     assert.ok(links(s).length <= 1, s);
     assert.equal(questions(s), 1, s);

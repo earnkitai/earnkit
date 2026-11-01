@@ -225,16 +225,63 @@ export function bestMove(ctx: MoveCtx): Move {
 /** A program's name in a sentence: its title before any ':' and without a trailing " Program". Pure. */
 export const programName = (title: string) => title.split(':')[0].trim().replace(/\s+Program$/i, '');
 
+const HOUR_MS = 3_600_000;
 /**
- * When a dated program closes, in the program's zone, as a person says it: "tonight" or "today", "tomorrow night" or
- * "tomorrow", else its day ("Nov 5"). Night is a close at 6 PM or later. Pure.
+ * v4.8.1 Task 2 (R2): the time left as a person says it, from the clock, never the calendar: "in under an hour" under 1
+ * hour, "in {n} hours" (whole hours, rounded down; "in 1 hour") under 48 hours, else null. The same in every zone. Pure.
+ */
+function hoursLeft(endsAt: string, now: Date): string | null {
+  const left = Date.parse(endsAt) - now.getTime();
+  if (left < HOUR_MS) return 'in under an hour';
+  if (left >= 2 * 24 * HOUR_MS) return null;
+  const n = Math.floor(left / HOUR_MS);
+  return `in ${n} ${n === 1 ? 'hour' : 'hours'}`;
+}
+
+/**
+ * When a dated program closes: under 48 hours, the time left (hoursLeft: "in 20 hours", "in under an hour"); otherwise
+ * its day in the program's zone ("Nov 5"). v4.8.1 Task 2 (R2): never "tonight" or "tomorrow", which read wrong in the
+ * builder's own zone. Every caller puts "closes", "closing" or "until it closes" before it. Pure.
  */
 export function closeWords(endsAt: string, zone: string, now: Date): string {
-  const end = zoneParts(new Date(endsAt), zone);
-  const night = end.hour >= 18;
-  if (end.day === zoneParts(now, zone).day) return night ? 'tonight' : 'today';
-  if (end.day === zoneParts(new Date(now.getTime() + 86_400_000), zone).day) return night ? 'tomorrow night' : 'tomorrow';
-  return end.day;
+  return hoursLeft(endsAt, now) ?? zoneParts(new Date(endsAt), zone).day;
+}
+
+/*
+ * v4.8.1 Task 2 (R3): the money line. The first path reply of a session (a hook, the gap's step, the draft offer, a fresh
+ * session's "Since" opener; never the setup steps, the held submit pointer or a direct answer) says the open total, as its
+ * own paragraph just before the easy reply, once a session (MONEY_SAID).
+ */
+/** The session key the money line is said under. */
+export const MONEY_SAID = 'money:total';
+/**
+ * The investor program the money line names: open, not skipped (applied to, declined, parked), closing within
+ * INVESTOR_WINDOW_MS, and never one in `led` (the program the reply is about and the stored path's: the ruling's "led
+ * on"); the soonest first. Null with none. Pure.
+ */
+export function moneyInvestor<P extends MoveProgram>(investors: readonly P[], now: Date, skip: ReadonlySet<string>, led: ReadonlySet<string | null>): P | null {
+  const t = now.getTime();
+  return investors
+    .filter((p) => p.investment && !skip.has(p.id) && !led.has(p.id) && closeAt(p) > t && closeAt(p) - t <= INVESTOR_WINDOW_MS)
+    .sort(byClose)[0] ?? null;
+}
+/**
+ * "Open now: {total} in grants." and, with an investor program (moneyInvestor), " {Investor} (investor program,
+ * {amount}) closes {closeWords}." `total` is moneyText(openMoneyUsd(cards, now)), /api/stats' figure; null (0): no line.
+ * Pure.
+ */
+export function moneyLine(total: string | null, investor: Pick<MoveProgram, 'title' | 'amount' | 'ends_at' | 'zone'> | null, now: Date): string | null {
+  if (!total) return null;
+  const inv = investor?.ends_at
+    ? ` ${programName(investor.title)} (investor program${investor.amount ? `, ${investor.amount}` : ''}) closes ${closeWords(investor.ends_at, investor.zone, now)}.`
+    : '';
+  return `Open now: ${total} in grants.${inv}`;
+}
+/** The money line as its own paragraph just before the reply's last one (first in a one-paragraph reply). Pure. */
+export function withMoneyLine(show: string, line: string | null): string {
+  if (!line) return show;
+  const ps = show.split('\n\n');
+  return [...ps.slice(0, -1), line, ps.at(-1)!].join('\n\n');
 }
 
 /** "6 weeks", "1 week". Pure. */
@@ -564,15 +611,15 @@ export const SENT_ASK = `Reply "sent" once it's in, and I'll keep track of it fo
 const clock = (hour: number, minute: number) => `${hour % 12 === 0 ? 12 : hour % 12}:${String(minute).padStart(2, '0')} ${hour < 12 ? 'AM' : 'PM'}`;
 
 /**
- * When a dated program's submissions close, in the program's own zone (deadline.ts zoneParts, closeDay's rule): "tonight
- * 11:59 PM PT" is said "today 11:59 PM PT", "tomorrow 11:59 PM PT", else its day, "Nov 5 11:59 PM PT". A zone with no
- * short name (deadline.ts zoneAbbr) says the day only, so the time is never read in the wrong zone. Pure.
+ * When a dated program's submissions close, in the program's own zone (deadline.ts zoneParts, closeDay's rule): its day
+ * ("Nov 1", never "today" or "tomorrow"), its time and the zone's short name, "Nov 5, 11:59 PM PT"; under 48 hours, the
+ * time left too, "Nov 1, 11:59 PM PT (in 20 hours)" (v4.8.1 Task 2, R2). A zone with no short name (deadline.ts
+ * zoneAbbr) says the day only ("Nov 6", "Nov 1 (in 20 hours)"), so the time is never read in the wrong zone. Pure.
  */
 export function submitBy(endsAt: string, zone: string, now: Date, abbr: string | null): string {
   const end = zoneParts(new Date(endsAt), zone);
-  const day = end.day === zoneParts(now, zone).day ? 'today'
-    : end.day === zoneParts(new Date(now.getTime() + 86_400_000), zone).day ? 'tomorrow' : end.day;
-  return abbr ? `${day} ${clock(end.hour, end.minute)} ${abbr}` : day;
+  const left = hoursLeft(endsAt, now);
+  return `${abbr ? `${end.day}, ${clock(end.hour, end.minute)} ${abbr}` : end.day}${left ? ` (${left})` : ''}`;
 }
 
 /**
@@ -600,7 +647,9 @@ export function submitPointer(p: Pick<MoveProgram, 'title' | 'when' | 'ends_at' 
  * "sent" once it's in." (a rolling program: "No rush, it stays ready."). Pure.
  */
 export function submitNoRush(p: Pick<MoveProgram, 'when' | 'ends_at' | 'zone'>, now: Date): string {
-  const until = p.ends_at && p.when !== 'rolling' ? ` until ${closeWords(p.ends_at, p.zone, now)}` : '';
+  // v4.8.1 Task 2: the time left reads "until it closes in 20 hours", a day "until Nov 5".
+  const words = p.ends_at && p.when !== 'rolling' ? closeWords(p.ends_at, p.zone, now) : null;
+  const until = words ? ` until ${words.startsWith('in ') ? `it closes ${words}` : words}` : '';
   return `No rush, it stays ready${until}. Reply "sent" once it's in.`;
 }
 
