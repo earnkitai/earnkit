@@ -236,13 +236,15 @@ function wonLines(r: PastRound): string[] {
 export function programGuide(
   p: GuideFacts & Pick<ProgramRow, 'title' | 'summary' | 'ends_at' | 'status' | 'opens_note' | 'tz'>,
   now = new Date(),
+  /** v4.8.2 Task 3 fix 1: the hours wording is the agent's only (MCP get_program, prepare); the site page keeps the zone day. */
+  o: { hours?: boolean } = {},
 ): Guide {
   const past = p.ends_at !== null && p.ends_at <= now;
   // v3 Stage 2: an upcoming program isn't open yet: "not open yet" and its note.
   const upcoming = p.status === 'upcoming' && !past;
   const closed = !upcoming && (p.status !== 'active' || past);
-  // v4.8.2 Task 3 (R4): under 48 hours the time left ("ends in 14 hours"), never the program-zone day.
-  const ends = (!upcoming && !closed && closesIn(p, now)) || endsOf(p);
+  // v4.8.2 Task 3 (R4): for an agent (o.hours), under 48 hours the time left ("ends in 14 hours"), never the zone day.
+  const ends = (o.hours && !upcoming && !closed && closesIn(p, now)) || endsOf(p);
   const end = upcoming ? 'not open yet' : closed ? 'closed' : ends === 'rolling' ? 'rolling' : `ends ${ends}`;
   const won = wonRound(p);
   return {

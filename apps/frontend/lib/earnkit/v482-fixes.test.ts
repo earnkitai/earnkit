@@ -20,9 +20,10 @@ import { GitHubBudgetStop, type ReaderDeps } from './source-readers';
 import { dropPrograms, dropRunPrograms } from './fixtures/programs-cleanup';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
-import { closesIn, endsCell, summaryIn } from './entry-text';
+import { closesIn, endsCell, summaryIn, withClosesIn } from './entry-text';
 import { programGuide } from './guide';
 import { fullProgramTable } from './present';
+import { readGuidePage } from './landing';
 
 /*
  * v4.8.2 Task 1 (R1, R2): the owner's dogfood of v4.8.1. The reasoned pointer is followed by "more" (no short
@@ -222,18 +223,35 @@ test('v4.8.2 R4: the guide header and the "Ends" cell say the hours left under 4
   assert.equal(endsCell({ summary: ARC_SUMMARY, ends_at: inH(14.5) }), 'Nov 1, 11:59 PM ET');
   const file = committedProgram('arc-microgrants-studio');
   const facts = (h: number) => ({ ...ProgramFile.parse({ ...file, ends_at: inH(h).toISOString(), status: 'active', starts_at: null }), opens_note: null, tz: null }) as never;
-  assert.match(programGuide(facts(14.5), NOW).header, / · ends in 14 hours$/);
-  assert.match(programGuide(facts(5 * 24), NOW).header, / · ends Nov 1, 11:59 PM ET$/);
+  assert.match(programGuide(facts(14.5), NOW, { hours: true }).header, / · ends in 14 hours$/);
+  assert.match(programGuide(facts(5 * 24), NOW, { hours: true }).header, / · ends Nov 1, 11:59 PM ET$/);
+  // Fix 1: the hours are opt-in (MCP only); the site page's default keeps the zone day.
+  assert.match(programGuide(facts(14.5), NOW).header, / · ends Nov 1, 11:59 PM ET$/);
   const card = (h: number) => ({ id: `t3-${h}`, title: 'Arc Microgrants', summary: ARC_SUMMARY, ends_at: inH(h), tz: null, chains: ['arc'], any_chain: false, tracks: [], tag: null, max_award_usd: 500, builder_fields: 0, closes_in_days: 0 }) as unknown as Card;
   const t = fullProgramTable({ cards: [card(14.5)], repos: null, entries: [], now: NOW } as never)!;
   assert.match(t, /\| in 14 hours \|/, t);
   assert.doesNotMatch(t, /Nov 1/, t);
 });
 
+test('v4.8.2 R4 fix 1: at exactly 48 hours the zone day and no closes_in; at 47.9 hours "in 47 hours"', () => {
+  const at = (h: number) => ({ summary: ARC_SUMMARY, ends_at: inH(h) });
+  assert.equal(closesIn(at(48), NOW), null);
+  assert.equal(withClosesIn(at(48), NOW).summary, ARC_SUMMARY);
+  assert.equal(withClosesIn(at(48), NOW).closes_in, null);
+  assert.equal(endsCell(at(48), NOW), 'Nov 1, 11:59 PM ET');
+  assert.equal(closesIn(at(47.9), NOW), 'in 47 hours');
+  assert.deepEqual(withClosesIn(at(47.9), NOW), { ...at(47.9), summary: '500 USDC × 8 grants · closes in 47 hours', closes_in: 'in 47 hours' });
+  assert.equal(endsCell(at(47.9), NOW), 'in 47 hours');
+  const file = committedProgram('arc-microgrants-studio');
+  const facts = (h: number) => ({ ...ProgramFile.parse({ ...file, ends_at: inH(h).toISOString(), status: 'active', starts_at: null }), opens_note: null, tz: null }) as never;
+  assert.match(programGuide(facts(48), NOW, { hours: true }).header, / · ends Nov 1, 11:59 PM ET$/);
+  assert.match(programGuide(facts(47.9), NOW, { hours: true }).header, / · ends in 47 hours$/);
+});
+
 /** A copy of Arc Microgrants Studio closing `h` hours from the real clock (the tools read new Date()). */
-async function arcCopy(tag: string, h: number) {
+async function arcCopy(tag: string, h: number, status: 'active' | 'upcoming' = 'active') {
   const id = `v482-${process.pid}-${tag}`;
-  await upsertProgram(ProgramFile.parse({ ...committedProgram('arc-microgrants-studio'), id, title: `Arc Hours ${tag} ${RUN}`, ends_at: new Date(Date.now() + h * H).toISOString(), status: 'active', starts_at: null }));
+  await upsertProgram(ProgramFile.parse({ ...committedProgram('arc-microgrants-studio'), id, title: `Arc Hours ${tag} ${RUN}`, ends_at: new Date(Date.now() + h * H).toISOString(), status, starts_at: null, ...(status === 'upcoming' && { opens_note: 'Opens soon.' }) }));
   return id;
 }
 type AgentProgram = { id: string; summary: string; deadline: string; closes_in: string | null };
@@ -263,7 +281,14 @@ test('v4.8.2 R4: a new builder\'s find: closes_in and the summary say "in 14 hou
   assert.match(String((g.guide as { text: string }).text), /ends in 14 hours/);
   assert.doesNotMatch(String((g.guide as { text: string }).text), /Nov 1, 11:59 PM ET/);
   assert.equal((await mcpCall(ctx as never, 'find', { program_id: far })).reply!.closes_in, null);
-  await dropPrograms([soon, far]);
+  // Fix 1: the site's /programs/<id> page keeps the program-zone day; only get_program says the hours.
+  const page = await readGuidePage(soon);
+  assert.match(page!.guide.header, / · ends Nov 1, 11:59 PM ET$/, page!.guide.header);
+  // Fix 1: an upcoming program closing within 48 hours has no closes_in.
+  const up = await arcCopy('up', 14.5, 'upcoming');
+  const u = (await mcpCall(ctx as never, 'find', { program_id: up })).reply!;
+  assert.equal(u.closes_in, null, JSON.stringify(u).slice(0, 300));
+  await dropPrograms([soon, far, up]);
 });
 
 test('v4.8.2 R4: the ranked builder\'s find (list_programs) carries closes_in and the hours-left summary', db, async () => {

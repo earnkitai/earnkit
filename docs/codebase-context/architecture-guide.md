@@ -8973,7 +8973,9 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
   after " · " that starts with "closes" becomes "closes in 14 hours"), `withClosesIn(p, now)` and `endsCell(c, now?)`.
   tools.ts `agentPrograms(programs, now)` builds find's `programs` (both the Bench and the v2.11 branches of
   list_programs) with `closes_in` and the hours-left summary; `deadline` stays ISO. get_program adds `closes_in` (from its
-  ISO deadline). guide.ts programGuide's header reads "ends in 14 hours" under 48 hours; present.ts tables' "Ends" cell
+  ISO deadline; fix 1: null unless the program is open, so upcoming is null). guide.ts programGuide(p, now, { hours })
+  reads "ends in 14 hours" under 48 hours only with `hours` (opt-in: programs.ts guideBlock for get_program and
+  tools.ts prepare's first guide); the site's /programs/<id> page (landing.ts readGuidePage) keeps the zone day; present.ts tables' "Ends" cell
   (fullProgramTable, the matched and open tables) use endsCell with the message's `now`. Unchanged: site pages (app/),
   emails, also_qualifies `ends` (alsoQualifies already drops programs ending within 2 days), internal `summary` reads
   (programCard, alsoProgramFacts, upsertProgram). Tests: v482-fixes.test.ts.
