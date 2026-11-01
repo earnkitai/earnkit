@@ -2875,9 +2875,11 @@ export const tools = {
     // v4.8 Task 4 fix round 1 (1, 3): a reply that hands off to the path (then_find: the setup-done line before B's second
     // message, the ok to re-check the code, the help with a gap step) is followed by find's reply, run here, so the
     // builder never sees an empty reply and the message ends in find's one easy reply. The other replies come first.
-    const handOff = ctx.sharedClient ? -1 : replies.findIndex((r) => r.then_find === true);
+    // v4.8 re-review blocker 1: then_find may carry find's input ({ ask: 'programs' }: the "more" answer).
+    const handOff = ctx.sharedClient ? -1 : replies.findIndex((r) => r.then_find === true || (typeof r.then_find === 'object' && r.then_find !== null));
     if (handOff >= 0) {
-      const next = withFacts(await findReply({}, ctx), await replyFacts(ctx));
+      const findArgs = typeof replies[handOff].then_find === 'object' ? (replies[handOff].then_find as Record<string, unknown>) : {};
+      const next = withFacts(await findReply(findArgs, ctx), await replyFacts(ctx));
       const shown = typeof next.show_to_builder === 'string' ? next.show_to_builder : '';
       const { then_find: _t, show_to_builder: lead, ...hand } = replies[handOff];
       const others = replies.filter((_, i) => i !== handOff).map(({ then_find: _x, ...r }) => r)

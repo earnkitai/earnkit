@@ -120,7 +120,7 @@ test('L5.4 through find and score: a ranked builder mid-week gets the weekly tar
   assert.equal((f.reply?.move_up as { kind: string }).kind, 'ship');
   // v4.7 T4: the weekly target stays on the quiet reply (the ship question just asked).
   await quiet(me.id);
-  assert.match(show(await mcpCall(ctx(me.id), 'score', {})), /\nShip code this week to pass #1\.$/);
+  assert.match(show(await mcpCall(ctx(me.id), 'score', {})), /\nShip code this week to pass #1\.\nReply "more" and I'll show every program open now\.$/);
   // No ranked day last week: the moment is skipped and the week stays unclaimed.
   assert.doesNotMatch(s, /Last week|Week \d+ done/);
   assert.equal((await sql()<{ w: string | null }[]>`SELECT moment_week AS w FROM installations WHERE id = ${me.id}`)[0].w, null);
@@ -134,7 +134,7 @@ test('L5.4 through find and score: a ranked builder mid-week gets the weekly tar
   await setWeeks(ana.id, [1, 2, 3, 4, 5, 6, 7, 8]);
   await quiet(me.id);
   const behind = show(await mcpCall(ctx(me.id), 'score', {}));
-  assert.match(behind, /\nShip code this week to move toward #1\.$/, behind);
+  assert.match(behind, /\nShip code this week to move toward #1\.\nReply "more" and I'll show every program open now\.$/, behind);
 
   // After shipping (this week has commits): done, and what next week adds.
   await setWeeks(me.id, [0, 1, 2, 3]);
@@ -153,11 +153,11 @@ test('L5.5 #1 holds; tied at the top holds too', db, async () => {
   assert.match(show(await mcpCall(ctx(top.id), 'find', {})), TARGET_WHY('Ship code this week to hold #1.'));
   await quiet(top.id);
   const t = show(await mcpCall(ctx(top.id), 'score', {}));
-  assert.match(t, /\nShip code this week to hold #1\.$/, t);
+  assert.match(t, /\nShip code this week to hold #1\.\nReply "more" and I'll show every program open now\.$/, t);
   await builder('wttie', 'Tie', [1, 2]);
   await quiet(top.id);
   const tied = show(await mcpCall(ctx(top.id), 'score', {}));
-  assert.match(tied, /\nShip code this week to hold #1\.$/, tied);
+  assert.match(tied, /\nShip code this week to hold #1\.\nReply "more" and I'll show every program open now\.$/, tied);
   assert.equal((await profileData(top.id, new Date()))!.target, 'Code this week holds #1.');
 });
 

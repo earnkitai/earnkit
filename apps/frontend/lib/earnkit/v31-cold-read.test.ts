@@ -18,7 +18,7 @@ import {
   grantProgramName, liveNoGithub, pickRepoAsk, qualifySteps, walletOffer, youreIn,
   type BenchView,
 } from './bench-reply';
-import { walletSetupAsk } from './bench-reply';
+import { MORE_ASK, walletSetupAsk } from './bench-reply';
 import { proofAsk } from './post-reply';
 import { factsAck } from './builder-memory';
 import { siteFormLine, youAddLine } from './submit-kit';
@@ -256,9 +256,11 @@ test('the status line only when it changed, the points line once a week; score a
   }
   const two = show(r2);
   assert.doesNotMatch(two, /points/, two);
-  // v4.8 Task 1: the quiet reply is the unchanged standing alone (no question; ASKS_HINT is retired).
+  // v4.8 re-review blocker 1: the quiet reply once the week's ship ask is spent is no longer the unchanged standing alone
+  // (that left a lazy builder no reply to give, which breaks the merge gate's one easy reply): it is the "more" ask
+  // alone (no question; ASKS_HINT stays retired).
   assert.ok(!two.includes('?'), two);
-  assert.equal(two.split('\n').length, 1, two);
+  assert.equal(two, MORE_ASK, two);
   const st = await seen(b.id);
   assert.equal(typeof st.status_seen, 'string');
   assert.equal(typeof st.nag_week, 'string');

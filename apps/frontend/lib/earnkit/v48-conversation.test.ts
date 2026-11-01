@@ -25,7 +25,7 @@ import {
 } from './conversation';
 import { qualifyGapSteps, BUILDER_CODES_GUIDE } from './bench-reply';
 import { BUILDER_CODES_SUFFIX } from './builder-code';
-import { PUSHED_ASK, RECHECK_WAIT, benchScore, codesSettled, founderBriefNote, openerPrograms, questionsDraftNote } from './bench-find';
+import { MORE_ASK, PUSHED_ASK, RECHECK_WAIT, benchScore, codesSettled, founderBriefNote, openerPrograms, questionsDraftNote } from './bench-find';
 import type { Card } from './present';
 import { draftBody, shipLogFacts } from './ship-log-facts';
 import { standingParagraph } from './standing';
@@ -2215,7 +2215,8 @@ test('final F8: a no at submit is "not yet": the stage and its ask stay, the rep
   await only([sr.id, 'base-builder-grants']);
   const b = await atSubmit('fns');
   const r = await tell(b, { kind: 'apply', project_key: b.key, answer: 'no' });
-  assert.match(show(r), new RegExp(`^Your ${sr.title} application is ready to submit, closes [^.]+\\. Reply "sent" once it's in\\.$`), show(r));
+  // Re-review blocker 2: the first no says it stays ready.
+  assert.match(show(r), /^No rush, it stays ready until [^.]+\. Reply "sent" once it's in\.$/, show(r));
   assert.equal(moveUp(r)?.kind, 'apply');
   const seen = await seenOf(b.id);
   assert.equal((seen.path as { stage: string }).stage, 'submit');
@@ -2390,4 +2391,91 @@ test('final 9 (F11): a shared client whose own installation is signed in to X ge
   const after = await seenOf(b.id);
   for (const k of ['path', 'said', 'path_raised']) assert.deepEqual(after[k], before[k], k);
   assert.notEqual((after.bench_ask as { path?: boolean } | undefined)?.path, true);
+});
+
+/*
+ * v4.8 final re-review blockers (final-rereview.md): the quiet reply's easy reply, a repeated no at submit, and minors.
+ */
+
+test('re-review blocker 1: no, no, then find: the quiet reply always ends in one easy reply ("more"), through the gate; "more" is the programs answer', db, async () => {
+  const sr = await speedrun(30);
+  await only([sr.id]);
+  const b = await owner('qm');
+  const turn = conversation(b.ctx as never, { builderId: b.id });
+  const replies: Reply[] = [];
+  let r = (await turn({ find: {} }))!;
+  replies.push(r);
+  for (let i = 0; i < 2; i++) {
+    const m = r.reply?.move_up as { kind: string; project_key: string | null };
+    r = (await turn({ says: 'no', tell: { move_up: { kind: m.kind, project_key: m.project_key, answer: 'no' } } }))!;
+    replies.push(r);
+  }
+  r = (await turn({ find: {} }))!;
+  replies.push(r);
+  console.log(`\n=== WALK NO NO FIND ===\n${transcript(replies)}\n`);
+  assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), [], transcript(replies));
+  assert.ok(r.show.endsWith(MORE_ASK), r.show);
+  assert.equal((r.reply?.move_up as { kind: string }).kind, 'more');
+  // Its answer ("more"): the programs answer, in the same tell.
+  const more = await tell(b, { kind: 'more', project_key: b.key, answer: 'yes' });
+  assert.match(show(more), /^(Grants open now:|No grants are open right now\.)/, show(more));
+});
+
+test('re-review blocker 2: no at submit twice: "No rush" once, then the next program; the application waits for the next session', db, async () => {
+  const sr = await speedrun(30);
+  await only([sr.id, 'base-builder-grants']);
+  const b = await atSubmit('sn2');
+  const turn = conversation(b.ctx as never, { builderId: b.id });
+  // conversation's ask check needs the reply it follows: the submit pointer (a find) first.
+  const replies: Reply[] = [(await turn({ find: {} }))!];
+  replies.push((await turn({ says: 'no', tell: { move_up: { kind: 'apply', project_key: b.key, answer: 'no' } } }))!);
+  assert.match(replies[1].show, /^No rush, it stays ready until [^.]+\. Reply "sent" once it's in\.$/, replies[1].show);
+  replies.push((await turn({ says: 'no', tell: { move_up: { kind: 'apply', project_key: b.key, answer: 'no' } } }))!);
+  assert.doesNotMatch(replies[2].show, /ready to submit|No rush/, replies[2].show);
+  assert.match(replies[2].show, /Base Builder Grant/, replies[2].show);
+  replies.push((await turn({ find: {} }))!);
+  assert.doesNotMatch(replies[3].show, /ready to submit|No rush/, replies[3].show);
+  assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), [], transcript(replies));
+  // Kept drafted, never parked; the next session's opener points to it again.
+  const seen = await seenOf(b.id);
+  assert.equal(((seen.declined ?? {}) as Record<string, string>)[`path:${sr.id}`], undefined);
+  await backSession(b.id, SESSION_MS + 60_000);
+  assert.match(show(await find(b)), new RegExp(`${sr.title} application is ready to submit`));
+});
+
+test('re-review minor: the Builder Codes re-check runs at most once a session', db, async () => {
+  await only(['base-builder-grants']);
+  const b = await owner('rc1');
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'declined' WHERE builder_id = ${b.id}`;
+  await find(b);
+  await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' });
+  await codesSettled();
+  let calls = 0;
+  (b.ctx as { codesFetch?: typeof fetch }).codesFetch = (async () => {
+    calls++;
+    throw new Error('GitHub down');
+  }) as typeof fetch;
+  await find(b);
+  await codesSettled();
+  const first = calls;
+  assert.ok(first > 0, 'the first find re-checks');
+  // Past the 2-minute backoff, the same session: never a second re-check.
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('gap_check_failed', ${new Date(Date.now() - 5 * 60_000).toISOString()}::text) WHERE builder_id = ${b.id}`;
+  await find(b);
+  await codesSettled();
+  assert.equal(calls, first);
+});
+
+test('re-review minor: a picked grant that closes within 48 hours on a step the agent cannot do says so in one line, then the closer money', db, async () => {
+  const arc = committedProgram('arc-microgrants-studio', { keepContract: true });
+  const p = ProgramFile.parse({ ...arc, id: `v48-${process.pid}-arcts`, title: `Arc Soon ${RUN}`, ends_at: new Date(Date.now() + 20 * 3_600_000).toISOString(), status: 'active', starts_at: null });
+  await upsertProgram(p);
+  await only([p.id, 'base-builder-grants']);
+  const b = await owner('ts');
+  await sql()`UPDATE builder_profiles SET standing_seen = (standing_seen - 'declined') || jsonb_build_object('path', jsonb_build_object('stage', 'hook', 'program_id', ${p.id}::text, 'at', now()::text, 'picked', true)) WHERE builder_id = ${b.id}`;
+  const s = show(await find(b));
+  assert.ok(s.startsWith(`Arc Soon ${RUN} closes too soon to get EarnKit on Arc mainnet done, so here's closer money. Base Builder Grant pays`), s);
+  assert.ok(s.endsWith(OFFER), s);
+  // Said once: the next find is the hook's pointer, no second line.
+  assert.doesNotMatch(show(await find(b)), /closes too soon/);
 });

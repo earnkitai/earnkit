@@ -205,11 +205,11 @@ test('hosted agent: the Monday check-in once (its routine in the note), notes ne
   assert.doesNotMatch(moveUp(c2)!.agent_note, /this folder|git log/);
   const shipYes = await tellMove(b.ctx, 'ship', 'yes', b.key);
   assert.doesNotMatch(String(shipYes.reply?.agent_note), /this folder|git log/);
-  // Within 7 days: no ship question again (no question at all, no move_up).
+  // Within 7 days: no ship question again (no question at all); v4.8 re-review blocker 1: its one easy reply is "more".
   const c3 = await mcpCall(b.ctx, 'find', {});
   const s3 = rule(show(c3), 0);
   assert.doesNotMatch(s3, /check in|suggest one small thing/);
-  assert.equal(moveUp(c3), undefined);
+  assert.equal(moveUp(c3)?.kind, 'more');
   // 8 days on, it may be asked again.
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('ship_asked', (now() - interval '8 days')::text) WHERE builder_id = ${b.id}`;
   assert.equal(moveUp(await mcpCall(b.ctx, 'find', {}))?.kind, 'ship');

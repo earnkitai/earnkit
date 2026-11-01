@@ -166,7 +166,8 @@ test('(c) sendDigests mails the moment for a checked week', db, () =>
     assert.match(m.text, /^(?:Score [1-9]\d*\. )?1 week shipping\. [^\n]*\n\nYour week is ready, /, m.text);
     // R16: one score figure per email: the standing's, never the week's "Shipping score" line.
     assert.doesNotMatch(m.text, /Shipping score/);
-    assert.ok((`${m.subject}\n${m.text}`.match(/\bScore \d+|Shipping \d+/gi) ?? []).length <= 1, m.text);
+    // This fixture's score is 0, which is said as no part (final review 9): no score figure at all.
+    assert.equal((`${m.subject}\n${m.text}`.match(/\bScore \d+|Shipping \d+/gi) ?? []).length, 0, m.text);
     assert.match(m.text, /\n\nLooks right: https:\/\/earnkit\.com\/api\/week\?t=\S+\nHide this week: https:\/\/earnkit\.com\/api\/week\?t=\S+/);
     // v4.0 Task 7: the greeting may use the builder's own handle (no X name), which this fixture shares with the repo owner.
     assert.ok(!(m.text.match(/https:\/\/\S+/g) ?? []).some((u) => u.includes(me.key.split('/')[0]!)), 'no link names the repo');

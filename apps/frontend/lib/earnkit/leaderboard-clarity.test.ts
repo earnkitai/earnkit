@@ -64,7 +64,8 @@ function oneStatusOneStep(reply: Record<string, unknown> | null): string {
   // v3.1 cold read: "You're in" only on the first reply after sign-in, so a later step reply may carry no status line; never two.
   assert.ok((s.match(STATUS) ?? []).length <= 1, `at most one status line: ${s}`);
   const questions = (s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length;
-  assert.equal(questions, 1, `one question in all: ${s}`);
+  // v4.8 re-review blocker 1: or the quiet reply's one easy reply, "Reply "more" ...", with no question.
+  assert.equal(questions, s.trim().endsWith(`Reply "more" and I'll show every program open now.`) ? 0 : 1, `one question in all: ${s}`);
   return s;
 }
 
@@ -221,14 +222,19 @@ test('R10: ranked, the move-up news shows with the rank; once the project is not
   await padPool(9);
   const seen = (rank: number) => sql()`
     UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('rank', ${rank}::int, 'at', '2026-01-01T00:00:00Z'::text) WHERE builder_id = ${a.id}`;
-  // Ranked: the news and the rank agree.
+  // Re-review minor (N2): at a score of 0, no rank in the standing and no rank news either.
+  await seen(5);
+  const zero = oneStatusOneStep((await mcpCall(a.ctx, 'find', {})).reply);
+  assert.doesNotMatch(zero, /You moved up|^Score 0\b/m, zero);
+  // Ranked with a score: the news and the rank agree.
+  const points = (score: number) => sql()`UPDATE builder_live SET parts = jsonb_set(COALESCE(parts, '{}'::jsonb), '{shipping}', ${sql().json({ points: score, raw: { mask: 1, live_ships: 0 } } as never)}::jsonb) WHERE builder_id = ${a.id}`;
+  await points(40);
   await seen(5);
   const ranked = (await mcpCall(a.ctx, 'find', {})).reply;
   const r1 = oneStatusOneStep(ranked);
   assert.match(r1, /Since you last checked: You moved up to (#[1-4] of \d+ builders|Top [\d.]+% of builders)\./, r1);
-  // v4.7.1 T1: the standing is v4.7's paragraph ("Score 0 · Top 14% of builders. ..."), never the old name line.
-  // Final review 9: a score of 0 says neither the score nor the rank.
-  assert.doesNotMatch(r1, /^Score 0\b/m, r1);
+  // v4.7.1 T1: the standing is v4.7's paragraph ("Score 40 · Top 14% of builders. ..."), never the old name line.
+  assert.match(r1, /^Score [1-9]\d* · (#[1-4] of \d+ builders|Top [\d.]+% of builders)/m, r1);
   assert.ok((ranked?.rank_lines as string[]).length >= 1);
 
   // The repo's proof goes; builder_live.ranked stays true until the next rescore (read_at now: no refresh).

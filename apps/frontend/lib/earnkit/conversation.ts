@@ -425,6 +425,11 @@ export function backOnLine(step: string, title: string): string {
   const what = chain ? `You're on ${chain} now` : step === 'codes' ? 'Builder Codes are in' : 'That step is done';
   return `${what}, so ${programName(title)} is back on.`;
 }
+/**
+ * v4.8 re-review minor (N4): a picked grant closing within NOW_WINDOW_MS on a step the agent can't do, said once before
+ * the closer money's hook: "{program} closes too soon to get {step} done, so here's closer money." Pure.
+ */
+export const tooSoonLine = (title: string, step: string) => `${programName(title)} closes too soon to get ${step} done, so here's closer money.`;
 /** Not done after a second check: the program waits (parked), and the path moves on. Pure. */
 export const helpParked = (title: string) => `I'll keep ${programName(title)} for when it's done.`;
 
@@ -570,6 +575,15 @@ export function submitReply(c: { link: string | null; by: string | null; contact
 export function submitPointer(p: Pick<MoveProgram, 'title' | 'when' | 'ends_at' | 'zone'>, now: Date): string {
   const closes = p.ends_at && p.when !== 'rolling' ? `, closes ${closeWords(p.ends_at, p.zone, now)}` : '';
   return `Your ${programName(p.title)} application is ready to submit${closes}. Reply "sent" once it's in.`;
+}
+
+/**
+ * v4.8 re-review blocker 2: the first no to the submit ask (not yet): "No rush, it stays ready until {close}. Reply
+ * "sent" once it's in." (a rolling program: "No rush, it stays ready."). Pure.
+ */
+export function submitNoRush(p: Pick<MoveProgram, 'when' | 'ends_at' | 'zone'>, now: Date): string {
+  const until = p.ends_at && p.when !== 'rolling' ? ` until ${closeWords(p.ends_at, p.zone, now)}` : '';
+  return `No rush, it stays ready${until}. Reply "sent" once it's in.`;
 }
 
 /** Task 3 fix round 1 (2): a plain yes or ok to the submit ask is never "sent": the one easy reply again. */

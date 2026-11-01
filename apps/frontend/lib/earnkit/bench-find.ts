@@ -39,7 +39,7 @@ import {
   type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
-import { EXISTING_NOT_TOKEN, TOKEN_OFFER, TOKEN_OFFER_QUESTION, TOKEN_ON_ITS_WAY, WALLET_SETUP_SKIPPED, existingTokenLine, setupTokenOffer, displayName, firstName, isStep2, setupDoneLead, setupDoneReply, type ProgramRow, type SetupOutcome } from './bench-reply';
+import { MORE_NOTE, EXISTING_NOT_TOKEN, TOKEN_OFFER, TOKEN_OFFER_QUESTION, TOKEN_ON_ITS_WAY, WALLET_SETUP_SKIPPED, existingTokenLine, setupTokenOffer, displayName, firstName, isStep2, setupDoneLead, setupDoneReply, type ProgramRow, type SetupOutcome } from './bench-reply';
 import { targetIn, weeklyTarget } from './weekly-target';
 import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, markOffered, momentDue, momentSummary, momentPlace, momentReady, openShare, takeMoment, weekNumber } from './weekly-moment';
 import { isoWeekOf } from './weeks';
@@ -74,7 +74,7 @@ import { DECLINE_MS, draftedRecently } from './policy-constants';
 import { closeDay, programZone, zoneAbbr } from './deadline';
 import type { ProgramRow as ProgramFileRow } from './programs';
 import {
-  MENTOR_NOTE, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, pickHook, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, type OpenerProgram, type MoveCtx, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProofOf, helpReply, helpWaiting, helpParked, closeWords, HELP_DONE_ASK, backOnLine, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofOf, markSaid, pathReply, programName, readPath, saidSql, sessionOf,
+  MENTOR_NOTE, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, pickHook, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, submitNoRush, tooSoonLine, type OpenerProgram, type MoveCtx, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProofOf, helpReply, helpWaiting, helpParked, closeWords, HELP_DONE_ASK, backOnLine, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofOf, markSaid, pathReply, programName, readPath, saidSql, sessionOf,
   ANSWERED_FIRST, ASK_SAID, PROGRAMS_AGAIN, fitCell, fitOrder, grantFact, programsAnswer, standingAgain, standingAnswer, standingSaid, whatItIs, type GrantFact, type GrantRow, type InvestorRow, type StandingFacts,
   type GapStep,
   type GapGrant, type InvestorProgram, type Move, type MoveProgram, type Path,
@@ -93,6 +93,7 @@ export { displayName };
 const APPROVED_CONNECT = 'Done. Your weeks are posted.';
 // v4.7 T4: the why note helpers live in bench-reply.ts (post-reply.ts uses them too); re-exported here.
 export { WHY_NOTE, whyNote, withWhy } from './bench-reply';
+export { MORE_ASK } from './bench-reply';
 export const BENCH_MOVE_UP_NOTE = 'A yes or no to the question: call tell with move_up: { kind, project_key, answer } (kind and project_key as given here). Do the steps it returns yourself; never ask the builder to edit files.';
 /**
  * R8: the ranked state's step, "Ship this week to climb.": a yes is one small, real thing to ship this week
@@ -245,6 +246,10 @@ export type Seen = StandSeen & {
    * checked_at } }); skipped by the path for DECLINE_MS, re-checked once a session (helpUnpark), unparked once met.
    */
   help_parked?: Record<string, { at: string; step: string; checked_at?: string }>;
+  /** v4.8 re-review blocker 2: the application set aside by a second no at submit, pointed to again next session. */
+  submit_wait?: string;
+  /** v4.8 re-review minor (N3): when the path's Builder Codes re-check last started (once a session per yes). */
+  gap_check_at?: string;
   /** Task 6 fix round 2 (1): when a help park was unparked, its step met ({ [program_id]: iso }); seenBefore counts it. */
   help_unparked?: Record<string, string>;
   /** v4.8 Task 2 fix round 2 (F3): when the path's last Builder Codes re-check failed to read (iso); backoff. */
@@ -689,6 +694,13 @@ async function codesConfirmed(o: ViewIn, key: string): Promise<'found' | 'missin
   let check = recheckRunning.get(k);
   if (!check) {
     if (failed && now.getTime() - Date.parse(failed) < RECHECK_BACKOFF_MS) return 'missing';
+    // Re-review minor (N3): at most one re-check a session for the same yes (gap_check_at), so a failing App check never
+    // costs every find of DECLINE_MS its RECHECK_WAIT.
+    const last = o.read.seen.gap_check_at;
+    if (last && Date.parse(last) >= Date.parse(did) && now.getTime() - Date.parse(last) < SESSION_MS) return 'missing';
+    o.read.seen.gap_check_at = now.toISOString();
+    await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('gap_check_at', ${now.toISOString()}::text)
+      WHERE builder_id = ${id}`.catch(logged('gap check at'));
     check = checkBuilderCodes(id, k, now, { fetch: o.codesFetch, deadline: Date.now() + RECHECK_DEADLINE_MS })
       .then(async (found) => {
         if (found === null)
@@ -985,10 +997,14 @@ async function sinceFor(o: ViewIn, v: Pick<PathFacts, 'streak' | 'stand' | 'proj
  */
 function submitWaiting(o: ViewIn, told: Set<string>): Card | null {
   const path = readPath(o.read.seen);
-  if (path?.stage !== 'submit' || !path.program_id) return null;
+  // Re-review blocker 2: an application set aside by a second no (submit_wait) waits too, from the next session.
+  const pid = path?.stage === 'submit' && path.program_id ? path.program_id : o.read.seen.submit_wait ?? null;
+  if (!pid) return null;
+  const session = sessionOf(o.read.seen, o.now);
+  if (!session.fresh && session.said.has(`submit_skip:${pid}`)) return null;
   // Drafted is no reason here (the draft is the point), so apply_yes is left out of the skip.
-  if (pathSkip(told, { ...o.read.seen, apply_yes: {} }, o.now, o.skip).has(path.program_id)) return null;
-  const c = o.cards.find((x) => x.id === path.program_id);
+  if (pathSkip(told, { ...o.read.seen, apply_yes: {} }, o.now, o.skip).has(pid)) return null;
+  const c = o.cards.find((x) => x.id === pid);
   if (!c || (c.ends_at && new Date(c.ends_at).getTime() <= o.now.getTime())) return null;
   return c;
 }
@@ -1003,7 +1019,7 @@ async function pathSubmitCommit(o: ViewIn, v: PathFacts, card: Card, since: stri
   const key = v.project.key;
   const stored = { kind: 'apply', key, program_id: card.id, path: true, submit: true };
   const nextPath: Path = { stage: 'submit', program_id: card.id, at: now.toISOString() };
-  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
+  await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) - 'submit_wait')
       || jsonb_build_object('path', ${sql().json(nextPath as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb, 'said', ${saidSql([`submit:${card.id}`], now)})
     WHERE builder_id = ${id}`.catch(logged('path submit'));
   const view: BenchView = {
@@ -1551,7 +1567,20 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
         await answered(null);
       }
       // Task 5: a direct question never waits for an older moment: the answer, then the path's step.
-      else if (move.kind !== 'closest' || midPath || o.question || sessionOf(read.seen, now).said.has(OLDER_SAID)) return answered(await pathCommit(o, { ...plan, move }, await sinceOf(move.program, true)));
+      else if (move.kind !== 'closest' || midPath || o.question || sessionOf(read.seen, now).said.has(OLDER_SAID)) {
+        // Re-review minor (N4): the builder's pick closes within 48 hours on a step the agent can't do (bestMove drops
+        // it): one line saying so, once, before the closer money.
+        const pickedId = plan.path?.picked && plan.path.stage === 'hook' ? plan.path.program_id : null;
+        const soon = pickedId && pickedId !== move.program.id && !sessionOf(read.seen, now).said.has(`toosoon:${pickedId}`)
+          ? plan.ctx.grants.find((g) => g.id === pickedId && !g.doable && g.gaps.length > 0 && !plan.ctx.skip.has(g.id) && g.ends_at
+            && Date.parse(g.ends_at) > now.getTime() && Date.parse(g.ends_at) - now.getTime() <= NOW_WINDOW_MS)
+          : undefined;
+        if (soon) {
+          await markSaid(id, [`toosoon:${soon.id}`], now);
+          return answered(await pathCommit(o, { ...plan, move }, await sinceOf(move.program, true), { inline: tooSoonLine(soon.title, `${facts.project.name} ${soon.gaps[0]}`) }));
+        }
+        return answered(await pathCommit(o, { ...plan, move }, await sinceOf(move.program, true)));
+      }
       else deferred = { ...plan, move };
     }
   }
@@ -1651,7 +1680,9 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   const linkOnly = project !== null && LINK_KEY.test(project.key);
   const tool = (project && builtWith(project.key)) ?? builtWith(read.liveUrl);
   const noGithub = Boolean(read.seen.github_no) || linkOnly || tool === 'lovable' || tool === 'bolt';
-  const asks = { state, variant, project, link, handle, share: Boolean(moment), connect, noGithub, walletSetup, titles, qualify, post: event, githubNo, baseAsk, newRepo, tokenOffer, checkin, shipAsked, appDone, liveTool, walk, hosted: reach.hosted };
+  // v4.8 re-review blocker 1: the programs answer given (or asked for) this session: the quiet reply offers no "more".
+  const listed = o.question === 'programs' || [...sessionOf(read.seen, now).said].some((k) => k.startsWith('ask:programs:'));
+  const asks = { state, variant, project, link, handle, share: Boolean(moment), connect, noGithub, walletSetup, titles, qualify, post: event, githubNo, baseAsk, newRepo, tokenOffer, checkin, shipAsked, listed, appDone, liveTool, walk, hosted: reach.hosted };
   const nudgeAsk = owns && peek?.ask ? peek.ask : null;
   let finalAsk: BenchView['ask'] = nudgeAsk
     ? { kind: nudgeAsk.kind, project_key: project!.key, line: '', ...(nudgeAsk.kind === 'apply' && { program_id: nudgeAsk.program_id }) }
@@ -1738,7 +1769,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
     view.nagShown = read.seen.nag_week !== week;
     // Fix round 2: an owning nudge's reply shows no points line, so the week's line is not marked shown.
     // v4.7 T3: the apply reply says no ship line, so only the ship and quiet replies mark it.
-    const nags = !held && !owns && view.nagShown && ['ship', 'none'].includes(finalAsk.kind);
+    const nags = !held && !owns && view.nagShown && ['ship', 'none', 'more'].includes(finalAsk.kind);
     const keep: Record<string, unknown> = {
       ...(carries && { status_seen: standKey }),
       ...(nags && { nag_week: week }),
@@ -1754,7 +1785,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
     : finalAsk.kind === 'base_start' ? BASE_START_NOTE
     : finalAsk.kind === 'next_step' ? NEXT_STEP_NOTE : finalAsk.kind === 'new_repo' ? NEW_REPO_NOTE
     : finalAsk.kind === 'base_help' ? BASE_HELP_NOTE
-    : finalAsk.kind === 'outcome_share' ? OUTCOME_SHARE_NOTE : BENCH_MOVE_UP_NOTE;
+    : finalAsk.kind === 'outcome_share' ? OUTCOME_SHARE_NOTE : finalAsk.kind === 'more' ? MORE_NOTE : BENCH_MOVE_UP_NOTE;
   const rankLines = ranked ? [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x)) : [];
   const fields: Reply = {
     // v4.7 T4: every step with a why carries it (askWhy), so "why?" has EarnKit's own answer.
@@ -2250,7 +2281,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
     : undefined;
   const ahead: string[] = [];
   const answer: string[] = [];
-  const { view, fields } = await benchView({
+  const { view, fields, stand } = await benchView({
     id, now, read, own, signedOut, personal: await personal(ctx).catch(() => false), shared: ctx.sharedClient === true, name, fits, applies, nudge, cards: a.cards, upcoming: a.upcoming ?? [], skip, held, due, live,
     codesFetch: ctx.codesFetch, known, more: a.more, named: a.named, ahead, ...(a.question && { question: a.question }), answer,
   });
@@ -2263,7 +2294,8 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   // Every reply asks one question now, so news never carries a card offer of its own. R10: the news (a move up
   // the rank) is shown only when the reply itself shows that rank; otherwise it is still recorded, never shown.
   const recorded = read.profiled ? await takeNews(id, read.seen, read.base, now, false).catch(logged('news')) : null;
-  const news = view.rank ? recorded : null;
+  // Re-review minor (N2): never rank news at a score of 0 (the standing shows no rank then).
+  const news = view.rank && (stand.score ?? 0) > 0 ? recorded : null;
   const opener = newsOpener(a.alerts.lines, news ? [news] : []);
   const signedIn = accountLine(view, await takeSignedIn(own, view.handle));
   // v3.1 wallet proof fix round: a changed reward wallet is said once, on the next reply.
@@ -2577,11 +2609,23 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
   if (m.answer === 'no') {
     // Final review F8: at submit a no is "not yet": the stage and its ask stay, and the reply points back to it. Only
     // program_status not_interested (SENT_NOTE: they won't apply) takes it off the path.
+    // Re-review blocker 2: the first no says so once ("No rush, it stays ready until ..."); a second no in the session
+    // hands off to the next program (find, run in this tell) and the application waits, drafted and never parked
+    // (standing_seen.submit_wait), for the next session's opener to point to it again.
     if (asked.path === true && asked.submit === true && asked.program_id) {
-      const row = await getProgramRow(asked.program_id).catch(() => null);
+      const pid = asked.program_id;
+      const [row0] = await sql()<{ seen: Seen | null }[]>`SELECT standing_seen AS seen FROM builder_profiles WHERE builder_id = ${id}`.catch(() => []);
+      if (sessionOf(row0?.seen ?? {}, now).said.has(`submit_no:${pid}`)) {
+        await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) - 'bench_ask')
+            || jsonb_build_object('submit_wait', ${pid}::text, 'said', ${saidSql([`submit_skip:${pid}`], now)})
+          WHERE builder_id = ${id}`.catch(logged('submit wait'));
+        return { show_to_builder: '', then_find: true };
+      }
+      const row = await getProgramRow(pid).catch(() => null);
       await storeAsk(id, asked);
-      const pointer = row ? submitPointer({ title: row.title, when: closeDay(row) ? 'dated' : 'rolling', ends_at: row.ends_at ? new Date(row.ends_at).toISOString() : null, zone: programZone(row) }, now) : SENT_AGAIN;
-      return { show_to_builder: pointer, agent_note: withMentor(SENT_NOTE), move_up: { kind: 'apply', project_key: asked.key, agent_note: SENT_NOTE } };
+      await markSaid(id, [`submit_no:${pid}`], now);
+      const line = row ? submitNoRush({ when: closeDay(row) ? 'dated' : 'rolling', ends_at: row.ends_at ? new Date(row.ends_at).toISOString() : null, zone: programZone(row) }, now) : SENT_AGAIN;
+      return { show_to_builder: line, agent_note: withMentor(SENT_NOTE), move_up: { kind: 'apply', project_key: asked.key, agent_note: SENT_NOTE } };
     }
     // v4.8 Task 1 (Review Focus 2): a no to the path's hook parks its program ('path:<id>') beside the ask's own key.
     const park = asked.path === true && asked.program_id ? { [benchStepKey('path', asked.program_id)]: now.toISOString() } : {};
@@ -2596,6 +2640,9 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       const title = asked.program ?? asked.qualify?.grant.name ?? (await getProgramRow(asked.program_id).catch(() => null))?.title ?? null;
       return { show_to_builder: title ? setAsideLine(title) : NOTED_LINE, then_find: true };
     }
+    // v4.8 re-review blocker 1: a no to the quiet reply's ship ask is "Okay." then find's reply (its "more" ask), never
+    // "Okay." alone.
+    if (asked.kind === 'ship' || asked.kind === 'suggest') return { ...okay, then_find: true };
     return asked.kind === 'titles' ? { show_to_builder: TITLES_NO_LINE } : okay;
   }
   // Fix round 1: answered once. The ask is cleared before the yes runs, so a retried yes is "Okay.".
@@ -2679,6 +2726,9 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       };
     case 'new_repo':
       return { show_to_builder: '', agent_note: NEW_REPO_YES_NOTE };
+    case 'more':
+      // v4.8 re-review blocker 1: "more" is the programs answer (find ask 'programs', run in this tell).
+      return { show_to_builder: '', then_find: { ask: 'programs' } };
     case 'post':
       // v3.1 one-tap posts: a different version of the post (the next shape; the builder asked, so the asked limit holds).
       return (await redraftAnswer(id, asked as Parameters<typeof redraftAnswer>[1], now)) ?? okay;

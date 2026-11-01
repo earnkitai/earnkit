@@ -301,6 +301,7 @@ const CLAIMS: RegExp[] = [
  * step after "Let's do it now:", "Not done yet:", "Still on {program}:", "one step away:" or "First:" (up to its first
  * period). A step in the gap stage's own words, so the same step in new wording around it is still the same step.
  */
+// A new step template in the replies must be added here (or to the numbered-list shape), or the rule can't count it.
 const STEP_AFTER = /(?:Let's do it now|Not done yet|Still on [^:\n]+|one step away|First): ([^.\n]+)/g;
 function stepsNamed(show: string): string[] {
   const listed = /\bnext (?:\d+ )?steps? toward\b/i.test(show) ? [...show.matchAll(/^\s*\d+\.\s+([^.\n]+)/gm)].map((m) => m[1]) : [];
