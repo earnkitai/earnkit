@@ -39,7 +39,7 @@ import {
   type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
-import { MORE_NOTE, EXISTING_NOT_TOKEN, TOKEN_OFFER, TOKEN_OFFER_QUESTION, TOKEN_ON_ITS_WAY, WALLET_SETUP_SKIPPED, existingTokenLine, setupTokenOffer, displayName, firstName, isStep2, setupDoneLead, setupDoneReply, type ProgramRow, type SetupOutcome } from './bench-reply';
+import { MORE_NOTE, NAME_NOTE, EXISTING_NOT_TOKEN, TOKEN_OFFER, TOKEN_OFFER_QUESTION, TOKEN_ON_ITS_WAY, WALLET_SETUP_SKIPPED, existingTokenLine, setupTokenOffer, displayName, firstName, isStep2, setupDoneLead, setupDoneReply, type ProgramRow, type SetupOutcome } from './bench-reply';
 import { targetIn, weeklyTarget } from './weekly-target';
 import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, markOffered, momentDue, momentSummary, momentPlace, momentReady, openShare, takeMoment, weekNumber } from './weekly-moment';
 import { isoWeekOf } from './weeks';
@@ -74,7 +74,7 @@ import { DECLINE_MS, draftedRecently } from './policy-constants';
 import { closeDay, programZone, zoneAbbr } from './deadline';
 import type { ProgramRow as ProgramFileRow } from './programs';
 import {
-  MENTOR_NOTE, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, pickHook, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, submitNoRush, tooSoonLine, type OpenerProgram, type MoveCtx, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProofOf, helpReply, helpWaiting, helpParked, closeWords, HELP_DONE_ASK, backOnLine, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofOf, markSaid, pathReply, programName, readPath, saidSql, sessionOf,
+  MENTOR_NOTE, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, pickHook, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, submitNoRush, tooSoonLine, keepDraftLine, type OpenerProgram, type MoveCtx, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProofOf, helpReply, helpWaiting, helpParked, closeWords, HELP_DONE_ASK, backOnLine, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofOf, markSaid, pathReply, programName, readPath, saidSql, sessionOf,
   ANSWERED_FIRST, ASK_SAID, PROGRAMS_AGAIN, fitCell, fitOrder, grantFact, programsAnswer, standingAgain, standingAnswer, standingSaid, whatItIs, type GrantFact, type GrantRow, type InvestorRow, type StandingFacts,
   type GapStep,
   type GapGrant, type InvestorProgram, type Move, type MoveProgram, type Path,
@@ -93,7 +93,7 @@ export { displayName };
 const APPROVED_CONNECT = 'Done. Your weeks are posted.';
 // v4.7 T4: the why note helpers live in bench-reply.ts (post-reply.ts uses them too); re-exported here.
 export { WHY_NOTE, whyNote, withWhy } from './bench-reply';
-export { MORE_ASK } from './bench-reply';
+export { MORE_ASK, NAME_ASK } from './bench-reply';
 export const BENCH_MOVE_UP_NOTE = 'A yes or no to the question: call tell with move_up: { kind, project_key, answer } (kind and project_key as given here). Do the steps it returns yourself; never ask the builder to edit files.';
 /**
  * R8: the ranked state's step, "Ship this week to climb.": a yes is one small, real thing to ship this week
@@ -1217,6 +1217,32 @@ async function takePick(o: ViewIn): Promise<Pick_> {
   seen.path = next;
   return { id: hit, title };
 }
+/**
+ * v4.8 last ruling 1: a program's name after the programs answer (said this session) on a ranked page: the path's
+ * program, picked. It is an explicit choice, so it clears that program's own no (and, for Base's grant, its passed
+ * steps), never another's. Null when no list was given this session or nothing open matches. Never throws.
+ */
+async function takeListPick(o: ViewIn): Promise<{ id: string; title: string } | null> {
+  const seen = o.read.seen;
+  if (!o.named?.trim() || !o.personal || o.shared) return null;
+  if (![...sessionOf(seen, o.now).said].some((k) => k.startsWith('ask:programs:'))) return null;
+  const told = (await toldIds(o.id)) ?? new Set<string>();
+  const list = o.cards.filter((c) => !told.has(c.id) && showable({ ...c, investment: false }, o.now, new Set())).map((c) => ({ id: c.id, title: c.title }));
+  const hit = resolvePick(o.named, list);
+  if (hit === null || hit === 'outside') return null;
+  const title = list.find((p) => p.id === hit)!.title;
+  const drop = Object.keys(seen.declined ?? {}).filter((k) => k === `apply:${hit}` || k === `path:${hit}` || k === `needs:${hit}`
+    || (hit === BASE_GRANTS_ID && k.startsWith('qualify:')));
+  const declined = Object.fromEntries(Object.entries(seen.declined ?? {}).filter(([k]) => !drop.includes(k)));
+  const parked = Object.fromEntries(Object.entries(seen.help_parked ?? {}).filter(([k]) => k !== hit));
+  const next: Path = { stage: 'hook', program_id: hit, at: o.now.toISOString(), picked: true };
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('path', ${sql().json(next as never)}::jsonb,
+      'declined', ${sql().json(declined as never)}::jsonb, 'help_parked', ${sql().json(parked as never)}::jsonb)
+    WHERE builder_id = ${o.id}`.catch(logged('list pick'));
+  // This reply reads the pick too.
+  Object.assign(seen, { path: next, declined, help_parked: parked });
+  return { id: hit, title };
+}
 /** Fix round 1 (5): the one line for a pick no longer open to them. Pure. */
 const pickGoneLine = (title: string, applied: boolean) => (applied ? `You've already applied to ${programName(title)}.` : `${programName(title)} isn't open now.`);
 /**
@@ -1445,7 +1471,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
     : await readStanding(id, { lines: read.ranks, parts: read.parts, streak, fits: (taken ? [] : o.fits).filter(realFit), cards: o.cards, now });
   // v4.8 Task 4: a number or a name from the opener's list (find {program}) is the path's program, in any state; signed
   // out (a person, with the sign-in link), the reply is target B's opener, the pick's "Got it" or the list again.
-  const picked = await takePick(o);
+  const picked = (await takePick(o)) ?? (await takeListPick(o));
   if (state === 'signed_out' && o.personal && signIn) {
     const opener = await openerView(o, signIn, picked, stand);
     if (opener) return opener;
@@ -1785,7 +1811,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
     : finalAsk.kind === 'base_start' ? BASE_START_NOTE
     : finalAsk.kind === 'next_step' ? NEXT_STEP_NOTE : finalAsk.kind === 'new_repo' ? NEW_REPO_NOTE
     : finalAsk.kind === 'base_help' ? BASE_HELP_NOTE
-    : finalAsk.kind === 'outcome_share' ? OUTCOME_SHARE_NOTE : finalAsk.kind === 'more' ? MORE_NOTE : BENCH_MOVE_UP_NOTE;
+    : finalAsk.kind === 'outcome_share' ? OUTCOME_SHARE_NOTE : finalAsk.kind === 'more' ? MORE_NOTE : finalAsk.kind === 'name' ? NAME_NOTE : BENCH_MOVE_UP_NOTE;
   const rankLines = ranked ? [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x)) : [];
   const fields: Reply = {
     // v4.7 T4: every step with a why carries it (askWhy), so "why?" has EarnKit's own answer.
@@ -2619,7 +2645,9 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
         await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) - 'bench_ask')
             || jsonb_build_object('submit_wait', ${pid}::text, 'said', ${saidSql([`submit_skip:${pid}`], now)})
           WHERE builder_id = ${id}`.catch(logged('submit wait'));
-        return { show_to_builder: '', then_find: true };
+        // Last ruling 2: the hand-off leads with the kept draft.
+        const kept = (await getProgramRow(pid).catch(() => null))?.title;
+        return { show_to_builder: kept ? keepDraftLine(kept) : '', then_find: true };
       }
       const row = await getProgramRow(pid).catch(() => null);
       await storeAsk(id, asked);

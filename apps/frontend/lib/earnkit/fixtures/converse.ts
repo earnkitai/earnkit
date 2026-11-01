@@ -198,6 +198,8 @@ const ONE_WORD: RegExp[] = [
   /^(?:[^.?]*,\s*then )?say (?:ok|yes)(?: once [^,.?]+)?(?:, and I'll [^.?]+)?\.$/i,
   // Fix round 2 (minor 3): the number alone; with the sign-in link, SIGN_IN_FORMS.
   /^Reply with a number\.$/i,
+  // v4.8 last ruling 1: the quiet path's reply right after the programs answer.
+  /^Reply with a program's name and I'll start on it\.$/,
 ];
 const REQUEST = /\b(?:also|tell me|let me know|or)\b/i;
 /**

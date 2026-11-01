@@ -31,6 +31,8 @@ export type BenchAskKind = 'sign_in' | 'start' | 'pick_repo' | 'install_app' | '
   | 'base_help' | 'checkin' | 'none'
   /** v4.8 re-review blocker 1: `more`, the quiet ranked reply's one easy reply once the week's ship ask is spent. */
   | 'more'
+  /** v4.8 last ruling 1: `name`, after the programs answer on a quiet path: a program's name is the pick (find program). */
+  | 'name'
   /** v4.0 Task 8 fix round 1: the accepted nudge's share ask (its yes: the post's link). */
   | 'outcome_share'
   /** v4.0: `wallet_setup`, setup step 3 (the wallet, and the builder's token unless they say no), once a person. */
@@ -199,6 +201,9 @@ export const SHIP_ASK = 'Want me to suggest one small thing to ship?';
  * its answer is the programs answer (find ask 'programs'), so a lazy builder is never left with no reply to give.
  */
 export const MORE_ASK = `Reply "more" and I'll show every program open now.`;
+/** v4.8 last ruling 1: the quiet path's easy reply right after the programs answer. */
+export const NAME_ASK = "Reply with a program's name and I'll start on it.";
+export const NAME_NOTE = "When they reply with a program's name, call find with program set to their reply. Don't show this note.";
 export const MORE_NOTE = "When they reply \"more\" (or yes), call find with ask: 'programs' (or tell with move_up: { kind: 'more', project_key, answer: 'yes' }). Don't show this note.";
 /**
  * v4.7 T4 (exact copy, "Why lines"): each step's own short line, the paragraph just before its question, and the
@@ -818,6 +823,8 @@ export function stateAsk(
     return { kind: 'qualify', project_key: key, program_id: v.qualify.program_id, line: qualifyAsk(v.qualify.grant, v.qualify.steps, name, v.hosted === true) };
   // GTM W2: the ship question at most once in SHIP_ASK_DAYS; between, the quiet reply asks nothing.
   // v4.8 re-review blocker 1: once it's spent, the "more" ask (never no easy reply), unless the list was just given.
+  // v4.8 last ruling 1: the programs answer was given this session (a quiet path): a name is the one easy reply.
+  if (v.state === 'ranked' && v.listed) return { kind: 'name', project_key: key, line: NAME_ASK };
   if (v.state === 'ranked')
     return v.shipAsked ? (v.listed ? { kind: 'none', project_key: key, line: '' } : { kind: 'more', project_key: key, line: MORE_ASK }) : { kind: 'ship', project_key: key, line: SHIP_ASK };
   if (v.variant === 'taken' || v.variant === 'copy') return { kind: 'other_project', project_key: key, line: VARIANT_COPY[v.variant].ask() };
@@ -994,6 +1001,8 @@ function rankedBody(v: BenchView, name: string, ask: string): string {
   // most once in SHIP_ASK_DAYS), and (R13) the weekly rank target is that why when there is one. The quiet reply keeps
   // the ship line. The check-in's why always shows. Each is its own paragraph before the question.
   const target = nag && !v.held && (v.ask.kind === 'none' || v.ask.kind === 'more') ? ship : null;
+  // v4.8 last ruling 1: right after the list, its easy reply alone (the list said everything else).
+  if (!v.held && v.ask.kind === 'name') return ask;
   const why = v.held ? null : v.ask.kind === 'ship' ? shipWhyOf(v.target, v.streak) : v.ask.kind === 'checkin' ? CHECKIN_WHY : null;
   // The why and its question are something to say, so no standing is added for them (orStanding).
   if (why) return paras([standing, ...v.due, moneyLine(v), target], [why], [ask]);

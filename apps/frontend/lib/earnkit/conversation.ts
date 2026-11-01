@@ -586,6 +586,9 @@ export function submitNoRush(p: Pick<MoveProgram, 'when' | 'ends_at' | 'zone'>, 
   return `No rush, it stays ready${until}. Reply "sent" once it's in.`;
 }
 
+/** v4.8 last ruling 2: the second no at submit's lead, before the next program. Pure. */
+export const keepDraftLine = (title: string) => `I'll keep your ${programName(title)} draft ready.`;
+
 /** Task 3 fix round 1 (2): a plain yes or ok to the submit ask is never "sent": the one easy reply again. */
 export const SENT_AGAIN = `Once it's submitted, reply "sent" and I'll keep track of it.`;
 /** The track stage's acknowledgement (target conversation A, exact). */

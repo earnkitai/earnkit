@@ -25,7 +25,7 @@ import {
 } from './conversation';
 import { qualifyGapSteps, BUILDER_CODES_GUIDE } from './bench-reply';
 import { BUILDER_CODES_SUFFIX } from './builder-code';
-import { MORE_ASK, PUSHED_ASK, RECHECK_WAIT, benchScore, codesSettled, founderBriefNote, openerPrograms, questionsDraftNote } from './bench-find';
+import { MORE_ASK, NAME_ASK, PUSHED_ASK, RECHECK_WAIT, benchScore, codesSettled, founderBriefNote, openerPrograms, questionsDraftNote } from './bench-find';
 import type { Card } from './present';
 import { draftBody, shipLogFacts } from './ship-log-facts';
 import { standingParagraph } from './standing';
@@ -2432,6 +2432,8 @@ test('re-review blocker 2: no at submit twice: "No rush" once, then the next pro
   assert.match(replies[1].show, /^No rush, it stays ready until [^.]+\. Reply "sent" once it's in\.$/, replies[1].show);
   replies.push((await turn({ says: 'no', tell: { move_up: { kind: 'apply', project_key: b.key, answer: 'no' } } }))!);
   assert.doesNotMatch(replies[2].show, /ready to submit|No rush/, replies[2].show);
+  // Last ruling 2: the hand-off leads with the kept draft.
+  assert.ok(replies[2].show.startsWith(`I'll keep your ${programName(sr.title)} draft ready.\n\n`), replies[2].show);
   assert.match(replies[2].show, /Base Builder Grant/, replies[2].show);
   replies.push((await turn({ find: {} }))!);
   assert.doesNotMatch(replies[3].show, /ready to submit|No rush/, replies[3].show);
@@ -2478,4 +2480,37 @@ test('re-review minor: a picked grant that closes within 48 hours on a step the 
   assert.ok(s.endsWith(OFFER), s);
   // Said once: the next find is the hook's pointer, no second line.
   assert.doesNotMatch(show(await find(b)), /closes too soon/);
+});
+
+test('last ruling 1 (pure): the gate takes "Reply with a program\'s name and I\'ll start on it." as the one easy reply', () => {
+  assert.deepEqual(rules([gr(`Grants open now:\n\nBase Builder Grant: up to $5,000, rolling. It fits.\n\n${NAME_ASK}`)]), []);
+});
+
+test('last ruling 1: no, no, "more", then a name: the list ends with the name ask; the name is the pick (its no cleared); through the gate', db, async () => {
+  const sr = await speedrun(30);
+  await only([sr.id]);
+  const b = await owner('nm');
+  const turn = conversation(b.ctx as never, { builderId: b.id });
+  const replies: Reply[] = [];
+  let r = (await turn({ find: {} }))!;
+  replies.push(r);
+  for (let i = 0; i < 2; i++) {
+    const m = r.reply?.move_up as { kind: string; project_key: string | null };
+    r = (await turn({ says: 'no', tell: { move_up: { kind: m.kind, project_key: m.project_key, answer: 'no' } } }))!;
+    replies.push(r);
+  }
+  r = (await turn({ says: 'more', tell: { move_up: { kind: 'more', project_key: b.key, answer: 'yes' } } }))!;
+  replies.push(r);
+  assert.ok(r.show.includes(`${sr.title} (investor program)`), r.show);
+  assert.ok(r.show.endsWith(NAME_ASK), r.show);
+  r = (await turn({ says: 'speedrun', find: { program: 'speedrun' } }))!;
+  replies.push(r);
+  console.log(`\n=== WALK NO NO MORE NAME ===\n${transcript(replies)}\n`);
+  assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), [], transcript(replies));
+  assert.match(r.show, new RegExp(`${sr.title}[^\n]*Want me to start\\?$`), r.show);
+  const seen = await seenOf(b.id);
+  const declined = (seen.declined ?? {}) as Record<string, string>;
+  assert.equal(declined[`path:${sr.id}`], undefined);
+  assert.equal(declined[`apply:${sr.id}`], undefined);
+  assert.deepEqual([(seen.path as { program_id: string }).program_id, (seen.path as { picked?: boolean }).picked], [sr.id, true]);
 });
