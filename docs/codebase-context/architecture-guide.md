@@ -8898,12 +8898,18 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
   draft offer again) goes through one function, conversation.ts pointerReply. The first time (`point:{programId}` not
   said): "{Program} is still your best move: {money}, {why}. {ask}", where money is the amount cell (left out with its
   comma when unknown), why is pointerWhy ("one step away"; "{n} steps away"; "your draft is ready" at the draft or submit
-  stage once a draft was made; "closes {closeWords}"; else nothing) and ask is the step's own easy reply. The second time
-  (`point2:{programId}`): "Still {Program}. Reply no and I'll line up the next program." (POINT_NEXT), the stored ask
-  unchanged, so a no parks the program and the path moves on. The gate's repeat rule forbids that line twice, so the
-  third and later times are POINT_MORE, 'Reply "more" and I'll show every program open now.'. The direct-answer brief
-  step keeps "Your {program} application is the next move." for a hook not yet said. A pointer never raises a passed
-  step (only a reply that says `hook:{id}` does). The gate (fixtures/converse.ts) accepts POINT_NEXT as one easy reply.
+  stage once a draft was made; "closes {closeWords}"; else nothing) and ask is the step's own easy reply (a 'go' step
+  names it: CODES_POINT_OFFER, "I can add Builder Codes and push the change, about 10 minutes. Go?"; after "your draft
+  is ready" the stage's own ask, PointerFacts.readyAsk: SENT_SHORT at submit, the blanks ask for a draft, with that
+  stage's ask stored). The second time (`point2:{programId}`): 'Still {Program}. Reply "no" and I'll line up the next
+  program.' (POINT_NEXT), the stored ask unchanged, so a no parks the program (`path:{id}` declined) and the path moves
+  on. The gate's repeat rule forbids that line twice, so the third and later times are POINT_MORE (bench-reply.ts
+  MORE_ASK, 'Reply "more" and I'll show every program open now.'), stored as the 'more' ask with MORE_NOTE, so "more"
+  or a yes is the programs answer and never the program's own step; once the programs answer was given (this reply or
+  this session, bench-find.ts listedNow), that pointer is NAME_ASK (the 'name' ask, NAME_NOTE) instead, so the list
+  never ends with "more" again. pathClosedCommit does the same. The direct-answer
+  brief step keeps "Your {program} application is the next move." for a hook not yet said. A pointer never raises a
+  passed step (only a reply that says `hook:{id}` does).
   This supersedes the "still the next move" / "still the one step to" / "still your closest money" pointers above.
 - **Fit copy (R5).** fitCell for one chain the project is not on: "Not yet: they look for apps on {chain}" (supersedes
   "Not yet: needs Arc" above).

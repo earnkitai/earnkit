@@ -39,7 +39,7 @@ import {
   type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
-import { MORE_NOTE, NAME_NOTE, EXISTING_NOT_TOKEN, TOKEN_OFFER, TOKEN_OFFER_QUESTION, TOKEN_ON_ITS_WAY, WALLET_SETUP_SKIPPED, existingTokenLine, setupTokenOffer, displayName, firstName, isStep2, setupDoneLead, setupDoneReply, type ProgramRow, type SetupOutcome } from './bench-reply';
+import { MORE_NOTE, NAME_ASK, NAME_NOTE, EXISTING_NOT_TOKEN, TOKEN_OFFER, TOKEN_OFFER_QUESTION, TOKEN_ON_ITS_WAY, WALLET_SETUP_SKIPPED, existingTokenLine, setupTokenOffer, displayName, firstName, isStep2, setupDoneLead, setupDoneReply, type ProgramRow, type SetupOutcome } from './bench-reply';
 import { targetIn, weeklyTarget } from './weekly-target';
 import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, markOffered, momentDue, momentSummary, momentPlace, momentReady, openShare, takeMoment, weekNumber } from './weekly-moment';
 import { isoWeekOf } from './weeks';
@@ -74,7 +74,7 @@ import { DECLINE_MS, draftedRecently } from './policy-constants';
 import { closeDay, programZone, zoneAbbr } from './deadline';
 import type { ProgramRow as ProgramFileRow } from './programs';
 import {
-  MENTOR_NOTE, MONEY_SAID, moneyInvestor, moneyLine, withMoneyLine, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, pickHook, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, submitNoRush, tooSoonLine, keepDraftLine, type OpenerProgram, type MoveCtx, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProofOf, helpReply, helpWaiting, helpParked, closeWords, HELP_DONE_ASK, backOnLine, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofOf, markSaid, pathReply, programName, readPath, saidSql, sessionOf, pointerReply, START_ASK,
+  MENTOR_NOTE, MONEY_SAID, moneyInvestor, moneyLine, withMoneyLine, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, pickHook, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, submitNoRush, tooSoonLine, keepDraftLine, type OpenerProgram, type MoveCtx, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProofOf, helpReply, helpWaiting, helpParked, closeWords, HELP_DONE_ASK, backOnLine, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofOf, markSaid, pathReply, programName, readPath, saidSql, sessionOf, pointerReply, START_ASK, SENT_SHORT, blanksAsk,
   ANSWERED_FIRST, ASK_SAID, PROGRAMS_AGAIN, fitCell, fitOrder, grantFact, programsAnswer, standingAgain, standingAnswer, standingSaid, whatItIs, type GrantFact, type GrantRow, type InvestorRow, type StandingFacts,
   type GapStep,
   type GapGrant, type InvestorProgram, type Move, type MoveProgram, type Path,
@@ -873,17 +873,27 @@ async function pathCommit(
   const hosted = (o.reach ?? (await agentReach(o.own, id))).hosted;
   // Task 6 fix round 1 (review 4): Base's remaining steps, for its fact when the streak and live were said this session.
   const baseSteps = move.program.id === BASE_GRANTS_ID ? (extra.get(move.program.id)?.qualify?.steps ?? null) : null;
-  const out0 = pathReply({ now, first, project: { name: v.project.name, live: v.project.live || v.siteLive }, streak: v.streak, move, said: session.said, hosted, steps, brief: o.brief === true, baseSteps,
-    // v4.8.1 Task 3 (R4): the pointer's reason reads the path's stage on this program and whether a draft was made.
-    stage: path && path.program_id === move.program.id ? path.stage : null,
-    drafted: Boolean(read.seen.apply_yes?.[move.program.id]) || (read.seen.bench_ask?.program_id === move.program.id && (read.seen.bench_ask as { draft?: unknown }).draft === true) });
-  const out = first && out0.show_to_builder.startsWith(`${first}, `) ? { ...out0, said: [...out0.said, GREET_SAID] } : out0;
+  // v4.8.1 Task 3: the path's stage on this program, a draft made, and (fix round 1, minor 1) the stage's own ask.
+  const stage = path && path.program_id === move.program.id ? path.stage : null;
+  const ownAsk = read.seen.bench_ask?.program_id === move.program.id ? (read.seen.bench_ask as NonNullable<Seen['bench_ask']> & { draft?: unknown; blanks?: unknown }) : null;
+  const drafted = Boolean(read.seen.apply_yes?.[move.program.id]) || ownAsk?.draft === true;
+  const readyAsk = !drafted ? null : stage === 'submit' ? SENT_SHORT
+    : blanksAsk(Array.isArray(ownAsk?.blanks) ? ownAsk.blanks.filter((x): x is string => typeof x === 'string') : []);
+  const out0 = pathReply({ now, first, project: { name: v.project.name, live: v.project.live || v.siteLive }, streak: v.streak, move, said: session.said, hosted, steps, brief: o.brief === true, baseSteps, stage, drafted, readyAsk });
+  const out1 = first && out0.show_to_builder.startsWith(`${first}, `) ? { ...out0, said: [...out0.said, GREET_SAID] } : out0;
+  // Fix round 1: the "more" pointer right after (or in a session with) the programs answer: a name is the one easy reply.
+  const named = out1.pointer?.more === true && listedNow(o);
+  const out = named ? { ...out1, show_to_builder: NAME_ASK } : out1;
   const fit = fitRows.find((f) => f.program_id === out.program_id);
   const more = extra.get(out.program_id);
   // `path`: a no to it also parks the program for the path ('path:<id>', DECLINE_MS): never asked again this session.
   // The hook asked "Want the steps?", so its yes is the gap stage's steps (Task 2), for either agent. Fix round 2 (F10):
   // its "Go?" (one step a local agent can do) is stored as the gap ask, so its yes is the agent doing it.
-  const stored: Record<string, unknown> = out.reply === 'start'
+  // v4.8.1 Task 3 fix round 1: the "more" pointer is the 'more' ask (its "more" or yes is the programs answer, never the
+  // program's step); "your draft is ready" keeps the stage's own ask (submit: "sent"; a draft: its blanks).
+  const stored: Record<string, unknown> = out.pointer?.more ? { kind: named ? 'name' : 'more', key, program_id: out.program_id }
+    : out.pointer?.ready ? (stage === 'submit' ? { kind: 'apply', key, program_id: out.program_id, path: true, submit: true } : { ...ownAsk })
+    : out.reply === 'start'
     ? { kind: 'apply', key, program_id: out.program_id, path: true, ...(fit?.repo && { repo: fit.repo }) }
     : more?.qualify
       ? {
@@ -910,11 +920,11 @@ async function pathCommit(
   // v3.1 Task 7, kept: hooking Base's grant as a fit starts its Builder Codes check in the background (for the draft).
   if (out.program_id === BASE_GRANTS_ID && out.reply === 'start') await codesFor(id, key, now, o.codesFetch);
   const kind = stored.kind as BenchAskKind;
-  const note = kind === 'apply' ? APPLY_NOTE : kind === 'qualify' ? QUALIFY_NOTE : CHECK_FITS_ASK_NOTE;
+  const note = kind === 'more' ? MORE_NOTE : kind === 'name' ? NAME_NOTE : kind === 'apply' ? APPLY_NOTE : kind === 'qualify' ? QUALIFY_NOTE : CHECK_FITS_ASK_NOTE;
   const view: BenchView = {
     state: v.state, variant: v.variant, project: v.project, rank: read.ranks.bench, streak: v.streak, target: null, handle: v.handle, link: null,
     fund: [], due: [], ask: { kind, project_key: key, line: '', program_id: out.program_id }, held: null,
-    path: withMoneyLine(withSince(since, pre.inline ? `${pre.inline} ${out.show_to_builder}` : out.show_to_builder), money), pathLead: out.reply === 'start' ? { program_id: out.program_id, ...(fit?.repo && { repo: fit.repo }) } : null,
+    path: withMoneyLine(withSince(since, pre.inline ? `${pre.inline} ${out.show_to_builder}` : out.show_to_builder), money), pathLead: out.reply === 'start' && !out.pointer?.more ? { program_id: out.program_id, ...(fit?.repo && { repo: fit.repo }) } : null,
   };
   const rankLines = [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x));
   const fields: Reply = {
@@ -924,6 +934,9 @@ async function pathCommit(
   };
   return { view, fields, stand: v.stand };
 }
+
+/** Fix round 1: the programs answer is this reply's question or was given this session (bench-reply.ts `listed`). */
+const listedNow = (o: ViewIn) => o.question === 'programs' || [...sessionOf(o.read.seen, o.now).said].some((k) => k.startsWith('ask:programs:'));
 
 /** Final review F4: the session key a greeting ("Jenil, ") is said under: once a session. */
 const GREET_SAID = 'greet';
@@ -1145,7 +1158,11 @@ async function pathClosedCommit(o: ViewIn, plan: PathPlan & { closed: NonNullabl
   const said = sessionOf(read.seen, now).said;
   const again = said.has(saidKey);
   // v4.8.1 Task 3 (R4): again, the shared pointer (the gap is closed and no draft made yet, so its reason is the close).
-  const point = again && !since ? pointerReply({ ...closed.program, gaps: 0, stage: 'draft', drafted: false }, START_ASK, said, now) : null;
+  const point0 = again && !since ? pointerReply({ ...closed.program, gaps: 0, stage: 'draft', drafted: false }, START_ASK, said, now) : null;
+  // Fix round 1: as pathCommit, a "more" pointer after the programs answer asks for a name.
+  const named = point0?.more === true && listedNow(o);
+  const point = point0 && named ? { ...point0, text: NAME_ASK } : point0;
+  const moreKind = named ? ('name' as const) : ('more' as const);
   // Fix round 1 (T2-6): one proof line (Base closed: every step met, so live on Base).
   // Task 6 fix round 1 (review 4): one proof a session per fact.
   const proofOut = o.brief ? null : gapProofOf({ name: v.project.name, live: v.project.live || v.siteLive }, v.streak, closed.program.id === BASE_GRANTS_ID ? [] : null, sessionOf(read.seen, now).said);
@@ -1154,7 +1171,8 @@ async function pathClosedCommit(o: ViewIn, plan: PathPlan & { closed: NonNullabl
   // and its gap closed, then the draft offer.
   const show = since ? `${since} ${stillOpenLine(closed.program.title, closed.codes)}\n\n${DRAFT_NOW_ASK}`
     : point ? point.text : gapClosedReply({ org: closed.org, title: closed.program.title, codes: closed.codes, proof });
-  const stored = { kind: 'apply', key, program_id: pid, path: true };
+  // Fix round 1: the "more" pointer is the 'more' ask (never a yes to the draft).
+  const stored = point?.more ? { kind: moreKind, key, program_id: pid } : { kind: 'apply', key, program_id: pid, path: true };
   const nextPath: Path = { stage: 'draft', program_id: pid, at: now.toISOString(), ...(plan.path?.picked && plan.path.program_id === pid && { picked: true as const }) };
   const money = await moneyFor(o, plan, pid);
   await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) - 'gap_did')
@@ -1162,10 +1180,11 @@ async function pathClosedCommit(o: ViewIn, plan: PathPlan & { closed: NonNullabl
     WHERE builder_id = ${id}`.catch(logged('path closed'));
   const view: BenchView = {
     state: v.state, variant: v.variant, project: v.project, rank: read.ranks.bench, streak: v.streak, target: null, handle: v.handle, link: null,
-    fund: [], due: [], ask: { kind: 'apply', project_key: key, line: '', program_id: pid }, held: null, path: withMoneyLine(show, money), pathLead: { program_id: pid },
+    fund: [], due: [], ask: { kind: point?.more ? moreKind : 'apply', project_key: key, line: '', program_id: pid }, held: null, path: withMoneyLine(show, money), pathLead: point?.more ? null : { program_id: pid },
   };
   const rankLines = [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x));
-  return { view, fields: { move_up: { kind: 'apply', project_key: key, agent_note: APPLY_NOTE }, ...(rankLines.length > 0 && { rank_lines: rankLines }), ...standingFields(v.stand) }, stand: v.stand };
+  const moveUp = point?.more ? { kind: moreKind, project_key: key, agent_note: named ? NAME_NOTE : MORE_NOTE } : { kind: 'apply' as const, project_key: key, agent_note: APPLY_NOTE };
+  return { view, fields: { move_up: moveUp, ...(rankLines.length > 0 && { rank_lines: rankLines }), ...standingFields(v.stand) }, stand: v.stand };
 }
 
 /*
@@ -1734,7 +1753,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   const tool = (project && builtWith(project.key)) ?? builtWith(read.liveUrl);
   const noGithub = Boolean(read.seen.github_no) || linkOnly || tool === 'lovable' || tool === 'bolt';
   // v4.8 re-review blocker 1: the programs answer given (or asked for) this session: the quiet reply offers no "more".
-  const listed = o.question === 'programs' || [...sessionOf(read.seen, now).said].some((k) => k.startsWith('ask:programs:'));
+  const listed = listedNow(o);
   const asks = { state, variant, project, link, handle, share: Boolean(moment), connect, noGithub, walletSetup, titles, qualify, post: event, githubNo, baseAsk, newRepo, tokenOffer, checkin, shipAsked, listed, appDone, liveTool, walk, hosted: reach.hosted };
   const nudgeAsk = owns && peek?.ask ? peek.ask : null;
   let finalAsk: BenchView['ask'] = nudgeAsk

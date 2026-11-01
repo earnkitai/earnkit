@@ -243,7 +243,7 @@ test('pathReply: a grant with a gap gives its money, the gap and "Want the steps
   assert.equal(h.show_to_builder, "Jenil, your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes. You passed on them, but they're now the only gap to that money.\n\nWant the steps?");
   // Fix round 3 (3): the same offer again in the session names Builder Codes.
   const again = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'closest', program: BASE, raise: true }, said: new Set([...r.said, ...c.said]) });
-  assert.equal(again.show_to_builder, `Base Builder Grant is still your best move: up to $5,000, one step away. ${CODES_OFFER}`);
+  assert.equal(again.show_to_builder, `Base Builder Grant is still your best move: up to $5,000, one step away. I can add Builder Codes and push the change, about 10 minutes. Go?`);
   for (const s of [r.show_to_builder, c.show_to_builder, h.show_to_builder]) {
     assert.doesNotMatch(s, BAD);
     assert.equal((s.match(/\?/g) ?? []).length, 1, s);
@@ -947,7 +947,7 @@ test('"sent" records the program as applied and hooks Base in the same reply, wi
   // Applied programs are never hooked again; the passed-step line is never said twice.
   // Fix round 1 (1): the same step again this session is its one-line pointer; the stored ask stays. v4.8.1 Task 3 (R4):
   // first with its reason and easy reply, then the short line with the way out (a no to the same stored ask).
-  const points = [`Base Builder Grant is still your best move: up to $5,000, one step away. ${CODES_OFFER}`, "Still Base Builder Grant. Reply no and I'll line up the next program."];
+  const points = [`Base Builder Grant is still your best move: up to $5,000, one step away. I can add Builder Codes and push the change, about 10 minutes. Go?`, `Still Base Builder Grant. Reply "no" and I'll line up the next program.`];
   for (let i = 0; i < 2; i++) {
     const again = await find(b);
     assert.equal(show(again), points[i]);
@@ -1745,7 +1745,7 @@ const pointerOf = (title: string, still = true) => `Your ${programName(title)} a
 /** v4.8.1 Task 3 (R4): the first pointer back to a16z in a session: its money and its close in hours left. */
 const bestOf = (title: string) => `${programName(title).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} is still your best move: up to \\$1M, closes in \\d+ hours?\\.`;
 /** v4.8.1 Task 3 (R4): the second pointer back: short, with the way out. */
-const shortOf = (title: string) => `Still ${programName(title)}. Reply no and I'll line up the next program.`;
+const shortOf = (title: string) => `Still ${programName(title)}. Reply "no" and I'll line up the next program.`;
 
 test('C: "where do I stand": the answer (the pill\'s numbers), then the short step; again, one line; a changed score or a new session, the full answer', db, async () => {
   const { b, sr } = await asker('st');
@@ -1768,7 +1768,7 @@ test('C: "where do I stand": the answer (the pill\'s numbers), then the short st
   assert.match(same, new RegExp(`^Same as earlier: #${st.rank} of ${st.total}, score 77\\.\\n\\n${bestOf(sr.title)} Want me to start\\?$`), same);
   // No ask: the path alone. v4.8.1 Task 2 (R3): the session's first path reply that is no direct answer says the total.
   // v4.8.1 Task 3 (R4): the third pointer this session is the short one, never the same line again.
-  assert.equal(withTotal(show(await find(b))), easySplit(shortOf(sr.title), "Reply no and I'll line up the next program."));
+  assert.equal(withTotal(show(await find(b))), easySplit(shortOf(sr.title), `Reply "no" and I'll line up the next program.`));
   // Fix round 1 (3): the score moved since: the full answer again, never "Same as".
   await setScore(b.id, 79);
   const moved = show(await find(b, { ask: 'standing' }));

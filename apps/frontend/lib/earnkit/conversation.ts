@@ -1,6 +1,7 @@
 import { sql } from './db';
 import { zoneParts } from './deadline';
 import { table } from './present';
+import { MORE_ASK } from './bench-reply';
 
 /**
  * v4.8 "the launch conversation" (docs/design-docs-and-implementation-plans/v4.8-target-conversation.md): EarnKit leads.
@@ -367,18 +368,25 @@ export type PathCtx = {
   stage?: Stage | null;
   /** v4.8.1 Task 3 (R4): a draft of this program was made (the pointer's "your draft is ready"). */
   drafted?: boolean;
+  /** Fix round 1 (minor 1): the stage's own ask after "your draft is ready" (PointerFacts.readyAsk). */
+  readyAsk?: string | null;
 };
 
 /*
  * v4.8.1 Task 3 (R4): the pointer, the same step pointed back to within a session. The first time it says why the
  * program is still the move; the second time it is short and offers the way out (a no parks the program and the path
- * moves on, the existing no handling); from the third, the gate's repeat rule forbids the short line again, so it offers
- * every program open now.
+ * moves on, the existing no handling); from the third, the gate's repeat rule forbids the short line again, so it is the
+ * quiet reply's MORE_ASK (bench-reply.ts), stored as the 'more' ask (pointerReply's `more`), so "more" or a yes is the
+ * programs answer and never the program's own step.
  */
 /** The short pointer's easy reply: a no parks the program (its stored ask's no) and the path moves on. */
-export const POINT_NEXT = "Reply no and I'll line up the next program.";
-/** The third and later pointers' easy reply: "more" is the programs answer. */
-export const POINT_MORE = `Reply "more" and I'll show every program open now.`;
+export const POINT_NEXT = `Reply "no" and I'll line up the next program.`;
+/** The third and later pointers' easy reply: bench-reply.ts MORE_ASK, "more" is the programs answer. */
+export const POINT_MORE = MORE_ASK;
+/** Fix round 1: the 'go' pointer's offer names its step, so it reads alone. */
+export const CODES_POINT_OFFER = 'I can add Builder Codes and push the change, about 10 minutes. Go?';
+/** Fix round 1 (minor 1): the submit stage's own ask on a pointer. */
+export const SENT_SHORT = `Reply "sent" once it's in.`;
 /** What the pointer reads of the program and the path. */
 export type PointerFacts = Pick<MoveProgram, 'id' | 'title' | 'amount' | 'when' | 'ends_at' | 'zone'> & {
   /** The gaps left (0: none, or not a grant with gaps). */
@@ -387,6 +395,11 @@ export type PointerFacts = Pick<MoveProgram, 'id' | 'title' | 'amount' | 'when' 
   stage: Stage | null;
   /** A draft was made; only then does a draft or submit stage say "your draft is ready". */
   drafted: boolean;
+  /**
+   * Fix round 1 (minor 1): the stage's own ask when the reason is "your draft is ready" (submit: SENT_SHORT; a draft:
+   * its blanks ask), never "Want me to start?". Absent: the caller's ask.
+   */
+  readyAsk?: string | null;
 };
 /**
  * The pointer's reason, in this order: "one step away" (one gap); "{n} steps away"; "your draft is ready" (the draft or
@@ -402,16 +415,20 @@ export function pointerWhy(p: PointerFacts, now: Date): string | null {
 /**
  * The pointer and the session parts it says (markSaid). First (`point:{id}` not said): "{Program} is still your best
  * move: {money}, {why}. {ask}" (an unknown amount or reason is left out with its comma). Second (`point2:{id}` not said):
- * "Still {Program}. Reply no and I'll line up the next program." Third and later: POINT_MORE. Pure.
+ * "Still {Program}. Reply "no" and I'll line up the next program." Third and later: POINT_MORE, `more` set (the
+ * caller stores the 'more' ask). `ready`: the reason is "your draft is ready" (its ask is readyAsk). Pure.
  */
-export function pointerReply(p: PointerFacts, ask: string, said: ReadonlySet<string>, now: Date): { text: string; said: string[] } {
+export type Pointer = { text: string; said: string[]; more: boolean; ready: boolean };
+export function pointerReply(p: PointerFacts, ask: string, said: ReadonlySet<string>, now: Date): Pointer {
   const name = programName(p.title);
   if (!said.has(`point:${p.id}`)) {
-    const facts = [p.amount, pointerWhy(p, now)].filter((x): x is string => Boolean(x));
-    return { text: `${name} is still your best move${facts.length > 0 ? `: ${facts.join(', ')}` : ''}. ${ask}`, said: [`point:${p.id}`] };
+    const why = pointerWhy(p, now);
+    const ready = why === 'your draft is ready';
+    const facts = [p.amount, why].filter((x): x is string => Boolean(x));
+    return { text: `${name} is still your best move${facts.length > 0 ? `: ${facts.join(', ')}` : ''}. ${ready && p.readyAsk ? p.readyAsk : ask}`, said: [`point:${p.id}`], more: false, ready };
   }
-  if (!said.has(`point2:${p.id}`)) return { text: `Still ${name}. ${POINT_NEXT}`, said: [`point2:${p.id}`] };
-  return { text: POINT_MORE, said: [] };
+  if (!said.has(`point2:${p.id}`)) return { text: `Still ${name}. ${POINT_NEXT}`, said: [`point2:${p.id}`], more: false, ready: false };
+  return { text: POINT_MORE, said: [], more: true, ready: false };
 }
 /** Fix round 2 (F10): a local agent's offer for a grant whose one gap is Builder Codes (target A). */
 export const CODES_OFFER = 'I can add them and push the change, about 10 minutes. Go?';
@@ -422,6 +439,8 @@ export type PathReply = {
   said: string[];
   /** The easy reply it ends with. */
   reply: 'start' | 'steps' | 'go';
+  /** v4.8.1 Task 3 fix round 1: a pointer's MORE_ASK (stored as the 'more' ask) or "your draft is ready" (its own ask). */
+  pointer?: { more: boolean; ready: boolean };
 };
 
 /**
@@ -448,8 +467,8 @@ export function pathReply(c: PathCtx): PathReply {
     if (c.said.has(hookKey)) {
       // v4.8.1 Task 3 (R4): the same step pointed back to says why once, then is short, never the same line twice.
       const gaps = m.kind === 'one_step' || m.kind === 'closest' ? (p as GapGrant).gaps.length : 0;
-      const pt = pointerReply({ ...p, gaps, stage: c.stage ?? null, drafted: c.drafted === true }, ask, c.said, c.now);
-      return { stage: 'hook', program_id: p.id, show_to_builder: pt.text, said: pt.said, reply };
+      const pt = pointerReply({ ...p, gaps, stage: c.stage ?? null, drafted: c.drafted === true, readyAsk: c.readyAsk ?? null }, reply === 'go' ? CODES_POINT_OFFER : ask, c.said, c.now);
+      return { stage: 'hook', program_id: p.id, show_to_builder: pt.text, said: pt.said, reply, pointer: { more: pt.more, ready: pt.ready } };
     }
     const point = reply === 'start' ? `Your ${name} application is the next move.` : reply === 'go' ? `Builder Codes are the one step to ${name}.` : `${name} is your closest money.`;
     return { stage: 'hook', program_id: p.id, show_to_builder: `${point} ${ask}`, said: [hookKey, `money:${p.id}`], reply };
@@ -719,7 +738,7 @@ export function submitReply(c: { link: string | null; by: string | null; contact
  */
 export function submitPointer(p: Pick<MoveProgram, 'title' | 'when' | 'ends_at' | 'zone'>, now: Date): string {
   const closes = p.ends_at && p.when !== 'rolling' ? `, closes ${closeWords(p.ends_at, p.zone, now)}` : '';
-  return `Your ${programName(p.title)} application is ready to submit${closes}. Reply "sent" once it's in.`;
+  return `Your ${programName(p.title)} application is ready to submit${closes}. ${SENT_SHORT}`;
 }
 
 /**

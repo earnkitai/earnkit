@@ -200,8 +200,6 @@ const ONE_WORD: RegExp[] = [
   /^Reply with a number\.$/i,
   // v4.8 last ruling 1: the quiet path's reply right after the programs answer.
   /^Reply with a program's name and I'll start on it\.$/,
-  // v4.8.1 Task 3 (R4): the short pointer's way out (a no to its stored ask parks the program).
-  /^Reply no and I'll line up the next program\.$/,
 ];
 const REQUEST = /\b(?:also|tell me|let me know|or)\b/i;
 /**
