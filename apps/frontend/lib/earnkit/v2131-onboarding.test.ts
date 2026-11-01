@@ -3,14 +3,14 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { sql } from './db';
-import { checkFitsAsked } from './fixtures/wallet-step';
+import { checkFitsAsked, pathQuiet } from './fixtures/wallet-step';
 import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, claimX, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
-import { INTRO_LINE, OTHER_PROJECT_ASK, SHIP_ASK, STATE_COPY, VARIANT_COPY } from './bench-reply';
+import { OTHER_PROJECT_ASK, SHIP_ASK, STATE_COPY, VARIANT_COPY } from './bench-reply';
+import { isOpener } from './fixtures/opener';
 import { mainProjectOf } from './main-project';
-import { endsOnRankedStep } from './fixtures/ranked-step';
 
 /**
  * v2.13.1 O2: the reply-side fixes of the first-run audit, through the real tools under the Bench
@@ -46,7 +46,7 @@ test('O2.1c no project, nothing EarnKit can build (deploys off): no "Pick someth
     const r = await find(id, { agent_can_build: true }, { freshDeps: { ...OWN_FRESH, deployOn: () => false } });
     assert.doesNotMatch(r.show_to_builder, /Pick something to build/);
     // Task 16 step 1: signed out, the first reply.
-    assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE);
+    assert.ok(isOpener(r.show_to_builder), r.show_to_builder);
     // v2.14 T9: signed out: the sign-in link is the one ask.
     assert.equal(r.move_up?.kind, 'sign_in');
     assert.equal((r as { claim?: unknown }).claim, undefined);
@@ -93,6 +93,8 @@ test('O2.5 once claimed: find and score lead with the standing line (Task 16: th
     const key = `${uniq('page')}/recipes`;
     const handle = uniq('pg');
     const id = await person({ main: key, claimed: handle, projects: [{ key, name: 'Recipe planner', confirmed: true }] });
+    // v4.8 Task 1: the path parked, so the reply is the standing line and its step (this test's subject).
+    await pathQuiet(id);
     const f = await find(id, {}, NO_MATCH);
     assert.doesNotMatch(f.show_to_builder, /No code in the last 12 weeks|Code in \d+ of the last 12 weeks/, 'v3.1 F4: no why sentence');
     assert.equal(f.show_to_builder.split('\n')[0], 'Recipe planner is on EarnKit.');
@@ -126,16 +128,13 @@ test('O2 fix round 1 (ruling 3), R8: every state ends on one next step with a ye
     // Confirmed, nothing pending (R8, Task 16): the ship question, whose yes is one small thing to ship.
     const key = `${uniq('gr')}/recipes`;
     const id = await person({ main: key, claimed: uniq('gr'), projects: [{ key, name: 'Recipe planner', confirmed: true }] });
-    // 2026-10-22: with no fit, Base's grant steps first (its yes: the steps); after a no, the ship question.
+    // v4.8 Task 1: the path's hook names a program first (its yes route: a draft or the steps); a no parks it, and with
+    // every program parked the ship question (Base's v4.3 qualify ask and check_fits are retired from a plain find).
     const q = await find(id, {}, NO_MATCH);
-    assert.ok(endsOnRankedStep(q.show_to_builder), q.show_to_builder);
-    assert.equal(q.move_up?.kind, 'qualify');
-    await tell(id, { kind: 'qualify', project_key: key, answer: 'no' });
-    // v4.7.1 T1 (money always shows): the open grants and check_fits once, then the ship question.
-    const cf = await find(id, {}, NO_MATCH);
-    assert.equal(cf.move_up?.kind, 'check_fits', cf.show_to_builder);
-    assert.equal(lastQ(cf.show_to_builder).length, 1);
-    // v4.7.2 T2: the needs ask is per open program; every one answered, the ship question.
+    assert.ok(['apply', 'qualify', 'check_fits'].includes(String(q.move_up?.kind)), q.show_to_builder);
+    assert.equal(lastQ(q.show_to_builder).length, 1);
+    assert.ok(q.show_to_builder.endsWith('Want me to start?') || q.show_to_builder.endsWith('Want the steps?'), q.show_to_builder);
+    await tell(id, { kind: q.move_up?.kind, project_key: key, answer: 'no' });
     await checkFitsAsked(id);
     const r = await find(id, {}, NO_MATCH);
     // v3.1 cold read: the points line was this week's already (at most once an ISO week): the reply ends on the question.

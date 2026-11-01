@@ -7,6 +7,7 @@ import { appEnv, installApp } from './fixtures/app-install';
 import { committedProgram } from './fixtures/program-file';
 import { dropRunPrograms } from './fixtures/programs-cleanup';
 import { withEnv } from './fixtures/find';
+import { pathQuiet } from './fixtures/wallet-step';
 import { codesSettled } from './bench-find';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
@@ -112,74 +113,73 @@ const find = async (b: B) => keep(await mcpCall(b.ctx, 'find', {}));
 const tell = (b: B, args: Record<string, unknown>) => mcpCall(b.ctx, 'tell', args);
 /** Task 16: the money line a ranked reply names its Best fit with (after the apply step was asked). */
 const ROLLING_BEST = qualifyLine({ title: ROLLING_TITLE, amount: '$5,000', when: 'rolling' });
-/** Task 16 step 5: the apply step, the reply's end. v4.7 T3 (money first): the whole reply, no ship line in front of it. */
-const applyEnd = (title: string, when: string | null) => applyAsk(title, '$5,000', when);
 
-test('(a) a rolling fit only: the rolling ask; v4.7 T3: asked again while it is open and unapplied (money first)', db, async () => {
+/** v4.8 Task 1: the path's hook for a fit (conversation.ts pathReply): its money line, then the draft offer. */
+const hookOf = (title: string, when: string | null) =>
+  new RegExp(`^bf, ${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} ${when ? 'closes [^:]+' : 'is open now'}: up to \\$5,000\\.( [^\\n]+)?\\n\\nI can draft your application from your commits( and live product)? in a few minutes\\. Want me to start\\?$`);
+/** The same hook again in the session: one line that points back. */
+const pointerOf = (title: string) => `Your ${title.replace(/\s+Program$/, '')} application is still the next move. Want me to start?`;
+
+test('(a) a rolling fit only: the path hooks it; the next find in the session points back, never the same block', db, async () => {
   assert.equal(ROLLING_BEST, `You qualify for the ${ROLLING_TITLE}, up to $5,000.`);
   assert.equal(applyAsk(ROLLING_TITLE, '$5,000', null), `${ROLLING_TITLE} is still open, up to $5,000. I can draft it in a minute.\nWant me to?`);
   assert.equal(applyAsk('Alliance ALL19', '$400,000 investment', 'Nov 18'), 'Alliance ALL19 closes Nov 18, up to $400,000 investment. I can draft it in a minute.\nWant me to?');
   const b = await builder('a', [ROLLING]);
   const f = await find(b);
   const s = show(f);
-  assert.equal(s, applyEnd(ROLLING_TITLE, null));
+  assert.match(s, hookOf('Base Builder Grant', null), s);
   assert.equal(kind(f), 'apply');
   assert.doesNotMatch(s, /—/);
-  // v4.7 T3: the next reply puts the same money first again (never the weekly step while the fit is unapplied).
+  // v4.8 Task 1 (Repeats): the same step again this session is a one-line pointer, the same easy reply.
   const again = await find(b);
-  assert.equal(show(again), applyEnd(ROLLING_TITLE, null));
+  assert.equal(show(again), pointerOf(ROLLING_TITLE));
   assert.equal(kind(again), 'apply');
 });
 
-test('(b) a fit closing in 20 days wins over a rolling one; one closing in 45 days does not', db, async () => {
+test('(b) the fit closing first leads; a dated fit leads a rolling one (bestMove, step 1)', db, async () => {
   const soon = await dated('b20', 20);
   const far = await dated('b45', 45);
   const b = await builder('b', [ROLLING, soon.id, far.id]);
-  const f = await find(b);
-  const s = show(f);
-  assert.ok(s.endsWith(applyEnd(soon.title, soon.when)), s);
-  // v4.7 T3: asked again, the same program (the 45-day one never).
-  assert.equal(show(await find(b)), applyEnd(soon.title, soon.when));
+  const s = show(await find(b));
+  assert.match(s, hookOf(soon.title, soon.when), s);
   const c = await builder('b2', [ROLLING, far.id]);
   const t = show(await find(c));
-  assert.ok(t.endsWith(applyEnd(ROLLING_TITLE, null)), t);
+  assert.match(t, hookOf(far.title, far.when), t);
 });
 
-test('(c) v4.0 Task 11: no backing offer before apply, even with EARNKIT_RAISING on and a week with code; the apply step drafts', db, () =>
+test('(c) v4.0 Task 11: no backing offer before apply, even with EARNKIT_RAISING on and a week with code; the hook drafts', db, () =>
   withEnv({ EARNKIT_RAISING: 'on', TOKENSFUN_DEPLOY_API_KEY: 'v31-best-key' }, async () => {
     const b = await builder('c', [ROLLING], { week: true });
     const f = await find(b);
     assert.equal(kind(f), 'apply', show(f));
     assert.doesNotMatch(show(f), /I can launch|\bcoin/);
-    assert.ok(`\n${show(f)}`.endsWith(applyEnd(ROLLING_TITLE, null)), show(f));
+    assert.match(show(f), hookOf('Base Builder Grant', null), show(f));
   }));
 
-test('(d) a no keeps the program off the ask (and the Best fit) for 30 days', db, async () => {
+test('(d) a no parks the program for the path for 30 days; then it leads again', db, async () => {
   const b = await builder('d', [ROLLING]);
   assert.equal(kind(await find(b)), 'apply');
-  assert.equal(show(await tell(b, { move_up: { kind: 'apply', project_key: b.key, answer: 'no' } })), 'Okay.');
-  const unguard = () => sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'apply_asked' WHERE builder_id = ${b.id}`;
-  await unguard();
+  // Final review F7: a path no is one line, then find's next step in the same reply.
+  assert.ok(show(await tell(b, { move_up: { kind: 'apply', project_key: b.key, answer: 'no' } })).startsWith("No problem, I'll set "));
   const s = show(await find(b));
-  assert.doesNotMatch(s, /I can draft it/, s);
-  // Still a fit: the money line names it (the first fit line), never as the ask. v4.7 T3: the apply reply carried no
-  // standing line, so the standing leads here.
-  assert.ok(s.split('\n').includes(ROLLING_BEST), s);
-  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, ${['declined', `apply:${ROLLING}`]}::text[], to_jsonb(${new Date(Date.now() - 31 * DAY).toISOString()}::text))
+  assert.doesNotMatch(s, /Base Builder Grant is open now|I can draft it/, s);
+  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(jsonb_set(standing_seen, ${['declined', `apply:${ROLLING}`]}::text[], to_jsonb(${new Date(Date.now() - 31 * DAY).toISOString()}::text)),
+      ${['declined', `path:${ROLLING}`]}::text[], to_jsonb(${new Date(Date.now() - 31 * DAY).toISOString()}::text)) - 'said'
     WHERE builder_id = ${b.id}`;
-  await unguard();
   const back = show(await find(b));
-  // v3.1 cold read: the points line was this week's already (at most once an ISO week).
-  assert.ok(`\n${back}`.endsWith(`\n${applyAsk(ROLLING_TITLE, '$5,000', null)}`), back);
+  assert.match(back, hookOf('Base Builder Grant', null), back);
 });
 
 test('(e) a taken repo or a program in builder_program_status: no Best fit, no ask', db, async () => {
   const b = await builder('e', [ROLLING]);
   await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status, round_label) VALUES (${b.id}, '', ${ROLLING}, 'rejected', 'an older round')`;
+  // v4.8 Task 1: every other program parked for the path, so any apply ask could only be the program told about.
+  await pathQuiet(b.id, { except: [ROLLING] });
   const r0 = await find(b);
   const s = show(r0);
-  assert.doesNotMatch(s, /I can draft it/, s);
+  assert.doesNotMatch(s, /I can draft it|Want me to start\?/, s);
   assert.notEqual(kind(r0), 'apply');
+  assert.doesNotMatch(s, /Base Builder Grant/, s);
   // Another person holds the repo.
   const t = `ek_v31bf_e2_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Claude Code');
@@ -193,25 +193,23 @@ test('(e) a taken repo or a program in builder_program_status: no Best fit, no a
   assert.doesNotMatch(show(r), /You qualify|I can draft it/, show(r));
 });
 
-test('(g) score names the same Best fit as find', db, async () => {
-  // 1 day: sooner than every other dated program, so score (every open program the repo's facts can win) picks it too.
+test('(g) score names the same program as find', db, async () => {
+  // 1 day: sooner than every other dated program, so the path's hook (closing first) is it.
   const p = await dated('g1', 1);
   const b = await builder('g', [ROLLING, p.id]);
   const f = show(await find(b));
-  assert.ok(f.endsWith(applyEnd(p.title, p.when)), f);
-  // Every other open program asked already. v4.7 T3: the Best fit is still open and unapplied, so score asks it again.
-  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
-    || jsonb_build_object('apply_asked', (SELECT jsonb_object_agg(id, now()::text) FROM programs)) WHERE builder_id = ${b.id}`;
+  assert.match(f, hookOf(p.title, p.when), f);
   const r = keep(await mcpCall(b.ctx, 'score', {}));
   const s = show(r);
-  // v4.7 T2: the standing paragraph leads, and its next deadline is the same program.
+  // v4.7 T2: the standing paragraph leads, and its next deadline is the same program; then the path's step (said this
+  // session already, so its pointer).
   assert.ok(s.startsWith(`${r.reply?.standing}\n\n`), s);
   assert.ok(String(r.reply?.standing).endsWith(`Next: ${p.title} closes ${p.when}.`), String(r.reply?.standing));
-  assert.ok(s.endsWith(`\n\n${applyEnd(p.title, p.when)}`), s);
+  assert.ok(s.endsWith(`\n\n${pointerOf(p.title)}`), s);
 });
 
 test('(f) one https link and one question in every reply above', () => {
-  assert.ok(replies.length >= 10, String(replies.length));
+  assert.ok(replies.length >= 8, String(replies.length));
   for (const s of replies) {
     assert.ok(links(s).length <= 1, s);
     // Task 16: every reply asks exactly one question.

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
 import { avalanche, dropAvalanche, fitsFor, person } from './fixtures/find';
+import { pathQuiet } from './fixtures/wallet-step';
 import { computeScoreV2 } from './score-v2';
 import { isoWeekOf, lastFinishedMonday } from './weeks';
 import { profileData } from './bench-data';
@@ -50,11 +51,11 @@ test('(a) a ranked reply has no why sentence, no Originality and no points total
   const monday = lastFinishedMonday(new Date());
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${me.id}, ${me.key}, ${monday}, ${sql().json({ checked: true, shipped_code: { n: 2 } } as never)})`;
   await approveWeek(me.id, me.key, monday, new Date());
+  // v4.8 Task 1: the path parked, so the reply is the older ranked one (the standing paragraph and its step).
+  await pathQuiet(me.id);
   const s = show(await mcpCall(ctxOf(me.id), 'find', {}));
   // v4.7.1 T1: the standing is v4.7's paragraph, never "App · 1 week in a row".
   assert.match(s, /^Score \d+\. 1 week shipping\. /m, s);
-  // v4.3: with no fit, Base's grant reply (its money and gap, then its question); it carries no ship line.
-  assert.match(s, /\nBase Builder Grants: \$5,000, rolling\. [^\n]+\n\n(?:Also open: [^\n]+\n\n)?Want [^\n]*\?$/, s);
   assert.doesNotMatch(s, /Code in \d+ of the last 12 weeks/, s);
   assert.doesNotMatch(s, /Originality/, s);
   assert.doesNotMatch(s, /Points:/, s);

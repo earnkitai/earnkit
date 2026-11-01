@@ -8626,3 +8626,238 @@ need from {name} yet." / "Want me to check {program}'s requirements for {name}?"
 lists the program's requirements with the stored gaps. Facts come from the Card (`needs_contract`, `needs_live` from
 programCard); "in a public repo" clears only on a repo read public (`public_at` or the latest reading). The total is
 /api/stats' figure (`openMoneyNow` reads every active program); with no grant listed, the Open now line drops it.
+
+## v4.8 Task 1: the path leads the ranked reply (2026-10-31, plan: v4.8-plan.md, target: v4.8-target-conversation.md)
+
+EarnKit speaks first: the server instructions' first line is "Call find at the start of every session before they say
+anything, and show its opener." A ranked builder's find (and score, after its standing paragraph) is now the path's
+reply (conversation.ts pathReply, built by bench-find.ts pathView), unless setup step 3 (and the one-time setup-done
+reply), a held submit question or an owning nudge comes first. bestMove picks the program: a real fit closing first;
+a grant one step away; an investor program closing within 7 days (never called a fit, never summed); the closest grant
+by number of gaps; otherwise quiet, and the older ranked reply answers (connect, the Monday block, posts, check-in,
+wallet, token, new repo, titles, ship). Programs told about, drafted, hidden or entered are never the hook, and a no to
+the hook parks the program ('path:<id>' beside its old key) for DECLINE_MS. Task 1 builds only the `hook` stage: a fit
+or investor program gets A's opener ("{first}, {program} closes {when}: {amount}." + one proof line, then "I can draft
+your application ... Want me to start?", stored as the apply ask so a yes drafts it); a grant with a gap gets its money,
+the gap sentence (qualifyGap for Base, needsWhy otherwise) and "Want the steps?" (stored as qualify or check_fits). The
+reply's note is MENTOR_NOTE alone (withFacts never adds the "exactly as written" note to it). standing_seen.said holds
+the session's parts said; after SESSION_MS (2 hours) of quiet it starts again, and the same hook twice in a session is a
+one-line pointer. A program the builder picked (Path.picked) or said yes past the hook keeps its place on the path.
+find takes `ask` ('standing' | 'programs') and `program` (carried to benchFind as question and named for Tasks 4 and 5).
+
+Retired: the forced "Open now:" money paragraph (openNowGrants, openNowLine, openTotal/openInvest/openNow on BenchView),
+ASKS_HINT (the quiet reply's line and the setup-done first-run line; standing_seen.asks_hint is never read), the
+rotating needs ask (needsAsk, needsAskable, needs_unanswered/needs_yes/needs_silent, possessive; programNeeds, needsKnown
+and needsWhy stay as the gap engine) and the v4.7 money-first apply loop (claimApply, apply_unanswered, apply_silent,
+standAside, APPLY_UNANSWERED_MAX). Base's v4.3 qualify reply no longer shows on a plain find once the path ran
+(it still answers find {more: true}); R6 (never pitch a program told applied or drafted) stays on the older reply's
+fit lines.
+
+## v4.8 Task 2: the gap and draft stages (2026-10-31)
+
+A yes on the path moves the stage on (bench-find.ts benchMoveUp, asks stored with `path: true`):
+- **hook to gap.** The yes to "Want the steps?" (qualify for Base, check_fits for another grant) is the gap stage
+  (gapYes, conversation.ts gapReply): "Your next step toward {program}:" and the numbered steps (Base: bench-reply.ts
+  qualifyGapSteps; another grant: programNeeds' gaps as lines plus the program file's `setup`). Each step the agent can
+  do in the repo (only Builder Codes) is marked "I can do this." and listed first; the reply ends "Go?" (one step),
+  "Want me to do the first one now?" (several) or, when the agent can do none or is hosted (agent-reach.ts, read now:
+  F3), the help ask. The steps' question is stored again (gap: true). Its yes (gapDoYes) is the agent adding Builder
+  Codes, pushing, then calling find (MENTOR_NOTE), with standing_seen.gap_did stamped; a hosted agent walks the builder
+  through it instead.
+- **gap closed.** On each find while the path is at gap on Base (or at draft, not yet drafted), pathPlan reads Builder
+  Codes (codesConfirmed: the stored answer; within SESSION_MS of gap_did, a not-found answer over a minute old is
+  checked again now, awaited, without spending the daily claim). Confirmed with no Base step left, the reply is
+  pathClosedCommit's "Builder Codes are in. You now meet Base's first requirement. Want me to draft the Base application
+  next?" (another grant whose needs are all known met: "{program}'s steps are done." + the same offer); the path moves
+  to draft and the apply ask (path) is stored. On Base's gap, qualify_given no longer hides Base from the path.
+- **hook to draft.** The yes to "Want me to start?" (or the draft offer) is pathDraft: "Here's your draft:", the
+  verified record (ship-log-facts.ts shipLogBlock: score, streak, live link, page link, verified usage and revenue
+  under its own freshness and minimum rules; none on a shared client), then the blanks only the builder can fill
+  (conversation.ts draftBlanks / blanksAsk) as one reply ("Two blanks only you can fill: ... Reply with both and I'll
+  finish it."). An investor program whose required fields are all contact details (questions not public) gets a short
+  founder brief whose blanks are FOUNDER_BLANKS (team, money raised); any other program's blanks are its required
+  `from: 'builder'` fields EarnKit doesn't hold (the answer bank, the X handle). The note tells the agent to draft
+  through prepare (questionsDraftNote) or write the brief (founderBriefNote), then MENTOR_NOTE. The draft's own ask is
+  stored (draft: true): a yes to it is "Okay.", a no parks the program.
+- A no at any stage parks the program ('path:<id>', DECLINE_MS); the next find hooks the next bestMove program. A
+  builder past the hook on a program keeps that stage when the hook's words are repeated (pathCommit).
+- Fix round 1: Builder Codes' one-step ask is "I can add them and push the change, about 10 minutes. Go?" (the yes
+  covers the push). A find mid-gap (steps given, not closed) is pathGapCommit's "Still on {program}: {first remaining
+  step}. {proof} Want me to do it now?" (help ask when the agent can't), never "Want the steps?" again. The steps reply
+  and the steps-done reply carry one proof line (conversation.ts gapProof: "You're live on Base." / "You're on Base."
+  from Base's remaining steps, else the streak and live line).
+- Fix round 2: a grant whose one gap a local agent can do (Builder Codes) is hooked with "... I can add them and push
+  the change, about 10 minutes. Go?" (pathReply `go`, stored as the gap ask), skipping the steps turn; hosted agents
+  keep "Want the steps?". The Builder Codes re-check runs when the stored answer is older than the builder's yes
+  (gap_did), waits RECHECK_WAIT (8 s) inside find, then continues in the background (one per repo; a failed read stamps
+  gap_check_failed, 2 minute backoff) with "I'm checking the code now. Give it a minute, then say ok.". Base's gap
+  closes only when qualifyOffer reports every step met (allMet), never on a failed read. Another grant's steps are only
+  its unmet programNeeds gaps (setup items dropped). Draft blanks are only what EarnKit doesn't hold (confirmed Builder
+  Code, verified usage, the bank) and the agent can't draft (team, usage numbers, a demo video, links, choices,
+  amounts, codes), at most 2 (`later` waits for prepare's round); contact details are typed at submit for every
+  program; narrative builder fields are drafted and marked for the builder to check. A yes to the draft's ask re-asks
+  its blanks ("I need ... Reply with them.") or, with none, moves the path to submit ("It's ready. Submit at {link}.").
+  MENTOR_NOTE and the draft notes carry "Never tell them they qualify or that an application was sent."; with no record
+  the draft notes say to leave traction out. Lists use ", and" at any count. A grant the builder took up past the hook
+  stays a bestMove move after its passed step was raised.
+- Fix round 3: tell move_up takes `blanks` (the builder's reply to a draft's blanks, never stored); a yes carrying it,
+  or a yes after prepare ran with coach_asked (draftAnswered clears the stored blanks), never re-asks. withFacts puts
+  PATH_ANSWER_FIRST ("If they asked a question, answer it first in one short line from the facts.") before MENTOR_NOTE
+  on find and score path replies. The repeated hook offer names Builder Codes. A proven payout wallet fills a payout
+  wallet field; "code" makes a blank only as a builder, referral, invite, promo, access or discount code. The checking
+  reply stores its own gap ask (`checking`): a no parks Base, an ok re-checks. Any yes to a Base gap step (hosted too)
+  stamps gap_did.
+
+
+## v4.8 Task 3: submit, track and the next program; "Since {day}" (2026-10-31)
+
+- **draft to submit.** A yes to the draft's ask carrying the builder's answers (move_up.blanks), or a yes with no blanks
+  left, is bench-find.ts pathSubmit: the path moves to `submit` and the reply is conversation.ts submitReply ("Done,
+  it's ready to paste. Submit at {submission_url} before {by}." where `by` is submitBy in the program's own zone, e.g.
+  "tomorrow 11:59 PM PT"; then "The form also asks for {contact fields}." (ruling T2-1); then SENT_ASK, `Reply "sent"
+  once it's in, and I'll keep track of it for you.`). The submit ask is stored (kind apply, `submit: true`); SENT_NOTE
+  tells the agent to record "sent" with tell program_status applied. Task 2's temporary readyToSubmit is gone.
+- **submit pointer.** A find while the path waits at submit for a program still open and never told about or parked
+  (submitWaiting) is pathSubmitCommit's one line: "Your {program} application is ready to submit, closes {when}. Reply
+  "sent" once it's in." (conversation.ts submitPointer), never the draft again. It leads the path (before bestMove: the
+  drafted program is skipped there).
+- **sent to track.** tools.ts tell: a program told applied (program_status, `submitted`, or a yes to the stored submit
+  ask, read by submitAsked and turned into program_status applied) that is the path's program at draft or submit is
+  pathTrack: path -> `track`, the stored ask cleared. The same tell then runs find and returns one reply: conversation.ts
+  trackLead ("Nice, I'm tracking it." plus the program file's difficulty_override.basis as written, and "so let's line
+  up money that's closer." when find's reply is a path reply), then find's reply (the next bestMove program, the applied
+  one told so never hooked again; pathCommit greets no name right after "sent", AFTER_SENT_MS). Any other tell is a
+  plain save as before (no find run inside it, so no one-time offer is claimed there).
+- **passed-step line.** pathReply adds conversation.ts passedLine ("You passed on it {when}, but it's now the only gap
+  to that money.", agoWords from the stored decline, GapGrant.passedAt) to a closest grant raised once (`raise`).
+- **Since {day}.** In a fresh session (sessionOf; the last session is standing_seen.said.at), sinceFor reads stored
+  facts only: the streak then (streak.ts streaksFor as of that day, only across an ISO week) and now; the last public
+  daily score (builder_scores, v2-shipping, ranked) from that day or the day before and the page's score now; the path
+  program's programs.opened_at after it; the program closing within 48 hours when the step doesn't say so; results
+  announced since (entry_outcomes, never self-reports). conversation.ts sinceLine joins them ("Since Thursday: 1 more
+  week shipped, so your streak is 7 weeks and your score is up to 79.") or returns null (nothing changed: the step
+  alone). It leads every path reply (hook, mid-gap, submit pointer, the deferred closest grant); with the gap closed it
+  is "{since} {program} is still open and you now meet its first requirement.\n\nDraft it now? It takes me a few
+  minutes." (stillOpenLine, DRAFT_NOW_ASK).
+- Fix round 1: a grant raised in this session stays bestMove's move while the path is on it (MoveCtx.raisedNow), so a
+  second find is its one-line pointer ("Builder Codes are still the one step to ... Go?") and the stored ask stays.
+  "sent" is only move_up answer 'sent' (tell schema) or program_status applied; a plain yes to the submit ask is
+  SENT_AGAIN ("Once it's submitted, reply "sent" and I'll keep track of it.") with the ask kept. The "sent" tell keeps
+  its other replies (first) and puts the path reply last. A path at track is not mid-path (F1's older moments apply).
+  "Since" says "opened" only for a program new to this builder (seenBefore), the close as submitBy words it, compares
+  scores only under the page's calibration, and leaves announced results to find's alerts opener. The passed line for
+  Builder Codes reads "You passed on them ..., but they're now ...".
+
+## v4.8 Task 4: the new builder (target B) (2026-10-31)
+
+- **The opener.** A person's signed-out find with programs open (bench-find.ts openerView, before the setup reply) is
+  conversation.ts openerReply: "I'm EarnKit. I get builders funded for what they ship, and there's {moneyText(openMoneyUsd(cards))}
+  in grants open right now.", then up to three numbered programs (openerPrograms, target B's order: Base Builder Grants,
+  else the best rolling grant; then the largest other open grant by money; then the soonest-closing open investor
+  program, "(investor program)"; never one told applied, entered or hidden), each "{name}: {amount}, {when}" ("$5K to
+  $100K" from min/max_award_usd, else the summary's prize), then "Reply with a number, and connect here so I can check if
+  your work fits: {sign-in link}". The link is the X sign-in link, whose page ends at a paste code (x-install.ts
+  linkSignedIn branch), so the copy never says GitHub ("connect GitHub here" only for the repo picker's link). The list
+  is stored (standing_seen.opener { ids, titles, at }). Once a session; again in the session, or after a number outside
+  the list or a name not on it, openerAgain's one line. The sign-in step stays the stored ask and move_up (tell
+  sign_in), the lead is kept, the note is OPENER_NOTE + MENTOR_NOTE. Nothing open: the v4.0 setup reply. A shared
+  client with no X (o.personal false) keeps the setup reply.
+- **The pick.** find {program} (a number, "#2", or a name only one listed program holds; generic words never pick)
+  against the stored list (takePick, conversation.ts resolvePick) stores path { stage: hook, program_id, picked } until
+  the connected line is said, never over a path past the hook on another program unless the list was shown after it
+  moved. A pick closed or not shown to them now, or told applied, is one line ("{name} isn't open now." / "You've
+  already applied to {name}.") and the list again, fresh and stored. Signed out the reply is pickedReply ("Got it:
+  {name}. Connect here ...: {link}"); signed in before the code is connected, "Got it: {name}." above the step's reply.
+- **After connecting.** The first ranked path reply for a builder who saw the opener (standing_seen.connected_said
+  unset, claimed in one guarded UPDATE: once a builder), after setup step 3, a held question and an owning nudge, is
+  connectedCommit: connectedLine ("Connected. I'll track every commit you push, so your profile stays current without
+  you lifting a finger: earnkit.com/{handle}, score {n}, #N of M builders.", the rank when M >= 2; a score of 0 or none:
+  "... so your profile fills in without you lifting a finger: earnkit.com/{handle}."), then conversation.ts pickHook:
+  the pick whenever it is a move on its own (a real fit, an investor program in its window, a grant whose gap the
+  path names), whatever ranks above it; else pickWhy's one line (Base's gap sentence, programNeeds' gaps, or "they
+  fund apps on {chain}, and {project} isn't on {chain} yet."; left out when unknown; a picked investor program outside
+  its window says investorLater instead), then the path's real top move without the pick and without investor
+  programs (a fit beats a gap grant; a one-step grant shown as the closest, "Want the steps?", Path.steps so its
+  pointer asks the same), kept as the path's picked program.
+- **Setup done hands off.** With a pick pending (opener seen, connected_said unset), setupDoneFor returns only the done
+  line (setupDoneLead, no table, no draft ask) with `then_find`: on find, benchView puts it ahead of the same reply's
+  path (ViewIn.ahead); on tell (the wallet no, the token answer), tools.ts tell runs find and returns the line, then
+  find's reply.
+- **tell's hand-offs (then_find).** tools.ts tell runs find after a reply marked then_find and returns one reply: the
+  other replies first, then the marked reply's line (if any) and find's reply. gapDoYes marks the ok to re-check the
+  code and the help with a gap step. The path's Builder Codes yes ends in PUSHED_ASK ("Say ok once the change is
+  pushed, and I'll check it."), stored as the re-check ask (checking).
+- **Sign-in carry-over.** x-install.ts attachOnce, when an installation's own profile joins another page with no path:
+  its path (picked, at the hook) and opener list go along; to a page with a project, connected_said is stamped.
+
+## v4.8 Task 5: direct questions, repeats and the email tell line (target C and D) (2026-10-31)
+
+- **find {ask}.** benchView's path block answers find's direct question first (bench-find.ts directAnswer, from stored
+  facts only); benchFind puts the answer before every other line, then the path's step as the path gives it (its
+  words, or its pointer when already said). Only where the path runs: ranked, a person (o.personal), setup step 3 not
+  due, no held submit question, no owning nudge. Those still win, unanswered. A direct question never defers to an
+  older moment; on a quiet path the answer rides above the older ask that replies.
+- **Standing** (conversation.ts standingAnswer, target C): "Score 77, #1 of 1 builders so far. It comes from your
+  GitHub: 6 weeks shipping in a row, live at earnkit.com. Programs see it at earnkit.com/jenilt." The rank is rank.ts
+  rankWords over the page pill's own standing, at any pool size (B's connected line keeps M >= 2). A score of 0 or
+  unknown: "Your profile fills in as your commits come in." and the page.
+- **Programs** (programsAnswer): a grants table (Grant | Money | Closes | Your fit; fit from the path's facts: Fits,
+  "1 step: {step}", "{n} steps", "Not yet: {why}"), then the investor programs apart (Program | Money | Closes | What it
+  is, the program file's first sentence) and "If one of these is your plan, I can help you prepare." Applied (anything
+  told), entered or hidden programs are left out; never a total; investor programs never a fit.
+- **Repeats.** standing_seen.said `ask:standing` / `ask:programs`: again in the session, one line ("Same as a few
+  minutes ago: #1 of 1, score 77." / "Same list as earlier."), then the path's step.
+- **Emails** (alert-mail.ts): every alert body ends in one line, Tell your agent: "EarnKit, {action}." (closing or new
+  fit: draft {program}; a draft ready: finish my {program} draft; accepted: what's next after {program}), in place of
+  "Ask your agent to draft it.". Plain text only (Mailer has no HTML body); subjects unchanged.
+- **Fix round 1.**
+  - One fact rule for a grant the project doesn't fit (conversation.ts grantFact; bench-find.ts cardFact): gaps first,
+    then the one chain it funds that the project isn't on, then none known or unknown. Task 4's pickWhy and the fit
+    cell both read it, so Circle is "Not yet: needs Arc" here and "they fund apps on Arc ..." in B. The cell also says
+    "Drafted" and "Steps met". The programs answer reads pathPlan's `wide` mode (every grant not applied to, no move and
+    no re-check made from it).
+  - The rank (standing answer and connectedLine) only when rankLines says listed, as the page pill.
+  - Repeat keys carry what was said: `ask:standing:{score}|{rank}`, `ask:programs:{hash of ids and fits}`. A changed
+    answer is said in full again; the same one is "Same as earlier: ..." or "Same list as earlier.".
+  - Under TABLE_FROM (3) rows a section is one line a program ("a16z speedrun SR008 (investor program): up to $1M,
+    closes Nov 1. {what it is}"); the mentor line stays.
+  - After a direct answer the step is brief (ViewIn.brief): pathReply's pointer with no "still" (the hook counts as
+    said), no proof line, no "Since" line, no passed-step raise.
+  - Order: the account line, then the answer. The note opens with ANSWERED_FIRST (tools.ts withFacts adds no second
+    answer-first sentence). "live at {host}" only from a checked link.
+
+## v4.8 Task 6: conversation tests as the merge gate (2026-11-01)
+
+- **converse** (lib/earnkit/fixtures/converse.ts): plays a builder's turns ({find: {ask?, program?}}, {tell: {...}},
+  {wait: ms}) through the real MCP server, formatted as the route formats, and keeps what the builder sees
+  (show_to_builder), the session, whether it opened the session, and the parts it said (standing_seen.said; a new
+  `hook:` key marks a hook reply). A wait back-dates standing_seen.said.at, as the "Since" tests do, so the next call is
+  a new session. `conversation()` is the same a turn at a time (the replay picks each turn from the last reply).
+- **gateFailures(replies)**: every reply that breaks the merge gate, with its turn, rule and reason: empty; no easy
+  reply at the end (a yes/no question, a number, "sent", say ok, the draft's blanks, the one sign-in link) or more
+  than one "?" outside quotes and tables; a paragraph repeated in a session (the easy reply sentence and a table header
+  may repeat); no record fact on a session opener or hook (said `proof:` part, else PROOF_PATTERNS; the signed-out
+  opener has no record and is exempt); an em dash, "coin", "points", an emoji; a claim (qualify, eligible, I sent).
+- **The walks** (v48-conversation.test.ts): A on the owner-like builder and B on a new builder pass with no failures;
+  hand-made bad transcripts fail one rule each.
+- **The replay** (apps/frontend/scripts/converse-replay.mts): WALK=A (OWN) or B (a fresh signed-out installation) on a
+  local restored snapshot only (refuses a non-localhost DATABASE_URL); the test guard is loaded first, so no network
+  and no vendor keys. A lazy agent answers each reply's move_up; real work (a push, connecting GitHub) ends the session.
+  Exits 1 on any gate failure.
+- **Fix round 1.**
+  - The help yes (a step the agent can't do: a chain deployment, a hosted agent's Builder Codes): bench-find.ts gapDoYes
+    gives its own reply (conversation.ts helpReply, "Let's do it now: {step}." and HELP_DONE_ASK "Say ok once it's done,
+    and I'll check it."), stored as the re-check ask (bench_ask help, checking, checks). An ok re-checks through find:
+    still not done, pathGapCommit says helpNotYet once; not done after a second check, the program is parked
+    (`path:<id>`, as a no) with helpParked, and find's next move follows.
+  - Proofs are keyed on their facts (conversation.ts proofOf, gapProofOf: `proof:streak=N`, `proof:live=<name>`,
+    `proof:base=live|on`), each said once a session by every path reply (hook, steps, step again, gap closed). A hook
+    whose streak and live were said gives Base's own fact (PathCtx.baseSteps). A streak under 2 weeks is no proof.
+  - DRAFT_NOW_ASK is "It takes me a few minutes. Draft it now?" (its question last). The codes push reply carries its
+    stored ask as move_up.
+  - The gate: the last sentence is the easy reply (a yes/no question with no choice or open request, reply "<word>",
+    say ok, a number, the exact BOTH, or EarnKit's sign-in link last with move_up sign_in); proof patterns need the
+    builder as subject; a proof fact said twice in a session is a repeat; a later hook may lean on the session's proof;
+    only the `opener` part exempts. converse checks each tell against the previous reply's move_up (askMismatch),
+    lazyNext drives the replay, first comes from the product's session, and a wait throws unless a new session began.
+  - The replay refuses `earnkit_replay` (the master) unless ALLOW_MASTER=1, and LINK_CHECK or EARNKIT_MODEL_TEST set.

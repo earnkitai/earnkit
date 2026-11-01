@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
 import { person, withEnv } from './fixtures/find';
+import { pathQuiet } from './fixtures/wallet-step';
 import { computeScoreV2 } from './score-v2';
 import { isoWeekOf, mondayOf } from './weeks';
 import { backfillMondays } from './week-facts';
@@ -15,7 +16,9 @@ import { connectAsk, CONNECT_RETRY, answerConnect, connectWeeks, connectDue, ope
  * 2026-10-22: no fit and Base Builder Grants open, so the ranked step is its question. v4.3 (owner-approved): the head
  * (the grant's money and the gap), Also open, then the question by the first step; no ship line.
  */
-const RANKED_END = /(?:^|\n)Base Builder Grants: \$5,000, rolling\. [^\n]+\n\n(?:Also open: [^\n]+\n\n)?Want (?:me to add Builder Codes to|help putting) [^\n?]+\?$/;
+// v4.8 Task 1: with the path parked (pathQuiet), the ranked reply ends on the ship step (Base's v4.3 qualify reply is
+// retired from a plain find; the path's hook names Base's gap instead).
+const RANKED_END = /\n\nWant me to suggest one small thing to ship\?$/;
 import { EMAIL_NOTE, EMAIL_QUESTION } from './digest';
 
 /**
@@ -49,6 +52,8 @@ async function ranked(tag: string) {
   const now = new Date();
   const s = computeScoreV2({ ships: [], commitWeeks: [1, 2, 3].map((i) => isoWeekOf(new Date(now.getTime() - i * 7 * 86_400_000))) }, now);
   await sql()`UPDATE builder_live SET score = ${s.score}, parts = ${sql().json(s.parts as never)} WHERE builder_id = ${id}`;
+  // v4.8 Task 1: the path leads while it has a program to name; parked, the connect weeks answer (the older ranked asks).
+  await pathQuiet(id);
   return { id, key, handle };
 }
 /** The three weeks backfillOnConnect writes: commits, checked, unapproved (a private repo's titles with them). */
@@ -65,10 +70,8 @@ test('(a) first ranked find after connect offers the last weeks and the points (
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
   // Under RANK_MIN_POOL (a fresh board), "on EarnKit"; no Best fit (no match); 3 weeks at CONNECT_POINTS each.
-  // v4.7.1 T1 (money always shows): with no fit, the open grants closing soonest lead the connect reply.
-  const [money, ...rest] = s.split('\n\n');
-  assert.match(money, /^Open now: [^\n]+\.$/, s);
-  assert.equal(rest.join('\n\n'), `App is on EarnKit: 3 weeks in a row.\n\n${connectAsk(`https://earnkit.com/${me.handle}`)}`);
+  // v4.8 Task 1: the "Open now:" paragraph is retired.
+  assert.equal(s, `App is on EarnKit: 3 weeks in a row.\n\n${connectAsk(`https://earnkit.com/${me.handle}`)}`);
   assert.doesNotMatch(s, /Secret launch/, 'a private repo shows facts only');
   assert.doesNotMatch(s, /Last week|Share your week|—/);
   assert.deepEqual(links(s), [`https://earnkit.com/${me.handle}`], 'the page is the one link');
@@ -188,7 +191,7 @@ test('(e2) same week as the connect yes: the next find never asks about the week
   const s = show(f);
   assert.doesNotMatch(s, /Make your shipping log public|Your week is ready|Looks right\?/, s);
   assert.match(s, RANKED_END, s);
-  assert.equal((f.reply?.move_up as { kind: string }).kind, 'qualify');
+  assert.equal((f.reply?.move_up as { kind: string }).kind, 'ship');
   assert.equal((await sql()<{ w: string | null }[]>`SELECT moment_week AS w FROM installations WHERE id = ${me.id}`)[0].w, isoWeekOf(new Date()), 'the week is claimed');
 });
 

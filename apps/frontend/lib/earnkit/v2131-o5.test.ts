@@ -5,12 +5,13 @@ import { randomBytes } from 'node:crypto';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
-import { checkFitsAsked } from './fixtures/wallet-step';
+import { checkFitsAsked, pathQuiet } from './fixtures/wallet-step';
 import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
-import { INTRO_LINE, SHIP_ASK } from './bench-reply';
+import { SHIP_ASK } from './bench-reply';
+import { isOpener } from './fixtures/opener';
 import { GitHubError } from './match-projects';
 import { RateLimitError } from './rate-limit';
 import { TWIST_QUESTION, WALLET_ASK, buildingLine, twistQuestion } from './fresh-build';
@@ -115,19 +116,19 @@ test('O5 N1 (F16) the first find and score answer in under 3 s while GitHub has 
       assert.equal(gh.answered(), 0, 'none had answered when the reply went out');
       // v2.14 spec 2: not counted until the App is installed (no proof branch, no GitHub read for it).
       // v2.14 T9: unsigned: not on the Bench yet, and the sign-in link is the one link (no App link: it needs a page).
-      assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE, r.show_to_builder);
+      assert.ok(isOpener(r.show_to_builder), r.show_to_builder);
       assert.equal(links(r.show_to_builder).length, 1);
       assert.match(links(r.show_to_builder)[0]!, /\/signin\//);
-      assert.ok(r.show_to_builder.endsWith('Done with step 1?'));
+      assert.ok(isOpener(r.show_to_builder), r.show_to_builder);
       assert.equal(r.proof, undefined);
       const t2 = Date.now();
       const r2 = await find(id, {});
       assert.ok(Date.now() - t2 < 3000, `the second find took ${Date.now() - t2} ms`);
-      assert.equal(r2.show_to_builder.split('\n')[0], INTRO_LINE);
+      assert.ok(isOpener(r2.show_to_builder), r2.show_to_builder);
       const t1 = Date.now();
       const s = (await tools.score({}, { installationId: id } as never)) as R;
       assert.ok(Date.now() - t1 < 3000, `score took ${Date.now() - t1} ms`);
-      assert.equal(s.show_to_builder.split('\n')[0], INTRO_LINE);
+      assert.ok(isOpener(s.show_to_builder), s.show_to_builder);
     } finally {
       gh.release();
       globalThis.fetch = was;
@@ -174,19 +175,14 @@ test('O5 N5, v2.14 A16, R8: a confirmed project moves up by shipping (Task 16: t
   on(async () => {
     const key = `${uniq('gq')}/hello-world`;
     const id = await person({ main: key, claimed: uniq('gq'), projects: [{ key, name: 'Hello-World', confirmed: true }] });
-    // 2026-10-22: with no fit, Base's grant steps first; a no to them brings the ship step back.
+    // v4.8 Task 1: the path's hook names a program first; a no parks it, and with every program parked the ship step
+    // (the v4.7.1 "Open now:" paragraph and check_fits are retired).
     const q = await find(id, {}, NO_MATCH);
-    assert.ok(endsOnRankedStep(q.show_to_builder), q.show_to_builder);
-    assert.equal(q.move_up?.kind, 'qualify');
-    await tools.tell({ move_up: { kind: 'qualify', project_key: key, answer: 'no' } }, { installationId: id } as never);
-    // v4.7.1 T1 (money always shows): the next find leads with the open grants and asks check_fits once; then the ship step.
-    const cf = await find(id, {}, NO_MATCH);
-    assert.equal(cf.move_up?.kind, 'check_fits', cf.show_to_builder);
-    assert.match(cf.show_to_builder, /^Open now: /);
-    // v4.7.2 T2: the needs ask is per open program; every one answered, the ship step.
+    assert.ok(q.show_to_builder.endsWith('Want me to start?') || q.show_to_builder.endsWith('Want the steps?'), q.show_to_builder);
+    await tools.tell({ move_up: { kind: q.move_up?.kind, project_key: key, answer: 'no' } }, { installationId: id } as never);
     await checkFitsAsked(id);
     const r = await find(id, {}, NO_MATCH);
-    assert.match(r.show_to_builder, /^Open now: /);
+    assert.doesNotMatch(r.show_to_builder, /Open now/);
     // v3.1 cold read: the points line was this week's already (at most once an ISO week): the reply ends on the question.
     assert.ok(r.show_to_builder.endsWith(SHIP_ASK), r.show_to_builder);
     assert.doesNotMatch(r.show_to_builder, /community round|coin|token/i);
@@ -215,7 +211,7 @@ test('O5 N6 (P5) no project: never a grant claimed for a build that can\'t enter
     assert.ok(!r.show_to_builder.includes(`${ava.title} pays`), r.show_to_builder);
     assert.doesNotMatch(r.show_to_builder, /a small app|tip jar/);
     // v2.14 T9: signed out: the sign-in question.
-    assert.ok(r.show_to_builder.endsWith('Done with step 1?'), r.show_to_builder);
+    assert.ok(isOpener(r.show_to_builder), r.show_to_builder);
     assert.equal(r.build_offer, undefined);
     // A chat-only agent: the same rule.
     const c = await install();
@@ -242,7 +238,7 @@ test('O5 N13 confirmed but not claimed: the last line never says "on the Bench" 
     const id = await person({ main: key, projects: [{ key, name: 'Hello-World', confirmed: true }] });
     const r = await find(id, {}, NO_MATCH);
     // v2.14 T9: signed out, it is not on the Bench yet (the stand line), and the question is the sign-in.
-    assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE, r.show_to_builder);
+    assert.ok(isOpener(r.show_to_builder), r.show_to_builder);
     assert.doesNotMatch(r.show_to_builder, /is on the leaderboard|post what you ship/, r.show_to_builder);
     assert.equal(r.move_up?.kind, 'sign_in');
     assert.notEqual(r.move_up?.kind, 'updates');
@@ -254,10 +250,10 @@ test('O5 N15, v2.14: a chat-only agent with a project: not counted yet (the App 
     const key = `${uniq('ch')}/earny`;
     const id = await install();
     const r = await find(id, { ...named(key), agent_can_build: false }, NO_MATCH);
-    assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE, r.show_to_builder);
+    assert.ok(isOpener(r.show_to_builder), r.show_to_builder);
     assert.notEqual(r.move_up?.kind, 'updates');
-    assert.ok(r.show_to_builder.endsWith('Done with step 1?'), r.show_to_builder);
-    assert.equal(questions(r.show_to_builder), 1);
+    // v4.8 Task 4: the opener's one easy reply is a number (no question).
+    assert.equal(questions(r.show_to_builder), 0);
   }),
 );
 
@@ -268,6 +264,8 @@ test('O5 P2 (reversed in v2.13.4, v3.1 F3): the reply names the rank from RANK_M
     const alone = await rankLines(id, { only: [id] });
     assert.deepEqual([alone.bench, alone.line], [null, 'Shipping 100'], 'one ranked: the score alone');
     await padPool(9);
+    // v4.8 Task 1: the path parked, so the reply is the standing paragraph and its step.
+    await pathQuiet(id);
     const r = await find(id, {}, NO_MATCH);
     // Task 16: the standing line names the rank ("#N of M" under 20 ranked; "Top P%" in the top half from 20).
     // v4.7.1 T1: the standing paragraph names the rank (never "Hello-World · #1 of 10 builders").

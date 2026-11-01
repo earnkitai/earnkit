@@ -16,7 +16,7 @@ import { TOKEN_ASK_NOTE } from './bench-find';
 import { TOKEN_EXPLAINER } from './token-answers';
 import { tokenOfferDue } from './wallet-offer';
 import { retryDroppedBuilderTokens } from './builder-token';
-import { moneyStepDone } from './fixtures/wallet-step';
+import { moneyStepDone, pathQuiet } from './fixtures/wallet-step';
 
 /**
  * v4.2 Task 6 (F11): a builder who set up before v4 (a proven wallet, no token row, never offered) hears the token offer
@@ -100,6 +100,8 @@ async function legacy(tag: string, o: { wallet?: boolean; applied?: boolean } = 
   if (o.wallet !== false) await sql()`INSERT INTO person_wallets (wallet, builder_id, recipient_at) VALUES (${`0x${randomBytes(20).toString('hex')}`}, ${c.id}, now())`;
   // v4.7 T3 (token after money): the offer waits for one application; these builders have one unless `applied` is false.
   if (o.applied !== false) await moneyStepDone(c.id);
+  // v4.8 Task 1: the token offer is one of the quieter asks, after the path has no program to name.
+  await pathQuiet(c.id);
   return { c, ctx, key, handle, calls };
 }
 const start = async () => {

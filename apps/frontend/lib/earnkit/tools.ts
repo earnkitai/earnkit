@@ -134,7 +134,7 @@ import { hideUpdate, postUpdate, setShipTitles } from './updates';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchIdentity, benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
 import { REPO_KEY, dropMainProject, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
-import { APPLY_OUTCOME_NOTE, BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, recordApplyYes, keepBenchMatch, legacyCoinAnswer, tokenAsk, tokenExisting, keptBenchMatch, mainProjectName, mainProjectNameFor, rankAnswer, rememberProjectName, signedOutNow } from './bench-find';
+import { APPLY_OUTCOME_NOTE, BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, draftAnswered, pathTrack, submitAsked, recordApplyYes, keepBenchMatch, legacyCoinAnswer, tokenAsk, tokenExisting, keptBenchMatch, mainProjectName, mainProjectNameFor, rankAnswer, rememberProjectName, signedOutNow } from './bench-find';
 import { CHAIN_EXPLAINED, CHAIN_NAMES, type Chain } from './chains';
 import { provenWallet } from './wallet-proof';
 import { walletChangeReply } from './wallet-offer';
@@ -143,6 +143,7 @@ import { scoreReply } from './score-tool';
 import { aboutFacts, replyFacts, type ReplyFacts } from './reply-facts';
 import { agentReach } from './agent-reach';
 import { ANSWER_FIRST_NOTE, NOTED_LINE } from './stand-text';
+import { ANSWERED_FIRST, MENTOR_NOTE, PATH_ANSWER_FIRST, trackLead } from './conversation';
 import { startRefresh } from './stand-view';
 import { attributionFor, chainOf } from './attribution';
 import type { ReaderDeps } from './source-readers';
@@ -590,6 +591,9 @@ const ListProgramsInput = z
     more: z.boolean().optional(),
     // v2.13.3 (1): an older agent's live link for its project; read only under the Bench (benchIdentity).
     live_url: z.unknown().optional(),
+    // v4.8 Task 1: a direct question (mcp.ts find), and a program the builder named; read by the Bench (benchFind).
+    ask: z.enum(['standing', 'programs']).optional(),
+    program: z.string().max(100).optional(),
   })
   .strict();
 
@@ -834,7 +838,7 @@ export const handlers = {
   // One answer to "what can I earn?": the builder's projects first, then what's worth building,
   // opening with what changed since their last check.
   list_programs: async (input: unknown, ctx: ToolContext) => {
-    const { agent_can_build, github_user, repos, local_repos, wallet, walletNote, more, identity, project } = listProgramsInput(input, { shared: Boolean(ctx.sharedClient) });
+    const { agent_can_build, github_user, repos, local_repos, wallet, walletNote, more, identity, project, ask: question, program: named } = listProgramsInput(input, { shared: Boolean(ctx.sharedClient) });
     // v2.14: an installation joins a page only by signing in with its X (x-install.ts attachToX), so find
     // never asks anyone to join and what the agent reports is only a clue. A shared client has no page (R2).
     const scoring = !ctx.sharedClient;
@@ -1115,6 +1119,7 @@ export const handlers = {
         localRepos: local_repos?.length ? local_repos : own ? (memory.local_repos ?? undefined) : undefined,
         upcoming: upcoming.filter((c) => !hide.has(c.id)),
         more: more === true,
+        ...(question && { question }), ...(named && { named }),
       });
       if (r) return {
         ...r,
@@ -2445,9 +2450,12 @@ export const TellToolInput = z
       .object({
         kind: z.string().max(20).optional(),
         project_key: z.string().max(300).nullable().optional(),
-        answer: z.enum(['yes', 'no']),
+        // v4.8 Task 3 fix round 1 (2): 'sent' only when the builder says the application is in (the submit ask).
+        answer: z.enum(['yes', 'no', 'sent']),
         // v2.12.1 T9: a go_live yes again, with the GitHub Pages link once it loads.
         live_url: z.string().max(300).optional(),
+        // v4.8 Task 2 fix round 3: the builder's reply to a draft's blanks (bench-find.ts draftYes; never stored).
+        blanks: z.string().max(2000).optional(),
       })
       .strict()
       .optional(),
@@ -2495,7 +2503,7 @@ const defined = (o: Reply): Reply => Object.fromEntries(Object.entries(o).filter
  * last Bench reply stored); the agent's kind is never trusted, and a yes to a step that is no longer the
  * current one (or another project's) changes nothing (bench-find.ts benchMoveUp).
  */
-const moveUpAnswer = (ctx: ToolContext, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no'; live_url?: string }): Promise<Reply> => benchMoveUp(ctx, m);
+const moveUpAnswer = (ctx: ToolContext, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no'; live_url?: string; blanks?: string }): Promise<Reply> => benchMoveUp(ctx, m);
 
 /**
  * v3.1 cold read (owner-approved): a program that wants a chain the project has no code for, in plain words: "Circle
@@ -2653,7 +2661,13 @@ async function draftWithSteps(
  */
 export function withFacts<T extends object>(reply: T, facts: ReplyFacts): T {
   const r = reply as T & { note?: unknown; agent_note?: unknown };
-  const noted = [r.note, r.agent_note].some((n) => typeof n === 'string' && n.includes(ANSWER_FIRST_NOTE));
+  // v4.8 Task 1: a path reply's mentor note asks the agent to reword it, so the "exactly as written" note never joins it.
+  // v4.8 Task 2 fix round 3 (2): it gets a short answer-first sentence that fits the mentor note instead, so a question
+  // asked mid-path is still answered first.
+  if (typeof r.note === 'string' && r.note.endsWith(MENTOR_NOTE))
+    // v4.8 Task 5 fix round 1 (8): a reply that opens with the answer (ANSWERED_FIRST) never gets a second answer-first note.
+    return { ...reply, facts, ...(!r.note.startsWith(PATH_ANSWER_FIRST) && !r.note.startsWith(ANSWERED_FIRST) && { note: `${PATH_ANSWER_FIRST} ${r.note}` }) } as T;
+  const noted = [r.note, r.agent_note].some((n) => typeof n === 'string' && (n.includes(ANSWER_FIRST_NOTE) || n.includes(ANSWERED_FIRST) || n.endsWith(MENTOR_NOTE)));
   return { ...reply, facts, ...(!noted && { note: typeof r.note === 'string' && r.note ? `${ANSWER_FIRST_NOTE} ${r.note}` : ANSWER_FIRST_NOTE }) } as T;
 }
 
@@ -2711,6 +2725,8 @@ export const tools = {
     const { deploy, tips, ...prep } = PrepareInput.parse(input);
     // v3.1 cold read (one name everywhere): the name the builder's project goes by here is remembered for every reply.
     if (!ctx.sharedClient) await rememberProjectName(ctx.installationId, prep.project, new Date());
+    // v4.8 Task 2 fix round 3: the path's draft finished with the builder's answers (coach_asked): its blanks are answered.
+    if (prep.coach_asked === true && !ctx.sharedClient) await draftAnswered(ctx.installationId, prep.program_id);
     // v3.1 (spec 3.2, 3.4), "Apply with this page": a curated program is drafted, never entered here (R15: unlisted
     // refused). A host, deploy or build step runs first and its lines join the draft; never the confirm line.
     if (!tips) {
@@ -2753,6 +2769,10 @@ export const tools = {
     void x_handle;
     const statements = defined(rest);
     const replies: Reply[] = [];
+    // v4.8 Task 3 (fix round 1, 2): move_up answer 'sent' to the path's submit ask is the application told as applied
+    // (program_status applied). A plain yes is never "sent" (benchMoveUp asks for it again); 'sent' to any other ask is "Okay.".
+    const sentFor = move_up?.answer === 'sent' && !ctx.sharedClient ? await submitAsked(ctx.installationId, move_up).catch(() => null) : null;
+    if (sentFor) statements.program_status = [...(Array.isArray(statements.program_status) ? statements.program_status : []), { program_id: sentFor, status: 'applied' }];
     // v2.12 spec 8: "hide" and "show". v2.12.1 T8: the card and the move-up answers.
     if (ctx.sharedClient && (profile || card || move_up || coin || token || update || updates || main_project || wallet || builder_code || stripe))
       replies.push({ show_to_builder: '', agent_note: SHARED_PROFILE_NOTE });
@@ -2762,7 +2782,9 @@ export const tools = {
       else if (profile) replies.push({ show_to_builder: await setHidden(ctx.installationId, profile === 'hide') });
       if (card === 'yes') replies.push(await cardYes(ctx.installationId, ctx.ownInstallationId ?? ctx.installationId));
       if (card === 'skip') replies.push({ show_to_builder: SKIPPED_LINE });
-      if (move_up) replies.push(await moveUpAnswer(ctx, move_up));
+      if (move_up?.answer === 'sent') {
+        if (!sentFor) replies.push({ show_to_builder: NOTED_LINE });
+      } else if (move_up) replies.push(await moveUpAnswer(ctx, { ...move_up, answer: move_up.answer }));
       // Launch ready L2: the repo to rank instead (only one this person proved with the App).
       if (main_project) replies.push(await rankAnswer(ctx, saidKey(main_project)));
       // v3.1 wallet proof: a fresh signing link; the wallet proven with it becomes the reward recipient.
@@ -2821,6 +2843,50 @@ export const tools = {
         for (const x of replies) if (typeof x.agent_note === 'string') x.agent_note = x.agent_note.replace(TELL_SAVED_NOTE, 'Saved.');
         replies.push(r);
       }
+    }
+    // v4.8 Task 3: "sent" for the path's program (told applied, or submitted): the path moves to track and the same reply
+    // acknowledges it (with the program file's odds), then hooks the next program (find, run here: one reply).
+    if (!ctx.sharedClient) {
+      const applied = [
+        ...(told?.success ? (told.data.program_status ?? []).filter((x) => x.status === 'applied').map((x) => x.program_id) : []),
+        ...(submitted ? [submitted.program_id] : []),
+      ];
+      const track = applied.length > 0 ? await pathTrack(ctx.installationId, applied, new Date()) : null;
+      if (track) {
+        const next = withFacts(await findReply({}, ctx), await replyFacts(ctx));
+        const shown = typeof next.show_to_builder === 'string' ? next.show_to_builder : '';
+        const lead = trackLead(track.odds, shown !== '' && String(next.note ?? '').endsWith(MENTOR_NOTE));
+        // Fix round 1 (3): every other reply of this tell is kept, first; the path reply goes last, so its easy reply
+        // ends the message. The plain save's "nothing to show" note and the applied-outside line ("Saved: you applied
+        // to ...", which the tracking line says) are dropped.
+        const saved = replies.flatMap((r) => (Array.isArray(r.saved) ? r.saved : []));
+        const others = replies
+          .filter((r) => !(typeof r.show_to_builder === 'string' && r.show_to_builder.startsWith('Saved: you applied to ')))
+          .map((r) => {
+            const { saved: _s, agent_note, ...rest } = r;
+            const note = typeof agent_note === 'string' ? agent_note.replace(TELL_SAVED_NOTE, '').trim() : '';
+            return { ...rest, ...(note && { agent_note: note }) };
+          })
+          .filter((r) => Object.entries(r).some(([k, v]) => !(k === 'show_to_builder' && v === '')));
+        const path: Reply = { ...next, show_to_builder: shown ? `${lead}\n\n${shown}` : lead };
+        return { ...joinReplies([...others, path]), saved };
+      }
+    }
+    // v4.8 Task 4 fix round 1 (1, 3): a reply that hands off to the path (then_find: the setup-done line before B's second
+    // message, the ok to re-check the code, the help with a gap step) is followed by find's reply, run here, so the
+    // builder never sees an empty reply and the message ends in find's one easy reply. The other replies come first.
+    // v4.8 re-review blocker 1: then_find may carry find's input ({ ask: 'programs' }: the "more" answer).
+    const handOff = ctx.sharedClient ? -1 : replies.findIndex((r) => r.then_find === true || (typeof r.then_find === 'object' && r.then_find !== null));
+    if (handOff >= 0) {
+      const findArgs = typeof replies[handOff].then_find === 'object' ? (replies[handOff].then_find as Record<string, unknown>) : {};
+      const next = withFacts(await findReply(findArgs, ctx), await replyFacts(ctx));
+      const shown = typeof next.show_to_builder === 'string' ? next.show_to_builder : '';
+      const { then_find: _t, show_to_builder: lead, ...hand } = replies[handOff];
+      const others = replies.filter((_, i) => i !== handOff).map(({ then_find: _x, ...r }) => r)
+        .filter((r) => Object.entries(r).some(([k, v]) => !(k === 'show_to_builder' && v === '')));
+      const first = typeof lead === 'string' && lead ? lead : '';
+      const path: Reply = { ...hand, ...next, ...(typeof hand.agent_note === 'string' && { agent_note: hand.agent_note }), show_to_builder: [first, shown].filter(Boolean).join('\n\n') };
+      return joinReplies([...others, path]);
     }
     // v4.2 Task 3 (F10): a question asked mid-setup arrives with the next ask (a move_up answer or token 'ask'); give the
     // agent the about facts to answer it (small: about only, never the builder's own data here).

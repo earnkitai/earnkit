@@ -117,3 +117,44 @@ export function shipLogBlock(f: ShipLogFacts): string[] {
     `Page: ${f.page}`,
   ].filter((x): x is string => Boolean(x));
 }
+
+/** "earnkit.com" from "https://earnkit.com/"; the link itself when it isn't one. Pure. */
+const hostOf = (link: string) => {
+  try {
+    const u = new URL(link);
+    return `${u.host.replace(/^www\./, '')}${u.pathname.replace(/\/$/, '')}`;
+  } catch {
+    return link;
+  }
+};
+/** "a", "a and b", "a, b, and c". Pure. */
+const joined = (xs: readonly string[]) => (xs.length < 3 ? xs.join(' and ') : `${xs.slice(0, -1).join(', ')}, and ${xs.at(-1)}`);
+
+/**
+ * v4.8 final review F1: the draft's body as target A reads it, from stored facts only: "What it is: {what}." (the
+ * stored project description, only when there is one), one Traction sentence joining the verified facts (the streak
+ * from 2 weeks, the weeks with code, the live site, then verified usage, onchain revenue and Stripe revenue under
+ * shipLogBlock's own minimums; no line with none) and the page link. Never the internal score label ("Shipping 77")
+ * and never a fact EarnKit doesn't hold. The agent writes "Who it's for" and "Why now" around it (founderBriefNote). Pure.
+ */
+export function draftBody(f: ShipLogFacts, what: string | null): string[] {
+  const used = f.usedBy && f.usedBy.users >= USED_MIN ? f.usedBy : null;
+  const paid = f.revenue && Math.floor(f.revenue.usd) >= REVENUE_MIN ? f.revenue : null;
+  const stripe = f.stripe && Math.floor(f.stripe.usd) >= REVENUE_MIN ? f.stripe : null;
+  const code = f.why && /^Code in (\d+) of the last 12 weeks/.exec(f.why);
+  const facts = [
+    f.streak >= 2 ? `shipped ${f.streak} weeks in a row` : null,
+    code && Number(code[1]) > 0 ? `code in ${code[1]} of the last 12 weeks` : null,
+    f.live ? `live at ${hostOf(f.live)}` : null,
+    used ? `used by ${used.users.toLocaleString('en-US')}${used.capped ? '+' : ''} people in the last 30 days (verified onchain${used.returning >= 2 ? `, ${used.returning.toLocaleString('en-US')} came back in a second week` : ''})` : null,
+    paid ? `${dollars(paid.usd, paid.capped)} paid into its contracts by outside wallets in the last 30 days (verified onchain)` : null,
+    stripe ? `${dollars(stripe.usd, stripe.capped)} received through Stripe in the last 30 days (verified from Stripe${Math.floor(stripe.mrr) >= REVENUE_MIN ? `, ${dollars(stripe.mrr, false)} a month in subscriptions` : ''})` : null,
+  ].filter((x): x is string => x !== null);
+  const sentence = joined(facts);
+  const it = what?.trim().replace(/[.!\s]+$/, '');
+  return [
+    it ? `What it is: ${it}.` : null,
+    facts.length > 0 ? `Traction: ${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}.` : null,
+    `Profile: ${f.page}`,
+  ].filter((x): x is string => x !== null);
+}

@@ -112,6 +112,8 @@ export async function qualifyOffer(
     cards: Card[]; skip: Set<string>; seen: Seen & { qualify_given?: Record<string, string>; qualify_known?: Record<string, { onBase?: boolean; live?: boolean }> }; now: Date; declineMs: number; codesFetch?: typeof fetch;
     /** v3.1 cold read: what this reply's own match read of the project (a Base deploy, a live link). */
     known?: { onBase: boolean; live: boolean };
+    /** v4.8 Task 2 fix round 2 (F6): called when the null is every step known met (never on a read error or a guard). */
+    allMet?: () => void;
   },
 ): Promise<QualifyOffer | null> {
   try {
@@ -144,7 +146,9 @@ export async function qualifyOffer(
         COALESCE(standing_seen->'qualify_known', '{}'::jsonb) || jsonb_build_object(${key.toLowerCase()}::text, ${sql().json(next as never)}::jsonb))
         WHERE builder_id = ${id}`.catch(() => undefined);
     }
-    return qualifyPlan(grant, qualifyStatus(m, codes, onBase, usersSaid), { title: card.title, when: fundWhen(card) });
+    const plan = qualifyPlan(grant, qualifyStatus(m, codes, onBase, usersSaid), { title: card.title, when: fundWhen(card) });
+    if (!plan) o.allMet?.();
+    return plan;
   } catch (err) {
     console.error('[bench] qualify', err instanceof Error ? err.name : 'error');
     return null;

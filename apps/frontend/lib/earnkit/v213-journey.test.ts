@@ -21,7 +21,8 @@ import { resolveHandle } from './profiles';
 import { refreshPerson, REFRESH_BUDGET_MS, rescorePerson } from './person-score';
 import { mainConfirmed, mainProjectOf } from './main-project';
 import { benchCardFacts, benchRows, parseBenchFilter, profileData } from './bench-data';
-import { INTRO_LINE, VARIANT_COPY } from './bench-reply';
+import { VARIANT_COPY } from './bench-reply';
+import { assertOpener } from './fixtures/opener';
 import { saveVerification } from './github-verify';
 import { rootOf } from './identity';
 import { proveByApp } from './repo-proof';
@@ -46,7 +47,6 @@ import BenchView from '../../app/leaderboard/BenchView';
 import HomeView from '../../app/HomeView';
 import TermsPage from '../../app/terms/page';
 import { GET as llms } from '../../app/llms.txt/route';
-import { endsOnRankedStep } from './fixtures/ranked-step';
 import { padPool } from './fixtures/rank-pool';
 
 /**
@@ -529,7 +529,8 @@ test('16.1 acceptance 1, with a project: the first reply names it (v2.14 T7: no 
   MAYA.id = id;
   const r1 = await call('find', { identity: { github_login: 'maya', project: RECIPES_PROJECT } }, ctx(id));
   // v2.14 T9: signed out, the sign-in link is the one question (Task 16 step 1).
-  assert.equal(r1.show_to_builder.split('\n')[0], INTRO_LINE, r1.show_to_builder);
+  // v4.8 Task 4: target B's opener, its one link the sign-in link.
+  assertOpener(r1.show_to_builder);
   assert.equal(r1.move_up?.kind, 'sign_in');
   // v2.14 T7: no claim link or claim ask.
   assert.equal(r1.claim, undefined);
@@ -544,13 +545,14 @@ test('16.1 acceptance 1, with a project: the first reply names it (v2.14 T7: no 
   // v4.6 Task 3: the builder has a verified site, so the one-time Stripe ask would take the quiet slot; this journey is about the ship and qualify steps.
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('stripe_asked', now()::text) WHERE builder_id = ${id}`;
   const r2 = await call('find', {}, ctx(id));
-  // v4.7.1 T1: the standing paragraph (the page's score, rank and weeks), never the old name line.
-  assert.match(r2.show_to_builder, /^Score \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\.( \d+ weeks? shipping( in a row)?\.)?/m, r2.show_to_builder);
-  // R8 (supersedes owner ruling A): find never offers a community round; the step is to ship.
-  assert.ok(endsOnRankedStep(r2.show_to_builder), r2.show_to_builder);
+  // v4.7.1 T1: the standing (the page's score, rank and weeks) rides in the reply's facts (v4.8 Task 1: the path's hook is
+  // the shown reply).
+  assert.match(String((r2 as { standing?: string }).standing), /^Score \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\.( \d+ weeks? shipping( in a row)?\.)?/, String((r2 as { standing?: string }).standing));
+  // R8 (supersedes owner ruling A): find never offers a community round. v4.8 Task 1: the path's hook, one easy reply.
+  assert.ok(/(Want me to start|Want the steps)\?$/.test(r2.show_to_builder), r2.show_to_builder);
   assert.doesNotMatch(r2.show_to_builder, /community round|coin|token/i);
-  // v3.1 cold read: long shots (the investments this repo matches) never lead, so with no real fit the step is Base's path.
-  assert.equal(r2.move_up?.kind, 'qualify');
+  // v3.1 cold read: long shots (the investments this repo matches) never lead as a fit.
+  assert.doesNotMatch(r2.show_to_builder, /You qualify/, r2.show_to_builder);
   // v4.0 Task 11: an older agent's tell token ask is the builder token's answer, never a project coin offer.
   await sql()`
     INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${id}, 'maya/recipes', ${lastFinishedMonday(new Date())}, ${sql().json({ shipped_code: { n: 2 }, approved: true } as never)})
@@ -568,7 +570,7 @@ test('16.1b review focus 3: a second person naming maya/recipes (already on the 
   EVE = await newInstall();
   xUser = { id: 'x-eve', username: 'eve_ships', name: 'Eve', avatar: null };
   const r = await call('find', { identity: { github_login: 'eve', project: { ...RECIPES_PROJECT, name: 'My recipes' } } }, ctx(EVE));
-  assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE, r.show_to_builder);
+  assertOpener(r.show_to_builder);
   await signInX(EVE);
   await advanceRefreshGuard(EVE, 61_000);
   const again = await call('find', {}, ctx(EVE));

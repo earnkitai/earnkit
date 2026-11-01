@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
-import { walletOffered } from './fixtures/wallet-step';
+import { pathQuiet, walletOffered } from './fixtures/wallet-step';
 import { mcpCall } from './fixtures/mcp-call';
 import { fakeGitHub } from './fixtures/fake-github';
 import { appEnv, installApp } from './fixtures/app-install';
@@ -14,6 +14,7 @@ import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { benchCardFacts, benchRows, filterHref, profileData } from './bench-data';
 import { INTRO_LINE, STATE_COPY, VARIANT_COPY } from './bench-reply';
+import { assertOpener } from './fixtures/opener';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
 import { FORMULA_V2 } from './score-v2';
 import { rankSplit } from './rank';
@@ -63,7 +64,8 @@ function oneStatusOneStep(reply: Record<string, unknown> | null): string {
   // v3.1 cold read: "You're in" only on the first reply after sign-in, so a later step reply may carry no status line; never two.
   assert.ok((s.match(STATUS) ?? []).length <= 1, `at most one status line: ${s}`);
   const questions = (s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length;
-  assert.equal(questions, 1, `one question in all: ${s}`);
+  // v4.8 re-review blocker 1: or the quiet reply's one easy reply, "Reply "more" ...", with no question.
+  assert.equal(questions, s.trim().endsWith(`Reply "more" and I'll show every program open now.`) ? 0 : 1, `one question in all: ${s}`);
   return s;
 }
 
@@ -202,28 +204,37 @@ test('R10: signed out while ranked (an anonymous ranked row): "not on the leader
     VALUES (${a.id}, 30, '{}'::jsonb, true, 0, 0, ${FORMULA_V2}, ${LIVE_CALIBRATION_V2}, now(), now())
     ON CONFLICT (builder_id) DO UPDATE SET score = 30, ranked = true, calibration = ${LIVE_CALIBRATION_V2}, pending = NULL, read_at = now()`;
   const r = (await mcpCall(a.ctx, 'find', {})).reply;
-  const s = oneStatusOneStep(r);
-  assert.ok(s.startsWith(INTRO_LINE), s);
+  // v4.8 Task 4: signed out, target B's list (said this session: one short line), its one easy reply a number.
+  const s = String(r?.show_to_builder ?? '');
+  assertOpener(s, { again: true });
   assert.doesNotMatch(s, RANKED);
   assert.deepEqual(r?.rank_lines ?? [], []);
   const score = (await mcpCall(a.ctx, 'score', {})).reply;
-  oneStatusOneStep(score);
+  assertOpener(String(score?.show_to_builder ?? ''), { again: true });
   assert.deepEqual(score?.rank_lines ?? [], []);
 });
 
 test('R10: ranked, the move-up news shows with the rank; once the project is not counted (a stale ranked row) no rank, no news, anywhere', db, async () => {
   const a = await rankedBuilder('nws', 'Newsy', 'newsy', 7102);
+  // v4.8 Task 1: the path parked, so the ranked reply is the standing paragraph and its step (this test is about the rank).
+  await pathQuiet(a.id);
   // v3.1 F3: the news names a rank only from RANK_MIN_POOL ranked builders.
   await padPool(9);
   const seen = (rank: number) => sql()`
     UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('rank', ${rank}::int, 'at', '2026-01-01T00:00:00Z'::text) WHERE builder_id = ${a.id}`;
-  // Ranked: the news and the rank agree.
+  // Re-review minor (N2): at a score of 0, no rank in the standing and no rank news either.
+  await seen(5);
+  const zero = oneStatusOneStep((await mcpCall(a.ctx, 'find', {})).reply);
+  assert.doesNotMatch(zero, /You moved up|^Score 0\b/m, zero);
+  // Ranked with a score: the news and the rank agree.
+  const points = (score: number) => sql()`UPDATE builder_live SET parts = jsonb_set(COALESCE(parts, '{}'::jsonb), '{shipping}', ${sql().json({ points: score, raw: { mask: 1, live_ships: 0 } } as never)}::jsonb) WHERE builder_id = ${a.id}`;
+  await points(40);
   await seen(5);
   const ranked = (await mcpCall(a.ctx, 'find', {})).reply;
   const r1 = oneStatusOneStep(ranked);
   assert.match(r1, /Since you last checked: You moved up to (#[1-4] of \d+ builders|Top [\d.]+% of builders)\./, r1);
-  // v4.7.1 T1: the standing is v4.7's paragraph ("Score 0 · Top 14% of builders. ..."), never the old name line.
-  assert.match(r1, /^Score \d+ · (#[1-4] of \d+ builders|Top [\d.]+% of builders)/m);
+  // v4.7.1 T1: the standing is v4.7's paragraph ("Score 40 · Top 14% of builders. ..."), never the old name line.
+  assert.match(r1, /^Score [1-9]\d* · (#[1-4] of \d+ builders|Top [\d.]+% of builders)/m, r1);
   assert.ok((ranked?.rank_lines as string[]).length >= 1);
 
   // The repo's proof goes; builder_live.ranked stays true until the next rescore (read_at now: no refresh).
@@ -264,10 +275,11 @@ test('R10: ranked, the move-up news shows with the rank; once the project is not
 test('R11: a long project name is whole in the reply and on the leaderboard', db, async () => {
   const name = 'The Recipe Planner For Busy Families Who Cook Every Night';
   const a = await rankedBuilder('lng', name, 'recipes', 7103);
+  // v4.8 Task 1: the path's hook for Base's grant (the only program left) names the project whole in its gap.
+  await pathQuiet(a.id, { except: ['base-builder-grants'] });
   const s = oneStatusOneStep((await mcpCall(a.ctx, 'find', {})).reply);
-  // v4.7.1 T1: the standing paragraph names no project; the reply's step names it whole.
   assert.ok(s.includes(`To qualify, ${name} needs to `), s);
-  assert.equal(s.split('\n').at(-1), `Want help putting ${name} on Base?`, s);
+  assert.equal(s.split('\n').at(-1), 'Want the steps?', s);
   const { rows } = await benchRows({ chain: null, weekly: false }, { only: [a.id] });
   assert.equal(rows[0].project, name);
 });

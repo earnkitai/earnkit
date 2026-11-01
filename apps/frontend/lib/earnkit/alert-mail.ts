@@ -2,6 +2,7 @@ import { sql } from './db';
 import { alertFit, DEADLINE_DAYS, newProgramOf, openCuratedRows, type NewProgramRow } from './alerts';
 import { awardAmount, benchStepKey } from './bench-reply';
 import { openFitsFor } from './best-fit';
+import { programName } from './conversation';
 import { closeDay } from './deadline';
 import { cleanName, digestFrom, mailFooter, MailError, MAX_SEND_FAILURES, resendMailer, unsubHeaders, unsubUrl, weekStart, type Mailer } from './digest';
 import { readFitRepos } from './installations';
@@ -46,19 +47,40 @@ export function pickAlert(events: AlertEvent[]): AlertEvent | null {
   return [...events].sort((a, b) => ALERT_ORDER.indexOf(a.kind) - ALERT_ORDER.indexOf(b.kind))[0] ?? null;
 }
 
-/** v4.7 T5 (exact copy): one alert's subject and body; an unknown amount leaves its ", {amount}" out. Pure. */
+/**
+ * v4.8 Task 5 (target D): the one thing to tell the agent, each alert email's last line: Tell your agent: "EarnKit,
+ * draft Base Builder Grant." Pure.
+ */
+export const tellLine = (action: string) => `Tell your agent: "EarnKit, ${action}."`;
+/**
+ * v4.8 Task 5: each kind's action, naming its program (conversation.ts programName): a deadline or a new fit, "draft
+ * {program}"; a deadline with the draft ready, "finish my {program} draft"; accepted, "what's next after {program}". Pure.
+ */
+export function alertAction(e: AlertEvent): string {
+  const p = programName(e.program);
+  if (e.kind === 'accepted') return `what's next after ${p}`;
+  if (e.kind === 'closing' && e.draft) return `finish my ${p} draft`;
+  return `draft ${p}`;
+}
+
+/**
+ * v4.7 T5 (exact copy): one alert's subject and body; an unknown amount leaves its ", {amount}" out. v4.8 Task 5: the
+ * body ends with exactly one tell line (tellLine), in place of v4.7's "Ask your agent to draft it."; the subject is
+ * unchanged. Plain text only (digest.ts Mailer has no HTML body). Pure.
+ */
 export function alertBody(e: AlertEvent): { subject: string; text: string } {
   const amt = (a: string | null) => (a ? `, ${a}` : '');
-  if (e.kind === 'accepted') return { subject: `You got into ${e.program}`, text: `You got into ${e.program}.\n\n${outcomeShareLine(e.link)}` };
+  const tell = tellLine(alertAction(e));
+  if (e.kind === 'accepted') return { subject: `You got into ${e.program}`, text: `You got into ${e.program}.\n\n${outcomeShareLine(e.link)}\n\n${tell}` };
   if (e.kind === 'closing') {
     return {
       subject: `${e.program} closes ${e.day}`,
-      text: `${e.program} closes ${e.day}${amt(e.amount)}.\n\n${e.draft ? 'Your draft is ready in your agent.' : 'Ask your agent to draft it.'}`,
+      text: `${e.program} closes ${e.day}${amt(e.amount)}.\n\n${e.draft ? 'Your draft is ready in your agent.\n\n' : ''}${tell}`,
     };
   }
   return {
     subject: `New: ${e.program}${amt(e.amount)}`,
-    text: `${e.program} opened${amt(e.amount)}, ${e.when}.\n\n${e.project} fits it. Ask your agent to draft it.`,
+    text: `${e.program} opened${amt(e.amount)}, ${e.when}.\n\n${e.project} fits it.\n\n${tell}`,
   };
 }
 

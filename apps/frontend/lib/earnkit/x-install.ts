@@ -237,6 +237,19 @@ async function attachOnce(own: number, user: XUser, now: Date): Promise<AttachRe
       if (held) {
         root = held.root;
         if (mine !== root) {
+          // v4.8 Task 4 fix round 0 (6), fix round 1 (7): a new builder's pick (standing_seen.path picked at the hook) and
+          // the opener's list come along from this installation's own profile to the page it joins, only when that page has
+          // no path of its own; to a page with a project already, the connected line is stamped said (a returning builder
+          // is never greeted as new). Before the fresh profile goes.
+          if (mine === own)
+            await tx`UPDATE builder_profiles t SET standing_seen = COALESCE(t.standing_seen, '{}'::jsonb)
+                || jsonb_build_object('path', s.standing_seen->'path')
+                || CASE WHEN jsonb_typeof(s.standing_seen->'opener') = 'object' THEN jsonb_build_object('opener', s.standing_seen->'opener') ELSE '{}'::jsonb END
+                || CASE WHEN EXISTS (SELECT 1 FROM builder_projects b WHERE b.builder_id = ${root}) AND NOT COALESCE(t.standing_seen ? 'connected_said', false)
+                     THEN jsonb_build_object('connected_said', ${now.toISOString()}::text) ELSE '{}'::jsonb END
+              FROM builder_profiles s
+              WHERE t.builder_id = ${root} AND s.builder_id = ${own} AND NOT COALESCE(t.standing_seen ? 'path', false)
+                AND s.standing_seen->'path'->>'stage' = 'hook' AND s.standing_seen->'path'->'picked' = 'true'::jsonb`;
           await tx`UPDATE installations SET builder_id = ${root} WHERE id = ${own}`;
           if (f.fresh) await tx`DELETE FROM builder_profiles WHERE builder_id = ${own} AND x_user_id IS NULL`;
         }

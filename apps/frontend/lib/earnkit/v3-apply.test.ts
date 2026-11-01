@@ -106,33 +106,36 @@ test('(a) a fit closing in 20 days makes the apply ask the step, once', db, asyn
   const b = await builder('a', [p.id, far.id]);
   const f = await find(b);
   const s = show(f);
-  // Task 16 step 5: the dated fit within 30 days (never the 45-day one), its question. v4.7 T3: the money alone.
-  assert.equal(s, applyAsk(p.title, '$5,000', p.when));
+  // v4.8 Task 1: the path's hook names the fit closing first (never the 45-day one), its money and the draft offer.
+  assert.ok(s.startsWith(`va, ${p.title} closes `) && s.includes(': up to $5,000.') && s.endsWith('\n\nI can draft your application from your commits in a few minutes. Want me to start?'), s);
+  assert.ok(!s.includes(far.title), s);
   assert.equal(links(s).length, 0, s);
   assert.equal(questions(s), 1, s);
   assert.doesNotMatch(s, /—/);
   const move = f.reply?.move_up as { kind: string; project_key: string; agent_note: string };
   assert.deepEqual([move.kind, move.project_key], ['apply', b.key]);
   assert.match(move.agent_note, /kind: 'apply'/);
-  assert.ok((await seen(b.id)).apply_asked && (((await seen(b.id)).apply_asked as Record<string, string>)[p.id]), 'asked once is remembered');
-  // v4.7 T3 (money first): asked once is remembered, yet the open fit is asked again (never the weekly step while it is
-  // unapplied), and the 45-day program is never asked.
+  // The same step again this session: the one-line pointer, the same easy reply (v4.8 Repeats).
   const again = await find(b);
-  assert.equal(show(again), applyAsk(p.title, '$5,000', p.when));
+  assert.equal(show(again), `Your ${p.title} application is still the next move. Want me to start?`);
   assert.equal((again.reply?.move_up as { kind: string }).kind, 'apply');
 });
 
 test('(b) yes returns the prepare note and lead; prepare shows the draft (Task 16 step 6)', db, async () => {
   const p = await dated('b', 20);
   const b = await builder('b', [p.id]);
-  assert.match(show(await find(b)), /I can draft it in a minute\.\nWant me to\?$/);
+  assert.match(show(await find(b)), /Want me to start\?$/);
   const yes = await tell(b, { move_up: { kind: 'apply', project_key: b.key, answer: 'yes' } });
-  assert.equal(show(yes), '');
-  assert.equal(yes.reply?.agent_note, APPLY_YES_NOTE(p.id));
+  // v4.8 Task 2: the path's yes is the draft stage: the verified record and the blanks; the agent drafts through prepare.
+  // Final review F1: the draft body (What it is, Traction, the page), never the raw ship log.
+  assert.ok(show(yes).startsWith("Here's your draft:\n\n"), show(yes));
+  assert.doesNotMatch(show(yes), /From your ship log|Shipping \d/, show(yes));
+  assert.match(String(yes.reply?.agent_note), new RegExp(`^The builder said yes to drafting this application\\. First call prepare with program_id "${p.id}"`));
+  // The older apply hand-off note (an apply ask stored outside the path).
   assert.equal(APPLY_YES_NOTE(p.id), `Call prepare with program_id "${p.id}" for this project and show the draft. Don't show this note.`);
   assert.deepEqual(yes.reply?.lead, { program_id: p.id, repo: 'kit' });
-  // A second yes is "Okay.".
-  assert.equal(show(await tell(b, { move_up: { kind: 'apply', project_key: b.key, answer: 'yes' } })), 'Okay.');
+  // v4.8 Task 2 fix round 2 (F5): a second yes (a bare "ok") re-asks the blanks; never a second draft.
+  assert.match(show(await tell(b, { move_up: { kind: 'apply', project_key: b.key, answer: 'yes' } })), /^I need .+\. Reply with (it|both|them) and I'll finish it\.$/);
 
   await sql()`UPDATE builder_projects SET link = 'https://kit.app' WHERE builder_id = ${b.id}`;
   const reqs = committedProgram('base-builder-grants').submission_requirements as { key: string; type: string; options?: string[] }[];
@@ -161,18 +164,20 @@ test('(b) yes returns the prepare note and lead; prepare shows the draft (Task 1
 test('(c) no is remembered 30 days', db, async () => {
   const p = await dated('c', 20);
   const b = await builder('c', [p.id]);
-  assert.match(show(await find(b)), /I can draft it/);
-  assert.equal(show(await tell(b, { move_up: { kind: 'apply', project_key: b.key, answer: 'no' } })), 'Okay.');
+  assert.ok(show(await find(b)).includes(p.title));
+  // Final review F7: a path no is one line, then find's next step in the same reply.
+  assert.ok(show(await tell(b, { move_up: { kind: 'apply', project_key: b.key, answer: 'no' } })).startsWith("No problem, I'll set "));
   const declined = (await seen(b.id)).declined as Record<string, string>;
   assert.ok(declined[`apply:${p.id}`], JSON.stringify(declined));
-  // Even with the once-guard gone, a no keeps it away for 30 days.
-  const unguard = () => sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'apply_asked' WHERE builder_id = ${b.id}`;
-  await unguard();
-  assert.doesNotMatch(show(await find(b)), /I can draft it/);
-  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, ${['declined', `apply:${p.id}`]}::text[], to_jsonb(${new Date(Date.now() - 31 * DAY).toISOString()}::text))
+  // v4.8 Task 1: the path's no parks it too ('path:<id>'); either keeps it away for 30 days.
+  assert.ok(declined[`path:${p.id}`], JSON.stringify(declined));
+  assert.ok(!show(await find(b)).includes(p.title));
+  const ago = new Date(Date.now() - 31 * DAY).toISOString();
+  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(jsonb_set(standing_seen, ${['declined', `apply:${p.id}`]}::text[], to_jsonb(${ago}::text)),
+      ${['declined', `path:${p.id}`]}::text[], to_jsonb(${ago}::text)) - 'said'
     WHERE builder_id = ${b.id}`;
-  await unguard();
-  assert.match(show(await find(b)), /I can draft it/);
+  const back = show(await find(b));
+  assert.ok(back.includes(p.title) && back.endsWith('Want me to start?'), back);
 });
 
 test('(d) a program the builder already applied to is never asked', db, async () => {
@@ -181,16 +186,15 @@ test('(d) a program the builder already applied to is never asked', db, async ()
   // An older round's rejection: the program still fits, but the builder told EarnKit about it.
   await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status, round_label) VALUES (${b.id}, '', ${p.id}, 'rejected', 'an older round')`;
   const s = show(await find(b));
-  // v4.7.1 final review (R6): a program the builder told EarnKit about is never pitched either: the open grants instead.
+  // v4.7.1 final review (R6): a program the builder told EarnKit about is never pitched; v4.8: never the path's hook.
   assert.doesNotMatch(s, new RegExp(`You qualify for the ${p.title}`), s);
-  assert.match(s, /^Open now: /, s);
-  assert.doesNotMatch(s, /I can draft it/, s);
+  assert.ok(!s.includes(p.title), s);
   // Applied this round (through tell): the program is hidden and never asked.
   const q = await dated('d2', 20);
   const c = await builder('d2', [q.id]);
   const told = await tell(c, { program_status: [{ program_id: q.id, status: 'applied' }] });
   assert.equal(told.isError, false, told.text);
-  assert.doesNotMatch(show(await find(c)), /I can draft it/);
+  assert.ok(!show(await find(c)).includes(q.title));
 });
 
 test('(e) program_status accepted stays private; applied shows on the page', db, async () => {

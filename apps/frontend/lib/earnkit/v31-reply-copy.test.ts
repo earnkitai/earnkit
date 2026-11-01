@@ -1,5 +1,5 @@
 import { after, mock, test } from 'node:test';
-import { walletOffered } from './fixtures/wallet-step';
+import { pathQuiet, walletOffered } from './fixtures/wallet-step';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
@@ -59,20 +59,21 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   await saveInstallation(t, undefined, false, 'Claude Code');
   const c0 = (await connectInstallation(t))!;
   const none = (async () => ({ checked: 0, scored: 0, fits: [] })) as never;
-  const s1 = rule(show(await mcpCall({ installationId: c0.id, ownInstallationId: c0.own, sharedClient: false, matchProjects: none }, 'find', {})));
+  // v4.8 Task 4: target B's opener: the grants total, three numbered programs (Base's grant, the largest other open grant,
+  // the soonest investor program), then the number and the one link. Its one easy reply is a number (no question).
+  const s1 = show(await mcpCall({ installationId: c0.id, ownInstallationId: c0.own, sharedClient: false, matchProjects: none }, 'find', {}));
+  assert.equal(links(s1).length, 1, s1);
+  assert.equal(questions(s1), 0, s1);
   const signIn = links(s1)[0]!;
   assert.match(signIn, /^https:\/\/earnkit\.com\/signin\/[A-Za-z0-9_-]{22}$/);
   assert.equal(s1, [
-    '**EarnKit gets you paid for building.**',
+    "I'm EarnKit. I get builders funded for what they ship, and there's $105K in grants open right now.",
     '',
-    'Every week I read what you ship, rank you against other builders, and find grants and programs you qualify for. Up to $5,000 is open from Base right now.',
+    '1. Base Builder Grant: up to $5,000, rolling',
+    '2. Circle Developer Grants: $5K to $100K, rolling',
+    '3. a16z speedrun SR008 (investor program): up to $1M, closes Nov 1',
     '',
-    'Setup takes about a minute:',
-    `1. Sign in with X: ${signIn}`,
-    '2. Connect your code',
-    '3. Add your wallet',
-    '',
-    'Done with step 1?',
+    `Reply with a number, and connect here so I can check if your work fits: ${signIn}`,
   ].join('\n'));
 
   // Step 2: signed in, no repo (the picker), then a named repo the App can't count yet (its install link).
@@ -115,7 +116,10 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   await installApp({ builderId: c.id, repoKey: key, login: handle, gh });
   await sql()`UPDATE builder_projects SET link = 'https://kit.app' WHERE builder_id = ${c.id}`;
 
-  // Step 3: the connect offer, with the Best fit and the points the yes adds (3 weeks at 30).
+  // Step 3: the connect offer, with the Best fit and the points the yes adds (3 weeks at 30). v4.8 Task 1: the path
+  // leads a ranked reply while it has a program to name (Task 4 makes the first reply after connecting B's second
+  // message); parked here, so this journey's older steps keep their copy.
+  await pathQuiet(c.id);
   const r3 = await mcpCall(ctx, 'find', {});
   const s3 = rule(show(r3));
   const [{ streak }] = await sql()<{ streak: number }[]>`SELECT streak FROM builder_projects WHERE builder_id = ${c.id}`;
@@ -153,15 +157,13 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
 
   // The ship step: the Best fit, the one question, its points line (v3.1 cold read: the standing was just said in the
   // connect reply and hasn't changed, so it isn't repeated; the points line is this week's first).
-  // v4.7.1 final review (R6): Base's application is drafted now, so it is never pitched again: the open grants instead.
+  // v4.7.1 final review (R6): Base's application is drafted now, so it is never pitched again (v4.8: the "Open now:"
+  // paragraph that stood in for it is retired).
   const s8 = rule(show(await mcpCall(ctx, 'find', {})));
-  // v4.7.2 T1: the open paragraph leads with the total in grants and ends with the soonest open investment (live programs,
-  // so the figure and the investment are matched by shape).
-  assert.match(s8, /^Open now: (?:\$[\d.,]+[KM]?\+? in grants(?:\.|, plus [^\n]+ investment, [^\n]+?\.) )?Circle Developer Grants, \$5,000 to \$100,000 USDC grants, rolling\.\n/, s8);
   assert.equal(
-    s8.slice(s8.indexOf('\n')),
+    s8,
     // v4.7 T4: the ship ask's why line in place of the points line, its own paragraph.
-    '\n\nShipping this week keeps your 4-week streak and lifts your score.\n\nWant me to suggest one small thing to ship?',
+    'Shipping this week keeps your 4-week streak and lifts your score.\n\nWant me to suggest one small thing to ship?',
   );
 
   // Step 7: Monday. Last week (Oct 12) ranked #1 of 13 and is week 4 in a row (code Sep 21 to Oct 17).
@@ -195,10 +197,8 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
     '',
     `Your post is ready to share: ${tap.replace(/[.]/g, '\\.')}`,
     '',
-    // v4.7.1 T1 fix round 1: no unapplied fit, so the Monday block carries money before its why; fix round 2 (R6): Base's
-    // grant was drafted (the apply yes above), so never pitched: the open grants, without it.
-    'Open now: (?:(?!Base Builder)[^\\n])+',
-    '',
+    // v4.7.1 T1 fix round 1: the Monday block carries a fit's line before its why; fix round 2 (R6): Base's grant was
+    // drafted (the apply yes above), so never pitched (v4.8: and no "Open now:" paragraph in its place).
     'Builders who share wins get noticed by programs\\.',
     '',
     'Looks right\\?$',

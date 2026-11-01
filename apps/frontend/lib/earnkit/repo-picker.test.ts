@@ -2,7 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { sql } from './db';
-import { walletOffered } from './fixtures/wallet-step';
+import { pathQuiet, walletOffered } from './fixtures/wallet-step';
 import { GITHUB_INSTALLATIONS_URL, PICK_ADMIN_CHECKS, PICK_PAGE, appSetup } from './github-app';
 import { APP_CONFIRM_ONLY_YOURS, PICK_REPOS, createVerifyLink, csrfCookieName, verifyStart } from './github-verify';
 import { connectInstallation, saveInstallation } from './installations';
@@ -47,8 +47,10 @@ async function signedIn(handle: string) {
   const no = async () => { throw new Error('offline'); };
   const readerDeps = new Proxy({}, { get: (_t, k) => (k === 'now' ? new Date() : k === 'ghSpent' ? () => false : k === 'ghFetch' ? undefined : no) });
   const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: NO_MATCH, readerDeps } as never;
-  // v4.0: setup step 3 answered (this test is about another reply).
+  // v4.0: setup step 3 answered (this test is about another reply). v4.8 Task 1: the path parked, so the ranked reply
+  // is the older one (the standing paragraph and its step).
   await walletOffered(c.id);
+  await pathQuiet(c.id);
   return { id: c.id, ctx, username, login: username.toLowerCase() };
 }
 
@@ -314,10 +316,10 @@ test('L2.9 tell main_project switches to another App-proven repo, even a confirm
   const sw = await mcpCall(p.ctx, 'tell', { main_project: `https://github.com/${a}` });
   assert.equal(sw.reply?.show_to_builder, `EarnKit now ranks github.com/${a}.`);
   assert.equal(await mainProjectOf(p.id), a);
-  // v4.7.1 T1: the standing paragraph (its rank) says Alpha is ranked; the step names it.
+  // v4.7.1 T1: the standing paragraph (its rank) says Alpha is ranked. (v4.8 Task 1: the step that named it was Base's
+  // v4.3 qualify ask, retired from a plain find; the path's hook names the project in its gap instead.)
   const switched = String((await mcpCall(p.ctx, 'find', {})).reply?.show_to_builder);
   assert.match(switched, /^Score \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)/m, switched);
-  assert.match(switched, /\bAlpha\b/, switched);
   const same = await mcpCall(p.ctx, 'tell', { main_project: a });
   assert.equal(same.reply?.show_to_builder, `EarnKit already ranks github.com/${a}.`);
   // A repo this person never proved: nothing changes, and that repo's own install link is offered (fix round 1, M5).

@@ -42,24 +42,24 @@ const fresh = (o: Partial<Extract<AlertEvent, { kind: 'new' }>> = {}): AlertEven
 test('alert emails: exact subject and body for each kind (exact copy)', () => {
   assert.deepEqual(alertBody(closing()), {
     subject: 'Base Builder Grants closes Nov 1',
-    text: 'Base Builder Grants closes Nov 1, $5,000.\n\nYour draft is ready in your agent.',
+    text: 'Base Builder Grants closes Nov 1, $5,000.\n\nYour draft is ready in your agent.\n\nTell your agent: "EarnKit, finish my Base Builder Grants draft."',
   });
   assert.deepEqual(alertBody(closing({ draft: false })), {
     subject: 'Base Builder Grants closes Nov 1',
-    text: 'Base Builder Grants closes Nov 1, $5,000.\n\nAsk your agent to draft it.',
+    text: 'Base Builder Grants closes Nov 1, $5,000.\n\nTell your agent: "EarnKit, draft Base Builder Grants."',
   });
   assert.equal(alertBody(closing({ amount: null })).text.split('\n')[0], 'Base Builder Grants closes Nov 1.');
   assert.deepEqual(alertBody(accepted()), {
     subject: 'You got into Base Batches',
-    text: 'You got into Base Batches.\n\nYour post is ready to share: https://earnkit.com/me/post/abcdefghij',
+    text: 'You got into Base Batches.\n\nYour post is ready to share: https://earnkit.com/me/post/abcdefghij\n\nTell your agent: "EarnKit, what\'s next after Base Batches."',
   });
   assert.deepEqual(alertBody(fresh()), {
     subject: 'New: Arc Grants, $10,000',
-    text: 'Arc Grants opened, $10,000, closes Nov 18.\n\nrecipe-kit fits it. Ask your agent to draft it.',
+    text: 'Arc Grants opened, $10,000, closes Nov 18.\n\nrecipe-kit fits it.\n\nTell your agent: "EarnKit, draft Arc Grants."',
   });
   assert.deepEqual(alertBody(fresh({ amount: null, when: 'rolling' })), {
     subject: 'New: Arc Grants',
-    text: 'Arc Grants opened, rolling.\n\nrecipe-kit fits it. Ask your agent to draft it.',
+    text: 'Arc Grants opened, rolling.\n\nrecipe-kit fits it.\n\nTell your agent: "EarnKit, draft Arc Grants."',
   });
   for (const e of [closing(), closing({ draft: false }), accepted(), fresh()]) {
     const b = alertBody(e);
@@ -82,7 +82,8 @@ test('the email ask is the exact copy', () => {
 test('the instructions start with the session-start line and stay under 800 characters', () => {
   assert.ok(
     SERVER_INSTRUCTIONS.startsWith(
-      'Call find at the start of every session, before the builder asks, and whenever they ask about money, grants or where they stand. If the builder asked something,',
+      // v4.8 Task 1: the session-start line now asks for find's opener before the builder says anything.
+      'Call find at the start of every session before they say anything, and show its opener. Call it again whenever they ask about money, grants or where they stand. If the builder asked something,',
     ),
   );
   assert.ok(SERVER_INSTRUCTIONS.length < 800, String(SERVER_INSTRUCTIONS.length));
@@ -295,7 +296,8 @@ test('alertEvents reads a closing entry (draft ready) and an accepted outcome po
   const acc = events.find((e) => e.kind === 'accepted');
   assert.equal(acc?.key, `accepted:${pid}`);
   assert.equal(alertBody(acc!).subject, `You got into ${p.title}`);
-  assert.match(alertBody(acc!).text, /Your post is ready to share: https:\/\/earnkit\.com\/.+\/post\/abcdefghij$/);
+  // v4.8 Task 5: the tell line follows the share line (the email's last line).
+  assert.match(alertBody(acc!).text, /Your post is ready to share: https:\/\/earnkit\.com\/.+\/post\/abcdefghij\n\nTell your agent: "EarnKit, what's next after .+\."$/);
   assert.equal(pickAlert(events)?.kind, 'accepted');
   // Final review (one rule for "applied", standing.ts toldAppliedSql): a told "applied" on another installation of the
   // group leaves the closing entry out.

@@ -87,9 +87,9 @@ function repoFits(key: string): RepoFit[] {
 }
 const stored = async (key: string) => (await sql()<{ found: boolean }[]>`SELECT found FROM repo_builder_codes WHERE repo_key = ${key}`)[0] ?? null;
 const contents = (gh: FakeGitHub) => gh.calls.filter((c) => c.path.includes('/contents/'));
-/** Task 16: the reply names the Best fit (the apply step, then the money line) and never Builder Codes. */
+/** Task 16: the reply names the Best fit (v4.8 Task 1: the path's hook, its name without " Program") and never Builder Codes. */
 const bestOnly = (s: string) => {
-  assert.ok(s.includes(`${TITLE}`), s);
+  assert.ok(s.includes(TITLE.replace(/\s+Program$/, '')), s);
   assert.doesNotMatch(s, /Builder Codes/, s);
 };
 /** Task 16 step 6: the Base draft's Builder Codes line (its explanation's), or undefined. */

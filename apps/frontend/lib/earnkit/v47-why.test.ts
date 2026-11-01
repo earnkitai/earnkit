@@ -7,18 +7,17 @@ import { fakeGitHub } from './fixtures/fake-github';
 import { appEnv, installApp } from './fixtures/app-install';
 import { committedProgram } from './fixtures/program-file';
 import { dropRunPrograms } from './fixtures/programs-cleanup';
-import { walletOffered } from './fixtures/wallet-step';
-import { person } from './fixtures/find';
+import { pathQuiet, walletOffered } from './fixtures/wallet-step';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { closeDayOf } from './entry-text';
 import {
-  ASKS_HINT, CHECKIN_ASK, CHECKIN_WHY, MOMENT_ASK, POST_ASK, POST_WHY, SHARE_WHY, SHIP_ASK, SUGGEST_WHY, applyAsk, applyWhy, askWhy, benchReply,
-  qualifyGap, qualifyHead, setupDoneReply, shipWhy, type BenchView, type QualifyOffer,
+  CHECKIN_ASK, CHECKIN_WHY, MOMENT_ASK, POST_ASK, POST_WHY, SHARE_WHY, SHIP_ASK, SUGGEST_WHY, applyAsk, applyWhy, askWhy, benchReply,
+  qualifyGap, qualifyHead, shipWhy, type BenchView, type QualifyOffer,
 } from './bench-reply';
-import { WHY_NOTE, setupDoneFor, whyNote, withWhy } from './bench-find';
+import { WHY_NOTE, whyNote, withWhy } from './bench-find';
 import { FIND_DESCRIPTION_BENCH, SERVER_INSTRUCTIONS } from './mcp';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
@@ -68,10 +67,10 @@ test('the exact why lines', () => {
   assert.equal(CHECKIN_WHY, 'A Monday check-in keeps your drafts current before deadlines.');
   assert.equal(SHARE_WHY, 'Builders who share wins get noticed by programs.');
   assert.equal(POST_WHY, 'A post with real numbers is what reviewers read.');
-  assert.equal(ASKS_HINT, 'Ask me anytime: where do I stand, what can I apply to, or draft my application.');
-  for (const l of [shipWhy(6), shipWhy(0), CHECKIN_WHY, SHARE_WHY, POST_WHY, ASKS_HINT]) assert.doesNotMatch(l, BAD, l);
+  // v4.8 Task 1: the first-run line (ASKS_HINT) is retired.
+  for (const l of [shipWhy(6), shipWhy(0), CHECKIN_WHY, SHARE_WHY, POST_WHY]) assert.doesNotMatch(l, BAD, l);
   // A statement, never a question of its own.
-  for (const l of [shipWhy(6), CHECKIN_WHY, SHARE_WHY, POST_WHY, ASKS_HINT]) assert.ok(!l.includes('?'), l);
+  for (const l of [shipWhy(6), CHECKIN_WHY, SHARE_WHY, POST_WHY]) assert.ok(!l.includes('?'), l);
 });
 
 test('ship: its why line, streak 6 and streak 0, just before the question (in place of the weekly ship line)', () => {
@@ -139,31 +138,6 @@ test('askWhy covers every kind with an ask in Exact copy; withWhy carries it and
   assert.ok(FIND_DESCRIPTION_BENCH.length < 800, String(FIND_DESCRIPTION_BENCH.length));
 });
 
-test('the setup-done reply: the first-run line is a statement before the question; the question stays last', () => {
-  const rows = [{ program: 'Base Builder Grant Program', upTo: '$5,000', closes: 'Rolling' }];
-  const s = setupDoneReply('Maya', 'set', rows, 'x', { hint: ASKS_HINT });
-  const paras = s.split('\n\n');
-  assert.equal(paras.at(-1), 'Base Builder Grant Program looks like your best fit. Want me to draft it?');
-  assert.equal(paras.at(-2), ASKS_HINT);
-  assert.equal(setupDoneReply('Maya', 'set', rows, 'x'), s.replace(`${ASKS_HINT}\n\n`, ''), 'no hint: as before');
-  assert.equal(setupDoneReply('Maya', 'set', [], 'Nothing fits.', { hint: ASKS_HINT }), `You're all set, Maya.\n\nNothing fits.\n\n${ASKS_HINT}`);
-});
-
-test('the first-run line appears once (standing_seen.asks_hint)', db, async () => {
-  const id = await person({ projects: [], seen: { setup_asked: new Date().toISOString() } });
-  const first = await setupDoneFor(id, new Date(), null);
-  assert.ok(first, 'the setup-done reply');
-  assert.ok(first!.show_to_builder.includes(ASKS_HINT), first!.show_to_builder);
-  assert.doesNotMatch(first!.show_to_builder, BAD);
-  const [{ s }] = await sql()<{ s: Record<string, unknown> }[]>`SELECT standing_seen AS s FROM builder_profiles WHERE builder_id = ${id}`;
-  assert.equal(typeof s.asks_hint, 'string', 'claimed');
-  // The setup-done reply again (its claim cleared): never the line twice.
-  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'setup_done' WHERE builder_id = ${id}`;
-  const again = await setupDoneFor(id, new Date(), null);
-  assert.ok(again, 'the setup-done reply again');
-  assert.ok(!again!.show_to_builder.includes(ASKS_HINT), again!.show_to_builder);
-});
-
 let n = 0;
 /** An open copy of Base's grant closing in `days`. */
 async function program(tag: string, days: number) {
@@ -205,17 +179,15 @@ async function builder(tag: string, programs: string[]) {
 test('through find: every move_up with an ask in Exact copy carries its why (and the why note); the visible line matches', db, async () => {
   const p = await program('a', 20);
   const b = await builder('a', [p.id]);
-  // Money first: the apply ask, its own reason sentence as the why, no new line.
+  // v4.8 Task 1: the path's hook names the fit first (its text is its own reason; the mentor note words it).
   const r = await mcpCall(b.ctx, 'find', {});
   assert.equal(moveUp(r)?.kind, 'apply', show(r));
-  assert.equal(show(r), applyAsk(p.title, '$5,000', p.when));
-  assert.equal(moveUp(r)?.why, applyWhy(p.title, '$5,000', p.when));
-  assert.ok(moveUp(r)!.agent_note.includes(WHY_NOTE), moveUp(r)!.agent_note);
-  // Told applied: the next asks (check-in, ship, ...) each carry theirs.
+  assert.ok(show(r).includes(p.title) && show(r).endsWith('Want me to start?'), show(r));
+  // Told applied, and the path parked: the older asks (check-in, ship, ...) each carry their why.
   await mcpCall(b.ctx, 'tell', { submitted: { program_id: p.id } });
+  await pathQuiet(b.id);
   const visible: Record<string, string> = { checkin: CHECKIN_WHY, share: SHARE_WHY, post: POST_WHY };
   const seen = new Set<string>();
-  // v4.7.2 T2: the needs ask (check_fits) is per open program now, so the loop runs past up to three of them.
   for (let i = 0; i < 8; i++) {
     const x = await mcpCall(b.ctx, 'find', {});
     const m = moveUp(x);
@@ -229,14 +201,10 @@ test('through find: every move_up with an ask in Exact copy carries its why (and
       assert.equal(m.why, visible[m.kind]);
       assert.equal(s.split('\n\n').at(-2), m.why, s);
     } else if (m.kind === 'apply' || m.kind === 'qualify') assert.ok(m.why && s.includes(m.why), s);
-    // v4.7.2 T2: the needs ask's why (the program's gap) is its own paragraph just before the question.
-    else if (m.kind === 'check_fits') assert.equal(s.split('\n\n').at(-2), m.why, s);
     if (m.why) assert.ok(m.agent_note.includes(WHY_NOTE), m.agent_note);
     assert.doesNotMatch(s, BAD, s);
     // A no moves past the qualify step (kept away), so the quieter asks come up.
     if (m.kind === 'qualify') await mcpCall(b.ctx, 'tell', { move_up: { kind: 'qualify', project_key: m.project_key, answer: 'no' } });
-    // v4.7.2 T2: a no to the needs ask declines that program only, so the next open program (or a quieter ask) comes up.
-    if (m.kind === 'check_fits') await mcpCall(b.ctx, 'tell', { move_up: { kind: 'check_fits', project_key: m.project_key, answer: 'no' } });
   }
   assert.ok([...seen].some((k) => ['ship', 'checkin', 'share', 'post'].includes(k)), [...seen].join(','));
 });

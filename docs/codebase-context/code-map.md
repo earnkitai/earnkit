@@ -1524,6 +1524,8 @@ apps/frontend/
                                alertBody (exact copy), pickAlert, runAlertMail (cron step alert_mail in every cron
                                run, no hour gate; longest-unmailed builders first: one email a builder a UTC day, each event once in alert_mail_sent, Resend room after
                                every digest still due). Tests: v47-reach-out.test.ts
+                               v4.8 Task 5 (target D): tellLine, alertAction; each body ends in one line, Tell your agent:
+                               "EarnKit, {action}." (draft / finish my {program} draft / what's next after {program}).
     best-fit.ts                v3.1 Task 12: bestFitFor, the Best fit outside a reply (bench-find.ts scoreApplies + bestApplies)
                                v4.7: openFitsFor (alert closing fits; final review R19 withoutSilentDeclines: only an explicit no drops one)
     ship-log-facts.ts          v3 Stage 2: shipLogFacts/shipLogBlock/SHIP_LOG_NOTE, the ship log's facts in prepare's draft
@@ -1764,6 +1766,51 @@ apps/frontend/
     agent-reach.ts             GTM W2 (2026-10-23): agentReach(own, builder) -> { hosted, schedules } from installations.client_name
                                (hosted: grok, muse, meta, instinct, openclaw; schedules: grok, cursor, openclaw, hermes) and
                                standing_seen.no_folder (find told agent_can_build: false: rememberNoFolder; both true); reachOf (pure)
+    conversation.ts(+test v48-conversation.test.ts)  v4.8 Task 1 (the launch conversation): Stage (hook, gap, draft,
+                               submit, track), Path { stage, program_id, at, picked? } in standing_seen.path (readPath, setPath;
+                               a program may be set before ranking: Task 4's pick), the session (SESSION_MS 2 h; sessionOf ->
+                               { fresh, said }, markSaid into standing_seen.said { at, keys }), MENTOR_NOTE (the agent rewords in a
+                               mentor's voice), bestMove (fit closing first; a grant one step away, a passed step not counted;
+                               an investor program closing within 7 days with difficulty_override.basis odds; the closest grant
+                               by gaps, a passed one-gap step raised once (standing_seen.path_raised); else quiet), pathReply
+                               (Task 1: the hook only: A's opener for a fit or investor, "Want the steps?" for a gap; a hook said
+                               this session is a one-line pointer), closeWords, proofLine, programName. bench-find.ts pathView
+                               gathers the facts (pathSkip: entered, hidden, told, drafted, 'apply:'/'path:' nos) and stores
+                               the hook's ask as apply, qualify or check_fits (path: true; a no also parks 'path:<id>').
+                               fixtures/wallet-step.ts pathQuiet / pathUnquiet park every program for a test of an older ask.
+                               v4.8 Task 2: gapReply (the steps, "I can do this." marks, Go? / first one / help), gapClosedReply,
+                               draftReply, blanksAsk, draftBlanks (founder brief for an investor program with no public
+                               questions, else required builder-only fields not held), FOUNDER_BLANKS. bench-find.ts gapYes,
+                               gapDoYes, pathDraft, heldAnswers, codesConfirmed (re-check after the do-it yes: gap_did),
+                               pathClosedCommit; bench-reply.ts qualifyGapSteps.
+                               Fix round 1: gapStillReply / pathGapCommit (mid-gap "Still on ..."), gapProof, GapStep.offer.
+                               Fix round 2: CODES_OFFER (hook "Go?"), draftBlanks { blanks (max 2), later, drafted }, andComma,
+                               blanksAgain; bench-find.ts codesConfirmed ('found'|'missing'|'checking',
+                               RECHECK_WAIT), pathCheckingView, draftYes; base-qualify.ts qualifyOffer `allMet`.
+                               v4.8 Task 3: SENT_ASK, submitBy, submitReply, submitPointer, TRACK_ACK, trackLead, agoWords,
+                               passedLine (GapGrant.passedAt), sinceDay, SinceFacts, sinceLine, stillOpenLine, DRAFT_NOW_ASK.
+                               bench-find.ts pathSubmit (draft -> submit), SENT_NOTE, submitAsked, pathTrack (-> track),
+                               submitWaiting / pathSubmitCommit (the submit pointer), sinceFor + withSince (fresh session);
+                               tools.ts tell runs find after "sent" and leads with trackLead.
+                               Fix round 1: SENT_AGAIN, MoveCtx.raisedNow, passedLine(them), seenBefore; tell move_up answer 'sent'.
+                               v4.8 Task 4 (target B): OpenerProgram, openerHead, openerReply, openerAgain, pickedReply,
+                               resolvePick, connectedLine, noFitWhy, OPENER_NOTE, PathCtx.steps. bench-find.ts openerPrograms,
+                               openerView (signed out), takePick (find {program} -> path picked), pickWhy, connectedCommit
+                               (standing_seen.opener { ids, titles, at }), PathPlan.ctx, pathCommit `pre`. Test fixture:
+                               fixtures/opener.ts (assertOpener, isOpener).
+                               Fix round 0: investorLater, connected_said, PUSHED_ASK (gapDoYes), x-install.ts attachOnce
+                               carries path + opener to the joined page.
+                               Fix round 1: pickHook, Path.steps, GENERIC_PICK; bench-find.ts openerRecord, pickGoneLine,
+                               ViewIn.ahead, SetupDone.then_find; tools.ts tell runs find after a then_find reply.
+                               v4.8 Task 5 (target C): ASK_SAID, StandingFacts, standingAnswer, standingAgain, PROGRAMS_AGAIN,
+                               PREPARE_LINE, fitCell, programsAnswer, whatItIs. bench-find.ts directAnswer (find {ask}),
+                               ViewIn.question/answer, linkHost; the path block's answered() wrapper.
+                               Fix round 1: grantFact/GrantFact, fitOrder, standingSaid, ANSWERED_FIRST, TABLE_FROM, PathCtx.brief;
+                               bench-find.ts cardFact, myChains, listHash, pathPlan {wide} + PathPlan.met, ViewIn.brief.
+                               v4.8 Task 6 (the merge gate): fixtures/converse.ts (conversation, converse, transcript, gateFailures,
+                               PROOF_PATTERNS, askMismatch, lazyNext, BOTH); the A, B and help walks in v48-conversation.test.ts;
+                               scripts/converse-replay.mts. Fix round 1: conversation.ts proofOf, gapProofOf, Proof, PathCtx.baseSteps,
+                               HELP_DONE_ASK, helpReply, helpNotYet, helpParked; bench-find.ts Seen bench_ask help/checks.
     bench-find.ts(+test)       GTM W2 (2026-10-23): link-only projects (a Lovable or Bolt live_url, no repo) take the no-GitHub path
                                (noCode: the picker link, github_no, the walk-through; linkName/YOUR_APP, reportedName: never the
                                host); backing before hot post and apply (boundedBacking first), connectBacking in the connect yes;
@@ -1952,6 +1999,7 @@ apps/frontend/
                                "#N of M builders", from 20 "Top P% of builders" in the top half; chains named), scoreLine ("Shipping 72 ·
                                <rank line>"; thousands separators), benchPercent, BENCH_CHAINS; rankSplit (lead number and
                                words, for the profile and the leaderboard rows)
+                               v4.8 Task 5: rankWords ("#N of M builders so far" at any pool size, the direct standing answer)
     person-github.ts(+test)    v2.12.1 T3: PERSON_GITHUB_QUERY (one GraphQL query a person), reposQuery
                                (aliased by name, REPOS_MAX 25), readPersonGithub, readGithubRepos
                                v2.13.3: readAppRepos (a repo EarnKit's token can't read, through the App, keyed by source id).

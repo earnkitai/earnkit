@@ -40,7 +40,8 @@ export function standingParagraph(s: Standing): string {
   const work = [s.applied > 0 ? `${count(s.applied, 'application')} in` : null, s.drafts > 0 ? `${count(s.drafts, 'draft')} ready` : null]
     .filter(Boolean).join(', ');
   const parts = [
-    s.score !== null ? (s.rank ? `Score ${s.score} · ${s.rank}` : `Score ${s.score}`) : null,
+    // Final review 9: a score of 0 says neither the score nor the rank (the score-0 ruling: nothing to stand on yet).
+    s.score !== null && s.score > 0 ? (s.rank ? `Score ${s.score} · ${s.rank}` : `Score ${s.score}`) : null,
     s.streak >= 1 ? (s.streak === 1 ? '1 week shipping' : `${s.streak} weeks shipping in a row`) : null,
     s.wonUsd === null ? null : s.wonUsd > 0 ? `${usd(Math.round(s.wonUsd))} won so far` : 'No grants won yet',
     work || null,
@@ -54,7 +55,9 @@ export function standingParagraph(s: Standing): string {
  * Fix round 1 (R5): the standing leads the score reply only with a score or a streak part ("No grants won yet" alone
  * never leads; the fact still carries it). Pure.
  */
-export const standingLeads = (s: Standing) => s.score !== null || s.streak >= 1;
+export const standingLeads = (s: Standing) =>
+  // Final review 9: a score of 0 is no part (standingParagraph leaves it out), so it leads only with another part to say.
+  (s.score !== null && (s.score > 0 || s.applied > 0 || s.drafts > 0 || s.next !== null)) || s.streak >= 1;
 
 /**
  * Fix round 1 (R7, replyFacts' gating): the standing for a caller that is no signed-in person of their own (signed out,

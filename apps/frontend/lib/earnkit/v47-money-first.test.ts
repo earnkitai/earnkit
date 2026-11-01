@@ -12,16 +12,14 @@ import { fakeGitHub } from './fixtures/fake-github';
 import { appEnv, installApp } from './fixtures/app-install';
 import { committedProgram } from './fixtures/program-file';
 import { dropRunPrograms } from './fixtures/programs-cleanup';
-import { walletOffered } from './fixtures/wallet-step';
+import { pathQuiet, walletOffered } from './fixtures/wallet-step';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { closeDayOf } from './entry-text';
-import { applyAsk, stateAsk, stripeDraftLine, stripeDraftNote, type BenchProject } from './bench-reply';
+import { stateAsk, stripeDraftLine, stripeDraftNote, type BenchProject } from './bench-reply';
 import { tokenOfferDue } from './wallet-offer';
-import { APPLY_UNANSWERED_MAX } from './bench-find';
-import { alertEvents } from './alert-mail';
 import { upgradeToken, walletMessage, walletPost } from './wallet-proof';
 import { retryDroppedBuilderTokens } from './builder-token';
 import { productOdds, productScore, traction, type Detection } from './match';
@@ -29,7 +27,8 @@ import type { RepoFit } from './present';
 
 /**
  * v4.7 Task 3: the first reply is money only. A ranked builder with an open fit not applied to hears that fit's
- * amount, deadline and the one step first, and nothing else asks in front of it; the Stripe ask rides on a draft for
+ * amount, deadline and the one step first, and nothing else asks in front of it (v4.8 Task 1: the path's hook does
+ * this now, conversation.ts; the money-first re-ask loop and its tests are retired); the Stripe ask rides on a draft for
  * a program that wants revenue; the token is offered only after an application or a draft; a wallet proof launches
  * nothing; llms.txt says when the token is offered.
  */
@@ -111,116 +110,17 @@ const answersFor = (reqs: { key: string; type: string; options?: string[] }[]) =
 const prepare = (b: B, p: { id: string; reqs: unknown }) =>
   mcpCall(b.ctx, 'prepare', { program_id: p.id, project: { name: 'Kit', repo_url: `https://github.com/${b.key}`, live_url: 'https://kit.app' }, answers: answersFor(p.reqs as never), coach_asked: true });
 
-test('Review Focus 3: the first ranked find leads with the open fit\'s amount and deadline; its ask is apply; never a stripe kind', db, async () => {
-  const p = await program('a', { days: 20 });
-  const b = await builder('a', [p.id]);
-  const r = await find(b);
-  const s = show(r);
-  // The money alone: the fit, its amount, its deadline and the one step (no standing or ship line in front of it).
-  assert.ok(s.startsWith(`${p.title} closes ${p.when}, up to $5,000.`), s);
-  assert.equal(s, applyAsk(p.title, '$5,000', p.when));
-  assert.ok(['apply', 'qualify'].includes(kind(r)!), String(kind(r)));
-  assert.doesNotMatch(s, /Ship code this week|Stripe|token|check-in/i);
-  // Fix round 1 (R11): every ranked find while the fit is open and unapplied asks it (no post, moment, stripe, token,
-  // check-in or ship ask in its place), up to APPLY_UNANSWERED_MAX showings (fix round 2: then it stands aside).
-  for (let i = 1; i < APPLY_UNANSWERED_MAX; i++) {
-    const again = await find(b);
-    assert.equal(kind(again), 'apply', show(again));
-    assert.equal(show(again), applyAsk(p.title, '$5,000', p.when));
-    assert.doesNotMatch(JSON.stringify(again.reply), /"kind":"stripe"|connect\/stripe/);
-  }
-  assert.equal((await seen(b.id)).stripe_asked, undefined, 'find never claims the Stripe ask');
-});
-
 test('the quieter asks wait while an open fit is unapplied, and come back once it is told applied', db, async () => {
   const p = await program('w', { days: 20 });
   const b = await builder('w', [p.id]);
   assert.equal(kind(await find(b)), 'apply');
   await mcpCall(b.ctx, 'tell', { submitted: { program_id: p.id } });
+  // v4.8 Task 1: told applied, it is never the hook again (the path may name another program; parked, the quieter asks).
+  assert.ok(!show(await find(b)).includes(p.title));
+  await pathQuiet(b.id);
   const after = await find(b);
   assert.notEqual(kind(after), 'apply', show(after));
-  assert.doesNotMatch(show(after), /I can draft it/);
-});
-
-test('fix round 1: a draft prepare showed, or a yes to drafting, ends the re-ask for that program; it comes back after DECLINE_MS', db, async () => {
-  const p = await program('d', { days: 20 });
-  const b = await builder('d', [p.id]);
-  assert.equal(kind(await find(b)), 'apply');
-  // A direct prepare (no apply ask answered) that shows the draft.
-  const prep = await prepare(b, p);
-  assert.ok(prep.reply?.draft, show(prep));
-  assert.equal(typeof ((await seen(b.id)).apply_yes as Record<string, string>)[p.id], 'string');
-  const after = await find(b);
-  assert.notEqual(kind(after), 'apply', show(after));
-  assert.doesNotMatch(show(after), /I can draft it/);
-  // 31 days later, still open and unapplied: asked again.
-  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, ${['apply_yes', p.id]}::text[], to_jsonb(${new Date(Date.now() - 31 * DAY).toISOString()}::text))
-    WHERE builder_id = ${b.id}`;
-  assert.equal(kind(await find(b)), 'apply');
-  // The yes to the apply ask records it too.
-  const q = await program('e', { days: 20 });
-  const c = await builder('e', [q.id]);
-  assert.equal(kind(await find(c)), 'apply');
-  await mcpCall(c.ctx, 'tell', { move_up: { kind: 'apply', project_key: c.key, answer: 'yes' } });
-  const next = await find(c);
-  assert.notEqual(kind(next), 'apply', show(next));
-  assert.doesNotMatch(show(next), /I can draft it/);
-});
-
-test('fix round 2 (R12): three unanswered showings stand the apply ask aside for DECLINE_MS; then another ask shows; it comes back', db, async () => {
-  assert.equal(APPLY_UNANSWERED_MAX, 3);
-  const p = await program('u', { days: 20 });
-  const b = await builder('u', [p.id]);
-  for (let i = 0; i < 3; i++) assert.equal(kind(await find(b)), 'apply', `showing ${i + 1}`);
-  const fourth = await find(b);
-  assert.notEqual(kind(fourth), 'apply', show(fourth));
-  assert.doesNotMatch(show(fourth), /I can draft it/);
-  assert.ok(['ship', 'checkin', 'wallet', 'token', 'new_repo', 'titles', 'share', 'post', undefined].includes(kind(fourth)), `another ask resumes: ${kind(fourth)}`);
-  const s = await seen(b.id);
-  assert.equal(typeof (s.declined as Record<string, string>)[`apply:${p.id}`], 'string', 'set aside as a no would be');
-  assert.equal(typeof (s.apply_silent as Record<string, string>)[p.id], 'string', 'marked as silence');
-  assert.equal((s.apply_unanswered as Record<string, number>)[p.id], undefined, 'count cleared');
-  // 31 days later: it comes back.
-  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, ${['declined', `apply:${p.id}`]}::text[], to_jsonb(${new Date(Date.now() - 31 * DAY).toISOString()}::text))
-    WHERE builder_id = ${b.id}`;
-  assert.equal(kind(await find(b)), 'apply');
-  // An answer (here a no) resets the count.
-  const q = await program('v', { days: 20 });
-  const c = await builder('v', [q.id]);
-  await find(c);
-  await find(c);
-  assert.equal(((await seen(c.id)).apply_unanswered as Record<string, number>)[q.id], 2);
-  await mcpCall(c.ctx, 'tell', { move_up: { kind: 'apply', project_key: c.key, answer: 'no' } });
-  assert.equal(((await seen(c.id)).apply_unanswered as Record<string, number>)[q.id], undefined, 'answered: reset');
-});
-
-test('final review: the lead and the money line name the program the apply ask asks (the first fit drafted already)', db, async () => {
-  const p1 = await program('l1', { days: 10 });
-  const p2 = await program('l2', { days: 20 });
-  const b = await builder('l', [p1.id, p2.id]);
-  // A draft of the first fit in hand: money first asks the second.
-  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{apply_yes}',
-      jsonb_build_object(${p1.id}::text, ${new Date().toISOString()}::text)) WHERE builder_id = ${b.id}`;
-  const r = await find(b);
-  assert.equal(kind(r), 'apply', show(r));
-  assert.equal(((await seen(b.id)).bench_ask as { program_id?: string }).program_id, p2.id);
-  assert.equal((r.reply?.lead as { program_id?: string } | undefined)?.program_id, p2.id);
-  assert.ok(show(r).startsWith(`${p2.title} closes ${p2.when}`), show(r));
-});
-
-test('final review R19: a fit set aside for silence still gets its closing alert; an explicit no drops it', db, async () => {
-  const p = await program('s', { days: 2 });
-  const b = await builder('s', [p.id]);
-  for (let i = 0; i < APPLY_UNANSWERED_MAX; i++) assert.equal(kind(await find(b)), 'apply');
-  await find(b);
-  const s = await seen(b.id);
-  assert.equal(typeof (s.apply_silent as Record<string, string>)[p.id], 'string', 'stood aside for silence');
-  const closingFor = async () => (await alertEvents(b.id, new Date())).some((e) => e.kind === 'closing' && e.key.startsWith(`closing:${p.id}:`));
-  assert.equal(await closingFor(), true);
-  // An explicit no (a later no rewrites the declined time): no closing alert.
-  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, ${['declined', `apply:${p.id}`]}::text[], to_jsonb(${new Date(Date.now() + 1000).toISOString()}::text))
-    WHERE builder_id = ${b.id}`;
-  assert.equal(await closingFor(), false);
+  assert.doesNotMatch(show(after), /I can draft it|Want me to start/);
 });
 
 test('fix round 1 (R11): stateAsk puts the apply ask before an event post', () => {

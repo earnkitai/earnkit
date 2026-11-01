@@ -7,7 +7,7 @@ import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
 import { fakeGitHub } from './fixtures/fake-github';
 import { appEnv, installApp } from './fixtures/app-install';
-import { checkFitsAsked, walletOffered } from './fixtures/wallet-step';
+import { checkFitsAsked, pathQuiet, walletOffered } from './fixtures/wallet-step';
 import { withEnv } from './fixtures/find';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
@@ -205,11 +205,11 @@ test('hosted agent: the Monday check-in once (its routine in the note), notes ne
   assert.doesNotMatch(moveUp(c2)!.agent_note, /this folder|git log/);
   const shipYes = await tellMove(b.ctx, 'ship', 'yes', b.key);
   assert.doesNotMatch(String(shipYes.reply?.agent_note), /this folder|git log/);
-  // Within 7 days: no ship question again (no question at all, no move_up).
+  // Within 7 days: no ship question again (no question at all); v4.8 re-review blocker 1: its one easy reply is "more".
   const c3 = await mcpCall(b.ctx, 'find', {});
   const s3 = rule(show(c3), 0);
   assert.doesNotMatch(s3, /check in|suggest one small thing/);
-  assert.equal(moveUp(c3), undefined);
+  assert.equal(moveUp(c3)?.kind, 'more');
   // 8 days on, it may be asked again.
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('ship_asked', (now() - interval '8 days')::text) WHERE builder_id = ${b.id}`;
   assert.equal(moveUp(await mcpCall(b.ctx, 'find', {}))?.kind, 'ship');
@@ -332,6 +332,8 @@ async function coinBuilder(tag: string, o: { name?: string; private?: boolean; p
   if (!o.connect) await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('connect_done', now()::text) WHERE builder_id = ${c.id}`;
   if (!o.private) await sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${c.id} AND kind = 'repo'`;
   await sql()`INSERT INTO person_wallets (wallet, builder_id) VALUES (${`0x${(c.id + 2000).toString(16).padStart(40, '0')}`}, ${c.id}) ON CONFLICT DO NOTHING`;
+  // v4.8 Task 1: the path parked, so the older ranked asks (connect, and what follows it) answer here.
+  await pathQuiet(c.id);
   return { ctx, id: c.id, key, handle };
 }
 /** Last week's ship-log row of the one project, with code (approved unless `approved: false`). */

@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { walletOffered } from './fixtures/wallet-step';
+import { pathQuiet, walletOffered } from './fixtures/wallet-step';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -169,6 +169,8 @@ async function builder(tag: string): Promise<B> {
     INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${c.id}, ${key}, ${lastFinishedMonday(new Date())},
       ${sql().json({ shipped_code: { n: 3 }, checked: true, approved: true } as never)})
     ON CONFLICT (project_key, week) DO UPDATE SET facts = project_updates.facts || EXCLUDED.facts`;
+  // v4.8 Task 1: the path parked, so find's reply is the older ranked one (its standing paragraph, this file's subject).
+  await pathQuiet(c.id);
   return { ctx, id: c.id, key, handle };
 }
 const find = (b: B) => mcpCall(b.ctx, 'find', {});
@@ -356,7 +358,8 @@ test('(d) the profile shows Earned as the third number and the waiting line; the
   // v4.0 Task 11: no coin intro post and no backing line; the stand line carries Earned.
   const r = show(await find(b));
   // v4.7.1 T1: the reply's standing is v4.7's paragraph (prizes won, not token fees); Earned stays in the JSON below.
-  assert.match(r, /^Score \d+\. 1 week shipping\. No grants won yet\.$/m, r);
+  // Final review 9: a score of 0 is said as no part.
+  assert.match(r, /^1 week shipping\. No grants won yet\.$/m, r);
   assert.equal(standLine(r), '', 'no old stand line');
   assert.doesNotMatch(r, /Backing|backers|\bcoin/i, r);
   assert.ok(links(r).length <= 1, r);

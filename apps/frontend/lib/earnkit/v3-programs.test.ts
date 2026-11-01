@@ -1,5 +1,5 @@
 import { after, test } from 'node:test';
-import { walletOffered } from './fixtures/wallet-step';
+import { pathQuiet, walletOffered } from './fixtures/wallet-step';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
@@ -181,12 +181,12 @@ test('(e) a ranked builder with a 4-week streak and no fit never hears of a prog
   const streak = async (n: number) =>
     sql()`UPDATE builder_projects SET streak = ${n}, ship_weeks = ${weeks.slice(4 - n)}::text[], commit_weeks = ${weeks.slice(4 - n)}::text[] WHERE builder_id = ${c.id} AND lower(project_key) = ${key}`;
   await streak(4);
-  // 2026-10-22: Base's grant steps take the money line's place while offered; a no brings the upcoming line back.
+  // v4.8 Task 1: the path's hook names an open program; never the upcoming one.
   const q = String((await mcpCall(ctx, 'find', {})).reply?.show_to_builder ?? '');
-  assert.doesNotMatch(q, / not open yet\. /, q);
-  // v4.3: the qualify reply names the grant's money first.
-  assert.match(q, /^Base Builder Grants: \$5,000, rolling\. /m, q);
-  await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'no' } });
+  assert.doesNotMatch(q, / not open yet\.|not announced/, q);
+  assert.ok(!q.includes(`v3-upc-e-${RUN}`), q);
+  // With the path parked, the older ranked reply never names it either.
+  await pathQuiet(c.id);
   // 2026-10-23 (owner): a program that isn't open is never a reply line, even with a 4-week streak and no fit.
   const s = String((await mcpCall(ctx, 'find', {})).reply?.show_to_builder ?? '');
   assert.doesNotMatch(s, /not open yet|not announced/, s);
@@ -245,7 +245,8 @@ test('(g) an in-person program is never a fit in a ranked reply; it stays on the
   // fit may be another one closing sooner. Neither ever names the in-person program.
   for (const tool of ['find', 'score'] as const) {
     const s = String((await mcpCall(ctx, tool, {})).reply?.show_to_builder ?? '');
-    if (tool === 'find') assert.match(s, /Base Builder Grant Program/, `${tool}: ${s}`);
+    // v4.8 Task 1: the path's hook names it without " Program".
+    if (tool === 'find') assert.match(s, /Base Builder Grant\b/, `${tool}: ${s}`);
     assert.doesNotMatch(s, /ETHGlobal Mumbai/, `${tool}: ${s}`);
   }
   // v3 Stage 2 final review: nor on the profile's Ways to get funded.

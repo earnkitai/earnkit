@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
-import { walletOffered } from './fixtures/wallet-step';
+import { pathQuiet, pathUnquiet, walletOffered } from './fixtures/wallet-step';
 import { registerClient } from './oauth';
 import { authorizeGet, tokenPost } from './oauth-routes';
 import { xSignInCallback } from './x-install';
@@ -24,7 +24,7 @@ import { profileSite } from './site-data';
 import type { ToolContext } from './tools';
 import type { XOAuthDeps, XUser } from './x-oauth';
 import { padPool } from './fixtures/rank-pool';
-import { INTRO_LINE } from './bench-reply';
+import { assertOpener, isOpener } from './fixtures/opener';
 
 /**
  * v2.14 T12: the spec's acceptance 1 to 5 as one brand-new builder lives them, through the real routes
@@ -100,7 +100,8 @@ function rule(r: McpResult): string {
   assert.ok(links(s).length + bareLinks(s).length <= 2, s);
   const [bare] = bareLinks(s);
   if (bare && links(s)[0]) assert.ok(!links(s)[0]!.includes(bare), `the page is not linked twice: ${s}`);
-  assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 1, s);
+  // v4.8 Task 4: target B's opener ends in a number to reply with and its one link (no question).
+  assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, isOpener(s) ? 0 : 1, s);
   assert.doesNotMatch(s, /raise|fundrais/i, s);
   assert.equal(r.reply?.schedule_weekly_update, undefined, 'nobody is asked to schedule anything');
   return s;
@@ -172,12 +173,16 @@ test('12.4 acceptance 3: the App installed on the org repo; the next reply says 
   const res = await appSetup(new Request(`https://earnkit.com/github/verify/app?installation_id=${GH_INSTALL}&state=${nonce}`, {
     headers: { cookie: `${csrfCookieName(nonce)}=x` } }), { fetch: gh, ...noLimit });
   assert.equal(res.status, 200);
-  // v4.0: setup step 3 answered (this test is about another reply).
+  // v4.0: setup step 3 answered (this test is about another reply). v4.8 Task 1: the path parked, so the reply is the
+  // standing paragraph and its step.
   await walletOffered(first.id);
+  await pathQuiet(first.id);
   const s = rule(await mcpCall(first.ctx, 'find', {}));
   // Task 16: ranked, with a rank on the standing line (no backfilled weeks here, so no connect offer).
   // v4.7.1 T1: the standing is v4.7's paragraph ("Score 14 · #1 of 10 builders. ..."), never the old name line.
   assert.match(s, /^(?:EarnKit is on the leaderboard: |Score \d+ · )(#\d+ of \d+ builders?|Top [\d.]+% of builders)/m, s);
+  // The path names programs again for the rest of the journey.
+  await pathUnquiet(first.id);
 });
 
 test('12.5 acceptance 4: the next Monday the profile shows the week from its titles; nobody scheduled anything', db, async () => {
@@ -223,8 +228,7 @@ test('12.6 the fallback client: signed out, the link page, the paste code throug
   await saveInstallation(token, undefined, false, 'Cursor');
   const ctx = ctxOf((await connectInstallation(token))!);
   const out = rule(await mcpCall(ctx, 'find', {}));
-  assert.ok(out.startsWith(`${INTRO_LINE}\n\n`), out);
-  const link = links(out)[0]!;
+  const link = assertOpener(out);
   assert.match(link, /^https:\/\/earnkit\.com\/signin\/[A-Za-z0-9_-]{22}$/);
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'sign_in', project_key: null, answer: 'yes' } });
   assert.match(String(yes.reply?.agent_note), /sign_in_code/);

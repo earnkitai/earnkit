@@ -6,6 +6,7 @@ import { formatReply, surfaceOf, withFormattedReply } from './reply-format';
 import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
 import { connectInstallation, saveInstallation } from './installations';
+import { attachToX } from './x-install';
 
 test('formatReply: each line its own paragraph (Grok Bot markdown joins single newlines), bare URLs kept', () => {
   assert.equal(
@@ -66,14 +67,19 @@ const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => { if (process.env.DATABASE_URL) await sql().end(); });
 
 test('mcpCall: a Muse installation gets no | and no ** in its setup reply; Grok Bot keeps them', db, async () => {
+  // v4.8 Task 4 fix round 1 (10): the signed-out first reply is target B's opener (no bold), so the setup reply with
+  // bold here is step 2 (signed in with X, no code connected); no program is closed for it.
   for (const [name, plain] of [['Muse', true], ['Grok Bot', false]] as const) {
     const t = `ek_v4t6_${name.replace(/\W/g, '')}_${process.pid}_${Math.random().toString(36).slice(2)}`;
     await saveInstallation(t, undefined, false, name);
+    const own = (await connectInstallation(t))!.own;
+    const handle = `rf${name.slice(0, 2)}${process.pid}`.toLowerCase().replace(/\W/g, '').slice(0, 15);
+    assert.ok((await attachToX(own, { id: `91${process.pid}${name.length}`, username: handle, name, avatar: null }, new Date())).ok);
     const c = (await connectInstallation(t))!;
     const r = await mcpCall({ installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: async () => ({ checked: 0, scored: 0, fits: [] }) } as never, 'find', { agent_can_build: false }, { format: true });
     const text = String(r.reply?.show_to_builder ?? '');
     assert.ok(text.length > 0, r.text);
-    assert.match(text, /Setup takes about a minute/, text);
+    assert.match(text, /Step 2 of 3/, text);
     if (plain) assert.doesNotMatch(text, /[|]|\*\*/, text);
     else assert.match(text, /\*\*/, text);
   }
