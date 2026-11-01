@@ -8844,3 +8844,20 @@ A yes on the path moves the stage on (bench-find.ts benchMoveUp, asks stored wit
   local restored snapshot only (refuses a non-localhost DATABASE_URL); the test guard is loaded first, so no network
   and no vendor keys. A lazy agent answers each reply's move_up; real work (a push, connecting GitHub) ends the session.
   Exits 1 on any gate failure.
+- **Fix round 1.**
+  - The help yes (a step the agent can't do: a chain deployment, a hosted agent's Builder Codes): bench-find.ts gapDoYes
+    gives its own reply (conversation.ts helpReply, "Let's do it now: {step}." and HELP_DONE_ASK "Say ok once it's done,
+    and I'll check it."), stored as the re-check ask (bench_ask help, checking, checks). An ok re-checks through find:
+    still not done, pathGapCommit says helpNotYet once; not done after a second check, the program is parked
+    (`path:<id>`, as a no) with helpParked, and find's next move follows.
+  - Proofs are keyed on their facts (conversation.ts proofOf, gapProofOf: `proof:streak=N`, `proof:live=<name>`,
+    `proof:base=live|on`), each said once a session by every path reply (hook, steps, step again, gap closed). A hook
+    whose streak and live were said gives Base's own fact (PathCtx.baseSteps). A streak under 2 weeks is no proof.
+  - DRAFT_NOW_ASK is "It takes me a few minutes. Draft it now?" (its question last). The codes push reply carries its
+    stored ask as move_up.
+  - The gate: the last sentence is the easy reply (a yes/no question with no choice or open request, reply "<word>",
+    say ok, a number, the exact BOTH, or EarnKit's sign-in link last with move_up sign_in); proof patterns need the
+    builder as subject; a proof fact said twice in a session is a repeat; a later hook may lean on the session's proof;
+    only the `opener` part exempts. converse checks each tell against the previous reply's move_up (askMismatch),
+    lazyNext drives the replay, first comes from the product's session, and a wait throws unless a new session began.
+  - The replay refuses `earnkit_replay` (the master) unless ALLOW_MASTER=1, and LINK_CHECK or EARNKIT_MODEL_TEST set.

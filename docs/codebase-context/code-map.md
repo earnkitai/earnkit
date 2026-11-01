@@ -1808,7 +1808,9 @@ apps/frontend/
                                Fix round 1: grantFact/GrantFact, fitOrder, standingSaid, ANSWERED_FIRST, TABLE_FROM, PathCtx.brief;
                                bench-find.ts cardFact, myChains, listHash, pathPlan {wide} + PathPlan.met, ViewIn.brief.
                                v4.8 Task 6 (the merge gate): fixtures/converse.ts (conversation, converse, transcript, gateFailures,
-                               PROOF_PATTERNS); the A and B walks in v48-conversation.test.ts; scripts/converse-replay.mts.
+                               PROOF_PATTERNS, askMismatch, lazyNext, BOTH); the A, B and help walks in v48-conversation.test.ts;
+                               scripts/converse-replay.mts. Fix round 1: conversation.ts proofOf, gapProofOf, Proof, PathCtx.baseSteps,
+                               HELP_DONE_ASK, helpReply, helpNotYet, helpParked; bench-find.ts Seen bench_ask help/checks.
     bench-find.ts(+test)       GTM W2 (2026-10-23): link-only projects (a Lovable or Bolt live_url, no repo) take the no-GitHub path
                                (noCode: the picker link, github_no, the walk-through; linkName/YOUR_APP, reportedName: never the
                                host); backing before hot post and apply (boundedBacking first), connectBacking in the connect yes;

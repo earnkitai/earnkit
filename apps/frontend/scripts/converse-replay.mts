@@ -7,11 +7,15 @@
  *   DATABASE_URL=postgresql://localhost:5432/<snapshot copy> OWN=27 WALK=A npx tsx scripts/converse-replay.mts
  *   DATABASE_URL=postgresql://localhost:5432/<snapshot copy> WALK=B npx tsx scripts/converse-replay.mts
  *
- * - A (OWN, the installation): the session opener, then a lazy agent's yes to each reply's structured ask (move_up):
- *   "sure", the blanks ("just me, nothing raised"), "sent", "ok"; then silence and a new session two days later.
+ * - A (OWN, the installation): the session opener, then a lazy agent's answer to each reply's structured ask
+ *   (fixtures/converse.ts lazyNext over move_up): "sure", the blanks ("just me, nothing raised"), "sent", "ok"; then
+ *   silence and a new session two days later.
+ * - Refuses: a DATABASE_URL not on localhost; the master snapshot `earnkit_replay` (it writes) unless ALLOW_MASTER=1;
+ *   LINK_CHECK or EARNKIT_MODEL_TEST set (the test guard would leave the network open).
  * - B: a fresh signed-out installation in this database: the opener, then "2".
- * - Real work ends a walk's session: pushing a change to the builder's repo (Builder Codes) or connecting GitHub
- *   needs the builder's own accounts, so the script records that the step was offered and goes no further there.
+ * - Real work ends a walk's session: a push to the builder's repo (Builder Codes, "Say ok once the change is pushed")
+ *   or connecting GitHub needs the builder's own accounts, so the script records it and goes no further there. A help
+ *   step's "ok" is played as not done yet (EarnKit re-checks it).
  *
  * No network beyond the local database: the test guard (lib/earnkit/fixtures/test-guard.ts) is loaded first, so the
  * vendor keys (GitHub App, X, Resend, Alchemy, tokens.fun, R2, Anthropic, the deployer) are cleared and every
@@ -30,6 +34,19 @@ if (!isLocalPostgres(url) || !new URL(url).hostname) {
   console.error('Refusing: DATABASE_URL must be a local Postgres on localhost (a restored snapshot copy), never production.');
   process.exit(2);
 }
+// Task 6 fix round 1 (review 7): the replay writes, so a copy is the default; the master snapshot only on purpose.
+if (new URL(url).pathname.replace(/^\//, '') === 'earnkit_replay' && process.env.ALLOW_MASTER !== '1') {
+  console.error('Refusing: earnkit_replay is the master snapshot and the replay writes to it. Run on a copy (createdb -T earnkit_replay <copy>), or set ALLOW_MASTER=1.');
+  process.exit(2);
+}
+// The test guard leaves the network open under these two; never here.
+for (const name of ['LINK_CHECK', 'EARNKIT_MODEL_TEST'])
+  if (process.env[name] !== undefined) {
+    console.error(`Refusing: ${name} is set, and it would open the network. Unset it.`);
+    process.exit(2);
+  }
+delete process.env.LINK_CHECK;
+delete process.env.EARNKIT_MODEL_TEST;
 const walk = (process.env.WALK ?? 'A').toUpperCase();
 if (walk !== 'A' && walk !== 'B') {
   console.error('WALK must be A or B.');
@@ -43,12 +60,9 @@ process.env.EARNKIT_AUTH_SECRET ??= 'converse-replay-secret';
 process.env.EARNKIT_URL ??= 'https://earnkit.com';
 
 const { sql } = await import('../lib/earnkit/db');
-const { conversation, gateFailures, transcript } = await import('../lib/earnkit/fixtures/converse');
+const { conversation, gateFailures, lazyNext, transcript } = await import('../lib/earnkit/fixtures/converse');
 const { saveInstallation, connectInstallation } = await import('../lib/earnkit/installations');
 const { PUSHED_ASK } = await import('../lib/earnkit/bench-find');
-const { CODES_OFFER, GAP_GO, GAP_FIRST_ASK, GAP_HELP_ASK, GAP_HELP_ASK_ONE, GAP_DO_IT_ASK } = await import('../lib/earnkit/conversation');
-/** The asks whose yes is real work in the builder's repo or accounts (the agent does it, or helps them do it). */
-const WORK_ASKS = [CODES_OFFER, GAP_GO, GAP_FIRST_ASK, GAP_HELP_ASK, GAP_HELP_ASK_ONE, GAP_DO_IT_ASK];
 type Reply = import('../lib/earnkit/fixtures/converse').Reply;
 type Turn = import('../lib/earnkit/fixtures/converse').Turn;
 
@@ -57,25 +71,7 @@ const BLANKS = 'just me, nothing raised';
 const replies: Reply[] = [];
 const notes: string[] = [];
 
-type MoveUp = { kind: string; project_key: string | null; [k: string]: unknown };
-const moveUpOf = (r: Reply) => (r.reply?.move_up as MoveUp | undefined) ?? null;
-const lastPara = (r: Reply) => r.show.split(/\n\s*\n/).at(-1)?.trim() ?? '';
-
-/**
- * The lazy agent's next turn from the reply's structured ask: the reply's own word ("sent", the blanks) or a yes to
- * its move_up; null when the reply asks for nothing EarnKit can take, or the step is real work outside EarnKit.
- */
-function next(r: Reply): Turn | 'real_work' | null {
-  const m = moveUpOf(r);
-  const end = lastPara(r);
-  if (end.includes(PUSHED_ASK)) return 'real_work';
-  if (!m) return null;
-  const ask = { kind: m.kind, project_key: m.project_key ?? null };
-  if (/\bReply "sent"/i.test(end)) return { says: 'sent', tell: { move_up: { ...ask, answer: 'sent' } } };
-  if (/\bReply with (?:both|them|it)\b/i.test(end)) return { says: BLANKS, tell: { move_up: { ...ask, answer: 'yes', blanks: BLANKS } } };
-  if (/\?\s*[^?]*$/.test(end) || /\bsay ok\b/i.test(end)) return { says: replies.length === 1 ? 'sure' : 'ok', tell: { move_up: { ...ask, answer: 'yes' } } };
-  return null;
-}
+const moveUpOf = (r: Reply) => (r.reply?.move_up as { kind?: string } | undefined) ?? null;
 
 async function own(id: number) {
   const [r] = await sql()<{ b: number | null; s: boolean }[]>`SELECT builder_id AS b, shared_client AS s FROM installations WHERE id = ${id}`;
@@ -93,24 +89,20 @@ async function walkA() {
     return r;
   };
   let r = await play({ find: {} });
-  // The first session: at most 8 lazy replies, until real work or nothing to answer. A yes to a work ask is played
-  // once (EarnKit's reply tells the agent to do it); the work itself can't be done here, so the session ends after it.
-  for (let i = 0; r && i < 8; i++) {
-    const t = next(r);
+  // The first session: at most 10 lazy replies (lazyNext: each reply's own structured ask), until a push the replay
+  // can't make or nothing to answer. A help step's "ok" is played as not done yet (the builder never does it here), so
+  // EarnKit re-checks, says so once, then moves to the next program.
+  for (let i = 0; r && i < 10; i++) {
+    const t = lazyNext(r, { blanks: BLANKS, pushed: PUSHED_ASK });
     if (t === 'real_work') {
-      notes.push(`turn ${r.turn}: real work offered (${moveUpOf(r)?.kind ?? 'a step'}); the replay can't push to the repo, so the session ends here, not done yet.`);
+      notes.push(`turn ${r.turn}: real work (${moveUpOf(r)?.kind ?? 'a step'}): the agent pushes a change to the repo, which the replay can't do; the session ends here, not done yet.`);
       break;
     }
     if (!t) {
       notes.push(`turn ${r.turn}: nothing structured to answer; the session ends here.`);
       break;
     }
-    const work = WORK_ASKS.some((a) => lastPara(r!).endsWith(a));
-    r = await play(t);
-    if (work && r) {
-      notes.push(`turn ${r.turn}: the yes to a step that is real work (${moveUpOf(r)?.kind ?? 'a step'}); the replay can't do it, so the session ends here, not done yet.`);
-      break;
-    }
+    r = await play(replies.length === 1 && t.says === 'ok' ? { ...t, says: 'sure' } : t);
   }
   // Silence, then a new session two days later.
   await play({ wait: 2 * DAY });

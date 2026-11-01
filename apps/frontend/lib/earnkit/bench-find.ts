@@ -74,7 +74,7 @@ import { DECLINE_MS, draftedRecently } from './policy-constants';
 import { closeDay, programZone, zoneAbbr } from './deadline';
 import type { ProgramRow as ProgramFileRow } from './programs';
 import {
-  MENTOR_NOTE, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, pickHook, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, type OpenerProgram, type MoveCtx, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProof, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofLine, markSaid, pathReply, programName, readPath, saidSql, sessionOf,
+  MENTOR_NOTE, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, pickHook, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, type OpenerProgram, type MoveCtx, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProofOf, helpReply, helpNotYet, helpParked, HELP_DONE_ASK, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofOf, markSaid, pathReply, programName, readPath, saidSql, sessionOf,
   ANSWERED_FIRST, ASK_SAID, PROGRAMS_AGAIN, fitCell, fitOrder, grantFact, programsAnswer, standingAgain, standingAnswer, standingSaid, whatItIs, type GrantFact, type GrantRow, type InvestorRow, type StandingFacts,
   type GapStep,
   type GapGrant, type InvestorProgram, type Move, type MoveProgram, type Path,
@@ -231,6 +231,8 @@ export type Seen = StandSeen & {
     blanks?: string[];
     /** v4.8 Task 2 fix round 3 (5): the gap ask behind "I'm checking the code now": its yes re-checks. */
     checking?: boolean;
+    /** Task 6 fix round 1 (review 1): the help yes's done ask ("Say ok once it's done"); `checks`, the oks since it. */
+    help?: boolean; checks?: number;
     /** v4.8 Task 2 (kind 'check_fits' on the path): the project's name, for the gap stage's steps. */
     name?: string;
     /** v4.8 Task 3 (kind 'apply' on the path): the submit ask; its yes is "sent" (tools.ts tell, submitAsked). */
@@ -791,7 +793,9 @@ async function pathCommit(
   const session = sessionOf(read.seen, now);
   // Task 2 (F3, as before v4.8): what the caller's agent can do (agent-reach.ts); a hosted one does no step itself.
   const hosted = (o.reach ?? (await agentReach(o.own, id))).hosted;
-  const out = pathReply({ now, first: first === 'there' ? null : first, project: { name: v.project.name, live: v.project.live || v.siteLive }, streak: v.streak, move, said: session.said, hosted, steps, brief: o.brief === true });
+  // Task 6 fix round 1 (review 4): Base's remaining steps, for its fact when the streak and live were said this session.
+  const baseSteps = move.program.id === BASE_GRANTS_ID ? (extra.get(move.program.id)?.qualify?.steps ?? null) : null;
+  const out = pathReply({ now, first: first === 'there' ? null : first, project: { name: v.project.name, live: v.project.live || v.siteLive }, streak: v.streak, move, said: session.said, hosted, steps, brief: o.brief === true, baseSteps });
   const fit = fitRows.find((f) => f.program_id === out.program_id);
   const more = extra.get(out.program_id);
   // `path`: a no to it also parks the program for the path ('path:<id>', DECLINE_MS): never asked again this session.
@@ -956,11 +960,20 @@ async function pathGapCommit(o: ViewIn, plan: PathPlan & { move: Exclude<Move, {
     : { kind: 'check_fits', key, program_id: pid, program: move.program.title, needs: more?.needs ?? [], name: v.project.name, path: true, gap: true };
   const { title, steps } = await gapStepsOf(stored);
   if (steps.length === 0) return null;
-  const proof = o.brief ? null : gapProof({ name: v.project.name, live: v.project.live || v.siteLive }, v.streak, more?.qualify ? more.qualify.steps : null);
-  const out = gapStillReply(title, steps, hosted, proof);
+  // Task 6 fix round 1 (review 1): after the help yes ("Say ok once it's done"), the done ask stays: before an ok, the
+  // step with that ask; after one (`checks`), "Not done yet: ...".
+  const helping = read.seen.bench_ask?.help === true && read.seen.bench_ask.program_id === pid ? read.seen.bench_ask : null;
+  if (helping) Object.assign(stored, { help: true, checking: true, checks: helping.checks ?? 0 });
+  const said = sessionOf(read.seen, now).said;
+  // Task 6 fix round 1 (review 4): one proof a session per fact.
+  const proof = o.brief || helping ? null : gapProofOf({ name: v.project.name, live: v.project.live || v.siteLive }, v.streak, more?.qualify ? more.qualify.steps : null, said);
+  const still = gapStillReply(title, steps, hosted, proof?.line ?? null);
+  const out = !helping ? still
+    : (helping.checks ?? 0) > 0 ? { show_to_builder: helpNotYet(steps[0]), reply: 'help' as const }
+      : { show_to_builder: `${still.show_to_builder.replace(/ Want (?:help with it|me to do it) now\?$/, '')} ${HELP_DONE_ASK}`, reply: 'help' as const };
   const nextPath: Path = { stage: 'gap', program_id: pid, at: now.toISOString(), ...(plan.path?.picked && { picked: true as const }) };
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
-      || jsonb_build_object('path', ${sql().json(nextPath as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb, 'said', ${saidSql([], now)})
+      || jsonb_build_object('path', ${sql().json(nextPath as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb, 'said', ${saidSql(proof?.keys ?? [], now)})
     WHERE builder_id = ${id}`.catch(logged('path gap'));
   const kind = stored.kind as BenchAskKind;
   const note = kind === 'qualify' ? QUALIFY_NOTE : CHECK_FITS_ASK_NOTE;
@@ -1010,7 +1023,9 @@ async function pathClosedCommit(o: ViewIn, plan: PathPlan & { closed: NonNullabl
   const saidKey = `closed:${pid}`;
   const again = sessionOf(read.seen, now).said.has(saidKey);
   // Fix round 1 (T2-6): one proof line (Base closed: every step met, so live on Base).
-  const proof = o.brief ? null : gapProof({ name: v.project.name, live: v.project.live || v.siteLive }, v.streak, closed.program.id === BASE_GRANTS_ID ? [] : null);
+  // Task 6 fix round 1 (review 4): one proof a session per fact.
+  const proofOut = o.brief ? null : gapProofOf({ name: v.project.name, live: v.project.live || v.siteLive }, v.streak, closed.program.id === BASE_GRANTS_ID ? [] : null, sessionOf(read.seen, now).said);
+  const proof = proofOut?.line ?? null;
   // Task 3: a fresh session with something changed (target A, "Two days later"): what changed, the program still open
   // and its gap closed, then the draft offer.
   const show = since ? `${since} ${stillOpenLine(closed.program.title, closed.codes)}\n\n${DRAFT_NOW_ASK}`
@@ -1018,7 +1033,7 @@ async function pathClosedCommit(o: ViewIn, plan: PathPlan & { closed: NonNullabl
   const stored = { kind: 'apply', key, program_id: pid, path: true };
   const nextPath: Path = { stage: 'draft', program_id: pid, at: now.toISOString(), ...(plan.path?.picked && plan.path.program_id === pid && { picked: true as const }) };
   await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) - 'gap_did')
-      || jsonb_build_object('path', ${sql().json(nextPath as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb, 'said', ${saidSql(again ? [] : [saidKey], now)})
+      || jsonb_build_object('path', ${sql().json(nextPath as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb, 'said', ${saidSql(again ? [] : [saidKey, ...(since ? [] : (proofOut?.keys ?? []))], now)})
     WHERE builder_id = ${id}`.catch(logged('path closed'));
   const view: BenchView = {
     state: v.state, variant: v.variant, project: v.project, rank: read.ranks.bench, streak: v.streak, target: null, handle: v.handle, link: null,
@@ -2587,11 +2602,13 @@ export const GAP_DO_NOTE =
   'Never tell them they qualify or that an application was sent.';
 /** v4.8 Task 2: the gap step's yes for an agent with no folder of the code (agent-reach.ts hosted). */
 export const GAP_HELP_NOTE_HOSTED =
-  'The builder said yes to help with the first step listed: walk them through it in short plain steps they can do themselves (follow the guide linked), then call find once they say it is done. ' +
+  'The builder said yes to help with the first step listed: walk them through it in short plain steps they can do themselves (follow the guide linked). ' +
+  "When they say it is done (ok), call tell with move_up: { kind, project_key, answer: 'yes' } (as given in move_up) so EarnKit checks it. " +
   'Never tell them they qualify or that an application was sent.';
 /** v4.8 Task 2: the gap step's yes when no step is one the agent can do in the repo (a chain deployment, a sign-in). */
 export const GAP_HELP_NOTE =
-  'The builder said yes to help with the first step listed: help them with it now, here (follow the guide linked), then call find once it is done. ' +
+  'The builder said yes to help with the first step listed: help them with it now, here (follow the guide linked). ' +
+  "When they say it is done (ok), call tell with move_up: { kind, project_key, answer: 'yes' } (as given in move_up) so EarnKit checks it. " +
   'Never tell them they qualify or that an application was sent.';
 /** v4.8 Task 2: a step programNeeds names ("on Arc mainnet", "in a public repo", "live at a link") as a line. Pure. */
 const needStep = (name: string, need: string) => `${need === 'in a public repo' ? 'Put' : 'Get'} ${name} ${need}.`;
@@ -2621,12 +2638,18 @@ async function gapStepsOf(asked: Pick<NonNullable<Seen['bench_ask']>, 'kind' | '
   };
 }
 /** Fix round 1 (T2-6): the gap reply's proof line on tell (no find read in hand): the streak and live read now. Never throws. */
-async function gapProofNow(id: number, asked: NonNullable<Seen['bench_ask']>, now: Date): Promise<string | null> {
+async function gapProofNow(id: number, asked: NonNullable<Seen['bench_ask']>, now: Date): Promise<{ line: string; keys: string[] } | null> {
+  // Task 6 fix round 1 (review 4): one proof a session per fact (this session's parts said).
+  const [row] = await sql()<{ seen: Seen | null }[]>`SELECT standing_seen AS seen FROM builder_profiles WHERE builder_id = ${id}`.catch(() => []);
+  const said = sessionOf(row?.seen ?? {}, now).said;
   const base = asked.kind === 'qualify' && asked.qualify?.steps?.length ? asked.qualify.steps : null;
-  if (base && !base.includes('base')) return gapProof({ name: '', live: false }, 0, base);
+  if (base && !base.includes('base')) {
+    const b = gapProofOf({ name: '', live: false }, 0, base, said);
+    if (b) return b;
+  }
   const name = asked.qualify?.name ?? asked.name ?? '';
   const [streak, live] = await Promise.all([streakOfBuilder(id, now).catch(() => 0), asked.key ? liveOrUsersKnown(id, asked.key) : Promise.resolve(false)]);
-  return name ? proofLine({ name, live }, streak, false) : null;
+  return name ? proofOf({ name, live }, streak, false, said) : null;
 }
 
 async function gapYes(ctx: Pick<ToolContext, 'ownInstallationId'>, id: number, asked: NonNullable<Seen['bench_ask']>, now: Date): Promise<Reply> {
@@ -2634,11 +2657,13 @@ async function gapYes(ctx: Pick<ToolContext, 'ownInstallationId'>, id: number, a
   const hosted = (await agentReach(ctx.ownInstallationId ?? id, id)).hosted;
   const { title, steps } = await gapStepsOf(asked);
   if (steps.length === 0) return { show_to_builder: NOTED_LINE };
-  const g = gapReply(title, steps, hosted, await gapProofNow(id, asked, now));
+  const proof = await gapProofNow(id, asked, now);
+  const g = gapReply(title, steps, hosted, proof?.line ?? null);
   const stored = { ...asked, gap: true, ...(asked.qualify && { qualify: { ...asked.qualify, hosted } }) };
   const path: Path = { stage: 'gap', program_id: pid, at: now.toISOString() };
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
       || jsonb_build_object('path', ${sql().json(path as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb)
+      || CASE WHEN ${(proof?.keys.length ?? 0) > 0} THEN jsonb_build_object('said', ${saidSql(proof?.keys ?? [], now)}) ELSE '{}'::jsonb END
     WHERE builder_id = ${id}`.catch(logged('gap'));
   const note = asked.kind === 'qualify' ? QUALIFY_NOTE : CHECK_FITS_ASK_NOTE;
   return { show_to_builder: g.show_to_builder, agent_note: withMentor(note), move_up: { kind: asked.kind, project_key: asked.key, agent_note: note } };
@@ -2661,6 +2686,21 @@ async function gapDoYes(ctx: Pick<ToolContext, 'ownInstallationId'>, id: number,
         COALESCE(standing_seen->'gap_did', '{}'::jsonb) || jsonb_build_object(${asked.program_id!}::text, ${now.toISOString()}::text)) - 'gap_check_failed')
         || jsonb_build_object('path', ${sql().json(path as never)}::jsonb)
       WHERE builder_id = ${id}`.catch(logged('gap did'));
+  // Task 6 fix round 1 (review 1): an ok to the help yes's "Say ok once it's done": a re-check (find, run in this tell,
+  // says "Not done yet" once); not done after a second check, the program waits (parked like a no) and the path moves on.
+  if (asked.help === true) {
+    if (asked.kind === 'qualify' && asked.program_id === BASE_GRANTS_ID) await stamp();
+    const checks = (asked.checks ?? 0) + 1;
+    if (checks >= 2) {
+      const park = { [benchStepKey('path', asked.program_id!)]: now.toISOString() };
+      await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{declined}',
+          COALESCE(standing_seen->'declined', '{}'::jsonb) || ${sql().json(park as never)}::jsonb) - 'bench_ask'
+        WHERE builder_id = ${id}`.catch(logged('help park'));
+      return { show_to_builder: helpParked(asked.program ?? asked.qualify?.grant.name ?? 'this program'), then_find: true };
+    }
+    await storeAsk(id, { ...asked, checks });
+    return { show_to_builder: '', then_find: true };
+  }
   // Fix round 3 (5): "ok" to "I'm checking the code now": check again on the next find, never add the codes again.
   if (asked.checking === true) {
     await stamp();
@@ -2676,13 +2716,25 @@ async function gapDoYes(ctx: Pick<ToolContext, 'ownInstallationId'>, id: number,
     return {
       show_to_builder: `${qualifyCodesYes(q.name, q.codes_missing !== false)}\n\n${PUSHED_ASK}`,
       agent_note: withMentor(`${codesNote.replace(/\s*Don't show this note\.$/, '')} ${GAP_DO_NOTE}`),
+      // Task 6 fix round 1 (review 5): the stored re-check ask, structured (its ok is this kind's yes).
+      move_up: { kind: asked.kind, project_key: asked.key, agent_note: QUALIFY_NOTE },
     };
   }
   if (!(asked.kind === 'qualify' && asked.program_id === BASE_GRANTS_ID))
     await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('path', ${sql().json(path as never)}::jsonb)
       WHERE builder_id = ${id}`.catch(logged('gap help'));
-  // Task 4 fix round 1 (3): the help (the agent walks them through it) with find's reply, run in the same tell.
-  return { show_to_builder: '', agent_note: withMentor(hosted ? GAP_HELP_NOTE_HOSTED : GAP_HELP_NOTE), then_find: true };
+  // Task 6 fix round 1 (review 1): the help (the agent helps, or walks them through it) gets its own reply, the first
+  // step and its guide, then "Say ok once it's done", stored as the re-check ask (help: its ok checks the step again).
+  const { steps } = await gapStepsOf(asked);
+  const step = steps[0];
+  if (!step) return { show_to_builder: '', agent_note: withMentor(hosted ? GAP_HELP_NOTE_HOSTED : GAP_HELP_NOTE), then_find: true };
+  await storeAsk(id, { ...asked, gap: true, help: true, checking: true, checks: 0 });
+  const note = asked.kind === 'qualify' ? QUALIFY_NOTE : CHECK_FITS_ASK_NOTE;
+  return {
+    show_to_builder: helpReply(step),
+    agent_note: withMentor(hosted ? GAP_HELP_NOTE_HOSTED : GAP_HELP_NOTE),
+    move_up: { kind: asked.kind, project_key: asked.key, agent_note: note },
+  };
 }
 
 /** Fix round 2 (F7, F8): what every draft note says about the record and the guard. Pure. */

@@ -221,10 +221,22 @@ const weeks = (n: number) => `${n} ${n === 1 ? 'week' : 'weeks'}`;
  * investor program it says why it matters to them. Pure.
  */
 export function proofLine(p: { name: string; live: boolean }, streak: number, investor: boolean): string | null {
-  const parts = [streak > 0 ? `You've shipped ${weeks(streak)} in a row` : null, p.live ? `${p.name} is live` : null].filter((x): x is string => x !== null);
-  if (parts.length === 0) return null;
-  const line = parts.length === 2 ? `${parts[0]} and ${parts[1]}` : parts[0];
-  return `${line}${investor ? ', which is the traction they ask about' : ''}.`;
+  return proofOf(p, streak, investor, new Set())?.line ?? null;
+}
+/** A proof line and the facts it says, as session parts (`proof:streak=6`, `proof:live=earnkit`, `proof:base=live`). */
+export type Proof = { line: string; keys: string[] };
+/**
+ * Task 6 fix round 1 (review 4, 10): proofLine's facts not said this session (`said`), keyed on the facts, never the
+ * wording, so the same fact is said once a session however it is worded. A streak under 2 weeks is no proof. Pure.
+ */
+export function proofOf(p: { name: string; live: boolean }, streak: number, investor: boolean, said: ReadonlySet<string>): Proof | null {
+  const facts = [
+    streak >= 2 ? { key: `proof:streak=${streak}`, text: `You've shipped ${weeks(streak)} in a row` } : null,
+    p.live && p.name ? { key: `proof:live=${p.name.toLowerCase()}`, text: `${p.name} is live` } : null,
+  ].filter((f): f is { key: string; text: string } => f !== null && !said.has(f.key));
+  if (facts.length === 0) return null;
+  const line = facts.length === 2 ? `${facts[0].text} and ${facts[1].text}` : facts[0].text;
+  return { line: `${line}${investor ? ', which is the traction they ask about' : ''}.`, keys: facts.map((f) => f.key) };
 }
 
 /** The hook's easy replies: a draft (fit, investor) or the steps (a grant with a gap). */
@@ -250,6 +262,11 @@ export type PathCtx = {
    * application is the next move. Want me to start?"), never the hook's money and proof again; the hook counts as said.
    */
   brief?: boolean;
+  /**
+   * Task 6 fix round 1 (review 4): Base's remaining steps when the move is Base's grant (gapProofOf): its fact is the
+   * hook's proof once the streak and live facts were said this session.
+   */
+  baseSteps?: readonly string[] | null;
 };
 /** Fix round 2 (F10): a local agent's offer for a grant whose one gap is Builder Codes (target A). */
 export const CODES_OFFER = 'I can add them and push the change, about 10 minutes. Go?';
@@ -287,9 +304,9 @@ export function pathReply(c: PathCtx): PathReply {
     const point = reply === 'start' ? `Your ${name} application is ${still}the next move.` : reply === 'go' ? `Builder Codes are ${still}the one step to ${name}.` : `${name} is ${still}your closest money.`;
     return { stage: 'hook', program_id: p.id, show_to_builder: `${point} ${ask}`, said: still ? [] : [hookKey, `money:${p.id}`], reply };
   }
-  const proof = proofLine(c.project, c.streak, p.investment);
-  const proofKey = proof ? `proof:${proof}` : null;
-  const proofSaid = proofKey !== null && c.said.has(proofKey);
+  // Task 6 fix round 1 (review 4): one proof a session per fact; with the streak and live said, Base's own fact.
+  const proofOut = proofOf(c.project, c.streak, p.investment, c.said) ?? (c.baseSteps ? baseProof(c.baseSteps, c.said) : null);
+  const proof = proofOut?.line ?? null;
   const dated = p.ends_at !== null && p.when !== 'rolling';
   const closes = dated ? closeWords(p.ends_at!, p.zone, c.now) : null;
   const hi = c.first ? `${c.first}, ` : '';
@@ -304,12 +321,12 @@ export function pathReply(c: PathCtx): PathReply {
     // Task 3: a passed step raised (its one gap, once: path_raised) says so, once (target A).
     if (m.kind === 'closest' && m.raise) money += ` ${passedLine(g.passedAt ?? null, c.now, g.gaps.length === 1 && g.gaps[0] === 'codes')}`;
   }
-  const first = [money, proof && !proofSaid ? proof : null].filter(Boolean).join(' ');
+  const first = [money, proof].filter(Boolean).join(' ');
   const second = reply === 'start' ? draftOffer(c.project.live) : ask;
   return {
     stage: 'hook', program_id: p.id,
     show_to_builder: `${first}\n\n${second}`,
-    said: [hookKey, `money:${p.id}`, ...(proofKey && !proofSaid ? [proofKey] : [])],
+    said: [hookKey, `money:${p.id}`, ...(proofOut?.keys ?? [])],
     reply,
   };
 }
@@ -370,6 +387,19 @@ export function gapStillReply(program: string, steps: GapStep[], hosted: boolean
   const line = `Still on ${programName(program)}: ${text.charAt(0).toLowerCase()}${text.slice(1)}.${step.link ? ` Guide: ${step.link}` : ''}`;
   return { show_to_builder: [line, proof, reply === 'go' ? GAP_DO_IT_ASK : GAP_HELP_ASK_ONE].filter(Boolean).join(' '), reply };
 }
+
+/** Task 6 fix round 1 (review 1): the help yes's one easy reply; its ok re-checks the step. */
+export const HELP_DONE_ASK = "Say ok once it's done, and I'll check it.";
+const helpStepWords = (s: GapStep) => {
+  const t = s.text.replace(/\.$/, '');
+  return `${t.charAt(0).toLowerCase()}${t.slice(1)}`;
+};
+/** The yes to "Want help with it now?": "Let's do it now: {step}. Guide: {link}", then HELP_DONE_ASK. Pure. */
+export const helpReply = (step: GapStep) => `Let's do it now: ${helpStepWords(step)}.${step.link ? ` Guide: ${step.link}` : ''}\n\n${HELP_DONE_ASK}`;
+/** An ok to HELP_DONE_ASK with the step still not done: one different line, the same ask. Pure. */
+export const helpNotYet = (step: GapStep) => `Not done yet: ${helpStepWords(step)}. ${HELP_DONE_ASK}`;
+/** Not done after a second check: the program waits (parked), and the path moves on. Pure. */
+export const helpParked = (title: string) => `I'll keep ${programName(title)} for when it's done.`;
 
 /** The draft offer once a grant's last gap is closed: "Want me to draft the Base application next?". */
 export const draftNextAsk = (org: string) => `Want me to draft the ${org} application next?`;
@@ -451,8 +481,17 @@ export function draftBlanks(
  * (and for another grant) proofLine's streak and live line. Null with nothing known. Pure.
  */
 export function gapProof(p: { name: string; live: boolean }, streak: number, baseSteps: readonly string[] | null): string | null {
-  if (baseSteps && !baseSteps.includes('base')) return baseSteps.includes('use') ? "You're on Base." : "You're live on Base.";
-  return proofLine(p, streak, false);
+  return gapProofOf(p, streak, baseSteps, new Set())?.line ?? null;
+}
+/** Base's own fact, unless said this session: every step met but codes, "You're live on Base."; only Base's met, "You're on Base.". */
+function baseProof(baseSteps: readonly string[], said: ReadonlySet<string>): Proof | null {
+  if (baseSteps.includes('base')) return null;
+  const [key, line] = baseSteps.includes('use') ? ['proof:base=on', "You're on Base."] : ['proof:base=live', "You're live on Base."];
+  return said.has(key) ? null : { line, keys: [key] };
+}
+/** Task 6 fix round 1 (review 4): gapProof with its facts keyed and those said this session left out (proofOf). Pure. */
+export function gapProofOf(p: { name: string; live: boolean }, streak: number, baseSteps: readonly string[] | null, said: ReadonlySet<string>): Proof | null {
+  return (baseSteps ? baseProof(baseSteps, said) : null) ?? proofOf(p, streak, false, said);
 }
 
 /*
@@ -578,7 +617,8 @@ export function sinceLine(f: SinceFacts, now: Date): string | null {
 }
 
 /** The fresh session's draft offer once the path's gap is closed (target A, "Two days later", exact ask). */
-export const DRAFT_NOW_ASK = 'Draft it now? It takes me a few minutes.';
+/** Task 6 fix round 1 (review 2): target A's offer, its question last (the easy reply ends the message). */
+export const DRAFT_NOW_ASK = 'It takes me a few minutes. Draft it now?';
 /** "Base Builder Grant is still open and you now meet its first requirement." (the closed gap, in a fresh session). Pure. */
 export const stillOpenLine = (title: string, codes: boolean) =>
   `${programName(title)} is still open${codes ? ' and you now meet its first requirement' : ' and its steps are done'}.`;
