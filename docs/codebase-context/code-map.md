@@ -1219,7 +1219,8 @@ apps/frontend/
                                then "Builder bonus: <pool> · ends <Mon D> · <leaderboard>", or the
                                one step that joins, or the no-wallet line; M4: a coin not launched
                                yet joins once it is; M1: REPO_HELD), noCoinYet (the agent's
-                               no-wallet note, "by <Mon D>"), roundEndLabel/summaryCloses/
+                               no-wallet note, "by <Mon D>"), v4.8.2 Task 3: closesIn/summaryIn/withClosesIn/endsCell (an agent's
+                               program object: closes_in and "closes in N hours" under 48 h), roundEndLabel/summaryCloses/
                                deadlineDay (Ruling 29: one round date everywhere, the first
                                message's; v2.8.1 §C15: a program deadline in its own time zone,
                                "Oct 14, 11:59 PM ET", from the summary, else deadlineLabel in UTC), boardLink (earnkit.com/bonus/<boardSlug>), shortWallet;

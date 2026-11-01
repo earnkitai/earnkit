@@ -8967,6 +8967,16 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
   (48 hours), not in the path's skip (applied, declined, parked, drafted) or `led` (the reply's program, and the stored
   path's only when picked or past the hook, R-4), soonest first, one per programName (two "Arc Microgrants" rounds: the
   sooner), at most CLOSING_SOON_MAX (2). Still once a session under `money:total`. Tests: v482-fixes.test.ts.
+- **v4.8.2 Task 3 (R4), agents get hours left.** Every program object in an MCP tool's structured output says the time
+  left, never a program-zone day an agent might repeat to a builder in another zone. entry-text.ts `closesIn(c, now)`
+  (hoursLeft words under 48 hours, else null; null for rolling or no ends_at), `summaryIn(summary, left)` (the close part
+  after " · " that starts with "closes" becomes "closes in 14 hours"), `withClosesIn(p, now)` and `endsCell(c, now?)`.
+  tools.ts `agentPrograms(programs, now)` builds find's `programs` (both the Bench and the v2.11 branches of
+  list_programs) with `closes_in` and the hours-left summary; `deadline` stays ISO. get_program adds `closes_in` (from its
+  ISO deadline). guide.ts programGuide's header reads "ends in 14 hours" under 48 hours; present.ts tables' "Ends" cell
+  (fullProgramTable, the matched and open tables) use endsCell with the message's `now`. Unchanged: site pages (app/),
+  emails, also_qualifies `ends` (alsoQualifies already drops programs ending within 2 days), internal `summary` reads
+  (programCard, alsoProgramFacts, upsertProgram). Tests: v482-fixes.test.ts.
 - **Parked 5 and 6.** The Stripe pattern is "a digit and 16+ characters, or 24+ characters". The draft-ready pointer
   stores `readyStored` (the program's own ask, else the blanks ask with none left, never `{}`), and `pathDrafted` counts a
   draft yes only within DECLINE_MS (draftedRecently).

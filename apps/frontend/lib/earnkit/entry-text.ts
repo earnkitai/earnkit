@@ -1,6 +1,6 @@
 import { payoutBy, prizeUsdEach, usd, type CampaignConfig } from './campaigns';
 import { shortDate } from './dates';
-import { closeDay, programZone, zoneAbbr, zoneParts } from './deadline';
+import { closeDay, hoursLeft, programZone, zoneAbbr, zoneParts } from './deadline';
 
 /** EarnKit's public origin for links in builder text. */
 export const siteUrl = () => (process.env.EARNKIT_URL ?? 'https://earnkit.com').replace(/\/$/, '');
@@ -90,6 +90,39 @@ export function endsOf(c: { summary: string; tz?: string | null; ends_at?: Date 
   if (c.summary.split(' · ').slice(1).includes('rolling')) return 'rolling';
   return c.ends_at ? deadlineLabel(c.ends_at, programZone(c)) : 'rolling';
 }
+
+/**
+ * v4.8.2 Task 3 (R4): a program's `closes_in` for an agent: the time left as hoursLeft says it ("in 14 hours", "in
+ * under an hour") under 48 hours; null 48 hours or more out, already passed, rolling or without ends_at. The same in
+ * every zone, so an agent never repeats a program-zone day to a builder elsewhere. Pure.
+ */
+export function closesIn(c: { summary: string; ends_at?: Date | string | null }, now: Date): string | null {
+  if (!c.ends_at || c.summary.split(' · ').slice(1).includes('rolling')) return null;
+  return hoursLeft(new Date(c.ends_at).toISOString(), now);
+}
+
+/**
+ * v4.8.2 Task 3 (R4): the summary an agent gets: with a `closes_in`, its close part (a part after " · " that starts
+ * with "closes") reads "closes {closes_in}" ("500 USDC × 8 grants · closes in 14 hours"); else the summary as is. Pure.
+ */
+export function summaryIn(summary: string, left: string | null): string {
+  if (!left) return summary;
+  const [prize, ...parts] = summary.split(' · ');
+  return [prize, ...parts.map((p) => (/^closes\b/.test(p.trim()) ? `closes ${left}` : p))].join(' · ');
+}
+
+/**
+ * v4.8.2 Task 3 (R4): a program object as an agent gets it: `closes_in` added and the summary's close part in hours
+ * under 48 hours; `deadline` (ISO) and every other field unchanged. Pure.
+ */
+export function withClosesIn<T extends { summary: string; ends_at?: Date | string | null }>(p: T, now: Date): T & { closes_in: string | null } {
+  const left = closesIn(p, now);
+  return { ...p, summary: summaryIn(p.summary, left), closes_in: left };
+}
+
+/** v4.8.2 Task 3 (R4): an "Ends" table cell: with `now`, the hours left under 48 hours ("in 14 hours"), else endsOf. Pure. */
+export const endsCell = (c: { summary: string; tz?: string | null; ends_at?: Date | null }, now?: Date) =>
+  (now && closesIn(c, now)) || endsOf(c);
 
 /**
  * The last day of an exclusive end, in UTC: an end at 00:00 UTC is the day before ("Oct 31" for

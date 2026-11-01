@@ -17,7 +17,12 @@ import type { RepoFit } from './present';
 import { isoWeekOf } from './weeks';
 import { MORE_ASK, closingPrograms, codesSettled } from './bench-find';
 import { GitHubBudgetStop, type ReaderDeps } from './source-readers';
-import { dropRunPrograms } from './fixtures/programs-cleanup';
+import { dropPrograms, dropRunPrograms } from './fixtures/programs-cleanup';
+import { ProgramFile } from './program-file';
+import { upsertProgram } from './programs';
+import { closesIn, endsCell, summaryIn } from './entry-text';
+import { programGuide } from './guide';
+import { fullProgramTable } from './present';
 
 /*
  * v4.8.2 Task 1 (R1, R2): the owner's dogfood of v4.8.1. The reasoned pointer is followed by "more" (no short
@@ -182,4 +187,97 @@ test('v4.8.2 R3: a program 50 hours out is not named; at most 2; never upcoming,
   // Two rounds with one name: the sooner only, then the next program.
   const twice = [...ownerCards(), fileCard('arc-microgrants-studio', 16.5, { id: 'arc-round-2' })];
   assert.deepEqual(closingPrograms(twice, NOW, new Set(), none).map((p) => p.id), ['arc-microgrants-studio', 'a16z-speedrun']);
+});
+
+/*
+ * v4.8.2 Task 3 (R4): every program object an agent gets says the hours left under 48 hours (closes_in), and its
+ * summary's close part says it too, so no agent repeats a program-zone day ("Nov 1, 11:59 PM ET") to a builder elsewhere.
+ */
+const ARC_SUMMARY = '500 USDC × 8 grants · closes Nov 1, 11:59 PM ET';
+const inH = (h: number) => new Date(NOW.getTime() + h * H);
+
+test('v4.8.2 R4: closesIn is the hours left under 48 hours, null after, for a rolling program or none', () => {
+  assert.equal(closesIn({ summary: ARC_SUMMARY, ends_at: inH(14.5) }, NOW), 'in 14 hours');
+  assert.equal(closesIn({ summary: ARC_SUMMARY, ends_at: inH(14.5).toISOString() }, NOW), 'in 14 hours');
+  assert.equal(closesIn({ summary: ARC_SUMMARY, ends_at: inH(0.5) }, NOW), 'in under an hour');
+  assert.equal(closesIn({ summary: ARC_SUMMARY, ends_at: inH(5 * 24) }, NOW), null);
+  assert.equal(closesIn({ summary: ARC_SUMMARY, ends_at: inH(-1) }, NOW), null);
+  assert.equal(closesIn({ summary: 'milestone-based USDC grants · rolling', ends_at: inH(3) }, NOW), null);
+  assert.equal(closesIn({ summary: ARC_SUMMARY, ends_at: null }, NOW), null);
+});
+
+test('v4.8.2 R4: summaryIn swaps only the close part; without hours left the summary stays', () => {
+  assert.equal(summaryIn(ARC_SUMMARY, 'in 14 hours'), '500 USDC × 8 grants · closes in 14 hours');
+  assert.equal(summaryIn('up to $1M · new projects · closes Nov 1, 11:59 PM PT', 'in 19 hours'), 'up to $1M · new projects · closes in 19 hours');
+  assert.equal(summaryIn(ARC_SUMMARY, null), ARC_SUMMARY);
+  // No close part: nothing to swap (closes_in still carries the time).
+  assert.equal(summaryIn('$50K in prizes · opens soon', 'in 3 hours'), '$50K in prizes · opens soon');
+  // The prize part is never touched, even when it starts with "closes".
+  assert.equal(summaryIn('closes fund · closes Nov 1', 'in 2 hours'), 'closes fund · closes in 2 hours');
+});
+
+test('v4.8.2 R4: the guide header and the "Ends" cell say the hours left under 48 hours, the zone day after', () => {
+  assert.equal(endsCell({ summary: ARC_SUMMARY, ends_at: inH(14.5) }, NOW), 'in 14 hours');
+  assert.equal(endsCell({ summary: ARC_SUMMARY, ends_at: inH(5 * 24) }, NOW), 'Nov 1, 11:59 PM ET');
+  assert.equal(endsCell({ summary: ARC_SUMMARY, ends_at: inH(14.5) }), 'Nov 1, 11:59 PM ET');
+  const file = committedProgram('arc-microgrants-studio');
+  const facts = (h: number) => ({ ...ProgramFile.parse({ ...file, ends_at: inH(h).toISOString(), status: 'active', starts_at: null }), opens_note: null, tz: null }) as never;
+  assert.match(programGuide(facts(14.5), NOW).header, / · ends in 14 hours$/);
+  assert.match(programGuide(facts(5 * 24), NOW).header, / · ends Nov 1, 11:59 PM ET$/);
+  const card = (h: number) => ({ id: `t3-${h}`, title: 'Arc Microgrants', summary: ARC_SUMMARY, ends_at: inH(h), tz: null, chains: ['arc'], any_chain: false, tracks: [], tag: null, max_award_usd: 500, builder_fields: 0, closes_in_days: 0 }) as unknown as Card;
+  const t = fullProgramTable({ cards: [card(14.5)], repos: null, entries: [], now: NOW } as never)!;
+  assert.match(t, /\| in 14 hours \|/, t);
+  assert.doesNotMatch(t, /Nov 1/, t);
+});
+
+/** A copy of Arc Microgrants Studio closing `h` hours from the real clock (the tools read new Date()). */
+async function arcCopy(tag: string, h: number) {
+  const id = `v482-${process.pid}-${tag}`;
+  await upsertProgram(ProgramFile.parse({ ...committedProgram('arc-microgrants-studio'), id, title: `Arc Hours ${tag} ${RUN}`, ends_at: new Date(Date.now() + h * H).toISOString(), status: 'active', starts_at: null }));
+  return id;
+}
+type AgentProgram = { id: string; summary: string; deadline: string; closes_in: string | null };
+const programsOf = (r: Record<string, unknown> | null) => (r?.programs ?? []) as AgentProgram[];
+
+test('v4.8.2 R4: a new builder\'s find: closes_in and the summary say "in 14 hours"; a 5-day program keeps its summary', db, async () => {
+  const soon = await arcCopy('soon', 14.5);
+  const far = await arcCopy('far', 5 * 24 + 0.5);
+  const t = `ek_v482_t3_${RUN}_${Math.random().toString(36).slice(2)}`;
+  await saveInstallation(t, undefined, false, 'Claude Code');
+  const c = (await connectInstallation(t))!;
+  const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, readerDeps: QUIET };
+  const r = (await mcpCall(ctx as never, 'find', {})).reply;
+  const ps = programsOf(r);
+  const s = ps.find((p) => p.id === soon)!;
+  const f = ps.find((p) => p.id === far)!;
+  assert.ok(s && f, JSON.stringify(ps.map((p) => p.id)));
+  assert.equal(s.closes_in, 'in 14 hours');
+  assert.equal(s.summary, '500 USDC × 8 grants · closes in 14 hours');
+  assert.match(s.deadline, /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal(f.closes_in, null);
+  assert.equal(f.summary, ARC_SUMMARY);
+  for (const p of ps) assert.ok('closes_in' in p, p.id);
+  // get_program (find with program_id): closes_in beside the ISO deadline, and the guide says the hours.
+  const g = (await mcpCall(ctx as never, 'find', { program_id: soon })).reply!;
+  assert.equal(g.closes_in, 'in 14 hours');
+  assert.match(String((g.guide as { text: string }).text), /ends in 14 hours/);
+  assert.doesNotMatch(String((g.guide as { text: string }).text), /Nov 1, 11:59 PM ET/);
+  assert.equal((await mcpCall(ctx as never, 'find', { program_id: far })).reply!.closes_in, null);
+  await dropPrograms([soon, far]);
+});
+
+test('v4.8.2 R4: the ranked builder\'s find (list_programs) carries closes_in and the hours-left summary', db, async () => {
+  const soon = await arcCopy('rsoon', 14.5);
+  const far = await arcCopy('rfar', 5 * 24 + 0.5);
+  const b = await ownerDb('t3r');
+  const r = (await mcpCall(b.ctx as never, 'find', {})).reply;
+  const ps = programsOf(r);
+  const s = ps.find((p) => p.id === soon);
+  const f = ps.find((p) => p.id === far);
+  assert.ok(s && f, JSON.stringify(ps.map((p) => p.id)));
+  assert.equal(s.closes_in, 'in 14 hours');
+  assert.equal(s.summary, '500 USDC × 8 grants · closes in 14 hours');
+  assert.equal(f.closes_in, null);
+  assert.equal(f.summary, ARC_SUMMARY);
+  await dropPrograms([soon, far]);
 });

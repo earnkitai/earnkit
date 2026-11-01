@@ -1,4 +1,4 @@
-import { endsOf, prizeOf } from './entry-text';
+import { closesIn, endsOf, prizeOf } from './entry-text';
 import { CHAIN_NAMES, effortOf, type Verdict } from './match';
 import type { PastRound } from './program-file';
 import type { ProgramRow } from './programs';
@@ -241,7 +241,8 @@ export function programGuide(
   // v3 Stage 2: an upcoming program isn't open yet: "not open yet" and its note.
   const upcoming = p.status === 'upcoming' && !past;
   const closed = !upcoming && (p.status !== 'active' || past);
-  const ends = endsOf(p);
+  // v4.8.2 Task 3 (R4): under 48 hours the time left ("ends in 14 hours"), never the program-zone day.
+  const ends = (!upcoming && !closed && closesIn(p, now)) || endsOf(p);
   const end = upcoming ? 'not open yet' : closed ? 'closed' : ends === 'rolling' ? 'rolling' : `ends ${ends}`;
   const won = wonRound(p);
   return {
