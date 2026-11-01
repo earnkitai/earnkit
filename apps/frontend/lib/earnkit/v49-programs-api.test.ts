@@ -9,7 +9,8 @@ import { sql } from './db';
 import { committedProgram } from './fixtures/program-file';
 import { dropRunPrograms } from './fixtures/programs-cleanup';
 import { programProblems } from './program-checks';
-import { ProgramFile, categoryOf } from './program-file';
+import { ProgramFile, categoryOf, isOptimismUrl } from './program-file';
+import { proofHostAllowed } from './submit-hosts';
 import { listPrograms, upsertProgram } from './programs';
 import {
   PROGRAMS_BODY_MAX,
@@ -17,9 +18,11 @@ import {
   curatedLine,
   forbiddenFields,
   noteFileTakeover,
+  probeLink,
   programsWritePost,
   type WriteDeps,
 } from './programs-api';
+import { HttpStatusError, SafeFetchError, safeProbe, type Transport } from './safe-fetch';
 import { LIMITS, RateLimitError } from './rate-limit';
 import { readStats } from './stats';
 
@@ -134,6 +137,9 @@ const apiProgram = (id: string, o: Record<string, unknown> = {}): any => {
   const p = committedProgram('a16z-speedrun');
   delete p.proof_hosts;
   delete p.x_handles;
+  // Fix round 0: owner-only too.
+  delete p.starters;
+  delete p.difficulty_override;
   return { ...p, id, ends_at: null, verified_at: today, ...o };
 };
 const req = (body: unknown, o: { auth?: string | null } = {}) =>
@@ -228,9 +234,19 @@ test('v4.9 T2: each owner-only field (R4) is refused with 400, and so is a progr
     assert.equal(r.status, 400, k);
     assert.ok(r.body.problems!.includes(`${k}: the API can't set ${k}; the owner adds it by file`), k);
   }
-  const campaign = await send({ action: 'upsert', program: apiProgram(id, { campaign: { kind: 'earnkit' } }) });
-  assert.equal(campaign.status, 400);
-  assert.ok(campaign.body.problems!.includes("campaign: the API can't set campaign; the owner adds it by file"));
+  // Fix round 0: campaign (it pays out) and the other owner-only fields; agent_completable stays allowed.
+  for (const [k, v] of [
+    ['campaign', { kind: 'earnkit' }],
+    ['fresh_build', { starter: 'arc-tipjar' }],
+    ['starters', []],
+    ['difficulty_override', committedProgram('a16z-speedrun').difficulty_override],
+  ] as const) {
+    const r = await send({ action: 'upsert', program: apiProgram(id, { [k]: v }) });
+    assert.equal(r.status, 400, k);
+    assert.ok(r.body.problems!.includes(`${k}: the API can't set ${k}; the owner adds it by file`), k);
+  }
+  const ac = await send({ action: 'upsert', program: apiProgram(`v49-ac-${process.pid}`, { agent_completable: true }) });
+  assert.deepEqual([ac.status, ac.body.result], [200, 'created']);
   // programs:check's rules (group 3): a required item without its todo.
   const p = apiProgram(id);
   delete p.submission_requirements[0].todo;
@@ -257,9 +273,11 @@ test('v4.9 T2: the API-only rules (group 4)', () => {
   assert.deepEqual(at({ ends_at: '2026-11-01T11:59:59Z', status: 'closed' }), [], 'a closed program may have ended');
   assert.deepEqual(at({ ends_at: '2026-11-02T00:00:00Z' }), []);
   assert.deepEqual(at({ source_url: 'http://speedrun.a16z.com/faq' }), ['source_url: must be https']);
-  assert.deepEqual(at({ submission_url: 'https://dorahacks.io/hackathon/x' }), ['submission_url: dorahacks.io is a shared host (anyone can publish there)']);
-  assert.deepEqual(at({ submission_url: 'https://docs.google.com/forms/d/e/x/viewform' }), ['submission_url: docs.google.com is a shared host (anyone can publish there)']);
-  assert.deepEqual(at({ source_url: 'https://foo.github.io/p' }), ['source_url: foo.github.io is a shared host (anyone can publish there)']);
+  // Fix round 0: program pages may be on shared hosts (real programs submit on forms, DoraHacks, Questbook).
+  assert.deepEqual(at({ submission_url: 'https://dorahacks.io/hackathon/x' }), []);
+  assert.deepEqual(at({ submission_url: 'https://docs.google.com/forms/d/e/x/viewform' }), []);
+  assert.deepEqual(at({ source_url: 'https://foo.github.io/p' }), []);
+  assert.deepEqual(at({ submission_url: 'http://circle.questbook.app/' }), ['submission_url: must be https']);
   assert.deepEqual(at({ source_url: 'https://gov.optimism.io/x' }), ['source_url: Optimism programs are not listed']);
   assert.deepEqual(forbiddenFields({ logo: null, x_handles: undefined, title: 't' }), ['x_handles', 'logo']);
 });
@@ -382,4 +400,74 @@ test('v4.9 T2: logs never carry the token or a body', () => {
   const api = readFileSync(join(import.meta.dirname, 'programs-api.ts'), 'utf8');
   for (const line of api.split('\n').filter((l) => /console\.(log|warn|error)/.test(l)))
     assert.doesNotMatch(line, /TOKEN|body|text|raw|err\b|authorization/i, line.trim());
+});
+
+test('v4.9 T2 fix round 0: a Questbook submission_url is accepted', db, withToken(async () => {
+  const id = `v49-qb-${process.pid}`;
+  const r = await send({ action: 'upsert', program: apiProgram(id, { submission_url: 'https://circle.questbook.app/' }) });
+  assert.deepEqual([r.status, r.body.result], [200, 'created'], JSON.stringify(r.body));
+  const [row] = await sql()<{ submission_url: string }[]>`SELECT submission_url FROM programs WHERE id = ${id}`;
+  assert.equal(row.submission_url, 'https://circle.questbook.app/');
+}));
+
+test('v4.9 T2 fix round 0: a 401, 403 or 429 probe answer passes (a bot wall); 404, 410, 5xx and network errors fail', async () => {
+  const answering = (status: number) => async () => {
+    throw new HttpStatusError(status);
+  };
+  for (const s of [401, 403, 429]) await probeLink('https://example.com/', answering(s));
+  for (const s of [404, 410, 500, 502, 503]) await assert.rejects(probeLink('https://example.com/', answering(s)), new RegExp(`answered ${s}, not 2xx`));
+  await assert.rejects(probeLink('https://example.com/', async () => { throw new SafeFetchError("couldn't fetch it (ECONNREFUSED)"); }), /ECONNREFUSED/);
+  await assert.rejects(probeLink('https://example.com/', async () => { throw new SafeFetchError('redirects to another site (x.com)'); }), /another site/);
+  await probeLink('https://example.com/', async () => {});
+  // safeProbe itself: the status is on the error, the message and class unchanged for its other callers.
+  const transport = (status: number): Transport => async () => ({ status, body: (async function* () {})() });
+  const resolve = async () => [{ address: '93.184.216.34', family: 4 as const }];
+  for (const s of [403, 404]) {
+    const err = await safeProbe('https://example.com/', { resolve, transport: transport(s) }).then(() => null, (e: unknown) => e);
+    assert.ok(err instanceof HttpStatusError && err instanceof SafeFetchError);
+    assert.equal((err as HttpStatusError).status, s);
+    assert.equal((err as Error).message, `answered ${s}, not 2xx`);
+  }
+  await probeLink('https://example.com/', (u) => safeProbe(u, { resolve, transport: transport(403) }));
+  await assert.rejects(probeLink('https://example.com/', (u) => safeProbe(u, { resolve, transport: transport(404) })));
+});
+
+test('v4.9 T2 fix (security review): hostnames are normalized; a trailing dot or an IP literal is refused', db, withToken(async () => {
+  assert.equal(isOptimismUrl('https://optimism.io./x'), true);
+  assert.equal(isOptimismUrl('https://GOV.Optimism.IO../x'), true);
+  assert.equal(proofHostAllowed('github.com.'), false);
+  assert.equal(proofHostAllowed('GitHub.com'), false);
+  const ok = ProgramFile.parse(apiProgram('v49-hosts'));
+  const at = (o: Record<string, unknown>) => apiRuleProblems({ ...ok, ...o } as ProgramFile, new Date());
+  assert.deepEqual(at({ source_url: 'https://optimism.io./x' }), ['source_url: no trailing dot in the host name']);
+  assert.deepEqual(at({ submission_url: 'https://speedrun.a16z.com./apply' }), ['submission_url: no trailing dot in the host name']);
+  const ipLine = (k: string) => [`${k}: use the program's domain name, not an IP address`];
+  assert.deepEqual(at({ source_url: 'https://127.0.0.1/' }), ipLine('source_url'));
+  assert.deepEqual(at({ source_url: 'https://[::1]/' }), ipLine('source_url'));
+  assert.deepEqual(at({ submission_url: 'https://10.0.0.5/' }), ipLine('submission_url'));
+  assert.deepEqual(at({ submission_url: 'https://0x7f.1/' }), ipLine('submission_url'), 'the URL parser normalizes it to 127.0.0.1');
+  // Through the API: the schema's Optimism refusal sees through the trailing dot, and nothing is written.
+  const id = `v49-dot-${process.pid}`;
+  const r = await send({ action: 'upsert', program: apiProgram(id, { source_url: 'https://optimism.io./x' }) });
+  assert.equal(r.status, 400);
+  assert.ok(r.body.problems!.includes('(program): Optimism programs are not listed'), JSON.stringify(r.body));
+  const ip = await send({ action: 'upsert', program: apiProgram(id, { submission_url: 'https://[::1]/apply' }) });
+  assert.deepEqual([ip.status, ip.body.problems], [400, ipLine('submission_url')]);
+  assert.equal((await sql()`SELECT 1 FROM programs WHERE id = ${id}`).length, 0);
+}));
+
+test('v4.9 T2 fix (security review): the probe refuses private, loopback, link-local and metadata addresses after DNS', async () => {
+  let connected = 0;
+  const transport: Transport = async () => {
+    connected++;
+    return { status: 200, body: (async function* () {})() };
+  };
+  for (const address of ['10.0.0.5', '127.0.0.1', '169.254.169.254', '192.168.1.1', '172.16.0.1', '::1', 'fe80::1', 'fc00::1', '::ffff:169.254.169.254']) {
+    const resolve = async () => [{ address, family: (address.includes(':') ? 6 : 4) as 4 | 6 }];
+    await assert.rejects(probeLink('https://program.example/', (u) => safeProbe(u, { resolve, transport })), /doesn't point to a public address/, address);
+  }
+  // One private address among public ones is enough to refuse.
+  const mixed = async () => [{ address: '93.184.216.34', family: 4 as const }, { address: '10.0.0.5', family: 4 as const }];
+  await assert.rejects(probeLink('https://program.example/', (u) => safeProbe(u, { resolve: mixed, transport })), /public address/);
+  assert.equal(connected, 0, 'never connected');
 });

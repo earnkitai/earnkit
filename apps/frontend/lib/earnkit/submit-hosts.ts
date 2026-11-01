@@ -87,5 +87,13 @@ export const MULTI_SUFFIXES = new Set([
  * Final review 1: whether `host` may be a program's proof host: not a public suffix, not earnkit.com, and not a shared
  * host or a subdomain of one (anyone can publish a page there). Pure.
  */
-export const proofHostAllowed = (host: string) =>
-  !MULTI_SUFFIXES.has(host) && ![...SHARED_HOSTS, 'earnkit.com'].some((h) => host === h || host.endsWith(`.${h}`));
+export const proofHostAllowed = (raw: string) => {
+  const host = normalHost(raw);
+  return !MULTI_SUFFIXES.has(host) && ![...SHARED_HOSTS, 'earnkit.com'].some((h) => host === h || host.endsWith(`.${h}`));
+};
+
+/**
+ * v4.9 Task 2 fix (security review): a hostname as host checks compare it: lowercase, trailing dots stripped, so
+ * "Optimism.IO." can't pass as another host. Pure.
+ */
+export const normalHost = (host: string) => host.toLowerCase().replace(/\.+$/, '');

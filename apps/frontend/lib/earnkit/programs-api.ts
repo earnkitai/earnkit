@@ -1,4 +1,5 @@
 import { existsSync, readdirSync } from 'node:fs';
+import { isIP } from 'node:net';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type postgres from 'postgres';
@@ -9,9 +10,8 @@ import { programProblems, schemaProblems } from './program-checks';
 import { ProgramFile, categoryOf, isOptimismUrl } from './program-file';
 import { upsertProgram } from './programs';
 import { RateLimitError, enforce } from './rate-limit';
-import { FETCH_TIMEOUT_MS, safeProbe } from './safe-fetch';
+import { FETCH_TIMEOUT_MS, HttpStatusError, safeProbe } from './safe-fetch';
 import { readCapped } from './secrets';
-import { SHARED_HOSTS } from './submit-hosts';
 
 /**
  * v4.9 Task 2: POST /api/programs/write, the owner's Grok Bot's write API (plan R1-R6). Every write goes live at once
@@ -20,7 +20,8 @@ import { SHARED_HOSTS } from './submit-hosts';
  *      parses as JSON (400);
  *   2. the envelope and ProgramFile parse, and none of the owner-only fields (R4) is present (400);
  *   3. programProblems (the same checks as `pnpm programs:check`) is empty (400);
- *   4. the API-only rules (apiRuleProblems) hold (400);
+ *   4. the API-only rules (apiRuleProblems) hold (400): no shared-host rule on program pages (fix round 0; real
+ *      programs submit on Google Forms, DoraHacks and Questbook);
  *   5. the id isn't curated: no programs/<id>.json, and no existing row whose source isn't 'api' (R3, 409);
  *   6. source_url and submission_url load (safeProbe, 5 s) (400).
  * Then upsertProgram(parsed, 'api') and a program_writes row. Only parsed data is written, never the raw body.
@@ -29,8 +30,12 @@ import { SHARED_HOSTS } from './submit-hosts';
 
 /** The largest body the API reads (the MCP route's cap pattern, at 256 KB). */
 export const PROGRAMS_BODY_MAX = 256 * 1024;
-/** R4: the owner adds these by file (proof fields and the logo file). `campaign` too: a campaign pays out. */
-export const API_FORBIDDEN = ['proof_hosts', 'x_handles', 'logo', 'campaign'] as const;
+/**
+ * R4: the owner adds these by file (proof fields and the logo file). Fix round 0 (controller): `campaign` too (a
+ * campaign pays out), and the other owner-only fields `fresh_build`, `starters` and `difficulty_override`.
+ * `agent_completable` stays allowed.
+ */
+export const API_FORBIDDEN = ['proof_hosts', 'x_handles', 'logo', 'campaign', 'fresh_build', 'starters', 'difficulty_override'] as const;
 export const API_ID = /^[a-z0-9-]{3,64}$/;
 /** verified_at may be at most this many days old. */
 export const VERIFIED_MAX_AGE_DAYS = 7;
@@ -52,6 +57,7 @@ export function programsApiOn(env: NodeJS.ProcessEnv = process.env): boolean {
 export const forbiddenFields = (raw: Record<string, unknown>): string[] =>
   API_FORBIDDEN.filter((k) => Object.prototype.hasOwnProperty.call(raw, k));
 
+/** The URL's raw hostname (lowercase, brackets kept), or null. */
 const hostOf = (url: string): string | null => {
   try {
     return new URL(url).hostname.toLowerCase();
@@ -59,7 +65,6 @@ const hostOf = (url: string): string | null => {
     return null;
   }
 };
-const onSharedHost = (host: string) => SHARED_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
 
 /** Check group 4: the rules only API programs follow (a file is owner-reviewed). Pure. */
 export function apiRuleProblems(p: ProgramFile, now: Date): string[] {
@@ -76,7 +81,9 @@ export function apiRuleProblems(p: ProgramFile, now: Date): string[] {
     const url = p[key];
     const host = hostOf(url);
     if (!url.startsWith('https://') || host === null) problems.push(`${key}: must be https`);
-    else if (onSharedHost(host)) problems.push(`${key}: ${host} is a shared host (anyone can publish there)`);
+    // Security review: a trailing dot or an IP literal never names a program's own site (and dodges host checks).
+    else if (host.endsWith('.')) problems.push(`${key}: no trailing dot in the host name`);
+    else if (isIP(host.replace(/^\[(.*)\]$/, '$1'))) problems.push(`${key}: use the program's domain name, not an IP address`);
     else if (isOptimismUrl(url)) problems.push(`${key}: Optimism programs are not listed`);
   }
   return problems;
@@ -98,8 +105,21 @@ export function curatedIds(dir: string | null): Set<string> {
   }
 }
 
-/** A link that must load: safeProbe (public addresses only, a 2xx that isn't an error page), 5 s. */
-const probe = (url: string) => safeProbe(url, { timeoutMs: FETCH_TIMEOUT_MS });
+/** Fix round 0 (controller): a bot wall or a sign-in still means the page exists. */
+export const BOT_WALL_STATUSES = [401, 403, 429];
+
+/**
+ * A link that must load: safeProbe (public addresses only, a 2xx that isn't an error page), 5 s. A 401, 403 or 429
+ * answer passes (the page is there behind a wall); a 404, 410, 5xx or network error still fails.
+ */
+export async function probeLink(url: string, probe: (url: string) => Promise<void> = (u) => safeProbe(u, { timeoutMs: FETCH_TIMEOUT_MS })): Promise<void> {
+  try {
+    await probe(url);
+  } catch (err) {
+    if (err instanceof HttpStatusError && BOT_WALL_STATUSES.includes(err.status)) return;
+    throw err;
+  }
+}
 
 export type WriteDeps = {
   now?: Date;
@@ -270,6 +290,7 @@ export async function programsWritePost(request: Request, deps: WriteDeps = {}):
   if (!bearerMatches(request.headers.get('authorization'), process.env.EARNKIT_PROGRAMS_TOKEN))
     return json({ ok: false, error: 'unauthorized' }, 401);
   try {
+    // A fixed hour window (the repo's limiter), not a rolling one: up to 240 can land across a boundary (controller: fine).
     await (deps.limit ?? (() => enforce('programsWrite', 'owner', 'Too many program writes this hour.')))();
   } catch (err) {
     if (err instanceof RateLimitError) return json({ ok: false, error: err.message }, 429, { 'Retry-After': String(err.retryAfter) });
@@ -290,7 +311,7 @@ export async function programsWritePost(request: Request, deps: WriteDeps = {}):
     warnedNoDir = true;
     console.warn('[programs-api] programs/ not found; the row check alone guards curated ids');
   }
-  const full = { now: deps.now ?? new Date(), checkLink: deps.checkLink ?? probe, programsDir };
+  const full = { now: deps.now ?? new Date(), checkLink: deps.checkLink ?? ((u: string) => probeLink(u)), programsDir };
   try {
     const envelope = Envelope.safeParse(body);
     if (!envelope.success) {

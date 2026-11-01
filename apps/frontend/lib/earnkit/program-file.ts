@@ -5,7 +5,7 @@ import { CHAINS } from './match';
 import { isTimeZone } from './deadline';
 import { amountStated, poolStated } from './pool';
 import { STARTERS, type Starter } from './starters';
-import { apiPlatformOf, prefillKindOf, proofHostAllowed, urlHost } from './submit-hosts';
+import { apiPlatformOf, normalHost, prefillKindOf, proofHostAllowed, urlHost } from './submit-hosts';
 
 /**
  * The format of `programs/<slug>.json`, the file Claude Code writes when a
@@ -307,7 +307,8 @@ export type SubmissionProof = z.infer<typeof SubmissionProof>;
 export function isOptimismUrl(url: string): boolean {
   let host: string;
   try {
-    host = new URL(url).hostname.toLowerCase();
+    // v4.9 Task 2 fix (security review): "optimism.io." is optimism.io.
+    host = normalHost(new URL(url).hostname);
   } catch {
     return false;
   }

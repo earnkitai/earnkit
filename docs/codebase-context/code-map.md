@@ -1380,8 +1380,9 @@ apps/frontend/
                                file. Tests: v49-programs-api.test.ts
     programs-api.ts            v4.9 T2: programsWritePost (POST /api/programs/write, the Grok Bot's write API):
                                token (bearerMatches), LIMITS.programsWrite, 256 KB readCapped, ProgramFile + R4
-                               fields (proof_hosts, x_handles, logo, campaign), programProblems, apiRuleProblems,
-                               curated 409 (programs/ file or non-api row), safeProbe links, then upsertProgram(p,
+                               fields (proof_hosts, x_handles, logo, campaign, fresh_build,
+                               starters, difficulty_override), programProblems, apiRuleProblems,
+                               curated 409 (programs/ file or non-api row), probeLink (safeProbe; 401/403/429 pass), then upsertProgram(p,
                                'api') in a tx with an unchanged snapshot check; program_writes audit rows;
                                noteFileTakeover for programs-sync. Tests: v49-programs-api.test.ts
     payout.ts(+test)           payoutAccount (CAMPAIGN_PAYOUT_PRIVATE_KEY, with or without 0x: Ruling 7), payoutRpc, payWinner (sign,

@@ -9024,14 +9024,24 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
   isn't `off`. The token is compared with `http.ts bearerMatches` (both sides sha256'd, `timingSafeEqual` on 32 bytes).
   The test guard clears both variables.
 - **Order (stop at the first failing group).** Token, then the rate limit (`rate-limit.ts LIMITS.programsWrite`, 120 per
-  fixed hour, one key, counted only after the token passes), then the 256 KB body cap (`secrets.ts readCapped`), JSON,
+  fixed hour, not rolling (controller: fine), one key, counted only after the token passes), then the 256 KB body cap (`secrets.ts readCapped`), JSON,
   then: (2) the envelope and `ProgramFile.safeParse`, plus the owner-only fields `proof_hosts`, `x_handles`, `logo` (R4)
-  and `campaign` (a campaign pays out) refused when present at all; (3) `programProblems`; (4) `apiRuleProblems`: id
+  and (fix round 0) `campaign` (a campaign pays out), `fresh_build`, `starters` and `difficulty_override` refused when
+  present at all (`agent_completable` stays allowed); (3) `programProblems`; (4) `apiRuleProblems`: id
   `^[a-z0-9-]{3,64}$`, `verified_at` at most 7 days old and not past today in UTC+14, an active program's `ends_at`
-  null or future, `source_url`/`submission_url` https and not on a `SHARED_HOSTS` host or optimism.io; (5) curated
+  null or future, `source_url`/`submission_url` https, not on optimism.io, no trailing dot in the host and no IP literal (v4, v6,
+  bracketed) (fix round 0: no shared-host rule on program pages; real programs submit on Google Forms, DoraHacks and
+  Questbook). `submit-hosts.ts normalHost` (lowercase, trailing dots stripped) is used by `isOptimismUrl` and
+  `proofHostAllowed`, so `optimism.io.` is still Optimism; (5) curated
   (409): a `programs/<id>.json` file (`findProgramsDir`: `cwd/../../programs`, present in the Railway image since
   `railway up` uploads the repo and predeploy syncs from it) or an existing row whose `source` isn't `api`; (6) both
-  URLs load (`safe-fetch.ts safeProbe`, 5 s, SSRF-safe; one probe when they're the same URL; injectable `checkLink`).
+  URLs load (`programs-api.ts probeLink` over `safe-fetch.ts safeProbe`, 5 s, SSRF-safe; one probe when they're the same
+  URL; injectable `checkLink`). Fix round 0: a 401, 403 or 429 answer passes (a bot wall or sign-in: the page exists);
+  404, 410, 5xx and network errors fail. safeProbe's non-2xx now throws `HttpStatusError` (a SafeFetchError with
+  `status`, same message), so its other callers see no change. SSRF: safeProbe already refuses an IP-literal URL, resolves the name itself
+  and refuses the whole answer when any address is private, loopback, link-local (incl. 169.254.169.254), unique-local,
+  multicast or reserved (`isPublicAddress`), then connects to the vetted address (no rebinding); a same-site redirect is
+  fetched through the same checks. Nothing new was needed; the API's tests pin it with an injected resolver.
 - **Write.** One transaction: the row is locked `FOR UPDATE` and its source re-read (a sync in between can't be
   overwritten), `upsertProgram(parsed, 'api', tx)` writes the parsed data (never the raw body), and a before/after
   snapshot (`to_jsonb(programs) - created_at` plus the tracks) that is deep-equal rolls back as `unchanged`. Close sets
