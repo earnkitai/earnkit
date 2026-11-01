@@ -1,13 +1,27 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sql } from './db';
 import { committedProgram } from './fixtures/program-file';
 import { dropRunPrograms } from './fixtures/programs-cleanup';
 import { programProblems } from './program-checks';
 import { ProgramFile, categoryOf } from './program-file';
-import { upsertProgram } from './programs';
+import { listPrograms, upsertProgram } from './programs';
+import {
+  PROGRAMS_BODY_MAX,
+  apiRuleProblems,
+  curatedLine,
+  forbiddenFields,
+  noteFileTakeover,
+  programsWritePost,
+  type WriteDeps,
+} from './programs-api';
+import { LIMITS, RateLimitError } from './rate-limit';
+import { readStats } from './stats';
 
 const db = { skip: !process.env.DATABASE_URL };
 const PROGRAMS = join(import.meta.dirname, '../../../../programs');
@@ -94,4 +108,278 @@ test('v4.9 T1: program_writes exists with its columns', db, async () => {
   const cols = await sql()<{ column_name: string }[]>`
     SELECT column_name FROM information_schema.columns WHERE table_name = 'program_writes' ORDER BY ordinal_position`;
   assert.deepEqual(cols.map((c) => c.column_name), ['id', 'at', 'program_id', 'action', 'result', 'reason', 'body']);
+});
+
+// ---- v4.9 Task 2: the write API (programs-api.ts, POST /api/programs/write) ----
+
+const TOKEN = randomBytes(32).toString('hex');
+const today = new Date().toISOString().slice(0, 10);
+const noNet = { checkLink: async () => {}, programsDir: PROGRAMS, limit: async () => {} };
+const withToken = <T>(fn: () => Promise<T>, env: Record<string, string | undefined> = { EARNKIT_PROGRAMS_TOKEN: TOKEN }) => async () => {
+  const keep = { t: process.env.EARNKIT_PROGRAMS_TOKEN, a: process.env.EARNKIT_PROGRAMS_API };
+  delete process.env.EARNKIT_PROGRAMS_TOKEN;
+  delete process.env.EARNKIT_PROGRAMS_API;
+  for (const [k, v] of Object.entries(env)) if (v !== undefined) process.env[k] = v;
+  try {
+    await fn();
+  } finally {
+    for (const [k, v] of [['EARNKIT_PROGRAMS_TOKEN', keep.t], ['EARNKIT_PROGRAMS_API', keep.a]] as const)
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+  }
+};
+/** A valid API program: a16z-speedrun without the owner-only fields, rolling, checked today. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const apiProgram = (id: string, o: Record<string, unknown> = {}): any => {
+  const p = committedProgram('a16z-speedrun');
+  delete p.proof_hosts;
+  delete p.x_handles;
+  return { ...p, id, ends_at: null, verified_at: today, ...o };
+};
+const req = (body: unknown, o: { auth?: string | null } = {}) =>
+  new Request('http://localhost/api/programs/write', {
+    method: 'POST',
+    headers: {
+      ...(o.auth === null ? {} : { authorization: o.auth ?? `Bearer ${TOKEN}` }),
+      'content-type': 'application/json',
+    },
+    body: typeof body === 'string' ? body : JSON.stringify(body),
+  });
+const send = async (body: unknown, deps: WriteDeps = noNet, o: { auth?: string | null } = {}) => {
+  const res = await programsWritePost(req(body, o), deps);
+  const text = await res.text();
+  let parsed: unknown = text;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    // 404 is plain text.
+  }
+  return { status: res.status, body: parsed as { ok: boolean; problems?: string[]; result?: string; category?: string; live?: boolean; id?: string; error?: string }, headers: res.headers };
+};
+const writes = (id: string) =>
+  sql()<{ action: string; result: string; reason: string | null; body: unknown }[]>`
+    SELECT action, result, reason, body FROM program_writes WHERE program_id = ${id} ORDER BY id`;
+
+test('v4.9 T2: 404 while the token is unset, too short, or EARNKIT_PROGRAMS_API=off (even with the token)', async () => {
+  await withToken(async () => assert.equal((await send({ action: 'close', id: 'x-y-z', reason: 'r' })).status, 404), {})();
+  await withToken(async () => assert.equal((await send({ action: 'close', id: 'x-y-z', reason: 'r' }, noNet, { auth: 'Bearer short' })).status, 404), {
+    EARNKIT_PROGRAMS_TOKEN: 'short',
+  })();
+  await withToken(async () => assert.equal((await send({ action: 'close', id: 'x-y-z', reason: 'r' })).status, 404), {
+    EARNKIT_PROGRAMS_TOKEN: TOKEN,
+    EARNKIT_PROGRAMS_API: 'off',
+  })();
+});
+
+test('v4.9 T2: 401 for a missing or wrong token, of any length (equal-length sha256 digests, never a throw)', withToken(async () => {
+  const body = { action: 'close', id: 'x-y-z', reason: 'r' };
+  assert.equal((await send(body, noNet, { auth: null })).status, 401);
+  assert.equal((await send(body, noNet, { auth: `Bearer ${randomBytes(32).toString('hex')}` })).status, 401, 'same length');
+  assert.equal((await send(body, noNet, { auth: 'Bearer x' })).status, 401, 'shorter');
+  assert.equal((await send(body, noNet, { auth: `Bearer ${TOKEN}${TOKEN}` })).status, 401, 'longer');
+  assert.equal((await send(body, noNet, { auth: TOKEN })).status, 401, 'no Bearer');
+  // The compare: programs-api uses http.ts bearerMatches, whose secretMatches hashes both sides to 32 bytes first.
+  const api = readFileSync(join(import.meta.dirname, 'programs-api.ts'), 'utf8');
+  assert.match(api, /bearerMatches\(request\.headers\.get\('authorization'\), process\.env\.EARNKIT_PROGRAMS_TOKEN\)/);
+  const http = readFileSync(join(import.meta.dirname, 'http.ts'), 'utf8');
+  assert.match(http, /timingSafeEqual\(\s*createHash\('sha256'\)\.update\(given\)\.digest\(\),\s*createHash\('sha256'\)\.update\(secret\)\.digest\(\),?\s*\)/);
+}));
+
+test('v4.9 T2: 429 over the rate limit (120 an hour, the repo limiter), after the token check', withToken(async () => {
+  assert.deepEqual(LIMITS.programsWrite, { limit: 120, windowSeconds: 3_600 });
+  let counted = 0;
+  const over = { ...noNet, limit: async () => { counted++; throw new RateLimitError('Too many program writes this hour.', 600); } };
+  const r = await send({ action: 'close', id: 'x-y-z', reason: 'r' }, over);
+  assert.equal(r.status, 429);
+  assert.equal(r.headers.get('retry-after'), '600');
+  assert.equal((await send({ action: 'close', id: 'x-y-z', reason: 'r' }, over, { auth: 'Bearer nope' })).status, 401);
+  assert.equal(counted, 1, 'an unauthenticated call never counts');
+}));
+
+test('v4.9 T2: 413 over 256 KB; 400 for a body that is not JSON, deeply nested (1,000 levels) or the wrong shape', db, withToken(async () => {
+  assert.equal(PROGRAMS_BODY_MAX, 262_144);
+  const big = JSON.stringify({ action: 'upsert', program: { ...apiProgram(`v49-big-${process.pid}`), description: 'x'.repeat(PROGRAMS_BODY_MAX) } });
+  assert.equal((await send(big)).status, 413);
+  const notJson = await send('{"action":');
+  assert.deepEqual([notJson.status, notJson.body.problems], [400, ['body: not JSON']]);
+  const deep = (n: number) => '['.repeat(n) + ']'.repeat(n);
+  for (const body of [
+    `{"action":"upsert","program":${deep(1000)}}`,
+    `{"action":"upsert","program":{"id":"v49-deep-${process.pid}","description":${deep(1000)}}}`,
+    `{"action":"upsert","program":${JSON.stringify(apiProgram(`v49-deep-${process.pid}`)).slice(0, -1)},"extra":${deep(1000)}}}`,
+    `{"action":"upsert","nest":${deep(1000)}}`,
+    deep(1000),
+    '"upsert"',
+    'null',
+    JSON.stringify({ action: 'delete', id: 'abc' }),
+  ]) {
+    const r = await send(body);
+    assert.equal(r.status, 400, body.slice(0, 60));
+    assert.ok(r.body.problems!.length > 0);
+  }
+  assert.equal((await sql()`SELECT 1 FROM programs WHERE id = ${`v49-deep-${process.pid}`}`).length, 0);
+}));
+
+test('v4.9 T2: each owner-only field (R4) is refused with 400, and so is a programs:check problem', db, withToken(async () => {
+  const id = `v49-r4-${process.pid}`;
+  const logo = { path: `programs/${id}.svg`, source_url: 'https://speedrun.a16z.com/' };
+  for (const [k, v] of [['proof_hosts', ['speedrun.a16z.com/']], ['x_handles', ['speedrun']], ['logo', logo], ['proof_hosts', []]] as const) {
+    const r = await send({ action: 'upsert', program: apiProgram(id, { [k]: v }) });
+    assert.equal(r.status, 400, k);
+    assert.ok(r.body.problems!.includes(`${k}: the API can't set ${k}; the owner adds it by file`), k);
+  }
+  const campaign = await send({ action: 'upsert', program: apiProgram(id, { campaign: { kind: 'earnkit' } }) });
+  assert.equal(campaign.status, 400);
+  assert.ok(campaign.body.problems!.includes("campaign: the API can't set campaign; the owner adds it by file"));
+  // programs:check's rules (group 3): a required item without its todo.
+  const p = apiProgram(id);
+  delete p.submission_requirements[0].todo;
+  const noTodo = await send({ action: 'upsert', program: p });
+  assert.equal(noTodo.status, 400);
+  assert.match(noTodo.body.problems![0], /add a "todo"/);
+  assert.equal((await sql()`SELECT 1 FROM programs WHERE id = ${id}`).length, 0, 'nothing written');
+  const audit = await writes(id);
+  assert.ok(audit.length > 0 && audit.every((w) => w.result === 'refused' && w.body === null), 'refusals are kept, never their body');
+}));
+
+test('v4.9 T2: the API-only rules (group 4)', () => {
+  const now = new Date('2026-11-01T12:00:00Z');
+  const ok = ProgramFile.parse(apiProgram('v49-rules', { verified_at: '2026-11-01' }));
+  assert.deepEqual(apiRuleProblems(ok, now), []);
+  const at = (o: Record<string, unknown>) => apiRuleProblems({ ...ok, ...o } as ProgramFile, now);
+  assert.deepEqual(at({ id: 'ab' }), ['id: 3 to 64 lowercase letters, digits or dashes']);
+  assert.deepEqual(at({ id: 'a'.repeat(65) }), ['id: 3 to 64 lowercase letters, digits or dashes']);
+  assert.deepEqual(at({ verified_at: '2026-10-25' }), [], '7 days is fine');
+  assert.deepEqual(at({ verified_at: '2026-10-24' }), ['verified_at: more than 7 days ago; check the source again']);
+  assert.deepEqual(at({ verified_at: '2026-11-02' }), [], "UTC+14's today");
+  assert.deepEqual(at({ verified_at: '2026-11-03' }), ['verified_at: is in the future']);
+  assert.deepEqual(at({ ends_at: '2026-11-01T11:59:59Z' }), ['ends_at: has passed; an active program needs a future ends_at or null']);
+  assert.deepEqual(at({ ends_at: '2026-11-01T11:59:59Z', status: 'closed' }), [], 'a closed program may have ended');
+  assert.deepEqual(at({ ends_at: '2026-11-02T00:00:00Z' }), []);
+  assert.deepEqual(at({ source_url: 'http://speedrun.a16z.com/faq' }), ['source_url: must be https']);
+  assert.deepEqual(at({ submission_url: 'https://dorahacks.io/hackathon/x' }), ['submission_url: dorahacks.io is a shared host (anyone can publish there)']);
+  assert.deepEqual(at({ submission_url: 'https://docs.google.com/forms/d/e/x/viewform' }), ['submission_url: docs.google.com is a shared host (anyone can publish there)']);
+  assert.deepEqual(at({ source_url: 'https://foo.github.io/p' }), ['source_url: foo.github.io is a shared host (anyone can publish there)']);
+  assert.deepEqual(at({ source_url: 'https://gov.optimism.io/x' }), ['source_url: Optimism programs are not listed']);
+  assert.deepEqual(forbiddenFields({ logo: null, x_handles: undefined, title: 't' }), ['x_handles', 'logo']);
+});
+
+test('v4.9 T2: a past ends_at on an active program, and a link that does not load, are refused with nothing written', db, withToken(async () => {
+  const id = `v49-past-${process.pid}`;
+  const past = await send({ action: 'upsert', program: apiProgram(id, { ends_at: '2026-01-01T00:00:00Z' }) });
+  assert.equal(past.status, 400);
+  assert.deepEqual(past.body.problems, ['ends_at: has passed; an active program needs a future ends_at or null']);
+  const probed: string[] = [];
+  const failing = { ...noNet, checkLink: async (url: string) => { probed.push(url); if (url.endsWith('/apply')) throw new Error("couldn't fetch it (404)"); } };
+  const dead = await send({ action: 'upsert', program: apiProgram(id) }, failing);
+  assert.equal(dead.status, 400);
+  assert.deepEqual(dead.body.problems, ["submission_url: doesn't load (couldn't fetch it (404))"]);
+  assert.deepEqual(probed, ['https://speedrun.a16z.com/faq', 'https://speedrun.a16z.com/apply']);
+  assert.equal((await sql()`SELECT 1 FROM programs WHERE id = ${id}`).length, 0);
+  // An upcoming program may share one URL for both: probed once.
+  probed.length = 0;
+  const upcoming = apiProgram(id, { status: 'upcoming', opens_note: 'Opens in December', submission_url: 'https://speedrun.a16z.com/faq', submission_requirements: [] });
+  const r = await send({ action: 'upsert', program: upcoming }, { ...failing });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(probed, ['https://speedrun.a16z.com/faq']);
+  assert.equal(r.body.live, true);
+}));
+
+test('v4.9 T2: 409 for a curated id (a programs/ file, or a row whose source is not api), for upsert and close', db, withToken(async () => {
+  const line = curatedLine('a16z-speedrun');
+  const a = await send({ action: 'upsert', program: apiProgram('a16z-speedrun') });
+  assert.deepEqual([a.status, a.body.problems], [409, [line]]);
+  const c = await send({ action: 'close', id: 'a16z-speedrun', reason: 'ended' });
+  assert.deepEqual([c.status, c.body.problems], [409, [line]]);
+  // Without the directory, the row check alone holds (the synced row's source is 'file').
+  const noDir = { ...noNet, programsDir: null };
+  assert.equal((await send({ action: 'upsert', program: apiProgram('a16z-speedrun') }, noDir)).status, 409);
+  assert.equal((await send({ action: 'close', id: 'a16z-speedrun', reason: 'ended' }, noDir)).status, 409);
+  // A sponsor row too.
+  const sponsor = `v49-sponsor-${process.pid}`;
+  await upsertProgram(ProgramFile.parse(apiProgram(sponsor)), 'sponsor');
+  assert.equal((await send({ action: 'upsert', program: apiProgram(sponsor, { title: 'Taken' }) }, noDir)).status, 409);
+  assert.equal((await send({ action: 'close', id: sponsor, reason: 'x' }, noDir)).status, 409);
+  const [row] = await sql()<{ title: string; status: string }[]>`SELECT title, status FROM programs WHERE id = ${sponsor}`;
+  assert.deepEqual({ ...row }, { title: committedProgram('a16z-speedrun').title, status: 'active' }, 'the sponsor row is untouched');
+  // And the directory alone holds, with no row yet.
+  const dir = mkdtempSync(join(tmpdir(), 'v49-programs-'));
+  const fresh = `v49-dir-${process.pid}`;
+  writeFileSync(join(dir, `${fresh}.json`), '{}');
+  assert.equal((await send({ action: 'upsert', program: apiProgram(fresh) }, { ...noNet, programsDir: dir })).status, 409);
+  rmSync(dir, { recursive: true });
+  assert.equal((await sql()`SELECT 1 FROM programs WHERE id = ${fresh}`).length, 0);
+}));
+
+test('v4.9 T2: created, unchanged, updated, closed, in order; find, list_programs and /api/stats include it; the audit keeps each', db, withToken(async () => {
+  const id = `v49-flow-${process.pid}`;
+  const before = await readStats();
+  const created = await send({ action: 'upsert', program: apiProgram(id) });
+  assert.equal(created.status, 200, JSON.stringify(created.body));
+  assert.deepEqual(created.body, { ok: true, id, result: 'created', category: 'investment', live: true });
+  const [row] = await sql()<{ source: string; status: string; x_handles: string[]; proof_hosts: string[] }[]>`
+    SELECT source, status, x_handles, proof_hosts FROM programs WHERE id = ${id}`;
+  assert.deepEqual({ ...row }, { source: 'api', status: 'active', x_handles: [], proof_hosts: [] });
+  assert.ok((await listPrograms()).some((p) => p.id === id), 'list_programs lists it');
+  const after = await readStats();
+  assert.equal(after.programs_open, before.programs_open + 1, '/api/stats counts it');
+
+  assert.equal((await send({ action: 'upsert', program: apiProgram(id) })).body.result, 'unchanged');
+  const updated = await send({ action: 'upsert', program: apiProgram(id, { title: 'Speedrun, again', category: 'bounty' }) });
+  assert.deepEqual([updated.body.result, updated.body.category], ['updated', 'bounty']);
+  const [t] = await sql()<{ title: string }[]>`SELECT title FROM programs WHERE id = ${id}`;
+  assert.equal(t.title, 'Speedrun, again');
+
+  const tooLong = await send({ action: 'close', id, reason: 'x'.repeat(201) });
+  assert.equal(tooLong.status, 400);
+  const closed = await send({ action: 'close', id, reason: 'The cohort filled' });
+  assert.deepEqual(closed.body, { ok: true, id, result: 'closed', category: 'bounty', live: false });
+  assert.equal((await send({ action: 'close', id, reason: 'again' })).body.result, 'unchanged');
+  assert.ok(!(await listPrograms()).some((p) => p.id === id), 'closed: no longer listed');
+  const missing = await send({ action: 'close', id: `v49-none-${process.pid}`, reason: 'x' });
+  assert.deepEqual([missing.status, missing.body.problems], [400, [`id: no program v49-none-${process.pid}`]]);
+
+  const audit = await writes(id);
+  assert.deepEqual(
+    audit.map((w) => `${w.action} ${w.result}`),
+    ['upsert created', 'upsert unchanged', 'upsert updated', 'close closed', 'close unchanged'],
+  );
+  assert.equal((audit[0].body as { id: string }).id, id, 'the written (parsed) program is kept');
+  assert.equal(audit[1].body, null, 'unchanged: no body');
+  assert.equal(audit[3].reason, 'The cohort filled');
+}));
+
+test('v4.9 T2: programs:sync afterwards leaves an api row alone; a file taking over an api row is recorded', db, withToken(async () => {
+  const id = `v49-sync-${process.pid}`;
+  assert.equal((await send({ action: 'upsert', program: apiProgram(id, { title: 'Kept by sync' }) })).body.result, 'created');
+  execFileSync('npx', ['tsx', 'scripts/programs-sync.mts'], {
+    cwd: join(import.meta.dirname, '../..'),
+    env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL },
+    stdio: 'pipe',
+  });
+  const [row] = await sql()<{ source: string; title: string; status: string }[]>`SELECT source, title, status FROM programs WHERE id = ${id}`;
+  assert.deepEqual({ ...row }, { source: 'api', title: 'Kept by sync', status: 'active' });
+
+  assert.equal(await noteFileTakeover(id), true);
+  assert.equal(await noteFileTakeover('a16z-speedrun'), false, 'a file row is no takeover');
+  assert.equal(await noteFileTakeover(`v49-none-${process.pid}`), false);
+  const last = (await writes(id)).at(-1)!;
+  assert.deepEqual([last.action, last.result, last.body], ['takeover', 'file', null]);
+  const script = readFileSync(join(import.meta.dirname, '../../scripts/programs-sync.mts'), 'utf8');
+  assert.match(script, /if \(await noteFileTakeover\(result\.data!\.id\)\) console\.warn\(`\[programs\] file \$\{result\.data!\.id\} took over an api program`\);\n\s+await upsertProgram\(result\.data!\);/);
+}));
+
+test('v4.9 T2: the route answers 404 with the token unset and 401 with a wrong one', async () => {
+  const { POST } = await import('../../app/api/programs/write/route');
+  await withToken(async () => assert.equal((await POST(req({ action: 'close', id: 'x-y-z', reason: 'r' }))).status, 404), {})();
+  await withToken(async () => {
+    const r = await POST(req({ action: 'close', id: 'x-y-z', reason: 'r' }, { auth: 'Bearer wrong' }));
+    assert.equal(r.status, 401);
+  })();
+});
+
+test('v4.9 T2: logs never carry the token or a body', () => {
+  const api = readFileSync(join(import.meta.dirname, 'programs-api.ts'), 'utf8');
+  for (const line of api.split('\n').filter((l) => /console\.(log|warn|error)/.test(l)))
+    assert.doesNotMatch(line, /TOKEN|body|text|raw|err\b|authorization/i, line.trim());
 });

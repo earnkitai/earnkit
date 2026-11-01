@@ -9012,3 +9012,33 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
   constraint. Refusing to overwrite file or sponsor rows (R3) is the write API's job (Task 2), not upsertProgram's.
 - **Audit table.** `program_writes (id, at, program_id, action, result, reason, body jsonb)` keeps every write API call
   (written from Task 2). Tests: v49-programs-api.test.ts.
+
+## v4.9 Programs API (Task 2): the write API
+
+- **Route.** `POST /api/programs/write` (`app/api/programs/write/route.ts`, logic in `lib/earnkit/programs-api.ts
+  programsWritePost(request, deps)`), for the owner's Grok Bot. Body: `{ action: "upsert", program: <ProgramFile> }` or
+  `{ action: "close", id, reason (1-200 chars) }`. Answers `{ ok: true, id, result: created|updated|unchanged|closed,
+  category, live }`, or `{ ok: false, problems }` with 400/409; 401, 404, 413, 429 and 503 carry `{ ok: false, error }`
+  (404 is plain text).
+- **Switch and secret (R6).** 404 unless `EARNKIT_PROGRAMS_TOKEN` is set (32+ characters) and `EARNKIT_PROGRAMS_API`
+  isn't `off`. The token is compared with `http.ts bearerMatches` (both sides sha256'd, `timingSafeEqual` on 32 bytes).
+  The test guard clears both variables.
+- **Order (stop at the first failing group).** Token, then the rate limit (`rate-limit.ts LIMITS.programsWrite`, 120 per
+  fixed hour, one key, counted only after the token passes), then the 256 KB body cap (`secrets.ts readCapped`), JSON,
+  then: (2) the envelope and `ProgramFile.safeParse`, plus the owner-only fields `proof_hosts`, `x_handles`, `logo` (R4)
+  and `campaign` (a campaign pays out) refused when present at all; (3) `programProblems`; (4) `apiRuleProblems`: id
+  `^[a-z0-9-]{3,64}$`, `verified_at` at most 7 days old and not past today in UTC+14, an active program's `ends_at`
+  null or future, `source_url`/`submission_url` https and not on a `SHARED_HOSTS` host or optimism.io; (5) curated
+  (409): a `programs/<id>.json` file (`findProgramsDir`: `cwd/../../programs`, present in the Railway image since
+  `railway up` uploads the repo and predeploy syncs from it) or an existing row whose `source` isn't `api`; (6) both
+  URLs load (`safe-fetch.ts safeProbe`, 5 s, SSRF-safe; one probe when they're the same URL; injectable `checkLink`).
+- **Write.** One transaction: the row is locked `FOR UPDATE` and its source re-read (a sync in between can't be
+  overwritten), `upsertProgram(parsed, 'api', tx)` writes the parsed data (never the raw body), and a before/after
+  snapshot (`to_jsonb(programs) - created_at` plus the tracks) that is deep-equal rolls back as `unchanged`. Close sets
+  `status = 'closed'` on an api row (`unchanged` when it already was). `live`: upcoming, or active and not ended.
+- **Audit.** Every authenticated call after the JSON parse leaves a `program_writes` row: `created`/`updated` with the
+  parsed program as `body`; `unchanged`, `closed`, `refused` and `curated` with no body (a refusal keeps its problems as
+  `reason`, and a program id only when it is well-formed). Logs are `[programs-api] <action> <id or -> <result>`.
+- **Files win, loudly (controller ruling 2).** `programs-sync.mts` calls `programs-api.ts noteFileTakeover(id)` before
+  each upsert: when the row's source is `api` it writes a `takeover`/`file` audit row and the script prints
+  `[programs] file <id> took over an api program`. A sync never touches api rows otherwise (it upserts file ids only).

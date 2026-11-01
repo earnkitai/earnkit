@@ -275,6 +275,8 @@ apps/frontend/
                                (x_owner_clears) with Release
   app/api/admin/scores/route.ts  v2.12 T6: POST -> builder-score.ts scoresPost (release a held day as a
                                score_releases row, or action=clear_x / release_x); wrong key 404; 303 back
+  app/api/programs/write/route.ts  v4.9 T2: POST, the programs write API (lib/earnkit/programs-api.ts); 404 until
+                               EARNKIT_PROGRAMS_TOKEN is set, or with EARNKIT_PROGRAMS_API=off
   app/api/stats/route.ts       v2.5 Task 9: GET public stats JSON (revalidate 600, prerendered when
                                the build has a DATABASE_URL; plus unstable_cache 600 s on the read,
                                for builds without one, where it renders per request); 503 no-store
@@ -1376,6 +1378,12 @@ apps/frontend/
                                "<path or (program)>: <message>"; Optimism, shared proof_hosts, any_chain
                                min_product_score, ...), then todo, kind, needs_repo, fresh_build and the logo
                                file. Tests: v49-programs-api.test.ts
+    programs-api.ts            v4.9 T2: programsWritePost (POST /api/programs/write, the Grok Bot's write API):
+                               token (bearerMatches), LIMITS.programsWrite, 256 KB readCapped, ProgramFile + R4
+                               fields (proof_hosts, x_handles, logo, campaign), programProblems, apiRuleProblems,
+                               curated 409 (programs/ file or non-api row), safeProbe links, then upsertProgram(p,
+                               'api') in a tx with an unchanged snapshot check; program_writes audit rows;
+                               noteFileTakeover for programs-sync. Tests: v49-programs-api.test.ts
     payout.ts(+test)           payoutAccount (CAMPAIGN_PAYOUT_PRIVATE_KEY, with or without 0x: Ruling 7), payoutRpc, payWinner (sign,
                                store, broadcast; stale/manual handling; optional place), payRanked
                                (per-place amounts, any ERC-20, every v2.4 rule, openSends nonce

@@ -85,7 +85,10 @@ if (checkOnly) {
 
 const { upsertProgram } = await import('../lib/earnkit/programs');
 const { sql } = await import('../lib/earnkit/db');
+const { noteFileTakeover } = await import('../lib/earnkit/programs-api');
 for (const { f, result } of parsed) {
+  // v4.9 Task 2 (controller ruling 2): files win (R3), but never silently over a program the write API made.
+  if (await noteFileTakeover(result.data!.id)) console.warn(`[programs] file ${result.data!.id} took over an api program`);
   await upsertProgram(result.data!);
   console.log(`Synced ${f}`);
 }

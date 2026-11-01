@@ -1,0 +1,319 @@
+import { existsSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
+import type postgres from 'postgres';
+import { z } from 'zod';
+import { sql } from './db';
+import { bearerMatches, json } from './http';
+import { programProblems, schemaProblems } from './program-checks';
+import { ProgramFile, categoryOf, isOptimismUrl } from './program-file';
+import { upsertProgram } from './programs';
+import { RateLimitError, enforce } from './rate-limit';
+import { FETCH_TIMEOUT_MS, safeProbe } from './safe-fetch';
+import { readCapped } from './secrets';
+import { SHARED_HOSTS } from './submit-hosts';
+
+/**
+ * v4.9 Task 2: POST /api/programs/write, the owner's Grok Bot's write API (plan R1-R6). Every write goes live at once
+ * when it passes the checks, in this order, stopping at the first failing group:
+ *   1. the feature is on (404), the token is right (401), the rate limit (429), the body is at most 256 KB (413) and
+ *      parses as JSON (400);
+ *   2. the envelope and ProgramFile parse, and none of the owner-only fields (R4) is present (400);
+ *   3. programProblems (the same checks as `pnpm programs:check`) is empty (400);
+ *   4. the API-only rules (apiRuleProblems) hold (400);
+ *   5. the id isn't curated: no programs/<id>.json, and no existing row whose source isn't 'api' (R3, 409);
+ *   6. source_url and submission_url load (safeProbe, 5 s) (400).
+ * Then upsertProgram(parsed, 'api') and a program_writes row. Only parsed data is written, never the raw body.
+ * Logs carry the action, a well-formed id and the result only: never the token or a body.
+ */
+
+/** The largest body the API reads (the MCP route's cap pattern, at 256 KB). */
+export const PROGRAMS_BODY_MAX = 256 * 1024;
+/** R4: the owner adds these by file (proof fields and the logo file). `campaign` too: a campaign pays out. */
+export const API_FORBIDDEN = ['proof_hosts', 'x_handles', 'logo', 'campaign'] as const;
+export const API_ID = /^[a-z0-9-]{3,64}$/;
+/** verified_at may be at most this many days old. */
+export const VERIFIED_MAX_AGE_DAYS = 7;
+export const CLOSE_REASON_MAX = 200;
+/** The 409 line (R3). */
+export const curatedLine = (id: string) => `${id} is curated by EarnKit; send a new id or ask the owner`;
+
+const DAY_MS = 86_400_000;
+/** UTC+14 is the earliest zone: a bot's "today" there is never refused as the future. */
+const EARLIEST_ZONE_MS = 14 * 3_600_000;
+
+/** The token is set (R6: at least 32 characters) and the off switch isn't thrown. */
+export function programsApiOn(env: NodeJS.ProcessEnv = process.env): boolean {
+  const token = env.EARNKIT_PROGRAMS_TOKEN;
+  return Boolean(token && token.length >= 32) && env.EARNKIT_PROGRAMS_API !== 'off';
+}
+
+/** R4: the owner-only fields present in a raw program body. Pure. */
+export const forbiddenFields = (raw: Record<string, unknown>): string[] =>
+  API_FORBIDDEN.filter((k) => Object.prototype.hasOwnProperty.call(raw, k));
+
+const hostOf = (url: string): string | null => {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+};
+const onSharedHost = (host: string) => SHARED_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
+
+/** Check group 4: the rules only API programs follow (a file is owner-reviewed). Pure. */
+export function apiRuleProblems(p: ProgramFile, now: Date): string[] {
+  const problems: string[] = [];
+  if (!API_ID.test(p.id)) problems.push('id: 3 to 64 lowercase letters, digits or dashes');
+  const day = Date.parse(`${p.verified_at}T00:00:00Z`);
+  const todayUtc = Math.floor(now.getTime() / DAY_MS) * DAY_MS;
+  if (day > now.getTime() + EARLIEST_ZONE_MS) problems.push('verified_at: is in the future');
+  else if (day < todayUtc - VERIFIED_MAX_AGE_DAYS * DAY_MS)
+    problems.push(`verified_at: more than ${VERIFIED_MAX_AGE_DAYS} days ago; check the source again`);
+  if (p.status === 'active' && p.ends_at !== null && Date.parse(p.ends_at) <= now.getTime())
+    problems.push('ends_at: has passed; an active program needs a future ends_at or null');
+  for (const key of ['source_url', 'submission_url'] as const) {
+    const url = p[key];
+    const host = hostOf(url);
+    if (!url.startsWith('https://') || host === null) problems.push(`${key}: must be https`);
+    else if (onSharedHost(host)) problems.push(`${key}: ${host} is a shared host (anyone can publish there)`);
+    else if (isOptimismUrl(url)) problems.push(`${key}: Optimism programs are not listed`);
+  }
+  return problems;
+}
+
+/** Where programs/*.json are at run time (`next start` runs in apps/frontend), or null. */
+export function findProgramsDir(cwd = process.cwd()): string | null {
+  for (const dir of [join(cwd, '..', '..', 'programs'), join(cwd, 'programs')]) if (existsSync(dir)) return dir;
+  return null;
+}
+
+/** The ids of the curated program files: programs/<id>.json. */
+export function curatedIds(dir: string | null): Set<string> {
+  if (!dir) return new Set();
+  try {
+    return new Set(readdirSync(dir).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -'.json'.length)));
+  } catch {
+    return new Set();
+  }
+}
+
+/** A link that must load: safeProbe (public addresses only, a 2xx that isn't an error page), 5 s. */
+const probe = (url: string) => safeProbe(url, { timeoutMs: FETCH_TIMEOUT_MS });
+
+export type WriteDeps = {
+  now?: Date;
+  /** Resolves when the URL loads; throws (any error) when it doesn't. Default safeProbe. */
+  checkLink?: (url: string) => Promise<void>;
+  /** The programs/ directory; default findProgramsDir(). null: none on disk (the row check still guards). */
+  programsDir?: string | null;
+  /** Counts one authenticated call; throws a RateLimitError when over the limit. Default LIMITS.programsWrite. */
+  limit?: () => Promise<unknown>;
+};
+
+type Result = 'created' | 'updated' | 'unchanged' | 'closed';
+
+const Envelope = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('upsert'), program: z.record(z.string(), z.unknown()) }).strict(),
+  z.object({ action: z.literal('close'), id: z.string(), reason: z.string().trim().min(1).max(CLOSE_REASON_MAX) }).strict(),
+]);
+
+const refused = (status: number, problems: string[]) => json({ ok: false, problems }, status);
+
+/** An id fit for a log line or an audit row: only a well-formed one. */
+const safeId = (id: unknown): string | null => (typeof id === 'string' && API_ID.test(id) ? id : null);
+
+async function audit(
+  db: postgres.Sql | postgres.TransactionSql,
+  row: { program_id: string | null; action: string; result: string; reason?: string | null; body?: unknown },
+) {
+  await db`INSERT INTO program_writes (program_id, action, result, reason, body)
+    VALUES (${row.program_id}, ${row.action}, ${row.result}, ${row.reason ?? null}, ${row.body === undefined || row.body === null ? null : db.json(row.body as postgres.JSONValue)})`;
+}
+
+/** A refused write, kept for the owner (the reason, never the body). Never throws. */
+async function auditRefusal(action: string, id: unknown, result: string, problems: string[]) {
+  const program_id = safeId(id);
+  console.log(`[programs-api] ${action} ${program_id ?? '-'} ${result}`);
+  await audit(sql(), { program_id, action, result, reason: problems.join('; ').slice(0, 1_000) }).catch(() =>
+    console.error('[programs-api] audit write failed'),
+  );
+}
+
+/** The program row and its tracks, for the deep-equal "unchanged" check. */
+async function snapshot(tx: postgres.TransactionSql, id: string): Promise<unknown> {
+  const [row] = await tx<{ row: unknown; tracks: unknown }[]>`
+    SELECT to_jsonb(p) - 'created_at' AS row,
+      (SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY t.id), '[]'::jsonb) FROM tracks t WHERE t.program_id = p.id) AS tracks
+    FROM programs p WHERE p.id = ${id}`;
+  return row ?? null;
+}
+
+class Unchanged extends Error {}
+class Curated extends Error {}
+
+const live = (p: Pick<ProgramFile, 'status' | 'ends_at'>, now: Date) =>
+  p.status === 'upcoming' || (p.status === 'active' && (p.ends_at === null || Date.parse(p.ends_at) > now.getTime()));
+
+async function upsertAction(raw: Record<string, unknown>, deps: Required<Omit<WriteDeps, 'limit'>>): Promise<Response> {
+  const { now } = deps;
+  // Group 2: the schema and R4.
+  const forbidden = forbiddenFields(raw).map((k) => `${k}: the API can't set ${k}; the owner adds it by file`);
+  const parsed = ProgramFile.safeParse(raw);
+  if (forbidden.length > 0 || !parsed.success) {
+    const problems = [...forbidden, ...(parsed.success ? [] : schemaProblems(parsed.error))];
+    await auditRefusal('upsert', raw.id, 'refused', problems);
+    return refused(400, problems);
+  }
+  const p = parsed.data;
+  // Group 3: programs:check's rules. No logo reaches here (R4), so nothing reads a caller-chosen path.
+  const checks = programProblems(p, { publicDir: join(process.cwd(), 'public') });
+  if (checks.length > 0) {
+    await auditRefusal('upsert', p.id, 'refused', checks);
+    return refused(400, checks);
+  }
+  // Group 4.
+  const rules = apiRuleProblems(p, now);
+  if (rules.length > 0) {
+    await auditRefusal('upsert', p.id, 'refused', rules);
+    return refused(400, rules);
+  }
+  // Group 5 (R3): a programs/ file, or a row another writer made.
+  const [existing] = await sql()<{ source: string }[]>`SELECT source FROM programs WHERE id = ${p.id}`;
+  if (curatedIds(deps.programsDir).has(p.id) || (existing && existing.source !== 'api')) {
+    await auditRefusal('upsert', p.id, 'curated', [curatedLine(p.id)]);
+    return refused(409, [curatedLine(p.id)]);
+  }
+  // Group 6: both links load (one probe when they're the same URL).
+  const linkProblems: string[] = [];
+  const urls = p.source_url === p.submission_url ? (['source_url'] as const) : (['source_url', 'submission_url'] as const);
+  for (const key of urls) {
+    try {
+      await deps.checkLink(p[key]);
+    } catch (err) {
+      linkProblems.push(`${key}: doesn't load (${(err instanceof Error ? err.message : 'unknown error').slice(0, 160)})`);
+    }
+  }
+  if (linkProblems.length > 0) {
+    await auditRefusal('upsert', p.id, 'refused', linkProblems);
+    return refused(400, linkProblems);
+  }
+
+  let result: Result;
+  try {
+    result = await sql().begin(async (tx) => {
+      // The row is locked and its source read again, so a sync between the check and the write can't be overwritten.
+      const [row] = await tx<{ source: string }[]>`SELECT source FROM programs WHERE id = ${p.id} FOR UPDATE`;
+      if (row && row.source !== 'api') throw new Curated();
+      const before = row ? await snapshot(tx, p.id) : null;
+      await upsertProgram(p, 'api', tx);
+      if (before !== null && isDeepStrictEqual(before, await snapshot(tx, p.id))) throw new Unchanged();
+      const r: Result = row ? 'updated' : 'created';
+      await audit(tx, { program_id: p.id, action: 'upsert', result: r, body: p });
+      return r;
+    });
+  } catch (err) {
+    if (err instanceof Curated) {
+      await auditRefusal('upsert', p.id, 'curated', [curatedLine(p.id)]);
+      return refused(409, [curatedLine(p.id)]);
+    }
+    if (!(err instanceof Unchanged)) throw err;
+    // The write was rolled back (nothing changed); the audit row is still kept.
+    result = 'unchanged';
+    await audit(sql(), { program_id: p.id, action: 'upsert', result });
+  }
+  console.log(`[programs-api] upsert ${p.id} ${result}`);
+  return json({ ok: true, id: p.id, result, category: categoryOf(p), live: live(p, now) });
+}
+
+async function closeAction(id: string, reason: string, deps: Required<Omit<WriteDeps, 'limit'>>): Promise<Response> {
+  if (!API_ID.test(id)) {
+    const problems = ['id: 3 to 64 lowercase letters, digits or dashes'];
+    await auditRefusal('close', null, 'refused', problems);
+    return refused(400, problems);
+  }
+  if (curatedIds(deps.programsDir).has(id)) {
+    await auditRefusal('close', id, 'curated', [curatedLine(id)]);
+    return refused(409, [curatedLine(id)]);
+  }
+  const out = await sql().begin(async (tx) => {
+    const [row] = await tx<{ source: string; status: string; category: string | null }[]>`
+      SELECT source, status, category FROM programs WHERE id = ${id} FOR UPDATE`;
+    if (!row) return { status: 400 as const };
+    if (row.source !== 'api') return { status: 409 as const };
+    const result: Result = row.status === 'closed' ? 'unchanged' : 'closed';
+    if (result === 'closed') await tx`UPDATE programs SET status = 'closed' WHERE id = ${id}`;
+    await audit(tx, { program_id: id, action: 'close', result, reason });
+    return { status: 200 as const, result, row };
+  });
+  if (out.status === 400) {
+    const problems = [`id: no program ${id}`];
+    await auditRefusal('close', id, 'refused', problems);
+    return refused(400, problems);
+  }
+  if (out.status === 409) {
+    await auditRefusal('close', id, 'curated', [curatedLine(id)]);
+    return refused(409, [curatedLine(id)]);
+  }
+  console.log(`[programs-api] close ${id} ${out.result}`);
+  // Every upsert since v4.9 Task 1 writes the category, and only api rows reach here.
+  return json({ ok: true, id, result: out.result, category: out.row.category, live: false });
+}
+
+let warnedNoDir = false;
+
+/** POST /api/programs/write. */
+export async function programsWritePost(request: Request, deps: WriteDeps = {}): Promise<Response> {
+  // Group 1. Unset token or the off switch: the route doesn't exist (R6).
+  if (!programsApiOn()) return new Response('Not Found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+  // Constant time: both sides are hashed to 32 bytes before timingSafeEqual (http.ts secretMatches).
+  if (!bearerMatches(request.headers.get('authorization'), process.env.EARNKIT_PROGRAMS_TOKEN))
+    return json({ ok: false, error: 'unauthorized' }, 401);
+  try {
+    await (deps.limit ?? (() => enforce('programsWrite', 'owner', 'Too many program writes this hour.')))();
+  } catch (err) {
+    if (err instanceof RateLimitError) return json({ ok: false, error: err.message }, 429, { 'Retry-After': String(err.retryAfter) });
+    console.error('[programs-api] rate limit check failed');
+    return json({ ok: false, error: 'EarnKit is busy. Try again in a minute.' }, 503, { 'Retry-After': '30' });
+  }
+  const text = await readCapped(request, PROGRAMS_BODY_MAX).catch(() => null);
+  if (text === null) return json({ ok: false, error: `body over ${PROGRAMS_BODY_MAX / 1024} KB` }, 413);
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return refused(400, ['body: not JSON']);
+  }
+
+  const programsDir = deps.programsDir === undefined ? findProgramsDir() : deps.programsDir;
+  if (programsDir === null && !warnedNoDir) {
+    warnedNoDir = true;
+    console.warn('[programs-api] programs/ not found; the row check alone guards curated ids');
+  }
+  const full = { now: deps.now ?? new Date(), checkLink: deps.checkLink ?? probe, programsDir };
+  try {
+    const envelope = Envelope.safeParse(body);
+    if (!envelope.success) {
+      const problems = schemaProblems(envelope.error);
+      await auditRefusal((body as { action?: unknown } | null)?.action === 'close' ? 'close' : 'upsert', null, 'refused', problems);
+      return refused(400, problems);
+    }
+    const e = envelope.data;
+    return e.action === 'upsert' ? await upsertAction(e.program, full) : await closeAction(e.id, e.reason, full);
+  } catch {
+    console.error('[programs-api] write failed');
+    return json({ ok: false, error: 'EarnKit is busy. Try again in a minute.' }, 503, { 'Retry-After': '30' });
+  }
+}
+
+/**
+ * Controller ruling 2 (Task 1 review F1): `programs:sync` is about to write a file over `id`. When that row was made by
+ * the API, it records the takeover in program_writes and returns true (the script prints the loud line). Files win (R3).
+ */
+export async function noteFileTakeover(id: string, db: postgres.Sql = sql()): Promise<boolean> {
+  const [row] = await db<{ source: string }[]>`SELECT source FROM programs WHERE id = ${id}`;
+  if (row?.source !== 'api') return false;
+  await audit(db, { program_id: id, action: 'takeover', result: 'file', reason: `programs/${id}.json took over an api program` });
+  return true;
+}
+
