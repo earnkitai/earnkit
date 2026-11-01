@@ -8861,3 +8861,13 @@ A yes on the path moves the stage on (bench-find.ts benchMoveUp, asks stored wit
     only the `opener` part exempts. converse checks each tell against the previous reply's move_up (askMismatch),
     lazyNext drives the replay, first comes from the product's session, and a wait throws unless a new session began.
   - The replay refuses `earnkit_replay` (the master) unless ALLOW_MASTER=1, and LINK_CHECK or EARNKIT_MODEL_TEST set.
+
+## v4.8.1 Task 1: grants lead, investors only when chosen (2026-11-01, plan: v4.8.1-plan.md, ruling R1)
+
+bestMove's order is now: a real fit; a grant (not a long shot) with no gap closing within NOW_WINDOW_MS; a grant (not a
+long shot) one agent-doable step away; the closest grant (not a long shot); and only when all of those are empty, an
+investor program or a long-shot grant closing within INVESTOR_WINDOW_MS, soonest first. `kind: 'now'` holds grants only;
+an investor move is always `kind: 'investor'`. MoveProgram carries `longShot` (bench-find.ts moveProgram sets it from the
+program file's `tag === 'long shot'`). A program the builder picked or is past the hook on still keeps its place
+wherever it ranks (a long-shot grant at any close), so a builder who picks a16z still gets its draft, submit and track.
+

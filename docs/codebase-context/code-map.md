@@ -1770,9 +1770,11 @@ apps/frontend/
                                submit, track), Path { stage, program_id, at, picked? } in standing_seen.path (readPath, setPath;
                                a program may be set before ranking: Task 4's pick), the session (SESSION_MS 2 h; sessionOf ->
                                { fresh, said }, markSaid into standing_seen.said { at, keys }), MENTOR_NOTE (the agent rewords in a
-                               mentor's voice), bestMove (fit closing first; a grant one step away, a passed step not counted;
-                               an investor program closing within 7 days with difficulty_override.basis odds; the closest grant
-                               by gaps, a passed one-gap step raised once (standing_seen.path_raised); else quiet), pathReply
+                               mentor's voice), bestMove (v4.8.1 R1 order: fit closing first; a grant with no gap closing in
+                               48 h; a grant one agent-doable step away, a passed step not counted; the closest grant by gaps, a
+                               passed one-gap step raised once (standing_seen.path_raised); only with none of those, an investor
+                               program (difficulty_override.basis odds) or long shot (MoveProgram.longShot, the program file's
+                               tag) closing within 7 days; a picked or past-the-hook program keeps its place; else quiet), pathReply
                                (Task 1: the hook only: A's opener for a fit or investor, "Want the steps?" for a gap; a hook said
                                this session is a one-line pointer), closeWords, proofLine, programName. bench-find.ts pathView
                                gathers the facts (pathSkip: entered, hidden, told, drafted, 'apply:'/'path:' nos) and stores

@@ -106,6 +106,11 @@ export type MoveProgram = {
   /** The prize part as the program states it ("up to $5,000", "up to $1M"), null when unknown. */
   amount: string | null;
   when: string; ends_at: string | null; zone: string; investment: boolean;
+  /**
+   * v4.8.1 Task 1 (R1): the program file is tagged "long shot" (program-file.ts `tag`). A long shot never leads on its
+   * own (bestMove step 5). bench-find.ts always sets it; absent reads as false.
+   */
+  longShot?: boolean;
 };
 /**
  * An open grant the project doesn't fit, with what it needs: `gaps` (each a step; none known: it can apply now), `gap`
@@ -140,8 +145,8 @@ export type MoveCtx = {
 };
 export type Move =
   | { kind: 'fit'; program: MoveProgram }
-  /** Closing within NOW_WINDOW_MS with no gap: a grant with none known, or an investor program. */
-  | { kind: 'now'; program: MoveProgram | InvestorProgram }
+  /** Closing within NOW_WINDOW_MS with no gap known: a grant only (v4.8.1 R1: never an investor program). */
+  | { kind: 'now'; program: MoveProgram }
   | { kind: 'one_step'; program: GapGrant }
   | { kind: 'investor'; program: InvestorProgram }
   /** `raise`: the one gap is a step the builder passed on, raised this once. */
@@ -156,19 +161,22 @@ const closeAt = (p: Pick<MoveProgram, 'ends_at'>) => (p.ends_at ? Date.parse(p.e
 const byClose = <P extends Pick<MoveProgram, 'ends_at'>>(a: P, b: P) => closeAt(a) - closeAt(b);
 
 /**
- * The program the path leads with, in this order (fix round 1, controller ruling R1):
- * 1. a real fit not applied to or drafted, closing first (rolling last);
- * 2. a program (grant or investor) closing within NOW_WINDOW_MS (48 hours) the builder can apply to now with no gap;
- * 3. a grant one step away where that step is one the agent can do in the repo (`doable`: Builder Codes; a chain
- *    deployment never counts), not a step the builder passed on;
- * 4. an investor program closing within INVESTOR_WINDOW_MS, soonest first, with its odds when stated;
- * 5. the closest grant by number of gaps, the agent-doable one first at equal gaps (a passed step only when it is the
- *    one gap, and only once); never one whose gap the agent can't do that closes within NOW_WINDOW_MS (final review F2);
+ * The program the path leads with, in this order (v4.8.1 Task 1, controller ruling R1: investor programs and long shots
+ * never lead on their own):
+ * 1. a real fit not applied to or drafted, closing first (rolling last); fits already exclude investors and long shots;
+ * 2. a grant, not a long shot, closing within NOW_WINDOW_MS (48 hours) the builder can apply to now with no gap;
+ * 3. a grant, not a long shot, one step away where that step is one the agent can do in the repo (`doable`: Builder
+ *    Codes; a chain deployment never counts), not a step the builder passed on;
+ * 4. the closest grant, not a long shot, by number of gaps, the agent-doable one first at equal gaps (a passed step only
+ *    when it is the one gap, and only once); never one whose gap the agent can't do that closes within NOW_WINDOW_MS
+ *    (final review F2);
+ * 5. only when 1 to 4 are all empty: an investor program (with its odds when stated) or a long-shot grant closing within
+ *    INVESTOR_WINDOW_MS, soonest first;
  * 6. otherwise quiet: the reply's older asks (check-in, wallet, token, new repo, titles, then the ship line).
- * Anything in `skip` is never a move. A program on the stored path that is still one of 1 to 5 keeps its place when
- * the builder is on it: they picked it, or said yes past the hook (gap, draft, submit, track). An investor program is
- * never a fit. Pure.
- * bench-find.ts (fix rounds 2 and 3): the path leads on steps 1 to 4. On step 5 an older moment (connect, the Monday
+ * Anything in `skip` is never a move. A program on the stored path keeps its place, wherever it ranks, while it is still
+ * one of 1 to 5 (a long-shot grant at any close) and the builder is on it: they picked it, or said yes past the hook
+ * (gap, draft, submit, track). An investor program is never a fit. Pure.
+ * bench-find.ts (fix rounds 2 and 3): the path leads on every move but the closest grant. On a closest grant an older moment (connect, the Monday
  * block, a post, the check-in) may answer first, once a session, and only at the hook while the path is not already
  * on that program; a builder mid-path (past the hook, or already hooked on it) always gets the path.
  */
@@ -177,10 +185,9 @@ export function bestMove(ctx: MoveCtx): Move {
   const open = <P extends MoveProgram>(p: P) => !ctx.skip.has(p.id) && closeAt(p) > t;
   const fits = ctx.fits.filter((p) => open(p) && !p.investment).sort(byClose);
   const soon = (p: MoveProgram, ms: number) => closeAt(p) - t <= ms;
-  const noGap = ctx.grants.filter((g) => open(g) && !g.investment && g.gaps.length === 0 && soon(g, NOW_WINDOW_MS));
+  const now = ctx.grants.filter((g) => open(g) && !g.investment && g.gaps.length === 0 && soon(g, NOW_WINDOW_MS)).sort(byClose);
   const grants = ctx.grants.filter((g) => open(g) && !g.investment && g.gaps.length > 0);
   const investors = ctx.investors.filter((p) => open(p) && p.investment && soon(p, INVESTOR_WINDOW_MS)).sort(byClose);
-  const now: (MoveProgram | InvestorProgram)[] = [...noGap, ...investors.filter((p) => soon(p, NOW_WINDOW_MS))].sort(byClose);
   const oneStep = grants.filter((g) => g.gaps.length === 1 && g.doable && !g.passed).sort(byClose);
   // Task 2 fix round 2: a grant the builder said yes to past the hook (gap, draft) stays a move even once its passed
   // step was raised (they took it up).
@@ -192,15 +199,25 @@ export function bestMove(ctx: MoveCtx): Move {
     .filter((g) => g.doable || onPast(g) || !soon(g, NOW_WINDOW_MS))
     .filter((g) => !g.passed || onPast(g) || (g.gaps.length === 1 && (!ctx.raised.has(g.id) || (ctx.path?.program_id === g.id && ctx.raisedNow?.has(g.id) === true))))
     .sort((a, b) => a.gaps.length - b.gaps.length || Number(b.doable) - Number(a.doable) || byClose(a, b));
-  const moves: Exclude<Move, { kind: 'quiet' }>[] = [
-    ...fits.map((program) => ({ kind: 'fit' as const, program })),
+  const grantMoves: Exclude<Move, { kind: 'quiet' }>[] = [
     ...now.map((program) => ({ kind: 'now' as const, program })),
     ...oneStep.map((program) => ({ kind: 'one_step' as const, program })),
-    ...investors.map((program) => ({ kind: 'investor' as const, program })),
     ...closest.filter((g) => !oneStep.includes(g)).map((program) => ({ kind: 'closest' as const, program, raise: program.passed })),
   ];
+  // v4.8.1 R1: long shots and investor programs go last (step 5), soonest first; a long-shot grant keeps its own kind.
+  const longShots = grantMoves.filter((m) => m.program.longShot === true);
+  const last = [
+    ...investors.map((program) => ({ kind: 'investor' as const, program })),
+    ...longShots.filter((m) => soon(m.program, INVESTOR_WINDOW_MS)),
+  ].sort((a, b) => byClose(a.program, b.program));
+  const moves: Exclude<Move, { kind: 'quiet' }>[] = [
+    ...fits.map((program) => ({ kind: 'fit' as const, program })),
+    ...grantMoves.filter((m) => m.program.longShot !== true),
+    ...last,
+  ];
   const on = ctx.path?.program_id && (ctx.path.picked || ctx.path.stage !== 'hook') ? ctx.path.program_id : null;
-  const kept = on ? moves.find((m) => m.program.id === on) : undefined;
+  // The builder's own long-shot grant keeps its place whatever its close.
+  const kept = on ? [...moves, ...longShots].find((m) => m.program.id === on) : undefined;
   return kept ?? moves[0] ?? { kind: 'quiet' };
 }
 

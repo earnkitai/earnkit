@@ -63,7 +63,7 @@ const ARC: GapGrant = {
 const gap = (id: string, gaps: string[], o: Partial<GapGrant> = {}): GapGrant => ({ ...prog({ id }), gaps, gap: 'x', passed: false, doable: false, ...o });
 const ctx = (o: Partial<MoveCtx> = {}): MoveCtx => ({ now: NOW, fits: [], grants: [], investors: [], skip: new Set(), raised: new Set(), path: null, ...o });
 
-test('bestMove (fix round 1, R1): fit; no gap closing in 48 hours; an agent-doable one step; investor in 7 days; closest; quiet', () => {
+test('bestMove (v4.8.1 R1): fit; a grant with no gap closing in 48 hours; an agent-doable one step; closest; investor in 7 days; quiet', () => {
   const fitSoon = prog({ id: 'fit-soon', ends_at: '2026-11-05T00:00:00Z', when: 'closes Nov 5' });
   const fitRolling = prog({ id: 'fit-rolling' });
   const codes = gap('codes', ['codes'], { doable: true });
@@ -73,45 +73,48 @@ test('bestMove (fix round 1, R1): fit; no gap closing in 48 hours; an agent-doab
   const week = { ...A16Z, id: 'week', ends_at: '2026-11-05T19:00:00Z' };
   // 1. A real fit, closing first (rolling last), before anything else.
   assert.deepEqual(bestMove(ctx({ fits: [fitRolling, fitSoon], grants: [codes, ARC], investors: [A16Z] })), { kind: 'fit', program: fitSoon });
-  // 2. A program closing within 48 hours with no gap: an investor program (a16z) or a grant with no gap known.
-  assert.deepEqual(bestMove(ctx({ grants: [codes, ARC], investors: [A16Z, week] })), { kind: 'now', program: A16Z });
+  // 2. A grant closing within 48 hours with no gap known. v4.8.1 R1: an investor program (a16z) is never a 'now'; the
+  // agent-doable one step leads it.
+  assert.deepEqual(bestMove(ctx({ grants: [codes, ARC], investors: [A16Z, week] })), { kind: 'one_step', program: codes });
   const noGap = gap('nogap', [], { ends_at: '2026-11-01T12:00:00Z', when: 'closes Nov 1' });
   assert.deepEqual(bestMove(ctx({ grants: [noGap, codes] })), { kind: 'now', program: noGap });
   // ... a no-gap grant further out is never a move on its own.
   assert.deepEqual(bestMove(ctx({ grants: [gap('later', [], { ends_at: '2026-11-20T00:00:00Z' })] })), { kind: 'quiet' });
   // 3. A grant one step away, the step one the agent can do (Builder Codes), before an investor program in 7 days.
   assert.deepEqual(bestMove(ctx({ grants: [two, codes], investors: [week] })), { kind: 'one_step', program: codes });
-  // 4. The investor program closing within 7 days, with the program file's odds.
-  const inv = bestMove(ctx({ grants: [three, two], investors: [week] }));
+  // 4. The closest grant by number of gaps, before an investor program in 7 days (v4.8.1 R1).
+  const closest = bestMove(ctx({ grants: [three, two], investors: [week] }));
+  assert.equal(closest.kind === 'closest' && closest.program.id, 'two');
+  // 5. With no grant move, the investor program closing within 7 days, with the program file's odds.
+  const inv = bestMove(ctx({ investors: [week] }));
   assert.equal(inv.kind, 'investor');
   assert.equal(inv.kind === 'investor' && inv.program.odds, A16Z.odds);
   // ... only within 7 days of its close.
   const later = { ...A16Z, id: 'later', ends_at: '2026-11-18T23:59:59Z' };
-  // 5. The closest grant by number of gaps.
-  const closest = bestMove(ctx({ grants: [three, two], investors: [later] }));
-  assert.equal(closest.kind === 'closest' && closest.program.id, 'two');
   // 6. Nothing: quiet.
   assert.deepEqual(bestMove(ctx({ investors: [later] })), { kind: 'quiet' });
   // A closed program is never a move.
   assert.deepEqual(bestMove(ctx({ fits: [prog({ id: 'gone', ends_at: '2026-10-30T00:00:00Z' })] })), { kind: 'quiet' });
 });
 
-test("bestMove (fix round 1, R1): Arc's chain gap is never a one-step; it waits behind an investor program", () => {
+test("bestMove (fix round 1, R1): Arc's chain gap is never a one-step; closing within 48 hours it is no grant move", () => {
   const week = { ...A16Z, id: 'week', ends_at: '2026-11-05T19:00:00Z' };
-  // One gap, but a chain deployment: not step 3, so the investor program in 7 days leads.
+  // One gap, but a chain deployment closing within 48 hours: no grant move at all, so the investor program in 7 days leads.
   assert.equal(bestMove(ctx({ grants: [ARC], investors: [week] })).kind, 'investor');
   // Alone, it is only ever the closest grant (step 5), never a one_step.
   assert.equal(bestMove(ctx({ grants: [{ ...ARC, ends_at: '2026-11-10T00:00:00Z', when: 'closes Nov 10' }] })).kind, 'closest');
-  // The owner's real day: a16z closes within 48 hours with no gap, so it leads Arc (and Base, passed on).
-  assert.deepEqual(bestMove(ctx({ grants: [ARC, BASE], investors: [A16Z] })), { kind: 'now', program: A16Z });
+  // The owner's real day (v4.8.1 R1): a16z never leads on its own; Base (one gap, passed on, not raised yet) is raised.
+  assert.deepEqual(bestMove(ctx({ grants: [ARC, BASE], investors: [A16Z] })), { kind: 'closest', program: BASE, raise: true });
 });
 
-test('bestMove: a passed step is raised once, only when it is the one gap, never ahead of an investor program', () => {
-  // A's opener: Base's one gap (Builder Codes) was passed on, so a16z leads.
-  assert.equal(bestMove(ctx({ grants: [BASE], investors: [A16Z] })).kind, 'now');
-  // After "sent" (a16z applied to), Base is raised as the closest, this once.
+test('bestMove: a passed step is raised once, only when it is the one gap, ahead of an investor program (v4.8.1 R1)', () => {
+  // Base's one gap (Builder Codes) was passed on: it is raised as the closest, this once, ahead of a16z.
+  assert.deepEqual(bestMove(ctx({ grants: [BASE], investors: [A16Z] })), { kind: 'closest', program: BASE, raise: true });
+  // After "sent" (a16z applied to), the same.
   const raised = bestMove(ctx({ grants: [BASE], investors: [A16Z], skip: new Set(['a16z-speedrun']) }));
   assert.deepEqual(raised, { kind: 'closest', program: BASE, raise: true });
+  // Raised once already: Base is no move, so a16z (no grant move left) leads.
+  assert.deepEqual(bestMove(ctx({ grants: [BASE], investors: [A16Z], raised: new Set([BASE.id]) })), { kind: 'investor', program: A16Z });
   assert.deepEqual(bestMove(ctx({ grants: [BASE], raised: new Set([BASE.id]) })), { kind: 'quiet' });
   // A passed step that isn't the one gap is never raised.
   assert.deepEqual(bestMove(ctx({ grants: [{ ...BASE, gaps: ['codes', 'use'] }] })), { kind: 'quiet' });
@@ -122,7 +125,7 @@ test('bestMove (Review Focus 4): an investor program is never a fit; applied to 
   assert.deepEqual(bestMove(ctx({ fits: [A16Z] })), { kind: 'quiet' });
   const fit = prog({ id: 'fit' });
   // Applied to or drafted (skip): never the hook, so the next move leads.
-  assert.equal(bestMove(ctx({ fits: [fit], investors: [A16Z], skip: new Set(['fit']) })).kind, 'now');
+  assert.equal(bestMove(ctx({ fits: [fit], investors: [A16Z], skip: new Set(['fit']) })).kind, 'investor');
   assert.deepEqual(bestMove(ctx({ fits: [fit], investors: [A16Z], skip: new Set(['fit', 'a16z-speedrun']) })), { kind: 'quiet' });
   // The stored path keeps its program while it is still a move and the builder is on it: picked (Task 4 stores a new
   // builder's pick before ranking) or past the hook.
@@ -208,8 +211,9 @@ const A_OPENER =
   'I can draft your application from your commits and live product in a few minutes. Want me to start?';
 
 test("pathReply: the owner's opener is section A's, word for word; the same hook again is a one-line pointer", () => {
-  const move = bestMove(ctx({ grants: [BASE], investors: [A16Z] }));
-  assert.equal(move.kind, 'now');
+  // v4.8.1 R1: a16z leads only with no grant move (or when picked), as an investor program.
+  const move = bestMove(ctx({ investors: [A16Z] }));
+  assert.equal(move.kind, 'investor');
   const r = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move: move as Exclude<typeof move, { kind: 'quiet' }>, said: new Set() });
   assert.equal(r.show_to_builder, A_OPENER);
   assert.equal(r.stage, 'hook');
@@ -292,9 +296,10 @@ let n = 0;
 /**
  * The owner-like builder (production snapshot, 2026-10-31): X name "Jenil T", project EarnKit, its repo proven by the
  * App, live and on Base, six weeks shipping, Builder Codes passed on (Base's steps declined today), the connect weeks
- * and setup step 3 done.
+ * and setup step 3 done. `pick` (v4.8.1 R1): the builder picked that program (said its name or number on the opener), so
+ * an investor program leads; investor programs never lead on their own while a grant move exists.
  */
-async function owner(tag: string) {
+async function owner(tag: string, o: { pick?: string } = {}) {
   n++;
   const t = `ek_v48_${tag}_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Claude Code');
@@ -320,16 +325,18 @@ async function owner(tag: string) {
   await sql()`UPDATE builder_projects SET commit_weeks = ${weeks}::text[], shipped = true, kind = 'app' WHERE builder_id = ${c.id} AND lower(project_key) = lower(${key})`;
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('connect_done', now()::text,
       'declined', jsonb_build_object(${`qualify:${key}`}::text, now()::text)) WHERE builder_id = ${c.id}`;
+  if (o.pick) await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('path', jsonb_build_object('stage', 'hook', 'program_id', ${o.pick}::text, 'at', now()::text, 'picked', true)) WHERE builder_id = ${c.id}`;
   return { ctx, id: c.id, key, gh, handle };
 }
 const find = (b: { ctx: unknown }, args: Record<string, unknown> = {}) => mcpCall(b.ctx as never, 'find', args);
 
-test("the owner-like builder's first find is A's opener; the next find in the session points back, never the same block", db, async () => {
+test("the owner-like builder who picked a16z: the first find is A's opener; the next find in the session points back, never the same block", db, async () => {
   const sr = await speedrun(30);
-  // Fix round 1 (R1): an open Arc Microgrants copy closing sooner, one chain gap away: never a one-step, so a16z leads.
+  // Fix round 1 (R1): an open Arc Microgrants copy closing sooner, one chain gap away: never a one-step. v4.8.1 R1: a16z
+  // leads because the builder picked it (Base, passed on, would be raised otherwise).
   const arc = committedProgram('arc-microgrants-studio', { keepContract: true });
   await upsertProgram(ProgramFile.parse({ ...arc, id: `v48-${process.pid}-arc`, ends_at: new Date(Date.now() + 20 * 3_600_000).toISOString(), status: 'active', starts_at: null }));
-  const b = await owner('a');
+  const b = await owner('a', { pick: sr.id });
   const r = await find(b);
   const s = show(r);
   const [p1, p2] = s.split('\n\n');
@@ -344,7 +351,7 @@ test("the owner-like builder's first find is A's opener; the next find in the se
   assert.deepEqual((r.reply?.lead as { program_id: string }).program_id, sr.id);
   const seen = await seenOf(b.id);
   assert.equal((seen.bench_ask as { kind: string; program_id: string }).program_id, sr.id);
-  assert.deepEqual({ ...(seen.path as object), at: undefined }, { stage: 'hook', program_id: sr.id, at: undefined });
+  assert.deepEqual({ ...(seen.path as object), at: undefined }, { stage: 'hook', program_id: sr.id, at: undefined, picked: true });
   assert.ok((seen.said as { keys: string[] }).keys.includes(`hook:${sr.id}`));
   // Review Focus 5 (an older agent calling find again): a one-line pointer, never the opener again.
   const again = show(await find(b));
@@ -359,8 +366,8 @@ test("the owner-like builder's first find is A's opener; the next find in the se
 });
 
 test('a no to the hook parks that program for DECLINE_MS and the path moves on', db, async () => {
-  await speedrun(30);
-  const b = await owner('no');
+  const sr = await speedrun(30);
+  const b = await owner('no', { pick: sr.id });
   assert.equal(moveUp(await find(b))?.kind, 'apply');
   await mcpCall(b.ctx as never, 'tell', { move_up: { kind: 'apply', project_key: b.key, answer: 'no' } });
   const next = show(await find(b));
@@ -457,12 +464,14 @@ async function connectDueFor(b: { id: number; key: string }) {
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'connect_done' - 'connect_open' WHERE builder_id = ${b.id}`;
 }
 
-test('fix round 2 (F1): steps 1 to 4 lead even with the connect weeks due', db, async () => {
-  const sr = await speedrun(30);
+test('fix round 2 (F1): steps 1 to 3 lead even with the connect weeks due', db, async () => {
+  await speedrun(30);
   const b = await owner('f1a');
+  // v4.8.1 R1: Base's step not passed on here, so its agent-doable one step (step 3) leads; a16z never leads on its own.
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'declined' WHERE builder_id = ${b.id}`;
   await connectDueFor(b);
   const s = show(await find(b));
-  assert.ok(s.startsWith(`Jenil, ${sr.title} closes `) && s.endsWith('Want me to start?'), s);
+  assert.ok(s.startsWith('Jenil, Base Builder Grant pays ') && s.endsWith('Go?'), s);
   assert.doesNotMatch(s, /Make your shipping log public/, s);
 });
 
@@ -485,7 +494,7 @@ test('fix round 2 (F1): with only the closest grant, the connect weeks go first,
 
 test('fix round 2 (F4): a v4.7 silence stand-aside never parks a program; an explicit no does', db, async () => {
   const sr = await speedrun(30);
-  const b = await owner('f4');
+  const b = await owner('f4', { pick: sr.id });
   const at = new Date().toISOString();
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen
       || jsonb_build_object('apply_silent', jsonb_build_object(${sr.id}::text, ${at}::text))
@@ -635,7 +644,7 @@ const tell = (b: { ctx: unknown }, move_up: Record<string, unknown>) => mcpCall(
 test('"sure" on the hook gives a draft with the verified record and A\'s two blanks; the path is at draft', db, async () => {
   const sr = await speedrun(30);
   await only([sr.id, 'base-builder-grants']);
-  const b = await owner('dr');
+  const b = await owner('dr', { pick: sr.id });
   await sql()`UPDATE builder_projects SET what = 'a funding finder for builders' WHERE builder_id = ${b.id} AND lower(project_key) = lower(${b.key})`;
   assert.equal(moveUp(await find(b))?.kind, 'apply');
   const r = await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes' });
@@ -794,7 +803,7 @@ test('F3: a hosted agent gets the steps to do itself, nothing marked; its no par
 test('a no parks the program and the next find hooks the next program; a no at the gap parks that one too', db, async () => {
   const sr = await speedrun(30);
   await only([sr.id, 'base-builder-grants']);
-  const b = await owner('nx');
+  const b = await owner('nx', { pick: sr.id });
   // One older moment already said this session, so the closest grant is never put behind one (fix round 2, F1).
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('said', jsonb_build_object('at', now()::text, 'keys', '["older"]'::jsonb)) WHERE builder_id = ${b.id}`;
   assert.ok(show(await find(b)).includes(sr.title));
@@ -866,7 +875,7 @@ test('the passed-step line and "Since {day}" (pure): stored changes only; nothin
 test('"sent" records the program as applied and hooks Base in the same reply, with the passed-step line said once', db, async () => {
   const sr = await speedrun(30);
   await only([sr.id, 'base-builder-grants']);
-  const b = await owner('snt');
+  const b = await owner('snt', { pick: sr.id });
   assert.equal(moveUp(await find(b))?.kind, 'apply');
   await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes' });
   // "just me, nothing raised": the submit stage, the deadline in the program's own zone, the email typed on the form.
@@ -910,7 +919,7 @@ test('"sent" records the program as applied and hooks Base in the same reply, wi
 test('fix round 1 (2): a plain yes to the submit ask is never "sent"; answer "sent" is; a no keeps it ready (final F8)', db, async () => {
   const sr = await speedrun(30);
   await only([sr.id, 'base-builder-grants']);
-  const b = await owner('sny');
+  const b = await owner('sny', { pick: sr.id });
   await find(b);
   await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes' });
   await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes', blanks: 'just me, nothing raised' });
@@ -923,7 +932,7 @@ test('fix round 1 (2): a plain yes to the submit ask is never "sent"; answer "se
   assert.ok(show(sent).startsWith("Nice, I'm tracking it. Speedrun says"), show(sent));
   assert.equal(await applied(b.id), 'applied');
   // Another builder: a no to "sent" is "not yet" (final review F8): the next find still points back to it.
-  const c = await owner('snn');
+  const c = await owner('snn', { pick: sr.id });
   await find(c);
   await tell(c, { kind: 'apply', project_key: c.key, answer: 'yes' });
   await tell(c, { kind: 'apply', project_key: c.key, answer: 'yes', blanks: 'just me, nothing raised' });
@@ -931,9 +940,9 @@ test('fix round 1 (2): a plain yes to the submit ask is never "sent"; answer "se
   assert.match(show(await find(c)), /speedrun SR008 application is ready to submit/);
 });
 
-/** A builder at submit on `sr` (hook, draft, the blanks answered). */
-async function atSubmit(tag: string) {
-  const b = await owner(tag);
+/** A builder at submit on `sr` (picked, hook, draft, the blanks answered). */
+async function atSubmit(tag: string, pick: string) {
+  const b = await owner(tag, { pick });
   await find(b);
   await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes' });
   await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes', blanks: 'just me, nothing raised' });
@@ -946,7 +955,7 @@ const backSession = (id: number, ms: number) =>
 test('fix round 1 (3): "sent" keeps the other replies of the same tell; the path reply is last', db, async () => {
   const sr = await speedrun(30);
   await only([sr.id, 'base-builder-grants']);
-  const b = await atSubmit('snm');
+  const b = await atSubmit('snm', sr.id);
   const r = await mcpCall(b.ctx as never, 'tell', { card: 'skip', program_status: [{ program_id: sr.id, status: 'applied' }] });
   const s = show(r);
   assert.ok(s.startsWith('Skipped.\n'), s);
@@ -959,7 +968,7 @@ test('fix round 1 (3): "sent" keeps the other replies of the same tell; the path
 test('fix round 1 (10, 11): "sent" with no next program still ends in one easy reply; no stated odds: the acknowledgement alone', db, async () => {
   const sr = await speedrun(30, { noOdds: true });
   await only([sr.id]);
-  const b = await atSubmit('snq');
+  const b = await atSubmit('snq', sr.id);
   const r = await mcpCall(b.ctx as never, 'tell', { program_status: [{ program_id: sr.id, status: 'applied' }] });
   const s = show(r);
   assert.ok(s.startsWith(`${TRACK_ACK}\n\n`), s);
@@ -975,7 +984,7 @@ test('fix round 1 (11): "sent" in a fresh session: the lead, then the next hook 
   const sr = await speedrun(30);
   await only([sr.id, 'base-builder-grants']);
   await sql()`UPDATE programs SET opened_at = now() WHERE id = 'base-builder-grants'`;
-  const b = await atSubmit('snf');
+  const b = await atSubmit('snf', sr.id);
   await backSession(b.id, SESSION_MS + 60_000);
   const s = show(await mcpCall(b.ctx as never, 'tell', { program_status: [{ program_id: sr.id, status: 'applied' }] }));
   const parts = s.split('\n\n');
@@ -1015,7 +1024,7 @@ test('fix round 1 (5, 11): "Since" says "opened" only for a program new to this 
   const s = show(await find(c));
   assert.ok(s.startsWith(`Since earlier today: ${programName(sr.title)} opened.\n\nJenil, ${sr.title} closes `), s);
   // Reopened while the builder is on it (at submit): no "opened" (programs.opened_at alone is no news).
-  const d = await atSubmit('snr');
+  const d = await atSubmit('snr', sr.id);
   await backSession(d.id, 3 * 3_600_000);
   await sql()`UPDATE programs SET opened_at = now() WHERE id = ${sr.id}`;
   const p = show(await find(d));
@@ -1185,8 +1194,8 @@ test('pickHook (pure, fix round 1 (2)): a pick that is a move is hooked even whe
   assert.deepEqual(pickHook(ctx({ fits: [fitSoon], grants: [circle, codes], investors: [A16Z] }), 'circle'), { move: { kind: 'fit', program: fitSoon }, pick: false, steps: false });
   // Target B: no fit; the investor program closing in 48 hours is left out (the closest money), Base's one step shown as closest.
   assert.deepEqual(pickHook(ctx({ grants: [circle, codes], investors: [A16Z] }), 'circle'), { move: { kind: 'closest', program: codes, raise: false }, pick: false, steps: true });
-  // An investor program picked inside its window: the pick, its own kind.
-  assert.deepEqual(pickHook(ctx({ grants: [codes], investors: [A16Z] }), A16Z.id), { move: { kind: 'now', program: A16Z }, pick: true, steps: false });
+  // An investor program picked inside its window: the pick, its own kind (v4.8.1 R1: 'investor', never 'now').
+  assert.deepEqual(pickHook(ctx({ grants: [codes], investors: [A16Z] }), A16Z.id), { move: { kind: 'investor', program: A16Z }, pick: true, steps: false });
   // A grant with a gap picked: the pick (its gap hook); nothing at all: null.
   assert.equal(pickHook(ctx({ grants: [codes] }), 'base')?.pick, true);
   assert.equal(pickHook(ctx({ grants: [circle] }), 'circle'), null);
@@ -1628,7 +1637,8 @@ test('programsAnswer (pure, fix round 1 (4)): one line a program under 3, a tabl
 });
 
 test('pathReply brief (fix round 1 (5)): after a direct answer, the step is the short pointer with no "still", and the hook counts as said', () => {
-  const move = bestMove(ctx({ grants: [BASE], investors: [A16Z] })) as Exclude<Move, { kind: 'quiet' }>;
+  // v4.8.1 R1: a16z as the move needs no grant move beside it (Base, passed on, would be raised first).
+  const move = bestMove(ctx({ investors: [A16Z] })) as Exclude<Move, { kind: 'quiet' }>;
   const r = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move, said: new Set(), brief: true });
   assert.equal(r.show_to_builder, 'Your a16z speedrun SR008 application is the next move. Want me to start?');
   assert.ok(r.said.includes('hook:a16z-speedrun'));
@@ -1684,7 +1694,7 @@ test('runAlertMail: the mailed text carries the tell line before the footer; sub
 async function asker(tag: string, ids: string[] | null = null) {
   const sr = await speedrun(30);
   await only(ids ?? [sr.id, 'base-builder-grants', 'circle-developer-grants']);
-  const b = await owner(tag);
+  const b = await owner(tag, { pick: sr.id });
   await setScore(b.id, 77);
   return { b, sr };
 }
@@ -1968,7 +1978,7 @@ async function walkA() {
   const sr = await speedrun(30);
   await only([sr.id, 'base-builder-grants']);
   await sql()`UPDATE programs SET opened_at = now() - interval '30 days' WHERE id = 'base-builder-grants'`;
-  const b = await owner('wa');
+  const b = await owner('wa', { pick: sr.id });
   const live = (score: number) =>
     sql()`UPDATE builder_live SET score = ${score}, ranked = true, calibration = ${'v2-shipping'}, parts = ${sql().json({ shipping: { points: score, raw: { mask: 0b111111, live_ships: 0 } } } as never)} WHERE builder_id = ${b.id}`;
   await live(77);
@@ -2179,7 +2189,7 @@ test('conversation (Task 6 fix round 1, review 8, 11): first and hook from the p
 test('final F7: a no to a path ask hands off to find in the same tell: one line, then the next program, never a bare "Okay."', db, async () => {
   const sr = await speedrun(30);
   await only([sr.id, 'base-builder-grants']);
-  const b = await owner('fno');
+  const b = await owner('fno', { pick: sr.id });
   assert.equal(moveUp(await find(b))?.kind, 'apply');
   const r = await tell(b, { kind: 'apply', project_key: b.key, answer: 'no' });
   const s = show(r);
@@ -2198,7 +2208,7 @@ test('final F7: a no to a path ask hands off to find in the same tell: one line,
 test('final F7, F15: a lazy "no" walk passes the merge gate', db, async () => {
   const sr = await speedrun(30);
   await only([sr.id, 'base-builder-grants']);
-  const b = await owner('fnw');
+  const b = await owner('fnw', { pick: sr.id });
   const replies = await converse(b.ctx as never, [
     { find: {} },
     { says: 'no', tell: { move_up: { kind: 'apply', project_key: b.key, answer: 'no' } } },
@@ -2213,7 +2223,7 @@ test('final F7, F15: a lazy "no" walk passes the merge gate', db, async () => {
 test('final F8: a no at submit is "not yet": the stage and its ask stay, the reply is the pointer; the note says so', db, async () => {
   const sr = await speedrun(30);
   await only([sr.id, 'base-builder-grants']);
-  const b = await atSubmit('fns');
+  const b = await atSubmit('fns', sr.id);
   const r = await tell(b, { kind: 'apply', project_key: b.key, answer: 'no' });
   // Re-review blocker 2: the first no says it stays ready.
   assert.match(show(r), /^No rush, it stays ready until [^.]+\. Reply "sent" once it's in\.$/, show(r));
@@ -2250,7 +2260,7 @@ test('final F2: after "sent", with Arc closing tonight on a chain gap, the lead 
   const p = ProgramFile.parse({ ...arc, id: `v48-${process.pid}-arcf2`, ends_at: new Date(Date.now() + 10 * 3_600_000).toISOString(), status: 'active', starts_at: null });
   await upsertProgram(p);
   await only([sr.id, p.id, 'base-builder-grants']);
-  const b = await atSubmit('ff2');
+  const b = await atSubmit('ff2', sr.id);
   const s = show(await mcpCall(b.ctx as never, 'tell', { program_status: [{ program_id: sr.id, status: 'applied' }] }));
   const [, hook, ask] = s.split('\n\n');
   assert.match(hook, /^Your closest money is Base Builder Grant: up to \$5,000\. [^\n]*Builder Codes[^\n]*You passed on them earlier today, but they're now the only gap to that money\./, s);
@@ -2424,7 +2434,7 @@ test('re-review blocker 1: no, no, then find: the quiet reply always ends in one
 test('re-review blocker 2: no at submit twice: "No rush" once, then the next program; the application waits for the next session', db, async () => {
   const sr = await speedrun(30);
   await only([sr.id, 'base-builder-grants']);
-  const b = await atSubmit('sn2');
+  const b = await atSubmit('sn2', sr.id);
   const turn = conversation(b.ctx as never, { builderId: b.id });
   // conversation's ask check needs the reply it follows: the submit pointer (a find) first.
   const replies: Reply[] = [(await turn({ find: {} }))!];

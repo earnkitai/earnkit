@@ -633,6 +633,7 @@ const pathAmount = (c: Pick<Card, 'summary' | 'investment'>): string | null => {
 /** v4.8 Task 1: a card as the path names it (conversation.ts MoveProgram). Pure. */
 const moveProgram = (c: Card): MoveProgram => ({
   id: c.id, title: c.title, amount: pathAmount(c), when: fundWhen(c), ends_at: isoOf(c.ends_at), zone: programZone(c), investment: c.investment === true,
+  longShot: c.tag === 'long shot',
 });
 /** v4.8 Task 3: the find tell runs right after "sent" (tools.ts) sees the path at track this recently. */
 const AFTER_SENT_MS = 5 * 60_000;
@@ -1518,7 +1519,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   // asks below (connect, the Monday block, posts, check-in, wallet, token, new repo, titles, then the ship line).
   // The path read the programs and had none to name (or parked them), so no older program ask (Base's qualify) is made.
   let pathQuiet = false;
-  // Fix round 2 (F1): the path has only the closest grant (bestMove step 5): the older moments go first, once a session.
+  // Fix round 2 (F1): the path has only the closest grant (bestMove step 4): the older moments go first, once a session.
   let deferred: (PathPlan & { move: Exclude<Move, { kind: 'quiet' }> }) | null = null;
   // Fix round 2 (F5): one nudge pick a reply (re-picked only for a milestone, whose line names the Best fit).
   let nudgeFirst: NudgePick | null | undefined;
