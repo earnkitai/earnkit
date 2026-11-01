@@ -291,7 +291,7 @@ const NO_END = /(?:^|\s)(?:e\.g|i\.e|vs|etc|Mr|Mrs|Ms|Dr|St|Inc|Ltd|[A-Z](?:\.[A
  */
 function splitLast(p: string): [string, string] | null {
   const cuts = [...p.matchAll(/[.?!]\s+(?=[A-Z"])/g)].filter((m) => !NO_END.test(p.slice(0, m.index + 1))).map((m) => ({ at: m.index, len: m[0].length }));
-  // A bare "Go?" keeps the offer it answers ("I can add them ... about 10 minutes. Go?") as one easy reply.
+  // A bare "Go?" keeps the offer it answers ("I can add Builder Codes ... about 10 minutes. Go?") as one easy reply.
   const short = (c: { at: number; len: number }) => p.slice(c.at + c.len).split(/\s+/).length < 3;
   const cut = cuts.length > 1 && short(cuts.at(-1)!) ? cuts.at(-2) : cuts.at(-1);
   return cut ? [p.slice(0, cut.at + 1), p.slice(cut.at + cut.len)] : null;
@@ -383,8 +383,6 @@ export type PathCtx = {
 export const POINT_NEXT = `Reply "no" and I'll line up the next program.`;
 /** The third and later pointers' easy reply: bench-reply.ts MORE_ASK, "more" is the programs answer. */
 export const POINT_MORE = MORE_ASK;
-/** Fix round 1: the 'go' pointer's offer names its step, so it reads alone. */
-export const CODES_POINT_OFFER = 'I can add Builder Codes and push the change, about 10 minutes. Go?';
 /** Fix round 1 (minor 1): the submit stage's own ask on a pointer. */
 export const SENT_SHORT = `Reply "sent" once it's in.`;
 /** What the pointer reads of the program and the path. */
@@ -431,7 +429,8 @@ export function pointerReply(p: PointerFacts, ask: string, said: ReadonlySet<str
   return { text: POINT_MORE, said: [], more: true, ready: false };
 }
 /** Fix round 2 (F10): a local agent's offer for a grant whose one gap is Builder Codes (target A). */
-export const CODES_OFFER = 'I can add them and push the change, about 10 minutes. Go?';
+/** v4.8.1 final fix (R-2): it names its step, so it reads right after the money line or alone in a pointer. */
+export const CODES_OFFER = 'I can add Builder Codes and push the change, about 10 minutes. Go?';
 export type PathReply = {
   stage: Stage; program_id: string;
   show_to_builder: string;
@@ -467,10 +466,10 @@ export function pathReply(c: PathCtx): PathReply {
     if (c.said.has(hookKey)) {
       // v4.8.1 Task 3 (R4): the same step pointed back to says why once, then is short, never the same line twice.
       const gaps = m.kind === 'one_step' || m.kind === 'closest' ? (p as GapGrant).gaps.length : 0;
-      const pt = pointerReply({ ...p, gaps, stage: c.stage ?? null, drafted: c.drafted === true, readyAsk: c.readyAsk ?? null }, reply === 'go' ? CODES_POINT_OFFER : ask, c.said, c.now);
+      const pt = pointerReply({ ...p, gaps, stage: c.stage ?? null, drafted: c.drafted === true, readyAsk: c.readyAsk ?? null }, ask, c.said, c.now);
       return { stage: 'hook', program_id: p.id, show_to_builder: pt.text, said: pt.said, reply, pointer: { more: pt.more, ready: pt.ready } };
     }
-    const point = reply === 'start' ? `Your ${name} application is the next move.` : reply === 'go' ? `Builder Codes are the one step to ${name}.` : `${name} is your closest money.`;
+    const point = reply === 'start' ? `Your ${name} application is the next move.` : reply === 'go' ? `${name} is one step away.` : `${name} is your closest money.`;
     return { stage: 'hook', program_id: p.id, show_to_builder: `${point} ${ask}`, said: [hookKey, `money:${p.id}`], reply };
   }
   // Task 6 fix round 1 (review 4): one proof a session per fact; with the streak and live said, Base's own fact.
@@ -511,8 +510,8 @@ export function pathReply(c: PathCtx): PathReply {
 
 /**
  * One step toward a grant: its line, the guide link (shown after the mark), whether the agent can do it in the repo,
- * and (fix round 1, T2-2) the offer said before "Go?" when it is the one step ("I can add them and push the change,
- * about 10 minutes.").
+ * and (fix round 1, T2-2) the offer said before "Go?" when it is the one step ("I can add Builder Codes and push the
+ * change, about 10 minutes.").
  */
 export type GapStep = { text: string; link?: string; doable: boolean; offer?: string };
 /** The gap stage's easy replies: one step the agent can do; the first of several it can do; help (it can do none). */

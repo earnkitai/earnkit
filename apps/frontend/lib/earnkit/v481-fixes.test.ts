@@ -2,7 +2,7 @@ import './fixtures/no-network-checks';
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  MONEY_SAID, POINT_MORE, POINT_NEXT, SESSION_MS, bestMove, blanksAsk, closeWords, fitCell, pathReply, pointerReply, moneyInvestor, moneyLine, pickHook, submitBy, submitNoRush, submitPointer, withMoneyLine,
+  CODES_OFFER, MONEY_SAID, POINT_MORE, POINT_NEXT, SESSION_MS, bestMove, blanksAsk, closeWords, fitCell, pathReply, pointerReply, moneyInvestor, moneyLine, pickHook, submitBy, submitNoRush, submitPointer, withMoneyLine,
   type GapGrant, type InvestorProgram, type MoveCtx, type MoveProgram,
 } from './conversation';
 import { sql } from './db';
@@ -24,6 +24,7 @@ import { dropRunPrograms } from './fixtures/programs-cleanup';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { BUILDER_CODES_SUFFIX } from './builder-code';
+import { qualifyGapSteps } from './bench-reply';
 
 /**
  * v4.8.1 Task 1 (R1): investor programs and long shots never lead on their own. They lead only when the builder picked
@@ -180,8 +181,8 @@ test('v4.8.1 R3: the money line, its investor clause and its place', () => {
   // An amount, a URL or an abbreviation never ends the easy reply early; a bare "Go?" keeps its offer.
   assert.equal(withMoneyLine('Jenil, it pays up to $5,000. Want me to start?', 'M.'), 'Jenil, it pays up to $5,000.\n\nM.\n\nWant me to start?');
   assert.equal(withMoneyLine('Hi Jenil. It is open to U.S. Builders and e.g. Teams too.', 'M.'), 'Hi Jenil.\n\nM.\n\nIt is open to U.S. Builders and e.g. Teams too.');
-  assert.equal(withMoneyLine('Builder Codes are still the one step to Base. I can add them and push the change, about 10 minutes. Go?', 'M.'),
-    'Builder Codes are still the one step to Base.\n\nM.\n\nI can add them and push the change, about 10 minutes. Go?');
+  assert.equal(withMoneyLine('Builder Codes are still the one step to Base. I can add Builder Codes and push the change, about 10 minutes. Go?', 'M.'),
+    'Builder Codes are still the one step to Base.\n\nM.\n\nI can add Builder Codes and push the change, about 10 minutes. Go?');
   // One sentence: the line first.
   assert.equal(withMoneyLine('Want me to start?', 'M.'), 'M.\n\nWant me to start?');
   assert.equal(withMoneyLine('Hook.', null), 'Hook.');
@@ -462,4 +463,22 @@ test('v4.8.1 fix round 1 (minor 4): the closed gap\'s draft offer again is the s
   assert.equal(more.show, POINT_MORE, t);
   assert.equal((more.reply?.move_up as { kind: string }).kind, 'more', t);
   assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), [], t);
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// v4.8.1 final review fixes.
+
+test('v4.8.1 final fix (R-2): the hook offer and the gap offer name Builder Codes; the brief pointer says "one step away"', () => {
+  assert.equal(CODES_OFFER, 'I can add Builder Codes and push the change, about 10 minutes. Go?');
+  const move = { kind: 'one_step', program: BASE } as const;
+  const hook = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move, said: new Set() });
+  assert.ok(hook.show_to_builder.endsWith(`\n\n${CODES_OFFER}`), hook.show_to_builder);
+  assert.doesNotMatch(hook.show_to_builder, /\badd them\b/, hook.show_to_builder);
+  // Behind the money line, the offer still names its step.
+  assert.doesNotMatch(withMoneyLine(hook.show_to_builder, 'Open now: $1K in grants.').split('\n\n').at(-1)!, /\bthem\b/);
+  const again = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move, said: new Set(hook.said) });
+  assert.equal(again.show_to_builder, `Base Builder Grant is still your best move: up to $5,000, one step away. ${CODES_OFFER}`);
+  const brief = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move, said: new Set(), brief: true });
+  assert.equal(brief.show_to_builder, `Base Builder Grant is one step away. ${CODES_OFFER}`);
+  assert.equal(qualifyGapSteps(['codes'])[0].offer, 'I can add Builder Codes and push the change, about 10 minutes.');
 });

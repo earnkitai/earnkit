@@ -449,7 +449,7 @@ const STEP_LINE: Record<QualifyStep, string> = {
 export const qualifyGapSteps = (steps: readonly QualifyStep[]): GapStep[] =>
   QUALIFY_STEPS.filter((s) => steps.includes(s)).map((s) =>
     s === 'codes'
-      ? { text: "Add Base's Builder Code to your app, a one-line tag Base uses to see your traffic.", link: `https://${BUILDER_CODES_GUIDE}`, doable: true, offer: 'I can add them and push the change, about 10 minutes.' }
+      ? { text: "Add Base's Builder Code to your app, a one-line tag Base uses to see your traffic.", link: `https://${BUILDER_CODES_GUIDE}`, doable: true, offer: 'I can add Builder Codes and push the change, about 10 minutes.' }
       : { text: STEP_LINE[s], doable: false });
 /** The steps reply's one question: help with the first step listed (always "step 1"). */
 export const QUALIFY_HELP_ASK = 'Want help with step 1 now?';

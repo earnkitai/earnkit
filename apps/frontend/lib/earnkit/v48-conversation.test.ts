@@ -237,7 +237,7 @@ test('pathReply: a grant with a gap gives its money, the gap and "Want the steps
   const c = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'closest', program: BASE, raise: true }, said: new Set(r.said) });
   // Fix round 2 (F10): one gap a local agent can do (Builder Codes): the hook offers to do it; a hosted agent keeps the steps.
   // Task 3: the passed step raised says so, once (target A).
-  assert.equal(c.show_to_builder, "Jenil, your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes. You passed on them, but they're now the only gap to that money.\n\nI can add them and push the change, about 10 minutes. Go?");
+  assert.equal(c.show_to_builder, "Jenil, your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes. You passed on them, but they're now the only gap to that money.\n\nI can add Builder Codes and push the change, about 10 minutes. Go?");
   assert.equal(c.reply, 'go');
   const h = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'closest', program: BASE, raise: true }, said: new Set(r.said), hosted: true });
   assert.equal(h.show_to_builder, "Jenil, your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes. You passed on them, but they're now the only gap to that money.\n\nWant the steps?");
@@ -423,7 +423,7 @@ test("a no to a grant's gap hook (Base's steps) parks it for the path; nothing a
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'declined' WHERE builder_id = ${b.id}`;
   const r = await find(b);
   const s = show(r);
-  assert.match(s, /^Jenil, Base Builder Grant pays up to \$5,000\. [^\n]*Builder Codes[^\n]*\n\nOpen now: [^\n]+\n\nI can add them and push the change, about 10 minutes\. Go\?$/, s);
+  assert.match(s, /^Jenil, Base Builder Grant pays up to \$5,000\. [^\n]*Builder Codes[^\n]*\n\nOpen now: [^\n]+\n\nI can add Builder Codes and push the change, about 10 minutes\. Go\?$/, s);
   assert.equal(moveUp(r)?.kind, 'qualify');
   await mcpCall(b.ctx as never, 'tell', { move_up: { kind: 'qualify', project_key: b.key, answer: 'no' } });
   const declined = (await seenOf(b.id)).declined as Record<string, string>;
@@ -471,7 +471,7 @@ test('fix round 2 (F9): with no X name the reply greets no name, never the handl
   const r = pathReply({ now: NOW, first: null, project: { name: 'EarnKit', live: true }, streak: 6, move: move as never, said: new Set() });
   assert.ok(r.show_to_builder.startsWith('a16z speedrun SR008 closes in 36 hours: up to $1M. '), r.show_to_builder);
   const c = pathReply({ now: NOW, first: null, project: { name: 'EarnKit', live: false }, streak: 0, move: { kind: 'closest', program: BASE, raise: true }, said: new Set() });
-  assert.equal(c.show_to_builder, "Your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes. You passed on them, but they're now the only gap to that money.\n\nI can add them and push the change, about 10 minutes. Go?");
+  assert.equal(c.show_to_builder, "Your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes. You passed on them, but they're now the only gap to that money.\n\nI can add Builder Codes and push the change, about 10 minutes. Go?");
 });
 
 /** The connect weeks due again (v3-connect.test.ts's backfill): the older moment the closest grant waits behind. */
@@ -585,7 +585,7 @@ const GUIDE = `https://${BUILDER_CODES_GUIDE}`;
 const A_BLANKS = "Two blanks only you can fill: who's on the team, and any money you've raised. Reply with both and I'll finish it.";
 const A_CODES_IN = "Builder Codes are in. You now meet Base's first requirement. Want me to draft the Base application next?";
 /** Fix round 1 (T2-2): the one-step offer covers the push. */
-const OFFER = 'I can add them and push the change, about 10 minutes. Go?';
+const OFFER = 'I can add Builder Codes and push the change, about 10 minutes. Go?';
 /** Fix round 1 (T2-6): the steps-done reply's proof line. */
 const A_CODES_IN_PROOF = "Builder Codes are in. You now meet Base's first requirement. You're live on Base. Want me to draft the Base application next?";
 
@@ -1686,7 +1686,7 @@ test('pathReply brief (fix round 1 (5)): after a direct answer, the step is the 
   const again = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move, said: new Set(r.said) });
   assert.equal(again.show_to_builder, 'a16z speedrun SR008 is still your best move: up to $1M, closes in 36 hours. Want me to start?');
   const go = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'one_step', program: { ...BASE, passed: false } }, said: new Set(), brief: true });
-  assert.equal(go.show_to_builder, `Builder Codes are the one step to Base Builder Grant. ${CODES_OFFER}`);
+  assert.equal(go.show_to_builder, `Base Builder Grant is one step away. ${CODES_OFFER}`);
   const steps = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'closest', program: ARC, raise: false }, said: new Set(), brief: true });
   assert.equal(steps.show_to_builder, 'Arc Microgrants is your closest money. Want the steps?');
 });
@@ -1906,7 +1906,7 @@ test('gateFailures (Task 6): a good reply passes; every kind of break is caught 
   assert.deepEqual(rules([gr('Your draft is saved.')]), ['0:easy_reply']);
   assert.deepEqual(rules([gr('Want the steps? Or should I draft it?')]), ['0:easy_reply']);
   assert.deepEqual(rules([gr('Want the steps?\n\nWant me to start?')]), ['0:easy_reply']);
-  for (const ok of ['It takes me a few minutes. Draft it now?', 'Go?', 'Base pays up to $5,000. I can add them and push the change, about 10 minutes. Go?',
+  for (const ok of ['It takes me a few minutes. Draft it now?', 'Go?', 'Base pays up to $5,000. I can add Builder Codes and push the change, about 10 minutes. Go?',
     'Reply "sent" once it\'s in, and I\'ll keep track of it for you.', 'Once it\'s submitted, reply "sent" and I\'ll keep track of it.',
     "Say ok once the change is pushed, and I'll check it.", "I'm checking the code now. Give it a minute, then say ok.", "Say ok once it's done, and I'll check it.",
     "Two blanks only you can fill: who's on the team, and any money you've raised. Reply with both and I'll finish it.", 'Reply with a number.'])
