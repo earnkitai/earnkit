@@ -8,6 +8,7 @@ import { sql } from './db';
 import { difficultyOf, guideSources, guideText, programGuide, type Difficulty } from './guide';
 import {
   agentCompletableOf,
+  categoryOf,
   type DifficultyOverride,
   type Focus,
   type GuideLogo,
@@ -723,10 +724,13 @@ export function programDetails(
  * must publish the program and flip the campaign's state atomically) reuse it instead of this
  * function opening its own `begin` — so the whole thing commits or rolls back together. When
  * omitted (the default, used by `programs:sync`), this opens its own transaction as before.
+ *
+ * v4.9: `source` is who wrote the row: 'file' (programs:sync), 'sponsor' (sponsor.ts) or 'api' (the programs write
+ * API). It only records the writer; refusing to overwrite a file or sponsor row is the API's job.
  */
 export async function upsertProgram(
   p: ProgramFile,
-  source: 'file' | 'sponsor' = 'file',
+  source: 'file' | 'sponsor' | 'api' = 'file',
   db?: postgres.Sql | postgres.TransactionSql,
 ) {
   const run = async (tx: postgres.Sql | postgres.TransactionSql) => {
@@ -751,6 +755,8 @@ export async function upsertProgram(
       chains: p.chains,
       any_chain: p.any_chain ?? false,
       investment: p.investment ?? false,
+      // v4.9 R5: the file's category, else derived (every sync backfills it).
+      category: categoryOf(p),
       needs_repo: p.needs_repo ?? null,
       needs_contract: p.needs_contract ?? null,
       min_product_score: p.min_product_score ?? 0,

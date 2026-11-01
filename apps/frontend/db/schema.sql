@@ -114,7 +114,7 @@ ALTER TABLE projects ADD COLUMN IF NOT EXISTS token_image_type text;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS installation_id integer REFERENCES installations(id);
 
 -- v2.1 sponsor campaigns
-ALTER TABLE programs ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'file'; -- 'file' | 'sponsor'
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'file'; -- 'file' | 'sponsor' | 'api' (v4.9)
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS max_award_usd numeric;  -- per-winner USD, when the source states it (tie-break)
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS prize_amount text;  -- what this winner got, token units
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS prize_reason text;  -- the sponsor's public reason
@@ -2170,3 +2170,21 @@ CREATE TABLE IF NOT EXISTS alert_mail_sent (
   PRIMARY KEY (builder_id, event_key)
 );
 CREATE INDEX IF NOT EXISTS alert_mail_sent_day ON alert_mail_sent (builder_id, sent_at DESC);
+
+-- v4.9 T1 (R5): the program's category (grant, hackathon, investment or bounty): the file's category, else derived
+-- (program-file.ts categoryOf). Every upsert writes it, so the next programs:sync backfills existing rows.
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS category text;
+-- programs.source ('file' | 'sponsor' | 'api') has no CHECK constraint, so 'api' (the programs write API) needs no change.
+
+-- v4.9 T1: every programs write API call, kept for the owner's audit: the program id, the action (upsert, close),
+-- the result (created, updated, unchanged, closed, refused) and why. body is the program as sent, never a secret.
+CREATE TABLE IF NOT EXISTS program_writes (
+  id         bigserial PRIMARY KEY,
+  at         timestamptz NOT NULL DEFAULT now(),
+  program_id text,
+  action     text,
+  result     text,
+  reason     text,
+  body       jsonb
+);
+CREATE INDEX IF NOT EXISTS program_writes_at ON program_writes (at DESC);

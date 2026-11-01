@@ -8995,3 +8995,20 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
   JSON reply has one (every agent note says to show it); `scrub_note` stays.
 - **Guide URL.** gapStillReply ends the guide link's line ("Guide: {url}\n{proof} {ask}"), one paragraph; splitLast
   treats a line break before a capital as a sentence end, so the money line still lands before the easy reply.
+
+## v4.9 Programs API (Task 1): one set of checks, categories, the api source
+
+- **One set of checks.** `program-checks.ts programProblems(p, { publicDir })` is every per-file check: it reruns the
+  ProgramFile schema on `p` (so an object that never went through `parse`, such as an API body, still meets the Optimism
+  refusal, the shared-host refusal for `proof_hosts`, any_chain `min_product_score` and the other refinements), and, only
+  when that passes, the check-time rules (a todo on each required item, a kind on each item, `needs_repo`, `fresh_build`,
+  the logo file under `publicDir`). `schemaProblems(error)` formats a schema failure as `programs:check` prints it.
+  `scripts/programs-sync.mts` calls both, and its output is unchanged.
+- **Categories (R5).** Program files may set `category` (`grant`, `hackathon`, `investment`, `bounty`). `program-file.ts
+  categoryOf(p)` returns it, else derives it: `investment` gives investment; a pool with no per-winner amount, or
+  `in_person`, gives hackathon; else grant. `bounty` is only explicit. `upsertProgram` writes `programs.category` on
+  every upsert, so the next `programs:sync` backfills existing rows.
+- **The api source.** `upsertProgram(p, source)` takes `'file' | 'sponsor' | 'api'`; `programs.source` has no CHECK
+  constraint. Refusing to overwrite file or sponsor rows (R3) is the write API's job (Task 2), not upsertProgram's.
+- **Audit table.** `program_writes (id, at, program_id, action, result, reason, body jsonb)` keeps every write API call
+  (written from Task 2). Tests: v49-programs-api.test.ts.

@@ -387,7 +387,8 @@ apps/frontend/
     cli.ts(+test)              pure helpers for scripts/campaign.mts: USAGE, cliErrorLine (one
                                readable line per error), operatorKeyProblem, fallbackProblem,
                                parseFallbackPicks (--winners ranking [--split] or id:amount[:reason])
-    program-file.ts            zod format of programs/*.json (+ starter limits, optional max_award_usd,
+    program-file.ts            zod format of programs/*.json (v4.9 R5: optional category grant|hackathon|
+                               investment|bounty, categoryOf derives it; + starter limits, optional max_award_usd,
                                final fix I4: starterAgeWarnings, programs:check's 23-day warning, never an error;
                                v2.7.1 optional pool_usd (stated in reward with a pool word, never on a campaign),
                                pool_source_url (only with pool_usd), min_award_usd (below max, in reward),
@@ -1370,6 +1371,11 @@ apps/frontend/
                                removedLine…), so copy-review scans them
     logo-check.ts(+test)       v2.7: checkLogoFile(logo, publicDir) reads the file and runs
                                program-file.ts logoFileProblem (used by programs-sync.mts --check)
+    program-checks.ts          v4.9 T1: programProblems(p, { publicDir }), the one set of program checks for
+                               programs-sync.mts and the programs write API: the schema rerun (schemaProblems,
+                               "<path or (program)>: <message>"; Optimism, shared proof_hosts, any_chain
+                               min_product_score, ...), then todo, kind, needs_repo, fresh_build and the logo
+                               file. Tests: v49-programs-api.test.ts
     payout.ts(+test)           payoutAccount (CAMPAIGN_PAYOUT_PRIVATE_KEY, with or without 0x: Ruling 7), payoutRpc, payWinner (sign,
                                store, broadcast; stale/manual handling; optional place), payRanked
                                (per-place amounts, any ERC-20, every v2.4 rule, openSends nonce

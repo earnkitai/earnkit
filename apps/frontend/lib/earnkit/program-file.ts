@@ -370,6 +370,10 @@ const SubmitForm = z
   .strict();
 export type SubmitForm = z.infer<typeof SubmitForm>;
 
+/** v4.9 R5: the program categories, for sorting the list. */
+export const PROGRAM_CATEGORIES = ['grant', 'hackathon', 'investment', 'bounty'] as const;
+export type Category = (typeof PROGRAM_CATEGORIES)[number];
+
 export const ProgramFile = z
   .object({
     id: slug,
@@ -457,6 +461,11 @@ export const ProgramFile = z
      * speedrun), not a prize: the card reads "up to $1M investment", never "per winner".
      */
     investment: z.boolean().default(false),
+    /**
+     * v4.9 R5: what kind of program this is, for sorting the list. Optional: when absent it is derived (categoryOf).
+     * `bounty` is only ever set by hand.
+     */
+    category: z.enum(PROGRAM_CATEGORIES).optional(),
     /**
      * v2.8.1 §B8 (fix round 1): entering needs a repo or a live product, per the program's source.
      * An editorial call, never inferred: a no-repo builder sees "needs a repo" on it, and only a
@@ -763,6 +772,16 @@ export const ProgramFile = z
       issue('best_bet must be drawn from past_rounds or focus');
   });
 export type ProgramFile = z.infer<typeof ProgramFile>;
+
+/**
+ * v4.9 R5: the program's category. The file's `category` wins; otherwise `investment` gives investment, a pool with no
+ * per-winner amount or an in-person program gives hackathon, and everything else is a grant. Pure.
+ */
+export const categoryOf = (
+  p: Pick<ProgramFile, 'category' | 'investment' | 'pool_usd' | 'max_award_usd' | 'in_person'>,
+): Category =>
+  p.category ??
+  (p.investment ? 'investment' : (p.pool_usd != null && p.max_award_usd == null) || p.in_person ? 'hackathon' : 'grant');
 
 /** v2.12 spec 9: requirement kinds and each_time asks an agent can't complete for the builder. */
 export const UNCOMPLETABLE_KINDS = [] as const; // owner ruling 2026-10-12 (D2): a team line and a demo video are agent-completable
