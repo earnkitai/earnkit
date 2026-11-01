@@ -1,4 +1,5 @@
 import { sql } from './db';
+import { programZone } from './deadline';
 import { bestApplies, realFit, scoreApplies, signedOutNow, type Fit, type Seen } from './bench-find';
 import { rankLines } from './bench-rank';
 import { mainConfirmed } from './main-project';
@@ -16,7 +17,7 @@ import { streaksFor } from './streak';
  * (mainConfirmed; a confirmed project is never `taken`, the reply checks that only while unconfirmed). Null: no
  * project, not ranked, no fit, or a read error. Never throws.
  */
-export async function bestFitFor(builderId: number, now: Date): Promise<{ program_id: string; title: string; ends_at: Date | null } | null> {
+export async function bestFitFor(builderId: number, now: Date): Promise<{ program_id: string; title: string; ends_at: Date | null; zone?: string } | null> {
   try {
     const [p] = await sql()<{ main: string | null; seen: unknown }[]>`
       SELECT main_project_key AS main, standing_seen AS seen FROM builder_profiles WHERE builder_id = ${builderId}`;
@@ -25,7 +26,10 @@ export async function bestFitFor(builderId: number, now: Date): Promise<{ progra
     const { applies, skip } = await scoreApplies(builderId, p.main, now);
     const seen = (p.seen && typeof p.seen === 'object' ? p.seen : {}) as Seen;
     const best = (await bestApplies(builderId, applies, seen, skip, now))?.[0];
-    return best ? { program_id: best.program_id, title: best.title, ends_at: best.ends_at ? new Date(best.ends_at) : null } : null;
+    if (!best) return null;
+    // v4.8.1 final fix (R-3): a dated fit carries its program's zone, so the email's close is that zone's day and time.
+    const [z] = best.ends_at ? await sql()<{ summary: string; tz: string | null }[]>`SELECT summary, tz FROM programs WHERE id = ${best.program_id}` : [];
+    return { program_id: best.program_id, title: best.title, ends_at: best.ends_at ? new Date(best.ends_at) : null, ...(z && { zone: programZone(z) }) };
   } catch (err) {
     console.error('[best fit]', err instanceof Error ? err.name : 'error');
     return null;

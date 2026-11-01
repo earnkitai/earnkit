@@ -197,7 +197,7 @@ async function ownerBuilder(tag: string, o: { hosted?: boolean; codes?: boolean 
 }
 /** v4.8 Task 1: the path's hook for Base's grant, its gap sentence `gap` (bench-reply.ts qualifyGap). */
 const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const BASE_HOOK = (gap: string, end = 'Want the steps?') => new RegExp(`^Ek, Base Builder Grant pays up to \\$5,000\\. ${esc(gap)}( [^\n]+)?\n\n${esc(end)}$`);
+const BASE_HOOK = (gap: string, end = 'Want the steps?') => new RegExp(`^Ek, Base Builder Grant pays up to \\$5,000\\. ${esc(gap)}( [^\n]+)?(\n\nOpen now: [^\n]+ in grants\\.[^\n]*)?\n\n${esc(end)}$`);
 const CODES_GAP = "EarnKit is one step away: add Builder Codes, a one-line tag that credits your app's Base transactions to you.";
 const start = async () => {
   mock.timers.reset();
@@ -222,7 +222,8 @@ test("the owner's state through find: the path's Base hook offers to add Builder
   assert.equal(typeof g?.[key], 'string');
   // Mid-path (fix round 1, T2-4): the next find stays on Base's gap with its first remaining step, never "Want the steps?".
   const next = show(await mcpCall(ctx, 'find', {}));
-  assert.match(next, /^Still on Base Builder Grant: add Base's Builder Code to your app, .* Want me to do it now\?$/, next);
+  // v4.8.1 final fix (8): the guide link ends its line, so the step can span two lines.
+  assert.match(next, /^Still on Base Builder Grant: add Base's Builder Code to your app, [\s\S]* Want me to do it now\?$/, next);
 });
 
 test('a no to the codes question is remembered and never asked again', db, async () => {

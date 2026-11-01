@@ -146,7 +146,7 @@ export async function qualifyOffer(
         COALESCE(standing_seen->'qualify_known', '{}'::jsonb) || jsonb_build_object(${key.toLowerCase()}::text, ${sql().json(next as never)}::jsonb))
         WHERE builder_id = ${id}`.catch(() => undefined);
     }
-    const plan = qualifyPlan(grant, qualifyStatus(m, codes, onBase, usersSaid), { title: card.title, when: fundWhen(card) });
+    const plan = qualifyPlan(grant, qualifyStatus(m, codes, onBase, usersSaid), { title: card.title, when: fundWhen(card, o.now) });
     if (!plan) o.allMet?.();
     return plan;
   } catch (err) {

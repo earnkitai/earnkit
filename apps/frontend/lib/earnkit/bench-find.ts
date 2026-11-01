@@ -39,7 +39,7 @@ import {
   type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
-import { MORE_NOTE, NAME_NOTE, EXISTING_NOT_TOKEN, TOKEN_OFFER, TOKEN_OFFER_QUESTION, TOKEN_ON_ITS_WAY, WALLET_SETUP_SKIPPED, existingTokenLine, setupTokenOffer, displayName, firstName, isStep2, setupDoneLead, setupDoneReply, type ProgramRow, type SetupOutcome } from './bench-reply';
+import { MORE_NOTE, NAME_ASK, NAME_NOTE, EXISTING_NOT_TOKEN, TOKEN_OFFER, TOKEN_OFFER_QUESTION, TOKEN_ON_ITS_WAY, WALLET_SETUP_SKIPPED, existingTokenLine, setupTokenOffer, displayName, firstName, isStep2, setupDoneLead, setupDoneReply, type ProgramRow, type SetupOutcome } from './bench-reply';
 import { targetIn, weeklyTarget } from './weekly-target';
 import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, markOffered, momentDue, momentSummary, momentPlace, momentReady, openShare, takeMoment, weekNumber } from './weekly-moment';
 import { isoWeekOf } from './weeks';
@@ -74,10 +74,10 @@ import { DECLINE_MS, draftedRecently } from './policy-constants';
 import { closeDay, programZone, zoneAbbr } from './deadline';
 import type { ProgramRow as ProgramFileRow } from './programs';
 import {
-  MENTOR_NOTE, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, pickHook, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, submitNoRush, tooSoonLine, keepDraftLine, type OpenerProgram, type MoveCtx, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProofOf, helpReply, helpWaiting, helpParked, closeWords, HELP_DONE_ASK, backOnLine, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofOf, markSaid, pathReply, programName, readPath, saidSql, sessionOf,
+  MENTOR_NOTE, MONEY_SAID, moneyInvestor, moneyLine, withMoneyLine, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, pickHook, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, submitNoRush, tooSoonLine, keepDraftLine, type OpenerProgram, type MoveCtx, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProofOf, helpReply, helpWaiting, helpParked, closeWords, HELP_DONE_ASK, backOnLine, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofOf, markSaid, pathReply, programName, readPath, saidSql, sessionOf, pointerReply, START_ASK, SENT_SHORT, blanksAsk,
   ANSWERED_FIRST, ASK_SAID, PROGRAMS_AGAIN, fitCell, fitOrder, grantFact, programsAnswer, standingAgain, standingAnswer, standingSaid, whatItIs, type GrantFact, type GrantRow, type InvestorRow, type StandingFacts,
   type GapStep,
-  type GapGrant, type InvestorProgram, type Move, type MoveProgram, type Path,
+  type GapGrant, type InvestorProgram, type Move, type MoveProgram, type Path, type Stage,
 } from './conversation';
 export { displayName };
 
@@ -473,6 +473,11 @@ async function liveOf(id: number, read: BenchRead, now: Date, ms: number): Promi
  * installation isn't bound to X. Find skips the results question while this holds, so it isn't used up before
  * the bind. A database error reads as signed out (final fix 12: the retry question, never a page it may not have).
  */
+// v4.8.1 final fix (N1): the old ask may follow a space or a line break; drop it and end on the done ask, so one question.
+export function helpDoneTail(text: string): string {
+  return text.replace(/(\s)Want (?:help with it|me to do it) now\?$/, '$1') + HELP_DONE_ASK;
+}
+
 export async function signedOutNow(id: number, own: number): Promise<boolean> {
   if (!xSignInEnabled() || !process.env.EARNKIT_AUTH_SECRET) return false;
   try {
@@ -633,6 +638,7 @@ const pathAmount = (c: Pick<Card, 'summary' | 'investment'>): string | null => {
 /** v4.8 Task 1: a card as the path names it (conversation.ts MoveProgram). Pure. */
 const moveProgram = (c: Card): MoveProgram => ({
   id: c.id, title: c.title, amount: pathAmount(c), when: fundWhen(c), ends_at: isoOf(c.ends_at), zone: programZone(c), investment: c.investment === true,
+  longShot: c.tag === 'long shot',
 });
 /** v4.8 Task 3: the find tell runs right after "sent" (tools.ts) sees the path at track this recently. */
 const AFTER_SENT_MS = 5 * 60_000;
@@ -872,14 +878,27 @@ async function pathCommit(
   const hosted = (o.reach ?? (await agentReach(o.own, id))).hosted;
   // Task 6 fix round 1 (review 4): Base's remaining steps, for its fact when the streak and live were said this session.
   const baseSteps = move.program.id === BASE_GRANTS_ID ? (extra.get(move.program.id)?.qualify?.steps ?? null) : null;
-  const out0 = pathReply({ now, first, project: { name: v.project.name, live: v.project.live || v.siteLive }, streak: v.streak, move, said: session.said, hosted, steps, brief: o.brief === true, baseSteps });
-  const out = first && out0.show_to_builder.startsWith(`${first}, `) ? { ...out0, said: [...out0.said, GREET_SAID] } : out0;
+  // v4.8.1 Task 3: the path's stage on this program, a draft made, and (fix round 1, minor 1) the stage's own ask.
+  const stage = path && path.program_id === move.program.id ? path.stage : null;
+  const ownAsk = read.seen.bench_ask?.program_id === move.program.id ? (read.seen.bench_ask as NonNullable<Seen['bench_ask']> & { draft?: unknown; blanks?: unknown }) : null;
+  const drafted = pathDrafted(read.seen, move.program.id, ownAsk, now);
+  const readyAsk = !drafted ? null : stage === 'submit' ? SENT_SHORT
+    : blanksAsk(Array.isArray(ownAsk?.blanks) ? ownAsk.blanks.filter((x): x is string => typeof x === 'string') : []);
+  const out0 = pathReply({ now, first, project: { name: v.project.name, live: v.project.live || v.siteLive }, streak: v.streak, move, said: session.said, hosted, steps, brief: o.brief === true, baseSteps, stage, drafted, readyAsk });
+  const out1 = first && out0.show_to_builder.startsWith(`${first}, `) ? { ...out0, said: [...out0.said, GREET_SAID] } : out0;
+  // Fix round 1: the "more" pointer right after (or in a session with) the programs answer: a name is the one easy reply.
+  const named = out1.pointer?.more === true && listedNow(o);
+  const out = named ? { ...out1, show_to_builder: NAME_ASK } : out1;
   const fit = fitRows.find((f) => f.program_id === out.program_id);
   const more = extra.get(out.program_id);
   // `path`: a no to it also parks the program for the path ('path:<id>', DECLINE_MS): never asked again this session.
   // The hook asked "Want the steps?", so its yes is the gap stage's steps (Task 2), for either agent. Fix round 2 (F10):
   // its "Go?" (one step a local agent can do) is stored as the gap ask, so its yes is the agent doing it.
-  const stored: Record<string, unknown> = out.reply === 'start'
+  // v4.8.1 Task 3 fix round 1: the "more" pointer is the 'more' ask (its "more" or yes is the programs answer, never the
+  // program's step); "your draft is ready" keeps the stage's own ask (submit: "sent"; a draft: its blanks).
+  const stored: Record<string, unknown> = out.pointer?.more ? { kind: named ? 'name' : 'more', key, program_id: out.program_id }
+    : out.pointer?.ready ? readyStored(stage, ownAsk, key, out.program_id)
+    : out.reply === 'start'
     ? { kind: 'apply', key, program_id: out.program_id, path: true, ...(fit?.repo && { repo: fit.repo }) }
     : more?.qualify
       ? {
@@ -895,20 +914,22 @@ async function pathCommit(
     ...(steps && out.reply === 'steps' && { steps: true as const }),
   };
   // Task 5 fix round 1 (5): the brief pointer never says the passed-step line, so it raises nothing (said later in full).
-  const raise = move.kind === 'closest' && move.raise && out.said.length > 0 && !o.brief;
+  // v4.8.1 Task 3: a pointer says its own parts (point:, point2:), so only the hook itself raises.
+  const raise = move.kind === 'closest' && move.raise && out.said.includes(`hook:${out.program_id}`) && !o.brief;
+  const money = await moneyFor(o, plan, out.program_id);
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
-      || jsonb_build_object('path', ${sql().json(nextPath as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb, 'said', ${saidSql(out.said, now)})
+      || jsonb_build_object('path', ${sql().json(nextPath as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb, 'said', ${saidSql([...out.said, ...(money ? [MONEY_SAID] : [])], now)})
       || CASE WHEN ${raise} THEN jsonb_build_object('path_raised', COALESCE(standing_seen->'path_raised', '{}'::jsonb)
            || jsonb_build_object(${out.program_id}::text, ${now.toISOString()}::text)) ELSE '{}'::jsonb END
     WHERE builder_id = ${id}`.catch(logged('path'));
   // v3.1 Task 7, kept: hooking Base's grant as a fit starts its Builder Codes check in the background (for the draft).
   if (out.program_id === BASE_GRANTS_ID && out.reply === 'start') await codesFor(id, key, now, o.codesFetch);
   const kind = stored.kind as BenchAskKind;
-  const note = kind === 'apply' ? APPLY_NOTE : kind === 'qualify' ? QUALIFY_NOTE : CHECK_FITS_ASK_NOTE;
+  const note = kind === 'more' ? MORE_NOTE : kind === 'name' ? NAME_NOTE : kind === 'apply' ? APPLY_NOTE : kind === 'qualify' ? QUALIFY_NOTE : CHECK_FITS_ASK_NOTE;
   const view: BenchView = {
     state: v.state, variant: v.variant, project: v.project, rank: read.ranks.bench, streak: v.streak, target: null, handle: v.handle, link: null,
     fund: [], due: [], ask: { kind, project_key: key, line: '', program_id: out.program_id }, held: null,
-    path: withSince(since, pre.inline ? `${pre.inline} ${out.show_to_builder}` : out.show_to_builder), pathLead: out.reply === 'start' ? { program_id: out.program_id, ...(fit?.repo && { repo: fit.repo }) } : null,
+    path: withMoneyLine(withSince(since, pre.inline ? `${pre.inline} ${out.show_to_builder}` : out.show_to_builder), money), pathLead: out.reply === 'start' && !out.pointer?.more ? { program_id: out.program_id, ...(fit?.repo && { repo: fit.repo }) } : null,
   };
   const rankLines = [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x));
   const fields: Reply = {
@@ -919,6 +940,9 @@ async function pathCommit(
   return { view, fields, stand: v.stand };
 }
 
+/** Fix round 1: the programs answer is this reply's question or was given this session (bench-reply.ts `listed`). */
+const listedNow = (o: ViewIn) => o.question === 'programs' || [...sessionOf(o.read.seen, o.now).said].some((k) => k.startsWith('ask:programs:'));
+
 /** Final review F4: the session key a greeting ("Jenil, ") is said under: once a session. */
 const GREET_SAID = 'greet';
 /** Final review F4: the X name's first word to greet with, unless greeted this session; null with no name (F9). Pure. */
@@ -928,8 +952,43 @@ const greetingOf = (xName: string | null, said: ReadonlySet<string>) => {
   return f && f !== 'there' ? f : null;
 };
 
+/**
+ * v4.8.1 Task 3, final fix (6): a draft of `programId` is in hand: a draft yes within DECLINE_MS (draftedRecently,
+ * pathSkip's rule, so a months-old yes never says "your draft is ready"), or the program's own stored draft ask. Pure.
+ */
+export function pathDrafted(seen: Pick<Seen, 'apply_yes'>, programId: string, ownAsk: { draft?: unknown } | null, now: Date): boolean {
+  return draftedRecently(seen, programId, now) || ownAsk?.draft === true;
+}
+/**
+ * v4.8.1 Task 3 fix round 1, final fix (6): the ask a "your draft is ready" pointer stores: submit, "sent"; a draft, the
+ * program's own stored ask, or (a draft made only through apply_yes, bench_ask about another program) the draft's
+ * blanks ask with none left (readyAsk is blanksAsk([]), "Want me to finish it?"), never an empty ask a yes does
+ * nothing with. Pure.
+ */
+export function readyStored(stage: Stage | null, ownAsk: Record<string, unknown> | null, key: string, programId: string): Record<string, unknown> {
+  if (stage === 'submit') return { kind: 'apply', key, program_id: programId, path: true, submit: true };
+  return ownAsk ? { ...ownAsk } : { kind: 'apply', key, program_id: programId, path: true, draft: true, blanks: [] };
+}
+
 /** v4.8 Task 3: a fresh session's "Since {day}: ..." line before the step's own words (one paragraph). Pure. */
 const withSince = (since: string | null, show: string) => (since ? `${since}\n\n${show}` : show);
+/**
+ * v4.8.1 Task 2 (R3): the money line (conversation.ts moneyLine) for this session's first path reply about `programId`,
+ * else null: never after a direct answer (o.brief; a programs answer marks MONEY_SAID, its tables say the money), and
+ * once a session (MONEY_SAID). The investor clause never names the program the reply is about, nor a program the
+ * builder picked or is past the hook on (the stored path's, by bestMove's `on` rule).
+ * One read (openMoneyNow) when due. Never throws.
+ */
+async function moneyFor(o: ViewIn, plan: Pick<PathPlan, 'ctx' | 'path'>, programId: string): Promise<string | null> {
+  if (o.brief || sessionOf(o.read.seen, o.now).said.has(MONEY_SAID)) return null;
+  // v4.8.1 final fix (R-4): bestMove's own `on` rule: a stored path counts only when picked or past the hook (an unpicked
+  // hook left from an older session is no lead, so its program can still be the clause).
+  const on = plan.path && (plan.path.picked || plan.path.stage !== 'hook') ? plan.path.program_id : null;
+  const investor = moneyInvestor(plan.ctx.investors, o.now, plan.ctx.skip, new Set([programId, on]));
+  // Fix round 1 (F3): /api/stats' figure (openMoneyNow: every active program), read only when the line is due; the
+  // builder's cards leave out hidden and agent-incompletable programs.
+  return moneyLine(moneyText(await openMoneyNow(o.now, o.cards)), investor, o.now);
+}
 
 /**
  * v4.8 Task 3 fix round 1 (5): the builder met `programId` before: on the stored path, the stored ask, asked to apply,
@@ -984,7 +1043,7 @@ async function sinceFor(o: ViewIn, v: Pick<PathFacts, 'streak' | 'stand' | 'proj
     // Fix round 1 (5): "opened" only for a program new to this builder: opened after the last session and never on their
     // path, asked, drafted, raised or said no to (a reopened program they're on is no news; opened_at alone resets).
     opened: f && opened[0]?.opened_at && new Date(opened[0].opened_at).getTime() > last.getTime() && !seenBefore(read.seen, f.id, v.project.key) ? [programName(f.title)] : [],
-    // Fix round 1 (6): the close as the submit step says it ("tomorrow 11:59 PM PT"), in the program's zone.
+    // Fix round 1 (6): the close as the submit step says it ("Nov 1, 11:59 PM PT (in 20 hours)"), in the program's zone.
     closing: f && !focus.saysClose && f.ends_at && f.when !== 'rolling' && Date.parse(f.ends_at) > now.getTime() && Date.parse(f.ends_at) - now.getTime() <= NOW_WINDOW_MS
       ? { program: programName(f.title), when: submitBy(f.ends_at, f.zone, now, zoneAbbr(f.zone)) } : null,
   };
@@ -1069,9 +1128,10 @@ async function pathGapCommit(o: ViewIn, plan: PathPlan & { move: Exclude<Move, {
   // Final review F3 (the parked T4 copy): while the agent helps, a find never says the step again (a fresh session's
   // money line aside); the done ask stays the one easy reply.
   const out = !helping ? still
-    : money ? { show_to_builder: `${still.show_to_builder.replace(/ Want (?:help with it|me to do it) now\?$/, '')} ${HELP_DONE_ASK}`, reply: 'help' as const }
+    : money ? { show_to_builder: helpDoneTail(still.show_to_builder), reply: 'help' as const }
       : { show_to_builder: helpWaiting(title), reply: 'help' as const };
-  const keys = [...(proof?.keys ?? []), ...(money ? [`money:${pid}`] : []), ...(greet ? [GREET_SAID] : [])];
+  const total = await moneyFor(o, plan, pid);
+  const keys = [...(proof?.keys ?? []), ...(money ? [`money:${pid}`] : []), ...(greet ? [GREET_SAID] : []), ...(total ? [MONEY_SAID] : [])];
   const nextPath: Path = { stage: 'gap', program_id: pid, at: now.toISOString(), ...(plan.path?.picked && { picked: true as const }) };
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
       || jsonb_build_object('path', ${sql().json(nextPath as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb, 'said', ${saidSql(keys, now)})
@@ -1080,7 +1140,7 @@ async function pathGapCommit(o: ViewIn, plan: PathPlan & { move: Exclude<Move, {
   const note = kind === 'qualify' ? QUALIFY_NOTE : CHECK_FITS_ASK_NOTE;
   const view: BenchView = {
     state: v.state, variant: v.variant, project: v.project, rank: read.ranks.bench, streak: v.streak, target: null, handle: v.handle, link: null,
-    fund: [], due: [], ask: { kind, project_key: key, line: '', program_id: pid }, held: null, path: withSince(since, out.show_to_builder), pathLead: null,
+    fund: [], due: [], ask: { kind, project_key: key, line: '', program_id: pid }, held: null, path: withMoneyLine(withSince(since, out.show_to_builder), total), pathLead: null,
   };
   const rankLines = [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x));
   return { view, fields: { move_up: { kind, project_key: key, agent_note: note }, ...(rankLines.length > 0 && { rank_lines: rankLines }), ...standingFields(v.stand) }, stand: v.stand };
@@ -1122,7 +1182,14 @@ async function pathClosedCommit(o: ViewIn, plan: PathPlan & { closed: NonNullabl
   const key = v.project.key;
   const pid = closed.program.id;
   const saidKey = `closed:${pid}`;
-  const again = sessionOf(read.seen, now).said.has(saidKey);
+  const said = sessionOf(read.seen, now).said;
+  const again = said.has(saidKey);
+  // v4.8.1 Task 3 (R4): again, the shared pointer (the gap is closed and no draft made yet, so its reason is the close).
+  const point0 = again && !since ? pointerReply({ ...closed.program, gaps: 0, stage: 'draft', drafted: false }, START_ASK, said, now) : null;
+  // Fix round 1: as pathCommit, a "more" pointer after the programs answer asks for a name.
+  const named = point0?.more === true && listedNow(o);
+  const point = point0 && named ? { ...point0, text: NAME_ASK } : point0;
+  const moreKind = named ? ('name' as const) : ('more' as const);
   // Fix round 1 (T2-6): one proof line (Base closed: every step met, so live on Base).
   // Task 6 fix round 1 (review 4): one proof a session per fact.
   const proofOut = o.brief ? null : gapProofOf({ name: v.project.name, live: v.project.live || v.siteLive }, v.streak, closed.program.id === BASE_GRANTS_ID ? [] : null, sessionOf(read.seen, now).said);
@@ -1130,18 +1197,21 @@ async function pathClosedCommit(o: ViewIn, plan: PathPlan & { closed: NonNullabl
   // Task 3: a fresh session with something changed (target A, "Two days later"): what changed, the program still open
   // and its gap closed, then the draft offer.
   const show = since ? `${since} ${stillOpenLine(closed.program.title, closed.codes)}\n\n${DRAFT_NOW_ASK}`
-    : again ? `Your ${programName(closed.program.title)} application is still the next move. Want me to start?` : gapClosedReply({ org: closed.org, title: closed.program.title, codes: closed.codes, proof });
-  const stored = { kind: 'apply', key, program_id: pid, path: true };
+    : point ? point.text : gapClosedReply({ org: closed.org, title: closed.program.title, codes: closed.codes, proof });
+  // Fix round 1: the "more" pointer is the 'more' ask (never a yes to the draft).
+  const stored = point?.more ? { kind: moreKind, key, program_id: pid } : { kind: 'apply', key, program_id: pid, path: true };
   const nextPath: Path = { stage: 'draft', program_id: pid, at: now.toISOString(), ...(plan.path?.picked && plan.path.program_id === pid && { picked: true as const }) };
+  const money = await moneyFor(o, plan, pid);
   await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) - 'gap_did')
-      || jsonb_build_object('path', ${sql().json(nextPath as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb, 'said', ${saidSql(again ? [] : [saidKey, ...(since ? [] : (proofOut?.keys ?? []))], now)})
+      || jsonb_build_object('path', ${sql().json(nextPath as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb, 'said', ${saidSql([...(again ? (point?.said ?? []) : [saidKey, ...(since ? [] : (proofOut?.keys ?? []))]), ...(money ? [MONEY_SAID] : [])], now)})
     WHERE builder_id = ${id}`.catch(logged('path closed'));
   const view: BenchView = {
     state: v.state, variant: v.variant, project: v.project, rank: read.ranks.bench, streak: v.streak, target: null, handle: v.handle, link: null,
-    fund: [], due: [], ask: { kind: 'apply', project_key: key, line: '', program_id: pid }, held: null, path: show, pathLead: { program_id: pid },
+    fund: [], due: [], ask: { kind: point?.more ? moreKind : 'apply', project_key: key, line: '', program_id: pid }, held: null, path: withMoneyLine(show, money), pathLead: point?.more ? null : { program_id: pid },
   };
   const rankLines = [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x));
-  return { view, fields: { move_up: { kind: 'apply', project_key: key, agent_note: APPLY_NOTE }, ...(rankLines.length > 0 && { rank_lines: rankLines }), ...standingFields(v.stand) }, stand: v.stand };
+  const moveUp = point?.more ? { kind: moreKind, project_key: key, agent_note: named ? NAME_NOTE : MORE_NOTE } : { kind: 'apply' as const, project_key: key, agent_note: APPLY_NOTE };
+  return { view, fields: { move_up: moveUp, ...(rankLines.length > 0 && { rank_lines: rankLines }), ...standingFields(v.stand) }, stand: v.stand };
 }
 
 /*
@@ -1151,7 +1221,7 @@ async function pathClosedCommit(o: ViewIn, plan: PathPlan & { closed: NonNullabl
 /** The opener's money for a program: "$5K to $100K" with a stated minimum below the top, else pathAmount's. Pure. */
 const openerAmount = (c: Card): string | null =>
   c.min_award_usd && c.max_award_usd && c.min_award_usd < c.max_award_usd ? `${usdCompact(c.min_award_usd)} to ${usdCompact(c.max_award_usd)}` : pathAmount(c);
-const openerProgram = (c: Card): OpenerProgram => ({ id: c.id, title: c.title, amount: openerAmount(c), when: fundWhen(c), investment: c.investment === true });
+const openerProgram = (c: Card, now: Date): OpenerProgram => ({ id: c.id, title: c.title, amount: openerAmount(c), when: fundWhen(c, now), investment: c.investment === true });
 /**
  * The opener's programs, from the live cards (fix round 0 (1), target B's order): 1. Base Builder Grants (the closest
  * money, the grant the signed-out reply already named), or with it closed or not shown, the best rolling grant (the most
@@ -1168,7 +1238,7 @@ export function openerPrograms(cards: Card[], now: Date, skip: Set<string>): Ope
   const investor = cards
     .filter((c) => c.investment === true && showable({ ...c, investment: false }, now, skip))
     .sort((a, b) => closeAt(a) - closeAt(b) || byRelevance(a, b))[0];
-  return [top, rolling, investor].filter((c): c is Card => Boolean(c)).map(openerProgram);
+  return [top, rolling, investor].filter((c): c is Card => Boolean(c)).map((c) => openerProgram(c, now));
 }
 /**
  * The opener's stored list (standing_seen.opener: ids and titles, in the order shown), so a number resolves to what the
@@ -1268,12 +1338,13 @@ async function openerView(o: ViewIn, link: string, pick: Pick_, stand: Standing)
     opener = openerRecord(programs, now);
   } else if (shown && (pick === 'outside' || o.named?.trim() || said.has('opener'))) show = openerAgain(shown, link, false);
   else {
-    show = openerReply({ total: moneyText(openMoneyUsd(o.cards, now)), programs, link, github: false });
+    show = openerReply({ total: moneyText(await openMoneyNow(now, o.cards)), programs, link, github: false });
     opener = openerRecord(programs, now);
   }
+  // v4.8.1 Task 2 (R3): the opener's head says the open total, so it counts as the session's money line (MONEY_SAID).
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
       || CASE WHEN ${opener !== null} THEN jsonb_build_object('opener', ${sql().json((opener ?? {}) as never)}::jsonb) ELSE '{}'::jsonb END
-      || jsonb_build_object('said', ${saidSql(opener && !(pick && typeof pick === 'object') ? ['opener'] : [], now)}, 'bench_ask', ${sql().json({ kind: 'sign_in', key: null } as never)}::jsonb)
+      || jsonb_build_object('said', ${saidSql(opener && !(pick && typeof pick === 'object') ? ['opener', MONEY_SAID] : [], now)}, 'bench_ask', ${sql().json({ kind: 'sign_in', key: null } as never)}::jsonb)
     WHERE builder_id = ${id}`.catch(logged('opener'));
   const view: BenchView = {
     state: 'signed_out', variant: null, project: null, rank: null, streak: stand.streak, target: null, handle: null, link,
@@ -1375,12 +1446,12 @@ async function directAnswer(o: ViewIn, v: PathFacts, told: Set<string>): Promise
     .filter((c) => c.investment !== true && programKind(c).startsWith('grant') && showable(c, now, applied))
     .map((c) => ({ c, fits: fitIds.has(c.id), fact: factOf(c) }))
     .sort((a, b) => fitOrder(a.fits, a.fact) - fitOrder(b.fits, b.fact) || byRelevance(a.c, b.c));
-  const rows: GrantRow[] = grants.map(({ c, fits, fact }) => ({ title: c.title, amount: pathAmount(c), when: fundWhen(c), fit: fitCell(fits, fact) }));
+  const rows: GrantRow[] = grants.map(({ c, fits, fact }) => ({ title: c.title, amount: pathAmount(c), when: fundWhen(c, now), fit: fitCell(fits, fact) }));
   const invCards = o.cards
     .filter((c) => c.investment === true && showable({ ...c, investment: false }, now, applied))
     .sort((a, b) => closeAt(a) - closeAt(b) || byRelevance(a, b));
   const investors: InvestorRow[] = await Promise.all(invCards.map(async (c) => ({
-    title: c.title, amount: pathAmount(c), when: fundWhen(c),
+    title: c.title, amount: pathAmount(c), when: fundWhen(c, now),
     what: whatItIs((await getProgramRow(c.id).catch(() => null))?.description),
   })));
   // Fix round 1 (3): what the list said (each program and its fit), so a changed list is answered in full again.
@@ -1518,7 +1589,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   // asks below (connect, the Monday block, posts, check-in, wallet, token, new repo, titles, then the ship line).
   // The path read the programs and had none to name (or parked them), so no older program ask (Base's qualify) is made.
   let pathQuiet = false;
-  // Fix round 2 (F1): the path has only the closest grant (bestMove step 5): the older moments go first, once a session.
+  // Fix round 2 (F1): the path has only the closest grant (bestMove step 4): the older moments go first, once a session.
   let deferred: (PathPlan & { move: Exclude<Move, { kind: 'quiet' }> }) | null = null;
   // Fix round 2 (F5): one nudge pick a reply (re-picked only for a milestone, whose line names the Best fit).
   let nudgeFirst: NudgePick | null | undefined;
@@ -1538,7 +1609,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
         const a = o.question ? await directAnswer(o, facts, told) : null;
         if (a) {
           o.answer?.push(a.text);
-          await markSaid(id, [a.key], now);
+          // v4.8.1 fix round 1 (ruling b): the programs answer's tables say the money, so the line counts as said.
+          await markSaid(id, [a.key, ...(o.question === 'programs' ? [MONEY_SAID] : [])], now);
         }
         return r;
       };
@@ -1593,7 +1665,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
         await answered(null);
       }
       // Task 5: a direct question never waits for an older moment: the answer, then the path's step.
-      else if (move.kind !== 'closest' || midPath || o.question || sessionOf(read.seen, now).said.has(OLDER_SAID)) {
+      // v4.8.1 fix round 1 (controller ruling): an investor move is the last resort, so it waits like the closest grant.
+      else if ((move.kind !== 'closest' && move.kind !== 'investor') || midPath || o.question || sessionOf(read.seen, now).said.has(OLDER_SAID)) {
         // Re-review minor (N4): the builder's pick closes within 48 hours on a step the agent can't do (bestMove drops
         // it): one line saying so, once, before the closer money.
         const pickedId = plan.path?.picked && plan.path.stage === 'hook' ? plan.path.program_id : null;
@@ -1610,7 +1683,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
       else deferred = { ...plan, move };
     }
   }
-  // F1: while the closest grant waits, only an older moment may answer (the quieter asks stay for a quiet path).
+  // F1: while the closest grant (or, v4.8.1, an investor program) waits, only an older moment may answer (the quieter asks stay for a quiet path).
   const momentsOnly = deferred !== null;
   // Launch ready L5: the weekly target, the ship step's points line lead (ranks only, never another builder's name).
   const aim = ranked ? await targetIn(id, read.parts, now) : null;
@@ -1707,7 +1780,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   const tool = (project && builtWith(project.key)) ?? builtWith(read.liveUrl);
   const noGithub = Boolean(read.seen.github_no) || linkOnly || tool === 'lovable' || tool === 'bolt';
   // v4.8 re-review blocker 1: the programs answer given (or asked for) this session: the quiet reply offers no "more".
-  const listed = o.question === 'programs' || [...sessionOf(read.seen, now).said].some((k) => k.startsWith('ask:programs:'));
+  const listed = listedNow(o);
   const asks = { state, variant, project, link, handle, share: Boolean(moment), connect, noGithub, walletSetup, titles, qualify, post: event, githubNo, baseAsk, newRepo, tokenOffer, checkin, shipAsked, listed, appDone, liveTool, walk, hosted: reach.hosted };
   const nudgeAsk = owns && peek?.ask ? peek.ask : null;
   let finalAsk: BenchView['ask'] = nudgeAsk
@@ -1855,14 +1928,14 @@ export function alsoOpen(cards: Card[], now: Date, skip: Set<string>, not: strin
     .filter((c) => c.id !== not && programKind(c).startsWith('grant') && showable(c, now, skip))
     .sort(byRelevance)
     .slice(0, 2)
-    .map((c) => ({ title: c.title, amount: upToCell(prizeOf(c)), when: fundWhen(c) }));
+    .map((c) => ({ title: c.title, amount: upToCell(prizeOf(c)), when: fundWhen(c, now) }));
 }
 
 /**
  * v4.7.2 final review 7: /api/stats open_money_usd for `now`: openMoneyUsd over every active program, read and rounded
  * as stats.ts readStats and statsFrom do. A failed read: `fallback`'s sum. Never throws.
  */
-// v4.8 Task 1: no reply reads it now (the forced money paragraph is retired); kept for Task 4's opener total.
+// v4.8.1 Task 2 fix round 1 (F3): the money line's and the signed-out opener's total.
 export async function openMoneyNow(now: Date, fallback: Card[]): Promise<number> {
   const rows = await sql()<{ max_award_usd: string | number | null; investment: boolean | null; status: string; campaign: unknown; source: string; starts_at: Date | null; ends_at: Date | null }[]>`
     SELECT max_award_usd, investment, status, campaign, source, starts_at, ends_at FROM programs WHERE status = 'active'`.catch((err: unknown) => {
@@ -1886,7 +1959,7 @@ export function openNowInvestment(cards: Card[], now: Date, skip: Set<string>): 
     .sort((a, b) => closeAt(a) - closeAt(b) || byRelevance(a, b))[0];
   if (!c) return null;
   const amount = prizeOf(c).replace(/\s+investment$/i, '').replace(/^up to\s+/i, 'up to ');
-  return { id: c.id, title: c.title, amount, when: fundWhen(c) };
+  return { id: c.id, title: c.title, amount, when: fundWhen(c, now) };
 }
 
 /** 2026-10-23 Base onboarding: Base Builder Grants is open and shown (the walk-through's last step drafts it). Pure. */
@@ -2273,7 +2346,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
     const wf = whyFacts({ chains: f?.facts?.chains, homepage: f?.facts?.homepage, live_verified: f?.live_verified ?? f?.facts?.live_verified });
     const why = fitWhy(r.card, wf);
     return {
-      program_id: r.card.id, repo: r.repo, title: r.card.title, amount: awardAmount(r.card), when: fundWhen(r.card), why, ends_at: isoOf(r.card.ends_at),
+      program_id: r.card.id, repo: r.repo, title: r.card.title, amount: awardAmount(r.card), when: fundWhen(r.card, now), why, ends_at: isoOf(r.card.ends_at),
       investment: r.card.investment === true, card: fitCard(r.card), bar: fitBar(r.card, { live: wf.live, noUsers: r.low_reason === NO_USERS_YET }),
     };
   };
@@ -2441,7 +2514,7 @@ export async function scoreApplies(id: number, main: string | null, now: Date): 
   // v3 Stage 2 final review: the apply step's candidates include an open investment. v3.1 F1: so do the fit lines (fitLines).
   const applies: Fit[] = key
     ? (await scoreFits(id, key, { cards: shown, skip, now })).map((f) => ({
-        program_id: f.card.id, title: f.card.title, amount: awardAmount(f.card), when: fundWhen(f.card), why: fitWhy(f.card, whyFacts(f.repo)), ends_at: isoOf(f.card.ends_at),
+        program_id: f.card.id, title: f.card.title, amount: awardAmount(f.card), when: fundWhen(f.card, now), why: fitWhy(f.card, whyFacts(f.repo)), ends_at: isoOf(f.card.ends_at),
         investment: f.card.investment === true, card: fitCard(f.card), bar: fitBar(f.card, { live: whyFacts(f.repo).live }),
       }))
     : [];
@@ -3341,7 +3414,7 @@ export async function setupDoneFor(
       // Grants first, then investments and company programs (each group keeps its order).
       const companyIds = new Set(g.fits.filter((f) => f.bar === 'company' || f.investment).map((f) => f.program_id));
       const listedRows = [...longShots.map((f) => ({ title: f.title, amount: f.amount, when: f.when, later: companyIds.has(f.program_id) })),
-        ...extra.map((c) => ({ title: c.title, amount: awardAmount(c), when: fundWhen(c), later: c.investment === true }))];
+        ...extra.map((c) => ({ title: c.title, amount: awardAmount(c), when: fundWhen(c, now), later: c.investment === true }))];
       rows = [...listedRows.filter((r) => !r.later), ...listedRows.filter((r) => r.later)];
       // Task 10 (G1): the closest is a grant the fit check itself called a long shot, never an investment or a company-only
       // program, and never a guess: with no fits computed at all (nothing matched yet) the question is the fit check.

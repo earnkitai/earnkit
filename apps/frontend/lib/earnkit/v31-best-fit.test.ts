@@ -116,9 +116,11 @@ const ROLLING_BEST = qualifyLine({ title: ROLLING_TITLE, amount: '$5,000', when:
 
 /** v4.8 Task 1: the path's hook for a fit (conversation.ts pathReply): its money line, then the draft offer. */
 const hookOf = (title: string, when: string | null) =>
-  new RegExp(`^bf, ${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} ${when ? 'closes [^:]+' : 'is open now'}: up to \\$5,000\\.( [^\\n]+)?\\n\\nI can draft your application from your commits( and live product)? in a few minutes\\. Want me to start\\?$`);
+  new RegExp(`^bf, ${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} ${when ? 'closes [^:]+' : 'is open now'}: up to \\$5,000\\.( [^\\n]+)?(\\n\\nOpen now: [^\\n]+ in grants\\.[^\\n]*)?\\n\\nI can draft your application from your commits( and live product)? in a few minutes\\. Want me to start\\?$`);
 /** The same hook again in the session: one line that points back. */
-const pointerOf = (title: string) => `Your ${title.replace(/\s+Program$/, '')} application is still the next move. Want me to start?`;
+// v4.8.1 Task 3 (R4): "{program} is still your best move: up to $5,000[, closes {when}]. Want me to start?".
+const pointerOf = (title: string) =>
+  new RegExp(`^${title.replace(/\s+Program$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} is still your best move: up to \\$5,000(, closes [^.]+)?\\. Want me to start\\?$`);
 
 test('(a) a rolling fit only: the path hooks it; the next find in the session points back, never the same block', db, async () => {
   assert.equal(ROLLING_BEST, `You qualify for the ${ROLLING_TITLE}, up to $5,000.`);
@@ -132,7 +134,8 @@ test('(a) a rolling fit only: the path hooks it; the next find in the session po
   assert.doesNotMatch(s, /—/);
   // v4.8 Task 1 (Repeats): the same step again this session is a one-line pointer, the same easy reply.
   const again = await find(b);
-  assert.equal(show(again), pointerOf(ROLLING_TITLE));
+  assert.match(show(again), pointerOf(ROLLING_TITLE));
+  assert.equal(show(again), 'Base Builder Grant is still your best move: up to $5,000. Want me to start?');
   assert.equal(kind(again), 'apply');
 });
 
@@ -204,8 +207,9 @@ test('(g) score names the same program as find', db, async () => {
   // v4.7 T2: the standing paragraph leads, and its next deadline is the same program; then the path's step (said this
   // session already, so its pointer).
   assert.ok(s.startsWith(`${r.reply?.standing}\n\n`), s);
-  assert.ok(String(r.reply?.standing).endsWith(`Next: ${p.title} closes ${p.when}.`), String(r.reply?.standing));
-  assert.ok(s.endsWith(`\n\n${pointerOf(p.title)}`), s);
+  // v4.8.1 final fix (R-3): a day out, the standing says the hours left.
+  assert.match(String(r.reply?.standing), new RegExp(`Next: ${p.title} closes in 2[34] hours\\.$`), String(r.reply?.standing));
+  assert.match(s.split('\n\n').at(-1)!, pointerOf(p.title), s);
 });
 
 test('(f) one https link and one question in every reply above', () => {

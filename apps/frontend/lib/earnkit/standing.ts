@@ -1,6 +1,6 @@
 import { sql, type Db } from './db';
 import { usd } from './campaigns';
-import { closeDay } from './deadline';
+import { closeDay, hoursLeft } from './deadline';
 import { prizesWonSql } from './earned';
 import { COIN_PROGRAM } from './policy-constants';
 import { storedShipping } from './score-v2';
@@ -69,7 +69,7 @@ type DeadlineCard = { id: string; title: string; summary: string; tz?: string | 
 
 /**
  * v4.7 T2: the earliest open deadline among the builder's fits: its program and close day (deadline.ts closeDay, the
- * program's own zone). A rolling program, or one already closed, has none. Null with none. Pure.
+ * program's own zone), or under 48 hours the time left (hoursLeft, "in 20 hours"; v4.8.1 final fix R-3). A rolling program, or one already closed, has none. Null with none. Pure.
  */
 export function nextDeadline(fits: { program_id: string }[], cards: DeadlineCard[], now: Date): Standing['next'] {
   const byId = new Map(cards.map((c) => [c.id, c]));
@@ -79,7 +79,8 @@ export function nextDeadline(fits: { program_id: string }[], cards: DeadlineCard
     const day = c ? closeDay(c) : null;
     if (!c || !day) continue;
     const at = new Date(c.ends_at!).getTime();
-    if (at > now.getTime() && (!best || at < best.at)) best = { c, at, day };
+    // v4.8.1 final fix (R-3): under 48 hours the time left ("in 20 hours"), the same in every zone.
+    if (at > now.getTime() && (!best || at < best.at)) best = { c, at, day: hoursLeft(new Date(at).toISOString(), now) ?? day };
   }
   return best ? { program: best.c.title, day: best.day } : null;
 }

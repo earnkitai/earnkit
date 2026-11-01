@@ -2,6 +2,7 @@ import { getAddress } from 'viem';
 import { sql, type Db } from './db';
 import { prizeColumn, usd, wonUsdText, type CampaignConfig, type EarnKitCampaign } from './campaigns';
 import { prizeOf, shortWallet } from './entry-text';
+import { hoursLeft } from './deadline';
 import { COIN_PROGRAM } from './policy-constants';
 import { cachedFeesUsd, feeAlert } from './fees';
 import { campaignCandidates } from './leaderboard';
@@ -110,7 +111,7 @@ const DAY_MS = 86_400_000;
 /**
  * v2.10 item 15: the soonest unsubmitted entry closing within DEADLINE_DAYS that wasn't shown today
  * (`shown`: entry id to the UTC day it was last shown): "Arc Microgrants closes in 2 days; your entry
- * isn't submitted." ("closes tomorrow", "closes today" under 24 h). The days are whole days left
+ * isn't submitted." ("closes in 20 hours" under 48 h, v4.8.1 final fix R-3). The days are whole days left
  * before the program's own deadline instant (rounded down), so the line never reads later than the
  * program's own close, whatever its time zone (Pre-flight P1). Null when none. Pure.
  */
@@ -128,7 +129,8 @@ export function deadlineLine(entries: DeadlineEntry[], shown: Record<string, str
     .sort((a, b) => a.ends_at!.getTime() - b.ends_at!.getTime())[0];
   if (!e) return null;
   const days = Math.floor((e.ends_at!.getTime() - now.getTime()) / DAY_MS);
-  const when = days === 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`;
+  // v4.8.1 final fix (R-3): under 48 hours the time left (deadline.ts hoursLeft), never "today" or "tomorrow".
+  const when = hoursLeft(e.ends_at!.toISOString(), now) ?? `in ${days} days`;
   return { id: e.id, line: `${e.title} closes ${when}; your entry isn't submitted.` };
 }
 

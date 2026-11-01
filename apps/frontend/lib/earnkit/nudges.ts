@@ -1,5 +1,6 @@
 import { sql } from './db';
 import { DEADLINE_DAYS } from './alerts';
+import { closeDay, hoursLeft } from './deadline';
 import { COIN_PROGRAM } from './policy-constants';
 import { siteUrl } from './entry-text';
 import { pagePath } from './reserved-routes';
@@ -34,7 +35,6 @@ export const NUDGE_MILESTONES = [10, 100, 1000] as const;
 /** The Friday line needs at least this streak. */
 export const FRIDAY_STREAK_MIN = 2;
 const DAY_MS = 86_400_000;
-const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 export type NudgeKind = 'outcome' | 'milestone' | 'closing' | 'friday';
 export type NudgeIn = {
@@ -56,9 +56,13 @@ export type NudgePick = {
 };
 type NudgeSeen = { nudge_week?: string; nudge_users?: number; nudge_outcomes?: Record<string, string> };
 
-/** "today" when `end` is on `now`'s UTC day, else its UTC weekday ("Friday"). Pure. */
-export const closesOn = (end: Date, now: Date) =>
-  end.toISOString().slice(0, 10) === now.toISOString().slice(0, 10) ? 'today' : WEEKDAYS[end.getUTCDay()];
+/**
+ * v4.8.1 final fix (R-3): when the closing nudge's program closes: under 48 hours the time left (deadline.ts hoursLeft,
+ * "in 20 hours"), else its day in the program's own zone (closeDay, "Nov 3"). Never "today" or a UTC weekday (a Nov 1
+ * 11:59 PM PT close is Monday in UTC). Pure.
+ */
+export const closesWhen = (c: { ends_at: Date; summary: string; tz?: string | null }, now: Date) =>
+  hoursLeft(c.ends_at.toISOString(), now) ?? closeDay(c) ?? c.ends_at.toISOString().slice(0, 10);
 /**
  * The highest milestone `users` reached above both `before` (the count before this week) and the last one said. Final
  * review 5: no reading before this week (`before` null) is no baseline, so nothing was crossed. Pure.
@@ -121,14 +125,14 @@ async function mainName(id: number): Promise<string | null> {
  * submitted yet (projects.ts openEntries' rule), the program still open, not one the builder said they applied to.
  */
 async function closingPick(id: number, now: Date): Promise<NudgePick | null> {
-  const [e] = await sql()<{ program_id: string; title: string; ends_at: Date }[]>`
-    SELECT p.program_id, pr.title, pr.ends_at FROM projects p JOIN programs pr ON pr.id = p.program_id JOIN installations i ON i.id = p.installation_id
+  const [e] = await sql()<{ program_id: string; title: string; ends_at: Date; summary: string; tz: string | null }[]>`
+    SELECT p.program_id, pr.title, pr.ends_at, pr.summary, pr.tz FROM projects p JOIN programs pr ON pr.id = p.program_id JOIN installations i ON i.id = p.installation_id
     WHERE COALESCE(i.builder_id, i.id) = ${id} AND pr.status = 'active' AND pr.campaign IS NULL AND p.program_id <> ${COIN_PROGRAM}
       AND p.confirmed_at IS NOT NULL AND p.submission_confirmed_at IS NULL AND p.submission_proof_ok_at IS NULL
       AND pr.ends_at > ${now} AND pr.ends_at <= ${new Date(now.getTime() + DEADLINE_DAYS * DAY_MS)}
       AND NOT EXISTS (SELECT 1 FROM builder_program_status s WHERE s.installation_id = p.installation_id AND s.program_id = p.program_id AND s.status = 'applied')
     ORDER BY pr.ends_at LIMIT 1`;
-  return e ? { kind: 'closing', line: closingNudge(e.title, closesOn(e.ends_at, now)), keep: {}, ask: { kind: 'apply', program_id: e.program_id }, title: e.title } : null;
+  return e ? { kind: 'closing', line: closingNudge(e.title, closesWhen(e, now)), keep: {}, ask: { kind: 'apply', program_id: e.program_id }, title: e.title } : null;
 }
 
 /** Nothing shipped this ISO week by Friday (Friday to Sunday UTC), with a streak of FRIDAY_STREAK_MIN or more. */

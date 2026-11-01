@@ -1,3 +1,4 @@
+import { hoursLeft } from './deadline';
 import { isWalletAddress } from './campaigns';
 import { CHAIN_NAMES } from './chains';
 import { plainProblem } from './coach';
@@ -126,14 +127,16 @@ export function contextLine(cards: Card[], now: Date): string | null {
  * - Chat-only: "... A coding agent builds the USDC tip page in about an hour. Want
  *   the plan?" (the starter's "what" as "the ...", its "on <chain>" dropped: the program already
  *   says where).
- * The prize is prizeOf cut at " × "; "closes in N days" counts whole days to `ends_at`, N = 1 reads
- * "closes tomorrow"; a rolling program reads "with no deadline". Every starter's bar is an hour
+ * The prize is prizeOf cut at " × "; "closes in N days" counts whole days to `ends_at`; under 48 hours it
+ * reads "closes in N hours" (v4.8.1 final fix R-3); a rolling program reads "with no deadline". Every starter's bar is an hour
  * (`minutes: 60`). The "what" is the starter's, never the program's. Pure.
  */
 export function freshLeadLine(p: FreshPick, now: Date, canBuild: boolean): string {
   const prize = prizeOf(p.card).split(' × ')[0];
   const days = p.card.ends_at ? Math.floor((p.card.ends_at.getTime() - now.getTime()) / DAY_MS) : null;
-  const when = days === null ? 'with no deadline' : days === 1 ? 'and closes tomorrow' : `and closes in ${days} days`;
+  // v4.8.1 final fix (R-3): under 48 hours the time left (deadline.ts hoursLeft), never "closes tomorrow".
+  const left = p.card.ends_at ? hoursLeft(p.card.ends_at.toISOString(), now) : null;
+  const when = days === null ? 'with no deadline' : left ? `and closes ${left}` : `and closes in ${days} days`;
   const what = p.starter.what;
   const build = canBuild
     ? `${what.charAt(0).toUpperCase()}${what.slice(1)} takes about an hour. Want me to build it?`

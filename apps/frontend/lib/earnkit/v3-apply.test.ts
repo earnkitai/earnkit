@@ -117,7 +117,8 @@ test('(a) a fit closing in 20 days makes the apply ask the step, once', db, asyn
   assert.match(move.agent_note, /kind: 'apply'/);
   // The same step again this session: the one-line pointer, the same easy reply (v4.8 Repeats).
   const again = await find(b);
-  assert.equal(show(again), `Your ${p.title} application is still the next move. Want me to start?`);
+  // v4.8.1 Task 3 (R4): the pointer says the money and why.
+  assert.match(show(again), new RegExp(`^${p.title} is still your best move: up to \\$5,000, closes [A-Z][a-z]{2} \\d{1,2}\\. Want me to start\\?$`));
   assert.equal((again.reply?.move_up as { kind: string }).kind, 'apply');
 });
 

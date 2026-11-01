@@ -1058,7 +1058,8 @@ test('7.9 v2.10 item 15 (Review Focus 5): the deadline line starts prepare_submi
       const reset = () => sql()`UPDATE installations SET deadline_shown = NULL WHERE id = ${t.inst}`;
       // Non-shared: the soonest first, once a day.
       const first = await prep(t.ctx);
-      assert.ok(first.startsWith("Soon Grants closes tomorrow; your entry isn't submitted.\n\n"), first);
+      // v4.8.1 final fix (R-3): under 48 hours the time left (26 hours, less the seconds the test takes).
+      assert.match(first, /^Soon Grants closes in 2[56] hours; your entry isn't submitted\.\n\n/, first);
       const again = await prep(t.ctx);
       assert.ok(again.startsWith("Arc Microgrants closes in 2 days; your entry isn't submitted.\n\n"), again);
       assert.doesNotMatch(await prep(t.ctx), /closes (today|tomorrow|in \d days)/);
@@ -1761,7 +1762,7 @@ test('3.5 a shared client\'s tell submitted that is only noted writes no event',
 const T7_V210 = /^(\$[\d.,]+[KM]?\+?|Money) is open\. Want the 3 easiest\?$/;
 
 /**
- * An Arc copy tagged for the fresh build (fixture only), closing in 36 hours ("closes tomorrow"), and
+ * An Arc copy tagged for the fresh build (fixture only), closing in 36 hours ("closes in 35 hours"), and
  * a new installation with no repos. The copy names a starter of its own (arc-tipjar's facts, tested,
  * under this run's id), and `starters` registers only that one, so no other test's program, nor
  * one left by an earlier run on the same database, can be the pick. Review I2: the program is

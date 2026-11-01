@@ -807,11 +807,11 @@ const entry = (id: number, hours: number, o: { submitted?: boolean; title?: stri
   submitted: o.submitted ?? false,
 });
 
-test('7.7 deadlineLine: the soonest unsubmitted entry within 3 days, once a day; "today", "tomorrow", "in N days"', () => {
+test('7.7 deadlineLine: the soonest unsubmitted entry within 3 days, once a day; "in N hours" under 48 hours, else "in N days"', () => {
   assert.equal(DEADLINE_DAYS, 3);
   assert.deepEqual(deadlineLine([entry(1, 60)], {}, NOW15), { id: 1, line: "Arc Microgrants closes in 2 days; your entry isn't submitted." });
-  assert.equal(deadlineLine([entry(1, 30)], {}, NOW15)?.line, "Arc Microgrants closes tomorrow; your entry isn't submitted.");
-  assert.equal(deadlineLine([entry(1, 23)], {}, NOW15)?.line, "Arc Microgrants closes today; your entry isn't submitted.");
+  assert.equal(deadlineLine([entry(1, 30)], {}, NOW15)?.line, "Arc Microgrants closes in 30 hours; your entry isn't submitted.");
+  assert.equal(deadlineLine([entry(1, 23)], {}, NOW15)?.line, "Arc Microgrants closes in 23 hours; your entry isn't submitted.");
   assert.equal(deadlineLine([entry(1, 60, { submitted: true })], {}, NOW15), null);
   assert.equal(deadlineLine([entry(1, 96)], {}, NOW15), null);
   assert.equal(deadlineLine([entry(1, -1)], {}, NOW15), null);
@@ -822,11 +822,11 @@ test('7.7 deadlineLine: the soonest unsubmitted entry within 3 days, once a day;
   const two = [entry(1, 60), entry(2, 30, { title: 'Monad Metropolis Hackathon' })];
   assert.equal(deadlineLine(two, {}, NOW15)?.id, 2);
   assert.equal(deadlineLine(two, { '2': '2026-10-12' }, NOW15)?.id, 1);
-  // Pre-flight P1: Arc closes Oct 14, 11:59 PM ET (2026-10-15T03:59Z). On Oct 14 ET evening (UTC
-  // already Oct 15) it reads "today", never later than the program's own day.
+  // Pre-flight P1: Arc closes Oct 14, 11:59 PM ET (2026-10-15T03:59Z). v4.8.1 final fix (R-3): the time left, the same
+  // in every zone, never "today" or "tomorrow" (which read wrong once UTC is already Oct 15).
   const arc = { id: 3, title: 'Arc Microgrants', ends_at: new Date('2026-10-15T03:59:00Z'), submitted: false };
-  assert.equal(deadlineLine([arc], {}, new Date('2026-10-15T01:00:00Z'))?.line, "Arc Microgrants closes today; your entry isn't submitted.");
-  assert.equal(deadlineLine([arc], {}, new Date('2026-10-14T01:00:00Z'))?.line, "Arc Microgrants closes tomorrow; your entry isn't submitted.");
+  assert.equal(deadlineLine([arc], {}, new Date('2026-10-15T01:00:00Z'))?.line, "Arc Microgrants closes in 2 hours; your entry isn't submitted.");
+  assert.equal(deadlineLine([arc], {}, new Date('2026-10-14T01:00:00Z'))?.line, "Arc Microgrants closes in 26 hours; your entry isn't submitted.");
 });
 
 test('7.8 takeDeadlineLine: once per entry per UTC day, again the next day; two at once show it once', db, async () => {
@@ -837,7 +837,7 @@ test('7.8 takeDeadlineLine: once per entry per UTC day, again the next day; two 
     assert.equal(await takeDeadlineLine(id, e, NOW15), line);
     assert.equal(await takeDeadlineLine(id, e, new Date(NOW15.getTime() + H)), null);
     const next = new Date(NOW15.getTime() + 25 * H);
-    assert.equal(await takeDeadlineLine(id, e, next), "Arc Microgrants closes tomorrow; your entry isn't submitted.");
+    assert.equal(await takeDeadlineLine(id, e, next), "Arc Microgrants closes in 35 hours; your entry isn't submitted.");
     const [{ shown }] = await sql()<{ shown: Record<string, string> }[]>`SELECT deadline_shown AS shown FROM installations WHERE id = ${id}`;
     assert.deepEqual(shown, { '41': '2026-10-13' });
     const day3 = new Date(NOW15.getTime() + 49 * H);

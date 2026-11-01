@@ -1,6 +1,9 @@
 import { sql } from './db';
-import { zoneParts } from './deadline';
+import { hoursLeft, submitBy, zoneParts } from './deadline';
+// v4.8.1 final fix (R-3): both moved to deadline.ts, so the emails and alerts share them; re-exported for callers here.
+export { hoursLeft, submitBy };
 import { table } from './present';
+import { MORE_ASK } from './bench-reply';
 
 /**
  * v4.8 "the launch conversation" (docs/design-docs-and-implementation-plans/v4.8-target-conversation.md): EarnKit leads.
@@ -106,6 +109,11 @@ export type MoveProgram = {
   /** The prize part as the program states it ("up to $5,000", "up to $1M"), null when unknown. */
   amount: string | null;
   when: string; ends_at: string | null; zone: string; investment: boolean;
+  /**
+   * v4.8.1 Task 1 (R1): the program file is tagged "long shot" (program-file.ts `tag`). A long shot never leads on its
+   * own (bestMove step 5). bench-find.ts always sets it; absent reads as false.
+   */
+  longShot?: boolean;
 };
 /**
  * An open grant the project doesn't fit, with what it needs: `gaps` (each a step; none known: it can apply now), `gap`
@@ -140,8 +148,8 @@ export type MoveCtx = {
 };
 export type Move =
   | { kind: 'fit'; program: MoveProgram }
-  /** Closing within NOW_WINDOW_MS with no gap: a grant with none known, or an investor program. */
-  | { kind: 'now'; program: MoveProgram | InvestorProgram }
+  /** Closing within NOW_WINDOW_MS with no gap known: a grant only (v4.8.1 R1: never an investor program). */
+  | { kind: 'now'; program: MoveProgram }
   | { kind: 'one_step'; program: GapGrant }
   | { kind: 'investor'; program: InvestorProgram }
   /** `raise`: the one gap is a step the builder passed on, raised this once. */
@@ -156,31 +164,34 @@ const closeAt = (p: Pick<MoveProgram, 'ends_at'>) => (p.ends_at ? Date.parse(p.e
 const byClose = <P extends Pick<MoveProgram, 'ends_at'>>(a: P, b: P) => closeAt(a) - closeAt(b);
 
 /**
- * The program the path leads with, in this order (fix round 1, controller ruling R1):
- * 1. a real fit not applied to or drafted, closing first (rolling last);
- * 2. a program (grant or investor) closing within NOW_WINDOW_MS (48 hours) the builder can apply to now with no gap;
- * 3. a grant one step away where that step is one the agent can do in the repo (`doable`: Builder Codes; a chain
- *    deployment never counts), not a step the builder passed on;
- * 4. an investor program closing within INVESTOR_WINDOW_MS, soonest first, with its odds when stated;
- * 5. the closest grant by number of gaps, the agent-doable one first at equal gaps (a passed step only when it is the
- *    one gap, and only once); never one whose gap the agent can't do that closes within NOW_WINDOW_MS (final review F2);
+ * The program the path leads with, in this order (v4.8.1 Task 1, controller ruling R1: investor programs and long shots
+ * never lead on their own):
+ * 1. a real fit not applied to or drafted, closing first (rolling last); fits already exclude investors and long shots;
+ * 2. a grant, not a long shot, closing within NOW_WINDOW_MS (48 hours) the builder can apply to now with no gap;
+ * 3. a grant, not a long shot, one step away where that step is one the agent can do in the repo (`doable`: Builder
+ *    Codes; a chain deployment never counts), not a step the builder passed on;
+ * 4. the closest grant, not a long shot, by number of gaps, the agent-doable one first at equal gaps (a passed step
+ *    only when it is the one gap, and only once); never one whose gap the agent can't do that closes within
+ *    NOW_WINDOW_MS (final review F2);
+ * 5. only when 1 to 4 are all empty: an investor program (with its odds when stated) or a long-shot grant closing
+ *    within INVESTOR_WINDOW_MS, soonest first;
  * 6. otherwise quiet: the reply's older asks (check-in, wallet, token, new repo, titles, then the ship line).
- * Anything in `skip` is never a move. A program on the stored path that is still one of 1 to 5 keeps its place when
- * the builder is on it: they picked it, or said yes past the hook (gap, draft, submit, track). An investor program is
- * never a fit. Pure.
- * bench-find.ts (fix rounds 2 and 3): the path leads on steps 1 to 4. On step 5 an older moment (connect, the Monday
- * block, a post, the check-in) may answer first, once a session, and only at the hook while the path is not already
- * on that program; a builder mid-path (past the hook, or already hooked on it) always gets the path.
+ * Anything in `skip` is never a move. A program on the stored path keeps its place, wherever it ranks, while it is
+ * still one of 1 to 5 (a long-shot grant at any close) and the builder is on it: they picked it, or said yes past the
+ * hook (gap, draft, submit, track). An investor program is never a fit. Pure.
+ * bench-find.ts (fix rounds 2 and 3, v4.8.1 fix round 1): the path leads on steps 1 to 3. On a closest grant or an
+ * investor program (steps 4 and 5) an older moment (connect, the Monday block, a post, the check-in) may answer first,
+ * once a session, and only at the hook while the path is not already on that program; a builder mid-path (past the
+ * hook, or already hooked on it) always gets the path.
  */
 export function bestMove(ctx: MoveCtx): Move {
   const t = ctx.now.getTime();
   const open = <P extends MoveProgram>(p: P) => !ctx.skip.has(p.id) && closeAt(p) > t;
   const fits = ctx.fits.filter((p) => open(p) && !p.investment).sort(byClose);
   const soon = (p: MoveProgram, ms: number) => closeAt(p) - t <= ms;
-  const noGap = ctx.grants.filter((g) => open(g) && !g.investment && g.gaps.length === 0 && soon(g, NOW_WINDOW_MS));
+  const now = ctx.grants.filter((g) => open(g) && !g.investment && g.gaps.length === 0 && soon(g, NOW_WINDOW_MS)).sort(byClose);
   const grants = ctx.grants.filter((g) => open(g) && !g.investment && g.gaps.length > 0);
   const investors = ctx.investors.filter((p) => open(p) && p.investment && soon(p, INVESTOR_WINDOW_MS)).sort(byClose);
-  const now: (MoveProgram | InvestorProgram)[] = [...noGap, ...investors.filter((p) => soon(p, NOW_WINDOW_MS))].sort(byClose);
   const oneStep = grants.filter((g) => g.gaps.length === 1 && g.doable && !g.passed).sort(byClose);
   // Task 2 fix round 2: a grant the builder said yes to past the hook (gap, draft) stays a move even once its passed
   // step was raised (they took it up).
@@ -192,15 +203,25 @@ export function bestMove(ctx: MoveCtx): Move {
     .filter((g) => g.doable || onPast(g) || !soon(g, NOW_WINDOW_MS))
     .filter((g) => !g.passed || onPast(g) || (g.gaps.length === 1 && (!ctx.raised.has(g.id) || (ctx.path?.program_id === g.id && ctx.raisedNow?.has(g.id) === true))))
     .sort((a, b) => a.gaps.length - b.gaps.length || Number(b.doable) - Number(a.doable) || byClose(a, b));
-  const moves: Exclude<Move, { kind: 'quiet' }>[] = [
-    ...fits.map((program) => ({ kind: 'fit' as const, program })),
+  const grantMoves: Exclude<Move, { kind: 'quiet' }>[] = [
     ...now.map((program) => ({ kind: 'now' as const, program })),
     ...oneStep.map((program) => ({ kind: 'one_step' as const, program })),
-    ...investors.map((program) => ({ kind: 'investor' as const, program })),
     ...closest.filter((g) => !oneStep.includes(g)).map((program) => ({ kind: 'closest' as const, program, raise: program.passed })),
   ];
+  // v4.8.1 R1: long shots and investor programs go last (step 5), soonest first; a long-shot grant keeps its own kind.
+  const longShots = grantMoves.filter((m) => m.program.longShot === true);
+  const last = [
+    ...investors.map((program) => ({ kind: 'investor' as const, program })),
+    ...longShots.filter((m) => soon(m.program, INVESTOR_WINDOW_MS)),
+  ].sort((a, b) => byClose(a.program, b.program));
+  const moves: Exclude<Move, { kind: 'quiet' }>[] = [
+    ...fits.map((program) => ({ kind: 'fit' as const, program })),
+    ...grantMoves.filter((m) => m.program.longShot !== true),
+    ...last,
+  ];
   const on = ctx.path?.program_id && (ctx.path.picked || ctx.path.stage !== 'hook') ? ctx.path.program_id : null;
-  const kept = on ? moves.find((m) => m.program.id === on) : undefined;
+  // The builder's own long-shot grant keeps its place whatever its close.
+  const kept = on ? [...moves, ...longShots].find((m) => m.program.id === on) : undefined;
   return kept ?? moves[0] ?? { kind: 'quiet' };
 }
 
@@ -208,15 +229,76 @@ export function bestMove(ctx: MoveCtx): Move {
 export const programName = (title: string) => title.split(':')[0].trim().replace(/\s+Program$/i, '');
 
 /**
- * When a dated program closes, in the program's zone, as a person says it: "tonight" or "today", "tomorrow night" or
- * "tomorrow", else its day ("Nov 5"). Night is a close at 6 PM or later. Pure.
+ * When a dated program closes: under 48 hours, the time left (hoursLeft: "in 20 hours", "in under an hour"); otherwise
+ * its day in the program's zone ("Nov 5"). v4.8.1 Task 2 (R2): never "tonight" or "tomorrow", which read wrong in the
+ * builder's own zone. Every caller puts "closes", "closing" or "until it closes" before it. Pure.
  */
 export function closeWords(endsAt: string, zone: string, now: Date): string {
-  const end = zoneParts(new Date(endsAt), zone);
-  const night = end.hour >= 18;
-  if (end.day === zoneParts(now, zone).day) return night ? 'tonight' : 'today';
-  if (end.day === zoneParts(new Date(now.getTime() + 86_400_000), zone).day) return night ? 'tomorrow night' : 'tomorrow';
-  return end.day;
+  return hoursLeft(endsAt, now) ?? zoneParts(new Date(endsAt), zone).day;
+}
+
+/*
+ * v4.8.1 Task 2 (R3): the money line. The first path reply of a session (a hook, the gap's step, the draft offer, a fresh
+ * session's "Since" opener; never the setup steps, the held submit pointer or a direct answer) says the open total, as its
+ * own paragraph just before the easy reply, once a session (MONEY_SAID).
+ */
+/** The session key the money line is said under. */
+export const MONEY_SAID = 'money:total';
+/**
+ * The investor program the money line names: open, not skipped (applied to, declined, parked), closing within
+ * INVESTOR_WINDOW_MS, and never one in `led` (the program the reply is about, and a program the builder picked or is
+ * past the hook on: the ruling's "led on"); the soonest first. Null with none. Pure.
+ */
+export function moneyInvestor<P extends MoveProgram>(investors: readonly P[], now: Date, skip: ReadonlySet<string>, led: ReadonlySet<string | null>): P | null {
+  const t = now.getTime();
+  return investors
+    .filter((p) => p.investment && !skip.has(p.id) && !led.has(p.id) && closeAt(p) > t && closeAt(p) - t <= INVESTOR_WINDOW_MS)
+    .sort(byClose)[0] ?? null;
+}
+/**
+ * "Open now: {total} in grants." and, with an investor program (moneyInvestor), " {Investor} (investor program,
+ * {amount}) closes {closeWords}." `total` is moneyText(openMoneyNow(now, cards)), /api/stats' figure; null (0): no line.
+ * Pure.
+ */
+export function moneyLine(total: string | null, investor: Pick<MoveProgram, 'title' | 'amount' | 'ends_at' | 'zone'> | null, now: Date): string | null {
+  if (!total) return null;
+  const inv = investor?.ends_at && Date.parse(investor.ends_at) > now.getTime()
+    ? ` ${programName(investor.title)} (investor program${investor.amount ? `, ${investor.amount}` : ''}) closes ${closeWords(investor.ends_at, investor.zone, now)}.`
+    : '';
+  return `Open now: ${total} in grants.${inv}`;
+}
+/** Words a period ends without ending the sentence ("e.g.", "U.S."). */
+const NO_END = /(?:^|\s)(?:e\.g|i\.e|vs|etc|Mr|Mrs|Ms|Dr|St|Inc|Ltd|[A-Z](?:\.[A-Z])*)\.$/;
+/**
+ * A one-paragraph reply split before its last sentence (its easy reply): [the rest, the last sentence], or null when it
+ * is one sentence. A sentence ends at ".", "?" or "!" followed by a space and a capital or a quote, or at a line break
+ * before one, never inside a URL
+ * or an amount ("$5,000." then a capital still ends one; "earnkit.com/x" never does) or after an abbreviation. A last
+ * sentence under 3 words ("Go?") keeps the sentence before it. Pure.
+ */
+function splitLast(p: string): [string, string] | null {
+  // Final review 8: a line break before a capital also ends a sentence (the gap step's guide link ends its line).
+  const cuts = [...p.matchAll(/[.?!]\s+(?=[A-Z"])|\n(?=[A-Z"])/g)]
+    .filter((m) => m[0] === '\n' || !NO_END.test(p.slice(0, m.index + 1)))
+    .map((m) => (m[0] === '\n' ? { end: m.index, next: m.index + 1 } : { end: m.index + 1, next: m.index + m[0].length }));
+  // A bare "Go?" keeps the offer it answers ("I can add Builder Codes ... about 10 minutes. Go?") as one easy reply.
+  const short = (c: { end: number; next: number }) => p.slice(c.next).split(/\s+/).length < 3;
+  const cut = cuts.length > 1 && short(cuts.at(-1)!) ? cuts.at(-2) : cuts.at(-1);
+  return cut ? [p.slice(0, cut.end), p.slice(cut.next)] : null;
+}
+/**
+ * The money line as its own paragraph just before the reply's last one. Fix round 1 (controller ruling a): it never goes
+ * above the greeting, so a one-paragraph reply is split before its last sentence (its easy reply) and the line goes
+ * between the two; a one-sentence reply gets the line first. Pure.
+ */
+export function withMoneyLine(show: string, line: string | null): string {
+  if (!line) return show;
+  const ps = show.split('\n\n');
+  if (ps.length === 1) {
+    const two = splitLast(ps[0]);
+    return two ? `${two[0]}\n\n${line}\n\n${two[1]}` : `${line}\n\n${ps[0]}`;
+  }
+  return [...ps.slice(0, -1), line, ps.at(-1)!].join('\n\n');
 }
 
 /** "6 weeks", "1 week". Pure. */
@@ -272,9 +354,73 @@ export type PathCtx = {
    * hook's proof once the streak and live facts were said this session.
    */
   baseSteps?: readonly string[] | null;
+  /** v4.8.1 Task 3 (R4): the path's stage on this program (null: not on it), for the pointer's reason. */
+  stage?: Stage | null;
+  /** v4.8.1 Task 3 (R4): a draft of this program was made (the pointer's "your draft is ready"). */
+  drafted?: boolean;
+  /** Fix round 1 (minor 1): the stage's own ask after "your draft is ready" (PointerFacts.readyAsk). */
+  readyAsk?: string | null;
 };
+
+/*
+ * v4.8.1 Task 3 (R4): the pointer, the same step pointed back to within a session. The first time it says why the
+ * program is still the move; the second time it is short and offers the way out (a no parks the program and the path
+ * moves on, the existing no handling); from the third, the gate's repeat rule forbids the short line again, so it is the
+ * quiet reply's MORE_ASK (bench-reply.ts), stored as the 'more' ask (pointerReply's `more`), so "more" or a yes is the
+ * programs answer and never the program's own step.
+ */
+/** The short pointer's easy reply: a no parks the program (its stored ask's no) and the path moves on. */
+export const POINT_NEXT = `Reply "no" and I'll line up the next program.`;
+/** The third and later pointers' easy reply: bench-reply.ts MORE_ASK, "more" is the programs answer. */
+export const POINT_MORE = MORE_ASK;
+/** Fix round 1 (minor 1): the submit stage's own ask on a pointer. */
+export const SENT_SHORT = `Reply "sent" once it's in.`;
+/** What the pointer reads of the program and the path. */
+export type PointerFacts = Pick<MoveProgram, 'id' | 'title' | 'amount' | 'when' | 'ends_at' | 'zone'> & {
+  /** The gaps left (0: none, or not a grant with gaps). */
+  gaps: number;
+  /** The path's stage on this program, null when not on it. */
+  stage: Stage | null;
+  /** A draft was made; only then does a draft or submit stage say "your draft is ready". */
+  drafted: boolean;
+  /**
+   * Fix round 1 (minor 1): the stage's own ask when the reason is "your draft is ready" (submit: SENT_SHORT; a draft:
+   * its blanks ask), never "Want me to start?". Absent: the caller's ask.
+   */
+  readyAsk?: string | null;
+};
+/**
+ * The pointer's reason, in this order: "one step away" (one gap); "{n} steps away"; "your draft is ready" (the draft or
+ * submit stage, drafted); "closes {closeWords}" (a dated program still open). Null with none. Pure.
+ */
+export function pointerWhy(p: PointerFacts, now: Date): string | null {
+  if (p.gaps === 1) return 'one step away';
+  if (p.gaps > 1) return `${p.gaps} steps away`;
+  if ((p.stage === 'draft' || p.stage === 'submit') && p.drafted) return 'your draft is ready';
+  if (p.ends_at && p.when !== 'rolling' && Date.parse(p.ends_at) > now.getTime()) return `closes ${closeWords(p.ends_at, p.zone, now)}`;
+  return null;
+}
+/**
+ * The pointer and the session parts it says (markSaid). First (`point:{id}` not said): "{Program} is still your best
+ * move: {money}, {why}. {ask}" (an unknown amount or reason is left out with its comma). Second (`point2:{id}` not said):
+ * "Still {Program}. Reply "no" and I'll line up the next program." Third and later: POINT_MORE, `more` set (the
+ * caller stores the 'more' ask). `ready`: the reason is "your draft is ready" (its ask is readyAsk). Pure.
+ */
+export type Pointer = { text: string; said: string[]; more: boolean; ready: boolean };
+export function pointerReply(p: PointerFacts, ask: string, said: ReadonlySet<string>, now: Date): Pointer {
+  const name = programName(p.title);
+  if (!said.has(`point:${p.id}`)) {
+    const why = pointerWhy(p, now);
+    const ready = why === 'your draft is ready';
+    const facts = [p.amount, why].filter((x): x is string => Boolean(x));
+    return { text: `${name} is still your best move${facts.length > 0 ? `: ${facts.join(', ')}` : ''}. ${ready && p.readyAsk ? p.readyAsk : ask}`, said: [`point:${p.id}`], more: false, ready };
+  }
+  if (!said.has(`point2:${p.id}`)) return { text: `Still ${name}. ${POINT_NEXT}`, said: [`point2:${p.id}`], more: false, ready: false };
+  return { text: POINT_MORE, said: [], more: true, ready: false };
+}
 /** Fix round 2 (F10): a local agent's offer for a grant whose one gap is Builder Codes (target A). */
-export const CODES_OFFER = 'I can add them and push the change, about 10 minutes. Go?';
+/** v4.8.1 final fix (R-2): it names its step, so it reads right after the money line or alone in a pointer. */
+export const CODES_OFFER = 'I can add Builder Codes and push the change, about 10 minutes. Go?';
 export type PathReply = {
   stage: Stage; program_id: string;
   show_to_builder: string;
@@ -282,6 +428,8 @@ export type PathReply = {
   said: string[];
   /** The easy reply it ends with. */
   reply: 'start' | 'steps' | 'go';
+  /** v4.8.1 Task 3 fix round 1: a pointer's MORE_ASK (stored as the 'more' ask) or "your draft is ready" (its own ask). */
+  pointer?: { more: boolean; ready: boolean };
 };
 
 /**
@@ -289,8 +437,8 @@ export type PathReply = {
  * - a fit or an investor program: "{first}, {program} closes {when}: {amount}." + the proof line, then the draft offer
  *   ending "Want me to start?" (A's opener);
  * - a grant with a gap: its money and the gap sentence + the proof line, then "Want the steps?".
- * The same hook a second time in a session is one line that points back, with the same easy reply. A proof line said
- * already this session is left out. Pure.
+ * The same hook a second time in a session is pointerReply (v4.8.1 R4: the reason once, then short, never the same
+ * line twice). A proof line said already this session is left out. Pure.
  */
 export function pathReply(c: PathCtx): PathReply {
   const m = c.move;
@@ -305,9 +453,14 @@ export function pathReply(c: PathCtx): PathReply {
   // proof-line rule; it is one line that points back, with the same easy reply.
   if (c.said.has(hookKey) || c.brief) {
     // Task 5 fix round 1 (5): the brief pointer (after a direct answer) says no "still" and counts the hook as said.
-    const still = c.said.has(hookKey) ? 'still ' : '';
-    const point = reply === 'start' ? `Your ${name} application is ${still}the next move.` : reply === 'go' ? `Builder Codes are ${still}the one step to ${name}.` : `${name} is ${still}your closest money.`;
-    return { stage: 'hook', program_id: p.id, show_to_builder: `${point} ${ask}`, said: still ? [] : [hookKey, `money:${p.id}`], reply };
+    if (c.said.has(hookKey)) {
+      // v4.8.1 Task 3 (R4): the same step pointed back to says why once, then is short, never the same line twice.
+      const gaps = m.kind === 'one_step' || m.kind === 'closest' ? (p as GapGrant).gaps.length : 0;
+      const pt = pointerReply({ ...p, gaps, stage: c.stage ?? null, drafted: c.drafted === true, readyAsk: c.readyAsk ?? null }, ask, c.said, c.now);
+      return { stage: 'hook', program_id: p.id, show_to_builder: pt.text, said: pt.said, reply, pointer: { more: pt.more, ready: pt.ready } };
+    }
+    const point = reply === 'start' ? `Your ${name} application is the next move.` : reply === 'go' ? `${name} is one step away.` : `${name} is your closest money.`;
+    return { stage: 'hook', program_id: p.id, show_to_builder: `${point} ${ask}`, said: [hookKey, `money:${p.id}`], reply };
   }
   // Task 6 fix round 1 (review 4): one proof a session per fact; with the streak and live said, Base's own fact.
   const proofOut = proofOf(c.project, c.streak, p.investment, c.said) ?? (c.baseSteps ? baseProof(c.baseSteps, c.said) : null);
@@ -347,8 +500,8 @@ export function pathReply(c: PathCtx): PathReply {
 
 /**
  * One step toward a grant: its line, the guide link (shown after the mark), whether the agent can do it in the repo,
- * and (fix round 1, T2-2) the offer said before "Go?" when it is the one step ("I can add them and push the change,
- * about 10 minutes.").
+ * and (fix round 1, T2-2) the offer said before "Go?" when it is the one step ("I can add Builder Codes and push the
+ * change, about 10 minutes.").
  */
 export type GapStep = { text: string; link?: string; doable: boolean; offer?: string };
 /** The gap stage's easy replies: one step the agent can do; the first of several it can do; help (it can do none). */
@@ -398,8 +551,10 @@ export function gapStillReply(program: string, steps: GapStep[], hosted: boolean
   const head = money
     ? `${money.first ? `${money.first}, ` : ''}${name} ${money.amount ? `pays ${money.amount}` : 'is open'}${money.closes ? `, closing ${money.closes}` : ''}, and you're ${steps.length === 1 ? `one step away: ${words}` : `${steps.length} steps away. First: ${words}`}.`
     : `Still on ${name}: ${words}.`;
-  const line = `${head}${step.link ? ` Guide: ${step.link}` : ''}`;
-  return { show_to_builder: [line, proof, reply === 'go' ? GAP_DO_IT_ASK : GAP_HELP_ASK_ONE].filter(Boolean).join(' '), reply };
+  const rest = [proof, reply === 'go' ? GAP_DO_IT_ASK : GAP_HELP_ASK_ONE].filter(Boolean).join(' ');
+  // Final review 8: the guide link ends its line, so the next sentence never runs into the URL (and no period is glued
+  // to it, which would break the link); the reply stays one paragraph.
+  return { show_to_builder: step.link ? `${head} Guide: ${step.link}\n${rest}` : `${head} ${rest}`, reply };
 }
 
 /** Task 6 fix round 1 (review 1): the help yes's one easy reply; its ok re-checks the step. */
@@ -542,21 +697,6 @@ export function gapProofOf(p: { name: string; live: boolean }, streak: number, b
 /** The submit stage's one easy reply (target conversation A, exact). */
 export const SENT_ASK = `Reply "sent" once it's in, and I'll keep track of it for you.`;
 
-/** "11:59 PM". Pure. */
-const clock = (hour: number, minute: number) => `${hour % 12 === 0 ? 12 : hour % 12}:${String(minute).padStart(2, '0')} ${hour < 12 ? 'AM' : 'PM'}`;
-
-/**
- * When a dated program's submissions close, in the program's own zone (deadline.ts zoneParts, closeDay's rule): "tonight
- * 11:59 PM PT" is said "today 11:59 PM PT", "tomorrow 11:59 PM PT", else its day, "Nov 5 11:59 PM PT". A zone with no
- * short name (deadline.ts zoneAbbr) says the day only, so the time is never read in the wrong zone. Pure.
- */
-export function submitBy(endsAt: string, zone: string, now: Date, abbr: string | null): string {
-  const end = zoneParts(new Date(endsAt), zone);
-  const day = end.day === zoneParts(now, zone).day ? 'today'
-    : end.day === zoneParts(new Date(now.getTime() + 86_400_000), zone).day ? 'tomorrow' : end.day;
-  return abbr ? `${day} ${clock(end.hour, end.minute)} ${abbr}` : day;
-}
-
 /**
  * The submit stage's reply (target conversation A): "Done, it's ready to paste. Submit at {link} before {by}." then
  * the contact details the form asks for (typed there, never a draft blank: ruling T2-1), then SENT_ASK. A program with
@@ -574,7 +714,7 @@ export function submitReply(c: { link: string | null; by: string | null; contact
  */
 export function submitPointer(p: Pick<MoveProgram, 'title' | 'when' | 'ends_at' | 'zone'>, now: Date): string {
   const closes = p.ends_at && p.when !== 'rolling' ? `, closes ${closeWords(p.ends_at, p.zone, now)}` : '';
-  return `Your ${programName(p.title)} application is ready to submit${closes}. Reply "sent" once it's in.`;
+  return `Your ${programName(p.title)} application is ready to submit${closes}. ${SENT_SHORT}`;
 }
 
 /**
@@ -582,7 +722,9 @@ export function submitPointer(p: Pick<MoveProgram, 'title' | 'when' | 'ends_at' 
  * "sent" once it's in." (a rolling program: "No rush, it stays ready."). Pure.
  */
 export function submitNoRush(p: Pick<MoveProgram, 'when' | 'ends_at' | 'zone'>, now: Date): string {
-  const until = p.ends_at && p.when !== 'rolling' ? ` until ${closeWords(p.ends_at, p.zone, now)}` : '';
+  // v4.8.1 Task 2: the time left reads "until it closes in 20 hours", a day "until Nov 5".
+  const words = p.ends_at && p.when !== 'rolling' ? closeWords(p.ends_at, p.zone, now) : null;
+  const until = words ? ` until ${words.startsWith('in ') ? `it closes ${words}` : words}` : '';
   return `No rush, it stays ready${until}. Reply "sent" once it's in.`;
 }
 
@@ -745,7 +887,9 @@ const GENERIC_PICK = /^(?:the |a |an )?(?:grants?|programs?|investor(?: programs
  */
 export function pickHook(ctx: MoveCtx, pick: string): { move: Exclude<Move, { kind: 'quiet' }>; pick: boolean; steps: boolean } | null {
   const only = <P extends { id: string }>(xs: P[]) => xs.filter((x) => x.id === pick);
-  const own = bestMove({ ...ctx, fits: only(ctx.fits), grants: only(ctx.grants), investors: only(ctx.investors), path: null });
+  // v4.8.1 fix round 1: the pick as a stored hook path, so a picked long shot is kept whatever its close (bestMove's kept).
+  const picked: Path = { stage: 'hook', program_id: pick, at: ctx.now.toISOString(), picked: true };
+  const own = bestMove({ ...ctx, fits: only(ctx.fits), grants: only(ctx.grants), investors: only(ctx.investors), path: picked });
   if (own.kind !== 'quiet') return { move: own, pick: true, steps: false };
   const skip = new Set([...ctx.skip, pick]);
   const near = bestMove({ ...ctx, investors: [], skip, path: null });
@@ -852,14 +996,15 @@ export function grantFact(gaps: readonly string[] | null, chains: readonly strin
 }
 /**
  * The grants' "Your fit", from stored facts only: "Fits" (a real fit), "1 step: {step}", "{n} steps", "Drafted", "Steps
- * met", else "Not yet: {why}" ("needs Arc"; "EarnKit can't see its needs yet"; "not checked yet"). Never "qualify". Pure.
+ * met", else "Not yet: {why}" ("they look for apps on Arc"; "EarnKit can't see its needs yet"; "not checked yet"). Never "qualify". Pure.
  */
 export function fitCell(fits: boolean, f: GrantFact): string {
   if (fits) return 'Fits';
   if (f.kind === 'drafted') return 'Drafted';
   if (f.kind === 'met') return 'Steps met';
   if (f.kind === 'steps') return f.gaps.length === 1 ? `1 step: ${stepWords(f.gaps[0])}` : `${f.gaps.length} steps`;
-  if (f.kind === 'chain') return `Not yet: needs ${f.chain}`;
+  // v4.8.1 Task 3 (R5): what the program looks for, never a bare "needs".
+  if (f.kind === 'chain') return `Not yet: they look for apps on ${f.chain}`;
   return `Not yet: ${f.kind === 'none' ? "EarnKit can't see its needs yet" : 'not checked yet'}`;
 }
 /** The grants' order: fits, drafted, steps met, fewest steps, a chain away, then nothing known. Pure. */

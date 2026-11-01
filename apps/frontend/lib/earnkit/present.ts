@@ -2,6 +2,7 @@ import { usd } from './campaigns';
 import { NO_CELL } from './no-cell';
 import { AMOUNT_HEADER, closeDayOf, endsOf, prizeOf, upToCell } from './entry-text';
 import { shortDate } from './dates';
+import { hoursLeft } from './deadline';
 import { CHAIN_NAMES, EFFORT_ORDER, NOT_REAL_YET, NO_USERS_YET, hasRealUse, oddsRank, rowOdds, type Chain, type Effort, type Odds, type Product, type RepoFacts, type Verdict } from './match';
 import { NEEDS_LIVE_PRODUCT, levelRank, rowDifficulty, type Difficulty, type Level } from './guide';
 import { moneyText, openMoneyUsd, openMoneyWords, wonLine } from './pool';
@@ -243,8 +244,14 @@ export function closesInDays(endsAt: Date | null, now = new Date()) {
   return days <= 3 ? Math.max(days, 0) : null;
 }
 
-const soon = (days: number) =>
-  days === 0 ? 'closes today' : `closes in ${days} day${days === 1 ? '' : 's'}`;
+/**
+ * v4.8.1 final fix (R-3): "closes in 20 hours" under 48 hours (deadline.ts hoursLeft, from ends_at), never "closes
+ * today"; else "closes in {n} days". Pure.
+ */
+const soon = (days: number, endsAt: Date | null | undefined, now: Date) => {
+  const left = endsAt ? hoursLeft(new Date(endsAt).toISOString(), now) : null;
+  return left ? `closes ${left}` : days === 0 ? 'closes in under a day' : `closes in ${days} day${days === 1 ? '' : 's'}`;
+};
 
 /** The builder's repos checked against open programs (only verdicts that can earn), or why not. */
 export type RepoFit = {
@@ -291,7 +298,7 @@ export const youCould = (repos: YourRepos | null, githubGiven: boolean) => repos
  * finding 3: new curated programs are the alerts' news only (newProgramLines, Ruling 10: fit or
  * Easy, at most 3), so a program is never announced twice in one reply. Pure.
  */
-export function programUpdates(cards: Card[], firstCheck: boolean): ProgramUpdate[] {
+export function programUpdates(cards: Card[], firstCheck: boolean, now = new Date()): ProgramUpdate[] {
   if (firstCheck) return [];
   const named = cards.filter((c) => !c.sponsored);
   const sponsoredNew = cards.filter((c) => c.sponsored && c.is_new).length;
@@ -301,7 +308,7 @@ export function programUpdates(cards: Card[], firstCheck: boolean): ProgramUpdat
       : []),
     ...named
       .filter((c) => c.closes_in_days != null)
-      .map((c) => ({ text: `${c.title} ${soon(c.closes_in_days!)}`, program_id: c.id })),
+      .map((c) => ({ text: `${c.title} ${soon(c.closes_in_days!, c.ends_at, now)}`, program_id: c.id })),
   ];
 }
 /** v4.3 Task 2 fix round 1 (F6): one program update and the program it names (null: none, a sponsored count). */

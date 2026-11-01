@@ -111,7 +111,7 @@ agent (Grok Bot, Muse, Claude, Cursor…) ──HTTPS──> /mcp
     -> the client's redirect with a code carrying the X user (signed) -> POST /oauth/token
     -> token = installation row, bound to the X account (attachToX); the client stores the token
     (a client serving many builders, or X unset: approved at once, anonymous, as before v2.14)
-  then: Bearer token -> /mcp (old tool names rewritten: aliases.ts) -> lib/earnkit/mcp.ts
+  then: Bearer token -> /mcp (secret keys scrubbed: secrets.ts; old tool names rewritten: aliases.ts) -> lib/earnkit/mcp.ts
         -> lib/earnkit/tools.ts (find, prepare, confirm, tell -> handlers) -> Postgres
 stdio-only clients: npx mcp-remote https://earnkit.com/mcp
 Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm programs:sync ──> Postgres
@@ -8861,3 +8861,105 @@ A yes on the path moves the stage on (bench-find.ts benchMoveUp, asks stored wit
     only the `opener` part exempts. converse checks each tell against the previous reply's move_up (askMismatch),
     lazyNext drives the replay, first comes from the product's session, and a wait throws unless a new session began.
   - The replay refuses `earnkit_replay` (the master) unless ALLOW_MASTER=1, and LINK_CHECK or EARNKIT_MODEL_TEST set.
+
+## v4.8.1 Task 1: grants lead, investors only when chosen (2026-11-01, plan: v4.8.1-plan.md, ruling R1)
+
+bestMove's order is now: a real fit; a grant (not a long shot) with no gap closing within NOW_WINDOW_MS; a grant (not a
+long shot) one agent-doable step away; the closest grant (not a long shot); and only when all of those are empty, an
+investor program or a long-shot grant closing within INVESTOR_WINDOW_MS, soonest first. `kind: 'now'` holds grants only;
+an investor move is always `kind: 'investor'`. MoveProgram carries `longShot` (bench-find.ts moveProgram sets it from the
+program file's `tag === 'long shot'`). A program the builder picked or is past the hook on still keeps its place
+wherever it ranks (a long-shot grant at any close), so a builder who picks a16z still gets its draft, submit and track.
+
+
+## v4.8.1 Task 2: deadlines in hours left, the money total once a session (2026-11-01, rulings R2 and R3)
+
+- **Deadline words (R2).** conversation.ts closeWords says the time left under 48 hours ("in 20 hours", "in 1 hour",
+  "in under an hour"; whole hours rounded down, the same in every zone), else the program-zone day ("Nov 5"); never
+  "tonight" or "tomorrow". submitBy is "{day}, {clock} {abbr}" with " (in {n} hours)" under 48 hours (no abbr: the day,
+  then the hours), so the submit step reads "before Nov 1, 11:59 PM PT (in 20 hours)". submitNoRush says "until it
+  closes in 20 hours" (a day: "until Nov 5"). This supersedes the "tomorrow 11:59 PM PT" examples in the v4.8 Task 3
+  notes above.
+- **Money line (R3).** The session's first path reply from find (bench-find.ts pathCommit, pathGapCommit,
+  pathClosedCommit: a hook or pointer, the gap step, the draft offer, a "Since" opener) carries conversation.ts
+  moneyLine, "Open now: {moneyText(openMoneyUsd(cards))} in grants.", plus " {Investor} (investor program, {amount})
+  closes {closeWords}." for the soonest open investor program within INVESTOR_WINDOW_MS that is not skipped and not the
+  reply's or the stored path's program (moneyInvestor). withMoneyLine sets it as its own paragraph just before the last
+  one (first in a one-paragraph reply). Said once a session under `money:total` (MONEY_SAID), in the same said UPDATE.
+  Never on a direct answer (o.brief), the held submit pointer, the code re-check line or the setup steps; the signed-out
+  opener's head already says the total, so it marks `money:total` too.
+- **Fix round 1.** The line never goes above the greeting: withMoneyLine splits a one-paragraph reply before its last
+  sentence (its easy reply; a bare "Go?" keeps its offer; never inside a URL, an amount or an abbreviation) and puts the
+  line between the two. The total is /api/stats' figure, `openMoneyNow(now, cards)` (every active program, so a program
+  the builder hid still counts), read only when the line is due; the signed-out opener uses it too. An `ask: programs`
+  answer marks `money:total` (its tables say the money); a standing answer does not. A close already passed has no hours
+  left (closeWords says its day; submitBy drops the "(in N hours)"; the investor clause is left out).
+- **Pointer (R4).** The same step pointed back to within a session (pathReply with its hook said, and pathClosedCommit's
+  draft offer again) goes through one function, conversation.ts pointerReply. The first time (`point:{programId}` not
+  said): "{Program} is still your best move: {money}, {why}. {ask}", where money is the amount cell (left out with its
+  comma when unknown), why is pointerWhy ("one step away"; "{n} steps away"; "your draft is ready" at the draft or submit
+  stage once a draft was made; "closes {closeWords}"; else nothing) and ask is the step's own easy reply (a 'go' step
+  names it: CODES_POINT_OFFER, "I can add Builder Codes and push the change, about 10 minutes. Go?"; after "your draft
+  is ready" the stage's own ask, PointerFacts.readyAsk: SENT_SHORT at submit, the blanks ask for a draft, with that
+  stage's ask stored). The second time (`point2:{programId}`): 'Still {Program}. Reply "no" and I'll line up the next
+  program.' (POINT_NEXT), the stored ask unchanged, so a no parks the program (`path:{id}` declined) and the path moves
+  on. The gate's repeat rule forbids that line twice, so the third and later times are POINT_MORE (bench-reply.ts
+  MORE_ASK, 'Reply "more" and I'll show every program open now.'), stored as the 'more' ask with MORE_NOTE, so "more"
+  or a yes is the programs answer and never the program's own step; once the programs answer was given (this reply or
+  this session, bench-find.ts listedNow), that pointer is NAME_ASK (the 'name' ask, NAME_NOTE) instead, so the list
+  never ends with "more" again. pathClosedCommit does the same. The direct-answer
+  brief step keeps "Your {program} application is the next move." for a hook not yet said. A pointer never raises a
+  passed step (only a reply that says `hook:{id}` does).
+  This supersedes the "still the next move" / "still the one step to" / "still your closest money" pointers above.
+- **Fit copy (R5).** fitCell for one chain the project is not on: "Not yet: they look for apps on {chain}" (supersedes
+  "Not yet: needs Arc" above).
+
+## v4.8.1 Task 4: secret scrub on every tool call (2026-11-01, ruling R6)
+
+- **Where.** app/mcp/route.ts `withAliases`, in its one JSON parse and before the alias step: `scrubToolCalls`
+  (lib/earnkit/secrets.ts) replaces each match of `SECRET_PATTERNS` in every string of each `tools/call`'s
+  `params.arguments` (single and batch bodies) with `[key removed]`, so no tool, log or table ever sees the key. Other
+  methods and non-JSON bodies pass through as before. Patterns (edges are "not a letter or digit", so
+  `token_sk_live_...` is caught): Stripe sk_/rk_ live/test (16+ characters with a digit; pk_ is public and left alone)
+  and whsec_, GitHub gh[opsur]_ and github_pat_, Anthropic sk-ant-, OpenAI sk-proj-/sk-svcacct-/sk-admin- (20+) and
+  legacy sk- (40+ letters and digits only), AWS AKIA and ASIA. PEM private keys use a linear pass (scrubPem: indexOf
+  over the BEGIN markers, one cached next END; a body of at most PEM_MAX_BODY 10,000 characters), never a regex
+  (a lazy body rescans from every BEGIN). Raw 64-hex is never matched (tx hashes). Every string is scanned.
+- **Body cap.** withAliases reads the POST body with readCapped (Content-Length, then while reading): over
+  MAX_MCP_BODY_BYTES (1 MB) it answers 413 with a JSON-RPC error (BODY_TOO_LARGE), never parsed or logged.
+- **Log.** Only `[mcp] scrubbed {n}`, never the value.
+- **Reply.** The scrubbed calls' ids are kept; `withScrubNotes` (after forOldNames) rewrites their replies: the first
+  text content, a JSON object (every successful tool reply), gets a top-level `scrub_note: SCRUB_LINE` as its first key;
+  a non-JSON text (an error line) is prefixed with SCRUB_LINE and a blank line. The hosted transport answers in plain
+  JSON (enableJsonResponse), so there is no SSE case; a non-200 or non-JSON response passes through unmarked (the call
+  was still scrubbed).
+- **Names are safe.** A repo or word like `sk-learn-tutorial-for-beginners` is never matched (fix 1).
+
+## v4.8.1 final review fixes (2026-11-01, .superpowers/sdd/v4.8.1-plan/final-review.md)
+
+- **Replay sessions.** scripts/converse-replay.mts `freshSession` ages the snapshot's live session (said.at) past
+  SESSION_MS before walks A and S (the copy only; the script refuses anything else) and notes it in the transcript.
+  Walk S exits 1 when its first reply is not a fresh session (Reply.first).
+- **R-2, the Builder Codes offer.** CODES_OFFER and the gap step's offer (bench-reply.ts qualifyGapSteps) say "I can add
+  Builder Codes and push the change, about 10 minutes", so the offer reads right after the money line. CODES_POINT_OFFER
+  is gone; the brief pointer is "{name} is one step away. {CODES_OFFER}".
+- **R-3, deadlines everywhere.** `hoursLeft` and `submitBy` live in deadline.ts (conversation.ts re-exports them), with
+  `cardSubmitBy` (a card's absolute close for emails). `stand-view.ts fundWhen(c, now?)`: with `now`, under 48 hours
+  "closes in N hours"; every builder-facing caller passes it (opener list, programs answer rows, alsoOpen,
+  openNowInvestment, the fit's `when`, base-qualify's head, the extra programs, the new-program email); MoveProgram's
+  own `when` and the `=== 'rolling'` flags don't. The hours left also drive standing.ts nextDeadline ("Next: X closes in
+  20 hours"), alerts.ts deadlineLine, present.ts programUpdates and fresh-build.ts freshLeadLine. nudges.ts
+  `closesWhen` replaces closesOn (it read a UTC weekday: a Nov 1 11:59 PM PT close was "Monday"): the hours left, else
+  the program-zone day. Emails are read hours after sending, so the closing email (alert-mail.ts), the Monday email's
+  deadlines and new programs (digest.ts `closes`, DigestFacts.now) and its money line (moneyTexts; bestFitFor carries the
+  program zone) say "Nov 1, 11:59 PM PT (in 20 hours)". No builder-facing copy says today, tomorrow, tonight or a UTC
+  weekday under 48 hours. Left as is: landing.ts's cached "Closes Nov 1".
+- **R-4, the investor clause.** moneyFor leaves out the stored path's program only when it was picked or is past the
+  hook (bestMove's `on` rule); an unpicked hook from an older session no longer hides it.
+- **Parked 5 and 6.** The Stripe pattern is "a digit and 16+ characters, or 24+ characters". The draft-ready pointer
+  stores `readyStored` (the program's own ask, else the blanks ask with none left, never `{}`), and `pathDrafted` counts a
+  draft yes only within DECLINE_MS (draftedRecently).
+- **Scrub warning.** withScrubNote puts SCRUB_LINE at the start of `show_to_builder`, then a blank line, wherever the
+  JSON reply has one (every agent note says to show it); `scrub_note` stays.
+- **Guide URL.** gapStillReply ends the guide link's line ("Guide: {url}\n{proof} {ask}"), one paragraph; splitLast
+  treats a line break before a capital as a sentence end, so the money line still lands before the easy reply.

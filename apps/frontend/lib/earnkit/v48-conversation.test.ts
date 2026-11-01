@@ -63,7 +63,7 @@ const ARC: GapGrant = {
 const gap = (id: string, gaps: string[], o: Partial<GapGrant> = {}): GapGrant => ({ ...prog({ id }), gaps, gap: 'x', passed: false, doable: false, ...o });
 const ctx = (o: Partial<MoveCtx> = {}): MoveCtx => ({ now: NOW, fits: [], grants: [], investors: [], skip: new Set(), raised: new Set(), path: null, ...o });
 
-test('bestMove (fix round 1, R1): fit; no gap closing in 48 hours; an agent-doable one step; investor in 7 days; closest; quiet', () => {
+test('bestMove (v4.8.1 R1): fit; a grant with no gap closing in 48 hours; an agent-doable one step; closest; investor in 7 days; quiet', () => {
   const fitSoon = prog({ id: 'fit-soon', ends_at: '2026-11-05T00:00:00Z', when: 'closes Nov 5' });
   const fitRolling = prog({ id: 'fit-rolling' });
   const codes = gap('codes', ['codes'], { doable: true });
@@ -73,45 +73,48 @@ test('bestMove (fix round 1, R1): fit; no gap closing in 48 hours; an agent-doab
   const week = { ...A16Z, id: 'week', ends_at: '2026-11-05T19:00:00Z' };
   // 1. A real fit, closing first (rolling last), before anything else.
   assert.deepEqual(bestMove(ctx({ fits: [fitRolling, fitSoon], grants: [codes, ARC], investors: [A16Z] })), { kind: 'fit', program: fitSoon });
-  // 2. A program closing within 48 hours with no gap: an investor program (a16z) or a grant with no gap known.
-  assert.deepEqual(bestMove(ctx({ grants: [codes, ARC], investors: [A16Z, week] })), { kind: 'now', program: A16Z });
+  // 2. A grant closing within 48 hours with no gap known. v4.8.1 R1: an investor program (a16z) is never a 'now'; the
+  // agent-doable one step leads it.
+  assert.deepEqual(bestMove(ctx({ grants: [codes, ARC], investors: [A16Z, week] })), { kind: 'one_step', program: codes });
   const noGap = gap('nogap', [], { ends_at: '2026-11-01T12:00:00Z', when: 'closes Nov 1' });
   assert.deepEqual(bestMove(ctx({ grants: [noGap, codes] })), { kind: 'now', program: noGap });
   // ... a no-gap grant further out is never a move on its own.
   assert.deepEqual(bestMove(ctx({ grants: [gap('later', [], { ends_at: '2026-11-20T00:00:00Z' })] })), { kind: 'quiet' });
   // 3. A grant one step away, the step one the agent can do (Builder Codes), before an investor program in 7 days.
   assert.deepEqual(bestMove(ctx({ grants: [two, codes], investors: [week] })), { kind: 'one_step', program: codes });
-  // 4. The investor program closing within 7 days, with the program file's odds.
-  const inv = bestMove(ctx({ grants: [three, two], investors: [week] }));
+  // 4. The closest grant by number of gaps, before an investor program in 7 days (v4.8.1 R1).
+  const closest = bestMove(ctx({ grants: [three, two], investors: [week] }));
+  assert.equal(closest.kind === 'closest' && closest.program.id, 'two');
+  // 5. With no grant move, the investor program closing within 7 days, with the program file's odds.
+  const inv = bestMove(ctx({ investors: [week] }));
   assert.equal(inv.kind, 'investor');
   assert.equal(inv.kind === 'investor' && inv.program.odds, A16Z.odds);
   // ... only within 7 days of its close.
   const later = { ...A16Z, id: 'later', ends_at: '2026-11-18T23:59:59Z' };
-  // 5. The closest grant by number of gaps.
-  const closest = bestMove(ctx({ grants: [three, two], investors: [later] }));
-  assert.equal(closest.kind === 'closest' && closest.program.id, 'two');
   // 6. Nothing: quiet.
   assert.deepEqual(bestMove(ctx({ investors: [later] })), { kind: 'quiet' });
   // A closed program is never a move.
   assert.deepEqual(bestMove(ctx({ fits: [prog({ id: 'gone', ends_at: '2026-10-30T00:00:00Z' })] })), { kind: 'quiet' });
 });
 
-test("bestMove (fix round 1, R1): Arc's chain gap is never a one-step; it waits behind an investor program", () => {
+test("bestMove (fix round 1, R1): Arc's chain gap is never a one-step; closing within 48 hours it is no grant move", () => {
   const week = { ...A16Z, id: 'week', ends_at: '2026-11-05T19:00:00Z' };
-  // One gap, but a chain deployment: not step 3, so the investor program in 7 days leads.
+  // One gap, but a chain deployment closing within 48 hours: no grant move at all, so the investor program in 7 days leads.
   assert.equal(bestMove(ctx({ grants: [ARC], investors: [week] })).kind, 'investor');
   // Alone, it is only ever the closest grant (step 5), never a one_step.
   assert.equal(bestMove(ctx({ grants: [{ ...ARC, ends_at: '2026-11-10T00:00:00Z', when: 'closes Nov 10' }] })).kind, 'closest');
-  // The owner's real day: a16z closes within 48 hours with no gap, so it leads Arc (and Base, passed on).
-  assert.deepEqual(bestMove(ctx({ grants: [ARC, BASE], investors: [A16Z] })), { kind: 'now', program: A16Z });
+  // The owner's real day (v4.8.1 R1): a16z never leads on its own; Base (one gap, passed on, not raised yet) is raised.
+  assert.deepEqual(bestMove(ctx({ grants: [ARC, BASE], investors: [A16Z] })), { kind: 'closest', program: BASE, raise: true });
 });
 
-test('bestMove: a passed step is raised once, only when it is the one gap, never ahead of an investor program', () => {
-  // A's opener: Base's one gap (Builder Codes) was passed on, so a16z leads.
-  assert.equal(bestMove(ctx({ grants: [BASE], investors: [A16Z] })).kind, 'now');
-  // After "sent" (a16z applied to), Base is raised as the closest, this once.
+test('bestMove: a passed step is raised once, only when it is the one gap, ahead of an investor program (v4.8.1 R1)', () => {
+  // Base's one gap (Builder Codes) was passed on: it is raised as the closest, this once, ahead of a16z.
+  assert.deepEqual(bestMove(ctx({ grants: [BASE], investors: [A16Z] })), { kind: 'closest', program: BASE, raise: true });
+  // After "sent" (a16z applied to), the same.
   const raised = bestMove(ctx({ grants: [BASE], investors: [A16Z], skip: new Set(['a16z-speedrun']) }));
   assert.deepEqual(raised, { kind: 'closest', program: BASE, raise: true });
+  // Raised once already: Base is no move, so a16z (no grant move left) leads.
+  assert.deepEqual(bestMove(ctx({ grants: [BASE], investors: [A16Z], raised: new Set([BASE.id]) })), { kind: 'investor', program: A16Z });
   assert.deepEqual(bestMove(ctx({ grants: [BASE], raised: new Set([BASE.id]) })), { kind: 'quiet' });
   // A passed step that isn't the one gap is never raised.
   assert.deepEqual(bestMove(ctx({ grants: [{ ...BASE, gaps: ['codes', 'use'] }] })), { kind: 'quiet' });
@@ -122,7 +125,7 @@ test('bestMove (Review Focus 4): an investor program is never a fit; applied to 
   assert.deepEqual(bestMove(ctx({ fits: [A16Z] })), { kind: 'quiet' });
   const fit = prog({ id: 'fit' });
   // Applied to or drafted (skip): never the hook, so the next move leads.
-  assert.equal(bestMove(ctx({ fits: [fit], investors: [A16Z], skip: new Set(['fit']) })).kind, 'now');
+  assert.equal(bestMove(ctx({ fits: [fit], investors: [A16Z], skip: new Set(['fit']) })).kind, 'investor');
   assert.deepEqual(bestMove(ctx({ fits: [fit], investors: [A16Z], skip: new Set(['fit', 'a16z-speedrun']) })), { kind: 'quiet' });
   // The stored path keeps its program while it is still a move and the builder is on it: picked (Task 4 stores a new
   // builder's pick before ranking) or past the hook.
@@ -158,9 +161,10 @@ test('sessionOf: fresh after 2 hours of quiet; within, the parts said', () => {
 });
 
 test('closeWords and programName', () => {
-  assert.equal(closeWords('2026-11-02T07:59:59Z', PT, NOW), 'tomorrow night');
-  assert.equal(closeWords('2026-11-01T06:59:59Z', PT, NOW), 'tonight');
-  assert.equal(closeWords('2026-11-01T18:00:00Z', PT, NOW), 'tomorrow');
+  // v4.8.1 Task 2 (R2): under 48 hours, the hours left (was "tomorrow night", "tonight", "tomorrow").
+  assert.equal(closeWords('2026-11-02T07:59:59Z', PT, NOW), 'in 36 hours');
+  assert.equal(closeWords('2026-11-01T06:59:59Z', PT, NOW), 'in 11 hours');
+  assert.equal(closeWords('2026-11-01T18:00:00Z', PT, NOW), 'in 23 hours');
   assert.equal(closeWords('2026-11-06T07:59:59Z', PT, NOW), 'Nov 5');
   assert.equal(programName('Base Builder Grant Program'), 'Base Builder Grant');
   assert.equal(programName('Arc Microgrants: Built with Arc Studio'), 'Arc Microgrants');
@@ -204,12 +208,13 @@ test('pathReply (Task 6 fix round 1, review 4): a hook after the streak was said
 
 /** Section A's opener, the facts filled from the owner's account (score 77, 6 weeks, live, a16z open). */
 const A_OPENER =
-  "Jenil, a16z speedrun SR008 closes tomorrow night: up to $1M. You've shipped 6 weeks in a row and EarnKit is live, which is the traction they ask about.\n\n" +
+  "Jenil, a16z speedrun SR008 closes in 36 hours: up to $1M. You've shipped 6 weeks in a row and EarnKit is live, which is the traction they ask about.\n\n" +
   'I can draft your application from your commits and live product in a few minutes. Want me to start?';
 
 test("pathReply: the owner's opener is section A's, word for word; the same hook again is a one-line pointer", () => {
-  const move = bestMove(ctx({ grants: [BASE], investors: [A16Z] }));
-  assert.equal(move.kind, 'now');
+  // v4.8.1 R1: a16z leads only with no grant move (or when picked), as an investor program.
+  const move = bestMove(ctx({ investors: [A16Z] }));
+  assert.equal(move.kind, 'investor');
   const r = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move: move as Exclude<typeof move, { kind: 'quiet' }>, said: new Set() });
   assert.equal(r.show_to_builder, A_OPENER);
   assert.equal(r.stage, 'hook');
@@ -219,25 +224,26 @@ test("pathReply: the owner's opener is section A's, word for word; the same hook
   // An investor program is never called a fit, and never a grant.
   assert.doesNotMatch(r.show_to_builder, /\bfit\b|grant/i);
   const again = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move: move as never, said: new Set(r.said) });
-  assert.equal(again.show_to_builder, 'Your a16z speedrun SR008 application is still the next move. Want me to start?');
-  assert.deepEqual(again.said, []);
+  // v4.8.1 Task 3 (R4): the pointer says the money and why (a16z closes in 36 hours), once.
+  assert.equal(again.show_to_builder, 'a16z speedrun SR008 is still your best move: up to $1M, closes in 36 hours. Want me to start?');
+  assert.deepEqual(again.said, ['point:a16z-speedrun']);
 });
 
 test('pathReply: a grant with a gap gives its money, the gap and "Want the steps?"; a proof said already is left out', () => {
   const one: GapGrant = { ...prog({ id: 'arc', title: 'Arc Microgrants: Built with Arc Studio', amount: '500 USDC × 8 grants', when: 'closes Nov 1', ends_at: '2026-11-02T03:59:00Z', zone: 'America/New_York' }), gaps: ['on Arc mainnet'], gap: 'Arc Microgrants needs EarnKit on Arc mainnet.', passed: false, doable: false };
   const r = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'one_step', program: one }, said: new Set() });
   assert.equal(r.show_to_builder,
-    "Jenil, Arc Microgrants pays 500 USDC × 8 grants, closing tomorrow night. Arc Microgrants needs EarnKit on Arc mainnet. You've shipped 6 weeks in a row and EarnKit is live.\n\nWant the steps?");
+    "Jenil, Arc Microgrants pays 500 USDC × 8 grants, closing in 32 hours. Arc Microgrants needs EarnKit on Arc mainnet. You've shipped 6 weeks in a row and EarnKit is live.\n\nWant the steps?");
   const c = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'closest', program: BASE, raise: true }, said: new Set(r.said) });
   // Fix round 2 (F10): one gap a local agent can do (Builder Codes): the hook offers to do it; a hosted agent keeps the steps.
   // Task 3: the passed step raised says so, once (target A).
-  assert.equal(c.show_to_builder, "Jenil, your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes. You passed on them, but they're now the only gap to that money.\n\nI can add them and push the change, about 10 minutes. Go?");
+  assert.equal(c.show_to_builder, "Jenil, your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes. You passed on them, but they're now the only gap to that money.\n\nI can add Builder Codes and push the change, about 10 minutes. Go?");
   assert.equal(c.reply, 'go');
   const h = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'closest', program: BASE, raise: true }, said: new Set(r.said), hosted: true });
   assert.equal(h.show_to_builder, "Jenil, your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes. You passed on them, but they're now the only gap to that money.\n\nWant the steps?");
   // Fix round 3 (3): the same offer again in the session names Builder Codes.
   const again = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'closest', program: BASE, raise: true }, said: new Set([...r.said, ...c.said]) });
-  assert.equal(again.show_to_builder, `Builder Codes are still the one step to Base Builder Grant. ${CODES_OFFER}`);
+  assert.equal(again.show_to_builder, `Base Builder Grant is still your best move: up to $5,000, one step away. I can add Builder Codes and push the change, about 10 minutes. Go?`);
   for (const s of [r.show_to_builder, c.show_to_builder, h.show_to_builder]) {
     assert.doesNotMatch(s, BAD);
     assert.equal((s.match(/\?/g) ?? []).length, 1, s);
@@ -266,6 +272,20 @@ after(async () => {
   await sql().end();
 });
 const RUN = String(process.pid % 100000);
+/**
+ * v4.8.1 Task 2 (R3): a session's first path reply says "Open now: {total} in grants." as its own paragraph just before
+ * the easy reply. Fix round 1 (ruling a): a one-paragraph reply is split before its easy reply, so the line never goes
+ * above the greeting. Asserts the line is there once, and gives the reply without it (the split kept).
+ */
+const withTotal = (s: string) => {
+  assert.equal(s.match(/\n\nOpen now: \$[\d.]+[KM]?\+? in grants\.[^\n]*\n\n/g)?.length, 1, s);
+  return s.replace(/Open now: [^\n]*\n\n/, '');
+};
+/** Fix round 1 (ruling a): a one-paragraph reply as the money line splits it, before its last sentence. */
+const easySplit = (s: string, ask: string) => {
+  assert.ok(s.endsWith(` ${ask}`), s);
+  return `${s.slice(0, -ask.length - 1)}\n\n${ask}`;
+};
 const PATH_NOTE = PATH_NOTE_OF(MENTOR_NOTE);
 type R = Awaited<ReturnType<typeof mcpCall>>;
 const show = (r: R) => String(r.reply?.show_to_builder ?? '');
@@ -292,9 +312,10 @@ let n = 0;
 /**
  * The owner-like builder (production snapshot, 2026-10-31): X name "Jenil T", project EarnKit, its repo proven by the
  * App, live and on Base, six weeks shipping, Builder Codes passed on (Base's steps declined today), the connect weeks
- * and setup step 3 done.
+ * and setup step 3 done. `pick` (v4.8.1 R1): the builder picked that program (said its name or number on the opener), so
+ * an investor program leads; investor programs never lead on their own while a grant move exists.
  */
-async function owner(tag: string) {
+async function owner(tag: string, o: { pick?: string } = {}) {
   n++;
   const t = `ek_v48_${tag}_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Claude Code');
@@ -320,47 +341,51 @@ async function owner(tag: string) {
   await sql()`UPDATE builder_projects SET commit_weeks = ${weeks}::text[], shipped = true, kind = 'app' WHERE builder_id = ${c.id} AND lower(project_key) = lower(${key})`;
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('connect_done', now()::text,
       'declined', jsonb_build_object(${`qualify:${key}`}::text, now()::text)) WHERE builder_id = ${c.id}`;
+  if (o.pick) await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('path', jsonb_build_object('stage', 'hook', 'program_id', ${o.pick}::text, 'at', now()::text, 'picked', true)) WHERE builder_id = ${c.id}`;
   return { ctx, id: c.id, key, gh, handle };
 }
 const find = (b: { ctx: unknown }, args: Record<string, unknown> = {}) => mcpCall(b.ctx as never, 'find', args);
 
-test("the owner-like builder's first find is A's opener; the next find in the session points back, never the same block", db, async () => {
+test("the owner-like builder who picked a16z: the first find is A's opener; the next find in the session points back, never the same block", db, async () => {
   const sr = await speedrun(30);
-  // Fix round 1 (R1): an open Arc Microgrants copy closing sooner, one chain gap away: never a one-step, so a16z leads.
+  // Fix round 1 (R1): an open Arc Microgrants copy closing sooner, one chain gap away: never a one-step. v4.8.1 R1: a16z
+  // leads because the builder picked it (Base, passed on, would be raised otherwise).
   const arc = committedProgram('arc-microgrants-studio', { keepContract: true });
   await upsertProgram(ProgramFile.parse({ ...arc, id: `v48-${process.pid}-arc`, ends_at: new Date(Date.now() + 20 * 3_600_000).toISOString(), status: 'active', starts_at: null }));
-  const b = await owner('a');
+  const b = await owner('a', { pick: sr.id });
   const r = await find(b);
   const s = show(r);
-  const [p1, p2] = s.split('\n\n');
-  assert.match(p1, new RegExp(`^Jenil, ${sr.title} closes (tonight|today|tomorrow night|tomorrow|[A-Z][a-z]{2} \\d{1,2}): up to \\$1M\\. You've shipped \\d+ weeks? in a row and EarnKit is live, which is the traction they ask about\\.$`), s);
+  // v4.8.1 Task 2 (R3): the session's first path reply says the open total just before the easy reply.
+  const [p1, money, p2] = s.split('\n\n');
+  assert.match(money, /^Open now: \$[\d.]+[KM]?\+? in grants\.$/, s);
+  assert.match(p1, new RegExp(`^Jenil, ${sr.title} closes (in \\d+ hours?|in under an hour|[A-Z][a-z]{2} \\d{1,2}): up to \\$1M\\. You've shipped \\d+ weeks? in a row and EarnKit is live, which is the traction they ask about\\.$`), s);
   assert.equal(p2, 'I can draft your application from your commits and live product in a few minutes. Want me to start?', s);
-  assert.equal(s.split('\n\n').length, 2, s);
+  assert.equal(s.split('\n\n').length, 3, s);
   assert.doesNotMatch(s, BAD);
-  assert.doesNotMatch(s, /Open now|Ask me anytime/);
+  assert.doesNotMatch(s, /Ask me anytime/);
   // The agent note is the mentor note; a yes drafts it (the apply ask, stored for tell).
   assert.equal(r.reply?.note, PATH_NOTE);
   assert.equal(moveUp(r)?.kind, 'apply');
   assert.deepEqual((r.reply?.lead as { program_id: string }).program_id, sr.id);
   const seen = await seenOf(b.id);
   assert.equal((seen.bench_ask as { kind: string; program_id: string }).program_id, sr.id);
-  assert.deepEqual({ ...(seen.path as object), at: undefined }, { stage: 'hook', program_id: sr.id, at: undefined });
+  assert.deepEqual({ ...(seen.path as object), at: undefined }, { stage: 'hook', program_id: sr.id, at: undefined, picked: true });
   assert.ok((seen.said as { keys: string[] }).keys.includes(`hook:${sr.id}`));
   // Review Focus 5 (an older agent calling find again): a one-line pointer, never the opener again.
   const again = show(await find(b));
-  assert.equal(again, `Your ${programName(sr.title)} application is still the next move. Want me to start?`);
+  assert.match(again, new RegExp(`^${programName(sr.title)} is still your best move: up to \\$1M, closes in \\d+ hours?\\. Want me to start\\?$`), again);
   // After 2 hours of quiet, a new session: the opener again. (Task 3: the copy opened within this test, after the last
   // session began, so "Since earlier today: ... opened." may lead it.)
   await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, '{said,at}', to_jsonb(${new Date(Date.now() - SESSION_MS - 1000).toISOString()}::text)) WHERE builder_id = ${b.id}`;
   const fresh = show(await find(b)).split('\n\n');
-  assert.deepEqual(fresh.slice(-2), [p1, p2]);
+  assert.deepEqual(fresh.slice(-3), [p1, money, p2]);
   // Fix round 1 (5): it was hooked last session, so it is not new to this builder: no "opened".
-  assert.equal(fresh.length, 2, fresh.join('|'));
+  assert.equal(fresh.length, 3, fresh.join('|'));
 });
 
 test('a no to the hook parks that program for DECLINE_MS and the path moves on', db, async () => {
-  await speedrun(30);
-  const b = await owner('no');
+  const sr = await speedrun(30);
+  const b = await owner('no', { pick: sr.id });
   assert.equal(moveUp(await find(b))?.kind, 'apply');
   await mcpCall(b.ctx as never, 'tell', { move_up: { kind: 'apply', project_key: b.key, answer: 'no' } });
   const next = show(await find(b));
@@ -398,7 +423,7 @@ test("a no to a grant's gap hook (Base's steps) parks it for the path; nothing a
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'declined' WHERE builder_id = ${b.id}`;
   const r = await find(b);
   const s = show(r);
-  assert.match(s, /^Jenil, Base Builder Grant pays up to \$5,000\. [^\n]*Builder Codes[^\n]*\n\nI can add them and push the change, about 10 minutes\. Go\?$/, s);
+  assert.match(s, /^Jenil, Base Builder Grant pays up to \$5,000\. [^\n]*Builder Codes[^\n]*\n\nOpen now: [^\n]+\n\nI can add Builder Codes and push the change, about 10 minutes\. Go\?$/, s);
   assert.equal(moveUp(r)?.kind, 'qualify');
   await mcpCall(b.ctx as never, 'tell', { move_up: { kind: 'qualify', project_key: b.key, answer: 'no' } });
   const declined = (await seenOf(b.id)).declined as Record<string, string>;
@@ -444,9 +469,9 @@ test('a shared client with no X of its own gets no path reply, and nothing is wr
 test('fix round 2 (F9): with no X name the reply greets no name, never the handle', () => {
   const move = bestMove(ctx({ investors: [A16Z] }));
   const r = pathReply({ now: NOW, first: null, project: { name: 'EarnKit', live: true }, streak: 6, move: move as never, said: new Set() });
-  assert.ok(r.show_to_builder.startsWith('a16z speedrun SR008 closes tomorrow night: up to $1M. '), r.show_to_builder);
+  assert.ok(r.show_to_builder.startsWith('a16z speedrun SR008 closes in 36 hours: up to $1M. '), r.show_to_builder);
   const c = pathReply({ now: NOW, first: null, project: { name: 'EarnKit', live: false }, streak: 0, move: { kind: 'closest', program: BASE, raise: true }, said: new Set() });
-  assert.equal(c.show_to_builder, "Your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes. You passed on them, but they're now the only gap to that money.\n\nI can add them and push the change, about 10 minutes. Go?");
+  assert.equal(c.show_to_builder, "Your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes. You passed on them, but they're now the only gap to that money.\n\nI can add Builder Codes and push the change, about 10 minutes. Go?");
 });
 
 /** The connect weeks due again (v3-connect.test.ts's backfill): the older moment the closest grant waits behind. */
@@ -457,12 +482,14 @@ async function connectDueFor(b: { id: number; key: string }) {
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'connect_done' - 'connect_open' WHERE builder_id = ${b.id}`;
 }
 
-test('fix round 2 (F1): steps 1 to 4 lead even with the connect weeks due', db, async () => {
-  const sr = await speedrun(30);
+test('fix round 2 (F1): steps 1 to 3 lead even with the connect weeks due', db, async () => {
+  await speedrun(30);
   const b = await owner('f1a');
+  // v4.8.1 R1: Base's step not passed on here, so its agent-doable one step (step 3) leads; a16z never leads on its own.
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'declined' WHERE builder_id = ${b.id}`;
   await connectDueFor(b);
   const s = show(await find(b));
-  assert.ok(s.startsWith(`Jenil, ${sr.title} closes `) && s.endsWith('Want me to start?'), s);
+  assert.ok(s.startsWith('Jenil, Base Builder Grant pays ') && s.endsWith('Go?'), s);
   assert.doesNotMatch(s, /Make your shipping log public/, s);
 });
 
@@ -483,9 +510,29 @@ test('fix round 2 (F1): with only the closest grant, the connect weeks go first,
   assert.ok(second.endsWith('Want the steps?'), second);
 });
 
+test('v4.8.1 fix round 1: with only an investor move, the connect weeks go first, once a session; then the path; a pick never waits', db, async () => {
+  const sr = await speedrun(30);
+  await only([sr.id]);
+  const b = await owner('f1i');
+  await connectDueFor(b);
+  const first = await find(b);
+  assert.equal(moveUp(first)?.kind, 'connect', show(first));
+  assert.match(show(first), /Make your shipping log public on /);
+  assert.ok(((await seenOf(b.id)).said as { keys: string[] }).keys.includes('older'));
+  // The next call in the session: the investor program (one older moment a session).
+  const second = show(await find(b));
+  assert.ok(second.startsWith(`Jenil, ${sr.title} closes `) && second.endsWith('Want me to start?'), second);
+  // A builder who picked it is on it: the path, never the connect weeks.
+  const c = await owner('f1j', { pick: sr.id });
+  await connectDueFor(c);
+  const picked = show(await find(c));
+  assert.ok(picked.startsWith(`Jenil, ${sr.title} closes `), picked);
+  assert.doesNotMatch(picked, /Make your shipping log public/, picked);
+});
+
 test('fix round 2 (F4): a v4.7 silence stand-aside never parks a program; an explicit no does', db, async () => {
   const sr = await speedrun(30);
-  const b = await owner('f4');
+  const b = await owner('f4', { pick: sr.id });
   const at = new Date().toISOString();
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen
       || jsonb_build_object('apply_silent', jsonb_build_object(${sr.id}::text, ${at}::text))
@@ -538,7 +585,7 @@ const GUIDE = `https://${BUILDER_CODES_GUIDE}`;
 const A_BLANKS = "Two blanks only you can fill: who's on the team, and any money you've raised. Reply with both and I'll finish it.";
 const A_CODES_IN = "Builder Codes are in. You now meet Base's first requirement. Want me to draft the Base application next?";
 /** Fix round 1 (T2-2): the one-step offer covers the push. */
-const OFFER = 'I can add them and push the change, about 10 minutes. Go?';
+const OFFER = 'I can add Builder Codes and push the change, about 10 minutes. Go?';
 /** Fix round 1 (T2-6): the steps-done reply's proof line. */
 const A_CODES_IN_PROOF = "Builder Codes are in. You now meet Base's first requirement. You're live on Base. Want me to draft the Base application next?";
 
@@ -577,7 +624,7 @@ test('the gap closed and the draft: target A word for word', () => {
   assert.equal(gapProof({ name: 'EarnKit', live: true }, 6, ['base', 'codes']), "You've shipped 6 weeks in a row and EarnKit is live.");
   // Fix round 1 (T2-4): mid-gap, the first remaining step, never "Want the steps?".
   assert.equal(gapStillReply('Base Builder Grant Program', qualifyGapSteps(['codes']), false, "You're live on Base.").show_to_builder,
-    `Still on Base Builder Grant: add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. Guide: ${GUIDE} You're live on Base. Want me to do it now?`);
+    `Still on Base Builder Grant: add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. Guide: ${GUIDE}\nYou're live on Base. Want me to do it now?`);
   assert.ok(gapStillReply('Base Builder Grant Program', qualifyGapSteps(['codes']), true, null).show_to_builder.endsWith('Want help with it now?'));
   assert.equal(blanksAsk(FOUNDER_BLANKS), A_BLANKS);
   assert.equal(blanksAsk(['your Telegram username']), "One blank only you can fill: your Telegram username. Reply with it and I'll finish it.");
@@ -635,7 +682,7 @@ const tell = (b: { ctx: unknown }, move_up: Record<string, unknown>) => mcpCall(
 test('"sure" on the hook gives a draft with the verified record and A\'s two blanks; the path is at draft', db, async () => {
   const sr = await speedrun(30);
   await only([sr.id, 'base-builder-grants']);
-  const b = await owner('dr');
+  const b = await owner('dr', { pick: sr.id });
   await sql()`UPDATE builder_projects SET what = 'a funding finder for builders' WHERE builder_id = ${b.id} AND lower(project_key) = lower(${b.key})`;
   assert.equal(moveUp(await find(b))?.kind, 'apply');
   const r = await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes' });
@@ -683,7 +730,7 @@ test("the Base gap (fix round 2, F10): the hook offers to add Builder Codes; a y
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'declined' WHERE builder_id = ${b.id}`;
   // Claude Code has the folder and Builder Codes are the one gap: the hook offers to do it (no separate steps turn).
   const hook = await find(b);
-  assert.match(show(hook), new RegExp(`^Jenil, Base Builder Grant pays up to \\$5,000\\. [^\\n]*Builder Codes[^\\n]*\\n\\n${OFFER.replace(/[.?]/g, '\\$&')}$`), show(hook));
+  assert.match(show(hook), new RegExp(`^Jenil, Base Builder Grant pays up to \\$5,000\\. [^\\n]*Builder Codes[^\\n]*\\n\\nOpen now: [^\\n]+\\n\\n${OFFER.replace(/[.?]/g, '\\$&')}$`), show(hook));
   assert.equal(moveUp(hook)?.kind, 'qualify');
   // "Go?" yes: the agent adds them, pushes, then calls find (the mentor note's do-it-then-find).
   const go = await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' });
@@ -700,7 +747,7 @@ test("the Base gap (fix round 2, F10): the hook offers to add Builder Codes; a y
   b.gh.repos[b.key].files = { 'src/app.ts': 'export const x = 1;' };
   (b.ctx as { codesFetch?: typeof fetch }).codesFetch = b.gh;
   const still = await find(b);
-  assert.equal(show(still), `Still on Base Builder Grant: add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. Guide: ${GUIDE} You're live on Base. Want me to do it now?`);
+  assert.equal(show(still), `Still on Base Builder Grant: add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. Guide: ${GUIDE}\nYou're live on Base. Want me to do it now?`);
   assert.equal(moveUp(still)?.kind, 'qualify');
   assert.equal(still.reply?.note, PATH_NOTE);
   // F2: no new yes, so no new check: still the step.
@@ -794,7 +841,7 @@ test('F3: a hosted agent gets the steps to do itself, nothing marked; its no par
 test('a no parks the program and the next find hooks the next program; a no at the gap parks that one too', db, async () => {
   const sr = await speedrun(30);
   await only([sr.id, 'base-builder-grants']);
-  const b = await owner('nx');
+  const b = await owner('nx', { pick: sr.id });
   // One older moment already said this session, so the closest grant is never put behind one (fix round 2, F1).
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('said', jsonb_build_object('at', now()::text, 'keys', '["older"]'::jsonb)) WHERE builder_id = ${b.id}`;
   assert.ok(show(await find(b)).includes(sr.title));
@@ -818,20 +865,21 @@ test('a no parks the program and the next find hooks the next program; a no at t
 // v4.8 Task 3: submit, track and the next program; the fresh session's "Since {day}".
 
 /** Target conversation A, exact (the facts filled from a16z's program file, the test clock at 2026-10-31 19:00Z). */
-const A_SUBMIT = `Done, it's ready to paste. Submit at https://speedrun.a16z.com/apply before tomorrow 11:59 PM PT. The form also asks for your email.\n\n${SENT_ASK}`;
+const A_SUBMIT = `Done, it's ready to paste. Submit at https://speedrun.a16z.com/apply before Nov 1, 11:59 PM PT (in 36 hours). The form also asks for your email.\n\n${SENT_ASK}`;
 
 test('the submit stage, the pointer and the track lead (pure): target A word for word, the deadline in the program\'s zone', () => {
   assert.equal(SENT_ASK, 'Reply "sent" once it\'s in, and I\'ll keep track of it for you.');
   const by = submitBy('2026-11-02T07:59:59Z', PT, NOW, 'PT');
-  assert.equal(by, 'tomorrow 11:59 PM PT');
-  assert.equal(submitBy('2026-11-01T06:59:59Z', PT, NOW, 'PT'), 'today 11:59 PM PT');
-  assert.equal(submitBy('2026-11-06T07:59:59Z', PT, NOW, 'PT'), 'Nov 5 11:59 PM PT');
+  // v4.8.1 Task 2 (R2): the program-zone day, never "today" or "tomorrow", and the hours left under 48 hours.
+  assert.equal(by, 'Nov 1, 11:59 PM PT (in 36 hours)');
+  assert.equal(submitBy('2026-11-01T06:59:59Z', PT, NOW, 'PT'), 'Oct 31, 11:59 PM PT (in 11 hours)');
+  assert.equal(submitBy('2026-11-06T07:59:59Z', PT, NOW, 'PT'), 'Nov 5, 11:59 PM PT');
   // A zone with no short name: the day only, never a time read in the wrong zone.
   assert.equal(submitBy('2026-11-06T07:59:59Z', 'Asia/Kolkata', NOW, null), 'Nov 6');
   assert.equal(submitReply({ link: 'https://speedrun.a16z.com/apply', by, contacts: ['your email'] }), A_SUBMIT);
   assert.equal(submitReply({ link: 'https://base.org/apply', by: null, contacts: [] }), `Done, it's ready to paste. Submit at https://base.org/apply.\n\n${SENT_ASK}`);
   assert.equal(submitPointer({ title: 'a16z speedrun SR008', when: 'closes Nov 1', ends_at: '2026-11-02T07:59:59Z', zone: PT }, NOW),
-    'Your a16z speedrun SR008 application is ready to submit, closes tomorrow night. Reply "sent" once it\'s in.');
+    'Your a16z speedrun SR008 application is ready to submit, closes in 36 hours. Reply "sent" once it\'s in.');
   assert.equal(submitPointer({ title: 'Base Builder Grant Program', when: 'rolling', ends_at: null, zone: 'UTC' }, NOW),
     'Your Base Builder Grant application is ready to submit. Reply "sent" once it\'s in.');
   // Odds only as the program file states them; none: the acknowledgement alone.
@@ -866,7 +914,7 @@ test('the passed-step line and "Since {day}" (pure): stored changes only; nothin
 test('"sent" records the program as applied and hooks Base in the same reply, with the passed-step line said once', db, async () => {
   const sr = await speedrun(30);
   await only([sr.id, 'base-builder-grants']);
-  const b = await owner('snt');
+  const b = await owner('snt', { pick: sr.id });
   assert.equal(moveUp(await find(b))?.kind, 'apply');
   await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes' });
   // "just me, nothing raised": the submit stage, the deadline in the program's own zone, the email typed on the form.
@@ -897,10 +945,12 @@ test('"sent" records the program as applied and hooks Base in the same reply, wi
   assert.equal((seen.path as { program_id: string }).program_id, 'base-builder-grants');
   assert.ok((seen.path_raised as Record<string, string>)['base-builder-grants']);
   // Applied programs are never hooked again; the passed-step line is never said twice.
-  // Fix round 1 (1): the same step again this session is its one-line pointer with its easy reply; the stored ask stays.
+  // Fix round 1 (1): the same step again this session is its one-line pointer; the stored ask stays. v4.8.1 Task 3 (R4):
+  // first with its reason and easy reply, then the short line with the way out (a no to the same stored ask).
+  const points = [`Base Builder Grant is still your best move: up to $5,000, one step away. I can add Builder Codes and push the change, about 10 minutes. Go?`, `Still Base Builder Grant. Reply "no" and I'll line up the next program.`];
   for (let i = 0; i < 2; i++) {
     const again = await find(b);
-    assert.equal(show(again), `Builder Codes are still the one step to Base Builder Grant. ${CODES_OFFER}`);
+    assert.equal(show(again), points[i]);
     assert.equal(moveUp(again)?.kind, 'qualify');
     const ask = (await seenOf(b.id)).bench_ask as { kind: string; program_id: string };
     assert.deepEqual([ask.kind, ask.program_id], ['qualify', 'base-builder-grants']);
@@ -910,7 +960,7 @@ test('"sent" records the program as applied and hooks Base in the same reply, wi
 test('fix round 1 (2): a plain yes to the submit ask is never "sent"; answer "sent" is; a no keeps it ready (final F8)', db, async () => {
   const sr = await speedrun(30);
   await only([sr.id, 'base-builder-grants']);
-  const b = await owner('sny');
+  const b = await owner('sny', { pick: sr.id });
   await find(b);
   await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes' });
   await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes', blanks: 'just me, nothing raised' });
@@ -923,7 +973,7 @@ test('fix round 1 (2): a plain yes to the submit ask is never "sent"; answer "se
   assert.ok(show(sent).startsWith("Nice, I'm tracking it. Speedrun says"), show(sent));
   assert.equal(await applied(b.id), 'applied');
   // Another builder: a no to "sent" is "not yet" (final review F8): the next find still points back to it.
-  const c = await owner('snn');
+  const c = await owner('snn', { pick: sr.id });
   await find(c);
   await tell(c, { kind: 'apply', project_key: c.key, answer: 'yes' });
   await tell(c, { kind: 'apply', project_key: c.key, answer: 'yes', blanks: 'just me, nothing raised' });
@@ -931,9 +981,9 @@ test('fix round 1 (2): a plain yes to the submit ask is never "sent"; answer "se
   assert.match(show(await find(c)), /speedrun SR008 application is ready to submit/);
 });
 
-/** A builder at submit on `sr` (hook, draft, the blanks answered). */
-async function atSubmit(tag: string) {
-  const b = await owner(tag);
+/** A builder at submit on `sr` (picked, hook, draft, the blanks answered). */
+async function atSubmit(tag: string, pick: string) {
+  const b = await owner(tag, { pick });
   await find(b);
   await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes' });
   await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes', blanks: 'just me, nothing raised' });
@@ -946,7 +996,7 @@ const backSession = (id: number, ms: number) =>
 test('fix round 1 (3): "sent" keeps the other replies of the same tell; the path reply is last', db, async () => {
   const sr = await speedrun(30);
   await only([sr.id, 'base-builder-grants']);
-  const b = await atSubmit('snm');
+  const b = await atSubmit('snm', sr.id);
   const r = await mcpCall(b.ctx as never, 'tell', { card: 'skip', program_status: [{ program_id: sr.id, status: 'applied' }] });
   const s = show(r);
   assert.ok(s.startsWith('Skipped.\n'), s);
@@ -959,7 +1009,7 @@ test('fix round 1 (3): "sent" keeps the other replies of the same tell; the path
 test('fix round 1 (10, 11): "sent" with no next program still ends in one easy reply; no stated odds: the acknowledgement alone', db, async () => {
   const sr = await speedrun(30, { noOdds: true });
   await only([sr.id]);
-  const b = await atSubmit('snq');
+  const b = await atSubmit('snq', sr.id);
   const r = await mcpCall(b.ctx as never, 'tell', { program_status: [{ program_id: sr.id, status: 'applied' }] });
   const s = show(r);
   assert.ok(s.startsWith(`${TRACK_ACK}\n\n`), s);
@@ -975,7 +1025,7 @@ test('fix round 1 (11): "sent" in a fresh session: the lead, then the next hook 
   const sr = await speedrun(30);
   await only([sr.id, 'base-builder-grants']);
   await sql()`UPDATE programs SET opened_at = now() WHERE id = 'base-builder-grants'`;
-  const b = await atSubmit('snf');
+  const b = await atSubmit('snf', sr.id);
   await backSession(b.id, SESSION_MS + 60_000);
   const s = show(await mcpCall(b.ctx as never, 'tell', { program_status: [{ program_id: sr.id, status: 'applied' }] }));
   const parts = s.split('\n\n');
@@ -1015,7 +1065,7 @@ test('fix round 1 (5, 11): "Since" says "opened" only for a program new to this 
   const s = show(await find(c));
   assert.ok(s.startsWith(`Since earlier today: ${programName(sr.title)} opened.\n\nJenil, ${sr.title} closes `), s);
   // Reopened while the builder is on it (at submit): no "opened" (programs.opened_at alone is no news).
-  const d = await atSubmit('snr');
+  const d = await atSubmit('snr', sr.id);
   await backSession(d.id, 3 * 3_600_000);
   await sql()`UPDATE programs SET opened_at = now() WHERE id = ${sr.id}`;
   const p = show(await find(d));
@@ -1047,7 +1097,7 @@ test('fix round 1 (6, 11): an announced result is said once (the alerts opener);
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('path', jsonb_build_object('stage', 'gap', 'program_id', ${ap.id}::text, 'at', now()::text)) WHERE builder_id = ${c.id}`;
   await backSession(c.id, 3 * 3_600_000);
   const g = show(await find(c));
-  assert.match(g, new RegExp(`^Since earlier today: Arc Due ${RUN} closes (today|tomorrow) \\d{1,2}:\\d{2} (AM|PM) ET\\.\\n\\nStill on Arc Due ${RUN}: `), g);
+  assert.match(g, new RegExp(`^Since earlier today: Arc Due ${RUN} closes [A-Z][a-z]{2} \\d{1,2}, \\d{1,2}:\\d{2} (AM|PM) ET \\(in \\d+ hours?\\)\\.\\n\\nOpen now: [^\\n]+\\n\\nStill on Arc Due ${RUN}: `), g);
 });
 
 test('a new session after more shipping opens with "Since ...", the streak and score change, then the Base draft offer', db, async () => {
@@ -1075,7 +1125,7 @@ test('a new session after more shipping opens with "Since ...", the streak and s
   const day = last.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
   const standing = String(r.reply?.standing ?? '');
   const score = /^Score 79\b/.test(standing) ? ' and your score is up to 79' : '';
-  assert.equal(s, `Since ${day}: 1 more week shipped, so your streak is 6 weeks${score}. Base Builder Grant is still open and you now meet its first requirement.\n\n${DRAFT_NOW_ASK}`);
+  assert.equal(withTotal(s), `Since ${day}: 1 more week shipped, so your streak is 6 weeks${score}. Base Builder Grant is still open and you now meet its first requirement.\n\n${DRAFT_NOW_ASK}`);
   assert.ok(score, `the page's score: ${standing}`);
   assert.equal(moveUp(r)?.kind, 'apply');
   assert.equal(r.reply?.note, PATH_NOTE);
@@ -1084,7 +1134,7 @@ test('a new session after more shipping opens with "Since ...", the streak and s
   assert.doesNotMatch(show(await find(b)), /^Since /);
   // Nothing changed since the last session: the step alone.
   await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, '{said,at}', to_jsonb(${new Date(Date.now() - SESSION_MS - 1000).toISOString()}::text)) WHERE builder_id = ${b.id}`;
-  assert.equal(show(await find(b)), A_CODES_IN_PROOF);
+  assert.equal(withTotal(show(await find(b))), easySplit(A_CODES_IN_PROOF, 'Want me to draft the Base application next?'));
 });
 
 /*
@@ -1171,7 +1221,8 @@ test('openerPrograms (pure, fix round 0 (1)): Base\'s grant (else the best rolli
   assert.deepEqual(ids([]), []);
   const [b, c, a] = openerPrograms([baseId, circle, a16z], NOW, new Set());
   assert.deepEqual([c.amount, c.when, b.amount, a.amount, a.investment], ['$5K to $100K', 'rolling', 'up to $5,000', 'up to $1M', true]);
-  assert.match(a.when, /^closes Nov 1$/);
+  // v4.8.1 final fix (R-3): 36 hours before the close, the time left.
+  assert.equal(a.when, 'closes in 36 hours');
 });
 
 test('pickHook (pure, fix round 1 (2)): a pick that is a move is hooked even when not first; otherwise the real top move, fits kept, investors left out', () => {
@@ -1185,8 +1236,8 @@ test('pickHook (pure, fix round 1 (2)): a pick that is a move is hooked even whe
   assert.deepEqual(pickHook(ctx({ fits: [fitSoon], grants: [circle, codes], investors: [A16Z] }), 'circle'), { move: { kind: 'fit', program: fitSoon }, pick: false, steps: false });
   // Target B: no fit; the investor program closing in 48 hours is left out (the closest money), Base's one step shown as closest.
   assert.deepEqual(pickHook(ctx({ grants: [circle, codes], investors: [A16Z] }), 'circle'), { move: { kind: 'closest', program: codes, raise: false }, pick: false, steps: true });
-  // An investor program picked inside its window: the pick, its own kind.
-  assert.deepEqual(pickHook(ctx({ grants: [codes], investors: [A16Z] }), A16Z.id), { move: { kind: 'now', program: A16Z }, pick: true, steps: false });
+  // An investor program picked inside its window: the pick, its own kind (v4.8.1 R1: 'investor', never 'now').
+  assert.deepEqual(pickHook(ctx({ grants: [codes], investors: [A16Z] }), A16Z.id), { move: { kind: 'investor', program: A16Z }, pick: true, steps: false });
   // A grant with a gap picked: the pick (its gap hook); nothing at all: null.
   assert.equal(pickHook(ctx({ grants: [codes] }), 'base')?.pick, true);
   assert.equal(pickHook(ctx({ grants: [circle] }), 'circle'), null);
@@ -1247,7 +1298,8 @@ test("B: a signed-out builder's first find is the opener: three numbered program
   assert.equal(lines[0], "I'm EarnKit. I get builders funded for what they ship, and there's $105K in grants open right now.", s);
   assert.equal(lines[2], '1. Base Builder Grant: up to $5,000, rolling', s);
   assert.equal(lines[3], '2. Circle Developer Grants: $5K to $100K, rolling', s);
-  assert.match(lines[4], new RegExp(`^3\\. ${sr.title} \\(investor program\\): up to \\$1M, closes [A-Z][a-z]{2} \\d{1,2}$`), s);
+  // v4.8.1 final fix (R-3): the committed a16z's real close, so the day, or the hours left under 48 hours.
+  assert.match(lines[4], new RegExp(`^3\\. ${sr.title} \\(investor program\\): up to \\$1M, closes (?:[A-Z][a-z]{2} \\d{1,2}|in \\d+ hours?|in under an hour)$`), s);
   const links = s.match(/https?:\/\/\S+/g) ?? [];
   assert.equal(links.length, 1, s);
   assert.match(links[0], /\/signin\//);
@@ -1438,7 +1490,7 @@ test('B fix round 1 (1): the real route, setup step 3 then a wallet no: the skip
   assert.ok(seen.setup_done && seen.connected_said);
   assert.deepEqual({ ...(seen.path as object), at: undefined }, { stage: 'hook', program_id: 'base-builder-grants', at: undefined, picked: true, steps: true });
   // Said once: the next find is the pointer, its easy reply the same (fix round 1 (8)).
-  assert.equal(show(await find(b)), 'Base Builder Grant is still your closest money. Want the steps?');
+  assert.equal(show(await find(b)), 'Base Builder Grant is still your best move: up to $5,000, one step away. Want the steps?');
 });
 
 test('B fix round 1 (1): the real route with the wallet signed on the page: the done line, then B\'s second message', db, async () => {
@@ -1573,7 +1625,7 @@ test('grantFact and fitCell (pure, fix round 1 (1, 6)): steps first, then one ch
   const none = new Set<string>();
   const arc = (c: string) => (c === 'arc' ? 'Arc' : c);
   assert.deepEqual(grantFact(['codes'], ['base'], new Set(['base']), arc), { kind: 'steps', gaps: ['codes'] });
-  // Circle: no gap from programNeeds, but its one chain (Arc) is not the project's: "needs Arc", as B's why line says.
+  // Circle: no gap from programNeeds, but its one chain (Arc) is not the project's: "they look for apps on Arc", as B's why line says.
   assert.deepEqual(grantFact([], ['arc'], new Set(['base']), arc), { kind: 'chain', chain: 'Arc' });
   assert.deepEqual(grantFact(null, ['arc'], none, arc), { kind: 'chain', chain: 'Arc' });
   assert.deepEqual(grantFact([], [], none, arc), { kind: 'none' });
@@ -1583,7 +1635,7 @@ test('grantFact and fitCell (pure, fix round 1 (1, 6)): steps first, then one ch
   assert.equal(fitCell(false, { kind: 'steps', gaps: ['codes'] }), '1 step: add Builder Codes');
   assert.equal(fitCell(false, { kind: 'steps', gaps: ['on Arc mainnet'] }), '1 step: deploy on Arc mainnet');
   assert.equal(fitCell(false, { kind: 'steps', gaps: ['base', 'codes', 'use'] }), '3 steps');
-  assert.equal(fitCell(false, { kind: 'chain', chain: 'Arc' }), 'Not yet: needs Arc');
+  assert.equal(fitCell(false, { kind: 'chain', chain: 'Arc' }), 'Not yet: they look for apps on Arc');
   assert.equal(fitCell(false, { kind: 'none' }), "Not yet: EarnKit can't see its needs yet");
   assert.equal(fitCell(false, { kind: 'unknown' }), 'Not yet: not checked yet');
   assert.equal(fitCell(false, { kind: 'drafted' }), 'Drafted');
@@ -1592,7 +1644,7 @@ test('grantFact and fitCell (pure, fix round 1 (1, 6)): steps first, then one ch
 
 test('programsAnswer (pure, fix round 1 (4)): one line a program under 3, a table from 3; investor programs apart, the mentor line; never "qualify"', () => {
   const base = { title: 'Base Builder Grant Program', amount: 'up to $5,000', when: 'rolling', fit: '1 step: add Builder Codes' };
-  const circle = { title: 'Circle Developer Grants', amount: '$5K to $100K', when: 'rolling', fit: 'Not yet: needs Arc' };
+  const circle = { title: 'Circle Developer Grants', amount: '$5K to $100K', when: 'rolling', fit: 'Not yet: they look for apps on Arc' };
   const arcG = { title: 'Arc Microgrants: Built with Arc Studio', amount: '500 USDC × 8 grants', when: 'closes Nov 1', fit: 'Fits' };
   const a16z = { title: 'a16z speedrun SR008', amount: 'up to $1M', when: 'closes Nov 1', what: "a16z's 12-week startup program, in person in San Francisco." };
   const s = programsAnswer([base, circle], [a16z]);
@@ -1600,7 +1652,7 @@ test('programsAnswer (pure, fix round 1 (4)): one line a program under 3, a tabl
     'Grants open now:',
     '',
     'Base Builder Grant: up to $5,000, rolling. Your fit: 1 step, add Builder Codes.',
-    'Circle Developer Grants: $5K to $100K, rolling. Your fit: not yet, needs Arc.',
+    'Circle Developer Grants: $5K to $100K, rolling. Your fit: not yet, they look for apps on Arc.',
     '',
     "a16z speedrun SR008 (investor program): up to $1M, closes Nov 1. a16z's 12-week startup program, in person in San Francisco.",
     '',
@@ -1611,7 +1663,7 @@ test('programsAnswer (pure, fix round 1 (4)): one line a program under 3, a tabl
   assert.equal(t, [
     'Grants open now:',
     '',
-    '| Grant | Money | Closes | Your fit |\n|---|---|---|---|\n| Arc Microgrants | 500 USDC × 8 grants | Nov 1 | Fits |\n| Base Builder Grant | up to $5,000 | Rolling | 1 step: add Builder Codes |\n| Circle Developer Grants | $5K to $100K | Rolling | Not yet: needs Arc |',
+    '| Grant | Money | Closes | Your fit |\n|---|---|---|---|\n| Arc Microgrants | 500 USDC × 8 grants | Nov 1 | Fits |\n| Base Builder Grant | up to $5,000 | Rolling | 1 step: add Builder Codes |\n| Circle Developer Grants | $5K to $100K | Rolling | Not yet: they look for apps on Arc |',
   ].join('\n'));
   assert.equal(programsAnswer([arcG], []), 'Grants open now:\n\nArc Microgrants: 500 USDC × 8 grants, closes Nov 1. It fits.');
   const three = programsAnswer([], [a16z, { ...a16z, title: 'Alliance ALL19', what: 'Investor program' }, { ...a16z, title: 'Monad Nitro', amount: null, when: 'rolling' }]);
@@ -1628,14 +1680,15 @@ test('programsAnswer (pure, fix round 1 (4)): one line a program under 3, a tabl
 });
 
 test('pathReply brief (fix round 1 (5)): after a direct answer, the step is the short pointer with no "still", and the hook counts as said', () => {
-  const move = bestMove(ctx({ grants: [BASE], investors: [A16Z] })) as Exclude<Move, { kind: 'quiet' }>;
+  // v4.8.1 R1: a16z as the move needs no grant move beside it (Base, passed on, would be raised first).
+  const move = bestMove(ctx({ investors: [A16Z] })) as Exclude<Move, { kind: 'quiet' }>;
   const r = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move, said: new Set(), brief: true });
   assert.equal(r.show_to_builder, 'Your a16z speedrun SR008 application is the next move. Want me to start?');
   assert.ok(r.said.includes('hook:a16z-speedrun'));
   const again = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move, said: new Set(r.said) });
-  assert.equal(again.show_to_builder, 'Your a16z speedrun SR008 application is still the next move. Want me to start?');
+  assert.equal(again.show_to_builder, 'a16z speedrun SR008 is still your best move: up to $1M, closes in 36 hours. Want me to start?');
   const go = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'one_step', program: { ...BASE, passed: false } }, said: new Set(), brief: true });
-  assert.equal(go.show_to_builder, `Builder Codes are the one step to Base Builder Grant. ${CODES_OFFER}`);
+  assert.equal(go.show_to_builder, `Base Builder Grant is one step away. ${CODES_OFFER}`);
   const steps = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'closest', program: ARC, raise: false }, said: new Set(), brief: true });
   assert.equal(steps.show_to_builder, 'Arc Microgrants is your closest money. Want the steps?');
 });
@@ -1684,13 +1737,17 @@ test('runAlertMail: the mailed text carries the tell line before the footer; sub
 async function asker(tag: string, ids: string[] | null = null) {
   const sr = await speedrun(30);
   await only(ids ?? [sr.id, 'base-builder-grants', 'circle-developer-grants']);
-  const b = await owner(tag);
+  const b = await owner(tag, { pick: sr.id });
   await setScore(b.id, 77);
   return { b, sr };
 }
 const setScore = (id: number, score: number) =>
   sql()`UPDATE builder_live SET score = ${score}, ranked = true, calibration = ${'v2-shipping'}, parts = ${sql().json({ shipping: { points: score, raw: { mask: 1, live_ships: 0 } } } as never)} WHERE builder_id = ${id}`;
 const pointerOf = (title: string, still = true) => `Your ${programName(title)} application is ${still ? 'still ' : ''}the next move. Want me to start?`;
+/** v4.8.1 Task 3 (R4): the first pointer back to a16z in a session: its money and its close in hours left. */
+const bestOf = (title: string) => `${programName(title).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} is still your best move: up to \\$1M, closes in \\d+ hours?\\.`;
+/** v4.8.1 Task 3 (R4): the second pointer back: short, with the way out. */
+const shortOf = (title: string) => `Still ${programName(title)}. Reply "no" and I'll line up the next program.`;
 
 test('C: "where do I stand": the answer (the pill\'s numbers), then the short step; again, one line; a changed score or a new session, the full answer', db, async () => {
   const { b, sr } = await asker('st');
@@ -1709,9 +1766,11 @@ test('C: "where do I stand": the answer (the pill\'s numbers), then the short st
   assert.doesNotMatch(String(r.reply?.note), /answer it first/);
   assert.doesNotMatch(s, BAD);
   // The same ask again, nothing changed: one line, then the step's pointer.
-  assert.equal(show(await find(b, { ask: 'standing' })), `Same as earlier: #${st.rank} of ${st.total}, score 77.\n\n${pointerOf(sr.title)}`);
-  // No ask: the path alone.
-  assert.equal(show(await find(b)), pointerOf(sr.title));
+  const same = show(await find(b, { ask: 'standing' }));
+  assert.match(same, new RegExp(`^Same as earlier: #${st.rank} of ${st.total}, score 77\\.\\n\\n${bestOf(sr.title)} Want me to start\\?$`), same);
+  // No ask: the path alone. v4.8.1 Task 2 (R3): the session's first path reply that is no direct answer says the total.
+  // v4.8.1 Task 3 (R4): the third pointer this session is the short one, never the same line again.
+  assert.equal(withTotal(show(await find(b))), easySplit(shortOf(sr.title), `Reply "no" and I'll line up the next program.`));
   // Fix round 1 (3): the score moved since: the full answer again, never "Same as".
   await setScore(b.id, 79);
   const moved = show(await find(b, { ask: 'standing' }));
@@ -1743,13 +1802,13 @@ test('C: "what can I apply to", first in a fresh session: the grants with fit, t
   const { b, sr } = await asker('pg');
   const r = await find(b, { ask: 'programs' });
   const s = show(r);
-  const day = /closes ([A-Z][a-z]{2} \d{1,2})/.exec(s)?.[1];
+  const day = /closes ([A-Z][a-z]{2} \d{1,2}|in \d+ hours?|in under an hour)/.exec(s)?.[1];
   assert.equal(s, [
     'Grants open now:',
     '',
     'Base Builder Grant: up to $5,000, rolling. Your fit: 1 step, add Builder Codes.',
     // Fix round 1 (1): Circle funds apps on Arc, the fact B's why line reads.
-    'Circle Developer Grants: $5,000 to $100,000 USDC grants, rolling. Your fit: not yet, needs Arc.',
+    'Circle Developer Grants: $5,000 to $100,000 USDC grants, rolling. Your fit: not yet, they look for apps on Arc.',
     '',
     `${sr.title} (investor program): up to $1M, closes ${day}. a16z's 12-week startup program, in person in San Francisco.`,
     '',
@@ -1762,7 +1821,8 @@ test('C: "what can I apply to", first in a fresh session: the grants with fit, t
   assert.doesNotMatch(s, /qualify|\btotal\b/i);
   assert.doesNotMatch(s, BAD);
   // Again, the same list: one line.
-  assert.equal(show(await find(b, { ask: 'programs' })), `Same list as earlier.\n\n${pointerOf(sr.title)}`);
+  const sameList = show(await find(b, { ask: 'programs' }));
+  assert.match(sameList, new RegExp(`^Same list as earlier\\.\\n\\n${bestOf(sr.title)} Want me to start\\?$`), sameList);
   // Fix round 1 (3): the list changed (Circle told applied): the full answer again, without it.
   await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status, at) VALUES (${b.id}, '', 'circle-developer-grants', 'applied', now())`;
   const changed = show(await find(b, { ask: 'programs' }));
@@ -1848,7 +1908,7 @@ test('gateFailures (Task 6): a good reply passes; every kind of break is caught 
   assert.deepEqual(rules([gr('Your draft is saved.')]), ['0:easy_reply']);
   assert.deepEqual(rules([gr('Want the steps? Or should I draft it?')]), ['0:easy_reply']);
   assert.deepEqual(rules([gr('Want the steps?\n\nWant me to start?')]), ['0:easy_reply']);
-  for (const ok of ['It takes me a few minutes. Draft it now?', 'Go?', 'Base pays up to $5,000. I can add them and push the change, about 10 minutes. Go?',
+  for (const ok of ['It takes me a few minutes. Draft it now?', 'Go?', 'Base pays up to $5,000. I can add Builder Codes and push the change, about 10 minutes. Go?',
     'Reply "sent" once it\'s in, and I\'ll keep track of it for you.', 'Once it\'s submitted, reply "sent" and I\'ll keep track of it.',
     "Say ok once the change is pushed, and I'll check it.", "I'm checking the code now. Give it a minute, then say ok.", "Say ok once it's done, and I'll check it.",
     "Two blanks only you can fill: who's on the team, and any money you've raised. Reply with both and I'll finish it.", 'Reply with a number.'])
@@ -1968,7 +2028,7 @@ async function walkA() {
   const sr = await speedrun(30);
   await only([sr.id, 'base-builder-grants']);
   await sql()`UPDATE programs SET opened_at = now() - interval '30 days' WHERE id = 'base-builder-grants'`;
-  const b = await owner('wa');
+  const b = await owner('wa', { pick: sr.id });
   const live = (score: number) =>
     sql()`UPDATE builder_live SET score = ${score}, ranked = true, calibration = ${'v2-shipping'}, parts = ${sql().json({ shipping: { points: score, raw: { mask: 0b111111, live_ships: 0 } } } as never)} WHERE builder_id = ${b.id}`;
   await live(77);
@@ -2179,7 +2239,7 @@ test('conversation (Task 6 fix round 1, review 8, 11): first and hook from the p
 test('final F7: a no to a path ask hands off to find in the same tell: one line, then the next program, never a bare "Okay."', db, async () => {
   const sr = await speedrun(30);
   await only([sr.id, 'base-builder-grants']);
-  const b = await owner('fno');
+  const b = await owner('fno', { pick: sr.id });
   assert.equal(moveUp(await find(b))?.kind, 'apply');
   const r = await tell(b, { kind: 'apply', project_key: b.key, answer: 'no' });
   const s = show(r);
@@ -2198,7 +2258,7 @@ test('final F7: a no to a path ask hands off to find in the same tell: one line,
 test('final F7, F15: a lazy "no" walk passes the merge gate', db, async () => {
   const sr = await speedrun(30);
   await only([sr.id, 'base-builder-grants']);
-  const b = await owner('fnw');
+  const b = await owner('fnw', { pick: sr.id });
   const replies = await converse(b.ctx as never, [
     { find: {} },
     { says: 'no', tell: { move_up: { kind: 'apply', project_key: b.key, answer: 'no' } } },
@@ -2213,7 +2273,7 @@ test('final F7, F15: a lazy "no" walk passes the merge gate', db, async () => {
 test('final F8: a no at submit is "not yet": the stage and its ask stay, the reply is the pointer; the note says so', db, async () => {
   const sr = await speedrun(30);
   await only([sr.id, 'base-builder-grants']);
-  const b = await atSubmit('fns');
+  const b = await atSubmit('fns', sr.id);
   const r = await tell(b, { kind: 'apply', project_key: b.key, answer: 'no' });
   // Re-review blocker 2: the first no says it stays ready.
   assert.match(show(r), /^No rush, it stays ready until [^.]+\. Reply "sent" once it's in\.$/, show(r));
@@ -2250,7 +2310,7 @@ test('final F2: after "sent", with Arc closing tonight on a chain gap, the lead 
   const p = ProgramFile.parse({ ...arc, id: `v48-${process.pid}-arcf2`, ends_at: new Date(Date.now() + 10 * 3_600_000).toISOString(), status: 'active', starts_at: null });
   await upsertProgram(p);
   await only([sr.id, p.id, 'base-builder-grants']);
-  const b = await atSubmit('ff2');
+  const b = await atSubmit('ff2', sr.id);
   const s = show(await mcpCall(b.ctx as never, 'tell', { program_status: [{ program_id: sr.id, status: 'applied' }] }));
   const [, hook, ask] = s.split('\n\n');
   assert.match(hook, /^Your closest money is Base Builder Grant: up to \$5,000\. [^\n]*Builder Codes[^\n]*You passed on them earlier today, but they're now the only gap to that money\./, s);
@@ -2310,7 +2370,7 @@ test('final F6: Builder Codes pushed, then two days of quiet: the first find re-
   await backSession(b.id, twoDays);
   // Nothing else changed (no "Since"): the closed reply, never "add Base's Builder Code" again.
   const r = show(await find(b));
-  assert.equal(r, A_CODES_IN_PROOF);
+  assert.equal(withTotal(r), easySplit(A_CODES_IN_PROOF, 'Want me to draft the Base application next?'));
 });
 
 test('final F1 (pure): the draft body is What it is and one Traction sentence from stored facts, then the page; never a bare label or "Shipping 77"', () => {
@@ -2343,8 +2403,8 @@ test('final F5: a fresh session at the gap stage says the money once, then the s
   await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' });
   await codesSettled();
   await backSession(b.id, SESSION_MS + 60_000);
-  const r = show(await find(b));
-  assert.equal(r, `Jenil, Base Builder Grant pays up to $5,000, and you're one step away: add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. Guide: ${GUIDE} You're live on Base. Want me to do it now?`);
+  const r = withTotal(show(await find(b)));
+  assert.equal(r, `Jenil, Base Builder Grant pays up to $5,000, and you're one step away: add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. Guide: ${GUIDE}\nYou're live on Base.\n\nWant me to do it now?`);
   assert.ok(((await seenOf(b.id)).said as { keys: string[] }).keys.includes('money:base-builder-grants'));
   // Again in the same session: the pointer, no money.
   assert.ok(show(await find(b)).startsWith('Still on Base Builder Grant: '));
@@ -2424,7 +2484,7 @@ test('re-review blocker 1: no, no, then find: the quiet reply always ends in one
 test('re-review blocker 2: no at submit twice: "No rush" once, then the next program; the application waits for the next session', db, async () => {
   const sr = await speedrun(30);
   await only([sr.id, 'base-builder-grants']);
-  const b = await atSubmit('sn2');
+  const b = await atSubmit('sn2', sr.id);
   const turn = conversation(b.ctx as never, { builderId: b.id });
   // conversation's ask check needs the reply it follows: the submit pointer (a find) first.
   const replies: Reply[] = [(await turn({ find: {} }))!];

@@ -104,14 +104,14 @@ test('7.2 fail closed: deploys off, hosting off for a starter with no Pages fall
   }
 });
 
-test('7.3 under 24 hours left never qualifies; 1 to 2 days reads "closes tomorrow"; exactly 24 hours and exactly 14 days qualify', () => {
+test('7.3 under 24 hours left never qualifies; under 48 hours reads "closes in N hours"; exactly 24 hours and exactly 14 days qualify', () => {
   const cards = tagged();
   assert.equal(freshPick(cards, new Date('2026-10-14T05:00:00Z'), on), undefined);
   const tomorrow = new Date('2026-10-13T05:00:00Z');
   const pick = freshPick(cards, tomorrow, on)!;
   assert.equal(
     freshLeadLine(pick, tomorrow, true),
-    'Arc Microgrants pays 500 USDC and closes tomorrow. A USDC tip page on Arc takes about an hour. Want me to build it?',
+    'Arc Microgrants pays 500 USDC and closes in 46 hours. A USDC tip page on Arc takes about an hour. Want me to build it?',
   );
   const ends = new Date('2026-10-15T03:59:00Z').getTime();
   const DAY = 24 * 60 * 60 * 1000;

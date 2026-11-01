@@ -352,7 +352,9 @@ apps/frontend/
                                withAliases rewrites old tool names (aliases.ts) before the transport and logs
                                "[mcp] alias <old> -> <new>" (names only); imports lib/earnkit relatively (tests load it);
                                v2.10.1 B5 (fix round 1 I3): forOldNames answers an old-name call as plain JSON, each tool
-                               named in both forms (forOldClient), with tools_note
+                               named in both forms (forOldClient), with tools_note; v4.8.1 Task 4 (R6): withAliases
+                               scrubs tools/call arguments first (secrets.ts scrubToolCalls, logs "[mcp] scrubbed {n}"),
+                               withScrubNotes puts SCRUB_LINE on those calls' replies
   app/oauth/{register,authorize,token}/   OAuth for MCP clients (v2.14 T4: authorize signs in with X,
                                x-install.ts; authorize/route.ts calls authorizeGet(request) only)
   app/x/callback/route.ts      v2.14 T4: xSignInCallback (install sign-in; T5: a link sign-in shows the paste code); else 404 (T7: the claim flow is gone)
@@ -368,7 +370,8 @@ apps/frontend/
                                machine fields stay ISO
     deadline.ts                v4.7 T1: programZone (file tz, else the summary's ET/PT/CT/UTC/GMT suffix, else UTC),
                                closeDay (ends_at's day in that zone: the one close day for the site tiles and replies;
-                               ends_at wins over summary text). Program files take an optional IANA `tz` (programs.tz).
+                               ends_at wins over summary text). v4.8.1 final fix (R-3): hoursLeft ("in N hours" under
+                               48 h), submitBy ("Nov 1, 11:59 PM PT (in 20 hours)") and cardSubmitBy (emails) live here. Program files take an optional IANA `tz` (programs.tz).
                                Tested in v47-numbers.test.ts with the stats-figure hero chip (heroChipText(open_money_usd))
     standing.ts                v4.7 T2: where the builder stands. Standing type; standingParagraph (exact copy: "Score 77 · #1 of 40
                                v4.7 final review: toldAppliedSql (group "applied" rule, applicationCounts and alert-mail.ts)
@@ -505,6 +508,11 @@ apps/frontend/
                                deployerOf (creation tx sender), checkOwnership (fork refusal via
                                GitHub repoFacts, fetcher and Alchemy DeployerLookup (alchemyDeployer) injectable;
                                recordSubmission passes deps through for the e2e)
+    secrets.ts                 v4.8.1 Task 4 (R6): SECRET_PATTERNS, scrubPem (linear PEM pass), SCRUB_LINE,
+                               readCapped + MAX_MCP_BODY_BYTES + BODY_TOO_LARGE (1 MB, 413), scrubSecrets (pure walk, removed count),
+                               scrubToolCalls (tools/call arguments, single/batch, ids), withScrubNote(s) (scrub_note
+                               on JSON replies and SCRUB_LINE leading show_to_builder (final fix 7), else a prefixed
+                               line); Stripe: a digit and 16+, or 24+ characters; tests in v481-secrets.test.ts
     sanctions.ts(+test)        Chainalysis isSanctioned oracle on Base mainnet only (skipped with a
                                note elsewhere; injectable): screenWallet (entry, create),
                                screenWinners (award plans, fallback execute,
@@ -1770,11 +1778,16 @@ apps/frontend/
                                submit, track), Path { stage, program_id, at, picked? } in standing_seen.path (readPath, setPath;
                                a program may be set before ranking: Task 4's pick), the session (SESSION_MS 2 h; sessionOf ->
                                { fresh, said }, markSaid into standing_seen.said { at, keys }), MENTOR_NOTE (the agent rewords in a
-                               mentor's voice), bestMove (fit closing first; a grant one step away, a passed step not counted;
-                               an investor program closing within 7 days with difficulty_override.basis odds; the closest grant
-                               by gaps, a passed one-gap step raised once (standing_seen.path_raised); else quiet), pathReply
+                               mentor's voice), bestMove (v4.8.1 R1 order: fit closing first; a grant with no gap closing in
+                               48 h; a grant one agent-doable step away, a passed step not counted; the closest grant by gaps, a
+                               passed one-gap step raised once (standing_seen.path_raised); only with none of those, an investor
+                               program (difficulty_override.basis odds) or long shot (MoveProgram.longShot, the program file's
+                               tag) closing within 7 days; a picked or past-the-hook program keeps its place; else quiet), pathReply
                                (Task 1: the hook only: A's opener for a fit or investor, "Want the steps?" for a gap; a hook said
-                               this session is a one-line pointer), closeWords, proofLine, programName. bench-find.ts pathView
+                               this session is pointerReply: v4.8.1 R4, the reason once, then "Still {Program}. Reply no ...",
+                               then "more"), closeWords (v4.8.1 R2: "in N hours" under 48 h, else the zone's day),
+                               moneyLine/moneyInvestor/withMoneyLine/MONEY_SAID (v4.8.1 R3: "Open now: $X in grants." once a
+                               session, before the easy reply; v481-fixes.test.ts), proofLine, programName. bench-find.ts pathView
                                gathers the facts (pathSkip: entered, hidden, told, drafted, 'apply:'/'path:' nos) and stores
                                the hook's ask as apply, qualify or check_fits (path: true; a no also parks 'path:<id>').
                                fixtures/wallet-step.ts pathQuiet / pathUnquiet park every program for a test of an older ask.
@@ -1919,7 +1932,7 @@ apps/frontend/
                                funded (an unexpired, untapped verified post_drafts outcome, once a program in nudge_outcomes; one
                                drafted this week is the week's nudge, no line), a users milestone 10/100/1000 crossed this week
                                (app_usage, once ever: nudge_users), a confirmed unsubmitted entry closing within DEADLINE_DAYS
-                               ("closes Friday" / "today"), nothing shipped Friday to Sunday UTC with a streak of 2+ (streaksFor).
+                               (v4.8.1 R-3 closesWhen: "closes in N hours" under 48 h, else the program-zone day), nothing shipped Friday to Sunday UTC with a streak of 2+ (streaksFor).
                                bench-find.ts benchView leads a ranked reply with it (BenchView.nudge), never with a held question,
                                setup step 3, the Monday block, a post offer or connect; the closing nudge drops that reply's deadline line.
                                Fix round 1: pickNudge / claimNudge split; a nudge with a question (closing: apply ask for its
@@ -2112,7 +2125,7 @@ apps/frontend/
     stand-view.ts              v2.12.1 T8/T9: startRefresh, standBase ({ standing, claimed, handle, signInLink }: v2.14 T7
                                signInLink for the caller's own installation; Task 4 dropped the projects read and the
                                count-past and tip-jar steps), takeNews, earnPrize, earnWhen, fundWhen (R12: "closes Oct
-                               30" or "rolling"), showable, biggestPick, scoreFits (score's apply candidates from
+                               30" or "rolling"; v4.8.1 R-3: with now, "closes in N hours" under 48 h), showable, biggestPick, scoreFits (score's apply candidates from
                                fit_repos and alerts.ts repoCanWin { apply }; v3.1 F1: bench-find.ts fitLines takes FITS_MAX 3)
     attribution.ts(+test)      v2.12.1 T9: personCode (ek_...), attributionSuffix (ERC-8021), baseBuilderCode
                                (EARNKIT_BASE_AGENT_CODES), attributionFor, chainOf

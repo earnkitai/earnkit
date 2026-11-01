@@ -18,7 +18,7 @@ import { firstName } from './bench-reply';
 import { weekUrl } from './week-links';
 import { CONTACT_EMAIL } from './policy';
 import { standingLeads, standingParagraph } from './standing';
-import { closeDay } from './deadline';
+import { cardSubmitBy, closeDay, hoursLeft, submitBy, zoneAbbr } from './deadline';
 
 /**
  * v2.9 E19: the weekly email, opt-in only. Asked once per installation (Ruling 13; v3 Stage 1: in the first
@@ -110,6 +110,11 @@ export function digestDue(s: DigestState, now: Date): boolean {
 /** Last week's moment: its lines (weekly-moment.ts mondayLines, v4.0 Task 7), standing (the subject) and the two signed links. */
 export type DigestWeek = { lines: string[]; standing: WeekStanding; approveUrl: string; hideUrl: string; approved: boolean; postUrl?: string };
 export type DigestFacts = {
+  /**
+   * v4.8.1 final fix (R-3): when the facts were read (digestFacts' now). With it, a close under 48 hours away is
+   * absolute with the hours left as of sending ("Nov 1, 11:59 PM PT (in 20 hours)", deadline.ts cardSubmitBy).
+   */
+  now?: Date;
   /** v4.7 T5: the builder's standing paragraph (standing.ts standingParagraph), the email's top section; only with a score or a streak part (standingLeads). */
   standing?: string;
   week: DigestWeek | null;
@@ -128,8 +133,16 @@ export type DigestFacts = {
 
 const money = (usd: number | null) => (usd ? `$${usd.toLocaleString('en-US')}` : null);
 const day = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-/** v4.7 final review: a close day as the site and the replies show it (deadline.ts closeDay, the program's own zone). */
-const closes = (c: { at: Date; summary?: string; tz?: string | null }) => closeDay({ summary: c.summary ?? '', tz: c.tz, ends_at: c.at }) ?? day(c.at);
+/**
+ * v4.7 final review: a close day as the site and the replies show it (deadline.ts closeDay, the program's own zone).
+ * v4.8.1 final fix (R-3): with `now`, a close under 48 hours away is absolute, with the hours left as of sending
+ * (cardSubmitBy: "Nov 1, 11:59 PM PT (in 20 hours)"), never "today" or a UTC weekday.
+ */
+const closes = (c: { at: Date; summary?: string; tz?: string | null }, now?: Date) => {
+  const card = { summary: c.summary ?? '', tz: c.tz, ends_at: c.at };
+  const soon = now && hoursLeft(c.at.toISOString(), now) ? cardSubmitBy(card, now) : null;
+  return soon ?? closeDay(card) ?? day(c.at);
+};
 
 /** The most characters of a builder-supplied name an email shows. */
 export const NAME_MAX = 40;
@@ -179,9 +192,9 @@ export function digestBody(f: DigestFacts): { subject: string; text: string } | 
       ].join('\n')
     : null;
   const lines = [
-    ...f.newPrograms.map((p) => `New: ${p.title} fits ${cleanName(p.repo, 'your repo')}${money(p.prize_usd) ? `, ${money(p.prize_usd)}` : ''}${p.ends_at ? `, closes ${closes({ ...p, at: p.ends_at })}` : ''}.`),
+    ...f.newPrograms.map((p) => `New: ${p.title} fits ${cleanName(p.repo, 'your repo')}${money(p.prize_usd) ? `, ${money(p.prize_usd)}` : ''}${p.ends_at ? `, closes ${closes({ ...p, at: p.ends_at }, f.now)}` : ''}.`),
     ...f.wins.map((w) => `Won: ${cleanName(w.name, 'An EarnKit builder')} in ${w.program}${money(w.prize_usd) ? `, ${money(w.prize_usd)}` : ''}.`),
-    ...f.deadlines.map((d) => `Your ${d.program}: ${d.what === 'closes' ? `closes ${closes(d)}` : `results due ${day(d.at)}`}.`),
+    ...f.deadlines.map((d) => `Your ${d.program}: ${d.what === 'closes' ? `closes ${closes(d, f.now)}` : `results due ${day(d.at)}`}.`),
   ];
   if (lines.length === 0 && !week && f.money.length === 0) return null;
   const subject = f.week
@@ -440,13 +453,20 @@ async function digestWeek(s: SubRow, now: Date, db: Db): Promise<Pick<DigestFact
 /** The whole days until `end`, at least 1 (D5). Pure. */
 const daysTo = (end: Date, now: Date) => Math.max(1, Math.floor((end.getTime() - now.getTime()) / DAY));
 
-/** v3.1 Task 12: the email's money lines (the Best fit's draft, new backers). Pure. */
-export function moneyTexts(best: { title: string; ends_at: Date | null } | null, newBackerCount: number, now: Date): string[] {
+/**
+ * v3.1 Task 12: the email's money lines (the Best fit's draft, new backers). v4.8.1 final fix (R-3): a close under 48
+ * hours away is absolute in the program's zone (`zone`, else UTC) with the hours left as of sending ("closes Nov 1,
+ * 11:59 PM PT (in 20 hours)"), never "in 1 day" at 3 hours left. Pure.
+ */
+export function moneyTexts(best: { title: string; ends_at: Date | null; zone?: string } | null, newBackerCount: number, now: Date): string[] {
   const lines: string[] = [];
   if (best) {
     const n = best.ends_at ? daysTo(best.ends_at, now) : 0;
+    const iso = best.ends_at?.toISOString() ?? null;
+    const zone = best.zone ?? 'UTC';
+    const by = iso && hoursLeft(iso, now) ? submitBy(iso, zone, now, best.zone ? zoneAbbr(zone) : null) : null;
     lines.push(best.ends_at
-      ? `${best.title} closes in ${n} ${n === 1 ? 'day' : 'days'}. Your draft is one yes away.`
+      ? `${best.title} closes ${by ?? `in ${n} ${n === 1 ? 'day' : 'days'}`}. Your draft is one yes away.`
       : `${best.title} is open (rolling), and your draft is one yes away.`);
   }
   if (newBackerCount > 0) lines.push(`${newBackerCount} new ${newBackerCount === 1 ? 'backer' : 'backers'} this week.`);
@@ -556,6 +576,7 @@ export async function digestFacts(s: SubRow, now: Date, db: Db = sql()): Promise
     .slice(0, MAX_LINES);
   return {
     ...moment,
+    now,
     ...(standing && { standing }),
     money: money.lines,
     newPrograms,
