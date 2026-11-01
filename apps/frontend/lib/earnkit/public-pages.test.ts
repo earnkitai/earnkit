@@ -175,8 +175,8 @@ test('Ruling 22 (plan): the guide route, the index, the sitemap and the logo CSP
   // v3.1 W10: the index is a permanent redirect to the landing's earn section.
   assert.match(read('app/programs/page.tsx'), /permanentRedirect\('\/#earn'\)/);
   const cache = read('app/lib/landing-cache.ts');
-  assert.match(cache, /\['guide-v3'\], \{ revalidate: 600 \}/); // review #7, v3 Stage 3 Task 7: bumped with the GuidePage shape (`chain`)
-  assert.match(cache, /\['guide-ids-v27'\], \{ revalidate: 600 \}/);
+  assert.match(cache, /\['guide-v49'\], \{ revalidate: 600, tags: \[PROGRAMS_TAG\] \}/); // review #7, v3 Stage 3 Task 7: bumped with the GuidePage shape (`chain`)
+  assert.match(cache, /\['guide-ids-v27'\], \{ revalidate: 600, tags: \[PROGRAMS_TAG\] \}/);
   assert.match(cache, /gatedGuidePage\(id, cachedIds, cachedGuide\)/);
   assert.match(cache, /export const getGuidePage = cache\(/);
   assert.match(cache, /console\.error\('\[guide\]'/);

@@ -40,6 +40,7 @@ const page = (facts: Facts, o: Partial<GuidePage> = {}): GuidePage => {
     source_url: facts.source_url,
     sources: guideSourceList(facts, [{ label: 'program page', url: facts.source_url }]),
     ecosystem: guide.wants?.ecosystem ?? 'Arc',
+    research: false,
     ...o,
   };
 };

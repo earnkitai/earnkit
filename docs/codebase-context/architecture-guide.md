@@ -9135,3 +9135,18 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
 - **`docs/programs-api.md`**: the guide the owner pastes into the Grok Bot (the setup command, field allowlist, text
   and URL rules, a full example from base-builder-grants, close, errors). A test parses its example and runs every
   check on it.
+
+### v4.9 Task 3 fix round 1: instant site refresh, doc accuracy, amount caps, research label
+
+- **Instant refresh.** `lib/earnkit/programs-cache.ts`: `PROGRAMS_TAG` tags the landing cache (with PROFILE_TAG), the
+  guide-id set, each guide page (`app/lib/landing-cache.ts`; keys now `landing-v49`, `guide-v49`) and GET
+  /api/programs' list. `programsChanged(id)` (revalidateTag expire 0, plus `/`, `/programs/<id>`, `/sitemap.xml`;
+  a no-op outside Next) runs after every created, updated or closed write (`WriteDeps.onChange`), never on unchanged
+  or refused. A new API program's tile never links to a guide that is still a 404.
+- **Amount caps.** `apiRuleProblems` refuses `max_award_usd` and `min_award_usd` over 5,000,000 (`API_AWARD_MAX_USD`)
+  and `pool_usd` over 50,000,000 (`API_POOL_MAX_USD`): "larger amounts need a curated file".
+- **Research label.** `Tile.research` and `GuidePage.research` (an api row); Opportunities adds a small
+  `site-copy RESEARCH_LABEL` line ("Found by EarnKit's research.") under the kind, and GuideView adds it as one more
+  muted fact.
+- **Doc.** `docs/programs-api.md`: `needs_repo` is required, a limits table (a test probes the schema at each stated
+  limit), and the log sentence says which answers are not logged (not JSON, 401, 404, 413, 429, 503).

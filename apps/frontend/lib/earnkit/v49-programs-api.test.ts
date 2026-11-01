@@ -31,7 +31,11 @@ import { readStats } from './stats';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { PROGRAMS_LIST_MAX, WRITES_MAX, byListOrder, programWritesGet, programsListGet, readListedPrograms, type ListedProgram } from './programs-read';
-import { readGuideIds, readGuidePage, readLanding } from './landing';
+import { gatedGuidePage, readGuideIds, readGuidePage, readLanding, type Tile } from './landing';
+import Opportunities from '../../app/components/landing/Opportunities';
+import { RESEARCH_LABEL } from './site-copy';
+import { PROGRAMS_TAG, programsChanged } from './programs-cache';
+import { API_AWARD_MAX_USD, API_POOL_MAX_USD } from './programs-api';
 import { alsoQualifies } from './also-qualifies';
 import sitemap from '../../app/sitemap';
 import GuideView from '../../app/programs/[id]/GuideView';
@@ -987,7 +991,7 @@ test('v4.9 T3: GET /api/programs/writes needs the token (the write API gate), ne
 
 test('v4.9 T3: the list route is public and wired to the cached read', async () => {
   const src = readFileSync(join(import.meta.dirname, '../../app/api/programs/route.ts'), 'utf8');
-  assert.match(src, /unstable_cache\(\(\) => readListedPrograms\(\), \['programs-list-v49'\], \{ revalidate: 60 \}\)/);
+  assert.match(src, /unstable_cache\(\(\) => readListedPrograms\(\), \['programs-list-v49'\], \{ revalidate: 60, tags: \[PROGRAMS_TAG\] \}\)/);
   assert.doesNotMatch(src, /programsAuthFailure|authorization/);
   assert.equal(typeof listRoute, 'function');
 });
@@ -1012,3 +1016,126 @@ test('v4.9 T3: docs/programs-api.md: its example passes every check (the curated
   // Every writable field is named in the guide.
   for (const f of [...API_FIELDS, ...API_REQUIREMENT_FIELDS]) assert.ok(doc.includes(`\`${f}\``), f);
 }));
+
+// ---- v4.9 Task 3 fix round 1 ----
+
+test('v4.9 T3 fix 1 (F1): created, updated and closed writes expire the site caches; a new guide resolves at once', db, withToken(async () => {
+  const id = `v49-fresh-${process.pid}`;
+  const changed: string[] = [];
+  // The guide-id set as landing-cache.ts caches it (unstable_cache with PROGRAMS_TAG), warmed before the write.
+  let ids: string[] | null = null;
+  const cachedIds = async () => (ids ??= await readGuideIds());
+  await cachedIds();
+  const deps: WriteDeps = { ...noNet, onChange: (x) => { changed.push(x); ids = null; } };
+  assert.equal((await send({ action: 'upsert', program: apiProgram(id) }, deps)).body.result, 'created');
+  assert.ok(await gatedGuidePage(id, cachedIds, (x) => readGuidePage(x)), 'the guide resolves right after the write');
+  assert.equal((await send({ action: 'upsert', program: apiProgram(id) }, deps)).body.result, 'unchanged');
+  assert.equal((await send({ action: 'upsert', program: apiProgram(id, { title: 'Fresh title' }) }, deps)).body.result, 'updated');
+  assert.equal((await send({ action: 'upsert', program: apiProgram(id, { verified_at: '2020-01-01' }) }, deps)).status, 400);
+  assert.equal((await send({ action: 'close', id, reason: 'over' }, deps)).body.result, 'closed');
+  assert.equal((await send({ action: 'close', id, reason: 'over' }, deps)).body.result, 'unchanged');
+  assert.deepEqual(changed, [id, id, id], 'created, updated, closed; never unchanged or refused');
+  // Without the expiry, a warm id set would still miss a new id (the 10-minute 404 this fixes).
+  const other = `v49-stale-${process.pid}`;
+  let stale: string[] | null = null;
+  const staleIds = async () => (stale ??= await readGuideIds());
+  await staleIds();
+  assert.equal((await send({ action: 'upsert', program: apiProgram(other) }, { ...noNet, onChange: () => {} })).body.result, 'created');
+  assert.equal(await gatedGuidePage(other, staleIds, (x) => readGuidePage(x)), null);
+  // The default hook is programs-cache.ts programsChanged; outside a Next request it never throws.
+  assert.doesNotThrow(() => programsChanged(id));
+  assert.match(readFileSync(join(import.meta.dirname, 'programs-api.ts'), 'utf8'), /onChange: deps\.onChange \?\? programsChanged/);
+  const cacheSrc = readFileSync(join(import.meta.dirname, 'programs-cache.ts'), 'utf8');
+  assert.match(cacheSrc, /revalidateTag\(PROGRAMS_TAG, \{ expire: 0 \}\)/);
+  for (const p of ["revalidatePath('/')", 'revalidatePath(`/programs/${id}`)', "revalidatePath('/sitemap.xml')"]) assert.ok(cacheSrc.includes(p), p);
+  // Every cache an API write changes carries the tag.
+  const landingCache = readFileSync(join(import.meta.dirname, '../../app/lib/landing-cache.ts'), 'utf8');
+  assert.match(landingCache, /tags: \[PROFILE_TAG, PROGRAMS_TAG\]/);
+  assert.match(landingCache, /\['guide-ids-v27'\], \{ revalidate: 600, tags: \[PROGRAMS_TAG\] \}/);
+  assert.match(landingCache, /\['guide-v49'\], \{ revalidate: 600, tags: \[PROGRAMS_TAG\] \}/);
+  assert.match(readFileSync(join(import.meta.dirname, '../../app/api/programs/route.ts'), 'utf8'), /tags: \[PROGRAMS_TAG\]/);
+  assert.equal(PROGRAMS_TAG, 'programs');
+}));
+
+test('v4.9 T3 fix 1 (ruling): API amounts are capped (5M per winner, 50M pool); larger needs a curated file', () => {
+  const now = new Date('2026-11-01T12:00:00Z');
+  const ok = ProgramFile.parse(apiProgram('v49-caps', { verified_at: '2026-11-01' }));
+  const at = (o: Record<string, unknown>) => apiRuleProblems({ ...ok, ...o } as ProgramFile, now);
+  assert.equal(API_AWARD_MAX_USD, 5_000_000);
+  assert.equal(API_POOL_MAX_USD, 50_000_000);
+  assert.deepEqual(at({ max_award_usd: 5_000_000 }), []);
+  assert.deepEqual(at({ max_award_usd: 5_000_001 }), ['max_award_usd: at most 5,000,000 through the API; larger amounts need a curated file']);
+  assert.deepEqual(at({ min_award_usd: 5_000_001 }), ['min_award_usd: at most 5,000,000 through the API; larger amounts need a curated file']);
+  assert.deepEqual(at({ pool_usd: 50_000_000 }), []);
+  assert.deepEqual(at({ pool_usd: 50_000_001 }), ['pool_usd: at most 50,000,000 through the API; larger amounts need a curated file']);
+});
+
+test('v4.9 T3 fix 1 (ruling): an API program\'s card and guide page say "Found by EarnKit\'s research."; a file program\'s never', db, withToken(async () => {
+  assert.equal(RESEARCH_LABEL, "Found by EarnKit's research.");
+  const id = `v49-label-${process.pid}`;
+  assert.equal((await send({ action: 'upsert', program: apiProgram(id, { title: 'Label Test Fund' }) })).body.result, 'created');
+  const page = await readGuidePage(id, new Date());
+  assert.equal(page!.research, true);
+  const text = (el: React.ReactElement) => renderToStaticMarkup(el).replace(/&#x27;|&#39;/g, "'");
+  assert.ok(text(React.createElement(GuideView, { page: page! })).includes(RESEARCH_LABEL), 'guide page');
+  const tiles = (await readLanding(new Date())).tiles;
+  const tile = tiles.find((t) => t.id === id)!;
+  assert.equal(tile.research, true);
+  assert.ok(text(React.createElement(Opportunities, { programs: [tile] })).includes(RESEARCH_LABEL), 'card');
+  // A file program (any curated row in this DB, else a plain fixture tile) carries no label.
+  const fileTile: Tile = tiles.find((t) => !t.research) ?? { ...tile, id: 'file-one', research: false };
+  assert.equal(text(React.createElement(Opportunities, { programs: [fileTile] })).includes(RESEARCH_LABEL), false);
+  assert.equal(text(React.createElement(GuideView, { page: { ...page!, research: false } })).includes(RESEARCH_LABEL), false);
+  const fileIds = (await readGuideIds()).filter((x) => !x.startsWith('v49-'));
+  if (fileIds.length > 0) assert.equal((await readGuidePage(fileIds[0], new Date()))!.research, false);
+}));
+
+test('v4.9 T3 fix 1 (F2, F3): the guide lists needs_repo as required, and its limits table matches the schema', () => {
+  const doc = readFileSync(join(import.meta.dirname, '../../../../docs/programs-api.md'), 'utf8');
+  assert.match(/\*\*Required:\*\*(.*)/.exec(doc)![1], /`needs_repo`/);
+  assert.doesNotMatch(/\*\*Optional:\*\*(.*)/.exec(doc)![1], /`needs_repo`/);
+  const limit = (field: string) => new RegExp(`^\\| ${field.replace(/[|`]/g, (c) => `\\${c}`)} \\| (.+) \\|$`, 'm').exec(doc)?.[1];
+  const n = (s: string | undefined) => Number(/(\d[\d,]*)/.exec(s ?? '')![1].replace(/,/g, ''));
+  const base = ProgramFile.parse(apiProgram('v49-limits', { verified_at: today }));
+  const parses = (o: Record<string, unknown>) => ProgramFile.safeParse({ ...base, ...o }).success;
+  const summaryMax = n(limit('`summary`'));
+  assert.equal(parses({ summary: 'x'.repeat(summaryMax) }), true);
+  assert.equal(parses({ summary: 'x'.repeat(summaryMax + 1) }), false);
+  const itemMax = Number(/1 to (\d+) characters/.exec(limit('`setup`, `each_time`')!)![1]);
+  for (const k of ['setup', 'each_time']) {
+    assert.equal(parses({ [k]: ['x'.repeat(itemMax)] }), true, k);
+    assert.equal(parses({ [k]: ['x'.repeat(itemMax + 1)] }), false, k);
+  }
+  const ideas = limit('`ideas`')!;
+  const ideasMax = n(ideas);
+  const [lo, hi] = /each (\d+) to (\d+) words/.exec(ideas)!.slice(1).map(Number);
+  const words = (k: number) => Array.from({ length: k }, () => 'word').join(' ');
+  assert.equal(parses({ ideas: Array(ideasMax).fill(words(lo)) }), true);
+  assert.equal(parses({ ideas: Array(ideasMax + 1).fill(words(lo)) }), false);
+  assert.equal(parses({ ideas: [words(lo - 1)] }), false);
+  assert.equal(parses({ ideas: [words(hi)] }), true);
+  assert.equal(parses({ ideas: [words(hi + 1)] }), false);
+  const tags = [...limit('`tag`')!.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+  for (const t of tags) assert.equal(parses({ tag: t }), true, t);
+  assert.equal(parses({ tag: 'hot' }), false);
+  const [scoreLo, scoreHi] = /from (\d+) to (\d+)/.exec(limit('`min_product_score`')!)!.slice(1).map(Number);
+  assert.equal(parses({ min_product_score: scoreHi }), true);
+  assert.equal(parses({ min_product_score: scoreHi + 1 }), false);
+  assert.equal(parses({ min_product_score: scoreLo - 1 }), false);
+  assert.equal(parses({ min_product_score: 2.5 }), false);
+  const reqs = base.submission_requirements;
+  const todoMax = n(limit('requirement `todo`'));
+  assert.equal(parses({ submission_requirements: [{ ...reqs[0], todo: 'x'.repeat(todoMax) }, ...reqs.slice(1)] }), true);
+  assert.equal(parses({ submission_requirements: [{ ...reqs[0], todo: 'x'.repeat(todoMax + 1) }, ...reqs.slice(1)] }), false);
+  const noteMax = n(limit('`opens_note`'));
+  assert.equal(parses({ status: 'upcoming', opens_note: 'x'.repeat(noteMax) }), true);
+  assert.equal(parses({ status: 'upcoming', opens_note: 'x'.repeat(noteMax + 1) }), false);
+  assert.equal(parses({ tz: 'Mars/Base' }), false);
+  // The title and organizer caps and the amount caps are the API's own.
+  assert.equal(n(limit('`title`')), 120);
+  assert.equal(n(limit('`organizer`')), 80);
+  assert.equal(n(limit('`max_award_usd`, `min_award_usd`')), API_AWARD_MAX_USD);
+  assert.equal(n(limit('`pool_usd`')), API_POOL_MAX_USD);
+  // F4: the log sentence names what is and isn't logged.
+  assert.ok(doc.includes('A body that is not JSON (400) and 401, 404, 413, 429 and 503 answers are not logged.'));
+});

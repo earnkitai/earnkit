@@ -117,6 +117,8 @@ export const ROLLING = 'Rolling, apply anytime';
  * tile's prize text ("$840K in prizes"). GET /api/programs' `money` is the same text. Pure.
  */
 export const tileMoney = (t: { big: string | null; prize: string }): string => t.big ?? t.prize;
+/** v4.9 Task 3 fix 1 (ruling): the small line on an API program's card and guide page (written by the research bot). */
+export const RESEARCH_LABEL = "Found by EarnKit's research.";
 export const EARN_FOOT = 'Your agent finds the fit and drafts the application.';
 export const FOOT_CTA = 'Your next week starts now.';
 export const ART_CREDIT = 'Art: C.W. Eckersberg, 1815 · G.P. Panini, c. 1734';

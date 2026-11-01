@@ -1389,6 +1389,8 @@ apps/frontend/
                                'api') in a tx with an unchanged snapshot check; program_writes audit rows;
                                noteFileTakeover for programs-sync. v4.9 T3: programsAuthFailure (the 404/401 gate
                                shared with GET /api/programs/writes). Tests: v49-programs-api.test.ts
+    programs-cache.ts          v4.9 T3 fix 1: PROGRAMS_TAG and programsChanged(id) (revalidateTag + the home, guide and
+                               sitemap paths) after an API write changes a program
     programs-read.ts           v4.9 T3: readListedPrograms (landing listedCards + landingTiles, money = site-copy
                                tileMoney), byListOrder, programsListGet (GET /api/programs), programWritesGet (GET
                                /api/programs/writes). Tests: v49-programs-api.test.ts

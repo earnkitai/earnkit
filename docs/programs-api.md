@@ -1,6 +1,6 @@
 # EarnKit programs API (for the Grok Bot)
 
-The owner pastes this into the Grok Bot's instructions. The bot researches builder programs and writes them to EarnKit. A write that passes every check is live at once: on the site, in the sitemap and in every builder's agent.
+The owner pastes this into the Grok Bot's instructions. The bot researches builder programs and writes them to EarnKit. A write that passes every check is live at once: on the site (with a small "Found by EarnKit's research." line), in the sitemap and in every builder's agent.
 
 ## Owner setup (once)
 
@@ -54,9 +54,9 @@ Success: `{ "ok": true, "id": "...", "result": "created" | "updated" | "unchange
 
 Only these. Any other field is refused (`<field>: the API can't set <field>; the owner adds it by file`).
 
-**Required:** `id`, `organizer`, `title`, `description`, `source_url`, `submission_url`, `reward`, `summary`, `starts_at`, `ends_at`, `status`, `verified_at`, `existing_work`, `chains`, `rules`, `setup`, `each_time`, `submission_requirements`.
+**Required:** `id`, `organizer`, `title`, `description`, `source_url`, `submission_url`, `reward`, `summary`, `starts_at`, `ends_at`, `status`, `verified_at`, `existing_work`, `chains`, `rules`, `setup`, `each_time`, `needs_repo`, `submission_requirements`.
 
-**Optional:** `max_award_usd`, `min_award_usd`, `pool_usd`, `pool_source_url`, `category`, `tag`, `tz`, `opens_note`, `any_chain`, `investment`, `in_person`, `needs_repo`, `needs_contract`, `min_product_score`, `wants_revenue`, `winners_per_round`, `ideas`.
+**Optional:** `max_award_usd`, `min_award_usd`, `pool_usd`, `pool_source_url`, `category`, `tag`, `tz`, `opens_note`, `any_chain`, `investment`, `in_person`, `needs_contract`, `min_product_score`, `wants_revenue`, `winners_per_round`, `ideas`.
 
 **Each `submission_requirements` item:** `key`, `label`, `type`, `required`, `options`, `description`, `project_field`, `from`, `todo`, `kind`, `max_chars`. No `guidance`.
 
@@ -75,7 +75,33 @@ Key values:
 - Requirement `from`: `project` (the agent can draft it) or `builder` (personal info, consent, amounts).
 - Requirement `kind` (on every item): `name`, `one_liner`, `problem`, `solution`, `how_it_works`, `traction`, `team`, `why_you`, `use_of_funds`, `milestones`, `demo_video`, `links`, `contact`, `other`.
 - Requirement `todo` (on every required item): lowercase start, at most 40 characters, no final punctuation, no links.
-- `needs_repo`: say `true` or `false` (whether entering needs a repo or a live product).
+- `needs_repo`: `true` or `false` (whether entering needs a repo or a live product). Always send it.
+
+### Limits
+
+| Field | Limit |
+|---|---|
+| `title` | at most 120 characters |
+| `organizer` | at most 80 characters |
+| `summary` | at most 90 characters |
+| `setup`, `each_time` | each item 1 to 80 characters |
+| `ideas` | at most 3 items, each 3 to 12 words, no links |
+| `opens_note` | at most 140 characters, no links, no em dashes; only with `upcoming` |
+| `tag` | `long shot` or `needs a live product` |
+| `tz` | an IANA zone (`America/Los_Angeles`) |
+| `needs_contract` | one chain value, and one of `chains` |
+| `min_product_score` | a whole number from 0 to 6 |
+| `max_award_usd`, `min_award_usd` | a positive number, at most 5,000,000 |
+| `pool_usd` | a positive number, at most 50,000,000 |
+| `min_award_usd` | only with a larger `max_award_usd`, and stated in `reward` |
+| `pool_source_url` | only with `pool_usd` |
+| requirement `todo` | at most 40 characters |
+| requirement `key` | snake_case, unique in the program |
+| requirement `max_chars` | a positive whole number (the form's stated limit) |
+| requirement `options` | needed on `choice` and `multi_choice` |
+| `submission_requirements` | at least one item (an upcoming program may have none) |
+
+Amounts above the caps are refused with `larger amounts need a curated file`: tell the owner instead.
 
 ### Text rules (every text field and requirement text)
 
@@ -164,4 +190,4 @@ Every refusal is `{ "ok": false, "problems": [...] }` (400, 409) or `{ "ok": fal
 | 429 | Over 120 writes this hour | Wait for `Retry-After` seconds |
 | 503 | EarnKit is busy | Retry after `Retry-After` seconds |
 
-Every write, and every refusal after the token check, is in `GET /api/programs/writes` with its result and reason.
+Every write (created, updated, unchanged, closed) and every 400 or 409 refusal of a JSON body is in `GET /api/programs/writes` with its result and reason. A body that is not JSON (400) and 401, 404, 413, 429 and 503 answers are not logged.

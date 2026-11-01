@@ -14,6 +14,7 @@ import { apiSubmitHostAllowed, normalHost, sourceSiteName } from './submit-hosts
 import { RateLimitError, enforce } from './rate-limit';
 import { FETCH_TIMEOUT_MS, HttpStatusError, safeProbe } from './safe-fetch';
 import { readCapped } from './secrets';
+import { programsChanged } from './programs-cache';
 
 /**
  * v4.9 Task 2: POST /api/programs/write, the owner's Grok Bot's write API (plan R1-R6). Every write goes live at once
@@ -42,6 +43,9 @@ export const API_ID = /^[a-z0-9-]{3,64}$/;
 /** verified_at may be at most this many days old. */
 export const VERIFIED_MAX_AGE_DAYS = 7;
 export const CLOSE_REASON_MAX = 200;
+/** Fix 1 (ruling): the largest amounts an API write may state; a typo can't inflate the landing's money line. */
+export const API_AWARD_MAX_USD = 5_000_000;
+export const API_POOL_MAX_USD = 50_000_000;
 /** The 409 line (R3). */
 export const curatedLine = (id: string) => `${id} is curated by EarnKit; send a new id or ask the owner`;
 
@@ -85,6 +89,9 @@ export function apiRuleProblems(p: ProgramFile, now: Date): string[] {
   if (day > now.getTime() + EARLIEST_ZONE_MS) problems.push('verified_at: is in the future');
   else if (day < todayUtc - VERIFIED_MAX_AGE_DAYS * DAY_MS)
     problems.push(`verified_at: more than ${VERIFIED_MAX_AGE_DAYS} days ago; check the source again`);
+  for (const [key, max] of [['max_award_usd', API_AWARD_MAX_USD], ['min_award_usd', API_AWARD_MAX_USD], ['pool_usd', API_POOL_MAX_USD]] as const)
+    if (p[key] !== undefined && p[key]! > max)
+      problems.push(`${key}: at most ${max.toLocaleString('en-US')} through the API; larger amounts need a curated file`);
   if (p.status === 'active' && p.ends_at !== null && Date.parse(p.ends_at) <= now.getTime())
     problems.push('ends_at: has passed; an active program needs a future ends_at or null');
   // Fix round 2: the only URL fields an API program has (pool_source_url is optional).
@@ -159,6 +166,8 @@ export type WriteDeps = {
   limit?: () => Promise<unknown>;
   /** Tests only: runs inside the write transaction right after the row is read (a sync racing the write). */
   afterRead?: () => Promise<void>;
+  /** Fix 1 (F1): after a created, updated or closed write. Default programs-cache.ts programsChanged. */
+  onChange?: (id: string) => void;
 };
 
 type Result = 'created' | 'updated' | 'unchanged' | 'closed';
@@ -278,6 +287,7 @@ async function upsertAction(raw: Record<string, unknown>, deps: Required<Omit<Wr
     await audit(sql(), { program_id: p.id, action: 'upsert', result });
   }
   console.log(`[programs-api] upsert ${p.id} ${result}`);
+  if (result !== 'unchanged') deps.onChange(p.id);
   return json({ ok: true, id: p.id, result, category: categoryOf(p), live: live(p, now) });
 }
 
@@ -311,6 +321,7 @@ async function closeAction(id: string, reason: string, deps: Required<Omit<Write
     return refused(409, [curatedLine(id)]);
   }
   console.log(`[programs-api] close ${id} ${out.result}`);
+  if (out.result === 'closed') deps.onChange(id);
   // Every upsert since v4.9 Task 1 writes the category, and only api rows reach here.
   return json({ ok: true, id, result: out.result, category: out.row.category, live: false });
 }
@@ -361,6 +372,7 @@ export async function programsWritePost(request: Request, deps: WriteDeps = {}):
     checkLink: deps.checkLink ?? ((u: string) => probeLink(u)),
     programsDir,
     afterRead: deps.afterRead ?? (async () => {}),
+    onChange: deps.onChange ?? programsChanged,
   };
   try {
     const envelope = Envelope.safeParse(body);

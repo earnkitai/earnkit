@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { H2_SITE } from '../site/ui';
 import type { Tile } from '../../../lib/earnkit/landing';
-import { EARN_FOOT, EARN_TITLE, tileMoney } from '../../../lib/earnkit/site-copy';
+import { EARN_FOOT, EARN_TITLE, RESEARCH_LABEL, tileMoney } from '../../../lib/earnkit/site-copy';
 import Money from '../site/Money';
 
 /** The four card looks in order (Landing board): blue, step, rust, step; each with its secondary text colour. */
@@ -77,6 +77,8 @@ export default function Opportunities({ programs: shown }: { programs: Tile[] })
                   </span>
                 )}
                 <span className={`text-[13px] ${look.sub}`}>{t.kind}</span>
+                {/* v4.9 Task 3 fix 1: an API program says who found it, as small as the kind line. */}
+                {t.research && <span className={`text-[12px] ${look.sub}`}>{RESEARCH_LABEL}</span>}
               </Link>
             );
           })}

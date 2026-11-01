@@ -77,6 +77,7 @@ const tile = (id: string, o: Partial<Tile> = {}): Tile => ({
   big: '$5K',
   when: 'Rolling, apply anytime',
   organizer: id,
+  research: false,
   ...o,
 });
 const TILES: Tile[] = [

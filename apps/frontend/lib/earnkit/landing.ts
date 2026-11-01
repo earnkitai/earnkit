@@ -59,6 +59,8 @@ export type Tile = {
   when: string;
   /** Clarity batch: who runs it ("Alliance"; the title without an organizer), the landing's tile text when there is no logo file. */
   organizer: string;
+  /** v4.9 Task 3 fix 1: an API program (the research bot wrote it); the card shows site-copy RESEARCH_LABEL. */
+  research: boolean;
 };
 /** Plain JSON only (Ruling 21 (plan), Review Focus 2): unstable_cache serializes it. */
 export type Landing = {
@@ -151,6 +153,7 @@ export function landingTiles(kept: Card[], now: Date): Tile[] {
       // v4.7 T1: the day in the program's zone (deadline.ts closeDay), the day the replies say ("Nov 1", never UTC's Nov 2).
       when: c.status === 'upcoming' ? 'Not open yet' : closeDay(c) ? `Closes ${closeDay(c)}` : ROLLING,
       organizer: c.organizer?.trim() || c.title,
+      research: c.api_content !== undefined,
     };
   });
 }
@@ -190,6 +193,8 @@ export type GuidePage = {
   sources: GuideSource[];
   /** The ecosystem the page's description names: focus.ecosystem, else the first chain's name. */
   ecosystem: string;
+  /** v4.9 Task 3 fix 1: an API program (the research bot wrote it); the page shows site-copy RESEARCH_LABEL. */
+  research: boolean;
 };
 
 /**
@@ -225,6 +230,7 @@ export async function readGuidePage(id: string, now = new Date()): Promise<Guide
         : []),
     ]),
     ecosystem: guide.wants?.ecosystem ?? CHAIN_NAMES[row.chains[0]] ?? row.title,
+    research: row.source === 'api',
   };
 }
 
