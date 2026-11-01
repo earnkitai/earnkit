@@ -196,9 +196,17 @@ const NOT_YES_NO = /\bor\b|\b(?:tell me|let me know|what|which|something|anythin
 const ONE_WORD: RegExp[] = [
   /^(?:Once [^,.?]+, )?reply "[^"\s]+"(?: once [^,.?]+)?(?:,? and I'll [^.?]+)?\.$/i,
   /^(?:[^.?]*,\s*then )?say (?:ok|yes)(?: once [^,.?]+)?(?:, and I'll [^.?]+)?\.$/i,
-  /^Reply with a number(?: [^.?]*)?\.$/i,
+  // Fix round 2 (minor 3): the number alone; with the sign-in link, SIGN_IN_FORMS.
+  /^Reply with a number\.$/i,
 ];
 const REQUEST = /\b(?:also|tell me|let me know|or)\b/i;
+/**
+ * Fix round 2 (minor 3): the sign-in reply's last sentence: "Reply with a number" or "Reply 1 for A, 2 for B or 3 for
+ * C", then ", and connect (GitHub) here so I can check if your work fits: <link>"; or a pick's "Connect here so I can
+ * check if your work fits: <link>". Group 1: the numbered list, which may ask for nothing more.
+ */
+const SIGN_IN_FORM = /^(?:Reply with a number|Reply (\d+ for .+)), and connect (?:GitHub )?here so I can check if your work fits: \S+$|^Connect (?:GitHub )?here so I can check if your work fits: \S+$/;
+const REQUEST_IN_PICK = /\b(?:and|also|tell me|let me know|describe|explain|share|send)\b/i;
 /** EarnKit's own sign-in link: its host, /signin/ and the stored token's shape. */
 const signInLink = () => {
   const host = (() => {
@@ -224,7 +232,12 @@ function easyReply(r: Reply): string | null {
   const line = last.split('\n').at(-1)!.trim();
   if (signInLink().test(line)) {
     if (moveUpOf(r)?.kind !== 'sign_in') return 'a sign-in link, but the stored ask is not sign_in';
-    return last.includes('?') ? 'a question before the sign-in link' : null;
+    if (last.includes('?')) return 'a question before the sign-in link';
+    // Fix round 2 (minor 3): the number clause (or a pick's "Connect here"), then the sign-in clause, nothing else.
+    const s = sentences(last).at(-1) ?? '';
+    const m = SIGN_IN_FORM.exec(s);
+    if (!m || (m[1] && REQUEST_IN_PICK.test(m[1]))) return `not the sign-in form: "${s}"`;
+    return null;
   }
   const s = sentences(last).at(-1) ?? '';
   if (BLANKS_REPLY.test(s)) return null;
@@ -245,19 +258,28 @@ function easyReply(r: Reply): string | null {
  * commits. Also rule 3: a fact matched twice in one session is a repeat.
  */
 export const PROOF_PATTERNS: RegExp[] = [
+  // Fix round 2 (minor 2): "{name} is live" is proofLiveOf, for the builder's own project name or handle only.
   /\byou(?:'ve| have) shipped \d+ weeks? in a row\b/gi,
   /\byour (?:shipping )?streak (?:is|of) \d+ weeks?\b/gi,
   /\byour GitHub: \d+ weeks? shipping in a row\b/gi,
   /\byour score (?:is )?(?:up to |down to |now )?\d+\b/gi,
   /(?:^|\n|\. )Score \d+, #\d+ of \d+\b/g,
+  // The standing line a quiet reply opens with ("Score 0 · Top 22% of builders. 6 weeks shipping in a row."): the builder's.
+  /(?:^|\n)Score \d+\b[^\n]*?\b\d+ weeks? shipping in a row\b/g,
   /\byou(?:'re| are) #\d+ of \d+\b/gi,
-  /\b[A-Z][\w.-]* is live\b/g,
   /\b[Yy]ou(?:'re| are) (?:live )?on [A-Z]\w+\b/g,
   /\byour (?:app|project|product|contract)[^.]*\b\d[\d,]* (?:transactions?|txs?|users?)\b/gi,
   /\byour (?:repo|code|GitHub)[^.]*\b\d[\d,]* commits?\b/gi,
 ];
-const proofFacts = (show: string) => PROOF_PATTERNS.flatMap((p) => [...show.matchAll(p)].map((m) => norm(m[0].replace(/^[\n. ]+/, '')).toLowerCase()));
-const hasProof = (r: Reply) => r.said.some((k) => k.startsWith('proof:')) || proofFacts(r.show).length > 0;
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** "{name} is live" for the builder's own names only (fix round 2, minor 2); none known, none matched. */
+const proofLiveOf = (names: readonly string[]) =>
+  names.filter((n) => n.trim()).length ? new RegExp(String.raw`\b(?:${names.filter((n) => n.trim()).map(escapeRe).join('|')}) is live\b`, 'gi') : null;
+const proofFacts = (show: string, names: readonly string[] = []) => {
+  const live = proofLiveOf(names);
+  return [...PROOF_PATTERNS, ...(live ? [live] : [])].flatMap((p) => [...show.matchAll(p)].map((m) => norm(m[0].replace(/^[\n. ]+/, '')).toLowerCase()));
+};
+const hasProof = (r: Reply, names: readonly string[]) => r.said.some((k) => k.startsWith('proof:')) || proofFacts(r.show, names).length > 0;
 /** A builder with no record yet: only the signed-out opener (its `opener` said part), where no fact exists to show. */
 const noRecord = (r: Reply) => r.said.includes('opener');
 
@@ -274,8 +296,12 @@ const CLAIMS: RegExp[] = [
   /\bsubmitted (?:it |this |your application )?for you\b/i,
 ];
 
-/** Every reply that breaks the merge gate (implementer contract), with its turn and why; [] when all pass. */
-export function gateFailures(replies: readonly Reply[]): GateFailure[] {
+/**
+ * Every reply that breaks the merge gate (implementer contract), with its turn and why; [] when all pass. `names`: the
+ * builder's own project name and handle, the only subjects "{name} is live" counts as proof for (fix round 2, minor 2).
+ */
+export function gateFailures(replies: readonly Reply[], o: { names?: readonly string[] } = {}): GateFailure[] {
+  const names = o.names ?? [];
   const out: GateFailure[] = [];
   /** Per session: each paragraph said (and whether it was the easy reply), the proof facts said, and whether one was. */
   const said = new Map<number, { units: Map<string, boolean>; facts: Set<string>; proof: boolean }>();
@@ -307,10 +333,10 @@ export function gateFailures(replies: readonly Reply[]): GateFailure[] {
       mem.units.set(key, ask && (mem.units.get(key) ?? true));
     }
     // Review 4: a proof fact said twice in one session, whatever sentence carries it.
-    const facts = proofFacts(r.show);
+    const facts = proofFacts(r.show, names);
     for (const f of new Set(facts)) if (mem.facts.has(f)) repeats.push(`the proof "${f}"`);
     if (repeats.length) fail('repeat', `said already this session: ${repeats[0]}`);
-    const proof = hasProof(r);
+    const proof = hasProof(r, names);
     // A session opener carries its own proof; a later hook may lean on the session's (fix round 1, ruling R6-8: a proof
     // is said once a session, so the next program's hook has no new fact to say).
     if (r.first && !noRecord(r) && !proof) fail('proof', 'a session opener with no fact from the record');

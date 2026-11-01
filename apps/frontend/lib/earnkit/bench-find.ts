@@ -74,7 +74,7 @@ import { DECLINE_MS, draftedRecently } from './policy-constants';
 import { closeDay, programZone, zoneAbbr } from './deadline';
 import type { ProgramRow as ProgramFileRow } from './programs';
 import {
-  MENTOR_NOTE, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, pickHook, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, type OpenerProgram, type MoveCtx, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProofOf, helpReply, helpNotYet, helpParked, HELP_DONE_ASK, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofOf, markSaid, pathReply, programName, readPath, saidSql, sessionOf,
+  MENTOR_NOTE, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, pickHook, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, type OpenerProgram, type MoveCtx, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProofOf, helpReply, helpNotYet, helpParked, HELP_DONE_ASK, backOnLine, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofOf, markSaid, pathReply, programName, readPath, saidSql, sessionOf,
   ANSWERED_FIRST, ASK_SAID, PROGRAMS_AGAIN, fitCell, fitOrder, grantFact, programsAnswer, standingAgain, standingAnswer, standingSaid, whatItIs, type GrantFact, type GrantRow, type InvestorRow, type StandingFacts,
   type GapStep,
   type GapGrant, type InvestorProgram, type Move, type MoveProgram, type Path,
@@ -240,6 +240,13 @@ export type Seen = StandSeen & {
   };
   /** v4.8 Task 2: when the builder said yes to the agent doing a gap step ({ [program_id]: iso }); find checks the code again. */
   gap_did?: Record<string, string>;
+  /**
+   * Task 6 fix round 2 (1): programs parked by a help step not done after two checks ({ [program_id]: { at, step,
+   * checked_at } }); skipped by the path for DECLINE_MS, re-checked once a session (helpUnpark), unparked once met.
+   */
+  help_parked?: Record<string, { at: string; step: string; checked_at?: string }>;
+  /** Task 6 fix round 2 (1): when a help park was unparked, its step met ({ [program_id]: iso }); seenBefore counts it. */
+  help_unparked?: Record<string, string>;
   /** v4.8 Task 2 fix round 2 (F3): when the path's last Builder Codes re-check failed to read (iso); backoff. */
   gap_check_failed?: string;
   /** v4.6 Task 3: when the Stripe ask was shown (once) and when a broken connection was re-offered (once). */
@@ -603,7 +610,9 @@ function pathSkip(told: Set<string>, seen: Seen, now: Date, skip: Set<string>): 
     .filter(([k, at]) => !(k.startsWith('apply:') && silent[k.slice('apply:'.length)] === at))
     .filter(([k, at]) => (k.startsWith('apply:') || k.startsWith('path:')) && now.getTime() - Date.parse(at) < DECLINE_MS)
     .map(([k]) => k.slice(k.indexOf(':') + 1));
-  return new Set([...skip, ...notPitched(told, seen, now), ...parked]);
+  // Task 6 fix round 2 (1): a help park, until its step is met (helpUnpark) or DECLINE_MS passes.
+  const helpParked = Object.entries(seen.help_parked ?? {}).filter(([, p]) => p && now.getTime() - Date.parse(p.at) < DECLINE_MS).map(([k]) => k);
+  return new Set([...skip, ...notPitched(told, seen, now), ...parked, ...helpParked]);
 }
 /** v4.8 Task 1: a program's prize part as the path says it ("up to $1M", never "investment"), null with no amount. Pure. */
 const pathAmount = (c: Pick<Card, 'summary' | 'investment'>): string | null => {
@@ -686,6 +695,53 @@ async function codesConfirmed(o: ViewIn, key: string): Promise<'found' | 'missin
   const waited = await Promise.race([check, new Promise<'late'>((r) => { timer = setTimeout(() => r('late'), RECHECK_WAIT.ms); timer.unref?.(); })]);
   clearTimeout(timer);
   return waited === 'late' ? 'checking' : waited === true ? 'found' : 'missing';
+}
+
+/**
+ * Task 6 fix round 2 (1): the help parks re-checked, at most once a session (a fresh session, or never checked since
+ * the park), from facts EarnKit already reads (no outside call): another grant's needs (needsKnown: the project's
+ * chains, repo and live link, programNeeds), Base's Builder Codes (the stored check). A met step is unparked (the path
+ * may hook it again) and its line returned, for the hook to lead with; one not met is stamped checked_at. A park past
+ * DECLINE_MS is left alone (pathSkip no longer skips it). Updates `o.read.seen` too. Never throws.
+ */
+async function helpUnpark(o: ViewIn, v: PathFacts): Promise<{ program_id: string; line: string } | null> {
+  const { id, now, read } = o;
+  const fresh = sessionOf(read.seen, now).fresh;
+  const due = Object.entries(read.seen.help_parked ?? {})
+    .filter(([, p]) => p && now.getTime() - Date.parse(p.at) < DECLINE_MS && (fresh || !p.checked_at));
+  if (due.length === 0) return null;
+  const key = v.project.key;
+  let known: Awaited<ReturnType<typeof needsKnown>> | null = null;
+  let back: { program_id: string; line: string } | null = null;
+  const met: string[] = [];
+  const checked: string[] = [];
+  for (const [pid, p] of due) {
+    const card = o.cards.find((c) => c.id === pid);
+    if (!card || !p.step) continue;
+    checked.push(pid);
+    let done = false;
+    if (pid === BASE_GRANTS_ID) done = p.step === 'codes' && (await storedBuilderCode(key.toLowerCase()).catch(() => null))?.found === true;
+    else {
+      const facts = card.needs_contract !== undefined && card.needs_live !== undefined ? card : await getProgramRow(pid).catch(() => null);
+      known ??= await needsKnown(id, key, { chains: [...v.chains, ...(o.known?.onBase ? ['base'] : [])], live: v.project.live || v.siteLive || o.known?.live === true });
+      done = facts !== null && !programNeeds(facts, known).includes(p.step);
+    }
+    if (!done) continue;
+    met.push(pid);
+    back ??= { program_id: pid, line: backOnLine(p.step, card.title) };
+  }
+  if (checked.length === 0) return null;
+  const next = { ...(read.seen.help_parked ?? {}) };
+  for (const pid of checked) if (next[pid]) next[pid] = { ...next[pid], checked_at: now.toISOString() };
+  for (const pid of met) delete next[pid];
+  read.seen.help_parked = next;
+  const unparked = { ...(read.seen.help_unparked ?? {}), ...Object.fromEntries(met.map((pid) => [pid, now.toISOString()])) };
+  read.seen.help_unparked = unparked;
+  // The check is this session's (said kept alive, its parts as they are), so a reply that says nothing new never makes
+  // the next find look like a new session and check again.
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('help_parked', ${sql().json(next as never)}::jsonb, 'help_unparked', ${sql().json(unparked as never)}::jsonb, 'said', ${saidSql([], now)})
+    WHERE builder_id = ${id}`.catch(logged('help unpark'));
+  return back;
 }
 
 /**
@@ -853,6 +909,7 @@ function seenBefore(seen: Seen, programId: string, key: string): boolean {
   const declined = Object.keys(seen.declined ?? {});
   return path?.program_id === programId || seen.bench_ask?.program_id === programId
     || Boolean(seen.apply_asked?.[programId] || seen.apply_yes?.[programId] || seen.path_raised?.[programId])
+    || Boolean(seen.help_parked?.[programId] || seen.help_unparked?.[programId])
     || declined.some((k) => k === `apply:${programId}` || k === `path:${programId}` || k === `needs:${programId}`)
     || (programId === BASE_GRANTS_ID && (declined.includes(benchStepKey('qualify', key)) || Boolean(seen.qualify_given?.[key.toLowerCase()])));
 }
@@ -1416,6 +1473,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
       // Task 3: the path waiting at submit ("sent" not said yet): one line pointing back, never the draft again.
       const waiting = submitWaiting(o, told);
       if (waiting) return answered(await pathSubmitCommit(o, facts, waiting, await sinceFor(o, facts, { program: moveProgram(waiting), saysClose: true })));
+      // Task 6 fix round 2 (1): a help park whose step is met since is unparked first; its hook leads with what changed.
+      const back = await helpUnpark(o, facts);
       const plan = await pathPlan(o, facts, told);
       // v4.8 Task 4: the first path reply after connecting, for a builder who saw the opener: the profile line and the
       // pick's fit, once (setup step 3, a held question and an owning nudge came first, above).
@@ -1425,7 +1484,10 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
       }
       const move = plan.move;
       // Task 3: a fresh session opens with what changed since the last one (the step's own words say a hook's close).
-      const sinceOf = (program: MoveProgram, saysClose: boolean) => sinceFor(o, facts, { program, saysClose });
+      const sinceOf = async (program: MoveProgram, saysClose: boolean) => {
+        const since = await sinceFor(o, facts, { program, saysClose });
+        return back?.program_id === program.id ? [back.line, since].filter(Boolean).join(' ') : since;
+      };
       // Fix round 3: an older moment waits for the closest grant only at the hook, never for a builder already on that
       // program (mid-path), and once a session.
       // Fix round 1 (9): a path left at track (no next program at "sent") is no longer mid-path.
@@ -2692,9 +2754,11 @@ async function gapDoYes(ctx: Pick<ToolContext, 'ownInstallationId'>, id: number,
     if (asked.kind === 'qualify' && asked.program_id === BASE_GRANTS_ID) await stamp();
     const checks = (asked.checks ?? 0) + 1;
     if (checks >= 2) {
-      const park = { [benchStepKey('path', asked.program_id!)]: now.toISOString() };
-      await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{declined}',
-          COALESCE(standing_seen->'declined', '{}'::jsonb) || ${sql().json(park as never)}::jsonb) - 'bench_ask'
+      // Fix round 2 (1): its own park with the step (help_parked), re-checked once a session and unparked once met.
+      const step = asked.kind === 'qualify' ? (asked.qualify?.steps?.[0] ?? null) : (Array.isArray(asked.needs) ? asked.needs[0] : null);
+      const park = { at: now.toISOString(), step: step ?? '' };
+      await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{help_parked}',
+          COALESCE(standing_seen->'help_parked', '{}'::jsonb) || jsonb_build_object(${asked.program_id!}::text, ${sql().json(park as never)}::jsonb)) - 'bench_ask'
         WHERE builder_id = ${id}`.catch(logged('help park'));
       return { show_to_builder: helpParked(asked.program ?? asked.qualify?.grant.name ?? 'this program'), then_find: true };
     }

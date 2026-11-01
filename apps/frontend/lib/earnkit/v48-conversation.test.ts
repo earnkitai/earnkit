@@ -1870,6 +1870,14 @@ test('gateFailures (Task 6): a good reply passes; every kind of break is caught 
   assert.deepEqual(rules([signIn('Here is your plan. Connect here to see more: https://evil.example/signin/ctZ7e0DoAzqmuAQTYGh8gg')]), ['0:easy_reply']);
   assert.deepEqual(rules([gr(`Got it: Circle. Connect here so I can check if your work fits: ${SIGNIN_URL}`)]), ['0:easy_reply']);
   assert.deepEqual(rules([signIn(`Which one do you want? Connect here: ${SIGNIN_URL}`)]), ['0:easy_reply']);
+  // Fix round 2 (minor 3): nothing but the sign-in clause may follow the number clause.
+  assert.deepEqual(rules([gr('Reply with a number and describe your product.')]), ['0:easy_reply']);
+  for (const bad of [`Reply with a number and describe your product, and connect here so I can check if your work fits: ${SIGNIN_URL}`,
+    `Reply 1 for Base and share your deck, and connect here so I can check if your work fits: ${SIGNIN_URL}`, `Connect here to see more: ${SIGNIN_URL}`])
+    assert.deepEqual(rules([signIn(bad)]), ['0:easy_reply'], bad);
+  for (const ok of [`Reply 1 for Base Builder Grant, 2 for Circle Developer Grants or 3 for a16z speedrun SR008, and connect here so I can check if your work fits: ${SIGNIN_URL}`,
+    `Base Builder Grant isn't open now. Reply 1 for Circle Developer Grants, and connect here so I can check if your work fits: ${SIGNIN_URL}`])
+    assert.deepEqual(rules([signIn(ok)]), [], ok);
   // 2. Empty.
   assert.deepEqual(rules([gr('')]), ['0:empty']);
   assert.deepEqual(rules([gr('  \n ')]), ['0:empty']);
@@ -1904,12 +1912,19 @@ test('gateFailures (Task 6): a good reply passes; every kind of break is caught 
   // ... a hook later in a session leans on the proof said earlier in it (ruling R6-8), never with none said.
   assert.deepEqual(rules([opener, gr('Your closest money is Base Builder Grant: up to $5,000.\n\nGo?', { turn: 1, hook: true })]), []);
   for (const proof of ['Score 77, #1 of 1 builders so far.', "You're live on Base.", 'Your streak is 7 weeks.', 'Your repo has 25 commits in 90 days.',
-    'Since Friday: your score is up to 79.', 'Your app has 120 transactions on Base.', "You've shipped 6 weeks in a row.", 'EarnKit is live.',
-    'It comes from your GitHub: 6 weeks shipping in a row, live at earnkit.com.'])
+    'Since Friday: your score is up to 79.', 'Your app has 120 transactions on Base.', "You've shipped 6 weeks in a row.",
+    'It comes from your GitHub: 6 weeks shipping in a row, live at earnkit.com.', 'Score 0 · Top 22% of builders. 6 weeks shipping in a row. No grants won yet.'])
     assert.deepEqual(rules([gr(`${proof}\n\nGo?`, { first: true })]), [], proof);
+  // Fix round 2 (minor 2): "{name} is live" only for the builder's own project name or handle (the gate is told them).
+  const named = (rs: Reply[]) => gateFailures(rs, { names: ['EarnKit', 'jenilt'] }).map((f) => `${f.turn}:${f.rule}`);
+  assert.deepEqual(named([gr('EarnKit is live.\n\nGo?', { first: true })]), []);
+  assert.deepEqual(named([gr('jenilt is live.\n\nGo?', { first: true })]), []);
+  for (const other of ['Base Builder Grant is live.', 'Circle Developer Grants is live and open.'])
+    assert.deepEqual(named([gr(`${other}\n\nGo?`, { first: true })]), ['0:proof'], other);
+  assert.deepEqual(rules([gr('EarnKit is live.\n\nGo?', { first: true })]), ['0:proof']);
   // Fix round 1 (review 3): facts that are not the builder's never count.
   for (const none of ['Base Builder Grant pays up to $5,000 for onchain apps.', 'Applications go live on Nov 3.', 'The program is live now.', 'Start a streak this week.',
-    '25 commits in 90 days.', 'Projects with 120 transactions do well.'])
+    '25 commits in 90 days.', 'Projects with 120 transactions do well.', 'Most winners have 6 weeks shipping in a row.'])
     assert.deepEqual(rules([gr(`${none}\n\nGo?`, { first: true })]), ['0:proof'], none);
   // ... nor does a session opener that says only "I'm EarnKit" to a signed-in builder (no `opener` part).
   assert.deepEqual(rules([gr("I'm EarnKit. I get builders funded for what they ship.\n\nWant the steps?", { first: true })]), ['0:proof']);
@@ -2001,7 +2016,7 @@ async function walkB() {
 test('Task 6: walk A passes the merge gate on the fixtures', db, async () => {
   const { sr, b, replies } = await walkA();
   console.log(`\n=== WALK A ===\n${transcript(replies)}\n`);
-  assert.deepEqual(gateFailures(replies), [], transcript(replies));
+  assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), [], transcript(replies));
   // It is target A's path: the hook, the draft, submit, "sent" hooks Base, the codes, then a new session's draft offer.
   const ends = replies.map((r) => r.show.split('\n\n').at(-1));
   assert.deepEqual(replies.map((r) => [r.session, r.first, r.hook]), [[0, true, true], [0, false, false], [0, false, false], [0, false, true], [0, false, false], [0, false, false], [1, true, false]]);
@@ -2017,9 +2032,9 @@ test('Task 6: walk A passes the merge gate on the fixtures', db, async () => {
 });
 
 test('Task 6: walk B passes the merge gate on the fixtures', db, async () => {
-  const { replies } = await walkB();
+  const { b, replies } = await walkB();
   console.log(`\n=== WALK B ===\n${transcript(replies)}\n`);
-  assert.deepEqual(gateFailures(replies), [], transcript(replies));
+  assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), [], transcript(replies));
   // It is target B's path: the opener, the pick, the connected line with the Base hook, then the steps.
   assertOpener(replies[0].show);
   assert.match(replies[1].show, /^Got it: Circle Developer Grants\. /);
@@ -2034,32 +2049,39 @@ test('Task 6: walk B passes the merge gate on the fixtures', db, async () => {
  * Fix round 1 (review 1): a step the agent can't do (Arc mainnet). Its help yes gets its own reply ending in the done
  * ask, stored like the codes push; an ok re-checks: not done, one different line; not done again, the next program.
  */
-async function walkHelp() {
+async function walkHelp(tag = 'hp') {
   const arc = committedProgram('arc-microgrants-studio', { keepContract: true });
-  const p = ProgramFile.parse({ ...arc, id: `v48-${process.pid}-arch`, title: `Arc Help ${RUN}`, ends_at: new Date(Date.now() + 20 * 86_400_000).toISOString(), status: 'active', starts_at: null });
+  // Closing in 40 hours: once its step is met (fix round 2), it is a program to apply to now (bestMove's 48 hours).
+  const p = ProgramFile.parse({ ...arc, id: `v48-${process.pid}-arch`, title: `Arc Help ${RUN}`, ends_at: new Date(Date.now() + 40 * 3_600_000).toISOString(), status: 'active', starts_at: null });
   await upsertProgram(p);
   await only([p.id, 'base-builder-grants']);
-  const b = await owner('hp');
+  const b = await owner(tag);
   const turn = conversation(b.ctx as never, { builderId: b.id });
   const replies: Reply[] = [];
+  /** The stored ask after each reply (fix round 2, minor 4). */
+  const asks: Record<string, unknown>[] = [];
+  const keep = async (r: Reply) => {
+    replies.push(r);
+    asks.push(((await seenOf(b.id)).bench_ask ?? {}) as Record<string, unknown>);
+  };
   let r = (await turn({ find: {} }))!;
-  replies.push(r);
+  await keep(r);
   // A lazy builder: "ok" to each reply's own ask, eight at most.
   for (let i = 0; i < 6; i++) {
     const t = lazyNext(r, { blanks: 'just me', pushed: PUSHED_ASK });
     if (!t || t === 'real_work') break;
     r = (await turn(t))!;
-    replies.push(r);
+    await keep(r);
     // The next program's hook ends the walk.
     if (r.hook) break;
   }
-  return { p, b, replies };
+  return { p, b, replies, asks, turn };
 }
 
 test('Task 6 fix round 1 (review 1): "ok" three times on a help step never repeats and never stalls; then the next program', db, async () => {
-  const { p, b, replies } = await walkHelp();
+  const { p, b, replies, asks } = await walkHelp();
   console.log(`\n=== WALK HELP ===\n${transcript(replies)}\n`);
-  assert.deepEqual(gateFailures(replies), [], transcript(replies));
+  assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), [], transcript(replies));
   const name = programName(p.title);
   const [hook, steps, help, notYet, next] = replies;
   assert.ok(hook.hook && hook.show.includes(name), hook.show);
@@ -2067,15 +2089,59 @@ test('Task 6 fix round 1 (review 1): "ok" three times on a help step never repea
   // The help yes: its own reply, the done ask last, stored as a re-check ask.
   assert.equal(help.show, `Let's do it now: get EarnKit on Arc mainnet.\n\n${HELP_DONE_ASK}`);
   assert.deepEqual(moveUp({ isError: false, text: '', reply: help.reply })?.kind, 'check_fits');
-  const ask = (await seenOf(b.id)).bench_ask as { help?: boolean; checking?: boolean };
-  // An ok, not done: one different line.
+  // Fix round 2 (minor 4): the stored ask is the re-check ask: help, checking, on this program, no ok yet.
+  const pick = (a: Record<string, unknown>) => [a.kind, a.program_id, a.gap, a.help, a.checking, a.checks];
+  assert.deepEqual(pick(asks[2]), ['check_fits', p.id, true, true, true, 0]);
+  // An ok, not done: one different line; the ask counts the ok.
   assert.equal(notYet.show, `Not done yet: get EarnKit on Arc mainnet. ${HELP_DONE_ASK}`);
+  assert.deepEqual(pick(asks[3]), ['check_fits', p.id, true, true, true, 1]);
   // An ok, still not done: parked, and the next program.
   assert.ok(next.show.startsWith(`I'll keep ${name} for when it's done.\n\n`), next.show);
   assert.doesNotMatch(next.show.split('\n\n').slice(1).join(' '), new RegExp(name));
   assert.ok(next.hook, next.show);
   assert.equal(replies.length, 5, transcript(replies));
-  void ask;
+  // Fix round 2 (1): the help park is its own record (with the step), never a plain no.
+  const seen = await seenOf(b.id);
+  assert.equal((seen.declined as Record<string, string> | undefined)?.[`path:${p.id}`], undefined);
+  assert.deepEqual(Object.keys((seen.help_parked ?? {}) as object), [p.id]);
+  assert.equal(((seen.help_parked as Record<string, { step: string }>)[p.id]).step, 'on Arc mainnet');
+});
+
+test('Task 6 fix round 2 (1): a help park is re-checked once a session; the step met, the program is back on with what changed', db, async () => {
+  const { p, b, replies, turn } = await walkHelp('hb');
+  const name = programName(p.title);
+  // Not met yet, a new session: still parked (checked once this session, not again).
+  await turn({ wait: SESSION_MS + 60_000 });
+  const still = (await turn({ find: {} }))!;
+  assert.doesNotMatch(still.show, new RegExp(name), still.show);
+  const checked = ((await seenOf(b.id)).help_parked as Record<string, { checked_at?: string }>)[p.id].checked_at;
+  assert.ok(checked, 'the re-check is stamped');
+  // The builder deploys on Arc (the facts EarnKit already reads: the project's chains).
+  await sql()`UPDATE builder_projects SET chains = array_append(COALESCE(chains, '{}'), 'arc') WHERE builder_id = ${b.id} AND lower(project_key) = lower(${b.key})`;
+  // Same session: not re-checked (at most once a session).
+  assert.doesNotMatch((await turn({ find: {} }))!.show, /is back on/);
+  // A new session: met, unparked, and its hook leads with what changed.
+  await turn({ wait: SESSION_MS + 60_000 });
+  const back = (await turn({ find: {} }))!;
+  assert.ok(back.show.startsWith(`You're on Arc now, so ${name} is back on.`), back.show);
+  // It met the builder before (parked), so never "opened".
+  assert.doesNotMatch(back.show, /opened/, back.show);
+  assert.ok(back.hook && back.said.includes(`hook:${p.id}`), back.said.join());
+  assert.equal(((await seenOf(b.id)).help_parked as Record<string, unknown>)[p.id], undefined);
+  const all = [...replies, still, back].map((r, i) => ({ ...r, turn: i }));
+  assert.deepEqual(gateFailures([still, back], { names: ['EarnKit', b.handle] }), [], transcript(all));
+  console.log(`\n=== WALK BACK ON ===\n${transcript([still, back])}\n`);
+});
+
+test('Task 6 fix round 2 (1): a help park never met expires with DECLINE_MS', db, async () => {
+  const { p, b, turn } = await walkHelp('hx');
+  const parked = (await seenOf(b.id)).help_parked as Record<string, { at: string }>;
+  parked[p.id].at = new Date(Date.now() - 31 * 86_400_000).toISOString();
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('help_parked', ${sql().json(parked as never)}::jsonb) WHERE builder_id = ${b.id}`;
+  await turn({ wait: SESSION_MS + 60_000 });
+  const r = (await turn({ find: {} }))!;
+  assert.match(r.show, new RegExp(programName(p.title)), r.show);
+  assert.doesNotMatch(r.show, /is back on/);
 });
 
 test('conversation (Task 6 fix round 1, review 8, 11): first and hook from the product; a wait checks the session ended; a tell must answer the ask', db, async () => {

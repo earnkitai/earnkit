@@ -70,6 +70,8 @@ const DAY = 86_400_000;
 const BLANKS = 'just me, nothing raised';
 const replies: Reply[] = [];
 const notes: string[] = [];
+/** The builder's own project name and handle: the only subjects "{name} is live" is proof for (gateFailures names). */
+const names: string[] = [];
 
 const moveUpOf = (r: Reply) => (r.reply?.move_up as { kind?: string } | undefined) ?? null;
 
@@ -82,6 +84,10 @@ async function own(id: number) {
 async function walkA() {
   const id = Number(process.env.OWN ?? 27);
   const ctx = await own(id);
+  const [me] = await sql()<{ name: string | null; handle: string | null }[]>`
+    SELECT p.name, f.x_handle AS handle FROM builder_profiles f LEFT JOIN builder_projects p ON p.builder_id = f.builder_id AND lower(p.project_key) = lower(f.main_project_key)
+    WHERE f.builder_id = ${ctx.installationId}`;
+  names.push(...[me?.name, me?.handle].filter((x): x is string => Boolean(x)));
   const turn = conversation(ctx as never, { builderId: ctx.installationId });
   const play = async (t: Turn) => {
     const r = await turn(t);
@@ -127,7 +133,7 @@ try {
   await (walk === 'A' ? walkA() : walkB());
   console.log(`=== WALK ${walk} ===\n\n${transcript(replies)}\n`);
   for (const n of notes) console.log(`note: ${n}`);
-  const fails = gateFailures(replies);
+  const fails = gateFailures(replies, { names });
   console.log(`\n=== GATE: ${fails.length ? `${fails.length} failure(s)` : 'pass'} ===`);
   for (const f of fails) console.log(`turn ${f.turn} ${f.rule}: ${f.reason}`);
   code = fails.length ? 1 : 0;

@@ -398,6 +398,16 @@ const helpStepWords = (s: GapStep) => {
 export const helpReply = (step: GapStep) => `Let's do it now: ${helpStepWords(step)}.${step.link ? ` Guide: ${step.link}` : ''}\n\n${HELP_DONE_ASK}`;
 /** An ok to HELP_DONE_ASK with the step still not done: one different line, the same ask. Pure. */
 export const helpNotYet = (step: GapStep) => `Not done yet: ${helpStepWords(step)}. ${HELP_DONE_ASK}`;
+/**
+ * Task 6 fix round 2 (1): a help park whose step is met since: what changed, so the program is back on. "You're on Arc
+ * now, so Arc Microgrants is back on." (a chain's mainnet); "Builder Codes are in, so ..."; else "That step is done, so
+ * ...". Pure.
+ */
+export function backOnLine(step: string, title: string): string {
+  const chain = /^on (.+?) mainnet$/i.exec(step)?.[1];
+  const what = chain ? `You're on ${chain} now` : step === 'codes' ? 'Builder Codes are in' : 'That step is done';
+  return `${what}, so ${programName(title)} is back on.`;
+}
 /** Not done after a second check: the program waits (parked), and the path moves on. Pure. */
 export const helpParked = (title: string) => `I'll keep ${programName(title)} for when it's done.`;
 
