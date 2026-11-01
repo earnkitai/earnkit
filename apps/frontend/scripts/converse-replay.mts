@@ -13,6 +13,8 @@
  * - Refuses: a DATABASE_URL not on localhost; the master snapshot `earnkit_replay` (it writes) unless ALLOW_MASTER=1;
  *   LINK_CHECK or EARNKIT_MODEL_TEST set (the test guard would leave the network open).
  * - B: a fresh signed-out installation in this database: the opener, then "2".
+ * - S (OWN, v4.8.1): an agent that never answers: five plain finds in one session, then "what can I apply to"
+ *   (`ask: programs`), then one more plain find (the owner's 2026-11-01 dogfood).
  * - Real work ends a walk's session: a push to the builder's repo (Builder Codes, "Say ok once the change is pushed")
  *   or connecting GitHub needs the builder's own accounts, so the script records it and goes no further there. A help
  *   step's "ok" is played as not done yet (EarnKit re-checks it).
@@ -48,8 +50,8 @@ for (const name of ['LINK_CHECK', 'EARNKIT_MODEL_TEST'])
 delete process.env.LINK_CHECK;
 delete process.env.EARNKIT_MODEL_TEST;
 const walk = (process.env.WALK ?? 'A').toUpperCase();
-if (walk !== 'A' && walk !== 'B') {
-  console.error('WALK must be A or B.');
+if (walk !== 'A' && walk !== 'B' && walk !== 'S') {
+  console.error('WALK must be A, B or S.');
   process.exit(2);
 }
 
@@ -115,6 +117,25 @@ async function walkA() {
   await play({ find: {} });
 }
 
+async function walkS() {
+  const id = Number(process.env.OWN ?? 27);
+  const ctx = await own(id);
+  const [me] = await sql()<{ name: string | null; handle: string | null }[]>`
+    SELECT p.name, f.x_handle AS handle FROM builder_profiles f LEFT JOIN builder_projects p ON p.builder_id = f.builder_id AND lower(p.project_key) = lower(f.main_project_key)
+    WHERE f.builder_id = ${ctx.installationId}`;
+  names.push(...[me?.name, me?.handle].filter((x): x is string => Boolean(x)));
+  const turn = conversation(ctx as never, { builderId: ctx.installationId });
+  const turns: Turn[] = [
+    ...Array.from({ length: 5 }, () => ({ find: {} }) as Turn),
+    { says: 'what can I apply to', find: { ask: 'programs' } } as Turn,
+    { find: {} },
+  ];
+  for (const t of turns) {
+    const r = await turn(t);
+    if (r) replies.push(r);
+  }
+}
+
 async function walkB() {
   const token = `ek_replay_b_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(token, undefined, false, 'Claude Code');
@@ -130,7 +151,7 @@ async function walkB() {
 
 let code = 0;
 try {
-  await (walk === 'A' ? walkA() : walkB());
+  await (walk === 'A' ? walkA() : walk === 'S' ? walkS() : walkB());
   console.log(`=== WALK ${walk} ===\n\n${transcript(replies)}\n`);
   for (const n of notes) console.log(`note: ${n}`);
   const fails = gateFailures(replies, { names });
