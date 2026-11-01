@@ -20,7 +20,7 @@ import { isoWeekOf } from './weeks';
 import { backfillMondays } from './week-facts';
 import { X_ON, withEnv } from './fixtures/find';
 import {
-  CAN_DO, connectedLine, investorLater, noFitWhy, pickHook, openerAgain, openerReply, pickedReply, resolvePick, FOUNDER_BLANKS, MENTOR_NOTE, PATH_ANSWER_FIRST, CODES_OFFER, blanksAgain, SESSION_MS, SENT_ASK, TRACK_ACK, agoWords, passedLine, sinceLine, submitBy, submitPointer, submitReply, trackLead, bestMove, blanksAsk, closeWords, draftBlanks, draftReply, gapClosedReply, gapProof, gapReply, gapStillReply, pathReply, programName, proofLine, readPath, sessionOf,
+  CAN_DO, PREPARE_LINE, PROGRAMS_AGAIN, fitCell, programsAnswer, standingAgain, standingAnswer, connectedLine, investorLater, noFitWhy, pickHook, openerAgain, openerReply, pickedReply, resolvePick, FOUNDER_BLANKS, MENTOR_NOTE, PATH_ANSWER_FIRST, CODES_OFFER, blanksAgain, SESSION_MS, SENT_ASK, TRACK_ACK, agoWords, passedLine, sinceLine, submitBy, submitPointer, submitReply, trackLead, bestMove, blanksAsk, closeWords, draftBlanks, draftReply, gapClosedReply, gapProof, gapReply, gapStillReply, pathReply, programName, proofLine, readPath, sessionOf,
   type GapGrant, type InvestorProgram, type MoveCtx, type MoveProgram,
 } from './conversation';
 import { qualifyGapSteps, BUILDER_CODES_GUIDE } from './bench-reply';
@@ -28,6 +28,8 @@ import { BUILDER_CODES_SUFFIX } from './builder-code';
 import { PUSHED_ASK, RECHECK_WAIT, codesSettled, founderBriefNote, openerPrograms, questionsDraftNote } from './bench-find';
 import type { Card } from './present';
 import { shipLogBlock, shipLogFacts } from './ship-log-facts';
+import { rankWords } from './rank';
+import { alertBody, runAlertMail, tellLine } from './alert-mail';
 
 /**
  * v4.8 Task 1: the path, session memory and the agent note. The copy is the target conversation's (section A's
@@ -1474,4 +1476,208 @@ test('B fix round 1 (10): a score above 0 is said in the connected line', db, as
   await sql()`UPDATE builder_live SET score = 54, ranked = true, calibration = ${'v2-shipping'}, parts = ${sql().json({ shipping: { points: 54, raw: { mask: 1, live_ships: 0 } } } as never)} WHERE builder_id = ${b.id}`;
   const p1 = show(await find(b)).split('\n\n')[0];
   assert.match(p1, new RegExp(`^Connected\\. I'll track every commit you push, so your profile stays current without you lifting a finger: earnkit\\.com/${b.handle.toLowerCase()}, score 54(, #\\d+ of \\d+ builders)?\\.$`), p1);
+});
+
+/*
+ * v4.8 Task 5: the direct questions (target C), repeats and the email tell line (target D).
+ */
+test('rankWords (pure): "#N of M builders so far" at any pool size, from the same standing as the page pill', () => {
+  assert.equal(rankWords({ ranked: true, rank: 1, total: 1 }), '#1 of 1 builders so far');
+  assert.equal(rankWords({ ranked: true, rank: 3, total: 5 }), '#3 of 5 builders so far');
+  assert.equal(rankWords({ ranked: true, rank: 1204, total: 3500 }), '#1,204 of 3,500 builders so far');
+  for (const s of [{ ranked: false, rank: 1, total: 1 }, { ranked: true, rank: 0, total: 1 }, { ranked: true, rank: 3, total: 2 }, { ranked: true, rank: NaN, total: 2 }])
+    assert.equal(rankWords(s), null, JSON.stringify(s));
+});
+
+/** Target C's standing answer, the owner's facts filled in. */
+const C_STANDING = 'Score 77, #1 of 1 builders so far. It comes from your GitHub: 6 weeks shipping in a row, live at earnkit.com. Programs see it at earnkit.com/jenilt.';
+test('standingAnswer and standingAgain (pure): target C word for word; a score of 0 or unknown says the profile fills in', () => {
+  const f = { score: 77, rank: '#1 of 1 builders so far', streak: 6, liveAt: 'earnkit.com', live: true, name: 'EarnKit', page: 'earnkit.com/jenilt' };
+  assert.equal(standingAnswer(f), C_STANDING);
+  assert.equal(standingAgain(f), 'Same as a few minutes ago: #1 of 1, score 77.');
+  // Live with no link known: the project's name; one week; no streak, not live: GitHub alone.
+  assert.equal(standingAnswer({ ...f, liveAt: null, streak: 1 }), 'Score 77, #1 of 1 builders so far. It comes from your GitHub: 1 week shipping, EarnKit is live. Programs see it at earnkit.com/jenilt.');
+  assert.equal(standingAnswer({ ...f, liveAt: null, live: false, streak: 0, rank: null }), 'Score 77. It comes from your GitHub. Programs see it at earnkit.com/jenilt.');
+  assert.equal(standingAgain({ ...f, rank: null }), 'Same as a few minutes ago: score 77.');
+  for (const score of [0, null]) {
+    const s = standingAnswer({ ...f, score });
+    assert.equal(s, 'Your profile fills in as your commits come in. Programs see it at earnkit.com/jenilt.');
+    assert.doesNotMatch(s, /Score|#\d/);
+    assert.equal(standingAgain({ ...f, score }), 'Same as a few minutes ago: your profile fills in as your commits come in.');
+  }
+  for (const s of [standingAnswer(f), standingAgain(f)]) assert.doesNotMatch(s, BAD);
+});
+
+test('programsAnswer and fitCell (pure): grants with fit, investor programs apart with what they are, the mentor line; never "qualify"', () => {
+  assert.equal(fitCell({ fits: true, gaps: null }), 'Fits');
+  assert.equal(fitCell({ fits: false, gaps: ['codes'] }), '1 step: add Builder Codes');
+  assert.equal(fitCell({ fits: false, gaps: ['on Arc mainnet'] }), '1 step: deploy on Arc mainnet');
+  assert.equal(fitCell({ fits: false, gaps: ['base', 'codes', 'use'] }), '3 steps');
+  assert.equal(fitCell({ fits: false, gaps: null }), 'Not yet: not checked yet');
+  assert.equal(fitCell({ fits: false, gaps: [], why: 'needs Arc' }), 'Not yet: needs Arc');
+  const s = programsAnswer(
+    [{ title: 'Base Builder Grant Program', amount: 'up to $5,000', when: 'rolling', fit: '1 step: add Builder Codes' }, { title: 'Arc Microgrants: Built with Arc Studio', amount: '500 USDC × 8 grants', when: 'closes Nov 1', fit: '1 step: deploy on Arc mainnet' }],
+    [{ title: 'a16z speedrun SR008', amount: 'up to $1M', when: 'closes Nov 1', what: "a16z's 12-week startup program, in person in San Francisco." }],
+  );
+  assert.equal(s, [
+    'Grants open now:',
+    '',
+    '| Grant | Money | Closes | Your fit |\n|---|---|---|---|\n| Base Builder Grant | up to $5,000 | Rolling | 1 step: add Builder Codes |\n| Arc Microgrants | 500 USDC × 8 grants | Nov 1 | 1 step: deploy on Arc mainnet |',
+    '',
+    'Investor programs:',
+    '',
+    "| Program | Money | Closes | What it is |\n|---|---|---|---|\n| a16z speedrun SR008 | up to $1M | Nov 1 | a16z's 12-week startup program, in person in San Francisco. |",
+    '',
+    PREPARE_LINE,
+  ].join('\n'));
+  assert.equal(PREPARE_LINE, 'If one of these is your plan, I can help you prepare.');
+  assert.doesNotMatch(s, /qualify|\btotal\b/i);
+  assert.doesNotMatch(s, BAD);
+  // None open: one line for the grants, no investor table and no mentor line.
+  assert.equal(programsAnswer([], []), 'No grants are open right now.');
+  assert.equal(PROGRAMS_AGAIN, 'Same list as earlier.');
+});
+
+test('the alert emails (target D): each ends with exactly one tell line naming its program', () => {
+  const closing = alertBody({ kind: 'closing', key: 'k', program: 'Base Builder Grant Program', day: 'Nov 1', amount: '$5,000', draft: false });
+  const ready = alertBody({ kind: 'closing', key: 'k', program: 'Base Builder Grant Program', day: 'Nov 1', amount: '$5,000', draft: true });
+  const fresh = alertBody({ kind: 'new', key: 'k', program: 'Base Builder Grant Program', amount: '$5,000', when: 'rolling', project: 'EarnKit' });
+  const accepted = alertBody({ kind: 'accepted', key: 'k', program: 'Base Builder Grant Program', link: 'https://earnkit.com/me/post/abcdefghij' });
+  const tail = (t: string) => t.split('\n').at(-1);
+  assert.equal(tail(closing.text), 'Tell your agent: "EarnKit, draft Base Builder Grant."');
+  assert.equal(tail(fresh.text), 'Tell your agent: "EarnKit, draft Base Builder Grant."');
+  assert.equal(tail(ready.text), 'Tell your agent: "EarnKit, finish my Base Builder Grant draft."');
+  assert.equal(tail(accepted.text), 'Tell your agent: "EarnKit, what\'s next after Base Builder Grant."');
+  for (const b of [closing, ready, fresh, accepted]) {
+    assert.equal((b.text.match(/Tell your agent:/g) ?? []).length, 1, b.text);
+    assert.doesNotMatch(b.text, /Ask your agent/);
+    assert.doesNotMatch(b.subject, /Tell your agent/);
+    assert.doesNotMatch(b.text, BAD);
+  }
+  assert.equal(tellLine('draft Base'), 'Tell your agent: "EarnKit, draft Base."');
+});
+
+test('runAlertMail: the mailed text carries the tell line before the footer; subject unchanged (a test mailer, never sent)', db, async () => {
+  const sent: { subject: string; text: string }[] = [];
+  const t = `ek_v48_mail_${RUN}_${Math.random().toString(36).slice(2)}`;
+  await saveInstallation(t, undefined, false, 'Claude Code');
+  const c = (await connectInstallation(t))!;
+  await sql()`INSERT INTO digest_subscriptions (installation_id, login, email, opted_in_at) VALUES (${c.id}, '', ${`v48-${RUN}-${c.id}@example.com`}, now())`;
+  const key = process.env.RESEND_API_KEY;
+  process.env.RESEND_API_KEY = 're_test';
+  try {
+    await runAlertMail(new Date(), {
+      only: [c.id],
+      mail: async (m) => void sent.push(m),
+      events: async () => [{ kind: 'new', key: `new:v48-${RUN}`, program: 'Base Builder Grant Program', amount: '$5,000', when: 'rolling', project: 'EarnKit' }],
+    });
+  } finally {
+    if (key === undefined) delete process.env.RESEND_API_KEY;
+    else process.env.RESEND_API_KEY = key;
+    // Never left for another file's run (its own mailer, all builders).
+    await sql()`DELETE FROM digest_subscriptions WHERE installation_id = ${c.id}`;
+  }
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].subject, 'New: Base Builder Grant Program, $5,000');
+  assert.match(sent[0].text, /\n\nTell your agent: "EarnKit, draft Base Builder Grant\."\n\n/);
+});
+
+/** The owner-like builder with the page's score (77, a listed Shipping row) and only these programs open. */
+async function asker(tag: string) {
+  const sr = await speedrun(30);
+  await only([sr.id, 'base-builder-grants', 'circle-developer-grants']);
+  const b = await owner(tag);
+  await sql()`UPDATE builder_live SET score = 77, ranked = true, calibration = ${'v2-shipping'}, parts = ${sql().json({ shipping: { points: 77, raw: { mask: 1, live_ships: 0 } } } as never)} WHERE builder_id = ${b.id}`;
+  return { b, sr };
+}
+
+test('C: "where do I stand" is answered first (score, #N of M so far, the GitHub facts, the page), then the path step; again, one pointer line', db, async () => {
+  const { b, sr } = await asker('st');
+  const r = await find(b, { ask: 'standing' });
+  const s = show(r);
+  const [p1, ...rest] = s.split('\n\n');
+  const page = `earnkit\\.com/${b.handle.toLowerCase()}`;
+  assert.match(p1, new RegExp(`^Score 77, #\\d+ of \\d+ builders so far\\. It comes from your GitHub: 6 weeks shipping in a row, live at earnkit\\.com\\. Programs see it at ${page}\\.$`), s);
+  // The rank is the page's own standing (the same numbers as the pill would show).
+  const m = /#(\d+) of (\d+)/.exec(p1)!;
+  assert.ok(Number(m[1]) >= 1 && Number(m[1]) <= Number(m[2]), p1);
+  // Then the path's step (A's opener for the a16z copy), its one easy reply last.
+  assert.match(rest.join('\n\n'), new RegExp(`^Jenil, ${sr.title} closes [^\\n]+\\n\\nI can draft your application from your commits and live product in a few minutes\\. Want me to start\\?$`), s);
+  assert.equal(moveUp(r)?.kind, 'apply');
+  assert.doesNotMatch(s, BAD);
+  // The same ask again in the session: one pointer line, then the step's own pointer. Never the block twice.
+  const again = show(await find(b, { ask: 'standing' }));
+  assert.equal(again, `Same as a few minutes ago: #${m[1]} of ${m[2]}, score 77.\n\nYour ${programName(sr.title)} application is still the next move. Want me to start?`);
+  assert.doesNotMatch(again, /It comes from your GitHub/);
+  // No ask: the path alone (the answer is not repeated).
+  assert.equal(show(await find(b)), `Your ${programName(sr.title)} application is still the next move. Want me to start?`);
+});
+
+test('C: a score of 0 or unknown gets no score and no rank: the profile fills in', db, async () => {
+  const { b } = await asker('s0');
+  await sql()`UPDATE builder_live SET score = 0, parts = ${sql().json({ shipping: { points: 0, raw: { mask: 0, live_ships: 0 } } } as never)} WHERE builder_id = ${b.id}`;
+  const p1 = show(await find(b, { ask: 'standing' })).split('\n\n')[0];
+  assert.equal(p1, `Your profile fills in as your commits come in. Programs see it at earnkit.com/${b.handle.toLowerCase()}.`);
+});
+
+test('C: "what can I apply to" gives the grants table with fit and the investor table apart, then the path step; again, one line', db, async () => {
+  const { b, sr } = await asker('pg');
+  const r = await find(b, { ask: 'programs' });
+  const s = show(r);
+  const [grants, investors] = s.split(/\n\nInvestor programs:\n\n/);
+  assert.match(grants, /^Grants open now:\n\n\| Grant \| Money \| Closes \| Your fit \|\n\|---\|---\|---\|---\|\n/, s);
+  // Base: Builder Codes passed on, its one gap, from stored facts; never "you qualify".
+  assert.match(grants, /\n\| Base Builder Grant \| up to \$5,000 \| Rolling \| 1 step: add Builder Codes \|/, s);
+  assert.match(grants, /\n\| Circle Developer Grants \| [^|]+ \| Rolling \| (Fits|1 step: [^|]+|\d+ steps|Not yet: [^|]+) \|/, s);
+  // An investor program is never in the grants table and never a fit.
+  assert.doesNotMatch(grants, /speedrun/);
+  assert.ok(investors, s);
+  const [table, mentor, step] = investors.split('\n\n');
+  assert.match(table, new RegExp(`^\\| Program \\| Money \\| Closes \\| What it is \\|\\n\\|---\\|---\\|---\\|---\\|\\n\\| ${sr.title} \\| up to \\$1M \\| [A-Z][a-z]{2} \\d{1,2} \\| a16z's 12-week startup program, in person in San Francisco\\. \\|$`), s);
+  assert.doesNotMatch(table, /Fits|step/);
+  assert.equal(mentor, PREPARE_LINE);
+  // The path's step last, the one easy reply.
+  assert.match(investors.split('\n\n').slice(2).join('\n\n'), /^Jenil, .+\n\nI can draft your application from your commits and live product in a few minutes\. Want me to start\?$/, s);
+  assert.ok(step);
+  assert.doesNotMatch(s, /qualify|\btotal\b/i);
+  assert.doesNotMatch(s, BAD);
+  const again = show(await find(b, { ask: 'programs' }));
+  assert.equal(again, `Same list as earlier.\n\nYour ${programName(sr.title)} application is still the next move. Want me to start?`);
+});
+
+test('C: a program applied to is left out of the tables', db, async () => {
+  const { b } = await asker('ap');
+  await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status, at) VALUES (${b.id}, '', 'circle-developer-grants', 'applied', now())`;
+  const s = show(await find(b, { ask: 'programs' }));
+  assert.match(s, /Base Builder Grant/);
+  assert.doesNotMatch(s, /Circle Developer Grants/);
+});
+
+test('C: a held submit question and setup step 3 still win over a direct question, as before', db, async () => {
+  const { b } = await asker('hq');
+  await sql()`INSERT INTO projects (program_id, name, installation_id, confirmed_at) VALUES ('base-builder-grants', 'EarnKit', ${b.id}, now())`;
+  for (const ask of ['standing', 'programs']) {
+    const s = show(await find(b, { ask }));
+    assert.match(s, /The only step left: submit it on .+\. Did you submit it\?$/, s);
+    assert.doesNotMatch(s, /Score 77,|Grants open now|Same as/, s);
+  }
+  const { b: s3 } = await asker('h3');
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'wallet_asked' - 'wallet_link_at' - 'setup_asked' WHERE builder_id = ${s3.id}`;
+  const r = await find(s3, { ask: 'standing' });
+  const link = show(r).match(/no fee: (\S+)/)?.[1] ?? '';
+  assert.equal(show(r), walletSetupAsk('EarnKit', link));
+});
+
+test('C: a shared client with no X of its own gets no answer and nothing said is written', db, async () => {
+  const { b } = await asker('shq');
+  const before = await seenOf(b.id);
+  const t = `ek_v48_sharedq_${RUN}_${Math.random().toString(36).slice(2)}`;
+  await saveInstallation(t, undefined, false, 'Claude Code');
+  const other = (await connectInstallation(t))!.own;
+  const shared = { ...(b.ctx as object), sharedClient: true, ownInstallationId: other };
+  for (const ask of ['standing', 'programs']) {
+    const s = show(await mcpCall(shared as never, 'find', { ask }));
+    assert.doesNotMatch(s, /Score 77,|Grants open now|Same as a few minutes ago|Same list as earlier/, s);
+  }
+  assert.deepEqual((await seenOf(b.id)).said, before.said);
 });

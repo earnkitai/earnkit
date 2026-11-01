@@ -1524,6 +1524,8 @@ apps/frontend/
                                alertBody (exact copy), pickAlert, runAlertMail (cron step alert_mail in every cron
                                run, no hour gate; longest-unmailed builders first: one email a builder a UTC day, each event once in alert_mail_sent, Resend room after
                                every digest still due). Tests: v47-reach-out.test.ts
+                               v4.8 Task 5 (target D): tellLine, alertAction; each body ends in one line, Tell your agent:
+                               "EarnKit, {action}." (draft / finish my {program} draft / what's next after {program}).
     best-fit.ts                v3.1 Task 12: bestFitFor, the Best fit outside a reply (bench-find.ts scoreApplies + bestApplies)
                                v4.7: openFitsFor (alert closing fits; final review R19 withoutSilentDeclines: only an explicit no drops one)
     ship-log-facts.ts          v3 Stage 2: shipLogFacts/shipLogBlock/SHIP_LOG_NOTE, the ship log's facts in prepare's draft
@@ -1800,6 +1802,9 @@ apps/frontend/
                                carries path + opener to the joined page.
                                Fix round 1: pickHook, Path.steps, GENERIC_PICK; bench-find.ts openerRecord, pickGoneLine,
                                ViewIn.ahead, SetupDone.then_find; tools.ts tell runs find after a then_find reply.
+                               v4.8 Task 5 (target C): ASK_SAID, StandingFacts, standingAnswer, standingAgain, PROGRAMS_AGAIN,
+                               PREPARE_LINE, fitCell, programsAnswer, whatItIs. bench-find.ts directAnswer (find {ask}),
+                               ViewIn.question/answer, linkHost; the path block's answered() wrapper.
     bench-find.ts(+test)       GTM W2 (2026-10-23): link-only projects (a Lovable or Bolt live_url, no repo) take the no-GitHub path
                                (noCode: the picker link, github_no, the walk-through; linkName/YOUR_APP, reportedName: never the
                                host); backing before hot post and apply (boundedBacking first), connectBacking in the connect yes;
@@ -1988,6 +1993,7 @@ apps/frontend/
                                "#N of M builders", from 20 "Top P% of builders" in the top half; chains named), scoreLine ("Shipping 72 ·
                                <rank line>"; thousands separators), benchPercent, BENCH_CHAINS; rankSplit (lead number and
                                words, for the profile and the leaderboard rows)
+                               v4.8 Task 5: rankWords ("#N of M builders so far" at any pool size, the direct standing answer)
     person-github.ts(+test)    v2.12.1 T3: PERSON_GITHUB_QUERY (one GraphQL query a person), reposQuery
                                (aliased by name, REPOS_MAX 25), readPersonGithub, readGithubRepos
                                v2.13.3: readAppRepos (a repo EarnKit's token can't read, through the App, keyed by source id).

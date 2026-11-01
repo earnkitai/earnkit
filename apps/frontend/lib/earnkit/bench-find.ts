@@ -56,6 +56,7 @@ import {
 import { POST_NOTE, eventPost, redraftAnswer, weeklyPost } from './post-reply';
 import { EMAIL_NOTE, WHICH_EMAIL, askWeeklyEmail, digestEnabled, saveWeeklyEmail } from './digest';
 import { pagePath, pageUrl } from './reserved-routes';
+import { rankWords } from './rank';
 import { prizeOf, shortWallet, siteUrl, upToCell } from './entry-text';
 import { programKind } from './site-copy';
 import { BASE_GRANTS_ID } from './builder-code';
@@ -74,6 +75,7 @@ import { closeDay, programZone, zoneAbbr } from './deadline';
 import type { ProgramRow as ProgramFileRow } from './programs';
 import {
   MENTOR_NOTE, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, pickHook, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, type OpenerProgram, type MoveCtx, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProof, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofLine, markSaid, pathReply, programName, readPath, saidSql, sessionOf,
+  ASK_SAID, PROGRAMS_AGAIN, fitCell, programsAnswer, standingAgain, standingAnswer, whatItIs, type GrantRow, type InvestorRow, type StandingFacts,
   type GapStep,
   type GapGrant, type InvestorProgram, type Move, type MoveProgram, type Path,
 } from './conversation';
@@ -547,6 +549,10 @@ type ViewIn = {
    * a pick's "Got it" above step 2), filled by benchView; benchFind and benchScore put them first.
    */
   ahead?: string[];
+  /** v4.8 Task 5: find's direct question (mcp.ts `ask`), answered first on a path reply (directAnswer). */
+  question?: 'standing' | 'programs';
+  /** v4.8 Task 5: the direct answer, said first of all (benchFind puts it before every other line). */
+  answer?: string[];
 };
 
 /** Test only: resolves when every running Builder Codes check has finished. */
@@ -1178,6 +1184,63 @@ async function connectedCommit(o: ViewIn, plan: PathPlan): Promise<{ view: Bench
 }
 
 /**
+ * v4.8 Task 5: find's direct question answered (target conversation C), from stored facts only, or its one pointer
+ * line when this session already answered it (standing_seen.said `ask:<question>`). Standing: the page's score and
+ * rank ("#N of M builders so far", rank.ts rankWords, the pill's own standing), the streak, the live link, the page.
+ * Programs: the open grants not applied to or entered (applied: anything told to EarnKit), each with its fit from the
+ * path's facts (a real fit, the gap engine's steps, else "Not yet"), then the open investor programs apart (never a fit,
+ * never summed), soonest first, with what each is (the program file's first sentence). Null without a question.
+ */
+async function directAnswer(o: ViewIn, v: PathFacts, told: Set<string>, plan: PathPlan | null): Promise<{ text: string; key: string } | null> {
+  const q = o.question;
+  if (!q) return null;
+  const { now, read } = o;
+  const key = ASK_SAID(q);
+  const again = sessionOf(read.seen, now).said.has(key);
+  if (q === 'standing') {
+    const live = v.project.live || v.siteLive;
+    const f: StandingFacts = {
+      score: v.stand.score, rank: v.stand.score !== null ? rankWords(read.base.standing) : null, streak: v.streak,
+      liveAt: live && read.liveUrl ? linkHost(read.liveUrl) : null, live, name: v.project.name, page: pageUrl(v.handle),
+    };
+    return { key, text: again ? standingAgain(f) : standingAnswer(f) };
+  }
+  if (again) return { key, text: PROGRAMS_AGAIN };
+  const p = plan ?? (await pathPlan(o, v, told));
+  const applied = new Set([...told, ...o.skip]);
+  const fitIds = new Set(p.fitRows.map((f) => f.program_id));
+  const gapsOf = new Map(p.ctx.grants.map((g) => [g.id, g.gaps]));
+  const mine = new Set([...v.chains, ...(o.known?.onBase ? ['base'] : [])].map((x) => x.toLowerCase()));
+  const order = (id: string) => (fitIds.has(id) ? 0 : gapsOf.get(id)?.length || 99);
+  const grants: GrantRow[] = o.cards
+    .filter((c) => c.investment !== true && programKind(c).startsWith('grant') && showable(c, now, applied))
+    .sort((a, b) => order(a.id) - order(b.id) || byRelevance(a, b))
+    .map((c) => {
+      const gaps = gapsOf.get(c.id) ?? null;
+      const chains = c.any_chain ? [] : (c.chains ?? []);
+      const why = gaps?.length === 0 ? "EarnKit can't see its needs yet"
+        : !gaps && chains.length === 1 && !mine.has(chains[0]) ? `needs ${chainName(chains[0])}` : null;
+      return { title: c.title, amount: pathAmount(c), when: fundWhen(c), fit: fitCell({ fits: fitIds.has(c.id), gaps, why }) };
+    });
+  const invCards = o.cards
+    .filter((c) => c.investment === true && showable({ ...c, investment: false }, now, applied))
+    .sort((a, b) => closeAt(a) - closeAt(b) || byRelevance(a, b));
+  const investors: InvestorRow[] = await Promise.all(invCards.map(async (c) => ({
+    title: c.title, amount: pathAmount(c), when: fundWhen(c),
+    what: whatItIs((await getProgramRow(c.id).catch(() => null))?.description),
+  })));
+  return { key, text: programsAnswer(grants, investors) };
+}
+/** A live link's host as a person says it ("earnkit.com"); null when it isn't a link. Pure. */
+const linkHost = (url: string): string | null => {
+  try {
+    return new URL(url).host.replace(/^www\./i, '') || null;
+  } catch {
+    return null;
+  }
+};
+
+/**
  * The one view find and score share (F19), in one of the four states (R16a): the project, the rank and streak, the
  * money (the Best fit, the fits, backing, the upcoming program; the signed-out reply's open grant), the one link and the
  * one next step (with the connect offer or the weekly moment it needs), stored for its yes, and the fields every Bench
@@ -1299,15 +1362,25 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
     nudgeFirst = await pickNudge(id, now, { project: project.name, best: null });
     if (!(nudgeFirst?.ask && nudgeFirst.line) && told) {
       const facts: PathFacts = { state, variant, project, streak, handle, stand, siteLive, chains: row?.chains ?? [] };
+      // v4.8 Task 5: a direct question (find {ask}) is answered first, then this reply's path step (its words or its
+      // pointer), whichever the path gives; the answer is said once a session (again, one pointer line).
+      const answered = async <T,>(r: T, plan: PathPlan | null): Promise<T> => {
+        const a = o.question ? await directAnswer(o, facts, told, plan) : null;
+        if (a) {
+          o.answer?.push(a.text);
+          await markSaid(id, [a.key], now);
+        }
+        return r;
+      };
       // Task 3: the path waiting at submit ("sent" not said yet): one line pointing back, never the draft again.
       const waiting = submitWaiting(o, told);
-      if (waiting) return pathSubmitCommit(o, facts, waiting, await sinceFor(o, facts, { program: moveProgram(waiting), saysClose: true }));
+      if (waiting) return answered(await pathSubmitCommit(o, facts, waiting, await sinceFor(o, facts, { program: moveProgram(waiting), saysClose: true })), null);
       const plan = await pathPlan(o, facts, told);
       // v4.8 Task 4: the first path reply after connecting, for a builder who saw the opener: the profile line and the
       // pick's fit, once (setup step 3, a held question and an owning nudge came first, above).
       if (read.seen.opener && !read.seen.connected_said && (!plan.path || plan.path.stage === 'hook')) {
         const hello = await connectedCommit(o, plan);
-        if (hello) return hello;
+        if (hello) return answered(hello, plan);
       }
       const move = plan.move;
       // Task 3: a fresh session opens with what changed since the last one (the step's own words say a hook's close).
@@ -1317,16 +1390,21 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
       // Fix round 1 (9): a path left at track (no next program at "sent") is no longer mid-path.
       const midPath = move.kind !== 'quiet' && plan.path !== null && ((plan.path.stage !== 'hook' && plan.path.stage !== 'track') || plan.path.program_id === move.program.id);
       // Task 2: the path's gap closed: the draft offer leads (mid-path).
-      if (plan.closed) return pathClosedCommit(o, { ...plan, closed: plan.closed }, await sinceOf(plan.closed.program, false));
+      if (plan.closed) return answered(await pathClosedCommit(o, { ...plan, closed: plan.closed }, await sinceOf(plan.closed.program, false)), plan);
       // Fix round 2 (F3): the re-check runs past its wait: one easy reply, "ok" (the gap ask stays, so a no parks).
-      if (plan.checking) return pathCheckingView(o, plan);
+      if (plan.checking) return answered(await pathCheckingView(o, plan), plan);
       // Fix round 1 (T2-4): mid-gap on the program bestMove kept: the first remaining step, never "Want the steps?".
       if (move.kind !== 'quiet' && plan.path?.stage === 'gap' && plan.path.program_id === move.program.id) {
         const still = await pathGapCommit(o, { ...plan, move }, await sinceOf(move.program, false));
-        if (still) return still;
+        if (still) return answered(still, plan);
       }
-      if (move.kind === 'quiet') pathQuiet = true;
-      else if (move.kind !== 'closest' || midPath || sessionOf(read.seen, now).said.has(OLDER_SAID)) return pathCommit(o, { ...plan, move }, await sinceOf(move.program, true));
+      // Task 5: with nothing to hook, the answer still goes first, above the older ask that answers below.
+      if (move.kind === 'quiet') {
+        pathQuiet = true;
+        await answered(null, plan);
+      }
+      // Task 5: a direct question never waits for an older moment: the answer, then the path's step.
+      else if (move.kind !== 'closest' || midPath || o.question || sessionOf(read.seen, now).said.has(OLDER_SAID)) return answered(await pathCommit(o, { ...plan, move }, await sinceOf(move.program, true)), plan);
       else deferred = { ...plan, move };
     }
   }
@@ -2024,9 +2102,10 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
       }
     : undefined;
   const ahead: string[] = [];
+  const answer: string[] = [];
   const { view, fields } = await benchView({
     id, now, read, own, signedOut, personal: await personal(ctx).catch(() => false), name, fits, applies, nudge, cards: a.cards, upcoming: a.upcoming ?? [], skip, held, due, live,
-    codesFetch: ctx.codesFetch, known, more: a.more, named: a.named, ahead,
+    codesFetch: ctx.codesFetch, known, more: a.more, named: a.named, ahead, ...(a.question && { question: a.question }), answer,
   });
   // Fix round 1 (R3): never on a nudge-owned reply or step 3 (their question stays last, step 3 word for word).
   // Final review F9: never between a post and its question (benchView opens no post on "show more"; belt and braces).
@@ -2054,7 +2133,8 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   ).catch(logged('match shown'));
   return {
     // The account line (it guards a wrong sign-in) and any news lead.
-    show_to_builder: [signedIn, walletNews, opener, ...ahead, benchReply(view)].filter(Boolean).join('\n\n'),
+    // v4.8 Task 5: a direct question's answer first of all, then the reply (its path step last).
+    show_to_builder: [...answer, signedIn, walletNews, opener, ...ahead, benchReply(view)].filter(Boolean).join('\n\n'),
     // O5 (P8): the earn note names lead.program_id, so only with a lead. v4.8 Task 1: a path reply carries the mentor
     // note alone (the agent rewords it), and its lead is the hooked program when its yes drafts it.
     note: view.path ? [view.pathNote, MENTOR_NOTE].filter(Boolean).join(' ') : [ANSWER_FIRST_NOTE, lead ? EARN_NOTE : null].filter(Boolean).join(' '),

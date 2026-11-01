@@ -30,6 +30,16 @@ export function rankLine(s: Standing, o: { chain?: BenchChain } = {}): string | 
   return `#${n(s.rank)} of ${n(s.total)} ${s.total === 1 ? 'builder' : 'builders'}${where}`;
 }
 /**
+ * v4.8 Task 5 (target C, the direct standing answer): the rank at any pool size, "#N of M builders so far" ("#1 of 1
+ * builders so far"), from the same standing as the page's pill (rankLine, shownRankLine), so the numbers match. Null
+ * when unranked or invalid, as rankLine. Pure.
+ */
+export function rankWords(s: Standing): string | null {
+  if (!s.ranked || !Number.isFinite(s.rank) || !Number.isFinite(s.total) || s.rank < 1 || s.total < 1 || s.rank > s.total) return null;
+  const n = (x: number) => x.toLocaleString('en-US');
+  return `#${n(s.rank)} of ${n(s.total)} builders so far`;
+}
+/**
  * v3.1 F3: no rank is shown anywhere a builder reads it (replies, the moment, the share post, the email, the profile,
  * the card) while the pool has fewer than RANK_MIN_POOL ranked builders ("#1 of 1 builder" reads as a joke). The
  * leaderboard list and the builder JSON keep rankLine and the number. A chain's line is held to its own chain pool. Pure.

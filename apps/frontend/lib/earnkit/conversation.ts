@@ -1,5 +1,6 @@
 import { sql } from './db';
 import { zoneParts } from './deadline';
+import { table } from './present';
 
 /**
  * v4.8 "the launch conversation" (docs/design-docs-and-implementation-plans/v4.8-target-conversation.md): EarnKit leads.
@@ -683,3 +684,83 @@ export function noFitWhy(title: string, w: { name: string; chain?: string; needs
 }
 /** The opener's agent note: a number or a program's name goes back to find as `program`. */
 export const OPENER_NOTE = "When they reply with a number or a program's name, call find with program set to their reply.";
+
+/*
+ * v4.8 Task 5: the direct questions (target conversation C). find {ask: 'standing'} and {ask: 'programs'} are answered
+ * in one short reply, then the path's step (its own words, or its pointer) with its one easy reply, last. The same ask
+ * again in a session is one line that points back (`ask:standing`, `ask:programs` in standing_seen.said).
+ */
+export const ASK_SAID = (ask: 'standing' | 'programs') => `ask:${ask}`;
+/** The standing answer's facts: the page's score and rank (rank.ts rankWords), the streak, live, the page. */
+export type StandingFacts = {
+  score: number | null; rank: string | null; streak: number;
+  /** The live link's host ("earnkit.com") when EarnKit checked it; `live` alone names the project. */
+  liveAt: string | null; live: boolean; name: string;
+  /** The builder's page (reserved-routes.ts pageUrl). */
+  page: string;
+};
+const PROFILE_FILLS = 'Your profile fills in as your commits come in.';
+const hasScore = (f: Pick<StandingFacts, 'score'>) => f.score !== null && f.score > 0;
+/**
+ * Target C (exact): "Score 77, #1 of 1 builders so far. It comes from your GitHub: 6 weeks shipping in a row, live at
+ * earnkit.com. Programs see it at earnkit.com/jenilt." A part not known is left out. A score of 0 or unknown: no score
+ * and no rank, "Your profile fills in as your commits come in." and the page. Pure.
+ */
+export function standingAnswer(f: StandingFacts): string {
+  const where = `Programs see it at ${f.page}.`;
+  if (!hasScore(f)) return `${PROFILE_FILLS} ${where}`;
+  const parts = [
+    f.streak >= 2 ? `${f.streak} weeks shipping in a row` : f.streak === 1 ? '1 week shipping' : null,
+    f.liveAt ? `live at ${f.liveAt}` : f.live ? `${f.name} is live` : null,
+  ].filter((x): x is string => x !== null);
+  return `Score ${f.score}${f.rank ? `, ${f.rank}` : ''}. It comes from your GitHub${parts.length > 0 ? `: ${parts.join(', ')}` : ''}. ${where}`;
+}
+/** The standing asked again in the session: "Same as a few minutes ago: #1 of 1, score 77." Pure. */
+export function standingAgain(f: Pick<StandingFacts, 'score' | 'rank'>): string {
+  if (!hasScore(f)) return `Same as a few minutes ago: ${PROFILE_FILLS.charAt(0).toLowerCase()}${PROFILE_FILLS.slice(1)}`;
+  const rank = f.rank?.replace(/ builders so far$/, '') ?? null;
+  return `Same as a few minutes ago: ${rank ? `${rank}, ` : ''}score ${f.score}.`;
+}
+
+/** The programs asked again in the session. */
+export const PROGRAMS_AGAIN = 'Same list as earlier.';
+/** The mentor line after the investor programs (owner decision 2026-10-31: an offer to help prepare). */
+export const PREPARE_LINE = 'If one of these is your plan, I can help you prepare.';
+/** A grant's step as the fit cell says it: Base's steps (bench-reply.ts QualifyStep) and programNeeds' gaps. */
+const STEP_WORDS: Record<string, string> = {
+  codes: 'add Builder Codes', base: 'put the app on Base', use: 'get people using it', 'in a public repo': 'make the repo public', 'live at a link': 'go live at a link',
+};
+const stepWords = (g: string) => STEP_WORDS[g] ?? g.replace(/^on (.+ mainnet)$/, 'deploy on $1');
+/**
+ * The grants table's "Your fit", from stored facts only: "Fits" (a real fit), "1 step: {step}", "{n} steps", else
+ * "Not yet: {why}" ("not checked yet" when nothing is known). Never "you qualify". Pure.
+ */
+export function fitCell(f: { fits: boolean; gaps: readonly string[] | null; why?: string | null }): string {
+  if (f.fits) return 'Fits';
+  if (f.gaps && f.gaps.length === 1) return `1 step: ${stepWords(f.gaps[0])}`;
+  if (f.gaps && f.gaps.length > 1) return `${f.gaps.length} steps`;
+  return `Not yet: ${f.why ?? 'not checked yet'}`;
+}
+export type GrantRow = { title: string; amount: string | null; when: string; fit: string };
+export type InvestorRow = { title: string; amount: string | null; when: string; what: string };
+const closesCell = (when: string) => (when === 'rolling' ? 'Rolling' : when.replace(/^closes\s+/, ''));
+const moneyCell = (a: string | null) => a ?? 'Not stated';
+/**
+ * Target C's "what can I apply to": the open grants (Grant | Money | Closes | Your fit), then the open investor programs
+ * apart (Program | Money | Closes | What it is) and the mentor line. Never a total. None open: one line. Pure.
+ */
+export function programsAnswer(grants: readonly GrantRow[], investors: readonly InvestorRow[]): string {
+  const g = grants.length > 0
+    ? `Grants open now:\n\n${table(['Grant', 'Money', 'Closes', 'Your fit'], grants.map((r) => [programName(r.title), moneyCell(r.amount), closesCell(r.when), r.fit]))}`
+    : 'No grants are open right now.';
+  if (investors.length === 0) return g;
+  const i = table(['Program', 'Money', 'Closes', 'What it is'], investors.map((r) => [programName(r.title), moneyCell(r.amount), closesCell(r.when), r.what]));
+  return `${g}\n\nInvestor programs:\n\n${i}\n\n${PREPARE_LINE}`;
+}
+/** A program file's description as "What it is": its first sentence, else "Investor program". Pure. */
+export function whatItIs(description: string | null | undefined): string {
+  const d = description?.trim();
+  if (!d) return 'Investor program';
+  const m = /^(.+?[.!?])(\s|$)/.exec(d);
+  return m ? m[1] : d;
+}

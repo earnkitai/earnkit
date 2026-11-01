@@ -8790,3 +8790,23 @@ A yes on the path moves the stage on (bench-find.ts benchMoveUp, asks stored wit
 - **Sign-in carry-over.** x-install.ts attachOnce, when an installation's own profile joins another page with no path:
   its path (picked, at the hook) and opener list go along; to a page with a project, connected_said is stamped.
 
+## v4.8 Task 5: direct questions, repeats and the email tell line (target C and D) (2026-10-31)
+
+- **find {ask}.** benchView's path block answers find's direct question first (bench-find.ts directAnswer, from stored
+  facts only); benchFind puts the answer before every other line, then the path's step as the path gives it (its
+  words, or its pointer when already said). Only where the path runs: ranked, a person (o.personal), setup step 3 not
+  due, no held submit question, no owning nudge. Those still win, unanswered. A direct question never defers to an
+  older moment; on a quiet path the answer rides above the older ask that replies.
+- **Standing** (conversation.ts standingAnswer, target C): "Score 77, #1 of 1 builders so far. It comes from your
+  GitHub: 6 weeks shipping in a row, live at earnkit.com. Programs see it at earnkit.com/jenilt." The rank is rank.ts
+  rankWords over the page pill's own standing, at any pool size (B's connected line keeps M >= 2). A score of 0 or
+  unknown: "Your profile fills in as your commits come in." and the page.
+- **Programs** (programsAnswer): a grants table (Grant | Money | Closes | Your fit; fit from the path's facts: Fits,
+  "1 step: {step}", "{n} steps", "Not yet: {why}"), then the investor programs apart (Program | Money | Closes | What it
+  is, the program file's first sentence) and "If one of these is your plan, I can help you prepare." Applied (anything
+  told), entered or hidden programs are left out; never a total; investor programs never a fit.
+- **Repeats.** standing_seen.said `ask:standing` / `ask:programs`: again in the session, one line ("Same as a few
+  minutes ago: #1 of 1, score 77." / "Same list as earlier."), then the path's step.
+- **Emails** (alert-mail.ts): every alert body ends in one line, Tell your agent: "EarnKit, {action}." (closing or new
+  fit: draft {program}; a draft ready: finish my {program} draft; accepted: what's next after {program}), in place of
+  "Ask your agent to draft it.". Plain text only (Mailer has no HTML body); subjects unchanged.
