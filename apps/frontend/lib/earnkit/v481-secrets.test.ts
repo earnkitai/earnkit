@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { z } from 'zod';
-import { KEY_REMOVED, SCRUB_LINE, scrubSecrets, scrubToolCalls, withScrubNote, withScrubNotes } from './secrets';
+import { KEY_REMOVED, MAX_SCRUB_CHARS, SCRUB_LINE, scrubSecrets, scrubToolCalls, withScrubNote, withScrubNotes } from './secrets';
 
 // v4.8.1 Task 4 (R6). Every key here is built by concatenation, so no committed string looks like a live key.
 const A = 'a1B2c3D4e5F6g7H8i9J0kLmNoPqRsTuVwXyZ';
@@ -21,6 +21,8 @@ const KEYS: Record<string, string> = {
   anthropic: 'sk-' + 'ant-' + 'api03-' + A,
   openai: 'sk-' + (A + A).slice(0, 48),
   openaiProject: 'sk-' + 'proj-' + A + '_' + A.slice(0, 10) + '-T3BlbkFJ',
+  openaiServiceAccount: 'sk-' + 'svcacct-' + A.slice(0, 20) + '_' + A.slice(0, 8),
+  openaiAdmin: 'sk-' + 'admin-' + A.slice(0, 24),
   aws: 'AK' + 'IA' + 'ABCDEFGHIJ234567',
   pem: '-----BEGIN ' + 'RSA PRIVATE KEY-----\nMIIBOgIBAAJBAK' + A + '\n-----END RSA PRIVATE KEY-----',
 };
@@ -44,12 +46,36 @@ test('T4.2 a tx hash, a wallet and a GitHub link are untouched', () => {
 
 test('T4.2b a repo or word starting sk- is untouched; real OpenAI shapes are still caught', () => {
   for (const text of ['https://github.com/lee/sk-learn-tutorial-for-beginners', 'github.com/lee/sk-learn-tutorial-for-beginners', 'sk-learn', 'I use sk-learn daily']) {
-    assert.deepEqual(scrubSecrets(text), { value: text, removed: 0 });
+    assert.deepEqual(scrubSecrets(text), { value: text, removed: 0, skipped: 0 });
   }
   assert.equal(KEYS.openai.length, 51);
   assert.equal(scrubSecrets(`legacy ${KEYS.openai}`).removed, 1);
   assert.equal(scrubSecrets(`project ${KEYS.openaiProject}`).removed, 1);
+  assert.equal(scrubSecrets(`service ${KEYS.openaiServiceAccount}`).removed, 1);
+  assert.equal(scrubSecrets(`admin ${KEYS.openaiAdmin}`).removed, 1);
   assert.equal(scrubSecrets(KEYS.anthropic).removed, 1);
+});
+
+test('T4.9 fix 2: 100KB of BEGIN markers with no END scrubs in under 200 ms', () => {
+  const marker = '-----BEGIN ' + 'PRIVATE KEY-----\n';
+  const text = marker.repeat(Math.ceil(100_000 / marker.length)).slice(0, 100_000);
+  const start = performance.now();
+  const r = scrubSecrets({ note: text });
+  const ms = performance.now() - start;
+  assert.equal(r.removed, 0);
+  assert.ok(ms < 200, `took ${ms.toFixed(1)} ms`);
+  // A full key with a long label still goes.
+  assert.equal(scrubSecrets(KEYS.pem).removed, 1);
+});
+
+test('T4.10 fix 2: a string over MAX_SCRUB_CHARS is left unscanned and counted as skipped', () => {
+  const long = KEYS.stripeSecret + ' ' + 'a'.repeat(MAX_SCRUB_CHARS);
+  const r = scrubSecrets({ a: [long], b: KEYS.aws });
+  assert.equal(r.removed, 1);
+  assert.equal(r.skipped, 1);
+  const body = scrubToolCalls({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'tell', arguments: { x: long } } });
+  assert.equal(body.removed, 0);
+  assert.equal(body.skipped, 1);
 });
 
 test('T4.3 nested arrays and objects are scrubbed, and removed counts every match', () => {
@@ -159,5 +185,6 @@ test('T4.8 route.ts scrubs in withAliases before the alias step and marks replie
   assert.ok(fn.indexOf('scrubToolCalls(parsed)') > 0);
   assert.ok(fn.indexOf('scrubToolCalls(parsed)') < fn.indexOf('aliasedIds('));
   assert.match(fn, /console\.log\(`\[mcp\] scrubbed \$\{scrub\.removed\}`\)/);
+  assert.match(fn, /if \(scrub\.skipped > 0\) console\.log\('\[mcp\] scrub skipped long arg'\)/);
   assert.match(src, /withScrubNotes\(await forOldNames\(/);
 });

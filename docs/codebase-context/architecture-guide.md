@@ -8920,13 +8920,14 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
   (lib/earnkit/secrets.ts) replaces each match of `SECRET_PATTERNS` in every string of each `tools/call`'s
   `params.arguments` (single and batch bodies) with `[key removed]`, so no tool, log or table ever sees the key. Other
   methods and non-JSON bodies pass through as before. Patterns: Stripe sk/rk/pk live/test and whsec, GitHub
-  gh[opsur]_ and github_pat_, Anthropic sk-ant-, OpenAI sk-/sk-proj-, AWS AKIA, PEM private keys. Raw 64-hex is never
-  matched (tx hashes).
+  gh[opsur]_ and github_pat_, Anthropic sk-ant-, OpenAI sk-proj-/sk-svcacct-/sk-admin- (20+) and legacy sk- (40+
+  letters and digits only), AWS AKIA, PEM private keys (label and body bounded: at most a 10,000-character scan per
+  BEGIN). Raw 64-hex is never matched (tx hashes). /mcp has no body cap, so a string over MAX_SCRUB_CHARS (200,000)
+  is not scanned; the route logs `[mcp] scrub skipped long arg`.
 - **Log.** Only `[mcp] scrubbed {n}`, never the value.
 - **Reply.** The scrubbed calls' ids are kept; `withScrubNotes` (after forOldNames) rewrites their replies: the first
   text content, a JSON object (every successful tool reply), gets a top-level `scrub_note: SCRUB_LINE` as its first key;
   a non-JSON text (an error line) is prefixed with SCRUB_LINE and a blank line. The hosted transport answers in plain
   JSON (enableJsonResponse), so there is no SSE case; a non-200 or non-JSON response passes through unmarked (the call
   was still scrubbed).
-- **Known overreach.** The OpenAI pattern also matches any word starting `sk-` followed by 20+ word/dash characters
-  (a repo named `sk-learn-tutorial-for-beginners`); that text becomes `[key removed]`.
+- **Names are safe.** A repo or word like `sk-learn-tutorial-for-beginners` is never matched (fix 1).

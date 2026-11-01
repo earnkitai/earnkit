@@ -31,6 +31,7 @@ async function withAliases(request: Request): Promise<Aliased> {
   }
   const scrub = scrubToolCalls(parsed);
   if (scrub.removed > 0) console.log(`[mcp] scrubbed ${scrub.removed}`);
+  if (scrub.skipped > 0) console.log('[mcp] scrub skipped long arg');
   const now = new Date();
   // v2.10.1 B5: which calls used an old name, so their replies name only the tools that client lists.
   const old = aliasedIds(scrub.body, now);

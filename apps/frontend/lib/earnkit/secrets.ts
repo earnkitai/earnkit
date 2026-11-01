@@ -15,21 +15,32 @@ export const SECRET_PATTERNS: RegExp[] = [
   /\bgithub_pat_[A-Za-z0-9_]{30,}\b/g,
   // Anthropic (before OpenAI, whose pattern would also match it)
   /\bsk-ant-[A-Za-z0-9_-]{20,}/g,
-  // OpenAI: project keys, and legacy keys (letters and digits only), so a name like sk-learn-... never matches
-  /\bsk-proj-[A-Za-z0-9_-]{40,}/g,
-  /\bsk-[A-Za-z0-9]{40,}\b/g,
+  // OpenAI: project, service-account and admin keys, and legacy keys (letters and digits only), so a name
+  // like sk-learn-tutorial-... never matches
+  /\bsk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}/g,
+  /\bsk-[A-Za-z0-9]{40,}/g,
   // AWS
   /\bAKIA[0-9A-Z]{16}\b/g,
-  // PEM private key
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+  // PEM private key. Fix 2: the label and the body are bounded, so each BEGIN with no END costs at most a
+  // 10,000-character scan (unbounded, many BEGINs without an END rescan to the string's end: quadratic).
+  /-----BEGIN [A-Z ]{0,40}PRIVATE KEY-----[\s\S]{0,10000}?-----END [A-Z ]{0,40}PRIVATE KEY-----/g,
 ];
 
 export const KEY_REMOVED = '[key removed]';
 
+/**
+ * Fix 2: /mcp has no request body cap, so a string longer than this is not scanned at all (the route logs
+ * `[mcp] scrub skipped long arg`, never the value). No tool argument is near it (bytecode is at most 98,306).
+ */
+export const MAX_SCRUB_CHARS = 200_000;
+
+type Scrubbed = { value: unknown; removed: number; skipped: number };
+
 export const SCRUB_LINE =
   "That looked like a secret key, so I removed it and saved nothing. If it was a live key, roll it now in that dashboard. Never paste keys in chat; I'll send a private link when one is needed.";
 
-function scrubString(s: string): { value: string; removed: number } {
+function scrubString(s: string): Scrubbed {
+  if (s.length > MAX_SCRUB_CHARS) return { value: s, removed: 0, skipped: 1 };
   let removed = 0;
   let value = s;
   for (const p of SECRET_PATTERNS) {
@@ -38,32 +49,39 @@ function scrubString(s: string): { value: string; removed: number } {
       return KEY_REMOVED;
     });
   }
-  return { value, removed };
+  return { value, removed, skipped: 0 };
 }
 
-/** Each match in every string (walking objects and arrays) replaced by `[key removed]`; `removed` counts every match. Pure. */
-export function scrubSecrets(value: unknown): { value: unknown; removed: number } {
+/**
+ * Each match in every string (walking objects and arrays) replaced by `[key removed]`; `removed` counts every
+ * match, `skipped` the strings over MAX_SCRUB_CHARS left unscanned. Pure.
+ */
+export function scrubSecrets(value: unknown): Scrubbed {
   if (typeof value === 'string') return scrubString(value);
   if (Array.isArray(value)) {
     let removed = 0;
+    let skipped = 0;
     const out = value.map((v) => {
       const r = scrubSecrets(v);
       removed += r.removed;
+      skipped += r.skipped;
       return r.value;
     });
-    return removed ? { value: out, removed } : { value, removed: 0 };
+    return { value: removed ? out : value, removed, skipped };
   }
   if (value && typeof value === 'object') {
     let removed = 0;
+    let skipped = 0;
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value)) {
       const r = scrubSecrets(v);
       removed += r.removed;
+      skipped += r.skipped;
       out[k] = r.value;
     }
-    return removed ? { value: out, removed } : { value, removed: 0 };
+    return { value: removed ? out : value, removed, skipped };
   }
-  return { value, removed: 0 };
+  return { value, removed: 0, skipped: 0 };
 }
 
 type Id = string | number;
@@ -73,20 +91,22 @@ type Id = string | number;
  * Nothing else is touched (unchanged messages are the same objects). `ids` are the scrubbed calls' JSON-RPC
  * ids, so their replies get SCRUB_LINE. Pure.
  */
-export function scrubToolCalls(body: unknown): { body: unknown; removed: number; ids: Set<Id> } {
+export function scrubToolCalls(body: unknown): { body: unknown; removed: number; skipped: number; ids: Set<Id> } {
   const ids = new Set<Id>();
   let removed = 0;
+  let skipped = 0;
   const one = (m: unknown): unknown => {
     const msg = m as { id?: unknown; method?: unknown; params?: { arguments?: unknown } };
     if (!msg || typeof msg !== 'object' || msg.method !== 'tools/call' || !msg.params || typeof msg.params !== 'object') return m;
     const r = scrubSecrets(msg.params.arguments);
+    skipped += r.skipped;
     if (!r.removed) return m;
     removed += r.removed;
     if (typeof msg.id === 'string' || typeof msg.id === 'number') ids.add(msg.id);
     return { ...msg, params: { ...msg.params, arguments: r.value } };
   };
   const out = Array.isArray(body) ? body.map(one) : one(body);
-  return removed ? { body: out, removed, ids } : { body, removed: 0, ids };
+  return removed ? { body: out, removed, skipped, ids } : { body, removed: 0, skipped, ids };
 }
 
 /**
