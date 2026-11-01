@@ -2,6 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { sql } from './db';
+import { cardSubmitBy } from './deadline';
 import { alertBody, alertEvents, pickAlert, runAlertMail, type AlertEvent } from './alert-mail';
 import { digestBody, EMAIL_QUESTION, mailFooter, resendMailer, type DigestFacts, type Mailer } from './digest';
 import { periodKey } from './free-tier';
@@ -289,7 +290,9 @@ test('alertEvents reads a closing entry (draft ready) and an accepted outcome po
     VALUES ('abcdefghij', ${id}, 'accepted', ${`accepted:${pid}`}, 'outcome', 'In.', 'https://x.com/base/status/1', ${new Date(now.getTime() - 3_600_000)},
       ${new Date(now.getTime() + 30 * DAY)})`;
   const events = await alertEvents(id, now);
-  const day = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(ends);
+  // v4.8.1 final fix (R-3): the email's close is absolute (the day and time); exactly 48 hours out, no hours left yet.
+  const day = cardSubmitBy({ summary: p.summary, ends_at: ends }, now);
+  assert.match(day ?? '', /^[A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2} [AP]M UTC$/);
   assert.deepEqual(events.find((e) => e.kind === 'closing'), {
     kind: 'closing', key: `closing:${pid}:${ends.toISOString().slice(0, 10)}`, program: p.title, day, amount: '$5,000', draft: true,
   });

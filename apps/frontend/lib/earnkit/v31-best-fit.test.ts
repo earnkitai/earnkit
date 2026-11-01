@@ -207,7 +207,8 @@ test('(g) score names the same program as find', db, async () => {
   // v4.7 T2: the standing paragraph leads, and its next deadline is the same program; then the path's step (said this
   // session already, so its pointer).
   assert.ok(s.startsWith(`${r.reply?.standing}\n\n`), s);
-  assert.ok(String(r.reply?.standing).endsWith(`Next: ${p.title} closes ${p.when}.`), String(r.reply?.standing));
+  // v4.8.1 final fix (R-3): a day out, the standing says the hours left.
+  assert.match(String(r.reply?.standing), new RegExp(`Next: ${p.title} closes in 2[34] hours\\.$`), String(r.reply?.standing));
   assert.match(s.split('\n\n').at(-1)!, pointerOf(p.title), s);
 });
 

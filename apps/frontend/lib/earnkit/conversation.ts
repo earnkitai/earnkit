@@ -1,5 +1,7 @@
 import { sql } from './db';
-import { zoneParts } from './deadline';
+import { hoursLeft, submitBy, zoneParts } from './deadline';
+// v4.8.1 final fix (R-3): both moved to deadline.ts, so the emails and alerts share them; re-exported for callers here.
+export { hoursLeft, submitBy };
 import { table } from './present';
 import { MORE_ASK } from './bench-reply';
 
@@ -225,22 +227,6 @@ export function bestMove(ctx: MoveCtx): Move {
 
 /** A program's name in a sentence: its title before any ':' and without a trailing " Program". Pure. */
 export const programName = (title: string) => title.split(':')[0].trim().replace(/\s+Program$/i, '');
-
-const HOUR_MS = 3_600_000;
-/**
- * v4.8.1 Task 2 (R2): the time left as a person says it, from the clock, never the calendar: "in under an hour" under 1
- * hour, "in {n} hours" (whole hours, rounded down; "in 1 hour") under 48 hours, else null (48 hours or more, or already
- * passed). The same in every zone. Pure.
- */
-function hoursLeft(endsAt: string, now: Date): string | null {
-  const left = Date.parse(endsAt) - now.getTime();
-  // Fix round 1 (F5): a close already passed has no time left to say.
-  if (!(left > 0)) return null;
-  if (left < HOUR_MS) return 'in under an hour';
-  if (left >= 2 * 24 * HOUR_MS) return null;
-  const n = Math.floor(left / HOUR_MS);
-  return `in ${n} ${n === 1 ? 'hour' : 'hours'}`;
-}
 
 /**
  * When a dated program closes: under 48 hours, the time left (hoursLeft: "in 20 hours", "in under an hour"); otherwise
@@ -704,21 +690,6 @@ export function gapProofOf(p: { name: string; live: boolean }, streak: number, b
 
 /** The submit stage's one easy reply (target conversation A, exact). */
 export const SENT_ASK = `Reply "sent" once it's in, and I'll keep track of it for you.`;
-
-/** "11:59 PM". Pure. */
-const clock = (hour: number, minute: number) => `${hour % 12 === 0 ? 12 : hour % 12}:${String(minute).padStart(2, '0')} ${hour < 12 ? 'AM' : 'PM'}`;
-
-/**
- * When a dated program's submissions close, in the program's own zone (deadline.ts zoneParts, closeDay's rule): its day
- * ("Nov 1", never "today" or "tomorrow"), its time and the zone's short name, "Nov 5, 11:59 PM PT"; under 48 hours, the
- * time left too, "Nov 1, 11:59 PM PT (in 20 hours)" (v4.8.1 Task 2, R2). A zone with no short name (deadline.ts
- * zoneAbbr) says the day only ("Nov 6", "Nov 1 (in 20 hours)"), so the time is never read in the wrong zone. Pure.
- */
-export function submitBy(endsAt: string, zone: string, now: Date, abbr: string | null): string {
-  const end = zoneParts(new Date(endsAt), zone);
-  const left = hoursLeft(endsAt, now);
-  return `${abbr ? `${end.day}, ${clock(end.hour, end.minute)} ${abbr}` : end.day}${left ? ` (${left})` : ''}`;
-}
 
 /**
  * The submit stage's reply (target conversation A): "Done, it's ready to paste. Submit at {link} before {by}." then

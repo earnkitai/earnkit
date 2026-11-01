@@ -1194,7 +1194,7 @@ async function pathClosedCommit(o: ViewIn, plan: PathPlan & { closed: NonNullabl
 /** The opener's money for a program: "$5K to $100K" with a stated minimum below the top, else pathAmount's. Pure. */
 const openerAmount = (c: Card): string | null =>
   c.min_award_usd && c.max_award_usd && c.min_award_usd < c.max_award_usd ? `${usdCompact(c.min_award_usd)} to ${usdCompact(c.max_award_usd)}` : pathAmount(c);
-const openerProgram = (c: Card): OpenerProgram => ({ id: c.id, title: c.title, amount: openerAmount(c), when: fundWhen(c), investment: c.investment === true });
+const openerProgram = (c: Card, now: Date): OpenerProgram => ({ id: c.id, title: c.title, amount: openerAmount(c), when: fundWhen(c, now), investment: c.investment === true });
 /**
  * The opener's programs, from the live cards (fix round 0 (1), target B's order): 1. Base Builder Grants (the closest
  * money, the grant the signed-out reply already named), or with it closed or not shown, the best rolling grant (the most
@@ -1211,7 +1211,7 @@ export function openerPrograms(cards: Card[], now: Date, skip: Set<string>): Ope
   const investor = cards
     .filter((c) => c.investment === true && showable({ ...c, investment: false }, now, skip))
     .sort((a, b) => closeAt(a) - closeAt(b) || byRelevance(a, b))[0];
-  return [top, rolling, investor].filter((c): c is Card => Boolean(c)).map(openerProgram);
+  return [top, rolling, investor].filter((c): c is Card => Boolean(c)).map((c) => openerProgram(c, now));
 }
 /**
  * The opener's stored list (standing_seen.opener: ids and titles, in the order shown), so a number resolves to what the
@@ -1419,12 +1419,12 @@ async function directAnswer(o: ViewIn, v: PathFacts, told: Set<string>): Promise
     .filter((c) => c.investment !== true && programKind(c).startsWith('grant') && showable(c, now, applied))
     .map((c) => ({ c, fits: fitIds.has(c.id), fact: factOf(c) }))
     .sort((a, b) => fitOrder(a.fits, a.fact) - fitOrder(b.fits, b.fact) || byRelevance(a.c, b.c));
-  const rows: GrantRow[] = grants.map(({ c, fits, fact }) => ({ title: c.title, amount: pathAmount(c), when: fundWhen(c), fit: fitCell(fits, fact) }));
+  const rows: GrantRow[] = grants.map(({ c, fits, fact }) => ({ title: c.title, amount: pathAmount(c), when: fundWhen(c, now), fit: fitCell(fits, fact) }));
   const invCards = o.cards
     .filter((c) => c.investment === true && showable({ ...c, investment: false }, now, applied))
     .sort((a, b) => closeAt(a) - closeAt(b) || byRelevance(a, b));
   const investors: InvestorRow[] = await Promise.all(invCards.map(async (c) => ({
-    title: c.title, amount: pathAmount(c), when: fundWhen(c),
+    title: c.title, amount: pathAmount(c), when: fundWhen(c, now),
     what: whatItIs((await getProgramRow(c.id).catch(() => null))?.description),
   })));
   // Fix round 1 (3): what the list said (each program and its fit), so a changed list is answered in full again.
@@ -1901,7 +1901,7 @@ export function alsoOpen(cards: Card[], now: Date, skip: Set<string>, not: strin
     .filter((c) => c.id !== not && programKind(c).startsWith('grant') && showable(c, now, skip))
     .sort(byRelevance)
     .slice(0, 2)
-    .map((c) => ({ title: c.title, amount: upToCell(prizeOf(c)), when: fundWhen(c) }));
+    .map((c) => ({ title: c.title, amount: upToCell(prizeOf(c)), when: fundWhen(c, now) }));
 }
 
 /**
@@ -1932,7 +1932,7 @@ export function openNowInvestment(cards: Card[], now: Date, skip: Set<string>): 
     .sort((a, b) => closeAt(a) - closeAt(b) || byRelevance(a, b))[0];
   if (!c) return null;
   const amount = prizeOf(c).replace(/\s+investment$/i, '').replace(/^up to\s+/i, 'up to ');
-  return { id: c.id, title: c.title, amount, when: fundWhen(c) };
+  return { id: c.id, title: c.title, amount, when: fundWhen(c, now) };
 }
 
 /** 2026-10-23 Base onboarding: Base Builder Grants is open and shown (the walk-through's last step drafts it). Pure. */
@@ -2319,7 +2319,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
     const wf = whyFacts({ chains: f?.facts?.chains, homepage: f?.facts?.homepage, live_verified: f?.live_verified ?? f?.facts?.live_verified });
     const why = fitWhy(r.card, wf);
     return {
-      program_id: r.card.id, repo: r.repo, title: r.card.title, amount: awardAmount(r.card), when: fundWhen(r.card), why, ends_at: isoOf(r.card.ends_at),
+      program_id: r.card.id, repo: r.repo, title: r.card.title, amount: awardAmount(r.card), when: fundWhen(r.card, now), why, ends_at: isoOf(r.card.ends_at),
       investment: r.card.investment === true, card: fitCard(r.card), bar: fitBar(r.card, { live: wf.live, noUsers: r.low_reason === NO_USERS_YET }),
     };
   };
@@ -2487,7 +2487,7 @@ export async function scoreApplies(id: number, main: string | null, now: Date): 
   // v3 Stage 2 final review: the apply step's candidates include an open investment. v3.1 F1: so do the fit lines (fitLines).
   const applies: Fit[] = key
     ? (await scoreFits(id, key, { cards: shown, skip, now })).map((f) => ({
-        program_id: f.card.id, title: f.card.title, amount: awardAmount(f.card), when: fundWhen(f.card), why: fitWhy(f.card, whyFacts(f.repo)), ends_at: isoOf(f.card.ends_at),
+        program_id: f.card.id, title: f.card.title, amount: awardAmount(f.card), when: fundWhen(f.card, now), why: fitWhy(f.card, whyFacts(f.repo)), ends_at: isoOf(f.card.ends_at),
         investment: f.card.investment === true, card: fitCard(f.card), bar: fitBar(f.card, { live: whyFacts(f.repo).live }),
       }))
     : [];
@@ -3387,7 +3387,7 @@ export async function setupDoneFor(
       // Grants first, then investments and company programs (each group keeps its order).
       const companyIds = new Set(g.fits.filter((f) => f.bar === 'company' || f.investment).map((f) => f.program_id));
       const listedRows = [...longShots.map((f) => ({ title: f.title, amount: f.amount, when: f.when, later: companyIds.has(f.program_id) })),
-        ...extra.map((c) => ({ title: c.title, amount: awardAmount(c), when: fundWhen(c), later: c.investment === true }))];
+        ...extra.map((c) => ({ title: c.title, amount: awardAmount(c), when: fundWhen(c, now), later: c.investment === true }))];
       rows = [...listedRows.filter((r) => !r.later), ...listedRows.filter((r) => r.later)];
       // Task 10 (G1): the closest is a grant the fit check itself called a long shot, never an investment or a company-only
       // program, and never a guess: with no fits computed at all (nothing matched yet) the question is the fit check.

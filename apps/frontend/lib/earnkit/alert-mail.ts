@@ -3,7 +3,7 @@ import { alertFit, DEADLINE_DAYS, newProgramOf, openCuratedRows, type NewProgram
 import { awardAmount, benchStepKey } from './bench-reply';
 import { openFitsFor } from './best-fit';
 import { programName } from './conversation';
-import { closeDay } from './deadline';
+import { cardSubmitBy } from './deadline';
 import { cleanName, digestFrom, mailFooter, MailError, MAX_SEND_FAILURES, resendMailer, unsubHeaders, unsubUrl, weekStart, type Mailer } from './digest';
 import { readFitRepos } from './installations';
 import { outcomeShareLine } from './nudges';
@@ -153,7 +153,9 @@ export async function alertEvents(builderId: number, now: Date): Promise<AlertEv
   }
   for (const [id, c] of [...closing].sort((a, b) => a[1].ends.getTime() - b[1].ends.getTime())) {
     const card = cards.get(id);
-    const day = card ? closeDay(card) : null;
+    // v4.8.1 final fix (R-3): an email is read hours after it is sent, so the close is absolute (the program-zone day
+    // and time), with the hours left as of sending under 48 hours: "Nov 1, 11:59 PM PT (in 20 hours)".
+    const day = card ? cardSubmitBy(card, now) : null;
     if (!card || !day) continue;
     out.push({ kind: 'closing', key: `closing:${id}:${c.ends.toISOString().slice(0, 10)}`, program: card.title, day, amount: awardAmount(card), draft: c.draft });
   }
@@ -166,7 +168,7 @@ export async function alertEvents(builderId: number, now: Date): Promise<AlertEv
     if (!card || closing.has(r.id) || saidNo(r.id)) continue;
     const repo = alertFit(newProgramOf(r), repos, { entered: open.skip, hidden: new Set() }, now);
     if (!repo) continue;
-    out.push({ kind: 'new', key: `new:${r.id}`, program: card.title, amount: awardAmount(card), when: fundWhen(card), project: cleanName(repo.name, 'Your project') });
+    out.push({ kind: 'new', key: `new:${r.id}`, program: card.title, amount: awardAmount(card), when: fundWhen(card, now), project: cleanName(repo.name, 'Your project') });
   }
   return out;
 }

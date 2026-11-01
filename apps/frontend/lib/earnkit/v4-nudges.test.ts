@@ -135,16 +135,16 @@ test('final review 5: no reading before this week is no baseline: a first readin
   assert.equal(await nudgeFor(me.id, at(FRIDAY + 7 * DAY)), "MealMate just passed 1,000 users. That's real traction.");
 });
 
-test('(c) a program closing within 3 days with a draft ready: the weekday, or today', db, async () => {
+test('(c) a program closing within 3 days with a draft ready: the program-zone day, or the hours left under 48 hours', db, async () => {
   const me = await builder('v4nd');
-  // Wednesday Oct 28: closes Friday Oct 30, 2 days later.
+  // Wednesday Oct 28: closes Friday Oct 30, 51 hours later: the day in the program's zone (v4.8.1 final fix R-3).
   const wed = FRIDAY - 2 * DAY;
   await draftEntry(me.id, await program('Arc Builders', FRIDAY + 3 * 3600_000));
-  assert.equal(await nudgeFor(me.id, at(wed)), 'Heads up, Arc Builders closes Friday. Your draft is ready. Want to send it?');
-  // The deadline is today.
+  assert.match((await nudgeFor(me.id, at(wed)))!, /^Heads up, Arc Builders closes Oct 30\. Your draft is ready\. Want to send it\?$/);
+  // The deadline is 3 hours away: the hours left, never "today".
   const b = await builder('v4ne');
   await draftEntry(b.id, await program('Arc Builders', FRIDAY + 3 * 3600_000));
-  assert.equal(await nudgeFor(b.id, at(FRIDAY)), 'Heads up, Arc Builders closes today. Your draft is ready. Want to send it?');
+  assert.equal(await nudgeFor(b.id, at(FRIDAY)), 'Heads up, Arc Builders closes in 3 hours. Your draft is ready. Want to send it?');
   // Over 3 days away, submitted, or no draft: nothing.
   const c = await builder('v4ng');
   await draftEntry(c.id, await program('Far Away', wed + 4 * DAY));
@@ -241,9 +241,10 @@ test('fix round 1 (2, 4): the closing nudge owns the reply\'s one question; its 
   await draftEntry(me.id, arc);
   const r = await mcpCall(findCtx(me.id), 'find', {});
   const s = String(r.reply?.show_to_builder ?? '');
-  assert.ok(s.startsWith('Heads up, Arc Builders closes Sunday. Your draft is ready. Want to send it?'), s);
+  // v4.8.1 final fix (R-3): 48 hours away is the program-zone day (UTC here, Nov 1), never a UTC weekday.
+  assert.ok(s.startsWith('Heads up, Arc Builders closes Nov 1. Your draft is ready. Want to send it?'), s);
   assert.equal(questions(s), 1, s);
-  assert.match(s, /Soon Grant closes tomorrow; your entry isn.t submitted\./, 'another program\'s deadline line stays');
+  assert.match(s, /Soon Grant closes in \d+ hours; your entry isn.t submitted\./, 'another program\'s deadline line stays');
   assert.doesNotMatch(s, /Arc Builders closes in/, 'its own deadline line goes');
   const mv = r.reply?.move_up as { kind: string; project_key: string } | undefined;
   assert.deepEqual([mv?.kind, mv?.project_key], ['apply', me.key]);
@@ -283,7 +284,7 @@ test('fix round 1 (4): the closing nudge drops its own program\'s deadline line'
   const me = await fresh('v4nl');
   await draftEntry(me.id, await program('Arc Builders', FRIDAY + 2 * DAY));
   const s = String((await mcpCall(findCtx(me.id), 'find', {})).reply?.show_to_builder ?? '');
-  assert.ok(s.startsWith('Heads up, Arc Builders closes Sunday.'), s);
+  assert.ok(s.startsWith('Heads up, Arc Builders closes Nov 1.'), s);
   assert.doesNotMatch(s, /closes in 2 days|isn't submitted/, s);
 });
 
@@ -327,7 +328,7 @@ test('fix round 2: the closing nudge that owns the reply: one question, no submi
   const me = await fresh('v4na2');
   await draftEntry(me.id, await program('Arc Builders', FRIDAY + 2 * DAY));
   const s = String((await mcpCall(findCtx(me.id), 'find', {})).reply?.show_to_builder ?? '');
-  assert.ok(s.startsWith('Heads up, Arc Builders closes Sunday.'), s);
+  assert.ok(s.startsWith('Heads up, Arc Builders closes Nov 1.'), s);
   assert.equal(questions(s), 1, s);
   assert.doesNotMatch(s, /Did you submit|points/, s);
   const [{ seen }] = await sql()<{ seen: Record<string, unknown> }[]>`SELECT standing_seen AS seen FROM builder_profiles WHERE builder_id = ${me.id}`;

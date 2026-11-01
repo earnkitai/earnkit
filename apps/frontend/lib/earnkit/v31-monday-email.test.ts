@@ -133,10 +133,11 @@ test('(a) a dated fit: the money line first, then the week', db, async () => {
   const body = digestBody({ ...NO_FACTS, money: f.money, week: WEEK, wins: [{ name: 'PayLink', program: 'Arc', prize_usd: 500 }] })!;
   assert.ok(body.text.startsWith(`${line}\n\nLast week you finished at Shipping 40, #3.\n\nWon: PayLink in Arc, $500.`), body.text);
   assert.equal(body.subject, 'Your week on EarnKit: Shipping 40 · #3 of 12 builders');
-  // One day out reads "1 day" (never 0).
+  // v4.8.1 final fix (R-3): 3 hours out is absolute in the program's zone, with the hours left as of sending (never "in 1 day").
   const soon = await dated('a1', 0);
   const b1 = await builder('a1', [soon.id]);
-  assert.deepEqual((await digestFacts(sub(b1, 'a1@example.com'), new Date())).money, [`${soon.title} closes in 1 day. Your draft is one yes away.`]);
+  const [soonLine] = (await digestFacts(sub(b1, 'a1@example.com'), new Date())).money;
+  assert.match(soonLine, new RegExp(`^${soon.title} closes [A-Z][a-z]{2} \\d{1,2}, \\d{1,2}:\\d{2} [AP]M UTC \\(in 2 hours\\)\\. Your draft is one yes away\\.$`), soonLine);
   // Every Base repo fits these copies: they leave so the next tests see only the rolling program.
   await dropPrograms([p.id, soon.id]);
 });

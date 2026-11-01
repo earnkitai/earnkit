@@ -1221,7 +1221,8 @@ test('openerPrograms (pure, fix round 0 (1)): Base\'s grant (else the best rolli
   assert.deepEqual(ids([]), []);
   const [b, c, a] = openerPrograms([baseId, circle, a16z], NOW, new Set());
   assert.deepEqual([c.amount, c.when, b.amount, a.amount, a.investment], ['$5K to $100K', 'rolling', 'up to $5,000', 'up to $1M', true]);
-  assert.match(a.when, /^closes Nov 1$/);
+  // v4.8.1 final fix (R-3): 36 hours before the close, the time left.
+  assert.equal(a.when, 'closes in 36 hours');
 });
 
 test('pickHook (pure, fix round 1 (2)): a pick that is a move is hooked even when not first; otherwise the real top move, fits kept, investors left out', () => {
@@ -1297,7 +1298,8 @@ test("B: a signed-out builder's first find is the opener: three numbered program
   assert.equal(lines[0], "I'm EarnKit. I get builders funded for what they ship, and there's $105K in grants open right now.", s);
   assert.equal(lines[2], '1. Base Builder Grant: up to $5,000, rolling', s);
   assert.equal(lines[3], '2. Circle Developer Grants: $5K to $100K, rolling', s);
-  assert.match(lines[4], new RegExp(`^3\\. ${sr.title} \\(investor program\\): up to \\$1M, closes [A-Z][a-z]{2} \\d{1,2}$`), s);
+  // v4.8.1 final fix (R-3): the committed a16z's real close, so the day, or the hours left under 48 hours.
+  assert.match(lines[4], new RegExp(`^3\\. ${sr.title} \\(investor program\\): up to \\$1M, closes (?:[A-Z][a-z]{2} \\d{1,2}|in \\d+ hours?|in under an hour)$`), s);
   const links = s.match(/https?:\/\/\S+/g) ?? [];
   assert.equal(links.length, 1, s);
   assert.match(links[0], /\/signin\//);
@@ -1800,7 +1802,7 @@ test('C: "what can I apply to", first in a fresh session: the grants with fit, t
   const { b, sr } = await asker('pg');
   const r = await find(b, { ask: 'programs' });
   const s = show(r);
-  const day = /closes ([A-Z][a-z]{2} \d{1,2})/.exec(s)?.[1];
+  const day = /closes ([A-Z][a-z]{2} \d{1,2}|in \d+ hours?|in under an hour)/.exec(s)?.[1];
   assert.equal(s, [
     'Grants open now:',
     '',

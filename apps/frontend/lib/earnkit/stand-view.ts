@@ -6,6 +6,7 @@ import type { Standing } from './rank';
 import type { ReaderDeps } from './source-readers';
 import { standingNews } from './stand-text';
 import { closeDayOf, prizeOf } from './entry-text';
+import { hoursLeft } from './deadline';
 import { byDeadline, byPrize, type Card } from './present';
 import { moneyText, openCurated } from './pool';
 import { newProgramOf, openCuratedRows, repoCanWin, type FitRepo } from './alerts';
@@ -115,10 +116,16 @@ export const earnWhen = (c: { summary: string; ends_at?: Date | null }) => {
   const day = closeDayOf(c);
   return day ? `closes ${day}` : 'open all year';
 };
-/** R12: a reply's funding line deadline: "closes Oct 30", or "rolling". Pure. */
-export const fundWhen = (c: { summary: string; ends_at?: Date | null }) => {
-  const day = closeDayOf(c);
-  return day ? `closes ${day}` : 'rolling';
+/**
+ * R12: a reply's funding line deadline: "closes Oct 30", or "rolling". v4.8.1 final fix (R-3): with `now`, a close
+ * under 48 hours away is the time left ("closes in 20 hours", deadline.ts hoursLeft), never a calendar day. Every
+ * builder-facing caller passes `now`; only a flag (=== 'rolling') or MoveProgram's own `when` leaves it out. Pure.
+ */
+export const fundWhen = (c: { summary: string; tz?: string | null; ends_at?: Date | string | null }, now?: Date) => {
+  const day = closeDayOf(c as Parameters<typeof closeDayOf>[0]);
+  if (!day) return 'rolling';
+  const left = now && c.ends_at ? hoursLeft(new Date(c.ends_at).toISOString(), now) : null;
+  return `closes ${left ?? day}`;
 };
 
 /** A program a person could still be shown: curated, open, never an investment, not entered or hidden. Pure. */

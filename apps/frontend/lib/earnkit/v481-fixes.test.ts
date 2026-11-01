@@ -16,13 +16,21 @@ import { attachToX } from './x-install';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
 import { isoWeekOf } from './weeks';
-import { MORE_ASK, NAME_ASK, codesSettled, openMoneyNow } from './bench-find';
+import { MORE_ASK, NAME_ASK, alsoOpen, codesSettled, openMoneyNow, openNowInvestment, openerPrograms } from './bench-find';
 import { moneyText } from './pool';
 import { GitHubBudgetStop, type ReaderDeps } from './source-readers';
 import { committedProgram } from './fixtures/program-file';
 import { dropRunPrograms } from './fixtures/programs-cleanup';
 import { ProgramFile } from './program-file';
-import { upsertProgram } from './programs';
+import { listPrograms, upsertProgram } from './programs';
+import { cardSubmitBy, hoursLeft } from './deadline';
+import { fundWhen } from './stand-view';
+import { nextDeadline, standingParagraph } from './standing';
+import { closesWhen, closingNudge } from './nudges';
+import { deadlineLine } from './alerts';
+import { alertBody } from './alert-mail';
+import { digestBody, moneyTexts } from './digest';
+import { programUpdates, type Card } from './present';
 import { BUILDER_CODES_SUFFIX } from './builder-code';
 import { qualifyGapSteps } from './bench-reply';
 
@@ -481,4 +489,101 @@ test('v4.8.1 final fix (R-2): the hook offer and the gap offer name Builder Code
   const brief = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move, said: new Set(), brief: true });
   assert.equal(brief.show_to_builder, `Base Builder Grant is one step away. ${CODES_OFFER}`);
   assert.equal(qualifyGapSteps(['codes'])[0].offer, 'I can add Builder Codes and push the change, about 10 minutes.');
+});
+
+/** No day word a builder could read wrong under 48 hours (R-3). */
+const DAY_WORDS = /\b(today|tomorrow|tonight|Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)\b/;
+/** a16z's real close: Nov 1, 11:59 PM PT (PST from Nov 1, so 2026-11-02T07:59:59Z); 10:30 UTC is 21.5 hours before. */
+const A16Z_ENDS = new Date('2026-11-02T07:59:59Z');
+const AT_1030 = new Date('2026-11-01T10:30:00Z');
+
+test('v4.8.1 final fix (R-3): hoursLeft lives in deadline.ts; fundWhen says the hours left with a clock, the day without, "rolling" stays', () => {
+  assert.equal(hoursLeft(A16Z_ENDS.toISOString(), AT_1030), 'in 21 hours');
+  const card = { summary: 'up to $1M · closes Nov 1, 11:59 PM PT', ends_at: A16Z_ENDS };
+  assert.equal(fundWhen(card), 'closes Nov 1');
+  assert.equal(fundWhen(card, AT_1030), 'closes in 21 hours');
+  assert.equal(fundWhen(card, new Date('2026-10-28T10:30:00Z')), 'closes Nov 1', '48 hours or more: the program-zone day');
+  assert.equal(fundWhen({ summary: 'up to $5K · rolling', ends_at: null }, AT_1030), 'rolling');
+  // The same words in India and California: nothing here reads a zone but the program's.
+  assert.equal(fundWhen({ ...card, tz: 'Asia/Kolkata' }, AT_1030), 'closes in 21 hours');
+});
+
+test('v4.8.1 final fix (R-3): the opener list, also-open and the investor line say "in N hours" from live cards', db, async () => {
+  const ends = new Date(Date.now() + 19.5 * H).toISOString();
+  const inv = { ...committedProgram('a16z-speedrun'), id: `v481-${process.pid}-r3oi`, title: `Opener Runway ${RUN}` };
+  const grant = { ...committedProgram('arc-microgrants'), id: `v481-${process.pid}-r3og`, title: `Opener Microgrant ${RUN}` };
+  for (const f of [inv, grant]) await upsertProgram(ProgramFile.parse({ ...f, ends_at: ends, status: 'active', starts_at: null }));
+  const now = new Date();
+  // Only Base and the two copies, so no other test's program is the soonest.
+  const live = ((await listPrograms()) as unknown as Card[]).filter((c) => [inv.id, grant.id, 'base-builder-grants'].includes(c.id));
+  assert.equal(live.length, 3, JSON.stringify(live.map((c) => c.id)));
+  const opener = openerPrograms(live, now, new Set());
+  assert.equal(opener.find((p) => p.id === inv.id)?.when, 'closes in 19 hours', JSON.stringify(opener));
+  assert.equal(opener.find((p) => p.id === grant.id)?.when, 'closes in 19 hours', JSON.stringify(opener));
+  assert.equal(openNowInvestment(live, now, new Set())?.when, 'closes in 19 hours');
+  const also = alsoOpen(live, now, new Set(), 'base-builder-grants');
+  assert.equal(also.find((x) => x.title === grant.title)?.when, 'closes in 19 hours', JSON.stringify(also));
+  for (const x of [...opener, ...also]) assert.doesNotMatch(x.when, DAY_WORDS);
+});
+
+test('v4.8.1 final fix (R-3): the programs answer\'s grant and investor rows say "in 19 hours"', db, async () => {
+  const ends = new Date(Date.now() + 19.5 * H).toISOString();
+  const inv = { ...committedProgram('a16z-speedrun'), id: `v481-${process.pid}-r3i`, title: `Runway Hours ${RUN}` };
+  const grant = { ...committedProgram('arc-microgrants'), id: `v481-${process.pid}-r3g`, title: `Microgrant Hours ${RUN}` };
+  const open = async () => {
+    for (const f of [inv, grant]) await upsertProgram(ProgramFile.parse({ ...f, ends_at: ends, status: 'active', starts_at: null }));
+  };
+  await open();
+  const b = await ownerDb('r3p');
+  await open();
+  const [ans] = await converse(b.ctx as never, [{ find: { ask: 'programs' } }], { builderId: b.id });
+  const line = (title: string) => ans.show.split('\n').find((l) => l.includes(title)) ?? '';
+  assert.match(line(inv.title), /in 19 hours/, ans.show);
+  assert.match(line(grant.title), /in 19 hours/, ans.show);
+  assert.doesNotMatch(line(inv.title) + line(grant.title), DAY_WORDS, ans.show);
+});
+
+test('v4.8.1 final fix (R-3): the closing nudge says the hours left, never a UTC weekday; past 48 hours the program-zone day', () => {
+  const a16z = { ends_at: A16Z_ENDS, summary: 'up to $1M · closes Nov 1, 11:59 PM PT', tz: null };
+  // The old closesOn read 2026-11-02 in UTC: "Monday", a day after a16z really closes.
+  assert.equal(closingNudge('a16z speedrun SR008', closesWhen(a16z, AT_1030)), 'Heads up, a16z speedrun SR008 closes in 21 hours. Your draft is ready. Want to send it?');
+  assert.equal(closesWhen(a16z, new Date('2026-10-30T10:30:00Z')), 'Nov 1');
+  assert.doesNotMatch(closesWhen(a16z, new Date('2026-11-01T06:00:00Z')), DAY_WORDS);
+});
+
+test('v4.8.1 final fix (R-3): the standing Next line, the deadline line and the program updates say the hours left', () => {
+  const cards = [{ id: 'a16z', title: 'a16z speedrun SR008', summary: 'up to $1M · closes Nov 1, 11:59 PM PT', ends_at: A16Z_ENDS }];
+  const next = nextDeadline([{ program_id: 'a16z' }], cards, AT_1030);
+  assert.deepEqual(next, { program: 'a16z speedrun SR008', day: 'in 21 hours' });
+  const para = standingParagraph({ score: null, rank: null, streak: 0, wonUsd: null, applied: 0, drafts: 0, next });
+  assert.equal(para, 'Next: a16z speedrun SR008 closes in 21 hours.');
+  const entry = { id: 1, title: 'Arc Microgrants', ends_at: new Date(AT_1030.getTime() + 30 * H), submitted: false };
+  assert.equal(deadlineLine([entry], {}, AT_1030)?.line, "Arc Microgrants closes in 30 hours; your entry isn't submitted.");
+  assert.equal(deadlineLine([{ ...entry, ends_at: new Date(AT_1030.getTime() + 60 * H) }], {}, AT_1030)?.line, "Arc Microgrants closes in 2 days; your entry isn't submitted.");
+  const card = { id: 'a16z', title: 'a16z speedrun SR008', summary: 'up to $1M', ends_at: A16Z_ENDS, closes_in_days: 0, sponsored: false } as unknown as Card;
+  assert.deepEqual(programUpdates([card], false, AT_1030), [{ text: 'a16z speedrun SR008 closes in 21 hours', program_id: 'a16z' }]);
+});
+
+test('v4.8.1 final fix (R-3): emails say the close absolute, with the hours left as of sending', () => {
+  const card = { summary: 'up to $1M · closes Nov 1, 11:59 PM PT', tz: null, ends_at: A16Z_ENDS };
+  assert.equal(cardSubmitBy(card, AT_1030), 'Nov 1, 11:59 PM PT (in 21 hours)');
+  assert.equal(cardSubmitBy(card, new Date('2026-10-28T10:30:00Z')), 'Nov 1, 11:59 PM PT');
+  assert.equal(cardSubmitBy({ summary: 'up to $5K · rolling', ends_at: null }, AT_1030), null);
+  const day = cardSubmitBy(card, AT_1030)!;
+  const mail = alertBody({ kind: 'closing', key: 'closing:a16z', program: 'a16z speedrun SR008', day, amount: 'up to $1M', draft: false });
+  assert.equal(mail.subject, 'a16z speedrun SR008 closes Nov 1, 11:59 PM PT (in 21 hours)');
+  assert.ok(mail.text.startsWith('a16z speedrun SR008 closes Nov 1, 11:59 PM PT (in 21 hours), up to $1M.'), mail.text);
+  // The Monday email's deadlines and new programs.
+  const body = digestBody({
+    now: AT_1030, week: null, handle: null, money: [], wins: [],
+    newPrograms: [{ title: 'Arc Builders', repo: 'earnkit', prize_usd: 500, ends_at: A16Z_ENDS, summary: 'up to $500 · closes Nov 1, 11:59 PM PT' }],
+    deadlines: [{ program: 'a16z speedrun SR008', what: 'closes', at: A16Z_ENDS, summary: card.summary }],
+  })!;
+  assert.match(body.text, /New: Arc Builders fits earnkit, \$500, closes Nov 1, 11:59 PM PT \(in 21 hours\)\./, body.text);
+  assert.match(body.text, /Your a16z speedrun SR008: closes Nov 1, 11:59 PM PT \(in 21 hours\)\./, body.text);
+  // The money line at 3 hours left: never "in 1 day".
+  const three = new Date(AT_1030.getTime() + 3.5 * H);
+  assert.deepEqual(moneyTexts({ title: 'Base Builder Grant', ends_at: three, zone: 'America/Los_Angeles' }, 0, AT_1030),
+    ['Base Builder Grant closes Nov 1, 6:00 AM PT (in 3 hours). Your draft is one yes away.']);
+  for (const t of [mail.subject, mail.text, body.text]) assert.doesNotMatch(t, DAY_WORDS, t);
 });
