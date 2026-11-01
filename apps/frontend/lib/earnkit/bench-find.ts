@@ -914,7 +914,7 @@ async function pathCommit(
     ...(steps && out.reply === 'steps' && { steps: true as const }),
   };
   // Task 5 fix round 1 (5): the brief pointer never says the passed-step line, so it raises nothing (said later in full).
-  // v4.8.1 Task 3: a pointer says its own parts (point:, point2:), so only the hook itself raises.
+  // v4.8.1 Task 3: a pointer says its own part (point:), so only the hook itself raises.
   const raise = move.kind === 'closest' && move.raise && out.said.includes(`hook:${out.program_id}`) && !o.brief;
   const money = await moneyFor(o, plan, out.program_id);
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)

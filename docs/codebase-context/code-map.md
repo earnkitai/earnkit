@@ -1784,8 +1784,8 @@ apps/frontend/
                                program (difficulty_override.basis odds) or long shot (MoveProgram.longShot, the program file's
                                tag) closing within 7 days; a picked or past-the-hook program keeps its place; else quiet), pathReply
                                (Task 1: the hook only: A's opener for a fit or investor, "Want the steps?" for a gap; a hook said
-                               this session is pointerReply: v4.8.1 R4, the reason once, then "Still {Program}. Reply no ...",
-                               then "more"), closeWords (v4.8.1 R2: "in N hours" under 48 h, else the zone's day),
+                               this session is pointerReply: v4.8.1 R4, the reason once, then "more" (v4.8.2: no short
+                               "Still {Program}. Reply no ..."; v482-fixes.test.ts)), closeWords (v4.8.1 R2: "in N hours" under 48 h, else the zone's day),
                                moneyLine/moneyInvestor/withMoneyLine/MONEY_SAID (v4.8.1 R3: "Open now: $X in grants." once a
                                session, before the easy reply; v481-fixes.test.ts), proofLine, programName. bench-find.ts pathView
                                gathers the facts (pathSkip: entered, hidden, told, drafted, 'apply:'/'path:' nos) and stores
@@ -1800,7 +1800,7 @@ apps/frontend/
                                Fix round 2: CODES_OFFER (hook "Go?"), draftBlanks { blanks (max 2), later, drafted }, andComma,
                                blanksAgain; bench-find.ts codesConfirmed ('found'|'missing'|'checking',
                                RECHECK_WAIT), pathCheckingView, draftYes; base-qualify.ts qualifyOffer `allMet`.
-                               v4.8 Task 3: SENT_ASK, submitBy, submitReply, submitPointer, TRACK_ACK, trackLead, agoWords,
+                               v4.8 Task 3: SENT_ASK, submitBy, submitReply, submitPointer, TRACK_ACK, trackLead, agoWords (removed v4.8.2),
                                passedLine (GapGrant.passedAt), sinceDay, SinceFacts, sinceLine, stillOpenLine, DRAFT_NOW_ASK.
                                bench-find.ts pathSubmit (draft -> submit), SENT_NOTE, submitAsked, pathTrack (-> track),
                                submitWaiting / pathSubmitCommit (the submit pointer), sinceFor + withSince (fresh session);

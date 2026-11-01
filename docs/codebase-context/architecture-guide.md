@@ -8728,8 +8728,9 @@ A yes on the path moves the stage on (bench-find.ts benchMoveUp, asks stored wit
   up money that's closer." when find's reply is a path reply), then find's reply (the next bestMove program, the applied
   one told so never hooked again; pathCommit greets no name right after "sent", AFTER_SENT_MS). Any other tell is a
   plain save as before (no find run inside it, so no one-time offer is claimed there).
-- **passed-step line.** pathReply adds conversation.ts passedLine ("You passed on it {when}, but it's now the only gap
-  to that money.", agoWords from the stored decline, GapGrant.passedAt) to a closest grant raised once (`raise`).
+- **passed-step line.** pathReply adds conversation.ts passedLine ("It's now the only gap to that money.") to a
+  closest grant raised once (`raise`). v4.8.2 Task 1 (R2): it no longer says "You passed on it {when}, but ..." (no
+  guilt; agoWords removed from conversation.ts), so GapGrant.passedAt no longer changes the words.
 - **Since {day}.** In a fresh session (sessionOf; the last session is standing_seen.said.at), sinceFor reads stored
   facts only: the streak then (streak.ts streaksFor as of that day, only across an ISO week) and now; the last public
   daily score (builder_scores, v2-shipping, ranked) from that day or the day before and the page's score now; the path
@@ -8746,7 +8747,7 @@ A yes on the path moves the stage on (bench-find.ts benchMoveUp, asks stored wit
   its other replies (first) and puts the path reply last. A path at track is not mid-path (F1's older moments apply).
   "Since" says "opened" only for a program new to this builder (seenBefore), the close as submitBy words it, compares
   scores only under the page's calibration, and leaves announced results to find's alerts opener. The passed line for
-  Builder Codes reads "You passed on them ..., but they're now ...".
+  Builder Codes reads "They're now the only gap to that money." (v4.8.2).
 
 ## v4.8 Task 4: the new builder (target B) (2026-10-31)
 
@@ -8901,9 +8902,9 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
   stage once a draft was made; "closes {closeWords}"; else nothing) and ask is the step's own easy reply (a 'go' step
   names it: CODES_POINT_OFFER, "I can add Builder Codes and push the change, about 10 minutes. Go?"; after "your draft
   is ready" the stage's own ask, PointerFacts.readyAsk: SENT_SHORT at submit, the blanks ask for a draft, with that
-  stage's ask stored). The second time (`point2:{programId}`): 'Still {Program}. Reply "no" and I'll line up the next
-  program.' (POINT_NEXT), the stored ask unchanged, so a no parks the program (`path:{id}` declined) and the path moves
-  on. The gate's repeat rule forbids that line twice, so the third and later times are POINT_MORE (bench-reply.ts
+  stage's ask stored, so a no to it parks the program, `path:{id}` declined, and the path moves on). v4.8.2 Task 1
+  (R1): the short 'Still {Program}. Reply "no" ...' pointer (POINT_NEXT, `point2:`) is gone, so the second and later
+  times are POINT_MORE (bench-reply.ts
   MORE_ASK, 'Reply "more" and I'll show every program open now.'), stored as the 'more' ask with MORE_NOTE, so "more"
   or a yes is the programs answer and never the program's own step; once the programs answer was given (this reply or
   this session, bench-find.ts listedNow), that pointer is NAME_ASK (the 'name' ask, NAME_NOTE) instead, so the list

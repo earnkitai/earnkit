@@ -363,15 +363,12 @@ export type PathCtx = {
 };
 
 /*
- * v4.8.1 Task 3 (R4): the pointer, the same step pointed back to within a session. The first time it says why the
- * program is still the move; the second time it is short and offers the way out (a no parks the program and the path
- * moves on, the existing no handling); from the third, the gate's repeat rule forbids the short line again, so it is the
- * quiet reply's MORE_ASK (bench-reply.ts), stored as the 'more' ask (pointerReply's `more`), so "more" or a yes is the
- * programs answer and never the program's own step.
+ * v4.8.1 Task 3 (R4), v4.8.2 Task 1 (R1): the pointer, the same step pointed back to within a session. The first time it
+ * says why the program is still the move; from the second, it is the quiet reply's MORE_ASK (bench-reply.ts), stored as
+ * the 'more' ask (pointerReply's `more`), so "more" or a yes is the programs answer and never the program's own step. A
+ * no to the first pointer parks the program through the existing no handling (its stored ask's no).
  */
-/** The short pointer's easy reply: a no parks the program (its stored ask's no) and the path moves on. */
-export const POINT_NEXT = `Reply "no" and I'll line up the next program.`;
-/** The third and later pointers' easy reply: bench-reply.ts MORE_ASK, "more" is the programs answer. */
+/** The second and later pointers' easy reply: bench-reply.ts MORE_ASK, "more" is the programs answer. */
 export const POINT_MORE = MORE_ASK;
 /** Fix round 1 (minor 1): the submit stage's own ask on a pointer. */
 export const SENT_SHORT = `Reply "sent" once it's in.`;
@@ -402,9 +399,8 @@ export function pointerWhy(p: PointerFacts, now: Date): string | null {
 }
 /**
  * The pointer and the session parts it says (markSaid). First (`point:{id}` not said): "{Program} is still your best
- * move: {money}, {why}. {ask}" (an unknown amount or reason is left out with its comma). Second (`point2:{id}` not said):
- * "Still {Program}. Reply "no" and I'll line up the next program." Third and later: POINT_MORE, `more` set (the
- * caller stores the 'more' ask). `ready`: the reason is "your draft is ready" (its ask is readyAsk). Pure.
+ * move: {money}, {why}. {ask}" (an unknown amount or reason is left out with its comma). Second and later: POINT_MORE,
+ * `more` set (the caller stores the 'more' ask). `ready`: the reason is "your draft is ready" (its ask is readyAsk). Pure.
  */
 export type Pointer = { text: string; said: string[]; more: boolean; ready: boolean };
 export function pointerReply(p: PointerFacts, ask: string, said: ReadonlySet<string>, now: Date): Pointer {
@@ -415,7 +411,6 @@ export function pointerReply(p: PointerFacts, ask: string, said: ReadonlySet<str
     const facts = [p.amount, why].filter((x): x is string => Boolean(x));
     return { text: `${name} is still your best move${facts.length > 0 ? `: ${facts.join(', ')}` : ''}. ${ready && p.readyAsk ? p.readyAsk : ask}`, said: [`point:${p.id}`], more: false, ready };
   }
-  if (!said.has(`point2:${p.id}`)) return { text: `Still ${name}. ${POINT_NEXT}`, said: [`point2:${p.id}`], more: false, ready: false };
   return { text: POINT_MORE, said: [], more: true, ready: false };
 }
 /** Fix round 2 (F10): a local agent's offer for a grant whose one gap is Builder Codes (target A). */
@@ -750,21 +745,12 @@ export function trackLead(odds: string | null, next: boolean): string {
 const daysAgo = (at: string, now: Date) => Math.round((Date.parse(now.toISOString().slice(0, 10)) - Date.parse(new Date(at).toISOString().slice(0, 10))) / 86_400_000);
 const weekday = (at: string) => new Date(at).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
 const monthDay = (at: string) => new Date(at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-/** "earlier today", "yesterday", "on Tuesday" (within a week), "last week", "on Oct 3" (UTC days). Pure. */
-export function agoWords(at: string, now: Date): string {
-  const days = daysAgo(at, now);
-  if (days <= 0) return 'earlier today';
-  if (days === 1) return 'yesterday';
-  if (days < 7) return `on ${weekday(at)}`;
-  if (days < 14) return 'last week';
-  return `on ${monthDay(at)}`;
-}
 /**
- * The passed-step line (target A, said once: bestMove raises a passed step once, standing_seen.path_raised): "You
- * passed on it {when}, but it's now the only gap to that money." (`them`: Builder Codes, "You passed on them ... they're"). Pure.
+ * The passed-step line (target A, said once: bestMove raises a passed step once, standing_seen.path_raised): "It's now the
+ * only gap to that money." (`them`: Builder Codes, "They're ..."). v4.8.2 Task 1 (R2): it never says when or that the
+ * builder passed (no guilt); `at` and `now` are kept for the callers. Pure.
  */
-export const passedLine = (at: string | null, now: Date, them = false) =>
-  `You passed on ${them ? 'them' : 'it'}${at ? ` ${agoWords(at, now)}` : ''}, but ${them ? "they're" : "it's"} now the only gap to that money.`;
+export const passedLine = (_at: string | null, _now: Date, them = false) => `${them ? "They're" : "It's"} now the only gap to that money.`;
 
 /** "Since earlier today", "Since yesterday", "Since Thursday" (within a week), else "Since Oct 24" (UTC days). Pure. */
 export function sinceDay(at: string, now: Date): string {
