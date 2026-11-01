@@ -952,12 +952,16 @@ const withSince = (since: string | null, show: string) => (since ? `${since}\n\n
 /**
  * v4.8.1 Task 2 (R3): the money line (conversation.ts moneyLine) for this session's first path reply about `programId`,
  * else null: never after a direct answer (o.brief; a programs answer marks MONEY_SAID, its tables say the money), and
- * once a session (MONEY_SAID). The investor clause never names the program the reply is about or the stored path's.
+ * once a session (MONEY_SAID). The investor clause never names the program the reply is about, nor a program the
+ * builder picked or is past the hook on (the stored path's, by bestMove's `on` rule).
  * One read (openMoneyNow) when due. Never throws.
  */
 async function moneyFor(o: ViewIn, plan: Pick<PathPlan, 'ctx' | 'path'>, programId: string): Promise<string | null> {
   if (o.brief || sessionOf(o.read.seen, o.now).said.has(MONEY_SAID)) return null;
-  const investor = moneyInvestor(plan.ctx.investors, o.now, plan.ctx.skip, new Set([programId, plan.path?.program_id ?? null]));
+  // v4.8.1 final fix (R-4): bestMove's own `on` rule: a stored path counts only when picked or past the hook (an unpicked
+  // hook left from an older session is no lead, so its program can still be the clause).
+  const on = plan.path && (plan.path.picked || plan.path.stage !== 'hook') ? plan.path.program_id : null;
+  const investor = moneyInvestor(plan.ctx.investors, o.now, plan.ctx.skip, new Set([programId, on]));
   // Fix round 1 (F3): /api/stats' figure (openMoneyNow: every active program), read only when the line is due; the
   // builder's cards leave out hidden and agent-incompletable programs.
   return moneyLine(moneyText(await openMoneyNow(o.now, o.cards)), investor, o.now);

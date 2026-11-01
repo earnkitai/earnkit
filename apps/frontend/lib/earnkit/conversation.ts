@@ -246,8 +246,8 @@ export function closeWords(endsAt: string, zone: string, now: Date): string {
 export const MONEY_SAID = 'money:total';
 /**
  * The investor program the money line names: open, not skipped (applied to, declined, parked), closing within
- * INVESTOR_WINDOW_MS, and never one in `led` (the program the reply is about and the stored path's: the ruling's "led
- * on"); the soonest first. Null with none. Pure.
+ * INVESTOR_WINDOW_MS, and never one in `led` (the program the reply is about, and a program the builder picked or is
+ * past the hook on: the ruling's "led on"); the soonest first. Null with none. Pure.
  */
 export function moneyInvestor<P extends MoveProgram>(investors: readonly P[], now: Date, skip: ReadonlySet<string>, led: ReadonlySet<string | null>): P | null {
   const t = now.getTime();

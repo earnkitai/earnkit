@@ -20,7 +20,7 @@ import { MORE_ASK, NAME_ASK, alsoOpen, codesSettled, openMoneyNow, openNowInvest
 import { moneyText } from './pool';
 import { GitHubBudgetStop, type ReaderDeps } from './source-readers';
 import { committedProgram } from './fixtures/program-file';
-import { dropRunPrograms } from './fixtures/programs-cleanup';
+import { dropPrograms, dropRunPrograms } from './fixtures/programs-cleanup';
 import { ProgramFile } from './program-file';
 import { listPrograms, upsertProgram } from './programs';
 import { cardSubmitBy, hoursLeft } from './deadline';
@@ -524,6 +524,7 @@ test('v4.8.1 final fix (R-3): the opener list, also-open and the investor line s
   const also = alsoOpen(live, now, new Set(), 'base-builder-grants');
   assert.equal(also.find((x) => x.title === grant.title)?.when, 'closes in 19 hours', JSON.stringify(also));
   for (const x of [...opener, ...also]) assert.doesNotMatch(x.when, DAY_WORDS);
+  await dropPrograms([inv.id, grant.id]);
 });
 
 test('v4.8.1 final fix (R-3): the programs answer\'s grant and investor rows say "in 19 hours"', db, async () => {
@@ -541,6 +542,7 @@ test('v4.8.1 final fix (R-3): the programs answer\'s grant and investor rows say
   assert.match(line(inv.title), /in 19 hours/, ans.show);
   assert.match(line(grant.title), /in 19 hours/, ans.show);
   assert.doesNotMatch(line(inv.title) + line(grant.title), DAY_WORDS, ans.show);
+  await dropPrograms([inv.id, grant.id]);
 });
 
 test('v4.8.1 final fix (R-3): the closing nudge says the hours left, never a UTC weekday; past 48 hours the program-zone day', () => {
@@ -586,4 +588,28 @@ test('v4.8.1 final fix (R-3): emails say the close absolute, with the hours left
   assert.deepEqual(moneyTexts({ title: 'Base Builder Grant', ends_at: three, zone: 'America/Los_Angeles' }, 0, AT_1030),
     ['Base Builder Grant closes Nov 1, 6:00 AM PT (in 3 hours). Your draft is one yes away.']);
   for (const t of [mail.subject, mail.text, body.text]) assert.doesNotMatch(t, DAY_WORDS, t);
+});
+
+test("v4.8.1 final fix (R-4): an unpicked hook left on an investor program doesn't hide it from the money line", db, async () => {
+  // No earlier test's program (F6's copy closes sooner) is the clause here.
+  await dropRunPrograms();
+  const file = committedProgram('a16z-speedrun');
+  const id = `v481-${process.pid}-r4`;
+  const title = `Runway Left ${RUN}`;
+  const ends = new Date(Date.now() + 90 * 60_000).toISOString();
+  const open = () => upsertProgram(ProgramFile.parse({ ...file, id, title, ends_at: ends, status: 'active', starts_at: null }));
+  await open();
+  const b = await ownerDb('r4h');
+  await open();
+  // The owner's snapshot: a hook on the investor program from an older session, never picked.
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('path', jsonb_build_object('stage', 'hook', 'program_id', ${id}::text, 'at', now()::text)) WHERE builder_id = ${b.id}`;
+  const [r] = await converse(b.ctx as never, [{ find: {} }], { builderId: b.id });
+  assert.match(r.show.split('\n\n')[0], /^Jenil, [^\n]*Base Builder Grant/, r.show);
+  assert.equal(moneyPara(r.show)?.replace(/^Open now: \S+ in grants\. /, ''), `${title} (investor program, up to $1M) closes in 1 hour.`, r.show);
+  // Picked, it is the reply's own program, so the clause never names it.
+  const p = await ownerDb('r4p', { pick: id });
+  await open();
+  const [own] = await converse(p.ctx as never, [{ find: {} }], { builderId: p.id });
+  assert.doesNotMatch(moneyPara(own.show) ?? '', new RegExp(title), own.show);
+  assert.deepEqual(gateFailures([r], { names: ['EarnKit', b.handle] }), [], r.show);
 });
