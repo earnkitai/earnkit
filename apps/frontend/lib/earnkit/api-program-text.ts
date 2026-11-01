@@ -58,6 +58,8 @@ const INVISIBLE = /[\u115F\u1160\u3164\uFFA0\u034F\u180B-\u180F\u17B4\u17B5\u280
 const STRAY_VS = /[\uFE00-\uFE0D\u{E0100}-\u{E01EF}]|(?<!\p{Extended_Pictographic})[\uFE0E\uFE0F]/u;
 // Fix round 4 (N2): a lone surrogate (not well-formed UTF-16), which Postgres would store as U+FFFD.
 const LONE_SURROGATE = /\p{Cs}/u;
+// Fix round 5 (N5): a URL field's length cap.
+const URL_MAX = 2048;
 const codePoint = (c: string) => `U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}`;
 
 /** Fix rounds 3-4: hidden characters, malformed UTF-16 and text that isn't NFKC-normalized, or null. Pure. */
@@ -73,12 +75,17 @@ export function hiddenTextProblem(field: string, value: string): string | null {
 /**
  * Fix round 4 (N1): a URL field (source_url, submission_url, pool_source_url) is quoted verbatim in EarnKit's own
  * sentences, so it must be printable ASCII with no spaces, already normalized (equal to `new URL(v).href`), with no
- * fragment and no username or password. Returns the problem or null. Pure.
+ * fragment and no username or password. Fix round 5 (N4, N5): at most 2,048 characters, and no markdown link or
+ * square brackets (legal in a path or query, so `org.com/[Apply](https://evil.com)` would render as an off-site link).
+ * Returns the problem or null. Pure.
  */
 export function apiUrlProblem(field: string, value: string): string | null {
+  if (value.length > URL_MAX) return `${field}: at most ${URL_MAX.toLocaleString('en-US')} characters`;
   const hidden = hiddenTextProblem(field, value);
   if (hidden) return hidden;
   if (!/^[\x21-\x7E]+$/.test(value)) return `${field}: printable ASCII only, no spaces; percent-encode anything else`;
+  if (MARKDOWN_LINK.test(value)) return `${field}: no markdown links; send the plain URL`;
+  if (/[[\]]/.test(value)) return `${field}: no [ or ] characters; percent-encode them`;
   let u: URL;
   try {
     u = new URL(value);

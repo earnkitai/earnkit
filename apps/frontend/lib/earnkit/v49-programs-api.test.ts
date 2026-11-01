@@ -482,7 +482,9 @@ test('v4.9 T2 fix (security review): hostnames are normalized; a trailing dot or
   assert.deepEqual(at({ submission_url: 'https://speedrun.a16z.com./apply' }), ['submission_url: no trailing dot in the host name']);
   const ipLine = (k: string) => [`${k}: use the program's domain name, not an IP address`];
   assert.deepEqual(at({ source_url: 'https://127.0.0.1/' }), ipLine('source_url'));
-  assert.deepEqual(at({ source_url: 'https://[::1]/' }), ipLine('source_url'));
+  // Fix round 5 (N4): an IPv6 literal is refused earlier, by the no-brackets rule.
+  const bracketLine = (k: string) => [`${k}: no [ or ] characters; percent-encode them`];
+  assert.deepEqual(at({ source_url: 'https://[::1]/' }), bracketLine('source_url'));
   assert.deepEqual(at({ submission_url: 'https://10.0.0.5/' }), ipLine('submission_url'));
   // Fix round 4 (N1): a URL the parser would rewrite (0x7f.1 to 127.0.0.1) is refused as not normalized.
   assert.deepEqual(at({ submission_url: 'https://0x7f.1/' }), ['submission_url: send the normalized URL (https://127.0.0.1/)']);
@@ -492,7 +494,7 @@ test('v4.9 T2 fix (security review): hostnames are normalized; a trailing dot or
   assert.equal(r.status, 400);
   assert.ok(r.body.problems!.includes('(program): Optimism programs are not listed'), JSON.stringify(r.body));
   const ip = await send({ action: 'upsert', program: apiProgram(id, { submission_url: 'https://[::1]/apply' }) });
-  assert.deepEqual([ip.status, ip.body.problems], [400, ipLine('submission_url')]);
+  assert.deepEqual([ip.status, ip.body.problems], [400, bracketLine('submission_url')]);
   assert.equal((await sql()`SELECT 1 FROM programs WHERE id = ${id}`).length, 0);
 }));
 
@@ -818,3 +820,27 @@ test('v4.9 T2 fix 4: the remaining hosting platforms count as shared sites', () 
   assert.equal(apiSubmitHostAllowed('evil.ipfs.dweb.link', 'org.ipfs.dweb.link', '/'), false);
   assert.equal(apiSubmitHostAllowed('org.gitlab.io', 'org.gitlab.io', '/apply'), true, 'the same site');
 });
+
+test('v4.9 T2 fix 5 (N4, N5): no markdown link or square brackets in a URL field, and at most 2,048 characters', db, withToken(async () => {
+  const now = new Date('2026-11-01T12:00:00Z');
+  const ok = ProgramFile.parse(apiProgram('v49-urls5', { verified_at: '2026-11-01' }));
+  const at = (o: Record<string, unknown>) => apiRuleProblems({ ...ok, ...o } as ProgramFile, now);
+  const long = (n: number) => `https://speedrun.a16z.com/${'a'.repeat(n - 'https://speedrun.a16z.com/'.length)}`;
+  for (const key of ['source_url', 'submission_url', 'pool_source_url'] as const) {
+    const extra = key === 'pool_source_url' ? { pool_usd: 100000 } : {};
+    assert.deepEqual(at({ ...extra, [key]: 'https://speedrun.a16z.com/[Apply](https://evil.com/phish)' }), [`${key}: no markdown links; send the plain URL`]);
+    assert.deepEqual(at({ ...extra, [key]: 'https://speedrun.a16z.com/apply?[Apply](https://evil.com/phish)' }), [`${key}: no markdown links; send the plain URL`]);
+    assert.deepEqual(at({ ...extra, [key]: 'https://speedrun.a16z.com/a[b]c' }), [`${key}: no [ or ] characters; percent-encode them`]);
+    assert.deepEqual(at({ ...extra, [key]: long(2049) }), [`${key}: at most 2,048 characters`]);
+    assert.deepEqual(at({ ...extra, [key]: long(2048) }), [], `${key}: 2,048 characters pass`);
+  }
+  assert.equal(long(2048).length, 2048);
+  // Plain parentheses in a path are fine.
+  assert.deepEqual(at({ source_url: 'https://org.com/a_(b)', submission_url: 'https://org.com/a_(b)', pool_source_url: 'https://org.com/a_(b)', pool_usd: 100000 }), []);
+  // Through the API: nothing is written.
+  const id = `v49-url5-${process.pid}`;
+  const r = await send({ action: 'upsert', program: apiProgram(id, { submission_url: 'https://speedrun.a16z.com/[Apply](https://evil.com/phish)' }) });
+  assert.equal(r.status, 400);
+  assert.ok(r.body.problems!.includes('submission_url: no markdown links; send the plain URL'), JSON.stringify(r.body));
+  assert.equal((await sql()`SELECT 1 FROM programs WHERE id = ${id}`).length, 0);
+}));
