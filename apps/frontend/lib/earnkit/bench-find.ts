@@ -1594,7 +1594,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
         await answered(null);
       }
       // Task 5: a direct question never waits for an older moment: the answer, then the path's step.
-      else if (move.kind !== 'closest' || midPath || o.question || sessionOf(read.seen, now).said.has(OLDER_SAID)) {
+      // v4.8.1 fix round 1 (controller ruling): an investor move is the last resort, so it waits like the closest grant.
+      else if ((move.kind !== 'closest' && move.kind !== 'investor') || midPath || o.question || sessionOf(read.seen, now).said.has(OLDER_SAID)) {
         // Re-review minor (N4): the builder's pick closes within 48 hours on a step the agent can't do (bestMove drops
         // it): one line saying so, once, before the closer money.
         const pickedId = plan.path?.picked && plan.path.stage === 'hook' ? plan.path.program_id : null;
@@ -1611,7 +1612,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
       else deferred = { ...plan, move };
     }
   }
-  // F1: while the closest grant waits, only an older moment may answer (the quieter asks stay for a quiet path).
+  // F1: while the closest grant (or, v4.8.1, an investor program) waits, only an older moment may answer (the quieter asks stay for a quiet path).
   const momentsOnly = deferred !== null;
   // Launch ready L5: the weekly target, the ship step's points line lead (ranks only, never another builder's name).
   const aim = ranked ? await targetIn(id, read.parts, now) : null;

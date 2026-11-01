@@ -80,3 +80,11 @@ test('v4.8.1 R1: a pick of a16z on the opener still hooks a16z', () => {
   const hook = pickHook(owner(), A16Z.id);
   assert.deepEqual(hook, { move: { kind: 'investor', program: A16Z }, pick: true, steps: false });
 });
+
+test('v4.8.1 fix round 1: a picked rolling long-shot grant is hooked on the reply after connecting, beside a closer grant', () => {
+  const longShot = gap('monad', ['on Monad'], { longShot: true });
+  const two = gap('two', ['a', 'b']);
+  assert.deepEqual(pickHook(ctx({ grants: [longShot, two] }), 'monad'), { move: { kind: 'closest', program: longShot, raise: false }, pick: true, steps: false });
+  // Unpicked, it never leads: the non-long-shot grant does.
+  assert.deepEqual(bestMove(ctx({ grants: [longShot, two] })), { kind: 'closest', program: two, raise: false });
+});

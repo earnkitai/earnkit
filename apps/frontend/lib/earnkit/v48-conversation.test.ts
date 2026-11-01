@@ -492,6 +492,26 @@ test('fix round 2 (F1): with only the closest grant, the connect weeks go first,
   assert.ok(second.endsWith('Want the steps?'), second);
 });
 
+test('v4.8.1 fix round 1: with only an investor move, the connect weeks go first, once a session; then the path; a pick never waits', db, async () => {
+  const sr = await speedrun(30);
+  await only([sr.id]);
+  const b = await owner('f1i');
+  await connectDueFor(b);
+  const first = await find(b);
+  assert.equal(moveUp(first)?.kind, 'connect', show(first));
+  assert.match(show(first), /Make your shipping log public on /);
+  assert.ok(((await seenOf(b.id)).said as { keys: string[] }).keys.includes('older'));
+  // The next call in the session: the investor program (one older moment a session).
+  const second = show(await find(b));
+  assert.ok(second.startsWith(`Jenil, ${sr.title} closes `) && second.endsWith('Want me to start?'), second);
+  // A builder who picked it is on it: the path, never the connect weeks.
+  const c = await owner('f1j', { pick: sr.id });
+  await connectDueFor(c);
+  const picked = show(await find(c));
+  assert.ok(picked.startsWith(`Jenil, ${sr.title} closes `), picked);
+  assert.doesNotMatch(picked, /Make your shipping log public/, picked);
+});
+
 test('fix round 2 (F4): a v4.7 silence stand-aside never parks a program; an explicit no does', db, async () => {
   const sr = await speedrun(30);
   const b = await owner('f4', { pick: sr.id });

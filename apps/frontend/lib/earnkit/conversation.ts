@@ -167,18 +167,19 @@ const byClose = <P extends Pick<MoveProgram, 'ends_at'>>(a: P, b: P) => closeAt(
  * 2. a grant, not a long shot, closing within NOW_WINDOW_MS (48 hours) the builder can apply to now with no gap;
  * 3. a grant, not a long shot, one step away where that step is one the agent can do in the repo (`doable`: Builder
  *    Codes; a chain deployment never counts), not a step the builder passed on;
- * 4. the closest grant, not a long shot, by number of gaps, the agent-doable one first at equal gaps (a passed step only
- *    when it is the one gap, and only once); never one whose gap the agent can't do that closes within NOW_WINDOW_MS
- *    (final review F2);
- * 5. only when 1 to 4 are all empty: an investor program (with its odds when stated) or a long-shot grant closing within
- *    INVESTOR_WINDOW_MS, soonest first;
+ * 4. the closest grant, not a long shot, by number of gaps, the agent-doable one first at equal gaps (a passed step
+ *    only when it is the one gap, and only once); never one whose gap the agent can't do that closes within
+ *    NOW_WINDOW_MS (final review F2);
+ * 5. only when 1 to 4 are all empty: an investor program (with its odds when stated) or a long-shot grant closing
+ *    within INVESTOR_WINDOW_MS, soonest first;
  * 6. otherwise quiet: the reply's older asks (check-in, wallet, token, new repo, titles, then the ship line).
- * Anything in `skip` is never a move. A program on the stored path keeps its place, wherever it ranks, while it is still
- * one of 1 to 5 (a long-shot grant at any close) and the builder is on it: they picked it, or said yes past the hook
- * (gap, draft, submit, track). An investor program is never a fit. Pure.
- * bench-find.ts (fix rounds 2 and 3): the path leads on every move but the closest grant. On a closest grant an older moment (connect, the Monday
- * block, a post, the check-in) may answer first, once a session, and only at the hook while the path is not already
- * on that program; a builder mid-path (past the hook, or already hooked on it) always gets the path.
+ * Anything in `skip` is never a move. A program on the stored path keeps its place, wherever it ranks, while it is
+ * still one of 1 to 5 (a long-shot grant at any close) and the builder is on it: they picked it, or said yes past the
+ * hook (gap, draft, submit, track). An investor program is never a fit. Pure.
+ * bench-find.ts (fix rounds 2 and 3, v4.8.1 fix round 1): the path leads on steps 1 to 3. On a closest grant or an
+ * investor program (steps 4 and 5) an older moment (connect, the Monday block, a post, the check-in) may answer first,
+ * once a session, and only at the hook while the path is not already on that program; a builder mid-path (past the
+ * hook, or already hooked on it) always gets the path.
  */
 export function bestMove(ctx: MoveCtx): Move {
   const t = ctx.now.getTime();
@@ -762,7 +763,9 @@ const GENERIC_PICK = /^(?:the |a |an )?(?:grants?|programs?|investor(?: programs
  */
 export function pickHook(ctx: MoveCtx, pick: string): { move: Exclude<Move, { kind: 'quiet' }>; pick: boolean; steps: boolean } | null {
   const only = <P extends { id: string }>(xs: P[]) => xs.filter((x) => x.id === pick);
-  const own = bestMove({ ...ctx, fits: only(ctx.fits), grants: only(ctx.grants), investors: only(ctx.investors), path: null });
+  // v4.8.1 fix round 1: the pick as a stored hook path, so a picked long shot is kept whatever its close (bestMove's kept).
+  const picked: Path = { stage: 'hook', program_id: pick, at: ctx.now.toISOString(), picked: true };
+  const own = bestMove({ ...ctx, fits: only(ctx.fits), grants: only(ctx.grants), investors: only(ctx.investors), path: picked });
   if (own.kind !== 'quiet') return { move: own, pick: true, steps: false };
   const skip = new Set([...ctx.skip, pick]);
   const near = bestMove({ ...ctx, investors: [], skip, path: null });
