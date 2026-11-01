@@ -8934,3 +8934,32 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
   JSON (enableJsonResponse), so there is no SSE case; a non-200 or non-JSON response passes through unmarked (the call
   was still scrubbed).
 - **Names are safe.** A repo or word like `sk-learn-tutorial-for-beginners` is never matched (fix 1).
+
+## v4.8.1 final review fixes (2026-11-01, .superpowers/sdd/v4.8.1-plan/final-review.md)
+
+- **Replay sessions.** scripts/converse-replay.mts `freshSession` ages the snapshot's live session (said.at) past
+  SESSION_MS before walks A and S (the copy only; the script refuses anything else) and notes it in the transcript.
+  Walk S exits 1 when its first reply is not a fresh session (Reply.first).
+- **R-2, the Builder Codes offer.** CODES_OFFER and the gap step's offer (bench-reply.ts qualifyGapSteps) say "I can add
+  Builder Codes and push the change, about 10 minutes", so the offer reads right after the money line. CODES_POINT_OFFER
+  is gone; the brief pointer is "{name} is one step away. {CODES_OFFER}".
+- **R-3, deadlines everywhere.** `hoursLeft` and `submitBy` live in deadline.ts (conversation.ts re-exports them), with
+  `cardSubmitBy` (a card's absolute close for emails). `stand-view.ts fundWhen(c, now?)`: with `now`, under 48 hours
+  "closes in N hours"; every builder-facing caller passes it (opener list, programs answer rows, alsoOpen,
+  openNowInvestment, the fit's `when`, base-qualify's head, the extra programs, the new-program email); MoveProgram's
+  own `when` and the `=== 'rolling'` flags don't. The hours left also drive standing.ts nextDeadline ("Next: X closes in
+  20 hours"), alerts.ts deadlineLine, present.ts programUpdates and fresh-build.ts freshLeadLine. nudges.ts
+  `closesWhen` replaces closesOn (it read a UTC weekday: a Nov 1 11:59 PM PT close was "Monday"): the hours left, else
+  the program-zone day. Emails are read hours after sending, so the closing email (alert-mail.ts), the Monday email's
+  deadlines and new programs (digest.ts `closes`, DigestFacts.now) and its money line (moneyTexts; bestFitFor carries the
+  program zone) say "Nov 1, 11:59 PM PT (in 20 hours)". No builder-facing copy says today, tomorrow, tonight or a UTC
+  weekday under 48 hours. Left as is: landing.ts's cached "Closes Nov 1".
+- **R-4, the investor clause.** moneyFor leaves out the stored path's program only when it was picked or is past the
+  hook (bestMove's `on` rule); an unpicked hook from an older session no longer hides it.
+- **Parked 5 and 6.** The Stripe pattern is "a digit and 16+ characters, or 24+ characters". The draft-ready pointer
+  stores `readyStored` (the program's own ask, else the blanks ask with none left, never `{}`), and `pathDrafted` counts a
+  draft yes only within DECLINE_MS (draftedRecently).
+- **Scrub warning.** withScrubNote puts SCRUB_LINE at the start of `show_to_builder`, then a blank line, wherever the
+  JSON reply has one (every agent note says to show it); `scrub_note` stays.
+- **Guide URL.** gapStillReply ends the guide link's line ("Guide: {url}\n{proof} {ask}"), one paragraph; splitLast
+  treats a line break before a capital as a sentence end, so the money line still lands before the easy reply.
