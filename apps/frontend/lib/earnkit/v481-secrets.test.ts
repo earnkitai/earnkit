@@ -19,8 +19,8 @@ const KEYS: Record<string, string> = {
   githubPat: 'gh' + 'p_' + A.slice(0, 36),
   githubFine: 'github_' + 'pat_' + A + '_' + A,
   anthropic: 'sk-' + 'ant-' + 'api03-' + A,
-  openai: 'sk-' + A.slice(0, 24),
-  openaiProject: 'sk-' + 'proj-' + A,
+  openai: 'sk-' + (A + A).slice(0, 48),
+  openaiProject: 'sk-' + 'proj-' + A + '_' + A.slice(0, 10) + '-T3BlbkFJ',
   aws: 'AK' + 'IA' + 'ABCDEFGHIJ234567',
   pem: '-----BEGIN ' + 'RSA PRIVATE KEY-----\nMIIBOgIBAAJBAK' + A + '\n-----END RSA PRIVATE KEY-----',
 };
@@ -40,6 +40,16 @@ test('T4.2 a tx hash, a wallet and a GitHub link are untouched', () => {
   const r = scrubSecrets(text);
   assert.equal(r.removed, 0);
   assert.equal(r.value, text);
+});
+
+test('T4.2b a repo or word starting sk- is untouched; real OpenAI shapes are still caught', () => {
+  for (const text of ['https://github.com/lee/sk-learn-tutorial-for-beginners', 'github.com/lee/sk-learn-tutorial-for-beginners', 'sk-learn', 'I use sk-learn daily']) {
+    assert.deepEqual(scrubSecrets(text), { value: text, removed: 0 });
+  }
+  assert.equal(KEYS.openai.length, 51);
+  assert.equal(scrubSecrets(`legacy ${KEYS.openai}`).removed, 1);
+  assert.equal(scrubSecrets(`project ${KEYS.openaiProject}`).removed, 1);
+  assert.equal(scrubSecrets(KEYS.anthropic).removed, 1);
 });
 
 test('T4.3 nested arrays and objects are scrubbed, and removed counts every match', () => {

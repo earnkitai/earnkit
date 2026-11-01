@@ -15,8 +15,9 @@ export const SECRET_PATTERNS: RegExp[] = [
   /\bgithub_pat_[A-Za-z0-9_]{30,}\b/g,
   // Anthropic (before OpenAI, whose pattern would also match it)
   /\bsk-ant-[A-Za-z0-9_-]{20,}/g,
-  // OpenAI
-  /\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}/g,
+  // OpenAI: project keys, and legacy keys (letters and digits only), so a name like sk-learn-... never matches
+  /\bsk-proj-[A-Za-z0-9_-]{40,}/g,
+  /\bsk-[A-Za-z0-9]{40,}\b/g,
   // AWS
   /\bAKIA[0-9A-Z]{16}\b/g,
   // PEM private key
