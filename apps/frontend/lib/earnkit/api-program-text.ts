@@ -47,8 +47,25 @@ export function notWritableFields(raw: Record<string, unknown>): string[] {
 }
 const MARKDOWN_LINK = /!?\[[^\]\n]{0,500}\]\s{0,3}\(|^\s{0,3}\[[^\]\n]{1,200}\]:\s/m;
 
-/** Why one text value can't be written, or null: checked on its NFKC form. Pure. */
+// Fix round 3 (HIGH): invisible characters an agent reads but a person doesn't see. Controls but newline and tab, every
+// format character (bidi controls, zero-width characters, tag characters U+E0000-E007F), private use and unassigned.
+const HIDDEN = /[^\P{Cc}\n\t]|\p{Cf}|\p{Co}|\p{Cn}/u;
+// Variation selectors, allowed only right after an emoji or pictograph.
+const STRAY_VS = /(?<!\p{Extended_Pictographic})[\uFE00-\uFE0F\u{E0100}-\u{E01EF}]/u;
+const codePoint = (c: string) => `U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}`;
+
+/** Fix round 3: hidden characters and text that isn't NFKC-normalized, or null. Pure. */
+export function hiddenTextProblem(field: string, value: string): string | null {
+  const hidden = HIDDEN.exec(value) ?? STRAY_VS.exec(value);
+  if (hidden) return `${field}: no hidden, control or format characters (${codePoint(hidden[0])}); plain visible text only`;
+  if (value.normalize('NFKC') !== value) return `${field}: send plain normalized text (NFKC); no full-width or compatibility characters`;
+  return null;
+}
+
+/** Why one text value can't be written, or null: hidden characters and normalization first, then the NFKC form. Pure. */
 export function apiTextProblem(field: string, value: string, max: number = RAW_CAP): string | null {
+  const hidden = hiddenTextProblem(field, value);
+  if (hidden) return hidden;
   const v = value.normalize('NFKC');
   if (/[<>]/.test(v)) return `${field}: no < or > characters; plain words only`;
   if (MARKDOWN_LINK.test(v)) return `${field}: no markdown links; put links only in source_url or submission_url`;

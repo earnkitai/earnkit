@@ -2801,7 +2801,12 @@ export const tools = {
   // so the reply's contract check sees it (item 13: "goes straight into the A5 check") and never says
   // "No contract found" next to the deployed line. The program is read first, so an unknown one
   // spends nothing; a draft that fails after a deploy still returns the deploy.
-  prepare: async (input: unknown, ctx: ToolContext) => withApiContent(await prepareTool(input, ctx), prepareProgramId(input)),
+  // Fix round 3: the program the reply is about (the build path's pick), else the one the input names.
+  prepare: async (input: unknown, ctx: ToolContext) => {
+    const reply = await prepareTool(input, ctx);
+    const picked = (reply as { program_id?: unknown }).program_id;
+    return withApiContent(reply, typeof picked === 'string' ? picked : prepareProgramId(input));
+  },
 
   // R16: what the builder said: "I submitted", then statements; replies joined.
   tell: async (input: unknown, ctx: ToolContext) => {

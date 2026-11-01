@@ -9101,3 +9101,15 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
   host isn't one whose owners differ by path (`API_PATH_OWNED`: github.com, x.com, twitter.com, medium.com, notion.so,
   google.com and its subdomains, forms.gle, dorahacks.io, mirror.xyz, paragraph.xyz). `sourceSiteName` names the
   source's exact host on a shared domain.
+
+### v4.9 Task 2 fix round 3: hidden Unicode, more shared sites
+
+- **Hidden Unicode.** `api-program-text.ts hiddenTextProblem` runs first on every allowed text field: it refuses any
+  `\p{Cc}` but newline and tab, any `\p{Cf}` (bidi controls, zero-width characters, tag characters
+  U+E0000-E007F), `\p{Co}`, `\p{Cn}`, a variation selector not right after a pictograph, and any value that isn't
+  already NFKC (full-width and compatibility forms are refused, not converted). The problem names the field and the code
+  point. With that, text is stored as written ("€10K", emoji, newlines and tabs pass).
+- **Shared sites.** `API_SHARED_SITES` adds web.app, firebaseapp.com, webflow.io, framer.website, framer.app,
+  onrender.com, fly.dev, replit.app, repl.co, wixsite.com, carrd.co, blogspot.com, hashnode.dev, azurewebsites.net,
+  amazonaws.com, cloudfront.net, gitbook.io, glitch.me and surge.sh.
+- **prepare's envelope** reads the program from the reply's `program_id` first (the build path's pick), else the input.

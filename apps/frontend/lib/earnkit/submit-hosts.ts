@@ -144,6 +144,10 @@ export const API_SHARED_SITES = [
   ...SHARED_HOSTS,
   'github.io', 'github.com', 'vercel.app', 'pages.dev', 'netlify.app', 'herokuapp.com', 'notion.site', 'notion.so',
   'medium.com', 'x.com', 'twitter.com', 'substack.com', 'google.com',
+  // Fix round 3: more hosting platforms where anyone has a subdomain.
+  'web.app', 'firebaseapp.com', 'webflow.io', 'framer.website', 'framer.app', 'onrender.com', 'fly.dev', 'replit.app',
+  'repl.co', 'wixsite.com', 'carrd.co', 'blogspot.com', 'hashnode.dev', 'azurewebsites.net', 'amazonaws.com',
+  'cloudfront.net', 'gitbook.io', 'glitch.me', 'surge.sh',
 ] as const;
 /** Of those, the hosts where one host name serves many owners by path (github.com/<owner>, sites.google.com/<site>). */
 export const API_PATH_OWNED = [

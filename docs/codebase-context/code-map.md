@@ -1385,7 +1385,7 @@ apps/frontend/
                                'api') in a tx with an unchanged snapshot check; program_writes audit rows;
                                noteFileTakeover for programs-sync. Tests: v49-programs-api.test.ts
     api-program-text.ts        v4.9 T2: API_FIELDS/API_REQUIREMENT_FIELDS (the write allowlist, notWritableFields),
-                               apiTextProblems (NFKC, no < >, markdown links, cleanText link detection, title 120 and
+                               apiTextProblems (hidden/format characters and non-NFKC text refused, no < >, markdown links, cleanText link detection, title 120 and
                                organizer 80 caps; stored as written), API_CONTENT (the written-by envelope on find,
                                list_programs, get_program and prepare)
     payout.ts(+test)           payoutAccount (CAMPAIGN_PAYOUT_PRIVATE_KEY, with or without 0x: Ruling 7), payoutRpc, payWinner (sign,
