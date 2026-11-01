@@ -8894,3 +8894,16 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
   the builder hid still counts), read only when the line is due; the signed-out opener uses it too. An `ask: programs`
   answer marks `money:total` (its tables say the money); a standing answer does not. A close already passed has no hours
   left (closeWords says its day; submitBy drops the "(in N hours)"; the investor clause is left out).
+- **Pointer (R4).** The same step pointed back to within a session (pathReply with its hook said, and pathClosedCommit's
+  draft offer again) goes through one function, conversation.ts pointerReply. The first time (`point:{programId}` not
+  said): "{Program} is still your best move: {money}, {why}. {ask}", where money is the amount cell (left out with its
+  comma when unknown), why is pointerWhy ("one step away"; "{n} steps away"; "your draft is ready" at the draft or submit
+  stage once a draft was made; "closes {closeWords}"; else nothing) and ask is the step's own easy reply. The second time
+  (`point2:{programId}`): "Still {Program}. Reply no and I'll line up the next program." (POINT_NEXT), the stored ask
+  unchanged, so a no parks the program and the path moves on. The gate's repeat rule forbids that line twice, so the
+  third and later times are POINT_MORE, 'Reply "more" and I'll show every program open now.'. The direct-answer brief
+  step keeps "Your {program} application is the next move." for a hook not yet said. A pointer never raises a passed
+  step (only a reply that says `hook:{id}` does). The gate (fixtures/converse.ts) accepts POINT_NEXT as one easy reply.
+  This supersedes the "still the next move" / "still the one step to" / "still your closest money" pointers above.
+- **Fit copy (R5).** fitCell for one chain the project is not on: "Not yet: they look for apps on {chain}" (supersedes
+  "Not yet: needs Arc" above).

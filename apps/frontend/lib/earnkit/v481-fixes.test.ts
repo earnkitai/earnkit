@@ -2,7 +2,7 @@ import './fixtures/no-network-checks';
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  MONEY_SAID, SESSION_MS, bestMove, closeWords, moneyInvestor, moneyLine, pickHook, submitBy, submitNoRush, submitPointer, withMoneyLine,
+  MONEY_SAID, POINT_MORE, POINT_NEXT, SESSION_MS, bestMove, closeWords, fitCell, pathReply, pointerReply, moneyInvestor, moneyLine, pickHook, submitBy, submitNoRush, submitPointer, withMoneyLine,
   type GapGrant, type InvestorProgram, type MoveCtx, type MoveProgram,
 } from './conversation';
 import { sql } from './db';
@@ -315,4 +315,88 @@ test("v4.8.1 fix round 1 (F6): the investor clause names a controlled investor p
   assert.doesNotMatch(moneyPara(own.show)!, new RegExp(title), own.show);
   assert.deepEqual(gateFailures([hook], { names: ['EarnKit', b.handle] }), [], hook.show);
   assert.deepEqual(gateFailures([own], { names: ['EarnKit', p.handle] }), [], own.show);
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// v4.8.1 Task 3: a pointer with its reason, never twice (R4), and the fit copy (R5).
+
+const facts = (o: Partial<Parameters<typeof pointerReply>[0]> = {}): Parameters<typeof pointerReply>[0] => ({
+  id: BASE.id, title: BASE.title, amount: BASE.amount, when: 'rolling', ends_at: null, zone: 'UTC', gaps: 1, stage: 'hook', drafted: false, ...o,
+});
+
+test('v4.8.1 R4: the first pointer says the money and why, then the stage\'s own easy reply', () => {
+  const none = new Set<string>();
+  assert.deepEqual(pointerReply(facts(), 'Go?', none, NOW), { text: 'Base Builder Grant is still your best move: up to $5,000, one step away. Go?', said: [`point:${BASE.id}`] });
+  assert.equal(pointerReply(facts({ gaps: 3 }), 'Want the steps?', none, NOW).text, 'Base Builder Grant is still your best move: up to $5,000, 3 steps away. Want the steps?');
+  // The draft stage, drafted: "your draft is ready" (ahead of a close).
+  assert.equal(pointerReply(facts({ gaps: 0, stage: 'draft', drafted: true, when: 'closes Nov 1', ends_at: inHours(20.5) }), 'Want me to start?', none, NOW).text,
+    'Base Builder Grant is still your best move: up to $5,000, your draft is ready. Want me to start?');
+  assert.equal(pointerReply(facts({ gaps: 0, stage: 'submit', drafted: true }), `Reply "sent" once it's in.`, none, NOW).text,
+    `Base Builder Grant is still your best move: up to $5,000, your draft is ready. Reply "sent" once it's in.`);
+  // A dated program with nothing above: its close, in hours left.
+  assert.equal(pointerReply(facts({ ...A16Z, gaps: 0, stage: 'hook' }), 'Want me to start?', none, NOW).text,
+    'a16z speedrun SR008 is still your best move: up to $1M, closes in 20 hours. Want me to start?');
+  // The draft stage with no draft made yet (the gap just closed) never says it is ready.
+  assert.equal(pointerReply(facts({ gaps: 0, stage: 'draft', drafted: false }), 'Want me to start?', none, NOW).text, 'Base Builder Grant is still your best move: up to $5,000. Want me to start?');
+  // An unknown amount is left out with its comma; no amount and no reason: the name alone.
+  assert.equal(pointerReply(facts({ amount: null }), 'Go?', none, NOW).text, 'Base Builder Grant is still your best move: one step away. Go?');
+  assert.equal(pointerReply(facts({ amount: null, gaps: 0 }), 'Go?', none, NOW).text, 'Base Builder Grant is still your best move. Go?');
+});
+
+test('v4.8.1 R4: the second pointer is short with the way out; the third and later offer every program', () => {
+  const once = new Set([`point:${BASE.id}`]);
+  assert.deepEqual(pointerReply(facts(), 'Go?', once, NOW), { text: `Still Base Builder Grant. ${POINT_NEXT}`, said: [`point2:${BASE.id}`] });
+  assert.equal(POINT_NEXT, "Reply no and I'll line up the next program.");
+  const twice = new Set([...once, `point2:${BASE.id}`]);
+  assert.deepEqual(pointerReply(facts(), 'Go?', twice, NOW), { text: POINT_MORE, said: [] });
+  assert.equal(POINT_MORE, 'Reply "more" and I\'ll show every program open now.');
+  // Keyed per program: another program's pointer starts at its first.
+  assert.match(pointerReply(facts({ id: 'other', title: 'Other Grant' }), 'Go?', twice, NOW).text, /^Other Grant is still your best move/);
+  // pathReply's hook said: the pointer, its parts said.
+  const said = new Set([`hook:${BASE.id}`]);
+  const r = pathReply({ now: NOW, first: null, project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'one_step', program: BASE }, said });
+  assert.equal(r.show_to_builder, 'Base Builder Grant is still your best move: up to $5,000, one step away. I can add them and push the change, about 10 minutes. Go?');
+  assert.deepEqual(r.said, [`point:${BASE.id}`]);
+  for (const t of [r.show_to_builder, POINT_NEXT, POINT_MORE]) assert.doesNotMatch(t, BAD);
+});
+
+test('v4.8.1 R5: a chain gap says what the program looks for', () => {
+  assert.equal(fitCell(false, { kind: 'chain', chain: 'Arc' }), 'Not yet: they look for apps on Arc');
+});
+
+test('v4.8.1 R4: five plain finds on the owner\'s shape: the hook, the pointer with its reason, the short pointer, then "more"; the gate passes', db, async () => {
+  // The owner fixture (Builder Codes passed on today): the hook raises Base once with "You passed on them".
+  const b = await ownerDb('pt5');
+  const replies = await converse(b.ctx as never, Array.from({ length: 5 }, () => ({ find: {} })), { builderId: b.id });
+  const t = transcript(replies);
+  assert.equal(replies.length, 5, t);
+  assert.match(replies[0].show, /You passed on them earlier today/, t);
+  assert.ok(replies[0].hook, t);
+  assert.equal(replies[1].show, 'Base Builder Grant is still your best move: up to $5,000, one step away. I can add them and push the change, about 10 minutes. Go?', t);
+  assert.equal(replies[2].show, `Still Base Builder Grant. ${POINT_NEXT}`, t);
+  assert.equal(replies[3].show, POINT_MORE, t);
+  // The brief's "third and later showings": the fifth is the "more" line again (its one easy reply, which the gate lets
+  // repeat); the first four are all different.
+  assert.equal(replies[4].show, POINT_MORE, t);
+  assert.equal(new Set(replies.slice(0, 4).map((r) => r.show)).size, 4, t);
+  // Only the hook raised the passed step (no second "You passed on them").
+  assert.equal(replies.filter((r) => /You passed on them/.test(r.show)).length, 1, t);
+  assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), [], t);
+  for (const r of replies) assert.doesNotMatch(r.show, BAD, t);
+});
+
+test('v4.8.1 R4: a no after the short pointer parks the program and the path moves to the next one', db, async () => {
+  const b = await ownerDb('ptn');
+  const replies = await converse(b.ctx as never, [
+    { find: {} }, { find: {} }, { find: {} },
+    { says: 'no', tell: { move_up: { kind: 'qualify', project_key: b.key, answer: 'no' } } },
+    { find: {} },
+  ], { builderId: b.id });
+  const t = transcript(replies);
+  assert.equal(replies[2].show, `Still Base Builder Grant. ${POINT_NEXT}`, t);
+  const next = replies.at(-1)!;
+  assert.ok(next.show.trim(), t);
+  assert.doesNotMatch(next.show, /Base Builder Grant/, t);
+  assert.notEqual(next.reply?.lead && (next.reply.lead as { program_id?: string }).program_id, BASE.id, t);
+  assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), [], t);
 });

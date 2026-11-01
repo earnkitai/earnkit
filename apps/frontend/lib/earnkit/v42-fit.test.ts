@@ -130,7 +130,8 @@ test('F6: the lead is the money line\'s program (closing soonest), not the first
   // v4.7 T2: score leads with the standing paragraph (in place of its own standing line), then the money line.
   assert.ok(String(sc.show_to_builder).startsWith(`${sc.standing}\n\n`), String(sc.show_to_builder));
   // v4.8 Task 1: the same session's second reply on that step is its pointer, naming the same program.
-  assert.equal(String(sc.show_to_builder).slice(`${sc.standing}\n\n`.length).split('\n')[0], 'Your Soon Fund application is still the next move. Want me to start?', 'score names the same program');
+  // v4.8.1 Task 3 (R4): the pointer says the money (unknown here) and why.
+  assert.match(String(sc.show_to_builder).slice(`${sc.standing}\n\n`.length).split('\n')[0], /^Soon Fund is still your best move: closes [A-Z][a-z]{2} \d{1,2}\. Want me to start\?$/, 'score names the same program');
   assert.equal((sc.lead as { program_id: string } | undefined)?.program_id, closing, 'score lead is its money line program');
   assert.match(String(sc.standing), /Next: Soon Fund closes /, 'the standing names the same next deadline');
 });

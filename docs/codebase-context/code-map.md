@@ -1776,7 +1776,8 @@ apps/frontend/
                                program (difficulty_override.basis odds) or long shot (MoveProgram.longShot, the program file's
                                tag) closing within 7 days; a picked or past-the-hook program keeps its place; else quiet), pathReply
                                (Task 1: the hook only: A's opener for a fit or investor, "Want the steps?" for a gap; a hook said
-                               this session is a one-line pointer), closeWords (v4.8.1 R2: "in N hours" under 48 h, else the zone's day),
+                               this session is pointerReply: v4.8.1 R4, the reason once, then "Still {Program}. Reply no ...",
+                               then "more"), closeWords (v4.8.1 R2: "in N hours" under 48 h, else the zone's day),
                                moneyLine/moneyInvestor/withMoneyLine/MONEY_SAID (v4.8.1 R3: "Open now: $X in grants." once a
                                session, before the easy reply; v481-fixes.test.ts), proofLine, programName. bench-find.ts pathView
                                gathers the facts (pathSkip: entered, hidden, told, drafted, 'apply:'/'path:' nos) and stores

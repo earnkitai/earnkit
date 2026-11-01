@@ -270,7 +270,7 @@ export function moneyInvestor<P extends MoveProgram>(investors: readonly P[], no
 }
 /**
  * "Open now: {total} in grants." and, with an investor program (moneyInvestor), " {Investor} (investor program,
- * {amount}) closes {closeWords}." `total` is moneyText(openMoneyUsd(cards, now)), /api/stats' figure; null (0): no line.
+ * {amount}) closes {closeWords}." `total` is moneyText(openMoneyNow(now, cards)), /api/stats' figure; null (0): no line.
  * Pure.
  */
 export function moneyLine(total: string | null, investor: Pick<MoveProgram, 'title' | 'amount' | 'ends_at' | 'zone'> | null, now: Date): string | null {
@@ -363,7 +363,56 @@ export type PathCtx = {
    * hook's proof once the streak and live facts were said this session.
    */
   baseSteps?: readonly string[] | null;
+  /** v4.8.1 Task 3 (R4): the path's stage on this program (null: not on it), for the pointer's reason. */
+  stage?: Stage | null;
+  /** v4.8.1 Task 3 (R4): a draft of this program was made (the pointer's "your draft is ready"). */
+  drafted?: boolean;
 };
+
+/*
+ * v4.8.1 Task 3 (R4): the pointer, the same step pointed back to within a session. The first time it says why the
+ * program is still the move; the second time it is short and offers the way out (a no parks the program and the path
+ * moves on, the existing no handling); from the third, the gate's repeat rule forbids the short line again, so it offers
+ * every program open now.
+ */
+/** The short pointer's easy reply: a no parks the program (its stored ask's no) and the path moves on. */
+export const POINT_NEXT = "Reply no and I'll line up the next program.";
+/** The third and later pointers' easy reply: "more" is the programs answer. */
+export const POINT_MORE = `Reply "more" and I'll show every program open now.`;
+/** What the pointer reads of the program and the path. */
+export type PointerFacts = Pick<MoveProgram, 'id' | 'title' | 'amount' | 'when' | 'ends_at' | 'zone'> & {
+  /** The gaps left (0: none, or not a grant with gaps). */
+  gaps: number;
+  /** The path's stage on this program, null when not on it. */
+  stage: Stage | null;
+  /** A draft was made; only then does a draft or submit stage say "your draft is ready". */
+  drafted: boolean;
+};
+/**
+ * The pointer's reason, in this order: "one step away" (one gap); "{n} steps away"; "your draft is ready" (the draft or
+ * submit stage, drafted); "closes {closeWords}" (a dated program still open). Null with none. Pure.
+ */
+export function pointerWhy(p: PointerFacts, now: Date): string | null {
+  if (p.gaps === 1) return 'one step away';
+  if (p.gaps > 1) return `${p.gaps} steps away`;
+  if ((p.stage === 'draft' || p.stage === 'submit') && p.drafted) return 'your draft is ready';
+  if (p.ends_at && p.when !== 'rolling' && Date.parse(p.ends_at) > now.getTime()) return `closes ${closeWords(p.ends_at, p.zone, now)}`;
+  return null;
+}
+/**
+ * The pointer and the session parts it says (markSaid). First (`point:{id}` not said): "{Program} is still your best
+ * move: {money}, {why}. {ask}" (an unknown amount or reason is left out with its comma). Second (`point2:{id}` not said):
+ * "Still {Program}. Reply no and I'll line up the next program." Third and later: POINT_MORE. Pure.
+ */
+export function pointerReply(p: PointerFacts, ask: string, said: ReadonlySet<string>, now: Date): { text: string; said: string[] } {
+  const name = programName(p.title);
+  if (!said.has(`point:${p.id}`)) {
+    const facts = [p.amount, pointerWhy(p, now)].filter((x): x is string => Boolean(x));
+    return { text: `${name} is still your best move${facts.length > 0 ? `: ${facts.join(', ')}` : ''}. ${ask}`, said: [`point:${p.id}`] };
+  }
+  if (!said.has(`point2:${p.id}`)) return { text: `Still ${name}. ${POINT_NEXT}`, said: [`point2:${p.id}`] };
+  return { text: POINT_MORE, said: [] };
+}
 /** Fix round 2 (F10): a local agent's offer for a grant whose one gap is Builder Codes (target A). */
 export const CODES_OFFER = 'I can add them and push the change, about 10 minutes. Go?';
 export type PathReply = {
@@ -380,8 +429,8 @@ export type PathReply = {
  * - a fit or an investor program: "{first}, {program} closes {when}: {amount}." + the proof line, then the draft offer
  *   ending "Want me to start?" (A's opener);
  * - a grant with a gap: its money and the gap sentence + the proof line, then "Want the steps?".
- * The same hook a second time in a session is one line that points back, with the same easy reply. A proof line said
- * already this session is left out. Pure.
+ * The same hook a second time in a session is pointerReply (v4.8.1 R4: the reason once, then short, never the same
+ * line twice). A proof line said already this session is left out. Pure.
  */
 export function pathReply(c: PathCtx): PathReply {
   const m = c.move;
@@ -396,9 +445,14 @@ export function pathReply(c: PathCtx): PathReply {
   // proof-line rule; it is one line that points back, with the same easy reply.
   if (c.said.has(hookKey) || c.brief) {
     // Task 5 fix round 1 (5): the brief pointer (after a direct answer) says no "still" and counts the hook as said.
-    const still = c.said.has(hookKey) ? 'still ' : '';
-    const point = reply === 'start' ? `Your ${name} application is ${still}the next move.` : reply === 'go' ? `Builder Codes are ${still}the one step to ${name}.` : `${name} is ${still}your closest money.`;
-    return { stage: 'hook', program_id: p.id, show_to_builder: `${point} ${ask}`, said: still ? [] : [hookKey, `money:${p.id}`], reply };
+    if (c.said.has(hookKey)) {
+      // v4.8.1 Task 3 (R4): the same step pointed back to says why once, then is short, never the same line twice.
+      const gaps = m.kind === 'one_step' || m.kind === 'closest' ? (p as GapGrant).gaps.length : 0;
+      const pt = pointerReply({ ...p, gaps, stage: c.stage ?? null, drafted: c.drafted === true }, ask, c.said, c.now);
+      return { stage: 'hook', program_id: p.id, show_to_builder: pt.text, said: pt.said, reply };
+    }
+    const point = reply === 'start' ? `Your ${name} application is the next move.` : reply === 'go' ? `Builder Codes are the one step to ${name}.` : `${name} is your closest money.`;
+    return { stage: 'hook', program_id: p.id, show_to_builder: `${point} ${ask}`, said: [hookKey, `money:${p.id}`], reply };
   }
   // Task 6 fix round 1 (review 4): one proof a session per fact; with the streak and live said, Base's own fact.
   const proofOut = proofOf(c.project, c.streak, p.investment, c.said) ?? (c.baseSteps ? baseProof(c.baseSteps, c.said) : null);
@@ -947,14 +1001,15 @@ export function grantFact(gaps: readonly string[] | null, chains: readonly strin
 }
 /**
  * The grants' "Your fit", from stored facts only: "Fits" (a real fit), "1 step: {step}", "{n} steps", "Drafted", "Steps
- * met", else "Not yet: {why}" ("needs Arc"; "EarnKit can't see its needs yet"; "not checked yet"). Never "qualify". Pure.
+ * met", else "Not yet: {why}" ("they look for apps on Arc"; "EarnKit can't see its needs yet"; "not checked yet"). Never "qualify". Pure.
  */
 export function fitCell(fits: boolean, f: GrantFact): string {
   if (fits) return 'Fits';
   if (f.kind === 'drafted') return 'Drafted';
   if (f.kind === 'met') return 'Steps met';
   if (f.kind === 'steps') return f.gaps.length === 1 ? `1 step: ${stepWords(f.gaps[0])}` : `${f.gaps.length} steps`;
-  if (f.kind === 'chain') return `Not yet: needs ${f.chain}`;
+  // v4.8.1 Task 3 (R5): what the program looks for, never a bare "needs".
+  if (f.kind === 'chain') return `Not yet: they look for apps on ${f.chain}`;
   return `Not yet: ${f.kind === 'none' ? "EarnKit can't see its needs yet" : 'not checked yet'}`;
 }
 /** The grants' order: fits, drafted, steps met, fewest steps, a chain away, then nothing known. Pure. */
