@@ -9113,3 +9113,25 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
   onrender.com, fly.dev, replit.app, repl.co, wixsite.com, carrd.co, blogspot.com, hashnode.dev, azurewebsites.net,
   amazonaws.com, cloudfront.net, gitbook.io, glitch.me and surge.sh.
 - **prepare's envelope** reads the program from the reply's `program_id` first (the build path's pick), else the input.
+
+## v4.9 Programs API (Task 3): sorted reads, the audit log, API programs on the site
+
+- **`GET /api/programs`** (public, `app/api/programs/route.ts`; logic in `lib/earnkit/programs-read.ts`). The cached
+  read (`unstable_cache` 60 s, `readListedPrograms`) is landing.ts `listedCards(listPrograms())` (curated file or API
+  programs, open or upcoming, never a campaign or unlisted) plus one read of `category`, `source_url`,
+  `submission_url` and `source`. Per request, `programsListGet` validates `?category` and `?status` (400 otherwise),
+  drops anything closed since the cache, sorts (`byListOrder`: category in PROGRAM_CATEGORIES order, soonest
+  `closes_at`, rolling last, larger `max_award_usd`, id) and caps at 200. Fields: id, title, organizer, category,
+  chains, any_chain, money (site-copy `tileMoney`, the card's text), status, closes_at (null when rolling,
+  deadline.ts closeDay), closes_in (deadline.ts hoursLeft, open programs only), source_url, submission_url, source.
+- **`GET /api/programs/writes`** (`programWritesGet`): the write API's own gate, `programs-api.ts programsAuthFailure`
+  (404 off, 401 wrong token; POST uses the same helper), then the last 100 `program_writes` rows `{ at, program_id,
+  action, result, reason }`, never `body`.
+- **API programs on the site** like file programs: `guide-pages.ts guideProgramSql` (the guide set, readGuideIds and
+  every guide link in page-data.ts), `landing.ts readGuidePage`, `app/sitemap.ts`, `also-qualifies.ts` and the feed
+  week's curated applications count (`site-data.ts feedWeekStats`) take `source IN ('file', 'api')`. The landing tiles
+  already listed them (listPrograms). MCP-only curated paths stay file-only: get_program's `guide` block
+  (programs.ts guideBlock), the first-prepare guide and the curated draft path (tools.ts).
+- **`docs/programs-api.md`**: the guide the owner pastes into the Grok Bot (the setup command, field allowlist, text
+  and URL rules, a full example from base-builder-grants, close, errors). A test parses its example and runs every
+  check on it.

@@ -275,6 +275,10 @@ apps/frontend/
                                (x_owner_clears) with Release
   app/api/admin/scores/route.ts  v2.12 T6: POST -> builder-score.ts scoresPost (release a held day as a
                                score_releases row, or action=clear_x / release_x); wrong key 404; 303 back
+  app/api/programs/route.ts    v4.9 T3: GET, the public program list (programs-read.ts programsListGet over a
+                               60 s unstable_cache of readListedPrograms); ?category, ?status; at most 200
+  app/api/programs/writes/route.ts  v4.9 T3: GET, the last 100 program_writes rows without body
+                               (programs-read.ts programWritesGet; the write API's token gate)
   app/api/programs/write/route.ts  v4.9 T2: POST, the programs write API (lib/earnkit/programs-api.ts); 404 until
                                EARNKIT_PROGRAMS_TOKEN is set, or with EARNKIT_PROGRAMS_API=off
   app/api/stats/route.ts       v2.5 Task 9: GET public stats JSON (revalidate 600, prerendered when
@@ -1383,7 +1387,11 @@ apps/frontend/
                                allowlist (api-program-text.ts), programProblems, apiRuleProblems,
                                curated 409 (programs/ file or non-api row), probeLink (safeProbe; 401/403/429 pass), then upsertProgram(p,
                                'api') in a tx with an unchanged snapshot check; program_writes audit rows;
-                               noteFileTakeover for programs-sync. Tests: v49-programs-api.test.ts
+                               noteFileTakeover for programs-sync. v4.9 T3: programsAuthFailure (the 404/401 gate
+                               shared with GET /api/programs/writes). Tests: v49-programs-api.test.ts
+    programs-read.ts           v4.9 T3: readListedPrograms (landing listedCards + landingTiles, money = site-copy
+                               tileMoney), byListOrder, programsListGet (GET /api/programs), programWritesGet (GET
+                               /api/programs/writes). Tests: v49-programs-api.test.ts
     api-program-text.ts        v4.9 T2: API_FIELDS/API_REQUIREMENT_FIELDS (the write allowlist, notWritableFields),
                                apiTextProblems (hidden/format characters and non-NFKC text refused, no < >, markdown links, cleanText link detection, title 120 and
                                organizer 80 caps; stored as written), API_CONTENT (the written-by envelope on find,

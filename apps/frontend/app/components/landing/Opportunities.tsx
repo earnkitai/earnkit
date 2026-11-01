@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { H2_SITE } from '../site/ui';
 import type { Tile } from '../../../lib/earnkit/landing';
-import { EARN_FOOT, EARN_TITLE } from '../../../lib/earnkit/site-copy';
+import { EARN_FOOT, EARN_TITLE, tileMoney } from '../../../lib/earnkit/site-copy';
 import Money from '../site/Money';
 
 /** The four card looks in order (Landing board): blue, step, rust, step; each with its secondary text colour. */
@@ -69,11 +69,11 @@ export default function Opportunities({ programs: shown }: { programs: Tile[] })
                 <span className="mt-auto text-[16px] font-semibold [overflow-wrap:anywhere]">{t.title}</span>
                 {t.big ? (
                   <span className="ek-serif text-[52px] leading-[0.9] md:text-[64px]">
-                    <Money text={t.big} />
+                    <Money text={tileMoney(t)} />
                   </span>
                 ) : (
                   <span className="ek-serif text-[28px] leading-none">
-                    <Money text={t.prize} />
+                    <Money text={tileMoney(t)} />
                   </span>
                 )}
                 <span className={`text-[13px] ${look.sub}`}>{t.kind}</span>

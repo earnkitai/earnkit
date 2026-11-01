@@ -317,13 +317,23 @@ async function closeAction(id: string, reason: string, deps: Required<Omit<Write
 
 let warnedNoDir = false;
 
-/** POST /api/programs/write. */
-export async function programsWritePost(request: Request, deps: WriteDeps = {}): Promise<Response> {
-  // Group 1. Unset token or the off switch: the route doesn't exist (R6).
+/**
+ * The owner routes' gate (POST /api/programs/write, GET /api/programs/writes): a plain-text 404 while the token is unset
+ * or the off switch is thrown (R6), a 401 for a wrong token, else null (go on).
+ */
+export function programsAuthFailure(request: Request): Response | null {
   if (!programsApiOn()) return new Response('Not Found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
   // Constant time: both sides are hashed to 32 bytes before timingSafeEqual (http.ts secretMatches).
   if (!bearerMatches(request.headers.get('authorization'), process.env.EARNKIT_PROGRAMS_TOKEN))
     return json({ ok: false, error: 'unauthorized' }, 401);
+  return null;
+}
+
+/** POST /api/programs/write. */
+export async function programsWritePost(request: Request, deps: WriteDeps = {}): Promise<Response> {
+  // Group 1: the feature is on and the token is right.
+  const denied = programsAuthFailure(request);
+  if (denied) return denied;
   try {
     // A fixed hour window (the repo's limiter), not a rolling one: up to 240 can land across a boundary (controller: fine).
     await (deps.limit ?? (() => enforce('programsWrite', 'owner', 'Too many program writes this hour.')))();

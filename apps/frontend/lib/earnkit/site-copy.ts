@@ -112,6 +112,11 @@ export const ACTIVITY_INVITE_TEXT = 'Add EarnKit and your first update posts on 
 export const EARN_TITLE = 'Earning opportunities';
 /** A program card's deadline when it has none (clarity batch: was "Rolling"). */
 export const ROLLING = 'Rolling, apply anytime';
+/**
+ * The money a program card shows (Opportunities): the per-winner max compacted ("$5K", the tile's `big`), else the
+ * tile's prize text ("$840K in prizes"). GET /api/programs' `money` is the same text. Pure.
+ */
+export const tileMoney = (t: { big: string | null; prize: string }): string => t.big ?? t.prize;
 export const EARN_FOOT = 'Your agent finds the fit and drafts the application.';
 export const FOOT_CTA = 'Your next week starts now.';
 export const ART_CREDIT = 'Art: C.W. Eckersberg, 1815 · G.P. Panini, c. 1734';

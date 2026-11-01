@@ -28,6 +28,15 @@ import {
 import { HttpStatusError, SafeFetchError, safeProbe, type Transport } from './safe-fetch';
 import { LIMITS, RateLimitError } from './rate-limit';
 import { readStats } from './stats';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { PROGRAMS_LIST_MAX, WRITES_MAX, byListOrder, programWritesGet, programsListGet, readListedPrograms, type ListedProgram } from './programs-read';
+import { readGuideIds, readGuidePage, readLanding } from './landing';
+import { alsoQualifies } from './also-qualifies';
+import sitemap from '../../app/sitemap';
+import GuideView from '../../app/programs/[id]/GuideView';
+import { GET as listRoute } from '../../app/api/programs/route';
+import { GET as writesRoute } from '../../app/api/programs/writes/route';
 
 const db = { skip: !process.env.DATABASE_URL };
 const PROGRAMS = join(import.meta.dirname, '../../../../programs');
@@ -843,4 +852,163 @@ test('v4.9 T2 fix 5 (N4, N5): no markdown link or square brackets in a URL field
   assert.equal(r.status, 400);
   assert.ok(r.body.problems!.includes('submission_url: no markdown links; send the plain URL'), JSON.stringify(r.body));
   assert.equal((await sql()`SELECT 1 FROM programs WHERE id = ${id}`).length, 0);
+}));
+
+// ---- v4.9 Task 3: the reads (programs-read.ts) and API programs on the site ----
+
+const LIST_KEYS = ['id', 'title', 'organizer', 'category', 'chains', 'any_chain', 'money', 'status', 'closes_at', 'closes_in', 'source_url', 'submission_url', 'source'];
+const listed = (o: Partial<ListedProgram> & { id: string }): ListedProgram => ({
+  title: o.id, organizer: 'Org', category: 'grant', chains: ['base'], any_chain: false, money: '$5K', status: 'active',
+  closes_at: null, closes_in: null, source_url: 'https://org.com/', submission_url: 'https://org.com/apply', source: 'file', max_award_usd: 0, ...o,
+});
+const getList = async (query: string, read?: () => Promise<ListedProgram[]>, now?: Date) => {
+  const res = await programsListGet(new Request(`http://localhost/api/programs${query}`), read, now);
+  return { status: res.status, body: (await res.json()) as { ok: boolean; problems?: string[]; programs?: Record<string, unknown>[] }, headers: res.headers };
+};
+
+test('v4.9 T3: GET /api/programs sorts by category, soonest close (rolling last), then the larger award; filters; at most 200', async () => {
+  const now = new Date('2026-11-01T12:00:00Z');
+  const rows = [
+    listed({ id: 'h-rolling', category: 'hackathon' }),
+    listed({ id: 'g-rolling-small', max_award_usd: 1000 }),
+    listed({ id: 'g-later', closes_at: '2026-11-20T00:00:00.000Z' }),
+    listed({ id: 'g-rolling-big', max_award_usd: 9000 }),
+    listed({ id: 'b-soon', category: 'bounty', closes_at: '2026-11-02T00:00:00.000Z' }),
+    listed({ id: 'g-soon', closes_at: '2026-11-02T10:00:00.000Z' }),
+    listed({ id: 'i-up', category: 'investment', status: 'upcoming', closes_at: '2026-11-02T10:00:00.000Z' }),
+    listed({ id: 'g-gone', closes_at: '2026-11-01T11:00:00.000Z' }),
+  ];
+  const all = await getList('', async () => rows, now);
+  assert.equal(all.status, 200);
+  assert.deepEqual(all.body.programs!.map((p) => p.id), ['g-soon', 'g-later', 'g-rolling-big', 'g-rolling-small', 'h-rolling', 'i-up', 'b-soon'], 'a closed one drops');
+  assert.deepEqual(Object.keys(all.body.programs![0]).sort(), [...LIST_KEYS].sort(), 'no sort-only field');
+  // hoursLeft under 48 hours on an open program; never on an upcoming one or a rolling one.
+  assert.equal(all.body.programs![0].closes_in, 'in 22 hours');
+  assert.equal(all.body.programs!.find((p) => p.id === 'i-up')!.closes_in, null);
+  assert.equal(all.body.programs!.find((p) => p.id === 'g-later')!.closes_in, null);
+  assert.deepEqual((await getList('?category=hackathon', async () => rows, now)).body.programs!.map((p) => p.id), ['h-rolling']);
+  assert.deepEqual((await getList('?status=upcoming', async () => rows, now)).body.programs!.map((p) => p.id), ['i-up']);
+  assert.deepEqual((await getList('?category=grant&status=upcoming', async () => rows, now)).body.programs, []);
+  const bad = await getList('?category=prize&status=closed', async () => rows, now);
+  assert.equal(bad.status, 400);
+  assert.deepEqual(bad.body.problems, ['category: one of grant, hackathon, investment, bounty', 'status: one of active, upcoming']);
+  const many = Array.from({ length: 250 }, (_, i) => listed({ id: `p-${String(i).padStart(3, '0')}` }));
+  assert.equal((await getList('', async () => many, now)).body.programs!.length, PROGRAMS_LIST_MAX);
+  assert.equal(byListOrder(listed({ id: 'a' }), listed({ id: 'b' })) < 0, true, 'id breaks ties');
+  const down = await getList('', async () => { throw new Error('db down'); }, now);
+  assert.equal(down.status, 503);
+});
+
+test('v4.9 T3: an API program is listed (public fields only), on the landing, has a guide page and is in the sitemap and Also qualifies', db, withToken(async () => {
+  const id = `v49-site-${process.pid}`;
+  const created = await send({ action: 'upsert', program: apiProgram(id, { title: 'Site Test Fund', category: 'grant', max_award_usd: 25000, investment: false }) });
+  assert.equal(created.body.result, 'created', JSON.stringify(created.body));
+
+  // GET /api/programs, read for real.
+  const r = await getList('', () => readListedPrograms());
+  assert.equal(r.status, 200);
+  const mine = r.body.programs!.find((p) => p.id === id)!;
+  assert.ok(mine, 'listed');
+  assert.deepEqual(Object.keys(mine).sort(), [...LIST_KEYS].sort());
+  assert.equal(mine.source, 'api');
+  assert.equal(mine.category, 'grant');
+  assert.equal(mine.money, '$25K');
+  assert.equal(mine.closes_at, null);
+  assert.equal(mine.source_url, apiProgram(id).source_url);
+  // No private field anywhere in the answer: requirements, guidance, outcomes, builder data.
+  const text = JSON.stringify(r.body);
+  for (const k of ['submission_requirements', 'guidance', 'outcome', 'builder', 'installation', 'wallet', 'email', 'description', 'rules', 'verified_at', 'proof_hosts', 'x_handles', 'api_content'])
+    assert.equal(text.includes(`"${k}`), false, k);
+  for (const p of r.body.programs!) assert.ok(p.source === 'file' || p.source === 'api', 'never a sponsor row');
+  assert.deepEqual((await getList('?category=investment', () => readListedPrograms())).body.programs!.filter((p) => p.id === id), []);
+
+  // The landing lists it, like a file program.
+  const landing = await readLanding(new Date());
+  const tile = landing.tiles.find((t) => t.id === id);
+  assert.ok(tile, 'a landing tile');
+  assert.equal(tile!.big, '$25K');
+
+  // Its guide page: in the guide set, read and rendered.
+  assert.ok((await readGuideIds()).includes(id));
+  const page = await readGuidePage(id, new Date());
+  assert.ok(page, 'a guide page');
+  assert.equal(page!.open, true);
+  const html = renderToStaticMarkup(React.createElement(GuideView, { page: page! }));
+  assert.ok(html.includes('Site Test Fund'), 'the page renders the title');
+
+  // The sitemap.
+  assert.ok((await sitemap()).some((e) => e.url === `https://earnkit.com/programs/${id}`), 'in the sitemap');
+
+  // Closed: off the list and the sitemap; the guide page stays (Ruling 22).
+  assert.equal((await send({ action: 'close', id, reason: 'round over' })).body.result, 'closed');
+  assert.equal((await getList('', () => readListedPrograms())).body.programs!.some((p) => p.id === id), false);
+  assert.equal((await sitemap()).some((e) => e.url.endsWith(`/programs/${id}`)), false);
+  assert.ok(await readGuidePage(id, new Date()));
+}));
+
+test('v4.9 T3: Also qualifies offers an API program like a file program, never a sponsor one', () => {
+  const p = (id: string, source: 'file' | 'api' | 'sponsor') => ({
+    id, title: id, summary: 'up to $5,000 · rolling', chains: ['base' as const], any_chain: false, existing_work: 'allowed' as const, tag: null,
+    ends_at: null, status: 'active' as const, campaign: false, source, investment: false, max_award_usd: null, difficulty: null, requirements: [],
+  });
+  const rows = alsoQualifies({
+    enteredProgramId: 'entered', chains: ['base'], enteredIds: new Set(), bank: new Map(), answers: {}, hasLiveProduct: true, now: new Date(),
+    programs: [p('from-file', 'file'), p('from-api', 'api'), p('from-sponsor', 'sponsor')],
+  });
+  assert.deepEqual(rows.map((r) => r.id).sort(), ['from-api', 'from-file']);
+});
+
+test('v4.9 T3: GET /api/programs/writes needs the token (the write API gate), newest first, at most 100, never body', db, async () => {
+  await withToken(async () => assert.equal((await programWritesGet(new Request('http://localhost/api/programs/writes', { headers: { authorization: `Bearer ${TOKEN}` } }))).status, 404), {})();
+  await withToken(async () => {
+    const get = (auth?: string) => programWritesGet(new Request('http://localhost/api/programs/writes', { headers: auth ? { authorization: auth } : {} }));
+    assert.equal((await get()).status, 401);
+    assert.equal((await get(`Bearer ${randomBytes(32).toString('hex')}`)).status, 401);
+    assert.equal((await writesRoute(new Request('http://localhost/api/programs/writes'))).status, 401, 'the route');
+    const id = `v49-log-${process.pid}`;
+    assert.equal((await send({ action: 'upsert', program: apiProgram(id, { description: 'Marker text only in the stored body.' }) })).body.result, 'created');
+    assert.equal((await send({ action: 'close', id, reason: 'done for now' })).body.result, 'closed');
+    const res = await get(`Bearer ${TOKEN}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('cache-control'), 'no-store');
+    const text = await res.text();
+    const { writes } = JSON.parse(text) as { writes: Record<string, unknown>[] };
+    assert.ok(writes.length <= WRITES_MAX);
+    assert.deepEqual(Object.keys(writes[0]).sort(), ['action', 'at', 'program_id', 'reason', 'result']);
+    assert.deepEqual(writes.slice(0, 2).map((w) => [w.program_id, w.action, w.result, w.reason]), [[id, 'close', 'closed', 'done for now'], [id, 'upsert', 'created', null]]);
+    assert.equal(text.includes('"body"'), false);
+    assert.equal(text.includes('Marker text only in the stored body'), false, 'the stored body never leaks');
+    // The same gate as the write route (one helper).
+    const src = readFileSync(join(import.meta.dirname, 'programs-read.ts'), 'utf8');
+    assert.match(src, /const denied = programsAuthFailure\(request\);/);
+    assert.equal(readFileSync(join(import.meta.dirname, 'programs-api.ts'), 'utf8').match(/bearerMatches\(/g)!.length, 1);
+  })();
+});
+
+test('v4.9 T3: the list route is public and wired to the cached read', async () => {
+  const src = readFileSync(join(import.meta.dirname, '../../app/api/programs/route.ts'), 'utf8');
+  assert.match(src, /unstable_cache\(\(\) => readListedPrograms\(\), \['programs-list-v49'\], \{ revalidate: 60 \}\)/);
+  assert.doesNotMatch(src, /programsAuthFailure|authorization/);
+  assert.equal(typeof listRoute, 'function');
+});
+
+test('v4.9 T3: docs/programs-api.md: its example passes every check (the curated id aside), its lists match the code, the setup line', db, withToken(async () => {
+  const doc = readFileSync(join(import.meta.dirname, '../../../../docs/programs-api.md'), 'utf8');
+  assert.ok(doc.includes('T=$(openssl rand -hex 32); echo "$T"; railway variables --project ae726253-edb5-4c47-b308-854be7cf36b1 --service earnkit --environment production --set "EARNKIT_PROGRAMS_TOKEN=$T"'));
+  assert.equal(doc.includes('—'), false, 'no em dashes');
+  const example = JSON.parse(/```json\n([\s\S]*?)\n```/.exec(doc)![1]) as { action: string; program: Record<string, unknown> };
+  assert.equal(example.action, 'upsert');
+  const body = { ...example.program, verified_at: today };
+  assert.deepEqual(notWritableFields(body), []);
+  const parsed = ProgramFile.parse(body);
+  assert.deepEqual(programProblems(parsed, { publicDir: PUBLIC }), []);
+  assert.deepEqual(apiRuleProblems(parsed, new Date()), []);
+  // Sent as is, the curated id is a 409, as the guide says.
+  const r = await send({ action: 'upsert', program: body });
+  assert.equal(r.status, 409);
+  assert.deepEqual(r.body.problems, [curatedLine('base-builder-grants')]);
+  // Under a fresh id it is created.
+  assert.equal((await send({ action: 'upsert', program: { ...body, id: `v49-doc-${process.pid}` } })).body.result, 'created');
+  // Every writable field is named in the guide.
+  for (const f of [...API_FIELDS, ...API_REQUIREMENT_FIELDS]) assert.ok(doc.includes(`\`${f}\``), f);
 }));

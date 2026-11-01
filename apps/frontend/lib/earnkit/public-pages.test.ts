@@ -183,7 +183,7 @@ test('Ruling 22 (plan): the guide route, the index, the sitemap and the logo CSP
   const sitemap = read('app/sitemap.ts');
   assert.ok(!sitemap.includes('`${SITE}/programs`'), 'v3.1 W10: the index left the sitemap');
   assert.ok(sitemap.includes('`${SITE}/programs/${p.id}`'));
-  assert.match(sitemap, /status = 'active' AND source = 'file' AND campaign IS NULL\s+AND \(ends_at IS NULL OR ends_at > now\(\)\)/);
+  assert.match(sitemap, /status = 'active' AND source IN \('file', 'api'\) AND campaign IS NULL\s+AND \(ends_at IS NULL OR ends_at > now\(\)\)/);
   // The logo files' sandbox CSP never matches a guide page route.
   const csp = /^\/programs\/([a-z0-9-]+\.(?:svg|png))$/;
   assert.ok(csp.test('/programs/arc-microgrants.svg'));
