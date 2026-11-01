@@ -1,4 +1,5 @@
 import { sql, type Db } from './db';
+import { freshSql } from './api-stale';
 import { testBuilderSql, testInstallationIds } from './installations';
 import { FEE_SPLIT_BPS } from './policy';
 import { openCurated, openGrantsText, openMoneyUsd } from './pool';
@@ -239,11 +240,12 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
     WITH open AS (
       SELECT max_award_usd, builder_bonus, campaign FROM programs
       WHERE status = 'active' AND (starts_at IS NULL OR starts_at <= ${now}) AND (ends_at IS NULL OR ${now} < ends_at)
+        AND ${freshSql(db, null, now)}
     )
     SELECT
       -- v2.9 F21: every active program; openMoneyUsd (statsFrom) keeps the open curated ones.
       (SELECT json_agg(json_build_object('max_award_usd', max_award_usd, 'investment', investment, 'status', status, 'campaign', campaign,
-        'source', source, 'starts_at', starts_at, 'ends_at', ends_at)) FROM programs WHERE status = 'active') AS open_rows,
+        'source', source, 'starts_at', starts_at, 'ends_at', ends_at)) FROM programs WHERE status = 'active' AND ${freshSql(db, null, now)}) AS open_rows,
       (SELECT count(*) FROM open)::int AS programs_open,
       (SELECT count(*) FROM open WHERE builder_bonus AND campaign IS NULL)::int AS bonus_programs_open,
       -- v4.2 F18: launched project tokens plus launched builder tokens (never a test installation's builder).

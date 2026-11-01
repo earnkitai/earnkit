@@ -2,7 +2,8 @@ import { revalidatePath, revalidateTag } from 'next/cache';
 
 /**
  * v4.9 Task 3 fix 1 (F1): the tag on every cached read an API write changes: the landing cards (app/lib/landing-cache.ts
- * cached), the guide-id set (cachedIds), each guide page (cachedGuide) and GET /api/programs' list.
+ * cached), the guide-id set (cachedIds), each guide page (cachedGuide), GET /api/programs' list and (final fix F2)
+ * /api/stats' read.
  */
 export const PROGRAMS_TAG = 'programs';
 
@@ -18,6 +19,8 @@ export function programsChanged(id: string): void {
     revalidatePath('/');
     revalidatePath(`/programs/${id}`);
     revalidatePath('/sitemap.xml');
+    // v4.9 final fix (F2): /api/stats' open-money figure (jenil.ai reads it).
+    revalidatePath('/api/stats');
   } catch {
     // No Next request context.
   }

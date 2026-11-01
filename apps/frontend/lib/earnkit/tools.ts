@@ -153,6 +153,7 @@ import { SHARED_PROFILE_NOTE, deleteAsk, ensureProfile, setFallback, setHidden }
 import { xSignInEnabled } from './builder-score-flag';
 import { sql } from './db';
 import { API_CONTENT } from './api-program-text';
+import { hiddenProgram } from './api-stale';
 import { STRIPE_DISCONNECTED, STRIPE_NEVER_KEY, STRIPE_NOT_CONNECTED, STRIPE_NO_LINK, stripeConnectLine, stripeDraftNote } from './bench-reply';
 import { disconnectStripe, stripeLink, takeStripeDraftLink } from './stripe';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
@@ -1239,7 +1240,8 @@ export const handlers = {
     const { program_id, agent: _agent, coach_asked, host, ...known } = PrepareSubmissionInput.parse(input);
     const program = await getProgramRow(program_id);
     // v3.1 R15: an unlisted program is refused on every prepare path (the build, deploy and host ones too), never "closed".
-    if (program.status === 'unlisted') throw new NotFoundError(`No program with id "${program_id}". Call find for current ids.`);
+    // v4.9 final fix (ruling 6): a stale API program is unlisted too (api-stale.ts).
+    if (hiddenProgram(program)) throw new NotFoundError(`No program with id "${program_id}". Call find for current ids.`);
     const hosting = host ? await hostBlock(ctx, known.project?.repo_url ?? known.answers?.repo_url, known.project?.name) : null;
     // Campaign entries reach the sponsor: check the name and description now, as record_submission will.
     if (program.campaign && known.project)
@@ -1250,7 +1252,8 @@ export const handlers = {
     // this call added the program and there is no entry for it yet (Pre-flight P23); on a shared
     // client (R13: working_on is installation-wide) while the coach hasn't asked.
     const added = open ? await setWorkingOn(ctx.installationId, program_id, true) : false;
-    const curated = program.source === 'file' && !program.campaign;
+    // v4.9 final fix (F1): an api program is curated too (the same guide and draft path).
+    const curated = (program.source === 'file' || program.source === 'api') && !program.campaign;
     const firstPrepare =
       open && curated && (ctx.sharedClient ? !coach_asked : added && !(await hasProgramEntry(ctx.installationId, program_id)));
     // The guide's parts: what won, what it wants, best bet. No bonus line here: the confirm line says
@@ -2747,7 +2750,8 @@ async function prepareTool(input: unknown, ctx: ToolContext): Promise<Reply> {
   // refused). A host, deploy or build step runs first and its lines join the draft; never the confirm line.
   if (!tips) {
     const program = await getProgramRow(prep.program_id);
-    if (program.source === 'file' && !program.campaign) return draftWithSteps(prep, deploy, program, ctx, join);
+    // v4.9 final fix (F1): an api program takes the same draft path (tools.prepare adds its envelope).
+    if ((program.source === 'file' || program.source === 'api') && !program.campaign) return draftWithSteps(prep, deploy, program, ctx, join);
   }
   if (tips) {
     // Fix round 2 (ruling): the tip jar's deploy alone; the program only carries it.

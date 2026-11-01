@@ -9130,8 +9130,7 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
 - **API programs on the site** like file programs: `guide-pages.ts guideProgramSql` (the guide set, readGuideIds and
   every guide link in page-data.ts), `landing.ts readGuidePage`, `app/sitemap.ts`, `also-qualifies.ts` and the feed
   week's curated applications count (`site-data.ts feedWeekStats`) take `source IN ('file', 'api')`. The landing tiles
-  already listed them (listPrograms). MCP-only curated paths stay file-only: get_program's `guide` block
-  (programs.ts guideBlock), the first-prepare guide and the curated draft path (tools.ts).
+  already listed them (listPrograms). The MCP curated paths take api programs too (final fix F1, below).
 - **`docs/programs-api.md`**: the guide the owner pastes into the Grok Bot (the setup command, field allowlist, text
   and URL rules, a full example from base-builder-grants, close, errors). A test parses its example and runs every
   check on it.
@@ -9150,3 +9149,25 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
   muted fact.
 - **Doc.** `docs/programs-api.md`: `needs_repo` is required, a limits table (a test probes the schema at each stated
   limit), and the log sentence says which answers are not logged (not JSON, 401, 404, 413, 429, 503).
+
+### v4.9 final fix: one apply path, stats refresh, email label, 14-day expiry
+
+- **One apply path (F1).** API programs are curated on the MCP side too: `tools.ts prepareTool` sends them to
+  `draftWithSteps` ("Apply with this page"), `prepare_submission`'s first-prepare guide counts them as curated, and
+  `programs.ts guideBlock` gives get_program their guide. `tools.prepare` (withApiContent) and `programDetails` add
+  `api_content`, so the draft and the guide reach the agent inside the envelope.
+- **/api/stats (F2).** Its `unstable_cache` carries `PROGRAMS_TAG` and `programsChanged` revalidates `/api/stats`, so
+  `open_money_usd` moves on the write, as the landing's money line does.
+- **Email label (ruling 5).** `site-copy researchMark(research)` appends RESEARCH_LABEL to an email line naming an API
+  program: every alert kind (`AlertEvent.research`, from the card's `api_content` or the accepted draft's `source`) and
+  the digest's money (best-fit.ts `bestFitFor.research`), new-program, win and deadline lines. Subjects are unchanged.
+- **Stale API programs (ruling 6).** `lib/earnkit/api-stale.ts`: an api row whose `verified_at` (a date) is more than
+  `API_STALE_DAYS` (14) UTC days old is read as unlisted. `freshSql(db, alias, now?)` is in every list, match, offer
+  and count read: listPrograms, openProgramFacts, alsoProgramFacts, openCuratedRows and the alerts entries' `open`,
+  digest's new programs, alert-mail's and nudges' closing entries, projects.ts openEntries, standing's `open`, stats'
+  programs_open and open_rows, bench-find openMoneyNow, guideProgramSql, site-data feedWeekStats and the sitemap.
+  `hiddenProgram(row)` (unlisted or stale) replaces the `status === 'unlisted'` refusals in getProgram,
+  prepare_submission and draftApplication, and `readGuidePage` answers null for a stale row. A fresh write (the bot
+  re-verifies) brings it back. File and sponsor rows never expire. Day 14 shows, day 15 doesn't.
+- **Doc.** `docs/programs-api.md`: skip and report a program whose form host is refused (never swap the URL), the
+  4,096-character long-text cap, `starts_at` before `ends_at`, and re-verify every 14 days.

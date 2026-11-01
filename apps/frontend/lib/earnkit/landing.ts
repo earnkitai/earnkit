@@ -1,4 +1,5 @@
 import { prizeOf } from './entry-text';
+import { apiStale } from './api-stale';
 import { guideSourceList, programGuide, type Guide, type GuideSource } from './guide';
 import { CHAIN_NAMES } from './match';
 import { byRelevance, daysLeftText, NO_CELL, type Card } from './present';
@@ -212,6 +213,8 @@ export async function readGuidePage(id: string, now = new Date()): Promise<Guide
   }
   // v4.9 Task 3: an API program has a guide page like a file program; a sponsor or EarnKit campaign never does.
   if ((row.source !== 'file' && row.source !== 'api') || row.campaign) return null;
+  // v4.9 final fix (ruling 6): a stale API program has no page (as unlisted; api-stale.ts).
+  if (apiStale(row, now)) return null;
   const guide = programGuide(row, now);
   return {
     guide,

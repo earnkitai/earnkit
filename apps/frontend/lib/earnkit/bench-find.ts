@@ -1,4 +1,5 @@
 import { sql } from './db';
+import { freshSql } from './api-stale';
 import { noteEvent } from './events';
 import { enqueueDiscovery } from './discovery';
 import { ensureProfile } from './profiles';
@@ -1955,7 +1956,7 @@ export function alsoOpen(cards: Card[], now: Date, skip: Set<string>, not: strin
 // v4.8.1 Task 2 fix round 1 (F3): the money line's and the signed-out opener's total.
 export async function openMoneyNow(now: Date, fallback: Card[]): Promise<number> {
   const rows = await sql()<{ max_award_usd: string | number | null; investment: boolean | null; status: string; campaign: unknown; source: string; starts_at: Date | null; ends_at: Date | null }[]>`
-    SELECT max_award_usd, investment, status, campaign, source, starts_at, ends_at FROM programs WHERE status = 'active'`.catch((err: unknown) => {
+    SELECT max_award_usd, investment, status, campaign, source, starts_at, ends_at FROM programs WHERE status = 'active' AND ${freshSql(sql(), null, now)}`.catch((err: unknown) => {
     logged('open money')(err);
     return null;
   });

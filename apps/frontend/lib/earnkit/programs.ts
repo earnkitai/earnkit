@@ -39,6 +39,7 @@ import {
 } from './sponsor-verify';
 import { plainText, quoted } from './untrusted-text';
 import { API_CONTENT } from './api-program-text';
+import { freshSql, hiddenProgram } from './api-stale';
 import { poolLine, poolStated, statedPool } from './pool';
 
 export class NotFoundError extends Error {}
@@ -277,7 +278,7 @@ export async function listPrograms() {
       p.chains, p.any_chain, p.investment, p.needs_repo, p.needs_contract, p.rules, p.token_policy, p.starts_at,
       p.match_precision, p.submission_url, p.status, p.opens_note, p.in_person, p.fresh_build, p.agent_completable, p.pitch, p.tz, sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
     FROM programs p LEFT JOIN sponsor_campaigns sc ON sc.program_id = p.id
-    WHERE p.status IN ('active', 'upcoming') AND (p.ends_at IS NULL OR p.ends_at > now())
+    WHERE p.status IN ('active', 'upcoming') AND (p.ends_at IS NULL OR p.ends_at > now()) AND ${freshSql(db, 'p')}
       ${archiveFlag('SPONSOR_CAMPAIGNS') ? db`` : db`AND (p.campaign->>'kind') IS DISTINCT FROM 'sponsor'`}
     ORDER BY p.ends_at NULLS LAST, p.id`; // Task 11: a tie-breaker, so equal deadlines list in one order (the 9.3 find test compared two reads)
   const tracks = await db<{ id: string; program_id: string; name: string }[]>`
@@ -470,7 +471,7 @@ export async function openProgramFacts() {
     >[]
   >`
     SELECT id, title, existing_work, tag, starts_at, chains, any_chain, source, investment, min_product_score, match_floor FROM programs
-    WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now())
+    WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now()) AND ${freshSql(sql())}
     ORDER BY ends_at NULLS LAST, id`;
   return rows.map(({ source, ...p }) => ({
     ...p,
@@ -514,7 +515,7 @@ export async function alsoProgramFacts(): Promise<AlsoProgram[]> {
     SELECT id, title, summary, chains, any_chain, existing_work, tag, ends_at, status, campaign, source, max_award_usd,
       submission_requirements, past_rounds, focus, best_bet, difficulty_override, winners_per_round, each_time, rules,
       investment, starts_at, opened_at, match_precision
-    FROM programs WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now())`;
+    FROM programs WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now()) AND ${freshSql(sql())}`;
   return rows.map((p) => ({
     id: p.id,
     title: p.title,
@@ -568,8 +569,9 @@ type StarterRow = {
 export async function getProgram(programId: string) {
   const db = sql();
   const program = await getProgramRow(programId);
-  // v3.1 (D2, R15): an unlisted program is gone, as an unknown id (never "closed" for an open one).
-  if (program.status === 'unlisted') throw new NotFoundError(`No program with id "${programId}". Call find for current ids.`);
+  // v3.1 (D2, R15): an unlisted program is gone, as an unknown id (never "closed" for an open one). v4.9 final fix
+  // (ruling 6): so is a stale API program (api-stale.ts).
+  if (hiddenProgram(program)) throw new NotFoundError(`No program with id "${programId}". Call find for current ids.`);
   // v2.12 spec 9: sponsor campaigns are archived; their rows are not shown while the flag is off.
   if (!archiveFlag('SPONSOR_CAMPAIGNS') && program.campaign?.kind === 'sponsor')
     throw new NotFoundError(`No program with id "${programId}". Call find for current ids.`);
@@ -602,7 +604,8 @@ export async function getProgram(programId: string) {
 function guideBlock(
   program: ProgramRow,
 ): { guide: { text: string; difficulty: Difficulty; best_bet: string | null; sources: string[] } } | null {
-  if (program.source !== 'file' || program.campaign) return null;
+  // v4.9 final fix (F1): api programs get the guide too (programDetails adds the envelope).
+  if ((program.source !== 'file' && program.source !== 'api') || program.campaign) return null;
   // v4.8.2 Task 3 fix 1: get_program is MCP output: the hours left under 48 hours.
   const g = programGuide(program, new Date(), { hours: true });
   return {

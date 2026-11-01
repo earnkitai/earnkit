@@ -11,7 +11,11 @@ import { dropRunPrograms } from './fixtures/programs-cleanup';
 import { programProblems } from './program-checks';
 import { ProgramFile, categoryOf, isOptimismUrl } from './program-file';
 import { proofHostAllowed } from './submit-hosts';
-import { ApiRowTakenError, listPrograms, upsertProgram } from './programs';
+import { ApiRowTakenError, alsoProgramFacts, listPrograms, openProgramFacts, upsertProgram } from './programs';
+import { API_STALE_DAYS, apiStale } from './api-stale';
+import { openCuratedRows } from './alerts';
+import { alertBody, alertEvents, type AlertEvent } from './alert-mail';
+import { digestBody, moneyTexts, type DigestFacts } from './digest';
 import { API_CONTENT, API_FIELDS, API_REQUIREMENT_FIELDS, apiTextProblems, hiddenTextProblem, notWritableFields } from './api-program-text';
 import { apiSubmitHostAllowed, registrableDomain } from './submit-hosts';
 import { install } from './fixtures/find';
@@ -1047,7 +1051,7 @@ test('v4.9 T3 fix 1 (F1): created, updated and closed writes expire the site cac
   assert.match(readFileSync(join(import.meta.dirname, 'programs-api.ts'), 'utf8'), /onChange: deps\.onChange \?\? programsChanged/);
   const cacheSrc = readFileSync(join(import.meta.dirname, 'programs-cache.ts'), 'utf8');
   assert.match(cacheSrc, /revalidateTag\(PROGRAMS_TAG, \{ expire: 0 \}\)/);
-  for (const p of ["revalidatePath('/')", 'revalidatePath(`/programs/${id}`)', "revalidatePath('/sitemap.xml')"]) assert.ok(cacheSrc.includes(p), p);
+  for (const p of ["revalidatePath('/')", 'revalidatePath(`/programs/${id}`)', "revalidatePath('/sitemap.xml')", "revalidatePath('/api/stats')"]) assert.ok(cacheSrc.includes(p), p);
   // Every cache an API write changes carries the tag.
   const landingCache = readFileSync(join(import.meta.dirname, '../../app/lib/landing-cache.ts'), 'utf8');
   assert.match(landingCache, /tags: \[PROFILE_TAG, PROGRAMS_TAG\]/);
@@ -1138,4 +1142,161 @@ test('v4.9 T3 fix 1 (F2, F3): the guide lists needs_repo as required, and its li
   assert.equal(n(limit('`pool_usd`')), API_POOL_MAX_USD);
   // F4: the log sentence names what is and isn't logged.
   assert.ok(doc.includes('A body that is not JSON (400) and 401, 404, 413, 429 and 503 answers are not logged.'));
+});
+
+// ---- v4.9 final fix ----
+
+test('v4.9 final fix (F1): an api program takes the curated draft path and get_program has its guide, each with the envelope', db, async () => {
+  const id = `v49-draft-${process.pid}`;
+  await upsertProgram(ProgramFile.parse(apiProgram(id, { title: 'Drafted Speedrun' })), 'api');
+  const ctx = { installationId: await install() } as never;
+  const prep = (await tools.prepare({ program_id: id }, ctx)) as { draft?: { fields?: unknown[] }; api_content?: unknown; show_to_builder?: string };
+  assert.ok(prep.draft, 'the "Apply with this page" draft, as a file program gets');
+  assert.ok(Array.isArray(prep.draft.fields));
+  assert.deepEqual(prep.api_content, API_CONTENT, 'the draft reply carries the envelope');
+  const file = (await tools.prepare({ program_id: 'a16z-speedrun' }, ctx)) as { draft?: unknown };
+  assert.ok(file.draft, 'the same path as the file program');
+  assert.equal('api_content' in file, false);
+  const one = (await tools.find({ program_id: id }, ctx)) as { guide?: { text: string; sources: string[] }; api_content?: unknown };
+  assert.ok(one.guide && one.guide.text.length > 0, 'get_program has the guide');
+  assert.deepEqual(one.api_content, API_CONTENT, 'the guide reaches the agent inside the envelope');
+  const src = readFileSync(join(import.meta.dirname, 'tools.ts'), 'utf8');
+  assert.ok(src.includes("const curated = (program.source === 'file' || program.source === 'api') && !program.campaign;"), 'the first-prepare guide');
+});
+
+test('v4.9 final fix (F2): an API write expires /api/stats too (the tag on its read, the path in programsChanged)', () => {
+  const route = readFileSync(join(import.meta.dirname, '../../app/api/stats/route.ts'), 'utf8');
+  assert.match(route, /unstable_cache\(\(\) => readStats\(\), \['public-stats-posts'\], \{ revalidate: 600, tags: \[PROGRAMS_TAG\] \}\)/);
+  assert.match(route, /import \{ PROGRAMS_TAG \} from '@\/lib\/earnkit\/programs-cache'/);
+  assert.ok(readFileSync(join(import.meta.dirname, 'programs-cache.ts'), 'utf8').includes("revalidatePath('/api/stats')"));
+});
+
+test('v4.9 final fix (F3, F4): the guide says to skip a refused form host, and lists the long-text cap and the date order', () => {
+  const doc = readFileSync(join(import.meta.dirname, '../../../../docs/programs-api.md'), 'utf8');
+  assert.ok(doc.includes("If a program's real form is on a host the API refuses, skip that program and report it to the owner; never send a different URL than the program's own form."));
+  assert.ok(doc.includes('Re-verify each program at least every 14 days.'));
+  assert.doesNotMatch(doc, /—/);
+  const row = (field: string) => new RegExp(`^\\| ${field.replace(/[|`]/g, (c) => `\\${c}`)} \\| (.+) \\|$`, 'm').exec(doc)?.[1];
+  const long = row('`description`, `reward`, each `rules` item, requirement `label`, `description` and each `options` item');
+  assert.ok(long, 'the long-text row');
+  const cap = Number(/(\d[\d,]*)/.exec(long)![1].replace(/,/g, ''));
+  assert.equal(cap, 4096);
+  const base = ProgramFile.parse(apiProgram('v49-long', { verified_at: today }));
+  const text = (o: Record<string, unknown>) => apiTextProblems(ProgramFile.parse({ ...base, ...o }));
+  const words = (n: number) => 'word '.repeat(Math.ceil(n / 5)).slice(0, n);
+  for (const k of ['description', 'reward']) {
+    assert.deepEqual(text({ [k]: words(cap) }), [], `${k} at the cap`);
+    assert.equal(text({ [k]: words(cap + 1) }).length, 1, `${k} one past`);
+  }
+  assert.deepEqual(text({ rules: [words(cap)] }), []);
+  assert.equal(text({ rules: [words(cap + 1)] }).length, 1);
+  const req0 = base.submission_requirements[0];
+  assert.equal(text({ submission_requirements: [{ ...req0, label: words(cap + 1) }, ...base.submission_requirements.slice(1)] }).length, 1);
+  assert.match(row('`starts_at`') ?? '', /before `ends_at`/);
+  const later = new Date(Date.now() + 30 * 86_400_000).toISOString();
+  const sooner = new Date(Date.now() + 20 * 86_400_000).toISOString();
+  assert.equal(ProgramFile.safeParse({ ...base, starts_at: sooner, ends_at: later }).success, true);
+  assert.equal(ProgramFile.safeParse({ ...base, starts_at: later, ends_at: sooner }).success, false);
+  assert.equal(ProgramFile.safeParse({ ...base, starts_at: later, ends_at: later }).success, false);
+});
+
+test('v4.9 final fix (ruling 5): every builder email line naming an api program carries the research label; a file program\'s does not', () => {
+  const now = new Date('2026-11-01T12:00:00Z');
+  const ends = new Date('2026-11-20T12:00:00Z');
+  const events: AlertEvent[] = [
+    { kind: 'new', key: 'new:x', program: 'Research Grant', amount: '$10,000', when: 'closes Nov 20', project: 'TipJar' },
+    { kind: 'closing', key: 'closing:x:2026-11-20', program: 'Research Grant', day: 'Nov 20', amount: null, draft: false },
+    { kind: 'accepted', key: 'accepted:x', program: 'Research Grant', link: 'https://earnkit.com/x' },
+  ];
+  for (const e of events) {
+    const api = alertBody({ ...e, research: true });
+    assert.ok(api.text.split('\n')[0].endsWith(RESEARCH_LABEL), `${e.kind}: next to the program`);
+    assert.equal(alertBody(e).text.includes(RESEARCH_LABEL), false, `${e.kind}: file`);
+    assert.equal(api.subject, alertBody(e).subject);
+  }
+  const facts = (research: boolean): DigestFacts => ({
+    now, week: null, handle: null, money: moneyTexts({ title: 'Best Grant', ends_at: ends, research }, 0, now),
+    newPrograms: [{ title: 'New Grant', repo: 'tipjar', prize_usd: 5000, ends_at: ends, research }],
+    wins: [{ name: 'TipJar', program: 'Won Grant', prize_usd: 1000, research }],
+    deadlines: [{ program: 'Due Grant', what: 'closes', at: ends, research }, { program: 'Due Grant', what: 'decision', at: ends, research }],
+  });
+  const api = digestBody(facts(true))!.text.split('\n');
+  for (const name of ['Best Grant', 'New Grant', 'Won Grant', 'Due Grant'])
+    for (const l of api.filter((x) => x.includes(name))) assert.ok(l.endsWith(RESEARCH_LABEL), l);
+  assert.equal(digestBody(facts(false))!.text.includes(RESEARCH_LABEL), false);
+});
+
+/** A UTC day `n` days before today, as verified_at. */
+const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
+
+test('v4.9 final fix (ruling 6): apiStale: day 14 is fresh, day 15 is stale; never a file program', () => {
+  const now = new Date('2026-11-15T23:59:00Z');
+  assert.equal(apiStale({ source: 'api', verified_at: '2026-11-01' }, now), false, 'day 14');
+  assert.equal(apiStale({ source: 'api', verified_at: '2026-10-31' }, now), true, 'day 15');
+  assert.equal(apiStale({ source: 'api', verified_at: new Date('2026-11-01T00:00:00Z') }, now), false);
+  assert.equal(apiStale({ source: 'api', verified_at: new Date('2026-10-31T00:00:00Z') }, now), true);
+  assert.equal(apiStale({ source: 'api', verified_at: null }, now), true);
+  assert.equal(apiStale({ source: 'file', verified_at: '2020-01-01' }, now), false);
+  assert.equal(apiStale({ source: 'sponsor', verified_at: null }, now), false);
+  assert.equal(API_STALE_DAYS, 14);
+});
+
+test('v4.9 final fix (ruling 6): an api program verified 15 days ago is off every list, match, offer, count and page; 14 days ago it stays; a file program never expires', db, async () => {
+  const fresh = `v49-day14-${process.pid}`;
+  const stale = `v49-day15-${process.pid}`;
+  const oldFile = `v49-oldfile-${process.pid}`;
+  const before = (await readStats()).programs_open;
+  // upsertProgram writes the row as the API would after its checks (the 7-day rule is the write's, not the read's).
+  await upsertProgram(ProgramFile.parse(apiProgram(fresh, { title: `Day 14 ${process.pid}`, verified_at: daysAgo(14) })), 'api');
+  await upsertProgram(ProgramFile.parse(apiProgram(stale, { title: `Day 15 ${process.pid}`, verified_at: daysAgo(15) })), 'api');
+  await upsertProgram(ProgramFile.parse(apiProgram(oldFile, { title: `Old file ${process.pid}`, verified_at: daysAgo(60) })), 'file');
+  const ids = (xs: { id: string }[]) => new Set(xs.map((x) => x.id));
+  const check = (set: Set<string>, what: string) => {
+    assert.ok(set.has(fresh), `${what}: day 14 stays`);
+    assert.equal(set.has(stale), false, `${what}: day 15 is gone`);
+    assert.ok(set.has(oldFile), `${what}: a file program never expires`);
+  };
+  check(ids(await listPrograms()), 'listPrograms (find, list_programs, landing)');
+  check(ids(await readListedPrograms()), 'GET /api/programs');
+  check(ids((await readLanding()).tiles as { id: string }[]), 'landing tiles');
+  check(ids(await openCuratedRows()), 'alerts and digest candidates');
+  check(ids(await openProgramFacts()), 'openProgramFacts');
+  check(ids(await alsoProgramFacts()), 'Also qualifies');
+  check(new Set(await readGuideIds()), 'guide pages');
+  check(new Set((await sitemap()).map((p) => p.url.split('/programs/')[1]).filter(Boolean)), 'sitemap');
+  assert.equal((await readStats()).programs_open, before + 2, 'the count holds day 14 and the file, never day 15');
+  assert.ok(await readGuidePage(fresh));
+  assert.equal(await readGuidePage(stale), null, 'its guide page is a 404, as unlisted');
+  const ctx = { installationId: await install() } as never;
+  await assert.rejects(() => tools.find({ program_id: stale }, ctx) as Promise<unknown>, /No program with id/);
+  await assert.rejects(() => tools.prepare({ program_id: stale }, ctx) as Promise<unknown>, /No program with id/);
+  assert.ok(await tools.find({ program_id: fresh }, ctx));
+  // A fresh write brings it back.
+  await upsertProgram(ProgramFile.parse(apiProgram(stale, { title: `Day 15 ${process.pid}`, verified_at: today })), 'api');
+  assert.ok(ids(await listPrograms()).has(stale), 'back once the bot writes it again');
+  assert.equal((await readStats()).programs_open, before + 3);
+});
+
+test('v4.9 final fix (ruling 5, 6): the new-program alert names an api program with the research label; a stale one is never mailed', db, async () => {
+  const now = new Date();
+  const tipjar = {
+    key: 'alice/tipjar', name: 'TipJar', url: 'https://github.com/alice/tipjar', homepage: 'https://tipjar.xyz',
+    created_at: '2026-01-01T00:00:00Z', chains: { base: { mainnet: true, testnet: false, evidence: 'x', basis: 'deployed' } },
+    product: { score: 6, tier: 'product', missing: [] }, live_verified: true, said: null,
+  };
+  const [i] = await sql()<{ id: number }[]>`
+    INSERT INTO installations (token_hash, fit_repos) VALUES (${`v49-mail-${process.pid}-${randomBytes(4).toString('hex')}`}, ${sql().json([tipjar] as never)}) RETURNING id`;
+  const fresh = `v49-mail-fresh-${process.pid}`;
+  const stale = `v49-mail-stale-${process.pid}`;
+  const program = (id: string, verified: string) => sql()`
+    INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work, chains, opened_at, ends_at, max_award_usd, source, verified_at)
+    VALUES (${id}, 'o', ${`Mail ${id}`}, 'd', 'https://x', 'https://x', 'up to $10,000', 'up to $10,000', 'active', 'allowed', '{base}', ${new Date(now.getTime() - 2 * 86_400_000)},
+      ${new Date(now.getTime() + 20 * 86_400_000)}, 10000, 'api', ${verified})`;
+  await program(fresh, today);
+  await program(stale, daysAgo(15));
+  const mine = (await alertEvents(i.id, now)).filter((e) => e.key === `new:${fresh}` || e.key === `new:${stale}`);
+  assert.deepEqual(mine.map((e) => e.key), [`new:${fresh}`], 'the stale program is never a new fit');
+  assert.equal(mine[0].research, true);
+  const body = alertBody(mine[0]);
+  assert.ok(body.text.split('\n')[0].includes(`Mail ${fresh}`) && body.text.split('\n')[0].endsWith(RESEARCH_LABEL), body.text);
 });

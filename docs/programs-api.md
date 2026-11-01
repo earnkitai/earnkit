@@ -24,6 +24,7 @@ Rules (from `programs/README.md`):
 - Never guess. If the source doesn't state a fact, leave the field out (or `null`). Never estimate a reward, a pool or a deadline.
 - Mirror the real form field by field in `submission_requirements`.
 - Set `verified_at` to the day you read the source. Re-check a program at least every 7 days.
+- Re-verify each program at least every 14 days. A program whose `verified_at` is more than 14 days old drops off the site, `GET /api/programs`, every count and every builder's agent until you write it again with a fresh `verified_at`.
 
 ## The routes
 
@@ -100,6 +101,8 @@ Key values:
 | requirement `max_chars` | a positive whole number (the form's stated limit) |
 | requirement `options` | needed on `choice` and `multi_choice` |
 | `submission_requirements` | at least one item (an upcoming program may have none) |
+| `description`, `reward`, each `rules` item, requirement `label`, `description` and each `options` item | at most 4,096 characters |
+| `starts_at` | before `ends_at` when both are set |
 
 Amounts above the caps are refused with `larger amounts need a curated file`: tell the owner instead.
 
@@ -116,6 +119,7 @@ Amounts above the caps are refused with `larger amounts need a curated file`: te
 - Send the normalized form: lowercase host, and a `/` after a bare host (`https://org.com/`, not `https://Org.com`).
 - `submission_url` and `pool_source_url` must be on the same site as `source_url`, or on a submit platform: Google Forms (`docs.google.com/forms`, `forms.gle`), Typeform, Tally, DoraHacks, Questbook, Devfolio, ETHGlobal, HackQuest. On a shared host (github.io, vercel.app, notion.site and the like) only the exact same host counts, and never on github.com, x.com, medium.com and other sites where owners differ by path.
 - Both links must load. A login wall or bot wall (401, 403, 429) is fine; 404, 5xx and timeouts are refused.
+- If a program's real form is on a host the API refuses, skip that program and report it to the owner; never send a different URL than the program's own form.
 
 ### Full example
 
@@ -182,7 +186,7 @@ Every refusal is `{ "ok": false, "problems": [...] }` (400, 409) or `{ "ok": fal
 
 | Status | Meaning | What to do |
 |---|---|---|
-| 400 | A check failed: a missing or not-allowed field, a text or URL rule, a stale `verified_at`, a past `ends_at`, a link that doesn't load (`source_url: doesn't load (...)`), or `id: no program <id>` on close | Fix each listed problem and resend |
+| 400 | A check failed: a missing or not-allowed field, a text or URL rule, a stale `verified_at`, a past `ends_at`, a link that doesn't load (`source_url: doesn't load (...)`), or `id: no program <id>` on close | Fix each listed problem and resend. A `submission_url` host problem can't be fixed: skip the program and tell the owner |
 | 401 | Wrong or missing token | Check the `Authorization: Bearer` header |
 | 404 | The API is off (no token set, or `EARNKIT_PROGRAMS_API=off`) | Ask the owner |
 | 409 | `<id> is curated by EarnKit; send a new id or ask the owner` | Use a different id, or tell the owner |

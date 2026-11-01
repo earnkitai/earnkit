@@ -119,6 +119,11 @@ export const ROLLING = 'Rolling, apply anytime';
 export const tileMoney = (t: { big: string | null; prize: string }): string => t.big ?? t.prize;
 /** v4.9 Task 3 fix 1 (ruling): the small line on an API program's card and guide page (written by the research bot). */
 export const RESEARCH_LABEL = "Found by EarnKit's research.";
+/**
+ * v4.9 final fix (ruling 5): an email line naming an API program carries RESEARCH_LABEL right after it; a file program's
+ * line is unchanged. Pure.
+ */
+export const researchMark = (research: boolean | undefined): string => (research ? ` ${RESEARCH_LABEL}` : '');
 export const EARN_FOOT = 'Your agent finds the fit and drafts the application.';
 export const FOOT_CTA = 'Your next week starts now.';
 export const ART_CREDIT = 'Art: C.W. Eckersberg, 1815 · G.P. Panini, c. 1734';

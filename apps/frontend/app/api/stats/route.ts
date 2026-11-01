@@ -1,5 +1,6 @@
 import { unstable_cache } from 'next/cache';
 import { readStats } from '@/lib/earnkit/stats';
+import { PROGRAMS_TAG } from '@/lib/earnkit/programs-cache';
 
 /**
  * Public stats for jenil.ai (v2.5 §4): database aggregates only, cached 10 minutes. When the build
@@ -24,10 +25,12 @@ import { readStats } from '@/lib/earnkit/stats';
  * v3.1 one-tap posts (design 5): `posts_drafted`, `posts_tapped` (taps > 0) and `backers_after_post` (new backers
  * within 7 days of a first tap; correlation only; 0 while EARNKIT_RAISING is off), people only. Page opens from X are
  * never public (final review 4: anyone can send them); they stay on post_drafts.x_visits for the owner.
+ * v4.9 final fix (F2): the read carries PROGRAMS_TAG and programs-cache.ts programsChanged revalidates this path, so an
+ * API write (created, updated, closed) moves `open_money_usd` at once, the same figure the landing shows.
  */
 export const revalidate = 600;
 
-const cachedStats = unstable_cache(() => readStats(), ['public-stats-posts'], { revalidate: 600 });
+const cachedStats = unstable_cache(() => readStats(), ['public-stats-posts'], { revalidate: 600, tags: [PROGRAMS_TAG] });
 
 export async function GET() {
   try {

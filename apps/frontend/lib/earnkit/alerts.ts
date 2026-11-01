@@ -1,5 +1,6 @@
 import { getAddress } from 'viem';
 import { sql, type Db } from './db';
+import { freshSql } from './api-stale';
 import { prizeColumn, usd, wonUsdText, type CampaignConfig, type EarnKitCampaign } from './campaigns';
 import { prizeOf, shortWallet } from './entry-text';
 import { hoursLeft } from './deadline';
@@ -600,7 +601,7 @@ export async function alertFacts(installationId: number, db: Db = sql()): Promis
     // v2.10 item 15: the same read gives the deadline line its entries (openEntries' "submitted").
     db<{ id: number; program_id: string; title: string; ends_at: Date | null; open: boolean; submitted: boolean }[]>`
       SELECT p.id, p.program_id, pr.title, pr.ends_at,
-        (pr.status = 'active' AND pr.campaign IS NULL) AS open,
+        (pr.status = 'active' AND pr.campaign IS NULL AND ${freshSql(db, 'pr')}) AS open,
         (p.confirmed_at IS NULL OR p.submission_confirmed_at IS NOT NULL OR p.submission_proof_ok_at IS NOT NULL) AS submitted
       FROM projects p JOIN programs pr ON pr.id = p.program_id
       -- v2.12.1 T10 (plan S7): a coin entry is never a program entry (no deadline or submit reminder).
@@ -682,7 +683,7 @@ export const openCuratedRows = (db: Db = sql()) => db<(NewProgramRow & { opened_
     winners_per_round, tag, each_time, submission_requirements, rules, investment, ends_at, starts_at, campaign,
     max_award_usd, existing_work, min_product_score, match_floor, match_precision
   FROM programs
-  WHERE status = 'active' AND campaign IS NULL AND opened_at IS NOT NULL AND (ends_at IS NULL OR ends_at > now())`;
+  WHERE status = 'active' AND campaign IS NULL AND opened_at IS NOT NULL AND (ends_at IS NULL OR ends_at > now()) AND ${freshSql(db)}`;
 
 /**
  * One open curated program as a new program alert candidate. Ruling C23: an investment program's

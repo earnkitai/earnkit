@@ -1,4 +1,5 @@
 import { sql, type Db } from './db';
+import { freshSql } from './api-stale';
 import { usd } from './campaigns';
 import { closeDay, hoursLeft } from './deadline';
 import { prizesWonSql } from './earned';
@@ -106,7 +107,7 @@ export async function applicationCounts(builderId: number): Promise<{ applied: n
   const [entries, told] = await Promise.all([
     db<{ program_id: string; submitted: boolean; open: boolean; application: { answers?: Record<string, unknown> } | null }[]>`
       SELECT p.program_id, (p.confirmed_at IS NULL OR p.submission_confirmed_at IS NOT NULL OR p.submission_proof_ok_at IS NOT NULL) AS submitted,
-        (pr.status = 'active' AND (pr.ends_at IS NULL OR pr.ends_at > now())) AS open, p.application
+        (pr.status = 'active' AND (pr.ends_at IS NULL OR pr.ends_at > now()) AND ${freshSql(db, 'pr')}) AS open, p.application
       FROM projects p JOIN programs pr ON pr.id = p.program_id JOIN installations i ON i.id = p.installation_id
       WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND pr.campaign IS NULL AND p.program_id <> ${COIN_PROGRAM}`,
     // Fix round 1: never a campaign or the coin program here either (the entries' rule).
