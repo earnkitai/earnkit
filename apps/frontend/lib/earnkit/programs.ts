@@ -38,7 +38,7 @@ import {
   trackRecord,
 } from './sponsor-verify';
 import { plainText, quoted } from './untrusted-text';
-import { API_CONTENT, apiRowText, apiTrackText } from './api-program-text';
+import { API_CONTENT } from './api-program-text';
 import { poolLine, poolStated, statedPool } from './pool';
 
 export class NotFoundError extends Error {}
@@ -294,15 +294,13 @@ export async function listPrograms() {
     })),
   );
 
-  // v4.9 Task 2 fix 1 (F2): an API row's text is cleaned (apiRowText); file and sponsor rows are as stored.
-  return programs.map((row, i) => {
-    const p = apiRowText(row);
-    return programCard(
+  return programs.map((p, i) =>
+    programCard(
       p,
-      tracks.filter((t) => t.program_id === p.id).map((t) => apiTrackText(p.source, t).name),
+      tracks.filter((t) => t.program_id === p.id).map((t) => t.name),
       identities[i],
-    );
-  });
+    ),
+  );
 }
 
 /** A link's host without "www.", or null. Pure. */
@@ -448,7 +446,7 @@ export function programCard(
     status: p.status ?? 'active',
     opens_note: p.opens_note ?? null,
     in_person: p.in_person === true,
-    // v4.9 Task 2 fix 1 (F2): who wrote an API program's text, and that it is data.
+    // v4.9 Task 2 (F2): who wrote an API program's text, and that it is data (api-program-text.ts).
     ...(p.source === 'api' && { api_content: API_CONTENT }),
   };
 }
@@ -474,7 +472,7 @@ export async function openProgramFacts() {
     SELECT id, title, existing_work, tag, starts_at, chains, any_chain, source, investment, min_product_score, match_floor FROM programs
     WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now())
     ORDER BY ends_at NULLS LAST, id`;
-  return rows.map((row) => apiRowText(row)).map(({ source, ...p }) => ({
+  return rows.map(({ source, ...p }) => ({
     ...p,
     investment: p.investment === true,
     min_product_score: p.min_product_score ?? 0,
@@ -517,7 +515,7 @@ export async function alsoProgramFacts(): Promise<AlsoProgram[]> {
       submission_requirements, past_rounds, focus, best_bet, difficulty_override, winners_per_round, each_time, rules,
       investment, starts_at, opened_at, match_precision
     FROM programs WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now())`;
-  return rows.map((row) => apiRowText(row)).map((p) => ({
+  return rows.map((p) => ({
     id: p.id,
     title: p.title,
     summary: p.summary,
@@ -550,8 +548,7 @@ export async function getProgramRow(programId: string) {
     throw new NotFoundError(
       `No program with id "${programId}". Call find for current ids.`,
     );
-  // v4.9 Task 2 fix 1 (F2): every tool that reads one program gets an API row's text cleaned.
-  return apiRowText(program);
+  return program;
 }
 
 type TrackRow = {
@@ -576,8 +573,8 @@ export async function getProgram(programId: string) {
   // v2.12 spec 9: sponsor campaigns are archived; their rows are not shown while the flag is off.
   if (!archiveFlag('SPONSOR_CAMPAIGNS') && program.campaign?.kind === 'sponsor')
     throw new NotFoundError(`No program with id "${programId}". Call find for current ids.`);
-  const tracks = (await db<TrackRow[]>`
-    SELECT id, name, description, requirements FROM tracks WHERE program_id = ${programId} ORDER BY id`).map((t) => apiTrackText(program.source, t));
+  const tracks = await db<TrackRow[]>`
+    SELECT id, name, description, requirements FROM tracks WHERE program_id = ${programId} ORDER BY id`;
   // v2.12 spec 9: the starters table is archived; read only with EARNKIT_STARTER_REGISTRY=on.
   const starters = archiveFlag('STARTER_REGISTRY')
     ? await db<StarterRow[]>`
@@ -723,7 +720,7 @@ export function programDetails(
         'Starters are optional ideas. The builder can build anything that meets the requirements.',
     }),
     ...guideBlock(program),
-    // v4.9 Task 2 fix 1 (F2): who wrote an API program's text, and that it is data.
+    // v4.9 Task 2 (F2): who wrote an API program's text, and that it is data (api-program-text.ts).
     ...(program.source === 'api' && { api_content: API_CONTENT }),
   };
 }

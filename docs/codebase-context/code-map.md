@@ -1380,14 +1380,14 @@ apps/frontend/
                                file. Tests: v49-programs-api.test.ts
     programs-api.ts            v4.9 T2: programsWritePost (POST /api/programs/write, the Grok Bot's write API):
                                token (bearerMatches), LIMITS.programsWrite, 256 KB readCapped, ProgramFile + R4
-                               fields (proof_hosts, x_handles, logo, campaign, fresh_build,
-                               starters, difficulty_override), programProblems, apiRuleProblems,
+                               allowlist (api-program-text.ts), programProblems, apiRuleProblems,
                                curated 409 (programs/ file or non-api row), probeLink (safeProbe; 401/403/429 pass), then upsertProgram(p,
                                'api') in a tx with an unchanged snapshot check; program_writes audit rows;
                                noteFileTakeover for programs-sync. Tests: v49-programs-api.test.ts
-    api-program-text.ts        v4.9 T2 fix 1: an API program's text: apiTextProblems (write-time: no links, markdown
-                               links or HTML), cleanApiProgram (stored plain), apiRowText/apiTrackText (plainText on
-                               read for source 'api' rows in programs.ts), API_CONTENT (the written-by envelope)
+    api-program-text.ts        v4.9 T2: API_FIELDS/API_REQUIREMENT_FIELDS (the write allowlist, notWritableFields),
+                               apiTextProblems (NFKC, no < >, markdown links, cleanText link detection, title 120 and
+                               organizer 80 caps; stored as written), API_CONTENT (the written-by envelope on find,
+                               list_programs, get_program and prepare)
     payout.ts(+test)           payoutAccount (CAMPAIGN_PAYOUT_PRIVATE_KEY, with or without 0x: Ruling 7), payoutRpc, payWinner (sign,
                                store, broadcast; stale/manual handling; optional place), payRanked
                                (per-place amounts, any ERC-20, every v2.4 rule, openSends nonce

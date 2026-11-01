@@ -9,8 +9,8 @@ import { bearerMatches, json } from './http';
 import { programProblems, schemaProblems } from './program-checks';
 import { ProgramFile, categoryOf, isOptimismUrl } from './program-file';
 import { ApiRowTakenError, upsertProgram } from './programs';
-import { apiTextProblems, cleanApiProgram } from './api-program-text';
-import { apiSubmitHostAllowed, normalHost, registrableDomain } from './submit-hosts';
+import { apiTextProblems, notWritableFields } from './api-program-text';
+import { apiSubmitHostAllowed, normalHost, sourceSiteName } from './submit-hosts';
 import { RateLimitError, enforce } from './rate-limit';
 import { FETCH_TIMEOUT_MS, HttpStatusError, safeProbe } from './safe-fetch';
 import { readCapped } from './secrets';
@@ -20,7 +20,7 @@ import { readCapped } from './secrets';
  * when it passes the checks, in this order, stopping at the first failing group:
  *   1. the feature is on (404), the token is right (401), the rate limit (429), the body is at most 256 KB (413) and
  *      parses as JSON (400);
- *   2. the envelope and ProgramFile parse, and none of the owner-only fields (R4) is present (400);
+ *   2. the envelope and ProgramFile parse, and only allowlisted fields are present (fix round 2; R4) (400);
  *   3. programProblems (the same checks as `pnpm programs:check`) is empty (400);
  *   4. the API-only rules (apiRuleProblems) hold (400): no shared-host rule on program pages (fix round 0; real
  *      programs submit on Google Forms, DoraHacks and Questbook);
@@ -33,21 +33,11 @@ import { readCapped } from './secrets';
 /** The largest body the API reads (the MCP route's cap pattern, at 256 KB). */
 export const PROGRAMS_BODY_MAX = 256 * 1024;
 /**
- * R4: the owner adds these by file (proof fields and the logo file). Fix round 0 (controller): `campaign` too (a
- * campaign pays out), and the other owner-only fields `fresh_build`, `starters` and `difficulty_override`.
- * `agent_completable` stays allowed.
+ * Fix round 2 (controller): the API writes only the allowlisted fields (api-program-text.ts API_FIELDS and
+ * API_REQUIREMENT_FIELDS); every other field (proof fields, logo, campaign, starters, guidance, judging, form, ...) is
+ * the owner's, by file.
  */
-export const API_FORBIDDEN = [
-  'proof_hosts',
-  'x_handles',
-  'logo',
-  'campaign',
-  'fresh_build',
-  'starters',
-  'difficulty_override',
-  // Fix 1 (review F3): proof-shaped (its host and caller-written regex go to agents).
-  'submission_proof',
-] as const;
+export { API_FIELDS, API_REQUIREMENT_FIELDS } from './api-program-text';
 export const API_ID = /^[a-z0-9-]{3,64}$/;
 /** verified_at may be at most this many days old. */
 export const VERIFIED_MAX_AGE_DAYS = 7;
@@ -76,9 +66,6 @@ const errTag = (err: unknown) => {
   return code ? `${name} ${code}` : name;
 };
 
-/** R4: the owner-only fields present in a raw program body. Pure. */
-export const forbiddenFields = (raw: Record<string, unknown>): string[] =>
-  API_FORBIDDEN.filter((k) => Object.prototype.hasOwnProperty.call(raw, k));
 
 /** The URL's raw hostname (lowercase, brackets kept), or null. */
 const hostOf = (url: string): string | null => {
@@ -100,8 +87,10 @@ export function apiRuleProblems(p: ProgramFile, now: Date): string[] {
     problems.push(`verified_at: more than ${VERIFIED_MAX_AGE_DAYS} days ago; check the source again`);
   if (p.status === 'active' && p.ends_at !== null && Date.parse(p.ends_at) <= now.getTime())
     problems.push('ends_at: has passed; an active program needs a future ends_at or null');
-  for (const key of ['source_url', 'submission_url'] as const) {
-    const url = p[key];
+  // Fix round 2: the only URL fields an API program has (pool_source_url is optional).
+  const urlKeys = ['source_url', 'submission_url', ...(p.pool_source_url !== undefined ? (['pool_source_url'] as const) : [])] as const;
+  for (const key of urlKeys) {
+    const url = p[key]!;
     const host = hostOf(url);
     if (!url.startsWith('https://') || host === null) problems.push(`${key}: must be https`);
     // Security review: a trailing dot or an IP literal never names a program's own site (and dodges host checks).
@@ -109,21 +98,16 @@ export function apiRuleProblems(p: ProgramFile, now: Date): string[] {
     else if (isIP(host.replace(/^\[(.*)\]$/, '$1'))) problems.push(`${key}: use the program's domain name, not an IP address`);
     else if (isOptimismUrl(url)) problems.push(`${key}: Optimism programs are not listed`);
   }
-  // Fix 1 (security review): builders' answers go only to the program's own domain or a known submit platform.
+  // Fix 1 (security review), fix round 2: builders go only to the program's own site (on a shared domain, its exact
+  // host) or a known submit platform; pool_source_url follows the same rule.
   const source = hostOf(p.source_url);
   if (source !== null && problems.every((x) => !x.startsWith('source_url'))) {
-    const allowed = (host: string, path?: string) => apiSubmitHostAllowed(host, source, path);
-    const sub = new URL(p.submission_url);
-    if (problems.every((x) => !x.startsWith('submission_url')) && !allowed(sub.hostname, sub.pathname))
-      problems.push(`submission_url: ${normalHost(sub.hostname)} is neither on ${registrableDomain(source)} (the source's domain) nor a known submit platform`);
-    if (p.form) {
-      const f = new URL(p.form.url);
-      if (!allowed(f.hostname, f.pathname)) problems.push(`form.url: ${normalHost(f.hostname)} is neither on the source's domain nor a known submit platform`);
+    for (const key of urlKeys.filter((k) => k !== 'source_url')) {
+      if (problems.some((x) => x.startsWith(key))) continue;
+      const u = new URL(p[key]!);
+      if (!apiSubmitHostAllowed(u.hostname, source, u.pathname))
+        problems.push(`${key}: ${normalHost(u.hostname)} is neither on ${sourceSiteName(source)} (the source's domain) nor a known submit platform`);
     }
-    if (p.submit_host !== undefined && !allowed(p.submit_host))
-      problems.push(`submit_host: ${p.submit_host} is neither on the source's domain nor a known submit platform`);
-    if (p.submit_api && p.submit_host === undefined && !allowed(sub.hostname, sub.pathname))
-      problems.push('submit_api: its host is neither on the source\'s domain nor a known submit platform');
   }
   // Fix 1 (review F2): builder- and agent-facing text carries no links, markdown links or HTML.
   problems.push(...apiTextProblems(p));
@@ -220,8 +204,8 @@ const live = (p: Pick<ProgramFile, 'status' | 'ends_at'>, now: Date) =>
 
 async function upsertAction(raw: Record<string, unknown>, deps: Required<Omit<WriteDeps, 'limit'>>): Promise<Response> {
   const { now } = deps;
-  // Group 2: the schema and R4.
-  const forbidden = forbiddenFields(raw).map((k) => `${k}: the API can't set ${k}; the owner adds it by file`);
+  // Group 2: the field allowlist and the schema.
+  const forbidden = notWritableFields(raw);
   const parsed = ProgramFile.safeParse(raw);
   if (forbidden.length > 0 || !parsed.success) {
     const problems = [...forbidden, ...(parsed.success ? [] : schemaProblems(parsed.error))];
@@ -229,7 +213,7 @@ async function upsertAction(raw: Record<string, unknown>, deps: Required<Omit<Wr
     return refused(400, problems);
   }
   const p = parsed.data;
-  // Group 3: programs:check's rules. No logo reaches here (R4), so nothing reads a caller-chosen path.
+  // Group 3: programs:check's rules. No logo reaches here (not writable), so nothing reads a caller-chosen path.
   const checks = programProblems(p, { publicDir: join(process.cwd(), 'public') });
   if (checks.length > 0) {
     await auditRefusal('upsert', p.id, 'refused', checks);
@@ -262,8 +246,8 @@ async function upsertAction(raw: Record<string, unknown>, deps: Required<Omit<Wr
     return refused(400, linkProblems);
   }
 
-  // Fix 1 (F2): stored already plain, so every read path (not only MCP output) gets plain text.
-  const clean = cleanApiProgram(p);
+  // Fix round 2: stored exactly as checked ("€10K" survives); MCP output carries the API_CONTENT envelope.
+  const clean = p;
   let result: Result;
   try {
     result = await sql().begin(async (tx) => {

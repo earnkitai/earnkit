@@ -9059,7 +9059,7 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
   `RETURNING (xmax = 0) AS inserted`. No row back throws `ApiRowTakenError` (the API answers 409 `curated`), so a file or
   sponsor row inserted after the API's read is never overwritten. `upsertProgram` now returns `{ inserted }`; the API
   reports `created` only for a fresh insert, so two concurrent creates give one `created` and one `updated`.
-- **Untrusted text (F2), `api-program-text.ts`.** Write time: `apiTextProblems` refuses markdown links, raw URLs and HTML
+- **Untrusted text (F2), `api-program-text.ts`** (superseded by fix round 2 below: no plainText on store or read). Write time: `apiTextProblems` refuses markdown links, raw URLs and HTML
   tags in title, organizer, description, reward, summary, rules, setup, each_time, ideas, the requirement labels and
   descriptions and the tracks; what passes is stored through `plainText` (`cleanApiProgram`). Read time, only for
   `source = 'api'` rows (file and sponsor rows untouched): `apiRowText`/`apiTrackText` run `plainText` in
@@ -9075,3 +9075,29 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
 - **Also.** `submission_proof` joins `API_FORBIDDEN` (F3). The off switch is trimmed and case-insensitive: `off`, `0`,
   `false` (F4). Failure logs carry the error name and postgres code only (`errTag`, F5). The test file mocks console
   (F8). `WriteDeps.afterRead` is a test-only seam inside the write transaction.
+
+### v4.9 Task 2 fix round 2: field allowlist, normalized text checks, exact shared hosts
+
+- **Field allowlist (replaces the forbidden list).** `api-program-text.ts API_FIELDS` (id, organizer, title,
+  description, source_url, submission_url, reward, summary, the award and pool amounts, pool_source_url, category, tag,
+  starts_at, ends_at, tz, status, opens_note, chains, any_chain, investment, in_person, needs_repo, needs_contract,
+  min_product_score, existing_work, verified_at, rules, setup, each_time, ideas, wants_revenue, winners_per_round,
+  submission_requirements) and `API_REQUIREMENT_FIELDS` (key, label, type, required, options, description,
+  project_field, from, todo, kind, max_chars). `notWritableFields` names every other key, at the top level and inside
+  each requirement (guidance, judging, pitch, tracks, form, submit_host, submit_api, logo, proof fields, campaign,
+  starters, agent_completable, token_policy, ...). Every schema-required field is on the list.
+- **Text checks.** `apiTextProblems` checks title (120 max), organizer (80 max), description, reward, summary,
+  opens_note, rules, setup, each_time, ideas and each requirement's label, description, todo and options: NFKC first,
+  then any `<` or `>`, markdown links, and `untrusted-text.ts cleanText` (its link detection: schemes, `www.`, full-width
+  and defanged forms, bare domains, IP literals, entities). Text is stored exactly as checked (no plainText on store or
+  read; "€10K" survives).
+- **Envelope.** `api_content: API_CONTENT` on API programs in find and list_programs (`tools.ts agentPrograms`),
+  get_program (`programDetails`) and prepare (`tools.prepare` wraps `prepareTool` with `withApiContent`). Titles quoted
+  in EarnKit's own sentences (find, tell, score) can't carry it; they passed the checks and the 120-character cap.
+- **Hosts.** URL fields are source_url, submission_url and pool_source_url (the last follows the submission rule).
+  `submit-hosts.ts apiSubmitHostAllowed`: the same registrable domain counts only when it isn't on `API_SHARED_SITES`
+  (SHARED_HOSTS plus github.io, github.com, vercel.app, pages.dev, netlify.app, herokuapp.com, notion.site, notion.so,
+  medium.com, x.com, twitter.com, substack.com, google.com; subdomains count), or when the hosts match exactly and the
+  host isn't one whose owners differ by path (`API_PATH_OWNED`: github.com, x.com, twitter.com, medium.com, notion.so,
+  google.com and its subdomains, forms.gle, dorahacks.io, mirror.xyz, paragraph.xyz). `sourceSiteName` names the
+  source's exact host on a shared domain.

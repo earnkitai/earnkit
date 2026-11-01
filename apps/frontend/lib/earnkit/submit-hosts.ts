@@ -123,9 +123,38 @@ export const API_SUBMIT_HOSTS = [
  */
 export function apiSubmitHostAllowed(host: string, sourceHost: string, path?: string): boolean {
   const h = normalHost(host);
-  if (registrableDomain(h) === registrableDomain(sourceHost)) return true;
+  const s = normalHost(sourceHost);
+  // Fix round 2: a shared domain (anyone's site under it) counts only for the exact host, and never for a host whose
+  // owners differ by path (github.com/org vs github.com/attacker).
+  if (registrableDomain(h) === registrableDomain(s)) {
+    if (!onSharedSite(registrableDomain(h))) return true;
+    if (h === s && !onPathOwned(h)) return true;
+  }
   const platform = API_SUBMIT_HOSTS.find((p) => h === p || h.endsWith(`.${p}`));
   if (!platform) return false;
   if (platform === 'docs.google.com' && path !== undefined) return path === '/forms' || path.startsWith('/forms/');
   return true;
 }
+
+/**
+ * v4.9 Task 2 fix round 2: domains where anyone can have a site, so sharing the registrable domain never ties a
+ * submission to the program's source: SHARED_HOSTS plus the hosting platforms (subdomains count).
+ */
+export const API_SHARED_SITES = [
+  ...SHARED_HOSTS,
+  'github.io', 'github.com', 'vercel.app', 'pages.dev', 'netlify.app', 'herokuapp.com', 'notion.site', 'notion.so',
+  'medium.com', 'x.com', 'twitter.com', 'substack.com', 'google.com',
+] as const;
+/** Of those, the hosts where one host name serves many owners by path (github.com/<owner>, sites.google.com/<site>). */
+export const API_PATH_OWNED = [
+  'github.com', 'x.com', 'twitter.com', 'medium.com', 'notion.so', 'google.com', 'forms.gle', 'dorahacks.io', 'mirror.xyz',
+  'paragraph.xyz',
+] as const;
+const under = (host: string, list: readonly string[]) => list.some((d) => host === d || host.endsWith(`.${d}`));
+/** Whether `host` (normalized) is on or under a shared site. Pure. */
+export const onSharedSite = (host: string) => under(normalHost(host), API_SHARED_SITES);
+const onPathOwned = (host: string) => under(host, API_PATH_OWNED);
+
+/** How a submission problem names the source's site: its exact host on a shared site, else its registrable domain. Pure. */
+export const sourceSiteName = (sourceHost: string) =>
+  onSharedSite(registrableDomain(sourceHost)) ? normalHost(sourceHost) : registrableDomain(sourceHost);
