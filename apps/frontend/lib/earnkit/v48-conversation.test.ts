@@ -624,7 +624,7 @@ test('the gap closed and the draft: target A word for word', () => {
   assert.equal(gapProof({ name: 'EarnKit', live: true }, 6, ['base', 'codes']), "You've shipped 6 weeks in a row and EarnKit is live.");
   // Fix round 1 (T2-4): mid-gap, the first remaining step, never "Want the steps?".
   assert.equal(gapStillReply('Base Builder Grant Program', qualifyGapSteps(['codes']), false, "You're live on Base.").show_to_builder,
-    `Still on Base Builder Grant: add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. Guide: ${GUIDE} You're live on Base. Want me to do it now?`);
+    `Still on Base Builder Grant: add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. Guide: ${GUIDE}\nYou're live on Base. Want me to do it now?`);
   assert.ok(gapStillReply('Base Builder Grant Program', qualifyGapSteps(['codes']), true, null).show_to_builder.endsWith('Want help with it now?'));
   assert.equal(blanksAsk(FOUNDER_BLANKS), A_BLANKS);
   assert.equal(blanksAsk(['your Telegram username']), "One blank only you can fill: your Telegram username. Reply with it and I'll finish it.");
@@ -747,7 +747,7 @@ test("the Base gap (fix round 2, F10): the hook offers to add Builder Codes; a y
   b.gh.repos[b.key].files = { 'src/app.ts': 'export const x = 1;' };
   (b.ctx as { codesFetch?: typeof fetch }).codesFetch = b.gh;
   const still = await find(b);
-  assert.equal(show(still), `Still on Base Builder Grant: add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. Guide: ${GUIDE} You're live on Base. Want me to do it now?`);
+  assert.equal(show(still), `Still on Base Builder Grant: add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. Guide: ${GUIDE}\nYou're live on Base. Want me to do it now?`);
   assert.equal(moveUp(still)?.kind, 'qualify');
   assert.equal(still.reply?.note, PATH_NOTE);
   // F2: no new yes, so no new check: still the step.
@@ -2404,7 +2404,7 @@ test('final F5: a fresh session at the gap stage says the money once, then the s
   await codesSettled();
   await backSession(b.id, SESSION_MS + 60_000);
   const r = withTotal(show(await find(b)));
-  assert.equal(r, `Jenil, Base Builder Grant pays up to $5,000, and you're one step away: add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. Guide: ${GUIDE} You're live on Base.\n\nWant me to do it now?`);
+  assert.equal(r, `Jenil, Base Builder Grant pays up to $5,000, and you're one step away: add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. Guide: ${GUIDE}\nYou're live on Base.\n\nWant me to do it now?`);
   assert.ok(((await seenOf(b.id)).said as { keys: string[] }).keys.includes('money:base-builder-grants'));
   // Again in the same session: the pointer, no money.
   assert.ok(show(await find(b)).startsWith('Still on Base Builder Grant: '));

@@ -2,7 +2,7 @@ import './fixtures/no-network-checks';
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CODES_OFFER, MONEY_SAID, POINT_MORE, POINT_NEXT, SESSION_MS, bestMove, blanksAsk, closeWords, fitCell, pathReply, pointerReply, moneyInvestor, moneyLine, pickHook, submitBy, submitNoRush, submitPointer, withMoneyLine,
+  CODES_OFFER, MONEY_SAID, POINT_MORE, gapStillReply, POINT_NEXT, SESSION_MS, bestMove, blanksAsk, closeWords, fitCell, pathReply, pointerReply, moneyInvestor, moneyLine, pickHook, submitBy, submitNoRush, submitPointer, withMoneyLine,
   type GapGrant, type InvestorProgram, type MoveCtx, type MoveProgram,
 } from './conversation';
 import { sql } from './db';
@@ -629,4 +629,25 @@ test('v4.8.1 final fix (6): a draft made through apply_yes stores the draft\'s o
   assert.equal(pathDrafted({ apply_yes: { [base]: new Date(NOW.getTime() - 60 * 86_400_000).toISOString() } }, base, null, NOW), false);
   assert.equal(pathDrafted({ apply_yes: { [base]: new Date(NOW.getTime() - 60 * 86_400_000).toISOString() } }, base, { draft: true }, NOW), true);
   assert.equal(pathDrafted({}, base, null, NOW), false);
+});
+
+test('v4.8.1 final fix (8): the gap step\'s guide link ends its line, so no sentence runs into the URL', () => {
+  const steps = qualifyGapSteps(['codes']);
+  const link = steps[0].link!;
+  for (const r of [
+    gapStillReply('Base Builder Grant Program', steps, false, "You're live on Base."),
+    gapStillReply('Base Builder Grant Program', steps, false, null),
+    gapStillReply('Base Builder Grant Program', steps, false, "You're live on Base.", { first: 'Jenil', amount: 'up to $5,000', closes: null }),
+  ]) {
+    const s = r.show_to_builder;
+    assert.ok(s.includes(`Guide: ${link}\n`), s);
+    assert.ok(!s.includes(`${link} `) && !s.includes(`${link}.`), s);
+    assert.equal(s.split('\n\n').length, 1, s);
+    // The money line still goes just before the easy reply, and the URL stays whole.
+    const m = withMoneyLine(s, 'Open now: $1K in grants.');
+    assert.ok(m.endsWith('\n\nOpen now: $1K in grants.\n\nWant me to do it now?'), m);
+    assert.ok(m.includes(`Guide: ${link}\n`), m);
+  }
+  // A step with no link reads as before.
+  assert.equal(gapStillReply('Arc Microgrants', [{ text: 'Put your app on Arc.', doable: false }], false, null).show_to_builder, 'Still on Arc Microgrants: put your app on Arc. Want help with it now?');
 });

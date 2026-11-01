@@ -271,16 +271,20 @@ export function moneyLine(total: string | null, investor: Pick<MoveProgram, 'tit
 const NO_END = /(?:^|\s)(?:e\.g|i\.e|vs|etc|Mr|Mrs|Ms|Dr|St|Inc|Ltd|[A-Z](?:\.[A-Z])*)\.$/;
 /**
  * A one-paragraph reply split before its last sentence (its easy reply): [the rest, the last sentence], or null when it
- * is one sentence. A sentence ends at ".", "?" or "!" followed by a space and a capital or a quote, never inside a URL
+ * is one sentence. A sentence ends at ".", "?" or "!" followed by a space and a capital or a quote, or at a line break
+ * before one, never inside a URL
  * or an amount ("$5,000." then a capital still ends one; "earnkit.com/x" never does) or after an abbreviation. A last
  * sentence under 3 words ("Go?") keeps the sentence before it. Pure.
  */
 function splitLast(p: string): [string, string] | null {
-  const cuts = [...p.matchAll(/[.?!]\s+(?=[A-Z"])/g)].filter((m) => !NO_END.test(p.slice(0, m.index + 1))).map((m) => ({ at: m.index, len: m[0].length }));
+  // Final review 8: a line break before a capital also ends a sentence (the gap step's guide link ends its line).
+  const cuts = [...p.matchAll(/[.?!]\s+(?=[A-Z"])|\n(?=[A-Z"])/g)]
+    .filter((m) => m[0] === '\n' || !NO_END.test(p.slice(0, m.index + 1)))
+    .map((m) => (m[0] === '\n' ? { end: m.index, next: m.index + 1 } : { end: m.index + 1, next: m.index + m[0].length }));
   // A bare "Go?" keeps the offer it answers ("I can add Builder Codes ... about 10 minutes. Go?") as one easy reply.
-  const short = (c: { at: number; len: number }) => p.slice(c.at + c.len).split(/\s+/).length < 3;
+  const short = (c: { end: number; next: number }) => p.slice(c.next).split(/\s+/).length < 3;
   const cut = cuts.length > 1 && short(cuts.at(-1)!) ? cuts.at(-2) : cuts.at(-1);
-  return cut ? [p.slice(0, cut.at + 1), p.slice(cut.at + cut.len)] : null;
+  return cut ? [p.slice(0, cut.end), p.slice(cut.next)] : null;
 }
 /**
  * The money line as its own paragraph just before the reply's last one. Fix round 1 (controller ruling a): it never goes
@@ -547,8 +551,10 @@ export function gapStillReply(program: string, steps: GapStep[], hosted: boolean
   const head = money
     ? `${money.first ? `${money.first}, ` : ''}${name} ${money.amount ? `pays ${money.amount}` : 'is open'}${money.closes ? `, closing ${money.closes}` : ''}, and you're ${steps.length === 1 ? `one step away: ${words}` : `${steps.length} steps away. First: ${words}`}.`
     : `Still on ${name}: ${words}.`;
-  const line = `${head}${step.link ? ` Guide: ${step.link}` : ''}`;
-  return { show_to_builder: [line, proof, reply === 'go' ? GAP_DO_IT_ASK : GAP_HELP_ASK_ONE].filter(Boolean).join(' '), reply };
+  const rest = [proof, reply === 'go' ? GAP_DO_IT_ASK : GAP_HELP_ASK_ONE].filter(Boolean).join(' ');
+  // Final review 8: the guide link ends its line, so the next sentence never runs into the URL (and no period is glued
+  // to it, which would break the link); the reply stays one paragraph.
+  return { show_to_builder: step.link ? `${head} Guide: ${step.link}\n${rest}` : `${head} ${rest}`, reply };
 }
 
 /** Task 6 fix round 1 (review 1): the help yes's one easy reply; its ok re-checks the step. */
