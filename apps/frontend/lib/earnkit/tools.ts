@@ -143,7 +143,7 @@ import { scoreReply } from './score-tool';
 import { aboutFacts, replyFacts, type ReplyFacts } from './reply-facts';
 import { agentReach } from './agent-reach';
 import { ANSWER_FIRST_NOTE, NOTED_LINE } from './stand-text';
-import { MENTOR_NOTE, PATH_ANSWER_FIRST, trackLead } from './conversation';
+import { ANSWERED_FIRST, MENTOR_NOTE, PATH_ANSWER_FIRST, trackLead } from './conversation';
 import { startRefresh } from './stand-view';
 import { attributionFor, chainOf } from './attribution';
 import type { ReaderDeps } from './source-readers';
@@ -2665,8 +2665,9 @@ export function withFacts<T extends object>(reply: T, facts: ReplyFacts): T {
   // v4.8 Task 2 fix round 3 (2): it gets a short answer-first sentence that fits the mentor note instead, so a question
   // asked mid-path is still answered first.
   if (typeof r.note === 'string' && r.note.endsWith(MENTOR_NOTE))
-    return { ...reply, facts, ...(!r.note.startsWith(PATH_ANSWER_FIRST) && { note: `${PATH_ANSWER_FIRST} ${r.note}` }) } as T;
-  const noted = [r.note, r.agent_note].some((n) => typeof n === 'string' && (n.includes(ANSWER_FIRST_NOTE) || n.endsWith(MENTOR_NOTE)));
+    // v4.8 Task 5 fix round 1 (8): a reply that opens with the answer (ANSWERED_FIRST) never gets a second answer-first note.
+    return { ...reply, facts, ...(!r.note.startsWith(PATH_ANSWER_FIRST) && !r.note.startsWith(ANSWERED_FIRST) && { note: `${PATH_ANSWER_FIRST} ${r.note}` }) } as T;
+  const noted = [r.note, r.agent_note].some((n) => typeof n === 'string' && (n.includes(ANSWER_FIRST_NOTE) || n.includes(ANSWERED_FIRST) || n.endsWith(MENTOR_NOTE)));
   return { ...reply, facts, ...(!noted && { note: typeof r.note === 'string' && r.note ? `${ANSWER_FIRST_NOTE} ${r.note}` : ANSWER_FIRST_NOTE }) } as T;
 }
 

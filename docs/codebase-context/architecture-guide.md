@@ -8810,3 +8810,18 @@ A yes on the path moves the stage on (bench-find.ts benchMoveUp, asks stored wit
 - **Emails** (alert-mail.ts): every alert body ends in one line, Tell your agent: "EarnKit, {action}." (closing or new
   fit: draft {program}; a draft ready: finish my {program} draft; accepted: what's next after {program}), in place of
   "Ask your agent to draft it.". Plain text only (Mailer has no HTML body); subjects unchanged.
+- **Fix round 1.**
+  - One fact rule for a grant the project doesn't fit (conversation.ts grantFact; bench-find.ts cardFact): gaps first,
+    then the one chain it funds that the project isn't on, then none known or unknown. Task 4's pickWhy and the fit
+    cell both read it, so Circle is "Not yet: needs Arc" here and "they fund apps on Arc ..." in B. The cell also says
+    "Drafted" and "Steps met". The programs answer reads pathPlan's `wide` mode (every grant not applied to, no move and
+    no re-check made from it).
+  - The rank (standing answer and connectedLine) only when rankLines says listed, as the page pill.
+  - Repeat keys carry what was said: `ask:standing:{score}|{rank}`, `ask:programs:{hash of ids and fits}`. A changed
+    answer is said in full again; the same one is "Same as earlier: ..." or "Same list as earlier.".
+  - Under TABLE_FROM (3) rows a section is one line a program ("a16z speedrun SR008 (investor program): up to $1M,
+    closes Nov 1. {what it is}"); the mentor line stays.
+  - After a direct answer the step is brief (ViewIn.brief): pathReply's pointer with no "still" (the hook counts as
+    said), no proof line, no "Since" line, no passed-step raise.
+  - Order: the account line, then the answer. The note opens with ANSWERED_FIRST (tools.ts withFacts adds no second
+    answer-first sentence). "live at {host}" only from a checked link.

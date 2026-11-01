@@ -1805,6 +1805,8 @@ apps/frontend/
                                v4.8 Task 5 (target C): ASK_SAID, StandingFacts, standingAnswer, standingAgain, PROGRAMS_AGAIN,
                                PREPARE_LINE, fitCell, programsAnswer, whatItIs. bench-find.ts directAnswer (find {ask}),
                                ViewIn.question/answer, linkHost; the path block's answered() wrapper.
+                               Fix round 1: grantFact/GrantFact, fitOrder, standingSaid, ANSWERED_FIRST, TABLE_FROM, PathCtx.brief;
+                               bench-find.ts cardFact, myChains, listHash, pathPlan {wide} + PathPlan.met, ViewIn.brief.
     bench-find.ts(+test)       GTM W2 (2026-10-23): link-only projects (a Lovable or Bolt live_url, no repo) take the no-GitHub path
                                (noCode: the picker link, github_no, the walk-through; linkName/YOUR_APP, reportedName: never the
                                host); backing before hot post and apply (boundedBacking first), connectBacking in the connect yes;

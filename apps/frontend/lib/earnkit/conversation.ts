@@ -245,6 +245,11 @@ export type PathCtx = {
   hosted?: boolean;
   /** v4.8 Task 4: the hook asks for the steps (target B's closest money after a pick that doesn't fit), never "Go?". */
   steps?: boolean;
+  /**
+   * v4.8 Task 5 fix round 1 (5): a direct answer came first, so the step is C's short pointer ("Your a16z speedrun SR008
+   * application is the next move. Want me to start?"), never the hook's money and proof again; the hook counts as said.
+   */
+  brief?: boolean;
 };
 /** Fix round 2 (F10): a local agent's offer for a grant whose one gap is Builder Codes (target A). */
 export const CODES_OFFER = 'I can add them and push the change, about 10 minutes. Go?';
@@ -276,9 +281,11 @@ export function pathReply(c: PathCtx): PathReply {
   const hookKey = `hook:${p.id}`;
   // Merge gate (Task 6), fix round 1 ruling R2: a pointer (the same step again within a session) is exempt from the
   // proof-line rule; it is one line that points back, with the same easy reply.
-  if (c.said.has(hookKey)) {
-    const point = reply === 'start' ? `Your ${name} application is still the next move.` : reply === 'go' ? `Builder Codes are still the one step to ${name}.` : `${name} is still your closest money.`;
-    return { stage: 'hook', program_id: p.id, show_to_builder: `${point} ${ask}`, said: [], reply };
+  if (c.said.has(hookKey) || c.brief) {
+    // Task 5 fix round 1 (5): the brief pointer (after a direct answer) says no "still" and counts the hook as said.
+    const still = c.said.has(hookKey) ? 'still ' : '';
+    const point = reply === 'start' ? `Your ${name} application is ${still}the next move.` : reply === 'go' ? `Builder Codes are ${still}the one step to ${name}.` : `${name} is ${still}your closest money.`;
+    return { stage: 'hook', program_id: p.id, show_to_builder: `${point} ${ask}`, said: still ? [] : [hookKey, `money:${p.id}`], reply };
   }
   const proof = proofLine(c.project, c.streak, p.investment);
   const proofKey = proof ? `proof:${proof}` : null;
@@ -690,17 +697,23 @@ export const OPENER_NOTE = "When they reply with a number or a program's name, c
  * in one short reply, then the path's step (its own words, or its pointer) with its one easy reply, last. The same ask
  * again in a session is one line that points back (`ask:standing`, `ask:programs` in standing_seen.said).
  */
-export const ASK_SAID = (ask: 'standing' | 'programs') => `ask:${ask}`;
-/** The standing answer's facts: the page's score and rank (rank.ts rankWords), the streak, live, the page. */
+/**
+ * The key a direct answer is said under: the question and what the answer said (fix round 1 (3)), so the same ask with
+ * changed facts is a new answer, never "Same as". Reset with the session (SESSION_MS), as every said part.
+ */
+export const ASK_SAID = (ask: 'standing' | 'programs', said: string) => `ask:${ask}:${said}`;
+/** The standing answer's facts: the page's score and rank (rank.ts rankWords, listed only), the streak, the page. */
 export type StandingFacts = {
   score: number | null; rank: string | null; streak: number;
-  /** The live link's host ("earnkit.com") when EarnKit checked it; `live` alone names the project. */
-  liveAt: string | null; live: boolean; name: string;
+  /** The live link's host ("earnkit.com"), only when EarnKit checked the link (live-check.ts); else no live clause. */
+  liveAt: string | null;
   /** The builder's page (reserved-routes.ts pageUrl). */
   page: string;
 };
 const PROFILE_FILLS = 'Your profile fills in as your commits come in.';
 const hasScore = (f: Pick<StandingFacts, 'score'>) => f.score !== null && f.score > 0;
+/** What a standing answer said, for its repeat key: the score and the rank (a score of 0 or none says neither). Pure. */
+export const standingSaid = (f: Pick<StandingFacts, 'score' | 'rank'> & Partial<StandingFacts>) => (hasScore(f) ? `${f.score}|${f.rank ?? ''}` : '-');
 /**
  * Target C (exact): "Score 77, #1 of 1 builders so far. It comes from your GitHub: 6 weeks shipping in a row, live at
  * earnkit.com. Programs see it at earnkit.com/jenilt." A part not known is left out. A score of 0 or unknown: no score
@@ -711,18 +724,20 @@ export function standingAnswer(f: StandingFacts): string {
   if (!hasScore(f)) return `${PROFILE_FILLS} ${where}`;
   const parts = [
     f.streak >= 2 ? `${f.streak} weeks shipping in a row` : f.streak === 1 ? '1 week shipping' : null,
-    f.liveAt ? `live at ${f.liveAt}` : f.live ? `${f.name} is live` : null,
+    f.liveAt ? `live at ${f.liveAt}` : null,
   ].filter((x): x is string => x !== null);
   return `Score ${f.score}${f.rank ? `, ${f.rank}` : ''}. It comes from your GitHub${parts.length > 0 ? `: ${parts.join(', ')}` : ''}. ${where}`;
 }
-/** The standing asked again in the session: "Same as a few minutes ago: #1 of 1, score 77." Pure. */
+/** The standing asked again in the session, nothing changed: "Same as earlier: #1 of 1, score 77." Pure. */
 export function standingAgain(f: Pick<StandingFacts, 'score' | 'rank'>): string {
-  if (!hasScore(f)) return `Same as a few minutes ago: ${PROFILE_FILLS.charAt(0).toLowerCase()}${PROFILE_FILLS.slice(1)}`;
+  if (!hasScore(f)) return `Same as earlier: ${PROFILE_FILLS.charAt(0).toLowerCase()}${PROFILE_FILLS.slice(1)}`;
   const rank = f.rank?.replace(/ builders so far$/, '') ?? null;
-  return `Same as a few minutes ago: ${rank ? `${rank}, ` : ''}score ${f.score}.`;
+  return `Same as earlier: ${rank ? `${rank}, ` : ''}score ${f.score}.`;
 }
+/** Fix round 1 (8): a reply whose show_to_builder already opens with the answer; the note never asks for a second one. */
+export const ANSWERED_FIRST = 'Their question is already answered first in show_to_builder: keep it first and answer it only once.';
 
-/** The programs asked again in the session. */
+/** The programs asked again in the session, the same list. */
 export const PROGRAMS_AGAIN = 'Same list as earlier.';
 /** The mentor line after the investor programs (owner decision 2026-10-31: an offer to help prepare). */
 export const PREPARE_LINE = 'If one of these is your plan, I can help you prepare.';
@@ -732,35 +747,71 @@ const STEP_WORDS: Record<string, string> = {
 };
 const stepWords = (g: string) => STEP_WORDS[g] ?? g.replace(/^on (.+ mainnet)$/, 'deploy on $1');
 /**
- * The grants table's "Your fit", from stored facts only: "Fits" (a real fit), "1 step: {step}", "{n} steps", else
- * "Not yet: {why}" ("not checked yet" when nothing is known). Never "you qualify". Pure.
+ * Fix round 1 (1): what EarnKit knows of a grant the project doesn't fit, the one rule behind Task 4's pick why line
+ * (bench-find.ts pickWhy) and the programs answer's fit cell: its gaps (steps) first; else the one chain it funds that
+ * the project isn't on; else none known (`gaps` read, empty) or unknown (not read). The fit cell adds drafted and every
+ * step met (Base). `chainName` names a chain id ("arc" as "Arc"). Pure.
  */
-export function fitCell(f: { fits: boolean; gaps: readonly string[] | null; why?: string | null }): string {
-  if (f.fits) return 'Fits';
-  if (f.gaps && f.gaps.length === 1) return `1 step: ${stepWords(f.gaps[0])}`;
-  if (f.gaps && f.gaps.length > 1) return `${f.gaps.length} steps`;
-  return `Not yet: ${f.why ?? 'not checked yet'}`;
+export type GrantFact =
+  | { kind: 'steps'; gaps: readonly string[] } | { kind: 'chain'; chain: string } | { kind: 'none' } | { kind: 'unknown' }
+  | { kind: 'drafted' } | { kind: 'met' };
+export function grantFact(gaps: readonly string[] | null, chains: readonly string[], mine: ReadonlySet<string>, chainName: (c: string) => string): GrantFact {
+  if (gaps && gaps.length > 0) return { kind: 'steps', gaps };
+  if (chains.length === 1 && !mine.has(chains[0].toLowerCase())) return { kind: 'chain', chain: chainName(chains[0]) };
+  return gaps ? { kind: 'none' } : { kind: 'unknown' };
+}
+/**
+ * The grants' "Your fit", from stored facts only: "Fits" (a real fit), "1 step: {step}", "{n} steps", "Drafted", "Steps
+ * met", else "Not yet: {why}" ("needs Arc"; "EarnKit can't see its needs yet"; "not checked yet"). Never "qualify". Pure.
+ */
+export function fitCell(fits: boolean, f: GrantFact): string {
+  if (fits) return 'Fits';
+  if (f.kind === 'drafted') return 'Drafted';
+  if (f.kind === 'met') return 'Steps met';
+  if (f.kind === 'steps') return f.gaps.length === 1 ? `1 step: ${stepWords(f.gaps[0])}` : `${f.gaps.length} steps`;
+  if (f.kind === 'chain') return `Not yet: needs ${f.chain}`;
+  return `Not yet: ${f.kind === 'none' ? "EarnKit can't see its needs yet" : 'not checked yet'}`;
+}
+/** The grants' order: fits, drafted, steps met, fewest steps, a chain away, then nothing known. Pure. */
+export function fitOrder(fits: boolean, f: GrantFact): number {
+  if (fits) return 0;
+  return f.kind === 'drafted' ? 1 : f.kind === 'met' ? 2 : f.kind === 'steps' ? 2 + f.gaps.length : f.kind === 'chain' ? 50 : f.kind === 'none' ? 60 : 99;
 }
 export type GrantRow = { title: string; amount: string | null; when: string; fit: string };
 export type InvestorRow = { title: string; amount: string | null; when: string; what: string };
 const closesCell = (when: string) => (when === 'rolling' ? 'Rolling' : when.replace(/^closes\s+/, ''));
 const moneyCell = (a: string | null) => a ?? 'Not stated';
+/** A table only when comparing more than two (Voice; fix round 1 (4) ruling): from this many rows. */
+export const TABLE_FROM = 3;
+const lowerFirst = (x: string) => `${x.charAt(0).toLowerCase()}${x.slice(1)}`;
+/** One grant as a line: "Base Builder Grant: up to $5,000, rolling. Your fit: 1 step, add Builder Codes." Pure. */
+const grantLine = (r: GrantRow) =>
+  `${programName(r.title)}: ${[r.amount, r.when].filter(Boolean).join(', ')}. ${r.fit === 'Fits' ? 'It fits.' : `Your fit: ${lowerFirst(r.fit).replace(': ', ', ')}.`}`;
+/** One investor program as a line: "a16z speedrun SR008 (investor program): up to $1M, closes Nov 1. {what it is}" Pure. */
+const investorLine = (r: InvestorRow) =>
+  `${programName(r.title)} (investor program): ${[r.amount, r.when].filter(Boolean).join(', ')}.${r.what === INVESTOR_WHAT ? '' : ` ${r.what}`}`;
+/** whatItIs with no description: the class alone (a line says it already). */
+const INVESTOR_WHAT = 'Investor program';
 /**
- * Target C's "what can I apply to": the open grants (Grant | Money | Closes | Your fit), then the open investor programs
- * apart (Program | Money | Closes | What it is) and the mentor line. Never a total. None open: one line. Pure.
+ * Target C's "what can I apply to": the open grants (from TABLE_FROM rows a table, Grant | Money | Closes | Your fit;
+ * fewer, one line each), then the open investor programs apart (a table, Program | Money | Closes | What it is, or one
+ * line each, "(investor program)") and the mentor line. Never a total. No grants open: one line. Pure.
  */
 export function programsAnswer(grants: readonly GrantRow[], investors: readonly InvestorRow[]): string {
-  const g = grants.length > 0
-    ? `Grants open now:\n\n${table(['Grant', 'Money', 'Closes', 'Your fit'], grants.map((r) => [programName(r.title), moneyCell(r.amount), closesCell(r.when), r.fit]))}`
-    : 'No grants are open right now.';
+  const g = grants.length === 0 ? 'No grants are open right now.'
+    : grants.length >= TABLE_FROM
+      ? `Grants open now:\n\n${table(['Grant', 'Money', 'Closes', 'Your fit'], grants.map((r) => [programName(r.title), moneyCell(r.amount), closesCell(r.when), r.fit]))}`
+      : `Grants open now:\n\n${grants.map(grantLine).join('\n')}`;
   if (investors.length === 0) return g;
-  const i = table(['Program', 'Money', 'Closes', 'What it is'], investors.map((r) => [programName(r.title), moneyCell(r.amount), closesCell(r.when), r.what]));
-  return `${g}\n\nInvestor programs:\n\n${i}\n\n${PREPARE_LINE}`;
+  const i = investors.length >= TABLE_FROM
+    ? `Investor programs:\n\n${table(['Program', 'Money', 'Closes', 'What it is'], investors.map((r) => [programName(r.title), moneyCell(r.amount), closesCell(r.when), r.what]))}`
+    : investors.map(investorLine).join('\n');
+  return `${g}\n\n${i}\n\n${PREPARE_LINE}`;
 }
 /** A program file's description as "What it is": its first sentence, else "Investor program". Pure. */
 export function whatItIs(description: string | null | undefined): string {
   const d = description?.trim();
-  if (!d) return 'Investor program';
+  if (!d) return INVESTOR_WHAT;
   const m = /^(.+?[.!?])(\s|$)/.exec(d);
   return m ? m[1] : d;
 }

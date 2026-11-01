@@ -75,7 +75,7 @@ import { closeDay, programZone, zoneAbbr } from './deadline';
 import type { ProgramRow as ProgramFileRow } from './programs';
 import {
   MENTOR_NOTE, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, pickHook, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, type OpenerProgram, type MoveCtx, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProof, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofLine, markSaid, pathReply, programName, readPath, saidSql, sessionOf,
-  ASK_SAID, PROGRAMS_AGAIN, fitCell, programsAnswer, standingAgain, standingAnswer, whatItIs, type GrantRow, type InvestorRow, type StandingFacts,
+  ANSWERED_FIRST, ASK_SAID, PROGRAMS_AGAIN, fitCell, fitOrder, grantFact, programsAnswer, standingAgain, standingAnswer, standingSaid, whatItIs, type GrantFact, type GrantRow, type InvestorRow, type StandingFacts,
   type GapStep,
   type GapGrant, type InvestorProgram, type Move, type MoveProgram, type Path,
 } from './conversation';
@@ -551,8 +551,10 @@ type ViewIn = {
   ahead?: string[];
   /** v4.8 Task 5: find's direct question (mcp.ts `ask`), answered first on a path reply (directAnswer). */
   question?: 'standing' | 'programs';
-  /** v4.8 Task 5: the direct answer, said first of all (benchFind puts it before every other line). */
+  /** v4.8 Task 5: the direct answer, said first (benchFind puts it after the account line, before every other line). */
   answer?: string[];
+  /** v4.8 Task 5 fix round 1 (5): a direct answer leads this reply: the path step is its short form (no proof, no "Since"). */
+  brief?: boolean;
 };
 
 /** Test only: resolves when every running Builder Codes check has finished. */
@@ -627,6 +629,8 @@ type PathPlan = {
   checking: boolean;
   /** v4.8 Task 4: what bestMove chose from, so a no-fit pick can be set aside and the closest money chosen. */
   ctx: MoveCtx;
+  /** v4.8 Task 5 fix round 1 (6): grants with every step known met (Base's qualifyOffer allMet). */
+  met: Set<string>;
 };
 /** v4.8 Task 2: after a yes to the agent adding a step, find checks the code again for this long, at most once a minute. */
 /**
@@ -688,12 +692,15 @@ async function codesConfirmed(o: ViewIn, key: string): Promise<'found' | 'missin
  * programs closing within a week (odds left null until Task 3 reads them: F5), what to skip (`told`: toldIds), and
  * bestMove's choice. Never throws on its own reads.
  */
-async function pathPlan(o: ViewIn, v: PathFacts, told: Set<string>): Promise<PathPlan> {
+async function pathPlan(o: ViewIn, v: PathFacts, told: Set<string>, w: { wide?: boolean } = {}): Promise<PathPlan> {
   const { id, now, read } = o;
-  const seen = read.seen;
+  // v4.8 Task 5 fix round 1 (6): `wide` (the programs answer only): every grant not applied to, entered or hidden gets
+  // its gaps (drafted, parked by a no, Base's steps given or passed alike); never a move made from it, never a re-check.
+  const seen: Seen = w.wide ? { ...read.seen, qualify_given: {} } : read.seen;
   const key = v.project.key;
   const recent = (at: string | undefined) => Boolean(at && now.getTime() - Date.parse(at) < DECLINE_MS);
-  const skip = pathSkip(told, seen, now, o.skip);
+  const skip = w.wide ? new Set([...told, ...o.skip]) : pathSkip(told, seen, now, o.skip);
+  const metIds = new Set<string>();
   const cardOf = new Map(o.cards.map((c) => [c.id, c]));
   const fitRows = (o.applies ?? o.fits).filter((f) => realFit(f) && f.investment !== true);
   const fits: MoveProgram[] = fitRows.map((f) => {
@@ -716,7 +723,7 @@ async function pathPlan(o: ViewIn, v: PathFacts, told: Set<string>): Promise<Pat
   const path = readPath(seen);
   // v4.8 Task 2: the program the builder is closing a gap on (gap), or was offered the draft of once its gap closed
   // (draft, not drafted yet): its closure is checked on every find.
-  const closing = path?.program_id && (path.stage === 'gap' || (path.stage === 'draft' && !skip.has(path.program_id))) ? path.program_id : null;
+  const closing = !w.wide && path?.program_id && (path.stage === 'gap' || (path.stage === 'draft' && !skip.has(path.program_id))) ? path.program_id : null;
   let closed: PathPlan['closed'] = null;
   let checking = false;
   const grants = (await Promise.all(grantCards.map(async (c): Promise<GapGrant | null> => {
@@ -733,6 +740,7 @@ async function pathPlan(o: ViewIn, v: PathFacts, told: Set<string>): Promise<Pat
       // Fix round 2 (F6): only a read that found every step met closes the gap (allMet); a failed read never does.
       let met = false;
       const offer = await qualifyOffer(id, key, { cards: o.cards, skip, seen: { ...seen, declined, ...(onIt && { qualify_given: given }) }, now, declineMs: DECLINE_MS, codesFetch: o.codesFetch, known: o.known, allMet: () => { met = true; } });
+      if (met && !offer) metIds.add(c.id);
       if (onIt && codes === 'found' && met) closed = { program: moveProgram(c), org: grantOf(c)?.org ?? programName(c.title), codes: true };
       if (!offer || offer.steps.length === 0) return null;
       extra.set(c.id, { qualify: offer });
@@ -757,7 +765,7 @@ async function pathPlan(o: ViewIn, v: PathFacts, told: Set<string>): Promise<Pat
   const live = !sessionOf(seen, now).fresh;
   const raisedNow = new Set(Object.entries(seen.path_raised ?? {}).filter(([, at]) => live && now.getTime() - Date.parse(at) < SESSION_MS).map(([k]) => k));
   const ctx: MoveCtx = { now, fits, grants, investors, skip, raised: new Set(Object.keys(seen.path_raised ?? {})), raisedNow, path };
-  return { move: bestMove(ctx), facts: v, fitRows, extra, path, closed, checking, ctx };
+  return { move: bestMove(ctx), facts: v, fitRows, extra, path, closed, checking, ctx, met: metIds };
 }
 
 /**
@@ -783,7 +791,7 @@ async function pathCommit(
   const session = sessionOf(read.seen, now);
   // Task 2 (F3, as before v4.8): what the caller's agent can do (agent-reach.ts); a hosted one does no step itself.
   const hosted = (o.reach ?? (await agentReach(o.own, id))).hosted;
-  const out = pathReply({ now, first: first === 'there' ? null : first, project: { name: v.project.name, live: v.project.live || v.siteLive }, streak: v.streak, move, said: session.said, hosted, steps });
+  const out = pathReply({ now, first: first === 'there' ? null : first, project: { name: v.project.name, live: v.project.live || v.siteLive }, streak: v.streak, move, said: session.said, hosted, steps, brief: o.brief === true });
   const fit = fitRows.find((f) => f.program_id === out.program_id);
   const more = extra.get(out.program_id);
   // `path`: a no to it also parks the program for the path ('path:<id>', DECLINE_MS): never asked again this session.
@@ -804,7 +812,8 @@ async function pathCommit(
     ...(((path?.picked && path.program_id === out.program_id) || pre.keep) && { picked: true as const }),
     ...(steps && out.reply === 'steps' && { steps: true as const }),
   };
-  const raise = move.kind === 'closest' && move.raise && out.said.length > 0;
+  // Task 5 fix round 1 (5): the brief pointer never says the passed-step line, so it raises nothing (said later in full).
+  const raise = move.kind === 'closest' && move.raise && out.said.length > 0 && !o.brief;
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
       || jsonb_build_object('path', ${sql().json(nextPath as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb, 'said', ${saidSql(out.said, now)})
       || CASE WHEN ${raise} THEN jsonb_build_object('path_raised', COALESCE(standing_seen->'path_raised', '{}'::jsonb)
@@ -855,7 +864,8 @@ function seenBefore(seen: Seen, programId: string, key: string): boolean {
  */
 async function sinceFor(o: ViewIn, v: Pick<PathFacts, 'streak' | 'stand' | 'project'>, focus: { program: MoveProgram; saysClose: boolean } | null): Promise<string | null> {
   const { id, now, read } = o;
-  if (!sessionOf(read.seen, now).fresh) return null;
+  // Task 5 fix round 1 (5): never after a direct answer (it says the facts; the step stays short).
+  if (o.brief || !sessionOf(read.seen, now).fresh) return null;
   const at = (read.seen.said as { at?: unknown } | undefined)?.at;
   if (typeof at !== 'string' || Number.isNaN(Date.parse(at))) return null;
   const last = new Date(at);
@@ -946,7 +956,7 @@ async function pathGapCommit(o: ViewIn, plan: PathPlan & { move: Exclude<Move, {
     : { kind: 'check_fits', key, program_id: pid, program: move.program.title, needs: more?.needs ?? [], name: v.project.name, path: true, gap: true };
   const { title, steps } = await gapStepsOf(stored);
   if (steps.length === 0) return null;
-  const proof = gapProof({ name: v.project.name, live: v.project.live || v.siteLive }, v.streak, more?.qualify ? more.qualify.steps : null);
+  const proof = o.brief ? null : gapProof({ name: v.project.name, live: v.project.live || v.siteLive }, v.streak, more?.qualify ? more.qualify.steps : null);
   const out = gapStillReply(title, steps, hosted, proof);
   const nextPath: Path = { stage: 'gap', program_id: pid, at: now.toISOString(), ...(plan.path?.picked && { picked: true as const }) };
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
@@ -1000,7 +1010,7 @@ async function pathClosedCommit(o: ViewIn, plan: PathPlan & { closed: NonNullabl
   const saidKey = `closed:${pid}`;
   const again = sessionOf(read.seen, now).said.has(saidKey);
   // Fix round 1 (T2-6): one proof line (Base closed: every step met, so live on Base).
-  const proof = gapProof({ name: v.project.name, live: v.project.live || v.siteLive }, v.streak, closed.program.id === BASE_GRANTS_ID ? [] : null);
+  const proof = o.brief ? null : gapProof({ name: v.project.name, live: v.project.live || v.siteLive }, v.streak, closed.program.id === BASE_GRANTS_ID ? [] : null);
   // Task 3: a fresh session with something changed (target A, "Two days later"): what changed, the program still open
   // and its gap closed, then the draft offer.
   const show = since ? `${since} ${stillOpenLine(closed.program.title, closed.codes)}\n\n${DRAFT_NOW_ASK}`
@@ -1137,10 +1147,13 @@ function pickWhy(plan: PathPlan, cards: Card[], pick: string, known: ViewIn['kno
   const v = plan.facts;
   const g = plan.ctx.grants.find((x) => x.id === pick);
   const c = cards.find((x) => x.id === pick);
-  if (g && g.gaps.length > 0) return noFitWhy(g.title, g.id === BASE_GRANTS_ID ? { name: v.project.name, gap: g.gap } : { name: v.project.name, needs: g.gaps });
-  const chains = c?.any_chain ? [] : (c?.chains ?? []);
-  const mine = new Set([...v.chains, ...(known?.onBase ? ['base'] : [])].map((x) => x.toLowerCase()));
-  if (c && chains.length === 1 && !mine.has(chains[0])) return noFitWhy(c.title, { name: v.project.name, chain: chainName(chains[0]) });
+  const title = c?.title ?? g?.title;
+  if (!title) return null;
+  // Task 5 fix round 1 (1): the one fact rule the programs answer's fit cell reads (cardFact, conversation.ts grantFact).
+  const mine = myChains(v, known);
+  const f = c ? cardFact(c, g?.gaps ?? null, mine) : grantFact(g?.gaps ?? null, [], mine, chainName);
+  if (f.kind === 'steps') return noFitWhy(title, g?.id === BASE_GRANTS_ID ? { name: v.project.name, gap: g.gap } : { name: v.project.name, needs: f.gaps });
+  if (f.kind === 'chain') return noFitWhy(title, { name: v.project.name, chain: f.chain });
   return null;
 }
 /**
@@ -1155,7 +1168,8 @@ async function connectedCommit(o: ViewIn, plan: PathPlan): Promise<{ view: Bench
   const v = plan.facts;
   const pick = plan.path?.picked && plan.path.stage === 'hook' ? plan.path.program_id : null;
   const st = read.base.standing;
-  const line = connectedLine({ page: pageUrl(v.handle), score: v.stand.score, rank: st.ranked ? { n: st.rank, m: st.total } : null });
+  // Task 5 fix round 1 (2): a rank only inside the leaderboard's pool (rankLines' listed), as the page pill.
+  const line = connectedLine({ page: pageUrl(v.handle), score: v.stand.score, rank: st.ranked && read.ranks.listed ? { n: st.rank, m: st.total } : null });
   let commit: () => Promise<{ view: BenchView; fields: Reply; stand: Standing }>;
   if (!pick) {
     if (plan.move.kind === 'quiet') return null;
@@ -1191,37 +1205,33 @@ async function connectedCommit(o: ViewIn, plan: PathPlan): Promise<{ view: Bench
  * path's facts (a real fit, the gap engine's steps, else "Not yet"), then the open investor programs apart (never a fit,
  * never summed), soonest first, with what each is (the program file's first sentence). Null without a question.
  */
-async function directAnswer(o: ViewIn, v: PathFacts, told: Set<string>, plan: PathPlan | null): Promise<{ text: string; key: string } | null> {
+async function directAnswer(o: ViewIn, v: PathFacts, told: Set<string>): Promise<{ text: string; key: string } | null> {
   const q = o.question;
   if (!q) return null;
   const { now, read } = o;
-  const key = ASK_SAID(q);
-  const again = sessionOf(read.seen, now).said.has(key);
+  const said = sessionOf(read.seen, now).said;
   if (q === 'standing') {
-    const live = v.project.live || v.siteLive;
     const f: StandingFacts = {
-      score: v.stand.score, rank: v.stand.score !== null ? rankWords(read.base.standing) : null, streak: v.streak,
-      liveAt: live && read.liveUrl ? linkHost(read.liveUrl) : null, live, name: v.project.name, page: pageUrl(v.handle),
+      // Fix round 1 (2): a rank only inside the leaderboard's pool (rankLines' listed, the page pill's own rule).
+      score: v.stand.score, rank: v.stand.score !== null && read.ranks.listed ? rankWords(read.base.standing) : null, streak: v.streak,
+      // Fix round 1 (10): "live at" only from a link EarnKit checked (live-check.ts, this reply's read of it).
+      liveAt: v.siteLive && read.liveUrl ? linkHost(read.liveUrl) : null, page: pageUrl(v.handle),
     };
-    return { key, text: again ? standingAgain(f) : standingAnswer(f) };
+    const key = ASK_SAID(q, standingSaid(f));
+    return { key, text: said.has(key) ? standingAgain(f) : standingAnswer(f) };
   }
-  if (again) return { key, text: PROGRAMS_AGAIN };
-  const p = plan ?? (await pathPlan(o, v, told));
+  // Fix round 1 (6): the wide plan reads every grant not applied to (drafted and parked ones too), never a move.
+  const p = await pathPlan(o, v, told, { wide: true });
   const applied = new Set([...told, ...o.skip]);
   const fitIds = new Set(p.fitRows.map((f) => f.program_id));
   const gapsOf = new Map(p.ctx.grants.map((g) => [g.id, g.gaps]));
-  const mine = new Set([...v.chains, ...(o.known?.onBase ? ['base'] : [])].map((x) => x.toLowerCase()));
-  const order = (id: string) => (fitIds.has(id) ? 0 : gapsOf.get(id)?.length || 99);
-  const grants: GrantRow[] = o.cards
+  const mine = myChains(v, o.known);
+  const factOf = (c: Card): GrantFact => draftedRecently(read.seen, c.id, now) ? { kind: 'drafted' } : p.met.has(c.id) ? { kind: 'met' } : cardFact(c, gapsOf.get(c.id) ?? null, mine);
+  const grants = o.cards
     .filter((c) => c.investment !== true && programKind(c).startsWith('grant') && showable(c, now, applied))
-    .sort((a, b) => order(a.id) - order(b.id) || byRelevance(a, b))
-    .map((c) => {
-      const gaps = gapsOf.get(c.id) ?? null;
-      const chains = c.any_chain ? [] : (c.chains ?? []);
-      const why = gaps?.length === 0 ? "EarnKit can't see its needs yet"
-        : !gaps && chains.length === 1 && !mine.has(chains[0]) ? `needs ${chainName(chains[0])}` : null;
-      return { title: c.title, amount: pathAmount(c), when: fundWhen(c), fit: fitCell({ fits: fitIds.has(c.id), gaps, why }) };
-    });
+    .map((c) => ({ c, fits: fitIds.has(c.id), fact: factOf(c) }))
+    .sort((a, b) => fitOrder(a.fits, a.fact) - fitOrder(b.fits, b.fact) || byRelevance(a.c, b.c));
+  const rows: GrantRow[] = grants.map(({ c, fits, fact }) => ({ title: c.title, amount: pathAmount(c), when: fundWhen(c), fit: fitCell(fits, fact) }));
   const invCards = o.cards
     .filter((c) => c.investment === true && showable({ ...c, investment: false }, now, applied))
     .sort((a, b) => closeAt(a) - closeAt(b) || byRelevance(a, b));
@@ -1229,8 +1239,22 @@ async function directAnswer(o: ViewIn, v: PathFacts, told: Set<string>, plan: Pa
     title: c.title, amount: pathAmount(c), when: fundWhen(c),
     what: whatItIs((await getProgramRow(c.id).catch(() => null))?.description),
   })));
-  return { key, text: programsAnswer(grants, investors) };
+  // Fix round 1 (3): what the list said (each program and its fit), so a changed list is answered in full again.
+  const key = ASK_SAID(q, listHash([...rows.map((r, i) => `${grants[i].c.id}=${r.fit}`), ...invCards.map((c) => c.id)].join(',')));
+  return { key, text: said.has(key) ? PROGRAMS_AGAIN : programsAnswer(rows, investors) };
 }
+/** A short stable hash of what a list said (FNV-1a, base 36), for its repeat key. Pure. */
+const listHash = (x: string) => {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < x.length; i++) h = Math.imul(h ^ x.charCodeAt(i), 0x01000193) >>> 0;
+  return h.toString(36);
+};
+/** The project's chains as the path reads them (its row's, plus Base from this reply's own read). Pure. */
+const myChains = (v: Pick<PathFacts, 'chains'>, known: ViewIn['known']) =>
+  new Set([...v.chains, ...(known?.onBase ? ['base'] : [])].map((x) => x.toLowerCase()));
+/** Fix round 1 (1): a grant card's fact (conversation.ts grantFact): its gaps, else its one chain, else none or unknown. Pure. */
+const cardFact = (c: Card, gaps: readonly string[] | null, mine: ReadonlySet<string>): GrantFact =>
+  grantFact(gaps, c.any_chain ? [] : (c.chains ?? []), mine, chainName);
 /** A live link's host as a person says it ("earnkit.com"); null when it isn't a link. Pure. */
 const linkHost = (url: string): string | null => {
   try {
@@ -1362,10 +1386,12 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
     nudgeFirst = await pickNudge(id, now, { project: project.name, best: null });
     if (!(nudgeFirst?.ask && nudgeFirst.line) && told) {
       const facts: PathFacts = { state, variant, project, streak, handle, stand, siteLive, chains: row?.chains ?? [] };
+      // Task 5 fix round 1 (5): with a direct question the step is short (no proof, no "Since"): the answer said them.
+      if (o.question) o.brief = true;
       // v4.8 Task 5: a direct question (find {ask}) is answered first, then this reply's path step (its words or its
       // pointer), whichever the path gives; the answer is said once a session (again, one pointer line).
-      const answered = async <T,>(r: T, plan: PathPlan | null): Promise<T> => {
-        const a = o.question ? await directAnswer(o, facts, told, plan) : null;
+      const answered = async <T,>(r: T): Promise<T> => {
+        const a = o.question ? await directAnswer(o, facts, told) : null;
         if (a) {
           o.answer?.push(a.text);
           await markSaid(id, [a.key], now);
@@ -1374,13 +1400,13 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
       };
       // Task 3: the path waiting at submit ("sent" not said yet): one line pointing back, never the draft again.
       const waiting = submitWaiting(o, told);
-      if (waiting) return answered(await pathSubmitCommit(o, facts, waiting, await sinceFor(o, facts, { program: moveProgram(waiting), saysClose: true })), null);
+      if (waiting) return answered(await pathSubmitCommit(o, facts, waiting, await sinceFor(o, facts, { program: moveProgram(waiting), saysClose: true })));
       const plan = await pathPlan(o, facts, told);
       // v4.8 Task 4: the first path reply after connecting, for a builder who saw the opener: the profile line and the
       // pick's fit, once (setup step 3, a held question and an owning nudge came first, above).
       if (read.seen.opener && !read.seen.connected_said && (!plan.path || plan.path.stage === 'hook')) {
         const hello = await connectedCommit(o, plan);
-        if (hello) return answered(hello, plan);
+        if (hello) return answered(hello);
       }
       const move = plan.move;
       // Task 3: a fresh session opens with what changed since the last one (the step's own words say a hook's close).
@@ -1390,21 +1416,21 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
       // Fix round 1 (9): a path left at track (no next program at "sent") is no longer mid-path.
       const midPath = move.kind !== 'quiet' && plan.path !== null && ((plan.path.stage !== 'hook' && plan.path.stage !== 'track') || plan.path.program_id === move.program.id);
       // Task 2: the path's gap closed: the draft offer leads (mid-path).
-      if (plan.closed) return answered(await pathClosedCommit(o, { ...plan, closed: plan.closed }, await sinceOf(plan.closed.program, false)), plan);
+      if (plan.closed) return answered(await pathClosedCommit(o, { ...plan, closed: plan.closed }, await sinceOf(plan.closed.program, false)));
       // Fix round 2 (F3): the re-check runs past its wait: one easy reply, "ok" (the gap ask stays, so a no parks).
-      if (plan.checking) return answered(await pathCheckingView(o, plan), plan);
+      if (plan.checking) return answered(await pathCheckingView(o, plan));
       // Fix round 1 (T2-4): mid-gap on the program bestMove kept: the first remaining step, never "Want the steps?".
       if (move.kind !== 'quiet' && plan.path?.stage === 'gap' && plan.path.program_id === move.program.id) {
         const still = await pathGapCommit(o, { ...plan, move }, await sinceOf(move.program, false));
-        if (still) return answered(still, plan);
+        if (still) return answered(still);
       }
       // Task 5: with nothing to hook, the answer still goes first, above the older ask that answers below.
       if (move.kind === 'quiet') {
         pathQuiet = true;
-        await answered(null, plan);
+        await answered(null);
       }
       // Task 5: a direct question never waits for an older moment: the answer, then the path's step.
-      else if (move.kind !== 'closest' || midPath || o.question || sessionOf(read.seen, now).said.has(OLDER_SAID)) return answered(await pathCommit(o, { ...plan, move }, await sinceOf(move.program, true)), plan);
+      else if (move.kind !== 'closest' || midPath || o.question || sessionOf(read.seen, now).said.has(OLDER_SAID)) return answered(await pathCommit(o, { ...plan, move }, await sinceOf(move.program, true)));
       else deferred = { ...plan, move };
     }
   }
@@ -2134,10 +2160,12 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   return {
     // The account line (it guards a wrong sign-in) and any news lead.
     // v4.8 Task 5: a direct question's answer first of all, then the reply (its path step last).
-    show_to_builder: [...answer, signedIn, walletNews, opener, ...ahead, benchReply(view)].filter(Boolean).join('\n\n'),
+    // Fix round 1 (7): the account line (it guards a wrong sign-in) stays first, then the answer.
+    show_to_builder: [signedIn, ...answer, walletNews, opener, ...ahead, benchReply(view)].filter(Boolean).join('\n\n'),
     // O5 (P8): the earn note names lead.program_id, so only with a lead. v4.8 Task 1: a path reply carries the mentor
     // note alone (the agent rewords it), and its lead is the hooked program when its yes drafts it.
-    note: view.path ? [view.pathNote, MENTOR_NOTE].filter(Boolean).join(' ') : [ANSWER_FIRST_NOTE, lead ? EARN_NOTE : null].filter(Boolean).join(' '),
+    // Fix round 1 (8): an answered reply's note says the answer is already first (never a second answer).
+    note: view.path ? [answer.length > 0 ? ANSWERED_FIRST : null, view.pathNote, MENTOR_NOTE].filter(Boolean).join(' ') : [answer.length > 0 ? ANSWERED_FIRST : ANSWER_FIRST_NOTE, lead ? EARN_NOTE : null].filter(Boolean).join(' '),
     ...fields,
     // v4.2 Task 4 (F6): the lead is the money line's program (view.best, the applyCandidates pick), never a second rule.
     // v4.8 Task 4: the signed-out opener keeps the lead (the fit the agent prepares), as the setup reply did.
