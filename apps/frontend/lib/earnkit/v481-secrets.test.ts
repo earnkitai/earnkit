@@ -135,9 +135,21 @@ test('T4.12 fix 3 (F4): a __proto__ argument key survives a scrub', () => {
 });
 
 test('T4.13 fix 3 (F5): Stripe-shaped names and publishable keys are untouched', () => {
-  for (const text of ['sk_' + 'test_fixtures', 'sk_' + 'live_settings', 'rk_' + 'live_' + 'x'.repeat(30), 'pk_' + 'live_' + A.slice(0, 24), 'sk_' + 'live_' + A.slice(0, 15)]) {
+  // Final review 5: a digit-free body is a key from 24 characters, so 23 letters is still a name.
+  for (const text of ['sk_' + 'test_fixtures', 'sk_' + 'live_settings', 'rk_' + 'live_' + 'x'.repeat(23), 'pk_' + 'live_' + A.slice(0, 24), 'sk_' + 'live_' + A.slice(0, 15)]) {
     assert.deepEqual(scrubSecrets(text), { value: text, removed: 0 }, text);
   }
+});
+
+test('v4.8.1 final fix (5): a Stripe key with no digit is caught from 24 characters; a digit still catches from 16', () => {
+  const letters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJ';
+  for (const key of ['sk_' + 'live_' + letters.slice(0, 24), 'rk_' + 'live_' + 'x'.repeat(30), 'sk_' + 'test_' + letters]) {
+    assert.deepEqual(scrubSecrets(`my key ${key} ok`), { value: `my key ${KEY_REMOVED} ok`, removed: 1 }, key);
+  }
+  assert.equal(scrubSecrets('sk_' + 'live_' + letters.slice(0, 23)).removed, 0, '23 letters, no digit');
+  assert.equal(scrubSecrets('sk_' + 'live_' + letters.slice(0, 15) + '7').removed, 1, '16 with a digit');
+  // The names stay names: the underscore ends the body at 8 characters.
+  for (const name of ['sk_' + 'test_fixtures', 'sk_' + 'live_settings']) assert.deepEqual(scrubSecrets(name), { value: name, removed: 0 });
 });
 
 test('T4.14 fix 3 (F6): a key glued to an identifier with _ is caught; AWS ASIA keys too', () => {

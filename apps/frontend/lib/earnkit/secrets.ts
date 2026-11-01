@@ -14,9 +14,10 @@ const g = (src: string) => new RegExp(src, 'g');
 
 /** The secret shapes matched by a regex. PEM private keys are matched by a linear pass instead (scrubPem). */
 export const SECRET_PATTERNS: RegExp[] = [
-  // Stripe secret and restricted keys: 16+ characters with a digit (sk_test_fixtures is a name, not a key).
+  // Stripe secret and restricted keys: 16+ characters with a digit, or 24+ characters (a legacy key can have no digit;
+  // final review 5). sk_test_fixtures is a name, not a key: the underscore ends its body at 8 characters.
   // Publishable pk_ keys are public by design and are left alone (review F5).
-  g(`${L}(?:sk|rk)_(?:live|test)_(?=[A-Za-z0-9]*\\d)[A-Za-z0-9]{16,}${R}`),
+  g(`${L}(?:sk|rk)_(?:live|test)_(?:(?=[A-Za-z0-9]*\\d)[A-Za-z0-9]{16,}|[A-Za-z0-9]{24,})${R}`),
   g(`${L}whsec_[A-Za-z0-9]{16,}${R}`),
   // GitHub
   g(`${L}gh[opsur]_[A-Za-z0-9]{30,}${R}`),

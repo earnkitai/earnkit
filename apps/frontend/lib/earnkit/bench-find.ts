@@ -77,7 +77,7 @@ import {
   MENTOR_NOTE, MONEY_SAID, moneyInvestor, moneyLine, withMoneyLine, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, pickHook, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, submitNoRush, tooSoonLine, keepDraftLine, type OpenerProgram, type MoveCtx, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProofOf, helpReply, helpWaiting, helpParked, closeWords, HELP_DONE_ASK, backOnLine, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofOf, markSaid, pathReply, programName, readPath, saidSql, sessionOf, pointerReply, START_ASK, SENT_SHORT, blanksAsk,
   ANSWERED_FIRST, ASK_SAID, PROGRAMS_AGAIN, fitCell, fitOrder, grantFact, programsAnswer, standingAgain, standingAnswer, standingSaid, whatItIs, type GrantFact, type GrantRow, type InvestorRow, type StandingFacts,
   type GapStep,
-  type GapGrant, type InvestorProgram, type Move, type MoveProgram, type Path,
+  type GapGrant, type InvestorProgram, type Move, type MoveProgram, type Path, type Stage,
 } from './conversation';
 export { displayName };
 
@@ -876,7 +876,7 @@ async function pathCommit(
   // v4.8.1 Task 3: the path's stage on this program, a draft made, and (fix round 1, minor 1) the stage's own ask.
   const stage = path && path.program_id === move.program.id ? path.stage : null;
   const ownAsk = read.seen.bench_ask?.program_id === move.program.id ? (read.seen.bench_ask as NonNullable<Seen['bench_ask']> & { draft?: unknown; blanks?: unknown }) : null;
-  const drafted = Boolean(read.seen.apply_yes?.[move.program.id]) || ownAsk?.draft === true;
+  const drafted = pathDrafted(read.seen, move.program.id, ownAsk, now);
   const readyAsk = !drafted ? null : stage === 'submit' ? SENT_SHORT
     : blanksAsk(Array.isArray(ownAsk?.blanks) ? ownAsk.blanks.filter((x): x is string => typeof x === 'string') : []);
   const out0 = pathReply({ now, first, project: { name: v.project.name, live: v.project.live || v.siteLive }, streak: v.streak, move, said: session.said, hosted, steps, brief: o.brief === true, baseSteps, stage, drafted, readyAsk });
@@ -892,7 +892,7 @@ async function pathCommit(
   // v4.8.1 Task 3 fix round 1: the "more" pointer is the 'more' ask (its "more" or yes is the programs answer, never the
   // program's step); "your draft is ready" keeps the stage's own ask (submit: "sent"; a draft: its blanks).
   const stored: Record<string, unknown> = out.pointer?.more ? { kind: named ? 'name' : 'more', key, program_id: out.program_id }
-    : out.pointer?.ready ? (stage === 'submit' ? { kind: 'apply', key, program_id: out.program_id, path: true, submit: true } : { ...ownAsk })
+    : out.pointer?.ready ? readyStored(stage, ownAsk, key, out.program_id)
     : out.reply === 'start'
     ? { kind: 'apply', key, program_id: out.program_id, path: true, ...(fit?.repo && { repo: fit.repo }) }
     : more?.qualify
@@ -946,6 +946,24 @@ const greetingOf = (xName: string | null, said: ReadonlySet<string>) => {
   const f = firstName(xName, null);
   return f && f !== 'there' ? f : null;
 };
+
+/**
+ * v4.8.1 Task 3, final fix (6): a draft of `programId` is in hand: a draft yes within DECLINE_MS (draftedRecently,
+ * pathSkip's rule, so a months-old yes never says "your draft is ready"), or the program's own stored draft ask. Pure.
+ */
+export function pathDrafted(seen: Pick<Seen, 'apply_yes'>, programId: string, ownAsk: { draft?: unknown } | null, now: Date): boolean {
+  return draftedRecently(seen, programId, now) || ownAsk?.draft === true;
+}
+/**
+ * v4.8.1 Task 3 fix round 1, final fix (6): the ask a "your draft is ready" pointer stores: submit, "sent"; a draft, the
+ * program's own stored ask, or (a draft made only through apply_yes, bench_ask about another program) the draft's
+ * blanks ask with none left (readyAsk is blanksAsk([]), "Want me to finish it?"), never an empty ask a yes does
+ * nothing with. Pure.
+ */
+export function readyStored(stage: Stage | null, ownAsk: Record<string, unknown> | null, key: string, programId: string): Record<string, unknown> {
+  if (stage === 'submit') return { kind: 'apply', key, program_id: programId, path: true, submit: true };
+  return ownAsk ? { ...ownAsk } : { kind: 'apply', key, program_id: programId, path: true, draft: true, blanks: [] };
+}
 
 /** v4.8 Task 3: a fresh session's "Since {day}: ..." line before the step's own words (one paragraph). Pure. */
 const withSince = (since: string | null, show: string) => (since ? `${since}\n\n${show}` : show);

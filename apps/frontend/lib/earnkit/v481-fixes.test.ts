@@ -16,7 +16,7 @@ import { attachToX } from './x-install';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
 import { isoWeekOf } from './weeks';
-import { MORE_ASK, NAME_ASK, alsoOpen, codesSettled, openMoneyNow, openNowInvestment, openerPrograms } from './bench-find';
+import { MORE_ASK, NAME_ASK, alsoOpen, pathDrafted, readyStored, codesSettled, openMoneyNow, openNowInvestment, openerPrograms } from './bench-find';
 import { moneyText } from './pool';
 import { GitHubBudgetStop, type ReaderDeps } from './source-readers';
 import { committedProgram } from './fixtures/program-file';
@@ -612,4 +612,21 @@ test("v4.8.1 final fix (R-4): an unpicked hook left on an investor program doesn
   const [own] = await converse(p.ctx as never, [{ find: {} }], { builderId: p.id });
   assert.doesNotMatch(moneyPara(own.show) ?? '', new RegExp(title), own.show);
   assert.deepEqual(gateFailures([r], { names: ['EarnKit', b.handle] }), [], r.show);
+  await dropPrograms([id]);
+});
+
+test('v4.8.1 final fix (6): a draft made through apply_yes stores the draft\'s own ask; a months-old yes is no draft in hand', () => {
+  const key = 'jf/earnkit';
+  const base = 'base-builder-grants';
+  // bench_ask about another program (ownAsk null): the blanks ask with none left, never {}.
+  assert.deepEqual(readyStored('draft', null, key, base), { kind: 'apply', key, program_id: base, path: true, draft: true, blanks: [] });
+  const own = { kind: 'apply', key, program_id: base, path: true, draft: true, blanks: ['your team'] };
+  assert.deepEqual(readyStored('draft', own, key, base), own);
+  assert.deepEqual(readyStored('submit', null, key, base), { kind: 'apply', key, program_id: base, path: true, submit: true });
+  assert.equal(blanksAsk([]), 'Want me to finish it?');
+  // A draft yes counts within DECLINE_MS only (pathSkip's rule).
+  assert.equal(pathDrafted({ apply_yes: { [base]: NOW.toISOString() } }, base, null, NOW), true);
+  assert.equal(pathDrafted({ apply_yes: { [base]: new Date(NOW.getTime() - 60 * 86_400_000).toISOString() } }, base, null, NOW), false);
+  assert.equal(pathDrafted({ apply_yes: { [base]: new Date(NOW.getTime() - 60 * 86_400_000).toISOString() } }, base, { draft: true }, NOW), true);
+  assert.equal(pathDrafted({}, base, null, NOW), false);
 });
