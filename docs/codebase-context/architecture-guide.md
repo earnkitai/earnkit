@@ -8747,7 +8747,7 @@ A yes on the path moves the stage on (bench-find.ts benchMoveUp, asks stored wit
   its other replies (first) and puts the path reply last. A path at track is not mid-path (F1's older moments apply).
   "Since" says "opened" only for a program new to this builder (seenBefore), the close as submitBy words it, compares
   scores only under the page's calibration, and leaves announced results to find's alerts opener. The passed line for
-  Builder Codes reads "Builder Codes are now the only gap to that money." (v4.8.2 final fix F5; passedLine(codes)
+  Builder Codes reads "That's now the only gap to that money." (v4.8.2 final fix F5; passedLine(codes)
   takes only that flag).
 
 ## v4.8 Task 4: the new builder (target B) (2026-10-31)

@@ -762,10 +762,10 @@ const weekday = (at: string) => new Date(at).toLocaleDateString('en-US', { weekd
 const monthDay = (at: string) => new Date(at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 /**
  * The passed-step line (target A, said once: bestMove raises a passed step once, standing_seen.path_raised): "It's now the
- * only gap to that money." (`codes`: the one gap is Builder Codes, "Builder Codes are now ...", v4.8.2 final fix F5).
+ * only gap to that money." (`codes`: the one gap is Builder Codes, "That's now ...", v4.8.2 final fix F5).
  * v4.8.2 Task 1 (R2): it never says when or that the builder passed (no guilt). Pure.
  */
-export const passedLine = (codes = false) => (codes ? 'Builder Codes are now the only gap to that money.' : "It's now the only gap to that money.");
+export const passedLine = (codes = false) => (codes ? "That's now the only gap to that money." : "It's now the only gap to that money.");
 
 /** "Since earlier today", "Since yesterday", "Since Thursday" (within a week), else "Since Oct 24" (UTC days). Pure. */
 export function sinceDay(at: string, now: Date): string {

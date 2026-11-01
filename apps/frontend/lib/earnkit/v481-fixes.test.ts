@@ -384,7 +384,7 @@ test('v4.8.1 R4 (v4.8.2 R1): five plain finds on the owner\'s shape: the hook, t
   const replies = await converse(b.ctx as never, Array.from({ length: 5 }, () => ({ find: {} })), { builderId: b.id });
   const t = transcript(replies);
   assert.equal(replies.length, 5, t);
-  assert.match(replies[0].show, /Builder Codes are now the only gap to that money/, t);
+  assert.match(replies[0].show, /That's now the only gap to that money/, t);
   assert.ok(replies[0].hook, t);
   assert.equal(replies[1].show, 'Base Builder Grant is still your best move: up to $5,000, one step away. I can add Builder Codes and push the change, about 10 minutes. Go?', t);
   // v4.8.2 R1: the third and later are the "more" line (its one easy reply, which the gate lets repeat); the first

@@ -931,7 +931,7 @@ async function pathCommit(
     fund: [], due: [], ask: { kind, project_key: key, line: '', program_id: out.program_id }, held: null,
     path: withMoneyLine(withSince(since, pre.inline ? `${pre.inline} ${out.show_to_builder}` : out.show_to_builder), money), pathLead: out.reply === 'start' && !out.pointer?.more ? { program_id: out.program_id, ...(fit?.repo && { repo: fit.repo }) } : null,
     // v4.8.2 final fix (F1): the "more" line again this session: the agent waits for the builder (no find until they speak).
-    ...(out.pointer?.more && out.pointer.again && { pathNote: WAIT_NOTE }),
+    ...(out.pointer?.more && { pathNote: WAIT_NOTE }),
   };
   const rankLines = [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x));
   const fields: Reply = {
@@ -1224,7 +1224,7 @@ async function pathClosedCommit(o: ViewIn, plan: PathPlan & { closed: NonNullabl
     state: v.state, variant: v.variant, project: v.project, rank: read.ranks.bench, streak: v.streak, target: null, handle: v.handle, link: null,
     fund: [], due: [], ask: { kind: point?.more ? moreKind : 'apply', project_key: key, line: '', program_id: pid }, held: null, path: withMoneyLine(show, money), pathLead: point?.more ? null : { program_id: pid },
     // v4.8.2 final fix (F1): as pathCommit, the "more" line again this session tells the agent to wait.
-    ...(point?.more && point.again && { pathNote: WAIT_NOTE }),
+    ...(point?.more && { pathNote: WAIT_NOTE }),
   };
   const rankLines = [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x));
   const moveUp = point?.more ? { kind: moreKind, project_key: key, agent_note: named ? NAME_NOTE : MORE_NOTE } : { kind: 'apply' as const, project_key: key, agent_note: APPLY_NOTE };

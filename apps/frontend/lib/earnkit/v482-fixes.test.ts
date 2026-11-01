@@ -35,7 +35,7 @@ const BAD = /—|\bcoins?\b|\bpoints?\b|\p{Extended_Pictographic}/iu;
 const POINTER = 'Base Builder Grant is still your best move: up to $5,000, one step away. I can add Builder Codes and push the change, about 10 minutes. Go?';
 
 test('v4.8.2 R2: the passed-step line says only that it is the only gap (final fix F5: Builder Codes named)', () => {
-  assert.equal(passedLine(true), 'Builder Codes are now the only gap to that money.');
+  assert.equal(passedLine(true), "That's now the only gap to that money.");
   assert.equal(passedLine(), "It's now the only gap to that money.");
 });
 
@@ -105,19 +105,18 @@ test('v4.8.2 R1+R2: five plain finds on the owner shape: the hook, the reasoned 
   const t = transcript(replies);
   assert.equal(replies.length, 5, t);
   assert.ok(replies[0].hook, t);
-  assert.match(replies[0].show, /Builder Codes[^\n]*\. Builder Codes are now the only gap to that money\./, t);
+  assert.match(replies[0].show, /Builder Codes[^\n]*\. That's now the only gap to that money\./, t);
   assert.equal(replies[1].show, POINTER, t);
   for (const r of replies.slice(2)) {
     assert.equal(r.show, MORE_ASK, t);
     assert.equal((r.reply?.move_up as { kind: string }).kind, 'more', t);
   }
-  // v4.8.2 final fix (F1): the first "more" (find 3) is a plain ask; from the second (finds 4 and 5) the agent note
-  // tells the agent to wait for the builder (no find until they speak). The builder text is the same.
+  // v4.8.2 final fix (F1): from the first "more" (find 3) the agent note tells the agent to wait for the builder
+  // (no find until they speak). The builder text is the same.
   const note = (r: (typeof replies)[number]) => String(r.reply?.note ?? '');
-  assert.ok(!note(replies[2]).includes(WAIT_NOTE), note(replies[2]));
   // (tools.ts withFacts puts PATH_ANSWER_FIRST first on every find path note; the wait note follows it.)
-  for (const r of replies.slice(3)) assert.ok(note(r).startsWith(`${PATH_ANSWER_FIRST} ${WAIT_NOTE} `), note(r));
-  for (const r of replies.slice(0, 3)) assert.ok(!note(r).includes(WAIT_NOTE), note(r));
+  for (const r of replies.slice(2)) assert.ok(note(r).startsWith(`${PATH_ANSWER_FIRST} ${WAIT_NOTE} `), note(r));
+  for (const r of replies.slice(0, 2)) assert.ok(!note(r).includes(WAIT_NOTE), note(r));
   for (const r of replies) {
     assert.doesNotMatch(r.show, /Reply "no"|Still Base|You passed/, t);
     assert.doesNotMatch(r.show, BAD, t);
