@@ -8825,3 +8825,22 @@ A yes on the path moves the stage on (bench-find.ts benchMoveUp, asks stored wit
     said), no proof line, no "Since" line, no passed-step raise.
   - Order: the account line, then the answer. The note opens with ANSWERED_FIRST (tools.ts withFacts adds no second
     answer-first sentence). "live at {host}" only from a checked link.
+
+## v4.8 Task 6: conversation tests as the merge gate (2026-11-01)
+
+- **converse** (lib/earnkit/fixtures/converse.ts): plays a builder's turns ({find: {ask?, program?}}, {tell: {...}},
+  {wait: ms}) through the real MCP server, formatted as the route formats, and keeps what the builder sees
+  (show_to_builder), the session, whether it opened the session, and the parts it said (standing_seen.said; a new
+  `hook:` key marks a hook reply). A wait back-dates standing_seen.said.at, as the "Since" tests do, so the next call is
+  a new session. `conversation()` is the same a turn at a time (the replay picks each turn from the last reply).
+- **gateFailures(replies)**: every reply that breaks the merge gate, with its turn, rule and reason: empty; no easy
+  reply at the end (a yes/no question, a number, "sent", say ok, the draft's blanks, the one sign-in link) or more
+  than one "?" outside quotes and tables; a paragraph repeated in a session (the easy reply sentence and a table header
+  may repeat); no record fact on a session opener or hook (said `proof:` part, else PROOF_PATTERNS; the signed-out
+  opener has no record and is exempt); an em dash, "coin", "points", an emoji; a claim (qualify, eligible, I sent).
+- **The walks** (v48-conversation.test.ts): A on the owner-like builder and B on a new builder pass with no failures;
+  hand-made bad transcripts fail one rule each.
+- **The replay** (apps/frontend/scripts/converse-replay.mts): WALK=A (OWN) or B (a fresh signed-out installation) on a
+  local restored snapshot only (refuses a non-localhost DATABASE_URL); the test guard is loaded first, so no network
+  and no vendor keys. A lazy agent answers each reply's move_up; real work (a push, connecting GitHub) ends the session.
+  Exits 1 on any gate failure.

@@ -20,7 +20,7 @@ import { isoWeekOf } from './weeks';
 import { backfillMondays } from './week-facts';
 import { X_ON, withEnv } from './fixtures/find';
 import {
-  CAN_DO, ANSWERED_FIRST, PREPARE_LINE, PROGRAMS_AGAIN, fitCell, grantFact, programsAnswer, standingAgain, standingAnswer, standingSaid, connectedLine, investorLater, noFitWhy, pickHook, openerAgain, openerReply, pickedReply, resolvePick, FOUNDER_BLANKS, MENTOR_NOTE, PATH_ANSWER_FIRST, CODES_OFFER, blanksAgain, SESSION_MS, SENT_ASK, TRACK_ACK, agoWords, passedLine, sinceLine, submitBy, submitPointer, submitReply, trackLead, bestMove, blanksAsk, closeWords, draftBlanks, draftReply, gapClosedReply, gapProof, gapReply, gapStillReply, pathReply, programName, proofLine, readPath, sessionOf,
+  CAN_DO, ANSWERED_FIRST, DRAFT_NOW_ASK, PREPARE_LINE, PROGRAMS_AGAIN, fitCell, grantFact, programsAnswer, standingAgain, standingAnswer, standingSaid, connectedLine, investorLater, noFitWhy, pickHook, openerAgain, openerReply, pickedReply, resolvePick, FOUNDER_BLANKS, MENTOR_NOTE, PATH_ANSWER_FIRST, CODES_OFFER, blanksAgain, SESSION_MS, SENT_ASK, TRACK_ACK, agoWords, passedLine, sinceLine, submitBy, submitPointer, submitReply, trackLead, bestMove, blanksAsk, closeWords, draftBlanks, draftReply, gapClosedReply, gapProof, gapReply, gapStillReply, pathReply, programName, proofLine, readPath, sessionOf,
   type GapGrant, type InvestorProgram, type Move, type MoveCtx, type MoveProgram,
 } from './conversation';
 import { qualifyGapSteps, BUILDER_CODES_GUIDE } from './bench-reply';
@@ -32,6 +32,7 @@ import { rankWords } from './rank';
 import { assertOpener } from './fixtures/opener';
 import { standingOf } from './person-score';
 import { alertBody, runAlertMail, tellLine } from './alert-mail';
+import { converse, gateFailures, transcript, type Call, type Reply, type Turn } from './fixtures/converse';
 
 /**
  * v4.8 Task 1: the path, session memory and the agent note. The copy is the target conversation's (section A's
@@ -1781,4 +1782,142 @@ test('C: a shared client with no X of its own gets no answer and nothing said is
     assert.doesNotMatch(s, /Score 77,|Grants open now|Same as earlier|Same list as earlier/, s);
   }
   assert.deepEqual((await seenOf(b.id)).said, before.said);
+});
+
+/*
+ * v4.8 Task 6: whole conversations as the merge gate (fixtures/converse.ts). Target A and B played as a lazy builder
+ * replies, each reply checked by gateFailures.
+ */
+const BUILDER_CODES_FILE = { 'src/codes.ts': `export const SUFFIX = '0x046d617961000a${BUILDER_CODES_SUFFIX}'; Attribution.toDataSuffix({ codes: ['bc_earnkit'] });` };
+
+/** A hand-made reply for the gate's own tests. */
+const gr = (show: string, o: Partial<Reply> = {}): Reply => ({ turn: 0, session: 0, first: false, hook: false, tool: 'find', input: {}, show, said: [], reply: { show_to_builder: show }, ...o });
+const rules = (rs: Reply[]) => gateFailures(rs).map((f) => `${f.turn}:${f.rule}`);
+const OPENER_OK = gr("Jenil, Base Builder Grant pays up to $5,000. You've shipped 6 weeks in a row.\n\nWant the steps?", { first: true, hook: true });
+
+test('gateFailures (Task 6): a good reply passes; every kind of break is caught with its turn', () => {
+  assert.deepEqual(gateFailures([OPENER_OK]), []);
+  // 1. No easy reply: an open question, a statement, two questions; the forms that are easy pass.
+  assert.deepEqual(rules([gr('Here are your programs.\n\nWhat would you like to do?')]), ['0:easy_reply']);
+  assert.deepEqual(rules([gr('Done.\n\nAnything else?')]), ['0:easy_reply']);
+  assert.deepEqual(rules([gr('Your draft is saved.')]), ['0:easy_reply']);
+  assert.deepEqual(rules([gr('Want the steps? Or should I draft it?')]), ['0:easy_reply']);
+  assert.deepEqual(rules([gr('Want the steps?\n\nWant me to start?')]), ['0:easy_reply']);
+  for (const ok of ['Draft it now? It takes me a few minutes.', 'Go?', 'Reply with a number, and connect here so I can check if your work fits: https://earnkit.com/signin/x',
+    'Reply "sent" once it\'s in, and I\'ll keep track of it for you.', "Say ok once the change is pushed, and I'll check it.", "Reply with both and I'll finish it.",
+    'Got it: Circle. Connect here so I can check if your work fits: https://earnkit.com/signin/x'])
+    assert.deepEqual(rules([gr(ok)]), [], ok);
+  // ... a "?" inside a quoted draft or a table is not a second question.
+  assert.deepEqual(rules([gr('> How does your product make money today?\n\n| Q | A |\n| Why now? | x |\n\nWant me to start?')]), []);
+  // 2. Empty.
+  assert.deepEqual(rules([gr('')]), ['0:empty']);
+  assert.deepEqual(rules([gr('  \n ')]), ['0:empty']);
+  // 3. A paragraph repeated in a session (whitespace aside); the easy reply and a table header may repeat; a new session may.
+  const para = 'Base Builder Grant pays up to $5,000.';
+  assert.deepEqual(rules([gr(`${para}\n\nGo?`), gr(`${para.replace(' ', '  ')}\n\nWant the steps?`, { turn: 1 })]), ['1:repeat']);
+  assert.deepEqual(rules([gr('One.\n\nGo?'), gr('Two.\n\nGo?', { turn: 1 })]), []);
+  assert.deepEqual(rules([gr('One. Want help with it now?'), gr('Two. Want help with it now?', { turn: 1 })]), []);
+  // ... but the same pointer twice is a repeat, its easy reply aside.
+  const still = 'Still on Arc Microgrants: get EarnKit on Arc mainnet. Want help with it now?';
+  assert.deepEqual(rules([gr(still), gr(still, { turn: 1 })]), ['1:repeat']);
+  // ... and so is a paragraph said earlier inside a reply's last paragraph.
+  assert.deepEqual(rules([gr(`${para}\n\nGo?`), gr(`${para} Want the steps?`, { turn: 1 })]), ['1:repeat']);
+  assert.deepEqual(rules([gr('| Grant | Money |\n| A | $1 |\n\nGo?'), gr('| Grant | Money |\n| B | $2 |\n\nWant the steps?', { turn: 1 })]), []);
+  assert.deepEqual(rules([gr(`${para}\n\nGo?`), gr(`${para}\n\nGo?`, { turn: 1, session: 1 })]), []);
+  // 4. No proof line on a session opener or a hook; a mid-session reply needs none; a signed-out opener has no record yet.
+  assert.deepEqual(rules([gr('Base Builder Grant pays up to $5,000.\n\nWant the steps?', { first: true })]), ['0:proof']);
+  assert.deepEqual(rules([gr('Base Builder Grant pays up to $5,000.\n\nWant the steps?', { hook: true })]), ['0:proof']);
+  assert.deepEqual(rules([gr('Base Builder Grant pays up to $5,000.\n\nWant the steps?')]), []);
+  assert.deepEqual(rules([gr("I'm EarnKit. I get builders funded for what they ship.\n\n1. Base: up to $5,000\n\nReply with a number, and connect here so I can check if your work fits: https://earnkit.com/signin/x", { first: true })]), []);
+  for (const proof of ['Score 77, #1 of 1 builders so far.', "You're live on Base.", 'Your streak is 7 weeks.', '25 commits in 90 days.', 'Since Friday: your score is up to 79.', 'EarnKit has 120 transactions onchain.'])
+    assert.deepEqual(rules([gr(`${proof}\n\nGo?`, { first: true })]), [], proof);
+  // 5. Copy: an em dash, "coin", "points", an emoji.
+  for (const bad of ['Base pays up to $5,000 — rolling.', 'Launch a coin.', 'You earned 5 points.', 'Nice work \u{1F680}.'])
+    assert.deepEqual(rules([gr(`${bad}\n\nGo?`)]), ['0:copy'], bad);
+  // ... never a word that only contains one ("pointer", "Coinbase").
+  assert.deepEqual(rules([gr('A pointer to Coinbase.\n\nGo?')]), []);
+  // 6. A claim: they qualify or are eligible, or EarnKit submitted or sent it.
+  for (const bad of ['You qualify for Base.', "You're eligible for Base.", 'You now qualify to apply.', 'I submitted it for you.', "I've sent your application.", 'Your application was sent.'])
+    assert.deepEqual(rules([gr(`${bad}\n\nGo?`)]), ['0:claim'], bad);
+  assert.deepEqual(rules([gr('To qualify, EarnKit needs to add Builder Codes.\n\nGo?')]), []);
+  // Each failure names its turn and why.
+  const [f] = gateFailures([gr('x'), gr('Done.\n\nAnything else?', { turn: 1 })].slice(1));
+  assert.equal(f.turn, 1);
+  assert.match(f.reason, /Anything else\?/);
+});
+
+/** Walk A on the owner-like builder: opener, "sure", the blanks, "sent", "ok", the push, silence, two days later. */
+async function walkA() {
+  const sr = await speedrun(30);
+  await only([sr.id, 'base-builder-grants']);
+  await sql()`UPDATE programs SET opened_at = now() - interval '30 days' WHERE id = 'base-builder-grants'`;
+  const b = await owner('wa');
+  const live = (score: number) =>
+    sql()`UPDATE builder_live SET score = ${score}, ranked = true, calibration = ${'v2-shipping'}, parts = ${sql().json({ shipping: { points: score, raw: { mask: 0b111111, live_ships: 0 } } } as never)} WHERE builder_id = ${b.id}`;
+  await live(77);
+  const turns: Turn[] = [
+    { find: {} },
+    { says: 'sure', tell: { move_up: { kind: 'apply', project_key: b.key, answer: 'yes' } } },
+    { says: 'just me, nothing raised', tell: { move_up: { kind: 'apply', project_key: b.key, answer: 'yes', blanks: 'just me, nothing raised' } } },
+    { says: 'sent', tell: { program_status: [{ program_id: sr.id, status: 'applied' }] } },
+    { says: 'ok', tell: { move_up: { kind: 'qualify', project_key: b.key, answer: 'yes' } } },
+    {
+      says: 'ok', tell: { move_up: { kind: 'qualify', project_key: b.key, answer: 'yes' } },
+      // The agent added Builder Codes and pushed (the fixture's fake GitHub).
+      before: () => {
+        b.gh.repos[b.key].files = BUILDER_CODES_FILE;
+        (b.ctx as { codesFetch?: typeof fetch }).codesFetch = b.gh;
+      },
+    },
+    { wait: 2 * 86_400_000 },
+    {
+      find: {},
+      // Two days on: the score went up to 79 (the stored score of the last session's day was 77).
+      before: async () => {
+        const last = new Date(Date.now() - 2 * 86_400_000);
+        await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, ranked)
+          VALUES (${b.id}, ${last.toISOString().slice(0, 10)}::date, 77, 0, '{}'::jsonb, '{}'::jsonb, 'v2', 'v2-shipping', false, true) ON CONFLICT (builder_id, day) DO UPDATE SET score = 77`;
+        await live(79);
+      },
+    },
+  ];
+  return { sr, b, replies: await converse(b.ctx as never, turns, { builderId: b.id }) };
+}
+
+/** Walk B on a new builder: the opener (signed out), "2" and connecting, "yes". */
+async function walkB() {
+  await worldB();
+  const b = await newcomer('wb');
+  const out: Call = (tool, args) => withEnv(X_SECRET, () => mcpCall(b.ctx as never, tool, args, { format: true }));
+  const first = await converse(b.ctx as never, [{ find: {} }, { says: '2', find: { program: '2' } }], { call: out, builderId: b.id });
+  await connectB(b);
+  const rest = await converse(b.ctx as never, [
+    { says: '(connects GitHub)', find: {} },
+    { says: 'yes', tell: { move_up: { kind: 'qualify', project_key: b.key, answer: 'yes' } } },
+  ], { builderId: b.id });
+  return { b, replies: [...first, ...rest.map((r, i) => ({ ...r, turn: first.length + i, first: false }))] };
+}
+
+test('Task 6: walk A passes the merge gate on the fixtures', db, async () => {
+  const { sr, b, replies } = await walkA();
+  console.log(`\n=== WALK A ===\n${transcript(replies)}\n`);
+  assert.deepEqual(gateFailures(replies), [], transcript(replies));
+  // It is target A's path: the hook, the draft, submit, "sent" hooks Base, the codes, then a new session's draft offer.
+  const ends = replies.map((r) => r.show.split('\n\n').at(-1));
+  assert.deepEqual(replies.map((r) => [r.session, r.first, r.hook]), [[0, true, true], [0, false, false], [0, false, false], [0, false, true], [0, false, false], [0, false, false], [1, true, false]]);
+  assert.deepEqual(ends, ['I can draft your application from your commits and live product in a few minutes. Want me to start?', A_BLANKS, SENT_ASK, OFFER, PUSHED_ASK, A_CODES_IN_PROOF, DRAFT_NOW_ASK]);
+  assert.match(replies[6].show, /^Since [A-Z][a-z]+: your score is up to 79\. Base Builder Grant is still open and you now meet its first requirement\./, replies[6].show);
+  const [row] = await sql()<{ status: string }[]>`SELECT status FROM builder_program_status WHERE installation_id = ${b.id} AND program_id = ${sr.id}`;
+  assert.equal(row?.status, 'applied');
+});
+
+test('Task 6: walk B passes the merge gate on the fixtures', db, async () => {
+  const { replies } = await walkB();
+  console.log(`\n=== WALK B ===\n${transcript(replies)}\n`);
+  assert.deepEqual(gateFailures(replies), [], transcript(replies));
+  // It is target B's path: the opener, the pick, the connected line with the Base hook, then the steps.
+  assertOpener(replies[0].show);
+  assert.match(replies[1].show, /^Got it: Circle Developer Grants\. /);
+  assert.ok(replies[2].show.startsWith(CONNECTED) && replies[2].hook, replies[2].show);
+  assert.match(replies[3].show, /^Your next step toward Base Builder Grant:\n+1\. [^\n]*I can do this\./, replies[3].show);
 });
