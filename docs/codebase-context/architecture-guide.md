@@ -8888,3 +8888,9 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
   one (first in a one-paragraph reply). Said once a session under `money:total` (MONEY_SAID), in the same said UPDATE.
   Never on a direct answer (o.brief), the held submit pointer, the code re-check line or the setup steps; the signed-out
   opener's head already says the total, so it marks `money:total` too.
+- **Fix round 1.** The line never goes above the greeting: withMoneyLine splits a one-paragraph reply before its last
+  sentence (its easy reply; a bare "Go?" keeps its offer; never inside a URL, an amount or an abbreviation) and puts the
+  line between the two. The total is /api/stats' figure, `openMoneyNow(now, cards)` (every active program, so a program
+  the builder hid still counts), read only when the line is due; the signed-out opener uses it too. An `ask: programs`
+  answer marks `money:total` (its tables say the money); a standing answer does not. A close already passed has no hours
+  left (closeWords says its day; submitBy drops the "(in N hours)"; the investor clause is left out).

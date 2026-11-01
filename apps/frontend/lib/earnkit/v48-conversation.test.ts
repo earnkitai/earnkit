@@ -273,11 +273,17 @@ after(async () => {
 const RUN = String(process.pid % 100000);
 /**
  * v4.8.1 Task 2 (R3): a session's first path reply says "Open now: {total} in grants." as its own paragraph just before
- * the easy reply (first in a one-paragraph reply). Asserts it is there once, and gives the reply without it.
+ * the easy reply. Fix round 1 (ruling a): a one-paragraph reply is split before its easy reply, so the line never goes
+ * above the greeting. Asserts the line is there once, and gives the reply without it (the split kept).
  */
 const withTotal = (s: string) => {
-  assert.equal(s.match(/(?:^|\n\n)Open now: \$[\d.]+[KM]?\+? in grants\.[^\n]*\n\n/g)?.length, 1, s);
+  assert.equal(s.match(/\n\nOpen now: \$[\d.]+[KM]?\+? in grants\.[^\n]*\n\n/g)?.length, 1, s);
   return s.replace(/Open now: [^\n]*\n\n/, '');
+};
+/** Fix round 1 (ruling a): a one-paragraph reply as the money line splits it, before its last sentence. */
+const easySplit = (s: string, ask: string) => {
+  assert.ok(s.endsWith(` ${ask}`), s);
+  return `${s.slice(0, -ask.length - 1)}\n\n${ask}`;
 };
 const PATH_NOTE = PATH_NOTE_OF(MENTOR_NOTE);
 type R = Awaited<ReturnType<typeof mcpCall>>;
@@ -1125,7 +1131,7 @@ test('a new session after more shipping opens with "Since ...", the streak and s
   assert.doesNotMatch(show(await find(b)), /^Since /);
   // Nothing changed since the last session: the step alone.
   await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, '{said,at}', to_jsonb(${new Date(Date.now() - SESSION_MS - 1000).toISOString()}::text)) WHERE builder_id = ${b.id}`;
-  assert.equal(withTotal(show(await find(b))), A_CODES_IN_PROOF);
+  assert.equal(withTotal(show(await find(b))), easySplit(A_CODES_IN_PROOF, 'Want me to draft the Base application next?'));
 });
 
 /*
@@ -1753,7 +1759,7 @@ test('C: "where do I stand": the answer (the pill\'s numbers), then the short st
   // The same ask again, nothing changed: one line, then the step's pointer.
   assert.equal(show(await find(b, { ask: 'standing' })), `Same as earlier: #${st.rank} of ${st.total}, score 77.\n\n${pointerOf(sr.title)}`);
   // No ask: the path alone. v4.8.1 Task 2 (R3): the session's first path reply that is no direct answer says the total.
-  assert.equal(withTotal(show(await find(b))), pointerOf(sr.title));
+  assert.equal(withTotal(show(await find(b))), easySplit(pointerOf(sr.title), 'Want me to start?'));
   // Fix round 1 (3): the score moved since: the full answer again, never "Same as".
   await setScore(b.id, 79);
   const moved = show(await find(b, { ask: 'standing' }));
@@ -2352,7 +2358,7 @@ test('final F6: Builder Codes pushed, then two days of quiet: the first find re-
   await backSession(b.id, twoDays);
   // Nothing else changed (no "Since"): the closed reply, never "add Base's Builder Code" again.
   const r = show(await find(b));
-  assert.equal(withTotal(r), A_CODES_IN_PROOF);
+  assert.equal(withTotal(r), easySplit(A_CODES_IN_PROOF, 'Want me to draft the Base application next?'));
 });
 
 test('final F1 (pure): the draft body is What it is and one Traction sentence from stored facts, then the page; never a bare label or "Shipping 77"', () => {
@@ -2386,7 +2392,7 @@ test('final F5: a fresh session at the gap stage says the money once, then the s
   await codesSettled();
   await backSession(b.id, SESSION_MS + 60_000);
   const r = withTotal(show(await find(b)));
-  assert.equal(r, `Jenil, Base Builder Grant pays up to $5,000, and you're one step away: add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. Guide: ${GUIDE} You're live on Base. Want me to do it now?`);
+  assert.equal(r, `Jenil, Base Builder Grant pays up to $5,000, and you're one step away: add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. Guide: ${GUIDE} You're live on Base.\n\nWant me to do it now?`);
   assert.ok(((await seenOf(b.id)).said as { keys: string[] }).keys.includes('money:base-builder-grants'));
   // Again in the same session: the pointer, no money.
   assert.ok(show(await find(b)).startsWith('Still on Base Builder Grant: '));

@@ -228,10 +228,13 @@ export const programName = (title: string) => title.split(':')[0].trim().replace
 const HOUR_MS = 3_600_000;
 /**
  * v4.8.1 Task 2 (R2): the time left as a person says it, from the clock, never the calendar: "in under an hour" under 1
- * hour, "in {n} hours" (whole hours, rounded down; "in 1 hour") under 48 hours, else null. The same in every zone. Pure.
+ * hour, "in {n} hours" (whole hours, rounded down; "in 1 hour") under 48 hours, else null (48 hours or more, or already
+ * passed). The same in every zone. Pure.
  */
 function hoursLeft(endsAt: string, now: Date): string | null {
   const left = Date.parse(endsAt) - now.getTime();
+  // Fix round 1 (F5): a close already passed has no time left to say.
+  if (!(left > 0)) return null;
   if (left < HOUR_MS) return 'in under an hour';
   if (left >= 2 * 24 * HOUR_MS) return null;
   const n = Math.floor(left / HOUR_MS);
@@ -272,15 +275,38 @@ export function moneyInvestor<P extends MoveProgram>(investors: readonly P[], no
  */
 export function moneyLine(total: string | null, investor: Pick<MoveProgram, 'title' | 'amount' | 'ends_at' | 'zone'> | null, now: Date): string | null {
   if (!total) return null;
-  const inv = investor?.ends_at
+  const inv = investor?.ends_at && Date.parse(investor.ends_at) > now.getTime()
     ? ` ${programName(investor.title)} (investor program${investor.amount ? `, ${investor.amount}` : ''}) closes ${closeWords(investor.ends_at, investor.zone, now)}.`
     : '';
   return `Open now: ${total} in grants.${inv}`;
 }
-/** The money line as its own paragraph just before the reply's last one (first in a one-paragraph reply). Pure. */
+/** Words a period ends without ending the sentence ("e.g.", "U.S."). */
+const NO_END = /(?:^|\s)(?:e\.g|i\.e|vs|etc|Mr|Mrs|Ms|Dr|St|Inc|Ltd|[A-Z](?:\.[A-Z])*)\.$/;
+/**
+ * A one-paragraph reply split before its last sentence (its easy reply): [the rest, the last sentence], or null when it
+ * is one sentence. A sentence ends at ".", "?" or "!" followed by a space and a capital or a quote, never inside a URL
+ * or an amount ("$5,000." then a capital still ends one; "earnkit.com/x" never does) or after an abbreviation. A last
+ * sentence under 3 words ("Go?") keeps the sentence before it. Pure.
+ */
+function splitLast(p: string): [string, string] | null {
+  const cuts = [...p.matchAll(/[.?!]\s+(?=[A-Z"])/g)].filter((m) => !NO_END.test(p.slice(0, m.index + 1))).map((m) => ({ at: m.index, len: m[0].length }));
+  // A bare "Go?" keeps the offer it answers ("I can add them ... about 10 minutes. Go?") as one easy reply.
+  const short = (c: { at: number; len: number }) => p.slice(c.at + c.len).split(/\s+/).length < 3;
+  const cut = cuts.length > 1 && short(cuts.at(-1)!) ? cuts.at(-2) : cuts.at(-1);
+  return cut ? [p.slice(0, cut.at + 1), p.slice(cut.at + cut.len)] : null;
+}
+/**
+ * The money line as its own paragraph just before the reply's last one. Fix round 1 (controller ruling a): it never goes
+ * above the greeting, so a one-paragraph reply is split before its last sentence (its easy reply) and the line goes
+ * between the two; a one-sentence reply gets the line first. Pure.
+ */
 export function withMoneyLine(show: string, line: string | null): string {
   if (!line) return show;
   const ps = show.split('\n\n');
+  if (ps.length === 1) {
+    const two = splitLast(ps[0]);
+    return two ? `${two[0]}\n\n${line}\n\n${two[1]}` : `${line}\n\n${ps[0]}`;
+  }
   return [...ps.slice(0, -1), line, ps.at(-1)!].join('\n\n');
 }
 

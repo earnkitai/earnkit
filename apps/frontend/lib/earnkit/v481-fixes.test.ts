@@ -16,7 +16,13 @@ import { attachToX } from './x-install';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
 import { isoWeekOf } from './weeks';
-import { codesSettled } from './bench-find';
+import { codesSettled, openMoneyNow } from './bench-find';
+import { moneyText } from './pool';
+import { GitHubBudgetStop, type ReaderDeps } from './source-readers';
+import { committedProgram } from './fixtures/program-file';
+import { dropRunPrograms } from './fixtures/programs-cleanup';
+import { ProgramFile } from './program-file';
+import { upsertProgram } from './programs';
 
 /**
  * v4.8.1 Task 1 (R1): investor programs and long shots never lead on their own. They lead only when the builder picked
@@ -135,6 +141,9 @@ test("v4.8.1 R2: submitBy says the program-zone day and time, and the hours left
   // A zone with no short name: the day only, and the hours left under 48 hours.
   assert.equal(submitBy(a16z, KOLKATA, new Date('2026-11-01T11:30:00Z'), null), 'Nov 2 (in 20 hours)');
   assert.equal(submitBy('2026-11-06T07:59:59Z', KOLKATA, NOW, null), 'Nov 6');
+  // Fix round 1 (F5): a close already passed says no time left (never "in under an hour").
+  assert.equal(submitBy(a16z, PT, new Date('2026-11-02T09:00:00Z'), 'PT'), 'Nov 1, 11:59 PM PT');
+  assert.equal(closeWords(inHours(-0.5), PT, NOW), 'Nov 1');
   // Its callers: the submit pointer and the no-rush line.
   const pr = { title: 'a16z speedrun SR008', when: 'closes Nov 1', ends_at: inHours(20.5), zone: PT };
   assert.equal(submitPointer(pr, NOW), 'Your a16z speedrun SR008 application is ready to submit, closes in 20 hours. Reply "sent" once it\'s in.');
@@ -148,6 +157,8 @@ test('v4.8.1 R3: the money line, its investor clause and its place', () => {
   assert.equal(moneyLine('$115K', { ...A16Z, amount: null }, NOW), 'Open now: $115K in grants. a16z speedrun SR008 (investor program) closes in 20 hours.');
   // A total of 0 (moneyText null): no line.
   assert.equal(moneyLine(null, A16Z, NOW), null);
+  // Fix round 1 (F5): a close already passed: no clause.
+  assert.equal(moneyLine('$115K', { ...A16Z, ends_at: inHours(-1) }, NOW), 'Open now: $115K in grants.');
   // The investor: soonest first, within INVESTOR_WINDOW_MS, never skipped, never the program the reply or path is on.
   const later = { ...A16Z, id: 'later', ends_at: inHours(100) };
   const far = { ...A16Z, id: 'far', ends_at: inHours(24 * 8) };
@@ -157,10 +168,21 @@ test('v4.8.1 R3: the money line, its investor clause and its place', () => {
   assert.equal(moneyInvestor([later, A16Z, far], NOW, new Set(), new Set([A16Z.id, null])), later);
   assert.equal(moneyInvestor([far], NOW, new Set(), none), null);
   assert.equal(moneyInvestor([{ ...A16Z, ends_at: inHours(-1) }], NOW, new Set(), none), null);
-  // Its own paragraph just before the last one; first in a one-paragraph reply.
+  // Its own paragraph just before the last one.
   assert.equal(withMoneyLine('Hook.\n\nWant the steps?', 'Open now: $1K in grants.'), 'Hook.\n\nOpen now: $1K in grants.\n\nWant the steps?');
   assert.equal(withMoneyLine('Since Thursday: x.\n\nHook.\n\nGo?', 'M.'), 'Since Thursday: x.\n\nHook.\n\nM.\n\nGo?');
-  assert.equal(withMoneyLine('Base is still your closest money. Want the steps?', 'M.'), 'M.\n\nBase is still your closest money. Want the steps?');
+  // Fix round 1 (ruling a): never above the greeting; a one-paragraph reply is split before its easy reply.
+  assert.equal(withMoneyLine('Base is still your closest money. Want the steps?', 'M.'), 'Base is still your closest money.\n\nM.\n\nWant the steps?');
+  const guide = "Jenil, Base Builder Grant pays up to $5,000. Add Base's Builder Code. Guide: https://docs.base.org/base-chain/builder-codes/builder-codes You're live on Base. Want me to do it now?";
+  assert.equal(withMoneyLine(guide, 'M.'),
+    "Jenil, Base Builder Grant pays up to $5,000. Add Base's Builder Code. Guide: https://docs.base.org/base-chain/builder-codes/builder-codes You're live on Base.\n\nM.\n\nWant me to do it now?");
+  // An amount, a URL or an abbreviation never ends the easy reply early; a bare "Go?" keeps its offer.
+  assert.equal(withMoneyLine('Jenil, it pays up to $5,000. Want me to start?', 'M.'), 'Jenil, it pays up to $5,000.\n\nM.\n\nWant me to start?');
+  assert.equal(withMoneyLine('Hi Jenil. It is open to U.S. Builders and e.g. Teams too.', 'M.'), 'Hi Jenil.\n\nM.\n\nIt is open to U.S. Builders and e.g. Teams too.');
+  assert.equal(withMoneyLine('Builder Codes are still the one step to Base. I can add them and push the change, about 10 minutes. Go?', 'M.'),
+    'Builder Codes are still the one step to Base.\n\nM.\n\nI can add them and push the change, about 10 minutes. Go?');
+  // One sentence: the line first.
+  assert.equal(withMoneyLine('Want me to start?', 'M.'), 'M.\n\nWant me to start?');
   assert.equal(withMoneyLine('Hook.', null), 'Hook.');
   assert.doesNotMatch(moneyLine('$115K', A16Z, NOW)!, BAD);
 });
@@ -174,16 +196,24 @@ const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
   if (!process.env.DATABASE_URL) return;
   await codesSettled();
+  await dropRunPrograms();
   await sql().end();
 });
 const RUN = String(process.pid % 100000);
 let n = 0;
 /**
+ * Fix round 1 (F4): the on-demand refresh's readers stop as a spent budget (v31-builder-codes.test.ts QUIET), which
+ * person-score.ts writes nothing for and logs nothing about: no "[refresh] read failed" noise.
+ */
+const QUIET = new Proxy({}, {
+  get: (_t, k) => (k === 'now' ? new Date() : k === 'ghSpent' ? () => true : k === 'requests' ? { tick: null } : async () => { throw new GitHubBudgetStop(); }),
+}) as ReaderDeps;
+/**
  * The owner-like builder (v48-conversation.test.ts owner, its own copy as each test file keeps one): X name "Jenil T",
  * project EarnKit, its repo proven by the App, live and on Base, six weeks shipping, Builder Codes passed on today, the
- * connect weeks and setup step 3 done.
+ * connect weeks and setup step 3 done. `pick`: the builder picked that program (the path's program at the hook).
  */
-async function ownerDb(tag: string) {
+async function ownerDb(tag: string, o: { pick?: string } = {}) {
   n++;
   const t = `ek_v481_${tag}_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Claude Code');
@@ -199,7 +229,7 @@ async function ownerDb(tag: string) {
   const product = { ...ps, traction: traction(tr), ...productOdds(ps, tr, ps.score) };
   const facts = { name: 'earnkit', url: `https://github.com/${key}`, homepage: 'https://earnkit.com', created_at: '2025-01-01T00:00:00Z', chains, commits_in_window: {}, product, live_verified: true, tx_count: 120, commits_90d: 25 };
   const fits: RepoFit[] = [{ repo: 'earnkit', repo_url: `https://github.com/${key}`, key, product, facts, live_verified: true, verdicts: [] }];
-  const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 1, fits })) as never };
+  const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, readerDeps: QUIET, matchProjects: (async () => ({ checked: 1, scored: 1, fits })) as never };
   await mcpCall(ctx, 'find', { identity: { project: { name: 'EarnKit', repo: `https://github.com/${key}`, live_url: 'https://earnkit.com' } } });
   const gid = 81000 + n * 10 + (Number(RUN) % 7);
   const gh = fakeGitHub({ [key]: { id: gid, owner: handle, installation: gid + 1 } });
@@ -208,6 +238,7 @@ async function ownerDb(tag: string) {
   await sql()`UPDATE builder_projects SET commit_weeks = ${weeks}::text[], shipped = true, kind = 'app' WHERE builder_id = ${c.id} AND lower(project_key) = lower(${key})`;
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('connect_done', now()::text,
       'declined', jsonb_build_object(${`qualify:${key}`}::text, now()::text)) WHERE builder_id = ${c.id}`;
+  if (o.pick) await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('path', jsonb_build_object('stage', 'hook', 'program_id', ${o.pick}::text, 'at', now()::text, 'picked', true)) WHERE builder_id = ${c.id}`;
   return { ctx, id: c.id, key, handle };
 }
 
@@ -227,4 +258,61 @@ test('v4.8.1 R3: the first find of a session says "Open now: $" once, just befor
   for (const r of replies) assert.doesNotMatch(r.show, BAD, t);
   assert.deepEqual(gateFailures(replies.slice(0, 2), { names: ['EarnKit', b.handle] }), [], t);
   assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), [], t);
+});
+
+/** The money paragraph of a reply ("Open now: ..."), or null. */
+const moneyPara = (s: string) => s.split('\n\n').find((p) => p.startsWith('Open now: ')) ?? null;
+const totalOf = (s: string) => /^Open now: (\S+) in grants\./.exec(moneyPara(s) ?? '')?.[1] ?? null;
+
+test('v4.8.1 fix round 1 (F2, ruling b): a programs answer counts as the money said; a standing answer does not', db, async () => {
+  const p = await ownerDb('pga');
+  const [ans, next] = await converse(p.ctx as never, [{ find: { ask: 'programs' } }, { find: {} }], { builderId: p.id });
+  const tp = transcript([ans, next]);
+  assert.equal(moneyPara(ans.show), null, tp);
+  assert.ok(ans.said.includes(MONEY_SAID), tp);
+  assert.equal(moneyPara(next.show), null, tp);
+  const st = await ownerDb('sta');
+  const [sAns, sNext] = await converse(st.ctx as never, [{ find: { ask: 'standing' } }, { find: {} }], { builderId: st.id });
+  const ts = transcript([sAns, sNext]);
+  assert.equal(moneyPara(sAns.show), null, ts);
+  assert.ok(!sAns.said.includes(MONEY_SAID), ts);
+  assert.ok(moneyPara(sNext.show), ts);
+  // No gate run here: a direct answer opening the session carries no record fact, which the gate's proof rule flags with
+  // or without the money line (the money line's gate runs are the other DB tests).
+  for (const r of [ans, next, sAns, sNext]) assert.doesNotMatch(r.show, BAD, r.show);
+});
+
+test("v4.8.1 fix round 1 (F3): the total is /api/stats' figure, a program the builder hid still counted", db, async () => {
+  const b = await ownerDb('hid');
+  // Circle's grant, told not interested: hidden from this builder's cards, still in the site's total.
+  await mcpCall(b.ctx as never, 'tell', { program_status: [{ program_id: 'circle-developer-grants', status: 'not_interested' }] });
+  const [r] = await converse(b.ctx as never, [{ find: {} }], { builderId: b.id });
+  const stats = moneyText(await openMoneyNow(new Date(), []));
+  assert.ok(stats, 'the test database has open grants');
+  assert.equal(totalOf(r.show), stats, r.show);
+});
+
+test("v4.8.1 fix round 1 (F6): the investor clause names a controlled investor program, never the reply's own", db, async () => {
+  const file = committedProgram('a16z-speedrun');
+  const id = `v481-${process.pid}-sr`;
+  const title = `Runway Copy ${RUN}`;
+  // Closing in 90 minutes: sooner than any committed investor program, so it is the one the clause names.
+  const ends = new Date(Date.now() + 90 * 60_000).toISOString();
+  const open = () => upsertProgram(ProgramFile.parse({ ...file, id, title, ends_at: ends, status: 'active', starts_at: null }));
+  await open();
+  // Base leads (no pick): the clause names the copy.
+  const b = await ownerDb('ivn');
+  await open();
+  const [hook] = await converse(b.ctx as never, [{ find: {} }], { builderId: b.id });
+  assert.doesNotMatch(hook.show.split('\n\n')[0], new RegExp(title), hook.show);
+  assert.equal(moneyPara(hook.show)?.replace(/^Open now: \S+ in grants\. /, ''), `${title} (investor program, up to $1M) closes in 1 hour.`, hook.show);
+  // The builder picked the copy: the reply is about it, so the clause never names it.
+  const p = await ownerDb('ivp', { pick: id });
+  await open();
+  const [own] = await converse(p.ctx as never, [{ find: {} }], { builderId: p.id });
+  assert.match(own.show, new RegExp(`^Jenil, ${title} closes in 1 hour: up to \\$1M\\.`), own.show);
+  assert.ok(moneyPara(own.show), own.show);
+  assert.doesNotMatch(moneyPara(own.show)!, new RegExp(title), own.show);
+  assert.deepEqual(gateFailures([hook], { names: ['EarnKit', b.handle] }), [], hook.show);
+  assert.deepEqual(gateFailures([own], { names: ['EarnKit', p.handle] }), [], own.show);
 });

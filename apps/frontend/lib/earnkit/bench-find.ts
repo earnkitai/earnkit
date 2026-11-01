@@ -897,7 +897,7 @@ async function pathCommit(
   };
   // Task 5 fix round 1 (5): the brief pointer never says the passed-step line, so it raises nothing (said later in full).
   const raise = move.kind === 'closest' && move.raise && out.said.length > 0 && !o.brief;
-  const money = moneyFor(o, plan, out.program_id);
+  const money = await moneyFor(o, plan, out.program_id);
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
       || jsonb_build_object('path', ${sql().json(nextPath as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb, 'said', ${saidSql([...out.said, ...(money ? [MONEY_SAID] : [])], now)})
       || CASE WHEN ${raise} THEN jsonb_build_object('path_raised', COALESCE(standing_seen->'path_raised', '{}'::jsonb)
@@ -934,13 +934,16 @@ const greetingOf = (xName: string | null, said: ReadonlySet<string>) => {
 const withSince = (since: string | null, show: string) => (since ? `${since}\n\n${show}` : show);
 /**
  * v4.8.1 Task 2 (R3): the money line (conversation.ts moneyLine) for this session's first path reply about `programId`,
- * else null: never after a direct answer (o.brief: its tables say the money), and once a session (MONEY_SAID). The
- * investor clause never names the program the reply is about or the stored path's. Pure.
+ * else null: never after a direct answer (o.brief; a programs answer marks MONEY_SAID, its tables say the money), and
+ * once a session (MONEY_SAID). The investor clause never names the program the reply is about or the stored path's.
+ * One read (openMoneyNow) when due. Never throws.
  */
-function moneyFor(o: ViewIn, plan: Pick<PathPlan, 'ctx' | 'path'>, programId: string): string | null {
+async function moneyFor(o: ViewIn, plan: Pick<PathPlan, 'ctx' | 'path'>, programId: string): Promise<string | null> {
   if (o.brief || sessionOf(o.read.seen, o.now).said.has(MONEY_SAID)) return null;
   const investor = moneyInvestor(plan.ctx.investors, o.now, plan.ctx.skip, new Set([programId, plan.path?.program_id ?? null]));
-  return moneyLine(moneyText(openMoneyUsd(o.cards, o.now)), investor, o.now);
+  // Fix round 1 (F3): /api/stats' figure (openMoneyNow: every active program), read only when the line is due; the
+  // builder's cards leave out hidden and agent-incompletable programs.
+  return moneyLine(moneyText(await openMoneyNow(o.now, o.cards)), investor, o.now);
 }
 
 /**
@@ -1083,7 +1086,7 @@ async function pathGapCommit(o: ViewIn, plan: PathPlan & { move: Exclude<Move, {
   const out = !helping ? still
     : money ? { show_to_builder: `${still.show_to_builder.replace(/ Want (?:help with it|me to do it) now\?$/, '')} ${HELP_DONE_ASK}`, reply: 'help' as const }
       : { show_to_builder: helpWaiting(title), reply: 'help' as const };
-  const total = moneyFor(o, plan, pid);
+  const total = await moneyFor(o, plan, pid);
   const keys = [...(proof?.keys ?? []), ...(money ? [`money:${pid}`] : []), ...(greet ? [GREET_SAID] : []), ...(total ? [MONEY_SAID] : [])];
   const nextPath: Path = { stage: 'gap', program_id: pid, at: now.toISOString(), ...(plan.path?.picked && { picked: true as const }) };
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
@@ -1146,7 +1149,7 @@ async function pathClosedCommit(o: ViewIn, plan: PathPlan & { closed: NonNullabl
     : again ? `Your ${programName(closed.program.title)} application is still the next move. Want me to start?` : gapClosedReply({ org: closed.org, title: closed.program.title, codes: closed.codes, proof });
   const stored = { kind: 'apply', key, program_id: pid, path: true };
   const nextPath: Path = { stage: 'draft', program_id: pid, at: now.toISOString(), ...(plan.path?.picked && plan.path.program_id === pid && { picked: true as const }) };
-  const money = moneyFor(o, plan, pid);
+  const money = await moneyFor(o, plan, pid);
   await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) - 'gap_did')
       || jsonb_build_object('path', ${sql().json(nextPath as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb, 'said', ${saidSql([...(again ? [] : [saidKey, ...(since ? [] : (proofOut?.keys ?? []))]), ...(money ? [MONEY_SAID] : [])], now)})
     WHERE builder_id = ${id}`.catch(logged('path closed'));
@@ -1282,7 +1285,7 @@ async function openerView(o: ViewIn, link: string, pick: Pick_, stand: Standing)
     opener = openerRecord(programs, now);
   } else if (shown && (pick === 'outside' || o.named?.trim() || said.has('opener'))) show = openerAgain(shown, link, false);
   else {
-    show = openerReply({ total: moneyText(openMoneyUsd(o.cards, now)), programs, link, github: false });
+    show = openerReply({ total: moneyText(await openMoneyNow(now, o.cards)), programs, link, github: false });
     opener = openerRecord(programs, now);
   }
   // v4.8.1 Task 2 (R3): the opener's head says the open total, so it counts as the session's money line (MONEY_SAID).
@@ -1553,7 +1556,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
         const a = o.question ? await directAnswer(o, facts, told) : null;
         if (a) {
           o.answer?.push(a.text);
-          await markSaid(id, [a.key], now);
+          // v4.8.1 fix round 1 (ruling b): the programs answer's tables say the money, so the line counts as said.
+          await markSaid(id, [a.key, ...(o.question === 'programs' ? [MONEY_SAID] : [])], now);
         }
         return r;
       };
@@ -1878,7 +1882,7 @@ export function alsoOpen(cards: Card[], now: Date, skip: Set<string>, not: strin
  * v4.7.2 final review 7: /api/stats open_money_usd for `now`: openMoneyUsd over every active program, read and rounded
  * as stats.ts readStats and statsFrom do. A failed read: `fallback`'s sum. Never throws.
  */
-// v4.8 Task 1: no reply reads it now (the forced money paragraph is retired); kept for Task 4's opener total.
+// v4.8.1 Task 2 fix round 1 (F3): the money line's and the signed-out opener's total.
 export async function openMoneyNow(now: Date, fallback: Card[]): Promise<number> {
   const rows = await sql()<{ max_award_usd: string | number | null; investment: boolean | null; status: string; campaign: unknown; source: string; starts_at: Date | null; ends_at: Date | null }[]>`
     SELECT max_award_usd, investment, status, campaign, source, starts_at, ends_at FROM programs WHERE status = 'active'`.catch((err: unknown) => {
