@@ -473,6 +473,11 @@ async function liveOf(id: number, read: BenchRead, now: Date, ms: number): Promi
  * installation isn't bound to X. Find skips the results question while this holds, so it isn't used up before
  * the bind. A database error reads as signed out (final fix 12: the retry question, never a page it may not have).
  */
+// v4.8.1 final fix (N1): the old ask may follow a space or a line break; drop it and end on the done ask, so one question.
+export function helpDoneTail(text: string): string {
+  return text.replace(/(\s)Want (?:help with it|me to do it) now\?$/, '$1') + HELP_DONE_ASK;
+}
+
 export async function signedOutNow(id: number, own: number): Promise<boolean> {
   if (!xSignInEnabled() || !process.env.EARNKIT_AUTH_SECRET) return false;
   try {
@@ -1123,7 +1128,7 @@ async function pathGapCommit(o: ViewIn, plan: PathPlan & { move: Exclude<Move, {
   // Final review F3 (the parked T4 copy): while the agent helps, a find never says the step again (a fresh session's
   // money line aside); the done ask stays the one easy reply.
   const out = !helping ? still
-    : money ? { show_to_builder: `${still.show_to_builder.replace(/ Want (?:help with it|me to do it) now\?$/, '')} ${HELP_DONE_ASK}`, reply: 'help' as const }
+    : money ? { show_to_builder: helpDoneTail(still.show_to_builder), reply: 'help' as const }
       : { show_to_builder: helpWaiting(title), reply: 'help' as const };
   const total = await moneyFor(o, plan, pid);
   const keys = [...(proof?.keys ?? []), ...(money ? [`money:${pid}`] : []), ...(greet ? [GREET_SAID] : []), ...(total ? [MONEY_SAID] : [])];

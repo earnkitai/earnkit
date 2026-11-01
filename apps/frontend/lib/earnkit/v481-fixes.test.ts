@@ -16,7 +16,8 @@ import { attachToX } from './x-install';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
 import { isoWeekOf } from './weeks';
-import { MORE_ASK, NAME_ASK, alsoOpen, pathDrafted, readyStored, codesSettled, openMoneyNow, openNowInvestment, openerPrograms } from './bench-find';
+import { HELP_DONE_ASK } from './conversation';
+import { helpDoneTail, MORE_ASK, NAME_ASK, alsoOpen, pathDrafted, readyStored, codesSettled, openMoneyNow, openNowInvestment, openerPrograms } from './bench-find';
 import { moneyText } from './pool';
 import { GitHubBudgetStop, type ReaderDeps } from './source-readers';
 import { committedProgram } from './fixtures/program-file';
@@ -650,4 +651,13 @@ test('v4.8.1 final fix (8): the gap step\'s guide link ends its line, so no sent
   }
   // A step with no link reads as before.
   assert.equal(gapStillReply('Arc Microgrants', [{ text: 'Put your app on Arc.', doable: false }], false, null).show_to_builder, 'Still on Arc Microgrants: put your app on Arc. Want help with it now?');
+});
+
+test('N1: a guide link then the ask on a new line leaves one question ending on the done ask', async () => {
+  for (const sep of ['\n', ' ']) {
+    const out = helpDoneTail(`Next step: is the contract verified? Guide: https://docs.base.org/x${sep}Want me to do it now?`);
+    assert.equal(out.split('?').length - 1, 1);
+    assert.ok(out.endsWith(HELP_DONE_ASK));
+    assert.ok(!out.includes('Want me to do it'));
+  }
 });
