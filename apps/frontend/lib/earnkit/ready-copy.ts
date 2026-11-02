@@ -1,4 +1,4 @@
-import { closeWords, hoursLeft, isGtm, programName } from './conversation';
+import { GTM_ONE_LINE, closeWords, hoursLeft, isGtm, programName } from './conversation';
 import { BUILDER_CODES_GUIDE } from './bench-reply';
 import { longShotWorth, type ReadyProgram } from './ready-set';
 
@@ -18,8 +18,10 @@ export const READY_NOTE =
  * v4.10.2 Task 1 (owner answer 2): how an ask the builder answers in one line (one_line: the 3-month plan) becomes the
  * form's answer: the agent writes it out from that line and the record only.
  */
-export const ONE_LINE_NOTE =
-  "An answer marked one_line (expand) is the builder's one line: write the form's full answer from that line and the record only, adding no facts, and show it for them to check.";
+const EXPAND = "is the builder's one line: write the form's full answer from that line and the record only, adding no facts, and show it for them to check.";
+export const ONE_LINE_NOTE = `An answer marked one_line (expand) ${EXPAND}`;
+/** v4.10.2 Task 1 fix round 1: the same instruction on the path's draft, whose GTM blank is GTM_ONE_LINE. */
+export const PLAN_ONE_LINE_NOTE = `Their 3-month plan ${EXPAND}`;
 /** v4.10 Task 4 (R8): how the opener's ask is answered (never shown). */
 export const READY_ASK_NOTE =
   "A yes, a no or the numbers to skip: call tell with move_up: { kind: 'ready', project_key, answer: 'yes' } (a no: answer 'no'; numbers: answer 'skip' with skip: [the numbers], 1-based). If they also give what the set asks of them (ready.programs[].asks, each asked once across the set, at most 4), split their words by field into answers: { [kind]: their words } (contact: { [slot]: their words } for the slots it lists); blanks only when they can't be split. If they ask to start a program in ready.also_open, call prepare with its id. Don't show this note.";
@@ -100,7 +102,7 @@ export function needsPhrase(r: { key: string; label: string; kind?: string; todo
   if (r.kind && byKind[r.kind]) return byKind[r.kind];
   // v4.10.2 Task 1 (R2, owner answer 2): the Builder Code is the builder's own, from base.dev; the plan is one line.
   if (/builder code/i.test(`${r.key.replace(/_/g, ' ')} ${r.label}`)) return 'your Base Builder Code (from base.dev)';
-  if (isGtm(r)) return 'your 3-month plan in one line';
+  if (isGtm(r)) return GTM_ONE_LINE;
   const raw = (r.todo ?? r.label).trim().replace(/[.?:]+$/, '');
   // v4.10.1 Task 1: a todo is already sentence case ("your Circle and Arc integrations"); a label's first letter is lowered.
   const lower = (x: string) => (r.todo ? x : `${x.charAt(0).toLowerCase()}${x.slice(1)}`);

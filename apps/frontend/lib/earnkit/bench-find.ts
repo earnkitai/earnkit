@@ -65,7 +65,7 @@ import { appProvenRepo, builderCodesKnown, builderCodesWords, checkBuilderCodes,
 import { bankKeepsContact, projectKey, readBank, saveBank } from './answer-bank';
 import { READY_CANDIDATES, fitReadySet, readySet, worthUpTo, type ReadyProgram } from './ready-set';
 import {
-  READY_ASK_NOTE, READY_NEEDS_NOTE, READY_NOTE, READY_SENT_NOTE, READY_YES_NOTE, contactPhrase, needsList, needsPhrase, readyAgain, readyCodesWait, readyNeedsAsk,
+  PLAN_ONE_LINE_NOTE, READY_ASK_NOTE, READY_NEEDS_NOTE, READY_NOTE, READY_SENT_NOTE, READY_YES_NOTE, contactPhrase, needsList, needsPhrase, readyAgain, readyCodesWait, readyNeedsAsk,
   readyNoLine, readyOpenList, readyOpener, readySentAgain, type AgainProgram, readySentAsk, readyStillNeeds, readyYesReply, shortName, skipReply,
 } from './ready-copy';
 import { bankFill, slotOf } from './coach';
@@ -80,7 +80,7 @@ import { DECLINE_MS, draftedRecently } from './policy-constants';
 import { closeDay, programZone, zoneAbbr } from './deadline';
 import type { ProgramRow as ProgramFileRow } from './programs';
 import {
-  MENTOR_NOTE, MONEY_SAID, builderOnly, isGtm, closingSoon, moneyLine, withMoneyLine, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, pickHook, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, submitNoRush, tooSoonLine, keepDraftLine, type OpenerProgram, type MoveCtx, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProofOf, helpReply, helpWaiting, helpParked, closeWords, HELP_DONE_ASK, backOnLine, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofOf, markSaid, pathReply, programName, readPath, saidSql, sessionOf, pointerReply, START_ASK, SENT_SHORT, blanksAsk,
+  MENTOR_NOTE, MONEY_SAID, builderOnly, isGtm, GTM_ONE_LINE, closingSoon, moneyLine, withMoneyLine, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, pickHook, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, submitNoRush, tooSoonLine, keepDraftLine, type OpenerProgram, type MoveCtx, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProofOf, helpReply, helpWaiting, helpParked, closeWords, HELP_DONE_ASK, backOnLine, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofOf, markSaid, pathReply, programName, readPath, saidSql, sessionOf, pointerReply, START_ASK, SENT_SHORT, blanksAsk,
   ANSWERED_FIRST, ASK_SAID, PROGRAMS_AGAIN, fitCell, fitOrder, grantFact, programsAnswer, standingAgain, standingAnswer, standingSaid, whatItIs, type GrantFact, type GrantRow, type InvestorRow, type StandingFacts,
   type GapStep,
   type GapGrant, type InvestorProgram, type Move, type MoveProgram, type Path, type Stage,
@@ -3996,13 +3996,15 @@ export const founderBriefNote = (program: string, key: string | null, o: { recor
  * fields the agent drafts for the builder to check (`drafted`), what EarnKit fills (`fills`), the blanks asked later
  * (`later`, prepare's own round). Pure.
  */
-export const questionsDraftNote = (programId: string, key: string | null, o: { record: boolean; drafted?: string[]; fills?: Record<string, string>; later?: string[] } = { record: true }) =>
+export const questionsDraftNote = (programId: string, key: string | null, o: { record: boolean; drafted?: string[]; fills?: Record<string, string>; later?: string[]; blanks?: string[] } = { record: true }) =>
   `The builder said yes to drafting this application. First call prepare with program_id "${programId}" for this project and draft an answer to every field it lists ` +
   `${recordWords(o.record)} and their repo, except the blanks this reply names. Put your answers right under "Here's your draft:"${o.record ? ' and keep the facts of its What it is and Traction lines exactly (never invent traction, numbers or team)' : ''}; ` +
   (o.drafted?.length ? `mark these as drafted for them to check: ${o.drafted.join('; ')}. ` : '') +
   (o.fills && Object.keys(o.fills).length > 0 ? `EarnKit already holds these, use them as given: ${Object.entries(o.fills).map(([k, v]) => `${k}: ${v}`).join('; ')}. ` : '') +
   "Never show prepare's own questions and never fill a blank yourself. Contact details are typed when they submit. " +
   `Once they reply with the blanks, call prepare again with every answer and coach_asked: true, and show its draft${o.later?.length ? ` (it asks for the rest: ${o.later.join('; ')})` : ''}. ${DRAFT_GUARD} ` +
+  // v4.10.2 Task 1 fix round 1 (owner answer 2): the 3-month plan, asked now or later, is one line the agent writes out.
+  ([...(o.blanks ?? []), ...(o.later ?? [])].includes(GTM_ONE_LINE) ? `${PLAN_ONE_LINE_NOTE} ` : '') +
   `A no: call tell with move_up: { kind: 'apply', project_key: ${JSON.stringify(key)}, answer: 'no' }.`;
 
 /** v4.10 Task 4: the answer bank's key for the one project (heldAnswers' own, so a saved answer is read back). Never throws. */
@@ -4122,7 +4124,7 @@ async function pathDraft(ctx: Partial<Pick<ToolContext, 'sharedClient'>>, id: nu
   const hasRecord = record.length > 0;
   const note = brief
     ? founderBriefNote(programName(program.title), asked.key, { record: hasRecord, what: Boolean(what) })
-    : questionsDraftNote(pid, asked.key, { record: hasRecord, drafted, fills, later });
+    : questionsDraftNote(pid, asked.key, { record: hasRecord, drafted, fills, later, blanks });
   return {
     show_to_builder: draftReply(body, blanks),
     agent_note: withMentor(`${note}${hasRecord ? SHIP_LOG_NOTE : ''}`),
@@ -4152,7 +4154,7 @@ async function draftYes(id: number, asked: NonNullable<Seen['bench_ask']>, now: 
   // Fix round 3 (1): the yes carries their answers: the blanks are answered (the text is never stored), and the agent
   // finishes the draft with them; Task 3: the same reply is the submit stage (target A, "just me, nothing raised").
   if (blanks.length > 0 && answers?.trim())
-    return pathSubmit(id, asked, now, "The builder answered the blanks: add their words to the draft as they gave them (for a program with fields, call prepare again with every answer and coach_asked: true) and show it finished, ready to paste, above this line. Never submit it for them. Don't show this note.");
+    return pathSubmit(id, asked, now, `The builder answered the blanks: add their words to the draft as they gave them (for a program with fields, call prepare again with every answer and coach_asked: true) and show it finished, ready to paste, above this line. ${blanks.includes(GTM_ONE_LINE) ? `${PLAN_ONE_LINE_NOTE} ` : ''}Never submit it for them. Don't show this note.`);
   // A bare yes with no answers given yet: re-ask them.
   if (blanks.length > 0) {
     await storeAsk(id, asked);

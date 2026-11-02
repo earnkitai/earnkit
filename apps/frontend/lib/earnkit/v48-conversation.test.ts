@@ -14,13 +14,14 @@ import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { serverInstructions } from './mcp';
 import { walletSetupAsk } from './bench-reply';
+import { PLAN_ONE_LINE_NOTE } from './ready-copy';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
 import { isoWeekOf, mondayOf } from './weeks';
 import { backfillMondays } from './week-facts';
 import { X_ON, withEnv } from './fixtures/find';
 import {
-  CAN_DO, ANSWERED_FIRST, DRAFT_NOW_ASK, HELP_DONE_ASK, proofOf, gapProofOf, PREPARE_LINE, PREPARE_LINE_ONE, PROGRAMS_AGAIN, fitCell, grantFact, programsAnswer, standingAgain, standingAnswer, standingSaid, connectedLine, investorLater, noFitWhy, pickHook, openerAgain, openerReply, pickedReply, resolvePick, FOUNDER_BLANKS, MENTOR_NOTE, PATH_ANSWER_FIRST, CODES_OFFER, blanksAgain, SESSION_MS, SENT_ASK, TRACK_ACK, passedLine, sinceLine, submitBy, submitPointer, submitReply, trackLead, bestMove, blanksAsk, closeWords, draftBlanks, draftReply, gapClosedReply, gapProof, gapReply, gapStillReply, pathReply, programName, proofLine, readPath, sessionOf,
+  CAN_DO, ANSWERED_FIRST, DRAFT_NOW_ASK, GTM_ONE_LINE, HELP_DONE_ASK, proofOf, gapProofOf, PREPARE_LINE, PREPARE_LINE_ONE, PROGRAMS_AGAIN, fitCell, grantFact, programsAnswer, standingAgain, standingAnswer, standingSaid, connectedLine, investorLater, noFitWhy, pickHook, openerAgain, openerReply, pickedReply, resolvePick, FOUNDER_BLANKS, MENTOR_NOTE, PATH_ANSWER_FIRST, CODES_OFFER, blanksAgain, SESSION_MS, SENT_ASK, TRACK_ACK, passedLine, sinceLine, submitBy, submitPointer, submitReply, trackLead, bestMove, blanksAsk, closeWords, draftBlanks, draftReply, gapClosedReply, gapProof, gapReply, gapStillReply, pathReply, programName, proofLine, readPath, sessionOf,
   type GapGrant, type InvestorProgram, type Move, type MoveCtx, type MoveProgram,
 } from './conversation';
 import { qualifyGapSteps, BUILDER_CODES_GUIDE } from './bench-reply';
@@ -655,13 +656,16 @@ test("draftBlanks (fix round 2, F1): a founder brief for a16z; Base's blanks are
   assert.deepEqual(b.blanks, ['a note on the founding team', 'your key usage numbers']);
   // Fix round 1: and the contract address on Base, a fact EarnKit holds or the builder gives. v4.10.2 Task 1 (owner
   // answer 2): the GTM plan is the builder's too (a forward plan is a claim the record can't show).
-  assert.deepEqual(b.later, ['a Loom product demo', 'your contract address on Base', 'how it makes money today', 'your GTM plan for the next 3 months', 'your Base Builder Code', 'your main challenge right now', 'the credits you want']);
+  assert.deepEqual(b.later, ['a Loom product demo', 'your contract address on Base', 'how it makes money today', 'your 3-month plan in one line', 'your Base Builder Code', 'your main challenge right now', 'the credits you want']);
   // The agent drafts none of Base's builder fields now.
   assert.deepEqual(b.drafted, []);
   // EarnKit holds the confirmed Builder Code, verified usage and revenue and an owned contract: the team and the demo are the blanks.
   const held = draftBlanks(base, { builder_code: 'bc_abc', usage_numbers: 'Used by 40 people in the last 30 days, verified onchain', revenue: '$120 paid into its contracts by outside wallets in the last 30 days, verified onchain', contract_address: '0x0000000000000000000000000000000000000001' });
   assert.deepEqual(held.blanks, ['a note on the founding team', 'a Loom product demo']);
-  assert.deepEqual(held.later, ['your GTM plan for the next 3 months', 'your main challenge right now', 'the credits you want']);
+  assert.deepEqual(held.later, ['your 3-month plan in one line', 'your main challenge right now', 'the credits you want']);
+  // v4.10.2 Task 1 fix round 1 (owner answer 2): asked first, the plan is one line too.
+  const plan = draftBlanks(base, { builder_code: 'bc_abc', usage_numbers: '40 users', revenue: 'none', contract_address: '0x0000000000000000000000000000000000000001', founding_team: 'me', demo_loom: 'https://loom.com/x' });
+  assert.deepEqual(plan.blanks, ['your 3-month plan in one line', 'your main challenge right now']);
   // Fix round 3 (4): "code" only as a code the builder supplies; a held payout wallet is no blank.
   const fields = (rs: { key: string; label: string; type?: string; kind?: string }[]) => ({ investment: false, submission_requirements: rs.map((r) => ({ kind: 'other', ...r, required: true, from: 'builder' as const, todo: r.label.toLowerCase() })) });
   // v4.10.1 Task 1: a builder field of no kind the agent drafts is the builder's; the codebase is how it works, drafted.
@@ -678,6 +682,10 @@ test("draftBlanks (fix round 2, F1): a founder brief for a16z; Base's blanks are
 });
 
 test('the draft notes (fix round 2, F7, F8): the guard always; with no verified record, never invented traction', () => {
+  // v4.10.2 Task 1 fix round 1: the one-line plan's instruction only when the plan is asked (now or later).
+  assert.ok(questionsDraftNote('p', 'k', { record: true, blanks: [GTM_ONE_LINE] }).includes(PLAN_ONE_LINE_NOTE));
+  assert.ok(questionsDraftNote('p', 'k', { record: true, later: [GTM_ONE_LINE] }).includes(PLAN_ONE_LINE_NOTE));
+  assert.ok(!questionsDraftNote('p', 'k', { record: true, blanks: ['a note on the founding team'] }).includes(PLAN_ONE_LINE_NOTE));
   for (const n of [founderBriefNote('a16z speedrun SR008', 'k', { record: false }), questionsDraftNote('p', 'k', { record: false })]) {
     assert.match(n, /Never tell them they qualify or that an application was sent\./);
     assert.match(n, /no verified record for them yet, so leave traction out and never invent it/);
@@ -783,13 +791,22 @@ test("the Base gap (fix round 2, F10): the hook offers to add Builder Codes; a y
   assert.ok(draft.startsWith("Here's your draft:\n\nTraction: "), draft);
   assert.equal(draft.split('\n\n').at(-1), "Two blanks only you can fill: a note on the founding team, and your key usage numbers. Reply with both and I'll finish it.");
   assert.match(noteOf(dr), /EarnKit already holds these, use them as given: builder_code: bc_earnkit\./);
-  // v4.10.2 Task 1 (owner answer 2): the GTM plan is the builder's, asked later, never drafted for them to check.
+  // v4.10.2 Task 1 (owner answer 2): the GTM plan is the builder's, asked later as one line, never drafted for them to
+  // check; fix round 1: the path's note says to write the full answer from that line and the record only.
   assert.doesNotMatch(noteOf(dr), /mark these as drafted/);
-  assert.match(noteOf(dr), /it asks for the rest: [^)]*your GTM plan for the next 3 months/);
+  assert.match(noteOf(dr), /it asks for the rest: [^)]*your 3-month plan in one line/);
+  assert.match(noteOf(dr), /Their 3-month plan is the builder's one line: write the form's full answer from that line and the record only, adding no facts/);
   // Fix round 3 (1): prepare with their answers (coach_asked) answers the blanks: a yes after it never re-asks.
   await mcpCall(b.ctx as never, 'prepare', { program_id: 'base-builder-grants', project: { name: 'EarnKit', repo_url: `https://github.com/${b.key}` }, coach_asked: true });
   assert.deepEqual(((await seenOf(b.id)).bench_ask as { blanks: string[] }).blanks, []);
   assert.doesNotMatch(show(await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes' })), /^I need/);
+  // v4.10.2 Task 1 fix round 1 (owner answer 2): the plan asked as a blank and answered in one line: the finish note
+  // says to write it out from that line and the record only.
+  const plan = { kind: 'apply', key: b.key, program_id: 'base-builder-grants', path: true, draft: true, blanks: [GTM_ONE_LINE, 'your main challenge right now'] };
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('bench_ask', ${sql().json(plan as never)}::jsonb,
+      'path', jsonb_build_object('stage', 'draft', 'program_id', 'base-builder-grants', 'at', now()::text)) WHERE builder_id = ${b.id}`;
+  const lined = await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes', blanks: 'Grow installs through builder posts on X; user acquisition' });
+  assert.ok(noteOf(lined).includes(PLAN_ONE_LINE_NOTE), noteOf(lined));
 });
 
 test('fix round 2 (F3): a slow re-check answers "I\'m checking the code now..." and goes on in the background', db, async () => {

@@ -675,6 +675,8 @@ const PLAN_KINDS = ['milestones', 'use_of_funds', 'raised', 'team', 'traction'] 
  */
 const GTM = /\bgtm\b|go[- ]to[- ]market/i;
 export const isGtm = (r: Pick<DraftReq, 'key' | 'label'>) => GTM.test(`${r.key.replace(/_/g, ' ')} ${r.label}`);
+/** v4.10.2 Task 1 (owner answer 2): the GTM plan's ask, everywhere it is asked (the ready set and the path's draft). */
+export const GTM_ONE_LINE = 'your 3-month plan in one line';
 /**
  * v4.10.1 Task 1 fix round 1: a contract address is a fact EarnKit holds (heldAnswers: the builder's owned contracts) or
  * the builder gives, never one the agent writes, whatever `from` says.
@@ -710,7 +712,8 @@ export function draftBlanks(
   const required = p.submission_requirements.filter((r) => r.required);
   if (p.investment && required.every((r) => r.kind === 'contact')) return { brief: true, blanks: [...FOUNDER_BLANKS], later: [], drafted: [] };
   const open = required.filter((r) => r.from === 'builder' && r.kind !== 'contact' && !held[r.key]?.trim());
-  const ask = builderOnly(p, held).map((r) => r.todo ?? r.label.toLowerCase());
+  // v4.10.2 Task 1 fix round 1 (owner answer 2): the GTM plan is asked as one line (the draft note says to write it out).
+  const ask = builderOnly(p, held).map((r) => (isGtm(r) ? GTM_ONE_LINE : r.todo ?? r.label.toLowerCase()));
   return { brief: false, blanks: ask.slice(0, MAX_BLANKS), later: ask.slice(MAX_BLANKS), drafted: open.filter((r) => !mustGive(r)).map((r) => r.label) };
 }
 /**
