@@ -9249,9 +9249,10 @@ This supersedes the per-program need in Task 4: the builder answers once for the
   other answer is filled ..." (M1). `readyNeeds(drafts)` (exported, pure) builds the set's one ask:
   - fields are deduped by bank kind (`askKey`; a field of no bankable kind keeps `other:<key>`);
   - the soonest-closing program's fields come first;
-  - `READY_NEED_MAX` is 4 fields. A program whose new fields would pass it waits in `need.later`, named before the
-    ask ("Colosseum also needs ... I'll ask for it next."). The first program always goes.
-  - `ReadyState.need` is `{ programs, titles, phrase, items: [{ kind, phrase, fields: [{ program_id, req }] }], later }`.
+  - `READY_NEED_MAX` is 4 answers. (v4.10.2 R1: the set is now chosen to fit this, so the cap is a safeguard; a
+    program past it waits unnamed and is asked once the others are answered. `need.later` and "I'll ask for it next"
+    are gone.) The first program always goes.
+  - `ReadyState.need` is `{ programs, titles, phrase, items: [{ kind, phrase, fields: [{ program_id, req }] }] }`.
 - **Asked in the yes itself.** The yes reply ends on `readyNeedsAsk(titles, phrase, n)` ("a16z and Base need ... first.
   Reply with them and I'll finish them."). For a non-hosted agent the Builder Codes push is the agent's own work
   (`GAP_DO_NOTE`: push, then call find), and the stored ask is the ready need (written after `gapDoYes`). A hosted agent
@@ -9287,7 +9288,7 @@ This supersedes the per-program need in Task 4: the builder answers once for the
 - **What is a need.** `conversation.ts` `mustGive(r)` (used by `builderOnly` and `draftBlanks`): a required, non-contact
   field the agent can't truthfully draft. That is a plan or claim of any `from` (PLAN_KINDS: milestones, use_of_funds,
   raised, team, traction), or a builder field that `mustAsk` catches, is `multi_choice`, or has a kind outside
-  AGENT_DRAFTABLE. A GTM plan stays drafted (ruling R1). Circle's `integrations` is `from: builder`, kind `other`.
+  AGENT_DRAFTABLE. A GTM plan stayed drafted here (ruling R1); v4.10.2 reverses it: GTM is asked as one line. Circle's `integrations` is `from: builder`, kind `other`.
 - **Contact (R2).** `readyDrafts` puts the unheld contact fields first. They form one ask item, kind `contact`, worded
   by `ready-copy.ts` `contactPhrase`; the agent answers `answers.contact` as `{ [slot]: value }` (`coach.ts` `slotOf`).
   They are banked by slot, so a detail given once is never asked again.
@@ -9295,9 +9296,9 @@ This supersedes the per-program need in Task 4: the builder answers once for the
   revenue lines) and an owned contract on the chain the label names (`used-by.ts` `contractsOf`).
 - **Ask keys.** A field of no bankable kind, or one of two same-kind fields in a program, is keyed `other:<key>`
   (`READY_ANSWERS` takes those keys). A plain `other` answers only a lone `other:` item, so no two fields share an answer.
-  The first program's fields past the cap go to `later` (named, asked next).
-- **Copy.** `readyOpener` says "Every other answer is filled" only when one ask covers every field owed (`rest`);
-  otherwise it says "I've filled what I can from ...".
+  (v4.10.2: no `later`; the set fits one ask.)
+- **Copy.** `readyOpener` says "Every other answer is filled" whenever there are asks (v4.10.2: the `rest` flag and
+  "I've filled what I can" are gone).
 
 ## v4.10.1 Task 2: money and the repeat reply
 
@@ -9383,6 +9384,11 @@ This supersedes the per-program need in Task 4: the builder answers once for the
   listed as "Closed: <title> (<id>)" and their revert re-opens with the state before. Only listable later writes (and
   reverts, takeovers) supersede; a revert also undoes the bot's later unlisted edits, and the confirm page says how
   many. Bot text in the mail is one line (`oneLine`: control characters and line separators become spaces).
+  Fix round 2: the supersede check is bounded (`LIMIT` 1001 later writes; more counts as superseded, so the revert is
+  refused and the digest line has no link: fail closed); a later close supersedes only when it would itself be listed
+  (a close of a program no longer live does not, and the revert undoes it, counted in "also undoes N later edits");
+  "More changes came in" shows only when a listable change remains past the 50-change or 1000-row cap (the scan peeks
+  up to 1000 rows further; the cursor stays where the mail stops).
 - **Owner read.** `GET /api/programs/writes` adds `pending`: unexpired pending rows `{ at, program_id, reason, title,
   submission_url, source_url, expires_at }`.
 - **No schema change.** `program_writes.result` is free text. Tests: `v4101-link-check.test.ts`; the v4.9 tests send
@@ -9397,3 +9403,66 @@ This supersedes the per-program need in Task 4: the builder answers once for the
   them. A chains change re-runs the check. A failed owner email leaves `MAIL_FAILED` on the pending row's reason and
   answers `owner_emailed: false`; the same write sent again re-sends it (same Idempotency-Key). The v4.9 tests pin
   a16z-speedrun's ends_at (it closed 2026-11-02) in their own database.
+
+## v4.10.2: the set fits one reply (2026-11-02, plan: v4.10.2-plan.md)
+
+- **Task 1: the set fits one reply (R1, R2, R8, owner answer 2).**
+  - `ready-set.ts`: `READY_ANSWERS_MAX` 4 (answers across the whole set), `READY_CANDIDATES` 6 (ranked programs drafted
+    to fill it), `readySet(ctx, max)`, pure `fitReadySet(ranked, answersOf, max, cap)`: greedy in rank order, a program
+    joins while the set's distinct answers stay at or under 4 (up to `READY_MAX` programs); one that alone needs more,
+    or doesn't fit beside those before it, goes to `out`. Eligibility stays in `readySet`, the one filter point.
+  - `bench-find.ts`: `answerKeys` / `answersIn` count one per answer (a field's ask key once, a contact detail once per
+    slot), so an answer two programs ask counts once. `readyCommit` drafts the candidates, fits them and keeps the
+    set's drafts; nothing fits: null, and the path answers (its own ask, at most MAX_BLANKS). The opener JSON lists
+    `ready.programs[].asks` for in-set programs only (each answer once, never more than 4) and
+    `ready.also_open: [{ id, title, amount, answers }]` (up to 2 left out).
+  - Copy: the opener head is "{name}, I've started N applications for you{worth}. I need K answers from you first:"
+    (K 0: "got N applications ready for you"). New `readyAlsoLine`, its own paragraph: `Also open: Base Builder Grant,
+    up to $5,000, needs 11 answers from you. Say "start Base" anytime.` A statement, never a question, so `READY_ASK`
+    stays the one easy reply, last. "After that I'll ask for ..." (`readyNeedsLater`) is gone. `READY_ASK_NOTE` tells the
+    agent to call prepare with the id when the builder asks to start a `ready.also_open` program.
+  - **Builder Code (R2).** `readyDrafts` no longer hides the Builder Code field while the codes step waits;
+    `needsPhrase` says "your Base Builder Code (from base.dev)". `heldBuilderCode` (never EARNKIT_BUILDER_CODE) reads
+    `builder_profiles.base_builder_code`, then the builder's `builder_code_claims` (owned, told, newest), then the
+    App-proven repo's `repo_builder_codes`. `readyBank` passes a given code to `tellBuilderCode`.
+  - **GTM as one line.** `conversation.ts`: the `isGtm` exemption is gone from `mustGive` (so GTM is a need), `isGtm` is
+    exported, and `askKey` keys it `other:<key>` (never banked as `milestones`, so it can't pre-fill Circle's
+    roadmap). `needsPhrase`: "your 3-month plan in one line". GTM asks carry `one_line: true` (in
+    `ready.programs[].asks` and `ready.need.asks`); `ready.open` entries (`openEntry`) carry `prefilled` and
+    `expand: ['gtm_plan']` once the line is given. `READY_YES_NOTE` appends `ONE_LINE_NOTE`: write the form's full
+    answer from that line and the record only, no added facts, and show it for them to check. The path asks the GTM
+    plan in one line too (fix round 1).
+  - **prepare agrees (R8).** `draft-application.ts` fills each field the agent left blank from `bench-find.ts
+    preparedHeld` (`heldAnswers` for the named repo, else the main project), after the claimed X handle, never on a
+    shared client. So the kit holds the opted-in email, the owned contract and the banked team.
+- **Task 2: eligibility and chains (R3, R4).**
+  - `program-file.ts` optional `chain_required: boolean` (programs:check refuses it with `any_chain` or no chains).
+    Only `programs/circle-developer-grants.json` sets it (its rule: Arc must be core). `db/schema.sql` column;
+    `programs.ts` upsertProgram, listPrograms and `programCard` (emitted only when true); `present.ts` `Card`.
+  - `bench-find.ts` `notEligible(card, mine)`: chain_required, not any_chain, and none of its chains in the project's
+    known chains (the project row's, Base from this read, reported contracts; the same source as `programNeeds`).
+    `mine` null (the chain read failed) is unknown: never not-eligible, so the program stays a long shot.
+    `planPath` marks the GapGrant `notEligible`; `MoveProgram.notEligible` makes `bestMove` drop it from `open`, so it
+    is never `now`, `one_step`, `closest` or a long shot, even when picked (`pickHook` falls through to `pickWhy`'s
+    chain line plus the closest money). `readySet`'s `open` drops it too. A real fit from the matcher is untouched.
+  - `readyCommit` names up to 2 open, not-skipped not-eligible grants: `ready-copy.ts readyNotEligibleLine` ("Circle
+    Developer Grants is only for an app on Arc, so it doesn't fit EarnKit yet."; two: "A is only for an app on X, and
+    B for an app on Y, so they don't fit EarnKit yet."), after "Also open", before the filled line, no "?", plus
+    `ready.not_eligible: [{ id, title }]` for the agent. It names every chain the program accepts.
+  - **arbitrum (R4).** `chains.ts` CHAINS, CHAIN_NAMES, CHAIN_EXPLAINED; `match.ts` SIGNALS (42161 and arb1.arbitrum.io /
+    arbiscan.io; 421614 and the Sepolia hosts; viem `arbitrum`, `arbitrumSepolia`); `verify.ts` `ARBITRUM_RPC_URL`
+    (default `https://arb1.arbitrum.io/rpc`); `programs/arbitrum-open-house-sao-paulo.json` chains `["arbitrum"]`. No
+    logo (ChainLogo draws only BENCH_CHAINS). `match.test` uses `polygon` as the unknown chain.
+- **Task 3: deadlines and shipping for the agent (R5, R6).**
+  - `deadline.ts timeLeftWords` (hours under 48 via `hoursLeft`, "in N days" from 48 h, null once passed) and
+    `entry-text.ts agentCloses` (adds "rolling"). These are the agent's `closes_in` only: find programs
+    (`withClosesIn`), get_program (`agentClosesIn`, open programs only) and `GET /api/programs` (active only);
+    upcoming and closed stay null. `hoursLeft` and `closesIn` are unchanged, so builder copy (`summaryIn`, `endsCell`)
+    still reads hours only and says nothing at 48 h or more.
+  - `reply-facts.ts shippedLastWeek` comes from the ship-log card of the last finished Monday's row; with no row, the
+    repo reading's commit count for that week (`weekFactsFor`, no summary); a hidden row gives nothing, and never an
+    older week. Before the Monday row exists, it no longer shows the week before.
+- **Task 4: daily revert digest (R7, owner answer 3).** Full entry under v4.10.1 Task 4 above:
+  `program-revert.ts`, `program-revert-page.ts`, `app/api/programs/revert/route.ts`, cron step `revert_digest` in the
+  existing cron (once per UTC day, owner_alerts `program-revert-digest`, no new service, no schema change). The revert
+  token is signed under its own prefix (`program-revert:v1`), so an approve token never reverts and a revert token never approves.

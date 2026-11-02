@@ -2805,7 +2805,7 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
     `ReadyState.given`, `ReadyDraft.only`/`ends_at`, `askKey`, `answerKind`, `needAsk`, `needFields`, `readyBank`,
     `readySettle`, `needStored`, `codesStored`, `openRows`, the exported type `ReadyAnswers`. `pathPlan` adds chain
     mismatches to `longShots`. `readyYes` returns null on a state conflict, and `readyAnswer` retries once.
-  - `ready-copy.ts`: `needsList`, `readyNeedsAsk(titles, needs, count)` (plural-safe), `readyNeedsLater`,
+  - `ready-copy.ts`: `needsList`, `readyNeedsAsk(titles, needs, count)` (plural-safe), `readyNeedsLater` (removed in v4.10.2),
     `readyStillNeeds`; `readyYesReply` takes `codes`; `readyOpener` says "Every other answer" when needed.
   - `program-file.ts` `READY_ANSWERS` (tools.ts and mcp.ts `move_up.answers`; `skip` up to 10).
   - `fixtures/test-guard.ts` sets `EARNKIT_TEST_GUARD`. `fixtures/converse.ts` `BLANKS_REPLY` (finish them) and
@@ -2817,9 +2817,9 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
 
 - `conversation.ts` `mustGive`, `builderOnly`. `programs/circle-developer-grants.json` `integrations`.
 - `bench-find.ts` `readyDrafts` (contact first), `askKey(r, only)`, `draftAsks`, `itemPhrase`, `readyNeeds` (first
-  program's rest in `later`), `needFields` (contact `slots`), `readyBank` (per-slot contact, keyed `other:`),
+  program's rest in `later`; gone in v4.10.2), `needFields` (contact `slots`), `readyBank` (per-slot contact, keyed `other:`),
   `heldAnswers` (email, revenue, contract address), `readyCommit` (`rest`).
-- `ready-copy.ts` `contactPhrase`, `needsPhrase` (wh- and "the" todos as written), `readyOpener({ rest })`.
+- `ready-copy.ts` `contactPhrase`, `needsPhrase` (wh- and "the" todos as written), `readyOpener({ rest })` (v4.10.2: `{ asks, also }`).
 - `program-file.ts` `READY_ANSWERS` and `ReadyAnswers`. `coach.ts` `slotOf` (exported).
 - `fixtures/converse.ts` `lazyNext` (contact slots); `scripts/converse-replay.mts` `ANSWERS`.
 - Tests: `v410-find.test.ts` (`v4.10.1 (1)`, `(2)`), `v410-ready.test.ts` (pure).
@@ -2855,6 +2855,22 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
   `officialUrlProblem`; `programs-read.ts` and `app/api/programs/writes/route.ts` add `pending`;
   `app/api/programs/approve/route.ts` (GET confirm page, POST approve).
 - Tests: `v4101-link-check.test.ts`, `v49-programs-api.test.ts`.
+
+## v4.10.2 Tasks 1 to 3: fits one reply, eligibility, agent deadlines
+
+- **Task 1**: `ready-set.ts` `READY_ANSWERS_MAX`, `READY_CANDIDATES`, `fitReadySet`, `readySet(ctx, max)`. `bench-find.ts`
+  `answerKeys`, `answersIn`, `readyCommit` (fit, `also`), `readyNeeds` (caps on answers; `ReadyNeed.later` gone),
+  `heldBuilderCode`, `preparedHeld`, `openEntry` (`prefilled`, `expand`). `ready-copy.ts` `readyAlsoLine`,
+  `readyOpener({ asks, also })`, `needsPhrase` (Builder Code, GTM one line); `readyNeedsLater` removed. `conversation.ts`
+  `isGtm` exported, GTM out of the `mustGive` exemption. `draft-application.ts` fills blanks from `preparedHeld`.
+  Tests: `v410-find.test.ts`, `v410-ready.test.ts`.
+- **Task 2**: `program-file.ts` `chain_required`; `programs/circle-developer-grants.json`; `programs/README.md`;
+  `db/schema.sql`, `programs.ts` (upsert, list, `programCard`), `present.ts` `Card.chain_required`. `bench-find.ts`
+  `notEligible`, `GapGrant.notEligible`; `conversation.ts` `MoveProgram.notEligible`; `ready-copy.ts`
+  `readyNotEligibleLine`. arbitrum: `chains.ts`, `match.ts` SIGNALS, `verify.ts` `ARBITRUM_RPC_URL`,
+  `programs/arbitrum-open-house-sao-paulo.json`. Tests: `v4102-eligible.test.ts`, `v410-find.test.ts`.
+- **Task 3**: `deadline.ts` `timeLeftWords`; `entry-text.ts` `agentCloses`; `tools.ts`/`mcp.ts`/`app/api/programs` closes_in;
+  `reply-facts.ts` `shippedLastWeek`. Tests: `v482-fixes.test.ts`, `v31-answerable.test.ts`.
 
 ## v4.10.2 Task 4: daily revert digest
 
