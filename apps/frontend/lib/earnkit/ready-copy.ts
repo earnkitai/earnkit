@@ -222,6 +222,14 @@ export function readyStillNeeds(titles: readonly string[], needs: string, count:
   const who = shortList(titles);
   return `Still waiting on ${needs} for ${list(who)}. Reply with ${count === 1 ? 'it' : count === 2 ? 'both' : 'them'} and I'll finish ${who.length > 1 ? 'them' : 'it'}.`;
 }
+/**
+ * Final fix 2 (I2): an answer turn that leaves only the codes says what waits on them, before PUSHED_ASK: "Base opens
+ * once Builder Codes are in your repo." Pure.
+ */
+export function readyCodesWait(titles: readonly string[]): string {
+  const who = shortList(titles);
+  return `${list(who)} ${who.length > 1 ? 'open' : 'opens'} once Builder Codes are in your repo.`;
+}
 /** v4.10 Task 4 (R8): a no parks the whole set. Pure. */
 export const readyNoLine = (names: readonly string[]) => `No problem, I'll set ${list(names)} aside.`;
 /** v4.10 Task 4: "sent" for more than one page (conversation.ts TRACK_ACK for one). Pure. */

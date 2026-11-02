@@ -929,3 +929,18 @@ test('v4.10.1 final fix 2 (I1): a ready opener while the score is updating has n
   assert.doesNotMatch(show(opener), /updating/, show(opener));
   assert.equal((await seenOf(b.id)).said && ((await seenOf(b.id)).said as { keys: string[] }).keys.includes(UPDATING_SAID), false, 'the line waits for a reply with numbers');
 });
+
+test('v4.10.1 final fix 2 (I2): an answer turn that leaves only Builder Codes says Base waits on them before the push ask', db, async () => {
+  await ownerPrograms();
+  const b = await owner('i2');
+  await find(b);
+  const yes = await tell(b, { kind: 'ready', project_key: b.key, answer: 'yes' });
+  assert.equal(moveUp(yes)?.kind, 'ready', show(yes));
+  // Each ask takes only its own fields: Base's and a16z's first, then Circle's.
+  await tell(b, { kind: 'ready', project_key: b.key, answer: 'yes', answers: OWED });
+  const answered = await tell(b, { kind: 'ready', project_key: b.key, answer: 'yes', answers: OWED });
+  assert.match(show(answered), /^2 of 3 are open with every answer in place:/, show(answered));
+  const last = show(answered).split('\n\n').at(-1)!;
+  assert.equal(last, `Base opens once Builder Codes are in your repo. ${PUSHED_ASK}`, show(answered));
+  assert.doesNotMatch(show(answered), BAD);
+});

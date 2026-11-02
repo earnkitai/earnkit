@@ -65,7 +65,7 @@ import { appProvenRepo, builderCodesKnown, builderCodesWords, checkBuilderCodes,
 import { bankKeepsContact, projectKey, readBank, saveBank } from './answer-bank';
 import { readySet, worthUpTo, type ReadyProgram } from './ready-set';
 import {
-  READY_ASK_NOTE, READY_NEEDS_NOTE, READY_NOTE, READY_SENT_NOTE, READY_YES_NOTE, contactPhrase, needsList, needsPhrase, readyAgain, readyNeedsAsk, readyNeedsLater,
+  READY_ASK_NOTE, READY_NEEDS_NOTE, READY_NOTE, READY_SENT_NOTE, READY_YES_NOTE, contactPhrase, needsList, needsPhrase, readyAgain, readyCodesWait, readyNeedsAsk, readyNeedsLater,
   readyNoLine, readyOpenList, readyOpener, readySentAgain, type AgainProgram, readySentAsk, readyStillNeeds, readyYesReply, shortName, skipReply,
 } from './ready-copy';
 import { bankFill, slotOf } from './coach';
@@ -1748,7 +1748,9 @@ async function readyYes(
   const shownOpen = o.after ? [...(await openRows(r.opened, titleOf)).map(openRow), ...newRows] : newRows;
   const gShow = typeof g?.show_to_builder === 'string' ? g.show_to_builder : '';
   // The one easy reply, last: the builder's answers, else the push's ok while the codes wait, else "sent".
-  const tail = need ? needAsk(need) : pending.length > 0 ? (hosted ? HELP_DONE_ASK : PUSHED_ASK) : readySentAsk(shownOpen.length);
+  // Final fix 2 (I2): an answer turn's push ask names what still waits on the codes (the adding line was turns ago).
+  const pushed = o.after ? `${readyCodesWait(pending.map(titleOf))} ${PUSHED_ASK}` : PUSHED_ASK;
+  const tail = need ? needAsk(need) : pending.length > 0 ? (hosted ? HELP_DONE_ASK : pushed) : readySentAsk(shownOpen.length);
   const parts = g
     ? [
         // Final fix (M2): the adding line names what the codes open.
