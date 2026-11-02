@@ -177,8 +177,19 @@ const req = (body: unknown, o: { auth?: string | null } = {}) =>
     },
     body: typeof body === 'string' ? body : JSON.stringify(body),
   });
-const send = async (body: unknown, deps: WriteDeps = noNet, o: { auth?: string | null } = {}) => {
-  const res = await programsWritePost(req(body, o), deps);
+/**
+ * v4.10.1 Task 4 (R4): a create or a new submission_url goes live only when its link checks out, so these writes send
+ * the official site (the source's origin) unless the test sets official_url itself (or `bare` leaves it out).
+ */
+const withOfficial = (body: unknown) => {
+  const b = body as { action?: unknown; program?: Record<string, unknown> } | null;
+  if (typeof body !== 'object' || b?.action !== 'upsert' || !b.program || 'official_url' in b.program || typeof b.program.source_url !== 'string')
+    return body;
+  if (!URL.canParse(b.program.source_url)) return body;
+  return { ...b, program: { ...b.program, official_url: `${new URL(b.program.source_url).origin}/` } };
+};
+const send = async (body: unknown, deps: WriteDeps = noNet, o: { auth?: string | null; bare?: boolean } = {}) => {
+  const res = await programsWritePost(req(o.bare ? body : withOfficial(body), o), deps);
   const text = await res.text();
   let parsed: unknown = text;
   try {
@@ -459,12 +470,14 @@ test('v4.9 T2: logs never carry the token or a body', () => {
     assert.doesNotMatch(line.replace(/\$\{errTag\(err\)\}/g, ''), /TOKEN|body|text|raw|err\b|authorization|message/i, line.trim());
 });
 
-test('v4.9 T2 fix round 0: a Questbook submission_url is accepted', db, withToken(async () => {
+test('v4.9 T2 fix round 0: a Questbook submission_url is accepted (v4.10.1 R4: held pending for the owner, never refused)', db, withToken(async () => {
   const id = `v49-qb-${process.pid}`;
   const r = await send({ action: 'upsert', program: apiProgram(id, { submission_url: 'https://circle.questbook.app/' }) });
-  assert.deepEqual([r.status, r.body.result], [200, 'created'], JSON.stringify(r.body));
-  const [row] = await sql()<{ submission_url: string }[]>`SELECT submission_url FROM programs WHERE id = ${id}`;
-  assert.equal(row.submission_url, 'https://circle.questbook.app/');
+  assert.deepEqual([r.status, r.body.result, r.body.live], [202, 'pending', false], JSON.stringify(r.body));
+  assert.equal((await sql()`SELECT 1 FROM programs WHERE id = ${id}`).length, 0, 'nothing is live until the owner approves');
+  const [w] = await writes(id);
+  assert.equal(w.result, 'pending');
+  assert.equal((w.body as { submission_url: string }).submission_url, 'https://circle.questbook.app/');
 }));
 
 test('v4.9 T2 fix round 0: a 401, 403 or 429 probe answer passes (a bot wall); 404, 410, 5xx and network errors fail', async () => {
@@ -1007,17 +1020,24 @@ test('v4.9 T3: docs/programs-api.md: its example passes every check (the curated
   assert.equal(doc.includes('—'), false, 'no em dashes');
   const example = JSON.parse(/```json\n([\s\S]*?)\n```/.exec(doc)![1]) as { action: string; program: Record<string, unknown> };
   assert.equal(example.action, 'upsert');
-  const body = { ...example.program, verified_at: today };
+  const body: Record<string, unknown> = { ...example.program, verified_at: today };
   assert.deepEqual(notWritableFields(body), []);
-  const parsed = ProgramFile.parse(body);
+  // v4.10.1 Task 4: official_url is checked, never stored on the program.
+  assert.equal(body.official_url, 'https://www.base.org/');
+  const { official_url: _checkedOnly, ...stored } = body;
+  const parsed = ProgramFile.parse(stored);
   assert.deepEqual(programProblems(parsed, { publicDir: PUBLIC }), []);
   assert.deepEqual(apiRuleProblems(parsed, new Date()), []);
   // Sent as is, the curated id is a 409, as the guide says.
   const r = await send({ action: 'upsert', program: body });
   assert.equal(r.status, 409);
   assert.deepEqual(r.body.problems, [curatedLine('base-builder-grants')]);
-  // Under a fresh id it is created.
-  assert.equal((await send({ action: 'upsert', program: { ...body, id: `v49-doc-${process.pid}` } })).body.result, 'created');
+  // Under a fresh id it waits for the owner (v4.10.1 R4: its form is on forms.gle), as the guide says.
+  const fresh = await send({ action: 'upsert', program: { ...body, id: `v49-doc-${process.pid}` } });
+  assert.deepEqual([fresh.status, fresh.body.result], [202, 'pending']);
+  // On its own site it is created.
+  const own = { ...body, id: `v49-doc2-${process.pid}`, submission_url: 'https://docs.base.org/get-started/builders' };
+  assert.equal((await send({ action: 'upsert', program: own })).body.result, 'created');
   // Every writable field is named in the guide.
   for (const f of [...API_FIELDS, ...API_REQUIREMENT_FIELDS]) assert.ok(doc.includes(`\`${f}\``), f);
 }));

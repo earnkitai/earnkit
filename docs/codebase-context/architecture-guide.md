@@ -9334,3 +9334,38 @@ This supersedes the per-program need in Task 4: the builder answers once for the
   `tools.ts` `withFacts` drops `facts.rank` and `facts.streak` on such a reply. The next reply carries the fresh numbers.
 - **Gate.** `fixtures/converse.ts` `noRecord` exempts an opener that said `updating` from the opener proof rule (it may
   state no number); a later hook still needs a proof.
+
+## v4.10.1 Task 4: programs API link check (R4)
+
+- **Why.** The owner's 2026-11-02 dogfood: a bot write with a lookalike domain (source and submission both on
+  `base-grants.org`) passed every check and went live. Owner ruling: "Live if link checks out".
+- **The check** (`submit-hosts.ts`, pure). `linkChecksOut(host, anchors)`: never on a `LINK_PLATFORMS` host (Google
+  Forms, forms.gle, Typeform, Tally, Questbook, Airtable, DoraHacks, Devfolio, HackQuest; subdomains count), else
+  `sameSite(host, anchor)` for some anchor: the same `registrableDomain` (the last two labels, three under
+  `MULTI_SUFFIXES`; no PSL in the repo), but only the exact host on an `API_SHARED_SITES` domain, a multi-label suffix
+  or a suffix-looking `<co|com|org|net|gov|edu|ac|or|ne|go>.<cc>` domain (the heuristic's guard for a country suffix the
+  list lacks), and never a path-owned host (github.com).
+- **Anchors** (`program-pending.ts linkAnchors`): the write's `official_url` host, plus each live program (active and
+  not past ends_at, or upcoming; file or api) sharing a chain: its submission host, and its source host only for a file
+  program (an API source_url was never checked). An approved program is live, so its site anchors its chains from then.
+- **When.** `programs-api.ts applyUpsert`, inside the write transaction after the `FOR UPDATE` read: a create, or a
+  write whose `submission_url` differs from the row's. `official_url` (`api-program-text.ts API_CHECK_FIELDS`) is
+  split off before `ProgramFile` parses, checked by `urlRuleProblem` (the same URL hygiene), and never stored.
+- **Pending.** A `program_writes` row `result 'pending'`, `reason` (`pendingReason`) and the checked body; nothing in
+  `programs` (a link change leaves the live row on its old link), so no discovery filter changed. Answers 202
+  `{ ok, id, result: 'pending', category, live: false, reason }`. An identical pending body within 7 days is reused
+  under `pg_advisory_xact_lock`, so a retry never mails twice. After commit, `mailPending` sends one `ownerMail`
+  (Idempotency-Key `program-pending:<write id>`); a failed send is logged and the write stays pending.
+- **Approve link** (`program-pending.ts`, `program-approve.ts`, `app/api/programs/approve/route.ts`). Token
+  `<write id>.<expires>.<HMAC-SHA256(EARNKIT_AUTH_SECRET, "program-approve:v1:<id>:<expires>")>`, 7 days from the
+  write, checked with `timingSafeEqual` before any read. GET shows the program as escaped text and one button whose
+  form posts to the relative `/api/programs/approve?t=...` (no URL from the request is ever echoed as a link; CSP
+  `form-action 'self'; frame-ancestors 'none'`, no-store, no-referrer). POST runs `approveWrite`: the write's checks
+  again (verified_at as of the write, ends_at as of now, curated, links load), then `applyUpsert` in approve mode,
+  which locks the pending row, marks it `superseded` when a newer write for the id exists, else upserts and flips it to
+  `approved` in the same transaction (single use), plus an audit row `approved write <id>`. Bad 400, expired 410,
+  already handled or superseded 409, a failed check 400 (stays pending). 404 while the API is off.
+- **Owner read.** `GET /api/programs/writes` adds `pending`: unexpired pending rows `{ at, program_id, reason, title,
+  submission_url, source_url, expires_at }`.
+- **No schema change.** `program_writes.result` is free text. Tests: `v4101-link-check.test.ts`; the v4.9 tests send
+  the source's origin as `official_url` (the Questbook create and the guide's forms.gle example now wait).

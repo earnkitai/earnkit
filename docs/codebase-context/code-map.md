@@ -281,6 +281,8 @@ apps/frontend/
                                (programs-read.ts programWritesGet; the write API's token gate)
   app/api/programs/write/route.ts  v4.9 T2: POST, the programs write API (lib/earnkit/programs-api.ts); 404 until
                                EARNKIT_PROGRAMS_TOKEN is set, or with EARNKIT_PROGRAMS_API=off
+  app/api/programs/approve/route.ts  v4.10.1 T4: GET confirm page, POST approve of a pending program write
+                               (lib/earnkit/program-approve.ts; signed token, 7 days, single use); 404 while the API is off
   app/api/stats/route.ts       v2.5 Task 9: GET public stats JSON (revalidate 600, prerendered when
                                the build has a DATABASE_URL; plus unstable_cache 600 s on the read,
                                for builds without one, where it renders per request); 503 no-store
@@ -1184,7 +1186,8 @@ apps/frontend/
     submit-hosts.ts            v2.8 Task 10: HOST_MODES and ENTRY_LINK_HOSTS (Rulings 27, 28),
                                the no-agent hosts (DoraHacks, Questbook), prefill and agent-API
                                platforms by host; v3.1 final review: SHARED_HOSTS, MULTI_SUFFIXES, proofHostAllowed
-                               (program-file.ts proof_hosts). Pure, no imports
+                               (program-file.ts proof_hosts). Pure, no imports. v4.10.1 T4: LINK_PLATFORMS,
+                               linkPlatformName, sameSite, linkChecksOut (R4's link check)
     coach.ts(+test)            v2.8 Task 9: the application coach. DEFAULT_GUIDANCE per field kind,
                                guidanceFor, coachFields, askableKeys, questionsFor (Ruling 26,
                                C15), coachIntro,
@@ -1388,7 +1391,13 @@ apps/frontend/
                                curated 409 (programs/ file or non-api row), probeLink (safeProbe; 401/403/429 pass), then upsertProgram(p,
                                'api') in a tx with an unchanged snapshot check; program_writes audit rows;
                                noteFileTakeover for programs-sync. v4.9 T3: programsAuthFailure (the 404/401 gate
-                               shared with GET /api/programs/writes). Tests: v49-programs-api.test.ts
+                               shared with GET /api/programs/writes). Tests: v49-programs-api.test.ts. v4.10.1 T4:
+                               applyUpsert holds a create or new submission_url whose link doesn't check out as a
+                               pending write (202); approveWrite applies one; urlRuleProblem; official_url
+    program-pending.ts         v4.10.1 T4: approve token (approveToken/approveTarget/approveExpiry, HMAC under
+                               EARNKIT_AUTH_SECRET), linkAnchors, pendingReason, the owner's email (mailPending)
+    program-approve.ts         v4.10.1 T4: programApproveGet (confirm page) and programApprovePost (approve).
+                               Tests: v4101-link-check.test.ts
     programs-cache.ts          v4.9 T3 fix 1: PROGRAMS_TAG and programsChanged(id) (revalidateTag + the home, guide,
                                sitemap and (final fix F2) /api/stats paths) after an API write changes a program
     api-stale.ts               v4.9 final fix: API_STALE_DAYS (14), apiStale(row, now), freshSql(db, alias, now?) (the
@@ -1396,7 +1405,7 @@ apps/frontend/
                                and hiddenFor(row, installationId) (the by-id gate). Tests: v49-programs-api.test.ts
     programs-read.ts           v4.9 T3: readListedPrograms (landing listedCards + landingTiles, money = site-copy
                                tileMoney), byListOrder, programsListGet (GET /api/programs), programWritesGet (GET
-                               /api/programs/writes). Tests: v49-programs-api.test.ts
+                               /api/programs/writes; v4.10.1 T4 adds `pending`). Tests: v49-programs-api.test.ts
     api-program-text.ts        v4.9 T2: API_FIELDS/API_REQUIREMENT_FIELDS (the write allowlist, notWritableFields),
                                apiTextProblems (hidden/format characters and non-NFKC text refused, no < >, markdown links, cleanText link detection, title 120 and
                                organizer 80 caps; stored as written), API_CONTENT (the written-by envelope on find,

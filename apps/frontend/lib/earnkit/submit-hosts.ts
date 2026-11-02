@@ -165,3 +165,46 @@ const onPathOwned = (host: string) => under(host, API_PATH_OWNED);
 /** How a submission problem names the source's site: its exact host on a shared site, else its registrable domain. Pure. */
 export const sourceSiteName = (sourceHost: string) =>
   onSharedSite(registrableDomain(sourceHost)) ? normalHost(sourceHost) : registrableDomain(sourceHost);
+
+/**
+ * v4.10.1 Task 4 (R4): the form and hackathon platforms where anyone can publish a page, so a submission link there
+ * never checks out on its own (R4 names the form platforms; DoraHacks, Devfolio and HackQuest host anyone's hackathon
+ * too). Subdomains count (circle.questbook.app).
+ */
+export const LINK_PLATFORMS = [
+  ['forms.gle', 'Google Forms'], ['docs.google.com', 'Google Docs'], ['typeform.com', 'Typeform'], ['tally.so', 'Tally'],
+  ['questbook.app', 'Questbook'], ['airtable.com', 'Airtable'], ['dorahacks.io', 'DoraHacks'], ['devfolio.co', 'Devfolio'],
+  ['hackquest.io', 'HackQuest'],
+] as const;
+/** The platform a host is on (LINK_PLATFORMS), by name, or null. Pure. */
+export const linkPlatformName = (host: string): string | null =>
+  LINK_PLATFORMS.find(([d]) => under(normalHost(host), [d]))?.[1] ?? null;
+
+/**
+ * Registrable-domain heuristic (no public suffix list in the repo): registrableDomain's last two labels, or three under
+ * MULTI_SUFFIXES. Its limit is a country's second-level suffix that list lacks ("co.ke", "com.ng"): that would read as
+ * one domain shared by everyone under it. So a two-label "<co|com|org|net|gov|edu|ac|or|ne|go>.<2 letters>" is treated
+ * as a suffix, and only the exact host matches there. Pure.
+ */
+const looksLikeSuffix = (domain: string) => /^(co|com|org|net|gov|edu|ac|or|ne|go)\.[a-z]{2}$/.test(domain);
+
+/**
+ * Whether `host` is on the same site as `site`: the same registrable domain (base.org, docs.base.org, www.base.org;
+ * never base-grants.org or base.org.evil.com), but on a shared site (API_SHARED_SITES) or a suffix-looking domain
+ * only the exact host, and never a host whose owners differ by path. Pure.
+ */
+export function sameSite(host: string, site: string): boolean {
+  const h = normalHost(host);
+  const s = normalHost(site);
+  const domain = registrableDomain(h);
+  if (domain !== registrableDomain(s) || !domain.includes('.')) return false;
+  if (!onSharedSite(domain) && !looksLikeSuffix(domain) && !MULTI_SUFFIXES.has(domain)) return true;
+  return h === s && !onPathOwned(h);
+}
+
+/**
+ * R4: whether a submission host checks out: never on a LINK_PLATFORMS platform, else on the same site (sameSite) as
+ * one of `anchors` (the official site, or live programs' sites for the program's chains). Pure.
+ */
+export const linkChecksOut = (host: string, anchors: readonly string[]): boolean =>
+  linkPlatformName(host) === null && anchors.some((a) => sameSite(host, a));

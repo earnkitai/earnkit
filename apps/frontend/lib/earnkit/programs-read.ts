@@ -4,6 +4,7 @@ import { json } from './http';
 import { landingTiles, listedCards } from './landing';
 import { PROGRAM_CATEGORIES, categoryOf, type Category } from './program-file';
 import { listPrograms } from './programs';
+import { APPROVE_TTL_DAYS, approveExpiry } from './program-pending';
 import { programsAuthFailure } from './programs-api';
 import { tileMoney } from './site-copy';
 import type { Chain } from './match';
@@ -143,14 +144,32 @@ export async function programsListGet(
   return json({ ok: true, programs }, 200, { 'Cache-Control': 'public, max-age=60' });
 }
 
-/** GET /api/programs/writes: the last WRITES_MAX program_writes rows, newest first, never `body`. */
-export async function programWritesGet(request: Request): Promise<Response> {
+/**
+ * GET /api/programs/writes: the last WRITES_MAX program_writes rows, newest first, never `body`; and (v4.10.1 Task 4)
+ * `pending`: the writes waiting for the owner's approval whose link still works (at most WRITES_MAX, newest first),
+ * each with the program's title and links from its body and when the link expires.
+ */
+export async function programWritesGet(request: Request, now = new Date()): Promise<Response> {
   const denied = programsAuthFailure(request);
   if (denied) return denied;
   try {
     const writes = await sql()<{ at: Date; program_id: string | null; action: string; result: string; reason: string | null }[]>`
       SELECT at, program_id, action, result, reason FROM program_writes ORDER BY id DESC LIMIT ${WRITES_MAX}`;
-    return json({ ok: true, writes });
+    const held = await sql()<{ at: Date; program_id: string | null; reason: string | null; title: unknown; submission_url: unknown; source_url: unknown }[]>`
+      SELECT at, program_id, reason, body->'title' AS title, body->'submission_url' AS submission_url, body->'source_url' AS source_url
+      FROM program_writes WHERE result = 'pending' AND at > ${new Date(now.getTime() - APPROVE_TTL_DAYS * 86_400_000)}
+      ORDER BY id DESC LIMIT ${WRITES_MAX}`;
+    const text = (v: unknown) => (typeof v === 'string' ? v : null);
+    const pending = held.map((w) => ({
+      at: w.at,
+      program_id: w.program_id,
+      reason: w.reason,
+      title: text(w.title),
+      submission_url: text(w.submission_url),
+      source_url: text(w.source_url),
+      expires_at: new Date(approveExpiry(new Date(w.at)) * 1000),
+    }));
+    return json({ ok: true, writes, pending });
   } catch (err) {
     console.error('[programs-read] writes failed', (err as { name?: string } | null)?.name ?? 'unknown');
     return json({ ok: false, error: 'EarnKit is busy. Try again in a minute.' }, 503, { 'Retry-After': '30' });
