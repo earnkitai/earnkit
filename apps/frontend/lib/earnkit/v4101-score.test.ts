@@ -93,11 +93,18 @@ async function landRefresh(id: number, weeks: string[] = [...SIX, THIS_WEEK]) {
     FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo'`;
 }
 
+/**
+ * v4.10.2 Task 2 (R3): the project is on Arc, so Circle Developer Grants (chain_required) is eligible and find opens on
+ * the ready set (off Arc it is not eligible, nothing else fits one reply, and the path answers instead).
+ */
+const onArc = (id: number) => sql()`UPDATE builder_projects SET chains = ARRAY['arc']::text[] WHERE builder_id = ${id}`;
+
 const ctxOf = (id: number, reader: ReaderDeps) =>
   ({ installationId: id, ownInstallationId: id, sharedClient: false, readerDeps: reader, matchProjects: (async () => ({ checked: 1, scored: 0, fits: [] })) as never }) as never;
 
 test('finding 4 on a Monday: find\'s refresh still running past its wait says no number, only that they are updating; score then has the fresh 73 and 7 weeks', db, async () => {
   const b = await monday69('fsc');
+  await onArc(b.id);
   const slow = slowReader();
   const ctx = ctxOf(b.id, slow.reader);
   const t0 = performance.now();
@@ -197,6 +204,7 @@ test('a fast refresh: find shows the same numbers score shows', db, async () => 
 
 test('the merge gate: a session opening on the updating reply, then the fresh one, passes (proof rule included)', db, async () => {
   const b = await monday69('fsg');
+  await onArc(b.id);
   const slow = slowReader();
   const ctx = ctxOf(b.id, slow.reader);
   const { conversation } = await import('./fixtures/converse');

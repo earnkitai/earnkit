@@ -119,6 +119,11 @@ export type MoveProgram = {
   max_usd?: number | null;
   /** v4.10 Task 2: for a long-shot grant, why it is one (the fit cell's reason: "they look for apps on Arc"); absent reads as null. */
   why?: string | null;
+  /**
+   * v4.10.2 Task 2 (R3): its rule requires a chain the project doesn't use (bench-find.ts notEligible): never a move,
+   * never in the ready set, since the builder can't truthfully answer it. Absent reads as false.
+   */
+  notEligible?: boolean;
 };
 /**
  * An open grant the project doesn't fit, with what it needs: `gaps` (each a step; none known: it can apply now), `gap`
@@ -191,7 +196,8 @@ const byClose = <P extends Pick<MoveProgram, 'ends_at'>>(a: P, b: P) => closeAt(
  */
 export function bestMove(ctx: MoveCtx): Move {
   const t = ctx.now.getTime();
-  const open = <P extends MoveProgram>(p: P) => !ctx.skip.has(p.id) && closeAt(p) > t;
+  // v4.10.2 Task 2 (R3): a not-eligible program is never a move, picked or not.
+  const open = <P extends MoveProgram>(p: P) => !ctx.skip.has(p.id) && closeAt(p) > t && p.notEligible !== true;
   const fits = ctx.fits.filter((p) => open(p) && !p.investment).sort(byClose);
   const soon = (p: MoveProgram, ms: number) => closeAt(p) - t <= ms;
   const now = ctx.grants.filter((g) => open(g) && !g.investment && g.gaps.length === 0 && soon(g, NOW_WINDOW_MS)).sort(byClose);

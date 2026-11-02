@@ -66,7 +66,7 @@ import { bankKeepsContact, projectKey, readBank, saveBank } from './answer-bank'
 import { READY_CANDIDATES, fitReadySet, readySet, worthUpTo, type ReadyProgram } from './ready-set';
 import {
   PLAN_ONE_LINE_NOTE, READY_ASK_NOTE, READY_NEEDS_NOTE, READY_NOTE, READY_SENT_NOTE, READY_YES_NOTE, contactPhrase, needsList, needsPhrase, readyAgain, readyCodesWait, readyNeedsAsk,
-  readyNoLine, readyOpenList, readyOpener, readySentAgain, type AgainProgram, readySentAsk, readyStillNeeds, readyYesReply, shortName, skipReply,
+  readyNoLine, readyNotEligibleLine, readyOpenList, readyOpener, readySentAgain, type AgainProgram, readySentAsk, readyStillNeeds, readyYesReply, shortName, skipReply,
 } from './ready-copy';
 import { bankFill, slotOf } from './coach';
 import { FIELD_KINDS, type ReadyAnswers, type SubmissionRequirement } from './program-file';
@@ -916,7 +916,9 @@ async function pathPlan(o: ViewIn, v: PathFacts, told: Set<string>, w: { wide?: 
     const fact = cardFact(c, needs, myChains(v, o.known));
     if (fact.kind === 'chain') longShots.add(c.id);
     const why = c.tag === 'long shot' || longShots.has(c.id) ? fitCell(false, fact).replace(/^Not yet: /, '') : null;
-    return { ...moveProgram(c), why, gaps: needs, gap: needs.length > 0 ? needsWhy(v.project.name, c.title, needs) : '', passed: recent(noAt), passedAt: recent(noAt) ? noAt : null, doable: false };
+    // v4.10.2 Task 2 (R3): its rule requires a chain the project isn't on: not eligible (never a move or in the set).
+    const off = notEligible(c, known.chains);
+    return { ...moveProgram(c), why, ...(off && { notEligible: true }), gaps: needs, gap: needs.length > 0 ? needsWhy(v.project.name, c.title, needs) : '', passed: recent(noAt), passedAt: recent(noAt) ? noAt : null, doable: false };
   }))).filter((g): g is GapGrant => g !== null);
   // Fix round 1 (1): a grant raised in this session stays the move while the path is on it (its pointer answers).
   const live = !sessionOf(seen, now).fresh;
@@ -1352,7 +1354,11 @@ async function readyCommit(o: ViewIn, plan: PathPlan, picked: ReadyProgram[]): P
   const hosted = (o.reach ?? (await agentReach(o.own, id))).hosted;
   const name = greetingOf(read.xName, sessionOf(read.seen, now).said);
   const asks = new Set(drafts.flatMap((d) => answerKeys(d.only))).size;
-  const show = readyOpener({ name, set, worth: worthUpTo(set), page: pageUrl(v.handle), hosted, now, asks, also });
+  // v4.10.2 Task 2 (R3): up to 2 open programs left out as not eligible, said in one line (a statement).
+  const off = plan.ctx.grants.filter((g) => g.notEligible === true && !plan.ctx.skip.has(g.id) && (!g.ends_at || Date.parse(g.ends_at) > now.getTime()))
+    .slice(0, 2).map((g) => ({ id: g.id, title: g.title, chains: cardOf.get(g.id)?.chains ?? [] })).filter((g) => g.chains.length > 0);
+  const notFit = readyNotEligibleLine(off, v.project.name);
+  const show = readyOpener({ name, set, worth: worthUpTo(set), page: pageUrl(v.handle), hosted, now, asks, also, notEligible: notFit });
   const ids = set.map((p) => p.id);
   const codes = set.filter((p) => p.step === 'codes').map((p) => p.id);
   const stored = {
@@ -1388,7 +1394,7 @@ async function readyCommit(o: ViewIn, plan: PathPlan, picked: ReadyProgram[]): P
     view, stand: v.stand,
     fields: {
       move_up: { kind: 'ready', project_key: key, agent_note: READY_ASK_NOTE },
-      ready: { programs, record, ...(also.length > 0 && { also_open: also }) },
+      ready: { programs, record, ...(also.length > 0 && { also_open: also }), ...(off.length > 0 && { not_eligible: off.map(({ id, title }) => ({ id, title })) }) },
       ...(rankLines.length > 0 && { rank_lines: rankLines }), ...standingFields(v.stand),
     },
   };
@@ -2378,6 +2384,13 @@ const listHash = (x: string) => {
 /** The project's chains as the path reads them (its row's, plus Base from this reply's own read). Pure. */
 const myChains = (v: Pick<PathFacts, 'chains'>, known: ViewIn['known']) =>
   new Set([...v.chains, ...(known?.onBase ? ['base'] : [])].map((x) => x.toLowerCase()));
+/**
+ * v4.10.2 Task 2 (R3): the program's rule requires one of its chains (program file chain_required) and the project is on
+ * none of them (`mine`, lower-case ids: needsKnown's chains). Then it is not eligible: never in the ready set or the
+ * path. A chain mismatch without the flag stays a long shot. Pure.
+ */
+export const notEligible = (c: Pick<Card, 'chains' | 'any_chain' | 'chain_required'>, mine: ReadonlySet<string>): boolean =>
+  c.chain_required === true && c.any_chain !== true && (c.chains ?? []).length > 0 && !(c.chains ?? []).some((ch) => mine.has(ch.toLowerCase()));
 /** Fix round 1 (1): a grant card's fact (conversation.ts grantFact): its gaps, else its one chain, else none or unknown. Pure. */
 const cardFact = (c: Card, gaps: readonly string[] | null, mine: ReadonlySet<string>): GrantFact =>
   grantFact(gaps, c.any_chain ? [] : (c.chains ?? []), mine, chainName);

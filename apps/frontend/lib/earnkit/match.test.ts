@@ -305,10 +305,13 @@ test('v2.8 fix round 1: a testnet-only explorer host is not a mainnet signal; vi
 test('v2.8.1 §B6: any chain string is accepted; unknown chains are ignored, known ones kept once', () => {
   const r = ReportedRepoInput.safeParse({
     name: 'ethapp',
-    chains: ['ethereum', 'solana', { chain: 'arbitrum', mainnet: true }, 'Base', { chain: 'base-sepolia', mainnet: true }],
+    chains: ['ethereum', 'solana', { chain: 'polygon', mainnet: true }, 'Base', { chain: 'base-sepolia', mainnet: true }],
   });
   assert.equal(r.success, true);
   assert.deepEqual(r.success && r.data.chains, [{ chain: 'base', mainnet: true }]);
+  // v4.10.2 Task 2 (R4): arbitrum is a known chain now, so it is kept.
+  const arb = ReportedRepoInput.safeParse({ name: 'arbapp', chains: [{ chain: 'arbitrum', mainnet: true }] });
+  assert.deepEqual(arb.success && arb.data.chains, [{ chain: 'arbitrum', mainnet: true }]);
   // An Ethereum-only repo: no known chain, still a repo.
   const eth = ReportedRepoInput.safeParse({ name: 'ethapp', chains: [{ chain: 'ethereum', mainnet: true }] });
   assert.deepEqual(eth.success && eth.data.chains, []);

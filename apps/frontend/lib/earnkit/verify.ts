@@ -42,6 +42,7 @@ const RPC_ENV: Record<Chain, string> = {
   tempo: 'TEMPO_RPC_URL',
   avalanche: 'AVALANCHE_RPC_URL',
   robinhood: 'ROBINHOOD_RPC_URL',
+  arbitrum: 'ARBITRUM_RPC_URL',
 };
 
 /**
@@ -61,6 +62,8 @@ const RPC_DEFAULTS: Partial<Record<Chain, string>> = {
   avalanche: 'https://api.avax.network/ext/bc/C/rpc',
   // https://docs.robinhood.com/chain/connecting/
   robinhood: 'https://rpc.mainnet.chain.robinhood.com',
+  // https://docs.arbitrum.io/build-decentralized-apps/reference/node-providers (Arbitrum One)
+  arbitrum: 'https://arb1.arbitrum.io/rpc',
 };
 
 /**

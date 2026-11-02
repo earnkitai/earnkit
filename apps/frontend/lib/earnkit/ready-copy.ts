@@ -1,6 +1,7 @@
 import { GTM_ONE_LINE, closeWords, hoursLeft, isGtm, programName } from './conversation';
 import { BUILDER_CODES_GUIDE } from './bench-reply';
 import { longShotWorth, type ReadyProgram } from './ready-set';
+import { CHAIN_NAMES, type Chain } from './chains';
 
 /*
  * v4.10 Task 3 (R5, R6, R7): the ready set's words, from the owner-approved target conversation (section A). Pure
@@ -178,14 +179,31 @@ export function readyAlsoLine(out: readonly { title: string; amount: string | nu
 }
 
 /**
+ * v4.10.2 Task 2 (R3): the programs left out as not eligible (their rule requires a chain the project doesn't use), in
+ * one plain statement, never a question (the set's ask stays the one easy reply): "Circle Developer Grants is only for
+ * an app on Arc, so it doesn't fit EarnKit yet." Null with none. Pure.
+ */
+export function readyNotEligibleLine(out: readonly { title: string; chains: readonly string[] }[], project: string): string | null {
+  if (out.length === 0) return null;
+  const or = (xs: readonly string[]) => {
+    const names = xs.map((c) => (Object.hasOwn(CHAIN_NAMES, c) ? CHAIN_NAMES[c as Chain] : c));
+    return names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} or ${names.at(-1)}`;
+  };
+  const parts = out.map((p, i) => `${programName(p.title)}${i === 0 ? ' is only' : ''} for an app on ${or(p.chains)}`);
+  const said = parts.length < 2 ? parts[0] : `${parts.slice(0, -1).join(', ')}, and ${parts.at(-1)}`;
+  return `${said}, so ${out.length === 1 ? "it doesn't" : "they don't"} fit ${project} yet.`;
+}
+
+/**
  * The session opener: what is ready, what it is worth, where the answers came from, then READY_ASK as the last line.
  * v4.10 Task 4: `name` null (no X name, or greeted already this session) greets no one. v4.10.2 Task 1 (R1): the head
  * counts what the set needs from the builder (`asks`, at most READY_ANSWERS_MAX: "I need 3 answers from you first"),
- * "ready" only when it needs none; `also`, the programs left out for their answers (readyAlsoLine).
+ * "ready" only when it needs none; `also`, the programs left out for their answers (readyAlsoLine). v4.10.2 Task 2 (R3):
+ * `notEligible`, the readyNotEligibleLine, said after it.
  */
 export function readyOpener(o: {
   name: string | null; set: ReadyProgram[]; worth: string | null; page: string; hosted: boolean; now: Date; asks?: number;
-  also?: readonly { title: string; amount: string | null; answers: number }[];
+  also?: readonly { title: string; amount: string | null; answers: number }[]; notEligible?: string | null;
 }): string {
   const n = o.set.length;
   const asks = o.asks ?? 0;
@@ -198,7 +216,8 @@ export function readyOpener(o: {
   // Final fix (M1): with a program waiting on the builder, it is every other answer (v4.10.2: the set's asks are all of them).
   const filled = asks > 0 || o.set.some((p) => p.needs) ? 'Every other answer is filled' : 'Every answer is filled';
   const also = readyAlsoLine(o.also ?? []);
-  return `${head}\n\n${lines.join('\n')}\n\n${also ? `${also}\n\n` : ''}${filled} from your commits and your profile at ${o.page}.\n${READY_ASK}`;
+  const apart = [also, o.notEligible].filter(Boolean).map((x) => `${x}\n\n`).join('');
+  return `${head}\n\n${lines.join('\n')}\n\n${apart}${filled} from your commits and your profile at ${o.page}.\n${READY_ASK}`;
 }
 
 /**

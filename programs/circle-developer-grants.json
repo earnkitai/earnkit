@@ -28,6 +28,7 @@
   "chains": [
     "arc"
   ],
+  "chain_required": true,
   "setup": [
     "sign in to circle.questbook.app"
   ],

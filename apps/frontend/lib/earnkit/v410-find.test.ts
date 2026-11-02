@@ -65,13 +65,15 @@ async function copy(from: string, tag: string, o: { hours?: number | null; extra
 /**
  * The owner's three: a16z speedrun closing in 19 hours, Circle a long shot (tag; final fix I2: `tagged: false`, its real
  * file, a long shot only for being on Arc), Base's grant; nothing else open. v4.10.1 Task 1: `drafted`, Circle's form
- * only the field the agent drafts (DRAFTED), for a walk about the other two.
+ * only the field the agent drafts (DRAFTED), for a walk about the other two. v4.10.2 Task 2 (R3): the copy is a soft chain
+ * long shot (chain_required off), so these walks keep their three; `required`, the committed file's flag (Circle is then
+ * not eligible for a project not on Arc).
  */
-async function ownerPrograms(o: { tagged?: boolean; drafted?: boolean } = {}) {
+async function ownerPrograms(o: { tagged?: boolean; drafted?: boolean; required?: boolean } = {}) {
   // v4.10.2 Task 1: with `drafted` and an owner who `fits`, all three are in the set (Base's 4 answers are its one ask).
   await sql()`UPDATE programs SET status = 'closed' WHERE investment AND id NOT LIKE ${`v410-${process.pid}-%`}`;
   const sr = await copy('a16z-speedrun', 'a16z', { hours: 19.5 });
-  const extra = { ...(o.tagged !== false && { tag: 'long shot' }), ...(o.drafted && { submission_requirements: DRAFTED }) };
+  const extra = { ...(o.tagged !== false && { tag: 'long shot' }), ...(o.drafted && { submission_requirements: DRAFTED }), ...(!o.required && { chain_required: false }) };
   const circle = await copy('circle-developer-grants', 'circle', { extra });
   await only([sr.id, circle.id, 'base-builder-grants']);
   return { sr, circle };
@@ -229,7 +231,7 @@ test('the first find opens with the set (section A), every program drafted for t
   assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), []);
 });
 
-test('v4.10.2 (R1): the owner\'s real set (OWN=27): Base needs 11 answers, so it is said apart; the set is Circle\'s 3', db, async () => {
+test('v4.10.2 (R1): the owner\'s set with a soft-chain Circle: Base needs 11 answers, so it is said apart; the set is Circle\'s 3', db, async () => {
   const { circle } = await ownerPrograms();
   await only([circle.id, 'base-builder-grants']);
   // Builder 17 on 2026-11-02: nothing banked, no owned Base contract, no Builder Code, an opted-in email.
@@ -839,6 +841,50 @@ test('final fix (M7, M3): a ready ask whose set expired is dropped, never "Okay.
   await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, '{ready,at}', to_jsonb(${new Date(Date.now() - 29 * 86_400_000).toISOString()}::text)) WHERE builder_id = ${y.id}`;
   await tell(y, { kind: 'ready', project_key: y.key, answer: 'yes' });
   assert.ok(Date.now() - Date.parse(((await seenOf(y.id)).ready as { at: string }).at) < 60_000);
+});
+
+test('v4.10.2 (R3): the owner\'s real set (OWN=27): Circle is not eligible off Arc and Base needs 11 answers, so no set: the path answers', db, async () => {
+  const { circle } = await ownerPrograms({ required: true });
+  await only([circle.id, 'base-builder-grants']);
+  // Builder 17 on 2026-11-02: nothing banked, no owned Base contract, no Builder Code, an opted-in email; not on Arc.
+  const b = await owner('own3', { bank: false, contract: false });
+  await sql()`INSERT INTO digest_subscriptions (installation_id, login, email, asked_at, opted_in_at) VALUES (${b.id}, '', 'jenil@example.com', now(), now())
+    ON CONFLICT (installation_id, login) DO UPDATE SET email = EXCLUDED.email, opted_in_at = now(), unsubscribed_at = NULL`;
+  const replies = await converse(b.ctx as never, [{ find: {} }, { says: 'what can I apply to', find: { ask: 'programs' } }], { builderId: b.id });
+  const [opener, table] = replies;
+  // The path's own move leads: Base, one Builder Codes step away (Go?), never Circle's integrations.
+  assert.match(opener.show, /\nJenil, Base Builder Grant pays up to \$5,000\. To qualify, EarnKit needs to add Builder Codes/, opener.show);
+  assert.match(opener.show, /\n\nI can add Builder Codes and push the change, about 10 minutes\. Go\?$/, opener.show);
+  assert.notEqual(moveUp({ reply: opener.reply } as R)?.kind, 'ready', opener.show);
+  assert.equal(opener.reply?.ready, undefined);
+  assert.doesNotMatch(opener.show, /Circle/, opener.show);
+  assert.doesNotMatch(opener.show, /integrations/, opener.show);
+  // The programs table still lists it, with the fact why.
+  assert.match(table.show, /Circle Developer Grants: .*Your fit: not yet, they look for apps on Arc\./, table.show);
+  assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), [], replies.map((r) => r.show).join('\n---\n'));
+});
+
+test('v4.10.2 (R3): Circle not eligible beside a set is said in one plain line; on Arc it is eligible, a plain fit (never a long shot)', db, async () => {
+  const { sr, circle } = await ownerPrograms({ required: true, tagged: false });
+  const off = await owner('ne', { fits: true });
+  const r = await find(off);
+  const ready = r.reply?.ready as { programs: { id: string }[]; not_eligible?: { id: string; title: string }[] };
+  assert.ok(!ready.programs.some((p) => p.id === circle.id), show(r));
+  assert.ok(ready.programs.some((p) => p.id === sr.id), show(r));
+  assert.deepEqual(ready.not_eligible, [{ id: circle.id, title: circle.title }]);
+  const paras = show(r).split('\n\n');
+  assert.ok(paras.includes("Circle Developer Grants is only for an app on Arc, so it doesn't fit EarnKit yet."), show(r));
+  assert.doesNotMatch(show(r), /integrations/, show(r));
+  assert.deepEqual(gateFailures([{ turn: 0, session: 0, first: true, hook: false, tool: 'find', input: {}, show: show(r), said: ['opener'], reply: r.reply } as never]).filter((f) => f.rule === 'easy_reply' || f.rule === 'copy'), []);
+  // The same programs for a project on Arc: Circle is in the set as a fit, its needs asked.
+  const on = await owner('arc', { fits: true });
+  await sql()`UPDATE builder_projects SET chains = ARRAY['base', 'arc']::text[] WHERE builder_id = ${on.id}`;
+  const a = await find(on);
+  const set = (a.reply?.ready as { programs: { id: string; kind: string }[]; not_eligible?: unknown }).programs;
+  assert.deepEqual(set.find((p) => p.id === circle.id)?.kind, 'fit', show(a));
+  assert.equal((a.reply?.ready as { not_eligible?: unknown }).not_eligible, undefined);
+  assert.match(show(a), /\d\. Circle Developer Grants: \$5K to \$100K\. Needs your Circle and Arc integrations, product roadmap and proposed grant milestones first\.\n/, show(a));
+  assert.doesNotMatch(show(a), /long shot|doesn't fit/, show(a));
 });
 
 test('final fix (I2): untagged Circle on a project not on Arc is a long shot, last; every "Ready." agrees with the programs table', db, async () => {

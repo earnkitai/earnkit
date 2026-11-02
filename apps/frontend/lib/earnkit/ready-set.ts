@@ -33,13 +33,15 @@ const closeAt = (p: { ends_at: string | null }) => (p.ends_at ? Date.parse(p.end
  * gap known), then investor programs closing within INVESTOR_WINDOW_MS, then long shots (a tagged long shot, or a grant
  * the fit bar calls one: MoveProgram.longShot); within a kind the larger `max_usd` first, then the sooner close (rolling
  * last). Left out, as bestMove leaves them out: anything in `skip` (declined, parked, applied to, drafted within
- * DECLINE_MS, entered or hidden: bench-find.ts pathSkip), a close already passed, and a grant with a gap the agent
+ * DECLINE_MS, entered or hidden: bench-find.ts pathSkip), a close already passed, a not-eligible program (v4.10.2
+ * Task 2, R3: MoveProgram.notEligible), and a grant with a gap the agent
  * can't do that closes within NOW_WINDOW_MS. A grant with several gaps is no long shot's company: it is left out unless
  * it is a long shot itself. Unlisted and upcoming programs never reach the ctx (showable). Pure.
  */
 export function readySet(ctx: MoveCtx & { now: Date }, max = READY_MAX): ReadyProgram[] {
   const t = ctx.now.getTime();
-  const open = (p: MoveProgram) => !ctx.skip.has(p.id) && (p.ends_at ? Date.parse(p.ends_at) : Infinity) > t;
+  // v4.10.2 Task 2 (R3): a not-eligible program (its rule requires a chain the project doesn't use) never enters.
+  const open = (p: MoveProgram) => !ctx.skip.has(p.id) && (p.ends_at ? Date.parse(p.ends_at) : Infinity) > t && p.notEligible !== true;
   const soon = (p: MoveProgram, ms: number) => (p.ends_at ? Date.parse(p.ends_at) : Infinity) - t <= ms;
   const of = (p: MoveProgram, kind: ReadyProgram['kind'], more: { step?: 'codes' | null; needs?: string | null } = {}): ReadyProgram => ({
     id: p.id, title: p.title, amount: p.amount, max_usd: p.max_usd ?? null, kind,
