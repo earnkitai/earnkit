@@ -9192,3 +9192,35 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
 via `closeWords`), `readyOpener`, `readyYesReply` (waiting step, then the open list and the "sent" ask), `skipReply`.
 Gate (`fixtures/converse.ts`): `easyReply` takes a reply whose last line is exactly `READY_ASK`; `lazyNext` answers a
 `move_up` kind 'ready' with yes, or `{answer:'skip', skip:[n]}` when `o.skip` is set. Nothing calls the copy yet (Task 4).
+
+## v4.10 Task 4: the set in find, and its answers
+
+- **Find** (`bench-find.ts` `readyView`, called in `benchView`'s path block right after `pathPlan` and the connected
+  line): a program waiting on Builder Codes is re-checked first (`readyWaitingCommit`, the existing `codesConfirmed` from
+  the yes's `gap_did`; found, it opens); then a waiting ask is said in its short form (`readyAgainCommit`: the opener's
+  ask the same session only, "Your 3 applications are still ready. Reply yes and I'll finish them."; the "sent" ask or a
+  builder-only answer any session); then, on a fresh session with nothing mid-path (no stage past hook or track, no
+  pick, no direct question, no closed gap or running re-check), `readySet` over `plan.ctx` (so `pathSkip`'s exclusions
+  hold; a grant whose fit bar is `long_shot`, `PathPlan.longShots`, joins as one) and `readyCommit` when it has a
+  program. Null: the path as before (a 0-program set and a shared client are unchanged).
+- **The opener** (`readyCommit`): `readyOpener`, `READY_NOTE` as the path note, `move_up` kind 'ready'
+  (`READY_ASK_NOTE`), and `ready.programs` (each program's required fields, `heldAnswers`' pre-filled answers, the
+  `shipLogBlock` record, its link). Each program's `needs` is the first unheld required builder field the agent can't
+  draft (`conversation.ts` `builderOnly`, shared with `draftBlanks`), as `needsPhrase` ("your team list"). One UPDATE:
+  `standing_seen.ready` (`ReadyState`: ids, at, skipped, opened, waiting, codes, need), `bench_ask` (kind 'ready': ids,
+  codes, Base's qualify offer), said (`ready`, `proof:page` for the gate's proof rule, `money:total`, the greeting).
+  `apply_yes` waits for the yes.
+- **Answers** (`benchMoveUp` routes kind 'ready' to `readyAnswer`; tools.ts `move_up` takes answer 'skip' with `skip`
+  and `sent_ids`, mcp.ts lists them). Yes (`readyYes`): Base waiting on codes runs `gapDoYes` (the gap stage's own
+  writes, its re-check ask stored); the others open now (`ready.open` with ids and links, `READY_YES_NOTE`: the agent
+  calls prepare for each; the server writes no free-text answers); `apply_yes` for every program. The reply: the skip
+  line, "Adding Builder Codes now, then I'll open all three.", the open list, then one easy reply (`PUSHED_ASK`, a
+  builder-only ask in the blanks form, or "sent"). Skip parks the numbered ones (`apply:`/`path:` for `DECLINE_MS`; out of
+  range ignored) and is a yes on the rest; all skipped or no parks the set and hands off to find (`readyNoLine`). A
+  builder-only answer (`blanks`) is banked by kind (`saveBank`) and opens its program. "sent" (`readySent`, from
+  `ReadyState.opened`, `sent_ids` narrowing) becomes program_status applied; `readyTracked` drops them and sets the path at
+  track; the lead is `readyTrackLead`, then find.
+- **Gate** (`fixtures/converse.ts`): `READY_ASK` and the status sentence count only while the reply's `move_up` kind is
+  'ready'; `lazyNext` answers "sent" and the blanks form before a ready yes.
+- **Tests**: `v410-find.test.ts` (DB, owner shape). `bench-find.ts` `READY_SET.on` is a test switch (as `RECHECK_WAIT`):
+  the older suites that pin the path's first reply set it off.

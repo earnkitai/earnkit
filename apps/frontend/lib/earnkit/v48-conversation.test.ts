@@ -25,7 +25,7 @@ import {
 } from './conversation';
 import { qualifyGapSteps, BUILDER_CODES_GUIDE } from './bench-reply';
 import { BUILDER_CODES_SUFFIX } from './builder-code';
-import { MORE_ASK, NAME_ASK, PUSHED_ASK, RECHECK_WAIT, benchScore, codesSettled, founderBriefNote, openerPrograms, questionsDraftNote } from './bench-find';
+import { READY_SET, MORE_ASK, NAME_ASK, PUSHED_ASK, RECHECK_WAIT, benchScore, codesSettled, founderBriefNote, openerPrograms, questionsDraftNote } from './bench-find';
 import type { Card } from './present';
 import { draftBody, shipLogFacts } from './ship-log-facts';
 import { standingParagraph } from './standing';
@@ -34,6 +34,10 @@ import { assertOpener } from './fixtures/opener';
 import { standingOf } from './person-score';
 import { alertBody, runAlertMail, tellLine } from './alert-mail';
 import { askMismatch, converse, conversation, gateFailures, lazyNext, transcript, type Call, type Reply, type Turn } from './fixtures/converse';
+
+// v4.10 Task 4: this file pins the v4.8 path, which still answers a 0-program ready set, a builder mid-path and every
+// later reply; the ready set that now opens a fresh session is v410-find.test.ts's (bench-find.ts READY_SET).
+READY_SET.on = false;
 
 /**
  * v4.8 Task 1: the path, session memory and the agent note. The copy is the target conversation's (section A's

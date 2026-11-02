@@ -10,7 +10,8 @@ export const READY_MAX = 3;
 /**
  * One program of the ready set. `kind` is why it is in it: a real fit, a grant one step away (`step` 'codes': the agent
  * adds Builder Codes), an investor program closing within INVESTOR_WINDOW_MS, or a long shot. `why` is a long shot's
- * reason (the fit cell's, "they look for apps on Arc"); `needs` the sentence naming a grant's gap (GapGrant.gap).
+ * reason (the fit cell's, "they look for apps on Arc"); `needs` what only the builder can give, a short phrase ("your
+ * team list": ready-copy.ts needsPhrase), null here and filled by find (v4.10 Task 4, decision f).
  */
 export type ReadyProgram = {
   id: string; title: string; amount: string | null; max_usd: number | null;
@@ -41,10 +42,11 @@ export function readySet(ctx: MoveCtx & { now: Date }): ReadyProgram[] {
   const grants = ctx.grants.filter((g) => open(g) && !g.investment).flatMap((g): ReadyProgram[] => {
     // bestMove's rule (final review F2): a gap the agent can't do, closing within NOW_WINDOW_MS, can't be done in time.
     if (g.gaps.length > 0 && !g.doable && soon(g, NOW_WINDOW_MS)) return [];
-    const needs = { needs: g.gap };
-    if (g.longShot === true) return [of(g, 'long_shot', needs)];
+    // v4.10 Task 4 (decision d): a long shot one doable codes gap away carries the step too. (f): `needs` is find's.
+    const step = g.gaps.length === 1 && g.doable && g.gaps[0] === 'codes' ? ('codes' as const) : null;
+    if (g.longShot === true) return [of(g, 'long_shot', { step })];
     if (g.gaps.length === 0) return [of(g, 'fit')];
-    return g.gaps.length === 1 && g.doable ? [of(g, 'one_step', { ...needs, step: g.gaps[0] === 'codes' ? 'codes' : null })] : [];
+    return g.gaps.length === 1 && g.doable ? [of(g, 'one_step', { step })] : [];
   });
   const investors = ctx.investors.filter((p) => open(p) && p.investment && soon(p, INVESTOR_WINDOW_MS)).map((p) => of(p, 'investor'));
   const seen = new Set<string>();

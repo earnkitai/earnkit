@@ -29,6 +29,11 @@ import { safeNames } from './page-data';
 import { FIND_DESCRIPTION_BENCH, TELL_DESCRIPTION_BENCH, toolDescriptions } from './mcp';
 import type { ReaderDeps } from './source-readers';
 import { padPool } from './fixtures/rank-pool';
+import { READY_SET } from './bench-find';
+
+// v4.10 Task 4: this file pins the reply the path gives; a fresh session now opens with the ready set instead
+// (v410-find.test.ts), so the set is off here (bench-find.ts READY_SET).
+READY_SET.on = false;
 
 /**
  * v2.13.3, the owner's own production test (2026-10-17), all on the Bench: (1) the older find

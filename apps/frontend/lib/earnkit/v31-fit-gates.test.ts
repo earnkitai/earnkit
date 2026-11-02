@@ -17,6 +17,11 @@ import { upsertProgram } from './programs';
 import { fitGate, fitRepoOf, newProgramOf, repoCanWin } from './alerts';
 import { canApply, layout, qualifies, type Card, type YourRepos } from './present';
 import { MatchProjectsInput, SKIP_REASONS, matchProjects, type MatchDeps } from './match-projects';
+import { READY_SET } from './bench-find';
+
+// v4.10 Task 4: this file pins the reply the path gives; a fresh session now opens with the ready set instead
+// (v410-find.test.ts), so the set is off here (bench-find.ts READY_SET).
+READY_SET.on = false;
 
 /**
  * v3.1 F1: the owner's repo (earnkitai/earnkit) gets its program fits, and investments join the fit lines. On

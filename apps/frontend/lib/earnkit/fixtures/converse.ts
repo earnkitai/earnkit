@@ -2,7 +2,7 @@ import { sql } from '../db';
 import { mcpCall, type McpResult } from './mcp-call';
 import type { ToolContext } from '../tools';
 import { SESSION_MS, sessionOf } from '../conversation';
-import { READY_ASK } from '../ready-copy';
+import { READY_AGAIN_ASK, READY_ASK } from '../ready-copy';
 
 /**
  * v4.8 Task 6: whole conversations as the merge gate. `converse` plays a lazy builder's turns through the real MCP
@@ -103,14 +103,15 @@ export function lazyNext(r: Reply, o: { blanks: string; pushed: string; skip?: n
   if (end.includes(o.pushed)) return 'real_work';
   if (!m) return null;
   const ask = { kind: m.kind, project_key: m.project_key ?? null };
-  // v4.10 Task 3 (R5): the ready set's one ask: yes, or the numbers the walk skips.
+  if (/\breply "sent"/i.test(end)) return { says: 'sent', tell: { move_up: { ...ask, answer: 'sent' } } };
+  if (BLANKS_REPLY.test(sentences(end).at(-1) ?? '')) return { says: o.blanks, tell: { move_up: { ...ask, answer: 'yes', blanks: o.blanks } } };
+  // v4.10 Task 3 (R5): the ready set's one ask: yes, or the numbers the walk skips. Task 4: once its pages are open the
+  // ask is "sent" (above), never another yes.
   if (m.kind === 'ready') {
     return o.skip?.length
       ? { says: `skip ${o.skip.join(', ')}`, tell: { move_up: { ...ask, answer: 'skip', skip: o.skip } } }
       : { says: 'yes', tell: { move_up: { ...ask, answer: 'yes' } } };
   }
-  if (/\breply "sent"/i.test(end)) return { says: 'sent', tell: { move_up: { ...ask, answer: 'sent' } } };
-  if (BLANKS_REPLY.test(sentences(end).at(-1) ?? '')) return { says: o.blanks, tell: { move_up: { ...ask, answer: 'yes', blanks: o.blanks } } };
   if (/\?$/.test(end) || /\bsay ok\b/i.test(end)) return { says: 'ok', tell: { move_up: { ...ask, answer: 'yes' } } };
   return null;
 }
@@ -250,8 +251,9 @@ function easyReply(r: Reply): string | null {
   }
   const s = sentences(last).at(-1) ?? '';
   if (BLANKS_REPLY.test(s)) return null;
-  // v4.10 Task 3 (R5): the ready set's one ask, exactly, as the last line.
-  if (line === READY_ASK) return null;
+  // v4.10 Task 3 (R5): the ready set's one ask, exactly, as the last line; Task 4 (decision c): only while the stored ask
+  // is the ready one, and its status reply's "Reply yes and I'll finish them." (or "it") likewise.
+  if ((line === READY_ASK || s === READY_AGAIN_ASK || s === "Reply yes and I'll finish it.") && moveUpOf(r)?.kind === 'ready') return null;
   if (s.endsWith('?')) {
     if (!YES_NO.test(s)) return `not a yes/no question: "${s}"`;
     if (NOT_YES_NO.test(s)) return `a choice or an open question: "${s}"`;

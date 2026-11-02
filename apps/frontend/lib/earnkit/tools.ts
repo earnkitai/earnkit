@@ -135,7 +135,7 @@ import { hideUpdate, postUpdate, setShipTitles } from './updates';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchIdentity, benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
 import { REPO_KEY, dropMainProject, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
-import { APPLY_OUTCOME_NOTE, BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, draftAnswered, pathTrack, submitAsked, recordApplyYes, keepBenchMatch, legacyCoinAnswer, tokenAsk, tokenExisting, keptBenchMatch, mainProjectName, mainProjectNameFor, rankAnswer, rememberProjectName, signedOutNow } from './bench-find';
+import { APPLY_OUTCOME_NOTE, BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, draftAnswered, pathTrack, readySent, readyTracked, submitAsked, recordApplyYes, keepBenchMatch, legacyCoinAnswer, tokenAsk, tokenExisting, keptBenchMatch, mainProjectName, mainProjectNameFor, rankAnswer, rememberProjectName, signedOutNow } from './bench-find';
 import { CHAIN_EXPLAINED, CHAIN_NAMES, type Chain } from './chains';
 import { provenWallet } from './wallet-proof';
 import { walletChangeReply } from './wallet-offer';
@@ -145,6 +145,7 @@ import { aboutFacts, replyFacts, type ReplyFacts } from './reply-facts';
 import { agentReach } from './agent-reach';
 import { ANSWER_FIRST_NOTE, NOTED_LINE } from './stand-text';
 import { ANSWERED_FIRST, MENTOR_NOTE, PATH_ANSWER_FIRST, trackLead } from './conversation';
+import { readyTrackLead } from './ready-copy';
 import { startRefresh } from './stand-view';
 import { attributionFor, chainOf } from './attribution';
 import type { ReaderDeps } from './source-readers';
@@ -2455,7 +2456,11 @@ export const TellToolInput = z
         kind: z.string().max(20).optional(),
         project_key: z.string().max(300).nullable().optional(),
         // v4.8 Task 3 fix round 1 (2): 'sent' only when the builder says the application is in (the submit ask).
-        answer: z.enum(['yes', 'no', 'sent']),
+        // v4.10 Task 4 (R8): 'skip' with `skip`, the ready set's numbers to leave out (1-based).
+        answer: z.enum(['yes', 'no', 'sent', 'skip']),
+        skip: z.array(z.number().int()).max(3).optional(),
+        // v4.10 Task 4 (R8): "sent" for only some of the ready set's open pages (their program ids).
+        sent_ids: z.array(z.string().max(200)).max(3).optional(),
         // v2.12.1 T9: a go_live yes again, with the GitHub Pages link once it loads.
         live_url: z.string().max(300).optional(),
         // v4.8 Task 2 fix round 3: the builder's reply to a draft's blanks (bench-find.ts draftYes; never stored).
@@ -2507,7 +2512,7 @@ const defined = (o: Reply): Reply => Object.fromEntries(Object.entries(o).filter
  * last Bench reply stored); the agent's kind is never trusted, and a yes to a step that is no longer the
  * current one (or another project's) changes nothing (bench-find.ts benchMoveUp).
  */
-const moveUpAnswer = (ctx: ToolContext, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no'; live_url?: string; blanks?: string }): Promise<Reply> => benchMoveUp(ctx, m);
+const moveUpAnswer = (ctx: ToolContext, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no' | 'skip'; skip?: number[]; live_url?: string; blanks?: string }): Promise<Reply> => benchMoveUp(ctx, m);
 
 /**
  * v3.1 cold read (owner-approved): a program that wants a chain the project has no code for, in plain words: "Circle
@@ -2827,6 +2832,9 @@ export const tools = {
     // (program_status applied). A plain yes is never "sent" (benchMoveUp asks for it again); 'sent' to any other ask is "Okay.".
     const sentFor = move_up?.answer === 'sent' && !ctx.sharedClient ? await submitAsked(ctx.installationId, move_up).catch(() => null) : null;
     if (sentFor) statements.program_status = [...(Array.isArray(statements.program_status) ? statements.program_status : []), { program_id: sentFor, status: 'applied' }];
+    // v4.10 Task 4 (R8): 'sent' to the ready ask: every open page of the set (or only sent_ids) told as applied.
+    const readyFor = move_up?.answer === 'sent' && move_up.kind === 'ready' && !ctx.sharedClient ? await readySent(ctx.installationId, move_up).catch(() => null) : null;
+    if (readyFor) statements.program_status = [...(Array.isArray(statements.program_status) ? statements.program_status : []), ...readyFor.map((program_id) => ({ program_id, status: 'applied' }))];
     // v2.12 spec 8: "hide" and "show". v2.12.1 T8: the card and the move-up answers.
     if (ctx.sharedClient && (profile || card || move_up || coin || token || update || updates || main_project || wallet || builder_code || stripe))
       replies.push({ show_to_builder: '', agent_note: SHARED_PROFILE_NOTE });
@@ -2837,8 +2845,11 @@ export const tools = {
       if (card === 'yes') replies.push(await cardYes(ctx.installationId, ctx.ownInstallationId ?? ctx.installationId));
       if (card === 'skip') replies.push({ show_to_builder: SKIPPED_LINE });
       if (move_up?.answer === 'sent') {
-        if (!sentFor) replies.push({ show_to_builder: NOTED_LINE });
-      } else if (move_up) replies.push(await moveUpAnswer(ctx, { ...move_up, answer: move_up.answer }));
+        if (!sentFor && !readyFor) replies.push({ show_to_builder: NOTED_LINE });
+      } else if (move_up) {
+        const { sent_ids: _ids, ...answer } = move_up;
+        replies.push(await moveUpAnswer(ctx, { ...answer, answer: move_up.answer }));
+      }
       // Launch ready L2: the repo to rank instead (only one this person proved with the App).
       if (main_project) replies.push(await rankAnswer(ctx, saidKey(main_project)));
       // v3.1 wallet proof: a fresh signing link; the wallet proven with it becomes the reward recipient.
@@ -2905,11 +2916,13 @@ export const tools = {
         ...(told?.success ? (told.data.program_status ?? []).filter((x) => x.status === 'applied').map((x) => x.program_id) : []),
         ...(submitted ? [submitted.program_id] : []),
       ];
-      const track = applied.length > 0 ? await pathTrack(ctx.installationId, applied, new Date()) : null;
+      // v4.10 Task 4: the ready set's pages told sent leave it (readyTracked), then the same acknowledgement and find.
+      if (readyFor) await readyTracked(ctx.installationId, readyFor, new Date());
+      const track = readyFor ? { program_id: readyFor[0], odds: null } : applied.length > 0 ? await pathTrack(ctx.installationId, applied, new Date()) : null;
       if (track) {
         const next = withFacts(await findReply({}, ctx), await replyFacts(ctx));
         const shown = typeof next.show_to_builder === 'string' ? next.show_to_builder : '';
-        const lead = trackLead(track.odds, shown !== '' && String(next.note ?? '').endsWith(MENTOR_NOTE));
+        const lead = readyFor ? readyTrackLead(readyFor.length) : trackLead(track.odds, shown !== '' && String(next.note ?? '').endsWith(MENTOR_NOTE));
         // Fix round 1 (3): every other reply of this tell is kept, first; the path reply goes last, so its easy reply
         // ends the message. The plain save's "nothing to show" note and the applied-outside line ("Saved: you applied
         // to ...", which the tracking line says) are dropped.

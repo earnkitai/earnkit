@@ -25,6 +25,11 @@ import type { ToolContext } from './tools';
 import type { XOAuthDeps, XUser } from './x-oauth';
 import { padPool } from './fixtures/rank-pool';
 import { assertOpener, isOpener } from './fixtures/opener';
+import { READY_SET } from './bench-find';
+
+// v4.10 Task 4: this file pins the reply the path gives; a fresh session now opens with the ready set instead
+// (v410-find.test.ts), so the set is off here (bench-find.ts READY_SET).
+READY_SET.on = false;
 
 /**
  * v2.14 T12: the spec's acceptance 1 to 5 as one brand-new builder lives them, through the real routes

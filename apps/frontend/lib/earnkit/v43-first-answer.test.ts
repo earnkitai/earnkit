@@ -23,6 +23,11 @@ import { CODES_OFFER, MENTOR_NOTE } from './conversation';
 import { BASE_GRANTS_ID } from './builder-code';
 import { productOdds, productScore, traction, type Detection } from './match';
 import { presentFirstMessage, programUpdates, type Card, type RepoFit } from './present';
+import { READY_SET } from './bench-find';
+
+// v4.10 Task 4: this file pins the reply the path gives; a fresh session now opens with the ready set instead
+// (v410-find.test.ts), so the set is off here (bench-find.ts READY_SET).
+READY_SET.on = false;
 
 /**
  * v4.3 Task 1 (owner-approved copy): "what can I earn" for a ranked builder with no fit names the money (Base's grant,

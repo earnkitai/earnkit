@@ -62,7 +62,12 @@ import { prizeOf, shortWallet, siteUrl, upToCell } from './entry-text';
 import { programKind } from './site-copy';
 import { BASE_GRANTS_ID } from './builder-code';
 import { appProvenRepo, builderCodesKnown, builderCodesWords, checkBuilderCodes, codesSettled, refreshBuilderCodes, storedBuilderCode } from './builder-codes-check';
-import { projectKey, readBank } from './answer-bank';
+import { projectKey, readBank, saveBank } from './answer-bank';
+import { readySet, worthUpTo, type ReadyProgram } from './ready-set';
+import {
+  READY_ASK_NOTE, READY_NEEDS_NOTE, READY_NOTE, READY_SENT_NOTE, READY_YES_NOTE, needsPhrase, readyAgain, readyNeedsAsk, readyNoLine, readyOpenList,
+  readyOpener, readySentAgain, readySentAsk, readyYesReply, shortName, skipReply,
+} from './ready-copy';
 import { bankFill } from './coach';
 import type { SubmissionRequirement } from './program-file';
 import { WALLET_NOTE, type WalletAnswer, answerWallet, takeWalletAsk, takeWalletNotice, tokenOffered, walletChangeReply, walletOfferDue, walletSetupDue, walletSetupNote, takeTokenOffer, tokenOfferDue } from './wallet-offer';
@@ -75,7 +80,7 @@ import { DECLINE_MS, draftedRecently } from './policy-constants';
 import { closeDay, programZone, zoneAbbr } from './deadline';
 import type { ProgramRow as ProgramFileRow } from './programs';
 import {
-  MENTOR_NOTE, MONEY_SAID, closingSoon, moneyLine, withMoneyLine, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, pickHook, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, submitNoRush, tooSoonLine, keepDraftLine, type OpenerProgram, type MoveCtx, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProofOf, helpReply, helpWaiting, helpParked, closeWords, HELP_DONE_ASK, backOnLine, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofOf, markSaid, pathReply, programName, readPath, saidSql, sessionOf, pointerReply, START_ASK, SENT_SHORT, blanksAsk,
+  MENTOR_NOTE, MONEY_SAID, builderOnly, closingSoon, moneyLine, withMoneyLine, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, pickHook, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, submitNoRush, tooSoonLine, keepDraftLine, type OpenerProgram, type MoveCtx, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProofOf, helpReply, helpWaiting, helpParked, closeWords, HELP_DONE_ASK, backOnLine, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofOf, markSaid, pathReply, programName, readPath, saidSql, sessionOf, pointerReply, START_ASK, SENT_SHORT, blanksAsk,
   ANSWERED_FIRST, ASK_SAID, PROGRAMS_AGAIN, fitCell, fitOrder, grantFact, programsAnswer, standingAgain, standingAnswer, standingSaid, whatItIs, type GrantFact, type GrantRow, type InvestorRow, type StandingFacts,
   type GapStep,
   type GapGrant, type InvestorProgram, type Move, type MoveProgram, type Path, type Stage,
@@ -239,7 +244,14 @@ export type Seen = StandSeen & {
     name?: string;
     /** v4.8 Task 3 (kind 'apply' on the path): the submit ask; its yes is "sent" (tools.ts tell, submitAsked). */
     submit?: boolean;
+    /**
+     * v4.10 Task 4 (kind 'ready'): the set's programs in order (a number skips one), those waiting on Builder Codes
+     * (`codes`), and after the yes the ask it waits on: "sent" (`sent`) or what only the builder can give (`need`).
+     */
+    ids?: string[]; codes?: string[]; sent?: boolean; need?: boolean;
   };
+  /** v4.10 Task 4: the ready set shown this session and how far each program got (ReadyState). */
+  ready?: unknown;
   /** v4.8 Task 2: when the builder said yes to the agent doing a gap step ({ [program_id]: iso }); find checks the code again. */
   gap_did?: Record<string, string>;
   /**
@@ -660,6 +672,8 @@ type PathPlan = {
   ctx: MoveCtx;
   /** v4.8 Task 5 fix round 1 (6): grants with every step known met (Base's qualifyOffer allMet). */
   met: Set<string>;
+  /** v4.10 Task 4 (R2): grants the fit bar calls a long shot (its row's bar), for the ready set only (bestMove never reads it). */
+  longShots: Set<string>;
 };
 /** v4.8 Task 2: after a yes to the agent adding a step, find checks the code again for this long, at most once a minute. */
 /**
@@ -793,6 +807,8 @@ async function pathPlan(o: ViewIn, v: PathFacts, told: Set<string>, w: { wide?: 
     return c ? moveProgram(c) : { id: f.program_id, title: f.title, amount: f.amount, when: f.when, ends_at: f.ends_at, zone: 'UTC', investment: false, max_usd: f.card?.max_award_usd ?? null };
   });
   const fitIds = new Set(fits.map((f) => f.id));
+  // v4.10 Task 4 (R2): a grant whose fit row's bar is long_shot (Circle on Arc) is a long shot for the ready set.
+  const longShots = new Set((o.applies ?? o.fits).filter((f) => f.bar === 'long_shot').map((f) => f.program_id));
   const t = now.getTime();
   const investors: InvestorProgram[] = o.cards
     .filter((c) => c.investment === true && !skip.has(c.id) && showable({ ...c, investment: false }, now, skip)
@@ -845,14 +861,14 @@ async function pathPlan(o: ViewIn, v: PathFacts, told: Set<string>, w: { wide?: 
     // never a one-step (fix round 1, R1). None: it can apply now (bestMove names it only when closing within 48 hours).
     const noAt = seen.declined?.[benchStepKey('needs', c.id)];
     // v4.10 Task 2: a long shot says why (the programs answer's fit cell reason), for the ready set's copy.
-    const why = c.tag === 'long shot' ? fitCell(false, cardFact(c, needs, myChains(v, o.known))).replace(/^Not yet: /, '') : null;
+    const why = c.tag === 'long shot' || longShots.has(c.id) ? fitCell(false, cardFact(c, needs, myChains(v, o.known))).replace(/^Not yet: /, '') : null;
     return { ...moveProgram(c), why, gaps: needs, gap: needs.length > 0 ? needsWhy(v.project.name, c.title, needs) : '', passed: recent(noAt), passedAt: recent(noAt) ? noAt : null, doable: false };
   }))).filter((g): g is GapGrant => g !== null);
   // Fix round 1 (1): a grant raised in this session stays the move while the path is on it (its pointer answers).
   const live = !sessionOf(seen, now).fresh;
   const raisedNow = new Set(Object.entries(seen.path_raised ?? {}).filter(([, at]) => live && now.getTime() - Date.parse(at) < SESSION_MS).map(([k]) => k));
   const ctx: MoveCtx = { now, fits, grants, investors, skip, raised: new Set(Object.keys(seen.path_raised ?? {})), raisedNow, path };
-  return { move: bestMove(ctx), facts: v, fitRows, extra, path, closed, checking, ctx, met: metIds };
+  return { move: bestMove(ctx), facts: v, fitRows, extra, path, closed, checking, ctx, met: metIds, longShots };
 }
 
 /**
@@ -973,6 +989,404 @@ export function pathDrafted(seen: Pick<Seen, 'apply_yes'>, programId: string, ow
 export function readyStored(stage: Stage | null, ownAsk: Record<string, unknown> | null, key: string, programId: string): Record<string, unknown> {
   if (stage === 'submit') return { kind: 'apply', key, program_id: programId, path: true, submit: true };
   return ownAsk ? { ...ownAsk } : { kind: 'apply', key, program_id: programId, path: true, draft: true, blanks: [] };
+}
+
+/*
+ * v4.10 Task 4 (R1, R4 to R8): the ready set in find, and its answers. A fresh session opens with up to READY_MAX
+ * programs drafted together (ready-set.ts readySet over the path's own ctx, so pathSkip's exclusions hold); the agent
+ * writes the free-text answers from ready.programs (READY_NOTE) and, on the one yes, calls prepare for each open one
+ * (READY_YES_NOTE). The server holds no free-text answers and makes no LLM call.
+ */
+/** The session key the opener is said under: a later plain find in the session gives the status, never the opener. */
+const READY_SAID = 'ready';
+/** Decision i: the opener's "filled from your commits and your profile at earnkit.com/{slug}" is its proof (gate rule 4). */
+const READY_PROOF_SAID = 'proof:page';
+/** The codes re-check came back missing once this session (the next says the shorter wait line). */
+const READY_WAIT_SAID = 'ready_wait';
+/** v4.10 Task 4: the re-check after the yes found no Builder Codes yet. */
+export const READY_CODES_NOT_YET = "I don't see Builder Codes in the code on GitHub yet.";
+
+/** What only the builder can give for one program (R5): its short phrase and the form field (saveBank's). */
+type ReadyNeed = { program_id: string; title: string; phrase: string; req: SubmissionRequirement };
+/**
+ * standing_seen.ready: the set's ids in the opener's order (a number resolves against it), when it was shown, the
+ * programs skipped or parked, opened (their pages handed to the agent) and waiting; `codes` (within `waiting`) wait on
+ * Builder Codes, `need` on what only the builder can give.
+ */
+type ReadyState = { ids: string[]; at: string; skipped: string[]; opened: string[]; waiting: string[]; codes: string[]; need: ReadyNeed | null };
+const strs = (x: unknown) => (Array.isArray(x) ? x.filter((v): v is string => typeof v === 'string') : []);
+/** The stored ready state; null with none, or older than DECLINE_MS (a waiting program never waits forever). Pure. */
+function readyOf(seen: Pick<Seen, 'ready'> | null | undefined, now: Date): ReadyState | null {
+  const r = seen?.ready as Partial<Record<keyof ReadyState, unknown>> | undefined;
+  if (!r || typeof r !== 'object' || typeof r.at !== 'string' || !(now.getTime() - Date.parse(r.at) < DECLINE_MS)) return null;
+  const n = r.need as Partial<ReadyNeed> | null | undefined;
+  const need = n && typeof n.program_id === 'string' && typeof n.phrase === 'string' && n.req ? (n as ReadyNeed) : null;
+  return { ids: strs(r.ids), at: r.at, skipped: strs(r.skipped), opened: strs(r.opened), waiting: strs(r.waiting), codes: strs(r.codes), need };
+}
+
+type ReadyDraft = { id: string; title: string; link: string | null; requirements: SubmissionRequirement[]; prefilled: Record<string, string>; need: ReadyNeed | null };
+/**
+ * Each program's draft inputs (R4, R5): its form's required fields, what EarnKit already holds for them (heldAnswers:
+ * the answer bank, the X handle, a confirmed Builder Code, the proven wallet, verified usage; `extra`, an answer given
+ * in this tell) and the first field only the builder can give (conversation.ts builderOnly; the Builder Code field is
+ * the codes step's to fill). Never throws.
+ */
+async function readyDrafts(
+  id: number, key: string, progs: readonly { id: string; title: string; step: 'codes' | null }[], record: string[], extra: Record<string, Record<string, string>> = {},
+): Promise<ReadyDraft[]> {
+  return Promise.all(progs.map(async (p) => {
+    const row = await getProgramRow(p.id).catch(() => null);
+    const reqs = row?.submission_requirements ?? [];
+    const held = { ...(await heldAnswers(id, key, reqs, record)).held, ...extra[p.id] };
+    const only = row ? builderOnly(row, held).filter((r) => !(p.step === 'codes' && /builder code/i.test(`${r.key.replace(/_/g, ' ')} ${r.label}`))) : [];
+    const title = row?.title ?? p.title;
+    return {
+      id: p.id, title, link: row?.submission_url ?? null, requirements: reqs.filter((r) => r.required), prefilled: held,
+      need: only[0] ? { program_id: p.id, title, phrase: needsPhrase(only[0]), req: only[0] } : null,
+    };
+  }));
+}
+/** The verified record's lines (ship-log-facts.ts shipLogBlock, as the draft reads them); none on a failed read. Never throws. */
+async function readyRecord(id: number, now: Date): Promise<string[]> {
+  // ship-log-facts.ts is loaded here (bench-data.ts, which it reads, imports this file).
+  const { shipLogBlock, shipLogFacts } = await import('./ship-log-facts');
+  const facts = await shipLogFacts(id, now).catch(logged('ready record'));
+  return facts ? shipLogBlock(facts) : [];
+}
+const readyNoteOf = (note: string) => note.replace(/\s*Don't show this note\.$/, '');
+const readyRankLines = (read: BenchRead) => [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x));
+
+/**
+ * The opener (R1, R3, R4, target A): what is ready and what it is worth, each program's line, then READY_ASK. Every
+ * program's requirements, pre-filled answers and the record go to the agent (ready.programs) with READY_NOTE. The
+ * ready state, the ask (kind 'ready': the set's ids, those waiting on Builder Codes, Base's offer for the yes) and the
+ * session's parts said are one UPDATE; apply_yes waits for the yes. Never throws on its own writes.
+ */
+async function readyCommit(o: ViewIn, plan: PathPlan, picked: ReadyProgram[]): Promise<{ view: BenchView; fields: Reply; stand: Standing }> {
+  const { id, now, read } = o;
+  const v = plan.facts;
+  const key = v.project.key;
+  const hosted = (o.reach ?? (await agentReach(o.own, id))).hosted;
+  const record = await readyRecord(id, now);
+  const cardOf = new Map(o.cards.map((c) => [c.id, c]));
+  // The money as target B's opener says it ("$5K to $100K").
+  const set0 = picked.map((p) => {
+    const c = cardOf.get(p.id);
+    return c ? { ...p, amount: openerAmount(c) } : p;
+  });
+  const q = plan.extra.get(BASE_GRANTS_ID)?.qualify;
+  // Only Base's codes step is one the yes runs (gapDoYes, from its stored offer).
+  const set1 = set0.map((p) => (p.step === 'codes' && !(p.id === BASE_GRANTS_ID && q) ? { ...p, step: null } : p));
+  const drafts = await readyDrafts(id, key, set1, record);
+  const set = set1.map((p, i) => ({ ...p, needs: drafts[i].need?.phrase ?? null }));
+  const name = greetingOf(read.xName, sessionOf(read.seen, now).said);
+  const show = readyOpener({ name, set, worth: worthUpTo(set), page: pageUrl(v.handle), hosted, now });
+  const ids = set.map((p) => p.id);
+  const codes = set.filter((p) => p.step === 'codes').map((p) => p.id);
+  const stored = {
+    kind: 'ready', key, ids, codes,
+    ...(q && codes.length > 0 && { qualify: { grant: q.grant, steps: q.steps, first: q.steps[0], name: v.project.name, hosted, codes_missing: q.missing.includes('codes') } }),
+  };
+  const ready: ReadyState = { ids, at: now.toISOString(), skipped: [], opened: [], waiting: [], codes: [], need: null };
+  // The worth is the money said (MONEY_SAID: no money line later this session).
+  const said = [READY_SAID, READY_PROOF_SAID, MONEY_SAID, ...(name ? [GREET_SAID] : [])];
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
+      || jsonb_build_object('ready', ${sql().json(ready as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb, 'said', ${saidSql(said, now)})
+    WHERE builder_id = ${id}`.catch(logged('ready'));
+  const view: BenchView = {
+    state: v.state, variant: v.variant, project: v.project, rank: read.ranks.bench, streak: v.streak, target: null, handle: v.handle, link: null,
+    fund: [], due: [], ask: { kind: 'ready', project_key: key, line: '' }, held: null, path: show, pathLead: null, pathNote: READY_NOTE,
+  };
+  const rankLines = readyRankLines(read);
+  const programs = set.map((p, i) => ({
+    id: p.id, title: p.title, kind: p.kind, amount: p.amount, step: p.step, needs: p.needs, link: drafts[i].link,
+    requirements: drafts[i].requirements, prefilled: drafts[i].prefilled, record,
+  }));
+  return {
+    view, stand: v.stand,
+    fields: { move_up: { kind: 'ready', project_key: key, agent_note: READY_ASK_NOTE }, ready: { programs }, ...(rankLines.length > 0 && { rank_lines: rankLines }), ...standingFields(v.stand) },
+  };
+}
+
+/**
+ * A later find while the ready ask waits (R1): the opener's ask, the same session only ("Your 3 applications are still
+ * ready. Reply yes and I'll finish them."); the "sent" ask or a builder-only answer, any session (never the open list or
+ * the line again). The ask is kept; the session kept alive. One UPDATE. Never throws on its own writes.
+ */
+async function readyAgainCommit(o: ViewIn, v: PathFacts, asked: NonNullable<Seen['bench_ask']>, r: ReadyState): Promise<{ view: BenchView; fields: Reply; stand: Standing }> {
+  const { id, now, read } = o;
+  const key = v.project.key;
+  const show = asked.sent ? readySentAgain(r.opened.length)
+    : asked.need && r.need ? `Still waiting on ${r.need.phrase} for ${shortName(r.need.title)}. Reply with it and I'll finish it.`
+    : readyAgain(r.ids.length - r.skipped.length);
+  const note = asked.sent ? READY_SENT_NOTE : asked.need ? READY_NEEDS_NOTE : READY_ASK_NOTE;
+  await markSaid(id, [], now);
+  const view: BenchView = {
+    state: v.state, variant: v.variant, project: v.project, rank: read.ranks.bench, streak: v.streak, target: null, handle: v.handle, link: null,
+    fund: [], due: [], ask: { kind: 'ready', project_key: key, line: '' }, held: null, path: show, pathLead: null, pathNote: readyNoteOf(note),
+  };
+  return { view, stand: v.stand, fields: { move_up: { kind: 'ready', project_key: key, agent_note: note }, ...standingFields(v.stand) } };
+}
+
+/**
+ * Pages opened (R6): the open list (every open page so far, each with its link), then the one easy reply: what only the
+ * builder can give while a program waits on it, else "sent". Pure.
+ */
+function readyOpenedShow(set: readonly string[], opened: readonly { title: string; link: string }[], need: ReadyNeed | null): string {
+  if (need) return [opened.length > 0 ? readyOpenList(set, opened) : null, readyNeedsAsk(need.title, need.phrase)].filter(Boolean).join('\n\n');
+  return readyYesReply({ set: set.map((title) => ({ title })), opened, waiting: [] });
+}
+const openRow = (d: Pick<ReadyDraft, 'title' | 'link'>) => ({ title: d.title, link: d.link ?? '' });
+
+/**
+ * A find while a program of the set waits on Builder Codes (R6): the existing re-check (codesConfirmed, from the yes's
+ * gap_did). Found: that program opens (its page to the agent, ready.open) and the reply is the open list and the next
+ * easy reply; the path leaves the gap. Checking: CHECKING_LINE. Missing: it says so and asks for the push again. One
+ * UPDATE. Null when nothing waits on the codes. Never throws on its own writes.
+ */
+async function readyWaitingCommit(o: ViewIn, v: PathFacts, r: ReadyState): Promise<{ view: BenchView; fields: Reply; stand: Standing } | null> {
+  if (r.codes.length === 0) return null;
+  const { id, now, read } = o;
+  const key = v.project.key;
+  const codes = await codesConfirmed(o, key);
+  const base = (pid: string) => o.cards.find((c) => c.id === pid)?.title ?? pid;
+  const view0 = (kind: BenchAskKind, path: string, pathNote: string): BenchView => ({
+    state: v.state, variant: v.variant, project: v.project, rank: read.ranks.bench, streak: v.streak, target: null, handle: v.handle, link: null,
+    fund: [], due: [], ask: { kind, project_key: key, line: '' }, held: null, path, pathLead: null, pathNote,
+  });
+  if (codes !== 'found') {
+    const hosted = (o.reach ?? (await agentReach(o.own, id))).hosted;
+    const said = sessionOf(read.seen, now).said;
+    // The re-check ask (its ok checks again, a no parks Base), as the gap stage stores it.
+    const asked = read.seen.bench_ask;
+    const stored = asked?.kind === 'qualify' && asked.program_id === BASE_GRANTS_ID ? { ...asked, checking: true } : { kind: 'qualify', key, program_id: BASE_GRANTS_ID, path: true, gap: true, checking: true };
+    const show = codes === 'checking' ? CHECKING_LINE
+      : said.has(READY_WAIT_SAID) ? helpWaiting(base(BASE_GRANTS_ID))
+      : `${READY_CODES_NOT_YET}\n\n${hosted ? HELP_DONE_ASK : PUSHED_ASK}`;
+    await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
+        || jsonb_build_object('bench_ask', ${sql().json(stored as never)}::jsonb, 'said', ${saidSql(codes === 'checking' ? [] : [READY_WAIT_SAID], now)})
+      WHERE builder_id = ${id}`.catch(logged('ready waiting'));
+    return { view: view0('qualify', show, readyNoteOf(codes === 'checking' ? CHECKING_NOTE : QUALIFY_NOTE)), stand: v.stand, fields: { move_up: { kind: 'qualify', project_key: key, agent_note: QUALIFY_NOTE }, ...standingFields(v.stand) } };
+  }
+  // Found: the codes' programs open, unless one also waits on what only the builder can give.
+  const freed = r.codes.filter((pid) => r.need?.program_id !== pid);
+  const next: ReadyState = { ...r, opened: [...r.opened, ...freed], waiting: r.waiting.filter((pid) => !freed.includes(pid)), codes: [] };
+  const rows = await Promise.all(next.opened.map(async (pid) => {
+    const row = await getProgramRow(pid).catch(() => null);
+    return { id: pid, title: row?.title ?? base(pid), link: row?.submission_url ?? null };
+  }));
+  const set = r.ids.filter((pid) => !r.skipped.includes(pid)).map(base);
+  const show = readyOpenedShow(set, rows.map(openRow), next.need);
+  const stored = { kind: 'ready', key, ids: r.ids, ...(next.need ? { need: true } : { sent: true }) };
+  const note = next.need ? READY_NEEDS_NOTE : READY_SENT_NOTE;
+  // The path leaves Base's gap (its code is in), so the next session's opener is not held back by it.
+  const path: Path = { stage: 'hook', program_id: null, at: now.toISOString() };
+  await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) - 'gap_did')
+      || jsonb_build_object('ready', ${sql().json(next as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb, 'path', ${sql().json(path as never)}::jsonb, 'said', ${saidSql([], now)})
+    WHERE builder_id = ${id}`.catch(logged('ready open'));
+  const open = rows.filter((x) => freed.includes(x.id));
+  return {
+    view: view0('ready', show, `${READY_YES_NOTE} ${readyNoteOf(note)}`), stand: v.stand,
+    fields: { move_up: { kind: 'ready', project_key: key, agent_note: note }, ready: { open }, ...standingFields(v.stand) },
+  };
+}
+
+/**
+ * The ready set in benchView's path (R1): a program waiting on Builder Codes is re-checked first; then a waiting ask is
+ * said again in its short form; then, on a fresh session with nothing mid-path (no stage past the hook, no pick, no
+ * direct question, no closed gap or running re-check), the opener when the set has a program. Null: the path as before
+ * (0 programs: byte for byte). Never throws on its own reads and writes.
+ */
+/**
+ * Test only (as RECHECK_WAIT): `on: false` keeps the v4.8 path suites on the path they pin (the path still answers a
+ * 0-program set, a builder mid-path and every later reply); v410-find.test.ts pins the set.
+ */
+export const READY_SET = { on: true };
+async function readyView(o: ViewIn, plan: PathPlan): Promise<{ view: BenchView; fields: Reply; stand: Standing } | null> {
+  if (!READY_SET.on) return null;
+  const { now, read } = o;
+  const v = plan.facts;
+  const r = readyOf(read.seen, now);
+  const session = sessionOf(read.seen, now);
+  if (r) {
+    const waiting = await readyWaitingCommit(o, v, r);
+    if (waiting) return waiting;
+    const asked = read.seen.bench_ask;
+    if (asked?.kind === 'ready' && (asked.key ?? '').toLowerCase() === v.project.key.toLowerCase()
+      && (asked.sent === true || (asked.need === true && r.need) || (!session.fresh && session.said.has(READY_SAID))))
+      return readyAgainCommit(o, v, asked, r);
+  }
+  const p = plan.path;
+  const mid = p !== null && ((p.stage !== 'hook' && p.stage !== 'track') || p.picked === true);
+  if (!session.fresh || o.question || mid || plan.closed || plan.checking) return null;
+  // R2: a grant the fit bar calls a long shot joins as one (bestMove's own ctx is left as it is).
+  const grants = plan.ctx.grants.map((g) => (plan.longShots.has(g.id) ? { ...g, longShot: true } : g));
+  const set = readySet({ ...plan.ctx, grants, now });
+  return set.length > 0 ? readyCommit(o, plan, set) : null;
+}
+
+/**
+ * tell's answer to the ready ask (R8; benchMoveUp routes kind 'ready' here). The opener's ask: yes does the steps it can
+ * (Base's Builder Codes through gapDoYes, the existing gap stage) and opens the rest (ready.open, READY_YES_NOTE: the
+ * agent calls prepare for each); every program is drafted (apply_yes). "skip" parks the numbered ones (1-based, out of
+ * range ignored) and is a yes on the rest; skipping all, or a no, parks the set ('apply:' and 'path:' for DECLINE_MS)
+ * and hands off to find. After the yes: a builder-only answer (blanks) is banked by kind (saveBank, so no program asks
+ * it again) and opens its program; a plain yes is never "sent". Never throws on its own writes.
+ */
+async function readyAnswer(
+  ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId'>, m: { project_key?: string | null; answer: 'yes' | 'no' | 'skip'; skip?: number[]; blanks?: string },
+): Promise<Reply> {
+  const id = ctx.installationId;
+  const now = new Date();
+  const okay = { show_to_builder: NOTED_LINE };
+  const asked = await benchAsked(id, { kind: 'ready', project_key: m.project_key });
+  const [row] = await sql()<{ seen: Seen | null }[]>`SELECT standing_seen AS seen FROM builder_profiles WHERE builder_id = ${id}`.catch(() => []);
+  const r = readyOf(row?.seen, now);
+  if (!asked || !r || !asked.key) return okay;
+  const key = asked.key;
+  const live = r.ids.filter((pid) => !r.skipped.includes(pid));
+  const titles = new Map(await Promise.all(live.map(async (pid) => [pid, (await getProgramRow(pid).catch(() => null))?.title ?? pid] as const)));
+  const names = (pids: readonly string[]) => pids.map((pid) => shortName(titles.get(pid) ?? pid));
+  const moveUp = (note: string) => ({ kind: 'ready', project_key: key, agent_note: note });
+  const parkSql = (pids: readonly string[]) =>
+    sql().json(Object.fromEntries(pids.flatMap((pid) => [[benchStepKey('apply', pid), now.toISOString()], [benchStepKey('path', pid), now.toISOString()]])) as never);
+  // After the yes, the pages are open: "sent" is the builder's word (tools.ts readySent); a yes or ok is not it.
+  if (asked.sent) {
+    if (m.answer === 'skip') return okay;
+    return { show_to_builder: m.answer === 'no' ? `No rush. ${readySentAsk(r.opened.length)}` : readySentAsk(r.opened.length), agent_note: withMentor(READY_SENT_NOTE), move_up: moveUp(READY_SENT_NOTE) };
+  }
+  const record = await readyRecord(id, now);
+  // After the yes, a program waits on what only the builder can give: their answer opens it; a no parks it.
+  if (asked.need && r.need) {
+    const need = r.need;
+    if (m.answer === 'skip') return okay;
+    if (m.answer === 'no') {
+      const next: ReadyState = { ...r, skipped: [...r.skipped, need.program_id], waiting: r.waiting.filter((pid) => pid !== need.program_id), need: null };
+      const stored = { kind: 'ready', key, ids: r.ids, sent: true };
+      await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{declined}', COALESCE(standing_seen->'declined', '{}'::jsonb) || ${parkSql([need.program_id])}::jsonb)
+          || jsonb_build_object('ready', ${sql().json(next as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb)
+        WHERE builder_id = ${id}`.catch(logged('ready need no'));
+      const line = setAsideLine(need.title);
+      return next.opened.length > 0 ? { show_to_builder: `${line}\n\n${readySentAsk(next.opened.length)}`, agent_note: withMentor(READY_SENT_NOTE), move_up: moveUp(READY_SENT_NOTE) } : { show_to_builder: line, then_find: true };
+    }
+    if (!m.blanks?.trim()) return { show_to_builder: readyNeedsAsk(need.title, need.phrase), agent_note: withMentor(READY_NEEDS_NOTE), move_up: moveUp(READY_NEEDS_NOTE) };
+    return readyYes(ctx, { r, asked, key, rest: r.waiting.filter((pid) => !r.codes.includes(pid)), skipped: [], prefix: null, blanks: m.blanks, titles, record, now, after: true });
+  }
+  if (m.answer === 'no') return readyPark(id, r, live, names(live), parkSql(live));
+  // R8: "skip" with the opener's numbers (1-based); out of range or repeated ignored; every program skipped is a no.
+  const skipped = m.answer === 'skip'
+    ? [...new Set((m.skip ?? []).filter((n) => Number.isInteger(n) && n >= 1 && n <= r.ids.length).map((n) => r.ids[n - 1]))].filter((pid) => live.includes(pid))
+    : [];
+  const rest = live.filter((pid) => !skipped.includes(pid));
+  if (rest.length === 0) return readyPark(id, r, live, names(live), parkSql(live));
+  return readyYes(ctx, { r, asked, key, rest, skipped, prefix: skipped.length > 0 ? skipReply(names(skipped), names(rest)) : null, blanks: m.blanks, titles, record, now, after: false });
+}
+
+/** R8: a no (or every program skipped) parks the set for DECLINE_MS, then find runs in the same tell. One UPDATE. */
+async function readyPark(id: number, r: ReadyState, pids: string[], names: string[], park: ReturnType<ReturnType<typeof sql>['json']>): Promise<Reply> {
+  const next: ReadyState = { ...r, skipped: [...r.skipped, ...pids], waiting: [], codes: [], need: null };
+  await sql()`UPDATE builder_profiles SET standing_seen = (jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{declined}', COALESCE(standing_seen->'declined', '{}'::jsonb) || ${park}::jsonb) - 'bench_ask')
+      || jsonb_build_object('ready', ${sql().json(next as never)}::jsonb)
+    WHERE builder_id = ${id}`.catch(logged('ready no'));
+  return { show_to_builder: readyNoLine(names), then_find: true };
+}
+
+/**
+ * The yes (R6, R8), on the programs left after a skip (`rest`; `after`: the builder's answer to a need, on the programs
+ * waiting on one). Base waiting on Builder Codes runs the gap stage's yes (gapDoYes: the agent adds them, pushes, says
+ * ok; find re-checks and opens it); the others with nothing to wait on open now. The reply: the skip line, the adding
+ * line, the open list, then one easy reply (the push's ok, what only the builder can give, or "sent"). The ready state,
+ * apply_yes for every program, the parks and the ask are one UPDATE (gapDoYes stores its own ask after it). Never
+ * throws on its own writes.
+ */
+async function readyYes(
+  ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId'>,
+  o: {
+    r: ReadyState; asked: NonNullable<Seen['bench_ask']>; key: string; rest: string[]; skipped: string[]; prefix: string | null; blanks?: string;
+    titles: Map<string, string>; record: string[]; now: Date; after: boolean;
+  },
+): Promise<Reply> {
+  const id = ctx.installationId;
+  const { r, asked, key, rest, skipped, now } = o;
+  const hosted = (await agentReach(ctx.ownInstallationId ?? id, id)).hosted;
+  const codes = o.after ? [] : rest.filter((pid) => (asked.codes ?? []).includes(pid) && asked.qualify);
+  const progs = rest.map((pid) => ({ id: pid, title: o.titles.get(pid) ?? pid, step: codes.includes(pid) ? ('codes' as const) : null }));
+  let drafts = await readyDrafts(id, key, progs, o.record);
+  // R5: a builder-only answer is banked by its field's kind (never asked twice), and counts for its program here.
+  const first = o.blanks?.trim() ? (o.after && r.need ? drafts.find((d) => d.id === r.need!.program_id) : drafts.find((d) => d.need)) : undefined;
+  const need0 = first ? (o.after && r.need ? r.need : first.need) : null;
+  if (need0 && o.blanks?.trim()) {
+    const bank = await bankKeyOf(id, key);
+    if (bank) await saveBank(id, bank, need0.program_id, [need0.req], { [need0.req.key]: o.blanks.trim() }).catch(logged('ready bank'));
+    drafts = await readyDrafts(id, key, progs, o.record, { [need0.program_id]: { [need0.req.key]: o.blanks.trim() } });
+  }
+  const open = drafts.filter((d) => !d.need && !codes.includes(d.id));
+  const need = drafts.find((d) => d.need)?.need ?? null;
+  const opened = [...r.opened, ...open.map((d) => d.id)];
+  const next: ReadyState = {
+    ...r, skipped: [...r.skipped, ...skipped], opened,
+    waiting: [...r.waiting.filter((pid) => !rest.includes(pid)), ...rest.filter((pid) => !opened.includes(pid))], codes: o.after ? r.codes : codes, need,
+  };
+  const stored = { kind: 'ready', key, ids: r.ids, ...(need && next.codes.length === 0 ? { need: true } : { sent: true }) };
+  const drafted = sql().json(Object.fromEntries(rest.map((pid) => [pid, now.toISOString()])) as never);
+  const park = sql().json(Object.fromEntries(skipped.flatMap((pid) => [[benchStepKey('apply', pid), now.toISOString()], [benchStepKey('path', pid), now.toISOString()]])) as never);
+  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(jsonb_set(COALESCE(standing_seen, '{}'::jsonb),
+        '{apply_yes}', COALESCE(standing_seen->'apply_yes', '{}'::jsonb) || ${drafted}::jsonb),
+        '{declined}', COALESCE(standing_seen->'declined', '{}'::jsonb) || ${park}::jsonb)
+      || jsonb_build_object('ready', ${sql().json(next as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb)
+    WHERE builder_id = ${id}`.catch(logged('ready yes'));
+  const g = codes.length > 0
+    ? await gapDoYes(ctx, id, { kind: 'qualify', key, program_id: BASE_GRANTS_ID, program: o.titles.get(BASE_GRANTS_ID), path: true, gap: true, qualify: asked.qualify }, now)
+    : null;
+  const set = rest.map((pid) => o.titles.get(pid) ?? pid);
+  const allSet = (o.after ? r.ids.filter((pid) => !next.skipped.includes(pid)) : rest).map((pid) => o.titles.get(pid) ?? pid);
+  const openRows = open.map(openRow);
+  const shownOpen = o.after ? [...(await Promise.all(r.opened.map(async (pid) => openRow({ title: o.titles.get(pid) ?? pid, link: (await getProgramRow(pid).catch(() => null))?.submission_url ?? null })))), ...openRows] : openRows;
+  const gShow = typeof g?.show_to_builder === 'string' ? g.show_to_builder : '';
+  const parts = g
+    ? [
+        hosted ? null : readyYesReply({ set: set.map((title) => ({ title })), opened: [], waiting: ['Builder Codes'] }),
+        openRows.length > 0 ? readyOpenList(set, openRows) : null,
+        hosted && gShow ? gShow : PUSHED_ASK,
+      ]
+    : [readyOpenedShow(allSet, shownOpen, need)];
+  const note = need ? READY_NEEDS_NOTE : READY_SENT_NOTE;
+  const yesNote = open.length > 0 ? `${READY_YES_NOTE} ` : '';
+  return {
+    show_to_builder: [o.prefix, ...parts].filter(Boolean).join('\n\n'),
+    agent_note: g && typeof g.agent_note === 'string' ? `${yesNote}${g.agent_note}` : withMentor(`${yesNote}${note}`),
+    move_up: g?.move_up ?? { kind: 'ready', project_key: key, agent_note: note },
+    ready: { open: open.map((d) => ({ id: d.id, title: d.title, link: d.link })) },
+  };
+}
+
+/**
+ * v4.10 Task 4 (R8): the programs a "sent" to the ready ask marks applied (tools.ts tell, as program_status applied):
+ * every opened page, or with `sent_ids` only those of them, while the set is within DECLINE_MS. Null with none (or no
+ * ready set). Never throws.
+ */
+export async function readySent(id: number, m: { sent_ids?: string[] }): Promise<string[] | null> {
+  // The stored ask may be Base's re-check by now (its codes still pending); the ready state holds what is open.
+  const [row] = await sql()<{ seen: Seen | null }[]>`SELECT standing_seen AS seen FROM builder_profiles WHERE builder_id = ${id}`.catch(() => []);
+  const r = readyOf(row?.seen, new Date());
+  if (!r) return null;
+  const ids = m.sent_ids?.length ? r.opened.filter((pid) => m.sent_ids!.includes(pid)) : r.opened;
+  return ids.length > 0 ? ids : null;
+}
+/**
+ * v4.10 Task 4: after "sent" (told applied): those pages leave `opened`, the ask is cleared (or kept for the rest still
+ * open) and the path is at track (the next hook greets no one, as after the path's own "sent"). One UPDATE. Never throws.
+ */
+export async function readyTracked(id: number, ids: readonly string[], now: Date): Promise<void> {
+  const [row] = await sql()<{ seen: Seen | null }[]>`SELECT standing_seen AS seen FROM builder_profiles WHERE builder_id = ${id}`.catch(() => []);
+  const r = readyOf(row?.seen, now);
+  if (!r) return;
+  const next: ReadyState = { ...r, opened: r.opened.filter((pid) => !ids.includes(pid)) };
+  const path: Path = { stage: 'track', program_id: ids[0] ?? null, at: now.toISOString() };
+  const keep = next.opened.length > 0;
+  await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) - CASE WHEN ${keep} THEN '' ELSE 'bench_ask' END)
+      || jsonb_build_object('ready', ${sql().json(next as never)}::jsonb, 'path', ${sql().json(path as never)}::jsonb)
+    WHERE builder_id = ${id}`.catch(logged('ready track'));
 }
 
 /** v4.8 Task 3: a fresh session's "Since {day}: ..." line before the step's own words (one paragraph). Pure. */
@@ -1646,6 +2060,9 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
         const hello = await connectedCommit(o, plan);
         if (hello) return answered(hello);
       }
+      // v4.10 Task 4 (R1): the ready set, when this session opens with one (or a program of it waits); else the path.
+      const ready = await readyView(o, plan);
+      if (ready) return answered(ready);
       let move = plan.move;
       // Final review F3: the ok to a help step ("Say ok once it's done") came back not done (a closed gap and a running
       // re-check answer below): the program waits now (parked, this session's check spent), and the path moves on in the
@@ -2632,10 +3049,15 @@ const declineKeyOf = (asked: NonNullable<Seen['bench_ask']>) =>
  * The builder's yes or no to the Bench's question (tools.ts moveUpAnswer routes it here). Only the ask stored with the last reply is answered; anything else is
  * "Okay." with nothing changed. A no is noted (standing_seen.declined) and clears the ask; the next reply asks its state's step again.
  */
-export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'tokenDeps' | 'builderTokenDeps'> & Partial<Pick<ToolContext, 'sharedClient'>>, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no'; live_url?: string; via?: 'coin'; blanks?: string }): Promise<Reply> {
+export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'tokenDeps' | 'builderTokenDeps'> & Partial<Pick<ToolContext, 'sharedClient'>>, m0: { kind?: string; project_key?: string | null; answer: 'yes' | 'no' | 'skip'; skip?: number[]; live_url?: string; via?: 'coin'; blanks?: string }): Promise<Reply> {
   const id = ctx.installationId;
   const now = new Date();
   const okay = { show_to_builder: NOTED_LINE };
+  // v4.10 Task 4 (R8): the ready set's answers (yes, no, the numbers to skip); "skip" to any other ask is noted only.
+  if (m0.kind === 'ready') return readyAnswer(ctx, m0);
+  const answer = m0.answer;
+  if (answer === 'skip') return okay;
+  let m = { ...m0, answer };
   // 2026-10-23 fix round: a tell with no kind answers the stored question when it is an onboarding one (so a kindless
   // no to step 2 is remembered and a kindless yes to the walk-through gives the steps).
   // v4.2: only the builder's own move_up {kind:'token', answer:'yes'} reverses a no; a kindless yes riding a stored ask or an old coin yes does not.
@@ -3100,10 +3522,14 @@ export const questionsDraftNote = (programId: string, key: string | null, o: { r
  * itself fills: the Builder Code confirmed in an App-proven repo, and verified usage (the record's "Used by" line) for a
  * usage field. A failed read holds nothing. Never throws.
  */
+/** v4.10 Task 4: the answer bank's key for the one project (heldAnswers' own, so a saved answer is read back). Never throws. */
+async function bankKeyOf(id: number, key: string | null): Promise<string | null> {
+  const name = (await mainProjectName(id).catch(() => null)) ?? (key ? keyName(key) : '');
+  return key && REPO_KEY.test(key.toLowerCase()) ? projectKey({ repo_url: `https://github.com/${key}`, name }) : name ? projectKey({ name }) : null;
+}
 async function heldAnswers(id: number, key: string | null, reqs: SubmissionRequirement[], record: string[]): Promise<{ held: Record<string, string>; fills: Record<string, string> }> {
   const [p] = await sql()<{ handle: string | null }[]>`SELECT x_handle AS handle FROM builder_profiles WHERE builder_id = ${id}`.catch(() => []);
-  const name = (await mainProjectName(id).catch(() => null)) ?? (key ? keyName(key) : '');
-  const bankKey = key && REPO_KEY.test(key.toLowerCase()) ? projectKey({ repo_url: `https://github.com/${key}`, name }) : name ? projectKey({ name }) : null;
+  const bankKey = await bankKeyOf(id, key);
   const bank = bankKey ? await readBank(id, bankKey).catch(() => new Map()) : new Map();
   const filled = bankFill(reqs, {}, bank);
   const handle = p?.handle ? `@${p.handle}` : null;

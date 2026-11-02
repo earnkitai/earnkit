@@ -17,7 +17,7 @@ import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
 import { isoWeekOf } from './weeks';
 import { HELP_DONE_ASK } from './conversation';
-import { helpDoneTail, MORE_ASK, NAME_ASK, alsoOpen, pathDrafted, readyStored, codesSettled, openMoneyNow, openNowInvestment, openerPrograms } from './bench-find';
+import { READY_SET, helpDoneTail, MORE_ASK, NAME_ASK, alsoOpen, pathDrafted, readyStored, codesSettled, openMoneyNow, openNowInvestment, openerPrograms } from './bench-find';
 import { moneyText } from './pool';
 import { GitHubBudgetStop, type ReaderDeps } from './source-readers';
 import { committedProgram } from './fixtures/program-file';
@@ -34,6 +34,10 @@ import { digestBody, moneyTexts } from './digest';
 import { programUpdates, type Card } from './present';
 import { BUILDER_CODES_SUFFIX } from './builder-code';
 import { qualifyGapSteps } from './bench-reply';
+
+// v4.10 Task 4: this file pins the v4.8 path, which still answers a 0-program ready set, a builder mid-path and every
+// later reply; the ready set that now opens a fresh session is v410-find.test.ts's (bench-find.ts READY_SET).
+READY_SET.on = false;
 
 /**
  * v4.8.1 Task 1 (R1): investor programs and long shots never lead on their own. They lead only when the builder picked

@@ -672,12 +672,24 @@ export function draftBlanks(
   const required = p.submission_requirements.filter((r) => r.required);
   if (p.investment && required.every((r) => r.kind === 'contact')) return { brief: true, blanks: [...FOUNDER_BLANKS], later: [], drafted: [] };
   const open = required.filter((r) => r.from === 'builder' && r.kind !== 'contact' && !held[r.key]?.trim());
+  const ask = builderOnly(p, held).map((r) => r.todo ?? r.label.toLowerCase());
+  return { brief: false, blanks: ask.slice(0, MAX_BLANKS), later: ask.slice(MAX_BLANKS), drafted: open.filter((r) => !mustAsk(r)).map((r) => r.label) };
+}
+/**
+ * v4.10 Task 4 (R5): the required fields only the builder can give (draftBlanks' blanks, as fields): from the builder,
+ * not a contact detail, not held, and one the agent can't draft (mustAsk), team first. None for an investor program
+ * with no public questions (its founder brief's blanks are the agent's to ask). Pure.
+ */
+export function builderOnly<R extends DraftReq & { type?: string }>(
+  p: { investment: boolean; submission_requirements: readonly R[] }, held: Record<string, string>,
+): R[] {
+  const required = p.submission_requirements.filter((r) => r.required);
+  if (p.investment && required.every((r) => r.kind === 'contact')) return [];
   const rank = (r: DraftReq) => {
     const i = (ASK_KINDS as readonly string[]).indexOf(r.kind ?? '');
     return i < 0 ? ASK_KINDS.length : i;
   };
-  const ask = open.filter(mustAsk).sort((a, b) => rank(a) - rank(b)).map((r) => r.todo ?? r.label.toLowerCase());
-  return { brief: false, blanks: ask.slice(0, MAX_BLANKS), later: ask.slice(MAX_BLANKS), drafted: open.filter((r) => !mustAsk(r)).map((r) => r.label) };
+  return required.filter((r) => r.from === 'builder' && r.kind !== 'contact' && !held[r.key]?.trim()).filter(mustAsk).sort((a, b) => rank(a) - rank(b));
 }
 
 /**

@@ -28,6 +28,11 @@ import { chainFitLine, eligibilityLine } from './tools';
 import { moneyHeader, noFitLine, presentFirstMessage, APPLIED_OUTSIDE, type Card, type FirstMessage } from './present';
 import { ANSWER_FIRST_NOTE } from './stand-text';
 import { SERVER_INSTRUCTIONS } from './mcp';
+import { READY_SET } from './bench-find';
+
+// v4.10 Task 4: this file pins the reply the path gives; a fresh session now opens with the ready set instead
+// (v410-find.test.ts), so the set is off here (bench-find.ts READY_SET).
+READY_SET.on = false;
 
 /**
  * v3.1 cold-read fixes (owner-approved spec, docs/design-docs-and-implementation-plans/v3.1-cold-read-fixes.md): the

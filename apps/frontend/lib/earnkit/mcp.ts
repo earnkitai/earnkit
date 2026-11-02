@@ -422,7 +422,10 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
             .object({
               kind: z.string().max(20).optional().describe("find's or score's move_up.kind; 'token' when the builder said no to their token, or asked to launch it"),
               project_key: z.string().max(300).nullable().optional().describe("find's or score's move_up.project_key"),
-              answer: z.enum(['yes', 'no', 'sent']).describe("yes or no; 'sent' only when they say the application is in (\"sent\", \"submitted\", \"done, it's in\"), never for a plain ok"),
+              answer: z.enum(['yes', 'no', 'sent', 'skip']).describe("yes or no; 'sent' only when they say the application is in (\"sent\", \"submitted\", \"done, it's in\"), never for a plain ok; 'skip' with skip for the numbers they leave out"),
+              // v4.10 Task 4 (R8): the ready set's numbers to skip, and "sent" for only some of its pages.
+              skip: z.array(z.number().int()).max(3).optional().describe("With answer 'skip': the numbers they said to skip (1-based)"),
+              sent_ids: z.array(z.string().max(200)).max(3).optional().describe("With answer 'sent' to kind 'ready': only these program ids, when they sent some"),
               live_url: z.string().max(300).optional().describe("Only when a go_live note asks: the app's GitHub Pages link once it loads"),
               blanks: z.string().max(2000).optional().describe("Only when a draft's note asks: the builder's reply to its blanks, as they wrote it"),
             })

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { GapGrant, InvestorProgram, MoveCtx, MoveProgram } from './conversation';
 import { readySet, worthUpTo, type ReadyProgram } from './ready-set';
-import { READY_ASK, readyLine, readyOpener, readyYesReply, shortName, skipReply } from './ready-copy';
+import { READY_AGAIN_ASK, READY_ASK, needsPhrase, readyAgain, readyLine, readyNoLine, readyOpener, readyYesReply, shortName, skipReply } from './ready-copy';
 import { gateFailures, lazyNext, type Reply } from './fixtures/converse';
 
 /*
@@ -35,7 +35,8 @@ test('the owner shape gives Base, a16z, Circle, worth up to $1.1M', () => {
   const set = readySet(ctx(OWNER));
   assert.deepEqual(set.map((p) => [p.id, p.kind]), [['base-builder-grants', 'one_step'], ['a16z-speedrun', 'investor'], ['circle-developer-grants', 'long_shot']]);
   assert.equal(set[0].step, 'codes');
-  assert.equal(set[0].needs, 'EarnKit is one step away: add Builder Codes.');
+  // v4.10 Task 4 (f): `needs` is a short phrase find derives from a form field, never the gap sentence.
+  assert.equal(set[0].needs, null);
   assert.equal(set[2].why, 'they look for apps on Arc');
   assert.equal(worthUpTo(set), '$1.1M');
 });
@@ -158,7 +159,10 @@ test('the gate passes the ready replies, still fails a plain ask, and the copy i
   for (const t of texts) {
     assert.doesNotMatch(t, /—|\bcoins?\b|\bpoints?\b|sent it|submitted|applied for you/i, t);
   }
-  assert.deepEqual(gateFailures([reply(opener(), { said: ['opener'] })]).filter((f) => f.rule === 'easy_reply'), []);
+  // v4.10 Task 4 (c): only while the stored ask is the ready one.
+  const ready = { reply: { move_up: { kind: 'ready', project_key: null } } };
+  assert.deepEqual(gateFailures([reply(opener(), { said: ['opener'], ...ready })]).filter((f) => f.rule === 'easy_reply'), []);
+  assert.deepEqual(gateFailures([reply(opener(), { said: ['opener'] })]).map((f) => f.rule), ['easy_reply']);
   assert.deepEqual(gateFailures([reply(texts[3])]).filter((f) => f.rule === 'easy_reply' || f.rule === 'copy' || f.rule === 'claim'), []);
   assert.deepEqual(gateFailures([reply('Jenil, here is Circle.\n\nReply yes or no.')]).map((f) => f.rule), ['easy_reply']);
 });
@@ -168,4 +172,48 @@ test('lazyNext answers a ready ask with yes, or with the numbers the walk skips'
   const o = { blanks: 'just me', pushed: 'PUSHED' };
   assert.deepEqual(lazyNext(asked, o), { says: 'yes', tell: { move_up: { kind: 'ready', project_key: null, answer: 'yes' } } });
   assert.deepEqual(lazyNext(asked, { ...o, skip: [3] }), { says: 'skip 3', tell: { move_up: { kind: 'ready', project_key: null, answer: 'skip', skip: [3] } } });
+  // v4.10 Task 4: once the pages are open the ready ask is "sent", never another yes.
+  const opened = reply(readyYesReply({ set: OWNER_SET, opened: [{ title: 'Circle Developer Grants', link: 'https://circle.questbook.app/' }], waiting: [] }), { reply: { move_up: { kind: 'ready', project_key: null } } });
+  assert.deepEqual(lazyNext(opened, o), { says: 'sent', tell: { move_up: { kind: 'ready', project_key: null, answer: 'sent' } } });
+});
+
+/*
+ * v4.10 Task 4: the copy find and tell add (decisions d, f, g) and the gate's ready-status ask.
+ */
+test('a long shot one doable codes gap away carries step codes, and its line says the step', () => {
+  const ls: GapGrant = { ...BASE, id: 'ls-codes', title: 'Circle Developer Grants', amount: '$5K to $100K', max_usd: 100_000, longShot: true, why: 'they look for apps on Arc' };
+  const [p] = readySet(ctx({ grants: [ls] }));
+  assert.deepEqual([p.kind, p.step], ['long_shot', 'codes']);
+  assert.equal(readyLine(p, 1, false, NOW), "1. Circle Developer Grants: $5K to $100K. Ready once I add Builder Codes (10 minutes, I'll do it), but Circle looks for apps on Arc, so it's a long shot.");
+  // a long shot with a gap the agent can't do keeps no step
+  assert.equal(readySet(ctx({ grants: [{ ...ls, gaps: ['on Arc mainnet'], doable: false }] }))[0].step, null);
+});
+
+test('an investor program with no amount reads "investment program"', () => {
+  const [a] = readySet(ctx({ investors: [{ ...A16Z, amount: null }] }));
+  assert.equal(readyLine(a, 1, false, NOW), '1. a16z speedrun SR008: investment program, closes in 19 hours. Ready.');
+});
+
+test('needsPhrase: a short noun phrase from the field kind, else its label', () => {
+  assert.equal(needsPhrase({ key: 'founding_team', label: 'Tell us about the founding team', kind: 'team', todo: 'a note on the founding team' }), 'your team list');
+  assert.equal(needsPhrase({ key: 'demo_loom', label: 'Link to a Product Demo (Loom)', kind: 'demo_video', todo: 'a Loom product demo' }), 'your demo video');
+  assert.equal(needsPhrase({ key: 'pitch', label: 'Pitch video', kind: 'pitch_video' }), 'your pitch video');
+  assert.equal(needsPhrase({ key: 'usage_numbers', label: 'Share your key usage numbers', kind: 'traction', todo: 'your key usage numbers' }), 'your usage numbers');
+  assert.equal(needsPhrase({ key: 'entity', label: 'Legal entity', kind: 'other', todo: 'your legal entity' }), 'your legal entity');
+  assert.equal(needsPhrase({ key: 'loc', label: 'Location', kind: 'other' }), 'your location');
+  const [base] = OWNER_SET;
+  assert.equal(readyLine({ ...base, step: null, needs: 'your team list' }, 1, false, NOW), '1. Base Builder Grant: up to $5,000. Needs your team list first.');
+});
+
+test('the ready status, the no line, and a partial open list', () => {
+  assert.equal(readyAgain(3), `Your 3 applications are still ready. ${READY_AGAIN_ASK}`);
+  assert.equal(READY_AGAIN_ASK, "Reply yes and I'll finish them.");
+  assert.equal(readyAgain(1), "Your application is still ready. Reply yes and I'll finish it.");
+  assert.equal(readyNoLine(['Base', 'a16z', 'Circle']), "No problem, I'll set Base, a16z and Circle aside.");
+  const two = OWNER_SET.slice(0, 2);
+  assert.match(readyYesReply({ set: two, opened: [{ title: 'a16z speedrun SR008', link: 'https://speedrun.a16z.com/apply' }], waiting: [] }), /^1 of 2 is open with every answer in place:\n- a16z: /);
+  const ready = { reply: { move_up: { kind: 'ready', project_key: null } } };
+  assert.deepEqual(gateFailures([reply(readyAgain(3), ready)]), []);
+  assert.deepEqual(gateFailures([reply(readyAgain(3))]).map((f) => f.rule), ['easy_reply']);
+  assert.match(readyOpener({ name: null, set: OWNER_SET, worth: '$1.1M', page: 'earnkit.com/j', hosted: false, now: NOW }), /^I've got 3 applications ready for you, worth up to \$1\.1M:\n/);
 });

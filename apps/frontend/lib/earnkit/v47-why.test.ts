@@ -21,6 +21,11 @@ import { WHY_NOTE, whyNote, withWhy } from './bench-find';
 import { FIND_DESCRIPTION_BENCH, SERVER_INSTRUCTIONS } from './mcp';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
+import { READY_SET } from './bench-find';
+
+// v4.10 Task 4: this file pins the reply the path gives; a fresh session now opens with the ready set instead
+// (v410-find.test.ts), so the set is off here (bench-find.ts READY_SET).
+READY_SET.on = false;
 
 /**
  * v4.7 Task 4: a why at every step. Each ask carries its own short line, the paragraph just before its question, and

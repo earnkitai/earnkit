@@ -2773,3 +2773,11 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
 - **`ready-copy.ts`** (v4.10 Task 3): `READY_ASK`, `shortName`, `readyLine`, `readyOpener`, `readyYesReply`, `skipReply`.
   Uses `conversation.ts` `programName`/`closeWords`, `bench-reply.ts` `BUILDER_CODES_GUIDE`. `fixtures/converse.ts` imports
   `READY_ASK` (easyReply) and `lazyNext` takes `skip?`. Tests: `v410-ready.test.ts`.
+- **v4.10 Task 4**: `bench-find.ts` `readyView` (in `benchView`), `readyCommit`, `readyAgainCommit`,
+  `readyWaitingCommit`, `readyAnswer`/`readyYes`/`readyPark` (from `benchMoveUp`), exported `readySent`, `readyTracked`
+  (tools.ts tell), `READY_SET` (test switch), `READY_CODES_NOT_YET`, `ReadyState` in `standing_seen.ready`, `bench_ask`
+  ids/codes/sent/need, `PathPlan.longShots`, `bankKeyOf`. `conversation.ts` `builderOnly`. `ready-copy.ts` adds
+  `READY_NOTE`, `READY_ASK_NOTE`, `READY_YES_NOTE`, `READY_SENT_NOTE`, `READY_NEEDS_NOTE`, `READY_AGAIN_ASK`,
+  `readyAgain`, `needsPhrase`, `readyOpenList`, `readySentAsk`, `readySentAgain`, `readyNeedsAsk`, `readyNoLine`,
+  `readyTrackLead`. `bench-reply.ts` `BenchAskKind` 'ready'. tools.ts/mcp.ts `move_up` answer 'skip', `skip`,
+  `sent_ids`. Tests: `v410-find.test.ts`, `v410-ready.test.ts`.
