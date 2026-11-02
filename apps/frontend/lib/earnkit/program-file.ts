@@ -44,11 +44,19 @@ export const FIELD_KINDS = [
 export type FieldKind = (typeof FIELD_KINDS)[number];
 /**
  * v4.10 final fix (I1): the builder's one reply to the ready set's ask, split by the agent per field kind (tell
- * move_up.answers; bench-find.ts readyBank): at most 8 kinds, each answer at most 1000 characters.
+ * move_up.answers; bench-find.ts readyBank): at most 8 kinds, each answer at most 1000 characters. v4.10.1 Task 1: a
+ * field of no bankable kind is keyed `other:<field key>` (ready.need.asks), so two such fields never share an answer,
+ * and `contact` is an object of the slots the ask lists ({ name, email, telegram }), each at most 254 characters.
  */
+const READY_ANSWER_KEY = new RegExp(`^(?:${FIELD_KINDS.join('|')}|other:[a-z0-9_]{1,80})$`);
+const CONTACT_SLOTS = z
+  .record(z.string().regex(/^[a-z][a-z0-9_:]{0,80}$/), z.string().max(254))
+  .refine((o) => Object.keys(o).length <= 10, { message: 'At most 10 contact slots.' });
 export const READY_ANSWERS = z
-  .partialRecord(z.enum(FIELD_KINDS), z.string().max(1000))
-  .refine((o) => Object.keys(o).length <= 8, { message: 'At most 8 answers.' });
+  .record(z.string().regex(READY_ANSWER_KEY), z.union([z.string().max(1000), CONTACT_SLOTS]))
+  .refine((o) => Object.keys(o).length <= 8, { message: 'At most 8 answers.' })
+  .refine((o) => Object.entries(o).every(([k, v]) => typeof v === 'string' || k === 'contact'), { message: 'Only contact takes slots.' });
+export type ReadyAnswers = z.infer<typeof READY_ANSWERS>;
 
 const HttpsSource = z.string().url().startsWith('https://');
 

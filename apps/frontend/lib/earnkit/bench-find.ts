@@ -62,14 +62,14 @@ import { prizeOf, shortWallet, siteUrl, upToCell } from './entry-text';
 import { programKind } from './site-copy';
 import { BASE_GRANTS_ID } from './builder-code';
 import { appProvenRepo, builderCodesKnown, builderCodesWords, checkBuilderCodes, codesSettled, refreshBuilderCodes, storedBuilderCode } from './builder-codes-check';
-import { projectKey, readBank, saveBank } from './answer-bank';
+import { bankKeepsContact, projectKey, readBank, saveBank } from './answer-bank';
 import { readySet, worthUpTo, type ReadyProgram } from './ready-set';
 import {
-  READY_ASK_NOTE, READY_NEEDS_NOTE, READY_NOTE, READY_SENT_NOTE, READY_YES_NOTE, needsList, needsPhrase, readyAgain, readyNeedsAsk, readyNeedsLater,
+  READY_ASK_NOTE, READY_NEEDS_NOTE, READY_NOTE, READY_SENT_NOTE, READY_YES_NOTE, contactPhrase, needsList, needsPhrase, readyAgain, readyNeedsAsk, readyNeedsLater,
   readyNoLine, readyOpenList, readyOpener, readySentAgain, readySentAsk, readyStillNeeds, readyYesReply, shortName, skipReply,
 } from './ready-copy';
-import { bankFill } from './coach';
-import { FIELD_KINDS, type SubmissionRequirement } from './program-file';
+import { bankFill, slotOf } from './coach';
+import { FIELD_KINDS, type ReadyAnswers, type SubmissionRequirement } from './program-file';
 import { WALLET_NOTE, type WalletAnswer, answerWallet, takeWalletAsk, takeWalletNotice, tokenOffered, walletChangeReply, walletOfferDue, walletSetupDue, walletSetupNote, takeTokenOffer, tokenOfferDue } from './wallet-offer';
 import { builderToken, builderTokensOn, declineBuilderToken, launchBuilderToken, recordExistingToken, reopenDeclinedToken, tradeUrl, type LaunchResult } from './builder-token';
 import { TOKEN_EXPLAINER, TOKEN_OFF, tokenAnswerFor, tokenAnswerState, tokenAnswerText } from './token-answers';
@@ -1068,9 +1068,10 @@ function readyOf(seen: Pick<Seen, 'ready'> | null | undefined, now: Date): Ready
 type ReadyDraft = { id: string; title: string; link: string | null; ends_at: string | null; requirements: SubmissionRequirement[]; prefilled: Record<string, string>; only: SubmissionRequirement[] };
 /**
  * Each program's draft inputs (R4, R5): its form's required fields, what EarnKit already holds for them (heldAnswers:
- * the answer bank, the X handle, a confirmed Builder Code, the proven wallet, verified usage; `extra`, the builder's
- * answers to fields the bank keeps no kind for, and this tell's) and every field only the builder can give
- * (conversation.ts builderOnly; the Builder Code field is the codes step's to fill). Never throws.
+ * the answer bank, the X handle, an opted-in email, a confirmed Builder Code, the proven wallet, verified usage and
+ * revenue, an owned contract; `extra`, the builder's answers to fields the bank keeps no kind for, and this tell's) and
+ * every field only the builder can give: the contact details not held (v4.10.1 Task 1, R2), then conversation.ts
+ * builderOnly (what the agent can't truthfully draft; the Builder Code field is the codes step's to fill). Never throws.
  */
 async function readyDrafts(
   id: number, key: string, progs: readonly { id: string; title: string; step: 'codes' | null }[], record: string[], extra: Record<string, Record<string, string>> = {},
@@ -1082,21 +1083,43 @@ async function readyDrafts(
     const brief = row?.investment === true && required.every((r) => r.kind === 'contact');
     const reqs = brief ? [...required, ...FOUNDER_REQS] : required;
     const held = { ...(await heldAnswers(id, key, reqs, record)).held, ...extra[p.id] };
-    const only = !row ? [] : brief ? FOUNDER_REQS.filter((r) => !held[r.key]?.trim())
+    // v4.10.1 Task 1 (R2): the contact details EarnKit doesn't hold are the builder's too, asked first as one item.
+    const contact = row ? required.filter((r) => r.kind === 'contact' && !held[r.key]?.trim()) : [];
+    const own = !row ? [] : brief ? FOUNDER_REQS.filter((r) => !held[r.key]?.trim())
       : builderOnly(row, held).filter((r) => !(p.step === 'codes' && /builder code/i.test(`${r.key.replace(/_/g, ' ')} ${r.label}`)));
+    const only = [...contact, ...own];
     return {
       id: p.id, title: row?.title ?? p.title, link: row?.submission_url ?? null, ends_at: row?.ends_at ? new Date(row.ends_at).toISOString() : null,
       requirements: reqs, prefilled: held, only,
     };
   }));
 }
-/** The ask key of a builder-only field (I1): its bank kind, or its own key when the bank keeps none for it. Pure. */
-const askKey = (r: SubmissionRequirement) =>
-  r.kind && r.kind !== 'other' && (FIELD_KINDS as readonly string[]).includes(r.kind) ? r.kind : `other:${r.key}`;
-/** The kind the agent splits an answer under (tell's move_up.answers): the bank kind, else 'other'. Pure. */
-const answerKind = (k: string) => (k.startsWith('other:') ? 'other' : k);
-/** A program's own line (the opener's "Needs ... first."): up to 3 of its fields, then "and N more". Pure. */
-const needsOfDraft = (d: Pick<ReadyDraft, 'only'>) => (d.only.length > 0 ? needsList(d.only.map(needsPhrase)) : null);
+/**
+ * The ask key of a builder-only field (I1), also the key the agent splits an answer under (tell's move_up.answers): its
+ * bank kind, or its own key (`other:<key>`) when the bank keeps none for it. v4.10.1 Task 1: every contact detail is
+ * one key, 'contact'; two fields of one kind in one program (Circle's roadmap and milestones) each keep their own key,
+ * so neither gets the other's answer. `only`: the program's builder-only fields. Pure.
+ */
+const askKey = (r: SubmissionRequirement, only: readonly SubmissionRequirement[]) =>
+  r.kind === 'contact' ? 'contact'
+    : r.kind && r.kind !== 'other' && (FIELD_KINDS as readonly string[]).includes(r.kind) && only.filter((x) => x.kind === r.kind).length === 1 ? r.kind
+      : `other:${r.key}`;
+/** v4.10.1 Task 1: a program's builder-only fields as ask items, by ask key, in order (its contact details one item). Pure. */
+function draftAsks(only: readonly SubmissionRequirement[]): { kind: string; reqs: SubmissionRequirement[] }[] {
+  const out: { kind: string; reqs: SubmissionRequirement[] }[] = [];
+  for (const r of only) {
+    const k = askKey(r, only);
+    const g = out.find((x) => x.kind === k);
+    if (g) g.reqs.push(r);
+    else out.push({ kind: k, reqs: [r] });
+  }
+  return out;
+}
+/** An ask item's words: the contact details named together (R2), else the field's own phrase. Pure. */
+const itemPhrase = (kind: string, reqs: readonly SubmissionRequirement[]) =>
+  kind === 'contact' ? contactPhrase(reqs.map((r) => ({ slot: slotOf(r), label: r.label }))) : needsPhrase(reqs[0]);
+/** A program's own line (the opener's "Needs ... first."): up to 3 of its ask items, then "and N more". Pure. */
+const needsOfDraft = (d: Pick<ReadyDraft, 'only'>) => (d.only.length > 0 ? needsList(draftAsks(d.only).map((g) => itemPhrase(g.kind, g.reqs))) : null);
 const closeOf = (d: { ends_at: string | null }) => (d.ends_at ? Date.parse(d.ends_at) : Infinity);
 /**
  * Final fix (I1): the set's one ask. Every unheld builder-only field across `drafts`, a field asked by two programs
@@ -1111,57 +1134,93 @@ export function readyNeeds(drafts: readonly Pick<ReadyDraft, 'id' | 'title' | 'e
   const asked: typeof order = [];
   const later: ReadyNeed['later'] = [];
   for (const d of order) {
-    const fresh = d.only.filter((r, i, all) => !items.some((it) => it.kind === askKey(r)) && all.findIndex((x) => askKey(x) === askKey(r)) === i);
+    const groups = draftAsks(d.only);
+    const fresh = groups.filter((g) => !items.some((it) => it.kind === g.kind));
     if (asked.length > 0 && items.length + fresh.length > max) {
-      later.push({ program_id: d.id, title: d.title, phrase: needsList(fresh.map(needsPhrase)) });
+      later.push({ program_id: d.id, title: d.title, phrase: needsList(fresh.map((g) => itemPhrase(g.kind, g.reqs))) });
       continue;
     }
-    for (const r of d.only) {
-      const it = items.find((x) => x.kind === askKey(r));
-      if (it) it.fields.push({ program_id: d.id, req: r });
-      else if (items.length < max) items.push({ kind: askKey(r), phrase: needsPhrase(r), fields: [{ program_id: d.id, req: r }] });
+    const left: typeof groups = [];
+    for (const g of groups) {
+      const it = items.find((x) => x.kind === g.kind);
+      const fields = g.reqs.map((req) => ({ program_id: d.id, req }));
+      if (it) it.fields.push(...fields);
+      else if (items.length < max) items.push({ kind: g.kind, phrase: '', fields });
+      else left.push(g);
     }
+    // v4.10.1 Task 1: the first program's fields past the cap are said too ("Base also needs ... I'll ask for them next.").
+    if (left.length > 0) later.push({ program_id: d.id, title: d.title, phrase: needsList(left.map((g) => itemPhrase(g.kind, g.reqs))) });
     asked.push(d);
   }
   if (asked.length === 0) return null;
+  // The contact item names every detail across the programs asking (R2); the others, their first field's words.
+  for (const it of items) it.phrase = itemPhrase(it.kind, it.fields.map((f) => f.req));
   return { programs: asked.map((d) => d.id), titles: asked.map((d) => d.title), phrase: needsList(items.map((i) => i.phrase), max), items, later };
 }
 /** The need's ask (I1): the programs past the cap named first, then the one easy reply. Pure. */
 const needAsk = (n: ReadyNeed) => [n.later.length > 0 ? readyNeedsLater(n.later) : null, readyNeedsAsk(n.titles, n.phrase, n.items.length)].filter(Boolean).join('\n\n');
 /** The need for the agent (ready.need): each field's kind to split the builder's reply under, its words and programs. Pure. */
 const needFields = (n: ReadyNeed) => ({
-  asks: n.items.map((i) => ({ kind: answerKind(i.kind), ask: i.phrase, programs: [...new Set(i.fields.map((f) => f.program_id))] })),
+  asks: n.items.map((i) => ({
+    kind: i.kind, ask: i.phrase, programs: [...new Set(i.fields.map((f) => f.program_id))],
+    // v4.10.1 Task 1 (R2): the contact item's answer is { [slot]: their words }, one per detail named.
+    ...(i.kind === 'contact' && { slots: [...new Set(i.fields.map((f) => slotOf(f.req)))] }),
+  })),
   programs: n.programs,
 });
-/** Final fix (I1): what tell's move_up may answer the need with: a value per field kind, at most 8, each at most 1000 characters. */
-export type ReadyAnswers = Partial<Record<(typeof FIELD_KINDS)[number], string>>;
+/** Final fix (I1): what tell's move_up may answer the need with (program-file.ts READY_ANSWERS). */
+export type { ReadyAnswers };
+/** v4.10.1 Task 1: whether the builder's reply carries any answer (a string, or a contact slot). Pure. */
+const anyAnswer = (a: ReadyAnswers | undefined) =>
+  Object.values(a ?? {}).some((x) => (typeof x === 'string' ? x.trim() : Object.values(x).some((v) => v.trim())));
 /**
- * Final fix (I1): the builder's one reply, per field: `answers[kind]` (the agent's split; 'other' for a field of no
- * bankable kind), else `blanks` (their whole reply, the fallback), for each field of `items` only (the stored need's,
- * or on the first yes every program's). The bankable ones are saved for every program asking them (saveBank, by kind:
- * never asked twice); the others are kept in the set's `given`. Returns the answers by program, for this tell's drafts,
- * and the new `given`. Never throws on its own writes.
+ * Final fix (I1): the builder's one reply, per field: `answers[kind]` (the agent's split, by the item's ask key; a
+ * plain 'other' only when one such field is asked, v4.10.1 Task 1, so two fields never get one answer), else `blanks`
+ * (their whole reply, the fallback), for each field of `items` only (the stored need's, or on the first yes every
+ * program's). The contact item (R2) takes `answers.contact`, one value per slot (a single slot may take a plain string;
+ * never the blanks). The bankable ones are saved for every program asking them (saveBank, by kind: never asked twice;
+ * contact by slot, so a detail given once is never asked again); the others (and contact details on a project the bank
+ * keeps none for) are kept in the set's `given`. Returns the answers by program, for this tell's drafts, and the new
+ * `given`. Never throws on its own writes.
  */
 async function readyBank(
   id: number, key: string, items: readonly NeedItem[], m: { answers?: ReadyAnswers; blanks?: string }, given: ReadyState['given'],
 ): Promise<{ byProgram: Record<string, Record<string, string>>; given: ReadyState['given'] }> {
   const blanks = m.blanks?.trim() || null;
+  const text = (x: unknown) => (typeof x === 'string' ? x.trim() || null : null);
+  const others = items.filter((it) => it.kind.startsWith('other:')).length;
   const byProgram: Record<string, Record<string, string>> = {};
-  const reqsOf: Record<string, SubmissionRequirement[]> = {};
+  const reqsOf: Record<string, { req: SubmissionRequirement; kind: string }[]> = {};
+  const put = (f: NeedItem['fields'][number], kind: string, v: string) => {
+    (byProgram[f.program_id] ??= {})[f.req.key] = v;
+    (reqsOf[f.program_id] ??= []).push({ req: f.req, kind });
+  };
   for (const it of items) {
-    const v = (m.answers?.[answerKind(it.kind) as keyof ReadyAnswers]?.trim() || blanks)?.slice(0, 1000);
-    if (!v) continue;
-    for (const f of it.fields) {
-      (byProgram[f.program_id] ??= {})[f.req.key] = v;
-      (reqsOf[f.program_id] ??= []).push(f.req);
+    const a = m.answers?.[it.kind];
+    if (it.kind === 'contact') {
+      const slots = [...new Set(it.fields.map((f) => slotOf(f.req)))];
+      // Never the blanks: a whole reply is no one's email or name.
+      const one = slots.length === 1 ? text(a) : null;
+      for (const f of it.fields) {
+        const v = one ?? (a && typeof a === 'object' ? text(a[slotOf(f.req)]) : null);
+        if (v) put(f, it.kind, v.slice(0, 254));
+      }
+      continue;
     }
+    const v = (text(a) ?? (it.kind.startsWith('other:') && others === 1 ? text(m.answers?.other) : null) ?? blanks)?.slice(0, 1000);
+    if (!v) continue;
+    for (const f of it.fields) put(f, it.kind, v);
   }
   const bank = await bankKeyOf(id, key);
+  const keepsContact = Boolean(bank && bankKeepsContact(bank));
   const next: ReadyState['given'] = { ...given };
   for (const [pid, answers] of Object.entries(byProgram)) {
-    if (bank) await saveBank(id, bank, pid, reqsOf[pid], answers).catch(logged('ready bank'));
-    const other = reqsOf[pid].filter((r) => askKey(r).startsWith('other:'));
-    if (other.length > 0) next[pid] = { ...next[pid], ...Object.fromEntries(other.map((r) => [r.key, answers[r.key]])) };
+    const fields = reqsOf[pid];
+    // Only a field asked under its bank kind is banked (a roadmap asked as its own key never fills another program's).
+    const banked = fields.filter((x) => !x.kind.startsWith('other:') && (x.kind !== 'contact' || keepsContact)).map((x) => x.req);
+    if (bank && banked.length > 0) await saveBank(id, bank, pid, banked, answers).catch(logged('ready bank'));
+    const kept = fields.filter((x) => !banked.includes(x.req)).map((x) => x.req);
+    if (kept.length > 0) next[pid] = { ...next[pid], ...Object.fromEntries(kept.map((r) => [r.key, answers[r.key]])) };
   }
   return { byProgram, given: next };
 }
@@ -1206,7 +1265,9 @@ async function readyCommit(o: ViewIn, plan: PathPlan, picked: ReadyProgram[]): P
   // Final fix (I1): the line names up to 3 of what the program needs, then "and N more".
   const set = set1.map((p, i) => ({ ...p, needs: needsOfDraft(drafts[i]) }));
   const name = greetingOf(read.xName, sessionOf(read.seen, now).said);
-  const show = readyOpener({ name, set, worth: worthUpTo(set), page: pageUrl(v.handle), hosted, now });
+  // v4.10.1 Task 1: "every other answer is filled" only when the one ask covers every field the builder owes.
+  const rest = (readyNeeds(drafts)?.later.length ?? 0) > 0;
+  const show = readyOpener({ name, set, worth: worthUpTo(set), page: pageUrl(v.handle), hosted, now, rest });
   const ids = set.map((p) => p.id);
   const codes = set.filter((p) => p.step === 'codes').map((p) => p.id);
   const stored = {
@@ -1227,7 +1288,7 @@ async function readyCommit(o: ViewIn, plan: PathPlan, picked: ReadyProgram[]): P
   const programs = set.map((p, i) => ({
     id: p.id, title: p.title, kind: p.kind, amount: p.amount, step: p.step, needs: p.needs, link: drafts[i].link,
     requirements: drafts[i].requirements, prefilled: drafts[i].prefilled,
-    asks: drafts[i].only.map((r) => ({ kind: answerKind(askKey(r)), key: r.key, ask: needsPhrase(r) })),
+    asks: drafts[i].only.map((r) => ({ kind: askKey(r, drafts[i].only), key: r.key, ask: needsPhrase(r), ...(r.kind === 'contact' && { slot: slotOf(r) }) })),
   }));
   return {
     view, stand: v.stand,
@@ -1466,7 +1527,7 @@ async function readyAnswer(
   const moveUp = (note: string) => ({ kind: 'ready', project_key: key, agent_note: note });
   const parkSql = (pids: readonly string[]) =>
     sql().json(Object.fromEntries(pids.flatMap((pid) => [[benchStepKey('apply', pid), now.toISOString()], [benchStepKey('path', pid), now.toISOString()]])) as never);
-  const given = Boolean(m.blanks?.trim()) || Object.values(m.answers ?? {}).some((x) => x?.trim());
+  const given = Boolean(m.blanks?.trim()) || anyAnswer(m.answers);
   const retry = async (reply: Reply | null) => reply ?? (tries < 1 ? readyAnswer(ctx, m, tries + 1) : okay);
   // After the yes, the pages are open: "sent" is the builder's word (tools.ts readySent); a yes or ok is not it.
   if (asked.sent) {
@@ -1562,7 +1623,7 @@ async function readyYes(
   // Final fix (I1): the builder's answers, for the stored ask's fields (to the need ask) or every program's (the first yes).
   let given = r.given;
   const items = o.after ? (r.need?.items ?? []) : (readyNeeds(drafts, Infinity)?.items ?? []);
-  if (items.length > 0 && (o.blanks?.trim() || Object.values(o.answers ?? {}).some((x) => x?.trim()))) {
+  if (items.length > 0 && (o.blanks?.trim() || anyAnswer(o.answers))) {
     const banked = await readyBank(id, key, items, { answers: o.answers, blanks: o.blanks }, r.given);
     given = banked.given;
     drafts = await readyDrafts(id, key, progs, o.record, Object.fromEntries(rest.map((pid) => [pid, { ...given[pid], ...banked.byProgram[pid] }])));
@@ -3795,7 +3856,8 @@ async function bankKeyOf(id: number, key: string | null): Promise<string | null>
  * v4.8 Task 2: the held answers for a program's fields (conversation.ts draftBlanks' `held`): the answer bank for this
  * project (coach.ts bankFill: filled and suggested) and the builder's X handle; fix round 2 (F1) `fills`, what EarnKit
  * itself fills: the Builder Code confirmed in an App-proven repo, and verified usage (the record's "Used by" line) for a
- * usage field. A failed read holds nothing. Never throws.
+ * usage field; v4.10.1 Task 1, verified revenue for a how-it-makes-money field and an owned contract for a contract
+ * address field, plus an opted-in email (held only). A failed read holds nothing. Never throws.
  */
 async function heldAnswers(id: number, key: string | null, reqs: SubmissionRequirement[], record: string[]): Promise<{ held: Record<string, string>; fills: Record<string, string> }> {
   const [p] = await sql()<{ handle: string | null }[]>`SELECT x_handle AS handle FROM builder_profiles WHERE builder_id = ${id}`.catch(() => []);
@@ -3817,7 +3879,28 @@ async function heldAnswers(id: number, key: string | null, reqs: SubmissionRequi
   const used = record.find((l) => l.startsWith('Used by '));
   const usage = reqs.find((r) => r.required && r.kind === 'traction');
   if (used && usage) fills[usage.key] = used;
-  return { held: { ...filled.suggested, ...filled.answers, ...x, ...fills }, fills };
+  // v4.10.1 Task 1 (R1): how it makes money, from the record's verified revenue lines (onchain, Stripe) when it has any.
+  const paid = record.filter((l) => / paid into its contracts .*verified onchain$| received through Stripe /.test(l));
+  const revenue = reqs.find((r) => r.required && /revenue|make money|monetiz/i.test(`${r.key.replace(/_/g, ' ')} ${r.label}`));
+  if (paid.length > 0 && revenue && !fills[revenue.key]) fills[revenue.key] = paid.join('; ');
+  // v4.10.1 Task 1: a contract address on a chain the label names, from the builder's owned contracts, newest first.
+  const addrReq = reqs.find((r) => r.required && /contract address/i.test(r.label));
+  if (addrReq) {
+    const { contractsOf } = await import('./used-by');
+    const owned = await contractsOf(id).catch(() => []);
+    const c = owned.find((k) => new RegExp(`\\b${k.chain.replace(/[^a-z0-9]/gi, '')}\\b`, 'i').test(addrReq.label));
+    if (c) fills[addrReq.key] = c.address;
+  }
+  // v4.10.1 Task 1 (R2): an email the builder opted in with (this installation's own subscription, never a shared
+  // client's, under the bank's contact rule) fills an email field; held, never shown in a note.
+  const emailReqs = reqs.filter((r) => r.kind === 'contact' && slotOf(r) === 'email');
+  const email: Record<string, string> = {};
+  if (emailReqs.length > 0 && bankKey && bankKeepsContact(bankKey)) {
+    const [e] = await sql()<{ email: string }[]>`SELECT email FROM digest_subscriptions
+      WHERE installation_id = ${id} AND login = '' AND email IS NOT NULL AND opted_in_at IS NOT NULL AND unsubscribed_at IS NULL`.catch(() => []);
+    if (e?.email) for (const r of emailReqs) email[r.key] = e.email;
+  }
+  return { held: { ...email, ...filled.suggested, ...filled.answers, ...x, ...fills }, fills };
 }
 
 /**

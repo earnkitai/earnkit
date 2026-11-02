@@ -16,7 +16,7 @@ export const READY_NOTE =
   'Before you show this, write each program\'s remaining answers from the record in this result. Never invent facts. Keep them for the builder\'s yes; on yes call prepare for each program with those answers. Show show_to_builder only after that.';
 /** v4.10 Task 4 (R8): how the opener's ask is answered (never shown). */
 export const READY_ASK_NOTE =
-  "A yes, a no or the numbers to skip: call tell with move_up: { kind: 'ready', project_key, answer: 'yes' } (a no: answer 'no'; numbers: answer 'skip' with skip: [the numbers], 1-based). If they also give what a program asks of them (ready.programs[].asks), split their words by field into answers: { [kind]: their words }; blanks only when they can't be split. Don't show this note.";
+  "A yes, a no or the numbers to skip: call tell with move_up: { kind: 'ready', project_key, answer: 'yes' } (a no: answer 'no'; numbers: answer 'skip' with skip: [the numbers], 1-based). If they also give what a program asks of them (ready.programs[].asks), split their words by field into answers: { [kind]: their words } (contact: { [slot]: their words } for the slots it lists); blanks only when they can't be split. Don't show this note.";
 /** v4.10 Task 4 (decision a): the yes's note, with ready.open (exact). The server never writes the free-text answers. */
 export const READY_YES_NOTE =
   "Call prepare for each program in ready.open with the answers you drafted, then show each kit's link and paste-ready answers under show_to_builder.";
@@ -28,7 +28,7 @@ export const READY_SENT_NOTE =
  * split by field (ready.need.asks), answers every program that asks it.
  */
 export const READY_NEEDS_NOTE =
-  "Their answers to what the programs need (only theirs, never yours): split their one reply by field (ready.need.asks) and call tell with move_up: { kind: 'ready', project_key, answer: 'yes', answers: { [kind]: their words for it } }; blanks: their whole reply, only when it can't be split. Don't show this note.";
+  "Their answers to what the programs need (only theirs, never yours): split their one reply by field (ready.need.asks) and call tell with move_up: { kind: 'ready', project_key, answer: 'yes', answers: { [kind]: their words for it } } (contact: { [slot]: their words } for the slots it lists); blanks: their whole reply, only when it can't be split. Don't show this note.";
 /** v4.10 Task 4: the second plain find in a session, while the opener's ask waits: its last sentence. */
 export const READY_AGAIN_ASK = "Reply yes and I'll finish them.";
 /** v4.10 Task 4: the ready status (a later plain find in the session never repeats the opener). Pure. */
@@ -71,8 +71,31 @@ export function needsPhrase(r: { key: string; label: string; kind?: string; todo
     team: 'your team list', demo_video: 'your demo video', pitch_video: 'your pitch video', traction: 'your usage numbers', raised: "any money you've raised",
   };
   if (r.kind && byKind[r.kind]) return byKind[r.kind];
-  const words = (r.todo ?? r.label).trim().replace(/[.?:]+$/, '').replace(/^(?:a|an|the|your)\s+/i, '');
-  return `your ${words.charAt(0).toLowerCase()}${words.slice(1)}`;
+  const raw = (r.todo ?? r.label).trim().replace(/[.?:]+$/, '');
+  // v4.10.1 Task 1: a todo is already sentence case ("your Circle and Arc integrations"); a label's first letter is lowered.
+  const lower = (x: string) => (r.todo ? x : `${x.charAt(0).toLowerCase()}${x.slice(1)}`);
+  // v4.10.1 Task 1: "how it makes money today" and "the credits you want" read as they are, never "your how ...".
+  if (/^(?:the|how|what|which|why|where|when|who)\s/i.test(raw)) return lower(raw);
+  return `your ${lower(raw.replace(/^(?:a|an|your)\s+/i, ''))}`;
+}
+
+/** v4.10.1 Task 1 (R2): a contact slot's word (coach.ts slotOf), in the slots' order; else the field's own label. */
+const SLOT_WORDS: [string, string][] = [
+  ['name', 'name'], ['email', 'email'], ['telegram', 'Telegram'], ['discord', 'Discord'], ['farcaster', 'Farcaster'],
+  ['x', 'X handle'], ['github', 'GitHub'], ['profile', 'profile link'], ['live', 'website'], ['demo', 'demo link'],
+];
+const slotRank = (slot: string) => {
+  const i = SLOT_WORDS.findIndex(([s]) => s === slot);
+  return i < 0 ? SLOT_WORDS.length : i;
+};
+/**
+ * v4.10.1 Task 1 (R2): the contact details a set still needs, as one item that names them: one slot "your email";
+ * more "your contact details (name, email and Telegram)", in the slots' order, each once. Pure.
+ */
+export function contactPhrase(slots: readonly { slot: string; label: string }[]): string {
+  const seen = [...new Map(slots.map((s) => [s.slot, s])).values()].sort((a, b) => slotRank(a.slot) - slotRank(b.slot));
+  const words = seen.map((s) => SLOT_WORDS.find(([k]) => k === s.slot)?.[1] ?? s.label.trim().replace(/[.?:]+$/, '').toLowerCase());
+  return words.length === 1 ? `your ${words[0]}` : `your contact details (${list(words)})`;
 }
 
 /** What a program's line says after its money: ready, ready once a step is done, or what the builder must bring. */
@@ -101,13 +124,14 @@ export function readyLine(p: ReadyProgram, n: number, hosted: boolean, now: Date
  * The session opener: what is ready, what it is worth, where the answers came from, then READY_ASK as the last line.
  * v4.10 Task 4: `name` null (no X name, or greeted already this session) greets no one.
  */
-export function readyOpener(o: { name: string | null; set: ReadyProgram[]; worth: string | null; page: string; hosted: boolean; now: Date }): string {
+export function readyOpener(o: { name: string | null; set: ReadyProgram[]; worth: string | null; page: string; hosted: boolean; now: Date; rest?: boolean }): string {
   const n = o.set.length;
   const head = `${o.name ? `${o.name}, I've` : "I've"} got ${n === 1 ? '1 application' : `${n} applications`} ready for you${o.worth ? `, worth up to ${o.worth}` : ''}:`;
   const lines = o.set.map((p, i) => readyLine(p, i + 1, o.hosted, o.now));
-  // Final fix (M1): with a program waiting on the builder, it is every other answer.
-  const every = o.set.some((p) => p.needs) ? 'Every other answer' : 'Every answer';
-  return `${head}\n\n${lines.join('\n')}\n\n${every} is filled from your commits and your profile at ${o.page}.\n${READY_ASK}`;
+  // Final fix (M1): with a program waiting on the builder, it is every other answer. v4.10.1 Task 1: only when the one
+  // ask covers every field the builder owes (`rest`: some wait for a later ask), else what EarnKit can fill.
+  const filled = o.rest ? "I've filled what I can" : o.set.some((p) => p.needs) ? 'Every other answer is filled' : 'Every answer is filled';
+  return `${head}\n\n${lines.join('\n')}\n\n${filled} from your commits and your profile at ${o.page}.\n${READY_ASK}`;
 }
 
 /**

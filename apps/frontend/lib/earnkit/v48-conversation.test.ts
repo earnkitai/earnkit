@@ -649,20 +649,21 @@ test("draftBlanks (fix round 2, F1): a founder brief for a16z; Base's blanks are
   const a16z = committedProgram('a16z-speedrun');
   assert.deepEqual(draftBlanks(a16z, {}), { brief: true, blanks: [...FOUNDER_BLANKS], later: [], drafted: [] });
   const base = { ...committedProgram('base-builder-grants'), investment: false };
-  // Nothing held: the team and the usage numbers now, the demo and the Builder Code later; contact details never.
+  // Nothing held: the team and the usage numbers now; the demo, the Builder Code and (v4.10.1 Task 1, R1) how it makes
+  // money, the main challenge and the credits wanted later; contact details never.
   const b = draftBlanks(base, {});
   assert.deepEqual(b.blanks, ['a note on the founding team', 'your key usage numbers']);
-  assert.deepEqual(b.later, ['a Loom product demo', 'your Base Builder Code']);
-  // The agent drafts the narrative fields, marked for the builder to check.
-  assert.deepEqual(b.drafted, ['How does your product make money today?', "What's your GTM plan for the next 3 months?",
-    'What is the primary challenge or bottleneck you are currently facing as you grow your project?', 'Which credits would be most useful for you as you build? (e.g. Privy, AWS, etc.)']);
-  // EarnKit holds the confirmed Builder Code and verified usage: the team and the demo are the blanks.
-  const held = draftBlanks(base, { builder_code: 'bc_abc', usage_numbers: 'Used by 40 people in the last 30 days, verified onchain' });
+  assert.deepEqual(b.later, ['a Loom product demo', 'how it makes money today', 'your Base Builder Code', 'your main challenge right now', 'the credits you want']);
+  // The agent drafts only the GTM plan (R1), marked for the builder to check.
+  assert.deepEqual(b.drafted, ["What's your GTM plan for the next 3 months?"]);
+  // EarnKit holds the confirmed Builder Code, verified usage and verified revenue: the team and the demo are the blanks.
+  const held = draftBlanks(base, { builder_code: 'bc_abc', usage_numbers: 'Used by 40 people in the last 30 days, verified onchain', revenue: '$120 paid into its contracts by outside wallets in the last 30 days, verified onchain' });
   assert.deepEqual(held.blanks, ['a note on the founding team', 'a Loom product demo']);
-  assert.deepEqual(held.later, []);
+  assert.deepEqual(held.later, ['your main challenge right now', 'the credits you want']);
   // Fix round 3 (4): "code" only as a code the builder supplies; a held payout wallet is no blank.
-  const fields = (rs: { key: string; label: string; type?: string }[]) => ({ investment: false, submission_requirements: rs.map((r) => ({ ...r, required: true, from: 'builder' as const, kind: 'other', todo: r.label.toLowerCase() })) });
-  const f = draftBlanks(fields([{ key: 'codebase', label: 'Describe your codebase and source code' }, { key: 'referral', label: 'Referral code' }, { key: 'payout_wallet', label: 'Payout wallet' }]), {});
+  const fields = (rs: { key: string; label: string; type?: string; kind?: string }[]) => ({ investment: false, submission_requirements: rs.map((r) => ({ kind: 'other', ...r, required: true, from: 'builder' as const, todo: r.label.toLowerCase() })) });
+  // v4.10.1 Task 1: a builder field of no kind the agent drafts is the builder's; the codebase is how it works, drafted.
+  const f = draftBlanks(fields([{ key: 'codebase', label: 'Describe your codebase and source code', kind: 'how_it_works' }, { key: 'referral', label: 'Referral code' }, { key: 'payout_wallet', label: 'Payout wallet' }]), {});
   assert.deepEqual(f.blanks, ['referral code', 'payout wallet']);
   assert.deepEqual(f.drafted, ['Describe your codebase and source code']);
   assert.deepEqual(draftBlanks(fields([{ key: 'payout_wallet', label: 'Payout wallet' }]), { payout_wallet: '0xabc' }).blanks, []);
@@ -780,7 +781,8 @@ test("the Base gap (fix round 2, F10): the hook offers to add Builder Codes; a y
   assert.ok(draft.startsWith("Here's your draft:\n\nTraction: "), draft);
   assert.equal(draft.split('\n\n').at(-1), "Two blanks only you can fill: a note on the founding team, and your key usage numbers. Reply with both and I'll finish it.");
   assert.match(noteOf(dr), /EarnKit already holds these, use them as given: builder_code: bc_earnkit\./);
-  assert.match(noteOf(dr), /mark these as drafted for them to check: How does your product make money today\?/);
+  // v4.10.1 Task 1 (R1): the GTM plan is the one field drafted for them to check.
+  assert.match(noteOf(dr), /mark these as drafted for them to check: What's your GTM plan for the next 3 months\?\. /);
   // Fix round 3 (1): prepare with their answers (coach_asked) answers the blanks: a yes after it never re-asks.
   await mcpCall(b.ctx as never, 'prepare', { program_id: 'base-builder-grants', project: { name: 'EarnKit', repo_url: `https://github.com/${b.key}` }, coach_asked: true });
   assert.deepEqual(((await seenOf(b.id)).bench_ask as { blanks: string[] }).blanks, []);

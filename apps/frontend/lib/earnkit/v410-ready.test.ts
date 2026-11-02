@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { GapGrant, InvestorProgram, MoveCtx, MoveProgram } from './conversation';
+import { builderOnly, mustGive, type GapGrant, type InvestorProgram, type MoveCtx, type MoveProgram } from './conversation';
+import { committedProgram } from './fixtures/program-file';
 import { readySet, worthUpTo, type ReadyProgram } from './ready-set';
-import { READY_AGAIN_ASK, READY_ASK, needsList, needsPhrase, readyAgain, readyLine, readyNeedsAsk, readyNeedsLater, readyNoLine, readyOpener, readyStillNeeds, readyYesReply, shortName, skipReply } from './ready-copy';
+import { READY_AGAIN_ASK, READY_ASK, contactPhrase, needsList, needsPhrase, readyAgain, readyLine, readyNeedsAsk, readyNeedsLater, readyNoLine, readyOpener, readyStillNeeds, readyYesReply, shortName, skipReply } from './ready-copy';
 import { READY_NEED_MAX, readyNeeds } from './bench-find';
 import type { SubmissionRequirement } from './program-file';
 import { gateFailures, lazyNext, type Reply } from './fixtures/converse';
@@ -281,4 +282,87 @@ test('final fix (I1, M1, M2): the plural asks, "every other answer" and the addi
   const ready = { reply: { move_up: { kind: 'ready', project_key: null } } };
   for (const t of ["a16z and Base need your team list first. Reply with them and I'll finish them.", readyStillNeeds(['a', 'b'], 'x', 3)])
     assert.deepEqual(gateFailures([reply(t, ready)]).filter((f) => f.rule === 'easy_reply' || f.rule === 'copy'), [], t);
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// v4.10.1 Task 1: honest needs (pure).
+
+test('v4.10.1 (1): what the agent can\'t truthfully draft is a need, whatever `from` says; a GTM plan and an optional field are not', () => {
+  const circle = committedProgram('circle-developer-grants');
+  assert.deepEqual(builderOnly(circle, {}).map((r) => r.key), ['integrations', 'roadmap', 'milestones']);
+  const base = { ...committedProgram('base-builder-grants'), investment: false };
+  // R1: the GTM plan stays drafted; revenue, the main challenge (multi_choice) and the credits are the builder's.
+  assert.deepEqual(builderOnly(base, {}).map((r) => r.key), ['founding_team', 'usage_numbers', 'demo_loom', 'revenue', 'builder_code', 'primary_challenge', 'credits']);
+  assert.equal(mustGive(base.submission_requirements.find((r: { key: string }) => r.key === 'gtm_plan')!), false);
+  // Verified revenue held: never asked.
+  assert.ok(!builderOnly(base, { revenue: '$120 paid into its contracts' }).some((r) => r.key === 'revenue'));
+  // A program whose only field the agent can't draft is optional is still ready (nothing to ask).
+  const optional = { investment: false, submission_requirements: [
+    { key: 'what', label: 'What it does', type: 'text', required: true, from: 'project', kind: 'one_liner' },
+    { key: 'what_changed', label: 'What changed since last time?', type: 'text', required: false, from: 'builder', kind: 'other' },
+  ] as SubmissionRequirement[] };
+  assert.deepEqual(builderOnly(optional, {}), []);
+  // A project field the record shows (a one-liner, how it works) stays the agent's; a plan from the project is not.
+  assert.equal(mustGive({ key: 'how', label: 'How it works', from: 'project', kind: 'how_it_works', required: true }), false);
+  assert.equal(mustGive({ key: 'funds', label: 'Use of funds', from: 'project', kind: 'use_of_funds', required: true }), true);
+});
+
+test('v4.10.1 (2): the contact item names each detail once, in the slots\' order; phrases read as written', () => {
+  assert.equal(contactPhrase([{ slot: 'email', label: 'Email' }]), 'your email');
+  assert.equal(contactPhrase([{ slot: 'email', label: 'Email' }, { slot: 'telegram', label: 'Telegram username' }, { slot: 'name', label: 'Full name' }, { slot: 'email', label: 'Email' }]),
+    'your contact details (name, email and Telegram)');
+  assert.equal(contactPhrase([{ slot: 'key:wechat', label: 'WeChat ID' }, { slot: 'name', label: 'Full name' }]), 'your contact details (name and wechat id)');
+  assert.equal(needsPhrase({ key: 'revenue', label: 'How does your product make money today?', kind: 'other', todo: 'how it makes money today' }), 'how it makes money today');
+  assert.equal(needsPhrase({ key: 'credits', label: 'Which credits?', kind: 'other', todo: 'the credits you want' }), 'the credits you want');
+  assert.equal(needsPhrase({ key: 'integrations', label: 'Your Circle and Arc integrations', kind: 'other', todo: 'your Circle and Arc integrations' }), 'your Circle and Arc integrations');
+});
+
+test('v4.10.1 (2): readyNeeds asks the contact details as one item, two fields of one kind apart, and names the first program\'s rest', () => {
+  const contact = (key: string, label: string) => req(key, 'contact', { label });
+  const base = { id: 'base', title: 'Base Builder Grant Program', ends_at: null, only: [contact('full_name', 'Full name'), contact('email', 'Email'), contact('telegram', 'Telegram username'), req('revenue', 'other', { todo: 'how it makes money today' }), req('primary_challenge', 'other', { todo: 'your main challenge right now' }), req('credits', 'other', { todo: 'the credits you want' })] };
+  const a16z = { id: 'a16z', title: 'a16z speedrun SR008', ends_at: at(4 * 3_600_000), only: [contact('email', 'Email')] };
+  const circle = { id: 'circle', title: 'Circle Developer Grants', ends_at: null, only: [req('roadmap', 'milestones', { todo: 'a product roadmap' }), req('milestones', 'milestones', { todo: 'proposed grant milestones' })] };
+  const n = readyNeeds([base, a16z, circle])!;
+  assert.deepEqual(n.items.map((i) => i.kind), ['contact', 'other:revenue', 'other:primary_challenge', 'other:credits']);
+  // One item for a16z's email and Base's three, named together.
+  assert.deepEqual(n.items[0].fields.map((f) => `${f.program_id}.${f.req.key}`), ['a16z.email', 'base.full_name', 'base.email', 'base.telegram']);
+  assert.equal(n.items[0].phrase, 'your contact details (name, email and Telegram)');
+  assert.equal(n.phrase, 'your contact details (name, email and Telegram), how it makes money today, main challenge right now and the credits you want');
+  // Circle's roadmap and milestones (one kind) are two items, each its own answer; they wait for the next ask.
+  assert.deepEqual(n.later, [{ program_id: 'circle', title: 'Circle Developer Grants', phrase: 'your product roadmap and proposed grant milestones' }]);
+  const alone = readyNeeds([circle])!;
+  assert.deepEqual(alone.items.map((i) => i.kind), ['other:roadmap', 'other:milestones']);
+  // The first program's fields past the cap are named for next, never dropped silently.
+  const big = readyNeeds([{ ...base, only: [...base.only, req('team', 'team'), req('usage', 'traction')] }])!;
+  assert.equal(big.items.length, 4);
+  assert.deepEqual(big.later, [{ program_id: 'base', title: 'Base Builder Grant Program', phrase: 'your team list and usage numbers' }]);
+  assert.equal(readyNeedsLater(big.later), "Base also needs your team list and usage numbers. I'll ask for them next.");
+});
+
+test('v4.10.1 (2): "every other answer is filled" only when one ask covers every field the builder owes', () => {
+  const needs = [{ ...OWNER_SET[0], needs: 'your team list' }, ...OWNER_SET.slice(1)];
+  assert.match(opener({ set: needs }), /\n\nEvery other answer is filled from/);
+  const rest = readyOpener({ name: 'Jenil', set: needs, worth: null, page: 'earnkit.com/jenilt', hosted: false, now: NOW, rest: true });
+  assert.match(rest, /\n\nI've filled what I can from your commits and your profile at earnkit\.com\/jenilt\.\n/);
+  assert.doesNotMatch(rest, /Every (?:other )?answer|—/);
+});
+
+test('v4.10.1 (2): the replay\'s lazy agent answers the contact item one value per slot, the rest by ask key', () => {
+  const ask = readyNeedsAsk(['Base Builder Grant Program'], 'your contact details (name and email) and how it makes money today', 2);
+  const r = reply(ask, { reply: { move_up: { kind: 'ready', project_key: 'o/r' }, ready: { need: { asks: [{ kind: 'contact', slots: ['name', 'email'] }, { kind: 'other:revenue' }] } } } });
+  const next = lazyNext(r, { blanks: 'none', pushed: 'PUSHED', answers: { 'contact.name': 'Jenil T', 'other:revenue': 'no revenue yet' } });
+  assert.deepEqual(next, {
+    says: 'Jenil T, none, no revenue yet',
+    tell: { move_up: { kind: 'ready', project_key: 'o/r', answer: 'yes', answers: { contact: { name: 'Jenil T', email: 'none' }, 'other:revenue': 'no revenue yet' } } },
+  });
+});
+
+test('v4.10.1 (2): tell\'s answers take a kind or other:<field key>, contact as slots only, at most 8', async () => {
+  const { READY_ANSWERS } = await import('./program-file');
+  assert.ok(READY_ANSWERS.safeParse({ team: 'me', 'other:revenue': 'none', contact: { name: 'Jenil', email: 'j@e.co' } }).success);
+  assert.ok(READY_ANSWERS.safeParse({ contact: 'j@e.co' }).success);
+  assert.ok(!READY_ANSWERS.safeParse({ team: { name: 'x' } }).success);
+  assert.ok(!READY_ANSWERS.safeParse({ 'other:Revenue!': 'x' }).success);
+  assert.ok(!READY_ANSWERS.safeParse({ pitch: 'x' }).success);
+  assert.ok(!READY_ANSWERS.safeParse(Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`other:f${i}`, 'x']))).success);
 });

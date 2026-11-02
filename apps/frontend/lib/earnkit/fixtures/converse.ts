@@ -105,10 +105,14 @@ export function lazyNext(r: Reply, o: { blanks: string; pushed: string; skip?: n
   const ask = { kind: m.kind, project_key: m.project_key ?? null };
   if (/\breply "sent"/i.test(end)) return { says: 'sent', tell: { move_up: { ...ask, answer: 'sent' } } };
   // v4.10 final fix (I1): the ready set's one ask, answered in one message; the agent splits it by field (ready.need.asks).
-  const kinds = ((r.reply?.ready as { need?: { asks?: { kind: string }[] } } | undefined)?.need?.asks ?? []).map((a) => a.kind);
-  if (o.answers && m.kind === 'ready' && kinds.length > 0 && BLANKS_REPLY.test(sentences(end).at(-1) ?? '')) {
-    const answers = Object.fromEntries(kinds.map((k) => [k, o.answers![k] ?? o.blanks]));
-    return { says: Object.values(answers).join(', '), tell: { move_up: { ...ask, answer: 'yes', answers } } };
+  const asks = (r.reply?.ready as { need?: { asks?: { kind: string; slots?: string[] }[] } } | undefined)?.need?.asks ?? [];
+  if (o.answers && m.kind === 'ready' && asks.length > 0 && BLANKS_REPLY.test(sentences(end).at(-1) ?? '')) {
+    // v4.10.1 Task 1 (R2): the contact item is one value per slot it lists (o.answers' `contact.<slot>`).
+    const answers = Object.fromEntries(asks.map((a) => [a.kind, a.kind === 'contact'
+      ? Object.fromEntries((a.slots ?? []).map((s) => [s, o.answers![`contact.${s}`] ?? o.blanks]))
+      : o.answers![a.kind] ?? o.blanks]));
+    const says = Object.values(answers).flatMap((v) => (typeof v === 'string' ? [v] : Object.values(v))).join(', ');
+    return { says, tell: { move_up: { ...ask, answer: 'yes', answers } } };
   }
   if (BLANKS_REPLY.test(sentences(end).at(-1) ?? '')) return { says: o.blanks, tell: { move_up: { ...ask, answer: 'yes', blanks: o.blanks } } };
   // v4.10 Task 3 (R5): the ready set's one ask: yes, or the numbers the walk skips. Task 4: once its pages are open the

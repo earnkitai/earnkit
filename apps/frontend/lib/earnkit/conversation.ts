@@ -659,13 +659,40 @@ const mustAsk = (r: DraftReq & { type?: string }) =>
   (ASK_KINDS as readonly string[]).includes(r.kind ?? '') || r.type === 'url' || r.type === 'choice'
   || /amount|usd|location|wallet|consent|\b(builder|referral|invite|promo|access|discount) code\b/i.test(`${r.key.replace(/_/g, ' ')} ${r.label}`);
 /**
+ * v4.10.1 Task 1: the kinds the agent drafts honestly from the repo and the record (what it is, the problem, how it
+ * works, its links, why the builder): every other builder field is the builder's to give (coach.ts AGENT_DRAFTS' idea).
+ */
+const AGENT_DRAFTABLE = ['name', 'one_liner', 'problem', 'solution', 'how_it_works', 'links', 'why_you'] as const;
+/**
+ * v4.10.1 Task 1: a plan or a claim the record can't show (a roadmap, grant milestones, the use of funds, money raised,
+ * the team, usage numbers): the builder's to give whatever the program file's `from` says.
+ */
+const PLAN_KINDS = ['milestones', 'use_of_funds', 'raised', 'team', 'traction'] as const;
+/** v4.10.1 Task 1 (ruling R1): a GTM plan stays agent-drafted (v4.8 ruling F1), marked for the builder to check. */
+const GTM = /\bgtm\b|go[- ]to[- ]market/i;
+const isGtm = (r: DraftReq) => GTM.test(`${r.key.replace(/_/g, ' ')} ${r.label}`);
+/**
+ * v4.10.1 Task 1: a required, not contact field the agent can't truthfully draft, so the builder must give it:
+ * - a builder field (`from: 'builder'`) the agent can't draft (mustAsk: the team, usage, a demo video, a link, a
+ *   choice or several, an amount, location or code), or of any kind outside AGENT_DRAFTABLE (how it makes money, the
+ *   credits wanted, an integration), except a GTM plan (R1);
+ * - any field, whatever its `from`, that is a plan or a claim the record can't show (PLAN_KINDS), except a GTM plan.
+ * Pure.
+ */
+export function mustGive(r: DraftReq & { type?: string }): boolean {
+  if (r.kind === 'contact' || isGtm(r)) return false;
+  if ((PLAN_KINDS as readonly string[]).includes(r.kind ?? '')) return true;
+  if (r.from !== 'builder') return false;
+  return mustAsk(r) || r.type === 'multi_choice' || !(AGENT_DRAFTABLE as readonly string[]).includes(r.kind ?? 'other');
+}
+/**
  * What the draft is and which blanks only the builder can fill (fix round 2, F1):
  * - an investor program with no public questions (every required field is a contact detail): a short founder brief,
  *   whose blanks are FOUNDER_BLANKS;
- * - otherwise the required builder fields EarnKit doesn't hold (`held`: the confirmed Builder Code, verified usage, the
- *   answer bank) and the agent can't draft (mustAsk), team first, at most MAX_BLANKS; `later` holds the rest. Contact
- *   details (name, email, handles) are typed when they submit, for every program, so never a blank. `drafted`: the
- *   builder fields the agent drafts for them to check. Pure.
+ * - otherwise the required fields EarnKit doesn't hold (`held`: the confirmed Builder Code, verified usage and revenue,
+ *   the answer bank) and the agent can't truthfully draft (mustGive, v4.10.1), team first, at most MAX_BLANKS; `later`
+ *   holds the rest. Contact details (name, email, handles) are typed when they submit, for every program, so never a
+ *   blank. `drafted`: the builder fields the agent drafts for them to check. Pure.
  */
 export function draftBlanks(
   p: { investment: boolean; submission_requirements: readonly (DraftReq & { type?: string })[] }, held: Record<string, string>,
@@ -674,12 +701,13 @@ export function draftBlanks(
   if (p.investment && required.every((r) => r.kind === 'contact')) return { brief: true, blanks: [...FOUNDER_BLANKS], later: [], drafted: [] };
   const open = required.filter((r) => r.from === 'builder' && r.kind !== 'contact' && !held[r.key]?.trim());
   const ask = builderOnly(p, held).map((r) => r.todo ?? r.label.toLowerCase());
-  return { brief: false, blanks: ask.slice(0, MAX_BLANKS), later: ask.slice(MAX_BLANKS), drafted: open.filter((r) => !mustAsk(r)).map((r) => r.label) };
+  return { brief: false, blanks: ask.slice(0, MAX_BLANKS), later: ask.slice(MAX_BLANKS), drafted: open.filter((r) => !mustGive(r)).map((r) => r.label) };
 }
 /**
- * v4.10 Task 4 (R5): the required fields only the builder can give (draftBlanks' blanks, as fields): from the builder,
- * not a contact detail, not held, and one the agent can't draft (mustAsk), team first. None for an investor program
- * with no public questions (its founder brief's blanks are the agent's to ask). Pure.
+ * v4.10 Task 4 (R5): the required fields only the builder can give (draftBlanks' blanks, as fields): not a contact
+ * detail, not held, and one the agent can't truthfully draft (mustGive, v4.10.1 Task 1), the team, usage numbers and
+ * demo video first, then the form's order. None for an investor program with no public questions (its founder brief's
+ * blanks are the agent's to ask). Pure.
  */
 export function builderOnly<R extends DraftReq & { type?: string }>(
   p: { investment: boolean; submission_requirements: readonly R[] }, held: Record<string, string>,
@@ -690,7 +718,7 @@ export function builderOnly<R extends DraftReq & { type?: string }>(
     const i = (ASK_KINDS as readonly string[]).indexOf(r.kind ?? '');
     return i < 0 ? ASK_KINDS.length : i;
   };
-  return required.filter((r) => r.from === 'builder' && r.kind !== 'contact' && !held[r.key]?.trim()).filter(mustAsk).sort((a, b) => rank(a) - rank(b));
+  return required.filter((r) => !held[r.key]?.trim()).filter(mustGive).sort((a, b) => rank(a) - rank(b));
 }
 
 /**

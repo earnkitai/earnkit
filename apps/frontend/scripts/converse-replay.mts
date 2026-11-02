@@ -81,7 +81,12 @@ type Turn = import('../lib/earnkit/fixtures/converse').Turn;
 const DAY = 86_400_000;
 const BLANKS = 'just me, nothing raised';
 /** v4.10 final fix (I1): the lazy builder's one reply to the ready set's ask, as the agent splits it by field kind. */
-const ANSWERS: Record<string, string> = { team: 'just me', raised: 'nothing raised', traction: 'no users yet', demo_video: 'no demo yet' };
+const ANSWERS: Record<string, string> = {
+  team: 'just me', raised: 'nothing raised', traction: 'no users yet', demo_video: 'no demo yet',
+  // v4.10.1 Task 1: the contact item (one per slot) and the fields asked under their own key.
+  'contact.name': 'Jenil T', 'contact.email': 'replay@example.com', 'contact.telegram': '@replay',
+  'other:revenue': 'no revenue yet', 'other:primary_challenge': 'User acquisition', 'other:credits': 'no credits needed yet',
+};
 const replies: Reply[] = [];
 const notes: string[] = [];
 /** The builder's own project name and handle: the only subjects "{name} is live" is proof for (gateFailures names). */
