@@ -9369,3 +9369,13 @@ This supersedes the per-program need in Task 4: the builder answers once for the
   submission_url, source_url, expires_at }`.
 - **No schema change.** `program_writes.result` is free text. Tests: `v4101-link-check.test.ts`; the v4.9 tests send
   the source's origin as `official_url` (the Questbook create and the guide's forms.gle example now wait).
+- **Fix round 1 (security review I1, findings a-c).** Anchors are owner-curated only (`linkAnchors(db, p, now)`, never
+  `p` itself): live file programs (submission and source hosts), and live, fresh (freshSql) API programs whose current
+  submission_url has an `approved` program_writes row whose body's chains share one of the write's (submission host
+  only). Same chains means overlap, or both `{}`. `official_url` is a hint: `submissionChecksOut(sub, official,
+  anchors)` passes when the submission is on an anchor's site, or on official_url's site with official_url itself on an
+  anchor's site; `officialUrlProblem` refuses one on a platform host. `LINK_PLATFORMS` is now the union of R4's form
+  platforms, API_SUBMIT_HOSTS, HOST_MODES, ENTRY_LINK_HOSTS and API_SHARED_SITES; `linkChecksOut` skips anchors on
+  them. A chains change re-runs the check. A failed owner email leaves `MAIL_FAILED` on the pending row's reason and
+  answers `owner_emailed: false`; the same write sent again re-sends it (same Idempotency-Key). The v4.9 tests pin
+  a16z-speedrun's ends_at (it closed 2026-11-02) in their own database.

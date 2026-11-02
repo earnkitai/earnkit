@@ -4,12 +4,14 @@ import type { Mailer } from './digest';
 import { siteUrl } from './entry-text';
 import { ownerMail } from './owner-mail';
 import type { ProgramFile } from './program-file';
-import { linkChecksOut, linkPlatformName, normalHost, registrableDomain } from './submit-hosts';
+import { freshSql } from './api-stale';
+import { linkChecksOut, linkPlatformName, normalHost, registrableDomain, sameSite } from './submit-hosts';
 
 /**
- * v4.10.1 Task 4 (ruling R4, owner 2026-11-02 "Live if link checks out"): a new API program, or a write that changes
- * `submission_url`, goes live only when the submission link is on the official site's domain (`official_url`, sent
- * with the write) or on a live program's site for one of its chains. Anything else is held as a `program_writes` row
+ * v4.10.1 Task 4 (ruling R4, owner 2026-11-02 "Live if link checks out"; fix round 1): a new API program, or a write
+ * that changes `submission_url` or `chains`, goes live only when the submission link is on a curated program's site
+ * for its chains (linkAnchors). `official_url` (sent with the write) is a hint only: it counts when its own site is a
+ * curated one. Anything else is held as a `program_writes` row
  * with result 'pending' and the checked body; nothing reaches `programs` until the owner approves. The owner gets one
  * email (ownerMail, to CONTACT_EMAIL) with an approve link: a GET confirm page whose button POSTs
  * (program-approve.ts), so a mail scanner opening the link approves nothing.
@@ -67,44 +69,65 @@ const hostOf = (url: string | undefined | null): string | null => {
 };
 
 /**
- * The sites a submission link may be on to go live: the official site's host, then each live program's submission
- * host for a shared chain, and the source host of a curated (file) one. An API program's source_url is never an anchor:
- * nobody checked it. Live: active or upcoming, not past ends_at.
+ * Fix round 1 (controller ruling): the curated sites a submission link may be on to go live, for program `p`'s
+ * chains (a program with no chains: the curated any-chain programs). Only owner-curated programs anchor, and never
+ * `p` itself:
+ * - a file program that is live (active and not past ends_at, or upcoming): its submission and source hosts;
+ * - an API program that is live and fresh (api-stale.ts freshSql) whose current submission_url the owner approved
+ *   through the approve link, with the approved write's chains on `p`'s: its submission host only (an API source_url
+ *   was never checked).
+ * Closed, expired, unlisted, sponsor and unchecked API rows never anchor; linkChecksOut skips platform hosts.
  */
 export async function linkAnchors(
   db: postgres.Sql | postgres.TransactionSql,
-  p: Pick<ProgramFile, 'chains'>,
-  officialUrl: string | undefined,
+  p: Pick<ProgramFile, 'id' | 'chains'>,
   now: Date,
 ): Promise<string[]> {
-  const official = hostOf(officialUrl);
   const chains = p.chains ?? [];
-  const rows =
-    chains.length === 0
-      ? []
-      : await db<{ source: string; source_url: string; submission_url: string }[]>`
-          SELECT source, source_url, submission_url FROM programs
-          WHERE chains && ${chains}::text[] AND source IN ('file', 'api')
-            AND (status = 'upcoming' OR (status = 'active' AND (ends_at IS NULL OR ends_at > ${now})))`;
-  const hosts = rows.flatMap((r) => [hostOf(r.submission_url), r.source === 'file' ? hostOf(r.source_url) : null]);
-  return [official, ...hosts].filter((h): h is string => h !== null);
+  const sameChains = chains.length === 0 ? db`p.chains = '{}'::text[]` : db`p.chains && ${chains}::text[]`;
+  const approvedChains = chains.length === 0 ? db`jsonb_array_length(w.body->'chains') = 0` : db`(w.body->'chains') ?| ${chains}::text[]`;
+  const rows = await db<{ source: string; source_url: string; submission_url: string }[]>`
+    SELECT p.source, p.source_url, p.submission_url FROM programs p
+    WHERE p.id <> ${p.id} AND ${sameChains}
+      AND (p.status = 'upcoming' OR (p.status = 'active' AND (p.ends_at IS NULL OR p.ends_at > ${now})))
+      AND (p.source = 'file' OR (p.source = 'api' AND ${freshSql(db, 'p', now)} AND EXISTS (
+        SELECT 1 FROM program_writes w
+        WHERE w.program_id = p.id AND w.result = 'approved' AND w.body->>'submission_url' = p.submission_url
+          AND jsonb_typeof(w.body->'chains') = 'array' AND ${approvedChains})))`;
+  return rows
+    .flatMap((r) => [hostOf(r.submission_url), r.source === 'file' ? hostOf(r.source_url) : null])
+    .filter((h): h is string => h !== null);
 }
 
 /** Why a submission link doesn't check out, for the owner (the audit reason and the email). Pure. */
 export function pendingReason(submissionUrl: string, officialUrl: string | undefined): string {
   const host = hostOf(submissionUrl) ?? 'the submission link';
   const platform = linkPlatformName(host);
-  if (platform) return `submission_url is on ${platform}, a platform anyone can publish on`;
+  if (platform) return `submission_url is on ${platform}, a form, hosting or submit platform anyone can publish on`;
   const official = hostOf(officialUrl);
-  if (!official) return `submission_url ${host} is not on a live program's site for its chains, and no official_url was sent`;
-  return `submission_url ${host} is not on ${registrableDomain(official)} (official_url)`;
+  if (official && sameSite(host, official))
+    return `submission_url ${host} is on official_url's site, but ${registrableDomain(official)} is not a curated program's site for its chains`;
+  return `submission_url ${host} is not on a curated program's site for its chains`;
 }
 
-/** Whether `submissionUrl` checks out against `anchors` (linkAnchors). Pure. */
-export const submissionChecksOut = (submissionUrl: string, anchors: string[]) => {
+/**
+ * Fix round 1: whether `submissionUrl` checks out. Its host is on a curated anchor's site; or it is on official_url's
+ * site and official_url's own host is on a curated anchor's site (official_url is a hint, never trusted alone). Pure.
+ */
+export function submissionChecksOut(submissionUrl: string, officialUrl: string | undefined, anchors: string[]): boolean {
   const host = hostOf(submissionUrl);
-  return host !== null && linkChecksOut(host, anchors);
-};
+  if (host === null) return false;
+  if (linkChecksOut(host, anchors)) return true;
+  const official = hostOf(officialUrl);
+  return official !== null && linkChecksOut(host, [official]) && linkChecksOut(official, anchors);
+}
+
+/** Fix round 1: an official_url on a platform or shared host never names an organizer's own site; the problem or null. Pure. */
+export function officialUrlProblem(officialUrl: string): string | null {
+  const host = hostOf(officialUrl);
+  const platform = host && linkPlatformName(host);
+  return platform ? `official_url: ${host} is on ${platform}, a shared or platform host; send the organizer's own site` : null;
+}
 
 /** The owner's email for a pending write. Plain text; every value in it passed the write's checks. Pure. */
 export function pendingMailText(

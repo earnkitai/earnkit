@@ -14,6 +14,8 @@ import { APPROVE_TTL_DAYS, approveExpiry, approveTarget, approveToken, PENDING_S
 import { programsWritePost, type WriteDeps } from './programs-api';
 import { programWritesGet } from './programs-read';
 import { CONTACT_EMAIL } from './policy';
+import { ProgramFile } from './program-file';
+import { upsertProgram } from './programs';
 
 /**
  * v4.10.1 Task 4 (R4, owner 2026-11-02 "Live if link checks out"): a new program, or a write that changes
@@ -31,8 +33,10 @@ const pid = process.pid;
 const ENV_KEYS = ['EARNKIT_PROGRAMS_TOKEN', 'EARNKIT_PROGRAMS_API', 'EARNKIT_AUTH_SECRET', 'RESEND_API_KEY', 'EARNKIT_URL'] as const;
 const kept: Record<string, string | undefined> = {};
 
-before(() => {
+before(async () => {
   for (const m of ['log', 'warn', 'error'] as const) mock.method(console, m, () => {});
+  // a16z-speedrun (curated, any chain) closed on 2026-11-02: pinned open in this file's database, as an anchor.
+  if (process.env.DATABASE_URL) await sql()`UPDATE programs SET ends_at = '2099-12-31T07:59:59Z' WHERE id = 'a16z-speedrun'`;
   for (const k of ENV_KEYS) kept[k] = process.env[k];
   delete process.env.EARNKIT_PROGRAMS_API;
   delete process.env.EARNKIT_URL;
@@ -52,7 +56,9 @@ after(async () => {
 
 type Mail = Parameters<Mailer>[0];
 const mails: Mail[] = [];
+let failMail = false;
 const mailer: Mailer = async (m) => {
+  if (failMail) throw new Error('fake send failure');
   mails.push(m);
 };
 const changed: string[] = [];
@@ -192,7 +198,7 @@ test('v4.10.1 T4: a lookalike domain lands pending, emails the owner once, and a
   const program = baseProgram(id, 'base-grants.org', { official_url: 'https://www.base.org/', title: "Tom & Jerry's Base Grants" });
   const r = await send(program);
   assert.deepEqual([r.status, r.body.ok, r.body.result, r.body.live], [202, true, 'pending', false], r.text);
-  assert.equal(r.body.reason, 'submission_url base-grants.org is not on base.org (official_url)');
+  assert.equal(r.body.reason, "submission_url base-grants.org is not on a curated program's site for its chains");
   assert.equal(await row(id), null, 'nothing reaches programs');
   assert.deepEqual(changed, [], 'no cache bust');
   assert.ok(!r.text.includes(AUTH) && !r.text.includes('approve'), 'the bot never sees the link or the secret');
@@ -264,7 +270,7 @@ test('v4.10.1 T4: an expired or forged approval does nothing and says so plainly
   mails.length = 0;
   const r = await send(baseProgram(id, 'docs.base.org', { submission_url: 'https://tally.so/r/abc', official_url: 'https://base.org/' }));
   assert.deepEqual([r.status, r.body.result], [202, 'pending']);
-  assert.equal(r.body.reason, 'submission_url is on Tally, a platform anyone can publish on');
+  assert.equal(r.body.reason, 'submission_url is on Tally, a form, hosting or submit platform anyone can publish on');
   const token = tokenIn(mails[0]!);
   const [w] = await pendingOf(id);
   const exp = approveExpiry(w!.at);
@@ -394,4 +400,127 @@ test('v4.10.1 T4: without RESEND_API_KEY the write still waits (no mail), and wi
   } finally {
     process.env.EARNKIT_AUTH_SECRET = AUTH;
   }
+});
+
+// ---- fix round 1 (security review I1, automated findings a-c; controller ruling) ----
+
+const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
+/** A row written straight to programs (no write API, so no link check): a fixture anchor candidate. */
+const seed = async (id: string, source: 'file' | 'api', o: Record<string, unknown>) => {
+  const p = ProgramFile.parse(apiProgram(id, { chains: ['tempo'], any_chain: false, ...o }));
+  await upsertProgram(p, source);
+  return p;
+};
+
+test('v4.10.1 T4 fix 1: an official_url lookalike is a hint only: official_url and submission on base-grants.org land pending', db, async () => {
+  const id = `v4101-offlook-${pid}`;
+  mails.length = 0;
+  const r = await send(baseProgram(id, 'base-grants-off.org', { official_url: 'https://base-grants-off.org/' }));
+  assert.deepEqual([r.status, r.body.result, r.body.live], [202, 'pending', false], r.text);
+  assert.equal(r.body.reason, "submission_url base-grants-off.org is on official_url's site, but base-grants-off.org is not a curated program's site for its chains");
+  assert.equal(await row(id), null);
+  assert.equal(mails.length, 1);
+  // official_url on a curated site still counts as the hint: a submission on its exact site goes live.
+  const ok = await send(baseProgram(`v4101-offok-${pid}`, 'grants.base.org', { official_url: 'https://www.base.org/' }));
+  assert.deepEqual([ok.status, ok.body.result], [200, 'created'], ok.text);
+});
+
+test('v4.10.1 T4 fix 1: an official_url on a shared, hosting or platform host is refused', db, async () => {
+  for (const url of ['https://evil.vercel.app/', 'https://org.github.io/', 'https://forms.gle/x', 'https://acme.notion.site/', 'https://dorahacks.io/']) {
+    const r = await send(baseProgram(`v4101-offshared-${pid}`, 'evil.vercel.app', { official_url: url }));
+    assert.equal(r.status, 400, url);
+    assert.ok(r.body.problems!.some((x) => x.startsWith('official_url:') && x.includes('shared or platform host')), `${url}: ${r.text}`);
+  }
+  assert.equal(await row(`v4101-offshared-${pid}`), null);
+});
+
+test("v4.10.1 T4 fix 1: an unchecked live API row never anchors its chains, nor does a live API row's source_url", db, async () => {
+  // A live, fresh API row that went live without the owner (written before R4, or straight to the table).
+  await seed(`v4101-unchk-${pid}`, 'api', { source_url: `https://src-${pid}.org/`, submission_url: `https://unchecked-${pid}.org/apply` });
+  const r = await send(apiProgram(`v4101-unchk2-${pid}`, { chains: ['tempo'], any_chain: false, source_url: `https://unchecked-${pid}.org/`, submission_url: `https://unchecked-${pid}.org/b` }));
+  assert.deepEqual([r.status, r.body.result], [202, 'pending'], r.text);
+  // Approved by the owner (its current submission_url, its chains): its submission host anchors; its source host never.
+  const approved = await seed(`v4101-appr-${pid}`, 'api', { source_url: `https://apsrc-${pid}.org/`, submission_url: `https://apsub-${pid}.org/apply` });
+  await sql()`INSERT INTO program_writes (program_id, action, result, body) VALUES (${approved.id}, 'upsert', 'approved', ${sql().json(approved as never)})`;
+  const viaSub = await send(apiProgram(`v4101-viasub-${pid}`, { chains: ['tempo'], any_chain: false, source_url: `https://apsub-${pid}.org/`, submission_url: `https://apsub-${pid}.org/two` }));
+  assert.deepEqual([viaSub.status, viaSub.body.result], [200, 'created'], viaSub.text);
+  const viaSrc = await send(apiProgram(`v4101-viasrc-${pid}`, { chains: ['tempo'], any_chain: false, source_url: `https://apsrc-${pid}.org/`, submission_url: `https://apsrc-${pid}.org/two` }));
+  assert.deepEqual([viaSrc.status, viaSrc.body.result], [202, 'pending'], viaSrc.text);
+  // Another chain: the approved row doesn't anchor it.
+  const other = await send(apiProgram(`v4101-viaoth-${pid}`, { chains: ['monad'], any_chain: false, source_url: `https://apsub-${pid}.org/`, submission_url: `https://apsub-${pid}.org/three` }));
+  assert.deepEqual([other.status, other.body.result], [202, 'pending'], other.text);
+  // An approval of an older link doesn't vouch for a newer one written straight to the row.
+  await sql()`UPDATE programs SET submission_url = ${`https://moved-${pid}.org/apply`} WHERE id = ${approved.id}`;
+  const moved = await send(apiProgram(`v4101-viamov-${pid}`, { chains: ['tempo'], any_chain: false, source_url: `https://moved-${pid}.org/`, submission_url: `https://moved-${pid}.org/x` }));
+  assert.deepEqual([moved.status, moved.body.result], [202, 'pending'], moved.text);
+  // A stale approved API row (verified 20 days ago) no longer anchors.
+  const stale = await seed(`v4101-stale-${pid}`, 'api', { verified_at: daysAgo(20), source_url: `https://stale-${pid}.org/`, submission_url: `https://stale-${pid}.org/apply` });
+  await sql()`INSERT INTO program_writes (program_id, action, result, body) VALUES (${stale.id}, 'upsert', 'approved', ${sql().json(stale as never)})`;
+  const viaStale = await send(apiProgram(`v4101-viastale-${pid}`, { chains: ['tempo'], any_chain: false, source_url: `https://stale-${pid}.org/`, submission_url: `https://stale-${pid}.org/x` }));
+  assert.deepEqual([viaStale.status, viaStale.body.result], [202, 'pending'], viaStale.text);
+});
+
+test('v4.10.1 T4 fix 1: a closed or expired curated program never anchors; a live one does', db, async () => {
+  await seed(`v4101-closed-${pid}`, 'file', { status: 'closed', source_url: `https://closed-${pid}.org/`, submission_url: `https://closed-${pid}.org/apply` });
+  await seed(`v4101-expired-${pid}`, 'file', { source_url: `https://expired-${pid}.org/`, submission_url: `https://expired-${pid}.org/apply` });
+  await sql()`UPDATE programs SET ends_at = now() - interval '1 day' WHERE id = ${`v4101-expired-${pid}`}`;
+  await seed(`v4101-open-${pid}`, 'file', { source_url: `https://open-${pid}.org/`, submission_url: `https://open-${pid}.org/apply` });
+  const at = (site: string, n: string) =>
+    send(apiProgram(`v4101-${n}-w-${pid}`, { chains: ['tempo'], any_chain: false, source_url: `https://${site}-${pid}.org/`, submission_url: `https://${site}-${pid}.org/new` }));
+  assert.equal((await at('closed', 'c')).body.result, 'pending', 'closed');
+  assert.equal((await at('expired', 'e')).body.result, 'pending', 'past ends_at');
+  assert.equal((await at('open', 'o')).body.result, 'created', 'a live curated program anchors');
+});
+
+test('v4.10.1 T4 fix 1: an anchor on a platform or shared host never counts (hackathon.monad.xyz never vouches for monad.xyz)', () => {
+  assert.equal(linkChecksOut('monad.xyz', ['hackathon.monad.xyz']), false);
+  assert.equal(linkChecksOut('evil.colosseum.com', ['colosseum.com']), false);
+  assert.equal(linkChecksOut('www.base.org', ['forms.gle', 'www.base.org']), true);
+  // The platform set covers every submit, hosting and shared host the code knows.
+  for (const host of ['ethglobal.com', 'superteam.fun', 'gap.karmahq.xyz', 'taikai.network', 'app.akindo.io', 'evil.vercel.app', 'x.pages.dev', 'medium.com', 'mirror.xyz', 'colosseum.com'])
+    assert.ok(linkPlatformName(host), host);
+});
+
+test('v4.10.1 T4 fix 1: changing chains on a live program re-runs the link check', db, async () => {
+  const id = `v4101-chains-${pid}`;
+  mails.length = 0;
+  const created = await send(baseProgram(id, 'www.base.org', { submission_url: 'https://www.base.org/chains-test' }));
+  assert.equal(created.body.result, 'created', created.text);
+  // Monad has no curated program on base.org: the same link under a new chain waits.
+  const moved = await send(baseProgram(id, 'www.base.org', { submission_url: 'https://www.base.org/chains-test', chains: ['monad'] }));
+  assert.deepEqual([moved.status, moved.body.result], [202, 'pending'], moved.text);
+  assert.deepEqual((await sql()<{ chains: string[] }[]>`SELECT chains FROM programs WHERE id = ${id}`)[0]!.chains, ['base'], 'the live row keeps its chains');
+  // Adding a chain re-checks, and a curated Base site still checks out (one shared chain is enough).
+  const added = await send(baseProgram(id, 'www.base.org', { submission_url: 'https://www.base.org/chains-test', chains: ['base', 'monad'] }));
+  assert.deepEqual([added.status, added.body.result], [200, 'updated'], added.text);
+  // The same chains in another order are no change.
+  const same = await send(baseProgram(id, 'www.base.org', { submission_url: 'https://www.base.org/chains-test', chains: ['monad', 'base'] }));
+  assert.equal(same.status, 200, same.text);
+  assert.equal(mails.length, 1, 'only the monad-only write mailed');
+});
+
+test('v4.10.1 T4 fix 1: a failed owner email keeps the write pending, is recorded on the row, and the same write sent again retries it', db, async () => {
+  const id = `v4101-mailfail-${pid}`;
+  mails.length = 0;
+  const program = baseProgram(id, 'base-grants-mail.org');
+  failMail = true;
+  let r;
+  try {
+    r = await send(program);
+  } finally {
+    failMail = false;
+  }
+  assert.deepEqual([r.status, r.body.result, (r.body as { owner_emailed?: boolean }).owner_emailed], [202, 'pending', false], r.text);
+  let [w] = await pendingOf(id);
+  assert.ok(w!.reason!.endsWith('; owner email not sent yet'), w!.reason!);
+  assert.equal(mails.length, 0);
+  const again = await send(program);
+  assert.deepEqual([again.status, (again.body as { owner_emailed?: boolean }).owner_emailed], [202, true], again.text);
+  assert.equal(mails.length, 1);
+  assert.equal(mails[0]!.idempotencyKey, `program-pending:${w!.id}`, 'the same key: Resend never sends it twice');
+  [w] = await pendingOf(id);
+  assert.equal(w!.reason!.endsWith('; owner email not sent yet'), false);
+  assert.equal((await pendingOf(id)).length, 1);
+  await send(program);
+  assert.equal(mails.length, 1, 'sent once: no third email');
 });

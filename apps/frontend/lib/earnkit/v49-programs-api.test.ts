@@ -53,8 +53,15 @@ const PUBLIC = join(import.meta.dirname, '../../public');
 const file = (name: string): ProgramFile => ProgramFile.parse(JSON.parse(readFileSync(join(PROGRAMS, `${name}.json`), 'utf8')));
 
 // Fix 1 (review F8): the API's log lines stay out of the test output (the log-scan test reads the source).
-before(() => {
+/**
+ * v4.10.1 Task 4 fix round 1: a16z-speedrun's real ends_at (2026-11-02) passed, which closed it in this file's own
+ * database: pinned open, so the clones of it below (and F1's draft, which pins it again after the programs:sync test)
+ * never depend on today's date, and it stays the curated any-chain anchor (R4) for the clones' speedrun.a16z.com links.
+ */
+const A16Z_PINNED_ENDS_AT = '2099-12-31T07:59:59Z';
+before(async () => {
   for (const m of ['log', 'warn', 'error'] as const) mock.method(console, m, () => {});
+  if (process.env.DATABASE_URL) await sql()`UPDATE programs SET ends_at = ${A16Z_PINNED_ENDS_AT} WHERE id = 'a16z-speedrun'`;
 });
 
 after(async () => {
@@ -1169,6 +1176,8 @@ test('v4.9 T3 fix 1 (F2, F3): the guide lists needs_repo as required, and its li
 
 test('v4.9 final fix (F1): an api program takes the curated draft path and get_program has its guide, each with the envelope', db, async () => {
   const id = `v49-draft-${process.pid}`;
+  // v4.10.1 Task 4 fix round 1: pinned again (the programs:sync test above writes the file's real, past ends_at back).
+  await sql()`UPDATE programs SET ends_at = ${A16Z_PINNED_ENDS_AT} WHERE id = 'a16z-speedrun'`;
   await upsertProgram(ProgramFile.parse(apiProgram(id, { title: 'Drafted Speedrun' })), 'api');
   const ctx = { installationId: await install() } as never;
   const prep = (await tools.prepare({ program_id: id }, ctx)) as { draft?: { fields?: unknown[] }; api_content?: unknown; show_to_builder?: string };

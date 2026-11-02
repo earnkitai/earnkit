@@ -166,19 +166,29 @@ const onPathOwned = (host: string) => under(host, API_PATH_OWNED);
 export const sourceSiteName = (sourceHost: string) =>
   onSharedSite(registrableDomain(sourceHost)) ? normalHost(sourceHost) : registrableDomain(sourceHost);
 
+/** v4.10.1 Task 4: the platforms R4 names that no other list here has (Typeform and Airtable are in API_SUBMIT_HOSTS / HOST_MODES). */
+const FORM_PLATFORMS = ['typeform.com', 'airtable.com', 'tally.so', 'forms.gle', 'docs.google.com', 'questbook.app'] as const;
+/** Display names for the platforms a builder knows by name; any other host is named by its domain. */
+const PLATFORM_NAMES: Record<string, string> = {
+  'forms.gle': 'Google Forms', 'docs.google.com': 'Google Docs', 'google.com': 'Google', 'typeform.com': 'Typeform',
+  'tally.so': 'Tally', 'questbook.app': 'Questbook', 'airtable.com': 'Airtable', 'dorahacks.io': 'DoraHacks',
+  'devfolio.co': 'Devfolio', 'hackquest.io': 'HackQuest', 'ethglobal.com': 'ETHGlobal',
+};
 /**
- * v4.10.1 Task 4 (R4): the form and hackathon platforms where anyone can publish a page, so a submission link there
- * never checks out on its own (R4 names the form platforms; DoraHacks, Devfolio and HackQuest host anyone's hackathon
- * too). Subdomains count (circle.questbook.app).
+ * v4.10.1 Task 4 (R4), fix round 1: every submit, form, hosting and shared host this file knows (R4's form platforms,
+ * API_SUBMIT_HOSTS, HOST_MODES, ENTRY_LINK_HOSTS, API_SHARED_SITES with SHARED_HOSTS): a link there never checks out
+ * on its own, an anchor there never counts, and an official_url there is refused. Subdomains count.
  */
-export const LINK_PLATFORMS = [
-  ['forms.gle', 'Google Forms'], ['docs.google.com', 'Google Docs'], ['typeform.com', 'Typeform'], ['tally.so', 'Tally'],
-  ['questbook.app', 'Questbook'], ['airtable.com', 'Airtable'], ['dorahacks.io', 'DoraHacks'], ['devfolio.co', 'Devfolio'],
-  ['hackquest.io', 'HackQuest'],
-] as const;
-/** The platform a host is on (LINK_PLATFORMS), by name, or null. Pure. */
-export const linkPlatformName = (host: string): string | null =>
-  LINK_PLATFORMS.find(([d]) => under(normalHost(host), [d]))?.[1] ?? null;
+export const LINK_PLATFORMS: readonly string[] = [
+  ...new Set([...FORM_PLATFORMS, ...API_SUBMIT_HOSTS, ...Object.keys(HOST_MODES), ...ENTRY_LINK_HOSTS, ...API_SHARED_SITES]),
+];
+/** The platform a host is on (LINK_PLATFORMS), by name (else its platform domain), or null. Pure. */
+export const linkPlatformName = (host: string): string | null => {
+  const h = normalHost(host);
+  const hit = LINK_PLATFORMS.filter((d) => h === d || h.endsWith(`.${d}`)).sort((a, b) => b.length - a.length)[0];
+  if (!hit) return null;
+  return PLATFORM_NAMES[hit] ?? PLATFORM_NAMES[registrableDomain(hit)] ?? hit;
+};
 
 /**
  * Registrable-domain heuristic (no public suffix list in the repo): registrableDomain's last two labels, or three under
@@ -203,8 +213,8 @@ export function sameSite(host: string, site: string): boolean {
 }
 
 /**
- * R4: whether a submission host checks out: never on a LINK_PLATFORMS platform, else on the same site (sameSite) as
- * one of `anchors` (the official site, or live programs' sites for the program's chains). Pure.
+ * R4: whether a host checks out: never on a LINK_PLATFORMS platform, else on the same site (sameSite) as one of
+ * `anchors` (curated programs' sites for the program's chains). An anchor on a platform never counts. Pure.
  */
 export const linkChecksOut = (host: string, anchors: readonly string[]): boolean =>
-  linkPlatformName(host) === null && anchors.some((a) => sameSite(host, a));
+  linkPlatformName(host) === null && anchors.some((a) => linkPlatformName(a) === null && sameSite(host, a));

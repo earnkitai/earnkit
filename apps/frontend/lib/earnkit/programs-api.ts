@@ -16,7 +16,8 @@ import { FETCH_TIMEOUT_MS, HttpStatusError, safeProbe } from './safe-fetch';
 import { readCapped } from './secrets';
 import { programsChanged } from './programs-cache';
 import type { Mailer } from './digest';
-import { APPROVE_TTL_DAYS, linkAnchors, mailPending, pendingReason, submissionChecksOut } from './program-pending';
+import { APPROVE_TTL_DAYS, linkAnchors, mailPending, officialUrlProblem, pendingReason, submissionChecksOut } from './program-pending';
+import { ownerMailEnabled } from './owner-mail';
 
 /**
  * v4.9 Task 2: POST /api/programs/write, the owner's Grok Bot's write API (plan R1-R6). A write is applied when it
@@ -30,9 +31,9 @@ import { APPROVE_TTL_DAYS, linkAnchors, mailPending, pendingReason, submissionCh
  *   5. the id isn't curated: no programs/<id>.json, and no existing row whose source isn't 'api' (R3, 409);
  *   6. source_url and submission_url load (safeProbe, 5 s) (400).
  * Then upsertProgram(parsed, 'api') and a program_writes row. Only parsed data is written, never the raw body.
- * v4.10.1 Task 4 (R4): a create, or a write that changes submission_url, goes live only when the submission link
- * checks out (program-pending.ts: on the official_url's site, or a live program's site for one of its chains; never a
- * form or hackathon platform alone). Otherwise it is held as a pending program_writes row (202 `pending`), the owner
+ * v4.10.1 Task 4 (R4, fix round 1): a create, or a write that changes submission_url or chains, goes live only when
+ * the submission link checks out (program-pending.ts: on a curated program's site for its chains, official_url only as
+ * a hint; never a platform or shared host). Otherwise it is held as a pending program_writes row (202 `pending`), the owner
  * gets one email, and approveWrite applies it from the approve link (program-approve.ts).
  * Logs carry the action, a well-formed id and the result only: never the token or a body.
  */
@@ -261,7 +262,17 @@ async function writeRefusal(p: ProgramFile, deps: Deps, at: Date = deps.now): Pr
   return linkProblems.length > 0 ? { status: 400, result: 'refused', problems: linkProblems } : null;
 }
 
-/** A pending write: its row, and whether this call made it (only a new one emails the owner). */
+/** Fix round 1: the mark a pending write's reason carries while its owner email hasn't gone. */
+export const MAIL_FAILED = '; owner email not sent yet';
+
+/** Whether two chain lists hold the same chains. Pure. */
+const sameChains = (a: readonly string[] | null | undefined, b: readonly string[] | null | undefined) => {
+  const x = [...new Set(a ?? [])].sort();
+  const y = [...new Set(b ?? [])].sort();
+  return x.length === y.length && x.every((c, i) => c === y[i]);
+};
+
+/** A pending write: its row, and whether this call should email the owner (a new one, or one whose email failed). */
 type Held = { kind: 'pending'; write: { id: string; at: Date }; fresh: boolean; reason: string };
 type Applied = { kind: 'applied'; result: Result } | Held | { kind: 'not_pending'; state: string };
 /** How applyUpsert runs: a bot's write (the link check, R4), or the owner's approval of pending write `writeId`. */
@@ -289,21 +300,23 @@ async function applyUpsert(clean: ProgramFile, deps: Deps, mode: Mode): Promise<
           return { kind: 'not_pending', state: 'superseded' };
         }
       }
-      const [row] = await tx<{ source: string; submission_url: string }[]>`
-        SELECT source, submission_url FROM programs WHERE id = ${clean.id} FOR UPDATE`;
+      const [row] = await tx<{ source: string; submission_url: string; chains: string[] }[]>`
+        SELECT source, submission_url, chains FROM programs WHERE id = ${clean.id} FOR UPDATE`;
       if (row && row.source !== 'api') throw new Curated();
-      if (mode.kind === 'write' && (!row || row.submission_url !== clean.submission_url)) {
-        const anchors = await linkAnchors(tx, clean, mode.official, deps.now);
-        if (!submissionChecksOut(clean.submission_url, anchors)) {
+      // Fix round 1: a chains change re-runs the check too (anchors are per chain).
+      if (mode.kind === 'write' && (!row || row.submission_url !== clean.submission_url || !sameChains(row.chains, clean.chains))) {
+        const anchors = await linkAnchors(tx, clean, deps.now);
+        if (!submissionChecksOut(clean.submission_url, mode.official, anchors)) {
           // Two identical writes at once still make one pending row and one email.
           await tx`SELECT pg_advisory_xact_lock(hashtext(${`program-pending:${clean.id}`}))`;
           const reason = pendingReason(clean.submission_url, mode.official);
-          const [same] = await tx<{ id: string; at: Date }[]>`
-            SELECT id, at FROM program_writes
+          const [same] = await tx<{ id: string; at: Date; reason: string | null }[]>`
+            SELECT id, at, reason FROM program_writes
             WHERE program_id = ${clean.id} AND result = 'pending' AND body = ${tx.json(clean as unknown as postgres.JSONValue)}
               AND at > ${new Date(deps.now.getTime() - APPROVE_TTL_DAYS * DAY_MS)}
             ORDER BY id DESC LIMIT 1`;
-          if (same) return { kind: 'pending', write: same, fresh: false, reason };
+          // Fix round 1: a pending write whose owner email failed sends it again (same Idempotency-Key).
+          if (same) return { kind: 'pending', write: same, fresh: (same.reason ?? '').endsWith(MAIL_FAILED), reason };
           const [w] = await tx<{ id: string; at: Date }[]>`
             INSERT INTO program_writes (program_id, action, result, reason, body)
             VALUES (${clean.id}, 'upsert', 'pending', ${reason}, ${tx.json(clean as unknown as postgres.JSONValue)})
@@ -340,7 +353,11 @@ async function upsertAction(raw: Record<string, unknown>, deps: Deps): Promise<R
   const forbidden = notWritableFields(raw);
   const parsed = ProgramFile.safeParse(programRaw);
   const officialProblem =
-    official === undefined ? null : typeof official !== 'string' ? 'official_url: a https URL' : urlRuleProblem('official_url', official);
+    official === undefined
+      ? null
+      : typeof official !== 'string'
+        ? 'official_url: a https URL'
+        : (urlRuleProblem('official_url', official) ?? officialUrlProblem(official));
   if (forbidden.length > 0 || !parsed.success || officialProblem) {
     const problems = [...forbidden, ...(parsed.success ? [] : schemaProblems(parsed.error)), ...(officialProblem ? [officialProblem] : [])];
     await auditRefusal('upsert', raw.id, 'refused', problems);
@@ -366,11 +383,19 @@ async function upsertAction(raw: Record<string, unknown>, deps: Deps): Promise<R
   }
   if (out.kind === 'pending') {
     console.log(`[programs-api] upsert ${p.id} pending`);
-    if (out.fresh)
-      await mailPending(out.write, p, official as string | undefined, out.reason, deps.mailer).catch((err: unknown) =>
-        console.error(`[programs-api] pending mail failed: ${errTag(err)}`),
-      );
-    return json({ ok: true, id: p.id, result: 'pending', category: categoryOf(p), live: false, reason: out.reason }, 202);
+    let emailed = !out.fresh;
+    if (out.fresh && ownerMailEnabled()) {
+      try {
+        await mailPending(out.write, p, official as string | undefined, out.reason, deps.mailer);
+        emailed = true;
+        await sql()`UPDATE program_writes SET reason = ${out.reason} WHERE id = ${out.write.id} AND result = 'pending'`;
+      } catch (err) {
+        // Fix round 1: the write stays pending and says so; the same write sent again retries the email.
+        console.error(`[programs-api] pending mail failed: ${errTag(err)}`);
+        await sql()`UPDATE program_writes SET reason = ${out.reason + MAIL_FAILED} WHERE id = ${out.write.id} AND result = 'pending'`;
+      }
+    }
+    return json({ ok: true, id: p.id, result: 'pending', category: categoryOf(p), live: false, reason: out.reason, owner_emailed: emailed }, 202);
   }
   const result = out.kind === 'applied' ? out.result : 'unchanged';
   console.log(`[programs-api] upsert ${p.id} ${result}`);

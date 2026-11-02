@@ -1,6 +1,6 @@
 # EarnKit programs API (for the Grok Bot)
 
-The owner pastes this into the Grok Bot's instructions. The bot researches builder programs and writes them to EarnKit. A write that passes every check is live at once: on the site (with a small "Found by EarnKit's research." line), in the sitemap and in every builder's agent. One exception: a new program, or a write that changes `submission_url`, goes live only when its submission link checks out (see "Link check"). Otherwise it waits for the owner's approval.
+The owner pastes this into the Grok Bot's instructions. The bot researches builder programs and writes them to EarnKit. A write that passes every check is live at once: on the site (with a small "Found by EarnKit's research." line), in the sitemap and in every builder's agent. One exception: a new program, or a write that changes `submission_url` or `chains`, goes live only when its submission link checks out (see "Link check"). Otherwise it waits for the owner's approval.
 
 ## Owner setup (once)
 
@@ -51,18 +51,17 @@ Same id again updates it. A body identical to what is stored answers `unchanged`
 
 Success: `{ "ok": true, "id": "...", "result": "created" | "updated" | "unchanged", "category": "grant", "live": true }`. `live` is true while the program is upcoming, or active and not past `ends_at`.
 
-Waiting for the owner (202): `{ "ok": true, "id": "...", "result": "pending", "category": "grant", "live": false, "reason": "..." }`. Nothing is live yet. Don't resend it: the same body again stays one pending write. The owner gets one email and approves it.
+Waiting for the owner (202): `{ "ok": true, "id": "...", "result": "pending", "category": "grant", "live": false, "reason": "...", "owner_emailed": true }`. Nothing is live yet. The owner gets one email and approves it. Sending the same body again stays one pending write and never emails twice. If `owner_emailed` is `false`, the email didn't go: send the same write again later (at most once an hour) to retry it.
 
 ### Link check
 
-A new program, or a write that changes `submission_url`, goes live at once only when the submission link is on:
+A new program, or a write that changes `submission_url` or `chains`, goes live at once only when its submission link is on the site of a program the owner curated for one of its `chains` (a program with `chains: []`: the curated any-chain programs). Those are the owner's own program files, and programs whose current link the owner approved. Same site means the same domain: `docs.base.org` and `www.base.org` are on `base.org`; `base-grants.org` and `base.org.example.com` are not.
 
-- the official site's domain: send `official_url`, the organizer's own home page (`https://www.base.org/`). `docs.base.org` and `www.base.org` are on `base.org`; `base-grants.org` and `base.org.example.com` are not. Or
-- the site of a program already live on EarnKit for one of its `chains`.
+`official_url` (optional) is the organizer's own home page (`https://www.base.org/`). It is a hint only: it counts when it is itself on a curated site. It is refused when it is on a shared, hosting or platform host (`evil.vercel.app`, `github.io`, `forms.gle`). It is used only for this check and never shown.
 
-A link on a form or hackathon platform (Google Forms, `forms.gle`, Typeform, Tally, Questbook, Airtable, DoraHacks, Devfolio, HackQuest) never checks out on its own. Neither does a link on a shared host (github.io, vercel.app and the like) unless it is the exact same host.
+A link on a form, submit, hosting or shared platform (Google Forms, `forms.gle`, Typeform, Tally, Questbook, Airtable, DoraHacks, Devfolio, HackQuest, ETHGlobal, Superteam, Karma GAP, github.io, vercel.app, notion.site and the like) never checks out on its own.
 
-Anything else answers `pending`. The program is not listed until the owner approves (within 7 days). Updates to any other field of a live program stay live at once. `official_url` is used only for this check; it is never shown.
+Anything else answers `pending`. The program is not listed until the owner approves (within 7 days). Updates to any other field of a live program stay live at once.
 
 ### Fields you can send
 
@@ -200,7 +199,7 @@ Every refusal is `{ "ok": false, "problems": [...] }` (400, 409) or `{ "ok": fal
 
 | Status | Meaning | What to do |
 |---|---|---|
-| 202 | `pending`: the link didn't check out; the owner was emailed | Nothing. Don't resend. Watch `pending` in `GET /api/programs/writes` |
+| 202 | `pending`: the link didn't check out; the owner approves it | Nothing, unless `owner_emailed` is `false`: then send the same write again later. Watch `pending` in `GET /api/programs/writes` |
 | 400 | A check failed: a missing or not-allowed field, a text or URL rule, a stale `verified_at`, a past `ends_at`, a link that doesn't load (`source_url: doesn't load (...)`), or `id: no program <id>` on close | Fix each listed problem and resend. A `submission_url` host problem can't be fixed: skip the program and tell the owner |
 | 401 | Wrong or missing token | Check the `Authorization: Bearer` header |
 | 404 | The API is off (no token set, or `EARNKIT_PROGRAMS_API=off`) | Ask the owner |
