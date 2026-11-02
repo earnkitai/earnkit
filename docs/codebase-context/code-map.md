@@ -2780,4 +2780,5 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
   `READY_NOTE`, `READY_ASK_NOTE`, `READY_YES_NOTE`, `READY_SENT_NOTE`, `READY_NEEDS_NOTE`, `READY_AGAIN_ASK`,
   `readyAgain`, `needsPhrase`, `readyOpenList`, `readySentAsk`, `readySentAgain`, `readyNeedsAsk`, `readyNoLine`,
   `readyTrackLead`. `bench-reply.ts` `BenchAskKind` 'ready'. tools.ts/mcp.ts `move_up` answer 'skip', `skip`,
-  `sent_ids`. Tests: `v410-find.test.ts`, `v410-ready.test.ts`.
+  `sent_ids`. Tests: `v410-find.test.ts`, `v410-ready.test.ts`. Fix 1: `FOUNDER_REQS`, `program-file.ts` FIELD_KINDS 'raised' (coach.ts
+  `DEFAULT_GUIDANCE.raised`), `readyNeedsAsk(title, needs, count)`.

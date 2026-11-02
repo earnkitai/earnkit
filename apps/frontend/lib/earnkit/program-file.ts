@@ -37,7 +37,9 @@ export type TokenPolicy = (typeof TOKEN_POLICIES)[number];
  */
 export const FIELD_KINDS = [
   'name', 'one_liner', 'problem', 'solution', 'how_it_works', 'traction', 'team', 'why_you',
-  'use_of_funds', 'milestones', 'demo_video', 'links', 'contact', 'other',
+  'use_of_funds', 'milestones', 'demo_video', 'links', 'contact',
+  // v4.10 Task 4 fix 1 (H1): money raised, a founder brief's blank, banked so it is never asked twice.
+  'raised', 'other',
 ] as const;
 export type FieldKind = (typeof FIELD_KINDS)[number];
 

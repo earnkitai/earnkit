@@ -89,6 +89,12 @@ export const DEFAULT_GUIDANCE: Record<FieldKind, Guidance> = {
     pattern: 'Exactly what the builder gave. Never guess an email or a handle.',
     limit_words: null,
   },
+  raised: {
+    judges: 'Funding to date, stated plainly.',
+    questions: ['Have you raised any money?'],
+    pattern: "The amount and from whom, or that nothing is raised yet. Never invent a round.",
+    limit_words: 30,
+  },
   other: {
     judges: 'Exactly what the form asks for.',
     questions: [],

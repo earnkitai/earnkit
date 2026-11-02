@@ -9224,3 +9224,9 @@ Gate (`fixtures/converse.ts`): `easyReply` takes a reply whose last line is exac
   'ready'; `lazyNext` answers "sent" and the blanks form before a ready yes.
 - **Tests**: `v410-find.test.ts` (DB, owner shape). `bench-find.ts` `READY_SET.on` is a test switch (as `RECHECK_WAIT`):
   the older suites that pin the path's first reply set it off.
+- **Fix 1**: an investor founder brief's blanks are its need (`FOUNDER_REQS`: kind 'team' and the new bankable
+  `FIELD_KINDS` 'raised'), so a16z reads "Ready." only with both held, else "Needs your team list and any money you've
+  raised first." and stays out of `ready.open`; one reply is banked under each kind. Codes never pushed: a second
+  missing re-check in a session, or a no to the re-check ask (`declined` 'path:'), parks Base (the declined keys) and
+  the open pages' "sent" ask goes on. The yes writes no `bench_ask` when `gapDoYes` stores its own; `readySent` takes
+  only the stored ready ask (or Base's re-check while its codes wait) for the same project.

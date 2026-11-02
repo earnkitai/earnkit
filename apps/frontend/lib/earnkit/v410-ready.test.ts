@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { GapGrant, InvestorProgram, MoveCtx, MoveProgram } from './conversation';
 import { readySet, worthUpTo, type ReadyProgram } from './ready-set';
-import { READY_AGAIN_ASK, READY_ASK, needsPhrase, readyAgain, readyLine, readyNoLine, readyOpener, readyYesReply, shortName, skipReply } from './ready-copy';
+import { READY_AGAIN_ASK, READY_ASK, needsPhrase, readyAgain, readyLine, readyNeedsAsk, readyNoLine, readyOpener, readyYesReply, shortName, skipReply } from './ready-copy';
 import { gateFailures, lazyNext, type Reply } from './fixtures/converse';
 
 /*
@@ -216,4 +216,13 @@ test('the ready status, the no line, and a partial open list', () => {
   assert.deepEqual(gateFailures([reply(readyAgain(3), ready)]), []);
   assert.deepEqual(gateFailures([reply(readyAgain(3))]).map((f) => f.rule), ['easy_reply']);
   assert.match(readyOpener({ name: null, set: OWNER_SET, worth: '$1.1M', page: 'earnkit.com/j', hosted: false, now: NOW }), /^I've got 3 applications ready for you, worth up to \$1\.1M:\n/);
+});
+
+test('fix 1 (M3): a long shot that needs a builder-only answer keeps its label; two founder blanks ask for both', () => {
+  const circle = OWNER_SET[2];
+  assert.equal(readyLine({ ...circle, needs: 'your team list' }, 3, false, NOW), "3. Circle Developer Grants: $5K to $100K. Needs your team list first, and Circle looks for apps on Arc, so it's a long shot.");
+  assert.equal(readyLine({ ...circle, why: null, needs: 'your team list' }, 3, false, NOW), "3. Circle Developer Grants: $5K to $100K. Needs your team list first, and it's a long shot.");
+  assert.equal(needsPhrase({ key: 'money_raised', label: "Any money you've raised", kind: 'raised' }), "any money you've raised");
+  assert.equal(readyNeedsAsk('a16z speedrun SR008', "your team list and any money you've raised", 2), "a16z needs your team list and any money you've raised first. Reply with both and I'll finish it.");
+  assert.deepEqual(gateFailures([reply(readyNeedsAsk('a16z speedrun SR008', 'x', 2), { reply: { move_up: { kind: 'ready', project_key: null } } })]).filter((f) => f.rule === 'easy_reply'), []);
 });

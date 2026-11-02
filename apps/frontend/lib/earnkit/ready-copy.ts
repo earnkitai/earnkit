@@ -45,10 +45,10 @@ const third = (verb: string) => (verb === 'have' ? 'has' : /(?:s|x|ch|sh)$/.test
  * A long shot's line: the fit-cell reason ("they look for apps on Arc") with the program named, else a bare long shot.
  * v4.10 Task 4 (decision d): `lead` is the step's own words when one waits ("Ready once I add Builder Codes (...)").
  */
-function longShotLine(p: ReadyProgram, lead = 'Ready'): string {
-  if (!p.why) return `${lead}, but it's a long shot.`;
+function longShotLine(p: ReadyProgram, lead = 'Ready', but = 'but'): string {
+  if (!p.why) return `${lead}, ${but} it's a long shot.`;
   const why = p.why.replace(/^they (\w+)/i, (_, verb: string) => `${shortName(p.title)} ${third(verb.toLowerCase())}`);
-  return `${lead}, but ${why}, so it's a long shot.`;
+  return `${lead}, ${but} ${why}, so it's a long shot.`;
 }
 const codesLine = (hosted: boolean) =>
   hosted ? `Ready once you add Builder Codes (https://${BUILDER_CODES_GUIDE})` : 'Ready once I add Builder Codes (10 minutes, I\'ll do it)';
@@ -58,7 +58,9 @@ const codesLine = (hosted: boolean) =>
  * ("your team list", "your pitch video"), from the field's kind, else its todo or label. Pure.
  */
 export function needsPhrase(r: { key: string; label: string; kind?: string; todo?: string }): string {
-  const byKind: Record<string, string> = { team: 'your team list', demo_video: 'your demo video', pitch_video: 'your pitch video', traction: 'your usage numbers' };
+  const byKind: Record<string, string> = {
+    team: 'your team list', demo_video: 'your demo video', pitch_video: 'your pitch video', traction: 'your usage numbers', raised: "any money you've raised",
+  };
   if (r.kind && byKind[r.kind]) return byKind[r.kind];
   const words = (r.todo ?? r.label).trim().replace(/[.?:]+$/, '').replace(/^(?:a|an|the|your)\s+/i, '');
   return `your ${words.charAt(0).toLowerCase()}${words.slice(1)}`;
@@ -67,7 +69,8 @@ export function needsPhrase(r: { key: string; label: string; kind?: string; todo
 /** What a program's line says after its money: ready, ready once a step is done, or what the builder must bring. */
 function stateOf(p: ReadyProgram, hosted: boolean): string {
   // v4.10 Task 4 (R5): what only the builder can give is named first; that program waits for it.
-  if (p.needs) return p.kind === 'long_shot' ? `Needs ${p.needs} first, and it's a long shot.` : `Needs ${p.needs} first.`;
+  // Fix 1 (M3): a long shot keeps its label and reason ("so it's a long shot").
+  if (p.needs) return p.kind === 'long_shot' ? longShotLine(p, `Needs ${p.needs} first`, 'and') : `Needs ${p.needs} first.`;
   if (p.kind === 'long_shot') return longShotLine(p, p.step === 'codes' ? codesLine(hosted) : 'Ready');
   if (p.step === 'codes') return `${codesLine(hosted)}.`;
   return 'Ready.';
@@ -121,7 +124,8 @@ export const readySentAsk = (n: number) => `Reply "sent" once ${n === 1 ? "it's"
 export const readySentAgain = (n: number) =>
   `${n === 1 ? 'Your application is' : `Your ${n} applications are`} open with every answer in place. ${readySentAsk(n)}`;
 /** v4.10 Task 4 (R5): the one easy reply while a program waits on what only the builder can give (the gate's blanks ask). */
-export const readyNeedsAsk = (title: string, needs: string) => `${shortName(title)} needs ${needs} first. Reply with it and I'll finish it.`;
+export const readyNeedsAsk = (title: string, needs: string, count = 1) =>
+  `${shortName(title)} needs ${needs} first. Reply with ${count > 1 ? 'both' : 'it'} and I'll finish it.`;
 /** v4.10 Task 4 (R8): a no parks the whole set. Pure. */
 export const readyNoLine = (names: readonly string[]) => `No problem, I'll set ${list(names)} aside.`;
 /** v4.10 Task 4: "sent" for more than one page (conversation.ts TRACK_ACK for one). Pure. */

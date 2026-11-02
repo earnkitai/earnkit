@@ -2833,7 +2833,8 @@ export const tools = {
     const sentFor = move_up?.answer === 'sent' && !ctx.sharedClient ? await submitAsked(ctx.installationId, move_up).catch(() => null) : null;
     if (sentFor) statements.program_status = [...(Array.isArray(statements.program_status) ? statements.program_status : []), { program_id: sentFor, status: 'applied' }];
     // v4.10 Task 4 (R8): 'sent' to the ready ask: every open page of the set (or only sent_ids) told as applied.
-    const readyFor = move_up?.answer === 'sent' && move_up.kind === 'ready' && !ctx.sharedClient ? await readySent(ctx.installationId, move_up).catch(() => null) : null;
+    // Fix 1 (M2): also to Base's re-check ask (the yes's move_up while its codes wait); readySent checks the stored ask.
+    const readyFor = move_up?.answer === 'sent' && !sentFor && (move_up.kind === 'ready' || move_up.kind === 'qualify') && !ctx.sharedClient ? await readySent(ctx.installationId, move_up).catch(() => null) : null;
     if (readyFor) statements.program_status = [...(Array.isArray(statements.program_status) ? statements.program_status : []), ...readyFor.map((program_id) => ({ program_id, status: 'applied' }))];
     // v2.12 spec 8: "hide" and "show". v2.12.1 T8: the card and the move-up answers.
     if (ctx.sharedClient && (profile || card || move_up || coin || token || update || updates || main_project || wallet || builder_code || stripe))

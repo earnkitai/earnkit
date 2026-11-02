@@ -1006,8 +1006,17 @@ const READY_WAIT_SAID = 'ready_wait';
 /** v4.10 Task 4: the re-check after the yes found no Builder Codes yet. */
 export const READY_CODES_NOT_YET = "I don't see Builder Codes in the code on GitHub yet.";
 
-/** What only the builder can give for one program (R5): its short phrase and the form field (saveBank's). */
-type ReadyNeed = { program_id: string; title: string; phrase: string; req: SubmissionRequirement };
+/** What only the builder can give for one program (R5): its short phrase and the fields (saveBank's, by kind). */
+type ReadyNeed = { program_id: string; title: string; phrase: string; reqs: SubmissionRequirement[] };
+/**
+ * Fix 1 (H1): an investor program with no public questions is drafted as a founder brief, whose blanks (conversation.ts
+ * FOUNDER_BLANKS) are the builder's: the team (bank kind 'team') and any money raised (kind 'raised'). As fields, so the
+ * bank holds and fills them like any form's.
+ */
+const FOUNDER_REQS = [
+  { key: 'founding_team', label: "Who's on the team", type: 'text', required: true, from: 'builder', kind: 'team', todo: "who's on the team" },
+  { key: 'money_raised', label: "Any money you've raised", type: 'text', required: true, from: 'builder', kind: 'raised', todo: "any money you've raised" },
+] as SubmissionRequirement[];
 /**
  * standing_seen.ready: the set's ids in the opener's order (a number resolves against it), when it was shown, the
  * programs skipped or parked, opened (their pages handed to the agent) and waiting; `codes` (within `waiting`) wait on
@@ -1020,7 +1029,7 @@ function readyOf(seen: Pick<Seen, 'ready'> | null | undefined, now: Date): Ready
   const r = seen?.ready as Partial<Record<keyof ReadyState, unknown>> | undefined;
   if (!r || typeof r !== 'object' || typeof r.at !== 'string' || !(now.getTime() - Date.parse(r.at) < DECLINE_MS)) return null;
   const n = r.need as Partial<ReadyNeed> | null | undefined;
-  const need = n && typeof n.program_id === 'string' && typeof n.phrase === 'string' && n.req ? (n as ReadyNeed) : null;
+  const need = n && typeof n.program_id === 'string' && typeof n.phrase === 'string' && Array.isArray(n.reqs) && n.reqs.length > 0 ? (n as ReadyNeed) : null;
   return { ids: strs(r.ids), at: r.at, skipped: strs(r.skipped), opened: strs(r.opened), waiting: strs(r.waiting), codes: strs(r.codes), need };
 }
 
@@ -1036,13 +1045,17 @@ async function readyDrafts(
 ): Promise<ReadyDraft[]> {
   return Promise.all(progs.map(async (p) => {
     const row = await getProgramRow(p.id).catch(() => null);
-    const reqs = row?.submission_requirements ?? [];
+    const required = (row?.submission_requirements ?? []).filter((r) => r.required);
+    // Fix 1 (H1): a founder brief's blanks are its fields here (FOUNDER_REQS), never "Ready." while unheld.
+    const brief = row?.investment === true && required.every((r) => r.kind === 'contact');
+    const reqs = brief ? [...required, ...FOUNDER_REQS] : required;
     const held = { ...(await heldAnswers(id, key, reqs, record)).held, ...extra[p.id] };
-    const only = row ? builderOnly(row, held).filter((r) => !(p.step === 'codes' && /builder code/i.test(`${r.key.replace(/_/g, ' ')} ${r.label}`))) : [];
+    const only = !row ? [] : brief ? FOUNDER_REQS.filter((r) => !held[r.key]?.trim())
+      : builderOnly(row, held).filter((r) => !(p.step === 'codes' && /builder code/i.test(`${r.key.replace(/_/g, ' ')} ${r.label}`))).slice(0, 1);
     const title = row?.title ?? p.title;
     return {
-      id: p.id, title, link: row?.submission_url ?? null, requirements: reqs.filter((r) => r.required), prefilled: held,
-      need: only[0] ? { program_id: p.id, title, phrase: needsPhrase(only[0]), req: only[0] } : null,
+      id: p.id, title, link: row?.submission_url ?? null, requirements: reqs, prefilled: held,
+      need: only.length > 0 ? { program_id: p.id, title, phrase: only.map(needsPhrase).join(' and '), reqs: only } : null,
     };
   }));
 }
@@ -1117,7 +1130,7 @@ async function readyAgainCommit(o: ViewIn, v: PathFacts, asked: NonNullable<Seen
   const { id, now, read } = o;
   const key = v.project.key;
   const show = asked.sent ? readySentAgain(r.opened.length)
-    : asked.need && r.need ? `Still waiting on ${r.need.phrase} for ${shortName(r.need.title)}. Reply with it and I'll finish it.`
+    : asked.need && r.need ? `Still waiting on ${r.need.phrase} for ${shortName(r.need.title)}. Reply with ${r.need.reqs.length > 1 ? 'both' : 'it'} and I'll finish it.`
     : readyAgain(r.ids.length - r.skipped.length);
   const note = asked.sent ? READY_SENT_NOTE : asked.need ? READY_NEEDS_NOTE : READY_ASK_NOTE;
   await markSaid(id, [], now);
@@ -1133,7 +1146,7 @@ async function readyAgainCommit(o: ViewIn, v: PathFacts, asked: NonNullable<Seen
  * builder can give while a program waits on it, else "sent". Pure.
  */
 function readyOpenedShow(set: readonly string[], opened: readonly { title: string; link: string }[], need: ReadyNeed | null): string {
-  if (need) return [opened.length > 0 ? readyOpenList(set, opened) : null, readyNeedsAsk(need.title, need.phrase)].filter(Boolean).join('\n\n');
+  if (need) return [opened.length > 0 ? readyOpenList(set, opened) : null, readyNeedsAsk(need.title, need.phrase, need.reqs.length)].filter(Boolean).join('\n\n');
   return readyYesReply({ set: set.map((title) => ({ title })), opened, waiting: [] });
 }
 const openRow = (d: Pick<ReadyDraft, 'title' | 'link'>) => ({ title: d.title, link: d.link ?? '' });
@@ -1148,20 +1161,44 @@ async function readyWaitingCommit(o: ViewIn, v: PathFacts, r: ReadyState): Promi
   if (r.codes.length === 0) return null;
   const { id, now, read } = o;
   const key = v.project.key;
-  const codes = await codesConfirmed(o, key);
   const base = (pid: string) => o.cards.find((c) => c.id === pid)?.title ?? pid;
   const view0 = (kind: BenchAskKind, path: string, pathNote: string): BenchView => ({
     state: v.state, variant: v.variant, project: v.project, rank: read.ranks.bench, streak: v.streak, target: null, handle: v.handle, link: null,
     fund: [], due: [], ask: { kind, project_key: key, line: '' }, held: null, path, pathLead: null, pathNote,
   });
+  const said = sessionOf(read.seen, now).said;
+  // Fix 1 (I1): a no to the re-check ask since the set was shown (benchMoveUp parks it as the path does, 'path:<id>').
+  const parkedAt = read.seen.declined?.[benchStepKey('path', BASE_GRANTS_ID)];
+  const saidNo = Boolean(parkedAt && Date.parse(parkedAt) >= Date.parse(r.at));
+  const codes = saidNo ? 'missing' : await codesConfirmed(o, key);
+  // Fix 1 (I1): that no, or a second re-check this session still missing the codes: Base is parked (the declined keys,
+  // DECLINE_MS) and leaves the set; the open pages' "sent" ask (or the builder-only ask) goes on, else the path.
+  if (saidNo || (codes === 'missing' && said.has(READY_WAIT_SAID))) {
+    const next: ReadyState = { ...r, skipped: [...r.skipped, ...r.codes], waiting: r.waiting.filter((pid) => !r.codes.includes(pid)), codes: [] };
+    const park = sql().json((saidNo ? {} : Object.fromEntries(r.codes.flatMap((pid) => [[benchStepKey('apply', pid), now.toISOString()], [benchStepKey('path', pid), now.toISOString()]]))) as never);
+    const rest = next.opened.length > 0 || next.need;
+    const stored = { kind: 'ready', key, ids: r.ids, ...(next.opened.length > 0 ? { sent: true } : { need: true }) };
+    const path: Path = { stage: 'hook', program_id: null, at: now.toISOString() };
+    await sql()`UPDATE builder_profiles SET standing_seen = (jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{declined}', COALESCE(standing_seen->'declined', '{}'::jsonb) || ${park}::jsonb) - 'gap_did')
+        || jsonb_build_object('ready', ${sql().json(next as never)}::jsonb, 'path', ${sql().json(path as never)}::jsonb, 'said', ${saidSql([], now)})
+        || CASE WHEN ${Boolean(rest)} THEN jsonb_build_object('bench_ask', ${sql().json(stored as never)}::jsonb) ELSE '{}'::jsonb END
+      WHERE builder_id = ${id}`.catch(logged('ready codes park'));
+    read.seen.ready = next;
+    const line = saidNo ? null : helpParked(base(BASE_GRANTS_ID));
+    if (!rest) {
+      if (line) o.ahead?.push(line);
+      return null;
+    }
+    const ask = next.opened.length > 0 ? readySentAgain(next.opened.length) : readyNeedsAsk(next.need!.title, next.need!.phrase, next.need!.reqs.length);
+    const note = next.opened.length > 0 ? READY_SENT_NOTE : READY_NEEDS_NOTE;
+    return { view: view0('ready', [line, ask].filter(Boolean).join('\n\n'), readyNoteOf(note)), stand: v.stand, fields: { move_up: { kind: 'ready', project_key: key, agent_note: note }, ...standingFields(v.stand) } };
+  }
   if (codes !== 'found') {
     const hosted = (o.reach ?? (await agentReach(o.own, id))).hosted;
-    const said = sessionOf(read.seen, now).said;
     // The re-check ask (its ok checks again, a no parks Base), as the gap stage stores it.
     const asked = read.seen.bench_ask;
     const stored = asked?.kind === 'qualify' && asked.program_id === BASE_GRANTS_ID ? { ...asked, checking: true } : { kind: 'qualify', key, program_id: BASE_GRANTS_ID, path: true, gap: true, checking: true };
     const show = codes === 'checking' ? CHECKING_LINE
-      : said.has(READY_WAIT_SAID) ? helpWaiting(base(BASE_GRANTS_ID))
       : `${READY_CODES_NOT_YET}\n\n${hosted ? HELP_DONE_ASK : PUSHED_ASK}`;
     await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
         || jsonb_build_object('bench_ask', ${sql().json(stored as never)}::jsonb, 'said', ${saidSql(codes === 'checking' ? [] : [READY_WAIT_SAID], now)})
@@ -1211,6 +1248,8 @@ async function readyView(o: ViewIn, plan: PathPlan): Promise<{ view: BenchView; 
   if (r) {
     const waiting = await readyWaitingCommit(o, v, r);
     if (waiting) return waiting;
+    // Fix 1 (I1): a codes park just wrote the ask away (nothing open or waiting): the path answers.
+    if (r.codes.length > 0) return null;
     const asked = read.seen.bench_ask;
     if (asked?.kind === 'ready' && (asked.key ?? '').toLowerCase() === v.project.key.toLowerCase()
       && (asked.sent === true || (asked.need === true && r.need) || (!session.fresh && session.said.has(READY_SAID))))
@@ -1269,7 +1308,7 @@ async function readyAnswer(
       const line = setAsideLine(need.title);
       return next.opened.length > 0 ? { show_to_builder: `${line}\n\n${readySentAsk(next.opened.length)}`, agent_note: withMentor(READY_SENT_NOTE), move_up: moveUp(READY_SENT_NOTE) } : { show_to_builder: line, then_find: true };
     }
-    if (!m.blanks?.trim()) return { show_to_builder: readyNeedsAsk(need.title, need.phrase), agent_note: withMentor(READY_NEEDS_NOTE), move_up: moveUp(READY_NEEDS_NOTE) };
+    if (!m.blanks?.trim()) return { show_to_builder: readyNeedsAsk(need.title, need.phrase, need.reqs.length), agent_note: withMentor(READY_NEEDS_NOTE), move_up: moveUp(READY_NEEDS_NOTE) };
     return readyYes(ctx, { r, asked, key, rest: r.waiting.filter((pid) => !r.codes.includes(pid)), skipped: [], prefix: null, blanks: m.blanks, titles, record, now, after: true });
   }
   if (m.answer === 'no') return readyPark(id, r, live, names(live), parkSql(live));
@@ -1317,8 +1356,10 @@ async function readyYes(
   const need0 = first ? (o.after && r.need ? r.need : first.need) : null;
   if (need0 && o.blanks?.trim()) {
     const bank = await bankKeyOf(id, key);
-    if (bank) await saveBank(id, bank, need0.program_id, [need0.req], { [need0.req.key]: o.blanks.trim() }).catch(logged('ready bank'));
-    drafts = await readyDrafts(id, key, progs, o.record, { [need0.program_id]: { [need0.req.key]: o.blanks.trim() } });
+    // One reply answers every field named (the team and money raised: their words, under each kind).
+    const given = Object.fromEntries(need0.reqs.map((q) => [q.key, o.blanks!.trim()]));
+    if (bank) await saveBank(id, bank, need0.program_id, need0.reqs, given).catch(logged('ready bank'));
+    drafts = await readyDrafts(id, key, progs, o.record, { [need0.program_id]: given });
   }
   const open = drafts.filter((d) => !d.need && !codes.includes(d.id));
   const need = drafts.find((d) => d.need)?.need ?? null;
@@ -1333,7 +1374,9 @@ async function readyYes(
   await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(jsonb_set(COALESCE(standing_seen, '{}'::jsonb),
         '{apply_yes}', COALESCE(standing_seen->'apply_yes', '{}'::jsonb) || ${drafted}::jsonb),
         '{declined}', COALESCE(standing_seen->'declined', '{}'::jsonb) || ${park}::jsonb)
-      || jsonb_build_object('ready', ${sql().json(next as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb)
+      || jsonb_build_object('ready', ${sql().json(next as never)}::jsonb)
+      -- Fix 1 (M1): with codes, gapDoYes stores its own ask (the re-check's), so none is written here.
+      || CASE WHEN ${codes.length === 0} THEN jsonb_build_object('bench_ask', ${sql().json(stored as never)}::jsonb) ELSE '{}'::jsonb END
     WHERE builder_id = ${id}`.catch(logged('ready yes'));
   const g = codes.length > 0
     ? await gapDoYes(ctx, id, { kind: 'qualify', key, program_id: BASE_GRANTS_ID, program: o.titles.get(BASE_GRANTS_ID), path: true, gap: true, qualify: asked.qualify }, now)
@@ -1365,11 +1408,14 @@ async function readyYes(
  * every opened page, or with `sent_ids` only those of them, while the set is within DECLINE_MS. Null with none (or no
  * ready set). Never throws.
  */
-export async function readySent(id: number, m: { sent_ids?: string[] }): Promise<string[] | null> {
-  // The stored ask may be Base's re-check by now (its codes still pending); the ready state holds what is open.
+export async function readySent(id: number, m: { project_key?: string | null; sent_ids?: string[] }): Promise<string[] | null> {
+  // Fix 1 (M2): only to the stored ready ask, or to Base's re-check while the set waits on its codes (the yes's move_up),
+  // for the same project.
+  const asked = await benchAsked(id, { project_key: m.project_key });
   const [row] = await sql()<{ seen: Seen | null }[]>`SELECT standing_seen AS seen FROM builder_profiles WHERE builder_id = ${id}`.catch(() => []);
   const r = readyOf(row?.seen, new Date());
-  if (!r) return null;
+  if (!asked || !r) return null;
+  if (!(asked.kind === 'ready' || (asked.kind === 'qualify' && asked.program_id === BASE_GRANTS_ID && r.codes.includes(BASE_GRANTS_ID)))) return null;
   const ids = m.sent_ids?.length ? r.opened.filter((pid) => m.sent_ids!.includes(pid)) : r.opened;
   return ids.length > 0 ? ids : null;
 }
@@ -3516,17 +3562,17 @@ export const questionsDraftNote = (programId: string, key: string | null, o: { r
   `Once they reply with the blanks, call prepare again with every answer and coach_asked: true, and show its draft${o.later?.length ? ` (it asks for the rest: ${o.later.join('; ')})` : ''}. ${DRAFT_GUARD} ` +
   `A no: call tell with move_up: { kind: 'apply', project_key: ${JSON.stringify(key)}, answer: 'no' }.`;
 
+/** v4.10 Task 4: the answer bank's key for the one project (heldAnswers' own, so a saved answer is read back). Never throws. */
+async function bankKeyOf(id: number, key: string | null): Promise<string | null> {
+  const name = (await mainProjectName(id).catch(() => null)) ?? (key ? keyName(key) : '');
+  return key && REPO_KEY.test(key.toLowerCase()) ? projectKey({ repo_url: `https://github.com/${key}`, name }) : name ? projectKey({ name }) : null;
+}
 /**
  * v4.8 Task 2: the held answers for a program's fields (conversation.ts draftBlanks' `held`): the answer bank for this
  * project (coach.ts bankFill: filled and suggested) and the builder's X handle; fix round 2 (F1) `fills`, what EarnKit
  * itself fills: the Builder Code confirmed in an App-proven repo, and verified usage (the record's "Used by" line) for a
  * usage field. A failed read holds nothing. Never throws.
  */
-/** v4.10 Task 4: the answer bank's key for the one project (heldAnswers' own, so a saved answer is read back). Never throws. */
-async function bankKeyOf(id: number, key: string | null): Promise<string | null> {
-  const name = (await mainProjectName(id).catch(() => null)) ?? (key ? keyName(key) : '');
-  return key && REPO_KEY.test(key.toLowerCase()) ? projectKey({ repo_url: `https://github.com/${key}`, name }) : name ? projectKey({ name }) : null;
-}
 async function heldAnswers(id: number, key: string | null, reqs: SubmissionRequirement[], record: string[]): Promise<{ held: Record<string, string>; fills: Record<string, string> }> {
   const [p] = await sql()<{ handle: string | null }[]>`SELECT x_handle AS handle FROM builder_profiles WHERE builder_id = ${id}`.catch(() => []);
   const bankKey = await bankKeyOf(id, key);
