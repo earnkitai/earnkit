@@ -595,7 +595,8 @@ function guideBlock(
   program: ProgramRow,
 ): { guide: { text: string; difficulty: Difficulty; best_bet: string | null; sources: string[] } } | null {
   if (program.source !== 'file' || program.campaign) return null;
-  const g = programGuide(program);
+  // v4.8.2 Task 3 fix 1: get_program is MCP output: the hours left under 48 hours.
+  const g = programGuide(program, new Date(), { hours: true });
   return {
     guide: { text: guideText(g), difficulty: g.difficulty, best_bet: g.best_bet, sources: guideSources(program) },
   };

@@ -1219,7 +1219,8 @@ apps/frontend/
                                then "Builder bonus: <pool> · ends <Mon D> · <leaderboard>", or the
                                one step that joins, or the no-wallet line; M4: a coin not launched
                                yet joins once it is; M1: REPO_HELD), noCoinYet (the agent's
-                               no-wallet note, "by <Mon D>"), roundEndLabel/summaryCloses/
+                               no-wallet note, "by <Mon D>"), v4.8.2 Task 3: closesIn/summaryIn/withClosesIn/endsCell (an agent's
+                               program object: closes_in and "closes in N hours" under 48 h), roundEndLabel/summaryCloses/
                                deadlineDay (Ruling 29: one round date everywhere, the first
                                message's; v2.8.1 §C15: a program deadline in its own time zone,
                                "Oct 14, 11:59 PM ET", from the summary, else deadlineLabel in UTC), boardLink (earnkit.com/bonus/<boardSlug>), shortWallet;
@@ -1784,10 +1785,12 @@ apps/frontend/
                                program (difficulty_override.basis odds) or long shot (MoveProgram.longShot, the program file's
                                tag) closing within 7 days; a picked or past-the-hook program keeps its place; else quiet), pathReply
                                (Task 1: the hook only: A's opener for a fit or investor, "Want the steps?" for a gap; a hook said
-                               this session is pointerReply: v4.8.1 R4, the reason once, then "Still {Program}. Reply no ...",
-                               then "more"), closeWords (v4.8.1 R2: "in N hours" under 48 h, else the zone's day),
-                               moneyLine/moneyInvestor/withMoneyLine/MONEY_SAID (v4.8.1 R3: "Open now: $X in grants." once a
-                               session, before the easy reply; v481-fixes.test.ts), proofLine, programName. bench-find.ts pathView
+                               this session is pointerReply: v4.8.1 R4, the reason once, then "more" (v4.8.2: no short
+                               "Still {Program}. Reply no ..."; final fix F1: a second "more" sets `again`, so
+                               bench-find.ts adds bench-reply.ts WAIT_NOTE to the agent note; v482-fixes.test.ts)), closeWords (v4.8.1 R2: "in N hours" under 48 h, else the zone's day),
+                               moneyLine/closingSoon/withMoneyLine/MONEY_SAID (v4.8.1 R3: "Open now: $X in grants." once a
+                               session, before the easy reply; v4.8.2 Task 2: then "Closing soon: {A} (...) and {B} (...)."
+                               within 48 h, at most 2, from bench-find.ts closingPrograms; v481/v482-fixes.test.ts), proofLine, programName. bench-find.ts pathView
                                gathers the facts (pathSkip: entered, hidden, told, drafted, 'apply:'/'path:' nos) and stores
                                the hook's ask as apply, qualify or check_fits (path: true; a no also parks 'path:<id>').
                                fixtures/wallet-step.ts pathQuiet / pathUnquiet park every program for a test of an older ask.
@@ -1800,7 +1803,7 @@ apps/frontend/
                                Fix round 2: CODES_OFFER (hook "Go?"), draftBlanks { blanks (max 2), later, drafted }, andComma,
                                blanksAgain; bench-find.ts codesConfirmed ('found'|'missing'|'checking',
                                RECHECK_WAIT), pathCheckingView, draftYes; base-qualify.ts qualifyOffer `allMet`.
-                               v4.8 Task 3: SENT_ASK, submitBy, submitReply, submitPointer, TRACK_ACK, trackLead, agoWords,
+                               v4.8 Task 3: SENT_ASK, submitBy, submitReply, submitPointer, TRACK_ACK, trackLead, agoWords (removed v4.8.2),
                                passedLine (GapGrant.passedAt), sinceDay, SinceFacts, sinceLine, stillOpenLine, DRAFT_NOW_ASK.
                                bench-find.ts pathSubmit (draft -> submit), SENT_NOTE, submitAsked, pathTrack (-> track),
                                submitWaiting / pathSubmitCommit (the submit pointer), sinceFor + withSince (fresh session);

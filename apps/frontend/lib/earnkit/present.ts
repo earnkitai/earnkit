@@ -1,6 +1,6 @@
 import { usd } from './campaigns';
 import { NO_CELL } from './no-cell';
-import { AMOUNT_HEADER, closeDayOf, endsOf, prizeOf, upToCell } from './entry-text';
+import { AMOUNT_HEADER, closeDayOf, endsCell, prizeOf, upToCell } from './entry-text';
 import { shortDate } from './dates';
 import { hoursLeft } from './deadline';
 import { CHAIN_NAMES, EFFORT_ORDER, NOT_REAL_YET, NO_USERS_YET, hasRealUse, oddsRank, rowOdds, type Chain, type Effort, type Odds, type Product, type RepoFacts, type Verdict } from './match';
@@ -659,13 +659,13 @@ export function layout(m: Pick<FirstMessage, 'cards' | 'repos' | 'entries'>, don
  * program (the matched rows, then the rest; investments included, sponsor campaigns never), with today's "more" table
  * columns and cells (Program | Amount | Difficulty | Ends), never "N more open". Null with none. Pure.
  */
-export function fullProgramTable(m: Pick<FirstMessage, 'cards' | 'repos' | 'entries'>, entered = enteredIds(m)): string | null {
+export function fullProgramTable(m: Pick<FirstMessage, 'cards' | 'repos' | 'entries'> & { now?: Date }, entered = enteredIds(m)): string | null {
   const { rows, rest } = layout(m, entered);
   const cards = [...rows.map((r) => r.card), ...rest];
   if (cards.length === 0) return null;
   return table(
     ['Program', AMOUNT_HEADER, 'Difficulty', 'Ends'],
-    cards.map((c) => [programCell(c, entered, noMatch(m.repos)), upToCell(prizeOf(c)), difficultyCell(c), endsOf(c)]),
+    cards.map((c) => [programCell(c, entered, noMatch(m.repos)), upToCell(prizeOf(c)), difficultyCell(c), endsCell(c, m.now)]),
   );
 }
 
@@ -902,7 +902,7 @@ export function presentFirstMessage(given: FirstMessage): string {
               programCell(card, entered, false),
               upToCell(prizeOf(card)),
               rowCell(card, row),
-              endsOf(card),
+              endsCell(card, m.now),
               odds === 'low'
                 ? `${repo}, ${lowOddsCell(low_reason ?? NOT_REAL_YET)}`
                 : // v2.11 8a (S3): an unknown row is never "low odds".
@@ -945,7 +945,7 @@ export function presentFirstMessage(given: FirstMessage): string {
       }\n\n` +
         table(
           ['Program', couldWin ? 'You could win' : AMOUNT_HEADER, 'Difficulty', 'Ends'],
-          shown.map((c) => [programCell(c, entered, noMatch(m.repos)), couldWin ? prizeOf(c) : upToCell(prizeOf(c)), difficultyCell(c), endsOf(c)]),
+          shown.map((c) => [programCell(c, entered, noMatch(m.repos)), couldWin ? prizeOf(c) : upToCell(prizeOf(c)), difficultyCell(c), endsCell(c, m.now)]),
         ) +
         (more > 0 ? `\n\n${more} more open: ask me for the full list.` : ''),
     );

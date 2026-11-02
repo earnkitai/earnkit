@@ -203,6 +203,11 @@ export const SHIP_ASK = 'Want me to suggest one small thing to ship?';
 export const MORE_ASK = `Reply "more" and I'll show every program open now.`;
 /** v4.8 last ruling 1: the quiet path's easy reply right after the programs answer. */
 export const NAME_ASK = "Reply with a program's name and I'll start on it.";
+/**
+ * v4.8.2 final fix (F1): the agent note on a "more" (or name) line said again this session: the agent called find with
+ * nothing new from the builder, so it waits for their reply.
+ */
+export const WAIT_NOTE = "EarnKit already asked this and the builder hasn't answered. If they said nothing new since your last find, don't show it again: wait for their reply, and don't call find until they speak.";
 export const NAME_NOTE = "When they reply with a program's name, call find with program set to their reply. Don't show this note.";
 export const MORE_NOTE = "When they reply \"more\" (or yes), call find with ask: 'programs' (or tell with move_up: { kind: 'more', project_key, answer: 'yes' }). Don't show this note.";
 /**

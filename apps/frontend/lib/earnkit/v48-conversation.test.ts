@@ -20,7 +20,7 @@ import { isoWeekOf } from './weeks';
 import { backfillMondays } from './week-facts';
 import { X_ON, withEnv } from './fixtures/find';
 import {
-  CAN_DO, ANSWERED_FIRST, DRAFT_NOW_ASK, HELP_DONE_ASK, proofOf, gapProofOf, PREPARE_LINE, PREPARE_LINE_ONE, PROGRAMS_AGAIN, fitCell, grantFact, programsAnswer, standingAgain, standingAnswer, standingSaid, connectedLine, investorLater, noFitWhy, pickHook, openerAgain, openerReply, pickedReply, resolvePick, FOUNDER_BLANKS, MENTOR_NOTE, PATH_ANSWER_FIRST, CODES_OFFER, blanksAgain, SESSION_MS, SENT_ASK, TRACK_ACK, agoWords, passedLine, sinceLine, submitBy, submitPointer, submitReply, trackLead, bestMove, blanksAsk, closeWords, draftBlanks, draftReply, gapClosedReply, gapProof, gapReply, gapStillReply, pathReply, programName, proofLine, readPath, sessionOf,
+  CAN_DO, ANSWERED_FIRST, DRAFT_NOW_ASK, HELP_DONE_ASK, proofOf, gapProofOf, PREPARE_LINE, PREPARE_LINE_ONE, PROGRAMS_AGAIN, fitCell, grantFact, programsAnswer, standingAgain, standingAnswer, standingSaid, connectedLine, investorLater, noFitWhy, pickHook, openerAgain, openerReply, pickedReply, resolvePick, FOUNDER_BLANKS, MENTOR_NOTE, PATH_ANSWER_FIRST, CODES_OFFER, blanksAgain, SESSION_MS, SENT_ASK, TRACK_ACK, passedLine, sinceLine, submitBy, submitPointer, submitReply, trackLead, bestMove, blanksAsk, closeWords, draftBlanks, draftReply, gapClosedReply, gapProof, gapReply, gapStillReply, pathReply, programName, proofLine, readPath, sessionOf,
   type GapGrant, type InvestorProgram, type Move, type MoveCtx, type MoveProgram,
 } from './conversation';
 import { qualifyGapSteps, BUILDER_CODES_GUIDE } from './bench-reply';
@@ -237,10 +237,10 @@ test('pathReply: a grant with a gap gives its money, the gap and "Want the steps
   const c = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'closest', program: BASE, raise: true }, said: new Set(r.said) });
   // Fix round 2 (F10): one gap a local agent can do (Builder Codes): the hook offers to do it; a hosted agent keeps the steps.
   // Task 3: the passed step raised says so, once (target A).
-  assert.equal(c.show_to_builder, "Jenil, your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes. You passed on them, but they're now the only gap to that money.\n\nI can add Builder Codes and push the change, about 10 minutes. Go?");
+  assert.equal(c.show_to_builder, "Jenil, your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes. That's now the only gap to that money.\n\nI can add Builder Codes and push the change, about 10 minutes. Go?");
   assert.equal(c.reply, 'go');
   const h = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'closest', program: BASE, raise: true }, said: new Set(r.said), hosted: true });
-  assert.equal(h.show_to_builder, "Jenil, your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes. You passed on them, but they're now the only gap to that money.\n\nWant the steps?");
+  assert.equal(h.show_to_builder, "Jenil, your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes. That's now the only gap to that money.\n\nWant the steps?");
   // Fix round 3 (3): the same offer again in the session names Builder Codes.
   const again = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'closest', program: BASE, raise: true }, said: new Set([...r.said, ...c.said]) });
   assert.equal(again.show_to_builder, `Base Builder Grant is still your best move: up to $5,000, one step away. I can add Builder Codes and push the change, about 10 minutes. Go?`);
@@ -357,7 +357,11 @@ test("the owner-like builder who picked a16z: the first find is A's opener; the 
   const s = show(r);
   // v4.8.1 Task 2 (R3): the session's first path reply says the open total just before the easy reply.
   const [p1, money, p2] = s.split('\n\n');
-  assert.match(money, /^Open now: \$[\d.]+[KM]?\+? in grants\.$/, s);
+  // v4.8.2 Task 2 (R3): then what closes within 48 hours (the Arc copy), never the picked a16z copy the reply is about.
+  // v4.8.2 final fix (F4): the Arc copy is named (the real pipeline: tools.ts cards to closingPrograms).
+  assert.match(money, /^Open now: \$[\d.]+[KM]?\+? in grants\. Closing soon: .+\.$/, s);
+  assert.ok(money.includes('Arc Microgrants (500 USDC × 8 grants, in '), s);
+  assert.ok(!money.includes(sr.title), s);
   assert.match(p1, new RegExp(`^Jenil, ${sr.title} closes (in \\d+ hours?|in under an hour|[A-Z][a-z]{2} \\d{1,2}): up to \\$1M\\. You've shipped \\d+ weeks? in a row and EarnKit is live, which is the traction they ask about\\.$`), s);
   assert.equal(p2, 'I can draft your application from your commits and live product in a few minutes. Want me to start?', s);
   assert.equal(s.split('\n\n').length, 3, s);
@@ -471,7 +475,7 @@ test('fix round 2 (F9): with no X name the reply greets no name, never the handl
   const r = pathReply({ now: NOW, first: null, project: { name: 'EarnKit', live: true }, streak: 6, move: move as never, said: new Set() });
   assert.ok(r.show_to_builder.startsWith('a16z speedrun SR008 closes in 36 hours: up to $1M. '), r.show_to_builder);
   const c = pathReply({ now: NOW, first: null, project: { name: 'EarnKit', live: false }, streak: 0, move: { kind: 'closest', program: BASE, raise: true }, said: new Set() });
-  assert.equal(c.show_to_builder, "Your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes. You passed on them, but they're now the only gap to that money.\n\nI can add Builder Codes and push the change, about 10 minutes. Go?");
+  assert.equal(c.show_to_builder, "Your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes. That's now the only gap to that money.\n\nI can add Builder Codes and push the change, about 10 minutes. Go?");
 });
 
 /** The connect weeks due again (v3-connect.test.ts's backfill): the older moment the closest grant waits behind. */
@@ -890,15 +894,11 @@ test('the submit stage, the pointer and the track lead (pure): target A word for
 });
 
 test('the passed-step line and "Since {day}" (pure): stored changes only; nothing changed, nothing said', () => {
-  assert.equal(agoWords('2026-10-31T09:00:00Z', NOW), 'earlier today');
-  assert.equal(agoWords('2026-10-30T09:00:00Z', NOW), 'yesterday');
-  assert.equal(agoWords('2026-10-27T09:00:00Z', NOW), 'on Tuesday');
-  assert.equal(agoWords('2026-10-22T09:00:00Z', NOW), 'last week');
-  assert.equal(agoWords('2026-10-03T09:00:00Z', NOW), 'on Oct 3');
-  assert.equal(passedLine('2026-10-22T09:00:00Z', NOW), "You passed on it last week, but it's now the only gap to that money.");
-  assert.equal(passedLine('2026-10-22T09:00:00Z', NOW, true), "You passed on them last week, but they're now the only gap to that money.");
+  // v4.8.2 Task 1 (R2): the passed-step line never says when or that the builder passed.
+  assert.equal(passedLine(), "It's now the only gap to that money.");
+  assert.equal(passedLine(true), "That's now the only gap to that money.");
   const raised = pathReply({ now: NOW, first: null, project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'closest', program: { ...BASE, passedAt: '2026-10-22T09:00:00Z' }, raise: true }, said: new Set() });
-  assert.match(raised.show_to_builder, /add Builder Codes\. You passed on them last week, but they're now the only gap to that money\. /);
+  assert.match(raised.show_to_builder, /add Builder Codes\. That's now the only gap to that money\. /);
   // Not raised (a step not passed on): no such line.
   assert.doesNotMatch(pathReply({ now: NOW, first: null, project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'one_step', program: { ...BASE, passed: false } }, said: new Set() }).show_to_builder, /passed/);
   const thu = '2026-10-29T15:00:00Z';
@@ -933,7 +933,7 @@ test('"sent" records the program as applied and hooks Base in the same reply, wi
   const s = show(sent);
   const [lead, hook, ask] = s.split('\n\n');
   assert.equal(lead, "Nice, I'm tracking it. Speedrun says fewer than 0.4% of applicants are accepted, so let's line up money that's closer.", s);
-  assert.match(hook, /^Your closest money is Base Builder Grant: up to \$5,000\. [^\n]*Builder Codes[^\n]*\. You passed on them earlier today, but they're now the only gap to that money\./, s);
+  assert.match(hook, /^Your closest money is Base Builder Grant: up to \$5,000\. [^\n]*Builder Codes[^\n]*\. That's now the only gap to that money\./, s);
   assert.equal(ask, OFFER, s);
   assert.equal(s.split('\n\n').length, 3, s);
   assert.doesNotMatch(s, BAD);
@@ -946,15 +946,16 @@ test('"sent" records the program as applied and hooks Base in the same reply, wi
   assert.ok((seen.path_raised as Record<string, string>)['base-builder-grants']);
   // Applied programs are never hooked again; the passed-step line is never said twice.
   // Fix round 1 (1): the same step again this session is its one-line pointer; the stored ask stays. v4.8.1 Task 3 (R4):
-  // first with its reason and easy reply, then the short line with the way out (a no to the same stored ask).
-  const points = [`Base Builder Grant is still your best move: up to $5,000, one step away. I can add Builder Codes and push the change, about 10 minutes. Go?`, `Still Base Builder Grant. Reply "no" and I'll line up the next program.`];
-  for (let i = 0; i < 2; i++) {
-    const again = await find(b);
-    assert.equal(show(again), points[i]);
-    assert.equal(moveUp(again)?.kind, 'qualify');
-    const ask = (await seenOf(b.id)).bench_ask as { kind: string; program_id: string };
-    assert.deepEqual([ask.kind, ask.program_id], ['qualify', 'base-builder-grants']);
-  }
+  // first with its reason and easy reply (the same stored ask); v4.8.2 R1: then the "more" line, the 'more' ask.
+  const again = await find(b);
+  assert.equal(show(again), `Base Builder Grant is still your best move: up to $5,000, one step away. I can add Builder Codes and push the change, about 10 minutes. Go?`);
+  assert.equal(moveUp(again)?.kind, 'qualify');
+  const stored = (await seenOf(b.id)).bench_ask as { kind: string; program_id: string };
+  assert.deepEqual([stored.kind, stored.program_id], ['qualify', 'base-builder-grants']);
+  const more = await find(b);
+  assert.equal(show(more), MORE_ASK);
+  assert.equal(moveUp(more)?.kind, 'more');
+  assert.equal(((await seenOf(b.id)).bench_ask as { kind: string }).kind, 'more');
 });
 
 test('fix round 1 (2): a plain yes to the submit ask is never "sent"; answer "sent" is; a no keeps it ready (final F8)', db, async () => {
@@ -1746,8 +1747,6 @@ const setScore = (id: number, score: number) =>
 const pointerOf = (title: string, still = true) => `Your ${programName(title)} application is ${still ? 'still ' : ''}the next move. Want me to start?`;
 /** v4.8.1 Task 3 (R4): the first pointer back to a16z in a session: its money and its close in hours left. */
 const bestOf = (title: string) => `${programName(title).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} is still your best move: up to \\$1M, closes in \\d+ hours?\\.`;
-/** v4.8.1 Task 3 (R4): the second pointer back: short, with the way out. */
-const shortOf = (title: string) => `Still ${programName(title)}. Reply "no" and I'll line up the next program.`;
 
 test('C: "where do I stand": the answer (the pill\'s numbers), then the short step; again, one line; a changed score or a new session, the full answer', db, async () => {
   const { b, sr } = await asker('st');
@@ -1769,8 +1768,9 @@ test('C: "where do I stand": the answer (the pill\'s numbers), then the short st
   const same = show(await find(b, { ask: 'standing' }));
   assert.match(same, new RegExp(`^Same as earlier: #${st.rank} of ${st.total}, score 77\\.\\n\\n${bestOf(sr.title)} Want me to start\\?$`), same);
   // No ask: the path alone. v4.8.1 Task 2 (R3): the session's first path reply that is no direct answer says the total.
-  // v4.8.1 Task 3 (R4): the third pointer this session is the short one, never the same line again.
-  assert.equal(withTotal(show(await find(b))), easySplit(shortOf(sr.title), `Reply "no" and I'll line up the next program.`));
+  // v4.8.1 Task 3 (R4), v4.8.2 R1: the third pointer this session is the "more" line, never the same line again.
+  // A one-sentence reply: the money line goes above it (withMoneyLine).
+  assert.match(show(await find(b)), new RegExp(`^Open now: \\$[\\d.]+[KM]?\\+? in grants\\.[^\\n]*\\n\\n${MORE_ASK.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
   // Fix round 1 (3): the score moved since: the full answer again, never "Same as".
   await setScore(b.id, 79);
   const moved = show(await find(b, { ask: 'standing' }));
@@ -2313,7 +2313,7 @@ test('final F2: after "sent", with Arc closing tonight on a chain gap, the lead 
   const b = await atSubmit('ff2', sr.id);
   const s = show(await mcpCall(b.ctx as never, 'tell', { program_status: [{ program_id: sr.id, status: 'applied' }] }));
   const [, hook, ask] = s.split('\n\n');
-  assert.match(hook, /^Your closest money is Base Builder Grant: up to \$5,000\. [^\n]*Builder Codes[^\n]*You passed on them earlier today, but they're now the only gap to that money\./, s);
+  assert.match(hook, /^Your closest money is Base Builder Grant: up to \$5,000\. [^\n]*Builder Codes[^\n]*That's now the only gap to that money\./, s);
   assert.doesNotMatch(s, /Arc/, s);
   assert.equal(ask, OFFER, s);
 });

@@ -20,7 +20,8 @@ import {
 } from './projects';
 import { EntryError, githubRepo, givenWallet, isWalletAddress, normalizeRepoUrl, presentYourEntries } from './campaigns';
 import { signToEnter } from './entry-proof';
-import { NO_COIN_YET, confirmTable, enteredText, todoOf, type EnteredText } from './entry-text';
+import { NO_COIN_YET, confirmTable, enteredText, todoOf, withClosesIn, type EnteredText } from './entry-text';
+import { hoursLeft } from './deadline';
 import { repoNameOf, titleCase } from './token-proposal';
 import { earnkitCampaignRows, yourCampaignEntries } from './leaderboard';
 import {
@@ -1131,7 +1132,8 @@ export const handlers = {
             ? matchRows(yourRepos.fits, new Set(programs.filter((p) => p.any_chain).map((p) => p.id))).filter((x) => !hide.has(x.program_id))
             : [],
         working_on: first.workingOn,
-        programs: programs.map((p) => ({ id: p.id, title: p.title, summary: p.summary, deadline: p.deadline, tag: p.tag, verified_at: p.verified_at?.toISOString().slice(0, 10) ?? null })),
+        // v4.8.2 Task 3 (R4): closes_in and the summary in hours under 48 hours (agentPrograms).
+        programs: agentPrograms(programs, first.now),
       };
     }
     // v2.10 item 5: no token offer here; the token is pitched once, at confirmation.
@@ -1200,20 +1202,15 @@ export const handlers = {
             )
           : [],
       working_on: workingOn,
-      programs: programs.map((p) => ({
-        id: p.id,
-        title: p.title,
-        summary: p.summary,
-        deadline: p.deadline,
-        tag: p.tag,
-        verified_at: p.verified_at?.toISOString().slice(0, 10) ?? null,
-      })),
+      // v4.8.2 Task 3 (R4): closes_in and the summary in hours under 48 hours (agentPrograms).
+      programs: agentPrograms(programs, first.now),
     };
   },
 
   get_program: async (input: unknown, ctx: ToolContext) => {
     const { program_id, repo } = GetProgramInput.parse(input);
-    const program = await getProgram(program_id);
+    // v4.8.2 Task 3 (R4): closes_in beside the ISO deadline (no summary here; the guide header says the hours itself).
+    const program = await getProgram(program_id).then((p) => ({ ...p, closes_in: agentClosesIn(p, new Date()) }));
     if (!repo) return withAlerts(ctx, program);
     // Eligibility dry run for one repo: pass/fail plus what's missing.
     try {
@@ -1257,7 +1254,7 @@ export const handlers = {
       open && curated && (ctx.sharedClient ? !coach_asked : added && !(await hasProgramEntry(ctx.installationId, program_id)));
     // The guide's parts: what won, what it wants, best bet. No bonus line here: the confirm line says
     // the bonus when this entry can earn it (a repo's token entered elsewhere can't).
-    const guide = firstPrepare && !join ? guideText(programGuide(program)) : null;
+    const guide = firstPrepare && !join ? guideText(programGuide(program, new Date(), { hours: true })) : null;
     const lead = join ? join.lead.join('\n') : null;
     const withGuide = <T extends { show_to_builder: string }>(r: T): T =>
       guide ? { ...r, show_to_builder: `${guide}\n\n${r.show_to_builder}` } : r;
@@ -2687,6 +2684,23 @@ async function checkinOpen(ctx: ToolContext): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * v4.8.2 Task 3 (R4): find's `programs` as the agent gets them: each with `closes_in` (hoursLeft words under 48 hours,
+ * else null) and its summary's close part in those hours ("· closes in 14 hours"), never the program-zone day an agent
+ * might repeat to a builder elsewhere; `deadline` stays ISO for the agent's own math. Pure; exported for tests.
+ */
+export const agentPrograms = (
+  programs: { id: string; title: string; summary: string; deadline: string; ends_at: Date | null; tag: string | null; verified_at: Date | null }[],
+  now: Date,
+) =>
+  programs.map((p) => {
+    const { summary, closes_in } = withClosesIn(p, now);
+    return { id: p.id, title: p.title, summary, deadline: p.deadline, closes_in, tag: p.tag, verified_at: p.verified_at?.toISOString().slice(0, 10) ?? null };
+  });
+
+/** v4.8.2 Task 3 (R4): get_program's closes_in from its deadline (ISO, or "rolling"); fix 1: null unless open (upcoming, closed). Pure. */
+const agentClosesIn = (p: { open: boolean; deadline: string }, now: Date) => (!p.open || p.deadline === 'rolling' ? null : hoursLeft(p.deadline, now));
 
 /** The agent tools (v2.10 item 4): the MCP server forwards each call here; each dispatches to `handlers`. */
 export const tools = {

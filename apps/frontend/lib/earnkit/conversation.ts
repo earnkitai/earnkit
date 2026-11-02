@@ -244,28 +244,41 @@ export function closeWords(endsAt: string, zone: string, now: Date): string {
  */
 /** The session key the money line is said under. */
 export const MONEY_SAID = 'money:total';
+/** v4.8.2 Task 2 (R3): the money line names programs closing this soon (under 48 hours, so hoursLeft always has words). */
+export const CLOSING_SOON_MS = 48 * 60 * 60_000;
+/** v4.8.2 Task 2 (R3): at most this many programs in the money line's "Closing soon". */
+export const CLOSING_SOON_MAX = 2;
+/** A program as the money line's "Closing soon" names it (bench-find.ts closingPrograms builds these from live cards). */
+export type ClosingProgram = Pick<MoveProgram, 'id' | 'title' | 'amount' | 'ends_at' | 'zone' | 'investment'>;
 /**
- * The investor program the money line names: open, not skipped (applied to, declined, parked), closing within
- * INVESTOR_WINDOW_MS, and never one in `led` (the program the reply is about, and a program the builder picked or is
- * past the hook on: the ruling's "led on"); the soonest first. Null with none. Pure.
+ * v4.8.2 Task 2 (R3): the programs the money line's "Closing soon" names, any category: open, closing within
+ * CLOSING_SOON_MS, never in `skip` (applied to, declined, parked, drafted, entered or hidden: bench-find.ts pathSkip)
+ * and never in `led` (the program the reply is about, and a program the builder picked or is past the hook on: the
+ * v4.8.1 ruling's "led on"); soonest first, at most CLOSING_SOON_MAX. Unlisted and upcoming programs never reach it
+ * (bench-find.ts closingPrograms reads only open curated cards). One name is said once (the sooner). Pure.
  */
-export function moneyInvestor<P extends MoveProgram>(investors: readonly P[], now: Date, skip: ReadonlySet<string>, led: ReadonlySet<string | null>): P | null {
+export function closingSoon<P extends ClosingProgram>(programs: readonly P[], now: Date, skip: ReadonlySet<string>, led: ReadonlySet<string | null>): P[] {
   const t = now.getTime();
-  return investors
-    .filter((p) => p.investment && !skip.has(p.id) && !led.has(p.id) && closeAt(p) > t && closeAt(p) - t <= INVESTOR_WINDOW_MS)
-    .sort(byClose)[0] ?? null;
+  return programs
+    .filter((p) => !skip.has(p.id) && !led.has(p.id) && closeAt(p) > t && closeAt(p) - t < CLOSING_SOON_MS)
+    .sort(byClose)
+    // Two programs with one name (two rounds of "Arc Microgrants: ..."): only the sooner is named, never "Arc and Arc".
+    .filter((p, i, all) => all.findIndex((q) => programName(q.title) === programName(p.title)) === i)
+    .slice(0, CLOSING_SOON_MAX);
 }
+/** "Arc Microgrants (500 USDC × 8 grants, in 14 hours)", "a16z speedrun SR008 (investor program, up to $1M, in 19 hours)". Pure. */
+const closingName = (p: ClosingProgram, now: Date) =>
+  `${programName(p.title)} (${[p.investment ? 'investor program' : null, p.amount, closeWords(p.ends_at!, p.zone, now)].filter(Boolean).join(', ')})`;
 /**
- * "Open now: {total} in grants." and, with an investor program (moneyInvestor), " {Investor} (investor program,
- * {amount}) closes {closeWords}." `total` is moneyText(openMoneyNow(now, cards)), /api/stats' figure; null (0): no line.
- * Pure.
+ * "Open now: {total} in grants. Closing soon: {A} ({amount}, in N hours)[ and {B} (...)]." (v4.8.2 Task 2, R3; it
+ * replaced v4.8.1's one investor clause). `total` is moneyText(openMoneyNow(now, cards)), /api/stats' figure, null at 0
+ * (the first sentence left out); `closing` is closingSoon's list (none: the second sentence left out; a close already
+ * passed is dropped). Neither: no line. Pure.
  */
-export function moneyLine(total: string | null, investor: Pick<MoveProgram, 'title' | 'amount' | 'ends_at' | 'zone'> | null, now: Date): string | null {
-  if (!total) return null;
-  const inv = investor?.ends_at && Date.parse(investor.ends_at) > now.getTime()
-    ? ` ${programName(investor.title)} (investor program${investor.amount ? `, ${investor.amount}` : ''}) closes ${closeWords(investor.ends_at, investor.zone, now)}.`
-    : '';
-  return `Open now: ${total} in grants.${inv}`;
+export function moneyLine(total: string | null, closing: readonly ClosingProgram[], now: Date): string | null {
+  const names = closing.filter((p) => p.ends_at && Date.parse(p.ends_at) > now.getTime()).map((p) => closingName(p, now));
+  const parts = [total ? `Open now: ${total} in grants.` : null, names.length > 0 ? `Closing soon: ${names.join(' and ')}.` : null];
+  return parts.filter(Boolean).join(' ') || null;
 }
 /** Words a period ends without ending the sentence ("e.g.", "U.S."). */
 const NO_END = /(?:^|\s)(?:e\.g|i\.e|vs|etc|Mr|Mrs|Ms|Dr|St|Inc|Ltd|[A-Z](?:\.[A-Z])*)\.$/;
@@ -363,15 +376,12 @@ export type PathCtx = {
 };
 
 /*
- * v4.8.1 Task 3 (R4): the pointer, the same step pointed back to within a session. The first time it says why the
- * program is still the move; the second time it is short and offers the way out (a no parks the program and the path
- * moves on, the existing no handling); from the third, the gate's repeat rule forbids the short line again, so it is the
- * quiet reply's MORE_ASK (bench-reply.ts), stored as the 'more' ask (pointerReply's `more`), so "more" or a yes is the
- * programs answer and never the program's own step.
+ * v4.8.1 Task 3 (R4), v4.8.2 Task 1 (R1): the pointer, the same step pointed back to within a session. The first time it
+ * says why the program is still the move; from the second, it is the quiet reply's MORE_ASK (bench-reply.ts), stored as
+ * the 'more' ask (pointerReply's `more`), so "more" or a yes is the programs answer and never the program's own step. A
+ * no to the first pointer parks the program through the existing no handling (its stored ask's no).
  */
-/** The short pointer's easy reply: a no parks the program (its stored ask's no) and the path moves on. */
-export const POINT_NEXT = `Reply "no" and I'll line up the next program.`;
-/** The third and later pointers' easy reply: bench-reply.ts MORE_ASK, "more" is the programs answer. */
+/** The second and later pointers' easy reply: bench-reply.ts MORE_ASK, "more" is the programs answer. */
 export const POINT_MORE = MORE_ASK;
 /** Fix round 1 (minor 1): the submit stage's own ask on a pointer. */
 export const SENT_SHORT = `Reply "sent" once it's in.`;
@@ -402,21 +412,21 @@ export function pointerWhy(p: PointerFacts, now: Date): string | null {
 }
 /**
  * The pointer and the session parts it says (markSaid). First (`point:{id}` not said): "{Program} is still your best
- * move: {money}, {why}. {ask}" (an unknown amount or reason is left out with its comma). Second (`point2:{id}` not said):
- * "Still {Program}. Reply "no" and I'll line up the next program." Third and later: POINT_MORE, `more` set (the
- * caller stores the 'more' ask). `ready`: the reason is "your draft is ready" (its ask is readyAsk). Pure.
+ * move: {money}, {why}. {ask}" (an unknown amount or reason is left out with its comma). Second and later: POINT_MORE,
+ * `more` set (the caller stores the 'more' ask), said as `more:{id}`. `ready`: the reason is "your draft is ready" (its
+ * ask is readyAsk). v4.8.2 final fix (F1): `again`, the "more" line was said already this session (the caller's agent
+ * note then tells the agent to wait for the builder: bench-reply.ts WAIT_NOTE). Pure.
  */
-export type Pointer = { text: string; said: string[]; more: boolean; ready: boolean };
+export type Pointer = { text: string; said: string[]; more: boolean; ready: boolean; again: boolean };
 export function pointerReply(p: PointerFacts, ask: string, said: ReadonlySet<string>, now: Date): Pointer {
   const name = programName(p.title);
   if (!said.has(`point:${p.id}`)) {
     const why = pointerWhy(p, now);
     const ready = why === 'your draft is ready';
     const facts = [p.amount, why].filter((x): x is string => Boolean(x));
-    return { text: `${name} is still your best move${facts.length > 0 ? `: ${facts.join(', ')}` : ''}. ${ready && p.readyAsk ? p.readyAsk : ask}`, said: [`point:${p.id}`], more: false, ready };
+    return { text: `${name} is still your best move${facts.length > 0 ? `: ${facts.join(', ')}` : ''}. ${ready && p.readyAsk ? p.readyAsk : ask}`, said: [`point:${p.id}`], more: false, ready, again: false };
   }
-  if (!said.has(`point2:${p.id}`)) return { text: `Still ${name}. ${POINT_NEXT}`, said: [`point2:${p.id}`], more: false, ready: false };
-  return { text: POINT_MORE, said: [], more: true, ready: false };
+  return { text: POINT_MORE, said: [`more:${p.id}`], more: true, ready: false, again: said.has(`more:${p.id}`) };
 }
 /** Fix round 2 (F10): a local agent's offer for a grant whose one gap is Builder Codes (target A). */
 /** v4.8.1 final fix (R-2): it names its step, so it reads right after the money line or alone in a pointer. */
@@ -429,7 +439,7 @@ export type PathReply = {
   /** The easy reply it ends with. */
   reply: 'start' | 'steps' | 'go';
   /** v4.8.1 Task 3 fix round 1: a pointer's MORE_ASK (stored as the 'more' ask) or "your draft is ready" (its own ask). */
-  pointer?: { more: boolean; ready: boolean };
+  pointer?: { more: boolean; ready: boolean; again: boolean };
 };
 
 /**
@@ -457,7 +467,7 @@ export function pathReply(c: PathCtx): PathReply {
       // v4.8.1 Task 3 (R4): the same step pointed back to says why once, then is short, never the same line twice.
       const gaps = m.kind === 'one_step' || m.kind === 'closest' ? (p as GapGrant).gaps.length : 0;
       const pt = pointerReply({ ...p, gaps, stage: c.stage ?? null, drafted: c.drafted === true, readyAsk: c.readyAsk ?? null }, ask, c.said, c.now);
-      return { stage: 'hook', program_id: p.id, show_to_builder: pt.text, said: pt.said, reply, pointer: { more: pt.more, ready: pt.ready } };
+      return { stage: 'hook', program_id: p.id, show_to_builder: pt.text, said: pt.said, reply, pointer: { more: pt.more, ready: pt.ready, again: pt.again } };
     }
     const point = reply === 'start' ? `Your ${name} application is the next move.` : reply === 'go' ? `${name} is one step away.` : `${name} is your closest money.`;
     return { stage: 'hook', program_id: p.id, show_to_builder: `${point} ${ask}`, said: [hookKey, `money:${p.id}`], reply };
@@ -477,7 +487,7 @@ export function pathReply(c: PathCtx): PathReply {
     const pays = p.amount ? (m.kind === 'closest' ? `: ${p.amount}` : ` pays ${p.amount}`) : m.kind === 'closest' ? '' : ' is open';
     money = `${head}${pays}${closes ? `, closing ${closes}` : ''}. ${g.gap}`;
     // Task 3: a passed step raised (its one gap, once: path_raised) says so, once (target A).
-    if (m.kind === 'closest' && m.raise) money += ` ${passedLine(g.passedAt ?? null, c.now, g.gaps.length === 1 && g.gaps[0] === 'codes')}`;
+    if (m.kind === 'closest' && m.raise) money += ` ${passedLine(g.gaps.length === 1 && g.gaps[0] === 'codes')}`;
   }
   const first = [money, proof].filter(Boolean).join(' ');
   const second = reply === 'start' ? draftOffer(c.project.live) : ask;
@@ -750,21 +760,12 @@ export function trackLead(odds: string | null, next: boolean): string {
 const daysAgo = (at: string, now: Date) => Math.round((Date.parse(now.toISOString().slice(0, 10)) - Date.parse(new Date(at).toISOString().slice(0, 10))) / 86_400_000);
 const weekday = (at: string) => new Date(at).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
 const monthDay = (at: string) => new Date(at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-/** "earlier today", "yesterday", "on Tuesday" (within a week), "last week", "on Oct 3" (UTC days). Pure. */
-export function agoWords(at: string, now: Date): string {
-  const days = daysAgo(at, now);
-  if (days <= 0) return 'earlier today';
-  if (days === 1) return 'yesterday';
-  if (days < 7) return `on ${weekday(at)}`;
-  if (days < 14) return 'last week';
-  return `on ${monthDay(at)}`;
-}
 /**
- * The passed-step line (target A, said once: bestMove raises a passed step once, standing_seen.path_raised): "You
- * passed on it {when}, but it's now the only gap to that money." (`them`: Builder Codes, "You passed on them ... they're"). Pure.
+ * The passed-step line (target A, said once: bestMove raises a passed step once, standing_seen.path_raised): "It's now the
+ * only gap to that money." (`codes`: the one gap is Builder Codes, "That's now ...", v4.8.2 final fix F5).
+ * v4.8.2 Task 1 (R2): it never says when or that the builder passed (no guilt). Pure.
  */
-export const passedLine = (at: string | null, now: Date, them = false) =>
-  `You passed on ${them ? 'them' : 'it'}${at ? ` ${agoWords(at, now)}` : ''}, but ${them ? "they're" : "it's"} now the only gap to that money.`;
+export const passedLine = (codes = false) => (codes ? "That's now the only gap to that money." : "It's now the only gap to that money.");
 
 /** "Since earlier today", "Since yesterday", "Since Thursday" (within a week), else "Since Oct 24" (UTC days). Pure. */
 export function sinceDay(at: string, now: Date): string {

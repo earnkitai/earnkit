@@ -1,6 +1,6 @@
 import { payoutBy, prizeUsdEach, usd, type CampaignConfig } from './campaigns';
 import { shortDate } from './dates';
-import { closeDay, programZone, zoneAbbr, zoneParts } from './deadline';
+import { closeDay, hoursLeft, programZone, zoneAbbr, zoneParts } from './deadline';
 
 /** EarnKit's public origin for links in builder text. */
 export const siteUrl = () => (process.env.EARNKIT_URL ?? 'https://earnkit.com').replace(/\/$/, '');
@@ -90,6 +90,51 @@ export function endsOf(c: { summary: string; tz?: string | null; ends_at?: Date 
   if (c.summary.split(' · ').slice(1).includes('rolling')) return 'rolling';
   return c.ends_at ? deadlineLabel(c.ends_at, programZone(c)) : 'rolling';
 }
+
+/**
+ * v4.8.2 Task 3 (R4): a program's `closes_in` for an agent: the time left as hoursLeft says it ("in 14 hours", "in
+ * under an hour") under 48 hours; null 48 hours or more out, already passed, rolling or without ends_at. The same in
+ * every zone, so an agent never repeats a program-zone day to a builder elsewhere. Pure.
+ */
+export function closesIn(c: { summary: string; ends_at?: Date | string | null }, now: Date): string | null {
+  if (!c.ends_at || c.summary.split(' · ').slice(1).includes('rolling')) return null;
+  return hoursLeft(new Date(c.ends_at).toISOString(), now);
+}
+
+/** v4.8.2 final fix (F2): a month and day in a summary part ("Nov 18", "Nov 7, 9:00 AM IST" from its month on). */
+const DATED = /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{1,2}\b/;
+/**
+ * v4.8.2 Task 3 (R4): the summary an agent gets: with a `closes_in`, its close part (a part after " · " that starts
+ * with "closes") reads "closes {closes_in}" ("500 USDC × 8 grants · closes in 14 hours"); else the summary as is.
+ * v4.8.2 final fix (F2): any other part after the prize with a month and day keeps its own words before the date, the
+ * date (and what follows it) becoming the hours left: "regular deadline Nov 18" reads "regular deadline in 30 hours",
+ * "submit by Nov 7, 9:00 AM IST" reads "submit in 30 hours" (a trailing "by" or "on" dropped), a bare date "closes in
+ * 30 hours". Pure.
+ */
+export function summaryIn(summary: string, left: string | null): string {
+  if (!left) return summary;
+  const [prize, ...parts] = summary.split(' · ');
+  return [prize, ...parts.map((p) => {
+    if (/^closes\b/.test(p.trim())) return `closes ${left}`;
+    const at = p.search(DATED);
+    if (at < 0) return p;
+    const words = p.slice(0, at).replace(/[\s:,]+$/, '').replace(/\s*\b(?:by|on)$/i, '').trim();
+    return `${words || 'closes'} ${left}`;
+  })].join(' · ');
+}
+
+/**
+ * v4.8.2 Task 3 (R4): a program object as an agent gets it: `closes_in` added and the summary's close part in hours
+ * under 48 hours; `deadline` (ISO) and every other field unchanged. Pure.
+ */
+export function withClosesIn<T extends { summary: string; ends_at?: Date | string | null }>(p: T, now: Date): T & { closes_in: string | null } {
+  const left = closesIn(p, now);
+  return { ...p, summary: summaryIn(p.summary, left), closes_in: left };
+}
+
+/** v4.8.2 Task 3 (R4): an "Ends" table cell: with `now`, the hours left under 48 hours ("in 14 hours"), else endsOf. Pure. */
+export const endsCell = (c: { summary: string; tz?: string | null; ends_at?: Date | null }, now?: Date) =>
+  (now && closesIn(c, now)) || endsOf(c);
 
 /**
  * The last day of an exclusive end, in UTC: an end at 00:00 UTC is the day before ("Oct 31" for

@@ -2,7 +2,7 @@ import './fixtures/no-network-checks';
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CODES_OFFER, MONEY_SAID, POINT_MORE, gapStillReply, POINT_NEXT, SESSION_MS, bestMove, blanksAsk, closeWords, fitCell, pathReply, pointerReply, moneyInvestor, moneyLine, pickHook, submitBy, submitNoRush, submitPointer, withMoneyLine,
+  CODES_OFFER, MONEY_SAID, POINT_MORE, gapStillReply, SESSION_MS, bestMove, blanksAsk, closeWords, fitCell, pathReply, pointerReply, closingSoon, moneyLine, pickHook, submitBy, submitNoRush, submitPointer, withMoneyLine,
   type GapGrant, type InvestorProgram, type MoveCtx, type MoveProgram,
 } from './conversation';
 import { sql } from './db';
@@ -162,26 +162,25 @@ test("v4.8.1 R2: submitBy says the program-zone day and time, and the hours left
   assert.equal(submitNoRush({ ...pr, ends_at: inHours(5 * 24) }, NOW), 'No rush, it stays ready until Nov 6. Reply "sent" once it\'s in.');
 });
 
-test('v4.8.1 R3: the money line, its investor clause and its place', () => {
-  assert.equal(moneyLine('$115K', null, NOW), 'Open now: $115K in grants.');
-  assert.equal(moneyLine('$115K', A16Z, NOW), 'Open now: $115K in grants. a16z speedrun SR008 (investor program, up to $1M) closes in 20 hours.');
-  assert.equal(moneyLine('$115K', { ...A16Z, amount: null }, NOW), 'Open now: $115K in grants. a16z speedrun SR008 (investor program) closes in 20 hours.');
-  // A total of 0 (moneyText null): no line.
-  assert.equal(moneyLine(null, A16Z, NOW), null);
+test('v4.8.1 R3: the money line, its closing clause and its place', () => {
+  // v4.8.2 Task 2: the investor clause became "Closing soon" (any category, within 48 hours, at most 2).
+  assert.equal(moneyLine('$115K', [], NOW), 'Open now: $115K in grants.');
+  assert.equal(moneyLine('$115K', [A16Z], NOW), 'Open now: $115K in grants. Closing soon: a16z speedrun SR008 (investor program, up to $1M, in 20 hours).');
+  assert.equal(moneyLine('$115K', [{ ...A16Z, amount: null }], NOW), 'Open now: $115K in grants. Closing soon: a16z speedrun SR008 (investor program, in 20 hours).');
+  // A total of 0 (moneyText null): the closing sentence only; with nothing closing, no line.
+  assert.equal(moneyLine(null, [A16Z], NOW), 'Closing soon: a16z speedrun SR008 (investor program, up to $1M, in 20 hours).');
+  assert.equal(moneyLine(null, [], NOW), null);
   // Fix round 1 (F5): a close already passed: no clause.
-  assert.equal(moneyLine('$115K', { ...A16Z, ends_at: inHours(-1) }, NOW), 'Open now: $115K in grants.');
-  // The investor: soonest first, within INVESTOR_WINDOW_MS, never skipped, never the program the reply or path is on.
-  const later = { ...A16Z, id: 'later', ends_at: inHours(100) };
-  const far = { ...A16Z, id: 'far', ends_at: inHours(24 * 8) };
+  assert.equal(moneyLine('$115K', [{ ...A16Z, ends_at: inHours(-1) }], NOW), 'Open now: $115K in grants.');
+  // Soonest first, within CLOSING_SOON_MS (48 hours), never skipped, never the program the reply or path is on.
+  const later = { ...A16Z, id: 'later', title: 'Later Runway', ends_at: inHours(40) };
+  const far = { ...A16Z, id: 'far', ends_at: inHours(50) };
   const none = new Set<string | null>();
-  assert.equal(moneyInvestor([later, A16Z, far], NOW, new Set(), none), A16Z);
-  assert.equal(moneyInvestor([later, A16Z, far], NOW, new Set([A16Z.id]), none), later);
-  assert.equal(moneyInvestor([later, A16Z, far], NOW, new Set(), new Set([A16Z.id, null])), later);
-  assert.equal(moneyInvestor([far], NOW, new Set(), none), null);
-  assert.equal(moneyInvestor([{ ...A16Z, ends_at: inHours(-1) }], NOW, new Set(), none), null);
-  // Its own paragraph just before the last one.
-  assert.equal(withMoneyLine('Hook.\n\nWant the steps?', 'Open now: $1K in grants.'), 'Hook.\n\nOpen now: $1K in grants.\n\nWant the steps?');
-  assert.equal(withMoneyLine('Since Thursday: x.\n\nHook.\n\nGo?', 'M.'), 'Since Thursday: x.\n\nHook.\n\nM.\n\nGo?');
+  assert.deepEqual(closingSoon([later, A16Z, far], NOW, new Set(), none), [A16Z, later]);
+  assert.deepEqual(closingSoon([later, A16Z, far], NOW, new Set([A16Z.id]), none), [later]);
+  assert.deepEqual(closingSoon([later, A16Z, far], NOW, new Set(), new Set([A16Z.id, null])), [later]);
+  assert.deepEqual(closingSoon([far], NOW, new Set(), none), []);
+  assert.deepEqual(closingSoon([{ ...A16Z, ends_at: inHours(-1) }], NOW, new Set(), none), []);
   // Fix round 1 (ruling a): never above the greeting; a one-paragraph reply is split before its easy reply.
   assert.equal(withMoneyLine('Base is still your closest money. Want the steps?', 'M.'), 'Base is still your closest money.\n\nM.\n\nWant the steps?');
   const guide = "Jenil, Base Builder Grant pays up to $5,000. Add Base's Builder Code. Guide: https://docs.base.org/base-chain/builder-codes/builder-codes You're live on Base. Want me to do it now?";
@@ -195,7 +194,7 @@ test('v4.8.1 R3: the money line, its investor clause and its place', () => {
   // One sentence: the line first.
   assert.equal(withMoneyLine('Want me to start?', 'M.'), 'M.\n\nWant me to start?');
   assert.equal(withMoneyLine('Hook.', null), 'Hook.');
-  assert.doesNotMatch(moneyLine('$115K', A16Z, NOW)!, BAD);
+  assert.doesNotMatch(moneyLine('$115K', [A16Z], NOW)!, BAD);
 });
 
 appEnv();
@@ -262,7 +261,7 @@ test('v4.8.1 R3: the first find of a session says "Open now: $" once, just befor
   assert.equal(count(first.show), 1, t);
   const ps = first.show.split('\n\n');
   assert.ok(ps.length >= 2, t);
-  assert.match(ps.at(-2)!, /^Open now: \$[\d.,]+[KM]?\+? in grants\.( .+ \(investor program(, [^)]+)?\) closes .+\.)?$/, t);
+  assert.match(ps.at(-2)!, /^Open now: \$[\d.,]+[KM]?\+? in grants\.( Closing soon: [^()]+ \([^)]*in (\d+ hours?|under an hour)\)( and [^()]+ \([^)]*in (\d+ hours?|under an hour)\))?\.)?$/, t);
   assert.ok(first.said.includes(MONEY_SAID), t);
   assert.equal(count(second.show), 0, t);
   assert.equal(count(fresh.show), 1, t);
@@ -316,7 +315,8 @@ test("v4.8.1 fix round 1 (F6): the investor clause names a controlled investor p
   await open();
   const [hook] = await converse(b.ctx as never, [{ find: {} }], { builderId: b.id });
   assert.doesNotMatch(hook.show.split('\n\n')[0], new RegExp(title), hook.show);
-  assert.equal(moneyPara(hook.show)?.replace(/^Open now: \S+ in grants\. /, ''), `${title} (investor program, up to $1M) closes in 1 hour.`, hook.show);
+  // v4.8.2 Task 2: the copy closes soonest, so "Closing soon" names it first (a second program may follow).
+  assert.ok(moneyPara(hook.show)?.replace(/^Open now: \S+ in grants\. /, '').startsWith(`Closing soon: ${title} (investor program, up to $1M, in 1 hour)`), hook.show);
   // The builder picked the copy: the reply is about it, so the clause never names it.
   const p = await ownerDb('ivp', { pick: id });
   await open();
@@ -337,7 +337,7 @@ const facts = (o: Partial<Parameters<typeof pointerReply>[0]> = {}): Parameters<
 
 test('v4.8.1 R4: the first pointer says the money and why, then the stage\'s own easy reply', () => {
   const none = new Set<string>();
-  assert.deepEqual(pointerReply(facts(), 'Go?', none, NOW), { text: 'Base Builder Grant is still your best move: up to $5,000, one step away. Go?', said: [`point:${BASE.id}`], more: false, ready: false });
+  assert.deepEqual(pointerReply(facts(), 'Go?', none, NOW), { text: 'Base Builder Grant is still your best move: up to $5,000, one step away. Go?', said: [`point:${BASE.id}`], more: false, ready: false, again: false });
   assert.equal(pointerReply(facts({ gaps: 3 }), 'Want the steps?', none, NOW).text, 'Base Builder Grant is still your best move: up to $5,000, 3 steps away. Want the steps?');
   // The draft stage, drafted: "your draft is ready" (ahead of a close), then the stage's own ask (fix round 1, minor 1:
   // the blanks ask for a draft, "sent" at submit), never "Want me to start?".
@@ -357,13 +357,11 @@ test('v4.8.1 R4: the first pointer says the money and why, then the stage\'s own
   assert.equal(pointerReply(facts({ amount: null, gaps: 0 }), 'Go?', none, NOW).text, 'Base Builder Grant is still your best move. Go?');
 });
 
-test('v4.8.1 R4: the second pointer is short with the way out; the third and later offer every program', () => {
-  const once = new Set([`point:${BASE.id}`]);
-  assert.deepEqual(pointerReply(facts(), 'Go?', once, NOW), { text: `Still Base Builder Grant. ${POINT_NEXT}`, said: [`point2:${BASE.id}`], more: false, ready: false });
-  assert.equal(POINT_NEXT, `Reply "no" and I'll line up the next program.`);
-  const twice = new Set([...once, `point2:${BASE.id}`]);
-  // Fix round 1 (important 2): the third is the quiet reply's MORE_ASK, flagged so the caller stores the 'more' ask.
-  assert.deepEqual(pointerReply(facts(), 'Go?', twice, NOW), { text: POINT_MORE, said: [], more: true, ready: false });
+test('v4.8.1 R4 (v4.8.2 R1): the second and later pointers offer every program', () => {
+  const twice = new Set([`point:${BASE.id}`]);
+  // Fix round 1 (important 2), v4.8.2 R1: the second is the quiet reply's MORE_ASK (no short "Reply no" pointer),
+  // flagged so the caller stores the 'more' ask.
+  assert.deepEqual(pointerReply(facts(), 'Go?', twice, NOW), { text: POINT_MORE, said: [`more:${BASE.id}`], more: true, ready: false, again: false });
   assert.equal(POINT_MORE, MORE_ASK);
   assert.equal(POINT_MORE, 'Reply "more" and I\'ll show every program open now.');
   // Keyed per program: another program's pointer starts at its first.
@@ -373,45 +371,43 @@ test('v4.8.1 R4: the second pointer is short with the way out; the third and lat
   const r = pathReply({ now: NOW, first: null, project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'one_step', program: BASE }, said });
   assert.equal(r.show_to_builder, 'Base Builder Grant is still your best move: up to $5,000, one step away. I can add Builder Codes and push the change, about 10 minutes. Go?');
   assert.deepEqual(r.said, [`point:${BASE.id}`]);
-  for (const t of [r.show_to_builder, POINT_NEXT, POINT_MORE]) assert.doesNotMatch(t, BAD);
+  for (const t of [r.show_to_builder, POINT_MORE]) assert.doesNotMatch(t, BAD);
 });
 
 test('v4.8.1 R5: a chain gap says what the program looks for', () => {
   assert.equal(fitCell(false, { kind: 'chain', chain: 'Arc' }), 'Not yet: they look for apps on Arc');
 });
 
-test('v4.8.1 R4: five plain finds on the owner\'s shape: the hook, the pointer with its reason, the short pointer, then "more"; the gate passes', db, async () => {
-  // The owner fixture (Builder Codes passed on today): the hook raises Base once with "You passed on them".
+test('v4.8.1 R4 (v4.8.2 R1): five plain finds on the owner\'s shape: the hook, the pointer with its reason, then "more"; the gate passes', db, async () => {
+  // The owner fixture (Builder Codes passed on today): the hook raises Base once with "Builder Codes are now the only gap".
   const b = await ownerDb('pt5');
   const replies = await converse(b.ctx as never, Array.from({ length: 5 }, () => ({ find: {} })), { builderId: b.id });
   const t = transcript(replies);
   assert.equal(replies.length, 5, t);
-  assert.match(replies[0].show, /You passed on them earlier today/, t);
+  assert.match(replies[0].show, /That's now the only gap to that money/, t);
   assert.ok(replies[0].hook, t);
   assert.equal(replies[1].show, 'Base Builder Grant is still your best move: up to $5,000, one step away. I can add Builder Codes and push the change, about 10 minutes. Go?', t);
-  assert.equal(replies[2].show, `Still Base Builder Grant. ${POINT_NEXT}`, t);
-  assert.equal(replies[3].show, POINT_MORE, t);
-  // The brief's "third and later showings": the fifth is the "more" line again (its one easy reply, which the gate lets
-  // repeat); the first four are all different.
-  assert.equal(replies[4].show, POINT_MORE, t);
-  assert.equal(new Set(replies.slice(0, 4).map((r) => r.show)).size, 4, t);
-  // Only the hook raised the passed step (no second "You passed on them").
-  assert.equal(replies.filter((r) => /You passed on them/.test(r.show)).length, 1, t);
+  // v4.8.2 R1: the third and later are the "more" line (its one easy reply, which the gate lets repeat); the first
+  // three are all different.
+  for (const r of replies.slice(2)) assert.equal(r.show, POINT_MORE, t);
+  assert.equal(new Set(replies.slice(0, 3).map((r) => r.show)).size, 3, t);
+  // Only the hook raised the passed step.
+  assert.equal(replies.filter((r) => /now the only gap to that money/.test(r.show)).length, 1, t);
   // Fix round 1 (important 2): the "more" pointer asks 'more', never the program's own step.
-  for (const r of replies.slice(3)) assert.equal((r.reply?.move_up as { kind: string }).kind, 'more', t);
+  for (const r of replies.slice(2)) assert.equal((r.reply?.move_up as { kind: string }).kind, 'more', t);
   assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), [], t);
   for (const r of replies) assert.doesNotMatch(r.show, BAD, t);
 });
 
-test('v4.8.1 R4: a no after the short pointer parks the program and the path moves to the next one', db, async () => {
+test('v4.8.1 R4 (v4.8.2 R1): a no after the reasoned pointer parks the program and the path moves to the next one', db, async () => {
   const b = await ownerDb('ptn');
   const replies = await converse(b.ctx as never, [
-    { find: {} }, { find: {} }, { find: {} },
+    { find: {} }, { find: {} },
     { says: 'no', tell: { move_up: { kind: 'qualify', project_key: b.key, answer: 'no' } } },
     { find: {} },
   ], { builderId: b.id });
   const t = transcript(replies);
-  assert.equal(replies[2].show, `Still Base Builder Grant. ${POINT_NEXT}`, t);
+  assert.match(replies[1].show, /^Base Builder Grant is still your best move/, t);
   const next = replies.at(-1)!;
   assert.ok(next.show.trim(), t);
   assert.doesNotMatch(next.show, /Base Builder Grant/, t);
@@ -425,20 +421,20 @@ test('v4.8.1 R4: a no after the short pointer parks the program and the path mov
 test('v4.8.1 fix round 1: "more" (or a yes) after the "more" pointer is the program list, never Builder Codes', db, async () => {
   const b = await ownerDb('ptm');
   const replies = await converse(b.ctx as never, [
-    { find: {} }, { find: {} }, { find: {} }, { find: {} },
+    { find: {} }, { find: {} }, { find: {} },
     { says: 'more', tell: { move_up: { kind: 'more', project_key: b.key, answer: 'yes' } } },
   ], { builderId: b.id });
   const t = transcript(replies);
-  assert.equal(replies[3].show, POINT_MORE, t);
-  assert.match(String((replies[3].reply?.move_up as { agent_note?: string }).agent_note), /call find with ask: 'programs'/, t);
-  const list = replies[4].show;
+  assert.equal(replies[2].show, POINT_MORE, t);
+  assert.match(String((replies[2].reply?.move_up as { agent_note?: string }).agent_note), /call find with ask: 'programs'/, t);
+  const list = replies[3].show;
   assert.match(list, /^Grants open now:/, t);
   assert.match(list, /Base Builder Grant/, t);
   assert.doesNotMatch(list, /I can add Builder Codes|push the change/, t);
-  assert.notEqual((replies[4].reply?.move_up as { kind?: string } | undefined)?.kind, 'qualify', t);
+  assert.notEqual((replies[3].reply?.move_up as { kind?: string } | undefined)?.kind, 'qualify', t);
   // The list answers "more", so its step is never "more" again: a program's name is the one easy reply.
   assert.ok(list.endsWith(`\n\n${NAME_ASK}`), t);
-  assert.equal((replies[4].reply?.move_up as { kind?: string } | undefined)?.kind, 'name', t);
+  assert.equal((replies[3].reply?.move_up as { kind?: string } | undefined)?.kind, 'name', t);
   // Nothing ran Base's step: no Builder Codes push asked or stored.
   const [row] = await sql()<{ a: { kind?: string; gap?: boolean } | null }[]>`SELECT standing_seen->'bench_ask' AS a FROM builder_profiles WHERE builder_id = ${b.id}`;
   assert.notEqual(row.a?.gap, true, JSON.stringify(row.a));
@@ -449,7 +445,7 @@ test('v4.8.1 fix round 1: "more" (or a yes) after the "more" pointer is the prog
   for (const r of replies) assert.doesNotMatch(r.show, BAD, t);
 });
 
-test('v4.8.1 fix round 1 (minor 4): the closed gap\'s draft offer again is the shared pointer, then short, then "more"', db, async () => {
+test('v4.8.1 fix round 1 (minor 4): the closed gap\'s draft offer again is the shared pointer, then "more"', db, async () => {
   const b = await ownerDb('pcl');
   // Base's steps not passed on here, so the hook offers the Builder Codes step; the agent adds them (the fake GitHub).
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'declined' WHERE builder_id = ${b.id}`;
@@ -460,15 +456,14 @@ test('v4.8.1 fix round 1 (minor 4): the closed gap\'s draft offer again is the s
   const replies = await converse(b.ctx as never, [
     { find: {} },
     { says: 'go', before: addCodes, tell: { move_up: { kind: 'qualify', project_key: b.key, answer: 'yes' } } },
-    { find: {} }, { find: {} }, { find: {} }, { find: {} },
+    { find: {} }, { find: {} }, { find: {} },
   ], { builderId: b.id });
   const t = transcript(replies);
   const closed = replies.findIndex((r) => r.show.includes('Builder Codes are in.'));
   assert.ok(closed >= 0, t);
-  const [again, short, more] = replies.slice(closed + 1);
+  const [again, more] = replies.slice(closed + 1);
   assert.equal(again.show, 'Base Builder Grant is still your best move: up to $5,000. Want me to start?', t);
   assert.equal((again.reply?.move_up as { kind: string }).kind, 'apply', t);
-  assert.equal(short.show, `Still Base Builder Grant. ${POINT_NEXT}`, t);
   assert.equal(more.show, POINT_MORE, t);
   assert.equal((more.reply?.move_up as { kind: string }).kind, 'more', t);
   assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), [], t);
@@ -606,7 +601,8 @@ test("v4.8.1 final fix (R-4): an unpicked hook left on an investor program doesn
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('path', jsonb_build_object('stage', 'hook', 'program_id', ${id}::text, 'at', now()::text)) WHERE builder_id = ${b.id}`;
   const [r] = await converse(b.ctx as never, [{ find: {} }], { builderId: b.id });
   assert.match(r.show.split('\n\n')[0], /^Jenil, [^\n]*Base Builder Grant/, r.show);
-  assert.equal(moneyPara(r.show)?.replace(/^Open now: \S+ in grants\. /, ''), `${title} (investor program, up to $1M) closes in 1 hour.`, r.show);
+  // v4.8.2 Task 2: the copy closes soonest, so "Closing soon" names it first (a second program may follow).
+  assert.ok(moneyPara(r.show)?.replace(/^Open now: \S+ in grants\. /, '').startsWith(`Closing soon: ${title} (investor program, up to $1M, in 1 hour)`), r.show);
   // Picked, it is the reply's own program, so the clause never names it.
   const p = await ownerDb('r4p', { pick: id });
   await open();
