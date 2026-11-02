@@ -180,22 +180,27 @@ async function listed(db: Db, w: WriteRow): Promise<Listed | null> {
  * fix) does not: reverting `writeId` undoes it too. null: still revertable.
  */
 async function supersededBy(db: Db, programId: string, writeId: string): Promise<'listed' | 'other' | null> {
+  // Fix round 2: bounded; more later writes than DIGEST_SCAN_MAX counts as superseded (the revert is refused plainly).
   const later = await db<WriteRow[]>`
     SELECT id, at, program_id, action, result, body FROM program_writes
     WHERE program_id = ${programId} AND id > ${writeId}
       AND (${changeSql(db)} OR action IN ('revert', 'takeover'))
-    ORDER BY id`;
+    ORDER BY id LIMIT ${DIGEST_SCAN_MAX + 1}`;
+  if (later.length > DIGEST_SCAN_MAX) return 'other';
   for (const w of later) {
     if (w.action === 'revert' || w.action === 'takeover') return 'other';
-    if (w.action === 'close' || (await listed(db, w))) return 'listed';
+    // Fix round 2: a later close supersedes only when it would itself be listed (the program was live then).
+    if (await listed(db, w)) return 'listed';
   }
   return null;
 }
 
-/** The later unlisted edits a revert of `writeId` also undoes (only called when it isn't superseded). */
-const laterEdits = async (db: Db, programId: string, writeId: string) =>
-  (await db`SELECT 1 FROM program_writes WHERE program_id = ${programId} AND id > ${writeId} AND action = 'upsert' AND result IN ('created', 'updated')`)
-    .length;
+/** The later unlisted edits and closes a revert of `writeId` also undoes (only called when it isn't superseded). */
+const laterEdits = async (db: Db, programId: string, writeId: string) => {
+  const [r] = await db<{ n: number }[]>`
+    SELECT COUNT(*)::int AS n FROM program_writes WHERE program_id = ${programId} AND id > ${writeId} AND ${changeSql(db)}`;
+  return r?.n ?? 0;
+};
 
 const revertedBy = async (db: Db, programId: string, writeId: string) =>
   (await db`SELECT 1 FROM program_writes WHERE program_id = ${programId} AND action = 'revert' AND reason = ${`reverted write ${writeId}`} LIMIT 1`)
@@ -248,27 +253,34 @@ export async function revertDigest(now: Date, mailer?: Mailer): Promise<DigestOu
   const since = new Date(now.getTime() - (lastId ? REVERT_TTL_DAYS : 1) * DAY_MS);
   const changes: Change[] = [];
   let cursor = lastId;
+  let scan = lastId;
   let read = 0;
   let more = false;
-  while (changes.length < DIGEST_MAX) {
-    if (read >= DIGEST_SCAN_MAX) {
-      more = true;
-      break;
-    }
+  // Fix round 2: past the DIGEST_MAX-th change (or the read cap) the scan goes on only to learn whether a listable
+  // change remains ("More changes came in"), up to DIGEST_SCAN_MAX rows more; the cursor stays where the mail stops.
+  let peeked = 0;
+  scanning: for (;;) {
+    const full = changes.length >= DIGEST_MAX || read >= DIGEST_SCAN_MAX;
+    if (full && peeked >= DIGEST_SCAN_MAX) break;
     const rows = await sql()<WriteRow[]>`
       SELECT id, at, program_id, action, result, body FROM program_writes
-      WHERE ${changeSql(sql())} AND program_id IS NOT NULL AND at > ${since} ${cursor ? sql()`AND id > ${cursor}` : sql()``}
-      ORDER BY id LIMIT ${Math.min(PAGE_ROWS, DIGEST_SCAN_MAX - read)}`;
+      WHERE ${changeSql(sql())} AND program_id IS NOT NULL AND at > ${since} ${scan ? sql()`AND id > ${scan}` : sql()``}
+      ORDER BY id LIMIT ${PAGE_ROWS}`;
     if (rows.length === 0) break;
     for (const w of rows) {
+      scan = w.id;
+      if (changes.length >= DIGEST_MAX || read >= DIGEST_SCAN_MAX) {
+        if (peeked++ >= DIGEST_SCAN_MAX) break scanning;
+        if (await listed(sql(), w)) {
+          more = true;
+          break scanning;
+        }
+        continue;
+      }
       read++;
       cursor = w.id;
       const l = await listed(sql(), w);
       if (l) changes.push({ writeId: w.id, line: l.line, kind: l.kind, superseded: await supersededBy(sql(), w.program_id, w.id) });
-      if (changes.length >= DIGEST_MAX) {
-        more = true;
-        break;
-      }
     }
   }
   if (changes.length === 0) {

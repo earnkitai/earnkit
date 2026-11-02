@@ -10,6 +10,8 @@ import { API_FIELDS, API_REQUIREMENT_FIELDS } from './api-program-text';
 import { approveTarget, approveToken } from './program-pending';
 import { programApprovePost } from './program-approve';
 import {
+  DIGEST_MAX,
+  DIGEST_SCAN_MAX,
   REVERT_DIGEST_SUBJECT,
   REVERT_TTL_DAYS,
   changeLine,
@@ -489,5 +491,65 @@ test('v4.10.2 T4 fix 1: a close (the close action or an upsert to closed) is lis
   mails.length = 0;
   await close(a);
   await close(a);
+  assert.deepEqual(await revertDigest(new Date(now.getTime() + DAY), mailer), { step: 'sent', changes: 1 });
+});
+
+// ---- fix round 2 ----
+
+/** A deadline `n` days after 2099-11-01 (each one a listable change). */
+const nth = (n: number) => new Date(Date.UTC(2099, 10, 1 + n, 23, 59, 59)).toISOString().replace('.000Z', 'Z');
+
+test('v4.10.2 T4 fix 2: more later writes than the scan bound counts as superseded (fail closed)', db, async () => {
+  await reset();
+  const id = `v4102-bound-${pid}`;
+  await send(apiProgram(id, { title: 'Bound Grant', ends_at: '2099-11-30T23:59:59Z' }));
+  await send(apiProgram(id, { title: 'Bound Grant', ends_at: '2099-12-15T23:59:59Z' }));
+  const w = (await writes(id)).at(-1)!;
+  const t = revertToken(w.id, revertExpiry(new Date()), AUTH);
+  assert.equal((await get(t)).status, 200, 'a few unlisted edits never block it');
+  const body = { ...w.body, title: 'Bound Grant, edited' };
+  await sql()`
+    INSERT INTO program_writes (program_id, action, result, body)
+    SELECT ${id}, 'upsert', 'updated', ${sql().json(body as never)} FROM generate_series(1, ${DIGEST_SCAN_MAX + 1})`;
+  const r = await post(t);
+  assert.equal(r.status, 409, r.text);
+  assert.ok(r.text.includes(REVERT_TEXT.superseded));
+  assert.equal((await row(id))?.ends_at?.toISOString(), '2099-12-15T23:59:59.000Z');
+});
+
+test('v4.10.2 T4 fix 2: a later close blocks a revert only when that close would be listed', db, async () => {
+  await reset();
+  const id = `v4102-lc-${pid}`;
+  await send(apiProgram(id, { title: 'Late Close', ends_at: '2099-11-30T23:59:59Z' }));
+  await send(apiProgram(id, { title: 'Late Close', ends_at: '2099-12-15T23:59:59Z' }));
+  const w = (await writes(id)).at(-1)!;
+  // A close after the program had already expired is not listed, so it doesn't supersede (and the revert undoes it).
+  await sql()`INSERT INTO program_writes (at, program_id, action, result, reason) VALUES ('2100-06-01T00:00:00Z', ${id}, 'close', 'closed', 'ended')`;
+  const t = revertToken(w.id, revertExpiry(new Date()), AUTH);
+  const page = await get(t);
+  assert.equal(page.status, 200, page.text);
+  assert.ok(page.text.includes(esc('This also undoes 1 later edit to this program.')), page.text);
+  assert.equal((await post(t)).status, 200);
+  assert.equal((await row(id))?.ends_at?.toISOString(), '2099-11-30T23:59:59.000Z');
+});
+
+test('v4.10.2 T4 fix 2: "More changes came in" only when more listable changes remain', db, async () => {
+  await reset();
+  const id = `v4102-more-${pid}`;
+  const now = new Date();
+  await send(apiProgram(id, { title: 'More 0', ends_at: nth(0) }));
+  await sentYesterday(now);
+  for (let i = 1; i <= DIGEST_MAX; i++) await send(apiProgram(id, { title: 'More 0', ends_at: nth(i) }));
+  for (let i = 1; i <= 3; i++) await send(apiProgram(id, { title: `More ${i}`, ends_at: nth(DIGEST_MAX) }));
+  assert.deepEqual(await revertDigest(now, mailer), { step: 'sent', changes: DIGEST_MAX });
+  assert.doesNotMatch(mails[0]!.text, /More changes came in/);
+
+  await reset();
+  await send(apiProgram(id, { title: 'More 0', ends_at: nth(0) }));
+  await sentYesterday(now);
+  for (let i = 1; i <= DIGEST_MAX + 1; i++) await send(apiProgram(id, { title: 'More 0', ends_at: nth(100 + i) }));
+  assert.deepEqual(await revertDigest(now, mailer), { step: 'sent', changes: DIGEST_MAX });
+  assert.match(mails[0]!.text, /More changes came in; the next digest lists them\./);
+  mails.length = 0;
   assert.deepEqual(await revertDigest(new Date(now.getTime() + DAY), mailer), { step: 'sent', changes: 1 });
 });
