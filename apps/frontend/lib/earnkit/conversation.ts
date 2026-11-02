@@ -668,9 +668,13 @@ const AGENT_DRAFTABLE = ['name', 'one_liner', 'problem', 'solution', 'how_it_wor
  * the team, usage numbers): the builder's to give whatever the program file's `from` says.
  */
 const PLAN_KINDS = ['milestones', 'use_of_funds', 'raised', 'team', 'traction'] as const;
-/** v4.10.1 Task 1 (ruling R1): a GTM plan stays agent-drafted (v4.8 ruling F1), marked for the builder to check. */
+/**
+ * A GTM plan field. v4.10.2 Task 1 (owner answer 2): a forward plan is a claim the record can't show, so it is the
+ * builder's to give, as one line the agent expands (ready-copy.ts READY_YES_NOTE); v4.10.1's agent-drafted ruling R1 is
+ * reversed.
+ */
 const GTM = /\bgtm\b|go[- ]to[- ]market/i;
-const isGtm = (r: DraftReq) => GTM.test(`${r.key.replace(/_/g, ' ')} ${r.label}`);
+export const isGtm = (r: Pick<DraftReq, 'key' | 'label'>) => GTM.test(`${r.key.replace(/_/g, ' ')} ${r.label}`);
 /**
  * v4.10.1 Task 1 fix round 1: a contract address is a fact EarnKit holds (heldAnswers: the builder's owned contracts) or
  * the builder gives, never one the agent writes, whatever `from` says.
@@ -680,13 +684,13 @@ const CONTRACT = /contract address/i;
  * v4.10.1 Task 1: a required, not contact field the agent can't truthfully draft, so the builder must give it:
  * - a builder field (`from: 'builder'`) the agent can't draft (mustAsk: the team, usage, a demo video, a link, a
  *   choice or several, an amount, location or code), or of any kind outside AGENT_DRAFTABLE (how it makes money, the
- *   credits wanted, an integration), except a GTM plan (R1);
- * - any field, whatever its `from`, that is a plan or a claim the record can't show (PLAN_KINDS), except a GTM plan,
+ *   credits wanted, an integration; v4.10.2 Task 1: a GTM plan too);
+ * - any field, whatever its `from`, that is a plan or a claim the record can't show (PLAN_KINDS: a GTM plan's kind),
  *   or a contract address EarnKit doesn't hold (fix round 1).
  * Pure.
  */
 export function mustGive(r: DraftReq & { type?: string }): boolean {
-  if (r.kind === 'contact' || isGtm(r)) return false;
+  if (r.kind === 'contact') return false;
   if ((PLAN_KINDS as readonly string[]).includes(r.kind ?? '') || CONTRACT.test(r.label)) return true;
   if (r.from !== 'builder') return false;
   return mustAsk(r) || r.type === 'multi_choice' || !(AGENT_DRAFTABLE as readonly string[]).includes(r.kind ?? 'other');

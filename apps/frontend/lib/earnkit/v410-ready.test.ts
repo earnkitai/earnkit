@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { builderOnly, mustGive, type GapGrant, type InvestorProgram, type MoveCtx, type MoveProgram } from './conversation';
 import { committedProgram } from './fixtures/program-file';
-import { longShotWorth, readySet, worthUpTo, type ReadyProgram } from './ready-set';
-import { READY_AGAIN_ASK, READY_ASK, contactPhrase, needsList, needsPhrase, readyAgain, readyLine, readyNeedsAsk, readyNeedsLater, readyNoLine, readyOpener, readySentAgain, readyStillNeeds, readyYesReply, shortName, skipReply, worthClause } from './ready-copy';
+import { READY_ANSWERS_MAX, fitReadySet, longShotWorth, readySet, worthUpTo, type ReadyProgram } from './ready-set';
+import { READY_AGAIN_ASK, READY_ASK, contactPhrase, needsList, needsPhrase, readyAgain, readyAlsoLine, readyLine, readyNeedsAsk, readyNoLine, readyOpener, readySentAgain, readyStillNeeds, readyYesReply, shortName, skipReply, worthClause } from './ready-copy';
 import { READY_NEED_MAX, readyNeeds } from './bench-find';
 import type { SubmissionRequirement } from './program-file';
 import { gateFailures, lazyNext, type Reply } from './fixtures/converse';
@@ -129,14 +129,51 @@ test('the owner shape opens with the approved section A text', () => {
   assert.equal(READY_ASK, "Reply yes and I'll finish and open each one for you to submit, or tell me the numbers to skip.");
 });
 
-test('v4.10.1 Task 2 fix round 1 (I1): the head says "ready" only when no program needs anything; else "drafted"', () => {
+test('v4.10.2 (R1): the head counts the answers the set needs, money first; "ready" only when it needs none', () => {
   const needs = OWNER_SET.map((p, i) => (i === 1 ? { ...p, needs: 'your email' } : p));
-  const head = (set: ReadyProgram[]) => opener({ set }).split('\n')[0];
-  assert.equal(head(needs), "Jenil, I've got 3 applications drafted for you, worth up to $1M, plus a $100K long shot:");
-  assert.doesNotMatch(head(needs), /\bready\b/i);
-  assert.match(head(OWNER_SET), /^Jenil, I've got 3 applications ready for you,/);
+  const head = (set: ReadyProgram[], asks: number) =>
+    readyOpener({ name: 'Jenil', set, worth: worthUpTo(set), page: 'earnkit.com/jenilt', hosted: false, now: NOW, asks }).split('\n')[0];
+  assert.equal(head(needs, 1), "Jenil, I've started 3 applications for you, worth up to $1M, plus a $100K long shot. I need 1 answer from you first:");
+  assert.equal(head(needs, 3), "Jenil, I've started 3 applications for you, worth up to $1M, plus a $100K long shot. I need 3 answers from you first:");
+  assert.doesNotMatch(head(needs, 3), /\bready\b|drafted/i);
+  assert.match(head(OWNER_SET, 0), /^Jenil, I've got 3 applications ready for you,/);
   // Any line that needs something: no "ready" in the head, whatever its case.
-  for (const p of needs.filter((x) => x.needs)) assert.doesNotMatch(head([p]), /\bready\b/i);
+  for (const p of needs.filter((x) => x.needs)) assert.doesNotMatch(head([p], 1), /\bready\b/i);
+});
+
+test('v4.10.2 (R1): the set fits one reply: greedy in rank order, at most 4 answers, an answer two programs ask counted once', () => {
+  assert.equal(READY_ANSWERS_MAX, 4);
+  const keys: Record<string, string[]> = { five: ['a', 'b', 'c', 'd', 'e'], two: ['a', 'f'], three: ['g', 'h', 'i'], one: ['a'], zero: [] };
+  const fit = (ids: string[]) => fitReadySet(ids, (id) => keys[id]);
+  // The top program needs 5: it goes to "also open" with its count; the next, needing 2, is the set.
+  assert.deepEqual(fit(['five', 'two']), { set: ['two'], out: [{ program: 'five', answers: 5 }] });
+  // 'two' and 'one' share 'a' (2 answers in all, never 3); 'three' would make 5 beside them.
+  assert.deepEqual(fit(['two', 'one', 'three', 'zero']), { set: ['two', 'one', 'zero'], out: [{ program: 'three', answers: 3 }] });
+  // At most READY_MAX programs; the rest are never considered (nor said).
+  assert.deepEqual(fit(['zero', 'zero', 'zero', 'five']), { set: ['zero', 'zero', 'zero'], out: [] });
+  assert.deepEqual(fit([]), { set: [], out: [] });
+});
+
+test('v4.10.2 (R1): "also open" names each program left out with its money and count, as a statement, never a question', () => {
+  assert.equal(readyAlsoLine([{ title: 'Base Builder Grant Program', amount: 'up to $5,000', answers: 11 }]), 'Also open: Base Builder Grant, up to $5,000, needs 11 answers from you. Say "start Base" anytime.');
+  assert.equal(readyAlsoLine([{ title: 'Base Builder Grant Program', amount: null, answers: 1 }, { title: 'Circle Developer Grants', amount: '$5K to $100K', answers: 3 }]),
+    'Also open: Base Builder Grant needs 1 answer from you. Circle Developer Grants, $5K to $100K, needs 3 answers from you. Say "start Base" and "start Circle" anytime.');
+  assert.equal(readyAlsoLine([]), null);
+  const [, , circle] = OWNER_SET;
+  const text = readyOpener({ name: 'Jenil', set: [{ ...circle, needs: 'your product roadmap' }], worth: null, page: 'earnkit.com/jenilt', hosted: false, now: NOW, asks: 1, also: [{ title: 'Base Builder Grant Program', amount: 'up to $5,000', answers: 11 }] });
+  assert.equal(text, [
+    "Jenil, I've started 1 application for you, a $100K long shot. I need 1 answer from you first:",
+    '',
+    "1. Circle Developer Grants: $5K to $100K. Needs your product roadmap first, and Circle looks for apps on Arc, so it's a long shot.",
+    '',
+    'Also open: Base Builder Grant, up to $5,000, needs 11 answers from you. Say "start Base" anytime.',
+    '',
+    'Every other answer is filled from your commits and your profile at earnkit.com/jenilt.',
+    READY_ASK,
+  ].join('\n'));
+  // One question at most, and the easy reply last (the gate).
+  const ready = { reply: { move_up: { kind: 'ready', project_key: null } } };
+  assert.deepEqual(gateFailures([reply(text, { said: ['opener'], ...ready })]).filter((f) => f.rule === 'easy_reply' || f.rule === 'copy'), []);
 });
 
 test('line wording: hosted step, builder-only field, singular, long shot without a reason', () => {
@@ -339,7 +376,7 @@ test('final fix (I1): a program\'s needs name up to 3, then "and N more"', () =>
   assert.equal(line, '1. Base Builder Grant: up to $5,000. Needs your team list, usage numbers and demo video first.');
 });
 
-test('final fix (I1): readyNeeds asks every field once, soonest close first, at most 4; past it a program waits', () => {
+test('final fix (I1), v4.10.2 (R1): readyNeeds asks every field once, soonest close first, at most 4 answers; past it a program waits, unnamed', () => {
   const soon = new Date(NOW.getTime() + 4 * 3_600_000).toISOString();
   const base = { id: 'base', title: 'Base Builder Grant Program', ends_at: null, only: BASE_ONLY };
   const a16z = { id: 'a16z', title: 'a16z speedrun SR008', ends_at: soon, only: A16Z_ONLY };
@@ -348,15 +385,15 @@ test('final fix (I1): readyNeeds asks every field once, soonest close first, at 
   assert.deepEqual(n.items.map((i) => i.kind), ['team', 'raised', 'traction', 'demo_video']);
   // The team list both ask is one item, with both programs' fields.
   assert.deepEqual(n.items[0].fields.map((f) => f.program_id), ['a16z', 'base']);
-  assert.equal(n.later.length, 0);
   assert.equal(readyNeedsAsk(n.titles, n.phrase, n.items.length),
     "a16z and Base need your team list, any money you've raised, usage numbers and demo video first. Reply with them and I'll finish them.");
-  // A fifth field: the program adding it waits, named; the first program always goes.
+  // A fifth answer: the program adding it waits (asked once the others are answered, never named in this ask); the first
+  // program always goes.
   const colosseum = { id: 'col', title: 'Colosseum Worlds Fair', ends_at: null, only: [req('team_location', 'other', { todo: 'team location' })] };
   const capped = readyNeeds([base, a16z, colosseum])!;
   assert.equal(READY_NEED_MAX, 4);
-  assert.deepEqual([capped.programs, capped.later.map((w) => w.program_id)], [['a16z', 'base'], ['col']]);
-  assert.equal(readyNeedsLater(capped.later), "After that I'll ask for Colosseum's team location.");
+  assert.deepEqual(capped.programs, ['a16z', 'base']);
+  assert.ok(!('later' in capped));
   const big = readyNeeds([{ ...colosseum, only: [...BASE_ONLY, ...A16Z_ONLY.slice(1), req('team_location', 'other')] }])!;
   assert.deepEqual([big.programs, big.items.length], [['col'], 4]);
   assert.equal(readyNeeds([{ ...base, only: [] }]), null);
@@ -380,16 +417,20 @@ test('final fix (I1, M1, M2): the plural asks, "every other answer" and the addi
 // ---------------------------------------------------------------------------------------------------------------------
 // v4.10.1 Task 1: honest needs (pure).
 
-test('v4.10.1 (1): what the agent can\'t truthfully draft is a need, whatever `from` says; a GTM plan and an optional field are not', () => {
+test('v4.10.1 (1), v4.10.2 (owner answer 2): what the agent can\'t truthfully draft is a need, whatever `from` says, a GTM plan too; an optional field is not', () => {
   const circle = committedProgram('circle-developer-grants');
   assert.deepEqual(builderOnly(circle, {}).map((r) => r.key), ['integrations', 'roadmap', 'milestones']);
   const base = { ...committedProgram('base-builder-grants'), investment: false };
-  // R1: the GTM plan stays drafted; revenue, the main challenge (multi_choice) and the credits are the builder's.
-  assert.deepEqual(builderOnly(base, {}).map((r) => r.key), ['founding_team', 'usage_numbers', 'demo_loom', 'contract_address', 'revenue', 'builder_code', 'primary_challenge', 'credits']);
+  // Revenue, the 3-month plan (v4.10.2: a forward plan is a claim the record can't show), the Builder Code, the main
+  // challenge (multi_choice) and the credits are the builder's.
+  assert.deepEqual(builderOnly(base, {}).map((r) => r.key), ['founding_team', 'usage_numbers', 'demo_loom', 'contract_address', 'revenue', 'gtm_plan', 'builder_code', 'primary_challenge', 'credits']);
   // Fix round 1: a contract address EarnKit doesn't hold is the builder's (from the project or not); held, it isn't.
   assert.ok(!builderOnly(base, { contract_address: '0xabc' }).some((r) => r.key === 'contract_address'));
   assert.equal(mustGive({ key: 'contracts', label: 'Base contract addresses to score', from: 'project', kind: 'other', required: true }), true);
-  assert.equal(mustGive(base.submission_requirements.find((r: { key: string }) => r.key === 'gtm_plan')!), false);
+  assert.equal(mustGive(base.submission_requirements.find((r: { key: string }) => r.key === 'gtm_plan')!), true);
+  // Its words: one line, the agent writes it out; the Builder Code is the builder's own, from base.dev.
+  const phrase = (k: string) => needsPhrase(base.submission_requirements.find((r: { key: string }) => r.key === k)!);
+  assert.deepEqual([phrase('gtm_plan'), phrase('builder_code')], ['your 3-month plan in one line', 'your Base Builder Code (from base.dev)']);
   // Verified revenue held: never asked.
   assert.ok(!builderOnly(base, { revenue: '$120 paid into its contracts' }).some((r) => r.key === 'revenue'));
   // A program whose only field the agent can't draft is optional is still ready (nothing to ask).
@@ -413,41 +454,38 @@ test('v4.10.1 (2): the contact item names each detail once, in the slots\' order
   assert.equal(needsPhrase({ key: 'integrations', label: 'Your Circle and Arc integrations', kind: 'other', todo: 'your Circle and Arc integrations' }), 'your Circle and Arc integrations');
 });
 
-test('v4.10.1 (2): readyNeeds asks the contact details as one item, two fields of one kind apart, and names the first program\'s rest', () => {
+test('v4.10.1 (2), v4.10.2 (R1): readyNeeds asks the contact details as one item (each detail one answer), two fields of one kind apart', () => {
   const contact = (key: string, label: string) => req(key, 'contact', { label });
   const base = { id: 'base', title: 'Base Builder Grant Program', ends_at: null, only: [contact('full_name', 'Full name'), contact('email', 'Email'), contact('telegram', 'Telegram username'), req('revenue', 'other', { todo: 'how it makes money today' }), req('primary_challenge', 'other', { todo: 'your main challenge right now' }), req('credits', 'other', { todo: 'the credits you want' })] };
   const a16z = { id: 'a16z', title: 'a16z speedrun SR008', ends_at: at(4 * 3_600_000), only: [contact('email', 'Email')] };
   const circle = { id: 'circle', title: 'Circle Developer Grants', ends_at: null, only: [req('roadmap', 'milestones', { todo: 'a product roadmap' }), req('milestones', 'milestones', { todo: 'proposed grant milestones' })] };
+  // a16z closes first (its email, 1 answer); Base's 6 would make 6 beside it, so Base waits; Circle's 2 fit.
   const n = readyNeeds([base, a16z, circle])!;
-  assert.deepEqual(n.items.map((i) => i.kind), ['contact', 'other:revenue', 'other:primary_challenge', 'other:credits']);
-  // One item for a16z's email and Base's three, named together.
-  assert.deepEqual(n.items[0].fields.map((f) => `${f.program_id}.${f.req.key}`), ['a16z.email', 'base.full_name', 'base.email', 'base.telegram']);
-  assert.equal(n.items[0].phrase, 'your contact details (name, email and Telegram)');
-  assert.equal(n.phrase, 'your contact details (name, email and Telegram), how it makes money today, main challenge right now and the credits you want');
-  // Circle's roadmap and milestones (one kind) are two items, each its own answer; they wait for the next ask.
-  assert.deepEqual(n.later, [{ program_id: 'circle', title: 'Circle Developer Grants', phrase: 'your product roadmap and proposed grant milestones' }]);
+  assert.deepEqual(n.programs, ['a16z', 'circle']);
+  assert.deepEqual(n.items.map((i) => i.kind), ['contact', 'other:roadmap', 'other:milestones']);
+  assert.equal(n.phrase, 'your email, product roadmap and proposed grant milestones');
+  // Circle's roadmap and milestones (one kind) are two items, each its own answer.
   const alone = readyNeeds([circle])!;
   assert.deepEqual(alone.items.map((i) => i.kind), ['other:roadmap', 'other:milestones']);
-  // The first program's fields past the cap are named for next, never dropped silently.
-  const big = readyNeeds([{ ...base, only: [...base.only, req('team', 'team'), req('usage', 'traction')] }])!;
-  assert.equal(big.items.length, 4);
-  assert.deepEqual(big.later, [{ program_id: 'base', title: 'Base Builder Grant Program', phrase: 'your team list and usage numbers' }]);
-  assert.equal(readyNeedsLater(big.later), "After that I'll ask for Base's team list and usage numbers.");
-  // Final fix 2 (I3): one sentence for every program, after the need and before the one easy reply.
-  assert.equal(readyNeedsLater([...big.later, { title: 'Circle Developer Grants', phrase: 'your product roadmap and proposed grant milestones' }]),
-    "After that I'll ask for Base's team list and usage numbers, then Circle's product roadmap and proposed grant milestones.");
-  assert.equal(readyNeedsAsk(['Base Builder Grant Program'], 'your demo video', 1, readyNeedsLater(big.later)),
-    "Base needs your demo video first. After that I'll ask for Base's team list and usage numbers. Reply with it and I'll finish it.");
-  assert.equal(readyStillNeeds(['Base Builder Grant Program'], 'your demo video', 1, readyNeedsLater(big.later)),
-    "Still waiting on your demo video for Base. After that I'll ask for Base's team list and usage numbers. Reply with it and I'll finish it.");
+  // The first program alone past the cap: its first answers up to 4 (the contact item is 3 of them), the rest next.
+  const first = readyNeeds([base])!;
+  assert.deepEqual(first.items.map((i) => i.kind), ['contact', 'other:revenue']);
+  assert.equal(first.items[0].phrase, 'your contact details (name, email and Telegram)');
+  assert.equal(first.phrase, 'your contact details (name, email and Telegram) and how it makes money today');
+  // With a16z's email asked too, it is the same contact item (no new answer).
+  const shared = readyNeeds([a16z, { ...base, only: base.only.slice(0, 3) }])!;
+  assert.deepEqual(shared.items[0].fields.map((f) => `${f.program_id}.${f.req.key}`), ['a16z.email', 'base.full_name', 'base.email', 'base.telegram']);
+  assert.deepEqual(shared.programs, ['a16z', 'base']);
+  // "Reply with them": the contact item's 3 answers count as 3.
+  assert.equal(readyNeedsAsk(['Base Builder Grant Program'], shared.phrase, 3), "Base needs your contact details (name, email and Telegram) first. Reply with them and I'll finish it.");
 });
 
-test('v4.10.1 (2): "every other answer is filled" only when one ask covers every field the builder owes', () => {
+test('v4.10.1 (2), v4.10.2 (R1): "every other answer is filled" while the set asks anything, "every answer" when it asks none', () => {
   const needs = [{ ...OWNER_SET[0], needs: 'your team list' }, ...OWNER_SET.slice(1)];
-  assert.match(opener({ set: needs }), /\n\nEvery other answer is filled from/);
-  const rest = readyOpener({ name: 'Jenil', set: needs, worth: null, page: 'earnkit.com/jenilt', hosted: false, now: NOW, rest: true });
-  assert.match(rest, /\n\nI've filled what I can from your commits and your profile at earnkit\.com\/jenilt\.\n/);
-  assert.doesNotMatch(rest, /Every (?:other )?answer|—/);
+  assert.match(readyOpener({ name: 'Jenil', set: needs, worth: null, page: 'earnkit.com/jenilt', hosted: false, now: NOW, asks: 1 }), /\n\nEvery other answer is filled from/);
+  assert.match(opener(), /\n\nEvery answer is filled from/);
+  // The set's asks are every answer the builder owes it, so never "I've filled what I can" (v4.10.1's later ask).
+  assert.doesNotMatch(readyOpener({ name: 'Jenil', set: needs, worth: null, page: 'earnkit.com/jenilt', hosted: false, now: NOW, asks: 4 }), /filled what I can|After that|—/);
 });
 
 test('v4.10.1 (2): the replay\'s lazy agent answers the contact item one value per slot, the rest by ask key', () => {
