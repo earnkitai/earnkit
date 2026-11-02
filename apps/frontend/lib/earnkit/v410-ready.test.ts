@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { GapGrant, InvestorProgram, MoveCtx, MoveProgram } from './conversation';
-import { readySet, worthUpTo } from './ready-set';
+import { readySet, worthUpTo, type ReadyProgram } from './ready-set';
+import { READY_ASK, readyLine, readyOpener, readyYesReply, shortName, skipReply } from './ready-copy';
+import { gateFailures, lazyNext, type Reply } from './fixtures/converse';
 
 /*
  * v4.10 Task 2 (R2, R3): the ready set, from the owner's shape on 2026-11-01: Base one step away, a16z closing in 19
@@ -88,4 +90,82 @@ test('worthUpTo formats like the money line', () => {
   const p = (max_usd: number | null) => ({ ...readySet(ctx({ fits: [prog({ id: 'x', max_usd })] }))[0] });
   assert.equal(worthUpTo([p(5_000), p(100_500)]), '$105.5K');
   assert.equal(worthUpTo([p(500), p(null)]), '$500');
+});
+
+/*
+ * v4.10 Task 3 (R5, R6, R7): the ready copy and the gate.
+ */
+const OWNER_SET = readySet(ctx(OWNER));
+const opener = (o: { set?: ReadyProgram[]; hosted?: boolean } = {}) =>
+  readyOpener({ name: 'Jenil', set: o.set ?? OWNER_SET, worth: worthUpTo(o.set ?? OWNER_SET), page: 'earnkit.com/jenilt', hosted: o.hosted ?? false, now: NOW });
+const reply = (show: string, o: Partial<Reply> = {}): Reply => ({
+  turn: 0, session: 0, first: false, hook: false, tool: 'find', input: {}, show, said: [], reply: null, ...o,
+});
+
+test('shortName is the first word of the program name', () => {
+  assert.equal(shortName('Base Builder Grant Program'), 'Base');
+  assert.equal(shortName('a16z speedrun SR008'), 'a16z');
+  assert.equal(shortName('Circle Developer Grants'), 'Circle');
+  assert.equal(shortName('Arc Microgrants'), 'Arc');
+});
+
+test('the owner shape opens with the approved section A text', () => {
+  assert.equal(opener(), [
+    "Jenil, I've got 3 applications ready for you, worth up to $1.1M:",
+    '',
+    "1. Base Builder Grant: up to $5,000. Ready once I add Builder Codes (10 minutes, I'll do it).",
+    '2. a16z speedrun SR008: up to $1M investment, closes in 19 hours. Ready.',
+    "3. Circle Developer Grants: $5K to $100K. Ready, but Circle looks for apps on Arc, so it's a long shot.",
+    '',
+    'Every answer is filled from your commits and your profile at earnkit.com/jenilt.',
+    READY_ASK,
+  ].join('\n'));
+  assert.equal(READY_ASK, "Reply yes and I'll finish and open each one for you to submit, or tell me the numbers to skip.");
+});
+
+test('line wording: hosted step, builder-only field, singular, long shot without a reason', () => {
+  const [base, , circle] = OWNER_SET;
+  assert.equal(readyLine(base, 1, true, NOW), '1. Base Builder Grant: up to $5,000. Ready once you add Builder Codes (https://docs.base.org/base-chain/builder-codes/builder-codes).');
+  assert.equal(readyLine({ ...base, step: null, needs: 'your pitch video' }, 1, false, NOW), '1. Base Builder Grant: up to $5,000. Needs your pitch video first.');
+  assert.match(opener({ set: [base] }), /^Jenil, I've got 1 application ready for you, worth up to \$5K:/);
+  assert.equal(readyLine({ ...circle, why: null }, 3, false, NOW), "3. Circle Developer Grants: $5K to $100K. Ready, but it's a long shot.");
+  assert.equal(readyLine({ ...base, kind: 'fit', step: null }, 1, false, NOW), '1. Base Builder Grant: up to $5,000. Ready.');
+});
+
+test('skip and yes replies', () => {
+  assert.equal(skipReply(['Circle'], ['Base', 'a16z']), 'Done, Circle is skipped. I\'ll finish Base and a16z now.');
+  assert.equal(skipReply(['Circle', 'a16z'], ['Base']), 'Done, Circle and a16z are skipped. I\'ll finish Base now.');
+  assert.equal(readyYesReply({ set: OWNER_SET, opened: [], waiting: ['Builder Codes'] }), "Adding Builder Codes now, then I'll open all three.");
+  const opened = [
+    { title: 'Base Builder Grant Program', link: 'https://docs.base.org/apply' },
+    { title: 'a16z speedrun SR008', link: 'https://speedrun.a16z.com/apply' },
+    { title: 'Circle Developer Grants', link: 'https://circle.questbook.app/' },
+  ];
+  assert.equal(readyYesReply({ set: OWNER_SET, opened, waiting: [] }), [
+    'All three are open with every answer in place:',
+    '- Base: https://docs.base.org/apply',
+    '- a16z: https://speedrun.a16z.com/apply',
+    '- Circle: https://circle.questbook.app/',
+    '',
+    'Reply "sent" once they\'re in, and I\'ll track them for you.',
+  ].join('\n'));
+});
+
+test('the gate passes the ready replies, still fails a plain ask, and the copy is clean', () => {
+  const opened = [{ title: 'Base Builder Grant Program', link: 'https://docs.base.org/apply' }];
+  const texts = [opener(), opener({ hosted: true }), readyYesReply({ set: OWNER_SET, opened: [], waiting: ['Builder Codes'] }),
+    readyYesReply({ set: OWNER_SET.slice(0, 1), opened, waiting: [] }), skipReply(['Circle'], ['Base', 'a16z'])];
+  for (const t of texts) {
+    assert.doesNotMatch(t, /—|\bcoins?\b|\bpoints?\b|sent it|submitted|applied for you/i, t);
+  }
+  assert.deepEqual(gateFailures([reply(opener(), { said: ['opener'] })]).filter((f) => f.rule === 'easy_reply'), []);
+  assert.deepEqual(gateFailures([reply(texts[3])]).filter((f) => f.rule === 'easy_reply' || f.rule === 'copy' || f.rule === 'claim'), []);
+  assert.deepEqual(gateFailures([reply('Jenil, here is Circle.\n\nReply yes or no.')]).map((f) => f.rule), ['easy_reply']);
+});
+
+test('lazyNext answers a ready ask with yes, or with the numbers the walk skips', () => {
+  const asked = reply(opener(), { reply: { move_up: { kind: 'ready', project_key: null } } });
+  const o = { blanks: 'just me', pushed: 'PUSHED' };
+  assert.deepEqual(lazyNext(asked, o), { says: 'yes', tell: { move_up: { kind: 'ready', project_key: null, answer: 'yes' } } });
+  assert.deepEqual(lazyNext(asked, { ...o, skip: [3] }), { says: 'skip 3', tell: { move_up: { kind: 'ready', project_key: null, answer: 'skip', skip: [3] } } });
 });

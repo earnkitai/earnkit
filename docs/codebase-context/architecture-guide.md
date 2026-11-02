@@ -9184,3 +9184,11 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
   ("$1.1M"); null when no program has a number. Nothing calls them yet (Tasks 3 and after write the copy and wire find).
 - **`MoveProgram`** gained `max_usd` (Card.max_award_usd, set by `moveProgram`) and `why` (a long-shot grant's fit-cell
   reason, set in `pathPlan`). Tests: `v410-ready.test.ts`.
+
+## v4.10 Task 3: ready copy and the gate
+
+`ready-copy.ts` is the ready set's pure copy (spec section A): `READY_ASK`, `shortName` (first word of `programName`),
+`readyLine` (grant/fit/long-shot/investor line; step 'codes' reads "I'll do it" or, hosted, the guide link; investor close
+via `closeWords`), `readyOpener`, `readyYesReply` (waiting step, then the open list and the "sent" ask), `skipReply`.
+Gate (`fixtures/converse.ts`): `easyReply` takes a reply whose last line is exactly `READY_ASK`; `lazyNext` answers a
+`move_up` kind 'ready' with yes, or `{answer:'skip', skip:[n]}` when `o.skip` is set. Nothing calls the copy yet (Task 4).

@@ -2770,3 +2770,6 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
 `ready-set.ts` `readySet`, `worthUpTo`, `READY_MAX`, `ReadyProgram` (uses `conversation.ts` `INVESTOR_WINDOW_MS`,
 `NOW_WINDOW_MS`, `MoveProgram.max_usd`/`why`; `pool.ts` `usdCompact`); `bench-find.ts` `moveProgram` sets `max_usd`,
 `pathPlan` sets a long-shot grant's `why`. Tests: `v410-ready.test.ts`.
+- **`ready-copy.ts`** (v4.10 Task 3): `READY_ASK`, `shortName`, `readyLine`, `readyOpener`, `readyYesReply`, `skipReply`.
+  Uses `conversation.ts` `programName`/`closeWords`, `bench-reply.ts` `BUILDER_CODES_GUIDE`. `fixtures/converse.ts` imports
+  `READY_ASK` (easyReply) and `lazyNext` takes `skip?`. Tests: `v410-ready.test.ts`.
