@@ -1,6 +1,6 @@
 import { payoutBy, prizeUsdEach, usd, type CampaignConfig } from './campaigns';
 import { shortDate } from './dates';
-import { closeDay, hoursLeft, programZone, zoneAbbr, zoneParts } from './deadline';
+import { closeDay, hoursLeft, programZone, timeLeftWords, zoneAbbr, zoneParts } from './deadline';
 
 /** EarnKit's public origin for links in builder text. */
 export const siteUrl = () => (process.env.EARNKIT_URL ?? 'https://earnkit.com').replace(/\/$/, '');
@@ -101,6 +101,16 @@ export function closesIn(c: { summary: string; ends_at?: Date | string | null },
   return hoursLeft(new Date(c.ends_at).toISOString(), now);
 }
 
+/**
+ * v4.10.2 Task 3 (R5): the `closes_in` an agent gets for an OPEN program, never empty: "in 14 hours" under 48 hours,
+ * "in 16 days" from 48 hours, "rolling" for a rolling program (the summary says rolling, or no ends_at). Null only
+ * when the close already passed. Callers pass only open programs (upcoming and closed keep null). Pure.
+ */
+export function agentCloses(c: { summary: string; ends_at?: Date | string | null }, now: Date): string | null {
+  if (!c.ends_at || c.summary.split(' · ').slice(1).includes('rolling')) return 'rolling';
+  return timeLeftWords(new Date(c.ends_at).toISOString(), now);
+}
+
 /** v4.8.2 final fix (F2): a month and day in a summary part ("Nov 18", "Nov 7, 9:00 AM IST" from its month on). */
 const DATED = /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{1,2}\b/;
 /**
@@ -128,8 +138,8 @@ export function summaryIn(summary: string, left: string | null): string {
  * under 48 hours; `deadline` (ISO) and every other field unchanged. Pure.
  */
 export function withClosesIn<T extends { summary: string; ends_at?: Date | string | null }>(p: T, now: Date): T & { closes_in: string | null } {
-  const left = closesIn(p, now);
-  return { ...p, summary: summaryIn(p.summary, left), closes_in: left };
+  // The summary keeps its hours-only rewrite; closes_in is the agent field (days, rolling: agentCloses).
+  return { ...p, summary: summaryIn(p.summary, closesIn(p, now)), closes_in: agentCloses(p, now) };
 }
 
 /** v4.8.2 Task 3 (R4): an "Ends" table cell: with `now`, the hours left under 48 hours ("in 14 hours"), else endsOf. Pure. */

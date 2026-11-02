@@ -247,3 +247,37 @@ test('v4.2 Task 3: tell token ask and move_up replies carry the about facts; a p
   const plain = await mcpCall(p.ctx, 'tell', { weekly_email: { answer: 'yes' } });
   assert.equal((plain.reply as { facts?: unknown }).facts, undefined);
 }));
+
+/**
+ * v4.10.2 Task 3 (R6): shipped_last_week names the last finished ISO week with the clock pinned on a Monday. Before
+ * 15:00 UTC its ship-log row is not written yet: the repo reading's commit count for that week stands in (no summary),
+ * and an older week's row is never shown in its place. From 15:00 UTC the written row (with its summary) wins.
+ */
+test('v4.10.2 R6: Monday 10:00 UTC reads the repo reading for the finished week, never an older row; Monday 16:00 UTC reads the written row', db, () => withEnv(ON, async () => {
+  const { replyFacts } = await import('./reply-facts');
+  const { isoWeekOf } = await import('./weeks');
+  const b = await coinBuilder('r6');
+  const early = new Date('2026-11-02T10:00:00Z');
+  const late = new Date('2026-11-02T16:00:00Z');
+  const last = '2026-10-26';
+  const wk = isoWeekOf(new Date(`${last}T12:00:00Z`));
+  const older = '2026-10-19';
+  await sql()`DELETE FROM project_updates WHERE builder_id = ${b.id}`;
+  const upsert = (week: string, summary: string, n: number) => sql()`
+    INSERT INTO project_updates (builder_id, project_key, week, summary, facts) VALUES (${b.id}, ${b.key}, ${week}, ${summary},
+      ${sql().json({ shipped_code: { n }, checked: true, approved: true } as never)})`;
+  await upsert(older, 'Older week summary.', 2);
+  const [src] = await sql()<{ id: number }[]>`SELECT id FROM builder_sources WHERE builder_id = ${b.id} AND kind = 'repo' LIMIT 1`;
+  await sql()`DELETE FROM source_live WHERE source_id = ${src.id}`;
+  await sql()`INSERT INTO source_live (source_id, signals, ok, read_at) VALUES (${src.id}, ${sql().json({ owner: b.key.split('/')[0], owner_type: 'User', created_at: null, fork: false, template: false, partial: false, private: false, commit_weeks: [wk], commit_counts: { [wk]: 7 }, pushes_checked: true } as never)}, true, now())`;
+  // Monday before 15:00 UTC: the Oct 26 row is not written yet.
+  const a = (await replyFacts({ installationId: b.id, ownInstallationId: b.id }, early)).shipped_last_week;
+  assert.deepEqual(a, { week: last, commits: 7 });
+  // The finished week has no commits in the reading: nothing, never the Oct 19 row.
+  await sql()`UPDATE source_live SET signals = signals || ${sql().json({ commit_counts: {} } as never)} WHERE source_id = ${src.id}`;
+  assert.equal((await replyFacts({ installationId: b.id, ownInstallationId: b.id }, early)).shipped_last_week, undefined);
+  // From 15:00 UTC the row is written: its summary and commits.
+  await upsert(last, 'Shipped the claim flow.', 7);
+  const c = (await replyFacts({ installationId: b.id, ownInstallationId: b.id }, late)).shipped_last_week;
+  assert.deepEqual(c, { week: last, summary: 'Shipped the claim flow.', commits: 7 });
+}));

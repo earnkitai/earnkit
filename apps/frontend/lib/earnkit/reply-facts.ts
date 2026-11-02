@@ -8,6 +8,8 @@ import { pagePath } from './reserved-routes';
 import { REVENUE_MIN, tractionFacts } from './ship-log-facts';
 import { provenWallet } from './wallet-proof';
 import { personal } from './standing';
+import { lastFinishedMonday } from './weeks';
+import { weekFactsFor } from './week-facts';
 
 /**
  * v3.1 answerable replies (spec section 1): the facts find and score carry so the agent can answer the builder's own
@@ -64,6 +66,31 @@ export function aboutFacts(): Record<string, string> {
 }
 
 /**
+ * v4.10.2 Task 3 (R6): `shipped_last_week` names the last FINISHED ISO week (weeks.ts lastFinishedMonday), never an older
+ * week's row. The week's ship-log card gives its summary, note and commits; when it has none (the row is written Mondays
+ * from 15:00 UTC, week-facts.ts weeklyFactsStep) the repo reading's commit count for that week stands in (weekFactsFor,
+ * the ship log's own rule), no summary. A hidden row stays hidden (no fallback). Absent when the week has nothing. Never throws.
+ */
+export async function shippedLastWeek(
+  id: number,
+  log: { week: string; summary?: string | null; text: string | null; commits?: number }[],
+  now: Date,
+): Promise<ReplyFacts['shipped_last_week'] | undefined> {
+  const monday = lastFinishedMonday(now);
+  const card = log.find((c) => c.week === monday && (c.summary || c.text || c.commits));
+  if (card) return { week: card.week, ...(card.summary && { summary: card.summary }), ...(card.text && { note: card.text }), ...(card.commits && { commits: card.commits }) };
+  try {
+    const [hidden] = await sql()<{ x: number }[]>`SELECT 1 AS x FROM project_updates WHERE builder_id = ${id} AND week = ${monday} AND hidden LIMIT 1`;
+    if (hidden) return undefined;
+    const n = (await weekFactsFor(id, monday, now)).shipped_code?.n ?? 0;
+    return n > 0 ? { week: monday, commits: n } : undefined;
+  } catch (err) {
+    console.error('[reply facts] last week', err instanceof Error ? err.name : 'error');
+    return undefined;
+  }
+}
+
+/**
  * The facts for this caller: `about` always; the builder's own page, rank, streak, last shipped week (as the page
  * shows it: bench-data.ts profileData's visibility rules), proven reward wallet (short), Earned, applications and
  * (v4.5 Task 3, hidden page or not) verified usage and revenue only for a signed-in builder with a page. Never throws: a failed read leaves its keys out (logged).
@@ -94,9 +121,8 @@ export async function replyFacts(ctx: { installationId: number; ownInstallationI
     };
     if (d.bench) facts.rank = { line: d.bench, ...(d.score !== null && { score: d.score }) };
     if (d.project?.confirmed) facts.streak = d.streak;
-    const last = d.log.find((c) => c.summary || c.text || c.commits);
-    if (last)
-      facts.shipped_last_week = { week: last.week, ...(last.summary && { summary: last.summary }), ...(last.text && { note: last.text }), ...(last.commits && { commits: last.commits }) };
+    const shipped = await shippedLastWeek(id, d.log, now);
+    if (shipped) facts.shipped_last_week = shipped;
     if (wallet) facts.wallet = shortWallet(wallet);
     facts.earned = { usd: Math.round(d.earned.paid_usd) };
     // The builder's own statuses, then a won program the page shows that they never told EarnKit about.
