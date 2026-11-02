@@ -209,18 +209,25 @@ const shortList = (titles: readonly string[]) => [...new Set(titles.map(shortNam
  * Final fix (I1): one ask for the whole set, `count` fields: "Base and a16z need your team list, usage numbers, demo
  * video and any money you've raised first. Reply with them and I'll finish them." Pure.
  */
-export function readyNeedsAsk(titles: string | readonly string[], needs: string, count = 1): string {
+export function readyNeedsAsk(titles: string | readonly string[], needs: string, count = 1, later?: string | null): string {
   const who = shortList(typeof titles === 'string' ? [titles] : titles);
   const many = who.length > 1;
-  return `${list(who)} ${many ? 'need' : 'needs'} ${needs} first. Reply with ${count === 1 ? 'it' : count === 2 ? 'both' : 'them'} and I'll finish ${many ? 'them' : 'it'}.`;
+  return `${list(who)} ${many ? 'need' : 'needs'} ${needs} first.${later ? ` ${later}` : ''} Reply with ${count === 1 ? 'it' : count === 2 ? 'both' : 'them'} and I'll finish ${many ? 'them' : 'it'}.`;
 }
-/** Final fix (I1): a program past the one ask's cap waits, named before the ask: "Colosseum also needs your pitch video. I'll ask for it next." Pure. */
+/** A program's fields as theirs: "your team list and demo video" for Base is "Base's team list and demo video". Pure. */
+const theirs = (title: string, phrase: string) =>
+  phrase.startsWith('your ') ? `${shortName(title)}'s ${phrase.slice(5)}` : `${phrase} for ${shortName(title)}`;
+/**
+ * Final fix 2 (I3): what the one ask leaves for later, every program in one sentence, every field named (no "and N
+ * more"), said inside the ask after its need and before its one easy reply (readyNeedsAsk, readyStillNeeds' `later`):
+ * "After that I'll ask for Base's contract address on Base and the credits you want, then Circle's product roadmap." Pure.
+ */
 export const readyNeedsLater = (later: readonly { title: string; phrase: string }[]) =>
-  later.map((w) => `${shortName(w.title)} also needs ${w.phrase}. I'll ask for ${/ and /.test(w.phrase) ? 'them' : 'it'} next.`).join(' ');
+  later.length > 0 ? `After that I'll ask for ${later.map((w) => theirs(w.title, w.phrase)).join(', then ')}.` : '';
 /** Final fix (I1): a later find while the ask waits: "Still waiting on your team list for Base. Reply with it and I'll finish it." Pure. */
-export function readyStillNeeds(titles: readonly string[], needs: string, count: number): string {
+export function readyStillNeeds(titles: readonly string[], needs: string, count: number, later?: string | null): string {
   const who = shortList(titles);
-  return `Still waiting on ${needs} for ${list(who)}. Reply with ${count === 1 ? 'it' : count === 2 ? 'both' : 'them'} and I'll finish ${who.length > 1 ? 'them' : 'it'}.`;
+  return `Still waiting on ${needs} for ${list(who)}.${later ? ` ${later}` : ''} Reply with ${count === 1 ? 'it' : count === 2 ? 'both' : 'them'} and I'll finish ${who.length > 1 ? 'them' : 'it'}.`;
 }
 /**
  * Final fix 2 (I2): an answer turn that leaves only the codes says what waits on them, before PUSHED_ASK: "Base opens

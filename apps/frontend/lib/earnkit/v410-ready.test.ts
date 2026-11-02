@@ -356,7 +356,7 @@ test('final fix (I1): readyNeeds asks every field once, soonest close first, at 
   const capped = readyNeeds([base, a16z, colosseum])!;
   assert.equal(READY_NEED_MAX, 4);
   assert.deepEqual([capped.programs, capped.later.map((w) => w.program_id)], [['a16z', 'base'], ['col']]);
-  assert.equal(readyNeedsLater(capped.later), "Colosseum also needs your team location. I'll ask for it next.");
+  assert.equal(readyNeedsLater(capped.later), "After that I'll ask for Colosseum's team location.");
   const big = readyNeeds([{ ...colosseum, only: [...BASE_ONLY, ...A16Z_ONLY.slice(1), req('team_location', 'other')] }])!;
   assert.deepEqual([big.programs, big.items.length], [['col'], 4]);
   assert.equal(readyNeeds([{ ...base, only: [] }]), null);
@@ -432,7 +432,14 @@ test('v4.10.1 (2): readyNeeds asks the contact details as one item, two fields o
   const big = readyNeeds([{ ...base, only: [...base.only, req('team', 'team'), req('usage', 'traction')] }])!;
   assert.equal(big.items.length, 4);
   assert.deepEqual(big.later, [{ program_id: 'base', title: 'Base Builder Grant Program', phrase: 'your team list and usage numbers' }]);
-  assert.equal(readyNeedsLater(big.later), "Base also needs your team list and usage numbers. I'll ask for them next.");
+  assert.equal(readyNeedsLater(big.later), "After that I'll ask for Base's team list and usage numbers.");
+  // Final fix 2 (I3): one sentence for every program, after the need and before the one easy reply.
+  assert.equal(readyNeedsLater([...big.later, { title: 'Circle Developer Grants', phrase: 'your product roadmap and proposed grant milestones' }]),
+    "After that I'll ask for Base's team list and usage numbers, then Circle's product roadmap and proposed grant milestones.");
+  assert.equal(readyNeedsAsk(['Base Builder Grant Program'], 'your demo video', 1, readyNeedsLater(big.later)),
+    "Base needs your demo video first. After that I'll ask for Base's team list and usage numbers. Reply with it and I'll finish it.");
+  assert.equal(readyStillNeeds(['Base Builder Grant Program'], 'your demo video', 1, readyNeedsLater(big.later)),
+    "Still waiting on your demo video for Base. After that I'll ask for Base's team list and usage numbers. Reply with it and I'll finish it.");
 });
 
 test('v4.10.1 (2): "every other answer is filled" only when one ask covers every field the builder owes', () => {

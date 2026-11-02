@@ -1186,7 +1186,7 @@ export function readyNeeds(drafts: readonly Pick<ReadyDraft, 'id' | 'title' | 'e
     const groups = draftAsks(d.only);
     const fresh = groups.filter((g) => !items.some((it) => it.kind === g.kind));
     if (asked.length > 0 && items.length + fresh.length > max) {
-      later.push({ program_id: d.id, title: d.title, phrase: needsList(fresh.map((g) => itemPhrase(g.kind, g.reqs))) });
+      later.push({ program_id: d.id, title: d.title, phrase: needsList(fresh.map((g) => itemPhrase(g.kind, g.reqs)), Infinity) });
       continue;
     }
     const left: typeof groups = [];
@@ -1197,8 +1197,8 @@ export function readyNeeds(drafts: readonly Pick<ReadyDraft, 'id' | 'title' | 'e
       else if (items.length < max) items.push({ kind: g.kind, phrase: '', fields });
       else left.push(g);
     }
-    // v4.10.1 Task 1: the first program's fields past the cap are said too ("Base also needs ... I'll ask for them next.").
-    if (left.length > 0) later.push({ program_id: d.id, title: d.title, phrase: needsList(left.map((g) => itemPhrase(g.kind, g.reqs))) });
+    // v4.10.1 Task 1: the first program's fields past the cap are said too (final fix 2, I3: every one, readyNeedsLater).
+    if (left.length > 0) later.push({ program_id: d.id, title: d.title, phrase: needsList(left.map((g) => itemPhrase(g.kind, g.reqs)), Infinity) });
     asked.push(d);
   }
   if (asked.length === 0) return null;
@@ -1206,8 +1206,8 @@ export function readyNeeds(drafts: readonly Pick<ReadyDraft, 'id' | 'title' | 'e
   for (const it of items) it.phrase = itemPhrase(it.kind, it.fields.map((f) => f.req));
   return { programs: asked.map((d) => d.id), titles: asked.map((d) => d.title), phrase: needsList(items.map((i) => i.phrase), max), items, later };
 }
-/** The need's ask (I1): the programs past the cap named first, then the one easy reply. Pure. */
-const needAsk = (n: ReadyNeed) => [n.later.length > 0 ? readyNeedsLater(n.later) : null, readyNeedsAsk(n.titles, n.phrase, n.items.length)].filter(Boolean).join('\n\n');
+/** The need's ask (I1): what it needs now, what it asks after (final fix 2, I3: one sentence), then the one easy reply. Pure. */
+const needAsk = (n: ReadyNeed) => readyNeedsAsk(n.titles, n.phrase, n.items.length, readyNeedsLater(n.later));
 /** The need for the agent (ready.need): each field's kind to split the builder's reply under, its words and programs. Pure. */
 const needFields = (n: ReadyNeed) => ({
   asks: n.items.map((i) => ({
@@ -1380,7 +1380,7 @@ async function readyAgainCommit(o: ViewIn, v: PathFacts, asked: NonNullable<Seen
   const key = v.project.key;
   const need = asked.need ? r.need : null;
   let show: string;
-  if (need) show = [need.later.length > 0 ? readyNeedsLater(need.later) : null, readyStillNeeds(need.titles, need.phrase, need.items.length)].filter(Boolean).join('\n\n');
+  if (need) show = readyStillNeeds(need.titles, need.phrase, need.items.length, readyNeedsLater(need.later));
   else if (asked.sent) show = readySentAgain(await againRows(o.cards, r.opened, { keep: true }), now);
   else {
     const rows = await againRows(o.cards, r.ids.filter((pid) => !r.skipped.includes(pid)), { codes: asked.codes });
@@ -1749,8 +1749,8 @@ async function readyYes(
   const gShow = typeof g?.show_to_builder === 'string' ? g.show_to_builder : '';
   // The one easy reply, last: the builder's answers, else the push's ok while the codes wait, else "sent".
   // Final fix 2 (I2): an answer turn's push ask names what still waits on the codes (the adding line was turns ago).
-  const pushed = o.after ? `${readyCodesWait(pending.map(titleOf))} ${PUSHED_ASK}` : PUSHED_ASK;
-  const tail = need ? needAsk(need) : pending.length > 0 ? (hosted ? HELP_DONE_ASK : pushed) : readySentAsk(shownOpen.length);
+  const pushed = () => (o.after ? `${readyCodesWait(pending.map(titleOf))} ${PUSHED_ASK}` : PUSHED_ASK);
+  const tail = need ? needAsk(need) : pending.length > 0 ? (hosted ? HELP_DONE_ASK : pushed()) : readySentAsk(shownOpen.length);
   const parts = g
     ? [
         // Final fix (M2): the adding line names what the codes open.

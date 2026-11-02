@@ -537,9 +537,7 @@ test('final fix (I1): the opener names each program\'s needs; the yes asks for t
   assert.equal(show(yes), [
     "Adding Builder Codes now, then I'll open Base.",
     '',
-    "Base also needs your usage numbers, demo video, how it makes money today and 2 more. I'll ask for them next. Circle also needs your Circle and Arc integrations, product roadmap and proposed grant milestones. I'll ask for them next.",
-    '',
-    "a16z needs your email, team list and any money you've raised first. Reply with them and I'll finish it.",
+    "a16z needs your email, team list and any money you've raised first. After that I'll ask for Base's usage numbers, demo video, how it makes money today, main challenge right now and the credits you want, then Circle's Circle and Arc integrations, product roadmap and proposed grant milestones. Reply with them and I'll finish it.",
   ].join('\n'), show(yes));
   assert.equal(moveUp(yes)?.kind, 'ready');
   assert.deepEqual(asksOf(yes), ['contact', 'team', 'raised']);
@@ -553,9 +551,7 @@ test('final fix (I1): the opener names each program\'s needs; the yes asks for t
     '1 of 3 is open with every answer in place:',
     '- a16z: https://speedrun.a16z.com/apply',
     '',
-    "Base also needs your main challenge right now and the credits you want. I'll ask for them next. Circle also needs your Circle and Arc integrations, product roadmap and proposed grant milestones. I'll ask for them next.",
-    '',
-    "Base needs your contact details (name and Telegram), usage numbers, demo video and how it makes money today first. Reply with them and I'll finish it.",
+    "Base needs your contact details (name and Telegram), usage numbers, demo video and how it makes money today first. After that I'll ask for Base's main challenge right now and the credits you want, then Circle's Circle and Arc integrations, product roadmap and proposed grant milestones. Reply with them and I'll finish it.",
   ].join('\n'), show(answered));
   assert.deepEqual(openIds(answered), [sr.id]);
   assert.deepEqual(asksOf(answered), ['contact', 'traction', 'demo_video', 'other:revenue']);
@@ -618,9 +614,7 @@ test('final fix (I1, I3): past 4 fields a program waits, named; a no parks the a
   assert.match(opener, /\n\nI've filled what I can from your commits/, opener);
   const yes = await tell(b, { kind: 'ready', project_key: b.key, answer: 'yes' });
   assert.equal(show(yes), [
-    'Beta also needs your usage numbers, consent to the terms and requested amount. I\'ll ask for them next.',
-    '',
-    "Alpha needs your team list, demo video and team location first. Reply with them and I'll finish it.",
+    "Alpha needs your team list, demo video and team location first. After that I'll ask for Beta's usage numbers, consent to the terms and requested amount. Reply with them and I'll finish it.",
   ].join('\n'), show(yes));
   assert.deepEqual(asksOf(yes), ['team', 'demo_video', 'other:team_location']);
   const no = await tell(b, { kind: 'ready', project_key: b.key, answer: 'no' });
@@ -748,7 +742,7 @@ test('final fix (M8): a hosted agent\'s yes never says "I\'ll do it": the codes 
   assert.doesNotMatch(show(y2), /Reply with them/, show(y2));
   pushCodes(owes);
   const ok = await tell(owes, { kind: 'qualify', project_key: owes.key, answer: 'yes' });
-  assert.match(show(ok), /a16z needs your email, team list and any money you've raised first\. Reply with them and I'll finish it\.$/, show(ok));
+  assert.match(show(ok), /a16z needs your email, team list and any money you've raised first\. After that I'll ask for Base's [^.]+, then Circle's [^.]+\. Reply with them and I'll finish it\.$/, show(ok));
 });
 
 test('final fix (M7, M3): a ready ask whose set expired is dropped, never "Okay."; "skip 1 2 3 4" is taken', db, async () => {
@@ -932,7 +926,7 @@ test('v4.10.1 final fix 2 (I1): a ready opener while the score is updating has n
 
 test('v4.10.1 final fix 2 (I2): an answer turn that leaves only Builder Codes says Base waits on them before the push ask', db, async () => {
   await ownerPrograms();
-  const b = await owner('i2');
+  const b = await owner('ff2');
   await find(b);
   const yes = await tell(b, { kind: 'ready', project_key: b.key, answer: 'yes' });
   assert.equal(moveUp(yes)?.kind, 'ready', show(yes));
