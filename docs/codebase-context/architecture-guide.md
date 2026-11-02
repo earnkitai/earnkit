@@ -9281,3 +9281,20 @@ This supersedes the per-program need in Task 4: the builder answers once for the
   - M7: the first yes refreshes `ready.at`, and a ready ask whose set expired is dropped (find answers).
 - **Gate.** `BLANKS_REPLY` also takes "... and I'll finish them." `lazyNext` takes `answers`, so a ready need ask is
   answered in one split message (replay `ANSWERS`).
+
+## v4.10.1 Task 1: honest needs
+
+- **What is a need.** `conversation.ts` `mustGive(r)` (used by `builderOnly` and `draftBlanks`): a required, non-contact
+  field the agent can't truthfully draft. That is a plan or claim of any `from` (PLAN_KINDS: milestones, use_of_funds,
+  raised, team, traction), or a builder field that `mustAsk` catches, is `multi_choice`, or has a kind outside
+  AGENT_DRAFTABLE. A GTM plan stays drafted (ruling R1). Circle's `integrations` is `from: builder`, kind `other`.
+- **Contact (R2).** `readyDrafts` puts the unheld contact fields first. They form one ask item, kind `contact`, worded
+  by `ready-copy.ts` `contactPhrase`; the agent answers `answers.contact` as `{ [slot]: value }` (`coach.ts` `slotOf`).
+  They are banked by slot, so a detail given once is never asked again.
+- **Held.** `heldAnswers` also fills an opted-in email (`digest_subscriptions`, held only), verified revenue (the record's
+  revenue lines) and an owned contract on the chain the label names (`used-by.ts` `contractsOf`).
+- **Ask keys.** A field of no bankable kind, or one of two same-kind fields in a program, is keyed `other:<key>`
+  (`READY_ANSWERS` takes those keys). A plain `other` answers only a lone `other:` item, so no two fields share an answer.
+  The first program's fields past the cap go to `later` (named, asked next).
+- **Copy.** `readyOpener` says "Every other answer is filled" only when one ask covers every field owed (`rest`);
+  otherwise it says "I've filled what I can from ...".

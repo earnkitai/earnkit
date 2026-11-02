@@ -2796,3 +2796,14 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
     `lazyNext` `answers`. `scripts/converse-replay.mts` `ANSWERS`.
   - Tests: `v410-find.test.ts` (I1 to I5, M3, M7, M8 hosted, the I2 cross-check) and `v410-ready.test.ts` (the pure
     pieces). `v481-fixes.test.ts` `soonestIsTheCopy` date-proofs F6 and R-4.
+
+## v4.10.1 Task 1: honest needs
+
+- `conversation.ts` `mustGive`, `builderOnly`. `programs/circle-developer-grants.json` `integrations`.
+- `bench-find.ts` `readyDrafts` (contact first), `askKey(r, only)`, `draftAsks`, `itemPhrase`, `readyNeeds` (first
+  program's rest in `later`), `needFields` (contact `slots`), `readyBank` (per-slot contact, keyed `other:`),
+  `heldAnswers` (email, revenue, contract address), `readyCommit` (`rest`).
+- `ready-copy.ts` `contactPhrase`, `needsPhrase` (wh- and "the" todos as written), `readyOpener({ rest })`.
+- `program-file.ts` `READY_ANSWERS` and `ReadyAnswers`. `coach.ts` `slotOf` (exported).
+- `fixtures/converse.ts` `lazyNext` (contact slots); `scripts/converse-replay.mts` `ANSWERS`.
+- Tests: `v410-find.test.ts` (`v4.10.1 (1)`, `(2)`), `v410-ready.test.ts` (pure).
