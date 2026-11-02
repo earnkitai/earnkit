@@ -324,7 +324,10 @@ test('(d) a no to the token before the proof: the setup-done reply, then the pro
   assert.doesNotMatch(none, /doesn't fit/, none);
   // Matched, nothing fits: the Monday check-in (this client can schedule and was never asked), stored so a yes routes right.
   // v4.7 T4: the check-in's why, a paragraph before the question (v4.8 Task 1: the first-run line is retired).
-  assert.ok(none.endsWith(`| Circle Developer Grants | $100,000 | Rolling |\n\nA Monday check-in keeps your drafts current before deadlines.\n\nWant me to check in here every Monday?`), none);
+  // v4.8.3: the grants first, then an open investment fills the table (Base Ecosystem Fund since the Nov 1 refresh), so the
+  // last row isn't pinned: the table ends right before the why and the question.
+  assert.ok(none.includes('\n| Circle Developer Grants | $100,000 | Rolling |\n'), none);
+  assert.match(none, /\n\| [^\n]+ \|\n\nA Monday check-in keeps your drafts current before deadlines\.\n\nWant me to check in here every Monday\?$/, none);
   assert.equal((await signOn(p.handle, s, p.tf)).status, 200);
   assert.equal(await settled(p.id), 'declined');
   assert.equal(p.tf.calls.length, 0);

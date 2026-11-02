@@ -1,6 +1,7 @@
 import { pageUrl } from './reserved-routes';
 import { CHEER_LINE, communityRow, mondayOpener, mondayRows } from './weekly-moment';
 import type { GapStep } from './conversation';
+import { possessive } from './submit-kit';
 
 /**
  * v3.1 Task 16 (owner-approved copy, 2026-10-21): every reply written for a busy builder. Plain text, no headers,
@@ -375,7 +376,7 @@ const NEEDS: Record<QualifyStep, string> = { base: 'put the app on Base', codes:
 /** "a, b and c". Pure. */
 const andList = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
 /** "Base's $5,000 grant". Pure. */
-const grantName = (g: OpenGrant) => `${g.org}'s ${g.amount} grant`;
+const grantName = (g: OpenGrant) => `${possessive(g.org)} ${g.amount} grant`;
 /** v4.3 (owner-approved): what Builder Codes are, said once in the gap. */
 const CODES_TAG = "a one-line tag that credits your app's Base transactions to you";
 /** v4.3 (owner-approved): "Base Builder Grants: $5,000, rolling." Pure. */

@@ -7,6 +7,7 @@ import { ProgramFile } from './program-file';
 import {
   AGENT_FILL_STEPS,
   continuesLine,
+  possessive,
   GOOGLE_EMAIL_SIGN_IN,
   CONFIRMATION_ASK,
   ENTRY_LINK_ASK,
@@ -312,4 +313,13 @@ test('v2.8.1 §C14: the speedrun kit says the application continues on a16z\'s s
     const p = ProgramFile.parse(JSON.parse(readFileSync(join(dir, f), 'utf8')));
     assert.equal(continuesLine(p), null, f);
   }
+});
+
+test('v4.8.3: an investment whose form is the whole application gets no continues line; a name ending in "s" takes the apostrophe alone', () => {
+  const email = { key: 'email', label: 'Email', type: 'email' as const, required: true, from: 'builder' as const };
+  const name = { key: 'name', label: 'Name', type: 'text' as const, required: true, from: 'builder' as const };
+  assert.equal(continuesLine({ investment: true, organizer: 'Circle Ventures', submission_requirements: [email] }), "After the email step, the application continues on Circle Ventures' site.");
+  assert.equal(continuesLine({ investment: true, organizer: 'Circle Ventures', submission_requirements: [email, name] }), null);
+  assert.equal(continuesLine({ investment: true, organizer: 'Z Fellows', submission_requirements: [] }), null);
+  assert.deepEqual(['a16z', 'Alliance', 'Z Fellows', 'Avalanche Team1 Mini Grants'].map(possessive), ["a16z's", "Alliance's", "Z Fellows'", "Avalanche Team1 Mini Grants'"]);
 });
