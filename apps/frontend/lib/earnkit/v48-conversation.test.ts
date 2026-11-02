@@ -630,6 +630,8 @@ test('gapReply: the steps, each one the agent can do marked and first; "Go?" for
 test('the gap closed and the draft: target A word for word', () => {
   assert.equal(gapClosedReply({ org: 'Base', title: 'Base Builder Grant Program', codes: true }), A_CODES_IN);
   assert.equal(gapClosedReply({ org: 'Base', title: 'Base Builder Grant Program', codes: true, proof: gapProof({ name: 'EarnKit', live: true }, 6, []) }), A_CODES_IN_PROOF);
+  // v4.8.3: a name ending in "s" takes the apostrophe alone.
+  assert.equal(gapClosedReply({ org: 'Avalanche', title: 'Avalanche Team1 Mini Grants', codes: false }), "Avalanche Team1 Mini Grants' steps are done. Want me to draft the Avalanche application next?");
   assert.equal(gapProof({ name: 'EarnKit', live: true }, 6, ['codes', 'use']), "You're on Base.");
   assert.equal(gapProof({ name: 'EarnKit', live: true }, 6, ['base', 'codes']), "You've shipped 6 weeks in a row and EarnKit is live.");
   // Fix round 1 (T2-4): mid-gap, the first remaining step, never "Want the steps?".

@@ -15,6 +15,9 @@ import { tokenOfferDue } from './wallet-offer';
 import { isoWeekOf, last52 } from './weeks';
 import { FIND_DESCRIPTION_BENCH } from './mcp';
 import { ANSWER_FIRST_NOTE } from './stand-text';
+import { ProgramFile } from './program-file';
+import { committedProgram } from './fixtures/program-file';
+import { upsertProgram } from './programs';
 import {
   QUALIFY_CODES_CHECK_NOTE, QUALIFY_CODES_NOTE, alsoLine, walletSetupAsk, TOKEN_OFFER, benchReply, qualifyAsk, qualifyCodesYes, qualifyGap, qualifyHead, qualifySteps, stateAsk,
   type BenchView, type OpenGrant, type QualifyOffer, type QualifyStep,
@@ -292,18 +295,35 @@ test('fix round 1: a stored ask from before v4.3 (no first, no name) answers a y
 
 // ---- v4.3 Task 2: the full list never contradicts itself ----
 
+/**
+ * v4.8.3: a fixed open set, so the table doesn't follow each programs refresh or the real clock (the database's now()
+ * closes a committed program on its real date, whatever the mocked clock says): Base's and Circle's rolling grants and
+ * Z Fellows, a rolling investment.
+ */
+const PINNED = [BASE_GRANTS_ID, 'circle-developer-grants', 'z-fellows'];
+async function pinOpen(ids: string[]) {
+  await sql()`UPDATE programs SET status = 'closed' WHERE NOT (id = ANY(${ids}::text[]))`;
+  await sql()`UPDATE programs SET status = 'active' WHERE id = ANY(${ids}::text[])`;
+}
+/** A copy of Arc Microgrants: Built with Arc Studio, open (by the database's real clock) for 30 more hours. */
+async function closingArc() {
+  const [{ now }] = await sql()<{ now: Date }[]>`SELECT now() AS now`;
+  const ends = new Date(now.getTime() + 30 * 3_600_000);
+  const p = ProgramFile.parse({ ...committedProgram('arc-microgrants-studio', { keepContract: true }), id: `v43-${process.pid}-arc`, ends_at: ends.toISOString(), status: 'active', starts_at: null });
+  await upsertProgram(p);
+  return { id: p.id, title: p.title, ends };
+}
 const FULL_TABLE = [
   '| Program | Amount | Difficulty | Ends |',
   '|---|---|---|---|',
   '| Base Builder Grant Program | $5,000 | Medium | rolling |',
-  '| Arc Microgrants: Built with Arc Studio | 500 USDC × 8 grants | Medium | Nov 1, 11:59 PM ET |',
   '| Circle Developer Grants | $5,000 to $100,000 USDC grants | Hard | rolling |',
-  '| a16z speedrun SR008 | $1M investment | Hard | Nov 1, 11:59 PM PT |',
-  '| Alliance ALL19 | $400K at admission investment | Hard | Nov 18, 11:59 PM UTC |',
+  '| Z Fellows | $10K investment | Hard | rolling |',
 ].join('\n');
 
 test("v4.3 Task 2: the owner's find {more: true}: head and gap, the full table, the same one question; never doesn't fit", db, async () => {
   await start();
+  await pinOpen(PINNED);
   const { c, ctx, key } = await ownerBuilder('m');
   const r = await mcpCall(ctx, 'find', { more: true });
   const s = show(r);
@@ -320,9 +340,10 @@ test("v4.3 Task 2: the owner's find {more: true}: head and gap, the full table, 
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
   assert.equal(show(yes), qualifyCodesYes('EarnKit'));
   // Days later (Arc Microgrants closes within 3 days): still the table, never an "Updates:" line repeating it.
-  mock.timers.setTime(Date.parse('2026-10-29T12:00:00Z'));
+  const arc = await closingArc();
+  mock.timers.setTime(arc.ends.getTime() - 2 * DAY);
   const later = show(await mcpCall(ctx, 'find', { more: true }));
-  assert.match(later, /\| Arc Microgrants: Built with Arc Studio \|/, later);
+  assert.ok(later.includes(`| ${arc.title} |`), later);
   assert.doesNotMatch(later, /doesn't fit|Updates:/, later);
 });
 
@@ -343,8 +364,11 @@ test('v4.3 Task 2: a ranked reply with the full list puts the table right before
 });
 
 test("v4.3 Task 2: a shared client's find {more: true} keeps the table path with no doesn't fit line", db, async () => {
+  // v4.8.3: the pinned set and an Arc copy closing within 3 days of the mocked clock (open by the database's).
+  await pinOpen(PINNED);
+  const arc = await closingArc();
   mock.timers.reset();
-  mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-29T12:00:00Z') });
+  mock.timers.enable({ apis: ['Date'], now: arc.ends.getTime() - 2 * DAY });
   const t = `ek_v43fash_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Claude Code');
   const c = (await connectInstallation(t))!;
@@ -353,7 +377,7 @@ test("v4.3 Task 2: a shared client's find {more: true} keeps the table path with
   await mcpCall(ctx, 'find', input);
   const s = show(await mcpCall(ctx, 'find', input));
   assert.match(s, /\| Program \| Amount \| Difficulty \| Ends \|/, s);
-  assert.match(s, /\| Arc Microgrants: Built with Arc Studio \|/, s);
+  assert.ok(s.includes(`| ${arc.title} |`), s);
   assert.doesNotMatch(s, /doesn't fit/, s);
   assert.doesNotMatch(s, /Updates: [^\n]*Arc Microgrants/, s);
 });

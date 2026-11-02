@@ -4,6 +4,7 @@ import { hoursLeft, submitBy, zoneParts } from './deadline';
 export { hoursLeft, submitBy };
 import { table } from './present';
 import { MORE_ASK } from './bench-reply';
+import { possessive } from './submit-kit';
 
 /**
  * v4.8 "the launch conversation" (docs/design-docs-and-implementation-plans/v4.8-target-conversation.md): EarnKit leads.
@@ -610,7 +611,7 @@ export const draftNextAsk = (org: string) => `Want me to draft the ${org} applic
  * Base application next?". Another grant: "{program}'s steps are done." and the same offer. Pure.
  */
 export function gapClosedReply(c: { org: string; title: string; codes: boolean; proof?: string | null }): string {
-  const done = c.codes ? `Builder Codes are in. You now meet ${c.org}'s first requirement.` : `${programName(c.title)}'s steps are done.`;
+  const done = c.codes ? `Builder Codes are in. You now meet ${possessive(c.org)} first requirement.` : `${possessive(programName(c.title))} steps are done.`;
   // Fix round 1 (T2-6): one proof line, before the offer.
   return [done, c.proof, draftNextAsk(c.org)].filter(Boolean).join(' ');
 }

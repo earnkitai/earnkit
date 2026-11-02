@@ -18,7 +18,7 @@
   "starts_at": null,
   "ends_at": null,
   "wants_revenue": true,
-  "verified_at": "2026-10-28",
+  "verified_at": "2026-11-01",
   "status": "active",
   "existing_work": "allowed",
   "needs_repo": true,
@@ -205,6 +205,14 @@
       "type": "text",
       "required": true,
       "from": "builder"
+    },
+    {
+      "key": "what_changed",
+      "label": "If you're applying for the Second time, What changed from the last application?",
+      "kind": "other",
+      "type": "text",
+      "required": false,
+      "from": "builder"
     }
   ],
   "tracks": [],
@@ -275,10 +283,11 @@
       "gtm_plan": "entry.158694497",
       "builder_code": "entry.703891879",
       "primary_challenge": "entry.475374687",
-      "credits": "entry.1350986773"
+      "credits": "entry.1350986773",
+      "what_changed": "entry.1460571512"
     },
     "sign_in": "email_only",
-    "read_at": "2026-10-28"
+    "read_at": "2026-11-01"
   },
   "pitch": {
     "who": "Base",

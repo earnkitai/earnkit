@@ -351,15 +351,21 @@ export function derivedDescription(reqs: SubmissionRequirement[], answers: Recor
   );
 }
 
-/** A contact label as the form means it, short: "X (Twitter) handle" reads "X", "Telegram username" "Telegram". */
+/**
+ * A contact label as the form means it, short: "X (Twitter) handle" reads "X", "Telegram username" "Telegram".
+ * v4.8.3: a Title Case label reads mid-sentence ("First Name" "first name", "Phone Number" "phone number"), proper
+ * names keep their case, and a numbered person's prefix goes ("Founder 1: Telegram" reads "Telegram").
+ */
 const contactLabel = (r: SubmissionRequirement) =>
-  lowerFirst(
-    shortLabel(r.label)
-      .replace(/\s*\([^)]*\)/g, '')
-      .replace(/^(your|the)\s+/i, '')
-      .replace(/\s+(handle|username)$/i, '')
-      .trim(),
-  );
+  shortLabel(r.label)
+    .replace(/\s*\([^)]*\)/g, '')
+    .replace(/^\p{L}+ \d+:\s*/u, '')
+    .replace(/^(your|the)\s+/i, '')
+    .replace(/\s+(handle|username)$/i, '')
+    .trim()
+    .split(' ')
+    .map((w, i) => (i === 0 ? lowerFirst(w) : PROPER.test(w) ? w : w.replace(/^(\p{Lu})(\p{Ll}+)$/u, (_m, a: string, b: string) => a.toLowerCase() + b)))
+    .join(' ');
 
 /**
  * C16, round 3: the contact question names exactly what the form wants, never "contact details".

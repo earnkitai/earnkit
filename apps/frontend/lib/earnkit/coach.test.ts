@@ -325,6 +325,15 @@ test('C17, round 3: on every committed program, first and later: at most 4 items
   assert.ok(screens >= 16);
 });
 
+test('v4.8.3: a Title Case contact label reads mid-sentence, proper names keep their case, a "Founder 1:" prefix goes', () => {
+  const c = (key: string, label: string) => req(key, 'contact', { label, from: 'builder' });
+  const z = [c('email', 'Email'), c('first_name', 'First Name'), c('last_name', 'Last Name'), c('phone', 'Phone Number')];
+  assert.equal(questionsFor({ reqs: z, answers: {}, first: true })[0].text, 'Your email, first name, last name and phone number?');
+  const bef = [c('n', 'Founder 1: Name'), c('t', 'Founder 1: Telegram'), c('x', 'Founder 1: X'), c('l', 'Founder 1: LinkedIn'), c('loc', 'Location')];
+  assert.equal(questionsFor({ reqs: bef, answers: {}, first: true })[0].text, 'Your name, Telegram, X, LinkedIn and location?');
+  assert.equal(questionsFor({ reqs: [c('x', 'X Profile'), c('t', 'Telegram username')], answers: {}, first: true })[0].text, 'Your X profile and Telegram?');
+});
+
 /** C14: every builder fix reads "<Field>: <the exact thing to add>." and names its field. */
 const FIX_FORMAT = /^[^:\n]{1,41}: [a-z][^\n]*\.$/;
 

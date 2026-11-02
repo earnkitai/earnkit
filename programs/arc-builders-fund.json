@@ -1,0 +1,114 @@
+{
+  "id": "arc-builders-fund",
+  "organizer": "Circle Ventures",
+  "title": "Arc Builders Fund",
+  "description": "Circle Ventures' initiative backing early-stage teams building real-world financial apps and services that can only exist on Arc: capital, hands-on support from Arc's core teams, and introductions to an investor network. Teams apply by submitting an investor deck; no deadline is stated.",
+  "source_url": "https://www.arc.io/builders-fund",
+  "submission_url": "https://www.arc.io/builders-fund",
+  "reward": "Capital from Circle Ventures for select companies, plus hands-on support from Arc's core teams (amount not stated)",
+  "summary": "investment from Circle Ventures · rolling",
+  "submission_proof": null,
+  "starts_at": null,
+  "ends_at": null,
+  "verified_at": "2026-11-01",
+  "status": "active",
+  "existing_work": "allowed",
+  "needs_repo": false,
+  "chains": [
+    "arc"
+  ],
+  "investment": true,
+  "min_product_score": 5,
+  "setup": [],
+  "each_time": [
+    "an investor deck"
+  ],
+  "rules": [
+    "Rolling: submit your investor deck on arc.io for Builders Fund consideration. No deadline is stated.",
+    "For teams building real-world financial apps and services that can only exist on Arc.",
+    "Circle looks for early-stage teams whose products need Arc's unique attributes and who can show a path to real use cases, ideally building primitives other Arc projects can compose with.",
+    "\"Arc Builders Fund\" is a label for a Circle Ventures internal initiative, not a fund. Any capital is deployed by Circle Ventures at its sole discretion; no amount is published.",
+    "Investor Network members are third-party firms with no commitment to invest."
+  ],
+  "submission_requirements": [
+    {
+      "key": "first_name",
+      "label": "First name",
+      "kind": "contact",
+      "todo": "your first name",
+      "type": "text",
+      "required": true,
+      "from": "builder"
+    },
+    {
+      "key": "last_name",
+      "label": "Last name",
+      "kind": "contact",
+      "todo": "your last name",
+      "type": "text",
+      "required": true,
+      "from": "builder"
+    },
+    {
+      "key": "work_email",
+      "label": "Work email",
+      "kind": "contact",
+      "todo": "your work email",
+      "type": "email",
+      "required": true,
+      "from": "builder"
+    },
+    {
+      "key": "company_name",
+      "label": "Company name",
+      "kind": "name",
+      "todo": "a company name",
+      "type": "text",
+      "required": true,
+      "project_field": "name",
+      "from": "project"
+    },
+    {
+      "key": "country",
+      "label": "Country of residence",
+      "kind": "contact",
+      "todo": "your country of residence",
+      "type": "text",
+      "required": true,
+      "description": "Picked from a country list on the form.",
+      "from": "builder"
+    },
+    {
+      "key": "investor_deck",
+      "label": "Investor deck",
+      "kind": "other",
+      "todo": "an investor deck file",
+      "type": "file",
+      "required": true,
+      "from": "builder"
+    },
+    {
+      "key": "marketing_consent",
+      "label": "I agree to receive marketing and other communications from Circle and Arc about Arc and other company updates.",
+      "kind": "other",
+      "type": "multi_choice",
+      "required": false,
+      "options": [
+        "I agree to receive marketing and other communications from Circle and Arc about Arc and other company updates."
+      ],
+      "description": "Optional. Submitting means you agree to Circle's User Agreement and Privacy Policy.",
+      "from": "builder"
+    }
+  ],
+  "tracks": [],
+  "starters": [],
+  "difficulty_override": null,
+  "focus": {
+    "areas": [
+      "Real-world financial apps only possible on Arc",
+      "Composable primitives for other Arc projects"
+    ],
+    "source_url": "https://www.circle.com/blog/introducing-the-arc-builders-fund",
+    "ecosystem": "Arc"
+  }
+}
