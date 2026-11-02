@@ -653,11 +653,12 @@ test("draftBlanks (fix round 2, F1): a founder brief for a16z; Base's blanks are
   // money, the main challenge and the credits wanted later; contact details never.
   const b = draftBlanks(base, {});
   assert.deepEqual(b.blanks, ['a note on the founding team', 'your key usage numbers']);
-  assert.deepEqual(b.later, ['a Loom product demo', 'how it makes money today', 'your Base Builder Code', 'your main challenge right now', 'the credits you want']);
+  // Fix round 1: and the contract address on Base, a fact EarnKit holds or the builder gives.
+  assert.deepEqual(b.later, ['a Loom product demo', 'your contract address on Base', 'how it makes money today', 'your Base Builder Code', 'your main challenge right now', 'the credits you want']);
   // The agent drafts only the GTM plan (R1), marked for the builder to check.
   assert.deepEqual(b.drafted, ["What's your GTM plan for the next 3 months?"]);
-  // EarnKit holds the confirmed Builder Code, verified usage and verified revenue: the team and the demo are the blanks.
-  const held = draftBlanks(base, { builder_code: 'bc_abc', usage_numbers: 'Used by 40 people in the last 30 days, verified onchain', revenue: '$120 paid into its contracts by outside wallets in the last 30 days, verified onchain' });
+  // EarnKit holds the confirmed Builder Code, verified usage and revenue and an owned contract: the team and the demo are the blanks.
+  const held = draftBlanks(base, { builder_code: 'bc_abc', usage_numbers: 'Used by 40 people in the last 30 days, verified onchain', revenue: '$120 paid into its contracts by outside wallets in the last 30 days, verified onchain', contract_address: '0x0000000000000000000000000000000000000001' });
   assert.deepEqual(held.blanks, ['a note on the founding team', 'a Loom product demo']);
   assert.deepEqual(held.later, ['your main challenge right now', 'the credits you want']);
   // Fix round 3 (4): "code" only as a code the builder supplies; a held payout wallet is no blank.

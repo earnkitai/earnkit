@@ -86,6 +86,7 @@ const ANSWERS: Record<string, string> = {
   // v4.10.1 Task 1: the contact item (one per slot) and the fields asked under their own key.
   'contact.name': 'Jenil T', 'contact.email': 'replay@example.com', 'contact.telegram': '@replay',
   'other:revenue': 'no revenue yet', 'other:primary_challenge': 'User acquisition', 'other:credits': 'no credits needed yet',
+  'other:contract_address': 'no contract on Base yet',
 };
 const replies: Reply[] = [];
 const notes: string[] = [];

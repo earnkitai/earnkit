@@ -292,7 +292,10 @@ test('v4.10.1 (1): what the agent can\'t truthfully draft is a need, whatever `f
   assert.deepEqual(builderOnly(circle, {}).map((r) => r.key), ['integrations', 'roadmap', 'milestones']);
   const base = { ...committedProgram('base-builder-grants'), investment: false };
   // R1: the GTM plan stays drafted; revenue, the main challenge (multi_choice) and the credits are the builder's.
-  assert.deepEqual(builderOnly(base, {}).map((r) => r.key), ['founding_team', 'usage_numbers', 'demo_loom', 'revenue', 'builder_code', 'primary_challenge', 'credits']);
+  assert.deepEqual(builderOnly(base, {}).map((r) => r.key), ['founding_team', 'usage_numbers', 'demo_loom', 'contract_address', 'revenue', 'builder_code', 'primary_challenge', 'credits']);
+  // Fix round 1: a contract address EarnKit doesn't hold is the builder's (from the project or not); held, it isn't.
+  assert.ok(!builderOnly(base, { contract_address: '0xabc' }).some((r) => r.key === 'contract_address'));
+  assert.equal(mustGive({ key: 'contracts', label: 'Base contract addresses to score', from: 'project', kind: 'other', required: true }), true);
   assert.equal(mustGive(base.submission_requirements.find((r: { key: string }) => r.key === 'gtm_plan')!), false);
   // Verified revenue held: never asked.
   assert.ok(!builderOnly(base, { revenue: '$120 paid into its contracts' }).some((r) => r.key === 'revenue'));

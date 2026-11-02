@@ -1176,7 +1176,7 @@ const anyAnswer = (a: ReadyAnswers | undefined) =>
 /**
  * Final fix (I1): the builder's one reply, per field: `answers[kind]` (the agent's split, by the item's ask key; a
  * plain 'other' only when one such field is asked, v4.10.1 Task 1, so two fields never get one answer), else `blanks`
- * (their whole reply, the fallback), for each field of `items` only (the stored need's, or on the first yes every
+ * (their whole reply, the fallback; fix round 1, only when one non-contact item is asked), for each field of `items` only (the stored need's, or on the first yes every
  * program's). The contact item (R2) takes `answers.contact`, one value per slot (a single slot may take a plain string;
  * never the blanks). The bankable ones are saved for every program asking them (saveBank, by kind: never asked twice;
  * contact by slot, so a detail given once is never asked again); the others (and contact details on a project the bank
@@ -1189,6 +1189,9 @@ async function readyBank(
   const blanks = m.blanks?.trim() || null;
   const text = (x: unknown) => (typeof x === 'string' ? x.trim() || null : null);
   const others = items.filter((it) => it.kind.startsWith('other:')).length;
+  // Fix round 1 (I2): the whole reply answers one field only; with more asked, it answers none (the ask stays open
+  // for the agent's split), so two fields never get the same answer.
+  const whole = items.filter((it) => it.kind !== 'contact').length === 1 ? blanks : null;
   const byProgram: Record<string, Record<string, string>> = {};
   const reqsOf: Record<string, { req: SubmissionRequirement; kind: string }[]> = {};
   const put = (f: NeedItem['fields'][number], kind: string, v: string) => {
@@ -1207,7 +1210,7 @@ async function readyBank(
       }
       continue;
     }
-    const v = (text(a) ?? (it.kind.startsWith('other:') && others === 1 ? text(m.answers?.other) : null) ?? blanks)?.slice(0, 1000);
+    const v = (text(a) ?? (it.kind.startsWith('other:') && others === 1 ? text(m.answers?.other) : null) ?? whole)?.slice(0, 1000);
     if (!v) continue;
     for (const f of it.fields) put(f, it.kind, v);
   }

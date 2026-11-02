@@ -81,8 +81,10 @@ let n = 0;
  * on Base, six weeks shipping, setup step 3 done; a fresh session (the setup find's said moved back). `bank`: the
  * founding team, a demo, usage numbers and money raised held (v4.10.1 Task 1: Base still owes its contact details,
  * revenue, main challenge and credits, and a16z the email). `contact`: the name, email and Telegram banked too.
+ * Fix round 1: its contract on Base is an owned one (contractsOf), so Base's contract address is held; `contract:
+ * false` leaves none.
  */
-async function owner(tag: string, o: { bank?: boolean | 'team'; contact?: boolean; client?: string; hosted?: boolean } = {}) {
+async function owner(tag: string, o: { bank?: boolean | 'team'; contact?: boolean; contract?: boolean; client?: string; hosted?: boolean } = {}) {
   n++;
   const t = `ek_v410_${tag}_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, o.client ?? 'Claude Code');
@@ -116,6 +118,11 @@ async function owner(tag: string, o: { bank?: boolean | 'team'; contact?: boolea
       founding_team: 'Jenil, solo founder', demo_loom: 'https://loom.com/share/earnkit', usage_numbers: '120 transactions',
       ...(o.bank !== 'team' && { money_raised: 'Nothing raised yet' }),
     });
+  }
+  if (o.contract !== false) {
+    const hex = (k: number) => `0x${(BigInt(c.id) * 1000n + BigInt(k)).toString(16).padStart(40, '0')}`;
+    await sql()`INSERT INTO person_wallets (wallet, builder_id) VALUES (${hex(900)}, ${c.id}) ON CONFLICT DO NOTHING`;
+    await sql()`INSERT INTO wallet_contracts (chain, address, wallet, created_at, counts) VALUES ('base', ${hex(901)}, ${hex(900)}, now() - interval '30 days', true) ON CONFLICT DO NOTHING`;
   }
   if (o.contact) {
     const base = (await getProgramRow('base-builder-grants'))!;
@@ -420,10 +427,10 @@ test('fix 1 (H1): the brief\'s answer is banked as team and raised and opens a16
   const b = await owner('hq', { bank: false });
   assert.match(show(await find(b)), /\n1\. a16z speedrun SR008: up to \$1M investment, closes in \d+ hours\. Needs your email, team list and any money you've raised first\.\n/);
   assert.equal(show(await tell(b, { kind: 'ready', project_key: b.key, answer: 'yes' })), "a16z needs your email, team list and any money you've raised first. Reply with them and I'll finish it.");
-  // v4.10.1 Task 1: the whole reply is never anyone's email: without the agent's split, the email is still owed.
+  // v4.10.1 Task 1 fix round 1 (I2): the whole reply never answers two fields (nor an email): unsplit, all stay owed.
   const half = await tell(b, { kind: 'ready', project_key: b.key, answer: 'yes', blanks: 'just me, nothing raised' });
-  assert.equal(show(half), "a16z needs your email first. Reply with it and I'll finish it.");
-  const done = await tell(b, { kind: 'ready', project_key: b.key, answer: 'yes', answers: { contact: 'jenil@example.com' } });
+  assert.equal(show(half), "a16z needs your email, team list and any money you've raised first. Reply with them and I'll finish it.");
+  const done = await tell(b, { kind: 'ready', project_key: b.key, answer: 'yes', answers: { contact: 'jenil@example.com', team: 'just me', raised: 'nothing raised' } });
   assert.equal(show(done), 'It is open with every answer in place:\n- a16z: https://speedrun.a16z.com/apply\n\nReply "sent" once it\'s in, and I\'ll track it for you.');
   const kinds = await sql()<{ kind: string }[]>`SELECT kind FROM answer_bank WHERE installation_id = ${b.id} ORDER BY kind`;
   assert.deepEqual(kinds.map((k) => k.kind), ['contact', 'raised', 'team']);
@@ -571,17 +578,21 @@ test('final fix (I1): answers on the first yes finish every program in one turn;
   assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), [], replies.map((r) => r.show).join('\n---\n'));
 });
 
-test('final fix (I1): answers are limited to the asked kinds; blanks stay the fallback for the rest', db, async () => {
+test('final fix (I1): answers are limited to the asked kinds; blanks answer only a lone field (fix round 1, I2)', db, async () => {
   const sr = await copy('a16z-speedrun', 'a16z-ab', { hours: 30 });
   await sql()`UPDATE programs SET status = 'closed' WHERE investment AND id <> ${sr.id}`;
   await only([sr.id]);
   const b = await owner('i1b', { bank: false });
   await find(b);
   await tell(b, { kind: 'ready', project_key: b.key, answer: 'yes' });
-  // 'use_of_funds' is no kind asked: ignored; money raised comes from the whole reply; the one email slot takes a string.
-  const done = await tell(b, { kind: 'ready', project_key: b.key, answer: 'yes', answers: { team: 'Just me', use_of_funds: 'hire', contact: 'jenil@example.com' }, blanks: 'just me, nothing raised' });
+  // 'use_of_funds' is no kind asked: ignored; the one email slot takes a string. Fix round 1 (I2): with the team and
+  // money raised both asked, the whole reply answers neither, so money raised is still owed.
+  const part = await tell(b, { kind: 'ready', project_key: b.key, answer: 'yes', answers: { team: 'Just me', use_of_funds: 'hire', contact: 'jenil@example.com' }, blanks: 'just me, nothing raised' });
+  assert.equal(show(part), "a16z needs any money you've raised first. Reply with it and I'll finish it.", show(part));
+  // Asked alone, the whole reply is its answer.
+  const done = await tell(b, { kind: 'ready', project_key: b.key, answer: 'yes', blanks: 'nothing raised' });
   assert.match(show(done), /^It is open with every answer in place:\n- a16z: /, show(done));
-  assert.deepEqual(await bankOf(b.id), { team: 'Just me', raised: 'just me, nothing raised', contact: JSON.stringify({ email: 'jenil@example.com' }) });
+  assert.deepEqual(await bankOf(b.id), { team: 'Just me', raised: 'nothing raised', contact: JSON.stringify({ email: 'jenil@example.com' }) });
 });
 
 test('final fix (I1, I3): past 4 fields a program waits, named; a no parks the asked one and the waiting one is asked next', db, async () => {
@@ -802,4 +813,37 @@ test('v4.10.1 (2): an opted-in email and an owned Base contract are filled, neve
   assert.match(show(r), /Base Builder Grant: up to \$5,000\. Needs your contact details \(name and Telegram\), how it makes money today/, show(r));
   // Base's 4 fit the one ask, so "every other answer" is true here.
   assert.match(show(r), /\n\nEvery other answer is filled from your commits/, show(r));
+});
+
+test('v4.10.1 fix round 1 (I2): one unsplit reply never gives Base\'s revenue, challenge and credits the same text', db, async () => {
+  await only(['base-builder-grants']);
+  const b = await owner('fb', { contact: true });
+  const opener = show(await find(b));
+  assert.match(opener, /Needs how it makes money today, your main challenge right now and the credits you want first\./, opener);
+  await tell(b, { kind: 'ready', project_key: b.key, answer: 'yes' });
+  const r = await tell(b, { kind: 'ready', project_key: b.key, answer: 'yes', blanks: 'no revenue yet, user acquisition, Privy' });
+  // Nothing filled: the same three are asked again, for the agent's split.
+  assert.deepEqual(asksOf(r), ['other:revenue', 'other:primary_challenge', 'other:credits']);
+  assert.deepEqual(openIds(r), []);
+  const given = ((await seenOf(b.id)).ready as { given: Record<string, Record<string, string>> }).given['base-builder-grants'] ?? {};
+  assert.deepEqual(given, {});
+  // Split, each its own answer.
+  await tell(b, { kind: 'ready', project_key: b.key, answer: 'yes', answers: { 'other:revenue': 'No revenue yet', 'other:primary_challenge': 'User acquisition', 'other:credits': 'Privy' } });
+  const split = ((await seenOf(b.id)).ready as { given: Record<string, Record<string, string>> }).given['base-builder-grants'];
+  assert.deepEqual(split, { revenue: 'No revenue yet', primary_challenge: 'User acquisition', credits: 'Privy' });
+});
+
+test('v4.10.1 fix round 1: with no owned Base contract, Base needs its contract address, never "Ready"', db, async () => {
+  await only(['base-builder-grants']);
+  const b = await owner('nc', { contact: true, contract: false });
+  const r = await find(b);
+  const base = (r.reply?.ready as { programs: { asks: { kind: string }[]; prefilled: Record<string, string> }[] }).programs[0];
+  assert.equal(base.prefilled.contract_address, undefined);
+  assert.ok(base.asks.some((a) => a.kind === 'other:contract_address'), JSON.stringify(base.asks));
+  assert.match(show(r), /Needs your contract address on Base, how it makes money today, main challenge right now and 1 more first\./, show(r));
+  // Held (an owned contract): never asked.
+  const held = await owner('hc', { contact: true });
+  const h = (( await find(held)).reply?.ready as { programs: { asks: { kind: string }[]; prefilled: Record<string, string> }[] }).programs[0];
+  assert.match(h.prefilled.contract_address, /^0x[0-9a-f]{40}$/);
+  assert.ok(!h.asks.some((a) => a.kind === 'other:contract_address'));
 });
