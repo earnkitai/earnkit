@@ -9281,3 +9281,101 @@ This supersedes the per-program need in Task 4: the builder answers once for the
   - M7: the first yes refreshes `ready.at`, and a ready ask whose set expired is dropped (find answers).
 - **Gate.** `BLANKS_REPLY` also takes "... and I'll finish them." `lazyNext` takes `answers`, so a ready need ask is
   answered in one split message (replay `ANSWERS`).
+
+## v4.10.1 Task 1: honest needs
+
+- **What is a need.** `conversation.ts` `mustGive(r)` (used by `builderOnly` and `draftBlanks`): a required, non-contact
+  field the agent can't truthfully draft. That is a plan or claim of any `from` (PLAN_KINDS: milestones, use_of_funds,
+  raised, team, traction), or a builder field that `mustAsk` catches, is `multi_choice`, or has a kind outside
+  AGENT_DRAFTABLE. A GTM plan stays drafted (ruling R1). Circle's `integrations` is `from: builder`, kind `other`.
+- **Contact (R2).** `readyDrafts` puts the unheld contact fields first. They form one ask item, kind `contact`, worded
+  by `ready-copy.ts` `contactPhrase`; the agent answers `answers.contact` as `{ [slot]: value }` (`coach.ts` `slotOf`).
+  They are banked by slot, so a detail given once is never asked again.
+- **Held.** `heldAnswers` also fills an opted-in email (`digest_subscriptions`, held only), verified revenue (the record's
+  revenue lines) and an owned contract on the chain the label names (`used-by.ts` `contractsOf`).
+- **Ask keys.** A field of no bankable kind, or one of two same-kind fields in a program, is keyed `other:<key>`
+  (`READY_ANSWERS` takes those keys). A plain `other` answers only a lone `other:` item, so no two fields share an answer.
+  The first program's fields past the cap go to `later` (named, asked next).
+- **Copy.** `readyOpener` says "Every other answer is filled" only when one ask covers every field owed (`rest`);
+  otherwise it says "I've filled what I can from ...".
+
+## v4.10.1 Task 2: money and the repeat reply
+
+- **Worth (R3).** `ready-set.ts` `worthUpTo` leaves long shots out (investor programs stay in). `longShotWorth` sums the
+  long shots apart, and `ready-copy.ts` `worthClause` builds the opener's head: ", worth up to $1M, plus a $100K long
+  shot". A set of long shots only reads ", a $100K long shot" (", $150K in long shots"). With no number at all, the
+  clause is left out, never "$0".
+- **Repeat reply.** `readyAgain(set, now, hosted)` and `readySentAgain(set, now)` take rows, one line per program:
+  "- {shortName}: {money}[, closes in N hours]. {state}". The hours show only under 48. `bench-find.ts` `againRows`
+  builds the rows from the live cards and drops a closed or hidden program (a kept open page is named by title only).
+  `readyAgainCommit` drafts each program again, so a program with needs reads "Needs ... first.". The head says "still
+  ready" only when nothing is needed; otherwise "Here's where your N applications stand:". With every program closed it
+  returns null and the path answers. The repeat reply carries no long-shot label (ReadyState stores no kinds).
+- **Fix round 1.** The opener head says "ready for you" only when no program needs anything; otherwise "drafted for
+  you". When every program of the opener's ask has closed, `readyView` drops the stored ready ask (as M7 does for an
+  expired set), so a later yes answers "Okay." and never drafts or opens a closed program. The gate
+  (`fixtures/converse.ts` `READY_STATUS`) treats the repeat status, from its head on, as part of the pending ask, so it
+  may repeat across finds in one session.
+
+## v4.10.1 Task 3: one score per session (R5)
+
+- **Why.** find waits only `REPLY_WAIT_MS` (1.5 s) for the person's refresh. A slower refresh lands after the reply
+  (on a Monday it lights the new week and rescores), so the next call read other numbers ("69, 6 weeks", then "83, 7
+  weeks").
+- **Settled or not.** `stand-view.ts` `startRefresh(...).within(cap)` now resolves `true` when the refresh settled (or
+  its deadline passed) and `false` while it still runs. A refresh of the same person still running in this process is
+  joined (an in-process map, `RUNNING`), never started again: its read claim (`builder_live.read_at`) makes a new
+  `refreshPerson` a no-op, so score right after find would otherwise read the numbers about to be replaced.
+- **Updating reply.** find (`tools.ts`, `BenchFindArgs.updating`) and score (`benchScore`) pass `updating` when the
+  refresh didn't settle and the stored read has a number (`hasNumbers`). The read is then `withoutNumbers` (no parts,
+  `NO_RANK`, streak 0), so no score, rank, weeks, weekly target, record line, ship why or standing answer is stated; the
+  Monday block waits. `updatingReply` drops the `streak` field, adds `numbers_updating: true` and `numbers_note`, and
+  says `UPDATING_LINE` once a session (said part `updating`): before the last paragraph in find, first in score.
+  `tools.ts` `withFacts` drops `facts.rank` and `facts.streak` on such a reply. The next reply carries the fresh numbers.
+- **Gate.** `fixtures/converse.ts` `noRecord` exempts an opener that said `updating` from the opener proof rule (it may
+  state no number); a later hook still needs a proof.
+
+## v4.10.1 Task 4: programs API link check (R4)
+
+- **Why.** The owner's 2026-11-02 dogfood: a bot write with a lookalike domain (source and submission both on
+  `base-grants.org`) passed every check and went live. Owner ruling: "Live if link checks out".
+- **The check** (`submit-hosts.ts`, pure). `linkChecksOut(host, anchors)`: never on a `LINK_PLATFORMS` host (Google
+  Forms, forms.gle, Typeform, Tally, Questbook, Airtable, DoraHacks, Devfolio, HackQuest; subdomains count), else
+  `sameSite(host, anchor)` for some anchor: the same `registrableDomain` (the last two labels, three under
+  `MULTI_SUFFIXES`; no PSL in the repo), but only the exact host on an `API_SHARED_SITES` domain, a multi-label suffix
+  or a suffix-looking `<co|com|org|net|gov|edu|ac|or|ne|go>.<cc>` domain (the heuristic's guard for a country suffix the
+  list lacks), and never a path-owned host (github.com).
+- **Anchors** (`program-pending.ts linkAnchors`): the write's `official_url` host, plus each live program (active and
+  not past ends_at, or upcoming; file or api) sharing a chain: its submission host, and its source host only for a file
+  program (an API source_url was never checked). An approved program is live, so its site anchors its chains from then.
+- **When.** `programs-api.ts applyUpsert`, inside the write transaction after the `FOR UPDATE` read: a create, or a
+  write whose `submission_url` differs from the row's. `official_url` (`api-program-text.ts API_CHECK_FIELDS`) is
+  split off before `ProgramFile` parses, checked by `urlRuleProblem` (the same URL hygiene), and never stored.
+- **Pending.** A `program_writes` row `result 'pending'`, `reason` (`pendingReason`) and the checked body; nothing in
+  `programs` (a link change leaves the live row on its old link), so no discovery filter changed. Answers 202
+  `{ ok, id, result: 'pending', category, live: false, reason }`. An identical pending body within 7 days is reused
+  under `pg_advisory_xact_lock`, so a retry never mails twice. After commit, `mailPending` sends one `ownerMail`
+  (Idempotency-Key `program-pending:<write id>`); a failed send is logged and the write stays pending.
+- **Approve link** (`program-pending.ts`, `program-approve.ts`, `app/api/programs/approve/route.ts`). Token
+  `<write id>.<expires>.<HMAC-SHA256(EARNKIT_AUTH_SECRET, "program-approve:v1:<id>:<expires>")>`, 7 days from the
+  write, checked with `timingSafeEqual` before any read. GET shows the program as escaped text and one button whose
+  form posts to the relative `/api/programs/approve?t=...` (no URL from the request is ever echoed as a link; CSP
+  `form-action 'self'; frame-ancestors 'none'`, no-store, no-referrer). POST runs `approveWrite`: the write's checks
+  again (verified_at as of the write, ends_at as of now, curated, links load), then `applyUpsert` in approve mode,
+  which locks the pending row, marks it `superseded` when a newer write for the id exists, else upserts and flips it to
+  `approved` in the same transaction (single use), plus an audit row `approved write <id>`. Bad 400, expired 410,
+  already handled or superseded 409, a failed check 400 (stays pending). 404 while the API is off.
+- **Owner read.** `GET /api/programs/writes` adds `pending`: unexpired pending rows `{ at, program_id, reason, title,
+  submission_url, source_url, expires_at }`.
+- **No schema change.** `program_writes.result` is free text. Tests: `v4101-link-check.test.ts`; the v4.9 tests send
+  the source's origin as `official_url` (the Questbook create and the guide's forms.gle example now wait).
+- **Fix round 1 (security review I1, findings a-c).** Anchors are owner-curated only (`linkAnchors(db, p, now)`, never
+  `p` itself): live file programs (submission and source hosts), and live, fresh (freshSql) API programs whose current
+  submission_url has an `approved` program_writes row whose body's chains share one of the write's (submission host
+  only). Same chains means overlap, or both `{}`. `official_url` is a hint: `submissionChecksOut(sub, official,
+  anchors)` passes when the submission is on an anchor's site, or on official_url's site with official_url itself on an
+  anchor's site; `officialUrlProblem` refuses one on a platform host. `LINK_PLATFORMS` is now the union of R4's form
+  platforms, API_SUBMIT_HOSTS, HOST_MODES, ENTRY_LINK_HOSTS and API_SHARED_SITES; `linkChecksOut` skips anchors on
+  them. A chains change re-runs the check. A failed owner email leaves `MAIL_FAILED` on the pending row's reason and
+  answers `owner_emailed: false`; the same write sent again re-sends it (same Idempotency-Key). The v4.9 tests pin
+  a16z-speedrun's ends_at (it closed 2026-11-02) in their own database.

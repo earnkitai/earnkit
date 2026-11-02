@@ -105,10 +105,14 @@ export function lazyNext(r: Reply, o: { blanks: string; pushed: string; skip?: n
   const ask = { kind: m.kind, project_key: m.project_key ?? null };
   if (/\breply "sent"/i.test(end)) return { says: 'sent', tell: { move_up: { ...ask, answer: 'sent' } } };
   // v4.10 final fix (I1): the ready set's one ask, answered in one message; the agent splits it by field (ready.need.asks).
-  const kinds = ((r.reply?.ready as { need?: { asks?: { kind: string }[] } } | undefined)?.need?.asks ?? []).map((a) => a.kind);
-  if (o.answers && m.kind === 'ready' && kinds.length > 0 && BLANKS_REPLY.test(sentences(end).at(-1) ?? '')) {
-    const answers = Object.fromEntries(kinds.map((k) => [k, o.answers![k] ?? o.blanks]));
-    return { says: Object.values(answers).join(', '), tell: { move_up: { ...ask, answer: 'yes', answers } } };
+  const asks = (r.reply?.ready as { need?: { asks?: { kind: string; slots?: string[] }[] } } | undefined)?.need?.asks ?? [];
+  if (o.answers && m.kind === 'ready' && asks.length > 0 && BLANKS_REPLY.test(sentences(end).at(-1) ?? '')) {
+    // v4.10.1 Task 1 (R2): the contact item is one value per slot it lists (o.answers' `contact.<slot>`).
+    const answers = Object.fromEntries(asks.map((a) => [a.kind, a.kind === 'contact'
+      ? Object.fromEntries((a.slots ?? []).map((s) => [s, o.answers![`contact.${s}`] ?? o.blanks]))
+      : o.answers![a.kind] ?? o.blanks]));
+    const says = Object.values(answers).flatMap((v) => (typeof v === 'string' ? [v] : Object.values(v))).join(', ');
+    return { says, tell: { move_up: { ...ask, answer: 'yes', answers } } };
   }
   if (BLANKS_REPLY.test(sentences(end).at(-1) ?? '')) return { says: o.blanks, tell: { move_up: { ...ask, answer: 'yes', blanks: o.blanks } } };
   // v4.10 Task 3 (R5): the ready set's one ask: yes, or the numbers the walk skips. Task 4: once its pages are open the
@@ -187,6 +191,8 @@ export const transcript = (rs: readonly Reply[]) =>
 export type GateRule = 'empty' | 'easy_reply' | 'repeat' | 'proof' | 'copy' | 'claim' | 'step';
 export type GateFailure = { turn: number; rule: GateRule; reason: string };
 
+/** v4.10.1 Task 2 fix round 1 (M2): the head of the ready set's repeat status (ready-copy.ts readyAgain, readySentAgain). */
+const READY_STATUS = /^(?:Your (?:\d+ )?applications? (?:is|are) (?:still ready|open with every answer in place):|Here's where your (?:\d+ )?applications? stands?:)/;
 function paragraphs(s: string) {
   return s.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
 }
@@ -300,8 +306,12 @@ const proofFacts = (show: string, names: readonly string[] = []) => {
   return [...PROOF_PATTERNS, ...(live ? [live] : [])].flatMap((p) => [...show.matchAll(p)].map((m) => norm(m[0].replace(/^[\n. ]+/, '')).toLowerCase()));
 };
 const hasProof = (r: Reply, names: readonly string[]) => r.said.some((k) => k.startsWith('proof:')) || proofFacts(r.show, names).length > 0;
-/** A builder with no record yet: only the signed-out opener (its `opener` said part), where no fact exists to show. */
-const noRecord = (r: Reply) => r.said.includes('opener');
+/**
+ * A builder with no record yet: only the signed-out opener (its `opener` said part), where no fact exists to show.
+ * v4.10.1 Task 3 (R5): or an opener whose record is updating (its `updating` part, bench-find.ts UPDATING_LINE): it may
+ * state no score, rank or weeks, so it has no number to stand on; a later hook still needs a proof (rule 4's second half).
+ */
+const noRecord = (r: Reply) => r.said.includes('opener') || r.said.includes('updating');
 
 /** Rule 5: an em dash, "coin" or "points" (whole words), an emoji. */
 const COPY: [RegExp, string][] = [[/—/, 'an em dash'], [/\bcoins?\b/i, '"coin"'], [/\bpoints?\b/i, '"points"'], [/\p{Extended_Pictographic}/u, 'an emoji']];
@@ -368,9 +378,15 @@ export function gateFailures(replies: readonly Reply[], o: { names?: readonly st
     // before, too); the rest of the last paragraph is compared like any paragraph.
     const lastP = ps.at(-1)!;
     const ss = sentences(lastP);
+    // v4.10.1 Task 2 fix round 1 (M2): the ready set's repeat status (readyAgain / readySentAgain: a head, then a line
+    // per program, set apart as paragraphs by the route's format) comes just before its ask: from its head on, it is
+    // part of the pending ask, so it may repeat too.
+    const head = moveUpOf(r)?.kind === 'ready' ? ps.findIndex((p) => READY_STATUS.test(p)) : -1;
+    const cut = head >= 0 && head < ps.length - 1 ? head : ps.length - 1;
     const units: [string, boolean][] = [
-      ...ps.slice(0, -1).map((p) => [p, false] as [string, boolean]),
-      // v4.10 Task 5: the ready set's pending ask may repeat whole, its status sentence too ("Your 3 applications are still ready. Reply yes ...").
+      ...ps.slice(0, cut).map((p) => [p, false] as [string, boolean]),
+      ...ps.slice(cut, -1).map((p) => [p, true] as [string, boolean]),
+      // v4.10 Task 5: the ready set's pending ask may repeat whole, its status too (v4.10.1 Task 2: "Your 3 applications are still ready:" and a line per program, then "Reply yes ...").
       ...(ss.length > 1 && moveUpOf(r)?.kind !== 'ready' ? [[ss.slice(0, -1).join(' '), false], [ss.at(-1)!, true]] as [string, boolean][] : [[lastP, true]] as [string, boolean][]),
     ];
     const repeats: string[] = [];

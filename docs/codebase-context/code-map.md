@@ -281,6 +281,8 @@ apps/frontend/
                                (programs-read.ts programWritesGet; the write API's token gate)
   app/api/programs/write/route.ts  v4.9 T2: POST, the programs write API (lib/earnkit/programs-api.ts); 404 until
                                EARNKIT_PROGRAMS_TOKEN is set, or with EARNKIT_PROGRAMS_API=off
+  app/api/programs/approve/route.ts  v4.10.1 T4: GET confirm page, POST approve of a pending program write
+                               (lib/earnkit/program-approve.ts; signed token, 7 days, single use); 404 while the API is off
   app/api/stats/route.ts       v2.5 Task 9: GET public stats JSON (revalidate 600, prerendered when
                                the build has a DATABASE_URL; plus unstable_cache 600 s on the read,
                                for builds without one, where it renders per request); 503 no-store
@@ -1184,7 +1186,8 @@ apps/frontend/
     submit-hosts.ts            v2.8 Task 10: HOST_MODES and ENTRY_LINK_HOSTS (Rulings 27, 28),
                                the no-agent hosts (DoraHacks, Questbook), prefill and agent-API
                                platforms by host; v3.1 final review: SHARED_HOSTS, MULTI_SUFFIXES, proofHostAllowed
-                               (program-file.ts proof_hosts). Pure, no imports
+                               (program-file.ts proof_hosts). Pure, no imports. v4.10.1 T4: LINK_PLATFORMS,
+                               linkPlatformName, sameSite, linkChecksOut (R4's link check)
     coach.ts(+test)            v2.8 Task 9: the application coach. DEFAULT_GUIDANCE per field kind,
                                guidanceFor, coachFields, askableKeys, questionsFor (Ruling 26,
                                C15), coachIntro,
@@ -1388,7 +1391,13 @@ apps/frontend/
                                curated 409 (programs/ file or non-api row), probeLink (safeProbe; 401/403/429 pass), then upsertProgram(p,
                                'api') in a tx with an unchanged snapshot check; program_writes audit rows;
                                noteFileTakeover for programs-sync. v4.9 T3: programsAuthFailure (the 404/401 gate
-                               shared with GET /api/programs/writes). Tests: v49-programs-api.test.ts
+                               shared with GET /api/programs/writes). Tests: v49-programs-api.test.ts. v4.10.1 T4:
+                               applyUpsert holds a create or new submission_url whose link doesn't check out as a
+                               pending write (202); approveWrite applies one; urlRuleProblem; official_url
+    program-pending.ts         v4.10.1 T4: approve token (approveToken/approveTarget/approveExpiry, HMAC under
+                               EARNKIT_AUTH_SECRET), linkAnchors, pendingReason, the owner's email (mailPending)
+    program-approve.ts         v4.10.1 T4: programApproveGet (confirm page) and programApprovePost (approve).
+                               Tests: v4101-link-check.test.ts
     programs-cache.ts          v4.9 T3 fix 1: PROGRAMS_TAG and programsChanged(id) (revalidateTag + the home, guide,
                                sitemap and (final fix F2) /api/stats paths) after an API write changes a program
     api-stale.ts               v4.9 final fix: API_STALE_DAYS (14), apiStale(row, now), freshSql(db, alias, now?) (the
@@ -1396,7 +1405,7 @@ apps/frontend/
                                and hiddenFor(row, installationId) (the by-id gate). Tests: v49-programs-api.test.ts
     programs-read.ts           v4.9 T3: readListedPrograms (landing listedCards + landingTiles, money = site-copy
                                tileMoney), byListOrder, programsListGet (GET /api/programs), programWritesGet (GET
-                               /api/programs/writes). Tests: v49-programs-api.test.ts
+                               /api/programs/writes; v4.10.1 T4 adds `pending`). Tests: v49-programs-api.test.ts
     api-program-text.ts        v4.9 T2: API_FIELDS/API_REQUIREMENT_FIELDS (the write allowlist, notWritableFields),
                                apiTextProblems (hidden/format characters and non-NFKC text refused, no < >, markdown links, cleanText link detection, title 120 and
                                organizer 80 caps; stored as written), API_CONTENT (the written-by envelope on find,
@@ -2796,3 +2805,52 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
     `lazyNext` `answers`. `scripts/converse-replay.mts` `ANSWERS`.
   - Tests: `v410-find.test.ts` (I1 to I5, M3, M7, M8 hosted, the I2 cross-check) and `v410-ready.test.ts` (the pure
     pieces). `v481-fixes.test.ts` `soonestIsTheCopy` date-proofs F6 and R-4.
+
+## v4.10.1 Task 1: honest needs
+
+- `conversation.ts` `mustGive`, `builderOnly`. `programs/circle-developer-grants.json` `integrations`.
+- `bench-find.ts` `readyDrafts` (contact first), `askKey(r, only)`, `draftAsks`, `itemPhrase`, `readyNeeds` (first
+  program's rest in `later`), `needFields` (contact `slots`), `readyBank` (per-slot contact, keyed `other:`),
+  `heldAnswers` (email, revenue, contract address), `readyCommit` (`rest`).
+- `ready-copy.ts` `contactPhrase`, `needsPhrase` (wh- and "the" todos as written), `readyOpener({ rest })`.
+- `program-file.ts` `READY_ANSWERS` and `ReadyAnswers`. `coach.ts` `slotOf` (exported).
+- `fixtures/converse.ts` `lazyNext` (contact slots); `scripts/converse-replay.mts` `ANSWERS`.
+- Tests: `v410-find.test.ts` (`v4.10.1 (1)`, `(2)`), `v410-ready.test.ts` (pure).
+
+## v4.10.1 Task 2: money and the repeat reply
+
+- `ready-set.ts` `worthUpTo` (long shots out), `longShotWorth`. `ready-copy.ts` `worthClause` (used by `readyOpener`),
+  `AgainProgram`, `readyAgain(set, now, hosted)`, `readySentAgain(set, now)`.
+- `bench-find.ts` `againRows`; `readyAgainCommit` (re-drafts the needs; null when all closed; `readyView` falls through);
+  `readyWaitingCommit`'s sent fallback.
+- Tests: `v410-ready.test.ts` (`v4.10.1 Task 2` pure), `v410-find.test.ts` (`v4.10.1 Task 2 (5)`, test 1's repeat).
+- Fix round 1: `readyOpener` verb ("drafted" with needs); `readyView` drops the ready ask when all closed;
+  `fixtures/converse.ts` `READY_STATUS` (gate repeat exemption).
+
+## v4.10.1 Task 3: one score per session
+
+- `stand-view.ts` `startRefresh` (`within` returns `Promise<boolean>`; joins a running refresh via `RUNNING`).
+- `bench-find.ts` `UPDATING_LINE`, `UPDATING_SAID`, `UPDATING_NOTE`, `hasNumbers`, `withoutNumbers`, `updatingReply`;
+  `ViewIn.updating`, `BenchFindArgs.updating`; `readyRecord(id, now, updating)`; `directAnswer` (no standing answer
+  while updating); the weekly moment skipped while updating.
+- `bench-reply.ts` `BenchView.updating`; `shipWhy(null)` / `shipWhyOf(target, null)`: "Shipping this week lifts your score."
+- `tools.ts` find passes `updating`; `withFacts` drops rank and streak facts on `numbers_updating`.
+- `fixtures/converse.ts` `noRecord` (the `updating` part).
+- Tests: `v4101-score.test.ts` (pinned Monday clock, gated fake reader).
+
+## v4.10.1 Task 4: programs API link check
+
+- `submit-hosts.ts` `linkChecksOut`, `sameSite`, `registrableDomain`, `LINK_PLATFORMS`, `API_SHARED_SITES`, `MULTI_SUFFIXES`,
+  `submissionChecksOut` (pure).
+- `program-pending.ts` `linkAnchors` (owner-curated only), `pendingReason`, `approveToken` / `approveTarget` / `approveExpiry`,
+  `mailPending`; `program-approve.ts` `programApproveGet`, `programApprovePost`, `approveWrite`.
+- `programs-api.ts` `applyUpsert` (pending write, approve mode, `official_url` split off), `api-program-text.ts` `API_CHECK_FIELDS`,
+  `officialUrlProblem`; `programs-read.ts` and `app/api/programs/writes/route.ts` add `pending`;
+  `app/api/programs/approve/route.ts` (GET confirm page, POST approve).
+- Tests: `v4101-link-check.test.ts`, `v49-programs-api.test.ts`.
+
+## v4.10.1 Task 5: date-proofed tests
+
+- `fixtures/pin-programs.ts` `pinPrograms` / `withProgramsPinned`: moves every dated active program out by the same whole
+  years (close order and each close's day kept), restored after. Used by `v2131-o5.test.ts` (O5), `v2131-onboarding.test.ts`
+  (O2), `v31-best-fit.test.ts` (whole file, `before`/`after`), `v31-reply-copy.test.ts` (Task 16), `v481-fixes.test.ts` (R3).

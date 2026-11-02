@@ -5,6 +5,7 @@ import {
   CODES_OFFER, MONEY_SAID, POINT_MORE, gapStillReply, SESSION_MS, bestMove, blanksAsk, closeWords, fitCell, pathReply, pointerReply, closingSoon, moneyLine, pickHook, submitBy, submitNoRush, submitPointer, withMoneyLine,
   type GapGrant, type InvestorProgram, type MoveCtx, type MoveProgram,
 } from './conversation';
+import { withProgramsPinned } from './fixtures/pin-programs';
 import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
 import { fakeGitHub } from './fixtures/fake-github';
@@ -256,7 +257,7 @@ async function ownerDb(tag: string, o: { pick?: string } = {}) {
   return { ctx, id: c.id, key, handle, gh };
 }
 
-test('v4.8.1 R3: the first find of a session says "Open now: $" once, just before the easy reply; the next find does not; a new session does again', db, async () => {
+test('v4.8.1 R3: the first find of a session says "Open now: $" once, just before the easy reply; the next find does not; a new session does again', db, () => withProgramsPinned(async () => {
   const b = await ownerDb('mny');
   const replies = await converse(b.ctx as never, [{ find: {} }, { find: {} }, { wait: SESSION_MS + 1000 }, { find: {} }], { builderId: b.id });
   const [first, second, fresh] = replies;
@@ -272,7 +273,7 @@ test('v4.8.1 R3: the first find of a session says "Open now: $" once, just befor
   for (const r of replies) assert.doesNotMatch(r.show, BAD, t);
   assert.deepEqual(gateFailures(replies.slice(0, 2), { names: ['EarnKit', b.handle] }), [], t);
   assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), [], t);
-});
+}));
 
 /** The money paragraph of a reply ("Open now: ..."), or null. */
 const moneyPara = (s: string) => s.split('\n\n').find((p) => p.startsWith('Open now: ')) ?? null;

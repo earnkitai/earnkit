@@ -205,7 +205,7 @@ const SLOTS: [string, RegExp][] = [
   ['profile', /profile/],
 ];
 /** Matched on the label only (the form's words), never on a key like `additional_url`. */
-const slotOf = (r: SubmissionRequirement) => {
+export const slotOf = (r: SubmissionRequirement) => {
   const t = r.label.toLowerCase();
   return SLOTS.find(([, re]) => re.test(t))?.[0] ?? `key:${r.key}`;
 };

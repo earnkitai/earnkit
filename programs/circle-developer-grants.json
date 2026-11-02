@@ -56,11 +56,11 @@
     {
       "key": "integrations",
       "label": "Your Circle and Arc integrations",
-      "kind": "how_it_works",
+      "kind": "other",
       "todo": "your Circle and Arc integrations",
       "type": "text",
       "required": true,
-      "from": "project"
+      "from": "builder"
     },
     {
       "key": "roadmap",

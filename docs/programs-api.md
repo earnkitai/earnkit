@@ -1,6 +1,6 @@
 # EarnKit programs API (for the Grok Bot)
 
-The owner pastes this into the Grok Bot's instructions. The bot researches builder programs and writes them to EarnKit. A write that passes every check is live at once: on the site (with a small "Found by EarnKit's research." line), in the sitemap and in every builder's agent.
+The owner pastes this into the Grok Bot's instructions. The bot researches builder programs and writes them to EarnKit. A write that passes every check is live at once: on the site (with a small "Found by EarnKit's research." line), in the sitemap and in every builder's agent. One exception: a new program, or a write that changes `submission_url` or `chains`, goes live only when its submission link checks out (see "Link check"). Otherwise it waits for the owner's approval.
 
 ## Owner setup (once)
 
@@ -34,7 +34,7 @@ All bodies are JSON. Base URL: `https://earnkit.com`.
 |---|---|---|
 | `POST /api/programs/write` | `Authorization: Bearer <token>` | Add, update or close one program |
 | `GET /api/programs` | none | What is listed now. `?category=grant\|hackathon\|investment\|bounty`, `?status=active\|upcoming` |
-| `GET /api/programs/writes` | `Authorization: Bearer <token>` | Your last 100 writes: `{ at, program_id, action, result, reason }` |
+| `GET /api/programs/writes` | `Authorization: Bearer <token>` | Your last 100 writes: `{ at, program_id, action, result, reason }`, and `pending`: the writes waiting for the owner `{ at, program_id, reason, title, submission_url, source_url, expires_at }` |
 
 `GET /api/programs` returns up to 200 programs: `{ id, title, organizer, category, chains, any_chain, money, status, closes_at, closes_in, source_url, submission_url, source }`. Sorted by category, then soonest close (rolling last), then the larger award. `source` is `file` (curated by the owner) or `api` (yours). It is cached for up to a minute.
 
@@ -51,13 +51,25 @@ Same id again updates it. A body identical to what is stored answers `unchanged`
 
 Success: `{ "ok": true, "id": "...", "result": "created" | "updated" | "unchanged", "category": "grant", "live": true }`. `live` is true while the program is upcoming, or active and not past `ends_at`.
 
+Waiting for the owner (202): `{ "ok": true, "id": "...", "result": "pending", "category": "grant", "live": false, "reason": "...", "owner_emailed": true }`. Nothing is live yet. The owner gets one email and approves it. Sending the same body again stays one pending write and never emails twice. If `owner_emailed` is `false`, the email didn't go: send the same write again later (at most once an hour) to retry it.
+
+### Link check
+
+A new program, or a write that changes `submission_url` or `chains`, goes live at once only when its submission link is on the site of a program the owner curated for one of its `chains` (a program with `chains: []`: the curated any-chain programs). Those are the owner's own program files, and programs whose current link the owner approved. Same site means the same domain: `docs.base.org` and `www.base.org` are on `base.org`; `base-grants.org` and `base.org.example.com` are not.
+
+`official_url` (optional) is the organizer's own home page (`https://www.base.org/`). It is a hint only: it counts when it is itself on a curated site. It is refused when it is on a shared, hosting or platform host (`evil.vercel.app`, `github.io`, `forms.gle`). It is used only for this check and never shown.
+
+A link on a form, submit, hosting or shared platform (Google Forms, `forms.gle`, Typeform, Tally, Questbook, Airtable, DoraHacks, Devfolio, HackQuest, ETHGlobal, Superteam, Karma GAP, github.io, vercel.app, notion.site and the like) never checks out on its own.
+
+Anything else answers `pending`. The program is not listed until the owner approves (within 7 days). Updates to any other field of a live program stay live at once.
+
 ### Fields you can send
 
 Only these. Any other field is refused (`<field>: the API can't set <field>; the owner adds it by file`).
 
 **Required:** `id`, `organizer`, `title`, `description`, `source_url`, `submission_url`, `reward`, `summary`, `starts_at`, `ends_at`, `status`, `verified_at`, `existing_work`, `chains`, `rules`, `setup`, `each_time`, `needs_repo`, `submission_requirements`.
 
-**Optional:** `max_award_usd`, `min_award_usd`, `pool_usd`, `pool_source_url`, `category`, `tag`, `tz`, `opens_note`, `any_chain`, `investment`, `in_person`, `needs_contract`, `min_product_score`, `wants_revenue`, `winners_per_round`, `ideas`.
+**Optional:** `official_url` (see "Link check"), `max_award_usd`, `min_award_usd`, `pool_usd`, `pool_source_url`, `category`, `tag`, `tz`, `opens_note`, `any_chain`, `investment`, `in_person`, `needs_contract`, `min_product_score`, `wants_revenue`, `winners_per_round`, `ideas`.
 
 **Each `submission_requirements` item:** `key`, `label`, `type`, `required`, `options`, `description`, `project_field`, `from`, `todo`, `kind`, `max_chars`. No `guidance`.
 
@@ -112,7 +124,7 @@ Amounts above the caps are refused with `larger amounts need a curated file`: te
 - Normalized plain text: no full-width letters, no `…` (write `...`), no hidden, zero-width, bidi or control characters. Newlines and tabs are fine. Simple emoji are fine; joined emoji (families) and keycaps (`1️⃣`) are refused.
 - `title` at most 120 characters, `organizer` at most 80.
 
-### URL rules (`source_url`, `submission_url`, `pool_source_url`)
+### URL rules (`source_url`, `submission_url`, `pool_source_url`, `official_url`)
 
 - `https://` only, a domain name (no IP address, no trailing dot), at most 2,048 characters.
 - Printable ASCII only, no spaces, no `#` fragment, no `user:pass@`, no `[` or `]`. Percent-encode anything else.
@@ -123,7 +135,7 @@ Amounts above the caps are refused with `larger amounts need a curated file`: te
 
 ### Full example
 
-This is the committed `base-builder-grants` file trimmed to the fields above. That id is curated, so sending it exactly answers 409. Use your program's own id and facts.
+This is the committed `base-builder-grants` file trimmed to the fields above, plus `official_url`. That id is curated, so sending it exactly answers 409. Under a new id it answers `pending`, because its form is on `forms.gle`. Use your program's own id and facts.
 
 ```json
 {
@@ -135,6 +147,7 @@ This is the committed `base-builder-grants` file trimmed to the fields above. Th
     "description": "Grants of up to $5,000, plus GTM and product support, for teams actively building on Base with a live product that is getting used. Reviewed in cohorts.",
     "source_url": "https://docs.base.org/get-started/builders",
     "submission_url": "https://forms.gle/urqjBJYJjR6Vqqre6",
+    "official_url": "https://www.base.org/",
     "reward": "Up to $5,000 in grants, plus GTM and product support",
     "summary": "up to $5,000 · rolling",
     "max_award_usd": 5000,
@@ -186,6 +199,7 @@ Every refusal is `{ "ok": false, "problems": [...] }` (400, 409) or `{ "ok": fal
 
 | Status | Meaning | What to do |
 |---|---|---|
+| 202 | `pending`: the link didn't check out; the owner approves it | Nothing, unless `owner_emailed` is `false`: then send the same write again later. Watch `pending` in `GET /api/programs/writes` |
 | 400 | A check failed: a missing or not-allowed field, a text or URL rule, a stale `verified_at`, a past `ends_at`, a link that doesn't load (`source_url: doesn't load (...)`), or `id: no program <id>` on close | Fix each listed problem and resend. A `submission_url` host problem can't be fixed: skip the program and tell the owner |
 | 401 | Wrong or missing token | Check the `Authorization: Bearer` header |
 | 404 | The API is off (no token set, or `EARNKIT_PROGRAMS_API=off`) | Ask the owner |
@@ -194,4 +208,4 @@ Every refusal is `{ "ok": false, "problems": [...] }` (400, 409) or `{ "ok": fal
 | 429 | Over 120 writes this hour | Wait for `Retry-After` seconds |
 | 503 | EarnKit is busy | Retry after `Retry-After` seconds |
 
-Every write (created, updated, unchanged, closed) and every 400 or 409 refusal of a JSON body is in `GET /api/programs/writes` with its result and reason. A body that is not JSON (400) and 401, 404, 413, 429 and 503 answers are not logged.
+Every write (created, updated, unchanged, closed, pending, and `approved` or `superseded` once the owner acts) and every 400 or 409 refusal of a JSON body is in `GET /api/programs/writes` with its result and reason. A body that is not JSON (400) and 401, 404, 413, 429 and 503 answers are not logged.

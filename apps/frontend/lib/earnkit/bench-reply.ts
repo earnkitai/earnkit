@@ -217,8 +217,9 @@ export const MORE_NOTE = "When they reply \"more\" (or yes), call find with ask:
  * v4.7 T4 (exact copy, "Why lines"): each step's own short line, the paragraph just before its question, and the
  * move_up.why the agent answers "why" from. The ship line counts the streak's weeks (none: it starts one). Pure.
  */
-export const shipWhy = (streak: number) =>
-  streak > 0 ? `Shipping this week keeps your ${streak}-week streak and lifts your score.` : 'Shipping this week starts your streak and lifts your score.';
+export const shipWhy = (streak: number | null) =>
+  // v4.10.1 Task 3 (R5): null, the weeks are updating: no count, and never "starts your streak".
+  streak === null ? 'Shipping this week lifts your score.' : streak > 0 ? `Shipping this week keeps your ${streak}-week streak and lifts your score.` : 'Shipping this week starts your streak and lifts your score.';
 export const CHECKIN_WHY = 'A Monday check-in keeps your drafts current before deadlines.';
 export const SHARE_WHY = 'Builders who share wins get noticed by programs.';
 export const POST_WHY = 'A post with real numbers is what reviewers read.';
@@ -239,7 +240,7 @@ export const withWhy = <M extends { agent_note: string }>(m: M, why: string | nu
  * v4.7 T4 fix round 0 (R13): the ship ask's why: the weekly rank target when there is one ("Ship code this week to
  * hold #1.", the more specific reason), else the streak line. Pure.
  */
-export const shipWhyOf = (target: string | null | undefined, streak: number) =>
+export const shipWhyOf = (target: string | null | undefined, streak: number | null) =>
   target?.startsWith('Ship code this week to ') ? target : shipWhy(streak);
 /**
  * v3.1 wallet proof (owner-approved 2026-10-23): the optional step right after setup, offered once a person. Its one
@@ -663,6 +664,8 @@ export type BenchView = {
   rank: string | null;
   /** Weeks shipped in a row (streak.ts streaksFor, the profile's own value). */
   streak: number;
+  /** v4.10.1 Task 3 (R5): the refresh is still running, so `streak` (0) is unknown, never said as a count. */
+  updating?: boolean;
   /** Launch ready L5: the weekly target (weekly-target.ts weeklyTarget), the ship step's points line lead (null: "Ship code this week"). */
   target: string | null;
   /** v3 Stage 2 (spec 5.2): Earned (earned.ts paid_usd: fees claimed plus announced prizes), on the ranked standing line from $1. */
@@ -1011,7 +1014,7 @@ function rankedBody(v: BenchView, name: string, ask: string): string {
   const target = nag && !v.held && (v.ask.kind === 'none' || v.ask.kind === 'more') ? ship : null;
   // v4.8 last ruling 1: right after the list, its easy reply alone (the list said everything else).
   if (!v.held && v.ask.kind === 'name') return ask;
-  const why = v.held ? null : v.ask.kind === 'ship' ? shipWhyOf(v.target, v.streak) : v.ask.kind === 'checkin' ? CHECKIN_WHY : null;
+  const why = v.held ? null : v.ask.kind === 'ship' ? shipWhyOf(v.target, v.updating ? null : v.streak) : v.ask.kind === 'checkin' ? CHECKIN_WHY : null;
   // The why and its question are something to say, so no standing is added for them (orStanding).
   if (why) return paras([standing, ...v.due, moneyLine(v), target], [why], [ask]);
   return paras(orStanding([standing, ...v.due, moneyLine(v), target, ask]));
@@ -1022,11 +1025,11 @@ function rankedBody(v: BenchView, name: string, ask: string): string {
  * and qualify, their own reason sentence (applyWhy; the qualify head and gap); an owning nudge's apply, the nudge's
  * statements; v4.7.1 T1: check_fits (v4.7.2 T2: needsWhy). Null for `none` and the other asks. Pure.
  */
-export function askWhy(v: Pick<BenchView, 'ask' | 'streak' | 'target' | 'qualify' | 'project' | 'nudge' | 'nudgeOwns'>): string | null {
+export function askWhy(v: Pick<BenchView, 'ask' | 'streak' | 'updating' | 'target' | 'qualify' | 'project' | 'nudge' | 'nudgeOwns'>): string | null {
   switch (v.ask.kind) {
     // v4.7.1 T1: no question, so no why (never a stale one on a quiet reply).
     case 'none': return null;
-    case 'ship': return shipWhyOf(v.target, v.streak);
+    case 'ship': return shipWhyOf(v.target, v.updating ? null : v.streak);
     case 'checkin': return CHECKIN_WHY;
     case 'share': return SHARE_WHY;
     case 'post': return POST_WHY;

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { checkFitsAsked, pathQuiet } from './fixtures/wallet-step';
+import { withProgramsPinned } from './fixtures/pin-programs';
 import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
@@ -127,7 +128,7 @@ test('O2.9 the last line is one question that fits: no open-all-year grant for a
 );
 
 test('O2 fix round 1 (ruling 3), R8: every state ends on one next step with a yes route: ship this week, the suggestion, a different project (taken never offers an entry)', dbTest, () =>
-  on(async () => {
+  on(() => withProgramsPinned(async () => {
     const tell = (id: number, m: Record<string, unknown>) => tools.tell({ move_up: m }, { installationId: id } as never) as Promise<R>;
     const lastQ = (t: string) => t.split('\n').filter((l) => l.includes('?'));
     // Confirmed, nothing pending (R8, Task 16): the ship question, whose yes is one small thing to ship.
@@ -176,5 +177,5 @@ test('O2 fix round 1 (ruling 3), R8: every state ends on one next step with a ye
     // v3.1 cold read: never "isn't counted yet"; the reply is the one step.
     assert.doesNotMatch(cr.show_to_builder, /isn't counted yet/, cr.show_to_builder);
     assert.equal(lastQ(cr.show_to_builder).length, 1);
-  }),
+  })),
 );

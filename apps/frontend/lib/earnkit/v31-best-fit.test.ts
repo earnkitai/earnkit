@@ -1,10 +1,11 @@
-import { after, test } from 'node:test';
+import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
 import { fakeGitHub } from './fixtures/fake-github';
 import { appEnv, installApp } from './fixtures/app-install';
 import { committedProgram } from './fixtures/program-file';
+import { pinPrograms } from './fixtures/pin-programs';
 import { dropRunPrograms } from './fixtures/programs-cleanup';
 import { withEnv } from './fixtures/find';
 import { pathQuiet } from './fixtures/wallet-step';
@@ -36,8 +37,14 @@ process.env.EARNKIT_URL = 'https://earnkit.com';
 process.env.EARNKIT_AUTH_SECRET ??= 'v31-best-fit-test-secret';
 
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
+// v4.10.1 Task 5: the real programs' deadlines move out of the clock's way for the file (restored after).
+let unpin: (() => Promise<void>) | undefined;
+before(async () => {
+  if (process.env.DATABASE_URL) unpin = await pinPrograms();
+});
 after(async () => {
   if (!process.env.DATABASE_URL) return;
+  await unpin?.();
   await codesSettled();
   await dropRunPrograms();
   await sql().end();

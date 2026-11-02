@@ -854,7 +854,7 @@ export const handlers = {
     // v2.12.1 T8 (spec 2): the person's own public data is re-read inside this call, within its
     // budget, in parallel with the reads below (stand-view.ts startRefresh). Never fails the tool.
     const start = Date.now();
-    const refresh: { started: { within: (capMs?: number) => Promise<void> } | null } = { started: null };
+    const refresh: { started: { within: (capMs?: number) => Promise<boolean> } | null } = { started: null };
     if (scoring)
       await (async () => {
         const now = new Date();
@@ -1115,7 +1115,8 @@ export const handlers = {
         if (change.move_up) return change;
       }
       // v2.13.1 O5 N1: the reply waits for the refresh at most REPLY_WAIT_MS (it runs on).
-      await refresh.started?.within(REPLY_WAIT_MS);
+      // v4.10.1 Task 3 (R5): a refresh still running past the wait: this reply states no score or week count.
+      const fresh = (await refresh.started?.within(REPLY_WAIT_MS)) ?? true;
       const shownCards = withPools.filter((c) => !hide.has(c.id));
       // v2.13 T8: the Bench's three parts (bench-find.ts).
       const r = await benchFind(ctx, {
@@ -1125,6 +1126,7 @@ export const handlers = {
         upcoming: upcoming.filter((c) => !hide.has(c.id)),
         more: more === true,
         ...(question && { question }), ...(named && { named }),
+        ...(!fresh && { updating: true }),
       });
       if (r) return {
         ...r,
@@ -2671,8 +2673,11 @@ async function draftWithSteps(
  * v3.1 answerable replies (spec section 1): find's and score's facts (reply-facts.ts), and the answer-first note when the
  * reply has none yet (a program guide). Pure.
  */
-export function withFacts<T extends object>(reply: T, facts: ReplyFacts): T {
-  const r = reply as T & { note?: unknown; agent_note?: unknown };
+export function withFacts<T extends object>(reply: T, facts0: ReplyFacts): T {
+  const r = reply as T & { note?: unknown; agent_note?: unknown; numbers_updating?: unknown };
+  // v4.10.1 Task 3 (R5): while the score and weeks are updating, the facts carry neither (the page's are about to change).
+  const { rank: _rank, streak: _streak, ...rest } = facts0;
+  const facts: ReplyFacts = r.numbers_updating === true ? rest : facts0;
   // v4.8 Task 1: a path reply's mentor note asks the agent to reword it, so the "exactly as written" note never joins it.
   // v4.8 Task 2 fix round 3 (2): it gets a short answer-first sentence that fits the mentor note instead, so a question
   // asked mid-path is still answered first.

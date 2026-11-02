@@ -32,11 +32,17 @@ export const API_REQUIREMENT_FIELDS = [
 export const API_TITLE_MAX = 120;
 export const API_ORGANIZER_MAX = 80;
 
+/**
+ * v4.10.1 Task 4 (R4): fields a write carries that are never stored on the program: `official_url`, the official site
+ * a new submission link is checked against (program-pending.ts).
+ */
+export const API_CHECK_FIELDS = ['official_url'] as const;
+
 const notWritable = (field: string) => `${field}: the API can't set ${field}; the owner adds it by file`;
 
 /** The fields of a raw program body outside the allowlist, as problems. Pure. */
 export function notWritableFields(raw: Record<string, unknown>): string[] {
-  const top = Object.keys(raw).filter((k) => !(API_FIELDS as readonly string[]).includes(k));
+  const top = Object.keys(raw).filter((k) => !(API_FIELDS as readonly string[]).includes(k) && !(API_CHECK_FIELDS as readonly string[]).includes(k));
   const reqs = Array.isArray(raw.submission_requirements) ? raw.submission_requirements : [];
   const inner = reqs.flatMap((r, i) =>
     r && typeof r === 'object' && !Array.isArray(r)
