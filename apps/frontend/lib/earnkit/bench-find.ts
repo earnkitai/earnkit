@@ -66,7 +66,7 @@ import { bankKeepsContact, projectKey, readBank, saveBank } from './answer-bank'
 import { readySet, worthUpTo, type ReadyProgram } from './ready-set';
 import {
   READY_ASK_NOTE, READY_NEEDS_NOTE, READY_NOTE, READY_SENT_NOTE, READY_YES_NOTE, contactPhrase, needsList, needsPhrase, readyAgain, readyNeedsAsk, readyNeedsLater,
-  readyNoLine, readyOpenList, readyOpener, readySentAgain, readySentAsk, readyStillNeeds, readyYesReply, shortName, skipReply,
+  readyNoLine, readyOpenList, readyOpener, readySentAgain, type AgainProgram, readySentAsk, readyStillNeeds, readyYesReply, shortName, skipReply,
 } from './ready-copy';
 import { bankFill, slotOf } from './coach';
 import { FIELD_KINDS, type ReadyAnswers, type SubmissionRequirement } from './program-file';
@@ -1300,17 +1300,45 @@ async function readyCommit(o: ViewIn, plan: PathPlan, picked: ReadyProgram[]): P
 }
 
 /**
- * A later find while the ready ask waits (R1): the opener's ask, the same session only ("Your 3 applications are still
- * ready. Reply yes and I'll finish them."); the "sent" ask (some page open) or what the builder still owes, any session
- * (never the open list or the line again). The ask is kept; the session kept alive. One UPDATE. Never throws on its own writes.
+ * v4.10.1 Task 2: the set's programs as the repeat replies name them, from the live cards (the opener's money, the close,
+ * investor or not; `codes`: those whose Builder Codes step waits). One no longer shown (closed or hidden) is left out,
+ * unless `keep` (an open page waiting for "sent"): then it is named by its program row's title alone. Never throws.
  */
-async function readyAgainCommit(o: ViewIn, v: PathFacts, asked: NonNullable<Seen['bench_ask']>, r: ReadyState): Promise<{ view: BenchView; fields: Reply; stand: Standing }> {
+async function againRows(cards: readonly Card[], pids: readonly string[], o: { codes?: readonly string[]; keep?: boolean } = {}): Promise<(AgainProgram & { id: string; step: 'codes' | null })[]> {
+  const byId = new Map(cards.map((c) => [c.id, c]));
+  const rows = await Promise.all(pids.map(async (pid) => {
+    const c = byId.get(pid);
+    const step = o.codes?.includes(pid) ? ('codes' as const) : null;
+    if (c) return { id: pid, title: c.title, amount: openerAmount(c), ends_at: isoOf(c.ends_at), zone: programZone(c), kind: c.investment === true ? ('investor' as const) : ('fit' as const), step };
+    if (!o.keep) return null;
+    const row = await getProgramRow(pid).catch(() => null);
+    return { id: pid, title: row?.title ?? pid, amount: null, ends_at: null, zone: 'UTC', kind: 'fit' as const, step };
+  }));
+  return rows.filter((x): x is NonNullable<typeof x> => x !== null);
+}
+
+/**
+ * A later find while the ready ask waits (R1): the opener's ask, the same session only; the "sent" ask (some page open)
+ * or what the builder still owes, any session (never the opener again). v4.10.1 Task 2: the opener's ask names each
+ * program still in the set with its money, its hours left under 48 and what it still needs (drafted again from the bank
+ * as it is now), "still ready" only when nothing is needed; the "sent" ask names each open page. Null when every program
+ * of the opener's ask has closed (the path answers). The ask is kept; the session kept alive. One UPDATE. Never throws
+ * on its own writes.
+ */
+async function readyAgainCommit(o: ViewIn, v: PathFacts, asked: NonNullable<Seen['bench_ask']>, r: ReadyState): Promise<{ view: BenchView; fields: Reply; stand: Standing } | null> {
   const { id, now, read } = o;
   const key = v.project.key;
   const need = asked.need ? r.need : null;
-  const show = need ? [need.later.length > 0 ? readyNeedsLater(need.later) : null, readyStillNeeds(need.titles, need.phrase, need.items.length)].filter(Boolean).join('\n\n')
-    : asked.sent ? readySentAgain(r.opened.length)
-    : readyAgain(r.ids.length - r.skipped.length);
+  let show: string;
+  if (need) show = [need.later.length > 0 ? readyNeedsLater(need.later) : null, readyStillNeeds(need.titles, need.phrase, need.items.length)].filter(Boolean).join('\n\n');
+  else if (asked.sent) show = readySentAgain(await againRows(o.cards, r.opened, { keep: true }), now);
+  else {
+    const rows = await againRows(o.cards, r.ids.filter((pid) => !r.skipped.includes(pid)), { codes: asked.codes });
+    if (rows.length === 0) return null;
+    const drafts = await readyDrafts(id, key, rows, await readyRecord(id, now), r.given);
+    const hosted = (o.reach ?? (await agentReach(o.own, id))).hosted;
+    show = readyAgain(rows.map((p, i) => ({ ...p, needs: needsOfDraft(drafts[i]) })), now, hosted);
+  }
   const note = need ? READY_NEEDS_NOTE : asked.sent ? READY_SENT_NOTE : READY_ASK_NOTE;
   await markSaid(id, [], now);
   const view: BenchView = {
@@ -1403,7 +1431,7 @@ async function readyWaitingCommit(o: ViewIn, v: PathFacts, r: ReadyState): Promi
     }
     const rows = s.open.length > 0 ? await openRows(next.opened, base) : [];
     const ask = s.open.length > 0 ? readyOpenedShow(next.ids.filter((pid) => !next.skipped.includes(pid)).map(base), rows.map(openRow), next.need)
-      : next.need ? needAsk(next.need) : readySentAgain(next.opened.length);
+      : next.need ? needAsk(next.need) : readySentAgain(await againRows(o.cards, next.opened, { keep: true }), now);
     const note = next.need ? READY_NEEDS_NOTE : READY_SENT_NOTE;
     return {
       view: view0('ready', [line, ask].filter(Boolean).join('\n\n'), `${s.open.length > 0 ? `${READY_YES_NOTE} ` : ''}${readyNoteOf(note)}`), stand: v.stand,
@@ -1478,8 +1506,10 @@ async function readyView(o: ViewIn, plan: PathPlan): Promise<{ view: BenchView; 
     // Fix 1 (I1): a codes park just wrote the ask away (nothing open or waiting): the path answers.
     if (r.codes.length > 0) return null;
     // Final fix (I3): "sent" is asked only while a page is open.
-    if (mine && ((mine.sent === true && r.opened.length > 0) || (mine.need === true && r.need) || (!mine.sent && !mine.need && !session.fresh && session.said.has(READY_SAID))))
-      return readyAgainCommit(o, v, mine, r);
+    if (mine && ((mine.sent === true && r.opened.length > 0) || (mine.need === true && r.need) || (!mine.sent && !mine.need && !session.fresh && session.said.has(READY_SAID)))) {
+      const again = await readyAgainCommit(o, v, mine, r);
+      if (again) return again;
+    }
   } else if (asked?.kind === 'ready') {
     // Final fix (M7): a ready ask whose set expired is dropped, never answered "Okay." for good.
     read.seen.bench_ask = undefined;

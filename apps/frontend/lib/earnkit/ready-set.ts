@@ -59,9 +59,19 @@ export function readySet(ctx: MoveCtx & { now: Date }): ReadyProgram[] {
 /**
  * R3: what the set is worth, "$1.1M", "$105.5K" (pool.ts usdCompact, the money line's figure: one decimal, rounded
  * down so it never overstates): the sum of each program's `max_usd`. A program with no number adds nothing; none has
- * one: null. Pure.
+ * one: null. v4.10.1 Task 2 (R3): a long shot adds nothing (longShotWorth says it apart); investor programs stay. Pure.
  */
-export function worthUpTo(set: readonly ReadyProgram[]): string | null {
-  const total = set.reduce((n, p) => n + (p.max_usd && p.max_usd > 0 ? p.max_usd : 0), 0);
+export function worthUpTo(set: readonly Pick<ReadyProgram, 'kind' | 'max_usd'>[]): string | null {
+  const total = set.reduce((n, p) => n + (p.kind !== 'long_shot' && p.max_usd && p.max_usd > 0 ? p.max_usd : 0), 0);
   return total > 0 ? usdCompact(total) : null;
+}
+
+/**
+ * v4.10.1 Task 2 (R3): the long shots' money, said apart from the worth ("plus a $100K long shot"): their summed
+ * `max_usd` (usdCompact) and how many have a number; none with a number: null. Pure.
+ */
+export function longShotWorth(set: readonly Pick<ReadyProgram, 'kind' | 'max_usd'>[]): { usd: string; n: number } | null {
+  const long = set.filter((p) => p.kind === 'long_shot' && p.max_usd && p.max_usd > 0);
+  const total = long.reduce((n, p) => n + (p.max_usd ?? 0), 0);
+  return total > 0 ? { usd: usdCompact(total), n: long.length } : null;
 }

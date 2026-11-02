@@ -1,6 +1,6 @@
-import { closeWords, programName } from './conversation';
+import { closeWords, hoursLeft, programName } from './conversation';
 import { BUILDER_CODES_GUIDE } from './bench-reply';
-import type { ReadyProgram } from './ready-set';
+import { longShotWorth, type ReadyProgram } from './ready-set';
 
 /*
  * v4.10 Task 3 (R5, R6, R7): the ready set's words, from the owner-approved target conversation (section A). Pure
@@ -31,9 +31,30 @@ export const READY_NEEDS_NOTE =
   "Their answers to what the programs need (only theirs, never yours): split their one reply by field (ready.need.asks) and call tell with move_up: { kind: 'ready', project_key, answer: 'yes', answers: { [kind]: their words for it } } (contact: { [slot]: their words } for the slots it lists); blanks: their whole reply, only when it can't be split. Don't show this note.";
 /** v4.10 Task 4: the second plain find in a session, while the opener's ask waits: its last sentence. */
 export const READY_AGAIN_ASK = "Reply yes and I'll finish them.";
-/** v4.10 Task 4: the ready status (a later plain find in the session never repeats the opener). Pure. */
-export const readyAgain = (n: number) =>
-  n === 1 ? "Your application is still ready. Reply yes and I'll finish it." : `Your ${n} applications are still ready. ${READY_AGAIN_ASK}`;
+/** v4.10.1 Task 2: a set program as the repeat replies name it (bench-find.ts builds these from the live cards). */
+export type AgainProgram = Pick<ReadyProgram, 'title' | 'amount' | 'ends_at' | 'zone' | 'kind'> & Partial<Pick<ReadyProgram, 'step' | 'needs'>>;
+/** v4.10.1 Task 2: one program's line: "- a16z: up to $1M investment, closes in 19 hours." (the hours only under 48). */
+function againLine(p: AgainProgram, now: Date, state: string | null): string {
+  const money = p.kind === 'investor' ? (p.amount ? `${p.amount} investment` : 'investment program') : p.amount;
+  const hours = p.ends_at ? hoursLeft(p.ends_at, now) : null;
+  const facts = [money, hours ? `closes ${hours}` : null].filter(Boolean).join(', ');
+  return `- ${shortName(p.title)}${facts ? `: ${facts}` : ''}.${state ? ` ${state}` : ''}`;
+}
+/** v4.10.1 Task 2: what a program still owes in the repeat reply: what only the builder can give, a step, or ready. */
+const againState = (p: AgainProgram, hosted: boolean) => (p.needs ? `Needs ${p.needs} first.` : p.step === 'codes' ? `${codesLine(hosted)}.` : 'Ready.');
+/**
+ * v4.10 Task 4: the ready status (a later plain find in the session never repeats the opener). v4.10.1 Task 2: each
+ * open program on its own line, with its money, its hours left under 48 and what it still needs; "still ready" only
+ * when none needs anything from the builder. Then READY_AGAIN_ASK. Pure.
+ */
+export function readyAgain(set: readonly AgainProgram[], now: Date, hosted = false): string {
+  const n = set.length;
+  const ready = set.every((p) => !p.needs);
+  const head = ready ? (n === 1 ? 'Your application is still ready:' : `Your ${n} applications are still ready:`)
+    : n === 1 ? "Here's where your application stands:" : `Here's where your ${n} applications stand:`;
+  const lines = set.map((p) => againLine(p, now, againState(p, hosted)));
+  return `${head}\n${lines.join('\n')}\n\n${n === 1 ? "Reply yes and I'll finish it." : READY_AGAIN_ASK}`;
+}
 
 /** "Base", "a16z", "Circle": the first word of the program's name. */
 export const shortName = (title: string): string => programName(title).split(/\s+/)[0];
@@ -121,12 +142,25 @@ export function readyLine(p: ReadyProgram, n: number, hosted: boolean, now: Date
 }
 
 /**
+ * v4.10.1 Task 2 (R3): the opener head's money: ", worth up to $1M, plus a $100K long shot" (`worth`: worthUpTo, long
+ * shots left out). A set of long shots only: ", a $100K long shot" (", $150K in long shots"); no number at all: nothing,
+ * never "$0". Pure.
+ */
+export function worthClause(set: readonly Pick<ReadyProgram, 'kind' | 'max_usd'>[], worth: string | null): string {
+  const long = longShotWorth(set);
+  const shots = long ? (long.n === 1 ? `a ${long.usd} long shot` : `${long.usd} in long shots`) : null;
+  if (worth) return `, worth up to ${worth}${shots ? `, plus ${shots}` : ''}`;
+  if (!shots) return '';
+  return set.every((p) => p.kind === 'long_shot') ? `, ${shots}` : `, including ${shots}`;
+}
+
+/**
  * The session opener: what is ready, what it is worth, where the answers came from, then READY_ASK as the last line.
  * v4.10 Task 4: `name` null (no X name, or greeted already this session) greets no one.
  */
 export function readyOpener(o: { name: string | null; set: ReadyProgram[]; worth: string | null; page: string; hosted: boolean; now: Date; rest?: boolean }): string {
   const n = o.set.length;
-  const head = `${o.name ? `${o.name}, I've` : "I've"} got ${n === 1 ? '1 application' : `${n} applications`} ready for you${o.worth ? `, worth up to ${o.worth}` : ''}:`;
+  const head = `${o.name ? `${o.name}, I've` : "I've"} got ${n === 1 ? '1 application' : `${n} applications`} ready for you${worthClause(o.set, o.worth)}:`;
   const lines = o.set.map((p, i) => readyLine(p, i + 1, o.hosted, o.now));
   // Final fix (M1): with a program waiting on the builder, it is every other answer. v4.10.1 Task 1: only when the one
   // ask covers every field the builder owes (`rest`: some wait for a later ask), else what EarnKit can fill.
@@ -157,9 +191,15 @@ export function readyOpenList(set: readonly unknown[], opened: readonly { title:
 }
 /** v4.10 Task 4: the one easy reply once pages are open: "sent", for `n` of them. Pure. */
 export const readySentAsk = (n: number) => `Reply "sent" once ${n === 1 ? "it's" : "they're"} in, and I'll track ${n === 1 ? 'it' : 'them'} for you.`;
-/** v4.10 Task 4: a later plain find while the open pages wait for "sent". Pure. */
-export const readySentAgain = (n: number) =>
-  `${n === 1 ? 'Your application is' : `Your ${n} applications are`} open with every answer in place. ${readySentAsk(n)}`;
+/**
+ * v4.10 Task 4: a later plain find while the open pages wait for "sent". v4.10.1 Task 2: each open page on its own line,
+ * with its money and its hours left under 48. Pure.
+ */
+export function readySentAgain(set: readonly AgainProgram[], now: Date): string {
+  const n = set.length;
+  const head = n === 1 ? 'Your application is open with every answer in place:' : `Your ${n} applications are open with every answer in place:`;
+  return `${head}\n${set.map((p) => againLine(p, now, null)).join('\n')}\n\n${readySentAsk(n)}`;
+}
 /** The short names of the programs, each once ("Base and a16z"). */
 const shortList = (titles: readonly string[]) => [...new Set(titles.map(shortName))];
 /**

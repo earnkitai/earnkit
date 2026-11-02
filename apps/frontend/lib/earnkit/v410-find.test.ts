@@ -161,7 +161,7 @@ const yesAll = (b: B, m: Record<string, unknown> = {}) => tell(b, { kind: 'ready
 /** v4.10.1 Task 1: a grant form's one field the agent drafts (Circle's business details), for copies with their own fields. */
 const DRAFTED = committedProgram('circle-developer-grants').submission_requirements.filter((r: { key: string }) => r.key === 'business');
 const OPENER = (handle: string) => new RegExp([
-  "^Jenil, I've got 3 applications ready for you, worth up to \\$1\\.1M:",
+  "^Jenil, I've got 3 applications ready for you, worth up to \\$1M, plus a \\$100K long shot:",
   '',
   '1\\. Base Builder Grant: up to \\$5,000\\. Needs your contact details \\(name, email and Telegram\\), how it makes money today, main challenge right now and 1 more first\\.',
   '2\\. a16z speedrun SR008: up to \\$1M investment, closes in (19|20) hours\\. Needs your email first\\.',
@@ -210,8 +210,18 @@ test('the first find opens with the set (section A), every program drafted for t
   assert.deepEqual((await readyOf(b.id))?.ids, ['base-builder-grants', sr.id, circle.id]);
   // Nothing is drafted before the yes (declined and drafted exclusions stay right).
   assert.equal(seen.apply_yes, undefined);
-  // R1: never the opener again in the session.
-  assert.equal(again.show, "Your 3 applications are still ready. Reply yes and I'll finish them.");
+  // R1: never the opener again in the session. v4.10.1 Task 2 (5): each program by name, with its money, its hours left
+  // under 48 and what it still needs; never "still ready" while the set needs anything.
+  assert.match(again.show, new RegExp([
+    "^Here's where your 3 applications stand:",
+    '',
+    '- Base: up to \\$5,000\\. Needs your contact details \\(name, email and Telegram\\), how it makes money today, main challenge right now and 1 more first\\.',
+    '- a16z: up to \\$1M investment, closes in (19|20) hours\\. Needs your email first\\.',
+    '- Circle: \\$5K to \\$100K\\. Needs your Circle and Arc integrations, product roadmap and proposed grant milestones first\\.',
+    '',
+    "Reply yes and I'll finish them\\.$",
+  ].join('\\n')), again.show);
+  assert.doesNotMatch(again.show, /still ready/);
   assert.equal(moveUp({ reply: again.reply } as R)?.kind, 'ready');
   assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), []);
 });
@@ -393,7 +403,7 @@ test('a builder-only field: its line says so, the answer is banked by kind and o
   const [bank] = await sql()<{ answer: string }[]>`SELECT answer FROM answer_bank WHERE installation_id = ${b.id} AND kind = 'team'`;
   assert.equal(bank?.answer, 'Just me, Jenil');
   // While its page waits for "sent", a later find points back to it; sent, the next set may open.
-  assert.match(show(await find(b)), /^Your application is open with every answer in place\. Reply "sent" once it's in/);
+  assert.match(show(await find(b)), /^Your application is open with every answer in place:\n- Teamwork: \$5K to \$100K\.\n\nReply "sent" once it's in/);
   await tell(b, { kind: 'ready', project_key: b.key, answer: 'sent' });
   // The next program that asks for the team: pre-filled, never asked again.
   const two = await copy('circle-developer-grants', 'team2', { extra: { title: 'Second Grants', tag: 'needs a live product', chains: ['base'], submission_requirements: reqs } });
@@ -446,7 +456,7 @@ test('fix 1 (I1): codes never pushed: the re-check says so once, then Base is pa
   const first = await find(b);
   assert.equal(show(first), `${READY_CODES_NOT_YET}\n\n${PUSHED_ASK}`);
   const parked = await find(b);
-  assert.equal(show(parked), 'I\'ll keep Base Builder Grant for when it\'s done.\n\nYour 2 applications are open with every answer in place. Reply "sent" once they\'re in, and I\'ll track them for you.');
+  assert.match(show(parked), /^I'll keep Base Builder Grant for when it's done\.\n\nYour 2 applications are open with every answer in place:\n- a16z: up to \$1M investment, closes in (19|20) hours\.\n- Circle: \$5K to \$100K\.\n\nReply "sent" once they're in, and I'll track them for you\.$/, show(parked));
   assert.equal(moveUp(parked)?.kind, 'ready');
   const declined = (await seenOf(b.id)).declined as Record<string, string>;
   assert.ok(declined['path:base-builder-grants'] && declined['apply:base-builder-grants']);
@@ -459,7 +469,7 @@ test('fix 1 (I1): codes never pushed: the re-check says so once, then Base is pa
   const yes = await yesAll(no);
   assert.equal(moveUp(yes)?.kind, 'qualify');
   const said = await tell(no, { kind: 'qualify', project_key: no.key, answer: 'no' });
-  assert.equal(show(said), 'No problem, I\'ll set Base Builder Grant aside.\n\nYour 2 applications are open with every answer in place. Reply "sent" once they\'re in, and I\'ll track them for you.');
+  assert.match(show(said), /^No problem, I'll set Base Builder Grant aside\.\n\nYour 2 applications are open with every answer in place:\n- a16z: up to \$1M investment, closes in (19|20) hours\.\n- Circle: \$5K to \$100K\.\n\nReply "sent" once they're in, and I'll track them for you\.$/, show(said));
   assert.equal(moveUp(said)?.kind, 'ready');
   // Fix 1 (M2): "sent" right after the yes (kind qualify, Base's codes pending) still tracks the open pages.
   const early = await owner('ie');
@@ -637,6 +647,25 @@ test('final fix (I3): a no to the only waiting program, nothing open: the ask go
   assert.match(show(no), /^No problem, I'll set Teamwork aside\./, show(no));
   assert.notEqual(((await seenOf(b.id)).bench_ask as { kind?: string } | undefined)?.kind, 'ready');
   for (const r of [no, await find(b), await find(b)]) assert.doesNotMatch(show(r), /Your 0 applications|0 of \d/, show(r));
+});
+
+test('v4.10.1 Task 2 (5): the repeat reply names each program with its money and hours, "still ready" only when true; a closed one drops out', db, async () => {
+  await sql()`UPDATE programs SET status = 'closed' WHERE investment AND id NOT LIKE ${`v410-${process.pid}-%`}`;
+  const soon = await grant('again-soon', 'Soon Grants', [], 30);
+  const open = await grant('again-open', 'Open Grants', []);
+  await only([soon.id, open.id]);
+  const b = await owner('ag', { bank: false });
+  const first = await find(b);
+  assert.match(show(first), /\n1\. Soon Grants: \$5K to \$100K\. Ready\.\n2\. Open Grants: \$5K to \$100K\. Ready\.\n/, show(first));
+  const again = await find(b);
+  assert.match(show(again), /^Your 2 applications are still ready:\n- Soon: \$5K to \$100K, closes in (29|30) hours\. Ready\.\n- Open: \$5K to \$100K\. Ready\.\n\nReply yes and I'll finish them\.$/, show(again));
+  assert.equal(moveUp(again)?.kind, 'ready');
+  // A program closed since the opener is no longer named.
+  await sql()`UPDATE programs SET status = 'closed' WHERE id = ${soon.id}`;
+  assert.match(show(await find(b)), /^Your application is still ready:\n- Open: \$5K to \$100K\. Ready\.\n\nReply yes and I'll finish it\.$/);
+  // Every program closed: never "Your 0 applications"; the path answers.
+  await sql()`UPDATE programs SET status = 'closed' WHERE id = ${open.id}`;
+  assert.doesNotMatch(show(await find(b)), /Your 0 applications|still ready|stands?:/);
 });
 
 test('final fix (I4): "sent" for the open page while another waits on the builder: the follow-up asks for it, then it opens', db, async () => {
