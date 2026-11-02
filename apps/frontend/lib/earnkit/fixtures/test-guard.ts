@@ -57,6 +57,8 @@ for (const name of CLEARED) delete process.env[name];
 // embedder. The one opt-in model test (EARNKIT_MODEL_TEST=1, originality.test.ts) keeps it.
 if (process.env.EARNKIT_MODEL_TEST === '1') delete process.env.EARNKIT_EMBED_OFF;
 else process.env.EARNKIT_EMBED_OFF = '1';
+// v4.10 final fix (M6): bench-find.ts READY_SET is a test-only switch, frozen outside the guard (so never in production).
+process.env.EARNKIT_TEST_GUARD = '1';
 // v2.14 T2: one database per test file (fixtures/test-db.ts); a no-op outside a test-runner child.
 perFileDatabase();
 

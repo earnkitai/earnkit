@@ -34,6 +34,8 @@ export type BenchAskKind = 'sign_in' | 'start' | 'pick_repo' | 'install_app' | '
   | 'more'
   /** v4.8 last ruling 1: `name`, after the programs answer on a quiet path: a program's name is the pick (find program). */
   | 'name'
+  /** v4.10 Task 4: `ready`, the ready set's one yes (bench-find.ts readyCommit; its answers readyAnswer). */
+  | 'ready'
   /** v4.0 Task 8 fix round 1: the accepted nudge's share ask (its yes: the post's link). */
   | 'outcome_share'
   /** v4.0: `wallet_setup`, setup step 3 (the wallet, and the builder's token unless they say no), once a person. */

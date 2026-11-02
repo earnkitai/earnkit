@@ -24,6 +24,11 @@ import { upgradeToken, walletMessage, walletPost } from './wallet-proof';
 import { retryDroppedBuilderTokens } from './builder-token';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
+import { READY_SET } from './bench-find';
+
+// v4.10 Task 4: this file pins the reply the path gives; a fresh session now opens with the ready set instead
+// (v410-find.test.ts), so the set is off here (bench-find.ts READY_SET).
+READY_SET.on = false;
 
 /**
  * v4.7 Task 3: the first reply is money only. A ranked builder with an open fit not applied to hears that fit's

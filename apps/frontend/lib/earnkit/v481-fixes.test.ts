@@ -17,7 +17,7 @@ import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
 import { isoWeekOf } from './weeks';
 import { HELP_DONE_ASK } from './conversation';
-import { helpDoneTail, MORE_ASK, NAME_ASK, alsoOpen, pathDrafted, readyStored, codesSettled, openMoneyNow, openNowInvestment, openerPrograms } from './bench-find';
+import { READY_SET, helpDoneTail, MORE_ASK, NAME_ASK, alsoOpen, pathDrafted, readyStored, codesSettled, openMoneyNow, openNowInvestment, openerPrograms } from './bench-find';
 import { moneyText } from './pool';
 import { GitHubBudgetStop, type ReaderDeps } from './source-readers';
 import { committedProgram } from './fixtures/program-file';
@@ -34,6 +34,10 @@ import { digestBody, moneyTexts } from './digest';
 import { programUpdates, type Card } from './present';
 import { BUILDER_CODES_SUFFIX } from './builder-code';
 import { qualifyGapSteps } from './bench-reply';
+
+// v4.10 Task 4: this file pins the v4.8 path, which still answers a 0-program ready set, a builder mid-path and every
+// later reply; the ready set that now opens a fresh session is v410-find.test.ts's (bench-find.ts READY_SET).
+READY_SET.on = false;
 
 /**
  * v4.8.1 Task 1 (R1): investor programs and long shots never lead on their own. They lead only when the builder picked
@@ -303,11 +307,20 @@ test("v4.8.1 fix round 1 (F3): the total is /api/stats' figure, a program the bu
 });
 
 /**
- * v4.8.3: a copy closing in 90 minutes is the soonest investor program only once any committed one closing sooner is
- * closed (a16z speedrun SR008 closed on Nov 2, 07:59 UTC: until then, sooner than the copy). Pins the test's set.
+ * v4.10 final fix: date-proof the "Closing soon" clause tests. A committed card's real close (Arc Microgrants at
+ * 2026-11-02T04:59Z, a16z speedrun at 07:59:59Z) can fall inside the copy's 90 minutes and be named first. For the
+ * test, every other open card closing within `ms` gets an ends_at relative to now (30 days out); restored after.
  */
-const soonestInvestor = (id: string, ends: string) =>
-  sql()`UPDATE programs SET status = 'closed' WHERE investment AND id <> ${id} AND ends_at IS NOT NULL AND ends_at <= ${ends}::timestamptz`;
+async function soonestIsTheCopy<T>(copyId: string, ms: number, run: () => Promise<T>): Promise<T> {
+  const moved = await sql()<{ id: string; ends_at: Date }[]>`
+    SELECT id, ends_at FROM programs WHERE status = 'active' AND id <> ${copyId} AND ends_at IS NOT NULL AND ends_at < ${new Date(Date.now() + ms)}`;
+  await sql()`UPDATE programs SET ends_at = ${new Date(Date.now() + 30 * 86_400_000)} WHERE id = ANY(${moved.map((m) => m.id)}::text[])`;
+  try {
+    return await run();
+  } finally {
+    for (const m of moved) await sql()`UPDATE programs SET ends_at = ${m.ends_at} WHERE id = ${m.id}`;
+  }
+}
 
 test("v4.8.1 fix round 1 (F6): the investor clause names a controlled investor program, never the reply's own", db, async () => {
   const file = committedProgram('a16z-speedrun');
@@ -317,23 +330,24 @@ test("v4.8.1 fix round 1 (F6): the investor clause names a controlled investor p
   const ends = new Date(Date.now() + 90 * 60_000).toISOString();
   const open = () => upsertProgram(ProgramFile.parse({ ...file, id, title, ends_at: ends, status: 'active', starts_at: null }));
   await open();
-  await soonestInvestor(id, ends);
-  // Base leads (no pick): the clause names the copy.
-  const b = await ownerDb('ivn');
-  await open();
-  const [hook] = await converse(b.ctx as never, [{ find: {} }], { builderId: b.id });
-  assert.doesNotMatch(hook.show.split('\n\n')[0], new RegExp(title), hook.show);
-  // v4.8.2 Task 2: the copy closes soonest, so "Closing soon" names it first (a second program may follow).
-  assert.ok(moneyPara(hook.show)?.replace(/^Open now: \S+ in grants\. /, '').startsWith(`Closing soon: ${title} (investor program, up to $1M, in 1 hour)`), hook.show);
-  // The builder picked the copy: the reply is about it, so the clause never names it.
-  const p = await ownerDb('ivp', { pick: id });
-  await open();
-  const [own] = await converse(p.ctx as never, [{ find: {} }], { builderId: p.id });
-  assert.match(own.show, new RegExp(`^Jenil, ${title} closes in 1 hour: up to \\$1M\\.`), own.show);
-  assert.ok(moneyPara(own.show), own.show);
-  assert.doesNotMatch(moneyPara(own.show)!, new RegExp(title), own.show);
-  assert.deepEqual(gateFailures([hook], { names: ['EarnKit', b.handle] }), [], hook.show);
-  assert.deepEqual(gateFailures([own], { names: ['EarnKit', p.handle] }), [], own.show);
+  await soonestIsTheCopy(id, 2 * 3_600_000, async () => {
+    // Base leads (no pick): the clause names the copy.
+    const b = await ownerDb('ivn');
+    await open();
+    const [hook] = await converse(b.ctx as never, [{ find: {} }], { builderId: b.id });
+    assert.doesNotMatch(hook.show.split('\n\n')[0], new RegExp(title), hook.show);
+    // v4.8.2 Task 2: the copy closes soonest, so "Closing soon" names it first (a second program may follow).
+    assert.ok(moneyPara(hook.show)?.replace(/^Open now: \S+ in grants\. /, '').startsWith(`Closing soon: ${title} (investor program, up to $1M, in 1 hour)`), hook.show);
+    // The builder picked the copy: the reply is about it, so the clause never names it.
+    const p = await ownerDb('ivp', { pick: id });
+    await open();
+    const [own] = await converse(p.ctx as never, [{ find: {} }], { builderId: p.id });
+    assert.match(own.show, new RegExp(`^Jenil, ${title} closes in 1 hour: up to \\$1M\\.`), own.show);
+    assert.ok(moneyPara(own.show), own.show);
+    assert.doesNotMatch(moneyPara(own.show)!, new RegExp(title), own.show);
+    assert.deepEqual(gateFailures([hook], { names: ['EarnKit', b.handle] }), [], hook.show);
+    assert.deepEqual(gateFailures([own], { names: ['EarnKit', p.handle] }), [], own.show);
+  });
 });
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -603,21 +617,22 @@ test("v4.8.1 final fix (R-4): an unpicked hook left on an investor program doesn
   const ends = new Date(Date.now() + 90 * 60_000).toISOString();
   const open = () => upsertProgram(ProgramFile.parse({ ...file, id, title, ends_at: ends, status: 'active', starts_at: null }));
   await open();
-  await soonestInvestor(id, ends);
-  const b = await ownerDb('r4h');
-  await open();
-  // The owner's snapshot: a hook on the investor program from an older session, never picked.
-  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('path', jsonb_build_object('stage', 'hook', 'program_id', ${id}::text, 'at', now()::text)) WHERE builder_id = ${b.id}`;
-  const [r] = await converse(b.ctx as never, [{ find: {} }], { builderId: b.id });
-  assert.match(r.show.split('\n\n')[0], /^Jenil, [^\n]*Base Builder Grant/, r.show);
-  // v4.8.2 Task 2: the copy closes soonest, so "Closing soon" names it first (a second program may follow).
-  assert.ok(moneyPara(r.show)?.replace(/^Open now: \S+ in grants\. /, '').startsWith(`Closing soon: ${title} (investor program, up to $1M, in 1 hour)`), r.show);
-  // Picked, it is the reply's own program, so the clause never names it.
-  const p = await ownerDb('r4p', { pick: id });
-  await open();
-  const [own] = await converse(p.ctx as never, [{ find: {} }], { builderId: p.id });
-  assert.doesNotMatch(moneyPara(own.show) ?? '', new RegExp(title), own.show);
-  assert.deepEqual(gateFailures([r], { names: ['EarnKit', b.handle] }), [], r.show);
+  await soonestIsTheCopy(id, 2 * 3_600_000, async () => {
+    const b = await ownerDb('r4h');
+    await open();
+    // The owner's snapshot: a hook on the investor program from an older session, never picked.
+    await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('path', jsonb_build_object('stage', 'hook', 'program_id', ${id}::text, 'at', now()::text)) WHERE builder_id = ${b.id}`;
+    const [r] = await converse(b.ctx as never, [{ find: {} }], { builderId: b.id });
+    assert.match(r.show.split('\n\n')[0], /^Jenil, [^\n]*Base Builder Grant/, r.show);
+    // v4.8.2 Task 2: the copy closes soonest, so "Closing soon" names it first (a second program may follow).
+    assert.ok(moneyPara(r.show)?.replace(/^Open now: \S+ in grants\. /, '').startsWith(`Closing soon: ${title} (investor program, up to $1M, in 1 hour)`), r.show);
+    // Picked, it is the reply's own program, so the clause never names it.
+    const p = await ownerDb('r4p', { pick: id });
+    await open();
+    const [own] = await converse(p.ctx as never, [{ find: {} }], { builderId: p.id });
+    assert.doesNotMatch(moneyPara(own.show) ?? '', new RegExp(title), own.show);
+    assert.deepEqual(gateFailures([r], { names: ['EarnKit', b.handle] }), [], r.show);
+  });
   await dropPrograms([id]);
 });
 

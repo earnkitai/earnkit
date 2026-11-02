@@ -28,6 +28,11 @@ import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
 import BenchProfileView from '../../app/[handle]/BenchProfileView';
 import { profileSite } from './site-data';
+import { READY_SET } from './bench-find';
+
+// v4.10 Task 4: this file pins the reply the path gives; a fresh session now opens with the ready set instead
+// (v410-find.test.ts), so the set is off here (bench-find.ts READY_SET).
+READY_SET.on = false;
 
 /**
  * v3 Stage 2 Task 2 (spec 5.3 Route 1): the drafted application is the ranked reply's step for a fit closing within

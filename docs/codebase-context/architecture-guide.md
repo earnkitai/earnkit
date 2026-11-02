@@ -9173,3 +9173,111 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
   pages never check staleness. A fresh write brings it back to discovery. File and sponsor rows never expire.
 - **Doc.** `docs/programs-api.md`: skip and report a program whose form host is refused (never swap the URL), the
   4,096-character long-text cap, `starts_at` before `ends_at`, and one re-check rule (weekly; 14 days drops off).
+
+## v4.10 Task 2: the ready set (selector)
+
+- **`readySet(ctx)`** (`lib/earnkit/ready-set.ts`, pure) picks up to 3 programs from the same `MoveCtx` `bestMove` takes
+  (`bestMove` is unchanged). Order: real fits, one-step grants (one agent-doable gap, or no gap known), investor programs
+  closing within `INVESTOR_WINDOW_MS`, then long shots (`longShot`, with `why`); within a kind the larger `max_usd`, then
+  the sooner close. Left out: `ctx.skip` (declined, parked, applied, drafted within `DECLINE_MS`, entered, hidden), a close
+  passed, a gap the agent can't do closing within `NOW_WINDOW_MS`. `worthUpTo(set)` sums `max_usd` with `usdCompact`
+  ("$1.1M"); null when no program has a number. Nothing calls them yet (Tasks 3 and after write the copy and wire find).
+- **`MoveProgram`** gained `max_usd` (Card.max_award_usd, set by `moveProgram`) and `why` (a long-shot grant's fit-cell
+  reason, set in `pathPlan`). Tests: `v410-ready.test.ts`.
+
+## v4.10 Task 3: ready copy and the gate
+
+`ready-copy.ts` is the ready set's pure copy (spec section A): `READY_ASK`, `shortName` (first word of `programName`),
+`readyLine` (grant/fit/long-shot/investor line; step 'codes' reads "I'll do it" or, hosted, the guide link; investor close
+via `closeWords`), `readyOpener`, `readyYesReply` (waiting step, then the open list and the "sent" ask), `skipReply`.
+Gate (`fixtures/converse.ts`): `easyReply` takes a reply whose last line is exactly `READY_ASK`; `lazyNext` answers a
+`move_up` kind 'ready' with yes, or `{answer:'skip', skip:[n]}` when `o.skip` is set. Nothing calls the copy yet (Task 4).
+
+## v4.10 Task 4: the set in find, and its answers
+
+- **Find** (`bench-find.ts` `readyView`, called in `benchView`'s path block right after `pathPlan` and the connected
+  line): a program waiting on Builder Codes is re-checked first (`readyWaitingCommit`, the existing `codesConfirmed` from
+  the yes's `gap_did`; found, it opens); then a waiting ask is said in its short form (`readyAgainCommit`: the opener's
+  ask the same session only, "Your 3 applications are still ready. Reply yes and I'll finish them."; the "sent" ask or a
+  builder-only answer any session); then, on a fresh session with nothing mid-path (no stage past hook or track, no
+  pick, no direct question, no closed gap or running re-check), `readySet` over `plan.ctx` (so `pathSkip`'s exclusions
+  hold; a grant whose fit bar is `long_shot`, `PathPlan.longShots`, joins as one) and `readyCommit` when it has a
+  program. Null: the path as before (a 0-program set and a shared client are unchanged).
+- **The opener** (`readyCommit`): `readyOpener`, `READY_NOTE` as the path note, `move_up` kind 'ready'
+  (`READY_ASK_NOTE`), and `ready.programs` (each program's required fields, `heldAnswers`' pre-filled answers, the
+  `shipLogBlock` record, its link). Each program's `needs` is the first unheld required builder field the agent can't
+  draft (`conversation.ts` `builderOnly`, shared with `draftBlanks`), as `needsPhrase` ("your team list"). One UPDATE:
+  `standing_seen.ready` (`ReadyState`: ids, at, skipped, opened, waiting, codes, need), `bench_ask` (kind 'ready': ids,
+  codes, Base's qualify offer), said (`ready`, `proof:page` for the gate's proof rule, `money:total`, the greeting).
+  `apply_yes` waits for the yes.
+- **Answers** (`benchMoveUp` routes kind 'ready' to `readyAnswer`; tools.ts `move_up` takes answer 'skip' with `skip`
+  and `sent_ids`, mcp.ts lists them). Yes (`readyYes`): Base waiting on codes runs `gapDoYes` (the gap stage's own
+  writes, its re-check ask stored); the others open now (`ready.open` with ids and links, `READY_YES_NOTE`: the agent
+  calls prepare for each; the server writes no free-text answers); `apply_yes` for every program. The reply: the skip
+  line, "Adding Builder Codes now, then I'll open all three.", the open list, then one easy reply (`PUSHED_ASK`, a
+  builder-only ask in the blanks form, or "sent"). Skip parks the numbered ones (`apply:`/`path:` for `DECLINE_MS`; out of
+  range ignored) and is a yes on the rest; all skipped or no parks the set and hands off to find (`readyNoLine`). A
+  builder-only answer (`blanks`) is banked by kind (`saveBank`) and opens its program. "sent" (`readySent`, from
+  `ReadyState.opened`, `sent_ids` narrowing) becomes program_status applied; `readyTracked` drops them and sets the path at
+  track; the lead is `readyTrackLead`, then find.
+- **Gate** (`fixtures/converse.ts`): `READY_ASK` and the status sentence count only while the reply's `move_up` kind is
+  'ready'; `lazyNext` answers "sent" and the blanks form before a ready yes.
+- **Tests**: `v410-find.test.ts` (DB, owner shape). `bench-find.ts` `READY_SET.on` is a test switch (as `RECHECK_WAIT`):
+  the older suites that pin the path's first reply set it off.
+- **Fix 1**: an investor founder brief's blanks are its need (`FOUNDER_REQS`: kind 'team' and the new bankable
+  `FIELD_KINDS` 'raised'), so a16z reads "Ready." only with both held, else "Needs your team list and any money you've
+  raised first." and stays out of `ready.open`; one reply is banked under each kind. Codes never pushed: a second
+  missing re-check in a session, or a no to the re-check ask (`declined` 'path:'), parks Base (the declined keys) and
+  the open pages' "sent" ask goes on. The yes writes no `bench_ask` when `gapDoYes` stores its own; `readySent` takes
+  only the stored ready ask (or Base's re-check while its codes wait) for the same project.
+
+## v4.10 Task 5: replays of the ready set
+
+`scripts/converse-replay.mts` gains `WALK=R` (owner, `VARIANT=yes|skip`, a fresh snapshot copy each): find, the lazy
+answers (`lazyNext`, builder-only asks answered with a short text that fits the ask), the codes push simulated (a
+`fakeGitHub` carrying a Builder Codes file as the tool context's `codesFetch`, `appEnv()` giving a local App key, the
+agent's "ok" a `tell` on the qualify ask), "sent", one more find. A, S, B run as before; S shows the opener once, then the
+still-ready line. Fixes found by the replays: a find that opens a session on a waiting codes check carries the streak
+fact (`readyWaitingCommit`); an answer that opens nothing new no longer repeats the open list (`readyYes`,
+`readyWaitingCommit`); the gate treats a `ready` ask's whole last paragraph as the repeatable ask unit.
+
+## v4.10 final fix: one ask for the set, honest long shots, nothing stranded
+
+This supersedes the per-program need in Task 4: the builder answers once for the whole set.
+- **One ask (I1).** `readyDrafts` keeps every unheld builder-only field of a program (`ReadyDraft.only`). The opener's
+  line names up to 3 of them, then "and N more" (`ready-copy.ts` `needsList`). With any need, the opener says "Every
+  other answer is filled ..." (M1). `readyNeeds(drafts)` (exported, pure) builds the set's one ask:
+  - fields are deduped by bank kind (`askKey`; a field of no bankable kind keeps `other:<key>`);
+  - the soonest-closing program's fields come first;
+  - `READY_NEED_MAX` is 4 fields. A program whose new fields would pass it waits in `need.later`, named before the
+    ask ("Colosseum also needs ... I'll ask for it next."). The first program always goes.
+  - `ReadyState.need` is `{ programs, titles, phrase, items: [{ kind, phrase, fields: [{ program_id, req }] }], later }`.
+- **Asked in the yes itself.** The yes reply ends on `readyNeedsAsk(titles, phrase, n)` ("a16z and Base need ... first.
+  Reply with them and I'll finish them."). For a non-hosted agent the Builder Codes push is the agent's own work
+  (`GAP_DO_NOTE`: push, then call find), and the stored ask is the ready need (written after `gapDoYes`). A hosted agent
+  keeps the codes help ask first; its set's ask comes once the codes are found or parked.
+- **Answers.** tell `move_up.answers` (`program-file.ts` `READY_ANSWERS`: a partial record by `FIELD_KINDS`, at most 8,
+  each at most 1000 characters; tools.ts and mcp.ts). The agent splits the builder's one reply by `ready.need.asks`.
+  `readyBank` limits answers to the asked fields (on the first yes, every program's), with `blanks` as the fallback.
+  It banks each answer for every program asking it (`saveBank`), and keeps answers of no bankable kind in
+  `ReadyState.given`, so nothing is asked twice. Answers are taken on the first yes too.
+- **Long shots (I2).** In `pathPlan`, a grant whose `cardFact` is a chain the project isn't on joins `PathPlan.longShots`,
+  with that fact as its `why` (Circle on Arc: "Ready, but Circle looks for apps on Arc, so it's a long shot.", last).
+- **Nothing stranded (I3 to I5).** `readySettle` drafts the waiting programs again: those with nothing left to ask and
+  no codes pending open, and the rest form the next need. It runs after:
+  - a no to the need ask (it parks the asked programs; the next ask is the rest's, else "sent", else the codes ask,
+    else the ask goes and find answers);
+  - a codes park;
+  - codes found (a program the builder still owes answers for never opens).
+  "sent" is asked only while a page is open. `readyTracked` keeps the ask while anything waits and rewrites it to the
+  need, so the follow-up find says "Still waiting on ... Reply with it and I'll finish it." (`readyStillNeeds`).
+  While the builder owes answers, a codes re-check that is missing or checking keeps their ask as the one easy reply.
+- **Minors.**
+  - M2: "Adding Builder Codes now, then I'll open Base." (`readyYesReply` `codes`).
+  - M3: `skip` takes up to 10 numbers.
+  - M4: the record is sent once, at `ready.record`.
+  - M5: `readyYes`'s UPDATE applies only onto the ready state it read; on a conflict it reads again once.
+  - M6: `READY_SET` is frozen unless `EARNKIT_TEST_GUARD` (set by `fixtures/test-guard.ts`) or `NODE_ENV=test`.
+  - M7: the first yes refreshes `ready.at`, and a ready ask whose set expired is dropped (find answers).
+- **Gate.** `BLANKS_REPLY` also takes "... and I'll finish them." `lazyNext` takes `answers`, so a ready need ask is
+  answered in one split message (replay `ANSWERS`).

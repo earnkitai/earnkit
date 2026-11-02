@@ -16,7 +16,7 @@ import { serverInstructions } from './mcp';
 import { walletSetupAsk } from './bench-reply';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
-import { isoWeekOf } from './weeks';
+import { isoWeekOf, mondayOf } from './weeks';
 import { backfillMondays } from './week-facts';
 import { X_ON, withEnv } from './fixtures/find';
 import {
@@ -25,7 +25,7 @@ import {
 } from './conversation';
 import { qualifyGapSteps, BUILDER_CODES_GUIDE } from './bench-reply';
 import { BUILDER_CODES_SUFFIX } from './builder-code';
-import { MORE_ASK, NAME_ASK, PUSHED_ASK, RECHECK_WAIT, benchScore, codesSettled, founderBriefNote, openerPrograms, questionsDraftNote } from './bench-find';
+import { READY_SET, MORE_ASK, NAME_ASK, PUSHED_ASK, RECHECK_WAIT, benchScore, codesSettled, founderBriefNote, openerPrograms, questionsDraftNote } from './bench-find';
 import type { Card } from './present';
 import { draftBody, shipLogFacts } from './ship-log-facts';
 import { standingParagraph } from './standing';
@@ -34,6 +34,10 @@ import { assertOpener } from './fixtures/opener';
 import { standingOf } from './person-score';
 import { alertBody, runAlertMail, tellLine } from './alert-mail';
 import { askMismatch, converse, conversation, gateFailures, lazyNext, transcript, type Call, type Reply, type Turn } from './fixtures/converse';
+
+// v4.10 Task 4: this file pins the v4.8 path, which still answers a 0-program ready set, a builder mid-path and every
+// later reply; the ready set that now opens a fresh session is v410-find.test.ts's (bench-find.ts READY_SET).
+READY_SET.on = false;
 
 /**
  * v4.8 Task 1: the path, session memory and the agent note. The copy is the target conversation's (section A's
@@ -315,11 +319,7 @@ let n = 0;
  * and setup step 3 done. `pick` (v4.8.1 R1): the builder picked that program (said its name or number on the opener), so
  * an investor program leads; investor programs never lead on their own while a grant move exists.
  */
-/**
- * `weeksAt`: the commit weeks end at that moment's week, not this one (v4.8.3: a test whose last session is days back
- * keeps "nothing shipped since" on a Monday too, when those days cross into a new ISO week).
- */
-async function owner(tag: string, o: { pick?: string; weeksAt?: number } = {}) {
+async function owner(tag: string, o: { pick?: string; endLastWeek?: boolean } = {}) {
   n++;
   const t = `ek_v48_${tag}_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Claude Code');
@@ -340,8 +340,10 @@ async function owner(tag: string, o: { pick?: string; weeksAt?: number } = {}) {
   const gid = 48000 + n * 10 + (Number(RUN) % 7);
   const gh = fakeGitHub({ [key]: { id: gid, owner: handle, installation: gid + 1 } });
   await installApp({ builderId: c.id, repoKey: key, login: handle, gh });
-  // Six weeks shipping in a row (this week and the five before), live as an app.
-  const weeks = Array.from({ length: 6 }, (_, k) => isoWeekOf(new Date((o.weeksAt ?? Date.now()) - k * 7 * 86_400_000)));
+  // Six weeks shipping in a row (this week and the five before), live as an app. `endLastWeek`: the six weeks ending last
+  // week instead, so a session a day or two back never sits across an ISO week from a streak that grew this week (the
+  // streak is the same then and now on every weekday, as it was when these tests were written midweek).
+  const weeks = Array.from({ length: 6 }, (_, k) => isoWeekOf(new Date(Date.now() - (k + (o.endLastWeek ? 1 : 0)) * 7 * 86_400_000)));
   await sql()`UPDATE builder_projects SET commit_weeks = ${weeks}::text[], shipped = true, kind = 'app' WHERE builder_id = ${c.id} AND lower(project_key) = lower(${key})`;
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('connect_done', now()::text,
       'declined', jsonb_build_object(${`qualify:${key}`}::text, now()::text)) WHERE builder_id = ${c.id}`;
@@ -1121,15 +1123,17 @@ test('a new session after more shipping opens with "Since ...", the streak and s
   (b.ctx as { codesFetch?: typeof fetch }).codesFetch = b.gh;
   await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' });
   assert.equal(show(await find(b)), A_CODES_IN_PROOF);
-  // The builder said nothing; the last session was 7 days ago (always the week before, v4.8.3: 8 days crossed two week
-  // starts on a Monday), when the score was 77 and the streak one week shorter (this week's commits came since).
-  const last = new Date(Date.now() - 7 * 86_400_000);
+  // The builder said nothing; the last session was Thursday of the week before (any weekday it runs on: 8 days ago was two
+  // ISO weeks back on a Monday), when the score was 77 and the streak one week shorter (this week's commits came since).
+  const last = new Date(Date.parse(`${mondayOf(new Date())}T12:00:00Z`) - 4 * 86_400_000);
   await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, '{said,at}', to_jsonb(${last.toISOString()}::text)) WHERE builder_id = ${b.id}`;
   await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, ranked)
     VALUES (${b.id}, ${last.toISOString().slice(0, 10)}::date, 77, 0, '{}'::jsonb, '{}'::jsonb, 'v2', 'v2-shipping', false, true) ON CONFLICT (builder_id, day) DO UPDATE SET score = 77`;
   const r = await find(b);
   const s = show(r);
-  const day = last.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  // "Since Thursday" within a week, "Since Oct 29" from seven days on (UTC days).
+  const daysBack = Math.floor(Date.now() / 86_400_000) - Math.floor(last.getTime() / 86_400_000);
+  const day = last.toLocaleDateString('en-US', daysBack < 7 ? { weekday: 'long', timeZone: 'UTC' } : { month: 'short', day: 'numeric', timeZone: 'UTC' });
   const standing = String(r.reply?.standing ?? '');
   const score = /^Score 79\b/.test(standing) ? ' and your score is up to 79' : '';
   assert.equal(withTotal(s), `Since ${day}: 1 more week shipped, so your streak is 6 weeks${score}. Base Builder Grant is still open and you now meet its first requirement.\n\n${DRAFT_NOW_ASK}`);
@@ -2034,7 +2038,7 @@ async function walkA() {
   const sr = await speedrun(30);
   await only([sr.id, 'base-builder-grants']);
   await sql()`UPDATE programs SET opened_at = now() - interval '30 days' WHERE id = 'base-builder-grants'`;
-  const b = await owner('wa', { pick: sr.id, weeksAt: Date.now() - 2 * 86_400_000 });
+  const b = await owner('wa', { pick: sr.id, endLastWeek: true });
   const live = (score: number) =>
     sql()`UPDATE builder_live SET score = ${score}, ranked = true, calibration = ${'v2-shipping'}, parts = ${sql().json({ shipping: { points: score, raw: { mask: 0b111111, live_ships: 0 } } } as never)} WHERE builder_id = ${b.id}`;
   await live(77);
@@ -2361,7 +2365,7 @@ test('final F3: one step the agent cannot do goes from the hook\'s yes straight 
 
 test('final F6: Builder Codes pushed, then two days of quiet: the first find re-checks and gives the closed reply', db, async () => {
   await only(['base-builder-grants']);
-  const b = await owner('ff6', { weeksAt: Date.now() - 2 * 86_400_000 });
+  const b = await owner('ff6', { endLastWeek: true });
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'declined' WHERE builder_id = ${b.id}`;
   await find(b);
   assert.match(show(await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' })), /^Adding Builder Codes to EarnKit/);

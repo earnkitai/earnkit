@@ -15,7 +15,7 @@ import { attachToX } from './x-install';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
 import { isoWeekOf } from './weeks';
-import { MORE_ASK, NAME_ASK, WAIT_NOTE, closingPrograms, codesSettled } from './bench-find';
+import { READY_SET, MORE_ASK, NAME_ASK, WAIT_NOTE, closingPrograms, codesSettled } from './bench-find';
 import { GitHubBudgetStop, type ReaderDeps } from './source-readers';
 import { dropPrograms, dropRunPrograms } from './fixtures/programs-cleanup';
 import { ProgramFile } from './program-file';
@@ -24,6 +24,10 @@ import { closesIn, endsCell, summaryIn, withClosesIn } from './entry-text';
 import { programGuide } from './guide';
 import { fullProgramTable } from './present';
 import { readGuidePage } from './landing';
+
+// v4.10 Task 4: this file pins the v4.8 path, which still answers a 0-program ready set, a builder mid-path and every
+// later reply; the ready set that now opens a fresh session is v410-find.test.ts's (bench-find.ts READY_SET).
+READY_SET.on = false;
 
 /*
  * v4.8.2 Task 1 (R1, R2): the owner's dogfood of v4.8.1. The reasoned pointer is followed by "more" (no short

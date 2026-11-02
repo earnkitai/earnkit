@@ -11,6 +11,11 @@ import { X_ON, avalanche, claimX, dropAvalanche, find, fitsFor, install, person,
 import { OTHER_PROJECT_ASK, SHIP_ASK, STATE_COPY, VARIANT_COPY } from './bench-reply';
 import { isOpener } from './fixtures/opener';
 import { mainProjectOf } from './main-project';
+import { READY_SET } from './bench-find';
+
+// v4.10 Task 4: this file pins the reply the path gives; a fresh session now opens with the ready set instead
+// (v410-find.test.ts), so the set is off here (bench-find.ts READY_SET).
+READY_SET.on = false;
 
 /**
  * v2.13.1 O2: the reply-side fixes of the first-run audit, through the real tools under the Bench

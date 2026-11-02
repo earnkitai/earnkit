@@ -13,11 +13,11 @@ import { QUALIFY_BASE_YES_NOTE, QUALIFY_NOTE, QUALIFY_STEPS_NOTE, alsoOpen, stan
 import { randomBytes } from 'node:crypto';
 import { tokenOfferDue } from './wallet-offer';
 import { isoWeekOf, last52 } from './weeks';
-import { committedProgram } from './fixtures/program-file';
-import { ProgramFile } from './program-file';
-import { upsertProgram } from './programs';
 import { FIND_DESCRIPTION_BENCH } from './mcp';
 import { ANSWER_FIRST_NOTE } from './stand-text';
+import { ProgramFile } from './program-file';
+import { committedProgram } from './fixtures/program-file';
+import { upsertProgram } from './programs';
 import {
   QUALIFY_CODES_CHECK_NOTE, QUALIFY_CODES_NOTE, alsoLine, walletSetupAsk, TOKEN_OFFER, benchReply, qualifyAsk, qualifyCodesYes, qualifyGap, qualifyHead, qualifySteps, stateAsk,
   type BenchView, type OpenGrant, type QualifyOffer, type QualifyStep,
@@ -26,6 +26,11 @@ import { CODES_OFFER, MENTOR_NOTE } from './conversation';
 import { BASE_GRANTS_ID } from './builder-code';
 import { productOdds, productScore, traction, type Detection } from './match';
 import { presentFirstMessage, programUpdates, type Card, type RepoFit } from './present';
+import { READY_SET } from './bench-find';
+
+// v4.10 Task 4: this file pins the reply the path gives; a fresh session now opens with the ready set instead
+// (v410-find.test.ts), so the set is off here (bench-find.ts READY_SET).
+READY_SET.on = false;
 
 /**
  * v4.3 Task 1 (owner-approved copy): "what can I earn" for a ranked builder with no fit names the money (Base's grant,
@@ -523,10 +528,7 @@ test('v4.3 Task 3: a find reply carries no points_total or points fact; rank_lin
 /** A ranked, listed builder with a streak of `streak` weeks ending last week (fixtures/find.ts person); a no to the Base steps. */
 async function streakBuilder(tag: string, streak: number) {
   const key = `${tag}${RUN}/app`;
-  // v4.8.3: the weeks end the week before the mocked clock's (the fixture's default ends before the real clock's week,
-  // a week the mocked Wednesday may not have reached).
-  const commit_weeks = last52(new Date()).slice(51 - streak, 51);
-  const id = await person({ main: key, claimed: `${tag}${RUN}`.slice(0, 15), ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z', declined: { [`qualify:${key}`]: new Date().toISOString() } }, projects: [{ key, name: 'App', confirmed: true, streak, commit_weeks }] });
+  const id = await person({ main: key, claimed: `${tag}${RUN}`.slice(0, 15), ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z', declined: { [`qualify:${key}`]: new Date().toISOString() } }, projects: [{ key, name: 'App', confirmed: true, streak, commit_weeks: last52(new Date(WEDNESDAY)).slice(51 - streak, 51) }] });
   return { installationId: id, ownInstallationId: id, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 0, fits: [] })) as never };
 }
 

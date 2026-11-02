@@ -1,4 +1,4 @@
-import { after, test } from 'node:test';
+import { after, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import * as React from 'react';
@@ -25,6 +25,11 @@ import type { ToolContext } from './tools';
 import type { XOAuthDeps, XUser } from './x-oauth';
 import { padPool } from './fixtures/rank-pool';
 import { assertOpener, isOpener } from './fixtures/opener';
+import { READY_SET } from './bench-find';
+
+// v4.10 Task 4: this file pins the reply the path gives; a fresh session now opens with the ready set instead
+// (v410-find.test.ts), so the set is off here (bench-find.ts READY_SET).
+READY_SET.on = false;
 
 /**
  * v2.14 T12: the spec's acceptance 1 to 5 as one brand-new builder lives them, through the real routes
@@ -46,6 +51,7 @@ process.env.X_CLIENT_SECRET = 'sec';
 process.env.EARNKIT_URL = 'https://earnkit.com';
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
+  mock.timers.reset();
   globalThis.fetch = realFetch;
   if (process.env.DATABASE_URL) await sql().end();
 });
@@ -65,25 +71,21 @@ const fakeX = (user: XUser): XOAuthDeps => ({ exchange: async () => 'x-token', m
 
 // The week the Monday run writes is this week (still in progress at the App setup, so the setup's backfill of
 // finished weeks never writes it first); the run is the next Monday, 15:30 UTC.
-const WEEK = mondayOf(new Date());
+const WEEK = mondayOf(new Date());  // read before the clock is pinned below
 const at = (days: number, time: string) => new Date(Date.parse(`${WEEK}T${time}Z`) + days * 86_400_000);
 const MONDAY_RUN = at(7, '15:30:00');
-/**
- * v4.8.3: the week's n-th commit, in this week and never ahead of the clock: Tuesday to Thursday 10:00 once they have
- * passed, else the minutes just before now (on a Monday, Tuesday's commits were still in the future).
- */
-const shipped = (n: number) => {
-  const day = at(n, '10:00:00').getTime();
-  const now = Date.now();
-  return new Date(day <= now - 4 * 60_000 ? day : Math.max(Date.parse(`${WEEK}T00:00:00Z`) + n * 1000, now - (4 - n) * 60_000)).toISOString();
-};
+/** The whole journey runs on this Wednesday noon of that week, whatever day the suite runs on: the week's commits (Tuesday and
+ *  Wednesday) are then in the past and the week is still in progress, as on the weekday the fixtures were written. Only Date is
+ *  pinned (the database's now() stays real). */
+const WEDNESDAY_NOON = at(2, '12:00:00').getTime();
+mock.timers.enable({ apis: ['Date'], now: WEDNESDAY_NOON });
 const gh = fakeGitHub({
   [KEY]: {
     id: REPO_ID, owner: ORG, ownerType: 'Organization', installation: GH_INSTALL, admins: [LOGIN],
     commits: [
-      { sha: '1', message: 'feat: sign in with X at install', date: shipped(1), login: LOGIN },
-      { sha: '2', message: 'Fix the reply copy', date: shipped(2), login: LOGIN },
-      { sha: '3', message: 'chore(deps): bump next', date: shipped(3), login: 'dependabot[bot]', type: 'Bot' },
+      { sha: '1', message: 'feat: sign in with X at install', date: at(1, '10:00:00').toISOString(), login: LOGIN },
+      { sha: '2', message: 'Fix the reply copy', date: at(2, '10:00:00').toISOString(), login: LOGIN },
+      { sha: '3', message: 'chore(deps): bump next', date: at(3, '10:00:00').toISOString(), login: 'dependabot[bot]', type: 'Bot' },
     ],
     pulls: [],
   },

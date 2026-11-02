@@ -2,6 +2,7 @@ import { sql } from '../db';
 import { mcpCall, type McpResult } from './mcp-call';
 import type { ToolContext } from '../tools';
 import { SESSION_MS, sessionOf } from '../conversation';
+import { READY_AGAIN_ASK, READY_ASK } from '../ready-copy';
 
 /**
  * v4.8 Task 6: whole conversations as the merge gate. `converse` plays a lazy builder's turns through the real MCP
@@ -96,14 +97,27 @@ export function askMismatch(prev: Reply | null, tell: Record<string, unknown>): 
  * ("sent", the blanks) or a yes to its move_up. 'real_work' when the next step is work outside EarnKit (a push the
  * replay can't make); null when the reply asks for nothing EarnKit can take.
  */
-export function lazyNext(r: Reply, o: { blanks: string; pushed: string }): Turn | 'real_work' | null {
+export function lazyNext(r: Reply, o: { blanks: string; pushed: string; skip?: number[]; answers?: Record<string, string> }): Turn | 'real_work' | null {
   const m = moveUpOf(r);
   const end = lastParagraph(r.show);
   if (end.includes(o.pushed)) return 'real_work';
   if (!m) return null;
   const ask = { kind: m.kind, project_key: m.project_key ?? null };
   if (/\breply "sent"/i.test(end)) return { says: 'sent', tell: { move_up: { ...ask, answer: 'sent' } } };
+  // v4.10 final fix (I1): the ready set's one ask, answered in one message; the agent splits it by field (ready.need.asks).
+  const kinds = ((r.reply?.ready as { need?: { asks?: { kind: string }[] } } | undefined)?.need?.asks ?? []).map((a) => a.kind);
+  if (o.answers && m.kind === 'ready' && kinds.length > 0 && BLANKS_REPLY.test(sentences(end).at(-1) ?? '')) {
+    const answers = Object.fromEntries(kinds.map((k) => [k, o.answers![k] ?? o.blanks]));
+    return { says: Object.values(answers).join(', '), tell: { move_up: { ...ask, answer: 'yes', answers } } };
+  }
   if (BLANKS_REPLY.test(sentences(end).at(-1) ?? '')) return { says: o.blanks, tell: { move_up: { ...ask, answer: 'yes', blanks: o.blanks } } };
+  // v4.10 Task 3 (R5): the ready set's one ask: yes, or the numbers the walk skips. Task 4: once its pages are open the
+  // ask is "sent" (above), never another yes.
+  if (m.kind === 'ready') {
+    return o.skip?.length
+      ? { says: `skip ${o.skip.join(', ')}`, tell: { move_up: { ...ask, answer: 'skip', skip: o.skip } } }
+      : { says: 'yes', tell: { move_up: { ...ask, answer: 'yes' } } };
+  }
   if (/\?$/.test(end) || /\bsay ok\b/i.test(end)) return { says: 'ok', tell: { move_up: { ...ask, answer: 'yes' } } };
   return null;
 }
@@ -186,9 +200,10 @@ const sentences = (p: string) => norm(p).split(/(?<=[.!?])\s+/).filter(Boolean);
 
 /**
  * The approved blanks ask (target A, and its 1 and 3+ forms, fix round 1b), the one easy reply that is neither a yes
- * nor a word: exactly "Reply with it|both|them and I'll finish it.".
+ * nor a word: exactly "Reply with it|both|them and I'll finish it.". v4.10 final fix (I1): the ready set's one ask for
+ * several programs ends "... and I'll finish them.".
  */
-export const BLANKS_REPLY = /^Reply with (?:it|both|them) and I'll finish it\.$/;
+export const BLANKS_REPLY = /^Reply with (?:it|both|them) and I'll finish (?:it|them)\.$/;
 /** A question a yes answers: it opens on a yes/no word, and offers no choice and asks for nothing open. */
 const YES_NO = /^(?:want|should|shall|can|could|do|does|did|is|are|will|would|go|draft|ready|start|ok|okay|add)\b/i;
 const NOT_YES_NO = /\bor\b|\b(?:tell me|let me know|what|which|something|anything|who|whom|whose|how|why|where|when)\b/i;
@@ -243,6 +258,9 @@ function easyReply(r: Reply): string | null {
   }
   const s = sentences(last).at(-1) ?? '';
   if (BLANKS_REPLY.test(s)) return null;
+  // v4.10 Task 3 (R5): the ready set's one ask, exactly, as the last line; Task 4 (decision c): only while the stored ask
+  // is the ready one, and its status reply's "Reply yes and I'll finish them." (or "it") likewise.
+  if ((line === READY_ASK || s === READY_AGAIN_ASK || s === "Reply yes and I'll finish it.") && moveUpOf(r)?.kind === 'ready') return null;
   if (s.endsWith('?')) {
     if (!YES_NO.test(s)) return `not a yes/no question: "${s}"`;
     if (NOT_YES_NO.test(s)) return `a choice or an open question: "${s}"`;
@@ -352,7 +370,8 @@ export function gateFailures(replies: readonly Reply[], o: { names?: readonly st
     const ss = sentences(lastP);
     const units: [string, boolean][] = [
       ...ps.slice(0, -1).map((p) => [p, false] as [string, boolean]),
-      ...(ss.length > 1 ? [[ss.slice(0, -1).join(' '), false], [ss.at(-1)!, true]] as [string, boolean][] : [[lastP, true]] as [string, boolean][]),
+      // v4.10 Task 5: the ready set's pending ask may repeat whole, its status sentence too ("Your 3 applications are still ready. Reply yes ...").
+      ...(ss.length > 1 && moveUpOf(r)?.kind !== 'ready' ? [[ss.slice(0, -1).join(' '), false], [ss.at(-1)!, true]] as [string, boolean][] : [[lastP, true]] as [string, boolean][]),
     ];
     const repeats: string[] = [];
     for (const [p, ask] of units) {
