@@ -363,7 +363,8 @@ export function gateFailures(replies: readonly Reply[], o: { names?: readonly st
     const ss = sentences(lastP);
     const units: [string, boolean][] = [
       ...ps.slice(0, -1).map((p) => [p, false] as [string, boolean]),
-      ...(ss.length > 1 ? [[ss.slice(0, -1).join(' '), false], [ss.at(-1)!, true]] as [string, boolean][] : [[lastP, true]] as [string, boolean][]),
+      // v4.10 Task 5: the ready set's pending ask may repeat whole, its status sentence too ("Your 3 applications are still ready. Reply yes ...").
+      ...(ss.length > 1 && moveUpOf(r)?.kind !== 'ready' ? [[ss.slice(0, -1).join(' '), false], [ss.at(-1)!, true]] as [string, boolean][] : [[lastP, true]] as [string, boolean][]),
     ];
     const repeats: string[] = [];
     for (const [p, ask] of units) {

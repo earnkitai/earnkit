@@ -1162,11 +1162,14 @@ async function readyWaitingCommit(o: ViewIn, v: PathFacts, r: ReadyState): Promi
   const { id, now, read } = o;
   const key = v.project.key;
   const base = (pid: string) => o.cards.find((c) => c.id === pid)?.title ?? pid;
+  // v4.10 Task 5: a session this reply opens (days later, the codes still waiting) carries its one fact, as every opener does.
+  const session = sessionOf(read.seen, now);
+  const proof = session.fresh && v.streak >= 2 ? `You've shipped ${v.streak} weeks in a row.\n\n` : '';
   const view0 = (kind: BenchAskKind, path: string, pathNote: string): BenchView => ({
     state: v.state, variant: v.variant, project: v.project, rank: read.ranks.bench, streak: v.streak, target: null, handle: v.handle, link: null,
-    fund: [], due: [], ask: { kind, project_key: key, line: '' }, held: null, path, pathLead: null, pathNote,
+    fund: [], due: [], ask: { kind, project_key: key, line: '' }, held: null, path: proof + path, pathLead: null, pathNote,
   });
-  const said = sessionOf(read.seen, now).said;
+  const said = session.said;
   // Fix 1 (I1): a no to the re-check ask since the set was shown (benchMoveUp parks it as the path does, 'path:<id>').
   const parkedAt = read.seen.declined?.[benchStepKey('path', BASE_GRANTS_ID)];
   const saidNo = Boolean(parkedAt && Date.parse(parkedAt) >= Date.parse(r.at));
@@ -1213,7 +1216,8 @@ async function readyWaitingCommit(o: ViewIn, v: PathFacts, r: ReadyState): Promi
     return { id: pid, title: row?.title ?? base(pid), link: row?.submission_url ?? null };
   }));
   const set = r.ids.filter((pid) => !r.skipped.includes(pid)).map(base);
-  const show = readyOpenedShow(set, rows.map(openRow), next.need);
+  // Nothing newly open and a builder-only ask waiting: the open list was just said, so only the ask is.
+  const show = freed.length === 0 && next.need ? readyNeedsAsk(next.need.title, next.need.phrase, next.need.reqs.length) : readyOpenedShow(set, rows.map(openRow), next.need);
   const stored = { kind: 'ready', key, ids: r.ids, ...(next.need ? { need: true } : { sent: true }) };
   const note = next.need ? READY_NEEDS_NOTE : READY_SENT_NOTE;
   // The path leaves Base's gap (its code is in), so the next session's opener is not held back by it.
@@ -1392,7 +1396,8 @@ async function readyYes(
         openRows.length > 0 ? readyOpenList(set, openRows) : null,
         hosted && gShow ? gShow : PUSHED_ASK,
       ]
-    : [readyOpenedShow(allSet, shownOpen, need)];
+    // v4.10 Task 5: an answer that opens nothing new says only what is still needed (the open list was just said).
+    : [o.after && openRows.length === 0 && need ? readyNeedsAsk(need.title, need.phrase, need.reqs.length) : readyOpenedShow(allSet, shownOpen, need)];
   const note = need ? READY_NEEDS_NOTE : READY_SENT_NOTE;
   const yesNote = open.length > 0 ? `${READY_YES_NOTE} ` : '';
   return {

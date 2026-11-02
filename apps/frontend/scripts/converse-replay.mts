@@ -6,6 +6,7 @@
  *   cd apps/frontend
  *   DATABASE_URL=postgresql://localhost:5432/<snapshot copy> OWN=27 WALK=A npx tsx scripts/converse-replay.mts
  *   DATABASE_URL=postgresql://localhost:5432/<snapshot copy> WALK=B npx tsx scripts/converse-replay.mts
+ *   DATABASE_URL=... OWN=27 WALK=R [VARIANT=skip] npx tsx scripts/converse-replay.mts   (a fresh copy for each variant)
  *
  * - A (OWN, the installation): the session opener, then a lazy agent's answer to each reply's structured ask
  *   (fixtures/converse.ts lazyNext over move_up): "sure", the blanks ("just me, nothing raised"), "sent", "ok"; then
@@ -16,7 +17,9 @@
  * - S (OWN, v4.8.1): an agent that never answers: five plain finds in one session, then "what can I apply to"
  *   (`ask: programs`), then one more plain find (the owner's 2026-11-01 dogfood). Exits 1 if its first reply is
  *   not a fresh session.
- * - A and S first age the snapshot's live session past SESSION_MS (a note says so), so session 0 is a real opener.
+ * - R (OWN, v4.10): the ready set: find, yes (VARIANT=skip: "skip <last number>"), the codes pushed (simulated, see walkR),
+ *   "sent", one more find. Builder-only asks are answered with BLANKS. Needs a fresh copy per variant.
+ * - A, S and R first age the snapshot's live session past SESSION_MS (a note says so), so session 0 is a real opener.
  * - Real work ends a walk's session: a push to the builder's repo (Builder Codes, "Say ok once the change is pushed")
  *   or connecting GitHub needs the builder's own accounts, so the script records it and goes no further there. A help
  *   step's "ok" is played as not done yet (EarnKit re-checks it).
@@ -52,8 +55,8 @@ for (const name of ['LINK_CHECK', 'EARNKIT_MODEL_TEST'])
 delete process.env.LINK_CHECK;
 delete process.env.EARNKIT_MODEL_TEST;
 const walk = (process.env.WALK ?? 'A').toUpperCase();
-if (walk !== 'A' && walk !== 'B' && walk !== 'S') {
-  console.error('WALK must be A, B or S.');
+if (walk !== 'A' && walk !== 'B' && walk !== 'S' && walk !== 'R') {
+  console.error('WALK must be A, B, S or R.');
   process.exit(2);
 }
 
@@ -66,6 +69,9 @@ process.env.EARNKIT_URL ??= 'https://earnkit.com';
 const { sql } = await import('../lib/earnkit/db');
 const { conversation, gateFailures, lazyNext, transcript } = await import('../lib/earnkit/fixtures/converse');
 const { saveInstallation, connectInstallation } = await import('../lib/earnkit/installations');
+const { fakeGitHub } = await import('../lib/earnkit/fixtures/fake-github');
+const { appEnv } = await import('../lib/earnkit/fixtures/app-install');
+const { BUILDER_CODES_SUFFIX } = await import('../lib/earnkit/builder-code');
 const { PUSHED_ASK } = await import('../lib/earnkit/bench-find');
 const { SESSION_MS } = await import('../lib/earnkit/conversation');
 type Reply = import('../lib/earnkit/fixtures/converse').Reply;
@@ -158,6 +164,66 @@ async function walkS() {
   }
 }
 
+/**
+ * v4.10 Task 5, walk R: the owner on a fresh session answers the ready set (OWN). VARIANT=yes (default): find, yes, the
+ * codes pushed, sent. VARIANT=skip: find, "skip <the last number in the set>", the codes pushed, sent. A builder-only
+ * ask (the team list, money raised) is answered by lazyNext with BLANKS ("just me, nothing raised"); the reply's own
+ * words are never invented. A push to the builder's repo can't happen in a replay, so when a reply asks for it ("Say ok
+ * once the change is pushed"), the codes are simulated: a fake GitHub (fixtures/fake-github.ts, offline) whose copy of
+ * the builder's repo carries a Builder Codes file, installed as the tool context's codesFetch; the snapshot's own App
+ * proof row (github_verifications) names the installation, and appEnv() gives a local throwaway App key. The agent's
+ * "ok" is then a `tell` on that qualify ask (as the tests do), which runs the re-check. Nothing leaves localhost.
+ */
+async function walkR() {
+  const id = Number(process.env.OWN ?? 27);
+  const variant = (process.env.VARIANT ?? 'yes').toLowerCase();
+  const ctx = (await own(id)) as Record<string, unknown>;
+  const [me] = await sql()<{ name: string | null; handle: string | null }[]>`
+    SELECT p.name, f.x_handle AS handle FROM builder_profiles f LEFT JOIN builder_projects p ON p.builder_id = f.builder_id AND lower(p.project_key) = lower(f.main_project_key)
+    WHERE f.builder_id = ${ctx.installationId}`;
+  names.push(...[me?.name, me?.handle].filter((x): x is string => Boolean(x)));
+  await freshSession(ctx.installationId as number);
+  const turn = conversation(ctx as never, { builderId: ctx.installationId as number, ctx: () => ctx as never });
+  const play = async (t: Turn) => {
+    const r = await turn(t);
+    if (r) replies.push(r);
+    return r;
+  };
+  let r = await play({ find: {} });
+  const set = [...(r?.show.matchAll(/^\d+\. /gm) ?? [])].length;
+  notes.push(`the owner's set in this snapshot: ${set} program(s)`);
+  if (variant === 'skip' && set > 0) {
+    const t = lazyNext(r!, { blanks: BLANKS, pushed: PUSHED_ASK, skip: [set] });
+    if (t && t !== 'real_work') r = await play(t);
+  }
+  let sent = false;
+  for (let i = 0; r && i < 12 && !sent; i++) {
+    // The lazy builder's short answer fits the ask ("Base needs your usage numbers first."): nothing here is copy.
+    const want = r.show.match(/needs (?:your |any )?([^.]*?) first\. Reply with/i)?.[1] ?? '';
+    const blanks = /usage/i.test(want) ? 'no users yet' : /demo|video/i.test(want) ? 'no demo yet' : /team/i.test(want) && !/raised/i.test(want) ? 'just me' : /raised/i.test(want) && !/team/i.test(want) ? 'nothing raised' : BLANKS;
+    let t = lazyNext(r, { blanks, pushed: PUSHED_ASK });
+    if (t === 'real_work') {
+      const m = moveUpOf(r);
+      if (!ctx.codesFetch) {
+        const [v] = await sql()<{ key: string; gid: string }[]>`
+          SELECT repo_key AS key, github_installation_id::text AS gid FROM github_verifications
+          WHERE installation_id = ${ctx.installationId as number} AND via = 'app' AND purpose = 'app' AND github_installation_id IS NOT NULL ORDER BY verified_at DESC LIMIT 1`;
+        if (!v) { notes.push('no App proof row for the owner in this snapshot, so the codes cannot be simulated'); break; }
+        appEnv();
+        ctx.codesFetch = fakeGitHub({ [v.key]: { id: 1, owner: v.key.split('/')[0], installation: Number(v.gid), files: { 'src/codes.ts': `export const SUFFIX = '0x046d617961000a${BUILDER_CODES_SUFFIX}'; Attribution.toDataSuffix({ codes: ['bc_earnkit'] });` } } });
+        notes.push(`turn ${r.turn}: the agent's push is simulated: the owner's repo ${v.key} carries Builder Codes in a fake GitHub (codesFetch), then the agent says ok (a tell on the qualify ask), which re-checks.`);
+      }
+      t = { says: 'ok', tell: { move_up: { kind: m?.kind ?? 'qualify', project_key: (m as { project_key?: string } | null)?.project_key ?? null, answer: 'yes' } } } as Turn;
+    }
+    if (!t) { notes.push(`turn ${r.turn}: nothing structured to answer; the walk ends here.`); break; }
+    sent = t.says === 'sent';
+    r = await play(t);
+  }
+  if (!sent) notes.push('walk R did not reach "sent"');
+  // "sent" ends the walk; one more find shows the next session's start is a quiet one (the set is tracked now).
+  if (sent) await play({ find: {} });
+}
+
 async function walkB() {
   const token = `ek_replay_b_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(token, undefined, false, 'Claude Code');
@@ -174,7 +240,7 @@ async function walkB() {
 let code = 0;
 let sessionFailed = false;
 try {
-  await (walk === 'A' ? walkA() : walk === 'S' ? walkS() : walkB());
+  await (walk === 'A' ? walkA() : walk === 'S' ? walkS() : walk === 'R' ? walkR() : walkB());
   console.log(`=== WALK ${walk} ===\n\n${transcript(replies)}\n`);
   for (const n of notes) console.log(`note: ${n}`);
   const fails = gateFailures(replies, { names });

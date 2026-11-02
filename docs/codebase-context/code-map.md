@@ -2782,3 +2782,5 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
   `readyTrackLead`. `bench-reply.ts` `BenchAskKind` 'ready'. tools.ts/mcp.ts `move_up` answer 'skip', `skip`,
   `sent_ids`. Tests: `v410-find.test.ts`, `v410-ready.test.ts`. Fix 1: `FOUNDER_REQS`, `program-file.ts` FIELD_KINDS 'raised' (coach.ts
   `DEFAULT_GUIDANCE.raised`), `readyNeedsAsk(title, needs, count)`.
+- **v4.10 Task 5**: `scripts/converse-replay.mts` `walkR` (`WALK=R`, `VARIANT=skip`); `fixtures/converse.ts` gateFailures
+  (ready ask paragraph repeats); `bench-find.ts` `readyWaitingCommit` (proof line, no repeated list), `readyYes`.

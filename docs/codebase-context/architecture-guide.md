@@ -9230,3 +9230,13 @@ Gate (`fixtures/converse.ts`): `easyReply` takes a reply whose last line is exac
   missing re-check in a session, or a no to the re-check ask (`declined` 'path:'), parks Base (the declined keys) and
   the open pages' "sent" ask goes on. The yes writes no `bench_ask` when `gapDoYes` stores its own; `readySent` takes
   only the stored ready ask (or Base's re-check while its codes wait) for the same project.
+
+## v4.10 Task 5: replays of the ready set
+
+`scripts/converse-replay.mts` gains `WALK=R` (owner, `VARIANT=yes|skip`, a fresh snapshot copy each): find, the lazy
+answers (`lazyNext`, builder-only asks answered with a short text that fits the ask), the codes push simulated (a
+`fakeGitHub` carrying a Builder Codes file as the tool context's `codesFetch`, `appEnv()` giving a local App key, the
+agent's "ok" a `tell` on the qualify ask), "sent", one more find. A, S, B run as before; S shows the opener once, then the
+still-ready line. Fixes found by the replays: a find that opens a session on a waiting codes check carries the streak
+fact (`readyWaitingCommit`); an answer that opens nothing new no longer repeats the open list (`readyYes`,
+`readyWaitingCommit`); the gate treats a `ready` ask's whole last paragraph as the repeatable ask unit.
