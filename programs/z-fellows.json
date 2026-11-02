@@ -105,7 +105,7 @@
       "key": "applied_before",
       "label": "Have you previously applied to Z Fellows?",
       "kind": "other",
-      "todo": "whether you applied before",
+      "todo": "if you applied before",
       "type": "choice",
       "required": true,
       "options": [
@@ -186,7 +186,7 @@
       "key": "nerdiest",
       "label": "What's the nerdiest thing about you? (Max: 250 characters - about 50 words)",
       "kind": "other",
-      "todo": "the nerdiest thing about you",
+      "todo": "nerdiest trait",
       "type": "text",
       "required": true,
       "max_chars": 250,
@@ -215,7 +215,7 @@
       "key": "risk",
       "label": "Tell us about a risk youʼve taken or a challenge you've faced. Tell us whether you failed or succeeded, how you behaved, and how you think this reflects your character. (Max: 500 characters - about 100 words)",
       "kind": "other",
-      "todo": "a risk or challenge you faced",
+      "todo": "a risk taken",
       "type": "text",
       "required": true,
       "max_chars": 500,
@@ -228,13 +228,13 @@
       "todo": "links about you or your project",
       "type": "text",
       "required": true,
-      "from": "builder"
+      "from": "project"
     },
     {
       "key": "achievements",
       "label": "Please list or describe any achievements and prizes.",
       "kind": "other",
-      "todo": "your achievements and prizes",
+      "todo": "achievements",
       "type": "text",
       "required": true,
       "from": "builder"
@@ -252,7 +252,7 @@
       "key": "dream_cofounder",
       "label": "Who would you co-found a company with if you could pick anyone in your network? In other words, who is someone un-recruitable you would want to hire regardless?",
       "kind": "other",
-      "todo": "your dream co-founder",
+      "todo": "dream co-founder",
       "type": "text",
       "required": true,
       "description": "Do not put the current person you are working with (if you happen to already have a co-founder).",
@@ -262,7 +262,7 @@
       "key": "heard_about",
       "label": "How did you hear about Z Fellows?",
       "kind": "other",
-      "todo": "how you heard about Z Fellows",
+      "todo": "how you found Z Fellows",
       "type": "text",
       "required": true,
       "from": "builder"

@@ -210,9 +210,8 @@
       "key": "what_changed",
       "label": "If you're applying for the Second time, What changed from the last application?",
       "kind": "other",
-      "todo": "what changed since a past application",
       "type": "text",
-      "required": true,
+      "required": false,
       "from": "builder"
     }
   ],

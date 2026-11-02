@@ -228,7 +228,7 @@
     {
       "key": "fundraising_goals",
       "label": "What are your current fundraising goals?",
-      "kind": "use_of_funds",
+      "kind": "other",
       "todo": "your fundraising goals",
       "type": "text",
       "required": true,

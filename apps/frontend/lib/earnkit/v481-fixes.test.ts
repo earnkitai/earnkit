@@ -302,6 +302,13 @@ test("v4.8.1 fix round 1 (F3): the total is /api/stats' figure, a program the bu
   assert.equal(totalOf(r.show), stats, r.show);
 });
 
+/**
+ * v4.8.3: a copy closing in 90 minutes is the soonest investor program only once any committed one closing sooner is
+ * closed (a16z speedrun SR008 closed on Nov 2, 07:59 UTC: until then, sooner than the copy). Pins the test's set.
+ */
+const soonestInvestor = (id: string, ends: string) =>
+  sql()`UPDATE programs SET status = 'closed' WHERE investment AND id <> ${id} AND ends_at IS NOT NULL AND ends_at <= ${ends}::timestamptz`;
+
 test("v4.8.1 fix round 1 (F6): the investor clause names a controlled investor program, never the reply's own", db, async () => {
   const file = committedProgram('a16z-speedrun');
   const id = `v481-${process.pid}-sr`;
@@ -310,6 +317,7 @@ test("v4.8.1 fix round 1 (F6): the investor clause names a controlled investor p
   const ends = new Date(Date.now() + 90 * 60_000).toISOString();
   const open = () => upsertProgram(ProgramFile.parse({ ...file, id, title, ends_at: ends, status: 'active', starts_at: null }));
   await open();
+  await soonestInvestor(id, ends);
   // Base leads (no pick): the clause names the copy.
   const b = await ownerDb('ivn');
   await open();
@@ -595,6 +603,7 @@ test("v4.8.1 final fix (R-4): an unpicked hook left on an investor program doesn
   const ends = new Date(Date.now() + 90 * 60_000).toISOString();
   const open = () => upsertProgram(ProgramFile.parse({ ...file, id, title, ends_at: ends, status: 'active', starts_at: null }));
   await open();
+  await soonestInvestor(id, ends);
   const b = await ownerDb('r4h');
   await open();
   // The owner's snapshot: a hook on the investor program from an older session, never picked.

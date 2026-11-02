@@ -68,13 +68,22 @@ const fakeX = (user: XUser): XOAuthDeps => ({ exchange: async () => 'x-token', m
 const WEEK = mondayOf(new Date());
 const at = (days: number, time: string) => new Date(Date.parse(`${WEEK}T${time}Z`) + days * 86_400_000);
 const MONDAY_RUN = at(7, '15:30:00');
+/**
+ * v4.8.3: the week's n-th commit, in this week and never ahead of the clock: Tuesday to Thursday 10:00 once they have
+ * passed, else the minutes just before now (on a Monday, Tuesday's commits were still in the future).
+ */
+const shipped = (n: number) => {
+  const day = at(n, '10:00:00').getTime();
+  const now = Date.now();
+  return new Date(day <= now - 4 * 60_000 ? day : Math.max(Date.parse(`${WEEK}T00:00:00Z`) + n * 1000, now - (4 - n) * 60_000)).toISOString();
+};
 const gh = fakeGitHub({
   [KEY]: {
     id: REPO_ID, owner: ORG, ownerType: 'Organization', installation: GH_INSTALL, admins: [LOGIN],
     commits: [
-      { sha: '1', message: 'feat: sign in with X at install', date: at(1, '10:00:00').toISOString(), login: LOGIN },
-      { sha: '2', message: 'Fix the reply copy', date: at(2, '10:00:00').toISOString(), login: LOGIN },
-      { sha: '3', message: 'chore(deps): bump next', date: at(3, '10:00:00').toISOString(), login: 'dependabot[bot]', type: 'Bot' },
+      { sha: '1', message: 'feat: sign in with X at install', date: shipped(1), login: LOGIN },
+      { sha: '2', message: 'Fix the reply copy', date: shipped(2), login: LOGIN },
+      { sha: '3', message: 'chore(deps): bump next', date: shipped(3), login: 'dependabot[bot]', type: 'Bot' },
     ],
     pulls: [],
   },

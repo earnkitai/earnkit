@@ -315,7 +315,11 @@ let n = 0;
  * and setup step 3 done. `pick` (v4.8.1 R1): the builder picked that program (said its name or number on the opener), so
  * an investor program leads; investor programs never lead on their own while a grant move exists.
  */
-async function owner(tag: string, o: { pick?: string } = {}) {
+/**
+ * `weeksAt`: the commit weeks end at that moment's week, not this one (v4.8.3: a test whose last session is days back
+ * keeps "nothing shipped since" on a Monday too, when those days cross into a new ISO week).
+ */
+async function owner(tag: string, o: { pick?: string; weeksAt?: number } = {}) {
   n++;
   const t = `ek_v48_${tag}_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Claude Code');
@@ -337,7 +341,7 @@ async function owner(tag: string, o: { pick?: string } = {}) {
   const gh = fakeGitHub({ [key]: { id: gid, owner: handle, installation: gid + 1 } });
   await installApp({ builderId: c.id, repoKey: key, login: handle, gh });
   // Six weeks shipping in a row (this week and the five before), live as an app.
-  const weeks = Array.from({ length: 6 }, (_, k) => isoWeekOf(new Date(Date.now() - k * 7 * 86_400_000)));
+  const weeks = Array.from({ length: 6 }, (_, k) => isoWeekOf(new Date((o.weeksAt ?? Date.now()) - k * 7 * 86_400_000)));
   await sql()`UPDATE builder_projects SET commit_weeks = ${weeks}::text[], shipped = true, kind = 'app' WHERE builder_id = ${c.id} AND lower(project_key) = lower(${key})`;
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('connect_done', now()::text,
       'declined', jsonb_build_object(${`qualify:${key}`}::text, now()::text)) WHERE builder_id = ${c.id}`;
@@ -624,6 +628,8 @@ test('gapReply: the steps, each one the agent can do marked and first; "Go?" for
 test('the gap closed and the draft: target A word for word', () => {
   assert.equal(gapClosedReply({ org: 'Base', title: 'Base Builder Grant Program', codes: true }), A_CODES_IN);
   assert.equal(gapClosedReply({ org: 'Base', title: 'Base Builder Grant Program', codes: true, proof: gapProof({ name: 'EarnKit', live: true }, 6, []) }), A_CODES_IN_PROOF);
+  // v4.8.3: a name ending in "s" takes the apostrophe alone.
+  assert.equal(gapClosedReply({ org: 'Avalanche', title: 'Avalanche Team1 Mini Grants', codes: false }), "Avalanche Team1 Mini Grants' steps are done. Want me to draft the Avalanche application next?");
   assert.equal(gapProof({ name: 'EarnKit', live: true }, 6, ['codes', 'use']), "You're on Base.");
   assert.equal(gapProof({ name: 'EarnKit', live: true }, 6, ['base', 'codes']), "You've shipped 6 weeks in a row and EarnKit is live.");
   // Fix round 1 (T2-4): mid-gap, the first remaining step, never "Want the steps?".
@@ -1115,9 +1121,9 @@ test('a new session after more shipping opens with "Since ...", the streak and s
   (b.ctx as { codesFetch?: typeof fetch }).codesFetch = b.gh;
   await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' });
   assert.equal(show(await find(b)), A_CODES_IN_PROOF);
-  // The builder said nothing; the last session was 8 days ago (the week before), when the score was 77 and the streak
-  // one week shorter (this week's commits came since).
-  const last = new Date(Date.now() - 8 * 86_400_000);
+  // The builder said nothing; the last session was 7 days ago (always the week before, v4.8.3: 8 days crossed two week
+  // starts on a Monday), when the score was 77 and the streak one week shorter (this week's commits came since).
+  const last = new Date(Date.now() - 7 * 86_400_000);
   await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, '{said,at}', to_jsonb(${last.toISOString()}::text)) WHERE builder_id = ${b.id}`;
   await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, ranked)
     VALUES (${b.id}, ${last.toISOString().slice(0, 10)}::date, 77, 0, '{}'::jsonb, '{}'::jsonb, 'v2', 'v2-shipping', false, true) ON CONFLICT (builder_id, day) DO UPDATE SET score = 77`;
@@ -2028,7 +2034,7 @@ async function walkA() {
   const sr = await speedrun(30);
   await only([sr.id, 'base-builder-grants']);
   await sql()`UPDATE programs SET opened_at = now() - interval '30 days' WHERE id = 'base-builder-grants'`;
-  const b = await owner('wa', { pick: sr.id });
+  const b = await owner('wa', { pick: sr.id, weeksAt: Date.now() - 2 * 86_400_000 });
   const live = (score: number) =>
     sql()`UPDATE builder_live SET score = ${score}, ranked = true, calibration = ${'v2-shipping'}, parts = ${sql().json({ shipping: { points: score, raw: { mask: 0b111111, live_ships: 0 } } } as never)} WHERE builder_id = ${b.id}`;
   await live(77);
@@ -2355,7 +2361,7 @@ test('final F3: one step the agent cannot do goes from the hook\'s yes straight 
 
 test('final F6: Builder Codes pushed, then two days of quiet: the first find re-checks and gives the closed reply', db, async () => {
   await only(['base-builder-grants']);
-  const b = await owner('ff6');
+  const b = await owner('ff6', { weeksAt: Date.now() - 2 * 86_400_000 });
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'declined' WHERE builder_id = ${b.id}`;
   await find(b);
   assert.match(show(await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' })), /^Adding Builder Codes to EarnKit/);

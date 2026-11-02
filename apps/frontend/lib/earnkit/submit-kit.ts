@@ -77,18 +77,23 @@ export type KitProgram = Pick<ProgramRow, 'submission_url' | 'submission_require
   organizer?: string;
 };
 
+/** "a16z's", "Alliance's"; a name ending in "s" takes the apostrophe alone ("Circle Ventures'"). Pure. */
+export const possessive = (name: string) => (/s$/i.test(name) ? `${name}'` : `${name}'s`);
+
 /**
  * v2.8.1 §C14: an investment program's public form is only its first step (a16z speedrun: the
  * email); the rest of the application isn't public, so the kit says where it goes on: "After the
- * email step, the application continues on a16z's site." Null for every other program. Pure.
+ * email step, the application continues on a16z's site." Null for every other program, an
+ * investment whose form is the whole application included (v4.8.3: Z Fellows, Base Ecosystem Fund,
+ * Arc Builders Fund ask more than one field, and nothing says the application goes on after it). Pure.
  */
 export function continuesLine(p: Pick<KitProgram, 'investment' | 'organizer' | 'submission_requirements'>): string | null {
   // v3 Stage 2: an upcoming program has no form steps yet, so nothing continues.
-  if (!p.investment || p.submission_requirements.length === 0) return null;
-  const org = p.organizer?.replace(/\s*\([^)]*\)\s*/g, ' ').trim();
   const steps = p.submission_requirements.filter((r) => r.required);
-  const step = steps.length === 1 ? `the ${steps[0].label.trim().replace(/[?:.]+$/, '').toLowerCase()} step` : 'these steps';
-  return `After ${step}, the application continues on ${org ? `${org}'s` : 'their'} site.`;
+  if (!p.investment || steps.length !== 1) return null;
+  const org = p.organizer?.replace(/\s*\([^)]*\)\s*/g, ' ').trim();
+  const step = `the ${steps[0].label.trim().replace(/[?:.]+$/, '').toLowerCase()} step`;
+  return `After ${step}, the application continues on ${org ? possessive(org) : 'their'} site.`;
 }
 
 /**
@@ -100,7 +105,7 @@ export function siteFormLine(p: Pick<KitProgram, 'investment' | 'organizer' | 's
   if (!continuesLine(p) || p.submission_requirements.filter((r) => r.required).length !== 1) return null;
   const name = p.title.trim().replace(/\s+[A-Z]{2,5}\d{1,4}$/, '');
   const what = (todo ?? 'your email').replace(/\s*\(check it\)$/, '');
-  return `${name}'s application is on their site and starts with ${what}: ${p.submission_url}`;
+  return `${possessive(name)} application is on their site and starts with ${what}: ${p.submission_url}`;
 }
 
 /** Ruling 27 (plan): a prefilled URL never goes past this; answers that don't fit are pasted. */

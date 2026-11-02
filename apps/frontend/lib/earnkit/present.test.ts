@@ -716,9 +716,14 @@ test('v2.8.1 §B: with the committed programs, the four first messages', async (
   // v3.1 cold read round 2: the matched row is only a long shot (an investment), so the open grants come first (by
   // difficulty, investments last: Alliance goes to "more open") and the long shot after; upcoming programs never show.
   assert.ok(ethOnly.indexOf('| Arc Microgrants |') < ethOnly.indexOf('| a16z speedrun SR008 |'), ethOnly);
-  assert.match(ethOnly, /^10 programs are open\.\n\n\| Program \| Amount \| Difficulty \| Ends \|\n/);
+  // v4.8.3: the count follows the committed set (10 on Oct 28, 13 after the Nov 1 refresh; committedCards keeps every
+  // file open until 2099): every program but the upcoming ones is counted, and the 5 table rows plus the long shot are
+  // the ones not in "more open".
+  const open = cards.filter((c) => c.status !== 'upcoming').length;
+  assert.match(ethOnly, new RegExp(`^${open} programs are open\\.\\n\\n\\| Program \\| Amount \\| Difficulty \\| Ends \\|\\n`));
   assert.doesNotMatch(ethOnly, /\| Alliance ALL19 \|/);
-  assert.match(ethOnly, /4 more open: ask me for the full list\./);
+  assert.equal(ethOnly.split('\n').filter((l) => /^\| (?!Program |---)/.test(l)).length, 6, ethOnly);
+  assert.match(ethOnly, new RegExp(`\\n${open - 6} more open: ask me for the full list\\.`));
   assert.doesNotMatch(ethOnly, /Monad Nitro|Base Batches 005/);
   for (const t of [noRepo, oneRepo, ethOnly]) {
     noEmoji(t);
