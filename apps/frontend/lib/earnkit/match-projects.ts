@@ -550,7 +550,7 @@ const REPO_LIMIT = 30;
 /** v2.8.1 §B6: testnet words in a chain an agent names ("base-sepolia", "Avalanche Fuji"). */
 const TESTNET_WORDS = /\b(sepolia|testnet|fuji|moderato|devnet|goerli)\b/;
 /** v2.8.1 §B6: common names agents use for a chain EarnKit knows. */
-const CHAIN_ALIASES: Record<string, Chain> = { avax: 'avalanche', 'c-chain': 'avalanche' };
+const CHAIN_ALIASES: Record<string, Chain> = { avax: 'avalanche', 'c-chain': 'avalanche', arb: 'arbitrum' };
 
 /**
  * v2.8.1 §B6: one chain as an agent reports it (`"base"`, `"Base Sepolia"`, or

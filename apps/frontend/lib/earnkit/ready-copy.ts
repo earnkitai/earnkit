@@ -183,16 +183,25 @@ export function readyAlsoLine(out: readonly { title: string; amount: string | nu
  * one plain statement, never a question (the set's ask stays the one easy reply): "Circle Developer Grants is only for
  * an app on Arc, so it doesn't fit EarnKit yet." Null with none. Pure.
  */
+/** "Arc", "Arc or Tempo": the chains as a builder reads them. Pure. */
+const chainsOr = (xs: readonly string[]) => {
+  const names = xs.map((c) => (Object.hasOwn(CHAIN_NAMES, c) ? CHAIN_NAMES[c as Chain] : c));
+  return names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} or ${names.at(-1)}`;
+};
 export function readyNotEligibleLine(out: readonly { title: string; chains: readonly string[] }[], project: string): string | null {
   if (out.length === 0) return null;
-  const or = (xs: readonly string[]) => {
-    const names = xs.map((c) => (Object.hasOwn(CHAIN_NAMES, c) ? CHAIN_NAMES[c as Chain] : c));
-    return names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} or ${names.at(-1)}`;
-  };
+  const or = chainsOr;
   const parts = out.map((p, i) => `${programName(p.title)}${i === 0 ? ' is only' : ''} for an app on ${or(p.chains)}`);
   const said = parts.length < 2 ? parts[0] : `${parts.slice(0, -1).join(', ')}, and ${parts.at(-1)}`;
   return `${said}, so ${out.length === 1 ? "it doesn't" : "they don't"} fit ${project} yet.`;
 }
+
+/**
+ * v4.10.2 Task 2 fix round 1 (2): the builder picked a not-eligible program by name: why, in one plain statement, said
+ * above the path's move: "Circle Developer Grants only takes an app on Arc, and EarnKit isn't one yet." Pure.
+ */
+export const notEligiblePickLine = (title: string, chains: readonly string[], project: string) =>
+  `${programName(title)} only takes an app on ${chainsOr(chains)}, and ${project} isn't one yet.`;
 
 /**
  * The session opener: what is ready, what it is worth, where the answers came from, then READY_ASK as the last line.

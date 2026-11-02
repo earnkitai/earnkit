@@ -19,7 +19,8 @@
   "existing_work": "allowed",
   "needs_repo": true,
   "chains": [
-    "arbitrum"
+    "arbitrum",
+    "robinhood"
   ],
   "setup": [],
   "each_time": [],

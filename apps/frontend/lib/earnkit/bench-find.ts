@@ -66,7 +66,7 @@ import { bankKeepsContact, projectKey, readBank, saveBank } from './answer-bank'
 import { READY_CANDIDATES, fitReadySet, readySet, worthUpTo, type ReadyProgram } from './ready-set';
 import {
   PLAN_ONE_LINE_NOTE, READY_ASK_NOTE, READY_NEEDS_NOTE, READY_NOTE, READY_SENT_NOTE, READY_YES_NOTE, contactPhrase, needsList, needsPhrase, readyAgain, readyCodesWait, readyNeedsAsk,
-  readyNoLine, readyNotEligibleLine, readyOpenList, readyOpener, readySentAgain, type AgainProgram, readySentAsk, readyStillNeeds, readyYesReply, shortName, skipReply,
+  readyNoLine, notEligiblePickLine, readyNotEligibleLine, readyOpenList, readyOpener, readySentAgain, type AgainProgram, readySentAsk, readyStillNeeds, readyYesReply, shortName, skipReply,
 } from './ready-copy';
 import { bankFill, slotOf } from './coach';
 import { FIELD_KINDS, type ReadyAnswers, type SubmissionRequirement } from './program-file';
@@ -917,7 +917,7 @@ async function pathPlan(o: ViewIn, v: PathFacts, told: Set<string>, w: { wide?: 
     if (fact.kind === 'chain') longShots.add(c.id);
     const why = c.tag === 'long shot' || longShots.has(c.id) ? fitCell(false, fact).replace(/^Not yet: /, '') : null;
     // v4.10.2 Task 2 (R3): its rule requires a chain the project isn't on: not eligible (never a move or in the set).
-    const off = notEligible(c, known.chains);
+    const off = notEligible(c, known.chainsRead ? known.chains : null);
     return { ...moveProgram(c), why, ...(off && { notEligible: true }), gaps: needs, gap: needs.length > 0 ? needsWhy(v.project.name, c.title, needs) : '', passed: recent(noAt), passedAt: recent(noAt) ? noAt : null, doable: false };
   }))).filter((g): g is GapGrant => g !== null);
   // Fix round 1 (1): a grant raised in this session stays the move while the path is on it (its pointer answers).
@@ -2387,10 +2387,11 @@ const myChains = (v: Pick<PathFacts, 'chains'>, known: ViewIn['known']) =>
 /**
  * v4.10.2 Task 2 (R3): the program's rule requires one of its chains (program file chain_required) and the project is on
  * none of them (`mine`, lower-case ids: needsKnown's chains). Then it is not eligible: never in the ready set or the
- * path. A chain mismatch without the flag stays a long shot. Pure.
+ * path. A chain mismatch without the flag stays a long shot. Fix round 1 (3): `mine` null (the chain read failed) is
+ * unknown, never not eligible. Pure.
  */
-export const notEligible = (c: Pick<Card, 'chains' | 'any_chain' | 'chain_required'>, mine: ReadonlySet<string>): boolean =>
-  c.chain_required === true && c.any_chain !== true && (c.chains ?? []).length > 0 && !(c.chains ?? []).some((ch) => mine.has(ch.toLowerCase()));
+export const notEligible = (c: Pick<Card, 'chains' | 'any_chain' | 'chain_required'>, mine: ReadonlySet<string> | null): boolean =>
+  mine !== null && c.chain_required === true && c.any_chain !== true && (c.chains ?? []).length > 0 && !(c.chains ?? []).some((ch) => mine.has(ch.toLowerCase()));
 /** Fix round 1 (1): a grant card's fact (conversation.ts grantFact): its gaps, else its one chain, else none or unknown. Pure. */
 const cardFact = (c: Card, gaps: readonly string[] | null, mine: ReadonlySet<string>): GrantFact =>
   grantFact(gaps, c.any_chain ? [] : (c.chains ?? []), mine, chainName);
@@ -2553,6 +2554,15 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
       // v4.10 Task 4 (R1): the ready set, when this session opens with one (or a program of it waits); else the path.
       const ready = await readyView(o, plan);
       if (ready) return answered(ready);
+      // v4.10.2 Task 2 fix round 1 (2): the builder's own pick is not eligible (bestMove never hooks it): why, in one plain
+      // statement above the path's move, once a session.
+      const pickedOff = plan.path?.picked && plan.path.stage === 'hook'
+        ? plan.ctx.grants.find((g) => g.id === plan.path!.program_id && g.notEligible === true) : undefined;
+      const offChains = pickedOff ? o.cards.find((c) => c.id === pickedOff.id)?.chains ?? [] : [];
+      if (pickedOff && offChains.length > 0 && !sessionOf(read.seen, now).said.has(`noteligible:${pickedOff.id}`)) {
+        await markSaid(id, [`noteligible:${pickedOff.id}`], now);
+        o.ahead?.push(notEligiblePickLine(pickedOff.title, offChains, facts.project.name));
+      }
       let move = plan.move;
       // Final review F3: the ok to a help step ("Say ok once it's done") came back not done (a closed gap and a running
       // re-check answer below): the program waits now (parked, this session's check spent), and the path moves on in the
@@ -3036,20 +3046,25 @@ export function programNeeds(
  */
 export async function needsKnown(
   id: number, key: string, also: { chains?: string[]; live?: boolean } = {},
-): Promise<{ chains: Set<string>; repo: boolean; live: boolean }> {
+): Promise<{ chains: Set<string>; repo: boolean; live: boolean; chainsRead: boolean }> {
+  let chainsRead = true;
   const [chains, repo, live] = await Promise.all([
     sql()<{ c: string }[]>`
       SELECT DISTINCT lower(c) AS c FROM (
         SELECT unnest(chains) AS c FROM builder_projects WHERE builder_id = ${id} AND lower(project_key) = lower(${key})
         UNION ALL SELECT split_part(ref, ':', 1) FROM builder_sources WHERE builder_id = ${id} AND lower(project_key) = lower(${key})
-          AND kind = 'contract' AND state <> 'rejected' AND ref LIKE '%:%') x`.then((r) => r.map((x) => x.c)).catch(() => [] as string[]),
+          AND kind = 'contract' AND state <> 'rejected' AND ref LIKE '%:%') x`.then((r) => r.map((x) => x.c)).catch(() => {
+        // v4.10.2 Task 2 fix round 1 (3): a failed read is unknown (notEligible reads it so), never "on no chain".
+        chainsRead = false;
+        return [] as string[];
+      }),
     sql()<{ yes: boolean }[]>`SELECT EXISTS (SELECT 1 FROM builder_sources b WHERE b.builder_id = ${id} AND lower(b.project_key) = lower(${key})
       AND b.kind = 'repo' AND b.state = 'verified' AND (b.public_at IS NOT NULL
         OR (SELECT r.signals->'private' = 'false'::jsonb FROM source_readings r WHERE r.source_id = b.id AND r.ok ORDER BY r.day DESC LIMIT 1))) AS yes`
       .then((r) => r[0]?.yes === true).catch(() => false),
     also.live === true ? Promise.resolve(true) : liveOrUsersKnown(id, key),
   ]);
-  return { chains: new Set([...chains, ...(also.chains ?? []).map((c) => c.toLowerCase())]), repo, live };
+  return { chains: new Set([...chains, ...(also.chains ?? []).map((c) => c.toLowerCase())]), repo, live, chainsRead };
 }
 /** The apply ask for `programId`, claimed once a program (standing_seen.apply_asked, one guarded UPDATE). Never throws. */
 async function takeApplyAsk(id: number, programId: string, now: Date): Promise<boolean> {

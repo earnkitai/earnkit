@@ -16,8 +16,9 @@ of `list_programs` on their own after `ends_at`.
 ## "Add this program to EarnKit: <url>"
 
 Only Base, Arc, Tempo, Monad, Robinhood Chain and Avalanche programs, plus programs not tied to
-one chain (`any_chain`, below). The `arbitrum` chain tag exists so a program open to any Arbitrum
-chain (Robinhood Chain among them) is tagged as its rule says; it doesn't widen this list. Never Optimism. An Optimism program is one whose only chain is
+one chain (`any_chain`, below).
+The `arbitrum` chain tag exists so a program open to Arbitrum chains is tagged as its source
+says; it doesn't widen this list. Never Optimism. An Optimism program is one whose only chain is
 OP Mainnet, or one run by Optimism or the Optimism Collective (OP Atlas, Retro Funding, Superchain
 grants), or one whose source or submission page is on `optimism.io`. None is listed, and
 `programs:check` refuses a file whose `source_url` or `submission_url` is on `optimism.io` or any
@@ -95,8 +96,9 @@ program is never closed under it either.
    - `verified_at`: today's date (`YYYY-MM-DD`). Agents trust facts checked within 7 days and
      skip re-reading the source, so update it whenever you re-check a program against its source.
    - `chains`: any of `base`, `arc`, `tempo`, `monad`, `robinhood`, `avalanche`, `arbitrum` a
-     project must use (at least one). Tag the chain the rule names: a program open to "any Arbitrum
-     chain" is `arbitrum`, even when it names Robinhood Chain as one example.
+     project must use (at least one). Tag every chain the source names as eligible: a program
+     open to "an Arbitrum chain, for example Arbitrum One or Robinhood Chain" is
+     `["arbitrum", "robinhood"]`.
    - `chain_required` (optional): `true` only when the source's eligibility rule says one of the
      `chains` (or that chain's products) must be core to the project (Circle Developer Grants:
      "Arc must be core to your flow of value"). A project on none of them is then not eligible:

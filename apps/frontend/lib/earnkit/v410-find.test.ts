@@ -850,8 +850,8 @@ test('v4.10.2 (R3): the owner\'s real set (OWN=27): Circle is not eligible off A
   const b = await owner('own3', { bank: false, contract: false });
   await sql()`INSERT INTO digest_subscriptions (installation_id, login, email, asked_at, opted_in_at) VALUES (${b.id}, '', 'jenil@example.com', now(), now())
     ON CONFLICT (installation_id, login) DO UPDATE SET email = EXCLUDED.email, opted_in_at = now(), unsubscribed_at = NULL`;
-  const replies = await converse(b.ctx as never, [{ find: {} }, { says: 'what can I apply to', find: { ask: 'programs' } }], { builderId: b.id });
-  const [opener, table] = replies;
+  const replies = await converse(b.ctx as never, [{ find: {} }, { says: 'what can I apply to', find: { ask: 'programs' } }, { says: 'Circle', find: { program: 'Circle' } }], { builderId: b.id });
+  const [opener, table, pick] = replies;
   // The path's own move leads: Base, one Builder Codes step away (Go?), never Circle's integrations.
   assert.match(opener.show, /\nJenil, Base Builder Grant pays up to \$5,000\. To qualify, EarnKit needs to add Builder Codes/, opener.show);
   assert.match(opener.show, /\n\nI can add Builder Codes and push the change, about 10 minutes\. Go\?$/, opener.show);
@@ -861,6 +861,9 @@ test('v4.10.2 (R3): the owner\'s real set (OWN=27): Circle is not eligible off A
   assert.doesNotMatch(opener.show, /integrations/, opener.show);
   // The programs table still lists it, with the fact why.
   assert.match(table.show, /Circle Developer Grants: .*Your fit: not yet, they look for apps on Arc\./, table.show);
+  // Fix round 1 (2): picking it by name says why in one plain statement, then the path's move; never its form's asks.
+  assert.ok(pick.show.split('\n\n').includes("Circle Developer Grants only takes an app on Arc, and EarnKit isn't one yet."), pick.show);
+  assert.doesNotMatch(pick.show, /integrations/, pick.show);
   assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), [], replies.map((r) => r.show).join('\n---\n'));
 });
 

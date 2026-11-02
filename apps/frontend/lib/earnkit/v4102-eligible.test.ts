@@ -1,11 +1,13 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { bestMove, type GapGrant, type MoveCtx, type MoveProgram } from './conversation';
 import { committedProgram } from './fixtures/program-file';
 import { ProgramFile } from './program-file';
 import { readySet } from './ready-set';
-import { readyNotEligibleLine, readyOpener } from './ready-copy';
-import { notEligible } from './bench-find';
+import { notEligiblePickLine, readyNotEligibleLine, readyOpener } from './ready-copy';
+import { needsKnown, notEligible } from './bench-find';
+import { reportedChain } from './match-projects';
+import { sql } from './db';
 import { CHAINS, CHAIN_EXPLAINED, CHAIN_NAMES } from './chains';
 import { chainOfId, detectChains } from './match';
 import { gateFailures, type Reply } from './fixtures/converse';
@@ -14,6 +16,10 @@ import { gateFailures, type Reply } from './fixtures/converse';
  * v4.10.2 Task 2 (R3, R4): a program whose rule requires a chain the project doesn't use is not eligible (program file
  * `chain_required`); Arbitrum is a chain, and the Arbitrum Open House is tagged with it.
  */
+const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
+after(async () => {
+  if (process.env.DATABASE_URL) await sql().end();
+});
 const NOW = new Date('2026-11-02T10:00:00Z');
 const prog = (o: Partial<MoveProgram> & { id: string }): MoveProgram => ({
   title: o.id, amount: null, when: 'rolling', ends_at: null, zone: 'UTC', investment: false, max_usd: null, ...o,
@@ -94,8 +100,33 @@ test('R4: arbitrum is a chain (Arbitrum One 42161, Arbitrum Sepolia 421614), nam
   assert.equal(ProgramFile.parse({ ...committedProgram('circle-developer-grants'), chains: ['arbitrum'], chain_required: undefined }).chains[0], 'arbitrum');
 });
 
-test('R4: the Arbitrum Open House is tagged arbitrum, matching its rule', () => {
+test('R4 (fix round 1): the Arbitrum Open House is tagged every chain its rule names as eligible: arbitrum and robinhood', () => {
   const p = ProgramFile.parse(committedProgram('arbitrum-open-house-sao-paulo'));
-  assert.deepEqual(p.chains, ['arbitrum']);
+  assert.deepEqual(p.chains, ['arbitrum', 'robinhood']);
+  assert.ok(p.rules.some((r) => /Arbitrum One or Robinhood Chain/.test(r)));
   assert.ok(p.rules.some((r) => /deployed on an Arbitrum chain/.test(r)));
+});
+
+test('fix round 1 (3): an unread chain set is unknown, never "not eligible" (the v4.10.1 long shot stands)', () => {
+  const card = { chains: ['arc' as const], any_chain: false, chain_required: true };
+  assert.equal(notEligible(card, null), false);
+});
+
+test('fix round 1 (3): needsKnown says when its chain read failed (chainsRead false), and true when it read', db, async () => {
+  const failed = await needsKnown(Number.NaN, 'x/y', { chains: ['base'] });
+  assert.equal(failed.chainsRead, false);
+  assert.deepEqual([...failed.chains], ['base']);
+  const read = await needsKnown(-1, 'nobody/none');
+  assert.equal(read.chainsRead, true);
+});
+
+test('fix round 1 (2): a picked not-eligible program gets its reason in one plain statement', () => {
+  assert.equal(notEligiblePickLine('Circle Developer Grants', ['arc'], 'EarnKit'), "Circle Developer Grants only takes an app on Arc, and EarnKit isn't one yet.");
+  assert.equal(notEligiblePickLine('Two Grants', ['arc', 'tempo'], 'EarnKit'), "Two Grants only takes an app on Arc or Tempo, and EarnKit isn't one yet.");
+  assert.doesNotMatch(notEligiblePickLine('Circle Developer Grants', ['arc'], 'EarnKit'), /\?/);
+});
+
+test('fix round 1 (review minor): "arb" is Arbitrum as an agent reports it', () => {
+  assert.deepEqual(reportedChain('arb'), { chain: 'arbitrum', mainnet: true });
+  assert.deepEqual(reportedChain('Arbitrum Sepolia'), { chain: 'arbitrum', mainnet: false });
 });
