@@ -66,7 +66,7 @@ import { bankKeepsContact, projectKey, readBank, saveBank } from './answer-bank'
 import { READY_CANDIDATES, fitReadySet, readySet, worthUpTo, type ReadyProgram } from './ready-set';
 import {
   PLAN_ONE_LINE_NOTE, READY_ASK_NOTE, READY_NEEDS_NOTE, READY_NOTE, READY_SENT_NOTE, READY_YES_NOTE, contactPhrase, needsList, needsPhrase, readyAgain, readyCodesWait, readyNeedsAsk,
-  readyNoLine, notEligiblePickLine, readyNotEligibleLine, readyOpenList, readyOpener, readySentAgain, type AgainProgram, readySentAsk, readyStillNeeds, readyYesReply, shortName, skipReply,
+  ALSO_START_ASK, alsoAgainAsk, alsoLeadLine, readyNoLine, notEligiblePickLine, readyNotEligibleLine, readyOpenList, readyOpener, readySentAgain, type AgainProgram, readySentAsk, readyStillNeeds, readyYesReply, shortName, skipReply,
 } from './ready-copy';
 import { bankFill, slotOf } from './coach';
 import { FIELD_KINDS, type ReadyAnswers, type SubmissionRequirement } from './program-file';
@@ -315,6 +315,11 @@ export type Seen = StandSeen & {
   said?: unknown;
   /** v4.8 Task 1: grants whose passed step the path raised once ({ [program_id]: iso }). */
   path_raised?: Record<string, string>;
+  /**
+   * v4.10.2 Task 5: the top program the set left out for its answers when nothing fit one reply (readyCommit), for the
+   * quiet reply's money lead this session (alsoLeadCommit; `at` re-stamped each time it is said).
+   */
+  also_open?: AlsoOpenLead;
   /** v3.1 cold read: the standing line last shown (name, rank and streak), so it is shown again only when it changed. */
   status_seen?: string;
   /** v3.1 cold read: the ISO week the shipping points line was last shown (at most once a week). */
@@ -1347,6 +1352,9 @@ async function readyCommit(o: ViewIn, plan: PathPlan, picked: ReadyProgram[]): P
   // v4.10.2 Task 1 (R1): the set fits one short reply: at most READY_ANSWERS_MAX answers across it; a program left out
   // for its answers is said in one line ("Also open"). None fits: the path answers (its own ask, at most MAX_BLANKS).
   const fit = fitReadySet(set1.map((p, i) => ({ p, d: drafts1[i] })), (x) => answerKeys(x.d.only));
+  // v4.10.2 Task 5: nothing fits: the top program left out is the quiet reply's money lead this session (alsoLeadCommit).
+  const top = fit.set.length === 0 ? fit.out[0] : undefined;
+  await keepAlso(o, top ? { id: top.program.p.id, key, title: top.program.p.title, amount: top.program.p.amount, answers: top.answers, at: now.toISOString() } : null);
   if (fit.set.length === 0) return null;
   const drafts = fit.set.map((x) => x.d);
   const set = fit.set.map((x) => ({ ...x.p, needs: needsOfDraft(x.d) }));
@@ -1636,7 +1644,63 @@ async function readyView(o: ViewIn, plan: PathPlan): Promise<{ view: BenchView; 
   const grants = plan.ctx.grants.map((g) => (plan.longShots.has(g.id) ? { ...g, longShot: true } : g));
   // v4.10.2 Task 1 (R1): ranked candidates; readyCommit keeps those that fit one short reply.
   const set = readySet({ ...plan.ctx, grants, now }, READY_CANDIDATES);
+  if (set.length === 0) await keepAlso(o, null);
   return set.length > 0 ? readyCommit(o, plan, set) : null;
+}
+
+/** v4.10.2 Task 5: a program left out of the set for its answers, kept for the quiet reply's lead (Seen.also_open). */
+export type AlsoOpenLead = { id: string; key: string; title: string; amount: string | null; answers: number; at: string };
+/** v4.10.2 Task 5: stores (or, null, drops) the also-open lead, in the row and the reply's read. Never throws. */
+async function keepAlso(o: ViewIn, a: AlsoOpenLead | null): Promise<void> {
+  if (!a && !o.read.seen.also_open) return;
+  o.read.seen.also_open = a ?? undefined;
+  await sql()`UPDATE builder_profiles SET standing_seen = CASE WHEN ${a === null} THEN COALESCE(standing_seen, '{}'::jsonb) - 'also_open'
+      ELSE COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('also_open', ${sql().json((a ?? {}) as never)}::jsonb) END
+    WHERE builder_id = ${o.id}`.catch(logged('also open'));
+}
+
+/** v4.10.2 Task 5: the session key the also-open lead was said under (its repeat is the easy reply alone). */
+const alsoSaid = (pid: string) => `also:${pid}`;
+/**
+ * v4.10.2 Task 5: the quiet reply (no set, no path move, only the ship or "more" ask left) leads with the money the set
+ * left out: on a fresh session a fact from the record first (proofOf), then "{program} pays {money} and needs N answers
+ * from you." and ALSO_START_ASK; later this session ALSO_AGAIN_ASK alone. Stored as the path's start ask (kind apply,
+ * path), so a yes is the draft stage (pathDraft) and a no parks the program for the path. Null: no lead kept this
+ * session, it is closed, told about, or said no to. Never throws on its own writes.
+ */
+async function alsoLeadCommit(
+  o: ViewIn, v: Pick<PathFacts, 'state' | 'variant' | 'project' | 'streak' | 'handle' | 'stand' | 'siteLive'>, told: Set<string> | null,
+): Promise<{ view: BenchView; fields: Reply; stand: Standing } | null> {
+  const { id, now, read } = o;
+  const a = read.seen.also_open;
+  if (!a || typeof a.at !== 'string' || !(now.getTime() - Date.parse(a.at) < SESSION_MS)) return null;
+  if ((a.key ?? '').toLowerCase() !== v.project.key.toLowerCase() || !told || told.has(a.id)) return null;
+  const card = o.cards.find((c) => c.id === a.id);
+  if (!card || !showable(card, now, o.skip)) return null;
+  const no = read.seen.declined ?? {};
+  if ([benchStepKey('apply', a.id), benchStepKey('path', a.id)].some((k) => no[k] && now.getTime() - Date.parse(no[k]) < DECLINE_MS)) return null;
+  const session = sessionOf(read.seen, now);
+  const again = !session.fresh && session.said.has(alsoSaid(a.id));
+  const proof = session.fresh ? proofOf({ name: v.project.name, live: v.project.live || v.siteLive }, v.streak, false, session.said) : null;
+  const show = again ? alsoAgainAsk(a.title, a.amount, a.answers)
+    : [proof?.line, alsoLeadLine(a.title, a.amount, a.answers), ALSO_START_ASK].filter(Boolean).join('\n\n');
+  const key = v.project.key;
+  const stored = { kind: 'apply', key, program_id: a.id, path: true };
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
+      || jsonb_build_object('bench_ask', ${sql().json(stored as never)}::jsonb, 'also_open', ${sql().json({ ...a, at: now.toISOString() } as never)}::jsonb,
+        'said', ${saidSql([alsoSaid(a.id), ...(proof?.keys ?? [])], now)})
+    WHERE builder_id = ${id}`.catch(logged('also lead'));
+  const view: BenchView = {
+    state: v.state, variant: v.variant, project: v.project, rank: read.ranks.bench, streak: v.streak, target: null, handle: v.handle, link: null,
+    fund: [], due: [], ask: { kind: 'apply', project_key: key, line: '', program_id: a.id }, held: null, path: show, pathLead: null,
+  };
+  const rankLines = [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x));
+  const fields: Reply = {
+    move_up: { kind: 'apply', project_key: key, agent_note: APPLY_NOTE },
+    ...(rankLines.length > 0 && { rank_lines: rankLines }),
+    ...standingFields(v.stand),
+  };
+  return { view, fields, stand: v.stand };
 }
 
 /**
@@ -2730,12 +2794,19 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   if (finalAsk.kind === 'token' && !(await takeTokenOffer(id, now))) finalAsk = stateAsk({ ...asks, tokenOffer: false, wallet: null });
   // v4.0: step 3 the same way (another reply claimed it first: this one asks the next step, or nothing).
   if (finalAsk.kind === 'wallet_setup' && !(await takeWalletAsk(id, now, true))) finalAsk = stateAsk({ ...asks, walletSetup: null, wallet: null });
+  // v4.10.2 Task 5: no set and no path move: the money the set left out leads in place of the ship or "more" ask.
+  if (pathQuiet && !held && !owns && (finalAsk.kind === 'ship' || finalAsk.kind === 'more') && project && handle !== null) {
+    const lead = await alsoLeadCommit(o, { state, variant, project, streak, handle, stand, siteLive }, told);
+    if (lead) return lead;
+  }
   // Fix round 2 (F1): the closest grant waited for an older moment; with none to show, it is the reply after all. One
   // shown counts for the session (standing_seen.said 'older'), so the next call is the path.
   if (deferred) {
     if (!OLDER_MOMENTS.includes(finalAsk.kind)) return pathCommit(o, deferred, await sinceFor(o, deferred.facts, { program: deferred.move.program, saysClose: true }));
     await markSaid(id, [OLDER_SAID], now);
   }
+  // v4.10.2 Task 5: the Monday block opens the session (so the next find is no second opener), saying its streak.
+  if (finalAsk.kind === 'share' && moment) await markSaid(id, [OLDER_SAID, ...(moment.week >= 2 ? [`proof:streak=${moment.week}`] : [])], now);
   if (finalAsk.kind === 'ship' && !held) await sql()`
     UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('ship_asked', ${now.toISOString()}::text)
     WHERE builder_id = ${id}`.catch(logged('ship asked'));
@@ -3621,7 +3692,10 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'kind' = 'share'`.catch(logged('clear share ask'));
       // v3 Stage 1 (spec 5.4): the first yes after activation asks for the address, once (digest_asked_at), as the reply's one question.
       const email = digestEnabled() ? await askWeeklyEmail(id, { shared: false, email: null }).catch(logged('share email')) : null;
-      return { show_to_builder: [APPROVED_LINE, email?.question].filter(Boolean).join('\n'), ...(email && emailMoveUp(m.project_key ?? null)) };
+      // v4.10.2 Task 5: without that question, the thanks hands off to find (tools.ts then_find), so the reply goes on to
+      // the next money step and ends in its one easy reply.
+      if (!email?.question) return { show_to_builder: APPROVED_LINE, then_find: true };
+      return { show_to_builder: [APPROVED_LINE, email.question].join('\n'), ...emailMoveUp(m.project_key ?? null) };
     }
     return okay;
   }

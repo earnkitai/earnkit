@@ -867,6 +867,63 @@ test('v4.10.2 (R3): the owner\'s real set (OWN=27): Circle is not eligible off A
   assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), [], replies.map((r) => r.show).join('\n---\n'));
 });
 
+/**
+ * v4.10.2 Task 5 (replay on the 2026-11-02 snapshot): the owner passed on Base's Builder Codes step, already raised once
+ * (declined 'qualify:<key>', path_raised), so the path has no move; the set holds nothing (Base needs 11 answers, Circle
+ * not eligible). The quiet reply leads with the money left out ("also open") and one yes/no; a repeat find says it as
+ * the easy reply alone (program, money, the answers); the programs answer later is no session opener.
+ */
+async function passedOwner(tag: string) {
+  const { circle } = await ownerPrograms({ required: true });
+  await only([circle.id, 'base-builder-grants']);
+  const b = await owner(tag, { bank: false, contract: false });
+  const day = 86_400_000;
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen
+      || jsonb_build_object('declined', jsonb_build_object(${`qualify:${b.key}`}::text, ${new Date(Date.now() - day).toISOString()}::text),
+        'path_raised', jsonb_build_object('base-builder-grants', ${new Date(Date.now() - 3 * day).toISOString()}::text),
+        'checkin', now()::text, 'ship_asked', now()::text)
+    WHERE builder_id = ${b.id}`;
+  return b;
+}
+const ALSO_HEAD = 'Base Builder Grant pays up to $5,000 and needs 12 answers from you.';
+const ALSO_AGAIN = 'Want me to start Base Builder Grant (up to $5,000, 12 answers from you)?';
+
+test('v4.10.2 Task 5: an empty set and a quiet path lead with the also-open money, one yes/no; repeats carry it in the easy reply', db, async () => {
+  const b = await passedOwner('al1');
+  const replies = await converse(b.ctx as never, [{ find: {} }, { find: {} }, { find: {} }, { says: 'what can I apply to', find: { ask: 'programs' } }], { builderId: b.id });
+  const [lead, again, third] = replies;
+  // The session opener: a fact from the record, the money, then the one easy reply.
+  assert.match(lead.show, /You've shipped 6 weeks in a row/, lead.show);
+  assert.ok(lead.show.split('\n\n').includes(ALSO_HEAD), lead.show);
+  assert.match(lead.show, /\n\nWant me to start it\?$/, lead.show);
+  assert.deepEqual([moveUp({ reply: lead.reply } as R)?.kind, moveUp({ reply: lead.reply } as R)?.project_key], ['apply', b.key]);
+  assert.doesNotMatch(lead.show, /Reply "more"|Circle/, lead.show);
+  // A repeat find: the easy reply alone, naming the program, the money and the answers (never "Reply more" alone).
+  assert.equal(again.show, ALSO_AGAIN);
+  assert.equal(third.show, ALSO_AGAIN);
+  assert.equal(moveUp({ reply: again.reply } as R)?.kind, 'apply');
+  assert.ok(!replies[3].first, 'the programs answer is mid-session, never an opener');
+  for (const r of replies) assert.doesNotMatch(r.show, BAD, r.show);
+  assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), [], replies.map((r) => r.show).join('\n---\n'));
+});
+
+test('v4.10.2 Task 5: the also-open yes starts the draft (the path); a no parks it and the quiet reply goes back to "more"', db, async () => {
+  const b = await passedOwner('al2');
+  const lead = await find(b);
+  assert.match(show(lead), /Want me to start it\?$/, show(lead));
+  const yes = await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes' });
+  assert.equal((await seenOf(b.id)).path && ((await seenOf(b.id)).path as { stage: string; program_id: string }).program_id, 'base-builder-grants');
+  assert.equal(((await seenOf(b.id)).path as { stage: string }).stage, 'draft');
+  assert.ok(show(yes).length > 0, 'the draft reply');
+
+  const c = await passedOwner('al3');
+  await find(c);
+  await tell(c, { kind: 'apply', project_key: c.key, answer: 'no' });
+  const after = show(await find(c));
+  assert.doesNotMatch(after, /Want me to start/, after);
+  assert.ok(((await seenOf(c.id)).declined as Record<string, string>)['path:base-builder-grants'], 'parked for the path');
+});
+
 test('v4.10.2 (R3): Circle not eligible beside a set is said in one plain line; on Arc it is eligible, a plain fit (never a long shot)', db, async () => {
   const { sr, circle } = await ownerPrograms({ required: true, tagged: false });
   const off = await owner('ne', { fits: true });

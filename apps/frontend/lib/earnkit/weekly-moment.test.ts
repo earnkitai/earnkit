@@ -57,6 +57,11 @@ const ctx = (id: number, own = id) => ({ installationId: id, ownInstallationId: 
 const links = (s: string) => s.match(/https?:\/\/\S+/g) ?? [];
 const questions = (s: string) => (s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length;
 const show = (r: Awaited<ReturnType<typeof mcpCall>>) => String(r.reply?.show_to_builder ?? '');
+/** v4.10.2 Task 5: a share yes is the thanks, then find's next step (never the thanks alone, with no easy reply). */
+const thanks = (s: string) => {
+  assert.ok(s.startsWith('Thanks. Last week is on your page.\n\n'), s);
+  assert.ok(s.length > 'Thanks. Last week is on your page.\n\n'.length, s);
+};
 
 /** Each test starts with an empty leaderboard (one database per file): earlier builders are hidden. */
 const freshBoard = () => sql()`UPDATE builder_profiles SET hidden = true`;
@@ -193,7 +198,7 @@ test('L6.3 the weekly moment (Task 16 step 7): the week, the rank, the points, a
   const link = links(s)[0]!;
   assert.match(link, new RegExp(`^https://earnkit\\.com/${me.handle}/post/[a-z2-7]{10}$`));
   assert.equal(noOpen(s), [
-    // v4.0 Task 7 (approved copy 5): the Monday block, the post link, "Looks right?".
+    // v4.0 Task 7 (approved copy 5): the Monday block, the post link; v4.10.2 Task 5: the question names what the yes does.
     'Your week is ready, Maya. You shipped this week. Nice work.',
     '',
     '| | This week |',
@@ -205,7 +210,7 @@ test('L6.3 the weekly moment (Task 16 step 7): the week, the rank, the points, a
     '',
     'Builders who share wins get noticed by programs.',
     '',
-    'Looks right?',
+    'Add this week to your page?',
   ].join('\n'));
   assert.equal(links(s).length, 1, s);
   assert.equal(questions(s), 1, s);
@@ -214,6 +219,9 @@ test('L6.3 the weekly moment (Task 16 step 7): the week, the rank, the points, a
   assert.deepEqual([move.kind, move.project_key], ['share', me.key]);
   assert.match(move.agent_note, /tell with move_up/);
   assert.equal((await sql()<{ w: string }[]>`SELECT moment_week AS w FROM installations WHERE id = ${me.id}`)[0].w, isoWeekOf(new Date()));
+  // v4.10.2 Task 5: the Monday block opens the session (the next find is no second opener), its streak said as the proof.
+  const said = (await sql()<{ k: string[] }[]>`SELECT ARRAY(SELECT jsonb_array_elements_text(standing_seen->'said'->'keys')) AS k FROM builder_profiles WHERE builder_id = ${me.id}`)[0].k;
+  assert.ok(said.includes('older') && said.includes('proof:streak=3'), said.join(','));
 
   // Another reply first (no moment again: once a week per installation), then the yes: still answered.
   const between = show(await mcpCall(ctx(me.id), 'find', {}));
@@ -224,7 +232,9 @@ test('L6.3 the weekly moment (Task 16 step 7): the week, the rank, the points, a
   const statsApp = await readStats(new Date());
   assert.equal(statsApp.activated, stats0.activated, 'an App-proven repo alone is not activated');
   const yes = await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'yes' } });
-  assert.equal(show(yes), 'Thanks. Last week is on your page.');
+  // v4.10.2 Task 5: the thanks, then find's next step (tools.ts then_find), ending in its one easy reply.
+  thanks(show(yes));
+  assert.ok(yes.reply?.move_up, 'the next step is answerable');
   const [row] = await sql()<{ facts: Record<string, unknown>; n: number }[]>`
     SELECT facts, (SELECT count(*)::int FROM project_updates WHERE builder_id = ${me.id}) AS n FROM project_updates WHERE builder_id = ${me.id} AND week = ${monday}`;
   assert.equal(row.facts.approved, true);
@@ -257,13 +267,13 @@ test('L6.4 the moment through score, once per installation (another agent of the
   const s = show(await mcpCall(ctx(me.id), 'score', {}));
   // No commit weeks stored: "Last week done."; #1 of 10 the week before and now: "now #1" (no week before to hold).
   // Nothing worth a post (no facts): the page is the one link.
-  assert.equal(noOpen(s), `Your week is ready, Sam. You shipped this week. Nice work.\n\n| | This week |\n|---|---|\n| Shipping score | 30 |\n\nYour page: https://earnkit.com/${me.handle}\n\nBuilders who share wins get noticed by programs.\n\nLooks right?`);
+  assert.equal(noOpen(s), `Your week is ready, Sam. You shipped this week. Nice work.\n\n| | This week |\n|---|---|\n| Shipping score | 30 |\n\nYour page: https://earnkit.com/${me.handle}\n\nBuilders who share wins get noticed by programs.\n\nAdd this week to your page?`);
   assert.doesNotMatch(s, /Secret launch/);
 
   // The yes, with no ship-log row for last week (removed here): one is made holding only the approval (it shows nowhere).
   await sql()`DELETE FROM project_updates WHERE builder_id = ${me.id}`;
   // Final fix M1: an agent that drops project_key still answers the one open offer.
-  assert.equal(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: null, answer: 'yes' } })), 'Thanks. Last week is on your page.');
+  thanks(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: null, answer: 'yes' } })));
   const [row] = await sql()<{ facts: Record<string, unknown> }[]>`SELECT facts FROM project_updates WHERE builder_id = ${me.id} AND week = ${monday}`;
   assert.equal(row.facts.approved, true);
   assert.deepEqual((await profileData(me.id, new Date()))!.log, [], 'an approval-only week is no card');
@@ -295,12 +305,12 @@ test('owner batch fix wave: the moment quotes the stored summary under the head 
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts, summary)
     VALUES (${me.id}, ${me.key}, ${monday}, ${sql().json({ checked: true } as never)}, 'Fixed the login loop.')`;
   const s = show(await mcpCall(ctx(me.id), 'score', {}));
-  assert.equal(noOpen(s), `Your week is ready, Sam. Fixed the login loop. Nice work.\n\n| | This week |\n|---|---|\n| Shipping score | 30 |\n\nYour page: https://earnkit.com/${me.handle}\n\nBuilders who share wins get noticed by programs.\n\nLooks right?`);
+  assert.equal(noOpen(s), `Your week is ready, Sam. Fixed the login loop. Nice work.\n\n| | This week |\n|---|---|\n| Shipping score | 30 |\n\nYour page: https://earnkit.com/${me.handle}\n\nBuilders who share wins get noticed by programs.\n\nAdd this week to your page?`);
   assert.equal(links(s).length, 1);
   assert.equal(questions(s), 1);
   // Rewritten after the reply: the yes still binds the text the reply showed, never the new one.
   await sql()`UPDATE project_updates SET summary = 'Fixed the login loop and more.' WHERE builder_id = ${me.id} AND week = ${monday}`;
-  assert.equal(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'yes' } })), 'Thanks. Last week is on your page.');
+  thanks(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'yes' } })));
   const facts = async (id: number) => (await sql()<{ facts: Record<string, unknown> }[]>`SELECT facts FROM project_updates WHERE builder_id = ${id} AND week = ${monday}`)[0].facts;
   assert.equal((await facts(me.id)).approved_summary, 'Fixed the login loop.');
 
@@ -312,7 +322,7 @@ test('owner batch fix wave: the moment quotes the stored summary under the head 
     VALUES (${other.id}, ${other.key}, ${monday}, ${sql().json({ checked: true } as never)}, ${named})`;
   const t = show(await mcpCall(ctx(other.id), 'score', {}));
   assert.doesNotMatch(t, /dark mode|"/, t);
-  assert.equal(show(await mcpCall(ctx(other.id), 'tell', { move_up: { kind: 'share', project_key: other.key, answer: 'yes' } })), 'Thanks. Last week is on your page.');
+  thanks(show(await mcpCall(ctx(other.id), 'tell', { move_up: { kind: 'share', project_key: other.key, answer: 'yes' } })));
   assert.equal((await facts(other.id)).approved_summary, null);
   assert.equal((await facts(other.id)).offered_summary, named, 'counted as offered, not approved');
   const { weekRules } = await import('./weekly-moment');
@@ -400,7 +410,7 @@ test('Task 16 fix round 1, v3.1 one-tap posts: the Monday reply shows no points 
   assert.match(s, /^Your week is ready, Pia\. You shipped this week\. Nice work\.\n\n\| \| This week \|\n[^]*\| Streak \| 1 week \|/, s);
   assert.doesNotMatch(s, /points/, s);
   const before = await pointsTotal(paid.id);
-  assert.equal(show(await mcpCall(ctx(paid.id), 'tell', { move_up: { kind: 'share', project_key: paid.key, answer: 'yes' } })), 'Thanks. Last week is on your page.');
+  thanks(show(await mcpCall(ctx(paid.id), 'tell', { move_up: { kind: 'share', project_key: paid.key, answer: 'yes' } })));
   assert.ok((await pointsTotal(paid.id)) - before > 0, 'the yes still earns the week\'s points');
 
   const none = await builder('wmpn', 'Nia', [1, 2]);
@@ -410,6 +420,6 @@ test('Task 16 fix round 1, v3.1 one-tap posts: the Monday reply shows no points 
   assert.match(t, /^Your week is ready, Nia\./, t);
   assert.doesNotMatch(t, /Streak/, 'no week counted: no streak row');
   assert.doesNotMatch(t, /points/, t);
-  assert.equal(show(await mcpCall(ctx(none.id), 'tell', { move_up: { kind: 'share', project_key: none.key, answer: 'yes' } })), 'Thanks. Last week is on your page.');
+  thanks(show(await mcpCall(ctx(none.id), 'tell', { move_up: { kind: 'share', project_key: none.key, answer: 'yes' } })));
   assert.equal(await pointsTotal(none.id), 0, '0 promised, 0 added');
 });

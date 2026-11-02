@@ -2878,6 +2878,16 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
   `revertWrite`, `revertPreview`; `program-revert-page.ts` and `app/api/programs/revert/route.ts`.
 - `programs-api.ts` `NEWER_RESULTS` adds `reverted`. Tests: `v4102-revert-digest.test.ts`.
 
+## v4.10.2 Task 5: replay fixes (the next step after the Monday block)
+
+- `bench-reply.ts` `MOMENT_ASK` is "Add this week to your page?" (was "Looks right?").
+- `bench-find.ts` `Seen.also_open` / `AlsoOpenLead`, `keepAlso` (written by `readyCommit` when nothing fits, dropped by
+  `readyView` on an empty candidate list), `alsoLeadCommit` (the quiet reply's money lead, stored as the path's start
+  ask). The Monday block marks the session said (`older`, `proof:streak=N`); the share yes without the email question
+  returns `then_find`.
+- `ready-copy.ts` `alsoLeadLine`, `ALSO_START_ASK`, `alsoAgainAsk`. Tests: `v4102-next-step.test.ts`,
+  `v410-find.test.ts` ("v4.10.2 Task 5"), `weekly-moment.test.ts`.
+
 ## v4.10.1 Task 5: date-proofed tests
 
 - `fixtures/pin-programs.ts` `pinPrograms` / `withProgramsPinned`: moves every dated active program out by the same whole

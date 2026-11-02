@@ -179,6 +179,18 @@ export function readyAlsoLine(out: readonly { title: string; amount: string | nu
 }
 
 /**
+ * v4.10.2 Task 5: with no set (nothing fits one reply) and no path move, the quiet reply leads with the top program left
+ * out (alsoLead*): its money and its answers, then ALSO_START_ASK (its yes is the path's draft stage). A repeat find this
+ * session says ALSO_AGAIN_ASK alone, the same facts in the easy reply, so it repeats as the pending ask. Pure.
+ */
+const answersWords = (n: number) => `${n} answer${n === 1 ? '' : 's'} from you`;
+export const alsoLeadLine = (title: string, amount: string | null, answers: number) =>
+  `${programName(title)} ${amount ? `pays ${amount}` : 'is open'} and needs ${answersWords(answers)}.`;
+export const ALSO_START_ASK = 'Want me to start it?';
+export const alsoAgainAsk = (title: string, amount: string | null, answers: number) =>
+  `Want me to start ${programName(title)} (${amount ? `${amount}, ` : ''}${answersWords(answers)})?`;
+
+/**
  * v4.10.2 Task 2 (R3): the programs left out as not eligible (their rule requires a chain the project doesn't use), in
  * one plain statement, never a question (the set's ask stays the one easy reply): "Circle Developer Grants is only for
  * an app on Arc, so it doesn't fit EarnKit yet." Null with none. Pure.

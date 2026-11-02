@@ -9466,3 +9466,20 @@ This supersedes the per-program need in Task 4: the builder answers once for the
   `program-revert.ts`, `program-revert-page.ts`, `app/api/programs/revert/route.ts`, cron step `revert_digest` in the
   existing cron (once per UTC day, owner_alerts `program-revert-digest`, no new service, no schema change). The revert
   token is signed under its own prefix (`program-revert:v1`), so an approve token never reverts and a revert token never approves.
+- **Task 5: the next step after the Monday block (replay gate, 2026-11-02 snapshot).** With the owner's set empty
+  (Base needs 11 answers, Circle not eligible) and the path quiet (Base's codes step passed and raised once), other
+  flows led and failed the gate. Fixes:
+  - The Monday block asks "Add this week to your page?" (`MOMENT_ASK`): its yes (`answerShare` / `approveWeek`) puts
+    the week on the page, so the question names that and is a plain yes/no. The gate was left as it is.
+  - The Monday block now opens the session: when it shows it marks `older` and `proof:streak=<week>` (it states the
+    streak). Before, nothing was marked, so every later find in the session was a fresh "opener".
+  - The share yes without the weekly email question returns `{ show_to_builder: APPROVED_LINE, then_find: true }`. The
+    tell then runs find (tools.ts), so the thanks is followed by the next step and ends in its one easy reply.
+  - **Also-open lead.** When `readyCommit` finds nothing fits one reply, it keeps the top program left out in
+    `standing_seen.also_open` (`{ id, key, title, amount, answers, at }`). `readyView` drops it when there are no
+    candidates. In the quiet branch of benchView, where only the ship or "more" ask is left, `alsoLeadCommit` leads
+    instead (within SESSION_MS of `at`, same project, card still showable, not told about, no recent `apply:` or `path:`
+    no). It says "{program} pays {money} and needs N answers from you." then "Want me to start it?". On a fresh session
+    a proofOf fact comes first. A repeat this session is the easy reply alone: "Want me to start Base Builder Grant (up
+    to $5,000, 11 answers from you)?". The stored ask is `{ kind: 'apply', key, program_id, path: true }`, so a yes runs
+    `pathDraft` (the draft stage) and a no parks it (`path:<id>`).

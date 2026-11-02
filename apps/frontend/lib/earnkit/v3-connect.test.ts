@@ -172,7 +172,7 @@ test('(e) the weekly moment still shows the week after', db, async () => {
     assert.ok(s.startsWith('Your week is ready, '), s);
     assert.match(s, /\n\| Streak \| 4 weeks \|\n/, s);
     assert.doesNotMatch(s, /Make your shipping log public/);
-    assert.match(s, /\n\nLooks right\?$/);
+    assert.match(s, /\n\nAdd this week to your page\?$/);
   } finally {
     mock.timers.setTime(WEDNESDAY);
   }
@@ -189,7 +189,7 @@ test('(e2) same week as the connect yes: the next find never asks about the week
   assert.match(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'connect', project_key: me.key, answer: 'yes' } })), /^You're live: /);
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
-  assert.doesNotMatch(s, /Make your shipping log public|Your week is ready|Looks right\?/, s);
+  assert.doesNotMatch(s, /Make your shipping log public|Your week is ready|Add this week to your page\?/, s);
   assert.match(s, RANKED_END, s);
   assert.equal((f.reply?.move_up as { kind: string }).kind, 'ship');
   assert.equal((await sql()<{ w: string | null }[]>`SELECT moment_week AS w FROM installations WHERE id = ${me.id}`)[0].w, isoWeekOf(new Date()), 'the week is claimed');

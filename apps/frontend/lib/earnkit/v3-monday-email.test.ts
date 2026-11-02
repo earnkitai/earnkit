@@ -337,7 +337,7 @@ test('(g) the first share yes asks for the address when it was never asked', db,
     await withEnv({ RESEND_API_KEY: undefined }, async () => {
       const other = await builder('meg2');
       await openShare(other.id, { key: other.key, week: LAST, shown_week: isoWeekOf(new Date()) });
-      assert.equal(show(await mcpCall(ctx(other.id), 'tell', { move_up: { kind: 'share', project_key: other.key, answer: 'yes' } })), 'Thanks. Last week is on your page.');
+      assert.equal(show(await mcpCall(ctx(other.id), 'tell', { move_up: { kind: 'share', project_key: other.key, answer: 'yes' } })).startsWith('Thanks. Last week is on your page.\n\n'), true);
     });
   }),
 );
