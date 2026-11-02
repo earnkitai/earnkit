@@ -106,8 +106,9 @@ test('finding 4 on a Monday: find\'s refresh still running past its wait says no
   assert.ok(slow.calls.length > 0, 'the refresh asked the reader (it is still waiting)');
   // No score, rank or week count, in what the builder sees or in any fact the agent could say.
   assert.doesNotMatch(show(f), NUMBERS, show(f));
-  assert.match(show(f), /Your score and weeks are updating, so they're not in this reply\./);
-  assert.doesNotMatch(show(f), /next reply/, 'no promise about the next reply');
+  // v4.10.1 final fix 2 (I1): find opens on the ready set here, which shows no number, so it says nothing about them.
+  assert.equal((f.reply?.move_up as { kind?: string } | undefined)?.kind, 'ready', show(f));
+  assert.doesNotMatch(show(f), /updating/, show(f));
   const reply = f.reply ?? {};
   assert.equal(reply.streak, undefined, 'no streak fact');
   assert.equal(reply.rank_lines, undefined, 'no rank lines');
@@ -157,6 +158,19 @@ test('a slow refresh that is still running when score is asked: score says updat
   assert.match(String(again.reply?.standing), /^Score 73 · [^.]+\. 7 weeks shipping in a row\./);
 });
 
+test('v4.10.1 final fix 2 (I1): a find with no ready set, refresh still running: the updating line, before the one easy reply', db, async () => {
+  const active = (await sql()<{ id: string }[]>`UPDATE programs SET status = 'closed' WHERE status = 'active' RETURNING id`).map((p) => p.id);
+  const b = await monday69('fsx');
+  const slow = slowReader();
+  const f = await mcpCall(ctxOf(b.id, slow.reader), 'find', {}).finally(() => sql()`UPDATE programs SET status = 'active' WHERE id = ANY(${active}::text[])`);
+  slow.open();
+  assert.notEqual((f.reply?.move_up as { kind?: string } | undefined)?.kind, 'ready', show(f));
+  assert.equal(f.reply?.numbers_updating, true);
+  assert.doesNotMatch(show(f), NUMBERS, show(f));
+  assert.match(show(f), /Your score and weeks are updating, so they're not in this reply\./, show(f));
+  assert.doesNotMatch(show(f).split('\n\n').at(-1)!, /updating/);
+});
+
 test('a fast refresh: find shows the same numbers score shows', db, async () => {
   const b = await monday69('fsf');
   // The refresh lands at once: the reader's first call writes the refresh's result, then every read fails.
@@ -188,7 +202,9 @@ test('the merge gate: a session opening on the updating reply, then the fresh on
   const { conversation } = await import('./fixtures/converse');
   const turn = conversation(ctx);
   const first = (await turn({ find: {} }))!;
-  assert.match(first.show, /updating/);
+  // v4.10.1 final fix 2 (I1): the ready opener shows no number, so no updating line (its note still holds them back).
+  assert.doesNotMatch(first.show, /updating/);
+  assert.equal(first.reply?.numbers_updating, true);
   await landRefresh(b.id);
   slow.open();
   const second = (await turn({ find: {} }))!;
