@@ -13,6 +13,9 @@ export const REVERT_TEXT = {
   title: 'Revert this change?',
   undo: 'The program goes back to how it was before this change.',
   close: 'This change created the program, so reverting closes it.',
+  reopen: 'This change closed the program, so reverting re-opens it as it was before.',
+  /** Fix round 1: the bot's later unlisted edits go with the revert. */
+  alsoUndoes: (n: number) => `This also undoes ${n} later edit${n === 1 ? '' : 's'} to this program.`,
   button: 'Revert',
   bad: 'This link is not valid.',
   expired: 'This link has expired. Change the program with the bot instead.',
@@ -56,7 +59,8 @@ export async function programRevertGet(request: Request, now = new Date(), progr
       `<h1>${escapeHtml(REVERT_TEXT.title)}</h1>` +
         `<p class="ek-line">${escapeHtml(`Program: ${p.title} (${p.id})`)}</p>` +
         (p.line ? `<p class="ek-line">${escapeHtml(`Change: ${p.line}`)}</p>` : '') +
-        `<p class="ek-line">${escapeHtml(p.closes ? REVERT_TEXT.close : REVERT_TEXT.undo)}</p>` +
+        `<p class="ek-line">${escapeHtml(p.does === 'close' ? REVERT_TEXT.close : p.does === 'reopen' ? REVERT_TEXT.reopen : REVERT_TEXT.undo)}</p>` +
+        (p.laterEdits > 0 ? `<p class="ek-line">${escapeHtml(REVERT_TEXT.alsoUndoes(p.laterEdits))}</p>` : '') +
         `<div class="ek-actions"><form method="post" action="${escapeHtml(`/api/programs/revert?t=${encodeURIComponent(token)}`)}">` +
         `<button class="ek-btn" type="submit">${escapeHtml(REVERT_TEXT.button)}</button></form></div>`,
     );

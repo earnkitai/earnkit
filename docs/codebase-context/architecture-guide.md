@@ -9378,6 +9378,11 @@ This supersedes the per-program need in Task 4: the builder answers once for the
   (done) or curated; else re-applies the state before it (the previous upsert or revert body, closed when a close came
   between) or closes a created program, and records action `revert` (result `reverted`/`closed`, reason `reverted
   write <id>`, the applied body). The route works while the API is off (the token alone decides). No schema change.
+  Fix round 1: the scan pages (100 rows, up to 1000 a run, 50 changes a mail) and the cursor always moves past the
+  rows read (a quiet scan moves it without using the day). API closes (the close action, or an upsert to closed) are
+  listed as "Closed: <title> (<id>)" and their revert re-opens with the state before. Only listable later writes (and
+  reverts, takeovers) supersede; a revert also undoes the bot's later unlisted edits, and the confirm page says how
+  many. Bot text in the mail is one line (`oneLine`: control characters and line separators become spaces).
 - **Owner read.** `GET /api/programs/writes` adds `pending`: unexpired pending rows `{ at, program_id, reason, title,
   submission_url, source_url, expires_at }`.
 - **No schema change.** `program_writes.result` is free text. Tests: `v4101-link-check.test.ts`; the v4.9 tests send

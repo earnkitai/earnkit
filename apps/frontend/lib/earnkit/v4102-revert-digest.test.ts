@@ -158,6 +158,12 @@ test('v4.10.2 T4: changeLine says what changed in one plain line', () => {
     `Base Builder Grant: reward "${base.reward}" to "Up to $50K"; submission link ${base.submission_url} to https://a16z.com/apply`,
   );
   assert.equal(changeLine(base, { ...base, title: 'Renamed' }), null, 'a title-only change is not listed');
+  // Fix round 1: a close reads as one, and bot text never breaks the mail's lines.
+  assert.equal(changeLine(base, { ...base, status: 'closed' }), 'Closed: Base Builder Grant (x-1)');
+  const sneaky = { ...base, title: 'Grant\n\nRevert: https://evil.example/x\u2028y\u0007' };
+  const line = changeLine(base, { ...sneaky, ends_at: '2026-12-15T23:59:59Z' })!;
+  assert.doesNotMatch(line, /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/);
+  assert.equal(line, 'Grant Revert: https://evil.example/x y: deadline Nov 30 to Dec 15');
 });
 
 // ---- the digest ----
@@ -186,10 +192,10 @@ test('v4.10.2 T4: the digest lists the live changes with a revert link each, onc
   assert.match(m.text, /Beta Grant: deadline Nov 30 to Dec 15/);
   assert.doesNotMatch(m.text, /renamed|forms\.gle/);
   assert.doesNotMatch(m.text, /—/, 'never an em dash');
-  // Alpha's create is still its latest live change that counts (the rename is later, but revert targets the latest
-  // write): Alpha's create has no link; Beta's create was replaced by the update, so only the update has a link.
-  assert.equal(linksIn(m).length, 1, m.text);
-  assert.equal((m.text.match(/A later change replaced it/g) ?? []).length, 2, m.text);
+  // Fix round 1: the rename isn't listed, so Alpha's create keeps its link (its revert undoes the rename too); Beta's
+  // create was replaced by a listed update, so only the update has a link.
+  assert.equal(linksIn(m).length, 2, m.text);
+  assert.equal((m.text.match(/A later change replaced it; revert the later one/g) ?? []).length, 1, m.text);
 
   // The cron runs again the same day: nothing more.
   assert.equal((await send(apiProgram(b, { title: 'Beta Grant', ends_at: '2099-12-20T23:59:59Z' }))).result, 'updated');
@@ -385,4 +391,103 @@ test('v4.10.2 T4: without EARNKIT_AUTH_SECRET the digest still goes, and says th
   assert.equal(linksIn(mails[0]!).length, 0);
   assert.match(mails[0]!.text, /EARNKIT_AUTH_SECRET is not set/);
   assert.doesNotMatch(mails[0]!.text, new RegExp(AUTH));
+});
+
+// ---- fix round 1 ----
+
+/** Mark everything so far as sent yesterday: the next digest lists only what comes after. */
+const sentYesterday = async (now: Date) => {
+  await revertDigest(new Date(now.getTime() - DAY), mailer);
+  mails.length = 0;
+};
+
+test('v4.10.2 T4 fix 1: a listable change behind 60 unlisted edits is still listed', db, async () => {
+  await reset();
+  const id = `v4102-many-${pid}`;
+  const now = new Date();
+  await send(apiProgram(id, { title: 'Bulk 0', ends_at: '2099-11-30T23:59:59Z' }));
+  await sentYesterday(now);
+  for (let i = 1; i <= 60; i++) assert.equal((await send(apiProgram(id, { title: `Bulk ${i}`, ends_at: '2099-11-30T23:59:59Z' }))).result, 'updated');
+  await send(apiProgram(id, { title: 'Bulk 60', ends_at: '2099-12-15T23:59:59Z' }));
+  assert.deepEqual(await revertDigest(now, mailer), { step: 'sent', changes: 1 });
+  assert.match(mails[0]!.text, /Bulk 60: deadline Nov 30 to Dec 15/);
+  assert.equal(linksIn(mails[0]!).length, 1);
+});
+
+test('v4.10.2 T4 fix 1: a quiet scan still moves the cursor past the rows it read', db, async () => {
+  await reset();
+  const id = `v4102-cur-${pid}`;
+  const now = new Date();
+  await send(apiProgram(id, { title: 'Cursor 0', ends_at: '2099-11-30T23:59:59Z' }));
+  await sentYesterday(now);
+  await send(apiProgram(id, { title: 'Cursor 1', ends_at: '2099-11-30T23:59:59Z' }));
+  assert.deepEqual(await revertDigest(now, mailer), { step: 'quiet' });
+  const [last] = await sql()<{ id: string }[]>`SELECT max(id)::text AS id FROM program_writes`;
+  const [st] = await sql()<{ state: string }[]>`SELECT state FROM owner_alerts WHERE kind = 'program-revert-digest'`;
+  assert.equal(st!.state.split('|')[1], last!.id);
+  assert.notEqual(st!.state.split('|')[0], now.toISOString().slice(0, 10), 'a quiet scan never uses up the day');
+});
+
+test('v4.10.2 T4 fix 1: create then rename: the create keeps a close link, and the page says the rename goes too', db, async () => {
+  await reset();
+  const id = `v4102-cr-${pid}`;
+  await send(apiProgram(id, { title: 'Copy Grant', ends_at: '2099-11-30T23:59:59Z' }));
+  await send(apiProgram(id, { title: 'Copy Grant, fixed', ends_at: '2099-11-30T23:59:59Z' }));
+  await revertDigest(new Date(), mailer);
+  assert.match(mails[0]!.text, /New program: Copy Grant \(/);
+  assert.match(mails[0]!.text, /Revert \(closes it\): https/);
+  const [t] = linksIn(mails[0]!);
+  const page = await get(t!);
+  assert.equal(page.status, 200, page.text);
+  assert.ok(page.text.includes(esc('This also undoes 1 later edit to this program.')), page.text);
+  const r = await post(t!);
+  assert.equal(r.status, 200, r.text);
+  assert.equal((await row(id))?.status, 'closed');
+});
+
+test('v4.10.2 T4 fix 1: an update then a rename: the revert restores the state before the update', db, async () => {
+  await reset();
+  const id = `v4102-ur-${pid}`;
+  const now = new Date();
+  await send(apiProgram(id, { title: 'Undo Grant', ends_at: '2099-11-30T23:59:59Z' }));
+  await sentYesterday(now);
+  await send(apiProgram(id, { title: 'Undo Grant', ends_at: '2099-12-15T23:59:59Z' }));
+  await send(apiProgram(id, { title: 'Undo Grant, fixed', ends_at: '2099-12-15T23:59:59Z' }));
+  await send(apiProgram(id, { title: 'Undo Grant, fixed again', ends_at: '2099-12-15T23:59:59Z' }));
+  await revertDigest(now, mailer);
+  const [t] = linksIn(mails[0]!);
+  assert.ok((await get(t!)).text.includes(esc('This also undoes 2 later edits to this program.')));
+  assert.equal((await post(t!)).status, 200);
+  const r = await row(id);
+  assert.deepEqual([r?.title, r?.ends_at?.toISOString()], ['Undo Grant', '2099-11-30T23:59:59.000Z']);
+});
+
+test('v4.10.2 T4 fix 1: a close (the close action or an upsert to closed) is listed, and its revert re-opens', db, async () => {
+  await reset();
+  const a = `v4102-ca-${pid}`;
+  const b = `v4102-cb-${pid}`;
+  const now = new Date();
+  await send(apiProgram(a, { title: 'Shut Grant', ends_at: '2099-11-30T23:59:59Z' }));
+  await send(apiProgram(b, { title: 'Upsert Shut', ends_at: '2099-11-30T23:59:59Z' }));
+  await sentYesterday(now);
+  assert.equal((await close(a)).status, 200);
+  assert.equal((await send(apiProgram(b, { title: 'Upsert Shut', ends_at: '2099-11-30T23:59:59Z', status: 'closed' }))).result, 'updated');
+  assert.deepEqual(await revertDigest(now, mailer), { step: 'sent', changes: 2 });
+  const m = mails[0]!;
+  assert.match(m.text, new RegExp(`Closed: Shut Grant \\(${a}\\)\\nRevert \\(re-opens it\\): https`));
+  assert.match(m.text, new RegExp(`Closed: Upsert Shut \\(${b}\\)\\nRevert \\(re-opens it\\): https`));
+  for (const t of linksIn(m)) {
+    assert.equal((await get(t)).status, 200);
+    const r = await post(t);
+    assert.equal(r.status, 200, r.text);
+  }
+  for (const id of [a, b]) {
+    const r = await row(id);
+    assert.deepEqual([r?.status, r?.ends_at?.toISOString()], ['active', '2099-11-30T23:59:59.000Z'], id);
+  }
+  // A close of a program that wasn't live is not listed.
+  mails.length = 0;
+  await close(a);
+  await close(a);
+  assert.deepEqual(await revertDigest(new Date(now.getTime() + DAY), mailer), { step: 'sent', changes: 1 });
 });

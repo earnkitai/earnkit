@@ -61,7 +61,7 @@ A new program, or a write that changes `submission_url` or `chains`, goes live a
 
 A link on a form, submit, hosting or shared platform (Google Forms, `forms.gle`, Typeform, Tally, Questbook, Airtable, DoraHacks, Devfolio, HackQuest, ETHGlobal, Superteam, Karma GAP, github.io, vercel.app, notion.site and the like) never checks out on its own.
 
-Anything else answers `pending`. The program is not listed until the owner approves (within 7 days). Updates to any other field of a live program stay live at once. The owner gets one email a day listing the day's changes to live programs (new programs, reward, amounts, deadline, links, status), and can revert any one. A revert puts the program back as it was before that write (or closes it, if that write created it) and shows in `GET /api/programs/writes` as action `revert`.
+Anything else answers `pending`. The program is not listed until the owner approves (within 7 days). Updates to any other field of a live program stay live at once. The owner gets one email a day listing the day's changes to live programs (new programs, reward, amounts, deadline, links, status, closes), and can revert any one. A revert puts the program back as it was before that write, together with your later edits to it (or closes it, if that write created it, or re-opens it, if that write closed it) and shows in `GET /api/programs/writes` as action `revert`.
 
 ### Fields you can send
 
