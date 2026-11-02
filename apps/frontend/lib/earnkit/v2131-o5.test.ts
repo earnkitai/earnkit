@@ -6,6 +6,7 @@ import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
 import { checkFitsAsked, pathQuiet } from './fixtures/wallet-step';
+import { withProgramsPinned } from './fixtures/pin-programs';
 import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
@@ -177,7 +178,7 @@ test('O5 N4 a repo never read public stays unnamed ("Private project"); the refr
 // ---- N5, v2.14 A16: nothing pending: one small thing to ship, never kept away ------------------------
 
 test('O5 N5, v2.14 A16, R8: a confirmed project moves up by shipping (Task 16: the ship question and its points line), never a community round; a no never silences it', dbTest, () =>
-  on(async () => {
+  on(() => withProgramsPinned(async () => {
     const key = `${uniq('gq')}/hello-world`;
     const id = await person({ main: key, claimed: uniq('gq'), projects: [{ key, name: 'Hello-World', confirmed: true }] });
     // v4.8 Task 1: the path's hook names a program first; a no parks it, and with every program parked the ship step
@@ -202,7 +203,7 @@ test('O5 N5, v2.14 A16, R8: a confirmed project moves up by shipping (Task 16: t
     assert.equal(questions(s.show_to_builder.replace(/https?:\/\/\S+/g, '')), 1, 'one question');
     const y = (await tools.tell({ move_up: { kind: 'ship', project_key: key, answer: 'yes' } }, { installationId: id } as never)) as R;
     assert.match(y.agent_note ?? '', /one small thing/);
-  }),
+  })),
 );
 
 // ---- N6: the money line matches the build offer ----------------------------------------------------

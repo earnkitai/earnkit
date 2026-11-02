@@ -2837,3 +2837,20 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
 - `tools.ts` find passes `updating`; `withFacts` drops rank and streak facts on `numbers_updating`.
 - `fixtures/converse.ts` `noRecord` (the `updating` part).
 - Tests: `v4101-score.test.ts` (pinned Monday clock, gated fake reader).
+
+## v4.10.1 Task 4: programs API link check
+
+- `submit-hosts.ts` `linkChecksOut`, `sameSite`, `registrableDomain`, `LINK_PLATFORMS`, `API_SHARED_SITES`, `MULTI_SUFFIXES`,
+  `submissionChecksOut` (pure).
+- `program-pending.ts` `linkAnchors` (owner-curated only), `pendingReason`, `approveToken` / `approveTarget` / `approveExpiry`,
+  `mailPending`; `program-approve.ts` `programApproveGet`, `programApprovePost`, `approveWrite`.
+- `programs-api.ts` `applyUpsert` (pending write, approve mode, `official_url` split off), `api-program-text.ts` `API_CHECK_FIELDS`,
+  `officialUrlProblem`; `programs-read.ts` and `app/api/programs/writes/route.ts` add `pending`;
+  `app/api/programs/approve/route.ts` (GET confirm page, POST approve).
+- Tests: `v4101-link-check.test.ts`, `v49-programs-api.test.ts`.
+
+## v4.10.1 Task 5: date-proofed tests
+
+- `fixtures/pin-programs.ts` `pinPrograms` / `withProgramsPinned`: moves every dated active program out by the same whole
+  years (close order and each close's day kept), restored after. Used by `v2131-o5.test.ts` (O5), `v2131-onboarding.test.ts`
+  (O2), `v31-best-fit.test.ts` (whole file, `before`/`after`), `v31-reply-copy.test.ts` (Task 16), `v481-fixes.test.ts` (R3).

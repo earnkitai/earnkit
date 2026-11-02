@@ -15,6 +15,7 @@ import { LIVE_CALIBRATION_V2 } from './score-calibration';
 import { isoWeekOf } from './weeks';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
+import { withProgramsPinned } from './fixtures/pin-programs';
 
 /**
  * v3.1 Task 16: the first-run journey through the real MCP layer (mcpCall), each reply in the owner-approved copy
@@ -50,7 +51,7 @@ const rule = (s: string) => {
   return s;
 };
 
-test('Task 16: the first-run journey, each reply word for word', db, async () => {
+test('Task 16: the first-run journey, each reply word for word', db, () => withProgramsPinned(async () => {
   mock.timers.enable({ apis: ['Date'], now: WEDNESDAY });
   await padPool(12);
 
@@ -205,7 +206,7 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   ].join('\n')), s7);
   assert.equal((r7.reply?.move_up as { kind: string; agent_note: string }).kind, 'share');
   assert.match((r7.reply?.move_up as { agent_note: string }).agent_note, /Show it exactly as given\. Never rewrite it\./);
-});
+}));
 
 test('Task 16 fix round 1: the signed-out reply\'s open grant is never an investment', () => {
   const now = new Date('2026-10-21T12:00:00Z');
