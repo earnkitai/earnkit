@@ -61,7 +61,7 @@ A new program, or a write that changes `submission_url` or `chains`, goes live a
 
 A link on a form, submit, hosting or shared platform (Google Forms, `forms.gle`, Typeform, Tally, Questbook, Airtable, DoraHacks, Devfolio, HackQuest, ETHGlobal, Superteam, Karma GAP, github.io, vercel.app, notion.site and the like) never checks out on its own.
 
-Anything else answers `pending`. The program is not listed until the owner approves (within 7 days). Updates to any other field of a live program stay live at once.
+Anything else answers `pending`. The program is not listed until the owner approves (within 7 days). Updates to any other field of a live program stay live at once. The owner gets one email a day listing the day's changes to live programs (new programs, reward, amounts, deadline, links, status), and can revert any one. A revert puts the program back as it was before that write (or closes it, if that write created it) and shows in `GET /api/programs/writes` as action `revert`.
 
 ### Fields you can send
 
@@ -208,4 +208,4 @@ Every refusal is `{ "ok": false, "problems": [...] }` (400, 409) or `{ "ok": fal
 | 429 | Over 120 writes this hour | Wait for `Retry-After` seconds |
 | 503 | EarnKit is busy | Retry after `Retry-After` seconds |
 
-Every write (created, updated, unchanged, closed, pending, and `approved` or `superseded` once the owner acts) and every 400 or 409 refusal of a JSON body is in `GET /api/programs/writes` with its result and reason. A body that is not JSON (400) and 401, 404, 413, 429 and 503 answers are not logged.
+Every write (created, updated, unchanged, closed, pending, and `approved` or `superseded` once the owner acts; action `revert` with result `reverted` or `closed` when the owner reverts one) and every 400 or 409 refusal of a JSON body is in `GET /api/programs/writes` with its result and reason. A body that is not JSON (400) and 401, 404, 413, 429 and 503 answers are not logged.

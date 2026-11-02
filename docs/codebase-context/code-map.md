@@ -283,6 +283,8 @@ apps/frontend/
                                EARNKIT_PROGRAMS_TOKEN is set, or with EARNKIT_PROGRAMS_API=off
   app/api/programs/approve/route.ts  v4.10.1 T4: GET confirm page, POST approve of a pending program write
                                (lib/earnkit/program-approve.ts; signed token, 7 days, single use); 404 while the API is off
+  app/api/programs/revert/route.ts  v4.10.2 T4: GET confirm page, POST revert of an applied API write, from the daily
+                               digest (lib/earnkit/program-revert-page.ts; "program-revert:v1" token, 7 days, single use)
   app/api/stats/route.ts       v2.5 Task 9: GET public stats JSON (revalidate 600, prerendered when
                                the build has a DATABASE_URL; plus unstable_cache 600 s on the read,
                                for builds without one, where it renders per request); 503 no-store
@@ -1397,7 +1399,12 @@ apps/frontend/
     program-pending.ts         v4.10.1 T4: approve token (approveToken/approveTarget/approveExpiry, HMAC under
                                EARNKIT_AUTH_SECRET), linkAnchors, pendingReason, the owner's email (mailPending)
     program-approve.ts         v4.10.1 T4: programApproveGet (confirm page) and programApprovePost (approve).
-                               Tests: v4101-link-check.test.ts
+                               Tests: v4101-link-check.test.ts. Exports page/line/escapeHtml/notFound (v4.10.2 T4)
+    program-revert.ts          v4.10.2 T4: revert token (revertToken/revertTarget/revertExpiry, "program-revert:v1"),
+                               changeLine, revertDigest (the cron's once-a-UTC-day owner digest, owner_alerts
+                               'program-revert-digest'), revertPreview, revertWrite
+    program-revert-page.ts     v4.10.2 T4: programRevertGet (confirm page), programRevertPost (revert).
+                               Tests: v4102-revert-digest.test.ts
     programs-cache.ts          v4.9 T3 fix 1: PROGRAMS_TAG and programsChanged(id) (revalidateTag + the home, guide,
                                sitemap and (final fix F2) /api/stats paths) after an API write changes a program
     api-stale.ts               v4.9 final fix: API_STALE_DAYS (14), apiStale(row, now), freshSql(db, alias, now?) (the
@@ -2848,6 +2855,12 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
   `officialUrlProblem`; `programs-read.ts` and `app/api/programs/writes/route.ts` add `pending`;
   `app/api/programs/approve/route.ts` (GET confirm page, POST approve).
 - Tests: `v4101-link-check.test.ts`, `v49-programs-api.test.ts`.
+
+## v4.10.2 Task 4: daily revert digest
+
+- `program-revert.ts` `revertDigest` (cron.ts step `revert_digest`), `changeLine`, `revertToken` / `revertTarget`,
+  `revertWrite`, `revertPreview`; `program-revert-page.ts` and `app/api/programs/revert/route.ts`.
+- `programs-api.ts` `NEWER_RESULTS` adds `reverted`. Tests: `v4102-revert-digest.test.ts`.
 
 ## v4.10.1 Task 5: date-proofed tests
 

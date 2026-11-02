@@ -9365,6 +9365,19 @@ This supersedes the per-program need in Task 4: the builder answers once for the
   which locks the pending row, marks it `superseded` when a newer write for the id exists, else upserts and flips it to
   `approved` in the same transaction (single use), plus an audit row `approved write <id>`. Bad 400, expired 410,
   already handled or superseded 409, a failed check 400 (stays pending). 404 while the API is off.
+- **v4.10.2 Task 4: daily revert digest (R7).** `program-revert.ts revertDigest`, a step of the existing cron (no
+  new schedule): off without RESEND_API_KEY; at most once a UTC day (owner_alerts `program-revert-digest`, state
+  `<day>|<last listed write id>`, claimed atomically before the send, given back on a failed send). Lists applied API
+  upserts (created/updated, not pending, not reverts) since the last digest (first: last 24 h; at most 7 days, 50 a
+  mail) that changed a live program's create, reward, amounts, deadline, start, links or status, one `changeLine`
+  each ("Base Builder Grant: deadline Nov 30 to Dec 15"). Quiet: nothing sent, nothing claimed. Each latest write gets
+  a revert link: token `<id>.<expires>.<HMAC(EARNKIT_AUTH_SECRET, "program-revert:v1:<id>:<expires>")>` (never an
+  approve token), 7 days from the digest; no secret, no links. `program-revert-page.ts`: GET confirm page (approve
+  page's shell and headers), POST `revertWrite`: under the write's and program's row locks, refuses a write that is
+  not the program's latest applied one (a later upsert, close, revert or takeover: superseded), already reverted
+  (done) or curated; else re-applies the state before it (the previous upsert or revert body, closed when a close came
+  between) or closes a created program, and records action `revert` (result `reverted`/`closed`, reason `reverted
+  write <id>`, the applied body). The route works while the API is off (the token alone decides). No schema change.
 - **Owner read.** `GET /api/programs/writes` adds `pending`: unexpired pending rows `{ at, program_id, reason, title,
   submission_url, source_url, expires_at }`.
 - **No schema change.** `program_writes.result` is free text. Tests: `v4101-link-check.test.ts`; the v4.9 tests send

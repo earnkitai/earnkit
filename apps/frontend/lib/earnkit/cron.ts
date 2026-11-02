@@ -7,6 +7,7 @@ import { digestEnabled, sendDigests, type Mailer } from './digest';
 import { runAlertMail, type AlertEvent } from './alert-mail';
 import { gasAlerts, ownerGasMail } from './owner-mail';
 import { safeWatch, type SafeWatchDeps } from './safe-watch';
+import { revertDigest } from './program-revert';
 import { usageChecks, type UsageDeps } from './events';
 import { cleanDeploys, expireSites, sitesInReview } from './hosting';
 import { bearerMatches, json } from './http';
@@ -134,6 +135,8 @@ export type CronDeps = {
   safeWatch?: SafeWatchDeps;
   /** v4 Task 12: the gas-low email's mailer (tests); with `only`, the gas emails go only when given. */
   ownerMail?: Mailer;
+  /** v4.10.2 Task 4: the program-changes digest's mailer (tests); with `only`, the step runs only when given. */
+  revertDigest?: { mail?: Mailer };
 };
 
 /** v3.1 Highlights fix round 1: the Builder Codes step's time, at most a minute and never past the run's deadline. */
@@ -432,6 +435,17 @@ export async function runCron(
       safe = 'error';
     }
   }
+  // v4.10.2 Task 4 (R7): the owner's digest of the API's live program changes with a revert link each (program-revert.ts),
+  // at most once a UTC day, nothing on a quiet day. A few small reads.
+  let revertDigestOut: Awaited<ReturnType<typeof revertDigest>> | { step: 'error'; note: string } | undefined;
+  if (!opts.only || deps.revertDigest) {
+    try {
+      revertDigestOut = await revertDigest(now, deps.revertDigest?.mail);
+    } catch (err) {
+      console.error('[cron] revert digest', err instanceof Error ? err.name : 'error');
+      revertDigestOut = { step: 'error', note: STEP_FAILED };
+    }
+  }
   // v3.1 Highlights: the Builder Codes check for App-proven Base repos that are due (each at most one attempt a day,
   // at most BUILDER_CODES_PER_RUN a run), so the profile's item does not wait on the builder calling find or prepare.
   // After the weekly email (fix round 1: Monday's send is never squeezed) and within its own slice
@@ -603,6 +617,7 @@ export async function runCron(
     ...(digest && { digest }),
     ...(alertMail && { alert_mail: alertMail }),
     ...(safe && { safe_watch: safe }),
+    ...(revertDigestOut && { revert_digest: revertDigestOut }),
     ...(cleanup && { cleanup }),
     ...(deployer && Object.keys(deployer.deployer_gas).length > 0 && { deployer_gas: deployer.deployer_gas }),
     ...(usage && { usage_checks: usage }),

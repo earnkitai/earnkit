@@ -25,7 +25,7 @@ export const APPROVE_TEXT = {
   busy: 'EarnKit is busy. Try again in a minute.',
 } as const;
 
-const escapeHtml = (s: string) =>
+export const escapeHtml = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 const PAGE_HEADERS = {
   'Content-Type': 'text/html; charset=utf-8',
@@ -36,9 +36,10 @@ const PAGE_HEADERS = {
   // No script runs here; the one form posts back to EarnKit; nobody can frame the button.
   'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
 };
-const page = (inner: string, status = 200) => new Response(brandShell(inner), { status, headers: PAGE_HEADERS });
-const line = (text: string, status: number) => page(`<p class="ek-line ek-first">${escapeHtml(text)}</p>`, status);
-const notFound = () => new Response('Not Found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+/** v4.10.2 Task 4: the owner link pages (approve, revert) share the page, the line and the 404. */
+export const page = (inner: string, status = 200) => new Response(brandShell(inner), { status, headers: PAGE_HEADERS });
+export const line = (text: string, status: number) => page(`<p class="ek-line ek-first">${escapeHtml(text)}</p>`, status);
+export const notFound = () => new Response('Not Found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
 
 const tokenOf = (request: Request) => new URL(request.url).searchParams.get('t') ?? '';
 
