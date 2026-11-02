@@ -2807,3 +2807,11 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
 - `program-file.ts` `READY_ANSWERS` and `ReadyAnswers`. `coach.ts` `slotOf` (exported).
 - `fixtures/converse.ts` `lazyNext` (contact slots); `scripts/converse-replay.mts` `ANSWERS`.
 - Tests: `v410-find.test.ts` (`v4.10.1 (1)`, `(2)`), `v410-ready.test.ts` (pure).
+
+## v4.10.1 Task 2: money and the repeat reply
+
+- `ready-set.ts` `worthUpTo` (long shots out), `longShotWorth`. `ready-copy.ts` `worthClause` (used by `readyOpener`),
+  `AgainProgram`, `readyAgain(set, now, hosted)`, `readySentAgain(set, now)`.
+- `bench-find.ts` `againRows`; `readyAgainCommit` (re-drafts the needs; null when all closed; `readyView` falls through);
+  `readyWaitingCommit`'s sent fallback.
+- Tests: `v410-ready.test.ts` (`v4.10.1 Task 2` pure), `v410-find.test.ts` (`v4.10.1 Task 2 (5)`, test 1's repeat).

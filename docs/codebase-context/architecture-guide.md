@@ -9298,3 +9298,16 @@ This supersedes the per-program need in Task 4: the builder answers once for the
   The first program's fields past the cap go to `later` (named, asked next).
 - **Copy.** `readyOpener` says "Every other answer is filled" only when one ask covers every field owed (`rest`);
   otherwise it says "I've filled what I can from ...".
+
+## v4.10.1 Task 2: money and the repeat reply
+
+- **Worth (R3).** `ready-set.ts` `worthUpTo` leaves long shots out (investor programs stay in). `longShotWorth` sums the
+  long shots apart, and `ready-copy.ts` `worthClause` builds the opener's head: ", worth up to $1M, plus a $100K long
+  shot". A set of long shots only reads ", a $100K long shot" (", $150K in long shots"). With no number at all, the
+  clause is left out, never "$0".
+- **Repeat reply.** `readyAgain(set, now, hosted)` and `readySentAgain(set, now)` take rows, one line per program:
+  "- {shortName}: {money}[, closes in N hours]. {state}". The hours show only under 48. `bench-find.ts` `againRows`
+  builds the rows from the live cards and drops a closed or hidden program (a kept open page is named by title only).
+  `readyAgainCommit` drafts each program again, so a program with needs reads "Needs ... first.". The head says "still
+  ready" only when nothing is needed; otherwise "Here's where your N applications stand:". With every program closed it
+  returns null and the path answers. The repeat reply carries no long-shot label (ReadyState stores no kinds).
