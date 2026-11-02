@@ -639,21 +639,29 @@ const COUNT = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eig
  * blanks only you can fill: who's on the team, and any money you've raised. Reply with both and I'll finish it." None:
  * "Want me to finish it?". Pure.
  */
-export function blanksAsk(blanks: readonly string[]): string {
-  const n = blanks.length;
-  if (n === 0) return 'Want me to finish it?';
+export function blanksAsk(blanks: readonly string[], answers = blanks.length, after = 0): string {
+  // v4.10.2 final fix (I1): the count is the answers (a contact item names each detail), and the rounds after it.
+  const n = answers;
+  if (blanks.length === 0) return 'Want me to finish it?';
   const count = COUNT[n] ?? String(n);
   const list = andComma(blanks);
-  return `${count} ${n === 1 ? 'blank' : 'blanks'} only you can fill: ${list}. ${finishLine(n)}`;
+  return `${count} ${n === 1 ? 'blank' : 'blanks'} only you can fill${after > 0 ? ` (${after} more after these)` : ''}: ${list}. ${finishLine(n)}`;
+}
+/**
+ * v4.10.2 final fix (I1): the path draft's next round, once the last one's answers are kept: "Thanks. 4 more only you
+ * can give (3 after these): a, b, c, and d. Reply with them and I'll finish it."; the last round, "Thanks. The last 3
+ * only you can give: ...". `answers` counts each contact detail. Pure.
+ */
+export function roundAsk(blanks: readonly string[], answers: number, after: number): string {
+  const head = after > 0 ? `${answers} more only you can give (${after} after these)` : `The last ${answers === 1 ? 'one' : answers} only you can give`;
+  return `Thanks. ${head}: ${andComma(blanks)}. ${finishLine(answers)}`;
 }
 /** The draft stage's reply: "Here's your draft:", the verified record's lines, then the blanks ask (last). Pure. */
-export const draftReply = (record: readonly string[], blanks: readonly string[]) =>
-  [`Here's your draft:`, record.join('\n'), blanksAsk(blanks)].filter((x) => x.length > 0).join('\n\n');
+export const draftReply = (record: readonly string[], blanks: readonly string[], answers = blanks.length, after = 0) =>
+  [`Here's your draft:`, record.join('\n'), blanksAsk(blanks, answers, after)].filter((x) => x.length > 0).join('\n\n');
 
 /** A submission requirement as the draft reads it (program-file.ts SubmissionRequirement). */
 type DraftReq = { key: string; label: string; required: boolean; from: 'project' | 'builder'; kind?: string; todo?: string };
-/** Fix round 2 (F1): at most this many blanks in one reply; the rest wait for prepare's own round. */
-export const MAX_BLANKS = 2;
 /** Fix round 2 (F1): builder-only kinds the agent can't draft (the team, a demo video, usage numbers), asked in this order. */
 const ASK_KINDS = ['team', 'traction', 'demo_video'] as const;
 /**
@@ -704,26 +712,22 @@ export function mustGive(r: DraftReq & { type?: string }): boolean {
   return mustAsk(r) || r.type === 'multi_choice' || !(AGENT_DRAFTABLE as readonly string[]).includes(r.kind ?? 'other');
 }
 /**
- * What the draft is and which blanks only the builder can fill (fix round 2, F1):
- * - an investor program with no public questions (every required field is a contact detail): a short founder brief,
- *   whose blanks are FOUNDER_BLANKS;
- * - otherwise the required fields EarnKit doesn't hold (`held`: the confirmed Builder Code, verified usage and revenue,
- *   the answer bank) and the agent can't truthfully draft (mustGive, v4.10.1), team first, at most MAX_BLANKS; `later`
- *   holds the rest. Contact details (name, email, handles) are typed when they submit, for every program, so never a
- *   blank. `drafted`: the builder fields the agent drafts for them to check. Pure.
+ * What the draft is (fix round 2, F1): an investor program with no public questions (every required field is a contact
+ * detail) is a short founder brief; `drafted`, the builder fields the agent drafts for them to check (not held, not a
+ * contact detail, and one the agent can truthfully draft: mustGive, v4.10.1). v4.10.2 final fix (I1): what the builder
+ * must give is bench-find.ts builderAsks (the one list the ready count, the also-open lead and the path's rounds read).
+ * Pure.
  */
-export function draftBlanks(
+export function draftShape(
   p: { investment: boolean; submission_requirements: readonly (DraftReq & { type?: string })[] }, held: Record<string, string>,
-): { brief: boolean; blanks: string[]; later: string[]; drafted: string[] } {
+): { brief: boolean; drafted: string[] } {
   const required = p.submission_requirements.filter((r) => r.required);
-  if (p.investment && required.every((r) => r.kind === 'contact')) return { brief: true, blanks: [...FOUNDER_BLANKS], later: [], drafted: [] };
+  if (p.investment && required.every((r) => r.kind === 'contact')) return { brief: true, drafted: [] };
   const open = required.filter((r) => r.from === 'builder' && r.kind !== 'contact' && !held[r.key]?.trim());
-  // v4.10.2 Task 1 fix round 1 (owner answer 2): the GTM plan is asked as one line (the draft note says to write it out).
-  const ask = builderOnly(p, held).map((r) => (isGtm(r) ? GTM_ONE_LINE : r.todo ?? r.label.toLowerCase()));
-  return { brief: false, blanks: ask.slice(0, MAX_BLANKS), later: ask.slice(MAX_BLANKS), drafted: open.filter((r) => !mustGive(r)).map((r) => r.label) };
+  return { brief: false, drafted: open.filter((r) => !mustGive(r)).map((r) => r.label) };
 }
 /**
- * v4.10 Task 4 (R5): the required fields only the builder can give (draftBlanks' blanks, as fields): not a contact
+ * v4.10 Task 4 (R5): the required fields only the builder can give (bench-find.ts builderAsks' own part): not a contact
  * detail, not held, and one the agent can't truthfully draft (mustGive, v4.10.1 Task 1), the team, usage numbers and
  * demo video first, then the form's order. None for an investor program with no public questions (its founder brief's
  * blanks are the agent's to ask). Pure.

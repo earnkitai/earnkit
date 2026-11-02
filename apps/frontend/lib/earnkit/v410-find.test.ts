@@ -924,6 +924,51 @@ test('v4.10.2 Task 5: the also-open yes starts the draft (the path); a no parks 
   assert.ok(((await seenOf(c.id)).declined as Record<string, string>)['path:base-builder-grants'], 'parked for the path');
 });
 
+/**
+ * v4.10.2 final fix (I1): the also-open yes starts the path's draft, and the draft asks from the same list the lead
+ * counts (the Builder Code as the builder's own, the 3-month plan as one line, the unheld contact details as one item),
+ * at most 4 answers a round, each round banked; "ready to paste" only after the last round. Count, asks and ready agree.
+ */
+test('v4.10.2 final fix (I1): the Base path draft asks every counted answer in rounds of at most 4, then says ready', db, async () => {
+  const b = await passedOwner('rnd');
+  const lead = show(await find(b));
+  const total = Number(lead.match(/needs (\d+) answers from you/)?.[1]);
+  assert.ok(total > 4, lead);
+  const WORDS: Record<string, string> = { team: 'just me', traction: 'no users yet', demo_video: 'https://loom.com/share/x' };
+  let r = await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes' });
+  const seen: string[] = [];
+  let asked = 0;
+  let rounds = 0;
+  for (; rounds < 6; rounds++) {
+    const s = show(r);
+    seen.push(s);
+    if (/ready to paste/.test(s)) break;
+    assert.doesNotMatch(s, /\bReady\b|every answer is filled/, s);
+    assert.match(s, /Reply with (?:it|both|them) and I'll finish it\.$/, s);
+    const asks = (r.reply?.draft as { asks: { kind: string; slots?: string[]; one_line?: boolean }[] }).asks;
+    const n = asks.reduce((x, a) => x + (a.kind === 'contact' ? a.slots!.length : 1), 0);
+    assert.ok(n >= 1 && n <= 4, `round ${rounds} asks ${n}: ${s}`);
+    asked += n;
+    const answers = Object.fromEntries(asks.map((a) => [a.kind, a.kind === 'contact'
+      ? Object.fromEntries(a.slots!.map((sl) => [sl, sl === 'name' ? 'Jenil T' : `@${sl}${RUN}`]))
+      : /builder_code/.test(a.kind) ? `bc_rnd${RUN}` : WORDS[a.kind] ?? `answer for ${a.kind}`]));
+    r = await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes', answers });
+  }
+  assert.ok(rounds >= 2, seen.join('\n---\n'));
+  assert.equal(asked, total, `the lead's count is the asks: ${seen.join('\n---\n')}`);
+  const all = seen.join('\n');
+  assert.match(all, /your Base Builder Code/, all);
+  assert.ok(all.includes('your 3-month plan in one line'), all);
+  // Ready only on the last reply; the form line names no field EarnKit holds or was given.
+  assert.equal(seen.filter((s) => /ready to paste/.test(s)).length, 1, all);
+  assert.match(seen.at(-1)!, /ready to paste/);
+  assert.doesNotMatch(seen.at(-1)!, /The form also asks for/, seen.at(-1)!);
+  // The Builder Code is kept as theirs (the next ask never asks it again).
+  const claims = await sql()<{ code: string }[]>`SELECT code FROM builder_code_claims WHERE builder_id = ${b.id}`;
+  assert.ok(claims.some((c) => c.code === `bc_rnd${RUN}`), JSON.stringify(claims));
+  for (const s of seen) assert.doesNotMatch(s, BAD, s);
+});
+
 test('v4.10.2 (R3): Circle not eligible beside a set is said in one plain line; on Arc it is eligible, a plain fit (never a long shot)', db, async () => {
   const { sr, circle } = await ownerPrograms({ required: true, tagged: false });
   const off = await owner('ne', { fits: true });

@@ -80,7 +80,7 @@ import { DECLINE_MS, draftedRecently } from './policy-constants';
 import { closeDay, programZone, zoneAbbr } from './deadline';
 import type { ProgramRow as ProgramFileRow } from './programs';
 import {
-  MENTOR_NOTE, MONEY_SAID, builderOnly, isGtm, GTM_ONE_LINE, closingSoon, moneyLine, withMoneyLine, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, pickHook, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, submitNoRush, tooSoonLine, keepDraftLine, type OpenerProgram, type MoveCtx, blanksAgain, draftBlanks, draftReply, gapClosedReply, gapProofOf, helpReply, helpWaiting, helpParked, closeWords, HELP_DONE_ASK, backOnLine, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofOf, markSaid, pathReply, programName, readPath, saidSql, sessionOf, pointerReply, START_ASK, SENT_SHORT, blanksAsk,
+  MENTOR_NOTE, MONEY_SAID, builderOnly, isGtm, GTM_ONE_LINE, closingSoon, moneyLine, withMoneyLine, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, pickHook, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, submitNoRush, tooSoonLine, keepDraftLine, type OpenerProgram, type MoveCtx, blanksAgain, draftShape, draftReply, roundAsk, gapClosedReply, gapProofOf, helpReply, helpWaiting, helpParked, closeWords, HELP_DONE_ASK, backOnLine, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofOf, markSaid, pathReply, programName, readPath, saidSql, sessionOf, pointerReply, START_ASK, SENT_SHORT, blanksAsk,
   ANSWERED_FIRST, ASK_SAID, PROGRAMS_AGAIN, fitCell, fitOrder, grantFact, programsAnswer, standingAgain, standingAnswer, standingSaid, whatItIs, type GrantFact, type GrantRow, type InvestorRow, type StandingFacts,
   type GapStep,
   type GapGrant, type InvestorProgram, type Move, type MoveProgram, type Path, type Stage,
@@ -236,6 +236,11 @@ export type Seen = StandSeen & {
     gap?: boolean; draft?: boolean;
     /** v4.8 Task 2 fix round 2 (F5, the draft's ask): the blanks it asked for (fix round 3: cleared once answered). */
     blanks?: string[];
+    /**
+     * v4.10.2 final fix (I1, the path draft's rounds): this round's ask items (their ask key and field keys), the field
+     * keys answered in earlier rounds (`done`), and the answers the bank keeps no kind for (`given`, by field key).
+     */
+    round?: { kind: string; keys: string[] }[]; done?: string[]; given?: Record<string, string>;
     /** v4.8 Task 2 fix round 3 (5): the gap ask behind "I'm checking the code now": its yes re-checks. */
     checking?: boolean;
     /** Task 6 fix round 1 (review 1): the help yes's done ask ("Say ok once it's done"); `checks`, the oks since it. */
@@ -1135,20 +1140,36 @@ async function readyDrafts(
 ): Promise<ReadyDraft[]> {
   return Promise.all(progs.map(async (p) => {
     const row = await getProgramRow(p.id).catch(() => null);
-    const required = (row?.submission_requirements ?? []).filter((r) => r.required);
     // Fix 1 (H1): a founder brief's blanks are its fields here (FOUNDER_REQS), never "Ready." while unheld.
-    const brief = row?.investment === true && required.every((r) => r.kind === 'contact');
-    const reqs = brief ? [...required, ...FOUNDER_REQS] : required;
+    const reqs = row ? askReqs(row) : [];
     const held = { ...(await heldAnswers(id, key, reqs, record)).held, ...extra[p.id] };
-    // v4.10.1 Task 1 (R2): the contact details EarnKit doesn't hold are the builder's too, asked first as one item.
-    const contact = row ? required.filter((r) => r.kind === 'contact' && !held[r.key]?.trim()) : [];
-    const own = !row ? [] : brief ? FOUNDER_REQS.filter((r) => !held[r.key]?.trim()) : builderOnly(row, held);
-    const only = [...contact, ...own];
+    // v4.10.2 final fix (I1): the one list of what only the builder can give (the path's draft asks the same).
+    const only = row ? builderAsks(row, held) : [];
     return {
       id: p.id, title: row?.title ?? p.title, link: row?.submission_url ?? null, ends_at: row?.ends_at ? new Date(row.ends_at).toISOString() : null,
       requirements: reqs, prefilled: held, only,
     };
   }));
+}
+/** A founder brief (fix 1, H1): an investor program with no public questions (every required field a contact detail). Pure. */
+const isBrief = (row: Pick<ProgramFileRow, 'investment' | 'submission_requirements'>) =>
+  row.investment === true && row.submission_requirements.filter((r) => r.required).every((r) => r.kind === 'contact');
+/** The fields heldAnswers reads for a program: its required ones, and a founder brief's FOUNDER_REQS. Pure. */
+const askReqs = (row: Pick<ProgramFileRow, 'investment' | 'submission_requirements'>) => {
+  const required = row.submission_requirements.filter((r) => r.required);
+  return isBrief(row) ? [...required, ...FOUNDER_REQS] : required;
+};
+/**
+ * v4.10.2 final fix (I1): every field only the builder can give for a program, after what EarnKit holds (`held`): the
+ * contact details not held (v4.10.1 Task 1, R2: one item), then conversation.ts builderOnly (the Builder Code as their
+ * own, the 3-month plan as one line), or a founder brief's FOUNDER_REQS not held. The one list the ready set counts
+ * (readyDrafts' `only`, answerKeys), the also-open lead says ("needs N answers") and the path's draft asks in rounds
+ * (pathRound), so the count, the asks and "ready" agree. Pure.
+ */
+export function builderAsks(row: Pick<ProgramFileRow, 'investment' | 'submission_requirements'>, held: Record<string, string>): SubmissionRequirement[] {
+  const contact = row.submission_requirements.filter((r) => r.required && r.kind === 'contact' && !held[r.key]?.trim());
+  const own = isBrief(row) ? FOUNDER_REQS.filter((r) => !held[r.key]?.trim()) : builderOnly(row, held);
+  return [...contact, ...own];
 }
 /**
  * The ask key of a builder-only field (I1), also the key the agent splits an answer under (tell's move_up.answers): its
@@ -1178,6 +1199,41 @@ const itemPhrase = (kind: string, reqs: readonly SubmissionRequirement[]) =>
   kind === 'contact' ? contactPhrase(reqs.map((r) => ({ slot: slotOf(r), label: r.label }))) : needsPhrase(reqs[0]);
 /** A program's own line (the opener's "Needs ... first."): its ask items (v4.10.2 Task 1: at most 4 in a set, all named). Pure. */
 const needsOfDraft = (d: Pick<ReadyDraft, 'only'>) => (d.only.length > 0 ? needsList(draftAsks(d.only).map((g) => itemPhrase(g.kind, g.reqs)), READY_NEED_MAX) : null);
+/**
+ * v4.10.2 final fix (I1): one ask item of the path's draft: its ask key (tell's `answers` split), its words (a founder
+ * brief's own, FOUNDER_BLANKS), its fields' keys, and how many answers it is (a contact item: one per detail).
+ */
+type RoundItem = { kind: string; phrase: string; keys: string[]; answers: number; slots?: string[]; one_line?: true };
+/**
+ * v4.10.2 final fix (I1): the path draft's next round from builderAsks' list: its ask items (the team, usage numbers
+ * and demo video first, the form's order, the contact item last) while the round holds at most `max` answers (the
+ * first always goes), the items after it (`rest`), and the answers in all (`total`, answerKeys' count: the lead's N).
+ * Pure.
+ */
+export function pathRound(only: readonly SubmissionRequirement[], max = READY_NEED_MAX): { round: RoundItem[]; rest: RoundItem[]; total: number } {
+  const groups = draftAsks(only);
+  const items: RoundItem[] = [...groups.filter((g) => g.kind !== 'contact'), ...groups.filter((g) => g.kind === 'contact')].map((g) => {
+    const slots = g.kind === 'contact' ? [...new Set(g.reqs.map((r) => slotOf(r)))] : null;
+    // A founder brief's own field (builderAsks hands FOUNDER_REQS' objects), never a form field of the same key.
+    const founder = FOUNDER_REQS.find((f) => f === g.reqs[0]);
+    return {
+      kind: g.kind, phrase: founder?.todo ?? itemPhrase(g.kind, g.reqs), keys: g.reqs.map((r) => r.key), answers: slots?.length ?? 1,
+      ...(slots && { slots }), ...(g.reqs.some((r) => isGtm(r)) && { one_line: true as const }),
+    };
+  });
+  const round: RoundItem[] = [];
+  let n = 0;
+  for (const it of items) {
+    if (round.length > 0 && n + it.answers > max) break;
+    round.push(it);
+    n += it.answers;
+  }
+  return { round, rest: items.slice(round.length), total: items.reduce((x, i) => x + i.answers, 0) };
+}
+const roundAnswers = (round: readonly RoundItem[]) => round.reduce((x, i) => x + i.answers, 0);
+/** The round for the agent (draft.asks): each item's ask key to split the builder's reply under, its words. Pure. */
+const roundFields = (round: readonly RoundItem[]) =>
+  round.map((i) => ({ kind: i.kind, ask: i.phrase, ...(i.slots && { slots: i.slots }), ...(i.one_line && { one_line: true }) }));
 /**
  * v4.10.2 Task 1 (R1): the answers only the builder can give, one key each: a field's ask key, a contact detail by its
  * slot (each detail is one answer), so a field two programs ask is one answer. Pure.
@@ -1350,7 +1406,7 @@ async function readyCommit(o: ViewIn, plan: PathPlan, picked: ReadyProgram[]): P
   const set1 = set0.map((p) => (p.step === 'codes' && !(p.id === BASE_GRANTS_ID && q) ? { ...p, step: null } : p));
   const drafts1 = await readyDrafts(id, key, set1, record);
   // v4.10.2 Task 1 (R1): the set fits one short reply: at most READY_ANSWERS_MAX answers across it; a program left out
-  // for its answers is said in one line ("Also open"). None fits: the path answers (its own ask, at most MAX_BLANKS).
+  // for its answers is said in one line ("Also open"). None fits: the path answers (its own draft, in rounds of at most 4: pathRound).
   const fit = fitReadySet(set1.map((p, i) => ({ p, d: drafts1[i] })), (x) => answerKeys(x.d.only));
   // v4.10.2 Task 5: nothing fits: the top program left out is the quiet reply's money lead this session (alsoLeadCommit).
   const top = fit.set.length === 0 ? fit.out[0] : undefined;
@@ -3884,7 +3940,7 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       if (asked.program_id) await recordApplyYes(id, asked.program_id, now);
       // v4.8 Task 2: the path's "Want me to start?": the draft stage. A yes to the draft's own ask (fix round 2, F5)
       // re-asks its blanks, or with none moves the path to submit; never a second draft.
-      if (asked.path === true && asked.draft === true) return draftYes(id, asked, now, m.blanks);
+      if (asked.path === true && asked.draft === true) return draftYes(ctx, id, asked, now, m);
       if (asked.path === true && asked.program_id) return pathDraft(ctx, id, asked, now);
       return asked.program_id
         ? { show_to_builder: '', agent_note: APPLY_YES_NOTE(asked.program_id), lead: { program_id: asked.program_id, ...(asked.repo && { repo: asked.repo }) } }
@@ -4084,6 +4140,8 @@ const recordWords = (record: boolean) =>
     ? "from the verified record below (keep every number, date and link exactly)"
     : 'from their commits only: EarnKit has no verified record for them yet, so leave traction out and never invent it';
 const DRAFT_GUARD = 'Never tell them they qualify or that an application was sent.';
+/** v4.10.2 final fix (I1): how the agent passes the builder's reply to the path draft's round (bench-find.ts draftYes). */
+const ANSWERS_SPLIT = "answers: their words split by draft.asks' kind (contact: { [slot]: their words }) }";
 /** v4.8 Task 2: the draft's agent note, an investor program with no public questions: the short founder brief. Pure. */
 export const founderBriefNote = (program: string, key: string | null, o: { record: boolean; what?: boolean } = { record: true }) =>
   `The builder said yes to drafting their ${program} application. Its questions aren't public, so write a short founder brief right under "Here's your draft:": ` +
@@ -4091,7 +4149,7 @@ export const founderBriefNote = (program: string, key: string | null, o: { recor
     ? `${o.what ? '' : `write "What it is" in one sentence, then `}"Who it's for" and "Why now" in one or two sentences each, from their repo README, in the builder's own voice, around the Traction sentence below (keep its facts exactly). ` +
       'Never invent traction, numbers or team. '
     : `what the project does, who it is for, its traction ${recordWords(o.record)}, and why now. `) +
-  `Never fill the blanks yourself; once they reply with them, call tell with move_up: { kind: 'apply', project_key: ${JSON.stringify(key)}, answer: 'yes', blanks: their reply }, add them to the brief and show it ready to paste. ${DRAFT_GUARD} ` +
+  `Never fill the blanks yourself; once they reply with them, call tell with move_up: { kind: 'apply', project_key: ${JSON.stringify(key)}, answer: 'yes', ${ANSWERS_SPLIT}; EarnKit keeps them and asks any left before it is ready to paste. ${DRAFT_GUARD} ` +
   `A no: call tell with move_up: { kind: 'apply', project_key: ${JSON.stringify(key)}, answer: 'no' }.`;
 /**
  * v4.8 Task 2: the draft's agent note for a program with questions: prepare's fields, drafted. Fix round 2 (F1): the
@@ -4103,8 +4161,9 @@ export const questionsDraftNote = (programId: string, key: string | null, o: { r
   `${recordWords(o.record)} and their repo, except the blanks this reply names. Put your answers right under "Here's your draft:"${o.record ? ' and keep the facts of its What it is and Traction lines exactly (never invent traction, numbers or team)' : ''}; ` +
   (o.drafted?.length ? `mark these as drafted for them to check: ${o.drafted.join('; ')}. ` : '') +
   (o.fills && Object.keys(o.fills).length > 0 ? `EarnKit already holds these, use them as given: ${Object.entries(o.fills).map(([k, v]) => `${k}: ${v}`).join('; ')}. ` : '') +
-  "Never show prepare's own questions and never fill a blank yourself. Contact details are typed when they submit. " +
-  `Once they reply with the blanks, call prepare again with every answer and coach_asked: true, and show its draft${o.later?.length ? ` (it asks for the rest: ${o.later.join('; ')})` : ''}. ${DRAFT_GUARD} ` +
+  "Never show prepare's own questions and never fill a blank yourself. Contact details EarnKit doesn't hold are a blank like any other. " +
+  // v4.10.2 final fix (I1): the blanks come in rounds of at most 4 (draftYes keeps each answer), ready only after the last.
+  `Once they reply with the blanks, call tell with move_up: { kind: 'apply', project_key: ${JSON.stringify(key)}, answer: 'yes', ${ANSWERS_SPLIT}; EarnKit keeps each answer${o.later?.length ? ` and asks the rest next (${o.later.join('; ')})` : ''}, and says when the draft is ready to paste. ${DRAFT_GUARD} ` +
   // v4.10.2 Task 1 fix round 1 (owner answer 2): the 3-month plan, asked now or later, is one line the agent writes out.
   ([...(o.blanks ?? []), ...(o.later ?? [])].includes(GTM_ONE_LINE) ? `${PLAN_ONE_LINE_NOTE} ` : '') +
   `A no: call tell with move_up: { kind: 'apply', project_key: ${JSON.stringify(key)}, answer: 'no' }.`;
@@ -4132,7 +4191,7 @@ async function heldBuilderCode(id: number, key: string | null): Promise<string |
   return (c?.codes ?? []).map(mine).find(Boolean) ?? null;
 }
 /**
- * v4.8 Task 2: the held answers for a program's fields (conversation.ts draftBlanks' `held`): the answer bank for this
+ * v4.8 Task 2: the held answers for a program's fields (builderAsks' `held`): the answer bank for this
  * project (coach.ts bankFill: filled and suggested) and the builder's X handle; fix round 2 (F1) `fills`, what EarnKit
  * itself fills: the Builder Code confirmed in an App-proven repo, and verified usage (the record's "Used by" line) for a
  * usage field; v4.10.1 Task 1, verified revenue for a how-it-makes-money field and an owned contract for a contract
@@ -4198,9 +4257,10 @@ export async function preparedHeld(id: number, repoUrl: string | null | undefine
  * v4.8 Task 2: the yes to the path's "Want me to start?" (or the draft offer once a gap closed): the draft stage.
  * "Here's your draft:", the verified record (ship-log-facts.ts shipLogBlock: score, streak, live link, page link,
  * verified usage and revenue under its own rules; none on a shared client) and the blanks only the builder can fill
- * (draftBlanks: at most MAX_BLANKS), asked as one reply. The agent writes the draft (prepare's fields, or the founder
- * brief for an investor program with no public questions). The path moves to `draft`; the draft's ask is stored with
- * its blanks (a no parks the program; a yes re-asks them, or with none moves to submit). Never throws on its own
+ * (v4.10.2 final fix I1: builderAsks' list, the one the lead counts, its first round of at most 4 answers: pathRound),
+ * asked as one reply. The agent writes the draft (prepare's fields, or the founder brief for an investor program with
+ * no public questions). The path moves to `draft`; the draft's ask is stored with its round (a no parks the program;
+ * a yes keeps the answers and asks the next round, or with none left moves to submit). Never throws on its own
  * reads and writes.
  */
 async function pathDraft(ctx: Partial<Pick<ToolContext, 'sharedClient'>>, id: number, asked: NonNullable<Seen['bench_ask']>, now: Date): Promise<Reply> {
@@ -4208,31 +4268,51 @@ async function pathDraft(ctx: Partial<Pick<ToolContext, 'sharedClient'>>, id: nu
   const lead = { program_id: pid, ...(asked.repo && { repo: asked.repo }) };
   const program = await getProgramRow(pid).catch(() => null);
   if (!program) return { show_to_builder: '', agent_note: APPLY_YES_NOTE(pid), lead };
-  // ship-log-facts.ts is loaded here (bench-data.ts, which it reads, imports this file).
-  const { draftBody, shipLogBlock, shipLogFacts, SHIP_LOG_NOTE } = await import('./ship-log-facts');
-  const facts = ctx.sharedClient ? null : await shipLogFacts(id, now).catch(logged('draft record'));
-  const record = facts ? shipLogBlock(facts) : [];
+  const { draftBody, SHIP_LOG_NOTE } = await import('./ship-log-facts');
+  const s = await pathAsks(ctx, id, asked.key, program, now);
   // Final review F1: what the builder sees is target A's draft body (What it is, one Traction sentence, the page), from
   // the same facts; the ship log lines stay the record EarnKit fills its answers from (heldAnswers).
-  const what = facts && asked.key ? await projectWhat(id, asked.key) : null;
-  const body = facts ? draftBody(facts, what) : [];
-  const { held, fills } = await heldAnswers(id, asked.key, program.submission_requirements, record);
-  const { brief, blanks, later, drafted } = draftBlanks(program, held);
-  const stored = { kind: 'apply', key: asked.key, program_id: pid, path: true, draft: true, blanks, ...(asked.repo && { repo: asked.repo }) };
+  const what = s.facts && asked.key ? await projectWhat(id, asked.key) : null;
+  const body = s.facts ? draftBody(s.facts, what) : [];
+  const { brief, drafted } = draftShape(program, s.held);
+  // v4.10.2 final fix (I1): the first round of builderAsks' list (at most 4 answers); the rest come after it.
+  const r = pathRound(s.only);
+  const blanks = r.round.map((i) => i.phrase);
+  const stored = {
+    kind: 'apply', key: asked.key, program_id: pid, path: true, draft: true, blanks, round: r.round.map(({ kind, keys }) => ({ kind, keys })), done: [], given: {},
+    ...(asked.repo && { repo: asked.repo }),
+  };
   const path: Path = { stage: 'draft', program_id: pid, at: now.toISOString() };
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
       || jsonb_build_object('path', ${sql().json(path as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb)
     WHERE builder_id = ${id}`.catch(logged('draft'));
-  const hasRecord = record.length > 0;
+  const hasRecord = s.record.length > 0;
   const note = brief
     ? founderBriefNote(programName(program.title), asked.key, { record: hasRecord, what: Boolean(what) })
-    : questionsDraftNote(pid, asked.key, { record: hasRecord, drafted, fills, later, blanks });
+    : questionsDraftNote(pid, asked.key, { record: hasRecord, drafted, fills: s.fills, later: r.rest.map((i) => i.phrase), blanks });
+  const n = roundAnswers(r.round);
   return {
-    show_to_builder: draftReply(body, blanks),
+    show_to_builder: draftReply(body, blanks, n, r.total - n),
     agent_note: withMentor(`${note}${hasRecord ? SHIP_LOG_NOTE : ''}`),
     move_up: { kind: 'apply', project_key: asked.key, agent_note: APPLY_NOTE },
+    ...(r.round.length > 0 && { draft: { asks: roundFields(r.round) } }),
     lead,
   };
+}
+
+/**
+ * v4.10.2 final fix (I1): the path draft's inputs: the verified record (none on a shared client), what EarnKit holds for
+ * the program's fields (heldAnswers, plus `extra`: the answers kept in earlier rounds and those rounds' fields) and
+ * builderAsks' list of what is left for the builder. Never throws on its own reads.
+ */
+async function pathAsks(ctx: Partial<Pick<ToolContext, 'sharedClient'>>, id: number, key: string | null, program: ProgramFileRow, now: Date, extra: Record<string, string> = {}) {
+  // ship-log-facts.ts is loaded here (bench-data.ts, which it reads, imports this file).
+  const { shipLogBlock, shipLogFacts } = await import('./ship-log-facts');
+  const facts = ctx.sharedClient ? null : await shipLogFacts(id, now).catch(logged('draft record'));
+  const record = facts ? shipLogBlock(facts) : [];
+  const { held: own, fills } = await heldAnswers(id, key, askReqs(program), record);
+  const held = { ...own, ...extra };
+  return { facts, record, held, fills, only: builderAsks(program, held) };
 }
 
 /**
@@ -4240,29 +4320,63 @@ async function pathDraft(ctx: Partial<Pick<ToolContext, 'sharedClient'>>, id: nu
  * coach_asked): its stored blanks are cleared, so a yes after them moves on instead of re-asking. Never throws.
  */
 export async function draftAnswered(id: number, programId: string): Promise<void> {
-  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, '{bench_ask,blanks}', '[]'::jsonb)
+  // v4.10.2 final fix (I1): this round's fields are answered (`done`), so the next yes asks the next round, never "ready" early.
+  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(jsonb_set(standing_seen, '{bench_ask,blanks}', '[]'::jsonb), '{bench_ask,done}',
+      COALESCE(standing_seen->'bench_ask'->'done', '[]'::jsonb) || COALESCE((SELECT jsonb_agg(k) FROM jsonb_array_elements(COALESCE(standing_seen->'bench_ask'->'round', '[]'::jsonb)) r,
+        jsonb_array_elements(COALESCE(r->'keys', '[]'::jsonb)) k), '[]'::jsonb))
     WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'program_id' = ${programId} AND standing_seen->'bench_ask'->>'draft' = 'true'
       AND standing_seen->'path'->>'stage' = 'draft' AND standing_seen->'path'->>'program_id' = ${programId}`.catch(logged('draft answered'));
 }
 
 /**
  * Fix round 2 (F5): a yes to the draft's own ask. Its blanks still empty (a bare "ok"): "I need {blanks}. Reply with
- * both and I'll finish it." and the ask stays (a no still parks). v4.8 Task 3: a yes carrying their answers (fix round 3, 1) or
- * a yes with no blanks left is the submit stage (pathSubmit): the path moves to `submit` and the reply is the link, the
- * deadline and "sent". Never throws on its own writes.
+ * both and I'll finish it." and the ask stays (a no still parks). v4.10.2 final fix (I1): a yes carrying their answers
+ * (`answers`, split by the round's ask keys, else their whole reply in `blanks`) banks them (readyBank: by kind, the
+ * Builder Code kept as theirs, the rest in the ask's `given`) and marks the round's fields answered; then the next round
+ * of builderAsks' list (at most 4 answers, roundAsk), or with none left the submit stage (pathSubmit: "ready to paste",
+ * the link, the deadline and "sent"). Never throws on its own writes.
  */
-async function draftYes(id: number, asked: NonNullable<Seen['bench_ask']>, now: Date, answers?: string): Promise<Reply> {
+async function draftYes(ctx: Partial<Pick<ToolContext, 'sharedClient'>>, id: number, asked: NonNullable<Seen['bench_ask']>, now: Date, m: { blanks?: string; answers?: ReadyAnswers }): Promise<Reply> {
   const blanks = Array.isArray(asked.blanks) ? asked.blanks.filter((b): b is string => typeof b === 'string') : [];
-  // Fix round 3 (1): the yes carries their answers: the blanks are answered (the text is never stored), and the agent
-  // finishes the draft with them; Task 3: the same reply is the submit stage (target A, "just me, nothing raised").
-  if (blanks.length > 0 && answers?.trim())
-    return pathSubmit(id, asked, now, `The builder answered the blanks: add their words to the draft as they gave them (for a program with fields, call prepare again with every answer and coach_asked: true) and show it finished, ready to paste, above this line. ${blanks.includes(GTM_ONE_LINE) ? `${PLAN_ONE_LINE_NOTE} ` : ''}Never submit it for them. Don't show this note.`);
+  const said = Boolean(m.blanks?.trim()) || anyAnswer(m.answers);
   // A bare yes with no answers given yet: re-ask them.
-  if (blanks.length > 0) {
+  if (blanks.length > 0 && !said) {
     await storeAsk(id, asked);
     return { show_to_builder: blanksAgain(blanks), agent_note: withMentor("Their answers to the blanks: add them to the draft and finish it as the draft's note said. Don't show this note."), move_up: { kind: 'apply', project_key: asked.key, agent_note: APPLY_NOTE } };
   }
-  return pathSubmit(id, asked, now, "Show the finished draft ready to paste above this line. Never submit it for them. Don't show this note.");
+  const finished = (gtm: boolean) =>
+    `The builder answered the blanks, the last round: add every answer they gave to the draft as they gave them (for a program with fields, call prepare again with every answer and coach_asked: true) and show it finished, ready to paste, above this line. ${gtm ? `${PLAN_ONE_LINE_NOTE} ` : ''}Never submit it for them. Don't show this note.`;
+  const plain = "Show the finished draft ready to paste above this line. Never submit it for them. Don't show this note.";
+  const round = (Array.isArray(asked.round) ? asked.round : []).filter((it) => it && typeof it.kind === 'string' && Array.isArray(it.keys));
+  const program = asked.program_id ? await getProgramRow(asked.program_id).catch(() => null) : null;
+  // An ask stored before the rounds (no `round`): its answers finish it, as they did.
+  if (!program || (said && round.length === 0)) return pathSubmit(id, asked, now, said ? finished(blanks.includes(GTM_ONE_LINE)) : plain);
+  const pid = program.id;
+  let done = strs(asked.done);
+  let given: Record<string, string> = Object.fromEntries(Object.entries(asked.given ?? {}).filter((e): e is [string, string] => typeof e[1] === 'string'));
+  if (blanks.length > 0 && said) {
+    const byKey = new Map(askReqs(program).map((r) => [r.key, r]));
+    const items: NeedItem[] = round
+      .map((it) => ({ kind: it.kind, phrase: '', fields: it.keys.flatMap((k) => (byKey.has(k) ? [{ program_id: pid, req: byKey.get(k)! }] : [])) }))
+      .filter((it) => it.fields.length > 0);
+    if (items.length > 0 && asked.key) given = (await readyBank(id, asked.key, items, m, { [pid]: given })).given[pid] ?? given;
+    done = [...new Set([...done, ...round.flatMap((it) => it.keys)])];
+  }
+  // Fields answered in a round count as held (their words are the draft's, or kept), so they are never asked twice.
+  const s = await pathAsks(ctx, id, asked.key, program, now, { ...Object.fromEntries(done.map((k) => [k, 'answered'])), ...given });
+  const gtm = askReqs(program).some((r) => isGtm(r) && done.includes(r.key));
+  const next = pathRound(s.only);
+  if (next.round.length === 0) return pathSubmit(id, asked, now, done.length > 0 ? finished(gtm) : plain, s.held);
+  const nb = next.round.map((i) => i.phrase);
+  const n = roundAnswers(next.round);
+  await storeAsk(id, { ...asked, blanks: nb, round: next.round.map(({ kind, keys }) => ({ kind, keys })), done, given });
+  const note = `EarnKit kept their answers. Show this reply as it is (the draft is finished only after the last round). Once they reply, call tell with move_up: { kind: 'apply', project_key: ${JSON.stringify(asked.key)}, answer: 'yes', ${ANSWERS_SPLIT}. Never fill a blank yourself. ${next.round.some((i) => i.one_line) ? `${PLAN_ONE_LINE_NOTE} ` : ''}${DRAFT_GUARD} Don't show this note.`;
+  return {
+    show_to_builder: roundAsk(nb, n, next.total - n),
+    agent_note: withMentor(note),
+    move_up: { kind: 'apply', project_key: asked.key, agent_note: APPLY_NOTE },
+    draft: { asks: roundFields(next.round) },
+  };
 }
 
 /**
@@ -4273,8 +4387,9 @@ export const SENT_NOTE = "Only when they say the application is in (\"sent\", \"
 /** Final review F7: the one line before the next program when the builder says no to a path ask. Pure. */
 export const setAsideLine = (title: string) => `No problem, I'll set ${programName(title)} aside.`;
 /** v4.8 Task 3: the contact fields a program's form asks for at submit ("your email"), never a draft blank (ruling T2-1). Pure. */
-const contactFields = (reqs: readonly SubmissionRequirement[] | null | undefined) =>
-  (reqs ?? []).filter((r) => r.required && r.kind === 'contact').map((r) => r.todo ?? r.label.toLowerCase());
+const contactFields = (reqs: readonly SubmissionRequirement[] | null | undefined, held: Record<string, string> = {}) =>
+  // v4.10.2 final fix (I1): only those EarnKit doesn't hold and the rounds didn't ask (never email or X it holds).
+  (reqs ?? []).filter((r) => r.required && r.kind === 'contact' && !held[r.key]?.trim()).map((r) => r.todo ?? r.label.toLowerCase());
 /** v4.8 Task 3: a dated program's submit-by words in its own zone (conversation.ts submitBy), null for a rolling one. Pure. */
 const submitByOf = (p: Pick<ProgramFileRow, 'summary' | 'tz' | 'ends_at'>, now: Date) => {
   if (!closeDay(p) || !p.ends_at) return null;
@@ -4286,14 +4401,14 @@ const submitByOf = (p: Pick<ProgramFileRow, 'summary' | 'tz' | 'ends_at'>, now: 
  * {deadline}." then the form's contact fields and SENT_ASK). The path moves to `submit`, and its question is stored as
  * the submit ask (kind apply, `submit`), so a no parks the program and a yes is "sent". One UPDATE. Never throws.
  */
-async function pathSubmit(id: number, asked: NonNullable<Seen['bench_ask']>, now: Date, note: string): Promise<Reply> {
+async function pathSubmit(id: number, asked: NonNullable<Seen['bench_ask']>, now: Date, note: string, held: Record<string, string> = {}): Promise<Reply> {
   const program = await getProgramRow(asked.program_id!).catch(() => null);
   const path: Path = { stage: 'submit', program_id: asked.program_id!, at: now.toISOString() };
   const stored = { kind: 'apply', key: asked.key, program_id: asked.program_id, path: true, submit: true };
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
       || jsonb_build_object('path', ${sql().json(path as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb)
     WHERE builder_id = ${id}`.catch(logged('draft submit'));
-  const show = submitReply({ link: program?.submission_url ?? null, by: program ? submitByOf(program, now) : null, contacts: contactFields(program?.submission_requirements) });
+  const show = submitReply({ link: program?.submission_url ?? null, by: program ? submitByOf(program, now) : null, contacts: contactFields(program?.submission_requirements, held) });
   return {
     show_to_builder: show,
     agent_note: withMentor(`${note.replace(/\s*Don't show this note\.$/, '')} ${SENT_NOTE}`),

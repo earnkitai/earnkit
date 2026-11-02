@@ -513,9 +513,10 @@ export const NEW_REPO_ASK = 'Working on something new? Connect that repo instead
 /**
  * Task 16, step 7; v4.0 Task 7 (approved copy 5): the weekly moment's question. v4.10.2 Task 5: it names what the yes
  * does (weekly-moment.ts answerShare puts the week on the builder's page), a plain yes/no ("Looks right?" asked only
- * whether the week read right, and the merge gate's yes/no rule refused it).
+ * whether the week read right, and the merge gate's yes/no rule refused it). Final review M1: "last week", the week the
+ * thanks names ("Last week is on your page.").
  */
-export const MOMENT_ASK = 'Add this week to your page?';
+export const MOMENT_ASK = 'Add last week to your page?';
 /**
  * v4.0 Task 7 (approved copy 5, "Every Monday"): the opener, the week's table (a blank first header: plain surfaces read
  * "Label: value", reply-format.ts), the cheer under it when the community sent $100 or double last week, the post link

@@ -87,6 +87,8 @@ const ANSWERS: Record<string, string> = {
   'contact.name': 'Jenil T', 'contact.email': 'replay@example.com', 'contact.telegram': '@replay',
   'other:revenue': 'no revenue yet', 'other:primary_challenge': 'User acquisition', 'other:credits': 'no credits needed yet',
   'other:contract_address': 'no contract on Base yet',
+  // v4.10.2 final fix (I1): the path draft asks these too (the plan in one line, the builder's own Builder Code).
+  'other:gtm_plan': 'grow installs through builder communities', 'other:builder_code': 'bc_replay',
 };
 const replies: Reply[] = [];
 const notes: string[] = [];

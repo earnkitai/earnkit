@@ -101,16 +101,16 @@ test('(a) the reply is the spec block: opener, table, post link, the page questi
     '',
     'Your post is ready to share: https://earnkit.com/maya/post/abcdefghij',
     '',
-    'Add this week to your page?',
+    'Add last week to your page?',
   ].join('\n'));
-  assert.equal(MOMENT_ASK, 'Add this week to your page?');
+  assert.equal(MOMENT_ASK, 'Add last week to your page?');
   assert.equal(links(s).length, 1);
   assert.equal(questions(s), 1);
   assert.doesNotMatch(s, /MAYA|[Tt]oken|[Cc]oin|\p{Extended_Pictographic}|—/u);
   // Plain surfaces (Task 6): "Label: value" lines.
   assert.match(formatReply(s, 'plain'), /\n\nShipping score: 82, up 4\n\nStreak: 5 weeks\n\nFrom your community: \$46, already in your wallet\n\n/);
   // No post: the page is the one link.
-  assert.match(mondayReply({ ...VIEW, post: null }, PAGE, MOMENT_ASK), /\n\nYour page: https:\/\/earnkit\.com\/maya\n\nAdd this week to your page\?$/);
+  assert.match(mondayReply({ ...VIEW, post: null }, PAGE, MOMENT_ASK), /\n\nYour page: https:\/\/earnkit\.com\/maya\n\nAdd last week to your page\?$/);
 });
 
 test('(b) $0 from the community: no community row', () => {
@@ -219,7 +219,7 @@ test('(a, end to end) the Monday find: the spec block with the real score, strea
     '',
     'Builders who share wins get noticed by programs.',
     '',
-    'Add this week to your page?',
+    'Add last week to your page?',
   ].join('\n'));
   assert.equal(links(s).length, 1);
   assert.equal(questions(s), 1);

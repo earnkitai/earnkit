@@ -12,10 +12,11 @@ const reply = (show: string, o: Partial<Reply> = {}): Reply =>
   ({ turn: 0, session: 0, first: true, hook: false, tool: 'find', input: {}, show, said: ['proof:streak=6'], reply: { move_up: { kind: 'share', project_key: 'a/b' } }, ...o }) as Reply;
 
 test('v4.10.2 Task 5: the Monday block ends in a yes/no naming what the yes does, and passes the gate', () => {
-  assert.equal(MOMENT_ASK, 'Add this week to your page?');
+  // v4.10.2 final review M1: the ask names the same week as the thanks ("Last week is on your page.").
+  assert.equal(MOMENT_ASK, 'Add last week to your page?');
   const m = { week: 6, place: null, rank: 1, post: { text: 'x', link: 'https://earnkit.com/jenilt/post/abcdefghij' }, first: 'Jenil', score: 77, change: 7, community: { usd: 0, lastWeekUsd: 0 } };
   const show = mondayReply(m, 'https://earnkit.com/jenilt', MOMENT_ASK, 'Builders who share wins get noticed by programs.');
-  assert.match(show, /\n\nAdd this week to your page\?$/, show);
+  assert.match(show, /\n\nAdd last week to your page\?$/, show);
   assert.deepEqual(gateFailures([reply(show)]), []);
 });
 

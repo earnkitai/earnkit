@@ -1842,12 +1842,12 @@ apps/frontend/
                                the hook's ask as apply, qualify or check_fits (path: true; a no also parks 'path:<id>').
                                fixtures/wallet-step.ts pathQuiet / pathUnquiet park every program for a test of an older ask.
                                v4.8 Task 2: gapReply (the steps, "I can do this." marks, Go? / first one / help), gapClosedReply,
-                               draftReply, blanksAsk, draftBlanks (founder brief for an investor program with no public
+                               draftReply, blanksAsk, draftShape (was draftBlanks; founder brief for an investor program with no public
                                questions, else required builder-only fields not held), FOUNDER_BLANKS. bench-find.ts gapYes,
                                gapDoYes, pathDraft, heldAnswers, codesConfirmed (re-check after the do-it yes: gap_did),
                                pathClosedCommit; bench-reply.ts qualifyGapSteps.
                                Fix round 1: gapStillReply / pathGapCommit (mid-gap "Still on ..."), gapProof, GapStep.offer.
-                               Fix round 2: CODES_OFFER (hook "Go?"), draftBlanks { blanks (max 2), later, drafted }, andComma,
+                               Fix round 2: CODES_OFFER (hook "Go?"), draftShape { brief, drafted } (v4.10.2 final fix I1: the asks are bench-find.ts builderAsks + pathRound, rounds of 4; roundAsk), andComma,
                                blanksAgain; bench-find.ts codesConfirmed ('found'|'missing'|'checking',
                                RECHECK_WAIT), pathCheckingView, draftYes; base-qualify.ts qualifyOffer `allMet`.
                                v4.8 Task 3: SENT_ASK, submitBy, submitReply, submitPointer, TRACK_ACK, trackLead, agoWords (removed v4.8.2),
@@ -2880,7 +2880,7 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
 
 ## v4.10.2 Task 5: replay fixes (the next step after the Monday block)
 
-- `bench-reply.ts` `MOMENT_ASK` is "Add this week to your page?" (was "Looks right?").
+- `bench-reply.ts` `MOMENT_ASK` is "Add last week to your page?" (was "Looks right?").
 - `bench-find.ts` `Seen.also_open` / `AlsoOpenLead`, `keepAlso` (written by `readyCommit` when nothing fits, dropped by
   `readyView` on an empty candidate list), `alsoLeadCommit` (the quiet reply's money lead, stored as the path's start
   ask). The Monday block marks the session said (`older`, `proof:streak=N`); the share yes without the email question

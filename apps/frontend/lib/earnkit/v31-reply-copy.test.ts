@@ -202,7 +202,7 @@ test('Task 16: the first-run journey, each reply word for word', db, () => withP
     // drafted (the apply yes above), so never pitched (v4.8: and no "Open now:" paragraph in its place).
     'Builders who share wins get noticed by programs\\.',
     '',
-    'Add this week to your page\\?$',
+    'Add last week to your page\\?$',
   ].join('\n')), s7);
   assert.equal((r7.reply?.move_up as { kind: string; agent_note: string }).kind, 'share');
   assert.match((r7.reply?.move_up as { agent_note: string }).agent_note, /Show it exactly as given\. Never rewrite it\./);

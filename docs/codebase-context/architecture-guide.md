@@ -8673,8 +8673,9 @@ A yes on the path moves the stage on (bench-find.ts benchMoveUp, asks stored wit
 - **hook to draft.** The yes to "Want me to start?" (or the draft offer) is pathDraft: "Here's your draft:", the
   verified record (ship-log-facts.ts shipLogBlock: score, streak, live link, page link, verified usage and revenue
   under its own freshness and minimum rules; none on a shared client), then the blanks only the builder can fill
-  (conversation.ts draftBlanks / blanksAsk) as one reply ("Two blanks only you can fill: ... Reply with both and I'll
-  finish it."). An investor program whose required fields are all contact details (questions not public) gets a short
+  (bench-find.ts builderAsks / pathRound, conversation.ts blanksAsk) as one reply ("Four blanks only you can fill (7
+  more after these): ... Reply with them and I'll finish it."). v4.10.2 final fix (I1): rounds of at most 4 answers
+  from the same list the lead counts; see the v4.10.2 final fix note below. An investor program whose required fields are all contact details (questions not public) gets a short
   founder brief whose blanks are FOUNDER_BLANKS (team, money raised); any other program's blanks are its required
   `from: 'builder'` fields EarnKit doesn't hold (the answer bank, the X handle). The note tells the agent to draft
   through prepare (questionsDraftNote) or write the brief (founderBriefNote), then MENTOR_NOTE. The draft's own ask is
@@ -9206,7 +9207,7 @@ Gate (`fixtures/converse.ts`): `easyReply` takes a reply whose last line is exac
 - **The opener** (`readyCommit`): `readyOpener`, `READY_NOTE` as the path note, `move_up` kind 'ready'
   (`READY_ASK_NOTE`), and `ready.programs` (each program's required fields, `heldAnswers`' pre-filled answers, the
   `shipLogBlock` record, its link). Each program's `needs` is the first unheld required builder field the agent can't
-  draft (`conversation.ts` `builderOnly`, shared with `draftBlanks`), as `needsPhrase` ("your team list"). One UPDATE:
+  draft (`conversation.ts` `builderOnly`, inside `bench-find.ts builderAsks`), as `needsPhrase` ("your team list"). One UPDATE:
   `standing_seen.ready` (`ReadyState`: ids, at, skipped, opened, waiting, codes, need), `bench_ask` (kind 'ready': ids,
   codes, Base's qualify offer), said (`ready`, `proof:page` for the gate's proof rule, `money:total`, the greeting).
   `apply_yes` waits for the yes.
@@ -9285,7 +9286,7 @@ This supersedes the per-program need in Task 4: the builder answers once for the
 
 ## v4.10.1 Task 1: honest needs
 
-- **What is a need.** `conversation.ts` `mustGive(r)` (used by `builderOnly` and `draftBlanks`): a required, non-contact
+- **What is a need.** `conversation.ts` `mustGive(r)` (used by `builderOnly` and `draftShape`): a required, non-contact
   field the agent can't truthfully draft. That is a plan or claim of any `from` (PLAN_KINDS: milestones, use_of_funds,
   raised, team, traction), or a builder field that `mustAsk` catches, is `multi_choice`, or has a kind outside
   AGENT_DRAFTABLE. A GTM plan stayed drafted here (ruling R1); v4.10.2 reverses it: GTM is asked as one line. Circle's `integrations` is `from: builder`, kind `other`.
@@ -9413,7 +9414,7 @@ This supersedes the per-program need in Task 4: the builder answers once for the
     or doesn't fit beside those before it, goes to `out`. Eligibility stays in `readySet`, the one filter point.
   - `bench-find.ts`: `answerKeys` / `answersIn` count one per answer (a field's ask key once, a contact detail once per
     slot), so an answer two programs ask counts once. `readyCommit` drafts the candidates, fits them and keeps the
-    set's drafts; nothing fits: null, and the path answers (its own ask, at most MAX_BLANKS). The opener JSON lists
+    set's drafts; nothing fits: null, and the path answers (its draft, in rounds of at most 4). The opener JSON lists
     `ready.programs[].asks` for in-set programs only (each answer once, never more than 4) and
     `ready.also_open: [{ id, title, amount, answers }]` (up to 2 left out).
   - Copy: the opener head is "{name}, I've started N applications for you{worth}. I need K answers from you first:"
@@ -9469,7 +9470,7 @@ This supersedes the per-program need in Task 4: the builder answers once for the
 - **Task 5: the next step after the Monday block (replay gate, 2026-11-02 snapshot).** With the owner's set empty
   (Base needs 11 answers, Circle not eligible) and the path quiet (Base's codes step passed and raised once), other
   flows led and failed the gate. Fixes:
-  - The Monday block asks "Add this week to your page?" (`MOMENT_ASK`): its yes (`answerShare` / `approveWeek`) puts
+  - The Monday block asks "Add last week to your page?" (`MOMENT_ASK`): its yes (`answerShare` / `approveWeek`) puts
     the week on the page, so the question names that and is a plain yes/no. The gate was left as it is.
   - The Monday block now opens the session: when it shows it marks `older` and `proof:streak=<week>` (it states the
     streak). Before, nothing was marked, so every later find in the session was a fresh "opener".
@@ -9483,3 +9484,22 @@ This supersedes the per-program need in Task 4: the builder answers once for the
     a proofOf fact comes first. A repeat this session is the easy reply alone: "Want me to start Base Builder Grant (up
     to $5,000, 11 answers from you)?". The stored ask is `{ kind: 'apply', key, program_id, path: true }`, so a yes runs
     `pathDraft` (the draft stage) and a no parks it (`path:<id>`).
+
+## v4.10.2 final fix (I1): the path draft asks what the lead counts
+
+- **One list.** `bench-find.ts builderAsks(row, held)`: the unheld contact details (one item) plus `conversation.ts
+  builderOnly` (the Builder Code as the builder's own, the 3-month plan as one line), or a founder brief's FOUNDER_REQS.
+  `readyDrafts`' `only` (the set's count, `answerKeys`, and the also-open lead's "needs N answers") and the path draft
+  both read it, so the count, the asks and "ready" agree.
+- **Rounds.** `pathRound(only)`: the team, usage and demo first, the form's order, the contact item last; at most
+  READY_NEED_MAX (4) answers a round (a contact item counts each detail). `pathDraft` asks round 1
+  (`blanksAsk(blanks, answers, after)`: "Four blanks only you can fill (7 more after these): ..."); the stored apply ask
+  keeps `round` (ask keys and field keys), `done` and `given`. The reply carries `draft.asks` (kind, ask, slots,
+  one_line) for the agent to split the builder's reply into `move_up.answers`.
+- **Each answer kept.** `draftYes` banks a round's answers with `readyBank` (by kind; a Builder Code through
+  `tellBuilderCode`; the rest in the ask's `given`), marks the round's fields `done`, recomputes builderAsks and asks the
+  next round (`conversation.ts roundAsk`: "Thanks. 4 more only you can give (3 after these): ..."). Only with nothing
+  left does `pathSubmit` say "Done, it's ready to paste"; its form line names only contact fields EarnKit doesn't hold.
+  `draftAnswered` (prepare with coach_asked) also marks the round done. An ask stored before the rounds (no `round`)
+  finishes as before.
+- **Monday ask.** `MOMENT_ASK` is "Add last week to your page?" (the thanks says "Last week is on your page.").
