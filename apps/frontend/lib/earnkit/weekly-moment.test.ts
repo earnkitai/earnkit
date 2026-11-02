@@ -201,7 +201,7 @@ test('L6.3 the weekly moment (Task 16 step 7): the week, the rank, the points, a
     // v4.0 Task 7 (approved copy 5): the Monday block, the post link; v4.10.2 Task 5: the question names what the yes does.
     'Your week is ready, Maya. You shipped this week. Nice work.',
     '',
-    '| | This week |',
+    '| | Last week |',
     '|---|---|',
     '| Shipping score | 50, up 6 |',
     '| Streak | 3 weeks |',
@@ -267,7 +267,7 @@ test('L6.4 the moment through score, once per installation (another agent of the
   const s = show(await mcpCall(ctx(me.id), 'score', {}));
   // No commit weeks stored: "Last week done."; #1 of 10 the week before and now: "now #1" (no week before to hold).
   // Nothing worth a post (no facts): the page is the one link.
-  assert.equal(noOpen(s), `Your week is ready, Sam. You shipped this week. Nice work.\n\n| | This week |\n|---|---|\n| Shipping score | 30 |\n\nYour page: https://earnkit.com/${me.handle}\n\nBuilders who share wins get noticed by programs.\n\nAdd last week to your page?`);
+  assert.equal(noOpen(s), `Your week is ready, Sam. You shipped this week. Nice work.\n\n| | Last week |\n|---|---|\n| Shipping score | 30 |\n\nYour page: https://earnkit.com/${me.handle}\n\nBuilders who share wins get noticed by programs.\n\nAdd last week to your page?`);
   assert.doesNotMatch(s, /Secret launch/);
 
   // The yes, with no ship-log row for last week (removed here): one is made holding only the approval (it shows nowhere).
@@ -296,6 +296,24 @@ test('L6.4 the moment through score, once per installation (another agent of the
   assert.equal(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'yes' } })), 'Okay.', 'closed by the no');
 });
 
+test('v4.10.2 final re-review: the score moved at the week change: the block says "Last week" with last week\'s number, and the session\'s later score says "so far this week"', db, async () => {
+  await freshBoard();
+  const monday = lastFinishedMonday(new Date());
+  const me = await builder('wmlw', 'Sam', [1, 2]);
+  const [{ parts }] = await sql()<{ parts: unknown }[]>`SELECT parts FROM builder_live WHERE builder_id = ${me.id}`;
+  const live = (parts as { shipping: { points: number } }).shipping.points;
+  // Last week's final (the moment's number) is 8 above today's live score, as the owner's 77 and 69 were.
+  await history(me.id, plusDays(monday, 6), live + 8);
+  const s = show(await mcpCall(ctx(me.id), 'score', {}));
+  assert.ok(s.includes(`| | Last week |\n|---|---|\n| Shipping score | ${live + 8} |`), s);
+  assert.doesNotMatch(s, /This week \|/, s);
+  // A later reply this session: the live number is labelled this week's, so it never reads as a correction of the block.
+  await unseen(me.id);
+  const later = show(await mcpCall(ctx(me.id), 'score', {}));
+  assert.ok(later.includes(`Score ${live} so far this week`), later);
+  assert.doesNotMatch(later.replace(`Score ${live} so far this week`, ''), new RegExp(`\\bScore ${live}\\b`), later);
+});
+
 test('owner batch fix wave: the moment quotes the stored summary under the head and the yes binds exactly it; one it can\'t show binds none and is asked once', db, async () => {
   await freshBoard();
   const monday = lastFinishedMonday(new Date());
@@ -305,7 +323,7 @@ test('owner batch fix wave: the moment quotes the stored summary under the head 
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts, summary)
     VALUES (${me.id}, ${me.key}, ${monday}, ${sql().json({ checked: true } as never)}, 'Fixed the login loop.')`;
   const s = show(await mcpCall(ctx(me.id), 'score', {}));
-  assert.equal(noOpen(s), `Your week is ready, Sam. Fixed the login loop. Nice work.\n\n| | This week |\n|---|---|\n| Shipping score | 30 |\n\nYour page: https://earnkit.com/${me.handle}\n\nBuilders who share wins get noticed by programs.\n\nAdd last week to your page?`);
+  assert.equal(noOpen(s), `Your week is ready, Sam. Fixed the login loop. Nice work.\n\n| | Last week |\n|---|---|\n| Shipping score | 30 |\n\nYour page: https://earnkit.com/${me.handle}\n\nBuilders who share wins get noticed by programs.\n\nAdd last week to your page?`);
   assert.equal(links(s).length, 1);
   assert.equal(questions(s), 1);
   // Rewritten after the reply: the yes still binds the text the reply showed, never the new one.
@@ -407,7 +425,7 @@ test('Task 16 fix round 1, v3.1 one-tap posts: the Monday reply shows no points 
   await pad('wmpp', 9, [plusDays(monday, 6)]);
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${paid.id}, ${paid.key}, ${monday}, ${sql().json({ checked: true, shipped_code: { n: 2 } } as never)})`;
   const s = show(await mcpCall(ctx(paid.id), 'find', {}));
-  assert.match(s, /^Your week is ready, Pia\. You shipped this week\. Nice work\.\n\n\| \| This week \|\n[^]*\| Streak \| 1 week \|/, s);
+  assert.match(s, /^Your week is ready, Pia\. You shipped this week\. Nice work\.\n\n\| \| Last week \|\n[^]*\| Streak \| 1 week \|/, s);
   assert.doesNotMatch(s, /points/, s);
   const before = await pointsTotal(paid.id);
   thanks(show(await mcpCall(ctx(paid.id), 'tell', { move_up: { kind: 'share', project_key: paid.key, answer: 'yes' } })));

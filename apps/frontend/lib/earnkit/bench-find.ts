@@ -1715,6 +1715,16 @@ async function keepAlso(o: ViewIn, a: AlsoOpenLead | null): Promise<void> {
     WHERE builder_id = ${o.id}`.catch(logged('also open'));
 }
 
+/** v4.10.2 final re-review: the session key the Monday block's score (last week's final) was said under. */
+const momentScoreSaid = (score: number) => `moment_score=${score}`;
+/** The Monday block's score said this session, or null. Pure. */
+const momentScoreOf = (said: ReadonlySet<string>) => {
+  for (const k of said) {
+    const m = /^moment_score=(\d+)$/.exec(k);
+    if (m) return Number(m[1]);
+  }
+  return null;
+};
 /** v4.10.2 Task 5: the session key the also-open lead was said under (its repeat is the easy reply alone). */
 const alsoSaid = (pid: string) => `also:${pid}`;
 /**
@@ -2582,9 +2592,13 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   // v4.7 T2: where the builder stands, in every reply's fields (the page's score and rank, wins, applications, the
   // earliest fit deadline); a repo another person holds has no fits. Fix round 1 (R7, replyFacts' gate): signed out,
   // or a shared client that is no person, the weeks only and nothing read.
-  const stand = state === 'signed_out' || !o.personal
+  const stand0 = state === 'signed_out' || !o.personal
     ? streakOnly(streak)
     : await readStanding(id, { lines: read.ranks, parts: read.parts, streak, fits: (taken ? [] : o.fits).filter(realFit), cards: o.cards, now });
+  // v4.10.2 final re-review: the Monday block showed last week's final this session (momentScoreSaid); a live score
+  // that differs is "so far this week", never a bare number that reads as a correction of it.
+  const shownScore = momentScoreOf(sessionOf(read.seen, now).said);
+  const stand = shownScore !== null && stand0.score !== null && stand0.score !== shownScore ? { ...stand0, soFar: true } : stand0;
   // v4.8 Task 4: a number or a name from the opener's list (find {program}) is the path's program, in any state; signed
   // out (a person, with the sign-in link), the reply is target B's opener, the pick's "Got it" or the list again.
   const picked = (await takePick(o)) ?? (await takeListPick(o));
@@ -2862,7 +2876,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
     await markSaid(id, [OLDER_SAID], now);
   }
   // v4.10.2 Task 5: the Monday block opens the session (so the next find is no second opener), saying its streak.
-  if (finalAsk.kind === 'share' && moment) await markSaid(id, [OLDER_SAID, ...(moment.week >= 2 ? [`proof:streak=${moment.week}`] : [])], now);
+  // v4.10.2 final re-review: and the block's score (last week's final), so a later live score that differs says "so far this week".
+  if (finalAsk.kind === 'share' && moment) await markSaid(id, [OLDER_SAID, momentScoreSaid(moment.score), ...(moment.week >= 2 ? [`proof:streak=${moment.week}`] : [])], now);
   if (finalAsk.kind === 'ship' && !held) await sql()`
     UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('ship_asked', ${now.toISOString()}::text)
     WHERE builder_id = ${id}`.catch(logged('ship asked'));

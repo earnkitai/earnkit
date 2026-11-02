@@ -524,7 +524,9 @@ export const MOMENT_ASK = 'Add last week to your page?';
  */
 export function mondayReply(m: MomentView, page: string, ask: string, why: string | null = null, money: string | null = null): string {
   const facts = { score: m.score, change: m.change, streak: m.week, usd: m.community.usd, lastWeekUsd: m.community.lastWeekUsd };
-  const table = ['| | This week |', '|---|---|', ...mondayRows(facts).map(([label, value]) => `| ${cell(label)} | ${cell(value)} |`)];
+  // v4.10.2 final re-review: the block's numbers are last week's final (lastWeekOf), so the header says so; the
+  // session's live score after it is "so far this week" (standing.ts soFar).
+  const table = ['| | Last week |', '|---|---|', ...mondayRows(facts).map(([label, value]) => `| ${cell(label)} | ${cell(value)} |`)];
   return paras(
     [mondayOpener(m.first, m.summary ?? null)],
     table,

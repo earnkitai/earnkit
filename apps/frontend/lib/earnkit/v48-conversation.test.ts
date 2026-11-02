@@ -816,7 +816,7 @@ test("the Base gap (fix round 2, F10): the hook offers to add Builder Codes; a y
   // v4.10.2 final fix (I1): that round is answered, so the yes asks the next round, never "ready" early.
   const nextRound = show(await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes' }));
   assert.doesNotMatch(nextRound, /^I need|ready to paste/, nextRound);
-  assert.match(nextRound, /^Thanks\. 4 more only you can give \(3 after these\): how it makes money today, your 3-month plan in one line/, nextRound);
+  assert.match(nextRound, /^Thanks\. 4 more answers only you can give \(3 after these\): how it makes money today, your 3-month plan in one line/, nextRound);
   // v4.10.2 Task 1 fix round 1 (owner answer 2): the plan asked as a blank and answered in one line: the finish note
   // says to write it out from that line and the record only.
   const plan = { kind: 'apply', key: b.key, program_id: 'base-builder-grants', path: true, draft: true, blanks: [GTM_ONE_LINE, 'your main challenge right now'] };

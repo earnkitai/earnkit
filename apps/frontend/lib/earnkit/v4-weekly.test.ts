@@ -93,7 +93,7 @@ test('(a) the reply is the spec block: opener, table, post link, the page questi
   assert.equal(s, [
     'Your week is ready, Maya. You shipped the new meal planner. Nice work.',
     '',
-    '| | This week |',
+    '| | Last week |',
     '|---|---|',
     '| Shipping score | 82, up 4 |',
     '| Streak | 5 weeks |',
@@ -209,7 +209,7 @@ test('(a, end to end) the Monday find: the spec block with the real score, strea
   assert.equal(noOpen(s), [
     'Your week is ready, Maya. You shipped the new meal planner. Nice work.',
     '',
-    '| | This week |',
+    '| | Last week |',
     '|---|---|',
     '| Shipping score | 82, up 4 |',
     '| Streak | 5 weeks |',

@@ -30,3 +30,18 @@ test('v4.10.2 Task 5: the also-open lead and its repeat are money first, one yes
   const replies = [lead, ...[1, 2, 3].map((turn) => reply(again, { ...ask, turn, first: false, said: [] }))];
   assert.deepEqual(gateFailures(replies), []);
 });
+
+test('v4.10.2 final re-review: the live score after the Monday block of another number says "so far this week"', async () => {
+  const { standingParagraph } = await import('./standing');
+  const s = { score: 69, rank: null, streak: 6, wonUsd: 0, applied: 1, drafts: 0, next: null };
+  assert.equal(standingParagraph(s), 'Score 69. 6 weeks shipping in a row. No grants won yet. 1 application in.');
+  assert.equal(standingParagraph({ ...s, soFar: true }), 'Score 69 so far this week. 6 weeks shipping in a row. No grants won yet. 1 application in.');
+  assert.equal(standingParagraph({ ...s, rank: '#1 of 40 builders', soFar: true }), 'Score 69 so far this week · #1 of 40 builders. 6 weeks shipping in a row. No grants won yet. 1 application in.');
+});
+
+test('v4.10.2 final re-review: the path draft rounds name their noun ("4 more answers", "The last 3 answers")', async () => {
+  const { roundAsk } = await import('./conversation');
+  assert.equal(roundAsk(['a', 'b', 'c', 'd'], 4, 3), "Thanks. 4 more answers only you can give (3 after these): a, b, c, and d. Reply with them and I'll finish it.");
+  assert.equal(roundAsk(['a', 'your contact details (name and Telegram)'], 3, 0), "Thanks. The last 3 answers only you can give: a, and your contact details (name and Telegram). Reply with them and I'll finish it.");
+  assert.equal(roundAsk(['a'], 1, 0), "Thanks. The last answer only you can give: a. Reply with it and I'll finish it.");
+});

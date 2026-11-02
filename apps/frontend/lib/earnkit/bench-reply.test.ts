@@ -156,7 +156,7 @@ test('Task 16 step 7, v4.0 Task 7: the weekly moment is the Monday block with la
   assert.equal(out, [
     'Your week is ready, Maya. You shipped this week. Nice work.',
     '',
-    '| | This week |',
+    '| | Last week |',
     '|---|---|',
     '| Shipping score | 82, up 4 |',
     '| Streak | 6 weeks |',

@@ -648,12 +648,13 @@ export function blanksAsk(blanks: readonly string[], answers = blanks.length, af
   return `${count} ${n === 1 ? 'blank' : 'blanks'} only you can fill${after > 0 ? ` (${after} more after these)` : ''}: ${list}. ${finishLine(n)}`;
 }
 /**
- * v4.10.2 final fix (I1): the path draft's next round, once the last one's answers are kept: "Thanks. 4 more only you
- * can give (3 after these): a, b, c, and d. Reply with them and I'll finish it."; the last round, "Thanks. The last 3
- * only you can give: ...". `answers` counts each contact detail. Pure.
+ * v4.10.2 final fix (I1): the path draft's next round, once the last one's answers are kept: "Thanks. 4 more answers
+ * only you can give (3 after these): a, b, c, and d. Reply with them and I'll finish it."; the last round, "Thanks. The
+ * last 3 answers only you can give: ...". `answers` counts each contact detail. Pure.
  */
 export function roundAsk(blanks: readonly string[], answers: number, after: number): string {
-  const head = after > 0 ? `${answers} more only you can give (${after} after these)` : `The last ${answers === 1 ? 'one' : answers} only you can give`;
+  // Final re-review: the count names its noun ("4 more answers", "The last 3 answers", "The last answer").
+  const head = after > 0 ? `${answers} more answer${answers === 1 ? '' : 's'} only you can give (${after} after these)` : answers === 1 ? 'The last answer only you can give' : `The last ${answers} answers only you can give`;
   return `Thanks. ${head}: ${andComma(blanks)}. ${finishLine(answers)}`;
 }
 /** The draft stage's reply: "Here's your draft:", the verified record's lines, then the blanks ask (last). Pure. */

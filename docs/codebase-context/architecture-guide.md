@@ -9503,3 +9503,7 @@ This supersedes the per-program need in Task 4: the builder answers once for the
   `draftAnswered` (prepare with coach_asked) also marks the round done. An ask stored before the rounds (no `round`)
   finishes as before.
 - **Monday ask.** `MOMENT_ASK` is "Add last week to your page?" (the thanks says "Last week is on your page.").
+- **Last week vs live (final re-review).** `bench-reply.ts mondayReply` heads its table "Last week" (its numbers are
+  `weekly-moment.ts lastWeekOf`, last week's final). The block marks `moment_score=N` said; `benchView` sets
+  `Standing.soFar` when this session's live score differs, so `standing.ts standingParagraph` says "Score 69 so far
+  this week". The path rounds say "4 more answers" / "The last 3 answers only you can give".
