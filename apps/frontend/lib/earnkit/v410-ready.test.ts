@@ -129,6 +129,16 @@ test('the owner shape opens with the approved section A text', () => {
   assert.equal(READY_ASK, "Reply yes and I'll finish and open each one for you to submit, or tell me the numbers to skip.");
 });
 
+test('v4.10.1 Task 2 fix round 1 (I1): the head says "ready" only when no program needs anything; else "drafted"', () => {
+  const needs = OWNER_SET.map((p, i) => (i === 1 ? { ...p, needs: 'your email' } : p));
+  const head = (set: ReadyProgram[]) => opener({ set }).split('\n')[0];
+  assert.equal(head(needs), "Jenil, I've got 3 applications drafted for you, worth up to $1M, plus a $100K long shot:");
+  assert.doesNotMatch(head(needs), /\bready\b/i);
+  assert.match(head(OWNER_SET), /^Jenil, I've got 3 applications ready for you,/);
+  // Any line that needs something: no "ready" in the head, whatever its case.
+  for (const p of needs.filter((x) => x.needs)) assert.doesNotMatch(head([p]), /\bready\b/i);
+});
+
 test('line wording: hosted step, builder-only field, singular, long shot without a reason', () => {
   const [base, , circle] = OWNER_SET;
   assert.equal(readyLine(base, 1, true, NOW), '1. Base Builder Grant: up to $5,000. Ready once you add Builder Codes (https://docs.base.org/base-chain/builder-codes/builder-codes).');
@@ -259,6 +269,19 @@ test('v4.10.1 Task 2 (5): the repeat reply names each program, its money and its
   assert.match(readyAgain([{ ...base, step: null, ends_at: at(5 * 3_600_000) }], NOW), /\n- Base: up to \$5,000, closes in 5 hours\. Ready\.\n/);
   assert.match(readyAgain([{ ...base, step: null, amount: null }], NOW), /\n- Base\. Ready\.\n/);
   assert.match(readyAgain([{ ...a16z, amount: null, needs: null }], NOW), /\n- a16z: investment program, closes in 19 hours\. Ready\.\n/);
+});
+
+test('v4.10.1 Task 2 fix round 1 (M2): the repeat status may repeat across finds in one session (the gate), the opener may not', () => {
+  const [base, a16z] = OWNER_SET;
+  const asked = { reply: { move_up: { kind: 'ready', project_key: null } } };
+  const again = readyAgain([{ ...base, needs: 'your email' }, a16z], NOW);
+  // As written, and as the route sets each line apart.
+  for (const text of [again, again.replace(/\n(?!\n)/g, '\n\n')]) assert.deepEqual(gateFailures([reply(text, asked), reply(text, asked), reply(text, asked)]), [], text);
+  const sent = readySentAgain([base, a16z], NOW);
+  assert.deepEqual(gateFailures([reply(sent, asked), reply(sent, asked)]), []);
+  // Anything said before the status is still compared: a repeated lead line fails.
+  const lead = `I'll keep Base Builder Grant for when it's done.\n\n${sent}`;
+  assert.deepEqual(gateFailures([reply(lead, asked), reply(lead, asked)]).map((f) => f.rule), ['repeat']);
 });
 
 test('v4.10.1 Task 2 (5): the "sent" repeat names each open page with its money and hours left', () => {

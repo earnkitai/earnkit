@@ -160,7 +160,9 @@ export function worthClause(set: readonly Pick<ReadyProgram, 'kind' | 'max_usd'>
  */
 export function readyOpener(o: { name: string | null; set: ReadyProgram[]; worth: string | null; page: string; hosted: boolean; now: Date; rest?: boolean }): string {
   const n = o.set.length;
-  const head = `${o.name ? `${o.name}, I've` : "I've"} got ${n === 1 ? '1 application' : `${n} applications`} ready for you${worthClause(o.set, o.worth)}:`;
+  // v4.10.1 Task 2 fix round 1 (I1): "ready" only when no program needs anything from the builder; else "drafted".
+  const verb = o.set.some((p) => p.needs) ? 'drafted' : 'ready';
+  const head = `${o.name ? `${o.name}, I've` : "I've"} got ${n === 1 ? '1 application' : `${n} applications`} ${verb} for you${worthClause(o.set, o.worth)}:`;
   const lines = o.set.map((p, i) => readyLine(p, i + 1, o.hosted, o.now));
   // Final fix (M1): with a program waiting on the builder, it is every other answer. v4.10.1 Task 1: only when the one
   // ask covers every field the builder owes (`rest`: some wait for a later ask), else what EarnKit can fill.

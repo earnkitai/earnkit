@@ -9311,3 +9311,8 @@ This supersedes the per-program need in Task 4: the builder answers once for the
   `readyAgainCommit` drafts each program again, so a program with needs reads "Needs ... first.". The head says "still
   ready" only when nothing is needed; otherwise "Here's where your N applications stand:". With every program closed it
   returns null and the path answers. The repeat reply carries no long-shot label (ReadyState stores no kinds).
+- **Fix round 1.** The opener head says "ready for you" only when no program needs anything; otherwise "drafted for
+  you". When every program of the opener's ask has closed, `readyView` drops the stored ready ask (as M7 does for an
+  expired set), so a later yes answers "Okay." and never drafts or opens a closed program. The gate
+  (`fixtures/converse.ts` `READY_STATUS`) treats the repeat status, from its head on, as part of the pending ask, so it
+  may repeat across finds in one session.

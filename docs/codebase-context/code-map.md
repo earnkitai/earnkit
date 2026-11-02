@@ -2815,3 +2815,5 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
 - `bench-find.ts` `againRows`; `readyAgainCommit` (re-drafts the needs; null when all closed; `readyView` falls through);
   `readyWaitingCommit`'s sent fallback.
 - Tests: `v410-ready.test.ts` (`v4.10.1 Task 2` pure), `v410-find.test.ts` (`v4.10.1 Task 2 (5)`, test 1's repeat).
+- Fix round 1: `readyOpener` verb ("drafted" with needs); `readyView` drops the ready ask when all closed;
+  `fixtures/converse.ts` `READY_STATUS` (gate repeat exemption).

@@ -191,6 +191,8 @@ export const transcript = (rs: readonly Reply[]) =>
 export type GateRule = 'empty' | 'easy_reply' | 'repeat' | 'proof' | 'copy' | 'claim' | 'step';
 export type GateFailure = { turn: number; rule: GateRule; reason: string };
 
+/** v4.10.1 Task 2 fix round 1 (M2): the head of the ready set's repeat status (ready-copy.ts readyAgain, readySentAgain). */
+const READY_STATUS = /^(?:Your (?:\d+ )?applications? (?:is|are) (?:still ready|open with every answer in place):|Here's where your (?:\d+ )?applications? stands?:)/;
 function paragraphs(s: string) {
   return s.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
 }
@@ -372,8 +374,14 @@ export function gateFailures(replies: readonly Reply[], o: { names?: readonly st
     // before, too); the rest of the last paragraph is compared like any paragraph.
     const lastP = ps.at(-1)!;
     const ss = sentences(lastP);
+    // v4.10.1 Task 2 fix round 1 (M2): the ready set's repeat status (readyAgain / readySentAgain: a head, then a line
+    // per program, set apart as paragraphs by the route's format) comes just before its ask: from its head on, it is
+    // part of the pending ask, so it may repeat too.
+    const head = moveUpOf(r)?.kind === 'ready' ? ps.findIndex((p) => READY_STATUS.test(p)) : -1;
+    const cut = head >= 0 && head < ps.length - 1 ? head : ps.length - 1;
     const units: [string, boolean][] = [
-      ...ps.slice(0, -1).map((p) => [p, false] as [string, boolean]),
+      ...ps.slice(0, cut).map((p) => [p, false] as [string, boolean]),
+      ...ps.slice(cut, -1).map((p) => [p, true] as [string, boolean]),
       // v4.10 Task 5: the ready set's pending ask may repeat whole, its status too (v4.10.1 Task 2: "Your 3 applications are still ready:" and a line per program, then "Reply yes ...").
       ...(ss.length > 1 && moveUpOf(r)?.kind !== 'ready' ? [[ss.slice(0, -1).join(' '), false], [ss.at(-1)!, true]] as [string, boolean][] : [[lastP, true]] as [string, boolean][]),
     ];

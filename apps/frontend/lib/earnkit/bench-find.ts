@@ -1509,6 +1509,10 @@ async function readyView(o: ViewIn, plan: PathPlan): Promise<{ view: BenchView; 
     if (mine && ((mine.sent === true && r.opened.length > 0) || (mine.need === true && r.need) || (!mine.sent && !mine.need && !session.fresh && session.said.has(READY_SAID)))) {
       const again = await readyAgainCommit(o, v, mine, r);
       if (again) return again;
+      // v4.10.1 Task 2 fix round 1: every program of the opener's ask has closed: the ask goes (as an expired set's,
+      // M7), so a later yes never drafts or opens a closed program.
+      read.seen.bench_ask = undefined;
+      await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'kind' = 'ready'`.catch(logged('ready closed'));
     }
   } else if (asked?.kind === 'ready') {
     // Final fix (M7): a ready ask whose set expired is dropped, never answered "Okay." for good.
