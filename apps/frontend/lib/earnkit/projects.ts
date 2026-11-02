@@ -1,7 +1,6 @@
 import type postgres from 'postgres';
 import { z } from 'zod';
 import { sql } from './db';
-import { freshSql } from './api-stale';
 import {
   EntryError,
   entryFieldProblems,
@@ -514,7 +513,7 @@ export async function openEntries(installationId: number, onlyIds?: number[]): P
         (p.confirmed_at IS NULL OR p.submission_confirmed_at IS NOT NULL OR p.submission_proof_ok_at IS NOT NULL) AS submitted
       FROM projects p JOIN programs pr ON pr.id = p.program_id
       WHERE p.installation_id = ${installationId} AND pr.campaign IS NULL AND pr.status = 'active' AND p.program_id <> ${COIN_PROGRAM}
-        AND (pr.ends_at IS NULL OR pr.ends_at > now()) AND ${freshSql(db, 'pr')}
+        AND (pr.ends_at IS NULL OR pr.ends_at > now())
         ${onlyIds ? db`AND p.id = ANY(${onlyIds}::int[])` : db``}
       ORDER BY p.submitted_at DESC, p.id DESC
       LIMIT 20`),

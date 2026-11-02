@@ -1,6 +1,5 @@
 import { sql } from './db';
 import { researchMark } from './site-copy';
-import { freshSql } from './api-stale';
 import { alertFit, DEADLINE_DAYS, newProgramOf, openCuratedRows, type NewProgramRow } from './alerts';
 import { awardAmount, benchStepKey } from './bench-reply';
 import { openFitsFor } from './best-fit';
@@ -116,7 +115,6 @@ export async function alertEvents(builderId: number, now: Date): Promise<AlertEv
       SELECT DISTINCT ON (p.program_id) p.program_id, pr.ends_at, p.application
       FROM projects p JOIN programs pr ON pr.id = p.program_id JOIN installations i ON i.id = p.installation_id
       WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND pr.status = 'active' AND pr.campaign IS NULL AND p.program_id <> ${COIN_PROGRAM}
-        AND ${freshSql(sql(), 'pr', now)}
         AND p.confirmed_at IS NOT NULL AND p.submission_confirmed_at IS NULL AND p.submission_proof_ok_at IS NULL
         AND pr.ends_at > ${now} AND pr.ends_at <= ${soon}
         AND p.program_id NOT IN (${toldAppliedSql(sql(), builderId)})

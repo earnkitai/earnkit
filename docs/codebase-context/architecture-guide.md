@@ -9161,13 +9161,15 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
 - **Email label (ruling 5).** `site-copy researchMark(research)` appends RESEARCH_LABEL to an email line naming an API
   program: every alert kind (`AlertEvent.research`, from the card's `api_content` or the accepted draft's `source`) and
   the digest's money (best-fit.ts `bestFitFor.research`), new-program, win and deadline lines. Subjects are unchanged.
-- **Stale API programs (ruling 6).** `lib/earnkit/api-stale.ts`: an api row whose `verified_at` (a date) is more than
-  `API_STALE_DAYS` (14) UTC days old is read as unlisted. `freshSql(db, alias, now?)` is in every list, match, offer
-  and count read: listPrograms, openProgramFacts, alsoProgramFacts, openCuratedRows and the alerts entries' `open`,
-  digest's new programs, alert-mail's and nudges' closing entries, projects.ts openEntries, standing's `open`, stats'
-  programs_open and open_rows, bench-find openMoneyNow, guideProgramSql, site-data feedWeekStats and the sitemap.
-  `hiddenProgram(row)` (unlisted or stale) replaces the `status === 'unlisted'` refusals in getProgram,
-  prepare_submission and draftApplication, and `readGuidePage` answers null for a stale row. A fresh write (the bot
-  re-verifies) brings it back. File and sponsor rows never expire. Day 14 shows, day 15 doesn't.
+- **Stale API programs (ruling 6, follow-up: discovery only).** `lib/earnkit/api-stale.ts`: an api row whose
+  `verified_at` (a date) is more than `API_STALE_DAYS` (14) UTC days old is stale. It leaves discovery: `freshSql(db,
+  alias, now?)` filters listPrograms, openProgramFacts, alsoProgramFacts, openCuratedRows (new-program alerts and fits),
+  digest's new programs, stats' programs_open and open_rows, bench-find openMoneyNow, site-data feedWeekStats and the
+  sitemap. Builders keep it: `listPrograms({ for: installationId })` keeps a stale program the builder group is
+  connected to (`connectedSql`: an entry, an `applied` mark, or a standing_seen.apply_yes draft); list_programs,
+  buildPick and bench-find scoreApplies (so the closing alert keeps its card) pass it. By id, `hiddenFor(row,
+  installationId)` (unlisted, or stale and not connected) gates get_program, prepare_submission and draftApplication.
+  Entries (projects.ts openEntries), standing's `open`, closing nudges, alert-mail's closing entries and the guide
+  pages never check staleness. A fresh write brings it back to discovery. File and sponsor rows never expire.
 - **Doc.** `docs/programs-api.md`: skip and report a program whose form host is refused (never swap the URL), the
-  4,096-character long-text cap, `starts_at` before `ends_at`, and re-verify every 14 days.
+  4,096-character long-text cap, `starts_at` before `ends_at`, and one re-check rule (weekly; 14 days drops off).

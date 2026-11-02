@@ -1,5 +1,5 @@
 import { sql } from './db';
-import { hiddenProgram } from './api-stale';
+import { hiddenFor } from './api-stale';
 import { BASE_GRANTS_ID } from './builder-code';
 import { appProvenRepo, builderCodesKnown, builderCodesWords, refreshBuilderCodes } from './builder-codes-check';
 import { EntryError, githubRepo } from './campaigns';
@@ -94,8 +94,8 @@ async function builderCodes(ctx: ToolContext, key: string): Promise<boolean | nu
 
 export async function draftApplication(input: DraftInput, ctx: ToolContext, program: ProgramRow): Promise<Reply> {
   // R15: an unlisted program is gone, as an unknown id; a closed one says so, an upcoming one too (never "closed").
-  // v4.9 final fix (ruling 6): a stale API program is unlisted too (api-stale.ts).
-  if (hiddenProgram(program)) throw new NotFoundError(`No program with id "${program.id}". Call find for current ids.`);
+  // v4.9 final fix (ruling 6): a stale API program is unlisted too, unless this builder entered, applied to or drafted it.
+  if (await hiddenFor(program, ctx.installationId)) throw new NotFoundError(`No program with id "${program.id}". Call find for current ids.`);
   if (program.status === 'upcoming' && !(program.ends_at && program.ends_at <= new Date())) throw new EntryError('This program is not open yet.');
   if (program.status !== 'active' || (program.ends_at && program.ends_at <= new Date())) throw new EntryError('This program is closed.');
   const { program_id } = input;

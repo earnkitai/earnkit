@@ -23,8 +23,8 @@ Rules (from `programs/README.md`):
 - Use only the program's official pages: overview, rules, FAQ and the form itself.
 - Never guess. If the source doesn't state a fact, leave the field out (or `null`). Never estimate a reward, a pool or a deadline.
 - Mirror the real form field by field in `submission_requirements`.
-- Set `verified_at` to the day you read the source. Re-check a program at least every 7 days.
-- Re-verify each program at least every 14 days. A program whose `verified_at` is more than 14 days old drops off the site, `GET /api/programs`, every count and every builder's agent until you write it again with a fresh `verified_at`.
+- Set `verified_at` to the day you read the source.
+- Re-check each program at least weekly (a write's verified_at must be within the last 7 days). A program not re-checked for 14 days drops off EarnKit's lists until you write it again.
 
 ## The routes
 

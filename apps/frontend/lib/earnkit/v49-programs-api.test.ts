@@ -13,6 +13,7 @@ import { ProgramFile, categoryOf, isOptimismUrl } from './program-file';
 import { proofHostAllowed } from './submit-hosts';
 import { ApiRowTakenError, alsoProgramFacts, listPrograms, openProgramFacts, upsertProgram } from './programs';
 import { API_STALE_DAYS, apiStale } from './api-stale';
+import { openEntries } from './projects';
 import { openCuratedRows } from './alerts';
 import { alertBody, alertEvents, type AlertEvent } from './alert-mail';
 import { digestBody, moneyTexts, type DigestFacts } from './digest';
@@ -1174,7 +1175,8 @@ test('v4.9 final fix (F2): an API write expires /api/stats too (the tag on its r
 test('v4.9 final fix (F3, F4): the guide says to skip a refused form host, and lists the long-text cap and the date order', () => {
   const doc = readFileSync(join(import.meta.dirname, '../../../../docs/programs-api.md'), 'utf8');
   assert.ok(doc.includes("If a program's real form is on a host the API refuses, skip that program and report it to the owner; never send a different URL than the program's own form."));
-  assert.ok(doc.includes('Re-verify each program at least every 14 days.'));
+  assert.ok(doc.includes("Re-check each program at least weekly (a write's verified_at must be within the last 7 days). A program not re-checked for 14 days drops off EarnKit's lists until you write it again."));
+  assert.doesNotMatch(doc, /every 7 days|every 14 days/, 'one rule, not two intervals');
   assert.doesNotMatch(doc, /—/);
   const row = (field: string) => new RegExp(`^\\| ${field.replace(/[|`]/g, (c) => `\\${c}`)} \\| (.+) \\|$`, 'm').exec(doc)?.[1];
   const long = row('`description`, `reward`, each `rules` item, requirement `label`, `description` and each `options` item');
@@ -1241,7 +1243,7 @@ test('v4.9 final fix (ruling 6): apiStale: day 14 is fresh, day 15 is stale; nev
   assert.equal(API_STALE_DAYS, 14);
 });
 
-test('v4.9 final fix (ruling 6): an api program verified 15 days ago is off every list, match, offer, count and page; 14 days ago it stays; a file program never expires', db, async () => {
+test('v4.9 final fix (ruling 6): an api program verified 15 days ago leaves discovery (lists, matches, offers, counts, landing, sitemap); 14 days ago it stays; a file program never expires; its guide page stays', db, async () => {
   const fresh = `v49-day14-${process.pid}`;
   const stale = `v49-day15-${process.pid}`;
   const oldFile = `v49-oldfile-${process.pid}`;
@@ -1262,12 +1264,15 @@ test('v4.9 final fix (ruling 6): an api program verified 15 days ago is off ever
   check(ids(await openCuratedRows()), 'alerts and digest candidates');
   check(ids(await openProgramFacts()), 'openProgramFacts');
   check(ids(await alsoProgramFacts()), 'Also qualifies');
-  check(new Set(await readGuideIds()), 'guide pages');
   check(new Set((await sitemap()).map((p) => p.url.split('/programs/')[1]).filter(Boolean)), 'sitemap');
   assert.equal((await readStats()).programs_open, before + 2, 'the count holds day 14 and the file, never day 15');
   assert.ok(await readGuidePage(fresh));
-  assert.equal(await readGuidePage(stale), null, 'its guide page is a 404, as unlisted');
+  // Follow-up ruling: the guide page keeps working (the normal page; a closed one shows closed, Ruling 22).
+  assert.ok((await readGuideIds()).includes(stale), 'the guide set keeps it');
+  assert.ok(await readGuidePage(stale), 'its guide page still works');
+  // A new builder (no entry, applied mark or draft) can't find, read or prepare it.
   const ctx = { installationId: await install() } as never;
+  assert.equal(ids(await listPrograms({ for: (ctx as { installationId: number }).installationId })).has(stale), false);
   await assert.rejects(() => tools.find({ program_id: stale }, ctx) as Promise<unknown>, /No program with id/);
   await assert.rejects(() => tools.prepare({ program_id: stale }, ctx) as Promise<unknown>, /No program with id/);
   assert.ok(await tools.find({ program_id: fresh }, ctx));
@@ -1299,4 +1304,55 @@ test('v4.9 final fix (ruling 5, 6): the new-program alert names an api program w
   assert.equal(mine[0].research, true);
   const body = alertBody(mine[0]);
   assert.ok(body.text.split('\n')[0].includes(`Mail ${fresh}`) && body.text.split('\n')[0].endsWith(RESEARCH_LABEL), body.text);
+});
+
+test('v4.9 final fix (ruling 6 follow-up): after day 15 a builder who entered, applied to or drafted a stale api program still has it; a new builder does not', db, async () => {
+  const stale = `v49-kept-${process.pid}`;
+  await upsertProgram(ProgramFile.parse(apiProgram(stale, { title: `Kept ${process.pid}`, verified_at: daysAgo(15), ends_at: new Date(Date.now() + 3 * 86_400_000).toISOString() })), 'api');
+  const entered = await install();
+  await sql()`INSERT INTO projects (program_id, name, installation_id, confirmed_at) VALUES (${stale}, 'kit', ${entered}, now())`;
+  const applied = await install();
+  await sql()`INSERT INTO builder_program_status (installation_id, program_id, status) VALUES (${applied}, ${stale}, 'applied')`;
+  const drafted = await install();
+  await sql()`INSERT INTO builder_profiles (builder_id, slug, standing_seen) VALUES (${drafted}, ${`v49d${drafted}`}, ${sql().json({ apply_yes: { [stale]: new Date().toISOString() } } as never)})`;
+  const fresh = await install();
+  const listed = async (id: number) => (await listPrograms({ for: id })).some((p) => p.id === stale);
+  // Discovery: gone for everyone without a connection, and from the plain list.
+  assert.equal((await listPrograms()).some((p) => p.id === stale), false, 'the plain list (landing, counts) drops it');
+  assert.equal(await listed(fresh), false, 'a new builder never sees it');
+  await assert.rejects(() => tools.find({ program_id: stale }, { installationId: fresh } as never) as Promise<unknown>, /No program with id/);
+  // The builders connected to it keep it: their list, get_program and prepare.
+  for (const [what, id] of [['entered', entered], ['applied', applied], ['drafted', drafted]] as const) {
+    assert.ok(await listed(id), `${what}: still in their list`);
+    const one = (await tools.find({ program_id: stale }, { installationId: id } as never)) as { id?: string; api_content?: unknown };
+    assert.equal(one.id, stale, `${what}: get_program reads it`);
+    assert.deepEqual(one.api_content, API_CONTENT);
+  }
+  const prep = (await tools.prepare({ program_id: stale }, { installationId: entered } as never)) as { draft?: unknown; api_content?: unknown };
+  assert.ok(prep.draft, 'entered: prepare still drafts it');
+  assert.deepEqual(prep.api_content, API_CONTENT);
+  // Their entries, standing and closing nudge/alert reads keep it.
+  assert.ok((await openEntries(entered)).some((e) => e.program_id === stale), 'entered: their open entries');
+  const [standing] = await sql()<{ open: boolean }[]>`
+    SELECT (pr.status = 'active' AND (pr.ends_at IS NULL OR pr.ends_at > now())) AS open FROM projects p JOIN programs pr ON pr.id = p.program_id
+    WHERE p.installation_id = ${entered} AND p.program_id = ${stale}`;
+  assert.equal(standing.open, true);
+  for (const f of ['projects.ts', 'standing.ts', 'nudges.ts', 'alert-mail.ts', 'guide-pages.ts', 'landing.ts'])
+    assert.doesNotMatch(readFileSync(join(import.meta.dirname, f), 'utf8'), /freshSql|apiStale/, `${f}: builder reads never drop a stale program`);
+  // A fresh builder's alert candidates (new programs) never include it.
+  assert.equal((await openCuratedRows()).some((r) => r.id === stale), false);
+});
+
+test('v4.9 final fix (ruling 6 follow-up): the closing alert still reaches a builder who entered a stale api program', db, async () => {
+  const now = new Date();
+  const pid = `v49-close-${process.pid}`;
+  await upsertProgram(ProgramFile.parse(apiProgram(pid, { title: `Closing ${process.pid}`, verified_at: daysAgo(15), ends_at: new Date(now.getTime() + 2 * 86_400_000).toISOString() })), 'api');
+  const id = await install();
+  await sql()`INSERT INTO projects (program_id, name, installation_id, confirmed_at) VALUES (${pid}, 'kit', ${id}, now())`;
+  const e = (await alertEvents(id, now)).find((x) => x.key.startsWith(`closing:${pid}:`));
+  assert.ok(e, 'the closing alert is kept');
+  assert.equal(e.research, true);
+  assert.ok(alertBody(e).text.split('\n')[0].endsWith(RESEARCH_LABEL));
+  const other = await install();
+  assert.equal((await alertEvents(other, now)).some((x) => x.key.includes(pid)), false);
 });

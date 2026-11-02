@@ -1,5 +1,4 @@
 import { sql } from './db';
-import { freshSql } from './api-stale';
 import { DEADLINE_DAYS } from './alerts';
 import { closeDay, hoursLeft } from './deadline';
 import { COIN_PROGRAM } from './policy-constants';
@@ -129,7 +128,6 @@ async function closingPick(id: number, now: Date): Promise<NudgePick | null> {
   const [e] = await sql()<{ program_id: string; title: string; ends_at: Date; summary: string; tz: string | null }[]>`
     SELECT p.program_id, pr.title, pr.ends_at, pr.summary, pr.tz FROM projects p JOIN programs pr ON pr.id = p.program_id JOIN installations i ON i.id = p.installation_id
     WHERE COALESCE(i.builder_id, i.id) = ${id} AND pr.status = 'active' AND pr.campaign IS NULL AND p.program_id <> ${COIN_PROGRAM}
-      AND ${freshSql(sql(), 'pr', now)}
       AND p.confirmed_at IS NOT NULL AND p.submission_confirmed_at IS NULL AND p.submission_proof_ok_at IS NULL
       AND pr.ends_at > ${now} AND pr.ends_at <= ${new Date(now.getTime() + DEADLINE_DAYS * DAY_MS)}
       AND NOT EXISTS (SELECT 1 FROM builder_program_status s WHERE s.installation_id = p.installation_id AND s.program_id = p.program_id AND s.status = 'applied')

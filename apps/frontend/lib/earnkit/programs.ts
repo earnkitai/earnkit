@@ -39,7 +39,7 @@ import {
 } from './sponsor-verify';
 import { plainText, quoted } from './untrusted-text';
 import { API_CONTENT } from './api-program-text';
-import { freshSql, hiddenProgram } from './api-stale';
+import { connectedSql, freshSql } from './api-stale';
 import { poolLine, poolStated, statedPool } from './pool';
 
 export class NotFoundError extends Error {}
@@ -215,7 +215,11 @@ export type ProgramRow = {
  * (card `status: 'upcoming'`), for the program list and the one upcoming line; every caller that
  * offers, matches or counts keeps `status === 'active'` (pool.ts openCurated, isOpen).
  */
-export async function listPrograms() {
+/**
+ * v4.9 final fix (ruling 6 follow-up): `o.for`, an installation: a stale API program it is connected to (an entry, an
+ * applied mark or a draft; api-stale.ts connectedSql) stays in its list. Without it, stale API programs are left out.
+ */
+export async function listPrograms(o: { for?: number } = {}) {
   const db = sql();
   const programs = await db<
     (Pick<
@@ -278,7 +282,8 @@ export async function listPrograms() {
       p.chains, p.any_chain, p.investment, p.needs_repo, p.needs_contract, p.rules, p.token_policy, p.starts_at,
       p.match_precision, p.submission_url, p.status, p.opens_note, p.in_person, p.fresh_build, p.agent_completable, p.pitch, p.tz, sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
     FROM programs p LEFT JOIN sponsor_campaigns sc ON sc.program_id = p.id
-    WHERE p.status IN ('active', 'upcoming') AND (p.ends_at IS NULL OR p.ends_at > now()) AND ${freshSql(db, 'p')}
+    WHERE p.status IN ('active', 'upcoming') AND (p.ends_at IS NULL OR p.ends_at > now())
+      AND (${freshSql(db, 'p')}${o.for !== undefined ? db` OR p.id IN (${connectedSql(db, o.for)})` : db``})
       ${archiveFlag('SPONSOR_CAMPAIGNS') ? db`` : db`AND (p.campaign->>'kind') IS DISTINCT FROM 'sponsor'`}
     ORDER BY p.ends_at NULLS LAST, p.id`; // Task 11: a tie-breaker, so equal deadlines list in one order (the 9.3 find test compared two reads)
   const tracks = await db<{ id: string; program_id: string; name: string }[]>`
@@ -569,9 +574,9 @@ type StarterRow = {
 export async function getProgram(programId: string) {
   const db = sql();
   const program = await getProgramRow(programId);
-  // v3.1 (D2, R15): an unlisted program is gone, as an unknown id (never "closed" for an open one). v4.9 final fix
-  // (ruling 6): so is a stale API program (api-stale.ts).
-  if (hiddenProgram(program)) throw new NotFoundError(`No program with id "${programId}". Call find for current ids.`);
+  // v3.1 (D2, R15): an unlisted program is gone, as an unknown id (never "closed" for an open one). A stale API program
+  // is gone only for builders not connected to it (tools.ts get_program, api-stale.ts hiddenFor).
+  if (program.status === 'unlisted') throw new NotFoundError(`No program with id "${programId}". Call find for current ids.`);
   // v2.12 spec 9: sponsor campaigns are archived; their rows are not shown while the flag is off.
   if (!archiveFlag('SPONSOR_CAMPAIGNS') && program.campaign?.kind === 'sponsor')
     throw new NotFoundError(`No program with id "${programId}". Call find for current ids.`);

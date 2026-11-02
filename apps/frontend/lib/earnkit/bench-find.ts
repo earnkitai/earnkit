@@ -2518,7 +2518,8 @@ async function readyDraft(id: number, programId: string): Promise<{ show_to_buil
  * none. Never throws.
  */
 export async function scoreApplies(id: number, main: string | null, now: Date): Promise<{ applies: Fit[]; cards: Card[]; upcoming: Card[]; skip: Set<string> }> {
-  const [programs, entries, memory] = await Promise.all([listPrograms().catch(() => []), openEntries(id).catch(() => []), readMemory(id).catch(() => null)]);
+  // v4.9 final fix: a stale API program the builder is connected to stays a card (closing alerts); entered ones are skipped.
+  const [programs, entries, memory] = await Promise.all([listPrograms({ for: id }).catch(() => []), openEntries(id).catch(() => []), readMemory(id).catch(() => null)]);
   const all = (programs as (Card & { agent_completable?: boolean; earnkit_campaign?: boolean; starts_at: Date | null; opened_at: Date | null })[])
     .filter((p) => p.agent_completable !== false && !p.earnkit_campaign);
   // v3 Stage 2: an upcoming program is never a fit or an offer; it only feeds the one upcoming line.

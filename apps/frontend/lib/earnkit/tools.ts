@@ -153,7 +153,7 @@ import { SHARED_PROFILE_NOTE, deleteAsk, ensureProfile, setFallback, setHidden }
 import { xSignInEnabled } from './builder-score-flag';
 import { sql } from './db';
 import { API_CONTENT } from './api-program-text';
-import { hiddenProgram } from './api-stale';
+import { hiddenFor } from './api-stale';
 import { STRIPE_DISCONNECTED, STRIPE_NEVER_KEY, STRIPE_NOT_CONNECTED, STRIPE_NO_LINK, stripeConnectLine, stripeDraftNote } from './bench-reply';
 import { disconnectStripe, stripeLink, takeStripeDraftLink } from './stripe';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
@@ -873,7 +873,8 @@ export const handlers = {
       })().catch((err: unknown) => console.error('[list_programs] profile', err instanceof Error ? err.name : 'error'));
     const [memory, openPrograms, campaigns, told] = await Promise.all([
       checkPrograms(ctx.installationId, { github_user, repos, local_repos }),
-      listPrograms(),
+      // v4.9 final fix: a stale API program this builder is connected to stays in their list (api-stale.ts).
+      listPrograms({ for: ctx.installationId }),
       earnkitCampaignRows(ctx.installationId),
       // v2.9 A3: what the builder told EarnKit, read once per call (G6: none on a shared client).
       memoryOf(memoryKey(ctx), 'list_programs'),
@@ -1213,6 +1214,8 @@ export const handlers = {
     const { program_id, repo } = GetProgramInput.parse(input);
     // v4.8.2 Task 3 (R4): closes_in beside the ISO deadline (no summary here; the guide header says the hours itself).
     const program = await getProgram(program_id).then((p) => ({ ...p, closes_in: agentClosesIn(p, new Date()) }));
+    // v4.9 final fix (ruling 6): a stale API program reads only for a builder who entered, applied to or drafted it.
+    if (await hiddenFor(await getProgramRow(program_id), ctx.installationId)) throw new NotFoundError(`No program with id "${program_id}". Call find for current ids.`);
     if (!repo) return withAlerts(ctx, program);
     // Eligibility dry run for one repo: pass/fail plus what's missing.
     try {
@@ -1240,8 +1243,8 @@ export const handlers = {
     const { program_id, agent: _agent, coach_asked, host, ...known } = PrepareSubmissionInput.parse(input);
     const program = await getProgramRow(program_id);
     // v3.1 R15: an unlisted program is refused on every prepare path (the build, deploy and host ones too), never "closed".
-    // v4.9 final fix (ruling 6): a stale API program is unlisted too (api-stale.ts).
-    if (hiddenProgram(program)) throw new NotFoundError(`No program with id "${program_id}". Call find for current ids.`);
+    // v4.9 final fix (ruling 6): a stale API program is unlisted too, unless this builder entered, applied to or drafted it.
+    if (await hiddenFor(program, ctx.installationId)) throw new NotFoundError(`No program with id "${program_id}". Call find for current ids.`);
     const hosting = host ? await hostBlock(ctx, known.project?.repo_url ?? known.answers?.repo_url, known.project?.name) : null;
     // Campaign entries reach the sponsor: check the name and description now, as record_submission will.
     if (program.campaign && known.project)
@@ -1917,7 +1920,7 @@ export const WALLET_NEEDED_NOTE =
  */
 async function buildPick(programId: string, ctx: ToolContext, o: { anyDeploy?: boolean } = {}): Promise<Pick<FreshPick, 'starter'> | null> {
   // v3 Stage 2: never an upcoming program.
-  const programs = (await listPrograms()).filter((p) => p.status !== 'upcoming');
+  const programs = (await listPrograms({ for: ctx.installationId })).filter((p) => p.status !== 'upcoming');
   const card = programs.find((p) => p.id === programId && !p.earnkit_campaign);
   if (!card) return null;
   const told = await memoryOf(memoryKey(ctx), 'prepare');
