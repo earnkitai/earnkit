@@ -12,7 +12,7 @@ import { attachToX } from './x-install';
 import { QUALIFY_BASE_YES_NOTE, QUALIFY_NOTE, QUALIFY_STEPS_NOTE, alsoOpen, standingFields, whyNote } from './bench-find';
 import { randomBytes } from 'node:crypto';
 import { tokenOfferDue } from './wallet-offer';
-import { isoWeekOf } from './weeks';
+import { isoWeekOf, last52 } from './weeks';
 import { FIND_DESCRIPTION_BENCH } from './mcp';
 import { ANSWER_FIRST_NOTE } from './stand-text';
 import {
@@ -499,7 +499,7 @@ test('v4.3 Task 3: a find reply carries no points_total or points fact; rank_lin
 /** A ranked, listed builder with a streak of `streak` weeks ending last week (fixtures/find.ts person); a no to the Base steps. */
 async function streakBuilder(tag: string, streak: number) {
   const key = `${tag}${RUN}/app`;
-  const id = await person({ main: key, claimed: `${tag}${RUN}`.slice(0, 15), ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z', declined: { [`qualify:${key}`]: new Date().toISOString() } }, projects: [{ key, name: 'App', confirmed: true, streak }] });
+  const id = await person({ main: key, claimed: `${tag}${RUN}`.slice(0, 15), ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z', declined: { [`qualify:${key}`]: new Date().toISOString() } }, projects: [{ key, name: 'App', confirmed: true, streak, commit_weeks: last52(new Date(WEDNESDAY)).slice(51 - streak, 51) }] });
   return { installationId: id, ownInstallationId: id, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 0, fits: [] })) as never };
 }
 

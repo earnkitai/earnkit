@@ -1,4 +1,4 @@
-import { after, test } from 'node:test';
+import { after, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import * as React from 'react';
@@ -46,6 +46,7 @@ process.env.X_CLIENT_SECRET = 'sec';
 process.env.EARNKIT_URL = 'https://earnkit.com';
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
+  mock.timers.reset();
   globalThis.fetch = realFetch;
   if (process.env.DATABASE_URL) await sql().end();
 });
@@ -65,9 +66,14 @@ const fakeX = (user: XUser): XOAuthDeps => ({ exchange: async () => 'x-token', m
 
 // The week the Monday run writes is this week (still in progress at the App setup, so the setup's backfill of
 // finished weeks never writes it first); the run is the next Monday, 15:30 UTC.
-const WEEK = mondayOf(new Date());
+const WEEK = mondayOf(new Date());  // read before the clock is pinned below
 const at = (days: number, time: string) => new Date(Date.parse(`${WEEK}T${time}Z`) + days * 86_400_000);
 const MONDAY_RUN = at(7, '15:30:00');
+/** The whole journey runs on this Wednesday noon of that week, whatever day the suite runs on: the week's commits (Tuesday and
+ *  Wednesday) are then in the past and the week is still in progress, as on the weekday the fixtures were written. Only Date is
+ *  pinned (the database's now() stays real). */
+const WEDNESDAY_NOON = at(2, '12:00:00').getTime();
+mock.timers.enable({ apis: ['Date'], now: WEDNESDAY_NOON });
 const gh = fakeGitHub({
   [KEY]: {
     id: REPO_ID, owner: ORG, ownerType: 'Organization', installation: GH_INSTALL, admins: [LOGIN],
