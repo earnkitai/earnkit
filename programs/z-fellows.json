@@ -1,0 +1,382 @@
+{
+  "id": "z-fellows",
+  "organizer": "Z Fellows",
+  "title": "Z Fellows",
+  "description": "A one-week program that brings together ten technical builders with founders of billion-dollar companies, with support for the life of your company. Fellows can take a $10,000 investment at a $1B valuation cap, or join without money. Mostly virtual, with the last day in person in San Francisco or New York. Applications are reviewed on a rolling basis.",
+  "source_url": "https://www.zfellows.com/",
+  "submission_url": "https://docs.google.com/forms/d/e/1FAIpQLSeKZ2LFKJFxACeeBN9WXA-lAaT6BelMCSjzD4lb5waJqNadyA/viewform",
+  "reward": "A $10,000 investment at a $1B valuation cap if you want it (you can also join without money), converting to stock at your next priced round",
+  "summary": "up to $10K investment · rolling",
+  "max_award_usd": 10000,
+  "submission_proof": null,
+  "starts_at": null,
+  "ends_at": null,
+  "verified_at": "2026-11-01",
+  "status": "active",
+  "existing_work": "allowed",
+  "needs_repo": false,
+  "chains": [],
+  "any_chain": true,
+  "investment": true,
+  "min_product_score": 5,
+  "setup": [],
+  "each_time": [
+    "personal answers about you, your work and your drive"
+  ],
+  "rules": [
+    "Rolling: there is no deadline. Applications are reviewed on a rolling basis, Z Fellows runs multiple cohorts each year, and rejected applicants can reapply.",
+    "One week with ten builders per cohort. Mostly virtual; the last day is in person in San Francisco or New York, and most fellows spend the whole week in one of those cities.",
+    "Taking money is up to you: join without it, or take $10,000 at a $1B valuation cap that converts to stock at your next priced round.",
+    "For technical builders anywhere in the world, of any age, working on side projects or startups. No company, team, dropping out or quitting your job needed.",
+    "Apply solo or with co-founders; one application per team."
+  ],
+  "submission_requirements": [
+    {
+      "key": "email",
+      "label": "Email",
+      "kind": "contact",
+      "todo": "your email",
+      "type": "email",
+      "required": true,
+      "description": "The form collects your email address.",
+      "from": "builder"
+    },
+    {
+      "key": "first_name",
+      "label": "First Name",
+      "kind": "contact",
+      "todo": "your first name",
+      "type": "text",
+      "required": true,
+      "from": "builder"
+    },
+    {
+      "key": "last_name",
+      "label": "Last Name",
+      "kind": "contact",
+      "todo": "your last name",
+      "type": "text",
+      "required": true,
+      "from": "builder"
+    },
+    {
+      "key": "company_name",
+      "label": "Company or project name",
+      "kind": "name",
+      "todo": "a company or project name",
+      "type": "text",
+      "required": true,
+      "project_field": "name",
+      "from": "project"
+    },
+    {
+      "key": "birthday",
+      "label": "Birthday",
+      "kind": "contact",
+      "todo": "your birthday",
+      "type": "text",
+      "required": true,
+      "description": "A date.",
+      "from": "builder"
+    },
+    {
+      "key": "phone",
+      "label": "Phone Number",
+      "kind": "contact",
+      "todo": "your phone number",
+      "type": "text",
+      "required": true,
+      "from": "builder"
+    },
+    {
+      "key": "technical",
+      "label": "Are you technical?",
+      "kind": "team",
+      "todo": "whether you are technical",
+      "type": "choice",
+      "required": true,
+      "options": [
+        "Yes",
+        "No"
+      ],
+      "from": "builder"
+    },
+    {
+      "key": "applied_before",
+      "label": "Have you previously applied to Z Fellows?",
+      "kind": "other",
+      "todo": "whether you applied before",
+      "type": "choice",
+      "required": true,
+      "options": [
+        "Yes",
+        "No"
+      ],
+      "from": "builder"
+    },
+    {
+      "key": "based",
+      "label": "Where are you based?",
+      "kind": "contact",
+      "todo": "where you are based",
+      "type": "text",
+      "required": true,
+      "from": "builder"
+    },
+    {
+      "key": "school_or_work",
+      "label": "Are you in school or working? Or both? Where at?",
+      "kind": "team",
+      "todo": "your school or work",
+      "type": "text",
+      "required": true,
+      "from": "builder"
+    },
+    {
+      "key": "project",
+      "label": "What is the project that you are currently working on or would like to pursue? Why? (Max: 500 characters - about 100 words)",
+      "kind": "solution",
+      "todo": "your project and why",
+      "type": "text",
+      "required": true,
+      "max_chars": 500,
+      "from": "project"
+    },
+    {
+      "key": "problem",
+      "label": "What problem are you solving? (Max: 500 characters - about 100 words)",
+      "kind": "problem",
+      "todo": "the problem you solve",
+      "type": "text",
+      "required": true,
+      "max_chars": 500,
+      "from": "project"
+    },
+    {
+      "key": "expertise",
+      "label": "What expertise do you have to execute on the work that you want to do? (Max: 500 characters - about 100 words)",
+      "kind": "why_you",
+      "todo": "your expertise to execute",
+      "type": "text",
+      "required": true,
+      "max_chars": 500,
+      "from": "builder"
+    },
+    {
+      "key": "competitors",
+      "label": "Who are your competitors and what do you understand about your idea that they don't? (Max: 500 characters - about 100 words)",
+      "kind": "other",
+      "todo": "your competitors and your insight",
+      "type": "text",
+      "required": true,
+      "max_chars": 500,
+      "from": "project"
+    },
+    {
+      "key": "past_work",
+      "label": "What have you worked on in the past? (Max: 500 characters - about 100 words)",
+      "kind": "team",
+      "todo": "what you worked on before",
+      "type": "text",
+      "required": true,
+      "max_chars": 500,
+      "from": "builder"
+    },
+    {
+      "key": "nerdiest",
+      "label": "What's the nerdiest thing about you? (Max: 250 characters - about 50 words)",
+      "kind": "other",
+      "todo": "the nerdiest thing about you",
+      "type": "text",
+      "required": true,
+      "max_chars": 250,
+      "from": "builder"
+    },
+    {
+      "key": "drives_you",
+      "label": "What drives you? (Max: 250 characters - about 50 words)",
+      "kind": "other",
+      "todo": "what drives you",
+      "type": "text",
+      "required": true,
+      "max_chars": 250,
+      "from": "builder"
+    },
+    {
+      "key": "non_traditional",
+      "label": "What non-traditional things were you doing growing up?",
+      "kind": "other",
+      "todo": "non-traditional things growing up",
+      "type": "text",
+      "required": true,
+      "from": "builder"
+    },
+    {
+      "key": "risk",
+      "label": "Tell us about a risk youʼve taken or a challenge you've faced. Tell us whether you failed or succeeded, how you behaved, and how you think this reflects your character. (Max: 500 characters - about 100 words)",
+      "kind": "other",
+      "todo": "a risk or challenge you faced",
+      "type": "text",
+      "required": true,
+      "max_chars": 500,
+      "from": "builder"
+    },
+    {
+      "key": "links",
+      "label": "Personal and/or Project Website and/or Links about you",
+      "kind": "links",
+      "todo": "links about you or your project",
+      "type": "text",
+      "required": true,
+      "from": "builder"
+    },
+    {
+      "key": "achievements",
+      "label": "Please list or describe any achievements and prizes.",
+      "kind": "other",
+      "todo": "your achievements and prizes",
+      "type": "text",
+      "required": true,
+      "from": "builder"
+    },
+    {
+      "key": "intro_video",
+      "label": "Please include a 1 minute video of yourself with a short introduction on your background, something impressive about yourself (i.e. brag :)), and what project you're working on today. (Optional)",
+      "kind": "other",
+      "type": "url",
+      "required": false,
+      "description": "Talk about yourselves, not a product demo; include all founders if possible. A YouTube link works best.",
+      "from": "builder"
+    },
+    {
+      "key": "dream_cofounder",
+      "label": "Who would you co-found a company with if you could pick anyone in your network? In other words, who is someone un-recruitable you would want to hire regardless?",
+      "kind": "other",
+      "todo": "your dream co-founder",
+      "type": "text",
+      "required": true,
+      "description": "Do not put the current person you are working with (if you happen to already have a co-founder).",
+      "from": "builder"
+    },
+    {
+      "key": "heard_about",
+      "label": "How did you hear about Z Fellows?",
+      "kind": "other",
+      "todo": "how you heard about Z Fellows",
+      "type": "text",
+      "required": true,
+      "from": "builder"
+    },
+    {
+      "key": "help_needed",
+      "label": "Optional: What's 1 thing you need help with? (Max: 500 characters - about 100 words)",
+      "kind": "other",
+      "type": "text",
+      "required": false,
+      "max_chars": 500,
+      "from": "builder"
+    },
+    {
+      "key": "referral_ack",
+      "label": "How this works: We'll email the person you refer to let them know you referred them and CC you on the email. Please refer smart friends, not cofounders or team members. We only need 1 application per team.",
+      "kind": "other",
+      "type": "choice",
+      "required": false,
+      "options": [
+        "Sounds good!"
+      ],
+      "description": "Optional referral section. Leave the friend answers blank if you're not recommending anyone.",
+      "from": "builder"
+    },
+    {
+      "key": "friend_1_name",
+      "label": "Optional: Name of friend 1",
+      "kind": "other",
+      "type": "text",
+      "required": false,
+      "from": "builder"
+    },
+    {
+      "key": "friend_1_email",
+      "label": "Optional: Email of friend 1",
+      "kind": "other",
+      "type": "text",
+      "required": false,
+      "from": "builder"
+    },
+    {
+      "key": "friend_2_name",
+      "label": "Optional: Name of friend 2",
+      "kind": "other",
+      "type": "text",
+      "required": false,
+      "from": "builder"
+    },
+    {
+      "key": "friend_2_email",
+      "label": "Optional: Email of friend 2",
+      "kind": "other",
+      "type": "text",
+      "required": false,
+      "from": "builder"
+    },
+    {
+      "key": "friend_3_name",
+      "label": "Optional: Name of friend 3",
+      "kind": "other",
+      "type": "text",
+      "required": false,
+      "from": "builder"
+    },
+    {
+      "key": "friend_3_email",
+      "label": "Optional: Email of friend 3",
+      "kind": "other",
+      "type": "text",
+      "required": false,
+      "from": "builder"
+    }
+  ],
+  "tracks": [],
+  "starters": [],
+  "difficulty_override": null,
+  "form": {
+    "url": "https://docs.google.com/forms/d/e/1FAIpQLSeKZ2LFKJFxACeeBN9WXA-lAaT6BelMCSjzD4lb5waJqNadyA/viewform",
+    "fields": {
+      "first_name": "entry.1014228544",
+      "last_name": "entry.2033648051",
+      "company_name": "entry.41513773",
+      "phone": "entry.1387847630",
+      "technical": "entry.341795595",
+      "applied_before": "entry.1373492472",
+      "based": "entry.804178553",
+      "school_or_work": "entry.796707688",
+      "project": "entry.1187976181",
+      "problem": "entry.1658936460",
+      "expertise": "entry.2134887499",
+      "competitors": "entry.840223092",
+      "past_work": "entry.1489446468",
+      "nerdiest": "entry.259843681",
+      "drives_you": "entry.1594346963",
+      "non_traditional": "entry.1657349600",
+      "risk": "entry.2053766246",
+      "links": "entry.1833430170",
+      "achievements": "entry.1650194729",
+      "intro_video": "entry.227098789",
+      "dream_cofounder": "entry.859064531",
+      "heard_about": "entry.1737331105",
+      "help_needed": "entry.347047419",
+      "friend_1_name": "entry.1134776430",
+      "friend_1_email": "entry.2090736119",
+      "friend_2_name": "entry.1700741102",
+      "friend_2_email": "entry.1107386667",
+      "friend_3_name": "entry.446236525",
+      "friend_3_email": "entry.480537178"
+    },
+    "sign_in": false,
+    "read_at": "2026-11-01"
+  },
+  "x_handles": [
+    "zfellows"
+  ]
+}

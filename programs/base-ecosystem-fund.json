@@ -1,0 +1,271 @@
+{
+  "id": "base-ecosystem-fund",
+  "organizer": "Base",
+  "title": "Base Ecosystem Fund",
+  "description": "The strategic investment arm of Base. In partnership with Coinbase Ventures, it invests in pre-seed and seed stage startups that choose Base as their home, with hands-on ecosystem support, partner credits and priority access to Coinbase products. Applications are open with no stated deadline.",
+  "source_url": "https://www.base.org/ecosystem-fund",
+  "submission_url": "https://www.base.org/ecosystem-fund/apply",
+  "reward": "Pre-seed and seed investment from the Base Ecosystem Fund, in partnership with Coinbase Ventures (amount not stated)",
+  "summary": "pre-seed and seed investment · rolling",
+  "submission_proof": null,
+  "starts_at": null,
+  "ends_at": null,
+  "wants_revenue": true,
+  "verified_at": "2026-11-01",
+  "status": "active",
+  "existing_work": "allowed",
+  "needs_repo": false,
+  "chains": [
+    "base"
+  ],
+  "investment": true,
+  "min_product_score": 5,
+  "setup": [],
+  "each_time": [
+    "founder details, traction and fundraising goals"
+  ],
+  "rules": [
+    "Rolling: the application is open on base.org with no stated deadline.",
+    "For pre-seed and seed stage startups that choose Base as their home. Base invests in partnership with Coinbase Ventures.",
+    "Base says it invests in top talent building enduring, high-performance onchain primitives and businesses that drive real economic activity.",
+    "Portfolio support: hands-on help from the ecosystem team with partner integrations and distribution; credits from partners including AWS, Azure, Alchemy and Spindl ad credits; priority access to Coinbase Prime, Coinbase Business and the Coinbase Onramp API.",
+    "The application has five steps (Company, Team, Idea, Funding, Why Base) and takes one to four founders. The pitch deck link is the only optional field.",
+    "No check size is published."
+  ],
+  "submission_requirements": [
+    {
+      "key": "company_name",
+      "label": "Company Name",
+      "kind": "name",
+      "todo": "a company name",
+      "type": "text",
+      "required": true,
+      "project_field": "name",
+      "from": "project"
+    },
+    {
+      "key": "building",
+      "label": "What are you building?",
+      "kind": "one_liner",
+      "todo": "what you are building",
+      "type": "text",
+      "required": true,
+      "description": "Describe your product or service.",
+      "project_field": "description",
+      "from": "project"
+    },
+    {
+      "key": "website_url",
+      "label": "Website URL",
+      "kind": "links",
+      "todo": "a website link",
+      "type": "url",
+      "required": true,
+      "project_field": "live_url",
+      "from": "project"
+    },
+    {
+      "key": "x_url",
+      "label": "X URL",
+      "kind": "links",
+      "todo": "the company's X link",
+      "type": "url",
+      "required": true,
+      "description": "An x.com or twitter.com link.",
+      "from": "builder"
+    },
+    {
+      "key": "founder_name",
+      "label": "Founder 1: Name",
+      "kind": "contact",
+      "todo": "the founder's full name",
+      "type": "text",
+      "required": true,
+      "description": "The form takes one to four founders; each has the same six fields.",
+      "from": "builder"
+    },
+    {
+      "key": "founder_role",
+      "label": "Founder 1: Role",
+      "kind": "team",
+      "todo": "the founder's role",
+      "type": "text",
+      "required": true,
+      "description": "CEO, CTO, etc.",
+      "from": "builder"
+    },
+    {
+      "key": "founder_experience",
+      "label": "Founder 1: Brief description of previous professional experiences",
+      "kind": "team",
+      "todo": "the founder's past experience",
+      "type": "text",
+      "required": true,
+      "description": "Relevant work experience and achievements.",
+      "from": "builder"
+    },
+    {
+      "key": "founder_telegram",
+      "label": "Founder 1: Telegram",
+      "kind": "contact",
+      "todo": "the founder's Telegram handle",
+      "type": "text",
+      "required": true,
+      "description": "A handle starting with @, or a t.me link.",
+      "from": "builder"
+    },
+    {
+      "key": "founder_x",
+      "label": "Founder 1: X",
+      "kind": "contact",
+      "todo": "the founder's X link",
+      "type": "url",
+      "required": true,
+      "description": "An x.com or twitter.com link.",
+      "from": "builder"
+    },
+    {
+      "key": "founder_linkedin",
+      "label": "Founder 1: LinkedIn",
+      "kind": "contact",
+      "todo": "the founder's LinkedIn link",
+      "type": "url",
+      "required": true,
+      "description": "A linkedin.com link.",
+      "from": "builder"
+    },
+    {
+      "key": "team_size",
+      "label": "Team Size",
+      "kind": "team",
+      "todo": "your team size",
+      "type": "choice",
+      "required": true,
+      "options": [
+        "1–5",
+        "6–10",
+        "11–25",
+        "26–50",
+        "51+"
+      ],
+      "from": "builder"
+    },
+    {
+      "key": "location",
+      "label": "Location",
+      "kind": "contact",
+      "todo": "your location",
+      "type": "text",
+      "required": true,
+      "description": "e.g. San Francisco, CA",
+      "from": "builder"
+    },
+    {
+      "key": "problem",
+      "label": "What is the problem you are solving?",
+      "kind": "problem",
+      "todo": "the problem you solve",
+      "type": "text",
+      "required": true,
+      "description": "Describe the problem and who it affects.",
+      "from": "project"
+    },
+    {
+      "key": "why_idea",
+      "label": "Why are you working on this idea?",
+      "kind": "why_you",
+      "todo": "why you work on this idea",
+      "type": "text",
+      "required": true,
+      "description": "What motivates you to solve this problem?",
+      "from": "builder"
+    },
+    {
+      "key": "how_long",
+      "label": "How long have you been working on this company idea?",
+      "kind": "other",
+      "todo": "how long you have worked on it",
+      "type": "choice",
+      "required": true,
+      "options": [
+        "Less than a year",
+        "1-3 years",
+        "4-5 years",
+        "5+ years"
+      ],
+      "from": "builder"
+    },
+    {
+      "key": "traction",
+      "label": "What's your current traction?",
+      "kind": "traction",
+      "todo": "your current traction",
+      "type": "text",
+      "required": true,
+      "description": "If pre-traction, please indicate what you have built to date.",
+      "from": "project"
+    },
+    {
+      "key": "raised_capital",
+      "label": "Have you raised capital before?",
+      "kind": "other",
+      "todo": "any capital raised before",
+      "type": "text",
+      "required": true,
+      "description": "If so, how much, from whom, and relevant terms.",
+      "from": "builder"
+    },
+    {
+      "key": "runway",
+      "label": "What's your current runway?",
+      "kind": "other",
+      "todo": "your current runway",
+      "type": "text",
+      "required": true,
+      "description": "e.g. 12 months",
+      "from": "builder"
+    },
+    {
+      "key": "fundraising_goals",
+      "label": "What are your current fundraising goals?",
+      "kind": "use_of_funds",
+      "todo": "your fundraising goals",
+      "type": "text",
+      "required": true,
+      "description": "Amount, timeline, and how you plan to use the funds.",
+      "from": "builder"
+    },
+    {
+      "key": "on_base",
+      "label": "What aspects of your company / product are on Base?",
+      "kind": "how_it_works",
+      "todo": "what of your product is on Base",
+      "type": "text",
+      "required": true,
+      "description": "Describe your onchain presence and integration with Base.",
+      "from": "project"
+    },
+    {
+      "key": "why_bef",
+      "label": "Why are you interested in BEF / Base?",
+      "kind": "other",
+      "todo": "why you want BEF and Base",
+      "type": "text",
+      "required": true,
+      "description": "What draws you to the Base ecosystem?",
+      "from": "project"
+    },
+    {
+      "key": "pitch_deck",
+      "label": "Pitch Deck URL",
+      "kind": "links",
+      "type": "url",
+      "required": false,
+      "description": "Optional. A Docsend or Google Drive link.",
+      "from": "builder"
+    }
+  ],
+  "tracks": [],
+  "starters": [],
+  "difficulty_override": null
+}
