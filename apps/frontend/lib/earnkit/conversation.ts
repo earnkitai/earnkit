@@ -114,6 +114,10 @@ export type MoveProgram = {
    * own (bestMove step 5). bench-find.ts always sets it; absent reads as false.
    */
   longShot?: boolean;
+  /** v4.10 Task 2: the program's largest award in USD (Card.max_award_usd), null when unknown; absent reads as null. ready-set.ts sums it. */
+  max_usd?: number | null;
+  /** v4.10 Task 2: for a long-shot grant, why it is one (the fit cell's reason: "they look for apps on Arc"); absent reads as null. */
+  why?: string | null;
 };
 /**
  * An open grant the project doesn't fit, with what it needs: `gaps` (each a step; none known: it can apply now), `gap`

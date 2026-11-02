@@ -639,7 +639,7 @@ const pathAmount = (c: Pick<Card, 'summary' | 'investment'>): string | null => {
 /** v4.8 Task 1: a card as the path names it (conversation.ts MoveProgram). Pure. */
 const moveProgram = (c: Card): MoveProgram => ({
   id: c.id, title: c.title, amount: pathAmount(c), when: fundWhen(c), ends_at: isoOf(c.ends_at), zone: programZone(c), investment: c.investment === true,
-  longShot: c.tag === 'long shot',
+  longShot: c.tag === 'long shot', max_usd: c.max_award_usd ?? null,
 });
 /** v4.8 Task 3: the find tell runs right after "sent" (tools.ts) sees the path at track this recently. */
 const AFTER_SENT_MS = 5 * 60_000;
@@ -790,7 +790,7 @@ async function pathPlan(o: ViewIn, v: PathFacts, told: Set<string>, w: { wide?: 
   const fitRows = (o.applies ?? o.fits).filter((f) => realFit(f) && f.investment !== true);
   const fits: MoveProgram[] = fitRows.map((f) => {
     const c = cardOf.get(f.program_id);
-    return c ? moveProgram(c) : { id: f.program_id, title: f.title, amount: f.amount, when: f.when, ends_at: f.ends_at, zone: 'UTC', investment: false };
+    return c ? moveProgram(c) : { id: f.program_id, title: f.title, amount: f.amount, when: f.when, ends_at: f.ends_at, zone: 'UTC', investment: false, max_usd: f.card?.max_award_usd ?? null };
   });
   const fitIds = new Set(fits.map((f) => f.id));
   const t = now.getTime();
@@ -844,7 +844,9 @@ async function pathPlan(o: ViewIn, v: PathFacts, told: Set<string>, w: { wide?: 
     // programNeeds' gaps (a chain's mainnet, a public repo, a live link) are never steps the agent does in the repo, so
     // never a one-step (fix round 1, R1). None: it can apply now (bestMove names it only when closing within 48 hours).
     const noAt = seen.declined?.[benchStepKey('needs', c.id)];
-    return { ...moveProgram(c), gaps: needs, gap: needs.length > 0 ? needsWhy(v.project.name, c.title, needs) : '', passed: recent(noAt), passedAt: recent(noAt) ? noAt : null, doable: false };
+    // v4.10 Task 2: a long shot says why (the programs answer's fit cell reason), for the ready set's copy.
+    const why = c.tag === 'long shot' ? fitCell(false, cardFact(c, needs, myChains(v, o.known))).replace(/^Not yet: /, '') : null;
+    return { ...moveProgram(c), why, gaps: needs, gap: needs.length > 0 ? needsWhy(v.project.name, c.title, needs) : '', passed: recent(noAt), passedAt: recent(noAt) ? noAt : null, doable: false };
   }))).filter((g): g is GapGrant => g !== null);
   // Fix round 1 (1): a grant raised in this session stays the move while the path is on it (its pointer answers).
   const live = !sessionOf(seen, now).fresh;

@@ -2764,3 +2764,9 @@ removed. Fixture `checkFitsAsked` now declines the needs ask for every program. 
 Final review: `needsYesNote` replaces `checkNeedsNote`; `openMoneyNow` (the /api/stats total); `needsKnown(id, key, also)`
 (one chains read, public repo only); `needsOf` uses Card `needs_contract`/`needs_live` (present.ts Card, programs.ts
 programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
+
+## v4.10 Task 2: ready set
+
+`ready-set.ts` `readySet`, `worthUpTo`, `READY_MAX`, `ReadyProgram` (uses `conversation.ts` `INVESTOR_WINDOW_MS`,
+`NOW_WINDOW_MS`, `MoveProgram.max_usd`/`why`; `pool.ts` `usdCompact`); `bench-find.ts` `moveProgram` sets `max_usd`,
+`pathPlan` sets a long-shot grant's `why`. Tests: `v410-ready.test.ts`.

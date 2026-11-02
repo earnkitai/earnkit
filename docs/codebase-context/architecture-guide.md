@@ -9173,3 +9173,14 @@ wherever it ranks (a long-shot grant at any close), so a builder who picks a16z 
   pages never check staleness. A fresh write brings it back to discovery. File and sponsor rows never expire.
 - **Doc.** `docs/programs-api.md`: skip and report a program whose form host is refused (never swap the URL), the
   4,096-character long-text cap, `starts_at` before `ends_at`, and one re-check rule (weekly; 14 days drops off).
+
+## v4.10 Task 2: the ready set (selector)
+
+- **`readySet(ctx)`** (`lib/earnkit/ready-set.ts`, pure) picks up to 3 programs from the same `MoveCtx` `bestMove` takes
+  (`bestMove` is unchanged). Order: real fits, one-step grants (one agent-doable gap, or no gap known), investor programs
+  closing within `INVESTOR_WINDOW_MS`, then long shots (`longShot`, with `why`); within a kind the larger `max_usd`, then
+  the sooner close. Left out: `ctx.skip` (declined, parked, applied, drafted within `DECLINE_MS`, entered, hidden), a close
+  passed, a gap the agent can't do closing within `NOW_WINDOW_MS`. `worthUpTo(set)` sums `max_usd` with `usdCompact`
+  ("$1.1M"); null when no program has a number. Nothing calls them yet (Tasks 3 and after write the copy and wire find).
+- **`MoveProgram`** gained `max_usd` (Card.max_award_usd, set by `moveProgram`) and `why` (a long-shot grant's fit-cell
+  reason, set in `pathPlan`). Tests: `v410-ready.test.ts`.
