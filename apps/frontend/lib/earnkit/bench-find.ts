@@ -384,16 +384,20 @@ const NO_RANK: RankLines = { bench: null, line: null, chains: [], listed: false 
 
 /**
  * v4.10.1 Task 3 (R5, finding 4): the line a reply says, once a session, while the person's refresh is still running
- * past the reply's wait (it lands for the next reply). Exact copy.
+ * past the reply's wait (it lands for a later reply). Exact copy (fix round 1: no promise about the next reply).
  */
-export const UPDATING_LINE = "Your score and weeks are updating. I'll show the new numbers in my next reply.";
+export const UPDATING_LINE = "Your score and weeks are updating, so they're not in this reply.";
 /** The session part (standing_seen.said) UPDATING_LINE is said under. */
 export const UPDATING_SAID = 'updating';
 /** v4.10.1 Task 3: the agent's half of R5 (the facts carry no score, rank or weeks either). */
-export const UPDATING_NOTE = "The score, rank and weeks are updating: don't state any of them in this reply (the next reply has them).";
-/** Whether a read holds a score, rank or week count a reply could state (nothing to hide otherwise). Pure. */
+export const UPDATING_NOTE = "The score, rank and weeks are updating: don't state any of them in this reply.";
+/**
+ * Whether a reply could state a score, rank or week count from this read, or (fix round 1, minor 3) the one project is
+ * counted, so the refresh may give it its first ones (a stored 0 and no streak would read "starts your streak" just
+ * before the next call shows "1 week"). Nothing to hide otherwise. Pure.
+ */
 const hasNumbers = (read: BenchRead) =>
-  (read.row?.streak ?? 0) >= 1 || (pageScore(read.ranks, { parts: read.parts }) ?? 0) > 0 || read.ranks.bench !== null;
+  Boolean(read.row?.confirmed) || (read.row?.streak ?? 0) >= 1 || (pageScore(read.ranks, { parts: read.parts }) ?? 0) > 0 || read.ranks.bench !== null;
 /**
  * v4.10.1 Task 3 (R5): `read` with no score, rank or weeks: no stored parts (no score, no weekly target), no rank lines
  * (nor `listed`, which gates every rank phrase), a streak of 0 with its weeks kept (the grid, the stale-repo nudge). Pure.
@@ -403,15 +407,16 @@ const withoutNumbers = (read: BenchRead): BenchRead => ({ ...read, parts: null, 
  * v4.10.1 Task 3 (R5): a reply's fields and show while updating: no streak fact, the standing with no numbers (it has
  * none: withoutNumbers), `numbers_updating` (tools.ts withFacts drops the rank and streak facts on it) and its
  * `numbers_note` (its own field, so the path and answer-first notes stay as withFacts reads them).
- * UPDATING_LINE is said once a session, before the reply's last paragraph (its one easy reply stays last) or, `lead`,
- * first. Never throws on its write.
+ * In find UPDATING_LINE is said once a session, before the reply's last paragraph (its one easy reply stays last). With
+ * `lead` (score: the builder asked where they stand) it leads every updating reply (fix round 1, Important 2). Never
+ * throws on its write.
  */
 async function updatingReply(id: number, now: Date, seen: Seen, r: Reply, o: { lead: boolean }): Promise<Reply> {
   const { streak: _streak, ...fields } = r;
   const said = sessionOf(seen, now).said.has(UPDATING_SAID);
   const show = typeof r.show_to_builder === 'string' ? r.show_to_builder : '';
   const parts = show.split('\n\n');
-  const shown = said || !show ? show : o.lead || parts.length < 2 ? [UPDATING_LINE, show].join('\n\n') : [...parts.slice(0, -1), UPDATING_LINE, parts.at(-1)].join('\n\n');
+  const shown = !show || (said && !o.lead) ? show : o.lead || parts.length < 2 ? [UPDATING_LINE, show].join('\n\n') : [...parts.slice(0, -1), UPDATING_LINE, parts.at(-1)].join('\n\n');
   if (!said) await markSaid(id, [UPDATING_SAID], now);
   return { ...fields, show_to_builder: shown, numbers_updating: true, numbers_note: UPDATING_NOTE };
 }

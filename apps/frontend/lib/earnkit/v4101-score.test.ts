@@ -67,15 +67,17 @@ function slowReader() {
  * A ranked, listed builder on 69 with a 6-week streak ending last week (the finding's "69 and 6 weeks"), their
  * last read an hour ago (so this call's refresh claims the read), on the pinned Monday.
  */
-async function monday69(tag: string) {
+async function monday69(tag: string, o: { score?: number; weeks?: string[]; ranked?: boolean } = {}) {
+  const score = o.score ?? 69;
+  const weeks = o.weeks ?? SIX;
   await padPool(RANK_MIN_POOL);
   const key = `${tag}${RUN}${randomBytes(2).toString('hex')}/app`;
   const id = await person({
-    main: key, claimed: `${tag}${RUN}`.slice(0, 15), ranked: true, score: 69,
+    main: key, claimed: `${tag}${RUN}`.slice(0, 15), ranked: o.ranked ?? true, score,
     seen: { connect_done: '2026-09-01T00:00:00.000Z', declined: { [`qualify:${key}`]: new Date(MONDAY).toISOString() } },
-    projects: [{ key, name: 'App', confirmed: true, streak: 6, commit_weeks: SIX }],
+    projects: [{ key, name: 'App', confirmed: true, streak: weeks.length, commit_weeks: weeks }],
   });
-  await sql()`UPDATE builder_live SET parts = ${sql().json({ shipping: { points: 69, raw: { mask: 1, live_ships: 0 } } } as never)},
+  await sql()`UPDATE builder_live SET parts = ${sql().json({ shipping: { points: score, raw: { mask: weeks.length > 0 ? 1 : 0, live_ships: 0 } } } as never)},
     read_at = ${new Date(MONDAY - 3_600_000)}, computed_at = ${new Date(MONDAY - 3_600_000)} WHERE builder_id = ${id}`;
   return { id, key };
 }
@@ -84,10 +86,10 @@ async function monday69(tag: string) {
  * What the refresh reads when it lands: the repo reading with this week's commits (2026-W45) on top of the six weeks
  * before it. Its own rescore (person-score.ts rescorePerson) then writes the new score and the 7-week streak.
  */
-async function landRefresh(id: number) {
+async function landRefresh(id: number, weeks: string[] = [...SIX, THIS_WEEK]) {
   // Today's reading (source_readings: the failed live read the fake reader ends in never replaces it).
   await sql()`INSERT INTO source_readings (source_id, day, signals, ok)
-    SELECT id, '2026-11-02', ${sql().json({ commit_weeks: [...SIX, THIS_WEEK], commit_counts: Object.fromEntries([...SIX, THIS_WEEK].map((w) => [w, 3])), pushes_checked: true } as never)}, true
+    SELECT id, '2026-11-02', ${sql().json({ commit_weeks: weeks, commit_counts: Object.fromEntries(weeks.map((w) => [w, 3])), pushes_checked: true } as never)}, true
     FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo'`;
 }
 
@@ -104,7 +106,8 @@ test('finding 4 on a Monday: find\'s refresh still running past its wait says no
   assert.ok(slow.calls.length > 0, 'the refresh asked the reader (it is still waiting)');
   // No score, rank or week count, in what the builder sees or in any fact the agent could say.
   assert.doesNotMatch(show(f), NUMBERS, show(f));
-  assert.match(show(f), /Your score and weeks are updating\. I'll show the new numbers in my next reply\./);
+  assert.match(show(f), /Your score and weeks are updating, so they're not in this reply\./);
+  assert.doesNotMatch(show(f), /next reply/, 'no promise about the next reply');
   const reply = f.reply ?? {};
   assert.equal(reply.streak, undefined, 'no streak fact');
   assert.equal(reply.rank_lines, undefined, 'no rank lines');
@@ -140,8 +143,14 @@ test('a slow refresh that is still running when score is asked: score says updat
   assert.doesNotMatch(show(s), NUMBERS, show(s));
   assert.doesNotMatch(String(s.reply?.standing ?? ''), NUMBERS);
   assert.equal(s.reply?.numbers_updating, true);
-  // Said once a session: the second reply has no number and does not repeat the line.
-  assert.doesNotMatch(show(s), /updating/, show(s));
+  // Fix round 1 (Important 2): score answers where they stand, so it leads with the line even after find said it.
+  assert.equal(show(s).split('\n\n')[0], "Your score and weeks are updating, so they're not in this reply.", show(s));
+  const s2 = await mcpCall(ctx, 'score', {});
+  assert.equal(show(s2).split('\n\n')[0], "Your score and weeks are updating, so they're not in this reply.", 'every updating score reply');
+  // find keeps it to once a session.
+  const f2 = await mcpCall(ctx, 'find', {});
+  assert.doesNotMatch(show(f2), /updating/, show(f2));
+  assert.doesNotMatch(show(f2), NUMBERS);
   await landRefresh(b.id);
   slow.open();
   const again = await mcpCall(ctx, 'score', {});
@@ -195,4 +204,22 @@ test('the merge gate: an updating opener with no other fact passes; a hook after
   assert.deepEqual(gateFailures([{ ...opener, said: [] }]).map((f) => f.rule), ['proof'], 'without the updating part it is an opener with no fact');
   const hook = reply({ turn: 1, first: false, hook: true, show: 'Base pays up to $5K.\n\nWant me to draft it?', said: ['hook:base'] });
   assert.deepEqual(gateFailures([opener, hook]).map((f) => f.rule), ['proof']);
+});
+
+test('fix round 1 (minor 3): a new builder on 0 with no streak, refresh still running: updating, never "starts your streak" before the next call shows 1 week', db, async () => {
+  // Not ranked yet (no rank line): nothing stored a reply could state, only the counted project.
+  const b = await monday69('fsn', { score: 0, weeks: [], ranked: false });
+  const slow = slowReader();
+  const ctx = ctxOf(b.id, slow.reader);
+  for (const tool of ['find', 'score'] as const) {
+    const r = await mcpCall(ctx, tool, {});
+    assert.equal(r.reply?.numbers_updating, true, tool);
+    assert.doesNotMatch(JSON.stringify(r.reply), /starts your streak|\b0 weeks?\b/, tool);
+    assert.doesNotMatch(show(r), NUMBERS, tool);
+  }
+  await landRefresh(b.id, [THIS_WEEK]);
+  slow.open();
+  const s = await mcpCall(ctx, 'score', {});
+  assert.equal(s.reply?.numbers_updating, undefined);
+  assert.match(String(s.reply?.standing), /\b1 week shipping\b/, String(s.reply?.standing));
 });

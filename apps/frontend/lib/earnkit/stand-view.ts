@@ -67,7 +67,13 @@ export function startRefresh(id: number, o: { now: Date; start: number; reader?:
     },
   };
 }
-/** v4.10.1 Task 3: the refreshes running in this process, by person (removed when each settles). */
+/**
+ * v4.10.1 Task 3: the refreshes running in this process, by person (removed when each settles). In-process only: it
+ * assumes one replica (railway.toml sets no numReplicas). With more, a call on another instance reads a no-op refresh as
+ * settled; the DB check would then be `read_at > computed_at AND read_at > now - REFRESH_BUDGET_MS` (updating). Past its
+ * deadline a refresh counts as settled on purpose (a hung one never leaves a person "updating"), though a reader that
+ * ignores its deadline can still write a repo reading streaksFor reads live.
+ */
 const RUNNING = new Map<number, { deadline: number; done: Promise<unknown> }>();
 
 /**
