@@ -1,5 +1,6 @@
 import { getAddress } from 'viem';
 import { sql, type Db } from './db';
+import { freshSql } from './api-stale';
 import { prizeColumn, usd, wonUsdText, type CampaignConfig, type EarnKitCampaign } from './campaigns';
 import { prizeOf, shortWallet } from './entry-text';
 import { hoursLeft } from './deadline';
@@ -682,7 +683,7 @@ export const openCuratedRows = (db: Db = sql()) => db<(NewProgramRow & { opened_
     winners_per_round, tag, each_time, submission_requirements, rules, investment, ends_at, starts_at, campaign,
     max_award_usd, existing_work, min_product_score, match_floor, match_precision
   FROM programs
-  WHERE status = 'active' AND campaign IS NULL AND opened_at IS NOT NULL AND (ends_at IS NULL OR ends_at > now())`;
+  WHERE status = 'active' AND campaign IS NULL AND opened_at IS NOT NULL AND (ends_at IS NULL OR ends_at > now()) AND ${freshSql(db)}`;
 
 /**
  * One open curated program as a new program alert candidate. Ruling C23: an investment program's

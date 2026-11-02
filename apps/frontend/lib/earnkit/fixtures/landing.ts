@@ -25,6 +25,7 @@ const tile = (id: string, title: string, usd: number, o: Partial<Tile> = {}): Ti
   big: usd > 0 ? compactUsd(usd) : null,
   when: 'Rolling, apply anytime',
   organizer: title,
+  research: false,
   ...o,
 });
 export const homeFixture: Landing = {

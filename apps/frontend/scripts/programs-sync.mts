@@ -1,9 +1,9 @@
 import './env.mts';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { checkLogoFile } from '../lib/earnkit/logo-check';
 import { OutcomeFile } from '../lib/earnkit/outcomes';
-import { ProgramFile, agentCompletableOf, freshBuildProblems, needsRepoMissing, requiredWithoutTodo, requirementsWithoutKind, starterAgeWarnings } from '../lib/earnkit/program-file';
+import { programProblems, schemaProblems } from '../lib/earnkit/program-checks';
+import { ProgramFile, agentCompletableOf, starterAgeWarnings } from '../lib/earnkit/program-file';
 
 /**
  * pnpm programs:check — validates every programs/*.json.
@@ -24,34 +24,17 @@ const parsed = files.map((f) => ({
 const invalid = parsed.filter((p) => !p.result.success);
 for (const { f, result } of invalid) {
   console.error(`${f} is not valid:`);
-  for (const issue of result.error!.issues) {
-    console.error(`  - ${issue.path.join('.') || '(program)'}: ${issue.message}`);
-  }
+  for (const problem of schemaProblems(result.error!)) console.error(`  - ${problem}`);
 }
 // v2.7 Ruling 23 (plan): a program's logo file must exist under apps/frontend/public and be safe
-// to serve, checked before any DB write, in both --check and sync. Ruling C5's required-item todo
-// is checked in the same pass.
+// to serve, checked before any DB write, in both --check and sync. v4.9 T1: every per-file check
+// (todo, kind, needs_repo, fresh_build, logo) is program-checks.ts programProblems, the one set the
+// programs write API runs too.
 const publicDir = join(import.meta.dirname, '..', 'public');
 const fileProblems: { f: string; problem: string }[] = [];
 for (const { f, result } of parsed) {
   if (!result.success) continue;
-  // v2.7 Ruling C5 carry: every required submission item needs its builder to-do phrase.
-  const noTodo = requiredWithoutTodo(result.data);
-  if (noTodo.length > 0)
-    fileProblems.push({ f, problem: `submission_requirements: add a "todo" to each required item (${noTodo.join(', ')})` });
-  // v2.8 Ruling 9 (plan): every requirement needs its field kind (the coach's guidance and bank).
-  const noKind = requirementsWithoutKind(result.data);
-  if (noKind.length > 0)
-    fileProblems.push({ f, problem: `submission_requirements: add a "kind" to each item (${noKind.join(', ')})` });
-  // v2.8.1 §B8 (fix round 1): whether entering needs a repo is the author's call, from the source.
-  if (needsRepoMissing(result.data))
-    fileProblems.push({ f, problem: 'needs_repo: say whether entering needs a repo or a live product (true or false)' });
-  // v2.11 T5 (spec 2): a fresh_build names a known, tested starter on one of the program's chains.
-  for (const problem of freshBuildProblems(result.data)) fileProblems.push({ f, problem });
-  const logo = result.data.logo;
-  if (!logo) continue;
-  const problem = checkLogoFile(logo, publicDir);
-  if (problem) fileProblems.push({ f, problem });
+  for (const problem of programProblems(result.data, { publicDir })) fileProblems.push({ f, problem });
 }
 for (const { f, problem } of fileProblems) {
   console.error(`${f} is not valid:`);
@@ -102,7 +85,10 @@ if (checkOnly) {
 
 const { upsertProgram } = await import('../lib/earnkit/programs');
 const { sql } = await import('../lib/earnkit/db');
+const { noteFileTakeover } = await import('../lib/earnkit/programs-api');
 for (const { f, result } of parsed) {
+  // v4.9 Task 2 (controller ruling 2): files win (R3), but never silently over a program the write API made.
+  if (await noteFileTakeover(result.data!.id)) console.warn(`[programs] file ${result.data!.id} took over an api program`);
   await upsertProgram(result.data!);
   console.log(`Synced ${f}`);
 }

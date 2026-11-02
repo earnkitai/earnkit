@@ -93,6 +93,8 @@ export const LIMITS = {
   cron: { limit: 30, windowSeconds: 3_600 },
   /** The owner's review page and POST /api/admin/veto, per client IP (v2.4 §8, ruling 13). */
   veto: { limit: 30, windowSeconds: 3_600 },
+  /** v4.9 Task 2: POST /api/programs/write, per owner token (one key), after the token check. */
+  programsWrite: { limit: 120, windowSeconds: 3_600 },
 } as const;
 
 /** The register ceiling's count at which the owner is warned in the log (80%, before it refuses). */

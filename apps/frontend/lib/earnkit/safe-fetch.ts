@@ -15,6 +15,16 @@ import { BlockList, isIP } from 'node:net';
 
 export class SafeFetchError extends Error {}
 
+/**
+ * v4.9 Task 2 fix: a probe's non-2xx (and non-3xx) answer, with its status, so a caller can tell a bot wall (401, 403,
+ * 429) from a missing page. Same message as before; still a SafeFetchError for every other caller.
+ */
+export class HttpStatusError extends SafeFetchError {
+  constructor(readonly status: number) {
+    super(`answered ${status}, not 2xx`);
+  }
+}
+
 /** A 3xx response: the status and, when the server sent one, the Location header. */
 export class RedirectError extends SafeFetchError {
   constructor(
@@ -412,7 +422,7 @@ async function safeFetch(
       throw new RedirectError(res.status, res.location);
     if (probe) {
       if (res.status < 200 || res.status >= 300)
-        throw new SafeFetchError(`answered ${res.status}, not 2xx`);
+        throw new HttpStatusError(res.status);
       // v2.10 item 14: the start of the page, to tell a real page from an error page. Reading
       // stops at PROBE_MAX_BYTES (or the deadline); a larger page is judged on what was read.
       const chunks: Uint8Array[] = [];

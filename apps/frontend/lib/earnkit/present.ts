@@ -98,6 +98,8 @@ export type Card = {
   winners_per_round?: number | null;
   /** v2.13 (programs.ts programCard): the program file's pitch for the no-project reply, or null. */
   pitch?: { who: string; for: string } | null;
+  /** v4.9 Task 2 (F2): set only on an API program (programs.ts programCard): who wrote its text. */
+  api_content?: { written_by: string; note: string };
 };
 
 /**

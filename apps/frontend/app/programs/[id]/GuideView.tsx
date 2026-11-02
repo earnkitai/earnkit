@@ -9,6 +9,7 @@ import AskAgent from './AskAgent';
 import { difficultyBasis, difficultyLabel, wonHeading, type GuideSource } from '../../../lib/earnkit/guide';
 import type { GuidePage } from '../../../lib/earnkit/landing';
 import { shownUrl } from '../../../lib/earnkit/untrusted-text';
+import { RESEARCH_LABEL } from '../../../lib/earnkit/site-copy';
 
 /** v2.8 Ruling 13 (plan), Task 3 carry: the guide page (not the slim card) says a program fits any chain. */
 export const ANY_CHAIN = 'Any chain';
@@ -75,6 +76,8 @@ export default function GuideView({ page }: { page: GuidePage }) {
   const facts = (g.header.startsWith(`${page.title} · `) ? g.header.slice(page.title.length + 3) : g.header).split(' · ');
   const chain = page.any_chain ? ANY_CHAIN : page.chain ?? null;
   if (chain) facts.push(chain);
+  // v4.9 Task 3 fix 1: an API program says who found it, as one more muted fact.
+  if (page.research) facts.push(RESEARCH_LABEL);
   const parts = Boolean(g.won || g.wants || g.best_bet);
   return (
     <>

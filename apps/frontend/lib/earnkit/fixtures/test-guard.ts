@@ -48,6 +48,9 @@ const CLEARED = [
   'EARNKIT_BASE_AGENT_CODES',
   // v2.13 final fix: the Raising pill and asks (a test that needs it on sets it).
   'EARNKIT_RAISING',
+  // v4.9 Task 2: the programs write API (a test that needs it on sets a generated token).
+  'EARNKIT_PROGRAMS_TOKEN',
+  'EARNKIT_PROGRAMS_API',
 ];
 for (const name of CLEARED) delete process.env[name];
 // Scoring and clarity R3: Originality's local model is never loaded (or downloaded) in a test; a test passes a fake

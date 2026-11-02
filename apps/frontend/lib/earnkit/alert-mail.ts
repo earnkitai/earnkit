@@ -1,4 +1,5 @@
 import { sql } from './db';
+import { researchMark } from './site-copy';
 import { alertFit, DEADLINE_DAYS, newProgramOf, openCuratedRows, type NewProgramRow } from './alerts';
 import { awardAmount, benchStepKey } from './bench-reply';
 import { openFitsFor } from './best-fit';
@@ -34,10 +35,12 @@ export const ACCEPTED_DAYS = 7;
 const SEND_BUDGET_MS = 60_000;
 const DAY = 86_400_000;
 
-export type AlertEvent =
+/** v4.9 final fix (ruling 5): `research`, the program is an API program; its first line carries RESEARCH_LABEL. */
+export type AlertEvent = (
   | { kind: 'accepted'; key: string; program: string; link: string }
   | { kind: 'closing'; key: string; program: string; day: string; amount: string | null; draft: boolean }
-  | { kind: 'new'; key: string; program: string; amount: string | null; when: string; project: string };
+  | { kind: 'new'; key: string; program: string; amount: string | null; when: string; project: string }
+) & { research?: boolean };
 
 /** Highest first: one email a day carries the first of these. */
 export const ALERT_ORDER: AlertEvent['kind'][] = ['accepted', 'closing', 'new'];
@@ -71,21 +74,23 @@ export function alertAction(e: AlertEvent): string {
 export function alertBody(e: AlertEvent): { subject: string; text: string } {
   const amt = (a: string | null) => (a ? `, ${a}` : '');
   const tell = tellLine(alertAction(e));
-  if (e.kind === 'accepted') return { subject: `You got into ${e.program}`, text: `You got into ${e.program}.\n\n${outcomeShareLine(e.link)}\n\n${tell}` };
+  // v4.9 final fix (ruling 5): an API program's line says it was found by EarnKit's research.
+  const found = researchMark(e.research);
+  if (e.kind === 'accepted') return { subject: `You got into ${e.program}`, text: `You got into ${e.program}.${found}\n\n${outcomeShareLine(e.link)}\n\n${tell}` };
   if (e.kind === 'closing') {
     return {
       subject: `${e.program} closes ${e.day}`,
-      text: `${e.program} closes ${e.day}${amt(e.amount)}.\n\n${e.draft ? 'Your draft is ready in your agent.\n\n' : ''}${tell}`,
+      text: `${e.program} closes ${e.day}${amt(e.amount)}.${found}\n\n${e.draft ? 'Your draft is ready in your agent.\n\n' : ''}${tell}`,
     };
   }
   return {
     subject: `New: ${e.program}${amt(e.amount)}`,
-    text: `${e.program} opened${amt(e.amount)}, ${e.when}.\n\n${e.project} fits it.\n\n${tell}`,
+    text: `${e.program} opened${amt(e.amount)}, ${e.when}.${found}\n\n${e.project} fits it.\n\n${tell}`,
   };
 }
 
 type EntryRow = { program_id: string; ends_at: Date; application: { answers?: Record<string, unknown> } | null };
-type DraftRow = { program_id: string; title: string; code: string };
+type DraftRow = { program_id: string; title: string; code: string; source: string };
 
 /**
  * v4.7 T5: the builder's (the group root's) alert events now, every kind, unsent or not (runAlertMail filters). Closing:
@@ -118,7 +123,7 @@ export async function alertEvents(builderId: number, now: Date): Promise<AlertEv
       SELECT x_handle AS handle, standing_seen->'apply_yes' AS drafted, standing_seen->'declined' AS declined
       FROM builder_profiles WHERE builder_id = ${builderId}`.catch(fail('profile', [])),
     sql()<DraftRow[]>`
-      SELECT DISTINCT ON (g.id) g.id AS program_id, g.title, d.code
+      SELECT DISTINCT ON (g.id) g.id AS program_id, g.title, d.code, g.source
       FROM post_drafts d JOIN programs g ON g.id = substr(d.moment_key, length(d.moment) + 2)
       WHERE d.builder_id = ${builderId} AND d.moment IN ('accepted', 'funded') AND d.proof_url IS NOT NULL
         AND d.created_at <= ${now} AND d.created_at > ${new Date(now.getTime() - ACCEPTED_DAYS * DAY)} AND d.expires_at > ${now}
@@ -139,7 +144,7 @@ export async function alertEvents(builderId: number, now: Date): Promise<AlertEv
   const cards = new Map(open.cards.map((c) => [c.id, c]));
   const out: AlertEvent[] = [];
 
-  if (handle) for (const d of drafts) out.push({ kind: 'accepted', key: `accepted:${d.program_id}`, program: d.title, link: shortLink(handle, d.code) });
+  if (handle) for (const d of drafts) out.push({ kind: 'accepted', key: `accepted:${d.program_id}`, program: d.title, link: shortLink(handle, d.code), ...(d.source === 'api' && { research: true }) });
 
   const closing = new Map<string, { ends: Date; draft: boolean }>();
   for (const e of entries) {
@@ -157,7 +162,7 @@ export async function alertEvents(builderId: number, now: Date): Promise<AlertEv
     // and time), with the hours left as of sending under 48 hours: "Nov 1, 11:59 PM PT (in 20 hours)".
     const day = card ? cardSubmitBy(card, now) : null;
     if (!card || !day) continue;
-    out.push({ kind: 'closing', key: `closing:${id}:${c.ends.toISOString().slice(0, 10)}`, program: card.title, day, amount: awardAmount(card), draft: c.draft });
+    out.push({ kind: 'closing', key: `closing:${id}:${c.ends.toISOString().slice(0, 10)}`, program: card.title, day, amount: awardAmount(card), draft: c.draft, ...(card.api_content && { research: true }) });
   }
 
   const fresh = rows
@@ -168,7 +173,7 @@ export async function alertEvents(builderId: number, now: Date): Promise<AlertEv
     if (!card || closing.has(r.id) || saidNo(r.id)) continue;
     const repo = alertFit(newProgramOf(r), repos, { entered: open.skip, hidden: new Set() }, now);
     if (!repo) continue;
-    out.push({ kind: 'new', key: `new:${r.id}`, program: card.title, amount: awardAmount(card), when: fundWhen(card, now), project: cleanName(repo.name, 'Your project') });
+    out.push({ kind: 'new', key: `new:${r.id}`, program: card.title, amount: awardAmount(card), when: fundWhen(card, now), project: cleanName(repo.name, 'Your project'), ...(card.api_content && { research: true }) });
   }
   return out;
 }

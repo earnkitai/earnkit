@@ -152,6 +152,8 @@ import { SKIPPED_LINE, cardYes } from './share';
 import { SHARED_PROFILE_NOTE, deleteAsk, ensureProfile, setFallback, setHidden } from './profiles';
 import { xSignInEnabled } from './builder-score-flag';
 import { sql } from './db';
+import { API_CONTENT } from './api-program-text';
+import { hiddenFor } from './api-stale';
 import { STRIPE_DISCONNECTED, STRIPE_NEVER_KEY, STRIPE_NOT_CONNECTED, STRIPE_NO_LINK, stripeConnectLine, stripeDraftNote } from './bench-reply';
 import { disconnectStripe, stripeLink, takeStripeDraftLink } from './stripe';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
@@ -871,7 +873,8 @@ export const handlers = {
       })().catch((err: unknown) => console.error('[list_programs] profile', err instanceof Error ? err.name : 'error'));
     const [memory, openPrograms, campaigns, told] = await Promise.all([
       checkPrograms(ctx.installationId, { github_user, repos, local_repos }),
-      listPrograms(),
+      // v4.9 final fix: a stale API program this builder is connected to stays in their list (api-stale.ts).
+      listPrograms({ for: ctx.installationId }),
       earnkitCampaignRows(ctx.installationId),
       // v2.9 A3: what the builder told EarnKit, read once per call (G6: none on a shared client).
       memoryOf(memoryKey(ctx), 'list_programs'),
@@ -1211,6 +1214,8 @@ export const handlers = {
     const { program_id, repo } = GetProgramInput.parse(input);
     // v4.8.2 Task 3 (R4): closes_in beside the ISO deadline (no summary here; the guide header says the hours itself).
     const program = await getProgram(program_id).then((p) => ({ ...p, closes_in: agentClosesIn(p, new Date()) }));
+    // v4.9 final fix (ruling 6): a stale API program reads only for a builder who entered, applied to or drafted it.
+    if (await hiddenFor(await getProgramRow(program_id), ctx.installationId)) throw new NotFoundError(`No program with id "${program_id}". Call find for current ids.`);
     if (!repo) return withAlerts(ctx, program);
     // Eligibility dry run for one repo: pass/fail plus what's missing.
     try {
@@ -1238,7 +1243,8 @@ export const handlers = {
     const { program_id, agent: _agent, coach_asked, host, ...known } = PrepareSubmissionInput.parse(input);
     const program = await getProgramRow(program_id);
     // v3.1 R15: an unlisted program is refused on every prepare path (the build, deploy and host ones too), never "closed".
-    if (program.status === 'unlisted') throw new NotFoundError(`No program with id "${program_id}". Call find for current ids.`);
+    // v4.9 final fix (ruling 6): a stale API program is unlisted too, unless this builder entered, applied to or drafted it.
+    if (await hiddenFor(program, ctx.installationId)) throw new NotFoundError(`No program with id "${program_id}". Call find for current ids.`);
     const hosting = host ? await hostBlock(ctx, known.project?.repo_url ?? known.answers?.repo_url, known.project?.name) : null;
     // Campaign entries reach the sponsor: check the name and description now, as record_submission will.
     if (program.campaign && known.project)
@@ -1249,7 +1255,8 @@ export const handlers = {
     // this call added the program and there is no entry for it yet (Pre-flight P23); on a shared
     // client (R13: working_on is installation-wide) while the coach hasn't asked.
     const added = open ? await setWorkingOn(ctx.installationId, program_id, true) : false;
-    const curated = program.source === 'file' && !program.campaign;
+    // v4.9 final fix (F1): an api program is curated too (the same guide and draft path).
+    const curated = (program.source === 'file' || program.source === 'api') && !program.campaign;
     const firstPrepare =
       open && curated && (ctx.sharedClient ? !coach_asked : added && !(await hasProgramEntry(ctx.installationId, program_id)));
     // The guide's parts: what won, what it wants, best bet. No bonus line here: the confirm line says
@@ -1913,7 +1920,7 @@ export const WALLET_NEEDED_NOTE =
  */
 async function buildPick(programId: string, ctx: ToolContext, o: { anyDeploy?: boolean } = {}): Promise<Pick<FreshPick, 'starter'> | null> {
   // v3 Stage 2: never an upcoming program.
-  const programs = (await listPrograms()).filter((p) => p.status !== 'upcoming');
+  const programs = (await listPrograms({ for: ctx.installationId })).filter((p) => p.status !== 'upcoming');
   const card = programs.find((p) => p.id === programId && !p.earnkit_campaign);
   if (!card) return null;
   const told = await memoryOf(memoryKey(ctx), 'prepare');
@@ -2691,16 +2698,91 @@ async function checkinOpen(ctx: ToolContext): Promise<boolean> {
  * might repeat to a builder elsewhere; `deadline` stays ISO for the agent's own math. Pure; exported for tests.
  */
 export const agentPrograms = (
-  programs: { id: string; title: string; summary: string; deadline: string; ends_at: Date | null; tag: string | null; verified_at: Date | null }[],
+  programs: { id: string; title: string; summary: string; deadline: string; ends_at: Date | null; tag: string | null; verified_at: Date | null; api_content?: typeof API_CONTENT }[],
   now: Date,
 ) =>
   programs.map((p) => {
     const { summary, closes_in } = withClosesIn(p, now);
-    return { id: p.id, title: p.title, summary, deadline: p.deadline, closes_in, tag: p.tag, verified_at: p.verified_at?.toISOString().slice(0, 10) ?? null };
+    return {
+      id: p.id,
+      title: p.title,
+      summary,
+      deadline: p.deadline,
+      closes_in,
+      tag: p.tag,
+      verified_at: p.verified_at?.toISOString().slice(0, 10) ?? null,
+      // v4.9 Task 2 fix round 2: an API program's card keeps its written-by envelope (api-program-text.ts).
+      ...(p.api_content && { api_content: p.api_content }),
+    };
   });
+
+/** v4.9 Task 2 fix round 2: the program a prepare call is about (top level, or the build path's). Pure. */
+const prepareProgramId = (input: unknown): string | null => {
+  const o = (input ?? {}) as { program_id?: unknown; build?: { program_id?: unknown } };
+  const id = o.program_id ?? o.build?.program_id;
+  return typeof id === 'string' ? id : null;
+};
+
+/** v4.9 Task 2 fix round 2: an API program's prepare reply (the coach's questions and lines) carries its envelope. */
+async function withApiContent<R extends object>(reply: R, programId: string | null): Promise<R> {
+  if (!programId) return reply;
+  const [row] = await sql()<{ source: string }[]>`SELECT source FROM programs WHERE id = ${programId}`.catch(() => []);
+  return row?.source === 'api' ? { ...reply, api_content: API_CONTENT } : reply;
+}
 
 /** v4.8.2 Task 3 (R4): get_program's closes_in from its deadline (ISO, or "rolling"); fix 1: null unless open (upcoming, closed). Pure. */
 const agentClosesIn = (p: { open: boolean; deadline: string }, now: Date) => (!p.open || p.deadline === 'rolling' ? null : hoursLeft(p.deadline, now));
+
+/** prepare's own work (tools.prepare adds an API program's envelope). */
+async function prepareTool(input: unknown, ctx: ToolContext): Promise<Reply> {
+  // v2.11 T8: the build path (plan S7).
+  let join: BuildJoin | undefined;
+  const build = Boolean(input && typeof input === 'object' && 'build' in input);
+  if (build) {
+    const b = await prepareBuild(input as Record<string, unknown>, ctx);
+    if ('reply' in b) return b.reply;
+    input = b.rest;
+    join = b.join;
+  }
+  const { deploy, tips, ...prep } = PrepareInput.parse(input);
+  // v3.1 cold read (one name everywhere): the name the builder's project goes by here is remembered for every reply.
+  if (!ctx.sharedClient) await rememberProjectName(ctx.installationId, prep.project, new Date());
+  // v4.8 Task 2 fix round 3: the path's draft finished with the builder's answers (coach_asked): its blanks are answered.
+  if (prep.coach_asked === true && !ctx.sharedClient) await draftAnswered(ctx.installationId, prep.program_id);
+  // v3.1 (spec 3.2, 3.4), "Apply with this page": a curated program is drafted, never entered here (R15: unlisted
+  // refused). A host, deploy or build step runs first and its lines join the draft; never the confirm line.
+  if (!tips) {
+    const program = await getProgramRow(prep.program_id);
+    // v4.9 final fix (F1): an api program takes the same draft path (tools.prepare adds its envelope).
+    if ((program.source === 'file' || program.source === 'api') && !program.campaign) return draftWithSteps(prep, deploy, program, ctx, join);
+  }
+  if (tips) {
+    // Fix round 2 (ruling): the tip jar's deploy alone; the program only carries it.
+    if (!deploy) return { program_id: prep.program_id, show_to_builder: '', agent_note: TIPS_NEEDS_DEPLOY_NOTE };
+    await getProgramRow(prep.program_id);
+    const step = await deployStep(deploy, prep, ctx);
+    return { program_id: prep.program_id, show_to_builder: step.line, deploy: step.deploy, ...(step.agent_note && { agent_note: step.agent_note }) };
+  }
+  if (!deploy) {
+    const r = (await handlers.prepare_submission(prep, ctx, join)) as Reply;
+    return join?.noLive ? { ...r, agent_note: [r.agent_note, BUILD_NO_LIVE_NOTE].filter(Boolean).join(' ') } : r;
+  }
+  await getProgramRow(prep.program_id);
+  const step = await deployStep(deploy, prep, ctx);
+  const address = (step.deploy as { address?: string }).address;
+  const drafted = address ? { ...prep, project: { ...prep.project, contracts: [address, ...(prep.project?.contracts ?? []).filter((c) => c.toLowerCase() !== address.toLowerCase())].slice(0, 2) } } : prep;
+  let r: Reply;
+  try {
+    r = (await handlers.prepare_submission(drafted, ctx)) as Reply;
+  } catch (err) {
+    if (!address) throw err;
+    const why = err instanceof Error ? err.message : 'error';
+    return { program_id: prep.program_id, show_to_builder: step.line, deploy: step.deploy, agent_note: `${step.agent_note ?? ''} The draft failed: ${why} Call prepare again without deploy.`.trim() };
+  }
+  const shown = typeof r.show_to_builder === 'string' && r.show_to_builder ? `${r.show_to_builder}\n\n${step.line}` : step.line;
+  const note = [r.agent_note, step.agent_note].filter((n) => typeof n === 'string' && n).join(' ');
+  return { ...r, show_to_builder: shown, deploy: step.deploy, ...(note && { agent_note: note }) };
+}
 
 /** The agent tools (v2.10 item 4): the MCP server forwards each call here; each dispatches to `handlers`. */
 export const tools = {
@@ -2726,53 +2808,11 @@ export const tools = {
   // so the reply's contract check sees it (item 13: "goes straight into the A5 check") and never says
   // "No contract found" next to the deployed line. The program is read first, so an unknown one
   // spends nothing; a draft that fails after a deploy still returns the deploy.
+  // Fix round 3: the program the reply is about (the build path's pick), else the one the input names.
   prepare: async (input: unknown, ctx: ToolContext) => {
-    // v2.11 T8: the build path (plan S7).
-    let join: BuildJoin | undefined;
-    const build = Boolean(input && typeof input === 'object' && 'build' in input);
-    if (build) {
-      const b = await prepareBuild(input as Record<string, unknown>, ctx);
-      if ('reply' in b) return b.reply;
-      input = b.rest;
-      join = b.join;
-    }
-    const { deploy, tips, ...prep } = PrepareInput.parse(input);
-    // v3.1 cold read (one name everywhere): the name the builder's project goes by here is remembered for every reply.
-    if (!ctx.sharedClient) await rememberProjectName(ctx.installationId, prep.project, new Date());
-    // v4.8 Task 2 fix round 3: the path's draft finished with the builder's answers (coach_asked): its blanks are answered.
-    if (prep.coach_asked === true && !ctx.sharedClient) await draftAnswered(ctx.installationId, prep.program_id);
-    // v3.1 (spec 3.2, 3.4), "Apply with this page": a curated program is drafted, never entered here (R15: unlisted
-    // refused). A host, deploy or build step runs first and its lines join the draft; never the confirm line.
-    if (!tips) {
-      const program = await getProgramRow(prep.program_id);
-      if (program.source === 'file' && !program.campaign) return draftWithSteps(prep, deploy, program, ctx, join);
-    }
-    if (tips) {
-      // Fix round 2 (ruling): the tip jar's deploy alone; the program only carries it.
-      if (!deploy) return { program_id: prep.program_id, show_to_builder: '', agent_note: TIPS_NEEDS_DEPLOY_NOTE };
-      await getProgramRow(prep.program_id);
-      const step = await deployStep(deploy, prep, ctx);
-      return { program_id: prep.program_id, show_to_builder: step.line, deploy: step.deploy, ...(step.agent_note && { agent_note: step.agent_note }) };
-    }
-    if (!deploy) {
-      const r = (await handlers.prepare_submission(prep, ctx, join)) as Reply;
-      return join?.noLive ? { ...r, agent_note: [r.agent_note, BUILD_NO_LIVE_NOTE].filter(Boolean).join(' ') } : r;
-    }
-    await getProgramRow(prep.program_id);
-    const step = await deployStep(deploy, prep, ctx);
-    const address = (step.deploy as { address?: string }).address;
-    const drafted = address ? { ...prep, project: { ...prep.project, contracts: [address, ...(prep.project?.contracts ?? []).filter((c) => c.toLowerCase() !== address.toLowerCase())].slice(0, 2) } } : prep;
-    let r: Reply;
-    try {
-      r = (await handlers.prepare_submission(drafted, ctx)) as Reply;
-    } catch (err) {
-      if (!address) throw err;
-      const why = err instanceof Error ? err.message : 'error';
-      return { program_id: prep.program_id, show_to_builder: step.line, deploy: step.deploy, agent_note: `${step.agent_note ?? ''} The draft failed: ${why} Call prepare again without deploy.`.trim() };
-    }
-    const shown = typeof r.show_to_builder === 'string' && r.show_to_builder ? `${r.show_to_builder}\n\n${step.line}` : step.line;
-    const note = [r.agent_note, step.agent_note].filter((n) => typeof n === 'string' && n).join(' ');
-    return { ...r, show_to_builder: shown, deploy: step.deploy, ...(note && { agent_note: note }) };
+    const reply = await prepareTool(input, ctx);
+    const picked = (reply as { program_id?: unknown }).program_id;
+    return withApiContent(reply, typeof picked === 'string' ? picked : prepareProgramId(input));
   },
 
   // R16: what the builder said: "I submitted", then statements; replies joined.
