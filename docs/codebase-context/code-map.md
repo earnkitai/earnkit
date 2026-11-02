@@ -2784,3 +2784,15 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
   `DEFAULT_GUIDANCE.raised`), `readyNeedsAsk(title, needs, count)`.
 - **v4.10 Task 5**: `scripts/converse-replay.mts` `walkR` (`WALK=R`, `VARIANT=skip`); `fixtures/converse.ts` gateFailures
   (ready ask paragraph repeats); `bench-find.ts` `readyWaitingCommit` (proof line, no repeated list), `readyYes`.
+- **v4.10 final fix**:
+  - `bench-find.ts`: `READY_NEED_MAX`, `readyNeeds` (exported), `NeedItem`, `ReadyNeed` (the set's one ask),
+    `ReadyState.given`, `ReadyDraft.only`/`ends_at`, `askKey`, `answerKind`, `needAsk`, `needFields`, `readyBank`,
+    `readySettle`, `needStored`, `codesStored`, `openRows`, the exported type `ReadyAnswers`. `pathPlan` adds chain
+    mismatches to `longShots`. `readyYes` returns null on a state conflict, and `readyAnswer` retries once.
+  - `ready-copy.ts`: `needsList`, `readyNeedsAsk(titles, needs, count)` (plural-safe), `readyNeedsLater`,
+    `readyStillNeeds`; `readyYesReply` takes `codes`; `readyOpener` says "Every other answer" when needed.
+  - `program-file.ts` `READY_ANSWERS` (tools.ts and mcp.ts `move_up.answers`; `skip` up to 10).
+  - `fixtures/test-guard.ts` sets `EARNKIT_TEST_GUARD`. `fixtures/converse.ts` `BLANKS_REPLY` (finish them) and
+    `lazyNext` `answers`. `scripts/converse-replay.mts` `ANSWERS`.
+  - Tests: `v410-find.test.ts` (I1 to I5, M3, M7, M8 hosted, the I2 cross-check) and `v410-ready.test.ts` (the pure
+    pieces). `v481-fixes.test.ts` `soonestIsTheCopy` date-proofs F6 and R-4.

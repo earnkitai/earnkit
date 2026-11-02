@@ -18,7 +18,8 @@
  *   (`ask: programs`), then one more plain find (the owner's 2026-11-01 dogfood). Exits 1 if its first reply is
  *   not a fresh session.
  * - R (OWN, v4.10): the ready set: find, yes (VARIANT=skip: "skip <last number>"), the codes pushed (simulated, see walkR),
- *   "sent", one more find. Builder-only asks are answered with BLANKS. Needs a fresh copy per variant.
+ *   "sent", one more find. The set's one builder-only ask is answered in one message, split by field (ANSWERS; v4.10
+ *   final fix I1). Needs a fresh copy per variant.
  * - A, S and R first age the snapshot's live session past SESSION_MS (a note says so), so session 0 is a real opener.
  * - Real work ends a walk's session: a push to the builder's repo (Builder Codes, "Say ok once the change is pushed")
  *   or connecting GitHub needs the builder's own accounts, so the script records it and goes no further there. A help
@@ -79,6 +80,8 @@ type Turn = import('../lib/earnkit/fixtures/converse').Turn;
 
 const DAY = 86_400_000;
 const BLANKS = 'just me, nothing raised';
+/** v4.10 final fix (I1): the lazy builder's one reply to the ready set's ask, as the agent splits it by field kind. */
+const ANSWERS: Record<string, string> = { team: 'just me', raised: 'nothing raised', traction: 'no users yet', demo_video: 'no demo yet' };
 const replies: Reply[] = [];
 const notes: string[] = [];
 /** The builder's own project name and handle: the only subjects "{name} is live" is proof for (gateFailures names). */
@@ -123,7 +126,7 @@ async function walkA() {
   // can't make or nothing to answer. A help step's "ok" is played as not done yet (the builder never does it here), so
   // EarnKit re-checks, says so once, then moves to the next program.
   for (let i = 0; r && i < 10; i++) {
-    const t = lazyNext(r, { blanks: BLANKS, pushed: PUSHED_ASK });
+    const t = lazyNext(r, { blanks: BLANKS, pushed: PUSHED_ASK, answers: ANSWERS });
     if (t === 'real_work') {
       notes.push(`turn ${r.turn}: real work (${moveUpOf(r)?.kind ?? 'a step'}): the agent pushes a change to the repo, which the replay can't do; the session ends here, not done yet.`);
       break;
@@ -166,9 +169,9 @@ async function walkS() {
 
 /**
  * v4.10 Task 5, walk R: the owner on a fresh session answers the ready set (OWN). VARIANT=yes (default): find, yes, the
- * codes pushed, sent. VARIANT=skip: find, "skip <the last number in the set>", the codes pushed, sent. A builder-only
- * ask (the team list, money raised) is answered by lazyNext with BLANKS ("just me, nothing raised"); the reply's own
- * words are never invented. A push to the builder's repo can't happen in a replay, so when a reply asks for it ("Say ok
+ * codes pushed, sent. VARIANT=skip: find, "skip <the last number in the set>", the codes pushed, sent. The set's one
+ * builder-only ask (every field across the set) is answered by lazyNext in one message, split by field (ANSWERS: "just
+ * me", "nothing raised", "no users yet", "no demo yet"); the reply's own words are never invented. A push to the builder's repo can't happen in a replay, so when a reply asks for it ("Say ok
  * once the change is pushed"), the codes are simulated: a fake GitHub (fixtures/fake-github.ts, offline) whose copy of
  * the builder's repo carries a Builder Codes file, installed as the tool context's codesFetch; the snapshot's own App
  * proof row (github_verifications) names the installation, and appEnv() gives a local throwaway App key. The agent's
@@ -193,15 +196,12 @@ async function walkR() {
   const set = [...(r?.show.matchAll(/^\d+\. /gm) ?? [])].length;
   notes.push(`the owner's set in this snapshot: ${set} program(s)`);
   if (variant === 'skip' && set > 0) {
-    const t = lazyNext(r!, { blanks: BLANKS, pushed: PUSHED_ASK, skip: [set] });
+    const t = lazyNext(r!, { blanks: BLANKS, pushed: PUSHED_ASK, skip: [set], answers: ANSWERS });
     if (t && t !== 'real_work') r = await play(t);
   }
   let sent = false;
   for (let i = 0; r && i < 12 && !sent; i++) {
-    // The lazy builder's short answer fits the ask ("Base needs your usage numbers first."): nothing here is copy.
-    const want = r.show.match(/needs (?:your |any )?([^.]*?) first\. Reply with/i)?.[1] ?? '';
-    const blanks = /usage/i.test(want) ? 'no users yet' : /demo|video/i.test(want) ? 'no demo yet' : /team/i.test(want) && !/raised/i.test(want) ? 'just me' : /raised/i.test(want) && !/team/i.test(want) ? 'nothing raised' : BLANKS;
-    let t = lazyNext(r, { blanks, pushed: PUSHED_ASK });
+    let t = lazyNext(r, { blanks: BLANKS, pushed: PUSHED_ASK, answers: ANSWERS });
     if (t === 'real_work') {
       const m = moveUpOf(r);
       if (!ctx.codesFetch) {

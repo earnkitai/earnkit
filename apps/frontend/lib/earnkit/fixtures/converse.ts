@@ -97,13 +97,19 @@ export function askMismatch(prev: Reply | null, tell: Record<string, unknown>): 
  * ("sent", the blanks) or a yes to its move_up. 'real_work' when the next step is work outside EarnKit (a push the
  * replay can't make); null when the reply asks for nothing EarnKit can take.
  */
-export function lazyNext(r: Reply, o: { blanks: string; pushed: string; skip?: number[] }): Turn | 'real_work' | null {
+export function lazyNext(r: Reply, o: { blanks: string; pushed: string; skip?: number[]; answers?: Record<string, string> }): Turn | 'real_work' | null {
   const m = moveUpOf(r);
   const end = lastParagraph(r.show);
   if (end.includes(o.pushed)) return 'real_work';
   if (!m) return null;
   const ask = { kind: m.kind, project_key: m.project_key ?? null };
   if (/\breply "sent"/i.test(end)) return { says: 'sent', tell: { move_up: { ...ask, answer: 'sent' } } };
+  // v4.10 final fix (I1): the ready set's one ask, answered in one message; the agent splits it by field (ready.need.asks).
+  const kinds = ((r.reply?.ready as { need?: { asks?: { kind: string }[] } } | undefined)?.need?.asks ?? []).map((a) => a.kind);
+  if (o.answers && m.kind === 'ready' && kinds.length > 0 && BLANKS_REPLY.test(sentences(end).at(-1) ?? '')) {
+    const answers = Object.fromEntries(kinds.map((k) => [k, o.answers![k] ?? o.blanks]));
+    return { says: Object.values(answers).join(', '), tell: { move_up: { ...ask, answer: 'yes', answers } } };
+  }
   if (BLANKS_REPLY.test(sentences(end).at(-1) ?? '')) return { says: o.blanks, tell: { move_up: { ...ask, answer: 'yes', blanks: o.blanks } } };
   // v4.10 Task 3 (R5): the ready set's one ask: yes, or the numbers the walk skips. Task 4: once its pages are open the
   // ask is "sent" (above), never another yes.
@@ -194,9 +200,10 @@ const sentences = (p: string) => norm(p).split(/(?<=[.!?])\s+/).filter(Boolean);
 
 /**
  * The approved blanks ask (target A, and its 1 and 3+ forms, fix round 1b), the one easy reply that is neither a yes
- * nor a word: exactly "Reply with it|both|them and I'll finish it.".
+ * nor a word: exactly "Reply with it|both|them and I'll finish it.". v4.10 final fix (I1): the ready set's one ask for
+ * several programs ends "... and I'll finish them.".
  */
-export const BLANKS_REPLY = /^Reply with (?:it|both|them) and I'll finish it\.$/;
+export const BLANKS_REPLY = /^Reply with (?:it|both|them) and I'll finish (?:it|them)\.$/;
 /** A question a yes answers: it opens on a yes/no word, and offers no choice and asks for nothing open. */
 const YES_NO = /^(?:want|should|shall|can|could|do|does|did|is|are|will|would|go|draft|ready|start|ok|okay|add)\b/i;
 const NOT_YES_NO = /\bor\b|\b(?:tell me|let me know|what|which|something|anything|who|whom|whose|how|why|where|when)\b/i;

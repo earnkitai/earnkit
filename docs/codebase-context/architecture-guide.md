@@ -9240,3 +9240,44 @@ agent's "ok" a `tell` on the qualify ask), "sent", one more find. A, S, B run as
 still-ready line. Fixes found by the replays: a find that opens a session on a waiting codes check carries the streak
 fact (`readyWaitingCommit`); an answer that opens nothing new no longer repeats the open list (`readyYes`,
 `readyWaitingCommit`); the gate treats a `ready` ask's whole last paragraph as the repeatable ask unit.
+
+## v4.10 final fix: one ask for the set, honest long shots, nothing stranded
+
+This supersedes the per-program need in Task 4: the builder answers once for the whole set.
+- **One ask (I1).** `readyDrafts` keeps every unheld builder-only field of a program (`ReadyDraft.only`). The opener's
+  line names up to 3 of them, then "and N more" (`ready-copy.ts` `needsList`). With any need, the opener says "Every
+  other answer is filled ..." (M1). `readyNeeds(drafts)` (exported, pure) builds the set's one ask:
+  - fields are deduped by bank kind (`askKey`; a field of no bankable kind keeps `other:<key>`);
+  - the soonest-closing program's fields come first;
+  - `READY_NEED_MAX` is 4 fields. A program whose new fields would pass it waits in `need.later`, named before the
+    ask ("Colosseum also needs ... I'll ask for it next."). The first program always goes.
+  - `ReadyState.need` is `{ programs, titles, phrase, items: [{ kind, phrase, fields: [{ program_id, req }] }], later }`.
+- **Asked in the yes itself.** The yes reply ends on `readyNeedsAsk(titles, phrase, n)` ("a16z and Base need ... first.
+  Reply with them and I'll finish them."). For a non-hosted agent the Builder Codes push is the agent's own work
+  (`GAP_DO_NOTE`: push, then call find), and the stored ask is the ready need (written after `gapDoYes`). A hosted agent
+  keeps the codes help ask first; its set's ask comes once the codes are found or parked.
+- **Answers.** tell `move_up.answers` (`program-file.ts` `READY_ANSWERS`: a partial record by `FIELD_KINDS`, at most 8,
+  each at most 1000 characters; tools.ts and mcp.ts). The agent splits the builder's one reply by `ready.need.asks`.
+  `readyBank` limits answers to the asked fields (on the first yes, every program's), with `blanks` as the fallback.
+  It banks each answer for every program asking it (`saveBank`), and keeps answers of no bankable kind in
+  `ReadyState.given`, so nothing is asked twice. Answers are taken on the first yes too.
+- **Long shots (I2).** In `pathPlan`, a grant whose `cardFact` is a chain the project isn't on joins `PathPlan.longShots`,
+  with that fact as its `why` (Circle on Arc: "Ready, but Circle looks for apps on Arc, so it's a long shot.", last).
+- **Nothing stranded (I3 to I5).** `readySettle` drafts the waiting programs again: those with nothing left to ask and
+  no codes pending open, and the rest form the next need. It runs after:
+  - a no to the need ask (it parks the asked programs; the next ask is the rest's, else "sent", else the codes ask,
+    else the ask goes and find answers);
+  - a codes park;
+  - codes found (a program the builder still owes answers for never opens).
+  "sent" is asked only while a page is open. `readyTracked` keeps the ask while anything waits and rewrites it to the
+  need, so the follow-up find says "Still waiting on ... Reply with it and I'll finish it." (`readyStillNeeds`).
+  While the builder owes answers, a codes re-check that is missing or checking keeps their ask as the one easy reply.
+- **Minors.**
+  - M2: "Adding Builder Codes now, then I'll open Base." (`readyYesReply` `codes`).
+  - M3: `skip` takes up to 10 numbers.
+  - M4: the record is sent once, at `ready.record`.
+  - M5: `readyYes`'s UPDATE applies only onto the ready state it read; on a conflict it reads again once.
+  - M6: `READY_SET` is frozen unless `EARNKIT_TEST_GUARD` (set by `fixtures/test-guard.ts`) or `NODE_ENV=test`.
+  - M7: the first yes refreshes `ready.at`, and a ready ask whose set expired is dropped (find answers).
+- **Gate.** `BLANKS_REPLY` also takes "... and I'll finish them." `lazyNext` takes `answers`, so a ready need ask is
+  answered in one split message (replay `ANSWERS`).

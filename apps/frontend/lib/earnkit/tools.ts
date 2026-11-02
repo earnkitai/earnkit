@@ -135,7 +135,7 @@ import { hideUpdate, postUpdate, setShipTitles } from './updates';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchIdentity, benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
 import { REPO_KEY, dropMainProject, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
-import { APPLY_OUTCOME_NOTE, BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, draftAnswered, pathTrack, readySent, readyTracked, submitAsked, recordApplyYes, keepBenchMatch, legacyCoinAnswer, tokenAsk, tokenExisting, keptBenchMatch, mainProjectName, mainProjectNameFor, rankAnswer, rememberProjectName, signedOutNow } from './bench-find';
+import { APPLY_OUTCOME_NOTE, BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, draftAnswered, pathTrack, readySent, readyTracked, type ReadyAnswers, submitAsked, recordApplyYes, keepBenchMatch, legacyCoinAnswer, tokenAsk, tokenExisting, keptBenchMatch, mainProjectName, mainProjectNameFor, rankAnswer, rememberProjectName, signedOutNow } from './bench-find';
 import { CHAIN_EXPLAINED, CHAIN_NAMES, type Chain } from './chains';
 import { provenWallet } from './wallet-proof';
 import { walletChangeReply } from './wallet-offer';
@@ -159,7 +159,7 @@ import { STRIPE_DISCONNECTED, STRIPE_NEVER_KEY, STRIPE_NOT_CONNECTED, STRIPE_NO_
 import { disconnectStripe, stripeLink, takeStripeDraftLink } from './stripe';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
 import { rootOf } from './identity';
-import type { FieldKind } from './program-file';
+import { READY_ANSWERS, type FieldKind } from './program-file';
 import type { ProgramRow } from './programs';
 import { RateLimitError, enforce } from './rate-limit';
 import { SIGN_IN_NOTES, bindFromPaste } from './x-link';
@@ -2458,13 +2458,16 @@ export const TellToolInput = z
         // v4.8 Task 3 fix round 1 (2): 'sent' only when the builder says the application is in (the submit ask).
         // v4.10 Task 4 (R8): 'skip' with `skip`, the ready set's numbers to leave out (1-based).
         answer: z.enum(['yes', 'no', 'sent', 'skip']),
-        skip: z.array(z.number().int()).max(3).optional(),
+        // v4.10 final fix (M3): up to 10, so "skip 1 2 3 4" or a repeated number is filtered server side, never refused.
+        skip: z.array(z.number().int()).max(10).optional(),
         // v4.10 Task 4 (R8): "sent" for only some of the ready set's open pages (their program ids).
         sent_ids: z.array(z.string().max(200)).max(3).optional(),
         // v2.12.1 T9: a go_live yes again, with the GitHub Pages link once it loads.
         live_url: z.string().max(300).optional(),
         // v4.8 Task 2 fix round 3: the builder's reply to a draft's blanks (bench-find.ts draftYes; never stored).
         blanks: z.string().max(2000).optional(),
+        // v4.10 final fix (I1): the builder's one reply to the ready set's ask, split by field kind (bench-find.ts readyBank).
+        answers: READY_ANSWERS.optional(),
       })
       .strict()
       .optional(),
@@ -2512,7 +2515,7 @@ const defined = (o: Reply): Reply => Object.fromEntries(Object.entries(o).filter
  * last Bench reply stored); the agent's kind is never trusted, and a yes to a step that is no longer the
  * current one (or another project's) changes nothing (bench-find.ts benchMoveUp).
  */
-const moveUpAnswer = (ctx: ToolContext, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no' | 'skip'; skip?: number[]; live_url?: string; blanks?: string }): Promise<Reply> => benchMoveUp(ctx, m);
+const moveUpAnswer = (ctx: ToolContext, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no' | 'skip'; skip?: number[]; live_url?: string; blanks?: string; answers?: ReadyAnswers }): Promise<Reply> => benchMoveUp(ctx, m);
 
 /**
  * v3.1 cold read (owner-approved): a program that wants a chain the project has no code for, in plain words: "Circle

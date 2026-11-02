@@ -16,16 +16,19 @@ export const READY_NOTE =
   'Before you show this, write each program\'s remaining answers from the record in this result. Never invent facts. Keep them for the builder\'s yes; on yes call prepare for each program with those answers. Show show_to_builder only after that.';
 /** v4.10 Task 4 (R8): how the opener's ask is answered (never shown). */
 export const READY_ASK_NOTE =
-  "A yes, a no or the numbers to skip: call tell with move_up: { kind: 'ready', project_key, answer: 'yes' } (a no: answer 'no'; numbers: answer 'skip' with skip: [the numbers], 1-based). Builder-only answers they give go in blanks. Don't show this note.";
+  "A yes, a no or the numbers to skip: call tell with move_up: { kind: 'ready', project_key, answer: 'yes' } (a no: answer 'no'; numbers: answer 'skip' with skip: [the numbers], 1-based). If they also give what a program asks of them (ready.programs[].asks), split their words by field into answers: { [kind]: their words }; blanks only when they can't be split. Don't show this note.";
 /** v4.10 Task 4 (decision a): the yes's note, with ready.open (exact). The server never writes the free-text answers. */
 export const READY_YES_NOTE =
   "Call prepare for each program in ready.open with the answers you drafted, then show each kit's link and paste-ready answers under show_to_builder.";
 /** v4.10 Task 4: the note once the pages are open: "sent" is the builder's word, for some or all of them. */
 export const READY_SENT_NOTE =
   "Only when they say an application is in (\"sent\", \"submitted\"), call tell with move_up: { kind: 'ready', project_key, answer: 'sent' } (only some: add sent_ids with those program ids). A plain ok or yes is not sent. Don't show this note.";
-/** v4.10 Task 4 (R5): the note while a program waits on what only the builder can give. */
+/**
+ * v4.10 Task 4 (R5): the note while programs wait on what only the builder can give. Final fix (I1): their one reply,
+ * split by field (ready.need.asks), answers every program that asks it.
+ */
 export const READY_NEEDS_NOTE =
-  "Their answer to what the program needs (only theirs, never yours): call tell with move_up: { kind: 'ready', project_key, answer: 'yes', blanks: their words }. Don't show this note.";
+  "Their answers to what the programs need (only theirs, never yours): split their one reply by field (ready.need.asks) and call tell with move_up: { kind: 'ready', project_key, answer: 'yes', answers: { [kind]: their words for it } }; blanks: their whole reply, only when it can't be split. Don't show this note.";
 /** v4.10 Task 4: the second plain find in a session, while the opener's ask waits: its last sentence. */
 export const READY_AGAIN_ASK = "Reply yes and I'll finish them.";
 /** v4.10 Task 4: the ready status (a later plain find in the session never repeats the opener). Pure. */
@@ -39,6 +42,12 @@ const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five'];
 const countWord = (n: number) => NUMBER_WORDS[n] ?? String(n);
 /** "A", "A and B", "A, B and C". */
 const list = (xs: readonly string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
+/** Final fix (I1): "your team list, usage numbers and demo video"; past `max`, "... and 2 more". Pure. */
+export function needsList(phrases: readonly string[], max = 3): string {
+  const own = phrases[0]?.startsWith('your ');
+  const xs = phrases.map((p, i) => (i > 0 && own ? p.replace(/^your /, '') : p));
+  return xs.length <= max ? list(xs) : `${xs.slice(0, max).join(', ')} and ${xs.length - max} more`;
+}
 const third = (verb: string) => (verb === 'have' ? 'has' : /(?:s|x|ch|sh)$/.test(verb) ? `${verb}es` : `${verb}s`);
 
 /**
@@ -96,16 +105,20 @@ export function readyOpener(o: { name: string | null; set: ReadyProgram[]; worth
   const n = o.set.length;
   const head = `${o.name ? `${o.name}, I've` : "I've"} got ${n === 1 ? '1 application' : `${n} applications`} ready for you${o.worth ? `, worth up to ${o.worth}` : ''}:`;
   const lines = o.set.map((p, i) => readyLine(p, i + 1, o.hosted, o.now));
-  return `${head}\n\n${lines.join('\n')}\n\nEvery answer is filled from your commits and your profile at ${o.page}.\n${READY_ASK}`;
+  // Final fix (M1): with a program waiting on the builder, it is every other answer.
+  const every = o.set.some((p) => p.needs) ? 'Every other answer' : 'Every answer';
+  return `${head}\n\n${lines.join('\n')}\n\n${every} is filled from your commits and your profile at ${o.page}.\n${READY_ASK}`;
 }
 
 /**
  * A yes: while a step waits (`waiting`, "Builder Codes") the agent does it first; once the pages are open (`opened`),
- * each link, then the "sent" ask (the builder says when they have submitted).
+ * each link, then the "sent" ask (the builder says when they have submitted). Final fix (M2): the adding line names
+ * the programs the step opens (`codes`), never more than it opens.
  */
-export function readyYesReply(o: { set: readonly Pick<ReadyProgram, 'title'>[]; opened: readonly { title: string; link: string }[]; waiting: readonly string[] }): string {
+export function readyYesReply(o: { set: readonly Pick<ReadyProgram, 'title'>[]; opened: readonly { title: string; link: string }[]; waiting: readonly string[]; codes?: readonly string[] }): string {
   const n = o.set.length;
-  if (o.waiting.length > 0) return `Adding ${list(o.waiting)} now, then I'll open ${n === 1 ? 'it' : n === 2 ? 'both' : `all ${countWord(n)}`}.`;
+  const them = o.codes?.length ? list([...new Set(o.codes.map(shortName))]) : n === 1 ? 'it' : n === 2 ? 'both' : `all ${countWord(n)}`;
+  if (o.waiting.length > 0) return `Adding ${list(o.waiting)} now, then I'll open ${them}.`;
   return `${readyOpenList(o.set, o.opened)}\n\n${readySentAsk(o.opened.length)}`;
 }
 /**
@@ -123,9 +136,26 @@ export const readySentAsk = (n: number) => `Reply "sent" once ${n === 1 ? "it's"
 /** v4.10 Task 4: a later plain find while the open pages wait for "sent". Pure. */
 export const readySentAgain = (n: number) =>
   `${n === 1 ? 'Your application is' : `Your ${n} applications are`} open with every answer in place. ${readySentAsk(n)}`;
-/** v4.10 Task 4 (R5): the one easy reply while a program waits on what only the builder can give (the gate's blanks ask). */
-export const readyNeedsAsk = (title: string, needs: string, count = 1) =>
-  `${shortName(title)} needs ${needs} first. Reply with ${count > 1 ? 'both' : 'it'} and I'll finish it.`;
+/** The short names of the programs, each once ("Base and a16z"). */
+const shortList = (titles: readonly string[]) => [...new Set(titles.map(shortName))];
+/**
+ * v4.10 Task 4 (R5): the one easy reply while programs wait on what only the builder can give (the gate's blanks ask).
+ * Final fix (I1): one ask for the whole set, `count` fields: "Base and a16z need your team list, usage numbers, demo
+ * video and any money you've raised first. Reply with them and I'll finish them." Pure.
+ */
+export function readyNeedsAsk(titles: string | readonly string[], needs: string, count = 1): string {
+  const who = shortList(typeof titles === 'string' ? [titles] : titles);
+  const many = who.length > 1;
+  return `${list(who)} ${many ? 'need' : 'needs'} ${needs} first. Reply with ${count === 1 ? 'it' : count === 2 ? 'both' : 'them'} and I'll finish ${many ? 'them' : 'it'}.`;
+}
+/** Final fix (I1): a program past the one ask's cap waits, named before the ask: "Colosseum also needs your pitch video. I'll ask for it next." Pure. */
+export const readyNeedsLater = (later: readonly { title: string; phrase: string }[]) =>
+  later.map((w) => `${shortName(w.title)} also needs ${w.phrase}. I'll ask for ${/ and /.test(w.phrase) ? 'them' : 'it'} next.`).join(' ');
+/** Final fix (I1): a later find while the ask waits: "Still waiting on your team list for Base. Reply with it and I'll finish it." Pure. */
+export function readyStillNeeds(titles: readonly string[], needs: string, count: number): string {
+  const who = shortList(titles);
+  return `Still waiting on ${needs} for ${list(who)}. Reply with ${count === 1 ? 'it' : count === 2 ? 'both' : 'them'} and I'll finish ${who.length > 1 ? 'them' : 'it'}.`;
+}
 /** v4.10 Task 4 (R8): a no parks the whole set. Pure. */
 export const readyNoLine = (names: readonly string[]) => `No problem, I'll set ${list(names)} aside.`;
 /** v4.10 Task 4: "sent" for more than one page (conversation.ts TRACK_ACK for one). Pure. */

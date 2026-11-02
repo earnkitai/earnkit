@@ -42,6 +42,13 @@ export const FIELD_KINDS = [
   'raised', 'other',
 ] as const;
 export type FieldKind = (typeof FIELD_KINDS)[number];
+/**
+ * v4.10 final fix (I1): the builder's one reply to the ready set's ask, split by the agent per field kind (tell
+ * move_up.answers; bench-find.ts readyBank): at most 8 kinds, each answer at most 1000 characters.
+ */
+export const READY_ANSWERS = z
+  .partialRecord(z.enum(FIELD_KINDS), z.string().max(1000))
+  .refine((o) => Object.keys(o).length <= 8, { message: 'At most 8 answers.' });
 
 const HttpsSource = z.string().url().startsWith('https://');
 

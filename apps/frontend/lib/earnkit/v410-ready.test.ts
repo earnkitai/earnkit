@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { GapGrant, InvestorProgram, MoveCtx, MoveProgram } from './conversation';
 import { readySet, worthUpTo, type ReadyProgram } from './ready-set';
-import { READY_AGAIN_ASK, READY_ASK, needsPhrase, readyAgain, readyLine, readyNeedsAsk, readyNoLine, readyOpener, readyYesReply, shortName, skipReply } from './ready-copy';
+import { READY_AGAIN_ASK, READY_ASK, needsList, needsPhrase, readyAgain, readyLine, readyNeedsAsk, readyNeedsLater, readyNoLine, readyOpener, readyStillNeeds, readyYesReply, shortName, skipReply } from './ready-copy';
+import { READY_NEED_MAX, readyNeeds } from './bench-find';
+import type { SubmissionRequirement } from './program-file';
 import { gateFailures, lazyNext, type Reply } from './fixtures/converse';
 
 /*
@@ -225,4 +227,58 @@ test('fix 1 (M3): a long shot that needs a builder-only answer keeps its label; 
   assert.equal(needsPhrase({ key: 'money_raised', label: "Any money you've raised", kind: 'raised' }), "any money you've raised");
   assert.equal(readyNeedsAsk('a16z speedrun SR008', "your team list and any money you've raised", 2), "a16z needs your team list and any money you've raised first. Reply with both and I'll finish it.");
   assert.deepEqual(gateFailures([reply(readyNeedsAsk('a16z speedrun SR008', 'x', 2), { reply: { move_up: { kind: 'ready', project_key: null } } })]).filter((f) => f.rule === 'easy_reply'), []);
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// v4.10 final fix (I1, M1, M2): one ask for the whole set.
+
+const req = (key: string, kind: string, o: Partial<SubmissionRequirement> = {}) =>
+  ({ key, label: key, type: 'text', required: true, from: 'builder', kind, ...o }) as SubmissionRequirement;
+const BASE_ONLY = [req('founding_team', 'team'), req('usage_numbers', 'traction'), req('demo_loom', 'demo_video', { type: 'url' })];
+const A16Z_ONLY = [req('founding_team', 'team'), req('money_raised', 'raised')];
+
+test('final fix (I1): a program\'s needs name up to 3, then "and N more"', () => {
+  assert.equal(needsList(BASE_ONLY.map(needsPhrase)), 'your team list, usage numbers and demo video');
+  assert.equal(needsList(A16Z_ONLY.map(needsPhrase)), "your team list and any money you've raised");
+  assert.equal(needsList([...BASE_ONLY, req('pitch', 'pitch_video'), req('x', 'other', { todo: 'legal entity' })].map(needsPhrase)), 'your team list, usage numbers, demo video and 2 more');
+  const line = readyLine({ ...OWNER_SET[0], needs: needsList(BASE_ONLY.map(needsPhrase)) }, 1, false, NOW);
+  assert.equal(line, '1. Base Builder Grant: up to $5,000. Needs your team list, usage numbers and demo video first.');
+});
+
+test('final fix (I1): readyNeeds asks every field once, soonest close first, at most 4; past it a program waits', () => {
+  const soon = new Date(NOW.getTime() + 4 * 3_600_000).toISOString();
+  const base = { id: 'base', title: 'Base Builder Grant Program', ends_at: null, only: BASE_ONLY };
+  const a16z = { id: 'a16z', title: 'a16z speedrun SR008', ends_at: soon, only: A16Z_ONLY };
+  const n = readyNeeds([base, a16z, { id: 'circle', title: 'Circle Developer Grants', ends_at: null, only: [] }])!;
+  assert.deepEqual(n.programs, ['a16z', 'base']);
+  assert.deepEqual(n.items.map((i) => i.kind), ['team', 'raised', 'traction', 'demo_video']);
+  // The team list both ask is one item, with both programs' fields.
+  assert.deepEqual(n.items[0].fields.map((f) => f.program_id), ['a16z', 'base']);
+  assert.equal(n.later.length, 0);
+  assert.equal(readyNeedsAsk(n.titles, n.phrase, n.items.length),
+    "a16z and Base need your team list, any money you've raised, usage numbers and demo video first. Reply with them and I'll finish them.");
+  // A fifth field: the program adding it waits, named; the first program always goes.
+  const colosseum = { id: 'col', title: 'Colosseum Worlds Fair', ends_at: null, only: [req('team_location', 'other', { todo: 'team location' })] };
+  const capped = readyNeeds([base, a16z, colosseum])!;
+  assert.equal(READY_NEED_MAX, 4);
+  assert.deepEqual([capped.programs, capped.later.map((w) => w.program_id)], [['a16z', 'base'], ['col']]);
+  assert.equal(readyNeedsLater(capped.later), "Colosseum also needs your team location. I'll ask for it next.");
+  const big = readyNeeds([{ ...colosseum, only: [...BASE_ONLY, ...A16Z_ONLY.slice(1), req('team_location', 'other')] }])!;
+  assert.deepEqual([big.programs, big.items.length], [['col'], 4]);
+  assert.equal(readyNeeds([{ ...base, only: [] }]), null);
+});
+
+test('final fix (I1, M1, M2): the plural asks, "every other answer" and the adding line naming what the codes open', () => {
+  assert.equal(readyNeedsAsk('Base Builder Grant Program', 'your team list'), "Base needs your team list first. Reply with it and I'll finish it.");
+  assert.equal(readyNeedsAsk(['a16z speedrun SR008'], "your team list and any money you've raised", 2), "a16z needs your team list and any money you've raised first. Reply with both and I'll finish it.");
+  assert.equal(readyNeedsAsk(['Base Builder Grant Program'], 'your team list, usage numbers and demo video', 3), "Base needs your team list, usage numbers and demo video first. Reply with them and I'll finish it.");
+  assert.equal(readyStillNeeds(['Base Builder Grant Program', 'a16z speedrun SR008'], 'your team list and demo video', 2), "Still waiting on your team list and demo video for Base and a16z. Reply with both and I'll finish them.");
+  const needs = opener({ set: [{ ...OWNER_SET[0], needs: 'your team list' }, ...OWNER_SET.slice(1)] });
+  assert.match(needs, /\n\nEvery other answer is filled from your commits and your profile at earnkit\.com\/jenilt\.\n/);
+  assert.match(opener(), /\n\nEvery answer is filled from/);
+  assert.equal(readyYesReply({ set: OWNER_SET, opened: [], waiting: ['Builder Codes'], codes: ['Base Builder Grant Program'] }), "Adding Builder Codes now, then I'll open Base.");
+  // The gate takes each as the one easy reply.
+  const ready = { reply: { move_up: { kind: 'ready', project_key: null } } };
+  for (const t of ["a16z and Base need your team list first. Reply with them and I'll finish them.", readyStillNeeds(['a', 'b'], 'x', 3)])
+    assert.deepEqual(gateFailures([reply(t, ready)]).filter((f) => f.rule === 'easy_reply' || f.rule === 'copy'), [], t);
 });

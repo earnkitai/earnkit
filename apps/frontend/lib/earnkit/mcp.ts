@@ -4,6 +4,7 @@ import { ZodError, z } from 'zod';
 import { surfaceOf, withFormattedReply } from './reply-format';
 import { sql } from './db';
 import { CHAINS } from './match';
+import { READY_ANSWERS } from './program-file';
 import { GitHubError } from './match-projects';
 import { NotFoundError } from './programs';
 import { EntryError } from './campaigns';
@@ -424,10 +425,13 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
               project_key: z.string().max(300).nullable().optional().describe("find's or score's move_up.project_key"),
               answer: z.enum(['yes', 'no', 'sent', 'skip']).describe("yes or no; 'sent' only when they say the application is in (\"sent\", \"submitted\", \"done, it's in\"), never for a plain ok; 'skip' with skip for the numbers they leave out"),
               // v4.10 Task 4 (R8): the ready set's numbers to skip, and "sent" for only some of its pages.
-              skip: z.array(z.number().int()).max(3).optional().describe("With answer 'skip': the numbers they said to skip (1-based)"),
+              // v4.10 final fix (M3): up to 10; the server keeps only the set's own numbers.
+              skip: z.array(z.number().int()).max(10).optional().describe("With answer 'skip': the numbers they said to skip (1-based)"),
               sent_ids: z.array(z.string().max(200)).max(3).optional().describe("With answer 'sent' to kind 'ready': only these program ids, when they sent some"),
               live_url: z.string().max(300).optional().describe("Only when a go_live note asks: the app's GitHub Pages link once it loads"),
               blanks: z.string().max(2000).optional().describe("Only when a draft's note asks: the builder's reply to its blanks, as they wrote it"),
+              // v4.10 final fix (I1): the builder's one reply to the ready set's ask, split by field.
+              answers: READY_ANSWERS.optional().describe("Only when a ready note asks: the builder's one reply split by field kind (ready.need.asks), their words for each"),
             })
             .strict()
             .optional()
