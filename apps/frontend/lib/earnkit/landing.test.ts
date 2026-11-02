@@ -124,6 +124,7 @@ test('v2.7.1: each tile field; no pool means the per-winner amount is the big li
     big: '$25K',
     when: 'Closes Oct 20',
     organizer: 'Monad Metropolis',
+    research: false,
   });
   assert.equal(b.days_left, 'rolling');
   assert.equal(b.difficulty, 'Hard'); // its round froze (I2)

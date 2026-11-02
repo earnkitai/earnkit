@@ -27,7 +27,7 @@ export type AlsoProgram = {
   ends_at: Date | null;
   status: 'active' | 'closed' | 'upcoming' | 'unlisted';
   campaign: boolean;
-  source: 'file' | 'sponsor';
+  source: 'file' | 'sponsor' | 'api';
   /**
    * Ruling C23: an investment program (a16z speedrun). Never in Also qualifies: its form isn't
    * public, so "Still needed" can't be counted, and it is never shown as a prize.
@@ -92,7 +92,7 @@ export function alsoQualifies(a: {
     .filter((p) => p.id !== a.enteredProgramId && !a.enteredIds.has(p.id))
     .filter((p) => a.canWin?.(p) ?? true)
     .filter((p) => !a.hidden?.notInterested.has(p.id) && !a.hidden?.applied.has(p.id))
-    .filter((p) => p.status === 'active' && p.source === 'file' && !p.campaign && !p.investment && p.existing_work !== 'new_work_only')
+    .filter((p) => p.status === 'active' && (p.source === 'file' || p.source === 'api') && !p.campaign && !p.investment && p.existing_work !== 'new_work_only')
     .filter((p) => p.ends_at === null || p.ends_at.getTime() - a.now.getTime() >= 2 * DAY)
     .filter((p) => p.any_chain || p.chains.some((c) => a.chains.includes(c)))
     .map((p) => {

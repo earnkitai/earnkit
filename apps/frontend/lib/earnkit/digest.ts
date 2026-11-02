@@ -3,8 +3,10 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { bestFitFor, standingFor } from './best-fit';
 import { newBackers } from './backers';
 import { alertFit, newProgramOf, type FitRepo, type NewProgramRow } from './alerts';
+import { researchMark } from './site-copy';
 import { hiddenIds, hiddenPrograms, type BuilderMemory } from './builder-memory';
 import { sql, type Db } from './db';
+import { freshSql } from './api-stale';
 import { siteUrl } from './entry-text';
 import { COIN_PROGRAM } from './policy-constants';
 import { freeTierRoom, takeFreeTier } from './free-tier';
@@ -125,10 +127,11 @@ export type DigestFacts = {
   /** v3.1 Task 12: the money lines above the week (the Best fit's draft, new backers); none on a shared client or a per-login subscription. */
   money: string[];
   /** v4.7 final review (Review Focus 2): `summary` and `tz` read the close day in the program's own zone (deadline.ts closeDay). */
-  newPrograms: { title: string; repo: string; prize_usd: number | null; ends_at: Date | null; summary?: string; tz?: string | null }[];
-  wins: { name: string; program: string; prize_usd: number | null }[];
+  /** v4.9 final fix (ruling 5): `research` on a line about an API program, which then carries RESEARCH_LABEL. */
+  newPrograms: { title: string; repo: string; prize_usd: number | null; ends_at: Date | null; summary?: string; tz?: string | null; research?: boolean }[];
+  wins: { name: string; program: string; prize_usd: number | null; research?: boolean }[];
   /** A close carries its program's `summary` and `tz` (closeDay); a decision date is a calendar date, read in UTC. */
-  deadlines: { program: string; what: 'closes' | 'decision'; at: Date; summary?: string; tz?: string | null }[];
+  deadlines: { program: string; what: 'closes' | 'decision'; at: Date; summary?: string; tz?: string | null; research?: boolean }[];
 };
 
 const money = (usd: number | null) => (usd ? `$${usd.toLocaleString('en-US')}` : null);
@@ -192,9 +195,9 @@ export function digestBody(f: DigestFacts): { subject: string; text: string } | 
       ].join('\n')
     : null;
   const lines = [
-    ...f.newPrograms.map((p) => `New: ${p.title} fits ${cleanName(p.repo, 'your repo')}${money(p.prize_usd) ? `, ${money(p.prize_usd)}` : ''}${p.ends_at ? `, closes ${closes({ ...p, at: p.ends_at }, f.now)}` : ''}.`),
-    ...f.wins.map((w) => `Won: ${cleanName(w.name, 'An EarnKit builder')} in ${w.program}${money(w.prize_usd) ? `, ${money(w.prize_usd)}` : ''}.`),
-    ...f.deadlines.map((d) => `Your ${d.program}: ${d.what === 'closes' ? `closes ${closes(d, f.now)}` : `results due ${day(d.at)}`}.`),
+    ...f.newPrograms.map((p) => `New: ${p.title} fits ${cleanName(p.repo, 'your repo')}${money(p.prize_usd) ? `, ${money(p.prize_usd)}` : ''}${p.ends_at ? `, closes ${closes({ ...p, at: p.ends_at }, f.now)}` : ''}.${researchMark(p.research)}`),
+    ...f.wins.map((w) => `Won: ${cleanName(w.name, 'An EarnKit builder')} in ${w.program}${money(w.prize_usd) ? `, ${money(w.prize_usd)}` : ''}.${researchMark(w.research)}`),
+    ...f.deadlines.map((d) => `Your ${d.program}: ${d.what === 'closes' ? `closes ${closes(d, f.now)}` : `results due ${day(d.at)}`}.${researchMark(d.research)}`),
   ];
   if (lines.length === 0 && !week && f.money.length === 0) return null;
   const subject = f.week
@@ -458,7 +461,7 @@ const daysTo = (end: Date, now: Date) => Math.max(1, Math.floor((end.getTime() -
  * hours away is absolute in the program's zone (`zone`, else UTC) with the hours left as of sending ("closes Nov 1,
  * 11:59 PM PT (in 20 hours)"), never "in 1 day" at 3 hours left. Pure.
  */
-export function moneyTexts(best: { title: string; ends_at: Date | null; zone?: string } | null, newBackerCount: number, now: Date): string[] {
+export function moneyTexts(best: { title: string; ends_at: Date | null; zone?: string; research?: boolean } | null, newBackerCount: number, now: Date): string[] {
   const lines: string[] = [];
   if (best) {
     const n = best.ends_at ? daysTo(best.ends_at, now) : 0;
@@ -466,8 +469,8 @@ export function moneyTexts(best: { title: string; ends_at: Date | null; zone?: s
     const zone = best.zone ?? 'UTC';
     const by = iso && hoursLeft(iso, now) ? submitBy(iso, zone, now, best.zone ? zoneAbbr(zone) : null) : null;
     lines.push(best.ends_at
-      ? `${best.title} closes ${by ?? `in ${n} ${n === 1 ? 'day' : 'days'}`}. Your draft is one yes away.`
-      : `${best.title} is open (rolling), and your draft is one yes away.`);
+      ? `${best.title} closes ${by ?? `in ${n} ${n === 1 ? 'day' : 'days'}`}. Your draft is one yes away.${researchMark(best.research)}`
+      : `${best.title} is open (rolling), and your draft is one yes away.${researchMark(best.research)}`);
   }
   if (newBackerCount > 0) lines.push(`${newBackerCount} new ${newBackerCount === 1 ? 'backer' : 'backers'} this week.`);
   return lines;
@@ -511,14 +514,14 @@ export async function digestFacts(s: SubRow, now: Date, db: Db = sql()): Promise
   const [money, curated, fit, entered, told, said, wins, closing, decisions] = await Promise.all([
     person === null ? Promise.resolve({ lines: [] as string[], best: null }) : moneyLines(person, now),
     s.shared || s.login
-      ? Promise.resolve([] as (NewProgramRow & { opened_at: Date; tz: string | null })[])
-      : db<(NewProgramRow & { opened_at: Date; tz: string | null })[]>`
-          SELECT id, title, summary, tz, chains, any_chain, opened_at, past_rounds, focus, best_bet, difficulty_override,
+      ? Promise.resolve([] as (NewProgramRow & { opened_at: Date; tz: string | null; source: string })[])
+      : db<(NewProgramRow & { opened_at: Date; tz: string | null; source: string })[]>`
+          SELECT id, title, summary, tz, source, chains, any_chain, opened_at, past_rounds, focus, best_bet, difficulty_override,
             winners_per_round, tag, each_time, submission_requirements, rules, investment, ends_at, starts_at, campaign,
             max_award_usd, existing_work, min_product_score, match_floor, match_precision
           FROM programs
           WHERE status = 'active' AND campaign IS NULL AND opened_at IS NOT NULL AND opened_at > ${since}
-            AND (ends_at IS NULL OR ends_at > ${now})
+            AND (ends_at IS NULL OR ends_at > ${now}) AND ${freshSql(db, null, now)}
           ORDER BY opened_at DESC`,
     db<{ fit_repos: FitRepo[] | null }[]>`SELECT fit_repos FROM installations WHERE id = ${id}`,
     db<{ program_id: string }[]>`SELECT DISTINCT program_id FROM projects WHERE installation_id = ${id}`,
@@ -527,21 +530,21 @@ export async function digestFacts(s: SubRow, now: Date, db: Db = sql()): Promise
     db<{ repo_key: string; mainnet_chains: string[]; testnet_chains: string[]; live_url: string | null; has_users: boolean | null; not_mine: boolean }[]>`
       SELECT repo_key, mainnet_chains, testnet_chains, live_url, has_users, not_mine
       FROM builder_repo_facts WHERE installation_id = ${id} AND login = ''`,
-    db<{ name: string; program: string; prize_usd: string | null }[]>`
-      SELECT p.name, pr.title AS program, eo.prize_usd::text AS prize_usd
+    db<{ name: string; program: string; prize_usd: string | null; source: string }[]>`
+      SELECT p.name, pr.title AS program, eo.prize_usd::text AS prize_usd, pr.source
       FROM entry_outcomes eo JOIN projects p ON p.id = eo.project_id JOIN programs pr ON pr.id = eo.program_id
       WHERE eo.basis = 'announcement' AND eo.result IN ('won', 'placed')
         AND eo.captured_at > ${new Date(now.getTime() - 7 * DAY)} AND eo.captured_at <= ${now}
         AND NOT COALESCE(p.installation_id = ANY(${ids}::int[]), false)
       ORDER BY eo.prize_usd DESC NULLS LAST, eo.captured_at DESC
       LIMIT ${MAX_LINES}`,
-    db<{ program: string; at: Date; summary: string; tz: string | null }[]>`
-      SELECT DISTINCT ON (pr.id) pr.title AS program, pr.ends_at AS at, pr.summary, pr.tz
+    db<{ program: string; at: Date; summary: string; tz: string | null; source: string }[]>`
+      SELECT DISTINCT ON (pr.id) pr.title AS program, pr.ends_at AS at, pr.summary, pr.tz, pr.source
       FROM projects p JOIN programs pr ON pr.id = p.program_id
       WHERE p.installation_id = ${id} AND p.program_id <> ${COIN_PROGRAM} AND pr.ends_at > ${now} AND pr.ends_at <= ${week} ${own}
       ORDER BY pr.id`,
-    db<{ program: string; at: Date }[]>`
-      SELECT DISTINCT ON (pr.id) pr.title AS program, (pr.results->>'expected')::date::timestamp AT TIME ZONE 'UTC' AS at
+    db<{ program: string; at: Date; source: string }[]>`
+      SELECT DISTINCT ON (pr.id) pr.title AS program, (pr.results->>'expected')::date::timestamp AT TIME ZONE 'UTC' AS at, pr.source
       FROM projects p JOIN programs pr ON pr.id = p.program_id
       WHERE p.installation_id = ${id} AND p.program_id <> ${COIN_PROGRAM} AND pr.results->>'expected' IS NOT NULL
         AND (pr.results->>'expected')::date >= (${now}::timestamptz AT TIME ZONE 'UTC')::date
@@ -564,13 +567,13 @@ export async function digestFacts(s: SubRow, now: Date, db: Db = sql()): Promise
       if (row.id === money.best) continue;
       const p = newProgramOf(row);
       const repo = alertFit(p, repos, skip, now);
-      if (repo) newPrograms.push({ title: p.title, repo: repo.name, prize_usd: p.max_award_usd, ends_at: p.ends_at, summary: row.summary, tz: row.tz });
+      if (repo) newPrograms.push({ title: p.title, repo: repo.name, prize_usd: p.max_award_usd, ends_at: p.ends_at, summary: row.summary, tz: row.tz, ...(row.source === 'api' && { research: true }) });
       if (newPrograms.length >= MAX_LINES) break;
     }
   }
   const deadlines: DigestFacts['deadlines'] = [
-    ...closing.map((c) => ({ program: c.program, what: 'closes' as const, at: c.at, summary: c.summary, tz: c.tz })),
-    ...decisions.map((d) => ({ program: d.program, what: 'decision' as const, at: d.at })),
+    ...closing.map((c) => ({ program: c.program, what: 'closes' as const, at: c.at, summary: c.summary, tz: c.tz, ...(c.source === 'api' && { research: true }) })),
+    ...decisions.map((d) => ({ program: d.program, what: 'decision' as const, at: d.at, ...(d.source === 'api' && { research: true }) })),
   ]
     .sort((a, b) => a.at.getTime() - b.at.getTime())
     .slice(0, MAX_LINES);
@@ -580,7 +583,7 @@ export async function digestFacts(s: SubRow, now: Date, db: Db = sql()): Promise
     ...(standing && { standing }),
     money: money.lines,
     newPrograms,
-    wins: wins.map((w) => ({ name: w.name, program: w.program, prize_usd: w.prize_usd === null ? null : Number(w.prize_usd) })),
+    wins: wins.map((w) => ({ name: w.name, program: w.program, prize_usd: w.prize_usd === null ? null : Number(w.prize_usd), ...(w.source === 'api' && { research: true }) })),
     deadlines,
   };
 }

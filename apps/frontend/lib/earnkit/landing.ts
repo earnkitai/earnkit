@@ -59,6 +59,8 @@ export type Tile = {
   when: string;
   /** Clarity batch: who runs it ("Alliance"; the title without an organizer), the landing's tile text when there is no logo file. */
   organizer: string;
+  /** v4.9 Task 3 fix 1: an API program (the research bot wrote it); the card shows site-copy RESEARCH_LABEL. */
+  research: boolean;
 };
 /** Plain JSON only (Ruling 21 (plan), Review Focus 2): unstable_cache serializes it. */
 export type Landing = {
@@ -103,9 +105,31 @@ export function statsLine(s: PublicStats): string | null {
  * line and the chip are stats.open_money_usd (/api/stats' figure: openMoneyUsd over every open curated program). Pure.
  */
 export function landingFrom(cards: Card[], stats: PublicStats, now: Date): Landing {
-  // v3 Stage 2: Base first (byRelevance), upcoming programs last.
-  const kept = cards.filter((c) => !c.sponsored && !c.earnkit_campaign && c.status !== 'unlisted').sort(byRelevance);
-  const tiles = kept.map((c): Tile => {
+  const kept = listedCards(cards);
+  const tiles = landingTiles(kept, now);
+  return {
+    // v4.7 T1 fix round 1 (one money figure): the line, the chip and /api/stats carry stats.open_money_usd.
+    open_text: kept.some((c) => openCurated(c, now)) ? openGrantsText(stats.open_money_usd ?? 0) : null,
+    open_more: openMoneyWords(kept, now),
+    // v4.7 T1 (one money figure): the banner is /api/stats' open_money_usd (statsFrom), not a sum of its own.
+    open_chip: heroChipText(stats.open_money_usd ?? 0),
+    tiles,
+    stats_line: statsLine(stats),
+    won_line: wonLine(stats.builders_won_usd),
+    activity: [],
+  };
+}
+
+/**
+ * The cards the landing lists (Ruling 21 (plan)): curated programs, file or API (v4.9 Task 3), never an EarnKit or
+ * sponsor campaign, never unlisted; Base first (byRelevance, v3 Stage 2), upcoming programs last. Pure.
+ */
+export const listedCards = (cards: Card[]): Card[] =>
+  cards.filter((c) => !c.sponsored && !c.earnkit_campaign && c.status !== 'unlisted').sort(byRelevance);
+
+/** One tile per card, in the cards' order (landingFrom; GET /api/programs reads its money text, site-copy tileMoney). Pure. */
+export function landingTiles(kept: Card[], now: Date): Tile[] {
+  return kept.map((c): Tile => {
     const perWinner = c.max_award_usd ?? 0;
     // Review #1: "per grant" for a grant program, a stated range ("$5K–$100K per grant").
     const each = eachLine({ title: c.title, reward: c.reward ?? '', max_award_usd: perWinner || null, min_award_usd: c.min_award_usd ?? null, investment: c.investment === true });
@@ -129,19 +153,9 @@ export function landingFrom(cards: Card[], stats: PublicStats, now: Date): Landi
       // v4.7 T1: the day in the program's zone (deadline.ts closeDay), the day the replies say ("Nov 1", never UTC's Nov 2).
       when: c.status === 'upcoming' ? 'Not open yet' : closeDay(c) ? `Closes ${closeDay(c)}` : ROLLING,
       organizer: c.organizer?.trim() || c.title,
+      research: c.api_content !== undefined,
     };
   });
-  return {
-    // v4.7 T1 fix round 1 (one money figure): the line, the chip and /api/stats carry stats.open_money_usd.
-    open_text: kept.some((c) => openCurated(c, now)) ? openGrantsText(stats.open_money_usd ?? 0) : null,
-    open_more: openMoneyWords(kept, now),
-    // v4.7 T1 (one money figure): the banner is /api/stats' open_money_usd (statsFrom), not a sum of its own.
-    open_chip: heroChipText(stats.open_money_usd ?? 0),
-    tiles,
-    stats_line: statsLine(stats),
-    won_line: wonLine(stats.builders_won_usd),
-    activity: [],
-  };
 }
 
 /**
@@ -179,6 +193,8 @@ export type GuidePage = {
   sources: GuideSource[];
   /** The ecosystem the page's description names: focus.ecosystem, else the first chain's name. */
   ecosystem: string;
+  /** v4.9 Task 3 fix 1: an API program (the research bot wrote it); the page shows site-copy RESEARCH_LABEL. */
+  research: boolean;
 };
 
 /**
@@ -194,7 +210,8 @@ export async function readGuidePage(id: string, now = new Date()): Promise<Guide
     if (err instanceof NotFoundError) return null;
     throw err;
   }
-  if (row.source !== 'file' || row.campaign) return null;
+  // v4.9 Task 3: an API program has a guide page like a file program; a sponsor or EarnKit campaign never does.
+  if ((row.source !== 'file' && row.source !== 'api') || row.campaign) return null;
   const guide = programGuide(row, now);
   return {
     guide,
@@ -213,6 +230,7 @@ export async function readGuidePage(id: string, now = new Date()): Promise<Guide
         : []),
     ]),
     ecosystem: guide.wants?.ecosystem ?? CHAIN_NAMES[row.chains[0]] ?? row.title,
+    research: row.source === 'api',
   };
 }
 

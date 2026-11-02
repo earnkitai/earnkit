@@ -87,5 +87,81 @@ export const MULTI_SUFFIXES = new Set([
  * Final review 1: whether `host` may be a program's proof host: not a public suffix, not earnkit.com, and not a shared
  * host or a subdomain of one (anyone can publish a page there). Pure.
  */
-export const proofHostAllowed = (host: string) =>
-  !MULTI_SUFFIXES.has(host) && ![...SHARED_HOSTS, 'earnkit.com'].some((h) => host === h || host.endsWith(`.${h}`));
+export const proofHostAllowed = (raw: string) => {
+  const host = normalHost(raw);
+  return !MULTI_SUFFIXES.has(host) && ![...SHARED_HOSTS, 'earnkit.com'].some((h) => host === h || host.endsWith(`.${h}`));
+};
+
+/**
+ * v4.9 Task 2 fix (security review): a hostname as host checks compare it: lowercase, trailing dots stripped, so
+ * "Optimism.IO." can't pass as another host. Pure.
+ */
+export const normalHost = (host: string) => host.toLowerCase().replace(/\.+$/, '');
+
+/**
+ * v4.9 Task 2 fix 1 (security review): a host's registrable domain: its last two labels, or three when the last two are
+ * a known public suffix of more than one label (MULTI_SUFFIXES, "co.uk"). Normalized first. Pure.
+ */
+export function registrableDomain(host: string): string {
+  const labels = normalHost(host).split('.');
+  const two = labels.slice(-2).join('.');
+  return MULTI_SUFFIXES.has(two) ? labels.slice(-3).join('.') : two;
+}
+
+/**
+ * v4.9 Task 2 fix 1: the submit platforms an API program may send builders to on another domain than its source
+ * (subdomains count). docs.google.com only under /forms.
+ */
+export const API_SUBMIT_HOSTS = [
+  'docs.google.com', 'forms.gle', 'typeform.com', 'tally.so', 'dorahacks.io', 'questbook.app', 'devfolio.co', 'ethglobal.com',
+  'hackquest.io',
+] as const;
+
+/**
+ * Whether an API program may submit at `host` (with `path` when the link has one): the source's registrable domain, or
+ * an API_SUBMIT_HOSTS platform (docs.google.com only under /forms; a bare host has no path to check). Pure.
+ */
+export function apiSubmitHostAllowed(host: string, sourceHost: string, path?: string): boolean {
+  const h = normalHost(host);
+  const s = normalHost(sourceHost);
+  // Fix round 2: a shared domain (anyone's site under it) counts only for the exact host, and never for a host whose
+  // owners differ by path (github.com/org vs github.com/attacker).
+  if (registrableDomain(h) === registrableDomain(s)) {
+    if (!onSharedSite(registrableDomain(h))) return true;
+    if (h === s && !onPathOwned(h)) return true;
+  }
+  const platform = API_SUBMIT_HOSTS.find((p) => h === p || h.endsWith(`.${p}`));
+  if (!platform) return false;
+  if (platform === 'docs.google.com' && path !== undefined) return path === '/forms' || path.startsWith('/forms/');
+  return true;
+}
+
+/**
+ * v4.9 Task 2 fix round 2: domains where anyone can have a site, so sharing the registrable domain never ties a
+ * submission to the program's source: SHARED_HOSTS plus the hosting platforms (subdomains count).
+ */
+export const API_SHARED_SITES = [
+  ...SHARED_HOSTS,
+  'github.io', 'github.com', 'vercel.app', 'pages.dev', 'netlify.app', 'herokuapp.com', 'notion.site', 'notion.so',
+  'medium.com', 'x.com', 'twitter.com', 'substack.com', 'google.com',
+  // Fix round 3: more hosting platforms where anyone has a subdomain.
+  'web.app', 'firebaseapp.com', 'webflow.io', 'framer.website', 'framer.app', 'onrender.com', 'fly.dev', 'replit.app',
+  'repl.co', 'wixsite.com', 'carrd.co', 'blogspot.com', 'hashnode.dev', 'azurewebsites.net', 'amazonaws.com',
+  'cloudfront.net', 'gitbook.io', 'glitch.me', 'surge.sh',
+  // Fix round 4: and these.
+  'wordpress.com', 'gitlab.io', 'workers.dev', 'deno.dev', 'railway.app', 'myshopify.com', 'bubbleapps.io',
+  'translate.goog', 'eth.limo', 'dweb.link', 'mypinata.cloud',
+] as const;
+/** Of those, the hosts where one host name serves many owners by path (github.com/<owner>, sites.google.com/<site>). */
+export const API_PATH_OWNED = [
+  'github.com', 'x.com', 'twitter.com', 'medium.com', 'notion.so', 'google.com', 'forms.gle', 'dorahacks.io', 'mirror.xyz',
+  'paragraph.xyz',
+] as const;
+const under = (host: string, list: readonly string[]) => list.some((d) => host === d || host.endsWith(`.${d}`));
+/** Whether `host` (normalized) is on or under a shared site. Pure. */
+export const onSharedSite = (host: string) => under(normalHost(host), API_SHARED_SITES);
+const onPathOwned = (host: string) => under(host, API_PATH_OWNED);
+
+/** How a submission problem names the source's site: its exact host on a shared site, else its registrable domain. Pure. */
+export const sourceSiteName = (sourceHost: string) =>
+  onSharedSite(registrableDomain(sourceHost)) ? normalHost(sourceHost) : registrableDomain(sourceHost);

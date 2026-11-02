@@ -1,4 +1,5 @@
 import { sql } from './db';
+import { freshSql } from './api-stale';
 import { noteEvent } from './events';
 import { enqueueDiscovery } from './discovery';
 import { ensureProfile } from './profiles';
@@ -1955,7 +1956,7 @@ export function alsoOpen(cards: Card[], now: Date, skip: Set<string>, not: strin
 // v4.8.1 Task 2 fix round 1 (F3): the money line's and the signed-out opener's total.
 export async function openMoneyNow(now: Date, fallback: Card[]): Promise<number> {
   const rows = await sql()<{ max_award_usd: string | number | null; investment: boolean | null; status: string; campaign: unknown; source: string; starts_at: Date | null; ends_at: Date | null }[]>`
-    SELECT max_award_usd, investment, status, campaign, source, starts_at, ends_at FROM programs WHERE status = 'active'`.catch((err: unknown) => {
+    SELECT max_award_usd, investment, status, campaign, source, starts_at, ends_at FROM programs WHERE status = 'active' AND ${freshSql(sql(), null, now)}`.catch((err: unknown) => {
     logged('open money')(err);
     return null;
   });
@@ -2517,7 +2518,8 @@ async function readyDraft(id: number, programId: string): Promise<{ show_to_buil
  * none. Never throws.
  */
 export async function scoreApplies(id: number, main: string | null, now: Date): Promise<{ applies: Fit[]; cards: Card[]; upcoming: Card[]; skip: Set<string> }> {
-  const [programs, entries, memory] = await Promise.all([listPrograms().catch(() => []), openEntries(id).catch(() => []), readMemory(id).catch(() => null)]);
+  // v4.9 final fix: a stale API program the builder is connected to stays a card (closing alerts); entered ones are skipped.
+  const [programs, entries, memory] = await Promise.all([listPrograms({ for: id }).catch(() => []), openEntries(id).catch(() => []), readMemory(id).catch(() => null)]);
   const all = (programs as (Card & { agent_completable?: boolean; earnkit_campaign?: boolean; starts_at: Date | null; opened_at: Date | null })[])
     .filter((p) => p.agent_completable !== false && !p.earnkit_campaign);
   // v3 Stage 2: an upcoming program is never a fit or an offer; it only feeds the one upcoming line.

@@ -275,6 +275,12 @@ apps/frontend/
                                (x_owner_clears) with Release
   app/api/admin/scores/route.ts  v2.12 T6: POST -> builder-score.ts scoresPost (release a held day as a
                                score_releases row, or action=clear_x / release_x); wrong key 404; 303 back
+  app/api/programs/route.ts    v4.9 T3: GET, the public program list (programs-read.ts programsListGet over a
+                               60 s unstable_cache of readListedPrograms); ?category, ?status; at most 200
+  app/api/programs/writes/route.ts  v4.9 T3: GET, the last 100 program_writes rows without body
+                               (programs-read.ts programWritesGet; the write API's token gate)
+  app/api/programs/write/route.ts  v4.9 T2: POST, the programs write API (lib/earnkit/programs-api.ts); 404 until
+                               EARNKIT_PROGRAMS_TOKEN is set, or with EARNKIT_PROGRAMS_API=off
   app/api/stats/route.ts       v2.5 Task 9: GET public stats JSON (revalidate 600, prerendered when
                                the build has a DATABASE_URL; plus unstable_cache 600 s on the read,
                                for builds without one, where it renders per request); 503 no-store
@@ -387,7 +393,8 @@ apps/frontend/
     cli.ts(+test)              pure helpers for scripts/campaign.mts: USAGE, cliErrorLine (one
                                readable line per error), operatorKeyProblem, fallbackProblem,
                                parseFallbackPicks (--winners ranking [--split] or id:amount[:reason])
-    program-file.ts            zod format of programs/*.json (+ starter limits, optional max_award_usd,
+    program-file.ts            zod format of programs/*.json (v4.9 R5: optional category grant|hackathon|
+                               investment|bounty, categoryOf derives it; + starter limits, optional max_award_usd,
                                final fix I4: starterAgeWarnings, programs:check's 23-day warning, never an error;
                                v2.7.1 optional pool_usd (stated in reward with a pool word, never on a campaign),
                                pool_source_url (only with pool_usd), min_award_usd (below max, in reward),
@@ -1370,6 +1377,30 @@ apps/frontend/
                                removedLine…), so copy-review scans them
     logo-check.ts(+test)       v2.7: checkLogoFile(logo, publicDir) reads the file and runs
                                program-file.ts logoFileProblem (used by programs-sync.mts --check)
+    program-checks.ts          v4.9 T1: programProblems(p, { publicDir }), the one set of program checks for
+                               programs-sync.mts and the programs write API: the schema rerun (schemaProblems,
+                               "<path or (program)>: <message>"; Optimism, shared proof_hosts, any_chain
+                               min_product_score, ...), then todo, kind, needs_repo, fresh_build and the logo
+                               file. Tests: v49-programs-api.test.ts
+    programs-api.ts            v4.9 T2: programsWritePost (POST /api/programs/write, the Grok Bot's write API):
+                               token (bearerMatches), LIMITS.programsWrite, 256 KB readCapped, ProgramFile + R4
+                               allowlist (api-program-text.ts), programProblems, apiRuleProblems,
+                               curated 409 (programs/ file or non-api row), probeLink (safeProbe; 401/403/429 pass), then upsertProgram(p,
+                               'api') in a tx with an unchanged snapshot check; program_writes audit rows;
+                               noteFileTakeover for programs-sync. v4.9 T3: programsAuthFailure (the 404/401 gate
+                               shared with GET /api/programs/writes). Tests: v49-programs-api.test.ts
+    programs-cache.ts          v4.9 T3 fix 1: PROGRAMS_TAG and programsChanged(id) (revalidateTag + the home, guide,
+                               sitemap and (final fix F2) /api/stats paths) after an API write changes a program
+    api-stale.ts               v4.9 final fix: API_STALE_DAYS (14), apiStale(row, now), freshSql(db, alias, now?) (the
+                               discovery filter), connectedSql(db, installationId) (entered, applied or drafted ids)
+                               and hiddenFor(row, installationId) (the by-id gate). Tests: v49-programs-api.test.ts
+    programs-read.ts           v4.9 T3: readListedPrograms (landing listedCards + landingTiles, money = site-copy
+                               tileMoney), byListOrder, programsListGet (GET /api/programs), programWritesGet (GET
+                               /api/programs/writes). Tests: v49-programs-api.test.ts
+    api-program-text.ts        v4.9 T2: API_FIELDS/API_REQUIREMENT_FIELDS (the write allowlist, notWritableFields),
+                               apiTextProblems (hidden/format characters and non-NFKC text refused, no < >, markdown links, cleanText link detection, title 120 and
+                               organizer 80 caps; stored as written), API_CONTENT (the written-by envelope on find,
+                               list_programs, get_program and prepare)
     payout.ts(+test)           payoutAccount (CAMPAIGN_PAYOUT_PRIVATE_KEY, with or without 0x: Ruling 7), payoutRpc, payWinner (sign,
                                store, broadcast; stale/manual handling; optional place), payRanked
                                (per-place amounts, any ERC-20, every v2.4 rule, openSends nonce

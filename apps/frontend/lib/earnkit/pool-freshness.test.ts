@@ -13,7 +13,7 @@ import { poolChanged } from './profile-cache';
 const src = (p: string) => readFileSync(join(import.meta.dirname, p), 'utf8');
 
 test('hotfix: the landing, feed and leaderboard caches carry PROFILE_TAG', () => {
-  assert.match(src('../../app/lib/landing-cache.ts'), /unstable_cache\(\(\) => readLanding\(\), \[key\], \{ revalidate: 600, tags: \[PROFILE_TAG\] \}\)/);
+  assert.match(src('../../app/lib/landing-cache.ts'), /unstable_cache\(\(\) => readLanding\(\), \[key\], \{ revalidate: 600, tags: \[PROFILE_TAG, PROGRAMS_TAG\] \}\)/);
   assert.match(src('../../app/feed/page.tsx'), /\['feed-v213'\], \{ revalidate: 300, tags: \[PROFILE_TAG\] \}/);
   assert.match(src('../../app/leaderboard/bench-load.ts'), /tags: \[PROFILE_TAG\]/);
 });

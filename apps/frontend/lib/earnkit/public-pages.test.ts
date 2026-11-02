@@ -175,15 +175,15 @@ test('Ruling 22 (plan): the guide route, the index, the sitemap and the logo CSP
   // v3.1 W10: the index is a permanent redirect to the landing's earn section.
   assert.match(read('app/programs/page.tsx'), /permanentRedirect\('\/#earn'\)/);
   const cache = read('app/lib/landing-cache.ts');
-  assert.match(cache, /\['guide-v3'\], \{ revalidate: 600 \}/); // review #7, v3 Stage 3 Task 7: bumped with the GuidePage shape (`chain`)
-  assert.match(cache, /\['guide-ids-v27'\], \{ revalidate: 600 \}/);
+  assert.match(cache, /\['guide-v49'\], \{ revalidate: 600, tags: \[PROGRAMS_TAG\] \}/); // review #7, v3 Stage 3 Task 7: bumped with the GuidePage shape (`chain`)
+  assert.match(cache, /\['guide-ids-v27'\], \{ revalidate: 600, tags: \[PROGRAMS_TAG\] \}/);
   assert.match(cache, /gatedGuidePage\(id, cachedIds, cachedGuide\)/);
   assert.match(cache, /export const getGuidePage = cache\(/);
   assert.match(cache, /console\.error\('\[guide\]'/);
   const sitemap = read('app/sitemap.ts');
   assert.ok(!sitemap.includes('`${SITE}/programs`'), 'v3.1 W10: the index left the sitemap');
   assert.ok(sitemap.includes('`${SITE}/programs/${p.id}`'));
-  assert.match(sitemap, /status = 'active' AND source = 'file' AND campaign IS NULL\s+AND \(ends_at IS NULL OR ends_at > now\(\)\)/);
+  assert.match(sitemap, /status = 'active' AND source IN \('file', 'api'\) AND campaign IS NULL\s+AND \(ends_at IS NULL OR ends_at > now\(\)\)/);
   // The logo files' sandbox CSP never matches a guide page route.
   const csp = /^\/programs\/([a-z0-9-]+\.(?:svg|png))$/;
   assert.ok(csp.test('/programs/arc-microgrants.svg'));

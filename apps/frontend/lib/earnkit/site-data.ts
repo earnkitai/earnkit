@@ -1,4 +1,5 @@
 import { sql } from './db';
+import { freshSql } from './api-stale';
 import type { ProfileData } from './bench-data';
 import { builderToken, tradeUrl } from './builder-token';
 import { allTimeCommunityUsd } from './community';
@@ -528,7 +529,8 @@ export async function feedWeekStats(monday: string, o: { only?: number[] } = {})
   const from = new Date(`${monday}T00:00:00Z`);
   const to = new Date(from.getTime() + 7 * DAY_MS);
   // Curated programs only, as the landing lists them: no unlisted, no EarnKit or sponsor campaign.
-  const curated = db`g.status <> 'unlisted' AND g.source = 'file' AND g.campaign IS NULL`;
+  // v4.9 final fix (ruling 6): a stale API program counts as unlisted (api-stale.ts).
+  const curated = db`g.status <> 'unlisted' AND g.source IN ('file', 'api') AND g.campaign IS NULL AND ${freshSql(db, 'g')}`;
   const [row] = await db<{ builders: number; commits: number; went_live: number }[]>`
     SELECT count(*) FILTER (WHERE n > 0)::int AS builders, COALESCE(sum(n) FILTER (WHERE n > 0), 0)::int AS commits, count(*) FILTER (WHERE live)::int AS went_live
     FROM (

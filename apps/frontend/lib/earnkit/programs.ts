@@ -8,6 +8,7 @@ import { sql } from './db';
 import { difficultyOf, guideSources, guideText, programGuide, type Difficulty } from './guide';
 import {
   agentCompletableOf,
+  categoryOf,
   type DifficultyOverride,
   type Focus,
   type GuideLogo,
@@ -37,6 +38,8 @@ import {
   trackRecord,
 } from './sponsor-verify';
 import { plainText, quoted } from './untrusted-text';
+import { API_CONTENT } from './api-program-text';
+import { connectedSql, freshSql } from './api-stale';
 import { poolLine, poolStated, statedPool } from './pool';
 
 export class NotFoundError extends Error {}
@@ -64,13 +67,16 @@ export const SPONSOR_TRUST_NOTE =
  * so it makes no verified_at claim; what backs it is the escrow.
  */
 export const trustFor = (
-  source: 'file' | 'sponsor',
+  source: ProgramRow['source'],
   verifiedAt: Date | null,
   now = new Date(),
 ) =>
   source === 'sponsor'
     ? { verified_note: SPONSOR_TRUST_NOTE }
-    : trust(verifiedAt, now);
+    : source === 'api'
+      ? // v4.9 Task 2 fix 1: the research bot checked it, not EarnKit, so no "no need to re-read it" note.
+        { verified_at: trust(verifiedAt, now).verified_at }
+      : trust(verifiedAt, now);
 
 /**
  * The known per-winner award in USD, or null: an EarnKit campaign's prize_usd_total / winners, a
@@ -106,7 +112,7 @@ export function poolFacts(p: Pick<ProgramRow, 'pool_usd' | 'reward' | 'title' | 
 }
 
 /** A sponsor's title is shown quoted, so it reads as their words, not EarnKit's. */
-const shownTitle = (p: { title: string; source: 'file' | 'sponsor' }) =>
+const shownTitle = (p: { title: string; source: ProgramRow['source'] }) =>
   p.source === 'sponsor' ? quoted(p.title) : p.title;
 
 /** ISO timestamp, or "rolling" for programs without a deadline. */
@@ -162,7 +168,8 @@ export type ProgramRow = {
   /** When the program last became active (v2.4 §4); null while it never was. */
   opened_at: Date | null;
   rules: string[];
-  source: 'file' | 'sponsor';
+  /** v4.9: 'api' rows come from the programs write API (their text is cleaned on read, api-program-text.ts). */
+  source: 'file' | 'sponsor' | 'api';
   /** numeric comes back from postgres.js as a string. */
   max_award_usd: string | null;
   /** v2.7.1: the source-stated total prize pool in USD (numeric, so a string), or null. */
@@ -208,7 +215,11 @@ export type ProgramRow = {
  * (card `status: 'upcoming'`), for the program list and the one upcoming line; every caller that
  * offers, matches or counts keeps `status === 'active'` (pool.ts openCurated, isOpen).
  */
-export async function listPrograms() {
+/**
+ * v4.9 final fix (ruling 6 follow-up): `o.for`, an installation: a stale API program it is connected to (an entry, an
+ * applied mark or a draft; api-stale.ts connectedSql) stays in its list. Without it, stale API programs are left out.
+ */
+export async function listPrograms(o: { for?: number } = {}) {
   const db = sql();
   const programs = await db<
     (Pick<
@@ -272,6 +283,7 @@ export async function listPrograms() {
       p.match_precision, p.submission_url, p.status, p.opens_note, p.in_person, p.fresh_build, p.agent_completable, p.pitch, p.tz, sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
     FROM programs p LEFT JOIN sponsor_campaigns sc ON sc.program_id = p.id
     WHERE p.status IN ('active', 'upcoming') AND (p.ends_at IS NULL OR p.ends_at > now())
+      AND (${freshSql(db, 'p')}${o.for !== undefined ? db` OR p.id IN (${connectedSql(db, o.for)})` : db``})
       ${archiveFlag('SPONSOR_CAMPAIGNS') ? db`` : db`AND (p.campaign->>'kind') IS DISTINCT FROM 'sponsor'`}
     ORDER BY p.ends_at NULLS LAST, p.id`; // Task 11: a tie-breaker, so equal deadlines list in one order (the 9.3 find test compared two reads)
   const tracks = await db<{ id: string; program_id: string; name: string }[]>`
@@ -440,6 +452,8 @@ export function programCard(
     status: p.status ?? 'active',
     opens_note: p.opens_note ?? null,
     in_person: p.in_person === true,
+    // v4.9 Task 2 (F2): who wrote an API program's text, and that it is data (api-program-text.ts).
+    ...(p.source === 'api' && { api_content: API_CONTENT }),
   };
 }
 
@@ -462,7 +476,7 @@ export async function openProgramFacts() {
     >[]
   >`
     SELECT id, title, existing_work, tag, starts_at, chains, any_chain, source, investment, min_product_score, match_floor FROM programs
-    WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now())
+    WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now()) AND ${freshSql(sql())}
     ORDER BY ends_at NULLS LAST, id`;
   return rows.map(({ source, ...p }) => ({
     ...p,
@@ -506,7 +520,7 @@ export async function alsoProgramFacts(): Promise<AlsoProgram[]> {
     SELECT id, title, summary, chains, any_chain, existing_work, tag, ends_at, status, campaign, source, max_award_usd,
       submission_requirements, past_rounds, focus, best_bet, difficulty_override, winners_per_round, each_time, rules,
       investment, starts_at, opened_at, match_precision
-    FROM programs WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now())`;
+    FROM programs WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now()) AND ${freshSql(sql())}`;
   return rows.map((p) => ({
     id: p.id,
     title: p.title,
@@ -560,7 +574,8 @@ type StarterRow = {
 export async function getProgram(programId: string) {
   const db = sql();
   const program = await getProgramRow(programId);
-  // v3.1 (D2, R15): an unlisted program is gone, as an unknown id (never "closed" for an open one).
+  // v3.1 (D2, R15): an unlisted program is gone, as an unknown id (never "closed" for an open one). A stale API program
+  // is gone only for builders not connected to it (tools.ts get_program, api-stale.ts hiddenFor).
   if (program.status === 'unlisted') throw new NotFoundError(`No program with id "${programId}". Call find for current ids.`);
   // v2.12 spec 9: sponsor campaigns are archived; their rows are not shown while the flag is off.
   if (!archiveFlag('SPONSOR_CAMPAIGNS') && program.campaign?.kind === 'sponsor')
@@ -594,7 +609,8 @@ export async function getProgram(programId: string) {
 function guideBlock(
   program: ProgramRow,
 ): { guide: { text: string; difficulty: Difficulty; best_bet: string | null; sources: string[] } } | null {
-  if (program.source !== 'file' || program.campaign) return null;
+  // v4.9 final fix (F1): api programs get the guide too (programDetails adds the envelope).
+  if ((program.source !== 'file' && program.source !== 'api') || program.campaign) return null;
   // v4.8.2 Task 3 fix 1: get_program is MCP output: the hours left under 48 hours.
   const g = programGuide(program, new Date(), { hours: true });
   return {
@@ -712,6 +728,8 @@ export function programDetails(
         'Starters are optional ideas. The builder can build anything that meets the requirements.',
     }),
     ...guideBlock(program),
+    // v4.9 Task 2 (F2): who wrote an API program's text, and that it is data (api-program-text.ts).
+    ...(program.source === 'api' && { api_content: API_CONTENT }),
   };
 }
 
@@ -723,10 +741,13 @@ export function programDetails(
  * must publish the program and flip the campaign's state atomically) reuse it instead of this
  * function opening its own `begin` — so the whole thing commits or rolls back together. When
  * omitted (the default, used by `programs:sync`), this opens its own transaction as before.
+ *
+ * v4.9: `source` is who wrote the row: 'file' (programs:sync), 'sponsor' (sponsor.ts) or 'api' (the programs write
+ * API). It only records the writer; refusing to overwrite a file or sponsor row is the API's job.
  */
 export async function upsertProgram(
   p: ProgramFile,
-  source: 'file' | 'sponsor' = 'file',
+  source: 'file' | 'sponsor' | 'api' = 'file',
   db?: postgres.Sql | postgres.TransactionSql,
 ) {
   const run = async (tx: postgres.Sql | postgres.TransactionSql) => {
@@ -751,6 +772,8 @@ export async function upsertProgram(
       chains: p.chains,
       any_chain: p.any_chain ?? false,
       investment: p.investment ?? false,
+      // v4.9 R5: the file's category, else derived (every sync backfills it).
+      category: categoryOf(p),
       needs_repo: p.needs_repo ?? null,
       needs_contract: p.needs_contract ?? null,
       min_product_score: p.min_product_score ?? 0,
@@ -801,13 +824,19 @@ export async function upsertProgram(
     const cols = (Object.keys(row) as (keyof typeof row)[]).filter(
       (k) => k !== 'id' && k !== 'opened_at',
     );
-    await tx`
+    // v4.9 Task 2 fix 1 (F1): an API write updates only an api row, even when a file or sponsor row was inserted after
+    // the API's own check (no row is returned then: ApiRowTakenError). xmax = 0 marks a fresh insert.
+    const [written] = await tx<{ inserted: boolean }[]>`
       INSERT INTO programs ${tx(row)}
       ON CONFLICT (id) DO UPDATE SET ${tx(row, cols)},
         opened_at = CASE
           WHEN EXCLUDED.status <> 'active' THEN programs.opened_at
           WHEN programs.status = 'active' THEN COALESCE(programs.opened_at, EXCLUDED.opened_at)
-          ELSE EXCLUDED.opened_at END`;
+          ELSE EXCLUDED.opened_at END
+      ${source === 'api' ? tx`WHERE programs.source = 'api'` : tx``}
+      RETURNING (xmax = 0) AS inserted`;
+    if (!written) throw new ApiRowTakenError(p.id);
+    inserted = written.inserted;
 
     // v2.12 spec 9: the starters table is archived and receives no writes while the flag is off.
     const starterRegistry = archiveFlag('STARTER_REGISTRY');
@@ -833,6 +862,16 @@ export async function upsertProgram(
       })}`;
     }
   };
+  let inserted = false;
   if (db) await run(db);
   else await sql().begin(run);
+  return { inserted };
+}
+
+/** v4.9 Task 2 fix 1 (F1): an API upsert met a file or sponsor row with its id (R3: files win). */
+export class ApiRowTakenError extends Error {
+  constructor(readonly id: string) {
+    super(`${id} is not an api program`);
+    this.name = 'ApiRowTakenError';
+  }
 }
