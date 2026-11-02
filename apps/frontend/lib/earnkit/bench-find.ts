@@ -413,13 +413,18 @@ const withoutNumbers = (read: BenchRead): BenchRead => ({ ...read, parts: null, 
  */
 async function updatingReply(id: number, now: Date, seen: Seen, r: Reply, o: { lead: boolean }): Promise<Reply> {
   const { streak: _streak, ...fields } = r;
-  const said = sessionOf(seen, now).said.has(UPDATING_SAID);
+  // Final fix 2 (I1): a ready view (the opener, the repeat) never shows a number, so it says nothing about them: the
+  // line waits for the next reply that would have. Its note still holds the agent to no number.
+  const silent = !o.lead && isReadyView(r);
+  const said = silent || sessionOf(seen, now).said.has(UPDATING_SAID);
   const show = typeof r.show_to_builder === 'string' ? r.show_to_builder : '';
   const parts = show.split('\n\n');
   const shown = !show || (said && !o.lead) ? show : o.lead || parts.length < 2 ? [UPDATING_LINE, show].join('\n\n') : [...parts.slice(0, -1), UPDATING_LINE, parts.at(-1)].join('\n\n');
   if (!said) await markSaid(id, [UPDATING_SAID], now);
   return { ...fields, show_to_builder: shown, numbers_updating: true, numbers_note: UPDATING_NOTE };
 }
+/** Final fix 2 (I1): a reply of the ready set (its move_up or its `ready` part), which states no score, rank or weeks. Pure. */
+const isReadyView = (r: Reply) => (r.move_up as { kind?: unknown } | undefined)?.kind === 'ready' || r.ready !== undefined;
 const logged = (where: string) => (err: unknown) => {
   console.error(`[bench] ${where}`, err instanceof Error ? err.name : 'error');
   return null;

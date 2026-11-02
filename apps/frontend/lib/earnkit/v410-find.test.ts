@@ -18,9 +18,10 @@ import { isoWeekOf } from './weeks';
 import { saveBank } from './answer-bank';
 import { BUILDER_CODES_SUFFIX } from './builder-code';
 import { HELP_DONE_ASK, MENTOR_NOTE, SESSION_MS } from './conversation';
-import { PUSHED_ASK, READY_CODES_NOT_YET, READY_SET, codesSettled } from './bench-find';
+import { PUSHED_ASK, READY_CODES_NOT_YET, READY_SET, UPDATING_NOTE, UPDATING_SAID, codesSettled } from './bench-find';
 import { READY_ASK, READY_NOTE, READY_YES_NOTE } from './ready-copy';
 import { converse, gateFailures } from './fixtures/converse';
+import { startRefresh } from './stand-view';
 
 /*
  * v4.10 Task 4 (R1, R4, R8): the ready set in find and its answers, through the real tools on the owner's shape (Base
@@ -899,4 +900,32 @@ test('v4.10.1 fix round 1: with no owned Base contract, Base needs its contract 
   const h = (( await find(held)).reply?.ready as { programs: { asks: { kind: string }[]; prefilled: Record<string, string> }[] }).programs[0];
   assert.match(h.prefilled.contract_address, /^0x[0-9a-f]{40}$/);
   assert.ok(!h.asks.some((a) => a.kind === 'other:contract_address'));
+});
+
+test('v4.10.1 final fix 2 (I1): a ready opener while the score is updating has no updating line; the agent still states no number', db, async () => {
+  await ownerPrograms();
+  const b = await owner('upd');
+  // A refresh still running past find's wait: every reader call waits for open(), then fails.
+  let open!: () => void;
+  const gate = new Promise<void>((r) => (open = r));
+  const calls: string[] = [];
+  const wait = async (what?: unknown): Promise<never> => {
+    calls.push(String(what));
+    await gate;
+    throw new Error('v410: not served');
+  };
+  const reader = { now: new Date(), gh: wait, ghGraphql: wait, ghFetch: wait, probe: wait, fetchText: wait, json: wait, contractOrigin: wait, walletCreations: wait };
+  (b.ctx as { readerDeps?: unknown }).readerDeps = reader;
+  // The setup find's own refresh settles first (a later call would join it).
+  await startRefresh(b.id, { now: new Date(), start: Date.now() }).within();
+  await sql()`UPDATE builder_live SET read_at = now() - interval '1 hour', computed_at = now() - interval '1 hour' WHERE builder_id = ${b.id}`;
+  await sql()`UPDATE source_live SET read_at = now() - interval '1 hour' WHERE source_id IN (SELECT id FROM builder_sources WHERE builder_id = ${b.id})`;
+  const opener = await find(b);
+  open();
+  assert.ok(calls.length > 0, 'the refresh asked the reader (it is still waiting)');
+  assert.equal(moveUp(opener)?.kind, 'ready', show(opener));
+  assert.equal(opener.reply?.numbers_updating, true, 'the refresh is still running');
+  assert.equal(opener.reply?.numbers_note, UPDATING_NOTE);
+  assert.doesNotMatch(show(opener), /updating/, show(opener));
+  assert.equal((await seenOf(b.id)).said && ((await seenOf(b.id)).said as { keys: string[] }).keys.includes(UPDATING_SAID), false, 'the line waits for a reply with numbers');
 });
