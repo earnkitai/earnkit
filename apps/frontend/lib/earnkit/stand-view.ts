@@ -30,12 +30,29 @@ export type StandBase = { standing: Standing; claimed: boolean; handle: string |
  * 10 minutes, never throws); `within` resolves when it is done or the budget is spent, whichever is
  * first. A reader that ignores its deadline keeps running in the background and its rescore lands
  * for the next reply; this reply uses the last stored numbers.
+ * v4.10.1 Task 3 (R5): `within` is true when the refresh settled in time, false while it still runs, so the reply
+ * says no score or week count it would contradict. A refresh of the same person still running in this process (the
+ * last call's, past its wait) is joined, never started again: its read claim made this call's own refresh a no-op, so
+ * waiting on that alone would read the numbers it is about to replace.
  */
-export function startRefresh(id: number, o: { now: Date; start: number; reader?: ReaderDeps; minAgeMs?: number }): { within: (capMs?: number) => Promise<void> } {
-  const deadline = o.start + REFRESH_BUDGET_MS;
-  const refresh = refreshPerson(id, { now: o.now, deadline, reader: o.reader, minAgeMs: o.minAgeMs }).catch((err: unknown) => {
-    console.error('[stand] refresh', err instanceof Error ? err.name : 'error');
-  });
+export function startRefresh(id: number, o: { now: Date; start: number; reader?: ReaderDeps; minAgeMs?: number }): { within: (capMs?: number) => Promise<boolean> } {
+  const running = RUNNING.get(id);
+  // The joined refresh ends by its own deadline (a reader that ignores it is not waited for, nor said to be updating).
+  const joined = running && Date.now() < running.deadline ? running : null;
+  const deadline = joined?.deadline ?? o.start + REFRESH_BUDGET_MS;
+  let refresh: Promise<unknown>;
+  if (joined) refresh = joined.done;
+  else {
+    const entry = { deadline, done: Promise.resolve() as Promise<unknown> };
+    entry.done = refreshPerson(id, { now: o.now, deadline, reader: o.reader, minAgeMs: o.minAgeMs }).catch((err: unknown) => {
+      console.error('[stand] refresh', err instanceof Error ? err.name : 'error');
+    }).finally(() => {
+      if (RUNNING.get(id) === entry) RUNNING.delete(id);
+    });
+    RUNNING.set(id, entry);
+    refresh = entry.done;
+  }
+  let settled = false;
   return {
     // v2.13.1 O5 N1: `capMs` (the Bench's reply wait) ends the wait sooner; the refresh runs on to its deadline.
     within: async (capMs?: number) => {
@@ -44,11 +61,14 @@ export function startRefresh(id: number, o: { now: Date; start: number; reader?:
       const spent = new Promise<void>((resolve) => {
         timer = setTimeout(resolve, Math.max(0, until - Date.now()));
       });
-      await Promise.race([refresh, spent]);
+      await Promise.race([refresh.then(() => (settled = true)), spent]);
       clearTimeout(timer);
+      return settled || Date.now() >= deadline;
     },
   };
 }
+/** v4.10.1 Task 3: the refreshes running in this process, by person (removed when each settles). */
+const RUNNING = new Map<number, { deadline: number; done: Promise<unknown> }>();
 
 /**
  * Where the person stands (Task 4) and the X sign-in link while they have no page (x-link.ts signInLink, for

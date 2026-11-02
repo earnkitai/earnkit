@@ -2817,3 +2817,14 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
 - Tests: `v410-ready.test.ts` (`v4.10.1 Task 2` pure), `v410-find.test.ts` (`v4.10.1 Task 2 (5)`, test 1's repeat).
 - Fix round 1: `readyOpener` verb ("drafted" with needs); `readyView` drops the ready ask when all closed;
   `fixtures/converse.ts` `READY_STATUS` (gate repeat exemption).
+
+## v4.10.1 Task 3: one score per session
+
+- `stand-view.ts` `startRefresh` (`within` returns `Promise<boolean>`; joins a running refresh via `RUNNING`).
+- `bench-find.ts` `UPDATING_LINE`, `UPDATING_SAID`, `UPDATING_NOTE`, `hasNumbers`, `withoutNumbers`, `updatingReply`;
+  `ViewIn.updating`, `BenchFindArgs.updating`; `readyRecord(id, now, updating)`; `directAnswer` (no standing answer
+  while updating); the weekly moment skipped while updating.
+- `bench-reply.ts` `BenchView.updating`; `shipWhy(null)` / `shipWhyOf(target, null)`: "Shipping this week lifts your score."
+- `tools.ts` find passes `updating`; `withFacts` drops rank and streak facts on `numbers_updating`.
+- `fixtures/converse.ts` `noRecord` (the `updating` part).
+- Tests: `v4101-score.test.ts` (pinned Monday clock, gated fake reader).

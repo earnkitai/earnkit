@@ -9316,3 +9316,21 @@ This supersedes the per-program need in Task 4: the builder answers once for the
   expired set), so a later yes answers "Okay." and never drafts or opens a closed program. The gate
   (`fixtures/converse.ts` `READY_STATUS`) treats the repeat status, from its head on, as part of the pending ask, so it
   may repeat across finds in one session.
+
+## v4.10.1 Task 3: one score per session (R5)
+
+- **Why.** find waits only `REPLY_WAIT_MS` (1.5 s) for the person's refresh. A slower refresh lands after the reply
+  (on a Monday it lights the new week and rescores), so the next call read other numbers ("69, 6 weeks", then "83, 7
+  weeks").
+- **Settled or not.** `stand-view.ts` `startRefresh(...).within(cap)` now resolves `true` when the refresh settled (or
+  its deadline passed) and `false` while it still runs. A refresh of the same person still running in this process is
+  joined (an in-process map, `RUNNING`), never started again: its read claim (`builder_live.read_at`) makes a new
+  `refreshPerson` a no-op, so score right after find would otherwise read the numbers about to be replaced.
+- **Updating reply.** find (`tools.ts`, `BenchFindArgs.updating`) and score (`benchScore`) pass `updating` when the
+  refresh didn't settle and the stored read has a number (`hasNumbers`). The read is then `withoutNumbers` (no parts,
+  `NO_RANK`, streak 0), so no score, rank, weeks, weekly target, record line, ship why or standing answer is stated; the
+  Monday block waits. `updatingReply` drops the `streak` field, adds `numbers_updating: true` and `numbers_note`, and
+  says `UPDATING_LINE` once a session (said part `updating`): before the last paragraph in find, first in score.
+  `tools.ts` `withFacts` drops `facts.rank` and `facts.streak` on such a reply. The next reply carries the fresh numbers.
+- **Gate.** `fixtures/converse.ts` `noRecord` exempts an opener that said `updating` from the opener proof rule (it may
+  state no number); a later hook still needs a proof.

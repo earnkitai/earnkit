@@ -306,8 +306,12 @@ const proofFacts = (show: string, names: readonly string[] = []) => {
   return [...PROOF_PATTERNS, ...(live ? [live] : [])].flatMap((p) => [...show.matchAll(p)].map((m) => norm(m[0].replace(/^[\n. ]+/, '')).toLowerCase()));
 };
 const hasProof = (r: Reply, names: readonly string[]) => r.said.some((k) => k.startsWith('proof:')) || proofFacts(r.show, names).length > 0;
-/** A builder with no record yet: only the signed-out opener (its `opener` said part), where no fact exists to show. */
-const noRecord = (r: Reply) => r.said.includes('opener');
+/**
+ * A builder with no record yet: only the signed-out opener (its `opener` said part), where no fact exists to show.
+ * v4.10.1 Task 3 (R5): or an opener whose record is updating (its `updating` part, bench-find.ts UPDATING_LINE): it may
+ * state no score, rank or weeks, so it has no number to stand on; a later hook still needs a proof (rule 4's second half).
+ */
+const noRecord = (r: Reply) => r.said.includes('opener') || r.said.includes('updating');
 
 /** Rule 5: an em dash, "coin" or "points" (whole words), an emoji. */
 const COPY: [RegExp, string][] = [[/—/, 'an em dash'], [/\bcoins?\b/i, '"coin"'], [/\bpoints?\b/i, '"points"'], [/\p{Extended_Pictographic}/u, 'an emoji']];
