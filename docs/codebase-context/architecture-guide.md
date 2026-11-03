@@ -9526,4 +9526,18 @@ This supersedes the per-program need in Task 4: the builder answers once for the
   too, in its one question. The reply carries `draft.asks` (as the draft's rounds) and `ALSO_LEAD_NOTE`; a yes with
   `answers` reaches `pathDraft(..., m)`, which stores round 1 and hands it to `draftYes(..., first)`: the answers are
   banked as round 1 and the draft asks round 2 ("Here's your draft:" then the blanks), or with none left is ready.
+- **Fix round 1.**
+  - One asks function: `bench-find.ts programAsks(id, key, row, record, extra)` (heldAnswers then builderAsks) is what
+    `readyDrafts`, `pathAsks` and the lead read, always on the full record (`readyCommit` passes the full record for the
+    counts while updating). `alsoLeadCommit` reads the round on every reply, so answers given mid-session drop out
+    (`AlsoOpenLead.usd` stays stored; `.round` is gone).
+  - `draftYes`, with the answers split by field, marks done only the fields `readyBank` gave a value (`byProgram`),
+    never the whole round; their whole reply unsplit (`blanks` alone) still answers the round (the agent writes it
+    into the draft). Only the lead's start ask (`bench_ask.also`) passes
+    the yes's answers to `pathDraft`.
+  - When the lead's yes answers everything, the submit reply shows the draft body and `firstFinishedNote` (prepare is
+    called once with every answer, never "again").
+  - Investor programs read "up to $1M, an accelerator" in the ready lines (`ready-copy.ts investorMoney`), the word the
+    head's worth uses. The repeat falls back to "(up to $5,000, 4 answers to start)" when a round phrase reads as an
+    open question (`OPEN_PHRASE`: how/what/which/who/why/where/when, or " or ").
 

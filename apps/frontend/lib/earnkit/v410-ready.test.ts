@@ -122,7 +122,7 @@ test('the owner shape opens with the approved section A text', () => {
     "Jenil, I've got 3 applications ready for you, worth up to $5K, plus a $1M accelerator and a $100K long shot:",
     '',
     "1. Base Builder Grant: up to $5,000. Ready once I add Builder Codes (10 minutes, I'll do it).",
-    '2. a16z speedrun SR008: up to $1M investment, closes in 19 hours. Ready.',
+    '2. a16z speedrun SR008: up to $1M, an accelerator, closes in 19 hours. Ready.',
     "3. Circle Developer Grants: $5K to $100K. Ready, but Circle looks for apps on Arc, so it's a long shot.",
     '',
     'Every answer is filled from your commits and your profile at earnkit.com/jenilt.',
@@ -243,9 +243,9 @@ test('a long shot one doable codes gap away carries step codes, and its line say
   assert.equal(readySet(ctx({ grants: [{ ...ls, gaps: ['on Arc mainnet'], doable: false }] }))[0].step, null);
 });
 
-test('an investor program with no amount reads "investment program"', () => {
+test('an investor program with no amount reads "an accelerator"', () => {
   const [a] = readySet(ctx({ investors: [{ ...A16Z, amount: null }] }));
-  assert.equal(readyLine(a, 1, false, NOW), '1. a16z speedrun SR008: investment program, closes in 19 hours. Ready.');
+  assert.equal(readyLine(a, 1, false, NOW), '1. a16z speedrun SR008: an accelerator, closes in 19 hours. Ready.');
 });
 
 test('needsPhrase: a short noun phrase from the field kind, else its label', () => {
@@ -264,7 +264,7 @@ test('the ready status, the no line, and a partial open list', () => {
   assert.equal(readyAgain(ready, NOW), [
     'Your 3 applications are still ready:',
     '- Base: up to $5,000. Ready.',
-    '- a16z: up to $1M investment, closes in 19 hours. Ready.',
+    '- a16z: up to $1M, an accelerator, closes in 19 hours. Ready.',
     '- Circle: $5K to $100K. Ready.',
     '',
     READY_AGAIN_ASK,
@@ -291,7 +291,7 @@ test('v4.10.1 Task 2 (5): the repeat reply names each program, its money and its
   assert.equal(again, [
     "Here's where your 3 applications stand:",
     '- Base: up to $5,000. Needs your contact details (name, email and Telegram), how it makes money today, main challenge right now and 1 more first.',
-    '- a16z: up to $1M investment, closes in 19 hours. Needs your email first.',
+    '- a16z: up to $1M, an accelerator, closes in 19 hours. Needs your email first.',
     '- Circle: $5K to $100K. Needs your Circle and Arc integrations, product roadmap and proposed grant milestones first.',
     '',
     READY_AGAIN_ASK,
@@ -301,13 +301,13 @@ test('v4.10.1 Task 2 (5): the repeat reply names each program, its money and its
   assert.doesNotMatch(mixed, /still ready/);
   assert.match(mixed, /^Here's where your 2 applications stand:\n- Base: up to \$5,000\. Ready once I add Builder Codes \(10 minutes, I'll do it\)\.\n- a16z: .* Needs your email first\.\n\nReply yes and I'll finish them\.$/);
   assert.match(readyAgain([{ ...base, needs: null }], NOW, true), /Ready once you add Builder Codes \(https:/);
-  assert.equal(readyAgain([set[1]], NOW), "Here's where your application stands:\n- a16z: up to $1M investment, closes in 19 hours. Needs your email first.\n\nReply yes and I'll finish it.");
+  assert.equal(readyAgain([set[1]], NOW), "Here's where your application stands:\n- a16z: up to $1M, an accelerator, closes in 19 hours. Needs your email first.\n\nReply yes and I'll finish it.");
   // The hours only under 48; a close further out, or none, says no time.
   const later = { ...a16z, ends_at: at(3 * DAY), needs: null };
-  assert.match(readyAgain([later], NOW), /\n- a16z: up to \$1M investment\. Ready\.\n/);
+  assert.match(readyAgain([later], NOW), /\n- a16z: up to \$1M, an accelerator\. Ready\.\n/);
   assert.match(readyAgain([{ ...base, step: null, ends_at: at(5 * 3_600_000) }], NOW), /\n- Base: up to \$5,000, closes in 5 hours\. Ready\.\n/);
   assert.match(readyAgain([{ ...base, step: null, amount: null }], NOW), /\n- Base\. Ready\.\n/);
-  assert.match(readyAgain([{ ...a16z, amount: null, needs: null }], NOW), /\n- a16z: investment program, closes in 19 hours\. Ready\.\n/);
+  assert.match(readyAgain([{ ...a16z, amount: null, needs: null }], NOW), /\n- a16z: an accelerator, closes in 19 hours\. Ready\.\n/);
 });
 
 test('v4.10.1 Task 2 fix round 1 (M2): the repeat status may repeat across finds in one session (the gate), the opener may not', () => {
@@ -328,7 +328,7 @@ test('v4.10.1 Task 2 (5): the "sent" repeat names each open page with its money 
   assert.equal(readySentAgain([base, a16z], NOW), [
     'Your 2 applications are open with every answer in place:',
     '- Base: up to $5,000.',
-    '- a16z: up to $1M investment, closes in 19 hours.',
+    '- a16z: up to $1M, an accelerator, closes in 19 hours.',
     '',
     'Reply "sent" once they\'re in, and I\'ll track them for you.',
   ].join('\n'));

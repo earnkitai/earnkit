@@ -171,7 +171,7 @@ const DRAFTED = committedProgram('circle-developer-grants').submission_requireme
 const OPENER = (handle: string) => new RegExp([
   "^Jenil, I've started 2 applications for you, a \\$1M accelerator and a \\$100K long shot\\. I need 4 answers from you first:",
   '',
-  '1\\. a16z speedrun SR008: up to \\$1M investment, closes in (19|20) hours\\. Needs your email first\\.',
+  '1\\. a16z speedrun SR008: up to \\$1M, an accelerator, closes in (19|20) hours\\. Needs your email first\\.',
   "2\\. Circle Developer Grants: \\$5K to \\$100K\\. Needs your Circle and Arc integrations, product roadmap and proposed grant milestones first, and Circle looks for apps on Arc, so it's a long shot\\.",
   '',
   'Also open: Base Builder Grant, up to \\$5,000, needs 8 answers from you\\. Say "start Base" anytime\\.',
@@ -221,7 +221,7 @@ test('the first find opens with the set (section A), every program drafted for t
   assert.match(again.show, new RegExp([
     "^Here's where your 2 applications stand:",
     '',
-    '- a16z: up to \\$1M investment, closes in (19|20) hours\\. Needs your email first\\.',
+    '- a16z: up to \\$1M, an accelerator, closes in (19|20) hours\\. Needs your email first\\.',
     '- Circle: \\$5K to \\$100K\\. Needs your Circle and Arc integrations, product roadmap and proposed grant milestones first\\.',
     '',
     "Reply yes and I'll finish them\\.$",
@@ -514,14 +514,14 @@ test('fix 1 (H1): a16z\'s founder brief is ready only with the team, money raise
   const a16zLine = (txt: string) => txt.split('\n').find((l) => /^\d\. a16z/.test(l));
   const none = await owner('hn', { bank: false });
   // v4.10.1 Task 1 (R2): the email its form opens with is the builder's too, named first.
-  assert.match(a16zLine(show(await find(none)))!, /^1\. a16z speedrun SR008: up to \$1M investment, closes in \d+ hours\. Needs your email, team list and any money you've raised first\.$/);
+  assert.match(a16zLine(show(await find(none)))!, /^1\. a16z speedrun SR008: up to \$1M, an accelerator, closes in \d+ hours\. Needs your email, team list and any money you've raised first\.$/);
   const yes = await tell(none, { kind: 'ready', project_key: none.key, answer: 'yes' });
   assert.ok(!(yes.reply?.ready as { open: { id: string }[] }).open.some((p) => p.id === sr.id), show(yes));
   assert.doesNotMatch(show(yes), /a16z: https/, show(yes));
   const team = await owner('ht', { bank: 'team', contact: true });
-  assert.match(a16zLine(show(await find(team)))!, /^1\. a16z speedrun SR008: up to \$1M investment, closes in \d+ hours\. Needs any money you've raised first\.$/);
+  assert.match(a16zLine(show(await find(team)))!, /^1\. a16z speedrun SR008: up to \$1M, an accelerator, closes in \d+ hours\. Needs any money you've raised first\.$/);
   const both = await owner('hb', { contact: true });
-  assert.match(a16zLine(show(await find(both)))!, /^1\. a16z speedrun SR008: up to \$1M investment, closes in \d+ hours\. Ready\.$/);
+  assert.match(a16zLine(show(await find(both)))!, /^1\. a16z speedrun SR008: up to \$1M, an accelerator, closes in \d+ hours\. Ready\.$/);
 });
 
 test('fix 1 (H1): the brief\'s answer is banked as team and raised and opens a16z, never asked again', db, async () => {
@@ -529,7 +529,7 @@ test('fix 1 (H1): the brief\'s answer is banked as team and raised and opens a16
   await sql()`UPDATE programs SET status = 'closed' WHERE investment AND id <> ${sr.id}`;
   await only([sr.id]);
   const b = await owner('hq', { bank: false });
-  assert.match(show(await find(b)), /\n1\. a16z speedrun SR008: up to \$1M investment, closes in \d+ hours\. Needs your email, team list and any money you've raised first\.\n/);
+  assert.match(show(await find(b)), /\n1\. a16z speedrun SR008: up to \$1M, an accelerator, closes in \d+ hours\. Needs your email, team list and any money you've raised first\.\n/);
   assert.equal(show(await tell(b, { kind: 'ready', project_key: b.key, answer: 'yes' })), "a16z needs your email, team list and any money you've raised first. Reply with them and I'll finish it.");
   // v4.10.1 Task 1 fix round 1 (I2): the whole reply never answers two fields (nor an email): unsplit, all stay owed.
   const half = await tell(b, { kind: 'ready', project_key: b.key, answer: 'yes', blanks: 'just me, nothing raised' });
@@ -550,7 +550,7 @@ test('fix 1 (I1): codes never pushed: the re-check says so once, then Base is pa
   const first = await find(b);
   assert.equal(show(first), `${READY_CODES_NOT_YET}\n\n${PUSHED_ASK}`);
   const parked = await find(b);
-  assert.match(show(parked), /^I'll keep Base Builder Grant for when it's done\.\n\nYour 2 applications are open with every answer in place:\n- a16z: up to \$1M investment, closes in (19|20) hours\.\n- Circle: \$5K to \$100K\.\n\nReply "sent" once they're in, and I'll track them for you\.$/, show(parked));
+  assert.match(show(parked), /^I'll keep Base Builder Grant for when it's done\.\n\nYour 2 applications are open with every answer in place:\n- a16z: up to \$1M, an accelerator, closes in (19|20) hours\.\n- Circle: \$5K to \$100K\.\n\nReply "sent" once they're in, and I'll track them for you\.$/, show(parked));
   assert.equal(moveUp(parked)?.kind, 'ready');
   const declined = (await seenOf(b.id)).declined as Record<string, string>;
   assert.ok(declined['path:base-builder-grants'] && declined['apply:base-builder-grants']);
@@ -563,7 +563,7 @@ test('fix 1 (I1): codes never pushed: the re-check says so once, then Base is pa
   const yes = await yesAll(no);
   assert.equal(moveUp(yes)?.kind, 'qualify');
   const said = await tell(no, { kind: 'qualify', project_key: no.key, answer: 'no' });
-  assert.match(show(said), /^No problem, I'll set Base Builder Grant aside\.\n\nYour 2 applications are open with every answer in place:\n- a16z: up to \$1M investment, closes in (19|20) hours\.\n- Circle: \$5K to \$100K\.\n\nReply "sent" once they're in, and I'll track them for you\.$/, show(said));
+  assert.match(show(said), /^No problem, I'll set Base Builder Grant aside\.\n\nYour 2 applications are open with every answer in place:\n- a16z: up to \$1M, an accelerator, closes in (19|20) hours\.\n- Circle: \$5K to \$100K\.\n\nReply "sent" once they're in, and I'll track them for you\.$/, show(said));
   assert.equal(moveUp(said)?.kind, 'ready');
   // Fix 1 (M2): "sent" right after the yes (kind qualify, Base's codes pending) still tracks the open pages.
   const early = await owner('ie', { fits: true });
@@ -615,7 +615,7 @@ test('final fix (I1), v4.10.2 (R1): the opener names the set\'s needs and counts
   const lines = show(opener).split('\n');
   // Base (11) and Circle (3, past a16z's 3) don't fit one reply: said apart, with their counts. a16z's brief: 3.
   assert.equal(lines[0], "Jenil, I've started 1 application for you, a $1M accelerator. I need 3 answers from you first:", show(opener));
-  assert.ok(lines.some((l) => /^1\. a16z speedrun SR008: up to \$1M investment, closes in \d+ hours\. Needs your email, team list and any money you've raised first\.$/.test(l)), show(opener));
+  assert.ok(lines.some((l) => /^1\. a16z speedrun SR008: up to \$1M, an accelerator, closes in \d+ hours\. Needs your email, team list and any money you've raised first\.$/.test(l)), show(opener));
   assert.ok(lines.includes('Also open: Base Builder Grant, up to $5,000, needs 11 answers from you. Circle Developer Grants, $5K to $100K, needs 3 answers from you. Say "start Base" and "start Circle" anytime.'), show(opener));
   assert.ok(lines.some((l) => l.startsWith('Every other answer is filled from your commits')), show(opener));
   const asks = (opener.reply?.ready as { programs: { id: string; asks: { kind: string }[] }[] }).programs.map((p) => [p.id, p.asks.map((a) => a.kind)]);
@@ -1037,6 +1037,52 @@ test('v4.10.3 Task 1 (R3): a yes to the lead that answers its first round banks 
   assert.doesNotMatch(s, BAD, s);
 });
 
+test('v4.10.3 fix round 1 (1): a yes answering 2 of the lead\'s 4 asks keeps those 2; the next reply asks the other 2 first, ready only at the end', db, async () => {
+  const { b } = await allianceOwner('pt2', 15 * 24 + 1);
+  const lead = await find(b);
+  const total = Number(show(lead).match(/needs (\d+) answers from you/)?.[1]);
+  const asks = (lead.reply?.draft as { asks: { kind: string }[] }).asks;
+  assert.deepEqual(asks.map((a) => a.kind), ['team', 'traction', 'demo_video', 'other:contract_address']);
+  let r = await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes', answers: { team: 'just me', traction: 'no users yet' } });
+  let s = show(r);
+  assert.match(s, /^Here's your draft:/, s);
+  assert.doesNotMatch(s, /ready to paste|team list|usage numbers/, s);
+  const second = (r.reply?.draft as { asks: { kind: string; slots?: string[] }[] }).asks;
+  assert.deepEqual(second.slice(0, 2).map((a) => a.kind), ['demo_video', 'other:contract_address'], s);
+  assert.match(s, /: your demo video, your contract address on Base, /, s);
+  let asked = 2;
+  const seen = [s];
+  for (let round = 0; round < 6 && !/ready to paste/.test(s); round++) {
+    const now = (r.reply?.draft as { asks: { kind: string; slots?: string[] }[] }).asks;
+    asked += now.reduce((x, a) => x + (a.kind === 'contact' ? a.slots!.length : 1), 0);
+    const answers = Object.fromEntries(now.map((a) => [a.kind, a.kind === 'contact'
+      ? Object.fromEntries(a.slots!.map((sl) => [sl, sl === 'name' ? 'Jenil T' : `@${sl}${RUN}`]))
+      : /builder_code/.test(a.kind) ? `bc_pt2${RUN}` : `answer for ${a.kind}`]));
+    r = await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes', answers });
+    s = show(r);
+    seen.push(s);
+  }
+  assert.equal(seen.filter((x) => /ready to paste/.test(x)).length, 1, seen.join('\n---\n'));
+  assert.match(seen.at(-1)!, /ready to paste/);
+  assert.equal(asked, total, `every counted answer asked once: ${seen.join('\n---\n')}`);
+});
+
+test('v4.10.3 fix round 1 (7, R2): a builder with only an investor program open: no "$0", the investor clause alone or no money line', db, async () => {
+  const b = await passedOwner('inv');
+  const all = await copy('alliance-all19', 'allinv', { hours: 15 * 24 + 1 });
+  await only([all.id]);
+  const replies = await converse(b.ctx as never, [{ find: {} }, { find: {} }], { builderId: b.id });
+  for (const r of replies) {
+    assert.doesNotMatch(r.show, /\$0\b|in grants|\$400,000|\$400K in/, r.show);
+    const money = r.show.split('\n\n').find((p) => p.startsWith('Open for you now:'));
+    if (money) assert.equal(money, 'Open for you now: a $400K accelerator. Alliance closes in 15 days.', r.show);
+    assert.doesNotMatch(r.show, BAD, r.show);
+  }
+  // The quiet reply here is the route's own (no lead: nothing to apply to but the accelerator); its copy and one ask hold.
+  const rules = new Set(['copy', 'claim', 'easy_reply', 'repeat']);
+  assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }).filter((f) => rules.has(f.rule)), [], replies.map((r) => r.show).join('\n---\n'));
+});
+
 test('v4.10.2 (R3): Circle not eligible beside a set is said in one plain line; on Arc it is eligible, a plain fit (never a long shot)', db, async () => {
   const { sr, circle } = await ownerPrograms({ required: true, tagged: false });
   const off = await owner('ne', { fits: true });
@@ -1097,7 +1143,7 @@ test('v4.10.1 (1): Circle\'s real form reads "Needs" with its fields, never "Rea
   assert.doesNotMatch(line, /Ready/);
   // The contact details are banked and the bank holds the rest, so a16z is ready; Base owes its 5 own answers (revenue,
   // the 3-month plan, its Builder Code, the main challenge and the credits), past one reply, so it is said apart.
-  assert.match(show(opener), /\n1\. a16z speedrun SR008: up to \$1M investment, closes in \d+ hours\. Ready\.\n/, show(opener));
+  assert.match(show(opener), /\n1\. a16z speedrun SR008: up to \$1M, an accelerator, closes in \d+ hours\. Ready\.\n/, show(opener));
   assert.match(show(opener), /\nAlso open: Base Builder Grant, up to \$5,000, needs 5 answers from you\./, show(opener));
   // Circle's 3 are the set's one ask, so "every other answer" is true.
   assert.match(show(opener), /\n\nEvery other answer is filled from your commits/, show(opener));
@@ -1131,7 +1177,7 @@ test('v4.10.1 (2): a contact detail given once is banked by slot and never asked
   const next = await owner('cb2', { contact: true });
   await only([sr.id]);
   const r = await find(next);
-  assert.match(show(r), /\n1\. a16z speedrun SR008: up to \$1M investment, closes in \d+ hours\. Ready\.\n/, show(r));
+  assert.match(show(r), /\n1\. a16z speedrun SR008: up to \$1M, an accelerator, closes in \d+ hours\. Ready\.\n/, show(r));
   assert.equal((r.reply?.ready as { programs: { prefilled: Record<string, string> }[] }).programs[0].prefilled.email, 'jenil@example.com');
   assert.match(show(r), /\n\nEvery answer is filled from your commits/, show(r));
 });
@@ -1152,7 +1198,7 @@ test('v4.10.1 (2), v4.10.2 (R8): an opted-in email and an owned Base contract ar
   const a16z = ready.programs.find((p) => p.id === sr.id)!;
   assert.equal(a16z.prefilled.email, 'jenil@example.com');
   assert.deepEqual(a16z.asks, []);
-  assert.match(show(r), /\n1\. a16z speedrun SR008: up to \$1M investment, closes in \d+ hours\. Ready\.\n/, show(r));
+  assert.match(show(r), /\n1\. a16z speedrun SR008: up to \$1M, an accelerator, closes in \d+ hours\. Ready\.\n/, show(r));
   // Base owes 7 (name, Telegram, revenue, the plan, its Builder Code, the challenge, the credits): the email and the
   // contract are held, so never counted.
   assert.deepEqual(ready.also_open.map((p) => [p.id, p.answers]), [['base-builder-grants', 7]]);

@@ -238,6 +238,8 @@ export type Seen = StandSeen & {
     setup?: boolean;
     /** v4.8 Task 1: the path's hook asked it (pathView); a no also parks program_id for the path. */
     path?: boolean;
+    /** v4.10.3 fix round 1: the also-open lead asked it; its yes may carry the first round's answers (pathDraft). */
+    also?: boolean;
     /** v4.8 Task 2: the gap stage asked it (its yes: the agent does the step, then calls find); `draft`, the draft stage. */
     gap?: boolean; draft?: boolean;
     /** v4.8 Task 2 fix round 2 (F5, the draft's ask): the blanks it asked for (fix round 3: cleared once answered). */
@@ -1148,14 +1150,25 @@ async function readyDrafts(
     const row = await getProgramRow(p.id).catch(() => null);
     // Fix 1 (H1): a founder brief's blanks are its fields here (FOUNDER_REQS), never "Ready." while unheld.
     const reqs = row ? askReqs(row) : [];
-    const held = { ...(await heldAnswers(id, key, reqs, record)).held, ...extra[p.id] };
     // v4.10.2 final fix (I1): the one list of what only the builder can give (the path's draft asks the same).
-    const only = row ? builderAsks(row, held) : [];
+    // v4.10.3 fix round 1 (1): programAsks, the one function the lead and the path draft read too.
+    const { held, only } = row ? await programAsks(id, key, row, record, extra[p.id]) : { held: { ...extra[p.id] }, only: [] };
     return {
       id: p.id, title: row?.title ?? p.title, link: row?.submission_url ?? null, ends_at: row?.ends_at ? new Date(row.ends_at).toISOString() : null,
       requirements: reqs, prefilled: held, only,
     };
   }));
+}
+/**
+ * v4.10.3 fix round 1 (1): what EarnKit holds for a program's fields (heldAnswers on `record`, plus `extra`) and what is
+ * left only the builder can give (builderAsks). The one function the ready set, the also-open lead and the path draft
+ * count and ask from, so the lead's round is the draft's. `record` is the full verified record (askRecord): what is left
+ * out while the score is updating is a copy concern, never an asks one. Never throws on its own reads.
+ */
+async function programAsks(id: number, key: string | null, row: ProgramFileRow, record: string[], extra: Record<string, string> = {}) {
+  const { held: own, fills } = await heldAnswers(id, key, askReqs(row), record);
+  const held = { ...own, ...extra };
+  return { held, fills, only: builderAsks(row, held) };
 }
 /** A founder brief (fix 1, H1): an investor program with no public questions (every required field a contact detail). Pure. */
 const isBrief = (row: Pick<ProgramFileRow, 'investment' | 'submission_requirements'>) =>
@@ -1410,18 +1423,17 @@ async function readyCommit(o: ViewIn, plan: PathPlan, picked: ReadyProgram[]): P
   const q = plan.extra.get(BASE_GRANTS_ID)?.qualify;
   // Only Base's codes step is one the yes runs (gapDoYes, from its stored offer).
   const set1 = set0.map((p) => (p.step === 'codes' && !(p.id === BASE_GRANTS_ID && q) ? { ...p, step: null } : p));
-  const drafts1 = await readyDrafts(id, key, set1, record);
+  // v4.10.3 fix round 1 (1): the asks are counted on the full record (the draft's), whatever the reply leaves out.
+  const drafts1 = await readyDrafts(id, key, set1, o.updating ? await readyRecord(id, now) : record);
   // v4.10.2 Task 1 (R1): the set fits one short reply: at most READY_ANSWERS_MAX answers across it; a program left out
   // for its answers is said in one line ("Also open"). None fits: the path answers (its own draft, in rounds of at most 4: pathRound).
   const fit = fitReadySet(set1.map((p, i) => ({ p, d: drafts1[i] })), (x) => answerKeys(x.d.only));
   // v4.10.2 Task 5: nothing fits: the top program left out is the quiet reply's money lead this session (alsoLeadCommit).
   const top = fit.set.length === 0 ? fit.out[0] : undefined;
-  // v4.10.3 Task 1 (R2, R3): with it, the grant total the builder could pursue (every candidate: not-eligible programs
-  // never reach the set; grantTotal leaves out long shots and investor programs) and the draft's first round (pathRound).
-  const first = top ? pathRound(top.program.d.only) : null;
+  // v4.10.3 Task 1 (R2): with it, the grant total the builder could pursue (every candidate: not-eligible programs never
+  // reach the set; grantTotal leaves out long shots and investor programs). Its first round is read per reply (alsoLeadCommit).
   await keepAlso(o, top ? {
-    id: top.program.p.id, key, title: top.program.p.title, amount: top.program.p.amount, answers: top.answers, at: now.toISOString(),
-    usd: grantTotal(set1), round: { asks: first!.round.map((i) => i.phrase), n: roundAnswers(first!.round), fields: roundFields(first!.round) },
+    id: top.program.p.id, key, title: top.program.p.title, amount: top.program.p.amount, answers: top.answers, at: now.toISOString(), usd: grantTotal(set1),
   } : null);
   if (fit.set.length === 0) return null;
   const drafts = fit.set.map((x) => x.d);
@@ -1721,8 +1733,6 @@ export type AlsoOpenLead = {
   id: string; key: string; title: string; amount: string | null; answers: number; at: string;
   /** v4.10.3 Task 1 (R2): the grant total the builder could pursue (ready-set.ts grantTotal), for the money line. */
   usd?: number;
-  /** v4.10.3 Task 1 (R3): the draft's first round (pathRound): its ask phrases, its answers and the agent's fields (draft.asks). */
-  round?: { asks: string[]; n: number; fields: ReturnType<typeof roundFields> };
 };
 /** v4.10.2 Task 5: stores (or, null, drops) the also-open lead, in the row and the reply's read. Never throws. */
 async function keepAlso(o: ViewIn, a: AlsoOpenLead | null): Promise<void> {
@@ -1766,8 +1776,12 @@ async function alsoLeadCommit(
   const session = sessionOf(read.seen, now);
   const again = !session.fresh && session.said.has(alsoSaid(a.id));
   const proof = session.fresh ? proofOf({ name: v.project.name, live: v.project.live || v.siteLive }, v.streak, false, session.said) : null;
-  // v4.10.3 Task 1 (R3): the first round named (a lead stored before v4.10.3 has none: the count alone, as it was).
-  const round = a.round && Array.isArray(a.round.asks) && a.round.asks.length > 0 ? a.round : null;
+  // v4.10.3 Task 1 (R3), fix round 1 (8): the draft's first round, read on every reply from what EarnKit holds now
+  // (programAsks on the full record, as pathDraft reads it), so an answer given mid-session drops out of the lead.
+  const row = await getProgramRow(a.id).catch(() => null);
+  const asks = row ? pathRound((await programAsks(id, a.key, row, await readyRecord(id, now))).only) : null;
+  const round = asks && asks.round.length > 0 ? { asks: asks.round.map((i) => i.phrase), n: roundAnswers(asks.round), fields: roundFields(asks.round) } : null;
+  const answers = asks && asks.round.length > 0 ? asks.total : a.answers;
   // v4.10.3 Task 1 (R1, R2, owner answer 1): money first. The grant total, and the soonest investor program closing
   // within INVESTOR_NAME_MS (live cards, never one skipped or said no to), said once a session (MONEY_SAID).
   const skip = pathSkip(told, read.seen, now, o.skip);
@@ -1775,10 +1789,11 @@ async function alsoLeadCommit(
   const inv = namedInvestor(investors, now, skip);
   const money = again || session.said.has(MONEY_SAID) ? null
     : alsoMoneyLine(typeof a.usd === 'number' ? a.usd : 0, inv && inv.ends_at ? { title: inv.title, max_usd: inv.max_usd ?? null, ends_at: inv.ends_at } : null, now);
-  const show = again ? alsoAgainAsk(a.title, a.amount, a.answers, round)
-    : [money, proof?.line, alsoLeadLine(a.title, a.amount, a.answers, round), ALSO_START_ASK].filter(Boolean).join('\n\n');
+  const show = again ? alsoAgainAsk(a.title, a.amount, answers, round)
+    : [money, proof?.line, alsoLeadLine(a.title, a.amount, answers, round), ALSO_START_ASK].filter(Boolean).join('\n\n');
   const key = v.project.key;
-  const stored = { kind: 'apply', key, program_id: a.id, path: true };
+  // Fix round 1 (review minor 4): `also` marks the lead's start ask, the only path start whose yes may carry answers.
+  const stored = { kind: 'apply', key, program_id: a.id, path: true, also: true };
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
       || jsonb_build_object('bench_ask', ${sql().json(stored as never)}::jsonb, 'also_open', ${sql().json({ ...a, at: now.toISOString() } as never)}::jsonb,
         'said', ${saidSql([alsoSaid(a.id), ...(proof?.keys ?? []), ...(money ? [MONEY_SAID] : [])], now)})
@@ -3986,7 +4001,7 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       // v4.8 Task 2: the path's "Want me to start?": the draft stage. A yes to the draft's own ask (fix round 2, F5)
       // re-asks its blanks, or with none moves the path to submit; never a second draft.
       if (asked.path === true && asked.draft === true) return draftYes(ctx, id, asked, now, m);
-      if (asked.path === true && asked.program_id) return pathDraft(ctx, id, asked, now, m);
+      if (asked.path === true && asked.program_id) return pathDraft(ctx, id, asked, now, asked.also === true ? m : {});
       return asked.program_id
         ? { show_to_builder: '', agent_note: APPLY_YES_NOTE(asked.program_id), lead: { program_id: asked.program_id, ...(asked.repo && { repo: asked.repo }) } }
         : okay;
@@ -4361,9 +4376,7 @@ async function pathAsks(ctx: Partial<Pick<ToolContext, 'sharedClient'>>, id: num
   const { shipLogBlock, shipLogFacts } = await import('./ship-log-facts');
   const facts = ctx.sharedClient ? null : await shipLogFacts(id, now).catch(logged('draft record'));
   const record = facts ? shipLogBlock(facts) : [];
-  const { held: own, fills } = await heldAnswers(id, key, askReqs(program), record);
-  const held = { ...own, ...extra };
-  return { facts, record, held, fills, only: builderAsks(program, held) };
+  return { facts, record, ...(await programAsks(id, key, program, record, extra)) };
 }
 
 /**
@@ -4408,25 +4421,39 @@ async function draftYes(
   if (!program || (said && round.length === 0)) return pathSubmit(id, asked, now, said ? finished(blanks.includes(GTM_ONE_LINE)) : plain);
   const pid = program.id;
   let done = strs(asked.done);
+  let got: string[] = [];
   let given: Record<string, string> = Object.fromEntries(Object.entries(asked.given ?? {}).filter((e): e is [string, string] => typeof e[1] === 'string'));
   if (blanks.length > 0 && said) {
     const byKey = new Map(askReqs(program).map((r) => [r.key, r]));
     const items: NeedItem[] = round
       .map((it) => ({ kind: it.kind, phrase: '', fields: it.keys.flatMap((k) => (byKey.has(k) ? [{ program_id: pid, req: byKey.get(k)! }] : [])) }))
       .filter((it) => it.fields.length > 0);
-    if (items.length > 0 && asked.key) given = (await readyBank(id, asked.key, items, m, { [pid]: given })).given[pid] ?? given;
-    done = [...new Set([...done, ...round.flatMap((it) => it.keys)])];
+    // v4.10.3 fix round 1 (1): with their answers split by field, only the fields that got a value are done (a yes that
+    // answers 2 of 4 leaves the other 2 asked next), never the whole round, so "ready to paste" never comes with a blank
+    // left. Their whole reply unsplit (`blanks` alone) is the round's answer as before: the agent writes it into the draft.
+    const banked = items.length > 0 && asked.key ? await readyBank(id, asked.key, items, m, { [pid]: given }) : null;
+    if (banked) given = banked.given[pid] ?? given;
+    got = anyAnswer(m.answers) ? Object.keys(banked?.byProgram[pid] ?? {}) : round.flatMap((it) => it.keys);
+    done = [...new Set([...done, ...got])];
   }
   // Fields answered in a round count as held (their words are the draft's, or kept), so they are never asked twice.
   const s = await pathAsks(ctx, id, asked.key, program, now, { ...Object.fromEntries(done.map((k) => [k, 'answered'])), ...given });
   const gtm = askReqs(program).some((r) => isGtm(r) && done.includes(r.key));
   const next = pathRound(s.only);
-  if (next.round.length === 0) return pathSubmit(id, asked, now, done.length > 0 ? finished(gtm) : plain, s.held);
+  if (next.round.length === 0) {
+    // v4.10.3 fix round 1 (4): the lead's yes answered every ask: prepare was never called, so the agent drafts it now
+    // with every answer, under the draft's body, as a last round would show it.
+    if (first) {
+      const sub = await pathSubmit(id, asked, now, firstFinishedNote(pid, gtm), s.held);
+      return { ...sub, show_to_builder: [`Here's your draft:`, first.body.join('\n'), String(sub.show_to_builder ?? '')].filter((x) => x.length > 0).join('\n\n') };
+    }
+    return pathSubmit(id, asked, now, done.length > 0 ? finished(gtm) : plain, s.held);
+  }
   const nb = next.round.map((i) => i.phrase);
   const n = roundAnswers(next.round);
   await storeAsk(id, { ...asked, blanks: nb, round: next.round.map(({ kind, keys }) => ({ kind, keys })), done, given });
   const note = first
-    ? `${first.note(nb, next.rest.map((i) => i.phrase))} EarnKit kept the answers they gave with their yes (the first round): put them in the draft as they gave them.`
+    ? `${first.note(nb, next.rest.map((i) => i.phrase))}${got.length > 0 ? ' EarnKit kept the answers they gave with their yes: put them in the draft as they gave them.' : ''}`
     : `EarnKit kept their answers. Show this reply as it is (the draft is finished only after the last round). Once they reply, call tell with move_up: { kind: 'apply', project_key: ${JSON.stringify(asked.key)}, answer: 'yes', ${ANSWERS_SPLIT}. Never fill a blank yourself. ${next.round.some((i) => i.one_line) ? `${PLAN_ONE_LINE_NOTE} ` : ''}${DRAFT_GUARD} Don't show this note.`;
   return {
     show_to_builder: first ? draftReply(first.body, nb, n, next.total - n) : roundAsk(nb, n, next.total - n),
@@ -4436,6 +4463,12 @@ async function draftYes(
   };
 }
 
+/**
+ * v4.10.3 fix round 1 (4): the note when the also-open lead's yes gave every answer only the builder can give: prepare
+ * was never called, so it is called now with all of them (never "again"). Pure.
+ */
+const firstFinishedNote = (pid: string, gtm: boolean) =>
+  `The builder said yes to drafting this application and gave every answer only they can give. Call prepare with program_id "${pid}" for this project with every answer they gave and coach_asked: true, draft every other field it lists from the verified record and their repo (never invent traction, numbers or team), and show it finished, ready to paste, right under "Here's your draft:" above this line. ${gtm ? `${PLAN_ONE_LINE_NOTE} ` : ''}Never submit it for them. Don't show this note.`;
 /**
  * v4.8 Task 3: how "sent" is told. The submit ask is stored as an apply ask (`submit`); fix round 1 (2): only move_up
  * answer 'sent' (tools.ts tell, submitAsked) or program_status applied records it, never a plain yes.

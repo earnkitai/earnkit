@@ -2889,6 +2889,8 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
   proof, the program with its first round, the ask; `draft.asks` and `ALSO_LEAD_NOTE` to the agent), `pathDraft(..., m)`
   and `draftYes(..., first)` (a yes to the lead carrying round 1's answers banks them). Tests: `v4103-hook.test.ts`,
   `v410-find.test.ts` ("v4.10.3 Task 1").
+- Fix round 1: `bench-find.ts` `programAsks` (the one asks function), `firstFinishedNote`,
+  `bench_ask.also`; `ready-copy.ts` `investorMoney`, `OPEN_PHRASE`.
 
 ## v4.10.2 Task 5: replay fixes (the next step after the Monday block)
 

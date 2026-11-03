@@ -44,9 +44,15 @@ export const READY_NEEDS_NOTE =
 export const READY_AGAIN_ASK = "Reply yes and I'll finish them.";
 /** v4.10.1 Task 2: a set program as the repeat replies name it (bench-find.ts builds these from the live cards). */
 export type AgainProgram = Pick<ReadyProgram, 'title' | 'amount' | 'ends_at' | 'zone' | 'kind'> & Partial<Pick<ReadyProgram, 'step' | 'needs'>>;
-/** v4.10.1 Task 2: one program's line: "- a16z: up to $1M investment, closes in 19 hours." (the hours only under 48). */
+/**
+ * v4.10.3 fix round 1 (2): an investor program's money as the ready replies say it, in the word the head's worth uses
+ * (worthClause: "a $1M accelerator", pool.ts openMoneyWords' convention): "up to $1M, an accelerator"; no amount, "an
+ * accelerator". Pure.
+ */
+const investorMoney = (amount: string | null) => (amount ? `${amount}, an accelerator` : 'an accelerator');
+/** v4.10.1 Task 2: one program's line: "- a16z: up to $1M, an accelerator, closes in 19 hours." (the hours only under 48). */
 function againLine(p: AgainProgram, now: Date, state: string | null): string {
-  const money = p.kind === 'investor' ? (p.amount ? `${p.amount} investment` : 'investment program') : p.amount;
+  const money = p.kind === 'investor' ? investorMoney(p.amount) : p.amount;
   const hours = p.ends_at ? hoursLeft(p.ends_at, now) : null;
   const facts = [money, hours ? `closes ${hours}` : null].filter(Boolean).join(', ');
   return `- ${shortName(p.title)}${facts ? `: ${facts}` : ''}.${state ? ` ${state}` : ''}`;
@@ -147,8 +153,8 @@ function stateOf(p: ReadyProgram, hosted: boolean): string {
 export function readyLine(p: ReadyProgram, n: number, hosted: boolean, now: Date): string {
   const name = programName(p.title);
   if (p.kind === 'investor') {
-    // v4.10 Task 4 (decision g): no amount stated, "investment program".
-    const money = p.amount ? `${p.amount} investment` : 'investment program';
+    // v4.10 Task 4 (decision g): no amount stated, the kind alone. v4.10.3 fix round 1 (2): the head's word, "accelerator".
+    const money = investorMoney(p.amount);
     const closes = p.ends_at ? `, closes ${closeWords(p.ends_at, p.zone, now)}` : '';
     return `${n}. ${name}: ${money}${closes}. ${stateOf(p, hosted)}`;
   }
@@ -228,9 +234,17 @@ export function alsoLeadLine(title: string, amount: string | null, answers: numb
   return `${head}. The first${round.n === 1 ? '' : ` ${round.n}`}: ${roundList(round)}, and ${rest} more after these.`;
 }
 export const ALSO_START_ASK = 'Want me to start it?';
+/**
+ * v4.10.3 fix round 1 (6): a round phrase that would turn the yes/no into an open question or a choice ("how it makes
+ * money today", "what ...", "... or ..."): the repeat then says the round's count instead of its asks. Pure.
+ */
+const OPEN_PHRASE = /^(?:how|what|which|who|why|where|when)\b|\bor\b/i;
 export function alsoAgainAsk(title: string, amount: string | null, answers: number, round?: LeadRound | null): string {
   const facts = `${amount ? `${amount}, ` : ''}${answersWords(answers)}`;
   if (!round || round.asks.length === 0) return `Want me to start ${programName(title)} (${facts})?`;
+  if (round.asks.some((a) => OPEN_PHRASE.test(a.replace(/^your\s+/i, '')))) {
+    return `Want me to start ${programName(title)} (${amount ? `${amount}, ` : ''}${round.n} answer${round.n === 1 ? '' : 's'} to start)?`;
+  }
   const rest = answers - round.n;
   return `Want me to start ${programName(title)} (${facts}${rest > 0 ? ', starting with' : ':'} ${roundList(round)})?`;
 }

@@ -75,6 +75,18 @@ test('v4.10.3 (R3, owner answer 3): the lead names the first 4 asks and "and 7 m
   assert.equal(alsoAgainAsk('Base Builder Grant', 'up to $5,000', 11), 'Want me to start Base Builder Grant (up to $5,000, 11 answers from you)?');
 });
 
+test('v4.10.3 fix round 1 (6): a round phrase that reads as an open question falls back to the count in the repeat', () => {
+  const open = { asks: ['how it makes money today', 'your 3-month plan in one line', 'your Base Builder Code (from base.dev)', 'your main challenge right now'], n: 4 };
+  const again = alsoAgainAsk('Base Builder Grant', 'up to $5,000', 8, open);
+  assert.equal(again, 'Want me to start Base Builder Grant (up to $5,000, 4 answers to start)?');
+  assert.equal(alsoAgainAsk('Base Builder Grant', null, 8, { asks: ['your team or your company'], n: 1 }), 'Want me to start Base Builder Grant (1 answer to start)?');
+  assert.equal(alsoAgainAsk('Base Builder Grant', 'up to $5,000', 8, { asks: ['what you shipped'], n: 1 }), 'Want me to start Base Builder Grant (up to $5,000, 1 answer to start)?');
+  // The lead itself keeps the list (a statement, not the question).
+  assert.match(alsoLeadLine('Base Builder Grant', 'up to $5,000', 8, open), /The first 4: how it makes money today, /);
+  const r = { turn: 0, session: 0, first: false, hook: false, tool: 'find', input: {}, show: again, said: [], reply: { move_up: { kind: 'apply', project_key: 'a/b' } } } as Reply;
+  assert.deepEqual(gateFailures([r, { ...r, turn: 1 }]), []);
+});
+
 test('v4.10.3: the lead (money first, the asks, one yes/no last) and its repeats pass the gate', () => {
   const reply = (show: string, o: Partial<Reply> = {}): Reply =>
     ({ turn: 0, session: 0, first: true, hook: false, tool: 'find', input: {}, show, said: ['proof:streak=7'], reply: { move_up: { kind: 'apply', project_key: 'a/b' } }, ...o }) as Reply;
