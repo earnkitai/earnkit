@@ -333,6 +333,8 @@ export type Seen = StandSeen & {
    * quiet reply's money lead this session (alsoLeadCommit; `at` re-stamped each time it is said).
    */
   also_open?: AlsoOpenLead;
+  /** v4.10.3 Task 3 fix round 1: last week was added this ISO week (weekAdd) and the Monday block is still to say (mondayView). */
+  moment_due?: { week: string; key: string; monday: string };
   /** v3.1 cold read: the standing line last shown (name, rank and streak), so it is shown again only when it changed. */
   status_seen?: string;
   /** v3.1 cold read: the ISO week the shipping points line was last shown (at most once a week). */
@@ -632,9 +634,9 @@ type ViewIn = {
   ahead?: string[];
   /**
    * v4.10.3 Task 3 (R6): the Monday block (bench-reply.ts mondayBlock), filled by benchView when this reply shows it;
-   * benchFind and benchScore put it above the reply, whose one easy reply (the program ask) stays last.
+   * benchFind and benchScore put it above the reply (mondayText), whose one easy reply (the program ask) stays last.
    */
-  monday?: string[];
+  monday?: { m: MomentView; page: string }[];
   /** v4.8 Task 5: find's direct question (mcp.ts `ask`), answered first on a path reply (directAnswer). */
   question?: 'standing' | 'programs';
   /** v4.8 Task 5: the direct answer, said first (benchFind puts it after the account line, before every other line). */
@@ -2659,6 +2661,9 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
     ? { link: setupLink, project: githubNo ? null : ranked ? (project?.name ?? 'Your code') : 'Your code' }
     : null;
   const rankedFree = ranked && !walletSetup;
+  // v4.10.3 Task 3 fix round 1 (1): the Monday add runs on the first settled reply of the week, whatever it shows (the
+  // block is said where it fits: mondayView below). Never while the score and the week are updating.
+  if (ranked && !o.updating && project && handle !== null && !taken) await weekAdd(o.own, id, project.key, now, read.seen);
   // v4.3 final review F3: a "show more" call never claims or opens a one-time offer (connect, an event post, a nudge,
   // the weekly moment, the check-in, the wallet step, the token offer, the new-repo nudge, titles): its question is
   // the qualify, apply or ship ask (or none), and each offer stays due for the next plain find.
@@ -2679,7 +2684,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   // returns before the older asks (its session opener leads), so the block waits for a reply the path falls through on.
   const mondayShown = async (m: MomentView | null): Promise<MomentView | null> => {
     if (!m || handle === null) return m;
-    o.monday?.push(mondayBlock(m, `https://${pageUrl(handle)}`));
+    o.monday?.push({ m, page: `https://${pageUrl(handle)}` });
     const keys = [OLDER_SAID, ...(m.week >= 2 ? [`proof:streak=${m.week}`] : [])];
     await markSaid(id, keys, now);
     read.seen.said = { at: now.toISOString(), keys: [...sessionOf(read.seen, now).said, ...keys] };
@@ -2823,18 +2828,18 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   // backing, the coin's wallet and event posts above); it shows only in a ranked reply with setup step 3 not due and no
   // Monday block to show, once its week is claimed. Then the submit question goes; else it stays held.
   const standIn = Boolean(!more && o.nudge && held && state === 'ranked' && project && handle && !(await walletSetupDue(id, now))
-    && !(await momentWouldShow(o.own, id, project.key, now)) && (await claimNudge(id, now, o.nudge.keep)));
+    && !momentDueNow(read.seen, now) && (await claimNudge(id, now, o.nudge.keep)));
   if (standIn) held = null;
   const nudgeOk = standIn || Boolean(rankedFree && !more && project && handle && !held && !connect && !hot);
   const peek = !nudgeOk ? null : standIn ? o.nudge!
     : nudgeFirst !== undefined && nudgeFirst?.kind !== 'milestone' ? nudgeFirst
     : await pickNudge(id, now, { project: project!.name, best: best && realFit(best) ? best.title : null });
   // v4.10.1 Task 3 (R5): the Monday block names the score and the week, so it waits while they are updating.
-  const askMoment = !standIn && !o.updating && peek?.ask && peek.line ? await weeklyMoment(o.own, id, project!.key, handle!, row?.commit_weeks ?? [], now, stand) : null;
+  const askMoment = !standIn && !o.updating && peek?.ask && peek.line ? await mondayView(id, handle!, now, stand, read.seen) : null;
   const owns = standIn || Boolean(peek?.ask && peek.line && !askMoment && (await claimNudge(id, now, peek.keep)));
   // Launch ready L6: the weekly moment, once a week per installation, never over a held question.
   const moment = (askMoment ? await mondayShown(askMoment) : null)
-    ?? (!owns && !o.updating && !peek?.ask && rankedFree && !more && project && handle && !held && !connect && !hot ? await mondayShown(await weeklyMoment(o.own, id, project.key, handle, row?.commit_weeks ?? [], now, stand)) : null);
+    ?? (!owns && !o.updating && !peek?.ask && rankedFree && !more && project && handle && !held && !connect && !hot ? await mondayShown(await mondayView(id, handle, now, stand, read.seen)) : null);
   // v3.1 one-tap posts: the share slot between Mondays: an event's post (an announced win, going live, the coin's intro).
   const event = hot ?? (!owns && rankedFree && !more && project && handle && !held && !connect && !moment ? await eventPost(id, handle, now, { hot: false }) : null);
   // 2026-10-22: then a private repo's titles question (once a person), then, with no fit, Base's grant steps.
@@ -3286,43 +3291,80 @@ async function connectMoment(id: number, key: string, now: Date, best: Fit | nul
 export { momentSummary };
 
 /**
- * v4.0 Task 8 fix round 2: whether weeklyMoment would show the Monday block now, without claiming it (its own checks:
- * due this week, last week ready and not approved yet). Never throws (false on an error).
+ * v4.10.3 Task 3 (R6): a reply's text with the Monday block between `before` and `after` (the reply's own step last).
+ * Fix round 1 (8): when the rest of the reply carries a link (the program's), the block drops its page or post link,
+ * so the reply keeps the one it needs. Pure.
  */
-async function momentWouldShow(own: number, id: number, key: string, now: Date): Promise<boolean> {
-  if (!(await momentDue(own, now))) return false;
-  const last = await lastWeekOf(id, key, now).catch(logged('last week'));
-  return Boolean(last && momentReady(last.checked, now) && !last.approved);
+export function withMonday(blocks: NonNullable<ViewIn['monday']>, before: (string | null | undefined)[], after: (string | null | undefined)[]): string {
+  const rest = [...before, ...after].filter((x): x is string => Boolean(x));
+  const link = !rest.some((x) => /https?:\/\//.test(x));
+  return [...before, ...blocks.map((b) => mondayBlock(b.m, b.page, { link })), ...after].filter(Boolean).join('\n\n');
 }
 
 /**
- * Launch ready L6, Task 16 step 7: the weekly moment (the week's number, v4.10.3: the live streak; where last week
- * left the builder), when this installation hasn't seen this week's
- * moment, the builder had a ranked day last week, and last week's ship log is ready (momentReady: the weekly job wrote
- * it, or its Monday hour passed). Else null, and the week stays unclaimed. Claimed only when shown (takeMoment); v4.10.3
- * Task 3 (R6): then last week is added to the page (approveWeek), with no question. v3.1 one-tap posts (design 6): last week's post is drafted when it is
- * worth one (post-reply.ts weeklyPost), else the reply gives the page; no points are shown (owner ruling 5), the add
- * still earns them (approveWeek). Never throws.
+ * v4.10.3 Task 3 fix round 1: the Monday block waiting to be said this week (standing_seen.moment_due, written by
+ * weekAdd), as this reply's read holds it. Pure.
  */
-async function weeklyMoment(own: number, id: number, key: string, handle: string, commitWeeks: string[], now: Date, live: Pick<Standing, 'score' | 'streak'>): Promise<MomentView | null> {
-  if (!(await momentDue(own, now))) return null;
+const momentDueNow = (seen: Seen, now: Date) => seen.moment_due?.week === isoWeekOf(now);
+
+/**
+ * v4.10.3 Task 3 (R6, owner answer 4), fix round 1 (1, 3): the Monday add, on the first settled reply of the week
+ * whatever that reply shows. When this installation hasn't had `now`'s week, the builder had a ranked day last week and
+ * last week's ship log is ready (momentReady), last week goes on the page first (approveWeek 'auto': the action a yes
+ * to the retired "Add last week to your page?" took, never a consent to a summary), then the week is claimed
+ * (takeMoment: one claim however many replies race; approveWeek is idempotent) and the block is left to say
+ * (standing_seen.moment_due, also in this reply's read). A failed add claims nothing, so the next settled reply tries
+ * again. A week already approved (the connect yes, another agent's add) is claimed with nothing to say. Never before
+ * the connect offer is answered, never while updating (benchView never calls it then). Never throws.
+ */
+async function weekAdd(own: number, id: number, key: string, now: Date, seen: Seen): Promise<void> {
+  if (!(await momentDue(own, now))) return;
+  // Fix round 1: never before the connect offer is answered (it asks to make the shipping log public; until then the
+  // week waits, unclaimed, as the block did behind the offer).
+  const [c] = await sql()<{ settled: boolean }[]>`
+    SELECT COALESCE(standing_seen ? 'connect_done' AND NOT standing_seen ? 'connect_open', false) AS settled FROM builder_profiles WHERE builder_id = ${id}`
+    .catch((err: unknown) => (logged('moment connect')(err), []));
+  if (c?.settled !== true) return;
   const last = await lastWeekOf(id, key, now).catch(logged('last week'));
-  if (!last || !momentReady(last.checked, now)) return null;
-  // v3 Stage 1 fix round 1: a week already confirmed (the connect yes) is never asked about again; the week is claimed.
+  if (!last || !momentReady(last.checked, now)) return;
+  // v3 Stage 1 fix round 1: a week already confirmed is never shown again; the week is claimed.
   if (last.approved) {
     await takeMoment(own, now);
-    return null;
+    return;
   }
-  if (!(await takeMoment(own, now))) return null;
-  // Owner batch fix wave: the yes binds only to the summary the reply shows (one quoted line, never a question mark or
-  // a link, so the reply keeps one question and one link); none shown binds none, and the offer is recorded.
+  // Owner batch fix wave: the add binds only to the summary the block shows (one quoted line, never a question mark or
+  // a link); fix round 1 (security): a repo whose summary needs the builder's consent binds none (approveWeek 'auto'
+  // never does). A summary not bound counts as offered, so it isn't shown again.
   const shown = momentSummary(last.summary ?? null);
-  if (!shown && last.stored) await markOffered(id, key, last.monday, last.stored);
-  // v4.10.3 Task 3 (R6, owner answer 4): last week goes on the page now, as a yes to the retired question did
-  // (answerShare's approveWeek, bound to the summary shown). Once a week per installation (takeMoment above) and per
-  // builder (a week approved is never shown again, above); never while updating (benchView never calls this then).
-  // A failed add is logged and the block says nothing of it.
-  const added = (await approveWeek(id, key, last.monday, now, 'share', shown).catch(logged('moment add'))) === true;
+  const added = await approveWeek(id, key, last.monday, now, 'auto', null).catch(logged('moment add'));
+  if (added === null) return;
+  if (last.stored && (last.consent || !shown)) await markOffered(id, key, last.monday, last.stored);
+  if (!(await takeMoment(own, now)) || !added) return;
+  const due = { week: isoWeekOf(now), key, monday: last.monday };
+  seen.moment_due = due;
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('moment_due', ${sql().json(due as never)}::jsonb)
+    WHERE builder_id = ${id}`.catch(logged('moment due'));
+}
+
+/**
+ * Launch ready L6, Task 16 step 7, v4.10.3 Task 3 fix round 1: the Monday block, said once on the first reply of the
+ * week where it fits after the add (weekAdd): taken from standing_seen.moment_due in one UPDATE, so two replies at once
+ * say it once; a week gone by is never said. The week's number (the live streak), where last week left the builder, the
+ * live score and its rise, last week's post when it is worth one (post-reply.ts weeklyPost), else the page; no points
+ * (owner ruling 5). Null: nothing to say. Never throws.
+ */
+async function mondayView(id: number, handle: string, now: Date, live: Pick<Standing, 'score' | 'streak'>, seen: Seen): Promise<MomentView | null> {
+  if (!momentDueNow(seen, now)) return null;
+  const [taken] = await sql()<{ o: { key: string; monday: string } }[]>`
+    UPDATE builder_profiles p SET standing_seen = p.standing_seen - 'moment_due'
+    FROM (SELECT standing_seen->'moment_due' AS o FROM builder_profiles WHERE builder_id = ${id} FOR UPDATE) old
+    WHERE p.builder_id = ${id} AND old.o->>'week' = ${isoWeekOf(now)}
+    RETURNING old.o AS o`.catch((err: unknown) => (logged('moment take')(err), []));
+  seen.moment_due = undefined;
+  if (!taken) return null;
+  const last = await lastWeekOf(id, taken.o.key, now).catch(logged('last week'));
+  if (!last || last.monday !== taken.o.monday) return null;
+  const shown = momentSummary(last.summary ?? null);
   // v4.0 Task 7: the Monday block's first name and what the community sent (none on a failed read, logged).
   const [post, who, community] = await Promise.all([
     weeklyPost(id, handle, live.streak, now),
@@ -3336,7 +3378,7 @@ async function weeklyMoment(own: number, id: number, key: string, handle: string
   // Fix round 1 (4): only a rise shows ("up N"); a dip (the week's window rolled over) shows the score alone.
   const change = score !== null && score > last.now.score ? score - last.now.score : null;
   return {
-    week: live.streak, place: momentPlace(last), rank: last.now.rank, summary: shown, post, added,
+    week: live.streak, place: momentPlace(last), rank: last.now.rank, summary: shown, post, added: true,
     first: firstName(who?.[0]?.name ?? null, handle), score, change,
     community: community ?? { usd: 0, lastWeekUsd: 0 },
   };
@@ -3513,7 +3555,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
     : undefined;
   const ahead: string[] = [];
   const answer: string[] = [];
-  const monday: string[] = [];
+  const monday: NonNullable<ViewIn['monday']> = [];
   const { view, fields, stand } = await benchView({
     id, now, read, own, signedOut, personal: await personal(ctx).catch(() => false), shared: ctx.sharedClient === true, name, fits, applies, nudge, cards: a.cards, upcoming: a.upcoming ?? [], skip, held, due, live,
     codesFetch: ctx.codesFetch, known, more: a.more, named: a.named, ahead, monday, ...(a.question && { question: a.question }), answer, updating, scored,
@@ -3547,7 +3589,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
     // The account line (it guards a wrong sign-in) and any news lead.
     // v4.8 Task 5: a direct question's answer first of all, then the reply (its path step last).
     // Fix round 1 (7): the account line (it guards a wrong sign-in) stays first, then the answer.
-    show_to_builder: [signedIn, ...answer, walletNews, opener, ...monday, ...ahead, benchReply(view)].filter(Boolean).join('\n\n'),
+    show_to_builder: withMonday(monday, [signedIn, ...answer, walletNews, opener], [...ahead, benchReply(view)]),
     // O5 (P8): the earn note names lead.program_id, so only with a lead. v4.8 Task 1: a path reply carries the mentor
     // note alone (the agent rewords it), and its lead is the hooked program when its yes drafts it.
     // Fix round 1 (8): an answered reply's note says the answer is already first (never a second answer).
@@ -3588,7 +3630,7 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
   const fits: Fit[] = fitLines(applies);
   const leadFit = fits.find((f) => !f.investment);
   const ahead: string[] = [];
-  const monday: string[] = [];
+  const monday: NonNullable<ViewIn['monday']> = [];
   const { view, fields, stand } = await benchView({
     id, now, read, own, signedOut: await signedOutNow(id, own).catch(() => true), personal: await personal(ctx).catch(() => false), shared: ctx.sharedClient === true, name: null, fits, applies, cards: shown, upcoming, skip, held: null,
     due: [], live, codesFetch: ctx.codesFetch, alwaysStanding: true, ahead, monday, updating,
@@ -3609,7 +3651,7 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
   const block = monday.length > 0 || (!view.held && view.ask.kind === 'post' && view.post);
   view.standingLed = view.state !== 'signed_out' && !(view.ask.kind === 'wallet_setup' && !view.held) && !block && standingLeads(stand) && Boolean(fields.standing);
   const out: Reply = {
-    show_to_builder: [view.standingLed ? fields.standing : null, signedIn, walletNews, ...monday, ...ahead, benchReply(view)].filter(Boolean).join('\n\n'),
+    show_to_builder: withMonday(monday, [view.standingLed ? String(fields.standing) : null, signedIn, walletNews], [...ahead, benchReply(view)]),
     ...fields,
     note: view.path ? [view.pathNote, MENTOR_NOTE].filter(Boolean).join(' ') : [ANSWER_FIRST_NOTE, leadFit && view.variant !== 'taken' ? EARN_NOTE : null].filter(Boolean).join(' '),
     ...((!view.path || view.state === 'signed_out') && leadFit && view.variant !== 'taken' && { lead: { program_id: view.best?.program_id ?? leadFit.program_id } }),
@@ -3803,21 +3845,18 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
   }
   // Launch ready L6 (fix round 1): the share offer is answerable all week it was shown, once (standing_seen.share_open).
   // v4.10.3 Task 3 (R6): no reply asks it now (the Monday block adds the week itself); an offer shown before that still
-  // answers as it did, and a yes with none open (the week is on the page already) hands off to find's program ask.
+  // answers as it did; any other answer (a no, or a yes with none open: the week is on the page already) hands off to
+  // find's program ask (fix round 1: the no too). A shared client never hands off (tools.ts), so it hears "Okay.".
   if (m.kind === 'share') {
     const r = await answerShare(id, m.project_key, m.answer, now).catch(logged('answer share'));
-    if (r !== true) await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'kind' = 'share'`.catch(logged('clear share ask'));
-    if (r !== true && m.answer === 'yes') return { show_to_builder: '', then_find: true };
-    if (r === true) {
-      await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'kind' = 'share'`.catch(logged('clear share ask'));
-      // v3 Stage 1 (spec 5.4): the first yes after activation asks for the address, once (digest_asked_at), as the reply's one question.
-      const email = digestEnabled() ? await askWeeklyEmail(id, { shared: false, email: null }).catch(logged('share email')) : null;
-      // v4.10.2 Task 5: without that question, the thanks hands off to find (tools.ts then_find), so the reply goes on to
-      // the next money step and ends in its one easy reply.
-      if (!email?.question) return { show_to_builder: APPROVED_LINE, then_find: true };
-      return { show_to_builder: [APPROVED_LINE, email.question].join('\n'), ...emailMoveUp(m.project_key ?? null) };
-    }
-    return okay;
+    await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'kind' = 'share'`.catch(logged('clear share ask'));
+    if (r !== true) return ctx.sharedClient ? okay : { show_to_builder: '', then_find: true };
+    // v3 Stage 1 (spec 5.4): the first yes after activation asks for the address, once (digest_asked_at), as the reply's one question.
+    const email = digestEnabled() ? await askWeeklyEmail(id, { shared: false, email: null }).catch(logged('share email')) : null;
+    // v4.10.2 Task 5: without that question, the thanks hands off to find (tools.ts then_find), so the reply goes on to
+    // the next money step and ends in its one easy reply.
+    if (!email?.question) return { show_to_builder: APPROVED_LINE, then_find: true };
+    return { show_to_builder: [APPROVED_LINE, email.question].join('\n'), ...emailMoveUp(m.project_key ?? null) };
   }
   // v3.1 wallet proof fix round: the wallet step is answered from its state (a link given, a wallet proven since), so a
   // "done" after another reply still checks it (wallet-offer.ts answerWallet).

@@ -23,6 +23,20 @@ test('v4.10.3 Task 3 (R6): the Monday block asks nothing, says the week is on th
   assert.deepEqual(gateFailures([reply(show, { reply: { move_up: { kind: 'apply', project_key: 'a/b' } } })]), []);
 });
 
+test('v4.10.3 Task 3 fix round 1 (8): an apply reply carrying the block keeps the program\'s link and the block drops its own', async () => {
+  const { withMonday } = await import('./bench-find');
+  const m = { week: 6, place: null, rank: 1, post: { text: 'x', link: 'https://earnkit.com/jenilt/post/abcdefghij' }, first: 'Jenil', score: 77, change: 7, community: { usd: 0, lastWeekUsd: 0 }, added: true };
+  const apply = 'Base Builder Grant closes Nov 18, up to $5,000. Form: https://base.org/apply\n\nWant me to draft it?';
+  const show = withMonday([{ m, page: 'https://earnkit.com/jenilt' }], [], [apply]);
+  assert.deepEqual(show.match(/https?:\/\/\S+/g), ['https://base.org/apply'], show);
+  assert.ok(show.includes('\n\nLast week is on your page.\n\n'), show);
+  assert.ok(show.endsWith(apply), show);
+  assert.deepEqual(gateFailures([reply(show, { reply: { move_up: { kind: 'apply', project_key: 'a/b' } } })]), []);
+  // With no link after it, the block keeps its post link (the reply's one link).
+  const plain = withMonday([{ m, page: 'https://earnkit.com/jenilt' }], [], ['Want me to start it?']);
+  assert.deepEqual(plain.match(/https?:\/\/\S+/g), ['https://earnkit.com/jenilt/post/abcdefghij'], plain);
+});
+
 test('v4.10.2 Task 5: the also-open lead and its repeat are money first, one yes/no each, and repeat as the pending ask', () => {
   assert.equal(alsoLeadLine('Base Builder Grant', 'up to $5,000', 11), 'Base Builder Grant pays up to $5,000 and needs 11 answers from you.');
   assert.equal(alsoLeadLine('Some Grant: Round 2', null, 1), 'Some Grant is open and needs 1 answer from you.');

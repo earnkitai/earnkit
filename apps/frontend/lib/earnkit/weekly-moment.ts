@@ -31,6 +31,11 @@ export type LastWeek = {
   stored?: string | null;
   /** Task 16 fix round 1: the week's row has facts (week-facts.ts hasFacts), so its approval earns points (approveWeek). */
   facts: boolean;
+  /**
+   * v4.10.3 Task 3 fix round 1: the repo doesn't read public and titles are off, so its summary shows only with the
+   * builder's own consent (summaryConsented); the automatic Monday add never gives it.
+   */
+  consent?: boolean;
 };
 
 /** "+6", "-3", "same". Pure. */
@@ -187,8 +192,10 @@ export async function lastWeekOf(builderId: number, key: string, now: Date): Pro
   let titles: string[] = [];
   let approved = false;
   let summary: string | null = null;
+  let consent = false;
   if (u) {
     const rules = await weekRules(builderId, key, { asking: true });
+    consent = rules.consentNeeded;
     const line = u.titles.length > 0 || u.summary ? rules.line(u) : null;
     if (line) titles = [line];
     // Owner batch fix round: the summary a yes binds to only when the line shows it word for word.
@@ -196,7 +203,7 @@ export async function lastWeekOf(builderId: number, key: string, now: Date): Pro
     // Owner batch fix round: a private repo's summary changed since the yes is asked about again.
     approved = rules.current(u);
   }
-  return { monday, now: cur, before, titles, checked: u?.checked ?? false, approved, summary, stored: u?.summary ?? null, facts: hasFacts(u?.facts ?? {}) };
+  return { monday, now: cur, before, titles, checked: u?.checked ?? false, approved, summary, stored: u?.summary ?? null, facts: hasFacts(u?.facts ?? {}), consent };
 }
 
 /** A ship-log row as the week rules read it. */
@@ -214,7 +221,7 @@ type LogRow = { titles: string[]; summary: string | null; facts?: WeekFacts | nu
  *   with that very summary, or that summary was already offered once without being shown (facts.offered_summary,
  *   markOffered: never re-offered forever). A rewritten or re-read one asks again, once.
  */
-export async function weekRules(builderId: number, key: string, o: { asking?: boolean } = {}): Promise<{ line: (u: LogRow) => string | null; current: (u: LogRow) => boolean }> {
+export async function weekRules(builderId: number, key: string, o: { asking?: boolean } = {}): Promise<{ line: (u: LogRow) => string | null; current: (u: LogRow) => boolean; consentNeeded: boolean }> {
   const db = sql();
   const [p] = await db<{ titles_on: boolean }[]>`SELECT ship_titles_at IS NOT NULL AS titles_on FROM builder_profiles WHERE builder_id = ${builderId}`;
   const shown = ((await shownProjects([builderId])).get(builderId) ?? []).find((r) => norm(r.key) === norm(key));
@@ -235,7 +242,7 @@ export async function weekRules(builderId: number, key: string, o: { asking?: bo
   const current = (u: LogRow) =>
     u.facts?.approved === true &&
     (!(rule.hiddenRepo && !rule.titlesOn) || !u.summary || summaryConsented(u.facts, u.summary) || u.facts.offered_summary === u.summary);
-  return { line, current };
+  return { line, current, consentNeeded: rule.hiddenRepo && !rule.titlesOn };
 }
 /**
  * Owner batch fix wave (6): an offer for week `monday` that could not show its stored summary `summary` (the line was not
@@ -279,7 +286,7 @@ export async function takeMoment(own: number, now: Date): Promise<boolean> {
 
 /**
  * The yes to the moment's question: last week's ship-log row of `key` approved (facts.approved, approved_at,
- * approved_via 'share', approved_summary: the summary it approved). The builder's existing row is matched case-insensitively; with none, one is made (it shows
+ * approved_via 'share', approved_summary: the summary it approved; v4.10.3: 'auto', the Monday reply's own add, binds none). The builder's existing row is matched case-insensitively; with none, one is made (it shows
  * nowhere: no facts, text or titles). The weekly job's later upsert merges its facts in, keeping these. False when
  * another builder holds the week.
  */
@@ -290,15 +297,21 @@ export async function approveWeek(
   // Owner batch fix round: the yes binds only to the summary the builder was shown (`seen`, kept with the offer;
   // approved_summary, summaryConsented). No `seen` (an older offer, a page that showed none) binds to nothing, never
   // to the text stored now. A second yes keeps the first approved_at and approved_via and binds to the new text.
+  // v4.10.3 Task 3 fix round 1 (security): the automatic add ('auto') is no consent: it never writes approved_summary
+  // (whatever `seen` says), so a private repo's summary stays off the page until the builder's own yes. A later yes
+  // (any other via) takes over approved_at and approved_via from an automatic add, so builder stats count it.
+  const auto = via === 'auto';
   const bound = seen ?? null;
+  const explicit = (old: 'facts' | 'project_updates.facts') => sql()`jsonb_build_object('approved', true, 'approved_summary', ${bound}::text)
+      || CASE WHEN ${sql().unsafe(old)}->>'approved_via' = 'auto' THEN jsonb_build_object('approved_at', ${now.toISOString()}::text, 'approved_via', ${via}::text) ELSE '{}'::jsonb END`;
+  const tail = (old: 'facts' | 'project_updates.facts') => (auto ? sql()`jsonb_build_object('approved', true)` : explicit(old));
   const [had] = await sql()<{ facts: WeekFacts }[]>`
-    UPDATE project_updates SET facts = ${facts}::jsonb || facts || jsonb_build_object('approved', true, 'approved_summary', ${bound}::text)
+    UPDATE project_updates SET facts = ${facts}::jsonb || facts || ${tail('facts')}
     WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key}) AND week = ${monday} RETURNING facts`;
   if (had) return award(builderId, monday, via, now, had.facts);
   const [r] = await sql()<{ facts: WeekFacts }[]>`
     INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${builderId}, ${key}, ${monday}, ${facts})
-    ON CONFLICT (project_key, week) DO UPDATE SET facts = EXCLUDED.facts || project_updates.facts
-      || jsonb_build_object('approved', true, 'approved_summary', ${bound}::text)
+    ON CONFLICT (project_key, week) DO UPDATE SET facts = EXCLUDED.facts || project_updates.facts || ${tail('project_updates.facts')}
     WHERE project_updates.builder_id = EXCLUDED.builder_id RETURNING facts`;
   return r ? award(builderId, monday, via, now, r.facts) : false;
 }
@@ -310,13 +323,10 @@ async function award(builderId: number, monday: string, via: ApproveVia, now: Da
 
 /**
  * Fix round 1: the open share offer (standing_seen.share_open = { key, week, shown_week }), kept apart from the stored
- * ask so other replies that week don't close it. Written when the moment is shown.
+ * ask so other replies that week don't close it. Written by the retired Monday question (before v4.10.3 Task 3); only
+ * answerShare reads it now, for an offer still open from then.
  */
 export type ShareOpen = { key: string; week: string; shown_week: string; /** The stored summary shown with the offer. */ summary?: string | null };
-export async function openShare(builderId: number, o: ShareOpen): Promise<void> {
-  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('share_open', ${sql().json(o as never)}::jsonb)
-    WHERE builder_id = ${builderId}`.catch((err: unknown) => console.error('[moment] open share', err instanceof Error ? err.name : 'error'));
-}
 /**
  * The yes or no to the share offer: taken once (one UPDATE removing it, returning what it held), only while `now` is in
  * the week it was shown and for its project. A yes approves that week (approveWeek). Null: nothing open to answer.

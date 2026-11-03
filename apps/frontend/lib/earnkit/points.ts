@@ -5,7 +5,8 @@ import { standingOf } from './person-score';
  * v3 Stage 1: points, the default program every ranked builder is in. Each approved week with facts earns points by the
  * builder's rank at approval; they convert to $EARN later, in proportion. Points never touch Shipping or rank.
  */
-export type ApproveVia = 'share' | 'connect' | 'email';
+/** v4.10.3 Task 3 fix round 1: 'auto', the Monday reply's own add (no builder yes): never a consent, never a builder stat. */
+export type ApproveVia = 'share' | 'connect' | 'email' | 'auto';
 
 /** Rank 1: 100; top 10%: 90; top 25%: 70; top 50%: 50; else 30 (also with no rank). Pure. */
 export function pointsForRank(rank: number | null, total: number | null): number {
@@ -37,6 +38,9 @@ export const POINTS_LINE = (total: number) => `Points: ${total.toLocaleString('e
 
 /** One row per builder and week (created_at `now`): the points awarded now, or 0 when the week already had its row. */
 export async function awardWeekPoints(builderId: number, week: string, via: ApproveVia, now: Date): Promise<number> {
+  // v4.10.3 Task 3 fix round 1: builder_points.via is checked to share/connect/email; the automatic Monday add is paid
+  // as the share yes it replaced (points rank the week, not the builder's action), so no schema change.
+  const paidVia = via === 'auto' ? 'share' : via;
   let points = CONNECT_POINTS;
   let rank: number | null = null;
   let total: number | null = null;
@@ -47,7 +51,7 @@ export async function awardWeekPoints(builderId: number, week: string, via: Appr
     points = pointsForRank(rank, total);
   }
   const [r] = await sql()<{ points: number }[]>`
-    INSERT INTO builder_points (builder_id, week, points, rank, total, via, created_at) VALUES (${builderId}, ${week}, ${points}, ${rank}, ${total}, ${via}, ${now})
+    INSERT INTO builder_points (builder_id, week, points, rank, total, via, created_at) VALUES (${builderId}, ${week}, ${points}, ${rank}, ${total}, ${paidVia}, ${now})
     ON CONFLICT (builder_id, week) DO NOTHING RETURNING points`;
   return r?.points ?? 0;
 }

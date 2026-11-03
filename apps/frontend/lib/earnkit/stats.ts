@@ -364,8 +364,13 @@ const notTest = (db: Db, ids: number[]) => db`NOT (p.builder_id = ANY(${ids}::in
 const testProject = (db: Db, ids: number[]) => db`EXISTS (SELECT 1 FROM installations i WHERE i.id = p.installation_id
   AND (i.id = ANY(${ids}::int[]) OR COALESCE(i.builder_id, i.id) = ANY(${ids}::int[])
     OR EXISTS (SELECT 1 FROM installations j WHERE COALESCE(j.builder_id, j.id) = COALESCE(i.builder_id, i.id) AND j.id = ANY(${ids}::int[]))))`;
-/** Launch-ready L9: `u` (a project_updates row) is a week the builder approved at the weekly moment (L6). */
-const approvedWeek = (db: Db) => db`u.facts->'approved' = 'true'::jsonb AND jsonb_typeof(u.facts->'approved_at') = 'string'`;
+/**
+ * Launch-ready L9: `u` (a project_updates row) is a week the builder approved at the weekly moment (L6). v4.10.3 Task 3
+ * fix round 1: the Monday reply's own add (approved_via 'auto') is no builder action, so activated, weekly_active and
+ * shared never count it (a later yes takes the row over, bench approveWeek, and counts).
+ */
+const approvedWeek = (db: Db) => db`u.facts->'approved' = 'true'::jsonb AND jsonb_typeof(u.facts->'approved_at') = 'string'
+  AND COALESCE(u.facts->>'approved_via', '') <> 'auto'`;
 
 /** v2.9 E20: the sum behind builders_won_usd (one SQL fragment for readStats and readWonUsd). */
 const wonUsdSql = (db: Db, ids: number[]) => db`

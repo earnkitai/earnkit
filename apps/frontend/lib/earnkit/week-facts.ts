@@ -177,7 +177,7 @@ export async function upsertWeekFacts(builderId: number, projectKey: string, mon
       const [had] = await sql()`SELECT 1 FROM builder_points WHERE builder_id = ${builderId} AND week = ${monday}`;
       if (!had) {
         const v = row.facts.approved_via;
-        const via: ApproveVia = v === 'connect' || v === 'email' ? v : 'share';
+        const via: ApproveVia = v === 'connect' || v === 'email' || v === 'auto' ? v : 'share';
         await awardWeekPoints(builderId, monday, via, new Date())
           .catch((err: unknown) => console.error('[points] retro award', err instanceof Error ? err.name : 'error'));
       }

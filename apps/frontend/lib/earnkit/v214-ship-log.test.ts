@@ -8,7 +8,8 @@ import { connectInstallation, saveInstallation } from './installations';
 import { feedWeeks } from './feed';
 import { profileData } from './bench-data';
 import { weeklyFactsStep, writeWeek } from './week-facts';
-import { answerShare, approveWeek, lastWeekOf, openShare, weekLineRule, weekRules } from './weekly-moment';
+import { answerShare, approveWeek, lastWeekOf, weekLineRule, weekRules } from './weekly-moment';
+import { oldShareOffer } from './fixtures/old-share';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
 import { isoWeekOf } from './weeks';
 import { weekOfMonday } from './weeks';
@@ -209,9 +210,9 @@ test('8.10d fix round: a summary written while titles were on is not shown once 
   assert.equal(await feedTitles(p.id), null, 'approved without that text (an older approval): hidden');
   assert.ok(await approveWeek(p.id, key, WEEK, MONDAY_RUN, 'share', 'Added a shopping list.'));
   assert.equal(await feedTitles(p.id), 'Added a shopping list.', 'approved word for word: shown');
-  // The moment's yes binds to the summary shown with the offer (openShare keeps it), not to a later rewrite.
+  // The moment's yes binds to the summary shown with the offer (the old offer kept it), not to a later rewrite.
   const now = new Date();
-  await openShare(p.id, { key, week: WEEK, shown_week: isoWeekOf(now), summary: 'Added a shopping list.' });
+  await oldShareOffer(p.id, { key, week: WEEK, shown_week: isoWeekOf(now), summary: 'Added a shopping list.' });
   await sql()`UPDATE project_updates SET summary = 'Rewritten after the offer.' WHERE builder_id = ${p.id} AND week = ${WEEK}`;
   assert.equal(await answerShare(p.id, key, 'yes', now), true);
   assert.equal((await facts(p.id))?.approved_summary, 'Added a shopping list.');

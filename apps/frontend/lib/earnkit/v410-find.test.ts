@@ -1130,13 +1130,16 @@ test('v4.10.3 Task 3 (R6): Monday, refresh updating then settled: find, score, f
   await sql()`UPDATE builder_live SET read_at = now(), computed_at = now() WHERE builder_id = ${b.id}`;
   await sql()`UPDATE source_live SET read_at = now() WHERE source_id IN (SELECT id FROM builder_sources WHERE builder_id = ${b.id})`;
   // score's own read of the fits makes Base the path's move here (find's quiet path leads with it): the same Base ask,
-  // its session step first, so the block waits for the reply the path falls through on.
+  // its session step first. Fix round 1 (1): this first settled reply adds the week; the block waits for a reply it fits.
   const s = await mcpCall(b.ctx as never, 'score', {});
   assert.equal(s.reply?.numbers_updating, undefined, show(s));
   assert.match(show(s), /Base Builder Grant[^]*Want me to start\?$/, show(s));
   assert.doesNotMatch(show(s), /Add last week/, show(s));
   assert.equal(show(s).match(/\?/g)?.length, 1, show(s));
   assert.equal(((await seenOf(b.id)).bench_ask as { program_id?: string }).program_id, 'base-builder-grants');
+  const first = await week();
+  assert.equal(first.approved, 'true', 'the first settled reply added last week');
+  assert.ok(first.moment);
   // The find after it: the block, which says the week is on the page and asks nothing, then the Base ask last.
   const f2 = await find(b);
   const paras = show(f2).split('\n\n');
@@ -1148,9 +1151,7 @@ test('v4.10.3 Task 3 (R6): Monday, refresh updating then settled: find, score, f
   assert.equal(paras.at(-1), ALSO_AGAIN, show(f2));
   assert.equal(show(f2).match(/\?/g)?.length, 1, show(f2));
   assert.equal(moveUp(f2)?.kind, 'apply');
-  const first = await week();
-  assert.equal(first.approved, 'true', 'the first settled reply that shows the block added last week');
-  assert.ok(first.moment);
+  assert.deepEqual(await week(), first, 'said, not added again');
   // The next find and score: no block again, the Base ask, and the add is not made again (approved_at kept).
   const f3 = await find(b);
   assert.equal(show(f3), ALSO_AGAIN);
@@ -1162,6 +1163,29 @@ test('v4.10.3 Task 3 (R6): Monday, refresh updating then settled: find, score, f
   const old = await tell(b, { kind: 'share', project_key: b.key, answer: 'yes' });
   assert.ok(show(old).endsWith(ALSO_AGAIN), show(old));
   assert.deepEqual(await week(), first);
+});
+
+test('v4.10.3 Task 3 fix round 1 (1): a builder whose path has its own move on every Monday reply still gets the week added, said nowhere it does not fit', db, async () => {
+  const { circle } = await ownerPrograms({ required: true });
+  await only([circle.id, 'base-builder-grants']);
+  // The owner's real set: the path's own move every reply (Base's Builder Codes step), never a quiet path.
+  const b = await owner('mvp', { bank: false, contract: false });
+  const monday = lastFinishedMonday(new Date());
+  const sunday = new Date(Date.parse(`${monday}T00:00:00Z`) + 6 * 86_400_000).toISOString().slice(0, 10);
+  await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, ranked)
+    VALUES (${b.id}, ${sunday}, 30, 0, '{}'::jsonb, '{}'::jsonb, 'v2', ${LIVE_CALIBRATION_V2}, false, true)`;
+  await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${b.id}, ${b.key}, ${monday}, ${sql().json({ checked: true, shipped_code: { n: 3 } } as never)})`;
+  const replies = [await find(b), await find(b), await mcpCall(b.ctx as never, 'score', {})].map(show);
+  for (const r of replies) {
+    assert.doesNotMatch(r, /Your week is ready|Last week is on your page|Add last week/, r);
+    // One easy reply last (score here: the quiet "more"; the block waits behind this fixture's fresh went-live post).
+    assert.match(r, /\?$|\nReply "more" and I'll show every program open now\.$/, r);
+  }
+  assert.match(replies[0], /Builder Codes/, replies[0]);
+  const [row] = await sql()<{ approved: string | null; via: string | null }[]>`
+    SELECT facts->>'approved' AS approved, facts->>'approved_via' AS via FROM project_updates WHERE builder_id = ${b.id} AND week = ${monday}`;
+  assert.deepEqual(row, { approved: 'true', via: 'auto' }, 'the week is on the page');
+  assert.equal(((await seenOf(b.id)).moment_due as { week?: string } | undefined)?.week, isoWeekOf(new Date()), 'the block waits for a reply it fits');
 });
 
 test('v4.10.3 Task 3 (R6): a settled Monday find on the quiet path: the block, then the also-open lead as the one easy reply, its proof not said twice', db, async () => {

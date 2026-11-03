@@ -6,7 +6,7 @@ import { person, withEnv } from './fixtures/find';
 import { pathQuiet } from './fixtures/wallet-step';
 import { periodKey } from './free-tier';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
-import { openShare } from './weekly-moment';
+import { oldShareOffer } from './fixtures/old-share';
 import { pointsTotal } from './points';
 import { isoWeekOf, lastFinishedMonday } from './weeks';
 import {
@@ -312,7 +312,7 @@ test('(f) the connect yes asks for the address once; tell weekly_email yes with 
     assert.match(JSON.stringify(yes.reply?.move_up ?? {}), /"kind":"weekly_email".*call tell with weekly_email: \{ answer: 'yes', email \}/);
     void EMAIL_NOTE;
     // Asked once: a share yes later asks nothing.
-    await openShare(me.id, { key: me.key, week: LAST, shown_week: isoWeekOf(new Date()) });
+    await oldShareOffer(me.id, { key: me.key, week: LAST, shown_week: isoWeekOf(new Date()) });
     const share = show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'yes' } }));
     assert.doesNotMatch(share, /by email/, share);
     const sub = await mcpCall(ctx(me.id), 'tell', { weekly_email: { answer: 'yes', email: 'Me@Example.com' } });
@@ -327,7 +327,7 @@ test('(g) the first share yes asks for the address when it was never asked', db,
   withEnv(ON, async () => {
     await freshBoard();
     const me = await builder('meg');
-    await openShare(me.id, { key: me.key, week: LAST, shown_week: isoWeekOf(new Date()) });
+    await oldShareOffer(me.id, { key: me.key, week: LAST, shown_week: isoWeekOf(new Date()) });
     const yes = await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'yes' } });
     const s = show(yes);
     assert.equal(s, `Thanks. Last week is on your page.\n${EMAIL_QUESTION}`);
@@ -336,7 +336,7 @@ test('(g) the first share yes asks for the address when it was never asked', db,
     // Without the email on, nothing is asked.
     await withEnv({ RESEND_API_KEY: undefined }, async () => {
       const other = await builder('meg2');
-      await openShare(other.id, { key: other.key, week: LAST, shown_week: isoWeekOf(new Date()) });
+      await oldShareOffer(other.id, { key: other.key, week: LAST, shown_week: isoWeekOf(new Date()) });
       assert.equal(show(await mcpCall(ctx(other.id), 'tell', { move_up: { kind: 'share', project_key: other.key, answer: 'yes' } })).startsWith('Thanks. Last week is on your page.\n\n'), true);
     });
   }),

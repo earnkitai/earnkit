@@ -9583,3 +9583,22 @@ This supersedes the per-program need in Task 4: the builder answers once for the
 - **Old pending share answers.** `benchMoveUp` kind `share`: an offer still open from before deploy answers as it did
   (`answerShare`, thanks, then find). A yes with none open clears a stored `share` ask and hands off to find
   (`then_find`, no line), so it ends in the current program ask; a no is "Okay.".
+- **Fix round 1.**
+  - **Consent (security).** The automatic add is `approveWeek(..., 'auto', null)`. `'auto'` (a new `ApproveVia`)
+    never writes `approved_summary`, so `summaryConsented` stays false: a private repo's summary (titles off) stays
+    off the page until the builder's own yes. A summary not bound is marked offered (`markOffered`), so it isn't shown
+    again. A later explicit yes binds the summary and takes over `approved_at` and `approved_via` from `'auto'`.
+    `lastWeekOf` reports `consent` (`weekRules().consentNeeded`).
+  - **Add on the first settled reply.** `benchView` calls `weekAdd` before the path, on any ranked, settled reply
+    (never while updating, and never before the connect offer is answered: `connect_done` set, no `connect_open`).
+    The order is add, then claim (`takeMoment`), then `standing_seen.moment_due = { week, key, monday }`. A thrown add
+    claims nothing, so the next settled reply retries. The block is said once, on the first reply of the week where it
+    fits: `mondayView` takes `moment_due` in one UPDATE, so racing replies say it once. A week gone by is never said.
+    `momentWouldShow` and `weeklyMoment` are gone.
+  - **Stats.** `stats.ts approvedWeek` excludes `approved_via 'auto'`, so `activated`, `weekly_active` and `shared`
+    count builder actions only. `builder_points.via` (CHECK share/connect/email) records an automatic add as
+    `'share'` (`points.ts`), so no schema change was needed.
+  - **Links.** `bench-find.ts withMonday(blocks, before, after)` renders the block. When the rest of the reply has a
+    link, the block drops its page or post link (`mondayBlock(..., { link: false })`).
+  - **Old share answers.** Any non-yes outcome hands off to find (`then_find`); a shared client hears "Okay.".
+    `openShare` is removed (`fixtures/old-share.ts oldShareOffer` writes an old offer for tests).

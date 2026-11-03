@@ -524,10 +524,10 @@ export const MOMENT_ADDED = 'Last week is on your page.';
  * v4.0 Task 7 (approved copy 5, "Every Monday"): the opener, the week's table (a blank first header: plain surfaces read
  * "Label: value", reply-format.ts), the cheer under it when the community sent $100 or double last week, the post link
  * (no post: the page). v4.10.3 Task 3 (R6): no question, no why and no money line: MOMENT_ADDED when this reply added
- * last week to the page (`added`; a failed add says nothing about it), and the reply's program ask follows the block.
+ * last week to the page (`added`), and the reply's program ask follows the block.
  * Never names the token. Pure.
  */
-export function mondayBlock(m: MomentView, page: string): string {
+export function mondayBlock(m: MomentView, page: string, o: { link?: boolean } = {}): string {
   const facts = { score: m.score, change: m.change, streak: m.week, usd: m.community.usd, lastWeekUsd: m.community.lastWeekUsd };
   // v4.10.3 Task 2 (R5): one score: the block's numbers are the live score and streak (weeklyMoment), so "This week".
   // Fix round 1: no rows (no live score, no streak, no community money) is no table, never a header alone.
@@ -537,8 +537,9 @@ export function mondayBlock(m: MomentView, page: string): string {
     [mondayOpener(m.first, m.summary ?? null)],
     table,
     [communityRow(facts.usd, facts.lastWeekUsd)?.cheer ? CHEER_LINE : null],
-    // The X post is a link the builder can use, never a question.
-    [m.post ? `Your post is ready to share: ${m.post.link}` : pageLine(page)],
+    // The X post is a link the builder can use, never a question. Fix round 1 (8): a reply whose own step carries a
+    // link keeps that one (`link: false`), so the block drops its own.
+    [o.link === false ? null : m.post ? `Your post is ready to share: ${m.post.link}` : pageLine(page)],
     [m.added ? MOMENT_ADDED : null],
   );
 }
