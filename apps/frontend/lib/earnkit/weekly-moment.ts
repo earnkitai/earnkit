@@ -62,9 +62,12 @@ export const momentSummary = (s: string | null): string | null => (s && !/[?]|ht
 
 /**
  * v4.0 Task 7 (approved copy 5, "Every Monday"): the week's facts the reply and the email both say. `summary`: the
- * week's summary as the moment shows it (momentSummary), else null; `change`: the score against the week before (null:
- * no week before); `streak`: weeks with code in a row up to last week (weekNumber); `usd`, `lastWeekUsd`: what the
- * community sent (community.ts weekCommunityUsd). The token is never named.
+ * week's summary as the moment shows it (momentSummary), else null; `usd`, `lastWeekUsd`: what the community sent
+ * (community.ts weekCommunityUsd). The token is never named. `score`, `change` and `streak` mean one thing in each:
+ * - the email (digest.ts): last week's final score, its change against the week before (null: no week before), and
+ *   weeks with code in a row up to last week (weekNumber);
+ * - the reply's Monday block (v4.10.3 Task 2, bench-find.ts weeklyMoment): the live score, its rise since last week's
+ *   final (null: none, or a dip), and the live streak.
  */
 export type MondayFacts = { first: string; summary: string | null; score: number; change: number | null; streak: number; usd: number; lastWeekUsd: number };
 export const CHEER_LINE = "People really believe in what you're shipping.";

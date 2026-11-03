@@ -2901,6 +2901,7 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
   `mondayRows` skips the score row at null. `standing.ts` `Standing.soFar` removed.
 - `fixtures/converse.ts` `noRecord` keys off `reply.numbers_updating`. Tests: `v4101-score.test.ts`,
   `weekly-moment.test.ts` ("v4.10.3 Task 2"), `bench-reply.test.ts`, `v31-rank-pool.test.ts`, `v4102-next-step.test.ts`.
+- Fix round 1: `conversation.ts standingOnPage`; `ViewIn.scored`; `weeklyPost(..., live.streak)`; `mondayReply` skips an empty table.
 
 ## v4.10.2 Task 5: replay fixes (the next step after the Monday block)
 

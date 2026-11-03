@@ -42,7 +42,7 @@ import {
 import { liveSite, type LiveSite } from './live-check';
 import { MORE_NOTE, NAME_ASK, NAME_NOTE, WAIT_NOTE, EXISTING_NOT_TOKEN, TOKEN_OFFER, TOKEN_OFFER_QUESTION, TOKEN_ON_ITS_WAY, WALLET_SETUP_SKIPPED, existingTokenLine, setupTokenOffer, displayName, firstName, isStep2, setupDoneLead, setupDoneReply, type ProgramRow, type SetupOutcome } from './bench-reply';
 import { targetIn, weeklyTarget } from './weekly-target';
-import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, markOffered, momentDue, momentSummary, momentPlace, momentReady, openShare, takeMoment, weekNumber } from './weekly-moment';
+import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, markOffered, momentDue, momentSummary, momentPlace, momentReady, openShare, takeMoment } from './weekly-moment';
 import { isoWeekOf } from './weeks';
 import { weekCommunityUsd } from './community';
 import { streakOfBuilder, streaksFor } from './streak';
@@ -81,7 +81,7 @@ import { closeDay, programZone, zoneAbbr } from './deadline';
 import type { ProgramRow as ProgramFileRow } from './programs';
 import {
   MENTOR_NOTE, MONEY_SAID, builderOnly, isGtm, GTM_ONE_LINE, closingSoon, moneyLine, withMoneyLine, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, pickHook, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, submitNoRush, tooSoonLine, keepDraftLine, type OpenerProgram, type MoveCtx, blanksAgain, draftShape, draftReply, roundAsk, gapClosedReply, gapProofOf, helpReply, helpWaiting, helpParked, closeWords, HELP_DONE_ASK, backOnLine, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofOf, markSaid, pathReply, programName, readPath, saidSql, sessionOf, pointerReply, START_ASK, SENT_SHORT, blanksAsk,
-  ANSWERED_FIRST, ASK_SAID, PROGRAMS_AGAIN, fitCell, fitOrder, grantFact, programsAnswer, standingAgain, standingAnswer, standingSaid, whatItIs, type GrantFact, type GrantRow, type InvestorRow, type StandingFacts,
+  ANSWERED_FIRST, ASK_SAID, PROGRAMS_AGAIN, fitCell, fitOrder, grantFact, programsAnswer, standingAgain, standingAnswer, standingOnPage, standingSaid, whatItIs, type GrantFact, type GrantRow, type InvestorRow, type StandingFacts,
   type GapStep,
   type GapGrant, type InvestorProgram, type Move, type MoveProgram, type Path, type Stage,
 } from './conversation';
@@ -641,6 +641,8 @@ type ViewIn = {
    * (withoutNumbers): no line, record, why or answer may state them, and the weekly moment waits for the next reply.
    */
   updating?: boolean;
+  /** v4.10.3 Task 2 fix round 1 (2): while updating, the stored read had a page score (a standing answer points to the page). */
+  scored?: boolean;
 };
 
 /** Test only: resolves when every running Builder Codes check has finished. */
@@ -2487,8 +2489,9 @@ async function directAnswer(o: ViewIn, v: PathFacts, told: Set<string>): Promise
   const { now, read } = o;
   const said = sessionOf(read.seen, now).said;
   if (q === 'standing') {
-    // v4.10.1 Task 3 (R5): no numbers about to change. v4.10.3 Task 2 (R4): and no word about it: the answer with no
-    // score (the profile fills in, the page), the same copy as before a score.
+    // v4.10.1 Task 3 (R5): no numbers about to change. v4.10.3 Task 2 (R4): and no word about it. Fix round 1 (2): a
+    // builder with a score hears where it is (their page); one with none, the copy before a score.
+    if (o.updating && o.scored) return { key: ASK_SAID(q, 'page'), text: standingOnPage(pageUrl(v.handle)) };
     const f: StandingFacts = {
       // Fix round 1 (2): a rank only inside the leaderboard's pool (rankLines' listed, the page pill's own rule).
       score: v.stand.score, rank: v.stand.score !== null && read.ranks.listed ? rankWords(read.base.standing) : null, streak: v.streak,
@@ -3274,7 +3277,7 @@ async function momentWouldShow(own: number, id: number, key: string, now: Date):
 }
 
 /**
- * Launch ready L6, Task 16 step 7: the weekly moment (the week's number, weekNumber; where last week
+ * Launch ready L6, Task 16 step 7: the weekly moment (the week's number, v4.10.3: the live streak; where last week
  * left the builder), when this installation hasn't seen this week's
  * moment, the builder had a ranked day last week, and last week's ship log is ready (momentReady: the weekly job wrote
  * it, or its Monday hour passed). Else null, and the week stays unclaimed. Claimed only when shown (takeMoment); the
@@ -3297,20 +3300,21 @@ async function weeklyMoment(own: number, id: number, key: string, handle: string
   const shown = momentSummary(last.summary ?? null);
   await openShare(id, { key, week: last.monday, shown_week: isoWeekOf(now), summary: shown });
   if (!shown && last.stored) await markOffered(id, key, last.monday, last.stored);
-  const week = weekNumber(commitWeeks, last.monday);
   // v4.0 Task 7: the Monday block's first name and what the community sent (none on a failed read, logged).
   const [post, who, community] = await Promise.all([
-    weeklyPost(id, handle, week, now),
+    weeklyPost(id, handle, live.streak, now),
     sql()<{ name: string | null }[]>`SELECT x_name AS name FROM builder_profiles WHERE builder_id = ${id}`.catch(logged('moment name')),
     weekCommunityUsd(id, new Date(`${last.monday}T00:00:00Z`), now).catch(logged('community')),
   ]);
   // v4.10.3 Task 2 (R5): one score. The block shows the live score and streak (readStanding, the same as the reply's
-  // standing fact), its change against last week's final; last week's number itself is never shown. The post (about
-  // last week) keeps last week's count.
+  // standing fact), its rise since last week's final; last week's number itself is never shown. Fix round 1 (3): the
+  // post says the same live streak, so the builder never sees two week counts.
   const score = live.score !== null && live.score > 0 ? live.score : null;
+  // Fix round 1 (4): only a rise shows ("up N"); a dip (the week's window rolled over) shows the score alone.
+  const change = score !== null && score > last.now.score ? score - last.now.score : null;
   return {
     week: live.streak, place: momentPlace(last), rank: last.now.rank, summary: shown, post,
-    first: firstName(who?.[0]?.name ?? null, handle), score, change: score !== null ? score - last.now.score : null,
+    first: firstName(who?.[0]?.name ?? null, handle), score, change,
     community: community ?? { usd: 0, lastWeekUsd: 0 },
   };
 }
@@ -3432,6 +3436,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   // v4.10.1 Task 3 (R5): the refresh still running, this reply states no score, rank or weeks (it lands for the next).
   const updating = a.updating === true && hasNumbers(stored);
   const read = updating ? withoutNumbers(stored) : stored;
+  const scored = updating && (pageScore(stored.ranks, { parts: stored.parts }) ?? 0) > 0;
   const live = await liveOf(id, read, now, (a.start ?? Date.now()) + REPLY_WAIT_MS - Date.now());
   const m = { cards: a.cards, repos: a.repos, entries: a.myEntries, now };
   const entered = enteredIds(m);
@@ -3487,7 +3492,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   const answer: string[] = [];
   const { view, fields, stand } = await benchView({
     id, now, read, own, signedOut, personal: await personal(ctx).catch(() => false), shared: ctx.sharedClient === true, name, fits, applies, nudge, cards: a.cards, upcoming: a.upcoming ?? [], skip, held, due, live,
-    codesFetch: ctx.codesFetch, known, more: a.more, named: a.named, ahead, ...(a.question && { question: a.question }), answer, updating,
+    codesFetch: ctx.codesFetch, known, more: a.more, named: a.named, ahead, ...(a.question && { question: a.question }), answer, updating, scored,
   });
   // Fix round 1 (R3): never on a nudge-owned reply or step 3 (their question stays last, step 3 word for word).
   // Final review F9: never between a post and its question (benchView opens no post on "show more"; belt and braces).

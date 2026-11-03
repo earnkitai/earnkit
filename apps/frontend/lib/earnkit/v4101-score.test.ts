@@ -178,6 +178,12 @@ test('a slow refresh that is still running when score is asked: score says no nu
   easyLast(s2);
   const f2 = await mcpCall(ctx, 'find', {});
   assert.doesNotMatch(show(f2), UPDATING, show(f2));
+  // Fix round 1 (2): a builder with a score asking where they stand while updating: their page, no number.
+  const q = await mcpCall(ctx, 'find', { ask: 'standing' });
+  assert.match(show(q).split('\n\n')[0], /^Your score and streak are on your page: earnkit\.com\/\S+\.$/, show(q));
+  assert.doesNotMatch(show(q), NUMBERS, show(q));
+  assert.doesNotMatch(show(q), /profile fills in|updating/i, show(q));
+  easyLast(q);
   assert.doesNotMatch(show(f2), NUMBERS);
   await landRefresh(b.id);
   slow.open();
@@ -264,6 +270,11 @@ test('fix round 1 (minor 3): a new builder on 0 with no streak, refresh still ru
     assert.doesNotMatch(show(r), UPDATING, tool);
     easyLast(r);
   }
+  // Fix round 1 (2): no score yet, so where they stand while updating keeps the copy before a score.
+  const q = await mcpCall(ctx, 'find', { ask: 'standing' });
+  assert.equal(q.reply?.numbers_updating, true);
+  assert.match(show(q), /^Your profile fills in as your commits come in\. Programs see it at earnkit\.com\/\S+\./, show(q));
+  assert.doesNotMatch(show(q), /on your page:/, show(q));
   await landRefresh(b.id, [THIS_WEEK]);
   slow.open();
   const s = await mcpCall(ctx, 'score', {});

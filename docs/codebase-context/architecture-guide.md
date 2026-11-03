@@ -9554,3 +9554,8 @@ This supersedes the per-program need in Task 4: the builder answers once for the
   said part). `mondayReply` heads the table "This week". Last week's number itself never shows. The share post
   (`weeklyPost`) keeps last week's week count (`weekNumber`), since it is about last week. `Standing.soFar`,
   `momentScoreSaid` / `momentScoreOf` and "so far this week" are gone. The weekly email (`mondayLines`) is unchanged.
+- **Fix round 1.** `mondayReply` emits no table when `mondayRows` is empty (never a header alone). The block shows
+  only a rise ("up N"); a dip shows the score alone. The X post (`weeklyPost`) takes the live streak, the block's
+  count. A standing question while updating: a builder whose stored read had a page score (`ViewIn.scored`) hears
+  `conversation.ts standingOnPage` ("Your score and streak are on your page: {page}."); one with none keeps the copy
+  before a score. `MondayFacts` documents its two meanings (email: last week's final; reply: live).

@@ -193,7 +193,7 @@ test('Task 16: the first-run journey, each reply word for word', db, () => withP
     '',
     '\\| \\| This week \\|',
     '\\|---\\|---\\|',
-    '\\| Shipping score \\| \\d+(, (up|down) \\d+)? \\|',
+    '\\| Shipping score \\| \\d+(, up \\d+)? \\|',
     '\\| Streak \\| 4 weeks \\|',
     '',
     `Your post is ready to share: ${tap.replace(/[.]/g, '\\.')}`,

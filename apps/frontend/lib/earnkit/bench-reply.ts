@@ -528,7 +528,9 @@ export const MOMENT_ASK = 'Add last week to your page?';
 export function mondayReply(m: MomentView, page: string, ask: string, why: string | null = null, money: string | null = null): string {
   const facts = { score: m.score, change: m.change, streak: m.week, usd: m.community.usd, lastWeekUsd: m.community.lastWeekUsd };
   // v4.10.3 Task 2 (R5): one score: the block's numbers are the live score and streak (weeklyMoment), so "This week".
-  const table = ['| | This week |', '|---|---|', ...mondayRows(facts).map(([label, value]) => `| ${cell(label)} | ${cell(value)} |`)];
+  // Fix round 1: no rows (no live score, no streak, no community money) is no table, never a header alone.
+  const rows = mondayRows(facts);
+  const table = rows.length === 0 ? [] : ['| | This week |', '|---|---|', ...rows.map(([label, value]) => `| ${cell(label)} | ${cell(value)} |`)];
   return paras(
     [mondayOpener(m.first, m.summary ?? null)],
     table,

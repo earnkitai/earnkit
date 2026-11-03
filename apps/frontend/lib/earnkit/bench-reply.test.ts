@@ -178,6 +178,11 @@ test('Task 16 step 7, v4.0 Task 7: the weekly moment is the Monday block with la
   const noScore = benchReply({ ...v, moment: { week: 6, place: 'now', rank: 3, post: null, ...facts, score: null, change: null } });
   assert.doesNotMatch(noScore, /Shipping score|Last week \|/, noScore);
   assert.match(noScore, /\| \| This week \|\n\|---\|---\|\n\| Streak \| 6 weeks \|/, noScore);
+  // Fix round 1 (1): no rows at all (no live score, no streak, no community money): no table, never a header alone.
+  const empty = benchReply({ ...v, moment: { week: 0, place: null, rank: 3, post: null, ...facts, score: null, change: null } });
+  assert.doesNotMatch(empty, /\||This week/, empty);
+  assert.match(empty, /^Your week is ready, Maya\. You shipped this week\. Nice work\.\n\nYour page: https:\/\/earnkit\.com\/maya\n\nBuilders who share wins get noticed by programs\.\n\nAdd last week to your page\?$/, empty);
+  oneAsk(empty);
 });
 
 test('v3.1 one-tap posts: an event\'s post (went live, won, the builder\'s news): its head, the post, the one-tap link, "Want a different version?"', () => {

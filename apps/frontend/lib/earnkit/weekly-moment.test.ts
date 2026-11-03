@@ -106,8 +106,8 @@ async function pad(tag: string, n: number, days: string[] = []) {
 /** v4.10.3 Task 2 (R5): the builder's live score (builder_live), the one number the Monday block shows. */
 const liveOf = async (id: number) =>
   ((await sql()<{ parts: { shipping: { points: number } } }[]>`SELECT parts FROM builder_live WHERE builder_id = ${id}`)[0].parts).shipping.points;
-/** v4.10.3 Task 2 (R5): the block's score cell: the live score, then its change since last week's final `last` ("35, down 15"). */
-const moved = (live: number, last: number) => `${live}${live === last ? '' : live > last ? `, up ${live - last}` : `, down ${last - live}`}`;
+/** v4.10.3 Task 2 (R5): the block's score cell: the live score, then its rise since last week's final `last` ("35, up 4"; fix round 1: a dip is the score alone). */
+const moved = (live: number, last: number) => `${live}${live > last ? `, up ${live - last}` : ''}`;
 const plusDays = (monday: string, n: number) => new Date(Date.parse(`${monday}T00:00:00Z`) + n * DAY).toISOString().slice(0, 10);
 
 test('L5.4 through find and score: a ranked builder mid-week gets the weekly target as the one next step (ranks only); after shipping, done this week', db, async () => {
@@ -311,7 +311,9 @@ test('v4.10.3 Task 2 (R5): the score moved at the week change: the block shows t
   await history(me.id, plusDays(monday, 6), live + 8);
   const r = await mcpCall(ctx(me.id), 'score', {});
   const s = show(r);
-  assert.ok(s.includes(`| | This week |\n|---|---|\n| Shipping score | ${live}, down 8 |`), s);
+  // Fix round 1 (4): a Monday dip shows the score alone, never "down N".
+  assert.ok(s.includes(`| | This week |\n|---|---|\n| Shipping score | ${live} |`), s);
+  assert.doesNotMatch(s, /\bdown \d/, s);
   assert.doesNotMatch(s, /Last week \|/, s);
   assert.doesNotMatch(s, new RegExp(`\\b${live + 8}\\b`), "last week's number never appears");
   assert.doesNotMatch(JSON.stringify(r.reply), /so far this week/);
