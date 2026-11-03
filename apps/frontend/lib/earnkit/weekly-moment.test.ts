@@ -57,11 +57,6 @@ const ctx = (id: number, own = id) => ({ installationId: id, ownInstallationId: 
 const links = (s: string) => s.match(/https?:\/\/\S+/g) ?? [];
 const questions = (s: string) => (s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length;
 const show = (r: Awaited<ReturnType<typeof mcpCall>>) => String(r.reply?.show_to_builder ?? '');
-/** v4.10.2 Task 5: a share yes is the thanks, then find's next step (never the thanks alone, with no easy reply). */
-const thanks = (s: string) => {
-  assert.ok(s.startsWith('Thanks. Last week is on your page.\n\n'), s);
-  assert.ok(s.length > 'Thanks. Last week is on your page.\n\n'.length, s);
-};
 
 /** Each test starts with an empty leaderboard (one database per file): earlier builders are hidden. */
 const freshBoard = () => sql()`UPDATE builder_profiles SET hidden = true`;
@@ -171,7 +166,7 @@ test('L5.5 #1 holds; tied at the top holds too', db, async () => {
   assert.equal((await profileData(top.id, new Date()))!.target, 'Code this week holds #1.');
 });
 
-test('L6.3 the weekly moment (Task 16 step 7): the week, the rank, the points, a post for X to paste, in place of the step, once a week per installation; a yes after another find still approves the week (matched case-insensitively) and the stats count it', db, async () => {
+test('L6.3 the weekly moment (Task 16 step 7; v4.10.3 R6): the week and a post for X to paste above the step, once a week per installation; the reply itself adds last week to the page (matched case-insensitively) and the stats count it; an old share yes hands off to find', db, async () => {
   await freshBoard();
   const monday = lastFinishedMonday(new Date());
   const before = plusDays(monday, -1); // the Sunday before last week
@@ -196,14 +191,19 @@ test('L6.3 the weekly moment (Task 16 step 7): the week, the rank, the points, a
 
   // Code in the last 3 weeks (the streak's rule): last week is week 3 in a row.
   await sql()`UPDATE builder_projects SET commit_weeks = ${[1, 2, 3].map((i) => isoWeekOf(new Date(Date.now() - i * 7 * DAY))).sort()}::text[] WHERE builder_id = ${me.id}`;
+  const stats0 = await readStats(new Date());
+  await sql()`UPDATE builder_sources SET proof = 'github_app' WHERE builder_id = ${me.id}`;
+  const statsApp = await readStats(new Date());
+  assert.equal(statsApp.activated, stats0.activated, 'an App-proven repo alone is not activated');
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
   // v3.1 one-tap posts (design 6): last week's post (its summary, from the titles; never the host-naming one) and its
-  // one-tap link; no points shown (owner ruling 5), though the yes still earns them.
+  // one-tap link; no points shown (owner ruling 5), though the add still earns them.
   const link = links(s)[0]!;
   assert.match(link, new RegExp(`^https://earnkit\\.com/${me.handle}/post/[a-z2-7]{10}$`));
   assert.equal(noOpen(s), [
-    // v4.0 Task 7 (approved copy 5): the Monday block, the post link; v4.10.2 Task 5: the question names what the yes does.
+    // v4.0 Task 7 (approved copy 5): the Monday block, the post link; v4.10.3 Task 3 (R6): it adds the week itself and
+    // asks nothing, so the reply's own step is its one easy reply (here the ship step: these builders have no program).
     'Your week is ready, Maya. You shipped this week. Nice work.',
     '',
     // v4.10.3 Task 2 (R5): one score: the live score and streak this week, its change since last week's final (50).
@@ -214,40 +214,36 @@ test('L6.3 the weekly moment (Task 16 step 7): the week, the rank, the points, a
     '',
     `Your post is ready to share: ${link}`,
     '',
-    'Builders who share wins get noticed by programs.',
+    'Last week is on your page.',
     '',
-    'Add last week to your page?',
+    'Ship code this week to move toward #1.',
+    '',
+    'Want me to suggest one small thing to ship?',
   ].join('\n'));
   assert.equal(links(s).length, 1, s);
   assert.equal(questions(s), 1, s);
-  assert.doesNotMatch(s, /intent|points|acme|Ship code this week/, 'the one-tap link, never an intent link; the moment replaces the step');
+  assert.doesNotMatch(s, /intent|points|acme|Add last week|share wins/, 'the one-tap link, never an intent link; no share question or its why');
   const move = f.reply?.move_up as { kind: string; project_key: string; agent_note: string };
-  assert.deepEqual([move.kind, move.project_key], ['share', me.key]);
-  assert.match(move.agent_note, /tell with move_up/);
+  assert.deepEqual([move.kind, move.project_key], ['ship', me.key]);
   assert.equal((await sql()<{ w: string }[]>`SELECT moment_week AS w FROM installations WHERE id = ${me.id}`)[0].w, isoWeekOf(new Date()));
   // v4.10.2 Task 5: the Monday block opens the session (the next find is no second opener), its streak said as the proof.
   const said = (await sql()<{ k: string[] }[]>`SELECT ARRAY(SELECT jsonb_array_elements_text(standing_seen->'said'->'keys')) AS k FROM builder_profiles WHERE builder_id = ${me.id}`)[0].k;
   assert.ok(said.includes('older') && said.includes('proof:streak=3'), said.join(','));
 
-  // Another reply first (no moment again: once a week per installation), then the yes: still answered.
+  // Another reply (no moment again: once a week per installation).
   const between = show(await mcpCall(ctx(me.id), 'find', {}));
-  assert.doesNotMatch(between, /Your week is ready|A post for X/, between);
-  // The yes approves last week's ship log; answered once.
-  const stats0 = await readStats(new Date());
-  await sql()`UPDATE builder_sources SET proof = 'github_app' WHERE builder_id = ${me.id}`;
-  const statsApp = await readStats(new Date());
-  assert.equal(statsApp.activated, stats0.activated, 'an App-proven repo alone is not activated');
-  const yes = await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'yes' } });
-  // v4.10.2 Task 5: the thanks, then find's next step (tools.ts then_find), ending in its one easy reply.
-  thanks(show(yes));
-  assert.ok(yes.reply?.move_up, 'the next step is answerable');
+  assert.doesNotMatch(between, /Your week is ready|A post for X|Last week is on your page/, between);
+  // The find itself approved last week's ship log, with no question asked.
   const [row] = await sql()<{ facts: Record<string, unknown>; n: number }[]>`
     SELECT facts, (SELECT count(*)::int FROM project_updates WHERE builder_id = ${me.id}) AS n FROM project_updates WHERE builder_id = ${me.id} AND week = ${monday}`;
   assert.equal(row.facts.approved, true);
   assert.equal(row.facts.approved_via, 'share');
   assert.ok(Math.abs(Date.parse(String(row.facts.approved_at)) - Date.now()) < 60_000);
   assert.deepEqual([row.facts.checked, (row.facts.shipped_code as { n: number }).n, row.n], [true, 4, 1], 'merged into the week\'s row (another case), its facts kept');
-  assert.equal(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'yes' } })), 'Okay.', 'answered once');
+  // R6: a yes to the retired question (an agent still holding it) is no "Okay." dead end: find's reply and its one step.
+  const yes = await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'yes' } });
+  assert.doesNotMatch(show(yes), /^Okay\.|^Thanks\./, show(yes));
+  assert.ok(yes.reply?.move_up, 'the next step is answerable');
   const stats1 = await readStats(new Date());
   assert.deepEqual([stats1.activated - stats0.activated, stats1.weekly_active - stats0.weekly_active, stats1.shared - stats0.shared], [1, 1, 1]);
 
@@ -260,46 +256,40 @@ test('L6.3 the weekly moment (Task 16 step 7): the week, the rank, the points, a
   }
 });
 
-test('L6.4 the moment through score, once per installation (another agent of the same person sees it once too); a week with no row is made at the yes; private titles stay hidden; two replies at once show it once', db, async () => {
+test('L6.4 the moment through score, once per installation (another agent of the same person sees it once too); v4.10.3 R6: the reply adds the week, a week with no row is made by the add; private titles stay hidden; two replies at once show it once', db, async () => {
   await freshBoard();
   const monday = lastFinishedMonday(new Date());
   const me = await builder('wmsc', 'Sam', [1, 2]);
   await history(me.id, plusDays(monday, 6), 30);
   await pad('wmpb', 9, [plusDays(monday, 6)]);
   // A private repo (no public reading) with titles stored, checked with no facts: the moment shows no titles, and (fix
-  // round 1) promises no points, since its yes pays none (approveWeek awards only a week with facts).
+  // round 1) promises no points, since the add pays none (approveWeek awards only a week with facts).
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts, titles)
     VALUES (${me.id}, ${me.key}, ${monday}, ${sql().json({ checked: true } as never)}, ${['Secret launch']}::text[])`;
   const s = show(await mcpCall(ctx(me.id), 'score', {}));
   // No commit weeks stored: "Last week done."; #1 of 10 the week before and now: "now #1" (no week before to hold).
-  // Nothing worth a post (no facts): the page is the one link.
-  assert.equal(noOpen(s), `Your week is ready, Sam. You shipped this week. Nice work.\n\n| | This week |\n|---|---|\n| Shipping score | ${moved(await liveOf(me.id), 30)} |\n\nYour page: https://earnkit.com/${me.handle}\n\nBuilders who share wins get noticed by programs.\n\nAdd last week to your page?`);
+  // Nothing worth a post (no facts): the page is the one link. R6: no question; the reply's own step follows.
+  assert.equal(noOpen(s), `Your week is ready, Sam. You shipped this week. Nice work.\n\n| | This week |\n|---|---|\n| Shipping score | ${moved(await liveOf(me.id), 30)} |\n\nYour page: https://earnkit.com/${me.handle}\n\nLast week is on your page.\n\nShip code this week to hold #1.\n\nWant me to suggest one small thing to ship?`);
   assert.doesNotMatch(s, /Secret launch/);
-
-  // The yes, with no ship-log row for last week (removed here): one is made holding only the approval (it shows nowhere).
-  await sql()`DELETE FROM project_updates WHERE builder_id = ${me.id}`;
-  // Final fix M1: an agent that drops project_key still answers the one open offer.
-  thanks(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: null, answer: 'yes' } })));
-  const [row] = await sql()<{ facts: Record<string, unknown> }[]>`SELECT facts FROM project_updates WHERE builder_id = ${me.id} AND week = ${monday}`;
-  assert.equal(row.facts.approved, true);
-  assert.deepEqual((await profileData(me.id, new Date()))!.log, [], 'an approval-only week is no card');
+  const approved = async () => (await sql()<{ facts: Record<string, unknown> }[]>`SELECT facts FROM project_updates WHERE builder_id = ${me.id} AND week = ${monday}`)[0]?.facts.approved === true;
+  assert.equal(await approved(), true, 'the score reply added the week');
   assert.equal(await pointsTotal(me.id), 0, 'nothing promised, nothing paid');
 
-  // v3 Stage 1 Task 5 fix round 1: a week already confirmed is never asked about again, by any agent.
+  // v3 Stage 1 Task 5 fix round 1: a week already confirmed is never shown again, by any agent.
   const [{ id: third }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, builder_id) VALUES (${`wm-third-${RUN}-${Date.now()}`}, ${me.id}) RETURNING id`;
-  assert.doesNotMatch(show(await mcpCall(ctx(me.id, third), 'find', {})), /Your week is ready|A post for X/, 'the approved week is not asked again');
-  // A second agent of the same person, last week not yet confirmed (the approval removed): its own first reply of
-  // the week has the moment, once.
+  assert.doesNotMatch(show(await mcpCall(ctx(me.id, third), 'find', {})), /Your week is ready|A post for X|Last week is on your page/, 'the approved week is not shown again');
+  // A second agent of the same person, last week not yet confirmed and with no ship-log row (removed here): its own
+  // first reply of the week has the moment, once, and its add makes the row, holding only the approval.
   await sql()`DELETE FROM project_updates WHERE builder_id = ${me.id}`;
   const [{ id: other }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, builder_id) VALUES (${`wm-other-${RUN}-${Date.now()}`}, ${me.id}) RETURNING id`;
   const [a, b] = await Promise.all([mcpCall(ctx(me.id, other), 'find', {}), mcpCall(ctx(me.id, other), 'find', {})]);
   assert.equal([show(a), show(b)].filter((t) => t.startsWith('Your week is ready')).length, 1, 'two replies at once: one moment');
-
-  // That moment opened the offer again; a no closes it and approves nothing.
-  await sql()`DELETE FROM project_updates WHERE builder_id = ${me.id}`;
+  assert.equal([show(a), show(b)].filter((t) => t.includes('Last week is on your page.')).length, 1, 'two replies at once: one add said');
+  assert.equal(await approved(), true, 'the add made the week\'s row');
+  assert.deepEqual((await profileData(me.id, new Date()))!.log, [], 'an approval-only week is no card');
+  // No offer is open: a no to the retired question is "Okay." and changes nothing.
   assert.equal(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'no' } })), 'Okay.');
-  assert.equal((await sql()`SELECT 1 FROM project_updates WHERE builder_id = ${me.id}`).length, 0);
-  assert.equal(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'yes' } })), 'Okay.', 'closed by the no');
+  assert.equal(await approved(), true);
 });
 
 test('v4.10.3 Task 2 (R5): the score moved at the week change: the block shows the live score under "This week" with its change, never last week\'s number, and find and score agree', db, async () => {
@@ -330,7 +320,7 @@ test('v4.10.3 Task 2 (R5): the score moved at the week change: the block shows t
   assert.doesNotMatch(show(f), new RegExp(`so far this week|\\b${live + 8}\\b`), show(f));
 });
 
-test('owner batch fix wave: the moment quotes the stored summary under the head and the yes binds exactly it; one it can\'t show binds none and is asked once', db, async () => {
+test('owner batch fix wave: the moment quotes the stored summary under the head and the add (v4.10.3 R6) binds exactly it; one it can\'t show binds none and is offered once', db, async () => {
   await freshBoard();
   const monday = lastFinishedMonday(new Date());
   const me = await builder('wmsy', 'Sam', [1, 2]);
@@ -339,12 +329,11 @@ test('owner batch fix wave: the moment quotes the stored summary under the head 
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts, summary)
     VALUES (${me.id}, ${me.key}, ${monday}, ${sql().json({ checked: true } as never)}, 'Fixed the login loop.')`;
   const s = show(await mcpCall(ctx(me.id), 'score', {}));
-  assert.equal(noOpen(s), `Your week is ready, Sam. Fixed the login loop. Nice work.\n\n| | This week |\n|---|---|\n| Shipping score | ${moved(await liveOf(me.id), 30)} |\n\nYour page: https://earnkit.com/${me.handle}\n\nBuilders who share wins get noticed by programs.\n\nAdd last week to your page?`);
+  assert.equal(noOpen(s), `Your week is ready, Sam. Fixed the login loop. Nice work.\n\n| | This week |\n|---|---|\n| Shipping score | ${moved(await liveOf(me.id), 30)} |\n\nYour page: https://earnkit.com/${me.handle}\n\nLast week is on your page.\n\nShip code this week to hold #1.\n\nWant me to suggest one small thing to ship?`);
   assert.equal(links(s).length, 1);
   assert.equal(questions(s), 1);
-  // Rewritten after the reply: the yes still binds the text the reply showed, never the new one.
+  // Rewritten after the reply: the add bound the text the reply showed, never the new one.
   await sql()`UPDATE project_updates SET summary = 'Fixed the login loop and more.' WHERE builder_id = ${me.id} AND week = ${monday}`;
-  thanks(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'yes' } })));
   const facts = async (id: number) => (await sql()<{ facts: Record<string, unknown> }[]>`SELECT facts FROM project_updates WHERE builder_id = ${id} AND week = ${monday}`)[0].facts;
   assert.equal((await facts(me.id)).approved_summary, 'Fixed the login loop.');
 
@@ -356,7 +345,7 @@ test('owner batch fix wave: the moment quotes the stored summary under the head 
     VALUES (${other.id}, ${other.key}, ${monday}, ${sql().json({ checked: true } as never)}, ${named})`;
   const t = show(await mcpCall(ctx(other.id), 'score', {}));
   assert.doesNotMatch(t, /dark mode|"/, t);
-  thanks(show(await mcpCall(ctx(other.id), 'tell', { move_up: { kind: 'share', project_key: other.key, answer: 'yes' } })));
+  assert.ok(t.includes('Last week is on your page.'), t);
   assert.equal((await facts(other.id)).approved_summary, null);
   assert.equal((await facts(other.id)).offered_summary, named, 'counted as offered, not approved');
   const { weekRules } = await import('./weekly-moment');
@@ -396,7 +385,7 @@ test('L5.6 security: another builder\'s X name or handle (text they control) nev
   assert.ok(!replies[0].toLowerCase().includes('ignore'), 'nor inside the encoded share link');
 });
 
-test('L6.5 the moment waits for the weekly job: Monday 10:00 UTC with no checked row shows none and leaves the week unclaimed; Monday 16:00 shows it; the offer closes with the week', db, async () => {
+test('L6.5 the moment waits for the weekly job: Monday 10:00 UTC with no checked row shows none and leaves the week unclaimed; Monday 16:00 shows it and (v4.10.3 R6) adds the week', db, async () => {
   await freshBoard();
   mock.timers.setTime(Date.parse('2026-10-05T10:00:00Z')); // a Monday, before the weekly job's hour
   try {
@@ -412,10 +401,8 @@ test('L6.5 the moment waits for the weekly job: Monday 10:00 UTC with no checked
     mock.timers.setTime(Date.parse('2026-10-05T16:00:00Z'));
     const late = show(await mcpCall(ctx(me.id), 'find', {}));
     assert.ok(late.startsWith('Your week is ready, Mo.'), late);
-    // The next week the offer is closed: a yes is "Okay." and approves nothing.
-    mock.timers.setTime(Date.parse('2026-10-12T16:00:00Z'));
-    assert.equal(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'yes' } })), 'Okay.');
-    assert.equal((await sql()`SELECT 1 FROM project_updates WHERE builder_id = ${me.id}`).length, 0);
+    assert.ok(late.includes('\n\nLast week is on your page.\n\n'), late);
+    assert.equal((await sql()`SELECT 1 FROM project_updates WHERE builder_id = ${me.id} AND week = ${monday} AND facts->>'approved' = 'true'`).length, 1, 'the late reply added the week');
   } finally {
     mock.timers.setTime(WEDNESDAY);
   }
@@ -433,19 +420,21 @@ test('Task 16 step 7: the week\'s number and where last week left the builder', 
   assert.equal(momentPlace({ now: w(1, 9), before: w(1, 9) }), null, 'under RANK_MIN_POOL: "on EarnKit"');
 });
 
-test('Task 16 fix round 1, v3.1 one-tap posts: the Monday reply shows no points (owner ruling 5); the yes still adds the week\'s points; a week with no facts adds none', db, async () => {
+test('Task 16 fix round 1, v3.1 one-tap posts: the Monday reply shows no points (owner ruling 5); its add (v4.10.3 R6) still adds the week\'s points; a week with no facts adds none', db, async () => {
   await freshBoard();
   const monday = lastFinishedMonday(new Date());
   const paid = await builder('wmpd', 'Pia', [1, 2]);
   await history(paid.id, plusDays(monday, 6), 30);
   await pad('wmpp', 9, [plusDays(monday, 6)]);
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${paid.id}, ${paid.key}, ${monday}, ${sql().json({ checked: true, shipped_code: { n: 2 } } as never)})`;
+  const before = await pointsTotal(paid.id);
   const s = show(await mcpCall(ctx(paid.id), 'find', {}));
   assert.match(s, /^Your week is ready, Pia\. You shipped this week\. Nice work\.\n\n\| \| This week \|\n[^]*\| Streak \| 1 week \|/, s);
   assert.doesNotMatch(s, /points/, s);
-  const before = await pointsTotal(paid.id);
-  thanks(show(await mcpCall(ctx(paid.id), 'tell', { move_up: { kind: 'share', project_key: paid.key, answer: 'yes' } })));
-  assert.ok((await pointsTotal(paid.id)) - before > 0, 'the yes still earns the week\'s points');
+  assert.ok((await pointsTotal(paid.id)) - before > 0, 'the add still earns the week\'s points');
+  const once = await pointsTotal(paid.id);
+  await mcpCall(ctx(paid.id), 'find', {});
+  assert.equal(await pointsTotal(paid.id), once, 'earned once');
 
   const none = await builder('wmpn', 'Nia', [1, 2]);
   await history(none.id, plusDays(monday, 6), 25);
@@ -454,6 +443,34 @@ test('Task 16 fix round 1, v3.1 one-tap posts: the Monday reply shows no points 
   assert.match(t, /^Your week is ready, Nia\./, t);
   assert.doesNotMatch(t, /Streak/, 'no week counted: no streak row');
   assert.doesNotMatch(t, /points/, t);
-  thanks(show(await mcpCall(ctx(none.id), 'tell', { move_up: { kind: 'share', project_key: none.key, answer: 'yes' } })));
   assert.equal(await pointsTotal(none.id), 0, '0 promised, 0 added');
+});
+
+test('v4.10.3 Task 3 (R6): a failed page add (a database error) claims nothing: the block shows, never "Last week is on your page.", and the reply keeps its one step', db, async () => {
+  await freshBoard();
+  const monday = lastFinishedMonday(new Date());
+  const me = await builder('wmfail', 'Fay', [1, 2]);
+  await history(me.id, plusDays(monday, 6), 30);
+  await pad('wmpf', 9, [plusDays(monday, 6)]);
+  await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${me.id}, ${me.key}, ${monday}, ${sql().json({ checked: true, shipped_code: { n: 2 } } as never)})`;
+  // Every write to this builder's ship log fails, as a database error would.
+  const fn = `wm_fail_${RUN}`;
+  await sql().unsafe(`CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'v4103 add fails'; END $$`);
+  await sql().unsafe(`CREATE TRIGGER ${fn} BEFORE INSERT OR UPDATE ON project_updates FOR EACH ROW WHEN (NEW.builder_id = ${Number(me.id)}) EXECUTE FUNCTION ${fn}()`);
+  const errors = mock.method(console, 'error', () => {});
+  let s: string;
+  try {
+    s = show(await mcpCall(ctx(me.id), 'find', {}));
+    assert.ok(errors.mock.calls.some((c) => String(c.arguments[0]).includes('moment add')), 'logged');
+  } finally {
+    errors.mock.restore();
+    await sql().unsafe(`DROP TRIGGER ${fn} ON project_updates`);
+    await sql().unsafe(`DROP FUNCTION ${fn}()`);
+  }
+  assert.match(s, /^Your week is ready, Fay\./, s);
+  assert.doesNotMatch(s, /on your page|Add last week/, s);
+  assert.match(s, /\n\nWant me to suggest one small thing to ship\?$/, s);
+  assert.equal(questions(s), 1, s);
+  const [row] = await sql()<{ facts: Record<string, unknown> }[]>`SELECT facts FROM project_updates WHERE builder_id = ${me.id} AND week = ${monday}`;
+  assert.equal(row.facts.approved, undefined, 'nothing added');
 });

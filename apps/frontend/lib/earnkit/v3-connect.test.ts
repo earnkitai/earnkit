@@ -172,7 +172,9 @@ test('(e) the weekly moment still shows the week after', db, async () => {
     assert.ok(s.startsWith('Your week is ready, '), s);
     assert.match(s, /\n\| Streak \| 4 weeks \|\n/, s);
     assert.doesNotMatch(s, /Make your shipping log public/);
-    assert.match(s, /\n\nAdd last week to your page\?$/);
+    // v4.10.3 Task 3 (R6): the block adds the week itself and asks nothing; the reply's own step is last.
+    assert.match(s, /\n\nLast week is on your page\.\n\n[^]*\?$/, s);
+    assert.doesNotMatch(s, /Add last week/, s);
   } finally {
     mock.timers.setTime(WEDNESDAY);
   }

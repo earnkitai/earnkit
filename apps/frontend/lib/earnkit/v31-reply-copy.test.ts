@@ -182,7 +182,11 @@ test('Task 16: the first-run journey, each reply word for word', db, () => withP
   await sql()`UPDATE builder_live SET read_at = ${new Date()} WHERE builder_id = ${c.id}`;
   await sql()`UPDATE source_live SET read_at = ${new Date()} WHERE source_id IN (SELECT id FROM builder_sources WHERE builder_id = ${c.id})`;
   const r7 = await mcpCall(ctx, 'find', {});
-  const s7 = rule(show(r7));
+  // v4.10.3 Task 3 (R6): the block asks nothing; this reply's easy reply is the quiet "more" line (no question mark).
+  const s7 = show(r7);
+  assert.equal(links(s7).length, 1, s7);
+  assert.equal(questions(s7), 0, s7);
+  assert.doesNotMatch(s7, /—/, s7);
   // v3.1 one-tap posts (design 6): last week's post (4 in a row: the milestone shape) and its one-tap link (the reply's one
   // link); no points (owner ruling 5).
   const tap = links(s7)[0]!;
@@ -198,14 +202,14 @@ test('Task 16: the first-run journey, each reply word for word', db, () => withP
     '',
     `Your post is ready to share: ${tap.replace(/[.]/g, '\\.')}`,
     '',
-    // v4.7.1 T1 fix round 1: the Monday block carries a fit's line before its why; fix round 2 (R6): Base's grant was
-    // drafted (the apply yes above), so never pitched (v4.8: and no "Open now:" paragraph in its place).
-    'Builders who share wins get noticed by programs\\.',
+    // v4.10.3 Task 3 (R6): the find added last week itself, then the reply's own step (Base's grant was drafted above,
+    // so never pitched; the ship ask was spent, so the quiet reply's target and "more").
+    'Last week is on your page\\.',
     '',
-    'Add last week to your page\\?$',
+    'Ship code this week to hold #1\\.',
+    'Reply "more" and I\'ll show every program open now\\.$',
   ].join('\n')), s7);
-  assert.equal((r7.reply?.move_up as { kind: string; agent_note: string }).kind, 'share');
-  assert.match((r7.reply?.move_up as { agent_note: string }).agent_note, /Show it exactly as given\. Never rewrite it\./);
+  assert.equal((r7.reply?.move_up as { kind: string; agent_note: string }).kind, 'more');
 }));
 
 test('Task 16 fix round 1: the signed-out reply\'s open grant is never an investment', () => {

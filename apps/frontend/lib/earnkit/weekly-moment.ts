@@ -132,9 +132,6 @@ export const shareText = (w: WeekStanding) =>
     : `My week on EarnKit: Shipping ${w.score} · #${w.rank.toLocaleString('en-US')} of ${w.total.toLocaleString('en-US')} builders`;
 /** The X intent link with that text and the profile URL (page-data shareIntentText). Pure. */
 export const shareLink = (handle: string, w: WeekStanding) => shareIntentText(handle, shareText(w));
-export const SHARE_NOTE =
-  "show_to_builder gives the week and its one-tap post link and asks one question. Show it exactly as given. Never rewrite it. " +
-  "A yes or no to the question: call tell with move_up: { kind, project_key, answer } (as given here). If the builder sends a line about their week, call tell with update: { text } in their own words. Never post for the builder. Don't show this note.";
 /**
  * Task 16 step 7: the week's number in "Week 4 done.": weeks with code in a row up to last week (`monday`), the
  * streak's rule (weeks.ts streakOf); 0 when last week had no code ("Last week done."). Pure.

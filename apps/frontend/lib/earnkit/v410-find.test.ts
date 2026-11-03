@@ -14,7 +14,8 @@ import { ProgramFile } from './program-file';
 import { getProgramRow, upsertProgram } from './programs';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
-import { isoWeekOf } from './weeks';
+import { isoWeekOf, lastFinishedMonday } from './weeks';
+import { LIVE_CALIBRATION_V2 } from './score-calibration';
 import { saveBank } from './answer-bank';
 import { BUILDER_CODES_SUFFIX } from './builder-code';
 import { HELP_DONE_ASK, MENTOR_NOTE, SESSION_MS } from './conversation';
@@ -1081,6 +1082,108 @@ test('v4.10.3 fix round 1 (7, R2): a builder with only an investor program open:
   // The quiet reply here is the route's own (no lead: nothing to apply to but the accelerator); its copy and one ask hold.
   const rules = new Set(['copy', 'claim', 'easy_reply', 'repeat']);
   assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }).filter((f) => rules.has(f.rule)), [], replies.map((r) => r.show).join('\n---\n'));
+});
+
+/**
+ * v4.10.3 Task 3 (R6, owner answer 4; the CTO's walk): a Monday with last week ready (a ranked day, a checked ship log),
+ * find's refresh still running past its wait, then settled. Every reply ends with the one Base ask; the Monday block
+ * rides on the first settled reply the path falls through on, adds last week to the page itself and asks nothing;
+ * never while updating, and once a week.
+ */
+test('v4.10.3 Task 3 (R6): Monday, refresh updating then settled: find, score, find, find, score all end with the Base ask; the block adds last week once, never while updating', db, async () => {
+  const b = await passedOwner('mon');
+  const monday = lastFinishedMonday(new Date());
+  const sunday = new Date(Date.parse(`${monday}T00:00:00Z`) + 6 * 86_400_000).toISOString().slice(0, 10);
+  await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, ranked)
+    VALUES (${b.id}, ${sunday}, 30, 0, '{}'::jsonb, '{}'::jsonb, 'v2', ${LIVE_CALIBRATION_V2}, false, true)`;
+  await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${b.id}, ${b.key}, ${monday}, ${sql().json({ checked: true, shipped_code: { n: 3 } } as never)})`;
+  const week = async () => {
+    const [r] = await sql()<{ approved: string | null; at: string | null; moment: string | null }[]>`
+      SELECT (SELECT facts->>'approved' FROM project_updates WHERE builder_id = ${b.id} AND week = ${monday}) AS approved,
+        (SELECT facts->>'approved_at' FROM project_updates WHERE builder_id = ${b.id} AND week = ${monday}) AS at,
+        (SELECT moment_week FROM installations WHERE id = ${b.ctx.ownInstallationId}) AS moment`;
+    return r;
+  };
+  // A refresh still running past find's wait (every reader call waits for open(), then fails).
+  let open!: () => void;
+  const gate = new Promise<void>((r) => (open = r));
+  const wait = async (): Promise<never> => {
+    await gate;
+    throw new Error('v4103: not served');
+  };
+  const slow = { now: new Date(), gh: wait, ghGraphql: wait, ghFetch: wait, probe: wait, fetchText: wait, json: wait, contractOrigin: wait, walletCreations: wait };
+  (b.ctx as { readerDeps?: unknown }).readerDeps = slow;
+  await startRefresh(b.id, { now: new Date(), start: Date.now() }).within();
+  await sql()`UPDATE builder_live SET read_at = now() - interval '1 hour', computed_at = now() - interval '1 hour' WHERE builder_id = ${b.id}`;
+  await sql()`UPDATE source_live SET read_at = now() - interval '1 hour' WHERE source_id IN (SELECT id FROM builder_sources WHERE builder_id = ${b.id})`;
+  const weeksOf = (_: B) => Array.from({ length: 6 }, (_x, k) => isoWeekOf(new Date(Date.now() - k * 7 * 86_400_000)));
+  const f1 = await find(b);
+  open();
+  assert.equal(f1.reply?.numbers_updating, true, 'the refresh is still running');
+  assert.doesNotMatch(show(f1), /Your week is ready|on your page/, show(f1));
+  assert.match(show(f1), /\n\nWant me to start it\?$/, show(f1));
+  assert.equal(moveUp(f1)?.kind, 'apply');
+  assert.deepEqual(await week(), { approved: null, at: null, moment: null }, 'never added or claimed while updating');
+  // Settled: the refresh ends (its failed reads land), then the record is as read a moment ago, so no refresh runs.
+  await startRefresh(b.id, { now: new Date(), start: Date.now() }).within();
+  await sql()`UPDATE builder_projects SET commit_weeks = ${weeksOf(b)}::text[], shipped = true, kind = 'app' WHERE builder_id = ${b.id}`;
+  await sql()`UPDATE builder_live SET read_at = now(), computed_at = now() WHERE builder_id = ${b.id}`;
+  await sql()`UPDATE source_live SET read_at = now() WHERE source_id IN (SELECT id FROM builder_sources WHERE builder_id = ${b.id})`;
+  // score's own read of the fits makes Base the path's move here (find's quiet path leads with it): the same Base ask,
+  // its session step first, so the block waits for the reply the path falls through on.
+  const s = await mcpCall(b.ctx as never, 'score', {});
+  assert.equal(s.reply?.numbers_updating, undefined, show(s));
+  assert.match(show(s), /Base Builder Grant[^]*Want me to start\?$/, show(s));
+  assert.doesNotMatch(show(s), /Add last week/, show(s));
+  assert.equal(show(s).match(/\?/g)?.length, 1, show(s));
+  assert.equal(((await seenOf(b.id)).bench_ask as { program_id?: string }).program_id, 'base-builder-grants');
+  // The find after it: the block, which says the week is on the page and asks nothing, then the Base ask last.
+  const f2 = await find(b);
+  const paras = show(f2).split('\n\n');
+  assert.match(paras[0], /^Your week is ready, Jenil\./, show(f2));
+  const added = paras.indexOf('Last week is on your page.');
+  assert.ok(added > 0, show(f2));
+  assert.ok(!paras.slice(0, added + 1).join('\n').includes('?'), show(f2));
+  assert.doesNotMatch(show(f2), /Add last week|share wins/, show(f2));
+  assert.equal(paras.at(-1), ALSO_AGAIN, show(f2));
+  assert.equal(show(f2).match(/\?/g)?.length, 1, show(f2));
+  assert.equal(moveUp(f2)?.kind, 'apply');
+  const first = await week();
+  assert.equal(first.approved, 'true', 'the first settled reply that shows the block added last week');
+  assert.ok(first.moment);
+  // The next find and score: no block again, the Base ask, and the add is not made again (approved_at kept).
+  const f3 = await find(b);
+  assert.equal(show(f3), ALSO_AGAIN);
+  const s2 = await mcpCall(b.ctx as never, 'score', {});
+  assert.doesNotMatch(show(s2), /Your week is ready|on your page/, show(s2));
+  assert.match(show(s2), /Base Builder Grant[^]*\?$/, show(s2));
+  assert.deepEqual(await week(), first, 'added once this week');
+  // A yes to the retired question (an agent holding it from before) hands off to find's Base ask, never a dead end.
+  const old = await tell(b, { kind: 'share', project_key: b.key, answer: 'yes' });
+  assert.ok(show(old).endsWith(ALSO_AGAIN), show(old));
+  assert.deepEqual(await week(), first);
+});
+
+test('v4.10.3 Task 3 (R6): a settled Monday find on the quiet path: the block, then the also-open lead as the one easy reply, its proof not said twice', db, async () => {
+  const b = await passedOwner('mo2');
+  const monday = lastFinishedMonday(new Date());
+  const sunday = new Date(Date.parse(`${monday}T00:00:00Z`) + 6 * 86_400_000).toISOString().slice(0, 10);
+  await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, ranked)
+    VALUES (${b.id}, ${sunday}, 30, 0, '{}'::jsonb, '{}'::jsonb, 'v2', ${LIVE_CALIBRATION_V2}, false, true)`;
+  await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${b.id}, ${b.key}, ${monday}, ${sql().json({ checked: true, shipped_code: { n: 3 } } as never)})`;
+  const replies = await converse(b.ctx as never, [{ find: {} }, { find: {} }], { builderId: b.id });
+  const [lead, again] = replies;
+  const paras = lead.show.split('\n\n');
+  assert.match(paras[0], /^Your week is ready, Jenil\./, lead.show);
+  const added = paras.indexOf('Last week is on your page.');
+  assert.ok(added > 0, lead.show);
+  // The lead after the block: its money line and Base's first round, then its one yes/no last.
+  assert.deepEqual(paras.slice(added + 1), ['Open for you now: up to $5,000 in grants.', ALSO_HEAD, 'Want me to start it?'], lead.show);
+  assert.doesNotMatch(lead.show, /You've shipped 6 weeks/, 'the block said the streak');
+  assert.equal(moveUp({ reply: lead.reply } as R)?.kind, 'apply');
+  assert.equal(again.show, ALSO_AGAIN);
+  for (const r of replies) assert.doesNotMatch(r.show, BAD, r.show);
+  assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), [], replies.map((r) => r.show).join('\n---\n'));
 });
 
 test('v4.10.2 (R3): Circle not eligible beside a set is said in one plain line; on Arc it is eligible, a plain fit (never a long shot)', db, async () => {

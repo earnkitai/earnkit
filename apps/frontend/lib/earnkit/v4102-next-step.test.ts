@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MOMENT_ASK, mondayReply } from './bench-reply';
+import { MOMENT_ADDED, mondayBlock } from './bench-reply';
 import { gateFailures, type Reply } from './fixtures/converse';
 import { ALSO_START_ASK, alsoAgainAsk, alsoLeadLine } from './ready-copy';
 
@@ -11,13 +11,16 @@ import { ALSO_START_ASK, alsoAgainAsk, alsoLeadLine } from './ready-copy';
 const reply = (show: string, o: Partial<Reply> = {}): Reply =>
   ({ turn: 0, session: 0, first: true, hook: false, tool: 'find', input: {}, show, said: ['proof:streak=6'], reply: { move_up: { kind: 'share', project_key: 'a/b' } }, ...o }) as Reply;
 
-test('v4.10.2 Task 5: the Monday block ends in a yes/no naming what the yes does, and passes the gate', () => {
-  // v4.10.2 final review M1: the ask names the same week as the thanks ("Last week is on your page.").
-  assert.equal(MOMENT_ASK, 'Add last week to your page?');
+test('v4.10.3 Task 3 (R6): the Monday block asks nothing, says the week is on the page, and the program ask after it passes the gate', () => {
+  assert.equal(MOMENT_ADDED, 'Last week is on your page.');
   const m = { week: 6, place: null, rank: 1, post: { text: 'x', link: 'https://earnkit.com/jenilt/post/abcdefghij' }, first: 'Jenil', score: 77, change: 7, community: { usd: 0, lastWeekUsd: 0 } };
-  const show = mondayReply(m, 'https://earnkit.com/jenilt', MOMENT_ASK, 'Builders who share wins get noticed by programs.');
-  assert.match(show, /\n\nAdd last week to your page\?$/, show);
-  assert.deepEqual(gateFailures([reply(show)]), []);
+  const block = mondayBlock({ ...m, added: true }, 'https://earnkit.com/jenilt');
+  assert.match(block, /\n\nLast week is on your page\.$/, block);
+  assert.ok(!block.includes('?'), block);
+  // A failed add claims nothing.
+  assert.doesNotMatch(mondayBlock({ ...m, added: false }, 'https://earnkit.com/jenilt'), /on your page/);
+  const show = [block, alsoLeadLine('Base Builder Grant', 'up to $5,000', 11), ALSO_START_ASK].join('\n\n');
+  assert.deepEqual(gateFailures([reply(show, { reply: { move_up: { kind: 'apply', project_key: 'a/b' } } })]), []);
 });
 
 test('v4.10.2 Task 5: the also-open lead and its repeat are money first, one yes/no each, and repeat as the pending ask', () => {

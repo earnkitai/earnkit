@@ -63,7 +63,6 @@ test('the offer yields to every other ranked question and to setup step 3, and c
   assert.equal(stateAsk(v).project_key, null);
   assert.equal(stateAsk({ ...v, connect: { weeks: 3 } }).kind, 'connect');
   assert.equal(stateAsk({ ...v, apply: { program_id: 'p', title: 'P', amount: null, when: null } }).kind, 'apply');
-  assert.equal(stateAsk({ ...v, share: true }).kind, 'share');
   assert.equal(stateAsk({ ...v, walletSetup: { link: 'https://x/w', project: 'Kit' } }).kind, 'wallet_setup');
   assert.equal(stateAsk({ ...v, newRepo: true }).kind, 'token');
   assert.equal(stateAsk({ ...v, tokenOffer: false }).kind, 'ship');

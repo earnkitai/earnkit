@@ -17,7 +17,7 @@ import { attachToX } from './x-install';
 import { productOdds, productScore, traction } from './match';
 import type { RepoFit } from './present';
 import {
-  MOMENT_ASK, SHIP_ASK, TITLES_ASK, WALLET_ASK, WALLET_BUILDER_CODE, WALLET_COIN_FEES, WALLET_SKIPPED, stateAsk, walletChange, walletChangeX,
+  SHIP_ASK, TITLES_ASK, WALLET_ASK, WALLET_BUILDER_CODE, WALLET_COIN_FEES, WALLET_SKIPPED, stateAsk, walletChange, walletChangeX,
   walletContractsOnly, walletDone, walletNotYet, walletNotice, walletOffer, type BenchProject,
 } from './bench-reply';
 import { WALLET_SETUP_SKIPPED, walletSetupAsk } from './bench-reply';
@@ -111,7 +111,6 @@ test('the wallet step never shares a reply with another question: after connect,
   const v = { state: 'ranked' as const, variant: null, project, link: null, handle: 'kit', wallet: 'https://earnkit.com/claim/wallet?t=x' };
   assert.equal(stateAsk({ ...v, connect: { weeks: 3 } }).kind, 'connect');
   assert.equal(stateAsk({ ...v, apply: { program_id: 'p', title: 'P', amount: null, when: null } }).kind, 'apply');
-  assert.equal(stateAsk({ ...v, share: true }).line, MOMENT_ASK);
   const w = stateAsk({ ...v, titles: true });
   assert.equal(w.kind, 'wallet');
   assert.ok(w.line.endsWith(WALLET_ASK));

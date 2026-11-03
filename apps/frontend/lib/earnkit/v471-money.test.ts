@@ -1,7 +1,7 @@
 import './fixtures/no-network-checks';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CHECKIN_ASK, MOMENT_ASK, POST_ASK, SHIP_ASK, TOKEN_OFFER, askWhy, benchReply, qualifyLine, type BenchView, type MomentView } from './bench-reply';
+import { CHECKIN_ASK, POST_ASK, SHIP_ASK, TOKEN_OFFER, askWhy, benchReply, qualifyLine, type BenchView } from './bench-reply';
 import { fridayNudge } from './nudges';
 
 /**
@@ -18,13 +18,11 @@ const ranked = (o: Partial<BenchView> = {}): BenchView => ({
 
 test('pure: the shapes with no money line of their own carry the fit line; a held question never does', () => {
   const fit = { kind: 'fits' as const, title: 'Base Builder Grant Program', amount: '$5,000', when: 'rolling' };
-  const moment: MomentView = { week: 3, place: null, rank: 1, summary: null, post: null, first: 'Maya', score: 50, change: null, community: { usd: 0, lastWeekUsd: 0 } };
   const post = { head: 'Kit went live this week.', text: 'Kit is live.', link: 'https://earnkit.com/maya/post/abcdefghij' };
   const shapes: Partial<BenchView>[] = [
     { ask: { kind: 'wallet', project_key: P.key, line: 'Prove your Base wallet: https://earnkit.com/w\nDone?' } },
     { ask: { kind: 'token', project_key: null, line: TOKEN_OFFER } },
     { ask: { kind: 'new_repo', project_key: P.key, line: 'Working on something new? Connect that repo instead.' } },
-    { ask: { kind: 'share', project_key: P.key, line: MOMENT_ASK }, moment },
     { ask: { kind: 'post', project_key: P.key, line: POST_ASK }, post },
   ];
   for (const o of shapes) {

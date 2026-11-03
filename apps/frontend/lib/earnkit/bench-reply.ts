@@ -127,6 +127,8 @@ export type MomentView = {
   summary?: string | null;
   /** v3.1 one-tap posts (design 6): last week's drafted post, else null (the reply gives the page). */
   post: PostOffer | null;
+  /** v4.10.3 Task 3 (R6): this reply added last week to the page (false: the add failed, so the block says nothing of it). */
+  added?: boolean;
   /**
    * v4.0 Task 7: the builder's first name (firstName). v4.10.3 Task 2 (R5): the live Shipping score (null: none to show,
    * no row) and its change since last week's final (null: no live score); `week` is the live streak.
@@ -224,7 +226,6 @@ export const shipWhy = (streak: number | null) =>
   // v4.10.1 Task 3 (R5): null, the weeks are updating: no count, and never "starts your streak".
   streak === null ? 'Shipping this week lifts your score.' : streak > 0 ? `Shipping this week keeps your ${streak}-week streak and lifts your score.` : 'Shipping this week starts your streak and lifts your score.';
 export const CHECKIN_WHY = 'A Monday check-in keeps your drafts current before deadlines.';
-export const SHARE_WHY = 'Builders who share wins get noticed by programs.';
 export const POST_WHY = 'A post with real numbers is what reviewers read.';
 /** v4.7: the suggest ask's why (a project not counted yet, so no score or streak). */
 export const SUGGEST_WHY = 'Programs fund builders who ship every week.';
@@ -514,18 +515,19 @@ export const STALE_WEEKS = 8;
 export const NEW_REPO_ASK = 'Working on something new? Connect that repo instead.';
 
 /**
- * Task 16, step 7; v4.0 Task 7 (approved copy 5): the weekly moment's question. v4.10.2 Task 5: it names what the yes
- * does (weekly-moment.ts answerShare puts the week on the builder's page), a plain yes/no ("Looks right?" asked only
- * whether the week read right, and the merge gate's yes/no rule refused it). Final review M1: "last week", the week the
- * thanks names ("Last week is on your page.").
+ * v4.10.3 Task 3 (R6, owner answer 4): the Monday block asks nothing. The first settled reply of the week adds last
+ * week to the builder's page itself (bench-find.ts weeklyMoment: the action a yes to the retired "Add last week to
+ * your page?" took) and says so with this line.
  */
-export const MOMENT_ASK = 'Add last week to your page?';
+export const MOMENT_ADDED = 'Last week is on your page.';
 /**
  * v4.0 Task 7 (approved copy 5, "Every Monday"): the opener, the week's table (a blank first header: plain surfaces read
  * "Label: value", reply-format.ts), the cheer under it when the community sent $100 or double last week, the post link
- * (no post: the page), `money` (the Best fit's line, when there is one), the why, then `ask`. Never names the token. Pure.
+ * (no post: the page). v4.10.3 Task 3 (R6): no question, no why and no money line: MOMENT_ADDED when this reply added
+ * last week to the page (`added`; a failed add says nothing about it), and the reply's program ask follows the block.
+ * Never names the token. Pure.
  */
-export function mondayReply(m: MomentView, page: string, ask: string, why: string | null = null, money: string | null = null): string {
+export function mondayBlock(m: MomentView, page: string): string {
   const facts = { score: m.score, change: m.change, streak: m.week, usd: m.community.usd, lastWeekUsd: m.community.lastWeekUsd };
   // v4.10.3 Task 2 (R5): one score: the block's numbers are the live score and streak (weeklyMoment), so "This week".
   // Fix round 1: no rows (no live score, no streak, no community money) is no table, never a header alone.
@@ -535,12 +537,9 @@ export function mondayReply(m: MomentView, page: string, ask: string, why: strin
     [mondayOpener(m.first, m.summary ?? null)],
     table,
     [communityRow(facts.usd, facts.lastWeekUsd)?.cheer ? CHEER_LINE : null],
+    // The X post is a link the builder can use, never a question.
     [m.post ? `Your post is ready to share: ${m.post.link}` : pageLine(page)],
-    // v4.7.1 T1 fix round 1: a fit's line (rankedBody's moneyPara), before the why (v4.8: never the retired open grants).
-    [money],
-    // v4.7 T4: the share step's why, just before its question.
-    [why],
-    [ask],
+    [m.added ? MOMENT_ADDED : null],
   );
 }
 /** v4.0: "Maya Lin" is "Maya": the X display name's first word holding a letter; else the handle. Pure. */
@@ -694,7 +693,7 @@ export type BenchView = {
   open?: OpenGrant | null;
   /** Task 16 step 3: the connect offer (ask kind 'connect'). */
   connect?: ConnectOffer | null;
-  /** Task 16 step 7: the weekly moment (ask kind 'share'). */
+  /** Task 16 step 7: the weekly moment. v4.10.3 Task 3 (R6): shown above the reply (bench-find.ts mondayBlock), never rendered here or asked about. */
   moment?: MomentView | null;
   /** 2026-10-22: Base's grant steps (ask kind 'qualify'). */
   qualify?: QualifyOffer | null;
@@ -759,7 +758,7 @@ export type ApplyPick = { program_id: string; title: string; amount: string | nu
  */
 export function stateAsk(
   v: Pick<BenchView, 'state' | 'variant' | 'project' | 'link'> & {
-    handle?: string | null; connect?: ConnectOffer | null; share?: boolean; apply?: ApplyPick | null;
+    handle?: string | null; connect?: ConnectOffer | null; apply?: ApplyPick | null;
     titles?: boolean; qualify?: QualifyOffer | null;
     /** v3.1 wallet proof: the signing link of the optional wallet step (wallet-offer.ts walletOfferLink), null: not offered. */
     wallet?: string | null;
@@ -830,7 +829,6 @@ export function stateAsk(
   if (v.state === 'ranked' && v.apply) return { kind: 'apply', project_key: key, program_id: v.apply.program_id, line: applyAsk(v.apply.title, v.apply.amount, v.apply.when) };
   // v3.1 one-tap posts: an event's post.
   if (v.state === 'ranked' && v.post) return { kind: 'post', project_key: key, line: POST_ASK };
-  if (v.state === 'ranked' && v.share) return { kind: 'share', project_key: key, line: MOMENT_ASK };
   // GTM W2: the Monday check-in, once, on a client that can schedule (before the optional wallet step).
   if (v.state === 'ranked' && v.checkin) return { kind: 'checkin', project_key: key, line: CHECKIN_ASK };
   // v3.1 wallet proof: the optional wallet step, once, in the first reply after setup with no other question.
@@ -954,7 +952,6 @@ export function upcomingShown(v: Pick<BenchView, 'held' | 'ask' | 'connect' | 'm
   if (v.held) return true;
   if (v.nudgeOwns) return false;
   if (v.ask.kind === 'connect' && v.connect) return false;
-  if (v.ask.kind === 'share' && v.moment && v.handle) return false;
   if (v.ask.kind === 'post' && v.post) return false;
   if (v.ask.kind === 'apply' || v.ask.kind === 'wallet' || v.ask.kind === 'wallet_setup' || v.ask.kind === 'token' || v.ask.kind === 'new_repo') return false;
   return !(v.ask.kind === 'qualify' && v.qualify);
@@ -993,9 +990,6 @@ function rankedBody(v: BenchView, name: string, ask: string): string {
       [v.standingLed ? null : connectStanding(name, v.rank, v.streak), v.best ? qualifyLine(v.best) : null, ...v.due],
       [ask],
     );
-  if (!v.held && v.ask.kind === 'share' && v.moment && v.handle)
-    // v4.0 Task 7: the Monday block; last week's post link, else the page (the reply's one https link).
-    return mondayReply(v.moment, `https://${pageUrl(v.handle)}`, ask, SHARE_WHY, money);
   if (!v.held && v.ask.kind === 'post' && v.post) return postReply(v.post, ask, money ? `${money}\n\n${POST_WHY}` : POST_WHY);
   // v4.0 approved copy 3: setup step 3 is its own reply, word for word.
   if (!v.held && v.ask.kind === 'wallet_setup') return ask;
@@ -1042,7 +1036,6 @@ export function askWhy(v: Pick<BenchView, 'ask' | 'streak' | 'updating' | 'targe
     case 'none': return null;
     case 'ship': return shipWhyOf(v.target, v.updating ? null : v.streak);
     case 'checkin': return CHECKIN_WHY;
-    case 'share': return SHARE_WHY;
     case 'post': return POST_WHY;
     case 'suggest': return SUGGEST_WHY;
     case 'qualify': return v.qualify ? `${qualifyHead(v.qualify)} ${qualifyGap(replyName(v), v.qualify)}` : null;

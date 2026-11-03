@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mondayOpener } from './weekly-moment';
 import { bannedInBench } from './fixtures/banned-words';
 import {
-  INTRO_LINE, MOMENT_ASK, SHIP_ASK, STATE_COPY, VARIANT_COPY, applyAsk, benchReply, connectAsk, introWhat, pickRepoAsk, replyState, stateAsk,
+  INTRO_LINE, MOMENT_ADDED, SHIP_ASK, STATE_COPY, VARIANT_COPY, applyAsk, benchReply, connectAsk, introWhat, pickRepoAsk, replyState, stateAsk,
   type BenchProject, type BenchView,
 } from './bench-reply';
 
@@ -94,7 +94,7 @@ test('9.6b v3.1 spec 3.2, v4.0 Task 11: the apply step (no backing offer); the B
 test('9.7 the copy table: plain words, no em dash, no raise', () => {
   const lines = [
     STATE_COPY.signed_out.ask('https://x'), STATE_COPY.signed_out.retry(), STATE_COPY.no_project.noApp(), STATE_COPY.no_project.ask('https://x', false),
-    STATE_COPY.not_counted.ask('https://x', false), SHIP_ASK, MOMENT_ASK, INTRO_LINE, introWhat({ org: 'Base', amount: '$5,000', chain: 'Base' }), connectAsk('earnkit.com/a'),
+    STATE_COPY.not_counted.ask('https://x', false), SHIP_ASK, MOMENT_ADDED, INTRO_LINE, introWhat({ org: 'Base', amount: '$5,000', chain: 'Base' }), connectAsk('earnkit.com/a'),
     mondayOpener('Maya', null), applyAsk('A', '$5,000', null),
     ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('A'), v.ask('A')]),
   ].filter((l): l is string => l !== null);

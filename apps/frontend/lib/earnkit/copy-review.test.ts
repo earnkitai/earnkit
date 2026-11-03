@@ -26,13 +26,13 @@ import {
 import { SCORE_SHARED } from './score-tool';
 import { POST_LINE, SKIPPED_LINE, signInFirstLine } from './share';
 import { EARN_NOTE, standingNews } from './stand-text';
-import { INTRO_LINE, MOMENT_ASK, NEWS_ASK, OUTCOME_NOTED, POST_ASK, POST_HEAD, PROOF_ASK, SHIP_ASK, eventHead, pageLine, postReply, redraftLine, TITLES_ASK, applyAsk, grantHook, qualifyAsk, qualifyGap, qualifySteps, introWhat, pickRepoAsk, youreIn, connectAsk, connectStanding, qualifyLine, standingLine } from './bench-reply';
+import { INTRO_LINE, MOMENT_ADDED, NEWS_ASK, OUTCOME_NOTED, POST_ASK, POST_HEAD, PROOF_ASK, SHIP_ASK, eventHead, pageLine, postReply, redraftLine, TITLES_ASK, applyAsk, grantHook, qualifyAsk, qualifyGap, qualifySteps, introWhat, pickRepoAsk, youreIn, connectAsk, connectStanding, qualifyLine, standingLine } from './bench-reply';
 import { connectApplyAsk } from './connect-moment';
 import { OPEN_PREFILLED, SENT_ASK, draftKit, draftReadyLine } from './submit-kit';
 import { BUILDER_CODES_FIRST, builderCodesFound } from './builder-code';
 import { weekStartLine, weeklyTarget } from './weekly-target';
 import { postProblems, writePost, type PostInput } from './post-writer';
-import { APPROVED_LINE, SHARE_NOTE, momentLines, mondayLines, shareText } from './weekly-moment';
+import { APPROVED_LINE, momentLines, mondayLines, shareText } from './weekly-moment';
 import { SHIP_STEP_NOTE } from './bench-find';
 import { ATTRIBUTION_RULE } from './fresh-build';
 import { HIDDEN_LINE, NO_PROFILE_LINE, SHARED_PROFILE_NOTE, SHOWN_LINE } from './profiles';
@@ -902,7 +902,7 @@ function weeklyCopy(): [string, string][] {
     ['redraft limit', redraftLine('limit', 'https://earnkit.com/lee/post/abcdefghij')],
     ['redraft only', redraftLine('only', 'https://earnkit.com/lee/post/abcdefghij')],
     ['NEWS_ASK', NEWS_ASK],
-    ['MOMENT_ASK', MOMENT_ASK],
+    ['MOMENT_ADDED', MOMENT_ADDED],
     ['APPROVED_LINE', APPROVED_LINE],
   ];
 }
@@ -1032,7 +1032,6 @@ const agentFacing: [string, string][] = [
   // v2.12.1 T9: the notes after a move-up yes, and the build kit's attribution rule.
   ['ATTRIBUTION_RULE', ATTRIBUTION_RULE],
   ['SHIP_STEP_NOTE', SHIP_STEP_NOTE],
-  ['SHARE_NOTE', SHARE_NOTE],
   ['POST_NOTE', POST_NOTE],
   ['PROOF_NOTE', PROOF_NOTE],
   ['NEWS_REWORD_NOTE', NEWS_REWORD_NOTE],
@@ -1429,7 +1428,7 @@ function v31Texts(): [string, string][] {
     ['week start unranked', ws({ rank: null })],
     ['mondayLines', mondayLines({ first: 'Maya', summary: 'Shipped the new meal planner.', score: 82, change: 4, streak: 5, usd: 340, lastWeekUsd: 0 }).filter(Boolean).join('\n')],
     ['POST_HEAD', POST_HEAD],
-    ['MOMENT_ASK', MOMENT_ASK],
+    ['MOMENT_ADDED', MOMENT_ADDED],
     ['draft prefilled', prefilled.show_to_builder],
     ['draft copy and paste', paste.show_to_builder],
     ['SENT_ASK', SENT_ASK],

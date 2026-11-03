@@ -1765,8 +1765,8 @@ apps/frontend/
                                NO_GITHUB_HINT (the Lovable/Bolt line only without GitHub), ask kind wallet_setup + walletSetupAsk (step 3:
                                the wallet and the token sentence; TOKEN_NO_LINE, WALLET_SETUP_SKIPPED), the setup-done reply (SetupOutcome
                                launched|set|declined|skipped, setupDoneLead, programsTable "| Program | Up to | Closes |", bestFitAsk,
-                               setupDoneReply; BenchView.setupDone), mondayReply (opener, table with a blank header, cheer line, "Your
-                               post is ready to share: {link}", MOMENT_ASK 'Looks right?'), firstName, BenchView.nudge (nudges.ts).
+                               setupDoneReply; BenchView.setupDone), mondayBlock (opener, table with a blank header, cheer line, "Your
+                               post is ready to share: {link}", MOMENT_ADDED; v4.10.3 R6: no question), firstName, BenchView.nudge (nudges.ts).
                                Tests v4-setup.test.ts, v4-weekly.test.ts. v4.2: shipLine (no points; shipPointsLine removed),
                                TITLES_NO_LINE, closestAsk / checkFitsAsk in setupDoneReply, TOKEN_OFFER (LEAD + QUESTION) and ask kind
                                token (stateAsk tokenOffer); final review 3: ask kinds closest and check_fits (setup done's own, so their

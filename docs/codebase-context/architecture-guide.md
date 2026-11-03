@@ -9502,7 +9502,7 @@ This supersedes the per-program need in Task 4: the builder answers once for the
   left does `pathSubmit` say "Done, it's ready to paste"; its form line names only contact fields EarnKit doesn't hold.
   `draftAnswered` (prepare with coach_asked) also marks the round done. An ask stored before the rounds (no `round`)
   finishes as before.
-- **Monday ask.** `MOMENT_ASK` is "Add last week to your page?" (the thanks says "Last week is on your page.").
+- **Monday ask.** `MOMENT_ASK` is "Add last week to your page?" (the thanks says "Last week is on your page."). Superseded by v4.10.3 Task 3 (R6): the block asks nothing and adds the week itself.
 - **Last week vs live (final re-review; superseded by v4.10.3 Task 2, R5: one score, "This week", no `soFar`).** `bench-reply.ts mondayReply` heads its table "Last week" (its numbers are
   `weekly-moment.ts lastWeekOf`, last week's final). The block marks `moment_score=N` said; `benchView` sets
   `Standing.soFar` when this session's live score differs, so `standing.ts standingParagraph` says "Score 69 so far
@@ -9559,3 +9559,27 @@ This supersedes the per-program need in Task 4: the builder answers once for the
   count. A standing question while updating: a builder whose stored read had a page score (`ViewIn.scored`) hears
   `conversation.ts standingOnPage` ("Your score and streak are on your page: {page}."); one with none keeps the copy
   before a score. `MondayFacts` documents its two meanings (email: last week's final; reply: live).
+
+## v4.10.3 Task 3: one ask (2026-11-03, plan: v4.10.3-plan/)
+
+- **The Monday block asks nothing (R6, owner answer 4).** `MOMENT_ASK`, `SHARE_WHY` and `SHARE_NOTE` are gone, and
+  `share` left `stateAsk` (the `share` kind stays in `BenchAskKind` for old pending answers). `bench-reply.ts
+  mondayBlock(m, page)` (was `mondayReply`) is the opener, the table, the cheer, the X post link (a link, never a
+  question) or the page, then `MOMENT_ADDED` ("Last week is on your page.") when `MomentView.added`. No why, no money
+  line, no ask. `rankedBody` no longer renders the moment.
+- **The add.** `bench-find.ts weeklyMoment`, once it claims the week (`takeMoment`), calls `approveWeek(id, key,
+  monday, now, 'share', shown)` directly (the action `answerShare` takes on a yes), in place of `openShare`. A failed
+  add is logged ("moment add") and `added` is false, so the block says nothing about the page. At most once a week per
+  installation (`moment_week`) and per builder (an approved week is never shown again); never while updating (no
+  caller runs it then). The stats' `shared` counts these adds (`approved_via 'share'`).
+- **Where it rides.** `benchView`'s `mondayShown` pushes the block into `ViewIn.monday`; `benchFind` and `benchScore`
+  put it above the reply (after the answer, the alerts and the opener, before `ahead`), so the reply's one easy reply
+  (the program ask: apply, the also-open lead, the deferred path move, or the ranked rest) stays last. A path reply
+  with its own move returns before the older asks (its session opener leads), so the block rides on the first settled
+  reply the path falls through on, as before. The block marks `older` and `proof:streak=N` said (in the row and in the
+  reply's read, so the also-open lead says no second proof). Beside the block only Base's grant steps
+  (`qualify`, via `quietAll`) may join; the lighter asks and a non-asking nudge wait. Score's standing paragraph is
+  not led over the block.
+- **Old pending share answers.** `benchMoveUp` kind `share`: an offer still open from before deploy answers as it did
+  (`answerShare`, thanks, then find). A yes with none open clears a stored `share` ask and hands off to find
+  (`then_find`, no line), so it ends in the current program ask; a no is "Okay.".

@@ -18,7 +18,7 @@ const noOpen = (s: string) => {
   return s;
 };
 import { weekCommunityUsd } from './community';
-import { MOMENT_ASK, mondayReply, type MomentView } from './bench-reply';
+import { MOMENT_ADDED, mondayBlock, type MomentView } from './bench-reply';
 import { formatReply } from './reply-format';
 import { digestBody, sendDigests, type DigestFacts, type Mailer } from './digest';
 
@@ -90,8 +90,8 @@ test('the rows: score with its change, the streak, the community', () => {
   assert.equal(mondayOpener('Sam', 'Fixed the login loop.'), 'Your week is ready, Sam. Fixed the login loop. Nice work.', 'the approved words as they are');
 });
 
-test('(a) the reply is the spec block: opener, table, post link, the page question', () => {
-  const s = mondayReply(VIEW, PAGE, MOMENT_ASK);
+test('(a) the reply is the spec block: opener, table, post link, then (v4.10.3 R6) the week added to the page, no question', () => {
+  const s = mondayBlock({ ...VIEW, added: true }, PAGE);
   assert.equal(s, [
     'Your week is ready, Maya. You shipped the new meal planner. Nice work.',
     '',
@@ -103,29 +103,31 @@ test('(a) the reply is the spec block: opener, table, post link, the page questi
     '',
     'Your post is ready to share: https://earnkit.com/maya/post/abcdefghij',
     '',
-    'Add last week to your page?',
+    'Last week is on your page.',
   ].join('\n'));
-  assert.equal(MOMENT_ASK, 'Add last week to your page?');
+  assert.equal(MOMENT_ADDED, 'Last week is on your page.');
   assert.equal(links(s).length, 1);
-  assert.equal(questions(s), 1);
+  assert.equal(questions(s), 0);
   assert.doesNotMatch(s, /MAYA|[Tt]oken|[Cc]oin|\p{Extended_Pictographic}|—/u);
   // Plain surfaces (Task 6): "Label: value" lines.
   assert.match(formatReply(s, 'plain'), /\n\nShipping score: 82, up 4\n\nStreak: 5 weeks\n\nFrom your community: \$46, already in your wallet\n\n/);
   // No post: the page is the one link.
-  assert.match(mondayReply({ ...VIEW, post: null }, PAGE, MOMENT_ASK), /\n\nYour page: https:\/\/earnkit\.com\/maya\n\nAdd last week to your page\?$/);
+  assert.match(mondayBlock({ ...VIEW, post: null, added: true }, PAGE), /\n\nYour page: https:\/\/earnkit\.com\/maya\n\nLast week is on your page\.$/);
+  // A failed add (or none): the block says nothing about the page.
+  assert.match(mondayBlock({ ...VIEW, added: false }, PAGE), /\n\nYour post is ready to share: \S+$/);
 });
 
 test('(b) $0 from the community: no community row', () => {
-  const s = mondayReply({ ...VIEW, community: NO_FEES }, PAGE, MOMENT_ASK);
+  const s = mondayBlock({ ...VIEW, community: NO_FEES }, PAGE);
   assert.doesNotMatch(s, /community|wallet|believe/i, s);
   assert.match(s, /\| Streak \| 5 weeks \|\n\nYour post/);
 });
 
 test('(c) $340: the row and the cheer under the table', () => {
-  const s = mondayReply({ ...VIEW, community: { usd: 340, lastWeekUsd: 300 } }, PAGE, MOMENT_ASK);
+  const s = mondayBlock({ ...VIEW, community: { usd: 340, lastWeekUsd: 300 } }, PAGE);
   assert.match(s, /\| From your community \| \$340, already in your wallet \|\n\nPeople really believe in what you're shipping\.\n\nYour post is ready/);
   assert.equal(CHEER_LINE, "People really believe in what you're shipping.");
-  assert.equal(questions(s), 1);
+  assert.equal(questions(s), 0);
 });
 
 test('(d) the email carries the same facts as plain lines', () => {
@@ -223,9 +225,12 @@ test('(a, end to end) the Monday find: the spec block with the real score, strea
     '',
     share,
     '',
-    'Builders who share wins get noticed by programs.',
+    // v4.10.3 Task 3 (R6): the find added last week itself; the reply's own step is its one easy reply.
+    'Last week is on your page.',
     '',
-    'Add last week to your page?',
+    'Shipping this week keeps your 5-week streak and lifts your score.',
+    '',
+    'Want me to suggest one small thing to ship?',
   ].join('\n'));
   assert.equal(links(s).length, 1);
   assert.equal(questions(s), 1);
