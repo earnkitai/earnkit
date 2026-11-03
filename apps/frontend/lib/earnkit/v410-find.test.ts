@@ -874,10 +874,10 @@ test('v4.10.2 (R3): the owner\'s real set (OWN=27): Circle is not eligible off A
  * not eligible). The quiet reply leads with the money left out ("also open") and one yes/no; a repeat find says it as
  * the easy reply alone (program, money, the answers); the programs answer later is no session opener.
  */
-async function passedOwner(tag: string) {
+async function passedOwner(tag: string, o: { client?: string } = {}) {
   const { circle } = await ownerPrograms({ required: true });
   await only([circle.id, 'base-builder-grants']);
-  const b = await owner(tag, { bank: false, contract: false });
+  const b = await owner(tag, { bank: false, contract: false, ...(o.client && { client: o.client }) });
   const day = 86_400_000;
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen
       || jsonb_build_object('declined', jsonb_build_object(${`qualify:${b.key}`}::text, ${new Date(Date.now() - day).toISOString()}::text),
@@ -911,6 +911,24 @@ test('v4.10.2 Task 5: an empty set and a quiet path lead with the also-open mone
   assert.equal(moveUp({ reply: again.reply } as R)?.kind, 'apply');
   assert.ok(!replies[3].first, 'the programs answer is mid-session, never an opener');
   for (const r of replies) assert.doesNotMatch(r.show, BAD, r.show);
+  assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), [], replies.map((r) => r.show).join('\n---\n'));
+});
+
+test('v4.10.3 Task 4 (R6, walk M): a lighter ask never takes the also-open lead\'s slot: the check-in waits, every find ends on the Base ask', db, async () => {
+  // A client that can schedule, the check-in never asked: it would be due in this quiet reply.
+  const b = await passedOwner('al9', { client: 'Cursor' });
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'checkin' - 'checkin_asked' - 'checkin_asks' WHERE builder_id = ${b.id}`;
+  const replies = await converse(b.ctx as never, [{ find: {} }, { find: {} }], { builderId: b.id });
+  const [lead, again] = replies;
+  assert.ok(lead.show.split('\n\n').includes(ALSO_HEAD), lead.show);
+  assert.match(lead.show, /\n\nWant me to start it\?$/, lead.show);
+  assert.equal(again.show, ALSO_AGAIN);
+  for (const r of replies) {
+    assert.doesNotMatch(r.show, /check in here every Monday/, r.show);
+    assert.deepEqual([moveUp({ reply: r.reply } as R)?.kind, moveUp({ reply: r.reply } as R)?.project_key], ['apply', b.key]);
+  }
+  // The check-in was not spent on a reply that never showed it.
+  assert.equal((await seenOf(b.id)).checkin_asked, undefined);
   assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), [], replies.map((r) => r.show).join('\n---\n'));
 });
 

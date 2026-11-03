@@ -1742,17 +1742,29 @@ const alsoSaid = (pid: string) => `also:${pid}`;
  * path), so a yes is the draft stage (pathDraft) and a no parks the program for the path. Null: no lead kept this
  * session, it is closed, told about, or said no to. Never throws on its own writes.
  */
-async function alsoLeadCommit(
-  o: ViewIn, v: Pick<PathFacts, 'state' | 'variant' | 'project' | 'streak' | 'handle' | 'stand' | 'siteLive'>, told: Set<string> | null,
-): Promise<{ view: BenchView; fields: Reply; stand: Standing } | null> {
-  const { id, now, read } = o;
+/**
+ * v4.10.3 Task 4 (R6, walk M): whether the also-open lead can lead this reply (pure, on what find already read): the
+ * stored lead of this session, for this project, not told, still showable and not said no to. The lead it would show,
+ * else null. find uses it to keep the lighter asks (check-in, wallet, token, new repo, titles) out of the lead's slot.
+ */
+function alsoLeadDue(o: Pick<ViewIn, 'now' | 'read' | 'cards' | 'skip'>, projectKey: string, told: Set<string> | null) {
+  const { now, read } = o;
   const a = read.seen.also_open;
   if (!a || typeof a.at !== 'string' || !(now.getTime() - Date.parse(a.at) < SESSION_MS)) return null;
-  if ((a.key ?? '').toLowerCase() !== v.project.key.toLowerCase() || !told || told.has(a.id)) return null;
+  if ((a.key ?? '').toLowerCase() !== projectKey.toLowerCase() || !told || told.has(a.id)) return null;
   const card = o.cards.find((c) => c.id === a.id);
   if (!card || !showable(card, now, o.skip)) return null;
   const no = read.seen.declined ?? {};
   if ([benchStepKey('apply', a.id), benchStepKey('path', a.id)].some((k) => no[k] && now.getTime() - Date.parse(no[k]) < DECLINE_MS)) return null;
+  return a;
+}
+
+async function alsoLeadCommit(
+  o: ViewIn, v: Pick<PathFacts, 'state' | 'variant' | 'project' | 'streak' | 'handle' | 'stand' | 'siteLive'>, told: Set<string> | null,
+): Promise<{ view: BenchView; fields: Reply; stand: Standing } | null> {
+  const { id, now, read } = o;
+  const a = alsoLeadDue(o, v.project.key, told);
+  if (!a || !told) return null;
   const session = sessionOf(read.seen, now);
   const again = !session.fresh && session.said.has(alsoSaid(a.id));
   const proof = session.fresh ? proofOf({ name: v.project.name, live: v.project.live || v.siteLive }, v.streak, false, session.said) : null;
@@ -2846,7 +2858,10 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   // 2026-10-22: then a private repo's titles question (once a person), then, with no fit, Base's grant steps.
   // v4.10.3 Task 3 (R6): beside the Monday block only a program ask (Base's grant steps below), never the lighter asks.
   const quietAll = !owns && rankedFree && project !== null && !held && !connect && !event;
-  const quiet = quietAll && !moment;
+  // v4.10.3 Task 4 (R6, walk M): the also-open lead is the program ask, so a lighter ask never takes its slot (the
+  // Monday find whose numbers were updating asked the check-in instead of the Base ask).
+  const leadDue = pathQuiet && project !== null && handle !== null && alsoLeadDue(o, project.key, told) !== null;
+  const quiet = quietAll && !moment && !leadDue;
   // v3.1 wallet proof: the optional wallet step, once a person, in the first quiet reply after setup (never with another
   // question); claimed below only once this reply carries it.
   // 2026-10-23 Base onboarding: after the GitHub no, the walk-through offer once (Base Builder Grants open: its last

@@ -20,7 +20,13 @@
  * - R (OWN, v4.10): the ready set: find, yes (VARIANT=skip: "skip <last number>"), the codes pushed (simulated, see walkR),
  *   "sent", one more find. The set's one builder-only ask is answered in one message, split by field (ANSWERS; v4.10
  *   final fix I1). Needs a fresh copy per variant.
- * - A, S and R first age the snapshot's live session past SESSION_MS (a note says so), so session 0 is a real opener.
+ * - M (OWN, v4.10.3 Task 4): the Monday probe. The clock is pinned (every new Date(), as v4101-score.test.ts does) to a
+ *   Monday after the weekly hour (MONDAY, default 2026-11-09T16:00:00Z, the Monday after the snapshot), and the score
+ *   refresh is held by a gated reader (v4101-score.test.ts slowReader: every read waits, then fails as if offline), so
+ *   the first find is the updating one. Then the reader is let go and the refresh settles, then score, then find.
+ *   Its own gate (mondayFailures): no builder text says "updating"; score and find show the same score and streak;
+ *   every reply ends with the same program ask; "Last week is on your page." at most once, in a block that asks nothing.
+ * - A, S, R and M first age the snapshot's live session past SESSION_MS (a note says so), so session 0 is a real opener.
  * - Real work ends a walk's session: a push to the builder's repo (Builder Codes, "Say ok once the change is pushed")
  *   or connecting GitHub needs the builder's own accounts, so the script records it and goes no further there. A help
  *   step's "ok" is played as not done yet (EarnKit re-checks it).
@@ -56,8 +62,8 @@ for (const name of ['LINK_CHECK', 'EARNKIT_MODEL_TEST'])
 delete process.env.LINK_CHECK;
 delete process.env.EARNKIT_MODEL_TEST;
 const walk = (process.env.WALK ?? 'A').toUpperCase();
-if (walk !== 'A' && walk !== 'B' && walk !== 'S' && walk !== 'R') {
-  console.error('WALK must be A, B, S or R.');
+if (walk !== 'A' && walk !== 'B' && walk !== 'S' && walk !== 'R' && walk !== 'M') {
+  console.error('WALK must be A, B, S, R or M.');
   process.exit(2);
 }
 
@@ -75,6 +81,7 @@ const { appEnv } = await import('../lib/earnkit/fixtures/app-install');
 const { BUILDER_CODES_SUFFIX } = await import('../lib/earnkit/builder-code');
 const { PUSHED_ASK } = await import('../lib/earnkit/bench-find');
 const { SESSION_MS } = await import('../lib/earnkit/conversation');
+const { mcpCall } = await import('../lib/earnkit/fixtures/mcp-call');
 type Reply = import('../lib/earnkit/fixtures/converse').Reply;
 type Turn = import('../lib/earnkit/fixtures/converse').Turn;
 
@@ -232,6 +239,97 @@ async function walkR() {
   if (sent) await play({ find: {} });
 }
 
+/** v4.10.3 Task 4, walk M: the Monday probe (see the header). Failures it finds beyond the merge gate. */
+const mondayFails: string[] = [];
+
+async function walkM() {
+  const { mock } = await import('node:test');
+  const monday = Date.parse(process.env.MONDAY ?? '2026-11-09T16:00:00Z');
+  const pinned = new Date(monday);
+  if (pinned.getUTCDay() !== 1 || pinned.getUTCHours() < 15) throw new Error('MONDAY must be a Monday at or after 15:00 UTC');
+  mock.timers.enable({ apis: ['Date'], now: monday });
+  notes.push(`the clock is pinned to ${pinned.toISOString()} (a Monday, after the weekly hour)`);
+  const { REPLY_WAIT_MS } = await import('../lib/earnkit/reply-wait');
+  const { MOMENT_ADDED } = await import('../lib/earnkit/bench-reply');
+  const id = Number(process.env.OWN ?? 27);
+  const base = await own(id);
+  const [me] = await sql()<{ name: string | null; handle: string | null }[]>`
+    SELECT p.name, f.x_handle AS handle FROM builder_profiles f LEFT JOIN builder_projects p ON p.builder_id = f.builder_id AND lower(p.project_key) = lower(f.main_project_key)
+    WHERE f.builder_id = ${base.installationId}`;
+  names.push(...[me?.name, me?.handle].filter((x): x is string => Boolean(x)));
+  await freshSession(base.installationId);
+  // The gated reader: every read waits for open(), then fails (no network), so find's refresh is still running when
+  // its REPLY_WAIT_MS ends; once open, the refresh settles on what the snapshot holds.
+  let open!: () => void;
+  const gate = new Promise<void>((r) => (open = r));
+  const calls: string[] = [];
+  const held = async (what: string): Promise<never> => {
+    calls.push(what);
+    await gate;
+    throw new Error('walk M: not served (offline)');
+  };
+  const readerDeps = {
+    now: pinned, gh: (p: string) => held(`gh ${p}`), ghGraphql: () => held('graphql'), ghFetch: (() => held('fetch')) as never,
+    probe: () => held('probe'), fetchText: () => held('text'), json: () => held('json'), contractOrigin: () => held('origin'),
+    walletCreations: () => held('wallet'),
+  };
+  const ctx = { ...base, readerDeps } as never;
+  const turn = conversation(ctx, { builderId: base.installationId, call: (tool, args) => mcpCall(ctx, tool, args, { format: true }) });
+  const play = async (t: Turn) => {
+    const r = await turn(t);
+    if (r) replies.push(r);
+    return r;
+  };
+  const f1 = await play({ find: {} });
+  if (f1?.reply?.numbers_updating !== true) mondayFails.push(`turn 0: the first find is not the updating one (${calls.length} read(s) held)`);
+  open();
+  // The refresh settles (its reads fail at once now); give it the reply wait to write before score asks.
+  await new Promise((r) => setTimeout(r, REPLY_WAIT_MS));
+  const s = await play({ score: {} });
+  const f2 = await play({ find: {} });
+  const all = [f1, s, f2].filter((r): r is Reply => Boolean(r));
+  // 1. Nothing the builder sees says the numbers are updating.
+  for (const r of all) if (/updating/i.test(r.show)) mondayFails.push(`turn ${r.turn}: the builder text says "updating"`);
+  // 2. score and find: the same score and streak, in the facts and in what is shown.
+  // The live score: the rank fact's, else the standing's own "Score N" (a builder outside the rank pool has no rank fact).
+  const scoreOf = (r: Reply) => (r.reply?.facts as { rank?: { score?: number } } | undefined)?.rank?.score
+    ?? (/^Score (\d+)\b/.exec(String(r.reply?.standing ?? '')) ? Number(/^Score (\d+)\b/.exec(String(r.reply?.standing))![1]) : null);
+  const shown = (r: Reply) => ({
+    score: [...r.show.matchAll(/\b[Ss]core(?: \| | )(\d+)\b/g)].map((m) => Number(m[1])),
+    weeks: [...r.show.matchAll(/\b(\d+) weeks?\b/g)].map((m) => Number(m[1])),
+  });
+  if (s && f2) {
+    if (s.reply?.numbers_updating || f2.reply?.numbers_updating) mondayFails.push('score or the second find is still updating after the refresh settled');
+    if (s.reply?.standing !== f2.reply?.standing) mondayFails.push(`score and find stand differently: "${s.reply?.standing}" vs "${f2.reply?.standing}"`);
+    if (s.reply?.streak !== f2.reply?.streak) mondayFails.push(`score and find streaks differ: ${s.reply?.streak} vs ${f2.reply?.streak}`);
+    if (scoreOf(s) === null) mondayFails.push('score states no score after the refresh settled');
+    if (scoreOf(s) !== scoreOf(f2)) mondayFails.push(`score and find scores differ: ${scoreOf(s)} vs ${scoreOf(f2)}`);
+    for (const r of [s, f2]) {
+      const sh = shown(r);
+      const want = scoreOf(r);
+      if (sh.score.some((n) => n !== want)) mondayFails.push(`turn ${r.turn}: shows score ${sh.score.join(', ')}, the live score is ${want}`);
+      if (sh.weeks.some((n) => n !== r.reply?.streak)) mondayFails.push(`turn ${r.turn}: shows ${sh.weeks.join(', ')} week(s), the live streak is ${r.reply?.streak}`);
+    }
+  }
+  // 3. Every reply ends with the same program ask (one structured move, the same program; a question last).
+  const askOf = (r: Reply) => {
+    const m = moveUpOf(r) as { kind?: string; project_key?: string; program_id?: string } | null;
+    return m ? `${m.kind}:${m.project_key ?? ''}:${m.program_id ?? ''}` : null;
+  };
+  const asks = all.map(askOf);
+  if (asks.some((a) => !a || !/^(?:apply|ready|path)/.test(a))) mondayFails.push(`a reply has no program ask: ${JSON.stringify(asks)}`);
+  if (new Set(asks).size > 1) mondayFails.push(`the replies end on different asks: ${JSON.stringify(asks)}`);
+  for (const r of all) if (!/\?$|^Reply /.test(r.show.split('\n').at(-1) ?? '')) mondayFails.push(`turn ${r.turn}: the last line is not the one easy reply`);
+  // 4. "Last week is on your page." at most once, and the block asks nothing: no question before the last paragraph.
+  const added = all.filter((r) => r.show.includes(MOMENT_ADDED));
+  if (added.length > 1 || added.some((r) => r.show.split(MOMENT_ADDED).length > 2)) mondayFails.push(`"${MOMENT_ADDED}" said more than once`);
+  for (const r of all) {
+    const paras = r.show.split(/\n\n+/);
+    if (paras.slice(0, -1).some((p) => p.includes('?'))) mondayFails.push(`turn ${r.turn}: a question before the one easy reply`);
+  }
+  notes.push(`held reads on the first find: ${calls.length}; "${MOMENT_ADDED}" said in ${added.length} reply(ies)`);
+}
+
 async function walkB() {
   const token = `ek_replay_b_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(token, undefined, false, 'Claude Code');
@@ -248,14 +346,16 @@ async function walkB() {
 let code = 0;
 let sessionFailed = false;
 try {
-  await (walk === 'A' ? walkA() : walk === 'S' ? walkS() : walk === 'R' ? walkR() : walkB());
+  await (walk === 'A' ? walkA() : walk === 'S' ? walkS() : walk === 'R' ? walkR() : walk === 'M' ? walkM() : walkB());
   console.log(`=== WALK ${walk} ===\n\n${transcript(replies)}\n`);
   for (const n of notes) console.log(`note: ${n}`);
   const fails = gateFailures(replies, { names });
-  console.log(`\n=== GATE: ${fails.length ? `${fails.length} failure(s)` : 'pass'} ===`);
+  const total = fails.length + mondayFails.length;
+  console.log(`\n=== GATE: ${total ? `${total} failure(s)` : 'pass'} ===`);
   for (const f of fails) console.log(`turn ${f.turn} ${f.rule}: ${f.reason}`);
+  for (const f of mondayFails) console.log(`monday: ${f}`);
   if (sessionFailed) console.log('=== SESSION: walk S did not start fresh ===');
-  code = fails.length || sessionFailed ? 1 : 0;
+  code = total || sessionFailed ? 1 : 0;
 } catch (err) {
   console.error(err);
   code = 2;

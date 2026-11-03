@@ -14,6 +14,8 @@ import { READY_AGAIN_ASK, READY_ASK } from '../ready-copy';
 export type Turn = (
   | { find: { ask?: 'standing' | 'programs'; program?: string } }
   | { tell: Record<string, unknown> }
+  /** v4.10.3 Task 4: the score tool (walk M's Monday probe: find, score, find). */
+  | { score: Record<string, never> }
   | { wait: number }
 ) & {
   /** What the builder says, for the transcript ("sure", "sent"). */
@@ -31,7 +33,7 @@ export type Reply = {
   first: boolean;
   /** A hook reply: it said a new `hook:<program>` part this session (standing_seen.said, the structured marker). */
   hook: boolean;
-  tool: 'find' | 'tell';
+  tool: 'find' | 'tell' | 'score';
   input: Record<string, unknown>;
   says?: string;
   /** What the builder sees: show_to_builder, formatted as the route formats it. */
@@ -42,7 +44,7 @@ export type Reply = {
   reply: Record<string, unknown> | null;
 };
 
-export type Call = (tool: 'find' | 'tell', args: Record<string, unknown>) => Promise<McpResult>;
+export type Call = (tool: 'find' | 'tell' | 'score', args: Record<string, unknown>) => Promise<McpResult>;
 
 async function seenOf(id: number): Promise<{ said?: unknown } | null> {
   const [r] = await sql()<{ s: { said?: unknown } | null }[]>`SELECT standing_seen AS s FROM builder_profiles WHERE builder_id = ${id}`;
@@ -151,7 +153,7 @@ export function conversation(target: ToolContext | number, o: { call?: Call; bui
       session++;
       return null;
     }
-    const [tool, input] = 'find' in t ? (['find', t.find] as const) : (['tell', t.tell] as const);
+    const [tool, input] = 'find' in t ? (['find', t.find] as const) : 'score' in t ? (['score', t.score] as const) : (['tell', t.tell] as const);
     if (tool === 'tell') {
       const why = askMismatch(prev, input);
       if (why) throw new Error(`converse turn ${i}: the tell doesn't answer the previous reply's ask: ${why}`);
