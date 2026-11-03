@@ -2878,6 +2878,18 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
   `revertWrite`, `revertPreview`; `program-revert-page.ts` and `app/api/programs/revert/route.ts`.
 - `programs-api.ts` `NEWER_RESULTS` adds `reverted`. Tests: `v4102-revert-digest.test.ts`.
 
+## v4.10.3 Task 1: the opener hook and the listed asks
+
+- `ready-set.ts` `grantTotal` (never a long shot or an investor program; `worthUpTo` reads it), `investorWorth`,
+  `INVESTOR_NAME_MS` (30 days), `namedInvestor` (the soonest investor program closing within it).
+- `ready-copy.ts` `alsoMoneyLine` ("Open for you now: up to $X in grants plus a $400K accelerator. Alliance closes in 15
+  days."), `grantMoney`, `LeadRound`; `alsoLeadLine` / `alsoAgainAsk` take the first round; `worthClause` says investor
+  programs apart ("plus a $1M accelerator").
+- `bench-find.ts` `AlsoOpenLead.usd` / `.round` (written by `readyCommit`), `alsoLeadCommit` (money line first, then
+  proof, the program with its first round, the ask; `draft.asks` and `ALSO_LEAD_NOTE` to the agent), `pathDraft(..., m)`
+  and `draftYes(..., first)` (a yes to the lead carrying round 1's answers banks them). Tests: `v4103-hook.test.ts`,
+  `v410-find.test.ts` ("v4.10.3 Task 1").
+
 ## v4.10.2 Task 5: replay fixes (the next step after the Monday block)
 
 - `bench-reply.ts` `MOMENT_ASK` is "Add last week to your page?" (was "Looks right?").

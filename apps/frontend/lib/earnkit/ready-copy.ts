@@ -1,6 +1,8 @@
 import { GTM_ONE_LINE, closeWords, hoursLeft, isGtm, programName } from './conversation';
 import { BUILDER_CODES_GUIDE } from './bench-reply';
-import { longShotWorth, type ReadyProgram } from './ready-set';
+import { investorWorth, longShotWorth, type ReadyProgram } from './ready-set';
+import { timeLeftWords } from './deadline';
+import { usdCompact } from './pool';
 import { CHAIN_NAMES, type Chain } from './chains';
 
 /*
@@ -155,15 +157,44 @@ export function readyLine(p: ReadyProgram, n: number, hosted: boolean, now: Date
 
 /**
  * v4.10.1 Task 2 (R3): the opener head's money: ", worth up to $1M, plus a $100K long shot" (`worth`: worthUpTo, long
- * shots left out). A set of long shots only: ", a $100K long shot" (", $150K in long shots"); no number at all: nothing,
- * never "$0". Pure.
+ * shots left out). v4.10.3 Task 1 (R1): investor programs are left out of the worth too and said apart, by the kind the
+ * money figure names them (pool.ts openMoneyWords: an investment is an accelerator): ", worth up to $5K, plus a $1M
+ * accelerator and a $100K long shot". A set of those only: ", a $100K long shot" (", $150K in long shots"); no number
+ * at all: nothing, never "$0". Pure.
  */
 export function worthClause(set: readonly Pick<ReadyProgram, 'kind' | 'max_usd'>[], worth: string | null): string {
   const long = longShotWorth(set);
-  const shots = long ? (long.n === 1 ? `a ${long.usd} long shot` : `${long.usd} in long shots`) : null;
-  if (worth) return `, worth up to ${worth}${shots ? `, plus ${shots}` : ''}`;
-  if (!shots) return '';
-  return set.every((p) => p.kind === 'long_shot') ? `, ${shots}` : `, including ${shots}`;
+  const inv = investorWorth(set);
+  const apart = [
+    inv ? (inv.n === 1 ? `a ${inv.usd} accelerator` : `${inv.usd} in accelerators`) : null,
+    long ? (long.n === 1 ? `a ${long.usd} long shot` : `${long.usd} in long shots`) : null,
+  ].filter((x): x is string => Boolean(x));
+  const said = list(apart);
+  if (worth) return `, worth up to ${worth}${said ? `, plus ${said}` : ''}`;
+  if (!said) return '';
+  return set.every((p) => p.kind === 'long_shot' || p.kind === 'investor') ? `, ${said}` : `, including ${said}`;
+}
+
+/**
+ * v4.10.3 Task 1 (R2): a grant total as the money line says it: in full under $100K ("$5,000", as a program's own
+ * "up to $5,000"), else usdCompact ("$105.5K", rounded down so it never overstates). Pure.
+ */
+export const grantMoney = (usd: number) => (usd < 100_000 ? `$${Math.floor(usd).toLocaleString('en-US')}` : usdCompact(usd));
+/** v4.10.3 Task 1 (R1): the investor program the money line names (ready-set.ts namedInvestor). */
+export type NamedInvestor = { title: string; max_usd: number | null; ends_at: string };
+/**
+ * v4.10.3 Task 1 (R1, R2, owner answer 1): the also-open lead's money line, first: "Open for you now: up to $5,000 in
+ * grants plus a $400K accelerator. Alliance closes in 15 days." `grantUsd` is the grant total the builder could pursue
+ * (ready-set.ts grantTotal: never an investor program or a long shot); `investor` the one investor program closing
+ * within INVESTOR_NAME_MS, with its own amount and kind ("an accelerator" with no number) and its close (deadline.ts
+ * timeLeftWords: the hours under 48). No grant money: the investor clause alone; neither: null, never "$0". Pure.
+ */
+export function alsoMoneyLine(grantUsd: number, investor: NamedInvestor | null, now: Date): string | null {
+  const when = investor ? timeLeftWords(investor.ends_at, now) : null;
+  const inv = investor && when ? (investor.max_usd && investor.max_usd > 0 ? `a ${usdCompact(investor.max_usd)} accelerator` : 'an accelerator') : null;
+  const close = inv ? ` ${shortName(investor!.title)} closes ${when}.` : '';
+  if (grantUsd > 0) return `Open for you now: up to ${grantMoney(grantUsd)} in grants${inv ? ` plus ${inv}` : ''}.${close}`;
+  return inv ? `Open for you now: ${inv}.${close}` : null;
 }
 
 /**
@@ -181,14 +212,28 @@ export function readyAlsoLine(out: readonly { title: string; amount: string | nu
 /**
  * v4.10.2 Task 5: with no set (nothing fits one reply) and no path move, the quiet reply leads with the top program left
  * out (alsoLead*): its money and its answers, then ALSO_START_ASK (its yes is the path's draft stage). A repeat find this
- * session says ALSO_AGAIN_ASK alone, the same facts in the easy reply, so it repeats as the pending ask. Pure.
+ * session says ALSO_AGAIN_ASK alone, the same facts in the easy reply, so it repeats as the pending ask.
+ * v4.10.3 Task 1 (R3, owner answer 3): both name the draft's first round (`round`: bench-find.ts pathRound's ask
+ * phrases, at most 4 answers, `n` of them), and how many come after it, so a yes can carry those answers. Pure.
  */
 const answersWords = (n: number) => `${n} answer${n === 1 ? '' : 's'} from you`;
-export const alsoLeadLine = (title: string, amount: string | null, answers: number) =>
-  `${programName(title)} ${amount ? `pays ${amount}` : 'is open'} and needs ${answersWords(answers)}.`;
+/** v4.10.3 Task 1 (R3): the also-open lead's first round: its ask phrases and how many answers they are. */
+export type LeadRound = { asks: readonly string[]; n: number };
+const roundList = (r: LeadRound) => needsList(r.asks, r.asks.length);
+export function alsoLeadLine(title: string, amount: string | null, answers: number, round?: LeadRound | null): string {
+  const head = `${programName(title)} ${amount ? `pays ${amount}` : 'is open'} and needs ${answersWords(answers)}`;
+  if (!round || round.asks.length === 0) return `${head}.`;
+  const rest = answers - round.n;
+  if (rest <= 0) return `${head}: ${roundList(round)}.`;
+  return `${head}. The first${round.n === 1 ? '' : ` ${round.n}`}: ${roundList(round)}, and ${rest} more after these.`;
+}
 export const ALSO_START_ASK = 'Want me to start it?';
-export const alsoAgainAsk = (title: string, amount: string | null, answers: number) =>
-  `Want me to start ${programName(title)} (${amount ? `${amount}, ` : ''}${answersWords(answers)})?`;
+export function alsoAgainAsk(title: string, amount: string | null, answers: number, round?: LeadRound | null): string {
+  const facts = `${amount ? `${amount}, ` : ''}${answersWords(answers)}`;
+  if (!round || round.asks.length === 0) return `Want me to start ${programName(title)} (${facts})?`;
+  const rest = answers - round.n;
+  return `Want me to start ${programName(title)} (${facts}${rest > 0 ? ', starting with' : ':'} ${roundList(round)})?`;
+}
 
 /**
  * v4.10.2 Task 2 (R3): the programs left out as not eligible (their rule requires a chain the project doesn't use), in

@@ -93,21 +93,50 @@ export function fitReadySet<T>(
 }
 
 /**
+ * v4.10.3 Task 1 (R1, R2): the grant money in a list of programs, in whole dollars: each program's `max_usd`, never a
+ * long shot's (longShotWorth says it apart) nor an investor program's (an investor program's money is never added to a
+ * grant total; investorWorth says it apart). A program with no number adds nothing. Pure.
+ */
+export function grantTotal(set: readonly Pick<ReadyProgram, 'kind' | 'max_usd'>[]): number {
+  return set.reduce((n, p) => n + (p.kind !== 'long_shot' && p.kind !== 'investor' && p.max_usd && p.max_usd > 0 ? p.max_usd : 0), 0);
+}
+/**
  * R3: what the set is worth, "$1.1M", "$105.5K" (pool.ts usdCompact, the money line's figure: one decimal, rounded
- * down so it never overstates): the sum of each program's `max_usd`. A program with no number adds nothing; none has
- * one: null. v4.10.1 Task 2 (R3): a long shot adds nothing (longShotWorth says it apart); investor programs stay. Pure.
+ * down so it never overstates): grantTotal. None with a number: null. v4.10.1 Task 2 (R3): a long shot adds nothing
+ * (longShotWorth says it apart); v4.10.3 Task 1 (R1): nor an investor program (investorWorth says it apart). Pure.
  */
 export function worthUpTo(set: readonly Pick<ReadyProgram, 'kind' | 'max_usd'>[]): string | null {
-  const total = set.reduce((n, p) => n + (p.kind !== 'long_shot' && p.max_usd && p.max_usd > 0 ? p.max_usd : 0), 0);
+  const total = grantTotal(set);
   return total > 0 ? usdCompact(total) : null;
 }
 
+/** The money of one kind, said apart from the worth: summed `max_usd` (usdCompact) and how many have a number. Pure. */
+function apartWorth(set: readonly Pick<ReadyProgram, 'kind' | 'max_usd'>[], kind: 'long_shot' | 'investor'): { usd: string; n: number } | null {
+  const some = set.filter((p) => p.kind === kind && p.max_usd && p.max_usd > 0);
+  const total = some.reduce((n, p) => n + (p.max_usd ?? 0), 0);
+  return total > 0 ? { usd: usdCompact(total), n: some.length } : null;
+}
 /**
  * v4.10.1 Task 2 (R3): the long shots' money, said apart from the worth ("plus a $100K long shot"): their summed
  * `max_usd` (usdCompact) and how many have a number; none with a number: null. Pure.
  */
-export function longShotWorth(set: readonly Pick<ReadyProgram, 'kind' | 'max_usd'>[]): { usd: string; n: number } | null {
-  const long = set.filter((p) => p.kind === 'long_shot' && p.max_usd && p.max_usd > 0);
-  const total = long.reduce((n, p) => n + (p.max_usd ?? 0), 0);
-  return total > 0 ? { usd: usdCompact(total), n: long.length } : null;
+export const longShotWorth = (set: readonly Pick<ReadyProgram, 'kind' | 'max_usd'>[]) => apartWorth(set, 'long_shot');
+/** v4.10.3 Task 1 (R1): the investor programs' money, said apart from the worth ("plus a $1M accelerator"), as longShotWorth. Pure. */
+export const investorWorth = (set: readonly Pick<ReadyProgram, 'kind' | 'max_usd'>[]) => apartWorth(set, 'investor');
+
+/**
+ * v4.10.3 Task 1 (R1): an investor program is named in the also-open lead's money line this close to its close (its own
+ * amount and kind, and its close). Never a move (bestMove keeps v4.8.1 R1's INVESTOR_WINDOW_MS) and never in a total.
+ */
+export const INVESTOR_NAME_MS = 30 * 86_400_000;
+/**
+ * v4.10.3 Task 1 (R1): the one investor program the money line names: an investment, open, closing within
+ * INVESTOR_NAME_MS (a rolling one never), not in `skip`; the soonest to close. Null with none. Pure.
+ */
+export function namedInvestor<P extends { id: string; investment: boolean; ends_at: string | null }>(programs: readonly P[], now: Date, skip: ReadonlySet<string>): P | null {
+  const t = now.getTime();
+  const left = (p: P) => (p.ends_at ? Date.parse(p.ends_at) - t : NaN);
+  return programs
+    .filter((p) => p.investment && !skip.has(p.id) && left(p) > 0 && left(p) <= INVESTOR_NAME_MS)
+    .sort((a, b) => left(a) - left(b))[0] ?? null;
 }

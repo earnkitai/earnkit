@@ -9507,3 +9507,23 @@ This supersedes the per-program need in Task 4: the builder answers once for the
   `weekly-moment.ts lastWeekOf`, last week's final). The block marks `moment_score=N` said; `benchView` sets
   `Standing.soFar` when this session's live score differs, so `standing.ts standingParagraph` says "Score 69 so far
   this week". The path rounds say "4 more answers" / "The last 3 answers only you can give".
+
+## v4.10.3 Task 1: the opener hook and the listed asks (2026-11-03, plan: v4.10.3-plan/)
+
+- **Money first when nothing fits one reply (R2).** `readyCommit` stores with the also-open lead the grant total the
+  builder could pursue (`ready-set.ts grantTotal` over every candidate: not-eligible programs never reach the set; long
+  shots and investor programs add nothing). `alsoLeadCommit` opens with `ready-copy.ts alsoMoneyLine`: "Open for you
+  now: up to $5,000 in grants plus a $400K accelerator. Alliance closes in 15 days." With no grant money it says the
+  investor clause alone, or no line (never "$0"). Said once a session (`MONEY_SAID`).
+- **Investor programs named, never counted (R1).** `namedInvestor` picks the soonest open investor program closing
+  within `INVESTOR_NAME_MS` (30 days), from the live cards, never one skipped or said no to (`pathSkip`). Its own amount
+  and the kind the money figure uses ("accelerator", as `pool.ts openMoneyWords`), and its close (`deadline.ts
+  timeLeftWords`: hours under 48). It is never in `worthUpTo` (the opener's `worthClause` says investor programs apart:
+  "worth up to $5K, plus a $1M accelerator") and never the move: `bestMove` and `readySet` keep the 7-day window.
+- **The listed asks (R3).** The lead names the draft's first round (`pathRound`, at most 4 answers) and how many come
+  after: "Base Builder Grant pays up to $5,000 and needs 11 answers from you. The first 4: your team list, usage
+  numbers, demo video and contract address on Base, and 7 more after these." The repeat (`alsoAgainAsk`) names them
+  too, in its one question. The reply carries `draft.asks` (as the draft's rounds) and `ALSO_LEAD_NOTE`; a yes with
+  `answers` reaches `pathDraft(..., m)`, which stores round 1 and hands it to `draftYes(..., first)`: the answers are
+  banked as round 1 and the draft asks round 2 ("Here's your draft:" then the blanks), or with none left is ready.
+

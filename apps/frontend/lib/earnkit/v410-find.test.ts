@@ -18,7 +18,7 @@ import { isoWeekOf } from './weeks';
 import { saveBank } from './answer-bank';
 import { BUILDER_CODES_SUFFIX } from './builder-code';
 import { HELP_DONE_ASK, MENTOR_NOTE, SESSION_MS } from './conversation';
-import { PUSHED_ASK, READY_CODES_NOT_YET, READY_SET, UPDATING_NOTE, UPDATING_SAID, codesSettled } from './bench-find';
+import { ALSO_LEAD_NOTE, PUSHED_ASK, READY_CODES_NOT_YET, READY_SET, UPDATING_NOTE, UPDATING_SAID, codesSettled } from './bench-find';
 import { READY_ASK, READY_NOTE, READY_YES_NOTE } from './ready-copy';
 import { converse, gateFailures } from './fixtures/converse';
 import { startRefresh } from './stand-view';
@@ -169,7 +169,7 @@ const DRAFTED = committedProgram('circle-developer-grants').submission_requireme
  * holds, so it is said apart ("Also open"); a16z's email and Circle's 3 make the set's 4.
  */
 const OPENER = (handle: string) => new RegExp([
-  "^Jenil, I've started 2 applications for you, worth up to \\$1M, plus a \\$100K long shot\\. I need 4 answers from you first:",
+  "^Jenil, I've started 2 applications for you, a \\$1M accelerator and a \\$100K long shot\\. I need 4 answers from you first:",
   '',
   '1\\. a16z speedrun SR008: up to \\$1M investment, closes in (19|20) hours\\. Needs your email first\\.',
   "2\\. Circle Developer Grants: \\$5K to \\$100K\\. Needs your Circle and Arc integrations, product roadmap and proposed grant milestones first, and Circle looks for apps on Arc, so it's a long shot\\.",
@@ -587,7 +587,7 @@ test('fix 1 (M6): "skip 1 3" keeps a16z; "skip 2" on a 2-program set keeps Base'
   assert.ok(declined['apply:base-builder-grants'] && declined[`apply:${circle.id}`] && !declined[`apply:${sr.id}`]);
   await only([sr.id, 'base-builder-grants']);
   const two = await owner('m2', { fits: true });
-  assert.match(show(await find(two)), /^Jenil, I've started 2 applications for you, worth up to \$1M\. I need 4 answers from you first:\n/);
+  assert.match(show(await find(two)), /^Jenil, I've started 2 applications for you, worth up to \$5K, plus a \$1M accelerator\. I need 4 answers from you first:\n/);
   const t = await yesAll(two, { answer: 'skip', skip: [2] });
   assert.ok(show(t).startsWith("Done, a16z is skipped. I'll finish Base now.\n\nAdding Builder Codes now, then I'll open Base."), show(t));
   assert.ok(show(t).endsWith(PUSHED_ASK), show(t));
@@ -614,7 +614,7 @@ test('final fix (I1), v4.10.2 (R1): the opener names the set\'s needs and counts
   const opener = await find(b);
   const lines = show(opener).split('\n');
   // Base (11) and Circle (3, past a16z's 3) don't fit one reply: said apart, with their counts. a16z's brief: 3.
-  assert.equal(lines[0], "Jenil, I've started 1 application for you, worth up to $1M. I need 3 answers from you first:", show(opener));
+  assert.equal(lines[0], "Jenil, I've started 1 application for you, a $1M accelerator. I need 3 answers from you first:", show(opener));
   assert.ok(lines.some((l) => /^1\. a16z speedrun SR008: up to \$1M investment, closes in \d+ hours\. Needs your email, team list and any money you've raised first\.$/.test(l)), show(opener));
   assert.ok(lines.includes('Also open: Base Builder Grant, up to $5,000, needs 11 answers from you. Circle Developer Grants, $5K to $100K, needs 3 answers from you. Say "start Base" and "start Circle" anytime.'), show(opener));
   assert.ok(lines.some((l) => l.startsWith('Every other answer is filled from your commits')), show(opener));
@@ -885,16 +885,22 @@ async function passedOwner(tag: string) {
     WHERE builder_id = ${b.id}`;
   return b;
 }
-const ALSO_HEAD = 'Base Builder Grant pays up to $5,000 and needs 12 answers from you.';
-const ALSO_AGAIN = 'Want me to start Base Builder Grant (up to $5,000, 12 answers from you)?';
+// v4.10.3 Task 1 (R3, owner answer 3): the lead and its repeat name the draft's first round, and how many come after it.
+const ROUND_1 = 'your team list, usage numbers, demo video and contract address on Base';
+const ALSO_HEAD = `Base Builder Grant pays up to $5,000 and needs 12 answers from you. The first 4: ${ROUND_1}, and 8 more after these.`;
+const ALSO_AGAIN = `Want me to start Base Builder Grant (up to $5,000, 12 answers from you, starting with ${ROUND_1})?`;
 
 test('v4.10.2 Task 5: an empty set and a quiet path lead with the also-open money, one yes/no; repeats carry it in the easy reply', db, async () => {
   const b = await passedOwner('al1');
   const replies = await converse(b.ctx as never, [{ find: {} }, { find: {} }, { find: {} }, { says: 'what can I apply to', find: { ask: 'programs' } }], { builderId: b.id });
   const [lead, again, third] = replies;
-  // The session opener: a fact from the record, the money, then the one easy reply.
+  // The session opener: the money line first (v4.10.3 Task 1, R2: Circle not eligible adds nothing), a fact from the
+  // record, the program with its first round, then the one easy reply.
+  assert.equal(lead.show.split('\n\n')[0], 'Open for you now: up to $5,000 in grants.', lead.show);
   assert.match(lead.show, /You've shipped 6 weeks in a row/, lead.show);
   assert.ok(lead.show.split('\n\n').includes(ALSO_HEAD), lead.show);
+  assert.equal(moveUp({ reply: lead.reply } as R)?.agent_note, ALSO_LEAD_NOTE);
+  assert.deepEqual((lead.reply?.draft as { asks: { kind: string }[] }).asks.map((a) => a.kind), ['team', 'traction', 'demo_video', 'other:contract_address']);
   assert.match(lead.show, /\n\nWant me to start it\?$/, lead.show);
   assert.deepEqual([moveUp({ reply: lead.reply } as R)?.kind, moveUp({ reply: lead.reply } as R)?.project_key], ['apply', b.key]);
   assert.doesNotMatch(lead.show, /Reply "more"|Circle/, lead.show);
@@ -967,6 +973,68 @@ test('v4.10.2 final fix (I1): the Base path draft asks every counted answer in r
   const claims = await sql()<{ code: string }[]>`SELECT code FROM builder_code_claims WHERE builder_id = ${b.id}`;
   assert.ok(claims.some((c) => c.code === `bc_rnd${RUN}`), JSON.stringify(claims));
   for (const s of seen) assert.doesNotMatch(s, BAD, s);
+});
+
+/**
+ * v4.10.3 Task 1 (R1, R2, R3; CTO dogfood of OWN=27 on 2026-11-03): the walk's shape, Base needing 12 answers (the set
+ * empty), Circle not eligible, and an Alliance ALL19 copy ($400K accelerator). The lead opens with the money line: the
+ * grant total (Base only: never Alliance's $400K, never Circle's), then Alliance's own amount and kind and its close
+ * when it closes within 30 days; then Base with its first 4 asks named and "and 8 more", then the one yes/no.
+ */
+async function allianceOwner(tag: string, hours: number) {
+  const b = await passedOwner(tag);
+  const all = await copy('alliance-all19', `all${tag}`, { hours });
+  await only([`v410-${process.pid}-circle`, 'base-builder-grants', all.id]);
+  return { b, all };
+}
+
+test('v4.10.3 Task 1 (R1, R2): the empty-set lead opens with the grant total and Alliance closing in 15 days, then Base\'s first 4 asks', db, async () => {
+  const { b } = await allianceOwner('h15', 15 * 24 + 1);
+  const replies = await converse(b.ctx as never, [{ find: {} }, { find: {} }], { builderId: b.id });
+  const [lead, again] = replies;
+  const paras = lead.show.split('\n\n');
+  assert.equal(paras[0], 'Open for you now: up to $5,000 in grants plus a $400K accelerator. Alliance closes in 15 days.', lead.show);
+  assert.ok(paras.includes(ALSO_HEAD), lead.show);
+  assert.equal(paras.at(-1), 'Want me to start it?', lead.show);
+  // The investor money is never in the grant total, and Alliance is never the move.
+  assert.doesNotMatch(lead.show, /\$405|\$400,000|start Alliance/, lead.show);
+  assert.equal(moveUp({ reply: lead.reply } as R)?.kind, 'apply');
+  assert.equal((await seenOf(b.id)).bench_ask && ((await seenOf(b.id)).bench_ask as { program_id: string }).program_id, 'base-builder-grants');
+  // The repeat: the easy reply alone, still naming the first round's asks (never a bare count), and no money line again.
+  assert.equal(again.show, ALSO_AGAIN);
+  for (const r of replies) assert.doesNotMatch(r.show, BAD, r.show);
+  assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), [], replies.map((r) => r.show).join('\n---\n'));
+});
+
+test('v4.10.3 Task 1 (R1): Alliance closing in 30 days is named; in 31 days it is not', db, async () => {
+  const { b: in30 } = await allianceOwner('h30', 30 * 24 - 1);
+  const named = show(await find(in30)).split('\n\n')[0];
+  assert.equal(named, 'Open for you now: up to $5,000 in grants plus a $400K accelerator. Alliance closes in 29 days.', named);
+  const { b: in31 } = await allianceOwner('h31', 31 * 24);
+  const lead = show(await find(in31));
+  assert.equal(lead.split('\n\n')[0], 'Open for you now: up to $5,000 in grants.', lead);
+  assert.doesNotMatch(lead, /Alliance|accelerator|\$400K/, lead);
+});
+
+test('v4.10.3 Task 1 (R3): a yes to the lead that answers its first round banks them as round 1; the draft asks the next round', db, async () => {
+  const { b } = await allianceOwner('yr1', 15 * 24 + 1);
+  const lead = await find(b);
+  const asks = (lead.reply?.draft as { asks: { kind: string }[] }).asks;
+  const WORDS: Record<string, string> = { team: 'just me', traction: 'no users yet', demo_video: 'https://loom.com/share/x', 'other:contract_address': '0x1234567890123456789012345678901234567890' };
+  const answers = Object.fromEntries(asks.map((a) => [a.kind, WORDS[a.kind] ?? `answer for ${a.kind}`]));
+  const yes = await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes', answers });
+  const s = show(yes);
+  assert.match(s, /^Here's your draft:/, s);
+  // Round 2: 4 more, never round 1's asks again.
+  assert.match(s, /\nFour blanks only you can fill \(4 more after these\): /, s);
+  assert.doesNotMatch(s, /team list|usage numbers|demo video|contract address/, s);
+  const next = (yes.reply?.draft as { asks: { kind: string }[] }).asks.map((a) => a.kind);
+  assert.equal(next.length, 4);
+  assert.ok(!next.some((k) => asks.some((a) => a.kind === k)), JSON.stringify(next));
+  assert.match(noteOf(yes), /EarnKit kept the answers they gave with their yes/, noteOf(yes));
+  const path = (await seenOf(b.id)).path as { stage: string; program_id: string };
+  assert.deepEqual([path.stage, path.program_id], ['draft', 'base-builder-grants']);
+  assert.doesNotMatch(s, BAD, s);
 });
 
 test('v4.10.2 (R3): Circle not eligible beside a set is said in one plain line; on Arc it is eligible, a plain fit (never a long shot)', db, async () => {

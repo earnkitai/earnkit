@@ -63,10 +63,10 @@ import { programKind } from './site-copy';
 import { BASE_GRANTS_ID, EARNKIT_BUILDER_CODE } from './builder-code';
 import { appProvenRepo, builderCodesKnown, builderCodesWords, checkBuilderCodes, codesSettled, refreshBuilderCodes, storedBuilderCode } from './builder-codes-check';
 import { bankKeepsContact, projectKey, readBank, saveBank } from './answer-bank';
-import { READY_CANDIDATES, fitReadySet, readySet, worthUpTo, type ReadyProgram } from './ready-set';
+import { READY_CANDIDATES, fitReadySet, grantTotal, namedInvestor, readySet, worthUpTo, type ReadyProgram } from './ready-set';
 import {
   PLAN_ONE_LINE_NOTE, READY_ASK_NOTE, READY_NEEDS_NOTE, READY_NOTE, READY_SENT_NOTE, READY_YES_NOTE, contactPhrase, needsList, needsPhrase, readyAgain, readyCodesWait, readyNeedsAsk,
-  ALSO_START_ASK, alsoAgainAsk, alsoLeadLine, readyNoLine, notEligiblePickLine, readyNotEligibleLine, readyOpenList, readyOpener, readySentAgain, type AgainProgram, readySentAsk, readyStillNeeds, readyYesReply, shortName, skipReply,
+  ALSO_START_ASK, alsoAgainAsk, alsoLeadLine, alsoMoneyLine, readyNoLine, notEligiblePickLine, readyNotEligibleLine, readyOpenList, readyOpener, readySentAgain, type AgainProgram, readySentAsk, readyStillNeeds, readyYesReply, shortName, skipReply,
 } from './ready-copy';
 import { bankFill, slotOf } from './coach';
 import { FIELD_KINDS, type ReadyAnswers, type SubmissionRequirement } from './program-file';
@@ -138,6 +138,12 @@ export const BENCH_OUTCOME_NOTE =
   "show_to_builder ends with the results question for this entry. Their answer: call tell with program_status: this program_id and project_id, their result (won, placed or lost), and prize_usd if they won money. If they don't know yet, call nothing. For accepted, funded or won, open a public page that shows it (the program's X post or results page) and pass its link as proof_url. Don't show this note.";
 /** v3 Stage 2 (spec 5.3): the apply step's ask; a yes drafts the entry (APPLY_YES_NOTE). */
 export const APPLY_NOTE = "A yes or no to the question: call tell with move_up: { kind: 'apply', project_key, answer } (project_key as given here). Don't show this note.";
+/**
+ * v4.10.3 Task 1 (R3): the also-open lead's note: its yes may carry the first round's answers (draft.asks), banked as
+ * round 1 of the draft (bench-find.ts pathDraft).
+ */
+export const ALSO_LEAD_NOTE =
+  "A yes or no to the question: call tell with move_up: { kind: 'apply', project_key, answer } (project_key as given here). If their yes also gives what draft.asks asks, add answers: their words split by draft.asks' kind (contact: { [slot]: their words }); EarnKit keeps them as the draft's first round. Never fill one yourself. Don't show this note.";
 /** 2026-10-22: the titles question's note; a yes turns titles on (updates.ts setShipTitles). */
 export const TITLES_NOTE = "A yes or no to the question: call tell with move_up: { kind: 'titles', project_key, answer } (project_key as given here). Don't show this note.";
 /** v4.2 Task 10: the yes to "Want me to check which of these fits...": run the fit check. */
@@ -1410,7 +1416,13 @@ async function readyCommit(o: ViewIn, plan: PathPlan, picked: ReadyProgram[]): P
   const fit = fitReadySet(set1.map((p, i) => ({ p, d: drafts1[i] })), (x) => answerKeys(x.d.only));
   // v4.10.2 Task 5: nothing fits: the top program left out is the quiet reply's money lead this session (alsoLeadCommit).
   const top = fit.set.length === 0 ? fit.out[0] : undefined;
-  await keepAlso(o, top ? { id: top.program.p.id, key, title: top.program.p.title, amount: top.program.p.amount, answers: top.answers, at: now.toISOString() } : null);
+  // v4.10.3 Task 1 (R2, R3): with it, the grant total the builder could pursue (every candidate: not-eligible programs
+  // never reach the set; grantTotal leaves out long shots and investor programs) and the draft's first round (pathRound).
+  const first = top ? pathRound(top.program.d.only) : null;
+  await keepAlso(o, top ? {
+    id: top.program.p.id, key, title: top.program.p.title, amount: top.program.p.amount, answers: top.answers, at: now.toISOString(),
+    usd: grantTotal(set1), round: { asks: first!.round.map((i) => i.phrase), n: roundAnswers(first!.round), fields: roundFields(first!.round) },
+  } : null);
   if (fit.set.length === 0) return null;
   const drafts = fit.set.map((x) => x.d);
   const set = fit.set.map((x) => ({ ...x.p, needs: needsOfDraft(x.d) }));
@@ -1705,7 +1717,13 @@ async function readyView(o: ViewIn, plan: PathPlan): Promise<{ view: BenchView; 
 }
 
 /** v4.10.2 Task 5: a program left out of the set for its answers, kept for the quiet reply's lead (Seen.also_open). */
-export type AlsoOpenLead = { id: string; key: string; title: string; amount: string | null; answers: number; at: string };
+export type AlsoOpenLead = {
+  id: string; key: string; title: string; amount: string | null; answers: number; at: string;
+  /** v4.10.3 Task 1 (R2): the grant total the builder could pursue (ready-set.ts grantTotal), for the money line. */
+  usd?: number;
+  /** v4.10.3 Task 1 (R3): the draft's first round (pathRound): its ask phrases, its answers and the agent's fields (draft.asks). */
+  round?: { asks: string[]; n: number; fields: ReturnType<typeof roundFields> };
+};
 /** v4.10.2 Task 5: stores (or, null, drops) the also-open lead, in the row and the reply's read. Never throws. */
 async function keepAlso(o: ViewIn, a: AlsoOpenLead | null): Promise<void> {
   if (!a && !o.read.seen.also_open) return;
@@ -1748,21 +1766,33 @@ async function alsoLeadCommit(
   const session = sessionOf(read.seen, now);
   const again = !session.fresh && session.said.has(alsoSaid(a.id));
   const proof = session.fresh ? proofOf({ name: v.project.name, live: v.project.live || v.siteLive }, v.streak, false, session.said) : null;
-  const show = again ? alsoAgainAsk(a.title, a.amount, a.answers)
-    : [proof?.line, alsoLeadLine(a.title, a.amount, a.answers), ALSO_START_ASK].filter(Boolean).join('\n\n');
+  // v4.10.3 Task 1 (R3): the first round named (a lead stored before v4.10.3 has none: the count alone, as it was).
+  const round = a.round && Array.isArray(a.round.asks) && a.round.asks.length > 0 ? a.round : null;
+  // v4.10.3 Task 1 (R1, R2, owner answer 1): money first. The grant total, and the soonest investor program closing
+  // within INVESTOR_NAME_MS (live cards, never one skipped or said no to), said once a session (MONEY_SAID).
+  const skip = pathSkip(told, read.seen, now, o.skip);
+  const investors = o.cards.filter((c) => c.investment === true && c.id !== a.id && showable({ ...c, investment: false }, now, skip)).map(moveProgram);
+  const inv = namedInvestor(investors, now, skip);
+  const money = again || session.said.has(MONEY_SAID) ? null
+    : alsoMoneyLine(typeof a.usd === 'number' ? a.usd : 0, inv && inv.ends_at ? { title: inv.title, max_usd: inv.max_usd ?? null, ends_at: inv.ends_at } : null, now);
+  const show = again ? alsoAgainAsk(a.title, a.amount, a.answers, round)
+    : [money, proof?.line, alsoLeadLine(a.title, a.amount, a.answers, round), ALSO_START_ASK].filter(Boolean).join('\n\n');
   const key = v.project.key;
   const stored = { kind: 'apply', key, program_id: a.id, path: true };
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
       || jsonb_build_object('bench_ask', ${sql().json(stored as never)}::jsonb, 'also_open', ${sql().json({ ...a, at: now.toISOString() } as never)}::jsonb,
-        'said', ${saidSql([alsoSaid(a.id), ...(proof?.keys ?? [])], now)})
+        'said', ${saidSql([alsoSaid(a.id), ...(proof?.keys ?? []), ...(money ? [MONEY_SAID] : [])], now)})
     WHERE builder_id = ${id}`.catch(logged('also lead'));
   const view: BenchView = {
     state: v.state, variant: v.variant, project: v.project, rank: read.ranks.bench, streak: v.streak, target: null, handle: v.handle, link: null,
     fund: [], due: [], ask: { kind: 'apply', project_key: key, line: '', program_id: a.id }, held: null, path: show, pathLead: null,
   };
   const rankLines = [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x));
+  // v4.10.3 Task 1 (R3): the first round's fields go to the agent (draft.asks, as the draft's rounds), so a yes that
+  // also answers them is split by field and banked as round 1 (pathDraft).
   const fields: Reply = {
-    move_up: { kind: 'apply', project_key: key, agent_note: APPLY_NOTE },
+    move_up: { kind: 'apply', project_key: key, agent_note: round ? ALSO_LEAD_NOTE : APPLY_NOTE },
+    ...(round && { draft: { program_id: a.id, asks: round.fields } }),
     ...(rankLines.length > 0 && { rank_lines: rankLines }),
     ...standingFields(v.stand),
   };
@@ -3956,7 +3986,7 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       // v4.8 Task 2: the path's "Want me to start?": the draft stage. A yes to the draft's own ask (fix round 2, F5)
       // re-asks its blanks, or with none moves the path to submit; never a second draft.
       if (asked.path === true && asked.draft === true) return draftYes(ctx, id, asked, now, m);
-      if (asked.path === true && asked.program_id) return pathDraft(ctx, id, asked, now);
+      if (asked.path === true && asked.program_id) return pathDraft(ctx, id, asked, now, m);
       return asked.program_id
         ? { show_to_builder: '', agent_note: APPLY_YES_NOTE(asked.program_id), lead: { program_id: asked.program_id, ...(asked.repo && { repo: asked.repo }) } }
         : okay;
@@ -4278,7 +4308,7 @@ export async function preparedHeld(id: number, repoUrl: string | null | undefine
  * a yes keeps the answers and asks the next round, or with none left moves to submit). Never throws on its own
  * reads and writes.
  */
-async function pathDraft(ctx: Partial<Pick<ToolContext, 'sharedClient'>>, id: number, asked: NonNullable<Seen['bench_ask']>, now: Date): Promise<Reply> {
+async function pathDraft(ctx: Partial<Pick<ToolContext, 'sharedClient'>>, id: number, asked: NonNullable<Seen['bench_ask']>, now: Date, m: { blanks?: string; answers?: ReadyAnswers } = {}): Promise<Reply> {
   const pid = asked.program_id!;
   const lead = { program_id: pid, ...(asked.repo && { repo: asked.repo }) };
   const program = await getProgramRow(pid).catch(() => null);
@@ -4302,9 +4332,15 @@ async function pathDraft(ctx: Partial<Pick<ToolContext, 'sharedClient'>>, id: nu
       || jsonb_build_object('path', ${sql().json(path as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb)
     WHERE builder_id = ${id}`.catch(logged('draft'));
   const hasRecord = s.record.length > 0;
-  const note = brief
+  const noteFor = (now_: string[], later: string[]) => brief
     ? founderBriefNote(programName(program.title), asked.key, { record: hasRecord, what: Boolean(what) })
-    : questionsDraftNote(pid, asked.key, { record: hasRecord, drafted, fills: s.fills, later: r.rest.map((i) => i.phrase), blanks });
+    : questionsDraftNote(pid, asked.key, { record: hasRecord, drafted, fills: s.fills, later, blanks: now_ });
+  // v4.10.3 Task 1 (R3): the yes to the also-open lead already answered its first round (the lead named it): those
+  // answers are banked as round 1 (draftYes), and the draft asks the next round, or with none left is ready to paste.
+  if (r.round.length > 0 && (Boolean(m.blanks?.trim()) || anyAnswer(m.answers))) {
+    return { ...(await draftYes(ctx, id, stored as NonNullable<Seen['bench_ask']>, now, m, { body, note: (b, later) => `${noteFor(b, later)}${hasRecord ? SHIP_LOG_NOTE : ''}` })), lead };
+  }
+  const note = noteFor(blanks, r.rest.map((i) => i.phrase));
   const n = roundAnswers(r.round);
   return {
     show_to_builder: draftReply(body, blanks, n, r.total - n),
@@ -4351,7 +4387,11 @@ export async function draftAnswered(id: number, programId: string): Promise<void
  * of builderAsks' list (at most 4 answers, roundAsk), or with none left the submit stage (pathSubmit: "ready to paste",
  * the link, the deadline and "sent"). Never throws on its own writes.
  */
-async function draftYes(ctx: Partial<Pick<ToolContext, 'sharedClient'>>, id: number, asked: NonNullable<Seen['bench_ask']>, now: Date, m: { blanks?: string; answers?: ReadyAnswers }): Promise<Reply> {
+async function draftYes(
+  ctx: Partial<Pick<ToolContext, 'sharedClient'>>, id: number, asked: NonNullable<Seen['bench_ask']>, now: Date, m: { blanks?: string; answers?: ReadyAnswers },
+  // v4.10.3 Task 1 (R3): the draft's own first reply (pathDraft), whose yes carried round 1: its body and its note.
+  first?: { body: string[]; note: (blanks: string[], later: string[]) => string },
+): Promise<Reply> {
   const blanks = Array.isArray(asked.blanks) ? asked.blanks.filter((b): b is string => typeof b === 'string') : [];
   const said = Boolean(m.blanks?.trim()) || anyAnswer(m.answers);
   // A bare yes with no answers given yet: re-ask them.
@@ -4385,9 +4425,11 @@ async function draftYes(ctx: Partial<Pick<ToolContext, 'sharedClient'>>, id: num
   const nb = next.round.map((i) => i.phrase);
   const n = roundAnswers(next.round);
   await storeAsk(id, { ...asked, blanks: nb, round: next.round.map(({ kind, keys }) => ({ kind, keys })), done, given });
-  const note = `EarnKit kept their answers. Show this reply as it is (the draft is finished only after the last round). Once they reply, call tell with move_up: { kind: 'apply', project_key: ${JSON.stringify(asked.key)}, answer: 'yes', ${ANSWERS_SPLIT}. Never fill a blank yourself. ${next.round.some((i) => i.one_line) ? `${PLAN_ONE_LINE_NOTE} ` : ''}${DRAFT_GUARD} Don't show this note.`;
+  const note = first
+    ? `${first.note(nb, next.rest.map((i) => i.phrase))} EarnKit kept the answers they gave with their yes (the first round): put them in the draft as they gave them.`
+    : `EarnKit kept their answers. Show this reply as it is (the draft is finished only after the last round). Once they reply, call tell with move_up: { kind: 'apply', project_key: ${JSON.stringify(asked.key)}, answer: 'yes', ${ANSWERS_SPLIT}. Never fill a blank yourself. ${next.round.some((i) => i.one_line) ? `${PLAN_ONE_LINE_NOTE} ` : ''}${DRAFT_GUARD} Don't show this note.`;
   return {
-    show_to_builder: roundAsk(nb, n, next.total - n),
+    show_to_builder: first ? draftReply(first.body, nb, n, next.total - n) : roundAsk(nb, n, next.total - n),
     agent_note: withMentor(note),
     move_up: { kind: 'apply', project_key: asked.key, agent_note: APPLY_NOTE },
     draft: { asks: roundFields(next.round) },
