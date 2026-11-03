@@ -30,6 +30,7 @@ export const STATS_KEYS = [
   'posts_drafted',
   'posts_tapped',
   'backers_after_post',
+  'weeks_on_pages',
   'labelled_entries',
   'entries_won',
   'builders_won_usd',
@@ -81,14 +82,17 @@ export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
   installs: 'installs',
   installs_used: 'installs that asked what they can earn (find at least once)',
   builders: 'builders (one person\'s reinstalls and agents counted once)',
-  activated: 'activated builders (claimed page, repo proven by the EarnKit app, a week approved at the weekly moment)',
-  weekly_active: 'activated builders who approved a week in the last 7 days',
-  shared: 'weeks confirmed at the weekly share offer',
+  // v4.10.3 final fix (owner F2): any explicit builder action, not only a week approved (builderActed).
+  activated: 'activated builders (claimed page, repo proven by the EarnKit app, and at least one explicit action: a yes, an answer or an approval)',
+  weekly_active: 'activated builders with an explicit action (a yes, an answer or an approval) in the last 7 days',
+  shared: 'weeks the builder confirmed at the weekly share offer (retired in v4.10.3; only an answer to an older offer adds one)',
   // v3.1 one-tap posts (design 5): drafted, tapped, then backers (correlation only, never a cause). Final review 4: page
   // opens from X are not public (anyone can inflate them); they stay on post_drafts for the owner.
   posts_drafted: 'posts for X EarnKit drafted (one-tap posts)',
   posts_tapped: 'of those, opened in X\'s composer from the reply\'s link at least once',
   backers_after_post: 'retired with the per-project offers (always 0)',
+  // v4.10.3 final fix (owner F2): every week on a builder's page, EarnKit's automatic add included.
+  weeks_on_pages: 'weeks added to builder pages (the builder\'s yes or EarnKit\'s automatic add)',
   labelled_entries: 'entries with a published result',
   entries_won: 'entries that won',
   builders_won_usd: 'won by EarnKit builders (announced, USD)',
@@ -146,6 +150,8 @@ type Row = {
   posts_drafted?: number;
   posts_tapped?: number;
   backers_after_post?: number;
+  /** v4.10.3 final fix (owner F2): weeks added to pages, 'auto' included. */
+  weeks_on_pages?: number;
   labelled_entries: number;
   entries_won: number;
   builders_won_usd: string | null;
@@ -203,6 +209,7 @@ export function statsFrom(r: Row, now = new Date()): PublicStats {
     posts_tapped: Number(r.posts_tapped ?? 0),
     // v4.0 Task 11: retired with the per-project offers (the keys stay, for jenil.ai).
     backers_after_post: 0,
+    weeks_on_pages: Number(r.weeks_on_pages ?? 0),
     labelled_entries: Number(r.labelled_entries),
     entries_won: Number(r.entries_won),
     builders_won_usd: Math.round(Number(r.builders_won_usd ?? 0)),
@@ -304,24 +311,26 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
       (SELECT count(DISTINCT COALESCE(builder_id, id)) FROM installations
         WHERE NOT (id = ANY(${ids}::int[])) AND NOT (COALESCE(builder_id, id) = ANY(${ids}::int[]))
           AND NOT (COALESCE(builder_id, id) IN (SELECT builder_id FROM builder_profiles WHERE lower(x_handle) = ANY(${internal}::text[]))))::int AS builders,
-      -- Launch-ready L9 (the funnel), from the weekly moment's approvals (L6: a yes to "Does last week look right?"
-      -- sets project_updates.facts.approved and approved_at). Activated: a claimed page, a repo verified by the
-      -- read-only EarnKit app, and an approved week. Weekly active: the same people (so never above activated) with
-      -- a week approved in the last 7 days. Shared: approved weeks that came from the share offer (approved_via).
-      -- People (weeks for shared), never a test installation's group.
+      -- Launch-ready L9 (the funnel). v4.10.3 final fix (owner F2): activated is a claimed page, a repo verified by
+      -- the read-only EarnKit app, and an explicit builder action (builderActed: a week approved by the builder, an
+      -- answer banked, an application told, a yes to a draft, a check-in answer). Weekly active: the same people (so
+      -- never above activated) with such an action in the last 7 days. Shared: weeks the builder approved from the
+      -- share offer (approved_via 'share'). Weeks on pages: every approved week, EarnKit's automatic add included.
+      -- People (weeks for shared and weeks on pages), never a test installation's group.
       (SELECT count(*) FROM builder_profiles p
         WHERE p.x_user_id IS NOT NULL AND ${notTest(db, ids)}
           AND NOT (lower(COALESCE(p.x_handle, '')) = ANY(${internal}::text[]))
           AND EXISTS (SELECT 1 FROM builder_sources s WHERE s.builder_id = p.builder_id AND s.kind = 'repo' AND s.state = 'verified' AND s.proof = 'github_app')
-          AND EXISTS (SELECT 1 FROM project_updates u WHERE u.builder_id = p.builder_id AND ${approvedWeek(db)}))::int AS activated,
+          AND ${builderActed(db, new Date(0))})::int AS activated,
       (SELECT count(*) FROM builder_profiles p
         WHERE p.x_user_id IS NOT NULL AND ${notTest(db, ids)}
           AND NOT (lower(COALESCE(p.x_handle, '')) = ANY(${internal}::text[]))
           AND EXISTS (SELECT 1 FROM builder_sources s WHERE s.builder_id = p.builder_id AND s.kind = 'repo' AND s.state = 'verified' AND s.proof = 'github_app')
-          AND EXISTS (SELECT 1 FROM project_updates u WHERE u.builder_id = p.builder_id AND ${approvedWeek(db)}
-            AND (u.facts->>'approved_at')::timestamptz > ${now}::timestamptz - interval '7 days'))::int AS weekly_active,
+          AND ${builderActed(db, new Date(now.getTime() - 7 * 86_400_000))})::int AS weekly_active,
       (SELECT count(*) FROM project_updates u JOIN builder_profiles p ON p.builder_id = u.builder_id
         WHERE ${approvedWeek(db)} AND u.facts->>'approved_via' = 'share' AND ${notTest(db, ids)})::int AS shared,
+      (SELECT count(*) FROM project_updates u JOIN builder_profiles p ON p.builder_id = u.builder_id
+        WHERE u.facts->'approved' = 'true'::jsonb AND ${notTest(db, ids)})::int AS weeks_on_pages,
       -- v3.1 one-tap posts (design 5): the funnel on post_drafts, people only (never a test installation's group).
       (SELECT count(*) FROM post_drafts d JOIN builder_profiles p ON p.builder_id = d.builder_id WHERE ${notTest(db, ids)})::int AS posts_drafted,
       (SELECT count(*) FROM post_drafts d JOIN builder_profiles p ON p.builder_id = d.builder_id WHERE d.taps > 0 AND ${notTest(db, ids)})::int AS posts_tapped,
@@ -371,6 +380,27 @@ const testProject = (db: Db, ids: number[]) => db`EXISTS (SELECT 1 FROM installa
  */
 const approvedWeek = (db: Db) => db`u.facts->'approved' = 'true'::jsonb AND jsonb_typeof(u.facts->'approved_at') = 'string'
   AND COALESCE(u.facts->>'approved_via', '') <> 'auto'`;
+
+/** An ISO timestamp string in a jsonb text value (so a cast never throws on a malformed one). */
+const ISO_RE = '^\\d{4}-\\d{2}-\\d{2}T';
+/**
+ * v4.10.3 final fix (owner F2, 2026-11-03): `p` (a builder_profiles row) took an explicit action after `since`, from
+ * what EarnKit already records as the builder's own: a week they approved (approvedWeek: never 'auto'), an answer
+ * banked (answer_bank, written only from the builder's answers), an application or not-interested they told
+ * (builder_program_status), a yes to a draft (standing_seen.apply_yes) or a check-in answer (standing_seen.checkin).
+ * Reads only. Every installation of the person's group counts.
+ */
+const builderActed = (db: Db, since: Date) => db`(
+  EXISTS (SELECT 1 FROM project_updates u WHERE u.builder_id = p.builder_id AND ${approvedWeek(db)}
+    AND (u.facts->>'approved_at')::timestamptz > ${since}::timestamptz)
+  OR EXISTS (SELECT 1 FROM answer_bank a JOIN installations i ON i.id = a.installation_id
+    WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND a.updated_at > ${since}::timestamptz)
+  OR EXISTS (SELECT 1 FROM builder_program_status s JOIN installations i ON i.id = s.installation_id
+    WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND s.at > ${since}::timestamptz)
+  OR EXISTS (SELECT 1 FROM jsonb_each_text(CASE WHEN jsonb_typeof(p.standing_seen->'apply_yes') = 'object' THEN p.standing_seen->'apply_yes' ELSE '{}'::jsonb END) y
+    WHERE y.value ~ ${ISO_RE} AND y.value::timestamptz > ${since}::timestamptz)
+  OR (jsonb_typeof(p.standing_seen->'checkin') = 'object' AND COALESCE(p.standing_seen->'checkin'->>'at', '') ~ ${ISO_RE}
+    AND (p.standing_seen->'checkin'->>'at')::timestamptz > ${since}::timestamptz))`;
 
 /** v2.9 E20: the sum behind builders_won_usd (one SQL fragment for readStats and readWonUsd). */
 const wonUsdSql = (db: Db, ids: number[]) => db`

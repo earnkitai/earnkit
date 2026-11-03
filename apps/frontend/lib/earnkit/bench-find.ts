@@ -333,6 +333,11 @@ export type Seen = StandSeen & {
    * quiet reply's money lead this session (alsoLeadCommit; `at` re-stamped each time it is said).
    */
   also_open?: AlsoOpenLead;
+  /**
+   * v4.10.3 final fix (owner F1): when each also-open lead was first shown ({ [program_id]: iso }), so its hold on the
+   * lighter asks ends ALSO_HOLD_MS after it was first offered and left unanswered (alsoLeadHolds).
+   */
+  also_first?: Record<string, string>;
   /** v4.10.3 Task 3 fix round 1: last week was added this ISO week (weekAdd) and the Monday block is still to say (mondayView). */
   moment_due?: { week: string; key: string; monday: string };
   /** v3.1 cold read: the standing line last shown (name, rank and streak), so it is shown again only when it changed. */
@@ -1759,6 +1764,18 @@ function alsoLeadDue(o: Pick<ViewIn, 'now' | 'read' | 'cards' | 'skip'>, project
   return a;
 }
 
+/**
+ * v4.10.3 final fix (owner F1, 2026-11-03): the also-open lead holds the lighter asks (check-in, optional wallet, token
+ * offer, new repo, titles) only for 7 days from when it was first offered and left unanswered (a yes tells it, a no
+ * declines it: either way alsoLeadDue is null). After that the lighter asks take their turns again, and the lead still
+ * shows when its slot comes (a ship or "more" reply).
+ */
+export const ALSO_HOLD_MS = 7 * 86_400_000;
+const alsoLeadHolds = (seen: Seen, pid: string, now: Date) => {
+  const first = seen.also_first?.[pid];
+  return !first || !(now.getTime() - Date.parse(first) >= ALSO_HOLD_MS);
+};
+
 async function alsoLeadCommit(
   o: ViewIn, v: Pick<PathFacts, 'state' | 'variant' | 'project' | 'streak' | 'handle' | 'stand' | 'siteLive'>, told: Set<string> | null,
 ): Promise<{ view: BenchView; fields: Reply; stand: Standing } | null> {
@@ -1786,8 +1803,12 @@ async function alsoLeadCommit(
   const key = v.project.key;
   // Fix round 1 (review minor 4): `also` marks the lead's start ask, the only path start whose yes may carry answers.
   const stored = { kind: 'apply', key, program_id: a.id, path: true, also: true };
+  // Final fix (owner F1): the first time this lead was offered (kept; its hold on the lighter asks runs from it).
+  const firsts = { ...(read.seen.also_first ?? {}), [a.id]: read.seen.also_first?.[a.id] ?? now.toISOString() };
+  read.seen.also_first = firsts;
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
       || jsonb_build_object('bench_ask', ${sql().json(stored as never)}::jsonb, 'also_open', ${sql().json({ ...a, at: now.toISOString() } as never)}::jsonb,
+        'also_first', ${sql().json(firsts as never)}::jsonb,
         'said', ${saidSql([alsoSaid(a.id), ...(proof?.keys ?? []), ...(money ? [MONEY_SAID] : [])], now)})
     WHERE builder_id = ${id}`.catch(logged('also lead'));
   const view: BenchView = {
@@ -2859,8 +2880,10 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   // v4.10.3 Task 3 (R6): beside the Monday block only a program ask (Base's grant steps below), never the lighter asks.
   const quietAll = !owns && rankedFree && project !== null && !held && !connect && !event;
   // v4.10.3 Task 4 (R6, walk M): the also-open lead is the program ask, so a lighter ask never takes its slot (the
-  // Monday find whose numbers were updating asked the check-in instead of the Base ask).
-  const leadDue = pathQuiet && project !== null && handle !== null && alsoLeadDue(o, project.key, told) !== null;
+  // Monday find whose numbers were updating asked the check-in instead of the Base ask). Final fix (owner F1): only for
+  // ALSO_HOLD_MS from when the lead was first offered and left unanswered; then the lighter asks take their turns again.
+  const leadNow = pathQuiet && project !== null && handle !== null ? alsoLeadDue(o, project.key, told) : null;
+  const leadDue = leadNow !== null && alsoLeadHolds(read.seen, leadNow.id, now);
   const quiet = quietAll && !moment && !leadDue;
   // v3.1 wallet proof: the optional wallet step, once a person, in the first quiet reply after setup (never with another
   // question); claimed below only once this reply carries it.
@@ -4524,11 +4547,9 @@ async function draftYes(
   const next = pathRound(s.only);
   if (next.round.length === 0) {
     // v4.10.3 fix round 1 (4): the lead's yes answered every ask: prepare was never called, so the agent drafts it now
-    // with every answer, under the draft's body, as a last round would show it.
-    if (first) {
-      const sub = await pathSubmit(id, asked, now, firstFinishedNote(pid, gtm), s.held);
-      return { ...sub, show_to_builder: [`Here's your draft:`, first.body.join('\n'), String(sub.show_to_builder ?? '')].filter((x) => x.length > 0).join('\n\n') };
-    }
+    // with every answer. Final fix (F10): the draft is printed once, by the agent above this reply (as a last round
+    // shows it), never also as the body in the reply.
+    if (first) return pathSubmit(id, asked, now, firstFinishedNote(pid, gtm), s.held);
     return pathSubmit(id, asked, now, done.length > 0 ? finished(gtm) : plain, s.held);
   }
   const nb = next.round.map((i) => i.phrase);
@@ -4550,7 +4571,7 @@ async function draftYes(
  * was never called, so it is called now with all of them (never "again"). Pure.
  */
 const firstFinishedNote = (pid: string, gtm: boolean) =>
-  `The builder said yes to drafting this application and gave every answer only they can give. Call prepare with program_id "${pid}" for this project with every answer they gave and coach_asked: true, draft every other field it lists from the verified record and their repo (never invent traction, numbers or team), and show it finished, ready to paste, right under "Here's your draft:" above this line. ${gtm ? `${PLAN_ONE_LINE_NOTE} ` : ''}Never submit it for them. Don't show this note.`;
+  `The builder said yes to drafting this application and gave every answer only they can give. Call prepare with program_id "${pid}" for this project with every answer they gave and coach_asked: true, draft every other field it lists from the verified record and their repo (never invent traction, numbers or team), and show it finished, ready to paste, once, above this line. ${gtm ? `${PLAN_ONE_LINE_NOTE} ` : ''}Never submit it for them. Don't show this note.`;
 /**
  * v4.8 Task 3: how "sent" is told. The submit ask is stored as an apply ask (`submit`); fix round 1 (2): only move_up
  * answer 'sent' (tools.ts tell, submitAsked) or program_status applied records it, never a plain yes.

@@ -2913,7 +2913,7 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
   `weeklyMoment`, `momentWouldShow`, `openShare` removed. Old pending `share` answers in `benchMoveUp` hand off to
   find (`then_find`).
 - `weekly-moment.ts` `ApproveVia` `'auto'` (binds no summary; an explicit via lifts `connect_no`, writes
-  `connect_ok`), `lastWeekOf.consent`, `mondayOpener(first, summary, { lastWeek, shipped })`. `connect-moment.ts`
+  `connect_ok`), `lastWeekOf.consent`, `mondayOpener(first, summary, { lastWeek, shipped })` (final fixes: `{ shipped }` only). `connect-moment.ts`
   `answerConnect` / `closeConnect` write `connect_no` / `connect_ok` in the closing UPDATE. `stats.ts approvedWeek`
   excludes `'auto'`; `week-links.ts` re-approves after an auto add; `db/schema.sql` `builder_points.via` allows
   `'auto'`. Test helper: `fixtures/old-share.ts oldShareOffer`.
@@ -2925,6 +2925,20 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
 - `bench-find.ts` `alsoLeadDue` (pure lead eligibility; `alsoLeadCommit` reads it) and `benchView`'s `leadDue`
   (keeps the lighter asks out of the lead's slot). Test: `v410-find.test.ts` ("v4.10.3 Task 4").
 - Walk transcripts: `.superpowers/sdd/v4.10.3-plan/walks/`.
+
+## v4.10.3 final fixes
+
+- `bench-find.ts` `Seen.also_first`, `ALSO_HOLD_MS` (7 days), `alsoLeadHolds` (benchView's `leadDue`; stamped by
+  `alsoLeadCommit`); the lead's all-answered yes returns `pathSubmit` alone (`firstFinishedNote`).
+- `stats.ts` `builderActed` (`activated`, `weekly_active`), `weeks_on_pages` (new key and label); `shared` stays
+  `'share'` only. `app/api/stats/route.ts` comment.
+- `weekly-moment.ts` `mondayOpener(first, summary, { shipped })`, `MondayFacts.shipped` (`digest.ts` passes it).
+- `points.ts awardWeekPoints`: `'auto'` awards nothing. `week-facts.ts weekConfirmed` (`bench-data.ts logCards`,
+  `feed.ts toCard`). `db/schema.sql owner_people` `last_approved_week` excludes `'auto'`.
+- `conversation.ts standingOnPage` (no period after the URL); `ready-copy.ts alsoMoneyLine` (F8 comment).
+- `fixtures/converse.ts PROOF_PATTERNS`: the standing line with no score.
+- Tests: `v410-find.test.ts` ("final fix"), `stats.test.ts` ("owner F2"), `v3-monday-email.test.ts` (d2),
+  `weekly-moment.test.ts`, `v3-unconfirmed.test.ts` ("F5"), `v4-weekly.test.ts`, `owner-tracker.test.ts`.
 
 ## v4.10.2 Task 5: replay fixes (the next step after the Monday block)
 

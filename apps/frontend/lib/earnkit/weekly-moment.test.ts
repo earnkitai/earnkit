@@ -199,7 +199,7 @@ test('L6.3 the weekly moment (Task 16 step 7; v4.10.3 R6): the week and a post f
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
   // v3.1 one-tap posts (design 6): last week's post (its summary, from the titles; never the host-naming one) and its
-  // one-tap link; no points shown (owner ruling 5), though the add still earns them.
+  // one-tap link; no points shown (owner ruling 5); the automatic add earns none (v4.10.3 final fix F4).
   const link = links(s)[0]!;
   assert.match(link, new RegExp(`^https://earnkit\\.com/${me.handle}/post/[a-z2-7]{10}$`));
   assert.equal(noOpen(s), [
@@ -279,7 +279,7 @@ test('L6.4 the moment through score, added once per installation, said once a we
   // No commit weeks stored: "Last week done."; #1 of 10 the week before and now: "now #1" (no week before to hold).
   // Nothing worth a post (no facts): the page is the one link. R6: no question; the reply's own step follows.
   // Fix round 3 (N2): last week has no ship facts (checked only), so the opener claims nothing shipped.
-  assert.equal(noOpen(s), `Your week is ready, Sam. Nice work.\n\n| | This week |\n|---|---|\n| Shipping score | ${moved(await liveOf(me.id), 30)} |\n\nYour page: https://earnkit.com/${me.handle}\n\nLast week is on your page.\n\nShip code this week to hold #1.\n\nWant me to suggest one small thing to ship?`);
+  assert.equal(noOpen(s), `Your week is ready, Sam.\n\n| | This week |\n|---|---|\n| Shipping score | ${moved(await liveOf(me.id), 30)} |\n\nYour page: https://earnkit.com/${me.handle}\n\nLast week is on your page.\n\nShip code this week to hold #1.\n\nWant me to suggest one small thing to ship?`);
   assert.doesNotMatch(s, /Secret launch|You shipped/);
   const approved = async () => (await sql()<{ facts: Record<string, unknown> }[]>`SELECT facts FROM project_updates WHERE builder_id = ${me.id} AND week = ${monday}`)[0]?.facts.approved === true;
   assert.equal(await approved(), true, 'the score reply added the week');
@@ -347,7 +347,7 @@ test('owner batch fix wave, v4.10.3 Task 3 fix rounds 1-2 (security): the block 
   const s = show(await mcpCall(ctx(me.id), 'score', {}));
   // Fix round 2 (N1): the summary needs the builder's consent, so the block never quotes it beside the add.
   // Fix round 3 (N2): no ship facts (checked only): no shipped sentence.
-  assert.equal(noOpen(s), `Your week is ready, Sam. Nice work.\n\n| | This week |\n|---|---|\n| Shipping score | ${moved(await liveOf(me.id), 30)} |\n\nYour page: https://earnkit.com/${me.handle}\n\nLast week is on your page.\n\nShip code this week to hold #1.\n\nWant me to suggest one small thing to ship?`);
+  assert.equal(noOpen(s), `Your week is ready, Sam.\n\n| | This week |\n|---|---|\n| Shipping score | ${moved(await liveOf(me.id), 30)} |\n\nYour page: https://earnkit.com/${me.handle}\n\nLast week is on your page.\n\nShip code this week to hold #1.\n\nWant me to suggest one small thing to ship?`);
   assert.equal(links(s).length, 1);
   assert.equal(questions(s), 1);
   const facts = async (id: number) => (await sql()<{ facts: Record<string, unknown> }[]>`SELECT facts FROM project_updates WHERE builder_id = ${id} AND week = ${monday}`)[0].facts;
@@ -446,7 +446,7 @@ test('Task 16 step 7: the week\'s number and where last week left the builder', 
   assert.equal(momentPlace({ now: w(1, 9), before: w(1, 9) }), null, 'under RANK_MIN_POOL: "on EarnKit"');
 });
 
-test('Task 16 fix round 1, v3.1 one-tap posts: the Monday reply shows no points (owner ruling 5); its add (v4.10.3 R6) still adds the week\'s points; a week with no facts adds none', db, async () => {
+test('Task 16 fix round 1, v3.1 one-tap posts: the Monday reply shows no points (owner ruling 5); its add (v4.10.3 R6) adds no points (final fix F4), the builder\'s later yes does; a week with no facts adds none', db, async () => {
   await freshBoard();
   const monday = lastFinishedMonday(new Date());
   const paid = await builder('wmpd', 'Pia', [1, 2]);
@@ -457,7 +457,12 @@ test('Task 16 fix round 1, v3.1 one-tap posts: the Monday reply shows no points 
   const s = show(await mcpCall(ctx(paid.id), 'find', {}));
   assert.match(s, /^Your week is ready, Pia\. You shipped last week\. Nice work\.\n\n\| \| This week \|\n[^]*\| Streak \| 1 week \|/, s);
   assert.doesNotMatch(s, /points/, s);
-  assert.ok((await pointsTotal(paid.id)) - before > 0, 'the add still earns the week\'s points');
+  // v4.10.3 final fix (owner F4): the automatic add awards no points; only the builder's own confirmation does.
+  assert.equal(await pointsTotal(paid.id), before, 'the automatic add earns nothing');
+  assert.equal((await sql()`SELECT 1 FROM builder_points WHERE builder_id = ${paid.id} AND week = ${monday}`).length, 0, 'no points row');
+  const { approveWeek } = await import('./weekly-moment');
+  assert.ok(await approveWeek(paid.id, paid.key, monday, new Date(), 'share', null));
+  assert.ok((await pointsTotal(paid.id)) - before > 0, 'the builder\'s yes earns the week\'s points');
   const once = await pointsTotal(paid.id);
   await mcpCall(ctx(paid.id), 'find', {});
   assert.equal(await pointsTotal(paid.id), once, 'earned once');
@@ -540,7 +545,8 @@ test('v4.10.3 Task 3 fix round 1 (7): two Monday finds at once: one add, one cla
       (SELECT facts->>'approved_at' FROM project_updates WHERE builder_id = ${me.id} AND week = ${monday}) AS at,
       (SELECT moment_week FROM installations WHERE id = ${me.id}) AS w,
       (SELECT count(*)::int FROM builder_points WHERE builder_id = ${me.id} AND week = ${monday}) AS pts`;
-  assert.deepEqual([r.n, r.w, r.pts], [1, isoWeekOf(new Date()), 1], 'one add, one claim, one points row');
+  // Final fix (owner F4): the automatic add earns no points row.
+  assert.deepEqual([r.n, r.w, r.pts], [1, isoWeekOf(new Date()), 0], 'one add, one claim, no points row');
   // Another find keeps the first add (approved_at unchanged) and says nothing.
   const again = show(await mcpCall(ctx(me.id), 'find', {}));
   assert.doesNotMatch(again, /Your week is ready|on your page/, again);

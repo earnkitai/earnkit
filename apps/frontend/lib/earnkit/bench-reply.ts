@@ -536,7 +536,7 @@ export function mondayBlock(m: MomentView, page: string, o: { link?: boolean } =
   const rows = mondayRows(facts);
   const table = rows.length === 0 ? [] : ['| | This week |', '|---|---|', ...rows.map(([label, value]) => `| ${cell(label)} | ${cell(value)} |`)];
   return paras(
-    [mondayOpener(m.first, m.summary ?? null, { lastWeek: true, shipped: m.shipped === true })],
+    [mondayOpener(m.first, m.summary ?? null, { shipped: m.shipped === true })],
     table,
     [communityRow(facts.usd, facts.lastWeekUsd)?.cheer ? CHEER_LINE : null],
     // The X post is a link the builder can use, never a question. Fix round 1 (8): a reply whose own step carries a

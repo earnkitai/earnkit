@@ -1032,9 +1032,10 @@ export function standingAnswer(f: StandingFacts): string {
 }
 /**
  * v4.10.3 Task 2 fix round 1 (2): the standing answer while the numbers are updating, for a builder who has a score:
- * where it is, no number and no word about updating. Pure.
+ * where it is, no number and no word about updating. Final fix (F11): no period right after the URL (some clients
+ * link it). Pure.
  */
-export const standingOnPage = (page: string) => `Your score and streak are on your page: ${page}.`;
+export const standingOnPage = (page: string) => `Your score and streak are on your page: ${page}`;
 /** The standing asked again in the session, nothing changed: "Same as earlier: #1 of 1, score 77." Pure. */
 export function standingAgain(f: Pick<StandingFacts, 'score' | 'rank'>): string {
   if (!hasScore(f)) return `Same as earlier: ${PROFILE_FILLS.charAt(0).toLowerCase()}${PROFILE_FILLS.slice(1)}`;

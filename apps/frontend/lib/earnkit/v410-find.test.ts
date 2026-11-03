@@ -932,6 +932,45 @@ test('v4.10.3 Task 4 (R6, walk M): a lighter ask never takes the also-open lead\
   assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), [], replies.map((r) => r.show).join('\n---\n'));
 });
 
+/** Final fix (owner F1): when the also-open Base lead was first offered (standing_seen.also_first). */
+const firstOf = async (id: number) => ((await seenOf(id)).also_first as Record<string, string>)['base-builder-grants'];
+
+test('v4.10.3 final fix (owner F1): the lead holds the lighter asks 7 days from first offered; day 6 held, day 8 the check-in takes its turn', db, async () => {
+  const day = 86_400_000;
+  for (const [tag, ago, held] of [['al10', 6, true], ['al11', 8, false]] as const) {
+    const b = await passedOwner(tag, { client: 'Cursor' });
+    await sql()`UPDATE builder_profiles SET standing_seen = (standing_seen - 'checkin' - 'checkin_asked' - 'checkin_asks')
+        || jsonb_build_object('also_first', jsonb_build_object('base-builder-grants', ${new Date(Date.now() - ago * day).toISOString()}::text))
+      WHERE builder_id = ${b.id}`;
+    const replies = await converse(b.ctx as never, [{ find: {} }, { find: {} }], { builderId: b.id });
+    const [first, next] = replies;
+    if (held) {
+      assert.ok(first.show.split('\n\n').includes(ALSO_HEAD), first.show);
+      assert.doesNotMatch(first.show, /check in here every Monday/, first.show);
+      assert.equal(moveUp({ reply: first.reply } as R)?.kind, 'apply');
+      assert.equal((await seenOf(b.id)).checkin_asked, undefined);
+    } else {
+      // Day 8: the check-in takes this reply's one easy reply; the lead shows when its slot comes (the next find).
+      assert.match(first.show, /check in here every Monday/, first.show);
+      assert.notEqual(moveUp({ reply: first.reply } as R)?.kind, 'apply', first.show);
+      assert.ok(next.show.includes('Base Builder Grant'), next.show);
+      assert.equal(moveUp({ reply: next.reply } as R)?.kind, 'apply', next.show);
+    }
+    // The first-offered time is kept, never re-stamped.
+    assert.equal(Date.parse(await firstOf(b.id)) < Date.now() - (ago - 1) * day, true);
+    assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }), [], replies.map((r) => r.show).join('\n---\n'));
+  }
+});
+
+test('v4.10.3 final fix (owner F1): the first offer of the lead stamps also_first once', db, async () => {
+  const b = await passedOwner('al12');
+  await converse(b.ctx as never, [{ find: {} }], { builderId: b.id });
+  const at = await firstOf(b.id);
+  assert.ok(Date.now() - Date.parse(at) < 60_000, at);
+  await converse(b.ctx as never, [{ find: {} }], { builderId: b.id });
+  assert.equal(await firstOf(b.id), at);
+});
+
 test('v4.10.2 Task 5: the also-open yes starts the draft (the path); a no parks it and the quiet reply goes back to "more"', db, async () => {
   const b = await passedOwner('al2');
   const lead = await find(b);
@@ -1094,12 +1133,52 @@ test('v4.10.3 fix round 1 (7, R2): a builder with only an investor program open:
   for (const r of replies) {
     assert.doesNotMatch(r.show, /\$0\b|in grants|\$400,000|\$400K in/, r.show);
     const money = r.show.split('\n\n').find((p) => p.startsWith('Open for you now:'));
-    if (money) assert.equal(money, 'Open for you now: a $400K accelerator. Alliance closes in 15 days.', r.show);
+    // Final fix (c): with no grant to lead with there is no lead, so no money line (never a bare "$0" or a total).
+    assert.equal(money, undefined, r.show);
     assert.doesNotMatch(r.show, BAD, r.show);
   }
   // The quiet reply here is the route's own (no lead: nothing to apply to but the accelerator); its copy and one ask hold.
   const rules = new Set(['copy', 'claim', 'easy_reply', 'repeat']);
   assert.deepEqual(gateFailures(replies, { names: ['EarnKit', b.handle] }).filter((f) => rules.has(f.rule)), [], replies.map((r) => r.show).join('\n---\n'));
+});
+
+test('v4.10.3 final fix (F10): the lead\'s yes that answers every ask prints the draft once (the agent, above the reply), never also in the reply', db, async () => {
+  const b = await passedOwner('fa1');
+  const lead = await find(b);
+  assert.match(show(lead), /needs 12 answers from you/, show(lead));
+  const [{ reqs }] = await sql()<{ reqs: { key: string }[] }[]>`SELECT submission_requirements AS reqs FROM programs WHERE id = 'base-builder-grants'`;
+  // Base now asks only the lead's first round (team, usage, demo, contract) of the builder: the yes answers every ask.
+  const keep = new Set(['founding_team', 'usage_numbers', 'demo_loom', 'contract_address', 'project_name_description', 'live_product_url', 'track']);
+  await sql()`UPDATE programs SET submission_requirements = ${sql().json(reqs.filter((r) => keep.has(r.key)) as never)} WHERE id = 'base-builder-grants'`;
+  try {
+    const answers = { team: 'just me', traction: 'no users yet', demo_video: 'https://loom.com/share/x', 'other:contract_address': '0x1234567890123456789012345678901234567890' };
+    const yes = await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes', answers });
+    const s = show(yes);
+    assert.doesNotMatch(s, /Here's your draft:|What it is/, s);
+    assert.match(noteOf(yes), /gave every answer only they can give[^]*show it finished, ready to paste, once, above this line/, noteOf(yes));
+    assert.doesNotMatch(noteOf(yes), /under "Here's your draft:"/, noteOf(yes));
+    assert.doesNotMatch(s, BAD, s);
+  } finally {
+    await sql()`UPDATE programs SET submission_requirements = ${sql().json(reqs as never)} WHERE id = 'base-builder-grants'`;
+  }
+});
+
+test('v4.10.3 final fix (c): a long-shot lead (no grant total) with an investor program open: the money line is the investor clause alone', db, async () => {
+  const b = await passedOwner('inv2');
+  const all = await copy('alliance-all19', 'allinv2', { hours: 15 * 24 + 1 });
+  await only([all.id, 'base-builder-grants']);
+  // Base as a long shot: still the lead, but no grant total (grantTotal leaves long shots out).
+  const [{ tag }] = await sql()<{ tag: string | null }[]>`SELECT tag FROM programs WHERE id = 'base-builder-grants'`;
+  await sql()`UPDATE programs SET tag = 'long shot' WHERE id = 'base-builder-grants'`;
+  try {
+    const replies = await converse(b.ctx as never, [{ find: {} }, { find: {} }], { builderId: b.id });
+    const money = replies[0].show.split('\n\n').find((p) => p.startsWith('Open for you now:'));
+    assert.equal(money, 'Open for you now: a $400K accelerator. Alliance closes in 15 days.', replies[0].show);
+    for (const r of replies) assert.doesNotMatch(r.show, /\$0\b|in grants|\$400,000/, r.show);
+    assert.equal(moveUp({ reply: replies[0].reply } as R)?.kind, 'apply');
+  } finally {
+    await sql()`UPDATE programs SET tag = ${tag} WHERE id = 'base-builder-grants'`;
+  }
 });
 
 /**

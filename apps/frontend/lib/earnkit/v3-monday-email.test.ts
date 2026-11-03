@@ -179,18 +179,25 @@ test('(c) sendDigests mails the moment for a checked week', db, () =>
   }),
 );
 
-test('(d2) v4.10.3 Task 3 fix round 2 (N2): the email page yes after the Monday reply\'s automatic add takes the week over (via email, a builder action)', db, () =>
+test('(d2) v4.10.3 Task 3 fix round 2 (N2), final fix (F4): the automatic add earns no points; the email page yes after it takes the week over (via email, a builder action) and earns them', db, () =>
   withEnv(ON, async () => {
     await freshBoard();
     const me = await builder('mea');
     const { approveWeek } = await import('./weekly-moment');
     assert.ok(await approveWeek(me.id, me.key, LAST, new Date(), 'auto', null));
     assert.equal((await row(me.id)).facts.approved_via, 'auto');
-    const [auto] = await sql()<{ via: string }[]>`SELECT via FROM builder_points WHERE builder_id = ${me.id} AND week = ${LAST}`;
-    assert.equal(auto.via, 'auto', 'fix round 2 (b): recorded as the automatic add');
+    // Final fix (owner F4): the automatic add awards no points.
+    const auto = await sql()<{ via: string }[]>`SELECT via FROM builder_points WHERE builder_id = ${me.id} AND week = ${LAST}`;
+    assert.equal(auto.length, 0, 'no points row for the automatic add');
+    assert.equal(await pointsTotal(me.id), 0);
     const approve = weekUrl({ builderId: me.id, key: me.key, monday: LAST, action: 'approve' });
     assert.match(await html(await weekPost(req(approve, 'POST'))), /Confirmed\./);
     assert.equal((await row(me.id)).facts.approved_via, 'email', 'the builder\'s own yes counts');
+    // The builder's own confirmation earns the week's points (via email).
+    const mine = await sql()<{ via: string; points: number }[]>`SELECT via, points FROM builder_points WHERE builder_id = ${me.id} AND week = ${LAST}`;
+    assert.equal(mine.length, 1);
+    assert.equal(mine[0].via, 'email');
+    assert.ok(mine[0].points > 0);
   }),
 );
 

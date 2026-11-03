@@ -180,7 +180,7 @@ test('a slow refresh that is still running when score is asked: score says no nu
   assert.doesNotMatch(show(f2), UPDATING, show(f2));
   // Fix round 1 (2): a builder with a score asking where they stand while updating: their page, no number.
   const q = await mcpCall(ctx, 'find', { ask: 'standing' });
-  assert.match(show(q).split('\n\n')[0], /^Your score and streak are on your page: earnkit\.com\/\S+\.$/, show(q));
+  assert.match(show(q).split('\n\n')[0], /^Your score and streak are on your page: earnkit\.com\/[^\s.]+$/, show(q));
   assert.doesNotMatch(show(q), NUMBERS, show(q));
   assert.doesNotMatch(show(q), /profile fills in|updating/i, show(q));
   easyLast(q);

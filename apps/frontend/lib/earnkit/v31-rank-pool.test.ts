@@ -74,7 +74,7 @@ test('(a) 9 ranked builders: find and score replies, the moment and the share po
   const s = show(f);
   // Task 16 step 7 under RANK_MIN_POOL: "on EarnKit", no rank. Last week has no ship-log row with facts, so there is no
   // post to offer (v3.1 one-tap posts): the page is the one link. v4.8 Task 1: no "Open now:" paragraph.
-  assert.match(s, new RegExp(`^Your week is ready, \\S+\\. Nice work\\.\\n\\n\\| \\| This week \\|\\n[^]*\\n\\nYour page: https://earnkit\\.com/${me.handle}\\n\\nLast week is on your page\\.\\n\\nShipping this week starts your streak and lifts your score\\.\\n\\n[^\\n]*\\?$`), s);
+  assert.match(s, new RegExp(`^Your week is ready, \\S+\\.\\n\\n\\| \\| This week \\|\\n[^]*\\n\\nYour page: https://earnkit\\.com/${me.handle}\\n\\nLast week is on your page\\.\\n\\nShipping this week starts your streak and lifts your score\\.\\n\\n[^\\n]*\\?$`), s);
   assert.equal(links(s).length, 1, s);
   assert.equal(questions(s), 1, s);
   assert.doesNotMatch(JSON.stringify(f.reply), /#\d/, 'no rank anywhere in the reply');

@@ -197,6 +197,9 @@ export type NamedInvestor = { title: string; max_usd: number | null; ends_at: st
  */
 export function alsoMoneyLine(grantUsd: number, investor: NamedInvestor | null, now: Date): string | null {
   const when = investor ? timeLeftWords(investor.ends_at, now) : null;
+  // Final fix (F8): "accelerator" is hardcoded because today's only investor program that can close within
+  // INVESTOR_NAME_MS is an accelerator (Alliance). Deriving the kind word from the program (fund, accelerator, ...) is
+  // carried to v4.10.4.
   const inv = investor && when ? (investor.max_usd && investor.max_usd > 0 ? `a ${usdCompact(investor.max_usd)} accelerator` : 'an accelerator') : null;
   const close = inv ? ` ${shortName(investor!.title)} closes ${when}.` : '';
   if (grantUsd > 0) return `Open for you now: up to ${grantMoney(grantUsd)} in grants${inv ? ` plus ${inv}` : ''}.${close}`;

@@ -95,7 +95,7 @@ test('9.7 the copy table: plain words, no em dash, no raise', () => {
   const lines = [
     STATE_COPY.signed_out.ask('https://x'), STATE_COPY.signed_out.retry(), STATE_COPY.no_project.noApp(), STATE_COPY.no_project.ask('https://x', false),
     STATE_COPY.not_counted.ask('https://x', false), SHIP_ASK, MOMENT_ADDED, INTRO_LINE, introWhat({ org: 'Base', amount: '$5,000', chain: 'Base' }), connectAsk('earnkit.com/a'),
-    mondayOpener('Maya', null), applyAsk('A', '$5,000', null),
+    mondayOpener('Maya', null, { shipped: true }), applyAsk('A', '$5,000', null),
     ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('A'), v.ask('A')]),
   ].filter((l): l is string => l !== null);
   for (const l of lines) {

@@ -74,7 +74,11 @@ export const momentSummary = (s: string | null): string | null => (s && !/[?]|ht
  * - the reply's Monday block (v4.10.3 Task 2, bench-find.ts weeklyMoment): the live score, its rise since last week's
  *   final (null: none, or a dip), and the live streak.
  */
-export type MondayFacts = { first: string; summary: string | null; score: number; change: number | null; streak: number; usd: number; lastWeekUsd: number };
+export type MondayFacts = {
+  first: string; summary: string | null; score: number; change: number | null; streak: number; usd: number; lastWeekUsd: number;
+  /** v4.10.3 final fix (F3): last week has ship facts (LastWeek.facts), so the opener may say it shipped. */
+  shipped?: boolean;
+};
 export const CHEER_LINE = "People really believe in what you're shipping.";
 const usdWhole = (usd: number) => `$${Math.round(usd).toLocaleString('en-US')}`;
 /**
@@ -100,21 +104,21 @@ export function mondayRows(f: Pick<MondayFacts, 'change' | 'streak' | 'usd' | 'l
 }
 /**
  * "Your week is ready, Maya. You shipped the new meal planner. Nice work." A summary led by "Shipped" reads "You
- * shipped ..."; any other summary is said as it is (the words the builder approves); none: "You shipped this week.".
- * v4.10.3 Task 3 fix round 3: the reply's Monday block is about last week (`o.lastWeek`): with no summary it says
- * "You shipped last week." only when the week has ship facts (`o.shipped`), else no sentence. Pure.
+ * shipped ..."; any other summary is said as it is (the words the builder approves). The reply's Monday block and the
+ * weekly email are both about last week. v4.10.3 final fix (F3, F9): with no summary, "You shipped last week." only
+ * when the week has ship facts (`o.shipped`), and "Nice work." only with ship facts; otherwise neither. Pure.
  */
-export function mondayOpener(first: string, summary: string | null, o: { lastWeek?: boolean; shipped?: boolean } = {}): string {
+export function mondayOpener(first: string, summary: string | null, o: { shipped?: boolean } = {}): string {
   const s = summary?.trim().replace(/[.!]+$/, '') ?? '';
   const shipped = s.match(/^shipped\s+(.+)$/i)?.[1];
-  const none = o.lastWeek ? (o.shipped ? 'You shipped last week.' : null) : 'You shipped this week.';
+  const none = o.shipped ? 'You shipped last week.' : null;
   const middle = !s ? none : shipped ? `You shipped ${shipped}.` : `${s}.`;
-  return [`Your week is ready, ${first}.`, middle, 'Nice work.'].filter(Boolean).join(' ');
+  return [`Your week is ready, ${first}.`, middle, o.shipped ? 'Nice work.' : null].filter(Boolean).join(' ');
 }
 /** The email's week: the opener, then the rows as plain "Label: value" lines, then the cheer when it holds. Pure. */
 export function mondayLines(f: MondayFacts): string[] {
   return [
-    mondayOpener(f.first, f.summary), '',
+    mondayOpener(f.first, f.summary, { shipped: f.shipped === true }), '',
     ...mondayRows(f).map(([label, value]) => `${label}: ${value}`),
     ...(communityRow(f.usd, f.lastWeekUsd)?.cheer ? [CHEER_LINE] : []),
   ];
@@ -332,7 +336,11 @@ async function consented(builderId: number, via: ApproveVia, now: Date): Promise
   await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) - 'connect_no') || jsonb_build_object('connect_ok', ${now.toISOString()}::text)
     WHERE builder_id = ${builderId}`.catch((err: unknown) => console.error('[moment] consent', err instanceof Error ? err.name : 'error'));
 }
-/** v3 Stage 1: an approval that stood earns the week's points, once, when the week has facts. Never throws. */
+/**
+ * v3 Stage 1: an approval that stood earns the week's points, once, when the week has facts. v4.10.3 final fix (owner
+ * F4): the automatic add ('auto') earns none (awardWeekPoints); the builder's later yes takes the week over and earns
+ * them. Never throws.
+ */
 async function award(builderId: number, monday: string, via: ApproveVia, now: Date, facts: WeekFacts): Promise<true> {
   if (hasFacts(facts ?? {})) await awardWeekPoints(builderId, monday, via, now).catch((err: unknown) => console.error('[points] award', err instanceof Error ? err.name : 'error'));
   return true;

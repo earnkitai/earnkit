@@ -64,7 +64,7 @@ async function token(id: number, wallet: string | null) {
 const newWallet = () => `0x${randomBytes(20).toString('hex')}`;
 
 const NO_FEES = { usd: 0, lastWeekUsd: 0 };
-const VIEW: MomentView = { week: 5, place: null, rank: 1, summary: 'Shipped the new meal planner.', post: { text: 'x', link: 'https://earnkit.com/maya/post/abcdefghij' }, first: 'Maya', score: 82, change: 4, community: { usd: 46, lastWeekUsd: 30 } };
+const VIEW: MomentView = { week: 5, place: null, rank: 1, summary: 'Shipped the new meal planner.', post: { text: 'x', link: 'https://earnkit.com/maya/post/abcdefghij' }, first: 'Maya', score: 82, change: 4, community: { usd: 46, lastWeekUsd: 30 }, shipped: true };
 const PAGE = 'https://earnkit.com/maya';
 
 test('communityRow: none under $1; whole dollars; the cheer at $100 or double a real last week', () => {
@@ -85,13 +85,14 @@ test('the rows: score with its change, the streak, the community', () => {
   assert.deepEqual(mondayRows({ ...f, change: -3, streak: 1, usd: 0 }), [['Shipping score', '82, down 3'], ['Streak', '1 week']]);
   assert.deepEqual(mondayRows({ ...f, change: 0, streak: 0, usd: 0 }), [['Shipping score', '82']]);
   assert.deepEqual(mondayRows({ ...f, change: null, streak: 0, usd: 0 }), [['Shipping score', '82']]);
-  assert.equal(mondayOpener('Maya', 'Shipped the new meal planner.'), 'Your week is ready, Maya. You shipped the new meal planner. Nice work.');
-  assert.equal(mondayOpener('Maya', null), 'Your week is ready, Maya. You shipped this week. Nice work.', 'the email, unchanged');
-  // v4.10.3 Task 3 fix round 3 (N2): the reply's block is about last week; with no ship facts it claims nothing.
-  assert.equal(mondayOpener('Maya', null, { lastWeek: true, shipped: true }), 'Your week is ready, Maya. You shipped last week. Nice work.');
-  assert.equal(mondayOpener('Maya', null, { lastWeek: true, shipped: false }), 'Your week is ready, Maya. Nice work.');
-  assert.equal(mondayOpener('Maya', 'Shipped the planner.', { lastWeek: true, shipped: false }), 'Your week is ready, Maya. You shipped the planner. Nice work.');
-  assert.equal(mondayOpener('Sam', 'Fixed the login loop.'), 'Your week is ready, Sam. Fixed the login loop. Nice work.', 'the approved words as they are');
+  assert.equal(mondayOpener('Maya', 'Shipped the new meal planner.', { shipped: true }), 'Your week is ready, Maya. You shipped the new meal planner. Nice work.');
+  // v4.10.3 final fix (F3, F9): the email and the reply are both about last week: "You shipped last week." and "Nice
+  // work." only with ship facts; otherwise neither (never "You shipped this week.").
+  assert.equal(mondayOpener('Maya', null, { shipped: true }), 'Your week is ready, Maya. You shipped last week. Nice work.');
+  assert.equal(mondayOpener('Maya', null, { shipped: false }), 'Your week is ready, Maya.');
+  assert.equal(mondayOpener('Maya', null), 'Your week is ready, Maya.', 'no facts given: no claim');
+  assert.equal(mondayOpener('Maya', 'Shipped the planner.', { shipped: false }), 'Your week is ready, Maya. You shipped the planner.');
+  assert.equal(mondayOpener('Sam', 'Fixed the login loop.', { shipped: true }), 'Your week is ready, Sam. Fixed the login loop. Nice work.', 'the approved words as they are');
 });
 
 test('(a) the reply is the spec block: opener, table, post link, then (v4.10.3 R6) the week added to the page, no question', () => {
@@ -135,7 +136,10 @@ test('(c) $340: the row and the cheer under the table', () => {
 });
 
 test('(d) the email carries the same facts as plain lines', () => {
-  const lines = mondayLines({ first: 'Maya', summary: 'Shipped the new meal planner.', score: 82, change: 4, streak: 5, usd: 340, lastWeekUsd: 0 });
+  const lines = mondayLines({ first: 'Maya', summary: 'Shipped the new meal planner.', score: 82, change: 4, streak: 5, usd: 340, lastWeekUsd: 0, shipped: true });
+  // v4.10.3 final fix (F3): an email for a week with no ship facts says neither "You shipped last week." nor "Nice work.".
+  assert.equal(mondayLines({ first: 'Maya', summary: null, score: 82, change: 0, streak: 0, usd: 0, lastWeekUsd: 0 })[0], 'Your week is ready, Maya.');
+  assert.equal(mondayLines({ first: 'Maya', summary: null, score: 82, change: 0, streak: 1, usd: 0, lastWeekUsd: 0, shipped: true })[0], 'Your week is ready, Maya. You shipped last week. Nice work.');
   assert.deepEqual(lines, [
     'Your week is ready, Maya. You shipped the new meal planner. Nice work.',
     '',

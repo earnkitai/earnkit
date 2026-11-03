@@ -41,6 +41,7 @@ const stats = (o: Partial<PublicStats> = {}): PublicStats => ({
   posts_drafted: 0,
   posts_tapped: 0,
   backers_after_post: 0,
+  weeks_on_pages: 0,
   labelled_entries: 0,
   entries_won: 0,
   builders_won_usd: 0,

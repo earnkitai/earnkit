@@ -36,8 +36,14 @@ export async function weekAwarded(builderId: number, week: string): Promise<bool
 /** The reply's points line. */
 export const POINTS_LINE = (total: number) => `Points: ${total.toLocaleString('en-US')}. They convert to $EARN at launch, in proportion to all points earned.`;
 
-/** One row per builder and week (created_at `now`): the points awarded now, or 0 when the week already had its row. */
+/**
+ * One row per builder and week (created_at `now`): the points awarded now, or 0 when the week already had its row or
+ * the approval is EarnKit's automatic add ('auto': no row, so the builder's later yes earns the week's points).
+ */
 export async function awardWeekPoints(builderId: number, week: string, via: ApproveVia, now: Date): Promise<number> {
+  // v4.10.3 final fix (owner F4, 2026-11-03): an automatic add awards no points. Points come only when the builder
+  // confirms the week (the email's "Looks right", a share or connect yes), which takes the week over (approveWeek).
+  if (via === 'auto') return 0;
   let points = CONNECT_POINTS;
   let rank: number | null = null;
   let total: number | null = null;

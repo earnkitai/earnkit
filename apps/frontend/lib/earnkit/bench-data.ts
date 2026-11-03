@@ -19,7 +19,7 @@ import { fitWhy, whyFacts } from './bench-find';
 import { titlesShown } from './ship-titles';
 import { summaryConsented, summaryShown } from './week-summary';
 import { shownUrl } from './untrusted-text';
-import { factChips, hasFacts, startedChips, startedLine, type WeekFacts } from './week-facts';
+import { factChips, hasFacts, startedChips, startedLine, weekConfirmed, type WeekFacts } from './week-facts';
 import { last52 } from './weeks';
 import { gridWeeks } from './site-streak';
 import { streakOfBuilder, streaksFor } from './streak';
@@ -111,7 +111,7 @@ export async function benchRows(f: BenchFilter, o: { limit?: number; only?: numb
 /** One card in the Ship log: the week's Monday, the update (or null), the fact chips; `started` marks the Started card. */
 /** Weekly updates: `summary`, what the week shipped (week-summary.ts summaryShown); `text`, the builder's own note. */
 export type ProfileCard = {
-  week: string; text: string | null; summary?: string; chips: string[]; started?: string | null; /** facts.approved: the builder's yes; false reads "Not yet confirmed" (never set on a Started card). */ confirmed?: boolean;
+  week: string; text: string | null; summary?: string; chips: string[]; started?: string | null; /** facts.approved by the builder's own yes (weekConfirmed: never EarnKit's automatic add); false reads "Not yet confirmed" (never set on a Started card). */ confirmed?: boolean;
   /** v3.1 site: the week's commits EarnKit checked (facts.shipped_code.n), set only from 1. */
   commits?: number;
 };
@@ -205,7 +205,7 @@ export function logCards(rows: { week: string; text: string | null; summary?: st
       const n = Number(facts.shipped_code?.n ?? 0);
       const commits = Number.isFinite(n) ? Math.floor(n) : 0;
       out.push({
-        week: r.week, text: r.text, confirmed: r.facts?.approved === true, ...(summary && { summary }), ...(commits > 0 && { commits }),
+        week: r.week, text: r.text, confirmed: weekConfirmed(r.facts), ...(summary && { summary }), ...(commits > 0 && { commits }),
         chips: [...new Set([...start.slice(0, 1), ...chips, ...start.slice(1)])],
       });
     } else if (facts.started) out.push({ week: r.week, text: null, chips: startedChips(facts.started), started: startedLine(name) });

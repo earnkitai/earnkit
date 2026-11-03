@@ -9598,8 +9598,8 @@ This supersedes the per-program need in Task 4: the builder answers once for the
     fits: `mondayView` takes `moment_due` in one UPDATE, so racing replies say it once. A week gone by is never said.
     `momentWouldShow` and `weeklyMoment` are gone.
   - **Stats.** `stats.ts approvedWeek` excludes `approved_via 'auto'`, so `activated`, `weekly_active` and `shared`
-    count builder actions only. `builder_points.via` (CHECK share/connect/email) records an automatic add as
-    `'share'` (`points.ts`), so no schema change was needed.
+    count builder actions only. (Fix round 2 records the automatic add as `'auto'`, with a schema change; the final
+    fixes below change the stats and the points again.)
   - **Links.** `bench-find.ts withMonday(blocks, before, after)` renders the block. When the rest of the reply has a
     link, the block drops its page or post link (`mondayBlock(..., { link: false })`).
   - **Old share answers.** Any non-yes outcome hands off to find (`then_find`); a shared client hears "Okay.".
@@ -9623,7 +9623,8 @@ This supersedes the per-program need in Task 4: the builder answers once for the
 - **Fix round 3.**
   - The Monday block is about last week. `weekly-moment.ts mondayOpener(first, summary, { lastWeek, shipped })`,
     with no summary, says "You shipped last week." only when the week has ship facts (`MomentView.shipped`, from
-    `hasFacts`); otherwise it drops that sentence. The weekly email's opener is unchanged.
+    `hasFacts`); otherwise it drops that sentence. (The final fixes apply the same rule to the weekly email, and to
+    "Nice work.".)
   - `answerConnect` writes `connect_no`, or `connect_ok`, in the same UPDATE that closes the offer, so a failed
     write closes nothing and never fails open.
 
@@ -9647,3 +9648,43 @@ This supersedes the per-program need in Task 4: the builder answers once for the
   (`pathQuiet`, a project and handle, `alsoLeadDue`) takes `quiet` false, so the check-in, wallet, token offer, new
   repo and titles asks are neither shown nor claimed while the lead can lead. Setup step 3, connect, apply, posts and
   held questions keep their places ahead of it.
+
+## v4.10.3 final fixes (2026-11-03, plan: v4.10.3-plan/final-review.md; owner rulings F1, F2, F4)
+
+- **F1: the lead's hold on the lighter asks lasts 7 days (owner).** `bench-find.ts Seen.also_first` (`{ [program_id]:
+  iso }`, in `standing_seen`, no new table) is stamped by `alsoLeadCommit` the first time a lead is shown and never
+  re-stamped. `alsoLeadHolds(seen, pid, now)`: no stamp yet, or under `ALSO_HOLD_MS` (7 days). In `benchView`,
+  `leadDue` needs both `alsoLeadDue` and `alsoLeadHolds`, so after 7 days unanswered the check-in, optional wallet,
+  token offer, new-repo nudge and titles question take their turns again (their own once-only rules), and the lead
+  still shows when its slot comes (a ship or "more" reply). A yes tells the program and a no declines it, so either
+  ends the lead. Every reply still ends with one easy reply. The gate (`fixtures/converse.ts PROOF_PATTERNS`) also
+  takes the standing line with no score ("6 weeks shipping in a row.") as the opener's fact.
+- **F2: the funnel stats count any explicit builder action (owner).** `stats.ts builderActed(db, since)` (reads only):
+  a week the builder approved (`approvedWeek`, never `'auto'`), an answer banked (`answer_bank.updated_at`; written
+  only from the builder's answers), an application or not-interested told (`builder_program_status.at`), a yes to a
+  draft (`standing_seen.apply_yes` timestamps) or a check-in answer (`standing_seen.checkin.at`), for any
+  installation of the person's group. Malformed timestamps are skipped (`ISO_RE`), never cast. `activated`: claimed,
+  App-proven repo, an action ever. `weekly_active`: the same people with an action in the last 7 days. `shared`:
+  only `approved_via 'share'` (the builder's own yes to the retired share offer). New key `weeks_on_pages` (after
+  `backers_after_post`): every approved week, the automatic add included. Labels and `app/api/stats/route.ts` say so.
+- **F3, F9: the Monday opener claims nothing without ship facts.** `weekly-moment.ts mondayOpener(first, summary,
+  { shipped })` (the `lastWeek` option is gone: the reply and the email are both about last week): with no summary,
+  "You shipped last week." only with ship facts, and "Nice work." only with ship facts; otherwise neither.
+  `MondayFacts.shipped`; `digest.ts` passes `last.facts`; the reply passes `MomentView.shipped`.
+- **F4: an automatic add awards no points (owner).** `points.ts awardWeekPoints` returns 0 for `'auto'` (no row), so
+  the builder's later confirmation (the email's "Looks right", a share or connect yes) takes the week over
+  (`approveWeek`) and earns the week's points. `week-facts.ts upsertWeekFacts`' retro award goes through the same
+  function. The `builder_points.via` CHECK keeps `'auto'` (harmless).
+- **F5: an automatic week is still "Not yet confirmed".** `week-facts.ts weekConfirmed(facts)` (approved and not
+  `'auto'`) sets `confirmed` in `bench-data.ts logCards` (the public page) and `feed.ts toCard` (the feed).
+- **F6:** the stale Task 3 sentence (an automatic add recorded as `'share'`, no schema change) is corrected above.
+- **F7:** `db/schema.sql owner_people.last_approved_week` (and so `last_activity_at`'s approved-week term) excludes
+  `'auto'` (the view's `CREATE OR REPLACE`, idempotent).
+- **F8:** `ready-copy.ts alsoMoneyLine` notes that "accelerator" is hardcoded because today's only investor program in
+  the window is one; deriving the kind word is carried to v4.10.4.
+- **F10:** the lead's yes that answers every ask returns `pathSubmit` with `firstFinishedNote` only: the agent shows
+  the finished draft once, above the reply; the reply no longer also prints "Here's your draft:" and its body.
+- **F11:** `conversation.ts standingOnPage` ends on the URL, with no period after it.
+- **(c):** `v410-find.test.ts` asserts the investor clause alone for a long-shot lead (no grant total) with Alliance
+  open, and no money line at all when there is no lead.
+- Carried to v4.10.4: F12 ("the last 3 answers" lists two items), (b) and (e).

@@ -442,6 +442,8 @@ async function digestWeek(s: SubRow, now: Date, db: Db): Promise<Pick<DigestFact
       first: firstName(p.name, handle), summary: momentSummary(last.summary ?? null), score: last.now.score,
       change: last.before ? last.now.score - last.before.score : null, streak: lit ? weekNumber([...lit.weeks], last.monday) : 0,
       usd: community.usd, lastWeekUsd: community.lastWeekUsd,
+      // v4.10.3 final fix (F3): "You shipped last week." and "Nice work." only when last week has ship facts.
+      shipped: last.facts,
     });
     return { week: { lines, standing: last.now, approveUrl: link('approve'), hideUrl: link('hide'), approved: last.approved, ...(postUrl && { postUrl }) }, handle, person };
   } catch (err) {

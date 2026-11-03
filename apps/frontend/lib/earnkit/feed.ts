@@ -5,7 +5,7 @@ import { listedRanked } from './person-score';
 import { PRIVATE_NAME, avatarUrl, displayName, norm, shownProjects } from './page-data';
 import { titlesShown } from './ship-titles';
 import { summaryConsented, summaryShown } from './week-summary';
-import { factChips, hasFacts, pointsOf, WEEKLY_HOUR_UTC, type WeekFacts } from './week-facts';
+import { factChips, hasFacts, pointsOf, weekConfirmed, WEEKLY_HOUR_UTC, type WeekFacts } from './week-facts';
 import { lastFinishedMonday, weekLabel } from './weeks';
 
 /** v2.13 spec "The feed (R7)": progress points, the daily rank, the feed's weeks and the carousel. */
@@ -76,7 +76,7 @@ async function feedRows(since: string, until: string, only?: number[]): Promise<
 }
 const toCard = (r: Row): FeedCard => ({
   id: r.id, handle: r.handle, name: displayName(r.x_name, r.handle), avatar: avatarUrl(r.avatar, r.github_login), project: r.project, week: r.week,
-  text: r.text, summary: r.summary, chips: factChips(r.facts), pinned: r.pinned, confirmed: r.facts?.approved === true,
+  text: r.text, summary: r.summary, chips: factChips(r.facts), pinned: r.pinned, confirmed: weekConfirmed(r.facts),
   score: r.score === null ? null : Math.round(r.score), commits: r.facts?.shipped_code?.n ?? 0,
 });
 

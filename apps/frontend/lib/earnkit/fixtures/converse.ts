@@ -296,6 +296,9 @@ export const PROOF_PATTERNS: RegExp[] = [
   /(?:^|\n|\. )Score \d+, #\d+ of \d+\b/g,
   // The standing line a quiet reply opens with ("Score 0 · Top 22% of builders. 6 weeks shipping in a row."): the builder's.
   /(?:^|\n)Score \d+\b[^\n]*?\b\d+ weeks? shipping in a row\b/g,
+  // v4.10.3 final fix (F1): the same standing line with no score shown ("6 weeks shipping in a row. No grants won yet."),
+  // as the check-in's quiet reply opens once the also-open lead's 7-day hold is over.
+  /(?:^|\n)\d+ weeks? shipping in a row\b/g,
   /\byou(?:'re| are) #\d+ of \d+\b/gi,
   /\b[Yy]ou(?:'re| are) (?:live )?on [A-Z]\w+\b/g,
   /\byour (?:app|project|product|contract)[^.]*\b\d[\d,]* (?:transactions?|txs?|users?)\b/gi,

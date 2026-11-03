@@ -1695,8 +1695,9 @@ CREATE TABLE IF NOT EXISTS builder_points (
   created_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (builder_id, week)
 );
--- v4.10.3 Task 3 fix round 2: 'auto', the Monday reply's own add (no builder yes). owner_people.points_weeks and
--- points_total count points earned, automatic weeks included (they are not a count of builder approvals).
+-- v4.10.3 Task 3 fix round 2: 'auto', the Monday reply's own add (no builder yes), allowed. v4.10.3 final fix (owner
+-- F4): no 'auto' row is written any more (points.ts awardWeekPoints: an automatic add awards no points; the builder's
+-- later yes does). The CHECK keeps 'auto' (harmless, and rows from before the fix stay valid).
 ALTER TABLE builder_points DROP CONSTRAINT IF EXISTS builder_points_via_check;
 ALTER TABLE builder_points ADD CONSTRAINT builder_points_via_check CHECK (via IN ('share', 'connect', 'email', 'auto'));
 
@@ -1984,9 +1985,10 @@ LEFT JOIN LATERAL (
     (SELECT max(d) FROM unnest(cw.weeks) d) AS last_week
   FROM (SELECT t.this_week, CASE WHEN t.this_week = ANY(cw.weeks) THEN t.this_week ELSE t.this_week - 7 END AS start
     FROM (SELECT date_trunc('week', now() AT TIME ZONE 'UTC')::date AS this_week) t) s) sk ON true
+-- v4.10.3 final fix (F7): the last week the builder approved, never EarnKit's automatic add (approved_via 'auto').
 LEFT JOIN LATERAL (
   SELECT max(u.week) AS last_week FROM project_updates u
-  WHERE u.builder_id = p.builder_id AND u.facts->'approved' = 'true'::jsonb) ap ON true
+  WHERE u.builder_id = p.builder_id AND u.facts->'approved' = 'true'::jsonb AND COALESCE(u.facts->>'approved_via', '') <> 'auto') ap ON true
 -- The coin (raising.ts raisingCoin's read): the group's launched entry coin on the one project first, else the newest.
 LEFT JOIN LATERAL (
   SELECT x.token_symbol AS symbol, x.token_url AS url, lower(x.coin_address) AS address

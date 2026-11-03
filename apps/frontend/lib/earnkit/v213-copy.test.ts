@@ -32,7 +32,7 @@ export const TEXTS: string[] = ([
   qualifySteps({ org: 'Base', amount: '$5,000', chain: 'Base' }, ['base', 'codes', 'use']),
   STATE_COPY.not_counted.stand('Recipe planner'), standingLine('Recipe planner', 'Top 18% of builders', 3, 340), connectStanding('Recipe planner', '#3 of 12 builders', 2),
   connectAsk('earnkit.com/maya'), qualifyLine({ title: 'Base Builder Grants', amount: '$5,000', when: 'closes Oct 30' }), applyAsk('Base Builder Grants', '$5,000', null),
-  SHIP_ASK, mondayOpener('Maya', null), MOMENT_ADDED,
+  SHIP_ASK, mondayOpener('Maya', null, { shipped: true }), MOMENT_ADDED,
   ...([
     { chains: { base: { mainnet: true, testnet: false, evidence: 'x', basis: 'deployed' } }, live: true },
     { chains: { arc: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' } }, live: false },
