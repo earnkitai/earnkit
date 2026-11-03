@@ -127,8 +127,11 @@ export type MomentView = {
   summary?: string | null;
   /** v3.1 one-tap posts (design 6): last week's drafted post, else null (the reply gives the page). */
   post: PostOffer | null;
-  /** v4.0 Task 7: the builder's first name (firstName), last week's Shipping and its change (null: no week before). */
-  first: string; score: number; change: number | null;
+  /**
+   * v4.0 Task 7: the builder's first name (firstName). v4.10.3 Task 2 (R5): the live Shipping score (null: none to show,
+   * no row) and its change since last week's final (null: no live score); `week` is the live streak.
+   */
+  first: string; score: number | null; change: number | null;
   /** v4.0 Task 7: what the community sent last week and the week before (community.ts weekCommunityUsd). */
   community: { usd: number; lastWeekUsd: number };
 };
@@ -524,9 +527,8 @@ export const MOMENT_ASK = 'Add last week to your page?';
  */
 export function mondayReply(m: MomentView, page: string, ask: string, why: string | null = null, money: string | null = null): string {
   const facts = { score: m.score, change: m.change, streak: m.week, usd: m.community.usd, lastWeekUsd: m.community.lastWeekUsd };
-  // v4.10.2 final re-review: the block's numbers are last week's final (lastWeekOf), so the header says so; the
-  // session's live score after it is "so far this week" (standing.ts soFar).
-  const table = ['| | Last week |', '|---|---|', ...mondayRows(facts).map(([label, value]) => `| ${cell(label)} | ${cell(value)} |`)];
+  // v4.10.3 Task 2 (R5): one score: the block's numbers are the live score and streak (weeklyMoment), so "This week".
+  const table = ['| | This week |', '|---|---|', ...mondayRows(facts).map(([label, value]) => `| ${cell(label)} | ${cell(value)} |`)];
   return paras(
     [mondayOpener(m.first, m.summary ?? null)],
     table,

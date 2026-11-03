@@ -400,13 +400,6 @@ type BenchRead = {
 const EMPTY_BASE: StandBase = { standing: { ranked: false, rank: 0, total: 0 }, claimed: false, handle: null, signInLink: null };
 const NO_RANK: RankLines = { bench: null, line: null, chains: [], listed: false };
 
-/**
- * v4.10.1 Task 3 (R5, finding 4): the line a reply says, once a session, while the person's refresh is still running
- * past the reply's wait (it lands for a later reply). Exact copy (fix round 1: no promise about the next reply).
- */
-export const UPDATING_LINE = "Your score and weeks are updating, so they're not in this reply.";
-/** The session part (standing_seen.said) UPDATING_LINE is said under. */
-export const UPDATING_SAID = 'updating';
 /** v4.10.1 Task 3: the agent's half of R5 (the facts carry no score, rank or weeks either). */
 export const UPDATING_NOTE = "The score, rank and weeks are updating: don't state any of them in this reply.";
 /**
@@ -422,27 +415,15 @@ const hasNumbers = (read: BenchRead) =>
  */
 const withoutNumbers = (read: BenchRead): BenchRead => ({ ...read, parts: null, ranks: NO_RANK, row: read.row && { ...read.row, streak: 0 } });
 /**
- * v4.10.1 Task 3 (R5): a reply's fields and show while updating: no streak fact, the standing with no numbers (it has
- * none: withoutNumbers), `numbers_updating` (tools.ts withFacts drops the rank and streak facts on it) and its
- * `numbers_note` (its own field, so the path and answer-first notes stay as withFacts reads them).
- * In find UPDATING_LINE is said once a session, before the reply's last paragraph (its one easy reply stays last). With
- * `lead` (score: the builder asked where they stand) it leads every updating reply (fix round 1, Important 2). Never
- * throws on its write.
+ * v4.10.1 Task 3 (R5): a reply's fields while updating: no streak fact, the standing with no numbers (it has none:
+ * withoutNumbers), `numbers_updating` (tools.ts withFacts drops the rank and streak facts on it) and its `numbers_note`
+ * (its own field, so the path and answer-first notes stay as withFacts reads them). v4.10.3 Task 2 (R4): the builder
+ * is told nothing about it: the numbers are simply left out (owner answer 6), so show_to_builder is the reply as built. Pure.
  */
-async function updatingReply(id: number, now: Date, seen: Seen, r: Reply, o: { lead: boolean }): Promise<Reply> {
+function updatingReply(r: Reply): Reply {
   const { streak: _streak, ...fields } = r;
-  // Final fix 2 (I1): a ready view (the opener, the repeat) never shows a number, so it says nothing about them: the
-  // line waits for the next reply that would have. Its note still holds the agent to no number.
-  const silent = !o.lead && isReadyView(r);
-  const said = silent || sessionOf(seen, now).said.has(UPDATING_SAID);
-  const show = typeof r.show_to_builder === 'string' ? r.show_to_builder : '';
-  const parts = show.split('\n\n');
-  const shown = !show || (said && !o.lead) ? show : o.lead || parts.length < 2 ? [UPDATING_LINE, show].join('\n\n') : [...parts.slice(0, -1), UPDATING_LINE, parts.at(-1)].join('\n\n');
-  if (!said) await markSaid(id, [UPDATING_SAID], now);
-  return { ...fields, show_to_builder: shown, numbers_updating: true, numbers_note: UPDATING_NOTE };
+  return { ...fields, numbers_updating: true, numbers_note: UPDATING_NOTE };
 }
-/** Final fix 2 (I1): a reply of the ready set (its move_up or its `ready` part), which states no score, rank or weeks. Pure. */
-const isReadyView = (r: Reply) => (r.move_up as { kind?: unknown } | undefined)?.kind === 'ready' || r.ready !== undefined;
 const logged = (where: string) => (err: unknown) => {
   console.error(`[bench] ${where}`, err instanceof Error ? err.name : 'error');
   return null;
@@ -1743,16 +1724,6 @@ async function keepAlso(o: ViewIn, a: AlsoOpenLead | null): Promise<void> {
     WHERE builder_id = ${o.id}`.catch(logged('also open'));
 }
 
-/** v4.10.2 final re-review: the session key the Monday block's score (last week's final) was said under. */
-const momentScoreSaid = (score: number) => `moment_score=${score}`;
-/** The Monday block's score said this session, or null. Pure. */
-const momentScoreOf = (said: ReadonlySet<string>) => {
-  for (const k of said) {
-    const m = /^moment_score=(\d+)$/.exec(k);
-    if (m) return Number(m[1]);
-  }
-  return null;
-};
 /** v4.10.2 Task 5: the session key the also-open lead was said under (its repeat is the easy reply alone). */
 const alsoSaid = (pid: string) => `also:${pid}`;
 /**
@@ -2516,8 +2487,8 @@ async function directAnswer(o: ViewIn, v: PathFacts, told: Set<string>): Promise
   const { now, read } = o;
   const said = sessionOf(read.seen, now).said;
   if (q === 'standing') {
-    // v4.10.1 Task 3 (R5): no answer with numbers about to change; UPDATING_LINE (benchFind) answers it.
-    if (o.updating) return null;
+    // v4.10.1 Task 3 (R5): no numbers about to change. v4.10.3 Task 2 (R4): and no word about it: the answer with no
+    // score (the profile fills in, the page), the same copy as before a score.
     const f: StandingFacts = {
       // Fix round 1 (2): a rank only inside the leaderboard's pool (rankLines' listed, the page pill's own rule).
       score: v.stand.score, rank: v.stand.score !== null && read.ranks.listed ? rankWords(read.base.standing) : null, streak: v.streak,
@@ -2637,13 +2608,9 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   // v4.7 T2: where the builder stands, in every reply's fields (the page's score and rank, wins, applications, the
   // earliest fit deadline); a repo another person holds has no fits. Fix round 1 (R7, replyFacts' gate): signed out,
   // or a shared client that is no person, the weeks only and nothing read.
-  const stand0 = state === 'signed_out' || !o.personal
+  const stand = state === 'signed_out' || !o.personal
     ? streakOnly(streak)
     : await readStanding(id, { lines: read.ranks, parts: read.parts, streak, fits: (taken ? [] : o.fits).filter(realFit), cards: o.cards, now });
-  // v4.10.2 final re-review: the Monday block showed last week's final this session (momentScoreSaid); a live score
-  // that differs is "so far this week", never a bare number that reads as a correction of it.
-  const shownScore = momentScoreOf(sessionOf(read.seen, now).said);
-  const stand = shownScore !== null && stand0.score !== null && stand0.score !== shownScore ? { ...stand0, soFar: true } : stand0;
   // v4.8 Task 4: a number or a name from the opener's list (find {program}) is the path's program, in any state; signed
   // out (a person, with the sign-in link), the reply is target B's opener, the pick's "Got it" or the list again.
   const picked = (await takePick(o)) ?? (await takeListPick(o));
@@ -2842,10 +2809,10 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
     : nudgeFirst !== undefined && nudgeFirst?.kind !== 'milestone' ? nudgeFirst
     : await pickNudge(id, now, { project: project!.name, best: best && realFit(best) ? best.title : null });
   // v4.10.1 Task 3 (R5): the Monday block names the score and the week, so it waits while they are updating.
-  const askMoment = !standIn && !o.updating && peek?.ask && peek.line ? await weeklyMoment(o.own, id, project!.key, handle!, row?.commit_weeks ?? [], now) : null;
+  const askMoment = !standIn && !o.updating && peek?.ask && peek.line ? await weeklyMoment(o.own, id, project!.key, handle!, row?.commit_weeks ?? [], now, stand) : null;
   const owns = standIn || Boolean(peek?.ask && peek.line && !askMoment && (await claimNudge(id, now, peek.keep)));
   // Launch ready L6: the weekly moment, once a week per installation, never over a held question.
-  const moment = askMoment ?? (!owns && !o.updating && !peek?.ask && rankedFree && !more && project && handle && !held && !connect && !hot ? await weeklyMoment(o.own, id, project.key, handle, row?.commit_weeks ?? [], now) : null);
+  const moment = askMoment ?? (!owns && !o.updating && !peek?.ask && rankedFree && !more && project && handle && !held && !connect && !hot ? await weeklyMoment(o.own, id, project.key, handle, row?.commit_weeks ?? [], now, stand) : null);
   // v3.1 one-tap posts: the share slot between Mondays: an event's post (an announced win, going live, the coin's intro).
   const event = hot ?? (!owns && rankedFree && !more && project && handle && !held && !connect && !moment ? await eventPost(id, handle, now, { hot: false }) : null);
   // 2026-10-22: then a private repo's titles question (once a person), then, with no fit, Base's grant steps.
@@ -2921,8 +2888,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
     await markSaid(id, [OLDER_SAID], now);
   }
   // v4.10.2 Task 5: the Monday block opens the session (so the next find is no second opener), saying its streak.
-  // v4.10.2 final re-review: and the block's score (last week's final), so a later live score that differs says "so far this week".
-  if (finalAsk.kind === 'share' && moment) await markSaid(id, [OLDER_SAID, momentScoreSaid(moment.score), ...(moment.week >= 2 ? [`proof:streak=${moment.week}`] : [])], now);
+  if (finalAsk.kind === 'share' && moment) await markSaid(id, [OLDER_SAID, ...(moment.week >= 2 ? [`proof:streak=${moment.week}`] : [])], now);
   if (finalAsk.kind === 'ship' && !held) await sql()`
     UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('ship_asked', ${now.toISOString()}::text)
     WHERE builder_id = ${id}`.catch(logged('ship asked'));
@@ -3316,7 +3282,7 @@ async function momentWouldShow(own: number, id: number, key: string, now: Date):
  * worth one (post-reply.ts weeklyPost), else the reply gives the page; no points are shown (owner ruling 5), the yes
  * still earns them (approveWeek). Never throws.
  */
-async function weeklyMoment(own: number, id: number, key: string, handle: string, commitWeeks: string[], now: Date): Promise<MomentView | null> {
+async function weeklyMoment(own: number, id: number, key: string, handle: string, commitWeeks: string[], now: Date, live: Pick<Standing, 'score' | 'streak'>): Promise<MomentView | null> {
   if (!(await momentDue(own, now))) return null;
   const last = await lastWeekOf(id, key, now).catch(logged('last week'));
   if (!last || !momentReady(last.checked, now)) return null;
@@ -3338,9 +3304,13 @@ async function weeklyMoment(own: number, id: number, key: string, handle: string
     sql()<{ name: string | null }[]>`SELECT x_name AS name FROM builder_profiles WHERE builder_id = ${id}`.catch(logged('moment name')),
     weekCommunityUsd(id, new Date(`${last.monday}T00:00:00Z`), now).catch(logged('community')),
   ]);
+  // v4.10.3 Task 2 (R5): one score. The block shows the live score and streak (readStanding, the same as the reply's
+  // standing fact), its change against last week's final; last week's number itself is never shown. The post (about
+  // last week) keeps last week's count.
+  const score = live.score !== null && live.score > 0 ? live.score : null;
   return {
-    week, place: momentPlace(last), rank: last.now.rank, summary: shown, post,
-    first: firstName(who?.[0]?.name ?? null, handle), score: last.now.score, change: last.before ? last.now.score - last.before.score : null,
+    week: live.streak, place: momentPlace(last), rank: last.now.rank, summary: shown, post,
+    first: firstName(who?.[0]?.name ?? null, handle), score, change: score !== null ? score - last.now.score : null,
     community: community ?? { usd: 0, lastWeekUsd: 0 },
   };
 }
@@ -3560,7 +3530,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
     ...(view.pathLead && { lead: view.pathLead }),
     ...(submit && { lead: { program_id: submit.card.id, step: 'submit', ...(submit.entry.id !== undefined && { project_id: submit.entry.id }) } }),
   };
-  return updating ? updatingReply(id, now, read.seen, out, { lead: false }) : out;
+  return updating ? updatingReply(out) : out;
 }
 
 /**
@@ -3614,8 +3584,7 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
     ...((!view.path || view.state === 'signed_out') && leadFit && view.variant !== 'taken' && { lead: { program_id: view.best?.program_id ?? leadFit.program_id } }),
     ...(view.pathLead && { lead: view.pathLead }),
   };
-  // The builder asked where they stand: the updating line leads.
-  return updating ? updatingReply(id, now, read.seen, out, { lead: true }) : out;
+  return updating ? updatingReply(out) : out;
 }
 
 /**

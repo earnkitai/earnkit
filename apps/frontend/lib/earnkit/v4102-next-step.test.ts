@@ -31,12 +31,11 @@ test('v4.10.2 Task 5: the also-open lead and its repeat are money first, one yes
   assert.deepEqual(gateFailures(replies), []);
 });
 
-test('v4.10.2 final re-review: the live score after the Monday block of another number says "so far this week"', async () => {
+test('v4.10.3 Task 2 (R5): one score, so the standing never says "so far this week"', async () => {
   const { standingParagraph } = await import('./standing');
   const s = { score: 69, rank: null, streak: 6, wonUsd: 0, applied: 1, drafts: 0, next: null };
   assert.equal(standingParagraph(s), 'Score 69. 6 weeks shipping in a row. No grants won yet. 1 application in.');
-  assert.equal(standingParagraph({ ...s, soFar: true }), 'Score 69 so far this week. 6 weeks shipping in a row. No grants won yet. 1 application in.');
-  assert.equal(standingParagraph({ ...s, rank: '#1 of 40 builders', soFar: true }), 'Score 69 so far this week · #1 of 40 builders. 6 weeks shipping in a row. No grants won yet. 1 application in.');
+  assert.equal(standingParagraph({ ...s, rank: '#1 of 40 builders' }), 'Score 69 · #1 of 40 builders. 6 weeks shipping in a row. No grants won yet. 1 application in.');
 });
 
 test('v4.10.2 final re-review: the path draft rounds name their noun ("4 more answers", "The last 3 answers")', async () => {

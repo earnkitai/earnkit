@@ -5,6 +5,8 @@ import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
 import { person, withEnv } from './fixtures/find';
 import { pathQuiet } from './fixtures/wallet-step';
+import { padPool } from './fixtures/rank-pool';
+import { RANK_MIN_POOL } from './rank';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
 import { isoWeekOf, lastFinishedMonday } from './weeks';
 import { setFeeSource } from './fees';
@@ -93,7 +95,7 @@ test('(a) the reply is the spec block: opener, table, post link, the page questi
   assert.equal(s, [
     'Your week is ready, Maya. You shipped the new meal planner. Nice work.',
     '',
-    '| | Last week |',
+    '| | This week |',
     '|---|---|',
     '| Shipping score | 82, up 4 |',
     '| Streak | 5 weeks |',
@@ -176,12 +178,13 @@ test('weekCommunityUsd: the creator fees claimed to the token wallet in the week
   }
 });
 
-/** A ranked builder named Maya Lin: Shipping 78 the week before last, 82 last week, code 5 weeks in a row. */
+/** A ranked builder named Maya Lin: Shipping 78 the week before last, 82 last week, 85 live now (v4.10.3 Task 2), code 5 weeks in a row. */
 async function maya(tag: string) {
   const key = `${tag}${RUN}/app`;
   const handle = `${tag}${RUN}`.slice(0, 15);
   const id = await person({ main: key, claimed: handle, ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z' }, projects: [{ key, name: 'App', confirmed: true }] });
   await sql()`UPDATE builder_profiles SET x_name = 'Maya Lin' WHERE builder_id = ${id}`;
+  await sql()`UPDATE builder_live SET score = 85, parts = ${sql().json({ shipping: { points: 85, raw: { mask: 1, live_ships: 0 } } } as never)} WHERE builder_id = ${id}`;
   for (const [day, score] of [[ymd(LAST_T - DAY), 78], [ymd(LAST_T + 6 * DAY), 82]] as const)
     await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, ranked)
       VALUES (${id}, ${day}, ${score}, 0, '{}'::jsonb, '{}'::jsonb, 'v2', ${LIVE_CALIBRATION_V2}, false, true)`;
@@ -201,6 +204,8 @@ async function maya(tag: string) {
 test('(a, end to end) the Monday find: the spec block with the real score, streak, community and post link', db, async () => {
   priced();
   await freshBoard();
+  // v4.10.3 Task 2 (R5): the block shows the page's live score, which is shown only inside the leaderboard's pool.
+  await padPool(RANK_MIN_POOL);
   const me = await maya('v4wk');
   const s = show(await mcpCall(ctx(me.id), 'find', {}));
   const link = links(s)[0] ?? '';
@@ -209,9 +214,10 @@ test('(a, end to end) the Monday find: the spec block with the real score, strea
   assert.equal(noOpen(s), [
     'Your week is ready, Maya. You shipped the new meal planner. Nice work.',
     '',
-    '| | Last week |',
+    // v4.10.3 Task 2 (R5): the live score (85) and its change since last week's final (82); never 82 itself.
+    '| | This week |',
     '|---|---|',
-    '| Shipping score | 82, up 4 |',
+    '| Shipping score | 85, up 3 |',
     '| Streak | 5 weeks |',
     '| From your community | $46, already in your wallet |',
     '',

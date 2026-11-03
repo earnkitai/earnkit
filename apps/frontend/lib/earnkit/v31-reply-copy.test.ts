@@ -191,7 +191,7 @@ test('Task 16: the first-run journey, each reply word for word', db, () => withP
   assert.match(s7, new RegExp([
     '^Your week is ready, Kit\\. Added tipping in one tap\\. Nice work\\.',
     '',
-    '\\| \\| Last week \\|',
+    '\\| \\| This week \\|',
     '\\|---\\|---\\|',
     '\\| Shipping score \\| \\d+(, (up|down) \\d+)? \\|',
     '\\| Streak \\| 4 weeks \\|',

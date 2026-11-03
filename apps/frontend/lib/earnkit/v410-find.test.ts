@@ -18,7 +18,7 @@ import { isoWeekOf } from './weeks';
 import { saveBank } from './answer-bank';
 import { BUILDER_CODES_SUFFIX } from './builder-code';
 import { HELP_DONE_ASK, MENTOR_NOTE, SESSION_MS } from './conversation';
-import { ALSO_LEAD_NOTE, PUSHED_ASK, READY_CODES_NOT_YET, READY_SET, UPDATING_NOTE, UPDATING_SAID, codesSettled } from './bench-find';
+import { ALSO_LEAD_NOTE, PUSHED_ASK, READY_CODES_NOT_YET, READY_SET, UPDATING_NOTE, codesSettled } from './bench-find';
 import { READY_ASK, READY_NOTE, READY_YES_NOTE } from './ready-copy';
 import { converse, gateFailures } from './fixtures/converse';
 import { startRefresh } from './stand-view';
@@ -1245,7 +1245,7 @@ test('v4.10.1 fix round 1: with no owned Base contract, Base needs its contract 
   assert.ok(!h.asks.some((a) => a.kind === 'other:contract_address'));
 });
 
-test('v4.10.1 final fix 2 (I1): a ready opener while the score is updating has no updating line; the agent still states no number', db, async () => {
+test('v4.10.1 final fix 2 (I1), v4.10.3 Task 2 (R4): a ready opener while the score is updating has no updating line; the agent still states no number', db, async () => {
   await ownerPrograms();
   const b = await owner('upd');
   // A refresh still running past find's wait: every reader call waits for open(), then fails.
@@ -1270,7 +1270,8 @@ test('v4.10.1 final fix 2 (I1): a ready opener while the score is updating has n
   assert.equal(opener.reply?.numbers_updating, true, 'the refresh is still running');
   assert.equal(opener.reply?.numbers_note, UPDATING_NOTE);
   assert.doesNotMatch(show(opener), /updating/, show(opener));
-  assert.equal((await seenOf(b.id)).said && ((await seenOf(b.id)).said as { keys: string[] }).keys.includes(UPDATING_SAID), false, 'the line waits for a reply with numbers');
+  // v4.10.3 Task 2 (R4): no updating line anywhere, so no session part for it.
+  assert.equal((await seenOf(b.id)).said && ((await seenOf(b.id)).said as { keys: string[] }).keys.includes('updating'), false);
 });
 
 test('v4.10.1 final fix 2 (I2): an answer turn that leaves only Builder Codes says Base waits on them before the push ask', db, async () => {

@@ -78,10 +78,13 @@ export function communityRow(usd: number, lastWeekUsd: number): { cell: string; 
   const last = lastWeekUsd >= 1 ? lastWeekUsd : 0;
   return { cell: `${usdWhole(usd)}, already in your wallet`, cheer: usd >= 100 || (last > 0 && usd >= 2 * last) };
 }
-/** The table's rows: "Shipping score" ("82, up 4"), "Streak" ("5 weeks", none at 0), "From your community" (communityRow). Pure. */
-export function mondayRows(f: Pick<MondayFacts, 'score' | 'change' | 'streak' | 'usd' | 'lastWeekUsd'>): [string, string][] {
+/**
+ * The table's rows: "Shipping score" ("82, up 4"; none with no score, v4.10.3 Task 2), "Streak" ("5 weeks", none at
+ * 0), "From your community" (communityRow). Pure.
+ */
+export function mondayRows(f: Pick<MondayFacts, 'change' | 'streak' | 'usd' | 'lastWeekUsd'> & { score: number | null }): [string, string][] {
   const move = f.change === null || f.change === 0 ? '' : f.change > 0 ? `, up ${f.change}` : `, down ${-f.change}`;
-  const rows: [string, string][] = [['Shipping score', `${f.score}${move}`]];
+  const rows: [string, string][] = f.score === null ? [] : [['Shipping score', `${f.score}${move}`]];
   if (f.streak > 0) rows.push(['Streak', `${f.streak} ${f.streak === 1 ? 'week' : 'weeks'}`]);
   const c = communityRow(f.usd, f.lastWeekUsd);
   if (c) rows.push(['From your community', c.cell]);

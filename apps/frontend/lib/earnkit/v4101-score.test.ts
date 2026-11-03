@@ -14,8 +14,9 @@ import type { ReaderDeps } from './source-readers';
 /**
  * v4.10.1 Task 3 (finding 4, ruling R5): one score per session. On a Monday, find's refresh lit the new week and
  * rescored after find's REPLY_WAIT_MS wait, so find said "69, 6 weeks" and score said "83, 7 weeks" seconds later.
- * A reply whose refresh is still running says no score, rank or week count, only that they are updating; the next
- * reply has the fresh numbers. A fast refresh: find and score say the same numbers.
+ * A reply whose refresh is still running says no score, rank or week count (v4.10.3 Task 2, R4: and nothing about
+ * updating; the numbers are simply left out); the next reply has the fresh numbers. A fast refresh: find and score say
+ * the same numbers.
  */
 process.env.EARNKIT_URL = 'https://earnkit.com';
 process.env.EARNKIT_AUTH_SECRET ??= 'v4101-score-test-secret';
@@ -30,6 +31,14 @@ after(async () => {
 });
 const RUN = String(process.pid % 100000);
 const THIS_WEEK = isoWeekOf(new Date(MONDAY));
+/** v4.10.3 Task 2 (R4): no builder text says the numbers are updating (the agent's numbers_note does). */
+const UPDATING = /updating/i;
+/** The reply's last line is its one easy reply: a question, or a "Reply ..." line. */
+const easyLast = (r: R) => {
+  const s = show(r);
+  assert.ok(s.trim().length > 0, 'never an empty reply');
+  assert.match(s.split('\n').at(-1)!, /\?$|^Reply /, s);
+};
 /** The six weeks ending last week (2026-W39 to W44): a 6-week streak while this week has no commits yet. */
 const SIX = last52(new Date(MONDAY)).slice(45, 51);
 type R = Awaited<ReturnType<typeof mcpCall>>;
@@ -102,7 +111,7 @@ const onArc = (id: number) => sql()`UPDATE builder_projects SET chains = ARRAY['
 const ctxOf = (id: number, reader: ReaderDeps) =>
   ({ installationId: id, ownInstallationId: id, sharedClient: false, readerDeps: reader, matchProjects: (async () => ({ checked: 1, scored: 0, fits: [] })) as never }) as never;
 
-test('finding 4 on a Monday: find\'s refresh still running past its wait says no number, only that they are updating; score then has the fresh 73 and 7 weeks', db, async () => {
+test('finding 4 on a Monday: find\'s refresh still running past its wait says no number and nothing about updating; score then has the fresh 73 and 7 weeks, and find the same', db, async () => {
   const b = await monday69('fsc');
   await onArc(b.id);
   const slow = slowReader();
@@ -138,9 +147,16 @@ test('finding 4 on a Monday: find\'s refresh still running past its wait says no
   assert.equal(s.reply?.numbers_updating, undefined);
   assert.doesNotMatch(show(s), /updating/);
   assert.doesNotMatch(show(s), /\b69\b|\b6 weeks\b/);
+  // v4.10.3 Task 2 (R5): find after it in the same session: the same score and streak, both ending in one easy reply.
+  const f2 = await mcpCall(ctx, 'find', {});
+  assert.equal(f2.reply?.standing, s.reply?.standing, 'one standing');
+  assert.equal(f2.reply?.streak, s.reply?.streak, 'one streak');
+  assert.doesNotMatch(show(f2), /\b69\b|\b6 weeks\b|so far this week/, show(f2));
+  easyLast(f2);
+  easyLast(s);
 });
 
-test('a slow refresh that is still running when score is asked: score says updating too, never the old numbers', db, async () => {
+test('a slow refresh that is still running when score is asked: score says no number and nothing about updating, never the old numbers', db, async () => {
   const b = await monday69('fsw');
   const slow = slowReader();
   const ctx = ctxOf(b.id, slow.reader);
@@ -151,13 +167,17 @@ test('a slow refresh that is still running when score is asked: score says updat
   assert.doesNotMatch(show(s), NUMBERS, show(s));
   assert.doesNotMatch(String(s.reply?.standing ?? ''), NUMBERS);
   assert.equal(s.reply?.numbers_updating, true);
-  // Fix round 1 (Important 2): score answers where they stand, so it leads with the line even after find said it.
-  assert.equal(show(s).split('\n\n')[0], "Your score and weeks are updating, so they're not in this reply.", show(s));
+  // v4.10.3 Task 2 (R4): no updating line in find or score (owner answer 6: just leave the numbers out); every
+  // updating score reply still has something to say and ends in one easy reply.
+  assert.doesNotMatch(show(f), UPDATING, show(f));
+  assert.doesNotMatch(show(s), UPDATING, show(s));
+  easyLast(s);
+  assert.equal(s.reply?.numbers_note, "The score, rank and weeks are updating: don't state any of them in this reply.", 'the agent still hears it');
   const s2 = await mcpCall(ctx, 'score', {});
-  assert.equal(show(s2).split('\n\n')[0], "Your score and weeks are updating, so they're not in this reply.", 'every updating score reply');
-  // find keeps it to once a session.
+  assert.doesNotMatch(show(s2), UPDATING, show(s2));
+  easyLast(s2);
   const f2 = await mcpCall(ctx, 'find', {});
-  assert.doesNotMatch(show(f2), /updating/, show(f2));
+  assert.doesNotMatch(show(f2), UPDATING, show(f2));
   assert.doesNotMatch(show(f2), NUMBERS);
   await landRefresh(b.id);
   slow.open();
@@ -165,7 +185,7 @@ test('a slow refresh that is still running when score is asked: score says updat
   assert.match(String(again.reply?.standing), /^Score 73 · [^.]+\. 7 weeks shipping in a row\./);
 });
 
-test('v4.10.1 final fix 2 (I1): a find with no ready set, refresh still running: the updating line, before the one easy reply', db, async () => {
+test('v4.10.3 Task 2 (R4): a find with no ready set, refresh still running: no updating line, the one easy reply last', db, async () => {
   const active = (await sql()<{ id: string }[]>`UPDATE programs SET status = 'closed' WHERE status = 'active' RETURNING id`).map((p) => p.id);
   const b = await monday69('fsx');
   const slow = slowReader();
@@ -174,8 +194,8 @@ test('v4.10.1 final fix 2 (I1): a find with no ready set, refresh still running:
   assert.notEqual((f.reply?.move_up as { kind?: string } | undefined)?.kind, 'ready', show(f));
   assert.equal(f.reply?.numbers_updating, true);
   assert.doesNotMatch(show(f), NUMBERS, show(f));
-  assert.match(show(f), /Your score and weeks are updating, so they're not in this reply\./, show(f));
-  assert.doesNotMatch(show(f).split('\n\n').at(-1)!, /updating/);
+  assert.doesNotMatch(show(f), UPDATING, show(f));
+  easyLast(f);
 });
 
 test('a fast refresh: find shows the same numbers score shows', db, async () => {
@@ -223,14 +243,15 @@ test('the merge gate: a session opening on the updating reply, then the fresh on
 
 test('the merge gate: an updating opener with no other fact passes; a hook after it still needs a proof', () => {
   const reply = (o: Partial<Turn>): Turn => ({ turn: 0, session: 0, first: true, hook: false, tool: 'find', input: {}, show: '', said: [], reply: null, ...o }) as Turn;
-  const opener = reply({ show: "Your score and weeks are updating. I'll show the new numbers in my next reply.\n\nWant me to draft it?", said: ['updating'] });
+  // v4.10.3 Task 2 (R4): the exemption keys off the reply's numbers_updating flag (the builder is told nothing).
+  const opener = reply({ show: 'App is on EarnKit.\n\nWant me to draft it?', reply: { numbers_updating: true } });
   assert.deepEqual(gateFailures([opener]), []);
-  assert.deepEqual(gateFailures([{ ...opener, said: [] }]).map((f) => f.rule), ['proof'], 'without the updating part it is an opener with no fact');
+  assert.deepEqual(gateFailures([{ ...opener, reply: {} }]).map((f) => f.rule), ['proof'], 'without the updating flag it is an opener with no fact');
   const hook = reply({ turn: 1, first: false, hook: true, show: 'Base pays up to $5K.\n\nWant me to draft it?', said: ['hook:base'] });
   assert.deepEqual(gateFailures([opener, hook]).map((f) => f.rule), ['proof']);
 });
 
-test('fix round 1 (minor 3): a new builder on 0 with no streak, refresh still running: updating, never "starts your streak" before the next call shows 1 week', db, async () => {
+test('fix round 1 (minor 3): a new builder on 0 with no streak, refresh still running: no numbers, never "starts your streak" before the next call shows 1 week', db, async () => {
   // Not ranked yet (no rank line): nothing stored a reply could state, only the counted project.
   const b = await monday69('fsn', { score: 0, weeks: [], ranked: false });
   const slow = slowReader();
@@ -240,6 +261,8 @@ test('fix round 1 (minor 3): a new builder on 0 with no streak, refresh still ru
     assert.equal(r.reply?.numbers_updating, true, tool);
     assert.doesNotMatch(JSON.stringify(r.reply), /starts your streak|\b0 weeks?\b/, tool);
     assert.doesNotMatch(show(r), NUMBERS, tool);
+    assert.doesNotMatch(show(r), UPDATING, tool);
+    easyLast(r);
   }
   await landRefresh(b.id, [THIS_WEEK]);
   slow.open();

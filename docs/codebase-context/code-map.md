@@ -2837,7 +2837,7 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
 ## v4.10.1 Task 3: one score per session
 
 - `stand-view.ts` `startRefresh` (`within` returns `Promise<boolean>`; joins a running refresh via `RUNNING`).
-- `bench-find.ts` `UPDATING_LINE`, `UPDATING_SAID`, `UPDATING_NOTE`, `hasNumbers`, `withoutNumbers`, `updatingReply`;
+- `bench-find.ts` `UPDATING_NOTE`, `hasNumbers`, `withoutNumbers`, `updatingReply` (v4.10.3 Task 2: `UPDATING_LINE` and `UPDATING_SAID` removed);
   `ViewIn.updating`, `BenchFindArgs.updating`; `readyRecord(id, now, updating)`; `directAnswer` (no standing answer
   while updating); the weekly moment skipped while updating.
 - `bench-reply.ts` `BenchView.updating`; `shipWhy(null)` / `shipWhyOf(target, null)`: "Shipping this week lifts your score."
@@ -2891,6 +2891,16 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
   `v410-find.test.ts` ("v4.10.3 Task 1").
 - Fix round 1: `bench-find.ts` `programAsks` (the one asks function), `firstFinishedNote`,
   `bench_ask.also`; `ready-copy.ts` `investorMoney`, `OPEN_PHRASE`.
+
+## v4.10.3 Task 2: no narration, one score
+
+- `bench-find.ts` `updatingReply(r)` (pure: no builder line, `numbers_updating` and `numbers_note` only); `directAnswer`
+  answers a standing question while updating with the no-score copy; `weeklyMoment(..., live)` (the live score, its
+  change since last week's final, the live streak).
+- `bench-reply.ts` `MomentView.score` is `number | null`; `mondayReply` heads "This week". `weekly-moment.ts`
+  `mondayRows` skips the score row at null. `standing.ts` `Standing.soFar` removed.
+- `fixtures/converse.ts` `noRecord` keys off `reply.numbers_updating`. Tests: `v4101-score.test.ts`,
+  `weekly-moment.test.ts` ("v4.10.3 Task 2"), `bench-reply.test.ts`, `v31-rank-pool.test.ts`, `v4102-next-step.test.ts`.
 
 ## v4.10.2 Task 5: replay fixes (the next step after the Monday block)
 

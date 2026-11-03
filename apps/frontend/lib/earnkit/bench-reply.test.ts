@@ -146,7 +146,7 @@ test('Task 16: the ship, backing and held steps keep the layout: standing, money
   assert.equal(standingLine('Kit', null, 0), 'Kit is on EarnKit.');
 });
 
-test('Task 16 step 7, v4.0 Task 7: the weekly moment is the Monday block with last week\'s post link; with none, the page; no points', () => {
+test('Task 16 step 7, v4.0 Task 7: the weekly moment is the Monday block with last week\'s post link; with none, the page; no points; v4.10.3 Task 2 (R5): headed "This week", no score row without a live score', () => {
   const link = 'https://earnkit.com/maya/post/abcdefghij';
   const facts = { first: 'Maya', score: 82, change: 4, community: { usd: 0, lastWeekUsd: 0 } };
   const v = ranked({ moment: { week: 6, place: 'now', rank: 3, post: { text: 'Recipe planner, week 6: added offline mode and fixed several sync bugs.', link }, ...facts } });
@@ -156,7 +156,7 @@ test('Task 16 step 7, v4.0 Task 7: the weekly moment is the Monday block with la
   assert.equal(out, [
     'Your week is ready, Maya. You shipped this week. Nice work.',
     '',
-    '| | Last week |',
+    '| | This week |',
     '|---|---|',
     '| Shipping score | 82, up 4 |',
     '| Streak | 6 weeks |',
@@ -174,6 +174,10 @@ test('Task 16 step 7, v4.0 Task 7: the weekly moment is the Monday block with la
   assert.match(none, /\n\nYour page: https:\/\/earnkit\.com\/maya\n\nBuilders who share wins get noticed by programs\.\n\nAdd last week to your page\?$/);
   oneAsk(none);
   assert.doesNotMatch(benchReply({ ...v, moment: { week: 0, place: null, rank: 1, post: null, ...facts } }), /Streak/);
+  // v4.10.3 Task 2 (R5): no live score: no score row (last week's number is never the stand-in).
+  const noScore = benchReply({ ...v, moment: { week: 6, place: 'now', rank: 3, post: null, ...facts, score: null, change: null } });
+  assert.doesNotMatch(noScore, /Shipping score|Last week \|/, noScore);
+  assert.match(noScore, /\| \| This week \|\n\|---\|---\|\n\| Streak \| 6 weeks \|/, noScore);
 });
 
 test('v3.1 one-tap posts: an event\'s post (went live, won, the builder\'s news): its head, the post, the one-tap link, "Want a different version?"', () => {

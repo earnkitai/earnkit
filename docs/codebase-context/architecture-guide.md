@@ -9332,10 +9332,10 @@ This supersedes the per-program need in Task 4: the builder answers once for the
   refresh didn't settle and the stored read has a number (`hasNumbers`). The read is then `withoutNumbers` (no parts,
   `NO_RANK`, streak 0), so no score, rank, weeks, weekly target, record line, ship why or standing answer is stated; the
   Monday block waits. `updatingReply` drops the `streak` field, adds `numbers_updating: true` and `numbers_note`, and
-  says `UPDATING_LINE` once a session (said part `updating`): before the last paragraph in find, first in score.
+  said `UPDATING_LINE` once a session (removed in v4.10.3 Task 2, R4: the builder is told nothing; see below).
   `tools.ts` `withFacts` drops `facts.rank` and `facts.streak` on such a reply. The next reply carries the fresh numbers.
-- **Gate.** `fixtures/converse.ts` `noRecord` exempts an opener that said `updating` from the opener proof rule (it may
-  state no number); a later hook still needs a proof.
+- **Gate.** `fixtures/converse.ts` `noRecord` exempts an updating opener (v4.10.3: its `numbers_updating` flag) from
+  the opener proof rule (it may state no number); a later hook still needs a proof.
 
 ## v4.10.1 Task 4: programs API link check (R4)
 
@@ -9503,7 +9503,7 @@ This supersedes the per-program need in Task 4: the builder answers once for the
   `draftAnswered` (prepare with coach_asked) also marks the round done. An ask stored before the rounds (no `round`)
   finishes as before.
 - **Monday ask.** `MOMENT_ASK` is "Add last week to your page?" (the thanks says "Last week is on your page.").
-- **Last week vs live (final re-review).** `bench-reply.ts mondayReply` heads its table "Last week" (its numbers are
+- **Last week vs live (final re-review; superseded by v4.10.3 Task 2, R5: one score, "This week", no `soFar`).** `bench-reply.ts mondayReply` heads its table "Last week" (its numbers are
   `weekly-moment.ts lastWeekOf`, last week's final). The block marks `moment_score=N` said; `benchView` sets
   `Standing.soFar` when this session's live score differs, so `standing.ts standingParagraph` says "Score 69 so far
   this week". The path rounds say "4 more answers" / "The last 3 answers only you can give".
@@ -9541,3 +9541,16 @@ This supersedes the per-program need in Task 4: the builder answers once for the
     head's worth uses. The repeat falls back to "(up to $5,000, 4 answers to start)" when a round phrase reads as an
     open question (`OPEN_PHRASE`: how/what/which/who/why/where/when, or " or ").
 
+## v4.10.3 Task 2: no narration, one score (2026-11-03, plan: v4.10.3-plan/)
+
+- **No updating line (R4).** `UPDATING_LINE` and `UPDATING_SAID` are gone. `bench-find.ts updatingReply(r)` is pure: it
+  drops the `streak` field and adds `numbers_updating: true` and `numbers_note` (`UPDATING_NOTE`, the agent's half);
+  `show_to_builder` is the reply as built, numbers already left out (`withoutNumbers`). A standing question while
+  updating gets the no-score answer (`conversation.ts standingAnswer` with no score: "Your profile fills in as your
+  commits come in. Programs see it at ..."). `fixtures/converse.ts noRecord` keys off `reply.numbers_updating`.
+- **One score (R5).** The Monday block shows the live score and streak: `weeklyMoment(..., live)` takes the reply's
+  `Standing` (`readStanding`, `builder_live`), so `MomentView.score` is the live score (null: no score row),
+  `change` is live minus last week's final (`lastWeekOf`), and `week` is the live streak (also the `proof:streak=N`
+  said part). `mondayReply` heads the table "This week". Last week's number itself never shows. The share post
+  (`weeklyPost`) keeps last week's week count (`weekNumber`), since it is about last week. `Standing.soFar`,
+  `momentScoreSaid` / `momentScoreOf` and "so far this week" are gone. The weekly email (`mondayLines`) is unchanged.
