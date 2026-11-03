@@ -4,7 +4,7 @@ import { BASE_GRANTS_ID } from './builder-code';
 import { appProvenRepo, builderCodesKnown, builderCodesWords, refreshBuilderCodes } from './builder-codes-check';
 import { EntryError, githubRepo } from './campaigns';
 import { NotFoundError, type ProgramRow } from './programs';
-import { shipLogFacts, type ShipLogFacts } from './ship-log-facts';
+import { shipLogBlock, shipLogFacts, type ShipLogFacts } from './ship-log-facts';
 import { isRealAnswer, prepareSubmission, type ProjectInfo } from './submission';
 import { draftKit, schemeless } from './submit-kit';
 import type { SubmissionRequirement } from './program-file';
@@ -126,6 +126,14 @@ export async function draftApplication(input: DraftInput, ctx: ToolContext, prog
   if (reqs.some((r) => r.key === 'x_handle') && !isRealAnswer(answers.x_handle) && !ctx.sharedClient) {
     const handle = await claimedXHandle(ctx.installationId);
     if (handle) answers.x_handle = handle;
+  }
+  // v4.10.2 Task 1 (R8): what EarnKit holds (the answer bank, an opted-in email, the Builder Code, verified usage and
+  // revenue, an owned contract) fills each field the agent left blank, as the ready set does, so the kit never counts a
+  // held answer as one "you add". Never on a shared client (its bank is no one builder's).
+  if (!ctx.sharedClient) {
+    const { preparedHeld } = await import('./bench-find');
+    const held = await preparedHeld(ctx.installationId, project.repo_url ?? input.answers?.repo_url, reqs, log ? shipLogBlock(log) : []);
+    for (const [k, v] of Object.entries(held)) if (!isRealAnswer(answers[k]) && v?.trim()) answers[k] = v;
   }
   const prep = prepareSubmission(reqs, { project, answers });
   const filled = Object.fromEntries(prep.complete.map((c) => [c.key, c.value]));

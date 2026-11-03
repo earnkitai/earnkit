@@ -278,8 +278,8 @@ type Applied = { kind: 'applied'; result: Result } | Held | { kind: 'not_pending
 /** How applyUpsert runs: a bot's write (the link check, R4), or the owner's approval of pending write `writeId`. */
 type Mode = { kind: 'write'; official: string | undefined } | { kind: 'approve'; writeId: string };
 
-/** The write results that make an older pending write stale (approving it would undo them). */
-const NEWER_RESULTS = ['created', 'updated', 'approved', 'closed', 'pending'];
+/** The write results that make an older pending write stale (approving it would undo them; v4.10.2 Task 4: a revert too). */
+const NEWER_RESULTS = ['created', 'updated', 'approved', 'closed', 'pending', 'reverted'];
 
 /**
  * The write transaction. The program row is locked and its source read again, so a sync between the checks and the

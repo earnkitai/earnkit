@@ -1,5 +1,5 @@
 import { sql } from './db';
-import { closeDay, hoursLeft } from './deadline';
+import { closeDay, timeLeftWords } from './deadline';
 import { json } from './http';
 import { landingTiles, listedCards } from './landing';
 import { PROGRAM_CATEGORIES, categoryOf, type Category } from './program-file';
@@ -33,7 +33,7 @@ export type ListedProgram = {
   status: 'active' | 'upcoming';
   /** ISO, or null for a rolling program. */
   closes_at: string | null;
-  /** deadline.ts hoursLeft: "in 20 hours" under 48 hours on an open program, else null. */
+  /** v4.10.2 R5, deadline.ts timeLeftWords: "in 20 hours", "in 16 days" or "rolling" on an open program; null for upcoming. */
   closes_in: string | null;
   source_url: string;
   submission_url: string;
@@ -91,7 +91,7 @@ export async function readListedPrograms(now = new Date()): Promise<ListedProgra
       money: tileMoney(tiles[i]),
       status,
       closes_at,
-      closes_in: status === 'active' && closes_at ? hoursLeft(closes_at, now) : null,
+      closes_in: status === 'active' ? (closes_at ? timeLeftWords(closes_at, now) : 'rolling') : null,
       source_url: r.source_url,
       submission_url: r.submission_url,
       source: r.source,
@@ -140,7 +140,7 @@ export async function programsListGet(
     .filter((p) => (category === null || p.category === category) && (status === null || p.status === status))
     .sort(byListOrder)
     .slice(0, PROGRAMS_LIST_MAX)
-    .map(({ max_award_usd: _sortOnly, ...p }) => ({ ...p, closes_in: p.status === 'active' && p.closes_at ? hoursLeft(p.closes_at, now) : null }));
+    .map(({ max_award_usd: _sortOnly, ...p }) => ({ ...p, closes_in: p.status === 'active' ? (p.closes_at ? timeLeftWords(p.closes_at, now) : 'rolling') : null }));
   return json({ ok: true, programs }, 200, { 'Cache-Control': 'public, max-age=60' });
 }
 

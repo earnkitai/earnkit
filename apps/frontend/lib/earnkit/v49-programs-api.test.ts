@@ -911,10 +911,11 @@ test('v4.9 T3: GET /api/programs sorts by category, soonest close (rolling last)
   assert.equal(all.status, 200);
   assert.deepEqual(all.body.programs!.map((p) => p.id), ['g-soon', 'g-later', 'g-rolling-big', 'g-rolling-small', 'h-rolling', 'i-up', 'b-soon'], 'a closed one drops');
   assert.deepEqual(Object.keys(all.body.programs![0]).sort(), [...LIST_KEYS].sort(), 'no sort-only field');
-  // hoursLeft under 48 hours on an open program; never on an upcoming one or a rolling one.
+  // v4.10.2 R5: hours under 48, days from 48, "rolling" for a rolling one, on an open program; null on an upcoming one.
   assert.equal(all.body.programs![0].closes_in, 'in 22 hours');
   assert.equal(all.body.programs!.find((p) => p.id === 'i-up')!.closes_in, null);
-  assert.equal(all.body.programs!.find((p) => p.id === 'g-later')!.closes_in, null);
+  assert.equal(all.body.programs!.find((p) => p.id === 'g-later')!.closes_in, 'in 18 days');
+  assert.equal(all.body.programs!.find((p) => p.id === 'g-rolling-big')!.closes_in, 'rolling');
   assert.deepEqual((await getList('?category=hackathon', async () => rows, now)).body.programs!.map((p) => p.id), ['h-rolling']);
   assert.deepEqual((await getList('?status=upcoming', async () => rows, now)).body.programs!.map((p) => p.id), ['i-up']);
   assert.deepEqual((await getList('?category=grant&status=upcoming', async () => rows, now)).body.programs, []);

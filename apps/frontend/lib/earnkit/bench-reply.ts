@@ -510,8 +510,13 @@ export const TEMPLATE_NOTICE = 'If you made your app from a template, make a cop
 export const STALE_WEEKS = 8;
 export const NEW_REPO_ASK = 'Working on something new? Connect that repo instead.';
 
-/** Task 16, step 7; v4.0 Task 7 (approved copy 5): the weekly moment's question. */
-export const MOMENT_ASK = 'Looks right?';
+/**
+ * Task 16, step 7; v4.0 Task 7 (approved copy 5): the weekly moment's question. v4.10.2 Task 5: it names what the yes
+ * does (weekly-moment.ts answerShare puts the week on the builder's page), a plain yes/no ("Looks right?" asked only
+ * whether the week read right, and the merge gate's yes/no rule refused it). Final review M1: "last week", the week the
+ * thanks names ("Last week is on your page.").
+ */
+export const MOMENT_ASK = 'Add last week to your page?';
 /**
  * v4.0 Task 7 (approved copy 5, "Every Monday"): the opener, the week's table (a blank first header: plain surfaces read
  * "Label: value", reply-format.ts), the cheer under it when the community sent $100 or double last week, the post link
@@ -519,7 +524,9 @@ export const MOMENT_ASK = 'Looks right?';
  */
 export function mondayReply(m: MomentView, page: string, ask: string, why: string | null = null, money: string | null = null): string {
   const facts = { score: m.score, change: m.change, streak: m.week, usd: m.community.usd, lastWeekUsd: m.community.lastWeekUsd };
-  const table = ['| | This week |', '|---|---|', ...mondayRows(facts).map(([label, value]) => `| ${cell(label)} | ${cell(value)} |`)];
+  // v4.10.2 final re-review: the block's numbers are last week's final (lastWeekOf), so the header says so; the
+  // session's live score after it is "so far this week" (standing.ts soFar).
+  const table = ['| | Last week |', '|---|---|', ...mondayRows(facts).map(([label, value]) => `| ${cell(label)} | ${cell(value)} |`)];
   return paras(
     [mondayOpener(m.first, m.summary ?? null)],
     table,

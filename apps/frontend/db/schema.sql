@@ -2188,3 +2188,7 @@ CREATE TABLE IF NOT EXISTS program_writes (
   body       jsonb
 );
 CREATE INDEX IF NOT EXISTS program_writes_at ON program_writes (at DESC);
+
+-- v4.10.2 Task 2 (R3): the program's rule requires one of its chains at the project's core (program file
+-- chain_required; Circle Developer Grants): a project on none of them is not eligible (bench-find.ts notEligible).
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS chain_required boolean NOT NULL DEFAULT false;

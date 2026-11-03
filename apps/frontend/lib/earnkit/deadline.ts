@@ -78,6 +78,17 @@ export function hoursLeft(endsAt: string, now: Date): string | null {
   return `in ${n} ${n === 1 ? 'hour' : 'hours'}`;
 }
 
+/**
+ * v4.10.2 Task 3 (R5): the time left for an AGENT's `closes_in` on an open program: hoursLeft's words under 48 hours,
+ * whole days from 48 hours ("in 16 days", rounded down), null only when already passed. hoursLeft itself still
+ * returns null from 48 hours (builder copy says a day in the program's zone there); this is the separate agent field. Pure.
+ */
+export function timeLeftWords(endsAt: string, now: Date): string | null {
+  const left = Date.parse(endsAt) - now.getTime();
+  if (!(left > 0)) return null;
+  return hoursLeft(endsAt, now) ?? `in ${Math.floor(left / (24 * HOUR_MS))} days`;
+}
+
 /** "11:59 PM". Pure. */
 const clock = (hour: number, minute: number) => `${hour % 12 === 0 ? 12 : hour % 12}:${String(minute).padStart(2, '0')} ${hour < 12 ? 'AM' : 'PM'}`;
 

@@ -14,18 +14,19 @@ import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { serverInstructions } from './mcp';
 import { walletSetupAsk } from './bench-reply';
+import { PLAN_ONE_LINE_NOTE } from './ready-copy';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
 import { isoWeekOf, mondayOf } from './weeks';
 import { backfillMondays } from './week-facts';
 import { X_ON, withEnv } from './fixtures/find';
 import {
-  CAN_DO, ANSWERED_FIRST, DRAFT_NOW_ASK, HELP_DONE_ASK, proofOf, gapProofOf, PREPARE_LINE, PREPARE_LINE_ONE, PROGRAMS_AGAIN, fitCell, grantFact, programsAnswer, standingAgain, standingAnswer, standingSaid, connectedLine, investorLater, noFitWhy, pickHook, openerAgain, openerReply, pickedReply, resolvePick, FOUNDER_BLANKS, MENTOR_NOTE, PATH_ANSWER_FIRST, CODES_OFFER, blanksAgain, SESSION_MS, SENT_ASK, TRACK_ACK, passedLine, sinceLine, submitBy, submitPointer, submitReply, trackLead, bestMove, blanksAsk, closeWords, draftBlanks, draftReply, gapClosedReply, gapProof, gapReply, gapStillReply, pathReply, programName, proofLine, readPath, sessionOf,
+  CAN_DO, ANSWERED_FIRST, DRAFT_NOW_ASK, GTM_ONE_LINE, HELP_DONE_ASK, proofOf, gapProofOf, PREPARE_LINE, PREPARE_LINE_ONE, PROGRAMS_AGAIN, fitCell, grantFact, programsAnswer, standingAgain, standingAnswer, standingSaid, connectedLine, investorLater, noFitWhy, pickHook, openerAgain, openerReply, pickedReply, resolvePick, FOUNDER_BLANKS, MENTOR_NOTE, PATH_ANSWER_FIRST, CODES_OFFER, blanksAgain, SESSION_MS, SENT_ASK, TRACK_ACK, passedLine, sinceLine, submitBy, submitPointer, submitReply, trackLead, bestMove, blanksAsk, closeWords, draftShape, draftReply, gapClosedReply, gapProof, gapReply, gapStillReply, pathReply, programName, proofLine, readPath, sessionOf,
   type GapGrant, type InvestorProgram, type Move, type MoveCtx, type MoveProgram,
 } from './conversation';
 import { qualifyGapSteps, BUILDER_CODES_GUIDE } from './bench-reply';
 import { BUILDER_CODES_SUFFIX } from './builder-code';
-import { READY_SET, MORE_ASK, NAME_ASK, PUSHED_ASK, RECHECK_WAIT, benchScore, codesSettled, founderBriefNote, openerPrograms, questionsDraftNote } from './bench-find';
+import { READY_SET, MORE_ASK, NAME_ASK, PUSHED_ASK, RECHECK_WAIT, benchScore, codesSettled, founderBriefNote, openerPrograms, questionsDraftNote, builderAsks, pathRound } from './bench-find';
 import type { Card } from './present';
 import { draftBody, shipLogFacts } from './ship-log-facts';
 import { standingParagraph } from './standing';
@@ -593,6 +594,11 @@ test('fix round 3: the closest grant never waits for an older moment once the bu
 const GUIDE = `https://${BUILDER_CODES_GUIDE}`;
 /** Target conversation A, exact: the draft's one easy reply for an investor program with no public questions. */
 const A_BLANKS = "Two blanks only you can fill: who's on the team, and any money you've raised. Reply with both and I'll finish it.";
+/**
+ * v4.10.2 final fix (I1): A's draft on a project whose email EarnKit doesn't hold: the founder blanks and the unheld
+ * contact detail, the same list the ready count reads (bench-find.ts builderAsks), one round.
+ */
+const A_DRAFT_BLANKS = "Three blanks only you can fill: who's on the team, any money you've raised, and your email. Reply with them and I'll finish it.";
 const A_CODES_IN = "Builder Codes are in. You now meet Base's first requirement. Want me to draft the Base application next?";
 /** Fix round 1 (T2-2): the one-step offer covers the push. */
 const OFFER = 'I can add Builder Codes and push the change, about 10 minutes. Go?';
@@ -645,29 +651,38 @@ test('the gap closed and the draft: target A word for word', () => {
   assert.doesNotMatch(d, BAD);
 });
 
-test("draftBlanks (fix round 2, F1): a founder brief for a16z; Base's blanks are what neither EarnKit holds nor the agent drafts, at most 2", () => {
+test("the path draft's asks (fix round 2, F1; v4.10.2 final fix I1): a founder brief for a16z; Base's are what neither EarnKit holds nor the agent drafts, in rounds of at most 4", () => {
   const a16z = committedProgram('a16z-speedrun');
-  assert.deepEqual(draftBlanks(a16z, {}), { brief: true, blanks: [...FOUNDER_BLANKS], later: [], drafted: [] });
+  assert.deepEqual(draftShape(a16z, {}), { brief: true, drafted: [] });
+  const contacts = a16z.submission_requirements.filter((r: { required: boolean; kind?: string }) => r.required && r.kind === 'contact');
+  const heldContacts = Object.fromEntries(contacts.map((r: { key: string }) => [r.key, 'x']));
+  // The brief's blanks are FOUNDER_BLANKS' words, one round.
+  assert.deepEqual(pathRound(builderAsks(a16z, heldContacts)).round.map((i) => i.phrase), [...FOUNDER_BLANKS]);
   const base = { ...committedProgram('base-builder-grants'), investment: false };
-  // Nothing held: the team and the usage numbers now; the demo, the Builder Code and (v4.10.1 Task 1, R1) how it makes
-  // money, the main challenge and the credits wanted later; contact details never.
-  const b = draftBlanks(base, {});
-  assert.deepEqual(b.blanks, ['a note on the founding team', 'your key usage numbers']);
-  // Fix round 1: and the contract address on Base, a fact EarnKit holds or the builder gives.
-  assert.deepEqual(b.later, ['a Loom product demo', 'your contract address on Base', 'how it makes money today', 'your Base Builder Code', 'your main challenge right now', 'the credits you want']);
-  // The agent drafts only the GTM plan (R1), marked for the builder to check.
-  assert.deepEqual(b.drafted, ["What's your GTM plan for the next 3 months?"]);
-  // EarnKit holds the confirmed Builder Code, verified usage and revenue and an owned contract: the team and the demo are the blanks.
-  const held = draftBlanks(base, { builder_code: 'bc_abc', usage_numbers: 'Used by 40 people in the last 30 days, verified onchain', revenue: '$120 paid into its contracts by outside wallets in the last 30 days, verified onchain', contract_address: '0x0000000000000000000000000000000000000001' });
-  assert.deepEqual(held.blanks, ['a note on the founding team', 'a Loom product demo']);
-  assert.deepEqual(held.later, ['your main challenge right now', 'the credits you want']);
+  // Nothing held: the team, usage numbers and demo first, then the form's order (v4.10.1 Task 1, R1: how it makes money,
+  // the main challenge and the credits wanted; fix round 1: the contract address; v4.10.2 Task 1, owner answer 2: the
+  // 3-month plan in one line; R2: the Builder Code as the builder's own), the contact details last as one item.
+  const b = pathRound(builderAsks(base, {}));
+  const all = [...b.round, ...b.rest].map((i) => i.phrase);
+  assert.deepEqual(all, ['your team list', 'your usage numbers', 'your demo video', 'your contract address on Base', 'how it makes money today', 'your 3-month plan in one line', 'your Base Builder Code (from base.dev)', 'your main challenge right now', 'the credits you want', 'your contact details (name, email, Telegram and X handle)']);
+  assert.deepEqual(b.round.map((i) => i.phrase), all.slice(0, 4));
+  assert.equal(b.total, 13);
+  // The agent drafts none of Base's builder fields now.
+  assert.deepEqual(draftShape(base, {}).drafted, []);
+  // EarnKit holds the confirmed Builder Code, verified usage and revenue, an owned contract and the email and X handle.
+  const held = { builder_code: 'bc_abc', usage_numbers: 'Used by 40 people in the last 30 days, verified onchain', revenue: '$120 paid into its contracts by outside wallets in the last 30 days, verified onchain', contract_address: '0x0000000000000000000000000000000000000001', email: 'a@b.co', x_handle: '@a' };
+  const h = pathRound(builderAsks(base, held));
+  assert.deepEqual(h.round.map((i) => i.phrase), ['your team list', 'your demo video', 'your 3-month plan in one line', 'your main challenge right now']);
+  assert.deepEqual(h.rest.map((i) => i.phrase), ['the credits you want', 'your contact details (name and Telegram)']);
+  assert.equal(h.total, 7);
+  assert.ok(h.round.find((i) => i.phrase === 'your 3-month plan in one line')?.one_line);
   // Fix round 3 (4): "code" only as a code the builder supplies; a held payout wallet is no blank.
   const fields = (rs: { key: string; label: string; type?: string; kind?: string }[]) => ({ investment: false, submission_requirements: rs.map((r) => ({ kind: 'other', ...r, required: true, from: 'builder' as const, todo: r.label.toLowerCase() })) });
   // v4.10.1 Task 1: a builder field of no kind the agent drafts is the builder's; the codebase is how it works, drafted.
-  const f = draftBlanks(fields([{ key: 'codebase', label: 'Describe your codebase and source code', kind: 'how_it_works' }, { key: 'referral', label: 'Referral code' }, { key: 'payout_wallet', label: 'Payout wallet' }]), {});
-  assert.deepEqual(f.blanks, ['referral code', 'payout wallet']);
-  assert.deepEqual(f.drafted, ['Describe your codebase and source code']);
-  assert.deepEqual(draftBlanks(fields([{ key: 'payout_wallet', label: 'Payout wallet' }]), { payout_wallet: '0xabc' }).blanks, []);
+  const f = fields([{ key: 'codebase', label: 'Describe your codebase and source code', kind: 'how_it_works' }, { key: 'referral', label: 'Referral code' }, { key: 'payout_wallet', label: 'Payout wallet' }]);
+  assert.deepEqual(builderAsks(f as never, {}).map((r) => r.key), ['referral', 'payout_wallet']);
+  assert.deepEqual(draftShape(f, {}).drafted, ['Describe your codebase and source code']);
+  assert.deepEqual(builderAsks(fields([{ key: 'payout_wallet', label: 'Payout wallet' }]) as never, { payout_wallet: '0xabc' }), []);
   // F9: one list style at any count; F5: the re-ask and the ready line.
   assert.equal(blanksAsk(['a', 'b', 'c']), "Three blanks only you can fill: a, b, and c. Reply with them and I'll finish it.");
   // Task 6 fix round 1b: the re-ask has the blanks ask's approved shape, "Reply with it|both|them and I'll finish it.".
@@ -677,6 +692,10 @@ test("draftBlanks (fix round 2, F1): a founder brief for a16z; Base's blanks are
 });
 
 test('the draft notes (fix round 2, F7, F8): the guard always; with no verified record, never invented traction', () => {
+  // v4.10.2 Task 1 fix round 1: the one-line plan's instruction only when the plan is asked (now or later).
+  assert.ok(questionsDraftNote('p', 'k', { record: true, blanks: [GTM_ONE_LINE] }).includes(PLAN_ONE_LINE_NOTE));
+  assert.ok(questionsDraftNote('p', 'k', { record: true, later: [GTM_ONE_LINE] }).includes(PLAN_ONE_LINE_NOTE));
+  assert.ok(!questionsDraftNote('p', 'k', { record: true, blanks: ['a note on the founding team'] }).includes(PLAN_ONE_LINE_NOTE));
   for (const n of [founderBriefNote('a16z speedrun SR008', 'k', { record: false }), questionsDraftNote('p', 'k', { record: false })]) {
     assert.match(n, /Never tell them they qualify or that an application was sent\./);
     assert.match(n, /no verified record for them yet, so leave traction out and never invent it/);
@@ -710,7 +729,7 @@ test('"sure" on the hook gives a draft with the verified record and A\'s two bla
   assert.equal(parts[1], draftBody((await shipLogFacts(b.id, new Date()))!, 'a funding finder for builders').join('\n'));
   assert.match(parts[1], new RegExp(`\\nProfile: \\S*${b.handle}$`, 'i'), s);
   assert.doesNotMatch(parts[1], /From your ship log|Shipping \d|^Page:/m, s);
-  assert.equal(parts.at(-1), A_BLANKS);
+  assert.equal(parts.at(-1), A_DRAFT_BLANKS);
   assert.equal(parts.length, 3, s);
   assert.doesNotMatch(s, BAD);
   // The agent writes the founder brief from the record (a16z's questions aren't public), then follows the mentor note.
@@ -722,11 +741,12 @@ test('"sure" on the hook gives a draft with the verified record and A\'s two bla
   assert.ok((seen.apply_yes as Record<string, string>)[sr.id], 'drafted');
   // A no to the draft parks the program too (a no at any stage).
   assert.equal((seen.bench_ask as { kind: string; path: boolean }).path, true);
-  assert.deepEqual((seen.bench_ask as { blanks: string[] }).blanks, [...FOUNDER_BLANKS]);
+  // v4.10.2 final fix (I1): and the email EarnKit doesn't hold (builderAsks: the list the ready count reads).
+  assert.deepEqual((seen.bench_ask as { blanks: string[] }).blanks, [...FOUNDER_BLANKS, 'your email']);
   assert.match(noteOf(r), /Never tell them they qualify or that an application was sent\./);
   // F5: a bare "ok" with the blanks still empty re-asks them, and the ask stays.
   const ok = await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes' });
-  assert.equal(show(ok), "I need who's on the team, and any money you've raised. Reply with both and I'll finish it.");
+  assert.equal(show(ok), "I need who's on the team, any money you've raised, and your email. Reply with them and I'll finish it.");
   // Fix round 3 (1): a yes carrying their answers never re-asks: the blanks are cleared (the words never stored).
   // Task 3: that same reply is the submit stage (target A, "just me, nothing raised").
   const answered = await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes', blanks: 'just me, nothing raised' });
@@ -776,18 +796,34 @@ test("the Base gap (fix round 2, F10): the hook offers to add Builder Codes; a y
   assert.equal(done.reply?.note, PATH_NOTE);
   const seen = await seenOf(b.id);
   assert.deepEqual({ ...(seen.path as object), at: undefined }, { stage: 'draft', program_id: 'base-builder-grants', at: undefined });
-  // Its yes is the Base draft: EarnKit fills the confirmed Builder Code; contact details wait for submit; at most 2 blanks.
+  // Its yes is the Base draft: EarnKit fills the confirmed Builder Code; v4.10.2 final fix (I1): every answer only the
+  // builder can give (the unheld contact details too), in rounds of at most 4, the count of all of them said.
   const dr = await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes' });
   const draft = show(dr);
   assert.ok(draft.startsWith("Here's your draft:\n\nTraction: "), draft);
-  assert.equal(draft.split('\n\n').at(-1), "Two blanks only you can fill: a note on the founding team, and your key usage numbers. Reply with both and I'll finish it.");
+  assert.equal(draft.split('\n\n').at(-1), "Four blanks only you can fill (7 more after these): your team list, your usage numbers, your demo video, and your contract address on Base. Reply with them and I'll finish it.");
   assert.match(noteOf(dr), /EarnKit already holds these, use them as given: builder_code: bc_earnkit\./);
-  // v4.10.1 Task 1 (R1): the GTM plan is the one field drafted for them to check.
-  assert.match(noteOf(dr), /mark these as drafted for them to check: What's your GTM plan for the next 3 months\?\. /);
+  // v4.10.2 Task 1 (owner answer 2): the GTM plan is the builder's, asked later as one line, never drafted for them to
+  // check; fix round 1: the path's note says to write the full answer from that line and the record only.
+  assert.doesNotMatch(noteOf(dr), /mark these as drafted/);
+  // v4.10.2 final fix (I1): the rest come in the next rounds, kept by EarnKit, ready only after the last.
+  assert.match(noteOf(dr), /EarnKit keeps each answer and asks the rest next \([^)]*your 3-month plan in one line/);
+  assert.match(noteOf(dr), /says when the draft is ready to paste/);
+  assert.match(noteOf(dr), /Their 3-month plan is the builder's one line: write the form's full answer from that line and the record only, adding no facts/);
   // Fix round 3 (1): prepare with their answers (coach_asked) answers the blanks: a yes after it never re-asks.
   await mcpCall(b.ctx as never, 'prepare', { program_id: 'base-builder-grants', project: { name: 'EarnKit', repo_url: `https://github.com/${b.key}` }, coach_asked: true });
   assert.deepEqual(((await seenOf(b.id)).bench_ask as { blanks: string[] }).blanks, []);
-  assert.doesNotMatch(show(await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes' })), /^I need/);
+  // v4.10.2 final fix (I1): that round is answered, so the yes asks the next round, never "ready" early.
+  const nextRound = show(await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes' }));
+  assert.doesNotMatch(nextRound, /^I need|ready to paste/, nextRound);
+  assert.match(nextRound, /^Thanks\. 4 more answers only you can give \(3 after these\): how it makes money today, your 3-month plan in one line/, nextRound);
+  // v4.10.2 Task 1 fix round 1 (owner answer 2): the plan asked as a blank and answered in one line: the finish note
+  // says to write it out from that line and the record only.
+  const plan = { kind: 'apply', key: b.key, program_id: 'base-builder-grants', path: true, draft: true, blanks: [GTM_ONE_LINE, 'your main challenge right now'] };
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('bench_ask', ${sql().json(plan as never)}::jsonb,
+      'path', jsonb_build_object('stage', 'draft', 'program_id', 'base-builder-grants', 'at', now()::text)) WHERE builder_id = ${b.id}`;
+  const lined = await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes', blanks: 'Grow installs through builder posts on X; user acquisition' });
+  assert.ok(noteOf(lined).includes(PLAN_ONE_LINE_NOTE), noteOf(lined));
 });
 
 test('fix round 2 (F3): a slow re-check answers "I\'m checking the code now..." and goes on in the background', db, async () => {
@@ -928,10 +964,11 @@ test('"sent" records the program as applied and hooks Base in the same reply, wi
   const b = await owner('snt', { pick: sr.id });
   assert.equal(moveUp(await find(b))?.kind, 'apply');
   await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes' });
-  // "just me, nothing raised": the submit stage, the deadline in the program's own zone, the email typed on the form.
+  // "just me, nothing raised": the submit stage, the deadline in the program's own zone. v4.10.2 final fix (I1): the email
+  // was asked in the round, so the form line names nothing EarnKit holds or was given.
   const sub = await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes', blanks: 'just me, nothing raised' });
   const by = submitBy(sr.ends.toISOString(), PT, new Date(), 'PT');
-  assert.equal(show(sub), `Done, it's ready to paste. Submit at https://speedrun.a16z.com/apply before ${by}. The form also asks for your email.\n\n${SENT_ASK}`);
+  assert.equal(show(sub), `Done, it's ready to paste. Submit at https://speedrun.a16z.com/apply before ${by}.\n\n${SENT_ASK}`);
   assert.match(noteOf(sub), /program_status: \[\{ program_id, status: 'applied' \}\]/);
   assert.ok(noteOf(sub).endsWith(MENTOR_NOTE));
   assert.deepEqual({ ...((await seenOf(b.id)).path as object), at: undefined }, { stage: 'submit', program_id: sr.id, at: undefined });
@@ -2095,7 +2132,7 @@ test('Task 6: walk A passes the merge gate on the fixtures', db, async () => {
   // It is target A's path: the hook, the draft, submit, "sent" hooks Base, the codes, then a new session's draft offer.
   const ends = replies.map((r) => r.show.split('\n\n').at(-1));
   assert.deepEqual(replies.map((r) => [r.session, r.first, r.hook]), [[0, true, true], [0, false, false], [0, false, false], [0, false, true], [0, false, false], [0, false, false], [1, true, false]]);
-  assert.deepEqual(ends, ['I can draft your application from your commits and live product in a few minutes. Want me to start?', A_BLANKS, SENT_ASK, OFFER, PUSHED_ASK, A_CODES_IN, DRAFT_NOW_ASK]);
+  assert.deepEqual(ends, ['I can draft your application from your commits and live product in a few minutes. Want me to start?', A_DRAFT_BLANKS, SENT_ASK, OFFER, PUSHED_ASK, A_CODES_IN, DRAFT_NOW_ASK]);
   // Fix round 1 (review 4): the proof is said once a session, keyed on its facts: the Base hook after "sent" gives a new
   // one (target A, "you're live on Base"), never the opener's streak again; the codes reply none.
   assert.match(replies[3].show, /You're live on Base\./, replies[3].show);

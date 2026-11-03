@@ -1,6 +1,5 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { READY_ASK } from './ready-copy';
 import { sql } from './db';
 import { walletOffered } from './fixtures/wallet-step';
 import { mcpCall } from './fixtures/mcp-call';
@@ -246,11 +245,11 @@ test('(g) tell program_status applied then find: the program is no longer the Be
   await upsertProgram(p);
   const b = await builder('g', [id]);
   // v4.8 Task 1: the path's hook names the fit, offered as a draft. v4.10 Task 4 (R1): a fresh session opens with the
-  // ready set instead, the fit one of its lines (its founding team field is only the builder's: R5). v4.10 final fix
-  // (I1): the line names up to 3 of its needs, then "and N more" (Base's form copied: v4.10.1 Task 1, the contact
-  // details as one item, then the team, usage, demo, revenue, its code, the main challenge and the credits; fix round
-  // 1, its contract address too, as this builder owns none).
-  assert.match(show(await mcpCall(b.ctx, 'find', {})), new RegExp(`^\\S+, I've got \\d applications? drafted for you[^]*\\n\\d\\. ${p.title}: up to \\$5,000\\. Needs your contact details \\(name, email and Telegram\\), team list, usage numbers and 6 more first\\.\\n[^]*\\n${READY_ASK.replace(/[.?]/g, '\\$&')}$`), 'the Best fit, in the ready set');
+  // ready set instead. v4.10.2 Task 1 (R1): Base's form copied owes 12 answers (the contact details, team, usage, demo,
+  // contract address, revenue, the 3-month plan, its code, the main challenge and the credits), more than one reply
+  // holds. v4.10.2 Task 2 (R3): Circle, off Arc, is not eligible, so no set fits one reply and the path's hook names the fit.
+  const first = show(await mcpCall(b.ctx, 'find', {}));
+  assert.match(first, new RegExp(`(?:^|\\n)\\S+, ${p.title} closes [^:]+: up to \\$5,000\\.`), first);
   const r = await prepare(b, { program_id: id, answers: baseAnswers() });
   assert.ok(show(r).endsWith(SENT_ASK));
   const told = await mcpCall(b.ctx, 'tell', { program_status: [{ program_id: id, status: 'applied' }] });

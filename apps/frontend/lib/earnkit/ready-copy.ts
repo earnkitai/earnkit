@@ -1,6 +1,7 @@
-import { closeWords, hoursLeft, programName } from './conversation';
+import { GTM_ONE_LINE, closeWords, hoursLeft, isGtm, programName } from './conversation';
 import { BUILDER_CODES_GUIDE } from './bench-reply';
 import { longShotWorth, type ReadyProgram } from './ready-set';
+import { CHAIN_NAMES, type Chain } from './chains';
 
 /*
  * v4.10 Task 3 (R5, R6, R7): the ready set's words, from the owner-approved target conversation (section A). Pure
@@ -14,12 +15,20 @@ export const READY_ASK = 'Reply yes and I\'ll finish and open each one for you t
  */
 export const READY_NOTE =
   'Before you show this, write each program\'s remaining answers from the record in this result. Never invent facts. Keep them for the builder\'s yes; on yes call prepare for each program with those answers. Show show_to_builder only after that.';
+/**
+ * v4.10.2 Task 1 (owner answer 2): how an ask the builder answers in one line (one_line: the 3-month plan) becomes the
+ * form's answer: the agent writes it out from that line and the record only.
+ */
+const EXPAND = "is the builder's one line: write the form's full answer from that line and the record only, adding no facts, and show it for them to check.";
+export const ONE_LINE_NOTE = `An answer marked one_line (expand) ${EXPAND}`;
+/** v4.10.2 Task 1 fix round 1: the same instruction on the path's draft, whose GTM blank is GTM_ONE_LINE. */
+export const PLAN_ONE_LINE_NOTE = `Their 3-month plan ${EXPAND}`;
 /** v4.10 Task 4 (R8): how the opener's ask is answered (never shown). */
 export const READY_ASK_NOTE =
-  "A yes, a no or the numbers to skip: call tell with move_up: { kind: 'ready', project_key, answer: 'yes' } (a no: answer 'no'; numbers: answer 'skip' with skip: [the numbers], 1-based). If they also give what a program asks of them (ready.programs[].asks), split their words by field into answers: { [kind]: their words } (contact: { [slot]: their words } for the slots it lists); blanks only when they can't be split. Don't show this note.";
+  "A yes, a no or the numbers to skip: call tell with move_up: { kind: 'ready', project_key, answer: 'yes' } (a no: answer 'no'; numbers: answer 'skip' with skip: [the numbers], 1-based). If they also give what the set asks of them (ready.programs[].asks, each asked once across the set, at most 4), split their words by field into answers: { [kind]: their words } (contact: { [slot]: their words } for the slots it lists); blanks only when they can't be split. If they ask to start a program in ready.also_open, call prepare with its id. Don't show this note.";
 /** v4.10 Task 4 (decision a): the yes's note, with ready.open (exact). The server never writes the free-text answers. */
 export const READY_YES_NOTE =
-  "Call prepare for each program in ready.open with the answers you drafted, then show each kit's link and paste-ready answers under show_to_builder.";
+  `Call prepare for each program in ready.open with the answers you drafted and its prefilled answers as given, then show each kit's link and paste-ready answers under show_to_builder. ${ONE_LINE_NOTE.replace(' (expand)', ' (its expand list)')}`;
 /** v4.10 Task 4: the note once the pages are open: "sent" is the builder's word, for some or all of them. */
 export const READY_SENT_NOTE =
   "Only when they say an application is in (\"sent\", \"submitted\"), call tell with move_up: { kind: 'ready', project_key, answer: 'sent' } (only some: add sent_ids with those program ids). A plain ok or yes is not sent. Don't show this note.";
@@ -92,6 +101,9 @@ export function needsPhrase(r: { key: string; label: string; kind?: string; todo
     team: 'your team list', demo_video: 'your demo video', pitch_video: 'your pitch video', traction: 'your usage numbers', raised: "any money you've raised",
   };
   if (r.kind && byKind[r.kind]) return byKind[r.kind];
+  // v4.10.2 Task 1 (R2, owner answer 2): the Builder Code is the builder's own, from base.dev; the plan is one line.
+  if (/builder code/i.test(`${r.key.replace(/_/g, ' ')} ${r.label}`)) return 'your Base Builder Code (from base.dev)';
+  if (isGtm(r)) return GTM_ONE_LINE;
   const raw = (r.todo ?? r.label).trim().replace(/[.?:]+$/, '');
   // v4.10.1 Task 1: a todo is already sentence case ("your Circle and Arc integrations"); a label's first letter is lowered.
   const lower = (x: string) => (r.todo ? x : `${x.charAt(0).toLowerCase()}${x.slice(1)}`);
@@ -155,19 +167,78 @@ export function worthClause(set: readonly Pick<ReadyProgram, 'kind' | 'max_usd'>
 }
 
 /**
- * The session opener: what is ready, what it is worth, where the answers came from, then READY_ASK as the last line.
- * v4.10 Task 4: `name` null (no X name, or greeted already this session) greets no one.
+ * v4.10.2 Task 1 (R1): a program left out of the set for the answers it needs, said as a statement (the set's ask stays
+ * the one easy reply): "Also open: Base Builder Grant, up to $5,000, needs 11 answers from you. Say "start Base"
+ * anytime." Null with none. Pure.
  */
-export function readyOpener(o: { name: string | null; set: ReadyProgram[]; worth: string | null; page: string; hosted: boolean; now: Date; rest?: boolean }): string {
+export function readyAlsoLine(out: readonly { title: string; amount: string | null; answers: number }[]): string | null {
+  if (out.length === 0) return null;
+  const one = (p: (typeof out)[number]) => `${programName(p.title)}${p.amount ? `, ${p.amount},` : ''} needs ${p.answers} answer${p.answers === 1 ? '' : 's'} from you.`;
+  const say = list(out.map((p) => `"start ${shortName(p.title)}"`));
+  return `Also open: ${out.map(one).join(' ')} Say ${say} anytime.`;
+}
+
+/**
+ * v4.10.2 Task 5: with no set (nothing fits one reply) and no path move, the quiet reply leads with the top program left
+ * out (alsoLead*): its money and its answers, then ALSO_START_ASK (its yes is the path's draft stage). A repeat find this
+ * session says ALSO_AGAIN_ASK alone, the same facts in the easy reply, so it repeats as the pending ask. Pure.
+ */
+const answersWords = (n: number) => `${n} answer${n === 1 ? '' : 's'} from you`;
+export const alsoLeadLine = (title: string, amount: string | null, answers: number) =>
+  `${programName(title)} ${amount ? `pays ${amount}` : 'is open'} and needs ${answersWords(answers)}.`;
+export const ALSO_START_ASK = 'Want me to start it?';
+export const alsoAgainAsk = (title: string, amount: string | null, answers: number) =>
+  `Want me to start ${programName(title)} (${amount ? `${amount}, ` : ''}${answersWords(answers)})?`;
+
+/**
+ * v4.10.2 Task 2 (R3): the programs left out as not eligible (their rule requires a chain the project doesn't use), in
+ * one plain statement, never a question (the set's ask stays the one easy reply): "Circle Developer Grants is only for
+ * an app on Arc, so it doesn't fit EarnKit yet." Null with none. Pure.
+ */
+/** "Arc", "Arc or Tempo": the chains as a builder reads them. Pure. */
+const chainsOr = (xs: readonly string[]) => {
+  const names = xs.map((c) => (Object.hasOwn(CHAIN_NAMES, c) ? CHAIN_NAMES[c as Chain] : c));
+  return names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} or ${names.at(-1)}`;
+};
+export function readyNotEligibleLine(out: readonly { title: string; chains: readonly string[] }[], project: string): string | null {
+  if (out.length === 0) return null;
+  const or = chainsOr;
+  const parts = out.map((p, i) => `${programName(p.title)}${i === 0 ? ' is only' : ''} for an app on ${or(p.chains)}`);
+  const said = parts.length < 2 ? parts[0] : `${parts.slice(0, -1).join(', ')}, and ${parts.at(-1)}`;
+  return `${said}, so ${out.length === 1 ? "it doesn't" : "they don't"} fit ${project} yet.`;
+}
+
+/**
+ * v4.10.2 Task 2 fix round 1 (2): the builder picked a not-eligible program by name: why, in one plain statement, said
+ * above the path's move: "Circle Developer Grants only takes an app on Arc, and EarnKit isn't one yet." Pure.
+ */
+export const notEligiblePickLine = (title: string, chains: readonly string[], project: string) =>
+  `${programName(title)} only takes an app on ${chainsOr(chains)}, and ${project} isn't one yet.`;
+
+/**
+ * The session opener: what is ready, what it is worth, where the answers came from, then READY_ASK as the last line.
+ * v4.10 Task 4: `name` null (no X name, or greeted already this session) greets no one. v4.10.2 Task 1 (R1): the head
+ * counts what the set needs from the builder (`asks`, at most READY_ANSWERS_MAX: "I need 3 answers from you first"),
+ * "ready" only when it needs none; `also`, the programs left out for their answers (readyAlsoLine). v4.10.2 Task 2 (R3):
+ * `notEligible`, the readyNotEligibleLine, said after it.
+ */
+export function readyOpener(o: {
+  name: string | null; set: ReadyProgram[]; worth: string | null; page: string; hosted: boolean; now: Date; asks?: number;
+  also?: readonly { title: string; amount: string | null; answers: number }[]; notEligible?: string | null;
+}): string {
   const n = o.set.length;
-  // v4.10.1 Task 2 fix round 1 (I1): "ready" only when no program needs anything from the builder; else "drafted".
-  const verb = o.set.some((p) => p.needs) ? 'drafted' : 'ready';
-  const head = `${o.name ? `${o.name}, I've` : "I've"} got ${n === 1 ? '1 application' : `${n} applications`} ${verb} for you${worthClause(o.set, o.worth)}:`;
+  const asks = o.asks ?? 0;
+  const apps = n === 1 ? '1 application' : `${n} applications`;
+  const who = o.name ? `${o.name}, I've` : "I've";
+  const head = asks > 0
+    ? `${who} started ${apps} for you${worthClause(o.set, o.worth)}. I need ${asks === 1 ? '1 answer' : `${asks} answers`} from you first:`
+    : `${who} got ${apps} ready for you${worthClause(o.set, o.worth)}:`;
   const lines = o.set.map((p, i) => readyLine(p, i + 1, o.hosted, o.now));
-  // Final fix (M1): with a program waiting on the builder, it is every other answer. v4.10.1 Task 1: only when the one
-  // ask covers every field the builder owes (`rest`: some wait for a later ask), else what EarnKit can fill.
-  const filled = o.rest ? "I've filled what I can" : o.set.some((p) => p.needs) ? 'Every other answer is filled' : 'Every answer is filled';
-  return `${head}\n\n${lines.join('\n')}\n\n${filled} from your commits and your profile at ${o.page}.\n${READY_ASK}`;
+  // Final fix (M1): with a program waiting on the builder, it is every other answer (v4.10.2: the set's asks are all of them).
+  const filled = asks > 0 || o.set.some((p) => p.needs) ? 'Every other answer is filled' : 'Every answer is filled';
+  const also = readyAlsoLine(o.also ?? []);
+  const apart = [also, o.notEligible].filter(Boolean).map((x) => `${x}\n\n`).join('');
+  return `${head}\n\n${lines.join('\n')}\n\n${apart}${filled} from your commits and your profile at ${o.page}.\n${READY_ASK}`;
 }
 
 /**
@@ -209,25 +280,15 @@ const shortList = (titles: readonly string[]) => [...new Set(titles.map(shortNam
  * Final fix (I1): one ask for the whole set, `count` fields: "Base and a16z need your team list, usage numbers, demo
  * video and any money you've raised first. Reply with them and I'll finish them." Pure.
  */
-export function readyNeedsAsk(titles: string | readonly string[], needs: string, count = 1, later?: string | null): string {
+export function readyNeedsAsk(titles: string | readonly string[], needs: string, count = 1): string {
   const who = shortList(typeof titles === 'string' ? [titles] : titles);
   const many = who.length > 1;
-  return `${list(who)} ${many ? 'need' : 'needs'} ${needs} first.${later ? ` ${later}` : ''} Reply with ${count === 1 ? 'it' : count === 2 ? 'both' : 'them'} and I'll finish ${many ? 'them' : 'it'}.`;
+  return `${list(who)} ${many ? 'need' : 'needs'} ${needs} first. Reply with ${count === 1 ? 'it' : count === 2 ? 'both' : 'them'} and I'll finish ${many ? 'them' : 'it'}.`;
 }
-/** A program's fields as theirs: "your team list and demo video" for Base is "Base's team list and demo video". Pure. */
-const theirs = (title: string, phrase: string) =>
-  phrase.startsWith('your ') ? `${shortName(title)}'s ${phrase.slice(5)}` : `${phrase} for ${shortName(title)}`;
-/**
- * Final fix 2 (I3): what the one ask leaves for later, every program in one sentence, every field named (no "and N
- * more"), said inside the ask after its need and before its one easy reply (readyNeedsAsk, readyStillNeeds' `later`):
- * "After that I'll ask for Base's contract address on Base and the credits you want, then Circle's product roadmap." Pure.
- */
-export const readyNeedsLater = (later: readonly { title: string; phrase: string }[]) =>
-  later.length > 0 ? `After that I'll ask for ${later.map((w) => theirs(w.title, w.phrase)).join(', then ')}.` : '';
 /** Final fix (I1): a later find while the ask waits: "Still waiting on your team list for Base. Reply with it and I'll finish it." Pure. */
-export function readyStillNeeds(titles: readonly string[], needs: string, count: number, later?: string | null): string {
+export function readyStillNeeds(titles: readonly string[], needs: string, count: number): string {
   const who = shortList(titles);
-  return `Still waiting on ${needs} for ${list(who)}.${later ? ` ${later}` : ''} Reply with ${count === 1 ? 'it' : count === 2 ? 'both' : 'them'} and I'll finish ${who.length > 1 ? 'them' : 'it'}.`;
+  return `Still waiting on ${needs} for ${list(who)}. Reply with ${count === 1 ? 'it' : count === 2 ? 'both' : 'them'} and I'll finish ${who.length > 1 ? 'them' : 'it'}.`;
 }
 /**
  * Final fix 2 (I2): an answer turn that leaves only the codes says what waits on them, before PUSHED_ASK: "Base opens

@@ -283,6 +283,8 @@ apps/frontend/
                                EARNKIT_PROGRAMS_TOKEN is set, or with EARNKIT_PROGRAMS_API=off
   app/api/programs/approve/route.ts  v4.10.1 T4: GET confirm page, POST approve of a pending program write
                                (lib/earnkit/program-approve.ts; signed token, 7 days, single use); 404 while the API is off
+  app/api/programs/revert/route.ts  v4.10.2 T4: GET confirm page, POST revert of an applied API write, from the daily
+                               digest (lib/earnkit/program-revert-page.ts; "program-revert:v1" token, 7 days, single use)
   app/api/stats/route.ts       v2.5 Task 9: GET public stats JSON (revalidate 600, prerendered when
                                the build has a DATABASE_URL; plus unstable_cache 600 s on the read,
                                for builds without one, where it renders per request); 503 no-store
@@ -1397,7 +1399,12 @@ apps/frontend/
     program-pending.ts         v4.10.1 T4: approve token (approveToken/approveTarget/approveExpiry, HMAC under
                                EARNKIT_AUTH_SECRET), linkAnchors, pendingReason, the owner's email (mailPending)
     program-approve.ts         v4.10.1 T4: programApproveGet (confirm page) and programApprovePost (approve).
-                               Tests: v4101-link-check.test.ts
+                               Tests: v4101-link-check.test.ts. Exports page/line/escapeHtml/notFound (v4.10.2 T4)
+    program-revert.ts          v4.10.2 T4: revert token (revertToken/revertTarget/revertExpiry, "program-revert:v1"),
+                               changeLine, revertDigest (the cron's once-a-UTC-day owner digest, owner_alerts
+                               'program-revert-digest'), revertPreview, revertWrite
+    program-revert-page.ts     v4.10.2 T4: programRevertGet (confirm page), programRevertPost (revert).
+                               Tests: v4102-revert-digest.test.ts
     programs-cache.ts          v4.9 T3 fix 1: PROGRAMS_TAG and programsChanged(id) (revalidateTag + the home, guide,
                                sitemap and (final fix F2) /api/stats paths) after an API write changes a program
     api-stale.ts               v4.9 final fix: API_STALE_DAYS (14), apiStale(row, now), freshSql(db, alias, now?) (the
@@ -1835,12 +1842,12 @@ apps/frontend/
                                the hook's ask as apply, qualify or check_fits (path: true; a no also parks 'path:<id>').
                                fixtures/wallet-step.ts pathQuiet / pathUnquiet park every program for a test of an older ask.
                                v4.8 Task 2: gapReply (the steps, "I can do this." marks, Go? / first one / help), gapClosedReply,
-                               draftReply, blanksAsk, draftBlanks (founder brief for an investor program with no public
+                               draftReply, blanksAsk, draftShape (was draftBlanks; founder brief for an investor program with no public
                                questions, else required builder-only fields not held), FOUNDER_BLANKS. bench-find.ts gapYes,
                                gapDoYes, pathDraft, heldAnswers, codesConfirmed (re-check after the do-it yes: gap_did),
                                pathClosedCommit; bench-reply.ts qualifyGapSteps.
                                Fix round 1: gapStillReply / pathGapCommit (mid-gap "Still on ..."), gapProof, GapStep.offer.
-                               Fix round 2: CODES_OFFER (hook "Go?"), draftBlanks { blanks (max 2), later, drafted }, andComma,
+                               Fix round 2: CODES_OFFER (hook "Go?"), draftShape { brief, drafted } (v4.10.2 final fix I1: the asks are bench-find.ts builderAsks + pathRound, rounds of 4; roundAsk), andComma,
                                blanksAgain; bench-find.ts codesConfirmed ('found'|'missing'|'checking',
                                RECHECK_WAIT), pathCheckingView, draftYes; base-qualify.ts qualifyOffer `allMet`.
                                v4.8 Task 3: SENT_ASK, submitBy, submitReply, submitPointer, TRACK_ACK, trackLead, agoWords (removed v4.8.2),
@@ -2798,7 +2805,7 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
     `ReadyState.given`, `ReadyDraft.only`/`ends_at`, `askKey`, `answerKind`, `needAsk`, `needFields`, `readyBank`,
     `readySettle`, `needStored`, `codesStored`, `openRows`, the exported type `ReadyAnswers`. `pathPlan` adds chain
     mismatches to `longShots`. `readyYes` returns null on a state conflict, and `readyAnswer` retries once.
-  - `ready-copy.ts`: `needsList`, `readyNeedsAsk(titles, needs, count)` (plural-safe), `readyNeedsLater`,
+  - `ready-copy.ts`: `needsList`, `readyNeedsAsk(titles, needs, count)` (plural-safe), `readyNeedsLater` (removed in v4.10.2),
     `readyStillNeeds`; `readyYesReply` takes `codes`; `readyOpener` says "Every other answer" when needed.
   - `program-file.ts` `READY_ANSWERS` (tools.ts and mcp.ts `move_up.answers`; `skip` up to 10).
   - `fixtures/test-guard.ts` sets `EARNKIT_TEST_GUARD`. `fixtures/converse.ts` `BLANKS_REPLY` (finish them) and
@@ -2810,9 +2817,9 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
 
 - `conversation.ts` `mustGive`, `builderOnly`. `programs/circle-developer-grants.json` `integrations`.
 - `bench-find.ts` `readyDrafts` (contact first), `askKey(r, only)`, `draftAsks`, `itemPhrase`, `readyNeeds` (first
-  program's rest in `later`), `needFields` (contact `slots`), `readyBank` (per-slot contact, keyed `other:`),
+  program's rest in `later`; gone in v4.10.2), `needFields` (contact `slots`), `readyBank` (per-slot contact, keyed `other:`),
   `heldAnswers` (email, revenue, contract address), `readyCommit` (`rest`).
-- `ready-copy.ts` `contactPhrase`, `needsPhrase` (wh- and "the" todos as written), `readyOpener({ rest })`.
+- `ready-copy.ts` `contactPhrase`, `needsPhrase` (wh- and "the" todos as written), `readyOpener({ rest })` (v4.10.2: `{ asks, also }`).
 - `program-file.ts` `READY_ANSWERS` and `ReadyAnswers`. `coach.ts` `slotOf` (exported).
 - `fixtures/converse.ts` `lazyNext` (contact slots); `scripts/converse-replay.mts` `ANSWERS`.
 - Tests: `v410-find.test.ts` (`v4.10.1 (1)`, `(2)`), `v410-ready.test.ts` (pure).
@@ -2848,6 +2855,38 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
   `officialUrlProblem`; `programs-read.ts` and `app/api/programs/writes/route.ts` add `pending`;
   `app/api/programs/approve/route.ts` (GET confirm page, POST approve).
 - Tests: `v4101-link-check.test.ts`, `v49-programs-api.test.ts`.
+
+## v4.10.2 Tasks 1 to 3: fits one reply, eligibility, agent deadlines
+
+- **Task 1**: `ready-set.ts` `READY_ANSWERS_MAX`, `READY_CANDIDATES`, `fitReadySet`, `readySet(ctx, max)`. `bench-find.ts`
+  `answerKeys`, `answersIn`, `readyCommit` (fit, `also`), `readyNeeds` (caps on answers; `ReadyNeed.later` gone),
+  `heldBuilderCode`, `preparedHeld`, `openEntry` (`prefilled`, `expand`). `ready-copy.ts` `readyAlsoLine`,
+  `readyOpener({ asks, also })`, `needsPhrase` (Builder Code, GTM one line); `readyNeedsLater` removed. `conversation.ts`
+  `isGtm` exported, GTM out of the `mustGive` exemption. `draft-application.ts` fills blanks from `preparedHeld`.
+  Tests: `v410-find.test.ts`, `v410-ready.test.ts`.
+- **Task 2**: `program-file.ts` `chain_required`; `programs/circle-developer-grants.json`; `programs/README.md`;
+  `db/schema.sql`, `programs.ts` (upsert, list, `programCard`), `present.ts` `Card.chain_required`. `bench-find.ts`
+  `notEligible`, `GapGrant.notEligible`; `conversation.ts` `MoveProgram.notEligible`; `ready-copy.ts`
+  `readyNotEligibleLine`. arbitrum: `chains.ts`, `match.ts` SIGNALS, `verify.ts` `ARBITRUM_RPC_URL`,
+  `programs/arbitrum-open-house-sao-paulo.json`. Tests: `v4102-eligible.test.ts`, `v410-find.test.ts`.
+- **Task 3**: `deadline.ts` `timeLeftWords`; `entry-text.ts` `agentCloses`; `tools.ts`/`mcp.ts`/`app/api/programs` closes_in;
+  `reply-facts.ts` `shippedLastWeek`. Tests: `v482-fixes.test.ts`, `v31-answerable.test.ts`.
+
+## v4.10.2 Task 4: daily revert digest
+
+- `program-revert.ts` `revertDigest` (cron.ts step `revert_digest`), `changeLine`, `revertToken` / `revertTarget`,
+  `revertWrite`, `revertPreview`; `program-revert-page.ts` and `app/api/programs/revert/route.ts`.
+- `programs-api.ts` `NEWER_RESULTS` adds `reverted`. Tests: `v4102-revert-digest.test.ts`.
+
+## v4.10.2 Task 5: replay fixes (the next step after the Monday block)
+
+- `bench-reply.ts` `MOMENT_ASK` is "Add last week to your page?" (was "Looks right?").
+- `bench-find.ts` `Seen.also_open` / `AlsoOpenLead`, `keepAlso` (written by `readyCommit` when nothing fits, dropped by
+  `readyView` on an empty candidate list), `alsoLeadCommit` (the quiet reply's money lead, stored as the path's start
+  ask). The Monday block marks the session said (`older`, `proof:streak=N`); the share yes without the email question
+  returns `then_find`.
+- `ready-copy.ts` `alsoLeadLine`, `ALSO_START_ASK`, `alsoAgainAsk`. Tests: `v4102-next-step.test.ts`,
+  `v410-find.test.ts` ("v4.10.2 Task 5"), `weekly-moment.test.ts`.
 
 ## v4.10.1 Task 5: date-proofed tests
 

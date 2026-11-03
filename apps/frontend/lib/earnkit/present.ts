@@ -74,6 +74,8 @@ export type Card = {
   needs_live?: boolean;
   /** v2.8 Ruling 13 (plan): the program fits any chain (its tile reads "Any chain"). */
   any_chain?: boolean;
+  /** v4.10.2 Task 2 (R3, programs.ts programCard): its rule requires one of `chains`; absent reads as false. */
+  chain_required?: boolean;
   /** v2.8 Ruling C5: the award is an investment ("up to $1M investment"). */
   investment?: boolean;
   /** Up to 3 curated build ideas (program file `ideas`), shown when the builder has no repo. */

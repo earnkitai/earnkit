@@ -20,8 +20,7 @@ import {
 } from './projects';
 import { EntryError, githubRepo, givenWallet, isWalletAddress, normalizeRepoUrl, presentYourEntries } from './campaigns';
 import { signToEnter } from './entry-proof';
-import { NO_COIN_YET, confirmTable, enteredText, todoOf, withClosesIn, type EnteredText } from './entry-text';
-import { hoursLeft } from './deadline';
+import { NO_COIN_YET, agentCloses, confirmTable, enteredText, todoOf, withClosesIn, type EnteredText } from './entry-text';
 import { repoNameOf, titleCase } from './token-proposal';
 import { earnkitCampaignRows, yourCampaignEntries } from './leaderboard';
 import {
@@ -2706,8 +2705,7 @@ async function checkinOpen(ctx: ToolContext): Promise<boolean> {
 }
 
 /**
- * v4.8.2 Task 3 (R4): find's `programs` as the agent gets them: each with `closes_in` (hoursLeft words under 48 hours,
- * else null) and its summary's close part in those hours ("· closes in 14 hours"), never the program-zone day an agent
+ * v4.8.2 Task 3 (R4): find's `programs` as the agent gets them: each with `closes_in` (hours under 48, days from 48, "rolling"; v4.10.2 R5) and its summary's close part in those hours ("· closes in 14 hours"), never the program-zone day an agent
  * might repeat to a builder elsewhere; `deadline` stays ISO for the agent's own math. Pure; exported for tests.
  */
 export const agentPrograms = (
@@ -2743,8 +2741,9 @@ async function withApiContent<R extends object>(reply: R, programId: string | nu
   return row?.source === 'api' ? { ...reply, api_content: API_CONTENT } : reply;
 }
 
-/** v4.8.2 Task 3 (R4): get_program's closes_in from its deadline (ISO, or "rolling"); fix 1: null unless open (upcoming, closed). Pure. */
-const agentClosesIn = (p: { open: boolean; deadline: string }, now: Date) => (!p.open || p.deadline === 'rolling' ? null : hoursLeft(p.deadline, now));
+/** v4.8.2 Task 3 (R4): get_program's closes_in from its deadline (ISO, or "rolling"); fix 1: null unless open (upcoming, closed); v4.10.2 R5: days from 48 hours, "rolling" when rolling. Pure. */
+const agentClosesIn = (p: { open: boolean; deadline: string }, now: Date) =>
+  !p.open ? null : p.deadline === 'rolling' ? 'rolling' : agentCloses({ summary: '', ends_at: p.deadline }, now);
 
 /** prepare's own work (tools.prepare adds an API program's envelope). */
 async function prepareTool(input: unknown, ctx: ToolContext): Promise<Reply> {

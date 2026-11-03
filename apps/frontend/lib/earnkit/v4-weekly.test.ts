@@ -88,12 +88,12 @@ test('the rows: score with its change, the streak, the community', () => {
   assert.equal(mondayOpener('Sam', 'Fixed the login loop.'), 'Your week is ready, Sam. Fixed the login loop. Nice work.', 'the approved words as they are');
 });
 
-test('(a) the reply is the spec block: opener, table, post link, Looks right?', () => {
+test('(a) the reply is the spec block: opener, table, post link, the page question', () => {
   const s = mondayReply(VIEW, PAGE, MOMENT_ASK);
   assert.equal(s, [
     'Your week is ready, Maya. You shipped the new meal planner. Nice work.',
     '',
-    '| | This week |',
+    '| | Last week |',
     '|---|---|',
     '| Shipping score | 82, up 4 |',
     '| Streak | 5 weeks |',
@@ -101,16 +101,16 @@ test('(a) the reply is the spec block: opener, table, post link, Looks right?', 
     '',
     'Your post is ready to share: https://earnkit.com/maya/post/abcdefghij',
     '',
-    'Looks right?',
+    'Add last week to your page?',
   ].join('\n'));
-  assert.equal(MOMENT_ASK, 'Looks right?');
+  assert.equal(MOMENT_ASK, 'Add last week to your page?');
   assert.equal(links(s).length, 1);
   assert.equal(questions(s), 1);
   assert.doesNotMatch(s, /MAYA|[Tt]oken|[Cc]oin|\p{Extended_Pictographic}|—/u);
   // Plain surfaces (Task 6): "Label: value" lines.
   assert.match(formatReply(s, 'plain'), /\n\nShipping score: 82, up 4\n\nStreak: 5 weeks\n\nFrom your community: \$46, already in your wallet\n\n/);
   // No post: the page is the one link.
-  assert.match(mondayReply({ ...VIEW, post: null }, PAGE, MOMENT_ASK), /\n\nYour page: https:\/\/earnkit\.com\/maya\n\nLooks right\?$/);
+  assert.match(mondayReply({ ...VIEW, post: null }, PAGE, MOMENT_ASK), /\n\nYour page: https:\/\/earnkit\.com\/maya\n\nAdd last week to your page\?$/);
 });
 
 test('(b) $0 from the community: no community row', () => {
@@ -209,7 +209,7 @@ test('(a, end to end) the Monday find: the spec block with the real score, strea
   assert.equal(noOpen(s), [
     'Your week is ready, Maya. You shipped the new meal planner. Nice work.',
     '',
-    '| | This week |',
+    '| | Last week |',
     '|---|---|',
     '| Shipping score | 82, up 4 |',
     '| Streak | 5 weeks |',
@@ -219,7 +219,7 @@ test('(a, end to end) the Monday find: the spec block with the real score, strea
     '',
     'Builders who share wins get noticed by programs.',
     '',
-    'Looks right?',
+    'Add last week to your page?',
   ].join('\n'));
   assert.equal(links(s).length, 1);
   assert.equal(questions(s), 1);

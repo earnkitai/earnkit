@@ -156,7 +156,7 @@ test('Task 16 step 7, v4.0 Task 7: the weekly moment is the Monday block with la
   assert.equal(out, [
     'Your week is ready, Maya. You shipped this week. Nice work.',
     '',
-    '| | This week |',
+    '| | Last week |',
     '|---|---|',
     '| Shipping score | 82, up 4 |',
     '| Streak | 6 weeks |',
@@ -165,13 +165,13 @@ test('Task 16 step 7, v4.0 Task 7: the weekly moment is the Monday block with la
     '',
     'Builders who share wins get noticed by programs.',
     '',
-    'Looks right?',
+    'Add last week to your page?',
   ].join('\n'));
   oneAsk(out);
   assert.doesNotMatch(out, /points|intent/);
   // Nothing new to say: the page is the one link.
   const none = benchReply({ ...v, moment: { week: 4, place: 'still', rank: 3, post: null, ...facts } });
-  assert.match(none, /\n\nYour page: https:\/\/earnkit\.com\/maya\n\nBuilders who share wins get noticed by programs\.\n\nLooks right\?$/);
+  assert.match(none, /\n\nYour page: https:\/\/earnkit\.com\/maya\n\nBuilders who share wins get noticed by programs\.\n\nAdd last week to your page\?$/);
   oneAsk(none);
   assert.doesNotMatch(benchReply({ ...v, moment: { week: 0, place: null, rank: 1, post: null, ...facts } }), /Streak/);
 });

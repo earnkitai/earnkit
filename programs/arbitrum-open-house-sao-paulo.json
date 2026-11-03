@@ -19,6 +19,7 @@
   "existing_work": "allowed",
   "needs_repo": true,
   "chains": [
+    "arbitrum",
     "robinhood"
   ],
   "setup": [],

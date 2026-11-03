@@ -475,6 +475,13 @@ export const ProgramFile = z
     /** v2.8 Ruling 13 (plan): the program isn't tied to one chain, so it fits any repo. */
     any_chain: z.boolean().default(false),
     /**
+     * v4.10.2 Task 2 (R3): the program's eligibility rule requires one of its chains (or that chain's products) at the
+     * core of the project, so a project on none of them is not eligible: it never enters the ready set or the path
+     * (bench-find.ts notEligible). Set it only when the source says so (Circle: "Arc must be core to your flow of
+     * value"); without it a chain mismatch stays a long shot. Never with any_chain.
+     */
+    chain_required: z.boolean().optional(),
+    /**
      * v2.8 Ruling C5: the award is an investment in the company (an accelerator such as a16z
      * speedrun), not a prize: the card reads "up to $1M investment", never "per winner".
      */
@@ -648,6 +655,7 @@ export const ProgramFile = z
 
     // v2.8 Ruling 13 (plan): one chain at least, unless the program fits any chain (then none).
     if (p.any_chain && p.chains.length > 0) issue('any_chain programs list no chains');
+    if (p.chain_required && (p.any_chain || p.chains.length === 0)) issue('chain_required needs the chains it requires (never any_chain)');
     // v2.13 T8: the pitch reads "<who> pays up to $N for <for>." only with a per-winner amount.
     if (p.pitch && p.max_award_usd === undefined) issue('pitch needs max_award_usd (the line reads "pays up to $N for")');
     if (!p.any_chain && p.chains.length === 0) issue('chains needs at least one chain (or any_chain: true)');

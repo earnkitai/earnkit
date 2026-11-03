@@ -69,6 +69,11 @@ const SIGNALS: Record<Chain, Signals> = {
     mainnet: { ids: [43114], hosts: ['api.avax.network', 'snowtrace.io', 'subnets.avax.network'] },
     testnet: { ids: [43113], hosts: ['api.avax-test.network', 'testnet.snowtrace.io'] },
   },
+  // v4.10.2 Task 2 (R4): Arbitrum One and Arbitrum Sepolia.
+  arbitrum: {
+    mainnet: { ids: [42161], hosts: ['arb1.arbitrum.io', 'arbiscan.io'] },
+    testnet: { ids: [421614], hosts: ['sepolia-rollup.arbitrum.io', 'sepolia.arbiscan.io'] },
+  },
 };
 
 /**
@@ -103,6 +108,8 @@ const VIEM_NAMES: Record<string, [Chain, 'mainnet' | 'testnet']> = {
   arcTestnet: ['arc', 'testnet'],
   avalanche: ['avalanche', 'mainnet'],
   avalancheFuji: ['avalanche', 'testnet'],
+  arbitrum: ['arbitrum', 'mainnet'],
+  arbitrumSepolia: ['arbitrum', 'testnet'],
 };
 
 /**

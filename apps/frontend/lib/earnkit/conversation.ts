@@ -119,6 +119,11 @@ export type MoveProgram = {
   max_usd?: number | null;
   /** v4.10 Task 2: for a long-shot grant, why it is one (the fit cell's reason: "they look for apps on Arc"); absent reads as null. */
   why?: string | null;
+  /**
+   * v4.10.2 Task 2 (R3): its rule requires a chain the project doesn't use (bench-find.ts notEligible): never a move,
+   * never in the ready set, since the builder can't truthfully answer it. Absent reads as false.
+   */
+  notEligible?: boolean;
 };
 /**
  * An open grant the project doesn't fit, with what it needs: `gaps` (each a step; none known: it can apply now), `gap`
@@ -191,7 +196,8 @@ const byClose = <P extends Pick<MoveProgram, 'ends_at'>>(a: P, b: P) => closeAt(
  */
 export function bestMove(ctx: MoveCtx): Move {
   const t = ctx.now.getTime();
-  const open = <P extends MoveProgram>(p: P) => !ctx.skip.has(p.id) && closeAt(p) > t;
+  // v4.10.2 Task 2 (R3): a not-eligible program is never a move, picked or not.
+  const open = <P extends MoveProgram>(p: P) => !ctx.skip.has(p.id) && closeAt(p) > t && p.notEligible !== true;
   const fits = ctx.fits.filter((p) => open(p) && !p.investment).sort(byClose);
   const soon = (p: MoveProgram, ms: number) => closeAt(p) - t <= ms;
   const now = ctx.grants.filter((g) => open(g) && !g.investment && g.gaps.length === 0 && soon(g, NOW_WINDOW_MS)).sort(byClose);
@@ -633,21 +639,30 @@ const COUNT = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eig
  * blanks only you can fill: who's on the team, and any money you've raised. Reply with both and I'll finish it." None:
  * "Want me to finish it?". Pure.
  */
-export function blanksAsk(blanks: readonly string[]): string {
-  const n = blanks.length;
-  if (n === 0) return 'Want me to finish it?';
+export function blanksAsk(blanks: readonly string[], answers = blanks.length, after = 0): string {
+  // v4.10.2 final fix (I1): the count is the answers (a contact item names each detail), and the rounds after it.
+  const n = answers;
+  if (blanks.length === 0) return 'Want me to finish it?';
   const count = COUNT[n] ?? String(n);
   const list = andComma(blanks);
-  return `${count} ${n === 1 ? 'blank' : 'blanks'} only you can fill: ${list}. ${finishLine(n)}`;
+  return `${count} ${n === 1 ? 'blank' : 'blanks'} only you can fill${after > 0 ? ` (${after} more after these)` : ''}: ${list}. ${finishLine(n)}`;
+}
+/**
+ * v4.10.2 final fix (I1): the path draft's next round, once the last one's answers are kept: "Thanks. 4 more answers
+ * only you can give (3 after these): a, b, c, and d. Reply with them and I'll finish it."; the last round, "Thanks. The
+ * last 3 answers only you can give: ...". `answers` counts each contact detail. Pure.
+ */
+export function roundAsk(blanks: readonly string[], answers: number, after: number): string {
+  // Final re-review: the count names its noun ("4 more answers", "The last 3 answers", "The last answer").
+  const head = after > 0 ? `${answers} more answer${answers === 1 ? '' : 's'} only you can give (${after} after these)` : answers === 1 ? 'The last answer only you can give' : `The last ${answers} answers only you can give`;
+  return `Thanks. ${head}: ${andComma(blanks)}. ${finishLine(answers)}`;
 }
 /** The draft stage's reply: "Here's your draft:", the verified record's lines, then the blanks ask (last). Pure. */
-export const draftReply = (record: readonly string[], blanks: readonly string[]) =>
-  [`Here's your draft:`, record.join('\n'), blanksAsk(blanks)].filter((x) => x.length > 0).join('\n\n');
+export const draftReply = (record: readonly string[], blanks: readonly string[], answers = blanks.length, after = 0) =>
+  [`Here's your draft:`, record.join('\n'), blanksAsk(blanks, answers, after)].filter((x) => x.length > 0).join('\n\n');
 
 /** A submission requirement as the draft reads it (program-file.ts SubmissionRequirement). */
 type DraftReq = { key: string; label: string; required: boolean; from: 'project' | 'builder'; kind?: string; todo?: string };
-/** Fix round 2 (F1): at most this many blanks in one reply; the rest wait for prepare's own round. */
-export const MAX_BLANKS = 2;
 /** Fix round 2 (F1): builder-only kinds the agent can't draft (the team, a demo video, usage numbers), asked in this order. */
 const ASK_KINDS = ['team', 'traction', 'demo_video'] as const;
 /**
@@ -668,9 +683,15 @@ const AGENT_DRAFTABLE = ['name', 'one_liner', 'problem', 'solution', 'how_it_wor
  * the team, usage numbers): the builder's to give whatever the program file's `from` says.
  */
 const PLAN_KINDS = ['milestones', 'use_of_funds', 'raised', 'team', 'traction'] as const;
-/** v4.10.1 Task 1 (ruling R1): a GTM plan stays agent-drafted (v4.8 ruling F1), marked for the builder to check. */
+/**
+ * A GTM plan field. v4.10.2 Task 1 (owner answer 2): a forward plan is a claim the record can't show, so it is the
+ * builder's to give, as one line the agent expands (ready-copy.ts READY_YES_NOTE); v4.10.1's agent-drafted ruling R1 is
+ * reversed.
+ */
 const GTM = /\bgtm\b|go[- ]to[- ]market/i;
-const isGtm = (r: DraftReq) => GTM.test(`${r.key.replace(/_/g, ' ')} ${r.label}`);
+export const isGtm = (r: Pick<DraftReq, 'key' | 'label'>) => GTM.test(`${r.key.replace(/_/g, ' ')} ${r.label}`);
+/** v4.10.2 Task 1 (owner answer 2): the GTM plan's ask, everywhere it is asked (the ready set and the path's draft). */
+export const GTM_ONE_LINE = 'your 3-month plan in one line';
 /**
  * v4.10.1 Task 1 fix round 1: a contract address is a fact EarnKit holds (heldAnswers: the builder's owned contracts) or
  * the builder gives, never one the agent writes, whatever `from` says.
@@ -680,37 +701,34 @@ const CONTRACT = /contract address/i;
  * v4.10.1 Task 1: a required, not contact field the agent can't truthfully draft, so the builder must give it:
  * - a builder field (`from: 'builder'`) the agent can't draft (mustAsk: the team, usage, a demo video, a link, a
  *   choice or several, an amount, location or code), or of any kind outside AGENT_DRAFTABLE (how it makes money, the
- *   credits wanted, an integration), except a GTM plan (R1);
- * - any field, whatever its `from`, that is a plan or a claim the record can't show (PLAN_KINDS), except a GTM plan,
+ *   credits wanted, an integration; v4.10.2 Task 1: a GTM plan too);
+ * - any field, whatever its `from`, that is a plan or a claim the record can't show (PLAN_KINDS: a GTM plan's kind),
  *   or a contract address EarnKit doesn't hold (fix round 1).
  * Pure.
  */
 export function mustGive(r: DraftReq & { type?: string }): boolean {
-  if (r.kind === 'contact' || isGtm(r)) return false;
+  if (r.kind === 'contact') return false;
   if ((PLAN_KINDS as readonly string[]).includes(r.kind ?? '') || CONTRACT.test(r.label)) return true;
   if (r.from !== 'builder') return false;
   return mustAsk(r) || r.type === 'multi_choice' || !(AGENT_DRAFTABLE as readonly string[]).includes(r.kind ?? 'other');
 }
 /**
- * What the draft is and which blanks only the builder can fill (fix round 2, F1):
- * - an investor program with no public questions (every required field is a contact detail): a short founder brief,
- *   whose blanks are FOUNDER_BLANKS;
- * - otherwise the required fields EarnKit doesn't hold (`held`: the confirmed Builder Code, verified usage and revenue,
- *   the answer bank) and the agent can't truthfully draft (mustGive, v4.10.1), team first, at most MAX_BLANKS; `later`
- *   holds the rest. Contact details (name, email, handles) are typed when they submit, for every program, so never a
- *   blank. `drafted`: the builder fields the agent drafts for them to check. Pure.
+ * What the draft is (fix round 2, F1): an investor program with no public questions (every required field is a contact
+ * detail) is a short founder brief; `drafted`, the builder fields the agent drafts for them to check (not held, not a
+ * contact detail, and one the agent can truthfully draft: mustGive, v4.10.1). v4.10.2 final fix (I1): what the builder
+ * must give is bench-find.ts builderAsks (the one list the ready count, the also-open lead and the path's rounds read).
+ * Pure.
  */
-export function draftBlanks(
+export function draftShape(
   p: { investment: boolean; submission_requirements: readonly (DraftReq & { type?: string })[] }, held: Record<string, string>,
-): { brief: boolean; blanks: string[]; later: string[]; drafted: string[] } {
+): { brief: boolean; drafted: string[] } {
   const required = p.submission_requirements.filter((r) => r.required);
-  if (p.investment && required.every((r) => r.kind === 'contact')) return { brief: true, blanks: [...FOUNDER_BLANKS], later: [], drafted: [] };
+  if (p.investment && required.every((r) => r.kind === 'contact')) return { brief: true, drafted: [] };
   const open = required.filter((r) => r.from === 'builder' && r.kind !== 'contact' && !held[r.key]?.trim());
-  const ask = builderOnly(p, held).map((r) => r.todo ?? r.label.toLowerCase());
-  return { brief: false, blanks: ask.slice(0, MAX_BLANKS), later: ask.slice(MAX_BLANKS), drafted: open.filter((r) => !mustGive(r)).map((r) => r.label) };
+  return { brief: false, drafted: open.filter((r) => !mustGive(r)).map((r) => r.label) };
 }
 /**
- * v4.10 Task 4 (R5): the required fields only the builder can give (draftBlanks' blanks, as fields): not a contact
+ * v4.10 Task 4 (R5): the required fields only the builder can give (bench-find.ts builderAsks' own part): not a contact
  * detail, not held, and one the agent can't truthfully draft (mustGive, v4.10.1 Task 1), the team, usage numbers and
  * demo video first, then the form's order. None for an investor program with no public questions (its founder brief's
  * blanks are the agent's to ask). Pure.

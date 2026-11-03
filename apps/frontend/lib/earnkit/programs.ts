@@ -157,6 +157,8 @@ export type ProgramRow = {
   needs_repo: boolean | null;
   /** v2.9 A5: the chain whose mainnet must hold a deployed contract for the live link to count; null: none. */
   needs_contract: Chain | null;
+  /** v4.10.2 Task 2 (R3, program file chain_required): a project on none of `chains` is not eligible. Optional for older fixtures. */
+  chain_required?: boolean;
   /** v2.9 A2: the lowest product score a repo needs for a matched row (a16z: 5); 0: none. */
   min_product_score: number;
   /** v2.9 A8 (match-loop.ts): the lowest announced winner's product score; null under 30 labelled entries. */
@@ -257,6 +259,7 @@ export async function listPrograms(o: { for?: number } = {}) {
       | 'investment'
       | 'needs_repo'
       | 'needs_contract'
+      | 'chain_required'
       | 'rules'
       | 'token_policy'
       | 'starts_at'
@@ -279,7 +282,7 @@ export async function listPrograms(o: { for?: number } = {}) {
       p.summary, p.tag, p.created_at, p.verified_at, p.source, p.campaign, p.max_award_usd, p.pool_usd, p.min_award_usd,
       p.opened_at, p.submission_requirements, p.ideas, p.submission_proof, p.builder_bonus,
       p.logo, p.past_rounds, p.focus, p.best_bet, p.difficulty_override, p.winners_per_round,
-      p.chains, p.any_chain, p.investment, p.needs_repo, p.needs_contract, p.rules, p.token_policy, p.starts_at,
+      p.chains, p.any_chain, p.investment, p.needs_repo, p.needs_contract, p.chain_required, p.rules, p.token_policy, p.starts_at,
       p.match_precision, p.submission_url, p.status, p.opens_note, p.in_person, p.fresh_build, p.agent_completable, p.pitch, p.tz, sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
     FROM programs p LEFT JOIN sponsor_campaigns sc ON sc.program_id = p.id
     WHERE p.status IN ('active', 'upcoming') AND (p.ends_at IS NULL OR p.ends_at > now())
@@ -371,7 +374,7 @@ export function programCard(
     | 'difficulty_override'
     | 'winners_per_round'
     | 'rules'
-  > & { status?: ProgramRow['status']; opens_note?: string | null; in_person?: boolean; token_policy?: TokenPolicy; starts_at?: Date | null; match_precision?: string | null; submission_url?: string | null; fresh_build?: { starter: string } | null; agent_completable?: boolean; pitch?: { who: string; for: string } | null; tz?: string | null; needs_contract?: Chain | null },
+  > & { status?: ProgramRow['status']; opens_note?: string | null; in_person?: boolean; token_policy?: TokenPolicy; starts_at?: Date | null; match_precision?: string | null; submission_url?: string | null; fresh_build?: { starter: string } | null; agent_completable?: boolean; pitch?: { who: string; for: string } | null; tz?: string | null; needs_contract?: Chain | null; chain_required?: boolean },
   tracks: string[],
   /** A sponsor campaign's identity (sponsor-verify.ts); unverified when not given. */
   identity: SponsorIdentity = UNVERIFIED,
@@ -421,6 +424,8 @@ export function programCard(
     // v4.7.2 final review (9): the needs ask's facts (bench-find.ts programNeeds), read here with no second query: the
     // contract chain (only when the caller selected it) and whether a live link is a required submission field.
     ...(p.needs_contract !== undefined && { needs_contract: p.needs_contract }),
+    // v4.10.2 Task 2 (R3): only a program whose rule requires its chain carries it (bench-find.ts notEligible).
+    ...(p.chain_required === true && { chain_required: true }),
     needs_live: p.submission_requirements.some((r) => r.required && r.project_field === 'live_url'),
     // Shown in the campaigns table, not as a program card (v2.4 §1).
     earnkit_campaign: p.campaign?.kind === 'earnkit',
@@ -776,6 +781,8 @@ export async function upsertProgram(
       category: categoryOf(p),
       needs_repo: p.needs_repo ?? null,
       needs_contract: p.needs_contract ?? null,
+      // v4.10.2 Task 2 (R3): the file is the source of truth (a removed flag clears the column).
+      chain_required: p.chain_required === true,
       min_product_score: p.min_product_score ?? 0,
       campaign: p.campaign ? tx.json(p.campaign) : null,
       starts_at: p.starts_at,

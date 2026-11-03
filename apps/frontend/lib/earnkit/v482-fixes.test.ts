@@ -20,7 +20,7 @@ import { GitHubBudgetStop, type ReaderDeps } from './source-readers';
 import { dropPrograms, dropRunPrograms } from './fixtures/programs-cleanup';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
-import { closesIn, endsCell, summaryIn, withClosesIn } from './entry-text';
+import { agentCloses, closesIn, endsCell, summaryIn, withClosesIn } from './entry-text';
 import { programGuide } from './guide';
 import { fullProgramTable } from './present';
 import { readGuidePage } from './landing';
@@ -283,7 +283,8 @@ test('v4.8.2 R4 fix 1: at exactly 48 hours the zone day and no closes_in; at 47.
   const at = (h: number) => ({ summary: ARC_SUMMARY, ends_at: inH(h) });
   assert.equal(closesIn(at(48), NOW), null);
   assert.equal(withClosesIn(at(48), NOW).summary, ARC_SUMMARY);
-  assert.equal(withClosesIn(at(48), NOW).closes_in, null);
+  // v4.10.2 R5: from 48 hours the agent's closes_in is whole days (the summary and builder copy are unchanged).
+  assert.equal(withClosesIn(at(48), NOW).closes_in, 'in 2 days');
   assert.equal(endsCell(at(48), NOW), 'Nov 1, 11:59 PM ET');
   assert.equal(closesIn(at(47.9), NOW), 'in 47 hours');
   assert.deepEqual(withClosesIn(at(47.9), NOW), { ...at(47.9), summary: '500 USDC × 8 grants · closes in 47 hours', closes_in: 'in 47 hours' });
@@ -318,7 +319,7 @@ test('v4.8.2 R4: a new builder\'s find: closes_in and the summary say "in 14 hou
   assert.equal(s.closes_in, 'in 14 hours');
   assert.equal(s.summary, '500 USDC × 8 grants · closes in 14 hours');
   assert.match(s.deadline, /^\d{4}-\d{2}-\d{2}T/);
-  assert.equal(f.closes_in, null);
+  assert.equal(f.closes_in, 'in 5 days');
   assert.equal(f.summary, ARC_SUMMARY);
   for (const p of ps) assert.ok('closes_in' in p, p.id);
   // get_program (find with program_id): closes_in beside the ISO deadline, and the guide says the hours.
@@ -326,7 +327,7 @@ test('v4.8.2 R4: a new builder\'s find: closes_in and the summary say "in 14 hou
   assert.equal(g.closes_in, 'in 14 hours');
   assert.match(String((g.guide as { text: string }).text), /ends in 14 hours/);
   assert.doesNotMatch(String((g.guide as { text: string }).text), /Nov 1, 11:59 PM ET/);
-  assert.equal((await mcpCall(ctx as never, 'find', { program_id: far })).reply!.closes_in, null);
+  assert.equal((await mcpCall(ctx as never, 'find', { program_id: far })).reply!.closes_in, 'in 5 days');
   // Fix 1: the site's /programs/<id> page keeps the program-zone day; only get_program says the hours.
   const page = await readGuidePage(soon);
   assert.match(page!.guide.header, / · ends Nov 1, 11:59 PM ET$/, page!.guide.header);
@@ -348,7 +349,21 @@ test('v4.8.2 R4: the ranked builder\'s find (list_programs) carries closes_in an
   assert.ok(s && f, JSON.stringify(ps.map((p) => p.id)));
   assert.equal(s.closes_in, 'in 14 hours');
   assert.equal(s.summary, '500 USDC × 8 grants · closes in 14 hours');
-  assert.equal(f.closes_in, null);
+  assert.equal(f.closes_in, 'in 5 days');
   assert.equal(f.summary, ARC_SUMMARY);
   await dropPrograms([soon, far]);
+});
+
+test('v4.10.2 R5: an agent\'s closes_in is hours under 48, whole days from 48, "rolling" for rolling, null once passed', () => {
+  const at = (h: number) => ({ summary: ARC_SUMMARY, ends_at: inH(h) });
+  assert.equal(agentCloses(at(19.5), NOW), 'in 19 hours');
+  assert.equal(agentCloses(at(0.5), NOW), 'in under an hour');
+  assert.equal(agentCloses(at(47.9), NOW), 'in 47 hours');
+  assert.equal(agentCloses(at(48), NOW), 'in 2 days');
+  assert.equal(agentCloses(at(16 * 24 + 5), NOW), 'in 16 days');
+  assert.equal(agentCloses(at(-1), NOW), null);
+  assert.equal(agentCloses({ summary: 'milestone-based USDC grants · rolling', ends_at: inH(3) }, NOW), 'rolling');
+  assert.equal(agentCloses({ summary: ARC_SUMMARY, ends_at: null }, NOW), 'rolling');
+  // hoursLeft keeps its null at 48 hours for builder copy.
+  assert.equal(closesIn(at(16 * 24), NOW), null);
 });
