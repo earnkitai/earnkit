@@ -150,9 +150,9 @@ test('Task 16 step 7, v4.0 Task 7: the weekly moment is the Monday block with la
   const link = 'https://earnkit.com/maya/post/abcdefghij';
   const facts = { first: 'Maya', score: 82, change: 4, community: { usd: 0, lastWeekUsd: 0 } };
   const page = 'https://earnkit.com/maya';
-  const out = mondayBlock({ week: 6, place: 'now', rank: 3, post: { text: 'Recipe planner, week 6: added offline mode and fixed several sync bugs.', link }, ...facts, added: true }, page);
+  const out = mondayBlock({ week: 6, place: 'now', rank: 3, post: { text: 'Recipe planner, week 6: added offline mode and fixed several sync bugs.', link }, ...facts, added: true, shipped: true }, page);
   assert.equal(out, [
-    'Your week is ready, Maya. You shipped this week. Nice work.',
+    'Your week is ready, Maya. You shipped last week. Nice work.',
     '',
     '| | This week |',
     '|---|---|',
@@ -176,7 +176,8 @@ test('Task 16 step 7, v4.0 Task 7: the weekly moment is the Monday block with la
   // Fix round 1 (1): no rows at all (no live score, no streak, no community money): no table, never a header alone.
   const empty = mondayBlock({ week: 0, place: null, rank: 3, post: null, ...facts, score: null, change: null, added: true }, page);
   assert.doesNotMatch(empty, /\||This week/, empty);
-  assert.match(empty, /^Your week is ready, Maya\. You shipped this week\. Nice work\.\n\nYour page: https:\/\/earnkit\.com\/maya\n\nLast week is on your page\.$/, empty);
+  // v4.10.3 Task 3 fix round 3 (N2): a week with no ship facts claims nothing shipped.
+  assert.match(empty, /^Your week is ready, Maya\. Nice work\.\n\nYour page: https:\/\/earnkit\.com\/maya\n\nLast week is on your page\.$/, empty);
   // R6: a ranked view carrying a moment renders only its own step (bench-find.ts puts the block above it).
   const v = ranked({ moment: { week: 6, place: 'now', rank: 3, post: null, ...facts } });
   v.ask = stateAsk(v);

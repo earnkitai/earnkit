@@ -9618,3 +9618,9 @@ This supersedes the per-program need in Task 4: the builder answers once for the
     it counts as a builder action.
   - `builder_points.via` now allows `'auto'` (`db/schema.sql`: drop the constraint if it exists, then add it).
     `owner_people.points_weeks` and `points_total` count points earned, automatic weeks included.
+- **Fix round 3.**
+  - The Monday block is about last week. `weekly-moment.ts mondayOpener(first, summary, { lastWeek, shipped })`,
+    with no summary, says "You shipped last week." only when the week has ship facts (`MomentView.shipped`, from
+    `hasFacts`); otherwise it drops that sentence. The weekly email's opener is unchanged.
+  - `answerConnect` writes `connect_no`, or `connect_ok`, in the same UPDATE that closes the offer, so a failed
+    write closes nothing and never fails open.

@@ -100,13 +100,16 @@ export function mondayRows(f: Pick<MondayFacts, 'change' | 'streak' | 'usd' | 'l
 }
 /**
  * "Your week is ready, Maya. You shipped the new meal planner. Nice work." A summary led by "Shipped" reads "You
- * shipped ..."; any other summary is said as it is (the words the builder approves); none: "You shipped this week.". Pure.
+ * shipped ..."; any other summary is said as it is (the words the builder approves); none: "You shipped this week.".
+ * v4.10.3 Task 3 fix round 3: the reply's Monday block is about last week (`o.lastWeek`): with no summary it says
+ * "You shipped last week." only when the week has ship facts (`o.shipped`), else no sentence. Pure.
  */
-export function mondayOpener(first: string, summary: string | null): string {
+export function mondayOpener(first: string, summary: string | null, o: { lastWeek?: boolean; shipped?: boolean } = {}): string {
   const s = summary?.trim().replace(/[.!]+$/, '') ?? '';
   const shipped = s.match(/^shipped\s+(.+)$/i)?.[1];
-  const middle = !s ? 'You shipped this week.' : shipped ? `You shipped ${shipped}.` : `${s}.`;
-  return `Your week is ready, ${first}. ${middle} Nice work.`;
+  const none = o.lastWeek ? (o.shipped ? 'You shipped last week.' : null) : 'You shipped this week.';
+  const middle = !s ? none : shipped ? `You shipped ${shipped}.` : `${s}.`;
+  return [`Your week is ready, ${first}.`, middle, 'Nice work.'].filter(Boolean).join(' ');
 }
 /** The email's week: the opener, then the rows as plain "Label: value" lines, then the cheer when it holds. Pure. */
 export function mondayLines(f: MondayFacts): string[] {

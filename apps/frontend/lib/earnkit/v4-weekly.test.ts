@@ -86,7 +86,11 @@ test('the rows: score with its change, the streak, the community', () => {
   assert.deepEqual(mondayRows({ ...f, change: 0, streak: 0, usd: 0 }), [['Shipping score', '82']]);
   assert.deepEqual(mondayRows({ ...f, change: null, streak: 0, usd: 0 }), [['Shipping score', '82']]);
   assert.equal(mondayOpener('Maya', 'Shipped the new meal planner.'), 'Your week is ready, Maya. You shipped the new meal planner. Nice work.');
-  assert.equal(mondayOpener('Maya', null), 'Your week is ready, Maya. You shipped this week. Nice work.');
+  assert.equal(mondayOpener('Maya', null), 'Your week is ready, Maya. You shipped this week. Nice work.', 'the email, unchanged');
+  // v4.10.3 Task 3 fix round 3 (N2): the reply's block is about last week; with no ship facts it claims nothing.
+  assert.equal(mondayOpener('Maya', null, { lastWeek: true, shipped: true }), 'Your week is ready, Maya. You shipped last week. Nice work.');
+  assert.equal(mondayOpener('Maya', null, { lastWeek: true, shipped: false }), 'Your week is ready, Maya. Nice work.');
+  assert.equal(mondayOpener('Maya', 'Shipped the planner.', { lastWeek: true, shipped: false }), 'Your week is ready, Maya. You shipped the planner. Nice work.');
   assert.equal(mondayOpener('Sam', 'Fixed the login loop.'), 'Your week is ready, Sam. Fixed the login loop. Nice work.', 'the approved words as they are');
 });
 

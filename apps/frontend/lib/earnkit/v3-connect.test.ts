@@ -199,7 +199,11 @@ test('(e3) v4.10.3 Task 3 fix round 2 (consent): a no to the connect offer means
     await backfilled(me.id, me.key);
     assert.match(show(await mcpCall(ctx(me.id), 'find', {})), /Make your shipping log public on /);
     await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'connect', project_key: me.key, answer: 'no' } });
-    assert.ok((await seen(me.id)).connect_no, 'the no is kept');
+    // Fix round 3 (N1): the no and the close land in one write.
+    const kept = await seen(me.id);
+    assert.ok(kept.connect_no, 'the no is kept');
+    assert.equal(kept.connect_no, kept.connect_done, 'written together');
+    assert.equal(kept.connect_open, undefined);
     await nextMonday(me);
     const s = show(await mcpCall(ctx(me.id), 'find', {}));
     assert.doesNotMatch(s, /Your week is ready|on your page|Add last week/, s);
@@ -211,6 +215,35 @@ test('(e3) v4.10.3 Task 3 fix round 2 (consent): a no to the connect offer means
     const t = show(await mcpCall(ctx(me.id), 'find', {}));
     assert.ok(t.includes('Last week is on your page.'), t);
     assert.deepEqual(await mondayState(me), { approved: 'true', w: '2026-W43' });
+  } finally {
+    mock.timers.setTime(WEDNESDAY);
+  }
+});
+
+test('(e5) v4.10.3 Task 3 fix round 3 (N1): a no whose write fails closes nothing, so it never fails open: the offer stays open and Monday adds nothing', db, async () => {
+  await freshBoard();
+  try {
+    const me = await ranked('cnfx');
+    await backfilled(me.id, me.key);
+    assert.match(show(await mcpCall(ctx(me.id), 'find', {})), /Make your shipping log public on /);
+    const fn = `cn_fail_${RUN}`;
+    await sql().unsafe(`CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'v4103 no fails'; END $$`);
+    await sql().unsafe(`CREATE TRIGGER ${fn} BEFORE UPDATE ON builder_profiles FOR EACH ROW WHEN (NEW.builder_id = ${Number(me.id)} AND NEW.standing_seen ? 'connect_no') EXECUTE FUNCTION ${fn}()`);
+    const errors = mock.method(console, 'error', () => {});
+    try {
+      await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'connect', project_key: me.key, answer: 'no' } }).catch(() => null);
+    } finally {
+      errors.mock.restore();
+      await sql().unsafe(`DROP TRIGGER ${fn} ON builder_profiles`);
+      await sql().unsafe(`DROP FUNCTION ${fn}()`);
+    }
+    const s0 = await seen(me.id);
+    assert.ok(s0.connect_open, 'the offer is still open');
+    assert.deepEqual([s0.connect_done, s0.connect_no], [undefined, undefined], 'nothing closed without the no');
+    await nextMonday(me);
+    const t = show(await mcpCall(ctx(me.id), 'find', {}));
+    assert.doesNotMatch(t, /Your week is ready|on your page/, t);
+    assert.deepEqual(await mondayState(me), { approved: null, w: null });
   } finally {
     mock.timers.setTime(WEDNESDAY);
   }

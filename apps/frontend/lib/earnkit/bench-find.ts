@@ -3402,7 +3402,7 @@ async function mondayView(id: number, handle: string, now: Date, live: Pick<Stan
   // Fix round 1 (4): only a rise shows ("up N"); a dip (the week's window rolled over) shows the score alone.
   const change = score !== null && score > last.now.score ? score - last.now.score : null;
   return {
-    week: live.streak, place: momentPlace(last), rank: last.now.rank, summary: shown, post, added: true,
+    week: live.streak, place: momentPlace(last), rank: last.now.rank, summary: shown, post, added: true, shipped: last.facts,
     first: firstName(who?.[0]?.name ?? null, handle), score, change,
     community: community ?? { usd: 0, lastWeekUsd: 0 },
   };

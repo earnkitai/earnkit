@@ -129,6 +129,8 @@ export type MomentView = {
   post: PostOffer | null;
   /** v4.10.3 Task 3 (R6): this reply added last week to the page (false: the add failed, so the block says nothing of it). */
   added?: boolean;
+  /** v4.10.3 Task 3 fix round 3: last week has ship facts (week-facts.ts hasFacts), so the opener may say "You shipped last week.". */
+  shipped?: boolean;
   /**
    * v4.0 Task 7: the builder's first name (firstName). v4.10.3 Task 2 (R5): the live Shipping score (null: none to show,
    * no row) and its change since last week's final (null: no live score); `week` is the live streak.
@@ -534,7 +536,7 @@ export function mondayBlock(m: MomentView, page: string, o: { link?: boolean } =
   const rows = mondayRows(facts);
   const table = rows.length === 0 ? [] : ['| | This week |', '|---|---|', ...rows.map(([label, value]) => `| ${cell(label)} | ${cell(value)} |`)];
   return paras(
-    [mondayOpener(m.first, m.summary ?? null)],
+    [mondayOpener(m.first, m.summary ?? null, { lastWeek: true, shipped: m.shipped === true })],
     table,
     [communityRow(facts.usd, facts.lastWeekUsd)?.cheer ? CHEER_LINE : null],
     // The X post is a link the builder can use, never a question. Fix round 1 (8): a reply whose own step carries a

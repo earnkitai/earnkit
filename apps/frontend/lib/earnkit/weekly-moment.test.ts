@@ -205,7 +205,8 @@ test('L6.3 the weekly moment (Task 16 step 7; v4.10.3 R6): the week and a post f
   assert.equal(noOpen(s), [
     // v4.0 Task 7 (approved copy 5): the Monday block, the post link; v4.10.3 Task 3 (R6): it adds the week itself and
     // asks nothing, so the reply's own step is its one easy reply (here the ship step: these builders have no program).
-    'Your week is ready, Maya. You shipped this week. Nice work.',
+    // v4.10.3 Task 3 fix round 3 (N2): the block is about last week, which has ship facts.
+    'Your week is ready, Maya. You shipped last week. Nice work.',
     '',
     // v4.10.3 Task 2 (R5): one score: the live score and streak this week, its change since last week's final (50).
     '| | This week |',
@@ -277,8 +278,9 @@ test('L6.4 the moment through score, added once per installation, said once a we
   const s = show(await mcpCall(ctx(me.id), 'score', {}));
   // No commit weeks stored: "Last week done."; #1 of 10 the week before and now: "now #1" (no week before to hold).
   // Nothing worth a post (no facts): the page is the one link. R6: no question; the reply's own step follows.
-  assert.equal(noOpen(s), `Your week is ready, Sam. You shipped this week. Nice work.\n\n| | This week |\n|---|---|\n| Shipping score | ${moved(await liveOf(me.id), 30)} |\n\nYour page: https://earnkit.com/${me.handle}\n\nLast week is on your page.\n\nShip code this week to hold #1.\n\nWant me to suggest one small thing to ship?`);
-  assert.doesNotMatch(s, /Secret launch/);
+  // Fix round 3 (N2): last week has no ship facts (checked only), so the opener claims nothing shipped.
+  assert.equal(noOpen(s), `Your week is ready, Sam. Nice work.\n\n| | This week |\n|---|---|\n| Shipping score | ${moved(await liveOf(me.id), 30)} |\n\nYour page: https://earnkit.com/${me.handle}\n\nLast week is on your page.\n\nShip code this week to hold #1.\n\nWant me to suggest one small thing to ship?`);
+  assert.doesNotMatch(s, /Secret launch|You shipped/);
   const approved = async () => (await sql()<{ facts: Record<string, unknown> }[]>`SELECT facts FROM project_updates WHERE builder_id = ${me.id} AND week = ${monday}`)[0]?.facts.approved === true;
   assert.equal(await approved(), true, 'the score reply added the week');
   assert.equal(await pointsTotal(me.id), 0, 'nothing promised, nothing paid');
@@ -344,7 +346,8 @@ test('owner batch fix wave, v4.10.3 Task 3 fix rounds 1-2 (security): the block 
     VALUES (${me.id}, ${me.key}, ${monday}, ${sql().json({ checked: true } as never)}, 'Fixed the login loop.')`;
   const s = show(await mcpCall(ctx(me.id), 'score', {}));
   // Fix round 2 (N1): the summary needs the builder's consent, so the block never quotes it beside the add.
-  assert.equal(noOpen(s), `Your week is ready, Sam. You shipped this week. Nice work.\n\n| | This week |\n|---|---|\n| Shipping score | ${moved(await liveOf(me.id), 30)} |\n\nYour page: https://earnkit.com/${me.handle}\n\nLast week is on your page.\n\nShip code this week to hold #1.\n\nWant me to suggest one small thing to ship?`);
+  // Fix round 3 (N2): no ship facts (checked only): no shipped sentence.
+  assert.equal(noOpen(s), `Your week is ready, Sam. Nice work.\n\n| | This week |\n|---|---|\n| Shipping score | ${moved(await liveOf(me.id), 30)} |\n\nYour page: https://earnkit.com/${me.handle}\n\nLast week is on your page.\n\nShip code this week to hold #1.\n\nWant me to suggest one small thing to ship?`);
   assert.equal(links(s).length, 1);
   assert.equal(questions(s), 1);
   const facts = async (id: number) => (await sql()<{ facts: Record<string, unknown> }[]>`SELECT facts FROM project_updates WHERE builder_id = ${id} AND week = ${monday}`)[0].facts;
@@ -452,7 +455,7 @@ test('Task 16 fix round 1, v3.1 one-tap posts: the Monday reply shows no points 
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${paid.id}, ${paid.key}, ${monday}, ${sql().json({ checked: true, shipped_code: { n: 2 } } as never)})`;
   const before = await pointsTotal(paid.id);
   const s = show(await mcpCall(ctx(paid.id), 'find', {}));
-  assert.match(s, /^Your week is ready, Pia\. You shipped this week\. Nice work\.\n\n\| \| This week \|\n[^]*\| Streak \| 1 week \|/, s);
+  assert.match(s, /^Your week is ready, Pia\. You shipped last week\. Nice work\.\n\n\| \| This week \|\n[^]*\| Streak \| 1 week \|/, s);
   assert.doesNotMatch(s, /points/, s);
   assert.ok((await pointsTotal(paid.id)) - before > 0, 'the add still earns the week\'s points');
   const once = await pointsTotal(paid.id);
