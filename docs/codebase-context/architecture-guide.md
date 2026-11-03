@@ -9666,7 +9666,7 @@ This supersedes the per-program need in Task 4: the builder answers once for the
   installation of the person's group. Malformed timestamps are skipped (`ISO_RE`), never cast. `activated`: claimed,
   App-proven repo, an action ever. `weekly_active`: the same people with an action in the last 7 days. `shared`:
   only `approved_via 'share'` (the builder's own yes to the retired share offer). New key `weeks_on_pages` (after
-  `backers_after_post`): every approved week, the automatic add included. Labels and `app/api/stats/route.ts` say so.
+  `backers_after_post`): every approved week not hidden, the automatic add included. Labels and `app/api/stats/route.ts` say so.
 - **F3, F9: the Monday opener claims nothing without ship facts.** `weekly-moment.ts mondayOpener(first, summary,
   { shipped })` (the `lastWeek` option is gone: the reply and the email are both about last week): with no summary,
   "You shipped last week." only with ship facts, and "Nice work." only with ship facts; otherwise neither.
@@ -9687,4 +9687,8 @@ This supersedes the per-program need in Task 4: the builder answers once for the
 - **F11:** `conversation.ts standingOnPage` ends on the URL, with no period after it.
 - **(c):** `v410-find.test.ts` asserts the investor clause alone for a long-shot lead (no grant total) with Alliance
   open, and no money line at all when there is no lead.
+- **Final re-review N1: the email keeps Looks right on an automatic week.** `weekly-moment.ts lastWeek` returns
+  `confirmed` (approved and `approved_via` is not `'auto'`); `digest.ts` drops Looks right and Hide only for a confirmed
+  week, so a week the Monday reply added before the digest went out can still be confirmed (and earn its points) from
+  the email. Test: `v3-monday-email.test.ts` (d3).
 - Carried to v4.10.4: F12 ("the last 3 answers" lists two items), (b) and (e).

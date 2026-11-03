@@ -92,7 +92,7 @@ export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
   posts_tapped: 'of those, opened in X\'s composer from the reply\'s link at least once',
   backers_after_post: 'retired with the per-project offers (always 0)',
   // v4.10.3 final fix (owner F2): every week on a builder's page, EarnKit's automatic add included.
-  weeks_on_pages: 'weeks added to builder pages (the builder\'s yes or EarnKit\'s automatic add)',
+  weeks_on_pages: 'weeks approved for builder pages, not hidden (the builder\'s yes or EarnKit\'s automatic add)',
   labelled_entries: 'entries with a published result',
   entries_won: 'entries that won',
   builders_won_usd: 'won by EarnKit builders (announced, USD)',
@@ -330,7 +330,7 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
       (SELECT count(*) FROM project_updates u JOIN builder_profiles p ON p.builder_id = u.builder_id
         WHERE ${approvedWeek(db)} AND u.facts->>'approved_via' = 'share' AND ${notTest(db, ids)})::int AS shared,
       (SELECT count(*) FROM project_updates u JOIN builder_profiles p ON p.builder_id = u.builder_id
-        WHERE u.facts->'approved' = 'true'::jsonb AND ${notTest(db, ids)})::int AS weeks_on_pages,
+        WHERE u.facts->'approved' = 'true'::jsonb AND NOT u.hidden AND ${notTest(db, ids)})::int AS weeks_on_pages,
       -- v3.1 one-tap posts (design 5): the funnel on post_drafts, people only (never a test installation's group).
       (SELECT count(*) FROM post_drafts d JOIN builder_profiles p ON p.builder_id = d.builder_id WHERE ${notTest(db, ids)})::int AS posts_drafted,
       (SELECT count(*) FROM post_drafts d JOIN builder_profiles p ON p.builder_id = d.builder_id WHERE d.taps > 0 AND ${notTest(db, ids)})::int AS posts_tapped,

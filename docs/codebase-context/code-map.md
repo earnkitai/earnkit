@@ -2955,3 +2955,6 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
 - `fixtures/pin-programs.ts` `pinPrograms` / `withProgramsPinned`: moves every dated active program out by the same whole
   years (close order and each close's day kept), restored after. Used by `v2131-o5.test.ts` (O5), `v2131-onboarding.test.ts`
   (O2), `v31-best-fit.test.ts` (whole file, `before`/`after`), `v31-reply-copy.test.ts` (Task 16), `v481-fixes.test.ts` (R3).
+- `weekly-moment.ts lastWeek` `confirmed` (v4.10.3 final): approved by the builder, not only the automatic add; `digest.ts`
+  shows Looks right and Hide unless the week is confirmed (`v3-monday-email.test.ts` (d3)). `stats.ts weeks_on_pages`
+  excludes hidden weeks.

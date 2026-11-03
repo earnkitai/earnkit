@@ -201,6 +201,27 @@ test('(d2) v4.10.3 Task 3 fix round 2 (N2), final fix (F4): the automatic add ea
   }),
 );
 
+test('(d3) v4.10.3 final: a week EarnKit added automatically still gets Looks right and Hide in the email; the builder\'s own yes drops them', db, () =>
+  withEnv(ON, async () => {
+    await freshBoard();
+    await clearCounters();
+    const me = await builder('mex');
+    await subscribe(me.id, `mex${me.id}@example.com`);
+    const { approveWeek } = await import('./weekly-moment');
+    assert.ok(await approveWeek(me.id, me.key, LAST, new Date(), 'auto', null));
+    const first = recorder();
+    assert.equal((await sendDigests(new Date(), { mail: first.mail, only: [me.id] })).sent, 1);
+    assert.match(first.sent[0]!.text, /\n\nLooks right: https:\/\/earnkit\.com\/api\/week\?t=\S+\nHide this week: /);
+    // A builder who confirmed the week themselves gets no Looks right link.
+    const you = await builder('mey');
+    await subscribe(you.id, `mey${you.id}@example.com`);
+    assert.ok(await approveWeek(you.id, you.key, LAST, new Date(), 'email', null));
+    const second = recorder();
+    assert.equal((await sendDigests(new Date(), { mail: second.mail, only: [you.id] })).sent, 1);
+    assert.doesNotMatch(second.sent[0]!.text, /Looks right: /);
+  }),
+);
+
 test('(d) GET /api/week changes nothing; POST approves with via email and awards points', db, () =>
   withEnv(ON, async () => {
     await freshBoard();

@@ -24,7 +24,7 @@ export type WeekStanding = { score: number; rank: number; total: number };
  * confirmed it (facts.approved, as the connect yes does), so the moment never asks about it again.
  */
 export type LastWeek = {
-  monday: string; now: WeekStanding; before: WeekStanding | null; titles: string[]; checked: boolean; approved: boolean;
+  monday: string; now: WeekStanding; before: WeekStanding | null; titles: string[]; checked: boolean; approved: boolean; /** v4.10.3: approved by the builder (not only EarnKit's automatic add). */ confirmed?: boolean;
   /** Owner batch fix round: the stored summary, only when the line shows it word for word (a yes binds to it, approveWeek `seen`). */
   summary?: string | null;
   /** The stored summary whatever the line shows (an offer that can't show it is recorded: markOffered). */
@@ -210,7 +210,9 @@ export async function lastWeekOf(builderId: number, key: string, now: Date): Pro
     // Owner batch fix round: a private repo's summary changed since the yes is asked about again.
     approved = rules.current(u);
   }
-  return { monday, now: cur, before, titles, checked: u?.checked ?? false, approved, summary, stored: u?.summary ?? null, facts: hasFacts(u?.facts ?? {}), consent };
+  // v4.10.3 final: an automatic add is not the builder's confirmation (the email still offers Looks right).
+  const confirmed = approved && u?.facts?.approved_via !== 'auto';
+  return { monday, now: cur, before, titles, checked: u?.checked ?? false, approved, confirmed, summary, stored: u?.summary ?? null, facts: hasFacts(u?.facts ?? {}), consent };
 }
 
 /** A ship-log row as the week rules read it. */
