@@ -308,6 +308,8 @@ test('fix round 2: the Monday block due keeps the submit question (today\'s orde
   mock.timers.setTime(MON);
   try {
     const me = await fresh('v4nb', { streak: 3 });
+    // v4.10.3 Task 3 fix round 2: the Monday add has the builder's consent (connect_ok), so the block is due.
+    await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || '{"connect_ok": "2026-09-01T00:00:00.000Z"}'::jsonb WHERE builder_id = ${me.id}`;
     await sql()`UPDATE builder_live SET computed_at = ${at(MON)}, read_at = ${at(MON)} WHERE builder_id = ${me.id}`;
     for (const [day, score] of [['2026-10-25', 40], ['2026-11-01', 44]] as const)
       await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, ranked)

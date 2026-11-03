@@ -14,7 +14,7 @@ import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { closeDayOf } from './entry-text';
 import {
-  CHECKIN_ASK, CHECKIN_WHY, MOMENT_ASK, POST_ASK, POST_WHY, SHARE_WHY, SHIP_ASK, SUGGEST_WHY, applyAsk, applyWhy, askWhy, benchReply,
+  CHECKIN_ASK, CHECKIN_WHY, POST_ASK, POST_WHY, SHIP_ASK, SUGGEST_WHY, applyAsk, applyWhy, askWhy, benchReply,
   qualifyGap, qualifyHead, shipWhy, type BenchView, type QualifyOffer,
 } from './bench-reply';
 import { WHY_NOTE, whyNote, withWhy } from './bench-find';
@@ -70,12 +70,11 @@ test('the exact why lines', () => {
   assert.equal(shipWhy(6), 'Shipping this week keeps your 6-week streak and lifts your score.');
   assert.equal(shipWhy(0), 'Shipping this week starts your streak and lifts your score.');
   assert.equal(CHECKIN_WHY, 'A Monday check-in keeps your drafts current before deadlines.');
-  assert.equal(SHARE_WHY, 'Builders who share wins get noticed by programs.');
   assert.equal(POST_WHY, 'A post with real numbers is what reviewers read.');
   // v4.8 Task 1: the first-run line (ASKS_HINT) is retired.
-  for (const l of [shipWhy(6), shipWhy(0), CHECKIN_WHY, SHARE_WHY, POST_WHY]) assert.doesNotMatch(l, BAD, l);
+  for (const l of [shipWhy(6), shipWhy(0), CHECKIN_WHY, POST_WHY]) assert.doesNotMatch(l, BAD, l);
   // A statement, never a question of its own.
-  for (const l of [shipWhy(6), CHECKIN_WHY, SHARE_WHY, POST_WHY]) assert.ok(!l.includes('?'), l);
+  for (const l of [shipWhy(6), CHECKIN_WHY, POST_WHY]) assert.ok(!l.includes('?'), l);
 });
 
 test('ship: its why line, streak 6 and streak 0, just before the question (in place of the weekly ship line)', () => {
@@ -100,10 +99,8 @@ test('ship: its why line, streak 6 and streak 0, just before the question (in pl
   assert.doesNotMatch(benchReply(ranked({ held: 'Did Kit win anything in Base Builder Grants?' })), /Shipping this week/);
 });
 
-test('checkin, share and post: each why line just before its question', () => {
+test('checkin and post: each why line just before its question (v4.10.3 Task 3, R6: the Monday block asks nothing, so it has no why)', () => {
   whyThenAsk(benchReply(ranked({ ask: { kind: 'checkin', project_key: P.key, line: CHECKIN_ASK } })), CHECKIN_WHY, CHECKIN_ASK);
-  const moment = { week: 6, place: 'now' as const, rank: 3, post: null, first: 'Maya', score: 82, change: 4, community: { usd: 0, lastWeekUsd: 0 } };
-  whyThenAsk(benchReply(ranked({ ask: { kind: 'share', project_key: P.key, line: MOMENT_ASK }, moment })), SHARE_WHY, MOMENT_ASK);
   const post = { head: 'Kit went live this week.', text: 'Kit is live.', link: 'https://earnkit.com/maya/post/abcdefghij' };
   const p = benchReply(ranked({ ask: { kind: 'post', project_key: P.key, line: POST_ASK }, post }));
   whyThenAsk(p, POST_WHY, POST_ASK);
@@ -131,7 +128,7 @@ test('askWhy covers every kind with an ask in Exact copy; withWhy carries it and
   assert.equal(askWhy(ranked()), shipWhy(6));
   assert.equal(askWhy(ranked({ streak: 0 })), shipWhy(0));
   assert.equal(askWhy(ranked({ ask: { kind: 'checkin', project_key: P.key, line: CHECKIN_ASK } })), CHECKIN_WHY);
-  assert.equal(askWhy(ranked({ ask: { kind: 'share', project_key: P.key, line: MOMENT_ASK } })), SHARE_WHY);
+  assert.equal(askWhy(ranked({ ask: { kind: 'share', project_key: P.key, line: '' } })), null, 'R6: no reply asks it');
   assert.equal(askWhy(ranked({ ask: { kind: 'post', project_key: P.key, line: POST_ASK } })), POST_WHY);
   assert.equal(askWhy(ranked({ ask: { kind: 'wallet', project_key: P.key, line: 'x' } })), null);
   const m = withWhy({ kind: 'ship', project_key: P.key, agent_note: "Do it. Don't show this note." }, shipWhy(6));
@@ -191,7 +188,7 @@ test('through find: every move_up with an ask in Exact copy carries its why (and
   // Told applied, and the path parked: the older asks (check-in, ship, ...) each carry their why.
   await mcpCall(b.ctx, 'tell', { submitted: { program_id: p.id } });
   await pathQuiet(b.id);
-  const visible: Record<string, string> = { checkin: CHECKIN_WHY, share: SHARE_WHY, post: POST_WHY };
+  const visible: Record<string, string> = { checkin: CHECKIN_WHY, post: POST_WHY };
   const seen = new Set<string>();
   for (let i = 0; i < 8; i++) {
     const x = await mcpCall(b.ctx, 'find', {});

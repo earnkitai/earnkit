@@ -35,14 +35,14 @@ import { noteIdentity, projectKeyOf, type IdentityProject } from './identity-inp
 import type { ToolContext } from './tools';
 import { CHAIN_NAMES, type Chain } from './chains';
 import {
-  APPLY_WINDOW_DAYS, withWhy, BASE_START_ASK, CHECKIN_ASK, CHECKIN_WHY, askWhy, bestFitWhy, closestWhy, CHECKIN_ON, NEXT_STEP_LATER, SHIP_ASK_DAYS, NEXT_STEP_ASK, STALE_WEEKS, STATE_COPY, TEMPLATE_NOTICE, TITLES_ASK, TITLES_NO_LINE, awardAmount, baseStartSteps, benchReply, NO_GITHUB_HINT, builtWith, liveNoGithub, namesAccount, benchStepKey, qualifySteps, rankedState, replyState, stateAsk, standingLine, walletOffer, walletSetupAsk, welcomeFits,
+  APPLY_WINDOW_DAYS, withWhy, mondayBlock, BASE_START_ASK, CHECKIN_ASK, CHECKIN_WHY, askWhy, bestFitWhy, closestWhy, CHECKIN_ON, NEXT_STEP_LATER, SHIP_ASK_DAYS, NEXT_STEP_ASK, STALE_WEEKS, STATE_COPY, TEMPLATE_NOTICE, TITLES_ASK, TITLES_NO_LINE, awardAmount, baseStartSteps, benchReply, NO_GITHUB_HINT, builtWith, liveNoGithub, namesAccount, benchStepKey, qualifySteps, rankedState, replyState, stateAsk, standingLine, walletOffer, walletSetupAsk, welcomeFits,
   TOKEN_NO_LINE, STRIPE_NEVER_KEY, needsWhy, qualifyGap, qualifyGapSteps, STRIPE_NO_LINK, stripeConnectLine, QUALIFY_HELP_ASK_ONE, QUALIFY_CODES_CHECK_NOTE, QUALIFY_CODES_NOTE, qualifyCodesYes, type AlsoOpen,
   type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
 import { MORE_NOTE, NAME_ASK, NAME_NOTE, WAIT_NOTE, EXISTING_NOT_TOKEN, TOKEN_OFFER, TOKEN_OFFER_QUESTION, TOKEN_ON_ITS_WAY, WALLET_SETUP_SKIPPED, existingTokenLine, setupTokenOffer, displayName, firstName, isStep2, setupDoneLead, setupDoneReply, type ProgramRow, type SetupOutcome } from './bench-reply';
 import { targetIn, weeklyTarget } from './weekly-target';
-import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, markOffered, momentDue, momentSummary, momentPlace, momentReady, openShare, takeMoment, weekNumber } from './weekly-moment';
+import { APPROVED_LINE, answerShare, approveWeek, lastWeekOf, markOffered, momentDue, momentSummary, momentPlace, momentReady, takeMoment } from './weekly-moment';
 import { isoWeekOf } from './weeks';
 import { weekCommunityUsd } from './community';
 import { streakOfBuilder, streaksFor } from './streak';
@@ -63,10 +63,10 @@ import { programKind } from './site-copy';
 import { BASE_GRANTS_ID, EARNKIT_BUILDER_CODE } from './builder-code';
 import { appProvenRepo, builderCodesKnown, builderCodesWords, checkBuilderCodes, codesSettled, refreshBuilderCodes, storedBuilderCode } from './builder-codes-check';
 import { bankKeepsContact, projectKey, readBank, saveBank } from './answer-bank';
-import { READY_CANDIDATES, fitReadySet, readySet, worthUpTo, type ReadyProgram } from './ready-set';
+import { READY_CANDIDATES, fitReadySet, grantTotal, namedInvestor, readySet, worthUpTo, type ReadyProgram } from './ready-set';
 import {
   PLAN_ONE_LINE_NOTE, READY_ASK_NOTE, READY_NEEDS_NOTE, READY_NOTE, READY_SENT_NOTE, READY_YES_NOTE, contactPhrase, needsList, needsPhrase, readyAgain, readyCodesWait, readyNeedsAsk,
-  ALSO_START_ASK, alsoAgainAsk, alsoLeadLine, readyNoLine, notEligiblePickLine, readyNotEligibleLine, readyOpenList, readyOpener, readySentAgain, type AgainProgram, readySentAsk, readyStillNeeds, readyYesReply, shortName, skipReply,
+  ALSO_START_ASK, alsoAgainAsk, alsoLeadLine, alsoMoneyLine, readyNoLine, notEligiblePickLine, readyNotEligibleLine, readyOpenList, readyOpener, readySentAgain, type AgainProgram, readySentAsk, readyStillNeeds, readyYesReply, shortName, skipReply,
 } from './ready-copy';
 import { bankFill, slotOf } from './coach';
 import { FIELD_KINDS, type ReadyAnswers, type SubmissionRequirement } from './program-file';
@@ -81,7 +81,7 @@ import { closeDay, programZone, zoneAbbr } from './deadline';
 import type { ProgramRow as ProgramFileRow } from './programs';
 import {
   MENTOR_NOTE, MONEY_SAID, builderOnly, isGtm, GTM_ONE_LINE, closingSoon, moneyLine, withMoneyLine, OLDER_SAID, OPENER_NOTE, SESSION_MS, bestMove, connectedLine, pickHook, investorLater, noFitWhy, openerAgain, openerReply, pickedReply, resolvePick, submitNoRush, tooSoonLine, keepDraftLine, type OpenerProgram, type MoveCtx, blanksAgain, draftShape, draftReply, roundAsk, gapClosedReply, gapProofOf, helpReply, helpWaiting, helpParked, closeWords, HELP_DONE_ASK, backOnLine, submitBy, submitReply, submitPointer, sinceLine, SENT_AGAIN, stillOpenLine, DRAFT_NOW_ASK, NOW_WINDOW_MS, type SinceFacts, gapReply, gapStillReply, proofOf, markSaid, pathReply, programName, readPath, saidSql, sessionOf, pointerReply, START_ASK, SENT_SHORT, blanksAsk,
-  ANSWERED_FIRST, ASK_SAID, PROGRAMS_AGAIN, fitCell, fitOrder, grantFact, programsAnswer, standingAgain, standingAnswer, standingSaid, whatItIs, type GrantFact, type GrantRow, type InvestorRow, type StandingFacts,
+  ANSWERED_FIRST, ASK_SAID, PROGRAMS_AGAIN, fitCell, fitOrder, grantFact, programsAnswer, standingAgain, standingAnswer, standingOnPage, standingSaid, whatItIs, type GrantFact, type GrantRow, type InvestorRow, type StandingFacts,
   type GapStep,
   type GapGrant, type InvestorProgram, type Move, type MoveProgram, type Path, type Stage,
 } from './conversation';
@@ -138,6 +138,12 @@ export const BENCH_OUTCOME_NOTE =
   "show_to_builder ends with the results question for this entry. Their answer: call tell with program_status: this program_id and project_id, their result (won, placed or lost), and prize_usd if they won money. If they don't know yet, call nothing. For accepted, funded or won, open a public page that shows it (the program's X post or results page) and pass its link as proof_url. Don't show this note.";
 /** v3 Stage 2 (spec 5.3): the apply step's ask; a yes drafts the entry (APPLY_YES_NOTE). */
 export const APPLY_NOTE = "A yes or no to the question: call tell with move_up: { kind: 'apply', project_key, answer } (project_key as given here). Don't show this note.";
+/**
+ * v4.10.3 Task 1 (R3): the also-open lead's note: its yes may carry the first round's answers (draft.asks), banked as
+ * round 1 of the draft (bench-find.ts pathDraft).
+ */
+export const ALSO_LEAD_NOTE =
+  "A yes or no to the question: call tell with move_up: { kind: 'apply', project_key, answer } (project_key as given here). If their yes also gives what draft.asks asks, add answers: their words split by draft.asks' kind (contact: { [slot]: their words }); EarnKit keeps them as the draft's first round. Never fill one yourself. Don't show this note.";
 /** 2026-10-22: the titles question's note; a yes turns titles on (updates.ts setShipTitles). */
 export const TITLES_NOTE = "A yes or no to the question: call tell with move_up: { kind: 'titles', project_key, answer } (project_key as given here). Don't show this note.";
 /** v4.2 Task 10: the yes to "Want me to check which of these fits...": run the fit check. */
@@ -232,6 +238,8 @@ export type Seen = StandSeen & {
     setup?: boolean;
     /** v4.8 Task 1: the path's hook asked it (pathView); a no also parks program_id for the path. */
     path?: boolean;
+    /** v4.10.3 fix round 1: the also-open lead asked it; its yes may carry the first round's answers (pathDraft). */
+    also?: boolean;
     /** v4.8 Task 2: the gap stage asked it (its yes: the agent does the step, then calls find); `draft`, the draft stage. */
     gap?: boolean; draft?: boolean;
     /** v4.8 Task 2 fix round 2 (F5, the draft's ask): the blanks it asked for (fix round 3: cleared once answered). */
@@ -325,6 +333,13 @@ export type Seen = StandSeen & {
    * quiet reply's money lead this session (alsoLeadCommit; `at` re-stamped each time it is said).
    */
   also_open?: AlsoOpenLead;
+  /**
+   * v4.10.3 final fix (owner F1): when each also-open lead was first shown ({ [program_id]: iso }), so its hold on the
+   * lighter asks ends ALSO_HOLD_MS after it was first offered and left unanswered (alsoLeadHolds).
+   */
+  also_first?: Record<string, string>;
+  /** v4.10.3 Task 3 fix round 1: last week was added this ISO week (weekAdd) and the Monday block is still to say (mondayView). */
+  moment_due?: { week: string; key: string; monday: string };
   /** v3.1 cold read: the standing line last shown (name, rank and streak), so it is shown again only when it changed. */
   status_seen?: string;
   /** v3.1 cold read: the ISO week the shipping points line was last shown (at most once a week). */
@@ -392,13 +407,6 @@ type BenchRead = {
 const EMPTY_BASE: StandBase = { standing: { ranked: false, rank: 0, total: 0 }, claimed: false, handle: null, signInLink: null };
 const NO_RANK: RankLines = { bench: null, line: null, chains: [], listed: false };
 
-/**
- * v4.10.1 Task 3 (R5, finding 4): the line a reply says, once a session, while the person's refresh is still running
- * past the reply's wait (it lands for a later reply). Exact copy (fix round 1: no promise about the next reply).
- */
-export const UPDATING_LINE = "Your score and weeks are updating, so they're not in this reply.";
-/** The session part (standing_seen.said) UPDATING_LINE is said under. */
-export const UPDATING_SAID = 'updating';
 /** v4.10.1 Task 3: the agent's half of R5 (the facts carry no score, rank or weeks either). */
 export const UPDATING_NOTE = "The score, rank and weeks are updating: don't state any of them in this reply.";
 /**
@@ -414,27 +422,15 @@ const hasNumbers = (read: BenchRead) =>
  */
 const withoutNumbers = (read: BenchRead): BenchRead => ({ ...read, parts: null, ranks: NO_RANK, row: read.row && { ...read.row, streak: 0 } });
 /**
- * v4.10.1 Task 3 (R5): a reply's fields and show while updating: no streak fact, the standing with no numbers (it has
- * none: withoutNumbers), `numbers_updating` (tools.ts withFacts drops the rank and streak facts on it) and its
- * `numbers_note` (its own field, so the path and answer-first notes stay as withFacts reads them).
- * In find UPDATING_LINE is said once a session, before the reply's last paragraph (its one easy reply stays last). With
- * `lead` (score: the builder asked where they stand) it leads every updating reply (fix round 1, Important 2). Never
- * throws on its write.
+ * v4.10.1 Task 3 (R5): a reply's fields while updating: no streak fact, the standing with no numbers (it has none:
+ * withoutNumbers), `numbers_updating` (tools.ts withFacts drops the rank and streak facts on it) and its `numbers_note`
+ * (its own field, so the path and answer-first notes stay as withFacts reads them). v4.10.3 Task 2 (R4): the builder
+ * is told nothing about it: the numbers are simply left out (owner answer 6), so show_to_builder is the reply as built. Pure.
  */
-async function updatingReply(id: number, now: Date, seen: Seen, r: Reply, o: { lead: boolean }): Promise<Reply> {
+function updatingReply(r: Reply): Reply {
   const { streak: _streak, ...fields } = r;
-  // Final fix 2 (I1): a ready view (the opener, the repeat) never shows a number, so it says nothing about them: the
-  // line waits for the next reply that would have. Its note still holds the agent to no number.
-  const silent = !o.lead && isReadyView(r);
-  const said = silent || sessionOf(seen, now).said.has(UPDATING_SAID);
-  const show = typeof r.show_to_builder === 'string' ? r.show_to_builder : '';
-  const parts = show.split('\n\n');
-  const shown = !show || (said && !o.lead) ? show : o.lead || parts.length < 2 ? [UPDATING_LINE, show].join('\n\n') : [...parts.slice(0, -1), UPDATING_LINE, parts.at(-1)].join('\n\n');
-  if (!said) await markSaid(id, [UPDATING_SAID], now);
-  return { ...fields, show_to_builder: shown, numbers_updating: true, numbers_note: UPDATING_NOTE };
+  return { ...fields, numbers_updating: true, numbers_note: UPDATING_NOTE };
 }
-/** Final fix 2 (I1): a reply of the ready set (its move_up or its `ready` part), which states no score, rank or weeks. Pure. */
-const isReadyView = (r: Reply) => (r.move_up as { kind?: unknown } | undefined)?.kind === 'ready' || r.ready !== undefined;
 const logged = (where: string) => (err: unknown) => {
   console.error(`[bench] ${where}`, err instanceof Error ? err.name : 'error');
   return null;
@@ -641,6 +637,11 @@ type ViewIn = {
    * a pick's "Got it" above step 2), filled by benchView; benchFind and benchScore put them first.
    */
   ahead?: string[];
+  /**
+   * v4.10.3 Task 3 (R6): the Monday block (bench-reply.ts mondayBlock), filled by benchView when this reply shows it;
+   * benchFind and benchScore put it above the reply (mondayText), whose one easy reply (the program ask) stays last.
+   */
+  monday?: { m: MomentView; page: string }[];
   /** v4.8 Task 5: find's direct question (mcp.ts `ask`), answered first on a path reply (directAnswer). */
   question?: 'standing' | 'programs';
   /** v4.8 Task 5: the direct answer, said first (benchFind puts it after the account line, before every other line). */
@@ -652,6 +653,8 @@ type ViewIn = {
    * (withoutNumbers): no line, record, why or answer may state them, and the weekly moment waits for the next reply.
    */
   updating?: boolean;
+  /** v4.10.3 Task 2 fix round 1 (2): while updating, the stored read had a page score (a standing answer points to the page). */
+  scored?: boolean;
 };
 
 /** Test only: resolves when every running Builder Codes check has finished. */
@@ -1142,14 +1145,25 @@ async function readyDrafts(
     const row = await getProgramRow(p.id).catch(() => null);
     // Fix 1 (H1): a founder brief's blanks are its fields here (FOUNDER_REQS), never "Ready." while unheld.
     const reqs = row ? askReqs(row) : [];
-    const held = { ...(await heldAnswers(id, key, reqs, record)).held, ...extra[p.id] };
     // v4.10.2 final fix (I1): the one list of what only the builder can give (the path's draft asks the same).
-    const only = row ? builderAsks(row, held) : [];
+    // v4.10.3 fix round 1 (1): programAsks, the one function the lead and the path draft read too.
+    const { held, only } = row ? await programAsks(id, key, row, record, extra[p.id]) : { held: { ...extra[p.id] }, only: [] };
     return {
       id: p.id, title: row?.title ?? p.title, link: row?.submission_url ?? null, ends_at: row?.ends_at ? new Date(row.ends_at).toISOString() : null,
       requirements: reqs, prefilled: held, only,
     };
   }));
+}
+/**
+ * v4.10.3 fix round 1 (1): what EarnKit holds for a program's fields (heldAnswers on `record`, plus `extra`) and what is
+ * left only the builder can give (builderAsks). The one function the ready set, the also-open lead and the path draft
+ * count and ask from, so the lead's round is the draft's. `record` is the full verified record (askRecord): what is left
+ * out while the score is updating is a copy concern, never an asks one. Never throws on its own reads.
+ */
+async function programAsks(id: number, key: string | null, row: ProgramFileRow, record: string[], extra: Record<string, string> = {}) {
+  const { held: own, fills } = await heldAnswers(id, key, askReqs(row), record);
+  const held = { ...own, ...extra };
+  return { held, fills, only: builderAsks(row, held) };
 }
 /** A founder brief (fix 1, H1): an investor program with no public questions (every required field a contact detail). Pure. */
 const isBrief = (row: Pick<ProgramFileRow, 'investment' | 'submission_requirements'>) =>
@@ -1404,13 +1418,18 @@ async function readyCommit(o: ViewIn, plan: PathPlan, picked: ReadyProgram[]): P
   const q = plan.extra.get(BASE_GRANTS_ID)?.qualify;
   // Only Base's codes step is one the yes runs (gapDoYes, from its stored offer).
   const set1 = set0.map((p) => (p.step === 'codes' && !(p.id === BASE_GRANTS_ID && q) ? { ...p, step: null } : p));
-  const drafts1 = await readyDrafts(id, key, set1, record);
+  // v4.10.3 fix round 1 (1): the asks are counted on the full record (the draft's), whatever the reply leaves out.
+  const drafts1 = await readyDrafts(id, key, set1, o.updating ? await readyRecord(id, now) : record);
   // v4.10.2 Task 1 (R1): the set fits one short reply: at most READY_ANSWERS_MAX answers across it; a program left out
   // for its answers is said in one line ("Also open"). None fits: the path answers (its own draft, in rounds of at most 4: pathRound).
   const fit = fitReadySet(set1.map((p, i) => ({ p, d: drafts1[i] })), (x) => answerKeys(x.d.only));
   // v4.10.2 Task 5: nothing fits: the top program left out is the quiet reply's money lead this session (alsoLeadCommit).
   const top = fit.set.length === 0 ? fit.out[0] : undefined;
-  await keepAlso(o, top ? { id: top.program.p.id, key, title: top.program.p.title, amount: top.program.p.amount, answers: top.answers, at: now.toISOString() } : null);
+  // v4.10.3 Task 1 (R2): with it, the grant total the builder could pursue (every candidate: not-eligible programs never
+  // reach the set; grantTotal leaves out long shots and investor programs). Its first round is read per reply (alsoLeadCommit).
+  await keepAlso(o, top ? {
+    id: top.program.p.id, key, title: top.program.p.title, amount: top.program.p.amount, answers: top.answers, at: now.toISOString(), usd: grantTotal(set1),
+  } : null);
   if (fit.set.length === 0) return null;
   const drafts = fit.set.map((x) => x.d);
   const set = fit.set.map((x) => ({ ...x.p, needs: needsOfDraft(x.d) }));
@@ -1705,7 +1724,11 @@ async function readyView(o: ViewIn, plan: PathPlan): Promise<{ view: BenchView; 
 }
 
 /** v4.10.2 Task 5: a program left out of the set for its answers, kept for the quiet reply's lead (Seen.also_open). */
-export type AlsoOpenLead = { id: string; key: string; title: string; amount: string | null; answers: number; at: string };
+export type AlsoOpenLead = {
+  id: string; key: string; title: string; amount: string | null; answers: number; at: string;
+  /** v4.10.3 Task 1 (R2): the grant total the builder could pursue (ready-set.ts grantTotal), for the money line. */
+  usd?: number;
+};
 /** v4.10.2 Task 5: stores (or, null, drops) the also-open lead, in the row and the reply's read. Never throws. */
 async function keepAlso(o: ViewIn, a: AlsoOpenLead | null): Promise<void> {
   if (!a && !o.read.seen.also_open) return;
@@ -1715,16 +1738,6 @@ async function keepAlso(o: ViewIn, a: AlsoOpenLead | null): Promise<void> {
     WHERE builder_id = ${o.id}`.catch(logged('also open'));
 }
 
-/** v4.10.2 final re-review: the session key the Monday block's score (last week's final) was said under. */
-const momentScoreSaid = (score: number) => `moment_score=${score}`;
-/** The Monday block's score said this session, or null. Pure. */
-const momentScoreOf = (said: ReadonlySet<string>) => {
-  for (const k of said) {
-    const m = /^moment_score=(\d+)$/.exec(k);
-    if (m) return Number(m[1]);
-  }
-  return null;
-};
 /** v4.10.2 Task 5: the session key the also-open lead was said under (its repeat is the easy reply alone). */
 const alsoSaid = (pid: string) => `also:${pid}`;
 /**
@@ -1734,35 +1747,80 @@ const alsoSaid = (pid: string) => `also:${pid}`;
  * path), so a yes is the draft stage (pathDraft) and a no parks the program for the path. Null: no lead kept this
  * session, it is closed, told about, or said no to. Never throws on its own writes.
  */
-async function alsoLeadCommit(
-  o: ViewIn, v: Pick<PathFacts, 'state' | 'variant' | 'project' | 'streak' | 'handle' | 'stand' | 'siteLive'>, told: Set<string> | null,
-): Promise<{ view: BenchView; fields: Reply; stand: Standing } | null> {
-  const { id, now, read } = o;
+/**
+ * v4.10.3 Task 4 (R6, walk M): whether the also-open lead can lead this reply (pure, on what find already read): the
+ * stored lead of this session, for this project, not told, still showable and not said no to. The lead it would show,
+ * else null. find uses it to keep the lighter asks (check-in, wallet, token, new repo, titles) out of the lead's slot.
+ */
+function alsoLeadDue(o: Pick<ViewIn, 'now' | 'read' | 'cards' | 'skip'>, projectKey: string, told: Set<string> | null) {
+  const { now, read } = o;
   const a = read.seen.also_open;
   if (!a || typeof a.at !== 'string' || !(now.getTime() - Date.parse(a.at) < SESSION_MS)) return null;
-  if ((a.key ?? '').toLowerCase() !== v.project.key.toLowerCase() || !told || told.has(a.id)) return null;
+  if ((a.key ?? '').toLowerCase() !== projectKey.toLowerCase() || !told || told.has(a.id)) return null;
   const card = o.cards.find((c) => c.id === a.id);
   if (!card || !showable(card, now, o.skip)) return null;
   const no = read.seen.declined ?? {};
   if ([benchStepKey('apply', a.id), benchStepKey('path', a.id)].some((k) => no[k] && now.getTime() - Date.parse(no[k]) < DECLINE_MS)) return null;
+  return a;
+}
+
+/**
+ * v4.10.3 final fix (owner F1, 2026-11-03): the also-open lead holds the lighter asks (check-in, optional wallet, token
+ * offer, new repo, titles) only for 7 days from when it was first offered and left unanswered (a yes tells it, a no
+ * declines it: either way alsoLeadDue is null). After that the lighter asks take their turns again, and the lead still
+ * shows when its slot comes (a ship or "more" reply).
+ */
+export const ALSO_HOLD_MS = 7 * 86_400_000;
+const alsoLeadHolds = (seen: Seen, pid: string, now: Date) => {
+  const first = seen.also_first?.[pid];
+  return !first || !(now.getTime() - Date.parse(first) >= ALSO_HOLD_MS);
+};
+
+async function alsoLeadCommit(
+  o: ViewIn, v: Pick<PathFacts, 'state' | 'variant' | 'project' | 'streak' | 'handle' | 'stand' | 'siteLive'>, told: Set<string> | null,
+): Promise<{ view: BenchView; fields: Reply; stand: Standing } | null> {
+  const { id, now, read } = o;
+  const a = alsoLeadDue(o, v.project.key, told);
+  if (!a || !told) return null;
   const session = sessionOf(read.seen, now);
   const again = !session.fresh && session.said.has(alsoSaid(a.id));
   const proof = session.fresh ? proofOf({ name: v.project.name, live: v.project.live || v.siteLive }, v.streak, false, session.said) : null;
-  const show = again ? alsoAgainAsk(a.title, a.amount, a.answers)
-    : [proof?.line, alsoLeadLine(a.title, a.amount, a.answers), ALSO_START_ASK].filter(Boolean).join('\n\n');
+  // v4.10.3 Task 1 (R3), fix round 1 (8): the draft's first round, read on every reply from what EarnKit holds now
+  // (programAsks on the full record, as pathDraft reads it), so an answer given mid-session drops out of the lead.
+  const row = await getProgramRow(a.id).catch(() => null);
+  const asks = row ? pathRound((await programAsks(id, a.key, row, await readyRecord(id, now))).only) : null;
+  const round = asks && asks.round.length > 0 ? { asks: asks.round.map((i) => i.phrase), n: roundAnswers(asks.round), fields: roundFields(asks.round) } : null;
+  const answers = asks && asks.round.length > 0 ? asks.total : a.answers;
+  // v4.10.3 Task 1 (R1, R2, owner answer 1): money first. The grant total, and the soonest investor program closing
+  // within INVESTOR_NAME_MS (live cards, never one skipped or said no to), said once a session (MONEY_SAID).
+  const skip = pathSkip(told, read.seen, now, o.skip);
+  const investors = o.cards.filter((c) => c.investment === true && c.id !== a.id && showable({ ...c, investment: false }, now, skip)).map(moveProgram);
+  const inv = namedInvestor(investors, now, skip);
+  const money = again || session.said.has(MONEY_SAID) ? null
+    : alsoMoneyLine(typeof a.usd === 'number' ? a.usd : 0, inv && inv.ends_at ? { title: inv.title, max_usd: inv.max_usd ?? null, ends_at: inv.ends_at } : null, now);
+  const show = again ? alsoAgainAsk(a.title, a.amount, answers, round)
+    : [money, proof?.line, alsoLeadLine(a.title, a.amount, answers, round), ALSO_START_ASK].filter(Boolean).join('\n\n');
   const key = v.project.key;
-  const stored = { kind: 'apply', key, program_id: a.id, path: true };
+  // Fix round 1 (review minor 4): `also` marks the lead's start ask, the only path start whose yes may carry answers.
+  const stored = { kind: 'apply', key, program_id: a.id, path: true, also: true };
+  // Final fix (owner F1): the first time this lead was offered (kept; its hold on the lighter asks runs from it).
+  const firsts = { ...(read.seen.also_first ?? {}), [a.id]: read.seen.also_first?.[a.id] ?? now.toISOString() };
+  read.seen.also_first = firsts;
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
       || jsonb_build_object('bench_ask', ${sql().json(stored as never)}::jsonb, 'also_open', ${sql().json({ ...a, at: now.toISOString() } as never)}::jsonb,
-        'said', ${saidSql([alsoSaid(a.id), ...(proof?.keys ?? [])], now)})
+        'also_first', ${sql().json(firsts as never)}::jsonb,
+        'said', ${saidSql([alsoSaid(a.id), ...(proof?.keys ?? []), ...(money ? [MONEY_SAID] : [])], now)})
     WHERE builder_id = ${id}`.catch(logged('also lead'));
   const view: BenchView = {
     state: v.state, variant: v.variant, project: v.project, rank: read.ranks.bench, streak: v.streak, target: null, handle: v.handle, link: null,
     fund: [], due: [], ask: { kind: 'apply', project_key: key, line: '', program_id: a.id }, held: null, path: show, pathLead: null,
   };
   const rankLines = [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x));
+  // v4.10.3 Task 1 (R3): the first round's fields go to the agent (draft.asks, as the draft's rounds), so a yes that
+  // also answers them is split by field and banked as round 1 (pathDraft).
   const fields: Reply = {
-    move_up: { kind: 'apply', project_key: key, agent_note: APPLY_NOTE },
+    move_up: { kind: 'apply', project_key: key, agent_note: round ? ALSO_LEAD_NOTE : APPLY_NOTE },
+    ...(round && { draft: { program_id: a.id, asks: round.fields } }),
     ...(rankLines.length > 0 && { rank_lines: rankLines }),
     ...standingFields(v.stand),
   };
@@ -2471,8 +2529,9 @@ async function directAnswer(o: ViewIn, v: PathFacts, told: Set<string>): Promise
   const { now, read } = o;
   const said = sessionOf(read.seen, now).said;
   if (q === 'standing') {
-    // v4.10.1 Task 3 (R5): no answer with numbers about to change; UPDATING_LINE (benchFind) answers it.
-    if (o.updating) return null;
+    // v4.10.1 Task 3 (R5): no numbers about to change. v4.10.3 Task 2 (R4): and no word about it. Fix round 1 (2): a
+    // builder with a score hears where it is (their page); one with none, the copy before a score.
+    if (o.updating && o.scored) return { key: ASK_SAID(q, 'page'), text: standingOnPage(pageUrl(v.handle)) };
     const f: StandingFacts = {
       // Fix round 1 (2): a rank only inside the leaderboard's pool (rankLines' listed, the page pill's own rule).
       score: v.stand.score, rank: v.stand.score !== null && read.ranks.listed ? rankWords(read.base.standing) : null, streak: v.streak,
@@ -2592,13 +2651,9 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   // v4.7 T2: where the builder stands, in every reply's fields (the page's score and rank, wins, applications, the
   // earliest fit deadline); a repo another person holds has no fits. Fix round 1 (R7, replyFacts' gate): signed out,
   // or a shared client that is no person, the weeks only and nothing read.
-  const stand0 = state === 'signed_out' || !o.personal
+  const stand = state === 'signed_out' || !o.personal
     ? streakOnly(streak)
     : await readStanding(id, { lines: read.ranks, parts: read.parts, streak, fits: (taken ? [] : o.fits).filter(realFit), cards: o.cards, now });
-  // v4.10.2 final re-review: the Monday block showed last week's final this session (momentScoreSaid); a live score
-  // that differs is "so far this week", never a bare number that reads as a correction of it.
-  const shownScore = momentScoreOf(sessionOf(read.seen, now).said);
-  const stand = shownScore !== null && stand0.score !== null && stand0.score !== shownScore ? { ...stand0, soFar: true } : stand0;
   // v4.8 Task 4: a number or a name from the opener's list (find {program}) is the path's program, in any state; signed
   // out (a person, with the sign-in link), the reply is target B's opener, the pick's "Got it" or the list again.
   const picked = (await takePick(o)) ?? (await takeListPick(o));
@@ -2639,6 +2694,10 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
     ? { link: setupLink, project: githubNo ? null : ranked ? (project?.name ?? 'Your code') : 'Your code' }
     : null;
   const rankedFree = ranked && !walletSetup;
+  // v4.10.3 Task 3 fix round 1 (1): the Monday add runs on the first settled reply of the week, whatever it shows (the
+  // block is said where it fits: mondayView below). Never while the score and the week are updating.
+  // Fix round 2 (N3): never on "show more" (it claims no one-time thing) and never over a held question.
+  if (ranked && !o.updating && !o.more && !held && project && handle !== null && !taken) await weekAdd(o.own, id, project.key, now, read.seen);
   // v4.3 final review F3: a "show more" call never claims or opens a one-time offer (connect, an event post, a nudge,
   // the weekly moment, the check-in, the wallet step, the token offer, the new-repo nudge, titles): its question is
   // the qualify, apply or ship ask (or none), and each offer stays due for the next plain find.
@@ -2652,6 +2711,19 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   let deferred: (PathPlan & { move: Exclude<Move, { kind: 'quiet' }> }) | null = null;
   // Fix round 2 (F5): one nudge pick a reply (re-picked only for a milestone, whose line names the Best fit).
   let nudgeFirst: NudgePick | null | undefined;
+  // v4.10.3 Task 3 (R6, owner answer 4): the Monday block asks nothing; it goes above the reply (o.monday), whose one
+  // easy reply stays the program ask (apply, the also-open lead or the path move). v4.10.2 Task 5: it opens the
+  // session, saying its streak, so this reply's lead or move (and the next find) is no second opener; the session is
+  // marked here and in this reply's read, before the lead or move after it is said. A path reply with its own move
+  // returns before the older asks (its session opener leads), so the block waits for a reply the path falls through on.
+  const mondayShown = async (m: MomentView | null): Promise<MomentView | null> => {
+    if (!m || handle === null) return m;
+    o.monday?.push({ m, page: `https://${pageUrl(handle)}` });
+    const keys = [OLDER_SAID, ...(m.week >= 2 ? [`proof:streak=${m.week}`] : [])];
+    await markSaid(id, keys, now);
+    read.seen.said = { at: now.toISOString(), keys: [...sessionOf(read.seen, now).said, ...keys] };
+    return m;
+  };
   // Fix round 2 (F2, F5): what the builder told EarnKit about, read once; null (a failed read): the path makes no hook.
   const told = ranked && project && !taken ? await toldIds(id) : new Set<string>();
   // A person only (reply-facts.ts personal; v4.7.2 final review 10, R7): a shared client that is no person gets no path
@@ -2790,21 +2862,29 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   // backing, the coin's wallet and event posts above); it shows only in a ranked reply with setup step 3 not due and no
   // Monday block to show, once its week is claimed. Then the submit question goes; else it stays held.
   const standIn = Boolean(!more && o.nudge && held && state === 'ranked' && project && handle && !(await walletSetupDue(id, now))
-    && !(await momentWouldShow(o.own, id, project.key, now)) && (await claimNudge(id, now, o.nudge.keep)));
+    && !momentDueNow(read.seen, now) && !((await weekAddable(o.own, id, project.key, now))?.approved === false) && (await claimNudge(id, now, o.nudge.keep)));
   if (standIn) held = null;
   const nudgeOk = standIn || Boolean(rankedFree && !more && project && handle && !held && !connect && !hot);
   const peek = !nudgeOk ? null : standIn ? o.nudge!
     : nudgeFirst !== undefined && nudgeFirst?.kind !== 'milestone' ? nudgeFirst
     : await pickNudge(id, now, { project: project!.name, best: best && realFit(best) ? best.title : null });
   // v4.10.1 Task 3 (R5): the Monday block names the score and the week, so it waits while they are updating.
-  const askMoment = !standIn && !o.updating && peek?.ask && peek.line ? await weeklyMoment(o.own, id, project!.key, handle!, row?.commit_weeks ?? [], now) : null;
+  const askMoment = !standIn && !o.updating && peek?.ask && peek.line ? await mondayView(id, handle!, now, stand, read.seen) : null;
   const owns = standIn || Boolean(peek?.ask && peek.line && !askMoment && (await claimNudge(id, now, peek.keep)));
   // Launch ready L6: the weekly moment, once a week per installation, never over a held question.
-  const moment = askMoment ?? (!owns && !o.updating && !peek?.ask && rankedFree && !more && project && handle && !held && !connect && !hot ? await weeklyMoment(o.own, id, project.key, handle, row?.commit_weeks ?? [], now) : null);
+  const moment = (askMoment ? await mondayShown(askMoment) : null)
+    ?? (!owns && !o.updating && !peek?.ask && rankedFree && !more && project && handle && !held && !connect && !hot ? await mondayShown(await mondayView(id, handle, now, stand, read.seen)) : null);
   // v3.1 one-tap posts: the share slot between Mondays: an event's post (an announced win, going live, the coin's intro).
   const event = hot ?? (!owns && rankedFree && !more && project && handle && !held && !connect && !moment ? await eventPost(id, handle, now, { hot: false }) : null);
   // 2026-10-22: then a private repo's titles question (once a person), then, with no fit, Base's grant steps.
-  const quiet = !owns && rankedFree && project !== null && !held && !connect && !moment && !event;
+  // v4.10.3 Task 3 (R6): beside the Monday block only a program ask (Base's grant steps below), never the lighter asks.
+  const quietAll = !owns && rankedFree && project !== null && !held && !connect && !event;
+  // v4.10.3 Task 4 (R6, walk M): the also-open lead is the program ask, so a lighter ask never takes its slot (the
+  // Monday find whose numbers were updating asked the check-in instead of the Base ask). Final fix (owner F1): only for
+  // ALSO_HOLD_MS from when the lead was first offered and left unanswered; then the lighter asks take their turns again.
+  const leadNow = pathQuiet && project !== null && handle !== null ? alsoLeadDue(o, project.key, told) : null;
+  const leadDue = leadNow !== null && alsoLeadHolds(read.seen, leadNow.id, now);
+  const quiet = quietAll && !moment && !leadDue;
   // v3.1 wallet proof: the optional wallet step, once a person, in the first quiet reply after setup (never with another
   // question); claimed below only once this reply carries it.
   // 2026-10-23 Base onboarding: after the GitHub no, the walk-through offer once (Base Builder Grants open: its last
@@ -2825,7 +2905,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   const newRepo = quiet && !momentsOnly && !more && !checkin && !wallet && !tokenOffer && handle !== null && !read.seen.new_repo_asked && staleRepo(row?.commit_weeks ?? [], now)
     && !(await connectedSince(id, project.key, now)) && (await takeOnce(id, 'new_repo_asked', now));
   const titles = quiet && !momentsOnly && !more && !checkin && !wallet && !tokenOffer && !newRepo && handle !== null && (await titlesAskDue(id, project.key, now)) && (await takeTitlesAsk(id, now));
-  const qualify = quiet && !pathQuiet && !momentsOnly && !checkin && !wallet && !tokenOffer && !newRepo && !titles && realFits.length === 0
+  const qualify = quietAll && !pathQuiet && !momentsOnly && !checkin && !wallet && !tokenOffer && !newRepo && !titles && realFits.length === 0
     ? await qualifyOffer(id, project.key, qualifyIn)
     : null;
   const link = state === 'signed_out' ? signIn : noCode ? pick : state === 'ranked' ? null : install;
@@ -2853,7 +2933,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   const noGithub = Boolean(read.seen.github_no) || linkOnly || tool === 'lovable' || tool === 'bolt';
   // v4.8 re-review blocker 1: the programs answer given (or asked for) this session: the quiet reply offers no "more".
   const listed = listedNow(o);
-  const asks = { state, variant, project, link, handle, share: Boolean(moment), connect, noGithub, walletSetup, titles, qualify, post: event, githubNo, baseAsk, newRepo, tokenOffer, checkin, shipAsked, listed, appDone, liveTool, walk, hosted: reach.hosted };
+  const asks = { state, variant, project, link, handle, connect, noGithub, walletSetup, titles, qualify, post: event, githubNo, baseAsk, newRepo, tokenOffer, checkin, shipAsked, listed, appDone, liveTool, walk, hosted: reach.hosted };
   const nudgeAsk = owns && peek?.ask ? peek.ask : null;
   let finalAsk: BenchView['ask'] = nudgeAsk
     ? { kind: nudgeAsk.kind, project_key: project!.key, line: '', ...(nudgeAsk.kind === 'apply' && { program_id: nudgeAsk.program_id }) }
@@ -2875,14 +2955,10 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
     if (!OLDER_MOMENTS.includes(finalAsk.kind)) return pathCommit(o, deferred, await sinceFor(o, deferred.facts, { program: deferred.move.program, saysClose: true }));
     await markSaid(id, [OLDER_SAID], now);
   }
-  // v4.10.2 Task 5: the Monday block opens the session (so the next find is no second opener), saying its streak.
-  // v4.10.2 final re-review: and the block's score (last week's final), so a later live score that differs says "so far this week".
-  if (finalAsk.kind === 'share' && moment) await markSaid(id, [OLDER_SAID, momentScoreSaid(moment.score), ...(moment.week >= 2 ? [`proof:streak=${moment.week}`] : [])], now);
   if (finalAsk.kind === 'ship' && !held) await sql()`
     UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('ship_asked', ${now.toISOString()}::text)
     WHERE builder_id = ${id}`.catch(logged('ship asked'));
-  // Only the ask shown is answerable: a held question clears the stored one. (The share offer stays open all week in
-  // standing_seen.share_open, weeklyMoment.)
+  // Only the ask shown is answerable: a held question clears the stored one.
   // v3.1 one-tap posts: an event's post stored its own ask (post-reply.ts: the moment, so a yes redrafts it).
   const stored = held || finalAsk.kind === 'post' || finalAsk.kind === 'none' ? null : {
     kind: finalAsk.kind, key: finalAsk.project_key,
@@ -2907,7 +2983,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   // ask, claimed now; never over the Monday block, a post offer or connect. Fix round 1 (ruling 4): the closing nudge
   // drops only its own program's deadline line.
   const nudge = owns ? peek
-    : nudgeOk && peek && !peek.ask && !['share', 'post', 'connect', 'wallet_setup'].includes(finalAsk.kind) && (await claimNudge(id, now, peek.keep)) ? peek
+    : nudgeOk && peek && !peek.ask && !moment && !['post', 'connect', 'wallet_setup'].includes(finalAsk.kind) && (await claimNudge(id, now, peek.keep)) ? peek
     : null;
   // A congratulation this week (no line) counts as the week's nudge: claimed whenever it comes up.
   if (peek && !peek.line && nudgeOk) await claimNudge(id, now, peek.keep);
@@ -2939,8 +3015,9 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
     const standKey = `${standingLine(project.name, view.rank, streak, view.earned ?? 0)}${stand.score !== null ? ` · score ${stand.score}` : ''}`;
     // The connect reply says the same facts in its own words ("Kit is on the leaderboard: #1 of 13 builders, ...").
     // v4.7 T3: the apply reply is the money alone (no standing line), so it carries none either.
-    const carries = held !== null || !['share', 'post', 'apply'].includes(finalAsk.kind);
-    view.standingShown = o.alwaysStanding === true || read.seen.status_seen !== standKey;
+    // v4.10.3 Task 3 (R6): the Monday block above says the score and the streak, so the reply says no standing of its own.
+    const carries = held !== null || (!moment && !['post', 'apply'].includes(finalAsk.kind));
+    view.standingShown = !moment && (o.alwaysStanding === true || read.seen.status_seen !== standKey);
     // v4.7.1 T1: the line shown is the standing paragraph; the old standing line stays the change key (stable, no reshow).
     // "No grants won yet." alone is no standing (standingLeads' rule), so that reply says "Kit is on EarnKit." instead.
     view.standingText = standingParagraph(standingLeads(stand) || (stand.wonUsd ?? 0) > 0 ? stand : { ...stand, wonUsd: null });
@@ -2957,7 +3034,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
       await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || ${sql().json(keep as never)}::jsonb
         WHERE builder_id = ${id}`.catch(logged('shown lines'));
   }
-  const note = finalAsk.kind === 'ship' ? (reach.hosted ? SHIP_STEP_NOTE_HOSTED : SHIP_STEP_NOTE) : finalAsk.kind === 'checkin' ? CHECKIN_NOTE : finalAsk.kind === 'share' ? SHARE_NOTE : finalAsk.kind === 'connect' ? CONNECT_NOTE : finalAsk.kind === 'apply' ? APPLY_NOTE
+  const note = finalAsk.kind === 'ship' ? (reach.hosted ? SHIP_STEP_NOTE_HOSTED : SHIP_STEP_NOTE) : finalAsk.kind === 'checkin' ? CHECKIN_NOTE : finalAsk.kind === 'connect' ? CONNECT_NOTE : finalAsk.kind === 'apply' ? APPLY_NOTE
     : finalAsk.kind === 'start' ? START_NOTE : finalAsk.kind === 'pick_repo' ? PICK_REPO_NOTE
     : finalAsk.kind === 'install_app' ? INSTALL_APP_NOTE : finalAsk.kind === 'titles' ? TITLES_NOTE : finalAsk.kind === 'qualify' ? QUALIFY_NOTE
     : finalAsk.kind === 'post' ? POST_NOTE : finalAsk.kind === 'wallet' ? WALLET_NOTE : finalAsk.kind === 'token' ? TOKEN_ASK_NOTE : finalAsk.kind === 'wallet_setup' ? walletSetupNote()
@@ -3253,49 +3330,118 @@ async function connectMoment(id: number, key: string, now: Date, best: Fit | nul
 export { momentSummary };
 
 /**
- * v4.0 Task 8 fix round 2: whether weeklyMoment would show the Monday block now, without claiming it (its own checks:
- * due this week, last week ready and not approved yet). Never throws (false on an error).
+ * v4.10.3 Task 3 (R6): a reply's text with the Monday block between `before` and `after` (the reply's own step last).
+ * Fix round 1 (8): when the rest of the reply carries a link (the program's), the block drops its page or post link,
+ * so the reply keeps the one it needs. Pure.
  */
-async function momentWouldShow(own: number, id: number, key: string, now: Date): Promise<boolean> {
-  if (!(await momentDue(own, now))) return false;
-  const last = await lastWeekOf(id, key, now).catch(logged('last week'));
-  return Boolean(last && momentReady(last.checked, now) && !last.approved);
+export function withMonday(blocks: NonNullable<ViewIn['monday']>, before: (string | null | undefined)[], after: (string | null | undefined)[]): string {
+  const rest = [...before, ...after].filter((x): x is string => Boolean(x));
+  const link = !rest.some((x) => /https?:\/\//.test(x));
+  return [...before, ...blocks.map((b) => mondayBlock(b.m, b.page, { link })), ...after].filter(Boolean).join('\n\n');
 }
 
 /**
- * Launch ready L6, Task 16 step 7: the weekly moment (the week's number, weekNumber; where last week
- * left the builder), when this installation hasn't seen this week's
- * moment, the builder had a ranked day last week, and last week's ship log is ready (momentReady: the weekly job wrote
- * it, or its Monday hour passed). Else null, and the week stays unclaimed. Claimed only when shown (takeMoment); the
- * offer then stays open for the week (openShare). v3.1 one-tap posts (design 6): last week's post is drafted when it is
- * worth one (post-reply.ts weeklyPost), else the reply gives the page; no points are shown (owner ruling 5), the yes
- * still earns them (approveWeek). Never throws.
+ * v4.10.3 Task 3 fix round 1: the Monday block waiting to be said this week (standing_seen.moment_due, written by
+ * weekAdd), as this reply's read holds it. Pure.
  */
-async function weeklyMoment(own: number, id: number, key: string, handle: string, commitWeeks: string[], now: Date): Promise<MomentView | null> {
-  if (!(await momentDue(own, now))) return null;
-  const last = await lastWeekOf(id, key, now).catch(logged('last week'));
-  if (!last || !momentReady(last.checked, now)) return null;
-  // v3 Stage 1 fix round 1: a week already confirmed (the connect yes) is never asked about again; the week is claimed.
-  if (last.approved) {
-    await takeMoment(own, now);
-    return null;
-  }
-  if (!(await takeMoment(own, now))) return null;
-  // Owner batch fix wave: the yes binds only to the summary the reply shows (one quoted line, never a question mark or
-  // a link, so the reply keeps one question and one link); none shown binds none, and the offer is recorded.
+const momentDueNow = (seen: Seen, now: Date) => seen.moment_due?.week === isoWeekOf(now);
+
+/**
+ * v4.10.3 Task 3 (R6, owner answer 4), fix round 1 (1, 3): the Monday add, on the first settled reply of the week
+ * whatever that reply shows. When this installation hasn't had `now`'s week, the builder had a ranked day last week and
+ * last week's ship log is ready (momentReady), the week is claimed (takeMoment: one reply per installation), last
+ * week goes on the page (approveWeek 'auto': the action a yes to the retired "Add last week to your page?" took, never
+ * a consent to a summary) and the block is left to say (standing_seen.moment_due, also in this reply's read). A failed
+ * add releases the claim, so the next settled reply tries again. A week already approved (the connect yes, another
+ * agent's add) is claimed with nothing to say. Never before the connect offer is answered, never while updating
+ * (benchView never calls it then). Never throws.
+ */
+async function weekAdd(own: number, id: number, key: string, now: Date, seen: Seen): Promise<void> {
+  const last = await weekAddable(own, id, key, now);
+  if (!last) return;
+  // Fix round 2: the claim first (one reply per installation goes on), released below when the add throws, so a
+  // failed add is retried and a racing reply never claims the week under an add in flight.
+  if (!(await takeMoment(own, now))) return;
+  // v3 Stage 1 fix round 1: a week already confirmed is never shown again; the week stays claimed.
+  if (last.approved) return;
+  // Owner batch fix wave: the add binds only to the summary the block shows (one quoted line, never a question mark or
+  // a link); fix round 1 (security): a repo whose summary needs the builder's consent binds none (approveWeek 'auto'
+  // never does). A summary not bound counts as offered, so it isn't shown again.
   const shown = momentSummary(last.summary ?? null);
-  await openShare(id, { key, week: last.monday, shown_week: isoWeekOf(now), summary: shown });
-  if (!shown && last.stored) await markOffered(id, key, last.monday, last.stored);
-  const week = weekNumber(commitWeeks, last.monday);
+  const added = await approveWeek(id, key, last.monday, now, 'auto', null).catch(logged('moment add'));
+  const week = isoWeekOf(now);
+  if (added === null) {
+    await sql()`UPDATE installations SET moment_week = NULL WHERE id = ${own} AND moment_week = ${week}`.catch(logged('moment release'));
+    return;
+  }
+  if (last.stored && (last.consent || !shown)) await markOffered(id, key, last.monday, last.stored);
+  if (!added) return;
+  // Left to say, once a week per builder: never again after it was said this week (moment_said; another agent of
+  // the same builder may add too).
+  const due = { week, key, monday: last.monday };
+  const [kept] = await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('moment_due', ${sql().json(due as never)}::jsonb)
+    WHERE builder_id = ${id} AND COALESCE(standing_seen->>'moment_said', '') <> ${week} RETURNING 1`.catch((err: unknown) => (logged('moment due')(err), []));
+  if (kept) seen.moment_due = due;
+}
+
+/**
+ * Fix round 2: weekAdd's own checks, with no write: last week (ready) when this installation hasn't had `now`'s week
+ * and the builder's consent stands; else null. Also benchView's peek, for a held question the block will follow.
+ */
+async function weekAddable(own: number, id: number, key: string, now: Date) {
+  if (!(await momentDue(own, now))) return null;
+  // Fix round 1: never before the connect offer is answered (it asks to make the shipping log public; until then the
+  // week waits, unclaimed, as the block did behind the offer). Fix round 2 (consent): never after a no to it
+  // (connect_no) until an explicit yes lifts it; consent is connect_ok (a connect yes, nothing to confirm, an explicit
+  // week approval), or, for a builder from before (no marker), an explicit approval on any week. Else: fail closed,
+  // with nothing added, claimed or marked offered.
+  const [c] = await sql()<{ settled: boolean }[]>`
+    SELECT COALESCE(p.standing_seen ? 'connect_done' AND NOT p.standing_seen ? 'connect_open' AND NOT p.standing_seen ? 'connect_no'
+      AND (p.standing_seen ? 'connect_ok' OR EXISTS (SELECT 1 FROM project_updates u WHERE u.builder_id = p.builder_id
+        AND u.facts->>'approved_via' IN ('share', 'connect', 'email'))), false) AS settled
+    FROM builder_profiles p WHERE p.builder_id = ${id}`
+    .catch((err: unknown) => (logged('moment connect')(err), []));
+  if (c?.settled !== true) return null;
+  const last = await lastWeekOf(id, key, now).catch(logged('last week'));
+  return last && momentReady(last.checked, now) ? last : null;
+}
+
+/**
+ * Launch ready L6, Task 16 step 7, v4.10.3 Task 3 fix round 1: the Monday block, said once on the first reply of the
+ * week where it fits after the add (weekAdd): taken from standing_seen.moment_due in one UPDATE, so two replies at once
+ * say it once; a week gone by is never said. The week's number (the live streak), where last week left the builder, the
+ * live score and its rise, last week's post when it is worth one (post-reply.ts weeklyPost), else the page; no points
+ * (owner ruling 5). Null: nothing to say. Never throws.
+ */
+async function mondayView(id: number, handle: string, now: Date, live: Pick<Standing, 'score' | 'streak'>, seen: Seen): Promise<MomentView | null> {
+  const due = seen.moment_due;
+  if (!due || !momentDueNow(seen, now)) return null;
+  // One plain UPDATE is the claim (the row's own lock), so two replies at once say it once.
+  const taken = await sql()`UPDATE builder_profiles SET standing_seen = (standing_seen - 'moment_due') || jsonb_build_object('moment_said', ${due.week}::text)
+    WHERE builder_id = ${id} AND standing_seen->'moment_due'->>'week' = ${due.week} RETURNING 1`
+    .catch((err: unknown) => (logged('moment take')(err), []));
+  seen.moment_due = undefined;
+  if (taken.length === 0) return null;
+  const last = await lastWeekOf(id, due.key, now).catch(logged('last week'));
+  if (!last || last.monday !== due.monday) return null;
+  // Fix round 2 (N1): a summary that needs the builder's consent (a private repo, titles off) is never quoted beside
+  // "Last week is on your page.", which the automatic add made true without it.
+  const shown = last.consent ? null : momentSummary(last.summary ?? null);
   // v4.0 Task 7: the Monday block's first name and what the community sent (none on a failed read, logged).
   const [post, who, community] = await Promise.all([
-    weeklyPost(id, handle, week, now),
+    weeklyPost(id, handle, live.streak, now),
     sql()<{ name: string | null }[]>`SELECT x_name AS name FROM builder_profiles WHERE builder_id = ${id}`.catch(logged('moment name')),
     weekCommunityUsd(id, new Date(`${last.monday}T00:00:00Z`), now).catch(logged('community')),
   ]);
+  // v4.10.3 Task 2 (R5): one score. The block shows the live score and streak (readStanding, the same as the reply's
+  // standing fact), its rise since last week's final; last week's number itself is never shown. Fix round 1 (3): the
+  // post says the same live streak, so the builder never sees two week counts.
+  const score = live.score !== null && live.score > 0 ? live.score : null;
+  // Fix round 1 (4): only a rise shows ("up N"); a dip (the week's window rolled over) shows the score alone.
+  const change = score !== null && score > last.now.score ? score - last.now.score : null;
   return {
-    week, place: momentPlace(last), rank: last.now.rank, summary: shown, post,
-    first: firstName(who?.[0]?.name ?? null, handle), score: last.now.score, change: last.before ? last.now.score - last.before.score : null,
+    week: live.streak, place: momentPlace(last), rank: last.now.rank, summary: shown, post, added: true, shipped: last.facts,
+    first: firstName(who?.[0]?.name ?? null, handle), score, change,
     community: community ?? { usd: 0, lastWeekUsd: 0 },
   };
 }
@@ -3417,6 +3563,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   // v4.10.1 Task 3 (R5): the refresh still running, this reply states no score, rank or weeks (it lands for the next).
   const updating = a.updating === true && hasNumbers(stored);
   const read = updating ? withoutNumbers(stored) : stored;
+  const scored = updating && (pageScore(stored.ranks, { parts: stored.parts }) ?? 0) > 0;
   const live = await liveOf(id, read, now, (a.start ?? Date.now()) + REPLY_WAIT_MS - Date.now());
   const m = { cards: a.cards, repos: a.repos, entries: a.myEntries, now };
   const entered = enteredIds(m);
@@ -3470,13 +3617,14 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
     : undefined;
   const ahead: string[] = [];
   const answer: string[] = [];
+  const monday: NonNullable<ViewIn['monday']> = [];
   const { view, fields, stand } = await benchView({
     id, now, read, own, signedOut, personal: await personal(ctx).catch(() => false), shared: ctx.sharedClient === true, name, fits, applies, nudge, cards: a.cards, upcoming: a.upcoming ?? [], skip, held, due, live,
-    codesFetch: ctx.codesFetch, known, more: a.more, named: a.named, ahead, ...(a.question && { question: a.question }), answer, updating,
+    codesFetch: ctx.codesFetch, known, more: a.more, named: a.named, ahead, monday, ...(a.question && { question: a.question }), answer, updating, scored,
   });
   // Fix round 1 (R3): never on a nudge-owned reply or step 3 (their question stays last, step 3 word for word).
   // Final review F9: never between a post and its question (benchView opens no post on "show more"; belt and braces).
-  if (a.more && view.state === 'ranked' && !view.setupDone && !(view.nudgeOwns && view.nudge) && !['wallet_setup', 'post', 'share'].includes(view.ask.kind))
+  if (a.more && view.state === 'ranked' && !view.setupDone && !(view.nudgeOwns && view.nudge) && !['wallet_setup', 'post'].includes(view.ask.kind))
     view.fullTable = fullProgramTable(m, entered);
   const taken = view.variant === 'taken';
   const lead = Boolean((leadFit && !submit && !taken) || submit);
@@ -3503,7 +3651,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
     // The account line (it guards a wrong sign-in) and any news lead.
     // v4.8 Task 5: a direct question's answer first of all, then the reply (its path step last).
     // Fix round 1 (7): the account line (it guards a wrong sign-in) stays first, then the answer.
-    show_to_builder: [signedIn, ...answer, walletNews, opener, ...ahead, benchReply(view)].filter(Boolean).join('\n\n'),
+    show_to_builder: withMonday(monday, [signedIn, ...answer, walletNews, opener], [...ahead, benchReply(view)]),
     // O5 (P8): the earn note names lead.program_id, so only with a lead. v4.8 Task 1: a path reply carries the mentor
     // note alone (the agent rewords it), and its lead is the hooked program when its yes drafts it.
     // Fix round 1 (8): an answered reply's note says the answer is already first (never a second answer).
@@ -3515,7 +3663,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
     ...(view.pathLead && { lead: view.pathLead }),
     ...(submit && { lead: { program_id: submit.card.id, step: 'submit', ...(submit.entry.id !== undefined && { project_id: submit.entry.id }) } }),
   };
-  return updating ? updatingReply(id, now, read.seen, out, { lead: false }) : out;
+  return updating ? updatingReply(out) : out;
 }
 
 /**
@@ -3544,9 +3692,10 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
   const fits: Fit[] = fitLines(applies);
   const leadFit = fits.find((f) => !f.investment);
   const ahead: string[] = [];
+  const monday: NonNullable<ViewIn['monday']> = [];
   const { view, fields, stand } = await benchView({
     id, now, read, own, signedOut: await signedOutNow(id, own).catch(() => true), personal: await personal(ctx).catch(() => false), shared: ctx.sharedClient === true, name: null, fits, applies, cards: shown, upcoming, skip, held: null,
-    due: [], live, codesFetch: ctx.codesFetch, alwaysStanding: true, ahead, updating,
+    due: [], live, codesFetch: ctx.codesFetch, alwaysStanding: true, ahead, monday, updating,
   });
   await noteEvent('score_viewed', () => ({
     type: 'score_viewed',
@@ -3559,18 +3708,18 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
   if (view.state !== 'signed_out') view.notice = await takeTemplateNotice(id);
   // v4.7 T2: the builder asked where they stand, so the standing is the first paragraph (never signed out, where the
   // sign-in step is the reply, nor setup step 3, said word for word). Fix round 1: only with a score or a streak part
-  // (R5), and never over the Monday block or a post offer, which answer it themselves (R4).
-  const block = !view.held && ((view.ask.kind === 'share' && view.moment && view.handle) || (view.ask.kind === 'post' && view.post));
+  // (R5), and never over the Monday block or a post offer, which answer it themselves (R4). v4.10.3 Task 3 (R6): the
+  // Monday block rides above any reply (o.monday), its program ask last.
+  const block = monday.length > 0 || (!view.held && view.ask.kind === 'post' && view.post);
   view.standingLed = view.state !== 'signed_out' && !(view.ask.kind === 'wallet_setup' && !view.held) && !block && standingLeads(stand) && Boolean(fields.standing);
   const out: Reply = {
-    show_to_builder: [view.standingLed ? fields.standing : null, signedIn, walletNews, ...ahead, benchReply(view)].filter(Boolean).join('\n\n'),
+    show_to_builder: withMonday(monday, [view.standingLed ? String(fields.standing) : null, signedIn, walletNews], [...ahead, benchReply(view)]),
     ...fields,
     note: view.path ? [view.pathNote, MENTOR_NOTE].filter(Boolean).join(' ') : [ANSWER_FIRST_NOTE, leadFit && view.variant !== 'taken' ? EARN_NOTE : null].filter(Boolean).join(' '),
     ...((!view.path || view.state === 'signed_out') && leadFit && view.variant !== 'taken' && { lead: { program_id: view.best?.program_id ?? leadFit.program_id } }),
     ...(view.pathLead && { lead: view.pathLead }),
   };
-  // The builder asked where they stand: the updating line leads.
-  return updating ? updatingReply(id, now, read.seen, out, { lead: true }) : out;
+  return updating ? updatingReply(out) : out;
 }
 
 /**
@@ -3757,18 +3906,19 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
     return { show_to_builder: [done, email?.question].filter(Boolean).join('\n'), ...(email && emailMoveUp(m.project_key ?? null)) };
   }
   // Launch ready L6 (fix round 1): the share offer is answerable all week it was shown, once (standing_seen.share_open).
+  // v4.10.3 Task 3 (R6): no reply asks it now (the Monday block adds the week itself); an offer shown before that still
+  // answers as it did; any other answer (a no, or a yes with none open: the week is on the page already) hands off to
+  // find's program ask (fix round 1: the no too). A shared client never hands off (tools.ts), so it hears "Okay.".
   if (m.kind === 'share') {
     const r = await answerShare(id, m.project_key, m.answer, now).catch(logged('answer share'));
-    if (r === true) {
-      await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'kind' = 'share'`.catch(logged('clear share ask'));
-      // v3 Stage 1 (spec 5.4): the first yes after activation asks for the address, once (digest_asked_at), as the reply's one question.
-      const email = digestEnabled() ? await askWeeklyEmail(id, { shared: false, email: null }).catch(logged('share email')) : null;
-      // v4.10.2 Task 5: without that question, the thanks hands off to find (tools.ts then_find), so the reply goes on to
-      // the next money step and ends in its one easy reply.
-      if (!email?.question) return { show_to_builder: APPROVED_LINE, then_find: true };
-      return { show_to_builder: [APPROVED_LINE, email.question].join('\n'), ...emailMoveUp(m.project_key ?? null) };
-    }
-    return okay;
+    await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'kind' = 'share'`.catch(logged('clear share ask'));
+    if (r !== true) return ctx.sharedClient ? okay : { show_to_builder: '', then_find: true };
+    // v3 Stage 1 (spec 5.4): the first yes after activation asks for the address, once (digest_asked_at), as the reply's one question.
+    const email = digestEnabled() ? await askWeeklyEmail(id, { shared: false, email: null }).catch(logged('share email')) : null;
+    // v4.10.2 Task 5: without that question, the thanks hands off to find (tools.ts then_find), so the reply goes on to
+    // the next money step and ends in its one easy reply.
+    if (!email?.question) return { show_to_builder: APPROVED_LINE, then_find: true };
+    return { show_to_builder: [APPROVED_LINE, email.question].join('\n'), ...emailMoveUp(m.project_key ?? null) };
   }
   // v3.1 wallet proof fix round: the wallet step is answered from its state (a link given, a wallet proven since), so a
   // "done" after another reply still checks it (wallet-offer.ts answerWallet).
@@ -3956,7 +4106,7 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       // v4.8 Task 2: the path's "Want me to start?": the draft stage. A yes to the draft's own ask (fix round 2, F5)
       // re-asks its blanks, or with none moves the path to submit; never a second draft.
       if (asked.path === true && asked.draft === true) return draftYes(ctx, id, asked, now, m);
-      if (asked.path === true && asked.program_id) return pathDraft(ctx, id, asked, now);
+      if (asked.path === true && asked.program_id) return pathDraft(ctx, id, asked, now, asked.also === true ? m : {});
       return asked.program_id
         ? { show_to_builder: '', agent_note: APPLY_YES_NOTE(asked.program_id), lead: { program_id: asked.program_id, ...(asked.repo && { repo: asked.repo }) } }
         : okay;
@@ -4278,7 +4428,7 @@ export async function preparedHeld(id: number, repoUrl: string | null | undefine
  * a yes keeps the answers and asks the next round, or with none left moves to submit). Never throws on its own
  * reads and writes.
  */
-async function pathDraft(ctx: Partial<Pick<ToolContext, 'sharedClient'>>, id: number, asked: NonNullable<Seen['bench_ask']>, now: Date): Promise<Reply> {
+async function pathDraft(ctx: Partial<Pick<ToolContext, 'sharedClient'>>, id: number, asked: NonNullable<Seen['bench_ask']>, now: Date, m: { blanks?: string; answers?: ReadyAnswers } = {}): Promise<Reply> {
   const pid = asked.program_id!;
   const lead = { program_id: pid, ...(asked.repo && { repo: asked.repo }) };
   const program = await getProgramRow(pid).catch(() => null);
@@ -4302,9 +4452,15 @@ async function pathDraft(ctx: Partial<Pick<ToolContext, 'sharedClient'>>, id: nu
       || jsonb_build_object('path', ${sql().json(path as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb)
     WHERE builder_id = ${id}`.catch(logged('draft'));
   const hasRecord = s.record.length > 0;
-  const note = brief
+  const noteFor = (now_: string[], later: string[]) => brief
     ? founderBriefNote(programName(program.title), asked.key, { record: hasRecord, what: Boolean(what) })
-    : questionsDraftNote(pid, asked.key, { record: hasRecord, drafted, fills: s.fills, later: r.rest.map((i) => i.phrase), blanks });
+    : questionsDraftNote(pid, asked.key, { record: hasRecord, drafted, fills: s.fills, later, blanks: now_ });
+  // v4.10.3 Task 1 (R3): the yes to the also-open lead already answered its first round (the lead named it): those
+  // answers are banked as round 1 (draftYes), and the draft asks the next round, or with none left is ready to paste.
+  if (r.round.length > 0 && (Boolean(m.blanks?.trim()) || anyAnswer(m.answers))) {
+    return { ...(await draftYes(ctx, id, stored as NonNullable<Seen['bench_ask']>, now, m, { body, note: (b, later) => `${noteFor(b, later)}${hasRecord ? SHIP_LOG_NOTE : ''}` })), lead };
+  }
+  const note = noteFor(blanks, r.rest.map((i) => i.phrase));
   const n = roundAnswers(r.round);
   return {
     show_to_builder: draftReply(body, blanks, n, r.total - n),
@@ -4325,9 +4481,7 @@ async function pathAsks(ctx: Partial<Pick<ToolContext, 'sharedClient'>>, id: num
   const { shipLogBlock, shipLogFacts } = await import('./ship-log-facts');
   const facts = ctx.sharedClient ? null : await shipLogFacts(id, now).catch(logged('draft record'));
   const record = facts ? shipLogBlock(facts) : [];
-  const { held: own, fills } = await heldAnswers(id, key, askReqs(program), record);
-  const held = { ...own, ...extra };
-  return { facts, record, held, fills, only: builderAsks(program, held) };
+  return { facts, record, ...(await programAsks(id, key, program, record, extra)) };
 }
 
 /**
@@ -4351,7 +4505,11 @@ export async function draftAnswered(id: number, programId: string): Promise<void
  * of builderAsks' list (at most 4 answers, roundAsk), or with none left the submit stage (pathSubmit: "ready to paste",
  * the link, the deadline and "sent"). Never throws on its own writes.
  */
-async function draftYes(ctx: Partial<Pick<ToolContext, 'sharedClient'>>, id: number, asked: NonNullable<Seen['bench_ask']>, now: Date, m: { blanks?: string; answers?: ReadyAnswers }): Promise<Reply> {
+async function draftYes(
+  ctx: Partial<Pick<ToolContext, 'sharedClient'>>, id: number, asked: NonNullable<Seen['bench_ask']>, now: Date, m: { blanks?: string; answers?: ReadyAnswers },
+  // v4.10.3 Task 1 (R3): the draft's own first reply (pathDraft), whose yes carried round 1: its body and its note.
+  first?: { body: string[]; note: (blanks: string[], later: string[]) => string },
+): Promise<Reply> {
   const blanks = Array.isArray(asked.blanks) ? asked.blanks.filter((b): b is string => typeof b === 'string') : [];
   const said = Boolean(m.blanks?.trim()) || anyAnswer(m.answers);
   // A bare yes with no answers given yet: re-ask them.
@@ -4368,32 +4526,52 @@ async function draftYes(ctx: Partial<Pick<ToolContext, 'sharedClient'>>, id: num
   if (!program || (said && round.length === 0)) return pathSubmit(id, asked, now, said ? finished(blanks.includes(GTM_ONE_LINE)) : plain);
   const pid = program.id;
   let done = strs(asked.done);
+  let got: string[] = [];
   let given: Record<string, string> = Object.fromEntries(Object.entries(asked.given ?? {}).filter((e): e is [string, string] => typeof e[1] === 'string'));
   if (blanks.length > 0 && said) {
     const byKey = new Map(askReqs(program).map((r) => [r.key, r]));
     const items: NeedItem[] = round
       .map((it) => ({ kind: it.kind, phrase: '', fields: it.keys.flatMap((k) => (byKey.has(k) ? [{ program_id: pid, req: byKey.get(k)! }] : [])) }))
       .filter((it) => it.fields.length > 0);
-    if (items.length > 0 && asked.key) given = (await readyBank(id, asked.key, items, m, { [pid]: given })).given[pid] ?? given;
-    done = [...new Set([...done, ...round.flatMap((it) => it.keys)])];
+    // v4.10.3 fix round 1 (1): with their answers split by field, only the fields that got a value are done (a yes that
+    // answers 2 of 4 leaves the other 2 asked next), never the whole round, so "ready to paste" never comes with a blank
+    // left. Their whole reply unsplit (`blanks` alone) is the round's answer as before: the agent writes it into the draft.
+    const banked = items.length > 0 && asked.key ? await readyBank(id, asked.key, items, m, { [pid]: given }) : null;
+    if (banked) given = banked.given[pid] ?? given;
+    got = anyAnswer(m.answers) ? Object.keys(banked?.byProgram[pid] ?? {}) : round.flatMap((it) => it.keys);
+    done = [...new Set([...done, ...got])];
   }
   // Fields answered in a round count as held (their words are the draft's, or kept), so they are never asked twice.
   const s = await pathAsks(ctx, id, asked.key, program, now, { ...Object.fromEntries(done.map((k) => [k, 'answered'])), ...given });
   const gtm = askReqs(program).some((r) => isGtm(r) && done.includes(r.key));
   const next = pathRound(s.only);
-  if (next.round.length === 0) return pathSubmit(id, asked, now, done.length > 0 ? finished(gtm) : plain, s.held);
+  if (next.round.length === 0) {
+    // v4.10.3 fix round 1 (4): the lead's yes answered every ask: prepare was never called, so the agent drafts it now
+    // with every answer. Final fix (F10): the draft is printed once, by the agent above this reply (as a last round
+    // shows it), never also as the body in the reply.
+    if (first) return pathSubmit(id, asked, now, firstFinishedNote(pid, gtm), s.held);
+    return pathSubmit(id, asked, now, done.length > 0 ? finished(gtm) : plain, s.held);
+  }
   const nb = next.round.map((i) => i.phrase);
   const n = roundAnswers(next.round);
   await storeAsk(id, { ...asked, blanks: nb, round: next.round.map(({ kind, keys }) => ({ kind, keys })), done, given });
-  const note = `EarnKit kept their answers. Show this reply as it is (the draft is finished only after the last round). Once they reply, call tell with move_up: { kind: 'apply', project_key: ${JSON.stringify(asked.key)}, answer: 'yes', ${ANSWERS_SPLIT}. Never fill a blank yourself. ${next.round.some((i) => i.one_line) ? `${PLAN_ONE_LINE_NOTE} ` : ''}${DRAFT_GUARD} Don't show this note.`;
+  const note = first
+    ? `${first.note(nb, next.rest.map((i) => i.phrase))}${got.length > 0 ? ' EarnKit kept the answers they gave with their yes: put them in the draft as they gave them.' : ''}`
+    : `EarnKit kept their answers. Show this reply as it is (the draft is finished only after the last round). Once they reply, call tell with move_up: { kind: 'apply', project_key: ${JSON.stringify(asked.key)}, answer: 'yes', ${ANSWERS_SPLIT}. Never fill a blank yourself. ${next.round.some((i) => i.one_line) ? `${PLAN_ONE_LINE_NOTE} ` : ''}${DRAFT_GUARD} Don't show this note.`;
   return {
-    show_to_builder: roundAsk(nb, n, next.total - n),
+    show_to_builder: first ? draftReply(first.body, nb, n, next.total - n) : roundAsk(nb, n, next.total - n),
     agent_note: withMentor(note),
     move_up: { kind: 'apply', project_key: asked.key, agent_note: APPLY_NOTE },
     draft: { asks: roundFields(next.round) },
   };
 }
 
+/**
+ * v4.10.3 fix round 1 (4): the note when the also-open lead's yes gave every answer only the builder can give: prepare
+ * was never called, so it is called now with all of them (never "again"). Pure.
+ */
+const firstFinishedNote = (pid: string, gtm: boolean) =>
+  `The builder said yes to drafting this application and gave every answer only they can give. Call prepare with program_id "${pid}" for this project with every answer they gave and coach_asked: true, draft every other field it lists from the verified record and their repo (never invent traction, numbers or team), and show it finished, ready to paste, once, above this line. ${gtm ? `${PLAN_ONE_LINE_NOTE} ` : ''}Never submit it for them. Don't show this note.`;
 /**
  * v4.8 Task 3: how "sent" is told. The submit ask is stored as an apply ask (`submit`); fix round 1 (2): only move_up
  * answer 'sent' (tools.ts tell, submitAsked) or program_status applied records it, never a plain yes.

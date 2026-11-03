@@ -6,7 +6,7 @@ import { person, withEnv } from './fixtures/find';
 import { pathQuiet } from './fixtures/wallet-step';
 import { periodKey } from './free-tier';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
-import { openShare } from './weekly-moment';
+import { oldShareOffer } from './fixtures/old-share';
 import { pointsTotal } from './points';
 import { isoWeekOf, lastFinishedMonday } from './weeks';
 import {
@@ -179,6 +179,49 @@ test('(c) sendDigests mails the moment for a checked week', db, () =>
   }),
 );
 
+test('(d2) v4.10.3 Task 3 fix round 2 (N2), final fix (F4): the automatic add earns no points; the email page yes after it takes the week over (via email, a builder action) and earns them', db, () =>
+  withEnv(ON, async () => {
+    await freshBoard();
+    const me = await builder('mea');
+    const { approveWeek } = await import('./weekly-moment');
+    assert.ok(await approveWeek(me.id, me.key, LAST, new Date(), 'auto', null));
+    assert.equal((await row(me.id)).facts.approved_via, 'auto');
+    // Final fix (owner F4): the automatic add awards no points.
+    const auto = await sql()<{ via: string }[]>`SELECT via FROM builder_points WHERE builder_id = ${me.id} AND week = ${LAST}`;
+    assert.equal(auto.length, 0, 'no points row for the automatic add');
+    assert.equal(await pointsTotal(me.id), 0);
+    const approve = weekUrl({ builderId: me.id, key: me.key, monday: LAST, action: 'approve' });
+    assert.match(await html(await weekPost(req(approve, 'POST'))), /Confirmed\./);
+    assert.equal((await row(me.id)).facts.approved_via, 'email', 'the builder\'s own yes counts');
+    // The builder's own confirmation earns the week's points (via email).
+    const mine = await sql()<{ via: string; points: number }[]>`SELECT via, points FROM builder_points WHERE builder_id = ${me.id} AND week = ${LAST}`;
+    assert.equal(mine.length, 1);
+    assert.equal(mine[0].via, 'email');
+    assert.ok(mine[0].points > 0);
+  }),
+);
+
+test('(d3) v4.10.3 final: a week EarnKit added automatically still gets Looks right and Hide in the email; the builder\'s own yes drops them', db, () =>
+  withEnv(ON, async () => {
+    await freshBoard();
+    await clearCounters();
+    const me = await builder('mex');
+    await subscribe(me.id, `mex${me.id}@example.com`);
+    const { approveWeek } = await import('./weekly-moment');
+    assert.ok(await approveWeek(me.id, me.key, LAST, new Date(), 'auto', null));
+    const first = recorder();
+    assert.equal((await sendDigests(new Date(), { mail: first.mail, only: [me.id] })).sent, 1);
+    assert.match(first.sent[0]!.text, /\n\nLooks right: https:\/\/earnkit\.com\/api\/week\?t=\S+\nHide this week: /);
+    // A builder who confirmed the week themselves gets no Looks right link.
+    const you = await builder('mey');
+    await subscribe(you.id, `mey${you.id}@example.com`);
+    assert.ok(await approveWeek(you.id, you.key, LAST, new Date(), 'email', null));
+    const second = recorder();
+    assert.equal((await sendDigests(new Date(), { mail: second.mail, only: [you.id] })).sent, 1);
+    assert.doesNotMatch(second.sent[0]!.text, /Looks right: /);
+  }),
+);
+
 test('(d) GET /api/week changes nothing; POST approves with via email and awards points', db, () =>
   withEnv(ON, async () => {
     await freshBoard();
@@ -312,7 +355,7 @@ test('(f) the connect yes asks for the address once; tell weekly_email yes with 
     assert.match(JSON.stringify(yes.reply?.move_up ?? {}), /"kind":"weekly_email".*call tell with weekly_email: \{ answer: 'yes', email \}/);
     void EMAIL_NOTE;
     // Asked once: a share yes later asks nothing.
-    await openShare(me.id, { key: me.key, week: LAST, shown_week: isoWeekOf(new Date()) });
+    await oldShareOffer(me.id, { key: me.key, week: LAST, shown_week: isoWeekOf(new Date()) });
     const share = show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'yes' } }));
     assert.doesNotMatch(share, /by email/, share);
     const sub = await mcpCall(ctx(me.id), 'tell', { weekly_email: { answer: 'yes', email: 'Me@Example.com' } });
@@ -327,7 +370,7 @@ test('(g) the first share yes asks for the address when it was never asked', db,
   withEnv(ON, async () => {
     await freshBoard();
     const me = await builder('meg');
-    await openShare(me.id, { key: me.key, week: LAST, shown_week: isoWeekOf(new Date()) });
+    await oldShareOffer(me.id, { key: me.key, week: LAST, shown_week: isoWeekOf(new Date()) });
     const yes = await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'yes' } });
     const s = show(yes);
     assert.equal(s, `Thanks. Last week is on your page.\n${EMAIL_QUESTION}`);
@@ -336,7 +379,7 @@ test('(g) the first share yes asks for the address when it was never asked', db,
     // Without the email on, nothing is asked.
     await withEnv({ RESEND_API_KEY: undefined }, async () => {
       const other = await builder('meg2');
-      await openShare(other.id, { key: other.key, week: LAST, shown_week: isoWeekOf(new Date()) });
+      await oldShareOffer(other.id, { key: other.key, week: LAST, shown_week: isoWeekOf(new Date()) });
       assert.equal(show(await mcpCall(ctx(other.id), 'tell', { move_up: { kind: 'share', project_key: other.key, answer: 'yes' } })).startsWith('Thanks. Last week is on your page.\n\n'), true);
     });
   }),

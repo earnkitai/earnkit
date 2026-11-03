@@ -5,6 +5,8 @@ import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
 import { person, withEnv } from './fixtures/find';
 import { pathQuiet } from './fixtures/wallet-step';
+import { padPool } from './fixtures/rank-pool';
+import { RANK_MIN_POOL } from './rank';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
 import { isoWeekOf, lastFinishedMonday } from './weeks';
 import { setFeeSource } from './fees';
@@ -16,7 +18,7 @@ const noOpen = (s: string) => {
   return s;
 };
 import { weekCommunityUsd } from './community';
-import { MOMENT_ASK, mondayReply, type MomentView } from './bench-reply';
+import { MOMENT_ADDED, mondayBlock, type MomentView } from './bench-reply';
 import { formatReply } from './reply-format';
 import { digestBody, sendDigests, type DigestFacts, type Mailer } from './digest';
 
@@ -62,7 +64,7 @@ async function token(id: number, wallet: string | null) {
 const newWallet = () => `0x${randomBytes(20).toString('hex')}`;
 
 const NO_FEES = { usd: 0, lastWeekUsd: 0 };
-const VIEW: MomentView = { week: 5, place: null, rank: 1, summary: 'Shipped the new meal planner.', post: { text: 'x', link: 'https://earnkit.com/maya/post/abcdefghij' }, first: 'Maya', score: 82, change: 4, community: { usd: 46, lastWeekUsd: 30 } };
+const VIEW: MomentView = { week: 5, place: null, rank: 1, summary: 'Shipped the new meal planner.', post: { text: 'x', link: 'https://earnkit.com/maya/post/abcdefghij' }, first: 'Maya', score: 82, change: 4, community: { usd: 46, lastWeekUsd: 30 }, shipped: true };
 const PAGE = 'https://earnkit.com/maya';
 
 test('communityRow: none under $1; whole dollars; the cheer at $100 or double a real last week', () => {
@@ -83,17 +85,22 @@ test('the rows: score with its change, the streak, the community', () => {
   assert.deepEqual(mondayRows({ ...f, change: -3, streak: 1, usd: 0 }), [['Shipping score', '82, down 3'], ['Streak', '1 week']]);
   assert.deepEqual(mondayRows({ ...f, change: 0, streak: 0, usd: 0 }), [['Shipping score', '82']]);
   assert.deepEqual(mondayRows({ ...f, change: null, streak: 0, usd: 0 }), [['Shipping score', '82']]);
-  assert.equal(mondayOpener('Maya', 'Shipped the new meal planner.'), 'Your week is ready, Maya. You shipped the new meal planner. Nice work.');
-  assert.equal(mondayOpener('Maya', null), 'Your week is ready, Maya. You shipped this week. Nice work.');
-  assert.equal(mondayOpener('Sam', 'Fixed the login loop.'), 'Your week is ready, Sam. Fixed the login loop. Nice work.', 'the approved words as they are');
+  assert.equal(mondayOpener('Maya', 'Shipped the new meal planner.', { shipped: true }), 'Your week is ready, Maya. You shipped the new meal planner. Nice work.');
+  // v4.10.3 final fix (F3, F9): the email and the reply are both about last week: "You shipped last week." and "Nice
+  // work." only with ship facts; otherwise neither (never "You shipped this week.").
+  assert.equal(mondayOpener('Maya', null, { shipped: true }), 'Your week is ready, Maya. You shipped last week. Nice work.');
+  assert.equal(mondayOpener('Maya', null, { shipped: false }), 'Your week is ready, Maya.');
+  assert.equal(mondayOpener('Maya', null), 'Your week is ready, Maya.', 'no facts given: no claim');
+  assert.equal(mondayOpener('Maya', 'Shipped the planner.', { shipped: false }), 'Your week is ready, Maya. You shipped the planner.');
+  assert.equal(mondayOpener('Sam', 'Fixed the login loop.', { shipped: true }), 'Your week is ready, Sam. Fixed the login loop. Nice work.', 'the approved words as they are');
 });
 
-test('(a) the reply is the spec block: opener, table, post link, the page question', () => {
-  const s = mondayReply(VIEW, PAGE, MOMENT_ASK);
+test('(a) the reply is the spec block: opener, table, post link, then (v4.10.3 R6) the week added to the page, no question', () => {
+  const s = mondayBlock({ ...VIEW, added: true }, PAGE);
   assert.equal(s, [
     'Your week is ready, Maya. You shipped the new meal planner. Nice work.',
     '',
-    '| | Last week |',
+    '| | This week |',
     '|---|---|',
     '| Shipping score | 82, up 4 |',
     '| Streak | 5 weeks |',
@@ -101,33 +108,38 @@ test('(a) the reply is the spec block: opener, table, post link, the page questi
     '',
     'Your post is ready to share: https://earnkit.com/maya/post/abcdefghij',
     '',
-    'Add last week to your page?',
+    'Last week is on your page.',
   ].join('\n'));
-  assert.equal(MOMENT_ASK, 'Add last week to your page?');
+  assert.equal(MOMENT_ADDED, 'Last week is on your page.');
   assert.equal(links(s).length, 1);
-  assert.equal(questions(s), 1);
+  assert.equal(questions(s), 0);
   assert.doesNotMatch(s, /MAYA|[Tt]oken|[Cc]oin|\p{Extended_Pictographic}|—/u);
   // Plain surfaces (Task 6): "Label: value" lines.
   assert.match(formatReply(s, 'plain'), /\n\nShipping score: 82, up 4\n\nStreak: 5 weeks\n\nFrom your community: \$46, already in your wallet\n\n/);
   // No post: the page is the one link.
-  assert.match(mondayReply({ ...VIEW, post: null }, PAGE, MOMENT_ASK), /\n\nYour page: https:\/\/earnkit\.com\/maya\n\nAdd last week to your page\?$/);
+  assert.match(mondayBlock({ ...VIEW, post: null, added: true }, PAGE), /\n\nYour page: https:\/\/earnkit\.com\/maya\n\nLast week is on your page\.$/);
+  // A failed add (or none): the block says nothing about the page.
+  assert.match(mondayBlock({ ...VIEW, added: false }, PAGE), /\n\nYour post is ready to share: \S+$/);
 });
 
 test('(b) $0 from the community: no community row', () => {
-  const s = mondayReply({ ...VIEW, community: NO_FEES }, PAGE, MOMENT_ASK);
+  const s = mondayBlock({ ...VIEW, community: NO_FEES }, PAGE);
   assert.doesNotMatch(s, /community|wallet|believe/i, s);
   assert.match(s, /\| Streak \| 5 weeks \|\n\nYour post/);
 });
 
 test('(c) $340: the row and the cheer under the table', () => {
-  const s = mondayReply({ ...VIEW, community: { usd: 340, lastWeekUsd: 300 } }, PAGE, MOMENT_ASK);
+  const s = mondayBlock({ ...VIEW, community: { usd: 340, lastWeekUsd: 300 } }, PAGE);
   assert.match(s, /\| From your community \| \$340, already in your wallet \|\n\nPeople really believe in what you're shipping\.\n\nYour post is ready/);
   assert.equal(CHEER_LINE, "People really believe in what you're shipping.");
-  assert.equal(questions(s), 1);
+  assert.equal(questions(s), 0);
 });
 
 test('(d) the email carries the same facts as plain lines', () => {
-  const lines = mondayLines({ first: 'Maya', summary: 'Shipped the new meal planner.', score: 82, change: 4, streak: 5, usd: 340, lastWeekUsd: 0 });
+  const lines = mondayLines({ first: 'Maya', summary: 'Shipped the new meal planner.', score: 82, change: 4, streak: 5, usd: 340, lastWeekUsd: 0, shipped: true });
+  // v4.10.3 final fix (F3): an email for a week with no ship facts says neither "You shipped last week." nor "Nice work.".
+  assert.equal(mondayLines({ first: 'Maya', summary: null, score: 82, change: 0, streak: 0, usd: 0, lastWeekUsd: 0 })[0], 'Your week is ready, Maya.');
+  assert.equal(mondayLines({ first: 'Maya', summary: null, score: 82, change: 0, streak: 1, usd: 0, lastWeekUsd: 0, shipped: true })[0], 'Your week is ready, Maya. You shipped last week. Nice work.');
   assert.deepEqual(lines, [
     'Your week is ready, Maya. You shipped the new meal planner. Nice work.',
     '',
@@ -176,12 +188,13 @@ test('weekCommunityUsd: the creator fees claimed to the token wallet in the week
   }
 });
 
-/** A ranked builder named Maya Lin: Shipping 78 the week before last, 82 last week, code 5 weeks in a row. */
+/** A ranked builder named Maya Lin: Shipping 78 the week before last, 82 last week, 85 live now (v4.10.3 Task 2), code 5 weeks in a row. */
 async function maya(tag: string) {
   const key = `${tag}${RUN}/app`;
   const handle = `${tag}${RUN}`.slice(0, 15);
-  const id = await person({ main: key, claimed: handle, ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z' }, projects: [{ key, name: 'App', confirmed: true }] });
+  const id = await person({ main: key, claimed: handle, ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z', connect_ok: '2026-09-01T00:00:00.000Z' }, projects: [{ key, name: 'App', confirmed: true }] });
   await sql()`UPDATE builder_profiles SET x_name = 'Maya Lin' WHERE builder_id = ${id}`;
+  await sql()`UPDATE builder_live SET score = 85, parts = ${sql().json({ shipping: { points: 85, raw: { mask: 1, live_ships: 0 } } } as never)} WHERE builder_id = ${id}`;
   for (const [day, score] of [[ymd(LAST_T - DAY), 78], [ymd(LAST_T + 6 * DAY), 82]] as const)
     await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, ranked)
       VALUES (${id}, ${day}, ${score}, 0, '{}'::jsonb, '{}'::jsonb, 'v2', ${LIVE_CALIBRATION_V2}, false, true)`;
@@ -201,6 +214,8 @@ async function maya(tag: string) {
 test('(a, end to end) the Monday find: the spec block with the real score, streak, community and post link', db, async () => {
   priced();
   await freshBoard();
+  // v4.10.3 Task 2 (R5): the block shows the page's live score, which is shown only inside the leaderboard's pool.
+  await padPool(RANK_MIN_POOL);
   const me = await maya('v4wk');
   const s = show(await mcpCall(ctx(me.id), 'find', {}));
   const link = links(s)[0] ?? '';
@@ -209,17 +224,21 @@ test('(a, end to end) the Monday find: the spec block with the real score, strea
   assert.equal(noOpen(s), [
     'Your week is ready, Maya. You shipped the new meal planner. Nice work.',
     '',
-    '| | Last week |',
+    // v4.10.3 Task 2 (R5): the live score (85) and its change since last week's final (82); never 82 itself.
+    '| | This week |',
     '|---|---|',
-    '| Shipping score | 82, up 4 |',
+    '| Shipping score | 85, up 3 |',
     '| Streak | 5 weeks |',
     '| From your community | $46, already in your wallet |',
     '',
     share,
     '',
-    'Builders who share wins get noticed by programs.',
+    // v4.10.3 Task 3 (R6): the find added last week itself; the reply's own step is its one easy reply.
+    'Last week is on your page.',
     '',
-    'Add last week to your page?',
+    'Shipping this week keeps your 5-week streak and lifts your score.',
+    '',
+    'Want me to suggest one small thing to ship?',
   ].join('\n'));
   assert.equal(links(s).length, 1);
   assert.equal(questions(s), 1);

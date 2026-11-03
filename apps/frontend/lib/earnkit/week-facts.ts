@@ -64,6 +64,12 @@ export function startedChips(s: NonNullable<WeekFacts['started']>): string[] {
   ];
 }
 /** A fact is shipped code, going live or a win; a streak, people, money, the start or the check alone is not. Pure. */
+/**
+ * v4.10.3 final fix (F5): the builder confirmed the week (their own yes: share, connect or email). EarnKit's automatic
+ * add ('auto') puts the week on the page but is no confirmation, so the page and the feed still read UNCONFIRMED_LABEL.
+ * Pure.
+ */
+export const weekConfirmed = (f: WeekFacts | null | undefined): boolean => f?.approved === true && f.approved_via !== 'auto';
 export const hasFacts = (f: WeekFacts): boolean => Boolean((f.shipped_code?.n ?? 0) > 0 || f.went_live || (f.won?.length ?? 0) > 0);
 
 /**
@@ -177,7 +183,8 @@ export async function upsertWeekFacts(builderId: number, projectKey: string, mon
       const [had] = await sql()`SELECT 1 FROM builder_points WHERE builder_id = ${builderId} AND week = ${monday}`;
       if (!had) {
         const v = row.facts.approved_via;
-        const via: ApproveVia = v === 'connect' || v === 'email' ? v : 'share';
+        // v4.10.3 final fix (F4): an automatic week ('auto') awards nothing (awardWeekPoints).
+        const via: ApproveVia = v === 'connect' || v === 'email' || v === 'auto' ? v : 'share';
         await awardWeekPoints(builderId, monday, via, new Date())
           .catch((err: unknown) => console.error('[points] retro award', err instanceof Error ? err.name : 'error'));
       }

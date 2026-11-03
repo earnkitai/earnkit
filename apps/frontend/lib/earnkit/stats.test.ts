@@ -26,7 +26,7 @@ test('weiToEth: ETH as a number, 6 decimals, rounded down', () => {
 test('statsFrom: an empty database reads as zeros', () => {
   const s = statsFrom(emptyRow);
   // v3 Stage 2: backing_open and backers (v4.0 Task 11: retired, always 0; the keys stay) and earned_usd last.
-  assert.deepEqual(Object.values(s), [0, null, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(Object.values(s), [0, null, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 });
 
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -176,6 +176,76 @@ test('launch-ready L9 (L6 approvals): activated needs a claimed page, an App-pro
     if (prevEnv === undefined) delete process.env.EARNKIT_TEST_INSTALLATIONS;
     else process.env.EARNKIT_TEST_INSTALLATIONS = prevEnv;
     if (ids.length) {
+      await sql()`DELETE FROM project_updates WHERE builder_id IN ${sql()(ids)}`;
+      await sql()`DELETE FROM builder_sources WHERE builder_id IN ${sql()(ids)}`;
+      await sql()`DELETE FROM builder_profiles WHERE builder_id IN ${sql()(ids)}`;
+      await sql()`DELETE FROM installations WHERE id IN ${sql()(ids)}`;
+    }
+  }
+});
+
+test('v4.10.3 final fix (owner F2): activated and weekly_active count any explicit builder action; shared only real shares; weeks_on_pages every week, auto included', db, async () => {
+  const tag = `stats-f2-${process.pid}-${Date.now()}`;
+  const DAY = 86_400_000;
+  const now = Date.now();
+  const iso = (t: number) => new Date(t).toISOString();
+  const week = (t: number) => {
+    const d = new Date(t);
+    d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+    return d.toISOString().slice(0, 10);
+  };
+  const ids: number[] = [];
+  /** One claimed person with an App-proven repo; `act` gives them their one action (or none). */
+  const person = async (act: (id: number, key: string) => Promise<unknown>) => {
+    const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`${tag}-${ids.length}`}) RETURNING id`;
+    ids.push(id);
+    const key = `${tag}/p${id}`;
+    await sql()`INSERT INTO builder_profiles (builder_id, slug, x_user_id, x_handle) VALUES (${id}, ${`${tag}-${id}`}, ${`x${id}`}, ${`h${id}`})`;
+    await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (${id}, 'repo', ${key}, ${key}, 'verified', 'github_app', 'server')`;
+    await act(id, key);
+    return id;
+  };
+  const weekRow = (id: number, key: string, facts: Record<string, unknown>) =>
+    sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${id}, ${key}, ${week(now - 7 * DAY)}, ${sql().json(facts as never)})`;
+  const approved = (via: string, at: number) => ({ checked: true, approved: true, approved_at: iso(at), approved_via: via });
+  try {
+    const run = async () => {
+      // Recent (weekly active and activated): an answer banked, an application told, a yes to a draft, a check-in
+      // answer, an email yes, a connect yes.
+      await person((id, key) => sql()`INSERT INTO answer_bank (installation_id, project_key, kind, answer, program_id, updated_at) VALUES (${id}, ${key}, 'team', 'me', 'p', ${iso(now - DAY)})`);
+      await person((id) => sql()`INSERT INTO builder_program_status (installation_id, program_id, status, at) VALUES (${id}, 'p', 'applied', ${iso(now - DAY)})`);
+      await person((id) => sql()`UPDATE builder_profiles SET standing_seen = jsonb_build_object('apply_yes', jsonb_build_object('p', ${iso(now - DAY)}::text)) WHERE builder_id = ${id}`);
+      await person((id) => sql()`UPDATE builder_profiles SET standing_seen = jsonb_build_object('checkin', jsonb_build_object('answer', 'yes', 'at', ${iso(now - DAY)}::text)) WHERE builder_id = ${id}`);
+      await person((id, key) => weekRow(id, key, approved('email', now - DAY)));
+      await person((id, key) => weekRow(id, key, approved('connect', now - DAY)));
+      // Old (activated only): an answer 30 days ago.
+      await person((id, key) => sql()`INSERT INTO answer_bank (installation_id, project_key, kind, answer, program_id, updated_at) VALUES (${id}, ${key}, 'team', 'me', 'p', ${iso(now - 30 * DAY)})`);
+      // Neither: EarnKit's automatic add only (on the page, never an action); a malformed timestamp never throws.
+      await person((id, key) => weekRow(id, key, approved('auto', now - DAY)));
+      await person((id) => sql()`UPDATE builder_profiles SET standing_seen = jsonb_build_object('apply_yes', jsonb_build_object('p', 'soon'), 'checkin', 'x') WHERE builder_id = ${id}`);
+      // A real share: shared, activated and weekly active.
+      await person((id, key) => weekRow(id, key, approved('share', now - DAY)));
+    };
+    await run();
+    const prevEnv = process.env.EARNKIT_TEST_INSTALLATIONS;
+    const { base, mine } = await sql().begin('isolation level repeatable read', async (tx) => {
+      process.env.EARNKIT_TEST_INSTALLATIONS = ids.join(',');
+      const base = await readStats(new Date(), tx);
+      if (prevEnv === undefined) delete process.env.EARNKIT_TEST_INSTALLATIONS;
+      else process.env.EARNKIT_TEST_INSTALLATIONS = prevEnv;
+      const mine = await readStats(new Date(), tx);
+      return { base, mine };
+    });
+    assert.equal(mine.activated - base.activated, 8, 'six recent actions, one old, one real share');
+    assert.equal(mine.weekly_active - base.weekly_active, 7);
+    assert.equal(mine.shared - base.shared, 1, 'only the builder\'s share, never an email, connect or automatic add');
+    assert.equal(mine.weeks_on_pages - base.weeks_on_pages, 4, 'email, connect, auto and share: every week on a page');
+    assert.match(STATS_LABELS.weekly_active, /explicit action/);
+    assert.match(STATS_LABELS.weeks_on_pages, /automatic add/);
+  } finally {
+    if (ids.length) {
+      await sql()`DELETE FROM answer_bank WHERE installation_id IN ${sql()(ids)}`;
+      await sql()`DELETE FROM builder_program_status WHERE installation_id IN ${sql()(ids)}`;
       await sql()`DELETE FROM project_updates WHERE builder_id IN ${sql()(ids)}`;
       await sql()`DELETE FROM builder_sources WHERE builder_id IN ${sql()(ids)}`;
       await sql()`DELETE FROM builder_profiles WHERE builder_id IN ${sql()(ids)}`;

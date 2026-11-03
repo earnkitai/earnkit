@@ -24,13 +24,18 @@ export type WeekStanding = { score: number; rank: number; total: number };
  * confirmed it (facts.approved, as the connect yes does), so the moment never asks about it again.
  */
 export type LastWeek = {
-  monday: string; now: WeekStanding; before: WeekStanding | null; titles: string[]; checked: boolean; approved: boolean;
+  monday: string; now: WeekStanding; before: WeekStanding | null; titles: string[]; checked: boolean; approved: boolean; /** v4.10.3: approved by the builder (not only EarnKit's automatic add). */ confirmed?: boolean;
   /** Owner batch fix round: the stored summary, only when the line shows it word for word (a yes binds to it, approveWeek `seen`). */
   summary?: string | null;
   /** The stored summary whatever the line shows (an offer that can't show it is recorded: markOffered). */
   stored?: string | null;
   /** Task 16 fix round 1: the week's row has facts (week-facts.ts hasFacts), so its approval earns points (approveWeek). */
   facts: boolean;
+  /**
+   * v4.10.3 Task 3 fix round 1: the repo doesn't read public and titles are off, so its summary shows only with the
+   * builder's own consent (summaryConsented); the automatic Monday add never gives it.
+   */
+  consent?: boolean;
 };
 
 /** "+6", "-3", "same". Pure. */
@@ -62,11 +67,18 @@ export const momentSummary = (s: string | null): string | null => (s && !/[?]|ht
 
 /**
  * v4.0 Task 7 (approved copy 5, "Every Monday"): the week's facts the reply and the email both say. `summary`: the
- * week's summary as the moment shows it (momentSummary), else null; `change`: the score against the week before (null:
- * no week before); `streak`: weeks with code in a row up to last week (weekNumber); `usd`, `lastWeekUsd`: what the
- * community sent (community.ts weekCommunityUsd). The token is never named.
+ * week's summary as the moment shows it (momentSummary), else null; `usd`, `lastWeekUsd`: what the community sent
+ * (community.ts weekCommunityUsd). The token is never named. `score`, `change` and `streak` mean one thing in each:
+ * - the email (digest.ts): last week's final score, its change against the week before (null: no week before), and
+ *   weeks with code in a row up to last week (weekNumber);
+ * - the reply's Monday block (v4.10.3 Task 2, bench-find.ts weeklyMoment): the live score, its rise since last week's
+ *   final (null: none, or a dip), and the live streak.
  */
-export type MondayFacts = { first: string; summary: string | null; score: number; change: number | null; streak: number; usd: number; lastWeekUsd: number };
+export type MondayFacts = {
+  first: string; summary: string | null; score: number; change: number | null; streak: number; usd: number; lastWeekUsd: number;
+  /** v4.10.3 final fix (F3): last week has ship facts (LastWeek.facts), so the opener may say it shipped. */
+  shipped?: boolean;
+};
 export const CHEER_LINE = "People really believe in what you're shipping.";
 const usdWhole = (usd: number) => `$${Math.round(usd).toLocaleString('en-US')}`;
 /**
@@ -78,10 +90,13 @@ export function communityRow(usd: number, lastWeekUsd: number): { cell: string; 
   const last = lastWeekUsd >= 1 ? lastWeekUsd : 0;
   return { cell: `${usdWhole(usd)}, already in your wallet`, cheer: usd >= 100 || (last > 0 && usd >= 2 * last) };
 }
-/** The table's rows: "Shipping score" ("82, up 4"), "Streak" ("5 weeks", none at 0), "From your community" (communityRow). Pure. */
-export function mondayRows(f: Pick<MondayFacts, 'score' | 'change' | 'streak' | 'usd' | 'lastWeekUsd'>): [string, string][] {
+/**
+ * The table's rows: "Shipping score" ("82, up 4"; none with no score, v4.10.3 Task 2), "Streak" ("5 weeks", none at
+ * 0), "From your community" (communityRow). Pure.
+ */
+export function mondayRows(f: Pick<MondayFacts, 'change' | 'streak' | 'usd' | 'lastWeekUsd'> & { score: number | null }): [string, string][] {
   const move = f.change === null || f.change === 0 ? '' : f.change > 0 ? `, up ${f.change}` : `, down ${-f.change}`;
-  const rows: [string, string][] = [['Shipping score', `${f.score}${move}`]];
+  const rows: [string, string][] = f.score === null ? [] : [['Shipping score', `${f.score}${move}`]];
   if (f.streak > 0) rows.push(['Streak', `${f.streak} ${f.streak === 1 ? 'week' : 'weeks'}`]);
   const c = communityRow(f.usd, f.lastWeekUsd);
   if (c) rows.push(['From your community', c.cell]);
@@ -89,18 +104,21 @@ export function mondayRows(f: Pick<MondayFacts, 'score' | 'change' | 'streak' | 
 }
 /**
  * "Your week is ready, Maya. You shipped the new meal planner. Nice work." A summary led by "Shipped" reads "You
- * shipped ..."; any other summary is said as it is (the words the builder approves); none: "You shipped this week.". Pure.
+ * shipped ..."; any other summary is said as it is (the words the builder approves). The reply's Monday block and the
+ * weekly email are both about last week. v4.10.3 final fix (F3, F9): with no summary, "You shipped last week." only
+ * when the week has ship facts (`o.shipped`), and "Nice work." only with ship facts; otherwise neither. Pure.
  */
-export function mondayOpener(first: string, summary: string | null): string {
+export function mondayOpener(first: string, summary: string | null, o: { shipped?: boolean } = {}): string {
   const s = summary?.trim().replace(/[.!]+$/, '') ?? '';
   const shipped = s.match(/^shipped\s+(.+)$/i)?.[1];
-  const middle = !s ? 'You shipped this week.' : shipped ? `You shipped ${shipped}.` : `${s}.`;
-  return `Your week is ready, ${first}. ${middle} Nice work.`;
+  const none = o.shipped ? 'You shipped last week.' : null;
+  const middle = !s ? none : shipped ? `You shipped ${shipped}.` : `${s}.`;
+  return [`Your week is ready, ${first}.`, middle, o.shipped ? 'Nice work.' : null].filter(Boolean).join(' ');
 }
 /** The email's week: the opener, then the rows as plain "Label: value" lines, then the cheer when it holds. Pure. */
 export function mondayLines(f: MondayFacts): string[] {
   return [
-    mondayOpener(f.first, f.summary), '',
+    mondayOpener(f.first, f.summary, { shipped: f.shipped === true }), '',
     ...mondayRows(f).map(([label, value]) => `${label}: ${value}`),
     ...(communityRow(f.usd, f.lastWeekUsd)?.cheer ? [CHEER_LINE] : []),
   ];
@@ -126,9 +144,6 @@ export const shareText = (w: WeekStanding) =>
     : `My week on EarnKit: Shipping ${w.score} · #${w.rank.toLocaleString('en-US')} of ${w.total.toLocaleString('en-US')} builders`;
 /** The X intent link with that text and the profile URL (page-data shareIntentText). Pure. */
 export const shareLink = (handle: string, w: WeekStanding) => shareIntentText(handle, shareText(w));
-export const SHARE_NOTE =
-  "show_to_builder gives the week and its one-tap post link and asks one question. Show it exactly as given. Never rewrite it. " +
-  "A yes or no to the question: call tell with move_up: { kind, project_key, answer } (as given here). If the builder sends a line about their week, call tell with update: { text } in their own words. Never post for the builder. Don't show this note.";
 /**
  * Task 16 step 7: the week's number in "Week 4 done.": weeks with code in a row up to last week (`monday`), the
  * streak's rule (weeks.ts streakOf); 0 when last week had no code ("Last week done."). Pure.
@@ -184,8 +199,10 @@ export async function lastWeekOf(builderId: number, key: string, now: Date): Pro
   let titles: string[] = [];
   let approved = false;
   let summary: string | null = null;
+  let consent = false;
   if (u) {
     const rules = await weekRules(builderId, key, { asking: true });
+    consent = rules.consentNeeded;
     const line = u.titles.length > 0 || u.summary ? rules.line(u) : null;
     if (line) titles = [line];
     // Owner batch fix round: the summary a yes binds to only when the line shows it word for word.
@@ -193,7 +210,9 @@ export async function lastWeekOf(builderId: number, key: string, now: Date): Pro
     // Owner batch fix round: a private repo's summary changed since the yes is asked about again.
     approved = rules.current(u);
   }
-  return { monday, now: cur, before, titles, checked: u?.checked ?? false, approved, summary, stored: u?.summary ?? null, facts: hasFacts(u?.facts ?? {}) };
+  // v4.10.3 final: an automatic add is not the builder's confirmation (the email still offers Looks right).
+  const confirmed = approved && u?.facts?.approved_via !== 'auto';
+  return { monday, now: cur, before, titles, checked: u?.checked ?? false, approved, confirmed, summary, stored: u?.summary ?? null, facts: hasFacts(u?.facts ?? {}), consent };
 }
 
 /** A ship-log row as the week rules read it. */
@@ -211,7 +230,7 @@ type LogRow = { titles: string[]; summary: string | null; facts?: WeekFacts | nu
  *   with that very summary, or that summary was already offered once without being shown (facts.offered_summary,
  *   markOffered: never re-offered forever). A rewritten or re-read one asks again, once.
  */
-export async function weekRules(builderId: number, key: string, o: { asking?: boolean } = {}): Promise<{ line: (u: LogRow) => string | null; current: (u: LogRow) => boolean }> {
+export async function weekRules(builderId: number, key: string, o: { asking?: boolean } = {}): Promise<{ line: (u: LogRow) => string | null; current: (u: LogRow) => boolean; consentNeeded: boolean }> {
   const db = sql();
   const [p] = await db<{ titles_on: boolean }[]>`SELECT ship_titles_at IS NOT NULL AS titles_on FROM builder_profiles WHERE builder_id = ${builderId}`;
   const shown = ((await shownProjects([builderId])).get(builderId) ?? []).find((r) => norm(r.key) === norm(key));
@@ -232,7 +251,7 @@ export async function weekRules(builderId: number, key: string, o: { asking?: bo
   const current = (u: LogRow) =>
     u.facts?.approved === true &&
     (!(rule.hiddenRepo && !rule.titlesOn) || !u.summary || summaryConsented(u.facts, u.summary) || u.facts.offered_summary === u.summary);
-  return { line, current };
+  return { line, current, consentNeeded: rule.hiddenRepo && !rule.titlesOn };
 }
 /**
  * Owner batch fix wave (6): an offer for week `monday` that could not show its stored summary `summary` (the line was not
@@ -276,7 +295,7 @@ export async function takeMoment(own: number, now: Date): Promise<boolean> {
 
 /**
  * The yes to the moment's question: last week's ship-log row of `key` approved (facts.approved, approved_at,
- * approved_via 'share', approved_summary: the summary it approved). The builder's existing row is matched case-insensitively; with none, one is made (it shows
+ * approved_via 'share', approved_summary: the summary it approved; v4.10.3: 'auto', the Monday reply's own add, binds none). The builder's existing row is matched case-insensitively; with none, one is made (it shows
  * nowhere: no facts, text or titles). The weekly job's later upsert merges its facts in, keeping these. False when
  * another builder holds the week.
  */
@@ -287,19 +306,43 @@ export async function approveWeek(
   // Owner batch fix round: the yes binds only to the summary the builder was shown (`seen`, kept with the offer;
   // approved_summary, summaryConsented). No `seen` (an older offer, a page that showed none) binds to nothing, never
   // to the text stored now. A second yes keeps the first approved_at and approved_via and binds to the new text.
+  // v4.10.3 Task 3 fix round 1 (security): the automatic add ('auto') is no consent: it never writes approved_summary
+  // (whatever `seen` says), so a private repo's summary stays off the page until the builder's own yes. A later yes
+  // (any other via) takes over approved_at and approved_via from an automatic add, so builder stats count it.
+  const auto = via === 'auto';
   const bound = seen ?? null;
+  const explicit = (old: 'facts' | 'project_updates.facts') => sql()`jsonb_build_object('approved', true, 'approved_summary', ${bound}::text)
+      || CASE WHEN ${sql().unsafe(old)}->>'approved_via' = 'auto' THEN jsonb_build_object('approved_at', ${now.toISOString()}::text, 'approved_via', ${via}::text) ELSE '{}'::jsonb END`;
+  const tail = (old: 'facts' | 'project_updates.facts') => (auto ? sql()`jsonb_build_object('approved', true)` : explicit(old));
   const [had] = await sql()<{ facts: WeekFacts }[]>`
-    UPDATE project_updates SET facts = ${facts}::jsonb || facts || jsonb_build_object('approved', true, 'approved_summary', ${bound}::text)
+    UPDATE project_updates SET facts = ${facts}::jsonb || facts || ${tail('facts')}
     WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key}) AND week = ${monday} RETURNING facts`;
-  if (had) return award(builderId, monday, via, now, had.facts);
+  if (had) {
+    await consented(builderId, via, now);
+    return award(builderId, monday, via, now, had.facts);
+  }
   const [r] = await sql()<{ facts: WeekFacts }[]>`
     INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${builderId}, ${key}, ${monday}, ${facts})
-    ON CONFLICT (project_key, week) DO UPDATE SET facts = EXCLUDED.facts || project_updates.facts
-      || jsonb_build_object('approved', true, 'approved_summary', ${bound}::text)
+    ON CONFLICT (project_key, week) DO UPDATE SET facts = EXCLUDED.facts || project_updates.facts || ${tail('project_updates.facts')}
     WHERE project_updates.builder_id = EXCLUDED.builder_id RETURNING facts`;
-  return r ? award(builderId, monday, via, now, r.facts) : false;
+  if (!r) return false;
+  await consented(builderId, via, now);
+  return award(builderId, monday, via, now, r.facts);
 }
-/** v3 Stage 1: an approval that stood earns the week's points, once, when the week has facts. Never throws. */
+/**
+ * v4.10.3 Task 3 fix round 2 (consent): an explicit approval (any via but 'auto') lifts a connect no (connect_no) and
+ * marks consent (connect_ok), so the Monday add may run from then on. Never throws.
+ */
+async function consented(builderId: number, via: ApproveVia, now: Date): Promise<void> {
+  if (via === 'auto') return;
+  await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) - 'connect_no') || jsonb_build_object('connect_ok', ${now.toISOString()}::text)
+    WHERE builder_id = ${builderId}`.catch((err: unknown) => console.error('[moment] consent', err instanceof Error ? err.name : 'error'));
+}
+/**
+ * v3 Stage 1: an approval that stood earns the week's points, once, when the week has facts. v4.10.3 final fix (owner
+ * F4): the automatic add ('auto') earns none (awardWeekPoints); the builder's later yes takes the week over and earns
+ * them. Never throws.
+ */
 async function award(builderId: number, monday: string, via: ApproveVia, now: Date, facts: WeekFacts): Promise<true> {
   if (hasFacts(facts ?? {})) await awardWeekPoints(builderId, monday, via, now).catch((err: unknown) => console.error('[points] award', err instanceof Error ? err.name : 'error'));
   return true;
@@ -307,13 +350,10 @@ async function award(builderId: number, monday: string, via: ApproveVia, now: Da
 
 /**
  * Fix round 1: the open share offer (standing_seen.share_open = { key, week, shown_week }), kept apart from the stored
- * ask so other replies that week don't close it. Written when the moment is shown.
+ * ask so other replies that week don't close it. Written by the retired Monday question (before v4.10.3 Task 3); only
+ * answerShare reads it now, for an offer still open from then.
  */
 export type ShareOpen = { key: string; week: string; shown_week: string; /** The stored summary shown with the offer. */ summary?: string | null };
-export async function openShare(builderId: number, o: ShareOpen): Promise<void> {
-  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('share_open', ${sql().json(o as never)}::jsonb)
-    WHERE builder_id = ${builderId}`.catch((err: unknown) => console.error('[moment] open share', err instanceof Error ? err.name : 'error'));
-}
 /**
  * The yes or no to the share offer: taken once (one UPDATE removing it, returning what it held), only while `now` is in
  * the week it was shown and for its project. A yes approves that week (approveWeek). Null: nothing open to answer.

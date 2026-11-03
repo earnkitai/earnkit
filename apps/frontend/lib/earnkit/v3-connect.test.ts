@@ -172,7 +172,101 @@ test('(e) the weekly moment still shows the week after', db, async () => {
     assert.ok(s.startsWith('Your week is ready, '), s);
     assert.match(s, /\n\| Streak \| 4 weeks \|\n/, s);
     assert.doesNotMatch(s, /Make your shipping log public/);
-    assert.match(s, /\n\nAdd last week to your page\?$/);
+    // v4.10.3 Task 3 (R6): the block adds the week itself and asks nothing; the reply's own step is last.
+    assert.match(s, /\n\nLast week is on your page\.\n\n[^]*\?$/, s);
+    assert.doesNotMatch(s, /Add last week/, s);
+  } finally {
+    mock.timers.setTime(WEDNESDAY);
+  }
+});
+
+/** v4.10.3 Task 3 fix round 2: the next Monday (Oct 19, after the weekly job) with last week (Oct 12) ready. */
+async function nextMonday(me: { id: number; key: string }) {
+  mock.timers.setTime(Date.parse('2026-10-19T16:00:00Z'));
+  await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, ranked)
+    VALUES (${me.id}, '2026-10-18', 40, 0, '{}'::jsonb, '{}'::jsonb, 'v2', ${LIVE_CALIBRATION_V2}, false, true)`;
+  await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts)
+    VALUES (${me.id}, ${me.key}, '2026-10-12', ${sql().json({ checked: true, shipped_code: { n: 1 } } as never)})`;
+}
+const mondayState = async (me: { id: number }) => (await sql()<{ approved: string | null; w: string | null }[]>`
+  SELECT (SELECT facts->>'approved' FROM project_updates WHERE builder_id = ${me.id} AND week = '2026-10-12') AS approved,
+    (SELECT moment_week FROM installations WHERE id = ${me.id}) AS w`)[0];
+
+test('(e3) v4.10.3 Task 3 fix round 2 (consent): a no to the connect offer means no automatic add and no block on Monday; an explicit yes lifts it', db, async () => {
+  await freshBoard();
+  try {
+    const me = await ranked('cnno');
+    await backfilled(me.id, me.key);
+    assert.match(show(await mcpCall(ctx(me.id), 'find', {})), /Make your shipping log public on /);
+    await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'connect', project_key: me.key, answer: 'no' } });
+    // Fix round 3 (N1): the no and the close land in one write.
+    const kept = await seen(me.id);
+    assert.ok(kept.connect_no, 'the no is kept');
+    assert.equal(kept.connect_no, kept.connect_done, 'written together');
+    assert.equal(kept.connect_open, undefined);
+    await nextMonday(me);
+    const s = show(await mcpCall(ctx(me.id), 'find', {}));
+    assert.doesNotMatch(s, /Your week is ready|on your page|Add last week/, s);
+    assert.deepEqual(await mondayState(me), { approved: null, w: null }, 'nothing added, claimed or offered');
+    // The builder's own explicit approval of a week (here last week's, as the email page or an old share yes would) lifts it.
+    const { approveWeek } = await import('./weekly-moment');
+    assert.ok(await approveWeek(me.id, me.key, backfillMondays(new Date('2026-10-14T12:00:00Z'))[0], new Date(), 'email', null));
+    assert.equal((await seen(me.id)).connect_no, undefined, 'lifted by an explicit yes');
+    const t = show(await mcpCall(ctx(me.id), 'find', {}));
+    assert.ok(t.includes('Last week is on your page.'), t);
+    assert.deepEqual(await mondayState(me), { approved: 'true', w: '2026-W43' });
+  } finally {
+    mock.timers.setTime(WEDNESDAY);
+  }
+});
+
+test('(e5) v4.10.3 Task 3 fix round 3 (N1): a no whose write fails closes nothing, so it never fails open: the offer stays open and Monday adds nothing', db, async () => {
+  await freshBoard();
+  try {
+    const me = await ranked('cnfx');
+    await backfilled(me.id, me.key);
+    assert.match(show(await mcpCall(ctx(me.id), 'find', {})), /Make your shipping log public on /);
+    const fn = `cn_fail_${RUN}`;
+    await sql().unsafe(`CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'v4103 no fails'; END $$`);
+    await sql().unsafe(`CREATE TRIGGER ${fn} BEFORE UPDATE ON builder_profiles FOR EACH ROW WHEN (NEW.builder_id = ${Number(me.id)} AND NEW.standing_seen ? 'connect_no') EXECUTE FUNCTION ${fn}()`);
+    const errors = mock.method(console, 'error', () => {});
+    try {
+      await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'connect', project_key: me.key, answer: 'no' } }).catch(() => null);
+    } finally {
+      errors.mock.restore();
+      await sql().unsafe(`DROP TRIGGER ${fn} ON builder_profiles`);
+      await sql().unsafe(`DROP FUNCTION ${fn}()`);
+    }
+    const s0 = await seen(me.id);
+    assert.ok(s0.connect_open, 'the offer is still open');
+    assert.deepEqual([s0.connect_done, s0.connect_no], [undefined, undefined], 'nothing closed without the no');
+    await nextMonday(me);
+    const t = show(await mcpCall(ctx(me.id), 'find', {}));
+    assert.doesNotMatch(t, /Your week is ready|on your page/, t);
+    assert.deepEqual(await mondayState(me), { approved: null, w: null });
+  } finally {
+    mock.timers.setTime(WEDNESDAY);
+  }
+});
+
+test('(e4) v4.10.3 Task 3 fix round 2 (consent): a connect yes still adds on Monday; the pre-deploy shape (answered, no explicit approval ever) is treated as declined', db, async () => {
+  await freshBoard();
+  try {
+    const yes = await ranked('cnys');
+    await backfilled(yes.id, yes.key);
+    await mcpCall(ctx(yes.id), 'find', {});
+    await mcpCall(ctx(yes.id), 'tell', { move_up: { kind: 'connect', project_key: yes.key, answer: 'yes' } });
+    assert.ok((await seen(yes.id)).connect_ok);
+    // A builder answered before v4.10.3: connect_done with no marker and no explicit approval on any week.
+    const old = await ranked('cnod');
+    await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('connect_done', '2026-10-01T00:00:00.000Z'::text) WHERE builder_id = ${old.id}`;
+    await nextMonday(yes);
+    await nextMonday(old);
+    assert.ok(show(await mcpCall(ctx(yes.id), 'find', {})).includes('Last week is on your page.'));
+    assert.equal((await mondayState(yes)).approved, 'true');
+    const o = show(await mcpCall(ctx(old.id), 'find', {}));
+    assert.doesNotMatch(o, /Your week is ready|on your page/, o);
+    assert.deepEqual(await mondayState(old), { approved: null, w: null }, 'fail closed');
   } finally {
     mock.timers.setTime(WEDNESDAY);
   }

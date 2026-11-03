@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { builderOnly, mustGive, type GapGrant, type InvestorProgram, type MoveCtx, type MoveProgram } from './conversation';
 import { committedProgram } from './fixtures/program-file';
-import { READY_ANSWERS_MAX, fitReadySet, longShotWorth, readySet, worthUpTo, type ReadyProgram } from './ready-set';
+import { READY_ANSWERS_MAX, fitReadySet, investorWorth, longShotWorth, readySet, worthUpTo, type ReadyProgram } from './ready-set';
 import { READY_AGAIN_ASK, READY_ASK, contactPhrase, needsList, needsPhrase, readyAgain, readyAlsoLine, readyLine, readyNeedsAsk, readyNoLine, readyOpener, readySentAgain, readyStillNeeds, readyYesReply, shortName, skipReply, worthClause } from './ready-copy';
 import { READY_NEED_MAX, readyNeeds } from './bench-find';
 import type { SubmissionRequirement } from './program-file';
@@ -34,15 +34,17 @@ const gap = (id: string, gaps: string[], o: Partial<GapGrant> = {}): GapGrant =>
 const ctx = (o: Partial<MoveCtx> = {}): MoveCtx & { now: Date } => ({ now: NOW, fits: [], grants: [], investors: [], skip: new Set(), raised: new Set(), path: null, ...o });
 const OWNER = { grants: [CIRCLE, BASE], investors: [A16Z] };
 
-test('the owner shape gives Base, a16z, Circle, worth up to $1M plus a $100K long shot', () => {
+test('the owner shape gives Base, a16z, Circle, worth up to $5K plus a $1M accelerator and a $100K long shot', () => {
   const set = readySet(ctx(OWNER));
   assert.deepEqual(set.map((p) => [p.id, p.kind]), [['base-builder-grants', 'one_step'], ['a16z-speedrun', 'investor'], ['circle-developer-grants', 'long_shot']]);
   assert.equal(set[0].step, 'codes');
   // v4.10 Task 4 (f): `needs` is a short phrase find derives from a form field, never the gap sentence.
   assert.equal(set[0].needs, null);
   assert.equal(set[2].why, 'they look for apps on Arc');
-  // v4.10.1 Task 2 (R3): the long shot is said apart, never summed into the worth; the investor program stays in it.
-  assert.equal(worthUpTo(set), '$1M');
+  // v4.10.1 Task 2 (R3): the long shot is said apart, never summed into the worth. v4.10.3 Task 1 (R1): so is the
+  // investor program (its money is never added to a grant total).
+  assert.equal(worthUpTo(set), '$5K');
+  assert.deepEqual(investorWorth(set), { usd: '$1M', n: 1 });
   assert.deepEqual(longShotWorth(set), { usd: '$100K', n: 1 });
 });
 
@@ -117,10 +119,10 @@ test('shortName is the first word of the program name', () => {
 
 test('the owner shape opens with the approved section A text', () => {
   assert.equal(opener(), [
-    "Jenil, I've got 3 applications ready for you, worth up to $1M, plus a $100K long shot:",
+    "Jenil, I've got 3 applications ready for you, worth up to $5K, plus a $1M accelerator and a $100K long shot:",
     '',
     "1. Base Builder Grant: up to $5,000. Ready once I add Builder Codes (10 minutes, I'll do it).",
-    '2. a16z speedrun SR008: up to $1M investment, closes in 19 hours. Ready.',
+    '2. a16z speedrun SR008: up to $1M, an accelerator, closes in 19 hours. Ready.',
     "3. Circle Developer Grants: $5K to $100K. Ready, but Circle looks for apps on Arc, so it's a long shot.",
     '',
     'Every answer is filled from your commits and your profile at earnkit.com/jenilt.',
@@ -133,8 +135,8 @@ test('v4.10.2 (R1): the head counts the answers the set needs, money first; "rea
   const needs = OWNER_SET.map((p, i) => (i === 1 ? { ...p, needs: 'your email' } : p));
   const head = (set: ReadyProgram[], asks: number) =>
     readyOpener({ name: 'Jenil', set, worth: worthUpTo(set), page: 'earnkit.com/jenilt', hosted: false, now: NOW, asks }).split('\n')[0];
-  assert.equal(head(needs, 1), "Jenil, I've started 3 applications for you, worth up to $1M, plus a $100K long shot. I need 1 answer from you first:");
-  assert.equal(head(needs, 3), "Jenil, I've started 3 applications for you, worth up to $1M, plus a $100K long shot. I need 3 answers from you first:");
+  assert.equal(head(needs, 1), "Jenil, I've started 3 applications for you, worth up to $5K, plus a $1M accelerator and a $100K long shot. I need 1 answer from you first:");
+  assert.equal(head(needs, 3), "Jenil, I've started 3 applications for you, worth up to $5K, plus a $1M accelerator and a $100K long shot. I need 3 answers from you first:");
   assert.doesNotMatch(head(needs, 3), /\bready\b|drafted/i);
   assert.match(head(OWNER_SET, 0), /^Jenil, I've got 3 applications ready for you,/);
   // Any line that needs something: no "ready" in the head, whatever its case.
@@ -241,9 +243,9 @@ test('a long shot one doable codes gap away carries step codes, and its line say
   assert.equal(readySet(ctx({ grants: [{ ...ls, gaps: ['on Arc mainnet'], doable: false }] }))[0].step, null);
 });
 
-test('an investor program with no amount reads "investment program"', () => {
+test('an investor program with no amount reads "an accelerator"', () => {
   const [a] = readySet(ctx({ investors: [{ ...A16Z, amount: null }] }));
-  assert.equal(readyLine(a, 1, false, NOW), '1. a16z speedrun SR008: investment program, closes in 19 hours. Ready.');
+  assert.equal(readyLine(a, 1, false, NOW), '1. a16z speedrun SR008: an accelerator, closes in 19 hours. Ready.');
 });
 
 test('needsPhrase: a short noun phrase from the field kind, else its label', () => {
@@ -262,7 +264,7 @@ test('the ready status, the no line, and a partial open list', () => {
   assert.equal(readyAgain(ready, NOW), [
     'Your 3 applications are still ready:',
     '- Base: up to $5,000. Ready.',
-    '- a16z: up to $1M investment, closes in 19 hours. Ready.',
+    '- a16z: up to $1M, an accelerator, closes in 19 hours. Ready.',
     '- Circle: $5K to $100K. Ready.',
     '',
     READY_AGAIN_ASK,
@@ -275,7 +277,7 @@ test('the ready status, the no line, and a partial open list', () => {
   const asked = { reply: { move_up: { kind: 'ready', project_key: null } } };
   assert.deepEqual(gateFailures([reply(readyAgain(ready, NOW), asked)]), []);
   assert.deepEqual(gateFailures([reply(readyAgain(ready, NOW))]).map((f) => f.rule), ['easy_reply']);
-  assert.match(readyOpener({ name: null, set: OWNER_SET, worth: '$1M', page: 'earnkit.com/j', hosted: false, now: NOW }), /^I've got 3 applications ready for you, worth up to \$1M, plus a \$100K long shot:\n/);
+  assert.match(readyOpener({ name: null, set: OWNER_SET, worth: '$5K', page: 'earnkit.com/j', hosted: false, now: NOW }), /^I've got 3 applications ready for you, worth up to \$5K, plus a \$1M accelerator and a \$100K long shot:\n/);
 });
 
 test('v4.10.1 Task 2 (5): the repeat reply names each program, its money and its hours left, and is honest about needs', () => {
@@ -289,7 +291,7 @@ test('v4.10.1 Task 2 (5): the repeat reply names each program, its money and its
   assert.equal(again, [
     "Here's where your 3 applications stand:",
     '- Base: up to $5,000. Needs your contact details (name, email and Telegram), how it makes money today, main challenge right now and 1 more first.',
-    '- a16z: up to $1M investment, closes in 19 hours. Needs your email first.',
+    '- a16z: up to $1M, an accelerator, closes in 19 hours. Needs your email first.',
     '- Circle: $5K to $100K. Needs your Circle and Arc integrations, product roadmap and proposed grant milestones first.',
     '',
     READY_AGAIN_ASK,
@@ -299,13 +301,13 @@ test('v4.10.1 Task 2 (5): the repeat reply names each program, its money and its
   assert.doesNotMatch(mixed, /still ready/);
   assert.match(mixed, /^Here's where your 2 applications stand:\n- Base: up to \$5,000\. Ready once I add Builder Codes \(10 minutes, I'll do it\)\.\n- a16z: .* Needs your email first\.\n\nReply yes and I'll finish them\.$/);
   assert.match(readyAgain([{ ...base, needs: null }], NOW, true), /Ready once you add Builder Codes \(https:/);
-  assert.equal(readyAgain([set[1]], NOW), "Here's where your application stands:\n- a16z: up to $1M investment, closes in 19 hours. Needs your email first.\n\nReply yes and I'll finish it.");
+  assert.equal(readyAgain([set[1]], NOW), "Here's where your application stands:\n- a16z: up to $1M, an accelerator, closes in 19 hours. Needs your email first.\n\nReply yes and I'll finish it.");
   // The hours only under 48; a close further out, or none, says no time.
   const later = { ...a16z, ends_at: at(3 * DAY), needs: null };
-  assert.match(readyAgain([later], NOW), /\n- a16z: up to \$1M investment\. Ready\.\n/);
+  assert.match(readyAgain([later], NOW), /\n- a16z: up to \$1M, an accelerator\. Ready\.\n/);
   assert.match(readyAgain([{ ...base, step: null, ends_at: at(5 * 3_600_000) }], NOW), /\n- Base: up to \$5,000, closes in 5 hours\. Ready\.\n/);
   assert.match(readyAgain([{ ...base, step: null, amount: null }], NOW), /\n- Base\. Ready\.\n/);
-  assert.match(readyAgain([{ ...a16z, amount: null, needs: null }], NOW), /\n- a16z: investment program, closes in 19 hours\. Ready\.\n/);
+  assert.match(readyAgain([{ ...a16z, amount: null, needs: null }], NOW), /\n- a16z: an accelerator, closes in 19 hours\. Ready\.\n/);
 });
 
 test('v4.10.1 Task 2 fix round 1 (M2): the repeat status may repeat across finds in one session (the gate), the opener may not', () => {
@@ -326,7 +328,7 @@ test('v4.10.1 Task 2 (5): the "sent" repeat names each open page with its money 
   assert.equal(readySentAgain([base, a16z], NOW), [
     'Your 2 applications are open with every answer in place:',
     '- Base: up to $5,000.',
-    '- a16z: up to $1M investment, closes in 19 hours.',
+    '- a16z: up to $1M, an accelerator, closes in 19 hours.',
     '',
     'Reply "sent" once they\'re in, and I\'ll track them for you.',
   ].join('\n'));
@@ -335,9 +337,12 @@ test('v4.10.1 Task 2 (5): the "sent" repeat names each open page with its money 
 
 test('v4.10.1 Task 2 (R3): the worth leaves long shots out and says them apart; never "$0"', () => {
   const [base, a16z, circle] = OWNER_SET;
-  assert.equal(worthClause(OWNER_SET, worthUpTo(OWNER_SET)), ', worth up to $1M, plus a $100K long shot');
+  assert.equal(worthClause(OWNER_SET, worthUpTo(OWNER_SET)), ', worth up to $5K, plus a $1M accelerator and a $100K long shot');
   assert.equal(worthClause([base, circle], worthUpTo([base, circle])), ', worth up to $5K, plus a $100K long shot');
-  assert.equal(worthClause([base, a16z], worthUpTo([base, a16z])), ', worth up to $1M');
+  assert.equal(worthClause([base, a16z], worthUpTo([base, a16z])), ', worth up to $5K, plus a $1M accelerator');
+  // v4.10.3 Task 1 (R1): an investor program alone is said apart, never as a worth.
+  assert.equal(worthUpTo([a16z]), null);
+  assert.equal(worthClause([a16z], worthUpTo([a16z])), ', a $1M accelerator');
   // All long shots: the head still reads honestly, with no "worth up to $0".
   const two = [circle, { ...circle, id: 'arc', title: 'Arc Fund', max_usd: 50_000 }];
   assert.equal(worthUpTo([circle]), null);

@@ -5,7 +5,8 @@ import { standingOf } from './person-score';
  * v3 Stage 1: points, the default program every ranked builder is in. Each approved week with facts earns points by the
  * builder's rank at approval; they convert to $EARN later, in proportion. Points never touch Shipping or rank.
  */
-export type ApproveVia = 'share' | 'connect' | 'email';
+/** v4.10.3 Task 3 fix round 1: 'auto', the Monday reply's own add (no builder yes): never a consent, never a builder stat. */
+export type ApproveVia = 'share' | 'connect' | 'email' | 'auto';
 
 /** Rank 1: 100; top 10%: 90; top 25%: 70; top 50%: 50; else 30 (also with no rank). Pure. */
 export function pointsForRank(rank: number | null, total: number | null): number {
@@ -35,8 +36,14 @@ export async function weekAwarded(builderId: number, week: string): Promise<bool
 /** The reply's points line. */
 export const POINTS_LINE = (total: number) => `Points: ${total.toLocaleString('en-US')}. They convert to $EARN at launch, in proportion to all points earned.`;
 
-/** One row per builder and week (created_at `now`): the points awarded now, or 0 when the week already had its row. */
+/**
+ * One row per builder and week (created_at `now`): the points awarded now, or 0 when the week already had its row or
+ * the approval is EarnKit's automatic add ('auto': no row, so the builder's later yes earns the week's points).
+ */
 export async function awardWeekPoints(builderId: number, week: string, via: ApproveVia, now: Date): Promise<number> {
+  // v4.10.3 final fix (owner F4, 2026-11-03): an automatic add awards no points. Points come only when the builder
+  // confirms the week (the email's "Looks right", a share or connect yes), which takes the week over (approveWeek).
+  if (via === 'auto') return 0;
   let points = CONNECT_POINTS;
   let rank: number | null = null;
   let total: number | null = null;

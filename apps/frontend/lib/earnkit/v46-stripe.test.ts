@@ -786,7 +786,6 @@ test('3.5 v4.7 T3: the ask left the reply order (stateAsk never asks it); the dr
   assert.doesNotMatch(stripeDraftLine(L).replace(L, ''), /—|coin|points|\?|\p{Extended_Pictographic}/u);
   const v = { state: 'ranked' as const, variant: null, project: { key: 'a/kit', name: 'Kit' } as never, link: null, handle: 'kit', stripe: L } as never;
   assert.equal(stateAsk(v).kind, 'ship', 'no stripe kind: the ranked rest');
-  assert.equal(stateAsk({ ...(v as object), share: true } as never).kind, 'share');
   assert.equal(benchStepKey('stripe', null), STRIPE_DECLINED_KEY);
   assert.ok(stripeDraftNote(L).includes(`"${stripeDraftLine(L)}"`));
 });

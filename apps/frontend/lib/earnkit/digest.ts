@@ -110,7 +110,7 @@ export function digestDue(s: DigestState, now: Date): boolean {
 }
 
 /** Last week's moment: its lines (weekly-moment.ts mondayLines, v4.0 Task 7), standing (the subject) and the two signed links. */
-export type DigestWeek = { lines: string[]; standing: WeekStanding; approveUrl: string; hideUrl: string; approved: boolean; postUrl?: string };
+export type DigestWeek = { lines: string[]; standing: WeekStanding; approveUrl: string; hideUrl: string; approved: boolean; confirmed?: boolean; postUrl?: string };
 export type DigestFacts = {
   /**
    * v4.8.1 final fix (R-3): when the facts were read (digestFacts' now). With it, a close under 48 hours away is
@@ -191,7 +191,7 @@ export function digestBody(f: DigestFacts): { subject: string; text: string } | 
     ? [
         ...f.week.lines.filter((l) => !(f.standing && l.startsWith('Shipping score: '))),
         ...(f.week.postUrl ? [`Your post is ready to share: ${f.week.postUrl}`] : []),
-        ...(f.week.approved ? [] : ['', `Looks right: ${f.week.approveUrl}`, `Hide this week: ${f.week.hideUrl}`]),
+        ...((f.week.confirmed ?? f.week.approved) ? [] : ['', `Looks right: ${f.week.approveUrl}`, `Hide this week: ${f.week.hideUrl}`]),
       ].join('\n')
     : null;
   const lines = [
@@ -442,8 +442,10 @@ async function digestWeek(s: SubRow, now: Date, db: Db): Promise<Pick<DigestFact
       first: firstName(p.name, handle), summary: momentSummary(last.summary ?? null), score: last.now.score,
       change: last.before ? last.now.score - last.before.score : null, streak: lit ? weekNumber([...lit.weeks], last.monday) : 0,
       usd: community.usd, lastWeekUsd: community.lastWeekUsd,
+      // v4.10.3 final fix (F3): "You shipped last week." and "Nice work." only when last week has ship facts.
+      shipped: last.facts,
     });
-    return { week: { lines, standing: last.now, approveUrl: link('approve'), hideUrl: link('hide'), approved: last.approved, ...(postUrl && { postUrl }) }, handle, person };
+    return { week: { lines, standing: last.now, approveUrl: link('approve'), hideUrl: link('hide'), approved: last.approved, confirmed: last.confirmed, ...(postUrl && { postUrl }) }, handle, person };
   } catch (err) {
     // v3.2 (2026-10-27): a failed read waits like a week not written yet (retried next run, sent without the week
     // after PENDING_MAX_MS), never an empty email that marks the week considered: the owner's first Monday email

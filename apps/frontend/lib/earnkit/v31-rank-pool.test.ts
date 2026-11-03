@@ -50,7 +50,7 @@ async function builder(tag: string, ages: number[], last: number) {
   const handle = `${tag}${RUN}`.slice(0, 15);
   // v4.3: a no to Base's grant steps (the qualify reply carries no ship line), so the ranked step is the ship step.
   // v4.7.1 T1: check_fits (no fit) asked already too (v4.7.2 T2: said no to for every program, checkFitsAsked).
-  const id = await person({ main: key, claimed: handle, ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z', declined: { [`qualify:${key}`]: new Date().toISOString() } }, projects: [{ key, name: 'App', confirmed: true }] });
+  const id = await person({ main: key, claimed: handle, ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z', connect_ok: '2026-09-01T00:00:00.000Z', declined: { [`qualify:${key}`]: new Date().toISOString() } }, projects: [{ key, name: 'App', confirmed: true }] });
   await checkFitsAsked(id);
   const now = new Date();
   const s = computeScoreV2({ ships: [], commitWeeks: ages.map((i) => isoWeekOf(new Date(now.getTime() - i * 7 * DAY))) }, now);
@@ -74,14 +74,15 @@ test('(a) 9 ranked builders: find and score replies, the moment and the share po
   const s = show(f);
   // Task 16 step 7 under RANK_MIN_POOL: "on EarnKit", no rank. Last week has no ship-log row with facts, so there is no
   // post to offer (v3.1 one-tap posts): the page is the one link. v4.8 Task 1: no "Open now:" paragraph.
-  assert.match(s, new RegExp(`^Your week is ready, \\S+\\. You shipped this week\\. Nice work\\.\\n\\n\\| \\| Last week \\|\\n[^]*\\n\\nYour page: https://earnkit\\.com/${me.handle}\\n\\nBuilders who share wins get noticed by programs\\.\\n\\nAdd last week to your page\\?$`), s);
+  assert.match(s, new RegExp(`^Your week is ready, \\S+\\.\\n\\n\\| \\| This week \\|\\n[^]*\\n\\nYour page: https://earnkit\\.com/${me.handle}\\n\\nLast week is on your page\\.\\n\\nShipping this week starts your streak and lifts your score\\.\\n\\n[^\\n]*\\?$`), s);
   assert.equal(links(s).length, 1, s);
   assert.equal(questions(s), 1, s);
   assert.doesNotMatch(JSON.stringify(f.reply), /#\d/, 'no rank anywhere in the reply');
   assert.deepEqual((f.reply as { rank_lines?: string[] }).rank_lines ?? [], []);
   const sc = await mcpCall(ctx(me.id), 'score', {});
   const t = show(sc);
-  assert.match(t, /\n\nShipping this week starts your streak and lifts your score\.\n\n[^\n]*\?$/, t);
+  // v4.10.3 Task 3 (R6): the find after the block asked the ship step, so score is the quiet reply.
+  assert.ok(t.length > 0, t);
   assert.doesNotMatch(JSON.stringify(sc.reply), /#\d/, t);
   assert.equal(shownRankLine({ ranked: true, rank: 1, total: 9 }), null);
 });
@@ -92,12 +93,13 @@ test('(b) 10 ranked builders: "#3 of 10 builders" as today', db, async () => {
   const s = show(f);
   // v4.0 Task 7: the Monday block (no rank); the rank stays on the standing line.
   assert.match(s.split('\n')[0], /^Your week is ready, /, s);
+  // v4.7 T4 fix round 0 (R13): the weekly rank target is the ship ask's why, its own paragraph before the question
+  // (v4.10.3 Task 3, R6: the ship step follows the block in the same find).
+  assert.match(s, /\n\nShip code this week to move toward #1\.\n\n[^\n]*\?$/, s);
   // v4.7 T2: score leads with the standing paragraph, the page's score and rank.
   const t = show(await mcpCall(ctx(me.id), 'score', {}));
-  // v4.10.2 final re-review: after the Monday block's last-week score, a live score that differs is "so far this week".
-  assert.match(t, /^Score \d+ so far this week · #3 of 10 builders\. /, t);
-  // v4.7 T4 fix round 0 (R13): the weekly rank target is the ship ask's why, its own paragraph before the question.
-  assert.match(t, /\n\nShip code this week to move toward #1\.\n\n[^\n]*\?$/, t);
+  // v4.10.3 Task 2 (R5): one score: the live number, plainly (never "so far this week").
+  assert.match(t, /^Score \d+ · #3 of 10 builders\. /, t);
   assert.equal(shownRankLine({ ranked: true, rank: 3, total: 10 }), '#3 of 10 builders');
 });
 

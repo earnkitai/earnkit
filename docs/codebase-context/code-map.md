@@ -1765,8 +1765,8 @@ apps/frontend/
                                NO_GITHUB_HINT (the Lovable/Bolt line only without GitHub), ask kind wallet_setup + walletSetupAsk (step 3:
                                the wallet and the token sentence; TOKEN_NO_LINE, WALLET_SETUP_SKIPPED), the setup-done reply (SetupOutcome
                                launched|set|declined|skipped, setupDoneLead, programsTable "| Program | Up to | Closes |", bestFitAsk,
-                               setupDoneReply; BenchView.setupDone), mondayReply (opener, table with a blank header, cheer line, "Your
-                               post is ready to share: {link}", MOMENT_ASK 'Looks right?'), firstName, BenchView.nudge (nudges.ts).
+                               setupDoneReply; BenchView.setupDone), mondayBlock (opener, table with a blank header, cheer line, "Your
+                               post is ready to share: {link}", MOMENT_ADDED; v4.10.3 R6: no question), firstName, BenchView.nudge (nudges.ts).
                                Tests v4-setup.test.ts, v4-weekly.test.ts. v4.2: shipLine (no points; shipPointsLine removed),
                                TITLES_NO_LINE, closestAsk / checkFitsAsk in setupDoneReply, TOKEN_OFFER (LEAD + QUESTION) and ask kind
                                token (stateAsk tokenOffer); final review 3: ask kinds closest and check_fits (setup done's own, so their
@@ -2837,7 +2837,7 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
 ## v4.10.1 Task 3: one score per session
 
 - `stand-view.ts` `startRefresh` (`within` returns `Promise<boolean>`; joins a running refresh via `RUNNING`).
-- `bench-find.ts` `UPDATING_LINE`, `UPDATING_SAID`, `UPDATING_NOTE`, `hasNumbers`, `withoutNumbers`, `updatingReply`;
+- `bench-find.ts` `UPDATING_NOTE`, `hasNumbers`, `withoutNumbers`, `updatingReply` (v4.10.3 Task 2: `UPDATING_LINE` and `UPDATING_SAID` removed);
   `ViewIn.updating`, `BenchFindArgs.updating`; `readyRecord(id, now, updating)`; `directAnswer` (no standing answer
   while updating); the weekly moment skipped while updating.
 - `bench-reply.ts` `BenchView.updating`; `shipWhy(null)` / `shipWhyOf(target, null)`: "Shipping this week lifts your score."
@@ -2878,6 +2878,68 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
   `revertWrite`, `revertPreview`; `program-revert-page.ts` and `app/api/programs/revert/route.ts`.
 - `programs-api.ts` `NEWER_RESULTS` adds `reverted`. Tests: `v4102-revert-digest.test.ts`.
 
+## v4.10.3 Task 1: the opener hook and the listed asks
+
+- `ready-set.ts` `grantTotal` (never a long shot or an investor program; `worthUpTo` reads it), `investorWorth`,
+  `INVESTOR_NAME_MS` (30 days), `namedInvestor` (the soonest investor program closing within it).
+- `ready-copy.ts` `alsoMoneyLine` ("Open for you now: up to $X in grants plus a $400K accelerator. Alliance closes in 15
+  days."), `grantMoney`, `LeadRound`; `alsoLeadLine` / `alsoAgainAsk` take the first round; `worthClause` says investor
+  programs apart ("plus a $1M accelerator").
+- `bench-find.ts` `AlsoOpenLead.usd` / `.round` (written by `readyCommit`), `alsoLeadCommit` (money line first, then
+  proof, the program with its first round, the ask; `draft.asks` and `ALSO_LEAD_NOTE` to the agent), `pathDraft(..., m)`
+  and `draftYes(..., first)` (a yes to the lead carrying round 1's answers banks them). Tests: `v4103-hook.test.ts`,
+  `v410-find.test.ts` ("v4.10.3 Task 1").
+- Fix round 1: `bench-find.ts` `programAsks` (the one asks function), `firstFinishedNote`,
+  `bench_ask.also`; `ready-copy.ts` `investorMoney`, `OPEN_PHRASE`.
+
+## v4.10.3 Task 2: no narration, one score
+
+- `bench-find.ts` `updatingReply(r)` (pure: no builder line, `numbers_updating` and `numbers_note` only); `directAnswer`
+  answers a standing question while updating with the no-score copy; `weeklyMoment(..., live)` (the live score, its
+  change since last week's final, the live streak).
+- `bench-reply.ts` `MomentView.score` is `number | null`; `mondayReply` (Task 3: `mondayBlock`) heads "This week". `weekly-moment.ts`
+  `mondayRows` skips the score row at null. `standing.ts` `Standing.soFar` removed.
+- `fixtures/converse.ts` `noRecord` keys off `reply.numbers_updating`. Tests: `v4101-score.test.ts`,
+  `weekly-moment.test.ts` ("v4.10.3 Task 2"), `bench-reply.test.ts`, `v31-rank-pool.test.ts`, `v4102-next-step.test.ts`.
+- Fix round 1: `conversation.ts standingOnPage`; `ViewIn.scored`; `weeklyPost(..., live.streak)`; `mondayReply` skips an empty table.
+
+## v4.10.3 Task 3: one ask
+
+- `bench-reply.ts` `mondayBlock(m, page, { link })` (was `mondayReply`: no question, no why, no money line),
+  `MOMENT_ADDED`; `MOMENT_ASK`, `SHARE_WHY`, `SHARE_NOTE` removed; `share` out of `stateAsk`; `MomentView.added`,
+  `.shipped`.
+- `bench-find.ts` `weekAdd` (claim, then `approveWeek(..., 'auto', null)`; connect consent required),
+  `weekAddable`, `mondayView` (takes `moment_due` once; `moment_said`), `withMonday(blocks, before, after)`;
+  `weeklyMoment`, `momentWouldShow`, `openShare` removed. Old pending `share` answers in `benchMoveUp` hand off to
+  find (`then_find`).
+- `weekly-moment.ts` `ApproveVia` `'auto'` (binds no summary; an explicit via lifts `connect_no`, writes
+  `connect_ok`), `lastWeekOf.consent`, `mondayOpener(first, summary, { lastWeek, shipped })` (final fixes: `{ shipped }` only). `connect-moment.ts`
+  `answerConnect` / `closeConnect` write `connect_no` / `connect_ok` in the closing UPDATE. `stats.ts approvedWeek`
+  excludes `'auto'`; `week-links.ts` re-approves after an auto add; `db/schema.sql` `builder_points.via` allows
+  `'auto'`. Test helper: `fixtures/old-share.ts oldShareOffer`.
+
+## v4.10.3 Task 4: replay, the Monday probe
+
+- `scripts/converse-replay.mts` `WALK=M` (`walkM`, `mondayFails`; `MONDAY` env, a Monday at or after 15:00 UTC).
+  `fixtures/converse.ts` `Turn` `{ score: {} }`, `Reply.tool` / `Call` include `'score'`.
+- `bench-find.ts` `alsoLeadDue` (pure lead eligibility; `alsoLeadCommit` reads it) and `benchView`'s `leadDue`
+  (keeps the lighter asks out of the lead's slot). Test: `v410-find.test.ts` ("v4.10.3 Task 4").
+- Walk transcripts: `.superpowers/sdd/v4.10.3-plan/walks/`.
+
+## v4.10.3 final fixes
+
+- `bench-find.ts` `Seen.also_first`, `ALSO_HOLD_MS` (7 days), `alsoLeadHolds` (benchView's `leadDue`; stamped by
+  `alsoLeadCommit`); the lead's all-answered yes returns `pathSubmit` alone (`firstFinishedNote`).
+- `stats.ts` `builderActed` (`activated`, `weekly_active`), `weeks_on_pages` (new key and label); `shared` stays
+  `'share'` only. `app/api/stats/route.ts` comment.
+- `weekly-moment.ts` `mondayOpener(first, summary, { shipped })`, `MondayFacts.shipped` (`digest.ts` passes it).
+- `points.ts awardWeekPoints`: `'auto'` awards nothing. `week-facts.ts weekConfirmed` (`bench-data.ts logCards`,
+  `feed.ts toCard`). `db/schema.sql owner_people` `last_approved_week` excludes `'auto'`.
+- `conversation.ts standingOnPage` (no period after the URL); `ready-copy.ts alsoMoneyLine` (F8 comment).
+- `fixtures/converse.ts PROOF_PATTERNS`: the standing line with no score.
+- Tests: `v410-find.test.ts` ("final fix"), `stats.test.ts` ("owner F2"), `v3-monday-email.test.ts` (d2),
+  `weekly-moment.test.ts`, `v3-unconfirmed.test.ts` ("F5"), `v4-weekly.test.ts`, `owner-tracker.test.ts`.
+
 ## v4.10.2 Task 5: replay fixes (the next step after the Monday block)
 
 - `bench-reply.ts` `MOMENT_ASK` is "Add last week to your page?" (was "Looks right?").
@@ -2893,3 +2955,6 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
 - `fixtures/pin-programs.ts` `pinPrograms` / `withProgramsPinned`: moves every dated active program out by the same whole
   years (close order and each close's day kept), restored after. Used by `v2131-o5.test.ts` (O5), `v2131-onboarding.test.ts`
   (O2), `v31-best-fit.test.ts` (whole file, `before`/`after`), `v31-reply-copy.test.ts` (Task 16), `v481-fixes.test.ts` (R3).
+- `weekly-moment.ts lastWeek` `confirmed` (v4.10.3 final): approved by the builder, not only the automatic add; `digest.ts`
+  shows Looks right and Hide unless the week is confirmed (`v3-monday-email.test.ts` (d3)). `stats.ts weeks_on_pages`
+  excludes hidden weeks.

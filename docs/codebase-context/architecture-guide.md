@@ -9332,10 +9332,10 @@ This supersedes the per-program need in Task 4: the builder answers once for the
   refresh didn't settle and the stored read has a number (`hasNumbers`). The read is then `withoutNumbers` (no parts,
   `NO_RANK`, streak 0), so no score, rank, weeks, weekly target, record line, ship why or standing answer is stated; the
   Monday block waits. `updatingReply` drops the `streak` field, adds `numbers_updating: true` and `numbers_note`, and
-  says `UPDATING_LINE` once a session (said part `updating`): before the last paragraph in find, first in score.
+  said `UPDATING_LINE` once a session (removed in v4.10.3 Task 2, R4: the builder is told nothing; see below).
   `tools.ts` `withFacts` drops `facts.rank` and `facts.streak` on such a reply. The next reply carries the fresh numbers.
-- **Gate.** `fixtures/converse.ts` `noRecord` exempts an opener that said `updating` from the opener proof rule (it may
-  state no number); a later hook still needs a proof.
+- **Gate.** `fixtures/converse.ts` `noRecord` exempts an updating opener (v4.10.3: its `numbers_updating` flag) from
+  the opener proof rule (it may state no number); a later hook still needs a proof.
 
 ## v4.10.1 Task 4: programs API link check (R4)
 
@@ -9452,7 +9452,8 @@ This supersedes the per-program need in Task 4: the builder answers once for the
     `ready.not_eligible: [{ id, title }]` for the agent. It names every chain the program accepts.
   - **arbitrum (R4).** `chains.ts` CHAINS, CHAIN_NAMES, CHAIN_EXPLAINED; `match.ts` SIGNALS (42161 and arb1.arbitrum.io /
     arbiscan.io; 421614 and the Sepolia hosts; viem `arbitrum`, `arbitrumSepolia`); `verify.ts` `ARBITRUM_RPC_URL`
-    (default `https://arb1.arbitrum.io/rpc`); `programs/arbitrum-open-house-sao-paulo.json` chains `["arbitrum"]`. No
+    (default `https://arb1.arbitrum.io/rpc`); `programs/arbitrum-open-house-sao-paulo.json` chains `["arbitrum", "robinhood"]` (v4.10.3 R7: the source names
+    Robinhood Chain as eligible; the owner kept both tags on 2026-11-03). No
     logo (ChainLogo draws only BENCH_CHAINS). `match.test` uses `polygon` as the unknown chain.
 - **Task 3: deadlines and shipping for the agent (R5, R6).**
   - `deadline.ts timeLeftWords` (hours under 48 via `hoursLeft`, "in N days" from 48 h, null once passed) and
@@ -9502,8 +9503,192 @@ This supersedes the per-program need in Task 4: the builder answers once for the
   left does `pathSubmit` say "Done, it's ready to paste"; its form line names only contact fields EarnKit doesn't hold.
   `draftAnswered` (prepare with coach_asked) also marks the round done. An ask stored before the rounds (no `round`)
   finishes as before.
-- **Monday ask.** `MOMENT_ASK` is "Add last week to your page?" (the thanks says "Last week is on your page.").
-- **Last week vs live (final re-review).** `bench-reply.ts mondayReply` heads its table "Last week" (its numbers are
+- **Monday ask.** `MOMENT_ASK` is "Add last week to your page?" (the thanks says "Last week is on your page."). Superseded by v4.10.3 Task 3 (R6): the block asks nothing and adds the week itself.
+- **Last week vs live (final re-review; superseded by v4.10.3 Task 2, R5: one score, "This week", no `soFar`).** `bench-reply.ts mondayReply` heads its table "Last week" (its numbers are
   `weekly-moment.ts lastWeekOf`, last week's final). The block marks `moment_score=N` said; `benchView` sets
   `Standing.soFar` when this session's live score differs, so `standing.ts standingParagraph` says "Score 69 so far
   this week". The path rounds say "4 more answers" / "The last 3 answers only you can give".
+
+## v4.10.3 Task 1: the opener hook and the listed asks (2026-11-03, plan: v4.10.3-plan/)
+
+- **Money first when nothing fits one reply (R2).** `readyCommit` stores with the also-open lead the grant total the
+  builder could pursue (`ready-set.ts grantTotal` over every candidate: not-eligible programs never reach the set; long
+  shots and investor programs add nothing). `alsoLeadCommit` opens with `ready-copy.ts alsoMoneyLine`: "Open for you
+  now: up to $5,000 in grants plus a $400K accelerator. Alliance closes in 15 days." With no grant money it says the
+  investor clause alone, or no line (never "$0"). Said once a session (`MONEY_SAID`).
+- **Investor programs named, never counted (R1).** `namedInvestor` picks the soonest open investor program closing
+  within `INVESTOR_NAME_MS` (30 days), from the live cards, never one skipped or said no to (`pathSkip`). Its own amount
+  and the kind the money figure uses ("accelerator", as `pool.ts openMoneyWords`), and its close (`deadline.ts
+  timeLeftWords`: hours under 48). It is never in `worthUpTo` (the opener's `worthClause` says investor programs apart:
+  "worth up to $5K, plus a $1M accelerator") and never the move: `bestMove` and `readySet` keep the 7-day window.
+- **The listed asks (R3).** The lead names the draft's first round (`pathRound`, at most 4 answers) and how many come
+  after: "Base Builder Grant pays up to $5,000 and needs 11 answers from you. The first 4: your team list, usage
+  numbers, demo video and contract address on Base, and 7 more after these." The repeat (`alsoAgainAsk`) names them
+  too, in its one question. The reply carries `draft.asks` (as the draft's rounds) and `ALSO_LEAD_NOTE`; a yes with
+  `answers` reaches `pathDraft(..., m)`, which stores round 1 and hands it to `draftYes(..., first)`: the answers are
+  banked as round 1 and the draft asks round 2 ("Here's your draft:" then the blanks), or with none left is ready.
+- **Fix round 1.**
+  - One asks function: `bench-find.ts programAsks(id, key, row, record, extra)` (heldAnswers then builderAsks) is what
+    `readyDrafts`, `pathAsks` and the lead read, always on the full record (`readyCommit` passes the full record for the
+    counts while updating). `alsoLeadCommit` reads the round on every reply, so answers given mid-session drop out
+    (`AlsoOpenLead.usd` stays stored; `.round` is gone).
+  - `draftYes`, with the answers split by field, marks done only the fields `readyBank` gave a value (`byProgram`),
+    never the whole round; their whole reply unsplit (`blanks` alone) still answers the round (the agent writes it
+    into the draft). Only the lead's start ask (`bench_ask.also`) passes
+    the yes's answers to `pathDraft`.
+  - When the lead's yes answers everything, the submit reply shows the draft body and `firstFinishedNote` (prepare is
+    called once with every answer, never "again").
+  - Investor programs read "up to $1M, an accelerator" in the ready lines (`ready-copy.ts investorMoney`), the word the
+    head's worth uses. The repeat falls back to "(up to $5,000, 4 answers to start)" when a round phrase reads as an
+    open question (`OPEN_PHRASE`: how/what/which/who/why/where/when, or " or ").
+
+## v4.10.3 Task 2: no narration, one score (2026-11-03, plan: v4.10.3-plan/)
+
+- **No updating line (R4).** `UPDATING_LINE` and `UPDATING_SAID` are gone. `bench-find.ts updatingReply(r)` is pure: it
+  drops the `streak` field and adds `numbers_updating: true` and `numbers_note` (`UPDATING_NOTE`, the agent's half);
+  `show_to_builder` is the reply as built, numbers already left out (`withoutNumbers`). A standing question while
+  updating gets the no-score answer (`conversation.ts standingAnswer` with no score: "Your profile fills in as your
+  commits come in. Programs see it at ..."). `fixtures/converse.ts noRecord` keys off `reply.numbers_updating`.
+- **One score (R5).** The Monday block shows the live score and streak: `weeklyMoment(..., live)` takes the reply's
+  `Standing` (`readStanding`, `builder_live`), so `MomentView.score` is the live score (null: no score row),
+  `change` is live minus last week's final (`lastWeekOf`), and `week` is the live streak (also the `proof:streak=N`
+  said part). `mondayReply` (renamed `mondayBlock` in Task 3) heads the table "This week". Last week's number itself
+  never shows. The share post
+  (`weeklyPost`) keeps last week's week count (`weekNumber`), since it is about last week. `Standing.soFar`,
+  `momentScoreSaid` / `momentScoreOf` and "so far this week" are gone. The weekly email (`mondayLines`) is unchanged.
+- **Fix round 1.** `mondayReply` emits no table when `mondayRows` is empty (never a header alone). The block shows
+  only a rise ("up N"); a dip shows the score alone. The X post (`weeklyPost`) takes the live streak, the block's
+  count. A standing question while updating: a builder whose stored read had a page score (`ViewIn.scored`) hears
+  `conversation.ts standingOnPage` ("Your score and streak are on your page: {page}."); one with none keeps the copy
+  before a score. `MondayFacts` documents its two meanings (email: last week's final; reply: live).
+
+## v4.10.3 Task 3: one ask (2026-11-03, plan: v4.10.3-plan/)
+
+- **The Monday block asks nothing (R6, owner answer 4).** `MOMENT_ASK`, `SHARE_WHY` and `SHARE_NOTE` are gone, and
+  `share` left `stateAsk` (the `share` kind stays in `BenchAskKind` for old pending answers). `bench-reply.ts
+  mondayBlock(m, page)` (was `mondayReply`) is the opener, the table, the cheer, the X post link (a link, never a
+  question) or the page, then `MOMENT_ADDED` ("Last week is on your page.") when `MomentView.added`. No why, no money
+  line, no ask. `rankedBody` no longer renders the moment.
+- **The add (as first built; fix rounds 1 to 3 below give the shipped form).** The block's yes action, `approveWeek`,
+  runs by itself on the first settled reply of the week, with no question. The shipped rules: `weekAdd` in `benchView`,
+  `approveWeek(..., 'auto', null)` (never consents to a summary), claim then add, at most once a week per installation
+  (`moment_week`) and per builder, never while updating, never on "more" or over a held question, and only with
+  connect consent. `weeklyMoment` and `openShare` are gone. The stats exclude `'auto'` adds.
+- **Where it rides.** `benchView`'s `mondayShown` pushes the block into `ViewIn.monday`; `benchFind` and `benchScore`
+  put it above the reply (after the answer, the alerts and the opener, before `ahead`), so the reply's one easy reply
+  (the program ask: apply, the also-open lead, the deferred path move, or the ranked rest) stays last. A path reply
+  with its own move returns before the older asks (its session opener leads), so the block rides on the first settled
+  reply the path falls through on, as before. The block marks `older` and `proof:streak=N` said (in the row and in the
+  reply's read, so the also-open lead says no second proof). Beside the block only Base's grant steps
+  (`qualify`, via `quietAll`) may join; the lighter asks and a non-asking nudge wait. Score's standing paragraph is
+  not led over the block.
+- **Old pending share answers.** `benchMoveUp` kind `share`: an offer still open from before deploy answers as it did
+  (`answerShare`, thanks, then find). A yes with none open clears a stored `share` ask and hands off to find
+  (`then_find`, no line), so it ends in the current program ask; a no is "Okay.".
+- **Fix round 1.**
+  - **Consent (security).** The automatic add is `approveWeek(..., 'auto', null)`. `'auto'` (a new `ApproveVia`)
+    never writes `approved_summary`, so `summaryConsented` stays false: a private repo's summary (titles off) stays
+    off the page until the builder's own yes. A summary not bound is marked offered (`markOffered`), so it isn't shown
+    again. A later explicit yes binds the summary and takes over `approved_at` and `approved_via` from `'auto'`.
+    `lastWeekOf` reports `consent` (`weekRules().consentNeeded`).
+  - **Add on the first settled reply.** `benchView` calls `weekAdd` before the path, on any ranked, settled reply
+    (never while updating, and never before the connect offer is answered: `connect_done` set, no `connect_open`).
+    The order is add, then claim (`takeMoment`), then `standing_seen.moment_due = { week, key, monday }`. A thrown add
+    claims nothing, so the next settled reply retries. The block is said once, on the first reply of the week where it
+    fits: `mondayView` takes `moment_due` in one UPDATE, so racing replies say it once. A week gone by is never said.
+    `momentWouldShow` and `weeklyMoment` are gone.
+  - **Stats.** `stats.ts approvedWeek` excludes `approved_via 'auto'`, so `activated`, `weekly_active` and `shared`
+    count builder actions only. (Fix round 2 records the automatic add as `'auto'`, with a schema change; the final
+    fixes below change the stats and the points again.)
+  - **Links.** `bench-find.ts withMonday(blocks, before, after)` renders the block. When the rest of the reply has a
+    link, the block drops its page or post link (`mondayBlock(..., { link: false })`).
+  - **Old share answers.** Any non-yes outcome hands off to find (`then_find`); a shared client hears "Okay.".
+    `openShare` is removed (`fixtures/old-share.ts oldShareOffer` writes an old offer for tests).
+- **Fix round 2.**
+  - **Connect consent.** `connect-moment.ts answerConnect` writes `standing_seen.connect_no` on a no and
+    `connect_ok` on a yes; `closeConnect` (nothing to confirm) writes `connect_ok` too. `weekly-moment.ts
+    approveWeek`, for any explicit via (not `'auto'`), lifts `connect_no` and writes `connect_ok`. `weekAdd` runs
+    only when `connect_done` is set, there is no `connect_open` and no `connect_no`, and there is `connect_ok` or an
+    explicit approval (`approved_via` share, connect or email) on some week. Otherwise it fails closed: nothing is
+    added, claimed or marked offered. This also covers builders who answered before deploy and have no marker.
+  - The block never quotes a summary that needs consent (`lastWeekOf.consent`). `weekAdd` claims first
+    (`takeMoment`), then adds; a thrown add releases the claim. `moment_due` is written only when the block has not
+    been said to the builder this week (`moment_said`, set when `mondayView` takes the flag with one plain UPDATE).
+    `weekAddable` is the same check without writing, and the held question's stand-in check reads it.
+  - Not on "show more" (`o.more`) and never over a held question.
+  - `week-links.ts`: the email page's yes after an automatic add re-approves the week (`approved_via !== 'auto'`), so
+    it counts as a builder action.
+  - `builder_points.via` now allows `'auto'` (`db/schema.sql`: drop the constraint if it exists, then add it).
+    `owner_people.points_weeks` and `points_total` count points earned, automatic weeks included.
+- **Fix round 3.**
+  - The Monday block is about last week. `weekly-moment.ts mondayOpener(first, summary, { lastWeek, shipped })`,
+    with no summary, says "You shipped last week." only when the week has ship facts (`MomentView.shipped`, from
+    `hasFacts`); otherwise it drops that sentence. (The final fixes apply the same rule to the weekly email, and to
+    "Nice work.".)
+  - `answerConnect` writes `connect_no`, or `connect_ok`, in the same UPDATE that closes the offer, so a failed
+    write closes nothing and never fails open.
+
+## v4.10.3 Task 4: replay, the Monday probe, docs (2026-11-03, plan: v4.10.3-plan/)
+
+- **Replay.** On a fresh snapshot (`earnkit_replay_1103`, copies per walk), walks A, B, S, R and R-skip pass the gate.
+  The owner's set is empty in this snapshot (Base needs 11 answers), so R-skip plays the same as R.
+- **Walk M (the Monday probe).** `scripts/converse-replay.mts WALK=M` pins the clock (`mock.timers`, Date only, as
+  `v4101-score.test.ts`) to a Monday after `WEEKLY_HOUR_UTC` (`MONDAY`, default 2026-11-09T16:00:00Z), and holds the
+  refresh with a gated reader (`ToolContext.readerDeps`: every read waits, then fails as if offline), so the first find
+  is the updating one. It lets the reader go, waits `REPLY_WAIT_MS`, then plays score and find. Its own gate
+  (`mondayFails`, beside `gateFailures`): no builder text says "updating"; score and find state the same score
+  (the rank fact, else the standing's "Score N"), streak and standing, and show only those numbers; every reply ends
+  on the same program ask (`move_up` kind, project and program); `MOMENT_ADDED` at most once, and no question before
+  the last paragraph. `fixtures/converse.ts` turns gained `{ score: {} }` (the score tool) for it.
+- **The program ask wins over the lighter asks (R6, found by walk M).** The Monday find whose numbers were updating
+  holds the Monday block, so the reply was "quiet", and the check-in (due 7 days after its last ask) took the slot the
+  also-open lead fills, so it ended on "Want me to check in here every Monday?" instead of the Base ask. `bench-find.ts
+  alsoLeadDue(o, key, told)` is the lead's eligibility, pure, on what find already read (the stored lead of this
+  session, this project, not told, showable, not said no to); `alsoLeadCommit` uses it. In `benchView`, `leadDue`
+  (`pathQuiet`, a project and handle, `alsoLeadDue`) takes `quiet` false, so the check-in, wallet, token offer, new
+  repo and titles asks are neither shown nor claimed while the lead can lead. Setup step 3, connect, apply, posts and
+  held questions keep their places ahead of it.
+
+## v4.10.3 final fixes (2026-11-03, plan: v4.10.3-plan/final-review.md; owner rulings F1, F2, F4)
+
+- **F1: the lead's hold on the lighter asks lasts 7 days (owner).** `bench-find.ts Seen.also_first` (`{ [program_id]:
+  iso }`, in `standing_seen`, no new table) is stamped by `alsoLeadCommit` the first time a lead is shown and never
+  re-stamped. `alsoLeadHolds(seen, pid, now)`: no stamp yet, or under `ALSO_HOLD_MS` (7 days). In `benchView`,
+  `leadDue` needs both `alsoLeadDue` and `alsoLeadHolds`, so after 7 days unanswered the check-in, optional wallet,
+  token offer, new-repo nudge and titles question take their turns again (their own once-only rules), and the lead
+  still shows when its slot comes (a ship or "more" reply). A yes tells the program and a no declines it, so either
+  ends the lead. Every reply still ends with one easy reply. The gate (`fixtures/converse.ts PROOF_PATTERNS`) also
+  takes the standing line with no score ("6 weeks shipping in a row.") as the opener's fact.
+- **F2: the funnel stats count any explicit builder action (owner).** `stats.ts builderActed(db, since)` (reads only):
+  a week the builder approved (`approvedWeek`, never `'auto'`), an answer banked (`answer_bank.updated_at`; written
+  only from the builder's answers), an application or not-interested told (`builder_program_status.at`), a yes to a
+  draft (`standing_seen.apply_yes` timestamps) or a check-in answer (`standing_seen.checkin.at`), for any
+  installation of the person's group. Malformed timestamps are skipped (`ISO_RE`), never cast. `activated`: claimed,
+  App-proven repo, an action ever. `weekly_active`: the same people with an action in the last 7 days. `shared`:
+  only `approved_via 'share'` (the builder's own yes to the retired share offer). New key `weeks_on_pages` (after
+  `backers_after_post`): every approved week not hidden, the automatic add included. Labels and `app/api/stats/route.ts` say so.
+- **F3, F9: the Monday opener claims nothing without ship facts.** `weekly-moment.ts mondayOpener(first, summary,
+  { shipped })` (the `lastWeek` option is gone: the reply and the email are both about last week): with no summary,
+  "You shipped last week." only with ship facts, and "Nice work." only with ship facts; otherwise neither.
+  `MondayFacts.shipped`; `digest.ts` passes `last.facts`; the reply passes `MomentView.shipped`.
+- **F4: an automatic add awards no points (owner).** `points.ts awardWeekPoints` returns 0 for `'auto'` (no row), so
+  the builder's later confirmation (the email's "Looks right", a share or connect yes) takes the week over
+  (`approveWeek`) and earns the week's points. `week-facts.ts upsertWeekFacts`' retro award goes through the same
+  function. The `builder_points.via` CHECK keeps `'auto'` (harmless).
+- **F5: an automatic week is still "Not yet confirmed".** `week-facts.ts weekConfirmed(facts)` (approved and not
+  `'auto'`) sets `confirmed` in `bench-data.ts logCards` (the public page) and `feed.ts toCard` (the feed).
+- **F6:** the stale Task 3 sentence (an automatic add recorded as `'share'`, no schema change) is corrected above.
+- **F7:** `db/schema.sql owner_people.last_approved_week` (and so `last_activity_at`'s approved-week term) excludes
+  `'auto'` (the view's `CREATE OR REPLACE`, idempotent).
+- **F8:** `ready-copy.ts alsoMoneyLine` notes that "accelerator" is hardcoded because today's only investor program in
+  the window is one; deriving the kind word is carried to v4.10.4.
+- **F10:** the lead's yes that answers every ask returns `pathSubmit` with `firstFinishedNote` only: the agent shows
+  the finished draft once, above the reply; the reply no longer also prints "Here's your draft:" and its body.
+- **F11:** `conversation.ts standingOnPage` ends on the URL, with no period after it.
+- **(c):** `v410-find.test.ts` asserts the investor clause alone for a long-shot lead (no grant total) with Alliance
+  open, and no money line at all when there is no lead.
+- **Final re-review N1: the email keeps Looks right on an automatic week.** `weekly-moment.ts lastWeek` returns
+  `confirmed` (approved and `approved_via` is not `'auto'`); `digest.ts` drops Looks right and Hide only for a confirmed
+  week, so a week the Monday reply added before the digest went out can still be confirmed (and earn its points) from
+  the email. Test: `v3-monday-email.test.ts` (d3).
+- Carried to v4.10.4: F12 ("the last 3 answers" lists two items), (b) and (e).

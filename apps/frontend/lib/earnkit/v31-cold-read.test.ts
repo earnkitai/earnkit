@@ -14,7 +14,7 @@ import {
   mainProjectNameFor, NOT_ON_GITHUB_YET,
 } from './bench-find';
 import {
-  LOVABLE_PROMPT_ASK, MOMENT_ASK, nextBuild, NO_GITHUB_HINT, POST_HEAD, TITLES_ASK, WALLET_ASK, baseStartSteps, benchReply, builtWith, connectAsk, grantHook,
+  LOVABLE_PROMPT_ASK, MOMENT_ADDED, nextBuild, NO_GITHUB_HINT, POST_HEAD, TITLES_ASK, WALLET_ASK, baseStartSteps, benchReply, builtWith, connectAsk, grantHook,
   grantProgramName, liveNoGithub, pickRepoAsk, qualifySteps, walletOffer, youreIn,
   type BenchView,
 } from './bench-reply';
@@ -101,7 +101,7 @@ test('the approved copy, word for word', () => {
   assert.equal(LOVABLE_PROMPT_ASK, 'Want me to write your Lovable prompt?');
   assert.equal(connectAsk('https://earnkit.com/kit'), 'Make your shipping log public on https://earnkit.com/kit so grant teams can see it?');
   assert.equal(proofAsk('Base Builder Grant Program'), "Congrats on the Base Builder Grant Program. Got the announcement link? I'll turn it into a post.");
-  assert.deepEqual([MOMENT_ASK, POST_HEAD], ['Add last week to your page?', 'Your post for X:']);
+  assert.deepEqual([MOMENT_ADDED, POST_HEAD], ['Last week is on your page.', 'Your post for X:']);
   assert.equal(qualifySteps(BASE, ['codes']), [
     "Your next step toward Base's $5,000 grant:",
     "1. Add Base's Builder Code to your app, a one-line tag Base uses to see your traffic: https://docs.base.org/base-chain/builder-codes/builder-codes",

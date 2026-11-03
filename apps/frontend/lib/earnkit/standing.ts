@@ -17,11 +17,6 @@ export type Standing = {
   /** Fix round 1: null when unknown (a failed read, or a caller only the streak is said to): the part is left out. */
   score: number | null; rank: string | null; streak: number; wonUsd: number | null; applied: number; drafts: number;
   next: { program: string; day: string } | null;
-  /**
-   * v4.10.2 final re-review: this session already showed the Monday block with last week's final score, and the live
-   * score differs: "Score 69 so far this week", so it never reads as a correction of the block's number.
-   */
-  soFar?: boolean;
 };
 
 /**
@@ -46,7 +41,7 @@ export function standingParagraph(s: Standing): string {
     .filter(Boolean).join(', ');
   const parts = [
     // Final review 9: a score of 0 says neither the score nor the rank (the score-0 ruling: nothing to stand on yet).
-    s.score !== null && s.score > 0 ? `Score ${s.score}${s.soFar ? ' so far this week' : ''}${s.rank ? ` · ${s.rank}` : ''}` : null,
+    s.score !== null && s.score > 0 ? `Score ${s.score}${s.rank ? ` · ${s.rank}` : ''}` : null,
     s.streak >= 1 ? (s.streak === 1 ? '1 week shipping' : `${s.streak} weeks shipping in a row`) : null,
     s.wonUsd === null ? null : s.wonUsd > 0 ? `${usd(Math.round(s.wonUsd))} won so far` : 'No grants won yet',
     work || null,

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  MOMENT_ASK, OTHER_PROJECT_ASK, POST_ASK, SHIP_ASK, applyAsk, eventHead, awardAmount, benchReply, fitBar, upcomingShown, connectStanding, namesAccount, qualifyLine, replyState, shipAsk, standingLine, stateAsk,
+  mondayBlock, OTHER_PROJECT_ASK, POST_ASK, SHIP_ASK, applyAsk, eventHead, awardAmount, benchReply, fitBar, upcomingShown, connectStanding, namesAccount, qualifyLine, replyState, shipAsk, standingLine, stateAsk,
   type ApplyPick, type BenchView, type BestFit, type EventPost,
 } from './bench-reply';
 
@@ -146,34 +146,44 @@ test('Task 16: the ship, backing and held steps keep the layout: standing, money
   assert.equal(standingLine('Kit', null, 0), 'Kit is on EarnKit.');
 });
 
-test('Task 16 step 7, v4.0 Task 7: the weekly moment is the Monday block with last week\'s post link; with none, the page; no points', () => {
+test('Task 16 step 7, v4.0 Task 7: the weekly moment is the Monday block with last week\'s post link; with none, the page; no points; v4.10.3 Task 2 (R5): headed "This week", no score row without a live score; Task 3 (R6): no question', () => {
   const link = 'https://earnkit.com/maya/post/abcdefghij';
   const facts = { first: 'Maya', score: 82, change: 4, community: { usd: 0, lastWeekUsd: 0 } };
-  const v = ranked({ moment: { week: 6, place: 'now', rank: 3, post: { text: 'Recipe planner, week 6: added offline mode and fixed several sync bugs.', link }, ...facts } });
-  v.ask = stateAsk({ ...v, share: true });
-  assert.deepEqual(v.ask, { kind: 'share', project_key: RECIPE.key, line: MOMENT_ASK });
-  const out = benchReply(v);
+  const page = 'https://earnkit.com/maya';
+  const out = mondayBlock({ week: 6, place: 'now', rank: 3, post: { text: 'Recipe planner, week 6: added offline mode and fixed several sync bugs.', link }, ...facts, added: true, shipped: true }, page);
   assert.equal(out, [
-    'Your week is ready, Maya. You shipped this week. Nice work.',
+    'Your week is ready, Maya. You shipped last week. Nice work.',
     '',
-    '| | Last week |',
+    '| | This week |',
     '|---|---|',
     '| Shipping score | 82, up 4 |',
     '| Streak | 6 weeks |',
     '',
     `Your post is ready to share: ${link}`,
     '',
-    'Builders who share wins get noticed by programs.',
-    '',
-    'Add last week to your page?',
+    'Last week is on your page.',
   ].join('\n'));
-  oneAsk(out);
+  assert.ok(!out.includes('?'), out);
   assert.doesNotMatch(out, /points|intent/);
   // Nothing new to say: the page is the one link.
-  const none = benchReply({ ...v, moment: { week: 4, place: 'still', rank: 3, post: null, ...facts } });
-  assert.match(none, /\n\nYour page: https:\/\/earnkit\.com\/maya\n\nBuilders who share wins get noticed by programs\.\n\nAdd last week to your page\?$/);
-  oneAsk(none);
-  assert.doesNotMatch(benchReply({ ...v, moment: { week: 0, place: null, rank: 1, post: null, ...facts } }), /Streak/);
+  const none = mondayBlock({ week: 4, place: 'still', rank: 3, post: null, ...facts, added: true }, page);
+  assert.match(none, /\n\nYour page: https:\/\/earnkit\.com\/maya\n\nLast week is on your page\.$/);
+  assert.doesNotMatch(mondayBlock({ week: 0, place: null, rank: 1, post: null, ...facts }, page), /Streak|on your page/, 'no add: nothing said about it');
+  // v4.10.3 Task 2 (R5): no live score: no score row (last week's number is never the stand-in).
+  const noScore = mondayBlock({ week: 6, place: 'now', rank: 3, post: null, ...facts, score: null, change: null }, page);
+  assert.doesNotMatch(noScore, /Shipping score|Last week \|/, noScore);
+  assert.match(noScore, /\| \| This week \|\n\|---\|---\|\n\| Streak \| 6 weeks \|/, noScore);
+  // Fix round 1 (1): no rows at all (no live score, no streak, no community money): no table, never a header alone.
+  const empty = mondayBlock({ week: 0, place: null, rank: 3, post: null, ...facts, score: null, change: null, added: true }, page);
+  assert.doesNotMatch(empty, /\||This week/, empty);
+  // v4.10.3 Task 3 fix round 3 (N2), final fix (F9): a week with no ship facts claims nothing shipped, and no "Nice work.".
+  assert.match(empty, /^Your week is ready, Maya\.\n\nYour page: https:\/\/earnkit\.com\/maya\n\nLast week is on your page\.$/, empty);
+  // R6: a ranked view carrying a moment renders only its own step (bench-find.ts puts the block above it).
+  const v = ranked({ moment: { week: 6, place: 'now', rank: 3, post: null, ...facts } });
+  v.ask = stateAsk(v);
+  assert.equal(v.ask.kind, 'ship');
+  assert.doesNotMatch(benchReply(v), /Your week is ready/);
+  oneAsk(benchReply(v));
 });
 
 test('v3.1 one-tap posts: an event\'s post (went live, won, the builder\'s news): its head, the post, the one-tap link, "Want a different version?"', () => {
@@ -206,14 +216,13 @@ test('v3.1 one-tap posts: an event\'s post (went live, won, the builder\'s news)
   assert.equal(eventHead({ moment: 'coin_intro', input: { name: 'Kit' } }, now), '', 'v4.0 Task 11: an old coin intro draft has no head');
 });
 
-test('Task 16, v4.0 Task 11: the ranked order is connect, apply, share, ship', () => {
+test('Task 16, v4.0 Task 11: the ranked order is connect, apply, ship (v4.10.3 Task 3, R6: share left the order)', () => {
   const apply: ApplyPick = { program_id: 'base-builder-grants', title: 'Base Builder Grant Program', amount: '$5,000', when: null };
-  const all = { state: 'ranked' as const, variant: null, project: RECIPE, link: null, share: true, handle: 'maya', connect: { weeks: 3 }, apply };
+  const all = { state: 'ranked' as const, variant: null, project: RECIPE, link: null, handle: 'maya', connect: { weeks: 3 }, apply };
   assert.equal(stateAsk(all).kind, 'connect');
   // v4.0 Task 11: no backing step; the apply step follows connect.
   assert.equal(stateAsk({ ...all, connect: null }).kind, 'apply');
-  assert.equal(stateAsk({ ...all, connect: null, apply: null }).kind, 'share');
-  assert.deepEqual(stateAsk({ ...all, connect: null, apply: null, share: false }), { kind: 'ship', project_key: RECIPE.key, line: SHIP_ASK });
+  assert.deepEqual(stateAsk({ ...all, connect: null, apply: null }), { kind: 'ship', project_key: RECIPE.key, line: SHIP_ASK });
   assert.equal(replyState({ signedIn: true, project: RECIPE, counted: true }), 'ranked');
 });
 

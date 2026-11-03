@@ -60,7 +60,8 @@ test('owner_people: every tracker column, with the one project, repo, site, rank
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts, hidden) VALUES
     (${id}, ${repo}, ${monday(3)}::date, '{"shipped_code":{"n":2}}'::jsonb, false),
     (${id}, ${repo}, ${monday(4)}::date, '{"shipped_code":{"n":2}}'::jsonb, true),
-    (${id}, ${repo}, ${monday(5)}::date, '{"approved":true}'::jsonb, false)`;
+    (${id}, ${repo}, ${monday(5)}::date, '{"approved":true}'::jsonb, false),
+    (${id}, ${repo}, ${monday(2)}::date, '{"approved":true,"approved_via":"auto"}'::jsonb, false)`;
   const [src] = await sql()<{ id: string }[]>`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proof, state, proposed_by)
     VALUES (${id}, 'repo', ${`https://github.com/${repo}`}, ${repo}, 'github_app', 'verified', 'server') RETURNING id`;
   await sql()`INSERT INTO source_readings (source_id, day, signals, ok) VALUES (${src.id}, current_date - 1, '{"private":true}'::jsonb, true)`;
@@ -102,6 +103,7 @@ test('owner_people: every tracker column, with the one project, repo, site, rank
   assert.equal(r.streak_weeks, 3, 'weeks 1 and 2 committed, week 3 checked; the hidden week 4 ends it');
   assert.equal(r.commit_weeks_12, 3);
   assert.equal(new Date(r.last_commit_week as Date).toISOString().slice(0, 10), monday(1));
+  // v4.10.3 final fix (F7): EarnKit's automatic add (the newer week) is no builder approval.
   assert.equal(new Date(r.last_approved_week as Date).toISOString().slice(0, 10), monday(5));
   const seen = (await sql()<{ t: Date }[]>`SELECT last_seen_at AS t FROM installations WHERE id = ${id}`)[0].t;
   assert.equal((r.last_activity_at as Date).getTime(), Math.max(seen.getTime(), lastWeek(1).getTime(), lastWeek(4).getTime()));

@@ -86,7 +86,8 @@ export async function openConnect(builderId: number, o: ConnectOpen): Promise<vo
 
 /** Nothing to confirm (or answered): standing_seen.connect_done = now, so it is never asked. Never throws. */
 export async function closeConnect(builderId: number, now: Date): Promise<void> {
-  await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) - 'connect_open') || jsonb_build_object('connect_done', ${now.toISOString()}::text)
+  // v4.10.3 Task 3 fix round 2: nothing was declined, so the Monday add may run (connect_ok; bench-find.ts weekAdd).
+  await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) - 'connect_open') || jsonb_build_object('connect_done', ${now.toISOString()}::text, 'connect_ok', ${now.toISOString()}::text)
     WHERE builder_id = ${builderId}`.catch((err: unknown) => console.error('[connect] done', err instanceof Error ? err.name : 'error'));
 }
 
@@ -101,8 +102,15 @@ export async function closeConnect(builderId: number, now: Date): Promise<void> 
 export async function answerConnect(
   builderId: number, projectKey: string | null | undefined, answer: 'yes' | 'no', now: Date,
 ): Promise<{ approved: number; pending: number; best: ConnectBest | null } | null> {
+  // v4.10.3 Task 3 fix rounds 2-3 (consent): a no to making the shipping log public is consent withheld. connect_no is
+  // written in the same UPDATE that closes the offer (it can't fail apart from it, so never open): it stays until an
+  // explicit yes (a connect yes, or a week the builder approves: weekly-moment.ts approveWeek), and the Monday add never
+  // runs while it does (bench-find.ts weekAdd). A yes marks connect_ok and lifts it.
+  const at = now.toISOString();
   const [r] = await sql()<{ o: ConnectOpen }[]>`
-    UPDATE builder_profiles p SET standing_seen = (p.standing_seen - 'connect_open') || jsonb_build_object('connect_done', ${now.toISOString()}::text)
+    UPDATE builder_profiles p SET standing_seen = CASE WHEN ${answer === 'no'}
+        THEN (p.standing_seen - 'connect_open' - 'connect_ok') || jsonb_build_object('connect_done', ${at}::text, 'connect_no', ${at}::text)
+        ELSE (p.standing_seen - 'connect_open' - 'connect_no') || jsonb_build_object('connect_done', ${at}::text, 'connect_ok', ${at}::text) END
     FROM (SELECT standing_seen->'connect_open' AS o FROM builder_profiles WHERE builder_id = ${builderId} FOR UPDATE) old
     WHERE p.builder_id = ${builderId} AND old.o IS NOT NULL
       AND (${!projectKey}::boolean OR lower(old.o->>'key') = lower(${projectKey ?? ''}))

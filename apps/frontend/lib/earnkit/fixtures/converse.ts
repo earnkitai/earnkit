@@ -14,6 +14,8 @@ import { READY_AGAIN_ASK, READY_ASK } from '../ready-copy';
 export type Turn = (
   | { find: { ask?: 'standing' | 'programs'; program?: string } }
   | { tell: Record<string, unknown> }
+  /** v4.10.3 Task 4: the score tool (walk M's Monday probe: find, score, find). */
+  | { score: Record<string, never> }
   | { wait: number }
 ) & {
   /** What the builder says, for the transcript ("sure", "sent"). */
@@ -31,7 +33,7 @@ export type Reply = {
   first: boolean;
   /** A hook reply: it said a new `hook:<program>` part this session (standing_seen.said, the structured marker). */
   hook: boolean;
-  tool: 'find' | 'tell';
+  tool: 'find' | 'tell' | 'score';
   input: Record<string, unknown>;
   says?: string;
   /** What the builder sees: show_to_builder, formatted as the route formats it. */
@@ -42,7 +44,7 @@ export type Reply = {
   reply: Record<string, unknown> | null;
 };
 
-export type Call = (tool: 'find' | 'tell', args: Record<string, unknown>) => Promise<McpResult>;
+export type Call = (tool: 'find' | 'tell' | 'score', args: Record<string, unknown>) => Promise<McpResult>;
 
 async function seenOf(id: number): Promise<{ said?: unknown } | null> {
   const [r] = await sql()<{ s: { said?: unknown } | null }[]>`SELECT standing_seen AS s FROM builder_profiles WHERE builder_id = ${id}`;
@@ -151,7 +153,7 @@ export function conversation(target: ToolContext | number, o: { call?: Call; bui
       session++;
       return null;
     }
-    const [tool, input] = 'find' in t ? (['find', t.find] as const) : (['tell', t.tell] as const);
+    const [tool, input] = 'find' in t ? (['find', t.find] as const) : 'score' in t ? (['score', t.score] as const) : (['tell', t.tell] as const);
     if (tool === 'tell') {
       const why = askMismatch(prev, input);
       if (why) throw new Error(`converse turn ${i}: the tell doesn't answer the previous reply's ask: ${why}`);
@@ -294,6 +296,9 @@ export const PROOF_PATTERNS: RegExp[] = [
   /(?:^|\n|\. )Score \d+, #\d+ of \d+\b/g,
   // The standing line a quiet reply opens with ("Score 0 · Top 22% of builders. 6 weeks shipping in a row."): the builder's.
   /(?:^|\n)Score \d+\b[^\n]*?\b\d+ weeks? shipping in a row\b/g,
+  // v4.10.3 final fix (F1): the same standing line with no score shown ("6 weeks shipping in a row. No grants won yet."),
+  // as the check-in's quiet reply opens once the also-open lead's 7-day hold is over.
+  /(?:^|\n)\d+ weeks? shipping in a row\b/g,
   /\byou(?:'re| are) #\d+ of \d+\b/gi,
   /\b[Yy]ou(?:'re| are) (?:live )?on [A-Z]\w+\b/g,
   /\byour (?:app|project|product|contract)[^.]*\b\d[\d,]* (?:transactions?|txs?|users?)\b/gi,
@@ -310,10 +315,11 @@ const proofFacts = (show: string, names: readonly string[] = []) => {
 const hasProof = (r: Reply, names: readonly string[]) => r.said.some((k) => k.startsWith('proof:')) || proofFacts(r.show, names).length > 0;
 /**
  * A builder with no record yet: only the signed-out opener (its `opener` said part), where no fact exists to show.
- * v4.10.1 Task 3 (R5): or an opener whose record is updating (its `updating` part, bench-find.ts UPDATING_LINE): it may
- * state no score, rank or weeks, so it has no number to stand on; a later hook still needs a proof (rule 4's second half).
+ * v4.10.1 Task 3 (R5): or an opener whose record is updating (v4.10.3 Task 2, R4: its reply's `numbers_updating` flag,
+ * since the builder is told nothing about it): it may state no score, rank or weeks, so it has no number to stand on; a
+ * later hook still needs a proof (rule 4's second half).
  */
-const noRecord = (r: Reply) => r.said.includes('opener') || r.said.includes('updating');
+const noRecord = (r: Reply) => r.said.includes('opener') || r.reply?.numbers_updating === true;
 
 /** Rule 5: an em dash, "coin" or "points" (whole words), an emoji. */
 const COPY: [RegExp, string][] = [[/—/, 'an em dash'], [/\bcoins?\b/i, '"coin"'], [/\bpoints?\b/i, '"points"'], [/\p{Extended_Pictographic}/u, 'an emoji']];

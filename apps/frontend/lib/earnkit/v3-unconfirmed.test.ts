@@ -37,6 +37,30 @@ test('(a) a feed card is confirmed:false until the builder approves the week', d
   assert.equal(after_[0].confirmed, true);
 });
 
+test('v4.10.3 final fix (F5): after the automatic add the feed card still reads "Not yet confirmed"; the builder\'s yes confirms it', dbTest, async () => {
+  const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`v3-unc-${randomBytes(8).toString('hex')}`}) RETURNING id`;
+  const key = `u${RUN}/a${id}`;
+  await sql()`INSERT INTO builder_profiles (builder_id, slug, main_project_key, x_user_id, x_handle, x_name) VALUES (${id}, ${`v3a-${id}`}, ${key}, ${`ax${id}`}, ${`a${RUN}${id}`}, 'Maya')`;
+  await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at) VALUES (${id}, 50, '{}'::jsonb, true, 1, 0, 'v2', 'v2-shipping', now())`;
+  await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped) VALUES (${id}, ${key}, 'Recipe planner', 'app', true, true)`;
+  await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (${id}, 'repo', ${key}, ${key}, 'verified', 'proof_line', 'agent')`;
+  await sql()`INSERT INTO project_updates (builder_id, project_key, week, text, facts) VALUES (${id}, ${key}, ${MON}, 'Pushed code.', ${sql().json({ shipped_code: { n: 3 } } as never)})`;
+  await rankFeed(NOW);
+  assert.equal(await approveWeek(id, key, MON, NOW, 'auto', null), true);
+  const auto = (await feedWeeks(NOW, { only: [id] }))[0].cards;
+  assert.equal(auto[0].confirmed, false, 'an automatic add is not the builder\'s confirmation');
+  assert.equal(await approveWeek(id, key, MON, NOW, 'email', null), true);
+  assert.equal((await feedWeeks(NOW, { only: [id] }))[0].cards[0].confirmed, true);
+});
+
+test('v4.10.3 final fix (F5): logCards marks an automatic week unconfirmed (the page reads "Not yet confirmed")', () => {
+  const cards = logCards([
+    { week: '2026-10-12', text: 'a', facts: { shipped_code: { n: 1 }, approved: true, approved_via: 'auto' } as never },
+    { week: '2026-10-05', text: 'b', facts: { shipped_code: { n: 1 }, approved: true, approved_via: 'email' } as never },
+  ], 'Recipes');
+  assert.deepEqual(cards.map((c) => c.confirmed), [false, true]);
+});
+
 test('(b) logCards sets confirmed from facts.approved; a Started card is never marked', () => {
   const cards = logCards([
     { week: '2026-10-12', text: 'a', facts: { shipped_code: { n: 1 }, approved: true } as never },
