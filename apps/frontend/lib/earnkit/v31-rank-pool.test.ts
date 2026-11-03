@@ -50,7 +50,7 @@ async function builder(tag: string, ages: number[], last: number) {
   const handle = `${tag}${RUN}`.slice(0, 15);
   // v4.3: a no to Base's grant steps (the qualify reply carries no ship line), so the ranked step is the ship step.
   // v4.7.1 T1: check_fits (no fit) asked already too (v4.7.2 T2: said no to for every program, checkFitsAsked).
-  const id = await person({ main: key, claimed: handle, ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z', declined: { [`qualify:${key}`]: new Date().toISOString() } }, projects: [{ key, name: 'App', confirmed: true }] });
+  const id = await person({ main: key, claimed: handle, ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z', connect_ok: '2026-09-01T00:00:00.000Z', declined: { [`qualify:${key}`]: new Date().toISOString() } }, projects: [{ key, name: 'App', confirmed: true }] });
   await checkFitsAsked(id);
   const now = new Date();
   const s = computeScoreV2({ ships: [], commitWeeks: ages.map((i) => isoWeekOf(new Date(now.getTime() - i * 7 * DAY))) }, now);

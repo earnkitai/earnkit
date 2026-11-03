@@ -180,6 +180,65 @@ test('(e) the weekly moment still shows the week after', db, async () => {
   }
 });
 
+/** v4.10.3 Task 3 fix round 2: the next Monday (Oct 19, after the weekly job) with last week (Oct 12) ready. */
+async function nextMonday(me: { id: number; key: string }) {
+  mock.timers.setTime(Date.parse('2026-10-19T16:00:00Z'));
+  await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, ranked)
+    VALUES (${me.id}, '2026-10-18', 40, 0, '{}'::jsonb, '{}'::jsonb, 'v2', ${LIVE_CALIBRATION_V2}, false, true)`;
+  await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts)
+    VALUES (${me.id}, ${me.key}, '2026-10-12', ${sql().json({ checked: true, shipped_code: { n: 1 } } as never)})`;
+}
+const mondayState = async (me: { id: number }) => (await sql()<{ approved: string | null; w: string | null }[]>`
+  SELECT (SELECT facts->>'approved' FROM project_updates WHERE builder_id = ${me.id} AND week = '2026-10-12') AS approved,
+    (SELECT moment_week FROM installations WHERE id = ${me.id}) AS w`)[0];
+
+test('(e3) v4.10.3 Task 3 fix round 2 (consent): a no to the connect offer means no automatic add and no block on Monday; an explicit yes lifts it', db, async () => {
+  await freshBoard();
+  try {
+    const me = await ranked('cnno');
+    await backfilled(me.id, me.key);
+    assert.match(show(await mcpCall(ctx(me.id), 'find', {})), /Make your shipping log public on /);
+    await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'connect', project_key: me.key, answer: 'no' } });
+    assert.ok((await seen(me.id)).connect_no, 'the no is kept');
+    await nextMonday(me);
+    const s = show(await mcpCall(ctx(me.id), 'find', {}));
+    assert.doesNotMatch(s, /Your week is ready|on your page|Add last week/, s);
+    assert.deepEqual(await mondayState(me), { approved: null, w: null }, 'nothing added, claimed or offered');
+    // The builder's own explicit approval of a week (here last week's, as the email page or an old share yes would) lifts it.
+    const { approveWeek } = await import('./weekly-moment');
+    assert.ok(await approveWeek(me.id, me.key, backfillMondays(new Date('2026-10-14T12:00:00Z'))[0], new Date(), 'email', null));
+    assert.equal((await seen(me.id)).connect_no, undefined, 'lifted by an explicit yes');
+    const t = show(await mcpCall(ctx(me.id), 'find', {}));
+    assert.ok(t.includes('Last week is on your page.'), t);
+    assert.deepEqual(await mondayState(me), { approved: 'true', w: '2026-W43' });
+  } finally {
+    mock.timers.setTime(WEDNESDAY);
+  }
+});
+
+test('(e4) v4.10.3 Task 3 fix round 2 (consent): a connect yes still adds on Monday; the pre-deploy shape (answered, no explicit approval ever) is treated as declined', db, async () => {
+  await freshBoard();
+  try {
+    const yes = await ranked('cnys');
+    await backfilled(yes.id, yes.key);
+    await mcpCall(ctx(yes.id), 'find', {});
+    await mcpCall(ctx(yes.id), 'tell', { move_up: { kind: 'connect', project_key: yes.key, answer: 'yes' } });
+    assert.ok((await seen(yes.id)).connect_ok);
+    // A builder answered before v4.10.3: connect_done with no marker and no explicit approval on any week.
+    const old = await ranked('cnod');
+    await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('connect_done', '2026-10-01T00:00:00.000Z'::text) WHERE builder_id = ${old.id}`;
+    await nextMonday(yes);
+    await nextMonday(old);
+    assert.ok(show(await mcpCall(ctx(yes.id), 'find', {})).includes('Last week is on your page.'));
+    assert.equal((await mondayState(yes)).approved, 'true');
+    const o = show(await mcpCall(ctx(old.id), 'find', {}));
+    assert.doesNotMatch(o, /Your week is ready|on your page/, o);
+    assert.deepEqual(await mondayState(old), { approved: null, w: null }, 'fail closed');
+  } finally {
+    mock.timers.setTime(WEDNESDAY);
+  }
+});
+
 test('(e2) same week as the connect yes: the next find never asks about the week just confirmed; the ask is the weekly target', db, async () => {
   await freshBoard();
   const me = await ranked('cng');

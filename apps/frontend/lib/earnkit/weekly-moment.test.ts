@@ -71,7 +71,7 @@ async function builder(tag: string, name: string, ages: number[]) {
   const handle = `${tag}${RUN}`.slice(0, 15);
   // v3 Stage 1 Task 5: past the connect offer (answered once), so last week's row is the weekly moment's (v3-connect.test.ts).
   // v4.3: a no to Base's grant steps (within DECLINE_MS of every clock here), so the ranked step is the ship step.
-  const id = await person({ main: key, claimed: handle, ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z', declined: { [`qualify:${key}`]: '2026-10-01T00:00:00.000Z' } }, projects: [{ key, name: 'App', confirmed: true }] });
+  const id = await person({ main: key, claimed: handle, ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z', connect_ok: '2026-09-01T00:00:00.000Z', declined: { [`qualify:${key}`]: '2026-10-01T00:00:00.000Z' } }, projects: [{ key, name: 'App', confirmed: true }] });
   // v4.7.1 T1: check_fits (no fit) asked already (v4.7.2 T2: said no to for every program, within DECLINE_MS of every clock here).
   await checkFitsAsked(id, '2026-10-01T00:00:00.000Z');
   await sql()`UPDATE builder_profiles SET x_name = ${name} WHERE builder_id = ${id}`;
@@ -264,7 +264,7 @@ test('L6.3 the weekly moment (Task 16 step 7; v4.10.3 R6): the week and a post f
   }
 });
 
-test('L6.4 the moment through score, once per installation (another agent of the same person sees it once too); v4.10.3 R6: the reply adds the week, a week with no row is made by the add; private titles stay hidden; two replies at once show it once', db, async () => {
+test('L6.4 the moment through score, added once per installation, said once a week per builder; v4.10.3 R6: the reply adds the week, a week with no row is made by the add; private titles stay hidden; two replies at once show it once', db, async () => {
   await freshBoard();
   const monday = lastFinishedMonday(new Date());
   const me = await builder('wmsc', 'Sam', [1, 2]);
@@ -287,12 +287,12 @@ test('L6.4 the moment through score, once per installation (another agent of the
   const [{ id: third }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, builder_id) VALUES (${`wm-third-${RUN}-${Date.now()}`}, ${me.id}) RETURNING id`;
   assert.doesNotMatch(show(await mcpCall(ctx(me.id, third), 'find', {})), /Your week is ready|A post for X|Last week is on your page/, 'the approved week is not shown again');
   // A second agent of the same person, last week not yet confirmed and with no ship-log row (removed here): its own
-  // first reply of the week has the moment, once, and its add makes the row, holding only the approval.
+  // first reply of the week adds it again, once (its add makes the row, holding only the approval); fix round 2: the
+  // block was said to this builder this week already (moment_said), so neither reply says it again.
   await sql()`DELETE FROM project_updates WHERE builder_id = ${me.id}`;
   const [{ id: other }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, builder_id) VALUES (${`wm-other-${RUN}-${Date.now()}`}, ${me.id}) RETURNING id`;
   const [a, b] = await Promise.all([mcpCall(ctx(me.id, other), 'find', {}), mcpCall(ctx(me.id, other), 'find', {})]);
-  assert.equal([show(a), show(b)].filter((t) => t.startsWith('Your week is ready')).length, 1, 'two replies at once: one moment');
-  assert.equal([show(a), show(b)].filter((t) => t.includes('Last week is on your page.')).length, 1, 'two replies at once: one add said');
+  assert.equal([show(a), show(b)].filter((t) => t.startsWith('Your week is ready') || t.includes('Last week is on your page.')).length, 0, 'said once a week per builder');
   assert.equal(await approved(), true, 'the add made the week\'s row');
   assert.deepEqual((await profileData(me.id, new Date()))!.log, [], 'an approval-only week is no card');
   // No offer is open: a no to the retired question hands off to find's step (fix round 1, 4) and changes nothing.
@@ -334,7 +334,7 @@ test('v4.10.3 Task 2 (R5): the score moved at the week change: the block shows t
   assert.doesNotMatch(show(f), new RegExp(`so far this week|\\b${live + 8}\\b`), show(f));
 });
 
-test('owner batch fix wave, v4.10.3 Task 3 fix round 1 (security): the moment quotes the stored summary to the builder; the automatic add of a private repo binds no summary (off the page) and only an explicit yes publishes it; one it can\'t show is offered once', db, async () => {
+test('owner batch fix wave, v4.10.3 Task 3 fix rounds 1-2 (security): the block never quotes a summary needing consent; the automatic add of a private repo binds no summary (off the page) and only an explicit yes publishes it; one it can\'t show is offered once', db, async () => {
   await freshBoard();
   const monday = lastFinishedMonday(new Date());
   const me = await builder('wmsy', 'Sam', [1, 2]);
@@ -343,7 +343,8 @@ test('owner batch fix wave, v4.10.3 Task 3 fix round 1 (security): the moment qu
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts, summary)
     VALUES (${me.id}, ${me.key}, ${monday}, ${sql().json({ checked: true } as never)}, 'Fixed the login loop.')`;
   const s = show(await mcpCall(ctx(me.id), 'score', {}));
-  assert.equal(noOpen(s), `Your week is ready, Sam. Fixed the login loop. Nice work.\n\n| | This week |\n|---|---|\n| Shipping score | ${moved(await liveOf(me.id), 30)} |\n\nYour page: https://earnkit.com/${me.handle}\n\nLast week is on your page.\n\nShip code this week to hold #1.\n\nWant me to suggest one small thing to ship?`);
+  // Fix round 2 (N1): the summary needs the builder's consent, so the block never quotes it beside the add.
+  assert.equal(noOpen(s), `Your week is ready, Sam. You shipped this week. Nice work.\n\n| | This week |\n|---|---|\n| Shipping score | ${moved(await liveOf(me.id), 30)} |\n\nYour page: https://earnkit.com/${me.handle}\n\nLast week is on your page.\n\nShip code this week to hold #1.\n\nWant me to suggest one small thing to ship?`);
   assert.equal(links(s).length, 1);
   assert.equal(questions(s), 1);
   const facts = async (id: number) => (await sql()<{ facts: Record<string, unknown> }[]>`SELECT facts FROM project_updates WHERE builder_id = ${id} AND week = ${monday}`)[0].facts;
@@ -500,6 +501,24 @@ test('v4.10.3 Task 3 fix round 1 (3): a failed page add (a database error) claim
   const t = show(await mcpCall(ctx(me.id), 'find', {}));
   assert.match(t, /^Your week is ready, Fay\./, t);
   assert.ok(t.includes('\n\nLast week is on your page.\n\n'), t);
+  assert.deepEqual(await state(), { approved: 'true', w: isoWeekOf(new Date()) });
+});
+
+test('v4.10.3 Task 3 fix round 2 (N3): "show more" claims and adds nothing; the next plain find does', db, async () => {
+  await freshBoard();
+  const monday = lastFinishedMonday(new Date());
+  const me = await builder('wmmo', 'Mo', [1, 2]);
+  await history(me.id, plusDays(monday, 6), 30);
+  await pad('wmpm', 9, [plusDays(monday, 6)]);
+  await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${me.id}, ${me.key}, ${monday}, ${sql().json({ checked: true, shipped_code: { n: 2 } } as never)})`;
+  const state = async () => (await sql()<{ approved: string | null; w: string | null }[]>`
+    SELECT (SELECT facts->>'approved' FROM project_updates WHERE builder_id = ${me.id} AND week = ${monday}) AS approved,
+      (SELECT moment_week FROM installations WHERE id = ${me.id}) AS w`)[0];
+  const more = show(await mcpCall(ctx(me.id), 'find', { more: true }));
+  assert.doesNotMatch(more, /Your week is ready|on your page/, more);
+  assert.deepEqual(await state(), { approved: null, w: null });
+  const t = show(await mcpCall(ctx(me.id), 'find', {}));
+  assert.ok(t.includes('Last week is on your page.'), t);
   assert.deepEqual(await state(), { approved: 'true', w: isoWeekOf(new Date()) });
 });
 

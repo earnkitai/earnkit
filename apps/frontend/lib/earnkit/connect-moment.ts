@@ -86,7 +86,8 @@ export async function openConnect(builderId: number, o: ConnectOpen): Promise<vo
 
 /** Nothing to confirm (or answered): standing_seen.connect_done = now, so it is never asked. Never throws. */
 export async function closeConnect(builderId: number, now: Date): Promise<void> {
-  await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) - 'connect_open') || jsonb_build_object('connect_done', ${now.toISOString()}::text)
+  // v4.10.3 Task 3 fix round 2: nothing was declined, so the Monday add may run (connect_ok; bench-find.ts weekAdd).
+  await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) - 'connect_open') || jsonb_build_object('connect_done', ${now.toISOString()}::text, 'connect_ok', ${now.toISOString()}::text)
     WHERE builder_id = ${builderId}`.catch((err: unknown) => console.error('[connect] done', err instanceof Error ? err.name : 'error'));
 }
 
@@ -109,6 +110,13 @@ export async function answerConnect(
     RETURNING old.o AS o`;
   if (!r) return null;
   const best = r.o.best ?? null;
+  // v4.10.3 Task 3 fix round 2 (consent): a no to making the shipping log public is consent withheld: connect_no stays
+  // until an explicit yes (a connect yes, or a week the builder approves: weekly-moment.ts approveWeek), and the
+  // Monday add never runs while it does (bench-find.ts weekAdd). A yes marks connect_ok and lifts it.
+  await sql()`UPDATE builder_profiles SET standing_seen = CASE WHEN ${answer === 'no'}
+      THEN (standing_seen - 'connect_ok') || jsonb_build_object('connect_no', ${now.toISOString()}::text)
+      ELSE (standing_seen - 'connect_no') || jsonb_build_object('connect_ok', ${now.toISOString()}::text) END
+    WHERE builder_id = ${builderId}`.catch((err: unknown) => console.error('[connect] answer', err instanceof Error ? err.name : 'error'));
   if (answer === 'no') return { approved: 0, pending: 0, best };
   let approved = 0;
   const failed: string[] = [];

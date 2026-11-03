@@ -184,7 +184,7 @@ test('weekCommunityUsd: the creator fees claimed to the token wallet in the week
 async function maya(tag: string) {
   const key = `${tag}${RUN}/app`;
   const handle = `${tag}${RUN}`.slice(0, 15);
-  const id = await person({ main: key, claimed: handle, ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z' }, projects: [{ key, name: 'App', confirmed: true }] });
+  const id = await person({ main: key, claimed: handle, ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z', connect_ok: '2026-09-01T00:00:00.000Z' }, projects: [{ key, name: 'App', confirmed: true }] });
   await sql()`UPDATE builder_profiles SET x_name = 'Maya Lin' WHERE builder_id = ${id}`;
   await sql()`UPDATE builder_live SET score = 85, parts = ${sql().json({ shipping: { points: 85, raw: { mask: 1, live_ships: 0 } } } as never)} WHERE builder_id = ${id}`;
   for (const [day, score] of [[ymd(LAST_T - DAY), 78], [ymd(LAST_T + 6 * DAY), 82]] as const)

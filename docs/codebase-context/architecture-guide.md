@@ -9602,3 +9602,19 @@ This supersedes the per-program need in Task 4: the builder answers once for the
     link, the block drops its page or post link (`mondayBlock(..., { link: false })`).
   - **Old share answers.** Any non-yes outcome hands off to find (`then_find`); a shared client hears "Okay.".
     `openShare` is removed (`fixtures/old-share.ts oldShareOffer` writes an old offer for tests).
+- **Fix round 2.**
+  - **Connect consent.** `connect-moment.ts answerConnect` writes `standing_seen.connect_no` on a no and
+    `connect_ok` on a yes; `closeConnect` (nothing to confirm) writes `connect_ok` too. `weekly-moment.ts
+    approveWeek`, for any explicit via (not `'auto'`), lifts `connect_no` and writes `connect_ok`. `weekAdd` runs
+    only when `connect_done` is set, there is no `connect_open` and no `connect_no`, and there is `connect_ok` or an
+    explicit approval (`approved_via` share, connect or email) on some week. Otherwise it fails closed: nothing is
+    added, claimed or marked offered. This also covers builders who answered before deploy and have no marker.
+  - The block never quotes a summary that needs consent (`lastWeekOf.consent`). `weekAdd` claims first
+    (`takeMoment`), then adds; a thrown add releases the claim. `moment_due` is written only when the block has not
+    been said to the builder this week (`moment_said`, set when `mondayView` takes the flag with one plain UPDATE).
+    `weekAddable` is the same check without writing, and the held question's stand-in check reads it.
+  - Not on "show more" (`o.more`) and never over a held question.
+  - `week-links.ts`: the email page's yes after an automatic add re-approves the week (`approved_via !== 'auto'`), so
+    it counts as a builder action.
+  - `builder_points.via` now allows `'auto'` (`db/schema.sql`: drop the constraint if it exists, then add it).
+    `owner_people.points_weeks` and `points_total` count points earned, automatic weeks included.

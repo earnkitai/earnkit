@@ -179,6 +179,21 @@ test('(c) sendDigests mails the moment for a checked week', db, () =>
   }),
 );
 
+test('(d2) v4.10.3 Task 3 fix round 2 (N2): the email page yes after the Monday reply\'s automatic add takes the week over (via email, a builder action)', db, () =>
+  withEnv(ON, async () => {
+    await freshBoard();
+    const me = await builder('mea');
+    const { approveWeek } = await import('./weekly-moment');
+    assert.ok(await approveWeek(me.id, me.key, LAST, new Date(), 'auto', null));
+    assert.equal((await row(me.id)).facts.approved_via, 'auto');
+    const [auto] = await sql()<{ via: string }[]>`SELECT via FROM builder_points WHERE builder_id = ${me.id} AND week = ${LAST}`;
+    assert.equal(auto.via, 'auto', 'fix round 2 (b): recorded as the automatic add');
+    const approve = weekUrl({ builderId: me.id, key: me.key, monday: LAST, action: 'approve' });
+    assert.match(await html(await weekPost(req(approve, 'POST'))), /Confirmed\./);
+    assert.equal((await row(me.id)).facts.approved_via, 'email', 'the builder\'s own yes counts');
+  }),
+);
+
 test('(d) GET /api/week changes nothing; POST approves with via email and awards points', db, () =>
   withEnv(ON, async () => {
     await freshBoard();

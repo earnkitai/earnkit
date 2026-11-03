@@ -1695,6 +1695,10 @@ CREATE TABLE IF NOT EXISTS builder_points (
   created_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (builder_id, week)
 );
+-- v4.10.3 Task 3 fix round 2: 'auto', the Monday reply's own add (no builder yes). owner_people.points_weeks and
+-- points_total count points earned, automatic weeks included (they are not a count of builder approvals).
+ALTER TABLE builder_points DROP CONSTRAINT IF EXISTS builder_points_via_check;
+ALTER TABLE builder_points ADD CONSTRAINT builder_points_via_check CHECK (via IN ('share', 'connect', 'email', 'auto'));
 
 -- v3 Stage 2: upcoming programs (listed, never a fit, never counted in the money total).
 -- v3.1: this add allows 'unlisted' too (the last add's values), so a rerun over unlisted rows passes.

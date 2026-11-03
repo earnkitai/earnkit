@@ -38,9 +38,6 @@ export const POINTS_LINE = (total: number) => `Points: ${total.toLocaleString('e
 
 /** One row per builder and week (created_at `now`): the points awarded now, or 0 when the week already had its row. */
 export async function awardWeekPoints(builderId: number, week: string, via: ApproveVia, now: Date): Promise<number> {
-  // v4.10.3 Task 3 fix round 1: builder_points.via is checked to share/connect/email; the automatic Monday add is paid
-  // as the share yes it replaced (points rank the week, not the builder's action), so no schema change.
-  const paidVia = via === 'auto' ? 'share' : via;
   let points = CONNECT_POINTS;
   let rank: number | null = null;
   let total: number | null = null;
@@ -51,7 +48,7 @@ export async function awardWeekPoints(builderId: number, week: string, via: Appr
     points = pointsForRank(rank, total);
   }
   const [r] = await sql()<{ points: number }[]>`
-    INSERT INTO builder_points (builder_id, week, points, rank, total, via, created_at) VALUES (${builderId}, ${week}, ${points}, ${rank}, ${total}, ${paidVia}, ${now})
+    INSERT INTO builder_points (builder_id, week, points, rank, total, via, created_at) VALUES (${builderId}, ${week}, ${points}, ${rank}, ${total}, ${via}, ${now})
     ON CONFLICT (builder_id, week) DO NOTHING RETURNING points`;
   return r?.points ?? 0;
 }

@@ -308,12 +308,26 @@ export async function approveWeek(
   const [had] = await sql()<{ facts: WeekFacts }[]>`
     UPDATE project_updates SET facts = ${facts}::jsonb || facts || ${tail('facts')}
     WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key}) AND week = ${monday} RETURNING facts`;
-  if (had) return award(builderId, monday, via, now, had.facts);
+  if (had) {
+    await consented(builderId, via, now);
+    return award(builderId, monday, via, now, had.facts);
+  }
   const [r] = await sql()<{ facts: WeekFacts }[]>`
     INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${builderId}, ${key}, ${monday}, ${facts})
     ON CONFLICT (project_key, week) DO UPDATE SET facts = EXCLUDED.facts || project_updates.facts || ${tail('project_updates.facts')}
     WHERE project_updates.builder_id = EXCLUDED.builder_id RETURNING facts`;
-  return r ? award(builderId, monday, via, now, r.facts) : false;
+  if (!r) return false;
+  await consented(builderId, via, now);
+  return award(builderId, monday, via, now, r.facts);
+}
+/**
+ * v4.10.3 Task 3 fix round 2 (consent): an explicit approval (any via but 'auto') lifts a connect no (connect_no) and
+ * marks consent (connect_ok), so the Monday add may run from then on. Never throws.
+ */
+async function consented(builderId: number, via: ApproveVia, now: Date): Promise<void> {
+  if (via === 'auto') return;
+  await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) - 'connect_no') || jsonb_build_object('connect_ok', ${now.toISOString()}::text)
+    WHERE builder_id = ${builderId}`.catch((err: unknown) => console.error('[moment] consent', err instanceof Error ? err.name : 'error'));
 }
 /** v3 Stage 1: an approval that stood earns the week's points, once, when the week has facts. Never throws. */
 async function award(builderId: number, monday: string, via: ApproveVia, now: Date, facts: WeekFacts): Promise<true> {

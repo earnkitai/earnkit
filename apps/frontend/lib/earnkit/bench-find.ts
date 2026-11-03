@@ -2663,7 +2663,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   const rankedFree = ranked && !walletSetup;
   // v4.10.3 Task 3 fix round 1 (1): the Monday add runs on the first settled reply of the week, whatever it shows (the
   // block is said where it fits: mondayView below). Never while the score and the week are updating.
-  if (ranked && !o.updating && project && handle !== null && !taken) await weekAdd(o.own, id, project.key, now, read.seen);
+  // Fix round 2 (N3): never on "show more" (it claims no one-time thing) and never over a held question.
+  if (ranked && !o.updating && !o.more && !held && project && handle !== null && !taken) await weekAdd(o.own, id, project.key, now, read.seen);
   // v4.3 final review F3: a "show more" call never claims or opens a one-time offer (connect, an event post, a nudge,
   // the weekly moment, the check-in, the wallet step, the token offer, the new-repo nudge, titles): its question is
   // the qualify, apply or ship ask (or none), and each offer stays due for the next plain find.
@@ -2828,7 +2829,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   // backing, the coin's wallet and event posts above); it shows only in a ranked reply with setup step 3 not due and no
   // Monday block to show, once its week is claimed. Then the submit question goes; else it stays held.
   const standIn = Boolean(!more && o.nudge && held && state === 'ranked' && project && handle && !(await walletSetupDue(id, now))
-    && !momentDueNow(read.seen, now) && (await claimNudge(id, now, o.nudge.keep)));
+    && !momentDueNow(read.seen, now) && !((await weekAddable(o.own, id, project.key, now))?.approved === false) && (await claimNudge(id, now, o.nudge.keep)));
   if (standIn) held = null;
   const nudgeOk = standIn || Boolean(rankedFree && !more && project && handle && !held && !connect && !hot);
   const peek = !nudgeOk ? null : standIn ? o.nudge!
@@ -3310,40 +3311,61 @@ const momentDueNow = (seen: Seen, now: Date) => seen.moment_due?.week === isoWee
 /**
  * v4.10.3 Task 3 (R6, owner answer 4), fix round 1 (1, 3): the Monday add, on the first settled reply of the week
  * whatever that reply shows. When this installation hasn't had `now`'s week, the builder had a ranked day last week and
- * last week's ship log is ready (momentReady), last week goes on the page first (approveWeek 'auto': the action a yes
- * to the retired "Add last week to your page?" took, never a consent to a summary), then the week is claimed
- * (takeMoment: one claim however many replies race; approveWeek is idempotent) and the block is left to say
- * (standing_seen.moment_due, also in this reply's read). A failed add claims nothing, so the next settled reply tries
- * again. A week already approved (the connect yes, another agent's add) is claimed with nothing to say. Never before
- * the connect offer is answered, never while updating (benchView never calls it then). Never throws.
+ * last week's ship log is ready (momentReady), the week is claimed (takeMoment: one reply per installation), last
+ * week goes on the page (approveWeek 'auto': the action a yes to the retired "Add last week to your page?" took, never
+ * a consent to a summary) and the block is left to say (standing_seen.moment_due, also in this reply's read). A failed
+ * add releases the claim, so the next settled reply tries again. A week already approved (the connect yes, another
+ * agent's add) is claimed with nothing to say. Never before the connect offer is answered, never while updating
+ * (benchView never calls it then). Never throws.
  */
 async function weekAdd(own: number, id: number, key: string, now: Date, seen: Seen): Promise<void> {
-  if (!(await momentDue(own, now))) return;
-  // Fix round 1: never before the connect offer is answered (it asks to make the shipping log public; until then the
-  // week waits, unclaimed, as the block did behind the offer).
-  const [c] = await sql()<{ settled: boolean }[]>`
-    SELECT COALESCE(standing_seen ? 'connect_done' AND NOT standing_seen ? 'connect_open', false) AS settled FROM builder_profiles WHERE builder_id = ${id}`
-    .catch((err: unknown) => (logged('moment connect')(err), []));
-  if (c?.settled !== true) return;
-  const last = await lastWeekOf(id, key, now).catch(logged('last week'));
-  if (!last || !momentReady(last.checked, now)) return;
-  // v3 Stage 1 fix round 1: a week already confirmed is never shown again; the week is claimed.
-  if (last.approved) {
-    await takeMoment(own, now);
-    return;
-  }
+  const last = await weekAddable(own, id, key, now);
+  if (!last) return;
+  // Fix round 2: the claim first (one reply per installation goes on), released below when the add throws, so a
+  // failed add is retried and a racing reply never claims the week under an add in flight.
+  if (!(await takeMoment(own, now))) return;
+  // v3 Stage 1 fix round 1: a week already confirmed is never shown again; the week stays claimed.
+  if (last.approved) return;
   // Owner batch fix wave: the add binds only to the summary the block shows (one quoted line, never a question mark or
   // a link); fix round 1 (security): a repo whose summary needs the builder's consent binds none (approveWeek 'auto'
   // never does). A summary not bound counts as offered, so it isn't shown again.
   const shown = momentSummary(last.summary ?? null);
   const added = await approveWeek(id, key, last.monday, now, 'auto', null).catch(logged('moment add'));
-  if (added === null) return;
+  const week = isoWeekOf(now);
+  if (added === null) {
+    await sql()`UPDATE installations SET moment_week = NULL WHERE id = ${own} AND moment_week = ${week}`.catch(logged('moment release'));
+    return;
+  }
   if (last.stored && (last.consent || !shown)) await markOffered(id, key, last.monday, last.stored);
-  if (!(await takeMoment(own, now)) || !added) return;
-  const due = { week: isoWeekOf(now), key, monday: last.monday };
-  seen.moment_due = due;
-  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('moment_due', ${sql().json(due as never)}::jsonb)
-    WHERE builder_id = ${id}`.catch(logged('moment due'));
+  if (!added) return;
+  // Left to say, once a week per builder: never again after it was said this week (moment_said; another agent of
+  // the same builder may add too).
+  const due = { week, key, monday: last.monday };
+  const [kept] = await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('moment_due', ${sql().json(due as never)}::jsonb)
+    WHERE builder_id = ${id} AND COALESCE(standing_seen->>'moment_said', '') <> ${week} RETURNING 1`.catch((err: unknown) => (logged('moment due')(err), []));
+  if (kept) seen.moment_due = due;
+}
+
+/**
+ * Fix round 2: weekAdd's own checks, with no write: last week (ready) when this installation hasn't had `now`'s week
+ * and the builder's consent stands; else null. Also benchView's peek, for a held question the block will follow.
+ */
+async function weekAddable(own: number, id: number, key: string, now: Date) {
+  if (!(await momentDue(own, now))) return null;
+  // Fix round 1: never before the connect offer is answered (it asks to make the shipping log public; until then the
+  // week waits, unclaimed, as the block did behind the offer). Fix round 2 (consent): never after a no to it
+  // (connect_no) until an explicit yes lifts it; consent is connect_ok (a connect yes, nothing to confirm, an explicit
+  // week approval), or, for a builder from before (no marker), an explicit approval on any week. Else: fail closed,
+  // with nothing added, claimed or marked offered.
+  const [c] = await sql()<{ settled: boolean }[]>`
+    SELECT COALESCE(p.standing_seen ? 'connect_done' AND NOT p.standing_seen ? 'connect_open' AND NOT p.standing_seen ? 'connect_no'
+      AND (p.standing_seen ? 'connect_ok' OR EXISTS (SELECT 1 FROM project_updates u WHERE u.builder_id = p.builder_id
+        AND u.facts->>'approved_via' IN ('share', 'connect', 'email'))), false) AS settled
+    FROM builder_profiles p WHERE p.builder_id = ${id}`
+    .catch((err: unknown) => (logged('moment connect')(err), []));
+  if (c?.settled !== true) return null;
+  const last = await lastWeekOf(id, key, now).catch(logged('last week'));
+  return last && momentReady(last.checked, now) ? last : null;
 }
 
 /**
@@ -3354,17 +3376,19 @@ async function weekAdd(own: number, id: number, key: string, now: Date, seen: Se
  * (owner ruling 5). Null: nothing to say. Never throws.
  */
 async function mondayView(id: number, handle: string, now: Date, live: Pick<Standing, 'score' | 'streak'>, seen: Seen): Promise<MomentView | null> {
-  if (!momentDueNow(seen, now)) return null;
-  const [taken] = await sql()<{ o: { key: string; monday: string } }[]>`
-    UPDATE builder_profiles p SET standing_seen = p.standing_seen - 'moment_due'
-    FROM (SELECT standing_seen->'moment_due' AS o FROM builder_profiles WHERE builder_id = ${id} FOR UPDATE) old
-    WHERE p.builder_id = ${id} AND old.o->>'week' = ${isoWeekOf(now)}
-    RETURNING old.o AS o`.catch((err: unknown) => (logged('moment take')(err), []));
+  const due = seen.moment_due;
+  if (!due || !momentDueNow(seen, now)) return null;
+  // One plain UPDATE is the claim (the row's own lock), so two replies at once say it once.
+  const taken = await sql()`UPDATE builder_profiles SET standing_seen = (standing_seen - 'moment_due') || jsonb_build_object('moment_said', ${due.week}::text)
+    WHERE builder_id = ${id} AND standing_seen->'moment_due'->>'week' = ${due.week} RETURNING 1`
+    .catch((err: unknown) => (logged('moment take')(err), []));
   seen.moment_due = undefined;
-  if (!taken) return null;
-  const last = await lastWeekOf(id, taken.o.key, now).catch(logged('last week'));
-  if (!last || last.monday !== taken.o.monday) return null;
-  const shown = momentSummary(last.summary ?? null);
+  if (taken.length === 0) return null;
+  const last = await lastWeekOf(id, due.key, now).catch(logged('last week'));
+  if (!last || last.monday !== due.monday) return null;
+  // Fix round 2 (N1): a summary that needs the builder's consent (a private repo, titles off) is never quoted beside
+  // "Last week is on your page.", which the automatic add made true without it.
+  const shown = last.consent ? null : momentSummary(last.summary ?? null);
   // v4.0 Task 7: the Monday block's first name and what the community sent (none on a failed read, logged).
   const [post, who, community] = await Promise.all([
     weeklyPost(id, handle, live.streak, now),

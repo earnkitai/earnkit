@@ -114,7 +114,7 @@ async function owner(tag: string, o: { bank?: boolean | 'team'; contact?: boolea
   await installApp({ builderId: c.id, repoKey: key, login: handle, gh });
   const weeks = Array.from({ length: 6 }, (_, k) => isoWeekOf(new Date(Date.now() - k * 7 * 86_400_000)));
   await sql()`UPDATE builder_projects SET commit_weeks = ${weeks}::text[], shipped = true, kind = 'app' WHERE builder_id = ${c.id} AND lower(project_key) = lower(${key})`;
-  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('connect_done', now()::text) WHERE builder_id = ${c.id}`;
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('connect_done', now()::text, 'connect_ok', now()::text) WHERE builder_id = ${c.id}`;
   // Final fix (M8): an agent with no folder of the code (agent-reach.ts hosted).
   if (o.hosted) await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || '{"no_folder": true}'::jsonb WHERE builder_id = ${c.id}`;
   if (o.bank !== false) {

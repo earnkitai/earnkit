@@ -169,7 +169,9 @@ export async function weekPost(request: Request): Promise<Response> {
     if (seenHash && (!had?.summary || summaryHash(had.summary) !== seenHash)) return weekPage(r, WEEK_TEXT.changed, 409);
     const seen = seenHash ? had!.summary : null;
     // Approved again when not approved yet, or when the page showed a summary the approval is not bound to.
-    const stands = had?.facts?.approved === true && (seen === null || had.facts.approved_summary === seen);
+    // v4.10.3 Task 3 fix round 2: a week the Monday reply added itself ('auto') is approved again, so the builder's own
+    // yes takes it over (approved_via 'email') and counts as their action.
+    const stands = had?.facts?.approved === true && had.facts.approved_via !== 'auto' && (seen === null || had.facts.approved_summary === seen);
     if (!stands && !(await approveWeek(builderId, r.key, monday, now, 'email', seen))) return bad();
     // Fix round 1: Looks right after Hide shows the week again (the page says it does).
     await sql()`UPDATE project_updates SET hidden = false
