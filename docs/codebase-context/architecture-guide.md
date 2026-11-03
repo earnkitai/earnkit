@@ -9452,7 +9452,8 @@ This supersedes the per-program need in Task 4: the builder answers once for the
     `ready.not_eligible: [{ id, title }]` for the agent. It names every chain the program accepts.
   - **arbitrum (R4).** `chains.ts` CHAINS, CHAIN_NAMES, CHAIN_EXPLAINED; `match.ts` SIGNALS (42161 and arb1.arbitrum.io /
     arbiscan.io; 421614 and the Sepolia hosts; viem `arbitrum`, `arbitrumSepolia`); `verify.ts` `ARBITRUM_RPC_URL`
-    (default `https://arb1.arbitrum.io/rpc`); `programs/arbitrum-open-house-sao-paulo.json` chains `["arbitrum"]`. No
+    (default `https://arb1.arbitrum.io/rpc`); `programs/arbitrum-open-house-sao-paulo.json` chains `["arbitrum", "robinhood"]` (v4.10.3 R7: the source names
+    Robinhood Chain as eligible; the owner kept both tags on 2026-11-03). No
     logo (ChainLogo draws only BENCH_CHAINS). `match.test` uses `polygon` as the unknown chain.
 - **Task 3: deadlines and shipping for the agent (R5, R6).**
   - `deadline.ts timeLeftWords` (hours under 48 via `hoursLeft`, "in N days" from 48 h, null once passed) and
@@ -9551,7 +9552,8 @@ This supersedes the per-program need in Task 4: the builder answers once for the
 - **One score (R5).** The Monday block shows the live score and streak: `weeklyMoment(..., live)` takes the reply's
   `Standing` (`readStanding`, `builder_live`), so `MomentView.score` is the live score (null: no score row),
   `change` is live minus last week's final (`lastWeekOf`), and `week` is the live streak (also the `proof:streak=N`
-  said part). `mondayReply` heads the table "This week". Last week's number itself never shows. The share post
+  said part). `mondayReply` (renamed `mondayBlock` in Task 3) heads the table "This week". Last week's number itself
+  never shows. The share post
   (`weeklyPost`) keeps last week's week count (`weekNumber`), since it is about last week. `Standing.soFar`,
   `momentScoreSaid` / `momentScoreOf` and "so far this week" are gone. The weekly email (`mondayLines`) is unchanged.
 - **Fix round 1.** `mondayReply` emits no table when `mondayRows` is empty (never a header alone). The block shows
@@ -9567,11 +9569,11 @@ This supersedes the per-program need in Task 4: the builder answers once for the
   mondayBlock(m, page)` (was `mondayReply`) is the opener, the table, the cheer, the X post link (a link, never a
   question) or the page, then `MOMENT_ADDED` ("Last week is on your page.") when `MomentView.added`. No why, no money
   line, no ask. `rankedBody` no longer renders the moment.
-- **The add.** `bench-find.ts weeklyMoment`, once it claims the week (`takeMoment`), calls `approveWeek(id, key,
-  monday, now, 'share', shown)` directly (the action `answerShare` takes on a yes), in place of `openShare`. A failed
-  add is logged ("moment add") and `added` is false, so the block says nothing about the page. At most once a week per
-  installation (`moment_week`) and per builder (an approved week is never shown again); never while updating (no
-  caller runs it then). The stats' `shared` counts these adds (`approved_via 'share'`).
+- **The add (as first built; fix rounds 1 to 3 below give the shipped form).** The block's yes action, `approveWeek`,
+  runs by itself on the first settled reply of the week, with no question. The shipped rules: `weekAdd` in `benchView`,
+  `approveWeek(..., 'auto', null)` (never consents to a summary), claim then add, at most once a week per installation
+  (`moment_week`) and per builder, never while updating, never on "more" or over a held question, and only with
+  connect consent. `weeklyMoment` and `openShare` are gone. The stats exclude `'auto'` adds.
 - **Where it rides.** `benchView`'s `mondayShown` pushes the block into `ViewIn.monday`; `benchFind` and `benchScore`
   put it above the reply (after the answer, the alerts and the opener, before `ahead`), so the reply's one easy reply
   (the program ask: apply, the also-open lead, the deferred path move, or the ranked rest) stays last. A path reply
@@ -9624,3 +9626,24 @@ This supersedes the per-program need in Task 4: the builder answers once for the
     `hasFacts`); otherwise it drops that sentence. The weekly email's opener is unchanged.
   - `answerConnect` writes `connect_no`, or `connect_ok`, in the same UPDATE that closes the offer, so a failed
     write closes nothing and never fails open.
+
+## v4.10.3 Task 4: replay, the Monday probe, docs (2026-11-03, plan: v4.10.3-plan/)
+
+- **Replay.** On a fresh snapshot (`earnkit_replay_1103`, copies per walk), walks A, B, S, R and R-skip pass the gate.
+  The owner's set is empty in this snapshot (Base needs 11 answers), so R-skip plays the same as R.
+- **Walk M (the Monday probe).** `scripts/converse-replay.mts WALK=M` pins the clock (`mock.timers`, Date only, as
+  `v4101-score.test.ts`) to a Monday after `WEEKLY_HOUR_UTC` (`MONDAY`, default 2026-11-09T16:00:00Z), and holds the
+  refresh with a gated reader (`ToolContext.readerDeps`: every read waits, then fails as if offline), so the first find
+  is the updating one. It lets the reader go, waits `REPLY_WAIT_MS`, then plays score and find. Its own gate
+  (`mondayFails`, beside `gateFailures`): no builder text says "updating"; score and find state the same score
+  (the rank fact, else the standing's "Score N"), streak and standing, and show only those numbers; every reply ends
+  on the same program ask (`move_up` kind, project and program); `MOMENT_ADDED` at most once, and no question before
+  the last paragraph. `fixtures/converse.ts` turns gained `{ score: {} }` (the score tool) for it.
+- **The program ask wins over the lighter asks (R6, found by walk M).** The Monday find whose numbers were updating
+  holds the Monday block, so the reply was "quiet", and the check-in (due 7 days after its last ask) took the slot the
+  also-open lead fills, so it ended on "Want me to check in here every Monday?" instead of the Base ask. `bench-find.ts
+  alsoLeadDue(o, key, told)` is the lead's eligibility, pure, on what find already read (the stored lead of this
+  session, this project, not told, showable, not said no to); `alsoLeadCommit` uses it. In `benchView`, `leadDue`
+  (`pathQuiet`, a project and handle, `alsoLeadDue`) takes `quiet` false, so the check-in, wallet, token offer, new
+  repo and titles asks are neither shown nor claimed while the lead can lead. Setup step 3, connect, apply, posts and
+  held questions keep their places ahead of it.

@@ -2897,11 +2897,34 @@ programCard), else `getProgramRow` in parallel; `standing_seen.needs_silent`.
 - `bench-find.ts` `updatingReply(r)` (pure: no builder line, `numbers_updating` and `numbers_note` only); `directAnswer`
   answers a standing question while updating with the no-score copy; `weeklyMoment(..., live)` (the live score, its
   change since last week's final, the live streak).
-- `bench-reply.ts` `MomentView.score` is `number | null`; `mondayReply` heads "This week". `weekly-moment.ts`
+- `bench-reply.ts` `MomentView.score` is `number | null`; `mondayReply` (Task 3: `mondayBlock`) heads "This week". `weekly-moment.ts`
   `mondayRows` skips the score row at null. `standing.ts` `Standing.soFar` removed.
 - `fixtures/converse.ts` `noRecord` keys off `reply.numbers_updating`. Tests: `v4101-score.test.ts`,
   `weekly-moment.test.ts` ("v4.10.3 Task 2"), `bench-reply.test.ts`, `v31-rank-pool.test.ts`, `v4102-next-step.test.ts`.
 - Fix round 1: `conversation.ts standingOnPage`; `ViewIn.scored`; `weeklyPost(..., live.streak)`; `mondayReply` skips an empty table.
+
+## v4.10.3 Task 3: one ask
+
+- `bench-reply.ts` `mondayBlock(m, page, { link })` (was `mondayReply`: no question, no why, no money line),
+  `MOMENT_ADDED`; `MOMENT_ASK`, `SHARE_WHY`, `SHARE_NOTE` removed; `share` out of `stateAsk`; `MomentView.added`,
+  `.shipped`.
+- `bench-find.ts` `weekAdd` (claim, then `approveWeek(..., 'auto', null)`; connect consent required),
+  `weekAddable`, `mondayView` (takes `moment_due` once; `moment_said`), `withMonday(blocks, before, after)`;
+  `weeklyMoment`, `momentWouldShow`, `openShare` removed. Old pending `share` answers in `benchMoveUp` hand off to
+  find (`then_find`).
+- `weekly-moment.ts` `ApproveVia` `'auto'` (binds no summary; an explicit via lifts `connect_no`, writes
+  `connect_ok`), `lastWeekOf.consent`, `mondayOpener(first, summary, { lastWeek, shipped })`. `connect-moment.ts`
+  `answerConnect` / `closeConnect` write `connect_no` / `connect_ok` in the closing UPDATE. `stats.ts approvedWeek`
+  excludes `'auto'`; `week-links.ts` re-approves after an auto add; `db/schema.sql` `builder_points.via` allows
+  `'auto'`. Test helper: `fixtures/old-share.ts oldShareOffer`.
+
+## v4.10.3 Task 4: replay, the Monday probe
+
+- `scripts/converse-replay.mts` `WALK=M` (`walkM`, `mondayFails`; `MONDAY` env, a Monday at or after 15:00 UTC).
+  `fixtures/converse.ts` `Turn` `{ score: {} }`, `Reply.tool` / `Call` include `'score'`.
+- `bench-find.ts` `alsoLeadDue` (pure lead eligibility; `alsoLeadCommit` reads it) and `benchView`'s `leadDue`
+  (keeps the lighter asks out of the lead's slot). Test: `v410-find.test.ts` ("v4.10.3 Task 4").
+- Walk transcripts: `.superpowers/sdd/v4.10.3-plan/walks/`.
 
 ## v4.10.2 Task 5: replay fixes (the next step after the Monday block)
 
