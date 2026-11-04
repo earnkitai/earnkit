@@ -5,7 +5,7 @@
  */
 import { CHAIN_REGISTRY, chainOfId } from './chains';
 import { sql } from './db';
-import { readRepo, readRepoObject, type RepoRead } from './github';
+import { GitHubError, readRepo, readRepoObject, type RepoRead } from './github';
 import type { Project } from './project-input';
 
 export type RepoFacts = {
@@ -119,24 +119,26 @@ function deployFolderChains(paths: string[]): string[] {
 /** Chains and contract addresses from the picked files plus the tree's deploy folders. Pure. */
 export function detectCode(files: { path: string; text: string }[], paths: string[]) {
   const chains = new Map<string, Hit>();
-  const contracts: { chain: string; address: string }[] = [];
+  const found: { chain: string; address: string }[] = [];
   for (const f of files) {
     const here = chainsInFile(f.path, f.text);
     for (const [chain, hit] of here) chains.set(chain, { mainnet: hit.mainnet || chains.get(chain)?.mainnet === true });
-    // An address is attributed to the file's one signalled chain, or to the one its file name names;
-    // otherwise left out (a wrong chain is worse than none).
-    const named = Object.keys(CHAIN_REGISTRY).filter((c) => f.path.toLowerCase().includes(c));
-    const home = here.size === 1 ? [...here.keys()][0] : named.length === 1 ? named[0] : null;
-    if (!home) continue;
+    // An address belongs to the file's own signalled chain; a chain slug as a whole word of the path
+    // decides between several signals, or names the chain when the file has none. Else it is left out.
+    const tokens = new Set(f.path.toLowerCase().split(/[/._-]+/));
+    const bySlug = (slugs: string[]) => slugs.filter((c) => tokens.has(c));
+    const signalled = [...here.keys()];
+    const pool = signalled.length === 1 ? signalled : signalled.length > 1 ? bySlug(signalled) : bySlug(Object.keys(CHAIN_REGISTRY));
+    if (pool.length !== 1) continue;
     for (const a of f.text.match(/\b0x[0-9a-fA-F]{40}\b/g) ?? []) {
       const address = a.toLowerCase();
-      if (address !== ZERO && !KNOWN_TOKEN_ADDRESSES.has(address) && !contracts.some((c) => c.address === address)) contracts.push({ chain: home, address });
+      if (address !== ZERO && !KNOWN_TOKEN_ADDRESSES.has(address) && !found.some((c) => c.address === address)) found.push({ chain: pool[0], address });
     }
   }
   for (const chain of deployFolderChains(paths)) chains.set(chain, { mainnet: true });
   return {
     chains: [...chains].map(([chain, h]) => ({ chain, mainnet: h.mainnet, basis: 'code' as const })),
-    contracts: contracts.slice(0, 10),
+    contracts: found.filter((c) => chains.has(c.chain)).slice(0, 10),
   };
 }
 
@@ -194,18 +196,43 @@ function codeFactsOf(r: RepoRead): CodeFacts {
 async function cachedCodeFacts(key: string, f: Fetch, now: Date): Promise<CodeFacts> {
   const [row] = await sql()<{ facts: CodeFacts; pushed_at: Date | null; fetched_at: Date }[]>`
     SELECT facts, pushed_at, fetched_at FROM repo_cache WHERE repo = ${key}`;
+  const forget = () => sql()`DELETE FROM repo_cache WHERE repo = ${key}`;
   if (row) {
     const age = now.getTime() - row.fetched_at.getTime();
     if (age >= 0 && age < HOUR_MS) return row.facts;
     if (age >= 0 && age < 7 * DAY_MS && row.pushed_at) {
-      const live = await readRepoObject(key, undefined, f);
+      let live;
+      try {
+        live = await readRepoObject(key, undefined, f);
+      } catch (err) {
+        // Gone or private: unreadable, so the cached copy must not outlive it. Anything else is transient.
+        if (err instanceof GitHubError && err.status === 404) {
+          await forget();
+          throw err;
+        }
+        return row.facts;
+      }
+      if (live.private === true) {
+        await forget();
+        throw new GitHubError('GitHub: repo is private', 404);
+      }
       if (Date.parse(live.pushed_at) === row.pushed_at.getTime()) return row.facts;
     }
   }
-  const facts = codeFactsOf(await readRepo(key, { fetch: f }));
-  await sql()`
-    INSERT INTO repo_cache (repo, facts, fetched_at, pushed_at) VALUES (${key}, ${sql().json(facts)}, ${now}, ${facts.pushed_at})
-    ON CONFLICT (repo) DO UPDATE SET facts = EXCLUDED.facts, fetched_at = EXCLUDED.fetched_at, pushed_at = EXCLUDED.pushed_at`;
+  let read: RepoRead;
+  try {
+    read = await readRepo(key, { fetch: f });
+  } catch (err) {
+    if (row && err instanceof GitHubError && err.status === 404) await forget();
+    throw err;
+  }
+  const facts = codeFactsOf(read);
+  // A partial read (a failed tree or file) is returned but never cached.
+  if (!read.partial) {
+    await sql()`
+      INSERT INTO repo_cache (repo, facts, fetched_at, pushed_at) VALUES (${key}, ${sql().json(facts)}, ${now}, ${facts.pushed_at})
+      ON CONFLICT (repo) DO UPDATE SET facts = EXCLUDED.facts, fetched_at = EXCLUDED.fetched_at, pushed_at = EXCLUDED.pushed_at`;
+  }
   return facts;
 }
 

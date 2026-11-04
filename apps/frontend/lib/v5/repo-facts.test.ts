@@ -1,7 +1,7 @@
 import { after, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
-import { repoFacts } from './repo-facts';
+import { detectCode, repoFacts } from './repo-facts';
 import { parseProject } from './project-input';
 import { replayFetch } from './fixtures/github';
 
@@ -30,11 +30,12 @@ test('EarnKit: base mainnet by code, readme excerpt under 2 KB, markup stripped'
   assert.equal(f.builder_codes, false);
 });
 
-test('Base app: mainnet by code, its own contract kept on base, known tokens dropped', async () => {
+test('Base app: mainnet by code; known tokens dropped; no address on a guessed chain', async () => {
   const rec = replayFetch('onchain-reaction');
   const f = await repoFacts(project({ repo_url: `https://github.com/${rec.repo}` }), { gh: rec.fetch, now: NOW });
   assert.ok(f.chains.some((c) => c.chain === 'base' && c.mainnet && c.basis === 'code'));
-  assert.ok(f.contracts.some((c) => c.chain === 'base' && c.address === '0x50f88fe97f72cd3e75b9eb4f747f59bceba80d59'));
+  // Its contract files sit in multi-chain files or in camel-case names with no chain word: left out, not guessed.
+  for (const c of f.contracts) assert.ok(f.chains.some((x) => x.chain === c.chain));
   for (const c of f.contracts) assert.match(c.address, /^0x[0-9a-f]{40}$/);
   assert.ok(!f.contracts.some((c) => c.address === '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913'));
 });
@@ -153,4 +154,106 @@ test('cache: a new push re-reads everything; so does a row older than 7 days', a
   const old = replayFetch('nextjs-dashboard');
   await repoFacts(p, { gh: old.fetch, now: new Date(NOW.getTime() + 10 * DAY) });
   assert.ok(old.calls.length >= first);
+});
+
+const cached = async () => (await sql()`SELECT repo FROM repo_cache`).length;
+/** A fetch that answers `status` to URLs matching `re`, else replays the recording. */
+const failing = (rec: ReturnType<typeof replayFetch>, re: RegExp, status: number, body = 'x'): typeof fetch =>
+  ((u: RequestInfo | URL, i?: RequestInit) => (re.test(String(u)) ? (rec.calls.push(String(u)), Promise.resolve(new Response(body, { status }))) : rec.fetch(u, i))) as typeof fetch;
+
+test('a 403 on the tree call: usable facts, nothing cached', async () => {
+  const rec = replayFetch('onchain-reaction');
+  const f = await repoFacts(project({ repo_url: `https://github.com/${rec.repo}`, chains: [{ chain: 'arc', mainnet: false }] }), {
+    gh: failing(rec, /\/git\/trees\//, 403),
+    now: NOW,
+  });
+  assert.equal(f.public, true);
+  assert.deepEqual(f.chains, [{ chain: 'arc', mainnet: false, basis: 'reported' }]);
+  assert.equal(await cached(), 0);
+});
+
+test('a failed picked-file read is partial and not cached', async () => {
+  const rec = replayFetch('onchain-reaction');
+  const f = await repoFacts(project({ repo_url: `https://github.com/${rec.repo}` }), { gh: failing(rec, /\/lib\/contracts\.ts$/i, 500), now: NOW });
+  assert.equal(f.public, true);
+  assert.equal(await cached(), 0);
+});
+
+test('a 429 on the first read: reported only, nothing cached', async () => {
+  const rec = replayFetch('onchain-reaction');
+  const f = await repoFacts(project({ repo_url: `https://github.com/${rec.repo}`, chains: [{ chain: 'base', mainnet: true }] }), {
+    gh: failing(rec, /api\.github\.com\/repos\/[^/]+\/[^/]+$/, 429),
+    now: NOW,
+  });
+  assert.equal(f.public, false);
+  assert.equal(f.as_reported, true);
+  assert.deepEqual(f.chains, [{ chain: 'base', mainnet: true, basis: 'reported' }]);
+  assert.equal(await cached(), 0);
+});
+
+test('an address in database.ts with no chain signal is no contract', () => {
+  const text = `export const OWNER = '0x${'c'.repeat(40)}';`;
+  assert.deepEqual(detectCode([{ path: 'src/database.ts', text }, { path: 'src/search.ts', text }], []).contracts, []);
+});
+
+test('a chain slug as a whole path word attributes an address, but only for a detected chain', () => {
+  const addr = `0x${'d'.repeat(40)}`;
+  const text = `const A = '${addr}';`;
+  const withChain = detectCode([{ path: 'contracts/Base.sol', text }, { path: 'x/config.ts', text: 'https://mainnet.base.org' }], []);
+  assert.deepEqual(withChain.contracts, [{ chain: 'base', address: addr }]);
+  assert.deepEqual(detectCode([{ path: 'contracts/Base.sol', text }], []).contracts, []);
+});
+
+test('stale row, 403 on revalidation: the cached facts come back with no more calls', async () => {
+  const rec = replayFetch('onchain-reaction');
+  const p = project({ repo_url: `https://github.com/${rec.repo}` });
+  const first = await repoFacts(p, { gh: rec.fetch, now: NOW });
+  const before = rec.calls.length;
+  const later = await repoFacts(p, { gh: failing(rec, /api\.github\.com\/repos\/[^/]+\/[^/]+$/, 403), now: new Date(NOW.getTime() + DAY) });
+  assert.equal(rec.calls.length, before + 1);
+  assert.equal(later.public, true);
+  assert.deepEqual(later.chains, first.chains);
+  assert.equal(await cached(), 1);
+});
+
+test('a cached repo that turns private drops out: reported only, row gone', async () => {
+  const rec = replayFetch('nextjs-dashboard');
+  const p = project({ repo_url: `https://github.com/${rec.repo}` });
+  await repoFacts(p, { gh: rec.fetch, now: NOW });
+  assert.equal(await cached(), 1);
+  const priv = replayFetch('nextjs-dashboard', (u, b) => (u.endsWith(`/repos/${rec.repo.toLowerCase()}`) ? b.replace(/"private":\s*false/, '"private":true') : b));
+  const f = await repoFacts(p, { gh: priv.fetch, now: new Date(NOW.getTime() + DAY) });
+  assert.equal(f.public, false);
+  assert.equal(f.as_reported, true);
+  assert.equal(await cached(), 0);
+});
+
+test('a repo gone (404) on revalidation also drops the row', async () => {
+  const rec = replayFetch('nextjs-dashboard');
+  const p = project({ repo_url: `https://github.com/${rec.repo}` });
+  await repoFacts(p, { gh: rec.fetch, now: NOW });
+  const f = await repoFacts(p, { gh: failing(rec, /api\.github\.com\/repos\/[^/]+\/[^/]+$/, 404), now: new Date(NOW.getTime() + DAY) });
+  assert.equal(f.as_reported, true);
+  assert.equal(await cached(), 0);
+});
+
+test('no README: excerpt null, the rest intact and cached', async () => {
+  const rec = replayFetch('saber-distributor');
+  const tree = JSON.parse(JSON.stringify({ tree: [{ path: 'Anchor.toml', type: 'blob', size: 500 }] }));
+  const f = await repoFacts(project({ repo_url: `https://github.com/${rec.repo}` }), {
+    gh: failing(rec, /\/git\/trees\//, 200, JSON.stringify(tree)),
+    now: NOW,
+  });
+  assert.equal(f.readme_excerpt, null);
+  assert.deepEqual(f.chains, [{ chain: 'solana', mainnet: true, basis: 'code' }]);
+  assert.equal(await cached(), 1);
+});
+
+test('an empty tree: no chains, no excerpt, public, and cached', async () => {
+  const rec = replayFetch('saber-distributor');
+  const f = await repoFacts(project({ repo_url: `https://github.com/${rec.repo}` }), { gh: failing(rec, /\/git\/trees\//, 200, '{"tree":[]}'), now: NOW });
+  assert.equal(f.public, true);
+  assert.deepEqual(f.chains, []);
+  assert.equal(f.readme_excerpt, null);
+  assert.equal(await cached(), 1);
 });

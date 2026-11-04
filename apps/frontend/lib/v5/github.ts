@@ -34,6 +34,8 @@ export type RepoRead = {
   readme: string | null;
   files: { path: string; text: string }[];
   first_commit_at: string | null;
+  /** A tree or file read failed: the facts are incomplete and must not be cached. */
+  partial: boolean;
 };
 
 type Fetch = typeof fetch;
@@ -110,8 +112,15 @@ export async function readRepo(fullName: string, o: { token?: string; fetch?: Fe
   const token = o.token ?? process.env.GITHUB_TOKEN;
   const repo = await readRepoObject(fullName, token, f);
   if (repo.private) throw new GitHubError('GitHub: repo is private', 404);
+  let partial = false;
   const [tree, first] = await Promise.all([
-    gh<{ tree: TreeEntry[] }>(`/repos/${fullName}/git/trees/${encodeURIComponent(repo.default_branch)}?recursive=1`, token, f).then((t) => t.tree, () => [] as TreeEntry[]),
+    gh<{ tree: TreeEntry[] }>(`/repos/${fullName}/git/trees/${encodeURIComponent(repo.default_branch)}?recursive=1`, token, f).then(
+      (t) => t.tree ?? [],
+      () => {
+        partial = true;
+        return [] as TreeEntry[];
+      },
+    ),
     firstCommit(fullName, token, f),
   ]);
   const blobs = tree.filter((t) => t.type === 'blob');
@@ -120,7 +129,14 @@ export async function readRepo(fullName: string, o: { token?: string; fetch?: Fe
   const readmePath = blobs.find((t) => /^readme(\.(md|markdown|txt|rst))?$/i.test(t.path))?.path;
   const [readme, files] = await Promise.all([
     readmePath ? raw(f, repo, readmePath, { Range: 'bytes=0-4095' }) : null,
-    Promise.all(picks.map(async (path) => ({ path, text: (await raw(f, repo, path)) ?? '' }))),
+    Promise.all(
+      picks.map(async (path) => {
+        const text = await raw(f, repo, path);
+        if (text === null) partial = true;
+        return { path, text: text ?? '' };
+      }),
+    ),
   ]);
-  return { repo, tree, readme, files, first_commit_at: first };
+  if (readmePath && readme === null) partial = true;
+  return { repo, tree, readme, files, first_commit_at: first, partial };
 }
