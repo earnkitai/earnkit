@@ -61,3 +61,9 @@ The landing page renders without them; the activity section and MCP need them.
 
 Railway (`apps/frontend/railway.toml`). Each deploy runs `pnpm db:migrate` first.
 Production also sets `EARNKIT_URL=https://earnkit.com`.
+
+## License
+
+EarnKit is dual-licensed under either of [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option. Copyright (c) 2026 TokenFi Inc.
+
+The contracts/lib submodules keep their own licenses.
