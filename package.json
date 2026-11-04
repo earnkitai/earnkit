@@ -20,21 +20,11 @@
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "preinstall": "node preinstall.js",
     "db:migrate": "tsx apps/frontend/scripts/db-migrate.mts",
-    "db:check": "tsx apps/frontend/scripts/db-check.mts",
-    "test": "pnpm -s host:typecheck && node apps/frontend/lib/earnkit/fixtures/test-db-template.mjs && tsx --test --import ./apps/frontend/lib/earnkit/fixtures/test-guard.ts \"apps/frontend/lib/**/*.test.ts\" \"infra/host-worker/src/**/*.test.ts\"",
-    "host:typecheck": "tsc -p infra/host-worker --noEmit && tsc -p infra/host-worker/tsconfig.test.json --noEmit",
+    "db:v4-tables": "tsx apps/frontend/scripts/v4-tables.mts",
+    "test": "node apps/frontend/lib/v5/fixtures/test-db-template.mjs && tsx --test --import ./apps/frontend/lib/v5/fixtures/test-guard.ts \"apps/frontend/lib/v5/**/*.test.ts\"",
     "programs:sync": "tsx apps/frontend/scripts/programs-sync.mts",
     "predeploy": "pnpm db:migrate && pnpm programs:sync",
-    "programs:check": "tsx apps/frontend/scripts/programs-sync.mts --check",
-    "feed:rank": "tsx apps/frontend/scripts/feed.mts rank",
-    "feed:pin": "tsx apps/frontend/scripts/feed.mts pin",
-    "feed:summaries": "tsx apps/frontend/scripts/feed-summaries.mts",
-    "feed:hide": "tsx apps/frontend/scripts/feed.mts hide",
-    "campaign": "tsx apps/frontend/scripts/campaign.mts",
-    "token:e2e": "tsx --tsconfig apps/frontend/tsconfig.json --import ./apps/frontend/lib/earnkit/fixtures/test-guard.ts apps/frontend/scripts/token-e2e.mts",
-    "campaign:e2e": "tsx --tsconfig apps/frontend/tsconfig.json --import ./apps/frontend/lib/earnkit/fixtures/test-guard.ts apps/frontend/scripts/campaign-e2e.mts",
-    "campaign:fork-check": "tsx --tsconfig apps/frontend/tsconfig.json apps/frontend/scripts/payout-fork-check.mts",
-    "bonus:fork-check": "tsx --tsconfig apps/frontend/tsconfig.json apps/frontend/scripts/bonus-fork-check.mts"
+    "programs:check": "tsx apps/frontend/scripts/programs-sync.mts --check"
   },
   "pnpm": {
     "overrides": {}

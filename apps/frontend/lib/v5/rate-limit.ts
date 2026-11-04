@@ -66,7 +66,7 @@ export function retryText(seconds: number) {
  * per-address keys could be rotated for free. IPv4 (and IPv4-mapped IPv6) is returned as is.
  * Pure.
  */
-export function ipKey(ip: string): string {
+function ipKey(ip: string): string {
   const addr = ip
     .trim()
     .replace(/^\[|\]$/g, '')
@@ -118,17 +118,6 @@ export async function countHit(key: string, windowSeconds: number, now = new Dat
       await sql()`DELETE FROM rate_windows WHERE window_start < now() - interval '2 days'`;
   }
   return row.count;
-}
-
-/**
- * Deletes windows older than 2 days (no window is over a day), in a bounded batch, so an IP that
- * never comes back is kept at most about 2 days.
- */
-export async function sweepRateWindows(now = new Date(), limit = 1000): Promise<number> {
-  const rows = await sql()`
-    DELETE FROM rate_windows WHERE ctid IN (
-      SELECT ctid FROM rate_windows WHERE window_start < ${new Date(now.getTime() - 2 * 86_400_000)} LIMIT ${limit})`;
-  return rows.count;
 }
 
 /** Counts one request for `key` in the current `windowSeconds` window. */

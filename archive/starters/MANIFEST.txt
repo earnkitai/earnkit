@@ -1,4 +1,0 @@
-# Files moved to archive/starters/files/<same path> by the v2.12 starters commit.
-# One repo-relative path per line; read by apps/frontend/scripts/archive-restore.mts.
-apps/frontend/lib/earnkit/programs-starters.ts
-apps/frontend/lib/earnkit/programs-starters.test.ts

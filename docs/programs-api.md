@@ -135,7 +135,7 @@ Amounts above the caps are refused with `larger amounts need a curated file`: te
 
 - One line in every field except `description`, `rules` items and requirement `description`: no line breaks, tabs or control characters.
 - Plain words only. No links, URLs, `www.` or bare domains (`evil.com`, `evil[.]com`), no markdown links, no `<` or `>`.
-- Normalized plain text: no full-width letters, no `…` (write `...`), no hidden, zero-width, bidi or control characters. Newlines and tabs are fine.
+- Normalized plain text: no full-width letters, no `…` (write `...`), no hidden, zero-width, bidi or control characters. Newlines and tabs only in `description`, `rules` items and a requirement's `description`; every other text field is one line.
 
 ### URL rules (every URL field: `source_url`, `submission_url`, `official_url`, `pool_source_url`, `form.url`, and the `source_url` of `focus`, `past_rounds`, their examples and requirement `guidance`)
 

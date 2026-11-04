@@ -1,5 +1,0 @@
-# Files to move to archive/tool-aliases/files/<same path> on or after 2026-11-09 (README, "The move").
-# Commented until then: the old tool names keep working until ALIASES_UNTIL.
-# One repo-relative path per line; read by apps/frontend/scripts/archive-restore.mts.
-# apps/frontend/lib/earnkit/aliases.ts
-# apps/frontend/lib/earnkit/aliases.test.ts

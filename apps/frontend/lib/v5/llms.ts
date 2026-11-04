@@ -1,5 +1,5 @@
 /** The text at /llms.txt: what EarnKit is and how an agent or a researcher uses it. */
-import { AGENTS, MCP_URL, type Agent } from '../../app/components/sections/agents';
+import { AGENTS, MCP_URL, type Agent } from './agents';
 
 /** One agent's way in: its commands or message when it has them, else its steps. */
 function connectLines(a: Agent): string {

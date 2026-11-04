@@ -3,7 +3,7 @@ import Link from 'next/link';
 import Footer from '../../components/common/Footer';
 import { Logo } from '../../components/landing/Opportunities';
 import Money from '../../components/site/Money';
-import { CARD_PANEL, H2_SITE, PAGE_COL, PILL_WHITE } from '../../components/site/ui';
+import { CARD_PANEL, PAGE_COL, PILL_WHITE } from '../../components/site/ui';
 import AskAgent from './AskAgent';
 import type { GuidePage } from '../../../lib/v5/guide-page';
 import {

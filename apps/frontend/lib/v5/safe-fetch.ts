@@ -13,7 +13,7 @@ export class SafeFetchError extends Error {}
 
 /**
  * A probe's non-2xx (and non-3xx) answer, with its status, so a caller can tell a bot wall (401, 403,
- * 429) from a missing page. Same message as before; still a SafeFetchError for every other caller.
+ * 429) from a missing page.
  */
 export class HttpStatusError extends SafeFetchError {
   constructor(readonly status: number) {
@@ -31,13 +31,13 @@ export class RedirectError extends SafeFetchError {
   }
 }
 
-export type Resolved = { address: string; family: 4 | 6 };
+type Resolved = { address: string; family: 4 | 6 };
 /** Resolves `host` to its addresses; must stop when `signal` aborts (the overall deadline). */
-export type Resolver = (
+type Resolver = (
   host: string,
   signal: AbortSignal,
 ) => Promise<Resolved[]>;
-export type TransportResponse = {
+type TransportResponse = {
   status: number;
   /** content-length, when the server sent one. */
   contentLength?: number;
@@ -49,7 +49,7 @@ export type TransportResponse = {
   close?: () => void;
 };
 /** Connects to `address` (already vetted) while speaking TLS and HTTP to `url.hostname`. */
-export type Transport = (req: {
+type Transport = (req: {
   url: URL;
   address: string;
   family: 4 | 6;
@@ -64,11 +64,11 @@ export type Transport = (req: {
 export type Probe = (url: string) => Promise<void>;
 
 export const FETCH_TIMEOUT_MS = 5_000;
-export const FETCH_MAX_BYTES = 4_096;
+const FETCH_MAX_BYTES = 4_096;
 /** How much of a live link's page a probe reads (the rest is never read). */
-export const PROBE_MAX_BYTES = 65_536;
+const PROBE_MAX_BYTES = 65_536;
 /** A page is judged for an error only when its visible text is shorter than this. */
-export const ERROR_TEXT_MAX = 5_000;
+const ERROR_TEXT_MAX = 5_000;
 /** Specific error phrases only, never a bare "404" or "not found". */
 const ERROR_PHRASES: RegExp[] = [
   /\b404\b[\s:|-]*not found/i, /page not found/i, /NOT_FOUND/, /DEPLOYMENT_NOT_FOUND/,
@@ -77,19 +77,19 @@ const ERROR_PHRASES: RegExp[] = [
   /This page could not be found/i,
 ];
 /** The Accept header of live-link probes: HTML first, anything else accepted. */
-export const PROBE_ACCEPT = 'text/html,*/*;q=0.8';
+const PROBE_ACCEPT = 'text/html,*/*;q=0.8';
 
 /**
  * A probe scans only an HTML response: content-type text/html, or a body whose first
  * non-space text is `<!doctype` or `<html`. JSON and other API bodies pass on any 2xx. Pure.
  */
-export function isHtmlResponse(contentType: string | undefined, body: string): boolean {
+function isHtmlResponse(contentType: string | undefined, body: string): boolean {
   if (contentType && /^\s*text\/html\b/i.test(contentType)) return true;
   return /^\s*<(!doctype|html)\b/i.test(body.replace(/^\uFEFF/, ''));
 }
 
 /** A live link that loads but shows an error page; `phrase` is the error text it shows. */
-export class ErrorPageError extends SafeFetchError {
+class ErrorPageError extends SafeFetchError {
   constructor(readonly phrase: string) {
     super(`shows an error page (${phrase})`);
     this.name = 'ErrorPageError';
@@ -98,7 +98,7 @@ export class ErrorPageError extends SafeFetchError {
 
 /**
  * The page's <title> and its visible text (comments, scripts, styles and tags removed, whitespace
- * folded). Final fix M1: a probe reads only the first 64 KB, so the cut can land inside a script (a
+ * folded). A probe reads only the first 64 KB, so the cut can land inside a script (a
  * Next.js RSC chunk holds the default "This page could not be found." tree on every page), a comment
  * or a tag: what is left open at the end is dropped too, never read as visible text. Pure.
  */
@@ -121,7 +121,7 @@ export function visibleText(html: string): { title: string; text: string } {
  * under 5 KB are judged, so a real page that mentions "404" passes. No JS runs, so an error drawn
  * by client JS isn't seen. Pure.
  */
-export function errorPageText(html: string): string | null {
+function errorPageText(html: string): string | null {
   const { title, text } = visibleText(html);
   if (text.length >= ERROR_TEXT_MAX) return null;
   if (ERROR_PHRASES.some((re) => re.test(title))) return title.slice(0, 80);
@@ -170,8 +170,8 @@ for (const [net, bits] of [
 ] as [string, number][])
   v6Blocked.addSubnet(net, bits, 'ipv6');
 
-/** Whether `ip` is a public unicast address EarnKit may connect to. Pure; exported for tests. */
-export function isPublicAddress(ip: string): boolean {
+/** Whether `ip` is a public unicast address EarnKit may connect to. Pure. */
+function isPublicAddress(ip: string): boolean {
   // Zone ids (fe80::1%eth0) are only for local scopes.
   if (ip.includes('%')) return false;
   const v = isIP(ip);
@@ -181,7 +181,7 @@ export function isPublicAddress(ip: string): boolean {
   return false;
 }
 
-export const DNS_TIMEOUT_MS = 2_000;
+const DNS_TIMEOUT_MS = 2_000;
 
 // "No such name" and "no records of this type": an empty answer, not a failure.
 const NO_ANSWER = new Set([dns.NODATA, dns.NOTFOUND]);
@@ -190,9 +190,9 @@ const NO_ANSWER = new Set([dns.NODATA, dns.NOTFOUND]);
  * Combines parallel A and AAAA lookups. An A answer that is non-empty and all public is used as
  * soon as it arrives, without waiting for AAAA (IPv4 is also what the connection prefers). Else
  * both are awaited and every address is returned for safeFetchText to vet: "no such name/no
- * records" counts as empty; both failing otherwise is an error. Exported for tests.
+ * records" counts as empty; both failing otherwise is an error.
  */
-export async function resolveBoth(
+async function resolveBoth(
   v4: Promise<string[]>,
   v6: Promise<string[]>,
 ): Promise<Resolved[]> {
@@ -242,9 +242,9 @@ const defaultResolver: Resolver = async (host, signal) => {
 /**
  * A `lookup` for node's net/tls that always answers with the vetted address, so the socket goes
  * there while `host` (and so SNI, certificate check and the Host header) stays the hostname.
- * Handles both call shapes (`all: true` is used by autoSelectFamily). Exported for tests.
+ * Handles both call shapes (`all: true` is used by autoSelectFamily).
  */
-export function pinnedLookup(address: string, family: 4 | 6) {
+function pinnedLookup(address: string, family: 4 | 6) {
   return (
     _host: string,
     options: unknown,
@@ -263,10 +263,9 @@ export function pinnedLookup(address: string, family: 4 | 6) {
 }
 
 /**
- * The https.request options for one vetted fetch (nodeTransport). Pure; exported so the request
- * line (the path keeps the query) is pinned by a test.
+ * The https.request options for one vetted fetch (nodeTransport). Pure.
  */
-export function requestOptions({ url, address, family, signal, userAgent, accept }: Parameters<Transport>[0]): https.RequestOptions {
+function requestOptions({ url, address, family, signal, userAgent, accept }: Parameters<Transport>[0]): https.RequestOptions {
   return {
     protocol: 'https:',
     hostname: url.hostname,
@@ -330,7 +329,7 @@ type FetchOpts = {
  * Fetches `url` and returns its body as text, or throws `SafeFetchError` saying why not. Never
  * follows a redirect and never connects to a non-public address.
  */
-export async function safeFetchText(url: string, opts: FetchOpts = {}): Promise<string> {
+async function safeFetchText(url: string, opts: FetchOpts = {}): Promise<string> {
   const { body, contentType } = await safeFetch(url, opts);
   const text = body.toString('utf8');
   if (opts.probe) return isHtmlResponse(contentType, text) ? text : '';
@@ -437,12 +436,12 @@ async function safeFetch(
   }
 }
 
-/** Same site for a redirect: the same host, ignoring one leading "www.". Pure; exported for tests. */
-export const sameSite = (a: string, b: string) =>
+/** Same site for a redirect: the same host, ignoring one leading "www.". Pure. */
+const sameSite = (a: string, b: string) =>
   a.replace(/^www\./, '') === b.replace(/^www\./, '');
 
 /** The User-Agent of live-link checks (sites that refuse unnamed clients see who is asking). */
-export const LINKCHECK_UA = 'EarnKit-linkcheck/1';
+const LINKCHECK_UA = 'EarnKit-linkcheck/1';
 
 /**
  * Whether a builder's live link loads: any 2xx whose first 64 KB isn't an error page (`ErrorPageError`

@@ -51,36 +51,16 @@ function CompanyLine() {
   );
 }
 
-/** The bar under the CTA (full) or alone (minimal): the wordmark, the links, the X button; wraps on a phone. */
+/** The bar under the CTA: the wordmark, the links, the X button; wraps on a phone. */
 const BAR = 'flex flex-wrap items-center justify-between gap-x-5 gap-y-2 border-t pt-[22px] text-[14px]';
 
 /**
- * Full (default): a rounded card over Panini's Pantheon (pre-sized JPEGs, lazy), the pointer light, a bottom
- * fade; the CTA line in Kaftan Serif and the white pill that opens the install sheet; then the bar: wordmark,
- * Programs, Docs, Terms, the art credit and EarnKit's X. Minimal: the bar only. Both end with the company line.
+ * A rounded card over Panini's Pantheon (pre-sized JPEGs, lazy), the pointer light, a bottom fade; the CTA
+ * line in Kaftan Serif and the white pill that opens the install sheet; then the bar: wordmark, Programs,
+ * Docs, Terms, the art credit and EarnKit's X; then the company line.
  */
-export default function Footer({ variant = 'full' }: { variant?: 'full' | 'minimal' }) {
+export default function Footer() {
   const x = X_LINK;
-
-  if (variant === 'minimal')
-    return (
-      <footer className="mt-14 px-4 pb-8 md:mt-[72px] md:px-6">
-        <div className="mx-auto max-w-[1152px] text-s-text">
-          <div className={`${BAR} border-s-step-line pb-2`}>
-            <HomeMark />
-            <nav aria-label="Footer" className="flex flex-wrap items-center gap-x-6">
-              {LINKS.map((l) => (
-                <Link key={l.href} href={l.href} className={LINK}>
-                  {l.label}
-                </Link>
-              ))}
-            </nav>
-            <XButton href={x.href} label={x.label} fill="bg-s-chip" />
-          </div>
-          <CompanyLine />
-        </div>
-      </footer>
-    );
 
   return (
     <footer className="mt-14 px-4 pb-8 md:mt-24 md:px-6">

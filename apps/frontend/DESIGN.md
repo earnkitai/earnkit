@@ -3,7 +3,7 @@
 Owner-approved 2026-10-21. A dark page with big rounded colour cards, two paintings, one serif for names and
 numbers and one sans for everything else. The decision record is
 `docs/design-docs-and-implementation-plans/v3.1-site-design.md`; the pixels are the boards in
-`v3.1-site-boards/`. One source for colour: `lib/earnkit/site-theme.ts SITE`. `app/globals.css` mirrors each value as
+`v3.1-site-boards/`. One source for colour: `lib/v5/site-theme.ts SITE`. `app/globals.css` mirrors each value as
 `--ek-s-<kebab>` (tested), Tailwind reads them as `s-<kebab>`, and components never write a raw hex or a `/NN`
 opacity modifier on a token class. Class strings live in `app/components/site/ui.ts`.
 
@@ -179,21 +179,5 @@ and a 22px radius, so a long chip wraps to two balanced lines on a 320px phone (
 
 ## Copy rules
 
-Sentence case, short, money first, no emoji, never an em dash. "Backing" (never a raise or a community round);
-"of N builders" (never "this week" after it) and a rank only from 10 ranked builders; no points on any page
-(points show in agent replies only); every number is real data and the canvas's example people never ship. The words
-live in `lib/earnkit/site-copy.ts` and `docs-copy.ts`.
-
-## What stays on the v3 flat system
-
-Black page `#000000`, white type, one accent (Base blue `#0052FF` fill, `#3D7BFF` as text), hairlines and no cards,
-from `lib/earnkit/theme.ts THEME` (`--ek-p-*`, `ek-*` Tailwind tokens), Funnel Display headings, a 1120px column, and
-`app/components/common/Panel.tsx` (`H1`, `H2`, `ROWS`), `Button.tsx` (`BTN_PRIMARY`, `BTN_SECONDARY`):
-
-- the brandShell pages (`lib/earnkit/brand-page.ts`: X sign-in, GitHub verify, claim, week, unsubscribe; the wallet page is a v3.1 site page since 2026-10-23);
-  only their header lost its Programs link
-- the README badge (`badge.ts`) and the OG image (`scripts/og.mts`); the page's share card is v3.1 since GTM W4 (below)
-- `app/[handle]/score-colors.ts PART_COLORS`, kept for `app/components/ui/UpdateCard.tsx`; the v3.1 pages use the score bands above
-
-The OG image still says "Ship every week. Get funded." until a later pass. White on `#0052FF` is 5.8:1, and blue
-text on black is always `#3D7BFF` because `#0052FF` is 3.7:1.
+Sentence case, short, money first, no emoji, never an em dash. Every number is real data. The words live in
+`lib/v5/site-copy.ts`.

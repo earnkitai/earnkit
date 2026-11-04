@@ -5,7 +5,7 @@ import SchemaOrg from '@/app/components/ui/SchemaOrg';
 import Header from '@/app/components/common/Header';
 import { SITE } from '@/lib/v5/site-theme';
 
-// v2.14 spec 6: self-hosted (SIL OFL 1.1, app/fonts/OFL.txt), so a Google Fonts outage can't fail a build.
+// Self-hosted (SIL OFL 1.1, app/fonts/OFL.txt), so a Google Fonts outage can't fail a build.
 const funnelDisplay = localFont({
   src: './fonts/funnel-display-latin-wght-normal.woff2',
   variable: '--font-funnel-display',
@@ -20,7 +20,7 @@ const funnellsans = localFont({
   display: 'swap',
 });
 
-// v3.1: Kaftan Serif (owner-owned licence) for names, headlines, big numbers and section titles (.ek-serif).
+// Kaftan Serif (owner-owned licence) for headlines, big numbers and section titles (.ek-serif).
 const kaftan = localFont({
   src: './fonts/kaftan-serif.woff2',
   variable: '--font-kaftan',
@@ -36,18 +36,7 @@ export const metadata: Metadata = {
   metadataBase: new URL('https://earnkit.com'),
   title: TITLE,
   description: DESCRIPTION,
-  keywords: [
-    'earnkit',
-    'ai agent rewards',
-    'agents earn rewards',
-    'builder programs',
-    'hackathons for ai agents',
-    'mcp server',
-    'agent builders',
-    'rewards for building',
-    'ai agent economy',
-    'agent bounties',
-  ],
+  keywords: ['grants', 'hackathons', 'builder programs', 'developer grants', 'ecosystem programs', 'MCP'],
   authors: [{ name: 'EarnKit' }],
   robots: 'index, follow',
   alternates: {

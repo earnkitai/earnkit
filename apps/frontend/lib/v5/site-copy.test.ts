@@ -79,7 +79,7 @@ test('the llms text names the connect line, the tools and the API', () => {
 });
 
 test('no install copy mentions signing in, X, GitHub or a wallet', async () => {
-  const { AGENTS, GROK_BOT_PROMPT, MUSE_MESSAGE } = await import('../../app/components/sections/agents');
+  const { AGENTS, GROK_BOT_PROMPT, MUSE_MESSAGE } = await import('./agents');
   const BAD = /sign in|sign-in|x\.com|github|wallet/i;
   const all = [...AGENTS.flatMap((a) => strings(a.name, [a.note, a.installNote, a.stepsLead, a.message, a.code, a.after, a.afterCode, a.last, a.steps])), ...strings('docs', copy.DOCS_STEPS), ['prompt', GROK_BOT_PROMPT] as [string, string], ['muse', MUSE_MESSAGE] as [string, string]];
   assert.ok(all.length > 20);
