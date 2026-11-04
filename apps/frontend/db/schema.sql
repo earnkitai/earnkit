@@ -112,6 +112,7 @@ CREATE TABLE IF NOT EXISTS repo_cache (
   facts      jsonb NOT NULL,
   fetched_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE repo_cache ADD COLUMN IF NOT EXISTS pushed_at timestamptz;
 
 -- The builder's ledger: where each application stands, and every change to it.
 CREATE TABLE IF NOT EXISTS applications (
