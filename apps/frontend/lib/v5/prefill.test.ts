@@ -32,6 +32,7 @@ const req = (o: Record<string, unknown>) => ({ required: true, from: 'project', 
 const rowWith = (reqs: unknown[], over: Record<string, unknown> = {}) =>
   toRow(programFixture({ id: 'p', submission_requirements: reqs as never, ...over }));
 
+const FILLED = 3; // live_product_url, project_name_description, demo_loom (no contract in the recorded facts)
 test('base-builder-grants: facts fill, prose goes to the agent, personal stays with the builder', async () => {
   const facts = await factsOf('earnkit', { live_url: 'https://earnkit.com', demo_url: 'https://loom.com/share/x' });
   const out = prefill(fromFile('base-builder-grants'), facts);
@@ -50,10 +51,21 @@ test('base-builder-grants: facts fill, prose goes to the agent, personal stays w
   assert.equal(by.usage_numbers.value, null);
   assert.ok(by.usage_numbers.sources?.some((s) => s.startsWith('live: ')));
   assert.equal(by.full_name.from, 'builder');
-  assert.equal(by.contract_address.from, facts.contracts.some((c) => c.chain === 'base') ? 'earnkit' : 'builder');
-  assert.equal(out.filled, out.fields.filter((f) => f.from === 'earnkit').length);
+  assert.equal(out.filled, FILLED);
   assert.equal(out.total, out.fields.filter((f) => f.required).length);
   assert.equal(out.total, 16);
+});
+
+test('contract_address: a known Base contract fills; none is a builder field', async () => {
+  const facts = await factsOf('earnkit');
+  const addr = `0x${'1'.repeat(40)}`;
+  const p = fromFile('base-builder-grants');
+  const withC = prefill(p, { ...facts, contracts: [{ chain: 'base', address: addr }] }).fields.find((f) => f.key === 'contract_address');
+  assert.equal(withC?.from, 'earnkit');
+  assert.equal(withC?.value, addr);
+  const none = prefill(p, { ...facts, contracts: [] }).fields.find((f) => f.key === 'contract_address');
+  assert.equal(none?.from, 'builder');
+  assert.equal(none?.value, null);
 });
 
 test('a choice fills when exactly one option names a chain in the facts', async () => {
