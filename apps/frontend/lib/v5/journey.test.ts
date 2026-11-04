@@ -63,7 +63,9 @@ test('a stranger with an app on no chain gets gaps or "Nothing fits yet" and no 
   const show = reply.show_to_builder as string;
   const gaps = reply.gaps as unknown[];
   assert.ok(gaps.length > 0 || /Nothing fits yet\. I'll say when something opens\.$/.test(show), show);
-  assert.doesNotMatch(show, /\b(email|sign in|sign up|log in|your name|your team|telegram|account)\b/i);
+  // A program's own setup steps ("First: sign in to its hub") are the program's, not EarnKit asking who they are.
+  const ours = show.replace(/ First: [^\n]*/g, '').replace(/^In person, apply to attend first:\n(\d+\. [^\n]*\n?)+/m, '');
+  assert.doesNotMatch(ours, /\b(email|sign in|sign up|log in|your name|your team|telegram|account)\b/i);
   assert.equal(reply.as_reported, false);
 });
 
@@ -85,7 +87,7 @@ test('the owner: ready or the builder codes gap, then applied and won on the led
   const w = await track(id, { program_id: top, status: 'won', amount_usd: 5000 });
   assert.equal((w.ledger as { won: number }).won, 1);
   const after2 = await find(id, 'earnkit', { live_url: 'https://earnkit.com', users: true });
-  assert.match(after2.show_to_builder as string, /Ledger: 1 applied .*, 1 won/);
+  assert.match(after2.show_to_builder as string, /Ledger: 1 applied.*, 1 won/);
 });
 
 test('a program closing in 3 days appears in since.closing on the second call', async () => {

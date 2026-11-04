@@ -28,10 +28,28 @@ test('a bad contract and a bad date are dropped; the chain stays', () => {
   assert.equal(r.problems.length, 2);
 });
 
-test('a missing name or an over-long description is the only refusal', () => {
+test('a missing name or description is the only refusal', () => {
   assert.equal(parseProject({ description: 'x' }).ok, false);
-  assert.equal(parseProject({ ...base, description: 'x'.repeat(281) }).ok, false);
+  assert.equal(parseProject({ name: 'X', description: '   ' }).ok, false);
   assert.equal(parseProject(null).ok, false);
+});
+
+test('an over-long name or description is cut, with a problem line, never refused', () => {
+  const r = parseProject({ name: 'n'.repeat(200), description: 'd'.repeat(2000) });
+  assert.ok(r.ok);
+  assert.equal(r.project.name.length, 80);
+  assert.equal(r.project.description.length, 280);
+  assert.deepEqual(r.problems, ['name cut to 80 characters', 'description cut to 280 characters']);
+});
+
+test('users: true, false or not reported (null)', () => {
+  const t = parseProject({ ...base, users: true });
+  const f = parseProject({ ...base, users: false });
+  const n = parseProject(base);
+  assert.ok(t.ok && f.ok && n.ok);
+  assert.equal(t.project.users, true);
+  assert.equal(f.project.users, false);
+  assert.equal(n.project.users, null);
 });
 
 test('a clean report parses with no problems and keeps the flags', () => {

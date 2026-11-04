@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { mcpCall, mcpInstructions, mcpListTools } from './fixtures/mcp-call';
 import { FIND_DESCRIPTION, SERVER_INSTRUCTIONS, TRACK_DESCRIPTION } from './mcp';
+import { windowStart } from './rate-limit';
 
 after(() => sql().end());
 
@@ -49,4 +50,31 @@ test('a database error is the busy line', async () => {
   const r = await mcpCall({ installationId: 2 ** 40, now: NOW }, 'find', { project: { name: 'X', description: 'An app.' } });
   assert.equal(r.isError, true);
   assert.equal(r.text, 'EarnKit is busy. Try again in a minute.');
+});
+
+const seed = (key: string, count: number) =>
+  sql()`INSERT INTO rate_windows (key, window_start, count) VALUES (${key}, ${windowStart(NOW, 3_600_000)}, ${count})`;
+const BUSY_HOUR = 'EarnKit is busy. Try again in an hour.';
+
+test('the 121st tool call in an hour is the busy reply, as a tool result', async () => {
+  const c = await ctx();
+  await seed(`mcp:${c.installationId}`, 119);
+  const ok = await mcpCall(c, 'track', { program_id: 'no-such', status: 'skipped' });
+  assert.equal(ok.isError, false, ok.text);
+  const busy = await mcpCall(c, 'track', { program_id: 'no-such', status: 'skipped' });
+  assert.equal(busy.isError, true);
+  assert.equal(busy.text, BUSY_HOUR);
+  const f = await mcpCall(c, 'find', {});
+  assert.equal(f.text, BUSY_HOUR);
+  const next = await mcpCall({ ...c, now: new Date(NOW.getTime() + 3_600_000) }, 'track', { program_id: 'no-such', status: 'skipped' });
+  assert.equal(next.isError, false, next.text);
+});
+
+test('the per-IP floor: the 601st call from one address in an hour is busy, whatever the installation', async () => {
+  const c = await ctx();
+  await seed('mcpIp:203.0.113.9', 600);
+  const busy = await mcpCall({ ...c, ip: '203.0.113.9' }, 'track', { program_id: 'no-such', status: 'skipped' });
+  assert.equal(busy.text, BUSY_HOUR);
+  const other = await mcpCall({ ...c, ip: '203.0.113.10' }, 'track', { program_id: 'no-such', status: 'skipped' });
+  assert.equal(other.isError, false, other.text);
 });

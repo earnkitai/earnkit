@@ -105,11 +105,27 @@ test('demo video and feature gaps clear with done; users is weeks and no', async
   assert.equal(v.status, 'gap');
   assert.deepEqual(v.gaps.map((g) => [g.item, g.agent_can]), [['demo_video', false], ['feature:an AI agent', false]]);
   assert.equal(evaluate(p, f, new Set(['demo_video', 'feature:an AI agent']), NOW).status, 'ready');
+});
+
+test('users: not reported is a gap only the builder can answer; false is no; true or done clears it', async () => {
   const q = toRow(programFixture({ id: 'q', eligibility: [{ kind: 'users' }] }));
-  const u = evaluate(q, f, new Set(), NOW);
-  assert.equal(u.status, 'no');
-  assert.equal(u.gaps[0].what, 'real users first');
-  assert.equal(evaluate(q, f, new Set(['users']), NOW).status, 'ready');
+  const unknown = await factsOf('earnkit');
+  assert.equal(unknown.users, null);
+  const u = evaluate(q, unknown, new Set(), NOW);
+  assert.equal(u.status, 'gap');
+  assert.deepEqual(u.gaps, [{ kind: 'users', item: 'users', what: 'tell me if real people use it', effort: 'hours', agent_can: false }]);
+  assert.equal(evaluate(q, unknown, new Set(['users']), NOW).status, 'ready');
+  assert.equal(evaluate(q, await factsOf('earnkit', { users: true }), new Set(), NOW).status, 'ready');
+  const no = evaluate(q, await factsOf('earnkit', { users: false }), new Set(), NOW);
+  assert.equal(no.status, 'no');
+  assert.equal(no.gaps[0].what, 'real users first');
+  assert.equal(no.gaps[0].effort, 'weeks');
+});
+
+test('EarnKit vs Base with users not reported: one change away, the builder codes and the users question', async () => {
+  const v = evaluate(fromFile('base-builder-grants'), await factsOf('earnkit', { live_url: 'https://earnkit.com' }), new Set(), NOW);
+  assert.equal(v.status, 'gap');
+  assert.deepEqual(v.gaps.map((g) => g.kind).sort(), ['builder_codes', 'users']);
 });
 
 test('verifiable kinds ignore done; three gaps is no', async () => {

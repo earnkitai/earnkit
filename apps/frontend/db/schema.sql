@@ -83,6 +83,8 @@ CREATE TABLE IF NOT EXISTS program_health (
   changed_at timestamptz,
   fail_days  int NOT NULL DEFAULT 0
 );
+-- The source page's normalized text (up to 64 KB): a change is under 80% of its words shared.
+ALTER TABLE program_health ADD COLUMN IF NOT EXISTS body_text text;
 
 -- One row per installed agent (its bearer token's hash).
 CREATE TABLE IF NOT EXISTS installations (

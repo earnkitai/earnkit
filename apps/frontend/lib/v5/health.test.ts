@@ -37,16 +37,42 @@ test('probeProgram: 2xx, 3xx, 401, 403, 429 are ok; 404, 5xx and network errors 
   }
 });
 
-test('probeProgram: the hash ignores whitespace and markup; changed needs a stored hash that differs', async () => {
+test('probeProgram: the text ignores whitespace and markup; changed needs stored text that shares under 80% of the words', async () => {
   const p = programFixture({ id: 'h-hash' });
   const a = await probeProgram(p, { probe: ok, page: page('<p>Apply  now</p>'), now: D1 });
-  const b = await probeProgram(p, { probe: ok, page: page('<div>Apply\n now</div>'), now: D1, prevHash: a.body_hash });
+  const b = await probeProgram(p, { probe: ok, page: page('<div>Apply\n now</div>'), now: D1, prevText: a.body_text });
   assert.equal(a.changed, false);
   assert.match(a.body_hash!, /^[0-9a-f]{64}$/);
+  assert.equal(a.body_text, 'apply now');
   assert.equal(b.body_hash, a.body_hash);
   assert.equal(b.changed, false);
-  const c = await probeProgram(p, { probe: ok, page: page('<p>Closed</p>'), now: D1, prevHash: a.body_hash });
+  const c = await probeProgram(p, { probe: ok, page: page('<p>Closed</p>'), now: D1, prevText: a.body_text });
   assert.equal(c.changed, true);
+});
+
+const GRANT_PAGE = (amount: string) =>
+  `<h1>Builder Grants</h1><p>We fund teams shipping onchain apps. Grants of up to ${amount} go to live products with real users.
+   Apply on the form; we review every application within four weeks and reply by email.</p>`;
+
+test('one changed number is not a change; a rewritten page is', async () => {
+  const p = programFixture({ id: 'h-words' });
+  const a = await probeProgram(p, { probe: ok, page: page(GRANT_PAGE('$5,000')), now: D1 });
+  const number = await probeProgram(p, { probe: ok, page: page(GRANT_PAGE('$10,000')), now: D1, prevText: a.body_text });
+  assert.notEqual(number.body_hash, a.body_hash);
+  assert.equal(number.changed, false);
+  const rewritten = await probeProgram(p, {
+    probe: ok, page: page('<h1>Builder Grants</h1><p>The program is paused while we plan the next season. Follow us for news.</p>'), now: D1, prevText: a.body_text,
+  });
+  assert.equal(rewritten.changed, true);
+});
+
+test('a changed page is listed, never stale', async () => {
+  await upsertProgram(programFixture({ id: 'h-nostale', source_url: 'https://nostale.example/a' }), 'file', D1);
+  await runHealth({ probe: ok, page: page(GRANT_PAGE('$5,000')), now: D1 });
+  const r = await runHealth({ probe: ok, page: page('<p>Something else entirely now</p>'), now: D2 });
+  assert.ok(r.changed.includes('h-nostale'));
+  assert.ok(!r.stale.includes('h-nostale'));
+  assert.equal(await stale('h-nostale'), null);
 });
 
 test('a failure today is not stale; failing two days running is stale; a clean day clears it', async () => {

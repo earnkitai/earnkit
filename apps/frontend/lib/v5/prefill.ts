@@ -1,7 +1,7 @@
 /**
  * Pre-fill for a program's form: fact fields EarnKit can fill from repo facts, prose fields
  * handed to the agent with sources, personal fields left to the builder. EarnKit writes no prose.
- * Pure: no I/O.
+ * `facts_from_repo` counts only links, contract and chain values, never the passed name or description. Pure.
  */
 import { chainName } from './chains';
 import type { SubmissionRequirement } from './program-file';
@@ -27,13 +27,18 @@ export type Field = {
 const BUILDER_KINDS: ReadonlySet<string> = new Set(['demo_video']);
 const words = (s: string): string[] => s.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
 
-function projectValue(r: SubmissionRequirement, facts: RepoFacts): string | null {
+/** A filled value and whether it came from the repo read (links, contract, chain) or the passed text. */
+type Filled = { value: string; repo: boolean } | null;
+const fromRepo = (value: string | null): Filled => (value ? { value, repo: true } : null);
+const fromText = (value: string | null): Filled => (value ? { value, repo: false } : null);
+
+function projectValue(r: SubmissionRequirement, facts: RepoFacts): Filled {
   switch (r.project_field) {
-    case 'name': return facts.name || null;
-    case 'description': return facts.description || null;
-    case 'repo_url': return facts.repo_url;
-    case 'live_url': return facts.live_url;
-    case 'demo_url': return facts.demo_url;
+    case 'name': return fromText(facts.name);
+    case 'description': return fromText(facts.description);
+    case 'repo_url': return fromRepo(facts.repo_url);
+    case 'live_url': return fromRepo(facts.live_url);
+    case 'demo_url': return fromRepo(facts.demo_url);
     default: return null;
   }
 }
@@ -52,25 +57,25 @@ function choiceValue(r: SubmissionRequirement, facts: RepoFacts): string | null 
   return hits.length > 0 ? hits.join('; ') : null;
 }
 
-function valueOf(r: SubmissionRequirement, program: ProgramRow['file'], facts: RepoFacts): string | null {
+function valueOf(r: SubmissionRequirement, program: ProgramRow['file'], facts: RepoFacts): Filled {
   const fromField = projectValue(r, facts);
   if (fromField) return fromField;
   if (/contract/.test(r.key)) {
     const chain = program.chains[0] ?? facts.contracts[0]?.chain;
-    return facts.contracts.find((c) => c.chain === chain)?.address ?? null;
+    return fromRepo(facts.contracts.find((c) => c.chain === chain)?.address ?? null);
   }
   if (/chain/.test(r.key)) {
     const mainnet = facts.chains.filter((c) => c.mainnet).map((c) => c.chain);
     const slug = program.chains.find((c) => mainnet.includes(c)) ?? (program.any_chain ? mainnet[0] : undefined);
-    if (slug) return chainName(slug);
+    if (slug) return fromRepo(chainName(slug));
   }
-  if (r.type === 'choice' || r.type === 'multi_choice') return choiceValue(r, facts);
+  if (r.type === 'choice' || r.type === 'multi_choice') return fromText(choiceValue(r, facts));
   if (r.type === 'file') return null;
-  if (r.kind === 'name') return facts.name || null;
-  if (r.kind === 'one_liner') return facts.description || null;
+  if (r.kind === 'name') return fromText(facts.name);
+  if (r.kind === 'one_liner') return fromText(facts.description);
   if (r.kind === 'links') {
     const links = [facts.live_url, facts.repo_url].filter((x): x is string => !!x);
-    return links.length > 0 ? links.join(' ') : null;
+    return fromRepo(links.length > 0 ? links.join(' ') : null);
   }
   return null;
 }
@@ -92,8 +97,9 @@ function sourcesOf(facts: RepoFacts, guidance: string | undefined): string[] {
   return s;
 }
 
-export function prefill(program: ProgramRow, facts: RepoFacts): { fields: Field[]; filled: number; total: number } {
+export function prefill(program: ProgramRow, facts: RepoFacts): { fields: Field[]; filled: number; facts_from_repo: number; total: number } {
   const file = program.file;
+  let facts_from_repo = 0;
   const fields = file.submission_requirements.map((r): Field => {
     const guidance = guidanceOf(r);
     const base = {
@@ -103,13 +109,16 @@ export function prefill(program: ProgramRow, facts: RepoFacts): { fields: Field[
       ...(guidance ? { guidance } : {}),
       ...(file.form?.fields?.[r.key] ? { form_id: file.form.fields[r.key] } : {}),
     };
-    const value = valueOf(r, file, facts);
-    if (value !== null) return { ...base, value, from: 'earnkit' };
+    const filled = valueOf(r, file, facts);
+    if (filled !== null) {
+      if (filled.repo) facts_from_repo++;
+      return { ...base, value: filled.value, from: 'earnkit' };
+    }
     if (r.type === 'file' || BUILDER_KINDS.has(r.kind) || /contract/.test(r.key))
       return { ...base, value: null, from: 'builder' };
     if (r.type === 'choice' || r.type === 'multi_choice')
       return { ...base, value: null, from: 'agent', sources: ['the options', 'the description'] };
     return { ...base, value: null, from: 'agent', sources: sourcesOf(facts, guidance) };
   });
-  return { fields, filled: fields.filter((f) => f.from === 'earnkit').length, total: fields.filter((f) => f.required).length };
+  return { fields, filled: fields.filter((f) => f.from === 'earnkit').length, facts_from_repo, total: fields.filter((f) => f.required).length };
 }

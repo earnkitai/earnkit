@@ -3,9 +3,26 @@
 Do these in order. Nothing here is automatic: v5 merges and builds without them, but the steps below take it live.
 Design: `v5-design.md`. Plan: `v5-plan.md`. Ledger: `v5-sdd-ledger.md`.
 
-## 1. Railway environment
+## 1. Deploy
 
-Keep exactly these variables on the `earnkit` service and remove every other one (v4 had 65; v5 reads 8).
+Deploy v5 first; trim the variables after (Railway restarts the service on every variable change, and
+v4 still reads some of the variables v5 drops).
+
+- [ ] Before deploying, note the counts: `curl -s 'https://earnkit.com/api/programs?status=active' | jq '.programs | length'`,
+      and the same with `status=upcoming`.
+- [ ] Merge the PR. `predeploy` runs `pnpm db:migrate` (additive; v4 tables are untouched) and `pnpm programs:sync`.
+- [ ] Deploy with `railway up` (the GitHub source is broken, per the owner's notes).
+- [ ] Watch the deploy log for `[programs] rows skipped` (a stored program that no longer parses is left out of every
+      list) and for `Warning: <file> is active but ends_at has passed` from the sync. Either one: fix the record.
+- [ ] Compare `GET /api/programs` counts with the ones noted before the deploy; a drop must be explained by a skipped
+      row or a closed program.
+- [ ] Check: `https://earnkit.com/api/stats` answers the nine v5 keys; `/mcp` answers 401 with a challenge; `/install` redirects to `/docs#install`.
+- [ ] Run the cron once by hand: Actions, "EarnKit cron", Run workflow. It must pass.
+
+## 2. Railway environment (after the deploy)
+
+Keep exactly these variables on the `earnkit` service and remove every other one (v4 had 65; v5 reads 8). Railway
+restarts the service once the change is applied; batch the removals into one change.
 
 | Variable | Note |
 |---|---|
@@ -18,15 +35,9 @@ Keep exactly these variables on the `earnkit` service and remove every other one
 | `EARNKIT_PROGRAMS_TOKEN` | The Grok Bot's write token (unchanged) |
 | `EARNKIT_PROGRAMS_API` | Optional; `off` closes the write API |
 
-- [ ] Variables trimmed to the list above.
+- [ ] Variables trimmed to the list above, after the deploy is healthy.
 - [ ] GitHub repo secret `CRON_SECRET` is still set and equals the Railway value (the workflow skips quietly when it is unset).
-
-## 2. Deploy
-
-- [ ] Merge the PR. `predeploy` runs `pnpm db:migrate` (additive; v4 tables are untouched) and `pnpm programs:sync`.
-- [ ] Deploy with `railway up` (the GitHub source is broken, per the owner's notes).
-- [ ] Check: `https://earnkit.com/api/stats` answers the nine v5 keys; `/mcp` answers 401 with a challenge; `/install` redirects to `/docs#install`.
-- [ ] Run the cron once by hand: Actions, "EarnKit cron", Run workflow. It must pass.
+- [ ] After the restart, `/api/stats` and `/mcp` answer as in step 1.
 
 ## 3. v4 tables (after a backup)
 

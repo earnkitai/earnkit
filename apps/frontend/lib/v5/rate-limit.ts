@@ -21,6 +21,11 @@ export const LIMITS = {
   installClient: { limit: 500, windowSeconds: 86_400 },
   installHour: { limit: 50, windowSeconds: 3_600 },
   installHourHosted: { limit: 500, windowSeconds: 3_600 },
+  /** MCP tool calls, per installation, and per client IP as the floor. */
+  mcp: { limit: 120, windowSeconds: 3_600 },
+  mcpIp: { limit: 600, windowSeconds: 3_600 },
+  /** Uncached GitHub repo reads, per installation, per UTC day (a cache hit is free). */
+  repoRead: { limit: 10, windowSeconds: 86_400 },
 } as const;
 
 /** Registrations per agent app a day at which a warning is logged, before oauthRegisterHost refuses. */

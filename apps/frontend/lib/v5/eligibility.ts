@@ -52,6 +52,8 @@ function gapOf(i: EligibilityItem): Gap {
 }
 
 const date = (s: string) => s.slice(0, 10);
+/** Users not reported: a question only the builder answers, not weeks of work. */
+const USERS_UNKNOWN: Gap = { kind: 'users', item: 'users', what: 'tell me if real people use it', effort: 'hours', agent_can: false };
 
 /** The program against the facts: ready, a short list of gaps, or no. `done` holds items the builder says are done. */
 export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string>, now: Date): Verdict {
@@ -79,7 +81,10 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
       case 'live_product': if (!facts.live_url) gaps.push(gapOf(i)); break;
       case 'contract_on': if (!facts.contracts.some((c) => c.chain === v) || !mainnets.has(v)) gaps.push(gapOf(i)); break;
       case 'builder_codes': if (!facts.builder_codes) gaps.push(gapOf(i)); break;
-      case 'users': if (!facts.users && !done.has(itemKey(i))) gaps.push(gapOf(i)); break;
+      case 'users':
+        if (facts.users === false) gaps.push(gapOf(i));
+        else if (facts.users !== true && !done.has(itemKey(i))) gaps.push(USERS_UNKNOWN);
+        break;
       case 'new_work_after': {
         const first = facts.first_commit_at ? Date.parse(facts.first_commit_at) : NaN;
         if (!(first >= Date.parse(v))) return out('no', [], `needs work started after ${date(v)}`);

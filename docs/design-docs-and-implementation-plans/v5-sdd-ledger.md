@@ -56,28 +56,34 @@ next task; one PR for the release.
 
 ## Replay output
 
-`pnpm -s tsx apps/frontend/scripts/replay.mts earnkit --monday` (clock pinned 2026-11-04T12:00Z, then Monday 2026-11-09T09:00Z):
+`pnpm -s tsx apps/frontend/scripts/replay.mts earnkit --monday` (clock pinned 2026-11-04T12:00Z, then Monday 2026-11-09T09:00Z).
+The honest run: the project passes no `live_url` and no `users` (only what the repo shows), so the Base Builder Grant
+needs three changes (a live link, Builder Codes, the users answer) and is not listed. With a live link known it is one
+change away (`find.test.ts` pins that text). Rerun after the final review fixes (2026-11-04):
 
 ```
 == find "" at 2026-11-04T12:00:00.000Z
 -- show_to_builder
-Ready to apply, 5:
-1. Alliance ALL19, $400K at admission, closes in 14 days. Drafted.
-2. Avalanche Team1 Mini Grants, up to $10,000. Drafted: 8 facts from the repo.
-3. Z Fellows, up to $10K investment. Drafted: 2 facts from the repo.
-4. ETHGlobal Mumbai, up to $15K per partner prize, closes in 2 days, in person. Drafted: 3 facts from the repo.
-5. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Drafted: 1 fact from the repo. Needs your investor deck file.
+Ready to apply, 4:
+1. Alliance ALL19, $400K at admission, closes in 14 days. Your agent fills it on the page. First: start the application with the first founder's email.
+2. Avalanche Team1 Mini Grants, up to $10,000. Drafted: 6 facts from the repo. First: sign in to the Avalanche Builder Hub.
+3. Z Fellows, up to $10K investment. Drafted: 1 fact from the repo.
+4. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Your agent fills it on the page. Needs your investor deck file.
 
-One change away, 2:
-6. Base Builder Grant Program, up to $5,000: add Base Builder Codes to the app (I can do this).
-7. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.
+One change away, 1:
+5. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc and put a live link up.
 
-Say yes to apply to all 5, numbers to skip, or "do 6" and I'll make the change first.
+In person, apply to attend first:
+6. ETHGlobal Mumbai, up to $15K per partner prize, closes in 2 days. Apply to attend by Nov 3 and get accepted; stake a small amount of ETH; be in Mumbai Nov 5 to 7.
+
+Say yes to apply to all 4, numbers to skip, or "do 5" and I'll make the change first.
 -- agent_note
 Open with show_to_builder in your own words: warm, direct, short, no emojis, no em dashes, no invented facts.
 Draft each ready program from its fields: 'earnkit' values as given; 'agent' fields you write from your memory and the field's sources; 'builder' fields you ask once, all together.
 Submit only when the builder says yes, in your own browser, field by field (form_id names the form field when given).
 Call track with applied after each submission, and with won (amount_usd), rejected or no_result after each result; skipped for a number they skip.
+Pass users and live_url in the project whenever you know them; never invent them.
+In-person programs (in_person: true) are not in "yes to all": draft nothing for one until the builder says yes to attending it and its setup.
 On "do <n>": make that gap's change (its details carry the chain's RPC and explorer), push, call track with gap_done and the gap's item, then call find again.
 1 more fit; ask with filter.all for the full list.
 
@@ -92,16 +98,15 @@ Call find again for the updated ledger.
 Since Nov 4: Avalanche Team1 Mini Grants: deadline moved to Nov 12; Avalanche Team1 Mini Grants closes in 3 days.
 
 Ready to apply, 4:
-1. Avalanche Team1 Mini Grants, up to $10,000, closes in 3 days. Drafted: 8 facts from the repo.
-2. Z Fellows, up to $10K investment. Drafted: 2 facts from the repo.
-3. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Drafted: 1 fact from the repo. Needs your investor deck file.
-4. Base Ecosystem Fund, pre-seed and seed investment, a long shot: an investment program with no stated amount. Drafted: 5 facts from the repo.
+1. Avalanche Team1 Mini Grants, up to $10,000, closes in 3 days. Drafted: 6 facts from the repo. First: sign in to the Avalanche Builder Hub.
+2. Z Fellows, up to $10K investment. Drafted: 1 fact from the repo.
+3. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Your agent fills it on the page. Needs your investor deck file.
+4. Base Ecosystem Fund, pre-seed and seed investment, a long shot: an investment program with no stated amount. Drafted: 3 facts from the repo.
 
-One change away, 2:
-5. Base Builder Grant Program, up to $5,000: add Base Builder Codes to the app (I can do this).
-6. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.
+One change away, 1:
+5. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc and put a live link up.
 
-Ledger: 1 applied ($400K asked), 0 won, 1 pending.
+Ledger: 1 applied, 0 won, 1 pending.
 
 Say yes to apply to all 4, numbers to skip, or "do 5" and I'll make the change first.
 -- agent_note
@@ -109,5 +114,6 @@ Open with show_to_builder in your own words: warm, direct, short, no emojis, no 
 Draft each ready program from its fields: 'earnkit' values as given; 'agent' fields you write from your memory and the field's sources; 'builder' fields you ask once, all together.
 Submit only when the builder says yes, in your own browser, field by field (form_id names the form field when given).
 Call track with applied after each submission, and with won (amount_usd), rejected or no_result after each result; skipped for a number they skip.
+Pass users and live_url in the project whenever you know them; never invent them.
 On "do <n>": make that gap's change (its details carry the chain's RPC and explorer), push, call track with gap_done and the gap's item, then call find again.
 ```

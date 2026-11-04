@@ -56,6 +56,8 @@ test('base-builder-grants: facts fill; prose, team and contacts go to the agent'
   assert.equal(by.full_name.from, 'agent');
   assert.deepEqual(out.fields.filter((f) => f.from === 'builder').map((f) => f.key), ['contract_address']);
   assert.equal(out.filled, FILLED);
+  // The name and one-liner are what the agent passed, not the repo: only the live and demo links count.
+  assert.equal(out.facts_from_repo, 2);
   assert.equal(out.total, out.fields.filter((f) => f.required).length);
   assert.equal(out.total, 16);
 });
@@ -125,4 +127,24 @@ test('file and demo_video with no value are builder fields; team, contact and ra
     req({ key: 'email', label: 'Email', type: 'email', kind: 'contact' }),
   ]), facts);
   assert.deepEqual(out.fields.map((f) => f.from), ['builder', 'builder', 'agent', 'agent', 'agent']);
+});
+
+test('facts_from_repo counts links, contract and chain values, never the passed name, description or a choice', () => {
+  const facts: RepoFacts = {
+    name: 'App', description: 'An AI agent on Base.', repo_url: 'https://github.com/a/b', public: true, as_reported: false,
+    live_url: null, demo_url: null, chains: [{ chain: 'base', mainnet: true, basis: 'code' }],
+    contracts: [{ chain: 'base', address: '0x' + 'a'.repeat(40) }], builder_codes: false, users: null,
+    first_commit_at: null, last_commit_at: null, readme_excerpt: null, homepage: null,
+  };
+  const row = rowWith([
+    req({ key: 'name', label: 'Name', type: 'text', kind: 'name', project_field: 'name' }),
+    req({ key: 'one_liner', label: 'One line', type: 'text', kind: 'one_liner', project_field: 'description' }),
+    req({ key: 'repo', label: 'Repo', type: 'url', kind: 'links', project_field: 'repo_url' }),
+    req({ key: 'contract_address', label: 'Contract', type: 'text', kind: 'other' }),
+    req({ key: 'chain', label: 'Chain', type: 'text', kind: 'other' }),
+    req({ key: 'track', label: 'Track', type: 'choice', kind: 'other', options: ['AI agent', 'Payments'] }),
+  ]);
+  const out = prefill(row, facts);
+  assert.equal(out.filled, 6);
+  assert.equal(out.facts_from_repo, 3);
 });

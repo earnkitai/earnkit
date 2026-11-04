@@ -139,3 +139,32 @@ test('a skipped-only row refuses a result; a resulted row refuses applied', asyn
   assert.deepEqual(await record(i, 'l-sk', 'applied', { now: NOW }), { ok: false, note: 'That one already has a result here.' });
   assert.deepEqual(await counts(i), before);
 });
+
+test('won above the program max is refused and writes nothing; with no max, above 5,000,000 is refused', async () => {
+  const i = await install();
+  await prog('l-cap');
+  await record(i, 'l-cap', 'applied', { now: NOW });
+  const before = await counts(i);
+  const over = await record(i, 'l-cap', 'won', { amount_usd: 5001, now: NOW });
+  assert.deepEqual(over, { ok: false, note: "That's more than this program pays; check the amount." });
+  assert.deepEqual(await counts(i), before);
+  assert.equal((await record(i, 'l-cap', 'won', { amount_usd: 5000, now: NOW })).ok, true);
+
+  await upsertProgram(programFixture({ id: 'l-nocap' }), 'file', NOW);
+  await record(i, 'l-nocap', 'applied', { now: NOW });
+  const mid = await counts(i);
+  assert.deepEqual(await record(i, 'l-nocap', 'won', { amount_usd: 5_000_001, now: NOW }), { ok: false, note: "That's more than this program pays; check the amount." });
+  assert.deepEqual(await counts(i), mid);
+  assert.equal((await record(i, 'l-nocap', 'won', { amount_usd: 5_000_000, now: NOW })).ok, true);
+});
+
+test('asked_usd leaves out investment programs', async () => {
+  const i = await install();
+  const g = await prog('l-ask-g', { max_award_usd: 5000 });
+  const inv = await prog('l-ask-inv', { max_award_usd: 500_000, investment: true });
+  const cat = await prog('l-ask-cat', { max_award_usd: 250_000, category: 'investment' });
+  for (const id of ['l-ask-g', 'l-ask-inv', 'l-ask-cat']) await record(i, id, 'applied', { now: NOW });
+  const s = await summary(i, [g, inv, cat], NOW);
+  assert.equal(s.applied, 3);
+  assert.equal(s.asked_usd, 5000);
+});

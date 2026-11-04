@@ -28,7 +28,8 @@ const { mcpCall } = await import('../lib/v5/fixtures/mcp-call');
 try {
   const [inst] = await sql()`INSERT INTO installations (token_hash) VALUES (${'replay-' + Math.random()}) RETURNING id`;
   const rec = replayFetch(slug);
-  const project = { name: slug, description: 'An app.', repo_url: `https://github.com/${rec.repo}`, live_url: 'https://earnkit.com', users: true };
+  // The honest run: no live link or users claim the repo itself does not show.
+  const project = { name: slug, description: 'An app.', repo_url: `https://github.com/${rec.repo}` };
   let now = new Date('2026-11-04T12:00:00Z');
   const call = async (tool: string, a: Record<string, unknown>) => {
     const r = await mcpCall({ installationId: inst.id as number, now, gh: rec.fetch }, tool, a);

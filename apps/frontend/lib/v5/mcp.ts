@@ -1,15 +1,18 @@
 /**
  * The MCP server: two tools, find and track, and the server instructions. Built per request
- * (the route is stateless). A tool's reply is its JSON; an unexpected error (a database blip)
- * is one plain line, logged by name only.
+ * (the route is stateless). Each tool call counts against the installation's and the IP's hourly
+ * limits; over either it is the busy-for-an-hour result. A tool's reply is its JSON; an unexpected
+ * error (a database blip) is one plain line, logged by name only.
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { find } from './find';
 import { PROGRAM_CATEGORIES } from './program-file';
+import { LIMITS, hit } from './rate-limit';
 import { TrackInput, track } from './track';
 
-export type McpContext = { installationId: number; now?: Date; gh?: typeof fetch };
+/** `ip`: the caller's address as a rate-limit key, when the route knows it. */
+export type McpContext = { installationId: number; now?: Date; gh?: typeof fetch; ip?: string };
 
 export const SERVER_INSTRUCTIONS =
   "Call find at the start of every session with the project you are in, before the builder says anything, and open with its reply in your own words. Call it again when they ask about money, grants or programs. Draft every form from find's fields: EarnKit's values as given, agent fields from your memory, builder fields asked once. Submit in your own browser only when the builder says yes. After each submission call track. Never name tools, fields or files. Never invent an amount, a deadline or a rule.";
@@ -18,6 +21,7 @@ export const FIND_DESCRIPTION =
 export const TRACK_DESCRIPTION =
   'What the builder did: applied, won (with amount_usd), rejected, no_result, skipped, or gap_done (with item). Call it after every submission and every answer about a result.';
 export const BUSY = 'EarnKit is busy. Try again in a minute.';
+export const BUSY_HOUR = 'EarnKit is busy. Try again in an hour.';
 
 const any = (what: string) => z.unknown().optional().describe(what);
 /** Read leniently (project-input.ts): a bad field is dropped and named, never a refusal. */
@@ -33,12 +37,20 @@ const PROJECT = z
     last_commit_at: any('ISO 8601, from git log'),
     private: any('true when the repo is private: EarnKit then matches on what you report'),
     builder_codes: any('true when the app sends Base Builder Codes'),
-    users: any('true when real people use it'),
+    users: any('true when real people use it, false when not; omit it when you do not know'),
   })
   .describe('The project you are in');
 
-async function run(name: string, fn: () => Promise<unknown>) {
+/** Counts one tool call against the IP floor and the installation's limit; false when over either. */
+async function allowed(ctx: McpContext, now: Date): Promise<boolean> {
+  const count = (name: 'mcp' | 'mcpIp', who: string | number) => hit(`${name}:${who}`, LIMITS[name].limit, LIMITS[name].windowSeconds, now);
+  if (ctx.ip && !(await count('mcpIp', ctx.ip)).allowed) return false;
+  return (await count('mcp', ctx.installationId)).allowed;
+}
+
+async function run(ctx: McpContext, name: string, fn: () => Promise<unknown>) {
   try {
+    if (!(await allowed(ctx, ctx.now ?? new Date()))) return { content: [{ type: 'text' as const, text: BUSY_HOUR }], isError: true };
     return { content: [{ type: 'text' as const, text: JSON.stringify(await fn()) }] };
   } catch (err) {
     if (err instanceof z.ZodError)
@@ -67,12 +79,12 @@ export function createMcpServer(ctx: McpContext): McpServer {
           .optional(),
       },
     },
-    (args) => run('find', () => find({ installationId: ctx.installationId, now: now(), gh: ctx.gh }, args)),
+    (args) => run(ctx, 'find', () => find({ installationId: ctx.installationId, now: now(), gh: ctx.gh }, args)),
   );
   server.registerTool(
     'track',
     { description: TRACK_DESCRIPTION, inputSchema: TrackInput },
-    (args) => run('track', () => track({ installationId: ctx.installationId, now: now() }, args)),
+    (args) => run(ctx, 'track', () => track({ installationId: ctx.installationId, now: now() }, args)),
   );
   return server;
 }

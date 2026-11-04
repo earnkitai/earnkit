@@ -22,7 +22,8 @@ async function installation() {
   return r.id as number;
 }
 const rec = replayFetch('earnkit');
-const PROJECT = { name: 'EarnKit', description: 'Grants for builders.', repo_url: `https://github.com/${rec.repo}` };
+// The agent knows the live link (it passes it); whether real people use it, it does not say.
+const PROJECT = { name: 'EarnKit', description: 'Grants for builders.', repo_url: `https://github.com/${rec.repo}`, live_url: 'https://earnkit.com' };
 const ctx = (id: number, now = NOW) => ({ installationId: id, now, gh: rec.fetch });
 const ids = (xs: unknown) => (xs as { program_id: string }[]).map((x) => x.program_id);
 
@@ -46,21 +47,25 @@ test('first find has no since', async () => {
   assert.equal(
     show,
     [
-      'Ready to apply, 5:',
-      '1. Alliance ALL19, $400K at admission, closes in 14 days. Drafted.',
-      '2. Avalanche Team1 Mini Grants, up to $10,000. Drafted: 8 facts from the repo.',
-      '3. Z Fellows, up to $10K investment. Drafted: 2 facts from the repo.',
-      '4. ETHGlobal Mumbai, up to $15K per partner prize, closes in 2 days, in person. Drafted: 3 facts from the repo.',
-      '5. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Drafted: 1 fact from the repo. Needs your investor deck file.',
+      'Ready to apply, 4:',
+      "1. Alliance ALL19, $400K at admission, closes in 14 days. Your agent fills it on the page. First: start the application with the first founder's email.",
+      '2. Avalanche Team1 Mini Grants, up to $10,000. Drafted: 6 facts from the repo. First: sign in to the Avalanche Builder Hub.',
+      '3. Z Fellows, up to $10K investment. Drafted: 1 fact from the repo.',
+      '4. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Your agent fills it on the page. Needs your investor deck file.',
       '',
-      'One change away, 1:',
-      '6. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc and put a live link up.',
+      'One change away, 2:',
+      '5. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
+      '6. Base Builder Grant Program, up to $5,000: add Base Builder Codes to the app and tell me if real people use it.',
       '',
-      'Say yes to apply to all 5, numbers to skip, or "do 6" and I\'ll make the change first.',
+      'In person, apply to attend first:',
+      '7. ETHGlobal Mumbai, up to $15K per partner prize, closes in 2 days. Apply to attend by Nov 3 and get accepted; stake a small amount of ETH; be in Mumbai Nov 5 to 7.',
+      '',
+      'Say yes to apply to all 4, numbers to skip, or "do 5" and I\'ll make the change first.',
     ].join('\n'),
   );
   // Only what nobody but the builder can give: no contacts or team.
-  for (const p of reply.ready as { needs: string[] }[]) for (const n of p.needs) assert.doesNotMatch(n, /email|name|team|telegram|x profile/i);
+  for (const p of reply.ready as { needs: string[]; setup: string[] }[])
+    for (const n of p.needs.filter((x) => !p.setup.includes(x))) assert.doesNotMatch(n, /email|name|team|telegram|x profile/i);
 });
 
 test('a deadline moved since the last find', async () => {
@@ -123,6 +128,35 @@ test('find with program_id carries the guide, and its rules sit between the two 
   assert.equal(none.reply!.guide, null);
 });
 
+test('find with program_id: a closed program is closed, an upcoming one not open yet; neither offers a draft', async () => {
+  const id = await installation();
+  const { programFixture } = await import('./fixtures/program');
+  await upsertProgram(programFixture({ id: 'f-shut', title: 'Shut Grants', status: 'closed' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'f-past', title: 'Past Grants', ends_at: '2026-11-01T00:00:00Z' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'f-soon', title: 'Soon Grants', status: 'upcoming', opens_note: 'Opens in January' }), 'file', NOW);
+  for (const pid of ['f-shut', 'f-past']) {
+    const r = await mcpCall(ctx(id), 'find', { program_id: pid, project: PROJECT });
+    const show = r.reply!.show_to_builder as string;
+    assert.match(show, /This one is closed\.$/, show);
+    assert.doesNotMatch(show, /draft/);
+    assert.match(r.reply!.agent_note as string, /draft nothing/);
+  }
+  const soon = await mcpCall(ctx(id), 'find', { program_id: 'f-soon' });
+  const show = soon.reply!.show_to_builder as string;
+  assert.match(show, /Not open yet: Opens in January\.$/, show);
+  assert.doesNotMatch(show, /draft/);
+});
+
+test('a 2,000-character description is cut, not refused: find still answers ready and gaps', async () => {
+  const id = await installation();
+  const r = await mcpCall(ctx(id), 'find', { project: { ...PROJECT, description: 'Grants for builders. '.repeat(100) } });
+  assert.equal(r.isError, false, r.text);
+  assert.ok((r.reply!.ready as unknown[]).length > 0);
+  assert.ok(Array.isArray(r.reply!.gaps));
+  assert.deepEqual(r.reply!.problems, ['description cut to 280 characters']);
+  assert.doesNotMatch(r.reply!.show_to_builder as string, /^Open now/);
+});
+
 test('find with no project: the open list and the ask for the project', async () => {
   const id = await installation();
   const r = await mcpCall(ctx(id), 'find', {});
@@ -151,7 +185,11 @@ test('filter.all lists the rest with a reason; the leftover count is in the note
   const all = await mcpCall(ctx(id), 'find', { project: PROJECT, filter: { all: true } });
   assert.ok((all.reply!.ready as unknown[]).length > 5);
   const notFit = all.reply!.not_fit as { program_id: string; reason: string }[];
-  assert.ok(notFit.some((n) => n.program_id === 'base-builder-grants' && n.reason.length > 0));
+  assert.ok(notFit.every((n) => n.reason.length > 0));
+  assert.ok(!notFit.some((n) => n.program_id === 'base-builder-grants'));
+  const { live_url: _, ...noLink } = PROJECT;
+  const offline = await mcpCall(ctx(id), 'find', { project: noLink, filter: { all: true } });
+  assert.ok((offline.reply!.not_fit as { program_id: string; reason: string }[]).some((n) => n.program_id === 'base-builder-grants' && n.reason.length > 0));
   const grants = await mcpCall(ctx(id), 'find', { project: PROJECT, filter: { category: 'investment', all: true } });
   assert.ok((grants.reply!.ready as { category: string }[]).every((p) => p.category === 'investment'));
 });

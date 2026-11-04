@@ -35,24 +35,29 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
 `find.ts` runs, in order:
 
 1. `project-input.ts` parses what the agent reported, leniently: a bad link, unknown chain or bad date is dropped
-   with a problem line for the agent; only a missing name or description fails.
+   and a name over 80 or a description over 280 characters is cut, each with a problem line for the agent; only a
+   missing name or description fails. `users` is true, false or null (not reported).
 2. `repo-facts.ts` reads a public GitHub repo with EarnKit's own token (`github.ts`: repo, tree, README, up to 12
    config files for chain detection, first commit date) and merges it with what the agent reported. Facts are cached
-   7 days in `repo_cache` and re-read when `pushed_at` moves. A private or unreadable repo is agent-reported only,
-   and the reply says so (`as_reported`).
+   7 days in `repo_cache` and re-read when `pushed_at` moves; the cron sweeps rows over 30 days. An installation gets
+   10 uncached reads a UTC day (a cache hit is free); past that the facts are agent-reported only with the problem
+   "repo reads paused until tomorrow". A private or unreadable repo is agent-reported only, and the reply says so
+   (`as_reported`).
 3. `programs.ts` lists the open programs. `eligibility.ts` evaluates each program's eligibility items against the
    facts: `ready`, `gap` (with each unmet item as a gap: kind, effort, whether the agent can do it) or no fit.
-   `chain` and `contract_on` count as met only on mainnet.
+   `chain` and `contract_on` count as met only on mainnet. `users` not reported is a one-question gap the builder
+   answers; `users: false` is no fit.
 4. `rank.ts` orders them: ready by fit (long shots last), larger award, sooner deadline; gaps by fewest gaps, lowest
    effort, larger award. Skipped and applied programs never return unless their next round opens.
 5. `prefill.ts` fills each ready program's form: fields EarnKit can answer (`from: earnkit`), prose fields handed to
    the agent with sources (`from: agent`), and fields only the builder can give (`from: builder`, a demo video or
-   a file). Blank beats a wrong guess.
+   a file). Blank beats a wrong guess. `facts_from_repo` counts only the link, contract and chain values, never the
+   passed name or description; the reply says "Drafted: N facts from the repo." only when N is above zero.
 6. `since.ts` lists programs new, changed (deadline, amount, status, form) and closing within 7 days since this
    installation's `last_find_at`. Empty on the first call.
 7. `ledger.ts` summarises the installation's applications; results past due become `ask_outcome`.
-8. `reply.ts` writes `show_to_builder` and `agent_note`. It shows at most 5 ready and 3 gaps and ends with exactly
-   one closing line. No emoji, no em dash, no tool or field names, no coins, points or scores.
+8. `reply.ts` writes `show_to_builder` and `agent_note`. It shows at most 5 ready and 3 gaps, then in-person
+   programs in their own block with their setup (never in "apply to all N"), and ends with exactly one closing line. No emoji, no em dash, no tool or field names, no coins, points or scores.
 
 ## The program record and pipeline
 
@@ -74,8 +79,11 @@ The pipeline, in order:
 3. Files: `programs/*.json` is the owner's override and wins over an API row with the same id. `pnpm programs:check`
    validates them; `pnpm programs:sync` writes them before each deploy.
 4. Freshness: the daily cron (`health.ts`) probes each listed program's links and source page, flags a program
-   stale after two failing days or a big page change, and closes an active program whose deadline passed.
-   A program unverified or stale for 14 days leaves the open list. There is no LLM in the cron.
+   stale after two failing days, and closes an active program whose deadline passed. A source page sharing fewer
+   than 80% of its words with the text stored the day before (`program_health.body_text`) counts as changed: it is
+   listed in the owner's digest and never marks the program stale. A program unverified or stale for 14 days leaves
+   the open list. The deploy's sync writes an active file past its `ends_at` as closed, with a warning, so a deploy
+   never reopens it. There is no LLM in the cron.
 5. Readers: `programs-read.ts` serves public `GET /api/programs`; `landing.ts`, `guide.ts`, `guide-page.ts` and
    `stats.ts` feed the site.
 
@@ -86,11 +94,13 @@ change; `gaps_done` records closed gap items. It is keyed by installation only: 
 belongs to, so a re-authorization starts a fresh ledger and a builder with two agents has two. `gap_done` is trusted
 only for kinds EarnKit cannot verify (`feature`, `users`, `demo_video`); verifiable kinds are re-read from the repo.
 `won` with an amount is the one fact that later feeds an aggregate "what wins" view; nothing aggregate is shown yet.
+A `won` above the program's `max_award_usd` (or 5,000,000 when none is stated) is refused and writes nothing.
+`asked_usd` leaves out investment programs.
 
 ## Freshness and the daily job
 
 `.github/workflows/earnkit-cron.yml` posts to `/api/cron` once a day with `CRON_SECRET`. `cron.ts` runs the probe
-(`health.ts`), then the owner's digest (`owner-digest.ts`: programs closed by deadline, failed links, changed pages
+(`health.ts`), the `repo_cache` sweep (rows over 30 days, answered as `swept`), then the owner's digest (`owner-digest.ts`: programs closed by deadline, failed links, changed pages
 and every change to live programs since the last digest, with revert links; nothing happened, nothing sent). Mail is
 `mail.ts` over Resend, to the owner only. A step that throws answers 500 with its name.
 
@@ -113,7 +123,9 @@ Copy lives in `site-copy.ts`, install steps in `agents.ts` (read by the site, `/
 `site-theme.ts` (mirrored in `globals.css`). See `apps/frontend/DESIGN.md`. OAuth (`oauth.ts`, `oauth-routes.ts`) is
 standard (PKCE, dynamic client registration) and approves at once; the issued token is the installation. A
 many-builder hosted registration gets no client key, and the hosted rate-limit tier applies only when every redirect
-URI is on a hosted agent host. `rate-limit.ts` keeps fixed-window counters in Postgres. `secrets.ts` scrubs secret
+URI is on a hosted agent host. `rate-limit.ts` keeps fixed-window counters in Postgres. Each MCP tool call counts
+120 an hour per installation and 600 an hour per client IP; over either, the call answers the tool result "EarnKit
+is busy. Try again in an hour." (not a transport error, so clients show it). `secrets.ts` scrubs secret
 keys from tool-call bodies before anything sees them.
 
 ## Database
@@ -125,10 +137,10 @@ keys from tool-call bodies before anything sees them.
 | `programs` | Every program: the whole record in `file`, plus mirrored columns and source (`file` or `api`) |
 | `program_changes` | Field-level changes, for `since` and the owner digest |
 | `program_writes` | The write API's audit log and the pending writes |
-| `program_health` | The freshness probe: link status, page hash, failing days, stale flag |
+| `program_health` | The freshness probe: link status, page hash and text, failing days, changed_at |
 | `installations` | One row per issued token (hash only): client name, `last_seen_at`, `last_find_at` |
 | `rate_windows` | Request counters |
-| `repo_cache` | Public repo facts, 7 days |
+| `repo_cache` | Public repo facts, 7 days; swept after 30 |
 | `applications`, `application_history`, `gaps_done` | The ledger |
 | `owner_digests` | The days a digest covered |
 

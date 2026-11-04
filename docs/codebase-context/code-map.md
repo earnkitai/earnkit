@@ -9,7 +9,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v5/chains.ts`: Chain registry: slug, ids, RPC and explorer hosts, EVM or not
 - `apps/frontend/lib/v5/confusables-table.ts`: Generated Unicode confusables table (UTS #39); do not edit
 - `apps/frontend/lib/v5/confusables.ts`: Look-alike full stops, so link detection reads a hidden domain as one
-- `apps/frontend/lib/v5/cron.ts`: POST /api/cron handler: freshness probe, then the owner digest
+- `apps/frontend/lib/v5/cron.ts`: POST /api/cron handler: freshness probe, repo cache sweep, then the owner digest
 - `apps/frontend/lib/v5/db.ts`: Postgres pool and transaction helpers
 - `apps/frontend/lib/v5/deadline.ts`: A program's close in words: close day in its time zone and time left
 - `apps/frontend/lib/v5/eligibility.ts`: Repo facts against a program's eligibility items: ready, gap, or no fit
@@ -17,14 +17,14 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v5/github.ts`: Public GitHub reads with EarnKit's server token
 - `apps/frontend/lib/v5/guide-page.ts`: Data for /programs/[id]: the guide plus page context, as plain JSON
 - `apps/frontend/lib/v5/guide.ts`: A program's guide: money, close, who can apply, form fields, rules, sources
-- `apps/frontend/lib/v5/health.ts`: Daily freshness probe: links, page hashes, stale flags, passed deadlines
+- `apps/frontend/lib/v5/health.ts`: Daily freshness probe: links, page text changes (under 80% words shared), stale flags, passed deadlines
 - `apps/frontend/lib/v5/http.ts`: Route helpers: JSON and CORS answers, params, secret and Bearer checks, capped bodies
 - `apps/frontend/lib/v5/installations.ts`: Installation rows: save a token, connect a token, stamp last_find_at
 - `apps/frontend/lib/v5/landing.ts`: Landing and /programs data: one tile per listed program and the hero money chip
 - `apps/frontend/lib/v5/ledger.ts`: The ledger: applications, history, closed gap items, the summary
 - `apps/frontend/lib/v5/llms.ts`: The text of /llms.txt
 - `apps/frontend/lib/v5/mail.ts`: Owner emails over Resend, idempotent; a no-op without RESEND_API_KEY
-- `apps/frontend/lib/v5/mcp.ts`: The MCP server: find and track, their descriptions and the server instructions
+- `apps/frontend/lib/v5/mcp.ts`: The MCP server: find and track, their descriptions, the server instructions, the per-installation and per-IP tool-call limits
 - `apps/frontend/lib/v5/oauth-routes.ts`: OAuth register, authorize and token handlers with rate limits
 - `apps/frontend/lib/v5/oauth.ts`: OAuth 2.1 with PKCE and dynamic client registration, anonymous approval
 - `apps/frontend/lib/v5/owner-digest.ts`: The owner's daily email: closures, failed links, changed pages, program changes with revert links
@@ -34,12 +34,13 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v5/programs-api.ts`: The write API: upsert or close, audit log, approve and revert
 - `apps/frontend/lib/v5/programs-pending.ts`: Link check, owner email and signed approve/revert links for pending writes
 - `apps/frontend/lib/v5/programs-read.ts`: Public GET /api/programs list
+- `apps/frontend/lib/v5/programs-sync.ts`: Reads and checks programs/*.json and writes them (an expired active file as closed), for programs:check and programs:sync
 - `apps/frontend/lib/v5/programs.ts`: The programs table: list open programs, read one, write one
 - `apps/frontend/lib/v5/project-input.ts`: Lenient parse of the project an agent reports
 - `apps/frontend/lib/v5/rank.ts`: Ordering of ready and gap verdicts
 - `apps/frontend/lib/v5/rate-limit.ts`: Fixed-window counters in Postgres
 - `apps/frontend/lib/v5/reply.ts`: The words of a find reply: show_to_builder and agent_note
-- `apps/frontend/lib/v5/repo-facts.ts`: Repo facts: public read, 7-day cache, merged with agent-reported facts
+- `apps/frontend/lib/v5/repo-facts.ts`: Repo facts: public read, 7-day cache, 10 uncached reads a day per installation, the 30-day sweep, merged with agent-reported facts
 - `apps/frontend/lib/v5/safe-fetch.ts`: SSRF-safe GETs and link probes on third-party hosts
 - `apps/frontend/lib/v5/secrets.ts`: Scrubs secret keys from tool-call bodies before anything sees them
 - `apps/frontend/lib/v5/since.ts`: What is new, changed or closing since the last find
@@ -105,7 +106,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/app/lib/landing-cache.ts`: The landing data, cached
 - `apps/frontend/app/lib/links.ts`: Shared site links
 - `apps/frontend/app/llms.txt/route.ts`: /llms.txt from lib/v5/llms.ts
-- `apps/frontend/app/mcp/route.ts`: The /mcp endpoint: bearer check, secret scrub, rate limit, then the MCP server
+- `apps/frontend/app/mcp/route.ts`: The /mcp endpoint: bearer check, body cap and secret scrub, then the MCP server with the client IP (tool calls are rate limited per installation and per IP in mcp.ts)
 - `apps/frontend/app/not-found.tsx`: The 404 page
 - `apps/frontend/app/oauth/authorize/route.ts`: Re-exports the OAuth authorize handler
 - `apps/frontend/app/oauth/register/route.ts`: Re-exports the OAuth client registration handler
@@ -122,7 +123,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 
 - `apps/frontend/scripts/db-migrate.mts`: pnpm db:migrate: runs schema.sql
 - `apps/frontend/scripts/env.mts`: Loads .env.local for admin scripts
-- `apps/frontend/scripts/programs-sync.mts`: pnpm programs:check and programs:sync: validate and write programs/*.json
+- `apps/frontend/scripts/programs-sync.mts`: pnpm programs:check and programs:sync: validate and write programs/*.json (via lib/v5/programs-sync.ts)
 - `apps/frontend/scripts/record-repo-fixture.mts`: Records a public repo's GitHub reads as a test fixture
 - `apps/frontend/scripts/replay.mts`: Replay: find, track applied, find on a scratch database for a recorded repo (--monday)
 - `apps/frontend/scripts/v4-tables.mts`: pnpm db:v4-tables: lists v4 tables with row counts and prints DROP statements

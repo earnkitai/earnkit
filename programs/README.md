@@ -94,7 +94,12 @@ rolling program. Only when the source says.
 
 ## Keeping programs fresh
 
-A daily probe reads every program's `source_url` and `submission_url`. A dead link, a passed
-`ends_at` or a changed page marks the program stale; an open list leaves out a program stale for
-more than 14 days, and an API program not verified in 14 days. To re-verify a file program, re-read
-its source, update what changed and `verified_at`, run `pnpm programs:check` and push.
+A daily probe reads every program's `source_url` and `submission_url`. A link that fails two days
+running marks the program stale; an open list leaves out a program stale for more than 14 days, and
+an API program not verified in 14 days. A passed `ends_at` closes an active program (the probe does
+it daily, and `pnpm programs:sync` writes an active file past its `ends_at` as closed, with a warning
+that `pnpm programs:check` prints too; set `"status": "closed"` in the file). A source page counts as
+changed when fewer than 80% of its words (lowercased, deduplicated) are shared with the text stored
+the day before; a change is listed in the owner's daily digest to re-read, and never marks the
+program stale. To re-verify a file program, re-read its source, update what changed and
+`verified_at`, run `pnpm programs:check` and push.

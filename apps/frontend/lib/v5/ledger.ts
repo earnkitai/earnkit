@@ -1,8 +1,10 @@
 /**
  * The builder's ledger, keyed by installation only: applications (one row per program, plus an
- * append-only history), closed gap items, and the summary `track` and `find` show.
+ * append-only history), closed gap items, and the summary `track` and `find` show. A win over the
+ * program's stated maximum (or 5,000,000 when none is stated) is refused; investments are never "asked".
  */
 import { sql } from './db';
+import { categoryOf } from './program-file';
 import { getProgram, programsById, type ProgramRow } from './programs';
 
 export type Status = 'applied' | 'won' | 'rejected' | 'no_result' | 'skipped' | 'gap_done';
@@ -18,6 +20,8 @@ export type Ledger = {
 };
 
 const RESULTS = ['won', 'rejected', 'no_result'];
+/** The most a win can be when the program states no maximum. */
+const MAX_WIN_USD = 5_000_000;
 const DAY = 86_400_000;
 
 /** When results are due: the file's date, else the close plus the weeks after, else null. */
@@ -43,9 +47,12 @@ export async function record(
   o: { amount_usd?: number; note?: string; item?: string; now?: Date } = {},
 ): Promise<{ ok: true } | { ok: false; note: string }> {
   const now = o.now ?? new Date();
-  if (!(await getProgram(programId))) return { ok: false, note: "I don't know that program." };
+  const program = await getProgram(programId);
+  if (!program) return { ok: false, note: "I don't know that program." };
   if (status === 'won' && !(typeof o.amount_usd === 'number' && Number.isFinite(o.amount_usd) && o.amount_usd > 0))
     return { ok: false, note: 'Tell me how much you won, as a number above zero.' };
+  if (status === 'won' && o.amount_usd! > (program.file.max_award_usd ?? MAX_WIN_USD))
+    return { ok: false, note: "That's more than this program pays; check the amount." };
   if (status === 'gap_done' && !o.item) return { ok: false, note: 'Tell me which item you finished.' };
   const amount = status === 'won' ? o.amount_usd! : null;
   const note = o.note ?? null;
@@ -85,7 +92,7 @@ export async function summary(installationId: number, programs: ProgramRow[], no
     }
     l.applied++;
     const p = byId.get(r.program_id);
-    l.asked_usd += p?.file.max_award_usd ?? 0;
+    if (p && !p.file.investment && categoryOf(p.file) !== 'investment') l.asked_usd += p.file.max_award_usd ?? 0;
     if (r.status === 'won') {
       l.won++;
       l.won_usd += Number(r.amount_usd ?? 0);

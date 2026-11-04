@@ -34,9 +34,17 @@ test('cronPost: 401 without or with a wrong secret, 503 when CRON_SECRET is unse
 test('cronPost: runs health then the digest and answers the counts', async () => {
   const res = await cronPost(req(`Bearer ${SECRET}`), deps);
   assert.equal(res.status, 200);
-  const body = (await res.json()) as { health: Record<string, number>; digest: string };
+  const body = (await res.json()) as { health: Record<string, number>; swept: number; digest: string };
   assert.deepEqual(Object.keys(body.health).sort(), ['changed', 'checked', 'closed', 'stale']);
+  assert.equal(typeof body.swept, 'number');
   assert.ok(['sent', 'none'].includes(body.digest));
+});
+
+test('cronPost: the sweep after health drops a repo_cache row over 30 days old and answers swept', async () => {
+  await sql()`INSERT INTO repo_cache (repo, facts, fetched_at) VALUES ('c/old', '{}', ${new Date(deps.now.getTime() - 40 * 86_400_000)}), ('c/new', '{}', ${deps.now})`;
+  const body = (await (await cronPost(req(`Bearer ${SECRET}`), deps)).json()) as { swept: number };
+  assert.equal(body.swept, 1);
+  assert.deepEqual((await sql()`SELECT repo FROM repo_cache`).map((r) => r.repo), ['c/new']);
 });
 
 test('cronPost: a thrown step answers 500 with the step name only', async () => {

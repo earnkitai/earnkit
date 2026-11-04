@@ -1,13 +1,14 @@
 /**
- * POST /api/cron, once a day: the freshness probe, then the owner's digest. Bearer CRON_SECRET
- * only (503 while it is unset). A step that throws answers 500 with its name; the log names only
- * the error type.
+ * POST /api/cron, once a day: the freshness probe, the repo cache sweep (rows over 30 days), then
+ * the owner's digest. Bearer CRON_SECRET only (503 while it is unset). A step that throws answers
+ * 500 with its name; the log names only the error type.
  */
 import { bearerMatches, json } from './http';
 import { runHealth } from './health';
 import type { Mailer } from './mail';
 import { sendOwnerDigest } from './owner-digest';
 import { programsChanged } from './programs-api';
+import { sweepRepoCache } from './repo-facts';
 import type { Probe } from './safe-fetch';
 
 export type CronDeps = {
@@ -40,11 +41,18 @@ export async function cronPost(request: Request, deps: CronDeps = {}): Promise<R
   }
   for (const id of health.closed) programsChanged(id);
 
+  let swept: number;
+  try {
+    swept = await sweepRepoCache(now);
+  } catch (err) {
+    return failed('sweep', err);
+  }
+
   let digest: 'sent' | 'none';
   try {
     digest = await (deps.sendDigest ?? sendOwnerDigest)(now, deps.mailer);
   } catch (err) {
     return failed('digest', err);
   }
-  return json({ health: { checked: health.checked, stale: health.stale.length, changed: health.changed.length, closed: health.closed.length }, digest });
+  return json({ health: { checked: health.checked, stale: health.stale.length, changed: health.changed.length, closed: health.closed.length }, swept, digest });
 }

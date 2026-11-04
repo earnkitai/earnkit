@@ -1,6 +1,7 @@
 /**
  * The words of a find reply: `replyText` (what the builder sees, design section 4) and
- * `agentNote` (what the agent does next). Pure.
+ * `agentNote` (what the agent does next). In-person programs get their own block after ready and
+ * gaps, with their setup, and are never in the count to apply to. Pure.
  */
 import { compactUsd } from './programs-read';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
@@ -17,12 +18,21 @@ const bare = (todo: string) => todo.replace(/^(your|a|an|the)\s+/i, '');
 function readyLine(p: ReadyProgram, n: number): string {
   let head = `${n}. ${p.title}, ${p.money}`;
   if (p.closes_in) head += `, closes ${p.closes_in}`;
-  if (p.in_person) head += ', in person';
   if (p.long_shot) head += `, a long shot: ${p.long_shot}`;
-  const drafted = p.filled > 0 ? `Drafted: ${p.filled} ${p.filled === 1 ? 'fact' : 'facts'} from the repo.` : 'Drafted.';
-  const needs = p.needs.map(bare);
+  const drafted =
+    p.facts_from_repo > 0 ? `Drafted: ${p.facts_from_repo} ${p.facts_from_repo === 1 ? 'fact' : 'facts'} from the repo.` : 'Your agent fills it on the page.';
+  // Setup items are steps ("sign in to ..."), the rest are things ("a Loom demo"): each reads its own way.
+  const steps = p.needs.filter((x) => p.setup.includes(x));
+  const needs = p.needs.filter((x) => !p.setup.includes(x)).map(bare);
   const shown = needs.length > NEEDS_SHOWN ? [...needs.slice(0, NEEDS_SHOWN), `${needs.length - NEEDS_SHOWN} more`] : needs;
-  return `${head}. ${drafted}${shown.length > 0 ? ` Needs your ${joinAnd(shown)}.` : ''}`;
+  return `${head}. ${drafted}${shown.length > 0 ? ` Needs your ${joinAnd(shown)}.` : ''}${steps.length > 0 ? ` First: ${steps.join('; ')}.` : ''}`;
+}
+
+/** An in-person program: the money, the close, and what attending takes. */
+function inPersonLine(p: ReadyProgram, n: number): string {
+  const head = `${n}. ${p.title}, ${p.money}${p.closes_in ? `, closes ${p.closes_in}` : ''}.`;
+  const setup = p.setup.join('; ');
+  return setup ? `${head} ${setup.charAt(0).toUpperCase()}${setup.slice(1)}.` : head;
 }
 
 function gapLine(g: GapProgram, n: number): string {
@@ -45,12 +55,13 @@ function sinceLine(r: R): string | null {
   return `Since ${day}: ${parts.join('; ')}.`;
 }
 
-function closingLine(ready: number, gaps: number, firstGap: number): string {
+function closingLine(ready: number, gaps: number, firstGap: number, inPerson: number): string {
   if (ready === 1 && gaps > 0) return `Say yes to apply, skip it, or "do ${firstGap}" and I'll make the change first.`;
   if (ready === 1) return 'Say yes to apply, or skip it.';
   if (ready > 0 && gaps > 0) return `Say yes to apply to all ${ready}, numbers to skip, or "do ${firstGap}" and I'll make the change first.`;
   if (ready > 0) return `Say yes to apply to all ${ready}, or numbers to skip.`;
   if (gaps > 0) return `Say "do ${firstGap}" and I'll make the change first.`;
+  if (inPerson > 0) return "Tell me which you can attend and I'll draft it once you're in.";
   return "Nothing fits yet. I'll say when something opens.";
 }
 
@@ -59,15 +70,20 @@ export function replyText(r: R, first: boolean): string {
   const blocks: string[] = [];
   const since = first ? null : sinceLine(r);
   if (since) blocks.push(since);
-  if (r.ready.length > 0) blocks.push([`Ready to apply, ${r.ready.length}:`, ...r.ready.map((p, i) => readyLine(p, i + 1))].join('\n'));
+  const ready = r.ready.filter((p) => !p.in_person);
+  const inPerson = r.ready.filter((p) => p.in_person);
+  if (ready.length > 0) blocks.push([`Ready to apply, ${ready.length}:`, ...ready.map((p, i) => readyLine(p, i + 1))].join('\n'));
   if (r.gaps.length > 0)
-    blocks.push([`One change away, ${r.gaps.length}:`, ...r.gaps.map((g, i) => gapLine(g, r.ready.length + i + 1))].join('\n'));
+    blocks.push([`One change away, ${r.gaps.length}:`, ...r.gaps.map((g, i) => gapLine(g, ready.length + i + 1))].join('\n'));
+  if (inPerson.length > 0)
+    blocks.push(['In person, apply to attend first:', ...inPerson.map((p, i) => inPersonLine(p, ready.length + r.gaps.length + i + 1))].join('\n'));
   const l = r.ledger;
   if (l.applied > 0) {
     const soon = l.closing_soon.length > 0 ? `, ${l.closing_soon.length} closing soon` : '';
-    blocks.push(`Ledger: ${l.applied} applied (${compactUsd(l.asked_usd)} asked), ${l.won} won, ${l.pending} pending${soon}.`);
+    const asked = l.asked_usd > 0 ? ` (${compactUsd(l.asked_usd)} asked)` : '';
+    blocks.push(`Ledger: ${l.applied} applied${asked}, ${l.won} won, ${l.pending} pending${soon}.`);
   }
-  blocks.push(closingLine(r.ready.length, r.gaps.length, r.ready.length + 1));
+  blocks.push(closingLine(ready.length, r.gaps.length, ready.length + 1, inPerson.length));
   return blocks.join('\n\n');
 }
 
@@ -78,9 +94,14 @@ export function agentNote(r: R, o: { more: number }): string {
     "Draft each ready program from its fields: 'earnkit' values as given; 'agent' fields you write from your memory and the field's sources; 'builder' fields you ask once, all together.",
     'Submit only when the builder says yes, in your own browser, field by field (form_id names the form field when given).',
     'Call track with applied after each submission, and with won (amount_usd), rejected or no_result after each result; skipped for a number they skip.',
+    'Pass users and live_url in the project whenever you know them; never invent them.',
   ];
+  if (r.ready.some((p) => p.in_person))
+    lines.push('In-person programs (in_person: true) are not in "yes to all": draft nothing for one until the builder says yes to attending it and its setup.');
   if (r.gaps.length > 0)
     lines.push('On "do <n>": make that gap\'s change (its details carry the chain\'s RPC and explorer), push, call track with gap_done and the gap\'s item, then call find again.');
+  if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.kind === 'users' && x.effort === 'hours')))
+    lines.push('"Tell me if real people use it" is a question, not work: ask the builder once; on yes, pass users: true next time or call track with gap_done and item users.');
   if (o.more > 0) lines.push(`${o.more} more fit; ask with filter.all for the full list.`);
   if (r.ask_outcome.length > 0)
     lines.push(`Ask once how each went: ${r.ask_outcome.map((a) => a.title).join(', ')}. Pass each answer to track (won with amount_usd, rejected or no_result).`);

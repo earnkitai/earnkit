@@ -3,6 +3,7 @@ import { CORS, json, preflight } from '../../lib/v5/http';
 import { connectInstallation, type Caller } from '../../lib/v5/installations';
 import { createMcpServer } from '../../lib/v5/mcp';
 import { publicOrigin } from '../../lib/v5/oauth';
+import { clientIp } from '../../lib/v5/rate-limit';
 import { BODY_TOO_LARGE, readCapped, scrubToolCalls, withScrubNotes } from '../../lib/v5/secrets';
 
 /**
@@ -31,7 +32,10 @@ async function scrubbed(request: Request): Promise<{ request: Request; ids: Set<
   return { request: again(JSON.stringify(scrub.body), headers), ids: scrub.ids };
 }
 
-/** The hosted EarnKit MCP server (Streamable HTTP, stateless, a server per request). Requires an installation token. */
+/**
+ * The hosted EarnKit MCP server (Streamable HTTP, stateless, a server per request). Requires an
+ * installation token. Tool calls are rate limited per installation and per client IP (mcp.ts).
+ */
 async function handle(request: Request) {
   const token = request.headers.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
   let caller: Caller | null = null;
@@ -50,7 +54,7 @@ async function handle(request: Request) {
   }
 
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
-  await createMcpServer({ installationId: caller.id }).connect(transport);
+  await createMcpServer({ installationId: caller.id, ip: clientIp(request.headers) }).connect(transport);
   const s = await scrubbed(request);
   if (s instanceof Response) return s;
   const response = await withScrubNotes(await transport.handleRequest(s.request), s.ids);

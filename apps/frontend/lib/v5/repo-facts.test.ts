@@ -1,7 +1,7 @@
 import { after, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
-import { detectCode, repoFacts } from './repo-facts';
+import { detectCode, repoFacts, sweepRepoCache } from './repo-facts';
 import { parseProject } from './project-input';
 import { replayFetch } from './fixtures/github';
 
@@ -256,4 +256,34 @@ test('an empty tree: no chains, no excerpt, public, and cached', async () => {
   assert.deepEqual(f.chains, []);
   assert.equal(f.readme_excerpt, null);
   assert.equal(await cached(), 1);
+});
+
+test('the 11th uncached read in a day for one installation is skipped: reported only, with the problem line; a cache hit is free', async () => {
+  const rec = replayFetch('nextjs-dashboard');
+  const p = project({ repo_url: `https://github.com/${rec.repo}` });
+  const deps = { gh: rec.fetch, now: NOW, installationId: 7_001 };
+  for (let n = 1; n <= 10; n++) {
+    if (n > 1) await sql()`DELETE FROM repo_cache`;
+    const f = await repoFacts(p, deps);
+    assert.equal(f.public, true, `read ${n}`);
+    assert.equal(f.problems, undefined);
+  }
+  const hitCache = await repoFacts(p, deps);
+  assert.equal(hitCache.public, true);
+  await sql()`DELETE FROM repo_cache`;
+  const calls = rec.calls.length;
+  const paused = await repoFacts(p, deps);
+  assert.equal(rec.calls.length, calls);
+  assert.equal(paused.as_reported, true);
+  assert.deepEqual(paused.problems, ['repo reads paused until tomorrow']);
+  const other = await repoFacts(p, { ...deps, installationId: 7_002 });
+  assert.equal(other.public, true);
+  const tomorrow = await repoFacts(p, { ...deps, now: new Date(NOW.getTime() + DAY) });
+  assert.equal(tomorrow.public, true);
+});
+
+test('sweepRepoCache drops rows older than 30 days and keeps fresh ones', async () => {
+  await sql()`INSERT INTO repo_cache (repo, facts, fetched_at) VALUES ('a/old', '{}', ${new Date(NOW.getTime() - 31 * DAY)}), ('a/fresh', '{}', ${new Date(NOW.getTime() - 29 * DAY)})`;
+  assert.equal(await sweepRepoCache(NOW), 1);
+  assert.deepEqual((await sql()`SELECT repo FROM repo_cache`).map((r) => r.repo), ['a/fresh']);
 });

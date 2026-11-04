@@ -11,7 +11,7 @@ import { lastFindAt, markFind } from './installations';
 import { askOutcome, doneByProgram, doneItems, excluded, markAsked, summary, type Ledger } from './ledger';
 import { prefill, type Field } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, type Category, type Program } from './program-file';
-import { getProgram, listOpenPrograms, type ProgramRow } from './programs';
+import { getProgram, isOpen, listOpenPrograms, type ProgramRow } from './programs';
 import { parseProject, type Project } from './project-input';
 import { rankGaps, rankReady } from './rank';
 import { repoFacts, type RepoFacts } from './repo-facts';
@@ -38,9 +38,13 @@ export type ReadyProgram = {
   form?: Program['form'];
   fields: Field[];
   filled: number;
+  /** EarnKit values read from the repo (links, contract, chain), not the passed name or description. */
+  facts_from_repo: number;
   total: number;
-  /** The to-dos of the required fields only the builder can give. */
+  /** The program's setup items, then the to-dos of the required fields only the builder can give. */
   needs: string[];
+  /** What taking part needs before applying (in person: attending). */
+  setup: string[];
 };
 export type GapProgram = {
   program_id: string;
@@ -77,13 +81,13 @@ export const moneyOf = (p: Program): string => p.summary.split(' · ')[0];
 const closesIn = (p: Program, now: Date) => (p.ends_at ? timeLeftWords(p.ends_at, now) : null);
 const EMPTY_FACTS: RepoFacts = {
   name: '', description: '', repo_url: null, public: false, as_reported: true, live_url: null, demo_url: null, chains: [], contracts: [],
-  builder_codes: false, users: false, first_commit_at: null, last_commit_at: null, readme_excerpt: null, homepage: null,
+  builder_codes: false, users: null, first_commit_at: null, last_commit_at: null, readme_excerpt: null, homepage: null,
 };
 
 /** A read that fails is the agent's report alone (repoFacts falls back the same way when GitHub fails). */
 async function factsOf(project: Project, ctx: FindContext): Promise<RepoFacts> {
   try {
-    return await repoFacts(project, { gh: ctx.gh, now: ctx.now });
+    return await repoFacts(project, { gh: ctx.gh, now: ctx.now, installationId: ctx.installationId });
   } catch {
     return repoFacts({ ...project, private: true }, { now: ctx.now });
   }
@@ -91,14 +95,15 @@ async function factsOf(project: Project, ctx: FindContext): Promise<RepoFacts> {
 
 function readyOf(row: ProgramRow, v: Verdict, facts: RepoFacts, now: Date): ReadyProgram {
   const p = row.file;
-  const { fields, filled, total } = prefill(row, facts);
+  const { fields, filled, facts_from_repo, total } = prefill(row, facts);
   const todo = new Map(p.submission_requirements.map((r) => [r.key, r.todo]));
   return {
     program_id: row.id, title: p.title, money: moneyOf(p), max_award_usd: p.max_award_usd ?? null, category: categoryOf(p),
     closes_at: p.ends_at, closes_in: closesIn(p, now), long_shot: v.long_shot, in_person: p.in_person, submission_url: p.submission_url,
     ...(p.form ? { form: p.form } : {}),
-    fields, filled, total,
-    needs: fields.filter((f) => f.from === 'builder' && f.required).map((f) => todo.get(f.key) ?? f.label.toLowerCase()),
+    fields, filled, facts_from_repo, total,
+    needs: [...p.setup, ...fields.filter((f) => f.from === 'builder' && f.required).map((f) => todo.get(f.key) ?? f.label.toLowerCase())],
+    setup: p.setup,
   };
 }
 
@@ -116,15 +121,20 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null)
   const { fields } = prefill(row, facts);
   const verdict = project ? evaluate(row, facts, await doneItems(ctx.installationId, id), ctx.now) : undefined;
   const left = closesIn(p, ctx.now);
-  const when = p.status === 'upcoming' ? (p.opens_note ?? 'not open yet') : p.status === 'closed' || (p.ends_at && !left) ? 'closed' : left ? `closes ${left}` : 'no deadline';
+  const open = isOpen(p, ctx.now);
+  const when = p.status === 'upcoming' ? null : !open ? 'closed' : left ? `closes ${left}` : 'no deadline';
+  const ask = open ? 'Want me to draft it?' : p.status === 'upcoming' ? `Not open yet: ${p.opens_note ?? 'no date announced'}.` : 'This one is closed.';
   const guide = guideText(row, ctx.now);
   const rules = guideLines(guide);
   return {
-    show_to_builder: [`${p.title}, ${moneyOf(p)}, ${when}.`, ...(rules.length > 0 ? [`Apply at ${p.submission_url}.`, ...rules, 'Want me to draft it?'] : [`Apply at ${p.submission_url}. Want me to draft it?`])].join('\n'),
-    agent_note: [
-      project ? 'Draft from fields: earnkit values as given, agent fields from your memory and sources, builder fields asked once.' : 'Call again with the project so the fields come pre-filled.',
-      'Submit only on a yes, in your own browser, then call track with applied.',
-    ].join('\n'),
+    show_to_builder: [`${p.title}, ${moneyOf(p)}${when ? `, ${when}` : ''}.`, ...(rules.length > 0 ? [`Apply at ${p.submission_url}.`, ...rules, ask] : [`Apply at ${p.submission_url}. ${ask}`])].join('\n'),
+    agent_note: (open
+      ? [
+          project ? 'Draft from fields: earnkit values as given, agent fields from your memory and sources, builder fields asked once.' : 'Call again with the project so the fields come pre-filled.',
+          'Submit only on a yes, in your own browser, then call track with applied.',
+        ]
+      : ['It takes no entries now: draft nothing and submit nothing. Call find with the project for what is open.']
+    ).join('\n'),
     program: p,
     fields,
     guide,
@@ -156,11 +166,12 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const i = FindInput.parse(input ?? {});
   const parsed = i.project === undefined ? null : parseProject(i.project);
   const project = parsed?.ok ? parsed.project : null;
-  const problems = parsed?.ok ? parsed.problems : [];
+  const problems = parsed?.ok ? [...parsed.problems] : [];
   if (i.program_id) return oneProgram(ctx, i.program_id, project);
   if (!project) return openList(ctx, parsed && !parsed.ok ? parsed.problem : null);
 
   const facts = await factsOf(project, ctx);
+  problems.push(...(facts.problems ?? []));
   const open = await listOpenPrograms(ctx.now);
   const skip = await excluded(ctx.installationId);
   const all = i.filter?.all === true;

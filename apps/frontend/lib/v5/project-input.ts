@@ -1,7 +1,7 @@
 /**
  * What an agent reports about a project: name, description, links, chains, dates. Parsed leniently:
- * a bad link, unknown chain or malformed date is dropped with a problem line, never a refusal;
- * only a missing name or description fails.
+ * a bad link, unknown chain or malformed date is dropped and a long name or description cut, with a
+ * problem line, never a refusal; only a missing name or description fails. users is null when not reported.
  */
 import { z } from 'zod';
 import { isKnownChain } from './chains';
@@ -19,9 +19,12 @@ export const ProjectInput = z.object({
   first_commit_at: z.string().optional(),
   private: z.boolean().optional(),
   builder_codes: z.boolean().optional(),
-  users: z.boolean().optional(),
+  users: z.boolean().nullable().optional(),
 });
 export type Project = z.infer<typeof ProjectInput>;
+
+const MAX = { name: 80, description: 280 } as const;
+const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
 
 const URL_FIELDS = ['repo_url', 'live_url', 'demo_url'] as const;
 const DATE_FIELDS = ['last_commit_at', 'first_commit_at'] as const;
@@ -40,10 +43,14 @@ const webUrl = (v: unknown): string | null => {
 /** Parses a report into a Project. Optional fields that do not hold up are dropped and named in `problems`. Pure. */
 export function parseProject(v: unknown): { ok: true; project: Project; problems: string[] } | { ok: false; problem: string } {
   const raw = (typeof v === 'object' && v !== null ? v : {}) as Record<string, unknown>;
-  const head = z.object({ name: ProjectInput.shape.name, description: ProjectInput.shape.description }).safeParse(raw);
-  if (!head.success) return { ok: false, problem: `${head.error.issues[0].path.join('.') || 'project'}: ${head.error.issues[0].message}` };
   const problems: string[] = [];
-  const out: Record<string, unknown> = { ...head.data };
+  const out: Record<string, unknown> = { users: null };
+  for (const k of ['name', 'description'] as const) {
+    const t = text(raw[k]);
+    if (!t) return { ok: false, problem: `${k}: missing` };
+    if (t.length > MAX[k]) problems.push(`${k} cut to ${MAX[k]} characters`);
+    out[k] = t.slice(0, MAX[k]);
+  }
 
   for (const k of URL_FIELDS) {
     if (raw[k] == null) continue;

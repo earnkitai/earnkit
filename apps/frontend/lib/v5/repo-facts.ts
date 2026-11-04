@@ -1,11 +1,13 @@
 /**
  * What EarnKit knows about a project's code: a public GitHub repo read with its own token (cached
- * 7 days in repo_cache, re-read when pushed_at moves), merged with what the agent reported. A
- * private or unreadable repo is reported only. Chains found in code carry basis 'code'.
+ * 7 days in repo_cache, re-read when pushed_at moves; swept after 30), merged with what the agent
+ * reported. A private or unreadable repo, or one past the installation's daily uncached reads, is
+ * reported only. Chains found in code carry basis 'code'.
  */
 import { CHAIN_REGISTRY, chainOfId } from './chains';
 import { sql } from './db';
 import { GitHubError, readRepo, readRepoObject, type RepoRead } from './github';
+import { LIMITS, hit } from './rate-limit';
 import type { Project } from './project-input';
 
 export type RepoFacts = {
@@ -19,11 +21,14 @@ export type RepoFacts = {
   chains: { chain: string; mainnet: boolean; basis: 'code' | 'reported' }[];
   contracts: { chain: string; address: string }[];
   builder_codes: boolean;
-  users: boolean;
+  /** null: not reported. */
+  users: boolean | null;
   first_commit_at: string | null;
   last_commit_at: string | null;
   readme_excerpt: string | null;
   homepage: string | null;
+  /** Why the repo was not read, when that is worth telling the agent. */
+  problems?: string[];
 };
 
 type CodeFacts = Pick<RepoFacts, 'chains' | 'contracts' | 'builder_codes' | 'first_commit_at' | 'last_commit_at' | 'readme_excerpt' | 'homepage'> & {
@@ -192,8 +197,25 @@ function codeFactsOf(r: RepoRead): CodeFacts {
   };
 }
 
+/** Thrown when an installation has used its uncached repo reads for the day. */
+class ReadsPaused extends Error {}
+export const READS_PAUSED = 'repo reads paused until tomorrow';
+
+/** Counts one uncached read for the installation; throws ReadsPaused over the day's cap. */
+async function countRead(installationId: number | undefined, now: Date) {
+  if (installationId === undefined) return;
+  const { limit, windowSeconds } = LIMITS.repoRead;
+  if (!(await hit(`repoRead:${installationId}`, limit, windowSeconds, now)).allowed) throw new ReadsPaused();
+}
+
+/** Deletes repo_cache rows read over 30 days ago; the count deleted. */
+export async function sweepRepoCache(now: Date): Promise<number> {
+  const rows = await sql()`DELETE FROM repo_cache WHERE fetched_at < ${new Date(now.getTime() - 30 * DAY_MS)} RETURNING repo`;
+  return rows.length;
+}
+
 /** The repo's code facts: from repo_cache while fresh and unpushed, else a new read. Throws when the repo cannot be read. */
-async function cachedCodeFacts(key: string, f: Fetch, now: Date): Promise<CodeFacts> {
+async function cachedCodeFacts(key: string, f: Fetch, now: Date, installationId?: number): Promise<CodeFacts> {
   const [row] = await sql()<{ facts: CodeFacts; pushed_at: Date | null; fetched_at: Date }[]>`
     SELECT facts, pushed_at, fetched_at FROM repo_cache WHERE repo = ${key}`;
   const forget = () => sql()`DELETE FROM repo_cache WHERE repo = ${key}`;
@@ -219,6 +241,7 @@ async function cachedCodeFacts(key: string, f: Fetch, now: Date): Promise<CodeFa
       if (Date.parse(live.pushed_at) === row.pushed_at.getTime()) return row.facts;
     }
   }
+  await countRead(installationId, now);
   let read: RepoRead;
   try {
     read = await readRepo(key, { fetch: f });
@@ -241,13 +264,15 @@ async function cachedCodeFacts(key: string, f: Fetch, now: Date): Promise<CodeFa
  * The report fills what the read lacks; its live_url and demo_url win; reported chains the code lacks
  * stay with basis 'reported'.
  */
-export async function repoFacts(project: Project, deps: { gh?: Fetch; now?: Date } = {}): Promise<RepoFacts> {
+export async function repoFacts(project: Project, deps: { gh?: Fetch; now?: Date; installationId?: number } = {}): Promise<RepoFacts> {
   const key = project.private ? null : repoKey(project.repo_url);
   let code: CodeFacts | null = null;
+  let paused = false;
   if (key) {
     try {
-      code = await cachedCodeFacts(key, deps.gh ?? fetch, deps.now ?? new Date());
-    } catch {
+      code = await cachedCodeFacts(key, deps.gh ?? fetch, deps.now ?? new Date(), deps.installationId);
+    } catch (err) {
+      paused = err instanceof ReadsPaused;
       code = null;
     }
   }
@@ -268,10 +293,11 @@ export async function repoFacts(project: Project, deps: { gh?: Fetch; now?: Date
     chains,
     contracts,
     builder_codes: Boolean(code?.builder_codes || project.builder_codes),
-    users: project.users === true,
+    users: project.users ?? null,
     first_commit_at: code?.first_commit_at ?? project.first_commit_at ?? null,
     last_commit_at: code?.last_commit_at ?? project.last_commit_at ?? null,
     readme_excerpt: code?.readme_excerpt ?? null,
     homepage: code?.homepage ?? null,
+    ...(paused ? { problems: [READS_PAUSED] } : {}),
   };
 }
