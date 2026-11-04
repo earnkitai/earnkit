@@ -1,11 +1,9 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { getGuidePage } from '../../lib/landing-cache';
-import { guideDescription } from '../../../lib/earnkit/landing';
-import { NOT_FOUND_METADATA } from '../../../lib/earnkit/site-copy';
+import { NOT_FOUND_METADATA } from '../../../lib/v5/site-copy';
 import GuideView, { Unavailable } from './GuideView';
 
-/** v2.7 §2: read server-side, revalidated every 10 minutes (no new service). */
 export const revalidate = 600;
 
 type Props = { params: Promise<{ id: string }> };
@@ -16,19 +14,17 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (page === null) return NOT_FOUND_METADATA;
   if (page === 'error') return { title: 'Program guide · EarnKit' };
   return {
-    title: `${page.title} guide · EarnKit`,
-    description: guideDescription(page),
+    title: `${page.guide.title} · EarnKit`,
+    description: `${page.guide.money}, ${page.guide.closes.toLowerCase()}. Who can apply, what the form asks and the rules.`,
     alternates: { canonical: `https://earnkit.com/programs/${id}` },
   };
 }
 
-/**
- * v2.7 §2, Ruling 22 (plan): a curated program's guide. Any other id is a 404; a failed read is
- * the "unavailable" panel (HTTP 200), never a 404.
- */
+/** A program's guide. No such program is a 404; a failed read is the "unavailable" panel (HTTP 200), never a 404. */
 export default async function ProgramGuidePage({ params }: Props) {
-  const page = await getGuidePage((await params).id);
+  const { id } = await params;
+  const page = await getGuidePage(id);
   if (page === null) notFound();
   if (page === 'error') return <Unavailable text="This guide is unavailable right now. Try again in a few minutes." />;
-  return <GuideView page={page} />;
+  return <GuideView id={id} page={page} />;
 }

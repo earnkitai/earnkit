@@ -3,10 +3,8 @@
 @tailwind utilities;
 
 /*
- * One design system (v3 spec 5.8, DESIGN.md). The page tokens (--ek-p-*, lib/earnkit/theme.ts THEME;
- * tested to match) are the colours. Tailwind reads them as ek-page, ek-text, ek-brand and friends
- * (tailwind.config.ts), so every page (landing, leaderboard, feed, profile, programs, terms) and the
- * brandShell sign-in pages share one black page, one type scale and one accent.
+ * One design system. The page tokens (--ek-p-*) are the colours. Tailwind reads them as ek-page, ek-text,
+ * ek-brand and friends (tailwind.config.ts), so every page shares one black page, one type scale and one accent.
  */
 :root {
   /* Page tokens (theme.ts THEME) */
@@ -29,7 +27,7 @@
   --ek-p-accent: #3D7BFF;
   --ek-p-brand: #0052FF;
 
-  /* v3.1 site tokens (lib/earnkit/site-theme.ts SITE; v31-site-tokens.test.ts pins the mirror) */
+  /* v3.1 site tokens (lib/v5/site-theme.ts SITE; v31-site-tokens.test.ts pins the mirror) */
   --ek-s-page: #0B0C14;
   --ek-s-deep: #05060D;
   --ek-s-card-top: #121629;

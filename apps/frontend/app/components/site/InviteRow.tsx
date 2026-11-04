@@ -1,6 +1,6 @@
 import InstallButton from '../common/InstallButton';
 import { PILL_WHITE } from './ui';
-import { CTA_INSTALL } from '../../../lib/earnkit/site-copy';
+import { CTA_INSTALL } from '../../../lib/v5/site-copy';
 
 /**
  * The invite beside a short list (few builders on the leaderboard, a feed week with few rows): an optional Kaftan

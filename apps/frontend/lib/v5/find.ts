@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import { timeLeftWords } from './deadline';
 import { evaluate, type Gap, type Verdict } from './eligibility';
+import { guideLines, guideText, type Guide } from './guide';
 import { lastFindAt, markFind } from './installations';
 import { askOutcome, doneByProgram, doneItems, excluded, markAsked, summary, type Ledger } from './ledger';
 import { prefill, type Field } from './prefill';
@@ -64,7 +65,7 @@ export type FindReply = {
   as_reported: boolean;
   problems?: string[];
 };
-export type ProgramReply = { show_to_builder: string; agent_note: string; program: Program | null; fields: Field[]; verdict?: Verdict };
+export type ProgramReply = { show_to_builder: string; agent_note: string; program: Program | null; fields: Field[]; guide: Guide | null; verdict?: Verdict };
 export type FindContext = { installationId: number; now: Date; gh?: typeof fetch };
 
 const MAX_READY = 5;
@@ -109,21 +110,24 @@ const gapOf = (row: ProgramRow, v: Verdict): GapProgram => ({
 /** One program: its file, its fields (for the project, when given) and the verdict. */
 async function oneProgram(ctx: FindContext, id: string, project: Project | null): Promise<ProgramReply> {
   const row = await getProgram(id);
-  if (!row) return { show_to_builder: "I don't know that program.", agent_note: 'Call find with the project for the programs it fits.', program: null, fields: [] };
+  if (!row) return { show_to_builder: "I don't know that program.", agent_note: 'Call find with the project for the programs it fits.', program: null, fields: [], guide: null };
   const p = row.file;
   const facts = project ? await factsOf(project, ctx) : EMPTY_FACTS;
   const { fields } = prefill(row, facts);
   const verdict = project ? evaluate(row, facts, await doneItems(ctx.installationId, id), ctx.now) : undefined;
   const left = closesIn(p, ctx.now);
   const when = p.status === 'upcoming' ? (p.opens_note ?? 'not open yet') : p.status === 'closed' || (p.ends_at && !left) ? 'closed' : left ? `closes ${left}` : 'no deadline';
+  const guide = guideText(row, ctx.now);
+  const rules = guideLines(guide);
   return {
-    show_to_builder: `${p.title}, ${moneyOf(p)}, ${when}.\nApply at ${p.submission_url}. Want me to draft it?`,
+    show_to_builder: [`${p.title}, ${moneyOf(p)}, ${when}.`, ...(rules.length > 0 ? [`Apply at ${p.submission_url}.`, ...rules, 'Want me to draft it?'] : [`Apply at ${p.submission_url}. Want me to draft it?`])].join('\n'),
     agent_note: [
       project ? 'Draft from fields: earnkit values as given, agent fields from your memory and sources, builder fields asked once.' : 'Call again with the project so the fields come pre-filled.',
       'Submit only on a yes, in your own browser, then call track with applied.',
     ].join('\n'),
     program: p,
     fields,
+    guide,
     ...(verdict ? { verdict } : {}),
   };
 }

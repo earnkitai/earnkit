@@ -10,7 +10,7 @@ type Box = { id: string; top: number; bottom: number };
 /**
  * Pure. The section being read: the last whose top has passed the read line (the first before any has). Cards side by
  * side share a top and count as one row: the row's first lights, unless the current one is in the row (a click on
- * "Shipping score" keeps it, not "Programs" beside it). At the bottom of the page, where the last sections may never
+ * "Terms" keeps it, not the card beside it). At the bottom of the page, where the last sections may never
  * reach the line, the last section lights, unless the reader picked one (`held`: a click or the hash) that is on screen.
  */
 export function readingNow(boxes: Box[], o: { line: number; height: number; current: string | null; held: string | null; atBottom: boolean }): string | null {

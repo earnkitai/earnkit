@@ -1,7 +1,7 @@
 import InstallButton from '../common/InstallButton';
 import { AGENT_MARKS, AgentMark } from '../site/AgentMarks';
 import HeroArt from './HeroArt';
-import { CTA_INSTALL, HERO_SUB, HERO_TITLE } from '../../../lib/earnkit/site-copy';
+import { CTA_INSTALL, HERO_SUB, HERO_TITLE } from '../../../lib/v5/site-copy';
 import Money from '../site/Money';
 
 /**
@@ -17,9 +17,8 @@ const CTA =
   'mt-1.5 inline-flex h-[52px] items-center rounded-full bg-s-light px-8 text-[16px] font-bold text-s-ink shadow-[0_18px_60px_var(--ek-s-cta-glow)] motion-safe:transition-[box-shadow,transform] motion-safe:duration-[240ms] motion-safe:ease-out hover:shadow-[0_0_0_6px_var(--ek-s-foot-button),0_18px_70px_var(--ek-s-cta-glow-hover)] motion-safe:hover:-translate-y-px md:h-14';
 
 /**
- * The landing hero (Landing board): Eckersberg's painting with its arch light (HeroArt), the money chip
- * ("$5K in grants open now", to #earn; none when nothing is open), the title on one line, the sub line, the
- * install CTA and the four agent marks along the bottom. Words are bottom-aligned over the readability shade.
+ * The landing hero: the painting with its arch light, the money chip ("$5K in grants open now", to #earn;
+ * none when nothing is open), the title, the sub line, the install button and the agent marks.
  */
 export default function Hero({ chip }: { chip: string | null }) {
   return (

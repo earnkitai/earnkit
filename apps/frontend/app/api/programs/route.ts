@@ -1,5 +1,5 @@
-import { unstable_cache } from 'next/cache';
-import { PROGRAMS_TAG, programsListGet, readListedPrograms } from '@/lib/v5/programs-read';
+import { programsListGet, readListedPrograms } from '../../../lib/v5/programs-read';
+import { cachedRead } from '../../lib/cached';
 
 /**
  * The public program list (?category=, ?status=). One read per minute at most; an API write expires
@@ -7,7 +7,7 @@ import { PROGRAMS_TAG, programsListGet, readListedPrograms } from '@/lib/v5/prog
  */
 export const dynamic = 'force-dynamic';
 
-const cached = unstable_cache(() => readListedPrograms(), ['programs-list-v5'], { revalidate: 60, tags: [PROGRAMS_TAG] });
+const cached = cachedRead(() => readListedPrograms(), ['programs-list-v5'], 60);
 
 export async function GET(request: Request) {
   return programsListGet(request, cached);

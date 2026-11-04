@@ -106,6 +106,23 @@ test('find with program_id: the fields, the money and the link', async () => {
   assert.ok((none.reply!.show_to_builder as string).length > 0);
 });
 
+test('find with program_id carries the guide, and its rules sit between the two lines and the question', async () => {
+  const id = await installation();
+  const r = await mcpCall(ctx(id), 'find', { program_id: 'base-builder-grants' });
+  assert.equal(r.isError, false, r.text);
+  const guide = r.reply!.guide as { title: string; rules: string[]; eligibility: string[] };
+  assert.equal(guide.title, 'Base Builder Grant Program');
+  assert.ok(guide.rules.length > 0 && guide.eligibility.includes('a live product'));
+  const lines = (r.reply!.show_to_builder as string).split('\n');
+  assert.match(lines[0], /^Base Builder Grant Program, /);
+  assert.match(lines[1], /^Apply at https:\/\/forms\.gle\//);
+  assert.equal(lines[2], 'Rules:');
+  assert.equal(lines.slice(3, -1).length, guide.rules.length);
+  assert.equal(lines.at(-1), 'Want me to draft it?');
+  const none = await mcpCall(ctx(id), 'find', { program_id: 'no-such-program' });
+  assert.equal(none.reply!.guide, null);
+});
+
 test('find with no project: the open list and the ask for the project', async () => {
   const id = await installation();
   const r = await mcpCall(ctx(id), 'find', {});

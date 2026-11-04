@@ -2,10 +2,18 @@ import Link from 'next/link';
 import InstallButton from './InstallButton';
 import { Wordmark } from '../ui/Logo';
 import FooterLight from '../site/FooterLight';
-import { FOOTER_COLUMNS } from '../../../lib/earnkit/footer-links';
-import { ART_CREDIT, CTA_INSTALL, FOOT_CTA, FOOT_GET_PAGE } from '../../../lib/earnkit/site-copy';
+import { X } from '../../lib/links';
+import { ART_CREDIT, CTA_INSTALL, FOOT_CTA } from '../../../lib/v5/site-copy';
 
 const LINK = 'inline-flex min-h-11 items-center text-s-foot-link motion-safe:transition-colors duration-200 hover:text-s-text';
+
+/** The footer's links, in order, then the X button. */
+const LINKS = [
+  { label: 'Programs', href: '/programs' },
+  { label: 'Docs', href: '/docs' },
+  { label: 'Terms', href: '/terms' },
+] as const;
+const X_LINK = { href: X, label: 'EarnKit on X' };
 
 /** The X glyph (14px) in a round button: 44px on a phone, 36px from md (Foot board). */
 function XButton({ href, label, fill }: { href: string; label: string; fill: string }) {
@@ -47,15 +55,12 @@ function CompanyLine() {
 const BAR = 'flex flex-wrap items-center justify-between gap-x-5 gap-y-2 border-t pt-[22px] text-[14px]';
 
 /**
- * v3.1 (Foot board). Full (default): a rounded card over Panini's Pantheon (pre-sized JPEGs, lazy), the
- * pointer light (FooterLight), a bottom fade; the CTA line in Kaftan Serif and the white pill that opens
- * the install sheet; then the bar: wordmark, Leaderboard, Feed, Docs, Terms (S16), the art credit and
- * EarnKit's X (S17). Minimal (profile): the bar only, with "Get your page" and Leaderboard. Both end with
- * the company line.
+ * Full (default): a rounded card over Panini's Pantheon (pre-sized JPEGs, lazy), the pointer light, a bottom
+ * fade; the CTA line in Kaftan Serif and the white pill that opens the install sheet; then the bar: wordmark,
+ * Programs, Docs, Terms, the art credit and EarnKit's X. Minimal: the bar only. Both end with the company line.
  */
 export default function Footer({ variant = 'full' }: { variant?: 'full' | 'minimal' }) {
-  const links = FOOTER_COLUMNS.flatMap((c) => c.links);
-  const x = links.find((l) => l.icon === 'x')!;
+  const x = X_LINK;
 
   if (variant === 'minimal')
     return (
@@ -64,12 +69,11 @@ export default function Footer({ variant = 'full' }: { variant?: 'full' | 'minim
           <div className={`${BAR} border-s-step-line pb-2`}>
             <HomeMark />
             <nav aria-label="Footer" className="flex flex-wrap items-center gap-x-6">
-              <Link href="/docs" className={LINK}>
-                {FOOT_GET_PAGE}
-              </Link>
-              <Link href="/leaderboard" className={LINK}>
-                Leaderboard
-              </Link>
+              {LINKS.map((l) => (
+                <Link key={l.href} href={l.href} className={LINK}>
+                  {l.label}
+                </Link>
+              ))}
             </nav>
             <XButton href={x.href} label={x.label} fill="bg-s-chip" />
           </div>
@@ -106,13 +110,11 @@ export default function Footer({ variant = 'full' }: { variant?: 'full' | 'minim
         <div className={`${BAR} border-s-foot-line`}>
           <HomeMark />
           <nav aria-label="Footer" className="flex flex-wrap items-center gap-x-6">
-            {links
-              .filter((l) => !l.icon)
-              .map((l) => (
-                <Link key={l.href} href={l.href} className={LINK}>
-                  {l.label}
-                </Link>
-              ))}
+            {LINKS.map((l) => (
+              <Link key={l.href} href={l.href} className={LINK}>
+                {l.label}
+              </Link>
+            ))}
             <span className="text-[12px] text-s-card-meta">{ART_CREDIT}</span>
           </nav>
           <XButton href={x.href} label={x.label} fill="bg-s-foot-button" />

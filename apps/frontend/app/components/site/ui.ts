@@ -1,6 +1,6 @@
 /**
  * v3.1 site primitives as class strings (the owner-approved canvas; colours only from SITE tokens,
- * lib/earnkit/site-theme.ts, as Tailwind s-*). Cards carry their fill, radius and text colour; each
+ * lib/v5/site-theme.ts, as Tailwind s-*). Cards carry their fill, radius and text colour; each
  * page adds its own padding and layout. S12: the dim text token never sits on a card (v31-site-tokens.test.ts scans app/).
  */
 
