@@ -14,10 +14,6 @@
     "A product integrating with the Tempo blockchain",
     "A crypto startup pitched like a venture deal"
   ],
-  "submission_proof": {
-    "host": "colosseum.com",
-    "path_pattern": "^/arena/projects/\\d+$"
-  },
   "tag": "long shot",
   "starts_at": "2026-09-14T07:00:00Z",
   "ends_at": "2026-10-13T06:59:00Z",
@@ -51,26 +47,6 @@
     "Track prizes are in addition to the overall awards. Winners are announced on or about December 5, 2026.",
     "All winners are interviewed and considered for Colosseum's accelerator ($250,000 pre-seed, 12 weeks in San Francisco)."
   ],
-  "judging": {
-    "criteria": [
-      {
-        "text": "Functionality"
-      },
-      {
-        "text": "Potential impact"
-      },
-      {
-        "text": "Novelty and UX"
-      },
-      {
-        "text": "Open source"
-      },
-      {
-        "text": "Business plan"
-      }
-    ],
-    "source_url": "https://colosseum.com/worldsfair"
-  },
   "submission_requirements": [
     {
       "key": "product_name_description",
@@ -168,33 +144,6 @@
       "from": "project"
     }
   ],
-  "tracks": [
-    {
-      "slug": "base",
-      "name": "Base",
-      "description": "A dedicated ecosystem track for the best products that integrate with the Base blockchain. The page doesn't state a per-track prize amount.",
-      "requirements": [
-        "Integrates with the Base blockchain."
-      ]
-    },
-    {
-      "slug": "tempo",
-      "name": "Tempo",
-      "description": "A dedicated ecosystem track for the best products that integrate with the Tempo blockchain. The page doesn't state a per-track prize amount.",
-      "requirements": [
-        "Integrates with the Tempo blockchain."
-      ]
-    },
-    {
-      "slug": "robinhood",
-      "name": "Robinhood Chain",
-      "description": "A dedicated ecosystem track for the best products that integrate with Robinhood Chain. The page doesn't state a per-track prize amount.",
-      "requirements": [
-        "Integrates with Robinhood Chain."
-      ]
-    }
-  ],
-  "starters": [],
   "logo": {
     "path": "programs/colosseum-worlds-fair.svg",
     "source_url": "https://colosseum.com/press-and-brand"
@@ -242,8 +191,5 @@
     "source_url": "https://colosseum.com/worldsfair",
     "ecosystem": "Colosseum"
   },
-  "best_bet": "A stablecoin payments or prediction-market startup built on Base or Tempo",
-  "x_handles": [
-    "colosseum"
-  ]
+  "best_bet": "A stablecoin payments or prediction-market startup built on Base or Tempo"
 }

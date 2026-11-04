@@ -94,21 +94,5 @@
       "description": "A Base wallet the builder controls (0x…) that receives MINI if they win. Ask the builder; never derive it from the code.",
       "from": "builder"
     }
-  ],
-  "campaign": {
-    "kind": "earnkit",
-    "prize": {
-      "token": "0x534b7aAD1Cdb6F02eC48CAbe428f0D9131E40B07",
-      "symbol": "MINI",
-      "decimals": 18,
-      "chain": "base"
-    },
-    "winners": 5,
-    "amount_each": "75000000",
-    "prize_usd_total": 500,
-    "metric": "unique_wallets",
-    "min_score": 10
-  },
-  "tracks": [],
-  "starters": []
+  ]
 }

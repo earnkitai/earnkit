@@ -10,7 +10,6 @@
   "max_award_usd": 40000,
   "pool_usd": 115000,
   "tag": "long shot",
-  "submission_proof": null,
   "starts_at": null,
   "ends_at": null,
   "verified_at": "2026-11-01",
@@ -32,21 +31,5 @@
     "All prizes are subject to development-tied milestones. Grants are milestone-based and case by case; selection isn't guaranteed.",
     "Submission requirements are not published yet."
   ],
-  "submission_requirements": [],
-  "tracks": [],
-  "starters": [],
-  "difficulty_override": null,
-  "judging": {
-    "criteria": [
-      { "text": "Smart contract quality" },
-      { "text": "Product-market fit" },
-      { "text": "Innovation and creativity" },
-      { "text": "Real problem solving" },
-      { "text": "Extra consideration for integrating Paxos' USDG stablecoin" }
-    ],
-    "source_url": "https://www.hackquest.io/hackathons/Arbitrum-Open-House-Sao-Paulo-Online-Buildathon"
-  },
-  "x_handles": [
-    "ArbitrumDevs"
-  ]
+  "submission_requirements": []
 }

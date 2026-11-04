@@ -13,7 +13,6 @@
     "An agent that pays per call with x402",
     "A consumer app growing real transaction volume"
   ],
-  "submission_proof": null,
   "tag": "needs a live product",
   "starts_at": null,
   "ends_at": null,
@@ -25,6 +24,7 @@
   "chains": [
     "base"
   ],
+  "chain_required": true,
   "setup": [],
   "each_time": [
     "usage, revenue, and team answers",
@@ -215,8 +215,6 @@
       "from": "builder"
     }
   ],
-  "tracks": [],
-  "starters": [],
   "logo": {
     "path": "programs/base-builder-grants.svg",
     "source_url": "https://www.base.org/brand"
@@ -266,6 +264,7 @@
   },
   "best_bet": "A live x402 agent-payments product with Builder Codes integrated",
   "form": {
+    "platform": "google",
     "url": "https://docs.google.com/forms/d/e/1FAIpQLSeEFi9BLm5XCm7KrFzRZC-rxcAqCNZPzWZ9He4aZkxsKuRXjw/viewform",
     "fields": {
       "full_name": "entry.100652540",
@@ -285,18 +284,6 @@
       "primary_challenge": "entry.475374687",
       "credits": "entry.1350986773",
       "what_changed": "entry.1460571512"
-    },
-    "sign_in": "email_only",
-    "read_at": "2026-11-01"
-  },
-  "pitch": {
-    "who": "Base",
-    "for": "a live app"
-  },
-  "x_handles": [
-    "base"
-  ],
-  "proof_hosts": [
-    "www.base.org/blog/"
-  ]
+    }
+  }
 }

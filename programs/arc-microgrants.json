@@ -14,15 +14,10 @@
     "A tiny app solving one real problem",
     "A prototype testing an Arc-native use case"
   ],
-  "submission_proof": {
-    "host": "dorahacks.io",
-    "path_pattern": "^/buidl/\\d+$"
-  },
   "starts_at": "2026-09-16T10:00:00Z",
   "ends_at": "2026-10-15T03:59:00Z",
-  "results": {
-    "url": "https://community.arc.io/public/events/arc-microgrants-f8tijfjhyq",
-    "expected": "2026-10-21"
+  "results_due": {
+    "date": "2026-10-21"
   },
   "verified_at": "2026-10-07",
   "status": "closed",
@@ -53,23 +48,6 @@
     "You keep full ownership of your work. No equity, no IP assignment, no exclusivity.",
     "Judged on relevance to Arc, technical credibility, the quality of what you built, and whether the project is worth taking further."
   ],
-  "judging": {
-    "criteria": [
-      {
-        "text": "Relevance to Arc"
-      },
-      {
-        "text": "Technical credibility"
-      },
-      {
-        "text": "Quality of what you built"
-      },
-      {
-        "text": "Worth taking further"
-      }
-    ],
-    "source_url": "https://community.arc.io/public/events/arc-microgrants-f8tijfjhyq"
-  },
   "submission_requirements": [
     {
       "key": "live_deployment_url",
@@ -113,11 +91,6 @@
       "from": "builder"
     }
   ],
-  "tracks": [],
-  "starters": [],
-  "fresh_build": {
-    "starter": "arc-tipjar"
-  },
   "logo": {
     "path": "programs/arc-microgrants.svg",
     "source_url": "https://www.circle.com/pressroom#brandkit"
@@ -195,17 +168,5 @@
     "source_url": "https://www.arc.io/",
     "ecosystem": "Arc"
   },
-  "best_bet": "A pay-per-use agent app settling USDC micropayments, live on Arc mainnet",
-  "difficulty_override": {
-    "level": "Easy",
-    "rated_by": "earnkit",
-    "source_url": "https://community.arc.io/public/events/arc-microgrants-f8tijfjhyq"
-  },
-  "pitch": {
-    "who": "Arc",
-    "for": "payment apps"
-  },
-  "x_handles": [
-    "arc"
-  ]
+  "best_bet": "A pay-per-use agent app settling USDC micropayments, live on Arc mainnet"
 }

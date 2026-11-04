@@ -8,7 +8,6 @@
   "reward": "A $10,000 investment at a $1B valuation cap if you want it (you can also join without money), converting to stock at your next priced round",
   "summary": "up to $10K investment · rolling",
   "max_award_usd": 10000,
-  "submission_proof": null,
   "starts_at": null,
   "ends_at": null,
   "verified_at": "2026-11-01",
@@ -337,10 +336,8 @@
       "from": "builder"
     }
   ],
-  "tracks": [],
-  "starters": [],
-  "difficulty_override": null,
   "form": {
+    "platform": "google",
     "url": "https://docs.google.com/forms/d/e/1FAIpQLSeKZ2LFKJFxACeeBN9WXA-lAaT6BelMCSjzD4lb5waJqNadyA/viewform",
     "fields": {
       "first_name": "entry.1014228544",
@@ -372,11 +369,6 @@
       "friend_2_email": "entry.1107386667",
       "friend_3_name": "entry.446236525",
       "friend_3_email": "entry.480537178"
-    },
-    "sign_in": false,
-    "read_at": "2026-11-01"
-  },
-  "x_handles": [
-    "zfellows"
-  ]
+    }
+  }
 }
