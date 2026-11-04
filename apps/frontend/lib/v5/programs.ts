@@ -65,6 +65,14 @@ export async function getProgram(id: string): Promise<ProgramRow | null> {
   return parseRows(rows)[0] ?? null;
 }
 
+/** The programs with these ids, whatever their status, deadline or staleness. */
+export async function programsById(ids: string[]): Promise<ProgramRow[]> {
+  if (ids.length === 0) return [];
+  const rows = await sql()<RawRow[]>`
+    SELECT id, file, source, created_at, updated_at, verified_at, stale_since FROM programs WHERE id = ANY(${ids})`;
+  return parseRows(rows);
+}
+
 /** Whether the program takes entries at `now`: active and not past ends_at. Pure. */
 export const isOpen = (p: Pick<Program, 'status' | 'ends_at'>, now: Date): boolean =>
   p.status === 'active' && (p.ends_at === null || Date.parse(p.ends_at) > now.getTime());

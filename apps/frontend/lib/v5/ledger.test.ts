@@ -112,3 +112,30 @@ test('closing_soon: applied programs within 7 days, soonest first', async () => 
   const s = await summary(i, [a, b, c], NOW);
   assert.deepEqual(s.closing_soon.map((x) => x.program_id), ['l-cs-b', 'l-cs-a']);
 });
+
+test('a closed program still counts: asked_usd, closing_soon and askOutcome read its own row', async () => {
+  const i = await install();
+  await prog('l-closed', { results_due: { date: '2026-11-08' } });
+  await record(i, 'l-closed', 'applied', { now: NOW });
+  await upsertProgram(programFixture({ id: 'l-closed', max_award_usd: 5000, results_due: { date: '2026-11-08' }, ends_at: new Date(NOW.getTime() - 3 * DAY).toISOString() }), 'file', NOW);
+  const s = await summary(i, [], NOW);
+  assert.equal(s.asked_usd, 5000);
+  assert.deepEqual(s.closing_soon.map((x) => x.program_id), ['l-closed']);
+  assert.deepEqual(await askOutcome(i, [], NOW), []);
+  const later = new Date(NOW.getTime() + 5 * DAY);
+  assert.deepEqual((await askOutcome(i, [], later)).map((x) => x.program_id), ['l-closed']);
+});
+
+test('a skipped-only row refuses a result; a resulted row refuses applied', async () => {
+  const i = await install();
+  await prog('l-sk');
+  await record(i, 'l-sk', 'skipped', { now: NOW });
+  for (const st of ['won', 'rejected', 'no_result'] as const) {
+    assert.deepEqual(await record(i, 'l-sk', st, { amount_usd: 10, now: NOW }), { ok: false, note: "You haven't applied to that one here." });
+  }
+  await record(i, 'l-sk', 'applied', { now: NOW });
+  await record(i, 'l-sk', 'rejected', { now: NOW });
+  const before = await counts(i);
+  assert.deepEqual(await record(i, 'l-sk', 'applied', { now: NOW }), { ok: false, note: 'That one already has a result here.' });
+  assert.deepEqual(await counts(i), before);
+});

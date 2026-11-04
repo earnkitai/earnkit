@@ -23,9 +23,10 @@ test('the six replies', async () => {
   assert.equal(await say({ program_id: 't6-a', status: 'no_result' }), 'Recorded.');
   assert.equal(await say({ program_id: 't6-a', status: 'skipped' }), "Skipped Alpha Grant. I won't bring it up again.");
   assert.equal(await say({ program_id: 't6-a', status: 'gap_done', item: 'x' }), 'Noted. I\'ll re-check the repo on the next look.');
-  const r = await track(c, { program_id: 't6-a', status: 'applied' });
+  await upsertProgram(programFixture({ id: 't6-b', title: 'Beta' }), 'file', NOW);
+  const r = await track(c, { program_id: 't6-b', status: 'applied' });
   assert.equal(r.agent_note, 'Call find again for the updated ledger.');
-  assert.equal(r.ledger.applied, 1);
+  assert.equal(r.ledger.applied, 2);
 });
 
 test('refusals say so and record nothing', async () => {

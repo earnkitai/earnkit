@@ -3,7 +3,7 @@
  * append-only history), closed gap items, and the summary `track` and `find` show.
  */
 import { sql } from './db';
-import { getProgram, type ProgramRow } from './programs';
+import { getProgram, programsById, type ProgramRow } from './programs';
 
 export type Status = 'applied' | 'won' | 'rejected' | 'no_result' | 'skipped' | 'gap_done';
 export type Ledger = {
@@ -28,6 +28,14 @@ function resultsDate(p: ProgramRow): Date | null {
   return null;
 }
 
+/** The passed programs plus the rows for the ids the ledger holds (the passed ones win). */
+async function withOwn(ids: string[], programs: ProgramRow[]): Promise<Map<string, ProgramRow>> {
+  const map = new Map(programs.map((p) => [p.id, p]));
+  const missing = ids.filter((id) => !map.has(id));
+  for (const p of await programsById(missing)) map.set(p.id, p);
+  return map;
+}
+
 export async function record(
   installationId: number,
   programId: string,
@@ -45,7 +53,9 @@ export async function record(
   return (await sql().begin(async (tx) => {
     const [row] = await tx<{ status: string }[]>`
       SELECT status FROM applications WHERE installation_id = ${installationId} AND program_id = ${programId} FOR UPDATE`;
-    if (RESULTS.includes(status) && !row) return { ok: false, note: "You haven't applied to that one here." } as const;
+    if (status === 'applied' && row && RESULTS.includes(row.status))
+      return { ok: false, note: 'That one already has a result here.' } as const;
+    if (RESULTS.includes(status) && (!row || row.status === 'skipped')) return { ok: false, note: "You haven't applied to that one here." } as const;
     if (status === 'gap_done') {
       await tx`INSERT INTO gaps_done (installation_id, program_id, item, at) VALUES (${installationId}, ${programId}, ${o.item!}, ${now})
         ON CONFLICT (installation_id, program_id, item) DO UPDATE SET at = EXCLUDED.at`;
@@ -65,7 +75,7 @@ export async function record(
 export async function summary(installationId: number, programs: ProgramRow[], now: Date): Promise<Ledger> {
   const rows = await sql()<{ program_id: string; status: string; amount_usd: string | null }[]>`
     SELECT program_id, status, amount_usd FROM applications WHERE installation_id = ${installationId}`;
-  const byId = new Map(programs.map((p) => [p.id, p]));
+  const byId = await withOwn(rows.map((r) => r.program_id), programs);
   const l: Ledger = { applied: 0, asked_usd: 0, won: 0, won_usd: 0, pending: 0, rejected: 0, skipped: 0, closing_soon: [] };
   const soon: { program_id: string; title: string; at: number }[] = [];
   for (const r of rows) {
@@ -111,9 +121,12 @@ export async function askOutcome(installationId: number, programs: ProgramRow[],
     SELECT program_id FROM applications
     WHERE installation_id = ${installationId} AND status = 'applied' AND asked_outcome_at IS NULL`;
   const open = new Set(rows.map((r) => r.program_id));
-  return programs
+  const byId = await withOwn([...open], programs);
+  return [...open]
+    .map((id) => byId.get(id))
+    .filter((p): p is ProgramRow => p !== undefined)
     .filter((p) => {
-      const d = open.has(p.id) ? resultsDate(p) : null;
+      const d = resultsDate(p);
       return d !== null && d.getTime() <= now.getTime();
     })
     .map((p) => ({ program_id: p.id, title: p.file.title }));
