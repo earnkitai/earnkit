@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS applications (
   at              timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (installation_id, program_id)
 );
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS asked_outcome_at timestamptz;
 CREATE TABLE IF NOT EXISTS application_history (
   id              serial PRIMARY KEY,
   installation_id int NOT NULL,
