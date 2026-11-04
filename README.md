@@ -79,3 +79,7 @@ database). GitHub Actions calls `POST /api/cron` once a day with `CRON_SECRET`.
 
 Tables v4 left in the database are never read. `pnpm db:v4-tables` lists them with row counts and
 prints the `DROP TABLE` statements; dropping them, after a backup, is an owner step.
+
+## License
+
+EarnKit is dual-licensed under either of [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option. Copyright (c) 2026 TokenFi Inc.
