@@ -21,7 +21,7 @@ const REMOVED_DEPS = ['@anthropic-ai/sdk', '@huggingface/transformers', 'aws4fet
 const APP_DIRS = new Set([
   'components', 'components/common', 'components/landing', 'components/sections', 'components/site', 'components/ui',
   'fonts', 'lib', 'docs', 'programs', 'programs/[id]', 'terms', 'llms.txt', 'mcp',
-  'oauth', 'oauth/authorize', 'oauth/register', 'oauth/token',
+  'install', 'oauth', 'oauth/authorize', 'oauth/register', 'oauth/token',
   '.well-known', '.well-known/oauth-authorization-server', '.well-known/oauth-protected-resource',
   '.well-known/oauth-protected-resource/[[...path]]',
   'api', 'api/programs', 'api/programs/write', 'api/programs/writes', 'api/programs/approve', 'api/programs/revert',
