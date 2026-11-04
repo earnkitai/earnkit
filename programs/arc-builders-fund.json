@@ -7,7 +7,6 @@
   "submission_url": "https://www.arc.io/builders-fund",
   "reward": "Capital from Circle Ventures for select companies, plus hands-on support from Arc's core teams (amount not stated)",
   "summary": "investment from Circle Ventures · rolling",
-  "submission_proof": null,
   "starts_at": null,
   "ends_at": null,
   "verified_at": "2026-11-01",
@@ -100,9 +99,6 @@
       "from": "builder"
     }
   ],
-  "tracks": [],
-  "starters": [],
-  "difficulty_override": null,
   "focus": {
     "areas": [
       "Real-world financial apps only possible on Arc",

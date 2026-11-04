@@ -1,170 +1,124 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import Footer from '../../components/common/Footer';
-import { ROWS } from '../../components/common/Panel';
-import { PAGE_COL } from '../../components/site/ui';
-import { TEXT_LINK } from '../../components/common/Button';
-import ProgramLogo from '../../components/sections/ProgramLogo';
+import { Logo } from '../../components/landing/Opportunities';
+import Money from '../../components/site/Money';
+import { CARD_PANEL, PAGE_COL, PILL_WHITE } from '../../components/site/ui';
 import AskAgent from './AskAgent';
-import { difficultyBasis, difficultyLabel, wonHeading, type GuideSource } from '../../../lib/earnkit/guide';
-import type { GuidePage } from '../../../lib/earnkit/landing';
-import { shownUrl } from '../../../lib/earnkit/untrusted-text';
-import { RESEARCH_LABEL } from '../../../lib/earnkit/site-copy';
+import type { GuidePage } from '../../../lib/v5/guide-page';
+import {
+  ALL_PROGRAMS, GUIDE_ASK, GUIDE_BEST_BET_TITLE, GUIDE_ELIGIBILITY_TITLE, GUIDE_FIELDS_TITLE, GUIDE_FOCUS_TITLE, GUIDE_NO_ELIGIBILITY,
+  GUIDE_ROUNDS_TITLE, GUIDE_RULES_TITLE, GUIDE_SOURCES_TITLE,
+} from '../../../lib/v5/site-copy';
 
-/** v2.8 Ruling 13 (plan), Task 3 carry: the guide page (not the slim card) says a program fits any chain. */
-export const ANY_CHAIN = 'Any chain';
+const H1 = 'ek-serif text-[40px] leading-none text-s-text md:text-[56px]';
+const H3 = 'ek-serif text-[28px] leading-none md:text-[32px]';
+const LINK = 'inline-flex min-h-11 items-center text-s-muted underline underline-offset-4 motion-safe:transition-colors hover:text-s-text';
 
-/** The guide's question for the agent (spec Decisions: "What can I earn?", on this program). */
-export const askPrompt = (title: string) => `What can I earn on ${title}?`;
-
-/** v3.1 site Task 10: the guide's titles in Kaftan Serif on the 1200px column (no structural change). */
-const H1 = 'ek-serif text-[40px] leading-none text-ek-text md:text-[56px]';
-const H2 = 'ek-serif text-[28px] leading-none text-ek-text md:text-[36px]';
-
-const LINK = 'text-ek-body underline underline-offset-4 motion-safe:transition-colors hover:text-ek-text';
-
-/** One guide part, a hairline row: the heading left, its items right (stacked on a phone). */
 function Part({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section aria-label={title} className="grid gap-4 border-t border-ek-line py-8 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] md:gap-12 md:py-10">
-      <h2 className={H2}>{title}</h2>
+    <section aria-label={title} className={`${CARD_PANEL} flex flex-col gap-4 p-6 md:p-8`}>
+      <h2 className={H3}>{title}</h2>
       {children}
     </section>
   );
 }
 
-/** "USDC payroll and payouts (3 of 20 winners)": the theme bright, its count quiet. */
-function WonLine({ line }: { line: string }) {
-  const m = line.match(/^(.*) (\([^()]*\))$/);
-  return m ? (
-    <>
-      <span className="text-ek-text">{m[1]}</span> <span className="text-ek-muted">{m[2]}</span>
-    </>
-  ) : (
-    <span>{line}</span>
-  );
-}
+const List = ({ items }: { items: string[] }) => (
+  <ul className="flex list-disc flex-col gap-2 pl-5 text-[16px] leading-normal text-s-muted">
+    {items.map((x, i) => (
+      <li key={i}>{x}</li>
+    ))}
+  </ul>
+);
 
-/** "Sources:" links, each the canonical https form (shownUrl), labelled by what it backs, spaced apart. */
-function Sources({ sources }: { sources: GuideSource[] }) {
-  const links = sources.flatMap((s) => {
-    const url = shownUrl(s.url);
-    return url ? [{ label: s.label, url }] : [];
-  });
-  if (links.length === 0) return null;
-  return (
-    <p className="flex flex-wrap items-center gap-x-4 gap-y-1 font-funnel-sans text-sm text-ek-muted">
-      <span>Sources:</span>
-      {links.map((l) => (
-        <a key={l.url} href={l.url} title={new URL(l.url).hostname} target="_blank" rel="noopener noreferrer" className={`${LINK} inline-flex min-h-11 items-center`}>
-          {l.label}
-        </a>
-      ))}
-    </p>
-  );
-}
-
-/**
- * v2.7 §2, Ruling 22 (plan), v3 Stage 3 (spec 5.8): one curated program's guide (/programs/<id>). Pure: the logo
- * beside the title, the facts as separate muted spans (the award, when it closes or "rolling" or "not open yet",
- * the chain), an upcoming program's opens_note, the Difficulty line with its basis, "Ask your agent" (open programs
- * only), then one hairline row per guide part that has data (what won, what the ecosystem wants, the best bet),
- * "All programs" and the sources. Same text as get_program (guide.ts).
- */
-export default function GuideView({ page }: { page: GuidePage }) {
+/** One program's guide: the facts, then who can apply, what the form asks, the rules and the sources. */
+export default function GuideView({ id, page }: { id: string; page: GuidePage }) {
   const g = page.guide;
-  const facts = (g.header.startsWith(`${page.title} · `) ? g.header.slice(page.title.length + 3) : g.header).split(' · ');
-  const chain = page.any_chain ? ANY_CHAIN : page.chain ?? null;
-  if (chain) facts.push(chain);
-  // v4.9 Task 3 fix 1: an API program says who found it, as one more muted fact.
-  if (page.research) facts.push(RESEARCH_LABEL);
-  const parts = Boolean(g.won || g.wants || g.best_bet);
+  const open = page.status === 'active' && g.closes !== 'Closed';
+  const sources = g.sources.filter((s) => s.url.startsWith('https://'));
   return (
     <>
-      <div className={`${PAGE_COL} pt-8 md:pt-12`}>
-        <section aria-label={page.title}>
+      <div className={`${PAGE_COL} flex flex-col gap-4 pt-8 md:pt-12`}>
+        <section aria-label={g.title} className="flex flex-col gap-5 pb-4">
           <div className="flex items-center gap-4 md:gap-5">
-            <ProgramLogo logo={page.logo} title={page.title} size={56} />
-            <h1 className={`${H1} min-w-0 [overflow-wrap:break-word]`}>{page.title}</h1>
+            <Logo id={id} logo={page.logo} organizer={page.organizer} />
+            <h1 className={`${H1} min-w-0 [overflow-wrap:break-word]`}>{g.title}</h1>
           </div>
-          <p className="mt-5 flex flex-col gap-y-1 font-funnel-sans text-base text-ek-muted md:flex-row md:flex-wrap md:items-center md:gap-x-4 md:text-lg">
-            {/* Task 7: each fact starts with a capital, as the row chips do ("Rolling", "Not open yet"); keyed by position, two facts can read alike. */}
-            {facts.map((f, i) => (
-              <span key={i} className={i > 0 ? 'md:border-l md:border-ek-line md:pl-4' : ''}>
-                {f.charAt(0).toUpperCase() + f.slice(1)}
-              </span>
-            ))}
+          <p className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[18px] text-s-muted">
+            <span className="ek-serif text-[32px] leading-none text-s-text">
+              <Money text={g.money} />
+            </span>
+            <span>{g.closes}</span>
           </p>
-          {/* v3 Stage 2: an upcoming program's one line (opens_note) under the facts; it has no Ask button (page.open is false). */}
-          {page.upcoming && g.opens_note && <p className="mt-3 max-w-[36rem] font-funnel-sans text-base text-ek-body md:text-lg">{g.opens_note}</p>}
-          <dl className="mt-3 font-funnel-sans text-base text-ek-muted">
-            <dt className="inline">Difficulty:</dt>{' '}
-            <dd className="inline">
-              {/* v2.8 Ruling 12 (plan): an EarnKit rating is the level alone, no basis. */}
-              {g.difficulty.rated ? (
-                <span className="text-ek-body">{difficultyLabel(g.difficulty)}</span>
-              ) : (
-                <>
-                  <span className="text-ek-body">{difficultyLabel(g.difficulty)}.</span> {difficultyBasis(g.difficulty)}
-                </>
-              )}
-            </dd>
-          </dl>
-          {page.open && (
-            <div className="mt-8">
-              <AskAgent prompt={askPrompt(page.title)} />
+          {page.opens_note ? <p className="max-w-[36rem] text-[16px] text-s-muted">{page.opens_note}</p> : null}
+          <p className="max-w-[44rem] text-[16px] leading-normal text-s-muted">{page.description}</p>
+          {open ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <AskAgent prompt={GUIDE_ASK(g.title)} />
+              <a href={page.submission_url} target="_blank" rel="noopener noreferrer" className={PILL_WHITE}>
+                Apply on the program site
+              </a>
             </div>
-          )}
+          ) : null}
         </section>
 
-        {parts && (
-          <div className={`${ROWS} mt-10 md:mt-14`}>
-            {g.won && (
-              <Part title={wonHeading(g.won)}>
-                <div>
-                  {/* Ruling C12: the event behind a round that isn't this program's own. */}
-                  {g.won.event && <p className="mb-3 font-funnel-sans text-sm text-ek-muted">{g.won.event}</p>}
-                  <ul className="space-y-2 font-funnel-sans text-base text-ek-body md:text-lg">
-                    {g.won.lines.map((l) => (
-                      <li key={l}>
-                        <WonLine line={l} />
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </Part>
-            )}
+        <Part title={GUIDE_ELIGIBILITY_TITLE}>
+          {g.eligibility.length > 0 ? <List items={g.eligibility} /> : <p className="text-[16px] text-s-muted">{GUIDE_NO_ELIGIBILITY}</p>}
+        </Part>
 
-            {g.wants && (
-              <Part title={`What ${g.wants.ecosystem} wants now`}>
-                <ul className="flex flex-wrap gap-2 self-center font-funnel-sans text-base text-ek-body">
-                  {g.wants.areas.map((a) => (
-                    <li key={a} className="rounded-full bg-ek-chip px-4 py-2">
-                      {a}
-                    </li>
-                  ))}
-                </ul>
-              </Part>
-            )}
+        {g.fields.length > 0 ? (
+          <Part title={GUIDE_FIELDS_TITLE}>
+            <ul className="flex flex-col gap-2 text-[16px] leading-normal text-s-muted">
+              {g.fields.map((f, i) => (
+                <li key={i}>
+                  <span className="text-s-text">{f.label}</span>: {f.todo}
+                </li>
+              ))}
+            </ul>
+          </Part>
+        ) : null}
 
-            {g.best_bet && (
-              <Part title="Most likely to win">
-                <ul className="self-center">
-                  <li className="font-funnel-display text-xl font-medium text-ek-text md:text-2xl">{g.best_bet}</li>
-                </ul>
-              </Part>
-            )}
-          </div>
-        )}
+        {g.rules.length > 0 ? (
+          <Part title={GUIDE_RULES_TITLE}>
+            <List items={g.rules} />
+          </Part>
+        ) : null}
 
-        <div className="mt-8 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between md:mt-10">
-          <Link href="/#earn" className={TEXT_LINK}>
-            All programs
+        {g.focus ? (
+          <Part title={GUIDE_FOCUS_TITLE}>
+            <p className="text-[16px] leading-normal text-s-muted">{g.focus}</p>
+          </Part>
+        ) : null}
+
+        {g.past_rounds.length > 0 ? (
+          <Part title={GUIDE_ROUNDS_TITLE}>
+            <List items={g.past_rounds} />
+          </Part>
+        ) : null}
+
+        {g.best_bet ? (
+          <Part title={GUIDE_BEST_BET_TITLE}>
+            <p className="text-[18px] text-s-text">{g.best_bet}</p>
+          </Part>
+        ) : null}
+
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <Link href="/programs" className={LINK}>
+            {ALL_PROGRAMS}
           </Link>
-          <Sources sources={page.sources} />
+          {sources.length > 0 ? (
+            <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[14px] text-s-muted">
+              <span>{GUIDE_SOURCES_TITLE}:</span>
+              {sources.map((s) => (
+                <a key={s.url} href={s.url} title={new URL(s.url).hostname} target="_blank" rel="noopener noreferrer" className={LINK}>
+                  {s.label}
+                </a>
+              ))}
+            </p>
+          ) : null}
         </div>
       </div>
-
       <Footer />
     </>
   );
@@ -175,8 +129,8 @@ export function Unavailable({ text }: { text: string }) {
   return (
     <>
       <div className={`${PAGE_COL} pt-8 md:pt-12`}>
-        <p className="font-funnel-sans text-lg text-ek-body">{text}</p>
-        <Link href="/" className={`${LINK} mt-4 inline-flex min-h-11 items-center font-funnel-sans text-base`}>
+        <p className="text-[18px] text-s-muted">{text}</p>
+        <Link href="/" className={`${LINK} mt-4`}>
           EarnKit home
         </Link>
       </div>

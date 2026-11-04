@@ -9,11 +9,7 @@ export default {
   theme: {
     extend: {
       colors: {
-        /*
-         * v3 (spec 5.8): every colour is a page token (lib/earnkit/theme.ts THEME, as the --ek-p-*
-         * variables in globals.css). No raw hex here: the mirror is globals.css. Page, flat surface,
-         * raised spot, hairlines, the three text roles, the one accent and the brand fill.
-         */
+        /* Page tokens: the --ek-p-* variables in globals.css. No raw hex here. */
         'ek-page': 'var(--ek-p-page)',
         'ek-surface': 'var(--ek-p-surface)',
         'ek-surface-top': 'var(--ek-p-surface-top)',
@@ -32,7 +28,7 @@ export default {
         'ek-brand': 'var(--ek-p-brand)',
         'ek-brand-hover': 'var(--ek-p-accent)',
         'ek-glass': 'var(--ek-p-glass)',
-        /* v3.1 site (lib/earnkit/site-theme.ts SITE as --ek-s-* in globals.css): s-<kebab key>. */
+        /* Site tokens (lib/v5/site-theme.ts SITE as --ek-s-* in globals.css): s-<kebab key>. */
         's-page': 'var(--ek-s-page)',
         's-deep': 'var(--ek-s-deep)',
         's-card-top': 'var(--ek-s-card-top)',

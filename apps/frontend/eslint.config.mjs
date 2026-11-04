@@ -6,7 +6,7 @@ import nextTs from 'eslint-config-next/typescript';
 export default defineConfig([
   ...nextVitals,
   ...nextTs,
-  globalIgnores(['.next/**', 'out/**', 'build/**', 'dist/**', 'node_modules/**', 'next-env.d.ts', 'public/**', 'assets/**']),
+  globalIgnores(['.next/**', 'out/**', 'build/**', 'dist/**', 'node_modules/**', 'next-env.d.ts', 'public/**']),
   {
     rules: {
       '@typescript-eslint/no-unused-vars': [

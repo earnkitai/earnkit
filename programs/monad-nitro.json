@@ -8,7 +8,6 @@
   "reward": "$500K deployed per selected team on day one",
   "summary": "$500K per team · next cohort not announced",
   "max_award_usd": 500000,
-  "submission_proof": null,
   "starts_at": null,
   "ends_at": null,
   "verified_at": "2026-11-01",
@@ -29,14 +28,8 @@
     "The first cohort's applications closed on March 14, 2026; the next cohort's dates are not announced."
   ],
   "submission_requirements": [],
-  "tracks": [],
-  "starters": [],
-  "difficulty_override": null,
   "logo": {
     "path": "programs/monad-nitro.svg",
     "source_url": "https://www.monad.xyz/brand-and-media-kit"
-  },
-  "x_handles": [
-    "monad"
-  ]
+  }
 }

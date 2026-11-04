@@ -3,13 +3,12 @@ import InstallButton from './InstallButton';
 import { Wordmark } from '../ui/Logo';
 import NavLinks from '../site/NavLinks';
 import { PILL_BLUE } from '../site/ui';
-import { NAV_INSTALL } from '../../../lib/earnkit/site-copy';
+import { NAV_INSTALL } from '../../../lib/v5/site-copy';
 
 /**
- * v3.1 (Nav board): the one site header on every page, transparent and not sticky, in the 1200px column:
- * the wordmark (home), Leaderboard, Feed and Docs (NavLinks marks the current one), and the blue pill that
- * opens the install sheet (S18). On a phone (<640px) the wordmark and the pill share the first row and the
- * three links take the second.
+ * The one site header on every page, transparent and not sticky: the wordmark (home), Programs and Docs
+ * (NavLinks marks the current one), and the blue pill that opens the install sheet. On a phone the
+ * wordmark and the pill share the first row and the links take the second.
  */
 export default function Header() {
   return (

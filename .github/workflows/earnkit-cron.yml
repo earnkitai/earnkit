@@ -1,11 +1,10 @@
-# EarnKit's automatic campaign lifecycle (v2.4 §3): scoring, freezing, the 48 h review, payouts,
-# and the token-fee refresh. Runs hourly; the endpoint scores a running campaign only once its
-# scores are 20 h old (1 h in the last day), so the effect is daily plus hourly at the end.
-# Free tier: one short job an hour. Needs the repo secret CRON_SECRET (same value as on Railway).
+# EarnKit's one daily job: the freshness probe of every listed program (links, page changes,
+# passed deadlines) and the owner's daily digest email. Free tier: one short job a day.
+# Needs the repo secret CRON_SECRET (same value as on Railway).
 name: EarnKit cron
 on:
   schedule:
-    - cron: '15 * * * *'
+    - cron: '15 6 * * *'
   workflow_dispatch:
 permissions: {}
 concurrency:
@@ -20,9 +19,9 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          # Not set up yet (before go-live): skip quietly instead of failing (and emailing) every hour.
+          # Not set up yet (before go-live): skip quietly instead of failing (and emailing) every day.
           test -n "$CRON_SECRET" || { echo "::notice::CRON_SECRET is not set; skipping."; exit 0; }
-          # 503 (body shown): a campaign's payout waits on the owner; the failed run emails them.
+          # A failed step answers 500 (body shown); the failed run emails the owner.
           curl -sS --fail-with-body --max-time 540 -X POST \
             -H "Authorization: Bearer $CRON_SECRET" \
             https://earnkit.com/api/cron

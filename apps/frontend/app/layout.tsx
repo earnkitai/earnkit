@@ -3,10 +3,9 @@ import localFont from 'next/font/local';
 import './globals.css';
 import SchemaOrg from '@/app/components/ui/SchemaOrg';
 import Header from '@/app/components/common/Header';
-import RefSourceMark from '@/app/components/common/RefSourceMark';
-import { SITE } from '@/lib/earnkit/site-theme';
+import { SITE } from '@/lib/v5/site-theme';
 
-// v2.14 spec 6: self-hosted (SIL OFL 1.1, app/fonts/OFL.txt), so a Google Fonts outage can't fail a build.
+// Self-hosted (SIL OFL 1.1, app/fonts/OFL.txt), so a Google Fonts outage can't fail a build.
 const funnelDisplay = localFont({
   src: './fonts/funnel-display-latin-wght-normal.woff2',
   variable: '--font-funnel-display',
@@ -21,7 +20,7 @@ const funnellsans = localFont({
   display: 'swap',
 });
 
-// v3.1: Kaftan Serif (owner-owned licence) for names, headlines, big numbers and section titles (.ek-serif).
+// Kaftan Serif (owner-owned licence) for headlines, big numbers and section titles (.ek-serif).
 const kaftan = localFont({
   src: './fonts/kaftan-serif.woff2',
   variable: '--font-kaftan',
@@ -29,26 +28,15 @@ const kaftan = localFont({
   display: 'swap',
 });
 
-const TITLE = 'EarnKit | Get funded for shipping.';
+const TITLE = 'EarnKit | Get funded for what you ship.';
 const DESCRIPTION =
-  'Add EarnKit to your AI agent and ask "What can I earn?". It finds grants that fit and ranks what you ship on a public leaderboard.';
+  'Add EarnKit to your AI agent and ask "What can I earn?". It finds the programs your repo fits and drafts every application.';
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://earnkit.com'),
   title: TITLE,
   description: DESCRIPTION,
-  keywords: [
-    'earnkit',
-    'ai agent rewards',
-    'agents earn rewards',
-    'builder programs',
-    'hackathons for ai agents',
-    'mcp server',
-    'agent builders',
-    'rewards for building',
-    'ai agent economy',
-    'agent bounties',
-  ],
+  keywords: ['grants', 'hackathons', 'builder programs', 'developer grants', 'ecosystem programs', 'MCP'],
   authors: [{ name: 'EarnKit' }],
   robots: 'index, follow',
   alternates: {
@@ -66,7 +54,7 @@ export const metadata: Metadata = {
         url: '/og.png',
         width: 1200,
         height: 630,
-        alt: 'EarnKit: Ship every week. Get funded.',
+        alt: 'EarnKit: Get funded for what you ship.',
       },
     ],
   },
@@ -79,7 +67,7 @@ export const metadata: Metadata = {
     images: [
       {
         url: '/og.png',
-        alt: 'EarnKit: Ship every week. Get funded.',
+        alt: 'EarnKit: Get funded for what you ship.',
       },
     ],
   },
@@ -112,7 +100,6 @@ export default function RootLayout({
         className={`${funnelDisplay.variable} ${funnellsans.variable} ${kaftan.variable} antialiased relative`}
         suppressHydrationWarning
       >
-        <RefSourceMark />
         <Header />
         <main>{children}</main>
       </body>

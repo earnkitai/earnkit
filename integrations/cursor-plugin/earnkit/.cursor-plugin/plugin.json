@@ -2,10 +2,18 @@
   "name": "earnkit",
   "displayName": "EarnKit",
   "version": "1.0.0",
-  "description": "Get funded for shipping. EarnKit finds grants you fit, drafts the application from what you ship, and ranks how steadily you ship. Free.",
-  "author": { "name": "EarnKit" },
+  "description": "Get funded for what you ship. EarnKit finds the grants, hackathons and programs your repo fits and drafts every application. Free.",
+  "author": {
+    "name": "EarnKit"
+  },
   "homepage": "https://earnkit.com",
   "license": "MIT",
-  "keywords": ["grants", "funding", "builders", "hackathons", "mcp"],
+  "keywords": [
+    "grants",
+    "funding",
+    "builders",
+    "hackathons",
+    "mcp"
+  ],
   "logo": "assets/logo.png"
 }

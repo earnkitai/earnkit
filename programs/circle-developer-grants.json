@@ -16,7 +16,6 @@
     "A peer-to-peer payments app using Circle Wallets",
     "A lending or borrowing protocol built on Arc"
   ],
-  "submission_proof": null,
   "tag": "needs a live product",
   "starts_at": null,
   "ends_at": null,
@@ -82,8 +81,6 @@
       "from": "project"
     }
   ],
-  "tracks": [],
-  "starters": [],
   "logo": {
     "path": "programs/circle-developer-grants.png",
     "source_url": "https://www.circle.com/pressroom#brandkit"
@@ -118,13 +115,5 @@
     "source_url": "https://www.circle.com/grant",
     "ecosystem": "Circle"
   },
-  "best_bet": "A live stablecoin FX or peer-to-peer payments app settling on Arc",
-  "difficulty_override": {
-    "level": "Hard",
-    "basis": "14 of 925 proposals accepted so far in Cohort 2",
-    "source_url": "https://circle.questbook.app/"
-  },
-  "x_handles": [
-    "circle"
-  ]
+  "best_bet": "A live stablecoin FX or peer-to-peer payments app settling on Arc"
 }

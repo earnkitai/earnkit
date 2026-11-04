@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import Footer from './components/common/Footer';
 import { CARD_RUST, PAGE_COL, PILL_WHITE } from './components/site/ui';
-import { NOT_FOUND_BIG, NOT_FOUND_HOME, NOT_FOUND_METADATA, NOT_FOUND_TEXT } from '../lib/earnkit/site-copy';
+import { NOT_FOUND_BIG, NOT_FOUND_HOME, NOT_FOUND_METADATA, NOT_FOUND_TEXT } from '../lib/v5/site-copy';
 
 export const metadata = NOT_FOUND_METADATA;
 

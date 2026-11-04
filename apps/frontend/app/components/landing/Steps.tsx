@@ -1,4 +1,4 @@
-import { STEPS, STEPS_TITLE } from '../../../lib/earnkit/site-copy';
+import { STEPS, STEPS_TITLE } from '../../../lib/v5/site-copy';
 import { H2_SITE } from '../site/ui';
 
 /** The three line icons from the Landing board (24px grid): a plug, a rocket, two rounds. */
@@ -12,10 +12,7 @@ const ICONS: [string, string, string][] = [
   ['M8 2a6 6 0 1 0 0 12 6 6 0 1 0 0-12', 'M18.09 10.37A6 6 0 1 1 10.34 18', 'M7 6h1v4M16.71 13.88l.7.71-2.82 2.82'],
 ];
 
-/**
- * "From commit to capital" (Landing board): Connect, Ship, Get funded on the step cards. Every icon sits in the same
- * 56px box and the title follows it at a fixed gap, so the three titles share one line whatever the text's length.
- */
+/** The three steps on cards. Every icon sits in the same 56px box, so the titles share one line. */
 export default function Steps() {
   return (
     <section id="how" aria-labelledby="how-title" className="flex flex-col gap-8">
@@ -23,9 +20,9 @@ export default function Steps() {
         {STEPS_TITLE}
       </h2>
       <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(260px,1fr))]">
-        {STEPS.map((s, i) => (
+        {STEPS.map(([title, text], i) => (
           <div
-            key={s.title}
+            key={title}
             className="flex min-h-[220px] flex-col gap-3.5 rounded-[28px] border border-s-step-line bg-gradient-to-b from-s-step-top to-s-step-bottom p-6 text-s-text md:min-h-[260px] md:rounded-[36px] md:p-8"
           >
             <svg data-ek-step-icon="" width="56" height="56" viewBox="0 0 24 24" fill="none" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="block h-14 w-14 shrink-0 stroke-s-icon-blue">
@@ -33,8 +30,8 @@ export default function Steps() {
                 <path key={d} d={d} />
               ))}
             </svg>
-            <h3 className="ek-serif mt-8 text-[32px] leading-none md:text-[40px]">{s.title}</h3>
-            <p className="text-[16px] leading-normal text-s-step-text">{s.text}</p>
+            <h3 className="ek-serif mt-8 text-[32px] leading-none md:text-[40px]">{title}</h3>
+            <p className="text-[16px] leading-normal text-s-step-text">{text}</p>
           </div>
         ))}
       </div>

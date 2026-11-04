@@ -7,7 +7,6 @@
   "submission_url": "https://www.base.org/ecosystem-fund/apply",
   "reward": "Pre-seed and seed investment from the Base Ecosystem Fund, in partnership with Coinbase Ventures (amount not stated)",
   "summary": "pre-seed and seed investment · rolling",
-  "submission_proof": null,
   "starts_at": null,
   "ends_at": null,
   "wants_revenue": true,
@@ -264,8 +263,5 @@
       "description": "Optional. A Docsend or Google Drive link.",
       "from": "builder"
     }
-  ],
-  "tracks": [],
-  "starters": [],
-  "difficulty_override": null
+  ]
 }

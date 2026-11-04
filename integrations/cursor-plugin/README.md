@@ -12,7 +12,7 @@ https://github.com/cursor/plugin-template (read 2026-10-23).
 
 | # | Step |
 |---|---|
-| 1 | Test locally: copy `earnkit/` to `~/.cursor/plugins/local/earnkit`, reload Cursor, open Customize, check the EarnKit server and the skill show, choose Authenticate, sign in with X, ask "What can I earn?" |
+| 1 | Test locally: copy `earnkit/` to `~/.cursor/plugins/local/earnkit`, reload Cursor, open Customize, check the EarnKit server and the skill show, choose Authenticate, approve it, ask "What can I earn?" |
 | 2 | Make a new public GitHub repo, e.g. `earnkitai/earnkit-cursor-plugin`, with the contents of `earnkit/` at its root (Cursor requires plugins to be open source; keep the MIT license or pick another) |
 | 3 | Submit the repo at https://cursor.com/marketplace/publish (the plugin publisher application). Cursor reviews every plugin by hand, and every update again |
 | 4 | Once approved, read the listing's numeric plugin id (the marketplace page data, e.g. 1Password's is 768) |

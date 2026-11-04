@@ -14,14 +14,10 @@
     "A revenue split or shared team treasury",
     "An AI agent that pays another service in USDC"
   ],
-  "submission_proof": {
-    "host": "dorahacks.io",
-    "path_pattern": "^/buidl/\\d+$"
-  },
   "starts_at": "2026-10-15T13:00:00Z",
   "ends_at": "2026-11-02T04:59:00Z",
   "verified_at": "2026-10-28",
-  "status": "active",
+  "status": "closed",
   "existing_work": "allowed",
   "needs_repo": true,
   "needs_contract": "arc",
@@ -49,23 +45,6 @@
     "You keep full ownership of your work. No equity, no IP assignment, no exclusivity.",
     "Program dates and microgrant counts may be adjusted."
   ],
-  "judging": {
-    "criteria": [
-      {
-        "text": "Real USDC moving on Arc mainnet (30%)"
-      },
-      {
-        "text": "Use of Arc Studio across the build (25%)"
-      },
-      {
-        "text": "A working product (25%)"
-      },
-      {
-        "text": "Potential to go further (20%)"
-      }
-    ],
-    "source_url": "https://dorahacks.io/hackathon/arc-microgrants-2/detail"
-  },
   "submission_requirements": [
     {
       "key": "arc_studio_url",
@@ -136,8 +115,6 @@
       "from": "builder"
     }
   ],
-  "tracks": [],
-  "starters": [],
   "winners_per_round": 8,
   "focus": {
     "areas": [
@@ -148,6 +125,5 @@
     "source_url": "https://dorahacks.io/hackathon/arc-microgrants-2/detail",
     "ecosystem": "Arc"
   },
-  "best_bet": "An escrow or payment-split app built in Arc Studio, moving USDC",
-  "difficulty_override": null
+  "best_bet": "An escrow or payment-split app built in Arc Studio, moving USDC"
 }

@@ -7,11 +7,10 @@
   "submission_url": "https://ethglobal.com/events/mumbai/home",
   "reward": "Partner prizes up to $15,000 each; 12 prizes listed, 5 without details yet",
   "summary": "up to $15K per partner prize · in person · submit by Nov 7, 9:00 AM IST",
-  "submission_proof": null,
   "starts_at": null,
   "ends_at": "2026-11-07T03:30:00Z",
   "verified_at": "2026-10-20",
-  "status": "unlisted",
+  "status": "active",
   "in_person": true,
   "existing_work": "allowed",
   "needs_repo": true,
@@ -34,26 +33,6 @@
     "Per https://ethglobal.com/events/mumbai/info/start: each team member must be accepted and stake ETH individually; teams of up to 5; the stake is returned within about 4 weeks after the event to hackers who submitted a project.",
     "Per ETHGlobal's events listing, the hackathon runs November 5 to 7, 2026 in Mumbai and hacker applications close November 3 at 11:59 PM IST."
   ],
-  "judging": {
-    "criteria": [
-      {
-        "text": "Technicality"
-      },
-      {
-        "text": "Originality"
-      },
-      {
-        "text": "Practicality"
-      },
-      {
-        "text": "Usability (UI/UX/DX)"
-      },
-      {
-        "text": "WOW Factor"
-      }
-    ],
-    "source_url": "https://ethglobal.com/events/mumbai/info/details"
-  },
   "submission_requirements": [
     {
       "key": "project_name",
@@ -97,9 +76,6 @@
       "from": "project"
     }
   ],
-  "tracks": [],
-  "starters": [],
-  "difficulty_override": null,
   "logo": {
     "path": "programs/ethglobal-mumbai.png",
     "source_url": "https://cdn.ethglobal.com/events/mumbai/square-logo/default.png"

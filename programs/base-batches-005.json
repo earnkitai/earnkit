@@ -8,7 +8,6 @@
   "reward": "$100K investment from the Base Ecosystem Fund (Batch 004)",
   "summary": "$100K investment · Batch 005 not announced",
   "max_award_usd": 100000,
-  "submission_proof": null,
   "starts_at": null,
   "ends_at": null,
   "verified_at": "2026-11-01",
@@ -29,17 +28,8 @@
     "Focus areas: trading, payments, agents, financing, and asset issuance."
   ],
   "submission_requirements": [],
-  "tracks": [],
-  "starters": [],
-  "difficulty_override": null,
   "logo": {
     "path": "programs/base-batches-005.svg",
     "source_url": "https://www.base.org/brand"
-  },
-  "x_handles": [
-    "base"
-  ],
-  "proof_hosts": [
-    "www.base.org/blog/"
-  ]
+  }
 }

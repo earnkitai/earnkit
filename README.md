@@ -1,69 +1,85 @@
 # EarnKit
 
-Where agents earn. EarnKit gives AI agents live builder programs to build for.
+Get funded for what you ship. EarnKit turns a builder's repo into money: grants, hackathon prizes,
+ecosystem programs, accelerators and bounties.
+
+EarnKit is the brain; the builder's agent is the hands. EarnKit knows every open program (amount,
+deadline, rules, the form's fields) and matches the repo, pre-fills each form and says what one
+change would unlock. The agent drafts the personal parts, submits in its own browser when the
+builder says yes, and reports back. EarnKit never submits.
 
 ## Connect an agent
 
-The full guide is at [earnkit.com/docs](https://earnkit.com/docs).
+MCP server URL: **`https://earnkit.com/mcp`** (remote, OAuth). Approve it when the browser opens;
+no account needed. The full guide is at [earnkit.com/docs](https://earnkit.com/docs).
 
-MCP server URL: **`https://earnkit.com/mcp`**. The agent connects; the builder signs in with X
-("Sign in with X") in the browser that opens at install.
+| Agent | How |
+|---|---|
+| Grok Bot | Plugins, "Add a custom connector", Server URL `https://earnkit.com/mcp`, Save, then Authenticate |
+| Muse | Send: "Build a custom connector to https://earnkit.com/mcp (Streamable HTTP). Sign me in, test it, then save it as a skill." |
+| OpenClaw | `openclaw mcp add earnkit --url https://earnkit.com/mcp --transport streamable-http`, then with the gateway stopped `openclaw mcp login earnkit` |
+| Hermes | In `~/.hermes/config.yaml`: `mcp_servers: earnkit: url: "https://earnkit.com/mcp", auth: oauth`, then `hermes mcp login earnkit` and `/reload-mcp` |
+| Claude | Customize, Connectors, "+ Add", "Add custom connector", paste the URL, Continue, Add |
+| Claude Code | `claude mcp add --transport http --scope user earnkit https://earnkit.com/mcp`, then `/mcp`, pick earnkit, Authenticate |
+| Cursor | The "Add to Cursor" button on earnkit.com/docs, or in `~/.cursor/mcp.json`: `{"mcpServers": {"earnkit": {"url": "https://earnkit.com/mcp"}}}` |
+| Codex | `codex mcp add earnkit --url https://earnkit.com/mcp`, then `codex mcp login earnkit` |
+| Any other MCP client | Add the URL as a remote server |
 
-- **Grok Bot:** add the URL as an MCP connector.
-- **Claude Code:** `claude mcp add --transport http --scope user earnkit https://earnkit.com/mcp` (user scope: EarnKit works in every folder), then open Claude Code, type `/mcp`, pick earnkit, choose Authenticate.
-- **Cursor:** the one-click "Add to Cursor" button on earnkit.com, or in `~/.cursor/mcp.json`: `{"mcpServers": {"earnkit": {"url": "https://earnkit.com/mcp"}}}`
-- **Codex:** `codex mcp add earnkit --url https://earnkit.com/mcp`, then `codex mcp login earnkit`.
-- **Muse:** add the URL as a custom integration.
-- **OpenClaw:** `openclaw mcp add earnkit --url https://earnkit.com/mcp --transport streamable-http`, then `openclaw mcp login earnkit`.
-- **Any other MCP client:** add the URL as a remote server.
-- **Clients that only run local (stdio) servers:** `npx -y mcp-remote https://earnkit.com/mcp`
-
-Agents that work today: Grok Bot, Muse, OpenClaw, Claude Code, Cursor, Codex.
+The commands are kept in `apps/frontend/lib/v5/agents.ts`; the site and `/llms.txt` read them from there.
 
 Then ask: "What can I earn?"
 
-Tools (five): `find` ("what can I earn?": the builder's standing, matching projects and open programs, or one
-program and its guide), `score` (the builder's score and how to move up), `prepare` (the coach and the draft),
-`confirm` (the builder's yes: the entry, its token and the submit kit) and `tell` (what the builder said:
-submitted, updates, statements). The v2.9 names (`list_programs`, `get_program`, `prepare_submission`,
-`confirm_entry`, `record_submission`, `launch_token`, `tell_earnkit`) are hidden aliases until 2026-11-09
-(`lib/earnkit/aliases.ts`; `/mcp` rewrites them and logs each use).
+## The two tools
 
-Entering (v2.4): `prepare` returns `show_to_builder`, the one block the builder confirms,
-prize first. For EarnKit's own campaigns `confirm` is the entry: contracts deployed from
-the payout wallet, or from the agent's own wallet with `deployer_signature` (an EIP-191 signature of
-"EarnKit entry: <program_id> github.com/<owner>/<repo> <payout wallet> <contracts, sorted, comma-separated>", lowercase); every problem comes back at once.
-Scoring, the 48-hour public review and the payout run on their own (`POST /api/cron`, called hourly
-by GitHub Actions). A token on tokens.fun launches with the builder's yes at confirmation;
-`confirm` with `project_id` retries one later. The rules an agent needs are in the tool descriptions.
-Sponsor campaigns are archived (v2.12): see `archive/sponsor-campaigns/README.md`.
+- `find`: what this repo can earn: the programs it fits with every field pre-filled, the ones one change away, and the ledger; with `program_id`, one program's details and form.
+- `track`: what the builder did (applied, won, rejected, no result, skipped, a gap closed), after every submission and every answer about a result.
 
 ## Layout
 
 ```
-apps/frontend/     Next.js: landing page, hosted MCP server (/mcp), OAuth, all EarnKit logic
+apps/frontend/
+  app/             Next.js pages and routes: landing, /programs, /docs, /terms, /llms.txt,
+                   /mcp, /oauth/*, /api/programs*, /api/stats, /api/cron
+  lib/v5/          all EarnKit logic, with its tests (*.test.ts) and fixtures
+  db/schema.sql    the database (applied by pnpm db:migrate)
+  scripts/         db-migrate, programs-sync, v4-tables, record-repo-fixture
 programs/          one JSON file per program (see programs/README.md)
-docs/              architecture guide, code map, design docs
+docs/              architecture guide, code map, design docs, the programs API
+.github/workflows/ the daily cron (program freshness probe and the owner digest)
 ```
 
 ## Local setup
 
 ```bash
 pnpm install
-pnpm dev          # http://localhost:3000
-pnpm test
+createdb earnkit_test
+export DATABASE_URL=postgresql://localhost:5432/earnkit_test
+pnpm test               # the whole suite, one database per test file
+pnpm dev                # http://localhost:3000
+pnpm programs:check     # validate every file in programs/
 ```
 
-Env (`apps/frontend/.env.local`): `DATABASE_URL`, `EARNKIT_AUTH_SECRET` (any random string locally).
-The landing page renders without them; the activity section and MCP need them.
+Env (`apps/frontend/.env.local`):
+
+| Variable | Use |
+|---|---|
+| `DATABASE_URL` | Postgres |
+| `EARNKIT_AUTH_SECRET` | signs OAuth tokens (any random string locally) |
+| `EARNKIT_URL` | the public origin (production: `https://earnkit.com`) |
+| `GITHUB_TOKEN` | reads public repos with a higher rate limit (optional) |
+| `RESEND_API_KEY` | the owner's daily digest email (optional) |
+| `CRON_SECRET` | authorizes `POST /api/cron` |
+| `EARNKIT_PROGRAMS_TOKEN` | the programs write API (at least 32 characters; `EARNKIT_PROGRAMS_API=off` turns it off) |
 
 ## Deploy
 
-Railway (`apps/frontend/railway.toml`). Each deploy runs `pnpm db:migrate` first.
-Production also sets `EARNKIT_URL=https://earnkit.com`.
+Railway (`apps/frontend/railway.toml`). Each deploy runs `pnpm predeploy` first:
+`pnpm db:migrate` (the additive schema) and `pnpm programs:sync` (every program file into the
+database). GitHub Actions calls `POST /api/cron` once a day with `CRON_SECRET`.
+
+Tables v4 left in the database are never read. `pnpm db:v4-tables` lists them with row counts and
+prints the `DROP TABLE` statements; dropping them, after a backup, is an owner step.
 
 ## License
 
 EarnKit is dual-licensed under either of [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option. Copyright (c) 2026 TokenFi Inc.
-
-The contracts/lib submodules keep their own licenses.

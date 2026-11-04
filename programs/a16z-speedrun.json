@@ -9,11 +9,10 @@
   "summary": "up to $1M · closes Nov 1, 11:59 PM PT",
   "max_award_usd": 1000000,
   "tag": "long shot",
-  "submission_proof": null,
   "starts_at": null,
   "ends_at": "2026-11-02T07:59:59Z",
   "verified_at": "2026-10-28",
-  "status": "active",
+  "status": "closed",
   "existing_work": "allowed",
   "needs_repo": false,
   "chains": [],
@@ -44,21 +43,8 @@
       "from": "builder"
     }
   ],
-  "tracks": [],
-  "starters": [],
-  "difficulty_override": {
-    "level": "Hard",
-    "basis": "speedrun says fewer than 0.4% of applicants are accepted",
-    "source_url": "https://speedrun.a16z.com/faq"
-  },
   "logo": {
     "path": "programs/a16z-speedrun.png",
     "source_url": "https://speedrun.a16z.com/favicons/apple-touch-icon.png"
-  },
-  "x_handles": [
-    "speedrun"
-  ],
-  "proof_hosts": [
-    "speedrun.a16z.com/"
-  ]
+  }
 }

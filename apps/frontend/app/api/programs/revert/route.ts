@@ -1,12 +1,11 @@
-import { programRevertGet, programRevertPost } from '@/lib/earnkit/program-revert-page';
+import { revertGet, revertPost } from '@/lib/v5/programs-api';
 
 /**
- * v4.10.2 Task 4 (R7): the owner's revert link from the daily program-changes digest. GET shows a confirm page with
- * one button and changes nothing (mail scanners open links); the button's POST reverts, once. The signed token alone
- * decides.
+ * The owner's revert link for an applied program write. GET shows a confirm page and changes
+ * nothing (mail scanners open links); the button's POST reverts, once. The signed token decides.
  */
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-export const GET = (request: Request) => programRevertGet(request);
-export const POST = (request: Request) => programRevertPost(request);
+export const GET = (request: Request) => revertGet(request);
+export const POST = (request: Request) => revertPost(request);

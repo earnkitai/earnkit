@@ -8,11 +8,10 @@
   "reward": "Up to $10,000 in funding",
   "summary": "up to $10,000 · rolling",
   "max_award_usd": 10000,
-  "submission_proof": null,
   "starts_at": null,
   "ends_at": null,
   "verified_at": "2026-11-01",
-  "status": "unlisted",
+  "status": "active",
   "existing_work": "allowed",
   "needs_repo": false,
   "chains": [
@@ -226,8 +225,6 @@
       "from": "builder"
     }
   ],
-  "tracks": [],
-  "starters": [],
   "logo": {
     "path": "programs/avalanche-team1-mini-grants.svg",
     "source_url": "https://www.avalanche.com/about/press"

@@ -14,7 +14,6 @@
     "A passkey-native account using WebAuthn on Monad",
     "An onchain order book with no offchain matching engine"
   ],
-  "submission_proof": null,
   "tag": "long shot",
   "starts_at": "2026-09-01T00:00:00Z",
   "ends_at": "2026-10-14T03:59:00Z",
@@ -89,33 +88,6 @@
       "from": "project"
     }
   ],
-  "tracks": [
-    {
-      "slug": "onchain-finance-trading",
-      "name": "Onchain Finance & Trading",
-      "description": "Fast settlement makes new financial instruments and fully onchain markets more practical. Best fit: teams who have shipped a trading, lending, or market-making product before. $30,000, split evenly between 3 teams.",
-      "requirements": []
-    },
-    {
-      "slug": "consumer-products-payments",
-      "name": "Consumer Products & Payments",
-      "description": "Onchain rails can make financial products feel instant, programmable, and invisible to the end user. Best fit: product teams who care more about a user's first five minutes than the architecture underneath. $30,000, split evenly between 3 teams.",
-      "requirements": []
-    },
-    {
-      "slug": "social-attention-culture",
-      "name": "Social, Attention & Culture",
-      "description": "Open social graphs, programmable incentives, and fast settlement can change how communities create and capture value. Best fit: teams who have grown a community, not only built one. $30,000, split evenly between 3 teams.",
-      "requirements": []
-    },
-    {
-      "slug": "trust-identity-ai-infrastructure",
-      "name": "Trust, Identity & AI Infrastructure",
-      "description": "AI has made identity, provenance, data ownership, and agent trust urgent infrastructure problems. Best fit: teams comfortable with cryptography, protocol design, or agent frameworks. $30,000, split evenly between 3 teams.",
-      "requirements": []
-    }
-  ],
-  "starters": [],
   "logo": {
     "path": "programs/monad-metropolis.svg",
     "source_url": "https://www.monad.xyz/brand-and-media-kit"
@@ -163,8 +135,5 @@
     "source_url": "https://monad.xyz/developers/hackathons/metropolis",
     "ecosystem": "Monad"
   },
-  "best_bet": "Per-second streaming payments for agents or APIs on Monad",
-  "x_handles": [
-    "monad"
-  ]
+  "best_bet": "Per-second streaming payments for agents or APIs on Monad"
 }
