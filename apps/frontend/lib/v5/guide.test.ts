@@ -63,3 +63,8 @@ test('guideLines: the rules, one per line', () => {
   assert.equal(lines.length, 1 + g.rules.length);
   assert.deepEqual(guideLines({ ...g, rules: [] }), []);
 });
+
+test('a focus with no ecosystem and no chains names the program, not an empty word', () => {
+  const g = guideText(rowOf(programFixture({ id: 'a-g', title: 'Any Grants', chains: [], any_chain: true, focus: { areas: ['agents'], source_url: 'https://example.com/f' } })));
+  assert.equal(g.focus, 'Any Grants wants agents');
+});

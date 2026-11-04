@@ -5,6 +5,7 @@ import * as React from 'react';
 import { sql } from './db';
 import { programFixture } from './fixtures/program';
 import { upsertProgram } from './programs';
+import { gatedGuidePage, guideTextById, listGuideIds } from './guide-page';
 import { HERO_TITLE, STEPS } from './site-copy';
 import Home from '../../app/page';
 import ProgramsPage from '../../app/programs/page';
@@ -136,4 +137,30 @@ test('the sitemap lists the pages and every listed program', async () => {
     assert.ok(urls.includes(u), u);
   assert.ok(!urls.some((u) => /leaderboard|feed/.test(u)));
   assert.ok(!urls.includes('https://earnkit.com/programs/zz-page-shut'));
+});
+
+test('a stale API program has no guide; a closed file program says Closed and has no Apply link', async () => {
+  const old = new Date(Date.now() - 40 * 86_400_000).toISOString().slice(0, 10);
+  await upsertProgram(programFixture({ id: 'zz-page-stale', title: 'Page Stale Grants', verified_at: old }), 'api', new Date());
+  await sql()`UPDATE programs SET verified_at = ${old} WHERE id = 'zz-page-stale'`;
+  await assert.rejects(() => ProgramGuidePage(params('zz-page-stale')) as Promise<unknown>, isNotFound);
+  const m = html(await ProgramGuidePage(params('zz-page-shut')));
+  assert.ok(textOf(m).includes('Closed'));
+  assert.ok(!m.includes('https://example.com/apply') && !textOf(m).includes('Apply on the program site'));
+  assert.ok(!m.includes(">Ask your agent<"));
+});
+
+test('/docs says "Approve the connection" once', () => {
+  assert.equal(textOf(html(DocsPage())).split('Approve the connection').length - 1, 1);
+});
+
+test('an unknown id is gated before any per-id read', async () => {
+  let reads = 0;
+  const read = async (id: string) => (reads++, guideTextById(id));
+  assert.equal(await gatedGuidePage('nope', async () => ['zz-page-open'], read), null);
+  assert.equal(reads, 0);
+  assert.ok(await gatedGuidePage('zz-page-open', async () => ['zz-page-open'], read));
+  assert.equal(reads, 1);
+  const ids = await listGuideIds();
+  assert.ok(ids.includes('zz-page-open') && ids.includes('zz-page-shut') && !ids.includes('zz-page-stale') && !ids.includes('nope'));
 });

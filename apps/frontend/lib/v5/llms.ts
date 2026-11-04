@@ -6,7 +6,7 @@ function connectLines(a: Agent): string {
   const body = a.code
     ? [a.code, a.afterCode].filter(Boolean).join('\n')
     : a.message ?? a.steps.join(' ');
-  const text = body.replace(/\s*Sign in with X\./g, '');
+  const text = body;
   return text.includes('\n') ? `- ${a.name}:\n${text.split('\n').map((l) => `    ${l}`).join('\n')}` : `- ${a.name}: ${text}`;
 }
 

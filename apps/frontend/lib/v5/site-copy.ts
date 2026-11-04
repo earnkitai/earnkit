@@ -67,7 +67,7 @@ export const DOCS_NAV: [string, string][] = [
 ];
 export const DOCS_DESCRIPTION = 'How to add EarnKit to your agent, how a session goes, and how programs are checked.';
 export const DOCS_INSTALL_TITLE = 'Add EarnKit to your agent';
-export const DOCS_STEPS = ['Add the server', 'Sign in', 'Ask: what can I earn?'];
+export const DOCS_STEPS = ['Add the server', 'Approve the connection', 'Ask: what can I earn?'];
 export const DOCS_SESSION = {
   title: 'How a session goes',
   text: 'Your agent asks what the repo can earn. It drafts every fit with the facts from the repo. You say yes and it submits in its own browser and tracks the result.',

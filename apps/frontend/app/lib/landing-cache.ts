@@ -1,10 +1,11 @@
 import { connection } from 'next/server';
 import { cache } from 'react';
 import { readLanding, type Landing } from '../../lib/v5/landing';
-import { guideTextById, type GuidePage } from '../../lib/v5/guide-page';
+import { gatedGuidePage, guideTextById, listGuideIds, type GuidePage } from '../../lib/v5/guide-page';
 import { cachedRead } from './cached';
 
 const landing = cachedRead(() => readLanding(), ['landing-v5']);
+const guideIds = cachedRead(() => listGuideIds(), ['guide-ids-v5']);
 const guide = cachedRead((id: string) => guideTextById(id), ['guide-v5']);
 
 /** The landing and /programs data, or null when the read failed (the page then shows no live parts). */
@@ -22,7 +23,7 @@ export async function getLanding(): Promise<Landing | null> {
 /** One program's guide page: null for a 404, 'error' when the read failed. generateMetadata and the page share one call. */
 export const getGuidePage = cache(async (id: string): Promise<GuidePage | null | 'error'> => {
   try {
-    return await guide(id);
+    return await gatedGuidePage(id, guideIds, guide);
   } catch (err) {
     console.error('[guide] read failed', (err as { name?: string } | null)?.name ?? 'unknown');
     await connection();

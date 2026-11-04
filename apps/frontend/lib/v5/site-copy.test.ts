@@ -77,3 +77,12 @@ test('the llms text names the connect line, the tools and the API', () => {
   assert.match(LLMS_TEXT, /https:\/\/earnkit\.com\/api\/programs/);
   assert.match(LLMS_TEXT, /https:\/\/earnkit\.com\/programs\/</);
 });
+
+test('no install copy mentions signing in, X, GitHub or a wallet', async () => {
+  const { AGENTS, GROK_BOT_PROMPT, MUSE_MESSAGE } = await import('../../app/components/sections/agents');
+  const BAD = /sign in|sign-in|x\.com|github|wallet/i;
+  const all = [...AGENTS.flatMap((a) => strings(a.name, [a.note, a.installNote, a.stepsLead, a.message, a.code, a.after, a.afterCode, a.last, a.steps])), ...strings('docs', copy.DOCS_STEPS), ['prompt', GROK_BOT_PROMPT] as [string, string], ['muse', MUSE_MESSAGE] as [string, string]];
+  assert.ok(all.length > 20);
+  for (const [name, s] of all) assert.ok(!BAD.test(s), `${name}: "${s}"`);
+  assert.equal(copy.DOCS_STEPS[1], 'Approve the connection');
+});

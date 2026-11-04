@@ -90,7 +90,7 @@ export function guideText(row: ProgramRow, now: Date = new Date()): Guide {
     rules: p.rules,
     eligibility: eligibilityList(eligibilityOf(p)),
     fields: p.submission_requirements.map((r) => ({ label: r.label, todo: r.todo ?? (r.required ? r.label.toLowerCase() : 'optional') })),
-    focus: p.focus ? `${p.focus.ecosystem ?? chainName(p.chains[0] ?? '') ?? p.title} wants ${p.focus.areas.join(', ')}` : null,
+    focus: p.focus ? `${p.focus.ecosystem || (p.chains[0] ? chainName(p.chains[0]) : p.title)} wants ${p.focus.areas.join(', ')}` : null,
     past_rounds: p.past_rounds.map(roundLine),
     best_bet: p.best_bet ?? null,
     sources: sources.filter((s) => !seen.has(s.url) && seen.add(s.url)),
