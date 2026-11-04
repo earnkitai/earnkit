@@ -105,9 +105,11 @@ test('demo video and feature gaps clear with done; users is weeks and no', async
   assert.equal(v.status, 'gap');
   assert.deepEqual(v.gaps.map((g) => [g.item, g.agent_can]), [['demo_video', false], ['feature:an AI agent', false]]);
   assert.equal(evaluate(p, f, new Set(['demo_video', 'feature:an AI agent']), NOW).status, 'ready');
-  const u = evaluate(toRow(programFixture({ id: 'q', eligibility: [{ kind: 'users' }] })), f, new Set(['users']), NOW);
+  const q = toRow(programFixture({ id: 'q', eligibility: [{ kind: 'users' }] }));
+  const u = evaluate(q, f, new Set(), NOW);
   assert.equal(u.status, 'no');
   assert.equal(u.gaps[0].what, 'real users first');
+  assert.equal(evaluate(q, f, new Set(['users']), NOW).status, 'ready');
 });
 
 test('verifiable kinds ignore done; three gaps is no', async () => {
@@ -122,4 +124,35 @@ test('long shot text', async () => {
   assert.equal(evaluate(toRow(programFixture({ id: 'p', tag: 'long shot' })), f, new Set(), NOW).long_shot, 'few prizes for many entries');
   assert.equal(evaluate(toRow(programFixture({ id: 'p', investment: true })), f, new Set(), NOW).long_shot, 'an investment program with no stated amount');
   assert.equal(evaluate(toRow(programFixture({ id: 'p' })), f, new Set(), NOW).long_shot, null);
+});
+
+test('done never clears chain, contract_on, builder_codes or live_product', async () => {
+  const p = toRow(programFixture({ id: 'p', eligibility: [{ kind: 'chain', value: 'arc' }, { kind: 'contract_on', value: 'arc' }] }));
+  const f = await factsOf('nextjs-dashboard');
+  assert.deepEqual(evaluate(p, f, new Set(['chain:arc', 'contract_on:arc']), NOW).gaps.map((g) => g.kind), ['chain', 'contract_on']);
+  const q = toRow(programFixture({ id: 'q', eligibility: [{ kind: 'builder_codes' }, { kind: 'live_product' }] }));
+  const noLive = { ...f, live_url: null };
+  assert.deepEqual(evaluate(q, noLive, new Set(['builder_codes', 'live_product']), NOW).gaps.map((g) => g.kind), ['builder_codes', 'live_product']);
+});
+
+test('a testnet-only chain does not meet a Base chain_required program', async () => {
+  const f = { ...(await factsOf('nextjs-dashboard')), chains: [{ chain: 'base', mainnet: false, basis: 'reported' as const }] };
+  const v = evaluate(toRow(programFixture({ id: 'p', chain_required: true })), f, new Set(), NOW);
+  assert.equal(v.status, 'gap');
+  assert.equal(v.gaps[0].what, 'deploy the contract on Base');
+});
+
+test('two unmet chain items give one gap naming the first', async () => {
+  const p = toRow(programFixture({ id: 'p', chain_required: true, chains: ['arc', 'base'] }));
+  const v = evaluate(p, await factsOf('nextjs-dashboard'), new Set(), NOW);
+  assert.equal(v.gaps.length, 1);
+  assert.equal(v.gaps[0].item, 'chain:arc');
+});
+
+test('a contract counts only when its chain is also mainnet', async () => {
+  const f = { ...(await factsOf('nextjs-dashboard')), contracts: [{ chain: 'base', address: `0x${'1'.repeat(40)}` }], chains: [{ chain: 'base', mainnet: false, basis: 'reported' as const }] };
+  const p = toRow(programFixture({ id: 'p', eligibility: [{ kind: 'contract_on', value: 'base' }] }));
+  assert.equal(evaluate(p, f, new Set(), NOW).status, 'gap');
+  f.chains[0].mainnet = true;
+  assert.equal(evaluate(p, f, new Set(), NOW).status, 'ready');
 });

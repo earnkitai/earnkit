@@ -77,9 +77,9 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
     switch (i.kind) {
       case 'chain': break;
       case 'live_product': if (!facts.live_url) gaps.push(gapOf(i)); break;
-      case 'contract_on': if (!facts.contracts.some((c) => c.chain === v)) gaps.push(gapOf(i)); break;
+      case 'contract_on': if (!facts.contracts.some((c) => c.chain === v) || !mainnets.has(v)) gaps.push(gapOf(i)); break;
       case 'builder_codes': if (!facts.builder_codes) gaps.push(gapOf(i)); break;
-      case 'users': if (!facts.users) gaps.push(gapOf(i)); break;
+      case 'users': if (!facts.users && !done.has(itemKey(i))) gaps.push(gapOf(i)); break;
       case 'new_work_after': {
         const first = facts.first_commit_at ? Date.parse(facts.first_commit_at) : NaN;
         if (!(first >= Date.parse(v))) return out('no', [], `needs work started after ${date(v)}`);
