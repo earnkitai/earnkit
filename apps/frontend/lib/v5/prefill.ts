@@ -23,7 +23,8 @@ export type Field = {
   form_id?: string;
 };
 
-const BUILDER_KINDS: ReadonlySet<string> = new Set(['team', 'contact', 'raised', 'demo_video']);
+/** Only what nobody but the builder can produce; team, contacts and money raised come from the agent's memory. */
+const BUILDER_KINDS: ReadonlySet<string> = new Set(['demo_video']);
 const words = (s: string): string[] => s.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
 
 function projectValue(r: SubmissionRequirement, facts: RepoFacts): string | null {

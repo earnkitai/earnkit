@@ -115,6 +115,15 @@ export async function doneItems(installationId: number, programId: string): Prom
   return new Set(rows.map((r) => r.item));
 }
 
+/** Every closed gap item of the installation, by program: one query for a whole find. */
+export async function doneByProgram(installationId: number): Promise<Map<string, Set<string>>> {
+  const rows = await sql()<{ program_id: string; item: string }[]>`
+    SELECT program_id, item FROM gaps_done WHERE installation_id = ${installationId}`;
+  const out = new Map<string, Set<string>>();
+  for (const r of rows) out.set(r.program_id, (out.get(r.program_id) ?? new Set<string>()).add(r.item));
+  return out;
+}
+
 /** Applied programs whose results date has passed and that the builder has not been asked about. */
 export async function askOutcome(installationId: number, programs: ProgramRow[], now: Date): Promise<{ program_id: string; title: string }[]> {
   const rows = await sql()<{ program_id: string }[]>`

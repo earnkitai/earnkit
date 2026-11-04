@@ -8,6 +8,7 @@ import {
   clientKeyOf,
   clientLimitKey,
   exchangeCode,
+  hostedRedirectHost,
   isAllowedRedirectUri,
   issueCode,
   originFor,
@@ -60,15 +61,35 @@ test('register, authorize and token through the routes: straight to the client, 
   const caller = await connectInstallation(access_token);
   assert.ok(caller);
   const [row] = await sql()`SELECT client_key, client_name FROM installations WHERE id = ${caller.id}`;
-  assert.equal(row.client_key, clientKeyOf(client_id));
+  assert.equal(row.client_key, null);
   assert.equal(row.client_name, 'Claude Code');
-  // Re-authorizing the same client is the same installation, with the new token.
+  // A replayed code is the same installation.
+  const replay = await tokenPost(new Request('https://earnkit.test/oauth/token', {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: tokenForm(client_id, code).toString(),
+  }));
+  assert.equal(((await replay.json()) as { access_token: string }).access_token, access_token);
+  // Re-authorizing the same client is a second installation (a fresh ledger); the first token keeps working.
   const again = await tokenPost(new Request('https://earnkit.test/oauth/token', {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: tokenForm(client_id, codeOf(client_id)).toString(),
   }));
   const second = ((await again.json()) as { access_token: string }).access_token;
-  assert.equal((await connectInstallation(second))?.id, caller.id);
-  assert.equal(await connectInstallation(access_token), null);
+  const other = await connectInstallation(second);
+  assert.ok(other && other.id !== caller.id);
+  assert.equal((await connectInstallation(access_token))?.id, caller.id);
+});
+
+test('register: the hosted tier and host bucket only when every redirect is on the hosted host', async () => {
+  const keys = async (ip: string) =>
+    (await sql()<{ key: string }[]>`SELECT key FROM rate_windows WHERE key LIKE ${'%' + ip}`).map((r) => r.key).sort();
+  const reg = (uris: string[], ip: string) => registerPost(new Request('https://earnkit.test/oauth/register', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-real-ip': ip }, body: JSON.stringify({ redirect_uris: uris }),
+  }));
+  assert.equal((await reg([hosted, 'https://evil.example/cb'], '10.9.0.1')).status, 201);
+  assert.deepEqual(await keys('10.9.0.1'), ['oauthRegister:10.9.0.1']);
+  assert.equal((await sql()`SELECT 1 FROM rate_windows WHERE key = 'oauthRegisterHost:host:grok.com'`).length, 0);
+  assert.equal((await reg([hosted, 'https://grok.com/other'], '10.9.0.2')).status, 201);
+  assert.deepEqual(await keys('10.9.0.2'), ['oauthRegisterHosted:10.9.0.2']);
+  assert.equal((await sql()`SELECT 1 FROM rate_windows WHERE key = 'oauthRegisterHost:host:grok.com'`).length, 1);
 });
 
 test('an unknown client is refused on our page, never redirected', async () => {
@@ -91,9 +112,9 @@ test('/mcp without a token, or with an unknown one, is 401 with the resource met
 
 test('/mcp with a token lists the two tools; a body over 1 MB is 413', async () => {
   const { client_id } = registerClient({ redirect_uris: [redirect] });
-  const { token, clientKey, clientName } = exchangeCode(tokenForm(client_id, codeOf(client_id)));
+  const { token, clientName } = exchangeCode(tokenForm(client_id, codeOf(client_id)));
   const { saveInstallation } = await import('./installations');
-  await saveInstallation(token, clientKey, clientName);
+  await saveInstallation(token, clientName);
   const headers = { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${token}` };
   const init = { jsonrpc: '2.0', id: 0, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '0' } } };
   assert.equal((await mcpPost(new Request('https://earnkit.test/mcp', { method: 'POST', headers, body: JSON.stringify(init) }))).status, 200);
@@ -150,22 +171,24 @@ test('redirect URI policy and classes', () => {
   assert.equal(redirectClass('https://evil.example/cb').cls, 'other');
 });
 
-test('each registration is its own client; re-authorizing keeps the key; a many-user host has none', () => {
+test('each registration is its own client; every token is its own installation', () => {
   const a = registerClient({ redirect_uris: [redirect] }).client_id;
   const b = registerClient({ redirect_uris: [redirect] }).client_id;
   assert.notEqual(clientKeyOf(a), clientKeyOf(b));
   const first = exchangeCode(tokenForm(a, codeOf(a)));
   const second = exchangeCode(tokenForm(a, codeOf(a)));
   assert.notEqual(first.token, second.token);
-  assert.equal(first.clientKey, clientKeyOf(a));
-  assert.equal(second.clientKey, first.clientKey);
-  const grok = registerClient({ redirect_uris: [hosted], client_name: 'Grok' }).client_id;
-  assert.equal(exchangeCode(tokenForm(grok, codeOf(grok, hosted), verifier, hosted)).clientKey, undefined);
+  assert.ok(!('clientKey' in first));
 });
 
 test('the limit key and the public origin', () => {
   assert.equal(clientLimitKey([hosted]), 'host:grok.com');
   assert.equal(clientLimitKey([redirect]), null);
+  assert.equal(clientLimitKey([hosted, 'https://evil.example/cb']), null);
+  assert.equal(hostedRedirectHost([hosted, 'https://evil.example/cb']), null);
+  assert.equal(hostedRedirectHost(['https://evil.example/cb', hosted]), null);
+  assert.equal(hostedRedirectHost([hosted, 'http://127.0.0.1:1/cb']), null);
+  assert.equal(hostedRedirectHost([hosted]), 'grok.com');
   assert.equal(originFor({ NODE_ENV: 'production', EARNKIT_URL: 'https://earnkit.com/' }, 'https://attacker.example/x'), 'https://earnkit.com');
   assert.throws(() => originFor({ NODE_ENV: 'production' }, 'https://attacker.example/x'), /EARNKIT_URL is not set/);
   assert.equal(originFor({ NODE_ENV: 'development' }, 'http://localhost:3000/mcp'), 'http://localhost:3000');

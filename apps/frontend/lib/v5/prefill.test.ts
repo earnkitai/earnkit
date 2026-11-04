@@ -33,7 +33,7 @@ const rowWith = (reqs: unknown[], over: Record<string, unknown> = {}) =>
   toRow(programFixture({ id: 'p', submission_requirements: reqs as never, ...over }));
 
 const FILLED = 3; // live_product_url, project_name_description, demo_loom (no contract in the recorded facts)
-test('base-builder-grants: facts fill, prose goes to the agent, personal stays with the builder', async () => {
+test('base-builder-grants: facts fill; prose, team and contacts go to the agent', async () => {
   const facts = await factsOf('earnkit', { live_url: 'https://earnkit.com', demo_url: 'https://loom.com/share/x' });
   const out = prefill(fromFile('base-builder-grants'), facts);
   const by = Object.fromEntries(out.fields.map((f) => [f.key, f]));
@@ -46,11 +46,15 @@ test('base-builder-grants: facts fill, prose goes to the agent, personal stays w
   assert.equal(by.track.from, 'agent');
   assert.equal(by.track.value, null);
   assert.deepEqual(by.track.sources, ['the options', 'the description']);
-  assert.equal(by.founding_team.from, 'builder');
+  assert.equal(by.founding_team.from, 'agent');
+  assert.equal(by.founding_team.value, null);
+  assert.ok((by.founding_team.sources ?? []).length > 0);
+  assert.equal(by.email.from, 'agent');
   assert.equal(by.usage_numbers.from, 'agent');
   assert.equal(by.usage_numbers.value, null);
   assert.ok(by.usage_numbers.sources?.some((s) => s.startsWith('live: ')));
-  assert.equal(by.full_name.from, 'builder');
+  assert.equal(by.full_name.from, 'agent');
+  assert.deepEqual(out.fields.filter((f) => f.from === 'builder').map((f) => f.key), ['contract_address']);
   assert.equal(out.filled, FILLED);
   assert.equal(out.total, out.fields.filter((f) => f.required).length);
   assert.equal(out.total, 16);
@@ -111,12 +115,14 @@ test('contract with none on the program chain is a builder field; chain fills th
   assert.equal(out.fields[1].from, 'earnkit');
 });
 
-test('file, team, raised and demo_video with no value are builder fields', async () => {
+test('file and demo_video with no value are builder fields; team, contact and raised are the agent\'s', async () => {
   const facts = await factsOf('nextjs-dashboard');
   const out = prefill(rowWith([
     req({ key: 'deck', label: 'Deck', type: 'file' }),
-    req({ key: 'raised', label: 'Raised', type: 'text', kind: 'raised' }),
     req({ key: 'vid', label: 'Video', type: 'url', kind: 'demo_video' }),
+    req({ key: 'raised', label: 'Raised', type: 'text', kind: 'raised' }),
+    req({ key: 'team', label: 'Team', type: 'text', kind: 'team' }),
+    req({ key: 'email', label: 'Email', type: 'email', kind: 'contact' }),
   ]), facts);
-  assert.deepEqual(out.fields.map((f) => f.from), ['builder', 'builder', 'builder']);
+  assert.deepEqual(out.fields.map((f) => f.from), ['builder', 'builder', 'agent', 'agent', 'agent']);
 });

@@ -43,7 +43,24 @@ test('first find has no since', async () => {
   const first = (reply.ready as { fields: { from: string }[]; filled: number }[])[0];
   assert.ok(first.fields.length > 0);
   assert.doesNotMatch(show, /—|\b(coin|points|score|rank|streak|token)s?\b/i);
-  console.log(`--- first show_to_builder ---\n${show}\n---`);
+  assert.equal(
+    show,
+    [
+      'Ready to apply, 5:',
+      '1. Alliance ALL19, $400K at admission, closes in 14 days. Drafted.',
+      '2. Avalanche Team1 Mini Grants, up to $10,000. Drafted: 8 facts from the repo.',
+      '3. Z Fellows, up to $10K investment. Drafted: 2 facts from the repo.',
+      '4. ETHGlobal Mumbai, up to $15K per partner prize, closes in 2 days, in person. Drafted: 3 facts from the repo.',
+      '5. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Drafted: 1 fact from the repo. Needs your investor deck file.',
+      '',
+      'One change away, 1:',
+      '6. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc and put a live link up.',
+      '',
+      'Say yes to apply to all 5, numbers to skip, or "do 6" and I\'ll make the change first.',
+    ].join('\n'),
+  );
+  // Only what nobody but the builder can give: no contacts or team.
+  for (const p of reply.ready as { needs: string[] }[]) for (const n of p.needs) assert.doesNotMatch(n, /email|name|team|telegram|x profile/i);
 });
 
 test('a deadline moved since the last find', async () => {

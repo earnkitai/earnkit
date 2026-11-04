@@ -76,43 +76,35 @@ export function clientNameOf(v: unknown): string | null {
 
 /** Hosted agents' redirect hosts: their servers register for many people, so many builders share their IPs. */
 export const HOSTED_REDIRECT_HOSTS = ['grok.com', 'x.ai', 'x.com', 'meta.ai', 'claude.ai', 'chatgpt.com', 'openai.com'] as const;
-/** Hosted agents that serve many builders from one registration (by name or redirect host). */
-const MANY_USER_NAMES = ['grok', 'muse', 'meta ai', 'xai'] as const;
-const MANY_USER_HOSTS = ['grok.com', 'x.ai', 'x.com', 'meta.ai'] as const;
 const under = (host: string, list: readonly string[]) => list.some((h) => host === h || host.endsWith(`.${h}`));
 
-/** The https redirect hosts of a client (lowercase, no trailing dot). Pure. */
-export function redirectHosts(uris: readonly string[]): string[] {
-  const out: string[] = [];
-  for (const u of uris) {
+/**
+ * The hosted service a client runs on: its host when every redirect URI is https on that one host
+ * and the host is a known hosted service, else null (a mixed list, or the client name, never
+ * counts: anyone can pick either). Pure.
+ */
+export function hostedRedirectHost(uris: readonly string[]): string | null {
+  const hosts = uris.map((u) => {
     try {
       const url = new URL(u);
-      if (url.protocol === 'https:') out.push(url.hostname.toLowerCase().replace(/\.$/, ''));
+      return url.protocol === 'https:' ? url.hostname.toLowerCase().replace(/\.$/, '') : null;
     } catch {
-      // not a URL: no host
+      return null;
     }
-  }
-  return [...new Set(out)];
+  });
+  const h = hosts[0];
+  return h && hosts.every((x) => x === h) && under(h, HOSTED_REDIRECT_HOSTS) ? h : null;
 }
 
-/** The first redirect host that is a known hosted service, or null (never the client name: anyone can pick one). Pure. */
-export const hostedRedirectHost = (uris: readonly string[]): string | null => redirectHosts(uris).find((h) => under(h, HOSTED_REDIRECT_HOSTS)) ?? null;
-
-/** One registration serving many builders, by its name or a hosted bot's redirect host: each token is its own installation. Pure. */
-export function servesMany(c: { r: string[]; cn?: string }): boolean {
-  const words = ` ${(c.cn ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()} `;
-  return MANY_USER_NAMES.some((n) => words.includes(` ${n} `)) || redirectHosts(c.r).some((h) => under(h, MANY_USER_HOSTS));
-}
-
-/** The installation key of an OAuth client: the first 32 hex of sha256(client_id). Never log client ids. Pure. */
+/** A client's key in the limits: the first 32 hex of sha256(client_id). Never log client ids. Pure. */
 export const clientKeyOf = (clientId: string) => createHash('sha256').update(clientId).digest('hex').slice(0, 32);
 
 /** What a new installation counts against besides its IP: its own registration. Pure. */
 export const registrationLimitKey = (clientId: string) => `client:${clientKeyOf(clientId)}`;
 
-/** The register ceiling's key: the agent app's first https redirect host, else the registration when given, else none. Pure. */
+/** The register ceiling's key: the hosted service every redirect is on, else the registration when given, else none. Pure. */
 export function clientLimitKey(uris: readonly string[], clientId?: string): string | null {
-  const host = redirectHosts(uris)[0];
+  const host = hostedRedirectHost(uris);
   if (host) return `host:${host}`;
   return clientId ? registrationLimitKey(clientId) : null;
 }
@@ -199,10 +191,10 @@ export function issueCode(req: PendingAuthorize, _who: null, issuer?: string): U
 
 /**
  * Exchanges a code for the installation token. The token is derived from the code, so a replayed
- * code yields the same token; the client key makes re-authorizing a client the same installation.
- * A client id with no nonce, or one serving many builders, gets no key: each token stays its own.
+ * code yields the same token. Each token is its own installation: a re-authorization starts a
+ * fresh ledger (nothing proves two tokens are one builder).
  */
-export function exchangeCode(form: URLSearchParams): { token: string; clientKey: string | undefined; limitKey: string; hostedHost: string | null; clientName: string | null } {
+export function exchangeCode(form: URLSearchParams): { token: string; limitKey: string; hostedHost: string | null; clientName: string | null } {
   if (form.get('grant_type') !== 'authorization_code') throw new OAuthError('unsupported_grant_type', 'Only authorization_code is supported');
   const code = form.get('code') ?? '';
   const payload = verify<CodePayload>('code', code);
@@ -215,13 +207,10 @@ export function exchangeCode(form: URLSearchParams): { token: string; clientKey:
     throw new OAuthError('invalid_grant', 'PKCE verification failed');
 
   const client = verify<ClientPayload>('client', payload.c);
-  const uris = client?.r ?? [payload.r];
-  const keyed = typeof client?.n === 'string' && client.n.length > 0 && !servesMany({ r: uris, cn: client.cn });
   return {
     token: `ek_${mac('token', code)}`,
-    clientKey: keyed ? clientKeyOf(payload.c) : undefined,
     limitKey: registrationLimitKey(payload.c),
-    hostedHost: hostedRedirectHost(uris),
+    hostedHost: hostedRedirectHost(client?.r ?? [payload.r]),
     clientName: clientNameOf(client?.cn),
   };
 }

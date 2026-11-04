@@ -89,7 +89,7 @@ test('the since line: only when something changed, never on the first find', () 
       '',
       'Ledger: 2 applied ($115K asked), 1 won, 1 pending, 1 closing soon.',
       '',
-      'Say yes to apply to all 1, or numbers to skip.',
+      'Say yes to apply, or skip it.',
     ].join('\n'),
   );
   assert.ok(!replyText(r, true).includes('Since'));
@@ -107,6 +107,13 @@ test('gaps only, the agent can do it, and the needs list is cut at three', () =>
   assert.match(replyText(two, false), /^1\. G, \$1K: deploy the contract on Arc and put a live link up\.$/m);
   const many = base({ ready: [ready({ title: 'B', needs: ['your full name', 'your email', 'a Loom product demo', 'your X handle', 'an investor deck file'] })] });
   assert.match(replyText(many, false), /Needs your full name, email, Loom product demo and 2 more\.$/m);
+});
+
+test('one ready program: no "all 1"', () => {
+  const one = base({ ready: [MONDAY.ready[0]] });
+  assert.match(replyText(one, false), /\n\nSay yes to apply, or skip it\.$/);
+  const withGap = base({ ready: [MONDAY.ready[0]], gaps: MONDAY.gaps });
+  assert.match(replyText(withGap, false), /\n\nSay yes to apply, skip it, or "do 2" and I'll make the change first\.$/);
 });
 
 test('nothing fits', () => {

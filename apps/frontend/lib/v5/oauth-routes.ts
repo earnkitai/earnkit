@@ -34,9 +34,9 @@ async function ipFloor(name: 'installHour' | 'oauthRegister', ip: string, what: 
 
 export async function tokenPost(request: Request) {
   try {
-    const { token, clientKey, limitKey, hostedHost, clientName } = exchangeCode(await readParams(request));
-    // Only a client's first token counts: a replayed code, or re-authorizing a known client, is free.
-    if (!(await installationExists(token, clientKey))) {
+    const { token, limitKey, hostedHost, clientName } = exchangeCode(await readParams(request));
+    // A replayed code is free.
+    if (!(await installationExists(token))) {
       let limit = hostedHost ? 'installHourHosted' : 'installHour';
       try {
         await ipFloor('installHour', clientIp(request.headers), TOO_MANY, hostedHost);
@@ -47,7 +47,7 @@ export async function tokenPost(request: Request) {
         throw err;
       }
     }
-    await saveInstallation(token, clientKey, clientName);
+    await saveInstallation(token, clientName);
     return json({ access_token: token, token_type: 'Bearer' });
   } catch (err) {
     if (err instanceof RateLimitError) return tooMany(err);
@@ -74,7 +74,11 @@ export async function authorizeGet(request: Request, deps: AuthorizeDeps = {}) {
   }
 }
 
-/** RFC 7591 dynamic client registration, rate limited per IP and per agent app. */
+/**
+ * RFC 7591 dynamic client registration, rate limited per IP; a client whose redirects are all on
+ * one hosted service gets that service's higher IP floor and its daily ceiling. Any other client
+ * is counted per registration at the token exchange (installClient).
+ */
 export async function registerPost(request: Request) {
   let key: string | null = null;
   let limit = 'oauthRegister';

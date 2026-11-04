@@ -30,9 +30,15 @@ test('status unlisted fails', () => {
   assert.equal(ProgramFile.safeParse({ ...base, status: 'unlisted' }).success, false);
 });
 
-test('eligibilityOf base-builder-grants: live product, then chain base', () => {
+test('eligibilityOf base-builder-grants: its explicit four items', () => {
   const p = ProgramFile.parse(read('base-builder-grants.json'));
-  assert.deepEqual(eligibilityOf(p), [{ kind: 'live_product' }, { kind: 'chain', value: 'base' }]);
+  assert.deepEqual(eligibilityOf(p), [{ kind: 'live_product' }, { kind: 'chain', value: 'base' }, { kind: 'builder_codes' }, { kind: 'users' }]);
+});
+
+test('eligibilityOf circle-developer-grants: derived, live product then chain arc', () => {
+  const p = ProgramFile.parse(read('circle-developer-grants.json'));
+  assert.equal(p.eligibility, undefined);
+  assert.deepEqual(eligibilityOf(p), [{ kind: 'live_product' }, { kind: 'chain', value: 'arc' }]);
 });
 
 test('eligibilityOf: an explicit list wins; derived items for contract, new work and in person', () => {

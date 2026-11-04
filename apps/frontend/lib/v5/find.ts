@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { timeLeftWords } from './deadline';
 import { evaluate, type Gap, type Verdict } from './eligibility';
 import { lastFindAt, markFind } from './installations';
-import { askOutcome, doneItems, excluded, markAsked, summary, type Ledger } from './ledger';
+import { askOutcome, doneByProgram, doneItems, excluded, markAsked, summary, type Ledger } from './ledger';
 import { prefill, type Field } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, type Category, type Program } from './program-file';
 import { getProgram, listOpenPrograms, type ProgramRow } from './programs';
@@ -162,8 +162,8 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const all = i.filter?.all === true;
   const programs = open.filter((r) => !skip.has(r.id) && (!i.filter?.category || categoryOf(r.file) === i.filter.category));
   const byId = new Map(programs.map((r) => [r.id, r]));
-  const verdicts: Verdict[] = [];
-  for (const r of programs) verdicts.push(evaluate(r, facts, await doneItems(ctx.installationId, r.id), ctx.now));
+  const done = await doneByProgram(ctx.installationId);
+  const verdicts = programs.map((r) => evaluate(r, facts, done.get(r.id) ?? new Set<string>(), ctx.now));
 
   const readyV = rankReady(verdicts.filter((v) => v.status === 'ready'), byId);
   const gapV = rankGaps(verdicts.filter((v) => v.status === 'gap'), byId);

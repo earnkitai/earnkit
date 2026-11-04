@@ -46,6 +46,8 @@ function sinceLine(r: R): string | null {
 }
 
 function closingLine(ready: number, gaps: number, firstGap: number): string {
+  if (ready === 1 && gaps > 0) return `Say yes to apply, skip it, or "do ${firstGap}" and I'll make the change first.`;
+  if (ready === 1) return 'Say yes to apply, or skip it.';
   if (ready > 0 && gaps > 0) return `Say yes to apply to all ${ready}, numbers to skip, or "do ${firstGap}" and I'll make the change first.`;
   if (ready > 0) return `Say yes to apply to all ${ready}, or numbers to skip.`;
   if (gaps > 0) return `Say "do ${firstGap}" and I'll make the change first.`;
