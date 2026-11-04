@@ -148,10 +148,21 @@ export function officialUrlProblem(officialUrl: string | undefined): string | nu
 
 // ---- the owner's email ----
 
-type MailFields = Pick<Program, 'id' | 'title' | 'organizer' | 'source_url' | 'submission_url' | 'official_url'>;
+type MailFields = Pick<Program, 'id' | 'title' | 'organizer' | 'source_url' | 'submission_url' | 'official_url' | 'form' | 'pool_source_url'>;
 
 /** One line: control characters, line and paragraph separators and runs of whitespace become one space. Pure. */
 export const oneLine = (s: string): string => s.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\s]+/g, ' ').trim();
+
+const LINK_LABELS: Record<string, string> = { submission_url: 'Submission link', 'form.url': 'Form link', pool_source_url: 'Pool source' };
+
+/**
+ * One labelled line per builder link the write carries, each in full, the one that failed the
+ * check marked (read from the pending reason, which starts with its field). Pure.
+ */
+export function linkLines(p: Pick<Program, 'submission_url' | 'form' | 'pool_source_url'>, reason: string | null): string[] {
+  const failed = reason ? builderLinks(p).find((l) => reason.startsWith(`${l.field} `))?.field : undefined;
+  return builderLinks(p).map((l) => `${LINK_LABELS[l.field]}: ${oneLine(l.url)}${l.field === failed ? ' (did not check out)' : ''}`);
+}
 
 /** The owner's email for a pending write. Plain text; every bot value is on one line (oneLine). Pure. */
 export function pendingMailText(p: MailFields, reason: string, link: string | null): string {
@@ -160,7 +171,7 @@ export function pendingMailText(p: MailFields, reason: string, link: string | nu
     '',
     `Program: ${oneLine(p.title)} (${p.id})`,
     `Organizer: ${oneLine(p.organizer)}`,
-    `Submission link: ${oneLine(p.submission_url)}`,
+    ...linkLines(p, reason),
     `Source page: ${oneLine(p.source_url)}`,
     `Official site: ${oneLine(p.official_url ?? 'none sent')}`,
     `Why: ${oneLine(reason)}`,

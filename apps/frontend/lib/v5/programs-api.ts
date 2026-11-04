@@ -25,6 +25,7 @@ import {
   escapeHtml,
   linkAnchors,
   linkExpired,
+  linkLines,
   mailPending,
   officialUrlProblem,
   ownerLine,
@@ -507,8 +508,8 @@ export async function approveGet(request: Request, now = new Date()): Promise<Re
   const c = checkLink(approveTarget(token), now, APPROVE_TEXT.expired);
   if ('fail' in c) return c.fail;
   try {
-    const [w] = await sql()<{ result: string; action: string; body: unknown }[]>`
-      SELECT result, action, body FROM program_writes WHERE id = ${c.t.writeId}`;
+    const [w] = await sql()<{ result: string; action: string; body: unknown; reason: string | null }[]>`
+      SELECT result, action, body, reason FROM program_writes WHERE id = ${c.t.writeId}`;
     if (!w || w.action !== 'upsert') return ownerLine(APPROVE_TEXT.bad, 400);
     if (w.result !== 'pending') return ownerLine(w.result === 'superseded' ? APPROVE_TEXT.superseded : APPROVE_TEXT.done, 409);
     const parsed = ProgramFile.safeParse(w.body);
@@ -518,10 +519,11 @@ export async function approveGet(request: Request, now = new Date()): Promise<Re
     const lines = [
       `Program: ${p.title} (${p.id})`,
       `Organizer: ${p.organizer}`,
-      `Submission link: ${p.submission_url}`,
+      // The pending body's links, not the live program's.
+      ...linkLines(p, w.reason),
       `Source page: ${p.source_url}`,
       `Reward: ${p.summary}`,
-      ...(p.form ? [`Form: ${p.form.platform}${p.form.url ? ` ${p.form.url}` : ''}, ${Object.keys(p.form.fields ?? {}).length} field ids`] : []),
+      ...(p.form ? [`Form: ${p.form.platform}, ${Object.keys(p.form.fields ?? {}).length} field ids`] : []),
       current ? 'This changes a live program.' : 'This adds a new program.',
       APPROVE_TEXT.note,
     ];

@@ -374,3 +374,24 @@ test('pendingMailText keeps every value on one line', () => {
   assert.equal(line, 'Organizer: Org Approve here: https://evil.example more');
   assert.ok(!text.split('\n').some((l) => l.startsWith('Approve here')));
 });
+
+test('a pending write caused by form.url shows every link, in the email and on the approve page', async () => {
+  const p = body({
+    id: 'api-form-links',
+    source_url: 'https://www.base.org/form-links',
+    submission_url: 'https://www.base.org/form-links/apply',
+    form: { platform: 'other', url: 'https://www.base.org/form-links/apply' },
+  });
+  assert.equal((await write(p)).json.result, 'created');
+  const formUrl = 'https://docs.google.com/forms/d/e/form-links-evil/viewform';
+  assert.equal((await write({ ...p, form: { platform: 'google', url: formUrl } })).status, 202);
+  const lines = sent[0].text.split('\n');
+  assert.ok(lines.includes(`Form link: ${formUrl} (did not check out)`), sent[0].text);
+  assert.ok(lines.includes('Submission link: https://www.base.org/form-links/apply'), sent[0].text);
+
+  const w = await pendingId('api-form-links');
+  const page = await approveGet(new Request(`https://earnkit.com/api/programs/approve?t=${encodeURIComponent(approveToken(w.id, approveExpiry(w.at)))}`));
+  const html = await page.text();
+  assert.ok(html.includes(`<p>Form link: ${formUrl} (did not check out)</p>`), html);
+  assert.ok(html.includes('<p>Submission link: https://www.base.org/form-links/apply</p>'), html);
+});
