@@ -3,7 +3,7 @@
  * (from a file or the write API). The record is stored whole in `file`; status, ends_at and the
  * other columns mirror it for queries. A row whose record no longer parses is skipped.
  */
-import { sql } from './db';
+import { inTx, sql, type Db } from './db';
 import { ProgramFile, categoryOf, type Program } from './program-file';
 
 export type ProgramRow = {
@@ -20,7 +20,7 @@ export type ProgramRow = {
 export const CHANGE_FIELDS = ['ends_at', 'max_award_usd', 'status', 'submission_url', 'submission_requirements', 'form'] as const;
 
 /** Days a program may stay stale, or an API program unverified, before it drops out. */
-const STALE_DAYS = 14;
+export const STALE_DAYS = 14;
 
 type RawRow = Omit<ProgramRow, 'file'> & { file: unknown };
 
@@ -84,15 +84,16 @@ const sameField = (k: (typeof CHANGE_FIELDS)[number], a: unknown, b: unknown): b
 /**
  * Writes the program (parsed first, so the stored record always parses). 'unchanged' when the
  * record and the writer are the same; on an update, one program_changes row names the changed
- * CHANGE_FIELDS, when there are any.
+ * CHANGE_FIELDS, when there are any. In the caller's transaction when `db` is one.
  */
 export async function upsertProgram(
   p: Program,
   source: 'file' | 'api',
   now: Date = new Date(),
+  db?: Db,
 ): Promise<'created' | 'updated' | 'unchanged'> {
   const file = ProgramFile.parse(p);
-  return sql().begin(async (tx) => {
+  return inTx(db, async (tx) => {
     const cols = {
       file: tx.json(JSON.parse(JSON.stringify(file))),
       source,

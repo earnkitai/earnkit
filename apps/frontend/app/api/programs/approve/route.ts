@@ -1,11 +1,11 @@
-import { programApproveGet, programApprovePost } from '@/lib/earnkit/program-approve';
+import { approveGet, approvePost } from '@/lib/v5/programs-api';
 
 /**
- * v4.10.1 Task 4 (R4): the owner's approve link for a pending program write. GET shows a confirm page with one button
- * and changes nothing (mail scanners open links); the button's POST approves, once. The signed token alone decides.
+ * The owner's approve link for a pending program write. GET shows a confirm page and changes
+ * nothing (mail scanners open links); the button's POST approves, once. The signed token decides.
  */
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-export const GET = (request: Request) => programApproveGet(request);
-export const POST = (request: Request) => programApprovePost(request);
+export const GET = (request: Request) => approveGet(request);
+export const POST = (request: Request) => approvePost(request);
