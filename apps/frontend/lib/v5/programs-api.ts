@@ -607,7 +607,7 @@ type RevertPlan = { kind: 'ok'; id: string; title: string; does: 'close' | 'rest
  * What reverting `writeId` does, read under row locks when `lock`. Only the program's latest
  * applied write can be reverted: a later applied write, revert or file takeover supersedes it.
  */
-async function revertPlan(db: Db, writeId: string, programsDir: string | null, lock: boolean): Promise<RevertPlan> {
+export async function revertPlan(db: Db, writeId: string, programsDir: string | null, lock: boolean): Promise<RevertPlan> {
   const forUpdate = lock ? db`FOR UPDATE` : db``;
   const [w] = await db<{ program_id: string | null; action: string; result: string; body: unknown }[]>`
     SELECT program_id, action, result, body FROM program_writes WHERE id = ${writeId} AND ${appliedSql(db)} ${forUpdate}`;
