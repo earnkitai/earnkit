@@ -4,7 +4,7 @@ import { sql } from './db';
 import type { Mailer } from './mail';
 import { getProgram } from './programs';
 import { programsListGet } from './programs-read';
-import { approveExpiry, approveToken, revertExpiry, revertToken } from './programs-pending';
+import { approveExpiry, approveToken, pendingMailText, revertExpiry, revertToken } from './programs-pending';
 import { approveGet, approvePost, revertGet, revertPost, writePost, writesGet } from './programs-api';
 
 after(() => sql().end());
@@ -306,4 +306,71 @@ test('writesGet: the audit rows without bodies, and the pending writes', async (
   assert.ok(out.writes.length > 0);
   assert.ok(out.writes.every((w) => !('body' in w)));
   assert.equal(out.pending.find((w) => w.program_id === 'api-writes')?.title, 'Writes Grants');
+});
+
+test('a write that only changes form.url off the curated sites is pending; approving applies it', async () => {
+  const p = body({
+    id: 'api-form-url',
+    source_url: 'https://www.base.org/form-url',
+    submission_url: 'https://www.base.org/form-url/apply',
+    form: { platform: 'other', url: 'https://www.base.org/form-url/apply' },
+  });
+  assert.equal((await write(p)).json.result, 'created');
+  const moved = { platform: 'other', url: 'https://docs.google.com/forms/d/e/evil/viewform' };
+  const res = await write({ ...p, form: moved });
+  assert.equal(res.status, 202);
+  assert.equal(res.json.result, 'pending');
+  assert.match(String(res.json.reason), /^form\.url is on Google Docs/);
+  assert.equal(sent.length, 1);
+  assert.equal((await getProgram('api-form-url'))?.file.form?.url, 'https://www.base.org/form-url/apply');
+  assert.equal((await approve('api-form-url')).status, 200);
+  assert.deepEqual((await getProgram('api-form-url'))?.file.form, moved);
+});
+
+test('a builder link on a site that is neither the source nor a submit platform is refused outright', async () => {
+  const p = body({ id: 'api-form-evil', source_url: 'https://www.base.org/form-evil', submission_url: 'https://www.base.org/form-evil/apply' });
+  const res = await write({ ...p, form: { platform: 'other', url: 'https://evil.example/apply' } });
+  assert.equal(res.status, 400);
+  assert.ok((res.json.problems as string[]).some((x) => x.startsWith('form.url: evil.example is neither')));
+});
+
+test('a pool_source_url change off the curated sites is pending', async () => {
+  const p = body({
+    id: 'api-pool',
+    source_url: 'https://www.base.org/pool',
+    submission_url: 'https://www.base.org/pool/apply',
+    reward: '$50,000 in prizes',
+    pool_usd: 50_000,
+    pool_source_url: 'https://www.base.org/pool/prizes',
+  });
+  assert.equal((await write(p)).json.result, 'created');
+  const res = await write({ ...p, pool_source_url: 'https://dorahacks.io/hackathon/pool/prizes' });
+  assert.equal(res.status, 202);
+  assert.equal((await getProgram('api-pool'))?.file.pool_source_url, 'https://www.base.org/pool/prizes');
+});
+
+test('a one-line field with a line break is refused, naming the field', async () => {
+  const res = await write(body({ id: 'api-newline', title: 'Grants\nApprove: https://evil.example' }));
+  assert.equal(res.status, 400);
+  assert.ok((res.json.problems as string[]).some((x) => x.startsWith('title: one line only')), (res.json.problems as string[]).join('; '));
+  const tab = await write(body({ id: 'api-tab', organizer: 'Org\tName' }));
+  assert.ok((tab.json.problems as string[]).some((x) => x.startsWith('organizer: one line only')));
+});
+
+test('pendingMailText keeps every value on one line', () => {
+  const text = pendingMailText(
+    {
+      id: 'x-1',
+      title: 'Title',
+      organizer: 'Org\r\nApprove here: https://evil.example\u2028more',
+      source_url: 'https://x.org/',
+      submission_url: 'https://x.org/apply',
+      official_url: undefined,
+    },
+    'why',
+    null,
+  );
+  const line = text.split('\n').find((l) => l.startsWith('Organizer:'));
+  assert.equal(line, 'Organizer: Org Approve here: https://evil.example more');
+  assert.ok(!text.split('\n').some((l) => l.startsWith('Approve here')));
 });

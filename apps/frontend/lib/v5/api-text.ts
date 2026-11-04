@@ -87,10 +87,18 @@ export function apiUrlProblem(field: string, value: string): string | null {
   return null;
 }
 
-/** Why one text value can't be written, or null: hidden characters first, then < >, markdown links and links. */
-export function apiTextProblem(field: string, value: string, max: number = RAW_CAP): string | null {
+/** A line break, tab or other control character (one-line fields refuse them). */
+const BREAKS = /[\p{Cc}\u0085\u2028\u2029]/u;
+
+/**
+ * Why one text value can't be written, or null: hidden characters first, then (on a one-line
+ * field) line breaks and tabs, then < >, markdown links and links. One-line fields are quoted in
+ * EarnKit's sentences and the owner's email, so a value can never start a line of its own.
+ */
+export function apiTextProblem(field: string, value: string, max: number = RAW_CAP, singleLine = false): string | null {
   const hidden = hiddenTextProblem(field, value);
   if (hidden) return hidden;
+  if (singleLine && BREAKS.test(value)) return `${field}: one line only; no line breaks, tabs or control characters`;
   const v = value.normalize('NFKC');
   if (/[<>]/.test(v)) return `${field}: no < or > characters; plain words only`;
   if (MARKDOWN_LINK.test(v)) return `${field}: no markdown links; put links only in the URL fields`;
@@ -102,6 +110,9 @@ export function apiTextProblem(field: string, value: string, max: number = RAW_C
   }
   return null;
 }
+
+/** Text fields that may span lines; every other text field is one line. */
+const MULTI_LINE = /^(description|rules\.\d+|submission_requirements\.\d+\.description)$/;
 
 type Part = { field: string; value: string; max?: number };
 const one = (field: string, value: string | undefined | null, max?: number): Part[] => (value ? [{ field, value, max }] : []);
@@ -146,8 +157,9 @@ function textParts(p: Program): Part[] {
   ];
 }
 
-/** Every problem with a program's text (hidden characters, links, markup, < or >, the caps). */
-export const apiTextProblems = (p: Program): string[] => textParts(p).flatMap(({ field, value, max }) => apiTextProblem(field, value, max) ?? []);
+/** Every problem with a program's text (hidden characters, line breaks in one-line fields, links, markup, < or >, the caps). */
+export const apiTextProblems = (p: Program): string[] =>
+  textParts(p).flatMap(({ field, value, max }) => apiTextProblem(field, value, max, !MULTI_LINE.test(field)) ?? []);
 
 /** Every URL of a program, with its field path, and whether builders are sent there (the submit-host rule). */
 function urlParts(p: Program): { field: string; value: string; sends: boolean }[] {

@@ -111,15 +111,32 @@ export function submissionChecksOut(submissionUrl: string, officialUrl: string |
   return official !== null && linkChecksOut(host, [official]) && linkChecksOut(official, anchors);
 }
 
-/** Why a submission link doesn't check out, for the owner (the audit reason and the email). Pure. */
-export function pendingReason(submissionUrl: string, officialUrl: string | undefined): string {
-  const host = hostOf(submissionUrl) ?? 'the submission link';
+/** The links a program sends builders to, by field: every one must check out for a gated write to go live. Pure. */
+export function builderLinks(p: Pick<Program, 'submission_url' | 'form' | 'pool_source_url'>): { field: string; url: string }[] {
+  return [
+    { field: 'submission_url', url: p.submission_url },
+    ...(p.form?.url ? [{ field: 'form.url', url: p.form.url }] : []),
+    ...(p.pool_source_url ? [{ field: 'pool_source_url', url: p.pool_source_url }] : []),
+  ];
+}
+
+/** The first builder link that doesn't check out, or null when all do. Pure. */
+export function uncheckedLink(
+  p: Pick<Program, 'submission_url' | 'form' | 'pool_source_url' | 'official_url'>,
+  anchors: string[],
+): { field: string; url: string } | null {
+  return builderLinks(p).find((l) => !submissionChecksOut(l.url, p.official_url, anchors)) ?? null;
+}
+
+/** Why a builder link (`field`, default submission_url) doesn't check out, for the owner. Pure. */
+export function pendingReason(url: string, officialUrl: string | undefined, field = 'submission_url'): string {
+  const host = hostOf(url) ?? 'the link';
   const platform = linkPlatformName(host);
-  if (platform) return `submission_url is on ${platform}, a form, hosting or submit platform anyone can publish on`;
+  if (platform) return `${field} is on ${platform}, a form, hosting or submit platform anyone can publish on`;
   const official = hostOf(officialUrl);
   if (official && sameSite(host, official))
-    return `submission_url ${host} is on official_url's site, but ${registrableDomain(official)} is not a curated program's site for its chains`;
-  return `submission_url ${host} is not on a curated program's site for its chains`;
+    return `${field} ${host} is on official_url's site, but ${registrableDomain(official)} is not a curated program's site for its chains`;
+  return `${field} ${host} is not on a curated program's site for its chains`;
 }
 
 /** An official_url on a platform or shared host never names an organizer's own site: the problem, or null. Pure. */
@@ -133,17 +150,20 @@ export function officialUrlProblem(officialUrl: string | undefined): string | nu
 
 type MailFields = Pick<Program, 'id' | 'title' | 'organizer' | 'source_url' | 'submission_url' | 'official_url'>;
 
-/** The owner's email for a pending write. Plain text; every value in it passed the write's checks. Pure. */
+/** One line: control characters, line and paragraph separators and runs of whitespace become one space. Pure. */
+export const oneLine = (s: string): string => s.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\s]+/g, ' ').trim();
+
+/** The owner's email for a pending write. Plain text; every bot value is on one line (oneLine). Pure. */
 export function pendingMailText(p: MailFields, reason: string, link: string | null): string {
   return [
     "The Grok Bot wrote a program change EarnKit couldn't check. It is not live.",
     '',
-    `Program: ${p.title} (${p.id})`,
-    `Organizer: ${p.organizer}`,
-    `Submission link: ${p.submission_url}`,
-    `Source page: ${p.source_url}`,
-    `Official site: ${p.official_url ?? 'none sent'}`,
-    `Why: ${reason}`,
+    `Program: ${oneLine(p.title)} (${p.id})`,
+    `Organizer: ${oneLine(p.organizer)}`,
+    `Submission link: ${oneLine(p.submission_url)}`,
+    `Source page: ${oneLine(p.source_url)}`,
+    `Official site: ${oneLine(p.official_url ?? 'none sent')}`,
+    `Why: ${oneLine(reason)}`,
     '',
     link
       ? `Check the links, then approve it here (a confirm page; the link works for ${APPROVE_TTL_DAYS} days): ${link}`
@@ -192,6 +212,6 @@ export const ownerLine = (text: string, status: number): Response => ownerPage(`
 export const confirmPage = (title: string, lines: string[], action: string, button: string): Response =>
   ownerPage(
     `<h1>${escapeHtml(title)}</h1>` +
-      lines.map((l) => `<p>${escapeHtml(l)}</p>`).join('') +
+      lines.map((l) => `<p>${escapeHtml(oneLine(l))}</p>`).join('') +
       `<form method="post" action="${escapeHtml(action)}"><button type="submit">${escapeHtml(button)}</button></form>`,
   );

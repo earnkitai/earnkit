@@ -1,6 +1,6 @@
 # EarnKit programs API (for the Grok Bot)
 
-The owner pastes this into the Grok Bot's instructions. The bot researches programs that pay builders for software and writes them to EarnKit. A write that passes every check is live at once: on the site, in `GET /api/programs` and in every builder's agent. One exception: a new program, or a write that changes `submission_url`, `chains` or `form`, goes live only when its submission link checks out (see "Link check"). Otherwise it waits for the owner's one-click approval.
+The owner pastes this into the Grok Bot's instructions. The bot researches programs that pay builders for software and writes them to EarnKit. A write that passes every check is live at once: on the site, in `GET /api/programs` and in every builder's agent. One exception: a new program, or a write that changes `submission_url`, `chains`, `form` or `pool_source_url`, goes live only when its links check out (see "Link check"). Otherwise it waits for the owner's one-click approval.
 
 ## Owner setup (once)
 
@@ -55,14 +55,15 @@ Waiting for the owner (202): `{ "ok": true, "id": "...", "result": "pending", "c
 
 ### Link check
 
-These writes wait for approval unless the submission link checks out:
+These writes wait for approval unless every link builders are sent to (`submission_url`, `form.url`, `pool_source_url`) checks out:
 
 - a new program;
 - a change to `submission_url`;
 - a change to `chains`;
-- a change to `form` (adding it, or changing its platform, url or field ids).
+- a change to `form` (adding it, or changing its platform, url or field ids);
+- a change to `pool_source_url`.
 
-The link checks out when `submission_url` is on the site of a live program the owner curated for one of its `chains` (a program with `chains: []`: the curated any-chain programs). Those are the owner's own program files, and API programs whose current link the owner approved. Same site means the same domain: `docs.base.org` and `www.base.org` are on `base.org`; `base-grants.org` and `base.org.example.com` are not.
+A link checks out when it is on the site of a live program the owner curated for one of its `chains` (a program with `chains: []`: the curated any-chain programs). Those are the owner's own program files, and API programs whose current link the owner approved. Same site means the same domain: `docs.base.org` and `www.base.org` are on `base.org`; `base-grants.org` and `base.org.example.com` are not.
 
 `official_url` (optional) is the organizer's own home page (`https://www.base.org/`). It is a hint: it counts when it is itself on a curated site. It is refused on a shared, hosting or platform host (`evil.vercel.app`, `github.io`, `forms.gle`).
 
@@ -132,6 +133,7 @@ Amounts above the caps are refused with `larger amounts need a curated file`: te
 
 ### Text rules (every text field, including requirement, eligibility, past round and focus text)
 
+- One line in every field except `description`, `rules` items and requirement `description`: no line breaks, tabs or control characters.
 - Plain words only. No links, URLs, `www.` or bare domains (`evil.com`, `evil[.]com`), no markdown links, no `<` or `>`.
 - Normalized plain text: no full-width letters, no `…` (write `...`), no hidden, zero-width, bidi or control characters. Newlines and tabs are fine.
 

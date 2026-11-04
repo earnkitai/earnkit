@@ -1,8 +1,8 @@
 /**
  * The owner's programs write API (the Grok Bot): POST /api/programs/write upserts or closes an API
  * program, GET /api/programs/writes is its audit log, and the approve and revert links apply or
- * undo one write. A create, or a change to submission_url, chains or form, waits for the owner's
- * approval unless the submission link checks out (programs-pending.ts). Every call is audited.
+ * undo one write. A create, or a change to submission_url, chains, form or pool_source_url, waits
+ * for the owner's approval unless every builder link checks out (programs-pending.ts). Audited.
  */
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -31,7 +31,7 @@ import {
   ownerPage,
   pendingReason,
   revertTarget,
-  submissionChecksOut,
+  uncheckedLink,
   type LinkTarget,
 } from './programs-pending';
 import { PROGRAMS_TAG } from './programs-read';
@@ -235,8 +235,9 @@ const NEWER_RESULTS = ['created', 'updated', 'approved', 'closed', 'pending', 'r
 
 /**
  * The write transaction. The program row is locked and its source read again (a sync can't be
- * overwritten). A bot write that creates the program or changes submission_url, chains or form,
- * and whose link doesn't check out, is held as a pending program_writes row instead (an identical
+ * overwritten). A bot write that creates the program or changes submission_url, chains, form or
+ * pool_source_url, and any of whose builder links (submission_url, form.url, pool_source_url)
+ * doesn't check out, is held as a pending program_writes row instead (an identical
  * pending body within APPROVE_TTL_DAYS is reused, so one email). An approval locks its pending row
  * and flips it to 'approved' in the same transaction (single use).
  */
@@ -260,11 +261,13 @@ async function applyUpsert(p: Program, deps: Deps, mode: Mode): Promise<Applied>
       !old ||
       old.submission_url !== p.submission_url ||
       !sameSet(old.chains ?? [], p.chains) ||
-      !isDeepStrictEqual(old.form ?? null, (asJson(p) as { form?: unknown }).form ?? null);
-    if (mode.kind === 'write' && needsCheck && !submissionChecksOut(p.submission_url, p.official_url, await linkAnchors(tx, p, deps.now))) {
+      !isDeepStrictEqual(old.form ?? null, (asJson(p) as { form?: unknown }).form ?? null) ||
+      (old.pool_source_url ?? null) !== (p.pool_source_url ?? null);
+    const unchecked = mode.kind === 'write' && needsCheck ? uncheckedLink(p, await linkAnchors(tx, p, deps.now)) : null;
+    if (unchecked) {
       // Two identical writes at once still make one pending row and one email.
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`program-pending:${p.id}`}))`;
-      const reason = pendingReason(p.submission_url, p.official_url);
+      const reason = pendingReason(unchecked.url, p.official_url, unchecked.field);
       const [same] = await tx<{ id: string; at: Date; reason: string | null }[]>`
         SELECT id, at, reason FROM program_writes
         WHERE program_id = ${p.id} AND result = 'pending' AND body = ${tx.json(asJson(p))}
