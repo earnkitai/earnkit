@@ -126,8 +126,9 @@ export async function runHealth(
         await upsertProgram({ ...file, status: 'closed' }, r.source, now);
         out.closed.push(r.id);
       }
-    } catch {
+    } catch (err) {
       // One program's trouble never stops the walk.
+      console.error(`[health] ${r.id} failed: ${err instanceof Error ? err.name.replace(/[^\w]/g, '').slice(0, 40) : 'unknown'}`);
     }
   }
   return out;

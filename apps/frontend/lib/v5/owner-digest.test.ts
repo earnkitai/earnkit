@@ -61,6 +61,7 @@ test('sendOwnerDigest: a page change appears, once per day, with the day key', a
   assert.equal(await sendOwnerDigest(NOW, mailer), 'sent');
   assert.equal(await sendOwnerDigest(NOW, mailer), 'sent');
   assert.equal(sent.length, 2);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM owner_digests WHERE day = '2026-11-04'`)[0]!.n, 1);
   assert.equal(sent[0]!.idempotencyKey, 'owner-digest:2026-11-04');
   assert.equal(sent[1]!.idempotencyKey, sent[0]!.idempotencyKey);
   assert.equal(sent[0]!.subject, 'EarnKit programs: 2026-11-04');
@@ -86,4 +87,47 @@ test('sendOwnerDigest: link failures, deadline closes and a revertable api chang
   assert.match(text, /Api Grants: deadline/);
   assert.match(text, /https:\/\/earnkit\.test\/api\/programs\/revert\?t=/);
   assert.doesNotMatch(text, /Ended Grants: status/);
+});
+
+test('sendOwnerDigest: no RESEND_API_KEY sends nothing and says none', async () => {
+  delete process.env.RESEND_API_KEY;
+  await upsertProgram(programFixture({ id: 'od-nokey', title: 'No Key Grants', source_url: 'https://nokey.example/p' }), 'file', NOW);
+  await runHealth({ probe: async () => {}, page: async () => '<p>a</p>', now: new Date(NOW.getTime() - 3_600_000) });
+  await runHealth({ probe: async () => {}, page: async () => '<p>b</p>', now: NOW });
+  assert.equal(await sendOwnerDigest(NOW, mailer), 'none');
+  assert.equal(sent.length, 0);
+});
+
+test('sendOwnerDigest: covers changes since the last digest, not the UTC day', async () => {
+  const later = new Date('2026-11-06T06:15:00Z');
+  const at = (iso: string) => new Date(iso);
+  await upsertProgram(programFixture({ id: 'od-win-a', title: 'Covered Grants' }), 'file', at('2026-11-05T01:00:00Z'));
+  await upsertProgram({ ...programFixture({ id: 'od-win-a', title: 'Covered Grants' }), ends_at: '2027-01-01T00:00:00Z' }, 'file', at('2026-11-05T05:00:00Z'));
+  await upsertProgram(programFixture({ id: 'od-win-b', title: 'Evening Grants' }), 'file', at('2026-11-05T01:00:00Z'));
+  await upsertProgram({ ...programFixture({ id: 'od-win-b', title: 'Evening Grants' }), ends_at: '2027-01-01T00:00:00Z' }, 'file', at('2026-11-05T20:00:00Z'));
+  await sql()`INSERT INTO owner_digests (day, sent_at) VALUES ('2026-11-05', '2026-11-05T06:15:00Z')`;
+  assert.equal(await sendOwnerDigest(later, mailer), 'sent');
+  assert.match(sent[0]!.text, /Evening Grants: deadline/);
+  assert.doesNotMatch(sent[0]!.text, /Covered Grants/);
+});
+
+test('sendOwnerDigest: marks a missing secret and an old write on the change line', async () => {
+  const when = new Date('2026-11-08T06:15:00Z');
+  const api = programFixture({ id: 'od-rl', title: 'Link Grants' });
+  await upsertProgram(api, 'api', new Date('2026-11-07T08:00:00Z'));
+  const ins = (b: unknown, res: string) => sql()`INSERT INTO program_writes (program_id, action, result, reason, body) VALUES ('od-rl', 'upsert', ${res}, '', ${sql().json(JSON.parse(JSON.stringify(b)))})`;
+  await ins(api, 'created');
+  await ins({ ...api, ends_at: '2027-01-01T00:00:00Z' }, 'updated');
+  await upsertProgram({ ...api, ends_at: '2027-01-01T00:00:00Z' }, 'api', new Date('2026-11-07T09:00:00Z'));
+  await sql()`INSERT INTO owner_digests (day, sent_at) VALUES ('2026-11-07', '2026-11-07T06:15:00Z')`;
+  delete process.env.EARNKIT_AUTH_SECRET;
+  assert.equal(await sendOwnerDigest(when, mailer), 'sent');
+  assert.match(sent[0]!.text, /Link Grants: deadline \(no revert link\)/);
+  // A file program has no applied write to revert.
+  await upsertProgram(programFixture({ id: 'od-file', title: 'File Grants' }), 'file', new Date('2026-11-09T01:00:00Z'));
+  await upsertProgram({ ...programFixture({ id: 'od-file', title: 'File Grants' }), ends_at: '2027-01-01T00:00:00Z' }, 'file', new Date('2026-11-09T02:00:00Z'));
+  process.env.EARNKIT_AUTH_SECRET = 's'.repeat(40);
+  sent = [];
+  assert.equal(await sendOwnerDigest(new Date('2026-11-09T06:15:00Z'), mailer), 'sent');
+  assert.match(sent[0]!.text, /File Grants: deadline \(not revertable\)/);
 });

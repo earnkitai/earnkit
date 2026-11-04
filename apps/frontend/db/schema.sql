@@ -144,3 +144,9 @@ CREATE TABLE IF NOT EXISTS gaps_done (
   at              timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (installation_id, program_id, item)
 );
+
+-- The owner's daily digest: the day it covered and when it was sent; the next digest starts there.
+CREATE TABLE IF NOT EXISTS owner_digests (
+  day     text PRIMARY KEY,
+  sent_at timestamptz NOT NULL
+);

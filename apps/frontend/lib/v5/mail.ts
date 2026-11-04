@@ -42,9 +42,10 @@ export const resendMailer =
 /** Whether the owner's email can go: RESEND_API_KEY is set. */
 export const ownerMailEnabled = (env: Record<string, string | undefined> = process.env): boolean => Boolean(env.RESEND_API_KEY?.trim());
 
-/** One email to the owner. A no-op without RESEND_API_KEY; a failed send throws MailError. */
-export async function ownerMail(subject: string, text: string, idempotencyKey: string, mailer?: Mailer): Promise<void> {
+/** One email to the owner; false (nothing sent) without RESEND_API_KEY. A failed send throws MailError. */
+export async function ownerMail(subject: string, text: string, idempotencyKey: string, mailer?: Mailer): Promise<boolean> {
   const apiKey = process.env.RESEND_API_KEY?.trim();
-  if (!apiKey) return;
+  if (!apiKey) return false;
   await (mailer ?? resendMailer(apiKey))({ to: OWNER_EMAIL, from: MAIL_FROM, subject, text, idempotencyKey });
+  return true;
 }
