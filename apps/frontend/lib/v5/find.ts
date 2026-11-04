@@ -15,7 +15,7 @@ import { getProgram, isOpen, listOpenPrograms, type ProgramRow } from './program
 import { parseProject, type Project } from './project-input';
 import { rankGaps, rankReady } from './rank';
 import { repoFacts, type RepoFacts } from './repo-facts';
-import { agentNote, replyText } from './reply';
+import { agentNote, numbered, replyText } from './reply';
 import { since, type Since } from './since';
 
 export const FindInput = z.object({
@@ -45,6 +45,8 @@ export type ReadyProgram = {
   needs: string[];
   /** What taking part needs before applying (in person: attending). */
   setup: string[];
+  /** The number the builder sees (and says) for it. */
+  n: number;
 };
 export type GapProgram = {
   program_id: string;
@@ -56,6 +58,8 @@ export type GapProgram = {
   gap: Gap;
   /** Any second change the program needs. */
   also: Gap[];
+  /** The number the builder sees (and says) for it. */
+  n: number;
 };
 export type FindReply = {
   show_to_builder: string;
@@ -80,7 +84,7 @@ const MAX_LISTED = 10;
 export const moneyOf = (p: Program): string => p.summary.split(' · ')[0];
 const closesIn = (p: Program, now: Date) => (p.ends_at ? timeLeftWords(p.ends_at, now) : null);
 const EMPTY_FACTS: RepoFacts = {
-  name: '', description: '', repo_url: null, public: false, as_reported: true, live_url: null, demo_url: null, chains: [], contracts: [],
+  name: '', description: '', repo_url: null, repo_url_basis: null, live_url_basis: null, demo_url_basis: null, public: false, as_reported: true, live_url: null, demo_url: null, chains: [], contracts: [],
   builder_codes: false, users: null, first_commit_at: null, last_commit_at: null, readme_excerpt: null, homepage: null,
 };
 
@@ -93,7 +97,7 @@ async function factsOf(project: Project, ctx: FindContext): Promise<RepoFacts> {
   }
 }
 
-function readyOf(row: ProgramRow, v: Verdict, facts: RepoFacts, now: Date): ReadyProgram {
+function readyOf(row: ProgramRow, v: Verdict, facts: RepoFacts, now: Date): Omit<ReadyProgram, 'n'> {
   const p = row.file;
   const { fields, filled, facts_from_repo, total } = prefill(row, facts);
   const todo = new Map(p.submission_requirements.map((r) => [r.key, r.todo]));
@@ -107,7 +111,7 @@ function readyOf(row: ProgramRow, v: Verdict, facts: RepoFacts, now: Date): Read
   };
 }
 
-const gapOf = (row: ProgramRow, v: Verdict): GapProgram => ({
+const gapOf = (row: ProgramRow, v: Verdict): Omit<GapProgram, 'n'> => ({
   program_id: row.id, title: row.file.title, money: moneyOf(row.file), max_award_usd: row.file.max_award_usd ?? null,
   category: categoryOf(row.file), closes_at: row.file.ends_at, gap: v.gaps[0], also: v.gaps.slice(1),
 });
@@ -185,8 +189,11 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const shownReady = all ? readyV : readyV.slice(0, MAX_READY);
   const shownGaps = all ? gapV : gapV.slice(0, MAX_GAPS);
   const more = readyV.length - shownReady.length + gapV.length - shownGaps.length;
-  const ready = shownReady.map((v) => readyOf(byId.get(v.program_id)!, v, facts, ctx.now));
-  const gaps = shownGaps.map((v) => gapOf(byId.get(v.program_id)!, v));
+  // In display order with the numbers the builder sees: ready, gaps, then in person.
+  const { ready, gaps } = numbered(
+    shownReady.map((v) => readyOf(byId.get(v.program_id)!, v, facts, ctx.now)),
+    shownGaps.map((v) => gapOf(byId.get(v.program_id)!, v)),
+  );
 
   const last = await lastFindAt(ctx.installationId);
   const moved = await since(ctx.installationId, last, open, ready.map((r) => r.program_id), ctx.now, gaps.map((g) => g.program_id));

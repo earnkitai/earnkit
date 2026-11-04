@@ -83,7 +83,10 @@ test('reported facts fill the gaps; live_url and demo_url from the report win; r
   assert.equal(f.live_url, 'https://app.example.com/');
   assert.equal(f.demo_url, 'https://demo.example.com/');
   assert.deepEqual(f.chains, [{ chain: 'base', mainnet: true, basis: 'reported' }]);
-  assert.deepEqual(f.contracts, [{ chain: 'base', address: '0x' + 'b'.repeat(40) }]);
+  assert.deepEqual(f.contracts, [{ chain: 'base', address: '0x' + 'b'.repeat(40), basis: 'reported' }]);
+  assert.equal(f.live_url_basis, 'reported');
+  assert.equal(f.demo_url_basis, 'reported');
+  assert.equal(f.repo_url_basis, 'code');
   assert.equal(f.builder_codes, true);
   assert.equal(f.users, true);
   assert.equal(f.public, true);
@@ -108,6 +111,8 @@ test('a private project is reported only', async () => {
   assert.equal(f.repo_url, 'https://github.com/someone/secret');
   assert.equal(f.readme_excerpt, null);
   assert.equal(f.live_url, 'https://x.example.com/');
+  assert.equal(f.repo_url_basis, 'reported');
+  assert.equal(f.live_url_basis, 'reported');
 });
 
 test('an unreadable public repo falls back to the report; no repo_url is reported only', async () => {

@@ -51,13 +51,15 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
    effort, larger award. Skipped and applied programs never return unless their next round opens.
 5. `prefill.ts` fills each ready program's form: fields EarnKit can answer (`from: earnkit`), prose fields handed to
    the agent with sources (`from: agent`), and fields only the builder can give (`from: builder`, a demo video or
-   a file). Blank beats a wrong guess. `facts_from_repo` counts only the link, contract and chain values, never the
-   passed name or description; the reply says "Drafted: N facts from the repo." only when N is above zero.
+   a file). Blank beats a wrong guess. `facts_from_repo` counts only values the public code read gave (its repo link,
+   homepage, contracts and chains with basis `code`), never anything the agent passed; the reply says "Drafted: N facts from the repo." only when N is above zero.
 6. `since.ts` lists programs new, changed (deadline, amount, status, form) and closing within 7 days since this
    installation's `last_find_at`. Empty on the first call.
 7. `ledger.ts` summarises the installation's applications; results past due become `ask_outcome`.
 8. `reply.ts` writes `show_to_builder` and `agent_note`. It shows at most 5 ready and 3 gaps, then in-person
-   programs in their own block with their setup (never in "apply to all N"), and ends with exactly one closing line. No emoji, no em dash, no tool or field names, no coins, points or scores.
+   programs in their own block with their setup (never in "apply to all N"), and ends with exactly one closing line.
+   `find` returns `ready` in that display order (in person last) and gives every ready and gap item its displayed
+   number `n`, so "skip 4" maps to the item with `n` 4. No emoji, no em dash, no tool or field names, no coins, points or scores.
 
 ## The program record and pipeline
 

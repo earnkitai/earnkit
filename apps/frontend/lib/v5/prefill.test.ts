@@ -56,8 +56,8 @@ test('base-builder-grants: facts fill; prose, team and contacts go to the agent'
   assert.equal(by.full_name.from, 'agent');
   assert.deepEqual(out.fields.filter((f) => f.from === 'builder').map((f) => f.key), ['contract_address']);
   assert.equal(out.filled, FILLED);
-  // The name and one-liner are what the agent passed, not the repo: only the live and demo links count.
-  assert.equal(out.facts_from_repo, 2);
+  // The name, one-liner, live and demo links are what the agent passed, not the repo read: none counts.
+  assert.equal(out.facts_from_repo, 0);
   assert.equal(out.total, out.fields.filter((f) => f.required).length);
   assert.equal(out.total, 16);
 });
@@ -133,8 +133,9 @@ test('facts_from_repo counts links, contract and chain values, never the passed 
   const facts: RepoFacts = {
     name: 'App', description: 'An AI agent on Base.', repo_url: 'https://github.com/a/b', public: true, as_reported: false,
     live_url: null, demo_url: null, chains: [{ chain: 'base', mainnet: true, basis: 'code' }],
-    contracts: [{ chain: 'base', address: '0x' + 'a'.repeat(40) }], builder_codes: false, users: null,
+    contracts: [{ chain: 'base', address: '0x' + 'a'.repeat(40), basis: 'code' }], builder_codes: false, users: null,
     first_commit_at: null, last_commit_at: null, readme_excerpt: null, homepage: null,
+    repo_url_basis: 'code', live_url_basis: null, demo_url_basis: null,
   };
   const row = rowWith([
     req({ key: 'name', label: 'Name', type: 'text', kind: 'name', project_field: 'name' }),
@@ -147,4 +148,23 @@ test('facts_from_repo counts links, contract and chain values, never the passed 
   const out = prefill(row, facts);
   assert.equal(out.filled, 6);
   assert.equal(out.facts_from_repo, 3);
+});
+
+test('facts_from_repo is 0 for reported-only facts, even with a passed repo, live link, chain and contract', async () => {
+  const r = parseProject({
+    name: 'App', description: 'An app.', repo_url: 'https://github.com/someone/secret', live_url: 'https://app.example.com/', private: true,
+    chains: [{ chain: 'base', mainnet: true, contract: '0x' + 'c'.repeat(40) }],
+  });
+  assert.ok(r.ok);
+  const facts = await repoFacts(r.project, { now: NOW });
+  assert.equal(facts.as_reported, true);
+  const out = prefill(fromFile('base-builder-grants'), facts);
+  assert.ok(out.filled > 0);
+  assert.equal(out.facts_from_repo, 0);
+});
+
+test('facts_from_repo: a public read counts the repo link it read', async () => {
+  const facts = await factsOf('earnkit');
+  const row = rowWith([req({ key: 'repo', label: 'Repo', type: 'url', kind: 'links', project_field: 'repo_url' })]);
+  assert.equal(prefill(row, facts).facts_from_repo, 1);
 });

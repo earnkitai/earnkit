@@ -59,7 +59,7 @@ next task; one PR for the release.
 `pnpm -s tsx apps/frontend/scripts/replay.mts earnkit --monday` (clock pinned 2026-11-04T12:00Z, then Monday 2026-11-09T09:00Z).
 The honest run: the project passes no `live_url` and no `users` (only what the repo shows), so the Base Builder Grant
 needs three changes (a live link, Builder Codes, the users answer) and is not listed. With a live link known it is one
-change away (`find.test.ts` pins that text). Rerun after the final review fixes (2026-11-04):
+change away (`find.test.ts` pins that text). Rerun after the final review fixes and the re-review fixes (2026-11-04):
 
 ```
 == find "" at 2026-11-04T12:00:00.000Z
@@ -83,6 +83,7 @@ Draft each ready program from its fields: 'earnkit' values as given; 'agent' fie
 Submit only when the builder says yes, in your own browser, field by field (form_id names the form field when given).
 Call track with applied after each submission, and with won (amount_usd), rejected or no_result after each result; skipped for a number they skip.
 Pass users and live_url in the project whenever you know them; never invent them.
+The numbers the builder says are each item's n in ready and gaps ("skip 4" is the item with n 4), not its place in the list.
 In-person programs (in_person: true) are not in "yes to all": draft nothing for one until the builder says yes to attending it and its setup.
 On "do <n>": make that gap's change (its details carry the chain's RPC and explorer), push, call track with gap_done and the gap's item, then call find again.
 1 more fit; ask with filter.all for the full list.
@@ -115,5 +116,6 @@ Draft each ready program from its fields: 'earnkit' values as given; 'agent' fie
 Submit only when the builder says yes, in your own browser, field by field (form_id names the form field when given).
 Call track with applied after each submission, and with won (amount_usd), rejected or no_result after each result; skipped for a number they skip.
 Pass users and live_url in the project whenever you know them; never invent them.
+The numbers the builder says are each item's n in ready and gaps ("skip 4" is the item with n 4), not its place in the list.
 On "do <n>": make that gap's change (its details carry the chain's RPC and explorer), push, call track with gap_done and the gap's item, then call find again.
 ```

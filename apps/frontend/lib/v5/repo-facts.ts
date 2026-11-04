@@ -10,16 +10,21 @@ import { GitHubError, readRepo, readRepoObject, type RepoRead } from './github';
 import { LIMITS, hit } from './rate-limit';
 import type { Project } from './project-input';
 
+export type Basis = 'code' | 'reported';
 export type RepoFacts = {
   name: string;
   description: string;
   repo_url: string | null;
+  /** Where each link came from: the code read ('code') or the agent's report ('reported'); null when absent. */
+  repo_url_basis: Basis | null;
+  live_url_basis: Basis | null;
+  demo_url_basis: Basis | null;
   public: boolean;
   as_reported: boolean;
   live_url: string | null;
   demo_url: string | null;
-  chains: { chain: string; mainnet: boolean; basis: 'code' | 'reported' }[];
-  contracts: { chain: string; address: string }[];
+  chains: { chain: string; mainnet: boolean; basis: Basis }[];
+  contracts: { chain: string; address: string; basis?: Basis }[];
   builder_codes: boolean;
   /** null: not reported. */
   users: boolean | null;
@@ -277,15 +282,18 @@ export async function repoFacts(project: Project, deps: { gh?: Fetch; now?: Date
     }
   }
   const chains: RepoFacts['chains'] = [...(code?.chains ?? [])];
-  const contracts: RepoFacts['contracts'] = [...(code?.contracts ?? [])];
+  const contracts: RepoFacts['contracts'] = (code?.contracts ?? []).map((c) => ({ ...c, basis: 'code' as const }));
   for (const c of project.chains ?? []) {
     if (!chains.some((x) => x.chain === c.chain)) chains.push({ chain: c.chain, mainnet: c.mainnet, basis: 'reported' });
-    if (c.contract && !contracts.some((x) => x.address === c.contract!.toLowerCase())) contracts.push({ chain: c.chain, address: c.contract.toLowerCase() });
+    if (c.contract && !contracts.some((x) => x.address === c.contract!.toLowerCase())) contracts.push({ chain: c.chain, address: c.contract.toLowerCase(), basis: 'reported' });
   }
   return {
     name: project.name,
     description: project.description,
     repo_url: code ? code.html_url : (project.repo_url ?? null),
+    repo_url_basis: code ? 'code' : project.repo_url ? 'reported' : null,
+    live_url_basis: project.live_url ? 'reported' : code?.homepage ? 'code' : null,
+    demo_url_basis: project.demo_url ? 'reported' : null,
     public: code !== null,
     as_reported: code === null,
     live_url: project.live_url ?? code?.homepage ?? null,

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { agentNote, replyText } from './reply';
+import { agentNote, numbered, replyText } from './reply';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
 import type { Ledger } from './ledger';
 
@@ -22,6 +22,7 @@ const ready = (over: Partial<ReadyProgram> & { title: string }): ReadyProgram =>
   total: 1,
   needs: [],
   setup: [],
+  n: 0,
   ...over,
 });
 const gap = (over: Partial<GapProgram> & { title: string }): GapProgram => ({
@@ -32,13 +33,16 @@ const gap = (over: Partial<GapProgram> & { title: string }): GapProgram => ({
   closes_at: null,
   gap: { kind: 'chain', item: 'chain:arc', what: 'deploy the contract on Arc', effort: 'hours', agent_can: false },
   also: [],
+  n: 0,
   ...over,
 });
 const LEDGER0: Ledger = { applied: 0, asked_usd: 0, won: 0, won_usd: 0, pending: 0, rejected: 0, skipped: 0, closing_soon: [] };
 const NO_SINCE = { from: null, new: [], changed: [], closing: [] };
-const base = (over: Partial<R> = {}): R => ({
-  since: NO_SINCE, ready: [], gaps: [], ledger: LEDGER0, ask_outcome: [], as_reported: false, ...over,
-});
+/** A reply with its lists numbered as find numbers them. */
+const base = (over: Partial<R> = {}): R => {
+  const r: R = { since: NO_SINCE, ready: [], gaps: [], ledger: LEDGER0, ask_outcome: [], as_reported: false, ...over };
+  return { ...r, ...numbered(r.ready, r.gaps) };
+};
 
 const MONDAY = base({
   ready: [
@@ -173,4 +177,16 @@ test('agentNote: fields, yes only, track after each, the counts left out, ask on
     assert.ok(n.includes(s), s);
   assert.ok(!agentNote(MONDAY, { more: 0 }).includes('more fit'));
   assert.ok(n.includes('Pass users and live_url in the project whenever you know them; never invent them.'));
+});
+
+test('repo reads paused: its own agent line, never "send them corrected"', () => {
+  const paused = agentNote(base({ problems: ['repo reads paused until tomorrow'] }), { more: 0 });
+  assert.ok(paused.includes('Repo reads are paused for this installation until tomorrow; the match used what you reported.'));
+  assert.ok(!paused.includes('Send them corrected'));
+  const both = agentNote(base({ problems: ['live_url dropped: not a web link', 'repo reads paused until tomorrow'] }), { more: 0 });
+  assert.ok(both.includes('Some project facts were dropped: live_url dropped: not a web link. Send them corrected next time.'));
+});
+
+test('a reported-only program with passed links reads "Your agent fills it on the page."', () => {
+  assert.match(replyText(base({ ready: [ready({ title: 'R', filled: 3, facts_from_repo: 0 })] }), false), /^1\. R, \$1K\. Your agent fills it on the page\.$/m);
 });

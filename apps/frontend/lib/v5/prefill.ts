@@ -1,12 +1,12 @@
 /**
  * Pre-fill for a program's form: fact fields EarnKit can fill from repo facts, prose fields
  * handed to the agent with sources, personal fields left to the builder. EarnKit writes no prose.
- * `facts_from_repo` counts only links, contract and chain values, never the passed name or description. Pure.
+ * `facts_from_repo` counts only values the code read gave (a public read), never anything the agent passed. Pure.
  */
 import { chainName } from './chains';
 import type { SubmissionRequirement } from './program-file';
 import type { ProgramRow } from './programs';
-import type { RepoFacts } from './repo-facts';
+import type { Basis, RepoFacts } from './repo-facts';
 
 export type Field = {
   key: string;
@@ -27,18 +27,19 @@ export type Field = {
 const BUILDER_KINDS: ReadonlySet<string> = new Set(['demo_video']);
 const words = (s: string): string[] => s.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
 
-/** A filled value and whether it came from the repo read (links, contract, chain) or the passed text. */
+/** A filled value and whether the public code read gave it (not the agent's report). */
 type Filled = { value: string; repo: boolean } | null;
-const fromRepo = (value: string | null): Filled => (value ? { value, repo: true } : null);
+const filledBy = (facts: RepoFacts, value: string | null, basis: Basis | null | undefined): Filled =>
+  value ? { value, repo: !facts.as_reported && basis === 'code' } : null;
 const fromText = (value: string | null): Filled => (value ? { value, repo: false } : null);
 
 function projectValue(r: SubmissionRequirement, facts: RepoFacts): Filled {
   switch (r.project_field) {
     case 'name': return fromText(facts.name);
     case 'description': return fromText(facts.description);
-    case 'repo_url': return fromRepo(facts.repo_url);
-    case 'live_url': return fromRepo(facts.live_url);
-    case 'demo_url': return fromRepo(facts.demo_url);
+    case 'repo_url': return filledBy(facts, facts.repo_url, facts.repo_url_basis);
+    case 'live_url': return filledBy(facts, facts.live_url, facts.live_url_basis);
+    case 'demo_url': return filledBy(facts, facts.demo_url, facts.demo_url_basis);
     default: return null;
   }
 }
@@ -62,12 +63,13 @@ function valueOf(r: SubmissionRequirement, program: ProgramRow['file'], facts: R
   if (fromField) return fromField;
   if (/contract/.test(r.key)) {
     const chain = program.chains[0] ?? facts.contracts[0]?.chain;
-    return fromRepo(facts.contracts.find((c) => c.chain === chain)?.address ?? null);
+    const c = facts.contracts.find((x) => x.chain === chain);
+    return filledBy(facts, c?.address ?? null, c?.basis);
   }
   if (/chain/.test(r.key)) {
     const mainnet = facts.chains.filter((c) => c.mainnet).map((c) => c.chain);
     const slug = program.chains.find((c) => mainnet.includes(c)) ?? (program.any_chain ? mainnet[0] : undefined);
-    if (slug) return fromRepo(chainName(slug));
+    if (slug) return filledBy(facts, chainName(slug), facts.chains.find((c) => c.chain === slug)?.basis);
   }
   if (r.type === 'choice' || r.type === 'multi_choice') return fromText(choiceValue(r, facts));
   if (r.type === 'file') return null;
@@ -75,7 +77,8 @@ function valueOf(r: SubmissionRequirement, program: ProgramRow['file'], facts: R
   if (r.kind === 'one_liner') return fromText(facts.description);
   if (r.kind === 'links') {
     const links = [facts.live_url, facts.repo_url].filter((x): x is string => !!x);
-    return fromRepo(links.length > 0 ? links.join(' ') : null);
+    const read = (facts.live_url && facts.live_url_basis === 'code') || (facts.repo_url && facts.repo_url_basis === 'code');
+    return filledBy(facts, links.length > 0 ? links.join(' ') : null, read ? 'code' : 'reported');
   }
   return null;
 }

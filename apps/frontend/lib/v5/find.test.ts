@@ -49,7 +49,7 @@ test('first find has no since', async () => {
     [
       'Ready to apply, 4:',
       "1. Alliance ALL19, $400K at admission, closes in 14 days. Your agent fills it on the page. First: start the application with the first founder's email.",
-      '2. Avalanche Team1 Mini Grants, up to $10,000. Drafted: 6 facts from the repo. First: sign in to the Avalanche Builder Hub.',
+      '2. Avalanche Team1 Mini Grants, up to $10,000. Drafted: 4 facts from the repo. First: sign in to the Avalanche Builder Hub.',
       '3. Z Fellows, up to $10K investment. Drafted: 1 fact from the repo.',
       '4. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Your agent fills it on the page. Needs your investor deck file.',
       '',
@@ -66,6 +66,24 @@ test('first find has no since', async () => {
   // Only what nobody but the builder can give: no contacts or team.
   for (const p of reply.ready as { needs: string[]; setup: string[] }[])
     for (const n of p.needs.filter((x) => !p.setup.includes(x))) assert.doesNotMatch(n, /email|name|team|telegram|x profile/i);
+});
+
+test('the numbers the builder sees are the n of each item: ready in order, gaps, then in person', async () => {
+  const id = await installation();
+  const r = await mcpCall(ctx(id), 'find', { project: PROJECT });
+  const reply = r.reply!;
+  const show = reply.show_to_builder as string;
+  const ready = reply.ready as { program_id: string; title: string; n: number; in_person: boolean }[];
+  const gaps = reply.gaps as { program_id: string; title: string; n: number }[];
+  const printed = (n: number) => new RegExp(`^${n}\\. ([^,]+),`, 'm').exec(show)?.[1];
+  assert.equal(printed(4), ready[3].title);
+  assert.equal(ready[3].n, 4);
+  const inPerson = ready.find((p) => p.in_person)!;
+  assert.equal(printed(inPerson.n), inPerson.title);
+  assert.equal(ready.at(-1)!.program_id, inPerson.program_id);
+  for (const x of [...ready, ...gaps]) assert.equal(printed(x.n), x.title, String(x.n));
+  assert.deepEqual([...ready, ...gaps].map((x) => x.n).sort((a, b) => a - b), Array.from({ length: ready.length + gaps.length }, (_, i) => i + 1));
+  assert.match(reply.agent_note as string, /numbers the builder says are each item's n/);
 });
 
 test('a deadline moved since the last find', async () => {
