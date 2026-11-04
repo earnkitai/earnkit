@@ -25,6 +25,12 @@
     "base"
   ],
   "chain_required": true,
+  "eligibility": [
+    { "kind": "live_product" },
+    { "kind": "chain", "value": "base" },
+    { "kind": "builder_codes" },
+    { "kind": "users" }
+  ],
   "setup": [],
   "each_time": [
     "usage, revenue, and team answers",
