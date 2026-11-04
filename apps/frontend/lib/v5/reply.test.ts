@@ -1,0 +1,129 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { agentNote, replyText } from './reply';
+import type { FindReply, GapProgram, ReadyProgram } from './find';
+import type { Ledger } from './ledger';
+
+type R = Omit<FindReply, 'show_to_builder' | 'agent_note'>;
+
+const ready = (over: Partial<ReadyProgram> & { title: string }): ReadyProgram => ({
+  program_id: over.title.toLowerCase().replace(/\W+/g, '-'),
+  money: '$1K',
+  max_award_usd: 1000,
+  category: 'grant',
+  closes_at: null,
+  closes_in: null,
+  long_shot: null,
+  in_person: false,
+  submission_url: 'https://example.com/apply',
+  fields: [],
+  filled: 0,
+  total: 1,
+  needs: [],
+  ...over,
+});
+const gap = (over: Partial<GapProgram> & { title: string }): GapProgram => ({
+  program_id: over.title.toLowerCase().replace(/\W+/g, '-'),
+  money: '$1K',
+  max_award_usd: 1000,
+  category: 'grant',
+  closes_at: null,
+  gap: { kind: 'chain', item: 'chain:arc', what: 'deploy the contract on Arc', effort: 'hours', agent_can: false },
+  also: [],
+  ...over,
+});
+const LEDGER0: Ledger = { applied: 0, asked_usd: 0, won: 0, won_usd: 0, pending: 0, rejected: 0, skipped: 0, closing_soon: [] };
+const NO_SINCE = { from: null, new: [], changed: [], closing: [] };
+const base = (over: Partial<R> = {}): R => ({
+  since: NO_SINCE, ready: [], gaps: [], ledger: LEDGER0, ask_outcome: [], as_reported: false, ...over,
+});
+
+const MONDAY = base({
+  ready: [
+    ready({
+      title: 'Alliance ALL19', money: '$400K at admission', closes_in: 'in 14 days', filled: 2,
+      needs: ["the first founder's email"],
+    }),
+    ready({ title: 'Arc Builders Fund', money: 'investment from Circle Ventures', long_shot: 'an investment program with no stated amount' }),
+  ],
+  gaps: [gap({ title: 'Circle Developer Grants', money: '$5,000 to $100,000 USDC grants' })],
+  ledger: { ...LEDGER0, applied: 1, asked_usd: 5000, pending: 1 },
+});
+
+test('the Monday text: two ready, one gap, a ledger with one applied', () => {
+  assert.equal(
+    replyText(MONDAY, false),
+    [
+      'Ready to apply, 2:',
+      "1. Alliance ALL19, $400K at admission, closes in 14 days. Drafted: 2 facts from the repo. Needs your first founder's email.",
+      '2. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Drafted.',
+      '',
+      'One change away, 1:',
+      '3. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
+      '',
+      'Ledger: 1 applied ($5K asked), 0 won, 1 pending.',
+      '',
+      'Say yes to apply to all 2, numbers to skip, or "do 3" and I\'ll make the change first.',
+    ].join('\n'),
+  );
+});
+
+test('the since line: only when something changed, never on the first find', () => {
+  const r = base({
+    since: {
+      from: '2026-11-02T09:00:00.000Z',
+      new: [{ program_id: 'a', title: 'A' }, { program_id: 'b', title: 'B' }],
+      changed: [{ program_id: 'c', title: 'Circle Developer Grants', what: 'deadline moved to Nov 20' }],
+      closing: [{ program_id: 'd', title: 'Alliance ALL19', closes_at: '2026-11-07T00:00:00.000Z' }],
+    },
+    ready: [ready({ program_id: 'd', title: 'Alliance ALL19', money: '$400K at admission', closes_in: 'in 3 days', in_person: true, filled: 1 })],
+    ledger: { ...LEDGER0, applied: 2, asked_usd: 115000, won: 1, pending: 1, closing_soon: [{ program_id: 'x', title: 'X', closes_at: '' }] },
+  });
+  assert.equal(
+    replyText(r, false),
+    [
+      'Since Nov 2: 2 new programs you fit; Circle Developer Grants: deadline moved to Nov 20; Alliance ALL19 closes in 3 days.',
+      '',
+      'Ready to apply, 1:',
+      '1. Alliance ALL19, $400K at admission, closes in 3 days, in person. Drafted: 1 fact from the repo.',
+      '',
+      'Ledger: 2 applied ($115K asked), 1 won, 1 pending, 1 closing soon.',
+      '',
+      'Say yes to apply to all 1, or numbers to skip.',
+    ].join('\n'),
+  );
+  assert.ok(!replyText(r, true).includes('Since'));
+});
+
+test('gaps only, the agent can do it, and the needs list is cut at three', () => {
+  const r = base({
+    gaps: [gap({ title: 'Base Batches', money: '$100K', gap: { kind: 'builder_codes', item: 'builder_codes', what: 'add Base Builder Codes to the app', effort: 'minutes', agent_can: true } })],
+  });
+  assert.equal(
+    replyText(r, false),
+    ['One change away, 1:', '1. Base Batches, $100K: add Base Builder Codes to the app (I can do this).', '', 'Say "do 1" and I\'ll make the change first.'].join('\n'),
+  );
+  const two = base({ gaps: [gap({ title: 'G', money: '$1K', also: [{ kind: 'live_product', item: 'live_product', what: 'put a live link up', effort: 'hours', agent_can: false }] })] });
+  assert.match(replyText(two, false), /^1\. G, \$1K: deploy the contract on Arc and put a live link up\.$/m);
+  const many = base({ ready: [ready({ title: 'B', needs: ['your full name', 'your email', 'a Loom product demo', 'your X handle', 'an investor deck file'] })] });
+  assert.match(replyText(many, false), /Needs your full name, email, Loom product demo and 2 more\.$/m);
+});
+
+test('nothing fits', () => {
+  assert.equal(replyText(base(), false), "Nothing fits yet. I'll say when something opens.");
+});
+
+test('every closing line, and the copy rules', () => {
+  const texts = [replyText(MONDAY, false), replyText(base({ ready: MONDAY.ready }), false), replyText(base({ gaps: MONDAY.gaps }), false), replyText(base(), false)];
+  for (const t of texts) {
+    assert.doesNotMatch(t, /—|\p{Extended_Pictographic}/u);
+    assert.doesNotMatch(t, /\b(coin|points|score|rank|streak|token)s?\b/i);
+  }
+});
+
+test('agentNote: fields, yes only, track after each, the counts left out, ask once', () => {
+  const n = agentNote({ ...MONDAY, ask_outcome: [{ program_id: 'z', title: 'Zeta Grant' }] }, { more: 2 });
+  for (const s of ["'earnkit'", "'agent'", "'builder'", 'sources', 'yes', 'own browser', 'track', 'applied', 'Zeta Grant', '2 more fit; ask with filter.all for the full list.'])
+    assert.ok(n.includes(s), s);
+  assert.ok(!agentNote(MONDAY, { more: 0 }).includes('more fit'));
+});

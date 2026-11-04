@@ -9,7 +9,22 @@ import { sql } from './db';
 export const LIMITS = {
   /** POST /api/programs/write, per owner token (one key), after the token check. */
   programsWrite: { limit: 120, windowSeconds: 3_600 },
+  /** GET /oauth/authorize, per client IP: each approval is a code that can become an installation. */
+  oauthAuthorize: { limit: 60, windowSeconds: 3_600 },
+  /** POST /oauth/register, per client IP: the abuse floor. */
+  oauthRegister: { limit: 50, windowSeconds: 3_600 },
+  /** The per-IP register floor for a known hosted service's redirect host (many builders share its IPs). */
+  oauthRegisterHosted: { limit: 500, windowSeconds: 3_600 },
+  /** POST /oauth/register, per agent app (its https redirect host): a high ceiling, warned at REGISTER_HOST_WARN. */
+  oauthRegisterHost: { limit: 10_000, windowSeconds: 86_400 },
+  /** New installations (POST /oauth/token that creates one), per registration, and per IP as the floor. */
+  installClient: { limit: 500, windowSeconds: 86_400 },
+  installHour: { limit: 50, windowSeconds: 3_600 },
+  installHourHosted: { limit: 500, windowSeconds: 3_600 },
 } as const;
+
+/** Registrations per agent app a day at which a warning is logged, before oauthRegisterHost refuses. */
+export const REGISTER_HOST_WARN = 8_000;
 
 /** The start of the fixed window `now` falls in. Pure. */
 export const windowStart = (now: Date, windowMs: number) =>

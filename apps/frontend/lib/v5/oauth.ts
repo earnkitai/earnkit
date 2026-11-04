@@ -1,0 +1,259 @@
+/**
+ * OAuth for the hosted MCP endpoint: OAuth 2.1 with PKCE and dynamic client registration, as MCP
+ * clients expect. Anonymous: the authorize step approves at once. The issued token is the
+ * installation; client ids and codes are signed with EARNKIT_AUTH_SECRET, so nothing is stored
+ * until the token exchange.
+ */
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+
+const CODE_TTL_MS = 5 * 60 * 1000;
+
+export class OAuthError extends Error {
+  constructor(
+    public code: 'invalid_request' | 'invalid_client' | 'invalid_grant' | 'unsupported_grant_type' | 'invalid_redirect_uri' | 'invalid_client_metadata',
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+function secret() {
+  const s = process.env.EARNKIT_AUTH_SECRET;
+  if (!s) throw new Error('EARNKIT_AUTH_SECRET is not set');
+  return s;
+}
+
+const b64 = (data: Buffer | string) => Buffer.from(data).toString('base64url');
+const mac = (purpose: string, data: string) => createHmac('sha256', secret()).update(`${purpose}:${data}`).digest('base64url');
+
+function sign(purpose: string, payload: object) {
+  const body = b64(JSON.stringify(payload));
+  return `${body}.${mac(purpose, body)}`;
+}
+
+function verify<T>(purpose: string, value: string): T | null {
+  // Exactly body.sig: extra segments ("code.x") would verify and, as distinct strings, mint distinct tokens from one code.
+  const parts = value.split('.');
+  if (parts.length !== 2) return null;
+  const [body, sig] = parts;
+  if (!body || !sig) return null;
+  const expected = Buffer.from(mac(purpose, body));
+  const given = Buffer.from(sig);
+  if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
+  try {
+    return JSON.parse(Buffer.from(body, 'base64url').toString()) as T;
+  } catch {
+    return null;
+  }
+}
+
+const BLOCKED_SCHEMES = ['javascript:', 'data:', 'file:', 'vbscript:'];
+
+/** https, http on loopback (native apps), or a custom app scheme. Pure. */
+export function isAllowedRedirectUri(uri: string) {
+  let url: URL;
+  try {
+    url = new URL(uri);
+  } catch {
+    return false;
+  }
+  if (url.hash) return false;
+  if (url.protocol === 'https:') return true;
+  if (url.protocol === 'http:') return ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  return !BLOCKED_SCHEMES.includes(url.protocol);
+}
+
+/** `r`: the redirect URIs; `n`: the registration nonce; `cn`: the registered name, cleaned. */
+type ClientPayload = { r: string[]; n?: string; cn?: string };
+type CodePayload = { c: string; r: string; ch: string; e: number; n: string };
+
+/** A registered client name as stored: letters, digits, spaces and a few marks, at most 40 characters, or null. Pure. */
+export function clientNameOf(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const t = v.normalize('NFKC').replace(/[^\p{L}\p{N} .,'&()+-]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 40).trim();
+  return t || null;
+}
+
+/** Hosted agents' redirect hosts: their servers register for many people, so many builders share their IPs. */
+export const HOSTED_REDIRECT_HOSTS = ['grok.com', 'x.ai', 'x.com', 'meta.ai', 'claude.ai', 'chatgpt.com', 'openai.com'] as const;
+/** Hosted agents that serve many builders from one registration (by name or redirect host). */
+const MANY_USER_NAMES = ['grok', 'muse', 'meta ai', 'xai'] as const;
+const MANY_USER_HOSTS = ['grok.com', 'x.ai', 'x.com', 'meta.ai'] as const;
+const under = (host: string, list: readonly string[]) => list.some((h) => host === h || host.endsWith(`.${h}`));
+
+/** The https redirect hosts of a client (lowercase, no trailing dot). Pure. */
+export function redirectHosts(uris: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const u of uris) {
+    try {
+      const url = new URL(u);
+      if (url.protocol === 'https:') out.push(url.hostname.toLowerCase().replace(/\.$/, ''));
+    } catch {
+      // not a URL: no host
+    }
+  }
+  return [...new Set(out)];
+}
+
+/** The first redirect host that is a known hosted service, or null (never the client name: anyone can pick one). Pure. */
+export const hostedRedirectHost = (uris: readonly string[]): string | null => redirectHosts(uris).find((h) => under(h, HOSTED_REDIRECT_HOSTS)) ?? null;
+
+/** One registration serving many builders, by its name or a hosted bot's redirect host: each token is its own installation. Pure. */
+export function servesMany(c: { r: string[]; cn?: string }): boolean {
+  const words = ` ${(c.cn ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()} `;
+  return MANY_USER_NAMES.some((n) => words.includes(` ${n} `)) || redirectHosts(c.r).some((h) => under(h, MANY_USER_HOSTS));
+}
+
+/** The installation key of an OAuth client: the first 32 hex of sha256(client_id). Never log client ids. Pure. */
+export const clientKeyOf = (clientId: string) => createHash('sha256').update(clientId).digest('hex').slice(0, 32);
+
+/** What a new installation counts against besides its IP: its own registration. Pure. */
+export const registrationLimitKey = (clientId: string) => `client:${clientKeyOf(clientId)}`;
+
+/** The register ceiling's key: the agent app's first https redirect host, else the registration when given, else none. Pure. */
+export function clientLimitKey(uris: readonly string[], clientId?: string): string | null {
+  const host = redirectHosts(uris)[0];
+  if (host) return `host:${host}`;
+  return clientId ? registrationLimitKey(clientId) : null;
+}
+
+/** RFC 7591 dynamic client registration. The client id carries its redirect URIs and a 128-bit nonce. */
+export function registerClient(metadata: { redirect_uris?: unknown; client_name?: unknown }) {
+  const uris = metadata.redirect_uris;
+  if (!Array.isArray(uris) || uris.length === 0 || !uris.every((u) => typeof u === 'string'))
+    throw new OAuthError('invalid_redirect_uri', 'redirect_uris must be a non-empty list of URIs');
+  const bad = uris.find((u) => !isAllowedRedirectUri(u));
+  if (bad) throw new OAuthError('invalid_redirect_uri', `redirect_uri not allowed: ${bad}`);
+  const cn = clientNameOf(metadata.client_name);
+  return {
+    // The nonce makes every registration its own client: apps with one fixed redirect URI for all users never share one.
+    client_id: sign('client', { r: uris, n: randomBytes(16).toString('base64url'), ...(cn && { cn }) } satisfies ClientPayload),
+    client_id_issued_at: Math.floor(Date.now() / 1000),
+    redirect_uris: uris,
+    ...(typeof metadata.client_name === 'string' && { client_name: metadata.client_name }),
+    grant_types: ['authorization_code'],
+    response_types: ['code'],
+    token_endpoint_auth_method: 'none',
+  };
+}
+
+/** Per-user agent hosts' exact documented callbacks. */
+export const AGENT_REDIRECT_URIS = [
+  'https://claude.ai/api/mcp/auth_callback',
+  'https://chatgpt.com/connector_platform_oauth_redirect',
+  'https://www.cursor.com/agents/mcp/oauth/callback',
+] as const;
+/** Known agent apps' custom schemes: the OS hands the code to that app on the builder's machine. */
+export const AGENT_APP_SCHEMES = ['cursor', 'vscode', 'vscode-insiders', 'windsurf', 'claude'] as const;
+
+export type PendingAuthorize = { client_id: string; redirect_uri: string; state: string | null; code_challenge: string };
+export type RedirectClass = 'loopback' | 'app' | 'agent_host' | 'other';
+export type CheckedAuthorize = { req: PendingAuthorize; redirectClass: RedirectClass; host: string | null };
+
+/** Where a registered redirect sends the code: loopback, a known app scheme, an exact agent callback, or other. Pure. */
+export function redirectClass(uri: string): { cls: RedirectClass; host: string | null } {
+  const u = new URL(uri);
+  if (u.protocol === 'http:') return { cls: 'loopback', host: null };
+  if (u.protocol !== 'https:')
+    return { cls: (AGENT_APP_SCHEMES as readonly string[]).includes(u.protocol.slice(0, -1).toLowerCase()) ? 'app' : 'other', host: null };
+  return { cls: (AGENT_REDIRECT_URIS as readonly string[]).includes(uri) ? 'agent_host' : 'other', host: u.host };
+}
+
+/**
+ * Validates an authorize request: an unknown client or unregistered redirect throws (shown on our
+ * page, never redirected); one without response_type=code and a PKCE S256 challenge goes back to
+ * the redirect with invalid_request.
+ */
+export function checkAuthorize(params: URLSearchParams): CheckedAuthorize | { error: URL } {
+  const clientId = params.get('client_id') ?? '';
+  const redirectUri = params.get('redirect_uri') ?? '';
+  const client = verify<ClientPayload>('client', clientId);
+  if (!client) throw new OAuthError('invalid_client', 'Unknown client_id. Register first.');
+  if (!client.r.includes(redirectUri)) throw new OAuthError('invalid_redirect_uri', 'redirect_uri was not registered');
+  const state = params.get('state');
+  const challenge = params.get('code_challenge');
+  if (params.get('response_type') !== 'code' || !challenge || params.get('code_challenge_method') !== 'S256') {
+    const back = new URL(redirectUri);
+    if (state) back.searchParams.set('state', state);
+    back.searchParams.set('error', 'invalid_request');
+    back.searchParams.set('error_description', 'Requires response_type=code and a PKCE S256 code_challenge');
+    return { error: back };
+  }
+  const { cls, host } = redirectClass(redirectUri);
+  return { req: { client_id: clientId, redirect_uri: redirectUri, state, code_challenge: challenge }, redirectClass: cls, host };
+}
+
+/** The redirect with a code (and RFC 9207's iss). `_who` is always null: the approval is anonymous. */
+export function issueCode(req: PendingAuthorize, _who: null, issuer?: string): URL {
+  const client = verify<ClientPayload>('client', req.client_id);
+  if (!client || !client.r.includes(req.redirect_uri)) throw new OAuthError('invalid_client', 'Unknown client_id. Register first.');
+  const back = new URL(req.redirect_uri);
+  if (req.state) back.searchParams.set('state', req.state);
+  if (issuer) back.searchParams.set('iss', issuer);
+  back.searchParams.set(
+    'code',
+    sign('code', { c: req.client_id, r: req.redirect_uri, ch: req.code_challenge, e: Date.now() + CODE_TTL_MS, n: randomBytes(12).toString('base64url') } satisfies CodePayload),
+  );
+  return back;
+}
+
+/**
+ * Exchanges a code for the installation token. The token is derived from the code, so a replayed
+ * code yields the same token; the client key makes re-authorizing a client the same installation.
+ * A client id with no nonce, or one serving many builders, gets no key: each token stays its own.
+ */
+export function exchangeCode(form: URLSearchParams): { token: string; clientKey: string | undefined; limitKey: string; hostedHost: string | null; clientName: string | null } {
+  if (form.get('grant_type') !== 'authorization_code') throw new OAuthError('unsupported_grant_type', 'Only authorization_code is supported');
+  const code = form.get('code') ?? '';
+  const payload = verify<CodePayload>('code', code);
+  if (!payload || payload.e < Date.now()) throw new OAuthError('invalid_grant', 'Code is invalid or expired');
+  const clientId = form.get('client_id');
+  if (clientId && clientId !== payload.c) throw new OAuthError('invalid_grant', 'Code was issued to another client');
+  const redirectUri = form.get('redirect_uri');
+  if (redirectUri && redirectUri !== payload.r) throw new OAuthError('invalid_grant', 'redirect_uri does not match');
+  if (b64(createHash('sha256').update(form.get('code_verifier') ?? '').digest()) !== payload.ch)
+    throw new OAuthError('invalid_grant', 'PKCE verification failed');
+
+  const client = verify<ClientPayload>('client', payload.c);
+  const uris = client?.r ?? [payload.r];
+  const keyed = typeof client?.n === 'string' && client.n.length > 0 && !servesMany({ r: uris, cn: client.cn });
+  return {
+    token: `ek_${mac('token', code)}`,
+    clientKey: keyed ? clientKeyOf(payload.c) : undefined,
+    limitKey: registrationLimitKey(payload.c),
+    hostedHost: hostedRedirectHost(uris),
+    clientName: clientNameOf(client?.cn),
+  };
+}
+
+export function authorizationServerMetadata(origin: string) {
+  return {
+    issuer: origin,
+    authorization_endpoint: `${origin}/oauth/authorize`,
+    token_endpoint: `${origin}/oauth/token`,
+    registration_endpoint: `${origin}/oauth/register`,
+    response_types_supported: ['code'],
+    grant_types_supported: ['authorization_code'],
+    code_challenge_methods_supported: ['S256'],
+    token_endpoint_auth_methods_supported: ['none'],
+    authorization_response_iss_parameter_supported: true,
+  };
+}
+
+export function protectedResourceMetadata(origin: string) {
+  return { resource: `${origin}/mcp`, authorization_servers: [origin], bearer_methods_supported: ['header'], resource_name: 'EarnKit' };
+}
+
+/**
+ * The public origin for discovery and WWW-Authenticate: EARNKIT_URL. Production requires it and
+ * never falls back to the request's Host, which a client controls; local dev and tests may. Pure.
+ */
+export function originFor(env: { NODE_ENV?: string; EARNKIT_URL?: string }, requestUrl: string) {
+  const configured = env.EARNKIT_URL?.trim();
+  if (configured) return configured.replace(/\/$/, '');
+  if (env.NODE_ENV !== 'development' && env.NODE_ENV !== 'test')
+    throw new Error('EARNKIT_URL is not set. Production needs it (e.g. https://earnkit.com) for OAuth discovery; the request Host is never used.');
+  return new URL(requestUrl).origin;
+}
+
+export const publicOrigin = (request: Request) => originFor(process.env, request.url);

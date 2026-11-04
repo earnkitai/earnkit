@@ -1,6 +1,7 @@
 /**
- * HTTP helpers for the route handlers: JSON answers (any origin may read them, never cached),
- * constant-time secret and Bearer checks, and a request body read under a size cap.
+ * HTTP helpers for the route handlers: JSON answers and the CORS preflight (any origin may read
+ * them, never cached), form or JSON params, constant-time secret and Bearer checks, and a request
+ * body read under a size cap.
  */
 import { createHash, timingSafeEqual } from 'node:crypto';
 
@@ -11,6 +12,18 @@ export const CORS = {
   'Access-Control-Allow-Headers': 'Authorization, Content-Type, Mcp-Session-Id, Mcp-Protocol-Version',
   'Access-Control-Expose-Headers': 'WWW-Authenticate, Mcp-Session-Id',
 };
+
+/** The CORS preflight answer. */
+export const preflight = () => new Response(null, { status: 204, headers: CORS });
+
+/** A form or JSON body as URLSearchParams. */
+export async function readParams(request: Request): Promise<URLSearchParams> {
+  if (request.headers.get('content-type')?.includes('application/json')) {
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    return new URLSearchParams(Object.entries(body ?? {}).map(([k, v]) => [k, String(v)]));
+  }
+  return new URLSearchParams(await request.text());
+}
 
 export const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
   Response.json(body, { status, headers: { ...CORS, 'Cache-Control': 'no-store', ...headers } });

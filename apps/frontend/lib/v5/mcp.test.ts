@@ -1,0 +1,52 @@
+import { after, test } from 'node:test';
+import assert from 'node:assert/strict';
+import { sql } from './db';
+import { mcpCall, mcpInstructions, mcpListTools } from './fixtures/mcp-call';
+import { FIND_DESCRIPTION, SERVER_INSTRUCTIONS, TRACK_DESCRIPTION } from './mcp';
+
+after(() => sql().end());
+
+const NOW = new Date('2026-11-04T12:00:00Z');
+async function ctx() {
+  const [r] = await sql()`INSERT INTO installations (token_hash) VALUES (${'mcp-' + Math.random()}) RETURNING id`;
+  return { installationId: r.id as number, now: NOW, gh: (async () => new Response('', { status: 404 })) as typeof fetch };
+}
+
+test('two tools, their descriptions and the server instructions, verbatim', async () => {
+  const c = await ctx();
+  const tools = await mcpListTools(c);
+  assert.deepEqual(tools.map((t) => t.name), ['find', 'track']);
+  assert.equal(
+    FIND_DESCRIPTION,
+    'What can this repo earn: the programs it fits with every field pre-filled, the ones one change away, and the ledger. Call it at session start with the project you are in, and again when the builder asks about money or programs. With program_id: that program\'s details and form.',
+  );
+  assert.equal(
+    TRACK_DESCRIPTION,
+    'What the builder did: applied, won (with amount_usd), rejected, no_result, skipped, or gap_done (with item). Call it after every submission and every answer about a result.',
+  );
+  assert.equal(tools[0].description, FIND_DESCRIPTION);
+  assert.equal(tools[1].description, TRACK_DESCRIPTION);
+  assert.equal(
+    SERVER_INSTRUCTIONS,
+    'Call find at the start of every session with the project you are in, before the builder says anything, and open with its reply in your own words. Call it again when they ask about money, grants or programs. Draft every form from find\'s fields: EarnKit\'s values as given, agent fields from your memory, builder fields asked once. Submit in your own browser only when the builder says yes. After each submission call track. Never name tools, fields or files. Never invent an amount, a deadline or a rule.',
+  );
+  assert.equal(await mcpInstructions(c), SERVER_INSTRUCTIONS);
+});
+
+test('find strips unknown keys; track refuses them', async () => {
+  const c = await ctx();
+  const f = await mcpCall(c, 'find', { project: { name: 'X', description: 'An app.' }, wallet: '0xabc', github_user: 'someone' });
+  assert.equal(f.isError, false, f.text);
+  assert.ok(typeof f.reply!.show_to_builder === 'string');
+  const t = await mcpCall(c, 'track', { program_id: 'alliance-all19', status: 'skipped', extra: 1 });
+  assert.equal(t.isError, true, t.text);
+  const [n] = await sql()`SELECT count(*)::int AS n FROM application_history WHERE installation_id = ${c.installationId}`;
+  assert.equal(n.n, 0);
+});
+
+test('a database error is the busy line', async () => {
+  // An id past Postgres's integer range: the database refuses the query.
+  const r = await mcpCall({ installationId: 2 ** 40, now: NOW }, 'find', { project: { name: 'X', description: 'An app.' } });
+  assert.equal(r.isError, true);
+  assert.equal(r.text, 'EarnKit is busy. Try again in a minute.');
+});
