@@ -114,7 +114,7 @@ test('gaps only, the agent can do it, and the needs list is cut at three', () =>
   const many = base({ ready: [ready({ title: 'B', needs: ['your full name', 'your email', 'a Loom product demo', 'your X handle', 'an investor deck file'] })] });
   assert.match(replyText(many, false), /Needs your full name, email, Loom product demo and 2 more\.$/m);
   const setup = base({ ready: [ready({ title: 'S', setup: ['sign in to the Builder Hub'], needs: ['sign in to the Builder Hub', 'a Loom product demo'] })] });
-  assert.match(replyText(setup, false), /^1\. S, \$1K\. Your agent fills all 1 answers on the page\. Needs your Loom product demo\. First: sign in to the Builder Hub\.$/m);
+  assert.match(replyText(setup, false), /^1\. S, \$1K\. Your agent fills the one answer on the page\. Needs your Loom product demo\. First: sign in to the Builder Hub\.$/m);
 });
 
 test('one ready program: no "all 1"', () => {
@@ -187,8 +187,8 @@ test('repo reads paused: its own agent line, never "send them corrected"', () =>
   assert.ok(both.includes('Some project facts were dropped: live_url dropped: not a web link. Send them corrected next time.'));
 });
 
-test('a reported-only program with passed links reads "Your agent fills all N answers on the page."', () => {
-  assert.match(replyText(base({ ready: [ready({ title: 'R', filled: 3, facts_from_repo: 0 })] }), false), /^1\. R, \$1K\. Your agent fills all 1 answers on the page\.$/m);
+test('a reported-only program with passed links reads "Your agent fills the one answer on the page."', () => {
+  assert.match(replyText(base({ ready: [ready({ title: 'R', filled: 3, facts_from_repo: 0 })] }), false), /^1\. R, \$1K\. Your agent fills the one answer on the page\.$/m);
 });
 
 test('the ready line is honest about the answers: n of total, never above total, or all of them by the agent', () => {
@@ -196,4 +196,10 @@ test('the ready line is honest about the answers: n of total, never above total,
   assert.equal(line({ facts_from_repo: 2, total: 23 }), "1. Z Fellows, $10K. Drafted: 2 of 23 answers from the repo, the rest from your agent's memory.");
   assert.equal(line({ facts_from_repo: 6, total: 4 }), "1. Z Fellows, $10K. Drafted: 4 of 4 answers from the repo, the rest from your agent's memory.");
   assert.equal(line({ facts_from_repo: 0, total: 23 }), '1. Z Fellows, $10K. Your agent fills all 23 answers on the page.');
+});
+
+test('one required answer reads in the singular', () => {
+  const line = (facts_from_repo: number) => replyText(base({ ready: [ready({ title: 'One', money: '$1K', facts_from_repo, total: 1 })] }), false).split('\n')[1];
+  assert.equal(line(1), '1. One, $1K. Drafted: the one answer from the repo.');
+  assert.equal(line(0), '1. One, $1K. Your agent fills the one answer on the page.');
 });

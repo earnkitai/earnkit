@@ -48,7 +48,7 @@ test('first find has no since', async () => {
     show,
     [
       'Ready to apply, 5:',
-      "1. Alliance ALL19, $400K at admission, closes in 14 days. Your agent fills all 1 answers on the page. First: start the application with the first founder's email.",
+      "1. Alliance ALL19, $400K at admission, closes in 14 days. Your agent fills the one answer on the page. First: start the application with the first founder's email.",
       "2. Avalanche Team1 Mini Grants, up to $10,000. Drafted: 4 of 9 answers from the repo, the rest from your agent's memory. First: sign in to the Avalanche Builder Hub.",
       "3. Z Fellows, up to $10K investment. Drafted: 1 of 23 answers from the repo, the rest from your agent's memory.",
       '4. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Your agent fills all 6 answers on the page. Needs your investor deck file.',
