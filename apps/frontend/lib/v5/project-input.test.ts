@@ -59,3 +59,10 @@ test('a clean report parses with no problems and keeps the flags', () => {
   assert.equal(r.project.builder_codes, true);
   assert.equal(r.project.first_commit_at, '2026-01-02T00:00:00.000Z');
 });
+
+test('a bare string chain is a mainnet chain; an unknown bare string is dropped by name', () => {
+  const r = parseProject({ ...base, chains: ['base', 'Arc', 'nowhere'] });
+  assert.ok(r.ok);
+  assert.deepEqual(r.project.chains, [{ chain: 'base', mainnet: true }, { chain: 'arc', mainnet: true }]);
+  assert.deepEqual(r.problems, ['chain nowhere dropped: not a known chain']);
+});
