@@ -47,10 +47,10 @@ const base = (over: Partial<R> = {}): R => {
 const MONDAY = base({
   ready: [
     ready({
-      title: 'Alliance ALL19', money: '$400K at admission', closes_in: 'in 14 days', filled: 3, facts_from_repo: 2,
+      title: 'Alliance ALL19', money: '$400K at admission', closes_in: 'in 14 days', filled: 3, facts_from_repo: 2, total: 9,
       needs: ["the first founder's email"],
     }),
-    ready({ title: 'Arc Builders Fund', money: 'investment from Circle Ventures', long_shot: 'an investment program with no stated amount' }),
+    ready({ title: 'Arc Builders Fund', money: 'investment from Circle Ventures', long_shot: 'an investment program with no stated amount', total: 5 }),
   ],
   gaps: [gap({ title: 'Circle Developer Grants', money: '$5,000 to $100,000 USDC grants' })],
   ledger: { ...LEDGER0, applied: 1, asked_usd: 5000, pending: 1 },
@@ -61,8 +61,8 @@ test('the Monday text: two ready, one gap, a ledger with one applied', () => {
     replyText(MONDAY, false),
     [
       'Ready to apply, 2:',
-      "1. Alliance ALL19, $400K at admission, closes in 14 days. Drafted: 2 facts from the repo. Needs your first founder's email.",
-      '2. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Your agent fills it on the page.',
+      "1. Alliance ALL19, $400K at admission, closes in 14 days. Drafted: 2 of 9 answers from the repo, the rest from your agent's memory. Needs your first founder's email.",
+      '2. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Your agent fills all 5 answers on the page.',
       '',
       'One change away, 1:',
       '3. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
@@ -82,7 +82,7 @@ test('the since line: only when something changed, never on the first find', () 
       changed: [{ program_id: 'c', title: 'Circle Developer Grants', what: 'deadline moved to Nov 20' }],
       closing: [{ program_id: 'd', title: 'Alliance ALL19', closes_at: '2026-11-07T00:00:00.000Z' }],
     },
-    ready: [ready({ program_id: 'd', title: 'Alliance ALL19', money: '$400K at admission', closes_in: 'in 3 days', filled: 1, facts_from_repo: 1 })],
+    ready: [ready({ program_id: 'd', title: 'Alliance ALL19', money: '$400K at admission', closes_in: 'in 3 days', filled: 1, facts_from_repo: 1, total: 4 })],
     ledger: { ...LEDGER0, applied: 2, asked_usd: 115000, won: 1, pending: 1, closing_soon: [{ program_id: 'x', title: 'X', closes_at: '' }] },
   });
   assert.equal(
@@ -91,7 +91,7 @@ test('the since line: only when something changed, never on the first find', () 
       'Since Nov 2: 2 new programs you fit; Circle Developer Grants: deadline moved to Nov 20; Alliance ALL19 closes in 3 days.',
       '',
       'Ready to apply, 1:',
-      '1. Alliance ALL19, $400K at admission, closes in 3 days. Drafted: 1 fact from the repo.',
+      "1. Alliance ALL19, $400K at admission, closes in 3 days. Drafted: 1 of 4 answers from the repo, the rest from your agent's memory.",
       '',
       'Ledger: 2 applied ($115K asked), 1 won, 1 pending, 1 closing soon.',
       '',
@@ -114,7 +114,7 @@ test('gaps only, the agent can do it, and the needs list is cut at three', () =>
   const many = base({ ready: [ready({ title: 'B', needs: ['your full name', 'your email', 'a Loom product demo', 'your X handle', 'an investor deck file'] })] });
   assert.match(replyText(many, false), /Needs your full name, email, Loom product demo and 2 more\.$/m);
   const setup = base({ ready: [ready({ title: 'S', setup: ['sign in to the Builder Hub'], needs: ['sign in to the Builder Hub', 'a Loom product demo'] })] });
-  assert.match(replyText(setup, false), /^1\. S, \$1K\. Your agent fills it on the page\. Needs your Loom product demo\. First: sign in to the Builder Hub\.$/m);
+  assert.match(replyText(setup, false), /^1\. S, \$1K\. Your agent fills the one answer on the page\. Needs your Loom product demo\. First: sign in to the Builder Hub\.$/m);
 });
 
 test('one ready program: no "all 1"', () => {
@@ -135,8 +135,8 @@ test('in person: its own block after ready and gaps, with the setup, and never i
     replyText(r, false),
     [
       'Ready to apply, 2:',
-      "1. Alliance ALL19, $400K at admission, closes in 14 days. Drafted: 2 facts from the repo. Needs your first founder's email.",
-      '2. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Your agent fills it on the page.',
+      "1. Alliance ALL19, $400K at admission, closes in 14 days. Drafted: 2 of 9 answers from the repo, the rest from your agent's memory. Needs your first founder's email.",
+      '2. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Your agent fills all 5 answers on the page.',
       '',
       'One change away, 1:',
       '3. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
@@ -187,6 +187,19 @@ test('repo reads paused: its own agent line, never "send them corrected"', () =>
   assert.ok(both.includes('Some project facts were dropped: live_url dropped: not a web link. Send them corrected next time.'));
 });
 
-test('a reported-only program with passed links reads "Your agent fills it on the page."', () => {
-  assert.match(replyText(base({ ready: [ready({ title: 'R', filled: 3, facts_from_repo: 0 })] }), false), /^1\. R, \$1K\. Your agent fills it on the page\.$/m);
+test('a reported-only program with passed links reads "Your agent fills the one answer on the page."', () => {
+  assert.match(replyText(base({ ready: [ready({ title: 'R', filled: 3, facts_from_repo: 0 })] }), false), /^1\. R, \$1K\. Your agent fills the one answer on the page\.$/m);
+});
+
+test('the ready line is honest about the answers: n of total, never above total, or all of them by the agent', () => {
+  const line = (over: Partial<ReadyProgram>) => replyText(base({ ready: [ready({ title: 'Z Fellows', money: '$10K', ...over })] }), false).split('\n')[1];
+  assert.equal(line({ facts_from_repo: 2, total: 23 }), "1. Z Fellows, $10K. Drafted: 2 of 23 answers from the repo, the rest from your agent's memory.");
+  assert.equal(line({ facts_from_repo: 6, total: 4 }), "1. Z Fellows, $10K. Drafted: 4 of 4 answers from the repo, the rest from your agent's memory.");
+  assert.equal(line({ facts_from_repo: 0, total: 23 }), '1. Z Fellows, $10K. Your agent fills all 23 answers on the page.');
+});
+
+test('one required answer reads in the singular', () => {
+  const line = (facts_from_repo: number) => replyText(base({ ready: [ready({ title: 'One', money: '$1K', facts_from_repo, total: 1 })] }), false).split('\n')[1];
+  assert.equal(line(1), '1. One, $1K. Drafted: the one answer from the repo.');
+  assert.equal(line(0), '1. One, $1K. Your agent fills the one answer on the page.');
 });

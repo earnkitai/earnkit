@@ -47,20 +47,18 @@ test('first find has no since', async () => {
   assert.equal(
     show,
     [
-      'Ready to apply, 4:',
-      "1. Alliance ALL19, $400K at admission, closes in 14 days. Your agent fills it on the page. First: start the application with the first founder's email.",
-      '2. Avalanche Team1 Mini Grants, up to $10,000. Drafted: 4 facts from the repo. First: sign in to the Avalanche Builder Hub.',
-      '3. Z Fellows, up to $10K investment. Drafted: 1 fact from the repo.',
-      '4. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Your agent fills it on the page. Needs your investor deck file.',
+      'Ready to apply, 5:',
+      "1. Alliance ALL19, $400K at admission, closes in 14 days. Your agent fills the one answer on the page. First: start the application with the first founder's email.",
+      "2. Avalanche Team1 Mini Grants, up to $10,000. Drafted: 4 of 9 answers from the repo, the rest from your agent's memory. First: sign in to the Avalanche Builder Hub.",
+      "3. Z Fellows, up to $10K investment. Drafted: 1 of 23 answers from the repo, the rest from your agent's memory.",
+      '4. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Your agent fills all 6 answers on the page. Needs your investor deck file.',
+      "5. Base Ecosystem Fund, pre-seed and seed investment, a long shot: an investment program with no stated amount. Drafted: 2 of 21 answers from the repo, the rest from your agent's memory.",
       '',
       'One change away, 2:',
-      '5. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
-      '6. Base Builder Grant Program, up to $5,000: add Base Builder Codes to the app and tell me if real people use it.',
+      '6. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
+      '7. Base Builder Grant Program, up to $5,000: add Base Builder Codes to the app and tell me if real people use it.',
       '',
-      'In person, apply to attend first:',
-      '7. ETHGlobal Mumbai, up to $15K per partner prize, closes in 2 days. Apply to attend by Nov 3 and get accepted; stake a small amount of ETH; be in Mumbai Nov 5 to 7.',
-      '',
-      'Say yes to apply to all 4, numbers to skip, or "do 5" and I\'ll make the change first.',
+      'Say yes to apply to all 5, numbers to skip, or "do 6" and I\'ll make the change first.',
     ].join('\n'),
   );
   // Only what nobody but the builder can give: no contacts or team.
@@ -68,7 +66,18 @@ test('first find has no since', async () => {
     for (const n of p.needs.filter((x) => !p.setup.includes(x))) assert.doesNotMatch(n, /email|name|team|telegram|x profile/i);
 });
 
-test('the numbers the builder sees are the n of each item: ready in order, gaps, then in person', async () => {
+/** A synthetic in-person program (the real ones close once their attend-by date passes). */
+async function withInPerson<T>(run: () => Promise<T>): Promise<T> {
+  const { programFixture } = await import('./fixtures/program');
+  await upsertProgram(programFixture({ id: 'f-attend', title: 'Attend Summit', in_person: true, setup: ['apply to attend and get accepted'] }), 'file', NOW);
+  try {
+    return await run();
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'f-attend'`;
+  }
+}
+
+test('the numbers the builder sees are the n of each item: ready in order, gaps, then in person', async () => withInPerson(async () => {
   const id = await installation();
   const r = await mcpCall(ctx(id), 'find', { project: PROJECT });
   const reply = r.reply!;
@@ -84,7 +93,7 @@ test('the numbers the builder sees are the n of each item: ready in order, gaps,
   for (const x of [...ready, ...gaps]) assert.equal(printed(x.n), x.title, String(x.n));
   assert.deepEqual([...ready, ...gaps].map((x) => x.n).sort((a, b) => a - b), Array.from({ length: ready.length + gaps.length }, (_, i) => i + 1));
   assert.match(reply.agent_note as string, /numbers the builder says are each item's n/);
-});
+}));
 
 test('a deadline moved since the last find', async () => {
   const id = await installation();
@@ -196,7 +205,7 @@ test('a project with problems still matches; the problems go to the agent', asyn
   assert.ok((r.reply!.ready as unknown[]).length > 0);
 });
 
-test('filter.all lists the rest with a reason; the leftover count is in the note otherwise', async () => {
+test('filter.all lists the rest with a reason; the leftover count is in the note otherwise', async () => withInPerson(async () => {
   const id = await installation();
   const capped = await mcpCall(ctx(id), 'find', { project: PROJECT });
   assert.match(capped.reply!.agent_note as string, /\d+ more fit; ask with filter\.all for the full list\./);
@@ -210,7 +219,7 @@ test('filter.all lists the rest with a reason; the leftover count is in the note
   assert.ok((offline.reply!.not_fit as { program_id: string; reason: string }[]).some((n) => n.program_id === 'base-builder-grants' && n.reason.length > 0));
   const grants = await mcpCall(ctx(id), 'find', { project: PROJECT, filter: { category: 'investment', all: true } });
   assert.ok((grants.reply!.ready as { category: string }[]).every((p) => p.category === 'investment'));
-});
+}));
 
 test('a repo read that fails never fails find', async () => {
   const id = await installation();

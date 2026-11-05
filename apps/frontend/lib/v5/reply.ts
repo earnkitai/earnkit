@@ -34,7 +34,13 @@ function readyLine(p: ReadyProgram): string {
   if (p.closes_in) head += `, closes ${p.closes_in}`;
   if (p.long_shot) head += `, a long shot: ${p.long_shot}`;
   const drafted =
-    p.facts_from_repo > 0 ? `Drafted: ${p.facts_from_repo} ${p.facts_from_repo === 1 ? 'fact' : 'facts'} from the repo.` : 'Your agent fills it on the page.';
+    p.total === 1
+      ? p.facts_from_repo > 0
+        ? 'Drafted: the one answer from the repo.'
+        : 'Your agent fills the one answer on the page.'
+      : p.facts_from_repo > 0
+        ? `Drafted: ${Math.min(p.facts_from_repo, p.total)} of ${p.total} answers from the repo, the rest from your agent's memory.`
+        : `Your agent fills all ${p.total} answers on the page.`;
   // Setup items are steps ("sign in to ..."), the rest are things ("a Loom demo"): each reads its own way.
   const steps = p.needs.filter((x) => p.setup.includes(x));
   const needs = p.needs.filter((x) => !p.setup.includes(x)).map(bare);

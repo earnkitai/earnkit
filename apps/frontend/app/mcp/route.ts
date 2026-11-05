@@ -2,6 +2,7 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { CORS, json, preflight } from '../../lib/v5/http';
 import { connectInstallation, type Caller } from '../../lib/v5/installations';
 import { createMcpServer } from '../../lib/v5/mcp';
+import { answerOldTools } from '../../lib/v5/old-tools';
 import { publicOrigin } from '../../lib/v5/oauth';
 import { clientIp } from '../../lib/v5/rate-limit';
 import { BODY_TOO_LARGE, readCapped, scrubToolCalls, withScrubNotes } from '../../lib/v5/secrets';
@@ -11,9 +12,11 @@ import { BODY_TOO_LARGE, readCapped, scrubToolCalls, withScrubNotes } from '../.
  * are scrubbed of secret keys before the transport sees them (only the count is logged), and
  * `scrubbed` holds those calls' ids so their replies lead with the scrub line.
  */
-async function scrubbed(request: Request): Promise<{ request: Request; ids: Set<string | number> } | Response> {
+async function scrubbed(request: Request): Promise<{ request: Request | null; ids: Set<string | number>; old: unknown[]; batch: boolean } | Response> {
   const none = new Set<string | number>();
-  if (request.method !== 'POST' || !/application\/json/i.test(request.headers.get('content-type') ?? '')) return { request, ids: none };
+  const old: unknown[] = [];
+  let batch = false;
+  if (request.method !== 'POST' || !/application\/json/i.test(request.headers.get('content-type') ?? '')) return { request, ids: none, old, batch };
   const raw = await readCapped(request);
   if (raw === null) return json(BODY_TOO_LARGE, 413);
   const again = (body: string, headers: Headers) => new Request(request.url, { method: request.method, headers, body });
@@ -21,15 +24,24 @@ async function scrubbed(request: Request): Promise<{ request: Request; ids: Set<
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return { request: again(raw, request.headers), ids: none };
+    return { request: again(raw, request.headers), ids: none, old, batch };
+  }
+  // Old tool names are answered here; only the rest goes on (nothing: see handle).
+  batch = Array.isArray(parsed);
+  const split = answerOldTools(parsed);
+  if (split.answers.length > 0) {
+    console.log(`[mcp] old tool ${split.names.join(',')}`);
+    old.push(...split.answers);
+    parsed = split.rest;
+    if (parsed === null) return { request: null, ids: none, old, batch };
   }
   const scrub = scrubToolCalls(parsed);
-  if (scrub.removed === 0) return { request: again(raw, request.headers), ids: none };
-  console.log(`[mcp] scrubbed ${scrub.removed}`);
-  // The scrubbed body has its own length.
+  if (scrub.removed === 0 && old.length === 0) return { request: again(raw, request.headers), ids: none, old, batch };
+  if (scrub.removed > 0) console.log(`[mcp] scrubbed ${scrub.removed}`);
+  // The rewritten body has its own length.
   const headers = new Headers(request.headers);
   headers.delete('content-length');
-  return { request: again(JSON.stringify(scrub.body), headers), ids: scrub.ids };
+  return { request: again(JSON.stringify(scrub.body), headers), ids: scrub.ids, old, batch };
 }
 
 /**
@@ -57,7 +69,13 @@ async function handle(request: Request) {
   await createMcpServer({ installationId: caller.id, ip: clientIp(request.headers) }).connect(transport);
   const s = await scrubbed(request);
   if (s instanceof Response) return s;
-  const response = await withScrubNotes(await transport.handleRequest(s.request), s.ids);
+  if (s.request === null) return json(s.batch ? s.old : s.old[0], 200);
+  let response = await withScrubNotes(await transport.handleRequest(s.request), s.ids);
+  if (s.old.length > 0) {
+    // A batch with an old call: its answers join the transport's replies.
+    const rest = (await response.clone().json().catch(() => [])) as unknown;
+    response = json([...s.old, ...(Array.isArray(rest) ? rest : [rest])], 200);
+  }
   const headers = new Headers(response.headers);
   for (const [k, v] of Object.entries(CORS)) headers.set(k, v);
   return new Response(response.body, { status: response.status, headers });

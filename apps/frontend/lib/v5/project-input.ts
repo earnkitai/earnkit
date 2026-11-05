@@ -72,7 +72,8 @@ export function parseProject(v: unknown): { ok: true; project: Project; problems
   if (Array.isArray(raw.chains)) {
     const chains: NonNullable<Project['chains']> = [];
     for (const c of raw.chains.slice(0, 20)) {
-      const e = (typeof c === 'object' && c !== null ? c : {}) as Record<string, unknown>;
+      // A bare slug ("base") is that chain on mainnet.
+      const e = (typeof c === 'string' ? { chain: c, mainnet: true } : typeof c === 'object' && c !== null ? c : {}) as Record<string, unknown>;
       const chain = typeof e.chain === 'string' ? e.chain.trim().toLowerCase() : '';
       if (!isKnownChain(chain)) {
         problems.push(`chain ${typeof e.chain === 'string' ? e.chain.slice(0, 40) : '?'} dropped: not a known chain`);

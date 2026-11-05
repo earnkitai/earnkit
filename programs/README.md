@@ -94,6 +94,8 @@ rolling program. Only when the source says.
 
 ## Keeping programs fresh
 
+In-person programs: close the file (`"status": "closed"`) once the attend-by date passes, even if the hackathon's own end date is later.
+
 A daily probe reads every program's `source_url` and `submission_url`. A link that fails two days
 running marks the program stale; an open list leaves out a program stale for more than 14 days, and
 an API program not verified in 14 days. A passed `ends_at` closes an active program (the probe does
