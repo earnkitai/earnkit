@@ -87,6 +87,10 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v6/screen-report.ts`: `markdownReport` (totals, a section per tier, what could not be read) and `csvReport` (one row per applicant, formula cells defused); public evidence only, never a pitch; pure
 - `apps/frontend/lib/v6/screen.ts`: `run`: the screening pilot: arguments, the list read one applicant at a time, placements with the counts across the list, both reports into one folder
 - `apps/frontend/lib/v6/fixtures/applicants.csv`: Eight applicants for the pilot: the four recorded repos, a site-only row (abi.ninja), three bad rows, four sharing one pitch
+- `apps/frontend/lib/v6/own-evidence.ts`: The builder's own project for find: `ownEvidence` (reads at most once in 24 hours), `usageLine` (EarnKit's one fixed usage template from counted mainnet contracts, else null), `evidenceSummary` (tier and `builderLine`)
+- `apps/frontend/lib/v6/claims.ts`: `claim` (a 'started' applications row; a second within 24 hours by any of the builder's agents answers `already` with the claiming agent's client name), `releaseStale`, `appliedOvernight` (agent-submitted since the last find)
+- `apps/frontend/lib/v6/find-record.ts`: The record side of a linked find: `pickProject`, `recordSide` (record, own tier under the 24-hour rule, `evidence_read_at` and `last_tier` written by EarnKit), `tierGate` (min_tier: a ready program below the bar becomes one 'tier' gap), `allowedByPolicy`, `blockersOf`, `missingFor`
+- `apps/frontend/lib/v5/fixtures/record-owner.json`: A sample owner record (EarnKit project, approved answers) for `replay.mts --linked`
 
 ## apps/frontend/app (routes and components)
 

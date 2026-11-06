@@ -48,16 +48,24 @@ export function listWords(items: string[], max = 3): string {
   return shown.length <= 1 ? shown.join('') : `${shown.slice(0, -1).join(', ')} and ${shown[shown.length - 1]}`;
 }
 
-async function unlinked(installationId: number, now: Date): Promise<RecordReply> {
-  const notReady = { show_to_builder: NOT_READY, agent_note: SIGN_IN_NOTE, linked: false };
-  if (!oauthConfigured()) return notReady;
+/** The installation's sign-in link; null when sign-in is not configured or the installation is already linked. */
+export async function signInLink(installationId: number, now: Date): Promise<string | null> {
+  if (!oauthConfigured()) return null;
   try {
-    const link = `${origin()}/link/${await createLinkCode(installationId, now)}`;
-    return { show_to_builder: `Sign in once at ${link} so I remember you across agents.`, agent_note: SIGN_IN_NOTE, linked: false, sign_in: link };
+    return `${origin()}/link/${await createLinkCode(installationId, now)}`;
   } catch (err) {
-    if (err instanceof LinkRefused) return notReady;
+    if (err instanceof LinkRefused) return null;
     throw err;
   }
+}
+
+/** The one line that offers the link. Pure. */
+export const signInLine = (link: string) => `Sign in once at ${link} so I remember you across agents.`;
+
+async function unlinked(installationId: number, now: Date): Promise<RecordReply> {
+  const link = await signInLink(installationId, now);
+  if (!link) return { show_to_builder: NOT_READY, agent_note: SIGN_IN_NOTE, linked: false };
+  return { show_to_builder: signInLine(link), agent_note: SIGN_IN_NOTE, linked: false, sign_in: link };
 }
 
 /** What the open programs ask: their needs, and the answer kinds their forms ask. */

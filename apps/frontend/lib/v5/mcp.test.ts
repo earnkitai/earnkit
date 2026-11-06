@@ -23,10 +23,14 @@ test('three tools, their descriptions and the server instructions, verbatim', as
   );
   assert.equal(
     TRACK_DESCRIPTION,
-    'What the builder did: applied, won (with amount_usd), rejected, no_result, skipped, or gap_done (with item). Call it after every submission and every answer about a result.',
+    'What the builder did: started (a claim before filling), applied (with submitted_by and fields_used), won (with amount_usd), rejected, no_result, skipped, or gap_done (with item). Call started before filling and applied after every submission.',
   );
   assert.equal(tools[0].description, FIND_DESCRIPTION);
   assert.equal(tools[1].description, TRACK_DESCRIPTION);
+  const props = (i: number) => (tools[i].inputSchema as { properties: Record<string, { enum?: string[] }> }).properties;
+  assert.ok('project_id' in props(0));
+  assert.deepEqual(['project_id', 'submitted_by', 'fields_used'].filter((k) => k in props(1)), ['project_id', 'submitted_by', 'fields_used']);
+  assert.ok(props(1).status.enum?.includes('started'));
   assert.equal(
     RECORD_DESCRIPTION,
     "The builder's record: facts, links, documents, answers and standing approval, kept once and read by every agent of theirs. Call it with get at session start; call it with set for every new fact the builder gives; with brief for the question and facts behind one answer kind.",

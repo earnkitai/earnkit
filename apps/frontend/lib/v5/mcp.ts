@@ -6,21 +6,30 @@
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { find } from './find';
+import { find, type FindContext } from './find';
 import { PROGRAM_CATEGORIES } from './program-file';
 import { LIMITS, hit } from './rate-limit';
 import { TrackInput, track } from './track';
 import { RecordInput, recordTool } from '../v6/record-tool';
 
 /** `builderId`: the installation's linked builder, or null. `ip`: the caller's address as a rate-limit key, when the route knows it. */
-export type McpContext = { installationId: number; builderId: number | null; now?: Date; gh?: typeof fetch; ip?: string };
+export type McpContext = {
+  installationId: number;
+  builderId: number | null;
+  now?: Date;
+  gh?: typeof fetch;
+  ip?: string;
+  /** Tests: the builder's own evidence read and the sign-in link (find's defaults otherwise). */
+  evidence?: FindContext['evidence'];
+  linkUrl?: FindContext['linkUrl'];
+};
 
 export const SERVER_INSTRUCTIONS =
   "Call record with get at the start of every session, then find with the project you are in. Open with find's reply in your own words. Draft every form from find's fields: record and repo values as given, approved answers fitted by cutting, never by adding. Anything the builder tells you that a form could ask, save with record before using it. Submit in your own browser only after track started, and only when the builder said yes or their standing approval covers it. After each submission call track applied. Never write a sentence about traction yourself. Never name tools, fields or files. Never invent an amount, a deadline or a rule.";
 export const FIND_DESCRIPTION =
   "What can this repo earn: the programs it fits with every field pre-filled, the ones one change away, and the ledger. Call it at session start with the project you are in, and again when the builder asks about money or programs. With program_id: that program's details and form.";
 export const TRACK_DESCRIPTION =
-  'What the builder did: applied, won (with amount_usd), rejected, no_result, skipped, or gap_done (with item). Call it after every submission and every answer about a result.';
+  'What the builder did: started (a claim before filling), applied (with submitted_by and fields_used), won (with amount_usd), rejected, no_result, skipped, or gap_done (with item). Call started before filling and applied after every submission.';
 export const RECORD_DESCRIPTION =
   "The builder's record: facts, links, documents, answers and standing approval, kept once and read by every agent of theirs. Call it with get at session start; call it with set for every new fact the builder gives; with brief for the question and facts behind one answer kind.";
 export const BUSY = 'EarnKit is busy. Try again in a minute.';
@@ -74,6 +83,7 @@ export function createMcpServer(ctx: McpContext): McpServer {
       inputSchema: {
         project: PROJECT.optional(),
         program_id: z.string().max(100).optional().describe("One program's id: its details, rules and form instead of the match"),
+        project_id: z.string().max(40).optional().describe("The record's project to match and fill from; omit to pick by the repo"),
         filter: z
           .object({
             category: z.enum(PROGRAM_CATEGORIES).optional(),
@@ -82,7 +92,7 @@ export function createMcpServer(ctx: McpContext): McpServer {
           .optional(),
       },
     },
-    (args) => run(ctx, 'find', () => find({ installationId: ctx.installationId, builderId: ctx.builderId, now: now(), gh: ctx.gh }, args)),
+    (args) => run(ctx, 'find', () => find({ installationId: ctx.installationId, builderId: ctx.builderId, now: now(), gh: ctx.gh, evidence: ctx.evidence, linkUrl: ctx.linkUrl }, args)),
   );
   server.registerTool(
     'track',

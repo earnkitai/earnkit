@@ -10,6 +10,9 @@ import { replayFetch } from './fixtures/github';
 import { mcpCall } from './fixtures/mcp-call';
 import { registerClient } from './oauth';
 import { connectInstallation, saveInstallation } from './installations';
+import { getRecord, linkInstallation, saveRecord, upsertBuilder } from '../v6/builders';
+import { approvePath } from '../v6/record';
+import { evidence, liveRows } from '../v6/fixtures/evidence-builder';
 
 process.env.EARNKIT_AUTH_SECRET ??= 'journey-test-secret-0123456789abcdef';
 after(() => sql().end());
@@ -109,6 +112,58 @@ test('a Solana repo gets a reply, no crash, and nothing is taken as reported', a
   assert.ok(typeof reply.show_to_builder === 'string' && (reply.show_to_builder as string).length > 0);
   const base = await find(await stranger(), 'onchain-reaction');
   assert.ok(typeof base.show_to_builder === 'string');
+});
+
+test('the owner, linked: record set, approved on /me, find fills from it, started, applied, and the next find says so', async () => {
+  const id = await stranger();
+  const b = await upsertBuilder({ github_id: 990_001, login: 'jenil', name: 'Jenil', avatar_url: null }, NOW);
+  await linkInstallation(id, b.id, NOW);
+  const { rec, project: p } = project('earnkit');
+  const live = async () => evidence({ live: liveRows({ url: 'https://earnkit.com', url_ok: true }) });
+  const at = (now: Date) => ({ installationId: id, builderId: b.id, now, gh: rec.fetch, evidence: live });
+  const call = async (now: Date, tool: string, args: Record<string, unknown>) => {
+    const r = await mcpCall(at(now), tool, args);
+    assert.equal(r.isError, false, r.text);
+    seen.push(r.reply!.show_to_builder as string);
+    return r.reply!;
+  };
+
+  // The agent writes what the builder said; nothing is approved yet.
+  const set = await call(NOW, 'record', {
+    set: {
+      person: { name: 'Jenil Thakker', email: 'jenil@example.com' },
+      projects: [{ id: 'earnkit', name: 'EarnKit', repo_url: `https://github.com/${rec.repo}`, live_url: 'https://earnkit.com', answers: { problem: { text: 'Builders lose weeks on grant forms.' } } }],
+      traction: { line_pre_launch: 'Pre-launch, launching 2026-12-01.' },
+    },
+  });
+  assert.match(set.show_to_builder as string, /^Saved\./);
+  const before = await call(NOW, 'find', { project: { ...p, live_url: 'https://earnkit.com', users: true } });
+  const z0 = (before.ready as { program_id: string; fields: { key: string; from: string }[] }[]).find((x) => x.program_id === 'z-fellows')!;
+  assert.notEqual(z0.fields.find((f) => f.key === 'problem')!.from, 'record');
+
+  // The builder approves on /me.
+  let record = await getRecord(b.id);
+  for (const path of ['projects.earnkit.answers.problem', 'traction.line_pre_launch']) record = approvePath(record, path, NOW);
+  await saveRecord(b.id, record, NOW);
+
+  const t1 = new Date(NOW.getTime() + H);
+  const first = await call(t1, 'find', { project: { ...p, live_url: 'https://earnkit.com', users: true } });
+  assert.equal(first.linked, true);
+  const z = (first.ready as { program_id: string; from_record: number; fields: { key: string; from: string; value: string | null }[] }[]).find((x) => x.program_id === 'z-fellows')!;
+  assert.deepEqual(z.fields.find((f) => f.key === 'problem')!.value, 'Builders lose weeks on grant forms.');
+  assert.ok(z.from_record >= 2);
+  assert.match(first.show_to_builder as string, /\d+ from your record, \d+ from the repo/);
+
+  const top = (first.ready as { program_id: string }[])[0].program_id;
+  const started = await call(new Date(t1.getTime() + 60_000), 'track', { program_id: top, status: 'started', project_id: 'earnkit' });
+  assert.equal(started.show_to_builder, 'Started. Nothing else will submit this one for 24 hours.');
+  const applied = await call(new Date(t1.getTime() + 120_000), 'track', { program_id: top, status: 'applied', submitted_by: 'agent', fields_used: ['email', 'problem'], project_id: 'earnkit' });
+  assert.equal((applied.ledger as { applied: number }).applied, 1);
+
+  const next = await call(new Date(NOW.getTime() + 10 * H), 'find', { project: { ...p, live_url: 'https://earnkit.com', users: true } });
+  assert.deepEqual((next.applied_overnight as { program_id: string }[]).map((a) => a.program_id), [top]);
+  assert.match(next.show_to_builder as string, /\n\nApplied overnight: [^\n]+\./);
+  assert.ok(!(next.ready as { program_id: string }[]).some((x) => x.program_id === top));
 });
 
 test('every line the builder saw follows the copy rules and ends with one closing line', () => {

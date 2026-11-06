@@ -1,0 +1,129 @@
+/**
+ * The record side of find for a linked installation: the project it picks, the builder's own tier
+ * (read at most once a day, else the stored one), min_tier gating, the policy's filters, blockers
+ * and what the record still lacks for the ready programs. Only find calls this, and only when linked.
+ */
+import type { Gap, Verdict } from '../v5/eligibility';
+import { categoryOf } from '../v5/program-file';
+import type { ProgramRow } from '../v5/programs';
+import type { RepoFacts } from '../v5/repo-facts';
+import { withRecord, readStoredRecord } from './builders';
+import type { Evidence, Subject } from './evidence';
+import { evidenceSummary, ownEvidence, usageLine } from './own-evidence';
+import { hasDoc, recordMissing, type BuilderRecord, type Project } from './record';
+import { TIERS, place, type Tier } from './tiers';
+
+export const EVIDENCE_NOT_READ = 'evidence not read';
+
+export type RecordSide = {
+  record: BuilderRecord;
+  projectId: string | null;
+  verifiedUsage: string | null;
+  tier: Tier | null;
+  summary: { tier: string | null; line: string } | null;
+  problems: string[];
+};
+export type Blocker = { program_id: string; sign_in: string | null; needs_click: boolean; needs: string[] };
+
+const sameRepo = (a: string | null | undefined, b: string | null | undefined) =>
+  !!a && !!b && a.toLowerCase().replace(/\/+$/, '').replace(/\.git$/, '') === b.toLowerCase().replace(/\/+$/, '').replace(/\.git$/, '');
+
+/** `project_id`, else the project whose repo is the one reported, else the first, else none. Pure. */
+export function pickProject(record: BuilderRecord, projectId: string | undefined, repoUrl: string | null): Project | null {
+  return (
+    (projectId ? record.projects.find((p) => p.id === projectId) : undefined) ??
+    record.projects.find((p) => sameRepo(p.repo_url, repoUrl)) ??
+    record.projects[0] ??
+    null
+  );
+}
+
+const isTier = (t: string | undefined): t is Tier => (TIERS as readonly string[]).includes(t ?? '');
+
+/** Loads the record and, for a project with a repo or site, the builder's own tier under the 24-hour rule. */
+export async function recordSide(
+  o: { builderId: number; now: Date; projectId?: string; facts: RepoFacts; read: (s: Subject) => Promise<Evidence> },
+): Promise<RecordSide> {
+  const { record } = await readStoredRecord(o.builderId);
+  const project = pickProject(record, o.projectId, o.facts.repo_url);
+  const side: RecordSide = { record, projectId: project?.id ?? null, verifiedUsage: null, tier: null, summary: null, problems: [] };
+  if (!project) return side;
+  const stored = project.last_tier;
+  if (isTier(stored?.tier)) {
+    side.tier = stored.tier;
+    side.summary = { tier: stored.tier, line: stored.line };
+    side.verifiedUsage = stored.usage ?? null;
+  }
+  if (!project.repo_url && !project.live_url) return side;
+  const subject: Subject = {
+    ...(project.repo_url ? { repo_url: project.repo_url } : {}),
+    ...(project.live_url ? { live_url: project.live_url } : {}),
+    ...(o.facts.contracts.length > 0 ? { contracts: o.facts.contracts.map((c) => ({ chain: c.chain, address: c.address })) } : {}),
+  };
+  let evidence: Evidence | null;
+  try {
+    const r = await ownEvidence(subject, { read: o.read, now: o.now, lastReadAt: project.evidence_read_at ?? null });
+    if (!r.read) return side;
+    evidence = r.evidence;
+  } catch {
+    return { ...side, summary: null, problems: [EVIDENCE_NOT_READ] };
+  }
+  const p = place(evidence, { identical_pitch: 0, shared_contributors: 0 }, undefined, o.now);
+  const summary = evidence ? evidenceSummary(p, evidence) : null;
+  const usage = evidence ? usageLine(evidence, o.now) : null;
+  const at = o.now.toISOString();
+  // EarnKit's own fields, written on the record directly (never through mergeRecord), under the row's lock.
+  await withRecord(o.builderId, o.now, (cur) => {
+    const mine = cur.projects.find((x) => x.id === project.id);
+    if (!mine) return { record: null, result: null };
+    mine.evidence_read_at = at;
+    if (summary?.tier) mine.last_tier = { tier: summary.tier, line: summary.line.slice(0, 280), read_at: at, ...(usage ? { usage: usage.slice(0, 280) } : {}) };
+    return { record: cur, result: null };
+  });
+  return { ...side, tier: summary?.tier ?? side.tier, summary: summary ?? side.summary, verifiedUsage: summary ? usage : side.verifiedUsage };
+}
+
+const RANK: Record<Tier, number> = { flagged: 0, unverified: 1, building: 2, live: 3, used: 4 };
+
+/** What would lift the project: the line's "Next: ..." part, without its full stop. Pure. */
+const nextOf = (line: string | undefined, min: string) => {
+  const m = line ? / Next: (.+?)\.?$/.exec(line) : null;
+  return m ? m[1] : `the project reading as ${min}`;
+};
+
+/** A ready verdict on a program whose min_tier is above a known tier becomes one tier gap; anything else is unchanged. Pure. */
+export function tierGate(v: Verdict, row: ProgramRow, tier: Tier | null, line: string | undefined): Verdict {
+  const min = row.file.min_tier;
+  if (v.status !== 'ready' || !min || !tier || RANK[tier] >= RANK[min]) return v;
+  const gap: Gap = { kind: 'tier', item: `tier:${min}`, what: nextOf(line, min), effort: 'weeks', agent_can: false, details: { tier, min_tier: min } };
+  return { ...v, status: 'gap', gaps: [gap] };
+}
+
+/** The programs the builder's policy allows: never-list out, categories in. Pure. */
+export const allowedByPolicy = (record: BuilderRecord) => (row: ProgramRow) =>
+  !record.policy.never.includes(row.id) && record.policy.categories.includes(categoryOf(row.file));
+
+/** The sign-in a blocker names: the kind, or the platform's name. Pure. */
+const signInOf = (row: ProgramRow): string | null =>
+  row.file.sign_in === 'none' ? null : row.file.sign_in === 'platform' ? (row.file.platform_name ?? 'platform') : row.file.sign_in;
+
+/** One blocker per ready program that needs a sign-in, a click or a document the record lacks. Pure. */
+export function blockersOf(rows: ProgramRow[], record: BuilderRecord): Blocker[] {
+  const out: Blocker[] = [];
+  for (const row of rows) {
+    const needs_click = row.file.submit === 'builder' || record.policy.agent_may_submit === false;
+    const needs = row.file.needs.filter((n) => !hasDoc(record, n));
+    const sign_in = signInOf(row);
+    if (sign_in || needs_click || needs.length > 0) out.push({ program_id: row.id, sign_in, needs_click, needs });
+  }
+  return out;
+}
+
+/** What the record lacks for these programs, in builder words. A traction field reads the usage or the pre-launch line, never the bank. Pure. */
+export function missingFor(rows: ProgramRow[], record: BuilderRecord, verifiedUsage: boolean): string[] {
+  return recordMissing(record, {
+    needs: [...new Set(rows.flatMap((r) => r.file.needs))],
+    kinds: [...new Set(rows.flatMap((r) => r.file.submission_requirements.map((q) => q.kind)))].filter((k) => k !== 'traction'),
+    verifiedUsage,
+  });
+}

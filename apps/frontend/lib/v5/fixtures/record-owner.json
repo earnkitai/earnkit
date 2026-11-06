@@ -1,0 +1,36 @@
+{
+  "person": { "name": "Jenil Thakker", "email": "jenil@earnkit.com", "x": "jenilt", "location": "Ahmedabad, India", "timezone": "Asia/Kolkata", "technical": true, "based_country": "IN" },
+  "team": [{ "name": "Jenil Thakker", "role": "founder", "github": "jenil" }],
+  "company": { "name": "Tokenfi Inc", "incorporated": true, "jurisdiction": "Delaware", "stage": "launched" },
+  "projects": [
+    {
+      "id": "earnkit",
+      "name": "EarnKit",
+      "one_liner": "Grants and programs a builder's agent can apply to, pre-filled from the repo.",
+      "repo_url": "https://github.com/earnkitai/earnkit",
+      "live_url": "https://earnkit.com",
+      "category": "developer tools",
+      "chains_claimed": ["base"],
+      "answers": {
+        "one_liner": { "text": "EarnKit tells a builder's agent which grants the repo fits and fills the forms from it.", "short": "Grants your agent can apply to, filled from your repo.", "written_by": "builder" },
+        "problem": { "text": "Builders lose weeks finding grants they qualify for and rewriting the same answers for every form. Most never apply.", "short": "Builders lose weeks on grant forms and most never apply.", "written_by": "builder" },
+        "solution": { "text": "An MCP server the builder's agent calls from the repo: it reads the code, matches open programs and returns each form pre-filled, so the agent submits with one yes.", "short": "An MCP server that matches the repo to programs and pre-fills each form.", "written_by": "builder" },
+        "milestones": { "text": "Next three months: builder records shared across agents, program-side screening for two pilot programs, and 50 programs in the catalog.", "short": "Shared records, two screening pilots, 50 programs.", "written_by": "builder" }
+      }
+    }
+  ],
+  "docs": { "founder_video_url": "https://www.loom.com/share/earnkit-founder", "other": [] },
+  "traction": { "line_pre_launch": "Pre-launch: the agent tool is live and in private use; public launch in December 2026." },
+  "answers": {
+    "team": { "text": "Jenil Thakker, solo founder, built tokens.fun and Coinvise before EarnKit.", "short": "Jenil Thakker, solo founder (tokens.fun, Coinvise).", "written_by": "builder" }
+  },
+  "policy": { "auto_apply": false, "max_per_night": 5, "never": [], "agent_may_submit": true },
+  "meta": {
+    "projects.earnkit.answers.one_liner": { "set_by": "builder", "set_at": "2026-11-04T10:00:00.000Z", "approved_at": "2026-11-04T10:00:00.000Z" },
+    "projects.earnkit.answers.problem": { "set_by": "builder", "set_at": "2026-11-04T10:00:00.000Z", "approved_at": "2026-11-04T10:00:00.000Z" },
+    "projects.earnkit.answers.solution": { "set_by": "builder", "set_at": "2026-11-04T10:00:00.000Z", "approved_at": "2026-11-04T10:00:00.000Z" },
+    "projects.earnkit.answers.milestones": { "set_by": "builder", "set_at": "2026-11-04T10:00:00.000Z", "approved_at": "2026-11-04T10:00:00.000Z" },
+    "answers.team": { "set_by": "builder", "set_at": "2026-11-04T10:00:00.000Z", "approved_at": "2026-11-04T10:00:00.000Z" },
+    "traction.line_pre_launch": { "set_by": "builder", "set_at": "2026-11-04T10:00:00.000Z", "approved_at": "2026-11-04T10:00:00.000Z" }
+  }
+}

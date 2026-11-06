@@ -8,7 +8,8 @@ import { sql } from './db';
 import { categoryOf } from './program-file';
 import { getProgram, programsById, type ProgramRow } from './programs';
 
-export type Status = 'applied' | 'won' | 'rejected' | 'no_result' | 'skipped' | 'gap_done';
+/** 'started' is a claim (lib/v6/claims.ts): not an application yet, so the summary leaves it out. */
+export type Status = 'started' | 'applied' | 'won' | 'rejected' | 'no_result' | 'skipped' | 'gap_done';
 export type Ledger = {
   applied: number;
   asked_usd: number;
@@ -49,7 +50,11 @@ export async function record(
   owner: string,
   programId: string,
   status: Status,
-  o: { installationId?: number; amount_usd?: number; note?: string; item?: string; now?: Date } = {},
+  o: {
+    installationId?: number; amount_usd?: number; note?: string; item?: string; now?: Date;
+    /** applied only: who pressed submit, the field keys sent and the record's project. */
+    submitted_by?: 'agent' | 'builder'; fields_used?: string[]; project_id?: string;
+  } = {},
 ): Promise<{ ok: true } | { ok: false; note: string }> {
   const installationId = o.installationId ?? installationOf(owner);
   if (installationId === undefined) throw new Error('record needs the writing installation');
@@ -61,6 +66,7 @@ export async function record(
   if (status === 'won' && o.amount_usd! > (program.file.max_award_usd ?? MAX_WIN_USD))
     return { ok: false, note: "That's more than this program pays; check the amount." };
   if (status === 'gap_done' && !o.item) return { ok: false, note: 'Tell me which item you finished.' };
+  if (status === 'started') throw new Error('a claim is written by claims.claim');
   const amount = status === 'won' ? o.amount_usd! : null;
   const note = o.note ?? null;
 
@@ -69,10 +75,18 @@ export async function record(
       SELECT status FROM applications WHERE owner = ${owner} AND program_id = ${programId} FOR UPDATE`;
     if (status === 'applied' && row && RESULTS.includes(row.status))
       return { ok: false, note: 'That one already has a result here.' } as const;
-    if (RESULTS.includes(status) && (!row || row.status === 'skipped')) return { ok: false, note: "You haven't applied to that one here." } as const;
+    if (RESULTS.includes(status) && (!row || row.status === 'skipped' || row.status === 'started')) return { ok: false, note: "You haven't applied to that one here." } as const;
     if (status === 'gap_done') {
       await tx`INSERT INTO gaps_done (owner, installation_id, program_id, item, at) VALUES (${owner}, ${installationId}, ${programId}, ${o.item!}, ${now})
         ON CONFLICT (owner, program_id, item) DO UPDATE SET at = EXCLUDED.at`;
+    } else if (status === 'applied') {
+      // Over a claim the row keeps claimed_at and claimed_by: what was claimed, then sent.
+      await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, note, at, submitted_by, fields_used, project_id)
+        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, ${note}, ${now}, ${o.submitted_by ?? null}, ${o.fields_used ?? null}, ${o.project_id ?? null})
+        ON CONFLICT (owner, program_id) DO UPDATE
+          SET installation_id = EXCLUDED.installation_id, status = 'applied', amount_usd = NULL, note = EXCLUDED.note, at = EXCLUDED.at,
+              submitted_by = EXCLUDED.submitted_by, fields_used = EXCLUDED.fields_used,
+              project_id = COALESCE(EXCLUDED.project_id, applications.project_id)`;
     } else if (!(status === 'skipped' && row)) {
       // A skip on a program already in the ledger hides nothing new: the application stays as it is.
       await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, note, at)
@@ -93,6 +107,7 @@ export async function summary(owner: string, programs: ProgramRow[], now: Date):
   const l: Ledger = { applied: 0, asked_usd: 0, won: 0, won_usd: 0, pending: 0, rejected: 0, skipped: 0, closing_soon: [] };
   const soon: { program_id: string; title: string; at: number }[] = [];
   for (const r of rows) {
+    if (r.status === 'started') continue;
     if (r.status === 'skipped') {
       l.skipped++;
       continue;
@@ -117,9 +132,9 @@ export async function summary(owner: string, programs: ProgramRow[], now: Date):
   return l;
 }
 
-/** Program ids the builder applied to or skipped: they leave the list. */
+/** Program ids the builder applied to or skipped: they leave the list. A claimed ('started') one stays, marked. */
 export async function excluded(owner: string): Promise<Set<string>> {
-  const rows = await sql()<{ program_id: string }[]>`SELECT program_id FROM applications WHERE owner = ${owner}`;
+  const rows = await sql()<{ program_id: string }[]>`SELECT program_id FROM applications WHERE owner = ${owner} AND status <> 'started'`;
   return new Set(rows.map((r) => r.program_id));
 }
 
@@ -159,4 +174,11 @@ export async function markAsked(owner: string, programIds: string[], now: Date):
   if (programIds.length === 0) return;
   await sql()`UPDATE applications SET asked_outcome_at = ${now}
     WHERE owner = ${owner} AND program_id IN ${sql()(programIds)}`;
+}
+
+/** The owner's live claims by program: when and by which installation. */
+export async function claimed(owner: string): Promise<Map<string, { since: string; by: number | null }>> {
+  const rows = await sql()<{ program_id: string; claimed_at: Date | null; claimed_by: number | null }[]>`
+    SELECT program_id, claimed_at, claimed_by FROM applications WHERE owner = ${owner} AND status = 'started'`;
+  return new Map(rows.map((r) => [r.program_id, { since: (r.claimed_at ?? new Date(0)).toISOString(), by: r.claimed_by }]));
 }

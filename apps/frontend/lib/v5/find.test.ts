@@ -241,3 +241,167 @@ test('a result past due is asked once', async () => {
   const second = await mcpCall(ctx(id), 'find', { project: PROJECT });
   assert.deepEqual(second.reply!.ask_outcome, []);
 });
+
+// v6.1: the record side of find.
+const LIVE = async () => {
+  const { evidence, liveRows } = await import('../v6/fixtures/evidence-builder');
+  return evidence({ live: liveRows({ url: 'https://earnkit.com', url_ok: true }) });
+};
+let ghId = 920_000;
+/** A linked installation whose builder holds `patch` (merged by the builder, `approve` approved). */
+async function linkedWith(patch: Record<string, unknown>, approve: string[] = []) {
+  const { saveInstallation, connectInstallation } = await import('./installations');
+  const { linkInstallation, saveRecord, upsertBuilder } = await import('../v6/builders');
+  const { EMPTY_RECORD, approvePath, mergeRecord } = await import('../v6/record');
+  const token = 'find-linked-' + Math.random();
+  await saveInstallation(token, 'Claude Code');
+  const id = (await connectInstallation(token))!.id;
+  const b = await upsertBuilder({ github_id: ++ghId, login: 'fl' + ghId, name: 'FL', avatar_url: null }, NOW);
+  await linkInstallation(id, b.id, NOW);
+  const m = mergeRecord(EMPTY_RECORD, patch, 'builder', NOW);
+  assert.deepEqual(m.problems, []);
+  await saveRecord(b.id, approve.reduce((r, p) => approvePath(r, p, NOW), m.record), NOW);
+  return { id, builderId: b.id };
+}
+const OWNER_RECORD = {
+  person: { name: 'Jenil Thakker', email: 'jenil@example.com' },
+  projects: [{ id: 'earnkit', name: 'EarnKit', repo_url: `https://github.com/${rec.repo}`, live_url: 'https://earnkit.com', answers: { problem: { text: 'Builders lose weeks on grant forms.' } } }],
+};
+const OAUTH_ENV = { GITHUB_OAUTH_CLIENT_ID: 'Iv1.client', GITHUB_OAUTH_CLIENT_SECRET: 'shh', EARNKIT_URL: 'https://earnkit.test', EARNKIT_AUTH_SECRET: 'find-test-secret' };
+async function withEnv<T>(env: Record<string, string>, run: () => Promise<T>): Promise<T> {
+  const saved = Object.fromEntries(Object.keys(env).map((k) => [k, process.env[k]]));
+  Object.assign(process.env, env);
+  try {
+    return await run();
+  } finally {
+    for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+}
+
+test('unlinked without oauth is v5', async () => {
+  delete process.env.GITHUB_OAUTH_CLIENT_ID;
+  delete process.env.GITHUB_OAUTH_CLIENT_SECRET;
+  const r = await mcpCall(ctx(await installation()), 'find', { project: PROJECT });
+  assert.equal(r.isError, false, r.text);
+  const show = r.reply!.show_to_builder as string;
+  assert.doesNotMatch(show, /Sign in/);
+  assert.doesNotMatch(show, /record/i);
+  assert.equal(r.reply!.linked, false);
+  assert.equal('sign_in' in r.reply!, false);
+  assert.ok(CLOSINGS.some((c) => c.test(show.split('\n').at(-1)!)), show);
+  assert.deepEqual([r.reply!.record_missing, r.reply!.blockers, r.reply!.evidence_summary, r.reply!.applied_overnight, r.reply!.released, r.reply!.auto_apply], [[], [], null, [], [], false]);
+  assert.doesNotMatch(r.reply!.agent_note as string, /approved answers|style contract/);
+});
+
+test('unlinked with sign-in configured: v5 plus the sign-in line, last', async () => withEnv(OAUTH_ENV, async () => {
+  const r = await mcpCall(ctx(await installation()), 'find', { project: PROJECT });
+  const show = r.reply!.show_to_builder as string;
+  const lines = show.split('\n');
+  const link = r.reply!.sign_in as string;
+  assert.match(link, /\/link\//);
+  assert.equal(lines.at(-1), `Sign in once at ${link} so I remember you across agents.`);
+  assert.ok(CLOSINGS.some((c) => c.test(lines.at(-3)!)), show);
+  assert.equal(r.reply!.linked, false);
+}));
+
+test('linked: record fields, what the record lacks, blockers, and the own tier read once a day', async () => {
+  const { id, builderId } = await linkedWith(OWNER_RECORD, ['projects.earnkit.answers.problem']);
+  let reads = 0;
+  const evidence = async () => {
+    reads++;
+    return LIVE();
+  };
+  const r = await mcpCall({ ...ctx(id), builderId, evidence }, 'find', { project: PROJECT });
+  assert.equal(r.isError, false, r.text);
+  const reply = r.reply!;
+  assert.equal(reply.linked, true);
+  const ready = reply.ready as { program_id: string; from_record: number; fields: { key: string; from: string; value: string | null; style?: string }[]; need_you: string[] }[];
+  const z = ready.find((p) => p.program_id === 'z-fellows')!;
+  assert.ok(z.from_record > 0, JSON.stringify(z));
+  const problem = z.fields.find((f) => f.key === 'problem')!;
+  assert.deepEqual([problem.from, problem.value, typeof problem.style], ['record', 'Builders lose weeks on grant forms.', 'string']);
+  assert.equal(z.fields.find((f) => f.key === 'email')!.value, 'jenil@example.com');
+  assert.ok((reply.record_missing as string[]).includes('your founder video link'), JSON.stringify(reply.record_missing));
+  const blockers = reply.blockers as { program_id: string; sign_in: string | null; needs_click: boolean; needs: string[] }[];
+  const av = blockers.find((b) => b.program_id === 'avalanche-team1-mini-grants')!;
+  assert.deepEqual([av.sign_in, av.needs_click], ['Avalanche Builder Hub', false]);
+  assert.deepEqual(blockers.find((b) => b.program_id === 'z-fellows')?.needs, ['founder_video']);
+  assert.deepEqual((reply.evidence_summary as { tier: string }).tier, 'live');
+  const show = reply.show_to_builder as string;
+  assert.match(show, /^1\. [^\n]+ \d+ from your record, \d+ from the repo/m);
+  assert.match(show, /\n\nBefore tonight: [^\n]*Sign in once to Avalanche Builder Hub for 1 of them\.[^\n]*Still missing from your record: [^\n]+\./);
+  assert.match(show, /\n\nYour project reads as live, no verified usage yet\. Next: [^\n]+\.\n\n/);
+  assert.doesNotMatch(show, /Sign in once at/);
+  assert.match(reply.agent_note as string, /Fit approved answers by cutting, never by adding; the style contract travels on each field\./);
+  assert.match(reply.agent_note as string, /Sign-ins and clicks the builder must do are in blockers/);
+  assert.equal(reads, 1);
+
+  // Inside 24 hours: no read, the stored tier.
+  const { getRecord } = await import('../v6/builders');
+  const stored = (await getRecord(builderId)).projects[0];
+  assert.equal(stored.evidence_read_at, NOW.toISOString());
+  assert.equal(stored.last_tier?.tier, 'live');
+  const again = await mcpCall({ ...ctx(id, new Date(NOW.getTime() + 2 * H)), builderId, evidence }, 'find', { project: PROJECT });
+  assert.equal(reads, 1);
+  assert.equal((again.reply!.evidence_summary as { tier: string }).tier, 'live');
+
+  // A read that throws: no summary, nothing stored, one problem.
+  const { id: id2, builderId: b2 } = await linkedWith(OWNER_RECORD);
+  const broken = await mcpCall({ ...ctx(id2), builderId: b2, evidence: async () => { throw new Error('down'); } }, 'find', { project: PROJECT });
+  assert.equal(broken.isError, false, broken.text);
+  assert.equal(broken.reply!.evidence_summary, null);
+  assert.ok((broken.reply!.problems as string[]).includes('evidence not read'));
+  assert.doesNotMatch(broken.reply!.agent_note as string, /evidence not read/);
+  assert.equal((await getRecord(b2)).projects[0].evidence_read_at, undefined);
+});
+
+test('min_tier above the project tier moves the program to gaps with kind tier; unknown tier passes', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  await upsertProgram(programFixture({ id: 'f-tier', title: 'Tier Grant', min_tier: 'used' }), 'file', NOW);
+  try {
+    const { id, builderId } = await linkedWith(OWNER_RECORD);
+    const r = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT, filter: { all: true } });
+    const gaps = r.reply!.gaps as { program_id: string; gap: { kind: string; item: string; what: string; effort: string; agent_can: boolean } }[];
+    const g = gaps.find((x) => x.program_id === 'f-tier');
+    assert.ok(g, JSON.stringify(gaps.map((x) => x.program_id)));
+    assert.deepEqual(g.gap, { kind: 'tier', item: 'tier:used', what: '25 funded wallets on mainnet in 90 days; you have 0', effort: 'weeks', agent_can: false, details: { tier: 'live', min_tier: 'used' } });
+    assert.ok(!ids(r.reply!.ready).includes('f-tier'));
+    // A read that fails leaves the tier unknown: the program stays ready.
+    const other = await linkedWith(OWNER_RECORD);
+    const u = await mcpCall({ ...ctx(other.id), builderId: other.builderId, evidence: async () => { throw new Error('down'); } }, 'find', { project: PROJECT, filter: { all: true } });
+    assert.ok(ids(u.reply!.ready).includes('f-tier'));
+    // Unlinked: no tier, no bar.
+    const v5 = await mcpCall(ctx(await installation()), 'find', { project: PROJECT, filter: { all: true } });
+    assert.ok(ids(v5.reply!.ready).includes('f-tier'));
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'f-tier'`;
+  }
+});
+
+test('auto_apply changes the closing line and the agent note; the policy filters programs', async () => {
+  const { id, builderId } = await linkedWith({ ...OWNER_RECORD, policy: { auto_apply: true, max_per_night: 2, never: ['z-fellows'], categories: ['grant', 'hackathon', 'bounty'] } });
+  const r = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT });
+  const show = r.reply!.show_to_builder as string;
+  assert.match(show, /\n\nApplying tonight to 2; say stop to hold any\.$/);
+  assert.doesNotMatch(show, /Say yes/);
+  assert.equal(r.reply!.auto_apply, true);
+  assert.match(r.reply!.agent_note as string, /^Standing approval is on: for each ready program within the limits, call track started/m);
+  const shown = ids(r.reply!.ready);
+  assert.ok(!shown.includes('z-fellows'));
+  assert.ok((r.reply!.ready as { category: string }[]).every((p) => p.category !== 'investment'), JSON.stringify(shown));
+});
+
+test('a stale claim shows in released; a live one stays ready, marked', async () => {
+  const { id, builderId } = await linkedWith(OWNER_RECORD);
+  const { claim } = await import('../v6/claims');
+  await claim(`b:${builderId}`, 'alliance-all19', 'earnkit', id, new Date(NOW.getTime() - 25 * H));
+  await claim(`b:${builderId}`, 'avalanche-team1-mini-grants', 'earnkit', id, new Date(NOW.getTime() - H));
+  const r = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT });
+  assert.deepEqual(r.reply!.released, ['alliance-all19']);
+  assert.match(r.reply!.agent_note as string, /released: alliance-all19/);
+  const ready = r.reply!.ready as { program_id: string; claimed_since?: string }[];
+  assert.ok(ids(ready).includes('alliance-all19'));
+  assert.equal(ready.find((p) => p.program_id === 'avalanche-team1-mini-grants')?.claimed_since, new Date(NOW.getTime() - H).toISOString());
+  assert.match(r.reply!.agent_note as string, /claimed_since is claimed by one of the builder's agents: submit it only if you made that claim\./);
+});

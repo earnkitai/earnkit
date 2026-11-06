@@ -51,9 +51,9 @@ const Project = z.object({
   repo_url: githubRepo.nullable().optional(), live_url: https.optional(), demo_url: https.optional(), category: line(40).optional(),
   chains_claimed: z.array(line(40).refine(isKnownChain, 'not a known chain')).max(20).optional(),
   answers: Answers.prefault({}),
-  /** EarnKit only (find): when the evidence was last read, and the tier then. */
+  /** EarnKit only (find): when the evidence was last read, the tier then and its verified usage line. */
   evidence_read_at: iso.optional(),
-  last_tier: z.object({ tier: line(40), line: line(280), read_at: line(40) }).strip().optional(),
+  last_tier: z.object({ tier: line(40), line: line(280), read_at: line(40), usage: line(280).optional() }).strip().optional(),
 }).strip();
 export type Project = z.infer<typeof Project>;
 const Docs = z.object({
@@ -339,6 +339,9 @@ const NEED_DOCS: { need: string; has: (r: BuilderRecord) => boolean; words: stri
   { need: 'deck', has: (r) => Boolean(r.docs.deck_url), words: 'your deck link' },
   { need: 'pitch_pdf', has: (r) => r.docs.other.some((o) => /pitch/i.test(o.label)), words: 'your pitch PDF link' },
 ];
+
+/** Whether the record holds the document a program needs (founder_video, deck, ...); unknown needs are held. Pure. */
+export const hasDoc = (record: BuilderRecord, need: string): boolean => NEED_DOCS.find((d) => d.need === need)?.has(record) ?? true;
 
 /**
  * What the record lacks for the open programs, in builder words. `needs`: the programs' needs;

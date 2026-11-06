@@ -11,12 +11,13 @@ import type { RepoFacts } from './repo-facts';
 export type GapKind = (typeof ELIGIBILITY_KINDS)[number];
 export type Effort = 'minutes' | 'hours' | 'days' | 'weeks';
 export type Gap = {
-  kind: GapKind;
+  /** 'tier': the program's min_tier is above the project's tier (set by find, never by evaluate). */
+  kind: GapKind | 'tier';
   item: string;
   what: string;
   effort: Effort;
   agent_can: boolean;
-  details?: { chain?: string; rpc?: string | null; explorer?: string | null; docs?: string | null };
+  details?: { chain?: string; rpc?: string | null; explorer?: string | null; docs?: string | null; tier?: string; min_tier?: string };
 };
 export type Verdict = {
   program_id: string;
