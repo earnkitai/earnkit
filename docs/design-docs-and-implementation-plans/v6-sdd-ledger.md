@@ -11,7 +11,7 @@ next task; one PR for the release.
 | 1 | Explorer clients and onchain rows | complete | implementer | passed (round 1) | passed | 3eac83ae, d0b50bc0, 11ee8591 |
 | 2 | Code, ownership and team rows | complete | implementer | passed (round 1) | passed | cb2be2f9, ef3cde38, 88d8ba82 |
 | 3 | Live, depth, evidence assembler, cache | complete | implementer | passed (round 1) | passed | 9787797b, 97398f2b |
-| 4 | Named tiers and lines | pending | | | | |
+| 4 | Named tiers and lines | complete | implementer | passed (round 1) | passed | 374a7fe1, 1790b9af |
 | 5 | Pilot script, resolver, docs, PR | pending | | | | |
 
 ## Owner rulings
