@@ -87,7 +87,9 @@ function confirmPage(live: Live): Response {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store',
-      'Referrer-Policy': 'no-referrer',
+      // same-origin: the code never reaches GitHub in a Referer, and the confirm POST keeps its real Origin
+      // (no-referrer would make browsers send "Origin: null", which the check below refuses).
+      'Referrer-Policy': 'same-origin',
       'X-Frame-Options': 'DENY',
       'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://github.com; frame-ancestors 'none'",
     },
@@ -133,7 +135,7 @@ export function callbackGet(request: Request, deps: { now?: Date; gh?: typeof fe
     const ghCode = q.get('code');
     if (!linked || !nonce || !same(nonce, linked.nonce) || !ghCode) return page(FAILED, 400);
     // The state proves the code was live at /link; here it only has to be unused.
-    if ((await sql()`SELECT 1 FROM link_codes WHERE code = ${hash(linked.code)} AND used_at IS NULL`).length === 0) return page(FAILED, 400);
+    if ((await sql()`SELECT 1 FROM link_codes WHERE code = ${hash(linked.code)} AND used_at IS NULL AND expires_at > ${now}`).length === 0) return page(FAILED, 400);
     let user: GitHubUser;
     try {
       user = await exchangeCode(ghCode, publicOrigin(request), process.env, deps.gh ?? fetch);
@@ -148,7 +150,7 @@ export function callbackGet(request: Request, deps: { now?: Date; gh?: typeof fe
       // Single use: the code is marked and the installation linked together, or neither.
       done = await sql().begin(async (tx) => {
         const [used] = await tx<{ installation_id: number }[]>`
-          UPDATE link_codes SET used_at = ${now} WHERE code = ${hash(linked.code)} AND used_at IS NULL RETURNING installation_id`;
+          UPDATE link_codes SET used_at = ${now} WHERE code = ${hash(linked.code)} AND used_at IS NULL AND expires_at > ${now} RETURNING installation_id`;
         if (!used) return false;
         await linkInstallation(used.installation_id, builder.id, now, tx);
         return true;

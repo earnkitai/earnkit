@@ -80,6 +80,7 @@ test('createLinkCode stores only the hash; a new code ends the old one; a linked
 test('GET /link renders the confirm page with the agent name and no redirect', async () => {
   const code = await createLinkCode(await install('Claude <Code>'), NOW);
   const r = await linkGet(req(`/link/${code}`), code, { now: NOW });
+  assert.equal(r.headers.get('referrer-policy'), 'same-origin');
   assert.equal(r.status, 200);
   assert.equal(r.headers.get('location'), null);
   assert.equal(r.headers.get('set-cookie'), null);
@@ -110,6 +111,9 @@ test('POST /link sets ek_link and redirects to GitHub with a state whose nonce i
   const s = verifyState(loc.searchParams.get('state')!, SECRET, NOW);
   assert.deepEqual(s, { code, nonce: cookie.split(';')[0].slice('ek_link='.length) });
   const cross = await linkPost(req(`/link/${code}`, { method: 'POST', origin: 'https://evil.example' }), code, { now: NOW });
+  // A browser sends "Origin: null" from a sandboxed frame or a data: page; the page's own policy keeps the real origin.
+  const nul = await linkPost(req(`/link/${code}`, { method: 'POST', origin: 'null' }), code, { now: NOW });
+  assert.equal(nul.status, 403);
   assert.equal(cross.status, 403);
   assert.equal(cross.headers.get('set-cookie'), null);
 });
@@ -154,6 +158,17 @@ test('callbackGet end to end: linked, a session cookie, ek_link cleared, /me; a 
   const used = await linkGet(req(`/link/${code}`), code, { now: NOW });
   assert.equal(used.status, 404);
   assert.equal(await used.text(), EXPIRED);
+});
+
+test('a code superseded by a newer one is refused at the callback even with a valid state and nonce', async () => {
+  const id = await install();
+  const old = await createLinkCode(id, NOW);
+  const { state, cookie: link } = await start(old);
+  await createLinkCode(id, new Date(NOW.getTime() + 1000));
+  const r = await callback(state, link, undefined, new Date(NOW.getTime() + 2000));
+  assert.equal(r.status, 400);
+  assert.equal(await r.text(), FAILED);
+  assert.equal((await sql()`SELECT builder_id FROM installations WHERE id = ${id}`)[0].builder_id, null);
 });
 
 test('callbackGet without the ek_link cookie, or with another nonce, is 400 and links nothing', async () => {
