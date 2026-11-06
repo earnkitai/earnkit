@@ -94,6 +94,11 @@ test('started over a skip: the skipped sentence; an older claim names its day', 
   assert.equal(r.show_to_builder, "You skipped Kept Out here; say unskip it if you want it back.");
   assert.equal(r.agent_note, 'Do not submit this one.');
   assert.equal('already_started' in r, false);
+  // Unskip takes it back: the row goes, a claim works again; unskipping a program that is not skipped is refused.
+  const back = await track(c, { program_id: 't6-k', status: 'unskip' });
+  assert.equal(back.show_to_builder, 'Unskipped Kept Out. It can come back in the list.');
+  assert.equal((await track(c, { program_id: 't6-k', status: 'started' })).show_to_builder, 'Started. Nothing else will submit this one for 24 hours.');
+  assert.equal((await track(c, { program_id: 't6-k', status: 'unskip' })).show_to_builder, "That one isn't skipped here.");
   await upsertProgram(programFixture({ id: 't6-y', title: 'Yesterday Grant' }), 'file', NOW);
   await track({ ...c, now: new Date('2026-11-03T22:10:00Z') }, { program_id: 't6-y', status: 'started' });
   const again = await track(c, { program_id: 't6-y', status: 'started' });
@@ -112,8 +117,11 @@ test('applied sets auto_applied from the builder record at that moment; unlinked
   await track(linked, { program_id: 't6-off', status: 'applied', submitted_by: 'agent' });
   await saveRecord(b.id, mergeRecord(EMPTY_RECORD, { policy: { auto_apply: true } }, 'builder', NOW).record, NOW);
   await track(linked, { program_id: 't6-on', status: 'applied', submitted_by: 'agent' });
+  // With standing approval on, a form the builder sent themselves is still not an auto-applied one.
+  await upsertProgram(programFixture({ id: 't6-self', title: 'Self' }), 'file', NOW);
+  await track(linked, { program_id: 't6-self', status: 'applied', submitted_by: 'builder' });
   const rows = await sql()`SELECT program_id, auto_applied FROM applications WHERE owner = ${'b:' + b.id} ORDER BY program_id`;
-  assert.deepEqual(rows.map((r) => [r.program_id, r.auto_applied]), [['t6-off', false], ['t6-on', true]]);
+  assert.deepEqual(rows.map((r) => [r.program_id, r.auto_applied]), [['t6-off', false], ['t6-on', true], ['t6-self', false]]);
   const u = await ctx();
   await track(u, { program_id: 't6-on', status: 'applied', submitted_by: 'agent' });
   const [ur] = await sql()`SELECT auto_applied FROM applications WHERE installation_id = ${u.installationId}`;

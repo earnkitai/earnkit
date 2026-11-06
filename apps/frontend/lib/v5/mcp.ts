@@ -29,7 +29,7 @@ export const SERVER_INSTRUCTIONS =
 export const FIND_DESCRIPTION =
   "What can this repo earn: the programs it fits with every field pre-filled, the ones one change away, and the ledger. Call it at session start with the project you are in, and again when the builder asks about money or programs. With program_id: that program's details and form.";
 export const TRACK_DESCRIPTION =
-  'What the builder did: started (a claim before filling), applied (with submitted_by and fields_used), won (with amount_usd), rejected, no_result, skipped, or gap_done (with item). Call started before filling and applied after every submission.';
+  'What the builder did: started (a claim before filling), applied (with submitted_by and fields_used), won (with amount_usd), rejected, no_result, skipped, unskip (a skipped program may come back), or gap_done (with item). Call started before filling and applied after every submission.';
 export const RECORD_DESCRIPTION =
   "The builder's record: facts, links, documents, answers and standing approval, kept once and read by every agent of theirs. Call it with get at session start; call it with set for every new fact the builder gives; with brief for the question and facts behind one answer kind.";
 export const BUSY = 'EarnKit is busy. Try again in a minute.';

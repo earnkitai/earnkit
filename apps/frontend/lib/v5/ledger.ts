@@ -9,7 +9,7 @@ import { categoryOf } from './program-file';
 import { getProgram, programsById, type ProgramRow } from './programs';
 
 /** 'started' is a claim (lib/v6/claims.ts): not an application yet, so the summary leaves it out. */
-export type Status = 'started' | 'applied' | 'won' | 'rejected' | 'no_result' | 'skipped' | 'gap_done';
+export type Status = 'started' | 'applied' | 'won' | 'rejected' | 'no_result' | 'skipped' | 'unskip' | 'gap_done';
 export type Ledger = {
   applied: number;
   asked_usd: number;
@@ -78,7 +78,11 @@ export async function record(
     if (status === 'applied' && row && RESULTS.includes(row.status))
       return { ok: false, note: 'That one already has a result here.' } as const;
     if (RESULTS.includes(status) && (!row || row.status === 'skipped' || row.status === 'started')) return { ok: false, note: "You haven't applied to that one here." } as const;
-    if (status === 'gap_done') {
+    if (status === 'unskip') {
+      // Only a skipped row can be unskipped: the row goes, and the program can come back in the list.
+      if (row?.status !== 'skipped') return { ok: false, note: "That one isn't skipped here." } as const;
+      await tx`DELETE FROM applications WHERE owner = ${owner} AND program_id = ${programId}`;
+    } else if (status === 'gap_done') {
       await tx`INSERT INTO gaps_done (owner, installation_id, program_id, item, at) VALUES (${owner}, ${installationId}, ${programId}, ${o.item!}, ${now})
         ON CONFLICT (owner, program_id, item) DO UPDATE SET at = EXCLUDED.at`;
     } else if (status === 'applied') {

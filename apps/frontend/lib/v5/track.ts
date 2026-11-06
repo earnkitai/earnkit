@@ -11,7 +11,7 @@ import { record, summary, type Ledger, type Status } from './ledger';
 export const TrackInput = z
   .object({
     program_id: z.string().min(1),
-    status: z.enum(['started', 'applied', 'won', 'rejected', 'no_result', 'skipped', 'gap_done']),
+    status: z.enum(['started', 'applied', 'won', 'rejected', 'no_result', 'skipped', 'unskip', 'gap_done']),
     amount_usd: z.number().optional(),
     note: z.string().max(280).optional(),
     item: z.string().optional(),
@@ -71,7 +71,8 @@ export async function track(ctx: TrackContext, input: unknown): Promise<Result> 
     };
   }
   // Sent under standing approval: the builder's policy at this moment (never for an unlinked installation).
-  const autoApplied = i.status === 'applied' && ctx.builderId !== null && (await getRecord(ctx.builderId)).policy.auto_apply;
+  // Only an agent's own submission under the builder's standing approval; a form the builder sent is never one.
+  const autoApplied = i.status === 'applied' && i.submitted_by === 'agent' && ctx.builderId !== null && (await getRecord(ctx.builderId)).policy.auto_apply;
   const applied = i.status === 'applied' ? { submitted_by: i.submitted_by, fields_used: i.fields_used, project_id: i.project_id, autoApplied } : {};
   const res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, amount_usd: i.amount_usd, note: i.note, item: i.item, now: ctx.now, ...applied });
   if (!res.ok) return refuse(res.note);
@@ -82,6 +83,7 @@ export async function track(ctx: TrackContext, input: unknown): Promise<Result> 
     rejected: 'Recorded. On to the next one.',
     no_result: 'Recorded.',
     skipped: `Skipped ${title}. I won't bring it up again.`,
+    unskip: `Unskipped ${title}. It can come back in the list.`,
     gap_done: "Noted. I'll re-check the repo on the next look.",
   };
   return {
