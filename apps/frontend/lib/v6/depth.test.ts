@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readRepo } from '../v5/github';
 import { replayFetch } from '../v5/fixtures/github';
-import { KNOWN_TOKEN_ADDRESSES } from '../v5/repo-facts';
+import { KNOWN_TOKEN_ADDRESSES } from '../v5/code-signals';
 import { readDepth } from './depth';
 import { detectIntegrations, INTEGRATIONS, USDC_ADDRESSES } from './integrations';
 

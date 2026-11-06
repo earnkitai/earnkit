@@ -2,7 +2,8 @@
  * The owner's programs write API (the Grok Bot): POST /api/programs/write upserts or closes an API
  * program, GET /api/programs/writes is its audit log, and the approve and revert links apply or
  * undo one write. A create, or a change to submission_url, chains, form or pool_source_url, waits
- * for the owner's approval unless every builder link checks out (programs-pending.ts). Audited.
+ * for the owner's approval unless every builder link checks out (programs-pending.ts); so does a
+ * change to submit, sign_in or min_tier. Audited.
  */
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -234,11 +235,21 @@ type Mode = { kind: 'write' } | { kind: 'approve'; writeId: string };
 /** Results that make an older pending write stale (approving it would undo them). */
 const NEWER_RESULTS = ['created', 'updated', 'approved', 'closed', 'pending', 'reverted'];
 
+/** Fields whose change is held for the owner like a form change: they decide who may submit and who qualifies. */
+const GATE_FIELDS = ['submit', 'sign_in', 'min_tier'] as const;
+
+/** The first gate field whose value differs between the live record and the write, or null. Pure. */
+function changedGate(old: Partial<Program>, p: Program): string | null {
+  const was = { submit: old.submit ?? 'either', sign_in: old.sign_in ?? 'none', min_tier: old.min_tier ?? null };
+  const now = { submit: p.submit, sign_in: p.sign_in, min_tier: p.min_tier ?? null };
+  return GATE_FIELDS.find((f) => was[f] !== now[f]) ?? null;
+}
+
 /**
  * The write transaction. The program row is locked and its source read again (a sync can't be
  * overwritten). A bot write that creates the program or changes submission_url, chains, form or
  * pool_source_url, and any of whose builder links (submission_url, form.url, pool_source_url)
- * doesn't check out, is held as a pending program_writes row instead (an identical
+ * doesn't check out, or that changes submit, sign_in or min_tier, is held as a pending program_writes row instead (an identical
  * pending body within APPROVE_TTL_DAYS is reused, so one email). An approval locks its pending row
  * and flips it to 'approved' in the same transaction (single use).
  */
@@ -265,10 +276,11 @@ async function applyUpsert(p: Program, deps: Deps, mode: Mode): Promise<Applied>
       !isDeepStrictEqual(old.form ?? null, (asJson(p) as { form?: unknown }).form ?? null) ||
       (old.pool_source_url ?? null) !== (p.pool_source_url ?? null);
     const unchecked = mode.kind === 'write' && needsCheck ? uncheckedLink(p, await linkAnchors(tx, p, deps.now)) : null;
-    if (unchecked) {
+    const gate = mode.kind === 'write' && old ? changedGate(old, p) : null;
+    if (unchecked || gate) {
       // Two identical writes at once still make one pending row and one email.
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`program-pending:${p.id}`}))`;
-      const reason = pendingReason(unchecked.url, p.official_url, unchecked.field);
+      const reason = unchecked ? pendingReason(unchecked.url, p.official_url, unchecked.field) : `${gate} changed, which decides who can enter`;
       const [same] = await tx<{ id: string; at: Date; reason: string | null }[]>`
         SELECT id, at, reason FROM program_writes
         WHERE program_id = ${p.id} AND result = 'pending' AND body = ${tx.json(asJson(p))}

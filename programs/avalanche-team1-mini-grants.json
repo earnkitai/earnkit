@@ -228,5 +228,7 @@
   "logo": {
     "path": "programs/avalanche-team1-mini-grants.svg",
     "source_url": "https://www.avalanche.com/about/press"
-  }
+  },
+  "sign_in": "platform",
+  "platform_name": "Avalanche Builder Hub"
 }

@@ -244,6 +244,28 @@ test('a change outside the link, chains and form on a live program goes live at 
   assert.equal((await getProgram('api-reward'))?.file.max_award_usd, 8000);
 });
 
+test('a change to min_tier, sign_in or submit on a live program waits for approval', async () => {
+  const p = body({ id: 'api-tier', title: 'Tier Grants' });
+  await write(p);
+  await approve('api-tier');
+  sent = [];
+  for (const [field, value] of [['min_tier', 'live'], ['sign_in', 'google'], ['submit', 'builder']] as const) {
+    const res = await write({ ...p, [field]: value });
+    assert.equal(res.status, 202, field);
+    assert.equal(res.json.result, 'pending', field);
+  }
+  assert.equal((await getProgram('api-tier'))?.file.min_tier, undefined);
+  assert.equal(sent.length, 3);
+  assert.equal((await approve('api-tier')).status, 200);
+  assert.equal((await getProgram('api-tier'))?.file.submit, 'builder');
+});
+
+test('the API cannot set reviewers_contact', async () => {
+  const res = await write(body({ id: 'api-rev', reviewers_contact: 'a@b.co' }));
+  assert.equal(res.status, 400);
+  assert.deepEqual(res.json.problems, ["reviewers_contact: the API can't set reviewers_contact; the owner adds it by file"]);
+});
+
 test('an approve link is single use, and a bad token changes nothing', async () => {
   await write(body({ id: 'api-once', title: 'Once Grants' }));
   const w = await pendingId('api-once');

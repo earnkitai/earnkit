@@ -4,6 +4,8 @@
  * reported. A private or unreadable repo, or one past the installation's daily uncached reads, is
  * reported only. Chains found in code carry basis 'code'.
  */
+import { detectIntegrations } from '../v6/integrations';
+import { builderCodesIn, KNOWN_TOKEN_ADDRESSES } from './code-signals';
 import { CHAIN_REGISTRY, chainOfId } from './chains';
 import { sql } from './db';
 import { GitHubError, readRepo, readRepoObject, type RepoRead } from './github';
@@ -26,6 +28,8 @@ export type RepoFacts = {
   chains: { chain: string; mainnet: boolean; basis: Basis }[];
   contracts: { chain: string; address: string; basis?: Basis }[];
   builder_codes: boolean;
+  /** Integration keys the code uses (v6/integrations.ts); none when only reported. */
+  integrations: string[];
   /** null: not reported. */
   users: boolean | null;
   first_commit_at: string | null;
@@ -36,7 +40,7 @@ export type RepoFacts = {
   problems?: string[];
 };
 
-type CodeFacts = Pick<RepoFacts, 'chains' | 'contracts' | 'builder_codes' | 'first_commit_at' | 'last_commit_at' | 'readme_excerpt' | 'homepage'> & {
+type CodeFacts = Pick<RepoFacts, 'chains' | 'contracts' | 'builder_codes' | 'integrations' | 'first_commit_at' | 'last_commit_at' | 'readme_excerpt' | 'homepage'> & {
   html_url: string;
   pushed_at: string;
 };
@@ -45,27 +49,6 @@ type Fetch = typeof fetch;
 const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
 const ZERO = `0x${'0'.repeat(40)}`;
-
-/** Well-known token contracts (USDC, EURC, WETH, USDT) that config names but that are never the builder's own. */
-export const KNOWN_TOKEN_ADDRESSES: ReadonlySet<string> = new Set(
-  [
-    '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-    '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E',
-    '0x3600000000000000000000000000000000000000',
-    '0x754704Bc059F8C67012fEd69BC8A327a5aafb603',
-    '0x60a3E35Cc302bFA44Cb288Bc5a4F316Fdb1adb42',
-    '0xC891EB4cbdEFf6e073e859e987815Ed1505c2ACD',
-    '0xbEf5f6d51CB62b58e6A8f77868681825C6fe21c1',
-    '0x4200000000000000000000000000000000000006',
-    '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7',
-  ].map((a) => a.toLowerCase()),
-);
-
-const SUFFIX_LITERAL = /0x[0-9a-f]*80218021802180218021802180218021\b/i;
-/** True when source text carries Builder Codes (ERC-8021): the ox import, toDataSuffix, a dataSuffix key or the suffix literal. Pure. */
-export function builderCodesIn(text: string): boolean {
-  return text.includes('ox/erc8021') || text.includes('Attribution.toDataSuffix') || /\bdataSuffix\s*:/.test(text) || SUFFIX_LITERAL.test(text);
-}
 
 // ---- chain detection ----
 
@@ -193,6 +176,7 @@ function codeFactsOf(r: RepoRead): CodeFacts {
     chains,
     contracts,
     builder_codes: r.files.some((f) => builderCodesIn(f.text)),
+    integrations: detectIntegrations(r.files, paths),
     first_commit_at: r.first_commit_at ?? r.repo.created_at,
     last_commit_at: r.repo.pushed_at,
     readme_excerpt: readmeExcerpt(r.readme),
@@ -219,6 +203,9 @@ export async function sweepRepoCache(now: Date): Promise<number> {
   return rows.length;
 }
 
+/** A cached row from before integrations were read has none. Pure. */
+const withIntegrations = (f: CodeFacts): CodeFacts => ({ ...f, integrations: f.integrations ?? [] });
+
 /** The repo's code facts: from repo_cache while fresh and unpushed, else a new read. Throws when the repo cannot be read. */
 async function cachedCodeFacts(key: string, f: Fetch, now: Date, installationId?: number): Promise<CodeFacts> {
   const [row] = await sql()<{ facts: CodeFacts; pushed_at: Date | null; fetched_at: Date }[]>`
@@ -226,7 +213,7 @@ async function cachedCodeFacts(key: string, f: Fetch, now: Date, installationId?
   const forget = () => sql()`DELETE FROM repo_cache WHERE repo = ${key}`;
   if (row) {
     const age = now.getTime() - row.fetched_at.getTime();
-    if (age >= 0 && age < HOUR_MS) return row.facts;
+    if (age >= 0 && age < HOUR_MS) return withIntegrations(row.facts);
     if (age >= 0 && age < 7 * DAY_MS && row.pushed_at) {
       let live;
       try {
@@ -237,13 +224,13 @@ async function cachedCodeFacts(key: string, f: Fetch, now: Date, installationId?
           await forget();
           throw err;
         }
-        return row.facts;
+        return withIntegrations(row.facts);
       }
       if (live.private === true) {
         await forget();
         throw new GitHubError('GitHub: repo is private', 404);
       }
-      if (Date.parse(live.pushed_at) === row.pushed_at.getTime()) return row.facts;
+      if (Date.parse(live.pushed_at) === row.pushed_at.getTime()) return withIntegrations(row.facts);
     }
   }
   await countRead(installationId, now);
@@ -301,6 +288,7 @@ export async function repoFacts(project: Project, deps: { gh?: Fetch; now?: Date
     chains,
     contracts,
     builder_codes: Boolean(code?.builder_codes || project.builder_codes),
+    integrations: code?.integrations ?? [],
     users: project.users ?? null,
     first_commit_at: code?.first_commit_at ?? project.first_commit_at ?? null,
     last_commit_at: code?.last_commit_at ?? project.last_commit_at ?? null,

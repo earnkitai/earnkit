@@ -41,6 +41,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v5/rate-limit.ts`: Fixed-window counters in Postgres
 - `apps/frontend/lib/v5/reply.ts`: The words of a find reply: show_to_builder and agent_note
 - `apps/frontend/lib/v5/repo-facts.ts`: Repo facts: public read, 7-day cache, 10 uncached reads a day per installation, the 30-day sweep, merged with agent-reported facts
+- `apps/frontend/lib/v5/code-signals.ts`: Shared source-text signals: known token contracts and Builder Codes detection (used by repo-facts and v6/integrations)
 - `apps/frontend/lib/v5/safe-fetch.ts`: SSRF-safe GETs and link probes on third-party hosts
 - `apps/frontend/lib/v5/secrets.ts`: Scrubs secret keys from tool-call bodies before anything sees them
 - `apps/frontend/lib/v5/old-tools.ts`: Old (pre-v5) tool names answered with a refresh message in `app/mcp/route.ts`

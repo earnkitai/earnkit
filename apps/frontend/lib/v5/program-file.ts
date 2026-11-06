@@ -4,6 +4,7 @@
  * stores the parsed record whole (`programs.file`). Also: the eligibility items and categories.
  */
 import { z } from 'zod';
+import { isIntegrationKey } from '../v6/integrations';
 import { isKnownChain } from './chains';
 
 const slug = z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'use a lowercase slug like "my-program"');
@@ -25,10 +26,26 @@ export const PROJECT_FIELDS = ['name', 'description', 'repo_url', 'live_url', 'd
 
 /** What a form field is for; drafting guidance is keyed by kind. */
 export const FIELD_KINDS = [
-  'name', 'one_liner', 'problem', 'solution', 'how_it_works', 'traction', 'team', 'why_you',
-  'use_of_funds', 'milestones', 'demo_video', 'links', 'contact', 'raised', 'other',
+  'name', 'one_liner', 'problem', 'solution', 'how_it_works', 'traction', 'team', 'why_you', 'milestones', 'use_of_funds',
+  'competitors', 'risks', 'ecosystem_fit', 'what_next', 'past_work', 'help_needed', 'demo_video', 'links', 'contact', 'raised', 'other',
 ] as const;
 export type FieldKind = (typeof FIELD_KINDS)[number];
+
+/** The kinds of the builder's answer bank. */
+export const ANSWER_KINDS = [
+  'one_liner', 'problem', 'solution', 'traction', 'team', 'why_you', 'milestones', 'use_of_funds',
+  'competitors', 'risks', 'ecosystem_fit', 'what_next', 'past_work', 'help_needed',
+] as const;
+export type AnswerKind = (typeof ANSWER_KINDS)[number];
+
+/** Who submits: the builder's agent, the builder by hand, or either. */
+export const SUBMIT = ['agent', 'builder', 'either'] as const;
+/** What the program's form asks the builder to sign in with. */
+export const SIGN_IN = ['none', 'google', 'github', 'email', 'platform'] as const;
+/** Extra material the program asks for beyond the form's fields. */
+export const NEEDS = ['founder_video', 'demo_video', 'resume', 'deck', 'pitch_pdf'] as const;
+/** The lowest standing of work the program accepts. */
+export const MIN_TIER = ['used', 'live', 'building'] as const;
 
 /** A short guide string: 1 to 12 words, no links. */
 export const ShortText = noLinks(
@@ -138,7 +155,7 @@ const ResultsDue = z
 
 /** What eligibility EarnKit can check against a repo or a builder's answer. */
 export const ELIGIBILITY_KINDS = [
-  'live_product', 'chain', 'contract_on', 'builder_codes', 'users', 'new_work_after', 'demo_video', 'in_person', 'feature',
+  'live_product', 'chain', 'contract_on', 'builder_codes', 'users', 'new_work_after', 'demo_video', 'in_person', 'feature', 'integration',
 ] as const;
 export type EligibilityKind = (typeof ELIGIBILITY_KINDS)[number];
 const EligibilityItemSchema = z.object({
@@ -215,9 +232,23 @@ export const ProgramFile = z
     winners_per_round: z.number().int().positive().nullable().optional(),
     form: Form.optional(),
     results_due: ResultsDue.optional(),
+    submit: z.enum(SUBMIT).default('either'),
+    sign_in: z.enum(SIGN_IN).default('none'),
+    /** The platform the builder signs in on; only with sign_in: platform. */
+    platform_name: z.string().min(1).max(60).optional(),
+    needs: z.array(z.enum(NEEDS)).default([]),
+    min_tier: z.enum(MIN_TIER).optional(),
+    /** Integration keys (v6/integrations.ts) and chain slugs the program favors. */
+    prefers: z.array(z.string().refine((k) => isIntegrationKey(k) || isKnownChain(k), 'not an integration key or a known chain')).max(10).default([]),
+    /** Owner-only: where a reviewer is reached. Never listed, guided or replied. */
+    reviewers_contact: z.string().min(1).max(200).optional(),
   })
   .superRefine((p, ctx) => {
     const issue = (message: string) => ctx.addIssue({ code: 'custom', message });
+    if (p.sign_in === 'platform' && !p.platform_name) issue('sign_in: platform needs platform_name');
+    if (p.sign_in !== 'platform' && p.platform_name) issue('platform_name is only for sign_in: platform');
+    for (const e of p.eligibility ?? [])
+      if (e.kind === 'integration' && !isIntegrationKey(e.value ?? '')) issue(`eligibility integration: "${e.value ?? ''}" is not an integration key`);
     if (p.status === 'upcoming' && !p.opens_note) issue('an upcoming program needs opens_note');
     if (p.status !== 'upcoming' && p.opens_note) issue('opens_note is only for an upcoming program');
     if (p.status !== 'upcoming' && p.submission_requirements.length === 0)

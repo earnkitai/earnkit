@@ -22,6 +22,12 @@ const listed = (over: Partial<ListedProgram> & { id: string }): ListedProgram =>
   source_url: 'https://example.com/grants',
   submission_url: 'https://example.com/apply',
   source: 'file',
+  submit: 'either',
+  sign_in: 'none',
+  platform_name: null,
+  needs: [],
+  min_tier: null,
+  prefers: [],
   max_award_usd: 5000,
   ...over,
 });
@@ -55,8 +61,8 @@ test('shape: the v4.9 keys, closes_in from the clock, no sort-only field', async
   const { body } = await get('', ROWS);
   const soon = body.programs.find((p) => p.id === 'g-soon')!;
   assert.deepEqual(Object.keys(soon).sort(), [
-    'any_chain', 'category', 'chains', 'closes_at', 'closes_in', 'id', 'money', 'organizer', 'source', 'source_url', 'status',
-    'submission_url', 'title',
+    'any_chain', 'category', 'chains', 'closes_at', 'closes_in', 'id', 'min_tier', 'money', 'needs', 'organizer', 'platform_name', 'prefers', 'sign_in', 'source', 'source_url', 'status',
+    'submission_url', 'submit', 'title',
   ]);
   assert.equal(soon.closes_in, 'in 36 hours');
   assert.equal(body.programs.find((p) => p.id === 'g-rolling-big')!.closes_in, 'rolling');
@@ -114,6 +120,12 @@ test('readListedPrograms: listed programs from the table, with money and links',
     source_url: 'https://example.com/grants',
     submission_url: 'https://example.com/apply',
     source: 'api',
+    submit: 'either',
+    sign_in: 'none',
+    platform_name: null,
+    needs: [],
+    min_tier: null,
+    prefers: [],
     max_award_usd: 5000,
   });
   const pool = all.find((p) => p.id === 't-read-pool');
@@ -121,4 +133,20 @@ test('readListedPrograms: listed programs from the table, with money and links',
   assert.equal(pool?.category, 'hackathon');
   assert.equal(pool?.closes_in, 'rolling');
   assert.ok(!all.some((p) => p.id === 't-read-closed'));
+});
+
+test('readListedPrograms carries the catalog fields and never reviewers_contact', async () => {
+  await upsertProgram(
+    programFixture({
+      id: 't-read-cat', sign_in: 'platform', platform_name: 'Hub', needs: ['deck'], min_tier: 'used', prefers: ['viem'],
+      submit: 'builder', reviewers_contact: 'reviewer@example.com',
+    }),
+    'file',
+    NOW,
+  );
+  const p = (await readListedPrograms(NOW)).find((x) => x.id === 't-read-cat')!;
+  assert.deepEqual([p.submit, p.sign_in, p.platform_name, p.needs, p.min_tier, p.prefers], ['builder', 'platform', 'Hub', ['deck'], 'used', ['viem']]);
+  assert.ok(!JSON.stringify(p).includes('reviewers_contact') && !JSON.stringify(p).includes('reviewer@example.com'));
+  const res = await programsListGet(new Request('https://earnkit.com/api/programs'), async () => [p], NOW);
+  assert.ok(!(await res.text()).includes('reviewers_contact'));
 });

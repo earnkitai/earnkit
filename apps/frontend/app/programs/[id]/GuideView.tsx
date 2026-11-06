@@ -36,6 +36,7 @@ const List = ({ items }: { items: string[] }) => (
 export default function GuideView({ id, page }: { id: string; page: GuidePage }) {
   const g = page.guide;
   const open = page.status === 'active' && g.closes !== 'Closed';
+  const pills = [g.submit, g.sign_in, ...g.needs.map((n) => `Needs ${n}`), g.bar].filter((t): t is string => Boolean(t));
   const sources = g.sources.filter((s) => s.url.startsWith('https://'));
   return (
     <>
@@ -51,6 +52,15 @@ export default function GuideView({ id, page }: { id: string; page: GuidePage })
             </span>
             <span>{g.closes}</span>
           </p>
+          {pills.length > 0 ? (
+            <ul aria-label="How to apply" className="flex flex-wrap gap-2">
+              {pills.map((t) => (
+                <li key={t} className={`${PILL_WHITE} min-h-9 px-4 text-[14px]`}>
+                  {t}
+                </li>
+              ))}
+            </ul>
+          ) : null}
           {page.opens_note ? <p className="max-w-[36rem] text-[16px] text-s-muted">{page.opens_note}</p> : null}
           <p className="max-w-[44rem] text-[16px] leading-normal text-s-muted">{page.description}</p>
           {open ? (

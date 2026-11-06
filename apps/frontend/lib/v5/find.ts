@@ -85,7 +85,7 @@ export const moneyOf = (p: Program): string => p.summary.split(' · ')[0];
 const closesIn = (p: Program, now: Date) => (p.ends_at ? timeLeftWords(p.ends_at, now) : null);
 const EMPTY_FACTS: RepoFacts = {
   name: '', description: '', repo_url: null, repo_url_basis: null, live_url_basis: null, demo_url_basis: null, public: false, as_reported: true, live_url: null, demo_url: null, chains: [], contracts: [],
-  builder_codes: false, users: null, first_commit_at: null, last_commit_at: null, readme_excerpt: null, homepage: null,
+  builder_codes: false, integrations: [], users: null, first_commit_at: null, last_commit_at: null, readme_excerpt: null, homepage: null,
 };
 
 /** A read that fails is the agent's report alone (repoFacts falls back the same way when GitHub fails). */
