@@ -1,5 +1,5 @@
 /**
- * The screen queue's worker: reads queued applicants (a named job first, then the oldest) one at a time on
+ * The screen queue's worker: reads queued applicants (one job on a trigger, else the oldest first) one at a time on
  * one GitHub budget, as the pilot does (a repo resolved from the site when none was given), places each
  * with the job's thresholds and the counts, and stores the public rows. A failed read is `failed` with a
  * one-line error; the job advances either way and is finished when every applicant is.

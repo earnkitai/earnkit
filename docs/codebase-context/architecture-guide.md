@@ -103,7 +103,7 @@ A `won` above the program's `max_award_usd` (or 5,000,000 when none is stated) i
 
 `.github/workflows/earnkit-cron.yml` posts to `/api/cron` once a day with `CRON_SECRET`. `cron.ts` runs the probe
 (`health.ts`), the `repo_cache` sweep (rows over 30 days, answered as `swept`), the screen queue's daily share
-(screen jobs over 90 days deleted with their rows, then `workQueue` with `SCREEN_BATCH` 40 within 10 minutes,
+(screen jobs over 90 days deleted with their rows, then `workQueue` with `SCREEN_BATCH` 40 within 5 minutes,
 answered as `screen` with `swept`), then the owner's digest (`owner-digest.ts`: programs closed by deadline, failed links, changed pages
 and every change to live programs since the last digest, with revert links; nothing happened, nothing sent). Mail is
 `mail.ts` over Resend, to the owner only. A step that throws answers 500 with its name. The owner triggers one

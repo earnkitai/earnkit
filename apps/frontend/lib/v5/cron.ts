@@ -1,6 +1,6 @@
 /**
  * POST /api/cron, once a day: the freshness probe, the repo cache sweep (rows over 30 days), the screen
- * jobs over 90 days swept and the queue's share (10 minutes at most), then the owner's digest. A JSON body { job_id } is the owner's trigger: that job's queue
+ * jobs over 90 days swept and the queue's share (5 minutes at most), then the owner's digest. A JSON body { job_id } is the owner's trigger: that job's queue
  * only. Bearer CRON_SECRET only (503 while it is unset). A step that throws answers 500 with its name.
  */
 import { sweepScreens } from '../v6/screen-jobs';
