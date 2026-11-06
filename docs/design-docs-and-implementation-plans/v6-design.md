@@ -58,7 +58,7 @@ inside agents. Not a profile page, not a coin.
    agent entries, which need a video or a document, all in the first reply, batched.
 6. Traction said right. Verified usage from chain and repo when it exists; the builder's approved
    line when it does not. An agent never characterizes traction on its own.
-7. The filter. Tiers with evidence rows for any public project, from GitHub, explorers, RPCs and
+7. The filter. Named tiers with evidence rows for any public project, from GitHub, explorers, RPCs and
    the live URL. Deterministic, cached, free-tier.
 8. The screen. A program's agent hands EarnKit an applicant list and gets it back in tiers with
    evidence and a cross-program signal. The pilot runs as a script before the tool exists.
@@ -95,9 +95,10 @@ inside agents. Not a profile page, not a coin.
   worktree `~/ek-v5` from `origin/main` 5ef29261.
 - No LLM inside EarnKit. No new paid service. Railway Hobby plus Postgres, Resend for owner mail,
   GitHub reads with the server token, public explorers and RPCs on free tiers, daily cron.
-- Env vars: the v5 eight plus `GITHUB_OAUTH_CLIENT_ID` and `GITHUB_OAUTH_CLIENT_SECRET` (already set
-  on Railway from v4; a fresh OAuth app with callback `/auth/github/callback` is cleaner) and an
-  optional `ETHERSCAN_API_KEY` for Basescan, Arbiscan, Snowtrace and Etherscan reads. Ten required.
+- Env vars: the v5 eight plus `GITHUB_OAUTH_CLIENT_ID` and `GITHUB_OAUTH_CLIENT_SECRET` from a
+  fresh OAuth app (owner step: create it with callback `https://earnkit.com/auth/github/callback`
+  and replace the v4 values on Railway) and `ETHERSCAN_API_KEY` (free key, owner step) for the
+  Etherscan v2 multichain reads. Eleven. `no-v4.test.ts` keeps its allowlist and gains these three.
 - Tests: `DATABASE_URL=postgresql://localhost:5432/earnkit_test`, the v5 harness and test guard.
 - Copy rules: no emoji, no em dash, never coin, points, score, rank, streak or token in builder text,
   no tool, field or file names in `show_to_builder`.
@@ -139,8 +140,11 @@ one-line fields refuse control characters, long fields capped):
 - `team[]`: `name`, `role`, `github`, `x`, `email` (optional). Empty means solo.
 - `company`: `name`, `incorporated: boolean`, `jurisdiction`, `raised_usd`, `raised_from`
   (text, 280), `stage` (`idea | building | pre_launch | launched`), `launch_date`.
-- `project`: `name`, `one_liner` (140), `description` (600), `goals` (600, the vision in the
-  builder's words), `repo_url`, `live_url`, `demo_url`, `category`, `chains_claimed[]`.
+- `projects[]` (owner decision, section 17, recommended several): each `id` (slug), `name`,
+  `one_liner` (140), `description` (600), `goals` (600, the vision in the builder's words),
+  `repo_url`, `live_url`, `demo_url`, `category`, `chains_claimed[]`, and its own `answers`
+  for the project-specific kinds. `find` picks the project by the repo the agent is in, or by
+  `project_id`. Claims and ledger rows are keyed by builder, project and program.
 - `docs`: `resume_url`, `deck_url`, `founder_video_url`, `demo_video_url`, `other[]` (`label`,
   `url`). All links; EarnKit stores no files.
 - `traction`: `line_pre_launch` (280, the approved sentence used when nothing verified exists, for
@@ -153,8 +157,9 @@ one-line fields refuse control characters, long fields capped):
 
 Who writes it: the agent, through the `record` tool (section 8), from a one-time guided session
 ("tell me once: ..."), and the builder on `/me`. Fields marked `set_by: agent` that a reviewer would
-see (traction line, raised, answers) are `approved: false` until the builder says so, on `/me` or by
-telling the agent, which calls `record` with `approve`.
+see (traction line, raised, answers) are `approved: false` until the builder approves them on
+`/me`, signed in. The agent cannot approve: a chat "looks good" is not proof the builder read the
+text, and an unapproved answer is never fitted into a form.
 
 What `find` does with it: every `fields[]` entry of a ready program now resolves in this order:
 record (exact fact or approved answer by `kind`), repo (facts from the code read), agent (only when
@@ -164,15 +169,18 @@ becomes: "n from your record, m from the repo, k need you" and names the k.
 
 ## 6. The answer bank and the style contract
 
-`answers` holds one entry per question kind the catalog uses: `one_liner`, `problem`, `solution`,
-`traction`, `team`, `why_you`, `milestones`, `use_of_funds`, `competitors`, `risks`, `ecosystem_fit`
-(parameterized by chain), `what_next`, `past_work`, `help_needed`. Each: `text` (up to 2,000
+`answers` holds one entry per prose kind. The catalog's field kinds grow to the same list, and the
+existing files are re-keyed where they used `how_it_works` (now `solution`) or `other` for one of
+these: `one_liner`, `problem`, `solution`, `traction`, `team`, `why_you`, `milestones`,
+`use_of_funds`, `competitors`, `risks`, `ecosystem_fit` (parameterized by chain), `what_next`,
+`past_work`, `help_needed`. Fact kinds (`name`, `links`, `contact`, `raised`) are not answers; they
+resolve from the record's fields. Each: `text` (up to 2,000
 characters), `short` (280), `approved: boolean`, `approved_at`, `written_by` (`builder | agent`),
 `voice_notes` (120, for example "first person, dry, numbers first").
 
 Writing happens once, in the agent's session, with EarnKit giving the brief: for each kind, the
 question reviewers actually ask, the facts from the record and the repo to use, the length band,
-and the style contract. The agent drafts, the builder edits or approves on `/me` or in chat. The
+and the style contract. The agent drafts into the record, the builder edits and approves on `/me`. The
 quality comes from one careful pass with a strong model and the builder's edit, not from EarnKit.
 
 The style contract travels in `agent_note` with every field that is fitted from the bank:
@@ -195,7 +203,7 @@ from writing them.
 `basis` (`github | explorer | rpc | site | record | earnkit`), `read_at`, and `note`. No row is an
 opinion. Sources and limits per read are the v4.5 provider table, reused.
 
-Rows:
+Rows (the provider limits table from v4.5, commit a616c9d4, is rebuilt in `lib/v6`; nothing is imported from v4):
 
 - **Live**: `live.url_ok` (200 within 10 s), `live.is_app` (not a single static page: has a form,
   script bundle or wallet connect; heuristic, labelled as such), `live.domain_age_days`,
@@ -222,38 +230,48 @@ Rows:
   Arc and Circle: USDC, CCTP, Wallets, Paymaster; for Solana: Anchor, web3.js, Blinks; extendable
   by the Grok Bot through the programs write API as `integrations` on a program).
   `depth.chains_mainnet[]`, `depth.chains_testnet[]`.
-- **Across programs**: `xp.applications_90d` (count of EarnKit-tracked applications by this repo or
-  deployer), `xp.identical_pitch` (count of other applicants in the screen with a pitch text
+- **Across programs**: `xp.applications_90d` (count of screens by other programs this repo or
+  deployer appeared in; a builder's own ledger never feeds it), `xp.identical_pitch` (count of other applicants in the screen with a pitch text
   similarity above 0.9, when the program supplies pitch text), `xp.outcomes` (won, rejected counts
-  from program-reported outcomes; never which program).
+  from program-reported outcomes only; never which program, never from the builder's own ledger).
 - **Record** (builder side only): `record.completeness` (which of the required blocks are filled
   and approved), `record.docs_present[]`.
 
-Tiers (`lib/v6/tiers.ts`, pure):
+Tiers (`lib/v6/tiers.ts`, pure). Named, never lettered or numbered, so nothing reads as a grade:
 
-- **A, live and used**: `live.url_ok` and at least one mainnet contract with
-  `funded_senders_90d >= 25` and `code.last_push_at` within 60 days, no flag.
-- **B, live**: `live.url_ok` or a mainnet contract, pushed within 60 days, no flag.
-- **C, building**: a repo with commits in the last 60 days and no live product.
-- **D, unverifiable**: no public repo and no contract EarnKit can read; whatever the record claims
-  is shown as claimed.
-- **F, flagged**: `code.template_overlap >= 0.6` with `code.own_share < 0.2`, or
-  `code.fork_of` set with `own_share < 0.2`, or `xp.identical_pitch >= 3`, or
-  `team.in_other_applicants >= 5`, or `funded_senders_90d < 0.2 * senders_90d` with
-  `senders_90d >= 100`. The flag names the rule.
+- **used**: `live.url_ok` and at least one mainnet contract with `funded_senders_90d >= 25`, and,
+  when a repo exists, `code.last_push_at` within 60 days. No flag.
+- **live**: `live.url_ok` or a mainnet contract with any transaction in 90 days; when a repo exists,
+  pushed within 60 days. No flag. A repo-less project with a working site reaches this tier.
+- **building**: a public repo with commits in the last 60 days and no live product.
+- **unverified**: nothing EarnKit could read: no working site, no readable contract, no public
+  repo. The record's claims are shown as claims.
+- **flagged**: `code.template_overlap >= 0.6` with `code.own_share < 0.2`, or `code.fork_of` set
+  with `own_share < 0.2`, or `xp.identical_pitch >= 3`, or `team.in_other_applicants >= 5`, or
+  `funded_senders_90d < 0.2 * senders_90d` with `senders_90d >= 100`. The flag names the rule.
+  Overlap between 0.2 and 0.6 is not a flag; the row is shown and the tier comes from the rest.
+
+Tier is unknown until the evidence read has run; an unknown tier never gates anything.
 
 Thresholds are constants with the reason beside each; a program can pass its own in `screen`. The
-tier is shown with its rows, and `agent_note` carries the one line a reviewer needs ("A because
-1,240 funded senders on Base mainnet; 3 contributors; no flags").
+tier is shown with its rows, and `agent_note` carries the one line a reviewer needs ("used: 1,240
+funded senders on Base mainnet, 3 contributors, no flags").
 
-Cost: a full read is at most 12 GitHub requests, 3 explorer requests per contract, 1 site HEAD;
-cached 7 days in `evidence_cache` keyed by repo and contract, re-read when `pushed_at` moves. Two
-hundred applicants is under 4,000 requests, inside the free tiers in an hour, run as a cron job
-(section 8) rather than inline.
+Chains read in v6: Base, Ethereum, Arbitrum, Optimism, Polygon and Avalanche through the Etherscan
+v2 multichain API (one key, free tier 100,000 requests a day), Arc through its Blockscout. Tempo,
+Monad, Robinhood Chain and Solana have no reader in v6: their contracts are shown as claimed, and
+the registry marks them `readable: false` until a client is added.
+
+Cost per applicant: at most 12 GitHub requests, up to 5 per contributor for ages and prior repos
+(capped at 5 contributors), 3 explorer requests per contract plus one per sampled sender for
+`funded_senders` (a sample of 50 senders, labelled "sampled"), 1 site HEAD. Call it 120 requests
+for a typical applicant; 200 applicants is about 25,000 requests, inside the free tiers within a
+day, run from the queue (section 8), never inline. Cached 7 days in `evidence_cache` keyed by repo
+and contract, re-read when `pushed_at` moves.
 
 A repo-less project (the owner's point: not every builder is technical) gets `live` and `onchain`
-rows from the record's `live_url` and `chains_claimed` and lands in B, C or D by them. The reply
-says what would move it up.
+rows from the record's `live_url` and `chains_claimed` and lands in live or unverified by them.
+The reply says what would move it up.
 
 ## 8. The tools
 
@@ -268,10 +286,11 @@ keeps `show_to_builder` and `agent_note`.
   `evidence_summary` (tier and the one-line reason for the builder's own project, so they see what a
   reviewer would), `applied_overnight[]` (claims that became `applied` since the last `find`, with
   standing approval on).
-- Ready programs are those the project fits by eligibility and where its tier meets the program's
-  `min_tier` (catalog, default C). Below the bar, the program appears in `gaps` with the gap being
-  the evidence that is missing ("25 funded wallets on mainnet in 90 days; you have 4"), effort
-  `weeks`, `agent_can: false`.
+- Ready programs are those the project fits by eligibility and, when the program sets a
+  `min_tier`, whose tier meets it. No `min_tier` means no bar, which is the default and the v5
+  behavior. An unknown tier (evidence not read yet, private repo) passes. Below a set bar, the
+  program appears in `gaps` with the gap being the evidence that is missing ("25 funded wallets on
+  mainnet in 90 days; you have 4"), effort `weeks`, `agent_can: false`.
 - Pre-fill order: record, repo, agent, builder (section 5). `filled` counts record and repo values.
 - With `policy.auto_apply` the closing line changes from "Say yes to apply" to "Applying tonight to
   n; say stop to hold any." and `agent_note` says to claim, fill, submit and track without asking,
@@ -279,7 +298,7 @@ keeps `show_to_builder` and `agent_note`.
 
 ### `track` (changed)
 
-- New status `started`: a claim. One per builder and program; a second `started` within 24 hours
+- New status `started`: a claim. One per builder, project and program; a second `started` within 24 hours
   returns `already_started` with the agent name and time, and `agent_note` says not to submit. A
   claim older than 24 hours with no `applied` is released and noted in the next `find`.
 - `applied` carries `submitted_by` (`agent | builder`) and the `fields_used` keys, so the record
@@ -288,8 +307,8 @@ keeps `show_to_builder` and `agent_note`.
 
 ### `record` (new)
 
-Input: `set` (a partial record, deep-merged, validated), `approve[]` (answer kinds or field paths),
-`get: true`. Output: the record with per-field `set_by`, `approved`, `missing[]`, and
+Input: `set` (a partial record, deep-merged, validated), `get: true`. There is no approve input;
+approval happens on `/me`. Output: the record with per-field `set_by`, `approved`, `missing[]`, and
 `show_to_builder` ("Saved. Still missing: founder video, resume.") Only on a linked installation;
 otherwise the reply is the sign-in link. The agent is told to call `record` with `get` at the start
 of a session instead of trusting its memory, and to write every new fact the builder gives into it.
@@ -339,8 +358,8 @@ other programs' names or other applicants' text. The builder sees their own tier
   batches: "Three need a Google sign-in on your agent's computer; do them once tonight."
 - `needs`: `founder_video`, `demo_video`, `resume`, `deck`, `pitch_pdf` (list). Matched against
   `record.docs`; missing ones are one line in `record_missing`.
-- `min_tier`: `A | B | C | D` (default `C`). The bar the program's reviewers actually use, set by
-  the owner or the program.
+- `min_tier`: `used | live | building` (default unset: no bar). The bar the program's reviewers
+  actually use, set by the owner or the program.
 - `prefers[]`: integrations and chains the program favors (section 7 registry keys). Used for
   `ecosystem_fit` answers and gap suggestions ("add Smart Wallet, which this program favors").
 - `eligibility` gains kind `integration` (value: a registry key), checked from the repo's package
@@ -359,27 +378,34 @@ your goals, and I'll draft the standard answers for you to approve." He signs in
 message, approves answers on `/me` in ten minutes, sets "apply overnight, up to 5 a night, no
 investment programs." That night Jenil AI claims, fills from the record, submits where `submit`
 allows, tracks. Morning: "Applied overnight: Avalanche Team1, Alliance. Needs you: Base Builder
-Grant (Google sign-in on my computer), Z Fellows (your intro video link). Your project reads B,
+Grant (Google sign-in on my computer), Z Fellows (your intro video link). Your project reads as
 live, no verified usage yet; your pre-launch line was used." Growth Bot finds programs on X and
 writes them to the catalog as before.
 
 **A stranger, day one.** Same as v5 until they want answers stored: then the one sign-in link.
 
 **A program lead.** Installs EarnKit in their agent, the owner marks them as reviewer for their
-program, they hand their applicant list to the agent; an hour later: "412 applicants: 31 A, 88 B,
-190 C, 74 D, 29 flagged (19 template forks, 7 identical pitches, 3 wallet farms). The A list with
-evidence is attached." They tell the agent who won; the ledger learns.
+program, they hand their applicant list to the agent; by the next morning (or within the hour when the
+owner triggers the run, as in the pilots): "412 applicants: 31 used, 88 live, 190 building, 74 unverified, 29 flagged (19 template forks, 7
+identical pitches, 3 wallet farms). The used list with evidence is attached." They tell the agent who won; the ledger learns.
 
 **What the builder never sees.** A score. Another builder. Which programs the filter has seen them
 in. Any sentence EarnKit did not have a source for.
 
-## 11. Pilot before the tool
+## 11. Pilot before the tool, two releases
 
-Task 1 of the plan is `pnpm screen <csv> --program <id>`: the evidence reader and tiers behind a
+v6.0 is the evidence reader, the tiers and the pilot script, one short plan. v6.1 is the record,
+the `find` and `track` changes, `screen`, the catalog fields and `/me`. v6.1 does not wait for the
+pilots' feedback: the thresholds are constants, and what the pilots teach lands as constant changes
+or new rows in v6.1's plan or a v6.2.
+
+Task 1 of v6.0 is `pnpm screen <csv> --program <id>`: the evidence reader and tiers behind a
 script that writes a markdown and CSV report to the scratchpad. The owner takes it to two programs
 with the message: "Send me your last cohort's applicant list; I return it sorted with evidence in
-48 hours; tell me where I was wrong." Their corrections set the thresholds and the row set before
-the `screen` tool and the record are built. The two programs are the owner's to name.
+48 hours; tell me where I was wrong." Their corrections set the thresholds and the row set. The two programs are the owner's to name.
+If a program's list carries no repo links, the script resolves a repo from the live URL (a GitHub
+link on the page) or a GitHub handle, and otherwise reports the applicant as unverified; a sample
+list from the first program, even redacted, decides how much of that resolver to build.
 
 ## 12. Measures and the bar
 
@@ -424,23 +450,35 @@ and the task order, which should put the evidence reader and the pilot script fi
 ## 16. Calls I made (check these while reading)
 
 1. GitHub `read:user` only, no repo scope. Private repos stay agent-reported, as in v5.
-2. Thresholds: A needs 25 funded senders in 90 days; F at 60 percent template overlap with under 20
-   percent own share, or 3 identical pitches, or a contributor shared by 5 or more applicants.
+2. Thresholds: used needs 25 funded senders in 90 days; flagged at 60 percent template overlap
+   with under 20 percent own share, or 3 identical pitches, or a contributor shared by 5 or more
+   applicants. Tiers are named words, never letters or numbers.
 3. `funded_senders` defined by gas paid from a balance not received from the deployer within 24
-   hours. Cheap, wrong for some legitimate airdrop-funded users; labelled.
+   hours, on a sample of 50 senders per contract, labelled "sampled". Wrong for some legitimate
+   airdrop-funded users; labelled.
 4. Pitch text for the identical-pitch count is used in the job and not stored after it.
 5. Cross-program signals are counts only; no program names, no text, no builder identities.
 6. Standing approval defaults: off; when on, 5 per night, all categories, no amount cap.
 7. Claims release after 24 hours.
-8. `min_tier` default C: a building project with recent commits can apply unless the program says
-   otherwise.
+8. `min_tier` default unset: no program gates on tier until the owner or the program says so, and
+   an unknown tier never gates. The zero-setup first reply stays exactly v5's.
 9. The screen queue runs on the daily cron and on an owner-triggered run for pilots; no new
    scheduler until a program asks for same-day turnaround.
 10. `/me` is the only web UI added; the agent remains the main writer of the record.
 11. Resume, deck and videos are links, never uploads.
-12. Repo-less projects are allowed and can reach tier B through a live URL and claimed contracts
-    read from the chain.
+12. Repo-less projects are allowed and can reach the live tier through a working site or a
+    claimed contract read from the chain.
+13. Approval of answers and reviewer-visible claims happens only on `/me`, never through the agent.
+14. Two releases: v6.0 (evidence, tiers, pilot script) then v6.1 (the rest), not blocked on pilot
+    feedback.
+15. Cross-program counts come only from screens and program-reported outcomes; a builder's own
+    ledger never reaches a program.
+16. Chains without a reader in v6: Tempo, Monad, Robinhood Chain, Solana.
 
-## 17. Owner answers
+## 17. Owner decisions
 
-(Filled after the builder check.)
+1. One project per builder or several? Recommended several (`projects[]`, claims keyed by project).
+2. The two pilot programs, and a sample applicant list from one of them.
+3. Owner steps before v6.1 deploys: a fresh GitHub OAuth app and a free Etherscan key.
+
+(Answers recorded here when given.)
