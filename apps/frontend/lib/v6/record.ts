@@ -85,13 +85,16 @@ export const BuilderRecord = z.object({
 export type BuilderRecord = z.infer<typeof BuilderRecord>;
 export const EMPTY_RECORD: BuilderRecord = BuilderRecord.parse({});
 
-/** A stored row: an invalid value reads as EMPTY_RECORD, logged by builder id only. */
-export function parseRecord(v: unknown, builderId?: number): BuilderRecord {
+/** A stored row; `broken`: it did not parse and reads as EMPTY_RECORD (logged by builder id only), so it must not be saved over. */
+export function readRecord(v: unknown, builderId?: number): { record: BuilderRecord; broken: boolean } {
   const r = BuilderRecord.safeParse(v ?? {});
-  if (r.success) return r.data;
+  if (r.success) return { record: r.data, broken: false };
   console.error('[record] stored record does not parse; read as empty', builderId ?? 'unknown');
-  return structuredClone(EMPTY_RECORD);
+  return { record: structuredClone(EMPTY_RECORD), broken: true };
 }
+
+/** A stored row: an invalid value reads as EMPTY_RECORD. */
+export const parseRecord = (v: unknown, builderId?: number): BuilderRecord => readRecord(v, builderId).record;
 
 /** Paths a reviewer would read; an agent's change to one waits for the builder's approval on /me. */
 export const APPROVABLE = (path: string): boolean =>
@@ -225,7 +228,7 @@ const BLOCKS = { person: Person, company: Company, docs: Docs, traction: Tractio
 /**
  * Deep-merges a patch into the record: objects merged, arrays replaced whole, projects merged by id.
  * Each changed path is stamped `{ set_by, set_at }`; an agent's change to an approvable path drops
- * its approval (a builder's keeps it). Every bad leaf is dropped with a "<path>: <issue>" line.
+ * its approval (a builder's keeps it); policy is the builder's only. Every bad leaf is dropped with a "<path>: <issue>" line.
  */
 export function mergeRecord(current: BuilderRecord, patch: unknown, by: By, now: Date): Merge {
   const problems: string[] = [];
@@ -234,6 +237,8 @@ export function mergeRecord(current: BuilderRecord, patch: unknown, by: By, now:
   const leaves: string[] = [];
   for (const [key, value] of Object.entries(patch)) {
     if (key === 'meta' || key === 'evidence_read_at') problems.push(`${key}: set by EarnKit only`);
+    // Standing approval and its limits are the builder's consent, given on /me only.
+    else if (key === 'policy' && by === 'agent') problems.push('policy: set by the builder on earnkit.com/me only');
     else if (key in BLOCKS) {
       const block = BLOCKS[key as keyof typeof BLOCKS];
       leaves.push(...mergeFields(rec[key as keyof typeof BLOCKS] as { [k: string]: unknown }, value, block.shape, key, problems));

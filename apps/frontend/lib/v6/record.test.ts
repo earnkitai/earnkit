@@ -182,3 +182,15 @@ test('completeness of EMPTY_RECORD has six missing, in plain words', () => {
   const r = merge({ person: { name: 'Ada' }, docs: { deck_url: 'https://ada.app/deck.pdf' } }).record;
   assert.deepEqual(completeness(r).filled, ['about you', 'your documents']);
 });
+
+test('policy is builder-only: an agent cannot grant standing approval; a builder can', () => {
+  const agent = merge({ policy: { auto_apply: true, max_per_night: 20 }, person: { name: 'Ada' } }, 'agent');
+  assert.equal(agent.record.policy.auto_apply, false);
+  assert.equal(agent.record.policy.max_per_night, 5);
+  assert.deepEqual(agent.problems, ['policy: set by the builder on earnkit.com/me only']);
+  assert.deepEqual(agent.changed, ['person.name']);
+  const builder = merge({ policy: { auto_apply: true } }, 'builder');
+  assert.equal(builder.record.policy.auto_apply, true);
+  assert.deepEqual(builder.changed, ['policy.auto_apply']);
+  assert.equal(builder.record.meta['policy.auto_apply'].set_by, 'builder');
+});

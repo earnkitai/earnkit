@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { ANSWER_KINDS, type AnswerKind } from '../v5/program-file';
 import { listOpenPrograms } from '../v5/programs';
 import { answerBrief } from './answer-brief';
-import { LinkRefused, getRecord, saveRecord } from './builders';
+import { LinkRefused, readStoredRecord, withRecord } from './builders';
 import { oauthConfigured } from './github-auth';
 import { createLinkCode } from './link-routes';
 import { APPROVABLE, type BuilderRecord, completeness, mergeRecord, recordMissing } from './record';
@@ -34,6 +34,8 @@ export type RecordReply = {
 const SIGN_IN_NOTE = 'Show the link and stop asking for personal facts until the builder has signed in. Call record with get afterwards.';
 const NOT_READY = 'Sign-in is not ready yet; I will keep what you tell me in this session only.';
 const APPROVAL_NOTE = 'Approved answers come from earnkit.com/me, where the builder reads and approves each one; an unapproved answer is never used in a form.';
+const BROKEN = 'Your record could not be read; nothing was saved.';
+const BROKEN_NOTE = 'Tell the builder to open earnkit.com/me; the owner can inspect the stored row.';
 const BRIEF_NOTE = 'Draft the answer from the brief and save it with record set; the builder approves it on earnkit.com/me before any form uses it.';
 
 const origin = () => (process.env.EARNKIT_URL?.trim() || 'http://localhost:3000').replace(/\/$/, '');
@@ -81,11 +83,25 @@ function briefFor(kind: AnswerKind, record: BuilderRecord) {
 export async function recordTool(ctx: { installationId: number; builderId: number | null; now: Date }, input: unknown): Promise<RecordReply> {
   const i = RecordInput.parse(input);
   if (ctx.builderId === null) return unlinked(ctx.installationId, ctx.now);
-  let record = await getRecord(ctx.builderId);
   const asks = await programAsks(ctx.now);
-  const m = i.set !== undefined ? mergeRecord(record, i.set, 'agent', ctx.now) : null;
-  if (m && m.changed.length > 0) await saveRecord(ctx.builderId, m.record, ctx.now);
-  if (m) record = m.record;
+  let record: BuilderRecord;
+  let m: ReturnType<typeof mergeRecord> | null = null;
+  const problems: string[] = [];
+  if (i.set !== undefined) {
+    // Read, merge and save under the row's lock, so two agents' sets never lose one another.
+    const set = i.set;
+    const out = await withRecord(ctx.builderId, ctx.now, (current) => {
+      const merged = mergeRecord(current, set, 'agent', ctx.now);
+      return { record: merged.changed.length > 0 ? merged.record : null, result: merged };
+    });
+    if (out.broken) return { show_to_builder: BROKEN, agent_note: BROKEN_NOTE, linked: true };
+    m = out.result;
+    record = out.record;
+  } else {
+    const read = await readStoredRecord(ctx.builderId);
+    record = read.record;
+    if (read.broken) problems.push('stored record could not be read');
+  }
   const brief = i.brief ? briefFor(i.brief, record) : undefined;
 
   if (m) {
@@ -110,6 +126,7 @@ export async function recordTool(ctx: { installationId: number; builderId: numbe
     linked: true,
     record,
     missing: recordMissing(record, asks),
+    ...(problems.length > 0 ? { problems } : {}),
     ...(brief ? { brief } : {}),
   };
 }

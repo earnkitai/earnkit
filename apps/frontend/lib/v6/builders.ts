@@ -3,7 +3,7 @@
  * 'i:<installation>' to 'b:<builder>', so every agent of one builder shares one ledger.
  */
 import { inTx, sql, type Db } from '../v5/db';
-import { type BuilderRecord, parseRecord } from './record';
+import { type BuilderRecord, readRecord } from './record';
 
 export type Builder = { id: number; github_id: number; login: string; name: string | null; avatar_url: string | null };
 type GitHubUser = Omit<Builder, 'id'>;
@@ -40,14 +40,38 @@ export async function getBuilder(id: number): Promise<Builder | null> {
   return r ? builderOf(r) : null;
 }
 
-/** The builder's record; a missing builder or an unreadable row reads as the empty record. */
-export async function getRecord(builderId: number): Promise<BuilderRecord> {
-  const [r] = await sql()<{ record: unknown }[]>`SELECT record FROM builders WHERE id = ${builderId}`;
-  return parseRecord(r?.record ?? {}, builderId);
+/** The builder's record and whether the stored row failed to parse; a missing builder reads as empty. */
+export async function readStoredRecord(builderId: number, db: Db = sql()): Promise<{ record: BuilderRecord; broken: boolean }> {
+  const [r] = await db<{ record: unknown }[]>`SELECT record FROM builders WHERE id = ${builderId}`;
+  return readRecord(r?.record ?? {}, builderId);
 }
 
-export async function saveRecord(builderId: number, record: BuilderRecord, now: Date): Promise<void> {
-  await sql()`UPDATE builders SET record = ${sql().json(JSON.parse(JSON.stringify(record)))}, record_updated_at = ${now} WHERE id = ${builderId}`;
+/** The builder's record; an unreadable row reads as the empty record. */
+export async function getRecord(builderId: number, db?: Db): Promise<BuilderRecord> {
+  return (await readStoredRecord(builderId, db)).record;
+}
+
+export async function saveRecord(builderId: number, record: BuilderRecord, now: Date, db: Db = sql()): Promise<void> {
+  await db`UPDATE builders SET record = ${sql().json(JSON.parse(JSON.stringify(record)))}, record_updated_at = ${now} WHERE id = ${builderId}`;
+}
+
+/**
+ * Runs `fn` on the record under the row's lock (one transaction) and saves the record it returns,
+ * unless that is null. An unreadable row is never passed to `fn` nor saved over: `broken` is true.
+ */
+export async function withRecord<T>(
+  builderId: number,
+  now: Date,
+  fn: (current: BuilderRecord) => { record: BuilderRecord | null; result: T },
+): Promise<{ broken: true } | { broken: false; record: BuilderRecord; result: T }> {
+  return inTx(undefined, async (tx) => {
+    const [r] = await tx<{ record: unknown }[]>`SELECT record FROM builders WHERE id = ${builderId} FOR UPDATE`;
+    const read = readRecord(r?.record ?? {}, builderId);
+    if (read.broken) return { broken: true as const };
+    const out = fn(read.record);
+    if (out.record) await saveRecord(builderId, out.record, now, tx);
+    return { broken: false as const, record: out.record ?? read.record, result: out.result };
+  });
 }
 
 export async function touchBuilder(id: number, now: Date): Promise<void> {

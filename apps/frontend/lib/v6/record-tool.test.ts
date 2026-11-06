@@ -6,7 +6,7 @@ import { mcpCall } from '../v5/fixtures/mcp-call';
 import { connectInstallation, saveInstallation } from '../v5/installations';
 import { upsertProgram } from '../v5/programs';
 import { getRecord, linkInstallation, saveRecord, upsertBuilder } from './builders';
-import { approvePath } from './record';
+import { EMPTY_RECORD, approvePath } from './record';
 
 after(() => sql().end());
 
@@ -126,4 +126,42 @@ test('the record is private: another builder reads only their own', async () => 
   await mcpCall(a, 'record', { set: { person: { name: 'Ada' } } });
   const g = await mcpCall(b, 'record', { get: true });
   assert.equal((g.reply!.record as { person: { name?: string } }).person.name, undefined);
+});
+
+test('two concurrent sets on different paths both land (the row lock)', async () => {
+  const c = await linked();
+  const [a, b] = await Promise.all([
+    mcpCall(c, 'record', { set: { person: { name: 'Ada' } } }),
+    mcpCall(c, 'record', { set: { company: { name: 'Ada Labs' } } }),
+  ]);
+  assert.equal(a.isError, false, a.text);
+  assert.equal(b.isError, false, b.text);
+  const r = await getRecord(c.builderId);
+  assert.equal(r.person.name, 'Ada');
+  assert.equal(r.company.name, 'Ada Labs');
+  assert.deepEqual(Object.keys(r.meta).sort(), ['company.name', 'person.name']);
+});
+
+test('an unreadable stored record is never overwritten by a set; get reads it as empty with a problem line', async () => {
+  const c = await linked();
+  await sql()`UPDATE builders SET record = ${sql().json({ person: { name: 42 }, keep: 'me' })}, record_updated_at = NULL WHERE id = ${c.builderId}`;
+  const errors: unknown[] = [];
+  const orig = console.error;
+  console.error = (...a: unknown[]) => errors.push(a);
+  try {
+    const s = await mcpCall(c, 'record', { set: { person: { name: 'Ada' } } });
+    assert.equal(s.isError, false, s.text);
+    assert.equal(s.reply!.show_to_builder, 'Your record could not be read; nothing was saved.');
+    assert.equal(s.reply!.agent_note, 'Tell the builder to open earnkit.com/me; the owner can inspect the stored row.');
+    const [row] = await sql()`SELECT record, record_updated_at FROM builders WHERE id = ${c.builderId}`;
+    assert.deepEqual(row.record, { person: { name: 42 }, keep: 'me' });
+    assert.equal(row.record_updated_at, null);
+    const g = await mcpCall(c, 'record', { get: true });
+    assert.deepEqual(g.reply!.record, JSON.parse(JSON.stringify(EMPTY_RECORD)));
+    assert.deepEqual(g.reply!.problems, ['stored record could not be read']);
+  } finally {
+    console.error = orig;
+  }
+  assert.ok(errors.length >= 2);
+  assert.doesNotMatch(JSON.stringify(errors), /42|keep/);
 });
