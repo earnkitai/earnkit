@@ -4,7 +4,7 @@ import { sql } from '../v5/db';
 import { programFixture } from '../v5/fixtures/program';
 import { record, summary } from '../v5/ledger';
 import { getProgram, upsertProgram } from '../v5/programs';
-import { deleteBuilder, getBuilder, linkInstallation, ownerKey, upsertBuilder } from './builders';
+import { LinkRefused, deleteBuilder, getBuilder, linkInstallation, ownerKey, upsertBuilder } from './builders';
 import { createSession } from './sessions';
 import { createLinkCode } from './link-routes';
 
@@ -110,10 +110,10 @@ test('deleteBuilder leaves no builder, session, link code or b: ledger row; the 
   const one = await install();
   await prog('bl-del');
   await record(ownerKey(one, null), 'bl-del', 'applied', { now: NOW });
+  await createLinkCode(one, NOW);
   await linkInstallation(one, b.id, NOW);
   await record(ownerKey(one, b.id), 'bl-del', 'gap_done', { installationId: one, item: 'x', now: NOW });
   await createSession(b.id, NOW);
-  await createLinkCode(one, NOW);
   await deleteBuilder(b.id);
   const owner = `b:${b.id}`;
   const n = async (q: Promise<{ n: number }[]>) => (await q)[0].n;
@@ -123,4 +123,36 @@ test('deleteBuilder leaves no builder, session, link code or b: ledger row; the 
   for (const t of ['applications', 'application_history', 'gaps_done'])
     assert.equal(await n(sql()`SELECT count(*)::int AS n FROM ${sql()(t)} WHERE owner = ${owner}`), 0, t);
   assert.equal((await sql()`SELECT builder_id FROM installations WHERE id = ${one}`)[0].builder_id, null);
+});
+
+test('an installation linked to one builder is never re-linked to another; the same builder again is a no-op', async () => {
+  const a = await builder();
+  const b = await builder();
+  const x = await install();
+  await prog('bl-re');
+  await record(ownerKey(x, null), 'bl-re', 'applied', { now: NOW });
+  assert.deepEqual(await linkInstallation(x, a.id, NOW), { migrated: 1 });
+  const before = await rows(`b:${a.id}`);
+  await assert.rejects(linkInstallation(x, b.id, NOW), (e) => e instanceof LinkRefused && e.reason === 'other_builder');
+  assert.deepEqual(await rows(`b:${a.id}`), before);
+  assert.deepEqual(await rows(`b:${b.id}`), []);
+  const inst = (await sql()`SELECT builder_id, linked_at FROM installations WHERE id = ${x}`)[0];
+  assert.equal(inst.builder_id, a.id);
+  assert.equal((inst.linked_at as Date).getTime(), NOW.getTime());
+  assert.deepEqual(await linkInstallation(x, a.id, new Date(NOW.getTime() + DAY)), { migrated: 0 });
+  await assert.rejects(createLinkCode(x, NOW), (e) => e instanceof LinkRefused && e.reason === 'already_linked');
+});
+
+test('a record under b:A from X does not raise beside an orphan i:X row for the same program', async () => {
+  const a = await builder();
+  const x = await install();
+  await prog('bl-orphan');
+  await linkInstallation(x, a.id, NOW);
+  // A call in flight at link time writes under the old owner.
+  await record(ownerKey(x, null), 'bl-orphan', 'applied', { now: NOW });
+  await record(ownerKey(x, null), 'bl-orphan', 'gap_done', { item: 'y', now: NOW });
+  assert.equal((await record(ownerKey(x, a.id), 'bl-orphan', 'applied', { installationId: x, now: NOW })).ok, true);
+  assert.equal((await record(ownerKey(x, a.id), 'bl-orphan', 'gap_done', { installationId: x, item: 'y', now: NOW })).ok, true);
+  assert.deepEqual(await rows(`b:${a.id}`), [{ program_id: 'bl-orphan', status: 'applied' }]);
+  assert.deepEqual(await rows(`i:${x}`), [{ program_id: 'bl-orphan', status: 'applied' }]);
 });

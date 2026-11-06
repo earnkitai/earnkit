@@ -203,6 +203,9 @@ CREATE INDEX IF NOT EXISTS application_history_owner ON application_history (own
 DELETE FROM gaps_done a USING gaps_done b
 WHERE a.owner = b.owner AND a.program_id = b.program_id AND a.item = b.item AND (a.at < b.at OR (a.at = b.at AND a.ctid < b.ctid));
 CREATE UNIQUE INDEX IF NOT EXISTS gaps_done_owner_item ON gaps_done (owner, program_id, item);
+-- The owner indexes replace the per-installation keys (an installation's stray i: row and its b: row may share a program).
+ALTER TABLE applications DROP CONSTRAINT IF EXISTS applications_pkey;
+ALTER TABLE gaps_done DROP CONSTRAINT IF EXISTS gaps_done_pkey;
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS project_id text;
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS submitted_by text;
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS fields_used text[];

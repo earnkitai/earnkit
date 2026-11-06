@@ -1,10 +1,12 @@
 import { after, afterEach, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { sql } from '../v5/db';
 import { windowStart } from '../v5/rate-limit';
+import { linkInstallation, upsertBuilder } from './builders';
 import { githubOAuthFetch } from './fixtures/github-oauth';
 import { verifyState } from './github-auth';
-import { callbackGet, createLinkCode, linkGet } from './link-routes';
+import { callbackGet, createLinkCode, linkGet, linkPost } from './link-routes';
 import { sessionBuilder } from './sessions';
 
 after(() => sql().end());
@@ -15,6 +17,7 @@ const MIN = 60_000;
 const NOT_SET_UP = 'GitHub sign-in is not set up yet.';
 const EXPIRED = 'This link has expired. Ask your agent for a new one.';
 const FAILED = 'Sign-in failed. Ask your agent for a new link.';
+const OTHER = 'This agent is already linked to another account. Install EarnKit again for a fresh link.';
 const ENV = { GITHUB_OAUTH_CLIENT_ID: 'Iv1.client', GITHUB_OAUTH_CLIENT_SECRET: 'shh-secret', EARNKIT_AUTH_SECRET: SECRET, EARNKIT_URL: 'https://earnkit.test' };
 let saved: Record<string, string | undefined> = {};
 beforeEach(() => {
@@ -27,83 +30,124 @@ afterEach(() => {
 });
 
 let ip = 10;
-const req = (path: string, from = `198.51.100.${++ip}`) => new Request(`https://earnkit.test${path}`, { headers: { 'x-real-ip': from } });
-const install = async () =>
-  ((await sql()`INSERT INTO installations (token_hash) VALUES (${'link-' + Math.random()}) RETURNING id`)[0].id as number);
+const req = (path: string, o: { from?: string; method?: string; cookie?: string; origin?: string } = {}) =>
+  new Request(`https://earnkit.test${path}`, {
+    method: o.method ?? 'GET',
+    headers: { 'x-real-ip': o.from ?? `198.51.100.${++ip}`, ...(o.cookie ? { cookie: o.cookie } : {}), ...(o.origin ? { origin: o.origin } : {}) },
+  });
+const install = async (name: string | null = null) =>
+  ((await sql()`INSERT INTO installations (token_hash, client_name, created_at) VALUES (${'link-' + Math.random()}, ${name}, ${NOW}) RETURNING id`)[0].id as number);
 const USER = { id: 31337, login: 'grace', name: 'Grace H', avatar_url: null };
+const builderOf = async (id: number) => (await sql()`SELECT builder_id FROM installations WHERE id = ${id}`)[0].builder_id as number | null;
 
-/** linkGet, then the state it signed. */
+/** The confirm button: the state it signed and the ek_link cookie it set. */
 async function start(code: string, now = NOW) {
-  const r = await linkGet(req(`/link/${code}`), code, { now });
+  const r = await linkPost(req(`/link/${code}`, { method: 'POST', origin: 'https://earnkit.test' }), code, { now });
   assert.equal(r.status, 302);
-  return new URL(r.headers.get('location')!).searchParams.get('state')!;
+  const state = new URL(r.headers.get('location')!).searchParams.get('state')!;
+  const cookie = r.headers.get('set-cookie')!.split(';')[0];
+  return { state, cookie };
 }
-const callback = (state: string, gh = githubOAuthFetch(USER).fetch, now = NOW) =>
-  callbackGet(req(`/auth/github/callback?code=gh-code&state=${encodeURIComponent(state)}`), { now, gh });
+const callback = (state: string, cookie: string | undefined, gh = githubOAuthFetch(USER).fetch, now = NOW) =>
+  callbackGet(req(`/auth/github/callback?code=gh-code&state=${encodeURIComponent(state)}`, { cookie }), { now, gh });
 
-test('linkGet and callbackGet answer 503 with the exact sentence when GitHub sign-in is not set up', async () => {
+test('linkGet, linkPost and callbackGet answer 503 with the exact sentence when GitHub sign-in is not set up', async () => {
   delete process.env.GITHUB_OAUTH_CLIENT_SECRET;
   const code = await createLinkCode(await install(), NOW);
-  for (const r of [await linkGet(req(`/link/${code}`), code, { now: NOW }), await callbackGet(req('/auth/github/callback?code=x&state=y'), { now: NOW })]) {
+  for (const r of [
+    await linkGet(req(`/link/${code}`), code, { now: NOW }),
+    await linkPost(req(`/link/${code}`, { method: 'POST' }), code, { now: NOW }),
+    await callbackGet(req('/auth/github/callback?code=x&state=y'), { now: NOW }),
+  ]) {
     assert.equal(r.status, 503);
     assert.equal(await r.text(), NOT_SET_UP);
     assert.match(r.headers.get('content-type') ?? '', /^text\/plain/);
   }
 });
 
-test('createLinkCode returns the live code again; a new one after expiry', async () => {
+test('createLinkCode stores only the hash; a new code ends the old one; a linked installation gets none', async () => {
   const id = await install();
   const code = await createLinkCode(id, NOW);
   assert.match(code, /^[A-Za-z0-9_-]{22}$/);
-  assert.equal(await createLinkCode(id, new Date(NOW.getTime() + 10 * MIN)), code);
-  assert.notEqual(await createLinkCode(id, new Date(NOW.getTime() + 16 * MIN)), code);
+  const stored = await sql()`SELECT code FROM link_codes WHERE installation_id = ${id}`;
+  assert.deepEqual(stored.map((r) => r.code), [createHash('sha256').update(code).digest('hex')]);
+  const next = await createLinkCode(id, new Date(NOW.getTime() + MIN));
+  assert.notEqual(next, code);
+  assert.equal((await linkGet(req(`/link/${code}`), code, { now: new Date(NOW.getTime() + 2 * MIN) })).status, 404);
+  assert.equal((await linkGet(req(`/link/${next}`), next, { now: new Date(NOW.getTime() + 2 * MIN) })).status, 200);
 });
 
-test('linkGet redirects to GitHub with a state that verifies to the code', async () => {
-  const code = await createLinkCode(await install(), NOW);
+test('GET /link renders the confirm page with the agent name and no redirect', async () => {
+  const code = await createLinkCode(await install('Claude <Code>'), NOW);
   const r = await linkGet(req(`/link/${code}`), code, { now: NOW });
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('location'), null);
+  assert.equal(r.headers.get('set-cookie'), null);
+  assert.match(r.headers.get('content-type') ?? '', /^text\/html/);
+  assert.match(r.headers.get('content-security-policy') ?? '', /frame-ancestors 'none'/);
+  const html = await r.text();
+  assert.ok(html.includes('Link the agent <strong>Claude &lt;Code&gt;</strong>, first seen Nov 6, to your GitHub account?'));
+  assert.ok(html.includes('<form method="post">'));
+  assert.ok(html.includes('Continue with GitHub'));
+  assert.ok(html.includes('If you did not ask your agent for this link, close this page.'));
+  assert.equal(/<script/i.test(html), false);
+  assert.equal(/—/.test(html), false);
+  const unnamed = await createLinkCode(await install(), NOW);
+  const plain = await (await linkGet(req(`/link/${unnamed}`), unnamed, { now: NOW })).text();
+  assert.ok(plain.includes('Link your agent, first seen Nov 6, to your GitHub account?'));
+});
+
+test('POST /link sets ek_link and redirects to GitHub with a state whose nonce is the cookie', async () => {
+  const code = await createLinkCode(await install(), NOW);
+  const r = await linkPost(req(`/link/${code}`, { method: 'POST' }), code, { now: NOW });
   assert.equal(r.status, 302);
   assert.equal(r.headers.get('cache-control'), 'no-store');
+  const cookie = r.headers.get('set-cookie')!;
+  assert.match(cookie, /^ek_link=[A-Za-z0-9_-]{22}; Path=\/; HttpOnly; SameSite=Lax; Max-Age=900$/);
   const loc = new URL(r.headers.get('location')!);
   assert.equal(loc.origin + loc.pathname, 'https://github.com/login/oauth/authorize');
   assert.equal(loc.searchParams.get('redirect_uri'), 'https://earnkit.test/auth/github/callback');
-  assert.deepEqual(verifyState(loc.searchParams.get('state')!, SECRET, NOW), { code });
+  const s = verifyState(loc.searchParams.get('state')!, SECRET, NOW);
+  assert.deepEqual(s, { code, nonce: cookie.split(';')[0].slice('ek_link='.length) });
+  const cross = await linkPost(req(`/link/${code}`, { method: 'POST', origin: 'https://evil.example' }), code, { now: NOW });
+  assert.equal(cross.status, 403);
+  assert.equal(cross.headers.get('set-cookie'), null);
 });
 
-test('linkGet answers 404 for an unknown or expired code', async () => {
-  for (const code of ['nope', 'x'.repeat(500)]) {
-    const r = await linkGet(req(`/link/${code}`), code, { now: NOW });
-    assert.equal(r.status, 404);
-    assert.equal(await r.text(), EXPIRED);
-  }
+test('GET and POST answer 404 for an unknown or expired code', async () => {
   const code = await createLinkCode(await install(), NOW);
-  const r = await linkGet(req(`/link/${code}`), code, { now: new Date(NOW.getTime() + 16 * MIN) });
-  assert.equal(r.status, 404);
-  assert.equal(await r.text(), EXPIRED);
+  const later = new Date(NOW.getTime() + 16 * MIN);
+  for (const [c, now] of [['nope', NOW], ['x'.repeat(500), NOW], [code, later]] as const) {
+    for (const r of [await linkGet(req(`/link/${c}`), c, { now }), await linkPost(req(`/link/${c}`, { method: 'POST' }), c, { now })]) {
+      assert.equal(r.status, 404);
+      assert.equal(await r.text(), EXPIRED);
+    }
+  }
 });
 
-test('callbackGet end to end: linked, a session cookie, /me; a replay is 400 and the code is used', async () => {
+test('callbackGet end to end: linked, a session cookie, ek_link cleared, /me; a replay is 400 and the code is used', async () => {
   const id = await install();
   const code = await createLinkCode(id, NOW);
-  const state = await start(code);
-  const r = await callback(state);
+  const { state, cookie: link } = await start(code);
+  const r = await callback(state, link);
   assert.equal(r.status, 302);
   assert.equal(r.headers.get('location'), '/me');
-  const cookie = r.headers.get('set-cookie')!;
-  assert.match(cookie, /^ek_me=[A-Za-z0-9_-]{43}; /);
-  for (const part of ['HttpOnly', 'SameSite=Lax', 'Path=/', 'Max-Age=2592000']) assert.ok(cookie.includes(part), part);
+  const [session, cleared] = r.headers.getSetCookie();
+  assert.match(session, /^ek_me=[A-Za-z0-9_-]{43}; /);
+  for (const part of ['HttpOnly', 'SameSite=Lax', 'Path=/', 'Max-Age=2592000']) assert.ok(session.includes(part), part);
+  assert.equal(cleared, 'ek_link=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
 
   const inst = (await sql()`SELECT i.builder_id, b.login FROM installations i JOIN builders b ON b.id = i.builder_id WHERE i.id = ${id}`)[0];
   assert.equal(inst.login, 'grace');
-  const me = await sessionBuilder(cookie.split(';')[0], NOW);
+  const me = await sessionBuilder(session.split(';')[0], NOW);
   assert.equal(me?.id, inst.builder_id);
   assert.equal(me?.login, 'grace');
-  assert.equal(await sessionBuilder(`other=1; ${cookie.split(';')[0]}`, NOW).then((b) => b?.id), inst.builder_id);
-  assert.equal(await sessionBuilder(cookie.split(';')[0], new Date(NOW.getTime() + 31 * 86_400_000)), null);
+  assert.equal(await sessionBuilder(`other=1; ${session.split(';')[0]}`, NOW).then((b) => b?.id), inst.builder_id);
+  assert.equal(await sessionBuilder(session.split(';')[0], new Date(NOW.getTime() + 31 * 86_400_000)), null);
   assert.equal(await sessionBuilder('ek_me=forged', NOW), null);
   assert.equal(await sessionBuilder(null, NOW), null);
 
-  const again = await callback(state);
+  const again = await callback(state, link);
   assert.equal(again.status, 400);
   assert.equal(await again.text(), FAILED);
   assert.equal(again.headers.get('set-cookie'), null);
@@ -112,32 +156,62 @@ test('callbackGet end to end: linked, a session cookie, /me; a replay is 400 and
   assert.equal(await used.text(), EXPIRED);
 });
 
+test('callbackGet without the ek_link cookie, or with another nonce, is 400 and links nothing', async () => {
+  const id = await install();
+  const code = await createLinkCode(id, NOW);
+  const { state } = await start(code);
+  const other = (await start(code)).cookie;
+  for (const r of [await callback(state, undefined), await callback(state, 'ek_link=AAAAAAAAAAAAAAAAAAAAAA'), await callback(state, other)]) {
+    assert.equal(r.status, 400);
+    assert.equal(await r.text(), FAILED);
+  }
+  assert.equal(await builderOf(id), null);
+  assert.equal((await sql()`SELECT used_at FROM link_codes WHERE installation_id = ${id}`)[0].used_at, null);
+});
+
 test('callbackGet: a bad or expired state and a GitHub error are 400; the code stays unused after a GitHub error', async () => {
   const id = await install();
   const code = await createLinkCode(id, NOW);
-  const state = await start(code);
+  const { state, cookie } = await start(code);
   for (const r of [
-    await callback('garbage'),
-    await callback(state, githubOAuthFetch(USER).fetch, new Date(NOW.getTime() + 16 * MIN)),
-    await callback(state, githubOAuthFetch(USER, { fail: 'user' }).fetch),
-    await callback(state, githubOAuthFetch(USER, { fail: 'token' }).fetch),
-    await callbackGet(req('/auth/github/callback?error=access_denied'), { now: NOW }),
+    await callback('garbage', cookie),
+    await callback(state, cookie, githubOAuthFetch(USER).fetch, new Date(NOW.getTime() + 16 * MIN)),
+    await callback(state, cookie, githubOAuthFetch(USER, { fail: 'user' }).fetch),
+    await callback(state, cookie, githubOAuthFetch(USER, { fail: 'token' }).fetch),
+    await callbackGet(req('/auth/github/callback?error=access_denied', { cookie }), { now: NOW }),
   ]) {
     assert.equal(r.status, 400);
     assert.equal(await r.text(), FAILED);
   }
-  assert.equal((await sql()`SELECT used_at FROM link_codes WHERE code = ${code}`)[0].used_at, null);
-  assert.equal((await sql()`SELECT builder_id FROM installations WHERE id = ${id}`)[0].builder_id, null);
-  assert.equal((await callback(state)).status, 302);
+  assert.equal((await sql()`SELECT used_at FROM link_codes WHERE installation_id = ${id}`)[0].used_at, null);
+  assert.equal(await builderOf(id), null);
+  assert.equal((await callback(state, cookie)).status, 302);
 });
 
-test('a rate-limited IP gets 429 on both routes', async () => {
+test('an installation linked to another account meanwhile: 400 with the exact sentence, nothing changes', async () => {
+  const id = await install();
+  const code = await createLinkCode(id, NOW);
+  const { state, cookie } = await start(code);
+  const first = await upsertBuilder({ github_id: 424_242, login: 'first', name: null, avatar_url: null }, NOW);
+  await linkInstallation(id, first.id, NOW);
+  const r = await callback(state, cookie);
+  assert.equal(r.status, 400);
+  assert.equal(await r.text(), OTHER);
+  assert.equal(r.headers.get('set-cookie'), null);
+  assert.equal(await builderOf(id), first.id);
+  assert.equal((await sql()`SELECT used_at FROM link_codes WHERE installation_id = ${id}`)[0].used_at, null);
+});
+
+test('a rate-limited IP gets 429 on every route', async () => {
   const from = '203.0.113.77';
   await sql()`INSERT INTO rate_windows (key, window_start, count) VALUES (${`linkGet:${from}`}, ${windowStart(new Date(), 3_600_000)}, 60)`;
   const code = await createLinkCode(await install(), NOW);
-  const a = await linkGet(req(`/link/${code}`, from), code, { now: NOW });
-  assert.equal(a.status, 429);
-  assert.ok(a.headers.get('retry-after'));
-  const b = await callbackGet(req('/auth/github/callback?code=x&state=y', from), { now: NOW });
-  assert.equal(b.status, 429);
+  for (const r of [
+    await linkGet(req(`/link/${code}`, { from }), code, { now: NOW }),
+    await linkPost(req(`/link/${code}`, { from, method: 'POST' }), code, { now: NOW }),
+    await callbackGet(req('/auth/github/callback?code=x&state=y', { from }), { now: NOW }),
+  ]) {
+    assert.equal(r.status, 429);
+    assert.ok(r.headers.get('retry-after'));
+  }
 });

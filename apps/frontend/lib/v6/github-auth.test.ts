@@ -21,22 +21,28 @@ test('authorizeUrl asks for read:user and returns to the callback on the origin'
 });
 
 test('verifyState accepts its own state and refuses a tampered or 16-minute-old one', () => {
-  const state = signState({ code: 'abc', exp: NOW.getTime() + 15 * MIN }, SECRET);
-  assert.deepEqual(verifyState(state, SECRET, NOW), { code: 'abc' });
-  assert.deepEqual(verifyState(state, SECRET, new Date(NOW.getTime() + 14 * MIN)), { code: 'abc' });
+  const state = signState({ code: 'abc', nonce: 'n1', exp: NOW.getTime() + 15 * MIN }, SECRET);
+  assert.deepEqual(verifyState(state, SECRET, NOW), { code: 'abc', nonce: 'n1' });
+  assert.deepEqual(verifyState(state, SECRET, new Date(NOW.getTime() + 14 * MIN)), { code: 'abc', nonce: 'n1' });
   assert.equal(verifyState(state, SECRET, new Date(NOW.getTime() + 16 * MIN)), null);
   const [body, sig] = state.split('.');
-  const forged = Buffer.from(JSON.stringify({ code: 'other', exp: NOW.getTime() + 15 * MIN })).toString('base64url');
+  const forged = Buffer.from(JSON.stringify({ code: 'other', nonce: 'n1', exp: NOW.getTime() + 15 * MIN })).toString('base64url');
   assert.equal(verifyState(`${forged}.${sig}`, SECRET, NOW), null);
   assert.equal(verifyState(`${body}.${sig}x`, SECRET, NOW), null);
   assert.equal(verifyState(`${body}.${sig}.x`, SECRET, NOW), null);
   assert.equal(verifyState(state, 'another-secret-0123456789abcdef0123', NOW), null);
   assert.equal(verifyState('', SECRET, NOW), null);
+  const noNonce = signState({ code: 'abc', exp: NOW.getTime() + 15 * MIN } as never, SECRET);
+  assert.equal(verifyState(noNonce, SECRET, NOW), null);
 });
 
 test('exchangeCode returns the GitHub user over the fake', async () => {
   const gh = githubOAuthFetch(USER);
-  const u = await exchangeCode('gh-code', 'https://earnkit.com', ENV, gh.fetch);
+  const signals: unknown[] = [];
+  const f = ((input: RequestInfo | URL, init?: RequestInit) => (signals.push(init?.signal), gh.fetch(input, init))) as typeof fetch;
+  const u = await exchangeCode('gh-code', 'https://earnkit.com', ENV, f);
+  assert.equal(signals.length, 2);
+  assert.ok(signals.every((x) => x instanceof AbortSignal));
   assert.deepEqual(u, { github_id: 77, login: 'ada', name: 'Ada L', avatar_url: 'https://avatars.githubusercontent.com/u/77' });
   assert.deepEqual(gh.calls, ['POST https://github.com/login/oauth/access_token', 'GET https://api.github.com/user']);
 });
@@ -46,6 +52,10 @@ test('exchangeCode throws GitHubAuthError on a 401 user read, a failed token and
   await assert.rejects(exchangeCode('c', 'https://earnkit.com', ENV, githubOAuthFetch(USER, { fail: 'token' }).fetch), GitHubAuthError);
   const noId = githubOAuthFetch({ ...USER, id: undefined as unknown as number });
   await assert.rejects(exchangeCode('c', 'https://earnkit.com', ENV, noId.fetch), GitHubAuthError);
+  const down = (async () => {
+    throw new DOMException('timed out', 'TimeoutError');
+  }) as typeof fetch;
+  await assert.rejects(exchangeCode('c', 'https://earnkit.com', ENV, down), GitHubAuthError);
   const err = await exchangeCode('c', 'https://earnkit.com', ENV, githubOAuthFetch(USER, { fail: 'user', token: 'gho_secret_xyz' }).fetch).catch((e: Error) => e);
   assert.ok(err instanceof GitHubAuthError);
   assert.equal(err.message.includes('\n'), false);

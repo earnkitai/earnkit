@@ -171,26 +171,27 @@ test('asked_usd leaves out investment programs', async () => {
   assert.equal(s.asked_usd, 5000);
 });
 
-test('a record under b:1 from two installations is one row, written by the last installation', async () => {
+test('a record under one b: owner from two installations is one row, written by the last installation', async () => {
   const one = await install();
   const two = await install();
-  await sql()`DELETE FROM applications WHERE owner = 'b:1'`;
+  // Past the builders sequence, so no other file's builder shares it.
+  const b = `b:${2 ** 30}`;
   await prog('l-b1');
-  await record('b:1', 'l-b1', 'applied', { installationId: one, now: NOW });
-  await record('b:1', 'l-b1', 'won', { installationId: two, amount_usd: 100, now: new Date(NOW.getTime() + DAY) });
-  await record('b:1', 'l-b1', 'gap_done', { installationId: one, item: 'x', now: NOW });
-  await record('b:1', 'l-b1', 'gap_done', { installationId: two, item: 'x', now: NOW });
-  const rows = await sql()`SELECT installation_id, status FROM applications WHERE owner = 'b:1' AND program_id = 'l-b1'`;
+  await record(b, 'l-b1', 'applied', { installationId: one, now: NOW });
+  await record(b, 'l-b1', 'won', { installationId: two, amount_usd: 100, now: new Date(NOW.getTime() + DAY) });
+  await record(b, 'l-b1', 'gap_done', { installationId: one, item: 'x', now: NOW });
+  await record(b, 'l-b1', 'gap_done', { installationId: two, item: 'x', now: NOW });
+  const rows = await sql()`SELECT installation_id, status FROM applications WHERE owner = ${b} AND program_id = 'l-b1'`;
   assert.deepEqual(rows.map((r) => ({ ...r })), [{ installation_id: two, status: 'won' }]);
-  const hist = await sql()`SELECT installation_id FROM application_history WHERE owner = 'b:1' AND program_id = 'l-b1' ORDER BY id`;
+  const hist = await sql()`SELECT installation_id FROM application_history WHERE owner = ${b} AND program_id = 'l-b1' ORDER BY id`;
   assert.deepEqual(hist.map((r) => r.installation_id), [one, two, one, two]);
-  assert.equal((await sql()`SELECT count(*)::int AS n FROM gaps_done WHERE owner = 'b:1' AND program_id = 'l-b1'`)[0].n, 1);
-  assert.equal((await summary('b:1', [], NOW)).won, 1);
-  assert.deepEqual([...(await doneItems('b:1', 'l-b1'))], ['x']);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM gaps_done WHERE owner = ${b} AND program_id = 'l-b1'`)[0].n, 1);
+  assert.equal((await summary(b, [], NOW)).won, 1);
+  assert.deepEqual([...(await doneItems(b, 'l-b1'))], ['x']);
   assert.deepEqual(await counts(one), { apps: 0, hist: 2 });
 });
 
 test('a b: owner without the writing installation is refused', async () => {
   await prog('l-b-none');
-  await assert.rejects(record('b:2', 'l-b-none', 'applied', { now: NOW }));
+  await assert.rejects(record(`b:${2 ** 30 + 1}`, 'l-b-none', 'applied', { now: NOW }));
 });
