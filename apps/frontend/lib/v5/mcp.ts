@@ -1,5 +1,5 @@
 /**
- * The MCP server: two tools, find and track, and the server instructions. Built per request
+ * The MCP server: three tools, find, track and record, and the server instructions. Built per request
  * (the route is stateless). Each tool call counts against the installation's and the IP's hourly
  * limits; over either it is the busy-for-an-hour result. A tool's reply is its JSON; an unexpected
  * error (a database blip) is one plain line, logged by name only.
@@ -10,16 +10,19 @@ import { find } from './find';
 import { PROGRAM_CATEGORIES } from './program-file';
 import { LIMITS, hit } from './rate-limit';
 import { TrackInput, track } from './track';
+import { RecordInput, recordTool } from '../v6/record-tool';
 
 /** `builderId`: the installation's linked builder, or null. `ip`: the caller's address as a rate-limit key, when the route knows it. */
 export type McpContext = { installationId: number; builderId: number | null; now?: Date; gh?: typeof fetch; ip?: string };
 
 export const SERVER_INSTRUCTIONS =
-  "Call find at the start of every session with the project you are in, before the builder says anything, and open with its reply in your own words. Call it again when they ask about money, grants or programs. Draft every form from find's fields: EarnKit's values as given, agent fields from your memory, builder fields asked once. Submit in your own browser only when the builder says yes. After each submission call track. Never name tools, fields or files. Never invent an amount, a deadline or a rule.";
+  "Call record with get at the start of every session, then find with the project you are in. Open with find's reply in your own words. Draft every form from find's fields: record and repo values as given, approved answers fitted by cutting, never by adding. Anything the builder tells you that a form could ask, save with record before using it. Submit in your own browser only after track started, and only when the builder said yes or their standing approval covers it. After each submission call track applied. Never write a sentence about traction yourself. Never name tools, fields or files. Never invent an amount, a deadline or a rule.";
 export const FIND_DESCRIPTION =
   "What can this repo earn: the programs it fits with every field pre-filled, the ones one change away, and the ledger. Call it at session start with the project you are in, and again when the builder asks about money or programs. With program_id: that program's details and form.";
 export const TRACK_DESCRIPTION =
   'What the builder did: applied, won (with amount_usd), rejected, no_result, skipped, or gap_done (with item). Call it after every submission and every answer about a result.';
+export const RECORD_DESCRIPTION =
+  "The builder's record: facts, links, documents, answers and standing approval, kept once and read by every agent of theirs. Call it with get at session start; call it with set for every new fact the builder gives; with brief for the question and facts behind one answer kind.";
 export const BUSY = 'EarnKit is busy. Try again in a minute.';
 export const BUSY_HOUR = 'EarnKit is busy. Try again in an hour.';
 
@@ -62,7 +65,7 @@ async function run(ctx: McpContext, name: string, fn: () => Promise<unknown>) {
 }
 
 export function createMcpServer(ctx: McpContext): McpServer {
-  const server = new McpServer({ name: 'earnkit', version: '5.0.0' }, { instructions: SERVER_INSTRUCTIONS });
+  const server = new McpServer({ name: 'earnkit', version: '6.1.0' }, { instructions: SERVER_INSTRUCTIONS });
   const now = () => ctx.now ?? new Date();
   server.registerTool(
     'find',
@@ -85,6 +88,11 @@ export function createMcpServer(ctx: McpContext): McpServer {
     'track',
     { description: TRACK_DESCRIPTION, inputSchema: TrackInput },
     (args) => run(ctx, 'track', () => track({ installationId: ctx.installationId, builderId: ctx.builderId, now: now() }, args)),
+  );
+  server.registerTool(
+    'record',
+    { description: RECORD_DESCRIPTION, inputSchema: RecordInput },
+    (args) => run(ctx, 'record', () => recordTool({ installationId: ctx.installationId, builderId: ctx.builderId, now: now() }, args)),
   );
   return server;
 }

@@ -1,0 +1,355 @@
+/**
+ * The builder's record: one strict schema, a merge that drops a bad leaf (never the whole patch)
+ * and stamps who set each path, approvals the builder grants on /me, the answer bank lookups and
+ * what the record still lacks, in builder words. Pure; the row lives in builders.record.
+ */
+import { isDeepStrictEqual } from 'node:util';
+import { z } from 'zod';
+import { isKnownChain } from '../v5/chains';
+import { ANSWER_KINDS, PROGRAM_CATEGORIES, type AnswerKind, type FieldKind } from '../v5/program-file';
+
+const CONTROL = /[\u0000-\u001f\u007f]/;
+/** Newlines and tabs are fine in prose; other control characters are not. */
+const CONTROL_PROSE = /[\u0000-\u0008\u000b-\u001f\u007f]/;
+const line = (max: number) => z.string().max(max).refine((s) => !CONTROL.test(s), 'no control characters');
+const prose = (max: number) => z.string().max(max).refine((s) => !CONTROL_PROSE.test(s), 'no control characters');
+const https = line(500).pipe(z.url({ protocol: /^https$/ }));
+const githubRepo = line(300).regex(/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/?$/, 'must be an https://github.com/<owner>/<repo> link');
+const email = line(200).pipe(z.email());
+const isoDate = line(10).refine((s) => {
+  const d = new Date(`${s}T00:00:00Z`);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(d.getTime()) && d.toISOString().startsWith(s);
+}, 'must be YYYY-MM-DD');
+const iso = line(40).pipe(z.iso.datetime({ offset: true }));
+function isTimeZone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const Person = z.object({
+  name: line(80), email, x: line(40), linkedin: https, location: line(80),
+  timezone: line(64).refine(isTimeZone, 'must be an IANA time zone'), phone: line(30), bio: prose(280),
+  technical: z.boolean(), based_country: line(2).regex(/^[A-Z]{2}$/, 'must be two capital letters'),
+}).partial().strip();
+const TeamMember = z.object({ name: line(80), role: line(80).optional(), github: line(40).optional(), x: line(40).optional(), email: email.optional() }).strip();
+const Company = z.object({
+  name: line(120), incorporated: z.boolean(), jurisdiction: line(80), raised_usd: z.number().min(0).max(1e9), raised_from: prose(280),
+  stage: z.enum(['idea', 'building', 'pre_launch', 'launched']), launch_date: isoDate,
+}).partial().strip();
+export const Answer = z.object({
+  text: prose(2000).min(1), short: line(280).optional(), written_by: z.enum(['builder', 'agent']), voice_notes: line(120).optional(),
+}).strip();
+export type Answer = z.infer<typeof Answer>;
+const Answers = z.object(Object.fromEntries(ANSWER_KINDS.map((k) => [k, Answer.optional()])) as { [K in AnswerKind]: z.ZodOptional<typeof Answer> }).strip();
+const Project = z.object({
+  id: line(40).regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'must be a lowercase slug'),
+  name: line(80).optional(), one_liner: line(140).optional(), description: prose(600).optional(), goals: prose(600).optional(),
+  repo_url: githubRepo.nullable().optional(), live_url: https.optional(), demo_url: https.optional(), category: line(40).optional(),
+  chains_claimed: z.array(line(40).refine(isKnownChain, 'not a known chain')).max(20).optional(),
+  answers: Answers.prefault({}),
+  /** EarnKit only (find): when the evidence was last read, and the tier then. */
+  evidence_read_at: iso.optional(),
+  last_tier: z.object({ tier: line(40), line: line(280), read_at: line(40) }).strip().optional(),
+}).strip();
+export type Project = z.infer<typeof Project>;
+const Docs = z.object({
+  resume_url: https.optional(), deck_url: https.optional(), founder_video_url: https.optional(), demo_video_url: https.optional(),
+  other: z.array(z.object({ label: line(40), url: https }).strip()).max(10).default([]),
+}).strip();
+const Traction = z.object({
+  line_pre_launch: line(280), waitlist: z.number().int().min(0).max(1e7), revenue_usd_claim: z.number().min(0).max(1e9), notes: prose(280),
+}).partial().strip();
+const Policy = z.object({
+  auto_apply: z.boolean().default(false), max_per_night: z.number().int().min(1).max(20).default(5),
+  categories: z.array(z.enum(PROGRAM_CATEGORIES)).default([...PROGRAM_CATEGORIES]), max_ask_usd: z.number().min(0).optional(),
+  never: z.array(line(100)).max(50).default([]), agent_may_submit: z.boolean().default(true),
+}).strip();
+const Meta = z.object({ set_by: z.enum(['builder', 'agent']), set_at: line(40), approved_at: line(40).optional() }).strip();
+export type Meta = z.infer<typeof Meta>;
+
+export const BuilderRecord = z.object({
+  person: Person.prefault({}),
+  team: z.array(TeamMember).max(10).default([]),
+  company: Company.prefault({}),
+  projects: z.array(Project).max(10).default([]),
+  docs: Docs.prefault({}),
+  traction: Traction.prefault({}),
+  answers: Answers.prefault({}),
+  policy: Policy.prefault({}),
+  meta: z.record(line(200), Meta).default({}),
+}).strip();
+export type BuilderRecord = z.infer<typeof BuilderRecord>;
+export const EMPTY_RECORD: BuilderRecord = BuilderRecord.parse({});
+
+/** A stored row: an invalid value reads as EMPTY_RECORD, logged by builder id only. */
+export function parseRecord(v: unknown, builderId?: number): BuilderRecord {
+  const r = BuilderRecord.safeParse(v ?? {});
+  if (r.success) return r.data;
+  console.error('[record] stored record does not parse; read as empty', builderId ?? 'unknown');
+  return structuredClone(EMPTY_RECORD);
+}
+
+/** Paths a reviewer would read; an agent's change to one waits for the builder's approval on /me. */
+export const APPROVABLE = (path: string): boolean =>
+  /^answers\.[a-z_]+$/.test(path) || /^projects\.[^.]+\.answers\.[a-z_]+$/.test(path) || path === 'traction.line_pre_launch' || path === 'company.raised';
+
+type By = 'builder' | 'agent';
+type Merge = { record: BuilderRecord; problems: string[]; changed: string[] };
+const isObj = (v: unknown): v is { [k: string]: unknown } => typeof v === 'object' && v !== null && !Array.isArray(v);
+const issue = (path: string, err: z.ZodError) => {
+  const i = err.issues[0];
+  const at = i.path.length ? `${path}.${i.path.join('.')}` : path;
+  return `${at}: ${i.message}`;
+};
+const EARNKIT_ONLY = new Set(['evidence_read_at', 'last_tier']);
+/** company.raised_usd and raised_from share one path. */
+const metaPath = (path: string) => (path === 'company.raised_usd' || path === 'company.raised_from' ? 'company.raised' : path);
+
+/** Merges one object block's keys into `cur` by its shape; null clears a key. Returns the changed leaf paths. */
+function mergeFields(cur: { [k: string]: unknown }, patch: unknown, shape: z.ZodRawShape, prefix: string, problems: string[], skip: Set<string> = new Set()): string[] {
+  if (!isObj(patch)) {
+    problems.push(`${prefix}: not an object`);
+    return [];
+  }
+  const changed: string[] = [];
+  for (const [key, value] of Object.entries(patch)) {
+    const path = `${prefix}.${key}`;
+    if (skip.has(key)) continue;
+    if (EARNKIT_ONLY.has(key)) {
+      problems.push(`${path}: set by EarnKit only`);
+      continue;
+    }
+    const schema = shape[key] as z.ZodType | undefined;
+    if (!schema) {
+      problems.push(`${path}: not a field`);
+      continue;
+    }
+    let next: unknown;
+    if (value === null && !schema.safeParse(null).success) next = undefined;
+    else {
+      const r = schema.safeParse(value);
+      if (!r.success) {
+        problems.push(issue(path, r.error));
+        continue;
+      }
+      next = r.data;
+    }
+    if (isDeepStrictEqual(cur[key], next)) continue;
+    if (next === undefined) delete cur[key];
+    else cur[key] = next;
+    changed.push(path);
+  }
+  return changed;
+}
+
+/** Merges an answers map; each answer is merged over the current one, written_by defaulting to `by`. */
+function mergeAnswers(cur: { [k: string]: unknown }, patch: unknown, prefix: string, by: By, problems: string[]): string[] {
+  if (!isObj(patch)) {
+    problems.push(`${prefix}: not an object`);
+    return [];
+  }
+  const changed: string[] = [];
+  for (const [kind, value] of Object.entries(patch)) {
+    const path = `${prefix}.${kind}`;
+    if (!(ANSWER_KINDS as readonly string[]).includes(kind)) {
+      problems.push(`${path}: not a field`);
+      continue;
+    }
+    let next: Answer | undefined;
+    if (value !== null) {
+      if (!isObj(value)) {
+        problems.push(`${path}: not an object`);
+        continue;
+      }
+      const prev = (cur[kind] ?? {}) as { [k: string]: unknown };
+      const r = Answer.safeParse({ ...prev, written_by: 'written_by' in value ? undefined : by, ...value });
+      if (!r.success) {
+        problems.push(issue(path, r.error));
+        continue;
+      }
+      next = r.data;
+    }
+    if (isDeepStrictEqual(cur[kind], next)) continue;
+    if (next === undefined) delete cur[kind];
+    else cur[kind] = next;
+    changed.push(path);
+  }
+  return changed;
+}
+
+function mergeProjects(rec: BuilderRecord, patch: unknown, by: By, problems: string[]): string[] {
+  if (!Array.isArray(patch)) {
+    problems.push('projects: not a list');
+    return [];
+  }
+  const changed: string[] = [];
+  const idSchema = Project.shape.id;
+  for (const entry of patch) {
+    if (!isObj(entry)) {
+      problems.push('projects: an entry is not an object');
+      continue;
+    }
+    const id = idSchema.safeParse(entry.id);
+    if (!id.success) {
+      problems.push(issue('projects.id', id.error));
+      continue;
+    }
+    const prefix = `projects.${id.data}`;
+    let project = rec.projects.find((p) => p.id === id.data);
+    const isNew = !project;
+    if (!project) {
+      if (rec.projects.length >= 10) {
+        problems.push(`${prefix}: at most 10 projects`);
+        continue;
+      }
+      project = Project.parse({ id: id.data });
+    }
+    const fields = project as unknown as { [k: string]: unknown };
+    const here = mergeFields(fields, entry, Project.shape, prefix, problems, new Set(['id', 'answers']));
+    if ('answers' in entry) here.push(...mergeAnswers(project.answers as { [k: string]: unknown }, entry.answers, `${prefix}.answers`, by, problems));
+    if (isNew) {
+      rec.projects.push(project);
+      here.unshift(prefix);
+    }
+    changed.push(...here);
+  }
+  return changed;
+}
+
+const BLOCKS = { person: Person, company: Company, docs: Docs, traction: Traction, policy: Policy } as const;
+
+/**
+ * Deep-merges a patch into the record: objects merged, arrays replaced whole, projects merged by id.
+ * Each changed path is stamped `{ set_by, set_at }`; an agent's change to an approvable path drops
+ * its approval (a builder's keeps it). Every bad leaf is dropped with a "<path>: <issue>" line.
+ */
+export function mergeRecord(current: BuilderRecord, patch: unknown, by: By, now: Date): Merge {
+  const problems: string[] = [];
+  if (!isObj(patch)) return { record: current, problems: ['set: not an object'], changed: [] };
+  const rec = structuredClone(current);
+  const leaves: string[] = [];
+  for (const [key, value] of Object.entries(patch)) {
+    if (key === 'meta' || key === 'evidence_read_at') problems.push(`${key}: set by EarnKit only`);
+    else if (key in BLOCKS) {
+      const block = BLOCKS[key as keyof typeof BLOCKS];
+      leaves.push(...mergeFields(rec[key as keyof typeof BLOCKS] as { [k: string]: unknown }, value, block.shape, key, problems));
+    } else if (key === 'team') {
+      const r = BuilderRecord.shape.team.safeParse(value);
+      if (!r.success) problems.push(issue('team', r.error));
+      else if (!isDeepStrictEqual(rec.team, r.data)) {
+        rec.team = r.data;
+        leaves.push('team');
+      }
+    } else if (key === 'answers') leaves.push(...mergeAnswers(rec.answers as { [k: string]: unknown }, value, 'answers', by, problems));
+    else if (key === 'projects') leaves.push(...mergeProjects(rec, value, by, problems));
+    else problems.push(`${key}: not a field`);
+  }
+  const changed = [...new Set(leaves.map(metaPath))];
+  for (const path of changed) {
+    const prev = rec.meta[path];
+    const keep = by === 'builder' && prev?.approved_at ? { approved_at: prev.approved_at } : {};
+    rec.meta[path] = { set_by: by, set_at: now.toISOString(), ...keep };
+  }
+  // Defaults (policy) refill after a clear; every leaf was checked, so this parse holds.
+  const out = BuilderRecord.safeParse(rec);
+  if (!out.success) return { record: current, problems: [...problems, issue('set', out.error)], changed: [] };
+  return { record: out.data, problems, changed };
+}
+
+/** The value at an approvable path, or undefined. */
+function valueAt(record: BuilderRecord, path: string): unknown {
+  if (path === 'company.raised') return record.company.raised_usd ?? record.company.raised_from;
+  if (path === 'traction.line_pre_launch') return record.traction.line_pre_launch;
+  const a = /^answers\.([a-z_]+)$/.exec(path);
+  if (a) return (record.answers as { [k: string]: unknown })[a[1]];
+  const p = /^projects\.([^.]+)\.answers\.([a-z_]+)$/.exec(path);
+  if (p) return (record.projects.find((x) => x.id === p[1])?.answers as { [k: string]: unknown } | undefined)?.[p[2]];
+  return undefined;
+}
+
+/** Approves an approvable path that holds a value (only /me calls this); otherwise the record unchanged. */
+export function approvePath(record: BuilderRecord, path: string, now: Date): BuilderRecord {
+  if (!APPROVABLE(path) || valueAt(record, path) === undefined) return record;
+  const prev = record.meta[path] ?? { set_by: 'builder' as const, set_at: now.toISOString() };
+  return { ...record, meta: { ...record.meta, [path]: { ...prev, approved_at: now.toISOString() } } };
+}
+
+export function unapprovePath(record: BuilderRecord, path: string): BuilderRecord {
+  const prev = record.meta[path];
+  if (!prev?.approved_at) return record;
+  const { approved_at: _, ...rest } = prev;
+  return { ...record, meta: { ...record.meta, [path]: rest } };
+}
+
+export const isApproved = (record: BuilderRecord, path: string): boolean =>
+  APPROVABLE(path) && Boolean(record.meta[path]?.approved_at) && valueAt(record, path) !== undefined;
+
+/** The answer kind a field kind reads from the bank: how_it_works reads solution; fact kinds none. */
+const answerKindOf = (kind: FieldKind | AnswerKind): AnswerKind | null =>
+  kind === 'how_it_works' ? 'solution' : (ANSWER_KINDS as readonly string[]).includes(kind) ? (kind as AnswerKind) : null;
+
+/** The project's approved answer for the kind, else the record's; null when none is approved. */
+export function answerFor(record: BuilderRecord, projectId: string | null, kind: FieldKind): { text: string; short: string | null } | null {
+  const k = answerKindOf(kind);
+  if (!k) return null;
+  const pick = (path: string) => {
+    const a = valueAt(record, path) as Answer | undefined;
+    return a && isApproved(record, path) ? { text: a.text, short: a.short ?? null } : null;
+  };
+  return (projectId !== null ? pick(`projects.${projectId}.answers.${k}`) : null) ?? pick(`answers.${k}`);
+}
+
+export const KIND_WORDS: Record<AnswerKind, string> = {
+  one_liner: 'the one-liner', problem: 'the problem', solution: 'the solution', traction: 'traction', team: 'the team', why_you: 'why you',
+  milestones: 'milestones', use_of_funds: 'use of funds', competitors: 'competitors', risks: 'risks', ecosystem_fit: 'ecosystem fit',
+  what_next: 'what is next', past_work: 'past work', help_needed: 'help needed',
+};
+
+/** A need's doc check and its builder words. pitch_pdf: an other[] link labelled with "pitch". */
+const NEED_DOCS: { need: string; has: (r: BuilderRecord) => boolean; words: string }[] = [
+  { need: 'founder_video', has: (r) => Boolean(r.docs.founder_video_url), words: 'your founder video link' },
+  { need: 'demo_video', has: (r) => Boolean(r.docs.demo_video_url), words: 'your demo video link' },
+  { need: 'resume', has: (r) => Boolean(r.docs.resume_url), words: 'your resume link' },
+  { need: 'deck', has: (r) => Boolean(r.docs.deck_url), words: 'your deck link' },
+  { need: 'pitch_pdf', has: (r) => r.docs.other.some((o) => /pitch/i.test(o.label)), words: 'your pitch PDF link' },
+];
+
+/**
+ * What the record lacks for the open programs, in builder words. `needs`: the programs' needs;
+ * `kinds`: the answer kinds their forms ask; `verifiedUsage`: usage numbers exist, so no traction line is needed.
+ */
+export function recordMissing(record: BuilderRecord, o: { needs: string[]; kinds: string[]; verifiedUsage?: boolean }): string[] {
+  const out: string[] = [];
+  if (!record.person.name || !record.person.email) out.push('your name and email');
+  if (!record.projects.some((p) => p.repo_url || p.live_url)) out.push('a project with its repo or site');
+  if (!o.verifiedUsage && !isApproved(record, 'traction.line_pre_launch')) out.push('one approved line on traction');
+  const kinds = [...new Set(o.kinds.map((k) => answerKindOf(k as FieldKind)).filter((k): k is AnswerKind => k !== null))];
+  for (const k of ANSWER_KINDS.filter((x) => kinds.includes(x))) {
+    const any = answerFor(record, null, k) ?? record.projects.map((p) => answerFor(record, p.id, k)).find(Boolean);
+    if (!any) out.push(`an approved answer on ${KIND_WORDS[k]}`);
+  }
+  for (const d of NEED_DOCS) if (o.needs.includes(d.need) && !d.has(record)) out.push(d.words);
+  return out;
+}
+
+const filledObj = (o: object) => Object.values(o).some((v) => v !== undefined && !(Array.isArray(v) && v.length === 0));
+const BLOCK_WORDS: [string, (r: BuilderRecord) => boolean][] = [
+  ['about you', (r) => filledObj(r.person)],
+  ['a project', (r) => r.projects.length > 0],
+  ['the company', (r) => filledObj(r.company)],
+  ['your documents', (r) => filledObj(r.docs)],
+  ['traction', (r) => filledObj(r.traction)],
+  ['answers', (r) => filledObj(r.answers) || r.projects.some((p) => filledObj(p.answers))],
+];
+
+/** Which of the six blocks hold anything, in plain words. */
+export function completeness(record: BuilderRecord): { filled: string[]; missing: string[] } {
+  const filled: string[] = [];
+  const missing: string[] = [];
+  for (const [words, has] of BLOCK_WORDS) (has(record) ? filled : missing).push(words);
+  return { filled, missing };
+}

@@ -1,0 +1,129 @@
+import { after, afterEach, beforeEach, test } from 'node:test';
+import assert from 'node:assert/strict';
+import { sql } from '../v5/db';
+import { programFixture } from '../v5/fixtures/program';
+import { mcpCall } from '../v5/fixtures/mcp-call';
+import { connectInstallation, saveInstallation } from '../v5/installations';
+import { upsertProgram } from '../v5/programs';
+import { getRecord, linkInstallation, saveRecord, upsertBuilder } from './builders';
+import { approvePath } from './record';
+
+after(() => sql().end());
+
+const NOW = new Date('2026-11-06T12:00:00Z');
+const ENV_KEYS = ['GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET', 'EARNKIT_URL'] as const;
+let saved: Record<string, string | undefined> = {};
+beforeEach(() => {
+  saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+  for (const k of ENV_KEYS) delete process.env[k];
+});
+afterEach(() => {
+  for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k];
+  else process.env[k] = v;
+});
+
+let gh = 700_000;
+async function installation(): Promise<number> {
+  const token = 'record-' + Math.random();
+  await saveInstallation(token, 'Record Agent');
+  const caller = await connectInstallation(token);
+  assert.ok(caller);
+  return caller.id;
+}
+async function linked() {
+  const installationId = await installation();
+  const b = await upsertBuilder({ github_id: ++gh, login: 'ada' + gh, name: 'Ada', avatar_url: null }, NOW);
+  await linkInstallation(installationId, b.id, NOW);
+  return { installationId, builderId: b.id, now: NOW };
+}
+
+test('unlinked and sign-in not configured: linked false, no sign_in, the session-only line', async () => {
+  const r = await mcpCall({ installationId: await installation(), builderId: null, now: NOW }, 'record', { get: true });
+  assert.equal(r.isError, false, r.text);
+  assert.equal(r.reply!.linked, false);
+  assert.equal('sign_in' in r.reply!, false);
+  assert.equal(r.reply!.show_to_builder, 'Sign-in is not ready yet; I will keep what you tell me in this session only.');
+  assert.equal(r.reply!.agent_note, 'Show the link and stop asking for personal facts until the builder has signed in. Call record with get afterwards.');
+  assert.equal('record' in r.reply!, false);
+});
+
+test('unlinked and configured: the sign-in link, and nothing saved', async () => {
+  Object.assign(process.env, { GITHUB_OAUTH_CLIENT_ID: 'Iv1.client', GITHUB_OAUTH_CLIENT_SECRET: 'shh', EARNKIT_URL: 'https://earnkit.test/' });
+  const id = await installation();
+  const r = await mcpCall({ installationId: id, builderId: null, now: NOW }, 'record', { set: { person: { name: 'Ada' } } });
+  assert.equal(r.reply!.linked, false);
+  const link = r.reply!.sign_in as string;
+  assert.match(link, /\/link\/[A-Za-z0-9_-]{16,}$/);
+  assert.ok(link.startsWith('https://earnkit.test/link/'), link);
+  assert.equal(r.reply!.show_to_builder, `Sign in once at ${link} so I remember you across agents.`);
+  const [n] = await sql()`SELECT count(*)::int AS n FROM link_codes WHERE installation_id = ${id}`;
+  assert.equal(n.n, 1);
+});
+
+test('linked: set saves, get reads it back; missing lists the founder video when a program needs it', async () => {
+  await upsertProgram(programFixture({ id: 'record-video', needs: ['founder_video'] }), 'file', NOW);
+  const c = await linked();
+  const s = await mcpCall(c, 'record', { set: { person: { name: 'Ada', email: 'ada@example.com' }, projects: [{ id: 'app', repo_url: 'https://github.com/ada/app' }] } });
+  assert.equal(s.isError, false, s.text);
+  assert.equal(s.reply!.linked, true);
+  const missing = s.reply!.missing as string[];
+  assert.ok(missing.includes('your founder video link'), missing.join('|'));
+  assert.match(s.reply!.show_to_builder as string, /^Saved\. Still missing: [^.]+\.$/);
+  assert.equal((await getRecord(c.builderId)).person.name, 'Ada');
+  const [row] = await sql()`SELECT record_updated_at FROM builders WHERE id = ${c.builderId}`;
+  assert.equal((row.record_updated_at as Date).toISOString(), NOW.toISOString());
+
+  const g = await mcpCall(c, 'record', { get: true });
+  const rec = g.reply!.record as { person: { name: string }; meta: Record<string, { set_by: string }> };
+  assert.equal(rec.person.name, 'Ada');
+  assert.equal(rec.meta['person.name'].set_by, 'agent');
+  assert.ok((g.reply!.missing as string[]).includes('your founder video link'));
+  assert.equal(g.reply!.show_to_builder, 'Your record has 2 of 6 blocks; missing: the company, your documents, traction and answers.');
+});
+
+test('the Saved line: three missing items, then "and n more"; the approval note only when an approvable path changed', async () => {
+  const c = await linked();
+  const plain = await mcpCall(c, 'record', { set: { person: { location: 'London' } } });
+  assert.match(plain.reply!.show_to_builder as string, /^Saved\. Still missing: your name and email, a project with its repo or site, one approved line on traction and \d+ more\.$/);
+  assert.equal(plain.reply!.agent_note, '');
+  const ans = await mcpCall(c, 'record', { set: { answers: { problem: { text: 'Fees are high.' } } } });
+  assert.equal(ans.reply!.agent_note, 'Approved answers come from earnkit.com/me, where the builder reads and approves each one; an unapproved answer is never used in a form.');
+});
+
+test('set with meta or evidence_read_at: a problem line and no change', async () => {
+  const c = await linked();
+  await mcpCall(c, 'record', { set: { projects: [{ id: 'app', name: 'App' }], answers: { problem: { text: 'Fees.' } } } });
+  const before = await getRecord(c.builderId);
+  const r = await mcpCall(c, 'record', {
+    set: { meta: { 'answers.problem': { set_by: 'builder', set_at: NOW.toISOString(), approved_at: NOW.toISOString() } }, projects: [{ id: 'app', evidence_read_at: NOW.toISOString() }] },
+  });
+  assert.equal(r.isError, false, r.text);
+  assert.deepEqual(r.reply!.problems, ['meta: set by EarnKit only', 'projects.app.evidence_read_at: set by EarnKit only']);
+  assert.deepEqual(await getRecord(c.builderId), before);
+});
+
+test('brief: the brief for the kind plus the record; an approved answer survives a get', async () => {
+  const c = await linked();
+  await mcpCall(c, 'record', { set: { answers: { problem: { text: 'Fees.' } } } });
+  await saveRecord(c.builderId, approvePath(await getRecord(c.builderId), 'answers.problem', NOW), NOW);
+  const r = await mcpCall(c, 'record', { brief: 'problem' });
+  const brief = r.reply!.brief as { question: string; kind: string };
+  assert.equal(brief.kind, 'problem');
+  assert.equal(brief.question, 'What problem do you solve, for whom, and how do they handle it today?');
+  const rec = r.reply!.record as { meta: Record<string, { approved_at?: string }> };
+  assert.equal(rec.meta['answers.problem'].approved_at, NOW.toISOString());
+});
+
+test('the input is strict: an approve key is refused', async () => {
+  const c = await linked();
+  const r = await mcpCall(c, 'record', { approve: 'answers.problem' });
+  assert.equal(r.isError, true, r.text);
+});
+
+test('the record is private: another builder reads only their own', async () => {
+  const a = await linked();
+  const b = await linked();
+  await mcpCall(a, 'record', { set: { person: { name: 'Ada' } } });
+  const g = await mcpCall(b, 'record', { get: true });
+  assert.equal((g.reply!.record as { person: { name?: string } }).person.name, undefined);
+});

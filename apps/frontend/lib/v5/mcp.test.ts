@@ -2,7 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import { mcpCall, mcpInstructions, mcpListTools } from './fixtures/mcp-call';
-import { FIND_DESCRIPTION, SERVER_INSTRUCTIONS, TRACK_DESCRIPTION } from './mcp';
+import { FIND_DESCRIPTION, RECORD_DESCRIPTION, SERVER_INSTRUCTIONS, TRACK_DESCRIPTION } from './mcp';
 import { windowStart } from './rate-limit';
 
 after(() => sql().end());
@@ -13,10 +13,10 @@ async function ctx() {
   return { installationId: r.id as number, builderId: null, now: NOW, gh: (async () => new Response('', { status: 404 })) as typeof fetch };
 }
 
-test('two tools, their descriptions and the server instructions, verbatim', async () => {
+test('three tools, their descriptions and the server instructions, verbatim', async () => {
   const c = await ctx();
   const tools = await mcpListTools(c);
-  assert.deepEqual(tools.map((t) => t.name), ['find', 'track']);
+  assert.deepEqual(tools.map((t) => t.name), ['find', 'track', 'record']);
   assert.equal(
     FIND_DESCRIPTION,
     'What can this repo earn: the programs it fits with every field pre-filled, the ones one change away, and the ledger. Call it at session start with the project you are in, and again when the builder asks about money or programs. With program_id: that program\'s details and form.',
@@ -28,8 +28,13 @@ test('two tools, their descriptions and the server instructions, verbatim', asyn
   assert.equal(tools[0].description, FIND_DESCRIPTION);
   assert.equal(tools[1].description, TRACK_DESCRIPTION);
   assert.equal(
+    RECORD_DESCRIPTION,
+    "The builder's record: facts, links, documents, answers and standing approval, kept once and read by every agent of theirs. Call it with get at session start; call it with set for every new fact the builder gives; with brief for the question and facts behind one answer kind.",
+  );
+  assert.equal(tools[2].description, RECORD_DESCRIPTION);
+  assert.equal(
     SERVER_INSTRUCTIONS,
-    'Call find at the start of every session with the project you are in, before the builder says anything, and open with its reply in your own words. Call it again when they ask about money, grants or programs. Draft every form from find\'s fields: EarnKit\'s values as given, agent fields from your memory, builder fields asked once. Submit in your own browser only when the builder says yes. After each submission call track. Never name tools, fields or files. Never invent an amount, a deadline or a rule.',
+    "Call record with get at the start of every session, then find with the project you are in. Open with find's reply in your own words. Draft every form from find's fields: record and repo values as given, approved answers fitted by cutting, never by adding. Anything the builder tells you that a form could ask, save with record before using it. Submit in your own browser only after track started, and only when the builder said yes or their standing approval covers it. After each submission call track applied. Never write a sentence about traction yourself. Never name tools, fields or files. Never invent an amount, a deadline or a rule.",
   );
   assert.equal(await mcpInstructions(c), SERVER_INSTRUCTIONS);
 });

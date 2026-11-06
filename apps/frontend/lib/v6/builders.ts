@@ -3,6 +3,7 @@
  * 'i:<installation>' to 'b:<builder>', so every agent of one builder shares one ledger.
  */
 import { inTx, sql, type Db } from '../v5/db';
+import { type BuilderRecord, parseRecord } from './record';
 
 export type Builder = { id: number; github_id: number; login: string; name: string | null; avatar_url: string | null };
 type GitHubUser = Omit<Builder, 'id'>;
@@ -37,6 +38,16 @@ export async function upsertBuilder(u: GitHubUser, now: Date): Promise<Builder> 
 export async function getBuilder(id: number): Promise<Builder | null> {
   const [r] = await sql()<Row[]>`SELECT id, github_id, login, name, avatar_url FROM builders WHERE id = ${id}`;
   return r ? builderOf(r) : null;
+}
+
+/** The builder's record; a missing builder or an unreadable row reads as the empty record. */
+export async function getRecord(builderId: number): Promise<BuilderRecord> {
+  const [r] = await sql()<{ record: unknown }[]>`SELECT record FROM builders WHERE id = ${builderId}`;
+  return parseRecord(r?.record ?? {}, builderId);
+}
+
+export async function saveRecord(builderId: number, record: BuilderRecord, now: Date): Promise<void> {
+  await sql()`UPDATE builders SET record = ${sql().json(JSON.parse(JSON.stringify(record)))}, record_updated_at = ${now} WHERE id = ${builderId}`;
 }
 
 export async function touchBuilder(id: number, now: Date): Promise<void> {
