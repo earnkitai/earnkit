@@ -143,6 +143,7 @@ keys from tool-call bodies before anything sees them.
 | `installations` | One row per issued token (hash only): client name, `last_seen_at`, `last_find_at` |
 | `rate_windows` | Request counters |
 | `repo_cache` | Public repo facts, 7 days; swept after 30 |
+| `evidence_cache` | v6 evidence blocks per repo (`repo:<owner/name>`, with pushed_at) and per contract, used for 7 days; not swept yet |
 | `applications`, `application_history`, `gaps_done` | The ledger |
 | `owner_digests` | The days a digest covered |
 
