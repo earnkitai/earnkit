@@ -77,6 +77,9 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v6/integrations.ts`: Integrations registry per chain (OnchainKit, Smart Wallet, Paymaster, Basenames, MiniKit, Builder Codes, USDC, CCTP, Circle Wallets, Anchor, web3.js, Blinks, wagmi, viem, ethers, Hardhat, Foundry) and `detectIntegrations` from package.json, source text and paths
 - `apps/frontend/lib/v6/depth.ts`: Depth rows for a read repo: integrations and chains on mainnet and testnet; pure
 - `apps/frontend/lib/v6/evidence.ts`: `readEvidence`: one repo read into code, team and depth, the subject's and repo's contracts (at most 10), the site; 7-day `evidence_cache` per repo (while pushed_at holds) and per contract, partial blocks and live rows never cached; `flattenRows` gives one row per value with basis and read time
+- `apps/frontend/lib/v6/tiers.ts`: `place`: Evidence into a named tier (flagged, used, live, building, unverified) with the flags, the deciding rows in reviewer words and the next step in builder words; only real mainnet contracts count; `DEFAULT_THRESHOLDS` with reasons; null until something was read; pure
+- `apps/frontend/lib/v6/tier-words.ts`: `reviewerLine` ("used: 1,240 funded senders on Base mainnet, 3 contributors, no flags.") and `builderLine` (how it reads, then Next); pure
+- `apps/frontend/lib/v6/fixtures/evidence-builder.ts`: A minimal valid Evidence and block builders for pure tests
 - `apps/frontend/lib/v6/fixtures/site.ts`: The real `safeProbePage` over a fake resolver and transport answering `fixtures/sites.json` (pages recorded 2026-11-06), and an RDAP fake
 - `apps/frontend/lib/v6/fixtures/repos/<slug>.json`: Recorded repo, code and team reads (`record-repo-fixture.mts --v6`), replayed by the v5 `replayFetch`
 
