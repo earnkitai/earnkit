@@ -209,22 +209,29 @@ Rows (the provider limits table from v4.5, commit a616c9d4, is rebuilt in `lib/v
   script bundle or wallet connect; heuristic, labelled as such), `live.domain_age_days`,
   `live.since` (first time EarnKit saw it up).
 - **Onchain**: per contract from repo config, record claim or applicant list: `chain`, `mainnet`,
+  `counted` with `counted_reason` (a repo-found contract counts toward placement only when the
+  deployer is in the repo, or it was deployed after the repo's first commit, or it came from a
+  deploy folder; a supplied contract whose deployer is not in the repo and which predates the repo
+  is "claimed" and not counted; the rest are shown "named in the repo, not counted"),
   `verified_source` (explorer), `deployer`, `deployed_at`, `deployer_matches_repo` (an address in
   the repo's deploy config or README), `tx_90d`, `senders_90d` (distinct from addresses),
   `funded_senders_90d` (senders that have ever paid gas from a balance not received from the deployer
   within 24 hours: the cheap farm filter), `senders_30d`, `value_usd_90d` when the explorer gives
   it, `first_tx_at`.
-- **Ownership**: `code.fork_of` (GitHub parent), `code.template_overlap` (share of files whose
-  hashes match a known boilerplate set EarnKit keeps: the top Base, Solana, Next.js and Hardhat
-  starters, refreshed by the cron weekly), `code.own_share` (commits by the top contributor and
-  share of lines added after the fork point).
+- **Ownership**: `code.fork_of` (GitHub parent), `code.template_overlap` (share of the repo's
+  non-generic paths that appear in a known starter's tree; starters recorded in
+  `boilerplates.json` with their maintainers), `code.files_own` (non-generic files outside the
+  starter), `code.commits_own` (commits after the fork point, from the compare), `code.own_share`
+  (1 minus overlap for a template match; own commits over all commits for a fork).
 - **Activity**: `code.first_commit_at`, `code.last_push_at`, `code.commits_90d`,
   `code.active_weeks_90d`, `code.releases`, `code.has_tests`, `code.has_ci`, `code.issues_open`,
   `code.issues_answered_90d`.
-- **Team**: `team.contributors_90d` (accounts 30+ days old), `team.top_share` (share of commits by
-  the top contributor), `team.account_ages_days[]`, `team.prior_repos_used` (other repos by the
-  contributors with 50+ stars or a live homepage), `team.in_other_applicants` (count of other
-  screened projects in 90 days sharing a contributor; counts only).
+- **Team**: from the authors of the last 90 days' commits (for a fork, only commits after the
+  fork point; for a template match, the starter's maintainers dropped): `team.contributors_90d`
+  (accounts 30+ days old), `team.top_share` (share of commits by the top author),
+  `team.account_ages_days[]`, `team.prior_repos_used` (other repos by the authors with 50+ stars or
+  a homepage), `team.in_other_applicants` (count of other screened projects in 90 days sharing an
+  author; counts only).
 - **Depth**: `depth.integrations[]` from package files and imports against a registry per chain
   (`lib/v6/integrations.ts`: for Base: OnchainKit, Smart Wallet, Paymaster, Basenames, MiniKit; for
   Arc and Circle: USDC, CCTP, Wallets, Paymaster; for Solana: Anchor, web3.js, Blinks; extendable
@@ -239,17 +246,19 @@ Rows (the provider limits table from v4.5, commit a616c9d4, is rebuilt in `lib/v
 
 Tiers (`lib/v6/tiers.ts`, pure). Named, never lettered or numbered, so nothing reads as a grade:
 
-- **used**: `live.url_ok` and at least one mainnet contract with `funded_senders_90d >= 25`, and,
-  when a repo exists, `code.last_push_at` within 60 days. No flag.
+- **used**: `live.url_ok` and one counted mainnet contract with `funded_senders_90d >= 25` (one
+  contract, never a sum across contracts: counts cannot be de-duplicated across them), and, when a
+  repo exists, `code.last_push_at` within 60 days. No flag.
 - **live**: `live.url_ok` or a mainnet contract with any transaction in 90 days; when a repo exists,
   pushed within 60 days. No flag. A repo-less project with a working site reaches this tier.
 - **building**: a public repo with commits in the last 60 days and no live product.
 - **unverified**: nothing EarnKit could read: no working site, no readable contract, no public
   repo. The record's claims are shown as claims.
-- **flagged**: `code.template_overlap >= 0.6` with `code.own_share < 0.2`, or `code.fork_of` set
-  with `own_share < 0.2`, or `xp.identical_pitch >= 3`, or `team.in_other_applicants >= 5`, or
-  `funded_senders_90d < 0.2 * senders_90d` with `senders_90d >= 100`. The flag names the rule.
-  Overlap between 0.2 and 0.6 is not a flag; the row is shown and the tier comes from the rest.
+- **flagged**: a template match with fewer than 10 non-generic files outside the starter, or a
+  fork of a known starter with fewer than 20 commits of its own, or a fork of anything else with
+  `own_share < 0.2`, or `xp.identical_pitch >= 3` (pitches under 10 words ignored), or
+  `team.in_other_applicants >= 5`, or `funded_senders_90d < 0.2 * funded_sample` with
+  `senders_90d >= 100`. The flag names the rule. Overlap alone never flags; the row is shown.
 
 Tier is unknown until the evidence read has run; an unknown tier never gates anything.
 
@@ -475,6 +484,7 @@ and the task order, which should put the evidence reader and the pilot script fi
 15. Cross-program counts come only from screens and program-reported outcomes; a builder's own
     ledger never reaches a program.
 16. Chains without a reader in v6: Avalanche, Tempo, Monad, Robinhood Chain, Solana. Explorer reads are keyless Blockscout, since Etherscan's free tier refuses Base.
+17. (Build rulings, 2026-11-06) Template detection is by path overlap against recorded starter trees, not hashes; a contract named in a repo counts only when plausibly the builder's (see Onchain); usage is one contract, never summed; `funded_senders` is sampled (50) and compared to the sample; one GitHub budget per screening run, gated before the repo read; usage through Smart Wallet or a paymaster (4337 EntryPoint) is not read in v6.0.
 
 ## 17. Owner decisions
 
