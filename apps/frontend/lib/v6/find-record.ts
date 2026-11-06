@@ -5,6 +5,7 @@
  */
 import type { Gap, Verdict } from '../v5/eligibility';
 import { categoryOf } from '../v5/program-file';
+import type { RecordContext } from '../v5/prefill';
 import type { ProgramRow } from '../v5/programs';
 import type { RepoFacts } from '../v5/repo-facts';
 import { withRecord, readStoredRecord } from './builders';
@@ -36,6 +37,13 @@ export function pickProject(record: BuilderRecord, projectId: string | undefined
     record.projects[0] ??
     null
   );
+}
+
+/** The record, the picked project and its stored usage line, for one program's pre-fill (no evidence read). */
+export async function storedRecordContext(builderId: number, projectId: string | undefined, repoUrl: string | null): Promise<RecordContext> {
+  const { record } = await readStoredRecord(builderId);
+  const project = pickProject(record, projectId, repoUrl);
+  return { record, projectId: project?.id ?? null, verifiedUsage: project?.last_tier?.usage ?? null };
 }
 
 const isTier = (t: string | undefined): t is Tier => (TIERS as readonly string[]).includes(t ?? '');

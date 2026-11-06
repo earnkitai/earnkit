@@ -405,3 +405,21 @@ test('a stale claim shows in released; a live one stays ready, marked', async ()
   assert.equal(ready.find((p) => p.program_id === 'avalanche-team1-mini-grants')?.claimed_since, new Date(NOW.getTime() - H).toISOString());
   assert.match(r.reply!.agent_note as string, /claimed_since is claimed by one of the builder's agents: submit it only if you made that claim\./);
 });
+
+test('find with program_id, linked: the record fills an approved answer; unlinked as before', async () => {
+  const { id, builderId } = await linkedWith(OWNER_RECORD, ['projects.earnkit.answers.problem']);
+  const r = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { program_id: 'z-fellows', project: PROJECT });
+  assert.equal(r.isError, false, r.text);
+  const fields = r.reply!.fields as { key: string; from: string; value: string | null; style?: string }[];
+  const problem = fields.find((f) => f.key === 'problem')!;
+  assert.deepEqual([problem.from, problem.value, typeof problem.style], ['record', 'Builders lose weeks on grant forms.', 'string']);
+  assert.equal(fields.find((f) => f.key === 'email')!.value, 'jenil@example.com');
+  assert.match(r.reply!.agent_note as string, /Fit approved answers by cutting, never by adding; the style contract travels on each field\./);
+  // Without a project, the record still fills (the first project).
+  const bare = await mcpCall({ ...ctx(id), builderId }, 'find', { program_id: 'z-fellows' });
+  assert.equal((bare.reply!.fields as { key: string; from: string }[]).find((f) => f.key === 'problem')!.from, 'record');
+  const v5 = await mcpCall(ctx(await installation()), 'find', { program_id: 'z-fellows', project: PROJECT });
+  const v5fields = v5.reply!.fields as { from: string }[];
+  assert.ok(v5fields.every((f) => f.from !== 'record'));
+  assert.doesNotMatch(v5.reply!.agent_note as string, /Fit approved answers/);
+});

@@ -31,11 +31,11 @@ const joinAnd = (xs: string[]): string => (xs.length <= 1 ? (xs[0] ?? '') : `${x
 /** A to-do as it reads after "Needs your": "your email" and "a Loom product demo" lose their first word. */
 const bare = (todo: string) => todo.replace(/^(your|a|an|the)\s+/i, '');
 
-/** Linked: "n from your record, m from the repo, k need you: a, b and c."; null when all are zero. Pure. */
+/** Linked: "n from your record, m from the repo, k need you: a, b and c.", all over required fields; null when all are zero. Pure. */
 function recordDrafted(p: ReadyProgram): string | null {
   const k = p.need_you.length;
-  if (p.from_record + p.facts_from_repo + k === 0) return null;
-  const head = `${p.from_record} from your record, ${p.facts_from_repo} from the repo`;
+  if (p.from_record + p.repo_required + k === 0) return null;
+  const head = `${p.from_record} from your record, ${p.repo_required} from the repo`;
   return k > 0 ? `${head}, ${k} ${k === 1 ? 'needs' : 'need'} you: ${listWords(p.need_you)}.` : `${head}.`;
 }
 

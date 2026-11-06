@@ -19,6 +19,7 @@ const ready = (over: Partial<ReadyProgram> & { title: string }): ReadyProgram =>
   fields: [],
   filled: 0,
   facts_from_repo: 0,
+  repo_required: 0,
   from_record: 0,
   need_you: [],
   total: 1,
@@ -215,10 +216,11 @@ const BANNED = /—|\p{Extended_Pictographic}|\b(score|rank|grade|points|coin|to
 test('linked: the ready line names what the record and the repo give and who else is needed', () => {
   const r = base({
     linked: true,
-    ready: [ready({ title: 'Z Fellows', money: '$10K', from_record: 3, facts_from_repo: 2, total: 6, need_you: ['your Telegram username'], needs: ['your Telegram username'] })],
+    // facts_from_repo counts optional fields too (v5's count); the linked line reads the required ones only.
+    ready: [ready({ title: 'Z Fellows', money: '$10K', from_record: 3, facts_from_repo: 4, repo_required: 2, total: 6, need_you: ['your Telegram username'], needs: ['your Telegram username'] })],
   });
   assert.equal(replyText(r, false).split('\n')[1], '1. Z Fellows, $10K. 3 from your record, 2 from the repo, 1 needs you: your Telegram username.');
-  const none = base({ linked: true, ready: [ready({ title: 'A', from_record: 2, facts_from_repo: 1, total: 3 })] });
+  const none = base({ linked: true, ready: [ready({ title: 'A', from_record: 2, facts_from_repo: 1, repo_required: 1, total: 3 })] });
   assert.equal(replyText(none, false).split('\n')[1], '1. A, $1K. 2 from your record, 1 from the repo.');
   const four = base({ linked: true, ready: [ready({ title: 'B', from_record: 1, total: 6, need_you: ['your phone', 'your birthday', 'where you are based', 'your Telegram username'] })] });
   assert.equal(replyText(four, false).split('\n')[1], '1. B, $1K. 1 from your record, 0 from the repo, 4 need you: your phone, your birthday, where you are based and 1 more.');

@@ -278,3 +278,19 @@ test('team, raised and links from the record; the project answer wins over the r
   assert.equal(by.links.value, 'https://earnkit.com https://github.com/jenil/earnkit');
   assert.deepEqual([by.how.from, by.how.value, by.how.style], ['record', 'Project solution.', STYLE_CONTRACT]);
 });
+
+test('the counts are over required fields: an optional record field is in fields but not in from_record', async () => {
+  const facts = await factsOf('earnkit');
+  const record = recordWith({ person: { name: 'Ada Lovelace', email: 'ada@example.com' }, ...PROBLEM }, ['answers.problem']);
+  const row = rowWith([
+    req({ key: 'email', label: 'Email', type: 'email', kind: 'contact', todo: 'your email' }),
+    req({ key: 'problem', label: 'Problem', type: 'text', kind: 'problem', todo: 'the problem', required: false }),
+    req({ key: 'telegram', label: 'Telegram', type: 'text', kind: 'contact', todo: 'your Telegram username' }),
+  ]);
+  const out = prefill(row, facts, rec(record));
+  assert.equal(out.fields.find((f) => f.key === 'problem')!.from, 'record');
+  assert.equal(out.from_record, 1);
+  assert.equal(out.filled, 2);
+  assert.equal(out.total, 2);
+  assert.ok(out.from_record + out.repo_required + out.need_you.length <= out.total);
+});

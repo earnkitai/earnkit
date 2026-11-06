@@ -160,13 +160,18 @@ const pick = (a: { text: string; short: string | null }, r: SubmissionRequiremen
 
 const ASK_ONCE = 'the builder, once: store the answer with record before using it';
 
+/**
+ * `facts_from_repo`: every field the code read filled (v5's count); `repo_required`, `from_record` and
+ * `need_you` are over the required fields only, so together they never exceed `total`.
+ */
 export function prefill(
   program: ProgramRow,
   facts: RepoFacts,
   rec: RecordContext | null = null,
-): { fields: Field[]; filled: number; facts_from_repo: number; from_record: number; total: number; need_you: string[] } {
+): { fields: Field[]; filled: number; facts_from_repo: number; repo_required: number; from_record: number; total: number; need_you: string[] } {
   const file = program.file;
   let facts_from_repo = 0;
+  let repo_required = 0;
   const fields = file.submission_requirements.map((r): Field => {
     const guidance = guidanceOf(r);
     const base = {
@@ -181,6 +186,7 @@ export function prefill(
     const filled = valueOf(r, file, facts);
     if (filled !== null) {
       if (filled.repo) facts_from_repo++;
+      if (filled.repo && r.required) repo_required++;
       return { ...base, value: filled.value, from: 'earnkit' };
     }
     if (r.type === 'file' || BUILDER_KINDS.has(r.kind) || /contract/.test(r.key))
@@ -197,7 +203,8 @@ export function prefill(
     fields,
     filled: fields.filter((f) => f.from === 'earnkit' || f.from === 'record').length,
     facts_from_repo,
-    from_record: fields.filter((f) => f.from === 'record').length,
+    repo_required,
+    from_record: fields.filter((f) => f.required && f.from === 'record').length,
     total: fields.filter((f) => f.required).length,
     need_you: fields.filter((f) => f.required && (f.from === 'builder' || f.from === 'agent')).map((f) => todo.get(f.key) ?? f.label.toLowerCase()),
   };

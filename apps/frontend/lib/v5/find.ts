@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { ownerKey } from '../v6/builders';
 import { appliedOvernight, releaseStale } from '../v6/claims';
 import { readEvidence, type Evidence, type Subject } from '../v6/evidence';
-import { allowedByPolicy, blockersOf, missingFor, recordSide, tierGate, type Blocker, type RecordSide } from '../v6/find-record';
+import { allowedByPolicy, blockersOf, missingFor, recordSide, storedRecordContext, tierGate, type Blocker, type RecordSide } from '../v6/find-record';
 import { signInLink } from '../v6/record-tool';
 import { timeLeftWords } from './deadline';
 import { evaluate, type Gap, type Verdict } from './eligibility';
@@ -45,8 +45,10 @@ export type ReadyProgram = {
   fields: Field[];
   /** EarnKit values: from the record and from the repo. */
   filled: number;
-  /** Values from the builder's record (0 when not linked). */
+  /** Required fields filled from the builder's record (0 when not linked). */
   from_record: number;
+  /** Required fields filled from the public code read. */
+  repo_required: number;
   /** The to-dos of the required fields left to the builder or the agent. */
   need_you: string[];
   /** EarnKit values read from the repo (links, contract, chain), not the passed name or description. */
@@ -136,13 +138,13 @@ async function factsOf(project: Project, ctx: FindContext): Promise<RepoFacts> {
 function readyOf(row: ProgramRow, v: Verdict, facts: RepoFacts, now: Date, side: RecordSide | null): Omit<ReadyProgram, 'n'> {
   const p = row.file;
   const rec = side ? { record: side.record, projectId: side.projectId, verifiedUsage: side.verifiedUsage } : null;
-  const { fields, filled, facts_from_repo, from_record, total, need_you } = prefill(row, facts, rec);
+  const { fields, filled, facts_from_repo, repo_required, from_record, total, need_you } = prefill(row, facts, rec);
   const todo = new Map(p.submission_requirements.map((r) => [r.key, r.todo]));
   return {
     program_id: row.id, title: p.title, money: moneyOf(p), max_award_usd: p.max_award_usd ?? null, category: categoryOf(p),
     closes_at: p.ends_at, closes_in: closesIn(p, now), long_shot: v.long_shot, in_person: p.in_person, submission_url: p.submission_url,
     ...(p.form ? { form: p.form } : {}),
-    fields, filled, facts_from_repo, from_record, need_you, total,
+    fields, filled, facts_from_repo, repo_required, from_record, need_you, total,
     needs: [...p.setup, ...fields.filter((f) => f.from === 'builder' && f.required).map((f) => todo.get(f.key) ?? f.label.toLowerCase())],
     setup: p.setup,
   };
@@ -154,12 +156,15 @@ const gapOf = (row: ProgramRow, v: Verdict): Omit<GapProgram, 'n'> => ({
 });
 
 /** One program: its file, its fields (for the project, when given) and the verdict. */
-async function oneProgram(ctx: FindContext, id: string, project: Project | null): Promise<ProgramReply> {
+async function oneProgram(ctx: FindContext, id: string, project: Project | null, projectId?: string): Promise<ProgramReply> {
   const row = await getProgram(id);
   if (!row) return { show_to_builder: "I don't know that program.", agent_note: 'Call find with the project for the programs it fits.', program: null, fields: [], guide: null };
   const p = row.file;
   const facts = project ? await factsOf(project, ctx) : EMPTY_FACTS;
-  const { fields } = prefill(row, facts);
+  // Linked: the record fills first, as in the match (no evidence read here: the stored usage line).
+  const rec = ctx.builderId === null ? null : await storedRecordContext(ctx.builderId, projectId, facts.repo_url ?? project?.repo_url ?? null);
+  const { fields } = prefill(row, facts, rec);
+  const fitted = fields.some((f) => f.from === 'record');
   const verdict = project ? evaluate(row, facts, await doneItems(ownerOf(ctx), id), ctx.now) : undefined;
   const left = closesIn(p, ctx.now);
   const open = isOpen(p, ctx.now);
@@ -173,6 +178,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null)
       ? [
           project ? 'Draft from fields: earnkit values as given, agent fields from your memory and sources, builder fields asked once.' : 'Call again with the project so the fields come pre-filled.',
           'Submit only on a yes, in your own browser, then call track with applied.',
+          ...(fitted ? ['Fit approved answers by cutting, never by adding; the style contract travels on each field.'] : []),
         ]
       : ['It takes no entries now: draft nothing and submit nothing. Call find with the project for what is open.']
     ).join('\n'),
@@ -228,7 +234,7 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const parsed = i.project === undefined ? null : parseProject(i.project);
   const project = parsed?.ok ? parsed.project : null;
   const problems = parsed?.ok ? [...parsed.problems] : [];
-  if (i.program_id) return oneProgram(ctx, i.program_id, project);
+  if (i.program_id) return oneProgram(ctx, i.program_id, project, i.project_id);
   if (!project) return openList(ctx, parsed && !parsed.ok ? parsed.problem : null);
 
   const facts = await factsOf(project, ctx);
