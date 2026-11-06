@@ -1,9 +1,8 @@
 /**
  * The owner's programs write API (the Grok Bot): POST /api/programs/write upserts or closes an API
- * program, GET /api/programs/writes is its audit log, and the approve and revert links apply or
- * undo one write. A create, or a change to submission_url, chains, form or pool_source_url, waits
- * for the owner's approval unless every builder link checks out (programs-pending.ts); so does a
- * change to submit, sign_in or min_tier. Audited.
+ * program, GET /api/programs/writes is its audit log, the approve and revert links apply or undo one
+ * write. A create, a change to submission_url, chains, form or pool_source_url (unless every link
+ * checks out, programs-pending.ts), or a change to submit, sign_in or min_tier waits for the owner. Audited.
  */
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';

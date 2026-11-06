@@ -134,7 +134,7 @@ test('facts_from_repo counts links, contract and chain values, never the passed 
     name: 'App', description: 'An AI agent on Base.', repo_url: 'https://github.com/a/b', public: true, as_reported: false,
     live_url: null, demo_url: null, chains: [{ chain: 'base', mainnet: true, basis: 'code' }],
     contracts: [{ chain: 'base', address: '0x' + 'a'.repeat(40), basis: 'code' }], builder_codes: false, users: null,
-    first_commit_at: null, last_commit_at: null, readme_excerpt: null, homepage: null,
+    first_commit_at: null, last_commit_at: null, readme_excerpt: null, homepage: null, integrations: [],
     repo_url_basis: 'code', live_url_basis: null, demo_url_basis: null,
   };
   const row = rowWith([
