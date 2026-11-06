@@ -4,7 +4,7 @@
  * callback checks the nonce, links the installation, starts a session and lands on /me. Rate
  * limited per IP; only the code's hash is stored; nothing logs a token, a code or a secret.
  */
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { sql } from '../v5/db';
 import { publicOrigin } from '../v5/oauth';
 import { escapeHtml } from '../v5/programs-pending';
@@ -20,7 +20,7 @@ const NOT_SET_UP = 'GitHub sign-in is not set up yet.';
 const EXPIRED = 'This link has expired. Ask your agent for a new one.';
 const FAILED = 'Sign-in failed. Ask your agent for a new link.';
 const OTHER = 'This agent is already linked to another account. Install EarnKit again for a fresh link.';
-/** A code as createLinkCode makes it: 16 bytes in base64url. */
+/** A code as createLinkCode makes it: 22 base64url characters of an HMAC. */
 const CODE_SHAPE = /^[A-Za-z0-9_-]{22}$/;
 
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -33,17 +33,29 @@ function secret() {
   return s;
 }
 
-/** A new code for the installation (16 random bytes, 15 minutes); its earlier live code stops working. */
+/** The code for a stored nonce: base64url(HMAC-SHA256(secret, 'link-code:' + nonce)), 22 characters. */
+const codeOf = (nonce: string) => createHmac('sha256', secret()).update(`link-code:${nonce}`).digest('base64url').slice(0, 22);
+
+/**
+ * The installation's sign-in code (15 minutes): its live one when there is one, so a link already
+ * shown keeps working; otherwise a new one (earlier live codes end). The row keeps the code's hash
+ * and the nonce; the code needs the secret too. A row without a nonce counts as expired here.
+ */
 export async function createLinkCode(installationId: number, now: Date): Promise<string> {
-  const code = randomBytes(16).toString('base64url');
-  await sql().begin(async (tx) => {
+  return sql().begin(async (tx) => {
     const [inst] = await tx<{ builder_id: number | null }[]>`SELECT builder_id FROM installations WHERE id = ${installationId} FOR UPDATE`;
     if (inst?.builder_id != null) throw new LinkRefused('already_linked');
+    const [live] = await tx<{ nonce: string }[]>`
+      SELECT nonce FROM link_codes WHERE installation_id = ${installationId} AND nonce IS NOT NULL AND used_at IS NULL AND expires_at > ${now}
+      ORDER BY created_at DESC LIMIT 1`;
+    if (live) return codeOf(live.nonce);
+    const nonce = randomBytes(16).toString('base64url');
+    const code = codeOf(nonce);
     await tx`UPDATE link_codes SET expires_at = ${now} WHERE installation_id = ${installationId} AND used_at IS NULL AND expires_at > ${now}`;
-    await tx`INSERT INTO link_codes (code, installation_id, created_at, expires_at)
-      VALUES (${hash(code)}, ${installationId}, ${now}, ${new Date(now.getTime() + TTL_MS)})`;
-  });
-  return code;
+    await tx`INSERT INTO link_codes (code, installation_id, created_at, expires_at, nonce)
+      VALUES (${hash(code)}, ${installationId}, ${now}, ${new Date(now.getTime() + TTL_MS)}, ${nonce})`;
+    return code;
+  }) as Promise<string>;
 }
 
 type Live = { installation_id: number; client_name: string | null; created_at: Date };

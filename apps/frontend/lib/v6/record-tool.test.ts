@@ -11,7 +11,7 @@ import { EMPTY_RECORD, approvePath } from './record';
 after(() => sql().end());
 
 const NOW = new Date('2026-11-06T12:00:00Z');
-const ENV_KEYS = ['GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET', 'EARNKIT_URL'] as const;
+const ENV_KEYS = ['GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET', 'EARNKIT_URL', 'EARNKIT_AUTH_SECRET'] as const;
 let saved: Record<string, string | undefined> = {};
 beforeEach(() => {
   saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
@@ -48,9 +48,11 @@ test('unlinked and sign-in not configured: linked false, no sign_in, the session
 });
 
 test('unlinked and configured: the sign-in link, and nothing saved', async () => {
-  Object.assign(process.env, { GITHUB_OAUTH_CLIENT_ID: 'Iv1.client', GITHUB_OAUTH_CLIENT_SECRET: 'shh', EARNKIT_URL: 'https://earnkit.test/' });
+  Object.assign(process.env, { GITHUB_OAUTH_CLIENT_ID: 'Iv1.client', GITHUB_OAUTH_CLIENT_SECRET: 'shh', EARNKIT_URL: 'https://earnkit.test/', EARNKIT_AUTH_SECRET: 'record-test-secret' });
   const id = await installation();
   const r = await mcpCall({ installationId: id, builderId: null, now: NOW }, 'record', { set: { person: { name: 'Ada' } } });
+  const again = await mcpCall({ installationId: id, builderId: null, now: new Date(NOW.getTime() + 60_000) }, 'record', { get: true });
+  assert.equal(again.reply!.sign_in, r.reply!.sign_in);
   assert.equal(r.reply!.linked, false);
   const link = r.reply!.sign_in as string;
   assert.match(link, /\/link\/[A-Za-z0-9_-]{16,}$/);
@@ -164,4 +166,36 @@ test('an unreadable stored record is never overwritten by a set; get reads it as
   }
   assert.ok(errors.length >= 2);
   assert.doesNotMatch(JSON.stringify(errors), /42|keep/);
+});
+
+const FORBIDDEN = /\u2014|score|rank|grade|points|coin|token|streak|_/i;
+test('every missing line obeys the copy rules, and the builder line ends with a full stop', async () => {
+  await upsertProgram(programFixture({
+    id: 'record-all-needs', needs: ['founder_video', 'demo_video', 'resume', 'deck', 'pitch_pdf'],
+    submission_requirements: ['problem', 'how_it_works', 'use_of_funds', 'what_next'].map((kind, n) => ({ key: `q${n}`, label: `Question ${n}`, type: 'text', required: false, from: 'builder', kind })) as never,
+  }), 'file', NOW);
+  const c = await linked();
+  for (const args of [{ get: true }, { set: { person: { location: 'London' } } }]) {
+    const r = await mcpCall(c, 'record', args);
+    const missing = r.reply!.missing as string[];
+    assert.ok(missing.length >= 9, missing.join('|'));
+    for (const line of missing) {
+      assert.doesNotMatch(line, FORBIDDEN, line);
+      assert.match(line, /^[a-z][A-Za-z -]+[A-Za-z]$/, line);
+    }
+    assert.match(r.reply!.show_to_builder as string, /\.$/);
+    assert.doesNotMatch(r.reply!.show_to_builder as string, FORBIDDEN);
+  }
+});
+
+test('a projects entry without an id: a problem line and no change', async () => {
+  const c = await linked();
+  const before = await getRecord(c.builderId);
+  const r = await mcpCall(c, 'record', { set: { projects: [{ name: 'No id' }] } });
+  assert.equal(r.isError, false, r.text);
+  const problems = r.reply!.problems as string[];
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /^projects\.id: /);
+  assert.match(r.reply!.show_to_builder as string, /^Nothing new to save\./);
+  assert.deepEqual(await getRecord(c.builderId), before);
 });

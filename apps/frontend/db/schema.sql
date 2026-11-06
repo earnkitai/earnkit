@@ -170,6 +170,8 @@ CREATE TABLE IF NOT EXISTS link_codes (
   used_at         timestamptz
 );
 CREATE INDEX IF NOT EXISTS link_codes_installation ON link_codes (installation_id);
+-- The live code is recomputed from its nonce (with EARNKIT_AUTH_SECRET), so a link shown once keeps working.
+ALTER TABLE link_codes ADD COLUMN IF NOT EXISTS nonce text;
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash   text PRIMARY KEY,
   builder_id   int NOT NULL,

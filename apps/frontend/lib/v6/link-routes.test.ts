@@ -65,16 +65,29 @@ test('linkGet, linkPost and callbackGet answer 503 with the exact sentence when 
   }
 });
 
-test('createLinkCode stores only the hash; a new code ends the old one; a linked installation gets none', async () => {
+test('createLinkCode stores only the hash and a nonce; a live code is reused; after expiry a new one comes; a linked installation gets none', async () => {
   const id = await install();
   const code = await createLinkCode(id, NOW);
   assert.match(code, /^[A-Za-z0-9_-]{22}$/);
-  const stored = await sql()`SELECT code FROM link_codes WHERE installation_id = ${id}`;
-  assert.deepEqual(stored.map((r) => r.code), [createHash('sha256').update(code).digest('hex')]);
-  const next = await createLinkCode(id, new Date(NOW.getTime() + MIN));
+  const again = await createLinkCode(id, new Date(NOW.getTime() + MIN));
+  assert.equal(again, code);
+  const stored = await sql()`SELECT code, nonce FROM link_codes WHERE installation_id = ${id}`;
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0].code, createHash('sha256').update(code).digest('hex'));
+  assert.notEqual(stored[0].nonce, code);
+  assert.match(stored[0].nonce, /^[A-Za-z0-9_-]{22}$/);
+  assert.equal((await linkGet(req(`/link/${again}`), again, { now: new Date(NOW.getTime() + 2 * MIN) })).status, 200);
+  const later = new Date(NOW.getTime() + 16 * MIN);
+  const next = await createLinkCode(id, later);
   assert.notEqual(next, code);
-  assert.equal((await linkGet(req(`/link/${code}`), code, { now: new Date(NOW.getTime() + 2 * MIN) })).status, 404);
-  assert.equal((await linkGet(req(`/link/${next}`), next, { now: new Date(NOW.getTime() + 2 * MIN) })).status, 200);
+  assert.equal((await linkGet(req(`/link/${code}`), code, { now: later })).status, 404);
+  assert.equal((await linkGet(req(`/link/${next}`), next, { now: later })).status, 200);
+  // A row without a nonce (made before the column) is never reused.
+  const old = await install();
+  await sql()`INSERT INTO link_codes (code, installation_id, created_at, expires_at) VALUES (${'legacy-' + old}, ${old}, ${NOW}, ${new Date(NOW.getTime() + 10 * MIN)})`;
+  const fresh = await createLinkCode(old, NOW);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM link_codes WHERE installation_id = ${old} AND expires_at > ${NOW}`)[0].n, 1);
+  assert.equal((await linkGet(req(`/link/${fresh}`), fresh, { now: NOW })).status, 200);
 });
 
 test('GET /link renders the confirm page with the agent name and no redirect', async () => {
@@ -160,12 +173,13 @@ test('callbackGet end to end: linked, a session cookie, ek_link cleared, /me; a 
   assert.equal(await used.text(), EXPIRED);
 });
 
-test('a code superseded by a newer one is refused at the callback even with a valid state and nonce', async () => {
+test('a code superseded by a newer one (after it expired) is refused at the callback even with a valid state and nonce', async () => {
   const id = await install();
   const old = await createLinkCode(id, NOW);
   const { state, cookie: link } = await start(old);
-  await createLinkCode(id, new Date(NOW.getTime() + 1000));
-  const r = await callback(state, link, undefined, new Date(NOW.getTime() + 2000));
+  const later = new Date(NOW.getTime() + 16 * MIN);
+  assert.notEqual(await createLinkCode(id, later), old);
+  const r = await callback(state, link, undefined, new Date(later.getTime() + 1000));
   assert.equal(r.status, 400);
   assert.equal(await r.text(), FAILED);
   assert.equal((await sql()`SELECT builder_id FROM installations WHERE id = ${id}`)[0].builder_id, null);

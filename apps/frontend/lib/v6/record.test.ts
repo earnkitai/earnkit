@@ -194,3 +194,29 @@ test('policy is builder-only: an agent cannot grant standing approval; a builder
   assert.deepEqual(builder.changed, ['policy.auto_apply']);
   assert.equal(builder.record.meta['policy.auto_apply'].set_by, 'builder');
 });
+
+test('an agent answer is written_by agent whatever it claims; a builder may say either', () => {
+  const a = merge({ answers: { problem: { text: 'Fees.', written_by: 'builder' } } }, 'agent');
+  assert.equal(a.record.answers.problem!.written_by, 'agent');
+  const b = merge({ answers: { problem: { text: 'Fees.', written_by: 'agent' } } }, 'builder');
+  assert.equal(b.record.answers.problem!.written_by, 'agent');
+  const c = merge({ answers: { problem: { text: 'Fees.' } } }, 'builder');
+  assert.equal(c.record.answers.problem!.written_by, 'builder');
+});
+
+test('policy.categories: at most four, de-duplicated; a null to a field at its default is no change', () => {
+  const dup = merge({ policy: { categories: ['grant', 'grant', 'bounty'] } }, 'builder');
+  assert.deepEqual(dup.record.policy.categories, ['grant', 'bounty']);
+  const many = merge({ policy: { categories: ['grant', 'grant', 'grant', 'grant', 'bounty'] } }, 'builder');
+  assert.equal(many.problems.length, 1);
+  assert.match(many.problems[0], /^policy\.categories: /);
+  const nul = merge({ policy: { max_per_night: null, auto_apply: null } }, 'builder');
+  assert.deepEqual(nul.changed, []);
+  assert.deepEqual(nul.record, EMPTY_RECORD);
+});
+
+test('problem-line keys are cut to 60 characters', () => {
+  const key = 'k'.repeat(500);
+  const { problems } = merge({ [key]: 1, person: { [key]: 1 } });
+  assert.deepEqual(problems.sort(), [`${'k'.repeat(60)}: not a field`, `person.${'k'.repeat(53)}: not a field`].sort());
+});

@@ -65,7 +65,7 @@ const Traction = z.object({
 }).partial().strip();
 const Policy = z.object({
   auto_apply: z.boolean().default(false), max_per_night: z.number().int().min(1).max(20).default(5),
-  categories: z.array(z.enum(PROGRAM_CATEGORIES)).default([...PROGRAM_CATEGORIES]), max_ask_usd: z.number().min(0).optional(),
+  categories: z.array(z.enum(PROGRAM_CATEGORIES)).max(PROGRAM_CATEGORIES.length).transform((c) => [...new Set(c)]).default([...PROGRAM_CATEGORIES]), max_ask_usd: z.number().min(0).optional(),
   never: z.array(line(100)).max(50).default([]), agent_may_submit: z.boolean().default(true),
 }).strip();
 const Meta = z.object({ set_by: z.enum(['builder', 'agent']), set_at: line(40), approved_at: line(40).optional() }).strip();
@@ -103,10 +103,11 @@ export const APPROVABLE = (path: string): boolean =>
 type By = 'builder' | 'agent';
 type Merge = { record: BuilderRecord; problems: string[]; changed: string[] };
 const isObj = (v: unknown): v is { [k: string]: unknown } => typeof v === 'object' && v !== null && !Array.isArray(v);
+/** A problem line, "<path>: <issue>", the path cut to 60 characters (a patch's keys are the agent's). */
+const bad = (path: string, what: string) => `${path.slice(0, 60)}: ${what}`;
 const issue = (path: string, err: z.ZodError) => {
   const i = err.issues[0];
-  const at = i.path.length ? `${path}.${i.path.join('.')}` : path;
-  return `${at}: ${i.message}`;
+  return bad(i.path.length ? `${path}.${i.path.join('.')}` : path, i.message);
 };
 const EARNKIT_ONLY = new Set(['evidence_read_at', 'last_tier']);
 /** company.raised_usd and raised_from share one path. */
@@ -115,7 +116,7 @@ const metaPath = (path: string) => (path === 'company.raised_usd' || path === 'c
 /** Merges one object block's keys into `cur` by its shape; null clears a key. Returns the changed leaf paths. */
 function mergeFields(cur: { [k: string]: unknown }, patch: unknown, shape: z.ZodRawShape, prefix: string, problems: string[], skip: Set<string> = new Set()): string[] {
   if (!isObj(patch)) {
-    problems.push(`${prefix}: not an object`);
+    problems.push(bad(prefix, 'not an object'));
     return [];
   }
   const changed: string[] = [];
@@ -123,12 +124,12 @@ function mergeFields(cur: { [k: string]: unknown }, patch: unknown, shape: z.Zod
     const path = `${prefix}.${key}`;
     if (skip.has(key)) continue;
     if (EARNKIT_ONLY.has(key)) {
-      problems.push(`${path}: set by EarnKit only`);
+      problems.push(bad(path, 'set by EarnKit only'));
       continue;
     }
     const schema = shape[key] as z.ZodType | undefined;
     if (!schema) {
-      problems.push(`${path}: not a field`);
+      problems.push(bad(path, 'not a field'));
       continue;
     }
     let next: unknown;
@@ -149,27 +150,29 @@ function mergeFields(cur: { [k: string]: unknown }, patch: unknown, shape: z.Zod
   return changed;
 }
 
-/** Merges an answers map; each answer is merged over the current one, written_by defaulting to `by`. */
+/** Merges an answers map; each answer is merged over the current one; written_by is `by` (a builder may pass either). */
 function mergeAnswers(cur: { [k: string]: unknown }, patch: unknown, prefix: string, by: By, problems: string[]): string[] {
   if (!isObj(patch)) {
-    problems.push(`${prefix}: not an object`);
+    problems.push(bad(prefix, 'not an object'));
     return [];
   }
   const changed: string[] = [];
   for (const [kind, value] of Object.entries(patch)) {
     const path = `${prefix}.${kind}`;
     if (!(ANSWER_KINDS as readonly string[]).includes(kind)) {
-      problems.push(`${path}: not a field`);
+      problems.push(bad(path, 'not a field'));
       continue;
     }
     let next: Answer | undefined;
     if (value !== null) {
       if (!isObj(value)) {
-        problems.push(`${path}: not an object`);
+        problems.push(bad(path, 'not an object'));
         continue;
       }
       const prev = (cur[kind] ?? {}) as { [k: string]: unknown };
-      const r = Answer.safeParse({ ...prev, written_by: 'written_by' in value ? undefined : by, ...value });
+      // An agent's text is the agent's, whatever it claims; a builder may say either.
+      const writtenBy = by === 'agent' || !('written_by' in value) ? by : value.written_by;
+      const r = Answer.safeParse({ ...prev, ...value, written_by: writtenBy });
       if (!r.success) {
         problems.push(issue(path, r.error));
         continue;
@@ -186,14 +189,14 @@ function mergeAnswers(cur: { [k: string]: unknown }, patch: unknown, prefix: str
 
 function mergeProjects(rec: BuilderRecord, patch: unknown, by: By, problems: string[]): string[] {
   if (!Array.isArray(patch)) {
-    problems.push('projects: not a list');
+    problems.push(bad('projects', 'not a list'));
     return [];
   }
   const changed: string[] = [];
   const idSchema = Project.shape.id;
   for (const entry of patch) {
     if (!isObj(entry)) {
-      problems.push('projects: an entry is not an object');
+      problems.push(bad('projects', 'an entry is not an object'));
       continue;
     }
     const id = idSchema.safeParse(entry.id);
@@ -206,7 +209,7 @@ function mergeProjects(rec: BuilderRecord, patch: unknown, by: By, problems: str
     const isNew = !project;
     if (!project) {
       if (rec.projects.length >= 10) {
-        problems.push(`${prefix}: at most 10 projects`);
+        problems.push(bad(prefix, 'at most 10 projects'));
         continue;
       }
       project = Project.parse({ id: id.data });
@@ -236,9 +239,9 @@ export function mergeRecord(current: BuilderRecord, patch: unknown, by: By, now:
   const rec = structuredClone(current);
   const leaves: string[] = [];
   for (const [key, value] of Object.entries(patch)) {
-    if (key === 'meta' || key === 'evidence_read_at') problems.push(`${key}: set by EarnKit only`);
+    if (key === 'meta' || key === 'evidence_read_at') problems.push(bad(key, 'set by EarnKit only'));
     // Standing approval and its limits are the builder's consent, given on /me only.
-    else if (key === 'policy' && by === 'agent') problems.push('policy: set by the builder on earnkit.com/me only');
+    else if (key === 'policy' && by === 'agent') problems.push(bad('policy', 'set by the builder on earnkit.com/me only'));
     else if (key in BLOCKS) {
       const block = BLOCKS[key as keyof typeof BLOCKS];
       leaves.push(...mergeFields(rec[key as keyof typeof BLOCKS] as { [k: string]: unknown }, value, block.shape, key, problems));
@@ -251,18 +254,32 @@ export function mergeRecord(current: BuilderRecord, patch: unknown, by: By, now:
       }
     } else if (key === 'answers') leaves.push(...mergeAnswers(rec.answers as { [k: string]: unknown }, value, 'answers', by, problems));
     else if (key === 'projects') leaves.push(...mergeProjects(rec, value, by, problems));
-    else problems.push(`${key}: not a field`);
-  }
-  const changed = [...new Set(leaves.map(metaPath))];
-  for (const path of changed) {
-    const prev = rec.meta[path];
-    const keep = by === 'builder' && prev?.approved_at ? { approved_at: prev.approved_at } : {};
-    rec.meta[path] = { set_by: by, set_at: now.toISOString(), ...keep };
+    else problems.push(bad(key, 'not a field'));
   }
   // Defaults (policy) refill after a clear; every leaf was checked, so this parse holds.
   const out = BuilderRecord.safeParse(rec);
   if (!out.success) return { record: current, problems: [...problems, issue('set', out.error)], changed: [] };
-  return { record: out.data, problems, changed };
+  const record = out.data;
+  // Compared after the fill, so a null sent to a field already at its default is no change.
+  const changed = [...new Set(leaves.filter((p) => !isDeepStrictEqual(leafAt(current, p), leafAt(record, p))).map(metaPath))];
+  for (const path of changed) {
+    const prev = record.meta[path];
+    const keep = by === 'builder' && prev?.approved_at ? { approved_at: prev.approved_at } : {};
+    record.meta[path] = { set_by: by, set_at: now.toISOString(), ...keep };
+  }
+  return { record: changed.length > 0 ? record : current, problems, changed };
+}
+
+/** The value at a leaf path as the merge names it (projects by id). */
+function leafAt(record: BuilderRecord, path: string): unknown {
+  const parts = path.split('.');
+  let at: unknown = record;
+  if (parts[0] === 'projects') {
+    at = record.projects.find((p) => p.id === parts[1]);
+    parts.splice(0, 2);
+  }
+  for (const k of parts) at = isObj(at) ? at[k] : undefined;
+  return at;
 }
 
 /** The value at an approvable path, or undefined. */

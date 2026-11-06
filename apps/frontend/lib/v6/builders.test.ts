@@ -9,6 +9,8 @@ import { createSession } from './sessions';
 import { createLinkCode } from './link-routes';
 
 after(() => sql().end());
+// createLinkCode derives codes with the auth secret.
+process.env.EARNKIT_AUTH_SECRET ??= 'builders-test-secret';
 
 const NOW = new Date('2026-11-06T12:00:00Z');
 const DAY = 86_400_000;
