@@ -11,15 +11,15 @@ us where the sort was wrong; those corrections set the thresholds before screeni
 ## The CSV
 
 One header row, then one applicant per row. Columns are matched by name: any case, spaces and dashes read as
-underscores and a trailing `URL` is dropped, so `GitHub URL`, `Project Name` and `Contract Address` all map.
-Extra columns are ignored.
+underscores, so `GitHub URL`, `Project Name`, `Project URL` and `Contract Address` all map. A `Project URL` is
+the site, never the name. Extra columns are ignored.
 
 | Column (any of) | What goes in it |
 |---|---|
 | `ref`, `id` | The program's own id for the applicant (default: the row number); a repeated one becomes `ek-3 (2)` and is named |
-| `name`, `project`, `project name` | The project's name |
-| `repo`, `github`, `repo url`, `github url` | A GitHub repo link (`github.com/owner/name`) |
-| `url`, `website`, `live url`, `site` | The live site |
+| `name`, `project`, `project name`, `team`, `team name` | The project's name |
+| `repo`, `repo url`, `repository`, `github`, `github url`, `source` | A GitHub repo link (`github.com/owner/name`) |
+| `url`, `website`, `live url`, `site`, `project url`, `demo`, `app url` | The live site |
 | `contract`, `contracts`, `address`, `contract address` | `chain:0x...` pairs, comma or space separated; a bare `0x...` is on `--chain` |
 | `pitch`, `description`, `summary` | The pitch text, used only to spot copies; a pitch under 10 words is a placeholder and never compared |
 

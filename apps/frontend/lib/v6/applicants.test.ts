@@ -92,10 +92,10 @@ test("resolveRepo: the applicant's repo first, else the first repo the page link
 });
 
 test('headers normalized: "GitHub URL", "Project Name", "Contract Address", "Live-URL" map', () => {
-  assert.equal(headerKey(' GitHub URL '), 'github');
+  assert.equal(headerKey(' GitHub URL '), 'github_url');
   assert.equal(headerKey('Project Name'), 'project_name');
   assert.equal(headerKey('Contract Address'), 'contract_address');
-  assert.equal(headerKey('Live-URL'), 'live');
+  assert.equal(headerKey('Live-URL'), 'live_url');
   assert.equal(headerKey('url'), 'url');
   const csv = `ID,Project Name,GitHub URL,Website URL,Contract Address\nk1,Kite,github.com/kite/app,kite.xyz,0x${'c'.repeat(40)}\n`;
   const [a] = parseApplicants(csv);
@@ -104,6 +104,11 @@ test('headers normalized: "GitHub URL", "Project Name", "Contract Address", "Liv
   assert.equal(a.repo_url, 'https://github.com/kite/app');
   assert.equal(a.live_url, 'kite.xyz');
   assert.deepEqual(a.contracts, [{ chain: 'base', address: `0x${'c'.repeat(40)}` }]);
+  // "Project URL" is the site, never the name; "Repository" is the repo.
+  const [b] = parseApplicants(`Team,Project URL,Repository\nKite,https://kite.xyz,github.com/kite/app\n`);
+  assert.equal(b.name, 'Kite');
+  assert.equal(b.live_url, 'https://kite.xyz');
+  assert.equal(b.repo_url, 'https://github.com/kite/app');
 });
 
 test('duplicate refs are made unique at parse time and named', () => {

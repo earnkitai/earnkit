@@ -253,7 +253,9 @@ async function readDeployContracts(read: RepoRead, tree: TreeFile[], f: typeof f
   const contracts: DeployContract[] = [];
   const notes: string[] = [];
   let failed = false;
-  const raw = (path: string) => `https://raw.githubusercontent.com/${read.repo.full_name}/${encodeURIComponent(read.repo.default_branch)}/${path.split('/').map(encodeURIComponent).join('/')}`;
+  // The branch and the path are encoded a segment at a time: a "/" in a branch name stays a "/" in the URL.
+  const segments = (s: string) => s.split('/').map(encodeURIComponent).join('/');
+  const raw = (path: string) => `https://raw.githubusercontent.com/${read.repo.full_name}/${segments(read.repo.default_branch)}/${segments(path)}`;
   const get = async (file: TreeFile): Promise<string | null> => {
     if ((file.size ?? 0) > MAX_DEPLOY_BYTES) return null;
     const res = await f(raw(file.path), { signal: AbortSignal.timeout(10_000) });
@@ -273,6 +275,7 @@ async function readDeployContracts(read: RepoRead, tree: TreeFile[], f: typeof f
       for (const address of run.created) if (address !== ZERO) contracts.push({ chain: d.chain, address, senders: run.senders });
     } catch {
       failed = true;
+      notes.push(`deploy file not read: ${d.path}`);
     }
   }
   return { contracts, notes, failed };
@@ -299,10 +302,10 @@ export function countedBy(c: OnchainRows, from: ContractSource, since: string | 
   const deployed = c.deployed_at ? Date.parse(c.deployed_at) : NaN;
   const first = since ? Date.parse(since) : NaN;
   const known = Number.isFinite(deployed) && Number.isFinite(first);
-  if (known && deployed >= first) return { counted: true, counted_reason: 'deployed after repo_since' };
+  if (known && deployed >= first) return { counted: true, counted_reason: 'deployed after the repo existed' };
   if (from === 'deploy') return { counted: false, counted_reason: 'deploy folder names it, deployer differs' };
   if (from === 'repo') return { counted: false, counted_reason: 'named in the repo, not counted' };
-  if (known && c.deployer_matches_repo === false) return { counted: false, counted_reason: 'claimed; deployer not in the repo and deployed before repo_since' };
+  if (known && c.deployer_matches_repo === false) return { counted: false, counted_reason: 'claimed; deployer not in the repo and deployed before the repo existed' };
   return { counted: true, counted_reason: 'listed by the applicant' };
 }
 

@@ -93,3 +93,11 @@ Real run after the wave: `pnpm screen apps/frontend/lib/v6/fixtures/applicants.c
 - Task 4: minor (deferred): "across N contracts" counts contracts with 0 funded senders; summing can count a wallet twice across contracts (accepted).
 - Task 5: minor (deferred): duplicate refs collide in the cross-list maps; a failed readEvidence logs no cause; sharedContributors rebuilt per applicant (cubic); lone unknown-chain and lone short-address rows untested; site read twice for site-only applicants; ref not collapsed to one line in the log.
 - Final fix wave re-review: all findings addressed, no new Critical/Important. Parked (minor, before the pilot): (1) CSV header "Project URL" normalizes to the name column (headerKey strips _url); (2) a failed deploy-folder raw read leaves no note; (3) branch names with "/" in the raw URL; (4) "deployed after repo_since" wording in reviewer copy. Ruling: parked rather than a second fix wave; (1) and (2) are the first follow-up before any pilot run.
+
+## v6.0.1
+
+The four parked minors, fixed on the same PR before merge (2026-11-06): CSV headers are no longer stripped of
+`_url` (a `Project URL` is the site; the column aliases list every form), a failed deploy-folder raw read leaves
+the note `deploy file not read: <path>` and marks the read partial, a branch name with a `/` is encoded a segment
+at a time in the raw URL, and the counted reasons read "deployed after the repo existed" and "deployed before the
+repo existed". Two tests pin them; 412 tests.

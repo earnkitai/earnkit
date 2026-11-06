@@ -286,10 +286,10 @@ test('countedBy: deployer in the repo, a deploy run its sender deployed, or a de
   // A deploy file is not proof alone: a run naming someone else's old contract does not count.
   assert.deepEqual(countedBy(old, 'deploy', SINCE, [`0x${'e'.repeat(40)}`]), { counted: false, counted_reason: 'deploy folder names it, deployer differs' });
   assert.deepEqual(countedBy(old, 'deploy', SINCE), { counted: false, counted_reason: 'deploy folder names it, deployer differs' });
-  assert.deepEqual(countedBy(fresh, 'deploy', SINCE, []), { counted: true, counted_reason: 'deployed after repo_since' });
-  assert.deepEqual(countedBy(fresh, 'repo', SINCE), { counted: true, counted_reason: 'deployed after repo_since' });
-  assert.deepEqual(countedBy(fresh, 'subject', SINCE), { counted: true, counted_reason: 'deployed after repo_since' });
-  assert.deepEqual(countedBy(old, 'subject', SINCE), { counted: false, counted_reason: 'claimed; deployer not in the repo and deployed before repo_since' });
+  assert.deepEqual(countedBy(fresh, 'deploy', SINCE, []), { counted: true, counted_reason: 'deployed after the repo existed' });
+  assert.deepEqual(countedBy(fresh, 'repo', SINCE), { counted: true, counted_reason: 'deployed after the repo existed' });
+  assert.deepEqual(countedBy(fresh, 'subject', SINCE), { counted: true, counted_reason: 'deployed after the repo existed' });
+  assert.deepEqual(countedBy(old, 'subject', SINCE), { counted: false, counted_reason: 'claimed; deployer not in the repo and deployed before the repo existed' });
   // No repo to hold it against: a listed contract counts.
   assert.deepEqual(countedBy(old, 'subject', null), { counted: true, counted_reason: 'listed by the applicant' });
   // Repo-found with no deploy date: never counted.
@@ -370,10 +370,10 @@ test('a repo naming a router in config, deploying one contract from broadcast/, 
   assert.deepEqual(why(ROUTER), [false, 'named in the repo, not counted']);
   assert.deepEqual(why(MINE), [true, 'from a deploy folder']);
   assert.deepEqual(why(FOREIGN), [false, 'deploy folder names it, deployer differs']);
-  assert.deepEqual(why(LISTED_NEW), [true, 'deployed after repo_since']);
-  assert.deepEqual(why(LISTED_OLD), [false, 'claimed; deployer not in the repo and deployed before repo_since']);
+  assert.deepEqual(why(LISTED_NEW), [true, 'deployed after the repo existed']);
+  assert.deepEqual(why(LISTED_OLD), [false, 'claimed; deployer not in the repo and deployed before the repo existed']);
   // After the commit date, before GitHub's created_at: not counted.
-  assert.deepEqual(why(BETWEEN), [false, 'claimed; deployer not in the repo and deployed before repo_since']);
+  assert.deepEqual(why(BETWEEN), [false, 'claimed; deployer not in the repo and deployed before the repo existed']);
   // The oversized deploy file is skipped by its tree size, never fetched, and named.
   assert.ok(e.notes.includes('deploy file over 2 MB not read: broadcast/Big.s.sol/8453/run-latest.json'), JSON.stringify(e.notes));
   assert.ok(!calls.some((u) => u.includes('Big.s.sol')));
@@ -400,4 +400,21 @@ test('a deploy file whose body runs past 2 MB is cut off, never parsed, and name
   assert.deepEqual(e.notes, ['deploy file over 2 MB not read: broadcast/D.s.sol/8453/run-latest.json']);
   assert.deepEqual(e.onchain, []);
   assert.equal(e.partial, false);
+});
+
+test('a deploy file whose raw read fails is named in a note, the read is partial, and a branch with a "/" keeps it', async () => {
+  const calls: string[] = [];
+  const gh = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    calls.push(url);
+    if (url === 'https://api.github.com/repos/a/b') return Response.json({ full_name: 'a/b', html_url: '', homepage: null, default_branch: 'release/v2', private: false, created_at: '2026-01-01T00:00:00Z', pushed_at: '2026-11-01T00:00:00Z' });
+    if (url.includes('/git/trees/')) return Response.json({ tree: [{ path: 'README.md', type: 'blob', size: 3 }, { path: 'broadcast/D.s.sol/8453/run-latest.json', type: 'blob', size: 10 }] });
+    if (url.endsWith('/README.md')) return new Response('# b');
+    if (url.includes('run-latest.json')) return new Response('', { status: 500 });
+    return url.includes('/search/issues') ? Response.json({ total_count: 0, items: [] }) : Response.json([]);
+  }) as typeof fetch;
+  const e = await readEvidence({ repo_url: 'https://github.com/a/b' }, { gh, explorer: () => null, probe: fakeSite().probe, rdap: fakeRdap().rdap, now: NOW, cache: false });
+  assert.ok(calls.includes('https://raw.githubusercontent.com/a/b/release/v2/broadcast/D.s.sol/8453/run-latest.json'), calls.filter((u) => u.includes('raw.')).join(' '));
+  assert.deepEqual(e.notes, ['deploy file not read: broadcast/D.s.sol/8453/run-latest.json']);
+  assert.equal(e.partial, true);
 });

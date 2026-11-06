@@ -21,19 +21,19 @@ export type Applicant = {
 /** The CSV cannot be read at all: no header, an open quote, no column EarnKit knows. */
 export class CsvError extends Error {}
 
-/** Header names after `headerKey` (so "GitHub URL" is github, "Project Name" is project_name). */
+/** Header names after `headerKey` (so "GitHub URL" is github_url, "Project Name" is project_name). A "Project URL" is the site, never the name. */
 const COLUMNS: Record<'ref' | 'name' | 'repo' | 'live' | 'contracts' | 'pitch', string[]> = {
   ref: ['ref', 'id'],
-  name: ['name', 'project', 'project_name'],
-  repo: ['repo', 'github', 'github_repo'],
-  live: ['url', 'website', 'live', 'site'],
+  name: ['name', 'project', 'project_name', 'team', 'team_name'],
+  repo: ['repo', 'repo_url', 'repository', 'repository_url', 'github', 'github_url', 'github_repo', 'source', 'source_url'],
+  live: ['url', 'website', 'website_url', 'live', 'live_url', 'site', 'site_url', 'project_url', 'demo', 'demo_url', 'app_url'],
   contracts: ['contract', 'contracts', 'address', 'contract_address', 'contract_addresses'],
   pitch: ['pitch', 'description', 'summary'],
 };
 
-/** A header cell as a column key: lowercase, spaces and dashes to underscores, a trailing "_url" dropped. Pure. */
+/** A header cell as a column key: lowercase, spaces and dashes to underscores. Pure. */
 export function headerKey(h: string): string {
-  return h.trim().toLowerCase().replace(/[\s-]+/g, '_').replace(/(.)_url$/, '$1');
+  return h.trim().toLowerCase().replace(/[\s-]+/g, '_');
 }
 
 /** RFC 4180 records: quoted fields, doubled quotes, CRLF or LF, newlines inside quotes. Throws CsvError on an open quote. */
