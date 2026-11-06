@@ -8,8 +8,8 @@ next task; one PR for the release.
 
 | # | Task | Status | Implementer | Spec review | Quality review | Commit |
 |---|------|--------|-------------|-------------|----------------|--------|
-| 1 | Explorer clients and onchain rows | pending | | | | |
-| 2 | Code, ownership and team rows | pending | | | | |
+| 1 | Explorer clients and onchain rows | complete | implementer | passed (round 1) | passed | 3eac83ae, d0b50bc0, 11ee8591 |
+| 2 | Code, ownership and team rows | complete | implementer | passed (round 1) | passed | cb2be2f9, ef3cde38, 88d8ba82 |
 | 3 | Live, depth, evidence assembler, cache | pending | | | | |
 | 4 | Named tiers and lines | pending | | | | |
 | 5 | Pilot script, resolver, docs, PR | pending | | | | |
