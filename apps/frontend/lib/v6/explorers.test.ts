@@ -50,6 +50,57 @@ test('txsTo stops paging at since and keeps nothing older', async () => {
   assert.equal(t.is_error, false);
 });
 
+const raw = (i: number, timestamp: string | null) => ({
+  hash: '0x' + String(i).padStart(64, '0'), from: { hash: '0x' + 'a'.repeat(40) }, to: { hash: '0x' + 'b'.repeat(40) },
+  timestamp, value: '0', status: 'ok',
+});
+const B40 = '0x' + 'b'.repeat(40);
+
+test('txsTo stops when the cursor repeats', async () => {
+  let n = 0;
+  const f = (async () => (n++, json({ items: [raw(n, '2026-11-01T00:00:00Z')], next_page_params: { block_number: 7, index: 0 } }))) as typeof fetch;
+  const txs = await blockscout(BASE, f, FAST).txsTo('base', B40, new Date(0), 1000);
+  assert.equal(n, 2);
+  assert.equal(txs.length, 2);
+});
+
+test('txsTo stops on a page with no items even with a cursor', async () => {
+  let n = 0;
+  const f = (async () => (n++, json({ items: [], next_page_params: { block_number: 7, index: n } }))) as typeof fetch;
+  assert.deepEqual(await blockscout(BASE, f, FAST).txsTo('base', B40, new Date(0), 1000), []);
+  assert.equal(n, 1);
+});
+
+test('txsTo caps pages at max / 50 + 1 whatever the cursor says', async () => {
+  let n = 0;
+  const f = (async () => (n++, json({ items: [raw(n, '2026-11-01T00:00:00Z')], next_page_params: { block_number: 7, index: n } }))) as typeof fetch;
+  const txs = await blockscout(BASE, f, FAST).txsTo('base', B40, new Date(0), 100);
+  assert.equal(n, 3);
+  assert.equal(txs.length, 3);
+});
+
+test('a pending transaction (no timestamp) is skipped, not read as older than since', async () => {
+  const items = [raw(1, null), raw(2, '2026-11-01T00:00:00Z'), { ...raw(3, null), timestamp: undefined }, raw(4, 'not a date'), raw(5, '2026-10-30T00:00:00Z')];
+  const f = (async () => json({ items, next_page_params: null })) as typeof fetch;
+  const ex = blockscout(BASE, f, FAST);
+  const txs = await ex.txsTo('base', B40, new Date('2026-10-01T00:00:00Z'), 1000);
+  assert.deepEqual(txs.map((t) => t.hash.slice(-1)), ['2', '5']);
+  const first = await ex.firstTxs('base', B40, 2);
+  // The same page answers both ways: the two dated ones each way, oldest first.
+  assert.deepEqual(first.map((t) => t.hash.slice(-1)), ['5', '5', '2', '2']);
+});
+
+test('an unrecorded URL replays as an error, not as no data', async () => {
+  const rec = replayExplorer('wallet');
+  const res = await rec.fetch('https://base.blockscout.com/api/v2/addresses/0x0');
+  assert.equal(res.status, 599);
+  const f = (async () => new Response('not recorded', { status: 599 })) as typeof fetch;
+  await assert.rejects(
+    blockscout(BASE, f, FAST).contractInfo('base', B40),
+    (err) => err instanceof ExplorerError && err.status === 599,
+  );
+});
+
 test('txsTo on the recorded contract stops at since', async () => {
   const rec = replayExplorer('paydence');
   const since = new Date(Date.parse(rec.recorded_at) - 30 * DAY);

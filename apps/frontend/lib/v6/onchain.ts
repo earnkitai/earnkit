@@ -1,9 +1,10 @@
 /**
  * Onchain evidence rows for one contract: verified source, deployer, transactions and distinct senders in
- * 90 and 30 days, and how many sampled senders paid gas from a balance the deployer did not hand them.
+ * 90 and 30 days, and how many of up to 50 sampled senders paid gas from a balance the deployer did not hand
+ * them (a count within the sample, `funded_sample` senders read; never scaled to all senders).
  * Every row is a read fact; a failed read leaves the row null and the note says why. Never throws.
  */
-import { type Explorer, ExplorerError, type Tx } from './explorers';
+import { type Explorer, ExplorerError, OldestNotReachedError, type Tx } from './explorers';
 
 export type OnchainRows = {
   chain: string;
@@ -110,12 +111,13 @@ export async function readContract(
         decided++;
         if (!isDeployerFunded(own, info.deployer, a)) funded++;
       } catch (e) {
-        if (e instanceof ExplorerError && e.status === 429) throw e;
+        // Only an unreached history makes a sender unknown; any other failure stops the read with its status.
+        if (!(e instanceof OldestNotReachedError)) throw e;
       }
     }
-    rows.funded_sample = sample.length;
-    // From the senders whose first transactions were read; scaled to all senders when sampled.
-    rows.funded_senders_90d = decided ? Math.round((senders.length * funded) / decided) : sample.length ? null : 0;
+    // The basis: senders whose first transactions were read.
+    rows.funded_sample = decided;
+    rows.funded_senders_90d = decided || !sample.length ? funded : null;
     if (decided < sample.length) notes.push(`${sample.length - decided} of ${sample.length} sampled senders not read`);
   } catch (e) {
     notes.unshift(failNote(e));

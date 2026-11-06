@@ -21,6 +21,9 @@ export type ContractInfo = {
   deployed_at: string | null;
   created_tx: string | null;
 };
+/** An address's oldest transactions were not reached within the page cap: that address is unknown, not failed. */
+export class OldestNotReachedError extends ExplorerError {}
+
 export type Explorer = {
   contractInfo(chain: string, address: string): Promise<ContractInfo>;
   txsTo(chain: string, address: string, since: Date, max: number): Promise<Tx[]>;
@@ -35,18 +38,25 @@ const TIMEOUT_MS = 20_000;
 const nextSlot = new Map<string, number>();
 
 type Opts = { gapMs?: number; sleep?: (ms: number) => Promise<void> };
-type RawTx = { hash: string; from: { hash: string }; to: { hash: string } | null; timestamp: string; value: string; status: string | null };
+type RawTx = { hash: string; from: { hash: string }; to: { hash: string } | null; timestamp?: string | null; value: string; status: string | null };
 type Page = { items: RawTx[]; next_page_params: Record<string, string | number> | null };
 
 const lower = (a: string) => a.toLowerCase();
-const toTx = (t: RawTx): Tx => ({
-  hash: t.hash,
-  from: lower(t.from.hash),
-  to: t.to ? lower(t.to.hash) : null,
-  at: new Date(t.timestamp).toISOString(),
-  value_wei: t.value,
-  is_error: t.status === 'error',
-});
+/** The transaction, or null when it has no valid timestamp (a pending one): skipped, never read as old. */
+function toTx(t: RawTx): Tx | null {
+  const ms = t.timestamp ? Date.parse(t.timestamp) : NaN;
+  if (!Number.isFinite(ms)) return null;
+  return {
+    hash: t.hash,
+    from: lower(t.from.hash),
+    to: t.to ? lower(t.to.hash) : null,
+    at: new Date(ms).toISOString(),
+    value_wei: t.value,
+    is_error: t.status === 'error',
+  };
+}
+const toTxs = (items: RawTx[] | undefined) => (items ?? []).map(toTx).filter((t): t is Tx => t !== null);
+const PAGE_SIZE = 50;
 const query = (p: Record<string, string | number | null | undefined>) =>
   Object.entries(p)
     .filter(([, v]) => v !== null && v !== undefined)
@@ -115,17 +125,23 @@ export function blockscout(base: string, f: typeof fetch = fetch, o: Opts = {}):
   async function txsTo(_chain: string, address: string, since: Date, max: number): Promise<Tx[]> {
     const out: Tx[] = [];
     let next: Page['next_page_params'] = null;
-    for (;;) {
+    const cursors = new Set<string>();
+    const maxPages = Math.ceil(max / PAGE_SIZE) + 1;
+    for (let pages = 0; pages < maxPages; pages++) {
       const page: Page | null = await get<Page>(`/addresses/${lower(address)}/transactions?${query({ filter: 'to', ...(next ?? {}) })}`);
-      for (const t of page?.items ?? []) {
-        const tx = toTx(t);
+      if (!page?.items?.length) return out;
+      for (const tx of toTxs(page.items)) {
         if (Date.parse(tx.at) < since.getTime()) return out;
         out.push(tx);
         if (out.length >= max) return out;
       }
-      next = page?.next_page_params ?? null;
-      if (!next) return out;
+      next = page.next_page_params ?? null;
+      // Stop on no cursor or a cursor already followed.
+      const key = JSON.stringify(next);
+      if (!next || cursors.has(key)) return out;
+      cursors.add(key);
     }
+    return out;
   }
 
   /** The oldest `n` transactions one way (`from` or `to`), at most 2 pages; throws when the oldest is not reached. */
@@ -136,14 +152,14 @@ export function blockscout(base: string, f: typeof fetch = fetch, o: Opts = {}):
       const page: Page | null = await get<Page>(
         `/addresses/${lower(address)}/transactions?${query({ filter, sort: 'block_number', order: 'asc', ...(next ?? {}) })}`,
       );
-      const txs = (page?.items ?? []).map(toTx);
+      const txs = toTxs(page?.items);
       seen.push(...txs);
       next = page?.next_page_params ?? null;
       // Ascending as asked: the first page holds the oldest.
       const ascending = txs.length < 2 || txs[0].at <= txs[txs.length - 1].at;
       if (ascending || !next) return seen.sort((x, y) => x.at.localeCompare(y.at)).slice(0, n);
     }
-    throw new ExplorerError('explorer oldest transactions not reached');
+    throw new OldestNotReachedError('explorer oldest transactions not reached');
   }
 
   async function firstTxs(_chain: string, address: string, n: number): Promise<Tx[]> {

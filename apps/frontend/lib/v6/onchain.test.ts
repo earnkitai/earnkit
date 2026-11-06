@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { blockscout, type Explorer, ExplorerError, type Tx } from './explorers';
+import { blockscout, type Explorer, ExplorerError, OldestNotReachedError, type Tx } from './explorers';
 import { isDeployerFunded, readContract, SENDER_SAMPLE } from './onchain';
 import { replayExplorer } from './fixtures/explorer';
 
@@ -12,7 +12,7 @@ const replay = (slug: string) => {
   return { rec, explorer: blockscout(BASE, rec.fetch, FAST), now: new Date(rec.recorded_at) };
 };
 
-test('a used contract: 25+ senders in 90 days, funded within senders, sample at most 50', async () => {
+test('a used contract: 25+ senders in 90 days, funded counted within the sample, never scaled', async () => {
   const { rec, explorer, now } = replay('paydence');
   const r = await readContract('base', rec.address, { explorer, repoAddresses: [], now });
   assert.equal(r.mainnet, true);
@@ -23,8 +23,14 @@ test('a used contract: 25+ senders in 90 days, funded within senders, sample at 
   assert.ok(r.tx_90d! >= r.senders_90d!);
   assert.ok(r.funded_senders_90d !== null && r.funded_senders_90d <= r.senders_90d!);
   assert.ok(r.funded_sample! > 0 && r.funded_sample! <= SENDER_SAMPLE);
+  // 62 senders, 50 sampled: the count stays within the 50 read.
+  assert.equal(r.senders_90d, 62);
+  assert.equal(r.funded_sample, 50);
+  assert.ok(r.funded_senders_90d! <= r.funded_sample!);
   assert.equal(SENDER_SAMPLE, 50);
   assert.match(r.first_tx_at ?? '', /^\d{4}-\d\d-\d\dT/);
+  // Every read came from the recording (an unrecorded URL would fail the read and fill the note).
+  assert.equal(r.note, null);
 });
 
 test('the onchain-reaction contract: verified, deployer matches the repo when listed', async () => {
@@ -32,6 +38,7 @@ test('the onchain-reaction contract: verified, deployer matches the repo when li
   const r = await readContract('base', rec.address, { explorer, repoAddresses: [], now });
   assert.equal(r.verified_source, true);
   assert.equal(r.deployer_matches_repo, false);
+  assert.equal(r.note, null);
   assert.match(r.deployer ?? '', /^0x[0-9a-f]{40}$/);
   const again = replay('onchain-reaction');
   const m = await readContract('base', rec.address, {
@@ -85,6 +92,43 @@ test('a 429 while sampling senders keeps the counts and leaves funded unread', a
   assert.equal(r.senders_90d, 2);
   assert.equal(r.funded_senders_90d, null);
   assert.equal(r.note, 'not read: explorer 429');
+});
+
+test('a sender read answering 403 stops the read and the note says 403', async () => {
+  const now = new Date('2026-11-06T00:00:00Z');
+  const tx = (from: string): Tx => ({ hash: '0x1', from, to: '0xc', at: now.toISOString(), value_wei: '0', is_error: false });
+  let firstCalls = 0;
+  const explorer: Explorer = {
+    contractInfo: async () => ({ is_contract: true, verified_source: true, name: 'C', deployer: '0xd', deployed_at: null, created_tx: null }),
+    txsTo: async () => [tx('0x1'), tx('0x2')],
+    firstTxs: async () => {
+      if (firstCalls++ === 0) return [];
+      throw new ExplorerError('explorer 403', 403);
+    },
+  };
+  const r = await readContract('base', '0xc', { explorer, repoAddresses: [], now });
+  assert.equal(r.note, 'not read: explorer 403');
+  assert.equal(r.senders_90d, 2);
+  assert.equal(r.funded_senders_90d, null);
+});
+
+test('a sender whose oldest transactions are not reached is unknown, not failed', async () => {
+  const now = new Date('2026-11-06T00:00:00Z');
+  const tx = (from: string): Tx => ({ hash: '0x1', from, to: '0xc', at: now.toISOString(), value_wei: '0', is_error: false });
+  let firstCalls = 0;
+  const explorer: Explorer = {
+    contractInfo: async () => ({ is_contract: true, verified_source: true, name: 'C', deployer: '0xd', deployed_at: null, created_tx: null }),
+    txsTo: async () => [tx('0x1'), tx('0x2')],
+    firstTxs: async (_c, a) => {
+      if (firstCalls++ === 0) return [];
+      if (a === '0x2') throw new OldestNotReachedError('explorer oldest transactions not reached');
+      return [];
+    },
+  };
+  const r = await readContract('base', '0xc', { explorer, repoAddresses: [], now });
+  assert.equal(r.funded_sample, 1);
+  assert.equal(r.funded_senders_90d, 1);
+  assert.equal(r.note, '1 of 2 sampled senders not read');
 });
 
 const S = '0x' + '5'.repeat(40);
