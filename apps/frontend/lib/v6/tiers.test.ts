@@ -1,5 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readRepo } from '../v5/github';
+import { replayFetch } from '../v5/fixtures/github';
+import BOILERPLATES from './boilerplates.json';
+import { type Boilerplate, readCode } from './code';
 import { codeRows, contract, daysAgo, evidence, liveRows, NOW, teamRows } from './fixtures/evidence-builder';
 import { DEFAULT_THRESHOLDS, place, TIERS } from './tiers';
 
@@ -116,18 +120,22 @@ test('an unparseable push date never renders NaN', () => {
   assert.ok(!p.because.some((b) => b.includes('NaN')), p.because.join(' | '));
 });
 
-test('push window: pushed 61 days ago, site down, no contract activity, commits in the window is building', () => {
-  const p = at(
-    evidence({ repo: 'a/b', live: down, onchain: [contract({ tx_90d: 0 })], code: codeRows({ last_push_at: daysAgo(61), commits_90d: 3 }) }),
-  );
-  assert.equal(p.tier, 'building');
-  assert.equal(p.gap, 'site');
+test('building is commits in 60 days: 3 in 90 days but none in 60 is unverified; 1 in 60 is building', () => {
+  const e = (commits_60d: number) =>
+    evidence({ repo: 'a/b', live: down, onchain: [contract({ tx_90d: 0 })], code: codeRows({ last_push_at: daysAgo(61), commits_90d: 3, commits_60d }) });
+  const none = at(e(0));
+  assert.equal(none.tier, 'unverified');
+  assert.ok(none.because.includes('no commits in 60 days'), none.because.join(' | '));
+  const one = at(e(1));
+  assert.equal(one.tier, 'building');
+  assert.equal(one.gap, 'site');
+  assert.ok(one.because.includes('1 commit in 60 days'), one.because.join(' | '));
 });
 
 test('building: no site, no contract, commits 20 days ago', () => {
   const p = at(evidence({ repo: 'a/b', live: down, code: codeRows({ last_push_at: daysAgo(20), commits_90d: 7 }) }));
   assert.equal(p.tier, 'building');
-  assert.ok(p.because.includes('7 commits in 90 days'), p.because.join(' | '));
+  assert.ok(p.because.includes('7 commits in 60 days'), p.because.join(' | '));
   assert.ok(p.because.includes('pushed 20 days ago'));
   assert.match(p.next!, /live product/);
 });
@@ -192,14 +200,94 @@ const withCode = (o: Parameters<typeof codeRows>[0]) => {
   return e;
 };
 
-test('template: overlap 0.5 fires, 0.49 does not', () => {
-  const p = flagged('template', withCode({ template_overlap: 0.5, own_share: 0.5, template_name: 'create-next-app' }));
-  assert.ok(p.because.some((b) => b.includes('50%') && b.includes('create-next-app')), p.because.join(' | '));
-  assert.equal(at(withCode({ template_overlap: 0.49, own_share: 0.51 })).tier, 'used');
+test('template: under 10 files beyond the starter fires; 10 does not; overlap alone never does', () => {
+  const p = flagged('template', withCode({ template_overlap: 0.9, own_share: 0.1, template_name: 'create-next-app', files_own: 9 }));
+  assert.ok(p.because.some((b) => b.includes('90%') && b.includes('create-next-app') && b.includes('9 files beyond it')), p.because.join(' | '));
+  assert.equal(p.next, 'At least 10 files of your own beyond the starter; yours has 9.');
+  assert.equal(at(withCode({ template_overlap: 0.9, own_share: 0.1, template_name: 'create-next-app', files_own: 10 })).tier, 'used');
+  assert.equal(at(withCode({ template_overlap: 0.95, own_share: 0.05, template_name: 'create-next-app', files_own: null })).tier, 'used');
 });
 
-test('fork: own share 0.1 fires', () => {
-  flagged('fork', withCode({ fork_of: 'someone/else', own_share: 0.1 }));
+test('fork of a non-starter: own share 0.1 still fires', () => {
+  flagged('fork', withCode({ fork_of: 'someone/else', own_share: 0.1, commits_own: 400 }));
+});
+
+test('fork of a known starter: under 20 own commits fires, 25 does not, whatever the share', () => {
+  const p = flagged('fork', withCode({ fork_of: 'scaffold-eth/scaffold-eth-2', own_share: 0.9, commits_own: 5 }));
+  assert.ok(p.because.includes('fork of the scaffold-eth/scaffold-eth-2 starter with 5 commits after the fork'), p.because.join(' | '));
+  assert.equal(p.next, 'At least 20 commits of your own after the fork; yours has 5.');
+  assert.equal(at(withCode({ fork_of: 'scaffold-eth/scaffold-eth-2', own_share: 0.01, commits_own: 25 })).tier, 'used');
+  assert.equal(at(withCode({ fork_of: 'Scaffold-ETH/Scaffold-ETH-2', own_share: 0.01, commits_own: 19 })).tier, 'flagged');
+});
+
+const replay = (slug: string) => replayFetch(`../../../v6/fixtures/repos/${slug}`);
+const starterCode = async (tree: string[], fork?: { full_name: string; default_branch: string }) => {
+  const f = (async (input: RequestInfo | URL) =>
+    String(input).includes('/search/issues') ? Response.json({ total_count: 0, items: [] }) : Response.json([])) as typeof fetch;
+  const read = {
+    repo: { full_name: 'a/b', html_url: '', homepage: null, default_branch: 'main', created_at: '2025-01-01T00:00:00Z', pushed_at: daysAgo(3), ...(fork && { fork: true, parent: fork }) },
+    tree: tree.map((path) => ({ path, type: 'blob' })), readme: null, files: [], first_commit_at: '2025-01-01T00:00:00Z', partial: false,
+  };
+  return readCode(read, { gh: f, now: NOW, budget: { remaining: null, stopped: false } });
+};
+
+test('starters, read for real: astral-logbook (213 own commits) is not flagged; a scaffold-eth-2 clone with 40 own files is not, with 3 is', async () => {
+  const rec = replay('astral-logbook');
+  const read = await readRepo(rec.repo, { fetch: rec.fetch, token: 'test' });
+  const astral = await readCode(read, { gh: rec.fetch, now: NOW, budget: { remaining: null, stopped: false } });
+  assert.equal(astral.commits_own, 213);
+  const e = used();
+  e.code = astral;
+  assert.ok(at(e).flags.length === 0, JSON.stringify(at(e).flags));
+  const se2 = (BOILERPLATES as Boilerplate[]).find((b) => b.name === 'scaffold-eth-2')!;
+  const own = (k: number) => [...Array(k)].map((_, i) => `packages/nextjs/app/mine/page${i}.tsx`);
+  const forty = used();
+  forty.code = await starterCode([...se2.paths, ...own(40)]);
+  assert.equal(forty.code.template_name, 'scaffold-eth-2');
+  assert.ok(forty.code.template_overlap! > 0.7);
+  assert.equal(at(forty).tier, 'used');
+  const three = used();
+  three.code = await starterCode([...se2.paths, ...own(3)]);
+  flagged('template', three);
+});
+
+test('starter forks, read for real: 5 commits ahead of scaffold-eth-2 is flagged, 25 is not', async () => {
+  const fork = { full_name: 'scaffold-eth/scaffold-eth-2', default_branch: 'main' };
+  const ahead = async (n: number) => {
+    const f = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/compare/')) return Response.json({ ahead_by: n, commits: [] });
+      if (url.includes('/commits?per_page=1')) return Response.json([{}], { headers: { link: '<https://api.github.com/x?per_page=1&page=900>; rel="last"' } });
+      return url.includes('/search/issues') ? Response.json({ total_count: 0, items: [] }) : Response.json([]);
+    }) as typeof fetch;
+    const read = {
+      repo: { full_name: 'a/b', html_url: '', homepage: null, default_branch: 'main', created_at: '2025-01-01T00:00:00Z', pushed_at: daysAgo(3), fork: true, parent: fork },
+      tree: [{ path: 'src/index.ts', type: 'blob' }], readme: null, files: [], first_commit_at: '2022-01-01T00:00:00Z', partial: false,
+    };
+    const e = used();
+    e.code = await readCode(read, { gh: f, now: NOW, budget: { remaining: null, stopped: false } });
+    return e;
+  };
+  const five = await ahead(5);
+  assert.equal(five.code!.commits_own, 5);
+  flagged('fork', five);
+  assert.equal(at(await ahead(25)).tier, 'used');
+});
+
+test('only counted contracts place; one not counted is shown with its reason', () => {
+  const e = used();
+  e.onchain = [
+    contract({ address: `0x${'ab'.repeat(20)}`, tx_90d: 90_000, senders_90d: 5_000, funded_senders_90d: 50, funded_sample: 50, counted: false, counted_reason: 'named in the repo, not counted' }),
+  ];
+  const p = at(e);
+  assert.equal(p.tier, 'live');
+  assert.equal(p.next, '25 funded wallets on mainnet in 90 days; you have 0.');
+  assert.ok(p.because.includes('0xabab...abab on Base: named in the repo, not counted'), p.because.join(' | '));
+  e.onchain.push(contract({ tx_90d: 40, funded_senders_90d: 30, funded_sample: 40 }));
+  assert.equal(at(e).tier, 'used');
+  const none = at(evidence({ onchain: [{ ...e.onchain[0] }] }));
+  assert.equal(none.tier, 'unverified');
+  assert.ok(none.because.includes('no counted mainnet contract'), none.because.join(' | '));
 });
 
 test('fork with own work is not flagged', () => {
@@ -234,7 +322,8 @@ test('unfunded: 150 senders, 5 of 50 sampled funded fires; 50 senders does not',
   const e = used();
   e.onchain = [contract({ tx_90d: 900, senders_90d: 150, funded_sample: 50, funded_senders_90d: 5 })];
   const p = flagged('unfunded', e);
-  assert.ok(p.because.some((b) => b.includes('5 of 50')), p.because.join(' | '));
+  assert.ok(p.because.some((b) => b.includes('5 of 50') && b.includes('wallets the deployer did not fund')), p.because.join(' | '));
+  assert.equal(p.next, 'At least 20% of sampled wallets not funded by the deployer; 5 of 50 are.');
   const few = used();
   few.onchain = [contract({ tx_90d: 900, senders_90d: 50, funded_sample: 50, funded_senders_90d: 5 })];
   assert.equal(at(few).tier, 'live');

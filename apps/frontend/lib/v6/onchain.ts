@@ -1,8 +1,8 @@
 /**
  * Onchain evidence rows for one contract: verified source, deployer, transactions and distinct senders in
- * 90 and 30 days, and how many of up to 50 sampled senders paid gas from a balance the deployer did not hand
- * them (a count within the sample, `funded_sample` senders read; never scaled to all senders).
- * Every row is a read fact; a failed read leaves the row null and the note says why. Never throws.
+ * 90 and 30 days, and how many of up to 50 sampled senders are wallets the deployer did not fund (a count
+ * within the sample, `funded_sample` senders read; never scaled). An address with no code stops after the
+ * first read. A failed read leaves the row null and the note says why. Never throws.
  */
 import { type Explorer, ExplorerError, OldestNotReachedError, type Tx } from './explorers';
 
@@ -21,6 +21,9 @@ export type OnchainRows = {
   funded_senders_90d: number | null;
   funded_sample: number | null;
   first_tx_at: string | null;
+  /** Whether it counts toward placement (plausibly the builder's), and why; set by readEvidence. */
+  counted: boolean;
+  counted_reason: string | null;
   note: string | null;
 };
 
@@ -71,7 +74,7 @@ export async function readContract(
   const rows: OnchainRows = {
     chain, address: a, mainnet: null, is_contract: null, verified_source: null, deployer: null, deployed_at: null,
     deployer_matches_repo: null, tx_90d: null, senders_90d: null, senders_30d: null, funded_senders_90d: null,
-    funded_sample: null, first_tx_at: null, note: null,
+    funded_sample: null, first_tx_at: null, counted: false, counted_reason: null, note: null,
   };
   if (!o.explorer) return { ...rows, note: `not read: no explorer for ${chain}` };
   const ex = o.explorer;
@@ -88,6 +91,8 @@ export async function readContract(
       const repo = new Set(o.repoAddresses.map((x) => x.toLowerCase()));
       rows.deployer_matches_repo = repo.has(info.deployer.toLowerCase());
     }
+    // An address with no code is no product's usage: its transfers and senders are not read.
+    if (!info.is_contract) return { ...rows, note: 'usage not read: not a contract' };
 
     const since90 = new Date(o.now.getTime() - 90 * DAY);
     const since30 = o.now.getTime() - 30 * DAY;

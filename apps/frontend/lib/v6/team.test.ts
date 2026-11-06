@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readRepo } from '../v5/github';
 import { replayFetch } from '../v5/fixtures/github';
-import { type Budget, readCode } from './code';
+import { type Budget, forkRef, readCode, starterMaintainers } from './code';
 import { readTeam } from './team';
 
 const replay = (slug: string) => replayFetch(`../../../v6/fixtures/repos/${slug}`);
@@ -132,4 +132,49 @@ test('commits unreadable: null rows with the reason', async () => {
   assert.equal(t.note, 'not read: private or missing');
   const stopped = await readTeam('a/b', { gh: f, now: NOW, budget: { remaining: 10, stopped: true } });
   assert.equal(stopped.note, 'not read: budget');
+});
+
+test('astral-logbook, a fork of scaffold-eth-2: the team is the commits after the fork point only', async () => {
+  const rec = replay('astral-logbook');
+  const read = await readRepo(rec.repo, { fetch: rec.fetch, token: 'test' });
+  const fork = forkRef(read);
+  assert.deepEqual(fork, { parent: 'scaffold-eth/scaffold-eth-2', parent_branch: 'main', branch: 'main' });
+  const now = await readTeam(rec.repo, { gh: rec.fetch, now: NOW, budget: budget() }, { fork });
+  assert.deepEqual(now.logins, []);
+  assert.equal(now.contributors_90d, 0);
+  assert.ok(!rec.calls.some((u) => u.includes('/commits?since=')));
+  // As of 2025-10-01 its own authors are in the window; the starter's maintainers never are.
+  const then = new Date('2025-10-01T12:00:00Z');
+  const gh = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (/\/users\/[^/]+$/.test(url)) return Response.json({ created_at: '2020-01-01T00:00:00Z' });
+    if (/\/users\/[^/]+\/repos\?/.test(url)) return Response.json([]);
+    return rec.fetch(input, init);
+  }) as typeof fetch;
+  const t = await readTeam(rec.repo, { gh, now: then, budget: budget() }, { fork });
+  assert.deepEqual(t.logins, ['SethDocherty', 'johnx25bd']);
+  assert.equal(t.contributors_90d, 2);
+  assert.equal(t.top_share, 49 / 50);
+  const se2 = new Set(starterMaintainers('scaffold-eth-2'));
+  assert.ok(!t.logins.some((l) => se2.has(l.toLowerCase())));
+  assert.equal(t.note, null);
+});
+
+test("a clone of a starter: the starter's maintainers are dropped and noted, the share is of the rest", async () => {
+  const [m1, m2] = starterMaintainers('scaffold-eth-2');
+  const { f, calls } = fakeTeam([
+    { login: m1, commits: 30 },
+    { login: m2, commits: 10 },
+    { login: 'builder', commits: 6 },
+    { login: 'friend', commits: 2 },
+  ]);
+  const t = await readTeam('a/b', { gh: f, now: NOW, budget: budget() }, { drop: starterMaintainers('scaffold-eth-2') });
+  assert.deepEqual(t.logins, ['builder', 'friend']);
+  assert.equal(t.contributors_90d, 2);
+  assert.equal(t.top_share, 6 / 8);
+  assert.equal(t.note, '2 starter maintainers not counted');
+  assert.ok(!calls.some((u) => u.endsWith(`/users/${m1}`)));
+  // Without the starter named, the same window is one team led by its maintainer.
+  const all = await readTeam('a/b', { gh: f, now: NOW, budget: budget() });
+  assert.equal(all.logins[0], m1);
 });

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { githubLinks, isApp, readLive } from './live';
+import { githubLinks, isApp, rdapOrg, readLive } from './live';
 import { fakeRdap, fakeSite, SITES_RECORDED_AT } from './fixtures/site';
 
 const NOW = new Date('2026-11-06T12:00:00Z');
@@ -105,4 +105,26 @@ test('a failed load is told in fixed words, never the error text', async () => {
   });
   const hop = await readLive('https://hop.example.org/', { probe: site.probe, rdap: async () => ({ registered_at: null }), now: NOW });
   assert.equal(hop.note?.split('; ')[0], 'site redirects more than once');
+});
+
+test('rdapOrg sends a User-Agent and the RDAP Accept header (rdap.org answers 403 without one)', async () => {
+  const seen: { url: string; headers: Headers }[] = [];
+  const f = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    seen.push({ url: String(input), headers: new Headers(init?.headers) });
+    return Response.json({ events: [{ eventAction: 'registration', eventDate: '2007-06-29T09:58:47Z' }] });
+  }) as typeof fetch;
+  assert.deepEqual(await rdapOrg('earnkit.com', f), { registered_at: '2007-06-29T09:58:47.000Z' });
+  assert.equal(seen[0].url, 'https://rdap.org/domain/earnkit.com');
+  assert.equal(seen[0].headers.get('user-agent'), 'Mozilla/5.0 (compatible; EarnKit-verifier/1)');
+  assert.equal(seen[0].headers.get('accept'), 'application/rdap+json, application/json');
+  const refused = (async () => new Response('', { status: 403 })) as typeof fetch;
+  await assert.rejects(rdapOrg('earnkit.com', refused), /rdap 403/);
+});
+
+test('an http:// site reads "site is not https"', async () => {
+  const site = fakeSite();
+  const l = await readLive('http://plain.example.org/', { probe: site.probe, rdap: async () => ({ registered_at: null }), now: NOW });
+  assert.equal(l.url_ok, false);
+  assert.equal(l.note?.split('; ')[0], 'site is not https');
+  assert.equal(site.calls.length, 0);
 });

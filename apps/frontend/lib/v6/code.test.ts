@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readRepo } from '../v5/github';
 import { replayFetch } from '../v5/fixtures/github';
-import { activeWeeks, type Boilerplate, type Budget, hasCi, hasTests, noteBudget, readCode, since90, templateOverlap } from './code';
+import { activeWeeks, type Boilerplate, type Budget, hasCi, hasTests, isStarterRepo, noteBudget, readCode, since90, starterMaintainers, templateOverlap } from './code';
 import BOILERPLATES from './boilerplates.json';
 
 // The v6 recordings sit beside this file; the v5 replay reads them by a relative slug.
@@ -32,9 +32,75 @@ test('fork with own work is not flagged', async () => {
   assert.equal(rows.fork_of, 'scaffold-eth/scaffold-eth-2');
   assert.ok(rows.own_share! > 0.2, `own_share ${rows.own_share}`);
   assert.equal(rows.own_share, 213 / 575);
+  // 213 commits after the fork point, from the compare.
+  assert.equal(rows.commits_own, 213);
   // The starter it forked is measured by own_share, not again as a template match.
   assert.notEqual(rows.template_name, 'scaffold-eth-2');
+  assert.equal(rows.files_own, null);
   assert.equal(rows.note, null);
+});
+
+test("a fork's 90-day window is its commits after the fork point, from the compare; no commit list read", async () => {
+  const { rows, rec } = await code('astral-logbook');
+  assert.equal(rows.commits_90d, 0);
+  assert.equal(rows.commits_60d, 0);
+  assert.ok(!rec.calls.some((u) => u.includes('/commits?since=')));
+  assert.equal(rec.calls.filter((u) => u.includes('/compare/')).length, 1);
+  // As of 2025-10-01 the fork's own September commits are in the window; the starter's own history never is.
+  const then = new Date('2025-10-01T12:00:00Z');
+  const again = replay('astral-logbook');
+  const read = await readRepo(again.repo, { fetch: again.fetch, token: 'test' });
+  const r = await readCode(read, { gh: again.fetch, now: then, budget: budget() });
+  assert.equal(r.commits_90d, 50);
+  assert.ok(r.commits_60d! > 0 && r.commits_60d! <= 50);
+});
+
+test('every recorded starter has maintainers; forge-template is gone; starter repos are known', () => {
+  assert.ok(!starters.some((b) => b.name === 'forge-template'));
+  for (const b of starters) assert.ok((b.maintainers ?? []).length >= 5, b.name);
+  assert.ok(isStarterRepo('Scaffold-ETH/scaffold-eth-2'));
+  assert.ok(!isStarterRepo('someone/else'));
+  assert.ok(starterMaintainers('scaffold-eth-2').includes('carletex'));
+  assert.deepEqual(starterMaintainers(null), []);
+});
+
+test('files_own: the non-generic files beyond the matched starter', async () => {
+  const se2 = starters.find((b) => b.name === 'scaffold-eth-2')!;
+  const r = fakeRepo([0]);
+  const tree = (own: number) => [...se2.paths, ...[...Array(own)].map((_, i) => `packages/nextjs/app/own/f${i}.tsx`), 'README.md'].map((path) => ({ path, type: 'blob' }));
+  const forty = await readCode({ ...r.read, tree: tree(40) }, { gh: r.f, now: NOW, budget: budget() });
+  assert.equal(forty.template_name, 'scaffold-eth-2');
+  assert.equal(forty.files_own, 40);
+  const three = await readCode({ ...r.read, tree: tree(3) }, { gh: r.f, now: NOW, budget: budget() });
+  assert.equal(three.files_own, 3);
+  assert.equal(three.commits_own, null);
+});
+
+test('commits_60d counts the window commits dated inside 60 days', async () => {
+  const dates = [1, 10, 59, 61, 80].map((d) => new Date(NOW.getTime() - d * DAY).toISOString());
+  const r = fakeRepo([0], (url) => (url.includes('/commits?since=') ? Response.json(dates.map((date) => ({ author: null, commit: { author: { date } } }))) : null));
+  const rows = await readCode(r.read, { gh: r.f, now: NOW, budget: budget() });
+  assert.equal(rows.commits_90d, 5);
+  assert.equal(rows.commits_60d, 3);
+});
+
+test('a fork over 250 commits ahead: the newest two pages of the compare are the window', async () => {
+  const at = (d: number) => new Date(NOW.getTime() - d * DAY).toISOString();
+  const row = (d: number) => ({ author: { login: 'me', type: 'User' }, commit: { author: { date: at(d) } } });
+  const r = fakeRepo([0], (url) => {
+    if (!url.includes('/compare/')) return null;
+    const page = url.match(/[?&]page=(\d+)/)?.[1];
+    // 420 commits ahead: unpaged, the oldest 250 (all a year old); pages 4 and 5 hold the newest 120.
+    if (!page) return Response.json({ ahead_by: 420, commits: [...Array(250)].map(() => row(400)) });
+    return Response.json({ ahead_by: 420, commits: page === '5' ? [...Array(20)].map(() => row(1)) : [...Array(100)].map(() => row(120)) });
+  });
+  const read = { ...r.read, repo: { ...r.read.repo, fork: true, parent: { full_name: 'x/starter', default_branch: 'main' } } };
+  const rows = await readCode(read, { gh: r.f, now: NOW, budget: budget() });
+  assert.equal(rows.commits_own, 420);
+  assert.equal(rows.commits_90d, 20);
+  assert.ok(r.calls.some((u) => u.includes('per_page=100&page=4')) && r.calls.some((u) => u.includes('per_page=100&page=5')));
+  // The oldest commit held is outside the window, so the count is whole.
+  assert.ok(!(rows.note ?? '').includes('capped'), rows.note ?? '');
 });
 
 test('earnkit: tests, CI, no fork, little starter overlap', async () => {
@@ -50,7 +116,7 @@ test('earnkit: tests, CI, no fork, little starter overlap', async () => {
   assert.equal(rows.own_share, null);
   assert.equal(rows.issues_open, 3);
   assert.equal(rows.commits_90d, 300);
-  assert.equal(rows.note, 'commits_90d capped at 300; active_weeks_90d from newest 300 commits');
+  assert.equal(rows.note, 'commits_90d capped at 300; commits_60d from newest 300 commits; active_weeks_90d from newest 300 commits');
   assert.ok(rows.active_weeks_90d! >= 1);
   assert.equal(rows.issues_answered_90d, 3);
   assert.match(rows.first_commit_at ?? '', /^\d{4}-\d\d-\d\dT/);
@@ -76,7 +142,7 @@ test('templateOverlap: share of the repo made of the starter; generic files and 
   assert.equal(templateOverlap(kit.paths.slice(0, 7), [kit]), null);
   // 8 shared of 10 own paths (README, package.json and node_modules not counted on either side).
   const m = templateOverlap([...kit.paths.slice(0, 8), 'src/mine1.ts', 'src/mine2.ts', 'README.md', 'package.json', 'node_modules/x/a.ts', 'dist/a.js'], [kit]);
-  assert.deepEqual(m, { name: 'kit', overlap: 0.8 });
+  assert.deepEqual(m, { name: 'kit', overlap: 0.8, files_own: 2 });
   // Every recorded starter excludes node_modules.
   for (const b of starters) assert.ok(!b.paths.some((p) => p.includes('node_modules/')), b.name);
 });
@@ -146,7 +212,7 @@ test('commits_90d counted across pages; a full third page caps at 300', async ()
   const c = await readCode(full.read, { gh: full.f, now: NOW, budget: budget() });
   assert.equal(c.commits_90d, 300);
   assert.equal(full.calls.filter((u) => u.includes('/commits?since=')).length, 3);
-  assert.equal(c.note, 'commits_90d capped at 300; active_weeks_90d from newest 300 commits');
+  assert.equal(c.note, 'commits_90d capped at 300; commits_60d from newest 300 commits; active_weeks_90d from newest 300 commits');
 });
 
 test('issues answered: commented or closed, pull requests left out', async () => {
@@ -211,7 +277,7 @@ test('a fork whose parent is gone: own_share null with a note', async () => {
   const rows = await readCode(read, { gh: r.f, now: NOW, budget: budget() });
   assert.equal(rows.fork_of, 'x/starter');
   assert.equal(rows.own_share, null);
-  assert.equal(rows.note, 'own_share not read: parent gone');
+  assert.equal(rows.note, 'own_share not read: parent gone; commits_90d not read: parent gone');
 });
 
 test('a starter overlap under 0.2 is not reported; 0.2 and over is', async () => {
@@ -253,5 +319,5 @@ test('a 404 on a call that was made keeps its own reason when the budget is low'
   assert.equal(rows.own_share, null);
   assert.equal(b.stopped, true);
   // The compare was made and answered 404; the reads after it were skipped for the budget.
-  assert.equal(rows.note, 'own_share not read: parent gone; not read: budget');
+  assert.equal(rows.note, 'own_share not read: parent gone; commits_90d not read: parent gone; not read: budget');
 });

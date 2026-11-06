@@ -79,7 +79,7 @@ export function csvReport(rows: ScreenRow[]): string {
   const lines = [HEADER.join(',')];
   for (const r of rows) {
     const e = r.evidence;
-    const mainnet = (e?.onchain ?? []).filter((c) => c.mainnet === true && c.is_contract === true);
+    const mainnet = (e?.onchain ?? []).filter((c) => c.mainnet === true && c.is_contract === true && c.counted === true);
     const top = [...mainnet].sort((x, y) => (y.funded_senders_90d ?? -1) - (x.funded_senders_90d ?? -1) || (y.senders_90d ?? -1) - (x.senders_90d ?? -1))[0];
     lines.push(
       [

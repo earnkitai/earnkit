@@ -1,7 +1,8 @@
 /**
- * A program's applicant list: `parseApplicants` reads the CSV (header row required) into applicants,
- * each bad field nulled with a `problems` line; `resolveRepo` takes a repo from the site's GitHub links;
- * `identicalPitches` and `sharedContributors` count overlaps inside the one list. Pure.
+ * A program's applicant list: `parseApplicants` reads the CSV (header row required) into applicants with
+ * unique refs, each bad field nulled with a `problems` line; `resolveRepo` picks a repo from the site's
+ * GitHub links (never a starter's or an SDK's); `identicalPitches` and `sharedContributors` count overlaps
+ * inside the one list. Pure.
  */
 import { isKnownChain } from '../v5/chains';
 import { repoKey } from '../v5/repo-facts';
@@ -20,14 +21,20 @@ export type Applicant = {
 /** The CSV cannot be read at all: no header, an open quote, no column EarnKit knows. */
 export class CsvError extends Error {}
 
+/** Header names after `headerKey` (so "GitHub URL" is github, "Project Name" is project_name). */
 const COLUMNS: Record<'ref' | 'name' | 'repo' | 'live' | 'contracts' | 'pitch', string[]> = {
   ref: ['ref', 'id'],
-  name: ['name', 'project'],
-  repo: ['repo', 'github', 'repo_url'],
-  live: ['url', 'website', 'live_url', 'site'],
-  contracts: ['contract', 'contracts', 'address'],
+  name: ['name', 'project', 'project_name'],
+  repo: ['repo', 'github', 'github_repo'],
+  live: ['url', 'website', 'live', 'site'],
+  contracts: ['contract', 'contracts', 'address', 'contract_address', 'contract_addresses'],
   pitch: ['pitch', 'description', 'summary'],
 };
+
+/** A header cell as a column key: lowercase, spaces and dashes to underscores, a trailing "_url" dropped. Pure. */
+export function headerKey(h: string): string {
+  return h.trim().toLowerCase().replace(/[\s-]+/g, '_').replace(/(.)_url$/, '$1');
+}
 
 /** RFC 4180 records: quoted fields, doubled quotes, CRLF or LF, newlines inside quotes. Throws CsvError on an open quote. */
 function records(csv: string): string[][] {
@@ -99,17 +106,23 @@ export function parseApplicants(csv: string, o: { chain?: string } = {}): Applic
   const chain = (o.chain ?? 'base').toLowerCase();
   const [header, ...rows] = records(csv);
   if (!header) throw new CsvError('the file is empty');
-  const names = header.map((h) => h.trim().toLowerCase());
+  const names = header.map(headerKey);
   const col = Object.fromEntries(
     Object.entries(COLUMNS).map(([k, aliases]) => [k, names.findIndex((h) => aliases.includes(h))]),
   ) as Record<keyof typeof COLUMNS, number>;
   if (col.repo < 0 && col.live < 0 && col.contracts < 0) {
     throw new CsvError(`no repo, site or contract column in the header (${names.join(', ')})`);
   }
+  const refs = new Set<string>();
   return rows.map((r, i) => {
     const get = (k: keyof typeof COLUMNS) => (col[k] >= 0 ? blank(r[col[k]]) : null);
-    const ref = get('ref') ?? `row ${i + 1}`;
     const problems: string[] = [];
+    // Refs key every count across the list: a repeated one becomes "ek-3 (2)".
+    const given = (get('ref') ?? `row ${i + 1}`).replace(/\s+/g, ' ');
+    let ref = given;
+    for (let k = 2; refs.has(ref); k++) ref = `${given} (${k})`;
+    if (ref !== given) problems.push('duplicate ref');
+    refs.add(ref);
     let repo_url: string | null = null;
     const repoRaw = get('repo');
     if (repoRaw) {
@@ -131,18 +144,43 @@ export function parseApplicants(csv: string, o: { chain?: string } = {}): Applic
   });
 }
 
-/** The applicant's repo, else the first repo (owner/name, never an account page) the site links, else null. Pure. */
+/** GitHub owners of starters and SDKs: a site linking them links its tools, not its own code. */
+export const TOOL_OWNERS = new Set([
+  'coinbase', 'base', 'base-org', 'vercel', 'scaffold-eth', 'wevm', 'rainbow-me', 'ethereum', 'foundry-rs', 'nomicfoundation',
+  'solana-labs', 'solana-foundation', 'circlefin', 'privy-io', 'thirdweb-dev',
+]);
+/** Words that name nothing about a project. */
+const FILLER = new Set([
+  'the', 'app', 'and', 'for', 'www', 'com', 'xyz', 'org', 'net', 'dev', 'labs', 'onchain',
+  // Shared hosts' own names.
+  'vercel', 'netlify', 'github', 'pages', 'onrender', 'railway', 'fly', 'herokuapp', 'replit', 'web', 'firebaseapp', 'surge',
+]);
+const words = (s: string) => s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !FILLER.has(w));
+/** Whether a repo key shares a word with the site's domain or the project's name (or holds one whole). Pure. */
+function sharesWord(key: string, hints: string[]): boolean {
+  const [owner, name] = key.split('/');
+  const mine = new Set([...words(owner), ...words(name)]);
+  const joined = `${owner}${name}`.replace(/[^a-z0-9]/g, '');
+  return hints.some((h) => mine.has(h) || (h.length >= 4 && joined.includes(h)));
+}
+
+/**
+ * The applicant's repo, else a repo the site links (owner/name, never an account page, never a starter's
+ * or an SDK's owner), preferring one sharing a word with the domain or project name, else null. Pure.
+ */
 export function resolveRepo(a: Applicant, live: LiveRows): string | null {
   if (a.repo_url) return a.repo_url;
-  for (const link of live.github_links) {
-    const key = repoKey(link);
-    if (key) return `https://github.com/${key}`;
-  }
-  return null;
+  const keys = live.github_links.map((l) => repoKey(l)).filter((k): k is string => !!k && !TOOL_OWNERS.has(k.split('/')[0]));
+  const domain = (live.domain ?? '').split('.').slice(0, -1).join('.');
+  const hints = [...new Set([...words(domain), ...words(a.name)])];
+  const key = keys.find((k) => sharesWord(k, hints)) ?? keys[0];
+  return key ? `https://github.com/${key}` : null;
 }
 
 const SHINGLE = 5;
 const SAME = 0.9;
+/** A pitch under 10 words ("TBD", "a DeFi app on Base") is a placeholder, not text worth comparing. */
+const MIN_PITCH_WORDS = 10;
 /** Lowercase, punctuation dropped, whitespace collapsed. Pure. */
 const normalize = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ').trim();
 /** The 5-word shingles of a text; a text under 5 words is one shingle. Pure. */
@@ -156,10 +194,12 @@ function shingles(text: string): Set<string> {
 
 /**
  * Ref to the count of other applicants whose pitch shares at least 90% of its 5-word shingles with this one
- * (measured against the larger set, so a short pitch inside a long one is not the same). No pitch counts 0. Pure.
+ * (measured against the larger set, so a short pitch inside a long one is not the same). No pitch, or one
+ * under 10 words, counts 0 and is never counted against. Pure.
  */
 export function identicalPitches(apps: Applicant[]): Map<string, number> {
-  const sets = apps.map((a) => (a.pitch ? shingles(a.pitch) : new Set<string>()));
+  const long = (p: string | null): p is string => !!p && normalize(p).split(' ').filter(Boolean).length >= MIN_PITCH_WORDS;
+  const sets = apps.map((a) => (long(a.pitch) ? shingles(a.pitch) : new Set<string>()));
   const out = new Map<string, number>();
   apps.forEach((a, i) => {
     let n = 0;

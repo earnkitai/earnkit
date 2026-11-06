@@ -4,7 +4,7 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readRepo } from '../lib/v5/github';
-import { readCode } from '../lib/v6/code';
+import { forkRef, readCode, starterMaintainers } from '../lib/v6/code';
 import { readTeam } from '../lib/v6/team';
 
 const args = process.argv.slice(2);
@@ -27,14 +27,16 @@ function trim(url: string, body: string): string {
     return JSON.stringify({ total_count: r.total_count, items: (r.items ?? []).map((i) => ({ ...pick(i, ['number', 'state', 'comments']), ...(i.pull_request ? { pull_request: {} } : {}) })) });
   }
   if (!Array.isArray(JSON.parse(body)) && !p.includes('/compare/') && !/^\/users\/[^/]+$/.test(p)) return body;
-  if (/\/commits$/.test(p)) {
-    return JSON.stringify(rows().map((c) => {
-      const commit = c.commit as { author?: { date?: string }; committer?: { date?: string } } | undefined;
-      const author = c.author as { login?: string; type?: string } | null | undefined;
-      return { author: author ? { login: author.login, type: author.type } : null, commit: { author: { date: commit?.author?.date }, committer: { date: commit?.committer?.date } } };
-    }));
+  const commitRow = (c: Record<string, unknown>) => {
+    const commit = c.commit as { author?: { date?: string }; committer?: { date?: string } } | undefined;
+    const author = c.author as { login?: string; type?: string } | null | undefined;
+    return { sha: c.sha, author: author ? { login: author.login, type: author.type } : null, commit: { author: { date: commit?.author?.date }, committer: { date: commit?.committer?.date } } };
+  };
+  if (/\/commits$/.test(p)) return JSON.stringify(rows().map(commitRow));
+  if (p.includes('/compare/')) {
+    const c = JSON.parse(body) as Record<string, unknown> & { commits?: Record<string, unknown>[] };
+    return JSON.stringify({ ...pick(c, ['status', 'ahead_by', 'behind_by', 'total_commits']), commits: (c.commits ?? []).map(commitRow) });
   }
-  if (p.includes('/compare/')) return JSON.stringify(pick(JSON.parse(body), ['status', 'ahead_by', 'behind_by', 'total_commits']));
   if (/\/issues$/.test(p)) return JSON.stringify(rows().map((i) => ({ ...pick(i, ['number', 'state', 'comments']), ...(i.pull_request ? { pull_request: {} } : {}) })));
   if (/\/contributors$/.test(p)) return JSON.stringify(rows().map((c) => pick(c, ['login', 'type', 'contributions'])));
   if (/\/releases$/.test(p)) return JSON.stringify(rows().map((r) => pick(r, ['id', 'tag_name'])));
@@ -61,7 +63,7 @@ const read = await readRepo(full, { fetch: recording });
 if (v6) {
   const o = { gh: recording, token: process.env.GITHUB_TOKEN, now, budget: { remaining: null, stopped: false } };
   const code = await readCode(read, o);
-  const team = await readTeam(read.repo.full_name, o);
+  const team = await readTeam(read.repo.full_name, o, { fork: forkRef(read), drop: starterMaintainers(code.template_name) });
   console.log(JSON.stringify({ code, team }, null, 1));
 }
 const out = join(import.meta.dirname, '..', 'lib', v6 ? 'v6' : 'v5', 'fixtures', 'repos', `${slug}.json`);

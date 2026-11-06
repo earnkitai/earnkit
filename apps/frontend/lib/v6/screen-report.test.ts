@@ -26,7 +26,7 @@ const ROWS: ScreenRow[] = [
     repo: 'a/b', code: codeRows({ last_push_at: daysAgo(5), commits_90d: 4, note: 'issues not read: budget' }), team: teamRows(),
     notes: ['not read: budget'],
   })),
-  row(app({ ref: 'f1', name: 'Copy' }), evidence({ repo: 'a/f', code: codeRows({ template_overlap: 0.8, template_name: 'create-next-app', last_push_at: daysAgo(1), commits_90d: 2 }) })),
+  row(app({ ref: 'f1', name: 'Copy' }), evidence({ repo: 'a/f', code: codeRows({ template_overlap: 0.8, template_name: 'create-next-app', files_own: 2, last_push_at: daysAgo(1), commits_90d: 2 }) })),
   row(app({ ref: 'v1', name: 'Nothing', problems: ['repo link not on GitHub'] }), evidence({ notes: ['repo not on github'] })),
   row(app({ ref: 'v2', name: 'Private', problems: ['no repo found'] }), evidence({ notes: ['not read: budget'] })),
 ];

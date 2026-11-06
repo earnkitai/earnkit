@@ -1,10 +1,10 @@
 /**
- * Team evidence rows for one public repo, from its commits in the last 90 days: who committed, the top
- * author's share, the top 5 authors' account ages and how many other repos of theirs people use (50+ stars
- * or a homepage). Accounts under 30 days old are not counted. A skipped or failed read is left out and the
- * note says why. Never throws.
+ * Team rows for one public repo from its commits in 90 days (a fork's: only those after the fork point;
+ * a starter's maintainers dropped): who committed, the top author's share, the top 5 authors' account
+ * ages and other repos of theirs people use (50+ stars or a homepage). Accounts under 30 days old are not
+ * counted. A failed read is left out with a note. Never throws.
  */
-import { type Budget, ghList, ghObject, readCommitWindow } from './code';
+import { type Budget, type ForkRef, ghList, ghObject, readCommitWindow } from './code';
 
 export type TeamRows = {
   contributors_90d: number | null;
@@ -26,22 +26,40 @@ const DAY = 86_400_000;
 type User = { created_at?: string };
 type UserRepo = { full_name?: string; fork?: boolean; stargazers_count?: number; homepage?: string | null };
 
-/** Reads the team rows for a repo. Shares the 90-day commit read with readCode through the Budget. Never throws. */
-export async function readTeam(fullName: string, o: { gh: typeof fetch; token?: string; now: Date; budget: Budget }): Promise<TeamRows> {
+/**
+ * Reads the team rows for a repo. Shares the 90-day commit read with readCode through the Budget. `fork`
+ * limits the window to commits after the fork point; `drop` lists logins (a matched starter's
+ * maintainers) whose commits are not the applicant's. Never throws.
+ */
+export async function readTeam(
+  fullName: string,
+  o: { gh: typeof fetch; token?: string; now: Date; budget: Budget },
+  x: { fork?: ForkRef | null; drop?: string[] } = {},
+): Promise<TeamRows> {
   const notes: string[] = [];
   const miss = (why: string) => {
     if (!notes.includes(why)) notes.push(why);
   };
   const done = (rows: Omit<TeamRows, 'note'>): TeamRows => ({ ...rows, note: notes.length ? notes.join('; ') : null });
 
-  const window = await readCommitWindow(fullName, o);
+  const window = await readCommitWindow(fullName, o, x.fork ?? null);
   if (!window.ok) {
     miss(window.why);
     return done({ contributors_90d: null, top_share: null, account_ages_days: [], prior_repos_used: null, logins: [] });
   }
-  if (window.capped) miss('commits window capped at 300');
+  if (window.capped) miss(`commits window capped at ${window.cap}`);
+  const drop = new Set((x.drop ?? []).map((l) => l.toLowerCase()));
+  const dropped = new Set<string>();
+  let droppedCommits = 0;
   const byLogin = new Map<string, number>();
-  for (const a of window.authors) byLogin.set(a, (byLogin.get(a) ?? 0) + 1);
+  for (const a of window.authors) {
+    if (drop.has(a.toLowerCase())) {
+      dropped.add(a.toLowerCase());
+      droppedCommits++;
+    } else byLogin.set(a, (byLogin.get(a) ?? 0) + 1);
+  }
+  if (dropped.size) miss(`${dropped.size} starter ${dropped.size === 1 ? 'maintainer' : 'maintainers'} not counted`);
+  const counted_commits = window.count - droppedCommits;
   const ranked = [...byLogin].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   const top = ranked.slice(0, TOP).map(([login]) => login);
   if (ranked.length > TOP) miss(`contributors beyond ${TOP} not read`);
@@ -73,7 +91,7 @@ export async function readTeam(fullName: string, o: { gh: typeof fetch; token?: 
   return done({
     contributors_90d: counted,
     // Share of the window's commits, including those with no linked GitHub author.
-    top_share: window.count > 0 && ranked.length > 0 ? ranked[0][1] / window.count : null,
+    top_share: counted_commits > 0 && ranked.length > 0 ? ranked[0][1] / counted_commits : null,
     account_ages_days: ages,
     prior_repos_used: reposRead > 0 || top.length === 0 ? used.size : null,
     logins: top,

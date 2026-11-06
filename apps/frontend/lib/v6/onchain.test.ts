@@ -48,7 +48,7 @@ test('the onchain-reaction contract: verified, deployer matches the repo when li
 });
 
 test('unknown address is not usage', async () => {
-  // A wallet with transfers but no code: not verified, no deployer, transfers still counted, nothing failed.
+  // A wallet with transfers but no code: not verified, no deployer; its transfers and senders are never read.
   const { rec, explorer, now } = replay('wallet');
   const r = await readContract('base', rec.address, { explorer, repoAddresses: [], now });
   assert.equal(r.is_contract, false);
@@ -57,8 +57,11 @@ test('unknown address is not usage', async () => {
   assert.equal(r.deployer, null);
   assert.equal(r.deployed_at, null);
   assert.equal(r.deployer_matches_repo, null);
-  assert.equal(typeof r.tx_90d, 'number');
-  assert.equal(r.note, null);
+  assert.equal(r.tx_90d, null);
+  assert.equal(r.funded_senders_90d, null);
+  assert.equal(r.note, 'usage not read: not a contract');
+  // One read: the address itself.
+  assert.equal(rec.calls.length, 1);
 });
 
 test('no explorer for the chain: nothing read, a note says why', async () => {
@@ -154,4 +157,30 @@ test('isDeployerFunded: funded by the contract itself counts; by someone else do
 test('isDeployerFunded: a sender that moved first is not', () => {
   assert.equal(isDeployerFunded([call(0), fund(HOUR)], D, C), false);
   assert.equal(isDeployerFunded([], D, C), false);
+});
+
+test('funded means not funded by the deployer: a sender the deployer funded an hour before its first call is one fewer', async () => {
+  const now = new Date('2026-11-06T00:00:00Z');
+  const A = '0x' + 'a'.repeat(40);
+  const B = '0x' + 'b'.repeat(40);
+  const read = (bFundedByDeployer: boolean) => {
+    const explorer: Explorer = {
+      contractInfo: async () => ({ is_contract: true, verified_source: true, name: 'C', deployer: D, deployed_at: null, created_tx: null }),
+      txsTo: async () => [A, B].map((from) => ({ hash: '0x1', from, to: C, at: at(2 * HOUR), value_wei: '0', is_error: false })),
+      firstTxs: async (_c, who) => {
+        if (who === C) return [];
+        const callAt = 2 * HOUR;
+        const mine = (from: string): Tx => ({ hash: '0xa', from, to: C, at: at(callAt), value_wei: '0', is_error: false });
+        // B: the deployer sent it gas an hour before its first call, or a stranger did.
+        if (who === B) return [{ hash: '0xf', from: bFundedByDeployer ? D : '0x' + 'e'.repeat(40), to: B, at: at(callAt - HOUR), value_wei: '1000', is_error: false }, mine(B)];
+        return [mine(A)];
+      },
+    };
+    return readContract('base', C, { explorer, repoAddresses: [], now });
+  };
+  const unfunded = await read(false);
+  const funded = await read(true);
+  assert.equal(unfunded.funded_senders_90d, 2);
+  assert.equal(funded.funded_senders_90d, unfunded.funded_senders_90d! - 1);
+  assert.equal(funded.funded_sample, 2);
 });

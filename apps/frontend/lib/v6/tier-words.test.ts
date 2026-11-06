@@ -20,7 +20,7 @@ const cases: [string, Parameters<typeof place>[0], typeof X][] = [
   ['building', evidence({ repo: 'a/b', code: codeRows({ last_push_at: daysAgo(3), commits_90d: 2 }) }), X],
   ['unverified', evidence(), X],
   ['flagged', usedE(), { identical_pitch: 3, shared_contributors: 6 }],
-  ['flagged template', evidence({ repo: 'a/b', code: codeRows({ template_overlap: 0.7, own_share: 0.3, template_name: 'create-next-app' }) }), X],
+  ['flagged template', evidence({ repo: 'a/b', code: codeRows({ template_overlap: 0.7, own_share: 0.3, template_name: 'create-next-app', files_own: 4 }) }), X],
   ['flagged unfunded', evidence({ live: up, onchain: [contract({ tx_90d: 2_000, senders_90d: 1_500, funded_sample: 50, funded_senders_90d: 3 })] }), X],
   ['null', null, X],
   ['partial nothing', evidence({ partial: true }), X],
@@ -49,14 +49,21 @@ test('reviewer line for a flagged placement names the rule', () => {
   const e = usedE();
   const line = reviewerLine(place(e, { identical_pitch: 3, shared_contributors: 0 }, undefined, NOW), e);
   assert.match(line, /^flagged \(identical pitch\): /);
-  const t = evidence({ repo: 'a/b', code: codeRows({ template_overlap: 0.7, template_name: 'create-next-app' }) });
+  const t = evidence({ repo: 'a/b', code: codeRows({ template_overlap: 0.7, template_name: 'create-next-app', files_own: 4 }) });
   assert.match(reviewerLine(place(t, X, undefined, NOW), t), /template/);
 });
 
 test('builder line for used has no Next', () => {
   const line = builderLine(place(usedE(), X, undefined, NOW));
   assert.ok(!line.includes('Next'), line);
-  assert.match(line, /used/);
+  assert.equal(line, 'Your project reads as used: wallets the deployer did not fund use it on mainnet.');
+});
+
+test('no line says paying their own gas', () => {
+  for (const [, e, x] of cases) {
+    const p = place(e, x, undefined, NOW);
+    for (const line of [reviewerLine(p, e), builderLine(p)]) assert.ok(!/own gas/.test(line), line);
+  }
 });
 
 test('builder line for live matches the design example', () => {

@@ -16,7 +16,7 @@ export function reviewerLine(p: Placement, e: Evidence | null): string {
 }
 
 const READS: Record<Tier, (p: Placement) => string> = {
-  used: () => 'Your project reads as used: wallets paying their own gas use it on mainnet.',
+  used: () => 'Your project reads as used: wallets the deployer did not fund use it on mainnet.',
   live: (p) => (p.gap === 'funded_senders' ? 'Your project reads as live, no verified usage yet.' : 'Your project reads as live.'),
   building: () => 'Your project reads as building, nothing live yet.',
   unverified: () => 'Your project reads as unverified, nothing recent EarnKit could check.',

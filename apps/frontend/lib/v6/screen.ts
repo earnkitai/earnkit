@@ -1,7 +1,7 @@
 /**
  * The pilot run behind `pnpm screen <csv> --program <id>`: parses the list, reads each applicant in turn
- * (a repo resolved from the site when none is given), places it with the counts across the list, prints
- * a line per applicant and writes the markdown and CSV reports into one folder. Never writes elsewhere.
+ * on one GitHub budget for the run (a repo resolved from the site when none is given), places it with the
+ * counts across the list, prints a line per applicant and writes the two reports into one folder.
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -9,6 +9,7 @@ import { CHAIN_REGISTRY, isKnownChain } from '../v5/chains';
 import { CsvError, identicalPitches, parseApplicants, resolveRepo, sharedContributors, type Applicant } from './applicants';
 import { type Evidence, type EvidenceDeps, readEvidence } from './evidence';
 import { safeProbePage } from '../v5/safe-fetch';
+import type { Budget } from './code';
 import { readLive } from './live';
 import { csvReport, markdownReport, ORDER, type ScreenRow } from './screen-report';
 import { reviewerLine } from './tier-words';
@@ -101,6 +102,8 @@ export async function run(argv: string[], d: RunDeps): Promise<RunResult> {
   const logins = new Map<string, string[]>();
   const x = (ref: string) => ({ identical_pitch: pitches.get(ref) ?? 0, shared_contributors: sharedContributors(logins).get(ref) ?? 0 });
   const o = d.evidence ?? {};
+  // One allowance for the whole run: once it stops, later repos wait for the next run (their copies under 7 days stand).
+  const budget: Budget = o.budget ?? { remaining: null, stopped: false };
   const read: { applicant: Applicant; evidence: Evidence | null }[] = [];
   const firstTier = new Map<string, string>();
 
@@ -117,13 +120,14 @@ export async function run(argv: string[], d: RunDeps): Promise<RunResult> {
         now: d.now,
       });
       repo = resolveRepo(a, live);
+      if (repo) a.problems.push(`repo taken from the site link: ${repo.replace('https://github.com/', '')}`);
     }
     if (!repo && !a.problems.some((p) => REPO_PROBLEMS.test(p))) a.problems.push('no repo found');
     let evidence: Evidence | null = null;
     try {
       evidence = await readEvidence(
         { ...(repo && { repo_url: repo }), ...(a.live_url && { live_url: a.live_url }), contracts: a.contracts },
-        { ...o, now: d.now, cache },
+        { ...o, budget, now: d.now, cache },
       );
       reads.github += evidence.reads.github;
       reads.explorer += evidence.reads.explorer;

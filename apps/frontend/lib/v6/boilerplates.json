@@ -22,6 +22,18 @@
    "public/vercel.svg",
    "public/window.svg",
    "tsconfig.json"
+  ],
+  "maintainers": [
+   "ijjk",
+   "timneutkens",
+   "sokra",
+   "vercel-release-bot",
+   "huozhi",
+   "timer",
+   "eps1lon",
+   "mischnic",
+   "ztanner",
+   "kdy1"
   ]
  },
  {
@@ -67,22 +79,17 @@
    "tsconfig.json",
    "vitest.config.mts",
    "vitest.setup.ts"
-  ]
- },
- {
-  "name": "forge-template",
-  "repo": "foundry-rs/forge-template",
-  "recorded_at": "2026-11-06",
-  "paths": [
-   ".gas-snapshot",
-   ".github/workflows/ci.yml",
-   ".gitignore",
-   ".gitmodules",
-   "LICENSE",
-   "README.md",
-   "foundry.toml",
-   "src/Contract.sol",
-   "test/Contract.t.sol"
+  ],
+  "maintainers": [
+   "beeman",
+   "cxalem",
+   "guibibeau",
+   "amilz",
+   "srmessisol",
+   "tobysolutions",
+   "th3ya0vi",
+   "dev-jodee",
+   "nickfrosty"
   ]
  },
  {
@@ -121,6 +128,17 @@
    "scripts/deploy.js",
    "tasks/faucet.js",
    "test/Token.js"
+  ],
+  "maintainers": [
+   "feugenea",
+   "alcuadrado",
+   "fvictorio",
+   "01231",
+   "aarondovturkel",
+   "mehtaculous",
+   "arianxdev",
+   "erin-at-work",
+   "fzeoli"
   ]
  },
  {
@@ -151,6 +169,17 @@
    "public/sphere.svg",
    "public/splash.png",
    "tsconfig.json"
+  ],
+  "maintainers": [
+   "zizzamia",
+   "alessey",
+   "0xalec",
+   "dschlabach",
+   "abcrane123",
+   "kyhyco",
+   "dgca",
+   "fakepixels",
+   "cnasc"
   ]
  },
  {
@@ -206,6 +235,17 @@
    "public/opengraph-image.png",
    "tailwind.config.ts",
    "tsconfig.json"
+  ],
+  "maintainers": [
+   "delbaoliveira",
+   "chibicode",
+   "stephdietz",
+   "leerob",
+   "manovotny",
+   "icyjoseph",
+   "balazsorban44",
+   "emilkowalski",
+   "ismaelrumzan"
   ]
  },
  {
@@ -228,6 +268,17 @@
    "package.json",
    "public/sphere.svg",
    "tsconfig.json"
+  ],
+  "maintainers": [
+   "zizzamia",
+   "alessey",
+   "0xalec",
+   "dschlabach",
+   "abcrane123",
+   "kyhyco",
+   "dgca",
+   "fakepixels",
+   "cnasc"
   ]
  },
  {
@@ -380,6 +431,18 @@
    "packages/nextjs/utils/scaffold-eth/notification.tsx",
    "packages/nextjs/vercel.json",
    "yarn.lock"
+  ],
+  "maintainers": [
+   "technophile-04",
+   "carletex",
+   "rin-st",
+   "sverps",
+   "damianmarti",
+   "pabl0cks",
+   "edakturk14",
+   "portdeveloper",
+   "kcpele",
+   "naim-bijapure"
   ]
  }
 ]

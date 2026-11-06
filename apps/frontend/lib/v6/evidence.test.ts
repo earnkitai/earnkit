@@ -2,8 +2,9 @@ import { after, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from '../v5/db';
 import { replayFetch } from '../v5/fixtures/github';
-import { blockscout } from './explorers';
-import { flattenRows, readEvidence } from './evidence';
+import { blockscout, type Explorer } from './explorers';
+import { countedBy, createdIn, deployFiles, flattenRows, readEvidence } from './evidence';
+import { contract } from './fixtures/evidence-builder';
 import { replayExplorer } from './fixtures/explorer';
 import { fakeRdap, fakeSite } from './fixtures/site';
 
@@ -208,4 +209,123 @@ test('subject contracts without a chain or a 0x address are skipped and named; n
   assert.equal(e.onchain.length, 1);
   assert.equal(e.onchain[0].address, CONTRACT);
   assert.equal(e.live.note, 'no live url');
+});
+
+test('a budget already stopped: zero GitHub calls, the repo noted as not read for the budget, partial', async () => {
+  const rec = replay('onchain-reaction');
+  const e = await readEvidence(
+    { repo_url: 'https://github.com/Shijas786/onchain-reaction', live_url: 'https://onchainreaction.vercel.app/' },
+    { ...deps(rec.fetch, replayExplorer('onchain-reaction').fetch), budget: { remaining: 100, stopped: true } },
+  );
+  assert.equal(rec.calls.length, 0);
+  assert.equal(e.reads.github, 0);
+  assert.equal(e.code, null);
+  assert.deepEqual(e.notes, ['not read: budget']);
+  assert.equal(e.partial, true);
+  assert.equal(e.live.url_ok, true);
+});
+
+test('one budget across reads: a low remaining on one repo stops the next before it starts', async () => {
+  const budget = { remaining: null, stopped: false };
+  const rec = replay('onchain-reaction');
+  const low = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const res = await rec.fetch(input, init);
+    const h = new Headers(res.headers);
+    h.set('x-ratelimit-remaining', '120');
+    return new Response(res.body, { status: res.status, headers: h });
+  }) as typeof fetch;
+  await readEvidence({ repo_url: 'https://github.com/Shijas786/onchain-reaction' }, { ...deps(low, replayExplorer('onchain-reaction').fetch), budget, cache: false });
+  assert.equal(budget.stopped, true);
+  const next = replay('earnkit');
+  const e = await readEvidence({ repo_url: 'https://github.com/earnkitai/earnkit' }, { ...deps(next.fetch, replayExplorer('onchain-reaction').fetch), budget, cache: false });
+  assert.equal(next.calls.length, 0);
+  assert.deepEqual(e.notes, ['not read: budget']);
+});
+
+test('deployFiles and createdIn: mainnet deploy runs only; CREATE and CREATE2 contracts, never the contracts called', () => {
+  assert.deepEqual(
+    deployFiles([
+      'broadcast/Deploy.s.sol/8453/run-latest.json',
+      'broadcast/Deploy.s.sol/84532/run-latest.json',
+      'broadcast/Deploy.s.sol/8453/dry-run/run-latest.json',
+      'lib/x/broadcast/A.s.sol/1/run-latest.json',
+      'contracts/ignition/deployments/chain-42161/deployed_addresses.json',
+    ]),
+    [{ path: 'broadcast/Deploy.s.sol/8453/run-latest.json', chain: 'base' }, { path: 'contracts/ignition/deployments/chain-42161/deployed_addresses.json', chain: 'arbitrum' }],
+  );
+  const A = `0x${'a'.repeat(40)}`;
+  const B = `0x${'B'.repeat(40)}`;
+  const R = `0x${'9'.repeat(40)}`;
+  const run = JSON.stringify({
+    transactions: [
+      { transactionType: 'CREATE', contractAddress: A },
+      { transactionType: 'CALL', contractAddress: R },
+      { transactionType: 'CREATE2', contractAddress: null, additionalContracts: [{ address: B }] },
+    ],
+  });
+  assert.deepEqual(createdIn(run), [A, B.toLowerCase()]);
+  assert.deepEqual(createdIn(JSON.stringify({ 'Module#Token': A, 'Module#Note': 'hello' })), [A]);
+  assert.deepEqual(createdIn('not json'), []);
+});
+
+test('countedBy: deployer in the repo, a deploy run, or a deploy after the first commit counts; named only never; a listed one unless claimed', () => {
+  const FIRST = '2026-01-01T00:00:00Z';
+  const old = contract({ deployed_at: '2023-03-01T00:00:00Z', deployer_matches_repo: false });
+  const fresh = contract({ deployed_at: '2026-03-01T00:00:00Z', deployer_matches_repo: false });
+  assert.deepEqual(countedBy(old, 'repo', FIRST), { counted: false, counted_reason: 'named in the repo, not counted' });
+  assert.deepEqual(countedBy({ ...old, deployer_matches_repo: true }, 'repo', FIRST), { counted: true, counted_reason: 'deployer is in the repo' });
+  assert.deepEqual(countedBy(old, 'deploy', FIRST), { counted: true, counted_reason: 'from a deploy folder' });
+  assert.deepEqual(countedBy(fresh, 'repo', FIRST), { counted: true, counted_reason: "deployed after the repo's first commit" });
+  assert.deepEqual(countedBy(fresh, 'subject', FIRST), { counted: true, counted_reason: "deployed after the repo's first commit" });
+  assert.deepEqual(countedBy(old, 'subject', FIRST), { counted: false, counted_reason: 'claimed; deployer not in the repo and deployed before the repo' });
+  // No repo to hold it against: a listed contract counts.
+  assert.deepEqual(countedBy(old, 'subject', null), { counted: true, counted_reason: 'listed by the applicant' });
+  // Repo-found with no deploy date: never counted.
+  assert.deepEqual(countedBy(contract({ deployed_at: null }), 'repo', FIRST), { counted: false, counted_reason: 'named in the repo, not counted' });
+});
+
+test('a repo naming a router in config, deploying one contract from broadcast/, and a listed contract: only the plausible ones count', async () => {
+  const ROUTER = `0x${'2626'.repeat(10)}`;
+  const MINE = `0x${'7'.repeat(40)}`;
+  const LISTED_NEW = `0x${'5'.repeat(40)}`;
+  const LISTED_OLD = `0x${'6'.repeat(40)}`;
+  const files: Record<string, string> = {
+    'src/config.ts': `import { base } from 'viem/chains';\nexport const ROUTER = '${ROUTER}';\n`,
+    'README.md': '# b',
+    'broadcast/Deploy.s.sol/8453/run-latest.json': JSON.stringify({ transactions: [{ transactionType: 'CREATE', contractAddress: MINE }, { transactionType: 'CALL', contractAddress: ROUTER }] }),
+  };
+  const calls: string[] = [];
+  const gh = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    calls.push(url);
+    if (url === 'https://api.github.com/repos/a/b') {
+      return Response.json({ full_name: 'a/b', html_url: 'https://github.com/a/b', homepage: null, default_branch: 'main', private: false, fork: false, created_at: '2026-01-01T00:00:00Z', pushed_at: '2026-11-01T00:00:00Z' });
+    }
+    if (url.includes('/git/trees/')) return Response.json({ tree: Object.keys(files).map((path) => ({ path, type: 'blob', size: 100 })) });
+    if (url.endsWith('/commits?per_page=1')) return Response.json([{ commit: { committer: { date: '2026-01-01T00:00:00Z' } } }]);
+    const raw = url.match(/^https:\/\/raw\.githubusercontent\.com\/a\/b\/main\/(.+)$/)?.[1];
+    if (raw) return files[decodeURIComponent(raw)] !== undefined ? new Response(files[decodeURIComponent(raw)]) : new Response('', { status: 404 });
+    return url.includes('/search/issues') ? Response.json({ total_count: 0, items: [] }) : Response.json([]);
+  }) as typeof fetch;
+  const born: Record<string, string> = { [ROUTER]: '2023-03-01T00:00:00Z', [MINE]: '2025-06-01T00:00:00Z', [LISTED_NEW]: '2026-03-01T00:00:00Z', [LISTED_OLD]: '2024-01-01T00:00:00Z' };
+  const explorer: Explorer = {
+    contractInfo: async (_c, a) => ({ is_contract: true, verified_source: true, name: null, deployer: `0x${'d'.repeat(40)}`, deployed_at: born[a] ?? null, created_tx: null }),
+    txsTo: async () => [],
+    firstTxs: async () => [],
+  };
+  const e = await readEvidence(
+    { repo_url: 'https://github.com/a/b', contracts: [{ chain: 'base', address: LISTED_NEW }, { chain: 'base', address: LISTED_OLD }] },
+    { gh, explorer: () => explorer, probe: fakeSite().probe, rdap: fakeRdap().rdap, now: NOW, cache: false },
+  );
+  const by = new Map(e.onchain.map((c) => [c.address, c]));
+  assert.deepEqual(e.onchain.map((c) => c.address), [LISTED_NEW, LISTED_OLD, MINE, ROUTER]);
+  assert.deepEqual([by.get(ROUTER)!.counted, by.get(ROUTER)!.counted_reason], [false, 'named in the repo, not counted']);
+  assert.deepEqual([by.get(MINE)!.counted, by.get(MINE)!.counted_reason], [true, 'from a deploy folder']);
+  assert.deepEqual([by.get(LISTED_NEW)!.counted, by.get(LISTED_NEW)!.counted_reason], [true, "deployed after the repo's first commit"]);
+  assert.deepEqual([by.get(LISTED_OLD)!.counted, by.get(LISTED_OLD)!.counted_reason], [false, 'claimed; deployer not in the repo and deployed before the repo']);
+  assert.equal(e.partial, false, JSON.stringify([e.notes, e.code?.note, e.team?.note]));
+  assert.ok(calls.includes('https://raw.githubusercontent.com/a/b/main/broadcast/Deploy.s.sol/8453/run-latest.json'));
+  const rows = new Map(e.rows.map((r) => [r.key, r]));
+  assert.equal(rows.get('onchain[3].counted')?.value, false);
+  assert.equal(rows.get('onchain[3].counted_reason')?.value, 'named in the repo, not counted');
 });

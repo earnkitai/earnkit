@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { CsvError, identicalPitches, parseApplicants, resolveRepo, sharedContributors, type Applicant } from './applicants';
+import { CsvError, headerKey, identicalPitches, parseApplicants, resolveRepo, sharedContributors, type Applicant } from './applicants';
 import { liveRows } from './fixtures/evidence-builder';
 
 const CSV = readFileSync(join(import.meta.dirname, 'fixtures', 'applicants.csv'), 'utf8');
@@ -89,4 +89,51 @@ test("resolveRepo: the applicant's repo first, else the first repo the page link
   assert.equal(resolveRepo(app({ repo_url: 'https://github.com/a/b' }), live), 'https://github.com/a/b');
   assert.equal(resolveRepo(app({}), liveRows({ github_links: ['https://github.com/someone'] })), null);
   assert.equal(resolveRepo(app({}), liveRows()), null);
+});
+
+test('headers normalized: "GitHub URL", "Project Name", "Contract Address", "Live-URL" map', () => {
+  assert.equal(headerKey(' GitHub URL '), 'github');
+  assert.equal(headerKey('Project Name'), 'project_name');
+  assert.equal(headerKey('Contract Address'), 'contract_address');
+  assert.equal(headerKey('Live-URL'), 'live');
+  assert.equal(headerKey('url'), 'url');
+  const csv = `ID,Project Name,GitHub URL,Website URL,Contract Address\nk1,Kite,github.com/kite/app,kite.xyz,0x${'c'.repeat(40)}\n`;
+  const [a] = parseApplicants(csv);
+  assert.equal(a.ref, 'k1');
+  assert.equal(a.name, 'Kite');
+  assert.equal(a.repo_url, 'https://github.com/kite/app');
+  assert.equal(a.live_url, 'kite.xyz');
+  assert.deepEqual(a.contracts, [{ chain: 'base', address: `0x${'c'.repeat(40)}` }]);
+});
+
+test('duplicate refs are made unique at parse time and named', () => {
+  const apps = parseApplicants('ref,repo\nek-3,github.com/a/one\nek-3,github.com/a/two\nek-3 (2),github.com/a/three\nek-3,github.com/a/four\n');
+  assert.deepEqual(apps.map((a) => a.ref), ['ek-3', 'ek-3 (2)', 'ek-3 (2) (2)', 'ek-3 (3)']);
+  assert.deepEqual(apps.map((a) => a.problems), [[], ['duplicate ref'], ['duplicate ref'], ['duplicate ref']]);
+  // The counts across the list keep every applicant apart.
+  assert.equal(identicalPitches(apps).size, 4);
+});
+
+test('identicalPitches: pitches under 10 words never match, even word for word', () => {
+  const counts = identicalPitches([
+    app({ ref: 'a', pitch: 'A DeFi app on Base.' }),
+    app({ ref: 'b', pitch: 'a defi app on base' }),
+    app({ ref: 'c', pitch: 'TBD' }),
+    app({ ref: 'd', pitch: 'tbd' }),
+  ]);
+  assert.deepEqual([...counts.values()], [0, 0, 0, 0]);
+});
+
+test('resolveRepo: starter and SDK owners are skipped; a link sharing a word with the domain or name is preferred', () => {
+  const tools = liveRows({ domain: 'kite.xyz', github_links: ['https://github.com/scaffold-eth/scaffold-eth-2', 'https://github.com/coinbase/onchainkit', 'https://github.com/wevm/viem'] });
+  assert.equal(resolveRepo(app({ name: 'Kite' }), tools), null);
+  const mixed = liveRows({
+    domain: 'kite.xyz',
+    github_links: ['https://github.com/base/web', 'https://github.com/someone/unrelated', 'https://github.com/kitelabs/contracts'],
+  });
+  assert.equal(resolveRepo(app({ name: 'Paper Plane' }), mixed), 'https://github.com/kitelabs/contracts');
+  // No link shares a word: the first that is not a tool's.
+  assert.equal(resolveRepo(app({ name: 'Paper Plane' }), liveRows({ domain: 'pp.io', github_links: mixed.github_links })), 'https://github.com/someone/unrelated');
+  // The project name counts too, and a joined name holds the domain word.
+  assert.equal(resolveRepo(app({ name: 'Onchain Reaction' }), liveRows({ domain: 'onchainreaction.vercel.app', github_links: ['https://github.com/a/b', 'https://github.com/shijas786/onchain-reaction'] })), 'https://github.com/shijas786/onchain-reaction');
 });

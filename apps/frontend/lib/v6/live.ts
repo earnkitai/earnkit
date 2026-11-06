@@ -61,10 +61,13 @@ export function githubLinks(html: string): string[] {
   return out;
 }
 
-/** The registration date from rdap.org (redirected to the registry). Throws when it cannot be read. */
-export const rdapOrg: Rdap = async (domain) => {
-  const res = await fetch(`https://rdap.org/domain/${encodeURIComponent(domain)}`, {
-    headers: { Accept: 'application/rdap+json, application/json' },
+/** rdap.org answers 403 to a request with no User-Agent. */
+export const RDAP_HEADERS = { 'User-Agent': 'Mozilla/5.0 (compatible; EarnKit-verifier/1)', Accept: 'application/rdap+json, application/json' };
+
+/** The registration date from rdap.org (redirected to the registry) over `f`. Throws when it cannot be read. */
+export const rdapOrg = async (domain: string, f: typeof fetch = fetch): Promise<{ registered_at: string | null }> => {
+  const res = await f(`https://rdap.org/domain/${encodeURIComponent(domain)}`, {
+    headers: RDAP_HEADERS,
     signal: AbortSignal.timeout(RDAP_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`rdap ${res.status}`);
@@ -79,6 +82,7 @@ function failure(e: unknown): string {
   if (e.name === 'ErrorPageError') return 'site shows an error page';
   if (e instanceof RedirectError) return 'site redirects more than once';
   const m = e.message;
+  if (m === 'https only') return 'site is not https';
   if (/^no answer within /.test(m)) return 'site did not load: no answer in time';
   if (/^redirects to another site/.test(m)) return 'site redirects to another site';
   if (/doesn't point to a public address/.test(m)) return 'site does not point to a public address';

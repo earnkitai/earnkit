@@ -1,6 +1,6 @@
 import { after, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sql } from '../v5/db';
@@ -64,10 +64,11 @@ test('run over the fixture CSV writes both files and places each applicant', asy
     // Four applicants sent one pitch: each is flagged, and the pitch itself is never written.
     for (const ref of ['ek-3', 'ek-4', 'ek-7', 'ek-8']) assert.equal(tierOf.get(ref), 'flagged', ref);
     assert.ok(!md.includes('easiest onchain app') && !csv.includes('easiest onchain app'));
-    // The site-only applicant: the repo comes from its page; it is not recorded, so it reads as private or missing.
+    // The site-only applicant: the repo comes from its page, and the report says so; it is not recorded, so it reads as private or missing.
     const abi = r.rows.find((x) => x.applicant.ref === 'ek-5')!;
     assert.equal(abi.evidence?.repo, 'buidlguidl/abi.ninja');
-    assert.deepEqual(abi.applicant.problems, []);
+    assert.deepEqual(abi.applicant.problems, ['repo taken from the site link: buidlguidl/abi.ninja']);
+    assert.match(md, /- problem: repo taken from the site link: buidlguidl\/abi\.ninja/);
     // Nothing resolves for the address-only row: screened with what it has, and said so.
     assert.ok(r.rows.find((x) => x.applicant.ref === 'ek-8')!.applicant.problems.includes('no repo found'));
     assert.equal(csv.trimEnd().split('\n').length, 9);
@@ -129,6 +130,36 @@ test('--thresholds merges over the defaults: a lower bar moves a placement', asy
   try {
     const r = await run([CSV, '--program', 'p', '--out', out, '--no-cache', '--thresholds', '{"flag_identical_pitch":10}'], deps());
     assert.notEqual(r.rows.find((x) => x.applicant.ref === 'ek-7')!.placement.tier, 'flagged');
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
+});
+
+test('one GitHub budget for the run: once stopped, no applicant reads GitHub', async () => {
+  const out = outDir();
+  try {
+    const d = deps();
+    const budget = { remaining: 10, stopped: true };
+    const r = await run([CSV, '--program', 'p', '--out', out, '--no-cache'], { ...d, evidence: { ...d.evidence, budget } });
+    assert.equal(r.code, 0);
+    assert.equal(d.gh.calls.length, 0);
+    assert.equal(r.reads.github, 0);
+    for (const ref of ['ek-1', 'ek-2', 'ek-3', 'ek-4']) assert.deepEqual(r.rows.find((x) => x.applicant.ref === ref)!.evidence?.notes, ['not read: budget'], ref);
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
+});
+
+test('duplicate refs stay apart through the run', async () => {
+  const out = outDir();
+  try {
+    const csv = join(out, 'dup.csv');
+    writeFileSync(csv, 'ref,name,url\nx,One,https://earnkit.com/\nx,Two,https://onchainreaction.vercel.app/\n');
+    const d = deps();
+    const r = await run([csv, '--program', 'p', '--out', join(out, 'o'), '--no-cache'], d);
+    assert.deepEqual(r.rows.map((x) => [x.applicant.ref, x.applicant.name]), [['x', 'One'], ['x (2)', 'Two']]);
+    assert.deepEqual(r.rows[1].applicant.problems.filter((p) => p === 'duplicate ref'), ['duplicate ref']);
+    assert.ok(d.lines.includes('x (2) Two: live'), d.lines.join('\n'));
   } finally {
     rmSync(out, { recursive: true, force: true });
   }
