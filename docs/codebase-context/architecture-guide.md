@@ -103,7 +103,8 @@ A `won` above the program's `max_award_usd` (or 5,000,000 when none is stated) i
 
 `.github/workflows/earnkit-cron.yml` posts to `/api/cron` once a day with `CRON_SECRET`. `cron.ts` runs the probe
 (`health.ts`), the `repo_cache` sweep (rows over 30 days, answered as `swept`), the screen queue's daily share
-(`workQueue` with `SCREEN_BATCH` 40, answered as `screen`), then the owner's digest (`owner-digest.ts`: programs closed by deadline, failed links, changed pages
+(screen jobs over 90 days deleted with their rows, then `workQueue` with `SCREEN_BATCH` 40 within 10 minutes,
+answered as `screen` with `swept`), then the owner's digest (`owner-digest.ts`: programs closed by deadline, failed links, changed pages
 and every change to live programs since the last digest, with revert links; nothing happened, nothing sent). Mail is
 `mail.ts` over Resend, to the owner only. A step that throws answers 500 with its name. The owner triggers one
 screen job with the same route and a JSON body `{ "job_id": "..." }`: only that queue runs (300 applicants or 10
@@ -121,7 +122,7 @@ minutes), no probe, sweep or digest.
 | `/llms.txt`, `/sitemap.xml` | For agents and search |
 | `/api/programs`, `/api/stats` | Public JSON; `/api/stats` has nine counts and names no one |
 | `/api/programs/write`, `writes`, `approve`, `revert` | The owner's program API |
-| `/api/programs/reviewers` | The owner marks a signed-in builder as a program's reviewer (programs bearer) |
+| `/api/programs/reviewers` | The owner marks a signed-in builder as a program's reviewer (programs bearer; `github_id` wins, a login two accounts used is refused) |
 | `/api/cron` | The daily job |
 | `/mcp`, `/oauth/*`, `/.well-known/*` | The MCP endpoint and anonymous OAuth |
 
@@ -241,8 +242,8 @@ hand); explorer readers for Avalanche, Tempo, Monad, Robinhood Chain and Solana;
 
 `screen` (`lib/v6/screen-tool.ts`) is for a program's reviewer: a linked builder in `program_reviewers`. With
 `applicants` (up to 200) it queues a job (`screen-jobs.ts createJob`: pitches compared for `identical_pitch`, then
-dropped; 10 jobs a day per installation, `LIMITS.screenJobs`); the cron's `workQueue` (`screen-worker.ts`) reads
-them as the pilot does and stores tier, flags, because, line and rows of public bases only (`github`, `explorer`,
+dropped; 10 jobs a day per reviewer, `LIMITS.screenJobs` keyed `b:<builder>`); the cron's `workQueue`
+(`screen-worker.ts`) takes each applicant atomically (`reading`, free again after 30 minutes) and reads it as the pilot does and stores tier, flags, because, line and rows of public bases only (`github`, `explorer`,
 `site`, `earnkit`, never `record`). With `job_id` it answers the totals line and the results; with `outcomes` it
 records the program's decisions, which also reach a builder's ledger when their record project is the same repo and
 they had applied to that program. `xpCounts` gives each read the screens by other programs in 90 days sharing the

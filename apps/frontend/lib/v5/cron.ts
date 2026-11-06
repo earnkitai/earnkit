@@ -1,8 +1,9 @@
 /**
  * POST /api/cron, once a day: the freshness probe, the repo cache sweep (rows over 30 days), the screen
- * queue's share, then the owner's digest. A JSON body { job_id } is the owner's trigger: that job's queue
+ * jobs over 90 days swept and the queue's share (10 minutes at most), then the owner's digest. A JSON body { job_id } is the owner's trigger: that job's queue
  * only. Bearer CRON_SECRET only (503 while it is unset). A step that throws answers 500 with its name.
  */
+import { sweepScreens } from '../v6/screen-jobs';
 import { SCREEN_BATCH, SCREEN_TRIGGER_MAX, SCREEN_TRIGGER_MS, workQueue } from '../v6/screen-worker';
 import { bearerMatches, json, readCapped } from './http';
 import { runHealth } from './health';
@@ -72,9 +73,11 @@ export async function cronPost(request: Request, deps: CronDeps = {}): Promise<R
     return failed('sweep', err);
   }
 
-  let screen: Awaited<ReturnType<typeof workQueue>>;
+  let screen: Awaited<ReturnType<typeof workQueue>> & { swept: number };
   try {
-    screen = await work({ now, limit: SCREEN_BATCH });
+    // Jobs past the 90-day window of the counts across programs go first.
+    const screensSwept = await sweepScreens(now);
+    screen = { swept: screensSwept, ...(await work({ now, limit: SCREEN_BATCH, deadline: Date.now() + SCREEN_TRIGGER_MS })) };
   } catch (err) {
     return failed('screen', err);
   }

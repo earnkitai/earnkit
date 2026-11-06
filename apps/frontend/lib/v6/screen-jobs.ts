@@ -45,6 +45,8 @@ const DAY = 86_400_000;
 const KEEP_DAYS = 30;
 const XP_DAYS = 90;
 const CACHE_DAYS = 7;
+/** Not read yet: queued, or taken by a worker that has not written it. */
+export const UNREAD = ['queued', 'reading'];
 
 /** A github.com repo link as https://github.com/owner/name (a bare "github.com/..." too), else null. Pure. */
 function repoOf(raw: string | undefined): { url: string | null; key: string | null } {
@@ -118,12 +120,12 @@ export async function jobResults(id: string, builderId: number, now: Date = new 
   const totals = Object.fromEntries([...TIERS, 'pending'].map((t) => [t, 0])) as ScreenResults['totals'];
   const tierOf = (r: ApplicantRow): Tier | null => ((TIERS as readonly string[]).includes(r.tier ?? '') ? (r.tier as Tier) : null);
   for (const r of rows) {
-    if (r.status === 'queued') totals.pending++;
+    if (UNREAD.includes(r.status)) totals.pending++;
     else if (tierOf(r)) totals[tierOf(r)!]++;
   }
   const applicants = rows
     .map((r) => {
-      const read = r.status !== 'queued';
+      const read = !UNREAD.includes(r.status);
       return {
         ref: r.ref, name: r.name, tier: tierOf(r), flags: r.flags ?? [], because: r.because ?? [],
         line: read ? r.line ?? 'no tier: the read failed, worth a retry.' : null,
@@ -132,6 +134,19 @@ export async function jobResults(id: string, builderId: number, now: Date = new 
     })
     .sort((a, b) => ORDER.indexOf(a.tier) - ORDER.indexOf(b.tier));
   return { job_id: s.id, program_id: s.program_id, total: s.total, done: s.done, finished: s.finished, totals, applicants };
+}
+
+/** Deletes jobs created over 90 days ago with their applicants and outcomes (past the counts' window); the jobs deleted. */
+export async function sweepScreens(now: Date): Promise<number> {
+  const before = new Date(now.getTime() - XP_DAYS * DAY);
+  return sql().begin(async (tx) => {
+    const ids = (await tx<{ id: string }[]>`DELETE FROM screen_jobs WHERE created_at < ${before} RETURNING id`).map((r) => r.id);
+    if (ids.length) {
+      await tx`DELETE FROM screen_applicants WHERE job_id = ANY(${ids})`;
+      await tx`DELETE FROM screen_outcomes WHERE job_id = ANY(${ids})`;
+    }
+    return ids.length;
+  }) as Promise<number>;
 }
 
 /** Builders whose record has a project on this repo. */

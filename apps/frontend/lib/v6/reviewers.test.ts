@@ -58,3 +58,22 @@ test('reviewersPost: 404 while the API is off, 401 without the token, 200 with a
   assert.equal(gone.status, 200);
   assert.deepEqual(await reviewerPrograms(b.id), []);
 });
+
+test('a login two builders have used is refused; github_id picks the account, for adding and removing', async () => {
+  const renamed = await upsertBuilder({ github_id: ++gh, login: 'Taken', name: null, avatar_url: null }, NOW);
+  const now = await upsertBuilder({ github_id: ++gh, login: 'taken', name: null, avatar_url: null }, NOW);
+  const AMBIGUOUS = 'two accounts have used that login; send github_id';
+  assert.deepEqual(await addReviewer('rev-grants', 'taken', null), { ok: false, reason: AMBIGUOUS });
+  const plain = await post({ program_id: 'rev-grants', github_login: 'taken' });
+  assert.equal(plain.status, 400);
+  assert.deepEqual(await plain.json(), { ok: false, error: AMBIGUOUS });
+  const byId = await post({ program_id: 'rev-grants', github_login: 'taken', github_id: now.github_id });
+  assert.equal(byId.status, 200);
+  assert.deepEqual(await byId.json(), { ok: true, builder_id: now.id });
+  assert.deepEqual(await reviewerPrograms(now.id), ['rev-grants']);
+  assert.deepEqual(await reviewerPrograms(renamed.id), []);
+  assert.deepEqual(await removeReviewer('rev-grants', 'taken'), { ok: false, reason: AMBIGUOUS });
+  assert.equal((await post({ program_id: 'rev-grants', github_id: now.github_id, remove: true })).status, 200);
+  assert.deepEqual(await reviewerPrograms(now.id), []);
+  assert.deepEqual(await addReviewer('rev-grants', null, null, 999_999_999), { ok: false, reason: 'no builder with that GitHub id has signed in' });
+});

@@ -276,6 +276,8 @@ CREATE TABLE IF NOT EXISTS screen_applicants (
   error               text,
   PRIMARY KEY (job_id, ref)
 );
+-- A worker takes an applicant ('reading', taken_at) before reading it; one taken over 30 minutes ago is free again.
+ALTER TABLE screen_applicants ADD COLUMN IF NOT EXISTS taken_at timestamptz;
 CREATE INDEX IF NOT EXISTS screen_applicants_repo ON screen_applicants (repo_key, read_at);
 CREATE INDEX IF NOT EXISTS screen_applicants_status ON screen_applicants (status, job_id);
 CREATE INDEX IF NOT EXISTS screen_applicants_deployers ON screen_applicants USING gin (deployers);

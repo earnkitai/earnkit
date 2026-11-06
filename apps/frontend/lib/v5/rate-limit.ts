@@ -28,7 +28,7 @@ export const LIMITS = {
   repoRead: { limit: 10, windowSeconds: 86_400 },
   /** GET /link/<code> and the GitHub sign-in callback, per client IP, one window for both. */
   linkGet: { limit: 60, windowSeconds: 3_600 },
-  /** screen jobs created, per installation, per UTC day (counted only when a job is created). */
+  /** screen jobs, per reviewer ('b:<builder>'), per UTC day: counted once the call passed every other refusal. */
   screenJobs: { limit: 10, windowSeconds: 86_400 },
 } as const;
 

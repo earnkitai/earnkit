@@ -11,27 +11,41 @@ import { programsApiOn } from '../v5/programs-api';
 export type ReviewerResult = { ok: true; builder_id: number } | { ok: false; reason: string };
 
 const NO_BUILDER = 'no builder with that GitHub login has signed in';
+const NO_BUILDER_ID = 'no builder with that GitHub id has signed in';
+const AMBIGUOUS = 'two accounts have used that login; send github_id';
 const NO_PROGRAM = 'unknown program';
 const MAX_BODY = 4_096;
 
-async function builderByLogin(login: string): Promise<number | null> {
-  const [r] = await sql()<{ id: number }[]>`SELECT id FROM builders WHERE lower(login) = lower(${login}) ORDER BY last_seen_at DESC LIMIT 1`;
-  return r?.id ?? null;
+/**
+ * The builder: by GitHub id when given (a login can change hands), else by login (case ignored), refused
+ * when more than one builder row has used that login.
+ */
+async function builderOf(githubLogin: string | null, githubId?: number): Promise<{ id: number } | { reason: string }> {
+  if (githubId !== undefined) {
+    const [r] = await sql()<{ id: number }[]>`SELECT id FROM builders WHERE github_id = ${githubId}`;
+    return r ? { id: r.id } : { reason: NO_BUILDER_ID };
+  }
+  if (!githubLogin) return { reason: NO_BUILDER };
+  const rows = await sql()<{ id: number }[]>`SELECT id FROM builders WHERE lower(login) = lower(${githubLogin}) LIMIT 2`;
+  if (rows.length > 1) return { reason: AMBIGUOUS };
+  return rows[0] ? { id: rows[0].id } : { reason: NO_BUILDER };
 }
 
-/** Marks the builder with this GitHub login (case ignored) a reviewer of the program; again updates the contact. */
-export async function addReviewer(programId: string, githubLogin: string, contact: string | null): Promise<ReviewerResult> {
+/** Marks the builder (by GitHub id, else by login) a reviewer of the program; again updates the contact. */
+export async function addReviewer(programId: string, githubLogin: string | null, contact: string | null, githubId?: number): Promise<ReviewerResult> {
   if (!(await getProgram(programId))) return { ok: false, reason: NO_PROGRAM };
-  const id = await builderByLogin(githubLogin);
-  if (id === null) return { ok: false, reason: NO_BUILDER };
+  const b = await builderOf(githubLogin, githubId);
+  if ('reason' in b) return { ok: false, reason: b.reason };
+  const id = b.id;
   await sql()`INSERT INTO program_reviewers (program_id, builder_id, contact) VALUES (${programId}, ${id}, ${contact})
     ON CONFLICT (program_id, builder_id) DO UPDATE SET contact = EXCLUDED.contact`;
   return { ok: true, builder_id: id };
 }
 
-export async function removeReviewer(programId: string, githubLogin: string): Promise<ReviewerResult> {
-  const id = await builderByLogin(githubLogin);
-  if (id === null) return { ok: false, reason: NO_BUILDER };
+export async function removeReviewer(programId: string, githubLogin: string | null, githubId?: number): Promise<ReviewerResult> {
+  const b = await builderOf(githubLogin, githubId);
+  if ('reason' in b) return { ok: false, reason: b.reason };
+  const id = b.id;
   await sql()`DELETE FROM program_reviewers WHERE program_id = ${programId} AND builder_id = ${id}`;
   return { ok: true, builder_id: id };
 }
@@ -45,11 +59,13 @@ export async function reviewerPrograms(builderId: number): Promise<string[]> {
 const Body = z
   .object({
     program_id: z.string().min(1).max(100),
-    github_login: z.string().regex(/^[A-Za-z0-9-]{1,39}$/, 'a GitHub login'),
+    github_login: z.string().regex(/^[A-Za-z0-9-]{1,39}$/, 'a GitHub login').optional(),
+    github_id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
     contact: z.string().max(200).optional(),
     remove: z.literal(true).optional(),
   })
-  .strict();
+  .strict()
+  .refine((b) => b.github_login !== undefined || b.github_id !== undefined, { message: 'github_login or github_id is required' });
 
 /** POST /api/programs/reviewers: 404 while the programs API is off, 401 for a wrong token, 400 with the reason. */
 export async function reviewersPost(request: Request): Promise<Response> {
@@ -67,7 +83,10 @@ export async function reviewersPost(request: Request): Promise<Response> {
   if (!parsed.success) return json({ ok: false, error: parsed.error.issues.map((i) => `${i.path.join('.') || 'body'}: ${i.message}`).join('; ') }, 400);
   const b = parsed.data;
   try {
-    const out = b.remove ? await removeReviewer(b.program_id, b.github_login) : await addReviewer(b.program_id, b.github_login, b.contact?.trim() || null);
+    const login = b.github_login ?? null;
+    const out = b.remove
+      ? await removeReviewer(b.program_id, login, b.github_id)
+      : await addReviewer(b.program_id, login, b.contact?.trim() || null, b.github_id);
     if (!out.ok) return json({ ok: false, error: out.reason }, 400);
     console.log(`[reviewers] ${b.remove ? 'remove' : 'add'} ${b.program_id} ${out.builder_id}`);
     return json(out);

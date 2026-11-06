@@ -9,7 +9,7 @@ import { repoKey } from '../v5/repo-facts';
 import { resolveRepo, sharedContributors } from './applicants';
 import type { Budget } from './code';
 import { type Evidence, type EvidenceDeps, flattenRows, readEvidence, type Row, type Subject } from './evidence';
-import { PUBLIC_BASES, xpCounts } from './screen-jobs';
+import { PUBLIC_BASES, UNREAD, xpCounts } from './screen-jobs';
 import { reviewerLine } from './tier-words';
 import { DEFAULT_THRESHOLDS, place, type Thresholds } from './tiers';
 
@@ -18,6 +18,8 @@ export const SCREEN_BATCH = 40;
 /** An owner-triggered run: at most this many applicants, within SCREEN_TRIGGER_MS. */
 export const SCREEN_TRIGGER_MAX = 300;
 export const SCREEN_TRIGGER_MS = 600_000;
+/** A taken applicant not written in this long belongs to a run that died: it is free again. */
+const TAKEN_MS = 30 * 60_000;
 
 export type WorkDeps = Partial<EvidenceDeps> & { evidence?: (s: Subject, d: EvidenceDeps) => Promise<Evidence> };
 type Queued = {
@@ -53,14 +55,15 @@ async function readOne(a: Queued, read: (s: Subject, d: EvidenceDeps) => Promise
 
 /** Counts the job's read applicants; finishes it when they are all read. True when this call finished it. */
 async function advance(jobId: string, now: Date): Promise<boolean> {
-  await sql()`UPDATE screen_jobs SET done = (SELECT count(*) FROM screen_applicants WHERE job_id = ${jobId} AND status <> 'queued') WHERE id = ${jobId}`;
+  await sql()`UPDATE screen_jobs SET done = (SELECT count(*) FROM screen_applicants WHERE job_id = ${jobId} AND status <> ALL(${UNREAD})) WHERE id = ${jobId}`;
   const fin = await sql()`UPDATE screen_jobs SET finished_at = ${now} WHERE id = ${jobId} AND finished_at IS NULL AND done >= total RETURNING id`;
   return fin.length > 0;
 }
 
 /**
- * Works up to `limit` queued applicants of unexpired jobs, `jobId`'s first, then the oldest job's.
- * `deadline` (epoch ms) is checked between applicants. Never throws for an applicant's read.
+ * Works up to `limit` queued applicants of unexpired jobs, `jobId`'s first, then the oldest job's; each is
+ * taken ('reading') before it is read, so overlapping runs never read one twice. `deadline` (epoch ms) is
+ * checked between applicants. Never throws for an applicant's read.
  */
 export async function workQueue(o: { now: Date; limit: number; jobId?: string; deadline?: number; deps?: WorkDeps }): Promise<{ read: number; jobs_finished: string[] }> {
   const { evidence: read = readEvidence, ...rest } = o.deps ?? {};
@@ -68,16 +71,22 @@ export async function workQueue(o: { now: Date; limit: number; jobId?: string; d
   const budget: Budget = rest.budget ?? { remaining: null, stopped: false };
   const d: EvidenceDeps = { ...rest, budget, now: o.now };
   const named = o.jobId ?? '';
+  const stale = new Date(o.now.getTime() - TAKEN_MS);
+  const free = () => sql()`(a.status = 'queued' OR (a.status = 'reading' AND a.taken_at < ${stale}))`;
   const queued = await sql()<Queued[]>`
     SELECT a.job_id, a.ref, a.name, a.repo_url, a.live_url, a.contracts, a.identical_pitch, j.thresholds
     FROM screen_applicants a JOIN screen_jobs j ON j.id = a.job_id
-    WHERE a.status = 'queued' AND j.expires_at > ${o.now}
+    WHERE ${free()} AND j.expires_at > ${o.now}
     ORDER BY (a.job_id = ${named}) DESC, j.created_at, a.job_id, a.ref
     LIMIT ${o.limit}`;
   let count = 0;
   const finished: string[] = [];
   for (const a of queued) {
     if (o.deadline !== undefined && Date.now() >= o.deadline) break;
+    // Taken atomically: a run that overlaps this one skips what this one holds.
+    const taken = await sql()`UPDATE screen_applicants a SET status = 'reading', taken_at = ${o.now}
+      WHERE a.job_id = ${a.job_id} AND a.ref = ${a.ref} AND ${free()} RETURNING a.ref`;
+    if (!taken.length) continue;
     try {
       const { e, repo } = await readOne(a, read, d);
       const key = repo ? repoKey(repo) : null;
@@ -98,18 +107,18 @@ export async function workQueue(o: { now: Date; limit: number; jobId?: string; d
       const rows = [...flattenRows(e), ...xpRows].filter((r) => PUBLIC_BASES.has(r.basis));
       if (!p.tier) {
         await sql()`UPDATE screen_applicants SET status = 'failed', error = ${oneLine(e.notes[0] ?? 'read was partial')}, line = ${reviewerLine(p, e)},
-          rows = ${sql().json(rows as never)}, read_at = ${o.now} WHERE job_id = ${a.job_id} AND ref = ${a.ref} AND status = 'queued'`;
+          rows = ${sql().json(rows as never)}, read_at = ${o.now} WHERE job_id = ${a.job_id} AND ref = ${a.ref} AND status = 'reading'`;
       } else {
         await sql()`UPDATE screen_applicants SET status = 'done', tier = ${p.tier}, flags = ${sql().json(p.flags)}, because = ${sql().json(p.because)},
           line = ${reviewerLine(p, e)}, rows = ${sql().json(rows as never)}, read_at = ${o.now}, deployers = ${deployers},
           repo_key = ${key}, repo_url = ${repo}, shared_contributors = ${shared}, error = NULL
-          WHERE job_id = ${a.job_id} AND ref = ${a.ref} AND status = 'queued'`;
+          WHERE job_id = ${a.job_id} AND ref = ${a.ref} AND status = 'reading'`;
       }
     } catch (err) {
       // Only the error's name: a message can carry a URL or a token's detail.
       const name = err instanceof Error ? err.name.replace(/[^\w]/g, '').slice(0, 40) || 'Error' : 'Error';
       await sql()`UPDATE screen_applicants SET status = 'failed', error = ${name}, read_at = ${o.now}
-        WHERE job_id = ${a.job_id} AND ref = ${a.ref} AND status = 'queued'`;
+        WHERE job_id = ${a.job_id} AND ref = ${a.ref} AND status = 'reading'`;
     }
     count++;
     if (await advance(a.job_id, o.now)) finished.push(a.job_id);

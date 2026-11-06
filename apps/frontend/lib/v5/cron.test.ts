@@ -77,11 +77,32 @@ test('cronPost: a run with a job_id works that job only and skips health, the sw
 });
 
 test('cronPost: a plain run works the queue with SCREEN_BATCH after the sweep and answers screen', async () => {
-  const calls: { limit: number; jobId?: string }[] = [];
+  const calls: { limit: number; jobId?: string; deadline?: number }[] = [];
   const res = await cronPost(req(`Bearer ${SECRET}`), { ...deps, workQueue: async (o) => (calls.push(o), { read: 0, jobs_finished: [] }) });
   const body = (await res.json()) as { screen: unknown; digest: string };
-  assert.deepEqual(body.screen, { read: 0, jobs_finished: [] });
+  assert.deepEqual(body.screen, { swept: 0, read: 0, jobs_finished: [] });
   assert.deepEqual(calls.map((c) => [c.limit, c.jobId]), [[40, undefined]]);
+  assert.ok(calls[0].deadline! > Date.now() + 590_000 && calls[0].deadline! <= Date.now() + 600_000);
   const boom = await cronPost(req(`Bearer ${SECRET}`), { ...deps, workQueue: async () => { throw new Error('x'); } });
   assert.deepEqual(await boom.json(), { error: 'screen failed' });
+});
+
+test('cronPost: the plain run sweeps screen jobs over 90 days old with their rows; a triggered run sweeps nothing', async () => {
+  const at = (days: number) => new Date(deps.now.getTime() - days * 86_400_000);
+  for (const [id, days] of [['old-job', 91], ['young-job', 89]] as const) {
+    await sql()`INSERT INTO screen_jobs (id, program_id, builder_id, installation_id, created_at, total, expires_at)
+      VALUES (${id}, 'p', 1, 1, ${at(days)}, 1, ${at(days - 30)})`;
+    await sql()`INSERT INTO screen_applicants (job_id, ref, name, status) VALUES (${id}, 'r', 'R', 'done')`;
+    await sql()`INSERT INTO screen_outcomes (job_id, ref, outcome) VALUES (${id}, 'r', 'won')`;
+  }
+  const idle = { ...deps, workQueue: async () => ({ read: 0, jobs_finished: [] }) };
+  await cronPost(jsonReq({ job_id: 'old-job' }), idle);
+  assert.equal((await sql()`SELECT 1 FROM screen_jobs WHERE id = 'old-job'`).length, 1);
+  const body = (await (await cronPost(req(`Bearer ${SECRET}`), idle)).json()) as { screen: { swept: number } };
+  assert.equal(body.screen.swept, 1);
+  for (const t of ['screen_jobs', 'screen_applicants', 'screen_outcomes']) {
+    const col = t === 'screen_jobs' ? 'id' : 'job_id';
+    const ids = (await sql()`SELECT ${sql()(col)} AS id FROM ${sql()(t)} ORDER BY 1`).map((r) => r.id);
+    assert.deepEqual(ids, ['young-job'], t);
+  }
 });

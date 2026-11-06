@@ -4,9 +4,8 @@
  * the owner marked a reviewer of the program may call it; every refusal is one line and writes nothing.
  */
 import { z } from 'zod';
-import { sql } from '../v5/db';
 import { getProgram } from '../v5/programs';
-import { LIMITS, countHit, windowStart } from '../v5/rate-limit';
+import { LIMITS, hit } from '../v5/rate-limit';
 import { reviewerPrograms } from './reviewers';
 import { createJob, jobResults, jobStatus, recordOutcomes, ScreenApplicant, type ScreenResults } from './screen-jobs';
 import { DEFAULT_THRESHOLDS, TIERS, type Thresholds } from './tiers';
@@ -58,12 +57,6 @@ function thresholdsOf(given: Record<string, number> | undefined): Partial<Thresh
   return given as Partial<Thresholds>;
 }
 
-async function jobsToday(installationId: number, now: Date): Promise<number> {
-  const [r] = await sql()<{ count: number }[]>`
-    SELECT count FROM rate_windows WHERE key = ${`screenJobs:${installationId}`} AND window_start = ${windowStart(now, LIMITS.screenJobs.windowSeconds * 1000)}`;
-  return r?.count ?? 0;
-}
-
 export async function screenTool(ctx: { installationId: number; builderId: number | null; now: Date }, raw: unknown): Promise<ScreenReply> {
   const input = ScreenInput.parse(raw);
   if (ctx.builderId === null) return line(SCREEN_TEXT.unlinked);
@@ -89,12 +82,13 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
   if (!input.applicants.length) return line(SCREEN_TEXT.empty);
   const thresholds = thresholdsOf(input.thresholds);
   if (typeof thresholds === 'string') return line(thresholds);
-  if ((await jobsToday(ctx.installationId, ctx.now)) >= LIMITS.screenJobs.limit) return line(SCREEN_TEXT.limit);
   const program = await getProgram(programId);
   if (!program) return line(SCREEN_TEXT.notReviewer);
+  // Counted atomically, per reviewer (not per installation), only once every refusal above has passed.
+  const { limit, windowSeconds } = LIMITS.screenJobs;
+  if (!(await hit(`screenJobs:b:${ctx.builderId}`, limit, windowSeconds, ctx.now)).allowed) return line(SCREEN_TEXT.limit);
 
   const job = await createJob({ programId, builderId: ctx.builderId, installationId: ctx.installationId, applicants: input.applicants, thresholds, now: ctx.now });
-  await countHit(`screenJobs:${ctx.installationId}`, LIMITS.screenJobs.windowSeconds, ctx.now);
   return {
     show_to_builder: `Queued ${plural(job.total, 'applicant')} for ${program.file.title}; ${job.cached} already read. Results by tomorrow morning, or sooner when EarnKit runs the queue.`,
     agent_note: SCREEN_TEXT.queuedNote,

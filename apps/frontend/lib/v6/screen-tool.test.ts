@@ -56,6 +56,8 @@ test('screen needs a reviewer: unlinked and linked non-reviewer each answer one 
   assert.equal(n.reply!.show_to_builder, 'You are not a reviewer for that program here; ask the EarnKit owner.');
   assert.equal('job_id' in n.reply!, false);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs`)[0].n, 0);
+  // A refused non-reviewer never counts against the daily limit.
+  assert.equal((await sql()`SELECT 1 FROM rate_windows WHERE key = ${`screenJobs:b:${c.builderId}`}`).length, 0);
 });
 
 test('a reviewer queues a job and gets job_id; the eleventh screen in a day is refused', async () => {
@@ -65,10 +67,14 @@ test('a reviewer queues a job and gets job_id; the eleventh screen in a day is r
   assert.match(r.reply!.job_id as string, /^[A-Za-z0-9_-]{16}$/);
   assert.equal(r.reply!.show_to_builder, 'Queued 2 applicants for Grants scr-queue; 0 already read. Results by tomorrow morning, or sooner when EarnKit runs the queue.');
   assert.equal(r.reply!.agent_note, 'Call screen with job_id for progress and results. Tell the builder what each tier means: used, live, building, unverified, flagged.');
-  await sql()`UPDATE rate_windows SET count = 10 WHERE key = ${`screenJobs:${c.installationId}`} AND window_start = ${windowStart(NOW, 86_400_000)}`;
+  const [w] = await sql()`SELECT count FROM rate_windows WHERE key = ${`screenJobs:b:${c.builderId}`} AND window_start = ${windowStart(NOW, 86_400_000)}`;
+  assert.equal(w.count, 1);
+  await sql()`UPDATE rate_windows SET count = 9 WHERE key = ${`screenJobs:b:${c.builderId}`} AND window_start = ${windowStart(NOW, 86_400_000)}`;
+  const tenth = await mcpCall(c, 'screen', { program_id: 'scr-queue', applicants: APPLICANTS });
+  assert.ok(tenth.reply!.job_id, tenth.text);
   const over = await mcpCall(c, 'screen', { program_id: 'scr-queue', applicants: APPLICANTS });
   assert.equal(over.reply!.show_to_builder, 'Ten screens a day is the limit here.');
-  assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs WHERE builder_id = ${c.builderId}`)[0].n, 1);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs WHERE builder_id = ${c.builderId}`)[0].n, 2);
 });
 
 test('results carry public evidence only; outcomes record', async () => {

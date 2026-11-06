@@ -9,7 +9,7 @@ import { blockscout } from './explorers';
 import { evidence, liveRows } from './fixtures/evidence-builder';
 import { replayExplorer } from './fixtures/explorer';
 import { fakeRdap, fakeSite } from './fixtures/site';
-import { createJob } from './screen-jobs';
+import { createJob, jobResults } from './screen-jobs';
 import { SCREEN_BATCH, SCREEN_TRIGGER_MAX, SCREEN_TRIGGER_MS, workQueue } from './screen-worker';
 
 after(() => sql().end());
@@ -116,4 +116,27 @@ test('applicants sharing contributors within a job count each other; a later scr
   const [f] = await sql()`SELECT because, rows FROM screen_applicants WHERE job_id = ${k.id}`;
   assert.ok(f.because.includes('seen in 1 other screen in 90 days'), JSON.stringify(f.because));
   assert.equal(f.rows.find((r: { key: string }) => r.key === 'xp.applications_90d')?.basis, 'earnkit');
+});
+
+test('two overlapping runs read each applicant exactly once; a taken row over 30 minutes old is free again; reading counts as pending', async () => {
+  const j = await queue('work-g', [1, 2, 3, 4, 5].map((i) => ({ ref: `g${i}`, name: `G${i}`, live_url: `https://g${i}.example/` })));
+  const seen: string[] = [];
+  const fake = async (s: Subject): Promise<Evidence> => {
+    seen.push(s.live_url!);
+    await new Promise((r) => setTimeout(r, 5));
+    return evidence({ live: liveRows({ url: s.live_url!, url_ok: true }) });
+  };
+  const [a, b] = await Promise.all([workQueue({ now: NOW, limit: 10, deps: { evidence: fake } }), workQueue({ now: NOW, limit: 10, deps: { evidence: fake } })]);
+  assert.equal(a.read + b.read, 5);
+  assert.deepEqual([...seen].sort(), [1, 2, 3, 4, 5].map((i) => `https://g${i}.example/`));
+  assert.deepEqual([...a.jobs_finished, ...b.jobs_finished], [j.id]);
+
+  const k = await queue('work-h', [{ ref: 'h1', name: 'H1', live_url: 'https://h1.example/' }, { ref: 'h2', name: 'H2', live_url: 'https://h2.example/' }]);
+  await sql()`UPDATE screen_applicants SET status = 'reading', taken_at = ${new Date(NOW.getTime() - 31 * 60_000)} WHERE job_id = ${k.id} AND ref = 'h1'`;
+  await sql()`UPDATE screen_applicants SET status = 'reading', taken_at = ${new Date(NOW.getTime() - 5 * 60_000)} WHERE job_id = ${k.id} AND ref = 'h2'`;
+  const r = await jobResults(k.id, 1, NOW);
+  assert.equal(r!.totals.pending, 2);
+  const again: string[] = [];
+  await workQueue({ now: NOW, limit: 10, deps: { evidence: async (s) => (again.push(s.live_url!), evidence({ live: liveRows({ url: s.live_url!, url_ok: true }) })) } });
+  assert.deepEqual(again, ['https://h1.example/']);
 });
