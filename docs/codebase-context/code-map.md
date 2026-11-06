@@ -6,7 +6,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 
 - `apps/frontend/lib/v5/agents.ts`: Install steps per agent: pure data read by the install sheet, /docs and /llms.txt
 - `apps/frontend/lib/v5/api-text.ts`: Text and link rules for the write API: plain visible text, https links on named domains
-- `apps/frontend/lib/v5/chains.ts`: Chain registry: slug, ids, RPC and explorer hosts, EVM or not
+- `apps/frontend/lib/v5/chains.ts`: Chain registry: slug, ids, RPC and explorer hosts, explorer API (Blockscout or null), EVM or not
 - `apps/frontend/lib/v5/confusables-table.ts`: Generated Unicode confusables table (UTS #39); do not edit
 - `apps/frontend/lib/v5/confusables.ts`: Look-alike full stops, so link detection reads a hidden domain as one
 - `apps/frontend/lib/v5/cron.ts`: POST /api/cron handler: freshness probe, repo cache sweep, then the owner digest
@@ -64,6 +64,12 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v5/fixtures/mcp-call.ts`: Calls the real MCP server over an in-memory transport
 - `apps/frontend/lib/v5/fixtures/program.ts`: A valid program for tests with any field overridden
 - `apps/frontend/lib/v5/fixtures/repos/*.json`: Recorded GitHub reads for earnkitai/earnkit, Shijas786/onchain-reaction, JohnMwendwa/nextjs-dashboard, saber-hq/merkle-distributor
+
+## apps/frontend/lib/v6 (the filter, in progress)
+
+- `apps/frontend/lib/v6/explorers.ts`: Keyless Blockscout client per chain: contract info, transactions to an address, an address's first transactions; throttled, 429 retried once
+- `apps/frontend/lib/v6/onchain.ts`: Onchain evidence rows per contract: verified source, deployer, 90 and 30 day transactions and senders, sampled deployer-funded check; never throws
+- `apps/frontend/lib/v6/fixtures/explorer.ts`: Replays a recorded contract read (`fixtures/contracts/<slug>.json`) as a fetch
 
 ## apps/frontend/app (routes and components)
 
@@ -126,6 +132,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/scripts/env.mts`: Loads .env.local for admin scripts
 - `apps/frontend/scripts/programs-sync.mts`: pnpm programs:check and programs:sync: validate and write programs/*.json (via lib/v5/programs-sync.ts)
 - `apps/frontend/scripts/record-repo-fixture.mts`: Records a public repo's GitHub reads as a test fixture
+- `apps/frontend/scripts/record-contract-fixture.mts`: Records a contract's Blockscout reads as a test fixture (keyless)
 - `apps/frontend/scripts/replay.mts`: Replay: find, track applied, find on a scratch database for a recorded repo (--monday)
 - `apps/frontend/scripts/v4-tables.mts`: pnpm db:v4-tables: lists v4 tables with row counts and prints DROP statements
 - `db/schema.sql`: The whole schema, additive and safe to run twice
