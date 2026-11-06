@@ -121,17 +121,19 @@ export function place(
   const pushDays = Number.isFinite(pushMs) ? Math.floor((now.getTime() - pushMs) / DAY) : null;
   const pushedRecently = !e.code || (pushDays != null && pushDays <= t.push_within_days);
   const funded = counted.filter((c) => c.funded_senders_90d != null);
-  const fundedTotal = funded.reduce((s, c) => s + c.funded_senders_90d!, 0);
+  // Usage is one contract's: rows carry counts, not addresses, so summing would count a wallet once per contract.
+  const topFunded = most(funded, (c) => c.funded_senders_90d!);
+  const topCount = topFunded?.funded_senders_90d ?? 0;
   const topActive = most(active, (c) => c.tx_90d!);
 
   const context: string[] = [];
   if (e.team?.contributors_90d != null) context.push(plural(e.team.contributors_90d, 'contributor'));
   const tail = (flagged: boolean) => [...context, ...(flagged ? [] : ['no flags']), ...(e.partial ? ['read was partial'] : [])];
   const pushRow = pushDays != null ? [pushedRow(pushDays)] : [];
-  const fundedChains = [...new Set(funded.map((c) => c.chain))];
-  const fundedWhere = fundedChains.length === 1 ? `on ${chainName(fundedChains[0])} mainnet` : 'on mainnet';
-  const across = funded.length > 1 ? ` across ${n(funded.length)} contracts` : '';
-  const fundedRow = funded.length ? [`${plural(fundedTotal, 'funded sender')}${across} ${fundedWhere}`] : [];
+  const fundedRow = [
+    ...(topFunded ? [`${plural(topCount, 'funded sender')} ${onMainnet(topFunded)}`] : []),
+    ...(counted.length > 1 ? [`${n(counted.length)} counted contracts`] : []),
+  ];
 
   const flags = flagsOf(e, counted, x, t);
   if (flags.length) {
@@ -144,7 +146,7 @@ export function place(
     };
   }
 
-  const usedBy = funded.length > 0 && fundedTotal >= t.used_funded_senders;
+  const usedBy = topFunded !== undefined && topCount >= t.used_funded_senders;
   if (siteUp && usedBy && pushedRecently) {
     return { tier: 'used', flags: [], because: [...fundedRow, 'site loads', ...pushRow, ...tail(false)], next: null, gap: null };
   }
@@ -159,7 +161,7 @@ export function place(
     ];
     const gap: Gap = !usedBy ? 'funded_senders' : !siteUp ? 'site' : 'push';
     const next =
-      gap === 'funded_senders' ? `${n(t.used_funded_senders)} funded wallets on mainnet in 90 days; you have ${n(fundedTotal)}.`
+      gap === 'funded_senders' ? `${n(t.used_funded_senders)} funded wallets on mainnet in 90 days; you have ${n(topCount)}.`
       : gap === 'site' ? 'A site that loads for your product.'
       : pushDays == null ? 'Push to the repo; EarnKit found no push date.'
       : `A push to the repo in the last ${plural(t.push_within_days, 'day')}; the last was ${plural(pushDays, 'day')} ago.`;

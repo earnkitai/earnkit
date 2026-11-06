@@ -41,7 +41,7 @@ test('live: the contract has 4 funded senders; next names the rule with the coun
   assert.ok(p.because.includes('site loads'), p.because.join(' | '));
 });
 
-test('next for live sums funded senders across mainnet contracts', () => {
+test('next for live reports the top counted contract, never a sum', () => {
   const e = used();
   e.onchain = [
     contract({ tx_90d: 9, funded_senders_90d: 4 }),
@@ -49,7 +49,10 @@ test('next for live sums funded senders across mainnet contracts', () => {
     contract({ address: `0x${'3'.repeat(40)}`, tx_90d: 3, funded_senders_90d: 6, chain: 'arbitrum' }),
     contract({ address: `0x${'4'.repeat(40)}`, tx_90d: 3, funded_senders_90d: null }),
   ];
-  assert.equal(at(e).next, '25 funded wallets on mainnet in 90 days; you have 10.');
+  const p = at(e);
+  assert.equal(p.next, '25 funded wallets on mainnet in 90 days; you have 6.');
+  assert.ok(p.because.includes('6 funded senders on Arbitrum mainnet'), p.because.join(' | '));
+  assert.ok(p.because.includes('3 counted contracts'));
 });
 
 test('site only is live', () => {
@@ -76,16 +79,23 @@ test('a contract alone with a stale repo is not live', () => {
   assert.ok(!p.because.includes('no transactions in 90 days on mainnet'));
 });
 
-test('used sums funded senders across mainnet contracts: two with 15 each', () => {
+test('usage is one contract: two with 15 each are live, not used', () => {
   const e = used();
   e.onchain = [
     contract({ tx_90d: 30, funded_senders_90d: 15 }),
     contract({ address: `0x${'2'.repeat(40)}`, tx_90d: 30, funded_senders_90d: 15 }),
   ];
   const p = at(e);
-  assert.equal(p.tier, 'used');
-  assert.equal(p.gap, null);
-  assert.ok(p.because.includes('30 funded senders across 2 contracts on Base mainnet'), p.because.join(' | '));
+  assert.equal(p.tier, 'live');
+  assert.equal(p.gap, 'funded_senders');
+  assert.equal(p.next, '25 funded wallets on mainnet in 90 days; you have 15.');
+  assert.ok(p.because.includes('15 funded senders on Base mainnet'), p.because.join(' | '));
+  assert.ok(p.because.includes('2 counted contracts'));
+  assert.ok(!p.because.some((b) => b.includes('across')));
+  e.onchain[1] = { ...e.onchain[1], funded_senders_90d: 25 };
+  const q = at(e);
+  assert.equal(q.tier, 'used');
+  assert.ok(q.because.includes('25 funded senders on Base mainnet'), q.because.join(' | '));
 });
 
 test('live with no push date: its own next, never 0 days ago', () => {
