@@ -30,8 +30,8 @@ export type GhRead = { gh: typeof fetch; token?: string; now: Date; budget: Budg
 
 /** Under this many requests left in the hour, readers stop: what other tools need stays available. */
 export const BUDGET_FLOOR = 500;
-/** A starter with fewer paths matches too much by chance (a package.json and a README) to name. */
-const MIN_BOILERPLATE_PATHS = 20;
+/** Fewer shared paths than this is chance (a layout and a page file), not a starter carried over. */
+const MIN_MATCHING_PATHS = 8;
 /** Commit pages read for 90 days: 3 of 100. */
 const COMMIT_PAGES = 3;
 /** Under this overlap a starter match is chance (shared config file names), so neither the name nor the share is reported. */
@@ -39,6 +39,8 @@ export const TEMPLATE_FLOOR = 0.2;
 const DAY = 86_400_000;
 const WEEK = 7 * DAY;
 const SKIP_DIRS = /(^|\/)(node_modules|\.git|dist|build|\.next|out)\//;
+/** Files every project has whatever it started from: never evidence of a starter. */
+const GENERIC = /(^|\/)(README[^/]*|LICENSE[^/]*|\.gitignore|\.editorconfig|package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig\.json|\.prettierrc[^/]*|\.eslintrc[^/]*)$/i;
 
 const setRemaining = (b: Budget, n: number | null) => {
   if (n === null) return;
@@ -53,10 +55,11 @@ export function noteBudget(b: Budget, res: Response): void {
 /** A read's result: the value, or why it was not read. */
 export type Got<T> = { ok: true; value: T } | { ok: false; why: string };
 
+/** Why a request that was made failed. A rate-limit refusal (403 or 429 with nothing left) is the budget. */
 const whyNot = (e: unknown, b: Budget): string => {
   if (!(e instanceof GitHubError)) return 'not read: github unreachable';
   setRemaining(b, e.remaining);
-  if (b.stopped) return 'not read: budget';
+  if ((e.status === 403 || e.status === 429) && e.remaining === 0) return 'not read: budget';
   return e.status === 404 ? 'not read: private or missing' : `not read: github ${e.status ?? 'error'}`;
 };
 
@@ -92,19 +95,22 @@ export function since90(now: Date): string {
   return `${new Date(now.getTime() - 90 * DAY).toISOString().slice(0, 10)}T00:00:00Z`;
 }
 
-const own = (paths: string[]) => paths.filter((p) => !SKIP_DIRS.test(p));
+const own = (paths: string[]) => paths.filter((p) => !SKIP_DIRS.test(p) && !GENERIC.test(p));
 
 /**
- * The starter whose paths the repo carries most: the share of that starter's paths present in the repo.
- * Only starters with 20+ paths count; null when none does. Build and vendor folders are ignored. Pure.
+ * The starter the repo is most made of: the share of the repo's paths that are that starter's paths.
+ * Build folders and generic files (README, licence, manifests, lockfiles, tool configs) are left out
+ * on both sides; a match needs 8+ shared paths, else null. Pure.
  */
 export function templateOverlap(paths: string[], boilerplates: Boilerplate[]): { name: string; overlap: number } | null {
-  const have = new Set(own(paths));
+  const mine = [...new Set(own(paths))];
+  if (mine.length === 0) return null;
   let best: { name: string; overlap: number } | null = null;
   for (const b of boilerplates) {
-    const theirs = own(b.paths);
-    if (theirs.length < MIN_BOILERPLATE_PATHS) continue;
-    const overlap = theirs.filter((p) => have.has(p)).length / theirs.length;
+    const theirs = new Set(own(b.paths));
+    const shared = mine.filter((p) => theirs.has(p)).length;
+    if (shared < MIN_MATCHING_PATHS) continue;
+    const overlap = shared / mine.length;
     if (!best || overlap > best.overlap) best = { name: b.name, overlap };
   }
   return best;
@@ -175,6 +181,8 @@ export function readCommitWindow(full: string, o: GhRead): Promise<CommitWindow>
   return read;
 }
 type IssueRow = { state?: string; comments?: number; pull_request?: unknown };
+/** Issues read from the search per request, newest updated first. */
+const ISSUES_PAGE = 100;
 type Compare = { ahead_by?: number };
 
 /**
@@ -192,6 +200,24 @@ async function openIssues(full: string, o: GhRead): Promise<Got<number>> {
   }
 }
 
+/**
+ * Issues (never pull requests) updated in 90 days that were answered: commented on or closed. One search
+ * page of the newest 100; `more` when the window holds more. Search rate limits never stop the budget.
+ */
+async function answeredIssues(full: string, since: string, o: GhRead): Promise<Got<{ answered: number; more: boolean }>> {
+  if (o.budget.stopped) return { ok: false, why: 'not read: budget' };
+  try {
+    const q = `repo:${full}+is:issue+updated:${encodeURIComponent('>=')}${since.slice(0, 10)}`;
+    const res = await ghResponse(`/search/issues?q=${q}&per_page=${ISSUES_PAGE}`, o.token, o.gh);
+    const body = (await res.json()) as { total_count?: unknown; items?: IssueRow[] };
+    if (typeof body.total_count !== 'number' || !Array.isArray(body.items)) return { ok: false, why: 'not read: issues search' };
+    const answered = body.items.filter((i) => !i.pull_request && ((i.comments ?? 0) > 0 || i.state === 'closed')).length;
+    return { ok: true, value: { answered, more: body.total_count > ISSUES_PAGE } };
+  } catch {
+    return { ok: false, why: 'not read: issues search' };
+  }
+}
+
 /** Reads the code rows for a repo already read by readRepo. Never throws. */
 export async function readCode(read: RepoRead, o: GhRead): Promise<CodeRows> {
   const notes: string[] = [];
@@ -202,7 +228,8 @@ export async function readCode(read: RepoRead, o: GhRead): Promise<CodeRows> {
   const { repo } = read;
   const full = repo.full_name;
   const paths = read.tree.filter((t) => t.type === 'blob').map((t) => t.path);
-  const treeRead = paths.length > 0 && !read.partial;
+  // A failed tree read is an empty tree; a failed README or file read (partial) leaves the tree usable.
+  const treeRead = paths.length > 0;
   const fork_of = repo.fork && repo.parent ? repo.parent.full_name : null;
 
   // A fork is measured against its parent; a starter it forked is not also a template match.
@@ -227,11 +254,15 @@ export async function readCode(read: RepoRead, o: GhRead): Promise<CodeRows> {
   const since = since90(o.now);
   const window = await readCommitWindow(full, o);
   const commits_90d = window.ok ? window.count : miss(window.why);
-  if (window.ok && window.capped) miss('commits_90d capped at 300');
+  if (window.ok && window.capped) {
+    miss('commits_90d capped at 300');
+    miss('active_weeks_90d from newest 300 commits');
+  }
 
   const releases = await ghList(`/repos/${full}/releases?per_page=1`, o);
   const open = await openIssues(full, o);
-  const recent = await ghList<IssueRow>(`/repos/${full}/issues?state=all&since=${since}&per_page=50`, o);
+  const recent = await answeredIssues(full, since, o);
+  if (recent.ok && recent.value.more) miss('issues_answered_90d from newest 100');
 
   if (!treeRead) miss('not read: tree');
   return {
@@ -247,9 +278,7 @@ export async function readCode(read: RepoRead, o: GhRead): Promise<CodeRows> {
     has_tests: treeRead ? hasTests(paths) : null,
     has_ci: treeRead ? hasCi(paths) : null,
     issues_open: open.ok ? open.value : miss(open.why),
-    issues_answered_90d: recent.ok
-      ? recent.value.rows.filter((i) => !i.pull_request && ((i.comments ?? 0) > 0 || i.state === 'closed')).length
-      : miss(recent.why),
+    issues_answered_90d: recent.ok ? recent.value.answered : miss(recent.why),
     note: notes.length ? notes.join('; ') : null,
   };
 }

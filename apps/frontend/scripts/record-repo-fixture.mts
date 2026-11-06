@@ -22,7 +22,10 @@ function trim(url: string, body: string): string {
   if (!v6 || u.host !== 'api.github.com') return body;
   const p = u.pathname;
   const rows = () => JSON.parse(body) as Record<string, unknown>[];
-  if (p === '/search/issues') return JSON.stringify(pick(JSON.parse(body), ['total_count']));
+  if (p === '/search/issues') {
+    const r = JSON.parse(body) as { total_count: number; items?: Record<string, unknown>[] };
+    return JSON.stringify({ total_count: r.total_count, items: (r.items ?? []).map((i) => ({ ...pick(i, ['number', 'state', 'comments']), ...(i.pull_request ? { pull_request: {} } : {}) })) });
+  }
   if (!Array.isArray(JSON.parse(body)) && !p.includes('/compare/') && !/^\/users\/[^/]+$/.test(p)) return body;
   if (/\/commits$/.test(p)) {
     return JSON.stringify(rows().map((c) => {

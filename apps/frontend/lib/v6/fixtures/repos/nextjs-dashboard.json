@@ -20,6 +20,10 @@
    "link": "<https://api.github.com/repositories/721500557/commits?per_page=1&page=103>; rel=\"next\", <https://api.github.com/repositories/721500557/commits?per_page=1&page=102>; rel=\"last\", <https://api.github.com/repositories/721500557/commits?per_page=1&page=1>; rel=\"first\", <https://api.github.com/repositories/721500557/commits?per_page=1&page=101>; rel=\"prev\"",
    "body": "[{\"author\":{\"login\":\"JohnMwendwa\",\"type\":\"User\"},\"commit\":{\"author\":{\"date\":\"2023-11-21T06:47:55Z\"},\"committer\":{\"date\":\"2023-11-21T06:47:55Z\"}}}]"
   },
+  "https://raw.githubusercontent.com/JohnMwendwa/nextjs-dashboard/main/.env.example": {
+   "status": 200,
+   "body": "# Copy from .env.local on the Vercel dashboard\nPOSTGRES_URL=\nPOSTGRES_PRISMA_URL=\nPOSTGRES_URL_NON_POOLING=\nPOSTGRES_USER=\nPOSTGRES_HOST=\nPOSTGRES_PASSWORD=\nPOSTGRES_DATABASE=\n\n# `openssl rand -base64 32`\nAUTH_SECRET=\nAUTH_URL=http://localhost:3000/api/auth"
+  },
   "https://raw.githubusercontent.com/JohnMwendwa/nextjs-dashboard/main/README.md": {
    "status": 206,
    "body": "## 🚀 Next.js Admin Dashboard\n\nAn admin dashboard built using Next.js framework and Tailwind CSS\n\n## 🛠️ How to Run This Project\n\n### 📋 Prerequisites\n\n- Ensure you have [Node.js](https://nodejs.org/) installed.\n- Ensure you have [npm](https://www.npmjs.com/) or [yarn](https://yarnpkg.com/) installed.\n\n### 🌐 Environment Variables\n\nCreate a `.env` file in the root of your project and add the following environment variables:\n\n```js\n// Postgress Database\nPOSTGRES_URL=\nPOSTGRES_PRISMA_URL=\nPOSTGRES_URL_NON_POOLING=\nPOSTGRES_USER=\nPOSTGRES_HOST=\nPOSTGRES_PASSWORD=\nPOSTGRES_DATABASE=\n\n// Auth\nAUTH_SECRET=\nAUTH_URL=http://localhost:3000\n\n```\n\n### 🗄️ Setting up your vercel Postgres database\n\n1. Deploy your project to vercel or visit [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for step by step guide\n2. Navigate to the `Storage` tab once your project is deployed\n3. Select Create Database and choose Postgres and click Continue.\n4. Choose your region and storage plan, if required\n5. Once connected, navigate to the `.env.local` tab, click Show secret and Copy Snippet. Make sure you reveal the secrets before copying them.\n6. Navigate to your code editor and rename the `.env.example` file to `.env.` Paste in the copied contents from Vercel.\n\n### 🌱 Seeding the database\n\nNow that your database has been created, let's seed it with some initial data.\n\nTo seed your database, run the following command\n\n```js\n npm run seed\n```\n\n### 🚀 Start your local server\n\nTo start your local server, run the following command:\n\n```js\nnpm run dev\n```\n\n### 🔑 Default Account Credentials\n\nOnce you've seeded your database with the initial data, the default login creadentials are:\n\n```js\nEmail: user@nextmail.com\nPassword: 123456\n```\n\n### 💡 Pro Tip\n\n\"Great dashboards are built with great attention to detail. Keep iterating and improving!\"\n\n### 🤝 Contributing\n\nI welcome all kinds of contributions! Feel free to open issues or submit pull requests.\n"
@@ -28,17 +32,13 @@
    "status": 200,
    "body": "import type { NextAuthConfig } from 'next-auth';\n \nexport const authConfig = {\n  pages: {\n    signIn: '/login',\n  },\n  callbacks: {\n    authorized({ auth, request: { nextUrl } }) {\n      const isLoggedIn = !!auth?.user;\n      const isOnDashboard = nextUrl.pathname.startsWith('/dashboard');\n      if (isOnDashboard) {\n        if (isLoggedIn) return true;\n        return false; // Redirect unauthenticated users to login page\n      } else if (isLoggedIn) {\n        return Response.redirect(new URL('/dashboard', nextUrl));\n      }\n      return true;\n    },\n  },\n  providers: [], // Add providers with an empty array for now\n} satisfies NextAuthConfig;"
   },
-  "https://raw.githubusercontent.com/JohnMwendwa/nextjs-dashboard/main/.env.example": {
+  "https://raw.githubusercontent.com/JohnMwendwa/nextjs-dashboard/main/package.json": {
    "status": 200,
-   "body": "# Copy from .env.local on the Vercel dashboard\nPOSTGRES_URL=\nPOSTGRES_PRISMA_URL=\nPOSTGRES_URL_NON_POOLING=\nPOSTGRES_USER=\nPOSTGRES_HOST=\nPOSTGRES_PASSWORD=\nPOSTGRES_DATABASE=\n\n# `openssl rand -base64 32`\nAUTH_SECRET=\nAUTH_URL=http://localhost:3000/api/auth"
+   "body": "{\n  \"private\": true,\n  \"scripts\": {\n    \"build\": \"next build\",\n    \"dev\": \"next dev\",\n    \"seed\": \"node -r dotenv/config ./scripts/seed.js\",\n    \"start\": \"next start\",\n    \"lint\": \"next lint\"\n  },\n  \"dependencies\": {\n    \"@heroicons/react\": \"^2.0.18\",\n    \"@tailwindcss/forms\": \"^0.5.7\",\n    \"@types/node\": \"20.5.7\",\n    \"@vercel/postgres\": \"^0.5.1\",\n    \"autoprefixer\": \"10.4.15\",\n    \"bcrypt\": \"^5.1.1\",\n    \"clsx\": \"^2.0.0\",\n    \"next\": \"^14.0.2\",\n    \"next-auth\": \"^5.0.0-beta.3\",\n    \"postcss\": \"8.4.31\",\n    \"react\": \"18.2.0\",\n    \"react-dom\": \"18.2.0\",\n    \"tailwindcss\": \"3.3.3\",\n    \"typescript\": \"5.2.2\",\n    \"use-debounce\": \"^10.0.0\",\n    \"zod\": \"^3.22.2\"\n  },\n  \"devDependencies\": {\n    \"@types/bcrypt\": \"^5.0.1\",\n    \"@types/react\": \"18.2.21\",\n    \"@types/react-dom\": \"18.2.14\",\n    \"@vercel/style-guide\": \"^5.0.1\",\n    \"dotenv\": \"^16.3.1\",\n    \"eslint\": \"^8.52.0\",\n    \"eslint-config-next\": \"^14.0.0\",\n    \"eslint-config-prettier\": \"9.0.0\",\n    \"prettier\": \"^3.0.3\",\n    \"prettier-plugin-tailwindcss\": \"0.5.4\"\n  },\n  \"engines\": {\n    \"node\": \">=18.17.0\"\n  }\n}\n"
   },
   "https://raw.githubusercontent.com/JohnMwendwa/nextjs-dashboard/main/prettier.config.js": {
    "status": 200,
    "body": "const styleguide = require('@vercel/style-guide/prettier');\n\nmodule.exports = {\n  ...styleguide,\n  plugins: [...styleguide.plugins, 'prettier-plugin-tailwindcss'],\n};\n"
-  },
-  "https://raw.githubusercontent.com/JohnMwendwa/nextjs-dashboard/main/package.json": {
-   "status": 200,
-   "body": "{\n  \"private\": true,\n  \"scripts\": {\n    \"build\": \"next build\",\n    \"dev\": \"next dev\",\n    \"seed\": \"node -r dotenv/config ./scripts/seed.js\",\n    \"start\": \"next start\",\n    \"lint\": \"next lint\"\n  },\n  \"dependencies\": {\n    \"@heroicons/react\": \"^2.0.18\",\n    \"@tailwindcss/forms\": \"^0.5.7\",\n    \"@types/node\": \"20.5.7\",\n    \"@vercel/postgres\": \"^0.5.1\",\n    \"autoprefixer\": \"10.4.15\",\n    \"bcrypt\": \"^5.1.1\",\n    \"clsx\": \"^2.0.0\",\n    \"next\": \"^14.0.2\",\n    \"next-auth\": \"^5.0.0-beta.3\",\n    \"postcss\": \"8.4.31\",\n    \"react\": \"18.2.0\",\n    \"react-dom\": \"18.2.0\",\n    \"tailwindcss\": \"3.3.3\",\n    \"typescript\": \"5.2.2\",\n    \"use-debounce\": \"^10.0.0\",\n    \"zod\": \"^3.22.2\"\n  },\n  \"devDependencies\": {\n    \"@types/bcrypt\": \"^5.0.1\",\n    \"@types/react\": \"18.2.21\",\n    \"@types/react-dom\": \"18.2.14\",\n    \"@vercel/style-guide\": \"^5.0.1\",\n    \"dotenv\": \"^16.3.1\",\n    \"eslint\": \"^8.52.0\",\n    \"eslint-config-next\": \"^14.0.0\",\n    \"eslint-config-prettier\": \"9.0.0\",\n    \"prettier\": \"^3.0.3\",\n    \"prettier-plugin-tailwindcss\": \"0.5.4\"\n  },\n  \"engines\": {\n    \"node\": \">=18.17.0\"\n  }\n}\n"
   },
   "https://api.github.com/repos/JohnMwendwa/nextjs-dashboard/commits?since=2026-08-08T00:00:00Z&per_page=100": {
    "status": 200,
@@ -51,11 +51,11 @@
   "https://api.github.com/search/issues?q=repo:JohnMwendwa/nextjs-dashboard+is:issue+is:open&per_page=1": {
    "status": 200,
    "link": "<https://api.github.com/search/issues?q=repo%3AJohnMwendwa%2Fnextjs-dashboard+is%3Aissue+is%3Aopen&per_page=1&page=2>; rel=\"next\", <https://api.github.com/search/issues?q=repo%3AJohnMwendwa%2Fnextjs-dashboard+is%3Aissue+is%3Aopen&per_page=1&page=2>; rel=\"last\"",
-   "body": "{\"total_count\":2}"
+   "body": "{\"total_count\":2,\"items\":[{\"number\":18,\"state\":\"open\",\"comments\":0}]}"
   },
-  "https://api.github.com/repos/JohnMwendwa/nextjs-dashboard/issues?state=all&since=2026-08-08T00:00:00Z&per_page=50": {
+  "https://api.github.com/search/issues?q=repo:JohnMwendwa/nextjs-dashboard+is:issue+updated:%3E%3D2026-08-08&per_page=100": {
    "status": 200,
-   "body": "[{\"number\":18,\"state\":\"open\",\"comments\":0},{\"number\":17,\"state\":\"open\",\"comments\":1,\"pull_request\":{}},{\"number\":16,\"state\":\"open\",\"comments\":1,\"pull_request\":{}}]"
+   "body": "{\"total_count\":1,\"items\":[{\"number\":18,\"state\":\"open\",\"comments\":0}]}"
   }
  }
 }
