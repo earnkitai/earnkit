@@ -11,7 +11,7 @@ import { mcpCall } from './fixtures/mcp-call';
 import { registerClient } from './oauth';
 import { connectInstallation, saveInstallation } from './installations';
 import { getRecord, linkInstallation, saveRecord, upsertBuilder } from '../v6/builders';
-import { approvePath } from '../v6/record';
+import { approvePath, mergeRecord } from '../v6/record';
 import { evidence, liveRows } from '../v6/fixtures/evidence-builder';
 
 process.env.EARNKIT_AUTH_SECRET ??= 'journey-test-secret-0123456789abcdef';
@@ -27,6 +27,7 @@ const CLOSINGS = [
   /Nothing fits yet\. I'll say when something opens\.$/,
   /Say yes to apply, or skip it\.$/,
   /Say yes to apply, skip it, or "do \d+" and I'll make the change first\.$/,
+  /Applying tonight to \d+; say stop to hold any\.$/,
 ];
 const seen: string[] = [];
 
@@ -141,8 +142,8 @@ test('the owner, linked: record set, approved on /me, find fills from it, starte
   const z0 = (before.ready as { program_id: string; fields: { key: string; from: string }[] }[]).find((x) => x.program_id === 'z-fellows')!;
   assert.notEqual(z0.fields.find((f) => f.key === 'problem')!.from, 'record');
 
-  // The builder approves on /me.
-  let record = await getRecord(b.id);
+  // The builder approves on /me and turns standing approval on there.
+  let record = mergeRecord(await getRecord(b.id), { policy: { auto_apply: true, max_per_night: 3 } }, 'builder', NOW).record;
   for (const path of ['projects.earnkit.answers.problem', 'traction.line_pre_launch']) record = approvePath(record, path, NOW);
   await saveRecord(b.id, record, NOW);
 
@@ -162,7 +163,7 @@ test('the owner, linked: record set, approved on /me, find fills from it, starte
 
   const next = await call(new Date(NOW.getTime() + 10 * H), 'find', { project: { ...p, live_url: 'https://earnkit.com', users: true } });
   assert.deepEqual((next.applied_overnight as { program_id: string }[]).map((a) => a.program_id), [top]);
-  assert.match(next.show_to_builder as string, /\n\nApplied overnight: [^\n]+\./);
+  assert.match(next.show_to_builder as string, /\n\nApplied under your standing approval: [^\n]+\./);
   assert.ok(!(next.ready as { program_id: string }[]).some((x) => x.program_id === top));
 });
 
@@ -177,6 +178,6 @@ test('every line the builder saw follows the copy rules and ends with one closin
     if (!isReply) continue;
     const last = show.split('\n').at(-1)!;
     assert.equal(CLOSINGS.filter((c) => c.test(last)).length, 1, show);
-    assert.equal(show.split('\n').filter((l) => /^(Say yes|Say "do|Nothing fits yet)/.test(l)).length, 1, show);
+    assert.equal(show.split('\n').filter((l) => /^(Say yes|Say "do|Nothing fits yet|Applying tonight)/.test(l)).length, 1, show);
   }
 });

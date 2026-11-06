@@ -54,19 +54,50 @@ test('a stale claim is taken over by a new one; an application already sent is n
   assert.deepEqual(await releaseStale(owner, new Date(NOW.getTime() + 80 * H)), []);
 });
 
-test('appliedOvernight lists what an agent sent after the last find, not what the builder sent', async () => {
+test('appliedOvernight lists what was sent under standing approval after the last find, nothing else', async () => {
   await upsertProgram(programFixture({ id: 'cl-3', title: 'Agent Sent' }), 'file', NOW);
   await upsertProgram(programFixture({ id: 'cl-4', title: 'Builder Sent' }), 'file', NOW);
   await upsertProgram(programFixture({ id: 'cl-5', title: 'Sent Before' }), 'file', NOW);
   const { owner, a } = await builderWithTwoAgents();
-  await record(owner, 'cl-5', 'applied', { installationId: a, now: new Date(NOW.getTime() - H), submitted_by: 'agent' });
+  await upsertProgram(programFixture({ id: 'cl-6', title: 'Yes In Session' }), 'file', NOW);
+  await record(owner, 'cl-5', 'applied', { installationId: a, now: new Date(NOW.getTime() - H), submitted_by: 'agent', autoApplied: true });
   await claim(owner, 'cl-3', 'earnkit', a, NOW);
-  await record(owner, 'cl-3', 'applied', { installationId: a, now: new Date(NOW.getTime() + H), submitted_by: 'agent', fields_used: ['email', 'problem'], project_id: 'earnkit' });
+  await record(owner, 'cl-3', 'applied', { installationId: a, now: new Date(NOW.getTime() + H), submitted_by: 'agent', fields_used: ['email', 'problem'], project_id: 'earnkit', autoApplied: true });
   await record(owner, 'cl-4', 'applied', { installationId: a, now: new Date(NOW.getTime() + H), submitted_by: 'builder' });
+  // The agent sent it on a yes in the session, standing approval off: not listed.
+  await record(owner, 'cl-6', 'applied', { installationId: a, now: new Date(NOW.getTime() + H), submitted_by: 'agent', autoApplied: false });
   assert.deepEqual(await appliedOvernight(owner, NOW), [{ program_id: 'cl-3', title: 'Agent Sent' }]);
   assert.deepEqual(await appliedOvernight(owner, null), []);
   // An applied over a claim keeps when it was claimed, and what was sent.
   const [row] = await sql()`SELECT claimed_at, submitted_by, fields_used, project_id FROM applications WHERE owner = ${owner} AND program_id = 'cl-3'`;
   assert.equal((row.claimed_at as Date).toISOString(), NOW.toISOString());
   assert.deepEqual({ submitted_by: row.submitted_by, fields_used: row.fields_used, project_id: row.project_id }, { submitted_by: 'agent', fields_used: ['email', 'problem'], project_id: 'earnkit' });
+});
+
+test('two claims at once from two agents of one builder: exactly one wins, one row', async () => {
+  await upsertProgram(programFixture({ id: 'cl-race', title: 'Race Grant' }), 'file', NOW);
+  for (let round = 0; round < 5; round++) {
+    const { owner, a, c } = await builderWithTwoAgents();
+    const both = await Promise.all([claim(owner, 'cl-race', 'earnkit', a, NOW), claim(owner, 'cl-race', 'earnkit', c, NOW)]);
+    assert.equal(both.filter((r) => r.ok).length, 1, JSON.stringify(both));
+    const lost = both.find((r) => !r.ok)!;
+    assert.ok('already' in lost, JSON.stringify(lost));
+    const rows = await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${owner} AND program_id = 'cl-race'`;
+    assert.equal(rows[0].n, 1);
+    const hist = await sql()`SELECT count(*)::int AS n FROM application_history WHERE owner = ${owner} AND program_id = 'cl-race'`;
+    assert.equal(hist[0].n, 1);
+  }
+});
+
+test('skips and claims: a skip replaces a claim; a claim over a skip refuses; release leaves skips', async () => {
+  await upsertProgram(programFixture({ id: 'cl-skip', title: 'Skip Grant' }), 'file', NOW);
+  const { owner, a, c } = await builderWithTwoAgents();
+  await claim(owner, 'cl-skip', 'earnkit', a, NOW);
+  assert.deepEqual(await record(owner, 'cl-skip', 'skipped', { installationId: c, now: new Date(NOW.getTime() + H) }), { ok: true });
+  const [row] = await sql()`SELECT status, claimed_at, claimed_by FROM applications WHERE owner = ${owner} AND program_id = 'cl-skip'`;
+  assert.deepEqual({ ...row }, { status: 'skipped', claimed_at: null, claimed_by: null });
+  assert.deepEqual(await claim(owner, 'cl-skip', 'earnkit', a, new Date(NOW.getTime() + 2 * H)), { ok: false, skipped: true });
+  assert.deepEqual(await releaseStale(owner, new Date(NOW.getTime() + 80 * H)), []);
+  const [still] = await sql()`SELECT status FROM applications WHERE owner = ${owner} AND program_id = 'cl-skip'`;
+  assert.equal(still.status, 'skipped');
 });

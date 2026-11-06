@@ -3,7 +3,7 @@
  * with one line for the builder, one for the agent, and the updated ledger.
  */
 import { z } from 'zod';
-import { ownerKey } from '../v6/builders';
+import { getRecord, ownerKey } from '../v6/builders';
 import { claim } from '../v6/claims';
 import { getProgram, listOpenPrograms } from './programs';
 import { record, summary, type Ledger, type Status } from './ledger';
@@ -23,10 +23,13 @@ export const TrackInput = z
 
 type Result = { show_to_builder: string; agent_note: string; ledger: Ledger; already_started?: true };
 
-/** "09:14 UTC"; "earlier today" when the time does not read. Pure. */
-const clock = (iso: string) => {
+/** "09:14 UTC" for today (UTC), "Nov 5, 22:10 UTC" for another day; "earlier today" when the time does not read. Pure. */
+export const clock = (iso: string, now: Date) => {
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? 'earlier today' : `${d.toISOString().slice(11, 16)} UTC`;
+  if (Number.isNaN(d.getTime())) return 'earlier today';
+  const hm = `${d.toISOString().slice(11, 16)} UTC`;
+  if (d.toISOString().slice(0, 10) === now.toISOString().slice(0, 10)) return hm;
+  return `${new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(d)}, ${hm}`;
 };
 
 const usd = (n: number) => '$' + Math.round(n).toLocaleString('en-US');
@@ -48,9 +51,15 @@ export async function track(ctx: TrackContext, input: unknown): Promise<Result> 
     const program = await getProgram(i.program_id);
     if (!program) return refuse("I don't know that program.");
     const c = await claim(owner, i.program_id, i.project_id ?? null, ctx.installationId, ctx.now);
+    if (!c.ok && 'skipped' in c)
+      return {
+        show_to_builder: `You skipped ${program.file.title} here; say unskip it if you want it back.`,
+        agent_note: 'Do not submit this one.',
+        ledger: await summary(owner, programs, ctx.now),
+      };
     if (!c.ok)
       return {
-        show_to_builder: `${program.file.title} is already being handled since ${clock(c.already.since)} by ${c.already.by ?? 'another agent'}.`,
+        show_to_builder: `${program.file.title} is already being handled since ${clock(c.already.since, ctx.now)} by ${c.already.by ?? 'another agent'}.`,
         agent_note: 'Do not submit this one; call find again later.',
         ledger: await summary(owner, programs, ctx.now),
         already_started: true,
@@ -61,7 +70,9 @@ export async function track(ctx: TrackContext, input: unknown): Promise<Result> 
       ledger: await summary(owner, programs, ctx.now),
     };
   }
-  const applied = i.status === 'applied' ? { submitted_by: i.submitted_by, fields_used: i.fields_used, project_id: i.project_id } : {};
+  // Sent under standing approval: the builder's policy at this moment (never for an unlinked installation).
+  const autoApplied = i.status === 'applied' && ctx.builderId !== null && (await getRecord(ctx.builderId)).policy.auto_apply;
+  const applied = i.status === 'applied' ? { submitted_by: i.submitted_by, fields_used: i.fields_used, project_id: i.project_id, autoApplied } : {};
   const res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, amount_usd: i.amount_usd, note: i.note, item: i.item, now: ctx.now, ...applied });
   if (!res.ok) return refuse(res.note);
   const title = (await getProgram(i.program_id))!.file.title;

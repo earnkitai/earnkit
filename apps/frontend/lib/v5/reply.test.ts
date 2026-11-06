@@ -260,7 +260,7 @@ test('the "Before tonight" paragraph groups the sign-ins, names the clicks and t
   const blocks = text.split('\n\n');
   assert.deepEqual(blocks.slice(-4), [
     before,
-    'Applied overnight: Alliance ALL19, Arc Builders Fund.',
+    'Applied under your standing approval: Alliance ALL19, Arc Builders Fund.',
     'Your project reads as live, no verified usage yet. Next: 25 funded wallets on mainnet in 90 days; you have 4.',
     'Say yes to apply to all 4, or numbers to skip.',
   ]);
@@ -272,14 +272,28 @@ test('the "Before tonight" paragraph groups the sign-ins, names the clicks and t
   assert.ok(!agentNote(MONDAY, { more: 0 }).includes('Fit approved answers'));
 });
 
-test('standing approval: the closing line and the agent note', () => {
-  const r = { ...LINKED, auto_apply: true, max_per_night: 3 };
-  assert.match(replyText(r, false), /\n\nApplying tonight to 3; say stop to hold any\.$/);
+test('standing approval: the closing line counts what an agent can send alone, and the agent note', () => {
+  const free = (id: string) => ready({ program_id: id, title: id.toUpperCase(), from_record: 1, total: 1 });
+  const r = base({
+    ...LINKED,
+    ready: [...LINKED.ready, free('f1'), free('f2'), free('f3'), ready({ program_id: 'held', title: 'Held', claimed_since: '2026-11-04T10:00:00.000Z' })],
+    auto_apply: true,
+    max_per_night: 2,
+  });
+  // Four have a sign-in or a click, one is claimed: three are free, capped at two.
+  assert.match(replyText(r, false), /\n\nApplying tonight to 2; say stop to hold any\.$/);
   assert.doesNotMatch(replyText(r, false), /Say yes/);
-  assert.match(replyText({ ...r, max_per_night: 9 }, false), /Applying tonight to 4; say stop to hold any\.$/);
-  assert.ok(agentNote(r, { more: 0 }).includes(
+  assert.match(replyText({ ...r, max_per_night: 9 }, false), /Applying tonight to 3; say stop to hold any\.$/);
+  // Nothing an agent can send alone: the usual closing.
+  assert.match(replyText({ ...LINKED, auto_apply: true, max_per_night: 5 }, false), /Say yes to apply to all 4, or numbers to skip\.$/);
+  const note = agentNote(r, { more: 0 });
+  assert.ok(note.includes(
     'Standing approval is on: for each ready program within the limits, call track started, fill from fields, submit where the program allows an agent, then track applied with submitted_by agent and fields_used. Stop at max_per_night. Never submit where blockers say needs_click or a sign-in you do not have.',
   ));
+  assert.ok(!note.includes('Submit only when the builder says yes'));
+  assert.ok(note.includes("Draft each ready program from its fields: 'record' and 'earnkit' values as given;"));
+  assert.ok(agentNote(LINKED, { more: 0 }).includes('Submit only when the builder says yes'));
+  assert.ok(agentNote(MONDAY, { more: 0 }).includes("Draft each ready program from its fields: 'earnkit' values as given;"));
 });
 
 test('unlinked with a sign-in link: the link is the last line; linked never shows it', () => {

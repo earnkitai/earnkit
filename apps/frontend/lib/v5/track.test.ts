@@ -85,3 +85,37 @@ test('started for an unknown program refuses and records nothing', async () => {
   const n = (await sql()`SELECT count(*)::int AS n FROM applications WHERE installation_id = ${c.installationId}`)[0].n;
   assert.equal(n, 0);
 });
+
+test('started over a skip: the skipped sentence; an older claim names its day', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 't6-k', title: 'Kept Out' }), 'file', NOW);
+  await track(c, { program_id: 't6-k', status: 'skipped' });
+  const r = await track(c, { program_id: 't6-k', status: 'started' });
+  assert.equal(r.show_to_builder, "You skipped Kept Out here; say unskip it if you want it back.");
+  assert.equal(r.agent_note, 'Do not submit this one.');
+  assert.equal('already_started' in r, false);
+  await upsertProgram(programFixture({ id: 't6-y', title: 'Yesterday Grant' }), 'file', NOW);
+  await track({ ...c, now: new Date('2026-11-03T22:10:00Z') }, { program_id: 't6-y', status: 'started' });
+  const again = await track(c, { program_id: 't6-y', status: 'started' });
+  assert.equal(again.show_to_builder, 'Yesterday Grant is already being handled since Nov 3, 22:10 UTC by another agent.');
+});
+
+test('applied sets auto_applied from the builder record at that moment; unlinked never', async () => {
+  const { linkInstallation, saveRecord, upsertBuilder } = await import('../v6/builders');
+  const { EMPTY_RECORD, mergeRecord } = await import('../v6/record');
+  const c = await ctx();
+  const b = await upsertBuilder({ github_id: 930_001, login: 'auto', name: 'Auto', avatar_url: null }, NOW);
+  await linkInstallation(c.installationId, b.id, NOW);
+  const linked = { ...c, builderId: b.id };
+  await upsertProgram(programFixture({ id: 't6-on', title: 'On' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 't6-off', title: 'Off' }), 'file', NOW);
+  await track(linked, { program_id: 't6-off', status: 'applied', submitted_by: 'agent' });
+  await saveRecord(b.id, mergeRecord(EMPTY_RECORD, { policy: { auto_apply: true } }, 'builder', NOW).record, NOW);
+  await track(linked, { program_id: 't6-on', status: 'applied', submitted_by: 'agent' });
+  const rows = await sql()`SELECT program_id, auto_applied FROM applications WHERE owner = ${'b:' + b.id} ORDER BY program_id`;
+  assert.deepEqual(rows.map((r) => [r.program_id, r.auto_applied]), [['t6-off', false], ['t6-on', true]]);
+  const u = await ctx();
+  await track(u, { program_id: 't6-on', status: 'applied', submitted_by: 'agent' });
+  const [ur] = await sql()`SELECT auto_applied FROM applications WHERE installation_id = ${u.installationId}`;
+  assert.equal(ur.auto_applied, false);
+});

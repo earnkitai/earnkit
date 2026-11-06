@@ -3,11 +3,10 @@
  * `agentNote` (what the agent does next). In-person programs get their own block after ready and
  * gaps, with their setup, and are never in the count to apply to. Linked, the record's blocks follow. Pure.
  */
-import { listWords, signInLine } from '../v6/record-tool';
+import { EVIDENCE_NOT_READ, listWords, signInLine } from '../v6/reply-words';
 import { compactUsd } from './programs-read';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
 import { READS_PAUSED } from './repo-facts';
-import { EVIDENCE_NOT_READ } from '../v6/find-record';
 
 type R = Omit<FindReply, 'show_to_builder' | 'agent_note'>;
 const NEEDS_SHOWN = 3;
@@ -117,6 +116,12 @@ function closingLine(ready: number, gaps: number, firstGap: number, inPerson: nu
   return "Nothing fits yet. I'll say when something opens.";
 }
 
+/** Ready programs (not in person) an agent can send alone: no click, no sign-in, no claim held by an agent. Pure. */
+function agentCanApply(r: R): ReadyProgram[] {
+  const blocked = new Set(r.blockers.filter((b) => b.needs_click || b.sign_in).map((b) => b.program_id));
+  return r.ready.filter((p) => !p.in_person && !blocked.has(p.program_id) && !p.claimed_since);
+}
+
 /** What the builder sees. The since line never shows on the first find. */
 export function replyText(r: R, first: boolean): string {
   const blocks: string[] = [];
@@ -135,9 +140,9 @@ export function replyText(r: R, first: boolean): string {
   }
   const before = beforeTonight(r);
   if (before) blocks.push(before);
-  if (r.applied_overnight.length > 0) blocks.push(`Applied overnight: ${r.applied_overnight.map((a) => a.title).join(', ')}.`);
+  if (r.applied_overnight.length > 0) blocks.push(`Applied under your standing approval: ${r.applied_overnight.map((a) => a.title).join(', ')}.`);
   if (r.evidence_summary) blocks.push(r.evidence_summary.line);
-  const tonight = r.auto_apply ? Math.min(ready.length, r.max_per_night ?? ready.length) : 0;
+  const tonight = r.auto_apply ? Math.min(agentCanApply(r).length, r.max_per_night ?? ready.length) : 0;
   blocks.push(tonight > 0 ? `Applying tonight to ${tonight}; say stop to hold any.` : closingLine(ready.length, r.gaps.length, r.gaps[0]?.n ?? ready.length + 1, inPerson.length));
   if (r.sign_in && !r.linked) blocks.push(signInLine(r.sign_in));
   return blocks.join('\n\n');
@@ -145,10 +150,15 @@ export function replyText(r: R, first: boolean): string {
 
 /** What the agent does with the reply. `more`: ready and gap programs left out of the lists. */
 export function agentNote(r: R, o: { more: number }): string {
+  const standing =
+    'Standing approval is on: for each ready program within the limits, call track started, fill from fields, submit where the program allows an agent, then track applied with submitted_by agent and fields_used. Stop at max_per_night. Never submit where blockers say needs_click or a sign-in you do not have.';
   const lines = [
     'Open with show_to_builder in your own words: warm, direct, short, no emojis, no em dashes, no invented facts.',
-    "Draft each ready program from its fields: 'earnkit' values as given; 'agent' fields you write from your memory and the field's sources; 'builder' fields you ask once, all together.",
-    'Submit only when the builder says yes, in your own browser, field by field (form_id names the form field when given).',
+    r.linked
+      ? "Draft each ready program from its fields: 'record' and 'earnkit' values as given; 'agent' fields you write from your memory and the field's sources; 'builder' fields you ask once, all together."
+      : "Draft each ready program from its fields: 'earnkit' values as given; 'agent' fields you write from your memory and the field's sources; 'builder' fields you ask once, all together.",
+    // With standing approval the agent does not wait for a yes; the limits replace it.
+    r.auto_apply ? standing : 'Submit only when the builder says yes, in your own browser, field by field (form_id names the form field when given).',
     'Call track with applied after each submission, and with won (amount_usd), rejected or no_result after each result; skipped for a number they skip.',
     'Pass users and live_url in the project whenever you know them; never invent them.',
     'The numbers the builder says are each item\'s n in ready and gaps ("skip 4" is the item with n 4), not its place in the list.',
@@ -163,10 +173,6 @@ export function agentNote(r: R, o: { more: number }): string {
   if (r.ask_outcome.length > 0)
     lines.push(`Ask once how each went: ${r.ask_outcome.map((a) => a.title).join(', ')}. Pass each answer to track (won with amount_usd, rejected or no_result).`);
   if (r.linked) lines.push('Fit approved answers by cutting, never by adding; the style contract travels on each field.');
-  if (r.auto_apply)
-    lines.push(
-      'Standing approval is on: for each ready program within the limits, call track started, fill from fields, submit where the program allows an agent, then track applied with submitted_by agent and fields_used. Stop at max_per_night. Never submit where blockers say needs_click or a sign-in you do not have.',
-    );
   if (r.blockers.length > 0) lines.push('Sign-ins and clicks the builder must do are in blockers; name them once, together.');
   if (r.record_missing.length > 0) lines.push('Ask for the missing record items once, all together, and save each with record.');
   if (r.ready.some((p) => p.claimed_since)) lines.push('A ready program with claimed_since is claimed by one of the builder\'s agents: submit it only if you made that claim.');

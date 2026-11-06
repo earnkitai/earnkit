@@ -10,6 +10,9 @@ import { answerBrief } from './answer-brief';
 import { LinkRefused, readStoredRecord, withRecord } from './builders';
 import { oauthConfigured } from './github-auth';
 import { createLinkCode } from './link-routes';
+import { listWords, signInLine } from './reply-words';
+
+export { listWords, signInLine };
 import { APPROVABLE, type BuilderRecord, completeness, mergeRecord, recordMissing } from './record';
 
 export const RecordInput = z
@@ -40,27 +43,17 @@ const BRIEF_NOTE = 'Draft the answer from the brief and save it with record set;
 
 const origin = () => (process.env.EARNKIT_URL?.trim() || 'http://localhost:3000').replace(/\/$/, '');
 
-/** "a", "a and b", "a, b and c", "a, b, c and 2 more". Pure. */
-export function listWords(items: string[], max = 3): string {
-  const shown = items.slice(0, max);
-  const rest = items.length - shown.length;
-  if (rest > 0) return `${shown.join(', ')} and ${rest} more`;
-  return shown.length <= 1 ? shown.join('') : `${shown.slice(0, -1).join(', ')} and ${shown[shown.length - 1]}`;
-}
 
-/** The installation's sign-in link; null when sign-in is not configured or the installation is already linked. */
+/** The installation's sign-in link; null when sign-in is not configured, the installation is linked, or anything fails (a reply never fails for the link). */
 export async function signInLink(installationId: number, now: Date): Promise<string | null> {
   if (!oauthConfigured()) return null;
   try {
     return `${origin()}/link/${await createLinkCode(installationId, now)}`;
   } catch (err) {
-    if (err instanceof LinkRefused) return null;
-    throw err;
+    if (!(err instanceof LinkRefused)) console.error('[link] sign-in link failed', err instanceof Error ? err.name : typeof err);
+    return null;
   }
 }
-
-/** The one line that offers the link. Pure. */
-export const signInLine = (link: string) => `Sign in once at ${link} so I remember you across agents.`;
 
 async function unlinked(installationId: number, now: Date): Promise<RecordReply> {
   const link = await signInLink(installationId, now);

@@ -9,6 +9,7 @@ import { appliedOvernight, releaseStale } from '../v6/claims';
 import { readEvidence, type Evidence, type Subject } from '../v6/evidence';
 import { allowedByPolicy, blockersOf, missingFor, recordSide, storedRecordContext, tierGate, type Blocker, type RecordSide } from '../v6/find-record';
 import { signInLink } from '../v6/record-tool';
+import { signInLine } from '../v6/reply-words';
 import { timeLeftWords } from './deadline';
 import { evaluate, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
@@ -198,16 +199,22 @@ async function openList(ctx: FindContext, problem: string | null): Promise<FindR
   });
   if (programs.length > MAX_LISTED) lines.push(`and ${programs.length - MAX_LISTED} more`);
   const ledger = await summary(ownerOf(ctx), programs, ctx.now);
+  const link = ctx.builderId === null ? await linkOf(ctx) : null;
+  const list = programs.length > 0 ? `Open now:\n${lines.join('\n')}` : "Nothing is open right now. I'll say when something opens.";
   return {
-    show_to_builder: programs.length > 0 ? `Open now:\n${lines.join('\n')}` : "Nothing is open right now. I'll say when something opens.",
+    show_to_builder: link ? `${list}\n\n${signInLine(link)}` : list,
     agent_note: [
       ...(problem ? [`The project was not read: ${problem}.`] : []),
       'Pass the project next time (name, description, repo_url, chains, live_url) so EarnKit can match it and pre-fill each form.',
     ].join('\n'),
     since: { from: null, new: [], changed: [], closing: [] },
     ready: [], gaps: [], ledger, ask_outcome: [], as_reported: false, ...unlinkedPart(), linked: ctx.builderId !== null,
+    ...(link ? { sign_in: link } : {}),
   };
 }
+
+/** The unlinked installation's sign-in link, or null (never a failure). */
+const linkOf = (ctx: FindContext) => (ctx.linkUrl ?? (() => signInLink(ctx.installationId, ctx.now)))().catch(() => null);
 
 /** An unlinked find: every record field empty. */
 const unlinkedPart = (): Pick<FindReply, 'linked' | 'record_missing' | 'blockers' | 'evidence_summary' | 'applied_overnight' | 'released' | 'auto_apply'> => ({
@@ -276,7 +283,7 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
 
   const last = await lastFindAt(ctx.installationId);
   const overnight = side ? await appliedOvernight(owner, last) : [];
-  const link = side ? null : await (ctx.linkUrl ?? (() => signInLink(ctx.installationId, ctx.now)))();
+  const link = side ? null : await linkOf(ctx);
   const moved = await since(owner, last, open, ready.map((r) => r.program_id), ctx.now, gaps.map((g) => g.program_id));
   const ledger = await summary(owner, open, ctx.now);
   const ask = await askOutcome(owner, open, ctx.now);

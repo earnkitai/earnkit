@@ -383,7 +383,10 @@ test('auto_apply changes the closing line and the agent note; the policy filters
   const { id, builderId } = await linkedWith({ ...OWNER_RECORD, policy: { auto_apply: true, max_per_night: 2, never: ['z-fellows'], categories: ['grant', 'hackathon', 'bounty'] } });
   const r = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT });
   const show = r.reply!.show_to_builder as string;
-  assert.match(show, /\n\nApplying tonight to 2; say stop to hold any\.$/);
+  const blocked = new Set((r.reply!.blockers as { program_id: string; sign_in: string | null; needs_click: boolean }[]).filter((b) => b.sign_in || b.needs_click).map((b) => b.program_id));
+  const free = (r.reply!.ready as { program_id: string; in_person: boolean }[]).filter((p) => !p.in_person && !blocked.has(p.program_id)).length;
+  assert.ok(free >= 1, show);
+  assert.match(show, new RegExp(`\\n\\nApplying tonight to ${Math.min(2, free)}; say stop to hold any\\.$`));
   assert.doesNotMatch(show, /Say yes/);
   assert.equal(r.reply!.auto_apply, true);
   assert.match(r.reply!.agent_note as string, /^Standing approval is on: for each ready program within the limits, call track started/m);
@@ -422,4 +425,24 @@ test('find with program_id, linked: the record fills an approved answer; unlinke
   const v5fields = v5.reply!.fields as { from: string }[];
   assert.ok(v5fields.every((f) => f.from !== 'record'));
   assert.doesNotMatch(v5.reply!.agent_note as string, /Fit approved answers/);
+});
+
+test('a failed own read keeps the stored tier line; a broken link never fails find; the open list carries the sign-in line', async () => {
+  const { id, builderId } = await linkedWith(OWNER_RECORD);
+  await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT });
+  const later = await mcpCall({ ...ctx(id, new Date(NOW.getTime() + 30 * H)), builderId, evidence: async () => { throw new Error('down'); } }, 'find', { project: PROJECT });
+  assert.equal((later.reply!.evidence_summary as { tier: string }).tier, 'live');
+  assert.ok((later.reply!.problems as string[]).includes('evidence not read'));
+
+  const broken = await mcpCall({ ...ctx(await installation()), linkUrl: async () => { throw new Error('db blip'); } }, 'find', { project: PROJECT });
+  assert.equal(broken.isError, false, broken.text);
+  assert.equal('sign_in' in broken.reply!, false);
+
+  await withEnv(OAUTH_ENV, async () => {
+    const open = await mcpCall(ctx(await installation()), 'find', {});
+    const link = open.reply!.sign_in as string;
+    assert.match(link, /\/link\//);
+    assert.match(open.reply!.show_to_builder as string, /^Open now:\n/);
+    assert.equal((open.reply!.show_to_builder as string).split('\n').at(-1), `Sign in once at ${link} so I remember you across agents.`);
+  });
 });

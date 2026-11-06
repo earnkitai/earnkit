@@ -213,6 +213,8 @@ ALTER TABLE applications ADD COLUMN IF NOT EXISTS submitted_by text;
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS fields_used text[];
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS claimed_at timestamptz;
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS claimed_by int;
+-- Sent under the builder's standing approval (policy.auto_apply on when it was tracked).
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS auto_applied boolean NOT NULL DEFAULT false;
 
 -- The owner's daily digest: the day it covered and when it was sent; the next digest starts there.
 CREATE TABLE IF NOT EXISTS owner_digests (

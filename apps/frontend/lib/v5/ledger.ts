@@ -54,6 +54,8 @@ export async function record(
     installationId?: number; amount_usd?: number; note?: string; item?: string; now?: Date;
     /** applied only: who pressed submit, the field keys sent and the record's project. */
     submitted_by?: 'agent' | 'builder'; fields_used?: string[]; project_id?: string;
+    /** applied only: the builder's standing approval (policy.auto_apply) was on when it was tracked. */
+    autoApplied?: boolean;
   } = {},
 ): Promise<{ ok: true } | { ok: false; note: string }> {
   const installationId = o.installationId ?? installationOf(owner);
@@ -81,12 +83,16 @@ export async function record(
         ON CONFLICT (owner, program_id, item) DO UPDATE SET at = EXCLUDED.at`;
     } else if (status === 'applied') {
       // Over a claim the row keeps claimed_at and claimed_by: what was claimed, then sent.
-      await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, note, at, submitted_by, fields_used, project_id)
-        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, ${note}, ${now}, ${o.submitted_by ?? null}, ${o.fields_used ?? null}, ${o.project_id ?? null})
+      await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, note, at, submitted_by, fields_used, project_id, auto_applied)
+        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, ${note}, ${now}, ${o.submitted_by ?? null}, ${o.fields_used ?? null}, ${o.project_id ?? null}, ${o.autoApplied === true})
         ON CONFLICT (owner, program_id) DO UPDATE
           SET installation_id = EXCLUDED.installation_id, status = 'applied', amount_usd = NULL, note = EXCLUDED.note, at = EXCLUDED.at,
-              submitted_by = EXCLUDED.submitted_by, fields_used = EXCLUDED.fields_used,
+              submitted_by = EXCLUDED.submitted_by, fields_used = EXCLUDED.fields_used, auto_applied = EXCLUDED.auto_applied,
               project_id = COALESCE(EXCLUDED.project_id, applications.project_id)`;
+    } else if (status === 'skipped' && row?.status === 'started') {
+      // A skip over a claim replaces it: the claim is gone, the skip stays.
+      await tx`UPDATE applications SET installation_id = ${installationId}, status = 'skipped', note = ${note}, at = ${now},
+        claimed_at = NULL, claimed_by = NULL WHERE owner = ${owner} AND program_id = ${programId}`;
     } else if (!(status === 'skipped' && row)) {
       // A skip on a program already in the ledger hides nothing new: the application stays as it is.
       await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, note, at)

@@ -12,9 +12,10 @@ import { withRecord, readStoredRecord } from './builders';
 import type { Evidence, Subject } from './evidence';
 import { evidenceSummary, ownEvidence, usageLine } from './own-evidence';
 import { hasDoc, recordMissing, type BuilderRecord, type Project } from './record';
+import { EVIDENCE_NOT_READ } from './reply-words';
 import { TIERS, place, type Tier } from './tiers';
 
-export const EVIDENCE_NOT_READ = 'evidence not read';
+export { EVIDENCE_NOT_READ };
 
 export type RecordSide = {
   record: BuilderRecord;
@@ -74,7 +75,8 @@ export async function recordSide(
     if (!r.read) return side;
     evidence = r.evidence;
   } catch {
-    return { ...side, summary: null, problems: [EVIDENCE_NOT_READ] };
+    // The stored tier and line stand; nothing new is stored.
+    return { ...side, problems: [EVIDENCE_NOT_READ] };
   }
   const p = place(evidence, { identical_pitch: 0, shared_contributors: 0 }, undefined, o.now);
   const summary = evidence ? evidenceSummary(p, evidence) : null;
