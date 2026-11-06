@@ -25,6 +25,22 @@ next task; one PR for the release.
 - Chains without an explorer client in v6.0 (tempo, monad, robinhood, solana) are shown as claimed.
 - Cross-applicant counts in v6.0 are computed inside one list; the cross-program graph needs persisted screens (v6.1).
 
+## Pilot run (Task 5, 2026-11-06)
+
+`pnpm screen apps/frontend/lib/v6/fixtures/applicants.csv --program base-builder-grants --chain base`, live, the
+server GitHub token in the shell only, no DATABASE_URL (cache off), 49 seconds, exit 0.
+
+| tier | count |
+|---|---|
+| used | 0 |
+| live | 3 (earnkit, onchain-reaction, abi.ninja resolved from its site) |
+| building | 0 |
+| flagged | 4 (four rows sharing one pitch; nextjs-dashboard also on the template rule) |
+| unverified | 1 (the GitLab row) |
+
+Reads used: GitHub 94, explorer 6, site 9. Not read: the domain age for earnkit.com, astral.global and abi.ninja
+(rdap.org answers 403 to Node's fetch; curl gets 200).
+
 ## Deferred
 
 (filled as tasks run)

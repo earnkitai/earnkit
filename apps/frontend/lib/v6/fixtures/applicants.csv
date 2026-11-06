@@ -1,0 +1,9 @@
+ref,name,repo,url,contract,pitch
+ek-1,EarnKit,https://github.com/earnkitai/earnkit,https://earnkit.com/,,"EarnKit finds the grants, prizes and programs a builder's repo can win, and fills in the forms."
+ek-2,"Onchain Reaction, the game",https://github.com/Shijas786/onchain-reaction,https://onchainreaction.vercel.app/,base:0x426E2ca323fa707bD1921ECcCe0A27ad7804B2a2,"A multiplayer chain reaction game on Base where every move is a transaction."
+ek-3,Next.js Dashboard,https://github.com/JohnMwendwa/nextjs-dashboard,,,"We are building the easiest onchain app on Base, so that everyone can use crypto every single day."
+ek-4,Astral Logbook,https://github.com/DecentralizedGeo/astral-logbook,https://logbook.astral.global/,,"We are building the easiest onchain app on Base so that everyone can use crypto every single day!"
+ek-5,ABI Ninja,,https://abi.ninja/,,"Interact with any verified contract on Base and other chains from a browser."
+ek-6,Lab Notes,https://gitlab.com/someone/lab-notes,,,"Shared lab notes for small research teams, kept as signed records."
+ek-7,Someone's App,https://github.com/someone,,,"we are building the EASIEST onchain app on Base, so that everyone can use crypto every single day."
+ek-8,Foo Chain App,,,foo:0x426E2ca323fa707bD1921ECcCe0A27ad7804B2a,"We are building the easiest onchain app on Base, so that everyone can use crypto every single day."

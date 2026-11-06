@@ -14,6 +14,8 @@ const ENV_ALLOWED = new Set([
   'DATABASE_URL', 'EARNKIT_AUTH_SECRET', 'EARNKIT_URL', 'GITHUB_TOKEN', 'RESEND_API_KEY', 'CRON_SECRET',
   'EARNKIT_PROGRAMS_TOKEN', 'EARNKIT_PROGRAMS_API', 'NODE_ENV', 'EARNKIT_TEST_GUARD', 'TEST_GUARD_LOG',
   'EK_TEST_DB', 'NODE_TEST_CONTEXT',
+  // Local only: where `pnpm screen` writes when no --out is given.
+  'EARNKIT_SCREEN_OUT',
 ]);
 const REMOVED_DEPS = ['@anthropic-ai/sdk', '@huggingface/transformers', 'aws4fetch', 'fflate', 'ox', 'viem'];
 

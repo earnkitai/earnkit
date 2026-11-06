@@ -82,6 +82,10 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v6/fixtures/evidence-builder.ts`: A minimal valid Evidence and block builders for pure tests
 - `apps/frontend/lib/v6/fixtures/site.ts`: The real `safeProbePage` over a fake resolver and transport answering `fixtures/sites.json` (pages recorded 2026-11-06), and an RDAP fake
 - `apps/frontend/lib/v6/fixtures/repos/<slug>.json`: Recorded repo, code and team reads (`record-repo-fixture.mts --v6`), replayed by the v5 `replayFetch`
+- `apps/frontend/lib/v6/applicants.ts`: `parseApplicants` (a program's CSV, columns by name, each bad link or address nulled with a problem line), `resolveRepo` (a repo from the site's GitHub links), `identicalPitches` (5-word shingles, 90%) and `sharedContributors`, inside one list; pure
+- `apps/frontend/lib/v6/screen-report.ts`: `markdownReport` (totals, a section per tier, what could not be read) and `csvReport` (one row per applicant, formula cells defused); public evidence only, never a pitch; pure
+- `apps/frontend/lib/v6/screen.ts`: `run`: the screening pilot: arguments, the list read one applicant at a time, placements with the counts across the list, both reports into one folder
+- `apps/frontend/lib/v6/fixtures/applicants.csv`: Eight applicants for the pilot: the four recorded repos, a site-only row (abi.ninja), three bad rows, four sharing one pitch
 
 ## apps/frontend/app (routes and components)
 
@@ -146,6 +150,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/scripts/record-repo-fixture.mts`: Records a public repo's GitHub reads as a test fixture; `--v6` adds the code and team reads into `lib/v6/fixtures/repos`
 - `apps/frontend/scripts/record-boilerplate.mts`: Records one starter's tree paths into `lib/v6/boilerplates.json`
 - `apps/frontend/scripts/record-contract-fixture.mts`: Records a contract's Blockscout reads as a test fixture (keyless)
+- `apps/frontend/scripts/screen.mts`: pnpm screen: the screening pilot over a program's applicant CSV into a markdown and a CSV report (via lib/v6/screen.ts)
 - `apps/frontend/scripts/replay.mts`: Replay: find, track applied, find on a scratch database for a recorded repo (--monday)
 - `apps/frontend/scripts/v4-tables.mts`: pnpm db:v4-tables: lists v4 tables with row counts and prints DROP statements
 - `db/schema.sql`: The whole schema, additive and safe to run twice
@@ -168,3 +173,4 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `docs/design-docs-and-implementation-plans/`: v5 design, plan, ledger and go-live; older designs are history
 - `.github/workflows/earnkit-cron.yml`: The one daily job (POST /api/cron)
 - `README.md`: What EarnKit is and how to connect an agent
+- `docs/screening-pilot.md`: The screening pilot for a program in one page: the CSV, the command, the tiers, what is read, the message to send

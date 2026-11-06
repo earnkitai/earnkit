@@ -162,6 +162,7 @@ DROP statements; it never runs them. Dropping is an owner step after a backup.
 | `CRON_SECRET` | Bearer for `/api/cron` (unset: 503); also a GitHub repo secret |
 | `EARNKIT_PROGRAMS_TOKEN` | Bearer for the write API (unset: the write routes answer 404) |
 | `EARNKIT_PROGRAMS_API` | `off` closes the write API |
+| `EARNKIT_SCREEN_OUT` | Local only: the folder `pnpm screen` writes into without `--out` (default `.screen-out/` in the repo, git-ignored) |
 
 `lib/v5/no-v4.test.ts` fails if any code reads a variable outside this list.
 
@@ -182,6 +183,44 @@ copied from a template. Tests skip nothing; a run whose output has no failure li
 - Replay: `pnpm -s tsx apps/frontend/scripts/replay.mts <fixture> [--monday]` runs find, track applied, find on a
   scratch database and prints each `show_to_builder` and `agent_note`. `--monday` brings one deadline within a week
   and moves the clock to the next Monday 09:00 UTC so the "Since" line shows.
+
+## v6.0: the filter (evidence, tiers, the screening pilot)
+
+v6.0 adds a screening engine beside the v5 tools; nothing in `find` or `track` reads it yet. Design:
+`docs/design-docs-and-implementation-plans/v6-design.md` (sections 7 and 11); plan `v6-plan.md`; ledger
+`v6-sdd-ledger.md`. Everything lives in `apps/frontend/lib/v6`.
+
+**The evidence flow.** `readEvidence(subject, deps)` in `evidence.ts` takes a repo link, a site and contracts and
+returns `Evidence`: typed blocks plus `rows` (one per value, with `basis`, `read_at` and `note`). One GitHub repo
+read feeds `code.ts` (fork parent and own share, starter overlap against `boilerplates.json`, 90-day activity),
+`team.ts` (contributors, account ages, logins) and `depth.ts` (integrations from `integrations.ts`, chains). Each
+contract, the subject's first and then the ones found in the repo (at most 10), goes through `onchain.ts` over
+the keyless Blockscout client in `explorers.ts`; chains without a reader are shown as claimed. `live.ts` probes the
+site (safe-fetch, 10 s), reads its title and GitHub links, and the domain's age from RDAP. A failed read is null
+with a note; nothing throws. GitHub calls share one `Budget` that stops under 500 left.
+
+**The cache.** `evidence_cache` keeps a repo block 7 days while the repo's `pushed_at` holds (one repo object read
+checks it) and a contract block 7 days. A partial block (a budget stop, a failed read) and the live rows are never
+cached. `--no-cache` on the script skips the table both ways.
+
+**The tiers.** `tiers.ts` `place(evidence, counts, thresholds?, now?)` is pure and names one of five tiers, flags
+first: flagged (starter or fork with little own work, an identical pitch, shared contributors, unfunded senders),
+used (site loads, 25 or more wallets paying their own gas on one mainnet contract in 90 days, pushed within 60
+days), live (site loads or a mainnet contract with transactions), building (recent commits, nothing live),
+unverified (nothing recent EarnKit could check). Only real mainnet contracts count. `DEFAULT_THRESHOLDS` carry
+their reasons. `tier-words.ts` turns a placement into the reviewer's line and the builder's line.
+
+**The pilot script.** `pnpm screen <csv> --program <id> [--chain base] [--out <dir>] [--no-cache] [--thresholds
+<json>]` (`scripts/screen.mts` over `lib/v6/screen.ts`). `applicants.ts` parses the CSV (columns by name; a bad
+link or address nulls the field with a problem line), takes a repo from the site's GitHub links when none is
+given, and counts identical pitches (5-word shingles, 90 percent) and shared contributors inside the one list.
+Applicants are read one at a time; each prints `ref name: tier`; the summary prints the totals and the reads.
+`screen-report.ts` writes `<program>-<date>.md` and `.csv`: public evidence only, never a pitch. The program-facing
+page is `docs/screening-pilot.md`.
+
+**Not in v6.0.** The `screen` MCP tool, the builder's record, `/me`, the catalog fields and any `find` or `track`
+change (v6.1); cross-program counts (they need stored screens); a queue or cron for screens (the script runs by
+hand); explorer readers for Avalanche, Tempo, Monad, Robinhood Chain and Solana; a sweep of `evidence_cache`.
 
 ## What v5 deliberately does not do
 
