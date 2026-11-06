@@ -38,7 +38,9 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   flag_unfunded_min_senders: 100,
 };
 export type Flag = { rule: string; detail: string };
-export type Placement = { tier: Tier | null; flags: Flag[]; because: string[]; next: string | null };
+/** What stands between a placement and the tier above: the condition `next` names. */
+export type Gap = 'funded_senders' | 'site' | 'push' | 'commits' | 'repo_or_site' | 'flag';
+export type Placement = { tier: Tier | null; flags: Flag[]; because: string[]; next: string | null; gap: Gap | null };
 
 const DAY = 86_400_000;
 const n = (v: number) => v.toLocaleString('en-US');
@@ -48,6 +50,7 @@ const pctDown = (v: number) => `${Math.floor(v * 100)}%`;
 const plural = (v: number, one: string, many = `${one}s`) => `${n(v)} ${v === 1 ? one : many}`;
 const onMainnet = (c: OnchainRows) => `on ${chainName(c.chain)} mainnet`;
 const pushedRow = (days: number) => (days <= 0 ? 'pushed today' : `pushed ${plural(days, 'day')} ago`);
+const others = (v: number) => `${plural(v, 'other applicant')} ${v === 1 ? 'shares' : 'share'}`;
 const most = <T>(xs: T[], by: (x: T) => number): T | undefined => xs.reduce<T | undefined>((a, x) => (a === undefined || by(x) > by(a) ? x : a), undefined);
 
 function flagsOf(e: Evidence, counted: OnchainRows[], x: { identical_pitch: number; shared_contributors: number }, t: Thresholds) {
@@ -78,8 +81,8 @@ function flagsOf(e: Evidence, counted: OnchainRows[], x: { identical_pitch: numb
   if (x.shared_contributors >= t.flag_shared_contributors) {
     out.push({
       rule: 'shared_contributors',
-      detail: `${plural(x.shared_contributors, 'other applicant')} share contributors`,
-      next: `A team of your own; ${plural(x.shared_contributors, 'other applicant')} share contributors with you.`,
+      detail: `${others(x.shared_contributors)} contributors`,
+      next: `A team of your own; ${others(x.shared_contributors)} contributors with you.`,
     });
   }
   const farmed = counted.find(
@@ -107,25 +110,28 @@ export function place(
   t: Thresholds = DEFAULT_THRESHOLDS,
   now: Date = new Date(),
 ): Placement {
-  if (!e) return { tier: null, flags: [], because: [], next: null };
+  if (!e) return { tier: null, flags: [], because: [], next: null, gap: null };
   const nothingRead = !e.code && !e.team && !e.depth && e.onchain.length === 0 && e.live.url_ok == null;
-  if (e.partial && nothingRead) return { tier: null, flags: [], because: ['read was partial'], next: null };
+  if (e.partial && nothingRead) return { tier: null, flags: [], because: ['read was partial'], next: null, gap: null };
 
   const counted = e.onchain.filter((c) => c.is_contract === true && c.mainnet === true);
   const active = counted.filter((c) => (c.tx_90d ?? 0) > 0);
   const siteUp = e.live.url_ok === true;
-  const pushDays = e.code?.last_push_at ? Math.floor((now.getTime() - Date.parse(e.code.last_push_at)) / DAY) : null;
+  const pushMs = e.code?.last_push_at ? Date.parse(e.code.last_push_at) : NaN;
+  const pushDays = Number.isFinite(pushMs) ? Math.floor((now.getTime() - pushMs) / DAY) : null;
   const pushedRecently = !e.code || (pushDays != null && pushDays <= t.push_within_days);
   const funded = counted.filter((c) => c.funded_senders_90d != null);
   const fundedTotal = funded.reduce((s, c) => s + c.funded_senders_90d!, 0);
-  const topFunded = most(funded, (c) => c.funded_senders_90d!);
   const topActive = most(active, (c) => c.tx_90d!);
 
   const context: string[] = [];
   if (e.team?.contributors_90d != null) context.push(plural(e.team.contributors_90d, 'contributor'));
   const tail = (flagged: boolean) => [...context, ...(flagged ? [] : ['no flags']), ...(e.partial ? ['read was partial'] : [])];
   const pushRow = pushDays != null ? [pushedRow(pushDays)] : [];
-  const fundedRow = topFunded ? [`${plural(topFunded.funded_senders_90d!, 'funded sender')} ${onMainnet(topFunded)}`] : [];
+  const fundedChains = [...new Set(funded.map((c) => c.chain))];
+  const fundedWhere = fundedChains.length === 1 ? `on ${chainName(fundedChains[0])} mainnet` : 'on mainnet';
+  const across = funded.length > 1 ? ` across ${n(funded.length)} contracts` : '';
+  const fundedRow = funded.length ? [`${plural(fundedTotal, 'funded sender')}${across} ${fundedWhere}`] : [];
 
   const flags = flagsOf(e, counted, x, t);
   if (flags.length) {
@@ -134,12 +140,13 @@ export function place(
       flags: flags.map(({ rule, detail }) => ({ rule, detail })),
       because: [...flags.map((f) => f.detail), ...tail(true)],
       next: flags[0].next,
+      gap: 'flag',
     };
   }
 
-  const usedBy = topFunded && topFunded.funded_senders_90d! >= t.used_funded_senders ? topFunded : undefined;
+  const usedBy = funded.length > 0 && fundedTotal >= t.used_funded_senders;
   if (siteUp && usedBy && pushedRecently) {
-    return { tier: 'used', flags: [], because: [...fundedRow, 'site loads', ...pushRow, ...tail(false)], next: null };
+    return { tier: 'used', flags: [], because: [...fundedRow, 'site loads', ...pushRow, ...tail(false)], next: null, gap: null };
   }
 
   const liveByContract = topActive !== undefined && pushedRecently;
@@ -150,25 +157,28 @@ export function place(
       ...fundedRow,
       ...pushRow,
     ];
-    let next: string;
-    if (!usedBy) next = `${n(t.used_funded_senders)} funded wallets on mainnet in 90 days; you have ${n(fundedTotal)}.`;
-    else if (!siteUp) next = 'A site that loads for your product.';
-    else next = `A push to the repo in the last ${plural(t.push_within_days, 'day')}; the last was ${plural(pushDays ?? 0, 'day')} ago.`;
-    return { tier: 'live', flags: [], because: [...rows, ...tail(false)], next };
+    const gap: Gap = !usedBy ? 'funded_senders' : !siteUp ? 'site' : 'push';
+    const next =
+      gap === 'funded_senders' ? `${n(t.used_funded_senders)} funded wallets on mainnet in 90 days; you have ${n(fundedTotal)}.`
+      : gap === 'site' ? 'A site that loads for your product.'
+      : pushDays == null ? 'Push to the repo; EarnKit found no push date.'
+      : `A push to the repo in the last ${plural(t.push_within_days, 'day')}; the last was ${plural(pushDays, 'day')} ago.`;
+    return { tier: 'live', flags: [], because: [...rows, ...tail(false)], next, gap };
   }
 
   const c = e.code;
   const building = c && ((c.commits_90d ?? 0) > 0 || (c.commits_90d == null && pushDays != null && pushDays <= t.push_within_days));
   if (building) {
     const rows = [...(c.commits_90d ? [`${plural(c.commits_90d, 'commit')} in 90 days`] : []), ...pushRow];
-    return { tier: 'building', flags: [], because: [...rows, ...tail(false)], next: 'A live product: a site that loads or a mainnet contract in use.' };
+    return { tier: 'building', flags: [], because: [...rows, ...tail(false)], next: 'A live product: a site that loads or a mainnet contract in use.', gap: 'site' };
   }
 
   const rows = [
     e.live.url_ok === false ? 'site does not load' : e.live.url ? 'site not read' : 'no site',
-    counted.length ? 'no transactions in 90 days on mainnet' : 'no mainnet contract read',
+    topActive ? `${plural(topActive.tx_90d!, 'transaction')} in 90 days ${onMainnet(topActive)}`
+      : counted.length ? 'no transactions in 90 days on mainnet' : 'no mainnet contract read',
     ...(c ? ['no commits in 90 days', ...pushRow] : ['no public repo']),
   ];
   const next = c ? 'Recent commits in your public repo or a live product EarnKit can read.' : 'A public repo or a live product EarnKit can read.';
-  return { tier: 'unverified', flags: [], because: [...rows, ...tail(false)], next };
+  return { tier: 'unverified', flags: [], because: [...rows, ...tail(false)], next, gap: c ? 'commits' : 'repo_or_site' };
 }

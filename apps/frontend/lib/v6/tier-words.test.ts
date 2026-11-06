@@ -64,6 +64,12 @@ test('builder line for live matches the design example', () => {
   assert.equal(builderLine(p), 'Your project reads as live, no verified usage yet. Next: 25 funded wallets on mainnet in 90 days; you have 4.');
 });
 
+test('builder head for live branches on gap, not on the next words', () => {
+  const p = place(evidence({ live: up, onchain: [contract({ tx_90d: 9, funded_senders_90d: 4 })] }), X, undefined, NOW);
+  assert.equal(builderLine({ ...p, gap: 'push', next: 'Push to the repo; EarnKit found no push date.' }), 'Your project reads as live. Next: push to the repo; EarnKit found no push date.');
+  assert.match(builderLine({ ...p, next: 'Anything at all.' }), /^Your project reads as live, no verified usage yet\./);
+});
+
 test('numbers carry thousands separators in the builder line', () => {
   const p = place(evidence({ live: up, onchain: [contract({ tx_90d: 9, funded_senders_90d: 4 })] }), X, { ...DEFAULT_THRESHOLDS, used_funded_senders: 2_500 }, NOW);
   assert.match(builderLine(p), /2,500 funded wallets/);

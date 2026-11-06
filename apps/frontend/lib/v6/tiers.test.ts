@@ -37,6 +37,7 @@ test('live: the contract has 4 funded senders; next names the rule with the coun
   const p = at(e);
   assert.equal(p.tier, 'live');
   assert.equal(p.next, '25 funded wallets on mainnet in 90 days; you have 4.');
+  assert.equal(p.gap, 'funded_senders');
   assert.ok(p.because.includes('site loads'), p.because.join(' | '));
 });
 
@@ -69,6 +70,48 @@ test('live by a contract alone: transactions in 90 days, repo pushed recently', 
 test('a contract alone with a stale repo is not live', () => {
   const p = at(evidence({ repo: 'a/b', onchain: [contract({ tx_90d: 50 })], code: codeRows({ last_push_at: daysAgo(61), commits_90d: 0 }) }));
   assert.equal(p.tier, 'unverified');
+  assert.equal(p.gap, 'commits');
+  assert.ok(p.because.includes('50 transactions in 90 days on Base mainnet'), p.because.join(' | '));
+  assert.ok(p.because.includes('pushed 61 days ago'));
+  assert.ok(!p.because.includes('no transactions in 90 days on mainnet'));
+});
+
+test('used sums funded senders across mainnet contracts: two with 15 each', () => {
+  const e = used();
+  e.onchain = [
+    contract({ tx_90d: 30, funded_senders_90d: 15 }),
+    contract({ address: `0x${'2'.repeat(40)}`, tx_90d: 30, funded_senders_90d: 15 }),
+  ];
+  const p = at(e);
+  assert.equal(p.tier, 'used');
+  assert.equal(p.gap, null);
+  assert.ok(p.because.includes('30 funded senders across 2 contracts on Base mainnet'), p.because.join(' | '));
+});
+
+test('live with no push date: its own next, never 0 days ago', () => {
+  const e = used();
+  e.code = codeRows({ last_push_at: null, commits_90d: 4 });
+  const p = at(e);
+  assert.equal(p.tier, 'live');
+  assert.equal(p.gap, 'push');
+  assert.equal(p.next, 'Push to the repo; EarnKit found no push date.');
+});
+
+test('an unparseable push date never renders NaN', () => {
+  const e = used();
+  e.code = codeRows({ last_push_at: 'not a date', commits_90d: 0 });
+  const p = at(e);
+  assert.equal(p.tier, 'live');
+  assert.equal(p.next, 'Push to the repo; EarnKit found no push date.');
+  assert.ok(!p.because.some((b) => b.includes('NaN')), p.because.join(' | '));
+});
+
+test('push window: pushed 61 days ago, site down, no contract activity, commits in the window is building', () => {
+  const p = at(
+    evidence({ repo: 'a/b', live: down, onchain: [contract({ tx_90d: 0 })], code: codeRows({ last_push_at: daysAgo(61), commits_90d: 3 }) }),
+  );
+  assert.equal(p.tier, 'building');
+  assert.equal(p.gap, 'site');
 });
 
 test('building: no site, no contract, commits 20 days ago', () => {
@@ -89,6 +132,7 @@ test('unverified with nothing read', () => {
   assert.equal(p.tier, 'unverified');
   assert.deepEqual(p.flags, []);
   assert.match(p.next!, /public repo or a live product/);
+  assert.equal(p.gap, 'repo_or_site');
   assert.ok(p.because.includes('no flags'));
 });
 
@@ -129,6 +173,7 @@ const flagged = (rule: string, e: Parameters<typeof place>[0], x = X) => {
   assert.equal(p.tier, 'flagged', `${rule}: ${p.because.join(' | ')}`);
   assert.ok(p.flags.some((f) => f.rule === rule), JSON.stringify(p.flags));
   assert.ok(p.next && p.next.length > 0);
+  assert.equal(p.gap, 'flag');
   return p;
 };
 const withCode = (o: Parameters<typeof codeRows>[0]) => {
@@ -151,9 +196,23 @@ test('fork with own work is not flagged', () => {
   assert.equal(at(withCode({ fork_of: 'someone/else', own_share: 0.5 })).tier, 'used');
 });
 
+test('fork at own share exactly 0.2 is not flagged', () => {
+  assert.equal(at(withCode({ fork_of: 'someone/else', own_share: 0.2 })).tier, 'used');
+});
+
 test('identical pitch: 3 fires, 2 does not', () => {
   flagged('identical_pitch', used(), { identical_pitch: 3, shared_contributors: 0 });
   assert.equal(at(used(), { identical_pitch: 2, shared_contributors: 0 }).tier, 'used');
+});
+
+test('shared contributors at a count of 1 agrees in number', () => {
+  const p = at(used(), { identical_pitch: 1, shared_contributors: 1 }, { ...DEFAULT_THRESHOLDS, flag_identical_pitch: 1, flag_shared_contributors: 1 });
+  assert.ok(p.because.includes('1 other applicant shares contributors'), p.because.join(' | '));
+  assert.ok(p.because.includes('1 other applicant sent the same pitch'));
+  assert.ok(p.flags.some((f) => f.rule === 'shared_contributors'));
+  const five = at(used(), { identical_pitch: 0, shared_contributors: 5 });
+  assert.ok(five.because.includes('5 other applicants share contributors'), five.because.join(' | '));
+  assert.equal(five.next, 'A team of your own; 5 other applicants share contributors with you.');
 });
 
 test('shared contributors: 5 fires, 4 does not', () => {
@@ -169,6 +228,9 @@ test('unfunded: 150 senders, 5 of 50 sampled funded fires; 50 senders does not',
   const few = used();
   few.onchain = [contract({ tx_90d: 900, senders_90d: 50, funded_sample: 50, funded_senders_90d: 5 })];
   assert.equal(at(few).tier, 'live');
+  const edge = used();
+  edge.onchain = [contract({ tx_90d: 900, senders_90d: 150, funded_sample: 50, funded_senders_90d: 10 })];
+  assert.equal(at(edge).tier, 'live');
 });
 
 test('flagged comes first even when nothing else was read', () => {
@@ -189,6 +251,7 @@ test('tier is null when e is null and when a partial read read nothing', () => {
     assert.equal(p.tier, null);
     assert.deepEqual(p.flags, []);
     assert.equal(p.next, null);
+    assert.equal(p.gap, null);
   }
 });
 
