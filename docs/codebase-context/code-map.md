@@ -14,7 +14,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v5/deadline.ts`: A program's close in words: close day in its time zone and time left
 - `apps/frontend/lib/v5/eligibility.ts`: Repo facts against a program's eligibility items: ready, gap, or no fit
 - `apps/frontend/lib/v5/find.ts`: The find tool: ready, gaps, since, ledger, one program's details, or the open list
-- `apps/frontend/lib/v5/github.ts`: Public GitHub reads with EarnKit's server token
+- `apps/frontend/lib/v5/github.ts`: Public GitHub reads with EarnKit's server token; `ghResponse` and `ghPage` expose the link and rate-limit headers
 - `apps/frontend/lib/v5/guide-page.ts`: Data for /programs/[id]: the guide plus page context, as plain JSON
 - `apps/frontend/lib/v5/guide.ts`: A program's guide: money, close, who can apply, form fields, rules, sources
 - `apps/frontend/lib/v5/health.ts`: Daily freshness probe: links, page text changes (under 80% words shared), stale flags, passed deadlines
@@ -70,6 +70,10 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v6/explorers.ts`: Keyless Blockscout client per chain: contract info, transactions to an address, an address's first transactions; throttled, 429 retried once
 - `apps/frontend/lib/v6/onchain.ts`: Onchain evidence rows per contract: verified source, deployer, 90 and 30 day transactions and senders, sampled deployer-funded check; never throws
 - `apps/frontend/lib/v6/fixtures/explorer.ts`: Replays a recorded contract read (`fixtures/contracts/<slug>.json`) as a fetch
+- `apps/frontend/lib/v6/code.ts`: Code evidence rows per repo: fork parent and own share, starter overlap, 90-day commits and active weeks, releases, tests, CI, issues; the shared GitHub `Budget` (stops under 500 left); never throws
+- `apps/frontend/lib/v6/team.ts`: Team evidence rows per repo: top 5 contributors, account ages (under 30 days not counted), top share, other used repos; never throws
+- `apps/frontend/lib/v6/boilerplates.json`: Known starters' file paths (create-next-app, OnchainKit, MiniKit, Foundry, Hardhat, Solana, Scaffold-ETH 2, Next.js Learn dashboard) for `templateOverlap`
+- `apps/frontend/lib/v6/fixtures/repos/<slug>.json`: Recorded repo, code and team reads (`record-repo-fixture.mts --v6`), replayed by the v5 `replayFetch`
 
 ## apps/frontend/app (routes and components)
 
@@ -131,7 +135,8 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/scripts/db-migrate.mts`: pnpm db:migrate: runs schema.sql
 - `apps/frontend/scripts/env.mts`: Loads .env.local for admin scripts
 - `apps/frontend/scripts/programs-sync.mts`: pnpm programs:check and programs:sync: validate and write programs/*.json (via lib/v5/programs-sync.ts)
-- `apps/frontend/scripts/record-repo-fixture.mts`: Records a public repo's GitHub reads as a test fixture
+- `apps/frontend/scripts/record-repo-fixture.mts`: Records a public repo's GitHub reads as a test fixture; `--v6` adds the code and team reads into `lib/v6/fixtures/repos`
+- `apps/frontend/scripts/record-boilerplate.mts`: Records one starter's tree paths into `lib/v6/boilerplates.json`
 - `apps/frontend/scripts/record-contract-fixture.mts`: Records a contract's Blockscout reads as a test fixture (keyless)
 - `apps/frontend/scripts/replay.mts`: Replay: find, track applied, find on a scratch database for a recorded repo (--monday)
 - `apps/frontend/scripts/v4-tables.mts`: pnpm db:v4-tables: lists v4 tables with row counts and prints DROP statements

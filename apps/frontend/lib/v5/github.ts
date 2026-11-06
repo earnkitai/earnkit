@@ -11,6 +11,8 @@ export class GitHubError extends Error {
   constructor(
     message: string,
     readonly status?: number,
+    /** x-ratelimit-remaining on the failed response, when GitHub sent it. */
+    readonly remaining: number | null = null,
   ) {
     super(message);
     this.name = 'GitHubError';
@@ -26,6 +28,8 @@ export type Repo = {
   pushed_at: string;
   private?: boolean;
   description?: string | null;
+  fork?: boolean;
+  parent?: { full_name: string; default_branch: string };
 };
 export type TreeEntry = { path: string; type: string; size?: number };
 export type RepoRead = {
@@ -45,14 +49,34 @@ export async function gh<T>(path: string, token: string | undefined = process.en
   return (await ghResponse(path, token, f)).json() as Promise<T>;
 }
 
-async function ghResponse(path: string, token: string | undefined, f: Fetch): Promise<Response> {
+/** x-ratelimit-remaining as a number, or null when absent. */
+export function rateRemaining(res: Response): number | null {
+  const v = res.headers.get('x-ratelimit-remaining');
+  return v !== null && /^\d+$/.test(v) ? Number(v) : null;
+}
+
+/** The page number of a link header's rel="last", or null. */
+const lastPage = (link: string | null): number | null => {
+  const n = link?.match(/<[^>]*[?&]page=(\d+)[^>]*>;\s*rel="last"/)?.[1];
+  return n ? Number(n) : null;
+};
+
+/** GET one GitHub API path; 404 and other failures throw GitHubError (with the rate-limit remaining). */
+export async function ghResponse(path: string, token: string | undefined, f: Fetch): Promise<Response> {
   const res = await f(`${API}${path}`, {
     headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'earnkit', ...(token && { Authorization: `Bearer ${token}` }) },
     signal: AbortSignal.timeout(15_000),
   });
-  if (res.status === 404) throw new GitHubError(`GitHub: ${path.split('?')[0]} not found (or private)`, 404);
-  if (!res.ok) throw new GitHubError(`GitHub request failed (${res.status})`, res.status);
+  if (res.status === 404) throw new GitHubError(`GitHub: ${path.split('?')[0]} not found (or private)`, 404, rateRemaining(res));
+  if (!res.ok) throw new GitHubError(`GitHub request failed (${res.status})`, res.status, rateRemaining(res));
   return res;
+}
+
+/** GET one page of a GitHub list: its rows, the rel="last" page number (null when there is one page) and the rate-limit remaining. */
+export async function ghPage<T>(path: string, token: string | undefined, f: Fetch = fetch): Promise<{ rows: T[]; last: number | null; remaining: number | null }> {
+  const res = await ghResponse(path, token, f);
+  const body = (await res.json()) as unknown;
+  return { rows: Array.isArray(body) ? (body as T[]) : [], last: lastPage(res.headers.get('link')), remaining: rateRemaining(res) };
 }
 
 /**
@@ -94,8 +118,8 @@ async function raw(f: Fetch, repo: Repo, path: string, headers?: Record<string, 
 async function firstCommit(fullName: string, token: string | undefined, f: Fetch): Promise<string | null> {
   try {
     const res = await ghResponse(`/repos/${fullName}/commits?per_page=1`, token, f);
-    const last = res.headers.get('link')?.match(/<[^>]*[?&]page=(\d+)[^>]*>;\s*rel="last"/)?.[1];
-    const one = last && last !== '1' ? await gh<CommitRow[]>(`/repos/${fullName}/commits?per_page=1&page=${last}`, token, f) : ((await res.json()) as CommitRow[]);
+    const last = lastPage(res.headers.get('link'));
+    const one = last && last !== 1 ? await gh<CommitRow[]>(`/repos/${fullName}/commits?per_page=1&page=${last}`, token, f) : ((await res.json()) as CommitRow[]);
     return one[0]?.commit?.committer?.date ?? one[0]?.commit?.author?.date ?? null;
   } catch {
     return null;
