@@ -106,3 +106,15 @@ test('cronPost: the plain run sweeps screen jobs over 90 days old with their row
     assert.deepEqual(ids, ['young-job'], t);
   }
 });
+
+test('cronPost: a body that is not { job_id } answers 400 and runs nothing', async () => {
+  let ran = 0;
+  const watch = { ...deps, runHealth: async () => { ran++; throw new Error('must not run'); }, workQueue: async () => (ran++, { read: 0, jobs_finished: [] }) };
+  const raw = (body: string) => new Request('https://earnkit.test/api/cron', { method: 'POST', headers: { authorization: `Bearer ${SECRET}` }, body });
+  for (const body of ['{not json', JSON.stringify({ job: 'x' }), JSON.stringify({ job_id: 'x', extra: 1 }), JSON.stringify({ job_id: 7 }), JSON.stringify({ job_id: 'x'.repeat(2_000) })]) {
+    const res = await cronPost(raw(body), watch);
+    assert.equal(res.status, 400, body.slice(0, 40));
+    assert.deepEqual(await res.json(), { error: 'bad body' });
+  }
+  assert.equal(ran, 0);
+});

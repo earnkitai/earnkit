@@ -24,15 +24,18 @@ export type CronDeps = {
   workQueue?: typeof workQueue;
 };
 
-/** The job id of an owner-triggered run, from a small JSON body; null for the plain daily run. */
-async function triggeredJob(request: Request): Promise<string | null> {
+/** The job id of an owner-triggered run; null for an empty body (the daily run); 'bad' for any other body. */
+async function triggeredJob(request: Request): Promise<{ jobId: string } | null | 'bad'> {
   const text = await readCapped(request, 1_024).catch(() => null);
-  if (!text) return null;
+  if (text === null) return 'bad';
+  if (!text.trim()) return null;
   try {
-    const body = JSON.parse(text) as { job_id?: unknown };
-    return typeof body?.job_id === 'string' && body.job_id.length > 0 && body.job_id.length <= 40 ? body.job_id : null;
+    const body = JSON.parse(text) as unknown;
+    if (typeof body !== 'object' || body === null || Array.isArray(body) || Object.keys(body).join() !== 'job_id') return 'bad';
+    const id = (body as { job_id: unknown }).job_id;
+    return typeof id === 'string' && id.length > 0 && id.length <= 40 ? { jobId: id } : 'bad';
   } catch {
-    return null;
+    return 'bad';
   }
 }
 
@@ -48,8 +51,10 @@ export async function cronPost(request: Request, deps: CronDeps = {}): Promise<R
   if (!bearerMatches(request.headers.get('authorization'), secret)) return json({ error: 'unauthorized' }, 401);
   const now = deps.now ?? new Date();
   const work = deps.workQueue ?? workQueue;
-  const jobId = await triggeredJob(request);
-  if (jobId) {
+  const trigger = await triggeredJob(request);
+  if (trigger === 'bad') return json({ error: 'bad body' }, 400);
+  if (trigger) {
+    const { jobId } = trigger;
     try {
       const screen = await work({ now, limit: SCREEN_TRIGGER_MAX, jobId, deadline: Date.now() + SCREEN_TRIGGER_MS });
       return json({ screen });

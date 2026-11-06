@@ -78,7 +78,7 @@ const errTag = (err: unknown) => {
 const notFound = () => new Response('Not Found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
 
 /** The owner routes' gate: 404 while the API is off, 401 for a wrong token, else null. */
-function authFailure(request: Request): Response | null {
+export function authFailure(request: Request): Response | null {
   if (!programsApiOn()) return notFound();
   if (!bearerMatches(request.headers.get('authorization'), process.env.EARNKIT_PROGRAMS_TOKEN)) return json({ ok: false, error: 'unauthorized' }, 401);
   return null;

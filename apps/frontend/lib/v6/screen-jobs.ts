@@ -128,7 +128,7 @@ export async function jobResults(id: string, builderId: number, now: Date = new 
       const read = !UNREAD.includes(r.status);
       return {
         ref: r.ref, name: r.name, tier: tierOf(r), flags: r.flags ?? [], because: r.because ?? [],
-        line: read ? r.line ?? 'no tier: the read failed, worth a retry.' : null,
+        line: read ? r.line ?? 'no tier: the read failed.' : null,
         ...(read && { rows: (r.rows ?? []).filter((x) => PUBLIC_BASES.has(x.basis)) }),
       };
     })
@@ -160,15 +160,17 @@ async function buildersOnRepo(key: string): Promise<number[]> {
 
 /**
  * The program's decisions. Each is kept for the counts across programs; a won or rejected one also goes
- * to the ledger of a builder whose record project is the same repo and who had applied to this program
- * (through ledger.record, so its caps hold; a refusal is skipped). Shortlisted writes no ledger row.
+ * to the ledger of a builder whose record project is the same repo and who had applied to this program,
+ * written as that builder's applying installation (through ledger.record, so its caps hold). `unusable`:
+ * ledger writes refused (a win with no amount or over the cap). Shortlisted writes no ledger row.
  */
-export async function recordOutcomes(jobId: string, builderId: number, outcomes: Outcome[], now: Date): Promise<{ recorded: number; ledgers: number }> {
+export async function recordOutcomes(jobId: string, builderId: number, outcomes: Outcome[], now: Date): Promise<{ recorded: number; ledgers: number; unusable: number }> {
   const [job] = await sql()<{ program_id: string; installation_id: number }[]>`
     SELECT program_id, installation_id FROM screen_jobs WHERE id = ${jobId} AND builder_id = ${builderId} AND expires_at > ${now}`;
-  if (!job) return { recorded: 0, ledgers: 0 };
+  if (!job) return { recorded: 0, ledgers: 0, unusable: 0 };
   let recorded = 0;
   let ledgers = 0;
+  let unusable = 0;
   for (const o of outcomes) {
     const [a] = await sql()<{ repo_key: string | null }[]>`SELECT repo_key FROM screen_applicants WHERE job_id = ${jobId} AND ref = ${o.ref}`;
     if (!a) continue;
@@ -179,13 +181,15 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
     if (o.outcome === 'shortlisted' || !a.repo_key) continue;
     for (const id of await buildersOnRepo(a.repo_key)) {
       const owner = `b:${id}`;
-      const [applied] = await sql()`SELECT 1 FROM applications WHERE owner = ${owner} AND program_id = ${job.program_id} AND status = 'applied'`;
+      const [applied] = await sql()<{ installation_id: number }[]>`
+        SELECT installation_id FROM applications WHERE owner = ${owner} AND program_id = ${job.program_id} AND status = 'applied'`;
       if (!applied) continue;
-      const r = await record(owner, job.program_id, o.outcome, { installationId: job.installation_id, amount_usd: amount ?? undefined, now });
+      const r = await record(owner, job.program_id, o.outcome, { installationId: applied.installation_id, amount_usd: amount ?? undefined, now });
       if (r.ok) ledgers++;
+      else unusable++;
     }
   }
-  return { recorded, ledgers };
+  return { recorded, ledgers, unusable };
 }
 
 /**

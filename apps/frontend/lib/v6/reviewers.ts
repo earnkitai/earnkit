@@ -4,9 +4,9 @@
  */
 import { z } from 'zod';
 import { sql } from '../v5/db';
-import { bearerMatches, json, readCapped } from '../v5/http';
+import { json, readCapped } from '../v5/http';
 import { getProgram } from '../v5/programs';
-import { programsApiOn } from '../v5/programs-api';
+import { authFailure } from '../v5/programs-api';
 
 export type ReviewerResult = { ok: true; builder_id: number } | { ok: false; reason: string };
 
@@ -69,8 +69,8 @@ const Body = z
 
 /** POST /api/programs/reviewers: 404 while the programs API is off, 401 for a wrong token, 400 with the reason. */
 export async function reviewersPost(request: Request): Promise<Response> {
-  if (!programsApiOn()) return new Response('Not Found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
-  if (!bearerMatches(request.headers.get('authorization'), process.env.EARNKIT_PROGRAMS_TOKEN)) return json({ ok: false, error: 'unauthorized' }, 401);
+  const denied = authFailure(request);
+  if (denied) return denied;
   const text = await readCapped(request, MAX_BODY);
   if (text === null) return json({ ok: false, error: 'body too large' }, 413);
   let raw: unknown;

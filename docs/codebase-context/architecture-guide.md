@@ -243,7 +243,8 @@ hand); explorer readers for Avalanche, Tempo, Monad, Robinhood Chain and Solana;
 `screen` (`lib/v6/screen-tool.ts`) is for a program's reviewer: a linked builder in `program_reviewers`. With
 `applicants` (up to 200) it queues a job (`screen-jobs.ts createJob`: pitches compared for `identical_pitch`, then
 dropped; 10 jobs a day per reviewer, `LIMITS.screenJobs` keyed `b:<builder>`); the cron's `workQueue`
-(`screen-worker.ts`) takes each applicant atomically (`reading`, free again after 30 minutes) and reads it as the pilot does and stores tier, flags, because, line and rows of public bases only (`github`, `explorer`,
+(`screen-worker.ts`) takes each applicant atomically (`reading`, free again after 30 minutes) and reads it as the pilot does (a GitHub
+budget stop puts it back and ends the run; a tierless read worth a retry is queued again, `failed` at the third) and stores tier, flags, because, line and rows of public bases only (`github`, `explorer`,
 `site`, `earnkit`, never `record`). With `job_id` it answers the totals line and the results; with `outcomes` it
 records the program's decisions, which also reach a builder's ledger when their record project is the same repo and
 they had applied to that program. `xpCounts` gives each read the screens by other programs in 90 days sharing the

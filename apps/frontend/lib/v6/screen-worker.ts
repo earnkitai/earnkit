@@ -8,7 +8,7 @@ import { sql } from '../v5/db';
 import { repoKey } from '../v5/repo-facts';
 import { resolveRepo, sharedContributors } from './applicants';
 import type { Budget } from './code';
-import { type Evidence, type EvidenceDeps, flattenRows, readEvidence, type Row, type Subject } from './evidence';
+import { type Evidence, type EvidenceDeps, flattenRows, readEvidence, retryable, type Row, type Subject } from './evidence';
 import { PUBLIC_BASES, UNREAD, xpCounts } from './screen-jobs';
 import { reviewerLine } from './tier-words';
 import { DEFAULT_THRESHOLDS, place, type Thresholds } from './tiers';
@@ -20,6 +20,8 @@ export const SCREEN_TRIGGER_MAX = 300;
 export const SCREEN_TRIGGER_MS = 600_000;
 /** A taken applicant not written in this long belongs to a run that died: it is free again. */
 const TAKEN_MS = 30 * 60_000;
+/** A read worth a retry goes back to the queue; the third such read is final. */
+const MAX_ATTEMPTS = 3;
 
 export type WorkDeps = Partial<EvidenceDeps> & { evidence?: (s: Subject, d: EvidenceDeps) => Promise<Evidence> };
 type Queued = {
@@ -40,6 +42,8 @@ const loginsOf = (rows: Row[] | null): string[] => {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
 };
 const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim().slice(0, 200);
+/** Every note of a read: the run's and each row's. Pure. */
+const notesOf = (e: Evidence): string[] => [...e.notes, ...flattenRows(e).map((r) => r.note ?? '')].filter(Boolean);
 
 /** Reads one applicant: the subject, then again with the repo the site links when none was given. */
 async function readOne(a: Queued, read: (s: Subject, d: EvidenceDeps) => Promise<Evidence>, d: EvidenceDeps): Promise<{ e: Evidence; repo: string | null }> {
@@ -61,23 +65,24 @@ async function advance(jobId: string, now: Date): Promise<boolean> {
 }
 
 /**
- * Works up to `limit` queued applicants of unexpired jobs, `jobId`'s first, then the oldest job's; each is
- * taken ('reading') before it is read, so overlapping runs never read one twice. `deadline` (epoch ms) is
- * checked between applicants. Never throws for an applicant's read.
+ * Works up to `limit` queued applicants of unexpired jobs, oldest job first, or only `jobId`'s; each is
+ * taken ('reading') before it is read, so overlapping runs never read one twice. A GitHub budget stop puts
+ * the applicant back and ends the call; a null tier worth a retry is queued again, final at the third.
+ * `deadline` (epoch ms) is checked between applicants. Never throws for an applicant's read.
  */
 export async function workQueue(o: { now: Date; limit: number; jobId?: string; deadline?: number; deps?: WorkDeps }): Promise<{ read: number; jobs_finished: string[] }> {
   const { evidence: read = readEvidence, ...rest } = o.deps ?? {};
   // One allowance for the call: once it stops, later repos wait (their copies under 7 days stand).
   const budget: Budget = rest.budget ?? { remaining: null, stopped: false };
   const d: EvidenceDeps = { ...rest, budget, now: o.now };
-  const named = o.jobId ?? '';
+  const only = o.jobId !== undefined ? sql()`AND a.job_id = ${o.jobId}` : sql()``;
   const stale = new Date(o.now.getTime() - TAKEN_MS);
   const free = () => sql()`(a.status = 'queued' OR (a.status = 'reading' AND a.taken_at < ${stale}))`;
   const queued = await sql()<Queued[]>`
     SELECT a.job_id, a.ref, a.name, a.repo_url, a.live_url, a.contracts, a.identical_pitch, j.thresholds
     FROM screen_applicants a JOIN screen_jobs j ON j.id = a.job_id
-    WHERE ${free()} AND j.expires_at > ${o.now}
-    ORDER BY (a.job_id = ${named}) DESC, j.created_at, a.job_id, a.ref
+    WHERE ${free()} AND j.expires_at > ${o.now} ${only}
+    ORDER BY j.created_at, a.job_id, a.ref
     LIMIT ${o.limit}`;
   let count = 0;
   const finished: string[] = [];
@@ -89,6 +94,12 @@ export async function workQueue(o: { now: Date; limit: number; jobId?: string; d
     if (!taken.length) continue;
     try {
       const { e, repo } = await readOne(a, read, d);
+      const notes = notesOf(e);
+      if (budget.stopped || (e.partial && notes.some((n) => n.includes('not read: budget')))) {
+        // Out of GitHub allowance: back in the queue for the next run, and this run stops.
+        await sql()`UPDATE screen_applicants SET status = 'queued', taken_at = NULL WHERE job_id = ${a.job_id} AND ref = ${a.ref} AND status = 'reading'`;
+        break;
+      }
       const key = repo ? repoKey(repo) : null;
       const deployers = [...new Set(e.onchain.map((c) => c.deployer?.toLowerCase()).filter((x): x is string => !!x))];
       const others = await sql()<{ ref: string; rows: Row[] | null }[]>`
@@ -105,8 +116,16 @@ export async function workQueue(o: { now: Date; limit: number; jobId?: string; d
         { key: 'xp.outcomes_rejected', value: xp.outcomes.rejected, basis: 'earnkit', read_at: at, note: 'reported by those programs' },
       ];
       const rows = [...flattenRows(e), ...xpRows].filter((r) => PUBLIC_BASES.has(r.basis));
-      if (!p.tier) {
-        await sql()`UPDATE screen_applicants SET status = 'failed', error = ${oneLine(e.notes[0] ?? 'read was partial')}, line = ${reviewerLine(p, e)},
+      if (!p.tier && notes.some(retryable)) {
+        const [r] = await sql()<{ status: string }[]>`UPDATE screen_applicants SET attempts = attempts + 1, taken_at = NULL,
+          status = CASE WHEN attempts + 1 >= ${MAX_ATTEMPTS} THEN 'failed' ELSE 'queued' END,
+          error = CASE WHEN attempts + 1 >= ${MAX_ATTEMPTS} THEN ${`read failed ${MAX_ATTEMPTS} times`} ELSE NULL END,
+          read_at = CASE WHEN attempts + 1 >= ${MAX_ATTEMPTS} THEN ${o.now}::timestamptz ELSE NULL END,
+          line = CASE WHEN attempts + 1 >= ${MAX_ATTEMPTS} THEN 'no tier: the read failed.' ELSE NULL END
+          WHERE job_id = ${a.job_id} AND ref = ${a.ref} AND status = 'reading' RETURNING status`;
+        if (r?.status !== 'failed') continue;
+      } else if (!p.tier) {
+        await sql()`UPDATE screen_applicants SET status = 'failed', error = ${oneLine(e.notes[0] ?? 'read was partial')}, line = 'no tier: the read failed.',
           rows = ${sql().json(rows as never)}, read_at = ${o.now} WHERE job_id = ${a.job_id} AND ref = ${a.ref} AND status = 'reading'`;
       } else {
         await sql()`UPDATE screen_applicants SET status = 'done', tier = ${p.tier}, flags = ${sql().json(p.flags)}, because = ${sql().json(p.because)},

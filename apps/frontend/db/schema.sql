@@ -278,6 +278,9 @@ CREATE TABLE IF NOT EXISTS screen_applicants (
 );
 -- A worker takes an applicant ('reading', taken_at) before reading it; one taken over 30 minutes ago is free again.
 ALTER TABLE screen_applicants ADD COLUMN IF NOT EXISTS taken_at timestamptz;
+-- Reads worth a retry (a timeout, a rate limit) go back to the queue; the third is final.
+ALTER TABLE screen_applicants ADD COLUMN IF NOT EXISTS attempts int NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS screen_jobs_created ON screen_jobs (created_at);
 CREATE INDEX IF NOT EXISTS screen_applicants_repo ON screen_applicants (repo_key, read_at);
 CREATE INDEX IF NOT EXISTS screen_applicants_status ON screen_applicants (status, job_id);
 CREATE INDEX IF NOT EXISTS screen_applicants_deployers ON screen_applicants USING gin (deployers);
