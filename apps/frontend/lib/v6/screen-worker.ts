@@ -24,6 +24,8 @@ export const SCREEN_DAILY_MS = 300_000;
 const TAKEN_MS = 30 * 60_000;
 /** A read worth a retry goes back to the queue; the third such read is final. */
 const MAX_ATTEMPTS = 3;
+/** Budget stops are not the applicant's fault, so they get a higher cap before the row is given up. */
+const MAX_BUDGET_STOPS = 10;
 
 export type WorkDeps = Partial<EvidenceDeps> & { evidence?: (s: Subject, d: EvidenceDeps) => Promise<Evidence> };
 type Queued = {
@@ -97,9 +99,16 @@ export async function workQueue(o: { now: Date; limit: number; jobId?: string; d
     try {
       const { e, repo } = await readOne(a, read, d);
       const notes = notesOf(e);
-      if (budget.stopped || (e.partial && notes.some((n) => n.includes('not read: budget')))) {
+      // Only the run's own budget flag, or EarnKit's exact note, means "out of allowance": a note built from a
+      // repo's file path never matches by substring. A budget requeue counts as an attempt too, with its own cap.
+      if (budget.stopped || (e.partial && notes.some((n) => n === 'not read: budget'))) {
         // Out of GitHub allowance: back in the queue for the next run, and this run stops.
-        await sql()`UPDATE screen_applicants SET status = 'queued', taken_at = NULL WHERE job_id = ${a.job_id} AND ref = ${a.ref} AND status = 'reading'`;
+        await sql()`UPDATE screen_applicants SET attempts = attempts + 1, taken_at = NULL,
+          status = CASE WHEN attempts + 1 >= ${MAX_BUDGET_STOPS} THEN 'failed' ELSE 'queued' END,
+          error = CASE WHEN attempts + 1 >= ${MAX_BUDGET_STOPS} THEN 'read failed: out of allowance on every run' ELSE NULL END,
+          read_at = CASE WHEN attempts + 1 >= ${MAX_BUDGET_STOPS} THEN ${o.now}::timestamptz ELSE NULL END,
+          line = CASE WHEN attempts + 1 >= ${MAX_BUDGET_STOPS} THEN 'no tier: the read failed.' ELSE NULL END
+          WHERE job_id = ${a.job_id} AND ref = ${a.ref} AND status = 'reading'`;
         break;
       }
       const key = repo ? repoKey(repo) : null;
