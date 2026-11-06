@@ -70,10 +70,12 @@ A project with a repo also needs a push in the last 60 days for used. Each appli
 the facts that placed it. A flag is a reason to look, not a verdict.
 
 A contract counts toward the tier only when it is plausibly the project's: its deployer is named in the repo, it
-was created by the repo's own deploy runs (`broadcast/`, `ignition/deployments/`), or it was deployed after the
-repo's first commit. A contract the repo only names (a router, Permit2, the 4337 EntryPoint, Multicall3, a price
-feed) is shown as `named in the repo, not counted`. A listed contract counts unless its deployer is not in the repo
-and it predates the repo (`claimed`). For a fork, the team and the recent commits are only the commits after the
+was created by one of the repo's deploy runs (`broadcast/`, `ignition/deployments/`) and its deployer is that run's
+sender, or it was deployed after `repo_since` (the later of the day GitHub created the repo and its first commit,
+since a commit date can be set to anything). A contract the repo only names (a router, Permit2, the 4337
+EntryPoint, Multicall3, a price feed) is shown as `named in the repo, not counted`; one a deploy file lists but
+someone else deployed as `deploy folder names it, deployer differs`. A listed contract counts unless its deployer
+is not in the repo and it predates `repo_since` (`claimed`). Deploy files over 2 MB are not read and are named. For a fork, the team and the recent commits are only the commits after the
 fork point; for a project built from a starter, the starter's maintainers are not counted as its team.
 
 Usage through a smart wallet or a paymaster (Coinbase Smart Wallet and other calls through the 4337 EntryPoint)

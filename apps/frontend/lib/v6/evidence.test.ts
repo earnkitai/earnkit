@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from '../v5/db';
 import { replayFetch } from '../v5/fixtures/github';
 import { blockscout, type Explorer } from './explorers';
-import { countedBy, createdIn, deployFiles, flattenRows, readEvidence } from './evidence';
+import { countedBy, deployFiles, deployRun, flattenRows, MAX_DEPLOY_BYTES, readCapped, readEvidence, repoSince } from './evidence';
 import { contract } from './fixtures/evidence-builder';
 import { replayExplorer } from './fixtures/explorer';
 import { fakeRdap, fakeSite } from './fixtures/site';
@@ -242,7 +242,7 @@ test('one budget across reads: a low remaining on one repo stops the next before
   assert.deepEqual(e.notes, ['not read: budget']);
 });
 
-test('deployFiles and createdIn: mainnet deploy runs only; CREATE and CREATE2 contracts, never the contracts called', () => {
+test('deployFiles and deployRun: mainnet deploy runs only; CREATE and CREATE2 contracts, never the contracts called; the senders', () => {
   assert.deepEqual(
     deployFiles([
       'broadcast/Deploy.s.sol/8453/run-latest.json',
@@ -251,37 +251,66 @@ test('deployFiles and createdIn: mainnet deploy runs only; CREATE and CREATE2 co
       'lib/x/broadcast/A.s.sol/1/run-latest.json',
       'contracts/ignition/deployments/chain-42161/deployed_addresses.json',
     ]),
-    [{ path: 'broadcast/Deploy.s.sol/8453/run-latest.json', chain: 'base' }, { path: 'contracts/ignition/deployments/chain-42161/deployed_addresses.json', chain: 'arbitrum' }],
+    [
+      { path: 'broadcast/Deploy.s.sol/8453/run-latest.json', chain: 'base', journal: null, size: null },
+      { path: 'contracts/ignition/deployments/chain-42161/deployed_addresses.json', chain: 'arbitrum', journal: null, size: null },
+    ],
   );
   const A = `0x${'a'.repeat(40)}`;
   const B = `0x${'B'.repeat(40)}`;
   const R = `0x${'9'.repeat(40)}`;
+  const S = `0x${'5e'.repeat(20)}`;
   const run = JSON.stringify({
     transactions: [
-      { transactionType: 'CREATE', contractAddress: A },
-      { transactionType: 'CALL', contractAddress: R },
+      { transactionType: 'CREATE', contractAddress: A, transaction: { from: S } },
+      { transactionType: 'CALL', contractAddress: R, transaction: { from: S } },
       { transactionType: 'CREATE2', contractAddress: null, additionalContracts: [{ address: B }] },
     ],
   });
-  assert.deepEqual(createdIn(run), [A, B.toLowerCase()]);
-  assert.deepEqual(createdIn(JSON.stringify({ 'Module#Token': A, 'Module#Note': 'hello' })), [A]);
-  assert.deepEqual(createdIn('not json'), []);
+  assert.deepEqual(deployRun(run), { created: [A, B.toLowerCase()], senders: [S] });
+  const journal = `{"type":"RUN_START"}\n{"networkInteraction":{"from":"${S.toUpperCase().replace('0X', '0x')}"}}\n`;
+  assert.deepEqual(deployRun(JSON.stringify({ 'Module#Token': A, 'Module#Note': 'hello' }), journal), { created: [A], senders: [S] });
+  assert.deepEqual(deployRun('not json'), { created: [], senders: [] });
+  const ig = deployFiles([{ path: 'ignition/deployments/chain-8453/deployed_addresses.json', size: 10 }, { path: 'ignition/deployments/chain-8453/journal.jsonl', size: 20 }]);
+  assert.deepEqual(ig[0].journal, { path: 'ignition/deployments/chain-8453/journal.jsonl', size: 20 });
 });
 
-test('countedBy: deployer in the repo, a deploy run, or a deploy after the first commit counts; named only never; a listed one unless claimed', () => {
-  const FIRST = '2026-01-01T00:00:00Z';
-  const old = contract({ deployed_at: '2023-03-01T00:00:00Z', deployer_matches_repo: false });
-  const fresh = contract({ deployed_at: '2026-03-01T00:00:00Z', deployer_matches_repo: false });
-  assert.deepEqual(countedBy(old, 'repo', FIRST), { counted: false, counted_reason: 'named in the repo, not counted' });
-  assert.deepEqual(countedBy({ ...old, deployer_matches_repo: true }, 'repo', FIRST), { counted: true, counted_reason: 'deployer is in the repo' });
-  assert.deepEqual(countedBy(old, 'deploy', FIRST), { counted: true, counted_reason: 'from a deploy folder' });
-  assert.deepEqual(countedBy(fresh, 'repo', FIRST), { counted: true, counted_reason: "deployed after the repo's first commit" });
-  assert.deepEqual(countedBy(fresh, 'subject', FIRST), { counted: true, counted_reason: "deployed after the repo's first commit" });
-  assert.deepEqual(countedBy(old, 'subject', FIRST), { counted: false, counted_reason: 'claimed; deployer not in the repo and deployed before the repo' });
+test('countedBy: deployer in the repo, a deploy run its sender deployed, or a deploy after repo_since counts; named only never; a listed one unless claimed', () => {
+  const SINCE = '2026-01-01T00:00:00Z';
+  const D = `0x${'d'.repeat(40)}`;
+  const old = contract({ deployer: D, deployed_at: '2023-03-01T00:00:00Z', deployer_matches_repo: false });
+  const fresh = contract({ deployer: D, deployed_at: '2026-03-01T00:00:00Z', deployer_matches_repo: false });
+  assert.deepEqual(countedBy(old, 'repo', SINCE), { counted: false, counted_reason: 'named in the repo, not counted' });
+  assert.deepEqual(countedBy({ ...old, deployer_matches_repo: true }, 'repo', SINCE), { counted: true, counted_reason: 'deployer is in the repo' });
+  assert.deepEqual(countedBy(old, 'deploy', SINCE, [D]), { counted: true, counted_reason: 'from a deploy folder' });
+  // A deploy file is not proof alone: a run naming someone else's old contract does not count.
+  assert.deepEqual(countedBy(old, 'deploy', SINCE, [`0x${'e'.repeat(40)}`]), { counted: false, counted_reason: 'deploy folder names it, deployer differs' });
+  assert.deepEqual(countedBy(old, 'deploy', SINCE), { counted: false, counted_reason: 'deploy folder names it, deployer differs' });
+  assert.deepEqual(countedBy(fresh, 'deploy', SINCE, []), { counted: true, counted_reason: 'deployed after repo_since' });
+  assert.deepEqual(countedBy(fresh, 'repo', SINCE), { counted: true, counted_reason: 'deployed after repo_since' });
+  assert.deepEqual(countedBy(fresh, 'subject', SINCE), { counted: true, counted_reason: 'deployed after repo_since' });
+  assert.deepEqual(countedBy(old, 'subject', SINCE), { counted: false, counted_reason: 'claimed; deployer not in the repo and deployed before repo_since' });
   // No repo to hold it against: a listed contract counts.
   assert.deepEqual(countedBy(old, 'subject', null), { counted: true, counted_reason: 'listed by the applicant' });
   // Repo-found with no deploy date: never counted.
-  assert.deepEqual(countedBy(contract({ deployed_at: null }), 'repo', FIRST), { counted: false, counted_reason: 'named in the repo, not counted' });
+  assert.deepEqual(countedBy(contract({ deployed_at: null }), 'repo', SINCE), { counted: false, counted_reason: 'named in the repo, not counted' });
+});
+
+test('repoSince is the later of created_at and the first commit: a back-dated commit does not move it', () => {
+  assert.equal(repoSince('2026-06-01T00:00:00Z', '2019-01-01T00:00:00Z'), '2026-06-01T00:00:00.000Z');
+  assert.equal(repoSince('2024-01-01T00:00:00Z', '2025-02-01T00:00:00Z'), '2025-02-01T00:00:00.000Z');
+  assert.equal(repoSince(null, '2025-02-01T00:00:00Z'), '2025-02-01T00:00:00.000Z');
+  assert.equal(repoSince(null, null), null);
+  // Deployed after the (forged) first commit but before the repo was created on GitHub: not counted.
+  const c = contract({ deployer: `0x${'d'.repeat(40)}`, deployed_at: '2025-01-01T00:00:00Z', deployer_matches_repo: false });
+  assert.equal(countedBy(c, 'repo', repoSince('2026-06-01T00:00:00Z', '2019-01-01T00:00:00Z')).counted, false);
+  assert.equal(countedBy(c, 'subject', repoSince('2026-06-01T00:00:00Z', '2019-01-01T00:00:00Z')).counted, false);
+});
+
+test('readCapped: a body over the cap is null by content-length or by stream; under it is the text', async () => {
+  assert.equal(await readCapped(new Response('hello'), 10), 'hello');
+  assert.equal(await readCapped(new Response('x'.repeat(11)), 10), null);
+  assert.equal(await readCapped(new Response('small', { headers: { 'content-length': String(MAX_DEPLOY_BYTES + 1) } }), MAX_DEPLOY_BYTES), null);
 });
 
 test('a repo naming a router in config, deploying one contract from broadcast/, and a listed contract: only the plausible ones count', async () => {
@@ -289,43 +318,86 @@ test('a repo naming a router in config, deploying one contract from broadcast/, 
   const MINE = `0x${'7'.repeat(40)}`;
   const LISTED_NEW = `0x${'5'.repeat(40)}`;
   const LISTED_OLD = `0x${'6'.repeat(40)}`;
+  const FOREIGN = `0x${'8'.repeat(40)}`;
+  const BETWEEN = `0x${'4'.repeat(40)}`;
+  const ME = `0x${'d'.repeat(40)}`;
+  const OTHER = `0x${'f'.repeat(40)}`;
   const files: Record<string, string> = {
     'src/config.ts': `import { base } from 'viem/chains';\nexport const ROUTER = '${ROUTER}';\n`,
     'README.md': '# b',
-    'broadcast/Deploy.s.sol/8453/run-latest.json': JSON.stringify({ transactions: [{ transactionType: 'CREATE', contractAddress: MINE }, { transactionType: 'CALL', contractAddress: ROUTER }] }),
+    'broadcast/Deploy.s.sol/8453/run-latest.json': JSON.stringify({
+      transactions: [
+        { transactionType: 'CREATE', contractAddress: MINE, transaction: { from: ME } },
+        { transactionType: 'CALL', contractAddress: ROUTER, transaction: { from: ME } },
+        // A fake entry claiming someone else's contract: its deployer is not the run's sender.
+        { transactionType: 'CREATE', contractAddress: FOREIGN, transaction: { from: ME } },
+      ],
+    }),
+    'broadcast/Big.s.sol/8453/run-latest.json': '{}',
   };
+  const sizes: Record<string, number> = { 'broadcast/Big.s.sol/8453/run-latest.json': MAX_DEPLOY_BYTES + 1 };
   const calls: string[] = [];
   const gh = (async (input: RequestInfo | URL) => {
     const url = String(input);
     calls.push(url);
     if (url === 'https://api.github.com/repos/a/b') {
-      return Response.json({ full_name: 'a/b', html_url: 'https://github.com/a/b', homepage: null, default_branch: 'main', private: false, fork: false, created_at: '2026-01-01T00:00:00Z', pushed_at: '2026-11-01T00:00:00Z' });
+      return Response.json({ full_name: 'a/b', html_url: 'https://github.com/a/b', homepage: null, default_branch: 'main', private: false, fork: false, created_at: '2026-02-01T00:00:00Z', pushed_at: '2026-11-01T00:00:00Z' });
     }
-    if (url.includes('/git/trees/')) return Response.json({ tree: Object.keys(files).map((path) => ({ path, type: 'blob', size: 100 })) });
+    if (url.includes('/git/trees/')) return Response.json({ tree: Object.keys(files).map((path) => ({ path, type: 'blob', size: sizes[path] ?? 100 })) });
     if (url.endsWith('/commits?per_page=1')) return Response.json([{ commit: { committer: { date: '2026-01-01T00:00:00Z' } } }]);
     const raw = url.match(/^https:\/\/raw\.githubusercontent\.com\/a\/b\/main\/(.+)$/)?.[1];
     if (raw) return files[decodeURIComponent(raw)] !== undefined ? new Response(files[decodeURIComponent(raw)]) : new Response('', { status: 404 });
     return url.includes('/search/issues') ? Response.json({ total_count: 0, items: [] }) : Response.json([]);
   }) as typeof fetch;
-  const born: Record<string, string> = { [ROUTER]: '2023-03-01T00:00:00Z', [MINE]: '2025-06-01T00:00:00Z', [LISTED_NEW]: '2026-03-01T00:00:00Z', [LISTED_OLD]: '2024-01-01T00:00:00Z' };
+  // The first commit says 2026-01-01; GitHub created the repo 2026-02-01, so repo_since is 2026-02-01.
+  const born: Record<string, string> = {
+    [ROUTER]: '2023-03-01T00:00:00Z', [MINE]: '2025-06-01T00:00:00Z', [FOREIGN]: '2024-05-01T00:00:00Z',
+    [LISTED_NEW]: '2026-03-01T00:00:00Z', [LISTED_OLD]: '2024-01-01T00:00:00Z', [BETWEEN]: '2026-01-15T00:00:00Z',
+  };
+  const deployer: Record<string, string> = { [MINE]: ME };
   const explorer: Explorer = {
-    contractInfo: async (_c, a) => ({ is_contract: true, verified_source: true, name: null, deployer: `0x${'d'.repeat(40)}`, deployed_at: born[a] ?? null, created_tx: null }),
+    contractInfo: async (_c, a) => ({ is_contract: true, verified_source: true, name: null, deployer: deployer[a] ?? OTHER, deployed_at: born[a] ?? null, created_tx: null }),
     txsTo: async () => [],
     firstTxs: async () => [],
   };
   const e = await readEvidence(
-    { repo_url: 'https://github.com/a/b', contracts: [{ chain: 'base', address: LISTED_NEW }, { chain: 'base', address: LISTED_OLD }] },
+    { repo_url: 'https://github.com/a/b', contracts: [{ chain: 'base', address: LISTED_NEW }, { chain: 'base', address: LISTED_OLD }, { chain: 'base', address: BETWEEN }] },
     { gh, explorer: () => explorer, probe: fakeSite().probe, rdap: fakeRdap().rdap, now: NOW, cache: false },
   );
   const by = new Map(e.onchain.map((c) => [c.address, c]));
-  assert.deepEqual(e.onchain.map((c) => c.address), [LISTED_NEW, LISTED_OLD, MINE, ROUTER]);
-  assert.deepEqual([by.get(ROUTER)!.counted, by.get(ROUTER)!.counted_reason], [false, 'named in the repo, not counted']);
-  assert.deepEqual([by.get(MINE)!.counted, by.get(MINE)!.counted_reason], [true, 'from a deploy folder']);
-  assert.deepEqual([by.get(LISTED_NEW)!.counted, by.get(LISTED_NEW)!.counted_reason], [true, "deployed after the repo's first commit"]);
-  assert.deepEqual([by.get(LISTED_OLD)!.counted, by.get(LISTED_OLD)!.counted_reason], [false, 'claimed; deployer not in the repo and deployed before the repo']);
+  assert.deepEqual(e.onchain.map((c) => c.address), [LISTED_NEW, LISTED_OLD, BETWEEN, MINE, FOREIGN, ROUTER]);
+  const why = (a: string) => [by.get(a)!.counted, by.get(a)!.counted_reason];
+  assert.deepEqual(why(ROUTER), [false, 'named in the repo, not counted']);
+  assert.deepEqual(why(MINE), [true, 'from a deploy folder']);
+  assert.deepEqual(why(FOREIGN), [false, 'deploy folder names it, deployer differs']);
+  assert.deepEqual(why(LISTED_NEW), [true, 'deployed after repo_since']);
+  assert.deepEqual(why(LISTED_OLD), [false, 'claimed; deployer not in the repo and deployed before repo_since']);
+  // After the commit date, before GitHub's created_at: not counted.
+  assert.deepEqual(why(BETWEEN), [false, 'claimed; deployer not in the repo and deployed before repo_since']);
+  // The oversized deploy file is skipped by its tree size, never fetched, and named.
+  assert.ok(e.notes.includes('deploy file over 2 MB not read: broadcast/Big.s.sol/8453/run-latest.json'), JSON.stringify(e.notes));
+  assert.ok(!calls.some((u) => u.includes('Big.s.sol')));
   assert.equal(e.partial, false, JSON.stringify([e.notes, e.code?.note, e.team?.note]));
   assert.ok(calls.includes('https://raw.githubusercontent.com/a/b/main/broadcast/Deploy.s.sol/8453/run-latest.json'));
   const rows = new Map(e.rows.map((r) => [r.key, r]));
-  assert.equal(rows.get('onchain[3].counted')?.value, false);
-  assert.equal(rows.get('onchain[3].counted_reason')?.value, 'named in the repo, not counted');
+  assert.equal(rows.get('onchain[5].counted')?.value, false);
+  assert.equal(rows.get('onchain[5].counted_reason')?.value, 'named in the repo, not counted');
+});
+
+test('a deploy file whose body runs past 2 MB is cut off, never parsed, and named', async () => {
+  const big = `{"transactions":[${'{"transactionType":"CALL"},'.repeat(80_000)}{}]}`;
+  assert.ok(big.length > MAX_DEPLOY_BYTES);
+  const gh = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === 'https://api.github.com/repos/a/b') return Response.json({ full_name: 'a/b', html_url: '', homepage: null, default_branch: 'main', private: false, created_at: '2026-01-01T00:00:00Z', pushed_at: '2026-11-01T00:00:00Z' });
+    // The tree understates the size; the stream cap still holds.
+    if (url.includes('/git/trees/')) return Response.json({ tree: [{ path: 'README.md', type: 'blob', size: 3 }, { path: 'broadcast/D.s.sol/8453/run-latest.json', type: 'blob', size: 10 }] });
+    if (url.endsWith('/README.md')) return new Response('# b');
+    if (url.includes('run-latest.json')) return new Response(big);
+    return url.includes('/search/issues') ? Response.json({ total_count: 0, items: [] }) : Response.json([]);
+  }) as typeof fetch;
+  const e = await readEvidence({ repo_url: 'https://github.com/a/b' }, { gh, explorer: () => null, probe: fakeSite().probe, rdap: fakeRdap().rdap, now: NOW, cache: false });
+  assert.deepEqual(e.notes, ['deploy file over 2 MB not read: broadcast/D.s.sol/8453/run-latest.json']);
+  assert.deepEqual(e.onchain, []);
+  assert.equal(e.partial, false);
 });

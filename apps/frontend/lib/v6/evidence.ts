@@ -60,8 +60,11 @@ type RepoBlock = {
   team: TeamRows;
   depth: DepthRows;
   contracts: { chain: string; address: string }[];
-  /** Contracts created by the repo's own deploy runs (broadcast/, ignition/deployments/). */
-  deploy_contracts: { chain: string; address: string }[];
+  /** Contracts created by the repo's own deploy runs (broadcast/, ignition/deployments/), with the runs' senders. */
+  deploy_contracts: { chain: string; address: string; senders: string[] }[];
+  deploy_notes: string[];
+  /** The repo object's created_at, server-set. */
+  created_at: string | null;
   repo_addresses: string[];
   homepage: string | null;
 };
@@ -102,7 +105,8 @@ function isRepoBlock(v: unknown): v is RepoBlock {
   return (
     isObject(v) && hasKeys(v.code, CODE_KEYS) && hasKeys(v.team, TEAM_KEYS) && Array.isArray((v.team as TeamRows).logins) &&
     hasKeys(v.depth, ['integrations', 'chains_mainnet', 'chains_testnet']) && Array.isArray(v.contracts) &&
-    Array.isArray(v.deploy_contracts) && Array.isArray(v.repo_addresses) && (v.homepage === null || typeof v.homepage === 'string')
+    Array.isArray(v.deploy_contracts) && v.deploy_contracts.every((c) => isObject(c) && Array.isArray(c.senders)) &&
+    Array.isArray(v.deploy_notes) && (v.created_at === null || typeof v.created_at === 'string') && Array.isArray(v.repo_addresses) && (v.homepage === null || typeof v.homepage === 'string')
   );
 }
 /** Cached contract rows of the shape this code writes. Pure. */
@@ -166,74 +170,139 @@ function addressesIn(read: RepoRead): string[] {
 const DEPLOY_FILE = /(?:^|\/)broadcast\/[^/]+\/(\d{1,8})\/run-latest\.json$|(?:^|\/)ignition\/deployments\/chain-(\d{1,8})\/deployed_addresses\.json$/;
 /** Deploy-run files read per repo. */
 const MAX_DEPLOY_FILES = 3;
+/** A deploy-run file larger than this is not read: real runs are kilobytes; anything bigger is not parsed. */
+export const MAX_DEPLOY_BYTES = 2 * 1024 * 1024;
+type TreeFile = { path: string; size?: number };
+/** One deploy run: the file holding its contracts and, for Ignition, the journal holding its senders. */
+export type DeployFile = { path: string; chain: string; journal: TreeFile | null; size: number | null };
 
 /** The repo's deploy-run files on a mainnet (Foundry broadcast, Hardhat Ignition), with their chain. Pure. */
-export function deployFiles(paths: string[]): { path: string; chain: string }[] {
-  const out: { path: string; chain: string }[] = [];
-  for (const p of paths) {
+export function deployFiles(tree: (string | TreeFile)[]): DeployFile[] {
+  const files = tree.map((t) => (typeof t === 'string' ? { path: t } : t));
+  const out: DeployFile[] = [];
+  for (const { path: p, size } of files) {
     if (/(^|\/)(node_modules|lib|vendor)\//.test(p)) continue;
     const m = DEPLOY_FILE.exec(p);
     const hit = m ? chainOfId(Number(m[1] ?? m[2])) : null;
-    if (hit?.mainnet && out.length < MAX_DEPLOY_FILES) out.push({ path: p, chain: hit.chain });
+    if (!hit?.mainnet || out.length >= MAX_DEPLOY_FILES) continue;
+    const journal = m![2] ? files.find((f) => f.path === p.replace(/deployed_addresses\.json$/, 'journal.jsonl')) ?? null : null;
+    out.push({ path: p, chain: hit.chain, journal, size: size ?? null });
   }
   return out;
 }
 
 const ADDRESS = /^0x[0-9a-f]{40}$/i;
-/** The contracts a deploy-run file says were created: CREATE and CREATE2 runs and their extra contracts, or Ignition's list. Pure. */
-export function createdIn(text: string): string[] {
+const addresses = (xs: unknown[]) => [...new Set(xs.filter((a): a is string => typeof a === 'string' && ADDRESS.test(a)).map((a) => a.toLowerCase()))];
+/**
+ * What a deploy-run file says: the contracts created (CREATE and CREATE2 runs and their extra contracts, or
+ * Ignition's list) and the addresses that sent the run (broadcast `from`; for Ignition, its journal's). Pure.
+ */
+export function deployRun(text: string, journal: string | null = null): { created: string[]; senders: string[] } {
   let body: unknown;
   try {
     body = JSON.parse(text);
   } catch {
-    return [];
+    return { created: [], senders: [] };
   }
-  if (!isObject(body)) return [];
-  const out: unknown[] = [];
+  if (!isObject(body)) return { created: [], senders: [] };
+  const created: unknown[] = [];
+  const senders: unknown[] = [];
   if (Array.isArray(body.transactions)) {
     for (const t of body.transactions) {
-      if (!isObject(t) || !/^CREATE2?$/.test(String(t.transactionType))) continue;
-      out.push(t.contractAddress);
-      if (Array.isArray(t.additionalContracts)) out.push(...t.additionalContracts.map((c) => (isObject(c) ? c.address : null)));
+      if (!isObject(t)) continue;
+      if (isObject(t.transaction)) senders.push(t.transaction.from);
+      if (!/^CREATE2?$/.test(String(t.transactionType))) continue;
+      created.push(t.contractAddress);
+      if (Array.isArray(t.additionalContracts)) created.push(...t.additionalContracts.map((c) => (isObject(c) ? c.address : null)));
     }
-  } else out.push(...Object.values(body));
-  return [...new Set(out.filter((a): a is string => typeof a === 'string' && ADDRESS.test(a)).map((a) => a.toLowerCase()))];
+    if (Array.isArray(body.receipts)) senders.push(...body.receipts.map((r) => (isObject(r) ? r.from : null)));
+  } else {
+    created.push(...Object.values(body));
+    for (const m of (journal ?? '').matchAll(/"from"\s*:\s*"(0x[0-9a-fA-F]{40})"/g)) senders.push(m[1]);
+  }
+  return { created: addresses(created), senders: addresses(senders) };
 }
 
-/** Reads the deploy-run files from raw.githubusercontent.com: the contracts and whether any read failed. */
-async function readDeployContracts(read: RepoRead, paths: string[], f: typeof fetch) {
-  const contracts: { chain: string; address: string }[] = [];
+/** A response body as text when it is at most `max` bytes, else null (the read stops there). */
+export async function readCapped(res: Response, max: number): Promise<string | null> {
+  const length = Number(res.headers.get('content-length'));
+  if (Number.isFinite(length) && length > max) {
+    await res.body?.cancel().catch(() => {});
+    return null;
+  }
+  if (!res.body) return '';
+  const reader = res.body.getReader();
+  const parts: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    parts.push(value);
+  }
+  return new TextDecoder().decode(Buffer.concat(parts));
+}
+
+type DeployContract = { chain: string; address: string; senders: string[] };
+/** Reads the deploy-run files from raw.githubusercontent.com: the contracts with their run's senders, notes, and whether a read failed. */
+async function readDeployContracts(read: RepoRead, tree: TreeFile[], f: typeof fetch) {
+  const contracts: DeployContract[] = [];
+  const notes: string[] = [];
   let failed = false;
-  for (const { path, chain } of deployFiles(paths)) {
-    const url = `https://raw.githubusercontent.com/${read.repo.full_name}/${encodeURIComponent(read.repo.default_branch)}/${path.split('/').map(encodeURIComponent).join('/')}`;
+  const raw = (path: string) => `https://raw.githubusercontent.com/${read.repo.full_name}/${encodeURIComponent(read.repo.default_branch)}/${path.split('/').map(encodeURIComponent).join('/')}`;
+  const get = async (file: TreeFile): Promise<string | null> => {
+    if ((file.size ?? 0) > MAX_DEPLOY_BYTES) return null;
+    const res = await f(raw(file.path), { signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) throw new Error(`raw ${res.status}`);
+    return readCapped(res, MAX_DEPLOY_BYTES);
+  };
+  for (const d of deployFiles(tree)) {
     try {
-      const res = await f(url, { signal: AbortSignal.timeout(10_000) });
-      if (!res.ok) throw new Error(`raw ${res.status}`);
-      for (const address of createdIn(await res.text())) if (address !== ZERO) contracts.push({ chain, address });
+      const text = await get({ path: d.path, size: d.size ?? undefined });
+      if (text === null) {
+        notes.push(`deploy file over 2 MB not read: ${d.path}`);
+        continue;
+      }
+      const journal = d.journal ? await get(d.journal) : null;
+      if (d.journal && journal === null) notes.push(`deploy file over 2 MB not read: ${d.journal.path}`);
+      const run = deployRun(text, journal);
+      for (const address of run.created) if (address !== ZERO) contracts.push({ chain: d.chain, address, senders: run.senders });
     } catch {
       failed = true;
     }
   }
-  return { contracts, failed };
+  return { contracts, notes, failed };
 }
 
 /** Where a contract came from: the applicant's list, the repo's deploy runs, or named in the repo's files. */
 export type ContractSource = 'subject' | 'deploy' | 'repo';
+
+/** Since when the repo existed: the later of its GitHub creation date and its first commit (a commit date can be set to anything). Pure. */
+export function repoSince(created_at: string | null, first_commit_at: string | null): string | null {
+  const times = [created_at, first_commit_at].map((t) => (t ? Date.parse(t) : NaN)).filter(Number.isFinite);
+  return times.length ? new Date(Math.max(...times)).toISOString() : null;
+}
+
 /**
- * Whether a contract counts toward placement, and why: the repo's deployer, its deploy runs, or a deploy
- * after the repo's first commit make it plausibly the builder's. A contract only named in the repo (a
- * router, an entry point, a price feed) never counts; a listed one counts unless the deployer is not in
- * the repo and it predates the repo. Pure.
+ * Whether a contract counts toward placement, and why: the repo's deployer, a deploy run whose sender
+ * deployed it, or a deploy after repo_since make it plausibly the builder's. A contract only named in the
+ * repo (a router, an entry point, a price feed) never counts; a listed one counts unless the deployer is
+ * not in the repo and it predates repo_since. `senders` are the deploy run's senders. Pure.
  */
-export function countedBy(c: OnchainRows, from: ContractSource, firstCommitAt: string | null): { counted: boolean; counted_reason: string } {
+export function countedBy(c: OnchainRows, from: ContractSource, since: string | null, senders: string[] = []): { counted: boolean; counted_reason: string } {
   if (c.deployer_matches_repo === true) return { counted: true, counted_reason: 'deployer is in the repo' };
-  if (from === 'deploy') return { counted: true, counted_reason: 'from a deploy folder' };
+  if (from === 'deploy' && c.deployer && senders.includes(c.deployer.toLowerCase())) return { counted: true, counted_reason: 'from a deploy folder' };
   const deployed = c.deployed_at ? Date.parse(c.deployed_at) : NaN;
-  const first = firstCommitAt ? Date.parse(firstCommitAt) : NaN;
+  const first = since ? Date.parse(since) : NaN;
   const known = Number.isFinite(deployed) && Number.isFinite(first);
-  if (known && deployed >= first) return { counted: true, counted_reason: "deployed after the repo's first commit" };
+  if (known && deployed >= first) return { counted: true, counted_reason: 'deployed after repo_since' };
+  if (from === 'deploy') return { counted: false, counted_reason: 'deploy folder names it, deployer differs' };
   if (from === 'repo') return { counted: false, counted_reason: 'named in the repo, not counted' };
-  if (known && c.deployer_matches_repo === false) return { counted: false, counted_reason: 'claimed; deployer not in the repo and deployed before the repo' };
+  if (known && c.deployer_matches_repo === false) return { counted: false, counted_reason: 'claimed; deployer not in the repo and deployed before repo_since' };
   return { counted: true, counted_reason: 'listed by the applicant' };
 }
 
@@ -286,13 +355,15 @@ export async function readEvidence(s: Subject, o: EvidenceDeps): Promise<Evidenc
         const code = await readCode(read, g);
         const team = await readTeam(read.repo.full_name, g, { fork: forkRef(read), drop: starterMaintainers(code.template_name) });
         const paths = read.tree.filter((t) => t.type === 'blob').map((t) => t.path);
-        const deploy = await readDeployContracts(read, paths, gh);
+        const deploy = await readDeployContracts(read, read.tree.filter((t) => t.type === 'blob'), gh);
         block = {
           code,
           team,
           depth: readDepth(read),
           contracts: detectCode(read.files, paths).contracts,
           deploy_contracts: deploy.contracts,
+          deploy_notes: deploy.notes,
+          created_at: read.repo.created_at ?? null,
           repo_addresses: addressesIn(read),
           homepage: read.repo.homepage?.trim() || null,
         };
@@ -322,7 +393,7 @@ export async function readEvidence(s: Subject, o: EvidenceDeps): Promise<Evidenc
 
   // ---- contracts: the subject's first, then the repo's deploy runs, then those named in its files ----
   const seen = new Set<string>();
-  const targets: { chain: string; address: string; from: ContractSource }[] = [];
+  const targets: { chain: string; address: string; from: ContractSource; senders: string[] }[] = [];
   const given: unknown[] = Array.isArray(s.contracts) ? s.contracts : [];
   const wellFormed: { chain: string; address: string }[] = [];
   given.forEach((c, i) => {
@@ -331,12 +402,13 @@ export async function readEvidence(s: Subject, o: EvidenceDeps): Promise<Evidenc
     else wellFormed.push(c as { chain: string; address: string });
   });
   const b = block;
-  const sources: [ContractSource, { chain: string; address: string }[]][] = [
+  if (b) notes.push(...b.deploy_notes);
+  const sources: [ContractSource, { chain: string; address: string; senders?: string[] }[]][] = [
     ['subject', wellFormed], ['deploy', b?.deploy_contracts ?? []], ['repo', b?.contracts ?? []],
   ];
   for (const [from, list] of sources) {
     for (const c of list) {
-      const t = { chain: c.chain.trim().toLowerCase(), address: c.address.trim().toLowerCase(), from };
+      const t = { chain: c.chain.trim().toLowerCase(), address: c.address.trim().toLowerCase(), from, senders: c.senders ?? [] };
       const id = `${t.chain}:${t.address}`;
       if (seen.has(id) || targets.length >= MAX_CONTRACTS) continue;
       seen.add(id);
@@ -344,7 +416,7 @@ export async function readEvidence(s: Subject, o: EvidenceDeps): Promise<Evidenc
     }
   }
   const repoAddresses = b?.repo_addresses ?? [];
-  const firstCommitAt = b?.code.first_commit_at ?? null;
+  const since = b ? repoSince(b.created_at, b.code.first_commit_at) : null;
   const onchain: OnchainRows[] = [];
   const onchainTimes: string[] = [];
   for (const t of targets) {
@@ -363,7 +435,7 @@ export async function readEvidence(s: Subject, o: EvidenceDeps): Promise<Evidenc
       if (retryable(r.note)) partial = true;
       else if (explorer && useCache) await cachePut(ck, 'contract', r, null, now);
     }
-    onchain.push({ ...r, ...countedBy(r, t.from, firstCommitAt) });
+    onchain.push({ ...r, ...countedBy(r, t.from, since, t.senders) });
   }
 
   const e: Evidence = {

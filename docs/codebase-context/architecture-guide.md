@@ -192,28 +192,37 @@ v6.0 adds a screening engine beside the v5 tools; nothing in `find` or `track` r
 
 **The evidence flow.** `readEvidence(subject, deps)` in `evidence.ts` takes a repo link, a site and contracts and
 returns `Evidence`: typed blocks plus `rows` (one per value, with `basis`, `read_at` and `note`). One GitHub repo
-read feeds `code.ts` (fork parent and own share, starter overlap against `boilerplates.json`, 90-day activity),
-`team.ts` (contributors, account ages, logins) and `depth.ts` (integrations from `integrations.ts`, chains). Each
-contract, the subject's first and then the ones found in the repo (at most 10), goes through `onchain.ts` over
-the keyless Blockscout client in `explorers.ts`; chains without a reader are shown as claimed. `live.ts` probes the
-site (safe-fetch, 10 s), reads its title and GitHub links, and the domain's age from RDAP. A failed read is null
-with a note; nothing throws. GitHub calls share one `Budget` that stops under 500 left.
+read feeds `code.ts` (fork parent, own commits and share, starter overlap against `boilerplates.json` and files
+beyond it, 60 and 90-day activity; a fork's window is only its compare commits after the fork point), `team.ts`
+(contributors, account ages, logins; a matched starter's recorded maintainers dropped) and `depth.ts` (integrations
+from `integrations.ts`, chains). Each contract, the subject's first, then the repo's deploy runs (`broadcast/`,
+`ignition/deployments/`, read raw), then those named in its files (at most 10), goes through `onchain.ts` over the
+keyless Blockscout client in `explorers.ts`; chains without a reader are shown as claimed. `countedBy` marks each
+`counted` (deployer in the repo, a deploy run whose sender is the deployer, or deployed after `repoSince`: the later
+of GitHub's `created_at` and the first commit; a listed one unless it predates that with a foreign deployer) with
+`counted_reason`. Deploy files are capped at 2 MB (tree size, then the streamed body). `live.ts` probes the site (safe-fetch, https only, 10 s),
+reads its title and GitHub links, and the domain's age from RDAP. A failed read is null with a note; nothing
+throws. GitHub calls share one `Budget` per run (passed in by `screen.ts`) that stops under 500 left; once stopped
+a repo is not read (`not read: budget`).
 
 **The cache.** `evidence_cache` keeps a repo block 7 days while the repo's `pushed_at` holds (one repo object read
 checks it) and a contract block 7 days. A partial block (a budget stop, a failed read) and the live rows are never
 cached. `--no-cache` on the script skips the table both ways.
 
 **The tiers.** `tiers.ts` `place(evidence, counts, thresholds?, now?)` is pure and names one of five tiers, flags
-first: flagged (starter or fork with little own work, an identical pitch, shared contributors, unfunded senders),
-used (site loads, 25 or more wallets paying their own gas on one mainnet contract in 90 days, pushed within 60
-days), live (site loads or a mainnet contract with transactions), building (recent commits, nothing live),
-unverified (nothing recent EarnKit could check). Only real mainnet contracts count. `DEFAULT_THRESHOLDS` carry
+first: flagged (a starter match with under 10 own files, a starter fork with under 20 commits after the fork or
+another fork under 20% own work, an identical pitch, shared contributors, unfunded senders), used (site loads, 25
+or more wallets the deployer did not fund on one mainnet contract in 90 days, pushed within 60 days), live (site
+loads or a mainnet contract with transactions), building (commits in 60 days, nothing live), unverified (nothing
+recent EarnKit could check). Only counted mainnet contracts count; the others are listed with their reason. `DEFAULT_THRESHOLDS` carry
 their reasons. `tier-words.ts` turns a placement into the reviewer's line and the builder's line.
 
 **The pilot script.** `pnpm screen <csv> --program <id> [--chain base] [--out <dir>] [--no-cache] [--thresholds
 <json>]` (`scripts/screen.mts` over `lib/v6/screen.ts`). `applicants.ts` parses the CSV (columns by name; a bad
-link or address nulls the field with a problem line), takes a repo from the site's GitHub links when none is
-given, and counts identical pitches (5-word shingles, 90 percent) and shared contributors inside the one list.
+link or address nulls the field with a problem line; headers normalized; repeated refs made unique), takes a repo
+from the site's GitHub links when none is given (never a starter's or SDK's owner, a matching word first, named
+as a problem line), and counts identical pitches (5-word shingles, 90 percent, pitches under 10 words ignored) and
+shared contributors inside the one list.
 Applicants are read one at a time; each prints `ref name: tier`; the summary prints the totals and the reads.
 `screen-report.ts` writes `<program>-<date>.md` and `.csv`: public evidence only, never a pitch. The program-facing
 page is `docs/screening-pilot.md`.
