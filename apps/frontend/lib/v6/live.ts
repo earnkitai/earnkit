@@ -3,7 +3,7 @@
  * looks like an app (a heuristic: a form, a script bundle or a wallet connect), the domain's age from
  * RDAP, the title and the GitHub repos it links. Never throws: what fails is null with a note.
  */
-import { HttpStatusError, safeProbePage, visibleText } from '../v5/safe-fetch';
+import { HttpStatusError, RedirectError, safeProbePage, visibleText } from '../v5/safe-fetch';
 import { registrableDomain } from '../v5/submit-hosts';
 import { repoKey } from '../v5/repo-facts';
 
@@ -73,6 +73,20 @@ export const rdapOrg: Rdap = async (domain) => {
   return { registered_at: at && Number.isFinite(Date.parse(at)) ? new Date(at).toISOString() : null };
 };
 
+/** Fixed words for a probe failure: never the error's own text. Pure. */
+function failure(e: unknown): string {
+  if (!(e instanceof Error)) return 'site did not load';
+  if (e.name === 'ErrorPageError') return 'site shows an error page';
+  if (e instanceof RedirectError) return 'site redirects more than once';
+  const m = e.message;
+  if (/^no answer within /.test(m)) return 'site did not load: no answer in time';
+  if (/^redirects to another site/.test(m)) return 'site redirects to another site';
+  if (/doesn't point to a public address/.test(m)) return 'site does not point to a public address';
+  if (/doesn't resolve$/.test(m)) return 'site domain does not resolve';
+  const status = /^answered (\d{3})/.exec(m)?.[1];
+  return status ? `site answered ${status}` : 'site did not load';
+}
+
 const isShared = (host: string) => SHARED.some((s) => host === s || host.endsWith(`.${s}`));
 
 /** Reads the live rows for `url`. Never throws. */
@@ -102,8 +116,7 @@ export async function readLive(url: string | null, o: { probe?: typeof safeProbe
     if (e instanceof HttpStatusError) {
       rows.status = e.status;
       notes.push(`site answered ${e.status}`);
-    } else if (e instanceof Error && e.name === 'ErrorPageError') notes.push('site shows an error page');
-    else notes.push(`site did not load: ${e instanceof Error ? e.message.slice(0, 120) : 'unknown'}`);
+    } else notes.push(failure(e));
   }
 
   if (isShared(host)) {

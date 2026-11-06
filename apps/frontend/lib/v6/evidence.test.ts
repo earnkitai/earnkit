@@ -1,4 +1,4 @@
-import { after, test } from 'node:test';
+import { after, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from '../v5/db';
 import { replayFetch } from '../v5/fixtures/github';
@@ -8,6 +8,10 @@ import { replayExplorer } from './fixtures/explorer';
 import { fakeRdap, fakeSite } from './fixtures/site';
 
 after(() => sql().end());
+// Each test starts from an empty cache and sets up what it needs.
+beforeEach(async () => {
+  await sql()`DELETE FROM evidence_cache`;
+});
 
 const NOW = new Date('2026-11-06T12:00:00Z');
 const BASE = 'https://base.blockscout.com/api/v2';
@@ -26,7 +30,6 @@ const SUBJECT = {
 };
 
 test('onchain-reaction and its Base contract fill every block; the second call reads only the repo object (cache hit)', async () => {
-  await sql()`DELETE FROM evidence_cache`;
   const e = await readEvidence(SUBJECT, deps(replay('onchain-reaction').fetch, replayExplorer('onchain-reaction').fetch));
   assert.equal(e.partial, false);
   assert.equal(e.repo, 'shijas786/onchain-reaction');
@@ -66,7 +69,6 @@ test('onchain-reaction and its Base contract fill every block; the second call r
 });
 
 test('budget stop keeps what was read and does not cache', async () => {
-  await sql()`DELETE FROM evidence_cache`;
   const rec = replay('earnkit');
   // The team's own reads (accounts and their repos) are refused for the hour.
   const gh = (async (input: RequestInfo | URL, init?: RequestInit) =>
@@ -123,7 +125,6 @@ test('a repo link not on GitHub is no repo; a chain without a reader is noted, n
 });
 
 test('an explorer 429 is partial and the contract is not cached', async () => {
-  await sql()`DELETE FROM evidence_cache`;
   const busy = (async () => new Response('slow down', { status: 429 })) as typeof fetch;
   const e = await readEvidence({ contracts: [{ chain: 'base', address: CONTRACT }] }, deps(replay('earnkit').fetch, busy));
   assert.equal(e.onchain[0].note, 'not read: explorer 429');
@@ -161,4 +162,50 @@ test('flattenRows: one row per scalar, arrays as arrays, each with its basis and
   for (const r of rows) assert.match(r.read_at, /^\d{4}-\d\d-\d\dT/);
   const words = /score|rank|grade|points|coin|token|streak|—/i;
   for (const r of rows) assert.ok(!words.test(r.note ?? ''), r.note ?? '');
+});
+
+test('a capped read is noted on its row whatever the value', async () => {
+  const e = await readEvidence({ repo_url: 'https://github.com/earnkitai/earnkit' }, deps(replay('earnkit').fetch, replayExplorer('onchain-reaction').fetch));
+  const by = new Map(e.rows.map((r) => [r.key, r]));
+  assert.equal(by.get('code.commits_90d')?.value, 300);
+  assert.equal(by.get('code.commits_90d')?.note, 'commits_90d capped at 300');
+  assert.equal(by.get('code.active_weeks_90d')?.note, 'active_weeks_90d from newest 300 commits');
+  // A row the note does not name, with a value, carries nothing.
+  assert.equal(by.get('code.has_tests')?.note, null);
+  assert.match(by.get('team.logins')?.note ?? '', /commits window capped at 300/);
+});
+
+test('a note names a row only as a whole key: domain_age_days is not domain', async () => {
+  const e = await readEvidence({ live_url: 'https://onchainreaction.vercel.app/' }, deps(replay('earnkit').fetch, replayExplorer('onchain-reaction').fetch));
+  const by = new Map(e.rows.map((r) => [r.key, r]));
+  assert.equal(by.get('live.domain')?.note, null);
+  assert.equal(by.get('live.domain_age_days')?.note, 'from RDAP; domain_age_days: shared host');
+});
+
+test('a cached row of the wrong shape is a miss, then replaced', async () => {
+  const at = NOW;
+  await sql()`INSERT INTO evidence_cache (key, kind, rows, pushed_at, read_at) VALUES
+    ('repo:shijas786/onchain-reaction', 'repo', ${sql().json({ code: 'x' } as never)}, '2026-05-06T23:17:08Z', ${at}),
+    (${`contract:base:${CONTRACT}`}, 'contract', ${sql().json([1, 2] as never)}, null, ${at})`;
+  const e = await readEvidence(SUBJECT, deps(replay('onchain-reaction').fetch, replayExplorer('onchain-reaction').fetch));
+  assert.ok(e.code && e.code.commits_90d === 0);
+  assert.ok(e.team && Array.isArray(e.team.logins));
+  assert.equal(e.onchain[0].is_contract, true);
+  assert.ok(e.reads.github > 1 && e.reads.explorer > 0);
+  const [row] = await sql()<{ rows: { code: unknown } }[]>`SELECT rows FROM evidence_cache WHERE key = 'repo:shijas786/onchain-reaction'`;
+  assert.equal(typeof row.rows.code, 'object');
+});
+
+test('subject contracts without a chain or a 0x address are skipped and named; nothing throws', async () => {
+  const contracts = [
+    { address: CONTRACT },
+    { chain: 'base', address: '0x1234' },
+    null,
+    { chain: 'base', address: CONTRACT },
+  ] as unknown as { chain: string; address: string }[];
+  const e = await readEvidence({ contracts, live_url: 42 as unknown as string }, deps(replay('earnkit').fetch, replayExplorer('onchain-reaction').fetch));
+  assert.deepEqual(e.notes, ['contract 1 skipped: no chain', 'contract 2 skipped: not a 0x address', 'contract 3 skipped: not a contract']);
+  assert.equal(e.onchain.length, 1);
+  assert.equal(e.onchain[0].address, CONTRACT);
+  assert.equal(e.live.note, 'no live url');
 });

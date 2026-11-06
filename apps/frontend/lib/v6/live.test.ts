@@ -81,3 +81,28 @@ test('isApp: a form, a bundle script or a wallet marker', () => {
   assert.equal(isApp('<button>Connect Wallet</button>'), true);
   assert.equal(isApp('<p>Uses RainbowKit</p>'), true);
 });
+
+test('a failed load is told in fixed words, never the error text', async () => {
+  const cases: [Error, string][] = [
+    [Object.assign(new Error('no answer within 10 s'), { name: 'SafeFetchError' }), 'site did not load: no answer in time'],
+    [new Error('redirects to another site (evil.example)'), 'site redirects to another site'],
+    [new Error("x.example doesn't point to a public address"), 'site does not point to a public address'],
+    [new Error("x.example doesn't resolve"), 'site domain does not resolve'],
+    [Object.assign(new Error('shows an error page (Bad Gateway)'), { name: 'ErrorPageError' }), 'site shows an error page'],
+    [new Error("couldn't fetch it (ECONNRESET token=abc)"), 'site did not load'],
+  ];
+  for (const [err, note] of cases) {
+    const l = await readLive('https://x.example.org/', { probe: async () => { throw err; }, rdap: async () => ({ registered_at: null }), now: NOW });
+    assert.equal(l.url_ok, false);
+    assert.equal(l.note?.split('; ')[0], note);
+  }
+  const words = /score|rank|grade|points|coin|token|streak|—/i;
+  for (const [, note] of cases) assert.ok(!words.test(note), note);
+  // A redirect past the one followed, through the real probe.
+  const site = fakeSite({
+    'https://hop.example.org/': { status: 301, body: '', location: 'https://hop.example.org/a' },
+    'https://hop.example.org/a': { status: 302, body: '', location: 'https://hop.example.org/b' },
+  });
+  const hop = await readLive('https://hop.example.org/', { probe: site.probe, rdap: async () => ({ registered_at: null }), now: NOW });
+  assert.equal(hop.note?.split('; ')[0], 'site redirects more than once');
+});

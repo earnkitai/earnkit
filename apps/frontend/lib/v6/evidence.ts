@@ -79,11 +79,30 @@ const counted = (f: typeof fetch, bump: () => void) =>
     return f(input, init);
   }) as typeof fetch;
 
-async function cacheGet<T>(key: string, now: Date): Promise<{ rows: T; pushed_at: string | null; read_at: Date } | null> {
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const hasKeys = (v: unknown, keys: string[]) => isObject(v) && keys.every((k) => k in v);
+const CODE_KEYS = ['fork_of', 'template_overlap', 'own_share', 'last_push_at', 'commits_90d', 'note'];
+const TEAM_KEYS = ['contributors_90d', 'top_share', 'account_ages_days', 'logins', 'note'];
+const ONCHAIN_KEYS = ['chain', 'address', 'mainnet', 'is_contract', 'deployer', 'tx_90d', 'senders_90d', 'funded_senders_90d', 'note'];
+/** A cached repo block of the shape this code writes. Pure. */
+function isRepoBlock(v: unknown): v is RepoBlock {
+  return (
+    isObject(v) && hasKeys(v.code, CODE_KEYS) && hasKeys(v.team, TEAM_KEYS) && Array.isArray((v.team as TeamRows).logins) &&
+    hasKeys(v.depth, ['integrations', 'chains_mainnet', 'chains_testnet']) && Array.isArray(v.contracts) &&
+    Array.isArray(v.repo_addresses) && (v.homepage === null || typeof v.homepage === 'string')
+  );
+}
+/** Cached contract rows of the shape this code writes. Pure. */
+function isOnchainRows(v: unknown): v is OnchainRows {
+  return hasKeys(v, ONCHAIN_KEYS) && typeof (v as OnchainRows).chain === 'string' && typeof (v as OnchainRows).address === 'string';
+}
+
+/** A cache row under 7 days old whose rows have the expected shape; anything else is a miss. */
+async function cacheGet<T>(key: string, now: Date, valid: (v: unknown) => v is T): Promise<{ rows: T; pushed_at: string | null; read_at: Date } | null> {
   try {
     const [row] = await sql()<{ rows: T; pushed_at: string | null; read_at: Date }[]>`
       SELECT rows, pushed_at, read_at FROM evidence_cache WHERE key = ${key}`;
-    if (!row) return null;
+    if (!row || !valid(row.rows)) return null;
     const age = now.getTime() - row.read_at.getTime();
     return age >= 0 && age < CACHE_DAYS * DAY ? row : null;
   } catch {
@@ -115,6 +134,14 @@ const repoWhy = (e: unknown): string => {
   return `not read: github ${e.status ?? 'error'}`;
 };
 
+/** Why a subject's contract cannot be read (no chain, not a 0x address), or null. Pure. */
+function contractProblem(c: unknown): string | null {
+  if (!isObject(c)) return 'not a contract';
+  if (typeof c.chain !== 'string' || !/^[a-z0-9][a-z0-9-]{0,31}$/i.test(c.chain.trim())) return 'no chain';
+  if (typeof c.address !== 'string' || !/^0x[0-9a-f]{40}$/i.test(c.address.trim())) return 'not a 0x address';
+  return null;
+}
+
 /** Every 0x address in the picked files and the README, lowercased: where a deployer may be listed. */
 function addressesIn(read: RepoRead): string[] {
   const texts = [...read.files.map((f) => f.text), read.readme ?? ''];
@@ -136,13 +163,13 @@ export async function readEvidence(s: Subject, o: EvidenceDeps): Promise<Evidenc
   let partial = false;
 
   // ---- the repo: code, team and depth from one read ----
-  const key = s.repo_url ? repoKey(s.repo_url) : null;
+  const key = typeof s.repo_url === 'string' ? repoKey(s.repo_url) : null;
   if (s.repo_url && !key) notes.push('repo not on github');
   let block: RepoBlock | null = null;
   let repoReadAt: string | null = null;
   if (key) {
     const ck = `repo:${key}`;
-    const hit = useCache ? await cacheGet<RepoBlock>(ck, now) : null;
+    const hit = useCache ? await cacheGet<RepoBlock>(ck, now, isRepoBlock) : null;
     let stop: string | null = null;
     if (hit) {
       try {
@@ -198,13 +225,21 @@ export async function readEvidence(s: Subject, o: EvidenceDeps): Promise<Evidenc
   const probe: typeof safeProbePage = (url, deps) => (reads.site++, realProbe(url, deps));
   const realRdap = o.rdap ?? rdapOrg;
   const rdap: Rdap = (d) => (reads.site++, realRdap(d));
-  const live = await readLive(s.live_url ?? block?.homepage ?? null, { probe, rdap, now });
+  const liveUrl = typeof s.live_url === 'string' && s.live_url.trim() ? s.live_url : (block?.homepage ?? null);
+  const live = await readLive(liveUrl, { probe, rdap, now });
   if (retryable(live.note)) partial = true;
 
   // ---- contracts: the subject's first, then the repo's ----
   const seen = new Set<string>();
   const targets: { chain: string; address: string }[] = [];
-  for (const c of [...(s.contracts ?? []), ...(block?.contracts ?? [])]) {
+  const given: unknown[] = Array.isArray(s.contracts) ? s.contracts : [];
+  const wellFormed: { chain: string; address: string }[] = [];
+  given.forEach((c, i) => {
+    const why = contractProblem(c);
+    if (why) notes.push(`contract ${i + 1} skipped: ${why}`);
+    else wellFormed.push(c as { chain: string; address: string });
+  });
+  for (const c of [...wellFormed, ...(block?.contracts ?? [])]) {
     const t = { chain: c.chain.trim().toLowerCase(), address: c.address.trim().toLowerCase() };
     const id = `${t.chain}:${t.address}`;
     if (seen.has(id) || targets.length >= MAX_CONTRACTS) continue;
@@ -216,7 +251,7 @@ export async function readEvidence(s: Subject, o: EvidenceDeps): Promise<Evidenc
   const onchainTimes: string[] = [];
   for (const t of targets) {
     const ck = `contract:${t.chain}:${t.address}`;
-    const hit = useCache ? await cacheGet<OnchainRows>(ck, now) : null;
+    const hit = useCache ? await cacheGet<OnchainRows>(ck, now, isOnchainRows) : null;
     if (hit) {
       const r = hit.rows;
       // Whether the deployer is listed depends on the repo asking, so it is worked out again.
@@ -257,6 +292,20 @@ const LABEL: Record<string, string> = {
   'live.domain_age_days': 'from RDAP',
 };
 
+/** Readers' notes that limit rows without naming them. */
+const ALIASES: [RegExp, string[]][] = [
+  [/^contributors beyond \d+ not read/, ['logins', 'account_ages_days', 'prior_repos_used']],
+  [/^commits window capped at/, ['contributors_90d', 'top_share', 'logins']],
+  [/^counted the latest \d+ transactions only/, ['tx_90d', 'senders_90d', 'senders_30d', 'funded_senders_90d']],
+  [/sampled senders not read$/, ['funded_senders_90d']],
+];
+const escape = (k: string) => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** Whether a note segment names row `k`: the key as a word followed by a space, a colon or the end, or an alias. Pure. */
+function namesRow(seg: string, k: string): boolean {
+  if (new RegExp(`(^|[^\\w])${escape(k)}(?=[ :]|$)`).test(seg)) return true;
+  return ALIASES.some(([re, keys]) => re.test(seg) && keys.includes(k));
+}
+
 /** Every scalar of the typed blocks as a row with its basis and read time; arrays stay arrays. Pure. */
 export function flattenRows(e: Evidence): Row[] {
   const rows: Row[] = [];
@@ -264,15 +313,15 @@ export function flattenRows(e: Evidence): Row[] {
     if (!block) return;
     const segments = typeof block.note === 'string' ? block.note.split('; ') : [];
     const keys = Object.keys(block).filter((k) => k !== 'note');
-    const names = (seg: string) => keys.filter((k) => seg.includes(k));
+    const names = (seg: string) => keys.filter((k) => namesRow(seg, k));
     for (const k of keys) {
       const v = block[k];
       const key = `${prefix}.${k}`;
       const tag = LABEL[`${label}.${k}`] ?? null;
       const value = v === undefined ? null : (v as Row['value']);
-      // A null row carries why: the note segments naming it, else those naming no row (the block's).
+      // Every row carries the note segments naming it; a null row with none carries those naming no row (the block's).
       const own = segments.filter((seg) => names(seg).includes(k));
-      const why = value === null ? (own.length ? own : segments.filter((seg) => names(seg).length === 0)) : [];
+      const why = own.length || value !== null ? own : segments.filter((seg) => names(seg).length === 0);
       const note = [tag, ...why].filter(Boolean).join('; ') || null;
       rows.push({ key, value, basis, read_at: at, note });
     }
@@ -281,7 +330,7 @@ export function flattenRows(e: Evidence): Row[] {
   e.onchain.forEach((c, i) => {
     add(`onchain[${i}]`, c, 'explorer', e.read_times.onchain[i] ?? e.read_at, 'onchain');
     const f = rows.find((r) => r.key === `onchain[${i}].funded_senders_90d`);
-    if (f && f.value !== null && c.funded_sample !== null) f.note = `within ${c.funded_sample} sampled senders`;
+    if (f && f.value !== null && c.funded_sample !== null) f.note = [`within ${c.funded_sample} sampled senders`, f.note].filter(Boolean).join('; ');
   });
   const repoAt = e.read_times.repo ?? e.read_at;
   add('code', e.code, 'github', repoAt);
