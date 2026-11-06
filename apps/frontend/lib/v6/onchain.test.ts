@@ -16,6 +16,7 @@ test('a used contract: 25+ senders in 90 days, funded within senders, sample at 
   const { rec, explorer, now } = replay('paydence');
   const r = await readContract('base', rec.address, { explorer, repoAddresses: [], now });
   assert.equal(r.mainnet, true);
+  assert.equal(r.is_contract, true);
   assert.equal(r.verified_source, true);
   assert.ok(r.senders_90d! >= 25, `senders_90d ${r.senders_90d}`);
   assert.ok(r.senders_30d! <= r.senders_90d!);
@@ -43,6 +44,8 @@ test('unknown address is not usage', async () => {
   // A wallet with transfers but no code: not verified, no deployer, transfers still counted, nothing failed.
   const { rec, explorer, now } = replay('wallet');
   const r = await readContract('base', rec.address, { explorer, repoAddresses: [], now });
+  assert.equal(r.is_contract, false);
+  assert.equal(r.mainnet, true);
   assert.equal(r.verified_source, false);
   assert.equal(r.deployer, null);
   assert.equal(r.deployed_at, null);
@@ -54,6 +57,8 @@ test('unknown address is not usage', async () => {
 test('no explorer for the chain: nothing read, a note says why', async () => {
   const r = await readContract('tempo', '0x' + 'b'.repeat(40), { explorer: null, repoAddresses: [], now: new Date() });
   assert.equal(r.note, 'not read: no explorer for tempo');
+  assert.equal(r.mainnet, null);
+  assert.equal(r.is_contract, null);
   assert.equal(r.verified_source, null);
   assert.equal(r.tx_90d, null);
 });
@@ -63,6 +68,7 @@ test('an explorer that answers 429 twice stops the read with a note, never throw
   const explorer = blockscout(BASE, f, FAST);
   const r = await readContract('base', '0x' + 'b'.repeat(40), { explorer, repoAddresses: [], now: new Date() });
   assert.equal(r.note, 'not read: explorer 429');
+  assert.equal(r.is_contract, null);
   assert.equal(r.verified_source, null);
   assert.equal(r.senders_90d, null);
 });
@@ -71,7 +77,7 @@ test('a 429 while sampling senders keeps the counts and leaves funded unread', a
   const now = new Date('2026-11-06T00:00:00Z');
   const tx = (from: string): Tx => ({ hash: '0x1', from, to: '0xc', at: now.toISOString(), value_wei: '0', is_error: false });
   const explorer: Explorer = {
-    contractInfo: async () => ({ verified_source: true, name: 'C', deployer: '0xd', deployed_at: null, created_tx: null }),
+    contractInfo: async () => ({ is_contract: true, verified_source: true, name: 'C', deployer: '0xd', deployed_at: null, created_tx: null }),
     txsTo: async () => [tx('0x1'), tx('0x2')],
     firstTxs: async () => { throw new ExplorerError('explorer 429', 429); },
   };

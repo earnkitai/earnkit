@@ -8,7 +8,8 @@ import { type Explorer, ExplorerError, type Tx } from './explorers';
 export type OnchainRows = {
   chain: string;
   address: string;
-  mainnet: boolean;
+  mainnet: boolean | null;
+  is_contract: boolean | null;
   verified_source: boolean | null;
   deployer: string | null;
   deployed_at: string | null;
@@ -67,7 +68,7 @@ export async function readContract(
 ): Promise<OnchainRows> {
   const a = address.toLowerCase();
   const rows: OnchainRows = {
-    chain, address: a, mainnet: false, verified_source: null, deployer: null, deployed_at: null,
+    chain, address: a, mainnet: null, is_contract: null, verified_source: null, deployer: null, deployed_at: null,
     deployer_matches_repo: null, tx_90d: null, senders_90d: null, senders_30d: null, funded_senders_90d: null,
     funded_sample: null, first_tx_at: null, note: null,
   };
@@ -78,6 +79,7 @@ export async function readContract(
   const notes: string[] = [];
   try {
     const info = await ex.contractInfo(chain, a);
+    rows.is_contract = info.is_contract;
     rows.verified_source = info.verified_source;
     rows.deployer = info.deployer;
     rows.deployed_at = info.deployed_at;

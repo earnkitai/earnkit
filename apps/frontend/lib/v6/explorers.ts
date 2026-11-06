@@ -14,6 +14,7 @@ export class ExplorerError extends Error {
 
 export type Tx = { hash: string; from: string; to: string | null; at: string; value_wei: string; is_error: boolean };
 export type ContractInfo = {
+  is_contract: boolean;
   verified_source: boolean;
   name: string | null;
   deployer: string | null;
@@ -92,7 +93,7 @@ export function blockscout(base: string, f: typeof fetch = fetch, o: Opts = {}):
 
   async function contractInfo(_chain: string, address: string): Promise<ContractInfo> {
     const a = lower(address);
-    const none: ContractInfo = { verified_source: false, name: null, deployer: null, deployed_at: null, created_tx: null };
+    const none: ContractInfo = { is_contract: false, verified_source: false, name: null, deployer: null, deployed_at: null, created_tx: null };
     const addr = await get<{ is_contract?: boolean; creator_address_hash?: string | null; creation_transaction_hash?: string | null }>(
       `/addresses/${a}`,
     );
@@ -102,6 +103,7 @@ export function blockscout(base: string, f: typeof fetch = fetch, o: Opts = {}):
     const created = addr.creation_transaction_hash ?? null;
     const ctx = created ? await get<{ timestamp?: string }>(`/transactions/${created}`) : null;
     return {
+      is_contract: true,
       verified_source: sc?.is_verified === true,
       name: sc?.is_verified ? (sc.name ?? null) : null,
       deployer: addr.creator_address_hash ? lower(addr.creator_address_hash) : null,

@@ -11,6 +11,7 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 test('contractInfo on a verified contract: verified source, a deployer and a deploy time', async () => {
   const rec = replayExplorer('onchain-reaction');
   const info = await blockscout(BASE, rec.fetch, FAST).contractInfo('base', rec.address);
+  assert.equal(info.is_contract, true);
   assert.equal(info.verified_source, true);
   assert.match(info.deployer ?? '', /^0x[0-9a-f]{40}$/);
   assert.match(info.deployed_at ?? '', /^\d{4}-\d\d-\d\dT/);
@@ -21,7 +22,7 @@ test('contractInfo on a verified contract: verified source, a deployer and a dep
 test('contractInfo on a wallet: not verified, no deployer', async () => {
   const rec = replayExplorer('wallet');
   const info = await blockscout(BASE, rec.fetch, FAST).contractInfo('base', rec.address);
-  assert.deepEqual(info, { verified_source: false, name: null, deployer: null, deployed_at: null, created_tx: null });
+  assert.deepEqual(info, { is_contract: false, verified_source: false, name: null, deployer: null, deployed_at: null, created_tx: null });
 });
 
 test('txsTo stops paging at since and keeps nothing older', async () => {
