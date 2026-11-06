@@ -1,5 +1,5 @@
 /**
- * The chain registry: every chain EarnKit knows by slug, with its ids, RPC and explorer hosts.
+ * The chain registry: every chain EarnKit knows by slug, with its ids, RPC, explorer hosts and explorer API.
  * Program files may only name these slugs. Code detection and deploy details use the EVM entries;
  * a non-EVM chain (Solana) matches only through the chains an agent reports. Grows by owner edit.
  */
@@ -11,6 +11,8 @@ export type ChainEntry = {
   mainnet: Signals;
   testnet: Signals;
   explorer: string | null;
+  /** The keyless Blockscout API base EarnKit reads contracts through, or null when no reader exists. */
+  explorer_api: string | null;
   rpc: string | null;
 };
 
@@ -21,6 +23,7 @@ export const CHAIN_REGISTRY: Record<string, ChainEntry> = {
     mainnet: { ids: [8453], hosts: ['mainnet.base.org', 'basescan.org', 'base-mainnet'] },
     testnet: { ids: [84532], hosts: ['sepolia.base.org', 'sepolia.basescan.org', 'base-sepolia'] },
     explorer: 'https://basescan.org',
+    explorer_api: 'https://base.blockscout.com/api/v2',
     rpc: 'https://mainnet.base.org',
   },
   arc: {
@@ -29,6 +32,7 @@ export const CHAIN_REGISTRY: Record<string, ChainEntry> = {
     mainnet: { ids: [5042], hosts: ['mainnet.arc.io', 'rpc.arc.circle.com', 'explorer.arc.io'] },
     testnet: { ids: [5042002], hosts: ['testnet.arc.io', 'testnet.arc.network', 'testnet.arcscan'] },
     explorer: 'https://explorer.arc.io',
+    explorer_api: 'https://explorer.arc.io/api/v2',
     rpc: 'https://rpc.mainnet.arc.io',
   },
   tempo: {
@@ -37,6 +41,7 @@ export const CHAIN_REGISTRY: Record<string, ChainEntry> = {
     mainnet: { ids: [4217], hosts: ['rpc.tempo.xyz'] },
     testnet: { ids: [42431], hosts: ['moderato.tempo.xyz', 'testnet.tempo.xyz'] },
     explorer: null,
+    explorer_api: null,
     rpc: 'https://rpc.tempo.xyz',
   },
   monad: {
@@ -48,6 +53,7 @@ export const CHAIN_REGISTRY: Record<string, ChainEntry> = {
     },
     testnet: { ids: [10143], hosts: ['testnet-rpc.monad.xyz', 'rpc-testnet.monadinfra.com'] },
     explorer: null,
+    explorer_api: null,
     rpc: 'https://rpc.monad.xyz',
   },
   robinhood: {
@@ -56,6 +62,7 @@ export const CHAIN_REGISTRY: Record<string, ChainEntry> = {
     mainnet: { ids: [4663], hosts: ['mainnet.chain.robinhood.com'] },
     testnet: { ids: [46630], hosts: ['testnet.chain.robinhood.com'] },
     explorer: null,
+    explorer_api: null,
     rpc: 'https://mainnet.chain.robinhood.com',
   },
   avalanche: {
@@ -64,6 +71,7 @@ export const CHAIN_REGISTRY: Record<string, ChainEntry> = {
     mainnet: { ids: [43114], hosts: ['api.avax.network', 'snowtrace.io', 'subnets.avax.network'] },
     testnet: { ids: [43113], hosts: ['api.avax-test.network', 'testnet.snowtrace.io'] },
     explorer: 'https://snowtrace.io',
+    explorer_api: null,
     rpc: 'https://api.avax.network/ext/bc/C/rpc',
   },
   arbitrum: {
@@ -72,6 +80,7 @@ export const CHAIN_REGISTRY: Record<string, ChainEntry> = {
     mainnet: { ids: [42161], hosts: ['arb1.arbitrum.io', 'arbiscan.io'] },
     testnet: { ids: [421614], hosts: ['sepolia-rollup.arbitrum.io', 'sepolia.arbiscan.io'] },
     explorer: 'https://arbiscan.io',
+    explorer_api: 'https://arbitrum.blockscout.com/api/v2',
     rpc: 'https://arb1.arbitrum.io/rpc',
   },
   ethereum: {
@@ -80,6 +89,7 @@ export const CHAIN_REGISTRY: Record<string, ChainEntry> = {
     mainnet: { ids: [1], hosts: ['etherscan.io'] },
     testnet: { ids: [11155111], hosts: ['sepolia.etherscan.io'] },
     explorer: 'https://etherscan.io',
+    explorer_api: 'https://eth.blockscout.com/api/v2',
     rpc: 'https://ethereum-rpc.publicnode.com',
   },
   optimism: {
@@ -88,6 +98,7 @@ export const CHAIN_REGISTRY: Record<string, ChainEntry> = {
     mainnet: { ids: [10], hosts: ['mainnet.optimism.io', 'optimistic.etherscan.io'] },
     testnet: { ids: [11155420], hosts: ['sepolia.optimism.io', 'sepolia-optimism.etherscan.io'] },
     explorer: 'https://optimistic.etherscan.io',
+    explorer_api: 'https://optimism.blockscout.com/api/v2',
     rpc: 'https://mainnet.optimism.io',
   },
   polygon: {
@@ -96,6 +107,7 @@ export const CHAIN_REGISTRY: Record<string, ChainEntry> = {
     mainnet: { ids: [137], hosts: ['polygon-rpc.com', 'polygonscan.com'] },
     testnet: { ids: [80002], hosts: ['rpc-amoy.polygon.technology', 'amoy.polygonscan.com'] },
     explorer: 'https://polygonscan.com',
+    explorer_api: 'https://polygon.blockscout.com/api/v2',
     rpc: 'https://polygon-rpc.com',
   },
   solana: {
@@ -104,6 +116,7 @@ export const CHAIN_REGISTRY: Record<string, ChainEntry> = {
     mainnet: { ids: [], hosts: ['api.mainnet-beta.solana.com'] },
     testnet: { ids: [], hosts: ['api.devnet.solana.com', 'api.testnet.solana.com'] },
     explorer: 'https://explorer.solana.com',
+    explorer_api: null,
     rpc: 'https://api.mainnet-beta.solana.com',
   },
 };

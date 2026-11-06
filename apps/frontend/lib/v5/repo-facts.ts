@@ -47,7 +47,7 @@ const HOUR_MS = 3_600_000;
 const ZERO = `0x${'0'.repeat(40)}`;
 
 /** Well-known token contracts (USDC, EURC, WETH, USDT) that config names but that are never the builder's own. */
-const KNOWN_TOKEN_ADDRESSES: ReadonlySet<string> = new Set(
+export const KNOWN_TOKEN_ADDRESSES: ReadonlySet<string> = new Set(
   [
     '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
     '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E',

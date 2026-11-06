@@ -8,6 +8,11 @@ deadline, rules, the form's fields) and matches the repo, pre-fills each form an
 change would unlock. The agent drafts the personal parts, submits in its own browser when the
 builder says yes, and reports back. EarnKit never submits.
 
+EarnKit also screens a program's applicants. `pnpm screen <csv> --program <id>` reads each applicant's
+public evidence (whether the site loads, the public repo's activity and ownership, mainnet contracts and the
+wallets that use them) and sorts the list into five named tiers: used, live, building, flagged and unverified,
+each with the rows that decided it. The pilot is described in [docs/screening-pilot.md](docs/screening-pilot.md).
+
 ## Connect an agent
 
 MCP server URL: **`https://earnkit.com/mcp`** (remote, OAuth). Approve it when the browser opens;
@@ -42,7 +47,8 @@ apps/frontend/
                    /mcp, /oauth/*, /api/programs*, /api/stats, /api/cron
   lib/v5/          all EarnKit logic, with its tests (*.test.ts) and fixtures
   db/schema.sql    the database (applied by pnpm db:migrate)
-  scripts/         db-migrate, programs-sync, v4-tables, record-repo-fixture
+  lib/v6/          the screening engine: evidence, tiers, the pilot (with tests and fixtures)
+  scripts/         db-migrate, programs-sync, v4-tables, record-repo-fixture, screen
 programs/          one JSON file per program (see programs/README.md)
 docs/              architecture guide, code map, design docs, the programs API
 .github/workflows/ the daily cron (program freshness probe and the owner digest)

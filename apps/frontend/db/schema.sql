@@ -152,3 +152,13 @@ CREATE TABLE IF NOT EXISTS owner_digests (
   day     text PRIMARY KEY,
   sent_at timestamptz NOT NULL
 );
+
+-- v6 evidence read once per repo (code, team, depth with its pushed_at) and per contract (onchain rows);
+-- used for 7 days, a repo only while pushed_at is unchanged. Partial reads are never stored.
+CREATE TABLE IF NOT EXISTS evidence_cache (
+  key       text PRIMARY KEY,                        -- "repo:<owner/name>" or "contract:<chain>:<address>"
+  kind      text NOT NULL,                           -- repo | contract
+  rows      jsonb NOT NULL,
+  pushed_at text,
+  read_at   timestamptz NOT NULL
+);

@@ -6,7 +6,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 
 - `apps/frontend/lib/v5/agents.ts`: Install steps per agent: pure data read by the install sheet, /docs and /llms.txt
 - `apps/frontend/lib/v5/api-text.ts`: Text and link rules for the write API: plain visible text, https links on named domains
-- `apps/frontend/lib/v5/chains.ts`: Chain registry: slug, ids, RPC and explorer hosts, EVM or not
+- `apps/frontend/lib/v5/chains.ts`: Chain registry: slug, ids, RPC and explorer hosts, explorer API (Blockscout or null), EVM or not
 - `apps/frontend/lib/v5/confusables-table.ts`: Generated Unicode confusables table (UTS #39); do not edit
 - `apps/frontend/lib/v5/confusables.ts`: Look-alike full stops, so link detection reads a hidden domain as one
 - `apps/frontend/lib/v5/cron.ts`: POST /api/cron handler: freshness probe, repo cache sweep, then the owner digest
@@ -14,7 +14,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v5/deadline.ts`: A program's close in words: close day in its time zone and time left
 - `apps/frontend/lib/v5/eligibility.ts`: Repo facts against a program's eligibility items: ready, gap, or no fit
 - `apps/frontend/lib/v5/find.ts`: The find tool: ready, gaps, since, ledger, one program's details, or the open list
-- `apps/frontend/lib/v5/github.ts`: Public GitHub reads with EarnKit's server token
+- `apps/frontend/lib/v5/github.ts`: Public GitHub reads with EarnKit's server token; `ghResponse` and `ghPage` expose the link and rate-limit headers
 - `apps/frontend/lib/v5/guide-page.ts`: Data for /programs/[id]: the guide plus page context, as plain JSON
 - `apps/frontend/lib/v5/guide.ts`: A program's guide: money, close, who can apply, form fields, rules, sources
 - `apps/frontend/lib/v5/health.ts`: Daily freshness probe: links, page text changes (under 80% words shared), stale flags, passed deadlines
@@ -64,6 +64,28 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v5/fixtures/mcp-call.ts`: Calls the real MCP server over an in-memory transport
 - `apps/frontend/lib/v5/fixtures/program.ts`: A valid program for tests with any field overridden
 - `apps/frontend/lib/v5/fixtures/repos/*.json`: Recorded GitHub reads for earnkitai/earnkit, Shijas786/onchain-reaction, JohnMwendwa/nextjs-dashboard, saber-hq/merkle-distributor
+
+## apps/frontend/lib/v6 (the filter, in progress)
+
+- `apps/frontend/lib/v6/explorers.ts`: Keyless Blockscout client per chain: contract info, transactions to an address, an address's first transactions; throttled, 429 retried once
+- `apps/frontend/lib/v6/onchain.ts`: Onchain evidence rows per contract: verified source, deployer, 90 and 30 day transactions and senders, sampled deployer-funded check; never throws
+- `apps/frontend/lib/v6/fixtures/explorer.ts`: Replays a recorded contract read (`fixtures/contracts/<slug>.json`) as a fetch
+- `apps/frontend/lib/v6/code.ts`: Code evidence rows per repo: fork parent, own commits (compare) and own share, starter overlap (share of the repo's paths from a starter, reported at 0.2 or more) and files beyond it, 60 and 90-day commits (a fork's only after the fork point) and active weeks, releases, tests, CI, open issues by search (no pull requests); the shared GitHub `Budget` (stops under 500 left); never throws
+- `apps/frontend/lib/v6/team.ts`: Team evidence rows per repo from its 90-day commits (shared with `code.ts` per Budget; a fork's after the fork point; a starter's maintainers dropped): top 5 authors, account ages (under 30 days not counted), top share, other used repos; never throws
+- `apps/frontend/lib/v6/boilerplates.json`: Known starters' file paths and top 10 maintainers (create-next-app, OnchainKit, MiniKit, Hardhat, Solana, Scaffold-ETH 2, Next.js Learn dashboard) for `templateOverlap` and the team
+- `apps/frontend/lib/v6/live.ts`: Live rows for a site: loads (2xx in 10 s, not an error page), `is_app` heuristic (form, bundle script, wallet connect), domain age from RDAP (none on shared hosts), title, linked GitHub repos; never throws
+- `apps/frontend/lib/v6/integrations.ts`: Integrations registry per chain (OnchainKit, Smart Wallet, Paymaster, Basenames, MiniKit, Builder Codes, USDC, CCTP, Circle Wallets, Anchor, web3.js, Blinks, wagmi, viem, ethers, Hardhat, Foundry) and `detectIntegrations` from package.json, source text and paths
+- `apps/frontend/lib/v6/depth.ts`: Depth rows for a read repo: integrations and chains on mainnet and testnet; pure
+- `apps/frontend/lib/v6/evidence.ts`: `readEvidence`: one repo read into code, team and depth, the subject's, the repo's deploy runs' and the repo's named contracts (at most 10), each `counted` or not with its reason (`countedBy`), the site; one GitHub `Budget` passed in per run; 7-day `evidence_cache` per repo (while pushed_at holds) and per contract, partial blocks and live rows never cached; `flattenRows` gives one row per value with basis and read time
+- `apps/frontend/lib/v6/tiers.ts`: `place`: Evidence into a named tier (flagged, used, live, building, unverified) with the flags, the deciding rows in reviewer words and the next step in builder words; only counted mainnet contracts count, the others listed with their reason; `DEFAULT_THRESHOLDS` with reasons; null until something was read; pure
+- `apps/frontend/lib/v6/tier-words.ts`: `reviewerLine` ("used: 1,240 funded senders on Base mainnet, 3 contributors, no flags.") and `builderLine` (how it reads, then Next); pure
+- `apps/frontend/lib/v6/fixtures/evidence-builder.ts`: A minimal valid Evidence and block builders for pure tests
+- `apps/frontend/lib/v6/fixtures/site.ts`: The real `safeProbePage` over a fake resolver and transport answering `fixtures/sites.json` (pages recorded 2026-11-06), and an RDAP fake
+- `apps/frontend/lib/v6/fixtures/repos/<slug>.json`: Recorded repo, code and team reads (`record-repo-fixture.mts --v6`), replayed by the v5 `replayFetch`
+- `apps/frontend/lib/v6/applicants.ts`: `parseApplicants` (a program's CSV, columns by name, each bad link or address nulled with a problem line), `resolveRepo` (a repo from the site's GitHub links, starter and SDK owners skipped, a matching word first), `identicalPitches` (5-word shingles, 90%, under 10 words ignored) and `sharedContributors`, inside one list; pure
+- `apps/frontend/lib/v6/screen-report.ts`: `markdownReport` (totals, a section per tier, what could not be read) and `csvReport` (one row per applicant, formula cells defused); public evidence only, never a pitch; pure
+- `apps/frontend/lib/v6/screen.ts`: `run`: the screening pilot: arguments, the list read one applicant at a time, placements with the counts across the list, both reports into one folder
+- `apps/frontend/lib/v6/fixtures/applicants.csv`: Eight applicants for the pilot: the four recorded repos, a site-only row (abi.ninja), three bad rows, four sharing one pitch
 
 ## apps/frontend/app (routes and components)
 
@@ -125,7 +147,10 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/scripts/db-migrate.mts`: pnpm db:migrate: runs schema.sql
 - `apps/frontend/scripts/env.mts`: Loads .env.local for admin scripts
 - `apps/frontend/scripts/programs-sync.mts`: pnpm programs:check and programs:sync: validate and write programs/*.json (via lib/v5/programs-sync.ts)
-- `apps/frontend/scripts/record-repo-fixture.mts`: Records a public repo's GitHub reads as a test fixture
+- `apps/frontend/scripts/record-repo-fixture.mts`: Records a public repo's GitHub reads as a test fixture; `--v6` adds the code and team reads into `lib/v6/fixtures/repos`
+- `apps/frontend/scripts/record-boilerplate.mts`: Records one starter's tree paths and top 10 contributors (maintainers) into `lib/v6/boilerplates.json`
+- `apps/frontend/scripts/record-contract-fixture.mts`: Records a contract's Blockscout reads as a test fixture (keyless)
+- `apps/frontend/scripts/screen.mts`: pnpm screen: the screening pilot over a program's applicant CSV into a markdown and a CSV report (via lib/v6/screen.ts)
 - `apps/frontend/scripts/replay.mts`: Replay: find, track applied, find on a scratch database for a recorded repo (--monday)
 - `apps/frontend/scripts/v4-tables.mts`: pnpm db:v4-tables: lists v4 tables with row counts and prints DROP statements
 - `db/schema.sql`: The whole schema, additive and safe to run twice
@@ -148,3 +173,4 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `docs/design-docs-and-implementation-plans/`: v5 design, plan, ledger and go-live; older designs are history
 - `.github/workflows/earnkit-cron.yml`: The one daily job (POST /api/cron)
 - `README.md`: What EarnKit is and how to connect an agent
+- `docs/screening-pilot.md`: The screening pilot for a program in one page: the CSV, the command, the tiers, what is read, the message to send

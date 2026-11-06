@@ -31,3 +31,5 @@ build
 # Local Claude Code settings (may contain secrets)
 .claude/settings.local.json
 .superpowers/
+# pnpm screen's default output (applicant reports), never committed
+/.screen-out/
