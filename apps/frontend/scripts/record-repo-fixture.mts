@@ -22,11 +22,13 @@ function trim(url: string, body: string): string {
   if (!v6 || u.host !== 'api.github.com') return body;
   const p = u.pathname;
   const rows = () => JSON.parse(body) as Record<string, unknown>[];
+  if (p === '/search/issues') return JSON.stringify(pick(JSON.parse(body), ['total_count']));
   if (!Array.isArray(JSON.parse(body)) && !p.includes('/compare/') && !/^\/users\/[^/]+$/.test(p)) return body;
   if (/\/commits$/.test(p)) {
     return JSON.stringify(rows().map((c) => {
       const commit = c.commit as { author?: { date?: string }; committer?: { date?: string } } | undefined;
-      return { commit: { author: { date: commit?.author?.date }, committer: { date: commit?.committer?.date } } };
+      const author = c.author as { login?: string; type?: string } | null | undefined;
+      return { author: author ? { login: author.login, type: author.type } : null, commit: { author: { date: commit?.author?.date }, committer: { date: commit?.committer?.date } } };
     }));
   }
   if (p.includes('/compare/')) return JSON.stringify(pick(JSON.parse(body), ['status', 'ahead_by', 'behind_by', 'total_commits']));

@@ -34,6 +34,8 @@ export const BUDGET_FLOOR = 500;
 const MIN_BOILERPLATE_PATHS = 20;
 /** Commit pages read for 90 days: 3 of 100. */
 const COMMIT_PAGES = 3;
+/** Under this overlap a starter match is chance (shared config file names), so neither the name nor the share is reported. */
+export const TEMPLATE_FLOOR = 0.2;
 const DAY = 86_400_000;
 const WEEK = 7 * DAY;
 const SKIP_DIRS = /(^|\/)(node_modules|\.git|dist|build|\.next|out)\//;
@@ -136,9 +138,59 @@ export function activeWeeks(dates: string[], now: Date): number {
   return weeks.size;
 }
 
-type CommitRow = { commit?: { author?: { date?: string }; committer?: { date?: string } } };
+type CommitRow = { author?: { login?: string; type?: string } | null; commit?: { author?: { date?: string }; committer?: { date?: string } } };
+/** The 90-day commits read: dates and linked GitHub authors, whether the 300 cap was hit, or why it was not read. */
+export type CommitWindow = { ok: true; count: number; dates: string[]; authors: string[]; capped: boolean } | { ok: false; why: string };
+
+// One window read per evidence read: readCode and readTeam share the Budget, so they share the commits.
+const windows = new WeakMap<Budget, Map<string, Promise<CommitWindow>>>();
+
+/** The repo's commits in 90 days: up to 3 pages of 100, read once per Budget. Never throws. */
+export function readCommitWindow(full: string, o: GhRead): Promise<CommitWindow> {
+  const byRepo = windows.get(o.budget) ?? new Map<string, Promise<CommitWindow>>();
+  windows.set(o.budget, byRepo);
+  const key = `${full.toLowerCase()} ${o.now.toISOString().slice(0, 10)}`;
+  const hit = byRepo.get(key);
+  if (hit) return hit;
+  const read = (async (): Promise<CommitWindow> => {
+    const since = since90(o.now);
+    const dates: string[] = [];
+    const authors: string[] = [];
+    let count = 0;
+    for (let page = 1; page <= COMMIT_PAGES; page++) {
+      const p = await ghList<CommitRow>(`/repos/${full}/commits?since=${since}&per_page=100${page > 1 ? `&page=${page}` : ''}`, o);
+      if (!p.ok) return p;
+      count += p.value.rows.length;
+      for (const c of p.value.rows) {
+        const d = c.commit?.author?.date ?? c.commit?.committer?.date;
+        if (d) dates.push(d);
+        const login = c.author?.login;
+        if (login && c.author?.type !== 'Bot' && !login.endsWith('[bot]')) authors.push(login);
+      }
+      if (p.value.rows.length < 100) return { ok: true, count, dates, authors, capped: false };
+    }
+    return { ok: true, count, dates, authors, capped: true };
+  })();
+  byRepo.set(key, read);
+  return read;
+}
 type IssueRow = { state?: string; comments?: number; pull_request?: unknown };
 type Compare = { ahead_by?: number };
+
+/**
+ * Open issues without pull requests, from the search API. Its own rate limit (30 a minute) is not the
+ * core budget, so its headers never stop the budget; a failure is null with 'not read: issues search'.
+ */
+async function openIssues(full: string, o: GhRead): Promise<Got<number>> {
+  if (o.budget.stopped) return { ok: false, why: 'not read: budget' };
+  try {
+    const res = await ghResponse(`/search/issues?q=repo:${full}+is:issue+is:open&per_page=1`, o.token, o.gh);
+    const n = ((await res.json()) as { total_count?: unknown }).total_count;
+    return typeof n === 'number' ? { ok: true, value: n } : { ok: false, why: 'not read: issues search' };
+  } catch {
+    return { ok: false, why: 'not read: issues search' };
+  }
+}
 
 /** Reads the code rows for a repo already read by readRepo. Never throws. */
 export async function readCode(read: RepoRead, o: GhRead): Promise<CodeRows> {
@@ -156,7 +208,7 @@ export async function readCode(read: RepoRead, o: GhRead): Promise<CodeRows> {
   // A fork is measured against its parent; a starter it forked is not also a template match.
   const starters = (BOILERPLATES as Boilerplate[]).filter((b) => !fork_of || b.repo.toLowerCase() !== fork_of.toLowerCase());
   const match = treeRead ? templateOverlap(paths, starters) : null;
-  const matched = match && match.overlap > 0 ? match : null;
+  const matched = match && match.overlap >= TEMPLATE_FLOOR ? match : null;
 
   let own_share: number | null = null;
   if (fork_of && repo.parent) {
@@ -172,43 +224,29 @@ export async function readCode(read: RepoRead, o: GhRead): Promise<CodeRows> {
       own_share = Math.min(1, cmp.value.ahead_by / countOf(total.value));
   } else if (matched) own_share = 1 - matched.overlap;
 
-  // Commits in 90 days: up to 3 pages of 100.
   const since = since90(o.now);
-  let commits_90d: number | null = 0;
-  const dates: string[] = [];
-  for (let page = 1; page <= COMMIT_PAGES; page++) {
-    const p = await ghList<CommitRow>(`/repos/${full}/commits?since=${since}&per_page=100${page > 1 ? `&page=${page}` : ''}`, o);
-    if (!p.ok) {
-      commits_90d = miss(p.why);
-      break;
-    }
-    commits_90d += p.value.rows.length;
-    for (const c of p.value.rows) {
-      const d = c.commit?.author?.date ?? c.commit?.committer?.date;
-      if (d) dates.push(d);
-    }
-    if (p.value.rows.length < 100) break;
-    if (page === COMMIT_PAGES) miss('commits_90d capped at 300');
-  }
+  const window = await readCommitWindow(full, o);
+  const commits_90d = window.ok ? window.count : miss(window.why);
+  if (window.ok && window.capped) miss('commits_90d capped at 300');
 
   const releases = await ghList(`/repos/${full}/releases?per_page=1`, o);
-  const open = await ghList(`/repos/${full}/issues?state=open&per_page=1`, o);
+  const open = await openIssues(full, o);
   const recent = await ghList<IssueRow>(`/repos/${full}/issues?state=all&since=${since}&per_page=50`, o);
 
   if (!treeRead) miss('not read: tree');
   return {
     fork_of,
-    template_overlap: matched ? matched.overlap : treeRead && match ? 0 : null,
+    template_overlap: matched?.overlap ?? null,
     template_name: matched?.name ?? null,
     own_share,
     first_commit_at: read.first_commit_at,
     last_push_at: repo.pushed_at ?? null,
     commits_90d,
-    active_weeks_90d: commits_90d === null ? null : activeWeeks(dates, o.now),
+    active_weeks_90d: window.ok ? activeWeeks(window.dates, o.now) : null,
     releases: releases.ok ? countOf(releases.value) : miss(releases.why),
     has_tests: treeRead ? hasTests(paths) : null,
     has_ci: treeRead ? hasCi(paths) : null,
-    issues_open: open.ok ? countOf(open.value) : miss(open.why),
+    issues_open: open.ok ? open.value : miss(open.why),
     issues_answered_90d: recent.ok
       ? recent.value.rows.filter((i) => !i.pull_request && ((i.comments ?? 0) > 0 || i.state === 'closed')).length
       : miss(recent.why),

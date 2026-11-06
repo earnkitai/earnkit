@@ -36,11 +36,17 @@ test('fork with own work is not flagged', async () => {
 });
 
 test('earnkit: tests, CI, no fork, little starter overlap', async () => {
-  const { rows } = await code('earnkit');
+  const { read, rows } = await code('earnkit');
   assert.equal(rows.has_tests, true);
   assert.equal(rows.has_ci, true);
   assert.equal(rows.fork_of, null);
-  assert.ok(rows.template_overlap !== null && rows.template_overlap < 0.2, `overlap ${rows.template_overlap}`);
+  const best = templateOverlap(read.tree.filter((t) => t.type === 'blob').map((t) => t.path), starters);
+  assert.ok(best && best.overlap < 0.2, `overlap ${best?.overlap}`);
+  // Under the 0.2 floor a match is chance: neither the name nor the share is reported.
+  assert.equal(rows.template_name, null);
+  assert.equal(rows.template_overlap, null);
+  assert.equal(rows.own_share, null);
+  assert.equal(rows.issues_open, 3);
   assert.equal(rows.commits_90d, 300);
   assert.equal(rows.note, 'commits_90d capped at 300');
   assert.ok(rows.active_weeks_90d! >= 1);
@@ -84,7 +90,7 @@ test('activeWeeks: 10 dates in 3 distinct weeks is 3; older than 90 days not cou
   assert.equal(activeWeeks([at(91), at(200)], NOW), 0);
 });
 
-// A synthetic repo answering commit pages of a set size; every other list empty.
+// A synthetic repo answering commit pages of a set size; no open issues; every other list empty.
 const fakeRepo = (pages: number[], extra: (url: string) => Response | null = () => null) => {
   const calls: string[] = [];
   const f = (async (input: RequestInfo | URL) => {
@@ -95,9 +101,9 @@ const fakeRepo = (pages: number[], extra: (url: string) => Response | null = () 
     if (url.includes('/commits?since=')) {
       const page = Number(url.match(/&page=(\d+)/)?.[1] ?? 1);
       const n = pages[page - 1] ?? 0;
-      return Response.json([...Array(n)].map((_, i) => ({ commit: { author: { date: new Date(NOW.getTime() - (i % 30) * DAY).toISOString() } } })));
+      return Response.json([...Array(n)].map((_, i) => ({ author: { login: `dev${i % 3}`, type: 'User' }, commit: { author: { date: new Date(NOW.getTime() - (i % 30) * DAY).toISOString() } } })));
     }
-    return Response.json([]);
+    return url.includes('/search/issues') ? Response.json({ total_count: 0 }) : Response.json([]);
   }) as typeof fetch;
   const read = {
     repo: { full_name: 'a/b', html_url: '', homepage: null, default_branch: 'main', created_at: '2025-01-01T00:00:00Z', pushed_at: '2026-11-01T00:00:00Z' },
@@ -127,13 +133,25 @@ test('issues answered: commented or closed, pull requests left out', async () =>
   const r = fakeRepo([1], (url) =>
     url.includes('/issues?state=all')
       ? Response.json([{ state: 'open', comments: 2 }, { state: 'closed', comments: 0 }, { state: 'open', comments: 0 }, { state: 'closed', comments: 3, pull_request: {} }])
-      : url.includes('/issues?state=open')
-        ? new Response('[{}]', { headers: { link: '<https://api.github.com/repositories/1/issues?state=open&per_page=1&page=7>; rel="last"' } })
+      : url.endsWith('/search/issues?q=repo:a/b+is:issue+is:open&per_page=1')
+        ? Response.json({ total_count: 7, items: [{}] }, { headers: { 'x-ratelimit-remaining': '3' } })
         : null,
   );
-  const rows = await readCode(r.read, { gh: r.f, now: NOW, budget: budget() });
+  const b = budget();
+  const rows = await readCode(r.read, { gh: r.f, now: NOW, budget: b });
   assert.equal(rows.issues_answered_90d, 2);
   assert.equal(rows.issues_open, 7);
+  // The search API's own rate limit never stops the core budget.
+  assert.equal(b.stopped, false);
+  assert.equal(rows.note, null);
+});
+
+test('issues search fails: issues_open null, the rest read', async () => {
+  const r = fakeRepo([1], (url) => (url.includes('/search/issues') ? new Response('slow down', { status: 403 }) : null));
+  const rows = await readCode(r.read, { gh: r.f, now: NOW, budget: budget() });
+  assert.equal(rows.issues_open, null);
+  assert.equal(rows.issues_answered_90d, 0);
+  assert.equal(rows.note, 'not read: issues search');
 });
 
 test('budget: under 500 left, later reads are skipped and noted; what was read stays', async () => {
@@ -156,10 +174,10 @@ test('a failed read is a null row with a note, never a throw', async () => {
   assert.equal(rows.releases, null);
   assert.equal(rows.issues_open, null);
   assert.equal(rows.commits_90d, 0);
-  assert.equal(rows.note, 'not read: github 403; not read: private or missing');
+  assert.equal(rows.note, 'not read: github 403; not read: issues search; not read: private or missing');
   const down = await readCode(r.read, { gh: (async () => { throw new TypeError('fetch failed'); }) as typeof fetch, now: NOW, budget: budget() });
   assert.equal(down.commits_90d, null);
-  assert.equal(down.note, 'not read: github unreachable');
+  assert.equal(down.note, 'not read: github unreachable; not read: issues search');
 });
 
 test('a fork whose parent is gone: own_share null with a note', async () => {
@@ -169,4 +187,17 @@ test('a fork whose parent is gone: own_share null with a note', async () => {
   assert.equal(rows.fork_of, 'x/starter');
   assert.equal(rows.own_share, null);
   assert.equal(rows.note, 'own_share not read: parent gone');
+});
+
+test('a starter overlap under 0.2 is not reported; 0.2 and over is', async () => {
+  const se2 = starters.find((b) => b.name === 'scaffold-eth-2')!;
+  const tree = (n: number) => se2.paths.slice(0, n).map((path) => ({ path, type: 'blob' }));
+  const low = fakeRepo([0]);
+  const r1 = await readCode({ ...low.read, tree: tree(Math.floor(se2.paths.length * 0.19)) }, { gh: low.f, now: NOW, budget: budget() });
+  assert.equal(r1.template_name, null);
+  assert.equal(r1.template_overlap, null);
+  assert.equal(r1.own_share, null);
+  const r2 = await readCode({ ...low.read, tree: tree(Math.ceil(se2.paths.length * 0.2)) }, { gh: low.f, now: NOW, budget: budget() });
+  assert.equal(r2.template_name, 'scaffold-eth-2');
+  assert.ok(r2.template_overlap! >= 0.2);
 });

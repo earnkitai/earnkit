@@ -70,8 +70,8 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v6/explorers.ts`: Keyless Blockscout client per chain: contract info, transactions to an address, an address's first transactions; throttled, 429 retried once
 - `apps/frontend/lib/v6/onchain.ts`: Onchain evidence rows per contract: verified source, deployer, 90 and 30 day transactions and senders, sampled deployer-funded check; never throws
 - `apps/frontend/lib/v6/fixtures/explorer.ts`: Replays a recorded contract read (`fixtures/contracts/<slug>.json`) as a fetch
-- `apps/frontend/lib/v6/code.ts`: Code evidence rows per repo: fork parent and own share, starter overlap, 90-day commits and active weeks, releases, tests, CI, issues; the shared GitHub `Budget` (stops under 500 left); never throws
-- `apps/frontend/lib/v6/team.ts`: Team evidence rows per repo: top 5 contributors, account ages (under 30 days not counted), top share, other used repos; never throws
+- `apps/frontend/lib/v6/code.ts`: Code evidence rows per repo: fork parent and own share, starter overlap (reported at 0.2 or more), 90-day commits and active weeks, releases, tests, CI, open issues by search (no pull requests); the shared GitHub `Budget` (stops under 500 left); never throws
+- `apps/frontend/lib/v6/team.ts`: Team evidence rows per repo from its 90-day commits (shared with `code.ts` per Budget): top 5 authors, account ages (under 30 days not counted), top share, other used repos; never throws
 - `apps/frontend/lib/v6/boilerplates.json`: Known starters' file paths (create-next-app, OnchainKit, MiniKit, Foundry, Hardhat, Solana, Scaffold-ETH 2, Next.js Learn dashboard) for `templateOverlap`
 - `apps/frontend/lib/v6/fixtures/repos/<slug>.json`: Recorded repo, code and team reads (`record-repo-fixture.mts --v6`), replayed by the v5 `replayFetch`
 
