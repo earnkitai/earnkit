@@ -18,6 +18,8 @@ export const SCREEN_BATCH = 40;
 /** An owner-triggered run: at most this many applicants, within SCREEN_TRIGGER_MS. */
 export const SCREEN_TRIGGER_MAX = 300;
 export const SCREEN_TRIGGER_MS = 600_000;
+/** The daily run's share of time: the workflow's curl allows 540 s for the whole run (probe, sweep, queue, digest). */
+export const SCREEN_DAILY_MS = 300_000;
 /** A taken applicant not written in this long belongs to a run that died: it is free again. */
 const TAKEN_MS = 30 * 60_000;
 /** A read worth a retry goes back to the queue; the third such read is final. */

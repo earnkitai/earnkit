@@ -4,7 +4,7 @@
  * only. Bearer CRON_SECRET only (503 while it is unset). A step that throws answers 500 with its name.
  */
 import { sweepScreens } from '../v6/screen-jobs';
-import { SCREEN_BATCH, SCREEN_TRIGGER_MAX, SCREEN_TRIGGER_MS, workQueue } from '../v6/screen-worker';
+import { SCREEN_BATCH, SCREEN_DAILY_MS, SCREEN_TRIGGER_MAX, SCREEN_TRIGGER_MS, workQueue } from '../v6/screen-worker';
 import { bearerMatches, json, readCapped } from './http';
 import { runHealth } from './health';
 import type { Mailer } from './mail';
@@ -82,7 +82,7 @@ export async function cronPost(request: Request, deps: CronDeps = {}): Promise<R
   try {
     // Jobs past the 90-day window of the counts across programs go first.
     const screensSwept = await sweepScreens(now);
-    screen = { swept: screensSwept, ...(await work({ now, limit: SCREEN_BATCH, deadline: Date.now() + SCREEN_TRIGGER_MS })) };
+    screen = { swept: screensSwept, ...(await work({ now, limit: SCREEN_BATCH, deadline: Date.now() + SCREEN_DAILY_MS })) };
   } catch (err) {
     return failed('screen', err);
   }

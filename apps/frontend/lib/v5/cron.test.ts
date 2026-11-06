@@ -82,7 +82,8 @@ test('cronPost: a plain run works the queue with SCREEN_BATCH after the sweep an
   const body = (await res.json()) as { screen: unknown; digest: string };
   assert.deepEqual(body.screen, { swept: 0, read: 0, jobs_finished: [] });
   assert.deepEqual(calls.map((c) => [c.limit, c.jobId]), [[40, undefined]]);
-  assert.ok(calls[0].deadline! > Date.now() + 590_000 && calls[0].deadline! <= Date.now() + 600_000);
+  // The daily share is 300 s: the workflow's curl allows 540 s for the whole run.
+  assert.ok(calls[0].deadline! > Date.now() + 290_000 && calls[0].deadline! <= Date.now() + 300_000);
   const boom = await cronPost(req(`Bearer ${SECRET}`), { ...deps, workQueue: async () => { throw new Error('x'); } });
   assert.deepEqual(await boom.json(), { error: 'screen failed' });
 });
