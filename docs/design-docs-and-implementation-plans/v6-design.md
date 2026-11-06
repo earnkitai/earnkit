@@ -96,9 +96,9 @@ inside agents. Not a profile page, not a coin.
 - No LLM inside EarnKit. No new paid service. Railway Hobby plus Postgres, Resend for owner mail,
   GitHub reads with the server token, public explorers and RPCs on free tiers, daily cron.
 - Env vars: the v5 eight plus `GITHUB_OAUTH_CLIENT_ID` and `GITHUB_OAUTH_CLIENT_SECRET` from a
-  fresh OAuth app (owner step: create it with callback `https://earnkit.com/auth/github/callback`
-  and replace the v4 values on Railway) and `ETHERSCAN_API_KEY` (free key, owner step) for the
-  Etherscan v2 multichain reads. Eleven. `no-v4.test.ts` keeps its allowlist and gains these three.
+  fresh OAuth app (owner step before v6.1: create it with callback
+  `https://earnkit.com/auth/github/callback` and replace the v4 values on Railway). Ten. Explorer
+  reads are keyless Blockscout. `no-v4.test.ts` keeps its allowlist and gains the two.
 - Tests: `DATABASE_URL=postgresql://localhost:5432/earnkit_test`, the v5 harness and test guard.
 - Copy rules: no emoji, no em dash, never coin, points, score, rank, streak or token in builder text,
   no tool, field or file names in `show_to_builder`.
@@ -257,10 +257,11 @@ Thresholds are constants with the reason beside each; a program can pass its own
 tier is shown with its rows, and `agent_note` carries the one line a reviewer needs ("used: 1,240
 funded senders on Base mainnet, 3 contributors, no flags").
 
-Chains read in v6: Base, Ethereum, Arbitrum, Optimism, Polygon and Avalanche through the Etherscan
-v2 multichain API (one key, free tier 100,000 requests a day), Arc through its Blockscout. Tempo,
-Monad, Robinhood Chain and Solana have no reader in v6: their contracts are shown as claimed, and
-the registry marks them `readable: false` until a client is added.
+Chains read in v6: Base, Ethereum, Arbitrum, Optimism, Polygon and Arc through their public
+Blockscout instances (keyless; checked 2026-11-06: Etherscan's free tier refuses Base and the
+other L2s, so no Etherscan key exists in v6). Avalanche, Tempo, Monad, Robinhood Chain and Solana
+have no reader in v6: their contracts are shown as claimed, and the registry marks them
+`readable: null` until a client is added.
 
 Cost per applicant: at most 12 GitHub requests, up to 5 per contributor for ages and prior repos
 (capped at 5 contributors), 3 explorer requests per contract plus one per sampled sender for
@@ -473,13 +474,13 @@ and the task order, which should put the evidence reader and the pilot script fi
     feedback.
 15. Cross-program counts come only from screens and program-reported outcomes; a builder's own
     ledger never reaches a program.
-16. Chains without a reader in v6: Tempo, Monad, Robinhood Chain, Solana.
+16. Chains without a reader in v6: Avalanche, Tempo, Monad, Robinhood Chain, Solana. Explorer reads are keyless Blockscout, since Etherscan's free tier refuses Base.
 
 ## 17. Owner decisions
 
 1. One project per builder or several? Recommended several (`projects[]`, claims keyed by project).
 2. The two pilot programs, and a sample applicant list from one of them.
-3. Owner steps before v6.1 deploys: a fresh GitHub OAuth app and a free Etherscan key.
+3. Owner step before v6.1 deploys: a fresh GitHub OAuth app.
 
 Answers, 2026-11-06: 1. Several projects per builder. 2. Pilot programs named later; v6.0 builds
 now. 3. Design approved; v6.0 plan and build start 2026-11-06; v6.1 planned right after.
