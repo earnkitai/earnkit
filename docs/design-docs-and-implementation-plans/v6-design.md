@@ -140,7 +140,7 @@ one-line fields refuse control characters, long fields capped):
 - `team[]`: `name`, `role`, `github`, `x`, `email` (optional). Empty means solo.
 - `company`: `name`, `incorporated: boolean`, `jurisdiction`, `raised_usd`, `raised_from`
   (text, 280), `stage` (`idea | building | pre_launch | launched`), `launch_date`.
-- `projects[]` (owner decision, section 17, recommended several): each `id` (slug), `name`,
+- `projects[]` (owner ruling 2026-11-06: several): each `id` (slug), `name`,
   `one_liner` (140), `description` (600), `goals` (600, the vision in the builder's words),
   `repo_url`, `live_url`, `demo_url`, `category`, `chains_claimed[]`, and its own `answers`
   for the project-specific kinds. `find` picks the project by the repo the agent is in, or by
@@ -481,4 +481,5 @@ and the task order, which should put the evidence reader and the pilot script fi
 2. The two pilot programs, and a sample applicant list from one of them.
 3. Owner steps before v6.1 deploys: a fresh GitHub OAuth app and a free Etherscan key.
 
-(Answers recorded here when given.)
+Answers, 2026-11-06: 1. Several projects per builder. 2. Pilot programs named later; v6.0 builds
+now. 3. Design approved; v6.0 plan and build start 2026-11-06; v6.1 planned right after.
