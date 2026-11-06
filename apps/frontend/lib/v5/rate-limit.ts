@@ -28,6 +28,8 @@ export const LIMITS = {
   repoRead: { limit: 10, windowSeconds: 86_400 },
   /** GET /link/<code> and the GitHub sign-in callback, per client IP, one window for both. */
   linkGet: { limit: 60, windowSeconds: 3_600 },
+  /** screen jobs created, per installation, per UTC day (counted only when a job is created). */
+  screenJobs: { limit: 10, windowSeconds: 86_400 },
 } as const;
 
 /** Registrations per agent app a day at which a warning is logged, before oauthRegisterHost refuses. */

@@ -9,7 +9,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v5/chains.ts`: Chain registry: slug, ids, RPC and explorer hosts, explorer API (Blockscout or null), EVM or not
 - `apps/frontend/lib/v5/confusables-table.ts`: Generated Unicode confusables table (UTS #39); do not edit
 - `apps/frontend/lib/v5/confusables.ts`: Look-alike full stops, so link detection reads a hidden domain as one
-- `apps/frontend/lib/v5/cron.ts`: POST /api/cron handler: freshness probe, repo cache sweep, then the owner digest
+- `apps/frontend/lib/v5/cron.ts`: POST /api/cron handler: freshness probe, repo cache sweep, the screen queue's share (`SCREEN_BATCH`), then the owner digest; a JSON body `{ job_id }` runs only that job's queue (300 applicants or 10 minutes)
 - `apps/frontend/lib/v5/db.ts`: Postgres pool and transaction helpers
 - `apps/frontend/lib/v5/deadline.ts`: A program's close in words: close day in its time zone and time left
 - `apps/frontend/lib/v5/eligibility.ts`: Repo facts against a program's eligibility items: ready, gap, or no fit
@@ -90,6 +90,10 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v6/own-evidence.ts`: The builder's own project for find: `ownEvidence` (reads at most once in 24 hours), `usageLine` (EarnKit's one fixed usage template from counted mainnet contracts, else null), `evidenceSummary` (tier and `builderLine`)
 - `apps/frontend/lib/v6/claims.ts`: `claim` (a 'started' applications row; a second within 24 hours by any of the builder's agents answers `already` with the claiming agent's client name), `releaseStale`, `appliedOvernight` (agent-submitted since the last find)
 - `apps/frontend/lib/v6/find-record.ts`: The record side of a linked find: `pickProject`, `recordSide` (record, own tier under the 24-hour rule, `evidence_read_at` and `last_tier` written by EarnKit), `tierGate` (min_tier: a ready program below the bar becomes one 'tier' gap), `allowedByPolicy`, `blockersOf`, `missingFor`
+- `apps/frontend/lib/v6/reviewers.ts`: A program's reviewers (`program_reviewers`): `addReviewer` (a signed-in builder by GitHub login, an existing program), `removeReviewer`, `reviewerPrograms`, `reviewersPost` (programs bearer, 404 while the API is off)
+- `apps/frontend/lib/v6/screen-jobs.ts`: Screen jobs: `ScreenApplicant`, `createJob` (12-byte id, identical pitches counted then dropped, 30 days), `jobStatus`, `jobResults` (sorted by tier, public rows only), `recordOutcomes` (`screen_outcomes`; won or rejected into a matching builder's ledger only after their applied row), `xpCounts` (other programs' screens in 90 days by repo or deployer, and their outcomes)
+- `apps/frontend/lib/v6/screen-worker.ts`: `workQueue`: queued applicants (a named job first, then the oldest) read as the pilot reads them, on one Budget per call; placed with the job's thresholds, shared contributors inside the job and `xpCounts`; a failed read is `failed` with a one-line error and the job still advances
+- `apps/frontend/lib/v6/screen-tool.ts`: The `screen` MCP tool: reviewers only (one-line refusals), 10 jobs a day per installation, queue, results with the totals line, outcomes
 - `apps/frontend/lib/v5/fixtures/record-owner.json`: A sample owner record (EarnKit project, approved answers) for `replay.mts --linked`
 
 ## apps/frontend/app (routes and components)
@@ -97,12 +101,13 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/app/.well-known/oauth-authorization-server/route.ts`: OAuth authorization server metadata
 - `apps/frontend/app/.well-known/oauth-protected-resource/[[...path]]/route.ts`: OAuth protected resource metadata for /mcp
 - `apps/frontend/app/HomeView.tsx`: The landing page view: hero, steps, open programs, footer
-- `apps/frontend/app/api/cron/route.ts`: POST /api/cron: the daily freshness probe and owner digest
+- `apps/frontend/app/api/cron/route.ts`: POST /api/cron: the daily freshness probe, screen queue and owner digest; `{ job_id }` triggers one job
 - `apps/frontend/app/api/programs/approve/route.ts`: GET/POST approve link: applies a pending write
 - `apps/frontend/app/api/programs/revert/route.ts`: GET/POST revert link: undoes a live write
 - `apps/frontend/app/api/programs/route.ts`: GET /api/programs: the public list of listed programs
 - `apps/frontend/app/api/programs/write/route.ts`: POST /api/programs/write: the owner bot adds, updates or closes a program
 - `apps/frontend/app/api/programs/writes/route.ts`: GET /api/programs/writes: the write audit log and pending writes
+- `apps/frontend/app/api/programs/reviewers/route.ts`: POST /api/programs/reviewers: the owner marks a signed-in builder as a program's reviewer (or removes them)
 - `apps/frontend/app/api/stats/route.ts`: GET /api/stats: nine public counts
 - `apps/frontend/app/components/common/Button.tsx`: Button
 - `apps/frontend/app/components/common/Footer.tsx`: The full footer with the painting

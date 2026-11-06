@@ -28,7 +28,7 @@ const APP_DIRS = new Set([
   'install', 'oauth', 'oauth/authorize', 'oauth/register', 'oauth/token',
   '.well-known', '.well-known/oauth-authorization-server', '.well-known/oauth-protected-resource',
   '.well-known/oauth-protected-resource/[[...path]]',
-  'api', 'api/programs', 'api/programs/write', 'api/programs/writes', 'api/programs/approve', 'api/programs/revert',
+  'api', 'api/programs', 'api/programs/write', 'api/programs/writes', 'api/programs/approve', 'api/programs/revert', 'api/programs/reviewers',
   'api/stats', 'api/cron',
   'link', 'link/[code]', 'auth', 'auth/github', 'auth/github/callback',
 ]);

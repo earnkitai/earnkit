@@ -1,5 +1,5 @@
 /**
- * The MCP server: three tools, find, track and record, and the server instructions. Built per request
+ * The MCP server: four tools, find, track, record and screen, and the server instructions. Built per request
  * (the route is stateless). Each tool call counts against the installation's and the IP's hourly
  * limits; over either it is the busy-for-an-hour result. A tool's reply is its JSON; an unexpected
  * error (a database blip) is one plain line, logged by name only.
@@ -11,6 +11,7 @@ import { PROGRAM_CATEGORIES } from './program-file';
 import { LIMITS, hit } from './rate-limit';
 import { TrackInput, track } from './track';
 import { RecordInput, recordTool } from '../v6/record-tool';
+import { ScreenInput, screenTool } from '../v6/screen-tool';
 
 /** `builderId`: the installation's linked builder, or null. `ip`: the caller's address as a rate-limit key, when the route knows it. */
 export type McpContext = {
@@ -32,6 +33,8 @@ export const TRACK_DESCRIPTION =
   'What the builder did: started (a claim before filling), applied (with submitted_by and fields_used), won (with amount_usd), rejected, no_result, skipped, unskip (a skipped program may come back), or gap_done (with item). Call started before filling and applied after every submission.';
 export const RECORD_DESCRIPTION =
   "The builder's record: facts, links, documents, answers and standing approval, kept once and read by every agent of theirs. Call it with get at session start; call it with set for every new fact the builder gives; with brief for the question and facts behind one answer kind.";
+export const SCREEN_DESCRIPTION =
+  "For a program's reviewer: hand EarnKit the applicant list (name, repo, site, contracts, pitch) and get it back in named tiers with public evidence; with job_id, progress and results; with outcomes, who won.";
 export const BUSY = 'EarnKit is busy. Try again in a minute.';
 export const BUSY_HOUR = 'EarnKit is busy. Try again in an hour.';
 
@@ -103,6 +106,11 @@ export function createMcpServer(ctx: McpContext): McpServer {
     'record',
     { description: RECORD_DESCRIPTION, inputSchema: RecordInput },
     (args) => run(ctx, 'record', () => recordTool({ installationId: ctx.installationId, builderId: ctx.builderId, now: now() }, args)),
+  );
+  server.registerTool(
+    'screen',
+    { description: SCREEN_DESCRIPTION, inputSchema: ScreenInput },
+    (args) => run(ctx, 'screen', () => screenTool({ installationId: ctx.installationId, builderId: ctx.builderId, now: now() }, args)),
   );
   return server;
 }

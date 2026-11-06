@@ -111,6 +111,7 @@ export async function deleteBuilder(id: number): Promise<void> {
   const owner = `b:${id}`;
   await sql().begin(async (tx) => {
     await tx`DELETE FROM sessions WHERE builder_id = ${id}`;
+    await tx`DELETE FROM program_reviewers WHERE builder_id = ${id}`;
     await tx`DELETE FROM link_codes WHERE installation_id IN (SELECT id FROM installations WHERE builder_id = ${id})`;
     await tx`DELETE FROM applications WHERE owner = ${owner}`;
     await tx`DELETE FROM application_history WHERE owner = ${owner}`;

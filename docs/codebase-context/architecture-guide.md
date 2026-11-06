@@ -102,9 +102,12 @@ A `won` above the program's `max_award_usd` (or 5,000,000 when none is stated) i
 ## Freshness and the daily job
 
 `.github/workflows/earnkit-cron.yml` posts to `/api/cron` once a day with `CRON_SECRET`. `cron.ts` runs the probe
-(`health.ts`), the `repo_cache` sweep (rows over 30 days, answered as `swept`), then the owner's digest (`owner-digest.ts`: programs closed by deadline, failed links, changed pages
+(`health.ts`), the `repo_cache` sweep (rows over 30 days, answered as `swept`), the screen queue's daily share
+(`workQueue` with `SCREEN_BATCH` 40, answered as `screen`), then the owner's digest (`owner-digest.ts`: programs closed by deadline, failed links, changed pages
 and every change to live programs since the last digest, with revert links; nothing happened, nothing sent). Mail is
-`mail.ts` over Resend, to the owner only. A step that throws answers 500 with its name.
+`mail.ts` over Resend, to the owner only. A step that throws answers 500 with its name. The owner triggers one
+screen job with the same route and a JSON body `{ "job_id": "..." }`: only that queue runs (300 applicants or 10
+minutes), no probe, sweep or digest.
 
 ## The site
 
@@ -118,6 +121,7 @@ and every change to live programs since the last digest, with revert links; noth
 | `/llms.txt`, `/sitemap.xml` | For agents and search |
 | `/api/programs`, `/api/stats` | Public JSON; `/api/stats` has nine counts and names no one |
 | `/api/programs/write`, `writes`, `approve`, `revert` | The owner's program API |
+| `/api/programs/reviewers` | The owner marks a signed-in builder as a program's reviewer (programs bearer) |
 | `/api/cron` | The daily job |
 | `/mcp`, `/oauth/*`, `/.well-known/*` | The MCP endpoint and anonymous OAuth |
 
@@ -146,6 +150,8 @@ keys from tool-call bodies before anything sees them.
 | `evidence_cache` | v6 evidence blocks per repo (`repo:<owner/name>`, with pushed_at) and per contract, used for 7 days; not swept yet |
 | `applications`, `application_history`, `gaps_done` | The ledger |
 | `owner_digests` | The days a digest covered |
+| `program_reviewers` | Builders the owner marked as a program's reviewers (may call `screen`) |
+| `screen_jobs`, `screen_applicants`, `screen_outcomes` | Screen jobs (30 days), each applicant's tier, because, line, public rows and deployers (no pitch column), and the program's outcomes; the counts across programs read only these |
 
 v4 tables stay in the production database, unread. `pnpm db:v4-tables` lists them with row counts and prints
 DROP statements; it never runs them. Dropping is an owner step after a backup.
@@ -230,6 +236,17 @@ page is `docs/screening-pilot.md`.
 **Not in v6.0.** The `screen` MCP tool, the builder's record, `/me`, the catalog fields and any `find` or `track`
 change (v6.1); cross-program counts (they need stored screens); a queue or cron for screens (the script runs by
 hand); explorer readers for Avalanche, Tempo, Monad, Robinhood Chain and Solana; a sweep of `evidence_cache`.
+
+## v6.1: the screen tool
+
+`screen` (`lib/v6/screen-tool.ts`) is for a program's reviewer: a linked builder in `program_reviewers`. With
+`applicants` (up to 200) it queues a job (`screen-jobs.ts createJob`: pitches compared for `identical_pitch`, then
+dropped; 10 jobs a day per installation, `LIMITS.screenJobs`); the cron's `workQueue` (`screen-worker.ts`) reads
+them as the pilot does and stores tier, flags, because, line and rows of public bases only (`github`, `explorer`,
+`site`, `earnkit`, never `record`). With `job_id` it answers the totals line and the results; with `outcomes` it
+records the program's decisions, which also reach a builder's ledger when their record project is the same repo and
+they had applied to that program. `xpCounts` gives each read the screens by other programs in 90 days sharing the
+repo or a deployer (shown in `because` as "seen in n other screens in 90 days", never a flag, never a program name).
 
 ## What v5 deliberately does not do
 

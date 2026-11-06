@@ -231,3 +231,59 @@ CREATE TABLE IF NOT EXISTS evidence_cache (
   pushed_at text,
   read_at   timestamptz NOT NULL
 );
+
+-- v6.1 screen: the builders the owner marked as a program's reviewers, their jobs, each applicant's
+-- placement and public rows, and the program's outcomes. No pitch is stored: it is compared at job
+-- creation and dropped. `deployers` holds the contracts' deployer addresses for the counts across programs.
+CREATE TABLE IF NOT EXISTS program_reviewers (
+  program_id text NOT NULL,
+  builder_id int NOT NULL,
+  added_at   timestamptz NOT NULL DEFAULT now(),
+  contact    text,
+  PRIMARY KEY (program_id, builder_id)
+);
+CREATE TABLE IF NOT EXISTS screen_jobs (
+  id              text PRIMARY KEY,
+  program_id      text NOT NULL,
+  builder_id      int NOT NULL,
+  installation_id int NOT NULL,
+  created_at      timestamptz NOT NULL,
+  thresholds      jsonb,
+  total           int NOT NULL,
+  done            int NOT NULL DEFAULT 0,
+  finished_at     timestamptz,
+  expires_at      timestamptz NOT NULL
+);
+CREATE TABLE IF NOT EXISTS screen_applicants (
+  job_id              text NOT NULL,
+  ref                 text NOT NULL,
+  name                text NOT NULL,
+  repo_key            text,
+  repo_url            text,
+  live_url            text,
+  contracts           jsonb NOT NULL DEFAULT '[]',
+  applied_at          timestamptz,
+  identical_pitch     int NOT NULL DEFAULT 0,
+  shared_contributors int NOT NULL DEFAULT 0,
+  status              text NOT NULL DEFAULT 'queued',
+  tier                text,
+  flags               jsonb,
+  because             jsonb,
+  line                text,
+  rows                jsonb,
+  deployers           text[] NOT NULL DEFAULT '{}',
+  read_at             timestamptz,
+  error               text,
+  PRIMARY KEY (job_id, ref)
+);
+CREATE INDEX IF NOT EXISTS screen_applicants_repo ON screen_applicants (repo_key, read_at);
+CREATE INDEX IF NOT EXISTS screen_applicants_status ON screen_applicants (status, job_id);
+CREATE INDEX IF NOT EXISTS screen_applicants_deployers ON screen_applicants USING gin (deployers);
+CREATE TABLE IF NOT EXISTS screen_outcomes (
+  job_id     text NOT NULL,
+  ref        text NOT NULL,
+  outcome    text NOT NULL,
+  amount_usd numeric,
+  at         timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (job_id, ref)
+);

@@ -56,3 +56,32 @@ test('cronPost: a thrown step answers 500 with the step name only', async () => 
   const res2 = await cronPost(req(`Bearer ${SECRET}`), boom2);
   assert.deepEqual(await res2.json(), { error: 'digest failed' });
 });
+
+const jsonReq = (body: unknown) =>
+  new Request('https://earnkit.test/api/cron', { method: 'POST', headers: { authorization: `Bearer ${SECRET}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+
+test('cronPost: a run with a job_id works that job only and skips health, the sweep and the digest', async () => {
+  const calls: { limit: number; jobId?: string; deadline?: number }[] = [];
+  const res = await cronPost(jsonReq({ job_id: 'job-abc' }), {
+    ...deps,
+    runHealth: async () => { throw new Error('health must not run'); },
+    sendDigest: async () => { throw new Error('digest must not run'); },
+    workQueue: async (o) => (calls.push(o), { read: 3, jobs_finished: ['job-abc'] }),
+  });
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { screen: { read: 3, jobs_finished: ['job-abc'] } });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].limit, 300);
+  assert.equal(calls[0].jobId, 'job-abc');
+  assert.ok(calls[0].deadline! > Date.now() + 590_000);
+});
+
+test('cronPost: a plain run works the queue with SCREEN_BATCH after the sweep and answers screen', async () => {
+  const calls: { limit: number; jobId?: string }[] = [];
+  const res = await cronPost(req(`Bearer ${SECRET}`), { ...deps, workQueue: async (o) => (calls.push(o), { read: 0, jobs_finished: [] }) });
+  const body = (await res.json()) as { screen: unknown; digest: string };
+  assert.deepEqual(body.screen, { read: 0, jobs_finished: [] });
+  assert.deepEqual(calls.map((c) => [c.limit, c.jobId]), [[40, undefined]]);
+  const boom = await cronPost(req(`Bearer ${SECRET}`), { ...deps, workQueue: async () => { throw new Error('x'); } });
+  assert.deepEqual(await boom.json(), { error: 'screen failed' });
+});
