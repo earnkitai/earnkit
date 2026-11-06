@@ -1,7 +1,7 @@
 /**
  * What moved since this installation's last find: programs new and shown, changes to programs
- * shown or in its ledger (from program_changes), and shown ready programs closing within 7 days.
- * Empty on the first find.
+ * shown or in the owner's ledger (from program_changes), and shown ready programs closing within
+ * 7 days. Empty on the first find.
  */
 import { sql } from './db';
 import { closeDay } from './deadline';
@@ -36,7 +36,7 @@ function whatOf(p: ProgramRow['file'], fields: Set<string>): string | null {
 }
 
 export async function since(
-  installationId: number,
+  owner: string,
   lastFindAt: Date | null,
   programs: ProgramRow[],
   ready: string[],
@@ -48,7 +48,7 @@ export async function since(
   const shown = new Set([...ready, ...gaps]);
 
   const applied = await sql()<{ program_id: string }[]>`
-    SELECT program_id FROM applications WHERE installation_id = ${installationId} AND status <> 'skipped'`;
+    SELECT program_id FROM applications WHERE owner = ${owner} AND status <> 'skipped'`;
   const watched = new Set([...shown, ...applied.map((r) => r.program_id)]);
   const rows = await sql()<{ program_id: string; fields: string[] }[]>`
     SELECT program_id, fields FROM program_changes

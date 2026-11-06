@@ -24,7 +24,7 @@ async function installation() {
 const rec = replayFetch('earnkit');
 // The agent knows the live link (it passes it); whether real people use it, it does not say.
 const PROJECT = { name: 'EarnKit', description: 'Grants for builders.', repo_url: `https://github.com/${rec.repo}`, live_url: 'https://earnkit.com' };
-const ctx = (id: number, now = NOW) => ({ installationId: id, now, gh: rec.fetch });
+const ctx = (id: number, now = NOW) => ({ installationId: id, builderId: null, now, gh: rec.fetch });
 const ids = (xs: unknown) => (xs as { program_id: string }[]).map((x) => x.program_id);
 
 test('first find has no since', async () => {
@@ -224,7 +224,7 @@ test('filter.all lists the rest with a reason; the leftover count is in the note
 test('a repo read that fails never fails find', async () => {
   const id = await installation();
   const broken = (async () => { throw new Error('network down'); }) as unknown as typeof fetch;
-  const r = await mcpCall({ installationId: id, now: NOW, gh: broken }, 'find', { project: PROJECT });
+  const r = await mcpCall({ installationId: id, builderId: null, now: NOW, gh: broken }, 'find', { project: PROJECT });
   assert.equal(r.isError, false, r.text);
   assert.equal(r.reply!.as_reported, true);
 });

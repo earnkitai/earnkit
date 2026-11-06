@@ -32,7 +32,7 @@ try {
   const project = { name: slug, description: 'An app.', repo_url: `https://github.com/${rec.repo}` };
   let now = new Date('2026-11-04T12:00:00Z');
   const call = async (tool: string, a: Record<string, unknown>) => {
-    const r = await mcpCall({ installationId: inst.id as number, now, gh: rec.fetch }, tool, a);
+    const r = await mcpCall({ installationId: inst.id as number, builderId: null, now, gh: rec.fetch }, tool, a);
     console.log(`\n== ${tool} ${JSON.stringify(a.status ?? '')} at ${now.toISOString()}${r.isError ? ' (error)' : ''}`);
     console.log('-- show_to_builder\n' + (r.reply?.show_to_builder ?? r.text));
     console.log('-- agent_note\n' + (r.reply?.agent_note ?? ''));

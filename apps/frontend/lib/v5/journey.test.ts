@@ -41,7 +41,7 @@ function project(slug: string) {
   const rec = replayFetch(slug);
   return { rec, project: { name: slug, description: 'An app.', repo_url: `https://github.com/${rec.repo}` } };
 }
-const ctx = (id: number, fetch: typeof globalThis.fetch, now = NOW) => ({ installationId: id, now, gh: fetch });
+const ctx = (id: number, fetch: typeof globalThis.fetch, now = NOW) => ({ installationId: id, builderId: null, now, gh: fetch });
 
 async function find(id: number, slug: string, over: Record<string, unknown> = {}, now = NOW) {
   const { rec, project: p } = project(slug);

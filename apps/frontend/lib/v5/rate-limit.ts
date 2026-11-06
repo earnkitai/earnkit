@@ -26,6 +26,8 @@ export const LIMITS = {
   mcpIp: { limit: 600, windowSeconds: 3_600 },
   /** Uncached GitHub repo reads, per installation, per UTC day (a cache hit is free). */
   repoRead: { limit: 10, windowSeconds: 86_400 },
+  /** GET /link/<code> and the GitHub sign-in callback, per client IP, one window for both. */
+  linkGet: { limit: 60, windowSeconds: 3_600 },
 } as const;
 
 /** Registrations per agent app a day at which a warning is logged, before oauthRegisterHost refuses. */

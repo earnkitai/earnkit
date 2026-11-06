@@ -1,6 +1,7 @@
 /**
- * The builder's ledger, keyed by installation only: applications (one row per program, plus an
- * append-only history), closed gap items, and the summary `track` and `find` show. A win over the
+ * The builder's ledger, keyed by its owner ('b:<builder>' once linked, else 'i:<installation>'):
+ * applications (one row per program, plus an append-only history), closed gap items, and the
+ * summary `track` and `find` show. A win over the
  * program's stated maximum (or 5,000,000 when none is stated) is refused; investments are never "asked".
  */
 import { sql } from './db';
@@ -40,12 +41,18 @@ async function withOwn(ids: string[], programs: ProgramRow[]): Promise<Map<strin
   return map;
 }
 
+/** The installation an 'i:' owner names. Pure. */
+const installationOf = (owner: string): number | undefined => (/^i:(\d+)$/.exec(owner) ? Number(owner.slice(2)) : undefined);
+
+/** Writes set the owner and the writing installation (`o.installationId`, which an 'i:' owner implies). */
 export async function record(
-  installationId: number,
+  owner: string,
   programId: string,
   status: Status,
-  o: { amount_usd?: number; note?: string; item?: string; now?: Date } = {},
+  o: { installationId?: number; amount_usd?: number; note?: string; item?: string; now?: Date } = {},
 ): Promise<{ ok: true } | { ok: false; note: string }> {
+  const installationId = o.installationId ?? installationOf(owner);
+  if (installationId === undefined) throw new Error('record needs the writing installation');
   const now = o.now ?? new Date();
   const program = await getProgram(programId);
   if (!program) return { ok: false, note: "I don't know that program." };
@@ -59,29 +66,29 @@ export async function record(
 
   return (await sql().begin(async (tx) => {
     const [row] = await tx<{ status: string }[]>`
-      SELECT status FROM applications WHERE installation_id = ${installationId} AND program_id = ${programId} FOR UPDATE`;
+      SELECT status FROM applications WHERE owner = ${owner} AND program_id = ${programId} FOR UPDATE`;
     if (status === 'applied' && row && RESULTS.includes(row.status))
       return { ok: false, note: 'That one already has a result here.' } as const;
     if (RESULTS.includes(status) && (!row || row.status === 'skipped')) return { ok: false, note: "You haven't applied to that one here." } as const;
     if (status === 'gap_done') {
-      await tx`INSERT INTO gaps_done (installation_id, program_id, item, at) VALUES (${installationId}, ${programId}, ${o.item!}, ${now})
-        ON CONFLICT (installation_id, program_id, item) DO UPDATE SET at = EXCLUDED.at`;
+      await tx`INSERT INTO gaps_done (owner, installation_id, program_id, item, at) VALUES (${owner}, ${installationId}, ${programId}, ${o.item!}, ${now})
+        ON CONFLICT (owner, program_id, item) DO UPDATE SET at = EXCLUDED.at`;
     } else if (!(status === 'skipped' && row)) {
       // A skip on a program already in the ledger hides nothing new: the application stays as it is.
-      await tx`INSERT INTO applications (installation_id, program_id, status, amount_usd, note, at)
-        VALUES (${installationId}, ${programId}, ${status}, ${amount}, ${note}, ${now})
-        ON CONFLICT (installation_id, program_id) DO UPDATE
-          SET status = EXCLUDED.status, amount_usd = EXCLUDED.amount_usd, note = EXCLUDED.note, at = EXCLUDED.at`;
+      await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, note, at)
+        VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${amount}, ${note}, ${now})
+        ON CONFLICT (owner, program_id) DO UPDATE
+          SET installation_id = EXCLUDED.installation_id, status = EXCLUDED.status, amount_usd = EXCLUDED.amount_usd, note = EXCLUDED.note, at = EXCLUDED.at`;
     }
-    await tx`INSERT INTO application_history (installation_id, program_id, status, amount_usd, note, at)
-      VALUES (${installationId}, ${programId}, ${status}, ${amount}, ${note}, ${now})`;
+    await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, note, at)
+      VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${amount}, ${note}, ${now})`;
     return { ok: true } as const;
   })) as { ok: true } | { ok: false; note: string };
 }
 
-export async function summary(installationId: number, programs: ProgramRow[], now: Date): Promise<Ledger> {
+export async function summary(owner: string, programs: ProgramRow[], now: Date): Promise<Ledger> {
   const rows = await sql()<{ program_id: string; status: string; amount_usd: string | null }[]>`
-    SELECT program_id, status, amount_usd FROM applications WHERE installation_id = ${installationId}`;
+    SELECT program_id, status, amount_usd FROM applications WHERE owner = ${owner}`;
   const byId = await withOwn(rows.map((r) => r.program_id), programs);
   const l: Ledger = { applied: 0, asked_usd: 0, won: 0, won_usd: 0, pending: 0, rejected: 0, skipped: 0, closing_soon: [] };
   const soon: { program_id: string; title: string; at: number }[] = [];
@@ -111,31 +118,31 @@ export async function summary(installationId: number, programs: ProgramRow[], no
 }
 
 /** Program ids the builder applied to or skipped: they leave the list. */
-export async function excluded(installationId: number): Promise<Set<string>> {
-  const rows = await sql()<{ program_id: string }[]>`SELECT program_id FROM applications WHERE installation_id = ${installationId}`;
+export async function excluded(owner: string): Promise<Set<string>> {
+  const rows = await sql()<{ program_id: string }[]>`SELECT program_id FROM applications WHERE owner = ${owner}`;
   return new Set(rows.map((r) => r.program_id));
 }
 
-export async function doneItems(installationId: number, programId: string): Promise<Set<string>> {
+export async function doneItems(owner: string, programId: string): Promise<Set<string>> {
   const rows = await sql()<{ item: string }[]>`
-    SELECT item FROM gaps_done WHERE installation_id = ${installationId} AND program_id = ${programId}`;
+    SELECT item FROM gaps_done WHERE owner = ${owner} AND program_id = ${programId}`;
   return new Set(rows.map((r) => r.item));
 }
 
-/** Every closed gap item of the installation, by program: one query for a whole find. */
-export async function doneByProgram(installationId: number): Promise<Map<string, Set<string>>> {
+/** Every closed gap item of the owner, by program: one query for a whole find. */
+export async function doneByProgram(owner: string): Promise<Map<string, Set<string>>> {
   const rows = await sql()<{ program_id: string; item: string }[]>`
-    SELECT program_id, item FROM gaps_done WHERE installation_id = ${installationId}`;
+    SELECT program_id, item FROM gaps_done WHERE owner = ${owner}`;
   const out = new Map<string, Set<string>>();
   for (const r of rows) out.set(r.program_id, (out.get(r.program_id) ?? new Set<string>()).add(r.item));
   return out;
 }
 
 /** Applied programs whose results date has passed and that the builder has not been asked about. */
-export async function askOutcome(installationId: number, programs: ProgramRow[], now: Date): Promise<{ program_id: string; title: string }[]> {
+export async function askOutcome(owner: string, programs: ProgramRow[], now: Date): Promise<{ program_id: string; title: string }[]> {
   const rows = await sql()<{ program_id: string }[]>`
     SELECT program_id FROM applications
-    WHERE installation_id = ${installationId} AND status = 'applied' AND asked_outcome_at IS NULL`;
+    WHERE owner = ${owner} AND status = 'applied' AND asked_outcome_at IS NULL`;
   const open = new Set(rows.map((r) => r.program_id));
   const byId = await withOwn([...open], programs);
   return [...open]
@@ -148,8 +155,8 @@ export async function askOutcome(installationId: number, programs: ProgramRow[],
     .map((p) => ({ program_id: p.id, title: p.file.title }));
 }
 
-export async function markAsked(installationId: number, programIds: string[], now: Date): Promise<void> {
+export async function markAsked(owner: string, programIds: string[], now: Date): Promise<void> {
   if (programIds.length === 0) return;
   await sql()`UPDATE applications SET asked_outcome_at = ${now}
-    WHERE installation_id = ${installationId} AND program_id IN ${sql()(programIds)}`;
+    WHERE owner = ${owner} AND program_id IN ${sql()(programIds)}`;
 }

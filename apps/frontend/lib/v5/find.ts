@@ -4,6 +4,7 @@
  * open list. EarnKit writes no prose: the agent drafts from the fields.
  */
 import { z } from 'zod';
+import { ownerKey } from '../v6/builders';
 import { timeLeftWords } from './deadline';
 import { evaluate, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
@@ -74,11 +75,14 @@ export type FindReply = {
   problems?: string[];
 };
 export type ProgramReply = { show_to_builder: string; agent_note: string; program: Program | null; fields: Field[]; guide: Guide | null; verdict?: Verdict };
-export type FindContext = { installationId: number; now: Date; gh?: typeof fetch };
+export type FindContext = { installationId: number; builderId: number | null; now: Date; gh?: typeof fetch };
 
 const MAX_READY = 5;
 const MAX_GAPS = 3;
 const MAX_LISTED = 10;
+
+/** Whose ledger this find reads: the builder's once linked, else the installation's. Pure. */
+const ownerOf = (ctx: FindContext) => ownerKey(ctx.installationId, ctx.builderId);
 
 /** The money in the program's own words: its summary's first part. Pure. */
 export const moneyOf = (p: Program): string => p.summary.split(' · ')[0];
@@ -123,7 +127,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null)
   const p = row.file;
   const facts = project ? await factsOf(project, ctx) : EMPTY_FACTS;
   const { fields } = prefill(row, facts);
-  const verdict = project ? evaluate(row, facts, await doneItems(ctx.installationId, id), ctx.now) : undefined;
+  const verdict = project ? evaluate(row, facts, await doneItems(ownerOf(ctx), id), ctx.now) : undefined;
   const left = closesIn(p, ctx.now);
   const open = isOpen(p, ctx.now);
   const when = p.status === 'upcoming' ? null : !open ? 'closed' : left ? `closes ${left}` : 'no deadline';
@@ -154,7 +158,7 @@ async function openList(ctx: FindContext, problem: string | null): Promise<FindR
     return `${r.file.title}, ${moneyOf(r.file)}${left ? `, closes ${left}` : ''}`;
   });
   if (programs.length > MAX_LISTED) lines.push(`and ${programs.length - MAX_LISTED} more`);
-  const ledger = await summary(ctx.installationId, programs, ctx.now);
+  const ledger = await summary(ownerOf(ctx), programs, ctx.now);
   return {
     show_to_builder: programs.length > 0 ? `Open now:\n${lines.join('\n')}` : "Nothing is open right now. I'll say when something opens.",
     agent_note: [
@@ -177,11 +181,12 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const facts = await factsOf(project, ctx);
   problems.push(...(facts.problems ?? []));
   const open = await listOpenPrograms(ctx.now);
-  const skip = await excluded(ctx.installationId);
+  const owner = ownerOf(ctx);
+  const skip = await excluded(owner);
   const all = i.filter?.all === true;
   const programs = open.filter((r) => !skip.has(r.id) && (!i.filter?.category || categoryOf(r.file) === i.filter.category));
   const byId = new Map(programs.map((r) => [r.id, r]));
-  const done = await doneByProgram(ctx.installationId);
+  const done = await doneByProgram(owner);
   const verdicts = programs.map((r) => evaluate(r, facts, done.get(r.id) ?? new Set<string>(), ctx.now));
 
   const readyV = rankReady(verdicts.filter((v) => v.status === 'ready'), byId);
@@ -196,10 +201,10 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   );
 
   const last = await lastFindAt(ctx.installationId);
-  const moved = await since(ctx.installationId, last, open, ready.map((r) => r.program_id), ctx.now, gaps.map((g) => g.program_id));
-  const ledger = await summary(ctx.installationId, open, ctx.now);
-  const ask = await askOutcome(ctx.installationId, open, ctx.now);
-  await markAsked(ctx.installationId, ask.map((a) => a.program_id), ctx.now);
+  const moved = await since(owner, last, open, ready.map((r) => r.program_id), ctx.now, gaps.map((g) => g.program_id));
+  const ledger = await summary(owner, open, ctx.now);
+  const ask = await askOutcome(owner, open, ctx.now);
+  await markAsked(owner, ask.map((a) => a.program_id), ctx.now);
 
   const r: Omit<FindReply, 'show_to_builder' | 'agent_note'> = {
     since: moved, ready, gaps,

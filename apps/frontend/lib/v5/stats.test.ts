@@ -38,7 +38,7 @@ test('installs, finds and applications count what happened, with their windows',
     ids.push(r.id);
   }
   const app = (i: number, program: string, status: string, at: Date, amount: number | null = null) =>
-    db`INSERT INTO applications (installation_id, program_id, status, amount_usd, at) VALUES (${ids[i]}, ${program}, ${status}, ${amount}, ${at})`;
+    db`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, at) VALUES (${`i:${ids[i]}`}, ${ids[i]}, ${program}, ${status}, ${amount}, ${at})`;
   await app(0, 'p1', 'applied', ago(1));
   await app(0, 'p2', 'won', ago(2), 500);
   await app(1, 'p1', 'rejected', ago(30));

@@ -10,7 +10,7 @@ after(() => sql().end());
 const NOW = new Date('2026-11-04T12:00:00Z');
 async function ctx() {
   const [r] = await sql()`INSERT INTO installations (token_hash) VALUES (${'mcp-' + Math.random()}) RETURNING id`;
-  return { installationId: r.id as number, now: NOW, gh: (async () => new Response('', { status: 404 })) as typeof fetch };
+  return { installationId: r.id as number, builderId: null, now: NOW, gh: (async () => new Response('', { status: 404 })) as typeof fetch };
 }
 
 test('two tools, their descriptions and the server instructions, verbatim', async () => {
@@ -47,7 +47,7 @@ test('find strips unknown keys; track refuses them', async () => {
 
 test('a database error is the busy line', async () => {
   // An id past Postgres's integer range: the database refuses the query.
-  const r = await mcpCall({ installationId: 2 ** 40, now: NOW }, 'find', { project: { name: 'X', description: 'An app.' } });
+  const r = await mcpCall({ installationId: 2 ** 40, builderId: null, now: NOW }, 'find', { project: { name: 'X', description: 'An app.' } });
   assert.equal(r.isError, true);
   assert.equal(r.text, 'EarnKit is busy. Try again in a minute.');
 });

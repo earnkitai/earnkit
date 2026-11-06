@@ -10,7 +10,7 @@ after(() => sql().end());
 const NOW = new Date('2026-11-04T12:00:00Z');
 async function ctx() {
   const [r] = await sql()`INSERT INTO installations (token_hash) VALUES (${'track-' + Math.random()}) RETURNING id`;
-  return { installationId: r.id as number, now: NOW };
+  return { installationId: r.id as number, builderId: null, now: NOW };
 }
 
 test('the six replies', async () => {

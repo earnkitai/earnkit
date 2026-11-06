@@ -147,6 +147,68 @@ CREATE TABLE IF NOT EXISTS gaps_done (
   PRIMARY KEY (installation_id, program_id, item)
 );
 
+-- v6.1: a builder is a GitHub account; installations link to one through a one-time code, and a
+-- browser session (its token's hash) signs them in to /me.
+CREATE TABLE IF NOT EXISTS builders (
+  id                serial PRIMARY KEY,
+  github_id         bigint NOT NULL UNIQUE,
+  login             text NOT NULL,
+  name              text,
+  avatar_url        text,
+  record            jsonb NOT NULL DEFAULT '{}',
+  record_updated_at timestamptz,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  last_seen_at      timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS builder_id int;
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS linked_at timestamptz;
+CREATE TABLE IF NOT EXISTS link_codes (
+  code            text PRIMARY KEY,
+  installation_id int NOT NULL,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  expires_at      timestamptz NOT NULL,
+  used_at         timestamptz
+);
+CREATE INDEX IF NOT EXISTS link_codes_installation ON link_codes (installation_id);
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash   text PRIMARY KEY,
+  builder_id   int NOT NULL,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  expires_at   timestamptz NOT NULL,
+  last_seen_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- The ledger's owner: 'b:<builder>' once linked, else 'i:<installation>'. installation_id stays the
+-- writing installation. Duplicates per owner are merged (the newest kept) before the unique indexes.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS owner text;
+ALTER TABLE application_history ADD COLUMN IF NOT EXISTS owner text;
+ALTER TABLE gaps_done ADD COLUMN IF NOT EXISTS owner text;
+UPDATE applications SET owner = 'i:' || installation_id WHERE owner IS NULL;
+UPDATE application_history SET owner = 'i:' || installation_id WHERE owner IS NULL;
+UPDATE gaps_done SET owner = 'i:' || installation_id WHERE owner IS NULL;
+DO $$
+DECLARE t text; has_null boolean;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['applications', 'application_history', 'gaps_done'] LOOP
+    EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I WHERE owner IS NULL)', t) INTO has_null;
+    IF NOT has_null THEN
+      EXECUTE format('ALTER TABLE %I ALTER COLUMN owner SET NOT NULL', t);
+    END IF;
+  END LOOP;
+END $$;
+DELETE FROM applications a USING applications b
+WHERE a.owner = b.owner AND a.program_id = b.program_id AND (a.at < b.at OR (a.at = b.at AND a.ctid < b.ctid));
+CREATE UNIQUE INDEX IF NOT EXISTS applications_owner_program ON applications (owner, program_id);
+CREATE INDEX IF NOT EXISTS application_history_owner ON application_history (owner, program_id, at DESC);
+DELETE FROM gaps_done a USING gaps_done b
+WHERE a.owner = b.owner AND a.program_id = b.program_id AND a.item = b.item AND (a.at < b.at OR (a.at = b.at AND a.ctid < b.ctid));
+CREATE UNIQUE INDEX IF NOT EXISTS gaps_done_owner_item ON gaps_done (owner, program_id, item);
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS project_id text;
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS submitted_by text;
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS fields_used text[];
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS claimed_at timestamptz;
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS claimed_by int;
+
 -- The owner's daily digest: the day it covered and when it was sent; the next digest starts there.
 CREATE TABLE IF NOT EXISTS owner_digests (
   day     text PRIMARY KEY,

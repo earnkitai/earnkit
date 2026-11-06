@@ -66,7 +66,7 @@ async function handle(request: Request) {
   }
 
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
-  await createMcpServer({ installationId: caller.id, ip: clientIp(request.headers) }).connect(transport);
+  await createMcpServer({ installationId: caller.id, builderId: caller.builderId, ip: clientIp(request.headers) }).connect(transport);
   const s = await scrubbed(request);
   if (s instanceof Response) return s;
   if (s.request === null) return json(s.batch ? s.old : s.old[0], 200);

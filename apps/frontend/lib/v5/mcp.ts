@@ -11,8 +11,8 @@ import { PROGRAM_CATEGORIES } from './program-file';
 import { LIMITS, hit } from './rate-limit';
 import { TrackInput, track } from './track';
 
-/** `ip`: the caller's address as a rate-limit key, when the route knows it. */
-export type McpContext = { installationId: number; now?: Date; gh?: typeof fetch; ip?: string };
+/** `builderId`: the installation's linked builder, or null. `ip`: the caller's address as a rate-limit key, when the route knows it. */
+export type McpContext = { installationId: number; builderId: number | null; now?: Date; gh?: typeof fetch; ip?: string };
 
 export const SERVER_INSTRUCTIONS =
   "Call find at the start of every session with the project you are in, before the builder says anything, and open with its reply in your own words. Call it again when they ask about money, grants or programs. Draft every form from find's fields: EarnKit's values as given, agent fields from your memory, builder fields asked once. Submit in your own browser only when the builder says yes. After each submission call track. Never name tools, fields or files. Never invent an amount, a deadline or a rule.";
@@ -79,12 +79,12 @@ export function createMcpServer(ctx: McpContext): McpServer {
           .optional(),
       },
     },
-    (args) => run(ctx, 'find', () => find({ installationId: ctx.installationId, now: now(), gh: ctx.gh }, args)),
+    (args) => run(ctx, 'find', () => find({ installationId: ctx.installationId, builderId: ctx.builderId, now: now(), gh: ctx.gh }, args)),
   );
   server.registerTool(
     'track',
     { description: TRACK_DESCRIPTION, inputSchema: TrackInput },
-    (args) => run(ctx, 'track', () => track({ installationId: ctx.installationId, now: now() }, args)),
+    (args) => run(ctx, 'track', () => track({ installationId: ctx.installationId, builderId: ctx.builderId, now: now() }, args)),
   );
   return server;
 }
