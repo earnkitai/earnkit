@@ -25,8 +25,8 @@ const problemAt = (line: string) => back(`/me?problem=${encodeURIComponent(line)
 /** GET /me (the proxy): no live session is a 302 to /docs#record with no body; with one the page renders. */
 export async function meGet(request: Request, deps: Deps = {}): Promise<Response> {
   const builder = await sessionBuilder(request.headers.get('cookie'), deps.now ?? new Date());
-  // The proxy needs an absolute Location; Next sends a same-origin one as the path.
-  if (!builder) return new Response(null, { status: 302, headers: { Location: new URL('/docs#record', request.url).href, 'Cache-Control': 'no-store' } });
+  // The proxy needs an absolute Location, on the public origin (the request URL can be the internal one).
+  if (!builder) return new Response(null, { status: 302, headers: { Location: `${publicOrigin(request)}/docs#record`, 'Cache-Control': 'no-store' } });
   const res = NextResponse.next();
   res.headers.set('Cache-Control', 'no-store');
   return res;

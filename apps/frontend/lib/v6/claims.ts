@@ -8,7 +8,8 @@ import { programsById } from '../v5/programs';
 
 export const CLAIM_HOURS = 24;
 const HOUR = 3_600_000;
-type Already = { since: string; by: string | null };
+/** `sent`: the row is an application already sent, not a live claim. */
+type Already = { since: string; by: string | null; sent: boolean };
 export type ClaimResult = { ok: true } | { ok: false; already: Already } | { ok: false; skipped: true };
 type Row = { status: string; claimed_at: Date | null; claimed_by: number | null; installation_id: number; at: Date };
 
@@ -22,8 +23,9 @@ const clientOf = async (installationId: number | null): Promise<string | null> =
 const holder = (row: Row) => (row.status === 'started' ? { since: row.claimed_at ?? row.at, by: row.claimed_by } : { since: row.at, by: row.installation_id });
 
 /**
- * Claims the program for the owner. A live claim (under 24 hours) or an application already sent answers
- * `already` with when and which agent; a skip answers `skipped`; only a stale claim is taken over.
+ * Claims the program for the owner. A live claim (under 24 hours) by another installation or an application
+ * already sent answers `already` with when and which agent; a skip answers `skipped`; a stale claim is taken
+ * over, and the claiming installation's own live claim is renewed (claimed_at moves to now).
  */
 export async function claim(owner: string, programId: string, projectId: string | null, installationId: number, now: Date): Promise<ClaimResult> {
   const stale = new Date(now.getTime() - CLAIM_HOURS * HOUR);
@@ -34,7 +36,11 @@ export async function claim(owner: string, programId: string, projectId: string 
       (await tx<Row[]>`SELECT status, claimed_at, claimed_by, installation_id, at FROM applications WHERE owner = ${owner} AND program_id = ${programId} FOR UPDATE`)[0];
     const row = await read();
     if (row?.status === 'skipped') return { skipped: true as const };
-    if (row && !(row.status === 'started' && row.claimed_at && row.claimed_at <= stale)) return { held: holder(row) };
+    if (row?.status === 'started' && row.claimed_at && row.claimed_at > stale && row.claimed_by === installationId) {
+      await tx`UPDATE applications SET claimed_at = ${now} WHERE owner = ${owner} AND program_id = ${programId}`;
+      return { ok: true as const };
+    }
+    if (row && !(row.status === 'started' && row.claimed_at && row.claimed_at <= stale)) return { held: holder(row), sent: row.status !== 'started' };
     const won = await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, note, at, project_id, claimed_at, claimed_by)
       VALUES (${owner}, ${installationId}, ${programId}, 'started', NULL, NULL, ${now}, ${projectId}, ${now}, ${installationId})
       ON CONFLICT (owner, program_id) DO UPDATE
@@ -45,7 +51,7 @@ export async function claim(owner: string, programId: string, projectId: string 
       RETURNING program_id`;
     if (won.length === 0) {
       const now2 = await read();
-      return now2 ? { held: holder(now2) } : { skipped: true as const };
+      return now2 ? { held: holder(now2), sent: now2.status !== 'started' } : { skipped: true as const };
     }
     await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, note, at)
       VALUES (${owner}, ${installationId}, ${programId}, 'started', NULL, NULL, ${now})`;
@@ -53,7 +59,7 @@ export async function claim(owner: string, programId: string, projectId: string 
   });
   if ('ok' in out) return { ok: true };
   if ('skipped' in out) return { ok: false, skipped: true };
-  return { ok: false, already: { since: out.held.since.toISOString(), by: await clientOf(out.held.by) } };
+  return { ok: false, already: { since: out.held.since.toISOString(), by: await clientOf(out.held.by), sent: out.sent } };
 }
 
 /** Deletes the owner's claims older than 24 hours that never became 'applied'; returns their program ids. */

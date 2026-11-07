@@ -84,14 +84,14 @@ test('recordOutcomes writes won into a linked builder\'s ledger only when they h
     { ref: 'c-4', outcome: 'won' },
     { ref: 'nope', outcome: 'rejected' },
   ], NOW);
-  assert.deepEqual(out, { recorded: 4, ledgers: 1, unusable: 1 });
+  assert.deepEqual(out, { recorded: 4 });
   const [a] = await sql()`SELECT status, amount_usd, installation_id FROM applications WHERE owner = ${`b:${applied.id}`} AND program_id = 'jobs-c'`;
   assert.deepEqual([a.status, Number(a.amount_usd), a.installation_id], ['won', 5000, BUILDER_INSTALLATION]);
   const [n] = await sql()`SELECT status FROM applications WHERE owner = ${`b:${noAmount.id}`} AND program_id = 'jobs-c'`;
   assert.equal(n.status, 'applied');
   assert.equal((await sql()`SELECT 1 FROM applications WHERE owner = ${`b:${never.id}`}`).length, 0);
   const other = await reviewer('jobs-c2');
-  assert.deepEqual(await recordOutcomes(j.id, other.builderId, [{ ref: 'c-1', outcome: 'rejected' }], NOW), { recorded: 0, ledgers: 0, unusable: 0 });
+  assert.deepEqual(await recordOutcomes(j.id, other.builderId, [{ ref: 'c-1', outcome: 'rejected' }], NOW), { recorded: 0 });
 });
 
 test('xpCounts counts another program\'s job sharing the repo key or a deployer, never the same job or program', async () => {

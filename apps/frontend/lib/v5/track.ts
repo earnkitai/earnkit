@@ -59,8 +59,10 @@ export async function track(ctx: TrackContext, input: unknown): Promise<Result> 
       };
     if (!c.ok)
       return {
-        show_to_builder: `${program.file.title} is already being handled since ${clock(c.already.since, ctx.now)} by ${c.already.by ?? 'another agent'}.`,
-        agent_note: 'Do not submit this one; call find again later.',
+        show_to_builder: c.already.sent
+          ? `${program.file.title} was already sent.`
+          : `${program.file.title} is already being handled since ${clock(c.already.since, ctx.now)} by ${c.already.by ?? 'another agent'}.`,
+        agent_note: c.already.sent ? 'Do not submit this one; it was already sent.' : 'Do not submit this one; call find again later.',
         ledger: await summary(owner, programs, ctx.now),
         already_started: true,
       };

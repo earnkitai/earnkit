@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { ownerKey } from '../v6/builders';
 import { appliedOvernight, releaseStale } from '../v6/claims';
 import { readEvidence, type Evidence, type Subject } from '../v6/evidence';
-import { allowedByPolicy, blockersOf, missingFor, recordSide, storedRecordContext, tierGate, type Blocker, type RecordSide } from '../v6/find-record';
+import { blockersOf, notNever, missingFor, recordSide, storedRecordContext, tierGate, type Blocker, type RecordSide } from '../v6/find-record';
 import { signInLink } from '../v6/record-tool';
 import { signInLine } from '../v6/reply-words';
 import { timeLeftWords } from './deadline';
@@ -257,8 +257,9 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const released = side ? await releaseStale(owner, ctx.now) : [];
   const skip = await excluded(owner);
   const all = i.filter?.all === true;
-  const policyOk = side ? allowedByPolicy(side.record) : () => true;
-  const programs = open.filter((r) => !skip.has(r.id) && policyOk(r) && (!i.filter?.category || categoryOf(r.file) === i.filter.category));
+  // The never list is the only policy that hides a program; the approval's limits only stop the agent sending alone.
+  const listed = side ? notNever(side.record) : () => true;
+  const programs = open.filter((r) => !skip.has(r.id) && listed(r) && (!i.filter?.category || categoryOf(r.file) === i.filter.category));
   const byId = new Map(programs.map((r) => [r.id, r]));
   const done = await doneByProgram(owner);
   const verdicts = programs

@@ -161,16 +161,15 @@ async function buildersOnRepo(key: string): Promise<number[]> {
 /**
  * The program's decisions. Each is kept for the counts across programs; a won or rejected one also goes
  * to the ledger of a builder whose record project is the same repo and who had applied to this program,
- * written as that builder's applying installation (through ledger.record, so its caps hold). `unusable`:
- * ledger writes refused (a win with no amount or over the cap). Shortlisted writes no ledger row.
+ * written as that builder's applying installation (through ledger.record, so its caps hold; a refused
+ * write, such as a win with no amount, is left out). Shortlisted writes no ledger row. Returns only how
+ * many outcomes were recorded: whether any reached a builder's ledger never goes back to the program.
  */
-export async function recordOutcomes(jobId: string, builderId: number, outcomes: Outcome[], now: Date): Promise<{ recorded: number; ledgers: number; unusable: number }> {
+export async function recordOutcomes(jobId: string, builderId: number, outcomes: Outcome[], now: Date): Promise<{ recorded: number }> {
   const [job] = await sql()<{ program_id: string; installation_id: number }[]>`
     SELECT program_id, installation_id FROM screen_jobs WHERE id = ${jobId} AND builder_id = ${builderId} AND expires_at > ${now}`;
-  if (!job) return { recorded: 0, ledgers: 0, unusable: 0 };
+  if (!job) return { recorded: 0 };
   let recorded = 0;
-  let ledgers = 0;
-  let unusable = 0;
   for (const o of outcomes) {
     const [a] = await sql()<{ repo_key: string | null }[]>`SELECT repo_key FROM screen_applicants WHERE job_id = ${jobId} AND ref = ${o.ref}`;
     if (!a) continue;
@@ -184,12 +183,10 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
       const [applied] = await sql()<{ installation_id: number }[]>`
         SELECT installation_id FROM applications WHERE owner = ${owner} AND program_id = ${job.program_id} AND status = 'applied'`;
       if (!applied) continue;
-      const r = await record(owner, job.program_id, o.outcome, { installationId: applied.installation_id, amount_usd: amount ?? undefined, now });
-      if (r.ok) ledgers++;
-      else unusable++;
+      await record(owner, job.program_id, o.outcome, { installationId: applied.installation_id, amount_usd: amount ?? undefined, now });
     }
   }
-  return { recorded, ledgers, unusable };
+  return { recorded };
 }
 
 /**

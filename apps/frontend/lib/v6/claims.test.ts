@@ -32,7 +32,7 @@ test("a second claim is refused across the builder's agents", async () => {
   const { owner, a, c } = await builderWithTwoAgents();
   assert.deepEqual(await claim(owner, 'cl-1', 'earnkit', a, NOW), { ok: true });
   const second = await claim(owner, 'cl-1', 'earnkit', c, new Date(NOW.getTime() + 2 * H));
-  assert.deepEqual(second, { ok: false, already: { since: NOW.toISOString(), by: 'Claude Code' } });
+  assert.deepEqual(second, { ok: false, already: { since: NOW.toISOString(), by: 'Claude Code', sent: false } });
   const [row] = await sql()`SELECT status, claimed_by, project_id FROM applications WHERE owner = ${owner} AND program_id = 'cl-1'`;
   assert.deepEqual({ ...row }, { status: 'started', claimed_by: a, project_id: 'earnkit' });
 

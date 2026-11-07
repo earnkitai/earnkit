@@ -67,6 +67,9 @@ test('meGet without a session redirects to /docs#record', async () => {
     assert.equal(r.headers.get('location')?.replace(/^https:\/\/[^/]+/, ''), '/docs#record');
     assert.equal(await r.text(), '');
   }
+  // Behind the proxy the request URL is the internal one; the Location is the public origin, like every other redirect.
+  const inside = await meGet(new Request('http://10.0.0.7:8080/me'), deps);
+  assert.equal(inside.headers.get('location'), 'https://earnkit.test/docs#record');
   const { cookie } = await signedIn();
   const ok = await meGet(new Request('https://earnkit.test/me', { headers: { cookie } }), deps);
   assert.notEqual(ok.status, 302);

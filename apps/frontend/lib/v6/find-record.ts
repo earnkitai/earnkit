@@ -1,6 +1,6 @@
 /**
  * The record side of find for a linked installation: the project it picks, the builder's own tier
- * (read at most once a day, else the stored one), min_tier gating, the policy's filters, blockers
+ * (read at most once a day, else the stored one), min_tier gating, the never list, blockers
  * and what the record still lacks for the ready programs. Only find calls this, and only when linked.
  */
 import type { Gap, Verdict } from '../v5/eligibility';
@@ -25,7 +25,11 @@ export type RecordSide = {
   summary: { tier: string | null; line: string } | null;
   problems: string[];
 };
-export type Blocker = { program_id: string; sign_in: string | null; needs_click: boolean; needs: string[] };
+export type Blocker = {
+  program_id: string; sign_in: string | null; needs_click: boolean; needs: string[];
+  /** With auto_apply: outside the standing approval's categories or max_ask_usd, so the builder says yes to it. */
+  outside_approval?: true;
+};
 
 const sameRepo = (a: string | null | undefined, b: string | null | undefined) =>
   !!a && !!b && a.toLowerCase().replace(/\/+$/, '').replace(/\.git$/, '') === b.toLowerCase().replace(/\/+$/, '').replace(/\.git$/, '');
@@ -109,22 +113,33 @@ export function tierGate(v: Verdict, row: ProgramRow, tier: Tier | null, line: s
   return { ...v, status: 'gap', gaps: [gap] };
 }
 
-/** The programs the builder's policy allows: never-list out, categories in. Pure. */
-export const allowedByPolicy = (record: BuilderRecord) => (row: ProgramRow) =>
-  !record.policy.never.includes(row.id) && record.policy.categories.includes(categoryOf(row.file));
+/** The programs the builder lists: everything but the never list. Pure. */
+export const notNever = (record: BuilderRecord) => (row: ProgramRow) => !record.policy.never.includes(row.id);
+
+/** Whether the standing approval covers sending this program alone: its category is ticked and its
+ *  stated amount is within max_ask_usd (no stated amount is never over it). Pure. */
+export const withinApproval = (record: BuilderRecord) => (row: ProgramRow) => {
+  const cap = record.policy.max_ask_usd;
+  const ask = row.file.max_award_usd;
+  return record.policy.categories.includes(categoryOf(row.file)) && (cap === undefined || ask === undefined || ask <= cap);
+};
 
 /** The sign-in a blocker names: the kind, or the platform's name. Pure. */
 const signInOf = (row: ProgramRow): string | null =>
   row.file.sign_in === 'none' ? null : row.file.sign_in === 'platform' ? (row.file.platform_name ?? 'platform') : row.file.sign_in;
 
-/** One blocker per ready program that needs a sign-in, a click or a document the record lacks. Pure. */
+/** One blocker per ready program that needs a sign-in, a click or a document the record lacks, or
+ *  (with auto_apply) falls outside the standing approval's limits. Pure. */
 export function blockersOf(rows: ProgramRow[], record: BuilderRecord): Blocker[] {
   const out: Blocker[] = [];
+  const within = withinApproval(record);
   for (const row of rows) {
     const needs_click = row.file.submit === 'builder' || record.policy.agent_may_submit === false;
     const needs = row.file.needs.filter((n) => !hasDoc(record, n));
     const sign_in = signInOf(row);
-    if (sign_in || needs_click || needs.length > 0) out.push({ program_id: row.id, sign_in, needs_click, needs });
+    const outside = record.policy.auto_apply && !within(row);
+    if (sign_in || needs_click || needs.length > 0 || outside)
+      out.push({ program_id: row.id, sign_in, needs_click, needs, ...(outside ? { outside_approval: true as const } : {}) });
   }
   return out;
 }

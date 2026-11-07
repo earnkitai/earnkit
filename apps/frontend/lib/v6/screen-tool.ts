@@ -67,9 +67,8 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
     if (!s || !programs.includes(s.program_id)) return line(SCREEN_TEXT.noJob);
     if (s.expired) return line(SCREEN_TEXT.expired);
     if (input.outcomes) {
-      const { recorded, ledgers, unusable } = await recordOutcomes(input.job_id, ctx.builderId, input.outcomes, ctx.now);
-      const note = ['Tell the builder the outcomes are recorded.', ...(unusable ? [`${plural(unusable, 'outcome')} had no usable amount for a ledger.`] : [])].join(' ');
-      return { ...line(`Recorded ${plural(recorded, 'outcome')}; ${ledgers} reached a builder's ledger.`, note), recorded };
+      const { recorded } = await recordOutcomes(input.job_id, ctx.builderId, input.outcomes, ctx.now);
+      return { ...line(`Recorded ${plural(recorded, 'outcome')}.`, 'Tell the builder the outcomes are recorded.'), recorded };
     }
     const results = await jobResults(input.job_id, ctx.builderId, ctx.now);
     if (!results) return line(SCREEN_TEXT.expired);

@@ -171,11 +171,18 @@ test('an unknown id is gated before any per-id read', async () => {
   assert.ok(ids.includes('zz-page-open') && ids.includes('zz-page-shut') && !ids.includes('zz-page-stale') && !ids.includes('nope'));
 });
 
-test('/me without a cookie is a redirect to /docs#record', async () => {
-  for (const headers of [{}, { cookie: 'ek_me=forged' }] as Record<string, string>[]) {
-    const r = await proxy(new Request('https://earnkit.com/me', { headers }) as never);
-    assert.equal(r.status, 302);
-    assert.equal(r.headers.get('location')?.replace(/^https:\/\/[^/]+/, ''), '/docs#record');
+test('/me without a cookie is a redirect to /docs#record, on the public origin', async () => {
+  const saved = process.env.EARNKIT_URL;
+  process.env.EARNKIT_URL = 'https://earnkit.com';
+  try {
+    for (const headers of [{}, { cookie: 'ek_me=forged' }] as Record<string, string>[]) {
+      const r = await proxy(new Request('http://10.0.0.7:8080/me', { headers }) as never);
+      assert.equal(r.status, 302);
+      assert.equal(r.headers.get('location'), 'https://earnkit.com/docs#record');
+    }
+  } finally {
+    if (saved === undefined) delete process.env.EARNKIT_URL;
+    else process.env.EARNKIT_URL = saved;
   }
 });
 

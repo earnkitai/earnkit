@@ -59,20 +59,59 @@ test('started then applied: the claim, then what was sent and by whom', async ()
   assert.equal((row.claimed_at as Date).toISOString(), NOW.toISOString());
 });
 
-test('a second started within 24 hours answers already_started with the agent and the time', async () => {
-  const [r] = await sql()`INSERT INTO installations (token_hash, client_name) VALUES (${'track-' + Math.random()}, 'Claude Code') RETURNING id`;
-  const c = { installationId: r.id as number, builderId: null, now: NOW };
+let gh = 931_000;
+/** Two installations linked to one builder (the first named `client`, the second unnamed), as track contexts. */
+async function twoAgents(client: string | null = 'Claude Code') {
+  const { linkInstallation, upsertBuilder } = await import('../v6/builders');
+  const b = await upsertBuilder({ github_id: ++gh, login: 'tr' + gh, name: 'Tr', avatar_url: null }, NOW);
+  const make = async (name: string | null) => {
+    const [r] = await sql()`INSERT INTO installations (token_hash, client_name) VALUES (${'track-' + Math.random()}, ${name}) RETURNING id`;
+    await linkInstallation(r.id as number, b.id, NOW);
+    return { installationId: r.id as number, builderId: b.id as number | null, now: NOW };
+  };
+  return { a: await make(client), c: await make(null), owner: 'b:' + b.id };
+}
+
+test("a second started within 24 hours from another of the builder's agents answers already_started with the agent and the time", async () => {
+  const { a, c } = await twoAgents();
   await upsertProgram(programFixture({ id: 't6-d', title: 'Double Grant' }), 'file', NOW);
-  await track(c, { program_id: 't6-d', status: 'started' });
+  await track(a, { program_id: 't6-d', status: 'started' });
   const again = await track({ ...c, now: new Date(NOW.getTime() + 2 * 3_600_000) }, { program_id: 't6-d', status: 'started' });
   assert.equal(again.already_started, true);
   assert.equal(again.show_to_builder, 'Double Grant is already being handled since 12:00 UTC by Claude Code.');
   assert.equal(again.agent_note, 'Do not submit this one; call find again later.');
   // Without a client name: "another agent".
-  const anon = await ctx();
-  await track(anon, { program_id: 't6-d', status: 'started' });
-  const b = await track(anon, { program_id: 't6-d', status: 'started' });
+  const two = await twoAgents();
+  await track(two.c, { program_id: 't6-d', status: 'started' });
+  const b = await track(two.a, { program_id: 't6-d', status: 'started' });
   assert.equal(b.show_to_builder, 'Double Grant is already being handled since 12:00 UTC by another agent.');
+});
+
+test('the same installation starting again within 24 hours is ok and moves the claim; another installation is still held', async () => {
+  const { a, c, owner } = await twoAgents();
+  await upsertProgram(programFixture({ id: 't6-re', title: 'Again Grant' }), 'file', NOW);
+  await track(a, { program_id: 't6-re', status: 'started' });
+  const later = new Date(NOW.getTime() + 3 * 3_600_000);
+  const again = await track({ ...a, now: later }, { program_id: 't6-re', status: 'started' });
+  assert.equal(again.show_to_builder, 'Started. Nothing else will submit this one for 24 hours.');
+  assert.equal('already_started' in again, false);
+  const [row] = await sql()`SELECT status, claimed_at, claimed_by FROM applications WHERE owner = ${owner} AND program_id = 't6-re'`;
+  assert.deepEqual([row.status, (row.claimed_at as Date).toISOString(), row.claimed_by], ['started', later.toISOString(), a.installationId]);
+  const other = await track({ ...c, now: new Date(later.getTime() + 3_600_000) }, { program_id: 't6-re', status: 'started' });
+  assert.equal(other.already_started, true);
+  assert.equal(other.show_to_builder, 'Again Grant is already being handled since 15:00 UTC by Claude Code.');
+});
+
+test('started on an application already sent says it was sent, for any installation', async () => {
+  const { a, c } = await twoAgents();
+  await upsertProgram(programFixture({ id: 't6-sent', title: 'Sent Grant' }), 'file', NOW);
+  await track(a, { program_id: 't6-sent', status: 'applied', submitted_by: 'agent' });
+  for (const who of [a, c]) {
+    const r = await track({ ...who, now: new Date(NOW.getTime() + 3_600_000) }, { program_id: 't6-sent', status: 'started' });
+    assert.equal(r.already_started, true);
+    assert.equal(r.show_to_builder, 'Sent Grant was already sent.');
+    assert.equal(r.agent_note, 'Do not submit this one; it was already sent.');
+  }
 });
 
 test('started for an unknown program refuses and records nothing', async () => {
@@ -100,8 +139,9 @@ test('started over a skip: the skipped sentence; an older claim names its day', 
   assert.equal((await track(c, { program_id: 't6-k', status: 'started' })).show_to_builder, 'Started. Nothing else will submit this one for 24 hours.');
   assert.equal((await track(c, { program_id: 't6-k', status: 'unskip' })).show_to_builder, "That one isn't skipped here.");
   await upsertProgram(programFixture({ id: 't6-y', title: 'Yesterday Grant' }), 'file', NOW);
-  await track({ ...c, now: new Date('2026-11-03T22:10:00Z') }, { program_id: 't6-y', status: 'started' });
-  const again = await track(c, { program_id: 't6-y', status: 'started' });
+  const two = await twoAgents(null);
+  await track({ ...two.a, now: new Date('2026-11-03T22:10:00Z') }, { program_id: 't6-y', status: 'started' });
+  const again = await track(two.c, { program_id: 't6-y', status: 'started' });
   assert.equal(again.show_to_builder, 'Yesterday Grant is already being handled since Nov 3, 22:10 UTC by another agent.');
 });
 

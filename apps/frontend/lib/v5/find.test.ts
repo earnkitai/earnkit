@@ -379,8 +379,8 @@ test('min_tier above the project tier moves the program to gaps with kind tier; 
   }
 });
 
-test('auto_apply changes the closing line and the agent note; the policy filters programs', async () => {
-  const { id, builderId } = await linkedWith({ ...OWNER_RECORD, policy: { auto_apply: true, max_per_night: 2, never: ['z-fellows'], categories: ['grant', 'hackathon', 'bounty'] } });
+test('auto_apply changes the closing line and the agent note; never removes a program', async () => {
+  const { id, builderId } = await linkedWith({ ...OWNER_RECORD, policy: { auto_apply: true, max_per_night: 2, never: ['z-fellows'] } });
   const r = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT });
   const show = r.reply!.show_to_builder as string;
   const blocked = new Set((r.reply!.blockers as { program_id: string; sign_in: string | null; needs_click: boolean }[]).filter((b) => b.sign_in || b.needs_click).map((b) => b.program_id));
@@ -390,9 +390,72 @@ test('auto_apply changes the closing line and the agent note; the policy filters
   assert.doesNotMatch(show, /Say yes/);
   assert.equal(r.reply!.auto_apply, true);
   assert.match(r.reply!.agent_note as string, /^Standing approval is on: for each ready program within the limits, call track started/m);
-  const shown = ids(r.reply!.ready);
-  assert.ok(!shown.includes('z-fellows'));
-  assert.ok((r.reply!.ready as { category: string }[]).every((p) => p.category !== 'investment'), JSON.stringify(shown));
+  assert.ok(!ids(r.reply!.ready).includes('z-fellows'));
+});
+
+type B = { program_id: string; sign_in: string | null; needs_click: boolean; outside_approval?: true };
+/** The ready programs the agent may send alone tonight: no sign-in, click or approval limit in the way. */
+const freeOf = (reply: Record<string, unknown>) => {
+  const blocked = new Set((reply.blockers as B[]).filter((b) => b.sign_in || b.needs_click || b.outside_approval).map((b) => b.program_id));
+  return (reply.ready as { program_id: string; in_person: boolean }[]).filter((p) => !p.in_person && !blocked.has(p.program_id));
+};
+
+test('categories limit only what the agent sends alone: an investment program stays ready, not counted tonight', async () => {
+  const { id, builderId } = await linkedWith({ ...OWNER_RECORD, policy: { auto_apply: true, max_per_night: 20, categories: ['grant', 'hackathon', 'bounty'] } });
+  const r = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT, filter: { all: true } });
+  assert.equal(r.isError, false, r.text);
+  const ready = r.reply!.ready as { program_id: string; title: string; category: string; in_person: boolean }[];
+  const invest = ready.filter((p) => p.category === 'investment');
+  assert.ok(invest.length > 0, JSON.stringify(ids(ready)));
+  const blockers = r.reply!.blockers as B[];
+  for (const p of invest) assert.equal(blockers.find((b) => b.program_id === p.program_id)?.outside_approval, true, p.program_id);
+  assert.ok(blockers.filter((b) => b.outside_approval).every((b) => invest.some((p) => p.program_id === b.program_id)));
+  const free = freeOf(r.reply!);
+  assert.ok(free.every((p) => !invest.some((x) => x.program_id === p.program_id)));
+  const show = r.reply!.show_to_builder as string;
+  const named = invest.filter((p) => !blockers.find((b) => b.program_id === p.program_id)!.needs_click).map((p) => p.title);
+  assert.ok(named.length > 0);
+  assert.ok(show.includes(`Outside your standing approval, you say yes yourself: ${named.length === 1 ? named[0] : `${named.slice(0, -1).join(', ')} and ${named.at(-1)}`}.`), show);
+  assert.match(show, free.length > 0 ? new RegExp(`\\n\\nApplying tonight to ${free.length}; say stop to hold any\\.$`) : /Say yes/);
+  assert.match(r.reply!.agent_note as string, /outside_approval/);
+});
+
+test('max_ask_usd keeps a larger ask out of tonight and names it; a program with no stated amount is not over it', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  await upsertProgram(programFixture({ id: 'f-big', title: 'Big Grant', reward: 'Up to $50,000 per grant', summary: 'Up to $50,000 · rolling', max_award_usd: 50_000 }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'f-open', title: 'Open Grant' }), 'file', NOW);
+  try {
+    const { id, builderId } = await linkedWith({ ...OWNER_RECORD, policy: { auto_apply: true, max_per_night: 20, max_ask_usd: 10_000 } });
+    const r = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT, filter: { all: true } });
+    assert.equal(r.isError, false, r.text);
+    const ready = ids(r.reply!.ready);
+    assert.ok(ready.includes('f-big') && ready.includes('f-open'), JSON.stringify(ready));
+    const blockers = r.reply!.blockers as B[];
+    assert.deepEqual(blockers.find((b) => b.program_id === 'f-big'), { program_id: 'f-big', sign_in: null, needs_click: false, needs: [], outside_approval: true });
+    assert.equal(blockers.find((b) => b.program_id === 'f-open'), undefined);
+    const free = ids(freeOf(r.reply!));
+    assert.ok(free.includes('f-open') && !free.includes('f-big'), JSON.stringify(free));
+    const show = r.reply!.show_to_builder as string;
+    assert.match(show, /Outside your standing approval, you say yes yourself: [^\n]*Big Grant[^\n]*\./);
+    assert.doesNotMatch(show, /yourself: [^\n]*Open Grant/);
+    assert.match(show, new RegExp(`\\n\\nApplying tonight to ${free.length}; say stop to hold any\\.$`));
+    // With auto_apply off, the limits change nothing.
+    const off = await linkedWith({ ...OWNER_RECORD, policy: { max_ask_usd: 10_000, categories: ['grant'] } });
+    const o = await mcpCall({ ...ctx(off.id), builderId: off.builderId, evidence: LIVE }, 'find', { project: PROJECT, filter: { all: true } });
+    assert.ok(ids(o.reply!.ready).includes('f-big'));
+    assert.ok((o.reply!.blockers as B[]).every((b) => !b.outside_approval));
+    assert.doesNotMatch(o.reply!.show_to_builder as string, /Outside your standing approval/);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id IN ('f-big', 'f-open')`;
+  }
+});
+
+test('never removes a program from the list entirely', async () => {
+  const { id, builderId } = await linkedWith({ ...OWNER_RECORD, policy: { never: ['z-fellows'] } });
+  const r = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT, filter: { all: true } });
+  const listed = [...ids(r.reply!.ready), ...ids(r.reply!.gaps), ...ids(r.reply!.not_fit), ...ids(r.reply!.blockers)];
+  assert.ok(!listed.includes('z-fellows'), JSON.stringify(listed));
+  assert.doesNotMatch(r.reply!.show_to_builder as string, /Z Fellows/);
 });
 
 test('a stale claim shows in released; a live one stays ready, marked', async () => {

@@ -111,8 +111,14 @@ test('results carry public evidence only; outcomes record', async () => {
   assert.equal('results' in nosy.reply!, false);
 
   const o = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'r-1', outcome: 'won', amount_usd: 2000 }, { ref: 'r-2', outcome: 'rejected' }] });
-  assert.equal(o.reply!.show_to_builder, "Recorded 2 outcomes; 0 reached a builder's ledger.");
+  // Nothing about whether a builder's ledger was reached: a builder's ledger never reaches a program.
+  assert.equal(o.reply!.show_to_builder, 'Recorded 2 outcomes.');
+  assert.equal(o.reply!.agent_note, 'Tell the builder the outcomes are recorded.');
   assert.equal(o.reply!.recorded, 2);
+  assert.doesNotMatch(JSON.stringify(o.reply), /ledger/i);
+  const one = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'r-2', outcome: 'won' }] });
+  assert.equal(one.reply!.show_to_builder, 'Recorded 1 outcome.');
+  assert.doesNotMatch(JSON.stringify(one.reply), /ledger|usable/i);
   const late = await mcpCall({ ...c, now: new Date(NOW.getTime() + 31 * 86_400_000) }, 'screen', { job_id: jobId });
   assert.equal(late.reply!.show_to_builder, 'That screen has expired; queue the list again.');
 });

@@ -1,10 +1,12 @@
 /**
  * POST /api/cron, once a day: the freshness probe, the repo cache sweep (rows over 30 days), the screen
- * jobs over 90 days swept and the queue's share (5 minutes at most), then the owner's digest. A JSON body { job_id } is the owner's trigger: that job's queue
+ * jobs over 90 days swept, link codes and sessions expired over a day ago swept, and the queue's share
+ * (5 minutes at most), then the owner's digest. A JSON body { job_id } is the owner's trigger: that job's queue
  * only. Bearer CRON_SECRET only (503 while it is unset). A step that throws answers 500 with its name.
  */
 import { sweepScreens } from '../v6/screen-jobs';
 import { SCREEN_BATCH, SCREEN_DAILY_MS, SCREEN_TRIGGER_MAX, SCREEN_TRIGGER_MS, workQueue } from '../v6/screen-worker';
+import { sql } from './db';
 import { bearerMatches, json, readCapped } from './http';
 import { runHealth } from './health';
 import type { Mailer } from './mail';
@@ -45,6 +47,14 @@ const failed = (step: string, err: unknown): Response => {
   return json({ error: `${step} failed` }, 500);
 };
 
+/** Link codes and sessions that expired over a day ago; returns how many of each went. */
+async function sweepAuth(now: Date): Promise<{ link_codes: number; sessions: number }> {
+  const cutoff = new Date(now.getTime() - 86_400_000);
+  const codes = await sql()`DELETE FROM link_codes WHERE expires_at < ${cutoff}`;
+  const sessions = await sql()`DELETE FROM sessions WHERE expires_at < ${cutoff}`;
+  return { link_codes: codes.count, sessions: sessions.count };
+}
+
 export async function cronPost(request: Request, deps: CronDeps = {}): Promise<Response> {
   const secret = process.env.CRON_SECRET;
   if (!secret) return json({ error: 'cron is not set up' }, 503);
@@ -78,11 +88,12 @@ export async function cronPost(request: Request, deps: CronDeps = {}): Promise<R
     return failed('sweep', err);
   }
 
-  let screen: Awaited<ReturnType<typeof workQueue>> & { swept: number };
+  let screen: Awaited<ReturnType<typeof workQueue>> & { swept: number; swept_auth: { link_codes: number; sessions: number } };
   try {
     // Jobs past the 90-day window of the counts across programs go first.
     const screensSwept = await sweepScreens(now);
-    screen = { swept: screensSwept, ...(await work({ now, limit: SCREEN_BATCH, deadline: Date.now() + SCREEN_DAILY_MS })) };
+    const swept_auth = await sweepAuth(now);
+    screen = { swept: screensSwept, swept_auth, ...(await work({ now, limit: SCREEN_BATCH, deadline: Date.now() + SCREEN_DAILY_MS })) };
   } catch (err) {
     return failed('screen', err);
   }

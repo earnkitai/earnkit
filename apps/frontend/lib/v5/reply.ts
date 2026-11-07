@@ -95,13 +95,19 @@ function signInWords(kind: string, n: number): string {
   return `Sign in once to ${kind} ${tail}`;
 }
 
+const titlesOf = (r: R, bs: R['blockers']) =>
+  bs.map((b) => r.ready.find((p) => p.program_id === b.program_id)?.title).filter((t): t is string => !!t);
+
 /** "Before tonight: ..." with the sign-ins grouped, the clicks and what the record lacks; null when there is nothing. Pure. */
 function beforeTonight(r: R): string | null {
   const counts = new Map<string, number>();
   for (const b of r.blockers) if (b.sign_in) counts.set(b.sign_in, (counts.get(b.sign_in) ?? 0) + 1);
   const parts = [...counts].map(([kind, n]) => `${signInWords(kind, n)}.`);
-  const clicks = r.blockers.filter((b) => b.needs_click).map((b) => r.ready.find((p) => p.program_id === b.program_id)?.title).filter((t): t is string => !!t);
+  const clicks = titlesOf(r, r.blockers.filter((b) => b.needs_click));
   if (clicks.length > 0) parts.push(`Needs your click: ${listWords(clicks, clicks.length)}.`);
+  // Named once: a program that already needs the builder's click is not named again here.
+  const outside = titlesOf(r, r.blockers.filter((b) => b.outside_approval && !b.needs_click));
+  if (outside.length > 0) parts.push(`Outside your standing approval, you say yes yourself: ${listWords(outside, outside.length)}.`);
   if (r.record_missing.length > 0) parts.push(`Still missing from your record: ${listWords(r.record_missing)}.`);
   return parts.length > 0 ? `Before tonight: ${parts.join(' ')}` : null;
 }
@@ -116,9 +122,9 @@ function closingLine(ready: number, gaps: number, firstGap: number, inPerson: nu
   return "Nothing fits yet. I'll say when something opens.";
 }
 
-/** Ready programs (not in person) an agent can send alone: no click, no sign-in, no claim held by an agent. Pure. */
+/** Ready programs (not in person) an agent can send alone: no click, no sign-in, within the standing approval, no claim held by an agent. Pure. */
 function agentCanApply(r: R): ReadyProgram[] {
-  const blocked = new Set(r.blockers.filter((b) => b.needs_click || b.sign_in).map((b) => b.program_id));
+  const blocked = new Set(r.blockers.filter((b) => b.needs_click || b.sign_in || b.outside_approval).map((b) => b.program_id));
   return r.ready.filter((p) => !p.in_person && !blocked.has(p.program_id) && !p.claimed_since);
 }
 
@@ -151,7 +157,7 @@ export function replyText(r: R, first: boolean): string {
 /** What the agent does with the reply. `more`: ready and gap programs left out of the lists. */
 export function agentNote(r: R, o: { more: number }): string {
   const standing =
-    'Standing approval is on: for each ready program within the limits, call track started, fill from fields, submit where the program allows an agent, then track applied with submitted_by agent and fields_used. Stop at max_per_night. Never submit where blockers say needs_click or a sign-in you do not have.';
+    'Standing approval is on: for each ready program within the limits, call track started, fill from fields, submit where the program allows an agent, then track applied with submitted_by agent and fields_used. Stop at max_per_night. Never submit where blockers say needs_click, outside_approval or a sign-in you do not have.';
   const lines = [
     'Open with show_to_builder in your own words: warm, direct, short, no emojis, no em dashes, no invented facts.',
     r.linked

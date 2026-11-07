@@ -288,7 +288,7 @@ test('standing approval: the closing line counts what an agent can send alone, a
   assert.match(replyText({ ...LINKED, auto_apply: true, max_per_night: 5 }, false), /Say yes to apply to all 4, or numbers to skip\.$/);
   const note = agentNote(r, { more: 0 });
   assert.ok(note.includes(
-    'Standing approval is on: for each ready program within the limits, call track started, fill from fields, submit where the program allows an agent, then track applied with submitted_by agent and fields_used. Stop at max_per_night. Never submit where blockers say needs_click or a sign-in you do not have.',
+    'Standing approval is on: for each ready program within the limits, call track started, fill from fields, submit where the program allows an agent, then track applied with submitted_by agent and fields_used. Stop at max_per_night. Never submit where blockers say needs_click, outside_approval or a sign-in you do not have.',
   ));
   assert.ok(!note.includes('Submit only when the builder says yes'));
   assert.ok(note.includes("Draft each ready program from its fields: 'record' and 'earnkit' values as given;"));
