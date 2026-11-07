@@ -86,13 +86,14 @@ const day = (d: Date) => new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', mon
 
 /** The confirm page: one button, no script, never framed. Pure. */
 function confirmPage(live: Live): Response {
-  const who = live.client_name ? `the agent <strong>${escapeHtml(live.client_name)}</strong>` : 'your agent';
+  const who = live.client_name ? `the agent calling itself <strong>${escapeHtml(live.client_name)}</strong>` : 'your agent';
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Link your agent</title></head>
 <body style="margin:0;background:${SITE.page};color:#E8EAF2;font-family:system-ui,sans-serif">
 <main style="max-width:480px;margin:15vh auto 0;padding:0 16px">
 <p style="font-size:18px;line-height:1.5">Link ${who}, first seen ${day(live.created_at)}, to your GitHub account?</p>
+<p style="color:#9AA0B4;font-size:15px;line-height:1.5">Once linked, it can read and change your record and apply to programs in your name. You can unlink it any time on your record page.</p>
 <form method="post"><button type="submit" style="background:${SITE.blue};color:#fff;border:0;border-radius:8px;padding:12px 20px;font-size:16px;cursor:pointer">Continue with GitHub</button></form>
-<p style="color:#9AA0B4;font-size:14px;line-height:1.5">If you did not ask your agent for this link, close this page.</p>
+<p style="color:#9AA0B4;font-size:14px;line-height:1.5">Only continue if you asked your agent for this link just now. If someone sent you this link, close this page.</p>
 </main></body></html>`;
   return new Response(html, {
     status: 200,

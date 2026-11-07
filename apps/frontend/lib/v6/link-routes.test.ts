@@ -100,10 +100,11 @@ test('GET /link renders the confirm page with the agent name and no redirect', a
   assert.match(r.headers.get('content-type') ?? '', /^text\/html/);
   assert.match(r.headers.get('content-security-policy') ?? '', /frame-ancestors 'none'/);
   const html = await r.text();
-  assert.ok(html.includes('Link the agent <strong>Claude &lt;Code&gt;</strong>, first seen Nov 6, to your GitHub account?'));
+  assert.ok(html.includes('Link the agent calling itself <strong>Claude &lt;Code&gt;</strong>, first seen Nov 6, to your GitHub account?'));
   assert.ok(html.includes('<form method="post">'));
   assert.ok(html.includes('Continue with GitHub'));
-  assert.ok(html.includes('If you did not ask your agent for this link, close this page.'));
+  assert.ok(html.includes('Once linked, it can read and change your record and apply to programs in your name.'));
+  assert.ok(html.includes('Only continue if you asked your agent for this link just now. If someone sent you this link, close this page.'));
   assert.equal(/<script/i.test(html), false);
   assert.equal(/—/.test(html), false);
   const unnamed = await createLinkCode(await install(), NOW);
