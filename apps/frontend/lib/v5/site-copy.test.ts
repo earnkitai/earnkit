@@ -55,16 +55,21 @@ test('formatters', () => {
   assert.equal(copy.programKind({}), 'grant');
 });
 
-test('the docs say the four sections and stay short', () => {
-  assert.deepEqual(copy.DOCS_NAV.map(([, label]) => label), ['Install', 'How a session goes', 'How programs are checked', 'Terms']);
-  const words = [copy.DOCS_INSTALL_TITLE, copy.DOCS_SESSION.title, copy.DOCS_SESSION.text, copy.DOCS_CHECKED.title, copy.DOCS_CHECKED.text, copy.DOCS_TERMS.title, copy.DOCS_TERMS.text]
+test('the docs say the six sections and stay short', () => {
+  assert.deepEqual(copy.DOCS_NAV.map(([, label]) => label), ['Install', 'How a session goes', 'Your record', 'Screening, for programs', 'How programs are checked', 'Terms']);
+  assert.deepEqual(copy.DOCS_NAV.map(([href]) => href).slice(2, 4), ['#record', '#screening']);
+  const words = [copy.DOCS_INSTALL_TITLE, copy.DOCS_SESSION.title, copy.DOCS_SESSION.text, copy.DOCS_RECORD.title, copy.DOCS_RECORD.text, copy.DOCS_SCREEN.title, copy.DOCS_SCREEN.text, copy.DOCS_CHECKED.title, copy.DOCS_CHECKED.text, copy.DOCS_TERMS.title, copy.DOCS_TERMS.text]
     .join(' ').split(/\s+/).filter(Boolean).length;
-  assert.ok(words < 150, `docs copy is ${words} words`);
+  assert.ok(words < 220, `docs copy is ${words} words`);
+  assert.equal(copy.DOCS_RECORD.text, 'Sign in once with GitHub and your agents share one record: your facts, links, documents and the answers you approved. Nothing is sent that you did not approve. Delete it any time.');
+  assert.equal(copy.DOCS_SCREEN.text, "Hand your applicant list to your agent and EarnKit returns it in five tiers with public evidence: used, live, building, unverified, flagged. We read the repo, the chain and the site. We never show a builder's record, another program's name or another applicant's text.");
   assert.equal(copy.DOCS_SESSION.text.split(/(?<=\.)\s+/).length, 3);
 });
 
-test('the terms are three sections', () => {
-  assert.deepEqual(copy.TERMS_SECTIONS.map((s) => s.title), ['What EarnKit reads', 'What it stores', 'What it never does']);
+test('the terms are five sections', () => {
+  assert.deepEqual(copy.TERMS_SECTIONS.map((s) => s.title), ['What EarnKit reads', 'What it stores', 'What it never does', 'Your record', 'Programs']);
+  const rec = copy.TERMS_SECTIONS[3].lines.join(' ');
+  for (const w of ['private', '/me', 'delete']) assert.ok(rec.toLowerCase().includes(w), w);
   const never = copy.TERMS_SECTIONS[2].lines.join(' ');
   for (const w of ['submit', 'hold a wallet', 'launch a token', 'sell data', 'email builders']) assert.ok(never.includes(w), w);
 });
@@ -74,6 +79,10 @@ test('the llms text names the connect line, the tools and the API', () => {
   assert.match(LLMS_TEXT, /claude mcp add/);
   assert.match(LLMS_TEXT, /\bfind\b/);
   assert.match(LLMS_TEXT, /\btrack\b/);
+  assert.match(LLMS_TEXT, /\brecord\b/);
+  assert.match(LLMS_TEXT, /\bscreen\b/);
+  assert.match(LLMS_TEXT, /four tools/i);
+  assert.ok(!/two tools/i.test(LLMS_TEXT));
   assert.match(LLMS_TEXT, /https:\/\/earnkit\.com\/api\/programs/);
   assert.match(LLMS_TEXT, /https:\/\/earnkit\.com\/programs\/</);
 });
@@ -85,4 +94,17 @@ test('no install copy mentions signing in, X, GitHub or a wallet', async () => {
   assert.ok(all.length > 20);
   for (const [name, s] of all) assert.ok(!BAD.test(s), `${name}: "${s}"`);
   assert.equal(copy.DOCS_STEPS[1], 'Approve the connection');
+});
+
+test('the /me words: verbatim lines, sentences end with a full stop, no path in a label', () => {
+  assert.equal(copy.ME_TITLE, 'Your record');
+  assert.equal(copy.ME_PENDING_LINE, 'Read these, then approve each: an unapproved answer is never sent.');
+  assert.equal(copy.ME_DELETE_LINE, 'This removes your record, your ledger and your sign-ins. Your agents keep working as new, anonymous installations.');
+  const sentences = [copy.ME_DESCRIPTION, copy.ME_PENDING_LINE, copy.ME_DELETE_LINE, copy.ME_DELETE_HINT, copy.ME_NO_PROJECTS, copy.ME_LEDGER_EMPTY, copy.ME_AGENTS_EMPTY, copy.ME_POLICY_LINE, copy.DOCS_RECORD.text, copy.DOCS_SCREEN.text, ...copy.TERMS_SECTIONS.flatMap((s) => s.lines)];
+  for (const s of sentences) assert.match(s, /\.$/, s);
+  for (const [name, s] of [...strings('ME_BLOCKS', copy.ME_BLOCKS), ...strings('ME_LABELS', copy.ME_LABELS)]) {
+    assert.ok(!/[._]/.test(s), `${name}: "${s}"`);
+    assert.equal(s[0], s[0].toUpperCase(), `${name}: sentence case "${s}"`);
+    assert.ok(!/\s[A-Z][a-z]/.test(s.replace(/\b(USD|X|LinkedIn)\b/g, '')), `${name}: sentence case "${s}"`);
+  }
 });

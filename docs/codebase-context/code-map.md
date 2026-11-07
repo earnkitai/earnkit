@@ -66,7 +66,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v5/fixtures/program.ts`: A valid program for tests with any field overridden
 - `apps/frontend/lib/v5/fixtures/repos/*.json`: Recorded GitHub reads for earnkitai/earnkit, Shijas786/onchain-reaction, JohnMwendwa/nextjs-dashboard, saber-hq/merkle-distributor
 
-## apps/frontend/lib/v6 (the filter, in progress)
+## apps/frontend/lib/v6 (the filter, the record, sign-in and /me)
 
 - `apps/frontend/lib/v6/explorers.ts`: Keyless Blockscout client per chain: contract info, transactions to an address, an address's first transactions; throttled, 429 retried once
 - `apps/frontend/lib/v6/onchain.ts`: Onchain evidence rows per contract: verified source, deployer, 90 and 30 day transactions and senders, sampled deployer-funded check; never throws
@@ -95,6 +95,17 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v6/screen-worker.ts`: `workQueue`: queued applicants (the oldest job first, or only a named job), each taken atomically before it is read (a budget stop requeues and ends the run; a retryable null tier is retried up to 3 times), as the pilot reads them, on one Budget per call; placed with the job's thresholds, shared contributors inside the job and `xpCounts`; a failed read is `failed` with a one-line error and the job still advances
 - `apps/frontend/lib/v6/screen-tool.ts`: The `screen` MCP tool: reviewers only (one-line refusals), 10 jobs a day per reviewer, queue, results with the totals line, outcomes
 - `apps/frontend/lib/v5/fixtures/record-owner.json`: A sample owner record (EarnKit project, approved answers) for `replay.mts --linked`
+- `apps/frontend/lib/v6/builders.ts`: Builders (one row per GitHub account): `upsertBuilder`, `getBuilder`, `ownerKey` ('b:' or 'i:'), `getRecord`, `saveRecord`, `withRecord` (a locked read-merge-save), `linkInstallation` (re-keys the installation's ledger to the builder), `deleteBuilder`
+- `apps/frontend/lib/v6/github-auth.ts`: GitHub sign-in (read:user): `oauthConfigured`, `authorizeUrl`, the signed state (link code and browser nonce, 15 minutes), `exchangeCode`
+- `apps/frontend/lib/v6/link-routes.ts`: `/link/<code>` (confirm page, then GitHub) and `/auth/github/callback` (links the installation, starts a session, lands on /me); `createLinkCode` (15 minutes, hash stored); per-IP limit
+- `apps/frontend/lib/v6/sessions.ts`: Browser sessions for /me: the `ek_me` HttpOnly cookie (hash stored, 30 days), `sessionBuilder`, `endSession`, `clearCookie`, `cookieValue`
+- `apps/frontend/lib/v6/record.ts`: The record: `BuilderRecord` schema, `mergeRecord` (bad leaves dropped with a problem line, `set_by` stamps, policy builder only), `approvePath`, `unapprovePath`, `isApproved`, `APPROVABLE`, `answerFor`, `recordMissing`, `completeness`, `KIND_WORDS`; pure
+- `apps/frontend/lib/v6/record-tool.ts`: The `record` MCP tool: get, set (merged as the agent, never approved), brief; unlinked, the sign-in link
+- `apps/frontend/lib/v6/answer-brief.ts`: The brief behind one answer kind: the reviewer's question, record and repo facts as lines, the length band and the style contract; pure
+- `apps/frontend/lib/v6/reply-words.ts`: Words shared by the find reply and the record tool: the list joiner, the sign-in line; pure
+- `apps/frontend/lib/v6/me-view.ts`: /me's data: `meData` (the record as blocks of fields in builder words, pending approvals, the ledger, linked agents), `csrfToken` and `verifyCsrf` (HMAC of builder and UTC day, today or yesterday), `problemSig`
+- `apps/frontend/lib/v6/me-routes.ts`: /me's handlers: `meGet` (the session gate, 302 to /docs#record), `editPost`, `approvePost`, `policyPost`, `unlinkPost`, `deletePost`, `signoutPost` (web form under 64 KB, session and csrf, else 415, 413 or 403)
+- `apps/frontend/lib/v6/fixtures/github-oauth.ts`: A fetch fake for GitHub sign-in (token exchange and user read)
 
 ## apps/frontend/app (routes and components)
 
@@ -129,7 +140,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/app/components/ui/Logo.tsx`: The EarnKit logo
 - `apps/frontend/app/components/ui/SchemaOrg.tsx`: JSON-LD structured data
 - `apps/frontend/app/docs/DocsNav.tsx`: The docs side navigation
-- `apps/frontend/app/docs/DocsView.tsx`: The docs page: install card, how a session goes, how programs are checked
+- `apps/frontend/app/docs/DocsView.tsx`: The docs page: install card, how a session goes, your record, screening for programs, how programs are checked
 - `apps/frontend/app/docs/InstallCard.tsx`: The per-agent install tabs on /docs
 - `apps/frontend/app/docs/page.tsx`: /docs route and metadata
 - `apps/frontend/app/globals.css`: Tailwind layers, fonts and the --ek-s-* colour variables mirrored from site-theme.ts
@@ -150,7 +161,12 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/app/programs/[id]/page.tsx`: /programs/[id] route, metadata and structured data
 - `apps/frontend/app/programs/page.tsx`: /programs: every listed program
 - `apps/frontend/app/sitemap.ts`: /sitemap.xml: site pages plus every listed program guide
-- `apps/frontend/app/terms/page.tsx`: /terms: what EarnKit reads, stores and never does
+- `apps/frontend/app/terms/page.tsx`: /terms: what EarnKit reads, stores and never does, the record, what programs see
+- `apps/frontend/app/link/[code]/route.ts`: GET and POST /link/<code> (via lib/v6/link-routes.ts)
+- `apps/frontend/app/auth/github/callback/route.ts`: GET /auth/github/callback (via lib/v6/link-routes.ts)
+- `apps/frontend/app/me/page.tsx`: /me: the signed-in builder's record, server-rendered from `meData`, noindex
+- `apps/frontend/app/me/MeView.tsx`: /me's markup: pending approvals, one panel per block, standing approval, applications, agents, delete; plain forms, no client script
+- `apps/frontend/app/me/{edit,approve,policy,unlink,delete,signout}/route.ts`: POST handlers (via lib/v6/me-routes.ts)
 
 ## apps/frontend/scripts and db
 
@@ -167,7 +183,8 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 
 ## apps/frontend (config)
 
-- `next.config.ts`: Security headers, the legal-page redirects, program logo CSP
+- `next.config.ts`: Security headers, noindex on /me, /link and /auth, the legal-page redirects, program logo CSP
+- `proxy.ts`: The /me gate: no session is a 302 to /docs#record (lib/v6/me-routes.ts `meGet`)
 - `tailwind.config.ts`: Tailwind with the s-* colour tokens from site-theme.ts
 - `DESIGN.md`: The v5 site design system
 - `package.json`: Dependencies and scripts

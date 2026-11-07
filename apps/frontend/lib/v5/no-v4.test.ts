@@ -31,6 +31,7 @@ const APP_DIRS = new Set([
   'api', 'api/programs', 'api/programs/write', 'api/programs/writes', 'api/programs/approve', 'api/programs/revert', 'api/programs/reviewers',
   'api/stats', 'api/cron',
   'link', 'link/[code]', 'auth', 'auth/github', 'auth/github/callback',
+  'me', 'me/edit', 'me/approve', 'me/policy', 'me/delete', 'me/signout', 'me/unlink',
 ]);
 
 function walk(dir: string, out: string[] = []): string[] {

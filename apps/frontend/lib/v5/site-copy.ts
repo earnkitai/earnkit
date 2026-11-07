@@ -62,15 +62,25 @@ export const NOT_FOUND_METADATA = { title: NOT_FOUND_TITLE, robots: { index: fal
 export const DOCS_NAV: [string, string][] = [
   ['#install', 'Install'],
   ['#session', 'How a session goes'],
+  ['#record', 'Your record'],
+  ['#screening', 'Screening, for programs'],
   ['#checked', 'How programs are checked'],
   ['#terms', 'Terms'],
 ];
-export const DOCS_DESCRIPTION = 'How to add EarnKit to your agent, how a session goes, and how programs are checked.';
+export const DOCS_DESCRIPTION = 'How to add EarnKit to your agent, how a session goes, your record, screening for programs, and how programs are checked.';
 export const DOCS_INSTALL_TITLE = 'Add EarnKit to your agent';
 export const DOCS_STEPS = ['Add the server', 'Approve the connection', 'Ask: what can I earn?'];
 export const DOCS_SESSION = {
   title: 'How a session goes',
   text: 'Your agent asks what the repo can earn. It drafts every fit with the facts from the repo. You say yes and it submits in its own browser and tracks the result.',
+};
+export const DOCS_RECORD = {
+  title: 'Your record',
+  text: 'Sign in once with GitHub and your agents share one record: your facts, links, documents and the answers you approved. Nothing is sent that you did not approve. Delete it any time.',
+};
+export const DOCS_SCREEN = {
+  title: 'Screening, for programs',
+  text: "Hand your applicant list to your agent and EarnKit returns it in five tiers with public evidence: used, live, building, unverified, flagged. We read the repo, the chain and the site. We never show a builder's record, another program's name or another applicant's text.",
 };
 export const DOCS_CHECKED = {
   title: 'How programs are checked',
@@ -100,4 +110,91 @@ export const TERMS_SECTIONS = [
     title: 'What it never does',
     lines: ['EarnKit will never submit for you, hold a wallet, launch a token, sell data or email builders.'],
   },
+  {
+    title: 'Your record',
+    lines: [
+      'Once you sign in with GitHub, EarnKit keeps one private record for you: the facts, links and answers you or your agent give it, your ledger and your linked agents.',
+      'Only you and your own linked agents see it. An answer your agent wrote is never sent until you approve it on /me.',
+      'You can edit or delete it any time on /me. Delete removes the record, the ledger and your sign-ins.',
+    ],
+  },
+  {
+    title: 'Programs',
+    lines: [
+      'A program that screens its applicants sees only public evidence: the repo, the chain and the site.',
+      "It never sees your record, the other programs you applied to or another applicant's text.",
+    ],
+  },
 ] as const;
+
+export const ME_TITLE = 'Your record';
+export const ME_DESCRIPTION = 'Your facts, links, documents and answers, kept once for every agent of yours.';
+export const ME_SIGNED_IN = (login: string): string => `Signed in as ${login}.`;
+export const ME_SIGN_OUT = 'Sign out';
+export const ME_SAVE = 'Save';
+export const ME_APPROVE = 'Approve';
+export const ME_UNAPPROVE = 'Unapprove';
+export const ME_APPROVED = (day: string): string => `Approved ${day}`;
+export const ME_BY_AGENT = 'From your agent';
+export const ME_PENDING_TITLE = 'Waiting for you';
+export const ME_PENDING_LINE = 'Read these, then approve each: an unapproved answer is never sent.';
+export const ME_NO_PROJECTS = 'No projects yet. Your agent adds them as you work.';
+export const ME_POLICY_LINE = 'Your agent applies on its own only when this is on, within these limits.';
+export const ME_LEDGER_TITLE = 'Your applications';
+export const ME_LEDGER_EMPTY = 'Nothing tracked yet.';
+export const ME_AGENTS_TITLE = 'Your agents';
+export const ME_AGENTS_EMPTY = 'No agents linked.';
+export const ME_AN_AGENT = 'An agent';
+export const ME_LINKED = (day: string): string => `Linked ${day}`;
+export const ME_UNLINK = 'Unlink';
+export const ME_DELETE_TITLE = 'Delete your record';
+export const ME_DELETE_LINE = 'This removes your record, your ledger and your sign-ins. Your agents keep working as new, anonymous installations.';
+export const ME_DELETE_HINT = 'Type your GitHub login to confirm.';
+export const ME_DELETE = 'Delete everything';
+export const ME_NOT_SET = 'Not set';
+export const ME_YES = 'Yes';
+export const ME_NO = 'No';
+export const ME_BLOCKS = {
+  person: 'About you',
+  projects: 'Your projects',
+  company: 'The company',
+  docs: 'Your documents',
+  traction: 'Traction',
+  answers: 'Your answers',
+  policy: 'Standing approval',
+} as const;
+export const ME_LABELS = {
+  'person.name': 'Name', 'person.email': 'Email', 'person.x': 'X handle', 'person.linkedin': 'LinkedIn', 'person.location': 'Location',
+  'person.timezone': 'Time zone', 'person.phone': 'Phone', 'person.bio': 'Short bio', 'person.technical': 'Technical founder', 'person.based_country': 'Country',
+  'project.name': 'Name', 'project.one_liner': 'One line', 'project.description': 'Description', 'project.goals': 'Goals', 'project.repo_url': 'Repo link',
+  'project.live_url': 'Live link', 'project.demo_url': 'Demo link', 'project.category': 'Category', 'project.chains_claimed': 'Chains',
+  'company.name': 'Name', 'company.incorporated': 'Incorporated', 'company.jurisdiction': 'Jurisdiction', 'company.raised_usd': 'Raised (USD)',
+  'company.raised_from': 'Raised from', 'company.stage': 'Stage', 'company.launch_date': 'Launch date',
+  'docs.resume_url': 'Resume link', 'docs.deck_url': 'Deck link', 'docs.founder_video_url': 'Founder video link', 'docs.demo_video_url': 'Demo video link',
+  'docs.other': 'Other links',
+  'traction.line_pre_launch': 'One line when nothing is verified yet', 'traction.waitlist': 'Waitlist', 'traction.revenue_usd_claim': 'Revenue claim (USD)',
+  'traction.notes': 'Notes',
+  'policy.auto_apply': 'Apply without asking', 'policy.max_per_night': 'At most, per night', 'policy.categories': 'Categories',
+  'policy.max_ask_usd': 'Never above (USD)', 'policy.never': 'Programs to skip', 'policy.agent_may_submit': 'Your agent may submit forms',
+  'company.raised': 'Money raised',
+} as const;
+/** The words for a stored choice: company stages and program categories. */
+export const ME_CHOICES: Record<string, string> = {
+  idea: 'Idea', building: 'Building', pre_launch: 'Pre-launch', launched: 'Launched',
+  grant: 'Grants', hackathon: 'Hackathons', investment: 'Investment', bounty: 'Bounties',
+};
+export const ME_STATUS: Record<string, string> = {
+  started: 'Started', applied: 'Applied', won: 'Won', rejected: 'Rejected', no_result: 'No result', skipped: 'Skipped',
+};
+export const ME_HINTS = { 'docs.other': 'One per line: a label, then the link.', 'policy.never': 'One program id per line.', 'project.chains_claimed': 'Comma separated.' } as const;
+export const ME_ERRORS = {
+  signin: 'Sign in again from the link your agent gives you.',
+  expired: 'This page expired. Reload it and try again.',
+  form: 'Send this as a web form.',
+  large: 'That is too long to save.',
+  field: 'That cannot be changed here.',
+  confirm: 'Type your GitHub login exactly to delete.',
+  broken: 'Your record could not be read, so nothing was saved. Try again later.',
+  yesNo: 'choose yes or no.',
+  number: 'must be a number.',
+} as const;

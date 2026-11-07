@@ -20,7 +20,8 @@ Free. Nothing to sign up for.
 
 EarnKit is an MCP server: ${MCP_URL}
 
-Clients connect with standard MCP OAuth. Each connected agent is one anonymous installation.
+Clients connect with standard MCP OAuth. Each connected agent is one anonymous installation until
+the builder signs in once.
 
 ${AGENTS.map(connectLines).join('\n')}
 - Any other MCP client: add ${MCP_URL} as a remote server
@@ -31,19 +32,39 @@ Then ask your agent: "What can I earn?"
 
 ## How a session goes
 
-1. The agent calls find with the project it is in. EarnKit reads the public repo; for a private
-   repo it uses what the agent reports.
-2. The reply lists every program the repo fits, money first, with the application pre-filled, and
-   what is one change away.
-3. The builder says yes. The agent drafts and submits in its own browser. EarnKit never submits.
-4. The agent calls track with the result, applied, won or rejected. EarnKit asks once how it went.
+1. The agent calls record with get, then find with the project it is in. EarnKit reads the public
+   repo; for a private repo it uses what the agent reports.
+2. The reply lists every program the repo fits, money first, with the application pre-filled from
+   the record and the repo, and what is one change away.
+3. The builder says yes. The agent calls track with started, drafts and submits in its own browser,
+   then calls track with applied. EarnKit never submits.
+4. The agent calls track with the result, won or rejected. EarnKit asks once how it went.
 
-## The two tools
+## The four tools
 
 - find: what the project can earn now, what is one change away, what moved since the last find,
   and the ledger. With program_id: one program's details and guide.
-- track: records what happened to an application (applied, won, rejected, no result, skipped) or
-  a change the builder made.
+- track: records what happened to an application (started, applied, won, rejected, no result,
+  skipped, unskip) or a change the builder made.
+- record: the builder's record, kept once and shared by every agent of theirs: facts, links,
+  documents, answers and standing approval. get reads it, set adds facts, brief gives the question
+  and facts behind one answer.
+- screen: for a program's reviewer. Hand it the applicant list and get it back in five tiers with
+  public evidence; with job_id, the results; with outcomes, who won.
+
+## The record
+
+The first find gives a one-time sign-in link, earnkit.com/link/<code>. The builder signs in once
+with GitHub, and from then on every agent of theirs shares one record and one ledger. An answer the
+agent writes is never sent until the builder approves it at https://earnkit.com/me, where they can
+also edit or delete everything. Unlinked agents keep working with no sign-in.
+
+## Screening
+
+A program's reviewer is marked by EarnKit. Their agent calls screen with the applicants (name, repo,
+site, contracts, pitch). Each comes back used, live, building, unverified or flagged, with the public
+evidence behind it: the repo, the chain and the site. A reviewer never sees a builder's record,
+another program's name or another applicant's text.
 
 ## Program pages
 
