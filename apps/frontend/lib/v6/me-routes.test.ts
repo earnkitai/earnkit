@@ -2,7 +2,7 @@ import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from '../v5/db';
 import { getBuilder, getRecord, linkInstallation, saveRecord, upsertBuilder } from './builders';
-import { csrfToken, problemShown } from './me-view';
+import { csrfToken, problemShown, seenOf } from './me-view';
 import { approvePost, deletePost, editPost, meGet, policyPost, signoutPost, unlinkPost } from './me-routes';
 import { answerFor, mergeRecord } from './record';
 import { createSession } from './sessions';
@@ -108,14 +108,46 @@ test('approvePost sets approved_at and answerFor then returns the text', async (
   const { b, cookie, csrf } = await signedIn();
   await saveRecord(b.id, mergeRecord(await getRecord(b.id), { answers: { problem: { text: 'Builders miss grants.' } } }, 'agent', NOW).record, NOW);
   assert.equal(answerFor(await getRecord(b.id), null, 'problem'), null);
-  const r = await approvePost(post('/me/approve', { csrf, path: 'answers.problem', action: 'approve' }, { cookie }), deps);
+  const seen = seenOf(await getRecord(b.id), 'answers.problem');
+  const r = await approvePost(post('/me/approve', { csrf, path: 'answers.problem', action: 'approve', seen }, { cookie }), deps);
   assert.equal(r.status, 303);
+  assert.equal(r.headers.get('location'), '/me#approvals');
   const rec = await getRecord(b.id);
   assert.equal(rec.meta['answers.problem'].approved_at, NOW.toISOString());
   assert.deepEqual(answerFor(rec, null, 'problem'), { text: 'Builders miss grants.', short: null });
   await approvePost(post('/me/approve', { csrf, path: 'answers.problem', action: 'unapprove' }, { cookie }), deps);
   assert.equal(answerFor(await getRecord(b.id), null, 'problem'), null);
   assert.equal((await approvePost(post('/me/approve', { csrf, path: 'person.name', action: 'approve' }, { cookie }), deps)).status, 400);
+});
+
+test('an approval is bound to the text seen: an agent write since the render is not approved', async () => {
+  const { b, cookie, csrf } = await signedIn();
+  const t1 = new Date(NOW.getTime() - 60_000);
+  await saveRecord(b.id, mergeRecord(await getRecord(b.id), { answers: { team: { text: 'Two founders.' } } }, 'agent', t1).record, t1);
+  const stale = seenOf(await getRecord(b.id), 'answers.team');
+  assert.equal(stale, t1.toISOString());
+  await saveRecord(b.id, mergeRecord(await getRecord(b.id), { answers: { team: { text: 'Ten founders, trust me.' } } }, 'agent', NOW).record, NOW);
+  const r = await approvePost(post('/me/approve', { csrf, path: 'answers.team', action: 'approve', seen: stale }, { cookie }), deps);
+  assert.equal(r.status, 303);
+  const loc = new URL(r.headers.get('location')!, 'https://earnkit.test');
+  assert.equal(loc.searchParams.get('problem'), 'This text changed since you opened the page. Read it again.');
+  assert.equal(answerFor(await getRecord(b.id), null, 'team'), null);
+  // Without seen it is refused too (the field had meta).
+  await approvePost(post('/me/approve', { csrf, path: 'answers.team', action: 'approve' }, { cookie }), deps);
+  assert.equal(answerFor(await getRecord(b.id), null, 'team'), null);
+  const fresh = seenOf(await getRecord(b.id), 'answers.team');
+  const ok = await approvePost(post('/me/approve', { csrf, path: 'answers.team', action: 'approve', seen: fresh }, { cookie }), deps);
+  assert.equal(ok.headers.get('location'), '/me#approvals');
+  assert.deepEqual(answerFor(await getRecord(b.id), null, 'team'), { text: 'Ten founders, trust me.', short: null });
+});
+
+test('policy changes only through /me/policy; the skip list is the one edit row', async () => {
+  const { b, cookie, csrf } = await signedIn();
+  assert.equal((await editPost(post('/me/edit', { csrf, path: 'policy.auto_apply', value: 'on' }, { cookie }), deps)).status, 400);
+  assert.equal((await editPost(post('/me/edit', { csrf, path: 'policy.max_per_night', value: '20' }, { cookie }), deps)).status, 400);
+  assert.equal((await getRecord(b.id)).policy.auto_apply, false);
+  assert.equal((await editPost(post('/me/edit', { csrf, path: 'policy.never', value: 'base-builder-grants\nzz-other' }, { cookie }), deps)).status, 303);
+  assert.deepEqual((await getRecord(b.id)).policy.never, ['base-builder-grants', 'zz-other']);
 });
 
 test('policyPost turns auto_apply on with max_per_night 3', async () => {
@@ -139,6 +171,7 @@ test('delete removes everything', async () => {
   const inst = (await sql()`INSERT INTO installations (token_hash) VALUES (${'me-' + Math.random()}) RETURNING id`)[0].id as number;
   await linkInstallation(inst, b.id, NOW);
   await sql()`INSERT INTO applications (installation_id, owner, program_id, status, at) VALUES (${inst}, ${'b:' + b.id}, 'zz-me-del', 'applied', ${NOW})`;
+  await sql()`INSERT INTO link_codes (code, installation_id, created_at, expires_at, nonce) VALUES (${'me-del-' + inst}, ${inst}, ${NOW}, ${new Date(NOW.getTime() + 900_000)}, 'n')`;
   const wrong = await deletePost(post('/me/delete', { csrf, confirm: 'someone-else' }, { cookie }), deps);
   assert.equal(wrong.status, 400);
   assert.ok(await getBuilder(b.id));
@@ -151,6 +184,7 @@ test('delete removes everything', async () => {
   assert.equal((await sql()`SELECT count(*)::int AS n FROM sessions WHERE builder_id = ${b.id}`)[0].n, 0);
   assert.equal((await sql()`SELECT builder_id FROM installations WHERE id = ${inst}`)[0].builder_id, null);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${'b:' + b.id}`)[0].n, 0);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM link_codes WHERE installation_id = ${inst}`)[0].n, 0);
 });
 
 test('signoutPost ends the session; unlinkPost unlinks only the builder\'s own installation', async () => {

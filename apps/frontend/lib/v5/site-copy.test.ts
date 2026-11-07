@@ -100,7 +100,10 @@ test('the /me words: verbatim lines, sentences end with a full stop, no path in 
   assert.equal(copy.ME_TITLE, 'Your record');
   assert.equal(copy.ME_PENDING_LINE, 'Read these, then approve each: an unapproved answer is never sent.');
   assert.equal(copy.ME_DELETE_LINE, 'This removes your record, your ledger and your sign-ins. Your agents keep working as new, anonymous installations.');
-  const sentences = [copy.ME_DESCRIPTION, copy.ME_PENDING_LINE, copy.ME_DELETE_LINE, copy.ME_DELETE_HINT, copy.ME_NO_PROJECTS, copy.ME_LEDGER_EMPTY, copy.ME_AGENTS_EMPTY, copy.ME_POLICY_LINE, copy.DOCS_RECORD.text, copy.DOCS_SCREEN.text, ...copy.TERMS_SECTIONS.flatMap((s) => s.lines)];
+  assert.equal(copy.ME_APPROVED('Nov 7'), 'Approved Nov 7.');
+  assert.equal(copy.ME_LINKED('Nov 7'), 'Linked Nov 7.');
+  assert.equal(copy.ME_ERRORS.changed, 'This text changed since you opened the page. Read it again.');
+  const sentences = [copy.ME_DESCRIPTION, copy.ME_APPROVED('Nov 7'), copy.ME_LINKED('Nov 7'), ...Object.values(copy.ME_ERRORS).filter((e) => /^[A-Z]/.test(e)), ...Object.values(copy.ME_HINTS), copy.ME_PENDING_LINE, copy.ME_DELETE_LINE, copy.ME_DELETE_HINT, copy.ME_NO_PROJECTS, copy.ME_LEDGER_EMPTY, copy.ME_AGENTS_EMPTY, copy.ME_POLICY_LINE, copy.DOCS_RECORD.text, copy.DOCS_SCREEN.text, ...copy.TERMS_SECTIONS.flatMap((s) => s.lines)];
   for (const s of sentences) assert.match(s, /\.$/, s);
   for (const [name, s] of [...strings('ME_BLOCKS', copy.ME_BLOCKS), ...strings('ME_LABELS', copy.ME_LABELS)]) {
     assert.ok(!/[._]/.test(s), `${name}: "${s}"`);

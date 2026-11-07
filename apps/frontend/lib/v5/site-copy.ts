@@ -134,7 +134,7 @@ export const ME_SIGN_OUT = 'Sign out';
 export const ME_SAVE = 'Save';
 export const ME_APPROVE = 'Approve';
 export const ME_UNAPPROVE = 'Unapprove';
-export const ME_APPROVED = (day: string): string => `Approved ${day}`;
+export const ME_APPROVED = (day: string): string => `Approved ${day}.`;
 export const ME_BY_AGENT = 'From your agent';
 export const ME_PENDING_TITLE = 'Waiting for you';
 export const ME_PENDING_LINE = 'Read these, then approve each: an unapproved answer is never sent.';
@@ -145,7 +145,7 @@ export const ME_LEDGER_EMPTY = 'Nothing tracked yet.';
 export const ME_AGENTS_TITLE = 'Your agents';
 export const ME_AGENTS_EMPTY = 'No agents linked.';
 export const ME_AN_AGENT = 'An agent';
-export const ME_LINKED = (day: string): string => `Linked ${day}`;
+export const ME_LINKED = (day: string): string => `Linked ${day}.`;
 export const ME_UNLINK = 'Unlink';
 export const ME_DELETE_TITLE = 'Delete your record';
 export const ME_DELETE_LINE = 'This removes your record, your ledger and your sign-ins. Your agents keep working as new, anonymous installations.';
@@ -186,7 +186,7 @@ export const ME_CHOICES: Record<string, string> = {
 export const ME_STATUS: Record<string, string> = {
   started: 'Started', applied: 'Applied', won: 'Won', rejected: 'Rejected', no_result: 'No result', skipped: 'Skipped',
 };
-export const ME_HINTS = { 'docs.other': 'One per line: a label, then the link.', 'policy.never': 'One program id per line.', 'project.chains_claimed': 'Comma separated.' } as const;
+export const ME_HINTS = { 'docs.other': 'One per line: a label, then the link.', 'policy.never': 'One program per line, the short name shown in your applications (for example base-builder-grants).', 'project.chains_claimed': 'Comma separated.' } as const;
 export const ME_ERRORS = {
   signin: 'Sign in again from the link your agent gives you.',
   expired: 'This page expired. Reload it and try again.',
@@ -195,6 +195,7 @@ export const ME_ERRORS = {
   field: 'That cannot be changed here.',
   confirm: 'Type your GitHub login exactly to delete.',
   broken: 'Your record could not be read, so nothing was saved. Try again later.',
+  changed: 'This text changed since you opened the page. Read it again.',
   yesNo: 'choose yes or no.',
   number: 'must be a number.',
 } as const;

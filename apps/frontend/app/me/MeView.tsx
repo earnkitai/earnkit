@@ -18,12 +18,13 @@ function Csrf({ token }: { token: string }) {
 }
 
 /** The approval control beside an approvable field: the date and Unapprove, or Approve. */
-function Approval({ path, approvedOn, csrf }: { path: string; approvedOn: string | null; csrf: string }) {
+function Approval({ path, approvedOn, seen, csrf }: { path: string; approvedOn: string | null; seen: string; csrf: string }) {
   return (
     <form method="post" action="/me/approve" className="flex flex-wrap items-center gap-3">
       <Csrf token={csrf} />
       <input type="hidden" name="path" value={path} />
       <input type="hidden" name="action" value={approvedOn ? 'unapprove' : 'approve'} />
+      {!approvedOn && <input type="hidden" name="seen" value={seen} />}
       {approvedOn && <span className="text-[15px] text-s-good-text">{ME_APPROVED(approvedOn)}</span>}
       <button type="submit" className={approvedOn ? GHOST : SAVE}>
         {approvedOn ? ME_UNAPPROVE : ME_APPROVE}
@@ -78,7 +79,7 @@ function Field({ f, csrf }: { f: MeField; csrf: string }) {
           </button>
         </form>
         {f.approvable && f.value !== '' && (
-          <Approval path={approvalPathOf(f.path)} approvedOn={f.approved_on} csrf={csrf} />
+          <Approval path={approvalPathOf(f.path)} approvedOn={f.approved_on} seen={f.seen} csrf={csrf} />
         )}
       </div>
     </div>
@@ -200,7 +201,7 @@ export default function MeView({ data, problem }: { data: MeData; problem: strin
               <li key={p.path} className="flex flex-col gap-2 rounded-[24px] bg-s-navy-inner p-4 md:p-5">
                 <span className="text-[13px] text-s-on-navy">{p.label}</span>
                 <p className="whitespace-pre-wrap text-[15px] leading-[1.6]">{p.text}</p>
-                <Approval path={p.path} approvedOn={null} csrf={csrf} />
+                <Approval path={p.path} approvedOn={null} seen={p.seen} csrf={csrf} />
               </li>
             ))}
           </ul>
@@ -230,7 +231,10 @@ export default function MeView({ data, problem }: { data: MeData; problem: strin
           <ul>
             {data.ledger.map((l, i) => (
               <li key={i} className="flex flex-wrap items-baseline justify-between gap-x-4 border-t border-s-line py-3 text-[15px] first:border-t-0">
-                <span className="min-w-0">{l.title}</span>
+                <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+                  {l.title}
+                  <span className={META}>{l.program_id}</span>
+                </span>
                 <span className="text-s-muted">
                   {l.status}, {l.at}
                 </span>

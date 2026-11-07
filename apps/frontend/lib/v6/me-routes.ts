@@ -9,7 +9,7 @@ import { readCapped } from '../v5/http';
 import { publicOrigin } from '../v5/oauth';
 import { ME_ERRORS } from '../v5/site-copy';
 import { type Builder, deleteBuilder, getRecord, withRecord } from './builders';
-import { type MeField, authSecret, problemSig, recordBlocks, verifyCsrf } from './me-view';
+import { type MeField, authSecret, problemSig, recordBlocks, seenOf, verifyCsrf } from './me-view';
 import { APPROVABLE, approvePath, mergeRecord, unapprovePath } from './record';
 import { clearCookie, endSession, sessionBuilder } from './sessions';
 
@@ -108,24 +108,29 @@ export async function editPost(request: Request, deps: Deps = {}): Promise<Respo
   const blocks = recordBlocks(await getRecord(g.builder.id));
   const block = blocks.find((b) => b.fields.some((f) => f.path === path));
   const f = block?.fields.find((x) => x.path === path);
-  if (!block || !f) return text(400, ME_ERRORS.field);
+  // Standing approval changes only through /me/policy; the skip list is its one edit row.
+  if (!block || !f || (path.startsWith('policy.') && path !== 'policy.never')) return text(400, ME_ERRORS.field);
   const v = valueOf(f, g.form.get('value') ?? '');
   if (!v.ok) return problemAt(v.problem);
   return merge(g.builder, g.now, patchOf(path, v.value), f.label, block.key);
 }
 
-/** POST /me/approve: csrf, path (approvable), action approve or unapprove. */
+/** POST /me/approve: csrf, path (approvable), action approve or unapprove; approve needs `seen`, the set_at shown. */
 export async function approvePost(request: Request, deps: Deps = {}): Promise<Response> {
   const g = await guard(request, deps);
   if (g instanceof Response) return g;
   const path = g.form.get('path') ?? '';
   const action = g.form.get('action');
   if (!APPROVABLE(path) || (action !== 'approve' && action !== 'unapprove')) return text(400, ME_ERRORS.field);
+  const seen = g.form.get('seen') ?? '';
   const out = await withRecord(g.builder.id, g.now, (current) => {
+    // An agent write since the page was rendered: the builder has not read this text.
+    if (action === 'approve' && seenOf(current, path) !== seen) return { record: null, result: false };
     const next = action === 'approve' ? approvePath(current, path, g.now) : unapprovePath(current, path);
-    return { record: next === current ? null : next, result: null };
+    return { record: next === current ? null : next, result: true };
   });
   if (out.broken) return problemAt(ME_ERRORS.broken);
+  if (!out.result) return problemAt(ME_ERRORS.changed);
   return back('/me#approvals');
 }
 

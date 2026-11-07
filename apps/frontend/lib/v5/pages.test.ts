@@ -217,6 +217,8 @@ test('/me renders the record in builder words: approvals first, plain forms, no 
     assert.ok(t.includes(w), w);
   assert.ok(!/\b(person|company|traction|policy|answers)\.[a-z_]+\b/.test(t), 'no path is shown');
   assert.ok(!BANNED.test(t.replace('pagesme', '')), t.match(BANNED)?.[0]);
+  // An Approve form carries the set_at the builder saw.
+  assert.ok(/name="action" value="approve"\/><input type="hidden" name="seen" value="\d{4}-/.test(m), 'approve carries seen');
   const forms = m.match(/<form[^>]*>/g) ?? [];
   assert.ok(forms.length > 10 && forms.every((f) => /method="post"/.test(f) && /action="\/me\//.test(f)));
   assert.equal((m.match(/name="csrf"/g) ?? []).length, forms.length);

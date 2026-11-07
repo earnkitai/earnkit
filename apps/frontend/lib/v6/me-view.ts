@@ -17,12 +17,14 @@ export type MeField = {
   set_by: 'builder' | 'agent' | null; approvable: boolean; approved: boolean;
   /** "Nov 6" when approved. */
   approved_on: string | null;
+  /** The approval's set_at as rendered ('' without one): approve is refused when it moved since. */
+  seen: string;
 };
 export type MeData = {
   login: string; name: string | null; csrf: string;
   blocks: { key: BlockKey; title: string; fields: MeField[] }[];
-  pending_approvals: { path: string; label: string; text: string }[];
-  ledger: { title: string; status: string; at: string }[];
+  pending_approvals: { path: string; label: string; text: string; seen: string }[];
+  ledger: { title: string; program_id: string; status: string; at: string }[];
   installations: { id: number; client_name: string | null; linked_at: string }[];
 };
 
@@ -52,6 +54,9 @@ export function verifyCsrf(token: string, builderId: number, now: Date, secret: 
 export const problemSig = (line: string, secret: string): string => createHmac('sha256', secret).update(`me-problem:${line}`).digest('base64url').slice(0, 22);
 export const problemShown = (line: string | undefined, sig: string | undefined, secret: string): string | null =>
   line && sig && same(sig, problemSig(line, secret)) ? line : null;
+
+/** The set_at the builder sees for an approvable path ('' when it has no meta); approvePost checks it. Pure. */
+export const seenOf = (record: BuilderRecord, path: string): string => record.meta[path]?.set_at ?? '';
 
 /** The path an approval is stored under: the two raised fields share company.raised. Pure. */
 export const approvalPathOf = (path: string): string => (path === 'company.raised_usd' || path === 'company.raised_from' ? 'company.raised' : path);
@@ -107,6 +112,7 @@ function field(record: BuilderRecord, path: string, labelText: string, spec: { k
     path, label: labelText, value: shown(labelKey, v), kind: spec.kind, ...(spec.options ? { options: [...spec.options] } : {}),
     set_by: meta?.set_by ?? null, approvable, approved,
     approved_on: approved && meta?.approved_at ? monthDay(new Date(meta.approved_at)) : null,
+    seen: seenOf(record, approvalPathOf(path)),
   };
 }
 
@@ -138,7 +144,7 @@ const usd = (n: number) => `$${n.toLocaleString('en-US')}`;
 export function pendingApprovals(record: BuilderRecord): MeData['pending_approvals'] {
   const out: MeData['pending_approvals'] = [];
   const add = (path: string, labelText: string, text: string | undefined) => {
-    if (text && APPROVABLE(path) && !isApproved(record, path)) out.push({ path, label: labelText, text });
+    if (text && APPROVABLE(path) && !isApproved(record, path)) out.push({ path, label: labelText, text, seen: seenOf(record, path) });
   };
   for (const k of ANSWER_KINDS) add(`answers.${k}`, answerLabel(k), record.answers[k]?.text);
   for (const p of record.projects)
@@ -165,7 +171,7 @@ export async function meData(builder: Builder, now: Date): Promise<MeData> {
     csrf: csrfToken(builder.id, utcDay(now), authSecret()),
     blocks: recordBlocks(record),
     pending_approvals: pendingApprovals(record),
-    ledger: ledger.map((r) => ({ title: r.title ?? r.program_id, status: ME_STATUS[r.status] ?? cap(r.status.replaceAll('_', ' ')), at: monthDay(r.at) })),
+    ledger: ledger.map((r) => ({ title: r.title ?? r.program_id, program_id: r.program_id, status: ME_STATUS[r.status] ?? cap(r.status.replaceAll('_', ' ')), at: monthDay(r.at) })),
     installations: agents.map((r) => ({ id: r.id, client_name: r.client_name, linked_at: r.linked_at ? monthDay(r.linked_at) : '' })),
   };
 }
