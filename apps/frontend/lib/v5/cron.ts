@@ -1,9 +1,13 @@
 /**
- * POST /api/cron, once a day: the freshness probe, the repo cache sweep (rows over 30 days), then
- * the owner's digest. Bearer CRON_SECRET only (503 while it is unset). A step that throws answers
- * 500 with its name; the log names only the error type.
+ * POST /api/cron, once a day: the freshness probe, the repo cache sweep (rows over 30 days), the screen
+ * jobs over 90 days swept, link codes and sessions expired over a day ago swept, and the queue's share
+ * (5 minutes at most), then the owner's digest. A JSON body { job_id } is the owner's trigger: that job's queue
+ * only. Bearer CRON_SECRET only (503 while it is unset). A step that throws answers 500 with its name.
  */
-import { bearerMatches, json } from './http';
+import { sweepScreens } from '../v6/screen-jobs';
+import { SCREEN_BATCH, SCREEN_DAILY_MS, SCREEN_TRIGGER_MAX, SCREEN_TRIGGER_MS, workQueue } from '../v6/screen-worker';
+import { sql } from './db';
+import { bearerMatches, json, readCapped } from './http';
 import { runHealth } from './health';
 import type { Mailer } from './mail';
 import { sendOwnerDigest } from './owner-digest';
@@ -19,7 +23,23 @@ export type CronDeps = {
   limit?: number;
   runHealth?: typeof runHealth;
   sendDigest?: typeof sendOwnerDigest;
+  workQueue?: typeof workQueue;
 };
+
+/** The job id of an owner-triggered run; null for an empty body (the daily run); 'bad' for any other body. */
+async function triggeredJob(request: Request): Promise<{ jobId: string } | null | 'bad'> {
+  const text = await readCapped(request, 1_024).catch(() => null);
+  if (text === null) return 'bad';
+  if (!text.trim()) return null;
+  try {
+    const body = JSON.parse(text) as unknown;
+    if (typeof body !== 'object' || body === null || Array.isArray(body) || Object.keys(body).join() !== 'job_id') return 'bad';
+    const id = (body as { job_id: unknown }).job_id;
+    return typeof id === 'string' && id.length > 0 && id.length <= 40 ? { jobId: id } : 'bad';
+  } catch {
+    return 'bad';
+  }
+}
 
 const failed = (step: string, err: unknown): Response => {
   const name = err instanceof Error ? err.name.replace(/[^\w]/g, '').slice(0, 40) : 'unknown';
@@ -27,11 +47,31 @@ const failed = (step: string, err: unknown): Response => {
   return json({ error: `${step} failed` }, 500);
 };
 
+/** Link codes and sessions that expired over a day ago; returns how many of each went. */
+async function sweepAuth(now: Date): Promise<{ link_codes: number; sessions: number }> {
+  const cutoff = new Date(now.getTime() - 86_400_000);
+  const codes = await sql()`DELETE FROM link_codes WHERE expires_at < ${cutoff}`;
+  const sessions = await sql()`DELETE FROM sessions WHERE expires_at < ${cutoff}`;
+  return { link_codes: codes.count, sessions: sessions.count };
+}
+
 export async function cronPost(request: Request, deps: CronDeps = {}): Promise<Response> {
   const secret = process.env.CRON_SECRET;
   if (!secret) return json({ error: 'cron is not set up' }, 503);
   if (!bearerMatches(request.headers.get('authorization'), secret)) return json({ error: 'unauthorized' }, 401);
   const now = deps.now ?? new Date();
+  const work = deps.workQueue ?? workQueue;
+  const trigger = await triggeredJob(request);
+  if (trigger === 'bad') return json({ error: 'bad body' }, 400);
+  if (trigger) {
+    const { jobId } = trigger;
+    try {
+      const screen = await work({ now, limit: SCREEN_TRIGGER_MAX, jobId, deadline: Date.now() + SCREEN_TRIGGER_MS });
+      return json({ screen });
+    } catch (err) {
+      return failed('screen', err);
+    }
+  }
 
   let health: Awaited<ReturnType<typeof runHealth>>;
   try {
@@ -48,11 +88,21 @@ export async function cronPost(request: Request, deps: CronDeps = {}): Promise<R
     return failed('sweep', err);
   }
 
+  let screen: Awaited<ReturnType<typeof workQueue>> & { swept: number; swept_auth: { link_codes: number; sessions: number } };
+  try {
+    // Jobs past the 90-day window of the counts across programs go first.
+    const screensSwept = await sweepScreens(now);
+    const swept_auth = await sweepAuth(now);
+    screen = { swept: screensSwept, swept_auth, ...(await work({ now, limit: SCREEN_BATCH, deadline: Date.now() + SCREEN_DAILY_MS })) };
+  } catch (err) {
+    return failed('screen', err);
+  }
+
   let digest: 'sent' | 'none';
   try {
     digest = await (deps.sendDigest ?? sendOwnerDigest)(now, deps.mailer);
   } catch (err) {
     return failed('digest', err);
   }
-  return json({ health: { checked: health.checked, stale: health.stale.length, changed: health.changed.length, closed: health.closed.length }, swept, digest });
+  return json({ health: { checked: health.checked, stale: health.stale.length, changed: health.changed.length, closed: health.closed.length }, swept, screen, digest });
 }

@@ -10,6 +10,8 @@ import { ProgramFile } from './program-file';
 import type { ProgramRow } from './programs';
 import { replayFetch } from './fixtures/github';
 import { programFixture } from './fixtures/program';
+import { STYLE_CONTRACT } from '../v6/answer-brief';
+import { EMPTY_RECORD, approvePath, mergeRecord, type BuilderRecord } from '../v6/record';
 
 after(() => sql().end());
 beforeEach(() => sql()`DELETE FROM repo_cache`);
@@ -134,7 +136,7 @@ test('facts_from_repo counts links, contract and chain values, never the passed 
     name: 'App', description: 'An AI agent on Base.', repo_url: 'https://github.com/a/b', public: true, as_reported: false,
     live_url: null, demo_url: null, chains: [{ chain: 'base', mainnet: true, basis: 'code' }],
     contracts: [{ chain: 'base', address: '0x' + 'a'.repeat(40), basis: 'code' }], builder_codes: false, users: null,
-    first_commit_at: null, last_commit_at: null, readme_excerpt: null, homepage: null,
+    first_commit_at: null, last_commit_at: null, readme_excerpt: null, homepage: null, integrations: [],
     repo_url_basis: 'code', live_url_basis: null, demo_url_basis: null,
   };
   const row = rowWith([
@@ -167,4 +169,128 @@ test('facts_from_repo: a public read counts the repo link it read', async () => 
   const facts = await factsOf('earnkit');
   const row = rowWith([req({ key: 'repo', label: 'Repo', type: 'url', kind: 'links', project_field: 'repo_url' })]);
   assert.equal(prefill(row, facts).facts_from_repo, 1);
+});
+
+/** A record with the given patch merged by the builder, then the listed paths approved. */
+function recordWith(patch: unknown, approve: string[] = []): BuilderRecord {
+  const m = mergeRecord(EMPTY_RECORD, patch, 'builder', NOW);
+  assert.deepEqual(m.problems, []);
+  return approve.reduce((r, path) => approvePath(r, path, NOW), m.record);
+}
+const PROBLEM = { answers: { problem: { text: 'Builders lose weeks finding grants and rewriting the same answers for each form.', short: 'Builders lose weeks on grant forms.' } } };
+const rec = (record: BuilderRecord, verifiedUsage: string | null = null) => ({ record, projectId: null, verifiedUsage });
+const problemRow = (over: Record<string, unknown> = {}) => rowWith([req({ key: 'problem', label: 'Problem', type: 'text', kind: 'problem', todo: 'the problem', ...over })]);
+
+test('an approved answer fills a prose field from the record, with the style contract', async () => {
+  const facts = await factsOf('earnkit');
+  const out = prefill(problemRow(), facts, rec(recordWith(PROBLEM, ['answers.problem'])));
+  const f = out.fields[0];
+  assert.equal(f.from, 'record');
+  assert.equal(f.value, PROBLEM.answers.problem.text);
+  assert.equal(f.style, STYLE_CONTRACT);
+  assert.equal(out.from_record, 1);
+  assert.equal(out.filled, 1);
+  assert.deepEqual(out.need_you, []);
+});
+
+test('unapproved answers are not fitted', async () => {
+  const facts = await factsOf('earnkit');
+  const out = prefill(problemRow(), facts, rec(recordWith(PROBLEM)));
+  const f = out.fields[0];
+  assert.notEqual(f.from, 'record');
+  assert.equal(f.value, null);
+  assert.equal(f.style, undefined);
+  assert.equal(f.from, 'agent');
+  assert.equal(f.sources?.at(-1), 'the builder, once: store the answer with record before using it');
+  assert.deepEqual(out.need_you, ['the problem']);
+  // Unlinked (no record): v5's agent field, without the ask-once source.
+  assert.ok(!prefill(problemRow(), facts).fields[0].sources?.some((x) => x.includes('store the answer')));
+});
+
+test('max_chars under 300 picks the short answer; above it the full text', async () => {
+  const facts = await factsOf('earnkit');
+  const r = rec(recordWith(PROBLEM, ['answers.problem']));
+  assert.equal(prefill(problemRow({ max_chars: 200 }), facts, r).fields[0].value, PROBLEM.answers.problem.short);
+  assert.equal(prefill(problemRow({ max_chars: 500 }), facts, r).fields[0].value, PROBLEM.answers.problem.text);
+});
+
+test('traction: verified usage wins over the pre-launch line; neither leaves it to the builder', async () => {
+  const facts = await factsOf('earnkit');
+  const row = rowWith([req({ key: 'traction', label: 'Traction', type: 'text', kind: 'traction', todo: 'your traction' })]);
+  const withLine = recordWith({ traction: { line_pre_launch: 'Pre-launch, launching 2026-12-01, 140 on the waitlist.' } }, ['traction.line_pre_launch']);
+  const usage = '1,240 distinct funded wallets in 90 days on Base, 12,300 transactions, live since 2026-08-02';
+  const verified = prefill(row, facts, rec(withLine, usage)).fields[0];
+  assert.deepEqual([verified.from, verified.value, verified.style], ['record', usage, undefined]);
+  const line = prefill(row, facts, rec(withLine)).fields[0];
+  assert.deepEqual([line.from, line.value, line.style], ['record', 'Pre-launch, launching 2026-12-01, 140 on the waitlist.', STYLE_CONTRACT]);
+  const nothing = prefill(row, facts, rec(EMPTY_RECORD)).fields[0];
+  assert.deepEqual([nothing.from, nothing.value], ['builder', null]);
+  // An unapproved line is not used either.
+  const unapproved = recordWith({ traction: { line_pre_launch: 'Pre-launch.' } });
+  assert.equal(prefill(row, facts, rec(unapproved)).fields[0].from, 'builder');
+});
+
+test('person facts fill contact fields; other handles and files stay the builder', async () => {
+  const facts = await factsOf('earnkit');
+  const record = recordWith({ person: { name: 'Jenil Thakker', email: 'jenil@example.com', x: 'jenil' }, docs: { demo_video_url: 'https://loom.com/share/demo' } });
+  const row = rowWith([
+    req({ key: 'email', label: 'Email', type: 'email', kind: 'contact', todo: 'your email' }),
+    req({ key: 'first_name', label: 'First name', type: 'text', kind: 'contact', todo: 'your first name' }),
+    req({ key: 'last_name', label: 'Last name', type: 'text', kind: 'contact', todo: 'your last name' }),
+    req({ key: 'x_handle', label: 'X handle', type: 'text', kind: 'contact', todo: 'your X handle' }),
+    req({ key: 'telegram', label: 'Telegram', type: 'text', kind: 'contact', todo: 'your Telegram username' }),
+    req({ key: 'deck', label: 'Pitch deck', type: 'file', kind: 'other', todo: 'your deck file' }),
+    req({ key: 'demo', label: 'Demo video', type: 'url', kind: 'demo_video', todo: 'a demo video' }),
+  ]);
+  const out = prefill(row, facts, rec(record));
+  const by = Object.fromEntries(out.fields.map((f) => [f.key, f]));
+  assert.deepEqual([by.email.from, by.email.value], ['record', 'jenil@example.com']);
+  assert.equal(by.first_name.value, 'Jenil');
+  assert.equal(by.last_name.value, 'Thakker');
+  assert.equal(by.x_handle.value, 'jenil');
+  assert.equal(by.demo.value, 'https://loom.com/share/demo');
+  assert.equal(by.email.style, undefined);
+  assert.deepEqual([by.telegram.from, by.deck.from], ['builder', 'builder']);
+  assert.deepEqual(out.need_you, ['your Telegram username', 'your deck file']);
+  assert.equal(out.from_record, 5);
+});
+
+test('team, raised and links from the record; the project answer wins over the record-wide one', async () => {
+  const facts = await factsOf('earnkit');
+  const record = recordWith(
+    {
+      team: [{ name: 'Jenil', role: 'founder' }, { name: 'Ada' }],
+      company: { raised_usd: 250000, raised_from: 'angels' },
+      projects: [{ id: 'earnkit', repo_url: 'https://github.com/jenil/earnkit', live_url: 'https://earnkit.com', answers: { solution: { text: 'Project solution.' } } }],
+      answers: { solution: { text: 'Record solution.' } },
+    },
+    ['company.raised', 'answers.solution', 'projects.earnkit.answers.solution'],
+  );
+  const row = rowWith([
+    req({ key: 'team', label: 'Team', type: 'text', kind: 'team', todo: 'the team' }),
+    req({ key: 'raised', label: 'Raised so far', type: 'text', kind: 'raised', todo: 'money raised' }),
+    req({ key: 'links', label: 'Links', type: 'text', kind: 'links', todo: 'links' }),
+    req({ key: 'how', label: 'How it works', type: 'text', kind: 'how_it_works', todo: 'how it works' }),
+  ]);
+  const by = Object.fromEntries(prefill(row, facts, { record, projectId: 'earnkit', verifiedUsage: null }).fields.map((f) => [f.key, f]));
+  assert.equal(by.team.value, 'Jenil (founder), Ada');
+  assert.equal(by.raised.value, '$250,000 from angels');
+  assert.equal(by.links.value, 'https://earnkit.com https://github.com/jenil/earnkit');
+  assert.deepEqual([by.how.from, by.how.value, by.how.style], ['record', 'Project solution.', STYLE_CONTRACT]);
+});
+
+test('the counts are over required fields: an optional record field is in fields but not in from_record', async () => {
+  const facts = await factsOf('earnkit');
+  const record = recordWith({ person: { name: 'Ada Lovelace', email: 'ada@example.com' }, ...PROBLEM }, ['answers.problem']);
+  const row = rowWith([
+    req({ key: 'email', label: 'Email', type: 'email', kind: 'contact', todo: 'your email' }),
+    req({ key: 'problem', label: 'Problem', type: 'text', kind: 'problem', todo: 'the problem', required: false }),
+    req({ key: 'telegram', label: 'Telegram', type: 'text', kind: 'contact', todo: 'your Telegram username' }),
+  ]);
+  const out = prefill(row, facts, rec(record));
+  assert.equal(out.fields.find((f) => f.key === 'problem')!.from, 'record');
+  assert.equal(out.from_record, 1);
+  assert.equal(out.filled, 2);
+  assert.equal(out.total, 2);
+  assert.ok(out.from_record + out.repo_required + out.need_you.length <= out.total);
 });

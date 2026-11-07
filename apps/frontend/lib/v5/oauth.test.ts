@@ -110,7 +110,7 @@ test('/mcp without a token, or with an unknown one, is 401 with the resource met
   assert.equal((await mcpGet(new Request('https://earnkit.test/mcp'))).status, 401);
 });
 
-test('/mcp with a token lists the two tools; a body over 1 MB is 413', async () => {
+test('/mcp with a token lists the four tools; a body over 1 MB is 413', async () => {
   const { client_id } = registerClient({ redirect_uris: [redirect] });
   const { token, clientName } = exchangeCode(tokenForm(client_id, codeOf(client_id)));
   const { saveInstallation } = await import('./installations');
@@ -121,7 +121,7 @@ test('/mcp with a token lists the two tools; a body over 1 MB is 413', async () 
   const r = await mcpPost(new Request('https://earnkit.test/mcp', { method: 'POST', headers, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) }));
   assert.equal(r.status, 200);
   const body = (await r.json()) as { result: { tools: { name: string }[] } };
-  assert.deepEqual(body.result.tools.map((t) => t.name), ['find', 'track']);
+  assert.deepEqual(body.result.tools.map((t) => t.name), ['find', 'track', 'record', 'screen']);
   const key = 'sk_live_' + 'a1'.repeat(12);
   const call = { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'find', arguments: { project: { name: 'X', description: `my key ${key}` } } } };
   const s = await mcpPost(new Request('https://earnkit.test/mcp', { method: 'POST', headers, body: JSON.stringify(call) }));

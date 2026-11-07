@@ -1,14 +1,20 @@
 /**
  * The find tool: what a project can earn now (ready, pre-filled), what is one change away, what
  * moved since the last find, and the ledger; or one program's details; or, with no project, the
- * open list. EarnKit writes no prose: the agent drafts from the fields.
+ * open list. Linked, it also reads the builder's record (lib/v6/find-record.ts). EarnKit writes no prose.
  */
 import { z } from 'zod';
+import { ownerKey } from '../v6/builders';
+import { appliedOvernight, releaseStale } from '../v6/claims';
+import { readEvidence, type Evidence, type Subject } from '../v6/evidence';
+import { blockersOf, notNever, missingFor, recordSide, storedRecordContext, tierGate, type Blocker, type RecordSide } from '../v6/find-record';
+import { signInLink } from '../v6/record-tool';
+import { signInLine } from '../v6/reply-words';
 import { timeLeftWords } from './deadline';
 import { evaluate, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
 import { lastFindAt, markFind } from './installations';
-import { askOutcome, doneByProgram, doneItems, excluded, markAsked, summary, type Ledger } from './ledger';
+import { askOutcome, claimed, doneByProgram, doneItems, excluded, markAsked, summary, type Ledger } from './ledger';
 import { prefill, type Field } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, type Category, type Program } from './program-file';
 import { getProgram, isOpen, listOpenPrograms, type ProgramRow } from './programs';
@@ -21,6 +27,7 @@ import { since, type Since } from './since';
 export const FindInput = z.object({
   project: z.unknown().optional(),
   program_id: z.string().max(100).optional(),
+  project_id: z.string().max(40).optional(),
   filter: z.object({ category: z.enum(PROGRAM_CATEGORIES).optional(), all: z.boolean().optional() }).optional(),
 });
 
@@ -37,7 +44,14 @@ export type ReadyProgram = {
   submission_url: string;
   form?: Program['form'];
   fields: Field[];
+  /** EarnKit values: from the record and from the repo. */
   filled: number;
+  /** Required fields filled from the builder's record (0 when not linked). */
+  from_record: number;
+  /** Required fields filled from the public code read. */
+  repo_required: number;
+  /** The to-dos of the required fields left to the builder or the agent. */
+  need_you: string[];
   /** EarnKit values read from the repo (links, contract, chain), not the passed name or description. */
   facts_from_repo: number;
   total: number;
@@ -47,6 +61,8 @@ export type ReadyProgram = {
   setup: string[];
   /** The number the builder sees (and says) for it. */
   n: number;
+  /** Set while another agent of the builder's holds a claim on it (track started). */
+  claimed_since?: string;
 };
 export type GapProgram = {
   program_id: string;
@@ -72,20 +88,43 @@ export type FindReply = {
   ask_outcome: { program_id: string; title: string }[];
   as_reported: boolean;
   problems?: string[];
+  linked: boolean;
+  record_missing: string[];
+  blockers: Blocker[];
+  evidence_summary: { tier: string | null; line: string } | null;
+  applied_overnight: { program_id: string; title: string }[];
+  released: string[];
+  auto_apply: boolean;
+  /** With auto_apply: the most the agent applies to in one night. */
+  max_per_night?: number;
+  /** Unlinked with sign-in configured: the link that links this installation to a builder. */
+  sign_in?: string;
 };
 export type ProgramReply = { show_to_builder: string; agent_note: string; program: Program | null; fields: Field[]; guide: Guide | null; verdict?: Verdict };
-export type FindContext = { installationId: number; now: Date; gh?: typeof fetch };
+export type FindContext = {
+  installationId: number;
+  builderId: number | null;
+  now: Date;
+  gh?: typeof fetch;
+  /** The builder's own evidence read (default readEvidence). */
+  evidence?: (s: Subject) => Promise<Evidence>;
+  /** The sign-in link for an unlinked installation (default the record tool's; null when not configured). */
+  linkUrl?: () => Promise<string | null>;
+};
 
 const MAX_READY = 5;
 const MAX_GAPS = 3;
 const MAX_LISTED = 10;
+
+/** Whose ledger this find reads: the builder's once linked, else the installation's. Pure. */
+const ownerOf = (ctx: FindContext) => ownerKey(ctx.installationId, ctx.builderId);
 
 /** The money in the program's own words: its summary's first part. Pure. */
 export const moneyOf = (p: Program): string => p.summary.split(' · ')[0];
 const closesIn = (p: Program, now: Date) => (p.ends_at ? timeLeftWords(p.ends_at, now) : null);
 const EMPTY_FACTS: RepoFacts = {
   name: '', description: '', repo_url: null, repo_url_basis: null, live_url_basis: null, demo_url_basis: null, public: false, as_reported: true, live_url: null, demo_url: null, chains: [], contracts: [],
-  builder_codes: false, users: null, first_commit_at: null, last_commit_at: null, readme_excerpt: null, homepage: null,
+  builder_codes: false, integrations: [], users: null, first_commit_at: null, last_commit_at: null, readme_excerpt: null, homepage: null,
 };
 
 /** A read that fails is the agent's report alone (repoFacts falls back the same way when GitHub fails). */
@@ -97,15 +136,16 @@ async function factsOf(project: Project, ctx: FindContext): Promise<RepoFacts> {
   }
 }
 
-function readyOf(row: ProgramRow, v: Verdict, facts: RepoFacts, now: Date): Omit<ReadyProgram, 'n'> {
+function readyOf(row: ProgramRow, v: Verdict, facts: RepoFacts, now: Date, side: RecordSide | null): Omit<ReadyProgram, 'n'> {
   const p = row.file;
-  const { fields, filled, facts_from_repo, total } = prefill(row, facts);
+  const rec = side ? { record: side.record, projectId: side.projectId, verifiedUsage: side.verifiedUsage } : null;
+  const { fields, filled, facts_from_repo, repo_required, from_record, total, need_you } = prefill(row, facts, rec);
   const todo = new Map(p.submission_requirements.map((r) => [r.key, r.todo]));
   return {
     program_id: row.id, title: p.title, money: moneyOf(p), max_award_usd: p.max_award_usd ?? null, category: categoryOf(p),
     closes_at: p.ends_at, closes_in: closesIn(p, now), long_shot: v.long_shot, in_person: p.in_person, submission_url: p.submission_url,
     ...(p.form ? { form: p.form } : {}),
-    fields, filled, facts_from_repo, total,
+    fields, filled, facts_from_repo, repo_required, from_record, need_you, total,
     needs: [...p.setup, ...fields.filter((f) => f.from === 'builder' && f.required).map((f) => todo.get(f.key) ?? f.label.toLowerCase())],
     setup: p.setup,
   };
@@ -117,13 +157,16 @@ const gapOf = (row: ProgramRow, v: Verdict): Omit<GapProgram, 'n'> => ({
 });
 
 /** One program: its file, its fields (for the project, when given) and the verdict. */
-async function oneProgram(ctx: FindContext, id: string, project: Project | null): Promise<ProgramReply> {
+async function oneProgram(ctx: FindContext, id: string, project: Project | null, projectId?: string): Promise<ProgramReply> {
   const row = await getProgram(id);
   if (!row) return { show_to_builder: "I don't know that program.", agent_note: 'Call find with the project for the programs it fits.', program: null, fields: [], guide: null };
   const p = row.file;
   const facts = project ? await factsOf(project, ctx) : EMPTY_FACTS;
-  const { fields } = prefill(row, facts);
-  const verdict = project ? evaluate(row, facts, await doneItems(ctx.installationId, id), ctx.now) : undefined;
+  // Linked: the record fills first, as in the match (no evidence read here: the stored usage line).
+  const rec = ctx.builderId === null ? null : await storedRecordContext(ctx.builderId, projectId, facts.repo_url ?? project?.repo_url ?? null);
+  const { fields } = prefill(row, facts, rec);
+  const fitted = fields.some((f) => f.from === 'record');
+  const verdict = project ? evaluate(row, facts, await doneItems(ownerOf(ctx), id), ctx.now) : undefined;
   const left = closesIn(p, ctx.now);
   const open = isOpen(p, ctx.now);
   const when = p.status === 'upcoming' ? null : !open ? 'closed' : left ? `closes ${left}` : 'no deadline';
@@ -136,6 +179,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null)
       ? [
           project ? 'Draft from fields: earnkit values as given, agent fields from your memory and sources, builder fields asked once.' : 'Call again with the project so the fields come pre-filled.',
           'Submit only on a yes, in your own browser, then call track with applied.',
+          ...(fitted ? ['Fit approved answers by cutting, never by adding; the style contract travels on each field.'] : []),
         ]
       : ['It takes no entries now: draft nothing and submit nothing. Call find with the project for what is open.']
     ).join('\n'),
@@ -154,15 +198,41 @@ async function openList(ctx: FindContext, problem: string | null): Promise<FindR
     return `${r.file.title}, ${moneyOf(r.file)}${left ? `, closes ${left}` : ''}`;
   });
   if (programs.length > MAX_LISTED) lines.push(`and ${programs.length - MAX_LISTED} more`);
-  const ledger = await summary(ctx.installationId, programs, ctx.now);
+  const ledger = await summary(ownerOf(ctx), programs, ctx.now);
+  const link = ctx.builderId === null ? await linkOf(ctx) : null;
+  const list = programs.length > 0 ? `Open now:\n${lines.join('\n')}` : "Nothing is open right now. I'll say when something opens.";
   return {
-    show_to_builder: programs.length > 0 ? `Open now:\n${lines.join('\n')}` : "Nothing is open right now. I'll say when something opens.",
+    show_to_builder: link ? `${list}\n\n${signInLine(link)}` : list,
     agent_note: [
       ...(problem ? [`The project was not read: ${problem}.`] : []),
       'Pass the project next time (name, description, repo_url, chains, live_url) so EarnKit can match it and pre-fill each form.',
     ].join('\n'),
     since: { from: null, new: [], changed: [], closing: [] },
-    ready: [], gaps: [], ledger, ask_outcome: [], as_reported: false,
+    ready: [], gaps: [], ledger, ask_outcome: [], as_reported: false, ...unlinkedPart(), linked: ctx.builderId !== null,
+    ...(link ? { sign_in: link } : {}),
+  };
+}
+
+/** The unlinked installation's sign-in link, or null (never a failure). */
+const linkOf = (ctx: FindContext) => (ctx.linkUrl ?? (() => signInLink(ctx.installationId, ctx.now)))().catch(() => null);
+
+/** An unlinked find: every record field empty. */
+const unlinkedPart = (): Pick<FindReply, 'linked' | 'record_missing' | 'blockers' | 'evidence_summary' | 'applied_overnight' | 'released' | 'auto_apply'> => ({
+  linked: false, record_missing: [], blockers: [], evidence_summary: null, applied_overnight: [], released: [], auto_apply: false,
+});
+
+/** The record's part of the reply, for a linked find. */
+function linkedPart(side: RecordSide, rows: ProgramRow[], released: string[], overnight: FindReply['applied_overnight']) {
+  const policy = side.record.policy;
+  return {
+    linked: true,
+    record_missing: missingFor(rows, side.record, side.verifiedUsage !== null),
+    blockers: blockersOf(rows, side.record),
+    evidence_summary: side.summary,
+    applied_overnight: overnight,
+    released,
+    auto_apply: policy.auto_apply,
+    ...(policy.auto_apply ? { max_per_night: policy.max_per_night } : {}),
   };
 }
 
@@ -171,18 +241,30 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const parsed = i.project === undefined ? null : parseProject(i.project);
   const project = parsed?.ok ? parsed.project : null;
   const problems = parsed?.ok ? [...parsed.problems] : [];
-  if (i.program_id) return oneProgram(ctx, i.program_id, project);
+  if (i.program_id) return oneProgram(ctx, i.program_id, project, i.project_id);
   if (!project) return openList(ctx, parsed && !parsed.ok ? parsed.problem : null);
 
   const facts = await factsOf(project, ctx);
   problems.push(...(facts.problems ?? []));
   const open = await listOpenPrograms(ctx.now);
-  const skip = await excluded(ctx.installationId);
+  const owner = ownerOf(ctx);
+  // The record is read only for a linked installation.
+  const side = ctx.builderId === null ? null : await recordSide({
+    builderId: ctx.builderId, now: ctx.now, projectId: i.project_id, facts,
+    read: ctx.evidence ?? ((s) => readEvidence(s, { now: ctx.now, ...(ctx.gh ? { gh: ctx.gh } : {}) })),
+  });
+  if (side) problems.push(...side.problems);
+  const released = side ? await releaseStale(owner, ctx.now) : [];
+  const skip = await excluded(owner);
   const all = i.filter?.all === true;
-  const programs = open.filter((r) => !skip.has(r.id) && (!i.filter?.category || categoryOf(r.file) === i.filter.category));
+  // The never list is the only policy that hides a program; the approval's limits only stop the agent sending alone.
+  const listed = side ? notNever(side.record) : () => true;
+  const programs = open.filter((r) => !skip.has(r.id) && listed(r) && (!i.filter?.category || categoryOf(r.file) === i.filter.category));
   const byId = new Map(programs.map((r) => [r.id, r]));
-  const done = await doneByProgram(ctx.installationId);
-  const verdicts = programs.map((r) => evaluate(r, facts, done.get(r.id) ?? new Set<string>(), ctx.now));
+  const done = await doneByProgram(owner);
+  const verdicts = programs
+    .map((r) => evaluate(r, facts, done.get(r.id) ?? new Set<string>(), ctx.now))
+    .map((v) => (side ? tierGate(v, byId.get(v.program_id)!, side.tier, side.summary?.line) : v));
 
   const readyV = rankReady(verdicts.filter((v) => v.status === 'ready'), byId);
   const gapV = rankGaps(verdicts.filter((v) => v.status === 'gap'), byId);
@@ -190,22 +272,30 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const shownGaps = all ? gapV : gapV.slice(0, MAX_GAPS);
   const more = readyV.length - shownReady.length + gapV.length - shownGaps.length;
   // In display order with the numbers the builder sees: ready, gaps, then in person.
+  const holds = side ? await claimed(owner) : new Map<string, { since: string }>();
   const { ready, gaps } = numbered(
-    shownReady.map((v) => readyOf(byId.get(v.program_id)!, v, facts, ctx.now)),
+    shownReady.map((v) => {
+      const r = readyOf(byId.get(v.program_id)!, v, facts, ctx.now, side);
+      const hold = holds.get(v.program_id);
+      return hold ? { ...r, claimed_since: hold.since } : r;
+    }),
     shownGaps.map((v) => gapOf(byId.get(v.program_id)!, v)),
   );
 
   const last = await lastFindAt(ctx.installationId);
-  const moved = await since(ctx.installationId, last, open, ready.map((r) => r.program_id), ctx.now, gaps.map((g) => g.program_id));
-  const ledger = await summary(ctx.installationId, open, ctx.now);
-  const ask = await askOutcome(ctx.installationId, open, ctx.now);
-  await markAsked(ctx.installationId, ask.map((a) => a.program_id), ctx.now);
+  const overnight = side ? await appliedOvernight(owner, last) : [];
+  const link = side ? null : await linkOf(ctx);
+  const moved = await since(owner, last, open, ready.map((r) => r.program_id), ctx.now, gaps.map((g) => g.program_id));
+  const ledger = await summary(owner, open, ctx.now);
+  const ask = await askOutcome(owner, open, ctx.now);
+  await markAsked(owner, ask.map((a) => a.program_id), ctx.now);
 
   const r: Omit<FindReply, 'show_to_builder' | 'agent_note'> = {
     since: moved, ready, gaps,
     ...(all ? { not_fit: verdicts.filter((v) => v.status === 'no').map((v) => ({ program_id: v.program_id, title: byId.get(v.program_id)!.file.title, reason: v.reason ?? 'does not fit' })) } : {}),
     ledger, ask_outcome: ask, as_reported: facts.as_reported,
     ...(problems.length > 0 ? { problems } : {}),
+    ...(side ? linkedPart(side, ready.map((p) => byId.get(p.program_id)!), released, overnight) : { ...unlinkedPart(), ...(link ? { sign_in: link } : {}) }),
   };
   await markFind(ctx.installationId, ctx.now);
   return { show_to_builder: replyText(r, last === null), agent_note: agentNote(r, { more }), ...r };

@@ -2,10 +2,11 @@
  * A program's guide as the site and the find reply show it: money, close, who can apply in plain
  * words, the form's fields as to-dos, the rules, what they want, past rounds, best bet, sources.
  */
+import { integrationLabel } from '../v6/integrations';
 import { chainName } from './chains';
 import { closeDay } from './deadline';
 import { CLOSED, NOT_OPEN_YET, ROLLING } from './site-copy';
-import { eligibilityOf, type EligibilityItem, type Program } from './program-file';
+import { MIN_TIER, NEEDS, eligibilityOf, type EligibilityItem, type Program } from './program-file';
 import { isOpen, type ProgramRow } from './programs';
 import { moneyOf } from './programs-read';
 
@@ -16,6 +17,14 @@ export type Guide = {
   rules: string[];
   eligibility: string[];
   fields: { label: string; todo: string }[];
+  /** Who submits, short: "Your agent may submit" or "Needs your click to submit". */
+  submit: string | null;
+  /** "Sign-in: Google", or null when the form needs none. */
+  sign_in: string | null;
+  /** Extra material, in words: "a founder video". */
+  needs: string[];
+  /** "Bar: a live product", or null when the program sets none. */
+  bar: string | null;
   focus: string | null;
   past_rounds: string[];
   best_bet: string | null;
@@ -34,6 +43,7 @@ function eligibilityWords(i: EligibilityItem): string {
     case 'new_work_after': return `new work started after ${v.slice(0, 10)}`;
     case 'demo_video': return 'a demo video';
     case 'in_person': return 'in person';
+    case 'integration': return `uses ${integrationLabel(v) ?? v}`;
     default: return v || i.note || 'a feature the program asks for';
   }
 }
@@ -73,6 +83,20 @@ function closesOf(p: Program, now: Date): string {
   return day ? `Closes ${day}` : ROLLING;
 }
 
+const NEEDS_WORDS: Record<(typeof NEEDS)[number], string> = {
+  founder_video: 'a founder video', demo_video: 'a demo video', resume: 'a resume', deck: 'a deck', pitch_pdf: 'a pitch PDF',
+};
+const BAR_WORDS: Record<(typeof MIN_TIER)[number], string> = {
+  used: 'Bar: a used product', live: 'Bar: a live product', building: 'Bar: a repo with recent commits',
+};
+const SIGN_IN_WORDS: Record<'google' | 'github' | 'email', string> = { google: 'Google', github: 'GitHub', email: 'email' };
+
+/** Who signs in with what, in a short phrase; null when the form needs no sign-in. Pure. */
+function signInOf(p: Program): string | null {
+  if (p.sign_in === 'none') return null;
+  return `Sign-in: ${p.sign_in === 'platform' ? p.platform_name ?? 'the program platform' : SIGN_IN_WORDS[p.sign_in]}`;
+}
+
 /** The guide of one program. Pure. */
 export function guideText(row: ProgramRow, now: Date = new Date()): Guide {
   const p = row.file;
@@ -90,6 +114,10 @@ export function guideText(row: ProgramRow, now: Date = new Date()): Guide {
     rules: p.rules,
     eligibility: eligibilityList(eligibilityOf(p)),
     fields: p.submission_requirements.map((r) => ({ label: r.label, todo: r.todo ?? (r.required ? r.label.toLowerCase() : 'optional') })),
+    submit: p.submit === 'builder' ? 'Needs your click to submit' : 'Your agent may submit',
+    sign_in: signInOf(p),
+    needs: p.needs.map((n) => NEEDS_WORDS[n]),
+    bar: p.min_tier ? BAR_WORDS[p.min_tier] : null,
     focus: p.focus ? `${p.focus.ecosystem || (p.chains[0] ? chainName(p.chains[0]) : p.title)} wants ${p.focus.areas.join(', ')}` : null,
     past_rounds: p.past_rounds.map(roundLine),
     best_bet: p.best_bet ?? null,

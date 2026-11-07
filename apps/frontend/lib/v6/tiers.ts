@@ -46,6 +46,12 @@ export type Flag = { rule: string; detail: string };
 /** What stands between a placement and the tier above: the condition `next` names. */
 export type Gap = 'funded_senders' | 'site' | 'push' | 'commits' | 'repo_or_site' | 'flag';
 export type Placement = { tier: Tier | null; flags: Flag[]; because: string[]; next: string | null; gap: Gap | null };
+/** The counts across applicants; `xp`: screens by other programs in 90 days (shown, never a flag). */
+export type Counts = {
+  identical_pitch: number;
+  shared_contributors: number;
+  xp?: { applications_90d: number; outcomes: { won: number; rejected: number } };
+};
 
 const DAY = 86_400_000;
 const n = (v: number) => v.toLocaleString('en-US');
@@ -61,7 +67,7 @@ const NOT_COUNTED_SHOWN = 3;
 const others = (v: number) => `${plural(v, 'other applicant')} ${v === 1 ? 'shares' : 'share'}`;
 const most = <T>(xs: T[], by: (x: T) => number): T | undefined => xs.reduce<T | undefined>((a, x) => (a === undefined || by(x) > by(a) ? x : a), undefined);
 
-function flagsOf(e: Evidence, counted: OnchainRows[], x: { identical_pitch: number; shared_contributors: number }, t: Thresholds) {
+function flagsOf(e: Evidence, counted: OnchainRows[], x: Counts, t: Thresholds) {
   const out: (Flag & { next: string })[] = [];
   const c = e.code;
   if (c?.template_name && c.template_overlap != null && c.files_own != null && c.files_own < t.flag_template_max_own_files) {
@@ -118,11 +124,11 @@ function flagsOf(e: Evidence, counted: OnchainRows[], x: { identical_pitch: numb
 
 /**
  * Places evidence in one tier, in design order: flagged, used, live, building, unverified. `x` holds the
- * counts across applicants (identical pitches, applicants sharing contributors). Pure.
+ * counts across applicants (identical pitches, applicants sharing contributors, other programs' screens). Pure.
  */
 export function place(
   e: Evidence | null,
-  x: { identical_pitch: number; shared_contributors: number },
+  x: Counts,
   t: Thresholds = DEFAULT_THRESHOLDS,
   now: Date = new Date(),
 ): Placement {
@@ -147,6 +153,7 @@ export function place(
 
   const context: string[] = [];
   if (e.team?.contributors_90d != null) context.push(plural(e.team.contributors_90d, 'contributor'));
+  if (x.xp && x.xp.applications_90d > 0) context.push(`seen in ${plural(x.xp.applications_90d, 'other screen')} in 90 days`);
   const skipped = [
     ...notCounted.slice(0, NOT_COUNTED_SHOWN).map((k) => `${short(k.address)} on ${chainName(k.chain)}: ${k.counted_reason ?? 'not counted'}`),
     ...(notCounted.length > NOT_COUNTED_SHOWN ? [`${plural(notCounted.length - NOT_COUNTED_SHOWN, 'more contract')} not counted`] : []),

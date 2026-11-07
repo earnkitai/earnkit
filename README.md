@@ -12,6 +12,11 @@ EarnKit also screens a program's applicants. `pnpm screen <csv> --program <id>` 
 public evidence (whether the site loads, the public repo's activity and ownership, mainnet contracts and the
 wallets that use them) and sorts the list into five named tiers: used, live, building, flagged and unverified,
 each with the rows that decided it. The pilot is described in [docs/screening-pilot.md](docs/screening-pilot.md).
+A program's reviewer can do the same from their agent with the `screen` tool.
+
+A builder who signs in once with GitHub (a link the agent shows) gets one private record that every agent of
+theirs shares: facts, links, documents, answers and standing approval. They read, edit, approve and delete it at
+[earnkit.com/me](https://earnkit.com/me). An answer the agent wrote is never sent until the builder approves it.
 
 ## Connect an agent
 
@@ -34,24 +39,26 @@ The commands are kept in `apps/frontend/lib/v5/agents.ts`; the site and `/llms.t
 
 Then ask: "What can I earn?"
 
-## The two tools
+## The four tools
 
-- `find`: what this repo can earn: the programs it fits with every field pre-filled, the ones one change away, and the ledger; with `program_id`, one program's details and form.
-- `track`: what the builder did (applied, won, rejected, no result, skipped, a gap closed), after every submission and every answer about a result.
+- `find`: what this repo can earn: the programs it fits with every field pre-filled (from the record first, then the repo), the ones one change away, and the ledger; with `program_id`, one program's details and form.
+- `track`: what the builder did (started, applied, won, rejected, no result, skipped, unskip, a gap closed), before filling and after every submission and every answer about a result.
+- `record`: the builder's record: `get`, `set` (never approved), `brief` (the question and facts behind one answer).
+- `screen`: for a program's reviewer: queue an applicant list, read the tiers by `job_id`, record `outcomes`.
 
 ## Layout
 
 ```
 apps/frontend/
   app/             Next.js pages and routes: landing, /programs, /docs, /terms, /llms.txt,
-                   /mcp, /oauth/*, /api/programs*, /api/stats, /api/cron
+                   /mcp, /oauth/*, /api/programs*, /api/stats, /api/cron, /link, /auth, /me
   lib/v5/          all EarnKit logic, with its tests (*.test.ts) and fixtures
   db/schema.sql    the database (applied by pnpm db:migrate)
-  lib/v6/          the screening engine: evidence, tiers, the pilot (with tests and fixtures)
+  lib/v6/          screening (evidence, tiers, the pilot, the queue), builders, sign-in, the record, /me
   scripts/         db-migrate, programs-sync, v4-tables, record-repo-fixture, screen
 programs/          one JSON file per program (see programs/README.md)
 docs/              architecture guide, code map, design docs, the programs API
-.github/workflows/ the daily cron (program freshness probe and the owner digest)
+.github/workflows/ the daily cron (program freshness probe, the screen queue and the owner digest)
 ```
 
 ## Local setup
@@ -70,12 +77,13 @@ Env (`apps/frontend/.env.local`):
 | Variable | Use |
 |---|---|
 | `DATABASE_URL` | Postgres |
-| `EARNKIT_AUTH_SECRET` | signs OAuth tokens (any random string locally) |
+| `EARNKIT_AUTH_SECRET` | signs OAuth tokens, link codes and the /me form tokens (any random string locally) |
 | `EARNKIT_URL` | the public origin (production: `https://earnkit.com`) |
 | `GITHUB_TOKEN` | reads public repos with a higher rate limit (optional) |
 | `RESEND_API_KEY` | the owner's daily digest email (optional) |
 | `CRON_SECRET` | authorizes `POST /api/cron` |
 | `EARNKIT_PROGRAMS_TOKEN` | the programs write API (at least 32 characters; `EARNKIT_PROGRAMS_API=off` turns it off) |
+| `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | GitHub sign-in for builders (unset: sign-in answers 503) |
 
 ## Deploy
 

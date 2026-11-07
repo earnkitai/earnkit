@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { programProblems } from './program-checks';
 import { ProgramFile, eligibilityOf } from './program-file';
 import { programFixture } from './fixtures/program';
 
@@ -80,4 +81,41 @@ test('unknown keys are stripped', () => {
   const p = ProgramFile.parse({ ...programFixture({ id: 'strip-test' }), x_handles: ['base'], campaign: {} });
   assert.equal('x_handles' in p, false);
   assert.equal('campaign' in p, false);
+});
+
+test('the catalog fields default, and the four edited programs carry theirs', () => {
+  const p = ProgramFile.parse(programFixture({ id: 'cat-default' }));
+  assert.equal(p.submit, 'either');
+  assert.equal(p.sign_in, 'none');
+  assert.deepEqual(p.needs, []);
+  assert.deepEqual(p.prefers, []);
+  assert.equal(p.min_tier, undefined);
+  const base = ProgramFile.parse(read('base-builder-grants.json'));
+  assert.deepEqual([base.submit, base.sign_in, base.needs, base.prefers], ['either', 'google', ['demo_video'], ['builder_codes', 'smart_wallet', 'onchainkit']]);
+  const avax = ProgramFile.parse(read('avalanche-team1-mini-grants.json'));
+  assert.deepEqual([avax.sign_in, avax.platform_name], ['platform', 'Avalanche Builder Hub']);
+  assert.deepEqual(ProgramFile.parse(read('z-fellows.json')).needs, ['founder_video']);
+  assert.deepEqual(ProgramFile.parse(read('arc-builders-fund.json')).needs, ['deck']);
+  for (const f of ['base-builder-grants', 'avalanche-team1-mini-grants', 'z-fellows', 'arc-builders-fund'])
+    assert.deepEqual(programProblems(read(`${f}.json`) as never, new Date('2026-11-06T00:00:00Z')), [], f);
+});
+
+test('catalog fields that do not fit are refused', () => {
+  const base = programFixture({ id: 'cat-bad' });
+  assert.equal(ProgramFile.safeParse({ ...base, sign_in: 'platform' }).success, false);
+  assert.equal(ProgramFile.safeParse({ ...base, sign_in: 'platform', platform_name: 'Hub' }).success, true);
+  assert.equal(ProgramFile.safeParse({ ...base, sign_in: 'google', platform_name: 'Hub' }).success, false);
+  assert.equal(ProgramFile.safeParse({ ...base, min_tier: 'flagged' }).success, false);
+  assert.equal(ProgramFile.safeParse({ ...base, min_tier: 'live' }).success, true);
+  assert.equal(ProgramFile.safeParse({ ...base, prefers: ['unknown_sdk'] }).success, false);
+  assert.equal(ProgramFile.safeParse({ ...base, prefers: ['smart_wallet', 'base'] }).success, true);
+  assert.equal(ProgramFile.safeParse({ ...base, eligibility: [{ kind: 'integration', value: 'nope' }] }).success, false);
+  assert.equal(ProgramFile.safeParse({ ...base, eligibility: [{ kind: 'integration' }] }).success, false);
+  assert.equal(ProgramFile.safeParse({ ...base, eligibility: [{ kind: 'integration', value: 'smart_wallet' }] }).success, true);
+  assert.equal(ProgramFile.safeParse({ ...base, needs: ['passport'] }).success, false);
+});
+
+test('eligibilityOf passes an explicit integration item through', () => {
+  const p = programFixture({ id: 'cat-elig', eligibility: [{ kind: 'integration', value: 'smart_wallet' }] });
+  assert.deepEqual(eligibilityOf(p), [{ kind: 'integration', value: 'smart_wallet' }]);
 });

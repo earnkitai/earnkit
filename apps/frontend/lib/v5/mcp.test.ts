@@ -2,7 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import { mcpCall, mcpInstructions, mcpListTools } from './fixtures/mcp-call';
-import { FIND_DESCRIPTION, SERVER_INSTRUCTIONS, TRACK_DESCRIPTION } from './mcp';
+import { FIND_DESCRIPTION, RECORD_DESCRIPTION, SCREEN_DESCRIPTION, SERVER_INSTRUCTIONS, TRACK_DESCRIPTION } from './mcp';
 import { windowStart } from './rate-limit';
 
 after(() => sql().end());
@@ -10,26 +10,40 @@ after(() => sql().end());
 const NOW = new Date('2026-11-04T12:00:00Z');
 async function ctx() {
   const [r] = await sql()`INSERT INTO installations (token_hash) VALUES (${'mcp-' + Math.random()}) RETURNING id`;
-  return { installationId: r.id as number, now: NOW, gh: (async () => new Response('', { status: 404 })) as typeof fetch };
+  return { installationId: r.id as number, builderId: null, now: NOW, gh: (async () => new Response('', { status: 404 })) as typeof fetch };
 }
 
-test('two tools, their descriptions and the server instructions, verbatim', async () => {
+test('four tools, their descriptions and the server instructions, verbatim', async () => {
   const c = await ctx();
   const tools = await mcpListTools(c);
-  assert.deepEqual(tools.map((t) => t.name), ['find', 'track']);
+  assert.deepEqual(tools.map((t) => t.name), ['find', 'track', 'record', 'screen']);
   assert.equal(
     FIND_DESCRIPTION,
     'What can this repo earn: the programs it fits with every field pre-filled, the ones one change away, and the ledger. Call it at session start with the project you are in, and again when the builder asks about money or programs. With program_id: that program\'s details and form.',
   );
   assert.equal(
     TRACK_DESCRIPTION,
-    'What the builder did: applied, won (with amount_usd), rejected, no_result, skipped, or gap_done (with item). Call it after every submission and every answer about a result.',
+    'What the builder did: started (a claim before filling), applied (with submitted_by and fields_used), won (with amount_usd), rejected, no_result, skipped, unskip (a skipped program may come back), or gap_done (with item). Call started before filling and applied after every submission.',
   );
   assert.equal(tools[0].description, FIND_DESCRIPTION);
   assert.equal(tools[1].description, TRACK_DESCRIPTION);
+  const props = (i: number) => (tools[i].inputSchema as { properties: Record<string, { enum?: string[] }> }).properties;
+  assert.ok('project_id' in props(0));
+  assert.deepEqual(['project_id', 'submitted_by', 'fields_used'].filter((k) => k in props(1)), ['project_id', 'submitted_by', 'fields_used']);
+  assert.ok(props(1).status.enum?.includes('started'));
+  assert.equal(
+    RECORD_DESCRIPTION,
+    "The builder's record: facts, links, documents, answers and standing approval, kept once and read by every agent of theirs. Call it with get at session start; call it with set for every new fact the builder gives; with brief for the question and facts behind one answer kind.",
+  );
+  assert.equal(tools[2].description, RECORD_DESCRIPTION);
+  assert.equal(
+    SCREEN_DESCRIPTION,
+    "For a program's reviewer: hand EarnKit the applicant list (name, repo, site, contracts, pitch) and get it back in named tiers with public evidence; with job_id, progress and results; with outcomes, who won.",
+  );
+  assert.equal(tools[3].description, SCREEN_DESCRIPTION);
   assert.equal(
     SERVER_INSTRUCTIONS,
-    'Call find at the start of every session with the project you are in, before the builder says anything, and open with its reply in your own words. Call it again when they ask about money, grants or programs. Draft every form from find\'s fields: EarnKit\'s values as given, agent fields from your memory, builder fields asked once. Submit in your own browser only when the builder says yes. After each submission call track. Never name tools, fields or files. Never invent an amount, a deadline or a rule.',
+    "Call record with get at the start of every session, then find with the project you are in. Open with find's reply in your own words. Draft every form from find's fields: record and repo values as given, approved answers fitted by cutting, never by adding. Anything the builder tells you that a form could ask, save with record before using it. Submit in your own browser only after track started, and only when the builder said yes or their standing approval covers it. After each submission call track applied. Never write a sentence about traction yourself. Never name tools, fields or files. Never invent an amount, a deadline or a rule.",
   );
   assert.equal(await mcpInstructions(c), SERVER_INSTRUCTIONS);
 });
@@ -47,7 +61,7 @@ test('find strips unknown keys; track refuses them', async () => {
 
 test('a database error is the busy line', async () => {
   // An id past Postgres's integer range: the database refuses the query.
-  const r = await mcpCall({ installationId: 2 ** 40, now: NOW }, 'find', { project: { name: 'X', description: 'An app.' } });
+  const r = await mcpCall({ installationId: 2 ** 40, builderId: null, now: NOW }, 'find', { project: { name: 'X', description: 'An app.' } });
   assert.equal(r.isError, true);
   assert.equal(r.text, 'EarnKit is busy. Try again in a minute.');
 });

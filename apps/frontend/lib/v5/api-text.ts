@@ -10,7 +10,7 @@ import { apiSubmitHostAllowed, normalHost, sourceSiteName } from './submit-hosts
 import { RAW_CAP, UntrustedTextError, cleanText } from './untrusted-text';
 
 /** Fields the API never writes: the owner adds them by file. */
-export const NOT_WRITABLE = ['logo'] as const;
+export const NOT_WRITABLE = ['logo', 'reviewers_contact'] as const;
 
 /** Text caps beyond the schema's (titles and names are quoted inside EarnKit's sentences). */
 export const API_TITLE_MAX = 120;
@@ -153,6 +153,7 @@ function textParts(p: Program): Part[] {
     ]),
     ...many('focus.areas', p.focus?.areas),
     ...one('focus.ecosystem', p.focus?.ecosystem),
+    ...one('platform_name', p.platform_name),
     ...Object.entries(p.form?.fields ?? {}).flatMap(([k, v]) => one(`form.fields.${k}`, v)),
   ];
 }

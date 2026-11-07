@@ -102,9 +102,13 @@ A `won` above the program's `max_award_usd` (or 5,000,000 when none is stated) i
 ## Freshness and the daily job
 
 `.github/workflows/earnkit-cron.yml` posts to `/api/cron` once a day with `CRON_SECRET`. `cron.ts` runs the probe
-(`health.ts`), the `repo_cache` sweep (rows over 30 days, answered as `swept`), then the owner's digest (`owner-digest.ts`: programs closed by deadline, failed links, changed pages
+(`health.ts`), the `repo_cache` sweep (rows over 30 days, answered as `swept`), the screen queue's daily share
+(screen jobs over 90 days deleted with their rows, then `workQueue` with `SCREEN_BATCH` 40 within 5 minutes,
+answered as `screen` with `swept`), then the owner's digest (`owner-digest.ts`: programs closed by deadline, failed links, changed pages
 and every change to live programs since the last digest, with revert links; nothing happened, nothing sent). Mail is
-`mail.ts` over Resend, to the owner only. A step that throws answers 500 with its name.
+`mail.ts` over Resend, to the owner only. A step that throws answers 500 with its name. The owner triggers one
+screen job with the same route and a JSON body `{ "job_id": "..." }`: only that queue runs (300 applicants or 10
+minutes), no probe, sweep or digest.
 
 ## The site
 
@@ -112,12 +116,15 @@ and every change to live programs since the last digest, with revert links; noth
 |---|---|
 | `/` | Landing: one statement, the install picker, the open programs, counts and open money |
 | `/programs`, `/programs/[id]` | Public, indexable guide to every listed program; closed ones render without an Apply link |
-| `/docs` | Install steps per agent, how a session goes, how programs are checked |
+| `/docs` | Install steps per agent, how a session goes, your record, screening for programs, how programs are checked |
 | `/install` | Permanent redirect to `/docs#install` (old links) |
-| `/terms` | What EarnKit reads, stores and never does |
+| `/terms` | What EarnKit reads, stores and never does; the record; what programs see |
+| `/link/<code>`, `/auth/github/callback` | The one-time GitHub sign-in that links an agent to a builder |
+| `/me` (and `/me/*` posts) | The signed-in builder's record, approvals, standing approval, applications, agents, delete; noindex |
 | `/llms.txt`, `/sitemap.xml` | For agents and search |
 | `/api/programs`, `/api/stats` | Public JSON; `/api/stats` has nine counts and names no one |
 | `/api/programs/write`, `writes`, `approve`, `revert` | The owner's program API |
+| `/api/programs/reviewers` | The owner marks a signed-in builder as a program's reviewer (programs bearer; `github_id` wins, a login two accounts used is refused) |
 | `/api/cron` | The daily job |
 | `/mcp`, `/oauth/*`, `/.well-known/*` | The MCP endpoint and anonymous OAuth |
 
@@ -146,6 +153,8 @@ keys from tool-call bodies before anything sees them.
 | `evidence_cache` | v6 evidence blocks per repo (`repo:<owner/name>`, with pushed_at) and per contract, used for 7 days; not swept yet |
 | `applications`, `application_history`, `gaps_done` | The ledger |
 | `owner_digests` | The days a digest covered |
+| `program_reviewers` | Builders the owner marked as a program's reviewers (may call `screen`) |
+| `screen_jobs`, `screen_applicants`, `screen_outcomes` | Screen jobs (30 days), each applicant's tier, because, line, public rows and deployers (no pitch column), and the program's outcomes; the counts across programs read only these |
 
 v4 tables stay in the production database, unread. `pnpm db:v4-tables` lists them with row counts and prints
 DROP statements; it never runs them. Dropping is an owner step after a backup.
@@ -162,6 +171,7 @@ DROP statements; it never runs them. Dropping is an owner step after a backup.
 | `CRON_SECRET` | Bearer for `/api/cron` (unset: 503); also a GitHub repo secret |
 | `EARNKIT_PROGRAMS_TOKEN` | Bearer for the write API (unset: the write routes answer 404) |
 | `EARNKIT_PROGRAMS_API` | `off` closes the write API |
+| `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | GitHub sign-in for builders (unset: `/link` and the callback answer 503) |
 | `EARNKIT_SCREEN_OUT` | Local only: the folder `pnpm screen` writes into without `--out` (default `.screen-out/` in the repo, git-ignored) |
 
 `lib/v5/no-v4.test.ts` fails if any code reads a variable outside this list.
@@ -227,17 +237,82 @@ Applicants are read one at a time; each prints `ref name: tier`; the summary pri
 `screen-report.ts` writes `<program>-<date>.md` and `.csv`: public evidence only, never a pitch. The program-facing
 page is `docs/screening-pilot.md`.
 
-**Not in v6.0.** The `screen` MCP tool, the builder's record, `/me`, the catalog fields and any `find` or `track`
-change (v6.1); cross-program counts (they need stored screens); a queue or cron for screens (the script runs by
-hand); explorer readers for Avalanche, Tempo, Monad, Robinhood Chain and Solana; a sweep of `evidence_cache`.
+## v6.1: the record, GitHub identity, the four tools and /me
+
+Design `v6-design.md` (sections 4, 5, 8, 10, 14); plan `v6.1-plan.md`; ledger `v6.1-sdd-ledger.md`; owner steps
+`v6.1-go-live.md`.
+
+**Identity and the owner key.** A builder is a GitHub account (`builders`, `lib/v6/builders.ts`). An unlinked
+installation works as in v5. The first `find` (and `record`) on an unlinked installation carries a one-time link
+`earnkit.com/link/<code>` (15 minutes, hash stored, `link-routes.ts`); the builder confirms, signs in with GitHub
+(`read:user`, `github-auth.ts`), and the callback links the installation and starts a 30-day session (`ek_me` cookie,
+`sessions.ts`). The ledger's owner is `b:<builder>` once linked, else `i:<installation>` (`ownerKey`); linking moves
+the installation's rows to the builder (the newer row per program wins), so every agent of one builder shares one
+ledger. A second agent links to the same builder; an installation linked to another builder is refused.
+
+**The record and approvals.** One JSON record per builder (`record.ts`, strict): person, team, company, projects
+(several, each with its own answers), docs (links only), traction, the answer bank and the policy, with `meta[path] =
+{ set_by, set_at, approved_at? }`. `mergeRecord` drops each bad leaf with a problem line, never the patch. An agent's
+change to an approvable path (answers, project answers, the pre-launch traction line, raised) drops its approval;
+only the builder approves, on `/me` (`approvePath`), and `answerFor` returns only approved text, so an unapproved
+answer is never fitted into a form. `policy` (standing approval: `auto_apply`, `max_per_night`, `categories`,
+`max_ask_usd`, `never`, `agent_may_submit`) is the builder's only. Writes go through `withRecord` (row lock).
+
+**The four tools** (`lib/v5/mcp.ts`):
+
+| Tool | Does now |
+|---|---|
+| `find` | As v5, plus on a linked installation: the project picked from the record, fields filled from the record first (approved answers, facts), then the repo, then the agent; the builder's own tier read at most once a day (`own-evidence.ts`), `min_tier` gating, the policy's filters, blockers (sign-in, needs a click), what the record still lacks, and what was applied overnight. Unlinked: the sign-in line. |
+| `track` | As v5, plus `started` (a claim) and `unskip`; `applied` carries `submitted_by` and `fields_used`; `auto_applied` only for an agent's submission under standing approval. |
+| `record` | `get`, `set` (merged as the agent, never approved), `brief` (the question and facts behind one answer kind, `answer-brief.ts`). Unlinked: the sign-in link. |
+| `screen` | A program's reviewer only: queue an applicant list, read the results by `job_id`, record `outcomes`. |
+
+**The claim rule.** Before filling, the agent tracks `started` (`claims.ts`): one claim per owner and program (an
+advisory lock); another agent of the same builder within 24 hours gets `already` with the claiming agent's name; a
+claim with no `applied` after 24 hours is released. A skip stands over a claim.
+
+**The screen queue and the cron trigger.** `screen` (`screen-tool.ts`) is for a reviewer: a signed-in builder the
+owner adds with `POST /api/programs/reviewers`. With `applicants` (up to 200) it queues a job (`screen-jobs.ts
+createJob`: pitches compared for `identical_pitch`, then dropped; 10 jobs a day per reviewer). The cron's `workQueue`
+(`screen-worker.ts`) takes each applicant atomically (`reading`, free again after 30 minutes), reads it as the pilot
+does (a GitHub budget stop puts it back and ends the run; a tierless read worth a retry is queued again, `failed` at
+the third) and stores tier, flags, because, line and public rows only (`github`, `explorer`, `site`, `earnkit`, never
+`record`). The daily cron gives the queue 300 s; `POST /api/cron` with `{ "job_id": "..." }` is the owner's trigger
+(that job only, at most 300 applicants in 600 s). With `job_id` the tool answers the totals line and the results;
+with `outcomes` it records the program's decisions, which also reach a builder's ledger when their record project is
+the same repo and they had applied. `xpCounts` gives each read the screens by other programs in 90 days sharing the
+repo or a deployer ("seen in n other screens in 90 days", never a flag, never a program name).
+
+**/me.** `proxy.ts` sends a visitor without a live session to `/docs#record` (302, `me-routes.ts meGet`).
+`app/me/page.tsx` renders `meData` (`me-view.ts`) through `MeView.tsx`: pending approvals first, then one panel per
+block in builder words (no path is shown), standing approval, applications, linked agents (Unlink) and delete last.
+Plain HTML forms, no client script. Every POST (`/me/edit`, `approve`, `policy`, `unlink`, `delete`, `signout`)
+needs a web form under 64 KB (else 415 or 413), a session and the day's csrf token (an HMAC of the builder id and the
+UTC day with `EARNKIT_AUTH_SECRET`, today's or yesterday's), else 403 and no change. Edits merge as the builder under
+the row lock; a problem comes back as a signed `?problem=` line (a crafted one is not shown). Delete needs the login
+typed and removes the record, the ledger, sessions, reviewer rows and link codes, and unlinks the installations.
+`/me`, `/link/*` and `/auth/*` send `X-Robots-Tag: noindex` and are not in the sitemap.
+
+**Environment (ten).** `DATABASE_URL`, `EARNKIT_AUTH_SECRET` (also signs link codes, the sign-in state and the /me
+csrf), `EARNKIT_URL`, `GITHUB_TOKEN`, `RESEND_API_KEY`, `CRON_SECRET`, `EARNKIT_PROGRAMS_TOKEN`,
+`EARNKIT_PROGRAMS_API`, `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` (unset: `/link` and the callback answer
+503). Plus `EARNKIT_SCREEN_OUT`, local only.
+
+**Surfaces.** `/link/<code>`, `/auth/github/callback`, `/me` and its posts, `/docs` (your record; screening, for
+programs), `/terms` (the record, what programs see), `/llms.txt` (the four tools), `/api/programs/reviewers`, the
+`/api/cron` trigger.
+
+**Not in v6.1.** Removing a project is only by clearing its fields on `/me` (no remove per project, and the agent
+cannot remove one); skipping is undone only with `track unskip`, no page for it; explorer readers for Avalanche,
+Tempo, Monad, Robinhood Chain and Solana; any public builder page.
 
 ## What v5 deliberately does not do
 
 - Submit any form, hold or ask for a wallet, pay anyone, launch or offer a token.
-- Scores, streaks, leaderboards, profile pages, share cards, badges, builder emails, sign-in of any kind.
+- Scores, streaks, leaderboards, profile pages, share cards, badges, builder emails. (v6.1 adds one sign-in: GitHub, for the record.)
 - Host sites, deploy contracts, read Stripe or onchain revenue.
-- Store a builder's personal answers (name, email, team, money raised); the agent's memory holds them.
+- Store a builder's personal answers (v6.1 reverses this: the private record, deletable on `/me`).
 - Run an LLM; fact fields are filled deterministically and prose goes to the agent with sources.
-- Merge ledgers across a builder's agents (needs a proof of identity).
+- Merge ledgers across a builder's agents (v6.1 does, once the builder signs in with GitHub).
 - Show aggregate outcomes (the tables are shaped for it).
 - Archive or flag off old code; deleted code lives in git history.

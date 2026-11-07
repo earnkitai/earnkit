@@ -2,6 +2,7 @@
  * Eligibility and gaps: a project's repo facts against a program's eligibility items. Each unmet
  * item is a gap with its effort and whether the agent can do it. Pure: no I/O, time only via `now`.
  */
+import { integrationDocs, integrationLabel } from '../v6/integrations';
 import { CHAIN_REGISTRY, chainName } from './chains';
 import { ELIGIBILITY_KINDS, categoryOf, eligibilityOf, type EligibilityItem } from './program-file';
 import type { ProgramRow } from './programs';
@@ -10,12 +11,13 @@ import type { RepoFacts } from './repo-facts';
 export type GapKind = (typeof ELIGIBILITY_KINDS)[number];
 export type Effort = 'minutes' | 'hours' | 'days' | 'weeks';
 export type Gap = {
-  kind: GapKind;
+  /** 'tier': the program's min_tier is above the project's tier (set by find, never by evaluate). */
+  kind: GapKind | 'tier';
   item: string;
   what: string;
   effort: Effort;
   agent_can: boolean;
-  details?: { chain?: string; rpc?: string | null; explorer?: string | null };
+  details?: { chain?: string; rpc?: string | null; explorer?: string | null; docs?: string | null; tier?: string; min_tier?: string };
 };
 export type Verdict = {
   program_id: string;
@@ -27,7 +29,7 @@ export type Verdict = {
 
 const EFFORT: Record<GapKind, Effort> = {
   builder_codes: 'minutes', live_product: 'hours', chain: 'hours', contract_on: 'hours', demo_video: 'hours',
-  feature: 'days', users: 'weeks', new_work_after: 'weeks', in_person: 'weeks',
+  feature: 'days', integration: 'days', users: 'weeks', new_work_after: 'weeks', in_person: 'weeks',
 };
 const MAX_GAPS = 2;
 
@@ -46,6 +48,7 @@ function gapOf(i: EligibilityItem): Gap {
     case 'builder_codes': return { ...base, what: 'add Base Builder Codes to the app', agent_can: true };
     case 'live_product': return { ...base, what: 'put a live link up' };
     case 'demo_video': return { ...base, what: 'a demo video' };
+    case 'integration': return { ...base, what: `add ${integrationLabel(v) ?? v}`, agent_can: true, details: { docs: integrationDocs(v) } };
     case 'feature': return { ...base, what: v || i.note || 'a feature the program asks for' };
     default: return { ...base, what: 'real users first' };
   }
@@ -80,6 +83,7 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
       case 'chain': break;
       case 'live_product': if (!facts.live_url) gaps.push(gapOf(i)); break;
       case 'contract_on': if (!facts.contracts.some((c) => c.chain === v) || !mainnets.has(v)) gaps.push(gapOf(i)); break;
+      case 'integration': if (!facts.integrations.includes(v)) gaps.push(gapOf(i)); break;
       case 'builder_codes': if (!facts.builder_codes) gaps.push(gapOf(i)); break;
       case 'users':
         if (facts.users === false) gaps.push(gapOf(i));

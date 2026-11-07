@@ -3,6 +3,8 @@
  * Cards carry their fill, radius and text colour; each page adds its own padding and layout.
  */
 
+/** Blue card (docs: your record): secondary text is s-on-blue-soft. */
+export const CARD_BLUE = 'rounded-[36px] bg-s-blue text-s-on-blue';
 /** Navy card: secondary text is s-on-navy or s-on-navy-soft. */
 export const CARD_NAVY = 'rounded-[36px] bg-s-navy text-s-text';
 /** Rust card (404): secondary text is s-rust-sub, accents s-rust-on and s-rust-soft. */

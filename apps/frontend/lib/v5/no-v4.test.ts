@@ -16,6 +16,8 @@ const ENV_ALLOWED = new Set([
   'EK_TEST_DB', 'NODE_TEST_CONTEXT',
   // Local only: where `pnpm screen` writes when no --out is given.
   'EARNKIT_SCREEN_OUT',
+  // GitHub sign-in for builders (lib/v6/github-auth.ts).
+  'GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET',
 ]);
 const REMOVED_DEPS = ['@anthropic-ai/sdk', '@huggingface/transformers', 'aws4fetch', 'fflate', 'ox', 'viem'];
 
@@ -26,8 +28,10 @@ const APP_DIRS = new Set([
   'install', 'oauth', 'oauth/authorize', 'oauth/register', 'oauth/token',
   '.well-known', '.well-known/oauth-authorization-server', '.well-known/oauth-protected-resource',
   '.well-known/oauth-protected-resource/[[...path]]',
-  'api', 'api/programs', 'api/programs/write', 'api/programs/writes', 'api/programs/approve', 'api/programs/revert',
+  'api', 'api/programs', 'api/programs/write', 'api/programs/writes', 'api/programs/approve', 'api/programs/revert', 'api/programs/reviewers',
   'api/stats', 'api/cron',
+  'link', 'link/[code]', 'auth', 'auth/github', 'auth/github/callback',
+  'me', 'me/edit', 'me/approve', 'me/policy', 'me/delete', 'me/signout', 'me/unlink',
 ]);
 
 function walk(dir: string, out: string[] = []): string[] {

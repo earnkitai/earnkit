@@ -9,7 +9,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v5/chains.ts`: Chain registry: slug, ids, RPC and explorer hosts, explorer API (Blockscout or null), EVM or not
 - `apps/frontend/lib/v5/confusables-table.ts`: Generated Unicode confusables table (UTS #39); do not edit
 - `apps/frontend/lib/v5/confusables.ts`: Look-alike full stops, so link detection reads a hidden domain as one
-- `apps/frontend/lib/v5/cron.ts`: POST /api/cron handler: freshness probe, repo cache sweep, then the owner digest
+- `apps/frontend/lib/v5/cron.ts`: POST /api/cron handler: freshness probe, repo cache sweep, the screen queue's share (`SCREEN_BATCH`), then the owner digest; a JSON body `{ job_id }` runs only that job's queue (300 applicants or 10 minutes)
 - `apps/frontend/lib/v5/db.ts`: Postgres pool and transaction helpers
 - `apps/frontend/lib/v5/deadline.ts`: A program's close in words: close day in its time zone and time left
 - `apps/frontend/lib/v5/eligibility.ts`: Repo facts against a program's eligibility items: ready, gap, or no fit
@@ -41,6 +41,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v5/rate-limit.ts`: Fixed-window counters in Postgres
 - `apps/frontend/lib/v5/reply.ts`: The words of a find reply: show_to_builder and agent_note
 - `apps/frontend/lib/v5/repo-facts.ts`: Repo facts: public read, 7-day cache, 10 uncached reads a day per installation, the 30-day sweep, merged with agent-reported facts
+- `apps/frontend/lib/v5/code-signals.ts`: Shared source-text signals: known token contracts and Builder Codes detection (used by repo-facts and v6/integrations)
 - `apps/frontend/lib/v5/safe-fetch.ts`: SSRF-safe GETs and link probes on third-party hosts
 - `apps/frontend/lib/v5/secrets.ts`: Scrubs secret keys from tool-call bodies before anything sees them
 - `apps/frontend/lib/v5/old-tools.ts`: Old (pre-v5) tool names answered with a refresh message in `app/mcp/route.ts`
@@ -65,7 +66,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v5/fixtures/program.ts`: A valid program for tests with any field overridden
 - `apps/frontend/lib/v5/fixtures/repos/*.json`: Recorded GitHub reads for earnkitai/earnkit, Shijas786/onchain-reaction, JohnMwendwa/nextjs-dashboard, saber-hq/merkle-distributor
 
-## apps/frontend/lib/v6 (the filter, in progress)
+## apps/frontend/lib/v6 (the filter, the record, sign-in and /me)
 
 - `apps/frontend/lib/v6/explorers.ts`: Keyless Blockscout client per chain: contract info, transactions to an address, an address's first transactions; throttled, 429 retried once
 - `apps/frontend/lib/v6/onchain.ts`: Onchain evidence rows per contract: verified source, deployer, 90 and 30 day transactions and senders, sampled deployer-funded check; never throws
@@ -86,18 +87,38 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v6/screen-report.ts`: `markdownReport` (totals, a section per tier, what could not be read) and `csvReport` (one row per applicant, formula cells defused); public evidence only, never a pitch; pure
 - `apps/frontend/lib/v6/screen.ts`: `run`: the screening pilot: arguments, the list read one applicant at a time, placements with the counts across the list, both reports into one folder
 - `apps/frontend/lib/v6/fixtures/applicants.csv`: Eight applicants for the pilot: the four recorded repos, a site-only row (abi.ninja), three bad rows, four sharing one pitch
+- `apps/frontend/lib/v6/own-evidence.ts`: The builder's own project for find: `ownEvidence` (reads at most once in 24 hours), `usageLine` (EarnKit's one fixed usage template from counted mainnet contracts, else null), `evidenceSummary` (tier and `builderLine`)
+- `apps/frontend/lib/v6/claims.ts`: `claim` (a 'started' applications row; a second within 24 hours by any of the builder's agents answers `already` with the claiming agent's client name), `releaseStale`, `appliedOvernight` (agent-submitted since the last find)
+- `apps/frontend/lib/v6/find-record.ts`: The record side of a linked find: `pickProject`, `recordSide` (record, own tier under the 24-hour rule, `evidence_read_at` and `last_tier` written by EarnKit), `tierGate` (min_tier: a ready program below the bar becomes one 'tier' gap), `allowedByPolicy`, `blockersOf`, `missingFor`
+- `apps/frontend/lib/v6/reviewers.ts`: A program's reviewers (`program_reviewers`): `addReviewer` (a signed-in builder by GitHub id, else by a login only one account has used; an existing program), `removeReviewer`, `reviewerPrograms`, `reviewersPost` (programs bearer, 404 while the API is off)
+- `apps/frontend/lib/v6/screen-jobs.ts`: Screen jobs: `ScreenApplicant`, `createJob` (12-byte id, identical pitches counted then dropped, 30 days), `jobStatus`, `jobResults` (sorted by tier, public rows only), `recordOutcomes` (`screen_outcomes`; won or rejected into a matching builder's ledger only after their applied row), `xpCounts` (other programs' screens in 90 days by repo or deployer, and their outcomes), `sweepScreens` (jobs over 90 days)
+- `apps/frontend/lib/v6/screen-worker.ts`: `workQueue`: queued applicants (the oldest job first, or only a named job), each taken atomically before it is read (a budget stop requeues and ends the run; a retryable null tier is retried up to 3 times), as the pilot reads them, on one Budget per call; placed with the job's thresholds, shared contributors inside the job and `xpCounts`; a failed read is `failed` with a one-line error and the job still advances
+- `apps/frontend/lib/v6/screen-tool.ts`: The `screen` MCP tool: reviewers only (one-line refusals), 10 jobs a day per reviewer, queue, results with the totals line, outcomes
+- `apps/frontend/lib/v5/fixtures/record-owner.json`: A sample owner record (EarnKit project, approved answers) for `replay.mts --linked`
+- `apps/frontend/lib/v6/builders.ts`: Builders (one row per GitHub account): `upsertBuilder`, `getBuilder`, `ownerKey` ('b:' or 'i:'), `getRecord`, `saveRecord`, `withRecord` (a locked read-merge-save), `linkInstallation` (re-keys the installation's ledger to the builder), `deleteBuilder`
+- `apps/frontend/lib/v6/github-auth.ts`: GitHub sign-in (read:user): `oauthConfigured`, `authorizeUrl`, the signed state (link code and browser nonce, 15 minutes), `exchangeCode`
+- `apps/frontend/lib/v6/link-routes.ts`: `/link/<code>` (confirm page, then GitHub) and `/auth/github/callback` (links the installation, starts a session, lands on /me); `createLinkCode` (15 minutes, hash stored); per-IP limit
+- `apps/frontend/lib/v6/sessions.ts`: Browser sessions for /me: the `ek_me` HttpOnly cookie (hash stored, 30 days), `sessionBuilder`, `endSession`, `clearCookie`, `cookieValue`
+- `apps/frontend/lib/v6/record.ts`: The record: `BuilderRecord` schema, `mergeRecord` (bad leaves dropped with a problem line, `set_by` stamps, policy builder only), `approvePath`, `unapprovePath`, `isApproved`, `APPROVABLE`, `answerFor`, `recordMissing`, `completeness`, `KIND_WORDS`; pure
+- `apps/frontend/lib/v6/record-tool.ts`: The `record` MCP tool: get, set (merged as the agent, never approved), brief; unlinked, the sign-in link
+- `apps/frontend/lib/v6/answer-brief.ts`: The brief behind one answer kind: the reviewer's question, record and repo facts as lines, the length band and the style contract; pure
+- `apps/frontend/lib/v6/reply-words.ts`: Words shared by the find reply and the record tool: the list joiner, the sign-in line; pure
+- `apps/frontend/lib/v6/me-view.ts`: /me's data: `meData` (the record as blocks of fields in builder words, pending approvals, the ledger, linked agents), `csrfToken` and `verifyCsrf` (HMAC of builder and UTC day, today or yesterday), `problemSig`
+- `apps/frontend/lib/v6/me-routes.ts`: /me's handlers: `meGet` (the session gate, 302 to /docs#record), `editPost`, `approvePost`, `policyPost`, `unlinkPost`, `deletePost`, `signoutPost` (web form under 64 KB, session and csrf, else 415, 413 or 403)
+- `apps/frontend/lib/v6/fixtures/github-oauth.ts`: A fetch fake for GitHub sign-in (token exchange and user read)
 
 ## apps/frontend/app (routes and components)
 
 - `apps/frontend/app/.well-known/oauth-authorization-server/route.ts`: OAuth authorization server metadata
 - `apps/frontend/app/.well-known/oauth-protected-resource/[[...path]]/route.ts`: OAuth protected resource metadata for /mcp
 - `apps/frontend/app/HomeView.tsx`: The landing page view: hero, steps, open programs, footer
-- `apps/frontend/app/api/cron/route.ts`: POST /api/cron: the daily freshness probe and owner digest
+- `apps/frontend/app/api/cron/route.ts`: POST /api/cron: the daily freshness probe, screen queue and owner digest; `{ job_id }` triggers one job
 - `apps/frontend/app/api/programs/approve/route.ts`: GET/POST approve link: applies a pending write
 - `apps/frontend/app/api/programs/revert/route.ts`: GET/POST revert link: undoes a live write
 - `apps/frontend/app/api/programs/route.ts`: GET /api/programs: the public list of listed programs
 - `apps/frontend/app/api/programs/write/route.ts`: POST /api/programs/write: the owner bot adds, updates or closes a program
 - `apps/frontend/app/api/programs/writes/route.ts`: GET /api/programs/writes: the write audit log and pending writes
+- `apps/frontend/app/api/programs/reviewers/route.ts`: POST /api/programs/reviewers: the owner marks a signed-in builder as a program's reviewer (or removes them)
 - `apps/frontend/app/api/stats/route.ts`: GET /api/stats: nine public counts
 - `apps/frontend/app/components/common/Button.tsx`: Button
 - `apps/frontend/app/components/common/Footer.tsx`: The full footer with the painting
@@ -119,7 +140,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/app/components/ui/Logo.tsx`: The EarnKit logo
 - `apps/frontend/app/components/ui/SchemaOrg.tsx`: JSON-LD structured data
 - `apps/frontend/app/docs/DocsNav.tsx`: The docs side navigation
-- `apps/frontend/app/docs/DocsView.tsx`: The docs page: install card, how a session goes, how programs are checked
+- `apps/frontend/app/docs/DocsView.tsx`: The docs page: install card, how a session goes, your record, screening for programs, how programs are checked
 - `apps/frontend/app/docs/InstallCard.tsx`: The per-agent install tabs on /docs
 - `apps/frontend/app/docs/page.tsx`: /docs route and metadata
 - `apps/frontend/app/globals.css`: Tailwind layers, fonts and the --ek-s-* colour variables mirrored from site-theme.ts
@@ -140,7 +161,12 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/app/programs/[id]/page.tsx`: /programs/[id] route, metadata and structured data
 - `apps/frontend/app/programs/page.tsx`: /programs: every listed program
 - `apps/frontend/app/sitemap.ts`: /sitemap.xml: site pages plus every listed program guide
-- `apps/frontend/app/terms/page.tsx`: /terms: what EarnKit reads, stores and never does
+- `apps/frontend/app/terms/page.tsx`: /terms: what EarnKit reads, stores and never does, the record, what programs see
+- `apps/frontend/app/link/[code]/route.ts`: GET and POST /link/<code> (via lib/v6/link-routes.ts)
+- `apps/frontend/app/auth/github/callback/route.ts`: GET /auth/github/callback (via lib/v6/link-routes.ts)
+- `apps/frontend/app/me/page.tsx`: /me: the signed-in builder's record, server-rendered from `meData`, noindex
+- `apps/frontend/app/me/MeView.tsx`: /me's markup: pending approvals, one panel per block, standing approval, applications, agents, delete; plain forms, no client script
+- `apps/frontend/app/me/{edit,approve,policy,unlink,delete,signout}/route.ts`: POST handlers (via lib/v6/me-routes.ts)
 
 ## apps/frontend/scripts and db
 
@@ -157,7 +183,8 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 
 ## apps/frontend (config)
 
-- `next.config.ts`: Security headers, the legal-page redirects, program logo CSP
+- `next.config.ts`: Security headers, noindex on /me, /link and /auth, the legal-page redirects, program logo CSP
+- `proxy.ts`: The /me gate: no session is a 302 to /docs#record (lib/v6/me-routes.ts `meGet`)
 - `tailwind.config.ts`: Tailwind with the s-* colour tokens from site-theme.ts
 - `DESIGN.md`: The v5 site design system
 - `package.json`: Dependencies and scripts

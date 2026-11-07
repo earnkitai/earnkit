@@ -16,6 +16,12 @@ import { GET as llmsGet } from '../../app/llms.txt/route';
 import { GET as statsGet } from '../../app/api/stats/route';
 import { GET as programsGet } from '../../app/api/programs/route';
 import sitemap from '../../app/sitemap';
+import { proxy } from '../../proxy';
+import MeView from '../../app/me/MeView';
+import { getRecord, saveRecord, upsertBuilder } from '../v6/builders';
+import { meData } from '../v6/me-view';
+import { mergeRecord } from '../v6/record';
+import { linkGet } from '../v6/link-routes';
 
 // tsx compiles the components without the automatic JSX runtime, so they need React in scope.
 (globalThis as { React?: typeof React }).React = React;
@@ -90,21 +96,21 @@ test('/programs/<id> is a 404 for an unknown id and for a record that no longer 
   assert.match(String((await guideMetadata(params('nope'))).title), /Not found/);
 });
 
-test('/docs: the four sections, under 250 words, the copy rules', () => {
+test('/docs: the six sections, under 330 words, the copy rules', () => {
   const m = html(DocsPage());
   const t = textOf(m);
-  for (const s of ['Install', 'How a session goes', 'How programs are checked', 'Terms']) assert.ok(t.includes(s), s);
+  for (const s of ['Install', 'How a session goes', 'Your record', 'Screening, for programs', 'How programs are checked', 'Terms']) assert.ok(t.includes(s), s);
   assert.ok(m.includes('href="/terms"'));
   assert.ok(!/selector/i.test(t));
   const words = t.split(' ').length;
-  assert.ok(words < 250, `docs page is ${words} words`);
+  assert.ok(words < 330, `docs page is ${words} words`);
   assert.ok(!BANNED.test(t), t.match(BANNED)?.[0]);
   assert.ok(!t.includes('—'));
 });
 
-test('/terms: three sections; "token" only in "launch a token"', () => {
+test('/terms: five sections; "token" only in "launch a token"', () => {
   const t = textOf(html(TermsPage()));
-  for (const s of ['What EarnKit reads', 'What it stores', 'What it never does']) assert.ok(t.includes(s), s);
+  for (const s of ['What EarnKit reads', 'What it stores', 'What it never does', 'Your record', 'Programs']) assert.ok(t.includes(s), s);
   assert.ok(!BANNED.test(t.replaceAll('launch a token', '')), t.match(BANNED)?.[0]);
   assert.ok(!t.includes('—'));
 });
@@ -163,4 +169,64 @@ test('an unknown id is gated before any per-id read', async () => {
   assert.equal(reads, 1);
   const ids = await listGuideIds();
   assert.ok(ids.includes('zz-page-open') && ids.includes('zz-page-shut') && !ids.includes('zz-page-stale') && !ids.includes('nope'));
+});
+
+test('/me without a cookie is a redirect to /docs#record, on the public origin', async () => {
+  const saved = process.env.EARNKIT_URL;
+  process.env.EARNKIT_URL = 'https://earnkit.com';
+  try {
+    for (const headers of [{}, { cookie: 'ek_me=forged' }] as Record<string, string>[]) {
+      const r = await proxy(new Request('http://10.0.0.7:8080/me', { headers }) as never);
+      assert.equal(r.status, 302);
+      assert.equal(r.headers.get('location'), 'https://earnkit.com/docs#record');
+    }
+  } finally {
+    if (saved === undefined) delete process.env.EARNKIT_URL;
+    else process.env.EARNKIT_URL = saved;
+  }
+});
+
+test('/link/nope is 404 text when sign-in is set up and 503 when not', async () => {
+  const keys = ['GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET', 'EARNKIT_AUTH_SECRET'] as const;
+  const saved = keys.map((k) => process.env[k]);
+  try {
+    for (const k of keys) delete process.env[k];
+    const off = await linkGet(new Request('https://earnkit.com/link/nope', { headers: { 'x-real-ip': '198.51.100.201' } }), 'nope');
+    assert.equal(off.status, 503);
+    Object.assign(process.env, { GITHUB_OAUTH_CLIENT_ID: 'Iv1.x', GITHUB_OAUTH_CLIENT_SECRET: 'shh', EARNKIT_AUTH_SECRET: 'pages-secret-0123456789abcdef0123456789' });
+    const on = await linkGet(new Request('https://earnkit.com/link/nope', { headers: { 'x-real-ip': '198.51.100.202' } }), 'nope');
+    assert.equal(on.status, 404);
+    assert.match(on.headers.get('content-type') ?? '', /^text\/plain/);
+    assert.equal(await on.text(), 'This link has expired. Ask your agent for a new one.');
+  } finally {
+    keys.forEach((k, i) => (saved[i] === undefined ? delete process.env[k] : (process.env[k] = saved[i])));
+  }
+});
+
+test('the sitemap has no /me, /link or /auth', async () => {
+  const urls = (await sitemap()).map((e) => e.url);
+  assert.ok(!urls.some((u) => /\/(me|link|auth)(\/|$)/.test(u)));
+});
+
+test('/me renders the record in builder words: approvals first, plain forms, no script, the delete card last', async () => {
+  process.env.EARNKIT_AUTH_SECRET ??= 'pages-secret-0123456789abcdef0123456789';
+  const now = new Date();
+  const b = await upsertBuilder({ github_id: 990_001, login: 'pagesme', name: null, avatar_url: null }, now);
+  const patch = { person: { name: 'Pat' }, answers: { problem: { text: 'Builders <miss> grants.' } }, projects: [{ id: 'kit', name: 'Kit' }] };
+  await saveRecord(b.id, mergeRecord(await getRecord(b.id), patch, 'agent', now).record, now);
+  const m = html(MeView({ data: await meData(b, now), problem: '<b>Email: bad.</b>' }));
+  const t = textOf(m);
+  assert.ok(!/<script/i.test(m));
+  assert.ok(m.includes('&lt;b&gt;Email: bad.&lt;/b&gt;'), 'the problem line is escaped');
+  assert.ok(t.indexOf('Read these, then approve each: an unapproved answer is never sent.') < t.indexOf('About you'));
+  assert.ok(t.lastIndexOf('This removes your record, your ledger and your sign-ins.') > t.indexOf('Your agents'));
+  for (const w of ['About you', 'Your projects', 'The company', 'Your documents', 'Traction', 'Your answers', 'Standing approval', 'Apply without asking'])
+    assert.ok(t.includes(w), w);
+  assert.ok(!/\b(person|company|traction|policy|answers)\.[a-z_]+\b/.test(t), 'no path is shown');
+  assert.ok(!BANNED.test(t.replace('pagesme', '')), t.match(BANNED)?.[0]);
+  // An Approve form carries the set_at the builder saw.
+  assert.ok(/name="action" value="approve"\/><input type="hidden" name="seen" value="\d{4}-/.test(m), 'approve carries seen');
+  const forms = m.match(/<form[^>]*>/g) ?? [];
+  assert.ok(forms.length > 10 && forms.every((f) => /method="post"/.test(f) && /action="\/me\//.test(f)));
+  assert.equal((m.match(/name="csrf"/g) ?? []).length, forms.length);
 });

@@ -61,7 +61,8 @@ These writes wait for approval unless every link builders are sent to (`submissi
 - a change to `submission_url`;
 - a change to `chains`;
 - a change to `form` (adding it, or changing its platform, url or field ids);
-- a change to `pool_source_url`.
+- a change to `pool_source_url`;
+- a change to `submit`, `sign_in` or `min_tier` on a live program (held for the owner whatever the links).
 
 A link checks out when it is on the site of a live program the owner curated for one of its `chains` (a program with `chains: []`: the curated any-chain programs). Those are the owner's own program files, and API programs whose current link the owner approved. Same site means the same domain: `docs.base.org` and `www.base.org` are on `base.org`; `base-grants.org` and `base.org.example.com` are not.
 
@@ -73,11 +74,11 @@ Any other change to a live program (reward, amounts, deadline, text, requirement
 
 ### Fields you can send
 
-Every program field except `logo` (the owner adds logos by file). Any other field is refused: `logo: the API can't set logo; the owner adds it by file`, `<field>: not a program field`.
+Every program field except `logo` and `reviewers_contact` (the owner adds logos by file). Any other field is refused: `logo: the API can't set logo; the owner adds it by file`, `<field>: not a program field`.
 
 **Required:** `id`, `organizer`, `title`, `description`, `source_url`, `submission_url`, `reward`, `summary`, `starts_at`, `ends_at`, `status`, `verified_at`, `existing_work`, `chains`, `rules`, `setup`, `each_time`, `submission_requirements`. Always send `category` and `needs_repo` too.
 
-**Optional:** `official_url`, `max_award_usd`, `min_award_usd`, `pool_usd`, `pool_source_url`, `category`, `tag`, `tz`, `opens_note`, `any_chain`, `chain_required`, `investment`, `in_person`, `needs_repo`, `needs_contract`, `min_product_score`, `wants_revenue`, `winners_per_round`, `ideas`, `eligibility`, `form`, `results_due`, `focus`, `past_rounds`, `best_bet`.
+**Optional:** `official_url`, `max_award_usd`, `min_award_usd`, `pool_usd`, `pool_source_url`, `category`, `tag`, `tz`, `opens_note`, `any_chain`, `chain_required`, `investment`, `in_person`, `needs_repo`, `needs_contract`, `min_product_score`, `wants_revenue`, `winners_per_round`, `ideas`, `eligibility`, `form`, `results_due`, `focus`, `past_rounds`, `best_bet`, `submit`, `sign_in`, `platform_name`, `needs`, `min_tier`, `prefers`.
 
 **Each `submission_requirements` item:** `key`, `label`, `type`, `required`, `from`, `kind`, and `todo` on every required item; optional `options`, `description`, `project_field`, `max_chars`, `guidance`.
 
@@ -94,15 +95,20 @@ Key values:
 - `verified_at`: `YYYY-MM-DD`, at most 7 days ago, never in the future.
 - `summary`: reward and deadline as the organizer states them: `"up to $5,000 · rolling"`, `"500 USDC x 20 grants · closes Oct 14, 11:59 PM ET"`.
 - `reward` with `pool_usd`: must state the same amount followed by a pool word (`$840,000 in prizes`).
-- `eligibility`: up to 10 items `{ kind, value?, note? }`, `kind` one of `live_product`, `chain` (value: a chain slug), `contract_on` (value: a chain slug), `builder_codes`, `users`, `new_work_after` (value: a date), `demo_video`, `in_person`, `feature`. Only what the source states.
+- `eligibility`: up to 10 items `{ kind, value?, note? }`, `kind` one of `live_product`, `chain` (value: a chain slug), `contract_on` (value: a chain slug), `builder_codes`, `users`, `new_work_after` (value: a date), `demo_video`, `in_person`, `feature`, `integration` (value: an integration key such as `smart_wallet`). Only what the source states.
 - `form`: `{ platform, url?, fields? }`. `platform` is `google`, `airtable`, `tally`, `typeform` or `other`; `url` is the form's https link; `fields` maps a requirement `key` to the form's field id (`{ "project_name": "entry.123456" }`). Every key in `fields` must be a `submission_requirements` key.
+- `submit`: `agent`, `builder` or `either` (default).
+- `sign_in`: `none` (default), `google`, `github`, `email` or `platform`; `platform` needs `platform_name` (1 to 60 characters), any other value refuses it.
+- `needs`: any of `founder_video`, `demo_video`, `resume`, `deck`, `pitch_pdf`.
+- `min_tier`: `used`, `live` or `building`; send it only when the source states the bar.
+- `prefers`: up to 10 integration keys or chain slugs the source says it favors.
 - `results_due`: `{ date }` (`YYYY-MM-DD`) or `{ weeks_after_close }`, when the source says when results come.
 - `focus`: `{ areas: [1 to 3 short phrases], source_url, ecosystem? }`, what the program says it wants.
 - `past_rounds`: up to 5 `{ label, source_url, own?, submissions?, winners?, themes?, themes_of?, examples? }` from published results.
 - `best_bet`: 1 to 12 words, drawn from `past_rounds` or `focus`.
 - Requirement `type`: `text`, `url`, `email`, `choice` or `multi_choice` (both need `options`), `file`.
 - Requirement `from`: `project` (the agent can draft it) or `builder` (personal info, consent, amounts).
-- Requirement `kind` (on every item): `name`, `one_liner`, `problem`, `solution`, `how_it_works`, `traction`, `team`, `why_you`, `use_of_funds`, `milestones`, `demo_video`, `links`, `contact`, `raised`, `other`.
+- Requirement `kind` (on every item): `name`, `one_liner`, `problem`, `solution`, `how_it_works`, `traction`, `team`, `why_you`, `use_of_funds`, `milestones`, `competitors`, `risks`, `ecosystem_fit`, `what_next`, `past_work`, `help_needed`, `demo_video`, `links`, `contact`, `raised`, `other`.
 - Requirement `todo` (on every required item): lowercase start, at most 40 characters, no final punctuation, no links.
 - Requirement `guidance`: `{ judges?, questions? (up to 2), pattern?, limit_words?, source_url }`, only from the program's own pages.
 

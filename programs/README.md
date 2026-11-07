@@ -47,6 +47,13 @@ states; leave out what it does not. Never guess a reward, a deadline or a requir
 | `setup`, `each_time` | what only the builder can do once, and for every entry |
 | `rules` | the program's rules in short sentences (shown in the guide) |
 | `submission_requirements` | the form, field by field (below); none only on an `upcoming` program |
+| `submit` | who submits: `agent`, `builder` (needs the builder's own click) or `either` (default) |
+| `sign_in` | what the form asks the builder to sign in with: `none` (default), `google`, `github`, `email` or `platform` |
+| `platform_name` | the platform's name (1 to 60 characters); required with `sign_in: platform`, refused otherwise |
+| `needs` | extra material beyond the form's fields: `founder_video`, `demo_video`, `resume`, `deck`, `pitch_pdf` |
+| `min_tier` | the lowest standing of work the source accepts: `used`, `live` or `building`; leave out when it states none |
+| `prefers` | up to 10 integration keys (`lib/v6/integrations.ts`) or chain slugs the source says it favors |
+| `reviewers_contact` | owner only, 1 to 200 characters: where a reviewer is reached; never listed, guided or replied |
 | `logo`, `focus`, `past_rounds`, `best_bet`, `ideas`, `winners_per_round` | guide facts, each with its source; never invented |
 
 ### `submission_requirements`
@@ -55,7 +62,8 @@ One item per form field: `key` (snake_case), `label` (the question as asked), `t
 `url`, `email`, `choice` or `multi_choice` with `options`, `file`), `required`, `from` (`project`:
 drafted from the project; `builder`: only the builder can answer) and `kind` (`name`,
 `one_liner`, `problem`, `solution`, `how_it_works`, `traction`, `team`, `why_you`,
-`use_of_funds`, `milestones`, `demo_video`, `links`, `contact`, `raised`, `other`). A required item
+`use_of_funds`, `milestones`, `competitors`, `risks`, `ecosystem_fit`, `what_next`, `past_work`,
+`help_needed`, `demo_video`, `links`, `contact`, `raised`, `other`). A required item
 also needs `todo`: a short builder to-do, lowercase start, at most 40 characters, no trailing
 punctuation or links (`"a live link on Arc mainnet"`). Optional: `description`, `project_field`,
 `max_chars` (only a stated limit), `guidance` (the program's own advice, with `source_url`).
@@ -77,7 +85,7 @@ states something the fields above cannot say:
 ```
 
 Kinds: `live_product`, `chain`, `contract_on`, `builder_codes`, `users`, `new_work_after`,
-`demo_video`, `in_person`, `feature`. `value` (a chain slug or a date) and `note` (at most 140
+`demo_video`, `in_person`, `feature`, `integration`. `value` (a chain slug, a date or, for `integration`, an integration key like `smart_wallet`) and `note` (at most 140
 characters) are optional.
 
 ### `form`

@@ -106,5 +106,6 @@
     ],
     "source_url": "https://www.circle.com/blog/introducing-the-arc-builders-fund",
     "ecosystem": "Arc"
-  }
+  },
+  "needs": ["deck"]
 }

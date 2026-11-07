@@ -147,6 +147,75 @@ CREATE TABLE IF NOT EXISTS gaps_done (
   PRIMARY KEY (installation_id, program_id, item)
 );
 
+-- v6.1: a builder is a GitHub account; installations link to one through a one-time code, and a
+-- browser session (its token's hash) signs them in to /me.
+CREATE TABLE IF NOT EXISTS builders (
+  id                serial PRIMARY KEY,
+  github_id         bigint NOT NULL UNIQUE,
+  login             text NOT NULL,
+  name              text,
+  avatar_url        text,
+  record            jsonb NOT NULL DEFAULT '{}',
+  record_updated_at timestamptz,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  last_seen_at      timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS builder_id int;
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS linked_at timestamptz;
+CREATE TABLE IF NOT EXISTS link_codes (
+  code            text PRIMARY KEY,
+  installation_id int NOT NULL,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  expires_at      timestamptz NOT NULL,
+  used_at         timestamptz
+);
+CREATE INDEX IF NOT EXISTS link_codes_installation ON link_codes (installation_id);
+-- The live code is recomputed from its nonce (with EARNKIT_AUTH_SECRET), so a link shown once keeps working.
+ALTER TABLE link_codes ADD COLUMN IF NOT EXISTS nonce text;
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash   text PRIMARY KEY,
+  builder_id   int NOT NULL,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  expires_at   timestamptz NOT NULL,
+  last_seen_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- The ledger's owner: 'b:<builder>' once linked, else 'i:<installation>'. installation_id stays the
+-- writing installation. Duplicates per owner are merged (the newest kept) before the unique indexes.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS owner text;
+ALTER TABLE application_history ADD COLUMN IF NOT EXISTS owner text;
+ALTER TABLE gaps_done ADD COLUMN IF NOT EXISTS owner text;
+UPDATE applications SET owner = 'i:' || installation_id WHERE owner IS NULL;
+UPDATE application_history SET owner = 'i:' || installation_id WHERE owner IS NULL;
+UPDATE gaps_done SET owner = 'i:' || installation_id WHERE owner IS NULL;
+DO $$
+DECLARE t text; has_null boolean;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['applications', 'application_history', 'gaps_done'] LOOP
+    EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I WHERE owner IS NULL)', t) INTO has_null;
+    IF NOT has_null THEN
+      EXECUTE format('ALTER TABLE %I ALTER COLUMN owner SET NOT NULL', t);
+    END IF;
+  END LOOP;
+END $$;
+DELETE FROM applications a USING applications b
+WHERE a.owner = b.owner AND a.program_id = b.program_id AND (a.at < b.at OR (a.at = b.at AND a.ctid < b.ctid));
+CREATE UNIQUE INDEX IF NOT EXISTS applications_owner_program ON applications (owner, program_id);
+CREATE INDEX IF NOT EXISTS application_history_owner ON application_history (owner, program_id, at DESC);
+DELETE FROM gaps_done a USING gaps_done b
+WHERE a.owner = b.owner AND a.program_id = b.program_id AND a.item = b.item AND (a.at < b.at OR (a.at = b.at AND a.ctid < b.ctid));
+CREATE UNIQUE INDEX IF NOT EXISTS gaps_done_owner_item ON gaps_done (owner, program_id, item);
+-- The owner indexes replace the per-installation keys (an installation's stray i: row and its b: row may share a program).
+ALTER TABLE applications DROP CONSTRAINT IF EXISTS applications_pkey;
+ALTER TABLE gaps_done DROP CONSTRAINT IF EXISTS gaps_done_pkey;
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS project_id text;
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS submitted_by text;
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS fields_used text[];
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS claimed_at timestamptz;
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS claimed_by int;
+-- Sent under the builder's standing approval (policy.auto_apply on when it was tracked).
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS auto_applied boolean NOT NULL DEFAULT false;
+
 -- The owner's daily digest: the day it covered and when it was sent; the next digest starts there.
 CREATE TABLE IF NOT EXISTS owner_digests (
   day     text PRIMARY KEY,
@@ -161,4 +230,65 @@ CREATE TABLE IF NOT EXISTS evidence_cache (
   rows      jsonb NOT NULL,
   pushed_at text,
   read_at   timestamptz NOT NULL
+);
+
+-- v6.1 screen: the builders the owner marked as a program's reviewers, their jobs, each applicant's
+-- placement and public rows, and the program's outcomes. No pitch is stored: it is compared at job
+-- creation and dropped. `deployers` holds the contracts' deployer addresses for the counts across programs.
+CREATE TABLE IF NOT EXISTS program_reviewers (
+  program_id text NOT NULL,
+  builder_id int NOT NULL,
+  added_at   timestamptz NOT NULL DEFAULT now(),
+  contact    text,
+  PRIMARY KEY (program_id, builder_id)
+);
+CREATE TABLE IF NOT EXISTS screen_jobs (
+  id              text PRIMARY KEY,
+  program_id      text NOT NULL,
+  builder_id      int NOT NULL,
+  installation_id int NOT NULL,
+  created_at      timestamptz NOT NULL,
+  thresholds      jsonb,
+  total           int NOT NULL,
+  done            int NOT NULL DEFAULT 0,
+  finished_at     timestamptz,
+  expires_at      timestamptz NOT NULL
+);
+CREATE TABLE IF NOT EXISTS screen_applicants (
+  job_id              text NOT NULL,
+  ref                 text NOT NULL,
+  name                text NOT NULL,
+  repo_key            text,
+  repo_url            text,
+  live_url            text,
+  contracts           jsonb NOT NULL DEFAULT '[]',
+  applied_at          timestamptz,
+  identical_pitch     int NOT NULL DEFAULT 0,
+  shared_contributors int NOT NULL DEFAULT 0,
+  status              text NOT NULL DEFAULT 'queued',
+  tier                text,
+  flags               jsonb,
+  because             jsonb,
+  line                text,
+  rows                jsonb,
+  deployers           text[] NOT NULL DEFAULT '{}',
+  read_at             timestamptz,
+  error               text,
+  PRIMARY KEY (job_id, ref)
+);
+-- A worker takes an applicant ('reading', taken_at) before reading it; one taken over 30 minutes ago is free again.
+ALTER TABLE screen_applicants ADD COLUMN IF NOT EXISTS taken_at timestamptz;
+-- Reads worth a retry (a timeout, a rate limit) go back to the queue; the third is final.
+ALTER TABLE screen_applicants ADD COLUMN IF NOT EXISTS attempts int NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS screen_jobs_created ON screen_jobs (created_at);
+CREATE INDEX IF NOT EXISTS screen_applicants_repo ON screen_applicants (repo_key, read_at);
+CREATE INDEX IF NOT EXISTS screen_applicants_status ON screen_applicants (status, job_id);
+CREATE INDEX IF NOT EXISTS screen_applicants_deployers ON screen_applicants USING gin (deployers);
+CREATE TABLE IF NOT EXISTS screen_outcomes (
+  job_id     text NOT NULL,
+  ref        text NOT NULL,
+  outcome    text NOT NULL,
+  amount_usd numeric,
+  at         timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (job_id, ref)
 );

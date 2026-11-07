@@ -1,10 +1,12 @@
 /**
- * Pre-fill for a program's form: fact fields EarnKit can fill from repo facts, prose fields
- * handed to the agent with sources, personal fields left to the builder. EarnKit writes no prose.
- * `facts_from_repo` counts only values the code read gave (a public read), never anything the agent passed. Pure.
+ * Pre-fill for a program's form, in order: the builder's record (facts and approved answers, when
+ * linked), the repo facts, the agent (prose with sources), the builder (files, consents, handles).
+ * EarnKit writes no prose. `facts_from_repo` counts only values the code read gave, never anything the agent passed. Pure.
  */
+import { STYLE_CONTRACT } from '../v6/answer-brief';
+import { answerFor, isApproved, type BuilderRecord } from '../v6/record';
 import { chainName } from './chains';
-import type { SubmissionRequirement } from './program-file';
+import { ANSWER_KINDS, type SubmissionRequirement } from './program-file';
 import type { ProgramRow } from './programs';
 import type { Basis, RepoFacts } from './repo-facts';
 
@@ -15,8 +17,10 @@ export type Field = {
   required: boolean;
   kind: SubmissionRequirement['kind'];
   value: string | null;
-  from: 'earnkit' | 'agent' | 'builder';
+  from: 'earnkit' | 'record' | 'agent' | 'builder';
   sources?: string[];
+  /** On a prose field filled from the record: how to fit it (cut, never add). */
+  style?: string;
   options?: string[];
   max_chars?: number;
   guidance?: string;
@@ -100,9 +104,74 @@ function sourcesOf(facts: RepoFacts, guidance: string | undefined): string[] {
   return s;
 }
 
-export function prefill(program: ProgramRow, facts: RepoFacts): { fields: Field[]; filled: number; facts_from_repo: number; total: number } {
+/** The linked builder's record, the project the find chose, and EarnKit's verified usage line. */
+export type RecordContext = { record: BuilderRecord; projectId: string | null; verifiedUsage: string | null };
+type FromRecord = { value: string; prose: boolean } | null;
+
+const usd = (n: number) => '$' + Math.round(n).toLocaleString('en-US');
+const isProse = (kind: string) => kind === 'how_it_works' || (ANSWER_KINDS as readonly string[]).includes(kind);
+
+/** A contact field from the record's person: name (first, last or whole), email and X; other handles stay the builder's. */
+function contactValue(r: SubmissionRequirement, person: BuilderRecord['person']): string | null {
+  const label = `${r.label} ${r.key.replace(/_/g, ' ')}`;
+  if (r.type === 'email' || /email/i.test(label)) return person.email ?? null;
+  if (/\b(x|twitter)\b/i.test(label)) return person.x ?? null;
+  if (/name/i.test(label) && person.name) {
+    const [first, ...rest] = person.name.trim().split(/\s+/);
+    if (/first/i.test(label)) return first;
+    if (/last|sur/i.test(label)) return rest.length > 0 ? rest.join(' ') : null;
+    return person.name;
+  }
+  return null;
+}
+
+/** The record's value for a field (step 1 of the order), or null. Unapproved answers are never used. */
+function recordValue(r: SubmissionRequirement, rec: RecordContext): FromRecord {
+  const { record, projectId } = rec;
+  if (r.type === 'file' || r.type === 'choice' || r.type === 'multi_choice') return null;
+  const project = record.projects.find((p) => p.id === projectId) ?? null;
+  const fact = (value: string | null | undefined): FromRecord => (value ? { value, prose: false } : null);
+  switch (r.kind) {
+    case 'contact': return fact(contactValue(r, record.person));
+    case 'links': return fact([project?.live_url, project?.repo_url].filter(Boolean).join(' ') || null);
+    case 'demo_video': return fact(record.docs.demo_video_url);
+    case 'raised': {
+      if (!isApproved(record, 'company.raised')) return null;
+      const { raised_usd, raised_from } = record.company;
+      return fact([raised_usd !== undefined ? usd(raised_usd) : null, raised_from ? `from ${raised_from}` : null].filter(Boolean).join(' ') || null);
+    }
+    case 'traction':
+      if (rec.verifiedUsage) return { value: rec.verifiedUsage, prose: false };
+      return isApproved(record, 'traction.line_pre_launch') ? { value: record.traction.line_pre_launch!, prose: true } : null;
+    case 'team': {
+      const a = answerFor(record, projectId, 'team');
+      if (a) return { value: pick(a, r), prose: true };
+      if (r.type === 'text' && record.team.length > 0) return fact(record.team.map((m) => (m.role ? `${m.name} (${m.role})` : m.name)).join(', '));
+      return null;
+    }
+  }
+  const a = answerFor(record, projectId, r.kind);
+  return a ? { value: pick(a, r), prose: true } : null;
+}
+
+/** The short answer when the field caps under 300 characters and one exists, else the full text. */
+const pick = (a: { text: string; short: string | null }, r: SubmissionRequirement) =>
+  r.max_chars !== undefined && r.max_chars < 300 && a.short ? a.short : a.text;
+
+const ASK_ONCE = 'the builder, once: store the answer with record before using it';
+
+/**
+ * `facts_from_repo`: every field the code read filled (v5's count); `repo_required`, `from_record` and
+ * `need_you` are over the required fields only, so together they never exceed `total`.
+ */
+export function prefill(
+  program: ProgramRow,
+  facts: RepoFacts,
+  rec: RecordContext | null = null,
+): { fields: Field[]; filled: number; facts_from_repo: number; repo_required: number; from_record: number; total: number; need_you: string[] } {
   const file = program.file;
   let facts_from_repo = 0;
+  let repo_required = 0;
   const fields = file.submission_requirements.map((r): Field => {
     const guidance = guidanceOf(r);
     const base = {
@@ -112,16 +181,31 @@ export function prefill(program: ProgramRow, facts: RepoFacts): { fields: Field[
       ...(guidance ? { guidance } : {}),
       ...(file.form?.fields?.[r.key] ? { form_id: file.form.fields[r.key] } : {}),
     };
+    const fromRecord = rec ? recordValue(r, rec) : null;
+    if (fromRecord) return { ...base, value: fromRecord.value, from: 'record', ...(fromRecord.prose ? { style: STYLE_CONTRACT } : {}) };
     const filled = valueOf(r, file, facts);
     if (filled !== null) {
       if (filled.repo) facts_from_repo++;
+      if (filled.repo && r.required) repo_required++;
       return { ...base, value: filled.value, from: 'earnkit' };
     }
     if (r.type === 'file' || BUILDER_KINDS.has(r.kind) || /contract/.test(r.key))
       return { ...base, value: null, from: 'builder' };
     if (r.type === 'choice' || r.type === 'multi_choice')
       return { ...base, value: null, from: 'agent', sources: ['the options', 'the description'] };
-    return { ...base, value: null, from: 'agent', sources: sourcesOf(facts, guidance) };
+    // Linked: what the record should hold (contacts, traction) is the builder's; prose the agent asks once and stores.
+    if (rec && (r.kind === 'contact' || r.kind === 'traction')) return { ...base, value: null, from: 'builder' };
+    const sources = sourcesOf(facts, guidance);
+    return { ...base, value: null, from: 'agent', sources: rec && (isProse(r.kind) || r.kind === 'other') ? [...sources, ASK_ONCE] : sources };
   });
-  return { fields, filled: fields.filter((f) => f.from === 'earnkit').length, facts_from_repo, total: fields.filter((f) => f.required).length };
+  const todo = new Map(file.submission_requirements.map((r) => [r.key, r.todo]));
+  return {
+    fields,
+    filled: fields.filter((f) => f.from === 'earnkit' || f.from === 'record').length,
+    facts_from_repo,
+    repo_required,
+    from_record: fields.filter((f) => f.required && f.from === 'record').length,
+    total: fields.filter((f) => f.required).length,
+    need_you: fields.filter((f) => f.required && (f.from === 'builder' || f.from === 'agent')).map((f) => todo.get(f.key) ?? f.label.toLowerCase()),
+  };
 }

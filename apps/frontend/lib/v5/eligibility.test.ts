@@ -172,3 +172,14 @@ test('a contract counts only when its chain is also mainnet', async () => {
   f.chains[0].mainnet = true;
   assert.equal(evaluate(p, f, new Set(), NOW).status, 'ready');
 });
+
+test('integration: met when the code uses it, else a days gap the agent can do with a docs link', async () => {
+  const p = toRow(programFixture({ id: 'p-int', eligibility: [{ kind: 'integration', value: 'smart_wallet' }] }));
+  const facts = await factsOf('earnkit', { live_url: 'https://earnkit.com' });
+  assert.equal(evaluate(p, { ...facts, integrations: ['smart_wallet'] }, new Set(), NOW).status, 'ready');
+  const v = evaluate(p, { ...facts, integrations: [] }, new Set(), NOW);
+  assert.equal(v.status, 'gap');
+  assert.deepEqual(v.gaps, [
+    { kind: 'integration', item: 'integration:smart_wallet', what: 'add Smart Wallet', effort: 'days', agent_can: true, details: { docs: 'https://docs.base.org/smart-wallet' } },
+  ]);
+});

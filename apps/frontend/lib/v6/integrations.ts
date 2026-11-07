@@ -2,13 +2,15 @@
  * The integrations EarnKit looks for in a repo, per chain: package.json dependencies, imports and config
  * in source files, and a few file paths. A match says the code uses it, never how much. Pure.
  */
-import { builderCodesIn, KNOWN_TOKEN_ADDRESSES } from '../v5/repo-facts';
+import { builderCodesIn, KNOWN_TOKEN_ADDRESSES } from '../v5/code-signals';
 
 export type Integration = {
   key: string;
   /** The chain it belongs to; null when it spans chains. */
   chain: string | null;
   label: string;
+  /** The SDK's docs link. */
+  docs: string;
   /** package.json dependency names (exact). */
   packages: string[];
   /** Patterns in source files: imports and config. */
@@ -34,45 +36,52 @@ const importOf = (pkg: string) => {
 };
 
 export const INTEGRATIONS: Integration[] = [
-  { key: 'onchainkit', chain: 'base', label: 'OnchainKit', packages: ['@coinbase/onchainkit'], imports: [importOf('@coinbase/onchainkit')] },
+  { key: 'onchainkit', docs: 'https://docs.base.org/onchainkit', chain: 'base', label: 'OnchainKit', packages: ['@coinbase/onchainkit'], imports: [importOf('@coinbase/onchainkit')] },
   // The wallet SDK alone is any Coinbase wallet; Smart Wallet is the smart-wallet-only setting.
-  { key: 'smart_wallet', chain: 'base', label: 'Smart Wallet', packages: [], imports: [/\bsmartWalletOnly\b/] },
+  { key: 'smart_wallet', docs: 'https://docs.base.org/smart-wallet', chain: 'base', label: 'Smart Wallet', packages: [], imports: [/\bsmartWalletOnly\b/] },
   {
-    key: 'paymaster', chain: null, label: 'Paymaster', packages: ['permissionless'],
+    key: 'paymaster', docs: 'https://docs.base.org/paymaster', chain: null, label: 'Paymaster', packages: ['permissionless'],
     imports: [/\bpaymasterService\b/, /\bpimlico\b/i, /alchemy[\w.-]{0,40}gas[\s_-]?manager|gasManagerPolicyId|\bgas[\s_-]?manager\b[\s\S]{0,80}\balchemy/i],
   },
-  { key: 'basenames', chain: 'base', label: 'Basenames', packages: [], imports: [/\bBasenames?\b/, /\bbasenames\b/, /\.base\.eth\b/] },
-  { key: 'minikit', chain: 'base', label: 'MiniKit', packages: [], imports: [importOf('@coinbase/onchainkit/minikit'), /\bMiniKitProvider\b|\buseMiniKit\b/] },
+  { key: 'basenames', docs: 'https://docs.base.org/basenames', chain: 'base', label: 'Basenames', packages: [], imports: [/\bBasenames?\b/, /\bbasenames\b/, /\.base\.eth\b/] },
+  { key: 'minikit', docs: 'https://docs.base.org/mini-apps', chain: 'base', label: 'MiniKit', packages: [], imports: [importOf('@coinbase/onchainkit/minikit'), /\bMiniKitProvider\b|\buseMiniKit\b/] },
   {
-    key: 'builder_codes', chain: 'base', label: 'Builder Codes', packages: [], imports: [], text: builderCodesIn,
+    key: 'builder_codes', docs: 'https://docs.base.org/builder-codes', chain: 'base', label: 'Builder Codes', packages: [], imports: [], text: builderCodesIn,
     paths: [/(^|\/)builder[-_]?codes?\.[cm]?[jt]sx?$/i],
   },
   {
-    key: 'usdc', chain: null, label: 'USDC', packages: [],
+    key: 'usdc', docs: 'https://developers.circle.com/stablecoins/usdc-contract-addresses', chain: null, label: 'USDC', packages: [],
     imports: [new RegExp(USDC_ADDRESSES.map((a) => `\\b${a}\\b`).join('|'), 'i')],
   },
-  { key: 'cctp', chain: null, label: 'CCTP', packages: ['@circle-fin/cctp'], imports: [importOf('@circle-fin/cctp'), /\bTokenMessenger(V2)?\b/] },
+  { key: 'cctp', docs: 'https://developers.circle.com/cctp', chain: null, label: 'CCTP', packages: ['@circle-fin/cctp'], imports: [importOf('@circle-fin/cctp'), /\bTokenMessenger(V2)?\b/] },
   {
-    key: 'circle_wallets', chain: null, label: 'Circle Wallets',
+    key: 'circle_wallets', docs: 'https://developers.circle.com/wallets', chain: null, label: 'Circle Wallets',
     packages: ['@circle-fin/developer-controlled-wallets', '@circle-fin/user-controlled-wallets', '@circle-fin/w3s-pw-web-sdk'],
     imports: [importOf('@circle-fin/developer-controlled-wallets'), importOf('@circle-fin/user-controlled-wallets')],
   },
   {
-    key: 'anchor', chain: 'solana', label: 'Anchor', packages: ['@coral-xyz/anchor', '@project-serum/anchor'],
+    key: 'anchor', docs: 'https://www.anchor-lang.com/docs', chain: 'solana', label: 'Anchor', packages: ['@coral-xyz/anchor', '@project-serum/anchor'],
     imports: [importOf('@coral-xyz/anchor'), importOf('@project-serum/anchor'), /\buse anchor_lang\b/, /^\s*anchor-lang\s*=/m],
     paths: [/(^|\/)Anchor\.toml$/],
   },
   {
-    key: 'solana_web3', chain: 'solana', label: 'Solana web3.js', packages: ['@solana/web3.js', '@solana/kit'],
+    key: 'solana_web3', docs: 'https://solana.com/docs/clients/javascript', chain: 'solana', label: 'Solana web3.js', packages: ['@solana/web3.js', '@solana/kit'],
     imports: [importOf('@solana/web3.js'), importOf('@solana/kit')],
   },
-  { key: 'blinks', chain: 'solana', label: 'Blinks', packages: ['@solana/actions'], imports: [importOf('@solana/actions')] },
-  { key: 'wagmi', chain: null, label: 'wagmi', packages: ['wagmi'], imports: [importOf('wagmi')] },
-  { key: 'viem', chain: null, label: 'viem', packages: ['viem'], imports: [importOf('viem')] },
-  { key: 'ethers', chain: null, label: 'ethers', packages: ['ethers'], imports: [importOf('ethers')] },
-  { key: 'hardhat', chain: null, label: 'Hardhat', packages: ['hardhat'], imports: [importOf('hardhat')], paths: [/(^|\/)hardhat\.config\.[cm]?[jt]s$/] },
-  { key: 'foundry', chain: null, label: 'Foundry', packages: [], imports: [/import\s+[^;]*["']forge-std\//], paths: [/(^|\/)foundry\.toml$/] },
+  { key: 'blinks', docs: 'https://solana.com/docs/advanced/actions', chain: 'solana', label: 'Blinks', packages: ['@solana/actions'], imports: [importOf('@solana/actions')] },
+  { key: 'wagmi', docs: 'https://wagmi.sh', chain: null, label: 'wagmi', packages: ['wagmi'], imports: [importOf('wagmi')] },
+  { key: 'viem', docs: 'https://viem.sh', chain: null, label: 'viem', packages: ['viem'], imports: [importOf('viem')] },
+  { key: 'ethers', docs: 'https://docs.ethers.org', chain: null, label: 'ethers', packages: ['ethers'], imports: [importOf('ethers')] },
+  { key: 'hardhat', docs: 'https://hardhat.org/docs', chain: null, label: 'Hardhat', packages: ['hardhat'], imports: [importOf('hardhat')], paths: [/(^|\/)hardhat\.config\.[cm]?[jt]s$/] },
+  { key: 'foundry', docs: 'https://getfoundry.sh', chain: null, label: 'Foundry', packages: [], imports: [/import\s+[^;]*["']forge-std\//], paths: [/(^|\/)foundry\.toml$/] },
 ];
+
+/** The label of an integration key, or null when unknown. Pure. */
+export const integrationLabel = (key: string): string | null => INTEGRATIONS.find((i) => i.key === key)?.label ?? null;
+/** The docs link of an integration key, or null when unknown. Pure. */
+export const integrationDocs = (key: string): string | null => INTEGRATIONS.find((i) => i.key === key)?.docs ?? null;
+/** Whether the key is in the registry. Pure. */
+export const isIntegrationKey = (key: string): boolean => INTEGRATIONS.some((i) => i.key === key);
 
 /** Source files whose text is read for imports and config; JSON, Markdown and data never count. */
 const SOURCE = /\.(?:[cm]?[jt]sx?|sol|rs|py|toml|vue|svelte)$/i;

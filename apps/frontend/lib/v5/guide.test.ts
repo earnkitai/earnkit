@@ -68,3 +68,21 @@ test('a focus with no ecosystem and no chains names the program, not an empty wo
   const g = guideText(rowOf(programFixture({ id: 'a-g', title: 'Any Grants', chains: [], any_chain: true, focus: { areas: ['agents'], source_url: 'https://example.com/f' } })));
   assert.equal(g.focus, 'Any Grants wants agents');
 });
+
+test('catalog words: submit, sign-in, needs, bar and the integration item', () => {
+  const g = guideText(rowOf(programFixture({
+    id: 'a-h', sign_in: 'platform', platform_name: 'Avalanche Builder Hub', needs: ['founder_video'], min_tier: 'live',
+    eligibility: [{ kind: 'integration', value: 'smart_wallet' }],
+  })));
+  assert.equal(g.submit, 'Your agent may submit');
+  assert.equal(g.sign_in, 'Sign-in: Avalanche Builder Hub');
+  assert.deepEqual(g.needs, ['a founder video']);
+  assert.equal(g.bar, 'Bar: a live product');
+  assert.deepEqual(g.eligibility, ['uses Smart Wallet']);
+  const plain = guideText(rowOf(programFixture({ id: 'a-i', submit: 'builder' })));
+  assert.equal(plain.submit, 'Needs your click to submit');
+  assert.equal(plain.sign_in, null);
+  assert.deepEqual(plain.needs, []);
+  assert.equal(plain.bar, null);
+  assert.equal(guideText(rowOf(programFixture({ id: 'a-j', sign_in: 'github', min_tier: 'used' }))).sign_in, 'Sign-in: GitHub');
+});

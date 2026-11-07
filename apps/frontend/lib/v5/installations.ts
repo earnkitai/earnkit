@@ -1,11 +1,12 @@
 /**
  * Installations: one row per issued token; only the token's hash is stored. The token exchange
- * saves one; /mcp connects a token to its installation; find stamps last_find_at.
+ * saves one; /mcp connects a token to its installation and its builder, if linked; find stamps
+ * last_find_at.
  */
 import { createHash } from 'node:crypto';
 import { sql } from './db';
 
-export type Caller = { id: number };
+export type Caller = { id: number; builderId: number | null };
 
 const hash = (token: string) => createHash('sha256').update(token).digest('hex');
 
@@ -27,11 +28,17 @@ export async function saveInstallation(token: string, clientName: string | null 
   return r.id;
 }
 
-/** The installation this token belongs to (its last_seen_at moves to now), or null. */
+/** The installation this token belongs to and its builder (its last_seen_at moves to now), or null. */
 export async function connectInstallation(token: string): Promise<Caller | null> {
-  const [row] = await sql()<{ id: number }[]>`
-    UPDATE installations SET last_seen_at = now() WHERE token_hash = ${hash(token)} RETURNING id`;
-  return row ? { id: row.id } : null;
+  const [row] = await sql()<{ id: number; builder_id: number | null }[]>`
+    UPDATE installations SET last_seen_at = now() WHERE token_hash = ${hash(token)} RETURNING id, builder_id`;
+  return row ? { id: row.id, builderId: row.builder_id } : null;
+}
+
+/** The builder this installation is linked to, or null. */
+export async function builderOf(installationId: number): Promise<number | null> {
+  const [row] = await sql()<{ builder_id: number | null }[]>`SELECT builder_id FROM installations WHERE id = ${installationId}`;
+  return row?.builder_id ?? null;
 }
 
 /** Stamps a find: last_find_at and last_seen_at. */

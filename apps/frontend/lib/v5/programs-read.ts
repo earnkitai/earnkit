@@ -30,6 +30,12 @@ export type ListedProgram = {
   source_url: string;
   submission_url: string;
   source: 'file' | 'api';
+  submit: string;
+  sign_in: string;
+  platform_name: string | null;
+  needs: string[];
+  min_tier: string | null;
+  prefers: string[];
   /** Sort only; not in the answer. */
   max_award_usd: number;
 };
@@ -73,6 +79,12 @@ export async function readListedPrograms(now = new Date()): Promise<ListedProgra
       source_url: p.source_url,
       submission_url: p.submission_url,
       source,
+      submit: p.submit,
+      sign_in: p.sign_in,
+      platform_name: p.platform_name ?? null,
+      needs: p.needs,
+      min_tier: p.min_tier ?? null,
+      prefers: p.prefers,
       max_award_usd: p.max_award_usd ?? 0,
     };
   });
