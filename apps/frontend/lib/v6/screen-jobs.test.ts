@@ -94,6 +94,23 @@ test('recordOutcomes writes won into a linked builder\'s ledger only when they h
   assert.deepEqual(await recordOutcomes(j.id, other.builderId, [{ ref: 'c-1', outcome: 'rejected' }], NOW), { recorded: 0 });
 });
 
+test('recordOutcomes writes no ledger when two applied builders\' records claim the applicant\'s repo', async () => {
+  const r = await reviewer('jobs-amb');
+  const one = await upsertBuilder({ github_id: ++gh, login: 'amb' + gh, name: null, avatar_url: null }, NOW);
+  const two = await upsertBuilder({ github_id: ++gh, login: 'amb' + gh, name: null, avatar_url: null }, NOW);
+  for (const b of [one, two]) {
+    await saveRecord(b.id, { ...EMPTY_RECORD, projects: [{ id: 'p', repo_url: 'https://github.com/acme/shared', answers: {} }] }, NOW);
+    assert.deepEqual(await record(`b:${b.id}`, 'jobs-amb', 'applied', { installationId: 4242, now: NOW }), { ok: true });
+  }
+  const j = await job(r, [{ ref: 's-1', name: 'Shared', repo_url: 'https://github.com/acme/shared' }]);
+  assert.deepEqual(await recordOutcomes(j.id, r.builderId, [{ ref: 's-1', outcome: 'won', amount_usd: 900 }], NOW), { recorded: 1 });
+  for (const b of [one, two]) {
+    const [a] = await sql()`SELECT status FROM applications WHERE owner = ${`b:${b.id}`} AND program_id = 'jobs-amb'`;
+    assert.equal(a.status, 'applied');
+  }
+  assert.equal((await sql()`SELECT 1 FROM screen_outcomes WHERE job_id = ${j.id} AND outcome = 'won'`).length, 1);
+});
+
 test('xpCounts counts another program\'s job sharing the repo key or a deployer, never the same job or program', async () => {
   const p1 = await reviewer('jobs-x1');
   const p2 = await reviewer('jobs-x2');

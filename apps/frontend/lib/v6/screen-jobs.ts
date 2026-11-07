@@ -160,7 +160,8 @@ async function buildersOnRepo(key: string): Promise<number[]> {
 
 /**
  * The program's decisions. Each is kept for the counts across programs; a won or rejected one also goes
- * to the ledger of a builder whose record project is the same repo and who had applied to this program,
+ * to the ledger of the one builder whose record project is the same repo and who had applied to this program
+ * (two such builders: neither, the repo claim is ambiguous),
  * written as that builder's applying installation (through ledger.record, so its caps hold; a refused
  * write, such as a win with no amount, is left out). Shortlisted writes no ledger row. Returns only how
  * many outcomes were recorded: whether any reached a builder's ledger never goes back to the program.
@@ -178,13 +179,17 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
       ON CONFLICT (job_id, ref) DO UPDATE SET outcome = EXCLUDED.outcome, amount_usd = EXCLUDED.amount_usd, at = EXCLUDED.at`;
     recorded++;
     if (o.outcome === 'shortlisted' || !a.repo_key) continue;
+    // The applied builders whose record names this repo. Two of them is ambiguous: the outcome belongs to
+    // one, and a record can claim any repo, so neither ledger is written.
+    const applied: { owner: string; installation_id: number }[] = [];
     for (const id of await buildersOnRepo(a.repo_key)) {
       const owner = `b:${id}`;
-      const [applied] = await sql()<{ installation_id: number }[]>`
+      const [row] = await sql()<{ installation_id: number }[]>`
         SELECT installation_id FROM applications WHERE owner = ${owner} AND program_id = ${job.program_id} AND status = 'applied'`;
-      if (!applied) continue;
-      await record(owner, job.program_id, o.outcome, { installationId: applied.installation_id, amount_usd: amount ?? undefined, now });
+      if (row) applied.push({ owner, installation_id: row.installation_id });
     }
+    if (applied.length !== 1) continue;
+    await record(applied[0].owner, job.program_id, o.outcome, { installationId: applied[0].installation_id, amount_usd: amount ?? undefined, now });
   }
   return { recorded };
 }
