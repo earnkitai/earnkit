@@ -87,7 +87,8 @@ states something the fields above cannot say:
 Kinds: `live_product`, `chain`, `contract_on`, `builder_codes`, `users`, `new_work_after`,
 `demo_video`, `in_person`, `feature`, `integration`, `rule`. `value` (a chain slug, a date or, for `integration`, an integration key like `smart_wallet`) and `note` (at most 140
 characters) are optional. `rule` is a requirement the source states that EarnKit cannot check (a
-licence, a stage, who the team is); shown to the builder as "Their rule", never a gap. It needs a
+licence, a stage, who the team is); shown to the builder as 'Their rule' and confirmed once with track
+gap_done; it never counts toward the two-gap limit. It needs a
 `note` (the rule as a phrase, no trailing full stop) and takes no `value`. `feature` is a capability
 the project must have (`value`), a gap the builder or the agent can build.
 

@@ -342,34 +342,38 @@ test('every linked line ends with a full stop and has no banned word', () => {
   }
 });
 
-const RULE_NOTE =
-  'A "Their rule" sentence is a program rule EarnKit cannot check: confirm it with the builder in the same message as the \'builder\' fields; if it does not hold, skip the program.';
+const RULE_NOTE = 'A "Their rule" gap is a program rule EarnKit cannot check. If the builder says it fits, call track gap_done with that gap\'s item, then find again.';
+const ruleGap = (what: string, item = 'rule:0000000a') => ({ kind: 'rule' as const, item, what, effort: 'hours' as const, agent_can: false });
+const VIDEO = { kind: 'demo_video' as const, item: 'demo_video', what: 'a demo video', effort: 'hours' as const, agent_can: false };
 
-test('rules: "Their rule" after the head and long odds, before the drafted line and First; in-person and gap lines too (v6.1.6)', () => {
+test('rules (R18a): ready and in-person lines show none; a gap line shows its rules after the change; rules only ask "yes n" (v6.1.6)', () => {
   const r = base({
     ready: [
       ready({
         title: 'Base Ecosystem Fund', money: 'pre-seed and seed investment', long_shot: 'an investment program with no stated amount', total: 2,
-        rules: ['a pre-seed or seed stage startup that chooses Base as its home', 'No formal Seed round raised'],
-        setup: ['sign in to the portal'], needs: ['sign in to the portal'],
+        rules: ['a pre-seed or seed stage startup that chooses Base as its home'], setup: ['sign in to the portal'], needs: ['sign in to the portal'],
       }),
       ready({ title: 'Meetup', money: '$5K', in_person: true, setup: ['be in Lisbon'], needs: ['be in Lisbon'], rules: ['a team of two or more'] }),
     ],
-    gaps: [gap({ title: 'Goose Grants', money: '$10K', gap: { kind: 'demo_video', item: 'demo_video', what: 'a demo video', effort: 'hours', agent_can: false }, rules: ['work not already funded by an employer or client'] })],
+    gaps: [
+      gap({ title: 'Goose Grants', money: '$10K', gap: ruleGap('a project built with or for goose'), also: [ruleGap('work not already funded by an employer or client', 'rule:0000000b')], rules: ['a project built with or for goose', 'work not already funded by an employer or client'] }),
+      gap({ title: 'Colosseum', money: '$25K', gap: VIDEO, also: [ruleGap('the team has not raised venture capital')], rules: ['the team has not raised venture capital'] }),
+    ],
   });
   assert.equal(
     replyText(r, true),
     [
       'Ready to apply, 1:',
-      '1. Base Ecosystem Fund, pre-seed and seed investment. Long odds: an investment program with no stated amount. Their rule: a pre-seed or seed stage startup that chooses Base as its home. Their rule: No formal Seed round raised. Your agent drafts all 2 answers. First: sign in to the portal.',
+      '1. Base Ecosystem Fund, pre-seed and seed investment. Long odds: an investment program with no stated amount. Your agent drafts all 2 answers. First: sign in to the portal.',
       '',
-      'One change away, 1:',
-      '2. Goose Grants, $10K: a demo video. Their rule: work not already funded by an employer or client.',
+      'One change away, 2:',
+      '2. Goose Grants, $10K. Their rule: a project built with or for goose. Their rule: work not already funded by an employer or client. Say "yes 2" if that is you.',
+      '3. Colosseum, $25K: a demo video. Their rule: the team has not raised venture capital.',
       '',
       'In person, apply to attend first:',
-      '3. Meetup, $5K. Their rule: a team of two or more. Be in Lisbon.',
+      '4. Meetup, $5K. Be in Lisbon.',
       '',
-      'Say yes to apply, skip it, or "do 2" and I\'ll make the change first.',
+      'Say yes to apply, skip it, "yes 2" if its rule fits you, or "do 3" and I\'ll make the change first.',
     ].join('\n'),
   );
   const lines = agentNote(r, { more: 0 }).split('\n');
@@ -377,5 +381,14 @@ test('rules: "Their rule" after the head and long odds, before the drafted line 
   assert.ok(at > 0, lines.join('\n'));
   assert.match(lines[at - 1], /^Draft each ready program from its fields/);
   assert.ok(!agentNote(MONDAY, { more: 0 }).includes('Their rule'));
-  assert.ok(agentNote(base({ gaps: r.gaps }), { more: 0 }).includes(RULE_NOTE));
+});
+
+test('the closing line names "yes r" only when a rule-only gap exists, "do g" only when a change does (v6.1.6)', () => {
+  const rulesOnly = gap({ title: 'R', gap: ruleGap('x'), rules: ['x'] });
+  const end = (r: R) => replyText(r, true).split('\n').at(-1);
+  assert.equal(end(base({ gaps: [rulesOnly] })), 'Say "yes 1" if its rule fits you.');
+  assert.equal(end(base({ ready: MONDAY.ready, gaps: [rulesOnly] })), 'Say yes to apply to all 2, numbers to skip, or "yes 3" if its rule fits you.');
+  assert.equal(end(base({ gaps: [rulesOnly, MONDAY.gaps[0]] })), 'Say "yes 1" if its rule fits you, or "do 2" and I\'ll make the change first.');
+  assert.doesNotMatch(agentNote(base({ gaps: [rulesOnly] }), { more: 0 }), /On "do <n>"/);
+  assert.ok(agentNote(base({ gaps: [rulesOnly] }), { more: 0 }).includes(RULE_NOTE));
 });
