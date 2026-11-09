@@ -1,0 +1,90 @@
+{
+  "id": "arbitrum-stablecoin-growth-program",
+  "organizer": "Arbitrum Foundation",
+  "title": "Arbitrum Stablecoin Growth Program",
+  "description": "Performance-based incentives from the Arbitrum Foundation for live, stablecoin-centric protocols (lending, yield, AMMs, payments) that make USDG their primary stablecoin on Arbitrum. The first 10 teams to reach $10M of USDG TVL, as a 30-day average, each receive an additional 200K ARB from a 2M ARB prize pool.",
+  "source_url": "https://blog.arbitrum.io/stablecoin-growth-program/",
+  "submission_url": "https://airtable.com/appNPlINVhkcwnyaZ/shrHJBg8jQdc3sJEa",
+  "official_url": "https://arbitrum.foundation/grants",
+  "reward": "Performance-based incentives linked to growth on Arbitrum, plus 200K ARB each for the first 10 teams to reach $10M of USDG TVL (2M ARB prize pool)",
+  "summary": "incentives + 200K ARB at $10M USDG TVL · no deadline stated",
+  "ideas": [
+    "A lending market with USDG as main collateral",
+    "A payments app settling in USDG on Arbitrum",
+    "A yield vault built around USDG deposits"
+  ],
+  "tag": "needs a live product",
+  "starts_at": null,
+  "ends_at": null,
+  "wants_revenue": true,
+  "verified_at": "2026-11-09",
+  "status": "active",
+  "existing_work": "allowed",
+  "needs_repo": false,
+  "chains": ["arbitrum"],
+  "chain_required": true,
+  "eligibility": [
+    { "kind": "live_product" },
+    { "kind": "chain", "value": "arbitrum" },
+    { "kind": "users", "note": "at least $1M in stablecoin balances at application, verified on DefiLlama" },
+    { "kind": "feature", "note": "stablecoins at the core of the product, with audited contracts" }
+  ],
+  "setup": [
+    "commit to USDG as your primary stablecoin on Arbitrum"
+  ],
+  "each_time": [
+    "stablecoin TVL, deployed contracts and audits",
+    "a 6-month USDG supply target"
+  ],
+  "rules": [
+    "No deadline is stated. The Arbitrum team reviews every application and contacts teams that are a fit.",
+    "Eligible: at least $1M in stablecoin balances at the time of application, verified on DefiLlama.",
+    "Stablecoins at the core of the product, with a live product and audited contracts.",
+    "A commitment to building on Arbitrum, with new deployments and launches happening there.",
+    "USDG as the primary stablecoin on Arbitrum, with at least $1M of TVL moving into USDG.",
+    "Accepted teams may get performance-based incentives linked to growth on the Arbitrum Platform, plus marketing, partner introductions, technical support and potential DRIP incentives.",
+    "The first 10 teams to reach $10M of USDG TVL, measured as a 30-day average, each receive 200K ARB.",
+    "Participation is subject to eligibility, approval by the Arbitrum Foundation and the Program Terms and Conditions."
+  ],
+  "submission_requirements": [
+    { "key": "project_name", "label": "Project Name", "type": "text", "required": true, "from": "project", "kind": "name", "todo": "a project name", "project_field": "name" },
+    { "key": "email", "label": "Email", "type": "email", "required": true, "from": "builder", "kind": "contact", "todo": "a team email", "description": "All program updates go here, so use an inbox your team checks." },
+    { "key": "website", "label": "Website", "type": "url", "required": false, "from": "project", "kind": "links", "project_field": "live_url", "description": "Your main site or app link." },
+    { "key": "telegram", "label": "Telegram / Contact", "type": "text", "required": true, "from": "builder", "kind": "contact", "todo": "your Telegram handle" },
+    { "key": "x_handle", "label": "X/Twitter", "type": "text", "required": true, "from": "builder", "kind": "contact", "todo": "the project's X handle" },
+    { "key": "founders", "label": "Founders and Roles", "type": "text", "required": true, "from": "builder", "kind": "team", "todo": "founders, roles and links", "description": "Name, role and an X or LinkedIn link for each founder or core lead." },
+    { "key": "team_size", "label": "Team Size", "type": "text", "required": true, "from": "builder", "kind": "team", "todo": "full-time team size" },
+    { "key": "description", "label": "Project Description", "type": "text", "required": true, "from": "project", "kind": "solution", "todo": "two or three sentences on the product", "description": "Two or three sentences on what the product does and who uses it." },
+    { "key": "vertical", "label": "Vertical", "type": "choice", "required": true, "from": "project", "kind": "other", "todo": "your vertical", "options": ["DEX / liquidity", "Lending / money markets", "Perps / derivatives", "Yield / vaults", "Payments / cards", "Wallets / consumer apps", "RWA / institutional", "Infrastructure / tooling", "Other"] },
+    { "key": "existing_chain", "label": "Existing Chain", "type": "multi_choice", "required": false, "from": "project", "kind": "ecosystem_fit", "options": ["Arbitrum One", "Ethereum", "Base", "Solana", "Other"], "description": "The main chain you are live on today." },
+    { "key": "stage", "label": "Product Stage", "type": "choice", "required": true, "from": "project", "kind": "traction", "todo": "your product stage", "options": ["Idea", "Testnet", "Mainnet live"] },
+    { "key": "stablecoin_tvl", "label": "Current Stablecoin TVL", "type": "text", "required": true, "from": "builder", "kind": "traction", "todo": "stablecoin TVL across chains in USD" },
+    { "key": "stablecoins_used", "label": "Stablecoins Currently Used", "type": "multi_choice", "required": false, "from": "project", "kind": "other", "options": ["USDC", "USDT", "DAI", "USDe", "Other", "None"] },
+    { "key": "integration_type", "label": "Integration Type", "type": "multi_choice", "required": false, "from": "project", "kind": "how_it_works", "options": ["Liquidity pool", "Collateral", "Payments rail", "Treasury holding", "Yield product", "Other"], "description": "How USDG would plug into your product." },
+    { "key": "usdg_use", "label": "How USDG Would Be Used", "type": "text", "required": true, "from": "project", "kind": "how_it_works", "todo": "where USDG sits in your product", "description": "Name the specific pools, markets or flows where USDG would sit and what would make users hold it." },
+    { "key": "usdg_target", "label": "Target USDG Supply (6 months)", "type": "text", "required": true, "from": "builder", "kind": "milestones", "todo": "USDG supply target in 6 months" },
+    { "key": "launch_timeline", "label": "Launch Timeline", "type": "text", "required": true, "from": "builder", "kind": "milestones", "todo": "when USDG goes live on Arbitrum" },
+    { "key": "prior_funding", "label": "Prior Funding", "type": "text", "required": false, "from": "builder", "kind": "raised" },
+    { "key": "audits", "label": "Audits", "type": "text", "required": false, "from": "project", "kind": "links", "description": "Auditor names and links to the reports." },
+    { "key": "contracts", "label": "Existing Smart Contracts", "type": "text", "required": true, "from": "project", "kind": "links", "todo": "deployed contract links by chain" },
+    { "key": "deck", "label": "Deck or Docs", "type": "file", "required": false, "from": "builder", "kind": "other" },
+    { "key": "heard_from", "label": "How Did You Hear About Us", "type": "choice", "required": true, "from": "builder", "kind": "other", "todo": "how you heard about it", "options": ["Referral", "Twitter / X", "Event", "Newsletter", "Other"] },
+    { "key": "terms", "label": "I confirm I have read and accept the terms and conditions", "type": "choice", "required": true, "from": "builder", "kind": "other", "todo": "accept the terms", "options": ["I confirm"] }
+  ],
+  "focus": {
+    "areas": [
+      "Lending and money markets with USDG",
+      "AMMs, yield and vaults",
+      "Payments built on USDG"
+    ],
+    "source_url": "https://blog.arbitrum.io/stablecoin-growth-program/",
+    "ecosystem": "Arbitrum"
+  },
+  "form": {
+    "platform": "airtable",
+    "url": "https://airtable.com/appNPlINVhkcwnyaZ/shrHJBg8jQdc3sJEa"
+  },
+  "submit": "either",
+  "sign_in": "none",
+  "prefers": ["arbitrum"]
+}

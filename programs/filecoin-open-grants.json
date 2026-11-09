@@ -1,0 +1,82 @@
+{
+  "id": "filecoin-open-grants",
+  "organizer": "Filecoin Grant Platform",
+  "title": "Filecoin Open Grants",
+  "description": "Open grants of up to $50,000 for ideas that advance the Filecoin ecosystem, bring significant new usage, or directly advance the Filecoin mission. Proposals are GitHub issues in the filecoin-project/devgrants repo, reviewed continuously and paid by milestone under an open source grant agreement.",
+  "source_url": "https://github.com/filecoin-project/devgrants/blob/master/Program%20Resources/Open%20Grants%20README.md",
+  "submission_url": "https://github.com/filecoin-project/devgrants/issues/new?labels=Open+Grant&template=open-grant-appolication.md",
+  "official_url": "https://github.com/filecoin-project/devgrants",
+  "reward": "Up to $50,000 per open grant, paid by milestone",
+  "summary": "up to $50,000 · rolling",
+  "max_award_usd": 50000,
+  "ideas": [
+    "A Filecoin integration for a popular developer tool",
+    "A data preparation and onboarding CLI",
+    "Retrieval tooling that speeds up data access"
+  ],
+  "starts_at": null,
+  "ends_at": null,
+  "verified_at": "2026-11-09",
+  "status": "active",
+  "existing_work": "unknown",
+  "needs_repo": true,
+  "chains": [],
+  "any_chain": true,
+  "setup": [
+    "a GitHub account to open the proposal issue"
+  ],
+  "each_time": [
+    "a milestone table with dates and funding"
+  ],
+  "rules": [
+    "Proposals are reviewed continuously. A preliminary review update comes within about two weeks, and a final decision generally within four weeks of submission.",
+    "Categories: developer and data tooling, integrations, research and protocols, storage, retrieval, and FVM.",
+    "Funding that improves the Filecoin network is prioritized; projects only about IPFS, libp2p or other stacks are de-emphasized.",
+    "Accepted teams sign an Open Source Software Grant Agreement with the work plan and funding milestones. No work should begin until both parties sign.",
+    "The agreement and all payments must be with the same party, either the individual or the organization.",
+    "The form asks you to agree to open source the work under the MIT/Apache-2 dual license.",
+    "Break the work into 2 to 4 milestones with functionality, people, funding and real dates for each."
+  ],
+  "submission_requirements": [
+    { "key": "project_name", "label": "Project Name", "type": "text", "required": true, "from": "project", "kind": "name", "todo": "a project name", "project_field": "name" },
+    { "key": "category", "label": "Proposal Category", "type": "choice", "required": true, "from": "project", "kind": "other", "todo": "a proposal category", "options": ["Developer and data tooling", "Integrations", "Research & protocols", "Storage", "Retrieval", "FVM", "Other"] },
+    { "key": "individual_or_entity", "label": "Individual or Entity Name", "type": "text", "required": true, "from": "builder", "kind": "contact", "todo": "who signs: you or your entity", "description": "Is the proposal on behalf of an individual, or an entity/organization? The agreement and any payments must be completed by the same party." },
+    { "key": "proposer", "label": "Proposer (GitHub username)", "type": "text", "required": true, "from": "builder", "kind": "contact", "todo": "your GitHub username" },
+    { "key": "repos", "label": "Project Repo(s)", "type": "url", "required": true, "from": "project", "kind": "links", "todo": "the project's GitHub repos", "project_field": "repo_url" },
+    { "key": "affiliations", "label": "(Optional) Filecoin ecosystem affiliations", "type": "text", "required": false, "from": "builder", "kind": "other", "description": "Disclose existing work relationships with Protocol Labs Network organizations, including Protocol Labs, Filecoin Foundation and Filecoin Foundation for the Decentralized Web." },
+    { "key": "technical_sponsor", "label": "(Optional) Technical Sponsor", "type": "text", "required": false, "from": "builder", "kind": "other" },
+    { "key": "open_source", "label": "Do you agree to open source all work you do on behalf of this RFP under the MIT/Apache-2 dual-license?", "type": "choice", "required": true, "from": "builder", "kind": "other", "todo": "agree to the MIT/Apache-2 license", "options": ["Yes", "No"] },
+    { "key": "summary", "label": "Project Summary", "type": "text", "required": true, "from": "project", "kind": "problem", "todo": "a 2 to 3 paragraph summary", "description": "The problem you are addressing and how this project addresses it, 2 to 3 paragraphs." },
+    { "key": "impact", "label": "Impact", "type": "text", "required": true, "from": "project", "kind": "ecosystem_fit", "todo": "why it matters for Filecoin", "description": "Why the proposal is valuable for Filecoin, IPFS or related ecosystems: pain points, benefits, risks, what success looks like. 2 to 3 paragraphs." },
+    { "key": "outcomes", "label": "Outcomes", "type": "text", "required": true, "from": "project", "kind": "solution", "todo": "deliverables and success metrics", "description": "Final deliverables, a specification of the software, and the metrics for success." },
+    { "key": "data_onboarding", "label": "Data Onboarding", "type": "text", "required": false, "from": "builder", "kind": "traction", "description": "If you will onboard data to Filecoin, projected amounts at month 1, 3, 6 and 12." },
+    { "key": "adoption", "label": "Adoption, Reach, and Growth Strategies", "type": "text", "required": true, "from": "project", "kind": "what_next", "todo": "your audience and growth plan", "description": "Target audience, its size, how you engage it, and how you will onboard your first 10 and 100 users." },
+    { "key": "roadmap", "label": "Development Roadmap", "type": "text", "required": true, "from": "project", "kind": "milestones", "todo": "2 to 4 milestones with dates", "description": "For each milestone: functionality, people and roles, funding, and time with real dates." },
+    { "key": "budget", "label": "Total Budget Requested", "type": "text", "required": true, "from": "builder", "kind": "use_of_funds", "todo": "a budget table by milestone", "description": "A table of milestone, description, deliverables, completion date and funding." },
+    { "key": "maintenance", "label": "Maintenance and Upgrade Plans", "type": "text", "required": true, "from": "project", "kind": "what_next", "todo": "your long-term maintenance plan" },
+    { "key": "team_members", "label": "Team Members", "type": "text", "required": true, "from": "builder", "kind": "team", "todo": "your team members" },
+    { "key": "linkedin", "label": "Team Member LinkedIn Profiles", "type": "text", "required": true, "from": "builder", "kind": "team", "todo": "team LinkedIn profiles" },
+    { "key": "team_website", "label": "Team Website", "type": "url", "required": true, "from": "project", "kind": "links", "todo": "a team website link", "project_field": "live_url" },
+    { "key": "experience", "label": "Relevant Experience", "type": "text", "required": true, "from": "builder", "kind": "why_you", "todo": "why your team fits this work" },
+    { "key": "team_repos", "label": "Team code repositories", "type": "text", "required": true, "from": "builder", "kind": "past_work", "todo": "links to prior related repos" },
+    { "key": "additional", "label": "Additional Information", "type": "text", "required": true, "from": "builder", "kind": "contact", "todo": "how you heard of it and an email", "description": "How you learned about Open Grants, the best email for the grant agreement, and anything else useful." }
+  ],
+  "focus": {
+    "areas": [
+      "Developer and data tooling",
+      "Filecoin integrations into existing tools",
+      "Storage, retrieval and FVM projects"
+    ],
+    "source_url": "https://github.com/filecoin-project/devgrants/blob/master/Program%20Resources/Open%20Grants%20README.md",
+    "ecosystem": "Filecoin"
+  },
+  "results_due": { "weeks_after_close": 4 },
+  "form": {
+    "platform": "other",
+    "url": "https://github.com/filecoin-project/devgrants/issues/new?labels=Open+Grant&template=open-grant-appolication.md"
+  },
+  "submit": "either",
+  "sign_in": "github",
+  "reviewers_contact": "grants@fil.org or #grants-help on Filecoin Slack",
+  "prefers": []
+}

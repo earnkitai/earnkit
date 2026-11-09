@@ -1,0 +1,59 @@
+{
+  "id": "lido-lego-grants",
+  "organizer": "Lido DAO",
+  "title": "LEGO: Lido Ecosystem Grants Organization",
+  "description": "LEGO funds individuals, projects and initiatives that benefit the Lido protocol and the broader blockchain space. Grants come in four sizes, from Sandgrain (up to $1,000, one member approves) to Mountain ($100,000 and up, DAO vote). You start by pitching the LEGO Council member for your area on Telegram.",
+  "source_url": "https://lido.fi/lego",
+  "submission_url": "https://lido.fi/lego",
+  "reward": "Sandgrain up to 1,000 USD; Pebble up to 10,000 USD; Boulder up to 100,000 USD; Mountain 100,000 USD and up",
+  "summary": "$1,000 to $100,000+ by tier · no deadline stated",
+  "ideas": [
+    "Developer tooling for stETH and wstETH integrations",
+    "Node operator or validator monitoring tooling",
+    "A DeFi integration that adds stETH utility"
+  ],
+  "starts_at": null,
+  "ends_at": null,
+  "verified_at": "2026-11-09",
+  "status": "active",
+  "existing_work": "unknown",
+  "needs_repo": false,
+  "chains": ["ethereum"],
+  "setup": [
+    "message the LEGO Council member for your area on Telegram"
+  ],
+  "each_time": [
+    "a short pitch: title, authors, purpose, summary, details",
+    "agree terms and deliverables with the LEGO member"
+  ],
+  "rules": [
+    "No application form or deadline is stated. Contact the LEGO person responsible for your area (or any LEGO person, who will forward you) on Telegram with a short pitch.",
+    "Sandgrain: nice-to-have contributions one person can evaluate, up to 1,000 USD, approved by 1 member.",
+    "Pebble: non-critical, small things that benefit Lido, up to 10,000 USD, approved by 2 members.",
+    "Boulder: big, important work done by experts and evaluated by core contributors, up to 100,000 USD, approved by a Council vote.",
+    "Mountain: critical improvements to Lido's growth, security or operations, 100,000 USD and up, approved by a DAO vote.",
+    "You agree terms, timelines and deliverables with the LEGO member; the proposal is then shared on research.lido.fi and with the LEGO committee for review.",
+    "On completion you present the work to the LEGO committee.",
+    "Council domains: general and tech; community, growth and education; governance and DeFi integrations; Ethereum liquid staking; node and validation tech; node operation, decentralization and future of staking."
+  ],
+  "submission_requirements": [
+    { "key": "title", "label": "Title: What is the grant application about?", "type": "text", "required": true, "from": "project", "kind": "name", "todo": "a pitch title" },
+    { "key": "authors", "label": "Author(s): Who will be working on the proposal (experience, previous major achievements)?", "type": "text", "required": true, "from": "builder", "kind": "team", "todo": "who works on it and their record" },
+    { "key": "purpose", "label": "Purpose: How will it aid the Lido ecosystem? Why is it important?", "type": "text", "required": true, "from": "project", "kind": "ecosystem_fit", "todo": "how it helps Lido" },
+    { "key": "summary", "label": "Summary: A brief summary of the grant application (3-4 sentences)", "type": "text", "required": true, "from": "project", "kind": "one_liner", "todo": "a 3 to 4 sentence summary" },
+    { "key": "details", "label": "Details: Timelines, expenses estimates", "type": "text", "required": true, "from": "builder", "kind": "milestones", "todo": "timelines and cost estimates" }
+  ],
+  "focus": {
+    "areas": [
+      "Ethereum liquid staking and node operation",
+      "Governance and DeFi integrations",
+      "Community, growth and education"
+    ],
+    "source_url": "https://lido.fi/lego",
+    "ecosystem": "Lido"
+  },
+  "submit": "builder",
+  "sign_in": "none",
+  "reviewers_contact": "LEGO Council on Telegram, listed at lido.fi/lego (e.g. t.me/LykovAlex for LEGO ops); proposals posted on research.lido.fi",
+  "prefers": []
+}
