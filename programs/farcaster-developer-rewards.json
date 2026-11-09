@@ -1,0 +1,70 @@
+{
+  "id": "farcaster-developer-rewards",
+  "organizer": "Farcaster",
+  "title": "Farcaster Developer Rewards",
+  "description": "Weekly rewards for Farcaster Mini Apps. A Mini App whose ownership is verified with a signed accountAssociation in its farcaster.json manifest is automatically eligible; rewards are paid out weekly based on usage and onchain transactions. There is no application: publish and verify the Mini App.",
+  "source_url": "https://miniapps.farcaster.xyz/docs/guides/publishing",
+  "submission_url": "https://farcaster.xyz/~/developers/new",
+  "official_url": "https://farcaster.xyz/~/developers/rewards",
+  "reward": "Weekly rewards based on usage and onchain transactions. Farcaster's public winner list for the week of Nov 4 to 11, 2026 shows 100 apps sharing $10,000, from $21.58 to $197.53 each.",
+  "summary": "$10,000 across 100 apps this week · paid weekly",
+  "category": "bounty",
+  "tag": "needs a live product",
+  "starts_at": null,
+  "ends_at": null,
+  "verified_at": "2026-11-09",
+  "status": "active",
+  "existing_work": "allowed",
+  "needs_repo": false,
+  "chains": [],
+  "any_chain": true,
+  "eligibility": [
+    { "kind": "live_product" },
+    { "kind": "users", "note": "rewards follow the Mini App's usage and onchain transactions" }
+  ],
+  "setup": [
+    "host farcaster.json on the app's domain",
+    "sign accountAssociation in the Manifest Tool"
+  ],
+  "each_time": [],
+  "rules": [
+    "Verified Mini Apps are automatically eligible for Developer Rewards; there is no form to submit.",
+    "Rewards are paid out weekly based on usage and onchain transactions. The docs state no amounts; the figures in the reward line come from Farcaster's public winner list for the current week (api.farcaster.xyz developer-rewards-winner-history).",
+    "Verify ownership by placing a cryptographically signed message in the accountAssociation property of your farcaster.json, generated with the Mini App Manifest Tool in Farcaster.",
+    "The domain you host the manifest on must exactly match the domain you entered in the Manifest Tool. www and the bare domain count as different apps, and the domain can't be changed later.",
+    "The manifest lives at /.well-known/farcaster.json and needs version (\"1\"), name, homeUrl and iconUrl.",
+    "A Mini App is owned by a single Farcaster account; rewards go to the developer that verified it.",
+    "The rewards page itself needs JavaScript and was not readable by EarnKit; the rules above come from the Mini Apps publishing guide."
+  ],
+  "ideas": [
+    "A Mini App with daily onchain actions",
+    "A payments Mini App for tipping friends",
+    "A small game with onchain rewards for players"
+  ],
+  "submission_requirements": [
+    {
+      "key": "manifest_domain",
+      "label": "Domain hosting /.well-known/farcaster.json",
+      "kind": "links",
+      "todo": "a live domain serving farcaster.json",
+      "type": "url",
+      "required": true,
+      "description": "A bare domain or subdomain, entered exactly as in the Manifest Tool.",
+      "project_field": "live_url",
+      "from": "project"
+    },
+    {
+      "key": "account_association",
+      "label": "Signed accountAssociation from the Mini App Manifest Tool",
+      "kind": "other",
+      "todo": "sign the manifest with your account",
+      "type": "text",
+      "required": true,
+      "description": "Generated in Farcaster's Mini App Manifest Tool while signed in to the account that owns the app, then copied into farcaster.json.",
+      "from": "builder"
+    }
+  ],
+  "submit": "builder",
+  "sign_in": "platform",
+  "platform_name": "Farcaster"
+}
