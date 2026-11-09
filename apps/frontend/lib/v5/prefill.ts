@@ -29,8 +29,8 @@ export type Field = {
 
 /** Only what nobody but the builder can produce. */
 const BUILDER_KINDS: ReadonlySet<string> = new Set(['demo_video']);
-/** Facts about the builder and the money: linked or not, the agent never writes these, it asks once. */
-const PERSONAL_KINDS: ReadonlySet<string> = new Set(['contact', 'traction', 'raised']);
+/** Facts about the builder's work and money: linked or not, the agent never writes these, it asks once. */
+const PERSONAL_KINDS: ReadonlySet<string> = new Set(['traction', 'raised']);
 const words = (s: string): string[] => s.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
 const fieldWords = (r: SubmissionRequirement): string[] => [...words(r.key), ...words(r.label)];
 /** A personal fact, a consent or an amount, by its key or label ("age" whole word only, so "usage" is not one). */
@@ -201,6 +201,7 @@ function recordValue(r: SubmissionRequirement, rec: RecordContext): FromRecord {
 const pick = (a: { text: string; short: string | null }, r: SubmissionRequirement) =>
   r.max_chars !== undefined && r.max_chars < 300 && a.short ? a.short : a.text;
 
+const CONTACT_SOURCES = ['git config and the environment', 'what the builder told you'];
 const ASK_ONCE = 'the builder, once: store the answer with record before using it';
 
 /**
@@ -226,8 +227,14 @@ export function prefill(
     };
     const fromRecord = rec ? recordValue(r, rec) : null;
     if (fromRecord) return { ...base, value: fromRecord.value, from: 'record', ...(fromRecord.prose ? { style: STYLE_CONTRACT } : {}) };
-    // Linked or not, personal facts, consents and amounts are the builder's: never guessed, never drafted.
+    // Linked or not, traction, money raised, consents, amounts and personal facts are the builder's: never guessed, never drafted.
     if (isPersonal(r)) return { ...base, value: null, from: 'builder' };
+    // Contacts (R2a): linked, the record answers first and the rest are the builder's; unlinked, the agent knows who it
+    // works for (never asks a stranger who they are, never invents).
+    if (r.kind === 'contact') {
+      if (rec) return { ...base, value: null, from: 'builder' };
+      return { ...base, value: null, from: 'agent', sources: [...CONTACT_SOURCES, ...sourcesOf(facts, guidance)] };
+    }
     const filled = valueOf(r, file, facts);
     if (filled !== null) {
       if (filled.repo) facts_from_repo++;

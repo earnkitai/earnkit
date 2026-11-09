@@ -161,8 +161,8 @@ export function agentNote(r: R, o: { more: number }): string {
   const lines = [
     'Open with show_to_builder in your own words: warm, direct, short, no emojis, no em dashes, no invented facts.',
     r.linked
-      ? "Draft each ready program from its fields: 'record' and 'earnkit' values as given; 'agent' fields you draft from the repo and the field's sources; 'builder' fields you ask once, all together. Never invent a personal fact, an amount or a number."
-      : "Draft each ready program from its fields: 'earnkit' values as given; 'agent' fields you draft from the repo and the field's sources; 'builder' fields you ask once, all together. Never invent a personal fact, an amount or a number.",
+      ? "Draft each ready program from its fields: 'record' and 'earnkit' values as given; 'agent' fields you draft from the repo, the field's sources and what you already know about the builder; 'builder' fields you ask once, all together. Never invent a personal fact, an amount or a number."
+      : "Draft each ready program from its fields: 'earnkit' values as given; 'agent' fields you draft from the repo, the field's sources and what you already know about the builder; 'builder' fields you ask once, all together. Never invent a personal fact, an amount or a number.",
     // With standing approval the agent does not wait for a yes; the limits replace it.
     r.auto_apply ? standing : 'Submit only when the builder says yes, in your own browser, field by field (form_id names the form field when given).',
     'Call track with applied after each submission, and with won (amount_usd), rejected or no_result after each result; skipped for a number they skip.',

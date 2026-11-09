@@ -35,7 +35,7 @@ const rowWith = (reqs: unknown[], over: Record<string, unknown> = {}) =>
   toRow(programFixture({ id: 'p', submission_requirements: reqs as never, ...over }));
 
 const FILLED = 3; // live_product_url, project_name_description, demo_loom (no contract in the recorded facts)
-test('base-builder-grants: facts fill; prose and team go to the agent; contacts and traction to the builder', async () => {
+test('base-builder-grants: facts fill; prose, team and contacts go to the agent; traction to the builder', async () => {
   const facts = await factsOf('earnkit', { live_url: 'https://earnkit.com', demo_url: 'https://loom.com/share/x' });
   const out = prefill(fromFile('base-builder-grants'), facts);
   const by = Object.fromEntries(out.fields.map((f) => [f.key, f]));
@@ -51,14 +51,12 @@ test('base-builder-grants: facts fill; prose and team go to the agent; contacts 
   assert.equal(by.founding_team.from, 'agent');
   assert.equal(by.founding_team.value, null);
   assert.ok((by.founding_team.sources ?? []).length > 0);
-  assert.equal(by.email.from, 'builder');
+  assert.equal(by.email.from, 'agent');
+  assert.deepEqual(by.email.sources?.slice(0, 2), ['git config and the environment', 'what the builder told you']);
   assert.equal(by.usage_numbers.from, 'builder');
   assert.equal(by.usage_numbers.value, null);
-  assert.equal(by.full_name.from, 'builder');
-  assert.deepEqual(
-    out.fields.filter((f) => f.from === 'builder').map((f) => f.key),
-    ['full_name', 'email', 'x_handle', 'telegram', 'contract_address', 'usage_numbers'],
-  );
+  assert.equal(by.full_name.from, 'agent');
+  assert.deepEqual(out.fields.filter((f) => f.from === 'builder').map((f) => f.key), ['contract_address', 'usage_numbers']);
   assert.equal(out.filled, FILLED);
   // The name, one-liner, live and demo links are what the agent passed, not the repo read: none counts.
   assert.equal(out.facts_from_repo, 0);
@@ -121,7 +119,7 @@ test('contract with none on the program chain is a builder field; chain fills th
   assert.equal(out.fields[1].from, 'earnkit');
 });
 
-test('file, demo_video, raised and contact with no value are builder fields; team is the agent\'s', async () => {
+test('file, demo_video and raised with no value are builder fields; team and contact are the agent\'s', async () => {
   const facts = await factsOf('nextjs-dashboard');
   const out = prefill(rowWith([
     req({ key: 'deck', label: 'Deck', type: 'file' }),
@@ -130,7 +128,7 @@ test('file, demo_video, raised and contact with no value are builder fields; tea
     req({ key: 'team', label: 'Team', type: 'text', kind: 'team' }),
     req({ key: 'email', label: 'Email', type: 'email', kind: 'contact' }),
   ]), facts);
-  assert.deepEqual(out.fields.map((f) => f.from), ['builder', 'builder', 'builder', 'agent', 'builder']);
+  assert.deepEqual(out.fields.map((f) => f.from), ['builder', 'builder', 'builder', 'agent', 'agent']);
 });
 
 test('facts_from_repo counts links, contract and chain values, never the passed name, description or a choice', () => {
@@ -343,7 +341,7 @@ test('R1: a url field never gets two URLs; a text field labelled only "Links" ma
   ]), LINK_FACTS).fields) assert.equal(f.value, 'https://app.example.com');
 });
 
-test('R2 unlinked: personal facts, consent, amounts and traction are the builder; prose stays the agent', () => {
+test('R2/R2a unlinked: consent, amounts, phone, birthday and traction are the builder; contacts and prose stay the agent', () => {
   const out = prefill(rowWith([
     req({ key: 'email', label: 'Email', type: 'email', kind: 'contact' }),
     req({ key: 'phone', label: 'Phone', type: 'text', kind: 'other' }),
@@ -356,7 +354,14 @@ test('R2 unlinked: personal facts, consent, amounts and traction are the builder
     req({ key: 'usage', label: 'How do people use it?', type: 'text', kind: 'other' }),
   ]), LINK_FACTS);
   const by = Object.fromEntries(out.fields.map((f) => [f.key, f]));
-  for (const k of ['email', 'phone', 'birthday', 'consent_team1', 'requested_amount_usd', 'traction', 'raised'])
+  // R2a: unlinked, a contact is the agent's (it knows who it works for); linked it is the builder's.
+  assert.equal(by.email.from, 'agent');
+  assert.deepEqual(by.email.sources?.slice(0, 2), ['git config and the environment', 'what the builder told you']);
+  assert.equal(prefill(rowWith([req({ key: 'email', label: 'Email', type: 'email', kind: 'contact' })]), LINK_FACTS, rec(EMPTY_RECORD)).fields[0].from, 'builder');
+  // A contact-kind phone or birthday is still the builder's.
+  const zf = prefill(rowWith([req({ key: 'dob', label: 'Birthday', type: 'text', kind: 'contact' }), req({ key: 'tel', label: 'Phone Number', type: 'text', kind: 'contact' })]), LINK_FACTS);
+  assert.deepEqual(zf.fields.map((f) => f.from), ['builder', 'builder']);
+  for (const k of ['phone', 'birthday', 'consent_team1', 'requested_amount_usd', 'traction', 'raised'])
     assert.deepEqual([k, by[k].value, by[k].from], [k, null, 'builder']);
   assert.equal(by.problem.from, 'agent');
   // "age" is a whole word: "usage" is not a personal fact.

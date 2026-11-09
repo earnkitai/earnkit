@@ -48,11 +48,11 @@ test('first find has no since', async () => {
     show,
     [
       'Ready to apply, 5:',
-      "1. Alliance ALL19, $400K at admission, closes in 14 days. Your agent fills the one answer on the page. Needs your first founder's email. First: start the application with the first founder's email.",
-      '2. Avalanche Team1 Mini Grants, up to $10,000. Drafted: 1 of 9 answers from the repo, the rest your agent asks you once. Needs your consent to share data with Team1, amount you request in USD and X profile. First: sign in to the Avalanche Builder Hub.',
-      '3. Z Fellows, up to $10K investment. Your agent fills all 23 answers on the page. Needs your email, first name, last name and 3 more.',
-      '4. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Your agent fills all 6 answers on the page. Needs your first name, last name, work email and 2 more.',
-      "5. Base Ecosystem Fund, pre-seed and seed investment, a long shot: an investment program with no stated amount. Your agent fills all 21 answers on the page. Needs your company's X link, founder's full name, founder's Telegram handle and 4 more.",
+      "1. Alliance ALL19, $400K at admission, closes in 14 days. Your agent fills the one answer on the page. First: start the application with the first founder's email.",
+      '2. Avalanche Team1 Mini Grants, up to $10,000. Drafted: 1 of 9 answers from the repo, the rest your agent asks you once. Needs your consent to share data with Team1 and amount you request in USD. First: sign in to the Avalanche Builder Hub.',
+      '3. Z Fellows, up to $10K investment. Your agent fills all 23 answers on the page. Needs your birthday and phone number.',
+      '4. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Your agent fills all 6 answers on the page. Needs your investor deck file.',
+      "5. Base Ecosystem Fund, pre-seed and seed investment, a long shot: an investment program with no stated amount. Your agent fills all 21 answers on the page. Needs your company's X link and current traction.",
       '',
       'One change away, 2:',
       '6. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
@@ -61,10 +61,9 @@ test('first find has no since', async () => {
       'Say yes to apply to all 5, numbers to skip, or "do 6" and I\'ll make the change first.',
     ].join('\n'),
   );
-  // Personal facts are the builder's even unlinked (never the agent's to invent); team prose stays the agent's.
-  const needs = (reply.ready as { needs: string[]; setup: string[] }[]).flatMap((p) => p.needs.filter((x) => !p.setup.includes(x)));
-  assert.ok(needs.some((n) => /email/i.test(n)));
-  for (const n of needs) assert.doesNotMatch(n, /\bteam\b/i);
+  // Only what nobody but the builder can give: no contacts or team. Whole words, so a program named Team1 is not "team".
+  for (const p of reply.ready as { needs: string[]; setup: string[] }[])
+    for (const n of p.needs.filter((x) => !p.setup.includes(x))) assert.doesNotMatch(n, /\b(email|name|team|telegram|x profile)\b/i);
 });
 
 /** A synthetic in-person program (the real ones close once their attend-by date passes). */
