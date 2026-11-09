@@ -1,0 +1,51 @@
+{
+  "id": "monad-blitz-guangzhou",
+  "organizer": "Monad Foundation, OpenBuild and Box",
+  "title": "Monad Blitz @广州 (Guangzhou)",
+  "description": "An in-person, one-day hackathon in Guangzhou on Saturday, November 21, 2026: a Monad 101 workshop in the morning, a build sprint from 12:00 to 18:30, then demos and voting. Open to Web2 developers with no onchain experience; teams of up to 3, registration subject to host approval.",
+  "source_url": "https://luma.com/l07pbmke",
+  "submission_url": "https://luma.com/l07pbmke",
+  "official_url": "https://monad.xyz/developers/hackathons",
+  "reward": "$1,500 in prizes: 1st $600, 2nd $500, 3rd $400, and a custom Monad mechanical keyboard for each of the top 3",
+  "summary": "$1,500 prize pool · Nov 21, Guangzhou",
+  "max_award_usd": 600,
+  "pool_usd": 1500,
+  "tz": "Asia/Shanghai",
+  "ideas": [
+    "A small prototype on Monad's parallel EVM",
+    "A first smart contract app built in one afternoon"
+  ],
+  "starts_at": null,
+  "ends_at": "2026-11-21T18:30:00+08:00",
+  "verified_at": "2026-11-09",
+  "status": "active",
+  "in_person": true,
+  "existing_work": "unknown",
+  "needs_repo": false,
+  "chains": [
+    "monad"
+  ],
+  "chain_required": true,
+  "category": "hackathon",
+  "setup": [
+    "be in Guangzhou on November 21",
+    "follow the Mojo event page after registering"
+  ],
+  "each_time": [
+    "a request to join on Luma"
+  ],
+  "rules": [
+    "In person in Guangzhou on Saturday, November 21, 2026; the exact address is shown after registering. Agenda runs 09:00 to 21:00.",
+    "Registration is subject to host approval; organizers screen applications, so fill the application carefully.",
+    "Teams of at most 3 members, formed online beforehand or on site. Web2 developers without onchain experience are welcome.",
+    "Hacking runs 12:00 to 18:30; project submissions close at 18:30, then demos and voting.",
+    "After registering, follow mojo.devnads.com/events/18, where team sign-up, project submission and prize distribution are shown.",
+    "Prizes: 1st $600, 2nd $500, 3rd $400; the top 3 each get a custom Monad mechanical keyboard. Monad Foundation has final say on the rules."
+  ],
+  "submission_requirements": [
+    { "key": "luma_request", "label": "Request to Join", "type": "text", "required": true, "from": "builder", "kind": "contact", "todo": "a request to join on Luma", "description": "Register on the Luma page. The application questions are not public; the host screens and approves each request." }
+  ],
+  "submit": "builder",
+  "sign_in": "platform",
+  "platform_name": "Luma"
+}

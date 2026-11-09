@@ -1,0 +1,57 @@
+{
+  "id": "monad-blitz-oregon",
+  "organizer": "Monad Foundation and Oregon Blockchain Group",
+  "title": "Monad Blitz Oregon",
+  "description": "An in-person, one-day hackathon at the University of Oregon in Eugene on Sunday, November 15, 2026: learn Monad in the morning, build a working prototype during the day, and demo it to judges in the evening. Free, 100 spots, registration subject to host approval.",
+  "source_url": "https://luma.com/e8mwhm1s",
+  "submission_url": "https://luma.com/e8mwhm1s",
+  "official_url": "https://monad.xyz/developers/hackathons",
+  "reward": "$4,600 in prizes (1st $2,500, 2nd $1,200, 3rd $600, beginner prize $300; amounts subject to final confirmation)",
+  "summary": "$4,600 prize pool · register by Nov 10 · Eugene, OR",
+  "max_award_usd": 2500,
+  "pool_usd": 4600,
+  "tz": "America/Los_Angeles",
+  "ideas": [
+    "A one-day prototype using Monad parallel execution",
+    "A first smart contract app deployed on Monad",
+    "A small consumer app demoable in one evening"
+  ],
+  "starts_at": null,
+  "ends_at": "2026-11-10T23:59:00-08:00",
+  "verified_at": "2026-11-09",
+  "status": "active",
+  "in_person": true,
+  "existing_work": "unknown",
+  "needs_repo": false,
+  "chains": [
+    "monad"
+  ],
+  "chain_required": true,
+  "category": "hackathon",
+  "setup": [
+    "be in Eugene, Oregon on November 15"
+  ],
+  "each_time": [
+    "a request to join on Luma by November 10"
+  ],
+  "rules": [
+    "The deadline to register is November 10. Registration is subject to host approval; participation is free with 100 spots.",
+    "In person on Sunday, November 15, 2026, 9:00 AM to 9:00 PM PST, at EMU Ballroom 244, Erb Memorial Union, University of Oregon, Eugene.",
+    "You build a working prototype on Monad during the day, individually or with a team, and demo it to judges in the evening; the top six teams advance to a final pitching round.",
+    "Prizes: 1st $2,500, 2nd $1,200, 3rd $600, plus a $300 beginner prize. Amounts are subject to final confirmation."
+  ],
+  "submission_requirements": [
+    { "key": "luma_request", "label": "Request to Join", "type": "text", "required": true, "from": "builder", "kind": "contact", "todo": "a request to join on Luma", "description": "Register on the Luma page by November 10. The registration questions are not public; the host approves each request." }
+  ],
+  "focus": {
+    "areas": [
+      "Working prototypes on Monad",
+      "Parallel execution and smart contracts"
+    ],
+    "source_url": "https://luma.com/e8mwhm1s",
+    "ecosystem": "Monad"
+  },
+  "submit": "builder",
+  "sign_in": "platform",
+  "platform_name": "Luma"
+}
