@@ -9,6 +9,10 @@ import type { FindReply, GapProgram, ReadyProgram } from './find';
 import { READS_PAUSED } from './repo-facts';
 
 type R = Omit<FindReply, 'show_to_builder' | 'agent_note'>;
+
+/** How the agent drafts the fields EarnKit did not fill (find and one program alike). */
+export const AGENT_FIELDS =
+  "'agent' fields you draft from the repo, the field's sources and what you already know about the builder; 'builder' fields you ask once, all together. Never invent a personal fact, an amount or a number.";
 const NEEDS_SHOWN = 3;
 
 /**
@@ -43,21 +47,29 @@ function readyLine(p: ReadyProgram, linked: boolean): string {
   if (p.closes_in) head += `, closes ${p.closes_in}`;
   if (p.long_shot) head += `, a long shot: ${p.long_shot}`;
   const fromRecord = linked ? recordDrafted(p) : null;
-  const v5 =
-    p.total === 1
-      ? p.facts_from_repo > 0
-        ? 'Drafted: the one answer from the repo.'
-        : 'Your agent fills the one answer on the page.'
-      : p.facts_from_repo > 0
-        ? `Drafted: ${Math.min(p.facts_from_repo, p.total)} of ${p.total} answers from the repo, the rest your agent asks you once.`
-        : `Your agent fills all ${p.total} answers on the page.`;
-  const drafted = fromRecord ?? v5;
   // Setup items are steps ("sign in to ..."), the rest are things ("a Loom demo"): each reads its own way.
   const steps = p.needs.filter((x) => p.setup.includes(x));
   // Linked, the k that need the builder are already named.
   const needs = fromRecord ? [] : p.needs.filter((x) => !p.setup.includes(x)).map(bare);
   const shown = needs.length > NEEDS_SHOWN ? [...needs.slice(0, NEEDS_SHOWN), `${needs.length - NEEDS_SHOWN} more`] : needs;
-  return `${head}. ${drafted}${shown.length > 0 ? ` Needs your ${joinAnd(shown)}.` : ''}${steps.length > 0 ? ` First: ${steps.join('; ')}.` : ''}`;
+  const needsYour = shown.length > 0 ? `Needs your ${joinAnd(shown)}.` : '';
+  const first = steps.length > 0 ? ` First: ${steps.join('; ')}.` : '';
+  // R2b: nothing from the repo and some answers only the builder gives: the agent drafts the rest, never "all".
+  if (!fromRecord && p.facts_from_repo === 0 && needs.length > 0) {
+    const k = Math.max(p.total - needs.length, 0);
+    const drafts = k > 0 ? `Your agent drafts ${k} ${k === 1 ? 'answer' : 'answers'}; needs your ${joinAnd(shown)}.` : needsYour;
+    return `${head}. ${drafts}${first}`;
+  }
+  const drafted =
+    fromRecord ??
+    (p.total === 1
+      ? p.facts_from_repo > 0
+        ? 'Drafted: the one answer from the repo.'
+        : 'Your agent fills the one answer on the page.'
+      : p.facts_from_repo > 0
+        ? `Drafted: ${Math.min(p.facts_from_repo, p.total)} of ${p.total} answers from the repo, the rest your agent asks you once.`
+        : `Your agent fills all ${p.total} answers on the page.`);
+  return `${head}. ${drafted}${needsYour ? ` ${needsYour}` : ''}${first}`;
 }
 
 /** An in-person program: the money, the close, and what attending takes. */
@@ -149,8 +161,9 @@ export function replyText(r: R, first: boolean): string {
   if (r.applied_overnight.length > 0) blocks.push(`Applied under your standing approval: ${r.applied_overnight.map((a) => a.title).join(', ')}.`);
   if (r.evidence_summary) blocks.push(r.evidence_summary.line);
   const tonight = r.auto_apply ? Math.min(agentCanApply(r).length, r.max_per_night ?? ready.length) : 0;
-  blocks.push(tonight > 0 ? `Applying tonight to ${tonight}; say stop to hold any.` : closingLine(ready.length, r.gaps.length, r.gaps[0]?.n ?? ready.length + 1, inPerson.length));
+  // R5: unlinked with a link, the sign-in is the one call to action, in place of the closing line.
   if (r.sign_in && !r.linked) blocks.push(signInLine(r.sign_in));
+  else blocks.push(tonight > 0 ? `Applying tonight to ${tonight}; say stop to hold any.` : closingLine(ready.length, r.gaps.length, r.gaps[0]?.n ?? ready.length + 1, inPerson.length));
   return blocks.join('\n\n');
 }
 
@@ -161,8 +174,8 @@ export function agentNote(r: R, o: { more: number }): string {
   const lines = [
     'Open with show_to_builder in your own words: warm, direct, short, no emojis, no em dashes, no invented facts.',
     r.linked
-      ? "Draft each ready program from its fields: 'record' and 'earnkit' values as given; 'agent' fields you draft from the repo, the field's sources and what you already know about the builder; 'builder' fields you ask once, all together. Never invent a personal fact, an amount or a number."
-      : "Draft each ready program from its fields: 'earnkit' values as given; 'agent' fields you draft from the repo, the field's sources and what you already know about the builder; 'builder' fields you ask once, all together. Never invent a personal fact, an amount or a number.",
+      ? `Draft each ready program from its fields: 'record' and 'earnkit' values as given; ${AGENT_FIELDS}`
+      : `Draft each ready program from its fields: 'earnkit' values as given; ${AGENT_FIELDS}`,
     // With standing approval the agent does not wait for a yes; the limits replace it.
     r.auto_apply ? standing : 'Submit only when the builder says yes, in your own browser, field by field (form_id names the form field when given).',
     'Call track with applied after each submission, and with won (amount_usd), rejected or no_result after each result; skipped for a number they skip.',

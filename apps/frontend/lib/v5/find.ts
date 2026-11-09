@@ -7,7 +7,8 @@ import { z } from 'zod';
 import { ownerKey } from '../v6/builders';
 import { appliedOvernight, releaseStale } from '../v6/claims';
 import { readEvidence, type Evidence, type Subject } from '../v6/evidence';
-import { blockersOf, notNever, missingFor, recordSide, storedRecordContext, tierGate, type Blocker, type RecordSide } from '../v6/find-record';
+import { blockersOf, notNever, missingFor, provisionalGate, provisionalTier, recordSide, storedRecordContext, tierGate, type Blocker, type RecordSide } from '../v6/find-record';
+import { EMPTY_RECORD } from '../v6/record';
 import { signInLink } from '../v6/record-tool';
 import { signInLine } from '../v6/reply-words';
 import { timeLeftWords } from './deadline';
@@ -21,7 +22,7 @@ import { getProgram, isOpen, listOpenPrograms, type ProgramRow } from './program
 import { parseProject, type Project } from './project-input';
 import { rankGaps, rankReady } from './rank';
 import { repoFacts, type RepoFacts } from './repo-facts';
-import { agentNote, numbered, replyText } from './reply';
+import { AGENT_FIELDS, agentNote, numbered, replyText } from './reply';
 import { since, type Since } from './since';
 
 export const FindInput = z.object({
@@ -177,7 +178,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
     show_to_builder: [`${p.title}, ${moneyOf(p)}${when ? `, ${when}` : ''}.`, ...(rules.length > 0 ? [`Apply at ${p.submission_url}.`, ...rules, ask] : [`Apply at ${p.submission_url}. ${ask}`])].join('\n'),
     agent_note: (open
       ? [
-          project ? 'Draft from fields: earnkit values as given, agent fields from your memory and sources, builder fields asked once.' : 'Call again with the project so the fields come pre-filled.',
+          project ? `Draft from fields: ${fitted ? "'record' and 'earnkit'" : "'earnkit'"} values as given; ${AGENT_FIELDS}` : 'Call again with the project so the fields come pre-filled.',
           'Submit only on a yes, in your own browser, then call track with applied.',
           ...(fitted ? ['Fit approved answers by cutting, never by adding; the style contract travels on each field.'] : []),
         ]
@@ -216,7 +217,7 @@ async function openList(ctx: FindContext, problem: string | null): Promise<FindR
 /** The unlinked installation's sign-in link, or null (never a failure). */
 const linkOf = (ctx: FindContext) => (ctx.linkUrl ?? (() => signInLink(ctx.installationId, ctx.now)))().catch(() => null);
 
-/** An unlinked find: every record field empty. */
+/** An unlinked find: every record field empty (find adds the blockers the empty record has). */
 const unlinkedPart = (): Pick<FindReply, 'linked' | 'record_missing' | 'blockers' | 'evidence_summary' | 'applied_overnight' | 'released' | 'auto_apply'> => ({
   linked: false, record_missing: [], blockers: [], evidence_summary: null, applied_overnight: [], released: [], auto_apply: false,
 });
@@ -262,9 +263,11 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const programs = open.filter((r) => !skip.has(r.id) && listed(r) && (!i.filter?.category || categoryOf(r.file) === i.filter.category));
   const byId = new Map(programs.map((r) => [r.id, r]));
   const done = await doneByProgram(owner);
+  // Unlinked, the bar is the tier the public code read alone supports (none when it was not read); never shown as evidence.
+  const provisional = side ? null : provisionalTier(facts);
   const verdicts = programs
     .map((r) => evaluate(r, facts, done.get(r.id) ?? new Set<string>(), ctx.now))
-    .map((v) => (side ? tierGate(v, byId.get(v.program_id)!, side.tier, side.summary?.line) : v));
+    .map((v) => (side ? tierGate(v, byId.get(v.program_id)!, side.tier, side.summary?.line) : provisionalGate(v, byId.get(v.program_id)!, provisional)));
 
   const readyV = rankReady(verdicts.filter((v) => v.status === 'ready'), byId);
   const gapV = rankGaps(verdicts.filter((v) => v.status === 'gap'), byId);
@@ -295,7 +298,9 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
     ...(all ? { not_fit: verdicts.filter((v) => v.status === 'no').map((v) => ({ program_id: v.program_id, title: byId.get(v.program_id)!.file.title, reason: v.reason ?? 'does not fit' })) } : {}),
     ledger, ask_outcome: ask, as_reported: facts.as_reported,
     ...(problems.length > 0 ? { problems } : {}),
-    ...(side ? linkedPart(side, ready.map((p) => byId.get(p.program_id)!), released, overnight) : { ...unlinkedPart(), ...(link ? { sign_in: link } : {}) }),
+    ...(side
+      ? linkedPart(side, ready.map((p) => byId.get(p.program_id)!), released, overnight)
+      : { ...unlinkedPart(), blockers: blockersOf(ready.map((p) => byId.get(p.program_id)!), EMPTY_RECORD), ...(link ? { sign_in: link } : {}) }),
   };
   await markFind(ctx.installationId, ctx.now);
   return { show_to_builder: replyText(r, last === null), agent_note: agentNote(r, { more }), ...r };

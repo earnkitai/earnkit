@@ -121,7 +121,8 @@ test('gaps only, the agent can do it, and the needs list is cut at three', () =>
   const many = base({ ready: [ready({ title: 'B', needs: ['your full name', 'your email', 'a Loom product demo', 'your X handle', 'an investor deck file'] })] });
   assert.match(replyText(many, false), /Needs your full name, email, Loom product demo and 2 more\.$/m);
   const setup = base({ ready: [ready({ title: 'S', setup: ['sign in to the Builder Hub'], needs: ['sign in to the Builder Hub', 'a Loom product demo'] })] });
-  assert.match(replyText(setup, false), /^1\. S, \$1K\. Your agent fills the one answer on the page\. Needs your Loom product demo\. First: sign in to the Builder Hub\.$/m);
+  // R2b: the one answer is the builder's, so the agent drafts none of it.
+  assert.match(replyText(setup, false), /^1\. S, \$1K\. Needs your Loom product demo\. First: sign in to the Builder Hub\.$/m);
 });
 
 test('one ready program: no "all 1"', () => {
@@ -203,6 +204,13 @@ test('the ready line is honest about the answers: n of total, never above total,
   assert.equal(line({ facts_from_repo: 2, total: 23 }), "1. Z Fellows, $10K. Drafted: 2 of 23 answers from the repo, the rest your agent asks you once.");
   assert.equal(line({ facts_from_repo: 6, total: 4 }), "1. Z Fellows, $10K. Drafted: 4 of 4 answers from the repo, the rest your agent asks you once.");
   assert.equal(line({ facts_from_repo: 0, total: 23 }), '1. Z Fellows, $10K. Your agent fills all 23 answers on the page.');
+  // R2b: none from the repo but some only the builder gives: never "fills all", the agent drafts the rest.
+  assert.equal(line({ facts_from_repo: 0, total: 23, needs: ['your birthday', 'your phone number'] }), '1. Z Fellows, $10K. Your agent drafts 21 answers; needs your birthday and phone number.');
+  assert.equal(line({ facts_from_repo: 0, total: 2, needs: ['your birthday'] }), '1. Z Fellows, $10K. Your agent drafts 1 answer; needs your birthday.');
+  assert.equal(
+    line({ facts_from_repo: 0, total: 3, setup: ['sign in to the Hub'], needs: ['sign in to the Hub', 'your birthday'] }),
+    '1. Z Fellows, $10K. Your agent drafts 2 answers; needs your birthday. First: sign in to the Hub.',
+  );
 });
 
 test('one required answer reads in the singular', () => {
@@ -296,11 +304,15 @@ test('standing approval: the closing line counts what an agent can send alone, a
   assert.ok(agentNote(MONDAY, { more: 0 }).includes("Draft each ready program from its fields: 'earnkit' values as given;"));
 });
 
-test('unlinked with a sign-in link: the link is the last line; linked never shows it', () => {
+test('unlinked with a sign-in link: one call to action, the sign-in line, in place of the closing line (R5); linked never shows it', () => {
   const link = 'https://earnkit.test/link/abcdefghijklmnop';
   const text = replyText({ ...MONDAY, sign_in: link }, false);
-  assert.equal(text.split('\n').at(-1), `Sign in once at ${link} so I remember you across agents.`);
-  assert.match(text, /Say yes to apply to all 2, numbers to skip, or "do 3" and I'll make the change first\.\n\nSign in once at /);
+  const blocks = text.split('\n\n');
+  assert.equal(blocks.at(-1), `Sign in once at ${link} so I remember you across agents.`);
+  assert.equal(blocks.at(-2), 'Ledger: 1 applied ($5K asked), 0 won, 1 pending.');
+  assert.doesNotMatch(text, /Say yes|Say "do|Nothing fits yet|Tell me which/);
+  // Without a link the closing line stays.
+  assert.match(replyText(MONDAY, false), /\n\nSay yes to apply to all 2, numbers to skip, or "do 3" and I'll make the change first\.$/);
   assert.doesNotMatch(replyText({ ...LINKED, sign_in: link }, false), /Sign in once at/);
 });
 
