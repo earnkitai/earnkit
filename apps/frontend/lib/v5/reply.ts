@@ -49,7 +49,7 @@ function readyLine(p: ReadyProgram, linked: boolean): string {
         ? 'Drafted: the one answer from the repo.'
         : 'Your agent fills the one answer on the page.'
       : p.facts_from_repo > 0
-        ? `Drafted: ${Math.min(p.facts_from_repo, p.total)} of ${p.total} answers from the repo, the rest from your agent's memory.`
+        ? `Drafted: ${Math.min(p.facts_from_repo, p.total)} of ${p.total} answers from the repo, the rest your agent asks you once.`
         : `Your agent fills all ${p.total} answers on the page.`;
   const drafted = fromRecord ?? v5;
   // Setup items are steps ("sign in to ..."), the rest are things ("a Loom demo"): each reads its own way.
@@ -161,8 +161,8 @@ export function agentNote(r: R, o: { more: number }): string {
   const lines = [
     'Open with show_to_builder in your own words: warm, direct, short, no emojis, no em dashes, no invented facts.',
     r.linked
-      ? "Draft each ready program from its fields: 'record' and 'earnkit' values as given; 'agent' fields you write from your memory and the field's sources; 'builder' fields you ask once, all together."
-      : "Draft each ready program from its fields: 'earnkit' values as given; 'agent' fields you write from your memory and the field's sources; 'builder' fields you ask once, all together.",
+      ? "Draft each ready program from its fields: 'record' and 'earnkit' values as given; 'agent' fields you draft from the repo and the field's sources; 'builder' fields you ask once, all together. Never invent a personal fact, an amount or a number."
+      : "Draft each ready program from its fields: 'earnkit' values as given; 'agent' fields you draft from the repo and the field's sources; 'builder' fields you ask once, all together. Never invent a personal fact, an amount or a number.",
     // With standing approval the agent does not wait for a yes; the limits replace it.
     r.auto_apply ? standing : 'Submit only when the builder says yes, in your own browser, field by field (form_id names the form field when given).',
     'Call track with applied after each submission, and with won (amount_usd), rejected or no_result after each result; skipped for a number they skip.',

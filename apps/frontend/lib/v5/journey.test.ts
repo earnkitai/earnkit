@@ -67,8 +67,9 @@ test('a stranger with an app on no chain gets gaps or "Nothing fits yet" and no 
   const show = reply.show_to_builder as string;
   const gaps = reply.gaps as unknown[];
   assert.ok(gaps.length > 0 || /Nothing fits yet\. I'll say when something opens\.$/.test(show), show);
-  // A program's own setup steps ("First: sign in to its hub") are the program's, not EarnKit asking who they are.
-  const ours = show.replace(/ First: [^\n]*/g, '').replace(/^In person, apply to attend first:\n(\d+\. [^\n]*\n?)+/m, '');
+  // A program's own setup steps ("First: sign in to its hub") and its form's personal fields ("Needs your email") are the
+  // program's, not EarnKit asking who they are.
+  const ours = show.replace(/ First: [^\n]*/g, '').replace(/ Needs your [^\n]*?\.(?= First:|$)/gm, '').replace(/^In person, apply to attend first:\n(\d+\. [^\n]*\n?)+/m, '');
   assert.doesNotMatch(ours, /\b(email|sign in|sign up|log in|your name|your team|telegram|account)\b/i);
   assert.equal(reply.as_reported, false);
 });

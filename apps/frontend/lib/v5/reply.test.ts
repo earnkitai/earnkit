@@ -68,7 +68,7 @@ test('the Monday text: two ready, one gap, a ledger with one applied', () => {
     replyText(MONDAY, false),
     [
       'Ready to apply, 2:',
-      "1. Alliance ALL19, $400K at admission, closes in 14 days. Drafted: 2 of 9 answers from the repo, the rest from your agent's memory. Needs your first founder's email.",
+      "1. Alliance ALL19, $400K at admission, closes in 14 days. Drafted: 2 of 9 answers from the repo, the rest your agent asks you once. Needs your first founder's email.",
       '2. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Your agent fills all 5 answers on the page.',
       '',
       'One change away, 1:',
@@ -98,7 +98,7 @@ test('the since line: only when something changed, never on the first find', () 
       'Since Nov 2: 2 new programs you fit; Circle Developer Grants: deadline moved to Nov 20; Alliance ALL19 closes in 3 days.',
       '',
       'Ready to apply, 1:',
-      "1. Alliance ALL19, $400K at admission, closes in 3 days. Drafted: 1 of 4 answers from the repo, the rest from your agent's memory.",
+      "1. Alliance ALL19, $400K at admission, closes in 3 days. Drafted: 1 of 4 answers from the repo, the rest your agent asks you once.",
       '',
       'Ledger: 2 applied ($115K asked), 1 won, 1 pending, 1 closing soon.',
       '',
@@ -142,7 +142,7 @@ test('in person: its own block after ready and gaps, with the setup, and never i
     replyText(r, false),
     [
       'Ready to apply, 2:',
-      "1. Alliance ALL19, $400K at admission, closes in 14 days. Drafted: 2 of 9 answers from the repo, the rest from your agent's memory. Needs your first founder's email.",
+      "1. Alliance ALL19, $400K at admission, closes in 14 days. Drafted: 2 of 9 answers from the repo, the rest your agent asks you once. Needs your first founder's email.",
       '2. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Your agent fills all 5 answers on the page.',
       '',
       'One change away, 1:',
@@ -200,8 +200,8 @@ test('a reported-only program with passed links reads "Your agent fills the one 
 
 test('the ready line is honest about the answers: n of total, never above total, or all of them by the agent', () => {
   const line = (over: Partial<ReadyProgram>) => replyText(base({ ready: [ready({ title: 'Z Fellows', money: '$10K', ...over })] }), false).split('\n')[1];
-  assert.equal(line({ facts_from_repo: 2, total: 23 }), "1. Z Fellows, $10K. Drafted: 2 of 23 answers from the repo, the rest from your agent's memory.");
-  assert.equal(line({ facts_from_repo: 6, total: 4 }), "1. Z Fellows, $10K. Drafted: 4 of 4 answers from the repo, the rest from your agent's memory.");
+  assert.equal(line({ facts_from_repo: 2, total: 23 }), "1. Z Fellows, $10K. Drafted: 2 of 23 answers from the repo, the rest your agent asks you once.");
+  assert.equal(line({ facts_from_repo: 6, total: 4 }), "1. Z Fellows, $10K. Drafted: 4 of 4 answers from the repo, the rest your agent asks you once.");
   assert.equal(line({ facts_from_repo: 0, total: 23 }), '1. Z Fellows, $10K. Your agent fills all 23 answers on the page.');
 });
 
@@ -228,7 +228,7 @@ test('linked: the ready line names what the record and the repo give and who els
   assert.equal(replyText(zero, false).split('\n')[1], '1. C, $1K. Your agent fills all 4 answers on the page.');
   // Unlinked: v5's words, whatever the counts say.
   const unlinked = base({ ready: [ready({ title: 'Z Fellows', money: '$10K', from_record: 3, facts_from_repo: 2, total: 6, need_you: ['x'] })] });
-  assert.equal(replyText(unlinked, false).split('\n')[1], "1. Z Fellows, $10K. Drafted: 2 of 6 answers from the repo, the rest from your agent's memory.");
+  assert.equal(replyText(unlinked, false).split('\n')[1], "1. Z Fellows, $10K. Drafted: 2 of 6 answers from the repo, the rest your agent asks you once.");
 });
 
 const LINKED = base({
