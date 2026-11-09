@@ -42,7 +42,8 @@ test('rankGaps (R18b): real changes first, rule-only programs after, each ranked
      v('real-days', { status: 'gap', gaps: [gap('days')] })],
     programs,
   );
-  assert.deepEqual(out.map((x) => x.program_id), ['real-days', 'real-weeks', 'mixed', 'r-big', 'r-small']);
+  // v6.1.8 fix round 1: a rule is not a change, so 'mixed' (one hours change and a rule) leads the one-change programs.
+  assert.deepEqual(out.map((x) => x.program_id), ['mixed', 'real-days', 'real-weeks', 'r-big', 'r-small']);
 });
 
 test('shownGapsOf (R18b): three rule-only and two real gaps show the two real then one rule-only; all is unchanged', () => {
@@ -124,4 +125,13 @@ test('C60 (v6.1.8): the money sort reads the larger of the award and the pool, s
   assert.deepEqual(rankReady([v('award'), v('pool-only'), v('pool')], programs).map((x) => x.program_id), ['pool', 'pool-only', 'award']);
   const g = (id: string) => v(id, { status: 'gap', gaps: [gap('hours')] });
   assert.deepEqual(rankGaps([g('award'), g('pool-only'), g('pool')], programs).map((x) => x.program_id), ['pool', 'pool-only', 'award']);
+});
+
+test('fix round 1 (v6.1.8): rule gaps do not count toward the number of changes; a $1M pool with a demo video and a rule outranks a $100K live link', () => {
+  const programs = new Map([row('vr', { max_award_usd: 100_000, pool_usd: 1_000_000, reward: '$1,000,000 in prizes' }), row('floss', { max_award_usd: 100_000 }), row('two', { max_award_usd: 9_000_000 })].map((r) => [r.id, r]));
+  const out = rankGaps(
+    [v('floss', { status: 'gap', gaps: [gap('hours')] }), v('two', { status: 'gap', gaps: [gap('hours'), gap('hours')] }), v('vr', { status: 'gap', gaps: [gap('hours'), ruleGap('vr')] })],
+    programs,
+  );
+  assert.deepEqual(out.map((x) => x.program_id), ['vr', 'floss', 'two']);
 });

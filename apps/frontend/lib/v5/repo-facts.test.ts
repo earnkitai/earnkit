@@ -347,4 +347,11 @@ test('B20 (v6.1.8): reads paused and a private repo are named once, each its own
   assert.deepEqual(priv.notes, ['private']);
   const none = await repoFacts(project({}), { now: NOW });
   assert.deepEqual(none.notes, []);
+  // Fix round 1: any other repo link not read is one note: a 404, a non-GitHub link, an outage.
+  const rec = replayFetch('nextjs-dashboard');
+  const gone = await repoFacts(project({ repo_url: `https://github.com/${rec.repo}` }), { gh: failing(rec, /api\.github\.com\/repos\/[^/]+\/[^/]+$/, 404), now: NOW });
+  assert.deepEqual([gone.as_reported, gone.notes], [true, ['unread']]);
+  assert.deepEqual((await repoFacts(project({ repo_url: 'https://gitlab.com/a/b' }), { now: NOW })).notes, ['unread']);
+  const down = (async () => { throw new Error('network down'); }) as unknown as typeof fetch;
+  assert.deepEqual((await repoFacts(project({ repo_url: `https://github.com/${rec.repo}` }), { gh: down, now: NOW })).notes, ['unread']);
 });

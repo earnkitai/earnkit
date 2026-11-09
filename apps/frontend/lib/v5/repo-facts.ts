@@ -15,9 +15,9 @@ import { addressKey, type Project } from './project-input';
 export type Basis = 'code' | 'reported';
 /**
  * What the builder is told about the read, one sentence each (v6.1.8, B20 and C59): reads paused for the day, a
- * private repo (matched on the report), a fork, an archived repo (counts as not live), an empty repo.
+ * private repo, any other repo link not read (a 404, a non-GitHub link, an outage; fix round 1), a fork, an archived repo (counts as not live), an empty repo.
  */
-export type RepoNote = 'paused' | 'private' | 'fork' | 'archived' | 'empty';
+export type RepoNote = 'paused' | 'private' | 'unread' | 'fork' | 'archived' | 'empty';
 export type RepoFacts = {
   name: string;
   description: string;
@@ -314,9 +314,10 @@ export async function repoFacts(project: Project, deps: { gh?: Fetch; now?: Date
   }
   const archived = code?.archived === true;
   const homeLive = archived ? null : (code?.homepage ?? null);
+  // A repo link given and not read is said once, with the one reason that applies.
+  const unread: RepoNote[] = !project.repo_url || code ? [] : [paused ? 'paused' : project.private ? 'private' : 'unread'];
   const notes: RepoNote[] = [
-    ...(paused ? (['paused'] as const) : []),
-    ...(project.private ? (['private'] as const) : []),
+    ...unread,
     ...(code?.fork ? (['fork'] as const) : []),
     ...(archived ? (['archived'] as const) : []),
     ...(code?.empty ? (['empty'] as const) : []),

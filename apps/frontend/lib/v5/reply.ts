@@ -204,10 +204,11 @@ function agentCanApply(r: R): ReadyProgram[] {
   return r.ready.filter((p) => !p.in_person && !blocked.has(p.program_id) && !p.claimed_since);
 }
 
-/** The one sentence for each thing the builder is told about the repo read (v6.1.8, B20 and C59). */
+/** The one sentence for each thing the builder is told about the repo read (v6.1.8, B20 and C59); a repo link not read gets exactly one of the first three. */
 export const REPO_NOTE: Record<RepoNote, string> = {
   paused: 'Repo reads are paused until tomorrow; matched on what you told me.',
   private: 'Private repo: matched on what you told me.',
+  unread: 'I could not read the repo; matched on what you told me.',
   fork: 'This repo is a fork; programs judge the original.',
   archived: 'This repo is archived; programs want active work.',
   empty: 'The repo is empty, so I matched on what you told me.',

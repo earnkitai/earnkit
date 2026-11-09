@@ -1,11 +1,12 @@
 /**
  * Ordering of verdicts. Ready: fit first (not a long shot), then the larger award (or pool), then the
  * sooner deadline. Gaps: programs with a real change first, then rule-only ones (R18b); rule-only ones naming one
- * of the project's mainnet chains first, then chain-agnostic ones, then the rest (R18e); within each, fewest gaps, then
+ * of the project's mainnet chains first, then chain-agnostic ones, then the rest (R18e); within each, fewest gaps (real
+ * changes only for a program with one: a rule is not a change, v6.1.8), then
  * lowest effort, then the larger award; rule-only ones on the project's chains that state no award put one naming the
  * project's first reported chain first (v6.1.7), then keep catalog (input) order. Pure.
  */
-import { rulesOnly, type Effort, type Verdict } from './eligibility';
+import { rulesOnly, type Effort, type Gap, type Verdict } from './eligibility';
 import type { ProgramRow } from './programs';
 
 const EFFORT_RANK: Record<Effort, number> = { minutes: 0, hours: 1, days: 2, weeks: 3 };
@@ -22,7 +23,10 @@ const endsAt = (v: Verdict, m: Programs) => {
   return e ? Date.parse(e) : Infinity;
 };
 const byAward = (a: Verdict, b: Verdict, m: Programs) => (award(b, m) ?? -1) - (award(a, m) ?? -1);
-const effortOf = (v: Verdict) => Math.max(-1, ...v.gaps.map((g) => EFFORT_RANK[g.effort]));
+const effortOf = (gaps: Gap[]) => Math.max(-1, ...gaps.map((g) => EFFORT_RANK[g.effort]));
+/** The gaps a program is ranked by (fix round 1, v6.1.8): its real changes, since a rule is a yes, not a change; a
+ *  rule-only program keeps its rules (ranked among rule-only programs as before). */
+const changes = (v: Verdict): Gap[] => (rulesOnly(v.gaps) ? v.gaps : v.gaps.filter((g) => g.kind !== 'rule'));
 const cmp = (a: number, b: number) => (a === b ? 0 : a < b ? -1 : 1);
 /** R18e: 0 names one of the project's mainnet chains, 1 chain-agnostic, 2 the rest. */
 const reach = (v: Verdict, m: Programs, mainnets: ReadonlySet<string>) => {
@@ -56,7 +60,7 @@ export function rankGaps(v: Verdict[], programs: Programs, mainnets: ReadonlySet
     (a, b) =>
       cmp(Number(rulesOnly(a.gaps)), Number(rulesOnly(b.gaps))) ||
       (rulesOnly(a.gaps) && rulesOnly(b.gaps) ? cmp(reach(a, programs, mainnets), reach(b, programs, mainnets)) : 0) ||
-      cmp(a.gaps.length, b.gaps.length) || cmp(effortOf(a), effortOf(b)) || byAward(a, b, programs) || firstTie(a, b),
+      cmp(changes(a).length, changes(b).length) || cmp(effortOf(changes(a)), effortOf(changes(b))) || byAward(a, b, programs) || firstTie(a, b),
   );
 }
 

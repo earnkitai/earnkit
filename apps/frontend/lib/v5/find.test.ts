@@ -65,8 +65,8 @@ test('first find has no since', async () => {
       '1. Arbitrum Mentorship Program: Cohort 2, $100K in prizes, closes in 32 days. Long odds: few prizes for many entries. Drafted: 2 of 22 answers from the repo, 17 more by your agent. Needs your top 3 successes, funding raised before and current TVL range.',
       '',
       'One change away, 3:',
-      '2. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
-      '3. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.',
+      '2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes: a demo video. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.',
+      '3. Codegeist 2026, $120,000 in prizes: a demo video. Their rule: an app on Atlassian Forge that integrates with at least one Atlassian product (Jira, Confluence, JSM, Bitbucket, Teamwork Graph or Rovo).',
       '4. Arbitrum Security Program, audit subsidy. Their rule: smart contract code that is audit-ready, with a defined audit scope.',
       '',
       'In person, apply to attend first:',
@@ -845,6 +845,7 @@ const B_GAPS = [
   '3. OTF Internet Freedom Fund, $10,000 to $900,000. Their rule: advances internet freedom for people in repressive environments: circumvention, safe communication or access to blocked information.',
   '',
 ];
+const B_TAIL = [...IN_PERSON_TAIL.slice(0, -1), 'I could not read the repo; matched on what you told me.', '', IN_PERSON_TAIL.at(-1)!];
 const C_GAPS = [
   'One change away, 1:',
   '1. OTF Internet Freedom Fund, $10,000 to $900,000. Their rule: advances internet freedom for people in repressive environments: circumvention, safe communication or access to blocked information.',
@@ -861,8 +862,8 @@ test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets
       '1. Arbitrum Mentorship Program: Cohort 2, $100K in prizes, closes in 32 days. Long odds: few prizes for many entries. Drafted: 2 of 22 answers from the repo, 17 more by your agent. Needs your top 3 successes, funding raised before and current TVL range.',
       '',
       'One change away, 3:',
-      '2. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
-      '3. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.',
+      '2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes: a demo video. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.',
+      '3. Codegeist 2026, $120,000 in prizes: a demo video. Their rule: an app on Atlassian Forge that integrates with at least one Atlassian product (Jira, Confluence, JSM, Bitbucket, Teamwork Graph or Rovo).',
       '4. Base Ecosystem Fund, pre-seed and seed investment. Their rule: a pre-seed or seed stage startup that chooses Base as its home.',
       '',
       'In person, apply to attend first:',
@@ -882,7 +883,8 @@ test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets
 test('R18e, R18f, C54, B20: projects B (dotfiles) and C (notes) report no chain: no contract step, the chain-agnostic rule last, no in-person gap program by default (v6.1.6, v6.1.8)', async () => {
   const b = await mcpCall(ctx(await installation()), 'find', { project: PROJECT_B });
   assert.equal(b.isError, false, b.text);
-  assert.equal(b.reply!.show_to_builder, [...B_GAPS, ...IN_PERSON_TAIL].join('\n'));
+  // Its repo is not recorded, so the replay answers 404: unread, said once (fix round 1).
+  assert.equal(b.reply!.show_to_builder, [...B_GAPS, ...B_TAIL].join('\n'));
   const c = await mcpCall(ctx(await installation()), 'find', { project: PROJECT_C });
   assert.equal(c.isError, false, c.text);
   assert.equal(
@@ -919,8 +921,8 @@ test('C54 (v6.1.8, Review Focus 1): the web2 SaaS fixture\'s default and full re
     d.reply!.show_to_builder,
     [
       'One change away, 3:',
-      '1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.',
-      '2. Farcaster Developer Rewards, $10,000 across 100 apps this week: tell me if real people use it.',
+      '1. Meta VR Start Developer Competition 2026, $1,000,000 in prizes: a demo video. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.',
+      '2. Codegeist 2026, $120,000 in prizes: a demo video. Their rule: an app on Atlassian Forge that integrates with at least one Atlassian product (Jira, Confluence, JSM, Bitbucket, Teamwork Graph or Rovo).',
       '3. OTF Internet Freedom Fund, $10,000 to $900,000. Their rule: advances internet freedom for people in repressive environments: circumvention, safe communication or access to blocked information.',
       '',
       ...IN_PERSON_TAIL,
@@ -937,7 +939,7 @@ test('C54 (v6.1.8, Review Focus 1): the web2 SaaS fixture\'s default and full re
   assert.equal(notFit.get('solana-foundation-grants'), 'needs a contract on Solana');
 });
 
-test('C60 (v6.1.8): the VR persona\'s top three; Meta VR ($1M pool) leads the two-change programs, ahead of a $120K pool', async () => {
+test('C60 and fix round 1 (v6.1.8): the VR persona\'s default gap list leads with Meta VR Start (one real change, a $1M pool)', async () => {
   const VR = { name: 'ALVR', description: 'Stream VR games from your PC to your headset over Wi-Fi', repo_url: 'https://github.com/alvr-org/ALVR', private: true, users: true };
   const r = await mcpCall(ctx(await installation()), 'find', { project: VR });
   assert.equal(r.isError, false, r.text);
@@ -945,14 +947,27 @@ test('C60 (v6.1.8): the VR persona\'s top three; Meta VR ($1M pool) leads the tw
     blockOf(r.reply!.show_to_builder as string, 'One change away').split('\n'),
     [
       'One change away, 3:',
-      '1. FLOSS/fund, $10,000 to $100,000: put a live link up.',
-      '2. Farcaster Developer Rewards, $10,000 across 100 apps this week: put a live link up.',
+      '1. Meta VR Start Developer Competition 2026, $1,000,000 in prizes: a demo video. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.',
+      '2. Codegeist 2026, $120,000 in prizes: a demo video. Their rule: an app on Atlassian Forge that integrates with at least one Atlassian product (Jira, Confluence, JSM, Bitbucket, Teamwork Graph or Rovo).',
       '3. OTF Internet Freedom Fund, $10,000 to $900,000. Their rule: advances internet freedom for people in repressive environments: circumvention, safe communication or access to blocked information.',
     ],
   );
+  // One real change each, so the money decides: $1M pool, $120K pool, then FLOSS/fund's $100K live link.
   const all = await mcpCall(ctx(await installation()), 'find', { project: VR, filter: { all: true } });
-  const order = ids(all.reply!.gaps);
-  assert.deepEqual(order.slice(0, 4), ['floss-fund-zerodha', 'farcaster-developer-rewards', 'meta-vr-start-competition-2026', 'codegeist-2026'], JSON.stringify(order));
+  assert.deepEqual(ids(all.reply!.gaps).slice(0, 3), ['meta-vr-start-competition-2026', 'codegeist-2026', 'floss-fund-zerodha']);
+});
+
+test('fix round 1 (v6.1.8): a repo link that answers 404 is matched on the report and said once', async () => {
+  const f = replayFetch('nextjs-dashboard');
+  const gone = ((u: RequestInfo | URL) => (/api\.github\.com\/repos\/[^/]+\/[^/]+$/.test(String(u)) ? Promise.resolve(new Response('Not Found', { status: 404 })) : f.fetch(u))) as typeof fetch;
+  const r = await mcpCall({ installationId: await installation(), builderId: null, now: NOW, gh: gone }, 'find', { project: SAAS });
+  assert.equal(r.isError, false, r.text);
+  assert.equal(r.reply!.as_reported, true);
+  assert.deepEqual(r.reply!.repo_notes, ['unread']);
+  const show = r.reply!.show_to_builder as string;
+  assert.equal(show.split('I could not read the repo; matched on what you told me.').length, 2, show);
+  assert.doesNotMatch(show, /Private repo|paused/);
+  assert.match(r.reply!.agent_note as string, /No public repo was read/);
 });
 
 test('C59 (v6.1.8): a fork, an archived repo and an empty repo each get their one sentence; archived is not live; empty promises no repo proof', async () => withEnv(OAUTH_ENV, async () => withLiveBar(async () => {
