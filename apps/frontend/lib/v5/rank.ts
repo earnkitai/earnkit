@@ -64,16 +64,20 @@ export function rankGaps(v: Verdict[], programs: Programs, mainnets: ReadonlySet
   );
 }
 
+/** Whether a gap program carries a rule to confirm, with or without a real change. Pure. */
+const ruleBearing = (v: Verdict) => v.gaps.some((g) => g.kind === 'rule');
+
 /**
- * The gap list shown (R18b): all of it when `all`; else the first `max` with at most one rule-only program, the
- * first-ranked one, after the real changes (it takes the last slot when there are more real changes). In-person
- * programs never appear in the default list (R18d, R18f); `filter.all` shows them and `more` counts them. Input in
- * rankGaps order. Pure.
+ * The gap list shown (R18b, v6.1.8 fix round 2): all of it when `all`; else at most one program that carries an
+ * unconfirmed rule (a real change plus a rule, or rules only), the best-ranked one, in the last slot, and the other
+ * slots filled by rule-free programs in rank order. A list with no rule-free programs shows the one rule-bearing
+ * program alone. In-person programs never appear in the default list (R18d, R18f); `filter.all` shows them and
+ * `more` counts every program left out. Input in rankGaps order. Pure.
  */
 export function shownGapsOf(gapV: Verdict[], all: boolean, max: number, inPerson: (v: Verdict) => boolean): Verdict[] {
   if (all) return gapV;
   const remote = gapV.filter((v) => !inPerson(v));
-  const real = remote.filter((v) => !rulesOnly(v.gaps));
-  const rule = remote.find((v) => rulesOnly(v.gaps));
-  return rule ? [...real.slice(0, max - 1), rule] : real.slice(0, max);
+  const free = remote.filter((v) => !ruleBearing(v));
+  const rule = remote.find(ruleBearing);
+  return rule ? [...free.slice(0, max - 1), rule] : free.slice(0, max);
 }

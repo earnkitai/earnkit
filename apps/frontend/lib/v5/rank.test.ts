@@ -135,3 +135,14 @@ test('fix round 1 (v6.1.8): rule gaps do not count toward the number of changes;
   );
   assert.deepEqual(out.map((x) => x.program_id), ['vr', 'floss', 'two']);
 });
+
+test('shownGapsOf (v6.1.8 fix round 2): at most one rule-bearing program, the best-ranked, in the last slot; rule-free ones fill the rest', () => {
+  const mixed = (id: string) => v(id, { status: 'gap', gaps: [gap('hours'), ruleGap(id)] });
+  const free = (id: string) => v(id, { status: 'gap', gaps: [gap('hours')] });
+  // Rank order: a change-plus-rule program ranked first (Meta VR), another one, two rule-free, a rule-only one.
+  const ranked = [mixed('vr'), mixed('codegeist'), free('circle'), free('floss'), v('otf', { status: 'gap', gaps: [ruleGap('otf')] })];
+  assert.deepEqual(shownGapsOf(ranked, false, 3, remote).map((x) => x.program_id), ['circle', 'floss', 'vr']);
+  assert.deepEqual(shownGapsOf(ranked, true, 3, remote), ranked);
+  // No rule-free program: the one rule-bearing program alone.
+  assert.deepEqual(shownGapsOf([mixed('vr'), mixed('codegeist'), v('otf', { status: 'gap', gaps: [ruleGap('otf')] })], false, 3, remote).map((x) => x.program_id), ['vr']);
+});

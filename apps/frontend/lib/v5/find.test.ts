@@ -65,15 +65,15 @@ test('first find has no since', async () => {
       '1. Arbitrum Mentorship Program: Cohort 2, $100K in prizes, closes in 32 days. Long odds: few prizes for many entries. Drafted: 2 of 22 answers from the repo, 17 more by your agent. Needs your top 3 successes, funding raised before and current TVL range.',
       '',
       'One change away, 3:',
-      '2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes: a demo video. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.',
-      '3. Codegeist 2026, $120,000 in prizes: a demo video. Their rule: an app on Atlassian Forge that integrates with at least one Atlassian product (Jira, Confluence, JSM, Bitbucket, Teamwork Graph or Rovo).',
-      '4. Arbitrum Security Program, audit subsidy. Their rule: smart contract code that is audit-ready, with a defined audit scope.',
+      '2. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
+      '3. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.',
+      '4. Meta VR Start Developer Competition 2026, $1,000,000 in prizes: a demo video. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.',
       '',
       'In person, apply to attend first:',
       '5. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account to start the application.',
       "6. Alliance ALL19, $400K at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
       '',
-      'Say yes to apply, skip it, "yes 4" if its rule fits you, or "do 2" and I\'ll make the change first.',
+      'Say yes to apply, skip it, or "do 2" and I\'ll make the change first.',
     ].join('\n'),
   );
   // Only what nobody but the builder can give: no contacts or team. Whole words, so a program named Team1 is not "team".
@@ -840,12 +840,12 @@ const IN_PERSON_TAIL = [
 // (building, B20), so it keeps the programs with a building bar; C named nothing, so only programs with no bar.
 const B_GAPS = [
   'One change away, 3:',
-  '1. Meta VR Start Developer Competition 2026, $1,000,000 in prizes: a demo video. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.',
-  '2. Codegeist 2026, $120,000 in prizes: a demo video. Their rule: an app on Atlassian Forge that integrates with at least one Atlassian product (Jira, Confluence, JSM, Bitbucket, Teamwork Graph or Rovo).',
-  '3. OTF Internet Freedom Fund, $10,000 to $900,000. Their rule: advances internet freedom for people in repressive environments: circumvention, safe communication or access to blocked information.',
+  '1. FLOSS/fund, $10,000 to $100,000: put a live link up and tell me if real people use it.',
+  '2. Farcaster Developer Rewards, $10,000 across 100 apps this week: put a live link up and tell me if real people use it.',
+  '3. Meta VR Start Developer Competition 2026, $1,000,000 in prizes: a demo video. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.',
   '',
 ];
-const B_TAIL = [...IN_PERSON_TAIL.slice(0, -1), 'I could not read the repo; matched on what you told me.', '', IN_PERSON_TAIL.at(-1)!];
+const B_TAIL = [...IN_PERSON_TAIL.slice(0, -1), 'I could not read the repo; matched on what you told me.', '', 'Say "do 1" and I\'ll make the change first.'];
 const C_GAPS = [
   'One change away, 1:',
   '1. OTF Internet Freedom Fund, $10,000 to $900,000. Their rule: advances internet freedom for people in repressive environments: circumvention, safe communication or access to blocked information.',
@@ -862,22 +862,28 @@ test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets
       '1. Arbitrum Mentorship Program: Cohort 2, $100K in prizes, closes in 32 days. Long odds: few prizes for many entries. Drafted: 2 of 22 answers from the repo, 17 more by your agent. Needs your top 3 successes, funding raised before and current TVL range.',
       '',
       'One change away, 3:',
-      '2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes: a demo video. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.',
-      '3. Codegeist 2026, $120,000 in prizes: a demo video. Their rule: an app on Atlassian Forge that integrates with at least one Atlassian product (Jira, Confluence, JSM, Bitbucket, Teamwork Graph or Rovo).',
-      '4. Base Ecosystem Fund, pre-seed and seed investment. Their rule: a pre-seed or seed stage startup that chooses Base as its home.',
+      '2. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
+      '3. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.',
+      '4. Meta VR Start Developer Competition 2026, $1,000,000 in prizes: a demo video. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.',
       '',
       'In person, apply to attend first:',
       '5. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account to start the application.',
       "6. Alliance ALL19, $400K at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
       '',
-      'Say yes to apply, skip it, "yes 4" if its rule fits you, or "do 2" and I\'ll make the change first.',
+      'Say yes to apply, skip it, or "do 2" and I\'ll make the change first.',
     ].join('\n'),
   );
-  // Without the repo's Arbitrum, the Base rule-only program takes the slot ahead of the $900K chain-agnostic one.
+  // Without the repo's Arbitrum, the Base rule-only program ranks first among the rule-only ones, ahead of the $900K
+  // chain-agnostic one. Since fix round 2 (v6.1.8) the one rule-bearing default slot goes to Meta VR (a real change
+  // and a rule ranks before rules only), so the R18e order is checked in the full list.
   const { repo_url: _, ...baseOnly } = PROJECT_A;
-  const b = await mcpCall(ctx(await installation()), 'find', { project: baseOnly });
-  const rule = (b.reply!.gaps as G[]).filter((g) => [g.gap, ...g.also].every((x) => x.kind === 'rule'));
-  assert.deepEqual(rule.map((g) => g.program_id), ['base-ecosystem-fund'], b.reply!.show_to_builder as string);
+  const b = await mcpCall(ctx(await installation()), 'find', { project: baseOnly, filter: { all: true } });
+  const rule = (b.reply!.gaps as (G & { in_person: boolean })[]).filter((g) => !g.in_person && [g.gap, ...g.also].every((x) => x.kind === 'rule'));
+  assert.equal(rule[0]?.program_id, 'base-ecosystem-fund', b.reply!.show_to_builder as string);
+  assert.ok(rule.findIndex((g) => g.program_id === 'otf-internet-freedom-fund') > 0);
+  const d = await mcpCall(ctx(await installation()), 'find', { project: baseOnly });
+  const ruled = (d.reply!.gaps as G[]).filter((g) => [g.gap, ...g.also].some((x) => x.kind === 'rule'));
+  assert.deepEqual(ruled.map((g) => g.program_id), ['meta-vr-start-competition-2026'], d.reply!.show_to_builder as string);
 });
 
 test('R18e, R18f, C54, B20: projects B (dotfiles) and C (notes) report no chain: no contract step, the chain-agnostic rule last, no in-person gap program by default (v6.1.6, v6.1.8)', async () => {
@@ -921,11 +927,12 @@ test('C54 (v6.1.8, Review Focus 1): the web2 SaaS fixture\'s default and full re
     d.reply!.show_to_builder,
     [
       'One change away, 3:',
-      '1. Meta VR Start Developer Competition 2026, $1,000,000 in prizes: a demo video. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.',
-      '2. Codegeist 2026, $120,000 in prizes: a demo video. Their rule: an app on Atlassian Forge that integrates with at least one Atlassian product (Jira, Confluence, JSM, Bitbucket, Teamwork Graph or Rovo).',
-      '3. OTF Internet Freedom Fund, $10,000 to $900,000. Their rule: advances internet freedom for people in repressive environments: circumvention, safe communication or access to blocked information.',
+      '1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.',
+      '2. Farcaster Developer Rewards, $10,000 across 100 apps this week: tell me if real people use it.',
+      '3. Meta VR Start Developer Competition 2026, $1,000,000 in prizes: a demo video. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.',
       '',
-      ...IN_PERSON_TAIL,
+      ...IN_PERSON_TAIL.slice(0, -1),
+      'Say "do 1" and I\'ll make the change first.',
     ].join('\n'),
   );
   const all = await mcpCall(await dashCtx(), 'find', { project: SAAS, filter: { all: true } });
@@ -939,7 +946,7 @@ test('C54 (v6.1.8, Review Focus 1): the web2 SaaS fixture\'s default and full re
   assert.equal(notFit.get('solana-foundation-grants'), 'needs a contract on Solana');
 });
 
-test('C60 and fix round 1 (v6.1.8): the VR persona\'s default gap list leads with Meta VR Start (one real change, a $1M pool)', async () => {
+test('C60, fix rounds 1 and 2 (v6.1.8): the VR persona reads FLOSS, Farcaster, then Meta VR Start as its one rule-bearing program; the full list leads with Meta VR', async () => {
   const VR = { name: 'ALVR', description: 'Stream VR games from your PC to your headset over Wi-Fi', repo_url: 'https://github.com/alvr-org/ALVR', private: true, users: true };
   const r = await mcpCall(ctx(await installation()), 'find', { project: VR });
   assert.equal(r.isError, false, r.text);
@@ -947,9 +954,9 @@ test('C60 and fix round 1 (v6.1.8): the VR persona\'s default gap list leads wit
     blockOf(r.reply!.show_to_builder as string, 'One change away').split('\n'),
     [
       'One change away, 3:',
-      '1. Meta VR Start Developer Competition 2026, $1,000,000 in prizes: a demo video. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.',
-      '2. Codegeist 2026, $120,000 in prizes: a demo video. Their rule: an app on Atlassian Forge that integrates with at least one Atlassian product (Jira, Confluence, JSM, Bitbucket, Teamwork Graph or Rovo).',
-      '3. OTF Internet Freedom Fund, $10,000 to $900,000. Their rule: advances internet freedom for people in repressive environments: circumvention, safe communication or access to blocked information.',
+      '1. FLOSS/fund, $10,000 to $100,000: put a live link up.',
+      '2. Farcaster Developer Rewards, $10,000 across 100 apps this week: put a live link up.',
+      '3. Meta VR Start Developer Competition 2026, $1,000,000 in prizes: a demo video. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.',
     ],
   );
   // One real change each, so the money decides: $1M pool, $120K pool, then FLOSS/fund's $100K live link.
