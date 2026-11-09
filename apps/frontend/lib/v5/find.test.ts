@@ -4,6 +4,7 @@ import { sql } from './db';
 import { getProgram, upsertProgram } from './programs';
 import { replayFetch } from './fixtures/github';
 import { mcpCall } from './fixtures/mcp-call';
+import { lastGaps } from './installations';
 
 after(() => sql().end());
 beforeEach(() => sql()`DELETE FROM repo_cache`);
@@ -69,6 +70,21 @@ test('first find has no since', async () => {
   // Only what nobody but the builder can give: no contacts or team. Whole words, so a program named Team1 is not "team".
   for (const p of reply.ready as { needs: string[]; setup: string[] }[])
     for (const n of p.needs.filter((x) => !p.setup.includes(x))) assert.doesNotMatch(n, /email|name|\bteam\b|telegram|x profile/i);
+});
+
+test('find saves every gap it found for track to read (last_gaps)', async () => {
+  type G = { program_id: string; gap: { what: string } };
+  // Every gap of this project, with its first gap's what, as filter.all lists them.
+  const every = (await mcpCall(ctx(await installation()), 'find', { project: PROJECT, filter: { all: true } })).reply!.gaps as G[];
+  const want = Object.fromEntries(every.map((g) => [g.program_id, g.gap.what]));
+  // A default find shows only some of them, and still saves them all.
+  const id = await installation();
+  const shown = (await mcpCall(ctx(id), 'find', { project: PROJECT })).reply!.gaps as G[];
+  assert.ok(every.length > shown.length, `fixture needs more gaps than a default find shows: ${every.length} vs ${shown.length}`);
+  const saved = await lastGaps(id);
+  assert.deepEqual(saved, want);
+  assert.ok(Object.keys(saved).length > shown.length);
+  for (const g of shown) assert.equal(saved[g.program_id], g.gap.what);
 });
 
 test('default list: in-person programs never take a remote ready slot (v6.1.4)', async () => {
