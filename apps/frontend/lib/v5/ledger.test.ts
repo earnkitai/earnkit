@@ -97,7 +97,7 @@ test('gap_done refuses an item that is not one of the program\'s, names the real
   const i = await install();
   await prog('l-gap-arc', { eligibility: [{ kind: 'chain', value: 'arc' }] });
   const r = await record(o(i), 'l-gap-arc', 'gap_done', { item: 'nope', now: NOW });
-  assert.deepEqual(r, { ok: false, note: 'Tell me which item you finished: chain:arc, users.' });
+  assert.deepEqual(r, { ok: false, note: 'Tell me which item you finished.', items: ['chain:arc', 'users'] });
   assert.deepEqual(await counts(i), { apps: 0, hist: 0 });
   assert.deepEqual([...(await doneItems(o(i), 'l-gap-arc'))], []);
   assert.equal((await record(o(i), 'l-gap-arc', 'gap_done', { item: 'chain:arc', now: NOW })).ok, true);

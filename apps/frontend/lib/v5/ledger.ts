@@ -58,7 +58,7 @@ export async function record(
     /** applied only: the builder's standing approval (policy.auto_apply) was on when it was tracked. */
     autoApplied?: boolean;
   } = {},
-): Promise<{ ok: true } | { ok: false; note: string }> {
+): Promise<{ ok: true } | { ok: false; note: string; items?: string[] }> {
   const installationId = o.installationId ?? installationOf(owner);
   if (installationId === undefined) throw new Error('record needs the writing installation');
   const now = o.now ?? new Date();
@@ -72,7 +72,8 @@ export async function record(
   if (status === 'gap_done') {
     // Only one of the program's own items, or the unknown-users gap (v6.1.6).
     const keys = [...new Set([...eligibilityOf(program.file).map(itemKey), 'users'])];
-    if (!keys.includes(o.item!)) return { ok: false, note: `Tell me which item you finished: ${keys.join(', ')}.` };
+    // The keys go to the agent only: builder text never carries them (v6.1.6, 25a).
+    if (!keys.includes(o.item!)) return { ok: false, note: 'Tell me which item you finished.', items: keys };
   }
   if (status === 'started') throw new Error('a claim is written by claims.claim');
   const amount = status === 'won' ? o.amount_usd! : null;

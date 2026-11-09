@@ -40,9 +40,9 @@ export type TrackContext = { installationId: number; builderId: number | null; n
 export async function track(ctx: TrackContext, input: unknown): Promise<Result> {
   const owner = ownerKey(ctx.installationId, ctx.builderId);
   const programs = await listOpenPrograms(ctx.now);
-  const refuse = async (note: string): Promise<Result> => ({
+  const refuse = async (note: string, agentNote = 'Nothing was recorded.'): Promise<Result> => ({
     show_to_builder: note,
-    agent_note: 'Nothing was recorded.',
+    agent_note: agentNote,
     ledger: await summary(owner, programs, ctx.now),
   });
   const parsed = TrackInput.safeParse(input);
@@ -86,7 +86,8 @@ export async function track(ctx: TrackContext, input: unknown): Promise<Result> 
   const autoApplied = i.status === 'applied' && i.submitted_by === 'agent' && ctx.builderId !== null && (await getRecord(ctx.builderId)).policy.auto_apply;
   const applied = i.status === 'applied' ? { submitted_by: i.submitted_by, fields_used: i.fields_used, project_id: i.project_id, autoApplied } : {};
   const res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, amount_usd: i.amount_usd, note: i.note, item: i.item, now: ctx.now, ...applied });
-  if (!res.ok) return refuse(res.note);
+  if (!res.ok)
+    return res.items ? refuse(res.note, `Items for this program: ${res.items.join(', ')}. Call track gap_done with one of them.`) : refuse(res.note);
   if (i.status === 'gap_done') await forgetGap(ctx.installationId, i.program_id);
   const title = (await getProgram(i.program_id))!.file.title;
   const lines: Record<Exclude<Status, 'started'>, string> = {

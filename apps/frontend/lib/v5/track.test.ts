@@ -205,6 +205,7 @@ test('gap_done with an item the program does not have is refused, and the rememb
   await upsertProgram(programFixture({ id: 't6-gapbad', eligibility: [{ kind: 'chain', value: 'arc' }] }), 'file', NOW);
   await markFind(c.installationId, NOW, { 't6-gapbad': 'deploy on Arc' });
   const r = await track(c, { program_id: 't6-gapbad', status: 'gap_done', item: 'nope' });
-  assert.match(r.show_to_builder, /chain:arc/);
+  assert.equal(r.show_to_builder, 'Tell me which item you finished.');
+  assert.equal(r.agent_note, 'Items for this program: chain:arc, users. Call track gap_done with one of them.');
   assert.deepEqual(await lastGaps(c.installationId), { 't6-gapbad': 'deploy on Arc' });
 });
