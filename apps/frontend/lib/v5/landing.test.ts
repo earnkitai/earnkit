@@ -57,7 +57,7 @@ test('a logo file that is missing is no logo; one that exists is its path', () =
 
 test('landingFrom: the chip is the stats money; none at zero', () => {
   const l = landingFrom([rowOf({ id: 'c-1' })], STATS, NOW);
-  assert.equal(l.chip, '$105K in grants open now');
+  assert.equal(l.chip, '$105K in grants and prizes open now');
   assert.equal(l.tiles.length, 1);
   assert.equal(landingFrom([], { ...STATS, open_money_usd: 0 }, NOW).chip, null);
 });
@@ -70,5 +70,5 @@ test('readLanding lists the open and upcoming programs of the database', async (
   const ids = l.tiles.map((t) => t.id);
   assert.ok(ids.includes('zz-landing-open') && ids.includes('zz-landing-soon'));
   assert.ok(!ids.includes('zz-landing-shut'));
-  assert.ok(l.chip === null || l.chip.endsWith('in grants open now'));
+  assert.ok(l.chip === null || l.chip.endsWith(' in grants and prizes open now'));
 });

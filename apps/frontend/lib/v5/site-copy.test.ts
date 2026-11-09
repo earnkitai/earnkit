@@ -46,7 +46,8 @@ test('formatters', () => {
   assert.equal(copy.compactUsd(105_000), '$105K');
   assert.equal(copy.compactUsd(1_300_000), '$1.3M');
   assert.equal(copy.heroChipText(0), null);
-  assert.equal(copy.heroChipText(105_000), '$105K in grants open now');
+  assert.equal(copy.heroChipText(105_000), '$105K in grants and prizes open now');
+  assert.equal(copy.heroChipText(35_000), '$35K in grants and prizes open now');
   assert.equal(copy.monthDay(new Date('2026-11-04T12:00:00Z')), 'Nov 4');
   assert.equal(copy.ROLLING, 'Rolling, apply anytime');
   assert.equal(copy.programKind({ in_person: true }), 'hackathon');
@@ -61,7 +62,7 @@ test('the docs say the six sections and stay short', () => {
   const words = [copy.DOCS_INSTALL_TITLE, copy.DOCS_SESSION.title, copy.DOCS_SESSION.text, copy.DOCS_RECORD.title, copy.DOCS_RECORD.text, copy.DOCS_SCREEN.title, copy.DOCS_SCREEN.text, copy.DOCS_CHECKED.title, copy.DOCS_CHECKED.text, copy.DOCS_TERMS.title, copy.DOCS_TERMS.text]
     .join(' ').split(/\s+/).filter(Boolean).length;
   assert.ok(words < 220, `docs copy is ${words} words`);
-  assert.equal(copy.DOCS_RECORD.text, 'Sign in once with GitHub and your agents share one record: your facts, links, documents and the answers you approved. Nothing is sent that you did not approve. Delete it any time.');
+  assert.equal(copy.DOCS_RECORD.text, 'Sign in once with GitHub and your agents share one record: your facts, links, documents and the answers you approved. Once you are signed in, nothing is sent that you did not approve. Delete it any time.');
   assert.equal(copy.DOCS_SCREEN.text, "Hand your applicant list to your agent and EarnKit returns it in five tiers with public evidence: used, live, building, unverified, flagged. We read the repo, the chain and the site. We never show a builder's record, another program's name or another applicant's text.");
   assert.equal(copy.DOCS_SESSION.text.split(/(?<=\.)\s+/).length, 3);
 });
@@ -70,6 +71,7 @@ test('the terms are five sections', () => {
   assert.deepEqual(copy.TERMS_SECTIONS.map((s) => s.title), ['What EarnKit reads', 'What it stores', 'What it never does', 'Your record', 'Programs']);
   const rec = copy.TERMS_SECTIONS[3].lines.join(' ');
   for (const w of ['private', '/me', 'delete']) assert.ok(rec.toLowerCase().includes(w), w);
+  assert.ok(rec.includes('Once you are signed in, an answer your agent wrote is never sent until you approve it on /me. Before that, your agent acts on what you tell it in the chat.'), rec);
   const never = copy.TERMS_SECTIONS[2].lines.join(' ');
   for (const w of ['submit', 'hold a wallet', 'launch a token', 'sell data', 'email builders']) assert.ok(never.includes(w), w);
 });

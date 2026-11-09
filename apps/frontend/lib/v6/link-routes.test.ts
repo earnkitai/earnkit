@@ -112,6 +112,15 @@ test('GET /link renders the confirm page with the agent name and no redirect', a
   assert.ok(plain.includes('Link your agent, first seen Nov 6, to your GitHub account?'));
 });
 
+test('the confirm page names EarnKit first and says where to unlink: the host the request came to, then /me', async () => {
+  const code = await createLinkCode(await install('Claude'), NOW);
+  const html = await (await linkGet(req(`/link/${code}`), code, { now: NOW })).text();
+  assert.ok(html.includes('<p style="color:#9AA0B4;font-size:14px;letter-spacing:0.04em;margin:0 0 8px">EarnKit</p>'), html);
+  assert.ok(html.indexOf('>EarnKit<') < html.indexOf('to your GitHub account?'));
+  assert.ok(html.includes('Once linked, it can read and change your record and apply to programs in your name. You can unlink it any time at earnkit.test/me.'), html);
+  assert.equal(html.includes('on your record page'), false);
+});
+
 test('POST /link sets ek_link and redirects to GitHub with a state whose nonce is the cookie', async () => {
   const code = await createLinkCode(await install(), NOW);
   const r = await linkPost(req(`/link/${code}`, { method: 'POST' }), code, { now: NOW });

@@ -13,13 +13,13 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v5/db.ts`: Postgres pool and transaction helpers
 - `apps/frontend/lib/v5/deadline.ts`: A program's close in words: close day in its time zone and time left
 - `apps/frontend/lib/v5/eligibility.ts`: Repo facts against a program's eligibility items: ready, gap, or no fit
-- `apps/frontend/lib/v5/find.ts`: The find tool: ready, gaps, since, ledger, one program's details, or the open list
+- `apps/frontend/lib/v5/find.ts`: The find tool: ready, gaps, since, ledger, one program's details, or the open list; `shownReadyOf` caps remote and in-person ready apart; saves gaps to `last_gaps`
 - `apps/frontend/lib/v5/github.ts`: Public GitHub reads with EarnKit's server token; `ghResponse` and `ghPage` expose the link and rate-limit headers
 - `apps/frontend/lib/v5/guide-page.ts`: Data for /programs/[id]: the guide plus page context, as plain JSON
 - `apps/frontend/lib/v5/guide.ts`: A program's guide: money, close, who can apply, form fields, rules, sources
 - `apps/frontend/lib/v5/health.ts`: Daily freshness probe: links, page text changes (under 80% words shared), stale flags, passed deadlines
 - `apps/frontend/lib/v5/http.ts`: Route helpers: JSON and CORS answers, params, secret and Bearer checks, capped bodies
-- `apps/frontend/lib/v5/installations.ts`: Installation rows: save a token, connect a token, stamp last_find_at
+- `apps/frontend/lib/v5/installations.ts`: Installation rows: save a token, connect a token, stamp last_find_at and `last_gaps` (`markFind`), read them (`lastGaps`)
 - `apps/frontend/lib/v5/landing.ts`: Landing and /programs data: one tile per listed program and the hero money chip
 - `apps/frontend/lib/v5/ledger.ts`: The ledger: applications, history, closed gap items, the summary
 - `apps/frontend/lib/v5/llms.ts`: The text of /llms.txt
@@ -50,7 +50,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v5/site-theme.ts`: Colour tokens mirrored in globals.css and Tailwind
 - `apps/frontend/lib/v5/stats.ts`: GET /api/stats: nine public counts
 - `apps/frontend/lib/v5/submit-hosts.ts`: Host rules for submission links: registrable domains, submit platforms, shared hosts
-- `apps/frontend/lib/v5/track.ts`: The track tool: validate, write the ledger, answer in two lines
+- `apps/frontend/lib/v5/track.ts`: The track tool: validate, write the ledger, answer in two lines; `started` names what `last_gaps` says is missing
 - `apps/frontend/lib/v5/untrusted-text.ts`: Sanitizer for open-web text that reaches agents and people
 
 ## apps/frontend/lib/v5/fixtures (test support)

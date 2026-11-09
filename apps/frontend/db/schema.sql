@@ -99,6 +99,8 @@ CREATE TABLE IF NOT EXISTS installations (
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS client_key text;
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS client_name text;
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS last_find_at timestamptz;
+-- The last find's gaps: program_id to the first gap's what; track started reads it.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS last_gaps jsonb;
 
 -- Fixed-window request counters. Old windows are deleted as new ones start.
 CREATE TABLE IF NOT EXISTS rate_windows (
