@@ -13,6 +13,8 @@ const H = 3_600_000;
 const CLOSINGS = [
   /Say yes to apply to all \d+, numbers to skip, or "do \d+" and I'll make the change first\.$/,
   /Say yes to apply to all \d+, or numbers to skip\.$/,
+  /Say yes to apply, or skip it\.$/,
+  /Say yes to apply, skip it, or "do \d+" and I'll make the change first\.$/,
   /Say "do \d+" and I'll make the change first\.$/,
   /Nothing fits yet\. I'll say when something opens\.$/,
 ];
@@ -47,20 +49,21 @@ test('first find has no since', async () => {
   assert.equal(
     show,
     [
-      'Ready to apply, 5:',
-      "1. Alliance ALL19, $400K at admission, closes in 14 days. Your agent drafts the one answer. First: start the application with the first founder's email.",
-      '2. Avalanche Team1 Mini Grants, up to $10,000. Your agent drafts 7 answers. Needs your consent to share data with Team1 and amount you request in USD. First: sign in to the Avalanche Builder Hub.',
-      '3. Z Fellows, up to $10K investment. Your agent drafts 21 answers. Needs your birthday and phone number.',
-      '4. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Your agent drafts 5 answers. Needs your investor deck file.',
-      "5. Base Ecosystem Fund, pre-seed and seed investment, a long shot: an investment program with no stated amount. Your agent drafts 19 answers. Needs your company's X link and current traction.",
+      'One change away, 3:',
+      '1. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
+      '2. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.',
+      '3. Monad Blitz Oregon, $4,600 prize pool: deploy the contract on Monad.',
       '',
-      'One change away, 2:',
-      '6. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
-      '7. Base Builder Grant Program, up to $5,000: add Base Builder Codes to the app and tell me if real people use it.',
+      'In person, apply to attend first:',
+      '4. Y Combinator Winter 2027 Batch, $500K investment. A YC account to start the application.',
+      "5. Alliance ALL19, $400K at admission, closes in 14 days. Start the application with the first founder's email.",
+      '6. Entrepreneurs First US, up to $250K investment or $10K grant.',
+      '7. Z Fellows, up to $10K investment.',
+      '8. Solana Incubator Cohort 6, NYC incubator with relocation stipend, closes in 30 days. Every founder willing to move to NYC for 3 months.',
       '',
-      'Before applying: Sign in once to Avalanche Builder Hub for 1 of them.',
+      'Before applying: Sign in once to Y Combinator for 1 of them. Needs your click: Y Combinator Winter 2027 Batch and Entrepreneurs First US.',
       '',
-      'Say yes to apply to all 5, numbers to skip, or "do 6" and I\'ll make the change first.',
+      'Say "do 1" and I\'ll make the change first.',
     ].join('\n'),
   );
   // Only what nobody but the builder can give: no contacts or team. Whole words, so a program named Team1 is not "team".
@@ -81,17 +84,22 @@ async function withInPerson<T>(run: () => Promise<T>): Promise<T> {
 
 test('the numbers the builder sees are the n of each item: ready in order, gaps, then in person', async () => withInPerson(async () => {
   const id = await installation();
-  const r = await mcpCall(ctx(id), 'find', { project: PROJECT });
+  const r = await mcpCall(ctx(id), 'find', { project: PROJECT, filter: { all: true } });
   const reply = r.reply!;
   const show = reply.show_to_builder as string;
   const ready = reply.ready as { program_id: string; title: string; n: number; in_person: boolean }[];
   const gaps = reply.gaps as { program_id: string; title: string; n: number }[];
   const printed = (n: number) => new RegExp(`^${n}\\. ([^,]+),`, 'm').exec(show)?.[1];
-  assert.equal(printed(4), ready[3].title);
-  assert.equal(ready[3].n, 4);
+  // The full list (v6.1.2: the first five ready are all in person, so only filter.all shows a ready one ahead of the gaps).
+  assert.equal(printed(1), ready[0].title);
+  assert.deepEqual([ready[0].in_person, ready[0].n], [false, 1]);
+  assert.equal(printed(36), ready[3].title);
+  assert.equal(ready[3].n, 36);
   const inPerson = ready.find((p) => p.in_person)!;
   assert.equal(printed(inPerson.n), inPerson.title);
-  assert.equal(ready.at(-1)!.program_id, inPerson.program_id);
+  // The real in-person programs are open now too: from the first in-person one on, every ready item is in person, numbered after every gap.
+  assert.equal(inPerson.program_id, 'f-attend');
+  assert.ok(ready.slice(ready.indexOf(inPerson)).every((p) => p.in_person && gaps.every((g) => g.n < p.n)));
   for (const x of [...ready, ...gaps]) assert.equal(printed(x.n), x.title, String(x.n));
   assert.deepEqual([...ready, ...gaps].map((x) => x.n).sort((a, b) => a - b), Array.from({ length: ready.length + gaps.length }, (_, i) => i + 1));
   assert.match(reply.agent_note as string, /numbers the builder says are each item's n/);
@@ -235,13 +243,18 @@ test('a result past due is asked once', async () => {
   const id = await installation();
   const { programFixture } = await import('./fixtures/program');
   await upsertProgram(programFixture({ id: 'f-due', title: 'Due Grant', results_due: { date: '2026-11-01' } }), 'file', NOW);
-  const t = await mcpCall(ctx(id), 'track', { program_id: 'f-due', status: 'applied' });
-  assert.equal(t.isError, false, t.text);
-  const first = await mcpCall(ctx(id), 'find', { project: PROJECT });
-  assert.deepEqual(first.reply!.ask_outcome, [{ program_id: 'f-due', title: 'Due Grant' }]);
-  assert.match(first.reply!.agent_note as string, /Due Grant/);
-  const second = await mcpCall(ctx(id), 'find', { project: PROJECT });
-  assert.deepEqual(second.reply!.ask_outcome, []);
+  try {
+    const t = await mcpCall(ctx(id), 'track', { program_id: 'f-due', status: 'applied' });
+    assert.equal(t.isError, false, t.text);
+    const first = await mcpCall(ctx(id), 'find', { project: PROJECT });
+    assert.deepEqual(first.reply!.ask_outcome, [{ program_id: 'f-due', title: 'Due Grant' }]);
+    assert.match(first.reply!.agent_note as string, /Due Grant/);
+    const second = await mcpCall(ctx(id), 'find', { project: PROJECT });
+    assert.deepEqual(second.reply!.ask_outcome, []);
+  } finally {
+    // v6.1.2: a leftover Due Grant is the only non-in-person ready line in later finds; it must not outlive this test.
+    await sql()`DELETE FROM programs WHERE id = 'f-due'`;
+  }
 });
 
 // v6.1: the record side of find.
@@ -318,7 +331,7 @@ test('linked: record fields, what the record lacks, blockers, and the own tier r
     reads++;
     return LIVE();
   };
-  const r = await mcpCall({ ...ctx(id), builderId, evidence }, 'find', { project: PROJECT });
+  const r = await mcpCall({ ...ctx(id), builderId, evidence }, 'find', { project: PROJECT, filter: { all: true } });
   assert.equal(r.isError, false, r.text);
   const reply = r.reply!;
   assert.equal(reply.linked, true);
@@ -330,13 +343,14 @@ test('linked: record fields, what the record lacks, blockers, and the own tier r
   assert.equal(z.fields.find((f) => f.key === 'email')!.value, 'jenil@example.com');
   assert.ok((reply.record_missing as string[]).includes('your founder video link'), JSON.stringify(reply.record_missing));
   const blockers = reply.blockers as { program_id: string; sign_in: string | null; needs_click: boolean; needs: string[] }[];
-  const av = blockers.find((b) => b.program_id === 'avalanche-team1-mini-grants')!;
-  assert.deepEqual([av.sign_in, av.needs_click], ['Avalanche Builder Hub', false]);
+  // v6.1.2: Avalanche now carries an eligibility gap; Y Combinator is the ready program with a platform sign-in (and a click).
+  const yc = blockers.find((b) => b.program_id === 'y-combinator')!;
+  assert.deepEqual([yc.sign_in, yc.needs_click], ['Y Combinator', true]);
   assert.deepEqual(blockers.find((b) => b.program_id === 'z-fellows')?.needs, ['founder_video']);
   assert.deepEqual((reply.evidence_summary as { tier: string }).tier, 'live');
   const show = reply.show_to_builder as string;
   assert.match(show, /^1\. [^\n]+ \d+ from your record, \d+ from the repo/m);
-  assert.match(show, /\n\nBefore applying: [^\n]*Sign in once to Avalanche Builder Hub for 1 of them\.[^\n]*Still missing from your record: [^\n]+\./);
+  assert.match(show, /\n\nBefore applying: [^\n]*Sign in once to Y Combinator for 1 of them\.[^\n]*Still missing from your record: [^\n]+\./);
   assert.match(show, /\n\nYour project reads as live, no verified usage yet\. Next: [^\n]+\.\n\n/);
   assert.doesNotMatch(show, /Sign in once at/);
   assert.match(reply.agent_note as string, /Fit approved answers by cutting, never by adding; the style contract travels on each field\./);
@@ -478,15 +492,15 @@ test('unlinked: a repo that could not be read applies no tier bar (R3)', async (
 test('unlinked: blockers name the sign-ins, clicks and documents as linked does, never outside_approval (R4)', async () => withInPerson(async () => {
   const r = await mcpCall(ctx(await installation()), 'find', { project: PROJECT, filter: { all: true } });
   const blockers = r.reply!.blockers as { program_id: string; sign_in: string | null; needs_click: boolean; needs: string[]; outside_approval?: true }[];
-  const av = blockers.find((b) => b.program_id === 'avalanche-team1-mini-grants');
-  assert.ok(av, JSON.stringify(blockers));
-  assert.equal(av.sign_in, 'Avalanche Builder Hub');
+  const yc = blockers.find((b) => b.program_id === 'y-combinator');
+  assert.ok(yc, JSON.stringify(blockers));
+  assert.equal(yc.sign_in, 'Y Combinator');
   assert.ok(blockers.every((b) => !('outside_approval' in b)));
   // Only ready programs are named; the in-person one keeps its own block.
   const ready = new Set(ids(r.reply!.ready));
   assert.ok(blockers.every((b) => ready.has(b.program_id)));
   const show = r.reply!.show_to_builder as string;
-  assert.match(show, /Sign in once to Avalanche Builder Hub for 1 of them\./);
+  assert.match(show, /Sign in once to Y Combinator for 1 of them\./);
   assert.match(show, /\n\nIn person, apply to attend first:\n/);
   assert.equal(r.reply!.evidence_summary, null);
   assert.deepEqual(r.reply!.record_missing, []);
@@ -575,13 +589,13 @@ test('a stale claim shows in released; a live one stays ready, marked', async ()
   const { id, builderId } = await linkedWith(OWNER_RECORD);
   const { claim } = await import('../v6/claims');
   await claim(`b:${builderId}`, 'alliance-all19', 'earnkit', id, new Date(NOW.getTime() - 25 * H));
-  await claim(`b:${builderId}`, 'avalanche-team1-mini-grants', 'earnkit', id, new Date(NOW.getTime() - H));
+  await claim(`b:${builderId}`, 'z-fellows', 'earnkit', id, new Date(NOW.getTime() - H));
   const r = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT });
   assert.deepEqual(r.reply!.released, ['alliance-all19']);
   assert.match(r.reply!.agent_note as string, /released: alliance-all19/);
   const ready = r.reply!.ready as { program_id: string; claimed_since?: string }[];
   assert.ok(ids(ready).includes('alliance-all19'));
-  assert.equal(ready.find((p) => p.program_id === 'avalanche-team1-mini-grants')?.claimed_since, new Date(NOW.getTime() - H).toISOString());
+  assert.equal(ready.find((p) => p.program_id === 'z-fellows')?.claimed_since, new Date(NOW.getTime() - H).toISOString());
   assert.match(r.reply!.agent_note as string, /claimed_since is claimed by one of the builder's agents: submit it only if you made that claim\./);
 });
 
