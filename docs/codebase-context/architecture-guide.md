@@ -52,8 +52,11 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
    then calls `track` `gap_done` with its item. `rulesOnly` (`eligibility.ts`) marks a gap verdict whose gaps are all
    rules.
 4. `rank.ts` orders them: ready by fit (long shots last), larger award, sooner deadline; gaps with a real change
-   first, then rule-only ones, and within each by fewest gaps, lowest effort, larger award. `shownGapsOf` picks the
-   shown gaps: at most one rule-only program, after the real changes, in the last slot when there are more. Skipped and applied programs never return unless their next round opens.
+   first, then rule-only ones (those naming one of the project's mainnet chains first, then chain-agnostic `any_chain`
+   ones, then the rest: R18e), and within each by fewest gaps, lowest effort, larger award. `shownGapsOf` picks the
+   shown gaps: at most one rule-only program (the first-ranked, so the one fitting the project's chains), after the
+   real changes, in the last slot when there are more. In-person programs are off the default gap list entirely, so
+   the rule-only slot skips them too (R18d, R18f); `filter.all` shows them and the `more` count includes them. Skipped and applied programs never return unless their next round opens.
 5. `prefill.ts` fills each ready program's form: fields EarnKit can answer (`from: earnkit`), prose fields handed to
    the agent with sources (`from: agent`), and fields only the builder can give (`from: builder`, a demo video or
    a file). Blank beats a wrong guess. `facts_from_repo` counts only values the public code read gave (its repo link,

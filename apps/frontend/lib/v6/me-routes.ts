@@ -169,7 +169,8 @@ export async function unlinkPost(request: Request, deps: Deps = {}): Promise<Res
 
 /**
  * POST /me/link: csrf, code, action link or deny. Link marks the code used and links its agent to this builder;
- * deny ends the code. Both, and a dead code, are a 302 to /me; an agent linked to another account is a 400.
+ * deny ends the code. Both, and a dead code, are a 303 to /me like every other post; an agent linked to another
+ * account is a 400.
  */
 export async function linkPost(request: Request, deps: Deps = {}): Promise<Response> {
   const g = await guard(request, deps);
@@ -179,7 +180,7 @@ export async function linkPost(request: Request, deps: Deps = {}): Promise<Respo
   if (action !== 'link' && action !== 'deny') return text(400, ME_ERRORS.field);
   if (action === 'deny') await denyLinkCode(code, g.now);
   else if ((await consumeLinkCode(code, g.builder.id, g.now)) === 'other') return text(400, OTHER);
-  return new Response(null, { status: 302, headers: { Location: '/me', 'Cache-Control': 'no-store' } });
+  return back('/me');
 }
 
 /** POST /me/delete: csrf, confirm (the GitHub login). Removes everything theirs and the cookie. */

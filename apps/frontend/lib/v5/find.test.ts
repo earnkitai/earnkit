@@ -62,12 +62,12 @@ test('first find has no since', async () => {
     show,
     [
       'Ready to apply, 1:',
-      '1. Arbitrum Mentorship Program: Cohort 2, $100K in prizes, closes in 32 days. Long odds: few prizes for many entries. Drafted: 2 of 22 answers from the repo, 17 more by your agent. Needs your top 3 successes, whether you raised funds before and current TVL range.',
+      '1. Arbitrum Mentorship Program: Cohort 2, $100K in prizes, closes in 32 days. Long odds: few prizes for many entries. Drafted: 2 of 22 answers from the repo, 17 more by your agent. Needs your top 3 successes, funding raised before and current TVL range.',
       '',
       'One change away, 3:',
       '2. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
       '3. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.',
-      '4. OTF Internet Freedom Fund, $10,000 to $900,000. Their rule: advances internet freedom for people in repressive environments: circumvention, safe communication or access to blocked information. Say "yes 4" if that is you.',
+      '4. Arbitrum Security Program, audit subsidy. Their rule: smart contract code that is audit-ready, with a defined audit scope. Say "yes 4" if that is you.',
       '',
       'In person, apply to attend first:',
       '5. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account to start the application.',
@@ -151,11 +151,16 @@ test('a deadline moved since the last find', async () => {
   await mcpCall(ctx(id), 'find', { project: PROJECT });
   const p = (await getProgram('alliance-all19'))!.file;
   await upsertProgram({ ...p, ends_at: '2026-11-25T23:59:59Z' }, 'file', new Date(NOW.getTime() + H));
-  const r = await mcpCall(ctx(id, new Date(NOW.getTime() + 2 * H)), 'find', { project: PROJECT });
-  const since = r.reply!.since as { changed: { program_id: string; what: string }[] };
-  assert.equal(since.changed[0].program_id, 'alliance-all19');
-  assert.match(since.changed[0].what, /^deadline moved/);
-  assert.match(r.reply!.show_to_builder as string, /^Since /);
+  try {
+    const r = await mcpCall(ctx(id, new Date(NOW.getTime() + 2 * H)), 'find', { project: PROJECT });
+    const since = r.reply!.since as { changed: { program_id: string; what: string }[] };
+    assert.equal(since.changed[0].program_id, 'alliance-all19');
+    assert.match(since.changed[0].what, /^deadline moved/);
+    assert.match(r.reply!.show_to_builder as string, /^Since /);
+  } finally {
+    // Later pins quote Alliance's real deadline.
+    await upsertProgram(p, 'file', new Date(NOW.getTime() + 3 * H));
+  }
 });
 
 test('a skipped program leaves ready and gaps', async () => {
@@ -273,7 +278,7 @@ test('a project with problems still matches; the problems go to the agent', asyn
 test('filter.all lists the rest with a reason; the leftover count is in the note otherwise', async () => withInPerson(async () => {
   const id = await installation();
   const capped = await mcpCall(ctx(id), 'find', { project: PROJECT });
-  assert.match(capped.reply!.agent_note as string, /^\d+ more: gaps and in-person programs\. Ask with filter\.all for the full list\.$/m);
+  assert.match(capped.reply!.agent_note as string, /^\d+ more left out: ready past the cap, gaps and in-person programs\. Ask with filter\.all for the full list\.$/m);
   const all = await mcpCall(ctx(id), 'find', { project: PROJECT, filter: { all: true } });
   assert.ok((all.reply!.ready as unknown[]).length > 5);
   const notFit = all.reply!.not_fit as { program_id: string; reason: string }[];
@@ -748,6 +753,67 @@ const lineOf = (show: string, n: number) => show.split('\n').find((l) => l.start
 const BASE_RULE = 'a pre-seed or seed stage startup that chooses Base as its home';
 /** The block of the reply that starts with `head`, up to the next blank line. */
 const blockOf = (show: string, head: string) => show.split('\n\n').find((b) => b.startsWith(head)) ?? '';
+
+const PROJECT_B = { name: 'dotfiles', description: 'Mathias Bynens dotfiles for macOS', repo_url: 'https://github.com/mathiasbynens/dotfiles' };
+const PROJECT_C = { name: 'My notes', description: 'Personal markdown notes and dotfiles' };
+const IN_PERSON_TAIL = [
+  'In person, apply to attend first:',
+  '4. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account to start the application.',
+  "5. Alliance ALL19, $400K at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
+  '',
+  'Say "yes 3" if its rule fits you, or "do 1" and I\'ll make the change first.',
+];
+const NO_CHAIN_GAPS = [
+  'One change away, 3:',
+  '1. Arbitrum Mentorship Program: Cohort 2, $100K in prizes: deploy the contract on Arbitrum.',
+  '2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes: a demo video. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.',
+  '3. OTF Internet Freedom Fund, $10,000 to $900,000. Their rule: advances internet freedom for people in repressive environments: circumvention, safe communication or access to blocked information. Say "yes 3" if that is you.',
+  '',
+];
+
+test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets a rule-only program on one of its chains, before any chain-agnostic one (v6.1.6)', async () => {
+  const r = await mcpCall(ctx(await installation()), 'find', { project: PROJECT_A });
+  assert.equal(r.isError, false, r.text);
+  assert.equal(
+    r.reply!.show_to_builder,
+    [
+      'Ready to apply, 1:',
+      '1. Arbitrum Mentorship Program: Cohort 2, $100K in prizes, closes in 32 days. Long odds: few prizes for many entries. Drafted: 2 of 22 answers from the repo, 17 more by your agent. Needs your top 3 successes, funding raised before and current TVL range.',
+      '',
+      'One change away, 3:',
+      '2. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
+      '3. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.',
+      '4. Arbitrum Security Program, audit subsidy. Their rule: smart contract code that is audit-ready, with a defined audit scope. Say "yes 4" if that is you.',
+      '',
+      'In person, apply to attend first:',
+      '5. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account to start the application.',
+      "6. Alliance ALL19, $400K at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
+      '',
+      'Say yes to apply, skip it, "yes 4" if its rule fits you, or "do 2" and I\'ll make the change first.',
+    ].join('\n'),
+  );
+  // Without the repo's Arbitrum, the Base rule-only program takes the slot ahead of the $900K chain-agnostic one.
+  const { repo_url: _, ...baseOnly } = PROJECT_A;
+  const b = await mcpCall(ctx(await installation()), 'find', { project: baseOnly });
+  const rule = (b.reply!.gaps as G[]).filter((g) => [g.gap, ...g.also].every((x) => x.kind === 'rule'));
+  assert.deepEqual(rule.map((g) => g.program_id), ['base-ecosystem-fund'], b.reply!.show_to_builder as string);
+});
+
+test('R18e, R18f: projects B (dotfiles) and C (notes) report no chain: the chain-agnostic rule first, no in-person gap program by default (v6.1.6)', async () => {
+  const b = await mcpCall(ctx(await installation()), 'find', { project: PROJECT_B });
+  assert.equal(b.isError, false, b.text);
+  assert.equal(b.reply!.show_to_builder, [...NO_CHAIN_GAPS, ...IN_PERSON_TAIL].join('\n'));
+  const c = await mcpCall(ctx(await installation()), 'find', { project: PROJECT_C });
+  assert.equal(c.isError, false, c.text);
+  const tail = [...IN_PERSON_TAIL];
+  tail[1] += ' Needs your YC application answers and batch you want.';
+  assert.equal(c.reply!.show_to_builder, [...NO_CHAIN_GAPS, ...tail].join('\n'));
+  for (const r of [b, c]) assert.ok((r.reply!.gaps as { in_person: boolean }[]).every((g) => !g.in_person), JSON.stringify(ids(r.reply!.gaps)));
+  // filter.all still lists them.
+  const all = await mcpCall(ctx(await installation()), 'find', { project: PROJECT_C, filter: { all: true } });
+  const allIds = ids(all.reply!.gaps);
+  assert.ok(allIds.includes('monad-blitz-oregon') && allIds.includes('monad-blitz-guangzhou'), JSON.stringify(allIds));
+});
 
 test('project A (R18a): Base Ecosystem Fund is one answer away; gap_done with its rule item makes it ready, no rule sentence (v6.1.6)', async () => {
   const id = await installation();

@@ -46,7 +46,11 @@ async function withOwn(ids: string[], programs: ProgramRow[]): Promise<Map<strin
 /** The installation an 'i:' owner names. Pure. */
 const installationOf = (owner: string): number | undefined => (/^i:(\d+)$/.exec(owner) ? Number(owner.slice(2)) : undefined);
 
-/** Writes set the owner and the writing installation (`o.installationId`, which an 'i:' owner implies). */
+/**
+ * Writes set the owner and the writing installation (`o.installationId`, which an 'i:' owner implies). A `gap_done`
+ * whose item is not one of the program's own item keys (or `users`) is refused and clears nothing; the refusal carries
+ * the keys for the agent in `items`, never in builder text.
+ */
 export async function record(
   owner: string,
   programId: string,

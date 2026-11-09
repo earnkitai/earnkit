@@ -227,7 +227,7 @@ test('POST /me/link action=link links the installation to the signed-in builder,
   const id = await linkInst();
   const code = await createLinkCode(id, NOW);
   const r = await linkPost(post('/me/link', { csrf, code, action: 'link' }, { cookie }), deps);
-  assert.equal(r.status, 302);
+  assert.equal(r.status, 303);
   assert.equal(r.headers.get('location'), '/me');
   assert.equal(await instBuilder(id), b.id);
   assert.ok((await codeRow(id)).used_at);
@@ -238,7 +238,7 @@ test('POST /me/link action=deny expires the code and links nothing', async () =>
   const id = await linkInst();
   const code = await createLinkCode(id, NOW);
   const r = await linkPost(post('/me/link', { csrf, code, action: 'deny' }, { cookie }), deps);
-  assert.equal(r.status, 302);
+  assert.equal(r.status, 303);
   assert.equal(r.headers.get('location'), '/me');
   assert.equal(await instBuilder(id), null);
   const row = await codeRow(id);
@@ -268,7 +268,7 @@ test('a second action=link on a used code links nothing and redirects to /me', a
   const code = await createLinkCode(id, NOW);
   await linkPost(post('/me/link', { csrf: first.csrf, code, action: 'link' }, { cookie: first.cookie }), deps);
   const r = await linkPost(post('/me/link', { csrf: second.csrf, code, action: 'link' }, { cookie: second.cookie }), deps);
-  assert.equal(r.status, 302);
+  assert.equal(r.status, 303);
   assert.equal(r.headers.get('location'), '/me');
   assert.equal(await instBuilder(id), first.b.id);
 });

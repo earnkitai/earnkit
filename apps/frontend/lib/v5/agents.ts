@@ -88,7 +88,7 @@ export type Agent = {
  *   its gradient fill flattened to one color and the eyes dropped (the tab draws the mark in one color).
  *
  * Commands: Claude Code per https://code.claude.com/docs/en/mcp (--transport http, --scope user,
- * then /mcp to sign in); Codex per https://learn.chatgpt.com/docs/extend/mcp?surface=cli
+ * then /mcp, then Authenticate); Codex per https://learn.chatgpt.com/docs/extend/mcp?surface=cli
  * (codex mcp add <name> --url <url>, then codex mcp login <name>); OpenClaw per https://docs.openclaw.ai/tools/mcp
  * (with the gateway stopped: openclaw mcp add <name> --url <url> --transport streamable-http --auth oauth, then
  * openclaw mcp login <name>, then the gateway starts again; a headless server pastes the printed --code command); Hermes per

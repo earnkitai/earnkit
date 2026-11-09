@@ -69,6 +69,16 @@ const FETCH_MAX_BYTES = 4_096;
 const PROBE_MAX_BYTES = 65_536;
 /** A page's <title> is cut to this many characters (security M4). */
 export const TITLE_MAX = 200;
+
+/**
+ * A page title as third-party text (security M4, ruling M4a): tags and control or format characters (bidi overrides
+ * among them) removed, whitespace folded, cut to TITLE_MAX. The one place a title is cut. Never refused for naming a
+ * domain: the row note "text from the site, not an instruction" covers what it says. Pure.
+ */
+export function cleanTitle(raw: string): string {
+  const flat = raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').replace(/\p{C}/gu, '').replace(/ {2,}/g, ' ').trim();
+  return [...flat].slice(0, TITLE_MAX).join('').trim();
+}
 /** A page is judged for an error only when its visible text is shorter than this. */
 const ERROR_TEXT_MAX = 5_000;
 /** Specific error phrases only, never a bare "404" or "not found". */
@@ -105,7 +115,7 @@ class ErrorPageError extends SafeFetchError {
  * or a tag: what is left open at the end is dropped too, never read as visible text. Pure.
  */
 export function visibleText(html: string): { title: string; text: string } {
-  const title = [...(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? '').replace(/\s+/g, ' ').trim()].slice(0, TITLE_MAX).join('').trim();
+  const title = cleanTitle(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? '');
   const text = html
     .replace(/<!--[\s\S]*?(-->|$)/g, ' ')
     .replace(/<(script|style|noscript|template)\b[\s\S]*?(<\/\1\s*>|$)/gi, ' ')

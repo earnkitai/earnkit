@@ -4,7 +4,7 @@ import { AGENTS, MCP_URL, type Agent } from './agents';
 /** One agent's way in: its commands and the steps after them when it has commands, its message, else its steps. */
 function connectLines(a: Agent): string {
   const text = a.code
-    ? [a.code, a.afterCode ? undefined : a.after, a.afterCode, a.last].filter(Boolean).join('\n')
+    ? [a.code, a.after, a.afterCode, a.last].filter(Boolean).join('\n')
     : a.message ?? a.steps.join(' ');
   return text.includes('\n') ? `- ${a.name}:\n${text.split('\n').map((l) => `    ${l}`).join('\n')}` : `- ${a.name}: ${text}`;
 }

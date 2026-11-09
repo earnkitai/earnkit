@@ -8,7 +8,7 @@ import { sql } from '../v5/db';
 import { ANSWER_KINDS, PROGRAM_CATEGORIES } from '../v5/program-file';
 import { ME_BLOCKS, ME_LABELS, ME_LINK_LINE, ME_STATUS, monthDay } from '../v5/site-copy';
 import { type Builder, getRecord } from './builders';
-import { EXPIRED, liveCode } from './link-routes';
+import { EXPIRED, OTHER, liveCode } from './link-routes';
 import { APPROVABLE, type BuilderRecord, isApproved, KIND_WORDS } from './record';
 
 export type FieldKind = 'text' | 'long' | 'url' | 'bool' | 'number' | 'choice';
@@ -162,11 +162,16 @@ export function pendingApprovals(record: BuilderRecord): MeData['pending_approva
   return out;
 }
 
-/** The link banner for /me?link=<code>: the agent that asked, or that the link expired. */
-async function linkBanner(code: string | null | undefined, now: Date): Promise<MeData['link']> {
+/**
+ * The link banner for /me?link=<code>: the agent that asked; that it is already linked to another account (no
+ * buttons: the post would answer that); or that the link expired.
+ */
+async function linkBanner(code: string | null | undefined, builderId: number, now: Date): Promise<MeData['link']> {
   if (code === null || code === undefined) return null;
   const live = await liveCode(code, now);
-  return live ? { code, text: ME_LINK_LINE(live.client_name, monthDay(live.created_at)) } : { code: null, text: EXPIRED };
+  if (!live) return { code: null, text: EXPIRED };
+  if (live.builder_id !== null && Number(live.builder_id) !== builderId) return { code: null, text: OTHER };
+  return { code, text: ME_LINK_LINE(live.client_name, monthDay(live.created_at)) };
 }
 
 /** The page's data for this builder only; `session` is the request's session cookie value (the csrf binds to it); `link` is the ?link= code, if any. */
@@ -186,6 +191,6 @@ export async function meData(builder: Builder, now: Date, session: string, link?
     pending_approvals: pendingApprovals(record),
     ledger: ledger.map((r) => ({ title: r.title ?? r.program_id, program_id: r.program_id, status: ME_STATUS[r.status] ?? cap(r.status.replaceAll('_', ' ')), at: monthDay(r.at) })),
     installations: agents.map((r) => ({ id: r.id, client_name: r.client_name, linked_at: r.linked_at ? monthDay(r.linked_at) : '' })),
-    link: await linkBanner(link, now),
+    link: await linkBanner(link, builder.id, now),
   };
 }

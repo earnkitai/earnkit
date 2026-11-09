@@ -185,7 +185,7 @@ test('every closing line, and the copy rules', () => {
 
 test('agentNote: fields, yes only, track after each, the counts left out, ask once', () => {
   const n = agentNote({ ...MONDAY, ask_outcome: [{ program_id: 'z', title: 'Zeta Grant' }] }, { more: 2 });
-  for (const s of ["'earnkit'", "'agent'", "'builder'", 'sources', 'yes', 'own browser', 'track', 'applied', 'Zeta Grant', '2 more: gaps and in-person programs. Ask with filter.all for the full list.'])
+  for (const s of ["'earnkit'", "'agent'", "'builder'", 'sources', 'yes', 'own browser', 'track', 'applied', 'Zeta Grant', '2 more left out: ready past the cap, gaps and in-person programs. Ask with filter.all for the full list.'])
     assert.ok(n.includes(s), s);
   assert.ok(!agentNote(MONDAY, { more: 0 }).includes('more: gaps'));
   assert.ok(n.includes('Pass users and live_url in the project whenever you know them; never invent them.'));
@@ -468,7 +468,7 @@ test('R19: with no repo read the sign-in sentence only promises to remember (v6.
 });
 
 test('R26: the left-out count says what was left out (v6.1.6)', () => {
-  assert.ok(agentNote(MONDAY, { more: 4 }).split('\n').includes('4 more: gaps and in-person programs. Ask with filter.all for the full list.'));
+  assert.ok(agentNote(MONDAY, { more: 4 }).split('\n').includes('4 more left out: ready past the cap, gaps and in-person programs. Ask with filter.all for the full list.'));
 });
 
 test('a linked notice is the last sentence of the closing block', () => {

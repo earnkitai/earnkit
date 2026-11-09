@@ -18,7 +18,7 @@ function logLimited(route: string, limit: string, key: string | null) {
 
 /** The most an OAuth body may be (security M5). */
 export const MAX_OAUTH_BODY = 16_384;
-const tooLarge = () => json({ error: 'invalid_request', error_description: 'Request too large: EarnKit reads at most 16 KB here.' }, 413);
+const tooLarge = () => json({ error: 'invalid_request', error_description: `Request too large: EarnKit reads at most ${MAX_OAUTH_BODY / 1024} KB here.` }, 413);
 
 const tooMany = (err: RateLimitError) =>
   json({ error: 'too_many_requests', error_description: err.message }, 429, { 'Retry-After': String(err.retryAfter) });

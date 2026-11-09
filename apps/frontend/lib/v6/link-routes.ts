@@ -59,12 +59,12 @@ export async function createLinkCode(installationId: number, now: Date): Promise
   }) as Promise<string>;
 }
 
-export type Live = { installation_id: number; client_name: string | null; created_at: Date };
-/** The unused, unexpired code's installation, or null. */
+export type Live = { installation_id: number; client_name: string | null; created_at: Date; builder_id: number | null };
+/** The unused, unexpired code's installation (with the builder it is already linked to, if any), or null. */
 export async function liveCode(code: string, now: Date): Promise<Live | null> {
   if (!CODE_SHAPE.test(code)) return null;
   const [r] = await sql()<Live[]>`
-    SELECT l.installation_id, i.client_name, i.created_at FROM link_codes l JOIN installations i ON i.id = l.installation_id
+    SELECT l.installation_id, i.client_name, i.created_at, i.builder_id FROM link_codes l JOIN installations i ON i.id = l.installation_id
     WHERE l.code = ${hash(code)} AND l.used_at IS NULL AND l.expires_at > ${now}`;
   return r ?? null;
 }

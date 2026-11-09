@@ -320,12 +320,13 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
     });
 
   const readyV = rankReady(verdicts.filter((v) => v.status === 'ready'), byId);
-  const gapV = rankGaps(verdicts.filter((v) => v.status === 'gap'), byId);
+  const mainnets = new Set(facts.chains.filter((c) => c.mainnet).map((c) => c.chain));
+  const gapV = rankGaps(verdicts.filter((v) => v.status === 'gap'), byId, mainnets);
   // Remote and in-person ready programs are capped apart, each in rank order, so the default list always leads with
   // something the builder can apply to now.
   const shownReady = shownReadyOf(readyV, all, (v) => byId.get(v.program_id)!.file.in_person);
-  // Real changes first, then at most one rule-only program by default (R18b).
-  // In-person programs never take the rule-only slot (R18d).
+  // Real changes first, then at most one rule-only program by default (R18b), the one fitting the project's chains
+  // (R18e). In-person programs are never in the default gap list (R18d, R18f); `more` counts them.
   const shownGaps = shownGapsOf(gapV, all, MAX_GAPS, (v) => byId.get(v.program_id)!.file.in_person);
   const more = readyV.length - shownReady.length + gapV.length - shownGaps.length;
   // In display order with the numbers the builder sees: ready, gaps, then in person.

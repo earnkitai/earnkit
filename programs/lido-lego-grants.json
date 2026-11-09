@@ -41,8 +41,8 @@
   ],
   "submission_requirements": [
     { "key": "title", "label": "Title: What is the grant application about?", "type": "text", "required": true, "from": "project", "kind": "name", "todo": "a pitch title" },
-    { "key": "authors", "label": "Author(s): Who will be working on the proposal (experience, previous major achievements)?", "type": "text", "required": true, "from": "builder", "kind": "team", "todo": "who works on it and their record" },
-    { "key": "purpose", "label": "Purpose: How will it aid the Lido ecosystem? Why is it important?", "type": "text", "required": true, "from": "project", "kind": "ecosystem_fit", "todo": "how it helps Lido" },
+    { "key": "authors", "label": "Author(s): Who will be working on the proposal (experience, previous major achievements)?", "type": "text", "required": true, "from": "builder", "kind": "team", "todo": "the people on it and their record" },
+    { "key": "purpose", "label": "Purpose: How will it aid the Lido ecosystem? Why is it important?", "type": "text", "required": true, "from": "project", "kind": "ecosystem_fit", "todo": "the benefit to Lido" },
     { "key": "summary", "label": "Summary: A brief summary of the grant application (3-4 sentences)", "type": "text", "required": true, "from": "project", "kind": "one_liner", "todo": "a 3 to 4 sentence summary" },
     { "key": "details", "label": "Details: Timelines, expenses estimates", "type": "text", "required": true, "from": "builder", "kind": "milestones", "todo": "timelines and cost estimates" }
   ],

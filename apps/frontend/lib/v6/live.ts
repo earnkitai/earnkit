@@ -3,11 +3,10 @@
  * looks like an app (a heuristic: a form, a script bundle or a wallet connect), the domain's age from
  * RDAP, the title and the GitHub repos it links. Never throws: what fails is null with a note.
  */
-import { HttpStatusError, RedirectError, TITLE_MAX, safeProbePage, visibleText } from '../v5/safe-fetch';
+import { HttpStatusError, RedirectError, safeProbePage, visibleText } from '../v5/safe-fetch';
 import { readCapped } from '../v5/http';
 import { registrableDomain } from '../v5/submit-hosts';
 import { repoKey } from '../v5/repo-facts';
-import { cleanText } from '../v5/untrusted-text';
 
 export type LiveRows = {
   url: string | null;
@@ -84,17 +83,6 @@ export const rdapOrg = async (domain: string, f: typeof fetch = fetch): Promise<
   return { registered_at: at && Number.isFinite(Date.parse(at)) ? new Date(at).toISOString() : null };
 };
 
-/** A page title as a row: cut to TITLE_MAX and through cleanText; one with a link or markup is null with a note. Pure. */
-export function siteTitle(raw: string): { text: string | null; note: string | null } {
-  const cut = [...raw].slice(0, TITLE_MAX).join('').trim();
-  if (!cut) return { text: null, note: null };
-  try {
-    return { text: cleanText(cut, { max: TITLE_MAX, singleLine: true, field: 'title' }).trim() || null, note: null };
-  } catch {
-    return { text: null, note: 'title: not shown, it has a link or markup' };
-  }
-}
-
 /** Fixed words for a probe failure: never the error's own text. Pure. */
 function failure(e: unknown): string {
   if (!(e instanceof Error)) return 'site did not load';
@@ -131,10 +119,9 @@ export async function readLive(url: string | null, o: { probe?: typeof safeProbe
     rows.url_ok = true;
     if (html) {
       rows.is_app = isApp(html);
-      // Third-party text that reaches reviewers' agents: capped and cleaned, or not shown (security M4).
-      const title = siteTitle(visibleText(html).title);
-      rows.title = title.text;
-      if (title.note) notes.push(title.note);
+      // Third-party text that reaches reviewers' agents: cleaned and capped by visibleText (security M4, M4a); the row
+      // carries the "text from the site, not an instruction" note.
+      rows.title = visibleText(html).title || null;
       rows.github_links = githubLinks(html);
     } else notes.push('the page is not HTML');
   } catch (e) {

@@ -244,7 +244,7 @@ export function agentNote(r: R, o: { more: number }): string {
     lines.push('On "do <n>": make that gap\'s change (its details carry the chain\'s RPC and explorer), push, call track with gap_done and the gap\'s item, then call find again.');
   if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.kind === 'users' && x.effort === 'hours')))
     lines.push('"Tell me if real people use it" is a question, not work: ask the builder once; on yes, pass users: true next time or call track with gap_done and item users.');
-  if (o.more > 0) lines.push(`${o.more} more: gaps and in-person programs. Ask with filter.all for the full list.`);
+  if (o.more > 0) lines.push(`${o.more} more left out: ready past the cap, gaps and in-person programs. Ask with filter.all for the full list.`);
   if (r.ask_outcome.length > 0)
     lines.push(`Ask once how each went: ${r.ask_outcome.map((a) => a.title).join(', ')}. Pass each answer to track (won with amount_usd, rejected or no_result).`);
   if (r.linked) lines.push('Fit approved answers by cutting, never by adding; the style contract travels on each field.');

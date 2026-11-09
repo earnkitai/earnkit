@@ -64,8 +64,10 @@ drafted from the project; `builder`: only the builder can answer) and `kind` (`n
 `one_liner`, `problem`, `solution`, `how_it_works`, `traction`, `team`, `why_you`,
 `use_of_funds`, `milestones`, `competitors`, `risks`, `ecosystem_fit`, `what_next`, `past_work`,
 `help_needed`, `demo_video`, `links`, `contact`, `raised`, `other`). A required item
-also needs `todo`: a short builder to-do, lowercase start, at most 40 characters, no trailing
-punctuation or links (`"a live link on Arc mainnet"`). Optional: `description`, `project_field`,
+also needs `todo`: a short noun phrase for what the builder gives, lowercase start, at most 40
+characters, no trailing punctuation or links (`"a live link on Arc mainnet"`, `"the YC application
+answers"`). It reads after "Needs your", so never start it with a verb or a question word
+(`"the stage"`, not `"how far along you are"`). Optional: `description`, `project_field`,
 `max_chars` (only a stated limit), `guidance` (the program's own advice, with `source_url`).
 
 ### `eligibility`

@@ -103,3 +103,22 @@ test('/me?link=<code> with a live code shows the link banner with the agent name
   assert.equal((await meData(b, NOW, 'sess')).link, null);
   assert.ok(!renderToStaticMarkup(MeView({ data: await meData(b, NOW, 'sess'), problem: null })).includes('Link an agent to this account?'));
 });
+
+test('/me?link=<code> for an agent already linked to another account reads the OTHER text with no buttons (m5)', async () => {
+  const me = await upsertBuilder({ github_id: 810_003, login: 'second', name: null, avatar_url: null }, NOW);
+  const owner = await upsertBuilder({ github_id: 810_004, login: 'first', name: null, avatar_url: null }, NOW);
+  const id = (await sql()`INSERT INTO installations (token_hash, client_name, created_at) VALUES (${'mv-' + Math.random()}, ${'Codex'}, ${NOW}) RETURNING id`)[0].id as number;
+  const code = await createLinkCode(id, NOW);
+  // Linked to another account while this code was still live.
+  await sql()`UPDATE installations SET builder_id = ${owner.id}, linked_at = ${NOW} WHERE id = ${id}`;
+  const other = 'This agent is already linked to another account. Install EarnKit again for a fresh link.';
+  const d = await meData(me, NOW, 'sess', code);
+  assert.deepEqual(d.link, { code: null, text: other });
+  const page = renderToStaticMarkup(MeView({ data: d, problem: null }));
+  assert.ok(page.includes(other), page);
+  assert.ok(!page.includes('/me/link'));
+  assert.ok(!page.includes('Link this agent'));
+  assert.ok(!page.includes('Not me'));
+  // The account it is linked to still sees the buttons.
+  assert.equal((await meData(owner, NOW, 'sess', code)).link?.code, code);
+});

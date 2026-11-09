@@ -60,7 +60,7 @@
     { "key": "competition", "label": "Competition", "type": "text", "required": false, "from": "project", "kind": "competitors", "description": "Required unless the category is Developer Tooling. Who is a direct competitor to your project? Tell us your competitive advantage." },
     { "key": "public_good", "label": "How is this project a public good?", "type": "text", "required": false, "from": "project", "kind": "ecosystem_fit", "description": "Required unless the category is Developer Tooling. A significant open-source contribution to the Solana ecosystem, or a meaningful free community offering; a novel proof of concept may also qualify." },
     { "key": "perps", "label": "Are you building a perps product?", "type": "choice", "required": false, "from": "project", "kind": "other", "options": ["Yes", "No"], "description": "Shown and required only when the category is DeFi. The Foundation backs perps that are fully onchain, with real price discovery, Solana-first, open source and built by experienced teams." },
-    { "key": "why_you", "label": "Why You?", "type": "text", "required": true, "from": "builder", "kind": "why_you", "todo": "why your team is best placed", "description": "Why are you and your team the best people to build this project? What edge do you have over the competition?" }
+    { "key": "why_you", "label": "Why You?", "type": "text", "required": true, "from": "builder", "kind": "why_you", "todo": "the reason the team is best placed", "description": "Why are you and your team the best people to build this project? What edge do you have over the competition?" }
   ],
   "focus": {
     "areas": ["Open-source public goods for Solana", "Developer tooling and education", "AI, consumer and DeFi projects"],

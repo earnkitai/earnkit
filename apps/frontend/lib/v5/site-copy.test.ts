@@ -153,3 +153,8 @@ test('the /me words: verbatim lines, sentences end with a full stop, no path in 
     assert.ok(!/\s[A-Z][a-z]/.test(s.replace(/\b(USD|X|LinkedIn)\b/g, '')), `${name}: sentence case "${s}"`);
   }
 });
+
+test('/llms.txt keeps the label before a second command: "Then approve it:" sits above codex mcp login (m12)', () => {
+  assert.ok(LLMS_TEXT.includes('    Then approve it:\n    codex mcp login earnkit'), LLMS_TEXT);
+  assert.ok(LLMS_TEXT.includes('    Then approve it:\n    hermes mcp login earnkit'), LLMS_TEXT);
+});
