@@ -60,10 +60,12 @@ export function verifyCsrf(token: string, builderId: number, now: Date, secret: 
   return ok.some(Boolean);
 }
 
-/** A problem line's signature, so /me shows only lines its own handlers wrote (never a crafted link's text). Pure. */
-export const problemSig = (line: string, secret: string): string => createHmac('sha256', secret).update(`me-problem:${line}`).digest('base64url').slice(0, 22);
-export const problemShown = (line: string | undefined, sig: string | undefined, secret: string): string | null =>
-  line && sig && same(sig, problemSig(line, secret)) ? line : null;
+/** A /me line's signature, bound to the builder it was written for, so /me shows only lines its own handlers wrote for this builder (never a crafted link's text, never another builder's line). Pure. */
+export const problemSig = (line: string, builderId: number, secret: string): string =>
+  createHmac('sha256', secret).update(`me-note:${builderId}:${line}`).digest('base64url').slice(0, 22);
+/** The line when its signature was made for this builder; a line signed for another builder is not shown. Pure. */
+export const problemShown = (line: string | undefined, sig: string | undefined, builderId: number, secret: string): string | null =>
+  line && sig && same(sig, problemSig(line, builderId, secret)) ? line : null;
 
 /** The set_at the builder sees for an approvable path ('' when it has no meta); approvePost checks it. Pure. */
 export const seenOf = (record: BuilderRecord, path: string): string => record.meta[path]?.set_at ?? '';
