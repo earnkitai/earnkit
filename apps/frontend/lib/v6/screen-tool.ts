@@ -4,6 +4,7 @@
  * the owner marked a reviewer of the program may call it; every refusal is one line and writes nothing.
  */
 import { z } from 'zod';
+import { inputDetail } from '../v5/tool-input';
 import { getProgram } from '../v5/programs';
 import { LIMITS, hit } from '../v5/rate-limit';
 import { signInLink } from './record-tool';
@@ -36,6 +37,7 @@ export const SCREEN_TEXT = {
   noJob: 'No screen with that id here.',
   expired: 'That screen has expired; queue the list again.',
   nothing: 'Hand me an applicant list to queue, or a job_id for its results.',
+  unread: "I could not read that. Send the applicant list, or a screen's id for its results.",
   queuedNote: 'Call screen with job_id for progress and results. Tell the builder what each tier means: used, live, building, unverified, flagged.',
   sortNote: 'Sort: used, then live, then building; flagged last with the rule named.',
   pendingNote: 'Call screen with job_id again later for the rest.',
@@ -60,7 +62,10 @@ function thresholdsOf(given: Record<string, number> | undefined): Partial<Thresh
 }
 
 export async function screenTool(ctx: { installationId: number; builderId: number | null; now: Date }, raw: unknown): Promise<ScreenReply> {
-  const input = ScreenInput.parse(raw);
+  // The MCP layer passes anything through (tool-input.ts): this is the only check, with the detail for the agent.
+  const parsed = ScreenInput.safeParse(raw);
+  if (!parsed.success) return line(SCREEN_TEXT.unread, `Nothing was queued. ${inputDetail(parsed.error)}`);
+  const input = parsed.data;
   if (ctx.builderId === null) {
     // R7: the installation's sign-in link, as find and record give it; no link (not configured, or refused) keeps one plain line.
     const link = await signInLink(ctx.installationId, ctx.now);

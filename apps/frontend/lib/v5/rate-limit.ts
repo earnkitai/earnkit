@@ -71,6 +71,16 @@ export function retryText(seconds: number) {
 }
 
 /**
+ * The busy line for a refused tool call, from its window's seconds left (v6.1.7, C8): minutes rounded up (at least
+ * one), hours rounded up once over 90 minutes. Pure.
+ */
+export function busyText(seconds: number) {
+  const minutes = Math.max(1, Math.ceil(seconds / 60));
+  const wait = minutes > 90 ? `${Math.ceil(seconds / 3_600)} hours` : minutes === 1 ? '1 minute' : `${minutes} minutes`;
+  return `EarnKit is busy. Try again in about ${wait}.`;
+}
+
+/**
  * An IPv6 address as its /64 ("2001:db8:0:0::/64"): one subscriber usually holds a whole /64, so
  * per-address keys could be rotated for free. IPv4 (and IPv4-mapped IPv6) is returned as is.
  * Pure.

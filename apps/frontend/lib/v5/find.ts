@@ -285,7 +285,7 @@ function linkedPart(side: RecordSide, rows: ProgramRow[], released: string[], ov
 
 export async function find(ctx: FindContext, input: unknown): Promise<FindReply | ProgramReply> {
   const i = FindInput.parse(input ?? {});
-  const parsed = i.project === undefined ? null : parseProject(i.project);
+  const parsed = i.project === undefined ? null : parseProject(i.project, ctx.now);
   const project = parsed?.ok ? parsed.project : null;
   const problems = parsed?.ok ? [...parsed.problems] : [];
   if (i.program_id) return oneProgram(ctx, i.program_id, project, i.project_id);
@@ -301,6 +301,8 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
     read: ctx.evidence ?? ((s) => readEvidence(s, { now: ctx.now, ...(ctx.gh ? { gh: ctx.gh } : {}) })),
   });
   if (side) problems.push(...side.problems);
+  // A project_id the record does not hold is named, and the match goes on by the repo (v6.1.7, C17).
+  if (i.project_id !== undefined && !side?.record.projects.some((p) => p.id === i.project_id)) problems.push('project_id not known; matched without it.');
   const released = side ? await releaseStale(owner, ctx.now) : [];
   const skip = await excluded(owner);
   const all = i.filter?.all === true;

@@ -116,16 +116,36 @@ function scrubString(s: string): Scrubbed {
   return { value, removed };
 }
 
+/** The deepest tool arguments EarnKit walks (v6.1.7, B4): deeper ones are refused before any walk. */
+export const MAX_ARG_DEPTH = 64;
+
+/**
+ * Whether `value` nests objects or arrays more than `max` levels deep. The walk never goes past `max + 1`
+ * levels, so a 1 MB body of brackets cannot overflow the stack. Pure.
+ */
+export function tooDeep(value: unknown, max = MAX_ARG_DEPTH): boolean {
+  const walk = (v: unknown, depth: number): boolean => {
+    if (!v || typeof v !== 'object') return false;
+    if (depth >= max) return true;
+    for (const x of Array.isArray(v) ? v : Object.values(v)) if (walk(x, depth + 1)) return true;
+    return false;
+  };
+  return walk(value, 0);
+}
+
 /**
  * Each match in every string (walking objects and arrays) replaced by `[key removed]`; `removed` counts every
- * match. Every string is scanned, whatever its length (the route caps the body at MAX_MCP_BODY_BYTES). Pure.
+ * match. Every string is scanned, whatever its length (the route caps the body at MAX_MCP_BODY_BYTES). The walk
+ * stops at MAX_ARG_DEPTH levels: anything deeper is left as is, and the route refuses such a call before a tool
+ * sees it (tooDeep). Pure.
  */
-export function scrubSecrets(value: unknown): Scrubbed {
+export function scrubSecrets(value: unknown, depth = 0): Scrubbed {
   if (typeof value === 'string') return scrubString(value);
+  if (depth >= MAX_ARG_DEPTH) return { value, removed: 0 };
   if (Array.isArray(value)) {
     let removed = 0;
     const out = value.map((v) => {
-      const r = scrubSecrets(v);
+      const r = scrubSecrets(v, depth + 1);
       removed += r.removed;
       return r.value;
     });
@@ -136,7 +156,7 @@ export function scrubSecrets(value: unknown): Scrubbed {
     // Object.fromEntries defines own properties, so a `__proto__` argument key survives.
     const out = Object.fromEntries(
       Object.entries(value).map(([k, v]) => {
-        const r = scrubSecrets(v);
+        const r = scrubSecrets(v, depth + 1);
         removed += r.removed;
         return [k, r.value];
       }),
@@ -145,6 +165,9 @@ export function scrubSecrets(value: unknown): Scrubbed {
   }
   return { value, removed: 0 };
 }
+
+/** Whether a string holds a secret key, or the placeholder the route swapped one for (v6.1.7, B9). Pure. */
+export const looksSecret = (s: string): boolean => s.includes(KEY_REMOVED) || scrubString(s).removed > 0;
 
 /** The largest POST body /mcp reads. */
 export const MAX_MCP_BODY_BYTES = 1_000_000;

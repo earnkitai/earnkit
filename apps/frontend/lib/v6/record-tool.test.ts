@@ -118,10 +118,35 @@ test('brief: the brief for the kind plus the record; an approved answer survives
   assert.equal(rec.meta['answers.problem'].approved_at, NOW.toISOString());
 });
 
-test('the input is strict: an approve key is refused', async () => {
+test('the input is strict: an approve key is refused with one line, the detail in the agent note (C35)', async () => {
   const c = await linked();
+  for (const args of [{ approve: 'answers.problem' }, { get: 'yes' }, { brief: 'nope' }]) {
+    const r = await mcpCall(c, 'record', args);
+    assert.equal(r.isError, false, r.text);
+    assert.equal(r.reply!.show_to_builder, 'I could not read that. Send the facts to save, or ask for the record.');
+    assert.match(r.reply!.agent_note as string, /^Nothing was saved\. /);
+    assert.equal(r.reply!.linked, true);
+  }
   const r = await mcpCall(c, 'record', { approve: 'answers.problem' });
-  assert.equal(r.isError, true, r.text);
+  assert.match(r.reply!.agent_note as string, /approve/);
+  assert.deepEqual((await getRecord(c.builderId)).meta, {});
+});
+
+test('B9: a set field that looks like a secret is skipped, never stored; the line says how many', async () => {
+  const c = await linked();
+  const key = 'sk_live_' + 'a1'.repeat(12);
+  const r = await mcpCall(c, 'record', { set: { person: { name: key, email: 'ada@example.com' } } });
+  assert.equal(r.isError, false, r.text);
+  assert.match(r.reply!.show_to_builder as string, /^Saved\. Not saved: 1 field looked like a secret\./);
+  const rec = await getRecord(c.builderId);
+  assert.equal(rec.person.name, undefined);
+  assert.equal(rec.person.email, 'ada@example.com');
+  // As the route delivers it: the key already swapped for the placeholder.
+  const p = await mcpCall(c, 'record', { set: { person: { name: '[key removed]', location: 'x [key removed]' } } });
+  assert.match(p.reply!.show_to_builder as string, /^Nothing new to save\. Not saved: 2 fields looked like secrets\./);
+  assert.equal((await getRecord(c.builderId)).person.name, undefined);
+  const clean = await mcpCall(c, 'record', { set: { person: { name: 'Ada' } } });
+  assert.doesNotMatch(clean.reply!.show_to_builder as string, /Not saved/);
 });
 
 test('the record is private: another builder reads only their own', async () => {

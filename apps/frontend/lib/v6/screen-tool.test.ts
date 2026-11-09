@@ -142,3 +142,15 @@ test('R7 screen unlinked with sign-in configured: the installation link, one lin
     else process.env[k] = v;
   }
 });
+
+test('C35: input screen cannot read is its one line, the detail in the agent note, never a validation dump', async () => {
+  const c = await linked();
+  for (const args of [{ applicants: 'everyone' }, { job_id: 7 }, { outcomes: [{ ref: 'r', outcome: 'maybe' }] }, { extra: true }]) {
+    const r = await mcpCall(c, 'screen', args);
+    assert.equal(r.isError, false, r.text);
+    assert.equal(r.reply!.show_to_builder, "I could not read that. Send the applicant list, or a screen's id for its results.");
+    assert.match(r.reply!.agent_note as string, /^Nothing was queued\. /);
+  }
+  const u = await mcpCall({ ...c, builderId: null }, 'screen', { extra: true });
+  assert.equal(u.reply!.show_to_builder, "I could not read that. Send the applicant list, or a screen's id for its results.");
+});

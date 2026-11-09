@@ -4,6 +4,8 @@
  * Only the linked installation's calls read the record. Approval happens on /me only.
  */
 import { z } from 'zod';
+import { looksSecret, MAX_ARG_DEPTH } from '../v5/secrets';
+import { inputDetail } from '../v5/tool-input';
 import { ANSWER_KINDS, type AnswerKind } from '../v5/program-file';
 import { listOpenPrograms } from '../v5/programs';
 import { answerBrief } from './answer-brief';
@@ -83,16 +85,54 @@ function briefFor(kind: AnswerKind, record: BuilderRecord) {
   return answerBrief(kind, record, { repo_url: p?.repo_url ?? null, live_url: p?.live_url ?? null, chains: p?.chains_claimed ?? [], first_commit_at: null });
 }
 
+export const RECORD_UNREAD = 'I could not read that. Send the facts to save, or ask for the record.';
+
+/**
+ * `set` without any string that looks like a secret key (or the route's placeholder for one): such a field, or
+ * list entry, is skipped, never stored (v6.1.7, B9). `skipped` counts them. The walk stops at MAX_ARG_DEPTH. Pure.
+ */
+export function withoutSecrets(value: unknown, depth = 0): { value: unknown; skipped: number } {
+  if (depth >= MAX_ARG_DEPTH || !value || typeof value !== 'object') return { value, skipped: 0 };
+  let skipped = 0;
+  const keep = (v: unknown): { keep: boolean; value: unknown } => {
+    if (typeof v === 'string' && looksSecret(v)) {
+      skipped += 1;
+      return { keep: false, value: v };
+    }
+    const r = withoutSecrets(v, depth + 1);
+    skipped += r.skipped;
+    return { keep: true, value: r.value };
+  };
+  if (Array.isArray(value)) {
+    const out = value.map(keep).filter((x) => x.keep).map((x) => x.value);
+    return { value: skipped ? out : value, skipped };
+  }
+  const out = Object.fromEntries(
+    Object.entries(value)
+      .map(([k, v]) => [k, keep(v)] as const)
+      .filter(([, x]) => x.keep)
+      .map(([k, x]) => [k, x.value]),
+  );
+  return { value: skipped ? out : value, skipped };
+}
+
 export async function recordTool(ctx: { installationId: number; builderId: number | null; now: Date }, input: unknown): Promise<RecordReply> {
-  const i = RecordInput.parse(input);
+  // The MCP layer passes anything through (tool-input.ts): this is the only check, with the detail for the agent.
+  const parsed = RecordInput.safeParse(input);
+  if (!parsed.success)
+    return { show_to_builder: RECORD_UNREAD, agent_note: `Nothing was saved. ${inputDetail(parsed.error)}`, linked: ctx.builderId !== null };
+  const i = parsed.data;
   if (ctx.builderId === null) return unlinked(ctx.installationId, ctx.now, i.set !== undefined);
   const asks = await programAsks(ctx.now);
   let record: BuilderRecord;
   let m: ReturnType<typeof mergeRecord> | null = null;
   const problems: string[] = [];
+  let secrets = 0;
   if (i.set !== undefined) {
     // Read, merge and save under the row's lock, so two agents' sets never lose one another.
-    const set = i.set;
+    const clean = withoutSecrets(i.set);
+    secrets = clean.skipped;
+    const set = clean.value;
     const out = await withRecord(ctx.builderId, ctx.now, (current) => {
       const merged = mergeRecord(current, set, 'agent', ctx.now);
       return { record: merged.changed.length > 0 ? merged.record : null, result: merged };
@@ -109,7 +149,8 @@ export async function recordTool(ctx: { installationId: number; builderId: numbe
 
   if (m) {
     const missing = recordMissing(record, asks);
-    const head = m.changed.length > 0 ? 'Saved.' : 'Nothing new to save.';
+    const saved = m.changed.length > 0 ? 'Saved.' : 'Nothing new to save.';
+    const head = secrets === 0 ? saved : `${saved} Not saved: ${secrets === 1 ? '1 field looked like a secret' : `${secrets} fields looked like secrets`}.`;
     return {
       show_to_builder: missing.length > 0 ? `${head} Still missing: ${listWords(missing)}.` : head,
       agent_note: m.changed.some(APPROVABLE) ? APPROVAL_NOTE : brief ? BRIEF_NOTE : '',

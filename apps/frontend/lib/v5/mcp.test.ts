@@ -48,15 +48,59 @@ test('four tools, their descriptions and the server instructions, verbatim', asy
   assert.equal(await mcpInstructions(c), SERVER_INSTRUCTIONS);
 });
 
-test('find strips unknown keys; track refuses them', async () => {
+test('find strips unknown keys; track refuses them with its one line, the detail in the agent note (C35, C21)', async () => {
   const c = await ctx();
   const f = await mcpCall(c, 'find', { project: { name: 'X', description: 'An app.' }, wallet: '0xabc', github_user: 'someone' });
   assert.equal(f.isError, false, f.text);
   assert.ok(typeof f.reply!.show_to_builder === 'string');
   const t = await mcpCall(c, 'track', { program_id: 'alliance-all19', status: 'skipped', extra: 1 });
-  assert.equal(t.isError, true, t.text);
+  assert.equal(t.isError, false, t.text);
+  assert.equal(t.reply!.show_to_builder, 'I could not read that. Send the program, a status, and for a win the amount.');
+  assert.match(t.reply!.agent_note as string, /^Nothing was recorded\. .*extra/);
+  const e = await mcpCall(c, 'track', {});
+  assert.equal(e.isError, false, e.text);
+  assert.equal(e.reply!.show_to_builder, 'I could not read that. Send the program, a status, and for a win the amount.');
+  assert.match(e.reply!.agent_note as string, /program_id/);
+  assert.doesNotMatch(e.text, /MCP error|Input validation/);
+  const w = await mcpCall(c, 'track', { program_id: 5, status: 'maybe', amount_usd: 'lots' });
+  assert.equal(w.reply!.show_to_builder, 'I could not read that. Send the program, a status, and for a win the amount.');
   const [n] = await sql()`SELECT count(*)::int AS n FROM application_history WHERE installation_id = ${c.installationId}`;
   assert.equal(n.n, 0);
+});
+
+test('track, record and screen advertise the same strict schemas they enforce inside (C35)', async () => {
+  const tools = await mcpListTools(await ctx());
+  const schema = (i: number) => tools[i].inputSchema as { properties: Record<string, { enum?: string[]; type?: string }>; required?: string[]; additionalProperties?: unknown };
+  assert.deepEqual(schema(1).required, ['program_id', 'status']);
+  assert.equal(schema(1).additionalProperties, false);
+  assert.equal(schema(1).properties.amount_usd.type, 'number');
+  assert.equal(schema(2).additionalProperties, false);
+  assert.equal(schema(2).properties.get.type, 'boolean');
+  assert.equal(schema(3).additionalProperties, false);
+  assert.equal(schema(3).properties.job_id.type, 'string');
+});
+
+test('B4: arguments nested past 64 levels are the plain line, never a stack overflow', async () => {
+  const c = await ctx();
+  let deep: unknown = 'x';
+  for (let i = 0; i < 200; i += 1) deep = { a: deep };
+  for (const [name, args] of [['record', { set: deep }], ['track', { program_id: 'x', status: 'started', note: deep }], ['screen', { thresholds: deep }], ['find', { project: { name: deep, description: 'd' } }]] as const) {
+    const r = await mcpCall(c, name, args as Record<string, unknown>);
+    assert.equal(r.isError, false, r.text);
+    assert.equal(r.reply!.show_to_builder, 'I could not read that.');
+    assert.equal(r.reply!.agent_note, 'The arguments were nested too deep.');
+  }
+});
+
+test('C17: an unknown project_id is a problem line on find, and named in the agent note on track', async () => {
+  const c = await ctx();
+  const f = await mcpCall(c, 'find', { project_id: 'nope', project: { name: 'X', description: 'An app.' } });
+  assert.equal(f.isError, false, f.text);
+  assert.ok((f.reply!.problems as string[]).includes('project_id not known; matched without it.'));
+  const t = await mcpCall(c, 'track', { program_id: 'no-such', status: 'skipped', project_id: 'nope' });
+  assert.equal(t.isError, false, t.text);
+  assert.match(t.reply!.agent_note as string, /project_id nope is not known; ignored\./);
+  assert.doesNotMatch(t.reply!.show_to_builder as string, /project_id/);
 });
 
 test('a database error is the busy line', async () => {
@@ -68,7 +112,7 @@ test('a database error is the busy line', async () => {
 
 const seed = (key: string, count: number) =>
   sql()`INSERT INTO rate_windows (key, window_start, count) VALUES (${key}, ${windowStart(NOW, 3_600_000)}, ${count})`;
-const BUSY_HOUR = 'EarnKit is busy. Try again in an hour.';
+const BUSY_HOUR = 'EarnKit is busy. Try again in about 60 minutes.';
 
 test('the 121st tool call in an hour is the busy reply, as a tool result', async () => {
   const c = await ctx();
@@ -80,6 +124,8 @@ test('the 121st tool call in an hour is the busy reply, as a tool result', async
   assert.equal(busy.text, BUSY_HOUR);
   const f = await mcpCall(c, 'find', {});
   assert.equal(f.text, BUSY_HOUR);
+  const later = await mcpCall({ ...c, now: new Date(NOW.getTime() + 48 * 60_000) }, 'find', {});
+  assert.equal(later.text, 'EarnKit is busy. Try again in about 12 minutes.');
   const next = await mcpCall({ ...c, now: new Date(NOW.getTime() + 3_600_000) }, 'track', { program_id: 'no-such', status: 'skipped' });
   assert.equal(next.isError, false, next.text);
 });

@@ -86,15 +86,19 @@ test('refusals say so and record nothing', async () => {
   const w = await track(c, { program_id: 'nope-x', status: 'won' });
   assert.equal(w.agent_note, 'Nothing was recorded.');
   const u = await track(c, { program_id: 'nope-x', status: 'applied', extra: 1 });
-  assert.equal(u.agent_note, 'Nothing was recorded.');
+  assert.equal(u.show_to_builder, 'I could not read that. Send the program, a status, and for a win the amount.');
+  assert.equal(u.agent_note, 'Nothing was recorded. input: Unrecognized key: "extra".');
   const long = await track(c, { program_id: 'nope-x', status: 'applied', note: 'x'.repeat(281) });
-  assert.equal(long.agent_note, 'Nothing was recorded.');
+  assert.equal(long.agent_note, 'Nothing was recorded. note: Too big: expected string to have <=280 characters.');
   const n = (await sql()`SELECT count(*)::int AS n FROM application_history WHERE installation_id = ${c.installationId}`)[0].n;
   assert.equal(n, 0);
 });
 
-test('started then applied: the claim, then what was sent and by whom', async () => {
-  const c = await ctx();
+test('started then applied: the claim, then what was sent and by whom; the record project kept (C17)', async () => {
+  const { a: c } = await twoAgents();
+  const { getRecord, saveRecord } = await import('../v6/builders');
+  const { mergeRecord } = await import('../v6/record');
+  await saveRecord(c.builderId!, mergeRecord(await getRecord(c.builderId!), { projects: [{ id: 'earnkit', name: 'EarnKit' }] }, 'builder', NOW).record, NOW);
   await upsertProgram(programFixture({ id: 't6-s', title: 'Start Grant' }), 'file', NOW);
   const s = await track(c, { program_id: 't6-s', status: 'started', project_id: 'earnkit' });
   assert.equal(s.show_to_builder, 'Started. Nothing else will submit this one for 24 hours.');
@@ -103,9 +107,22 @@ test('started then applied: the claim, then what was sent and by whom', async ()
   const a = await track({ ...c, now: new Date(NOW.getTime() + 3_600_000) }, { program_id: 't6-s', status: 'applied', submitted_by: 'agent', fields_used: ['project_name'], project_id: 'earnkit' });
   assert.equal(a.show_to_builder, "Tracked. I'll ask how it went when results are due.");
   assert.equal(a.ledger.applied, 1);
+  assert.doesNotMatch(a.agent_note, /not known/);
   const [row] = await sql()`SELECT status, submitted_by, fields_used, project_id, claimed_at FROM applications WHERE program_id = 't6-s' AND installation_id = ${c.installationId}`;
   assert.deepEqual([row.status, row.submitted_by, row.fields_used, row.project_id], ['applied', 'agent', ['project_name'], 'earnkit']);
   assert.equal((row.claimed_at as Date).toISOString(), NOW.toISOString());
+});
+
+test('C17: an unknown project_id is ignored, and named in the agent note', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 't6-p', title: 'Project Grant' }), 'file', NOW);
+  const s = await track(c, { program_id: 't6-p', status: 'started', project_id: 'nope' });
+  assert.equal(s.show_to_builder, 'Started. Nothing else will submit this one for 24 hours.');
+  assert.equal(s.agent_note, 'Fill the form from the fields, submit, then call track with applied, submitted_by and fields_used. project_id nope is not known; ignored.');
+  const a = await track(c, { program_id: 't6-p', status: 'applied', submitted_by: 'agent', project_id: 'nope' });
+  assert.match(a.agent_note, /project_id nope is not known; ignored\.$/);
+  const [row] = await sql()`SELECT project_id FROM applications WHERE program_id = 't6-p' AND installation_id = ${c.installationId}`;
+  assert.equal(row.project_id, null);
 });
 
 let gh = 931_000;
@@ -169,7 +186,7 @@ test('started for an unknown program refuses and records nothing', async () => {
   assert.equal(r.agent_note, 'Nothing was recorded.');
   assert.equal(r.show_to_builder, "I don't know that program.");
   const bad = await track(c, { program_id: 't6-a', status: 'applied', submitted_by: 'robot' });
-  assert.equal(bad.agent_note, 'Nothing was recorded.');
+  assert.equal(bad.agent_note, 'Nothing was recorded. submitted_by: Invalid option: expected one of "agent"|"builder".');
   const n = (await sql()`SELECT count(*)::int AS n FROM applications WHERE installation_id = ${c.installationId}`)[0].n;
   assert.equal(n, 0);
 });
@@ -278,7 +295,11 @@ test('TrackInput caps: program_id and item at 80, amount_usd finite and between 
     { program_id: 't6-cap', status: 'won', amount_usd: Number.POSITIVE_INFINITY },
     { program_id: 't6-cap', status: 'won', amount_usd: Number.NaN },
   ];
-  for (const input of refused) assert.equal((await track(c, input)).agent_note, 'Nothing was recorded.', JSON.stringify(input));
+  for (const input of refused) {
+    const r = await track(c, input);
+    assert.equal(r.show_to_builder, 'I could not read that. Send the program, a status, and for a win the amount.', JSON.stringify(input));
+    assert.match(r.agent_note, /^Nothing was recorded\. (program_id|item|amount_usd): .+\.$/, JSON.stringify(input));
+  }
   const n = (await sql()`SELECT count(*)::int AS n FROM application_history WHERE installation_id = ${c.installationId}`)[0].n;
   assert.equal(n, 0);
   // The cap itself passes the input check and meets the program's own limit instead.

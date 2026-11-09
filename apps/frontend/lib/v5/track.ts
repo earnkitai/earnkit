@@ -10,6 +10,7 @@ import { getProgram, listOpenPrograms } from './programs';
 import { doneItems, record, summary, titleOf, type Ledger, type Status } from './ledger';
 import { clock } from './reply';
 import { sql } from './db';
+import { inputDetail } from './tool-input';
 
 export const TrackInput = z
   .object({
@@ -36,6 +37,13 @@ async function sentHere(owner: string, programId: string): Promise<boolean> {
 
 export type TrackContext = { installationId: number; builderId: number | null; now: Date };
 
+export const TRACK_UNREAD = 'I could not read that. Send the program, a status, and for a win the amount.';
+
+/** Whether `projectId` is one of the linked builder's record projects (an unlinked installation has none). */
+async function knownProject(builderId: number | null, projectId: string): Promise<boolean> {
+  return builderId !== null && (await getRecord(builderId)).projects.some((p) => p.id === projectId);
+}
+
 export async function track(ctx: TrackContext, input: unknown): Promise<Result> {
   const owner = ownerKey(ctx.installationId, ctx.builderId);
   const programs = await listOpenPrograms(ctx.now);
@@ -44,9 +52,23 @@ export async function track(ctx: TrackContext, input: unknown): Promise<Result> 
     agent_note: agentNote,
     ledger: await summary(owner, programs, ctx.now),
   });
+  // The MCP layer passes anything through (tool-input.ts): this is the only check, with the detail for the agent.
   const parsed = TrackInput.safeParse(input);
-  if (!parsed.success) return refuse('I could not read that. Send the program, a status, and for a win the amount.');
-  const i = parsed.data;
+  if (!parsed.success) return refuse(TRACK_UNREAD, `Nothing was recorded. ${inputDetail(parsed.error)}`);
+  // An unknown project_id is dropped, and named for the agent (v6.1.7, C17).
+  const { project_id, ...rest } = parsed.data;
+  if (project_id === undefined || (await knownProject(ctx.builderId, project_id))) return act(ctx, owner, programs, refuse, parsed.data);
+  const r = await act(ctx, owner, programs, refuse, rest);
+  return { ...r, agent_note: `${r.agent_note} project_id ${project_id} is not known; ignored.`.trim() };
+}
+
+async function act(
+  ctx: TrackContext,
+  owner: string,
+  programs: Awaited<ReturnType<typeof listOpenPrograms>>,
+  refuse: (note: string, agentNote?: string) => Promise<Result>,
+  i: z.infer<typeof TrackInput>,
+): Promise<Result> {
   if (i.status === 'started') {
     const program = await getProgram(i.program_id);
     if (!program) return refuse("I don't know that program.");
