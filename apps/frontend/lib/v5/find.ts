@@ -117,9 +117,19 @@ const MAX_READY = 5;
 /** In-person ready programs get their own slots: they never take a remote one's (v6.1.4). */
 const MAX_IN_PERSON = 2;
 const MAX_GAPS = 3;
+
 // The gaps markFind keeps for track started, at most this many, in rank order.
 const MAX_REMEMBERED_GAPS = 60;
 const MAX_LISTED = 10;
+
+/** The ready list shown: all of it when `all`, else the first MAX_READY remote then the first MAX_IN_PERSON in person,
+ * each in input (rank) order. Zero remote leaves only the in-person slots. */
+export function shownReadyOf<T>(readyV: T[], all: boolean, inPerson: (v: T) => boolean): T[] {
+  if (all) return readyV;
+  const remoteV = readyV.filter((v) => !inPerson(v));
+  const attendV = readyV.filter(inPerson);
+  return [...remoteV.slice(0, MAX_READY), ...attendV.slice(0, MAX_IN_PERSON)];
+}
 
 /** Whose ledger this find reads: the builder's once linked, else the installation's. Pure. */
 const ownerOf = (ctx: FindContext) => ownerKey(ctx.installationId, ctx.builderId);
@@ -281,9 +291,7 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const gapV = rankGaps(verdicts.filter((v) => v.status === 'gap'), byId);
   // Remote and in-person ready programs are capped apart, each in rank order, so the default list always leads with
   // something the builder can apply to now.
-  const remoteV = readyV.filter((v) => !byId.get(v.program_id)!.file.in_person);
-  const attendV = readyV.filter((v) => byId.get(v.program_id)!.file.in_person);
-  const shownReady = all ? readyV : [...remoteV.slice(0, MAX_READY), ...attendV.slice(0, MAX_IN_PERSON)];
+  const shownReady = shownReadyOf(readyV, all, (v) => byId.get(v.program_id)!.file.in_person);
   const shownGaps = all ? gapV : gapV.slice(0, MAX_GAPS);
   const more = readyV.length - shownReady.length + gapV.length - shownGaps.length;
   // In display order with the numbers the builder sees: ready, gaps, then in person.

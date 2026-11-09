@@ -59,6 +59,9 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
 8. `find` caps the lists (at most 5 remote ready, 3 gaps, then at most 2 in person) and `reply.ts` writes `show_to_builder` and `agent_note`. It shows at most 5 remote ready and 3 gaps, then at most 2
    in-person programs in their own block with their setup (never in "apply to all N"), and ends with exactly one
    closing line. `find` caps remote and in-person ready apart, so an in-person program never takes a remote slot.
+   The caps live in `shownReadyOf` (`find.ts`, pure): with no remote ready it shows only the 2 in-person slots.
+   `find` also saves every gap (at most 60) to `installations.last_gaps` as `{ program_id: what is missing }`;
+   `track` `started` reads it to say what is still missing.
    `find` returns `ready` in that display order (in person last) and gives every ready and gap item its displayed
    number `n`, so "skip 4" maps to the item with `n` 4. No emoji, no em dash, no tool or field names, no coins, points or scores.
 
@@ -88,7 +91,8 @@ The pipeline, in order:
    the open list. The deploy's sync writes an active file past its `ends_at` as closed, with a warning, so a deploy
    never reopens it. There is no LLM in the cron.
 5. Readers: `programs-read.ts` serves public `GET /api/programs`; `landing.ts`, `guide.ts`, `guide-page.ts` and
-   `stats.ts` feed the site.
+   `stats.ts` feed the site. The hero chip ("$N in grants and prizes open now") sums, per open non-investment
+   program, its `pool_usd` when set, else its `max_award_usd`.
 
 ## The ledger
 

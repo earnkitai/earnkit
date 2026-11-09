@@ -5,6 +5,7 @@ import { getProgram, upsertProgram } from './programs';
 import { replayFetch } from './fixtures/github';
 import { mcpCall } from './fixtures/mcp-call';
 import { lastGaps } from './installations';
+import { shownReadyOf } from './find';
 
 after(() => sql().end());
 beforeEach(() => sql()`DELETE FROM repo_cache`);
@@ -672,4 +673,29 @@ test('a failed own read keeps the stored tier line; a broken link never fails fi
     assert.deepEqual(openLines.slice(-3, -1), ["Tell me which project and I'll match it.", '']);
     for (const line of openLines.slice(1, -3)) assert.ok(line.endsWith('.'), line);
   });
+});
+
+// shownReadyOf: the split and cap of the ready list, pure (v6.1.5).
+type V = { id: string; in_person: boolean };
+const isIn = (v: V) => v.in_person;
+const remote = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `r${i}`, in_person: false }));
+const inPerson = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `p${i}`, in_person: true }));
+
+test('shownReadyOf: zero remote and three in person gives the first two in person only', () => {
+  assert.deepEqual(shownReadyOf(inPerson(3), false, isIn).map((v) => v.id), ['p0', 'p1']);
+});
+
+test('shownReadyOf: six remote and zero in person gives the first five remote', () => {
+  assert.deepEqual(shownReadyOf(remote(6), false, isIn).map((v) => v.id), ['r0', 'r1', 'r2', 'r3', 'r4']);
+});
+
+test('shownReadyOf: all returns everything unchanged', () => {
+  const input = [...inPerson(3), ...remote(6)];
+  assert.deepEqual(shownReadyOf(input, true, isIn), input);
+});
+
+test('shownReadyOf: remote first, then in person, even when the input interleaves them', () => {
+  const [r, p] = [remote(3), inPerson(3)];
+  const input = [p[0], r[0], p[1], r[1], p[2], r[2]];
+  assert.deepEqual(shownReadyOf(input, false, isIn).map((v) => v.id), ['r0', 'r1', 'r2', 'p0', 'p1']);
 });
