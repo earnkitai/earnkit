@@ -411,7 +411,7 @@ test('unlinked: a public repo with no live URL from code and no mainnet contract
   assert.equal(g.gap.what, CONFIRM);
   assert.match(r.reply!.show_to_builder as string, new RegExp(`^${g.n}\\. Live Grant, Up to \\$5,000: ${CONFIRM}\\.$`, 'm'));
   assert.equal(r.reply!.evidence_summary, null);
-  // A live URL the agent reports is not the code's: still the gap.
+  // A live URL the agent reports is not the code's: still the gap (the earnkit repo has no homepage).
   const reported = await mcpCall(ctx(await installation()), 'find', { project: PROJECT, filter: { all: true } });
   assert.ok(ids(reported.reply!.gaps).includes('f-live'));
   assert.equal(reported.reply!.evidence_summary, null);
@@ -425,6 +425,12 @@ test('unlinked: a live URL read from the code passes the live bar (R3)', async (
   assert.equal(r.isError, false, r.text);
   assert.ok(ids(r.reply!.ready).includes('f-live'), JSON.stringify(ids(r.reply!.gaps)));
   assert.equal(r.reply!.evidence_summary, null);
+  // R3a: the agent passing the live URL (as the note asks) keeps the code's homepage: still live.
+  const passed = await mcpCall({ installationId: await installation(), builderId: null, now: NOW, gh: dash.fetch }, 'find', {
+    project: { name: 'Dashboard', description: 'A dashboard.', repo_url: `https://github.com/${dash.repo}`, live_url: 'https://dashboard-v1-ashy.vercel.app' }, filter: { all: true },
+  });
+  assert.equal(passed.isError, false, passed.text);
+  assert.ok(ids(passed.reply!.ready).includes('f-live'), JSON.stringify(ids(passed.reply!.gaps)));
 }));
 
 test('unlinked: a repo that could not be read applies no tier bar (R3)', async () => withLiveBar(async () => {

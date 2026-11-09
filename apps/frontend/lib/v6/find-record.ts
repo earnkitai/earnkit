@@ -116,13 +116,13 @@ export function tierGate(v: Verdict, row: ProgramRow, tier: Tier | null, line: s
 
 /**
  * Unlinked, the tier the public code read alone supports: 'live' for a live URL or a mainnet contract read
- * from the code, 'building' for any other public repo read, null (no bar) when the repo was not read.
+ * from the code (a repo homepage counts even when the agent also passes the live URL, R3a; homepage is set only by the read), 'building' for any other public repo read, null (no bar) when the repo was not read.
  * Never stored and never shown as the builder's tier. Pure.
  */
 export function provisionalTier(facts: RepoFacts): Tier | null {
   if (!facts.public || facts.as_reported) return null;
   const mainnet = new Set(facts.chains.filter((c) => c.mainnet).map((c) => c.chain));
-  if (facts.live_url_basis === 'code' || facts.contracts.some((c) => c.basis === 'code' && mainnet.has(c.chain))) return 'live';
+  if (facts.live_url_basis === 'code' || facts.homepage !== null || facts.contracts.some((c) => c.basis === 'code' && mainnet.has(c.chain))) return 'live';
   return 'building';
 }
 

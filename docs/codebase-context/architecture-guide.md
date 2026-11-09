@@ -244,7 +244,7 @@ Design `v6-design.md` (sections 4, 5, 8, 10, 14); plan `v6.1-plan.md`; ledger `v
 
 **Identity and the owner key.** A builder is a GitHub account (`builders`, `lib/v6/builders.ts`). An unlinked
 installation works as in v5, except (v6.1.3) that `find` bars `min_tier` programs on a provisional tier from the
-public code read (`provisionalTier`: live URL or mainnet contract from code is live, any other read repo is building,
+public code read (`provisionalTier`: a repo homepage, live URL or mainnet contract from code is live, any other read repo is building,
 an unread repo has no bar; never shown as evidence), names `blockersOf` against `EMPTY_RECORD` under "Before applying:" ("Before tonight:" only linked with
 auto_apply), and keeps the closing line as the one action with the sign-in as its second sentence. The first `find` (and `record`) on an unlinked installation carries a one-time link
 `earnkit.com/link/<code>` (15 minutes, hash stored, `link-routes.ts`); the builder confirms, signs in with GitHub
