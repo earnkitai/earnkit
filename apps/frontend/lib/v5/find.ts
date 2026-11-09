@@ -117,7 +117,6 @@ const MAX_READY = 5;
 /** In-person ready programs get their own slots: they never take a remote one's (v6.1.4). */
 const MAX_IN_PERSON = 2;
 const MAX_GAPS = 3;
-
 // The gaps markFind keeps for track started, at most this many, in rank order.
 const MAX_REMEMBERED_GAPS = 60;
 const MAX_LISTED = 10;

@@ -18,6 +18,8 @@ const WEEK_MS = 7 * 86_400_000;
  * The money open to win: over the open programs that are not investments, each one's `pool_usd` when
  * set (the whole pool is open; the max award is one winner's share), else its `max_award_usd`, else 0,
  * summed. An investment is not money to win, so it counts nothing. Pure.
+ * Since v6.1.5, `open_money_usd` as /api/stats publishes it counts stated pools (before, max awards only);
+ * the key set is unchanged.
  */
 export const openMoneyUsd = (rows: ProgramRow[]): number =>
   rows

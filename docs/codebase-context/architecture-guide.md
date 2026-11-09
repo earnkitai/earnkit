@@ -56,12 +56,12 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
 6. `since.ts` lists programs new, changed (deadline, amount, status, form) and closing within 7 days since this
    installation's `last_find_at`. Empty on the first call.
 7. `ledger.ts` summarises the installation's applications; results past due become `ask_outcome`.
-8. `find` caps the lists (at most 5 remote ready, 3 gaps, then at most 2 in person) and `reply.ts` writes `show_to_builder` and `agent_note`. It shows at most 5 remote ready and 3 gaps, then at most 2
-   in-person programs in their own block with their setup (never in "apply to all N"), and ends with exactly one
-   closing line. `find` caps remote and in-person ready apart, so an in-person program never takes a remote slot.
+8. `find` caps the lists (at most 5 remote ready, 3 gaps, then at most 2 in person) and `reply.ts` writes `show_to_builder` and `agent_note`. In-person
+   programs get their own block with their setup (never in "apply to all N"), and the reply ends with
+   exactly one closing line. `find` caps remote and in-person ready apart, so an in-person program never takes a remote slot.
    The caps live in `shownReadyOf` (`find.ts`, pure): with no remote ready it shows only the 2 in-person slots.
    `find` also saves every gap (at most 60) to `installations.last_gaps` as `{ program_id: what is missing }`;
-   `track` `started` reads it to say what is still missing.
+   `track` `started` reads it to say what is still missing; `track` `gap_done` drops that program's entry.
    `find` returns `ready` in that display order (in person last) and gives every ready and gap item its displayed
    number `n`, so "skip 4" maps to the item with `n` 4. No emoji, no em dash, no tool or field names, no coins, points or scores.
 
@@ -152,7 +152,7 @@ keys from tool-call bodies before anything sees them.
 | `program_changes` | Field-level changes, for `since` and the owner digest |
 | `program_writes` | The write API's audit log and the pending writes |
 | `program_health` | The freshness probe: link status, page hash and text, failing days, changed_at |
-| `installations` | One row per issued token (hash only): client name, `last_seen_at`, `last_find_at` |
+| `installations` | One row per issued token (hash only): client name, `last_seen_at`, `last_find_at`, `last_gaps` (the last find's gaps) |
 | `rate_windows` | Request counters |
 | `repo_cache` | Public repo facts, 7 days; swept after 30 |
 | `evidence_cache` | v6 evidence blocks per repo (`repo:<owner/name>`, with pushed_at) and per contract, used for 7 days; not swept yet |

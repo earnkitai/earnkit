@@ -52,6 +52,11 @@ export async function lastGaps(id: number): Promise<Record<string, string>> {
   return row?.last_gaps ?? {};
 }
 
+/** Drops one program from the last find's gaps: the builder reported that gap done (track gap_done). */
+export async function forgetGap(id: number, programId: string): Promise<void> {
+  await sql()`UPDATE installations SET last_gaps = last_gaps - ${programId}::text WHERE id = ${id} AND last_gaps IS NOT NULL`;
+}
+
 export async function lastFindAt(id: number): Promise<Date | null> {
   const [row] = await sql()<{ last_find_at: Date | null }[]>`SELECT last_find_at FROM installations WHERE id = ${id}`;
   return row?.last_find_at ?? null;

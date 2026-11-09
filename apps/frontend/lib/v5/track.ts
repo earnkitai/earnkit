@@ -5,7 +5,7 @@
 import { z } from 'zod';
 import { getRecord, ownerKey } from '../v6/builders';
 import { claim } from '../v6/claims';
-import { lastGaps } from './installations';
+import { forgetGap, lastGaps } from './installations';
 import { getProgram, listOpenPrograms } from './programs';
 import { record, summary, type Ledger, type Status } from './ledger';
 
@@ -71,7 +71,7 @@ export async function track(ctx: TrackContext, input: unknown): Promise<Result> 
     const gap = (await lastGaps(ctx.installationId))[program.id];
     if (gap)
       return {
-        show_to_builder: `Started. When I last looked it was still one change away: ${gap}. Do that first.`,
+        show_to_builder: `Started. When I last looked it was still one change away: ${gap}. Make sure that is done first.`,
         agent_note: 'Make the change before you submit, or call find again to check it. Then fill the form from the fields, submit, and call track with applied, submitted_by and fields_used.',
         ledger: await summary(owner, programs, ctx.now),
       };
@@ -87,6 +87,7 @@ export async function track(ctx: TrackContext, input: unknown): Promise<Result> 
   const applied = i.status === 'applied' ? { submitted_by: i.submitted_by, fields_used: i.fields_used, project_id: i.project_id, autoApplied } : {};
   const res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, amount_usd: i.amount_usd, note: i.note, item: i.item, now: ctx.now, ...applied });
   if (!res.ok) return refuse(res.note);
+  if (i.status === 'gap_done') await forgetGap(ctx.installationId, i.program_id);
   const title = (await getProgram(i.program_id))!.file.title;
   const lines: Record<Exclude<Status, 'started'>, string> = {
     applied: "Tracked. I'll ask how it went when results are due.",
