@@ -42,7 +42,7 @@ const MAX_GAPS = 2;
 
 /** A rule's item is 'rule:' and the first 8 hex of the sha256 of its note: stable while the note is. */
 export const ruleItem = (note: string) => `rule:${createHash('sha256').update(note).digest('hex').slice(0, 8)}`;
-const itemKey = (i: EligibilityItem) => (i.kind === 'rule' ? ruleItem(i.note ?? '') : i.value ? `${i.kind}:${i.value}` : i.kind);
+export const itemKey = (i: EligibilityItem) => (i.kind === 'rule' ? ruleItem(i.note ?? '') : i.value ? `${i.kind}:${i.value}` : i.kind);
 const chainDetails = (chain: string) => {
   const c = CHAIN_REGISTRY[chain];
   return { chain, rpc: c?.rpc ?? null, explorer: c?.explorer ?? null };

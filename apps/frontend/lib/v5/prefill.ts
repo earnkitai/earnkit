@@ -250,6 +250,8 @@ export function prefill(
     const draftable = isProse(r.kind) || r.kind === 'name' || r.kind === 'one_liner' || (r.kind === 'other' && r.type === 'text');
     if (!draftable) return { ...base, value: null, from: 'builder' };
     const sources = sourcesOf(facts, guidance);
+    // An 'other' answer with nothing to draft from is the builder's, never the agent's with no sources (v6.1.6).
+    if (r.kind === 'other' && sources.length === 0) return { ...base, value: null, from: 'builder' };
     return { ...base, value: null, from: 'agent', sources: rec && (isProse(r.kind) || r.kind === 'other') ? [...sources, ASK_ONCE] : sources };
   });
   const todo = new Map(file.submission_requirements.map((r) => [r.key, r.todo]));

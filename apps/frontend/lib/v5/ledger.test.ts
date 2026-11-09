@@ -88,9 +88,20 @@ test('excluded holds applied and skipped; skipped keeps an application', async (
 test('gap_done writes gaps_done only', async () => {
   const i = await install();
   await prog('l-gap');
-  assert.equal((await record(o(i), 'l-gap', 'gap_done', { item: 'license', now: NOW })).ok, true);
+  assert.equal((await record(o(i), 'l-gap', 'gap_done', { item: 'users', now: NOW })).ok, true);
   assert.deepEqual(await counts(i), { apps: 0, hist: 1 });
-  assert.deepEqual([...(await doneItems(o(i), 'l-gap'))], ['license']);
+  assert.deepEqual([...(await doneItems(o(i), 'l-gap'))], ['users']);
+});
+
+test('gap_done refuses an item that is not one of the program\'s, names the real ones and writes nothing (v6.1.6)', async () => {
+  const i = await install();
+  await prog('l-gap-arc', { eligibility: [{ kind: 'chain', value: 'arc' }] });
+  const r = await record(o(i), 'l-gap-arc', 'gap_done', { item: 'nope', now: NOW });
+  assert.deepEqual(r, { ok: false, note: 'Tell me which item you finished: chain:arc, users.' });
+  assert.deepEqual(await counts(i), { apps: 0, hist: 0 });
+  assert.deepEqual([...(await doneItems(o(i), 'l-gap-arc'))], []);
+  assert.equal((await record(o(i), 'l-gap-arc', 'gap_done', { item: 'chain:arc', now: NOW })).ok, true);
+  assert.deepEqual([...(await doneItems(o(i), 'l-gap-arc'))], ['chain:arc']);
 });
 
 test('askOutcome lists a passed results date once asked is marked', async () => {
@@ -179,15 +190,15 @@ test('a record under one b: owner from two installations is one row, written by 
   await prog('l-b1');
   await record(b, 'l-b1', 'applied', { installationId: one, now: NOW });
   await record(b, 'l-b1', 'won', { installationId: two, amount_usd: 100, now: new Date(NOW.getTime() + DAY) });
-  await record(b, 'l-b1', 'gap_done', { installationId: one, item: 'x', now: NOW });
-  await record(b, 'l-b1', 'gap_done', { installationId: two, item: 'x', now: NOW });
+  await record(b, 'l-b1', 'gap_done', { installationId: one, item: 'users', now: NOW });
+  await record(b, 'l-b1', 'gap_done', { installationId: two, item: 'users', now: NOW });
   const rows = await sql()`SELECT installation_id, status FROM applications WHERE owner = ${b} AND program_id = 'l-b1'`;
   assert.deepEqual(rows.map((r) => ({ ...r })), [{ installation_id: two, status: 'won' }]);
   const hist = await sql()`SELECT installation_id FROM application_history WHERE owner = ${b} AND program_id = 'l-b1' ORDER BY id`;
   assert.deepEqual(hist.map((r) => r.installation_id), [one, two, one, two]);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM gaps_done WHERE owner = ${b} AND program_id = 'l-b1'`)[0].n, 1);
   assert.equal((await summary(b, [], NOW)).won, 1);
-  assert.deepEqual([...(await doneItems(b, 'l-b1'))], ['x']);
+  assert.deepEqual([...(await doneItems(b, 'l-b1'))], ['users']);
   assert.deepEqual(await counts(one), { apps: 0, hist: 2 });
 });
 

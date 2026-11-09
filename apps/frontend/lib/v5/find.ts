@@ -196,8 +196,8 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const verdict = project ? evaluate(row, facts, await doneItems(ownerOf(ctx), id), ctx.now) : undefined;
   const left = closesIn(p, ctx.now);
   const open = isOpen(p, ctx.now);
-  const when = p.status === 'upcoming' ? null : !open ? 'closed' : left ? `closes ${left}` : 'no deadline';
-  const ask = open ? 'Want me to draft it?' : p.status === 'upcoming' ? `Not open yet: ${p.opens_note ?? 'no date announced'}.` : 'This one is closed.';
+  const when = p.status === 'upcoming' ? null : !open ? 'closed' : left ? `closes ${left}` : 'rolling';
+  const ask = open ? (p.in_person ? 'Want me to start the application to attend?' : 'Want me to draft it?') : p.status === 'upcoming' ? `Not open yet: ${p.opens_note ?? 'no date announced'}.` : 'This one is closed.';
   const guide = guideText(row, ctx.now);
   const guideRules = guideLines(guide);
   // Their rules: what the program requires that EarnKit cannot check, each its own line after the money (v6.1.6).

@@ -178,12 +178,24 @@ test('find with program_id: the fields, the money and the link', async () => {
   const show = reply.show_to_builder as string;
   assert.ok(show.includes('$400K at admission'), show);
   assert.ok(show.includes('https://alliance.xyz/apply'), show);
-  assert.match(show, /Want me to draft it\?$/);
+  // Alliance is in person: the question is to start the application to attend (v6.1.6).
+  assert.match(show, /Want me to start the application to attend\?$/);
   const bare = await mcpCall(ctx(id), 'find', { program_id: 'alliance-all19' });
   assert.ok((bare.reply!.fields as { value: unknown }[]).every((f) => f.value === null));
   const none = await mcpCall(ctx(id), 'find', { program_id: 'no-such-program' });
   assert.equal(none.isError, false);
   assert.ok((none.reply!.show_to_builder as string).length > 0);
+});
+
+test('find with program_id for YC: an open program with no end date is rolling, and in person asks to attend (v6.1.6)', async () => {
+  const id = await installation();
+  const r = await mcpCall(ctx(id), 'find', { program_id: 'y-combinator', project: PROJECT });
+  assert.equal(r.isError, false, r.text);
+  const show = r.reply!.show_to_builder as string;
+  const lines = show.split('\n');
+  assert.match(lines[0], /^Y Combinator [^,]*, \$500K investment, rolling\.$/, show);
+  assert.doesNotMatch(show, /no deadline|Want me to draft it/, show);
+  assert.equal(lines.at(-1)!.endsWith('Want me to start the application to attend?'), true, show);
 });
 
 test('find with program_id carries the guide, and its rules sit between the two lines and the question', async () => {

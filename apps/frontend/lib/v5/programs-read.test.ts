@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
-import { programsListGet, readListedPrograms, type ListedProgram } from './programs-read';
+import { moneyOf, programsListGet, readListedPrograms, type ListedProgram } from './programs-read';
 
 after(() => sql().end());
 
@@ -149,4 +149,12 @@ test('readListedPrograms carries the catalog fields and never reviewers_contact'
   assert.ok(!JSON.stringify(p).includes('reviewers_contact') && !JSON.stringify(p).includes('reviewer@example.com'));
   const res = await programsListGet(new Request('https://earnkit.com/api/programs'), async () => [p], NOW);
   assert.ok(!(await res.text()).includes('reviewers_contact'));
+});
+
+test('moneyOf: the pool first, then the per-winner award, then the summary (v6.1.6, one amount per program)', () => {
+  const base = { title: 'Meta Horizon VR Competition', summary: '$100K top prize · $1M in prizes', investment: false };
+  assert.equal(moneyOf({ ...base, max_award_usd: 100_000, pool_usd: 1_000_000 }), '$1M in prizes');
+  assert.equal(moneyOf({ ...base, title: 'Arc Builder Grants', max_award_usd: 25_000, pool_usd: 250_000 }), '$250K in grants');
+  assert.equal(moneyOf({ ...base, max_award_usd: 100_000, pool_usd: undefined }), '$100K');
+  assert.equal(moneyOf({ title: 'Fund', summary: '$500K · rolling', investment: true, max_award_usd: 0, pool_usd: undefined }), '$500K investment');
 });

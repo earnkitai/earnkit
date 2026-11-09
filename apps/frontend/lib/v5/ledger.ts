@@ -5,7 +5,8 @@
  * program's stated maximum (or 5,000,000 when none is stated) is refused; investments are never "asked".
  */
 import { sql } from './db';
-import { categoryOf } from './program-file';
+import { categoryOf, eligibilityOf } from './program-file';
+import { itemKey } from './eligibility';
 import { getProgram, programsById, type ProgramRow } from './programs';
 
 /** 'started' is a claim (lib/v6/claims.ts): not an application yet, so the summary leaves it out. */
@@ -68,6 +69,11 @@ export async function record(
   if (status === 'won' && o.amount_usd! > (program.file.max_award_usd ?? MAX_WIN_USD))
     return { ok: false, note: "That's more than this program pays; check the amount." };
   if (status === 'gap_done' && !o.item) return { ok: false, note: 'Tell me which item you finished.' };
+  if (status === 'gap_done') {
+    // Only one of the program's own items, or the unknown-users gap (v6.1.6).
+    const keys = [...new Set([...eligibilityOf(program.file).map(itemKey), 'users'])];
+    if (!keys.includes(o.item!)) return { ok: false, note: `Tell me which item you finished: ${keys.join(', ')}.` };
+  }
   if (status === 'started') throw new Error('a claim is written by claims.claim');
   const amount = status === 'won' ? o.amount_usd! : null;
   const note = o.note ?? null;

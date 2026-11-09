@@ -23,7 +23,7 @@ test('the six replies', async () => {
   assert.equal(await say({ program_id: 't6-a', status: 'rejected' }), 'Recorded. On to the next one.');
   assert.equal(await say({ program_id: 't6-a', status: 'no_result' }), 'Recorded.');
   assert.equal(await say({ program_id: 't6-a', status: 'skipped' }), "Skipped Alpha Grant. I won't bring it up again.");
-  assert.equal(await say({ program_id: 't6-a', status: 'gap_done', item: 'x' }), 'Noted. I\'ll re-check the repo on the next look.');
+  assert.equal(await say({ program_id: 't6-a', status: 'gap_done', item: 'users' }), 'Noted. I\'ll re-check the repo on the next look.');
   await upsertProgram(programFixture({ id: 't6-b', title: 'Beta' }), 'file', NOW);
   const r = await track(c, { program_id: 't6-b', status: 'applied' });
   assert.equal(r.agent_note, 'Call find again for the updated ledger.');
@@ -194,8 +194,17 @@ test('gap_done forgets the remembered gap, so started keeps the plain line', asy
   const c = await ctx();
   await upsertProgram(programFixture({ id: 't6-gapdone' }), 'file', NOW);
   await markFind(c.installationId, NOW, { 't6-gapdone': 'add Base Builder Codes', 't6-keep': 'a demo video' });
-  await track(c, { program_id: 't6-gapdone', status: 'gap_done', item: 'add Base Builder Codes' });
+  await track(c, { program_id: 't6-gapdone', status: 'gap_done', item: 'users' });
   const r = await track(c, { program_id: 't6-gapdone', status: 'started' });
   assert.equal(r.show_to_builder, 'Started. Nothing else will submit this one for 24 hours.');
   assert.deepEqual(await lastGaps(c.installationId), { 't6-keep': 'a demo video' });
+});
+
+test('gap_done with an item the program does not have is refused, and the remembered gap stays (v6.1.6)', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 't6-gapbad', eligibility: [{ kind: 'chain', value: 'arc' }] }), 'file', NOW);
+  await markFind(c.installationId, NOW, { 't6-gapbad': 'deploy on Arc' });
+  const r = await track(c, { program_id: 't6-gapbad', status: 'gap_done', item: 'nope' });
+  assert.match(r.show_to_builder, /chain:arc/);
+  assert.deepEqual(await lastGaps(c.installationId), { 't6-gapbad': 'deploy on Arc' });
 });
