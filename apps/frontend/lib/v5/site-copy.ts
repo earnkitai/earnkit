@@ -11,8 +11,9 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 /** "Nov 4" (UTC). */
 export const monthDay = (d: Date): string => `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
 
-/** The landing chip, "$105K in grants open now"; null at 0. */
-export const heroChipText = (usd: number): string | null => (usd > 0 ? `${compactUsd(usd)} in grants open now` : null);
+/** The landing chip, "$105K in grants and prizes open now"; null at 0. */
+export const heroChipText = (usd: number): string | null =>
+  usd > 0 ? `${compactUsd(usd)} in grants and prizes open now` : null;
 
 /** "grant", "grant, in USDC", "hackathon" or "investment". Pure. */
 export function programKind(c: { investment?: boolean; in_person?: boolean; reward?: string }): string {

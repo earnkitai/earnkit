@@ -2,7 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import { programFixture } from './fixtures/program';
-import { listOpenPrograms, upsertProgram } from './programs';
+import { listOpenPrograms, upsertProgram, type ProgramRow } from './programs';
 import { openMoneyUsd, readStats, statsGet, STATS_KEYS } from './stats';
 
 after(() => sql().end());
@@ -26,6 +26,21 @@ test('programs and money come from the open programs; investments are left out o
   assert.equal(after.programs_open - before.programs_open, 2);
   assert.equal(after.open_money_usd - before.open_money_usd, 7000);
   assert.equal(after.open_money_usd, openMoneyUsd(await listOpenPrograms(NOW)));
+});
+
+test('openMoneyUsd: a grant counts its max, a hackathon its pool, an investment nothing', () => {
+  const rowOf = (over: Parameters<typeof programFixture>[0]): ProgramRow => {
+    const file = programFixture(over);
+    return { id: file.id, file, source: 'file', created_at: NOW, updated_at: NOW, verified_at: null, stale_since: null };
+  };
+  const rows = [
+    rowOf({ id: 'm-grant', max_award_usd: 10_000 }),
+    rowOf({ id: 'm-hack', pool_usd: 25_000, in_person: true, reward: '$25,000 in prizes' }),
+    rowOf({ id: 'm-invest', investment: true, max_award_usd: 400_000 }),
+  ];
+  assert.equal(openMoneyUsd(rows), 35_000);
+  assert.equal(openMoneyUsd([rowOf({ id: 'm-both', max_award_usd: 3000, pool_usd: 30_000 })]), 3000);
+  assert.equal(openMoneyUsd([rowOf({ id: 'm-none' })]), 0);
 });
 
 test('installs, finds and applications count what happened, with their windows', async () => {

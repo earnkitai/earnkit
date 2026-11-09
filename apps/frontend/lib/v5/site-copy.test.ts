@@ -46,7 +46,8 @@ test('formatters', () => {
   assert.equal(copy.compactUsd(105_000), '$105K');
   assert.equal(copy.compactUsd(1_300_000), '$1.3M');
   assert.equal(copy.heroChipText(0), null);
-  assert.equal(copy.heroChipText(105_000), '$105K in grants open now');
+  assert.equal(copy.heroChipText(105_000), '$105K in grants and prizes open now');
+  assert.equal(copy.heroChipText(35_000), '$35K in grants and prizes open now');
   assert.equal(copy.monthDay(new Date('2026-11-04T12:00:00Z')), 'Nov 4');
   assert.equal(copy.ROLLING, 'Rolling, apply anytime');
   assert.equal(copy.programKind({ in_person: true }), 'hackathon');

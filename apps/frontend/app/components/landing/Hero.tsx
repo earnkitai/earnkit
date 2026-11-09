@@ -17,7 +17,7 @@ const CTA =
   'mt-1.5 inline-flex h-[52px] items-center rounded-full bg-s-light px-8 text-[16px] font-bold text-s-ink shadow-[0_18px_60px_var(--ek-s-cta-glow)] motion-safe:transition-[box-shadow,transform] motion-safe:duration-[240ms] motion-safe:ease-out hover:shadow-[0_0_0_6px_var(--ek-s-foot-button),0_18px_70px_var(--ek-s-cta-glow-hover)] motion-safe:hover:-translate-y-px md:h-14';
 
 /**
- * The landing hero: the painting with its arch light, the money chip ("$5K in grants open now", to #earn;
+ * The landing hero: the painting with its arch light, the money chip ("$5K in grants and prizes open now", to #earn;
  * none when nothing is open), the title, the sub line, the install button and the agent marks.
  */
 export default function Hero({ chip }: { chip: string | null }) {
