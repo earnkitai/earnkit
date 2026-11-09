@@ -3,7 +3,7 @@
  * `agentNote` (what the agent does next). In-person programs get their own block after ready and
  * gaps, with their setup, and are never in the count to apply to. Linked, the record's blocks follow. Pure.
  */
-import { EVIDENCE_NOT_READ, listWords, signInLine } from '../v6/reply-words';
+import { EVIDENCE_NOT_READ, listWords, signInSentence } from '../v6/reply-words';
 import { compactUsd } from './programs-read';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
 import { READS_PAUSED } from './repo-facts';
@@ -110,7 +110,8 @@ function signInWords(kind: string, n: number): string {
 const titlesOf = (r: R, bs: R['blockers']) =>
   bs.map((b) => r.ready.find((p) => p.program_id === b.program_id)?.title).filter((t): t is string => !!t);
 
-/** "Before tonight: ..." with the sign-ins grouped, the clicks and what the record lacks; null when there is nothing. Pure. */
+/** "Before applying: ..." ("Before tonight: ..." when linked with standing approval, the agent applying tonight) with the
+ *  sign-ins grouped, the clicks and what the record lacks; null when there is nothing. Pure. */
 function beforeTonight(r: R): string | null {
   const counts = new Map<string, number>();
   for (const b of r.blockers) if (b.sign_in) counts.set(b.sign_in, (counts.get(b.sign_in) ?? 0) + 1);
@@ -121,7 +122,8 @@ function beforeTonight(r: R): string | null {
   const outside = titlesOf(r, r.blockers.filter((b) => b.outside_approval && !b.needs_click));
   if (outside.length > 0) parts.push(`Outside your standing approval, you say yes yourself: ${listWords(outside, outside.length)}.`);
   if (r.record_missing.length > 0) parts.push(`Still missing from your record: ${listWords(r.record_missing)}.`);
-  return parts.length > 0 ? `Before tonight: ${parts.join(' ')}` : null;
+  if (parts.length === 0) return null;
+  return `${r.linked && r.auto_apply ? 'Before tonight' : 'Before applying'}: ${parts.join(' ')}`;
 }
 
 function closingLine(ready: number, gaps: number, firstGap: number, inPerson: number): string {
@@ -161,9 +163,9 @@ export function replyText(r: R, first: boolean): string {
   if (r.applied_overnight.length > 0) blocks.push(`Applied under your standing approval: ${r.applied_overnight.map((a) => a.title).join(', ')}.`);
   if (r.evidence_summary) blocks.push(r.evidence_summary.line);
   const tonight = r.auto_apply ? Math.min(agentCanApply(r).length, r.max_per_night ?? ready.length) : 0;
-  // R5: unlinked with a link, the sign-in is the one call to action, in place of the closing line.
-  if (r.sign_in && !r.linked) blocks.push(signInLine(r.sign_in));
-  else blocks.push(tonight > 0 ? `Applying tonight to ${tonight}; say stop to hold any.` : closingLine(ready.length, r.gaps.length, r.gaps[0]?.n ?? ready.length + 1, inPerson.length));
+  const closing = tonight > 0 ? `Applying tonight to ${tonight}; say stop to hold any.` : closingLine(ready.length, r.gaps.length, r.gaps[0]?.n ?? ready.length + 1, inPerson.length);
+  // R5a: saying yes is the one action; unlinked with a link, signing in is the closing block's second sentence.
+  blocks.push(r.sign_in && !r.linked ? `${closing} ${signInSentence(r.sign_in)}` : closing);
   return blocks.join('\n\n');
 }
 

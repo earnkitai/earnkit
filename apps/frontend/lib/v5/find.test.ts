@@ -58,7 +58,7 @@ test('first find has no since', async () => {
       '6. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
       '7. Base Builder Grant Program, up to $5,000: add Base Builder Codes to the app and tell me if real people use it.',
       '',
-      'Before tonight: Sign in once to Avalanche Builder Hub for 1 of them.',
+      'Before applying: Sign in once to Avalanche Builder Hub for 1 of them.',
       '',
       'Say yes to apply to all 5, numbers to skip, or "do 6" and I\'ll make the change first.',
     ].join('\n'),
@@ -298,15 +298,16 @@ test('unlinked without oauth is v5', async () => {
   assert.doesNotMatch(r.reply!.agent_note as string, /approved answers|style contract/);
 });
 
-test('unlinked with sign-in configured: the sign-in line is the one call to action, in place of the closing line (R5)', async () => withEnv(OAUTH_ENV, async () => {
+test('unlinked with sign-in configured: the closing line, then the sign-in as its second sentence (R5a)', async () => withEnv(OAUTH_ENV, async () => {
   const r = await mcpCall(ctx(await installation()), 'find', { project: PROJECT });
   const show = r.reply!.show_to_builder as string;
   const blocks = show.split('\n\n');
   const link = r.reply!.sign_in as string;
   assert.match(link, /\/link\//);
-  assert.equal(blocks.at(-1), `Sign in once at ${link} so I remember you across agents.`);
-  assert.ok(!CLOSINGS.some((c) => blocks.some((b) => c.test(b))), show);
-  assert.doesNotMatch(show, /Say yes|Say "do/);
+  const sentence = ` Sign in once at ${link} and I read your repo for proof and remember you.`;
+  assert.ok(blocks.at(-1)!.endsWith(sentence), show);
+  assert.ok(CLOSINGS.some((c) => c.test(blocks.at(-1)!.slice(0, -sentence.length))), show);
+  assert.equal(show.match(/Sign in once at/g)!.length, 1);
   assert.equal(r.reply!.linked, false);
 }));
 
@@ -335,7 +336,7 @@ test('linked: record fields, what the record lacks, blockers, and the own tier r
   assert.deepEqual((reply.evidence_summary as { tier: string }).tier, 'live');
   const show = reply.show_to_builder as string;
   assert.match(show, /^1\. [^\n]+ \d+ from your record, \d+ from the repo/m);
-  assert.match(show, /\n\nBefore tonight: [^\n]*Sign in once to Avalanche Builder Hub for 1 of them\.[^\n]*Still missing from your record: [^\n]+\./);
+  assert.match(show, /\n\nBefore applying: [^\n]*Sign in once to Avalanche Builder Hub for 1 of them\.[^\n]*Still missing from your record: [^\n]+\./);
   assert.match(show, /\n\nYour project reads as live, no verified usage yet\. Next: [^\n]+\.\n\n/);
   assert.doesNotMatch(show, /Sign in once at/);
   assert.match(reply.agent_note as string, /Fit approved answers by cutting, never by adding; the style contract travels on each field\./);

@@ -258,12 +258,12 @@ const LINKED = base({
   evidence_summary: { tier: 'live', line: 'Your project reads as live, no verified usage yet. Next: 25 funded wallets on mainnet in 90 days; you have 4.' },
 });
 
-test('the "Before tonight" paragraph groups the sign-ins, names the clicks and the first three missing', () => {
+test('the "Before applying" paragraph groups the sign-ins, names the clicks and the first three missing; "Before tonight" only with standing approval (R5b)', () => {
   const text = replyText(LINKED, false);
-  const before = text.split('\n\n').find((b) => b.startsWith('Before tonight: '))!;
+  const before = text.split('\n\n').find((b) => b.startsWith('Before applying: '))!;
   assert.equal(
     before,
-    "Before tonight: Sign in once to Google on your agent's computer for 2 of them. Sign in once to Avalanche Builder Hub for 1 of them. Sign in once by email for 1 of them. Needs your click: Click Grant. Still missing from your record: your founder video link, an approved answer on the problem, your deck link and 1 more.",
+    "Before applying: Sign in once to Google on your agent's computer for 2 of them. Sign in once to Avalanche Builder Hub for 1 of them. Sign in once by email for 1 of them. Needs your click: Click Grant. Still missing from your record: your founder video link, an approved answer on the problem, your deck link and 1 more.",
   );
   const blocks = text.split('\n\n');
   assert.deepEqual(blocks.slice(-4), [
@@ -272,6 +272,10 @@ test('the "Before tonight" paragraph groups the sign-ins, names the clicks and t
     'Your project reads as live, no verified usage yet. Next: 25 funded wallets on mainnet in 90 days; you have 4.',
     'Say yes to apply to all 4, or numbers to skip.',
   ]);
+  assert.doesNotMatch(text, /Before tonight/);
+  assert.match(replyText({ ...LINKED, auto_apply: true, max_per_night: 5 }, false), /\n\nBefore tonight: Sign in once to Google/);
+  // Unlinked, nothing applies tonight, whatever auto_apply says.
+  assert.match(replyText({ ...LINKED, linked: false, auto_apply: true }, false), /\n\nBefore applying: /);
   const note = agentNote(LINKED, { more: 0 });
   assert.ok(note.includes('Fit approved answers by cutting, never by adding; the style contract travels on each field.'));
   assert.ok(note.includes('Sign-ins and clicks the builder must do are in blockers; name them once, together.'));
@@ -304,14 +308,17 @@ test('standing approval: the closing line counts what an agent can send alone, a
   assert.ok(agentNote(MONDAY, { more: 0 }).includes("Draft each ready program from its fields: 'earnkit' values as given;"));
 });
 
-test('unlinked with a sign-in link: one call to action, the sign-in line, in place of the closing line (R5); linked never shows it', () => {
+test('unlinked with a sign-in link: saying yes is the one action, the sign-in its second sentence (R5a); linked never shows it', () => {
   const link = 'https://earnkit.test/link/abcdefghijklmnop';
   const text = replyText({ ...MONDAY, sign_in: link }, false);
   const blocks = text.split('\n\n');
-  assert.equal(blocks.at(-1), `Sign in once at ${link} so I remember you across agents.`);
+  assert.equal(
+    blocks.at(-1),
+    `Say yes to apply to all 2, numbers to skip, or "do 3" and I'll make the change first. Sign in once at ${link} and I read your repo for proof and remember you.`,
+  );
   assert.equal(blocks.at(-2), 'Ledger: 1 applied ($5K asked), 0 won, 1 pending.');
-  assert.doesNotMatch(text, /Say yes|Say "do|Nothing fits yet|Tell me which/);
-  // Without a link the closing line stays.
+  assert.equal(text.match(/Sign in once at/g)!.length, 1);
+  // Without a link the closing line stays alone.
   assert.match(replyText(MONDAY, false), /\n\nSay yes to apply to all 2, numbers to skip, or "do 3" and I'll make the change first\.$/);
   assert.doesNotMatch(replyText({ ...LINKED, sign_in: link }, false), /Sign in once at/);
 });
