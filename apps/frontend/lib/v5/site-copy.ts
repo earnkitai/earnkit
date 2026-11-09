@@ -216,7 +216,7 @@ export const ME_ERRORS = {
 /** What a value must be, in plain words, after "<label>: " (v6.1.7 C4). */
 const amount = (n: number) => n.toLocaleString('en-US');
 export const ME_VALUE_WORDS = {
-  under: (n: number) => `keep it under ${amount(n)} characters`,
+  under: (n: number) => `at most ${amount(n)} characters`,
   atMost: (n: number) => `at most ${amount(n)}`,
   option: 'pick one of the options',
   https: 'a link starting with https://',

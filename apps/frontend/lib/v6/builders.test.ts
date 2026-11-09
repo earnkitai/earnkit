@@ -4,7 +4,7 @@ import { sql } from '../v5/db';
 import { programFixture } from '../v5/fixtures/program';
 import { record, summary } from '../v5/ledger';
 import { getProgram, upsertProgram } from '../v5/programs';
-import { LinkRefused, deleteBuilder, getBuilder, linkInstallation, ownerKey, takeUnlinkedNotice, unlinkInstallation, upsertBuilder } from './builders';
+import { LinkRefused, deleteBuilder, getBuilder, hasUnlinkedNotice, linkInstallation, ownerKey, takeUnlinkedNotice, unlinkInstallation, upsertBuilder } from './builders';
 import { createSession } from './sessions';
 import { createLinkCode } from './link-routes';
 
@@ -194,8 +194,12 @@ test('B10: unlinkInstallation unlinks only the builder\'s own and marks it; the 
   assert.equal(await unlinkInstallation(one, b.id, NOW), true);
   const [row] = await sql()`SELECT builder_id, linked_at, unlinked_at FROM installations WHERE id = ${one}`;
   assert.deepEqual([row.builder_id, row.linked_at, (row.unlinked_at as Date).toISOString()], [null, null, NOW.toISOString()]);
+  // Reading leaves the mark, so a find that throws before its reply is built keeps the notice for the next one.
+  assert.equal(await hasUnlinkedNotice(one), true);
+  assert.equal(await hasUnlinkedNotice(one), true);
   assert.equal(await takeUnlinkedNotice(one), true);
   assert.equal(await takeUnlinkedNotice(one), false);
+  assert.equal(await hasUnlinkedNotice(one), false);
   // Linked again before any find: no unlinked notice is left to show.
   await linkInstallation(one, b.id, NOW);
   await unlinkInstallation(one, b.id, NOW);

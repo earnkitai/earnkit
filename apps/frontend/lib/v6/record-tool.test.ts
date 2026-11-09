@@ -8,6 +8,7 @@ import { upsertProgram } from '../v5/programs';
 import { getRecord, linkInstallation, saveRecord, upsertBuilder } from './builders';
 import { EMPTY_RECORD, approvePath } from './record';
 import { listWords } from './reply-words';
+import { refusedWords } from './record-tool';
 
 after(() => sql().end());
 
@@ -227,7 +228,7 @@ test('a projects entry without an id: a problem line and no change', async () =>
   const problems = r.reply!.problems as string[];
   assert.equal(problems.length, 1);
   assert.match(problems[0], /^projects\.id: /);
-  assert.match(r.reply!.show_to_builder as string, /^Nothing saved: project id was not valid\. /);
+  assert.match(r.reply!.show_to_builder as string, /^Nothing saved: project short name was not valid\. /);
   assert.deepEqual(await getRecord(c.builderId), before);
 });
 
@@ -255,4 +256,11 @@ test('C20: an answer sent as plain text: the agent note names the shape the reco
   const note = r.reply!.agent_note as string;
   assert.ok(note.includes('{ kind, text }'), note);
   assert.ok(note.includes('answers: { problem: { text: "..." } }'), note);
+});
+
+test('not saved reasons name the fact in plain words, never a record key (v6.1.7 task 6 review)', () => {
+  assert.equal(refusedWords('projects.0.repo_url: must be a link'), 'project repo link was not valid');
+  assert.equal(refusedWords('traction.line_pre_launch: too long'), 'pre-launch line was not valid');
+  assert.equal(refusedWords('projects.1.id: too long'), 'project short name was not valid');
+  assert.equal(refusedWords('person.email: bad'), 'email was not valid');
 });

@@ -1,10 +1,14 @@
 /**
- * Tool input at the MCP layer (v6.1.7, C35/C21): track, record and screen are registered with a lenient copy of
- * their strict schema, so the MCP library never refuses an argument with its own validation dump. Each tool then
- * validates with its strict schema and answers one builder line, the detail going to the agent note.
+ * Unreadable tool input at the MCP layer (v6.1.7, C35/C21), four jobs:
+ * - `lenient`: track, record and screen are registered with a lenient copy of their strict schema, so the MCP library
+ *   never refuses an argument with its own validation dump; each tool validates with its strict schema and answers
+ *   one builder line;
+ * - `inputDetail`: that strict check's detail, for the agent note;
+ * - `answerUnreadable`: the route's split of a body into calls answered at once (too deep, not an object) and the rest;
+ * - `plainErrors`: the response rewrite that replaces library error codes with plain words.
  */
 import { z } from 'zod';
-import { tooDeep as depthOver } from './secrets';
+import { tooDeep } from './secrets';
 
 /** The builder line for arguments that could not be read at all (too deep, or not an object). */
 export const COULD_NOT_READ = 'I could not read that.';
@@ -58,13 +62,13 @@ export function answerUnreadable(body: unknown, max: number): { answers: unknown
     const note =
       args !== undefined && (args === null || typeof args !== 'object' || Array.isArray(args))
         ? NOT_OBJECT_NOTE
-        : args !== undefined && depthOver(args, max)
+        : args !== undefined && tooDeep(args, max)
           ? TOO_DEEP_NOTE
           : null;
     const id = idOf(m);
     if (note) {
       if (id !== null) answers.push(toolLine(id, note));
-    } else if (depthOver(raw, max + 3)) {
+    } else if (tooDeep(raw, max + 3)) {
       if (id !== null) answers.push({ jsonrpc: '2.0', id, error: { code: -32600, message: UNREADABLE_REQUEST } });
     } else rest.push(raw);
   }

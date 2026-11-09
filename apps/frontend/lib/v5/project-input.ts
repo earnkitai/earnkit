@@ -5,6 +5,7 @@
  */
 import { z } from 'zod';
 import { isKnownChain } from './chains';
+import { dropControls } from './controls';
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
@@ -24,8 +25,11 @@ export const ProjectInput = z.object({
 export type Project = z.infer<typeof ProjectInput>;
 
 const MAX = { name: 80, description: 280 } as const;
-/** Control and format characters (zero-width, bidi overrides, NUL) are never part of a project string (v6.1.7, C15). */
-const clean = (s: string) => s.replace(/\p{C}/gu, '');
+/**
+ * Control and format characters (zero-width, bidi overrides, NUL) are never part of a project string (v6.1.7, C15);
+ * a tab or line break becomes a space so two lines keep their word boundary.
+ */
+const clean = dropControls;
 const text = (v: unknown) => (typeof v === 'string' ? clean(v).trim() : '');
 /** The chains read from one report; the rest are named, not read. */
 const MAX_CHAINS = 20;
@@ -72,7 +76,7 @@ export function parseProject(v: unknown, now = new Date()): { ok: true; project:
     if (raw[k] == null) continue;
     const t = typeof raw[k] === 'string' ? Date.parse(raw[k] as string) : NaN;
     if (Number.isNaN(t)) problems.push(`${k} dropped: not a date`);
-    else if (t > now.getTime() + FUTURE_MS) problems.push(`${k} is in the future; not used.`);
+    else if (t > now.getTime() + FUTURE_MS) problems.push(`${k} is in the future; not used`);
     else out[k] = new Date(t).toISOString();
   }
   for (const k of ['private', 'builder_codes', 'users'] as const) {
@@ -83,10 +87,24 @@ export function parseProject(v: unknown, now = new Date()): { ok: true; project:
   if (Array.isArray(raw.chains)) {
     const chains: NonNullable<Project['chains']> = [];
     const seen = new Set<string>();
-    for (const c of raw.chains.slice(0, MAX_CHAINS)) {
+    // Exact repeats are dropped before the cap, so copies never push a real chain out; the cap counts the rest (v6.1.7).
+    let read = 0;
+    let extra = 0;
+    for (const c of raw.chains) {
       // A bare slug ("base") is that chain on mainnet.
       const e = (typeof c === 'string' ? { chain: c, mainnet: true } : typeof c === 'object' && c !== null ? c : {}) as Record<string, unknown>;
       const chain = typeof e.chain === 'string' ? clean(e.chain).trim().toLowerCase() : '';
+      const given = typeof e.contract === 'string' ? clean(e.contract).trim() : e.contract;
+      const contract = typeof given === 'string' && ADDRESS.test(given) ? given : undefined;
+      // An entry exactly like an earlier one is a repeat and costs nothing.
+      const key = `${chain}|${String(e.mainnet)}|${typeof given === 'string' ? given.toLowerCase() : String(given)}`;
+      if (seen.has(key)) continue;
+      if (read >= MAX_CHAINS) {
+        extra++;
+        continue;
+      }
+      read++;
+      seen.add(key);
       if (!isKnownChain(chain)) {
         problems.push(`chain ${typeof e.chain === 'string' ? clean(e.chain).slice(0, 40) : '?'} dropped: not a known chain`);
         continue;
@@ -95,17 +113,13 @@ export function parseProject(v: unknown, now = new Date()): { ok: true; project:
         problems.push(`chain ${chain} dropped: mainnet must be true or false`);
         continue;
       }
-      const given = typeof e.contract === 'string' ? clean(e.contract).trim() : e.contract;
-      const contract = typeof given === 'string' && ADDRESS.test(given) ? given : undefined;
       if (e.contract != null && !contract) problems.push(`contract on ${chain} dropped: not an address`);
       // One entry per chain, network and contract (v6.1.7, C13).
-      const key = `${chain}|${e.mainnet}|${contract?.toLowerCase() ?? ''}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
+      if (chains.some((k) => k.chain === chain && k.mainnet === e.mainnet && (k.contract?.toLowerCase() ?? '') === (contract?.toLowerCase() ?? ''))) continue;
       chains.push({ chain, mainnet: e.mainnet, ...(contract && { contract }) });
     }
     if (chains.length) out.chains = chains;
-    if (raw.chains.length > MAX_CHAINS) problems.push(`${raw.chains.length - MAX_CHAINS} chains beyond ${MAX_CHAINS} were not read.`);
+    if (extra) problems.push(`${extra} chains beyond ${MAX_CHAINS} were not read`);
   } else if (raw.chains != null) problems.push('chains dropped: not a list');
 
   return { ok: true, project: out as Project, problems };

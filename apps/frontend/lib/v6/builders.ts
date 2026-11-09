@@ -116,6 +116,12 @@ export async function unlinkInstallation(installationId: number, builderId: numb
   return r.count > 0;
 }
 
+/** True after an unlink until the notice is taken; reads only. A linked installation has none. */
+export async function hasUnlinkedNotice(installationId: number): Promise<boolean> {
+  const [r] = await sql()`SELECT 1 FROM installations WHERE id = ${installationId} AND unlinked_at IS NOT NULL AND builder_id IS NULL`;
+  return Boolean(r);
+}
+
 /** True once after an unlink (find shows the notice); clears the mark. A linked installation has none to take. */
 export async function takeUnlinkedNotice(installationId: number): Promise<boolean> {
   const r = await sql()`UPDATE installations SET unlinked_at = NULL

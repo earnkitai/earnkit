@@ -6,6 +6,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { isKnownChain } from '../v5/chains';
+import { dropControls } from '../v5/controls';
 import { ANSWER_KINDS, PROGRAM_CATEGORIES, type AnswerKind, type FieldKind } from '../v5/program-file';
 
 /** Newlines and tabs are fine in prose; other control characters are not. */
@@ -14,7 +15,7 @@ const CONTROL_PROSE = /[\u0000-\u0008\u000b-\u001f\u007f]/;
  * One line as saved (v6.1.7 S4): tabs and line breaks become a plain space, every other control or format character
  * (bidi overrides, zero-width marks) is dropped, and runs of spaces collapse to one. Pure.
  */
-export const cleanLine = (s: string): string => s.replace(/[\t\n\r]/g, ' ').replace(/\p{C}/gu, '').replace(/ {2,}/g, ' ');
+export const cleanLine = (s: string): string => dropControls(s);
 const line = (max: number) => z.string().overwrite(cleanLine).max(max);
 const prose = (max: number) => z.string().max(max).refine((s) => !CONTROL_PROSE.test(s), 'no control characters');
 const https = line(500).pipe(z.url({ protocol: /^https$/ }));
@@ -37,7 +38,7 @@ function isTimeZone(tz: string): boolean {
 const Person = z.object({
   name: line(80), email, x: line(40), linkedin: https, location: line(80),
   timezone: line(64).refine(isTimeZone, 'must be an IANA time zone'), phone: line(30), bio: prose(280),
-  technical: z.boolean(), based_country: line(2).regex(/^[A-Z]{2}$/, 'must be two capital letters'),
+  technical: z.boolean(), based_country: line(2).regex(/^[A-Z]{2}$/, 'two capital letters, like US'),
 }).partial().strip();
 const TeamMember = z.object({ name: line(80), role: line(80).optional(), github: line(40).optional(), x: line(40).optional(), email: email.optional() }).strip();
 const Company = z.object({

@@ -96,7 +96,10 @@ test('C17: an unknown project_id is a problem line on find, and named in the age
   const c = await ctx();
   const f = await mcpCall(c, 'find', { project_id: 'nope', project: { name: 'X', description: 'An app.' } });
   assert.equal(f.isError, false, f.text);
-  assert.ok((f.reply!.problems as string[]).includes('project_id not known; matched without it.'));
+  assert.ok((f.reply!.problems as string[]).includes('project_id not known; matched without it'));
+  // Problem lines carry no stop of their own, so the note never reads ".." (final review M2).
+  assert.match(f.reply!.agent_note as string, /Some project facts were dropped: [^\n]*project_id not known; matched without it[^\n]*\. Send them corrected next time\./);
+  assert.doesNotMatch(f.reply!.agent_note as string, /\.\./);
   const t = await mcpCall(c, 'track', { program_id: 'no-such', status: 'skipped', project_id: 'nope' });
   assert.equal(t.isError, false, t.text);
   assert.match(t.reply!.agent_note as string, /project_id nope is not known; ignored\./);

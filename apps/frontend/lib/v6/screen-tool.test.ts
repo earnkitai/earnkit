@@ -194,12 +194,13 @@ test('C19, C38: outcomes name the refs not found; a win over the program\'s cap 
 
 test('B14: the promise counts the queue ahead against the daily run of SCREEN_BATCH', async () => {
   assert.equal(SCREEN_BATCH, 200);
-  await sql()`DELETE FROM screen_applicants`;
+  // No table cleared: these two jobs are written a day before every other test's, so only their own rows are ahead.
+  const EARLY = new Date(NOW.getTime() - 86_400_000);
   const a = await reviewerOf('scr-big');
   const many = Array.from({ length: 200 }, (_, k) => ({ ref: `m-${k}`, name: `App ${k}` }));
-  const first = await mcpCall(a, 'screen', { program_id: 'scr-big', applicants: many });
+  const first = await mcpCall({ ...a, now: EARLY }, 'screen', { program_id: 'scr-big', applicants: many });
   assert.equal(first.reply!.show_to_builder, 'Queued 200 applicants for Grants scr-big; 0 already read. Results by tomorrow morning.');
   const b = await reviewerOf('scr-after');
-  const second = await mcpCall({ ...b, now: new Date(NOW.getTime() + 60_000) }, 'screen', { program_id: 'scr-after', applicants: APPLICANTS });
+  const second = await mcpCall({ ...b, now: new Date(EARLY.getTime() + 60_000) }, 'screen', { program_id: 'scr-after', applicants: APPLICANTS });
   assert.equal(second.reply!.show_to_builder, 'Queued 2 applicants for Grants scr-after; 0 already read. 200 applicants ahead of yours; results within 2 days.');
 });

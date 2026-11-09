@@ -68,6 +68,21 @@ test('one application and one result per program, in builder words (v6.1.7, B8, 
   assert.equal((await track(c, { program_id: 't7-one', status: 'skipped' })).show_to_builder, 'That one already has a result here; nothing to skip.');
 });
 
+test('Review Focus 1: A started, B applied, A applied is one application, sent by B; A hears it was already sent', async () => {
+  const { a, c, owner } = await twoAgents();
+  await sql()`UPDATE installations SET client_name = 'Codex' WHERE id = ${c.installationId}`;
+  await upsertProgram(programFixture({ id: 't7-rf1', title: 'Focus Grant' }), 'file', NOW);
+  assert.equal((await track(a, { program_id: 't7-rf1', status: 'started' })).show_to_builder, 'Started. Nothing else will submit this one for 24 hours.');
+  const sent = await track({ ...c, now: new Date(NOW.getTime() + 3_600_000) }, { program_id: 't7-rf1', status: 'applied', submitted_by: 'agent' });
+  assert.equal(sent.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  const again = await track({ ...a, now: new Date(NOW.getTime() + 2 * 3_600_000) }, { program_id: 't7-rf1', status: 'applied', submitted_by: 'agent' });
+  assert.equal(again.show_to_builder, 'Already sent here on Nov 4 by Codex; nothing recorded.');
+  assert.equal(again.agent_note, 'Nothing was recorded.');
+  assert.equal(again.ledger.applied, 1);
+  const rows = await sql()`SELECT status, installation_id FROM applications WHERE owner = ${owner} AND program_id = 't7-rf1'`;
+  assert.deepEqual(rows.map((r) => [r.status, r.installation_id]), [['applied', c.installationId]]);
+});
+
 test('a result for a program gone from the catalog uses the title stored when it was sent (v6.1.7, C36)', async () => {
   const c = await ctx();
   await upsertProgram(programFixture({ id: 't7-gone', title: 'Gone Grant' }), 'file', NOW);

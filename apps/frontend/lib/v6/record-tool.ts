@@ -96,6 +96,14 @@ export function missingLine(missing: string[]): string | null {
  * One refused part of a set (a merge problem "path: why") in builder words: the leaf named plainly, never the path
  * (v6.1.7 C29). Pure.
  */
+/** Record keys that read as field names, in the builder's words (v6.1.7 task 6 review). */
+const LEAF_WORDS: Record<string, string> = {
+  repo_url: 'repo link', live_url: 'live link', demo_url: 'demo link', resume_url: 'resume link', deck_url: 'deck link',
+  founder_video_url: 'founder video link', demo_video_url: 'demo video link', line_pre_launch: 'pre-launch line', id: 'short name',
+  one_liner: 'one line', chains_claimed: 'chains', based_country: 'country', raised_usd: 'money raised', raised_from: 'raised from',
+  revenue_usd_claim: 'revenue claim', launch_date: 'launch date', max_per_night: 'most per night', max_ask_usd: 'top amount',
+  auto_apply: 'apply without asking', agent_may_submit: 'agent may submit', x: 'X handle',
+};
 export function refusedWords(problem: string): string {
   const cut = problem.indexOf(': ');
   const path = cut < 0 ? problem : problem.slice(0, cut);
@@ -106,7 +114,7 @@ export function refusedWords(problem: string): string {
   const what =
     path === 'set' ? 'what was sent'
     : answer && Object.hasOwn(KIND_WORDS, answer) ? `the answer on ${KIND_WORDS[answer as keyof typeof KIND_WORDS]}`
-    : `${parts[0] === 'projects' && leaf !== 'projects' ? 'project ' : ''}${leaf.replace(/_/g, ' ')}`;
+    : `${parts[0] === 'projects' && leaf !== 'projects' ? 'project ' : ''}${LEAF_WORDS[leaf] ?? leaf.replace(/_/g, ' ')}`;
   if (why === 'not a field') return `${what} is not something I keep`;
   if (why.startsWith('set by EarnKit')) return `${what} is set by EarnKit only`;
   if (why.startsWith('set by the builder')) return `${what} is yours to set on earnkit.com/me`;

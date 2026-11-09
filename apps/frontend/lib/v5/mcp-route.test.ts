@@ -117,3 +117,21 @@ test('B6: GET /mcp is 405 with Allow: POST, DELETE and the usual CORS headers; n
     assert.equal(typeof body.error_description, 'string');
   }
 });
+
+test('B6: DELETE /mcp is unchanged: the same handler as POST; no token is the 401, a token the plain 200', async () => {
+  const route = await import('../../app/mcp/route');
+  assert.equal(route.DELETE, route.POST);
+  const was = process.env.EARNKIT_URL;
+  process.env.EARNKIT_URL = 'https://earnkit.test';
+  const r = await route.DELETE(new Request('https://earnkit.test/mcp', { method: 'DELETE' }));
+  assert.equal(r.status, 401);
+  if (was === undefined) delete process.env.EARNKIT_URL;
+  else process.env.EARNKIT_URL = was;
+  assert.match(r.headers.get('www-authenticate') ?? '', /^Bearer resource_metadata="https:\/\/earnkit\.test\/\.well-known\/oauth-protected-resource\/mcp"$/);
+  await saveInstallation(token, null);
+  const signed = await route.DELETE(new Request('https://earnkit.test/mcp', { method: 'DELETE', headers }));
+  // With a token the stateless transport ends nothing and answers 200 with the usual CORS headers.
+  assert.equal(signed.status, 200);
+  assert.equal(signed.headers.get('access-control-allow-origin'), '*');
+  assert.equal(await signed.text(), '');
+});

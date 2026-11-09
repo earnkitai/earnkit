@@ -22,8 +22,8 @@ export default async function MePage({ searchParams }: { searchParams: Promise<Q
   if (!token || !builder) redirect('/docs#record');
   const q = await searchParams;
   // Only a line /me's own handlers signed is shown; React escapes it. ?link= is the code GitHub sign-in came back with.
-  const problem = problemShown(one(q.problem), one(q.sig), builder.id, authSecret());
-  const note = problem ? null : problemShown(one(q.note), one(q.sig), builder.id, authSecret());
+  const problem = problemShown('problem', one(q.problem), one(q.sig), builder.id, now, authSecret());
+  const note = problem ? null : problemShown('note', one(q.note), one(q.sig), builder.id, now, authSecret());
   return (
     <>
       <MeView data={await meData(builder, now, token, one(q.link))} problem={problem} note={note} />

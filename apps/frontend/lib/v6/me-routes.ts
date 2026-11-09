@@ -12,7 +12,7 @@ import { cleanClientName } from '../v5/installations';
 import { ME_BLOCKS, ME_ERRORS, ME_LABELS, ME_LINK_DONE, ME_LINK_NOT, ME_VALUE_WORDS } from '../v5/site-copy';
 import { type Builder, deleteBuilder, getRecord, unlinkInstallation, withRecord } from './builders';
 import { INVALID, OTHER, codeShaped, consumeLinkCode, denyLinkCode, liveCode } from './link-routes';
-import { type MeField, authSecret, problemSig, recordBlocks, seenOf, verifyCsrf } from './me-view';
+import { type MeField, authSecret, problemSig, recordBlocks, seenOf, utcDay, verifyCsrf } from './me-view';
 import { APPROVABLE, approvePath, fieldSchema, mergeRecord, unapprovePath } from './record';
 import { COOKIE, clearCookie, cookieValue, endSession, sessionBuilder } from './sessions';
 
@@ -23,13 +23,18 @@ const text = (status: number, body: string, headers: Record<string, string> = {}
   new Response(body, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', ...headers } });
 const back = (location: string, headers: Record<string, string> = {}) =>
   new Response(null, { status: 303, headers: { Location: location, 'Cache-Control': 'no-store', ...headers } });
-/** The line signed for this builder only: a link carrying it shows on no other builder's page (it can hold an agent's name). */
-const signed = (key: 'problem' | 'note', builderId: number, line: string) =>
-  back(`/me?${key}=${encodeURIComponent(line)}&sig=${problemSig(line, builderId, authSecret())}`);
+/** Who a line is for and when it was written. */
+type For = { builder: { id: number }; now: Date };
+/**
+ * The line signed for this builder, this key and today only: a link carrying it shows on no other builder's page (it
+ * can hold an agent's name), never as the other kind of line, and only on the day it was written and the next (final review M1).
+ */
+const signed = (key: 'problem' | 'note', who: For, line: string) =>
+  back(`/me?${key}=${encodeURIComponent(line)}&sig=${problemSig(key, line, who.builder.id, utcDay(who.now), authSecret())}`);
 /** Back to /me with a refusal line; several lines (one per bad field) are joined by line breaks. */
-const problemAt = (builderId: number, line: string) => signed('problem', builderId, line);
+const problemAt = (who: For, line: string) => signed('problem', who, line);
 /** Back to /me with a plain line that is not a refusal (v6.1.7 C2). */
-const noteAt = (builderId: number, line: string) => signed('note', builderId, line);
+const noteAt = (who: For, line: string) => signed('note', who, line);
 /** The largest id a Postgres integer holds (v6.1.7 B3). */
 const MAX_ID = 2_147_483_647;
 
@@ -56,7 +61,7 @@ async function guard(request: Request, deps: Deps): Promise<Response | { builder
   if (!builder) return text(403, ME_ERRORS.signin);
   const form = new URLSearchParams(body);
   const session = cookieValue(request.headers.get('cookie'), COOKIE) ?? '';
-  if (!verifyCsrf(form.get('csrf') ?? '', builder.id, now, authSecret(), session)) return problemAt(builder.id, ME_ERRORS.expired);
+  if (!verifyCsrf(form.get('csrf') ?? '', builder.id, now, authSecret(), session)) return problemAt({ builder, now }, ME_ERRORS.expired);
   return { builder, form, now };
 }
 
@@ -118,7 +123,8 @@ export function wordsOf(path: string, value: unknown): string | null {
   const v = typeof value === 'object' && !Array.isArray(value) && 'text' in value ? (value as { text: unknown }).text : value;
   const r = schema.safeParse(v);
   if (r.success) return null;
-  const i = r.error.issues[0];
+  // A field's own pattern words (Country: two capital letters) say more than its length cap.
+  const i = r.error.issues.find((x) => x.code === 'invalid_format' && x.format === 'regex') ?? r.error.issues[0];
   const num = inner(schema);
   if (num instanceof z.ZodNumber) return ME_VALUE_WORDS.range(bound(num.minValue), bound(num.maxValue), Boolean(num.isInt));
   if (i.code === 'too_big' && i.origin === 'string') return ME_VALUE_WORDS.under(Number(i.maximum));
@@ -139,8 +145,8 @@ async function merge(builder: Builder, now: Date, patch: unknown, label: string,
     const m = mergeRecord(current, patch, 'builder', now);
     return { record: m.problems.length === 0 && m.changed.length > 0 ? m.record : null, result: m.problems };
   });
-  if (out.broken) return problemAt(builder.id, ME_ERRORS.broken);
-  if (out.result.length > 0) return problemAt(builder.id, [...new Set(out.result.map((l) => problemWords(label, l)))].join('\n'));
+  if (out.broken) return problemAt({ builder, now }, ME_ERRORS.broken);
+  if (out.result.length > 0) return problemAt({ builder, now }, [...new Set(out.result.map((l) => problemWords(label, l)))].join('\n'));
   return back(`/me#${anchor}`);
 }
 
@@ -153,11 +159,11 @@ export async function editPost(request: Request, deps: Deps = {}): Promise<Respo
   const block = blocks.find((b) => b.fields.some((f) => f.path === path));
   const f = block?.fields.find((x) => x.path === path);
   // Standing approval changes only through /me/policy; the skip list is its one edit row.
-  if (!block || !f || (path.startsWith('policy.') && path !== 'policy.never')) return problemAt(g.builder.id, ME_ERRORS.field);
+  if (!block || !f || (path.startsWith('policy.') && path !== 'policy.never')) return problemAt(g, ME_ERRORS.field);
   const v = valueOf(f, g.form.get('value') ?? '');
-  if (!v.ok) return problemAt(g.builder.id, v.problem);
+  if (!v.ok) return problemAt(g, v.problem);
   const words = wordsOf(path, v.value);
-  if (words) return problemAt(g.builder.id, `${f.label}: ${words}.`);
+  if (words) return problemAt(g, `${f.label}: ${words}.`);
   return merge(g.builder, g.now, patchOf(path, v.value), f.label, block.key);
 }
 
@@ -167,7 +173,7 @@ export async function approvePost(request: Request, deps: Deps = {}): Promise<Re
   if (g instanceof Response) return g;
   const path = g.form.get('path') ?? '';
   const action = g.form.get('action');
-  if (!APPROVABLE(path) || (action !== 'approve' && action !== 'unapprove')) return problemAt(g.builder.id, ME_ERRORS.field);
+  if (!APPROVABLE(path) || (action !== 'approve' && action !== 'unapprove')) return problemAt(g, ME_ERRORS.field);
   const seen = g.form.get('seen') ?? '';
   const out = await withRecord(g.builder.id, g.now, (current) => {
     // An agent write since the page was rendered: the builder has not read this text.
@@ -175,8 +181,8 @@ export async function approvePost(request: Request, deps: Deps = {}): Promise<Re
     const next = action === 'approve' ? approvePath(current, path, g.now) : unapprovePath(current, path);
     return { record: next === current ? null : next, result: true };
   });
-  if (out.broken) return problemAt(g.builder.id, ME_ERRORS.broken);
-  if (!out.result) return problemAt(g.builder.id, ME_ERRORS.changed);
+  if (out.broken) return problemAt(g, ME_ERRORS.broken);
+  if (!out.result) return problemAt(g, ME_ERRORS.changed);
   return back('/me#approvals');
 }
 
@@ -203,7 +209,7 @@ export async function policyPost(request: Request, deps: Deps = {}): Promise<Res
     const words = wordsOf(`policy.${k}`, v);
     return words ? [`${labels[`policy.${k}`]}: ${words}.`] : [];
   });
-  if (problems.length > 0) return problemAt(g.builder.id, problems.join('\n'));
+  if (problems.length > 0) return problemAt(g, problems.join('\n'));
   return merge(g.builder, g.now, { policy }, ME_BLOCKS.policy, 'policy');
 }
 
@@ -213,7 +219,7 @@ export async function unlinkPost(request: Request, deps: Deps = {}): Promise<Res
   if (g instanceof Response) return g;
   const raw = g.form.get('installation_id') ?? '';
   const id = /^\d{1,10}$/.test(raw) ? Number(raw) : 0;
-  if (id < 1 || id > MAX_ID) return problemAt(g.builder.id, ME_ERRORS.field);
+  if (id < 1 || id > MAX_ID) return problemAt(g, ME_ERRORS.field);
   await unlinkInstallation(id, g.builder.id, g.now);
   return back('/me#agents');
 }
@@ -228,24 +234,24 @@ export async function linkPost(request: Request, deps: Deps = {}): Promise<Respo
   if (g instanceof Response) return g;
   const code = g.form.get('code') ?? '';
   const action = g.form.get('action');
-  if (action !== 'link' && action !== 'deny') return problemAt(g.builder.id, ME_ERRORS.field);
-  if (!codeShaped(code)) return problemAt(g.builder.id, INVALID);
+  if (action !== 'link' && action !== 'deny') return problemAt(g, ME_ERRORS.field);
+  if (!codeShaped(code)) return problemAt(g, INVALID);
   if (action === 'deny') {
     await denyLinkCode(code, g.now);
-    return noteAt(g.builder.id, ME_LINK_NOT);
+    return noteAt(g, ME_LINK_NOT);
   }
   const live = await liveCode(code, g.now);
   const out = await consumeLinkCode(code, g.builder.id, g.now);
-  if (out === 'other') return problemAt(g.builder.id, OTHER);
-  if (out === 'dead') return problemAt(g.builder.id, ME_ERRORS.linkExpired);
-  return noteAt(g.builder.id, ME_LINK_DONE(cleanClientName(live?.client_name)));
+  if (out === 'other') return problemAt(g, OTHER);
+  if (out === 'dead') return problemAt(g, ME_ERRORS.linkExpired);
+  return noteAt(g, ME_LINK_DONE(cleanClientName(live?.client_name)));
 }
 
 /** POST /me/delete: csrf, confirm (the GitHub login). Removes everything theirs and the cookie. */
 export async function deletePost(request: Request, deps: Deps = {}): Promise<Response> {
   const g = await guard(request, deps);
   if (g instanceof Response) return g;
-  if ((g.form.get('confirm') ?? '').trim().toLowerCase() !== g.builder.login.toLowerCase()) return problemAt(g.builder.id, ME_ERRORS.confirm);
+  if ((g.form.get('confirm') ?? '').trim().toLowerCase() !== g.builder.login.toLowerCase()) return problemAt(g, ME_ERRORS.confirm);
   await deleteBuilder(g.builder.id);
   return back('/', { 'Set-Cookie': clearCookie() });
 }

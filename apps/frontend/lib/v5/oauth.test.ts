@@ -108,6 +108,9 @@ test('B5 (Review Focus 4): a hosted-redirect client from an address over its flo
   const viaHost = await reg([hosted]);
   const anyPath = await reg(['https://claude.ai/anything']);
   assert.equal(plain.status, 429);
+  // The refusal says when to come back: the seconds left in the hour window.
+  assert.match(plain.headers.get('retry-after') ?? '', /^[1-9]\d*$/);
+  assert.ok(Number(plain.headers.get('retry-after')) <= 3_600);
   assert.equal(viaHost.status, 429);
   assert.equal(anyPath.status, 429);
   const text = ((await plain.json()) as { error_description: string }).error_description;
@@ -238,6 +241,9 @@ test('the limit key and the public origin', () => {
   assert.equal(hostedRedirectHost(['https://claude.ai/anything']), null);
   assert.equal(hostedRedirectHost(['https://claude.ai/api/mcp/auth_callbackX']), null);
   assert.equal(hostedRedirectHost(['https://evil.claude.ai/api/mcp/auth_callback']), null);
+  // Lookalike hosts: the vendor's name as a prefix of another host, or in another host's path.
+  assert.equal(hostedRedirectHost(['https://claude.ai.evil.com/api/mcp/auth_callback']), null);
+  assert.equal(hostedRedirectHost(['https://evil.com/claude.ai/api/mcp/auth_callback']), null);
   assert.equal(hostedRedirectHost(['https://claude.ai:8443/api/mcp/auth_callback']), null);
   assert.equal(hostedRedirectHost(['https://u@claude.ai/api/mcp/auth_callback']), null);
   assert.equal(hostedRedirectHost(['https://claude.ai/api/mcp/../../x']), null);

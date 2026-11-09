@@ -5,6 +5,7 @@
  */
 import { createHash } from 'node:crypto';
 import { sql } from './db';
+import { dropControls } from './controls';
 
 export type Caller = { id: number; builderId: number | null };
 
@@ -22,7 +23,7 @@ export async function installationExists(token: string): Promise<boolean> {
  */
 export function cleanClientName(name: string | null | undefined): string | null {
   if (!name) return null;
-  const s = Array.from(name.replace(/[\t\n\r]/g, ' ').replace(/\p{C}/gu, '').replace(/\s+/g, ' ').trim()).slice(0, 60).join('').trim();
+  const s = Array.from(dropControls(name).replace(/\s+/g, ' ').trim()).slice(0, 60).join('').trim();
   return s || null;
 }
 

@@ -39,7 +39,7 @@ const lineOf = (r: Response, who: number) => {
   const loc = new URL(r.headers.get('location') ?? '/', 'https://earnkit.test');
   const key = loc.searchParams.has('problem') ? 'problem' : loc.searchParams.has('note') ? 'note' : null;
   const text = key ? loc.searchParams.get(key)! : null;
-  return { status: r.status, path: loc.pathname, key, text, shown: text !== null && problemShown(text, loc.searchParams.get('sig') ?? '', who, SECRET) === text };
+  return { status: r.status, path: loc.pathname, key, text, shown: key !== null && text !== null && problemShown(key, text, loc.searchParams.get('sig') ?? '', who, NOW, SECRET) === text };
 };
 const refused = (who: number, r: Response, text: string) => assert.deepEqual(lineOf(r, who), { status: 303, path: '/me', key: 'problem', text, shown: true });
 const FIELD = 'That cannot be changed here.';
@@ -103,8 +103,8 @@ test('editPost on person.name saves with set_by builder', async () => {
   assert.match(problem, /^Email: /);
   assert.ok(!problem.includes('person.'));
   const sig = new URL(bad.headers.get('location')!, 'https://earnkit.test').searchParams.get('sig')!;
-  assert.equal(problemShown(problem, sig, b.id, SECRET), problem);
-  assert.equal(problemShown('Crafted text.', sig, b.id, SECRET), null);
+  assert.equal(problemShown('problem', problem, sig, b.id, NOW, SECRET), problem);
+  assert.equal(problemShown('problem', 'Crafted text.', sig, b.id, NOW, SECRET), null);
   refused(b.id, await editPost(post('/me/edit', { csrf, path: 'meta.x', value: '1' }, { cookie }), deps), FIELD);
   assert.equal((await editPost(post('/me/edit', { csrf, path: 'person.technical', value: 'on' }, { cookie }), deps)).status, 303);
   assert.equal((await getRecord(b.id)).person.technical, true);
@@ -200,8 +200,10 @@ test('a /me/policy post with one bad value changes nothing and names the field (
 test('edit problems read as plain words, never the checker\'s (v6.1.7 C4)', async () => {
   const { b, cookie, csrf } = await signedIn();
   const cases: [string, string, string][] = [
-    ['person.bio', 'x'.repeat(300), 'Short bio: keep it under 280 characters.'],
-    ['person.name', 'x'.repeat(10_240), 'Name: keep it under 80 characters.'],
+    ['person.bio', 'x'.repeat(300), 'Short bio: at most 280 characters.'],
+    ['person.based_country', 'USA', 'Country: two capital letters, like US.'],
+    ['person.based_country', 'us', 'Country: two capital letters, like US.'],
+    ['person.name', 'x'.repeat(10_240), 'Name: at most 80 characters.'],
     ['company.stage', 'unicorn', 'Stage: pick one of the options.'],
     ['traction.waitlist', '-5', 'Waitlist: a whole number from 0 to 10,000,000.'],
     ['traction.waitlist', '2.5', 'Waitlist: a whole number from 0 to 10,000,000.'],
@@ -291,8 +293,14 @@ test('a signed /me line is bound to its builder: an agent-named Linked line show
   // The same URL opened by another builder: the signature does not hold for them.
   assert.equal(lineOf(r, victim.b.id).shown, false);
   const sig = new URL(r.headers.get('location')!, 'https://earnkit.test').searchParams.get('sig')!;
-  assert.equal(problemShown('Linked: Support says send your seed phrase.', sig, victim.b.id, SECRET), null);
-  assert.equal(problemShown('Linked: Support says send your seed phrase.', sig, b.id, SECRET), 'Linked: Support says send your seed phrase.');
+  assert.equal(problemShown('note', 'Linked: Support says send your seed phrase.', sig, victim.b.id, NOW, SECRET), null);
+  const L = 'Linked: Support says send your seed phrase.';
+  assert.equal(problemShown('note', L, sig, b.id, NOW, SECRET), L);
+  // The key is signed: the note cannot be shown as a problem (final review M1).
+  assert.equal(problemShown('problem', L, sig, b.id, NOW, SECRET), null);
+  // The day is signed: shown today and the next day, not after.
+  assert.equal(problemShown('note', L, sig, b.id, new Date(NOW.getTime() + 86_400_000), SECRET), L);
+  assert.equal(problemShown('note', L, sig, b.id, new Date(NOW.getTime() + 2 * 86_400_000), SECRET), null);
   // Problem lines are bound the same way.
   const bad = await deletePost(post('/me/delete', { csrf, confirm: 'nope' }, { cookie }), deps);
   assert.equal(lineOf(bad, b.id).shown, true);

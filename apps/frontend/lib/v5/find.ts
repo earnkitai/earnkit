@@ -4,7 +4,7 @@
  * open list. Linked, it also reads the builder's record (lib/v6/find-record.ts). EarnKit writes no prose.
  */
 import { z } from 'zod';
-import { ownerKey, takeUnlinkedNotice } from '../v6/builders';
+import { hasUnlinkedNotice, ownerKey, takeUnlinkedNotice } from '../v6/builders';
 import { appliedOvernight, releaseStale } from '../v6/claims';
 import { readEvidence, type Evidence, type Subject } from '../v6/evidence';
 import { blockersOf, notNever, missingFor, provisionalGate, provisionalTier, recordSide, storedRecordContext, tierGate, type Blocker, type RecordSide } from '../v6/find-record';
@@ -249,7 +249,7 @@ async function openList(ctx: FindContext, problem: string | null): Promise<FindR
   const list = programs.length > 0 ? `Open now:\n${lines.join('\n')}\nTell me which project and I'll match it.` : "Nothing is open right now. I'll say when something opens.";
   // After an unlink the notice carries the link, in place of the plain sign-in line.
   const unlinkedNow = ctx.builderId === null && notice !== null;
-  return {
+  const reply = {
     show_to_builder: unlinkedNow ? `${list}\n\n${notice}` : [link ? `${list}\n\n${signInLine(link)}` : list, notice].filter(Boolean).join(' '),
     agent_note: [
       ...(problem ? [`The project was not read: ${problem}.`] : []),
@@ -259,16 +259,24 @@ async function openList(ctx: FindContext, problem: string | null): Promise<FindR
     ready: [], gaps: [], ledger, ask_outcome: [], as_reported: false, ...unlinkedPart(), linked: ctx.builderId !== null,
     ...(link ? { sign_in: link } : {}), linked_notice: notice,
   };
+  await noticeTaken(ctx, notice);
+  return reply;
 }
 
 /**
  * Linked since the last find: the sentence that says to which GitHub account. Unlinked on /me since (v6.1.7 B10):
- * the unlinked line with `link`, taken once. Else null. Read before markFind.
+ * the unlinked line with `link`, shown once: `noticeTaken` clears it after the reply is built, so a throw on the way
+ * keeps it for the next find. Else null. Read before markFind.
  */
 const linkedNotice = async (ctx: FindContext, link: string | null) => {
-  if (ctx.builderId === null) return (await takeUnlinkedNotice(ctx.installationId)) ? unlinkedNoticeLine(link) : null;
+  if (ctx.builderId === null) return (await hasUnlinkedNotice(ctx.installationId)) ? unlinkedNoticeLine(link) : null;
   const login = await newlyLinkedLogin(ctx.installationId);
   return login ? linkedNoticeLine(login) : null;
+};
+
+/** Clears the unlinked mark once its line is in a built reply (final round, task 6 review). */
+const noticeTaken = async (ctx: FindContext, notice: string | null) => {
+  if (ctx.builderId === null && notice !== null) await takeUnlinkedNotice(ctx.installationId);
 };
 
 /** The unlinked installation's sign-in link, or null (never a failure). */
@@ -313,7 +321,7 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   });
   if (side) problems.push(...side.problems);
   // A project_id the record does not hold is named, and the match goes on by the repo (v6.1.7, C17).
-  if (i.project_id !== undefined && !side?.record.projects.some((p) => p.id === i.project_id)) problems.push('project_id not known; matched without it.');
+  if (i.project_id !== undefined && !side?.record.projects.some((p) => p.id === i.project_id)) problems.push('project_id not known; matched without it');
   const released = side ? await releaseStale(owner, ctx.now) : [];
   const skip = await excluded(owner);
   const all = i.filter?.all === true;
@@ -379,6 +387,8 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const remembered = i.filter?.category === undefined
     ? Object.fromEntries(gapV.slice(0, MAX_REMEMBERED_GAPS).map((v) => [v.program_id, { what: v.gaps[0].what, kind: v.gaps[0].kind, item: v.gaps[0].item }]))
     : undefined;
+  const reply = { show_to_builder: replyText(r, last === null, ctx.now), agent_note: agentNote(r, { more }), ...r };
   await markFind(ctx.installationId, ctx.now, remembered);
-  return { show_to_builder: replyText(r, last === null, ctx.now), agent_note: agentNote(r, { more }), ...r };
+  await noticeTaken(ctx, notice);
+  return reply;
 }

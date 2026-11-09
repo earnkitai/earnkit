@@ -36,7 +36,8 @@ export type MeData = {
 };
 
 const DAY = 86_400_000;
-const utcDay = (d: Date) => d.toISOString().slice(0, 10);
+/** The UTC day of a time, YYYY-MM-DD. Pure. */
+export const utcDay = (d: Date) => d.toISOString().slice(0, 10);
 
 export function authSecret(): string {
   const s = process.env.EARNKIT_AUTH_SECRET;
@@ -60,12 +61,19 @@ export function verifyCsrf(token: string, builderId: number, now: Date, secret: 
   return ok.some(Boolean);
 }
 
-/** A /me line's signature, bound to the builder it was written for, so /me shows only lines its own handlers wrote for this builder (never a crafted link's text, never another builder's line). Pure. */
-export const problemSig = (line: string, builderId: number, secret: string): string =>
-  createHmac('sha256', secret).update(`me-note:${builderId}:${line}`).digest('base64url').slice(0, 22);
-/** The line when its signature was made for this builder; a line signed for another builder is not shown. Pure. */
-export const problemShown = (line: string | undefined, sig: string | undefined, builderId: number, secret: string): string | null =>
-  line && sig && same(sig, problemSig(line, builderId, secret)) ? line : null;
+/**
+ * A /me line's signature over its key (problem or note), the builder it was written for and the UTC day, so /me shows
+ * only lines its own handlers wrote for this builder, as the kind they were written as, today or yesterday (never a
+ * crafted link's text, never another builder's line, never a link kept for later). Pure.
+ */
+export const problemSig = (key: 'problem' | 'note', line: string, builderId: number, day: string, secret: string): string =>
+  createHmac('sha256', secret).update(`me-${key}:${builderId}:${day}:${line}`).digest('base64url').slice(0, 22);
+/** The line when its signature was made for this key and builder today or yesterday; anything else is not shown. Pure. */
+export function problemShown(key: 'problem' | 'note', line: string | undefined, sig: string | undefined, builderId: number, now: Date, secret: string): string | null {
+  if (!line || !sig) return null;
+  const ok = [0, 1].map((n) => same(sig, problemSig(key, line, builderId, utcDay(new Date(now.getTime() - n * DAY)), secret)));
+  return ok.some(Boolean) ? line : null;
+}
 
 /** The set_at the builder sees for an approvable path ('' when it has no meta); approvePost checks it. Pure. */
 export const seenOf = (record: BuilderRecord, path: string): string => record.meta[path]?.set_at ?? '';
