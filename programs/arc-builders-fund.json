@@ -18,7 +18,7 @@
   "tag": "long shot",
   "min_tier": "building",
   "eligibility": [
-    { "kind": "feature", "note": "a real-world financial app or service that can only exist on Arc" }
+    { "kind": "rule", "note": "a real-world financial app or service that can only exist on Arc" }
   ],
   "min_product_score": 5,
   "setup": [],

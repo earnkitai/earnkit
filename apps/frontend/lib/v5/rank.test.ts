@@ -8,7 +8,7 @@ import { programFixture } from './fixtures/program';
 const row = (id: string, over: Record<string, unknown> = {}): ProgramRow => ({
   id, file: programFixture({ id, ...over }), source: 'file', created_at: new Date(0), updated_at: new Date(0), verified_at: null, stale_since: null,
 });
-const v = (id: string, over: Partial<Verdict> = {}): Verdict => ({ program_id: id, status: 'ready', gaps: [], reason: null, long_shot: null, ...over });
+const v = (id: string, over: Partial<Verdict> = {}): Verdict => ({ program_id: id, status: 'ready', gaps: [], reason: null, long_shot: null, rules: [], ...over });
 const gap = (effort: Gap['effort']): Gap => ({ kind: 'feature', item: 'feature:x', what: 'x', effort, agent_can: false });
 
 test('rankReady: not long shot first, then bigger award with unknown last, then sooner deadline', () => {

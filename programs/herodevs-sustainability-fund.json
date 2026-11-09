@@ -22,7 +22,7 @@
   "min_tier": "used",
   "eligibility": [
     { "kind": "users", "note": "an open source developer tool with existing users and versions near or past official end of life" },
-    { "kind": "feature", "note": "an OSI-approved open source license" }
+    { "kind": "rule", "note": "an OSI-approved open source license" }
   ],
   "setup": [],
   "each_time": [

@@ -46,7 +46,7 @@
   ],
   "eligibility": [
     { "kind": "demo_video" },
-    { "kind": "feature", "note": "the team has not raised venture capital for the startup it submits" }
+    { "kind": "rule", "note": "the team has not raised venture capital for the startup it submits" }
   ],
   "submission_requirements": [
     { "key": "weekly_updates", "label": "Weekly update with a one-minute video", "type": "url", "required": true, "from": "builder", "kind": "demo_video", "todo": "a one-minute video each week", "description": "Each week of the sprint: what you prioritized, what you shipped, and any notable challenges." },

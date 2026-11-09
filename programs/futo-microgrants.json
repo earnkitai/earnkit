@@ -21,7 +21,7 @@
   "category": "grant",
   "min_tier": "building",
   "eligibility": [
-    { "kind": "feature", "note": "open source software from a small or early-stage project" }
+    { "kind": "rule", "note": "open source software from a small or early-stage project" }
   ],
   "setup": [],
   "each_time": [

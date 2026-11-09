@@ -25,6 +25,7 @@ const ready = (over: Partial<ReadyProgram> & { title: string }): ReadyProgram =>
   total: 1,
   needs: [],
   setup: [],
+  rules: [],
   n: 0,
   ...over,
 });
@@ -36,6 +37,7 @@ const gap = (over: Partial<GapProgram> & { title: string }): GapProgram => ({
   closes_at: null,
   gap: { kind: 'chain', item: 'chain:arc', what: 'deploy the contract on Arc', effort: 'hours', agent_can: false },
   also: [],
+  rules: [],
   n: 0,
   ...over,
 });
@@ -338,4 +340,42 @@ test('every linked line ends with a full stop and has no banned word', () => {
     assert.doesNotMatch(text, /\b(find|track|show_to_builder|agent_note|program_id|need_you|blockers)\b|\.json\b/, text);
     for (const line of text.split('\n').filter((l) => l.length > 0 && !l.endsWith(':'))) assert.ok(line.endsWith('.'), line);
   }
+});
+
+const RULE_NOTE =
+  'A "Their rule" sentence is a program rule EarnKit cannot check: confirm it with the builder in the same message as the \'builder\' fields; if it does not hold, skip the program.';
+
+test('rules: "Their rule" after the head and long odds, before the drafted line and First; in-person and gap lines too (v6.1.6)', () => {
+  const r = base({
+    ready: [
+      ready({
+        title: 'Base Ecosystem Fund', money: 'pre-seed and seed investment', long_shot: 'an investment program with no stated amount', total: 2,
+        rules: ['a pre-seed or seed stage startup that chooses Base as its home', 'No formal Seed round raised'],
+        setup: ['sign in to the portal'], needs: ['sign in to the portal'],
+      }),
+      ready({ title: 'Meetup', money: '$5K', in_person: true, setup: ['be in Lisbon'], needs: ['be in Lisbon'], rules: ['a team of two or more'] }),
+    ],
+    gaps: [gap({ title: 'Goose Grants', money: '$10K', gap: { kind: 'demo_video', item: 'demo_video', what: 'a demo video', effort: 'hours', agent_can: false }, rules: ['work not already funded by an employer or client'] })],
+  });
+  assert.equal(
+    replyText(r, true),
+    [
+      'Ready to apply, 1:',
+      '1. Base Ecosystem Fund, pre-seed and seed investment. Long odds: an investment program with no stated amount. Their rule: a pre-seed or seed stage startup that chooses Base as its home. Their rule: No formal Seed round raised. Your agent drafts all 2 answers. First: sign in to the portal.',
+      '',
+      'One change away, 1:',
+      '2. Goose Grants, $10K: a demo video. Their rule: work not already funded by an employer or client.',
+      '',
+      'In person, apply to attend first:',
+      '3. Meetup, $5K. Their rule: a team of two or more. Be in Lisbon.',
+      '',
+      'Say yes to apply, skip it, or "do 2" and I\'ll make the change first.',
+    ].join('\n'),
+  );
+  const lines = agentNote(r, { more: 0 }).split('\n');
+  const at = lines.indexOf(RULE_NOTE);
+  assert.ok(at > 0, lines.join('\n'));
+  assert.match(lines[at - 1], /^Draft each ready program from its fields/);
+  assert.ok(!agentNote(MONDAY, { more: 0 }).includes('Their rule'));
+  assert.ok(agentNote(base({ gaps: r.gaps }), { more: 0 }).includes(RULE_NOTE));
 });

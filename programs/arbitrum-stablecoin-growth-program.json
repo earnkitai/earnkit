@@ -28,7 +28,7 @@
     { "kind": "live_product" },
     { "kind": "chain", "value": "arbitrum" },
     { "kind": "users", "note": "at least $1M in stablecoin balances at application, verified on DefiLlama" },
-    { "kind": "feature", "note": "stablecoins at the core of the product, with audited contracts" }
+    { "kind": "rule", "note": "stablecoins at the core of the product, with audited contracts" }
   ],
   "setup": [
     "commit to USDG as your primary stablecoin on Arbitrum"

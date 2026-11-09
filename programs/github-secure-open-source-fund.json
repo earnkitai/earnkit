@@ -11,7 +11,7 @@
   "min_tier": "used",
   "eligibility": [
     { "kind": "users", "note": "an open source first project with demonstrated community traction and adoption" },
-    { "kind": "feature", "note": "a clear open source license on the repo" }
+    { "kind": "rule", "note": "a clear open source license on the repo" }
   ],
   "category": "grant",
   "starts_at": null,

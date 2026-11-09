@@ -4,11 +4,12 @@
  */
 import { integrationDocs, integrationLabel } from '../v6/integrations';
 import { CHAIN_REGISTRY, chainName } from './chains';
-import { ELIGIBILITY_KINDS, categoryOf, eligibilityOf, type EligibilityItem } from './program-file';
+import { categoryOf, eligibilityOf, ruleNotes, type EligibilityItem, type EligibilityKind } from './program-file';
 import type { ProgramRow } from './programs';
 import type { RepoFacts } from './repo-facts';
 
-export type GapKind = (typeof ELIGIBILITY_KINDS)[number];
+/** A rule is never a gap: EarnKit cannot check it, so it is shown, not gated. */
+export type GapKind = Exclude<EligibilityKind, 'rule'>;
 export type Effort = 'minutes' | 'hours' | 'days' | 'weeks';
 export type Gap = {
   /** 'tier': the program's min_tier is above the project's tier (set by find, never by evaluate). */
@@ -25,6 +26,8 @@ export type Verdict = {
   gaps: Gap[];
   reason: string | null;
   long_shot: string | null;
+  /** The notes of the program's `rule` items, in file order: shown to the builder as "Their rule", never a gap. */
+  rules: string[];
 };
 
 const EFFORT: Record<GapKind, Effort> = {
@@ -39,8 +42,10 @@ const chainDetails = (chain: string) => {
   return { chain, rpc: c?.rpc ?? null, explorer: c?.explorer ?? null };
 };
 
+/** Never called with a rule (evaluate skips them), so the kind is a GapKind. */
 function gapOf(i: EligibilityItem): Gap {
-  const base = { kind: i.kind, item: itemKey(i), effort: EFFORT[i.kind], agent_can: false };
+  const kind = i.kind as GapKind;
+  const base = { kind, item: itemKey(i), effort: EFFORT[kind], agent_can: false };
   const v = i.value ?? '';
   switch (i.kind) {
     case 'chain': return { ...base, what: `deploy the contract on ${chainName(v)}`, details: chainDetails(v) };
@@ -65,12 +70,13 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
     p.tag === 'long shot' ? 'few prizes for many entries'
     : categoryOf(p) === 'investment' && p.max_award_usd == null ? 'an investment program with no stated amount'
     : null;
-  const out = (status: Verdict['status'], gaps: Gap[], reason: string | null): Verdict => ({ program_id: program.id, status, gaps, reason, long_shot });
+  const items = eligibilityOf(p);
+  const rules = ruleNotes(p);
+  const out = (status: Verdict['status'], gaps: Gap[], reason: string | null): Verdict => ({ program_id: program.id, status, gaps, reason, long_shot, rules });
 
   if (p.status !== 'active') return out('no', [], 'not open');
   if (p.ends_at && Date.parse(p.ends_at) <= now.getTime()) return out('no', [], 'closed');
 
-  const items = eligibilityOf(p);
   const gaps: Gap[] = [];
   let inPerson = false;
   const chainItems = items.filter((i) => i.kind === 'chain');
@@ -97,6 +103,7 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
       case 'in_person': inPerson = true; break;
       case 'demo_video':
       case 'feature': if (!done.has(itemKey(i))) gaps.push(gapOf(i)); break;
+      case 'rule': break;
     }
   }
 

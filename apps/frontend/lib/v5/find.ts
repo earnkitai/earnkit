@@ -17,12 +17,12 @@ import { guideLines, guideText, type Guide } from './guide';
 import { lastFindAt, markFind } from './installations';
 import { askOutcome, claimed, doneByProgram, doneItems, excluded, markAsked, summary, type Ledger } from './ledger';
 import { prefill, type Field } from './prefill';
-import { PROGRAM_CATEGORIES, categoryOf, type Category, type Program } from './program-file';
+import { PROGRAM_CATEGORIES, categoryOf, ruleNotes, type Category, type Program } from './program-file';
 import { getProgram, isOpen, listOpenPrograms, type ProgramRow } from './programs';
 import { parseProject, type Project } from './project-input';
 import { rankGaps, rankReady } from './rank';
 import { repoFacts, type RepoFacts } from './repo-facts';
-import { AGENT_FIELDS, agentNote, numbered, replyText } from './reply';
+import { AGENT_FIELDS, RULE_NOTE, agentNote, numbered, replyText, ruleSentence } from './reply';
 import { since, type Since } from './since';
 
 export const FindInput = z.object({
@@ -60,6 +60,8 @@ export type ReadyProgram = {
   needs: string[];
   /** What taking part needs before applying (in person: attending). */
   setup: string[];
+  /** The program's rules EarnKit cannot check, shown as "Their rule" (v6.1.6). */
+  rules: string[];
   /** The number the builder sees (and says) for it. */
   n: number;
   /** Set while another agent of the builder's holds a claim on it (track started). */
@@ -75,6 +77,8 @@ export type GapProgram = {
   gap: Gap;
   /** Any second change the program needs. */
   also: Gap[];
+  /** The program's rules EarnKit cannot check, shown as "Their rule" (v6.1.6). */
+  rules: string[];
   /** The number the builder sees (and says) for it. */
   n: number;
 };
@@ -101,7 +105,11 @@ export type FindReply = {
   /** Unlinked with sign-in configured: the link that links this installation to a builder. */
   sign_in?: string;
 };
-export type ProgramReply = { show_to_builder: string; agent_note: string; program: Program | null; fields: Field[]; guide: Guide | null; verdict?: Verdict };
+export type ProgramReply = {
+  show_to_builder: string; agent_note: string; program: Program | null; fields: Field[]; guide: Guide | null; verdict?: Verdict;
+  /** The program's rules EarnKit cannot check, each its own "Their rule" line (v6.1.6). */
+  rules: string[];
+};
 export type FindContext = {
   installationId: number;
   builderId: number | null;
@@ -162,18 +170,19 @@ function readyOf(row: ProgramRow, v: Verdict, facts: RepoFacts, now: Date, side:
     fields, filled, facts_from_repo, repo_required, from_record, need_you, total,
     needs: [...p.setup, ...fields.filter((f) => f.from === 'builder' && f.required).map((f) => todo.get(f.key) ?? f.label.toLowerCase())],
     setup: p.setup,
+    rules: v.rules,
   };
 }
 
 const gapOf = (row: ProgramRow, v: Verdict): Omit<GapProgram, 'n'> => ({
   program_id: row.id, title: row.file.title, money: moneyOf(row.file), max_award_usd: row.file.max_award_usd ?? null,
-  category: categoryOf(row.file), closes_at: row.file.ends_at, gap: v.gaps[0], also: v.gaps.slice(1),
+  category: categoryOf(row.file), closes_at: row.file.ends_at, gap: v.gaps[0], also: v.gaps.slice(1), rules: v.rules,
 });
 
 /** One program: its file, its fields (for the project, when given) and the verdict. */
 async function oneProgram(ctx: FindContext, id: string, project: Project | null, projectId?: string): Promise<ProgramReply> {
   const row = await getProgram(id);
-  if (!row) return { show_to_builder: "I don't know that program.", agent_note: 'Call find with the project for the programs it fits.', program: null, fields: [], guide: null };
+  if (!row) return { show_to_builder: "I don't know that program.", agent_note: 'Call find with the project for the programs it fits.', program: null, fields: [], guide: null, rules: [] };
   const p = row.file;
   const facts = project ? await factsOf(project, ctx) : EMPTY_FACTS;
   // Linked: the record fills first, as in the match (no evidence read here: the stored usage line).
@@ -186,12 +195,19 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const when = p.status === 'upcoming' ? null : !open ? 'closed' : left ? `closes ${left}` : 'no deadline';
   const ask = open ? 'Want me to draft it?' : p.status === 'upcoming' ? `Not open yet: ${p.opens_note ?? 'no date announced'}.` : 'This one is closed.';
   const guide = guideText(row, ctx.now);
-  const rules = guideLines(guide);
+  const guideRules = guideLines(guide);
+  // Their rules: what the program requires that EarnKit cannot check, each its own line after the money (v6.1.6).
+  const rules = ruleNotes(p);
   return {
-    show_to_builder: [`${p.title}, ${moneyOf(p)}${when ? `, ${when}` : ''}.`, ...(rules.length > 0 ? [`Apply at ${p.submission_url}.`, ...rules, ask] : [`Apply at ${p.submission_url}. ${ask}`])].join('\n'),
+    show_to_builder: [
+      `${p.title}, ${moneyOf(p)}${when ? `, ${when}` : ''}.`,
+      ...rules.map(ruleSentence),
+      ...(guideRules.length > 0 ? [`Apply at ${p.submission_url}.`, ...guideRules, ask] : [`Apply at ${p.submission_url}. ${ask}`]),
+    ].join('\n'),
     agent_note: (open
       ? [
           project ? `Draft from fields: ${fitted ? "'record' and 'earnkit'" : "'earnkit'"} values as given; ${AGENT_FIELDS}` : 'Call again with the project so the fields come pre-filled.',
+          ...(rules.length > 0 ? [RULE_NOTE] : []),
           'Submit only on a yes, in your own browser, then call track with applied.',
           ...(fitted ? ['Fit approved answers by cutting, never by adding; the style contract travels on each field.'] : []),
         ]
@@ -201,6 +217,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
     fields,
     guide,
     ...(verdict ? { verdict } : {}),
+    rules,
   };
 }
 

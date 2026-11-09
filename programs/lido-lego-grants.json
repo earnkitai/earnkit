@@ -20,7 +20,7 @@
   "needs_repo": false,
   "chains": ["ethereum"],
   "eligibility": [
-    { "kind": "feature", "note": "work that benefits the Lido protocol or its ecosystem (stETH, node operation, governance, DeFi integrations)" }
+    { "kind": "rule", "note": "work that benefits the Lido protocol or its ecosystem (stETH, node operation, governance, DeFi integrations)" }
   ],
   "setup": [
     "message the LEGO Council member for your area on Telegram"

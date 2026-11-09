@@ -18,7 +18,7 @@
   "investment": true,
   "tag": "long shot",
   "eligibility": [
-    { "kind": "feature", "note": "a pre-seed or seed stage startup that chooses Base as its home" }
+    { "kind": "rule", "note": "a pre-seed or seed stage startup that chooses Base as its home" }
   ],
   "min_product_score": 5,
   "setup": [],

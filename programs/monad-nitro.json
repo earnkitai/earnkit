@@ -22,7 +22,7 @@
   "min_tier": "building",
   "eligibility": [
     { "kind": "in_person", "note": "one month in person in New York City" },
-    { "kind": "feature", "note": "four consecutive public weekly ship logs published before an interview" }
+    { "kind": "rule", "note": "four consecutive public weekly ship logs published before an interview" }
   ],
   "min_product_score": 5,
   "setup": [],

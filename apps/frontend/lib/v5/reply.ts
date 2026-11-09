@@ -15,6 +15,14 @@ export const AGENT_FIELDS =
   "'agent' fields you draft from the repo, the field's sources and what you already know about the builder; 'builder' fields you ask once, all together. Never invent a personal fact, an amount or a number.";
 const NEEDS_SHOWN = 3;
 
+/** The agent note line for programs with rules (v6.1.6): EarnKit shows them, the builder confirms them. */
+export const RULE_NOTE =
+  'A "Their rule" sentence is a program rule EarnKit cannot check: confirm it with the builder in the same message as the \'builder\' fields; if it does not hold, skip the program.';
+/** A program rule as the builder reads it; the note keeps its own capitals and gets the full stop. Pure. */
+export const ruleSentence = (note: string): string => `Their rule: ${note}.`;
+/** Each rule as its own sentence, each with its leading space, or ''. Pure. */
+const ruleSentences = (rules: string[]): string => rules.map((r) => ` ${ruleSentence(r)}`).join('');
+
 /**
  * The lists in display order with their numbers: ready (not in person) 1..k, then the gaps, then the
  * in-person programs; `ready` comes back with the in-person ones last (stable). Pure.
@@ -54,7 +62,7 @@ function readyLine(p: ReadyProgram, linked: boolean): string {
   const needs = fromRecord ? [] : p.needs.filter((x) => !p.setup.includes(x)).map(bare);
   const shown = needs.length > NEEDS_SHOWN ? [...needs.slice(0, NEEDS_SHOWN), `${needs.length - NEEDS_SHOWN} more`] : needs;
   const first = steps.length > 0 ? ` First: ${steps.join('; ')}.` : '';
-  return `${head}.${fromRecord ? ` ${fromRecord}` : drafted(p, linked, needs.length, shown)}${first}`;
+  return `${head}.${ruleSentences(p.rules)}${fromRecord ? ` ${fromRecord}` : drafted(p, linked, needs.length, shown)}${first}`;
 }
 
 /**
@@ -79,9 +87,9 @@ function drafted(p: ReadyProgram, linked: boolean, b: number, shown: string[]): 
   return needsYour;
 }
 
-/** An in-person program: the money, the close, and what attending takes. */
+/** An in-person program: the money, the close, its rules, and what attending takes. */
 function inPersonLine(p: ReadyProgram): string {
-  const head = `${p.n}. ${p.title}, ${p.money}${p.closes_in ? `, closes ${p.closes_in}` : ''}.`;
+  const head = `${p.n}. ${p.title}, ${p.money}${p.closes_in ? `, closes ${p.closes_in}` : ''}.${ruleSentences(p.rules)}`;
   const setup = p.setup.join('; ');
   return setup ? `${head} ${setup.charAt(0).toUpperCase()}${setup.slice(1)}.` : head;
 }
@@ -89,7 +97,7 @@ function inPersonLine(p: ReadyProgram): string {
 function gapLine(g: GapProgram): string {
   const all = [g.gap, ...g.also];
   const can = all.every((x) => x.agent_can) ? ' (I can do this)' : '';
-  return `${g.n}. ${g.title}, ${g.money}: ${joinAnd(all.map((x) => x.what))}${can}.`;
+  return `${g.n}. ${g.title}, ${g.money}: ${joinAnd(all.map((x) => x.what))}${can}.${ruleSentences(g.rules)}`;
 }
 
 function sinceLine(r: R): string | null {
@@ -186,6 +194,7 @@ export function agentNote(r: R, o: { more: number }): string {
     r.linked
       ? `Draft each ready program from its fields: 'record' and 'earnkit' values as given; ${AGENT_FIELDS}`
       : `Draft each ready program from its fields: 'earnkit' values as given; ${AGENT_FIELDS}`,
+    ...([...r.ready, ...r.gaps].some((p) => p.rules.length > 0) ? [RULE_NOTE] : []),
     // With standing approval the agent does not wait for a yes; the limits replace it.
     r.auto_apply ? standing : 'Submit only when the builder says yes, in your own browser, field by field (form_id names the form field when given).',
     'Call track with applied after each submission, and with won (amount_usd), rejected or no_result after each result; skipped for a number they skip.',

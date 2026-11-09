@@ -183,3 +183,33 @@ test('integration: met when the code uses it, else a days gap the agent can do w
     { kind: 'integration', item: 'integration:smart_wallet', what: 'add Smart Wallet', effort: 'days', agent_can: true, details: { docs: 'https://docs.base.org/smart-wallet' } },
   ]);
 });
+
+test('a rule never gates: alone it is ready and carries its note (v6.1.6)', async () => {
+  const f = await factsOf('earnkit');
+  const p = toRow(programFixture({ id: 'p', tag: undefined, eligibility: [{ kind: 'rule', note: 'a clear open source license on the repo' }] }));
+  const v = evaluate(p, f, new Set(), NOW);
+  assert.equal(v.status, 'ready');
+  assert.deepEqual(v.gaps, []);
+  assert.deepEqual(v.rules, ['a clear open source license on the repo']);
+  assert.deepEqual(evaluate(toRow(programFixture({ id: 'p' })), f, new Set(), NOW).rules, []);
+});
+
+test('a rule beside a real gap: one gap (the video) and the rule carried, in file order (v6.1.6)', async () => {
+  const f = await factsOf('earnkit');
+  const p = toRow(programFixture({ id: 'p', tag: undefined, eligibility: [{ kind: 'rule', note: 'y' }, { kind: 'demo_video' }, { kind: 'rule', note: 'x' }] }));
+  const v = evaluate(p, f, new Set(), NOW);
+  assert.equal(v.status, 'gap');
+  assert.deepEqual(v.gaps.map((g) => g.kind), ['demo_video']);
+  assert.deepEqual(v.rules, ['y', 'x']);
+  const one = evaluate(toRow(programFixture({ id: 'p', tag: undefined, eligibility: [{ kind: 'demo_video' }, { kind: 'rule', note: 'x' }] })), f, new Set(), NOW);
+  assert.equal(one.status, 'gap');
+  assert.equal(one.gaps.length, 1);
+  assert.deepEqual(one.rules, ['x']);
+});
+
+test('feature with a value still gaps (v6.1.6)', async () => {
+  const v = evaluate(toRow(programFixture({ id: 'p', tag: undefined, eligibility: [{ kind: 'feature', value: 'an AI agent' }] })), await factsOf('earnkit'), new Set(), NOW);
+  assert.equal(v.status, 'gap');
+  assert.deepEqual(v.gaps.map((g) => g.item), ['feature:an AI agent']);
+  assert.deepEqual(v.rules, []);
+});

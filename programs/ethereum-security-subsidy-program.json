@@ -12,7 +12,7 @@
   "min_tier": "building",
   "eligibility": [
     { "kind": "chain", "value": "ethereum" },
-    { "kind": "feature", "note": "smart contracts for Ethereum mainnet with a defined audit scope (lines of code and contract count)" }
+    { "kind": "rule", "note": "smart contracts for Ethereum mainnet with a defined audit scope (lines of code and contract count)" }
   ],
   "ideas": [
     "An open source DeFi protocol nearing its first audit",

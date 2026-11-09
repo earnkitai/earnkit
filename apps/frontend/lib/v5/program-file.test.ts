@@ -119,3 +119,11 @@ test('eligibilityOf passes an explicit integration item through', () => {
   const p = programFixture({ id: 'cat-elig', eligibility: [{ kind: 'integration', value: 'smart_wallet' }] });
   assert.deepEqual(eligibilityOf(p), [{ kind: 'integration', value: 'smart_wallet' }]);
 });
+
+test('a rule item needs a note and takes no value (v6.1.6)', () => {
+  const base = programFixture({ id: 'rule-test' });
+  assert.equal(ProgramFile.safeParse({ ...base, eligibility: [{ kind: 'rule', note: 'a clear open source license on the repo' }] }).success, true);
+  assert.equal(ProgramFile.safeParse({ ...base, eligibility: [{ kind: 'rule' }] }).success, false);
+  assert.equal(ProgramFile.safeParse({ ...base, eligibility: [{ kind: 'rule', note: 'x', value: 'y' }] }).success, false);
+  assert.equal(ProgramFile.safeParse({ ...base, eligibility: [{ kind: 'rule', note: 'ends with a stop.' }] }).success, false);
+});

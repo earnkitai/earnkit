@@ -153,16 +153,25 @@ const ResultsDue = z
   })
   .refine((r) => r.date !== undefined || r.weeks_after_close !== undefined, 'results_due needs date or weeks_after_close');
 
-/** What eligibility EarnKit can check against a repo or a builder's answer. */
+/**
+ * What eligibility EarnKit can check against a repo or a builder's answer. `rule` is the exception: a
+ * requirement the source states that EarnKit cannot check (a licence, a stage, who the team is). It never
+ * gates; its note is shown to the builder as "Their rule".
+ */
 export const ELIGIBILITY_KINDS = [
-  'live_product', 'chain', 'contract_on', 'builder_codes', 'users', 'new_work_after', 'demo_video', 'in_person', 'feature', 'integration',
+  'live_product', 'chain', 'contract_on', 'builder_codes', 'users', 'new_work_after', 'demo_video', 'in_person', 'feature', 'integration', 'rule',
 ] as const;
 export type EligibilityKind = (typeof ELIGIBILITY_KINDS)[number];
-const EligibilityItemSchema = z.object({
-  kind: z.enum(ELIGIBILITY_KINDS),
-  value: z.string().min(1).max(100).optional(),
-  note: z.string().min(1).max(140).optional(),
-});
+const EligibilityItemSchema = z
+  .object({
+    kind: z.enum(ELIGIBILITY_KINDS),
+    value: z.string().min(1).max(100).optional(),
+    note: z.string().min(1).max(140).optional(),
+  })
+  // A rule is its note, read as a sentence ("Their rule: {note}."): a note, no value, no full stop of its own.
+  .refine((i) => i.kind !== 'rule' || (i.note !== undefined && i.value === undefined && !i.note.endsWith('.')), {
+    message: 'a rule needs a note (no trailing full stop) and takes no value',
+  });
 export type EligibilityItem = z.infer<typeof EligibilityItemSchema>;
 
 export const PROGRAM_CATEGORIES = ['grant', 'hackathon', 'investment', 'bounty'] as const;
@@ -291,6 +300,9 @@ export const categoryOf = (
 ): Category =>
   p.category ??
   (p.investment ? 'investment' : (p.pool_usd != null && p.max_award_usd == null) || p.in_person ? 'hackathon' : 'grant');
+
+/** The notes of the program's `rule` items, in file order: what EarnKit shows and never checks. Pure. */
+export const ruleNotes = (p: Program): string[] => eligibilityOf(p).flatMap((i) => (i.kind === 'rule' && i.note ? [i.note] : []));
 
 /**
  * What the program requires, as items EarnKit can check: the record's own `eligibility`, else
