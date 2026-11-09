@@ -109,12 +109,21 @@ The pipeline, in order:
 `applications` holds one row per installation and program (latest status wins); `application_history` keeps every
 change; `gaps_done` records closed gap items. It is keyed by installation only: v5 has no proof of who a login
 belongs to, so a re-authorization starts a fresh ledger and a builder with two agents has two. `gap_done` takes only
-one of the program's own eligibility items or `users`; any other item is refused, and the agent note lists the
-program's items. It is trusted only for kinds EarnKit cannot verify (`feature`, `users`, `demo_video`, `rule`);
+one of the program's own eligibility items (`users` only when the program has a `users` item); any other item is
+refused, and the agent note lists the program's items. It is trusted only for kinds EarnKit cannot verify (`feature`, `users`, `demo_video`, `rule`);
 verifiable kinds are re-read from the repo.
 `won` with an amount is the one fact that later feeds an aggregate "what wins" view; nothing aggregate is shown yet.
 A `won` above the program's `max_award_usd`, else its `pool_usd`, else 10,000,000 when it states neither, is refused and writes nothing.
 `asked_usd` leaves out investment programs.
+
+Ledger invariants (v6.1.7, `ledger.ts record`, every write under one advisory lock per owner and program, the same lock
+`claims.claim` takes, and every refusal returns before any write): one application and one result per program. A
+second `applied` from any of the builder's agents records nothing and answers "Already sent here on {day} by {agent};
+nothing recorded." A second result answers that it already has one. A program that is not open cannot be started
+("{title} is not open; nothing to start."), and an already sent one says it was sent before that check. A win is
+capped at the program's `max_award_usd`, else its `pool_usd`, else 10,000,000, in whole dollars. A result for a
+program gone from the catalog keeps the title stored when it was sent. Another agent's live claim leaves the program
+out of tonight's count (N) and is shown as being handled by the other agent; an agent's own claim counts toward N.
 
 ## Freshness and the daily job
 
@@ -152,7 +161,7 @@ many-builder hosted registration gets no client key. Every register and token re
 the hosted tier (every redirect URI is a listed vendor's exact host and callback path, `HOSTED_REDIRECTS`) only raises
 the per-client ceiling (`installClientHosted`). `GET /mcp` is 405 (`Allow: POST, DELETE`): EarnKit never pushes. `rate-limit.ts` keeps fixed-window counters in Postgres. Each MCP tool call counts
 120 an hour per installation and 600 an hour per client IP; over either, the call answers the tool result "EarnKit
-is busy. Try again in an hour." (not a transport error, so clients show it). `secrets.ts` scrubs secret
+is busy. Try again in about {n} minutes." (hours past 90 minutes; not a transport error, so clients show it). `secrets.ts` scrubs secret
 keys from tool-call bodies before anything sees them.
 
 ## Database
@@ -276,7 +285,7 @@ after a link (its `linked_at` later than its `last_find_at`) ends the closing bl
 GitHub account {login}." (`linked_notice`, security M2); `markFind` moves `last_find_at`, so it shows once. An unlink on
 /me (`unlinkInstallation`) sets `installations.unlinked_at`; the next `find` of that agent (match or open list) ends with
 "This agent was unlinked from your account. Sign in once at {link} to link it again." in place of the sign-in sentence,
-and clears the mark (`takeUnlinkedNotice`, v6.1.7 B10). The unlinked agent's ledger stays with the builder. The ledger's owner is `b:<builder>` once linked, else `i:<installation>` (`ownerKey`); linking moves
+and clears the mark once that reply is built (`takeUnlinkedNotice`, v6.1.7 B10; a find that throws first keeps it). The unlinked agent's ledger stays with the builder. The ledger's owner is `b:<builder>` once linked, else `i:<installation>` (`ownerKey`); linking moves
 the installation's rows to the builder (the newer row per program wins), so every agent of one builder shares one
 ledger. A second agent links to the same builder; an installation linked to another builder is refused.
 
@@ -323,8 +332,17 @@ block in builder words (no path is shown), standing approval, applications, link
 Plain HTML forms, no client script. Every POST (`/me/edit`, `approve`, `policy`, `unlink`, `delete`, `signout`)
 needs a web form under 64 KB (else 415 or 413), a session and the day's csrf token (an HMAC of the builder id, the
 session cookie's value and the UTC day with `EARNKIT_AUTH_SECRET`, today's or yesterday's; another session's token
-fails), else 403 and no change. Edits merge as the builder under
-the row lock; a problem comes back as a signed `?problem=` line (a crafted one is not shown). Delete needs the login
+fails). No session is a 403 with the sign-in line; a failed csrf check is a 303 to `/me` with the signed line "This
+page expired. Reload it and try again." and no change. Edits merge as the builder under
+the row lock; a problem comes back as a signed `?problem=` line (a crafted one is not shown).
+
+/me problem lines are plain words: `wordsOf` (`me-routes.ts`) maps each checker code to `ME_VALUE_WORDS` ("at most
+{n} characters", "pick one of the options", "a link starting with https://", "an email address", a number range,
+or the field's own pattern words such as "two capital letters, like US") after the label the page shows
+(`ME_LABELS`); no field path or checker sentence reaches the builder. A standing-approval save checks every field and
+saves nothing unless all hold, one line per bad field. Every line after a post is signed with `problemSig`: an HMAC
+of its key (problem or note), the builder id, the UTC day and the line, so /me shows it only to that builder, only
+as the kind it was written as, and only that day or the next. Delete needs the login
 typed and removes the record, the ledger, sessions, reviewer rows, screen jobs with their applicants and outcomes, and
 link codes, and unlinks the installations, in one transaction.
 `/me`, `/link/*` and `/auth/*` send `X-Robots-Tag: noindex` and are not in the sitemap.
