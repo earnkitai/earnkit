@@ -114,6 +114,8 @@ export type FindContext = {
 };
 
 const MAX_READY = 5;
+/** In-person ready programs get their own slots: they never take a remote one's (v6.1.4). */
+const MAX_IN_PERSON = 2;
 const MAX_GAPS = 3;
 const MAX_LISTED = 10;
 
@@ -275,7 +277,11 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
 
   const readyV = rankReady(verdicts.filter((v) => v.status === 'ready'), byId);
   const gapV = rankGaps(verdicts.filter((v) => v.status === 'gap'), byId);
-  const shownReady = all ? readyV : readyV.slice(0, MAX_READY);
+  // Remote and in-person ready programs are capped apart, each in rank order, so the default list always leads with
+  // something the builder can apply to now.
+  const remoteV = readyV.filter((v) => !byId.get(v.program_id)!.file.in_person);
+  const attendV = readyV.filter((v) => byId.get(v.program_id)!.file.in_person);
+  const shownReady = all ? readyV : [...remoteV.slice(0, MAX_READY), ...attendV.slice(0, MAX_IN_PERSON)];
   const shownGaps = all ? gapV : gapV.slice(0, MAX_GAPS);
   const more = readyV.length - shownReady.length + gapV.length - shownGaps.length;
   // In display order with the numbers the builder sees: ready, gaps, then in person.
