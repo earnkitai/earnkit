@@ -258,7 +258,7 @@ const LINKED = base({
   evidence_summary: { tier: 'live', line: 'Your project reads as live, no verified usage yet. Next: 25 funded wallets on mainnet in 90 days; you have 4.' },
 });
 
-test('the "Before applying" paragraph groups the sign-ins, names the clicks and the first three missing; "Before tonight" only with standing approval (R5b)', () => {
+test('the "Before applying" paragraph groups the sign-ins, names the clicks and the first three missing; "Before tonight" only when the agent sends tonight (R5b)', () => {
   const text = replyText(LINKED, false);
   const before = text.split('\n\n').find((b) => b.startsWith('Before applying: '))!;
   assert.equal(
@@ -273,9 +273,13 @@ test('the "Before applying" paragraph groups the sign-ins, names the clicks and 
     'Say yes to apply to all 4, or numbers to skip.',
   ]);
   assert.doesNotMatch(text, /Before tonight/);
-  assert.match(replyText({ ...LINKED, auto_apply: true, max_per_night: 5 }, false), /\n\nBefore tonight: Sign in once to Google/);
-  // Unlinked, nothing applies tonight, whatever auto_apply says.
-  assert.match(replyText({ ...LINKED, linked: false, auto_apply: true }, false), /\n\nBefore applying: /);
+  // Standing approval with nothing an agent can send alone (every program blocked): nothing goes tonight.
+  assert.match(replyText({ ...LINKED, auto_apply: true, max_per_night: 5 }, false), /\n\nBefore applying: Sign in once to Google/);
+  // Standing approval and one program free to send: the agent applies tonight.
+  const free = base({ ...LINKED, ready: [...LINKED.ready, ready({ program_id: 'f1', title: 'Free', from_record: 1, total: 1 })], auto_apply: true, max_per_night: 5 });
+  const tonight = replyText(free, false);
+  assert.match(tonight, /\n\nBefore tonight: Sign in once to Google/);
+  assert.match(tonight, /\n\nApplying tonight to 1; say stop to hold any\.$/);
   const note = agentNote(LINKED, { more: 0 });
   assert.ok(note.includes('Fit approved answers by cutting, never by adding; the style contract travels on each field.'));
   assert.ok(note.includes('Sign-ins and clicks the builder must do are in blockers; name them once, together.'));

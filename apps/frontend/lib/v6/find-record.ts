@@ -13,7 +13,7 @@ import { withRecord, readStoredRecord } from './builders';
 import type { Evidence, Subject } from './evidence';
 import { evidenceSummary, ownEvidence, usageLine } from './own-evidence';
 import { hasDoc, recordMissing, type BuilderRecord, type Project } from './record';
-import { CONFIRM_LIVE, EVIDENCE_NOT_READ } from './reply-words';
+import { confirmLine, EVIDENCE_NOT_READ } from './reply-words';
 import { TIERS, place, type Tier } from './tiers';
 
 export { EVIDENCE_NOT_READ };
@@ -126,9 +126,9 @@ export function provisionalTier(facts: RepoFacts): Tier | null {
   return 'building';
 }
 
-/** `tierGate` for an unlinked find: the gap names linking GitHub as the change. Pure. */
+/** `tierGate` for an unlinked find: the gap names linking GitHub as the change, and the bar (R3b). Pure. */
 export const provisionalGate = (v: Verdict, row: ProgramRow, tier: Tier | null): Verdict =>
-  tierGate(v, row, tier, ` Next: ${CONFIRM_LIVE}`);
+  row.file.min_tier ? tierGate(v, row, tier, ` Next: ${confirmLine(row.file.min_tier)}`) : v;
 
 /** The programs the builder lists: everything but the never list. Pure. */
 export const notNever = (record: BuilderRecord) => (row: ProgramRow) => !record.policy.never.includes(row.id);

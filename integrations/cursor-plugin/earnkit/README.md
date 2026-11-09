@@ -12,7 +12,7 @@ application. Free.
 
 ## Use it
 
-1. Install the plugin, then choose Authenticate on the EarnKit server and approve it. No account needed.
+1. Install the plugin, then choose Authenticate on the EarnKit server. It connects at once. No account needed.
 2. Ask your agent: "What can I earn?"
 
 EarnKit reads public repos only. It never submits or posts for you.

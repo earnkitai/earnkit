@@ -399,6 +399,23 @@ async function withLiveBar<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
+/** The builder's text has Live Grant as a ready line and no confirm line. */
+function assertLiveReady(show: string) {
+  assert.match(show, /^\d+\. Live Grant, Up to \$5,000\. /m, show);
+  assert.doesNotMatch(show, /Link GitHub so EarnKit can confirm/, show);
+}
+
+test('unlinked: each bar names itself in the gap line (R3b)', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  const { provisionalGate } = await import('../v6/find-record');
+  const ready = { program_id: 'f', status: 'ready' as const, gaps: [], reason: null, long_shot: null };
+  const line = (min: 'used' | 'live' | 'building', tier: 'building' | 'unverified' | 'live') =>
+    provisionalGate(ready, { id: 'f', file: programFixture({ id: 'f', min_tier: min }) } as never, tier).gaps[0]?.what;
+  assert.equal(line('used', 'live'), 'Link GitHub so EarnKit can confirm your product has users');
+  assert.equal(line('live', 'building'), 'Link GitHub so EarnKit can confirm your product is live');
+  assert.equal(line('building', 'unverified'), 'Link GitHub so EarnKit can confirm your product has code');
+});
+
 test('unlinked: a public repo with no live URL from code and no mainnet contract is a gap with the link line (R3)', async () => withLiveBar(async () => {
   const { live_url: _, ...noLink } = PROJECT;
   const r = await mcpCall(ctx(await installation()), 'find', { project: noLink, filter: { all: true } });
@@ -425,12 +442,14 @@ test('unlinked: a live URL read from the code passes the live bar (R3)', async (
   assert.equal(r.isError, false, r.text);
   assert.ok(ids(r.reply!.ready).includes('f-live'), JSON.stringify(ids(r.reply!.gaps)));
   assert.equal(r.reply!.evidence_summary, null);
+  assertLiveReady(r.reply!.show_to_builder as string);
   // R3a: the agent passing the live URL (as the note asks) keeps the code's homepage: still live.
   const passed = await mcpCall({ installationId: await installation(), builderId: null, now: NOW, gh: dash.fetch }, 'find', {
     project: { name: 'Dashboard', description: 'A dashboard.', repo_url: `https://github.com/${dash.repo}`, live_url: 'https://dashboard-v1-ashy.vercel.app' }, filter: { all: true },
   });
   assert.equal(passed.isError, false, passed.text);
   assert.ok(ids(passed.reply!.ready).includes('f-live'), JSON.stringify(ids(passed.reply!.gaps)));
+  assertLiveReady(passed.reply!.show_to_builder as string);
 }));
 
 test('unlinked: a repo that could not be read applies no tier bar (R3)', async () => withLiveBar(async () => {

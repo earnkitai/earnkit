@@ -110,9 +110,9 @@ function signInWords(kind: string, n: number): string {
 const titlesOf = (r: R, bs: R['blockers']) =>
   bs.map((b) => r.ready.find((p) => p.program_id === b.program_id)?.title).filter((t): t is string => !!t);
 
-/** "Before applying: ..." ("Before tonight: ..." when linked with standing approval, the agent applying tonight) with the
- *  sign-ins grouped, the clicks and what the record lacks; null when there is nothing. Pure. */
-function beforeTonight(r: R): string | null {
+/** "Before applying: ..." ("Before tonight: ..." when the agent sends tonight) with the sign-ins grouped, the clicks
+ *  and what the record lacks; null when there is nothing. Pure. */
+function beforeTonight(r: R, tonight: boolean): string | null {
   const counts = new Map<string, number>();
   for (const b of r.blockers) if (b.sign_in) counts.set(b.sign_in, (counts.get(b.sign_in) ?? 0) + 1);
   const parts = [...counts].map(([kind, n]) => `${signInWords(kind, n)}.`);
@@ -123,7 +123,7 @@ function beforeTonight(r: R): string | null {
   if (outside.length > 0) parts.push(`Outside your standing approval, you say yes yourself: ${listWords(outside, outside.length)}.`);
   if (r.record_missing.length > 0) parts.push(`Still missing from your record: ${listWords(r.record_missing)}.`);
   if (parts.length === 0) return null;
-  return `${r.linked && r.auto_apply ? 'Before tonight' : 'Before applying'}: ${parts.join(' ')}`;
+  return `${tonight ? 'Before tonight' : 'Before applying'}: ${parts.join(' ')}`;
 }
 
 function closingLine(ready: number, gaps: number, firstGap: number, inPerson: number): string {
@@ -158,11 +158,12 @@ export function replyText(r: R, first: boolean): string {
     const asked = l.asked_usd > 0 ? ` (${compactUsd(l.asked_usd)} asked)` : '';
     blocks.push(`Ledger: ${l.applied} applied${asked}, ${l.won} won, ${l.pending} pending${soon}.`);
   }
-  const before = beforeTonight(r);
+  // One condition for the heading and the closing: the agent sends tonight (never unlinked, where auto_apply is false).
+  const tonight = r.auto_apply ? Math.min(agentCanApply(r).length, r.max_per_night ?? ready.length) : 0;
+  const before = beforeTonight(r, tonight > 0);
   if (before) blocks.push(before);
   if (r.applied_overnight.length > 0) blocks.push(`Applied under your standing approval: ${r.applied_overnight.map((a) => a.title).join(', ')}.`);
   if (r.evidence_summary) blocks.push(r.evidence_summary.line);
-  const tonight = r.auto_apply ? Math.min(agentCanApply(r).length, r.max_per_night ?? ready.length) : 0;
   const closing = tonight > 0 ? `Applying tonight to ${tonight}; say stop to hold any.` : closingLine(ready.length, r.gaps.length, r.gaps[0]?.n ?? ready.length + 1, inPerson.length);
   // R5a: saying yes is the one action; unlinked with a link, signing in is the closing block's second sentence.
   blocks.push(r.sign_in && !r.linked ? `${closing} ${signInSentence(r.sign_in)}` : closing);
