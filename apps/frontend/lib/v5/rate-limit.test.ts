@@ -12,3 +12,10 @@ test('C8: the busy line says how long the window has left, in minutes rounded up
   assert.equal(busyText(5_401), 'EarnKit is busy. Try again in about 2 hours.');
   assert.equal(busyText(86_400), 'EarnKit is busy. Try again in about 24 hours.');
 });
+
+test('B5: no hosted per-address tier; the hosted tier only raises the per-client install limit', async () => {
+  const { LIMITS } = await import('./rate-limit');
+  assert.ok(!('oauthRegisterHosted' in LIMITS));
+  assert.ok(!('installHourHosted' in LIMITS));
+  assert.ok(LIMITS.installClientHosted.limit > LIMITS.installClient.limit);
+});

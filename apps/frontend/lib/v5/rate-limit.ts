@@ -13,14 +13,13 @@ export const LIMITS = {
   oauthAuthorize: { limit: 60, windowSeconds: 3_600 },
   /** POST /oauth/register, per client IP: the abuse floor. */
   oauthRegister: { limit: 50, windowSeconds: 3_600 },
-  /** The per-IP register floor for a known hosted service's redirect host (many builders share its IPs). */
-  oauthRegisterHosted: { limit: 500, windowSeconds: 3_600 },
   /** POST /oauth/register, per agent app (its https redirect host): a high ceiling, warned at REGISTER_HOST_WARN. */
   oauthRegisterHost: { limit: 10_000, windowSeconds: 86_400 },
-  /** New installations (POST /oauth/token that creates one), per registration, and per IP as the floor. */
+  /** New installations (POST /oauth/token that creates one), per registration, and per IP as the floor for every client. */
   installClient: { limit: 500, windowSeconds: 86_400 },
+  /** The per-registration ceiling for a hosted service's callback client: the hosted tier raises only this (v6.1.7, B5). */
+  installClientHosted: { limit: 5_000, windowSeconds: 86_400 },
   installHour: { limit: 50, windowSeconds: 3_600 },
-  installHourHosted: { limit: 500, windowSeconds: 3_600 },
   /** MCP tool calls, per installation, and per client IP as the floor. */
   mcp: { limit: 120, windowSeconds: 3_600 },
   mcpIp: { limit: 600, windowSeconds: 3_600 },

@@ -148,8 +148,9 @@ minutes), no probe, sweep or digest.
 Copy lives in `site-copy.ts`, install steps in `agents.ts` (read by the site, `/docs` and `/llms.txt`), colours in
 `site-theme.ts` (mirrored in `globals.css`). See `apps/frontend/DESIGN.md`. OAuth (`oauth.ts`, `oauth-routes.ts`) is
 standard (PKCE, dynamic client registration) and approves at once; the issued token is the installation. A
-many-builder hosted registration gets no client key, and the hosted rate-limit tier applies only when every redirect
-URI is on a hosted agent host. `rate-limit.ts` keeps fixed-window counters in Postgres. Each MCP tool call counts
+many-builder hosted registration gets no client key. Every register and token request counts on the one per-IP floor;
+the hosted tier (every redirect URI is a listed vendor's exact host and callback path, `HOSTED_REDIRECTS`) only raises
+the per-client ceiling (`installClientHosted`). `GET /mcp` is 405 (`Allow: POST, DELETE`): EarnKit never pushes. `rate-limit.ts` keeps fixed-window counters in Postgres. Each MCP tool call counts
 120 an hour per installation and 600 an hour per client IP; over either, the call answers the tool result "EarnKit
 is busy. Try again in an hour." (not a transport error, so clients show it). `secrets.ts` scrubs secret
 keys from tool-call bodies before anything sees them.

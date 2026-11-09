@@ -150,7 +150,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/app/lib/landing-cache.ts`: The landing data, cached
 - `apps/frontend/app/lib/links.ts`: Shared site links
 - `apps/frontend/app/llms.txt/route.ts`: /llms.txt from lib/v5/llms.ts
-- `apps/frontend/app/mcp/route.ts`: The /mcp endpoint: bearer check, body cap and secret scrub, then the MCP server with the client IP (tool calls are rate limited per installation and per IP in mcp.ts)
+- `apps/frontend/app/mcp/route.ts`: The /mcp endpoint (POST, DELETE; GET is 405): bearer check, body cap and secret scrub, then the MCP server with the client IP (tool calls are rate limited per installation and per IP in mcp.ts)
 - `apps/frontend/app/not-found.tsx`: The 404 page
 - `apps/frontend/app/oauth/authorize/route.ts`: Re-exports the OAuth authorize handler
 - `apps/frontend/app/oauth/register/route.ts`: Re-exports the OAuth client registration handler

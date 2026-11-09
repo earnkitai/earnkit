@@ -98,7 +98,9 @@ async function handle(request: Request) {
   return new Response(response.body, { status: response.status, headers });
 }
 
-export const GET = handle;
+/** EarnKit never pushes, so there is no event stream to open (v6.1.7, B6). */
+export const GET = (_request?: Request) =>
+  json({ error: 'method_not_allowed', error_description: 'EarnKit does not push. Send requests with POST.' }, 405, { Allow: 'POST, DELETE' });
 export const POST = handle;
 export const DELETE = handle;
 export const OPTIONS = preflight;

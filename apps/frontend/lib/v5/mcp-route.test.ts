@@ -103,3 +103,17 @@ test('C35: a request the MCP library rejects is one plain line in error.message;
     else assert.equal(JSON.parse(m.result!.content[0].text).show_to_builder, 'I could not read that.');
   }
 });
+
+test('B6: GET /mcp is 405 with Allow: POST, DELETE and the usual CORS headers; no stream is opened', async () => {
+  const { GET } = await import('../../app/mcp/route');
+  for (const auth of [{ authorization: `Bearer ${token}` }, {} as Record<string, string>]) {
+    const r = await GET(new Request('https://earnkit.test/mcp', { headers: { accept: 'text/event-stream', ...auth } }));
+    assert.equal(r.status, 405);
+    assert.equal(r.headers.get('allow'), 'POST, DELETE');
+    assert.equal(r.headers.get('access-control-allow-origin'), '*');
+    assert.match(r.headers.get('content-type') ?? '', /application\/json/);
+    const body = (await r.json()) as { error: string; error_description: string };
+    assert.equal(body.error, 'method_not_allowed');
+    assert.equal(typeof body.error_description, 'string');
+  }
+});
