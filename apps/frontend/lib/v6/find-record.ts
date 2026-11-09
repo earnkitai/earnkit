@@ -113,7 +113,7 @@ const nextOf = (line: string | undefined, min: string) => {
  */
 export function tierGate(v: Verdict, row: ProgramRow, tier: Tier | null, line: string | undefined): Verdict {
   const min = row.file.min_tier;
-  if ((v.status !== 'ready' && !rulesOnly(v)) || !min || !tier || RANK[tier] >= RANK[min]) return v;
+  if ((v.status !== 'ready' && !(v.status === 'gap' && rulesOnly(v.gaps))) || !min || !tier || RANK[tier] >= RANK[min]) return v;
   const gap: Gap = { kind: 'tier', item: `tier:${min}`, what: nextOf(line, min), effort: 'weeks', agent_can: false, details: { tier, min_tier: min } };
   return { ...v, status: 'gap', gaps: [gap, ...v.gaps] };
 }

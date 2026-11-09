@@ -155,8 +155,9 @@ const ResultsDue = z
 
 /**
  * What eligibility EarnKit can check against a repo or a builder's answer. `rule` is the exception: a
- * requirement the source states that EarnKit cannot check (a licence, a stage, who the team is). It never
- * gates; its note is shown to the builder as "Their rule".
+ * requirement the source states that EarnKit cannot check (a licence, a stage, who the team is). It is a
+ * confirmation gap (R18a): shown to the builder as "Their rule" until confirmed once, never counted toward the
+ * two-gap limit.
  */
 export const ELIGIBILITY_KINDS = [
   'live_product', 'chain', 'contract_on', 'builder_codes', 'users', 'new_work_after', 'demo_video', 'in_person', 'feature', 'integration', 'rule',

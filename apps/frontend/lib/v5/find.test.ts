@@ -65,7 +65,7 @@ test('first find has no since', async () => {
       'One change away, 3:',
       '2. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
       '3. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.',
-      '4. Antler US Residency, $500K to $1M investment. Their rule: at least one co-founder already has independent US work authorization; no visa sponsorship. Say "yes 4" if that is you.',
+      '4. OTF Internet Freedom Fund, $10,000 to $900,000. Their rule: advances internet freedom for people in repressive environments: circumvention, safe communication or access to blocked information. Say "yes 4" if that is you.',
       '',
       'In person, apply to attend first:',
       '5. Y Combinator Winter 2027 Batch, $500K investment. A YC account to start the application.',
@@ -785,4 +785,17 @@ test('R18c: a rule-only program above the project tier shows the tier gap first,
   } finally {
     await sql()`DELETE FROM programs WHERE id = 'f-rule-used'`;
   }
+});
+
+test('R18d: under filter.all, Antler (in person, rule only) says its rule and what attending takes; never in the default slot', async () => {
+  const id = await installation();
+  const d = await mcpCall(ctx(id), 'find', { project: PROJECT });
+  assert.ok(!ids(d.reply!.gaps).includes('antler-us-residency'));
+  const r = await mcpCall(ctx(await installation()), 'find', { project: PROJECT, filter: { all: true } });
+  const g = (r.reply!.gaps as G[]).find((x) => x.program_id === 'antler-us-residency');
+  assert.ok(g, JSON.stringify(ids(r.reply!.gaps)));
+  assert.equal(
+    lineOf(r.reply!.show_to_builder as string, g.n),
+    `${g.n}. Antler US Residency, $500K to $1M investment. Their rule: at least one co-founder already has independent US work authorization; no visa sponsorship. Work authorization in the US for one co-founder. Say "yes ${g.n}" if that is you.`,
+  );
 });

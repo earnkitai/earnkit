@@ -38,6 +38,8 @@ const gap = (over: Partial<GapProgram> & { title: string }): GapProgram => ({
   gap: { kind: 'chain', item: 'chain:arc', what: 'deploy the contract on Arc', effort: 'hours', agent_can: false },
   also: [],
   rules: [],
+  in_person: false,
+  setup: [],
   n: 0,
   ...over,
 });
@@ -391,4 +393,17 @@ test('the closing line names "yes r" only when a rule-only gap exists, "do g" on
   assert.equal(end(base({ gaps: [rulesOnly, MONDAY.gaps[0]] })), 'Say "yes 1" if its rule fits you, or "do 2" and I\'ll make the change first.');
   assert.doesNotMatch(agentNote(base({ gaps: [rulesOnly] }), { more: 0 }), /On "do <n>"/);
   assert.ok(agentNote(base({ gaps: [rulesOnly] }), { more: 0 }).includes(RULE_NOTE));
+});
+
+test('R18d: an in-person gap line says what attending takes, after its rules (rule-only and with a real gap)', () => {
+  const attend = { in_person: true, setup: ['work 3 months from the office'] };
+  const r = base({
+    gaps: [
+      gap({ title: 'Residency', money: '$500K', gap: ruleGap('a co-founder with US work authorization'), rules: ['a co-founder with US work authorization'], ...attend }),
+      gap({ title: 'Camp', money: '$10K', gap: VIDEO, also: [ruleGap('a team of two')], rules: ['a team of two'], ...attend }),
+    ],
+  });
+  const lines = replyText(r, true).split('\n');
+  assert.ok(lines.includes('1. Residency, $500K. Their rule: a co-founder with US work authorization. Work 3 months from the office. Say "yes 1" if that is you.'), lines.join('\n'));
+  assert.ok(lines.includes('2. Camp, $10K: a demo video. Their rule: a team of two. Work 3 months from the office.'), lines.join('\n'));
 });

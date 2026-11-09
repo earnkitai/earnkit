@@ -30,19 +30,19 @@ export function rankReady(v: Verdict[], programs: Programs): Verdict[] {
 export function rankGaps(v: Verdict[], programs: Programs): Verdict[] {
   return [...v].sort(
     (a, b) =>
-      cmp(Number(rulesOnly(a)), Number(rulesOnly(b))) ||
+      cmp(Number(rulesOnly(a.gaps)), Number(rulesOnly(b.gaps))) ||
       cmp(a.gaps.length, b.gaps.length) || cmp(effortOf(a), effortOf(b)) || byAward(a, b, programs),
   );
 }
 
 /**
  * The gap list shown (R18b): all of it when `all`; else the first `max` with at most one rule-only program, the
- * first-ranked one, after the real changes (it takes the last slot when there are more real changes). Input in
- * rankGaps order. Pure.
+ * first-ranked one that is not in person (R18d), after the real changes (it takes the last slot when there are more
+ * real changes). Input in rankGaps order. Pure.
  */
-export function shownGapsOf(gapV: Verdict[], all: boolean, max: number): Verdict[] {
+export function shownGapsOf(gapV: Verdict[], all: boolean, max: number, inPerson: (v: Verdict) => boolean): Verdict[] {
   if (all) return gapV;
-  const real = gapV.filter((v) => !rulesOnly(v));
-  const rule = gapV.find(rulesOnly);
+  const real = gapV.filter((v) => !rulesOnly(v.gaps));
+  const rule = gapV.find((v) => rulesOnly(v.gaps) && !inPerson(v));
   return rule ? [...real.slice(0, max - 1), rule] : real.slice(0, max);
 }

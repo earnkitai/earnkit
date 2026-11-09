@@ -60,7 +60,7 @@ export type ReadyProgram = {
   needs: string[];
   /** What taking part needs before applying (in person: attending). */
   setup: string[];
-  /** The program's rules EarnKit cannot check, shown as "Their rule" (v6.1.6). */
+  /** The notes of all the program's rules; a ready program has confirmed them, so its line shows none (v6.1.6). */
   rules: string[];
   /** The number the builder sees (and says) for it. */
   n: number;
@@ -77,8 +77,11 @@ export type GapProgram = {
   gap: Gap;
   /** Any second change the program needs. */
   also: Gap[];
-  /** The program's rules EarnKit cannot check, shown as "Their rule" (v6.1.6). */
+  /** The notes of all the program's rules; the unconfirmed ones are rule gaps in `gap`/`also` (v6.1.6). */
   rules: string[];
+  in_person: boolean;
+  /** What taking part needs before applying; in person, its attend sentence is in the gap line (R18d). */
+  setup: string[];
   /** The number the builder sees (and says) for it. */
   n: number;
 };
@@ -177,6 +180,7 @@ function readyOf(row: ProgramRow, v: Verdict, facts: RepoFacts, now: Date, side:
 const gapOf = (row: ProgramRow, v: Verdict): Omit<GapProgram, 'n'> => ({
   program_id: row.id, title: row.file.title, money: moneyOf(row.file), max_award_usd: row.file.max_award_usd ?? null,
   category: categoryOf(row.file), closes_at: row.file.ends_at, gap: v.gaps[0], also: v.gaps.slice(1), rules: v.rules,
+  in_person: row.file.in_person, setup: row.file.setup,
 });
 
 /** One program: its file, its fields (for the project, when given) and the verdict. */
@@ -309,7 +313,8 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   // something the builder can apply to now.
   const shownReady = shownReadyOf(readyV, all, (v) => byId.get(v.program_id)!.file.in_person);
   // Real changes first, then at most one rule-only program by default (R18b).
-  const shownGaps = shownGapsOf(gapV, all, MAX_GAPS);
+  // In-person programs never take the rule-only slot (R18d).
+  const shownGaps = shownGapsOf(gapV, all, MAX_GAPS, (v) => byId.get(v.program_id)!.file.in_person);
   const more = readyV.length - shownReady.length + gapV.length - shownGaps.length;
   // In display order with the numbers the builder sees: ready, gaps, then in person.
   const holds = side ? await claimed(owner) : new Map<string, { since: string }>();

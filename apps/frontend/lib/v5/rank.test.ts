@@ -31,6 +31,7 @@ test('rankGaps: fewest gaps, then lowest effort, then money', () => {
   assert.deepEqual(out.map((x) => x.program_id), ['d', 'b', 'a', 'c']);
 });
 
+const remote = () => false;
 const ruleGap = (note: string): Gap => ({ kind: 'rule', item: `rule:${note}`, what: note, effort: 'hours', agent_can: false });
 
 test('rankGaps (R18b): real changes first, rule-only programs after, each ranked as before', () => {
@@ -48,11 +49,20 @@ test('shownGapsOf (R18b): three rule-only and two real gaps show the two real th
   const real = [v('x1', { status: 'gap', gaps: [gap('hours')] }), v('x2', { status: 'gap', gaps: [gap('days')] })];
   const rules = [v('r1', { status: 'gap', gaps: [ruleGap('a')] }), v('r2', { status: 'gap', gaps: [ruleGap('b')] }), v('r3', { status: 'gap', gaps: [ruleGap('c')] })];
   const ranked = [...real, ...rules];
-  assert.deepEqual(shownGapsOf(ranked, false, 3).map((x) => x.program_id), ['x1', 'x2', 'r1']);
-  assert.deepEqual(shownGapsOf(ranked, true, 3), ranked);
+  assert.deepEqual(shownGapsOf(ranked, false, 3, remote).map((x) => x.program_id), ['x1', 'x2', 'r1']);
+  assert.deepEqual(shownGapsOf(ranked, true, 3, remote), ranked);
   // More real changes than slots: the rule-only one still takes the last slot; none: the real ones fill them all.
   const four = [...real, v('x3', { status: 'gap', gaps: [gap('days')] }), v('x4', { status: 'gap', gaps: [gap('days')] })];
-  assert.deepEqual(shownGapsOf([...four, ...rules], false, 3).map((x) => x.program_id), ['x1', 'x2', 'r1']);
-  assert.deepEqual(shownGapsOf(four, false, 3).map((x) => x.program_id), ['x1', 'x2', 'x3']);
-  assert.deepEqual(shownGapsOf(rules, false, 3).map((x) => x.program_id), ['r1']);
+  assert.deepEqual(shownGapsOf([...four, ...rules], false, 3, remote).map((x) => x.program_id), ['x1', 'x2', 'r1']);
+  assert.deepEqual(shownGapsOf(four, false, 3, remote).map((x) => x.program_id), ['x1', 'x2', 'x3']);
+  assert.deepEqual(shownGapsOf(rules, false, 3, remote).map((x) => x.program_id), ['r1']);
+});
+
+test('shownGapsOf (R18d): an in-person rule-only program never takes the rule-only slot; all still lists it', () => {
+  const real = [v('x1', { status: 'gap', gaps: [gap('hours')] })];
+  const rules = [v('attend', { status: 'gap', gaps: [ruleGap('a')] }), v('r2', { status: 'gap', gaps: [ruleGap('b')] })];
+  const inPerson = (x: Verdict) => x.program_id === 'attend';
+  assert.deepEqual(shownGapsOf([...real, ...rules], false, 3, inPerson).map((x) => x.program_id), ['x1', 'r2']);
+  assert.deepEqual(shownGapsOf([...real, rules[0]], false, 3, inPerson).map((x) => x.program_id), ['x1']);
+  assert.deepEqual(shownGapsOf([...real, ...rules], true, 3, inPerson).map((x) => x.program_id), ['x1', 'attend', 'r2']);
 });
