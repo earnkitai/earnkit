@@ -45,7 +45,7 @@ export async function builderOf(installationId: number): Promise<number | null> 
 export type RememberedGap = { what: string; kind: string; item?: string };
 
 /**
- * Stamps a find: last_find_at and last_seen_at; with `gaps` (a find without filter, v6.1.7 C24) also its gaps
+ * Stamps a find: last_find_at and last_seen_at; with `gaps` (a find without a category filter, v6.1.7 C24a) also its gaps
  * (program_id to the first gap), replacing the last. `undefined` leaves the last gaps as they were.
  */
 export async function markFind(id: number, now: Date, gaps?: Record<string, RememberedGap>): Promise<void> {

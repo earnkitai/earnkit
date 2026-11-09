@@ -362,8 +362,8 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
     linked_notice: notice,
   };
   // Every gap of this find (not only the shown ones), in rank order, so track started can say what is still missing.
-  // Only a find without filter writes them (v6.1.7, C24): a filtered one sees only part of the list.
-  const remembered = i.filter === undefined
+  // An unfiltered find and filter.all write them; a category filter sees only part of the list and leaves them (v6.1.7, C24a).
+  const remembered = i.filter?.category === undefined
     ? Object.fromEntries(gapV.slice(0, MAX_REMEMBERED_GAPS).map((v) => [v.program_id, { what: v.gaps[0].what, kind: v.gaps[0].kind, item: v.gaps[0].item }]))
     : undefined;
   await markFind(ctx.installationId, ctx.now, remembered);

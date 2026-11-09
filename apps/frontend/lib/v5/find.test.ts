@@ -97,7 +97,7 @@ test('find saves every gap it found for track to read (last_gaps: what, kind and
   for (const g of shown) assert.equal(saved[g.program_id].what, g.gap.what);
 });
 
-test('only a find without filter writes the last gaps; a filtered one stamps the time and keeps them (v6.1.7, C24)', async () => {
+test('a category filter stamps the time and keeps the last gaps; filter.all and a default find write them (v6.1.7, C24a)', async () => {
   const id = await installation();
   await mcpCall(ctx(id), 'find', { project: PROJECT });
   const before = await lastGaps(id);
@@ -108,6 +108,11 @@ test('only a find without filter writes the last gaps; a filtered one stamps the
   assert.deepEqual(await lastGaps(id), before);
   const [row] = await sql()`SELECT last_find_at FROM installations WHERE id = ${id}`;
   assert.equal((row.last_find_at as Date).toISOString(), later.toISOString());
+  // A category with all is still a category: kept.
+  await mcpCall(ctx(id, later), 'find', { project: PROJECT, filter: { category: 'investment', all: true } });
+  assert.deepEqual(await lastGaps(id), before);
+  // filter.all writes them (the same gaps a default find has).
+  await sql()`UPDATE installations SET last_gaps = '{}'::jsonb WHERE id = ${id}`;
   await mcpCall(ctx(id, later), 'find', { project: PROJECT, filter: { all: true } });
   assert.deepEqual(await lastGaps(id), before);
   // A default find replaces them.
