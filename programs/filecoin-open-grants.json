@@ -9,6 +9,10 @@
   "reward": "Up to $50,000 per open grant, paid by milestone",
   "summary": "up to $50,000 · rolling",
   "max_award_usd": 50000,
+  "min_tier": "building",
+  "eligibility": [
+    { "kind": "feature", "note": "work that enhances the Filecoin network, not only IPFS, libp2p or similar stacks" }
+  ],
   "ideas": [
     "A Filecoin integration for a popular developer tool",
     "A data preparation and onboarding CLI",
@@ -62,19 +66,14 @@
     { "key": "additional", "label": "Additional Information", "type": "text", "required": true, "from": "builder", "kind": "contact", "todo": "how you heard of it and an email", "description": "How you learned about Open Grants, the best email for the grant agreement, and anything else useful." }
   ],
   "focus": {
-    "areas": [
-      "Developer and data tooling",
-      "Filecoin integrations into existing tools",
-      "Storage, retrieval and FVM projects"
-    ],
+    "areas": ["Developer and data tooling", "Filecoin integrations into existing tools", "Storage, retrieval and FVM projects"],
     "source_url": "https://github.com/filecoin-project/devgrants/blob/master/Program%20Resources/Open%20Grants%20README.md",
     "ecosystem": "Filecoin"
   },
-  "results_due": { "weeks_after_close": 4 },
-  "form": {
-    "platform": "other",
-    "url": "https://github.com/filecoin-project/devgrants/issues/new?labels=Open+Grant&template=open-grant-appolication.md"
+  "results_due": {
+    "weeks_after_close": 4
   },
+  "form": { "platform": "other", "url": "https://github.com/filecoin-project/devgrants/issues/new?labels=Open+Grant&template=open-grant-appolication.md" },
   "submit": "either",
   "sign_in": "github",
   "reviewers_contact": "grants@fil.org or #grants-help on Filecoin Slack",

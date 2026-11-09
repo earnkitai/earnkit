@@ -10,7 +10,7 @@
   "max_award_usd": 500000,
   "starts_at": null,
   "ends_at": null,
-  "verified_at": "2026-11-01",
+  "verified_at": "2026-11-09",
   "status": "upcoming",
   "opens_note": "Cohort 2 is not announced yet. Monad asks for four consecutive public weekly ship logs before an interview.",
   "existing_work": "unknown",
@@ -18,6 +18,12 @@
   "chains": [],
   "any_chain": true,
   "investment": true,
+  "tag": "long shot",
+  "min_tier": "building",
+  "eligibility": [
+    { "kind": "in_person", "note": "one month in person in New York City" },
+    { "kind": "feature", "note": "four consecutive public weekly ship logs published before an interview" }
+  ],
   "min_product_score": 5,
   "setup": [],
   "each_time": [],
@@ -31,5 +37,6 @@
   "logo": {
     "path": "programs/monad-nitro.svg",
     "source_url": "https://www.monad.xyz/brand-and-media-kit"
-  }
+  },
+  "in_person": true
 }

@@ -19,10 +19,12 @@
   "status": "active",
   "existing_work": "allowed",
   "needs_repo": false,
-  "chains": [
-    "solana"
-  ],
+  "chains": ["solana"],
   "chain_required": true,
+  "eligibility": [
+    { "kind": "chain", "value": "solana" },
+    { "kind": "feature", "note": "a mobile-first Android dApp integrating the Solana Mobile Stack: Mobile Wallet Adapter and Seed Vault" }
+  ],
   "setup": [],
   "each_time": [
     "a pitch deck link",
@@ -34,7 +36,7 @@
     "Guidelines: a mobile-first UX on Android using native features; core Solana Mobile Stack integration, including Mobile Wallet Adapter and Seed Vault; a realistic scope with milestones; a team that can execute; a detailed budget; commitment to open source and community benefit.",
     "Proposals are weighed on mobile optimization, Solana Mobile Stack integration, technical depth and impact on the Solana Mobile ecosystem.",
     "Selected teams typically receive a milestones-based grant, sometimes with co-marketing and launch support.",
-    "Telegram is required for contracting."
+    "The form asks for a Telegram handle, for contracting purposes."
   ],
   "submission_requirements": [
     { "key": "project_name", "label": "Project Name", "type": "text", "required": true, "from": "project", "kind": "name", "todo": "a project or company name", "project_field": "name", "description": "Enter the name of your project or your company." },
@@ -56,18 +58,11 @@
     { "key": "usage_metrics", "label": "Relevant metrics about the usage of your project/product", "type": "text", "required": false, "from": "builder", "kind": "traction", "description": "If your project is already live, describe the traction you've achieved so far (e.g., TestFlight users, APK downloads, pre-orders, manufacturing partnerships)." }
   ],
   "focus": {
-    "areas": [
-      "Mobile-first Android dApps",
-      "Solana Mobile Stack: MWA and Seed Vault",
-      "Apps using sensors, location, cameras, payments"
-    ],
+    "areas": ["Mobile-first Android dApps", "Solana Mobile Stack: MWA and Seed Vault", "Apps using sensors, location, cameras, payments"],
     "source_url": "https://solanamobile.com/grants",
     "ecosystem": "Solana"
   },
-  "form": {
-    "platform": "airtable",
-    "url": "https://airtable.com/appw7jfRXG6Joia2b/pagGNMPX6qleBYHNp/form"
-  },
+  "form": { "platform": "airtable", "url": "https://airtable.com/appw7jfRXG6Joia2b/pagGNMPX6qleBYHNp/form" },
   "submit": "either",
   "sign_in": "none",
   "needs": ["deck"]

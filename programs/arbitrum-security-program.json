@@ -9,6 +9,11 @@
   "reward": "A subsidy for a portion of the project's initial smart contract audit, set in each project's commercial agreement",
   "summary": "audit subsidy · open for 12 months from Sep 28",
   "category": "grant",
+  "min_tier": "building",
+  "eligibility": [
+    { "kind": "chain", "value": "arbitrum" },
+    { "kind": "feature", "note": "smart contract code that is audit-ready, with a defined audit scope" }
+  ],
   "ideas": [
     "A lending protocol preparing its first audit",
     "A protocol migrating its contracts to Arbitrum",
@@ -81,10 +86,7 @@
     { "key": "ack_alignment", "label": "I acknowledge that participation is subject to final approval, and contingent on reaching an agreement regarding the project's alignment with the Arbitrum ecosystem (e.g., branding, deployment strategy, marketing, and ecosystem integration).", "type": "choice", "required": true, "from": "builder", "kind": "other", "todo": "accept the alignment terms", "options": ["I acknowledge"] },
     { "key": "ack_exclusive", "label": "I acknowledge that the project accepts that the audited code is exclusive to Arbitrum for a set period of time.", "type": "choice", "required": true, "from": "builder", "kind": "other", "todo": "accept Arbitrum exclusivity", "options": ["I acknowledge"] }
   ],
-  "form": {
-    "platform": "tally",
-    "url": "https://tally.so/r/3xzEzv"
-  },
+  "form": { "platform": "tally", "url": "https://tally.so/r/3xzEzv" },
   "submit": "either",
   "sign_in": "none",
   "reviewers_contact": "applications@arbitrum.foundation",

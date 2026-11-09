@@ -18,6 +18,11 @@
   "chains": [],
   "any_chain": true,
   "tag": "long shot",
+  "min_tier": "building",
+  "eligibility": [
+    { "kind": "demo_video" },
+    { "kind": "feature", "note": "runs on QNX 8.0 (hardware or QEMU) or is a host tool that builds, tests or analyzes QNX 8.0 software" }
+  ],
   "setup": [
     "a Devpost account joined to the hackathon",
     "free QNX SDP 8.0 access through QNX Everywhere"
@@ -56,7 +61,9 @@
     "Port a popular open source library to QNX",
     "A host CLI that builds and tests QNX images"
   ],
-  "results_due": { "date": "2027-02-04" },
+  "results_due": {
+    "date": "2027-02-04"
+  },
   "form": { "platform": "other", "url": "https://qnx.devpost.com/" },
   "submit": "builder",
   "sign_in": "platform",

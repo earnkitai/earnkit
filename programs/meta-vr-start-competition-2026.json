@@ -19,6 +19,11 @@
   "chains": [],
   "any_chain": true,
   "tag": "long shot",
+  "min_tier": "building",
+  "eligibility": [
+    { "kind": "demo_video" },
+    { "kind": "feature", "note": "a hands-first experience for Meta VR devices, entered by a Meta VR Start member" }
+  ],
   "setup": [
     "membership in the Meta VR Start program",
     "a Meta account with Developer Access enabled",
@@ -62,7 +67,9 @@
     "A seated puzzle game played only with hands",
     "A multi-panel VR workspace for a daily routine"
   ],
-  "results_due": { "date": "2026-12-11" },
+  "results_due": {
+    "date": "2026-12-11"
+  },
   "form": { "platform": "other", "url": "https://start-developer-competition-26.devpost.com/" },
   "submit": "builder",
   "sign_in": "platform",

@@ -5,18 +5,19 @@
   "description": "Alliance's crypto accelerator. ALL19 starts on January 11, 2027: two weeks of in-person onboarding in New York City, an eight-week remote program, then Demo Day in New York City. Alliance invests $400K upon admission and $400K follow-on at seed.",
   "source_url": "https://alliance.xyz",
   "submission_url": "https://alliance.xyz/apply",
-  "reward": "$400K upon admission + $400K follow-on at seed, at a $4M post-money valuation via SAFE with a 1:1 token side letter",
+  "reward": "$400K upon admission + $400K follow-on at seed, at a $4M post-money valuation via SAFE with a 1:1 side letter for any future network asset",
   "summary": "$400K at admission · regular deadline Nov 18",
   "max_award_usd": 400000,
   "starts_at": null,
   "ends_at": "2026-11-18T23:59:59Z",
-  "verified_at": "2026-11-01",
+  "verified_at": "2026-11-09",
   "status": "active",
   "existing_work": "allowed",
   "needs_repo": false,
   "chains": [],
   "any_chain": true,
   "investment": true,
+  "tag": "long shot",
   "min_product_score": 5,
   "setup": [
     "start the application with the first founder's email"
@@ -25,21 +26,13 @@
   "rules": [
     "Regular Admission closes November 18; Early Admission closed on September 23. Alliance states no timezone, so EarnKit lists the end of November 18 UTC.",
     "ALL19 starts on January 11, 2027: 2 weeks of in-person onboarding in New York City (weeks 1 and 2), an 8-week remote program (weeks 3 to 9) and Demo Day in New York City (week 10).",
-    "Deal: $400K upon admission and $400K follow-on at seed. Alliance invests at a $4M post-money valuation via SAFE with a 1:1 token side letter.",
+    "Deal: $400K upon admission and $400K follow-on at seed. Alliance invests at a $4M post-money valuation via SAFE with a 1:1 side letter for any future network asset.",
     "For technical founders building something ambitious; pre-product, pre-revenue and non-crypto-native startups are considered.",
     "The application takes about 20 minutes. Mentors review it within 1 week; selected teams get a roughly 10-minute Zoom interview, and final decisions are emailed within 24 to 48 hours of it.",
     "The program is free. Teams that aren't selected don't get personalized feedback."
   ],
   "submission_requirements": [
-    {
-      "key": "email",
-      "label": "Email (1st Founder)",
-      "kind": "contact",
-      "todo": "the first founder's email",
-      "type": "email",
-      "required": true,
-      "description": "Primary POC for the Alliance application. Application updates will be sent to this address. The rest of the application follows; its questions are not public.",
-      "from": "builder"
-    }
-  ]
+    { "key": "email", "label": "Email (1st Founder)", "kind": "contact", "todo": "the first founder's email", "type": "email", "required": true, "description": "Primary POC for the Alliance application. Application updates will be sent to this address. The rest of the application follows; its questions are not public.", "from": "builder" }
+  ],
+  "in_person": true
 }

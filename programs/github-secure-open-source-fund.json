@@ -8,6 +8,11 @@
   "reward": "$10,000 per project: $6,000 during the program, $2,000 at the 6-month check-in and $2,000 at the 12-month check-in",
   "summary": "$10,000 per project · rolling",
   "max_award_usd": 10000,
+  "min_tier": "used",
+  "eligibility": [
+    { "kind": "users", "note": "an open source first project with demonstrated community traction and adoption" },
+    { "kind": "feature", "note": "a clear open source license on the repo" }
+  ],
   "category": "grant",
   "starts_at": null,
   "ends_at": null,
@@ -30,6 +35,7 @@
     "You must be 18 or older, have an active GitHub profile, live in a region supported by GitHub Sponsors, and not be a GitHub employee or contractor.",
     "The project needs a clear open source license, demonstrated community traction and adoption, and a clear governance structure before kick-off.",
     "Core leaders must commit to the required programming and be willing to engage in and improve security.",
+    "Selected participants commit 15 hours over a 3-week period, plus 2.5 hours at each of the 6-month and 12-month check-ins; meetings are scheduled in Pacific time.",
     "Funding is paid in tranches: $6,000 during the program, $2,000 at the 6-month check-in and $2,000 at the 12-month check-in.",
     "Selected applicants have a virtual interview to determine next steps."
   ],
@@ -78,10 +84,7 @@
     "A widely used library adopting a security policy",
     "Fuzzing and CVE response for a popular package"
   ],
-  "form": {
-    "platform": "other",
-    "url": "https://forms.cloud.microsoft/pages/responsepage.aspx?id=v4j5cvGGr0GRqy180BHbR72dY7PBsFZJkFTETCg9J0xUNDdPUUU2S1pXTjFUOFMwNExEMzk5T1IxQi4u&route=shorturl"
-  },
+  "form": { "platform": "other", "url": "https://forms.cloud.microsoft/pages/responsepage.aspx?id=v4j5cvGGr0GRqy180BHbR72dY7PBsFZJkFTETCg9J0xUNDdPUUU2S1pXTjFUOFMwNExEMzk5T1IxQi4u&route=shorturl" },
   "submit": "either",
   "sign_in": "none"
 }

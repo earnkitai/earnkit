@@ -14,6 +14,7 @@
     "A mobile app the Solana Mobile team could support"
   ],
   "tag": "long shot",
+  "min_tier": "building",
   "starts_at": null,
   "ends_at": "2026-12-04T23:59:00-05:00",
   "wants_revenue": true,
@@ -22,9 +23,7 @@
   "in_person": true,
   "existing_work": "allowed",
   "needs_repo": false,
-  "chains": [
-    "solana"
-  ],
+  "chains": ["solana"],
   "setup": [
     "every founder willing to move to NYC for 3 months"
   ],
@@ -76,10 +75,7 @@
     { "key": "previous_cohort", "label": "Did you apply to a previous cohort of the Solana Incubator? Which one(s)?", "type": "text", "required": false, "from": "builder", "kind": "other" },
     { "key": "heard_from", "label": "How did you hear about the Solana Incubator?", "type": "text", "required": false, "from": "builder", "kind": "other" }
   ],
-  "form": {
-    "platform": "airtable",
-    "url": "https://airtable.com/appMLi8THNuMr96gL/pagso4bpsBvArXDZK/form"
-  },
+  "form": { "platform": "airtable", "url": "https://airtable.com/appMLi8THNuMr96gL/pagso4bpsBvArXDZK/form" },
   "submit": "either",
   "sign_in": "none",
   "prefers": ["solana"]

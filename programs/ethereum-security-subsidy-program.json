@@ -9,6 +9,11 @@
   "reward": "A fixed audit subsidy (for example $10,000 or 30% of the total audit cost, whichever is lesser), applied to any provider offer up to 30% of its cost",
   "summary": "up to 30% of audit cost · monthly cohorts close the 14th, 23:59 UTC",
   "category": "grant",
+  "min_tier": "building",
+  "eligibility": [
+    { "kind": "chain", "value": "ethereum" },
+    { "kind": "feature", "note": "smart contracts for Ethereum mainnet with a defined audit scope (lines of code and contract count)" }
+  ],
   "ideas": [
     "An open source DeFi protocol nearing its first audit",
     "A privacy-preserving app deploying on Ethereum mainnet",
@@ -77,19 +82,14 @@
     { "key": "contact_consent", "label": "I agree to be contacted by Areta Market with regards to my Ethereum Subsidy Program application", "type": "choice", "required": false, "from": "builder", "kind": "other", "options": ["I agree"] }
   ],
   "focus": {
-    "areas": [
-      "Censorship resistance and open source",
-      "Privacy-preserving applications",
-      "Security of Ethereum mainnet projects"
-    ],
+    "areas": ["Censorship resistance and open source", "Privacy-preserving applications", "Security of Ethereum mainnet projects"],
     "source_url": "https://www.notion.so/32d2019bf073817dbfe6de2056c7d81f",
     "ecosystem": "Ethereum"
   },
-  "results_due": { "weeks_after_close": 1 },
-  "form": {
-    "platform": "other",
-    "url": "https://areta.fillout.com/t/bFJzDt3p1rus"
+  "results_due": {
+    "weeks_after_close": 1
   },
+  "form": { "platform": "other", "url": "https://areta.fillout.com/t/bFJzDt3p1rus" },
   "submit": "either",
   "sign_in": "none",
   "prefers": ["ethereum"]

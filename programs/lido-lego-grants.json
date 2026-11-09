@@ -19,6 +19,9 @@
   "existing_work": "unknown",
   "needs_repo": false,
   "chains": ["ethereum"],
+  "eligibility": [
+    { "kind": "feature", "note": "work that benefits the Lido protocol or its ecosystem (stETH, node operation, governance, DeFi integrations)" }
+  ],
   "setup": [
     "message the LEGO Council member for your area on Telegram"
   ],
@@ -44,11 +47,7 @@
     { "key": "details", "label": "Details: Timelines, expenses estimates", "type": "text", "required": true, "from": "builder", "kind": "milestones", "todo": "timelines and cost estimates" }
   ],
   "focus": {
-    "areas": [
-      "Ethereum liquid staking and node operation",
-      "Governance and DeFi integrations",
-      "Community, growth and education"
-    ],
+    "areas": ["Ethereum liquid staking and node operation", "Governance and DeFi integrations", "Community, growth and education"],
     "source_url": "https://lido.fi/lego",
     "ecosystem": "Lido"
   },

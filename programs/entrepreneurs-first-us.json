@@ -32,9 +32,7 @@
     "The $250K path: $125K via a post-money SAFE for 8% from EF, plus an optional $125K uncapped MFN SAFE from EF and Transpose Platform if you relocate to San Francisco and incorporate as a Delaware C-Corp.",
     "The Fellowship Residency: an equity-free $10K grant and housing for three months to explore ideas and cofounders, with a path to EF's full investment.",
     "Founders live and work in San Francisco for the first three months, with a founder house, coaching and a Demo Day for U.S. investors.",
-    "You do not need a cofounder or an idea to apply. If you already have a cofounder, mention it and ask them to apply too.",
-    "Most people EF backs are technical; a small number of non-technical individuals with solid technical understanding are taken.",
-    "Apply to only one program, in one hub city, at a time. EF is sector agnostic."
+    "You do not need a cofounder or an idea to apply. If you already have a cofounder, mention it and ask them to apply too."
   ],
   "submission_requirements": [
     { "key": "first_name", "label": "First Name", "kind": "contact", "todo": "your first name", "type": "text", "required": true, "from": "builder" },
@@ -49,21 +47,7 @@
     { "key": "privacy_ack", "label": "I hereby acknowledge that I have read and understood the Privacy Policy and the terms and conditions upon which my personal data will be processed", "kind": "other", "todo": "accept the privacy policy", "type": "choice", "required": true, "options": ["Yes"], "from": "builder" },
     { "key": "contact_consent", "label": "By submitting this form, I consent for EF to contact me via any channel submitted in this form", "kind": "other", "todo": "consent to be contacted", "type": "choice", "required": true, "options": ["Yes"], "from": "builder" }
   ],
-  "form": {
-    "platform": "other",
-    "url": "https://info.joinef.com/l/1032441/2025-01-29/2kmgv",
-    "fields": {
-      "first_name": "1032441_113101pi_1032441_113101",
-      "last_name": "1032441_113104pi_1032441_113104",
-      "email": "1032441_113107pi_1032441_113107",
-      "phone": "1032441_113110pi_1032441_113110",
-      "personal_webpage": "1032441_113119pi_1032441_113119",
-      "about_you": "1032441_113122pi_1032441_113122",
-      "most_impressive": "1032441_157758pi_1032441_157758",
-      "obsessed_with": "1032441_157761pi_1032441_157761",
-      "us_work_rights": "1032441_157764pi_1032441_157764"
-    }
-  },
+  "form": { "platform": "other", "url": "https://info.joinef.com/l/1032441/2025-01-29/2kmgv", "fields": {"first_name": "1032441_113101pi_1032441_113101", "last_name": "1032441_113104pi_1032441_113104", "email": "1032441_113107pi_1032441_113107", "phone": "1032441_113110pi_1032441_113110", "personal_webpage": "1032441_113119pi_1032441_113119", "about_you": "1032441_113122pi_1032441_113122", "most_impressive": "1032441_157758pi_1032441_157758", "obsessed_with": "1032441_157761pi_1032441_157761", "us_work_rights": "1032441_157764pi_1032441_157764"} },
   "submit": "builder",
   "sign_in": "none",
   "reviewers_contact": "Contact form at joinef.com/contact"

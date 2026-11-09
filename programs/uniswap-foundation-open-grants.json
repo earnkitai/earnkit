@@ -4,7 +4,7 @@
   "title": "Uniswap Foundation Open Grants",
   "description": "Grants for teams building across the Uniswap ecosystem: protocols, tooling, research, governance and community. Projects at any stage, from early experiments to production systems ready to scale. The amount is what you request, broken down by milestone.",
   "source_url": "https://uniswap.notion.site/UF-Open-Grants-Eligibility-Criteria-3275073cd08a80b599a9f5b9687b158b",
-  "submission_url": "https://uniswap.notion.site/bdb023b007ec444f8616d38b554163fa",
+  "submission_url": "https://share.hsforms.com/1fxQjPQTgTYmPwlYxxKlSGQsdca9",
   "official_url": "https://uniswapfoundation.org/build",
   "reward": "Grant amount you request, with a milestone budget breakdown; no amount range is stated",
   "summary": "amount by milestone budget · no deadline stated",
@@ -22,6 +22,10 @@
   "needs_repo": true,
   "chains": [],
   "any_chain": true,
+  "min_tier": "building",
+  "eligibility": [
+    { "kind": "feature", "note": "work that contributes to the Uniswap ecosystem and benefits people beyond your own product" }
+  ],
   "setup": [],
   "each_time": [
     "a milestone budget with line-item costs",
@@ -29,6 +33,7 @@
   ],
   "rules": [
     "No deadline is stated; the form is open now.",
+    "The Foundation's build page links a HubSpot application form, which EarnKit could not read. The questions listed here were read from the Foundation's Notion application form and may differ from the HubSpot form.",
     "Categories: Ecosystem, Governance, Community and Events, Security, and Research and Implementation grants.",
     "Explain why the work belongs in the Uniswap Foundation's program and who benefits beyond your own product.",
     "Define concrete, checkable milestones with realistic timelines, each mapped to deliverables, line-item costs and funding.",
@@ -62,19 +67,12 @@
     { "key": "anything_else", "label": "Anything else you'd like to share?", "type": "text", "required": false, "from": "builder", "kind": "other" }
   ],
   "focus": {
-    "areas": [
-      "Liquidity tools, infra and protocol integrations",
-      "Developer onboarding, SDKs and education",
-      "Governance tooling, analytics and experiments"
-    ],
+    "areas": ["Liquidity tools, infra and protocol integrations", "Developer onboarding, SDKs and education", "Governance tooling, analytics and experiments"],
     "source_url": "https://uniswap.notion.site/UF-Open-Grants-Eligibility-Criteria-3275073cd08a80b599a9f5b9687b158b",
     "ecosystem": "Uniswap"
   },
-  "form": {
-    "platform": "other",
-    "url": "https://uniswap.notion.site/bdb023b007ec444f8616d38b554163fa"
-  },
-  "submit": "either",
+  "form": { "platform": "other", "url": "https://share.hsforms.com/1fxQjPQTgTYmPwlYxxKlSGQsdca9" },
+  "submit": "builder",
   "sign_in": "none",
   "prefers": []
 }

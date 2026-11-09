@@ -9,6 +9,9 @@
   "reward": "$10,000 to $900,000 for up to 24 months; ideal requests are $50,000 to $200,000 for 6 to 12 months",
   "summary": "$10,000 to $900,000 · rolling",
   "min_award_usd": 10000,
+  "eligibility": [
+    { "kind": "feature", "note": "advances internet freedom for people in repressive environments: circumvention, safe communication or access to blocked information" }
+  ],
   "max_award_usd": 900000,
   "category": "grant",
   "starts_at": null,
@@ -24,13 +27,14 @@
     "who benefits, where they are, and why your team"
   ],
   "rules": [
-    "Rolling: concept notes are accepted any time. Notes submitted in one month are reviewed at the start of the next, and every applicant gets a reply by email.",
+    "Rolling: concept notes are accepted any time. The guidebook says notes submitted in one month are reviewed at the start of the next and every applicant gets a reply by email; the fund page says to expect a reply about 6 to 8 weeks after submitting.",
     "Awards run from $10,000 to $900,000 for up to 24 months; the target support ceiling is $300,000, and ideal requests are $50,000 to $200,000 for 6 to 12 months.",
     "For efforts that advance internet freedom for people in repressive environments: circumvention, safe communication, access to blocked information, and research on censorship and surveillance.",
     "Individuals 18 or older and for-profit or nonprofit organizations of any nationality can apply. Applicants in countries under U.S. trade restrictions or OFAC sanctions cannot be supported.",
     "OTF does not support internet connectivity, ICT4D, legal analysis or policy advocacy projects.",
     "A strong concept note is invited to a full proposal, then reviewed by the Advisory Council, legal and finance. Payments are made only once deliverables are satisfactorily completed.",
-    "Preference goes to applicants without prior support who understand censorship and surveillance in Global South repressive environments; cost sharing is viewed favorably."
+    "Preference goes to applicants without prior support who understand censorship and surveillance in Global South repressive environments; cost sharing is viewed favorably.",
+    "The concept note form is behind an OTF Apply account (log in or sign up with an email address)."
   ],
   "submission_requirements": [
     { "key": "project_title", "label": "Project Title", "kind": "name", "todo": "a project title", "type": "text", "required": true, "project_field": "name", "from": "project" },
@@ -58,5 +62,6 @@
   ],
   "form": { "platform": "other", "url": "https://apply.opentech.fund/internet-freedom-fund-concept-note/" },
   "submit": "builder",
-  "reviewers_contact": "hello@opentech.fund"
+  "reviewers_contact": "hello@opentech.fund",
+  "sign_in": "email"
 }

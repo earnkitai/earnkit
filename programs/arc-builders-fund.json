@@ -13,10 +13,13 @@
   "status": "active",
   "existing_work": "allowed",
   "needs_repo": false,
-  "chains": [
-    "arc"
-  ],
+  "chains": ["arc"],
   "investment": true,
+  "tag": "long shot",
+  "min_tier": "building",
+  "eligibility": [
+    { "kind": "feature", "note": "a real-world financial app or service that can only exist on Arc" }
+  ],
   "min_product_score": 5,
   "setup": [],
   "each_time": [
@@ -30,80 +33,16 @@
     "Investor Network members are third-party firms with no commitment to invest."
   ],
   "submission_requirements": [
-    {
-      "key": "first_name",
-      "label": "First name",
-      "kind": "contact",
-      "todo": "your first name",
-      "type": "text",
-      "required": true,
-      "from": "builder"
-    },
-    {
-      "key": "last_name",
-      "label": "Last name",
-      "kind": "contact",
-      "todo": "your last name",
-      "type": "text",
-      "required": true,
-      "from": "builder"
-    },
-    {
-      "key": "work_email",
-      "label": "Work email",
-      "kind": "contact",
-      "todo": "your work email",
-      "type": "email",
-      "required": true,
-      "from": "builder"
-    },
-    {
-      "key": "company_name",
-      "label": "Company name",
-      "kind": "name",
-      "todo": "a company name",
-      "type": "text",
-      "required": true,
-      "project_field": "name",
-      "from": "project"
-    },
-    {
-      "key": "country",
-      "label": "Country of residence",
-      "kind": "contact",
-      "todo": "your country of residence",
-      "type": "text",
-      "required": true,
-      "description": "Picked from a country list on the form.",
-      "from": "builder"
-    },
-    {
-      "key": "investor_deck",
-      "label": "Investor deck",
-      "kind": "other",
-      "todo": "an investor deck file",
-      "type": "file",
-      "required": true,
-      "from": "builder"
-    },
-    {
-      "key": "marketing_consent",
-      "label": "I agree to receive marketing and other communications from Circle and Arc about Arc and other company updates.",
-      "kind": "other",
-      "type": "multi_choice",
-      "required": false,
-      "options": [
-        "I agree to receive marketing and other communications from Circle and Arc about Arc and other company updates."
-      ],
-      "description": "Optional. Submitting means you agree to Circle's User Agreement and Privacy Policy.",
-      "from": "builder"
-    }
+    { "key": "first_name", "label": "First name", "kind": "contact", "todo": "your first name", "type": "text", "required": true, "from": "builder" },
+    { "key": "last_name", "label": "Last name", "kind": "contact", "todo": "your last name", "type": "text", "required": true, "from": "builder" },
+    { "key": "work_email", "label": "Work email", "kind": "contact", "todo": "your work email", "type": "email", "required": true, "from": "builder" },
+    { "key": "company_name", "label": "Company name", "kind": "name", "todo": "a company name", "type": "text", "required": true, "project_field": "name", "from": "project" },
+    { "key": "country", "label": "Country of residence", "kind": "contact", "todo": "your country of residence", "type": "text", "required": true, "description": "Picked from a country list on the form.", "from": "builder" },
+    { "key": "investor_deck", "label": "Investor deck", "kind": "other", "todo": "an investor deck file", "type": "file", "required": true, "from": "builder" },
+    { "key": "marketing_consent", "label": "I agree to receive marketing and other communications from Circle and Arc about Arc and other company updates.", "kind": "other", "type": "multi_choice", "required": false, "options": ["I agree to receive marketing and other communications from Circle and Arc about Arc and other company updates."], "description": "Optional. Submitting means you agree to Circle's User Agreement and Privacy Policy.", "from": "builder" }
   ],
   "focus": {
-    "areas": [
-      "Real-world financial apps only possible on Arc",
-      "Composable primitives for other Arc projects"
-    ],
+    "areas": ["Real-world financial apps only possible on Arc", "Composable primitives for other Arc projects"],
     "source_url": "https://www.circle.com/blog/introducing-the-arc-builders-fund",
     "ecosystem": "Arc"
   },

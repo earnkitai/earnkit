@@ -22,9 +22,7 @@
   "in_person": true,
   "existing_work": "unknown",
   "needs_repo": false,
-  "chains": [
-    "monad"
-  ],
+  "chains": ["monad"],
   "chain_required": true,
   "category": "hackathon",
   "setup": [

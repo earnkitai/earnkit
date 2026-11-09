@@ -21,6 +21,7 @@
   "tag": "needs a live product",
   "min_tier": "used",
   "eligibility": [
+    { "kind": "live_product" },
     { "kind": "users", "note": "existing, widely used and impactful open source projects; very new or little-used projects are not considered" }
   ],
   "setup": [
@@ -29,7 +30,7 @@
   ],
   "each_time": [],
   "rules": [
-    "Rolling: applications are perpetual, and every listing in the open directory is re-evaluated periodically. A fresh $1 million was planned for 2026.",
+    "Applications stay open all year; the committee evaluates applications at the end of every quarter and sends decisions by email. A fresh $1 million was planned for 2026.",
     "Individuals, projects, groups, communities or organisations can apply, for one project or for an entity representing many.",
     "Focus is on existing, widely used and impactful projects and their sustainability. Very new projects or projects with minimal usage are not considered for the time being.",
     "Request up to $100,000 in one year, as a minimum of $10,000 and multiples of $25,000 thereafter.",
@@ -52,7 +53,7 @@
     "A widely used library with no steady funding",
     "Maintainer time for a critical developer tool"
   ],
-  "form": { "platform": "other", "url": "https://dir.floss.fund/submit", "fields": { "funding_json_url": "url" } },
+  "form": { "platform": "other", "url": "https://dir.floss.fund/submit", "fields": {"funding_json_url": "url"} },
   "submit": "either",
   "sign_in": "none",
   "reviewers_contact": "info@floss.fund"

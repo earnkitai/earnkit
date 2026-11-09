@@ -14,6 +14,7 @@
     "A yield vault built around USDG deposits"
   ],
   "tag": "needs a live product",
+  "min_tier": "used",
   "starts_at": null,
   "ends_at": null,
   "wants_revenue": true,
@@ -72,18 +73,11 @@
     { "key": "terms", "label": "I confirm I have read and accept the terms and conditions", "type": "choice", "required": true, "from": "builder", "kind": "other", "todo": "accept the terms", "options": ["I confirm"] }
   ],
   "focus": {
-    "areas": [
-      "Lending and money markets with USDG",
-      "AMMs, yield and vaults",
-      "Payments built on USDG"
-    ],
+    "areas": ["Lending and money markets with USDG", "AMMs, yield and vaults", "Payments built on USDG"],
     "source_url": "https://blog.arbitrum.io/stablecoin-growth-program/",
     "ecosystem": "Arbitrum"
   },
-  "form": {
-    "platform": "airtable",
-    "url": "https://airtable.com/appNPlINVhkcwnyaZ/shrHJBg8jQdc3sJEa"
-  },
+  "form": { "platform": "airtable", "url": "https://airtable.com/appNPlINVhkcwnyaZ/shrHJBg8jQdc3sJEa" },
   "submit": "either",
   "sign_in": "none",
   "prefers": ["arbitrum"]

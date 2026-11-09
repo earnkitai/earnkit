@@ -17,6 +17,11 @@
   "chains": [],
   "any_chain": true,
   "tag": "long shot",
+  "min_tier": "used",
+  "eligibility": [
+    { "kind": "users", "note": "an open digital base technology that other software depends on; prototypes are not financed" },
+    { "kind": "feature", "note": "code under an OSI-approved or FSF Free/Libre license" }
+  ],
   "setup": [
     "an account on the application platform, with notification emails on"
   ],
@@ -67,7 +72,9 @@
     "Security hardening of a widely used open library",
     "Maintenance backlog work on a core package manager"
   ],
-  "results_due": { "weeks_after_close": 10 },
+  "results_due": {
+    "weeks_after_close": 10
+  },
   "form": { "platform": "other", "url": "https://apply.sovereign.tech" },
   "submit": "builder",
   "sign_in": "platform",

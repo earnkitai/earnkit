@@ -18,6 +18,10 @@
   "chains": [],
   "any_chain": true,
   "tag": "long shot",
+  "min_tier": "building",
+  "eligibility": [
+    { "kind": "feature", "note": "applicant aged 22 or younger with no university degree, who will drop out of college if selected" }
+  ],
   "setup": [],
   "each_time": [],
   "rules": [

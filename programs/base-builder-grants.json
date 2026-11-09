@@ -2,7 +2,7 @@
   "id": "base-builder-grants",
   "organizer": "Base",
   "title": "Base Builder Grant Program",
-  "description": "Grants of up to $5,000, plus GTM and product support, for teams actively building on Base with a live product that is getting used. Categories: prediction markets, token launchpads, DeFi 2.0, agents (commerce, x402, autonomous trading), new asset creation, and consumer apps focused on transaction growth. Reviewed in cohorts.",
+  "description": "Grants of up to $5,000, plus GTM and product support, for teams actively building on Base with a live product that is getting used. Categories: prediction markets, launchpads for new crypto assets, DeFi 2.0, agents (commerce, x402, autonomous trading), new asset creation, and consumer apps focused on transaction growth. Reviewed in cohorts.",
   "source_url": "https://docs.base.org/get-started/builders",
   "submission_url": "https://forms.gle/urqjBJYJjR6Vqqre6",
   "reward": "Up to $5,000 in grants, plus GTM and product support",
@@ -14,6 +14,7 @@
     "A consumer app growing real transaction volume"
   ],
   "tag": "needs a live product",
+  "min_tier": "used",
   "starts_at": null,
   "ends_at": null,
   "wants_revenue": true,
@@ -21,9 +22,7 @@
   "status": "active",
   "existing_work": "allowed",
   "needs_repo": true,
-  "chains": [
-    "base"
-  ],
+  "chains": ["base"],
   "chain_required": true,
   "eligibility": [
     { "kind": "live_product" },
@@ -42,184 +41,27 @@
     "For builders exclusively building on Base right now.",
     "You're past the idea stage, with a live product that's getting used.",
     "For teams that need product, GTM, and launch help more than capital.",
-    "Categories: prediction markets; token launchpads; DeFi 2.0 (lending, borrowing, looping, yield generation, vaults, tokenized equities); agents (commerce, x402 implementations, autonomous trading); new asset creation; consumer apps focused on transaction growth.",
+    "Categories: prediction markets; launchpads for new crypto assets; DeFi 2.0 (lending, borrowing, looping, yield generation, vaults, tokenized equities); agents (commerce, x402 implementations, autonomous trading); new asset creation; consumer apps focused on transaction growth.",
     "Accepted teams unlock the Builder Stack: a pool of tools and credits (LLM inference, cloud, other dev infrastructure)."
   ],
   "submission_requirements": [
-    {
-      "key": "full_name",
-      "label": "Full name",
-      "kind": "contact",
-      "todo": "your full name",
-      "type": "text",
-      "required": true,
-      "from": "builder"
-    },
-    {
-      "key": "email",
-      "label": "Email",
-      "kind": "contact",
-      "todo": "your email",
-      "type": "email",
-      "required": true,
-      "from": "builder"
-    },
-    {
-      "key": "x_handle",
-      "label": "X (Twitter) handle",
-      "kind": "contact",
-      "todo": "your X handle",
-      "type": "text",
-      "required": true,
-      "from": "builder"
-    },
-    {
-      "key": "telegram",
-      "label": "Telegram username",
-      "kind": "contact",
-      "todo": "your Telegram username",
-      "type": "text",
-      "required": true,
-      "from": "builder"
-    },
-    {
-      "key": "project_name_description",
-      "label": "Project name + one-line description of what it does",
-      "kind": "one_liner",
-      "todo": "a one-line project description",
-      "type": "text",
-      "required": true,
-      "from": "project"
-    },
-    {
-      "key": "founding_team",
-      "label": "Tell us about the founding team",
-      "kind": "team",
-      "todo": "a note on the founding team",
-      "type": "text",
-      "required": true,
-      "description": "Prior companies/exits, funding raised, and relevant domain expertise.",
-      "from": "builder"
-    },
-    {
-      "key": "live_product_url",
-      "label": "Link to your live product",
-      "kind": "links",
-      "todo": "a link to your live product",
-      "type": "url",
-      "required": true,
-      "project_field": "live_url",
-      "from": "project"
-    },
-    {
-      "key": "demo_loom",
-      "label": "Link to a Product Demo (Loom)",
-      "kind": "demo_video",
-      "todo": "a Loom product demo",
-      "type": "url",
-      "required": true,
-      "project_field": "demo_url",
-      "from": "builder"
-    },
-    {
-      "key": "contract_address",
-      "label": "Contract address on Base",
-      "kind": "other",
-      "todo": "your contract address on Base",
-      "type": "text",
-      "required": true,
-      "from": "project"
-    },
-    {
-      "key": "track",
-      "label": "Which track best fits what you're building?",
-      "kind": "other",
-      "todo": "a track",
-      "type": "choice",
-      "required": true,
-      "options": [
-        "Trading",
-        "Payments / Stable coins",
-        "Agents / Agentic Commerce",
-        "Lending / Yield",
-        "Tokenization",
-        "RWA",
-        "Consumer Social / App"
-      ],
-      "from": "project"
-    },
-    {
-      "key": "usage_numbers",
-      "label": "Share your key usage numbers",
-      "kind": "traction",
-      "todo": "your key usage numbers",
-      "type": "text",
-      "required": true,
-      "description": "All-time users onboarded, current DAU, current WAU, all-time volume processed, and last-30-day volume processed.",
-      "from": "builder"
-    },
-    {
-      "key": "revenue",
-      "label": "How does your product make money today?",
-      "kind": "other",
-      "todo": "how it makes money today",
-      "type": "text",
-      "required": true,
-      "from": "builder"
-    },
-    {
-      "key": "gtm_plan",
-      "label": "What's your GTM plan for the next 3 months?",
-      "kind": "milestones",
-      "todo": "your GTM plan for the next 3 months",
-      "type": "text",
-      "required": true,
-      "from": "builder"
-    },
-    {
-      "key": "builder_code",
-      "label": "What's your Base Builder Code?",
-      "kind": "other",
-      "todo": "your Base Builder Code",
-      "type": "text",
-      "required": true,
-      "from": "builder"
-    },
-    {
-      "key": "primary_challenge",
-      "label": "What is the primary challenge or bottleneck you are currently facing as you grow your project?",
-      "kind": "other",
-      "todo": "your main challenge right now",
-      "type": "multi_choice",
-      "required": true,
-      "description": "Pick one or more, joined by \"; \".",
-      "options": [
-        "User acquisition",
-        "Go-to-market strategy",
-        "Smart contract security/auditing",
-        "Liquidity bootstrapping",
-        "UI/UX improvements",
-        "Regulatory compliance guidance"
-      ],
-      "from": "builder"
-    },
-    {
-      "key": "credits",
-      "label": "Which credits would be most useful for you as you build? (e.g. Privy, AWS, etc.)",
-      "kind": "other",
-      "todo": "the credits you want",
-      "type": "text",
-      "required": true,
-      "from": "builder"
-    },
-    {
-      "key": "what_changed",
-      "label": "If you're applying for the Second time, What changed from the last application?",
-      "kind": "other",
-      "type": "text",
-      "required": false,
-      "from": "builder"
-    }
+    { "key": "full_name", "label": "Full name", "kind": "contact", "todo": "your full name", "type": "text", "required": true, "from": "builder" },
+    { "key": "email", "label": "Email", "kind": "contact", "todo": "your email", "type": "email", "required": true, "from": "builder" },
+    { "key": "x_handle", "label": "X (Twitter) handle", "kind": "contact", "todo": "your X handle", "type": "text", "required": true, "from": "builder" },
+    { "key": "telegram", "label": "Telegram username", "kind": "contact", "todo": "your Telegram username", "type": "text", "required": true, "from": "builder" },
+    { "key": "project_name_description", "label": "Project name + one-line description of what it does", "kind": "one_liner", "todo": "a one-line project description", "type": "text", "required": true, "from": "project" },
+    { "key": "founding_team", "label": "Tell us about the founding team", "kind": "team", "todo": "a note on the founding team", "type": "text", "required": true, "description": "Prior companies/exits, funding raised, and relevant domain expertise.", "from": "builder" },
+    { "key": "live_product_url", "label": "Link to your live product", "kind": "links", "todo": "a link to your live product", "type": "url", "required": true, "project_field": "live_url", "from": "project" },
+    { "key": "demo_loom", "label": "Link to a Product Demo (Loom)", "kind": "demo_video", "todo": "a Loom product demo", "type": "url", "required": true, "project_field": "demo_url", "from": "builder" },
+    { "key": "contract_address", "label": "Contract address on Base", "kind": "other", "todo": "your contract address on Base", "type": "text", "required": true, "from": "project" },
+    { "key": "track", "label": "Which track best fits what you're building?", "kind": "other", "todo": "a track", "type": "choice", "required": true, "options": ["Trading", "Payments / Stable coins", "Agents / Agentic Commerce", "Lending / Yield", "Tokenization", "RWA", "Consumer Social / App"], "from": "project" },
+    { "key": "usage_numbers", "label": "Share your key usage numbers", "kind": "traction", "todo": "your key usage numbers", "type": "text", "required": true, "description": "All-time users onboarded, current DAU, current WAU, all-time volume processed, and last-30-day volume processed.", "from": "builder" },
+    { "key": "revenue", "label": "How does your product make money today?", "kind": "other", "todo": "how it makes money today", "type": "text", "required": true, "from": "builder" },
+    { "key": "gtm_plan", "label": "What's your GTM plan for the next 3 months?", "kind": "milestones", "todo": "your GTM plan for the next 3 months", "type": "text", "required": true, "from": "builder" },
+    { "key": "builder_code", "label": "What's your Base Builder Code?", "kind": "other", "todo": "your Base Builder Code", "type": "text", "required": true, "from": "builder" },
+    { "key": "primary_challenge", "label": "What is the primary challenge or bottleneck you are currently facing as you grow your project?", "kind": "other", "todo": "your main challenge right now", "type": "multi_choice", "required": true, "description": "Pick one or more, joined by \"; \".", "options": ["User acquisition", "Go-to-market strategy", "Smart contract security/auditing", "Liquidity bootstrapping", "UI/UX improvements", "Regulatory compliance guidance"], "from": "builder" },
+    { "key": "credits", "label": "Which credits would be most useful for you as you build? (e.g. Privy, AWS, etc.)", "kind": "other", "todo": "the credits you want", "type": "text", "required": true, "from": "builder" },
+    { "key": "what_changed", "label": "If you're applying for the Second time, What changed from the last application?", "kind": "other", "type": "text", "required": false, "from": "builder" }
   ],
   "logo": {
     "path": "programs/base-builder-grants.svg",
@@ -231,20 +73,7 @@
       "source_url": "https://www.dtso.org/startups/base-batches-003",
       "submissions": null,
       "winners": null,
-      "themes": [
-        {
-          "theme": "AI agent payments, x402 and agent credit",
-          "count": 4
-        },
-        {
-          "theme": "Prediction market trading",
-          "count": 3
-        },
-        {
-          "theme": "Onchain credit and lending",
-          "count": 2
-        }
-      ],
+      "themes": [{"theme": "AI agent payments, x402 and agent credit", "count": 4}, {"theme": "Prediction market trading", "count": 3}, {"theme": "Onchain credit and lending", "count": 2}],
       "examples": [
         {
           "name": "Blockrun.ai",
@@ -260,38 +89,12 @@
     }
   ],
   "focus": {
-    "areas": [
-      "Prediction markets",
-      "Agents: commerce, x402, autonomous trading",
-      "DeFi 2.0: lending, borrowing, yield, vaults"
-    ],
+    "areas": ["Prediction markets", "Agents: commerce, x402, autonomous trading", "DeFi 2.0: lending, borrowing, yield, vaults"],
     "source_url": "https://docs.base.org/get-started/builders",
     "ecosystem": "Base"
   },
   "best_bet": "A live x402 agent-payments product with Builder Codes integrated",
-  "form": {
-    "platform": "google",
-    "url": "https://docs.google.com/forms/d/e/1FAIpQLSeEFi9BLm5XCm7KrFzRZC-rxcAqCNZPzWZ9He4aZkxsKuRXjw/viewform",
-    "fields": {
-      "full_name": "entry.100652540",
-      "email": "entry.567744978",
-      "x_handle": "entry.57269102",
-      "telegram": "entry.1412451360",
-      "project_name_description": "entry.736699383",
-      "founding_team": "entry.2135613942",
-      "live_product_url": "entry.1792418505",
-      "demo_loom": "entry.1167675868",
-      "contract_address": "entry.1872809856",
-      "track": "entry.1495021877",
-      "usage_numbers": "entry.1765671176",
-      "revenue": "entry.612337056",
-      "gtm_plan": "entry.158694497",
-      "builder_code": "entry.703891879",
-      "primary_challenge": "entry.475374687",
-      "credits": "entry.1350986773",
-      "what_changed": "entry.1460571512"
-    }
-  },
+  "form": { "platform": "google", "url": "https://docs.google.com/forms/d/e/1FAIpQLSeEFi9BLm5XCm7KrFzRZC-rxcAqCNZPzWZ9He4aZkxsKuRXjw/viewform", "fields": {"full_name": "entry.100652540", "email": "entry.567744978", "x_handle": "entry.57269102", "telegram": "entry.1412451360", "project_name_description": "entry.736699383", "founding_team": "entry.2135613942", "live_product_url": "entry.1792418505", "demo_loom": "entry.1167675868", "contract_address": "entry.1872809856", "track": "entry.1495021877", "usage_numbers": "entry.1765671176", "revenue": "entry.612337056", "gtm_plan": "entry.158694497", "builder_code": "entry.703891879", "primary_challenge": "entry.475374687", "credits": "entry.1350986773", "what_changed": "entry.1460571512"} },
   "submit": "either",
   "sign_in": "google",
   "needs": ["demo_video"],

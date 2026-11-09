@@ -9,6 +9,11 @@
   "summary": "$120,000 in prizes · closes Dec 22, 12:00 PM PT",
   "pool_usd": 120000,
   "category": "hackathon",
+  "min_tier": "building",
+  "eligibility": [
+    { "kind": "demo_video" },
+    { "kind": "feature", "note": "an app on Atlassian Forge with a Forge manifest and at least one Forge module" }
+  ],
   "starts_at": "2026-10-27T09:00:00-07:00",
   "ends_at": "2026-12-22T12:00:00-08:00",
   "verified_at": "2026-11-09",
@@ -51,7 +56,9 @@
     "A Forge app exposing an MCP server",
     "Deployment awareness inside Jira for dev teams"
   ],
-  "results_due": { "date": "2027-02-15" },
+  "results_due": {
+    "date": "2027-02-15"
+  },
   "form": { "platform": "other", "url": "https://codegeist2026.devpost.com/" },
   "submit": "builder",
   "sign_in": "platform",

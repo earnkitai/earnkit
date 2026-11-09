@@ -18,6 +18,12 @@
   "chains": [],
   "any_chain": true,
   "tag": "long shot",
+  "min_tier": "building",
+  "eligibility": [
+    { "kind": "new_work_after", "value": "2026-10-30T09:00:00-07:00" },
+    { "kind": "demo_video" },
+    { "kind": "feature", "note": "built with Kiro, with the /.kiro directory at the root of the public GitHub repo" }
+  ],
   "setup": [
     "a Devpost account joined to Kiroween 2026",
     "a Kiro account (free credits by Dec 1)"
@@ -54,7 +60,9 @@
     "Revive an obsolete protocol with a modern interface",
     "A starter template proven by two different apps"
   ],
-  "results_due": { "date": "2027-02-03" },
+  "results_due": {
+    "date": "2027-02-03"
+  },
   "form": { "platform": "other", "url": "https://kiroween.devpost.com/" },
   "submit": "builder",
   "sign_in": "platform",

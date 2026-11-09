@@ -8,6 +8,11 @@
   "reward": "$67,500 in prizes, paid in cash: $12,000 first, $8,000 second, $5,000 third, $5,000 special awards (including Best Use of Agentic Commerce) and sponsor prizes",
   "summary": "$67,500 in prizes · closes Nov 12, 12:00 PM PT",
   "pool_usd": 67500,
+  "min_tier": "building",
+  "eligibility": [
+    { "kind": "demo_video" },
+    { "kind": "feature", "note": "meaningfully uses a PayPal API, SDK or developer capability together with an AI model, tool or platform" }
+  ],
   "category": "hackathon",
   "starts_at": "2026-10-01T09:15:00-07:00",
   "ends_at": "2026-11-12T12:00:00-08:00",
@@ -50,7 +55,9 @@
     "An agent that checks out with PayPal for users",
     "An AI invoicing tool on PayPal sandbox APIs"
   ],
-  "results_due": { "date": "2026-12-21" },
+  "results_due": {
+    "date": "2026-12-21"
+  },
   "form": { "platform": "other", "url": "https://paypalaihackathon.devpost.com/" },
   "submit": "builder",
   "sign_in": "platform",

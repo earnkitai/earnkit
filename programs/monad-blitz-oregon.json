@@ -23,9 +23,7 @@
   "in_person": true,
   "existing_work": "unknown",
   "needs_repo": false,
-  "chains": [
-    "monad"
-  ],
+  "chains": ["monad"],
   "chain_required": true,
   "category": "hackathon",
   "setup": [
@@ -44,10 +42,7 @@
     { "key": "luma_request", "label": "Request to Join", "type": "text", "required": true, "from": "builder", "kind": "contact", "todo": "a request to join on Luma", "description": "Register on the Luma page by November 10. The registration questions are not public; the host approves each request." }
   ],
   "focus": {
-    "areas": [
-      "Working prototypes on Monad",
-      "Parallel execution and smart contracts"
-    ],
+    "areas": ["Working prototypes on Monad", "Parallel execution and smart contracts"],
     "source_url": "https://luma.com/e8mwhm1s",
     "ecosystem": "Monad"
   },
