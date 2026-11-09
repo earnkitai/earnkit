@@ -1,0 +1,59 @@
+{
+  "id": "antler-us-residency",
+  "organizer": "Antler",
+  "title": "Antler US Residency",
+  "description": "Antler's in-person founder residency in New York City, San Francisco and Austin. Each month a group of operators and founders works together in person for up to 3 months to test ideas, form teams and pitch Antler's investment committee for an initial commitment of $500K to $1M plus $650K in partner credits. No fee. Applications are reviewed year-round.",
+  "source_url": "https://www.antler.co/location/us",
+  "submission_url": "https://www.antler.co/apply",
+  "official_url": "https://www.antler.co/",
+  "reward": "Initial investment commitment of $500K to $1M, plus $650K in partner credits",
+  "summary": "$500K to $1M investment · rolling, monthly cohorts",
+  "max_award_usd": 1000000,
+  "min_award_usd": 500000,
+  "starts_at": null,
+  "ends_at": null,
+  "verified_at": "2026-11-09",
+  "status": "active",
+  "existing_work": "allowed",
+  "needs_repo": false,
+  "chains": [],
+  "any_chain": true,
+  "investment": true,
+  "category": "investment",
+  "in_person": true,
+  "tag": "long shot",
+  "eligibility": [
+    { "kind": "in_person", "note": "work in person at Antler's NYC, SF or Austin office for up to 3 months" },
+    { "kind": "feature", "note": "at least one co-founder already has independent US work authorization; no visa sponsorship" }
+  ],
+  "setup": [
+    "work authorization in the US for one co-founder"
+  ],
+  "each_time": [],
+  "rules": [
+    "Rolling: Antler reviews applications year-round and invites a select group to start each month.",
+    "The residency is in person at Antler's offices in NYC, SF and Austin, for up to 3 months. There is no fee.",
+    "Every resident gets a chance to be considered for funding of $500K to $1M. Antler asks to be the first investor to hear you pitch.",
+    "You do not need a formed or incorporated startup on day one, but you must come to start a venture.",
+    "Co-founders are welcome, but at least one founder must be full-time in the residency. Solo founders are welcome.",
+    "At least one co-founder must already be a US citizen, permanent resident, or hold independent, unrestricted work authorization. Antler does not sponsor visas.",
+    "Founders past the residency can pitch Antler's investment committee directly through Pitch Us.",
+    "Antler backs founders across AI, enterprise SaaS, consumer, fintech, climate, deep tech, health and new categories."
+  ],
+  "submission_requirements": [
+    { "key": "first_name", "label": "First name", "kind": "contact", "todo": "your first name", "type": "text", "required": true, "from": "builder" },
+    { "key": "last_name", "label": "Last name", "kind": "contact", "todo": "your last name", "type": "text", "required": true, "from": "builder" },
+    { "key": "email", "label": "Email", "kind": "contact", "todo": "your email", "type": "email", "required": true, "from": "builder" },
+    { "key": "linkedin", "label": "Linkedin (optional)", "kind": "links", "type": "url", "required": false, "from": "builder" },
+    { "key": "stage", "label": "What stage are you at?", "kind": "other", "type": "choice", "required": false, "options": ["Idea to Pre-Seed – Founding to first traction", "Series A to C – I'm ready for scale-up capital"], "description": "The form does not mark this question required.", "from": "builder" },
+    { "key": "region", "label": "Select region", "kind": "other", "type": "choice", "required": false, "options": ["Asia Pacific", "Americas", "Europe", "Middle East & Africa"], "from": "builder" },
+    { "key": "city", "label": "Select city", "kind": "other", "type": "choice", "required": false, "options": ["Austin", "New York City", "San Francisco", "Sao Paulo", "Toronto"], "description": "Americas cities; the US residency is in Austin, New York City or San Francisco.", "from": "builder" }
+  ],
+  "focus": {
+    "areas": ["AI and enterprise SaaS", "Consumer and fintech", "Climate, deep tech and health"],
+    "source_url": "https://www.antler.co/location/us"
+  },
+  "form": { "platform": "other", "url": "https://www.antler.co/apply" },
+  "submit": "either",
+  "sign_in": "none"
+}

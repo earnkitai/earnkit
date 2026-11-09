@@ -1,0 +1,72 @@
+{
+  "id": "meta-vr-start-competition-2026",
+  "organizer": "Meta",
+  "title": "Meta VR Start Developer Competition 2026",
+  "description": "Meta's online competition on Devpost for members of the Meta VR Start program. Build a hands-first Entertainment, Gaming or Productivity experience for Meta VR devices (Meta VR Glasses and Meta Quest), either new or a significantly updated existing app. $1,000,000 in cash prizes, top prizes of $100,000.",
+  "source_url": "https://start-developer-competition-26.devpost.com/",
+  "submission_url": "https://start-developer-competition-26.devpost.com/",
+  "reward": "$1,000,000 in prizes, paid in cash: $100,000 for the best new and best adapted Gaming and Entertainment experiences, $70,000 for Productivity, runner-ups $35,000 to $50,000, and $20,000 to $25,000 special awards",
+  "summary": "$1,000,000 in prizes · closes Nov 18, 12:00 PM PT",
+  "pool_usd": 1000000,
+  "max_award_usd": 100000,
+  "category": "hackathon",
+  "starts_at": "2026-09-24T10:00:00-07:00",
+  "ends_at": "2026-11-18T12:00:00-08:00",
+  "verified_at": "2026-11-09",
+  "status": "active",
+  "existing_work": "allowed",
+  "needs_repo": false,
+  "chains": [],
+  "any_chain": true,
+  "tag": "long shot",
+  "setup": [
+    "membership in the Meta VR Start program",
+    "a Meta account with Developer Access enabled",
+    "a Devpost account joined to the competition"
+  ],
+  "each_time": [
+    "a build judges can launch on a Meta VR device",
+    "a public demo video under 3 minutes"
+  ],
+  "rules": [
+    "Submit on Devpost by November 18, 2026 at 12:00 PM Pacific Time. The entry period opened September 24, 2026.",
+    "Open only to members of the Meta VR Start program. The person submitting must be a Start member by the time of submission.",
+    "Entrants must be 18 or older and of the age of majority, with an active Meta account with Developer Access enabled.",
+    "Residents of Brazil, Quebec, and areas under comprehensive sanctions are not eligible.",
+    "Build for Meta VR devices in one track: Entertainment, Gaming or Productivity.",
+    "Pick a division: New Experience (conceived and built from September 24, 2026, no pre-existing code) or Adapted / Significantly Updated Experience (an existing app with a meaningful new feature, mode or platform integration shipped in the window).",
+    "The experience must be fully usable with hands, end to end, without a controller.",
+    "Design for seated use, a fast cold start, and a complete moment in 10 minutes or less. Thin wrappers around existing services are discouraged.",
+    "Engine builds go up as an APK to a release channel named Competition in the Meta VR Developer Dashboard, with an Invite URL for judges. WebXR builds share a hosted link.",
+    "Each individual may submit one entry. One prize per entry.",
+    "Winners are announced on or around December 11, 2026."
+  ],
+  "submission_requirements": [
+    { "key": "name", "label": "Submission name", "kind": "name", "todo": "a submission name", "type": "text", "required": true, "project_field": "name", "from": "project" },
+    { "key": "tagline", "label": "Submission tagline", "kind": "one_liner", "todo": "a tagline under 140 characters", "type": "text", "required": true, "max_chars": 140, "from": "project" },
+    { "key": "track", "label": "Track", "kind": "other", "todo": "a track", "type": "choice", "required": true, "options": ["Entertainment", "Gaming", "Productivity"], "from": "project" },
+    { "key": "division", "label": "Division", "kind": "other", "todo": "a division", "type": "choice", "required": true, "options": ["New Experience", "Adapted / Significantly Updated Experience"], "from": "project" },
+    { "key": "description", "label": "A text description covering your inspiration, how you built it, and future plans for improvement", "kind": "how_it_works", "todo": "inspiration, how you built it, plans", "type": "text", "required": true, "description": "Suggested length: 500 words or less.", "from": "project" },
+    { "key": "update_summary", "label": "Summary of the new features and capabilities added during the competition window", "kind": "what_next", "type": "text", "required": false, "description": "Only for an Adapted / Significantly Updated build. Screenshots, changelogs and demo videos are recommended.", "from": "project" },
+    { "key": "hand_interactions", "label": "Describe how Hand Interactions are implemented into your experience and what excites you about the future of VR", "kind": "how_it_works", "type": "text", "required": false, "from": "project" },
+    { "key": "launch_date", "label": "Target launch date, if not already published", "kind": "milestones", "type": "text", "required": false, "from": "builder" },
+    { "key": "build_access", "label": "Invite URL or hosted link to the Project", "kind": "links", "todo": "an Invite URL or WebXR link for judges", "type": "url", "required": true, "project_field": "live_url", "description": "Engine builds: an APK on a release channel named Competition with an Invite URL. IWSDK builds: a hosted link.", "from": "builder" },
+    { "key": "demo_video", "label": "Demonstration video", "kind": "demo_video", "todo": "a public demo video under 3 minutes", "type": "url", "required": true, "project_field": "demo_url", "description": "Under three minutes, footage as viewed on a Meta VR device, XR Simulator or an equivalent emulator, public on YouTube or Vimeo.", "from": "builder" },
+    { "key": "team", "label": "Name(s), email(s), and role(s) for each team member", "kind": "team", "type": "text", "required": false, "from": "builder" }
+  ],
+  "focus": {
+    "areas": ["Hands-first VR games without controllers", "Lean-back spatial media and entertainment", "Seated productivity apps for daily moments"],
+    "source_url": "https://start-developer-competition-26.devpost.com/"
+  },
+  "ideas": [
+    "A seated puzzle game played only with hands",
+    "A multi-panel VR workspace for a daily routine"
+  ],
+  "results_due": { "date": "2026-12-11" },
+  "form": { "platform": "other", "url": "https://start-developer-competition-26.devpost.com/" },
+  "submit": "builder",
+  "sign_in": "platform",
+  "platform_name": "Devpost",
+  "needs": ["demo_video"],
+  "reviewers_contact": "Email the hackathon manager from the competition's Devpost page; Meta Developer Forum for support"
+}

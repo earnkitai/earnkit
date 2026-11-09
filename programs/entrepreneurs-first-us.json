@@ -1,0 +1,70 @@
+{
+  "id": "entrepreneurs-first-us",
+  "organizer": "Entrepreneurs First",
+  "title": "Entrepreneurs First U.S.",
+  "description": "Entrepreneurs First backs exceptional individuals in San Francisco, often before they have a cofounder, company or idea. Two paths: up to $250K invested on day one for founders ready to go all in, with three months living and working in EF's SF residency and a Demo Day; or the Fellowship Residency, an equity-free $10K grant and housing for three months to explore. Rolling applications.",
+  "source_url": "https://www.joinef.com/faqs/us/",
+  "submission_url": "https://www.joinef.com/apply-us-funding-fellowship/",
+  "official_url": "https://www.joinef.com/",
+  "reward": "Up to $250K investment on day one ($125K post-money SAFE for 8% from EF, plus an optional $125K uncapped MFN SAFE), or an equity-free $10K Fellowship grant",
+  "summary": "up to $250K investment or $10K grant · rolling",
+  "max_award_usd": 250000,
+  "starts_at": null,
+  "ends_at": null,
+  "verified_at": "2026-11-09",
+  "status": "active",
+  "existing_work": "allowed",
+  "needs_repo": false,
+  "chains": [],
+  "any_chain": true,
+  "investment": true,
+  "category": "investment",
+  "in_person": true,
+  "tag": "long shot",
+  "eligibility": [
+    { "kind": "in_person", "note": "live and work in San Francisco for the first three months" }
+  ],
+  "setup": [],
+  "each_time": [],
+  "rules": [
+    "Rolling: EF reviews every application. If you don't hear back, EF is passing for now; no individual feedback is given.",
+    "Shortlisted applicants go through interviews with EF's U.S. team, advisors, alumni and leadership.",
+    "The $250K path: $125K via a post-money SAFE for 8% from EF, plus an optional $125K uncapped MFN SAFE from EF and Transpose Platform if you relocate to San Francisco and incorporate as a Delaware C-Corp.",
+    "The Fellowship Residency: an equity-free $10K grant and housing for three months to explore ideas and cofounders, with a path to EF's full investment.",
+    "Founders live and work in San Francisco for the first three months, with a founder house, coaching and a Demo Day for U.S. investors.",
+    "You do not need a cofounder or an idea to apply. If you already have a cofounder, mention it and ask them to apply too.",
+    "Most people EF backs are technical; a small number of non-technical individuals with solid technical understanding are taken.",
+    "Apply to only one program, in one hub city, at a time. EF is sector agnostic."
+  ],
+  "submission_requirements": [
+    { "key": "first_name", "label": "First Name", "kind": "contact", "todo": "your first name", "type": "text", "required": true, "from": "builder" },
+    { "key": "last_name", "label": "Last Name", "kind": "contact", "todo": "your last name", "type": "text", "required": true, "from": "builder" },
+    { "key": "email", "label": "Email", "kind": "contact", "todo": "your email", "type": "email", "required": true, "from": "builder" },
+    { "key": "phone", "label": "Phone Number", "kind": "contact", "type": "text", "required": false, "from": "builder" },
+    { "key": "personal_webpage", "label": "Personal webpage (e.g. LinkedIn)", "kind": "links", "todo": "your LinkedIn or personal page", "type": "url", "required": true, "from": "builder" },
+    { "key": "about_you", "label": "Please tell us about you, including any other links you want to share or any questions you have", "kind": "why_you", "type": "text", "required": false, "from": "builder" },
+    { "key": "most_impressive", "label": "What's the most impressive thing you've built or accomplished?", "kind": "past_work", "type": "text", "required": false, "description": "200 word limit.", "from": "builder" },
+    { "key": "obsessed_with", "label": "What are you obsessed with?", "kind": "why_you", "type": "text", "required": false, "description": "200 word limit.", "from": "builder" },
+    { "key": "us_work_rights", "label": "Do you have the right to live and work in the US?", "kind": "other", "todo": "your US work rights", "type": "choice", "required": true, "options": ["Yes", "No"], "from": "builder" },
+    { "key": "privacy_ack", "label": "I hereby acknowledge that I have read and understood the Privacy Policy and the terms and conditions upon which my personal data will be processed", "kind": "other", "todo": "accept the privacy policy", "type": "choice", "required": true, "options": ["Yes"], "from": "builder" },
+    { "key": "contact_consent", "label": "By submitting this form, I consent for EF to contact me via any channel submitted in this form", "kind": "other", "todo": "consent to be contacted", "type": "choice", "required": true, "options": ["Yes"], "from": "builder" }
+  ],
+  "form": {
+    "platform": "other",
+    "url": "https://info.joinef.com/l/1032441/2025-01-29/2kmgv",
+    "fields": {
+      "first_name": "1032441_113101pi_1032441_113101",
+      "last_name": "1032441_113104pi_1032441_113104",
+      "email": "1032441_113107pi_1032441_113107",
+      "phone": "1032441_113110pi_1032441_113110",
+      "personal_webpage": "1032441_113119pi_1032441_113119",
+      "about_you": "1032441_113122pi_1032441_113122",
+      "most_impressive": "1032441_157758pi_1032441_157758",
+      "obsessed_with": "1032441_157761pi_1032441_157761",
+      "us_work_rights": "1032441_157764pi_1032441_157764"
+    }
+  },
+  "submit": "builder",
+  "sign_in": "none",
+  "reviewers_contact": "Contact form at joinef.com/contact"
+}
