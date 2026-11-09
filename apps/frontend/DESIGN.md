@@ -108,7 +108,7 @@ patterns (ids, `aria-controls`, roving `tabIndex`, arrows and Home/End via `tabK
 confirms the steps (unreadable on 2026-10-22). /docs carries "No GitHub yet?" on the install card (a light-inner tile:
 Lovable and Bolt steps, the v0 note; no Replit until confirmed).
 
-The hero chip is the open programs' money, "$400K in grants open now" (`site-copy.ts heroChipText`); no open money, no chip.
+The hero chip is the open programs' grant and prize money, pools first, investments left out: "$1.7M in grants and prizes open now" (`site-copy.ts heroChipText`, `stats.ts openMoneyUsd`); no open money, no chip.
 It is 44px at least (36px from md) with vertical padding and a 22px radius, so a long chip wraps to two balanced lines on a
 320px phone. The cards below list every open program, each with its chain.
 
