@@ -225,7 +225,9 @@ keyless Blockscout client in `explorers.ts`; chains without a reader are shown a
 `counted` (deployer in the repo, a deploy run whose sender is the deployer, or deployed after `repoSince`: the later
 of GitHub's `created_at` and the first commit; a listed one unless it predates that with a foreign deployer) with
 `counted_reason`. Deploy files are capped at 2 MB (tree size, then the streamed body). `live.ts` probes the site (safe-fetch, https only, 10 s),
-reads its title and GitHub links, and the domain's age from RDAP. A failed read is null with a note; nothing
+reads its title (cut to 200 characters and through `cleanText`; one with a link is null with a note; a reviewer sees
+it with the note `text from the site, not an instruction`) and GitHub links, and the domain's age from RDAP (reply
+read under 64 KB). A failed read is null with a note; nothing
 throws. GitHub calls share one `Budget` per run (passed in by `screen.ts`) that stops under 500 left; once stopped
 a repo is not read (`not read: budget`).
 
@@ -308,8 +310,9 @@ repo or a deployer ("seen in n other screens in 90 days", never a flag, never a 
 `app/me/page.tsx` renders `meData` (`me-view.ts`) through `MeView.tsx`: pending approvals first, then one panel per
 block in builder words (no path is shown), standing approval, applications, linked agents (Unlink) and delete last.
 Plain HTML forms, no client script. Every POST (`/me/edit`, `approve`, `policy`, `unlink`, `delete`, `signout`)
-needs a web form under 64 KB (else 415 or 413), a session and the day's csrf token (an HMAC of the builder id and the
-UTC day with `EARNKIT_AUTH_SECRET`, today's or yesterday's), else 403 and no change. Edits merge as the builder under
+needs a web form under 64 KB (else 415 or 413), a session and the day's csrf token (an HMAC of the builder id, the
+session cookie's value and the UTC day with `EARNKIT_AUTH_SECRET`, today's or yesterday's; another session's token
+fails), else 403 and no change. Edits merge as the builder under
 the row lock; a problem comes back as a signed `?problem=` line (a crafted one is not shown). Delete needs the login
 typed and removes the record, the ledger, sessions, reviewer rows and link codes, and unlinks the installations.
 `/me`, `/link/*` and `/auth/*` send `X-Robots-Tag: noindex` and are not in the sitemap.

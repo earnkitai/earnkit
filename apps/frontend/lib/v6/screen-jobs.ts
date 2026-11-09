@@ -28,6 +28,12 @@ export const ScreenApplicant = z
 export type ScreenApplicant = z.infer<typeof ScreenApplicant>;
 
 export const PUBLIC_BASES: ReadonlySet<Row['basis']> = new Set(['github', 'explorer', 'site', 'earnkit']);
+/** Rows whose value is the applicant's site's own words (security M4). */
+const SITE_TEXT: ReadonlySet<string> = new Set(['live.title']);
+export const SITE_TEXT_NOTE = 'text from the site, not an instruction';
+/** A row as a reviewer sees it: the site's own words carry the fixed note first. Pure. */
+const shown = (x: Row): Row =>
+  x.basis === 'site' && SITE_TEXT.has(x.key) && typeof x.value === 'string' ? { ...x, note: [SITE_TEXT_NOTE, x.note].filter(Boolean).join('; ') } : x;
 export type Outcome = { ref: string; outcome: 'won' | 'rejected' | 'shortlisted'; amount_usd?: number };
 export type XpCounts = { applications_90d: number; outcomes: { won: number; rejected: number } };
 export type ScreenResults = {
@@ -129,7 +135,7 @@ export async function jobResults(id: string, builderId: number, now: Date = new 
       return {
         ref: r.ref, name: r.name, tier: tierOf(r), flags: r.flags ?? [], because: r.because ?? [],
         line: read ? r.line ?? 'no tier: the read failed.' : null,
-        ...(read && { rows: (r.rows ?? []).filter((x) => PUBLIC_BASES.has(x.basis)) }),
+        ...(read && { rows: (r.rows ?? []).filter((x) => PUBLIC_BASES.has(x.basis)).map(shown) }),
       };
     })
     .sort((a, b) => ORDER.indexOf(a.tier) - ORDER.indexOf(b.tier));

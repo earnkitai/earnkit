@@ -28,7 +28,8 @@ test('labels have no path or dot; every pending approval is an approvable path',
     docs: { other: [{ label: 'Pitch', url: 'https://example.com/pitch.pdf' }] },
   };
   await saveRecord(b.id, mergeRecord(await getRecord(b.id), patch, 'agent', NOW).record, NOW);
-  const d = await meData(b, NOW);
+  const d = await meData(b, NOW, 'sess');
+  assert.equal(d.csrf, csrfToken(b.id, NOW.toISOString().slice(0, 10), SECRET, 'sess'), 'the page mints the csrf from its session');
   assert.equal(d.login, 'viewer');
   assert.deepEqual(d.blocks.map((x) => x.key), ['person', 'projects', 'company', 'docs', 'traction', 'answers', 'policy']);
   for (const block of d.blocks) {
@@ -55,13 +56,17 @@ test('labels have no path or dot; every pending approval is an approvable path',
 
 test('the csrf verifies for today and yesterday and not two days ago', () => {
   const day = (ms: number) => new Date(NOW.getTime() - ms).toISOString().slice(0, 10);
-  assert.ok(verifyCsrf(csrfToken(7, day(0), SECRET), 7, NOW, SECRET));
-  assert.ok(verifyCsrf(csrfToken(7, day(DAYMS), SECRET), 7, NOW, SECRET));
-  assert.ok(!verifyCsrf(csrfToken(7, day(2 * DAYMS), SECRET), 7, NOW, SECRET));
-  assert.ok(!verifyCsrf(csrfToken(8, day(0), SECRET), 7, NOW, SECRET));
-  assert.ok(!verifyCsrf(csrfToken(7, day(0), 'another-secret-0123456789abcdef'), 7, NOW, SECRET));
-  assert.ok(!verifyCsrf('', 7, NOW, SECRET));
-  assert.match(csrfToken(7, day(0), SECRET), /^[A-Za-z0-9_-]{43}$/);
+  const S = 'session-token-a';
+  assert.ok(verifyCsrf(csrfToken(7, day(0), SECRET, S), 7, NOW, SECRET, S));
+  assert.ok(verifyCsrf(csrfToken(7, day(DAYMS), SECRET, S), 7, NOW, SECRET, S));
+  assert.ok(!verifyCsrf(csrfToken(7, day(2 * DAYMS), SECRET, S), 7, NOW, SECRET, S));
+  assert.ok(!verifyCsrf(csrfToken(8, day(0), SECRET, S), 7, NOW, SECRET, S));
+  assert.ok(!verifyCsrf(csrfToken(7, day(0), 'another-secret-0123456789abcdef', S), 7, NOW, SECRET, S));
+  assert.ok(!verifyCsrf('', 7, NOW, SECRET, S));
+  // Bound to the session (security L4): another session's token, or no session, fails.
+  assert.ok(!verifyCsrf(csrfToken(7, day(0), SECRET, 'session-token-b'), 7, NOW, SECRET, S));
+  assert.ok(!verifyCsrf(csrfToken(7, day(0), SECRET, S), 7, NOW, SECRET, ''));
+  assert.match(csrfToken(7, day(0), SECRET, S), /^[A-Za-z0-9_-]{43}$/);
 });
 
 test('/me?link=<code> with a live code shows the link banner with the agent name and both buttons; a dead code says it expired', async () => {
@@ -69,7 +74,7 @@ test('/me?link=<code> with a live code shows the link banner with the agent name
   const inst = async (name: string | null) =>
     (await sql()`INSERT INTO installations (token_hash, client_name, created_at) VALUES (${'mv-' + Math.random()}, ${name}, ${NOW}) RETURNING id`)[0].id as number;
   const code = await createLinkCode(await inst('Claude <Code>'), NOW);
-  const d = await meData(b, NOW, code);
+  const d = await meData(b, NOW, 'sess', code);
   const text = 'The agent calling itself Claude <Code>, first seen Nov 6, asked for this link. Only link an agent running on your own computer. If someone sent you this link, choose Not me.';
   assert.deepEqual(d.link, { code, text });
   const html = renderToStaticMarkup(MeView({ data: d, problem: null }));
@@ -86,15 +91,15 @@ test('/me?link=<code> with a live code shows the link banner with the agent name
   assert.ok(html.indexOf('Link an agent to this account?') < html.indexOf('id="person"'));
 
   const unnamed = await createLinkCode(await inst(null), NOW);
-  assert.equal((await meData(b, NOW, unnamed)).link?.text, 'Your agent, first seen Nov 6, asked for this link. Only link an agent running on your own computer. If someone sent you this link, choose Not me.');
+  assert.equal((await meData(b, NOW, 'sess', unnamed)).link?.text, 'Your agent, first seen Nov 6, asked for this link. Only link an agent running on your own computer. If someone sent you this link, choose Not me.');
 
-  for (const dead of [await meData(b, new Date(NOW.getTime() + 16 * 60_000), code), await meData(b, NOW, 'not-a-code')]) {
+  for (const dead of [await meData(b, new Date(NOW.getTime() + 16 * 60_000), 'sess', code), await meData(b, NOW, 'sess', 'not-a-code')]) {
     assert.deepEqual(dead.link, { code: null, text: 'This link has expired. Ask your agent for a new one.' });
     const page = renderToStaticMarkup(MeView({ data: dead, problem: null }));
     assert.ok(page.includes('This link has expired. Ask your agent for a new one.'));
     assert.ok(!page.includes('/me/link'));
     assert.ok(!page.includes('Link this agent'));
   }
-  assert.equal((await meData(b, NOW)).link, null);
-  assert.ok(!renderToStaticMarkup(MeView({ data: await meData(b, NOW), problem: null })).includes('Link an agent to this account?'));
+  assert.equal((await meData(b, NOW, 'sess')).link, null);
+  assert.ok(!renderToStaticMarkup(MeView({ data: await meData(b, NOW, 'sess'), problem: null })).includes('Link an agent to this account?'));
 });

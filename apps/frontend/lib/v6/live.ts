@@ -3,9 +3,11 @@
  * looks like an app (a heuristic: a form, a script bundle or a wallet connect), the domain's age from
  * RDAP, the title and the GitHub repos it links. Never throws: what fails is null with a note.
  */
-import { HttpStatusError, RedirectError, safeProbePage, visibleText } from '../v5/safe-fetch';
+import { HttpStatusError, RedirectError, TITLE_MAX, safeProbePage, visibleText } from '../v5/safe-fetch';
+import { readCapped } from '../v5/http';
 import { registrableDomain } from '../v5/submit-hosts';
 import { repoKey } from '../v5/repo-facts';
+import { cleanText } from '../v5/untrusted-text';
 
 export type LiveRows = {
   url: string | null;
@@ -61,6 +63,9 @@ export function githubLinks(html: string): string[] {
   return out;
 }
 
+/** The most of an RDAP reply that is read. */
+const RDAP_MAX_BYTES = 65_536;
+
 /** rdap.org answers 403 to a request with no User-Agent. */
 export const RDAP_HEADERS = { 'User-Agent': 'Mozilla/5.0 (compatible; EarnKit-verifier/1)', Accept: 'application/rdap+json, application/json' };
 
@@ -71,10 +76,24 @@ export const rdapOrg = async (domain: string, f: typeof fetch = fetch): Promise<
     signal: AbortSignal.timeout(RDAP_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`rdap ${res.status}`);
-  const body = (await res.json()) as { events?: { eventAction?: string; eventDate?: string }[] };
+  // Read capped like every other outside reply (security L10).
+  const text = await readCapped(res, RDAP_MAX_BYTES);
+  if (text === null) throw new Error('rdap reply too large');
+  const body = JSON.parse(text) as { events?: { eventAction?: string; eventDate?: string }[] };
   const at = body.events?.find((e) => e.eventAction === 'registration')?.eventDate ?? null;
   return { registered_at: at && Number.isFinite(Date.parse(at)) ? new Date(at).toISOString() : null };
 };
+
+/** A page title as a row: cut to TITLE_MAX and through cleanText; one with a link or markup is null with a note. Pure. */
+export function siteTitle(raw: string): { text: string | null; note: string | null } {
+  const cut = [...raw].slice(0, TITLE_MAX).join('').trim();
+  if (!cut) return { text: null, note: null };
+  try {
+    return { text: cleanText(cut, { max: TITLE_MAX, singleLine: true, field: 'title' }).trim() || null, note: null };
+  } catch {
+    return { text: null, note: 'title: not shown, it has a link or markup' };
+  }
+}
 
 /** Fixed words for a probe failure: never the error's own text. Pure. */
 function failure(e: unknown): string {
@@ -112,7 +131,10 @@ export async function readLive(url: string | null, o: { probe?: typeof safeProbe
     rows.url_ok = true;
     if (html) {
       rows.is_app = isApp(html);
-      rows.title = visibleText(html).title || null;
+      // Third-party text that reaches reviewers' agents: capped and cleaned, or not shown (security M4).
+      const title = siteTitle(visibleText(html).title);
+      rows.title = title.text;
+      if (title.note) notes.push(title.note);
       rows.github_links = githubLinks(html);
     } else notes.push('the page is not HTML');
   } catch (e) {

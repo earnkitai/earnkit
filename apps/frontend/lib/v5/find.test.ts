@@ -842,3 +842,35 @@ test('the first find after a link says which GitHub account it is linked to; the
   const plain = await mcpCall(ctx(await installation()), 'find', { project: PROJECT });
   assert.equal(plain.reply!.linked_notice, null);
 });
+
+test('find { program_id } and the program page never carry reviewers_contact (security M1)', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  const { guideTextById } = await import('./guide-page');
+  const id = await installation();
+  await upsertProgram(programFixture({ id: 'f-contact', title: 'Contact Grant', reviewers_contact: 'staff@contact-grant.example' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'f-contact-shut', title: 'Shut Grant', status: 'closed', reviewers_contact: 'staff@contact-grant.example' }), 'file', NOW);
+  assert.equal((await getProgram('f-contact'))!.file.reviewers_contact, 'staff@contact-grant.example');
+  for (const args of [{ program_id: 'f-contact' }, { program_id: 'f-contact', project: PROJECT }]) {
+    const r = await mcpCall(ctx(id), 'find', args);
+    assert.equal(r.isError, false, r.text);
+    const program = r.reply!.program as Record<string, unknown>;
+    assert.equal(program.title, 'Contact Grant');
+    assert.equal('reviewers_contact' in program, false);
+    assert.ok(!r.text.includes('reviewers_contact') && !r.text.includes('staff@contact-grant.example'));
+  }
+  const page = await guideTextById('f-contact-shut', NOW);
+  assert.ok(page, 'the closed program has a page');
+  assert.ok(!JSON.stringify(page).includes('reviewers_contact') && !JSON.stringify(page).includes('staff@contact-grant.example'));
+  // Grep: outside tests, only the schema, the API's refusal and find's strip name the field.
+  const { readdirSync, readFileSync } = await import('node:fs');
+  const { join, relative } = await import('node:path');
+  const root = join(import.meta.dirname, '..', '..');
+  const naming = ['app', 'lib'].flatMap((dir) =>
+    (readdirSync(join(root, dir), { recursive: true }) as string[])
+      .filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\.ts$/.test(f) && !f.includes('fixtures'))
+      .map((f) => join(root, dir, f))
+      .filter((f) => readFileSync(f, 'utf8').includes('reviewers_contact'))
+      .map((f) => relative(root, f)),
+  );
+  assert.deepEqual(naming.sort(), ['lib/v5/api-text.ts', 'lib/v5/find.ts', 'lib/v5/program-file.ts']);
+});

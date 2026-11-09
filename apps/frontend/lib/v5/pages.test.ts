@@ -216,7 +216,7 @@ test('/me renders the record in builder words: approvals first, plain forms, no 
   const b = await upsertBuilder({ github_id: 990_001, login: 'pagesme', name: null, avatar_url: null }, now);
   const patch = { person: { name: 'Pat' }, answers: { problem: { text: 'Builders <miss> grants.' } }, projects: [{ id: 'kit', name: 'Kit' }] };
   await saveRecord(b.id, mergeRecord(await getRecord(b.id), patch, 'agent', now).record, now);
-  const m = html(MeView({ data: await meData(b, now), problem: '<b>Email: bad.</b>' }));
+  const m = html(MeView({ data: await meData(b, now, 'sess'), problem: '<b>Email: bad.</b>' }));
   const t = textOf(m);
   assert.ok(!/<script/i.test(m));
   assert.ok(m.includes('&lt;b&gt;Email: bad.&lt;/b&gt;'), 'the problem line is escaped');

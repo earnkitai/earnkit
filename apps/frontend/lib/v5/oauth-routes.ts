@@ -3,7 +3,7 @@
  * rate limited per IP and per client. Authorize approves at once and redirects with a code.
  * Refusals are logged by limit and redirect host only, never a client id or token.
  */
-import { json, readParams } from './http';
+import { json, readCapped, readParams } from './http';
 import { installationExists, saveInstallation } from './installations';
 import { OAuthError, checkAuthorize, clientLimitKey, exchangeCode, hostedRedirectHost, issueCode, publicOrigin, registerClient } from './oauth';
 import { LIMITS, REGISTER_HOST_WARN, RateLimitError, clientIp, enforce } from './rate-limit';
@@ -15,6 +15,10 @@ function logLimited(route: string, limit: string, key: string | null) {
   const host = key?.startsWith('host:') ? key.slice(5) : key ? 'per-registration client' : 'no client';
   console.warn(`[oauth] ${route} refused by ${limit} (${host})`);
 }
+
+/** The most an OAuth body may be (security M5). */
+export const MAX_OAUTH_BODY = 16_384;
+const tooLarge = () => json({ error: 'invalid_request', error_description: 'Request too large: EarnKit reads at most 16 KB here.' }, 413);
 
 const tooMany = (err: RateLimitError) =>
   json({ error: 'too_many_requests', error_description: err.message }, 429, { 'Retry-After': String(err.retryAfter) });
@@ -34,7 +38,9 @@ async function ipFloor(name: 'installHour' | 'oauthRegister', ip: string, what: 
 
 export async function tokenPost(request: Request) {
   try {
-    const { token, limitKey, hostedHost, clientName } = exchangeCode(await readParams(request));
+    const params = await readParams(request, MAX_OAUTH_BODY);
+    if (params === null) return tooLarge();
+    const { token, limitKey, hostedHost, clientName } = exchangeCode(params);
     // A replayed code is free.
     if (!(await installationExists(token))) {
       let limit = hostedHost ? 'installHourHosted' : 'installHour';
@@ -83,7 +89,15 @@ export async function registerPost(request: Request) {
   let key: string | null = null;
   let limit = 'oauthRegister';
   try {
-    const metadata = ((await request.json().catch(() => null)) ?? {}) as { redirect_uris?: unknown; client_name?: unknown };
+    const body = await readCapped(request, MAX_OAUTH_BODY);
+    if (body === null) return tooLarge();
+    let parsed: unknown = null;
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      parsed = null;
+    }
+    const metadata = (typeof parsed === 'object' && parsed !== null ? parsed : {}) as { redirect_uris?: unknown; client_name?: unknown };
     const uris = Array.isArray(metadata.redirect_uris) ? metadata.redirect_uris.filter((u): u is string => typeof u === 'string') : [];
     key = clientLimitKey(uris);
     const hostedHost = hostedRedirectHost(uris);

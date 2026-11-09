@@ -11,11 +11,11 @@ import { record, summary, type Ledger, type Status } from './ledger';
 
 export const TrackInput = z
   .object({
-    program_id: z.string().min(1),
+    program_id: z.string().min(1).max(80),
     status: z.enum(['started', 'applied', 'won', 'rejected', 'no_result', 'skipped', 'unskip', 'gap_done']),
-    amount_usd: z.number().optional(),
+    amount_usd: z.number().finite().min(0).max(100_000_000).optional(),
     note: z.string().max(280).optional(),
-    item: z.string().optional(),
+    item: z.string().max(80).optional(),
     project_id: z.string().max(40).optional(),
     submitted_by: z.enum(['agent', 'builder']).optional(),
     fields_used: z.array(z.string().max(60)).max(60).optional(),

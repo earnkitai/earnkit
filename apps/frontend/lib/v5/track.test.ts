@@ -209,3 +209,21 @@ test('gap_done with an item the program does not have is refused, and the rememb
   assert.equal(r.agent_note, 'Items for this program: chain:arc, users. Call track gap_done with one of them.');
   assert.deepEqual(await lastGaps(c.installationId), { 't6-gapbad': 'deploy on Arc' });
 });
+
+test('TrackInput caps: program_id and item at 80, amount_usd finite and between 0 and 100,000,000 (security L2)', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 't6-cap', title: 'Cap Grant' }), 'file', NOW);
+  const refused = [
+    { program_id: 'x'.repeat(81), status: 'applied' },
+    { program_id: 't6-cap', status: 'gap_done', item: 'i'.repeat(81) },
+    { program_id: 't6-cap', status: 'won', amount_usd: -1 },
+    { program_id: 't6-cap', status: 'won', amount_usd: 100_000_001 },
+    { program_id: 't6-cap', status: 'won', amount_usd: Number.POSITIVE_INFINITY },
+    { program_id: 't6-cap', status: 'won', amount_usd: Number.NaN },
+  ];
+  for (const input of refused) assert.equal((await track(c, input)).agent_note, 'Nothing was recorded.', JSON.stringify(input));
+  const n = (await sql()`SELECT count(*)::int AS n FROM application_history WHERE installation_id = ${c.installationId}`)[0].n;
+  assert.equal(n, 0);
+  // The cap itself passes the input check and meets the program's own limit instead.
+  assert.equal((await track(c, { program_id: 't6-cap', status: 'won', amount_usd: 100_000_000 })).show_to_builder, "That's more than this program pays; check the amount.");
+});

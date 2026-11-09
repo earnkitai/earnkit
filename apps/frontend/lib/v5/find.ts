@@ -111,7 +111,7 @@ export type FindReply = {
   linked_notice: string | null;
 };
 export type ProgramReply = {
-  show_to_builder: string; agent_note: string; program: Program | null; fields: Field[]; guide: Guide | null; verdict?: Verdict;
+  show_to_builder: string; agent_note: string; program: Omit<Program, 'reviewers_contact'> | null; fields: Field[]; guide: Guide | null; verdict?: Verdict;
   /** The program's rules EarnKit cannot check, each its own "Their rule" line (v6.1.6). */
   rules: string[];
 };
@@ -190,6 +190,8 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const row = await getProgram(id);
   if (!row) return { show_to_builder: "I don't know that program.", agent_note: 'Call find with the project for the programs it fits.', program: null, fields: [], guide: null, rules: [] };
   const p = row.file;
+  // reviewers_contact is the owner's only: never in a tool reply (security M1).
+  const { reviewers_contact: _owner, ...pub } = p;
   const facts = project ? await factsOf(project, ctx) : EMPTY_FACTS;
   // Linked: the record fills first, as in the match (no evidence read here: the stored usage line).
   const rec = ctx.builderId === null ? null : await storedRecordContext(ctx.builderId, projectId, facts.repo_url ?? project?.repo_url ?? null);
@@ -219,7 +221,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
         ]
       : ['It takes no entries now: draft nothing and submit nothing. Call find with the project for what is open.']
     ).join('\n'),
-    program: p,
+    program: pub,
     fields,
     guide,
     ...(verdict ? { verdict } : {}),

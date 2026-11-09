@@ -16,13 +16,20 @@ export const CORS = {
 /** The CORS preflight answer. */
 export const preflight = () => new Response(null, { status: 204, headers: CORS });
 
-/** A form or JSON body as URLSearchParams. */
-export async function readParams(request: Request): Promise<URLSearchParams> {
+/** A form or JSON body as URLSearchParams, read under `max` bytes; null when over it. */
+export async function readParams(request: Request, max: number): Promise<URLSearchParams | null> {
+  const text = await readCapped(request, max);
+  if (text === null) return null;
   if (request.headers.get('content-type')?.includes('application/json')) {
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-    return new URLSearchParams(Object.entries(body ?? {}).map(([k, v]) => [k, String(v)]));
+    let body: unknown = {};
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = {};
+    }
+    return new URLSearchParams(Object.entries(typeof body === 'object' && body !== null ? body : {}).map(([k, v]) => [k, String(v)]));
   }
-  return new URLSearchParams(await request.text());
+  return new URLSearchParams(text);
 }
 
 export const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
@@ -41,8 +48,8 @@ export function secretMatches(given: string | null | undefined, secret: string |
 export const bearerMatches = (header: string | null, secret: string | undefined): boolean =>
   secretMatches(/^Bearer (\S+)$/.exec(header ?? '')?.[1], secret);
 
-/** The body as text, or null when it is (or declares itself) over `max` bytes; reading stops at the cap. */
-export async function readCapped(request: Request, max: number): Promise<string | null> {
+/** The body (of a request or a response) as text, or null when it is (or declares itself) over `max` bytes; reading stops at the cap. */
+export async function readCapped(request: Pick<Request, 'headers' | 'body'>, max: number): Promise<string | null> {
   const declared = Number(request.headers.get('content-length'));
   if (Number.isFinite(declared) && declared > max) return null;
   if (!request.body) return '';

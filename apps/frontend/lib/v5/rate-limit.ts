@@ -101,15 +101,15 @@ function ipKey(ip: string): string {
 }
 
 /**
- * The caller's IP, as a rate-limit key. Railway's edge sets X-Real-IP to the client's address
- * (documented), so it comes first; then the rightmost `x-forwarded-for` entry (the one a proxy
- * appended; entries to its left are whatever the client sent); then the socket address when the
- * runtime gives one. Pure.
+ * The caller's IP, as a rate-limit key. Railway's edge appends the client's address to
+ * `x-forwarded-for`, so its rightmost entry is the one we trust (entries to its left, and any
+ * `x-real-ip`, are whatever the client sent: a client-sent x-real-ip must never win, or one header
+ * rotates every per-IP limit). `x-real-ip` counts only when there is no forwarded header at all;
+ * then the socket address when the runtime gives one. Pure.
  */
 export function clientIp(headers: Headers, remoteAddress?: string): string {
-  const real = headers.get('x-real-ip')?.trim();
-  const forwarded = headers.get('x-forwarded-for')?.split(',').at(-1)?.trim();
-  const ip = real || forwarded || remoteAddress?.trim();
+  const forwarded = headers.get('x-forwarded-for');
+  const ip = forwarded !== null ? forwarded.split(',').at(-1)?.trim() || remoteAddress?.trim() : headers.get('x-real-ip')?.trim() || remoteAddress?.trim();
   return ip ? ipKey(ip) : 'unknown';
 }
 

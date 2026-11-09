@@ -22,7 +22,7 @@ let gh = 700_000;
 async function signedIn(login = `me${gh}`) {
   const b = await upsertBuilder({ github_id: ++gh, login, name: null, avatar_url: null }, NOW);
   const { token } = await createSession(b.id, NOW);
-  return { b, cookie: `ek_me=${token}`, csrf: csrfToken(b.id, DAY, SECRET) };
+  return { b, token, cookie: `ek_me=${token}`, csrf: csrfToken(b.id, DAY, SECRET, token) };
 }
 const post = (path: string, form: Record<string, string | string[]>, o: { cookie?: string; type?: string; body?: string } = {}) => {
   const body = new URLSearchParams();
@@ -53,8 +53,8 @@ test('me refuses without a session', async () => {
 });
 
 test('a wrong csrf is 403 and nothing changes', async () => {
-  const { b, cookie } = await signedIn();
-  const other = csrfToken(b.id + 1, DAY, SECRET);
+  const { b, cookie, token } = await signedIn();
+  const other = csrfToken(b.id + 1, DAY, SECRET, token);
   for (const csrf of ['', 'nope', other]) {
     const r = await editPost(post('/me/edit', { csrf, path: 'person.name', value: 'Mallory' }, { cookie }), deps);
     assert.equal(r.status, 403);
@@ -250,10 +250,10 @@ test('POST /me/link action=deny expires the code and links nothing', async () =>
 });
 
 test('POST /me/link without the csrf is 403 and links nothing', async () => {
-  const { cookie, b } = await signedIn();
+  const { cookie, b, token } = await signedIn();
   const id = await linkInst();
   const code = await createLinkCode(id, NOW);
-  for (const csrf of [undefined, 'nope', csrfToken(b.id + 1, DAY, SECRET)]) {
+  for (const csrf of [undefined, 'nope', csrfToken(b.id + 1, DAY, SECRET, token)]) {
     const r = await linkPost(post('/me/link', { ...(csrf === undefined ? {} : { csrf }), code, action: 'link' }, { cookie }), deps);
     assert.equal(r.status, 403);
   }
@@ -286,4 +286,21 @@ test('POST /me/link on an installation linked to another account meanwhile is 40
   assert.equal((await codeRow(id)).used_at, null);
   const bad = await linkPost(post('/me/link', { csrf: mine.csrf, code, action: 'maybe' }, { cookie: mine.cookie }), deps);
   assert.equal(bad.status, 400);
+});
+
+test('a csrf minted under one session fails under another session of the same builder (security L4)', async () => {
+  const { b, cookie, csrf } = await signedIn();
+  const { token: second } = await createSession(b.id, NOW);
+  const r = await editPost(post('/me/edit', { csrf, path: 'person.name', value: 'Mallory' }, { cookie: `ek_me=${second}` }), deps);
+  assert.equal(r.status, 403);
+  assert.equal((await getRecord(b.id)).person.name, undefined);
+  const ok = await editPost(post('/me/edit', { csrf, path: 'person.name', value: 'Pat' }, { cookie }), deps);
+  assert.equal(ok.status, 303);
+  assert.equal((await getRecord(b.id)).person.name, 'Pat');
+  // Task 5's /me/link verifies with the same session too.
+  const id = await linkInst();
+  const code = await createLinkCode(id, NOW);
+  const other = await linkPost(post('/me/link', { csrf, code, action: 'link' }, { cookie: `ek_me=${second}` }), deps);
+  assert.equal(other.status, 403);
+  assert.equal(await instBuilder(id), null);
 });

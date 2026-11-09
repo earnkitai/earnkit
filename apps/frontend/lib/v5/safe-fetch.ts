@@ -67,6 +67,8 @@ export const FETCH_TIMEOUT_MS = 5_000;
 const FETCH_MAX_BYTES = 4_096;
 /** How much of a live link's page a probe reads (the rest is never read). */
 const PROBE_MAX_BYTES = 65_536;
+/** A page's <title> is cut to this many characters (security M4). */
+export const TITLE_MAX = 200;
 /** A page is judged for an error only when its visible text is shorter than this. */
 const ERROR_TEXT_MAX = 5_000;
 /** Specific error phrases only, never a bare "404" or "not found". */
@@ -103,7 +105,7 @@ class ErrorPageError extends SafeFetchError {
  * or a tag: what is left open at the end is dropped too, never read as visible text. Pure.
  */
 export function visibleText(html: string): { title: string; text: string } {
-  const title = (html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? '').replace(/\s+/g, ' ').trim();
+  const title = [...(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? '').replace(/\s+/g, ' ').trim()].slice(0, TITLE_MAX).join('').trim();
   const text = html
     .replace(/<!--[\s\S]*?(-->|$)/g, ' ')
     .replace(/<(script|style|noscript|template)\b[\s\S]*?(<\/\1\s*>|$)/gi, ' ')

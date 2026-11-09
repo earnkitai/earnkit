@@ -1,6 +1,6 @@
 /**
  * /me's handlers: the session gate (no session: 302 to /docs#record) and the form posts. Every post needs
- * a web form under 64 KB, a session and today's csrf token, else 415, 413 or 403 with no change. Edits
+ * a web form under 64 KB, a session and today's csrf token for that session, else 415, 413 or 403 with no change. Edits
  * merge as the builder through the record's row lock; approvals only here. No path is shown to the builder.
  */
 import { NextResponse } from 'next/server';
@@ -12,7 +12,7 @@ import { type Builder, deleteBuilder, getRecord, withRecord } from './builders';
 import { OTHER, consumeLinkCode, denyLinkCode } from './link-routes';
 import { type MeField, authSecret, problemSig, recordBlocks, seenOf, verifyCsrf } from './me-view';
 import { APPROVABLE, approvePath, mergeRecord, unapprovePath } from './record';
-import { clearCookie, endSession, sessionBuilder } from './sessions';
+import { COOKIE, clearCookie, cookieValue, endSession, sessionBuilder } from './sessions';
 
 type Deps = { now?: Date };
 const MAX_BODY = 64 * 1024;
@@ -45,7 +45,8 @@ async function guard(request: Request, deps: Deps): Promise<Response | { builder
   const builder = await sessionBuilder(request.headers.get('cookie'), now);
   if (!builder) return text(403, ME_ERRORS.signin);
   const form = new URLSearchParams(body);
-  if (!verifyCsrf(form.get('csrf') ?? '', builder.id, now, authSecret())) return text(403, ME_ERRORS.expired);
+  const session = cookieValue(request.headers.get('cookie'), COOKIE) ?? '';
+  if (!verifyCsrf(form.get('csrf') ?? '', builder.id, now, authSecret(), session)) return text(403, ME_ERRORS.expired);
   return { builder, form, now };
 }
 
