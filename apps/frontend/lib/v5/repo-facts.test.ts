@@ -281,6 +281,7 @@ test('the 11th uncached read in a day for one installation is skipped: reported 
   assert.equal(rec.calls.length, calls);
   assert.equal(paused.as_reported, true);
   assert.deepEqual(paused.problems, ['repo reads paused until tomorrow']);
+  assert.deepEqual(paused.notes, ['paused']);
   const other = await repoFacts(p, { ...deps, installationId: 7_002 });
   assert.equal(other.public, true);
   const tomorrow = await repoFacts(p, { ...deps, now: new Date(NOW.getTime() + DAY) });
@@ -291,4 +292,59 @@ test('sweepRepoCache drops rows older than 30 days and keeps fresh ones', async 
   await sql()`INSERT INTO repo_cache (repo, facts, fetched_at) VALUES ('a/old', '{}', ${new Date(NOW.getTime() - 31 * DAY)}), ('a/fresh', '{}', ${new Date(NOW.getTime() - 29 * DAY)})`;
   assert.equal(await sweepRepoCache(NOW), 1);
   assert.deepEqual((await sql()`SELECT repo FROM repo_cache`).map((r) => r.repo), ['a/fresh']);
+});
+
+test('C55 (v6.1.8): a reported mainnet stands where the code found the chain without one; the code adds chains, never removes', async () => {
+  const rec = replayFetch('saber-distributor');
+  const devnet = ((u: RequestInfo | URL) =>
+    String(u).endsWith('/Anchor.toml') ? Promise.resolve(new Response('[programs.devnet]\nx = "y"\n[provider]\ncluster = "devnet"')) : rec.fetch(u)) as typeof fetch;
+  const orca = 'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc';
+  const f = await repoFacts(project({ repo_url: `https://github.com/${rec.repo}`, chains: [{ chain: 'solana', mainnet: true, contract: orca }, { chain: 'base', mainnet: false }] }), { gh: devnet, now: NOW });
+  assert.equal(f.as_reported, false);
+  assert.deepEqual(f.chains, [{ chain: 'solana', mainnet: true, basis: 'code' }, { chain: 'base', mainnet: false, basis: 'reported' }]);
+  // A base58 address keeps its case (B21).
+  assert.deepEqual(f.contracts, [{ chain: 'solana', address: orca, basis: 'reported' }]);
+  // A reported testnet never lowers the code's mainnet.
+  await sql()`DELETE FROM repo_cache`;
+  const main = await repoFacts(project({ repo_url: `https://github.com/${rec.repo}`, chains: [{ chain: 'solana', mainnet: false }] }), { gh: rec.fetch, now: NOW });
+  assert.deepEqual(main.chains, [{ chain: 'solana', mainnet: true, basis: 'code' }]);
+});
+
+test('C58 (v6.1.8): with no description passed, the README\'s first sentence stands in', async () => {
+  const rec = replayFetch('nextjs-dashboard');
+  const r = parseProject({ name: 'Dashboard', repo_url: `https://github.com/${rec.repo}` });
+  assert.ok(r.ok);
+  const f = await repoFacts(r.project, { gh: rec.fetch, now: NOW });
+  assert.equal(f.description, 'An admin dashboard built using Next.js framework and Tailwind CSS');
+  // A passed description wins.
+  const given = await repoFacts(project({ repo_url: `https://github.com/${rec.repo}` }), { gh: rec.fetch, now: NOW });
+  assert.equal(given.description, 'An app.');
+  // Unread, nothing stands in.
+  const unread = await repoFacts({ ...r.project, private: true }, { now: NOW });
+  assert.equal(unread.description, '');
+});
+
+test('C59 (v6.1.8): a fork, an archived repo and an empty one are named; archived counts as not live', async () => {
+  const read = async (slug: string) => {
+    const rec = replayFetch(slug);
+    return repoFacts(project({ repo_url: `https://github.com/${rec.repo}` }), { gh: rec.fetch, now: NOW });
+  };
+  const fork = await read('fork-dashboard');
+  assert.deepEqual([fork.notes, fork.live_url, fork.as_reported], [['fork'], 'https://dashboard-v1-ashy.vercel.app', false]);
+  const archived = await read('archived-dashboard');
+  assert.deepEqual([archived.notes, archived.live_url, archived.live_url_basis, archived.homepage], [['archived'], null, null, 'https://dashboard-v1-ashy.vercel.app']);
+  const empty = await read('empty-repo');
+  assert.deepEqual([empty.notes, empty.public, empty.as_reported, empty.readme_excerpt], [['empty'], true, false, null]);
+  const plain = await read('nextjs-dashboard');
+  assert.deepEqual(plain.notes, []);
+  // A cached row from before v6.1.8 has none of the three.
+  await sql()`UPDATE repo_cache SET facts = facts - 'fork' - 'archived' - 'empty' - 'readme_lead'`;
+  assert.deepEqual((await read('nextjs-dashboard')).notes, []);
+});
+
+test('B20 (v6.1.8): reads paused and a private repo are named once, each its own note', async () => {
+  const priv = await repoFacts(project({ repo_url: 'https://github.com/someone/secret', private: true }), { now: NOW });
+  assert.deepEqual(priv.notes, ['private']);
+  const none = await repoFacts(project({}), { now: NOW });
+  assert.deepEqual(none.notes, []);
 });

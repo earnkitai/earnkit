@@ -47,7 +47,7 @@ const any = (what: string) => z.unknown().optional().describe(what);
 const PROJECT = z
   .object({
     name: any('The project name (required)'),
-    description: any('One line on what it does (required)'),
+    description: any('One line on what it does (required without repo_url: then the README first sentence stands in)'),
     repo_url: any('The GitHub link from the git remote; omit when there is none'),
     live_url: any('The live app link'),
     demo_url: any('A demo video link'),

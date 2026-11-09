@@ -28,7 +28,7 @@ test('a bad contract and a bad date are dropped; the chain stays', () => {
   assert.equal(r.problems.length, 2);
 });
 
-test('a missing name or description is the only refusal', () => {
+test('a missing name, or a missing description with no repo link, is the only refusal', () => {
   assert.equal(parseProject({ description: 'x' }).ok, false);
   assert.equal(parseProject({ name: 'X', description: '   ' }).ok, false);
   assert.equal(parseProject(null).ok, false);
@@ -126,4 +126,41 @@ test('C16: a name or description that is not text says so, not missing', () => {
   assert.deepEqual(parseProject({ name: 42, description: 'd' }), { ok: false, problem: 'name: not text' });
   assert.deepEqual(parseProject({ name: 'X', description: true }), { ok: false, problem: 'description: not text' });
   assert.deepEqual(parseProject({ name: 'X', description: null }), { ok: false, problem: 'description: missing' });
+});
+
+test('B21 (v6.1.8): a Solana address is base58 of 32 to 44 characters; EVM chains keep 0x and 40 hex; a rejected one is named', () => {
+  const orca = 'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc';
+  const r = parseProject({ ...base, chains: [{ chain: 'solana', mainnet: true, contract: orca }] });
+  assert.ok(r.ok);
+  assert.deepEqual(r.project.chains, [{ chain: 'solana', mainnet: true, contract: orca }]);
+  assert.deepEqual(r.problems, []);
+  // An EVM address on Solana, a base58 one on Base, and base58 with a 0 (not in the alphabet) are each named.
+  const bad = parseProject({ ...base, chains: [
+    { chain: 'solana', mainnet: true, contract: '0x' + 'a'.repeat(40) },
+    { chain: 'base', mainnet: true, contract: orca },
+    { chain: 'solana', mainnet: false, contract: '0' + orca.slice(1) },
+  ] });
+  assert.ok(bad.ok);
+  assert.deepEqual(bad.problems, [
+    `contract on solana dropped: 0x${'a'.repeat(40)} is not a Solana address`,
+    `contract on base dropped: ${orca} is not an 0x address`,
+    `contract on solana dropped: 0${orca.slice(1)} is not a Solana address`,
+  ]);
+  assert.deepEqual(bad.project.chains, [{ chain: 'solana', mainnet: true }, { chain: 'base', mainnet: true }, { chain: 'solana', mainnet: false }]);
+  // Too short or too long for base58.
+  for (const contract of ['a'.repeat(31), 'a'.repeat(45)]) {
+    const r2 = parseProject({ ...base, chains: [{ chain: 'solana', mainnet: true, contract }] });
+    assert.ok(r2.ok);
+    assert.deepEqual(r2.problems, [`contract on solana dropped: ${contract} is not a Solana address`]);
+  }
+});
+
+test('C58 (v6.1.8): the description may be left out when a repo link is given; never without one', () => {
+  const r = parseProject({ name: 'linux', repo_url: 'https://github.com/torvalds/linux' });
+  assert.ok(r.ok);
+  assert.equal(r.project.description, '');
+  assert.deepEqual(r.problems, []);
+  assert.deepEqual(parseProject({ name: 'linux' }), { ok: false, problem: 'description: missing' });
+  // A repo link that does not hold up is no link.
+  assert.equal(parseProject({ name: 'linux', repo_url: 'not a link' }).ok, false);
 });

@@ -7,7 +7,7 @@ import { EVIDENCE_NOT_READ, listWords, signInSentence } from '../v6/reply-words'
 import { compactUsd } from './programs-read';
 import { rulesOnly } from './eligibility';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
-import { READS_PAUSED } from './repo-facts';
+import { READS_PAUSED, type RepoNote } from './repo-facts';
 
 type R = Omit<FindReply, 'show_to_builder' | 'agent_note'>;
 
@@ -204,6 +204,15 @@ function agentCanApply(r: R): ReadyProgram[] {
   return r.ready.filter((p) => !p.in_person && !blocked.has(p.program_id) && !p.claimed_since);
 }
 
+/** The one sentence for each thing the builder is told about the repo read (v6.1.8, B20 and C59). */
+export const REPO_NOTE: Record<RepoNote, string> = {
+  paused: 'Repo reads are paused until tomorrow; matched on what you told me.',
+  private: 'Private repo: matched on what you told me.',
+  fork: 'This repo is a fork; programs judge the original.',
+  archived: 'This repo is archived; programs want active work.',
+  empty: 'The repo is empty, so I matched on what you told me.',
+};
+
 /** What the builder sees. The since line never shows on the first find; `now` reads the claim times. */
 export function replyText(r: R, first: boolean, now: Date = new Date()): string {
   const blocks: string[] = [];
@@ -228,19 +237,26 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   if (before) blocks.push(before);
   if (r.applied_overnight.length > 0) blocks.push(`Applied under your standing approval: ${r.applied_overnight.map((a) => a.title).join(', ')}.`);
   if (r.evidence_summary) blocks.push(r.evidence_summary.line);
+  // What the read was, once each, just before the closing (money first stays first).
+  const notes = [...new Set(r.repo_notes ?? [])];
+  if (notes.length > 0) blocks.push(notes.map((n) => REPO_NOTE[n]).join(' '));
   const firstRule = r.gaps.find(ruleOnlyGap)?.n ?? null;
   const firstDo = r.gaps.find((g) => !ruleOnlyGap(g))?.n ?? null;
   const closing = tonight > 0 ? `Applying tonight to ${tonight}; say stop to hold any.` : closingLine(free.length, firstRule, firstDo, inPerson.length, ready.length - free.length);
   // R5a: saying yes is the one action; unlinked with a link, signing in is the closing block's second sentence.
   // The first find after a link names the account it linked to, last (security M2); after an unlink the notice
   // carries the sign-in link itself, so the sign-in sentence is left out (v6.1.7 B10).
-  const signIn = r.sign_in && !r.linked && !r.linked_notice ? signInSentence(r.sign_in, !r.as_reported) : null;
+  // An empty repo was read but gave nothing to prove: the sign-in promises only to remember (C59).
+  const signIn = r.sign_in && !r.linked && !r.linked_notice ? signInSentence(r.sign_in, !r.as_reported && !notes.includes('empty')) : null;
   blocks.push([closing, signIn, r.linked_notice].filter(Boolean).join(' '));
   return blocks.join('\n\n');
 }
 
-/** What the agent does with the reply. `more`: ready and gap programs left out of the lists. */
-export function agentNote(r: R, o: { more: number }): string {
+/**
+ * What the agent does with the reply. `more`: ready and gap programs left out of the lists. `description` (C58): the
+ * project came with none, and the README's first sentence stood in ('readme') or nothing could (`none`).
+ */
+export function agentNote(r: R, o: { more: number; description?: 'readme' | 'none' | null }): string {
   const standing =
     'Standing approval is on: for each ready program within the limits, call track started, fill from fields, submit where the program allows an agent, then track applied with submitted_by agent and fields_used. Stop at max_per_night. Never submit where blockers say needs_click, outside_approval or a sign-in you do not have.';
   const lines = [
@@ -269,9 +285,13 @@ export function agentNote(r: R, o: { more: number }): string {
   if (r.record_missing.length > 0) lines.push('Ask for the missing record items once, all together, and save each with record.');
   if (r.ready.some((p) => p.claimed_since)) lines.push('A ready program with claimed_since is claimed by another of the builder\'s agents: do not submit it.');
   if (r.released.length > 0) lines.push(`Claims left unsent for 24 hours were released: ${r.released.join(', ')}.`);
-  if (r.as_reported) lines.push('No public repo was read, so the match used the facts you reported; tell the builder the match is as reported by you.');
+  const paused = r.problems?.includes(READS_PAUSED) === true;
+  // One line per fact: reads paused says the match is as reported itself.
+  if (r.as_reported && !paused) lines.push('No public repo was read, so the match used the facts you reported; tell the builder the match is as reported by you.');
+  if (o.description === 'readme') lines.push("No description was passed, so the README's first sentence stood in for it; pass one next time if it reads wrong.");
+  if (o.description === 'none') lines.push('No description was passed and no README could stand in; pass one next time.');
   const dropped = (r.problems ?? []).filter((p) => p !== READS_PAUSED && p !== EVIDENCE_NOT_READ);
   if (dropped.length > 0) lines.push(`Some project facts were dropped: ${dropped.join('; ')}. Send them corrected next time.`);
-  if (r.problems?.includes(READS_PAUSED)) lines.push('Repo reads are paused for this installation until tomorrow; the match used what you reported.');
+  if (paused) lines.push('Repo reads are paused for this installation until tomorrow; the match used what you reported.');
   return lines.join('\n');
 }

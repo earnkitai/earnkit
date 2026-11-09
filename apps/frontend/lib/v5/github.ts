@@ -29,6 +29,9 @@ export type Repo = {
   private?: boolean;
   description?: string | null;
   fork?: boolean;
+  archived?: boolean;
+  /** In KB; 0 for a repo with no commits. */
+  size?: number;
   parent?: { full_name: string; default_branch: string };
 };
 export type TreeEntry = { path: string; type: string; size?: number };

@@ -115,3 +115,13 @@ test('rankGaps (R18e tie-break): among rule-only programs on the project chains 
   assert.deepEqual(rankGaps(input, programs, both).map((x) => x.program_id), ['arb-award', 'arb-rule', 'arb-other', 'base-rule']);
   assert.deepEqual(shownGapsOf(rankGaps(input.slice(0, 3), programs, both, 'base'), false, 3, remote).map((x) => x.program_id), ['base-rule']);
 });
+
+test('C60 (v6.1.8): the money sort reads the larger of the award and the pool, so a $1M pool outranks a $100K award', () => {
+  const programs = new Map([
+    row('award', { max_award_usd: 100_000 }), row('pool', { max_award_usd: 100_000, pool_usd: 1_000_000, reward: '$1,000,000 in prizes' }),
+    row('pool-only', { pool_usd: 500_000, reward: '$500,000 in prizes' }),
+  ].map((r) => [r.id, r]));
+  assert.deepEqual(rankReady([v('award'), v('pool-only'), v('pool')], programs).map((x) => x.program_id), ['pool', 'pool-only', 'award']);
+  const g = (id: string) => v(id, { status: 'gap', gaps: [gap('hours')] });
+  assert.deepEqual(rankGaps([g('award'), g('pool-only'), g('pool')], programs).map((x) => x.program_id), ['pool', 'pool-only', 'award']);
+});

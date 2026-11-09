@@ -21,7 +21,7 @@ import { PROGRAM_CATEGORIES, categoryOf, ruleNotes, type Category, type Program 
 import { getProgram, isOpen, listOpenPrograms, type ProgramRow } from './programs';
 import { parseProject, type Project } from './project-input';
 import { rankGaps, rankReady, shownGapsOf } from './rank';
-import { repoFacts, type RepoFacts } from './repo-facts';
+import { repoFacts, type RepoFacts, type RepoNote } from './repo-facts';
 import { AGENT_FIELDS, RULE_NOTE, agentNote, numbered, replyText, ruleSentence } from './reply';
 import { since, type Since } from './since';
 
@@ -96,6 +96,8 @@ export type FindReply = {
   ask_outcome: { program_id: string; title: string }[];
   as_reported: boolean;
   problems?: string[];
+  /** What the builder is told about the repo read, one sentence each (v6.1.8, B20 and C59). */
+  repo_notes?: RepoNote[];
   linked: boolean;
   record_missing: string[];
   blockers: Blocker[];
@@ -331,7 +333,8 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const byId = new Map(programs.map((r) => [r.id, r]));
   const done = await doneByProgram(owner);
   // The builder's own tier when one was read; else (unlinked, or linked before any read: R3c) the tier the public code
-  // read alone supports, none when it was not read. The provisional tier is never shown as evidence.
+  // read alone supports; not read, the tier the report supports (B20, v6.1.8), none for nothing reported, where no
+  // program with a bar fits. The provisional tier is never shown as evidence.
   const provisional = provisionalTier(facts);
   const verdicts = programs
     .map((r) => evaluate(r, facts, done.get(r.id) ?? new Set<string>(), ctx.now))
@@ -377,6 +380,7 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
     ...(all ? { not_fit: verdicts.filter((v) => v.status === 'no').map((v) => ({ program_id: v.program_id, title: byId.get(v.program_id)!.file.title, reason: v.reason ?? 'does not fit' })) } : {}),
     ledger, ask_outcome: ask, as_reported: facts.as_reported,
     ...(problems.length > 0 ? { problems } : {}),
+    ...(facts.notes && facts.notes.length > 0 ? { repo_notes: facts.notes } : {}),
     ...(side
       ? linkedPart(side, ready.map((p) => byId.get(p.program_id)!), released, overnight)
       : { ...unlinkedPart(), blockers: blockersOf(ready.map((p) => byId.get(p.program_id)!), EMPTY_RECORD), ...(link ? { sign_in: link } : {}) }),
@@ -387,7 +391,9 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const remembered = i.filter?.category === undefined
     ? Object.fromEntries(gapV.slice(0, MAX_REMEMBERED_GAPS).map((v) => [v.program_id, { what: v.gaps[0].what, kind: v.gaps[0].kind, item: v.gaps[0].item }]))
     : undefined;
-  const reply = { show_to_builder: replyText(r, last === null, ctx.now), agent_note: agentNote(r, { more }), ...r };
+  // C58: a description left out is the README's first sentence, or nothing when the README was not read.
+  const description = project.description ? null : facts.description ? 'readme' : 'none';
+  const reply = { show_to_builder: replyText(r, last === null, ctx.now), agent_note: agentNote(r, { more, description }), ...r };
   await markFind(ctx.installationId, ctx.now, remembered);
   await noticeTaken(ctx, notice);
   return reply;

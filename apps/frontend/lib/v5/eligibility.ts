@@ -71,11 +71,14 @@ const USERS_UNKNOWN: Gap = { kind: 'users', item: 'users', what: 'tell me if rea
 /** Gaps that are all rules to confirm (R18a): one answer away, no change to make. False for none. Pure. */
 export const rulesOnly = (gaps: Gap[]): boolean => gaps.length > 0 && gaps.every((g) => g.kind === 'rule');
 
+/** A hackathon for the odds (v6.1.8, 3.3): a prize pool, or a reward paid in prizes. Pure. */
+const prizes = (p: ProgramRow['file']) => p.pool_usd != null || /\bprizes?\b/i.test(p.reward);
+
 /** The program against the facts: ready, a short list of gaps, or no. `done` holds items the builder says are done. */
 export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string>, now: Date): Verdict {
   const p = program.file;
   const long_shot =
-    p.tag === 'long shot' ? (categoryOf(p) === 'investment' || p.in_person ? 'many apply, few are taken' : 'few prizes for many entries')
+    p.tag === 'long shot' ? (prizes(p) ? 'few prizes for many entries' : 'many apply, few are taken')
     : categoryOf(p) === 'investment' && p.max_award_usd == null ? 'an investment program with no stated amount'
     : null;
   const items = eligibilityOf(p);
@@ -84,6 +87,9 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
 
   if (p.status !== 'active') return out('no', [], 'not open');
   if (p.ends_at && Date.parse(p.ends_at) <= now.getTime()) return out('no', [], 'closed');
+  // C54 (v6.1.8): a project with no chain reported and none in its code is not one change from a contract program.
+  const onchain = items.find((i) => i.kind === 'chain' || i.kind === 'contract_on');
+  if (onchain && facts.chains.length === 0) return out('no', [], `needs a contract on ${chainName(onchain.value ?? '')}`);
 
   const gaps: Gap[] = [];
   let inPerson = false;

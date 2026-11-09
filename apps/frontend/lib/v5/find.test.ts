@@ -492,11 +492,15 @@ test('min_tier above the project tier moves the program to gaps with kind tier; 
     const u = await mcpCall({ ...ctx(other.id), builderId: other.builderId, evidence: async () => { throw new Error('down'); } }, 'find', { project: PROJECT, filter: { all: true } });
     assert.ok(ids(u.reply!.gaps).includes('f-tier'));
     assert.match(u.reply!.show_to_builder as string, /Tier Grant, Up to \$5,000: Link GitHub so EarnKit can confirm your product has users\./);
-    // Unlinked (v6.1.3 R3): the repo read reads as building at most, so a used bar is a gap; an unread repo has no bar.
+    // Unlinked (v6.1.3 R3): the repo read reads as building at most, so a used bar is a gap. Unread (B20, v6.1.8):
+    // the report's live link reads as live, still under a used bar; nothing reported is not a fit.
     const v5 = await mcpCall(ctx(await installation()), 'find', { project: PROJECT, filter: { all: true } });
     assert.ok(ids(v5.reply!.gaps).includes('f-tier'));
     const unread = await mcpCall(ctx(await installation()), 'find', { project: { ...PROJECT, private: true }, filter: { all: true } });
-    assert.ok(ids(unread.reply!.ready).includes('f-tier'));
+    assert.ok(ids(unread.reply!.gaps).includes('f-tier'));
+    const nothing = await mcpCall(ctx(await installation()), 'find', { project: { name: 'Idea', description: 'An idea.' }, filter: { all: true } });
+    assert.ok(!ids(nothing.reply!.ready).includes('f-tier') && !ids(nothing.reply!.gaps).includes('f-tier'));
+    assert.deepEqual((nothing.reply!.not_fit as { program_id: string; reason: string }[]).find((n) => n.program_id === 'f-tier')?.reason, 'needs a live product with users');
   } finally {
     await sql()`DELETE FROM programs WHERE id = 'f-tier'`;
   }
@@ -580,13 +584,47 @@ test('linked with an empty record: the provisional bar holds after sign-in, with
   assert.equal(r.reply!.evidence_summary, null);
 }));
 
-test('unlinked: a repo that could not be read applies no tier bar (R3)', async () => withLiveBar(async () => {
+test('B20 (v6.1.8): an unread repo gets the bar from the report: a live link reads live, a repo building, nothing no fit', async () => withLiveBar(async () => {
   const { live_url: _, ...noLink } = PROJECT;
-  const r = await mcpCall(ctx(await installation()), 'find', { project: { ...noLink, private: true }, filter: { all: true } });
+  const tierOf = async (project: Record<string, unknown>) => {
+    const r = await mcpCall(ctx(await installation()), 'find', { project, filter: { all: true } });
+    assert.equal(r.isError, false, r.text);
+    assert.equal(r.reply!.as_reported, true);
+    const g = (r.reply!.gaps as { program_id: string; gap: { kind: string; what: string } }[]).find((x) => x.program_id === 'f-live');
+    const no = (r.reply!.not_fit as { program_id: string; reason: string }[]).find((x) => x.program_id === 'f-live');
+    return { ready: ids(r.reply!.ready).includes('f-live'), gap: g ? `${g.gap.kind}: ${g.gap.what}` : null, no: no?.reason ?? null, show: r.reply!.show_to_builder as string };
+  };
+  // A repo named and not read (private): building, under a live bar.
+  const priv = await tierOf({ ...noLink, private: true });
+  assert.deepEqual([priv.ready, priv.gap, priv.no], [false, `tier: ${CONFIRM}`, null]);
+  assert.equal(priv.show.split('Private repo: matched on what you told me.').length, 2, priv.show);
+  // A live link reported: live.
+  assert.deepEqual((({ ready, gap, no }) => [ready, gap, no])(await tierOf({ ...PROJECT, private: true })), [true, null, null]);
+  // Nothing reported: not a fit, with the bar named, never ready and never a gap.
+  const idea = await tierOf({ name: 'Rent Split', description: 'An idea: an app that splits rent between roommates' });
+  assert.deepEqual([idea.ready, idea.gap, idea.no], [false, null, 'needs a live product']);
+  assert.doesNotMatch(idea.show, /Live Grant/);
+}));
+
+test('B20 (v6.1.8): reads paused gives the same answer as the read would, and says so once', async () => withLiveBar(async () => {
+  const { hit, LIMITS } = await import('./rate-limit');
+  const { live_url: _, ...noLink } = PROJECT;
+  const id = await installation();
+  for (let n = 0; n < LIMITS.repoRead.limit; n++) await hit(`repoRead:${id}`, LIMITS.repoRead.limit, LIMITS.repoRead.windowSeconds, NOW);
+  const r = await mcpCall(ctx(id), 'find', { project: noLink, filter: { all: true } });
   assert.equal(r.isError, false, r.text);
   assert.equal(r.reply!.as_reported, true);
-  assert.ok(ids(r.reply!.ready).includes('f-live'));
-  assert.ok(!(r.reply!.gaps as { gap: { kind: string } }[]).some((g) => g.gap.kind === 'tier'));
+  assert.deepEqual(r.reply!.repo_notes, ['paused']);
+  const show = r.reply!.show_to_builder as string;
+  // The read (building) and the report (a repo named: building) agree: the same live bar gap.
+  const g = (r.reply!.gaps as { program_id: string; gap: { kind: string } }[]).find((x) => x.program_id === 'f-live');
+  assert.equal(g?.gap.kind, 'tier');
+  assert.equal(show.split('Repo reads are paused until tomorrow; matched on what you told me.').length, 2, show);
+  assert.doesNotMatch(show, /Private repo/);
+  // The agent hears it once too: the paused line, not the as-reported line beside it.
+  const note = r.reply!.agent_note as string;
+  assert.match(note, /Repo reads are paused for this installation until tomorrow/);
+  assert.doesNotMatch(note, /No public repo was read/);
 }));
 
 test('unlinked: blockers name the sign-ins, clicks and documents as linked does, never outside_approval (R4)', async () => withInPerson(async () => {
@@ -798,11 +836,18 @@ const IN_PERSON_TAIL = [
   '',
   'Say "yes 3" if its rule fits you, or "do 1" and I\'ll make the change first.',
 ];
-const NO_CHAIN_GAPS = [
+// v6.1.8 (C54): no chain reported and none in the code, so no contract program; B's repo is named but unread
+// (building, B20), so it keeps the programs with a building bar; C named nothing, so only programs with no bar.
+const B_GAPS = [
   'One change away, 3:',
-  '1. Arbitrum Mentorship Program: Cohort 2, $100K in prizes: deploy the contract on Arbitrum.',
-  '2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes: a demo video. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.',
+  '1. Meta VR Start Developer Competition 2026, $1,000,000 in prizes: a demo video. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.',
+  '2. Codegeist 2026, $120,000 in prizes: a demo video. Their rule: an app on Atlassian Forge that integrates with at least one Atlassian product (Jira, Confluence, JSM, Bitbucket, Teamwork Graph or Rovo).',
   '3. OTF Internet Freedom Fund, $10,000 to $900,000. Their rule: advances internet freedom for people in repressive environments: circumvention, safe communication or access to blocked information.',
+  '',
+];
+const C_GAPS = [
+  'One change away, 1:',
+  '1. OTF Internet Freedom Fund, $10,000 to $900,000. Their rule: advances internet freedom for people in repressive environments: circumvention, safe communication or access to blocked information.',
   '',
 ];
 
@@ -834,20 +879,138 @@ test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets
   assert.deepEqual(rule.map((g) => g.program_id), ['base-ecosystem-fund'], b.reply!.show_to_builder as string);
 });
 
-test('R18e, R18f: projects B (dotfiles) and C (notes) report no chain: the chain-agnostic rule first, no in-person gap program by default (v6.1.6)', async () => {
+test('R18e, R18f, C54, B20: projects B (dotfiles) and C (notes) report no chain: no contract step, the chain-agnostic rule last, no in-person gap program by default (v6.1.6, v6.1.8)', async () => {
   const b = await mcpCall(ctx(await installation()), 'find', { project: PROJECT_B });
   assert.equal(b.isError, false, b.text);
-  assert.equal(b.reply!.show_to_builder, [...NO_CHAIN_GAPS, ...IN_PERSON_TAIL].join('\n'));
+  assert.equal(b.reply!.show_to_builder, [...B_GAPS, ...IN_PERSON_TAIL].join('\n'));
   const c = await mcpCall(ctx(await installation()), 'find', { project: PROJECT_C });
   assert.equal(c.isError, false, c.text);
-  const tail = [...IN_PERSON_TAIL];
-  tail[1] += ' Needs your YC application answers and batch you want.';
-  assert.equal(c.reply!.show_to_builder, [...NO_CHAIN_GAPS, ...tail].join('\n'));
-  for (const r of [b, c]) assert.ok((r.reply!.gaps as { in_person: boolean }[]).every((g) => !g.in_person), JSON.stringify(ids(r.reply!.gaps)));
-  // filter.all still lists them.
+  assert.equal(
+    c.reply!.show_to_builder,
+    [
+      ...C_GAPS,
+      'In person, apply to attend first:',
+      '2. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account to start the application. Needs your YC application answers and batch you want.',
+      "3. Alliance ALL19, $400K at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
+      '',
+      'Say "yes 1" if its rule fits you.',
+    ].join('\n'),
+  );
+  for (const r of [b, c]) {
+    assert.ok((r.reply!.gaps as { in_person: boolean }[]).every((g) => !g.in_person), JSON.stringify(ids(r.reply!.gaps)));
+    assert.doesNotMatch(r.reply!.show_to_builder as string, /deploy the contract|a contract on/);
+  }
+  // filter.all still lists the in-person ones; the Monad Blitz pair needs a contract on Monad, so it is not a fit.
   const all = await mcpCall(ctx(await installation()), 'find', { project: PROJECT_C, filter: { all: true } });
-  const allIds = ids(all.reply!.gaps);
-  assert.ok(allIds.includes('monad-blitz-oregon') && allIds.includes('monad-blitz-guangzhou'), JSON.stringify(allIds));
+  const notFit = all.reply!.not_fit as { program_id: string; reason: string }[];
+  assert.deepEqual(notFit.filter((n) => n.program_id.startsWith('monad-blitz')).map((n) => n.reason), ['needs a contract on Monad', 'needs a contract on Monad']);
+  assert.ok(ids(all.reply!.gaps).includes('antler-us-residency'), JSON.stringify(ids(all.reply!.gaps)));
+});
+
+/** The web2 SaaS fixture: a public Next.js repo with a homepage and no chain anywhere. */
+const dash = replayFetch('nextjs-dashboard');
+const SAAS = { name: 'Dashboard', description: 'An admin dashboard.', repo_url: `https://github.com/${dash.repo}` };
+const dashCtx = async () => ({ installationId: await installation(), builderId: null, now: NOW, gh: dash.fetch });
+
+test('C54 (v6.1.8, Review Focus 1): the web2 SaaS fixture\'s default and full replies hold no chain step; contract programs are not a fit', async () => {
+  const d = await mcpCall(await dashCtx(), 'find', { project: SAAS });
+  assert.equal(d.isError, false, d.text);
+  assert.equal(
+    d.reply!.show_to_builder,
+    [
+      'One change away, 3:',
+      '1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.',
+      '2. Farcaster Developer Rewards, $10,000 across 100 apps this week: tell me if real people use it.',
+      '3. OTF Internet Freedom Fund, $10,000 to $900,000. Their rule: advances internet freedom for people in repressive environments: circumvention, safe communication or access to blocked information.',
+      '',
+      ...IN_PERSON_TAIL,
+    ].join('\n'),
+  );
+  const all = await mcpCall(await dashCtx(), 'find', { project: SAAS, filter: { all: true } });
+  const show = all.reply!.show_to_builder as string;
+  assert.doesNotMatch(show, /deploy the contract|contract on|\b(Arc|Arbitrum|Monad|Solana|Ethereum)\b(?! Foundation| Incubator)/);
+  const gaps = all.reply!.gaps as { gap: { kind: string }; also: { kind: string }[] }[];
+  assert.ok(gaps.every((g) => [g.gap, ...g.also].every((x) => x.kind !== 'chain' && x.kind !== 'contract_on')));
+  const notFit = new Map((all.reply!.not_fit as { program_id: string; reason: string }[]).map((n) => [n.program_id, n.reason]));
+  assert.equal(notFit.get('circle-developer-grants'), 'needs a contract on Arc');
+  assert.equal(notFit.get('arbitrum-mentorship-cohort-2'), 'needs a contract on Arbitrum');
+  assert.equal(notFit.get('solana-foundation-grants'), 'needs a contract on Solana');
+});
+
+test('C60 (v6.1.8): the VR persona\'s top three; Meta VR ($1M pool) leads the two-change programs, ahead of a $120K pool', async () => {
+  const VR = { name: 'ALVR', description: 'Stream VR games from your PC to your headset over Wi-Fi', repo_url: 'https://github.com/alvr-org/ALVR', private: true, users: true };
+  const r = await mcpCall(ctx(await installation()), 'find', { project: VR });
+  assert.equal(r.isError, false, r.text);
+  assert.deepEqual(
+    blockOf(r.reply!.show_to_builder as string, 'One change away').split('\n'),
+    [
+      'One change away, 3:',
+      '1. FLOSS/fund, $10,000 to $100,000: put a live link up.',
+      '2. Farcaster Developer Rewards, $10,000 across 100 apps this week: put a live link up.',
+      '3. OTF Internet Freedom Fund, $10,000 to $900,000. Their rule: advances internet freedom for people in repressive environments: circumvention, safe communication or access to blocked information.',
+    ],
+  );
+  const all = await mcpCall(ctx(await installation()), 'find', { project: VR, filter: { all: true } });
+  const order = ids(all.reply!.gaps);
+  assert.deepEqual(order.slice(0, 4), ['floss-fund-zerodha', 'farcaster-developer-rewards', 'meta-vr-start-competition-2026', 'codegeist-2026'], JSON.stringify(order));
+});
+
+test('C59 (v6.1.8): a fork, an archived repo and an empty repo each get their one sentence; archived is not live; empty promises no repo proof', async () => withEnv(OAUTH_ENV, async () => withLiveBar(async () => {
+  const run = async (slug: string) => {
+    const f = replayFetch(slug);
+    const r = await mcpCall({ installationId: await installation(), builderId: null, now: NOW, gh: f.fetch, linkUrl: async () => 'https://earnkit.com/link/abc' }, 'find', {
+      project: { name: slug, description: 'An admin dashboard.', repo_url: `https://github.com/${f.repo}` }, filter: { all: true },
+    });
+    assert.equal(r.isError, false, r.text);
+    return r.reply!;
+  };
+  const once = (show: string, s: string) => assert.equal(show.split(s).length, 2, show);
+  const fork = await run('fork-dashboard');
+  once(fork.show_to_builder as string, 'This repo is a fork; programs judge the original.');
+  assert.ok(ids(fork.ready).includes('f-live'));
+  const archived = await run('archived-dashboard');
+  once(archived.show_to_builder as string, 'This repo is archived; programs want active work.');
+  // Its homepage is not a live link: the live bar is a gap.
+  assert.ok(ids(archived.gaps).includes('f-live'), JSON.stringify(ids(archived.gaps)));
+  const empty = await run('empty-repo');
+  const show = empty.show_to_builder as string;
+  once(show, 'The repo is empty, so I matched on what you told me.');
+  assert.doesNotMatch(show, /I read your repo/);
+  assert.match(show, /Sign in once at https:\/\/earnkit\.com\/link\/abc and I remember you across agents\.$/);
+  // Each sentence sits just before the closing line, after the lists.
+  const blocks = show.split('\n\n');
+  assert.equal(blocks.at(-2), 'The repo is empty, so I matched on what you told me.');
+  const plain = await run('nextjs-dashboard');
+  assert.doesNotMatch(plain.show_to_builder as string, /fork|archived|empty|told me/);
+  assert.equal(plain.repo_notes, undefined);
+})));
+
+test('C58 (v6.1.8): a name and a repo with no description is matched on the README, and the agent is told', async () => {
+  const r = await mcpCall(await dashCtx(), 'find', { project: { name: 'linux', repo_url: `https://github.com/${dash.repo}` } });
+  assert.equal(r.isError, false, r.text);
+  assert.doesNotMatch(r.reply!.show_to_builder as string, /^Open now|Tell me which project/m);
+  assert.ok((r.reply!.gaps as unknown[]).length > 0);
+  assert.ok((r.reply!.agent_note as string).split('\n').includes("No description was passed, so the README's first sentence stood in for it; pass one next time if it reads wrong."));
+  // With no repo link, the description is still needed.
+  const none = await mcpCall(await dashCtx(), 'find', { project: { name: 'linux' } });
+  assert.match(none.reply!.show_to_builder as string, /^Open now/);
+});
+
+test('C55, B21 (v6.1.8, Review Focus 3): a Solana project that reports mainnet and its program id is never told to deploy on Solana', async () => {
+  const saber = replayFetch('saber-distributor');
+  const devnet = ((u: RequestInfo | URL) =>
+    String(u).endsWith('/Anchor.toml') ? Promise.resolve(new Response('[programs.devnet]\nx = "y"\n[provider]\ncluster = "devnet"')) : saber.fetch(u)) as typeof fetch;
+  const orca = 'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc';
+  const project = { name: 'Orca Whirlpools', description: 'Concentrated liquidity DEX on Solana', repo_url: `https://github.com/${saber.repo}`, live_url: 'https://www.orca.so', users: true, chains: [{ chain: 'solana', mainnet: true, contract: orca }] };
+  const r = await mcpCall({ installationId: await installation(), builderId: null, now: NOW, gh: devnet }, 'find', { project, filter: { all: true } });
+  assert.equal(r.isError, false, r.text);
+  assert.equal(r.reply!.as_reported, false);
+  assert.equal(r.reply!.problems, undefined);
+  const show = r.reply!.show_to_builder as string;
+  assert.doesNotMatch(show, /deploy the contract on Solana/);
+  const g = (r.reply!.gaps as G[]).find((x) => x.program_id === 'solana-foundation-grants');
+  assert.ok(g, JSON.stringify(ids(r.reply!.gaps)));
+  assert.deepEqual([g.gap.kind, g.also], ['rule', []]);
 });
 
 test('project A (R18a): Base Ecosystem Fund is one answer away; gap_done with its rule item makes it ready, no rule sentence (v6.1.6)', async () => {

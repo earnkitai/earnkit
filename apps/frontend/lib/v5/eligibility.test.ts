@@ -59,10 +59,24 @@ test('a Solana repo does not meet a Base chain item', async () => {
   assert.equal(v.gaps[0].kind, 'chain');
 });
 
-test('the no-chain app vs a chain_required Base program is a gap', async () => {
-  const v = evaluate(toRow(programFixture({ id: 'p', chain_required: true })), await factsOf('nextjs-dashboard'), new Set(), NOW);
+test('an app on another chain vs a chain_required Base program is a gap', async () => {
+  const v = evaluate(toRow(programFixture({ id: 'p', chain_required: true })), await factsOf('nextjs-dashboard', { chains: [{ chain: 'arbitrum', mainnet: true }] }), new Set(), NOW);
   assert.equal(v.status, 'gap');
   assert.equal(v.gaps[0].what, 'deploy the contract on Base');
+});
+
+test('C54: a project with no chain reported and none in the code is not a fit for a chain or contract program, never a gap', async () => {
+  const f = await factsOf('nextjs-dashboard');
+  assert.deepEqual(f.chains, []);
+  const chain = evaluate(toRow(programFixture({ id: 'p', chain_required: true, chains: ['arc'] })), f, new Set(), NOW);
+  assert.deepEqual([chain.status, chain.gaps, chain.reason], ['no', [], 'needs a contract on Arc']);
+  const contract = evaluate(toRow(programFixture({ id: 'q', eligibility: [{ kind: 'contract_on', value: 'base' }] })), f, new Set(), NOW);
+  assert.deepEqual([contract.status, contract.reason], ['no', 'needs a contract on Base']);
+  // A testnet chain is a chain: the gaps stay.
+  const testnet = { ...f, chains: [{ chain: 'base', mainnet: false, basis: 'reported' as const }] };
+  assert.equal(evaluate(toRow(programFixture({ id: 'p', chain_required: true, chains: ['arc'] })), testnet, new Set(), NOW).status, 'gap');
+  // A program with no chain item is unchanged.
+  assert.equal(evaluate(toRow(programFixture({ id: 'r' })), f, new Set(), NOW).status, 'ready');
 });
 
 test('the Base app meets a chain_required Base program', async () => {
@@ -138,7 +152,12 @@ test('verifiable kinds ignore done; three gaps is no', async () => {
 
 test('long shot text', async () => {
   const f = await factsOf('earnkit');
-  assert.equal(evaluate(toRow(programFixture({ id: 'p', tag: 'long shot' })), f, new Set(), NOW).long_shot, 'few prizes for many entries');
+  // 3.3 (v6.1.8): prizes only for a hackathon (a pool, or a reward in prizes); any other long shot is about selection.
+  assert.equal(evaluate(toRow(programFixture({ id: 'p', tag: 'long shot' })), f, new Set(), NOW).long_shot, 'many apply, few are taken');
+  assert.equal(evaluate(toRow(programFixture({ id: 'p', tag: 'long shot', reward: '$50,000 in prizes', summary: '$50,000 in prizes' })), f, new Set(), NOW).long_shot, 'few prizes for many entries');
+  assert.equal(evaluate(toRow(programFixture({ id: 'p', tag: 'long shot', pool_usd: 20000, reward: '$20,000 in prizes' })), f, new Set(), NOW).long_shot, 'few prizes for many entries');
+  assert.equal(evaluate(fromFile('thiel-fellowship'), f, new Set(), NOW).long_shot, 'many apply, few are taken');
+  assert.equal(evaluate(fromFile('meta-vr-start-competition-2026'), f, new Set(), NOW).long_shot, 'few prizes for many entries');
   assert.equal(evaluate(toRow(programFixture({ id: 'p', investment: true })), f, new Set(), NOW).long_shot, 'an investment program with no stated amount');
   // R20 (v6.1.6): investment or in person, the odds are about selection, not prizes.
   assert.equal(evaluate(toRow(programFixture({ id: 'p', tag: 'long shot', investment: true, category: 'investment', max_award_usd: 500000 })), f, new Set(), NOW).long_shot, 'many apply, few are taken');
@@ -148,7 +167,7 @@ test('long shot text', async () => {
 
 test('done never clears chain, contract_on, builder_codes or live_product', async () => {
   const p = toRow(programFixture({ id: 'p', eligibility: [{ kind: 'chain', value: 'arc' }, { kind: 'contract_on', value: 'arc' }] }));
-  const f = await factsOf('nextjs-dashboard');
+  const f = await factsOf('nextjs-dashboard', { chains: [{ chain: 'base', mainnet: true }] });
   assert.deepEqual(evaluate(p, f, new Set(['chain:arc', 'contract_on:arc']), NOW).gaps.map((g) => g.kind), ['chain', 'contract_on']);
   const q = toRow(programFixture({ id: 'q', eligibility: [{ kind: 'builder_codes' }, { kind: 'live_product' }] }));
   const noLive = { ...f, live_url: null };
@@ -164,7 +183,7 @@ test('a testnet-only chain does not meet a Base chain_required program', async (
 
 test('two unmet chain items give one gap naming the first', async () => {
   const p = toRow(programFixture({ id: 'p', chain_required: true, chains: ['arc', 'base'] }));
-  const v = evaluate(p, await factsOf('nextjs-dashboard'), new Set(), NOW);
+  const v = evaluate(p, await factsOf('nextjs-dashboard', { chains: [{ chain: 'monad', mainnet: true }] }), new Set(), NOW);
   assert.equal(v.gaps.length, 1);
   assert.equal(v.gaps[0].item, 'chain:arc');
 });

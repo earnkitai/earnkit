@@ -106,25 +106,33 @@ const nextOf = (line: string | undefined, min: string) => {
   return m ? m[1] : `the project reading as ${min}`;
 };
 
+/** What a program's bar asks for, after "needs a" in a not-fit reason (B20, v6.1.8). */
+export const TIER_NEED: Record<'used' | 'live' | 'building', string> = { used: 'live product with users', live: 'live product', building: 'project with code' };
+
 /**
  * A ready verdict, or a gap verdict of rules only (R18c), on a program whose min_tier is above a known tier gets the
- * tier gap as its real gap, ahead of any rules (never ask to confirm a rule for a program out of reach); anything
- * else is unchanged. Pure.
+ * tier gap as its real gap, ahead of any rules (never ask to confirm a rule for a program out of reach). With no tier
+ * at all (B20, v6.1.8: nothing read, no repo or live link reported) a program with a bar is not a fit, never ready
+ * and never a gap. Anything else is unchanged. Pure.
  */
 export function tierGate(v: Verdict, row: ProgramRow, tier: Tier | null, line: string | undefined): Verdict {
   const min = row.file.min_tier;
+  if (min && !tier && v.status !== 'no') return { ...v, status: 'no', gaps: [], reason: `needs a ${TIER_NEED[min]}` };
   if ((v.status !== 'ready' && !(v.status === 'gap' && rulesOnly(v.gaps))) || !min || !tier || RANK[tier] >= RANK[min]) return v;
   const gap: Gap = { kind: 'tier', item: `tier:${min}`, what: nextOf(line, min), effort: 'weeks', agent_can: false, details: { tier, min_tier: min } };
   return { ...v, status: 'gap', gaps: [gap, ...v.gaps] };
 }
 
 /**
- * Unlinked, the tier the public code read alone supports: 'live' for a live URL or a mainnet contract read
- * from the code (a repo homepage counts even when the agent also passes the live URL, R3a; homepage is set only by the read), 'building' for any other public repo read, null (no bar) when the repo was not read.
- * Never stored and never shown as the builder's tier. Pure.
+ * Without the builder's own tier, the tier the public code read alone supports: 'live' for a live URL or a mainnet
+ * contract read from the code (a repo homepage counts even when the agent also passes the live URL, R3a; homepage is
+ * set only by the read), 'building' for any other public repo read, and for an archived one (C59). Not read (B20,
+ * v6.1.8): what was reported, 'live' for a live link, 'building' for a repo named, null for neither (no program with a
+ * bar fits). Never stored and never shown as the builder's tier. Pure.
  */
 export function provisionalTier(facts: RepoFacts): Tier | null {
-  if (!facts.public || facts.as_reported) return null;
+  if (!facts.public || facts.as_reported) return facts.live_url ? 'live' : facts.repo_url ? 'building' : null;
+  if (facts.notes?.includes('archived')) return 'building';
   const mainnet = new Set(facts.chains.filter((c) => c.mainnet).map((c) => c.chain));
   if (facts.live_url_basis === 'code' || facts.homepage !== null || facts.contracts.some((c) => c.basis === 'code' && mainnet.has(c.chain))) return 'live';
   return 'building';

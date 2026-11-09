@@ -1,5 +1,5 @@
 /**
- * Ordering of verdicts. Ready: fit first (not a long shot), then the larger award, then the
+ * Ordering of verdicts. Ready: fit first (not a long shot), then the larger award (or pool), then the
  * sooner deadline. Gaps: programs with a real change first, then rule-only ones (R18b); rule-only ones naming one
  * of the project's mainnet chains first, then chain-agnostic ones, then the rest (R18e); within each, fewest gaps, then
  * lowest effort, then the larger award; rule-only ones on the project's chains that state no award put one naming the
@@ -11,7 +11,12 @@ import type { ProgramRow } from './programs';
 const EFFORT_RANK: Record<Effort, number> = { minutes: 0, hours: 1, days: 2, weeks: 3 };
 type Programs = Map<string, ProgramRow>;
 
-const award = (v: Verdict, m: Programs) => m.get(v.program_id)?.file.max_award_usd ?? null;
+/** The money a program puts up (C60, v6.1.8): the larger of its top award and its pool, null when it states neither. */
+const award = (v: Verdict, m: Programs) => {
+  const f = m.get(v.program_id)?.file;
+  const top = Math.max(f?.max_award_usd ?? -1, f?.pool_usd ?? -1);
+  return top < 0 ? null : top;
+};
 const endsAt = (v: Verdict, m: Programs) => {
   const e = m.get(v.program_id)?.file.ends_at;
   return e ? Date.parse(e) : Infinity;
