@@ -69,7 +69,7 @@ test('first find has no since', async () => {
       '',
       'In person, apply to attend first:',
       '5. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account to start the application.',
-      "6. Alliance ALL19, $400K at admission, closes in 14 days. Long odds: many apply, few are taken. First: start the application with the first founder's email.",
+      "6. Alliance ALL19, $400K at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
       '',
       'Say yes to apply, skip it, "yes 4" if its rule fits you, or "do 2" and I\'ll make the change first.',
     ].join('\n'),

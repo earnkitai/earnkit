@@ -88,10 +88,10 @@ export type Agent = {
  *   its gradient fill flattened to one color and the eyes dropped (the tab draws the mark in one color).
  *
  * Commands: Claude Code per https://code.claude.com/docs/en/mcp (--transport http, --scope user,
- * then /mcp to sign in); Codex per https://developers.openai.com/codex/mcp
+ * then /mcp to sign in); Codex per https://learn.chatgpt.com/docs/extend/mcp?surface=cli
  * (codex mcp add <name> --url <url>, then codex mcp login <name>); OpenClaw per https://docs.openclaw.ai/tools/mcp
- * (openclaw mcp add <name> --url <url> --transport streamable-http; the login runs with the gateway stopped, and a
- * headless server pastes the printed --code command); Hermes per
+ * (with the gateway stopped: openclaw mcp add <name> --url <url> --transport streamable-http --auth oauth, then
+ * openclaw mcp login <name>, then the gateway starts again; a headless server pastes the printed --code command); Hermes per
  * https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp (no add-by-URL command: mcp_servers in
  * ~/.hermes/config.yaml with auth: oauth, then hermes mcp login <name> and /reload-mcp). hermes.png: Hermes Agent's own
  * icon from its official site (https://hermes-agent.nousresearch.com/, the page's 48px icon.png), unchanged.
@@ -130,10 +130,13 @@ export const AGENTS: Agent[] = [
   {
     name: 'OpenClaw',
     icon: '/images/agents/openclaw.svg',
-    steps: ['Run this where OpenClaw runs:'],
-    code: `openclaw mcp add earnkit --url ${MCP_URL} --transport streamable-http`,
-    after: 'Then approve it with the gateway stopped:',
-    afterCode: 'openclaw gateway stop\nopenclaw mcp login earnkit\nopenclaw gateway start',
+    steps: ['Stop the gateway, then add and approve it where OpenClaw runs:'],
+    code: [
+      'openclaw gateway stop',
+      `openclaw mcp add earnkit --url ${MCP_URL} --transport streamable-http --auth oauth`,
+      'openclaw mcp login earnkit',
+      'openclaw gateway start',
+    ].join('\n'),
     last: 'On a server with no browser, run the --code command the login prints.',
   },
   {
@@ -153,6 +156,7 @@ export const AGENTS: Agent[] = [
       'In claude.ai or the desktop app, open "Customize", then "Connectors".',
       'Choose "+ Add", then "Add custom connector".',
       'Name it EarnKit, paste the EarnKit link, choose "Continue".',
+      'Keep the sign-in settings it detected and choose "Continue" again. If it asks for an OAuth client, choose "Register automatically".',
       'Choose "Add". It connects at once. No account needed.',
       'In a chat, choose "+", then "Connectors", and turn EarnKit on.',
     ],
