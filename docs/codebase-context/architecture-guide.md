@@ -46,9 +46,14 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
 3. `programs.ts` lists the open programs. `eligibility.ts` evaluates each program's eligibility items against the
    facts: `ready`, `gap` (with each unmet item as a gap: kind, effort, whether the agent can do it) or no fit.
    `chain` and `contract_on` count as met only on mainnet. `users` not reported is a one-question gap the builder
-   answers; `users: false` is no fit.
-4. `rank.ts` orders them: ready by fit (long shots last), larger award, sooner deadline; gaps by fewest gaps, lowest
-   effort, larger award. Skipped and applied programs never return unless their next round opens.
+   answers; `users: false` is no fit. A `rule` item (a requirement EarnKit cannot check) is a confirmation gap with
+   item `rule:<hash8>` (the first 8 hex of the sha256 of its note). It sits after the real gaps and never counts
+   toward the two-gap limit or the weeks refusal. The builder sees it as "Their rule" and confirms it once; the agent
+   then calls `track` `gap_done` with its item. `rulesOnly` (`eligibility.ts`) marks a gap verdict whose gaps are all
+   rules.
+4. `rank.ts` orders them: ready by fit (long shots last), larger award, sooner deadline; gaps with a real change
+   first, then rule-only ones, and within each by fewest gaps, lowest effort, larger award. `shownGapsOf` picks the
+   shown gaps: at most one rule-only program, after the real changes, in the last slot when there are more. Skipped and applied programs never return unless their next round opens.
 5. `prefill.ts` fills each ready program's form: fields EarnKit can answer (`from: earnkit`), prose fields handed to
    the agent with sources (`from: agent`), and fields only the builder can give (`from: builder`, a demo video or
    a file). Blank beats a wrong guess. `facts_from_repo` counts only values the public code read gave (its repo link,
@@ -61,7 +66,8 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
    exactly one closing line. `find` caps remote and in-person ready apart, so an in-person program never takes a remote slot.
    The caps live in `shownReadyOf` (`find.ts`, pure): with no remote ready it shows only the 2 in-person slots.
    `find` also saves every gap (at most 60) to `installations.last_gaps` as `{ program_id: what is missing }`;
-   `track` `started` reads it to say what is still missing; `track` `gap_done` drops that program's entry.
+   `track` `started` reads it to say what is still missing; `track` `gap_done` drops that program's entry. A rule
+   still unconfirmed is part of what is missing.
    `find` returns `ready` in that display order (in person last) and gives every ready and gap item its displayed
    number `n`, so "skip 4" maps to the item with `n` 4. No emoji, no em dash, no tool or field names, no coins, points or scores.
 
@@ -91,15 +97,18 @@ The pipeline, in order:
    the open list. The deploy's sync writes an active file past its `ends_at` as closed, with a warning, so a deploy
    never reopens it. There is no LLM in the cron.
 5. Readers: `programs-read.ts` serves public `GET /api/programs`; `landing.ts`, `guide.ts`, `guide-page.ts` and
-   `stats.ts` feed the site. The hero chip ("$N in grants and prizes open now") sums, per open non-investment
+   `stats.ts` feed the site. A program card shows the pool first (`pool_usd`, as "$N in grants" or "$N in prizes"),
+   then the per-winner `max_award_usd`, then the summary (`moneyOf` in `programs-read.ts`). The hero chip ("$N in grants and prizes open now") sums, per open non-investment
    program, its `pool_usd` when set, else its `max_award_usd`.
 
 ## The ledger
 
 `applications` holds one row per installation and program (latest status wins); `application_history` keeps every
 change; `gaps_done` records closed gap items. It is keyed by installation only: v5 has no proof of who a login
-belongs to, so a re-authorization starts a fresh ledger and a builder with two agents has two. `gap_done` is trusted
-only for kinds EarnKit cannot verify (`feature`, `users`, `demo_video`); verifiable kinds are re-read from the repo.
+belongs to, so a re-authorization starts a fresh ledger and a builder with two agents has two. `gap_done` takes only
+one of the program's own eligibility items or `users`; any other item is refused, and the agent note lists the
+program's items. It is trusted only for kinds EarnKit cannot verify (`feature`, `users`, `demo_video`, `rule`);
+verifiable kinds are re-read from the repo.
 `won` with an amount is the one fact that later feeds an aggregate "what wins" view; nothing aggregate is shown yet.
 A `won` above the program's `max_award_usd` (or 5,000,000 when none is stated) is refused and writes nothing.
 `asked_usd` leaves out investment programs.
