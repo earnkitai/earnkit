@@ -120,7 +120,7 @@ A `won` above the program's `max_award_usd` (or 5,000,000 when none is stated) i
 
 `.github/workflows/earnkit-cron.yml` posts to `/api/cron` once a day with `CRON_SECRET`. `cron.ts` runs the probe
 (`health.ts`), the `repo_cache` sweep (rows over 30 days, answered as `swept`), the screen queue's daily share
-(screen jobs over 90 days deleted with their rows, then `workQueue` with `SCREEN_BATCH` 40 within 5 minutes,
+(screen jobs over 90 days deleted with their rows, then `workQueue` with `SCREEN_BATCH` 200 within 5 minutes,
 answered as `screen` with `swept`), then the owner's digest (`owner-digest.ts`: programs closed by deadline, failed links, changed pages
 and every change to live programs since the last digest, with revert links; nothing happened, nothing sent). Mail is
 `mail.ts` over Resend, to the owner only. A step that throws answers 500 with its name. The owner triggers one
@@ -165,7 +165,7 @@ keys from tool-call bodies before anything sees them.
 | `program_changes` | Field-level changes, for `since` and the owner digest |
 | `program_writes` | The write API's audit log and the pending writes |
 | `program_health` | The freshness probe: link status, page hash and text, failing days, changed_at |
-| `installations` | One row per issued token (hash only): client name, `last_seen_at`, `last_find_at`, `last_gaps` (the last find's gaps) |
+| `installations` | One row per issued token (hash only): client name, `last_seen_at`, `last_find_at`, `last_gaps` (the last find's gaps), `builder_id` and `linked_at` when linked, `unlinked_at` (set by an unlink on /me, cleared by the next find or a new link) |
 | `rate_windows` | Request counters |
 | `repo_cache` | Public repo facts, 7 days; swept after 30 |
 | `evidence_cache` | v6 evidence blocks per repo (`repo:<owner/name>`, with pushed_at) and per contract, used for 7 days; not swept yet |
@@ -273,7 +273,10 @@ on `/me?link=<code>` (v6.1.6, security H1: a sent link plus one click no longer 
 names the agent and its first-seen day; Link this agent (`POST /me/link`, session and csrf) marks the code used and
 links the installation in one transaction (`consumeLinkCode`), Not me ends the code (`denyLinkCode`). The first `find`
 after a link (its `linked_at` later than its `last_find_at`) ends the closing block with "This agent is now linked to
-GitHub account {login}." (`linked_notice`, security M2); `markFind` moves `last_find_at`, so it shows once. The ledger's owner is `b:<builder>` once linked, else `i:<installation>` (`ownerKey`); linking moves
+GitHub account {login}." (`linked_notice`, security M2); `markFind` moves `last_find_at`, so it shows once. An unlink on
+/me (`unlinkInstallation`) sets `installations.unlinked_at`; the next `find` of that agent (match or open list) ends with
+"This agent was unlinked from your account. Sign in once at {link} to link it again." in place of the sign-in sentence,
+and clears the mark (`takeUnlinkedNotice`, v6.1.7 B10). The unlinked agent's ledger stays with the builder. The ledger's owner is `b:<builder>` once linked, else `i:<installation>` (`ownerKey`); linking moves
 the installation's rows to the builder (the newer row per program wins), so every agent of one builder shares one
 ledger. A second agent links to the same builder; an installation linked to another builder is refused.
 
@@ -300,13 +303,17 @@ claim with no `applied` after 24 hours is released. A skip stands over a claim.
 
 **The screen queue and the cron trigger.** `screen` (`screen-tool.ts`) is for a reviewer: a signed-in builder the
 owner adds with `POST /api/programs/reviewers`. With `applicants` (up to 200) it queues a job (`screen-jobs.ts
-createJob`: pitches compared for `identical_pitch`, then dropped; 10 jobs a day per reviewer). The cron's `workQueue`
+createJob`: pitches compared for `identical_pitch`, then dropped; 10 jobs a day per reviewer; thresholds from 0 to
+100). The promise is computed from the queue (v6.1.7 B14): the unread applicants of unexpired jobs created before this
+one (`queuedAhead`) plus this job's, against `SCREEN_BATCH` per daily run: "Results by tomorrow morning." when they fit
+in one run, else "{n} applicants ahead of yours; results within {d} days.". The cron's `workQueue`
 (`screen-worker.ts`) takes each applicant atomically (`reading`, free again after 30 minutes), reads it as the pilot
 does (a GitHub budget stop puts it back and ends the run; a tierless read worth a retry is queued again, `failed` at
 the third) and stores tier, flags, because, line and public rows only (`github`, `explorer`, `site`, `earnkit`, never
 `record`). The daily cron gives the queue 300 s; `POST /api/cron` with `{ "job_id": "..." }` is the owner's trigger
 (that job only, at most 300 applicants in 600 s). With `job_id` the tool answers the totals line and the results;
-with `outcomes` it records the program's decisions, which also reach a builder's ledger when their record project is
+with `outcomes` it records the program's decisions (refs not in the job are named; a win over the program's cap is
+refused with the ledger's line and nothing is recorded), which also reach a builder's ledger when their record project is
 the same repo and they had applied. `xpCounts` gives each read the screens by other programs in 90 days sharing the
 repo or a deployer ("seen in n other screens in 90 days", never a flag, never a program name).
 
@@ -318,7 +325,8 @@ needs a web form under 64 KB (else 415 or 413), a session and the day's csrf tok
 session cookie's value and the UTC day with `EARNKIT_AUTH_SECRET`, today's or yesterday's; another session's token
 fails), else 403 and no change. Edits merge as the builder under
 the row lock; a problem comes back as a signed `?problem=` line (a crafted one is not shown). Delete needs the login
-typed and removes the record, the ledger, sessions, reviewer rows and link codes, and unlinks the installations.
+typed and removes the record, the ledger, sessions, reviewer rows, screen jobs with their applicants and outcomes, and
+link codes, and unlinks the installations, in one transaction.
 `/me`, `/link/*` and `/auth/*` send `X-Robots-Tag: noindex` and are not in the sitemap.
 
 **Environment (ten).** `DATABASE_URL`, `EARNKIT_AUTH_SECRET` (also signs link codes, the sign-in state and the /me

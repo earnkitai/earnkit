@@ -7,6 +7,7 @@ import { connectInstallation, saveInstallation } from '../v5/installations';
 import { upsertProgram } from '../v5/programs';
 import { getRecord, linkInstallation, saveRecord, upsertBuilder } from './builders';
 import { EMPTY_RECORD, approvePath } from './record';
+import { listWords } from './reply-words';
 
 after(() => sql().end());
 
@@ -72,7 +73,8 @@ test('linked: set saves, get reads it back; missing lists the founder video when
   assert.equal(s.reply!.linked, true);
   const missing = s.reply!.missing as string[];
   assert.ok(missing.includes('your founder video link'), missing.join('|'));
-  assert.match(s.reply!.show_to_builder as string, /^Saved\. Still missing: [^.]+\.$/);
+  // Name, email and the project's repo: three facts (a new project is not a fourth).
+  assert.match(s.reply!.show_to_builder as string, /^Saved 3\. Still missing: [^.]+\.$/);
   assert.equal((await getRecord(c.builderId)).person.name, 'Ada');
   const [row] = await sql()`SELECT record_updated_at FROM builders WHERE id = ${c.builderId}`;
   assert.equal((row.record_updated_at as Date).toISOString(), NOW.toISOString());
@@ -82,13 +84,15 @@ test('linked: set saves, get reads it back; missing lists the founder video when
   assert.equal(rec.person.name, 'Ada');
   assert.equal(rec.meta['person.name'].set_by, 'agent');
   assert.ok((g.reply!.missing as string[]).includes('your founder video link'));
-  assert.equal(g.reply!.show_to_builder, 'Your record has 2 of 6 blocks; missing: the company, your documents, traction and answers.');
+  // C30: get and set say what is missing with one line, from one list.
+  assert.deepEqual(g.reply!.missing, s.reply!.missing);
+  assert.equal(g.reply!.show_to_builder, `Your record has 2 of 6 blocks. Still missing: ${listWords(missing)}.`);
 });
 
 test('the Saved line: three missing items, then "and n more"; the approval note only when an approvable path changed', async () => {
   const c = await linked();
   const plain = await mcpCall(c, 'record', { set: { person: { location: 'London' } } });
-  assert.match(plain.reply!.show_to_builder as string, /^Saved\. Still missing: your name and email, a project with its repo or site, one approved line on traction and \d+ more\.$/);
+  assert.match(plain.reply!.show_to_builder as string, /^Saved 1\. Still missing: your name and email, a project with its repo or site, one approved line on traction and \d+ more\.$/);
   assert.equal(plain.reply!.agent_note, '');
   const ans = await mcpCall(c, 'record', { set: { answers: { problem: { text: 'Fees are high.' } } } });
   assert.equal(ans.reply!.agent_note, 'Approved answers come from earnkit.com/me, where the builder reads and approves each one; an unapproved answer is never used in a form.');
@@ -137,16 +141,16 @@ test('B9: a set field that looks like a secret is skipped, never stored; the lin
   const key = 'sk_live_' + 'a1'.repeat(12);
   const r = await mcpCall(c, 'record', { set: { person: { name: key, email: 'ada@example.com' } } });
   assert.equal(r.isError, false, r.text);
-  assert.match(r.reply!.show_to_builder as string, /^Saved\. Not saved: 1 field looked like a secret\./);
+  assert.match(r.reply!.show_to_builder as string, /^Saved 1; 1 not saved: one looked like a secret\. Still missing: /);
   const rec = await getRecord(c.builderId);
   assert.equal(rec.person.name, undefined);
   assert.equal(rec.person.email, 'ada@example.com');
   // As the route delivers it: the key already swapped for the placeholder.
   const p = await mcpCall(c, 'record', { set: { person: { name: '[key removed]', location: 'x [key removed]' } } });
-  assert.match(p.reply!.show_to_builder as string, /^Nothing new to save\. Not saved: 2 fields looked like secrets\./);
+  assert.match(p.reply!.show_to_builder as string, /^Nothing saved: 2 looked like secrets\. Still missing: /);
   assert.equal((await getRecord(c.builderId)).person.name, undefined);
   const clean = await mcpCall(c, 'record', { set: { person: { name: 'Ada' } } });
-  assert.doesNotMatch(clean.reply!.show_to_builder as string, /Not saved/);
+  assert.doesNotMatch(clean.reply!.show_to_builder as string, /not saved/i);
 });
 
 test('the record is private: another builder reads only their own', async () => {
@@ -223,6 +227,32 @@ test('a projects entry without an id: a problem line and no change', async () =>
   const problems = r.reply!.problems as string[];
   assert.equal(problems.length, 1);
   assert.match(problems[0], /^projects\.id: /);
-  assert.match(r.reply!.show_to_builder as string, /^Nothing new to save\./);
+  assert.match(r.reply!.show_to_builder as string, /^Nothing saved: project id was not valid\. /);
   assert.deepEqual(await getRecord(c.builderId), before);
+});
+
+test('C29: record set counts what it saved and names what it did not; never a bare Saved. when something was refused', async () => {
+  const c = await linked();
+  const r = await mcpCall(c, 'record', { set: { person: { name: 'Ada', email: 'not-an-email' } } });
+  assert.match(r.reply!.show_to_builder as string, /^Saved 1; 1 not saved: email was not valid\. Still missing: /);
+  assert.equal((await getRecord(c.builderId)).person.name, 'Ada');
+  const t = await mcpCall(c, 'record', { set: { team: { lead: 'x' } } });
+  assert.match(t.reply!.show_to_builder as string, /^Nothing saved: team was not valid\. /);
+  const same = await mcpCall(c, 'record', { set: { person: { name: 'Ada' } } });
+  assert.match(same.reply!.show_to_builder as string, /^Nothing new to save\. /);
+  for (const x of [r, t, same]) {
+    const show = x.reply!.show_to_builder as string;
+    assert.doesNotMatch(show, /^Saved\./);
+    assert.doesNotMatch(show, /person\.|\bset\b|—/);
+  }
+});
+
+test('C20: an answer sent as plain text: the agent note names the shape the record takes', async () => {
+  const c = await linked();
+  const r = await mcpCall(c, 'record', { set: { answers: { problem: 'Fees are high.' } } });
+  assert.deepEqual(r.reply!.problems, ['answers.problem: not an object']);
+  assert.match(r.reply!.show_to_builder as string, /^Nothing saved: the answer on the problem was not valid\. /);
+  const note = r.reply!.agent_note as string;
+  assert.ok(note.includes('{ kind, text }'), note);
+  assert.ok(note.includes('answers: { problem: { text: "..." } }'), note);
 });

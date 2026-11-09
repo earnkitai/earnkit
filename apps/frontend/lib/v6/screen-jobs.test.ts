@@ -84,14 +84,14 @@ test('recordOutcomes writes won into a linked builder\'s ledger only when they h
     { ref: 'c-4', outcome: 'won' },
     { ref: 'nope', outcome: 'rejected' },
   ], NOW);
-  assert.deepEqual(out, { recorded: 4 });
+  assert.deepEqual(out, { recorded: 4, notFound: ['nope'] });
   const [a] = await sql()`SELECT status, amount_usd, installation_id FROM applications WHERE owner = ${`b:${applied.id}`} AND program_id = 'jobs-c'`;
   assert.deepEqual([a.status, Number(a.amount_usd), a.installation_id], ['won', 5000, BUILDER_INSTALLATION]);
   const [n] = await sql()`SELECT status FROM applications WHERE owner = ${`b:${noAmount.id}`} AND program_id = 'jobs-c'`;
   assert.equal(n.status, 'applied');
   assert.equal((await sql()`SELECT 1 FROM applications WHERE owner = ${`b:${never.id}`}`).length, 0);
   const other = await reviewer('jobs-c2');
-  assert.deepEqual(await recordOutcomes(j.id, other.builderId, [{ ref: 'c-1', outcome: 'rejected' }], NOW), { recorded: 0 });
+  assert.deepEqual(await recordOutcomes(j.id, other.builderId, [{ ref: 'c-1', outcome: 'rejected' }], NOW), { recorded: 0, notFound: [] });
 });
 
 test('recordOutcomes writes no ledger when two applied builders\' records claim the applicant\'s repo', async () => {
@@ -103,7 +103,7 @@ test('recordOutcomes writes no ledger when two applied builders\' records claim 
     assert.deepEqual(await record(`b:${b.id}`, 'jobs-amb', 'applied', { installationId: 4242, now: NOW }), { ok: true });
   }
   const j = await job(r, [{ ref: 's-1', name: 'Shared', repo_url: 'https://github.com/acme/shared' }]);
-  assert.deepEqual(await recordOutcomes(j.id, r.builderId, [{ ref: 's-1', outcome: 'won', amount_usd: 900 }], NOW), { recorded: 1 });
+  assert.deepEqual(await recordOutcomes(j.id, r.builderId, [{ ref: 's-1', outcome: 'won', amount_usd: 900 }], NOW), { recorded: 1, notFound: [] });
   for (const b of [one, two]) {
     const [a] = await sql()`SELECT status FROM applications WHERE owner = ${`b:${b.id}`} AND program_id = 'jobs-amb'`;
     assert.equal(a.status, 'applied');

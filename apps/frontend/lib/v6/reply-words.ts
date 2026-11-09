@@ -26,3 +26,7 @@ export const signInSentence = (link: string, repoRead: boolean) =>
 
 /** The first find after a link (security M2): the account this agent now writes to, and where to undo it. Pure. */
 export const linkedNoticeLine = (login: string) => `This agent is now linked to GitHub account ${login}. Unlink any time at earnkit.com/me.`;
+
+/** The first find after the builder unlinked this agent on /me (v6.1.7 B10); it carries the sign-in link when there is one. Pure. */
+export const unlinkedNoticeLine = (link: string | null) =>
+  link ? `This agent was unlinked from your account. Sign in once at ${link} to link it again.` : 'This agent was unlinked from your account.';

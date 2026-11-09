@@ -4,13 +4,13 @@
  * open list. Linked, it also reads the builder's record (lib/v6/find-record.ts). EarnKit writes no prose.
  */
 import { z } from 'zod';
-import { ownerKey } from '../v6/builders';
+import { ownerKey, takeUnlinkedNotice } from '../v6/builders';
 import { appliedOvernight, releaseStale } from '../v6/claims';
 import { readEvidence, type Evidence, type Subject } from '../v6/evidence';
 import { blockersOf, notNever, missingFor, provisionalGate, provisionalTier, recordSide, storedRecordContext, tierGate, type Blocker, type RecordSide } from '../v6/find-record';
 import { EMPTY_RECORD } from '../v6/record';
 import { signInLink } from '../v6/record-tool';
-import { linkedNoticeLine, signInLine } from '../v6/reply-words';
+import { linkedNoticeLine, signInLine, unlinkedNoticeLine } from '../v6/reply-words';
 import { timeLeftWords } from './deadline';
 import { evaluate, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
@@ -107,7 +107,8 @@ export type FindReply = {
   max_per_night?: number;
   /** Unlinked with sign-in configured: the link that links this installation to a builder. */
   sign_in?: string;
-  /** The first find after a link: the GitHub account it linked to, as the closing block's last sentence (security M2). */
+  /** The first find after a link: the GitHub account it linked to, as the closing block's last sentence (security M2);
+   *  after an unlink on /me: that it was unlinked, with the sign-in link (v6.1.7 B10). */
   linked_notice: string | null;
 };
 export type ProgramReply = {
@@ -201,17 +202,22 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const left = closesIn(p, ctx.now);
   const open = isOpen(p, ctx.now);
   const when = p.status === 'upcoming' ? null : !open ? 'closed' : left ? `closes ${left}` : 'rolling';
-  const ask = open ? (p.in_person ? 'Want me to start the application to attend?' : 'Want me to draft it?') : p.status === 'upcoming' ? `Not open yet: ${p.opens_note ?? 'no date announced'}.` : 'This one is closed.';
+  const ask = open ? (p.in_person ? 'Want me to start the application to attend?' : 'Want me to draft it?') : 'This one is closed.';
   const guide = guideText(row, ctx.now);
   const guideRules = guideLines(guide);
   // Their rules: what the program requires that EarnKit cannot check, each its own line after the money (v6.1.6).
   const rules = ruleNotes(p);
+  // An upcoming program opens with when it opens, and offers nowhere to apply yet (v6.1.7, C10).
+  const opens = (p.opens_note ?? 'no date announced').trim().replace(/\.+$/, '');
   return {
-    show_to_builder: [
-      `${p.title}, ${moneyOf(p)}${when ? `, ${when}` : ''}.`,
-      ...rules.map(ruleSentence),
-      ...(guideRules.length > 0 ? [`Apply at ${p.submission_url}.`, ...guideRules, ask] : [`Apply at ${p.submission_url}. ${ask}`]),
-    ].join('\n'),
+    show_to_builder: (p.status === 'upcoming'
+      ? [`${p.title}, ${moneyOf(p)}. Not open yet: ${opens}.`, ...rules.map(ruleSentence), ...guideRules]
+      : [
+          `${p.title}, ${moneyOf(p)}${when ? `, ${when}` : ''}.`,
+          ...rules.map(ruleSentence),
+          ...(guideRules.length > 0 ? [`Apply at ${p.submission_url}.`, ...guideRules, ask] : [`Apply at ${p.submission_url}. ${ask}`]),
+        ]
+    ).join('\n'),
     agent_note: (open
       ? [
           project ? `Draft from fields: ${fitted ? "'record' and 'earnkit'" : "'earnkit'"} values as given; ${AGENT_FIELDS}` : 'Call again with the project so the fields come pre-filled.',
@@ -239,10 +245,12 @@ async function openList(ctx: FindContext, problem: string | null): Promise<FindR
   if (programs.length > MAX_LISTED) lines.push(`and ${programs.length - MAX_LISTED} more.`);
   const ledger = await summary(ownerOf(ctx), programs, ctx.now);
   const link = ctx.builderId === null ? await linkOf(ctx) : null;
-  const notice = await linkedNotice(ctx);
+  const notice = await linkedNotice(ctx, link);
   const list = programs.length > 0 ? `Open now:\n${lines.join('\n')}\nTell me which project and I'll match it.` : "Nothing is open right now. I'll say when something opens.";
+  // After an unlink the notice carries the link, in place of the plain sign-in line.
+  const unlinkedNow = ctx.builderId === null && notice !== null;
   return {
-    show_to_builder: [link ? `${list}\n\n${signInLine(link)}` : list, notice].filter(Boolean).join(' '),
+    show_to_builder: unlinkedNow ? `${list}\n\n${notice}` : [link ? `${list}\n\n${signInLine(link)}` : list, notice].filter(Boolean).join(' '),
     agent_note: [
       ...(problem ? [`The project was not read: ${problem}.`] : []),
       'Pass the project next time (name, description, repo_url, chains, live_url) so EarnKit can match it and pre-fill each form.',
@@ -253,9 +261,12 @@ async function openList(ctx: FindContext, problem: string | null): Promise<FindR
   };
 }
 
-/** Linked since the last find: the sentence that says to which GitHub account; else null. Read before markFind. */
-const linkedNotice = async (ctx: FindContext) => {
-  if (ctx.builderId === null) return null;
+/**
+ * Linked since the last find: the sentence that says to which GitHub account. Unlinked on /me since (v6.1.7 B10):
+ * the unlinked line with `link`, taken once. Else null. Read before markFind.
+ */
+const linkedNotice = async (ctx: FindContext, link: string | null) => {
+  if (ctx.builderId === null) return (await takeUnlinkedNotice(ctx.installationId)) ? unlinkedNoticeLine(link) : null;
   const login = await newlyLinkedLogin(ctx.installationId);
   return login ? linkedNoticeLine(login) : null;
 };
@@ -345,9 +356,9 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   );
 
   const last = await lastFindAt(ctx.installationId);
-  const notice = await linkedNotice(ctx);
-  const overnight = side ? await appliedOvernight(owner, last) : [];
   const link = side ? null : await linkOf(ctx);
+  const notice = await linkedNotice(ctx, link);
+  const overnight = side ? await appliedOvernight(owner, last) : [];
   const moved = await since(owner, last, open, ready.map((r) => r.program_id), ctx.now, gaps.map((g) => g.program_id));
   const ledger = await summary(owner, open, ctx.now);
   const ask = await askOutcome(owner, open, ctx.now);

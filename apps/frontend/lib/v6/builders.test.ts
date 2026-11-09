@@ -4,7 +4,7 @@ import { sql } from '../v5/db';
 import { programFixture } from '../v5/fixtures/program';
 import { record, summary } from '../v5/ledger';
 import { getProgram, upsertProgram } from '../v5/programs';
-import { LinkRefused, deleteBuilder, getBuilder, linkInstallation, ownerKey, upsertBuilder } from './builders';
+import { LinkRefused, deleteBuilder, getBuilder, linkInstallation, ownerKey, takeUnlinkedNotice, unlinkInstallation, upsertBuilder } from './builders';
 import { createSession } from './sessions';
 import { createLinkCode } from './link-routes';
 
@@ -158,4 +158,47 @@ test('a record under b:A from X does not raise beside an orphan i:X row for the 
   assert.equal((await record(ownerKey(x, a.id), 'bl-orphan', 'gap_done', { installationId: x, item: 'users', now: NOW })).ok, true);
   assert.deepEqual(await rows(`b:${a.id}`), [{ program_id: 'bl-orphan', status: 'applied' }]);
   assert.deepEqual(await rows(`i:${x}`), [{ program_id: 'bl-orphan', status: 'applied' }]);
+});
+
+test('B11: deleteBuilder also removes their reviewer rows, screen jobs, applicants and outcomes; another reviewer keeps theirs', async () => {
+  const b = await builder('rev');
+  const other = await builder('rev2');
+  const one = await install();
+  for (const [who, job] of [[b.id, 'bl-job-a'], [other.id, 'bl-job-b']] as const) {
+    await sql()`INSERT INTO program_reviewers (program_id, builder_id) VALUES ('bl-del-rev', ${who})`;
+    await sql()`INSERT INTO screen_jobs (id, program_id, builder_id, installation_id, created_at, total, expires_at)
+      VALUES (${job}, 'bl-del-rev', ${who}, ${one}, ${NOW}, 1, ${new Date(NOW.getTime() + 30 * DAY)})`;
+    await sql()`INSERT INTO screen_applicants (job_id, ref, name, repo_url) VALUES (${job}, 'r1', 'Coffee Pay', 'https://github.com/acme/coffee')`;
+    await sql()`INSERT INTO screen_outcomes (job_id, ref, outcome) VALUES (${job}, 'r1', 'rejected')`;
+  }
+  await deleteBuilder(b.id);
+  const n = async (q: Promise<{ n: number }[]>) => (await q)[0].n;
+  assert.equal(await n(sql()`SELECT count(*)::int AS n FROM program_reviewers WHERE builder_id = ${b.id}`), 0);
+  assert.equal(await n(sql()`SELECT count(*)::int AS n FROM screen_jobs WHERE builder_id = ${b.id}`), 0);
+  assert.equal(await n(sql()`SELECT count(*)::int AS n FROM screen_applicants WHERE job_id = 'bl-job-a'`), 0);
+  assert.equal(await n(sql()`SELECT count(*)::int AS n FROM screen_outcomes WHERE job_id = 'bl-job-a'`), 0);
+  // The other reviewer's rows stay.
+  assert.equal(await n(sql()`SELECT count(*)::int AS n FROM screen_jobs WHERE builder_id = ${other.id}`), 1);
+  assert.equal(await n(sql()`SELECT count(*)::int AS n FROM screen_applicants WHERE job_id = 'bl-job-b'`), 1);
+  assert.equal(await n(sql()`SELECT count(*)::int AS n FROM screen_outcomes WHERE job_id = 'bl-job-b'`), 1);
+});
+
+test('B10: unlinkInstallation unlinks only the builder\'s own and marks it; the notice is taken once; a new link clears it', async () => {
+  const b = await builder('unl');
+  const stranger = await builder('unl2');
+  const one = await install();
+  await linkInstallation(one, b.id, NOW);
+  assert.equal(await unlinkInstallation(one, stranger.id, NOW), false);
+  assert.equal((await sql()`SELECT builder_id FROM installations WHERE id = ${one}`)[0].builder_id, b.id);
+  assert.equal(await takeUnlinkedNotice(one), false);
+  assert.equal(await unlinkInstallation(one, b.id, NOW), true);
+  const [row] = await sql()`SELECT builder_id, linked_at, unlinked_at FROM installations WHERE id = ${one}`;
+  assert.deepEqual([row.builder_id, row.linked_at, (row.unlinked_at as Date).toISOString()], [null, null, NOW.toISOString()]);
+  assert.equal(await takeUnlinkedNotice(one), true);
+  assert.equal(await takeUnlinkedNotice(one), false);
+  // Linked again before any find: no unlinked notice is left to show.
+  await linkInstallation(one, b.id, NOW);
+  await unlinkInstallation(one, b.id, NOW);
+  await linkInstallation(one, b.id, NOW);
+  assert.equal((await sql()`SELECT unlinked_at FROM installations WHERE id = ${one}`)[0].unlinked_at, null);
 });

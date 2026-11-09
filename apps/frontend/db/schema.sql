@@ -164,6 +164,8 @@ CREATE TABLE IF NOT EXISTS builders (
 );
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS builder_id int;
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS linked_at timestamptz;
+-- v6.1.7 B10: set when the builder unlinks it on /me; the next find says so once and clears it.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS unlinked_at timestamptz;
 CREATE TABLE IF NOT EXISTS link_codes (
   code            text PRIMARY KEY,
   installation_id int NOT NULL,

@@ -13,8 +13,8 @@ import { PUBLIC_BASES, UNREAD, xpCounts } from './screen-jobs';
 import { reviewerLine } from './tier-words';
 import { DEFAULT_THRESHOLDS, place, type Thresholds } from './tiers';
 
-/** The daily cron's share of the queue. */
-export const SCREEN_BATCH = 40;
+/** The daily cron's share of the queue (v6.1.7 B14: 200; SCREEN_DAILY_MS still bounds the run). The screen promise counts on it. */
+export const SCREEN_BATCH = 200;
 /** An owner-triggered run: at most this many applicants, within SCREEN_TRIGGER_MS. */
 export const SCREEN_TRIGGER_MAX = 300;
 export const SCREEN_TRIGGER_MS = 600_000;

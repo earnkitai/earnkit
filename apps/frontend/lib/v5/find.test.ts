@@ -252,7 +252,8 @@ test('find with program_id: a closed program is closed, an upcoming one not open
   const { programFixture } = await import('./fixtures/program');
   await upsertProgram(programFixture({ id: 'f-shut', title: 'Shut Grants', status: 'closed' }), 'file', NOW);
   await upsertProgram(programFixture({ id: 'f-past', title: 'Past Grants', ends_at: '2026-11-01T00:00:00Z' }), 'file', NOW);
-  await upsertProgram(programFixture({ id: 'f-soon', title: 'Soon Grants', status: 'upcoming', opens_note: 'Opens in January' }), 'file', NOW);
+  // The note's own full stop is not doubled (C10).
+  await upsertProgram(programFixture({ id: 'f-soon', title: 'Soon Grants', status: 'upcoming', opens_note: 'Opens in January.' }), 'file', NOW);
   for (const pid of ['f-shut', 'f-past']) {
     const r = await mcpCall(ctx(id), 'find', { program_id: pid, project: PROJECT });
     const show = r.reply!.show_to_builder as string;
@@ -262,8 +263,10 @@ test('find with program_id: a closed program is closed, an upcoming one not open
   }
   const soon = await mcpCall(ctx(id), 'find', { program_id: 'f-soon' });
   const show = soon.reply!.show_to_builder as string;
-  assert.match(show, /Not open yet: Opens in January\.$/, show);
-  assert.doesNotMatch(show, /draft/);
+  // C10: the first line says it is not open yet, with the opens note; no Apply at line.
+  const { moneyOf } = await import('./find');
+  assert.equal(show.split('\n')[0], `Soon Grants, ${moneyOf((await getProgram('f-soon'))!.file)}. Not open yet: Opens in January.`);
+  assert.doesNotMatch(show, /Apply at|draft/, show);
 });
 
 test('a 2,000-character description is cut, not refused: find still answers ready and gaps', async () => {
@@ -972,4 +975,50 @@ test('find { program_id } and the program page never carry reviewers_contact (se
       .map((f) => relative(root, f)),
   );
   assert.deepEqual(naming.sort(), ['lib/v5/api-text.ts', 'lib/v5/find.ts', 'lib/v5/program-file.ts']);
+});
+
+test('B10: the first find after an unlink says so with the sign-in link, once; the open list too', async () => {
+  const { unlinkInstallation } = await import('../v6/builders');
+  const link = 'https://earnkit.test/link/abcdefghijklmnop';
+  const line = `This agent was unlinked from your account. Sign in once at ${link} to link it again.`;
+  const { id, builderId } = await linkedWith(OWNER_RECORD);
+  await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT });
+  assert.equal(await unlinkInstallation(id, builderId, NOW), true);
+  const later = new Date(NOW.getTime() + H);
+  const first = await mcpCall({ ...ctx(id, later), linkUrl: async () => link }, 'find', { project: PROJECT });
+  assert.equal(first.isError, false, first.text);
+  assert.equal(first.reply!.linked_notice, line);
+  const show = first.reply!.show_to_builder as string;
+  assert.ok(show.endsWith(` ${line}`), show);
+  // The notice carries the link: the closing block offers it once.
+  assert.equal(show.split(link).length, 2, show);
+  const second = await mcpCall({ ...ctx(id, new Date(later.getTime() + H)), linkUrl: async () => link }, 'find', { project: PROJECT });
+  assert.equal(second.reply!.linked_notice, null);
+  assert.ok(!(second.reply!.show_to_builder as string).includes('unlinked'));
+
+  const other = await linkedWith(OWNER_RECORD);
+  await unlinkInstallation(other.id, other.builderId, NOW);
+  const list = await mcpCall({ ...ctx(other.id, later), linkUrl: async () => link }, 'find', {});
+  const listShow = list.reply!.show_to_builder as string;
+  assert.equal(list.reply!.linked_notice, line);
+  assert.ok(listShow.endsWith(`\n\n${line}`), listShow);
+  assert.equal(listShow.split(link).length, 2, listShow);
+  // No sign-in configured: the notice alone.
+  const third = await linkedWith(OWNER_RECORD);
+  await unlinkInstallation(third.id, third.builderId, NOW);
+  const bare = await mcpCall({ ...ctx(third.id, later), linkUrl: async () => null }, 'find', { project: PROJECT });
+  assert.equal(bare.reply!.linked_notice, 'This agent was unlinked from your account.');
+});
+
+test('C12: a name saved with record, then find in the same session: read fresh; name and email stay one item until both are in', async () => {
+  const { id, builderId } = await linkedWith({});
+  const c = { ...ctx(id), builderId, evidence: LIVE };
+  const s = await mcpCall(c, 'record', { set: { person: { name: 'Ada' } } });
+  assert.equal(s.isError, false, s.text);
+  const a = await mcpCall({ ...c, now: new Date(NOW.getTime() + 1000) }, 'find', { project: PROJECT });
+  // The email is still missing, so the one item stays: the find read the saved record (the name is there).
+  assert.ok((a.reply!.record_missing as string[]).includes('your name and email'));
+  await mcpCall(c, 'record', { set: { person: { email: 'ada@example.com' } } });
+  const b = await mcpCall({ ...c, now: new Date(NOW.getTime() + 2000) }, 'find', { project: PROJECT });
+  assert.ok(!(b.reply!.record_missing as string[]).includes('your name and email'), JSON.stringify(b.reply!.record_missing));
 });

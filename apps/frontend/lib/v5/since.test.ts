@@ -58,3 +58,14 @@ test('an amount and a form change', async () => {
   const s = await since(`i:${id}`, T0, await listOpenPrograms(at(2)), ['s-amt', 's-form'], at(2));
   assert.deepEqual(s.changed.map((c) => [c.program_id, c.what]).sort(), [['s-amt', 'amount changed'], ['s-form', 'form changed']]);
 });
+
+test('C33: a program opening for the first time is "now open"; one that was open before is "open again"', async () => {
+  const id = await installation();
+  await upsertProgram(programFixture({ id: 's-first-open', status: 'upcoming', opens_note: 'Opens soon' }), 'file', at(-10));
+  await upsertProgram(programFixture({ id: 's-first-open', status: 'active' }), 'file', at(1));
+  await upsertProgram(programFixture({ id: 's-reopen' }), 'file', at(-20));
+  await upsertProgram(programFixture({ id: 's-reopen', status: 'closed' }), 'file', at(-10));
+  await upsertProgram(programFixture({ id: 's-reopen', status: 'active' }), 'file', at(1));
+  const s = await since(`i:${id}`, T0, await listOpenPrograms(at(2)), ['s-first-open', 's-reopen'], at(2));
+  assert.deepEqual(s.changed.map((c) => [c.program_id, c.what]).sort(), [['s-first-open', 'now open'], ['s-reopen', 'open again']]);
+});
