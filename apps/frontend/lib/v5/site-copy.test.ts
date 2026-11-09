@@ -106,7 +106,7 @@ test('the OpenClaw and Claude connect steps match their docs', async () => {
     'In claude.ai or the desktop app, open "Customize", then "Connectors".',
     'Choose "+ Add", then "Add custom connector".',
     'Name it EarnKit, paste the EarnKit link, choose "Continue".',
-    'Keep the sign-in settings it detected and choose "Continue" again. If it asks for an OAuth client, choose "Register automatically".',
+    'Keep the connection settings it detected and choose "Continue" again. If it asks for an OAuth client, choose "Register automatically".',
     'Choose "Add". It connects at once. No account needed.',
     'In a chat, choose "+", then "Connectors", and turn EarnKit on.',
   ]);
@@ -131,9 +131,7 @@ test('no install copy mentions signing in, X, GitHub or a wallet', async () => {
   const BAD = /sign in|sign-in|x\.com|github|wallet/i;
   const all = [...AGENTS.flatMap((a) => strings(a.name, [a.note, a.installNote, a.stepsLead, a.message, a.code, a.after, a.afterCode, a.last, a.steps])), ...strings('docs', copy.DOCS_STEPS), ['prompt', GROK_BOT_PROMPT] as [string, string], ['muse', MUSE_MESSAGE] as [string, string]];
   assert.ok(all.length > 20);
-  // claude.ai's own form names its "sign-in settings"; that step tells the builder to keep them, not to sign in to EarnKit.
-  const CLAUDE_FORM = 'Keep the sign-in settings it detected and choose "Continue" again. If it asks for an OAuth client, choose "Register automatically".';
-  for (const [name, s] of all) assert.ok(s === CLAUDE_FORM || !BAD.test(s), `${name}: "${s}"`);
+  for (const [name, s] of all) assert.ok(!BAD.test(s), `${name}: "${s}"`);
   assert.equal(copy.DOCS_STEPS[1], 'It connects on its own');
   // R6: the authorize endpoint approves at once (a 302 with the code), so no copy asks the builder to approve a page.
   for (const [name, s] of all) assert.ok(!s.includes('Approve it when the page opens'), `${name}: "${s}"`);

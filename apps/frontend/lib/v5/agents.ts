@@ -156,7 +156,7 @@ export const AGENTS: Agent[] = [
       'In claude.ai or the desktop app, open "Customize", then "Connectors".',
       'Choose "+ Add", then "Add custom connector".',
       'Name it EarnKit, paste the EarnKit link, choose "Continue".',
-      'Keep the sign-in settings it detected and choose "Continue" again. If it asks for an OAuth client, choose "Register automatically".',
+      'Keep the connection settings it detected and choose "Continue" again. If it asks for an OAuth client, choose "Register automatically".',
       'Choose "Add". It connects at once. No account needed.',
       'In a chat, choose "+", then "Connectors", and turn EarnKit on.',
     ],
