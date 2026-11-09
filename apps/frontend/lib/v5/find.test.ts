@@ -584,7 +584,7 @@ test('linked with an empty record: the provisional bar holds after sign-in, with
   assert.equal(r.reply!.evidence_summary, null);
 }));
 
-test('B20 (v6.1.8): an unread repo gets the bar from the report: a live link reads live, a repo building, nothing no fit', async () => withLiveBar(async () => {
+test('B20 (v6.1.8): an unread repo gets the bar from the report: a live link or a repo reads building, nothing no fit', async () => withLiveBar(async () => {
   const { live_url: _, ...noLink } = PROJECT;
   const tierOf = async (project: Record<string, unknown>) => {
     const r = await mcpCall(ctx(await installation()), 'find', { project, filter: { all: true } });
@@ -598,13 +598,42 @@ test('B20 (v6.1.8): an unread repo gets the bar from the report: a live link rea
   const priv = await tierOf({ ...noLink, private: true });
   assert.deepEqual([priv.ready, priv.gap, priv.no], [false, `tier: ${CONFIRM}`, null]);
   assert.equal(priv.show.split('Private repo: matched on what you told me.').length, 2, priv.show);
-  // A live link reported: live.
-  assert.deepEqual((({ ready, gap, no }) => [ready, gap, no])(await tierOf({ ...PROJECT, private: true })), [true, null, null]);
+  // A live link reported is a claim (fix round 4): building, the same gap, read or not.
+  assert.deepEqual((({ ready, gap, no }) => [ready, gap, no])(await tierOf({ ...PROJECT, private: true })), [false, `tier: ${CONFIRM}`, null]);
+  assert.deepEqual((({ ready, gap, no }) => [ready, gap, no])(await tierOf({ name: 'Site', description: 'A site.', live_url: 'https://c.example.com' })), [false, `tier: ${CONFIRM}`, null]);
   // Nothing reported: not a fit, with the bar named, never ready and never a gap.
   const idea = await tierOf({ name: 'Rent Split', description: 'An idea: an app that splits rent between roommates' });
   assert.deepEqual([idea.ready, idea.gap, idea.no], [false, null, 'needs a live product']);
   assert.doesNotMatch(idea.show, /Live Grant/);
 }));
+
+test('fix round 4 (v6.1.8): the private and public versions of one project get the same tier; a reported live link is never live', async () => {
+  const { provisionalTier } = await import('../v6/find-record');
+  const { repoFacts } = await import('./repo-facts');
+  const { parseProject } = await import('./project-input');
+  const tierOf = async (over: Record<string, unknown>) => {
+    const p = parseProject({ ...PROJECT, ...over });
+    assert.ok(p.ok);
+    return provisionalTier(await repoFacts(p.project, { gh: rec.fetch, now: NOW }));
+  };
+  // The earnkit repo has no homepage and no mainnet contract read from code: building, read or not.
+  assert.deepEqual([await tierOf({}), await tierOf({ private: true })], ['building', 'building']);
+  const { live_url: _, ...noLink } = PROJECT;
+  const bare = parseProject(noLink);
+  assert.ok(bare.ok);
+  assert.equal(provisionalTier(await repoFacts({ ...bare.project, private: true }, { now: NOW })), 'building');
+  const site = parseProject({ name: 'Site', description: 'A site.', live_url: 'https://c.example.com' });
+  assert.ok(site.ok);
+  assert.equal(provisionalTier(await repoFacts(site.project, { now: NOW })), 'building');
+  const idea = parseProject({ name: 'Idea', description: 'An idea.' });
+  assert.ok(idea.ok);
+  assert.equal(provisionalTier(await repoFacts(idea.project, { now: NOW })), null);
+  // Live only from the code read: the dashboard repo's homepage.
+  const dash2 = replayFetch('nextjs-dashboard');
+  const d = parseProject({ name: 'Dashboard', description: 'A dashboard.', repo_url: `https://github.com/${dash2.repo}` });
+  assert.ok(d.ok);
+  assert.equal(provisionalTier(await repoFacts(d.project, { gh: dash2.fetch, now: NOW })), 'live');
+});
 
 test('B20 (v6.1.8): reads paused gives the same answer as the read would, and says so once', async () => withLiveBar(async () => {
   const { hit, LIMITS } = await import('./rate-limit');

@@ -127,11 +127,12 @@ export function tierGate(v: Verdict, row: ProgramRow, tier: Tier | null, line: s
  * Without the builder's own tier, the tier the public code read alone supports: 'live' for a live URL or a mainnet
  * contract read from the code (a repo homepage counts even when the agent also passes the live URL, R3a; homepage is
  * set only by the read), 'building' for any other public repo read, and for an archived one (C59). Not read (B20,
- * v6.1.8): what was reported, 'live' for a live link, 'building' for a repo named, null for neither (no program with a
- * bar fits). Never stored and never shown as the builder's tier. Pure.
+ * v6.1.8): 'building' for a live link or a repo named, null for neither (no program with a bar fits). A reported live
+ * link is an unverified claim in every path (fix round 4): 'live' comes only from the code read or own evidence.
+ * Never stored and never shown as the builder's tier. Pure.
  */
 export function provisionalTier(facts: RepoFacts): Tier | null {
-  if (!facts.public || facts.as_reported) return facts.live_url ? 'live' : facts.repo_url ? 'building' : null;
+  if (!facts.public || facts.as_reported) return facts.live_url || facts.repo_url ? 'building' : null;
   if (facts.notes?.includes('archived')) return 'building';
   const mainnet = new Set(facts.chains.filter((c) => c.mainnet).map((c) => c.chain));
   if (facts.live_url_basis === 'code' || facts.homepage !== null || facts.contracts.some((c) => c.basis === 'code' && mainnet.has(c.chain))) return 'live';
