@@ -1,0 +1,87 @@
+{
+  "id": "github-secure-open-source-fund",
+  "organizer": "GitHub",
+  "title": "GitHub Secure Open Source Fund",
+  "description": "GitHub funds maintainers of open source projects with $10,000 per project, paid in tranches, plus a security program with a virtual interview for selected projects. Applications are accepted year-round and one application keeps a project eligible for all future sessions.",
+  "source_url": "https://github.com/open-source/github-secure-open-source-fund",
+  "submission_url": "https://forms.cloud.microsoft/pages/responsepage.aspx?id=v4j5cvGGr0GRqy180BHbR72dY7PBsFZJkFTETCg9J0xUNDdPUUU2S1pXTjFUOFMwNExEMzk5T1IxQi4u&route=shorturl",
+  "reward": "$10,000 per project: $6,000 during the program, $2,000 at the 6-month check-in and $2,000 at the 12-month check-in",
+  "summary": "$10,000 per project · rolling",
+  "max_award_usd": 10000,
+  "category": "grant",
+  "starts_at": null,
+  "ends_at": null,
+  "verified_at": "2026-11-09",
+  "status": "active",
+  "existing_work": "allowed",
+  "needs_repo": true,
+  "chains": [],
+  "any_chain": true,
+  "setup": [
+    "sign up for GitHub Sponsors if you have not",
+    "a clear open source license on the repo"
+  ],
+  "each_time": [
+    "security background and impact answers"
+  ],
+  "rules": [
+    "Rolling: applications are open on a rolling basis and are considered for all program sessions.",
+    "For current maintainers of an open source project: individuals, or teams of up to 2 people per project.",
+    "You must be 18 or older, have an active GitHub profile, live in a region supported by GitHub Sponsors, and not be a GitHub employee or contractor.",
+    "The project needs a clear open source license, demonstrated community traction and adoption, and a clear governance structure before kick-off.",
+    "Core leaders must commit to the required programming and be willing to engage in and improve security.",
+    "Funding is paid in tranches: $6,000 during the program, $2,000 at the 6-month check-in and $2,000 at the 12-month check-in.",
+    "Selected applicants have a virtual interview to determine next steps."
+  ],
+  "submission_requirements": [
+    { "key": "email", "label": "Email Address", "kind": "contact", "todo": "your email", "type": "email", "required": true, "from": "builder" },
+    { "key": "first_name", "label": "First name", "kind": "contact", "todo": "your first name", "type": "text", "required": true, "from": "builder" },
+    { "key": "last_name", "label": "Last name", "kind": "contact", "todo": "your last name", "type": "text", "required": true, "from": "builder" },
+    { "key": "city", "label": "City", "kind": "contact", "todo": "your city", "type": "text", "required": true, "from": "builder" },
+    { "key": "state", "label": "State or Province", "kind": "contact", "todo": "your state or province", "type": "text", "required": true, "from": "builder" },
+    { "key": "country", "label": "Country", "kind": "contact", "todo": "your country", "type": "text", "required": true, "from": "builder" },
+    { "key": "github_handle", "label": "What is your GitHub Handle? (e.g. @mona)", "kind": "contact", "todo": "your GitHub handle", "type": "text", "required": true, "from": "builder" },
+    { "key": "project", "label": "What is your project? Please include the functionality the project provides and the type of project (application or library).", "kind": "how_it_works", "todo": "what the project does and its type", "type": "text", "required": true, "from": "project" },
+    { "key": "repo_url", "label": "What is the repository URL?  (e.g. www.github.com/mona)", "kind": "links", "todo": "the repository URL", "type": "url", "required": true, "project_field": "repo_url", "from": "project" },
+    { "key": "license", "label": "What is the license for this project?", "kind": "other", "todo": "the project license", "type": "text", "required": true, "from": "project" },
+    { "key": "core_team_size", "label": "How large is the core team?", "kind": "team", "todo": "the core team size", "type": "text", "required": true, "from": "builder" },
+    { "key": "other_maintainers", "label": "Selected projects can have up to 2 maintainers participate in the program. Are there other maintainers or contributors to this project who want to join the GitHub Secure Open Source Fund and Program with you? What are their GitHub handles?", "kind": "team", "type": "text", "required": false, "from": "builder" },
+    { "key": "full_time", "label": "Are you, or others, working in open source full-time on this project?", "kind": "team", "todo": "whether anyone works on it full-time", "type": "choice", "required": true, "options": ["Yes", "No"], "from": "builder" },
+    { "key": "sponsors", "label": "Are you signed up for GitHub Sponsors?", "kind": "other", "todo": "whether you use GitHub Sponsors", "type": "choice", "required": true, "options": ["Yes", "No"], "from": "builder" },
+    { "key": "security_lead", "label": "Does your project have a Security Lead or Committee?", "kind": "team", "todo": "whether there is a security lead", "type": "choice", "required": true, "options": ["Yes", "No"], "from": "builder" },
+    { "key": "security_training", "label": "Have you or the core team participated in any security training? If so, please describe.", "kind": "team", "todo": "any security training", "type": "text", "required": true, "from": "builder" },
+    { "key": "security_level", "label": "What is the level of general security understanding for the applying project?", "kind": "other", "todo": "your general security level", "type": "choice", "required": true, "options": ["Beginner", "Intermediate", "Advanced"], "from": "builder" },
+    { "key": "ai_security_level", "label": "What is the level of AI security understanding for the applying project?", "kind": "other", "todo": "your AI security level", "type": "choice", "required": true, "options": ["Beginner", "Intermediate", "Advanced"], "from": "builder" },
+    { "key": "security_interest", "label": "If accepted into the program, which area of security are you most interested in exploring further?", "kind": "other", "todo": "the security area you want to explore", "type": "text", "required": true, "from": "builder" },
+    { "key": "external_impact", "label": "What would be the external impact if this project had a security issue? Please describe.", "kind": "risks", "todo": "impact of a security issue", "type": "text", "required": true, "from": "project" },
+    { "key": "ecosystem_impact", "label": "What in your opinion would be the positive impact of security improvements of your project on the broader ecosystem?", "kind": "ecosystem_fit", "todo": "ecosystem impact of better security", "type": "text", "required": true, "from": "project" },
+    { "key": "security_issues", "label": "Has your project had any reported security issues (CVEs, other security vulnerabilities)? Please share.", "kind": "other", "todo": "past reported security issues", "type": "text", "required": true, "from": "project" },
+    { "key": "funding_strategy", "label": "Do you have an existing sponsorship or funding strategy?", "kind": "other", "todo": "your funding strategy", "type": "text", "required": true, "from": "builder" },
+    { "key": "underrepresented", "label": "Do you self-identify as an underrepresented person in tech? Please share.", "kind": "other", "todo": "whether you are underrepresented", "type": "text", "required": true, "from": "builder" },
+    { "key": "referred_by", "label": "Were you referred by an organization or individual? If so, can you provide their name or the organization's name?", "kind": "other", "type": "text", "required": false, "from": "builder" },
+    { "key": "project_links", "label": "Please enter any URLs of websites or social media accounts associated with your project (if applicable).", "kind": "links", "type": "text", "required": false, "from": "project" },
+    { "key": "role", "label": "What is your role in the project?", "kind": "team", "todo": "your role in the project", "type": "text", "required": true, "from": "builder" },
+    { "key": "funding_to_date", "label": "How much funding have you received to date?", "kind": "raised", "todo": "funding received to date", "type": "text", "required": true, "from": "builder" },
+    { "key": "use_of_funds", "label": "How will the funding help you and your project achieve better security outcomes?", "kind": "use_of_funds", "todo": "how funding improves security", "type": "text", "required": true, "from": "project" },
+    { "key": "application_type", "label": "Application Type", "kind": "other", "todo": "the application type", "type": "choice", "required": true, "options": ["General Application", "Referred Application - Funding or Ecosystem Partner referral", "Alumni Project Referral - Referred by Alumni Project of the GitHub Secure Open Source Fund"], "from": "builder" },
+    { "key": "referral_details", "label": "If Referred Application: Please provide the name of the organization, project, or individual that referred you any relevant details about your connection or how you were referred.", "kind": "other", "todo": "referral details or N/A", "type": "text", "required": true, "description": "If General Application: if you were not referred by anyone, simply enter \"N/A\".", "from": "builder" },
+    { "key": "nominate_project", "label": "Do you have an open source project you would like to nominate for the GitHub Secure Open Source Fund? If so, please provide the project name and its GitHub repository URL.", "kind": "other", "type": "text", "required": false, "from": "builder" },
+    { "key": "linkedin", "label": "If you have a personal LinkedIn profile, what is the URL?", "kind": "contact", "type": "url", "required": false, "from": "builder" },
+    { "key": "x_profile", "label": "If you have a personal X (formerly Twitter) profile, what is the URL?", "kind": "contact", "type": "url", "required": false, "from": "builder" },
+    { "key": "agreement", "label": "By checking this box you agree that you must:", "kind": "other", "todo": "agree to the eligibility terms", "type": "choice", "required": true, "options": ["I agree"], "description": "Be 18 or older; have an active GitHub profile; be a core maintainer or delegate of the core project team; reside in a region supported by GitHub Sponsors; not be a current GitHub employee or contractor.", "from": "builder" }
+  ],
+  "focus": {
+    "areas": ["Security of open source projects", "AI security understanding for maintainers"],
+    "source_url": "https://github.com/open-source/github-secure-open-source-fund"
+  },
+  "ideas": [
+    "A widely used library adopting a security policy",
+    "Fuzzing and CVE response for a popular package"
+  ],
+  "form": {
+    "platform": "other",
+    "url": "https://forms.cloud.microsoft/pages/responsepage.aspx?id=v4j5cvGGr0GRqy180BHbR72dY7PBsFZJkFTETCg9J0xUNDdPUUU2S1pXTjFUOFMwNExEMzk5T1IxQi4u&route=shorturl"
+  },
+  "submit": "either",
+  "sign_in": "none"
+}

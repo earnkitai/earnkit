@@ -1,0 +1,61 @@
+{
+  "id": "codegeist-2026",
+  "organizer": "Atlassian",
+  "title": "Codegeist 2026: Build with context. Ship with confidence.",
+  "description": "Atlassian's annual online hackathon on Devpost. Build an app on Atlassian's Forge platform that integrates with at least one Atlassian product or capability (Jira, Confluence, Jira Service Management, Bitbucket, Teamwork Graph, Rovo), in one of three categories. $120,000 in cash prizes.",
+  "source_url": "https://codegeist2026.devpost.com/",
+  "submission_url": "https://codegeist2026.devpost.com/",
+  "reward": "$120,000 in prizes, paid in cash: three $15,000 first places, three $8,000 second places, three $5,000 third places, and 24 bonus prizes of $1,500",
+  "summary": "$120,000 in prizes · closes Dec 22, 12:00 PM PT",
+  "pool_usd": 120000,
+  "category": "hackathon",
+  "starts_at": "2026-10-27T09:00:00-07:00",
+  "ends_at": "2026-12-22T12:00:00-08:00",
+  "verified_at": "2026-11-09",
+  "status": "active",
+  "existing_work": "allowed",
+  "needs_repo": false,
+  "chains": [],
+  "any_chain": true,
+  "setup": [
+    "a Devpost account joined to Codegeist 2026",
+    "a free Atlassian Cloud Developer License"
+  ],
+  "each_time": [
+    "a Forge installation link for judges",
+    "a public demo video under 5 minutes"
+  ],
+  "rules": [
+    "Submit on Devpost by Tuesday, December 22, 2026 at 12:00 PM Pacific Time.",
+    "Build an app on Atlassian's Forge platform that integrates with at least one of Jira, Confluence, Jira Service Management, Bitbucket, Teamwork Graph or Rovo.",
+    "Categories: Apps for Software Teams, Apps for Business Teams, Apps for Specialized Industries.",
+    "Projects must be newly created and not published before the Submission Period, or, if they existed before, updated or rebuilt in Forge after it started, with a Forge manifest file and at least one Forge module.",
+    "Projects developed with funding, contracts or commercial licenses from Atlassian or Devpost are not eligible.",
+    "Bonus prizes of $1,500 (6 winners each): Best Agents (Rovo), Best app with Atlassian MCP, Best apps with Teamwork Graph integration, Best Marketplace published app.",
+    "Entrants must be above the legal age of majority; residents of Brazil, Quebec, Russia, Belarus, Crimea, Cuba, Iran, North Korea, Syria, Sudan and Myanmar are excluded.",
+    "Judged equally on technological implementation, design, potential impact, innovation and presentation. Winners are announced on or around February 15, 2027."
+  ],
+  "submission_requirements": [
+    { "key": "installation_link", "label": "Access: installation link and instructions for the judges", "kind": "links", "todo": "a Forge installation link", "type": "url", "required": true, "description": "Include all instructions and configuration steps needed to get the app working in a judges' environment.", "from": "project" },
+    { "key": "demo_video", "label": "Demo Video", "kind": "demo_video", "todo": "a public YouTube demo under 5 minutes", "type": "url", "required": true, "project_field": "demo_url", "description": "Under 5 minutes, showing the project and any bonus prize specifics, uploaded to YouTube and public.", "from": "builder" },
+    { "key": "category", "label": "Category", "kind": "other", "todo": "a category and any bonus prizes", "type": "choice", "required": true, "options": ["Apps for Software Teams", "Apps for Business Teams", "Apps for Specialized Industries"], "description": "Also identify the bonus prizes you enter and provide their materials, such as a Marketplace listing or review ticket link.", "from": "project" },
+    { "key": "explanation", "label": "Explanation: how your project meets the main technology requirement", "kind": "how_it_works", "todo": "how the app uses Forge and Atlassian", "type": "text", "required": true, "from": "project" },
+    { "key": "description", "label": "Text description that explains the features and functionality of your Project", "kind": "how_it_works", "todo": "a features and functionality description", "type": "text", "required": true, "from": "project" }
+  ],
+  "focus": {
+    "areas": ["Apps for software teams", "Apps for business teams", "Apps for specialized industries"],
+    "source_url": "https://codegeist2026.devpost.com/"
+  },
+  "ideas": [
+    "A Rovo agent that triages Jira issues",
+    "A Forge app exposing an MCP server",
+    "Deployment awareness inside Jira for dev teams"
+  ],
+  "results_due": { "date": "2027-02-15" },
+  "form": { "platform": "other", "url": "https://codegeist2026.devpost.com/" },
+  "submit": "builder",
+  "sign_in": "platform",
+  "platform_name": "Devpost",
+  "needs": ["demo_video"],
+  "reviewers_contact": "Email the hackathon manager from the Codegeist 2026 Devpost page"
+}

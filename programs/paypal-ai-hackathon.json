@@ -1,0 +1,60 @@
+{
+  "id": "paypal-ai-hackathon",
+  "organizer": "PayPal",
+  "title": "PayPal AI Hackathon: Build What's Next with PayPal and AI",
+  "description": "PayPal's global online hackathon on Devpost. Build or update an app, agent or automation that meaningfully uses both the PayPal developer platform (free sandbox) and an AI tool, model or platform. No tracks or prescribed problems. $67,500 in cash prizes.",
+  "source_url": "https://paypalaihackathon.devpost.com/",
+  "submission_url": "https://paypalaihackathon.devpost.com/",
+  "reward": "$67,500 in prizes, paid in cash: $12,000 first, $8,000 second, $5,000 third, $5,000 special awards (including Best Use of Agentic Commerce) and sponsor prizes",
+  "summary": "$67,500 in prizes · closes Nov 12, 12:00 PM PT",
+  "pool_usd": 67500,
+  "category": "hackathon",
+  "starts_at": "2026-10-01T09:15:00-07:00",
+  "ends_at": "2026-11-12T12:00:00-08:00",
+  "verified_at": "2026-11-09",
+  "status": "active",
+  "existing_work": "allowed",
+  "needs_repo": true,
+  "chains": [],
+  "any_chain": true,
+  "setup": [
+    "a Devpost account joined to the hackathon",
+    "a PayPal Developer account (sandbox)"
+  ],
+  "each_time": [
+    "a public demo video under 3 minutes",
+    "a public repo with an open source license"
+  ],
+  "rules": [
+    "Submit on Devpost by Thursday, November 12, 2026 at 12:00 PM Pacific Time.",
+    "The project must meaningfully use both PayPal (at least one PayPal technology, API, SDK, product or developer capability) and AI.",
+    "New or existing projects: an existing project must have been significantly updated after October 1, 2026, and you must explain how.",
+    "Judges must be able to run or interact with a working build: give complete setup instructions in the repo or a hosted demo URL. Mockups and non-functional demos do not qualify.",
+    "The code repository must be public on GitHub, GitLab or Bitbucket, with all source code and a visible open source license.",
+    "Open to individuals and teams above the legal age of majority, all countries except standard exceptions.",
+    "Judging runs December 1 to 15, 2026; winners are announced on or around December 21, 2026."
+  ],
+  "submission_requirements": [
+    { "key": "description", "label": "Text description - explain your project's features and functionality", "kind": "how_it_works", "todo": "a features and functionality description", "type": "text", "required": true, "from": "project" },
+    { "key": "functional_demo", "label": "Functional demo", "kind": "links", "todo": "a hosted demo or run instructions", "type": "url", "required": true, "project_field": "live_url", "description": "A hosted demo URL, or clear and complete setup and run instructions in the code repository.", "from": "project" },
+    { "key": "tools", "label": "Tools - identify which tools (model or AI service) were used and explain how the tools were used in your project", "kind": "how_it_works", "todo": "the AI tools used and how", "type": "text", "required": true, "from": "project" },
+    { "key": "repo_url", "label": "Public code repository on GitHub, Gitlab or Bitbucket", "kind": "links", "todo": "a public repo with a license file", "type": "url", "required": true, "project_field": "repo_url", "from": "project" },
+    { "key": "demo_video", "label": "Demo video", "kind": "demo_video", "todo": "a public YouTube demo under 3 minutes", "type": "url", "required": true, "project_field": "demo_url", "description": "Under 3 minutes, showing the project functioning on the device it was built for, public on YouTube.", "from": "builder" },
+    { "key": "update_explanation", "label": "How the project was significantly updated during the Submission Period", "kind": "what_next", "type": "text", "required": false, "description": "Only for a project that existed before October 1, 2026.", "from": "project" }
+  ],
+  "focus": {
+    "areas": ["AI agents that pay or get paid", "New payment experiences built with AI", "Business tools on PayPal APIs"],
+    "source_url": "https://paypalaihackathon.devpost.com/"
+  },
+  "ideas": [
+    "An agent that checks out with PayPal for users",
+    "An AI invoicing tool on PayPal sandbox APIs"
+  ],
+  "results_due": { "date": "2026-12-21" },
+  "form": { "platform": "other", "url": "https://paypalaihackathon.devpost.com/" },
+  "submit": "builder",
+  "sign_in": "platform",
+  "platform_name": "Devpost",
+  "needs": ["demo_video"],
+  "reviewers_contact": "Email the hackathon manager from the PayPal AI Hackathon Devpost page"
+}

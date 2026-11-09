@@ -1,0 +1,64 @@
+{
+  "id": "kiroween-2026",
+  "organizer": "Kiro (AWS)",
+  "title": "Kiroween 2026",
+  "description": "Kiro's annual online Halloween-themed hackathon on Devpost. Build a new working software application with Kiro (IDE, CLI, Web or Kiro Crew) in one of four categories: Resurrection, Frankenstein, Skeleton Crew or Costume Contest. $100,000 in cash prizes.",
+  "source_url": "https://kiroween.devpost.com/",
+  "submission_url": "https://kiroween.devpost.com/",
+  "reward": "$100,000 in prizes, paid in cash: $30,000 first, $20,000 second, $10,000 third, $5,000 per category winner, plus bonus prizes such as $10,000 Best Startup Project",
+  "summary": "$100,000 in prizes · closes Dec 4, 2:00 PM PT",
+  "pool_usd": 100000,
+  "category": "hackathon",
+  "starts_at": "2026-10-30T09:00:00-07:00",
+  "ends_at": "2026-12-04T14:00:00-08:00",
+  "verified_at": "2026-11-09",
+  "status": "active",
+  "existing_work": "new_work_only",
+  "needs_repo": true,
+  "chains": [],
+  "any_chain": true,
+  "tag": "long shot",
+  "setup": [
+    "a Devpost account joined to Kiroween 2026",
+    "a Kiro account (free credits by Dec 1)"
+  ],
+  "each_time": [
+    "a public demo video under 3 minutes",
+    "a write-up on how Kiro was used"
+  ],
+  "rules": [
+    "Submit on Devpost by Friday, December 4, 2026 at 2:00 PM Pacific Time.",
+    "Only new projects are eligible: build during the Submission Period (October 30 to December 4, 2026). Projects started before October 30, including Kiroween 2025 projects, are not eligible.",
+    "You may use standard frameworks, libraries and starter templates, but must disclose any other pre-existing code or work.",
+    "Build a working software application that uses Kiro (IDE, CLI, Web and/or Kiro Crew) in one category: Resurrection, Frankenstein, Skeleton Crew or Costume Contest.",
+    "The public GitHub repo (not GitLab or Bitbucket) must hold all source code, carry a visible open source license, and include the /.kiro directory at the root. Do not gitignore /.kiro.",
+    "Teams can have up to three members. Entrants must be above the legal age of majority; some countries are excluded (see the official rules).",
+    "An eligible project can win one Overall Prize or one Category Prize, not both, plus any number of Bonus Prizes.",
+    "Request 4,000 free Kiro credits on the Resources tab by December 1 at 12:00 PM PT.",
+    "Winners are announced on or around February 3, 2027."
+  ],
+  "submission_requirements": [
+    { "key": "category", "label": "Category", "kind": "other", "todo": "a category", "type": "choice", "required": true, "options": ["Resurrection", "Frankenstein", "Skeleton Crew", "Costume Contest"], "description": "Also select any Bonus Prizes you want to be considered for.", "from": "project" },
+    { "key": "repo_url", "label": "URL to your public GitHub", "kind": "links", "todo": "a public GitHub repo with /.kiro", "type": "url", "required": true, "project_field": "repo_url", "description": "Must contain all source code, assets and instructions, a visible open source license, and the /.kiro directory at the root.", "from": "project" },
+    { "key": "app_url", "label": "URL to your working app(s)", "kind": "links", "todo": "a link to the working app", "type": "url", "required": true, "project_field": "live_url", "description": "Add any login credentials and instructions in the submission form; they are shown to judges only.", "from": "project" },
+    { "key": "description", "label": "Text description that explains the features and functionality of your project", "kind": "how_it_works", "todo": "a features and functionality description", "type": "text", "required": true, "from": "project" },
+    { "key": "demo_video", "label": "Demo video of your project", "kind": "demo_video", "todo": "a public YouTube demo under 3 minutes", "type": "url", "required": true, "project_field": "demo_url", "description": "Under three minutes, showing the project working on the device it was built for, uploaded to YouTube and public.", "from": "builder" },
+    { "key": "kiro_writeup", "label": "Provide a write-up on how Kiro was used", "kind": "how_it_works", "todo": "a write-up on how you used Kiro", "type": "text", "required": true, "description": "For example custom agents, agent hooks, spec-driven development, steering docs, MCP, property-based testing and Kiro powers.", "from": "project" },
+    { "key": "bonus_details", "label": "Bonus Prize details", "kind": "other", "type": "text", "required": false, "description": "Per bonus: Best Startup Project needs founder confirmation, LinkedIn and startup website; Social Blitz and Bonus Blog need the post URL; Best Kiro Crew App needs its public repo URL.", "from": "builder" }
+  ],
+  "focus": {
+    "areas": ["Bring dead technology back to life", "Stitch incompatible technologies into one app", "Skeleton code templates with two applications"],
+    "source_url": "https://kiroween.devpost.com/"
+  },
+  "ideas": [
+    "Revive an obsolete protocol with a modern interface",
+    "A starter template proven by two different apps"
+  ],
+  "results_due": { "date": "2027-02-03" },
+  "form": { "platform": "other", "url": "https://kiroween.devpost.com/" },
+  "submit": "builder",
+  "sign_in": "platform",
+  "platform_name": "Devpost",
+  "needs": ["demo_video"],
+  "reviewers_contact": "Email the hackathon manager from the Kiroween 2026 Devpost page; Kiro Discord channel #kiroween-hackathon"
+}

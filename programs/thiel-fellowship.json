@@ -1,0 +1,37 @@
+{
+  "id": "thiel-fellowship",
+  "organizer": "Thiel Foundation",
+  "title": "Thiel Fellowship",
+  "description": "A two-year, $250,000 grant for people aged 22 or younger without a university degree who want to build new things instead of sitting in a classroom. No equity is taken. Applications are accepted year round; fellows must skip or stop out of college.",
+  "source_url": "https://thielfellowship.org/",
+  "submission_url": "https://thielfellowship.my.site.com/apply/s/",
+  "reward": "$250,000 grant spread over two years; no equity taken",
+  "summary": "$250,000 over two years · rolling",
+  "max_award_usd": 250000,
+  "category": "grant",
+  "starts_at": null,
+  "ends_at": null,
+  "verified_at": "2026-11-09",
+  "status": "active",
+  "existing_work": "allowed",
+  "needs_repo": false,
+  "chains": [],
+  "any_chain": true,
+  "tag": "long shot",
+  "setup": [],
+  "each_time": [],
+  "rules": [
+    "Rolling: applications are accepted year round.",
+    "Anyone aged 22 or younger and without a university degree (undergraduate or graduate) can apply.",
+    "Students can apply, but must drop out to accept the Fellowship.",
+    "No incorporated company or full product is needed, but you must show meaningful progress toward a concrete vision.",
+    "Applicants are reviewed and accepted as individuals; no team is needed.",
+    "Fellows receive $250,000 over two years, and the Foundation takes no equity. Fellows can be based anywhere."
+  ],
+  "submission_requirements": [
+    { "key": "application", "label": "Online application", "kind": "other", "todo": "complete the online application", "type": "text", "required": true, "description": "The application site needs a browser and its questions are not on the public pages.", "from": "builder" }
+  ],
+  "form": { "platform": "other", "url": "https://thielfellowship.my.site.com/apply/s/" },
+  "submit": "builder",
+  "reviewers_contact": "team@thielfellowship.org"
+}
