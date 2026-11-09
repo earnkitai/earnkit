@@ -15,7 +15,7 @@
   "starts_at": null,
   "ends_at": null,
   "wants_revenue": true,
-  "verified_at": "2026-11-09",
+  "verified_at": "2026-11-10",
   "status": "active",
   "existing_work": "allowed",
   "needs_repo": false,
@@ -23,7 +23,7 @@
   "chain_required": true,
   "eligibility": [
     { "kind": "chain", "value": "solana" },
-    { "kind": "rule", "note": "a mobile-first Android dApp integrating the Solana Mobile Stack: Mobile Wallet Adapter and Seed Vault" }
+    { "kind": "feature", "value": "Mobile Wallet Adapter and Seed Vault in an Android app" }
   ],
   "setup": [],
   "each_time": [

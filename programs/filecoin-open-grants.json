@@ -11,7 +11,7 @@
   "max_award_usd": 50000,
   "min_tier": "building",
   "eligibility": [
-    { "kind": "rule", "note": "work that enhances the Filecoin network, not only IPFS, libp2p or similar stacks" }
+    { "kind": "rule", "note": "work that enhances the Filecoin network; IPFS-only or libp2p-only work is de-emphasized" }
   ],
   "ideas": [
     "A Filecoin integration for a popular developer tool",
@@ -20,7 +20,7 @@
   ],
   "starts_at": null,
   "ends_at": null,
-  "verified_at": "2026-11-09",
+  "verified_at": "2026-11-10",
   "status": "active",
   "existing_work": "unknown",
   "needs_repo": true,

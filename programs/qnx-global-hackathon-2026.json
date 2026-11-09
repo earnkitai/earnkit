@@ -11,7 +11,7 @@
   "category": "hackathon",
   "starts_at": "2026-11-02T11:00:00-05:00",
   "ends_at": "2026-12-15T14:00:00-05:00",
-  "verified_at": "2026-11-09",
+  "verified_at": "2026-11-10",
   "status": "active",
   "existing_work": "allowed",
   "needs_repo": true,
@@ -21,7 +21,8 @@
   "min_tier": "building",
   "eligibility": [
     { "kind": "demo_video" },
-    { "kind": "rule", "note": "runs on QNX 8.0 (hardware or QEMU) or is a host tool that builds, tests or analyzes QNX 8.0 software" }
+    { "kind": "rule", "note": "runs on QNX 8.0 (hardware or QEMU) or is a host tool that builds, tests or analyzes QNX 8.0 software" },
+    { "kind": "rule", "note": "a public code repo with a visible open source license" }
   ],
   "setup": [
     "a Devpost account joined to the hackathon",

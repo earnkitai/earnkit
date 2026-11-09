@@ -9,15 +9,17 @@
   "summary": "investment from Circle Ventures · rolling",
   "starts_at": null,
   "ends_at": null,
-  "verified_at": "2026-11-01",
+  "verified_at": "2026-11-10",
   "status": "active",
   "existing_work": "allowed",
   "needs_repo": false,
   "chains": ["arc"],
+  "chain_required": true,
   "investment": true,
   "tag": "long shot",
   "min_tier": "building",
   "eligibility": [
+    { "kind": "chain", "value": "arc" },
     { "kind": "rule", "note": "a real-world financial app or service that can only exist on Arc" }
   ],
   "min_product_score": 5,

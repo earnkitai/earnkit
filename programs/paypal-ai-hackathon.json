@@ -11,12 +11,13 @@
   "min_tier": "building",
   "eligibility": [
     { "kind": "demo_video" },
-    { "kind": "rule", "note": "meaningfully uses a PayPal API, SDK or developer capability together with an AI model, tool or platform" }
+    { "kind": "rule", "note": "meaningfully uses a PayPal API, SDK or developer capability together with an AI model, tool or platform" },
+    { "kind": "rule", "note": "a public code repo with a visible open source license" }
   ],
   "category": "hackathon",
   "starts_at": "2026-10-01T09:15:00-07:00",
   "ends_at": "2026-11-12T12:00:00-08:00",
-  "verified_at": "2026-11-09",
+  "verified_at": "2026-11-10",
   "status": "active",
   "existing_work": "allowed",
   "needs_repo": true,

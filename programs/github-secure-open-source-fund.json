@@ -11,12 +11,13 @@
   "min_tier": "used",
   "eligibility": [
     { "kind": "users", "note": "an open source first project with demonstrated community traction and adoption" },
-    { "kind": "rule", "note": "a clear open source license on the repo" }
+    { "kind": "rule", "note": "a clear open source license on the repo" },
+    { "kind": "rule", "note": "maintainer lives in a region supported by GitHub Sponsors" }
   ],
   "category": "grant",
   "starts_at": null,
   "ends_at": null,
-  "verified_at": "2026-11-09",
+  "verified_at": "2026-11-10",
   "status": "active",
   "existing_work": "allowed",
   "needs_repo": true,
