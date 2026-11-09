@@ -42,7 +42,7 @@ const isPersonal = (r: SubmissionRequirement) => PERSONAL_KINDS.has(r.kind) || f
  * 'both' (a text field labelled only "links" or "relevant links"); or null, the builder's.
  */
 type LinkPick = 'live' | 'repo' | 'any' | 'both' | null;
-const NOT_OURS = /^(x|twitter|linkedin|farcaster|discord|telegram|deck|pitch|other)$/;
+const NOT_OURS = /^(x|twitter|linkedin|farcaster|discord|telegram|deck|pitch|other|store|hunt|explorer)$/;
 const LIVE = /^(site|website|live|product|app)$/;
 const REPO = /^(repo|repository|github|code|source)$/;
 function linkPick(r: SubmissionRequirement): LinkPick {

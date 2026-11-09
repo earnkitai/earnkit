@@ -63,7 +63,7 @@ test('first find has no since', async () => {
   );
   // Only what nobody but the builder can give: no contacts or team. Whole words, so a program named Team1 is not "team".
   for (const p of reply.ready as { needs: string[]; setup: string[] }[])
-    for (const n of p.needs.filter((x) => !p.setup.includes(x))) assert.doesNotMatch(n, /\b(email|name|team|telegram|x profile)\b/i);
+    for (const n of p.needs.filter((x) => !p.setup.includes(x))) assert.doesNotMatch(n, /email|name|\bteam\b|telegram|x profile/i);
 });
 
 /** A synthetic in-person program (the real ones close once their attend-by date passes). */
