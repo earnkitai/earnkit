@@ -1,0 +1,85 @@
+{
+  "id": "arbitrum-mentorship-cohort-2",
+  "organizer": "Arbitrum Foundation",
+  "title": "Arbitrum Mentorship Program: Cohort 2",
+  "description": "A 12-week program run by the Arbitrum Foundation with Robinhood Chain for early-stage teams building on Arbitrum One or Robinhood Chain. It covers fundraising readiness, pitch reviews, investor introductions and hands-on execution, and ends with a Demo Day for 50+ investors. $100K in prizes go to the top-performing teams.",
+  "source_url": "https://blog.arbitrum.foundation/arbitrum-mentorship-program-cohort-2-applications-now-open/",
+  "submission_url": "https://tally.so/r/Xx6xqO",
+  "reward": "$100K in prizes for the top-performing teams, plus mentorship and a Demo Day with 50+ investors",
+  "summary": "$100K in prizes · apply by Dec 6",
+  "pool_usd": 100000,
+  "category": "grant",
+  "tag": "long shot",
+  "min_tier": "building",
+  "starts_at": null,
+  "ends_at": "2026-12-06T23:59:59Z",
+  "tz": "UTC",
+  "verified_at": "2026-11-09",
+  "status": "active",
+  "existing_work": "allowed",
+  "needs_repo": true,
+  "chains": ["arbitrum", "robinhood"],
+  "chain_required": true,
+  "eligibility": [
+    { "kind": "chain", "value": "arbitrum" },
+    { "kind": "chain", "value": "robinhood" }
+  ],
+  "setup": [],
+  "each_time": [
+    "team background and top 3 successes",
+    "fundraising history and current TVL"
+  ],
+  "rules": [
+    "Applications are open until December 6, 2026 and are reviewed on an ongoing basis. The post states no time zone, so EarnKit lists the end of December 6 UTC. Dates are subject to change.",
+    "Kickoff is planned for January 5, 2027; the final Demo Day is March 25, 2027.",
+    "For teams building on Arbitrum One or Robinhood Chain, or committed to doing so. You don't need to be deployed on Arbitrum yet.",
+    "The program looks for a working prototype, MVP, testnet deployment or early live product; pre-seed or seed stage; a committed founding team; a clear problem and a differentiated product.",
+    "Prizes are awarded at the Arbitrum Foundation's sole discretion, subject to eligibility, KYC and sanctions screening, and a legal agreement that may include project exclusivity, milestones or KPIs, and investment rights.",
+    "Selected teams move on to a review and interview before kickoff.",
+    "The form asks you to pick the main chain to integrate: Arbitrum One or Robinhood Chain."
+  ],
+  "ideas": [
+    "A payments app settling on Robinhood Chain",
+    "An onchain lending market for tokenized stocks",
+    "AI agent tooling deployed on Arbitrum One"
+  ],
+  "focus": {
+    "areas": ["Stablecoin infrastructure", "AI tooling", "Building on Robinhood Chain"],
+    "source_url": "https://blog.arbitrum.foundation/arbitrum-mentorship-program-cohort-2-applications-now-open/",
+    "ecosystem": "Arbitrum and Robinhood Chain"
+  },
+  "submission_requirements": [
+    { "key": "contact_name", "label": "Contact Full Name", "kind": "contact", "todo": "your full name", "type": "text", "required": true, "from": "builder" },
+    { "key": "email", "label": "Email", "kind": "contact", "todo": "your email", "type": "email", "required": true, "from": "builder" },
+    { "key": "telegram", "label": "Contact Telegram Account", "kind": "contact", "todo": "your Telegram link", "type": "url", "required": true, "description": "A t.me link, like https://t.me/Username.", "from": "builder" },
+    { "key": "project_name", "label": "Company/Project Name", "kind": "name", "todo": "a project name", "type": "text", "required": true, "project_field": "name", "from": "project" },
+    { "key": "what_building", "label": "What are you building?", "kind": "one_liner", "todo": "what you are building in 2-3 sentences", "type": "text", "required": true, "description": "Explain in 2-3 sentences.", "project_field": "description", "from": "project" },
+    { "key": "category", "label": "How would you classify the project primarily?", "kind": "other", "todo": "a project category", "type": "choice", "required": true, "options": ["DeFi", "Infrastructure", "AI", "Payments", "RWA", "Consumer", "Gaming", "Enterprise", "DePIN", "Other"], "from": "project" },
+    { "key": "website_url", "label": "Website URL", "kind": "links", "todo": "a website link", "type": "url", "required": true, "project_field": "live_url", "from": "project" },
+    { "key": "github_repo", "label": "Project's Github Repo", "kind": "links", "todo": "a GitHub repo link", "type": "url", "required": true, "project_field": "repo_url", "from": "project" },
+    { "key": "x_url", "label": "X/Twitter URL", "kind": "links", "type": "url", "required": false, "from": "builder" },
+    { "key": "project_stage", "label": "Project stage", "kind": "other", "todo": "a project stage", "type": "choice", "required": true, "options": ["A. Pre-formation (team formed, not yet building)", "B. Pre-launch (actively building, no public release yet)", "C. Very early (<6 months live on testnet/mainnet)", "D. Early (6-12 months live)", "E. Live (1 year+)"], "from": "project" },
+    { "key": "status_and_six_months", "label": "Current status & state in 6 months", "kind": "milestones", "todo": "where you are and where in 6 months", "type": "text", "required": true, "from": "project" },
+    { "key": "mainnet_launch", "label": "Expected mainnet launch time", "kind": "other", "todo": "your mainnet launch timing", "type": "choice", "required": true, "options": ["A. Already launched on mainnet", "B. Currently live on testnet", "C. Expected within 6 months", "D. Expected within 12 months"], "from": "project" },
+    { "key": "arbitrum_alignment", "label": "Arbitrum alignment", "kind": "ecosystem_fit", "todo": "your Arbitrum alignment", "type": "choice", "required": true, "options": ["A. Already building on Arbitrum", "B. Committed to launching on Arbitrum", "C. Exploring ecosystems"], "from": "project" },
+    { "key": "founder_count", "label": "Number of founders/ contributors", "kind": "team", "todo": "how many founders", "type": "choice", "required": true, "options": ["A - 1", "B - 2", "C - 3", "D - 4+"], "from": "builder" },
+    { "key": "region", "label": "Region", "kind": "other", "todo": "your region", "type": "choice", "required": true, "options": ["A - North America", "B - South America", "C - Europe", "D - Africa", "E - Asia", "F - Oceania"], "from": "builder" },
+    { "key": "founding_team", "label": "Founding team - Full names & Background", "kind": "team", "todo": "founder names and backgrounds", "type": "text", "required": true, "description": "For example: John Doe - ex-Barclays.", "from": "builder" },
+    { "key": "top_successes", "label": "Top 3 Successes to Date", "kind": "traction", "todo": "your top 3 successes", "type": "text", "required": true, "from": "builder" },
+    { "key": "commitment", "label": "Commitment", "kind": "team", "todo": "your time commitment", "type": "choice", "required": true, "options": ["A - Full-time", "B - Part-time (20+ hrs/week)", "C - Part-time (<20 hrs/week)"], "from": "builder" },
+    { "key": "raised_before", "label": "Have you raised funds for this project before?", "kind": "raised", "todo": "whether you raised funds before", "type": "choice", "required": true, "options": ["Yes", "No"], "from": "builder" },
+    { "key": "raised_details", "label": "If you raised funds for this project before, please provide details.", "kind": "raised", "type": "text", "required": false, "description": "Shown and required when you answer Yes to the previous question.", "from": "builder" },
+    { "key": "not_raised_why", "label": "If you haven't raised funds for this project before, please explain why not.", "kind": "raised", "type": "text", "required": false, "description": "Shown and required when you answer No to the previous question.", "from": "builder" },
+    { "key": "tvl", "label": "What is your current TVL across all chains", "kind": "traction", "todo": "your current TVL range", "type": "choice", "required": true, "options": ["<200k", "200k-1M", "1M-5M", "5M-10M+", "10M-50m", "50M+"], "from": "builder" },
+    { "key": "main_chain", "label": "What Is the main chain to integrate", "kind": "ecosystem_fit", "todo": "the main chain to integrate", "type": "choice", "required": true, "options": ["Arbitrum One", "Robinhood Chain"], "from": "project" },
+    { "key": "additional_comments", "label": "Additional comments", "kind": "other", "type": "text", "required": false, "from": "builder" },
+    { "key": "newsletter", "label": "Would you like to sign up for the Arbitrum Builder's Block newsletter?", "kind": "other", "todo": "a newsletter yes or no", "type": "choice", "required": true, "options": ["Yes", "No"], "from": "builder" },
+    { "key": "terms", "label": "I have read and agree to the Mentorship Program Terms and Conditions & Privacy Policy", "kind": "other", "todo": "agree to the terms", "type": "choice", "required": true, "options": ["I have read and agree to the Mentorship Program Terms and Conditions & Privacy Policy"], "from": "builder" }
+  ],
+  "form": { "platform": "tally", "url": "https://tally.so/r/Xx6xqO" },
+  "submit": "either",
+  "sign_in": "none",
+  "results_due": {
+    "date": "2027-01-05"
+  }
+}

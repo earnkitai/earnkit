@@ -1,0 +1,65 @@
+{
+  "id": "ugreen-ai-nas-hackathon-2026",
+  "organizer": "UGREEN",
+  "title": "UGREEN Hackathon 2026 on AI NAS",
+  "description": "UGREEN's online two-round hackathon on Devpost. Build an AI Skill that runs on UGREEN AI NAS (UGOS) with the UGREEN Skill Developer Package. Round 1 needs only a proposal PDF and a pre-test Skill ZIP, no NAS. Up to 30 finalists get one day of remote access to a real NAS and compete for $46,000 in cash.",
+  "source_url": "https://ugreenhackathon.devpost.com/",
+  "submission_url": "https://ugreenhackathon.devpost.com/",
+  "reward": "$46,000 in prizes, paid in cash: $20,000 Grand Prize, $10,000 second, $6,000 third, and two $5,000 Most Creative awards",
+  "summary": "$46,000 in prizes · Round 1 closes Nov 15, 11:45 PM PT",
+  "pool_usd": 46000,
+  "max_award_usd": 20000,
+  "category": "hackathon",
+  "starts_at": "2026-10-22T09:00:00-07:00",
+  "ends_at": "2026-11-15T23:45:00-08:00",
+  "verified_at": "2026-11-09",
+  "status": "active",
+  "existing_work": "new_work_only",
+  "needs_repo": false,
+  "chains": [],
+  "any_chain": true,
+  "tag": "long shot",
+  "min_tier": "building",
+  "eligibility": [
+    { "kind": "new_work_after", "value": "2026-10-22T09:00:00-07:00" },
+    { "kind": "feature", "note": "an AI Skill for UGREEN AI NAS (UGOS) built with the UGREEN Skill Developer Package" }
+  ],
+  "setup": [
+    "a Devpost account joined to the hackathon",
+    "the UGREEN Skill Developer Package"
+  ],
+  "each_time": [
+    "a proposal PDF of at most 500 words",
+    "a pre-test Skill ZIP with SKILL.md"
+  ],
+  "rules": [
+    "Round 1 closes on Devpost on November 15, 2026 at 11:45 PM Pacific Time. No NAS, code repo or demo video is needed for Round 1.",
+    "You may build on an idea conceived before the hackathon, but the Skill and its core workflow must be newly developed during it. Do not reuse previously developed Skills.",
+    "Build with the UGREEN Skill Developer Package, following the Uliya Skill Development Standard, in one track: Automate Your Workflow, Bring Memories to Life, Unleash Your Creativity, or Open Innovation.",
+    "Up to 30 finalists are emailed on November 21 with one assigned day of remote NAS access between November 22 and 28. Finalists submit the final Skill ZIP and a public YouTube demo of at most 3 minutes by November 30, 11:45 PM PT.",
+    "Winners are decided by Round 2 only and announced on or around December 6, 2026.",
+    "Individuals or teams of up to three; one project per entrant or team. Companies and professional organizations are excluded.",
+    "Many countries are excluded, including India, Brazil, Ukraine, Vietnam, Bangladesh, Saudi Arabia, Russia and Quebec; check the list on the page."
+  ],
+  "submission_requirements": [
+    { "key": "track", "label": "Track", "kind": "other", "todo": "a track", "type": "choice", "required": true, "options": ["Automate Your Workflow", "Bring Memories to Life", "Unleash Your Creativity", "Open Innovation"], "from": "project" },
+    { "key": "proposal_pdf", "label": "Project Proposal (PDF)", "kind": "solution", "todo": "a proposal PDF under 1 MB", "type": "file", "required": true, "description": "At most 1 MB and 500 English words across ten items: what the Skill does, target user and problem, solution, main user flow, how it differs, which NAS features at which step, technical approach, what is built and not, two core test cases and one edge case, known limits and risks. Third-party components and licenses must be identified.", "from": "project" },
+    { "key": "skill_zip", "label": "Pre-test Skill Package (ZIP)", "kind": "other", "todo": "a Skill ZIP with SKILL.md", "type": "file", "required": true, "description": "SKILL.md with frontmatter name and description, optional linked Markdown references. ZIP and unpacked package at most 10 MB, 1 MB per file, 100 files; no scripts, executables or binaries; no real credentials.", "from": "project" }
+  ],
+  "focus": {
+    "areas": ["AI Skills that automate work on NAS files", "Organize and search personal photos and videos", "Media tools for photographers and editors"],
+    "source_url": "https://ugreenhackathon.devpost.com/"
+  },
+  "ideas": [
+    "A Skill that summarizes documents on a NAS",
+    "Auto albums from photos stored on the NAS"
+  ],
+  "results_due": {
+    "date": "2026-12-06"
+  },
+  "form": { "platform": "other", "url": "https://ugreenhackathon.devpost.com/" },
+  "submit": "builder",
+  "sign_in": "platform",
+  "platform_name": "Devpost",
+  "reviewers_contact": "Email the hackathon manager from the UGREEN Hackathon Devpost page; UGREEN Community for questions"
+}

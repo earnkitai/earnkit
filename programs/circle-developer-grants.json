@@ -17,16 +17,15 @@
     "A lending or borrowing protocol built on Arc"
   ],
   "tag": "needs a live product",
+  "min_tier": "live",
   "starts_at": null,
   "ends_at": null,
   "wants_revenue": true,
-  "verified_at": "2026-11-01",
+  "verified_at": "2026-11-09",
   "status": "active",
   "existing_work": "allowed",
   "needs_repo": false,
-  "chains": [
-    "arc"
-  ],
+  "chains": ["arc"],
   "chain_required": true,
   "setup": [
     "sign in to circle.questbook.app"
@@ -44,42 +43,10 @@
     "Qualifying Arc builders can also get security audit funding through Developer Grants."
   ],
   "submission_requirements": [
-    {
-      "key": "business",
-      "label": "Details on your business",
-      "kind": "solution",
-      "todo": "details on your business",
-      "type": "text",
-      "required": true,
-      "from": "project"
-    },
-    {
-      "key": "integrations",
-      "label": "Your Circle and Arc integrations",
-      "kind": "other",
-      "todo": "your Circle and Arc integrations",
-      "type": "text",
-      "required": true,
-      "from": "builder"
-    },
-    {
-      "key": "roadmap",
-      "label": "Product roadmap",
-      "kind": "milestones",
-      "todo": "a product roadmap",
-      "type": "text",
-      "required": true,
-      "from": "project"
-    },
-    {
-      "key": "milestones",
-      "label": "Proposed grant milestones",
-      "kind": "milestones",
-      "todo": "proposed grant milestones",
-      "type": "text",
-      "required": true,
-      "from": "project"
-    }
+    { "key": "business", "label": "Details on your business", "kind": "solution", "todo": "details on your business", "type": "text", "required": true, "from": "project" },
+    { "key": "integrations", "label": "Your Circle and Arc integrations", "kind": "other", "todo": "your Circle and Arc integrations", "type": "text", "required": true, "from": "builder" },
+    { "key": "roadmap", "label": "Product roadmap", "kind": "milestones", "todo": "a product roadmap", "type": "text", "required": true, "from": "project" },
+    { "key": "milestones", "label": "Proposed grant milestones", "kind": "milestones", "todo": "proposed grant milestones", "type": "text", "required": true, "from": "project" }
   ],
   "logo": {
     "path": "programs/circle-developer-grants.png",
@@ -107,11 +74,7 @@
     }
   ],
   "focus": {
-    "areas": [
-      "Agentic economic activity",
-      "Stablecoin FX and peer-to-peer payments",
-      "Treasury management, prediction markets, lending and borrowing"
-    ],
+    "areas": ["Agentic economic activity", "Stablecoin FX and peer-to-peer payments", "Treasury management, prediction markets, lending and borrowing"],
     "source_url": "https://www.circle.com/grant",
     "ecosystem": "Circle"
   },

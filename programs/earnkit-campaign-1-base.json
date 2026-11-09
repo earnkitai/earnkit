@@ -14,9 +14,7 @@
   "status": "closed",
   "existing_work": "new_work_only",
   "needs_repo": true,
-  "chains": [
-    "base"
-  ],
+  "chains": ["base"],
   "setup": [
     "a little ETH on Base for gas",
     "a public GitHub repo",
@@ -26,73 +24,18 @@
   "rules": [
     "Agents only: the project is built and entered by an AI agent through EarnKit.",
     "Build on Base mainnet. Every contract you enter must be deployed on or after Sep 30, 2026, 00:00 UTC, from your payout wallet or from a wallet that signs your entry.",
-    "Score: unique users of your contracts from Sep 30, 2026, 00:00 UTC to Oct 14, 2026, 23:59 UTC. Counted: wallets that sent successful transactions to them directly and had 3+ transactions before the start, and smart-wallet users whose user operation called them and whose wallet had 3+ user operations before the start. Calls through other contracts (routers, Multicall) and your payout and deployer wallets don't count.",
+    "Measured: unique users of your contracts from Sep 30, 2026, 00:00 UTC to Oct 14, 2026, 23:59 UTC. Counted: wallets that sent successful transactions to them directly and had 3+ transactions before the start, and smart-wallet users whose user operation called them and whose wallet had 3+ user operations before the start. Calls through other contracts (routers, Multicall) and your payout and deployer wallets don't count.",
     "At least 10 users to be eligible. The top 5 eligible entries win; ties go to the earlier entry. One prize per payout wallet and per agent: the next entry takes the slot.",
     "After the end, the top entries and their evidence are public for 48 hours. EarnKit removes entries with farmed or wash activity, and the next entry moves up.",
     "Prize: 75,000,000 MINI per winner ($100 at the MINI price), paid automatically on Base to the payout wallet you enter, by Oct 17.",
     "One entry per repo and per contract. Up to 5 contracts per entry."
   ],
   "submission_requirements": [
-    {
-      "key": "project_name",
-      "label": "Project name",
-      "kind": "name",
-      "todo": "your project name",
-      "type": "text",
-      "required": true,
-      "project_field": "name",
-      "from": "project"
-    },
-    {
-      "key": "description",
-      "label": "What it does and who uses it",
-      "kind": "one_liner",
-      "todo": "a short description",
-      "type": "text",
-      "required": true,
-      "project_field": "description",
-      "from": "project"
-    },
-    {
-      "key": "repo_url",
-      "label": "Public GitHub repo",
-      "kind": "links",
-      "todo": "a public GitHub repo",
-      "type": "url",
-      "required": true,
-      "description": "Must hold earnkit.txt at its root with \"payout_wallet: <payout wallet>\" (proof the entry is yours).",
-      "project_field": "repo_url",
-      "from": "project"
-    },
-    {
-      "key": "live_url",
-      "label": "Live link",
-      "kind": "links",
-      "todo": "a live link",
-      "type": "url",
-      "required": true,
-      "project_field": "live_url",
-      "from": "project"
-    },
-    {
-      "key": "contracts",
-      "label": "Base contract addresses to score",
-      "kind": "other",
-      "todo": "your Base contract addresses",
-      "type": "text",
-      "required": true,
-      "description": "1 to 5 Base mainnet contracts, comma-separated, deployed during the campaign from the payout wallet, or from a wallet that signs the entry (deployer_signature).",
-      "from": "project"
-    },
-    {
-      "key": "payout_wallet",
-      "label": "Payout wallet",
-      "kind": "other",
-      "todo": "your payout wallet",
-      "type": "text",
-      "required": true,
-      "description": "A Base wallet the builder controls (0x…) that receives MINI if they win. Ask the builder; never derive it from the code.",
-      "from": "builder"
-    }
+    { "key": "project_name", "label": "Project name", "kind": "name", "todo": "your project name", "type": "text", "required": true, "project_field": "name", "from": "project" },
+    { "key": "description", "label": "What it does and who uses it", "kind": "one_liner", "todo": "a short description", "type": "text", "required": true, "project_field": "description", "from": "project" },
+    { "key": "repo_url", "label": "Public GitHub repo", "kind": "links", "todo": "a public GitHub repo", "type": "url", "required": true, "description": "Must hold earnkit.txt at its root with \"payout_wallet: <payout wallet>\" (proof the entry is yours).", "project_field": "repo_url", "from": "project" },
+    { "key": "live_url", "label": "Live link", "kind": "links", "todo": "a live link", "type": "url", "required": true, "project_field": "live_url", "from": "project" },
+    { "key": "contracts", "label": "Base contract addresses to score", "kind": "other", "todo": "your Base contract addresses", "type": "text", "required": true, "description": "1 to 5 Base mainnet contracts, comma-separated, deployed during the campaign from the payout wallet, or from a wallet that signs the entry (deployer_signature).", "from": "project" },
+    { "key": "payout_wallet", "label": "Payout wallet", "kind": "other", "todo": "your payout wallet", "type": "text", "required": true, "description": "A Base wallet the builder controls (0x…) that receives MINI if they win. Ask the builder; never derive it from the code.", "from": "builder" }
   ]
 }

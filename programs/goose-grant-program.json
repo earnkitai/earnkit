@@ -1,0 +1,56 @@
+{
+  "id": "goose-grant-program",
+  "organizer": "Block",
+  "title": "goose grant program",
+  "description": "Block's grant program for developers building with goose, its open source AI agent. Grants of $100,000 USD over 12 months for individuals or small teams whose work is not already funded by an employer or client, in integrations and extensions, tooling and infrastructure, research, and education. Proposals are reviewed on a rolling basis with quarterly progress reviews and payouts.",
+  "source_url": "https://goose-docs.ai/grants",
+  "submission_url": "https://docs.google.com/forms/d/e/1FAIpQLSd1MEYZDpjY6l6ickAIahg651wi2Y96PTWJJecHdG9Nn-KrWA/viewform",
+  "official_url": "https://opensource.block.xyz/blog/goose-grant-program",
+  "reward": "$100,000 USD per grant over a 12-month project (the July 2025 announcement listed grants from $10,000 to $100,000 by project size)",
+  "summary": "$100,000 per grant · rolling",
+  "max_award_usd": 100000,
+  "starts_at": null,
+  "ends_at": null,
+  "status": "active",
+  "verified_at": "2026-11-09",
+  "existing_work": "allowed",
+  "needs_repo": false,
+  "chains": [],
+  "any_chain": true,
+  "category": "grant",
+  "eligibility": [
+    { "kind": "feature", "note": "a project built with or for the goose agent, released with an open-source-first mindset" },
+    { "kind": "feature", "note": "work not already funded by an employer or client" }
+  ],
+  "setup": [],
+  "each_time": [
+    "a proposal with deliverables and milestones"
+  ],
+  "rules": [
+    "Rolling: proposals are reviewed on a rolling basis and there is no fixed deadline.",
+    "Anyone can apply: individuals working on their own or in small teams. The work must not already be funded by an employer or client. Prior open source experience is a plus, not a requirement.",
+    "Each grant is $100,000 USD for a 12-month project. Progress is reviewed quarterly by the goose team and selected external reviewers, and payouts are made quarterly.",
+    "Each project defines its own deliverables and milestones. The program looks for clear, compelling and ambitious ideas aligned with goose, built with an open-source-first mindset.",
+    "The July 2025 announcement describes four categories (integrations and extensions, tooling and infrastructure, research and innovation, education and documentation), OSI-approved licenses for funded work, a 1 to 2 page project description as the initial proposal, then a technical review and an interview with Block's Open Source team.",
+    "The application is a 6-page Google Form created inside Block, Inc.; EarnKit could read only page 1 (name, email, country)."
+  ],
+  "submission_requirements": [
+    { "key": "name", "label": "Name", "type": "text", "required": true, "todo": "your name", "from": "builder", "kind": "contact" },
+    { "key": "email", "label": "Email", "type": "email", "required": true, "todo": "your email", "from": "builder", "kind": "contact" },
+    { "key": "country", "label": "Country", "type": "text", "required": true, "todo": "your country", "from": "builder", "kind": "contact" },
+    { "key": "proposal", "label": "Project proposal with deliverables and milestones", "type": "text", "required": true, "todo": "a 1 to 2 page proposal with milestones", "description": "From the program pages: a brief description of the project (1 to 2 pages) with its own deliverables and milestones. Pages 2 to 6 of the form were not readable by EarnKit; the builder fills them in.", "from": "project", "kind": "milestones" }
+  ],
+  "focus": {
+    "areas": ["Integrations and extensions for goose", "Tooling and infrastructure for agents", "Research, education and documentation"],
+    "source_url": "https://opensource.block.xyz/blog/goose-grant-program"
+  },
+  "ideas": [
+    "A goose extension for a popular developer tool",
+    "Evaluation tooling for agent runs",
+    "A course that teaches building with goose"
+  ],
+  "form": { "platform": "google", "url": "https://docs.google.com/forms/d/e/1FAIpQLSd1MEYZDpjY6l6ickAIahg651wi2Y96PTWJJecHdG9Nn-KrWA/viewform" },
+  "submit": "builder",
+  "sign_in": "none",
+  "reviewers_contact": "goose-grants@block.xyz; #goose-grants forum on the Block Open Source Discord"
+}

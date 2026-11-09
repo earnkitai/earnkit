@@ -1,0 +1,70 @@
+{
+  "id": "colosseum-eternal",
+  "organizer": "Colosseum",
+  "title": "Colosseum Eternal",
+  "description": "Colosseum's ongoing startup competition between its two main hackathons. Start a four-week product sprint, post a one-minute progress video each week, then submit your product. The most innovative submission each cycle wins the $25,000 Eternal Award; standout startups are also considered for $250,000 in pre-seed funding and Colosseum's accelerator, which requires Solana.",
+  "source_url": "https://www.colosseum.com/eternal",
+  "submission_url": "https://www.colosseum.com/arena/eternal?start=1",
+  "reward": "The Eternal Award: $25,000 in non-dilutive stablecoins for the top submission each cycle; standout startups are considered for $250,000 in pre-seed funding through the accelerator (Solana required)",
+  "summary": "$25,000 award · start a sprint by Mar 20, 2027",
+  "max_award_usd": 25000,
+  "tz": "America/Los_Angeles",
+  "ideas": [
+    "A crypto startup shipped in a four-week sprint",
+    "A Solana product aiming for the accelerator",
+    "A pivot of an earlier hackathon project"
+  ],
+  "tag": "long shot",
+  "min_tier": "building",
+  "starts_at": null,
+  "ends_at": "2027-03-20T23:59:00-07:00",
+  "wants_revenue": true,
+  "verified_at": "2026-11-09",
+  "status": "active",
+  "existing_work": "allowed",
+  "needs_repo": true,
+  "chains": [],
+  "any_chain": true,
+  "category": "hackathon",
+  "setup": [
+    "sign up for a Colosseum account",
+    "start the four-week sprint in the Eternal dashboard"
+  ],
+  "each_time": [
+    "a one-minute progress video every week",
+    "a pitch video and a technical demo"
+  ],
+  "rules": [
+    "Eternal is open November to March and June to August. Start your sprint by March 20, 2027 for this window; a sprint started in an open window can continue through its personal deadline even if Eternal later pauses.",
+    "Each sprint lasts four weeks. Submit a brief update with a one-minute video at the end of each week: what you prioritized, what you shipped and notable challenges.",
+    "In the final week submit a product name and description, team background, the product GitHub repository, a pitch video, a technical demo and any other context needed to understand the product and business.",
+    "The Eternal Award is $25,000 in non-dilutive stablecoins for the most innovative submission each semi-annual cycle; winners of the November to March window are chosen in May.",
+    "Open to projects on any chain. To be eligible for the Award, the team cannot have raised venture capital for the startup it submits. Accelerator funding requires Solana.",
+    "A product from a previous Colosseum hackathon can be resubmitted only if it has materially changed; link the prior submission and explain what changed.",
+    "Judged on founder and market fit, insight, product and execution, potential market size, founder communication and viability.",
+    "Teams considered for the accelerator hear an acceptance or rejection within 14 days of submitting. Submissions stay private until evaluated."
+  ],
+  "eligibility": [
+    { "kind": "demo_video" },
+    { "kind": "feature", "note": "the team has not raised venture capital for the startup it submits" }
+  ],
+  "submission_requirements": [
+    { "key": "weekly_updates", "label": "Weekly update with a one-minute video", "type": "url", "required": true, "from": "builder", "kind": "demo_video", "todo": "a one-minute video each week", "description": "Each week of the sprint: what you prioritized, what you shipped, and any notable challenges." },
+    { "key": "product_name_description", "label": "Product name and description", "type": "text", "required": true, "from": "project", "kind": "one_liner", "todo": "a product name and description", "project_field": "description" },
+    { "key": "team_background", "label": "Team background", "type": "text", "required": true, "from": "builder", "kind": "team", "todo": "your team background" },
+    { "key": "github_repo", "label": "Product GitHub repository", "type": "url", "required": true, "from": "project", "kind": "links", "todo": "the product GitHub repo", "project_field": "repo_url" },
+    { "key": "pitch_video", "label": "Pitch video", "type": "url", "required": true, "from": "builder", "kind": "demo_video", "todo": "a pitch video" },
+    { "key": "technical_demo", "label": "Technical demo", "type": "url", "required": true, "from": "project", "kind": "demo_video", "todo": "a technical demo video", "project_field": "demo_url" },
+    { "key": "other_context", "label": "Any other context needed to understand the product and business", "type": "text", "required": false, "from": "project", "kind": "other" }
+  ],
+  "focus": {
+    "areas": ["Crypto startups on any chain", "Solana startups for accelerator funding"],
+    "source_url": "https://www.colosseum.com/eternal",
+    "ecosystem": "Solana"
+  },
+  "submit": "builder",
+  "sign_in": "platform",
+  "platform_name": "Colosseum",
+  "needs": ["demo_video"],
+  "prefers": ["solana"]
+}

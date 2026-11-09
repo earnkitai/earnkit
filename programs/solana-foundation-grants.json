@@ -1,0 +1,73 @@
+{
+  "id": "solana-foundation-grants",
+  "organizer": "Solana Foundation",
+  "title": "Solana Foundation Grants",
+  "description": "Milestone-based grants for public goods on Solana, plus milestone-based convertible grants for public goods with a commercial component. Applications are reviewed on a rolling basis. Categories on the form: AI, Consumer, DeFi, Developer Education and Ecosystem, Developer Tooling.",
+  "source_url": "https://solana.org/grants-funding",
+  "submission_url": "https://share.hsforms.com/1GE1hYdApQGaDiCgaiWMXHA5lohw",
+  "reward": "Milestone-based grants; the amount is requested by the applicant and not capped on the page",
+  "summary": "milestone grants · rolling",
+  "ideas": [
+    "Open-source developer tooling only possible on Solana",
+    "A free community offering for Solana builders",
+    "A fully onchain perps venue with open source contracts"
+  ],
+  "starts_at": null,
+  "ends_at": null,
+  "wants_revenue": true,
+  "verified_at": "2026-11-09",
+  "status": "active",
+  "existing_work": "allowed",
+  "needs_repo": false,
+  "chains": ["solana"],
+  "chain_required": true,
+  "min_tier": "building",
+  "eligibility": [
+    { "kind": "chain", "value": "solana" },
+    { "kind": "feature", "note": "a public good: a significant open source contribution to the Solana ecosystem or a meaningful free community offering" }
+  ],
+  "setup": [],
+  "each_time": [
+    "a budget split into milestones",
+    "a public good and open source answer"
+  ],
+  "rules": [
+    "Rolling: all applications are reviewed on a rolling basis. Review takes about one week; decision and contracting about three weeks.",
+    "Standard grants are milestone-based grants for public goods. A project counts as a public good if it makes a significant open-source contribution to the Solana ecosystem or has a meaningful free community offering; a novel proof of concept may also qualify.",
+    "Projects that are primarily commercial usually won't qualify for a standard grant; they should consider a convertible grant, applied for through the same form.",
+    "A convertible grant converts to an investment only if the project reaches set milestones, such as raising a priced round or completing growth objectives.",
+    "The Foundation evaluates: public good, open source, only possible on Solana, and a clear use of funds with measurable milestones.",
+    "Write answers out in the fields; do not paste website links into questions that do not ask for them.",
+    "Developer Tooling applicants write a proposal in a shared Google Doc following the Foundation's guidelines and share the link instead of the standard questions.",
+    "If you are building a perps product, choose DeFi. Marking a non-perps project as perps gets the application denied.",
+    "Not everyone receives a reply; no reply means the project is not a fit for funding at this time. Approvals are at the discretion of the Solana Foundation Capital Team."
+  ],
+  "submission_requirements": [
+    { "key": "company", "label": "Company name", "type": "text", "required": true, "from": "project", "kind": "name", "todo": "a company or project name", "project_field": "name" },
+    { "key": "website", "label": "Website URL", "type": "url", "required": true, "from": "project", "kind": "links", "todo": "a website link", "project_field": "live_url" },
+    { "key": "country", "label": "Country", "type": "text", "required": true, "from": "builder", "kind": "contact", "todo": "your country" },
+    { "key": "firstname", "label": "First Name", "type": "text", "required": true, "from": "builder", "kind": "contact", "todo": "your first name" },
+    { "key": "lastname", "label": "Last Name", "type": "text", "required": true, "from": "builder", "kind": "contact", "todo": "your last name" },
+    { "key": "email", "label": "Email Address", "type": "email", "required": true, "from": "builder", "kind": "contact", "todo": "your email" },
+    { "key": "program_id", "label": "Solana On-Chain Accounts", "type": "text", "required": true, "from": "project", "kind": "other", "todo": "your Solana onchain addresses", "description": "Insert this project's on-chain addresses (program ID, token address, fee payer wallets etc.). Separate them using a comma." },
+    { "key": "amount", "label": "Funding Amount", "type": "text", "required": true, "from": "builder", "kind": "use_of_funds", "todo": "the amount you request", "description": "How much are you requesting in funding? A number." },
+    { "key": "funding_category", "label": "Which funding category are you applying for?", "type": "choice", "required": true, "from": "project", "kind": "other", "todo": "a funding category", "options": ["AI", "Consumer", "DeFi", "Developer Education & Ecosystem", "Developer Tooling"] },
+    { "key": "dev_tooling_instructions", "label": "Developer Tooling Instructions", "type": "url", "required": false, "from": "project", "kind": "how_it_works", "description": "Shown and required only when the category is Developer Tooling: a proposal in a shared Google Doc following the Foundation's Developer Tooling guidelines. It replaces the questions below up to Why You." },
+    { "key": "pitch", "label": "Your project / idea", "type": "text", "required": false, "from": "project", "kind": "solution", "description": "Required unless the category is Developer Tooling. What are you building? If you were referred by a Solana Foundation Partner or by someone at Solana Foundation, please indicate below." },
+    { "key": "open_source", "label": "Is / will this project be open sourced?", "type": "choice", "required": false, "from": "project", "kind": "other", "options": ["Yes", "No", "Partially", "N/A"], "description": "Required unless the category is Developer Tooling." },
+    { "key": "budget_proposal", "label": "Specify the amount of funding you are requesting and list the milestones that will be completed to unlock each portion of that funding.", "type": "text", "required": false, "from": "builder", "kind": "milestones", "description": "Required unless the category is Developer Tooling. Measurable milestones for both Product Development and Adoption, each with the amount it unlocks.", "guidance": {"pattern": "$1,000 due upon completion of Milestone 1 deliverable, then $2,000 for Milestone 2, each a measurable result", "source_url": "https://share.hsforms.com/1GE1hYdApQGaDiCgaiWMXHA5lohw"} },
+    { "key": "usage_stats", "label": "Relevant metrics about the usage of your project/product", "type": "text", "required": false, "from": "builder", "kind": "traction", "description": "Required unless the category is Developer Tooling. Tell us about the traction that your project has already achieved." },
+    { "key": "competition", "label": "Competition", "type": "text", "required": false, "from": "project", "kind": "competitors", "description": "Required unless the category is Developer Tooling. Who is a direct competitor to your project? Tell us your competitive advantage." },
+    { "key": "public_good", "label": "How is this project a public good?", "type": "text", "required": false, "from": "project", "kind": "ecosystem_fit", "description": "Required unless the category is Developer Tooling. A significant open-source contribution to the Solana ecosystem, or a meaningful free community offering; a novel proof of concept may also qualify." },
+    { "key": "perps", "label": "Are you building a perps product?", "type": "choice", "required": false, "from": "project", "kind": "other", "options": ["Yes", "No"], "description": "Shown and required only when the category is DeFi. The Foundation backs perps that are fully onchain, with real price discovery, Solana-first, open source and built by experienced teams." },
+    { "key": "why_you", "label": "Why You?", "type": "text", "required": true, "from": "builder", "kind": "why_you", "todo": "why your team is best placed", "description": "Why are you and your team the best people to build this project? What edge do you have over the competition?" }
+  ],
+  "focus": {
+    "areas": ["Open-source public goods for Solana", "Developer tooling and education", "AI, consumer and DeFi projects"],
+    "source_url": "https://solana.org/grants-funding",
+    "ecosystem": "Solana"
+  },
+  "form": { "platform": "other", "url": "https://share.hsforms.com/1GE1hYdApQGaDiCgaiWMXHA5lohw", "fields": {"company": "company", "website": "website", "country": "country", "firstname": "firstname", "lastname": "lastname", "email": "email", "program_id": "program_id", "amount": "amount", "funding_category": "which_grant_are_you_applying_for_", "dev_tooling_instructions": "dev_tooling_instructions", "pitch": "pitch", "open_source": "will_this_be_open_source_", "budget_proposal": "budget_proposal", "usage_stats": "usage_stats", "competition": "competition", "public_good": "how_is_this_a_public_good", "perps": "perps", "why_you": "why_you_"} },
+  "submit": "either",
+  "sign_in": "none"
+}

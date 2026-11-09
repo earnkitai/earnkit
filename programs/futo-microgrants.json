@@ -1,0 +1,50 @@
+{
+  "id": "futo-microgrants",
+  "organizer": "FUTO",
+  "title": "FUTO Microgrants",
+  "description": "FUTO's one-time microgrants of $1,000 to $5,000 for small or early-stage open source software projects and the people building them. Applications are open and go by email; FUTO has awarded over $60,000 across 52 microgrants. Its larger Legendary Grants are reserved for established open source projects and nonprofits FUTO already trusts.",
+  "source_url": "https://futo.tech/grants/",
+  "submission_url": "https://futo.tech/grants/",
+  "official_url": "https://futo.tech/",
+  "reward": "One-time microgrants of $1,000 to $5,000 for small or early-stage projects",
+  "summary": "$1,000 to $5,000 · rolling",
+  "max_award_usd": 5000,
+  "min_award_usd": 1000,
+  "starts_at": null,
+  "ends_at": null,
+  "status": "active",
+  "verified_at": "2026-11-09",
+  "existing_work": "allowed",
+  "needs_repo": true,
+  "chains": [],
+  "any_chain": true,
+  "category": "grant",
+  "min_tier": "building",
+  "eligibility": [
+    { "kind": "feature", "note": "open source software from a small or early-stage project" }
+  ],
+  "setup": [],
+  "each_time": [
+    "an email describing the project to grantapps@futo.org"
+  ],
+  "rules": [
+    "Applications are open. No deadline and no form are stated: apply by email to grantapps@futo.org.",
+    "Microgrants are one-time grants of $1,000 to $5,000 for small or early-stage projects. Many are unsolicited, recommended by FUTO employees who use the projects.",
+    "Legendary Grants are large-scale grants for established open source projects and traditional nonprofits with significant impact, generally reserved for established entities FUTO trusts, with an ongoing relationship afterward.",
+    "FUTO funds open source software and the people building it to challenge the tech oligopoly; every listed microgrant recipient is an open source project."
+  ],
+  "submission_requirements": [
+    { "key": "application_email", "label": "Grant application email to grantapps@futo.org", "type": "text", "required": true, "todo": "email a short description of the project", "description": "The page states no form or fields; applications go by email. Describe the project, link the repository and say what the grant would fund.", "from": "project", "kind": "solution" }
+  ],
+  "focus": {
+    "areas": ["Open source software against tech monopolies", "Small and early-stage projects"],
+    "source_url": "https://futo.tech/grants/"
+  },
+  "ideas": [
+    "A privacy-first open source desktop app",
+    "A self-hosted alternative to a popular service"
+  ],
+  "submit": "builder",
+  "sign_in": "none",
+  "reviewers_contact": "grantapps@futo.org"
+}

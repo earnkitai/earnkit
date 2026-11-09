@@ -10,15 +10,17 @@
   "max_award_usd": 100000,
   "starts_at": null,
   "ends_at": null,
-  "verified_at": "2026-11-01",
+  "verified_at": "2026-11-09",
   "status": "upcoming",
   "opens_note": "Batch 005 is not announced yet. Base Batches runs twice a year.",
   "existing_work": "unknown",
   "needs_repo": false,
-  "chains": [
-    "base"
-  ],
+  "chains": ["base"],
   "investment": true,
+  "tag": "long shot",
+  "eligibility": [
+    { "kind": "feature", "note": "a team committed to Base as its default implementation and network of choice, with no formal Seed round raised" }
+  ],
   "setup": [],
   "each_time": [],
   "rules": [

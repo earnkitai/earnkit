@@ -1,0 +1,64 @@
+{
+  "id": "herodevs-sustainability-fund",
+  "organizer": "HeroDevs",
+  "title": "HeroDevs Open Source Sustainability Fund",
+  "description": "HeroDevs' $20 million fund for maintainers of open source developer tools under an OSI-approved license whose versions are near or past official end of life. Grants of $2,500 to $15,000 fund ongoing open source work and best practices in releases, communication, documentation, support and processes. Applications are open with no stated deadline.",
+  "source_url": "https://www.herodevs.com/sustainability-fund",
+  "submission_url": "https://docs.google.com/forms/d/e/1FAIpQLSczQp6Wtlbbvdw2rgU7NgtEq9PuADyy0FLCoHOtlGTKis9fRA/viewform",
+  "official_url": "https://www.herodevs.com/",
+  "reward": "Grants from $2,500 to $15,000 per project (the application form says accepted applicants receive between $2,500 and $250,000 in donations)",
+  "summary": "$2,500 to $15,000 · rolling",
+  "max_award_usd": 15000,
+  "min_award_usd": 2500,
+  "starts_at": null,
+  "ends_at": null,
+  "status": "active",
+  "verified_at": "2026-11-09",
+  "existing_work": "allowed",
+  "needs_repo": true,
+  "chains": [],
+  "any_chain": true,
+  "category": "grant",
+  "min_tier": "used",
+  "eligibility": [
+    { "kind": "users", "note": "an open source developer tool with existing users and versions near or past official end of life" },
+    { "kind": "feature", "note": "an OSI-approved open source license" }
+  ],
+  "setup": [],
+  "each_time": [
+    "stars, criticality score and end-of-life user estimate"
+  ],
+  "rules": [
+    "No deadline is stated; the fund page links straight to the application form.",
+    "Eligibility: you maintain an open source project under an OSI-approved license; its versions are near or past official end of life; the project is a developer tool; you are ready to keep users secure and CVE-free.",
+    "The fund page says grants range from $2,500 to $15,000. The application form description says accepted applicants receive between $2,500 and $250,000 in donations.",
+    "Applicants are assessed against best-practice criteria in five areas: releases and versioning, communication and transparency, documentation, support and deprecation handling, processes and support tiers.",
+    "After you apply, a team member confirms receipt and reviews the application; if approved, HeroDevs contacts you to begin criteria review and implementation. No timeline is stated.",
+    "Accepted projects receive a Best Practices Form, a self-service tool for documenting existing practices and getting guidance on improvements, and are expected to align with the program criteria.",
+    "Only the email field is marked required on the form; the other questions are optional."
+  ],
+  "submission_requirements": [
+    { "key": "email", "label": "Email", "type": "email", "required": true, "todo": "your email", "from": "builder", "kind": "contact" },
+    { "key": "first_name", "label": "First Name", "type": "text", "required": false, "from": "builder", "kind": "contact" },
+    { "key": "last_name", "label": "Last Name", "type": "text", "required": false, "from": "builder", "kind": "contact" },
+    { "key": "company", "label": "Company or Organization (if applicable)", "type": "text", "required": false, "from": "builder", "kind": "team" },
+    { "key": "repo_ownership", "label": "Repository Foundation or Ownership (if applicable)", "type": "text", "required": false, "from": "builder", "kind": "other" },
+    { "key": "github_link", "label": "GitHub Link", "type": "url", "required": false, "project_field": "repo_url", "from": "project", "kind": "links" },
+    { "key": "stars", "label": "# of Stars", "type": "text", "required": false, "from": "project", "kind": "traction" },
+    { "key": "criticality_score", "label": "Criticality Score (if available)", "type": "text", "required": false, "description": "The OpenSSF criticality score of the repository, if you have it.", "from": "project", "kind": "traction" },
+    { "key": "first_release_year", "label": "What year did you ship your first release?", "type": "text", "required": false, "from": "project", "kind": "past_work" },
+    { "key": "eol_users", "label": "Estimated number of End of Life users / downloads", "type": "text", "required": false, "from": "project", "kind": "traction" }
+  ],
+  "focus": {
+    "areas": ["Open source developer tools near end of life", "Security and CVE-free maintenance", "Release, documentation and support practices"],
+    "source_url": "https://www.herodevs.com/sustainability-fund"
+  },
+  "ideas": [
+    "Security backports for a framework past end of life",
+    "A deprecation and support policy for a widely used library"
+  ],
+  "form": { "platform": "google", "url": "https://docs.google.com/forms/d/e/1FAIpQLSczQp6Wtlbbvdw2rgU7NgtEq9PuADyy0FLCoHOtlGTKis9fRA/viewform" },
+  "submit": "either",
+  "sign_in": "none",
+  "reviewers_contact": "hello@herodevs.com"
+}

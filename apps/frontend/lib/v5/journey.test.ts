@@ -149,7 +149,8 @@ test('the owner, linked: record set, approved on /me, find fills from it, starte
   await saveRecord(b.id, record, NOW);
 
   const t1 = new Date(NOW.getTime() + H);
-  const first = await call(t1, 'find', { project: { ...p, live_url: 'https://earnkit.com', users: true } });
+  // v6.1.2: the first five ready are in person (no drafted line), so the full list shows the ready one the record fills.
+  const first = await call(t1, 'find', { project: { ...p, live_url: 'https://earnkit.com', users: true }, filter: { all: true } });
   assert.equal(first.linked, true);
   const z = (first.ready as { program_id: string; from_record: number; fields: { key: string; from: string; value: string | null }[] }[]).find((x) => x.program_id === 'z-fellows')!;
   assert.deepEqual(z.fields.find((f) => f.key === 'problem')!.value, 'Builders lose weeks on grant forms.');

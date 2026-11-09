@@ -1,0 +1,69 @@
+{
+  "id": "solana-mobile-builder-grants",
+  "organizer": "Solana Mobile",
+  "title": "Solana Mobile Builder Grants",
+  "description": "Milestone-based grants for teams building mobile-first crypto apps on Android with the Solana Mobile Stack (Mobile Wallet Adapter and Seed Vault). Tooling, content and research that advance the mobile ecosystem are also considered. Apply with any grant idea at any time.",
+  "source_url": "https://solanamobile.com/grants",
+  "submission_url": "https://airtable.com/appw7jfRXG6Joia2b/pagGNMPX6qleBYHNp/form",
+  "reward": "A milestones-based grant, sometimes with co-marketing and launch support; the form offers requests from $10,000 to $50,000",
+  "summary": "milestone grants · rolling",
+  "ideas": [
+    "An Android app using Mobile Wallet Adapter and Seed Vault",
+    "Real-time payments using phone location or camera",
+    "A mobile app listed on the Solana dApp Store"
+  ],
+  "starts_at": null,
+  "ends_at": null,
+  "wants_revenue": true,
+  "verified_at": "2026-11-09",
+  "status": "active",
+  "existing_work": "allowed",
+  "needs_repo": false,
+  "chains": ["solana"],
+  "chain_required": true,
+  "eligibility": [
+    { "kind": "chain", "value": "solana" },
+    { "kind": "feature", "note": "a mobile-first Android dApp integrating the Solana Mobile Stack: Mobile Wallet Adapter and Seed Vault" }
+  ],
+  "setup": [],
+  "each_time": [
+    "a pitch deck link",
+    "dApp Store status and funding status"
+  ],
+  "rules": [
+    "Rolling: you can apply with any grant idea at any time. Review timelines vary and no response time is promised.",
+    "Open to any individual, team or organization building mobile-focused dApps for the Solana Mobile ecosystem.",
+    "Guidelines: a mobile-first UX on Android using native features; core Solana Mobile Stack integration, including Mobile Wallet Adapter and Seed Vault; a realistic scope with milestones; a team that can execute; a detailed budget; commitment to open source and community benefit.",
+    "Proposals are weighed on mobile optimization, Solana Mobile Stack integration, technical depth and impact on the Solana Mobile ecosystem.",
+    "Selected teams typically receive a milestones-based grant, sometimes with co-marketing and launch support.",
+    "The form asks for a Telegram handle, for contracting purposes."
+  ],
+  "submission_requirements": [
+    { "key": "project_name", "label": "Project Name", "type": "text", "required": true, "from": "project", "kind": "name", "todo": "a project or company name", "project_field": "name", "description": "Enter the name of your project or your company." },
+    { "key": "requested_amount", "label": "Requested Amount", "type": "choice", "required": true, "from": "builder", "kind": "use_of_funds", "todo": "a requested amount range", "options": ["$10,000 - $20,000", "$20001 - $30,000", "$30,001 - $40,000", "$40,001 - $50,000"], "description": "Select the range that best matches the amount of grant funding you are requesting." },
+    { "key": "website_url", "label": "Website URL", "type": "url", "required": false, "from": "project", "kind": "links", "project_field": "live_url" },
+    { "key": "country", "label": "Country", "type": "text", "required": true, "from": "builder", "kind": "contact", "todo": "your country" },
+    { "key": "first_name", "label": "First Name", "type": "text", "required": true, "from": "builder", "kind": "contact", "todo": "your first name" },
+    { "key": "last_name", "label": "Last Name", "type": "text", "required": true, "from": "builder", "kind": "contact", "todo": "your last name" },
+    { "key": "email", "label": "Email", "type": "email", "required": true, "from": "builder", "kind": "contact", "todo": "your email" },
+    { "key": "category", "label": "Category", "type": "choice", "required": true, "from": "project", "kind": "other", "todo": "a category", "options": ["AI", "Commerce/Loyalty", "Consumer", "DeFi", "DeSci", "Developer Education Ecosystem", "Developer Tooling", "Games", "Infrastructure", "Payments", "Stablecoins", "Marketplace", "Accessories", "Wallet", "Social", "Hardware", "Entertainment", "NFT", "Retail", "Trading", "Browser", "Memecoin", "Ads", "Explorer", "Governance", "CEX", "Creator"] },
+    { "key": "twitter", "label": "Twitter (X)", "type": "text", "required": false, "from": "builder", "kind": "contact" },
+    { "key": "telegram", "label": "Telegram", "type": "text", "required": true, "from": "builder", "kind": "contact", "todo": "your Telegram username", "description": "For contracting purposes." },
+    { "key": "pitch_deck", "label": "Link To Pitch Deck", "type": "url", "required": true, "from": "builder", "kind": "links", "todo": "a pitch deck link", "description": "Please share a link to your pitch deck if you have one." },
+    { "key": "demo_video", "label": "Link To Demo Video", "type": "url", "required": false, "from": "project", "kind": "demo_video", "project_field": "demo_url", "description": "If you have a link to a video showcasing your project please link it here." },
+    { "key": "onchain_accounts", "label": "Solana On-Chain Accounts", "type": "text", "required": false, "from": "project", "kind": "other", "description": "Insert this project's on-chain addresses if available (program ID, token address, fee payer wallets, etc.)." },
+    { "key": "android_app", "label": "Do you have an Android app already?", "type": "choice", "required": false, "from": "project", "kind": "other", "options": ["Yes", "No"], "description": "A checkbox on the form." },
+    { "key": "dapp_store_status", "label": "Solana dApp Store Status", "type": "choice", "required": true, "from": "project", "kind": "other", "todo": "your dApp Store status", "options": ["App is currently live in dApp Store", "App is in submission/review or submitted to hackathon", "Planning submission in the near future", "Will build contingent on grant funding"], "description": "The Seeker features an upgraded dApp Store with improved discoverability. Is your app currently available on the Solana dApp Store?" },
+    { "key": "funding_status", "label": "What best describes the funding status of your project?", "type": "choice", "required": true, "from": "builder", "kind": "raised", "todo": "your funding status", "options": ["Will not raise funds", "Planning to raise funds in the next year", "Actively raising funds"] },
+    { "key": "usage_metrics", "label": "Relevant metrics about the usage of your project/product", "type": "text", "required": false, "from": "builder", "kind": "traction", "description": "If your project is already live, describe the traction you've achieved so far (e.g., TestFlight users, APK downloads, pre-orders, manufacturing partnerships)." }
+  ],
+  "focus": {
+    "areas": ["Mobile-first Android dApps", "Solana Mobile Stack: MWA and Seed Vault", "Apps using sensors, location, cameras, payments"],
+    "source_url": "https://solanamobile.com/grants",
+    "ecosystem": "Solana"
+  },
+  "form": { "platform": "airtable", "url": "https://airtable.com/appw7jfRXG6Joia2b/pagGNMPX6qleBYHNp/form" },
+  "submit": "either",
+  "sign_in": "none",
+  "needs": ["deck"]
+}

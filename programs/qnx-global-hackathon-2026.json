@@ -1,0 +1,73 @@
+{
+  "id": "qnx-global-hackathon-2026",
+  "organizer": "QNX",
+  "title": "QNX Global Hackathon",
+  "description": "QNX's online hackathon on Devpost. Build an application, driver, library or component that runs on QNX 8.0 (free for non-commercial use through QNX Everywhere, QEMU or a Raspberry Pi 5 work), or a host tool that supports software targeting QNX 8.0. Five categories, $50,000 in cash prizes.",
+  "source_url": "https://qnx.devpost.com/",
+  "submission_url": "https://qnx.devpost.com/",
+  "reward": "$50,000 in prizes, paid in cash: $10,000 Grand Prize, $4,000 per category winner, $2,000 per runner-up, $1,000 honorable mentions, and two $3,500 bonus prizes",
+  "summary": "$50,000 in prizes · closes Dec 15, 2:00 PM ET",
+  "pool_usd": 50000,
+  "category": "hackathon",
+  "starts_at": "2026-11-02T11:00:00-05:00",
+  "ends_at": "2026-12-15T14:00:00-05:00",
+  "verified_at": "2026-11-09",
+  "status": "active",
+  "existing_work": "allowed",
+  "needs_repo": true,
+  "chains": [],
+  "any_chain": true,
+  "tag": "long shot",
+  "min_tier": "building",
+  "eligibility": [
+    { "kind": "demo_video" },
+    { "kind": "feature", "note": "runs on QNX 8.0 (hardware or QEMU) or is a host tool that builds, tests or analyzes QNX 8.0 software" }
+  ],
+  "setup": [
+    "a Devpost account joined to the hackathon",
+    "free QNX SDP 8.0 access through QNX Everywhere"
+  ],
+  "each_time": [
+    "a public open source repo that builds for QNX 8.0",
+    "a public YouTube demo under 3 minutes"
+  ],
+  "rules": [
+    "Submit on Devpost by December 15, 2026 at 2:00 PM Eastern Time. The submission period opened November 2, 2026.",
+    "Projects must be new (created November 2 to December 15, 2026) or existing projects significantly updated after November 2; explain the update.",
+    "Build something that runs on or targets QNX 8.0: software on any QNX-supported target including QEMU, or a host tool for Windows, macOS or Linux that builds, tests or analyzes QNX 8.0 software.",
+    "Pick one category: Robotics & Medical, Automotive & Mobility, Low-level Software, Developer Tooling & Host Tools, or Open-Source Contribution & Ports.",
+    "Ports go in a new repository created in the submission period that references the upstream by URL. Do not submit a fork.",
+    "The repo must be public on GitHub, GitLab or Bitbucket with an open source license visible in the About section, and must show the project really builds for or runs on QNX 8.0.",
+    "Entrants must be above the age of majority. Residents of Brazil, Russia, Crimea, Cuba, Iran, North Korea and other sanctioned areas are excluded.",
+    "Individuals, teams and organizations may enter; more than one submission is allowed if each is substantially different.",
+    "A project can win one overall prize, one bonus prize and the Community Choice prize.",
+    "Winners are announced on or around February 4, 2027."
+  ],
+  "submission_requirements": [
+    { "key": "category", "label": "Category", "kind": "other", "todo": "a category", "type": "choice", "required": true, "options": ["Robotics & Medical", "Automotive & Mobility", "Low-level Software", "Developer Tooling & Host Tools", "Open-Source Contribution & Ports"], "from": "project" },
+    { "key": "repo_url", "label": "URL to your public code repository", "kind": "links", "todo": "a public licensed repo for QNX 8.0", "type": "url", "required": true, "project_field": "repo_url", "description": "GitHub, GitLab or Bitbucket, with all source, assets and build and run instructions, and an open source license visible in the About section.", "from": "project" },
+    { "key": "description", "label": "Text description explaining the features and functionality of your project", "kind": "how_it_works", "todo": "a features and functionality description", "type": "text", "required": true, "description": "Must explain how the project uses or supports QNX, and for an existing project how it was significantly updated.", "from": "project" },
+    { "key": "build_instructions", "label": "Build and run instructions specifying the QNX version, the target (hardware or QEMU), and the toolchain used", "kind": "how_it_works", "todo": "build and run instructions for QNX", "type": "text", "required": true, "from": "project" },
+    { "key": "demo_video", "label": "Demonstration video", "kind": "demo_video", "todo": "a public YouTube demo under 3 minutes", "type": "url", "required": true, "project_field": "demo_url", "description": "Under three minutes, showing the project working on the device it was built for, public on YouTube.", "from": "builder" },
+    { "key": "upstream_url", "label": "The URL of the upstream project you ported or contributed to", "kind": "links", "type": "url", "required": false, "description": "Open-Source Contribution & Ports only.", "from": "project" },
+    { "key": "pull_request_url", "label": "The URL of your pull request, if you opened one", "kind": "links", "type": "url", "required": false, "description": "Open-Source Contribution & Ports only.", "from": "project" },
+    { "key": "codelab_url", "label": "URL of your codelab", "kind": "links", "type": "url", "required": false, "description": "Only to enter Best Codelab / Tutorial: a codelab or tutorial written in the submission period that teaches a task on or for QNX 8.0.", "from": "builder" }
+  ],
+  "focus": {
+    "areas": ["Real-time robotics and medical software", "Drivers and board support for QNX", "Host tools that make QNX development easier"],
+    "source_url": "https://qnx.devpost.com/"
+  },
+  "ideas": [
+    "Port a popular open source library to QNX",
+    "A host CLI that builds and tests QNX images"
+  ],
+  "results_due": {
+    "date": "2027-02-04"
+  },
+  "form": { "platform": "other", "url": "https://qnx.devpost.com/" },
+  "submit": "builder",
+  "sign_in": "platform",
+  "platform_name": "Devpost",
+  "needs": ["demo_video"],
+  "reviewers_contact": "Email the hackathon manager from the QNX Global Hackathon Devpost page"
+}

@@ -1,0 +1,49 @@
+{
+  "id": "y-combinator",
+  "organizer": "Y Combinator",
+  "title": "Y Combinator Winter 2027 Batch",
+  "description": "Y Combinator invests $500,000 in every accepted startup. The Winter 2027 batch runs January to March in San Francisco, starting with a 3-day in-person kick-off. The on-time deadline has passed but YC is still accepting late applications, and Early Decision lets you apply now for a later batch.",
+  "source_url": "https://www.ycombinator.com/apply",
+  "submission_url": "https://apply.ycombinator.com/home",
+  "official_url": "https://www.ycombinator.com/deal",
+  "reward": "$500,000 investment: $125,000 on a post-money SAFE for 7% plus $375,000 on an uncapped MFN SAFE",
+  "summary": "$500K investment · late applications for Winter 2027",
+  "max_award_usd": 500000,
+  "investment": true,
+  "starts_at": null,
+  "ends_at": null,
+  "tz": "America/Los_Angeles",
+  "verified_at": "2026-11-09",
+  "status": "active",
+  "existing_work": "allowed",
+  "needs_repo": false,
+  "in_person": true,
+  "chains": [],
+  "any_chain": true,
+  "tag": "long shot",
+  "setup": [
+    "a YC account to start the application"
+  ],
+  "each_time": [],
+  "rules": [
+    "The on-time deadline for Winter 2027 was November 2 at 8pm PT. YC is still accepting late applications; most late applicants get a decision within a month, but it is not guaranteed.",
+    "On-time applicants hear back by December 11. Promising applicants interview, mostly by video in November and December, and usually get a decision the same day.",
+    "The Winter 2027 batch runs January to March in San Francisco, starting with a 3-day in-person kick-off, with regular meetups in San Francisco.",
+    "Deal: $125,000 on a post-money SAFE for 7% of the company (including any existing option pool) plus $375,000 on an uncapped MFN SAFE, committed on acceptance. YC charges no fees.",
+    "Open to any startup anywhere; solo founders are accepted, and companies further along are welcome if they have not raised a Series A.",
+    "Early Decision: apply now for a later batch (Spring, Summer or Fall) by choosing \"A batch after Winter 2027\" on the batch preference question.",
+    "Questions: apply@ycombinator.com."
+  ],
+  "submission_requirements": [
+    { "key": "yc_application", "label": "YC application", "kind": "other", "todo": "complete the YC application", "type": "text", "required": true, "description": "Behind a YC account sign-in; YC's public pages do not list the questions.", "from": "builder" },
+    { "key": "batch_preference", "label": "Batch preference", "kind": "other", "todo": "the batch you want", "type": "text", "required": true, "description": "Choose Winter 2027, or \"A batch after Winter 2027\" for Early Decision and name the batch.", "from": "builder" }
+  ],
+  "results_due": {
+    "date": "2026-12-11"
+  },
+  "form": { "platform": "other", "url": "https://apply.ycombinator.com/home" },
+  "submit": "builder",
+  "sign_in": "platform",
+  "platform_name": "Y Combinator",
+  "reviewers_contact": "apply@ycombinator.com"
+}
