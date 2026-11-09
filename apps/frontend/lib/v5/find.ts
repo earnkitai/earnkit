@@ -20,7 +20,7 @@ import { prefill, type Field } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, ruleNotes, type Category, type Program } from './program-file';
 import { getProgram, isOpen, listOpenPrograms, type ProgramRow } from './programs';
 import { parseProject, type Project } from './project-input';
-import { rankGaps, rankReady } from './rank';
+import { rankGaps, rankReady, shownGapsOf } from './rank';
 import { repoFacts, type RepoFacts } from './repo-facts';
 import { AGENT_FIELDS, RULE_NOTE, agentNote, numbered, replyText, ruleSentence } from './reply';
 import { since, type Since } from './since';
@@ -308,7 +308,8 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   // Remote and in-person ready programs are capped apart, each in rank order, so the default list always leads with
   // something the builder can apply to now.
   const shownReady = shownReadyOf(readyV, all, (v) => byId.get(v.program_id)!.file.in_person);
-  const shownGaps = all ? gapV : gapV.slice(0, MAX_GAPS);
+  // Real changes first, then at most one rule-only program by default (R18b).
+  const shownGaps = shownGapsOf(gapV, all, MAX_GAPS);
   const more = readyV.length - shownReady.length + gapV.length - shownGaps.length;
   // In display order with the numbers the builder sees: ready, gaps, then in person.
   const holds = side ? await claimed(owner) : new Map<string, { since: string }>();

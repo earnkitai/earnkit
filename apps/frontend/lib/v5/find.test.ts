@@ -63,9 +63,9 @@ test('first find has no since', async () => {
       '1. Arbitrum Mentorship Program: Cohort 2, $100K in prizes, closes in 32 days. Long odds: few prizes for many entries. Drafted: 2 of 22 answers from the repo, 17 more by your agent. Needs your top 3 successes, whether you raised funds before and current TVL range.',
       '',
       'One change away, 3:',
-      '2. Antler US Residency, $500K to $1M investment. Their rule: at least one co-founder already has independent US work authorization; no visa sponsorship. Say "yes 2" if that is you.',
-      '3. OTF Internet Freedom Fund, $10,000 to $900,000. Their rule: advances internet freedom for people in repressive environments: circumvention, safe communication or access to blocked information. Say "yes 3" if that is you.',
-      '4. Thiel Fellowship, $250,000 over two years. Their rule: applicant aged 22 or younger with no university degree, who will drop out of college if selected. Say "yes 4" if that is you.',
+      '2. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
+      '3. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.',
+      '4. Antler US Residency, $500K to $1M investment. Their rule: at least one co-founder already has independent US work authorization; no visa sponsorship. Say "yes 4" if that is you.',
       '',
       'In person, apply to attend first:',
       '5. Y Combinator Winter 2027 Batch, $500K investment. A YC account to start the application.',
@@ -73,7 +73,7 @@ test('first find has no since', async () => {
       '',
       'Before applying: Sign in once to Y Combinator for 1 of them. Needs your click: Y Combinator Winter 2027 Batch.',
       '',
-      'Say yes to apply, skip it, or "yes 2" if its rule fits you.',
+      'Say yes to apply, skip it, "yes 4" if its rule fits you, or "do 2" and I\'ll make the change first.',
     ].join('\n'),
   );
   // Only what nobody but the builder can give: no contacts or team. Whole words, so a program named Team1 is not "team".
@@ -767,4 +767,22 @@ test('find with program_id: each rule on its own line after the money, before Ap
   assert.match(lines[0], /^Base Ecosystem Fund, /);
   assert.equal(lines[1], 'Their rule: a pre-seed or seed stage startup that chooses Base as its home.');
   assert.match(lines[2], /^Apply at /);
+});
+
+test('R18c: a rule-only program above the project tier shows the tier gap first, never "yes n" (v6.1.6)', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  await upsertProgram(programFixture({ id: 'f-rule-used', title: 'Rule Grant', min_tier: 'used', eligibility: [{ kind: 'rule', note: 'a team of two or more' }] }), 'file', NOW);
+  try {
+    const { live_url: _, ...noLink } = PROJECT;
+    const r = await mcpCall(ctx(await installation()), 'find', { project: noLink, filter: { all: true } });
+    assert.equal(r.isError, false, r.text);
+    const g = (r.reply!.gaps as G[]).find((x) => x.program_id === 'f-rule-used');
+    assert.ok(g, JSON.stringify(ids(r.reply!.gaps)));
+    assert.deepEqual([g.gap.kind, g.also.map((a) => a.kind)], ['tier', ['rule']]);
+    const line = lineOf(r.reply!.show_to_builder as string, g.n);
+    assert.equal(line, `${g.n}. Rule Grant, Up to $5,000: Link GitHub so EarnKit can confirm your product has users. Their rule: a team of two or more.`);
+    assert.doesNotMatch(line, /Say "yes/);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'f-rule-used'`;
+  }
 });

@@ -68,6 +68,9 @@ const date = (s: string) => s.slice(0, 10);
 /** Users not reported: a question only the builder answers, not weeks of work. */
 const USERS_UNKNOWN: Gap = { kind: 'users', item: 'users', what: 'tell me if real people use it', effort: 'hours', agent_can: false };
 
+/** A gap verdict whose gaps are all rules to confirm (R18a): one answer away, no change to make. Pure. */
+export const rulesOnly = (v: Pick<Verdict, 'status' | 'gaps'>): boolean => v.status === 'gap' && v.gaps.length > 0 && v.gaps.every((g) => g.kind === 'rule');
+
 /** The program against the facts: ready, a short list of gaps, or no. `done` holds items the builder says are done. */
 export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string>, now: Date): Verdict {
   const p = program.file;

@@ -1,8 +1,9 @@
 /**
  * Ordering of verdicts. Ready: fit first (not a long shot), then the larger award, then the
- * sooner deadline. Gaps: fewest gaps, then lowest effort, then the larger award. Pure.
+ * sooner deadline. Gaps: programs with a real change first, then rule-only ones (R18b); within each, fewest
+ * gaps, then lowest effort, then the larger award. Pure.
  */
-import type { Effort, Verdict } from './eligibility';
+import { rulesOnly, type Effort, type Verdict } from './eligibility';
 import type { ProgramRow } from './programs';
 
 const EFFORT_RANK: Record<Effort, number> = { minutes: 0, hours: 1, days: 2, weeks: 3 };
@@ -27,5 +28,21 @@ export function rankReady(v: Verdict[], programs: Programs): Verdict[] {
 }
 
 export function rankGaps(v: Verdict[], programs: Programs): Verdict[] {
-  return [...v].sort((a, b) => cmp(a.gaps.length, b.gaps.length) || cmp(effortOf(a), effortOf(b)) || byAward(a, b, programs));
+  return [...v].sort(
+    (a, b) =>
+      cmp(Number(rulesOnly(a)), Number(rulesOnly(b))) ||
+      cmp(a.gaps.length, b.gaps.length) || cmp(effortOf(a), effortOf(b)) || byAward(a, b, programs),
+  );
+}
+
+/**
+ * The gap list shown (R18b): all of it when `all`; else the first `max` with at most one rule-only program, the
+ * first-ranked one, after the real changes (it takes the last slot when there are more real changes). Input in
+ * rankGaps order. Pure.
+ */
+export function shownGapsOf(gapV: Verdict[], all: boolean, max: number): Verdict[] {
+  if (all) return gapV;
+  const real = gapV.filter((v) => !rulesOnly(v));
+  const rule = gapV.find(rulesOnly);
+  return rule ? [...real.slice(0, max - 1), rule] : real.slice(0, max);
 }
