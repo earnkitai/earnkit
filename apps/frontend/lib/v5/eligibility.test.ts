@@ -140,6 +140,9 @@ test('long shot text', async () => {
   const f = await factsOf('earnkit');
   assert.equal(evaluate(toRow(programFixture({ id: 'p', tag: 'long shot' })), f, new Set(), NOW).long_shot, 'few prizes for many entries');
   assert.equal(evaluate(toRow(programFixture({ id: 'p', investment: true })), f, new Set(), NOW).long_shot, 'an investment program with no stated amount');
+  // R20 (v6.1.6): investment or in person, the odds are about selection, not prizes.
+  assert.equal(evaluate(toRow(programFixture({ id: 'p', tag: 'long shot', investment: true, category: 'investment', max_award_usd: 500000 })), f, new Set(), NOW).long_shot, 'many apply, few are taken');
+  assert.equal(evaluate(toRow(programFixture({ id: 'p', tag: 'long shot', in_person: true })), f, new Set(), NOW).long_shot, 'many apply, few are taken');
   assert.equal(evaluate(toRow(programFixture({ id: 'p' })), f, new Set(), NOW).long_shot, null);
 });
 

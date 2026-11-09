@@ -68,10 +68,8 @@ test('first find has no since', async () => {
       '4. OTF Internet Freedom Fund, $10,000 to $900,000. Their rule: advances internet freedom for people in repressive environments: circumvention, safe communication or access to blocked information. Say "yes 4" if that is you.',
       '',
       'In person, apply to attend first:',
-      '5. Y Combinator Winter 2027 Batch, $500K investment. A YC account to start the application.',
-      "6. Alliance ALL19, $400K at admission, closes in 14 days. Start the application with the first founder's email.",
-      '',
-      'Before applying: Sign in once to Y Combinator for 1 of them. Needs your click: Y Combinator Winter 2027 Batch.',
+      '5. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account to start the application.',
+      "6. Alliance ALL19, $400K at admission, closes in 14 days. Long odds: many apply, few are taken. First: start the application with the first founder's email.",
       '',
       'Say yes to apply, skip it, "yes 4" if its rule fits you, or "do 2" and I\'ll make the change first.',
     ].join('\n'),
@@ -261,7 +259,7 @@ test('a project with problems still matches; the problems go to the agent', asyn
 test('filter.all lists the rest with a reason; the leftover count is in the note otherwise', async () => withInPerson(async () => {
   const id = await installation();
   const capped = await mcpCall(ctx(id), 'find', { project: PROJECT });
-  assert.match(capped.reply!.agent_note as string, /\d+ more fit; ask with filter\.all for the full list\./);
+  assert.match(capped.reply!.agent_note as string, /^\d+ more: gaps and in-person programs\. Ask with filter\.all for the full list\.$/m);
   const all = await mcpCall(ctx(id), 'find', { project: PROJECT, filter: { all: true } });
   assert.ok((all.reply!.ready as unknown[]).length > 5);
   const notFit = all.reply!.not_fit as { program_id: string; reason: string }[];
@@ -367,6 +365,16 @@ test('unlinked with sign-in configured: the closing line, then the sign-in as it
   assert.equal(r.reply!.linked, false);
 }));
 
+test('R19: project C (no repo) gets the short sign-in sentence (v6.1.6)', async () => withEnv(OAUTH_ENV, async () => {
+  const r = await mcpCall(ctx(await installation()), 'find', { project: { name: 'Project C', description: 'A wallet app for remittances.', live_url: 'https://c.example.com' } });
+  assert.equal(r.isError, false, r.text);
+  assert.equal(r.reply!.as_reported, true);
+  const show = r.reply!.show_to_builder as string;
+  const link = r.reply!.sign_in as string;
+  assert.ok(show.endsWith(` Sign in once at ${link} and I remember you across agents.`), show);
+  assert.doesNotMatch(show, /read your repo/);
+}));
+
 test('linked: record fields, what the record lacks, blockers, and the own tier read once a day', async () => {
   const { id, builderId } = await linkedWith(OWNER_RECORD, ['projects.earnkit.answers.problem']);
   let reads = 0;
@@ -393,7 +401,9 @@ test('linked: record fields, what the record lacks, blockers, and the own tier r
   assert.deepEqual((reply.evidence_summary as { tier: string }).tier, 'live');
   const show = reply.show_to_builder as string;
   assert.match(show, /^1\. [^\n]+ \d+ from your record, \d+ from the repo/m);
-  assert.match(show, /\n\nBefore applying: [^\n]*Sign in once to Y Combinator for 1 of them\.[^\n]*Still missing from your record: [^\n]+\./);
+  // v6.1.6 (R21): Y Combinator is in person, so its line names what attending takes and the Before block does not.
+  assert.match(show, /\n\nBefore applying: [^\n]*Still missing from your record: [^\n]+\./);
+  assert.doesNotMatch(show.split('\n\n').find((b) => b.startsWith('Before applying: '))!, /Y Combinator/);
   assert.match(show, /\n\nYour project reads as live, no verified usage yet\. Next: [^\n]+\.\n\n/);
   assert.doesNotMatch(show, /Sign in once at/);
   assert.match(reply.agent_note as string, /Fit approved answers by cutting, never by adding; the style contract travels on each field\./);
@@ -543,7 +553,8 @@ test('unlinked: blockers name the sign-ins, clicks and documents as linked does,
   const ready = new Set(ids(r.reply!.ready));
   assert.ok(blockers.every((b) => ready.has(b.program_id)));
   const show = r.reply!.show_to_builder as string;
-  assert.match(show, /Sign in once to Y Combinator for 1 of them\./);
+  // v6.1.6 (R21): the in-person line says what attending takes; the Before block never repeats it.
+  assert.doesNotMatch(show, /Sign in once to Y Combinator/);
   assert.match(show, /\n\nIn person, apply to attend first:\n/);
   assert.equal(r.reply!.evidence_summary, null);
   assert.deepEqual(r.reply!.record_missing, []);
@@ -796,6 +807,6 @@ test('R18d: under filter.all, Antler (in person, rule only) says its rule and wh
   assert.ok(g, JSON.stringify(ids(r.reply!.gaps)));
   assert.equal(
     lineOf(r.reply!.show_to_builder as string, g.n),
-    `${g.n}. Antler US Residency, $500K to $1M investment. Their rule: at least one co-founder already has independent US work authorization; no visa sponsorship. Work authorization in the US for one co-founder. Say "yes ${g.n}" if that is you.`,
+    `${g.n}. Antler US Residency, $500K to $1M investment. Their rule: at least one co-founder already has independent US work authorization; no visa sponsorship. First: work in person at Antler's NYC, SF or Austin office for up to 3 months. Say "yes ${g.n}" if that is you.`,
   );
 });

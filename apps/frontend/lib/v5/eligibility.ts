@@ -75,7 +75,7 @@ export const rulesOnly = (gaps: Gap[]): boolean => gaps.length > 0 && gaps.every
 export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string>, now: Date): Verdict {
   const p = program.file;
   const long_shot =
-    p.tag === 'long shot' ? 'few prizes for many entries'
+    p.tag === 'long shot' ? (categoryOf(p) === 'investment' || p.in_person ? 'many apply, few are taken' : 'few prizes for many entries')
     : categoryOf(p) === 'investment' && p.max_award_usd == null ? 'an investment program with no stated amount'
     : null;
   const items = eligibilityOf(p);
