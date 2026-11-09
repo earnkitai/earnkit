@@ -30,14 +30,21 @@ test('an unknown key is dropped, at the top and inside a block', () => {
   assert.ok(problems.includes('extra: not a field'), problems.join('|'));
 });
 
-test('a control character in person.name is a problem line and the field unchanged; the rest of the patch applies', () => {
+test('a line drops control and format characters on save; tabs and breaks are one plain space (v6.1.7 S4)', () => {
   const start = merge({ person: { name: 'Ada' } }).record;
-  const { record, problems, changed } = merge({ person: { name: 'Ada\u0007Lovelace', location: 'London' } }, 'agent', start);
-  assert.equal(record.person.name, 'Ada');
-  assert.equal(record.person.location, 'London');
-  assert.equal(problems.length, 1);
-  assert.match(problems[0], /^person\.name: /);
-  assert.deepEqual(changed, ['person.location']);
+  const { record, problems, changed } = merge(
+    { person: { name: 'Ada\u0007Lovelace', location: 'Lon\tdon  \n town', x: '@ali\u202Eecnarf\u200B' } }, 'agent', start,
+  );
+  assert.deepEqual(problems, []);
+  assert.equal(record.person.name, 'AdaLovelace');
+  assert.equal(record.person.location, 'Lon don town');
+  assert.equal(record.person.x, '@aliecnarf');
+  assert.deepEqual(changed.sort(), ['person.location', 'person.name', 'person.x']);
+  // Counted after cleaning: 40 characters plus marks fit a 40-character field.
+  assert.equal(merge({ person: { x: `${'a'.repeat(40)}\u200B\u200B` } }).record.person.x, 'a'.repeat(40));
+  assert.match(merge({ person: { x: 'a'.repeat(41) } }).problems[0], /^person\.x: /);
+  // Prose keeps its line breaks.
+  assert.equal(merge({ person: { bio: 'One.\nTwo.' } }).record.person.bio, 'One.\nTwo.');
 });
 
 test('invalid leaves: caps, email, https, IANA, country, chains; never a whole-patch refusal', () => {
@@ -142,7 +149,7 @@ test('recordMissing names "your founder video link" when needs has founder_video
 test('recordMissing in builder words: name and email, a project, the traction line, unapproved answers, docs', () => {
   const m = recordMissing(EMPTY_RECORD, { needs: ['resume', 'deck', 'pitch_pdf', 'demo_video'], kinds: ['problem', 'how_it_works'] });
   assert.deepEqual(m, [
-    'your name and email', 'a project with its repo or site', 'one approved line on traction',
+    'your name', 'your email', 'a project with its repo or site', 'one approved line on traction',
     'an approved answer on the problem', 'an approved answer on the solution',
     'your demo video link', 'your resume link', 'your deck link', 'your pitch PDF link',
   ]);

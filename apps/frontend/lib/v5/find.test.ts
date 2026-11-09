@@ -67,7 +67,7 @@ test('first find has no since', async () => {
       'One change away, 3:',
       '2. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
       '3. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.',
-      '4. Arbitrum Security Program, audit subsidy. Their rule: smart contract code that is audit-ready, with a defined audit scope. Say "yes 4" if that is you.',
+      '4. Arbitrum Security Program, audit subsidy. Their rule: smart contract code that is audit-ready, with a defined audit scope.',
       '',
       'In person, apply to attend first:',
       '5. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account to start the application.',
@@ -81,11 +81,12 @@ test('first find has no since', async () => {
     for (const n of p.needs.filter((x) => !p.setup.includes(x))) assert.doesNotMatch(n, /email|name|\bteam\b|telegram|x profile/i);
 });
 
-test('find saves every gap it found for track to read (last_gaps)', async () => {
-  type G = { program_id: string; gap: { what: string } };
-  // Every gap of this project, with its first gap's what, as filter.all lists them.
+test('find saves every gap it found for track to read (last_gaps: what, kind and item)', async () => {
+  type G = { program_id: string; gap: { what: string; kind: string; item: string } };
+  // Every gap of this project, with its first gap's what, kind and item, as filter.all lists them.
   const every = (await mcpCall(ctx(await installation()), 'find', { project: PROJECT, filter: { all: true } })).reply!.gaps as G[];
-  const want = Object.fromEntries(every.map((g) => [g.program_id, g.gap.what]));
+  const want = Object.fromEntries(every.map((g) => [g.program_id, { what: g.gap.what, kind: g.gap.kind, item: g.gap.item }]));
+  assert.ok(Object.values(want).some((g) => g.kind === 'rule'), 'fixture needs a rule gap');
   // A default find shows only some of them, and still saves them all.
   const id = await installation();
   const shown = (await mcpCall(ctx(id), 'find', { project: PROJECT })).reply!.gaps as G[];
@@ -93,7 +94,31 @@ test('find saves every gap it found for track to read (last_gaps)', async () => 
   const saved = await lastGaps(id);
   assert.deepEqual(saved, want);
   assert.ok(Object.keys(saved).length > shown.length);
-  for (const g of shown) assert.equal(saved[g.program_id], g.gap.what);
+  for (const g of shown) assert.equal(saved[g.program_id].what, g.gap.what);
+});
+
+test('a category filter stamps the time and keeps the last gaps; filter.all and a default find write them (v6.1.7, C24a)', async () => {
+  const id = await installation();
+  await mcpCall(ctx(id), 'find', { project: PROJECT });
+  const before = await lastGaps(id);
+  assert.ok(Object.keys(before).length > 0);
+  const later = new Date(NOW.getTime() + H);
+  const r = await mcpCall(ctx(id, later), 'find', { project: PROJECT, filter: { category: 'investment' } });
+  assert.equal(r.isError, false, r.text);
+  assert.deepEqual(await lastGaps(id), before);
+  const [row] = await sql()`SELECT last_find_at FROM installations WHERE id = ${id}`;
+  assert.equal((row.last_find_at as Date).toISOString(), later.toISOString());
+  // A category with all is still a category: kept.
+  await mcpCall(ctx(id, later), 'find', { project: PROJECT, filter: { category: 'investment', all: true } });
+  assert.deepEqual(await lastGaps(id), before);
+  // filter.all writes them (the same gaps a default find has).
+  await sql()`UPDATE installations SET last_gaps = '{}'::jsonb WHERE id = ${id}`;
+  await mcpCall(ctx(id, later), 'find', { project: PROJECT, filter: { all: true } });
+  assert.deepEqual(await lastGaps(id), before);
+  // A default find replaces them.
+  await sql()`UPDATE installations SET last_gaps = '{}'::jsonb WHERE id = ${id}`;
+  await mcpCall(ctx(id, later), 'find', { project: PROJECT });
+  assert.deepEqual(await lastGaps(id), before);
 });
 
 test('default list: in-person programs never take a remote ready slot (v6.1.4)', async () => {
@@ -227,7 +252,8 @@ test('find with program_id: a closed program is closed, an upcoming one not open
   const { programFixture } = await import('./fixtures/program');
   await upsertProgram(programFixture({ id: 'f-shut', title: 'Shut Grants', status: 'closed' }), 'file', NOW);
   await upsertProgram(programFixture({ id: 'f-past', title: 'Past Grants', ends_at: '2026-11-01T00:00:00Z' }), 'file', NOW);
-  await upsertProgram(programFixture({ id: 'f-soon', title: 'Soon Grants', status: 'upcoming', opens_note: 'Opens in January' }), 'file', NOW);
+  // The note's own full stop is not doubled (C10).
+  await upsertProgram(programFixture({ id: 'f-soon', title: 'Soon Grants', status: 'upcoming', opens_note: 'Opens in January.' }), 'file', NOW);
   for (const pid of ['f-shut', 'f-past']) {
     const r = await mcpCall(ctx(id), 'find', { program_id: pid, project: PROJECT });
     const show = r.reply!.show_to_builder as string;
@@ -237,8 +263,10 @@ test('find with program_id: a closed program is closed, an upcoming one not open
   }
   const soon = await mcpCall(ctx(id), 'find', { program_id: 'f-soon' });
   const show = soon.reply!.show_to_builder as string;
-  assert.match(show, /Not open yet: Opens in January\.$/, show);
-  assert.doesNotMatch(show, /draft/);
+  // C10: the first line says it is not open yet, with the opens note; no Apply at line.
+  const { moneyOf } = await import('./find');
+  assert.equal(show.split('\n')[0], `Soon Grants, ${moneyOf((await getProgram('f-soon'))!.file)}. Not open yet: Opens in January.`);
+  assert.doesNotMatch(show, /Apply at|draft/, show);
 });
 
 test('a 2,000-character description is cut, not refused: find still answers ready and gaps', async () => {
@@ -663,14 +691,21 @@ test('a stale claim shows in released; a live one stays ready, marked', async ()
   const { claim } = await import('../v6/claims');
   await claim(`b:${builderId}`, 'alliance-all19', 'earnkit', id, new Date(NOW.getTime() - 25 * H));
   // v6.1.4: the default list shows two in-person programs (YC and Alliance), so the live claim is on one shown.
-  await claim(`b:${builderId}`, 'y-combinator', 'earnkit', id, new Date(NOW.getTime() - H));
+  // v6.1.7: only another installation's claim marks a program; this installation's own claim does not.
+  const [other] = await sql()`INSERT INTO installations (token_hash, client_name) VALUES (${'find-other-' + Math.random()}, 'Cursor') RETURNING id`;
+  const { linkInstallation } = await import('../v6/builders');
+  await linkInstallation(other.id as number, builderId, NOW);
+  await claim(`b:${builderId}`, 'y-combinator', 'earnkit', other.id as number, new Date(NOW.getTime() - H));
+  await claim(`b:${builderId}`, 'arbitrum-mentorship-cohort-2', 'earnkit', id, new Date(NOW.getTime() - H));
   const r = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT });
   assert.deepEqual(r.reply!.released, ['alliance-all19']);
   assert.match(r.reply!.agent_note as string, /released: alliance-all19/);
   const ready = r.reply!.ready as { program_id: string; claimed_since?: string }[];
   assert.ok(ids(ready).includes('alliance-all19'));
   assert.equal(ready.find((p) => p.program_id === 'y-combinator')?.claimed_since, new Date(NOW.getTime() - H).toISOString());
-  assert.match(r.reply!.agent_note as string, /claimed_since is claimed by one of the builder's agents: submit it only if you made that claim\./);
+  assert.ok(ids(ready).includes('arbitrum-mentorship-cohort-2'));
+  assert.equal(ready.find((p) => p.program_id === 'arbitrum-mentorship-cohort-2')?.claimed_since, undefined);
+  assert.match(r.reply!.agent_note as string, /claimed_since is claimed by another of the builder's agents: do not submit it\./);
 });
 
 test('find with program_id, linked: the record fills an approved answer; unlinked as before', async () => {
@@ -767,11 +802,11 @@ const NO_CHAIN_GAPS = [
   'One change away, 3:',
   '1. Arbitrum Mentorship Program: Cohort 2, $100K in prizes: deploy the contract on Arbitrum.',
   '2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes: a demo video. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.',
-  '3. OTF Internet Freedom Fund, $10,000 to $900,000. Their rule: advances internet freedom for people in repressive environments: circumvention, safe communication or access to blocked information. Say "yes 3" if that is you.',
+  '3. OTF Internet Freedom Fund, $10,000 to $900,000. Their rule: advances internet freedom for people in repressive environments: circumvention, safe communication or access to blocked information.',
   '',
 ];
 
-test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets a rule-only program on one of its chains, before any chain-agnostic one (v6.1.6)', async () => {
+test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets the rule-only program on its first reported chain, Base (v6.1.6, v6.1.7)', async () => {
   const r = await mcpCall(ctx(await installation()), 'find', { project: PROJECT_A });
   assert.equal(r.isError, false, r.text);
   assert.equal(
@@ -783,7 +818,7 @@ test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets
       'One change away, 3:',
       '2. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
       '3. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.',
-      '4. Arbitrum Security Program, audit subsidy. Their rule: smart contract code that is audit-ready, with a defined audit scope. Say "yes 4" if that is you.',
+      '4. Base Ecosystem Fund, pre-seed and seed investment. Their rule: a pre-seed or seed stage startup that chooses Base as its home.',
       '',
       'In person, apply to attend first:',
       '5. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account to start the application.',
@@ -825,10 +860,11 @@ test('project A (R18a): Base Ecosystem Fund is one answer away; gap_done with it
   assert.deepEqual([g.gap.kind, g.gap.what, g.also], ['rule', BASE_RULE, []]);
   assert.match(g.gap.item, /^rule:[0-9a-f]{8}$/);
   const line = lineOf(blockOf(show, 'One change away'), g.n);
-  assert.equal(line, `${g.n}. Base Ecosystem Fund, pre-seed and seed investment. Their rule: ${BASE_RULE}. Say "yes ${g.n}" if that is you.`);
-  assert.ok((r.reply!.agent_note as string).includes('A "Their rule" gap is a program rule EarnKit cannot check. If the builder says it fits, call track gap_done with that gap\'s item, then find again.'));
+  assert.equal(line, `${g.n}. Base Ecosystem Fund, pre-seed and seed investment. Their rule: ${BASE_RULE}.`);
+  assert.ok((r.reply!.agent_note as string).split('\n').includes('A "Their rule" gap is a program rule EarnKit cannot check. If the builder says it fits, call track gap_done with that gap\'s item, then find again. Their yes stands: when the program comes back ready, draft and submit it without asking again.'));
   const t = await mcpCall(ctx(id), 'track', { program_id: 'base-ecosystem-fund', status: 'gap_done', item: g.gap.item });
   assert.equal(t.isError, false, t.text);
+  assert.deepEqual([t.reply!.show_to_builder, t.reply!.agent_note], ['Noted. That rule counts as confirmed.', 'Call find again; the program comes back ready.']);
   const again = await mcpCall(ctx(id), 'find', { project: PROJECT_A, filter: { all: true } });
   const show2 = again.reply!.show_to_builder as string;
   const p = (again.reply!.ready as { program_id: string; n: number }[]).find((x) => x.program_id === 'base-ecosystem-fund');
@@ -887,7 +923,7 @@ test('R18d: under filter.all, Antler (in person, rule only) says its rule and wh
   assert.ok(g, JSON.stringify(ids(r.reply!.gaps)));
   assert.equal(
     lineOf(r.reply!.show_to_builder as string, g.n),
-    `${g.n}. Antler US Residency, $500K to $1M investment. Their rule: at least one co-founder already has independent US work authorization; no visa sponsorship. First: work in person at Antler's NYC, SF or Austin office for up to 3 months. Say "yes ${g.n}" if that is you.`,
+    `${g.n}. Antler US Residency, $500K to $1M investment. Their rule: at least one co-founder already has independent US work authorization; no visa sponsorship. First: work in person at Antler's NYC, SF or Austin office for up to 3 months.`,
   );
 });
 
@@ -939,4 +975,52 @@ test('find { program_id } and the program page never carry reviewers_contact (se
       .map((f) => relative(root, f)),
   );
   assert.deepEqual(naming.sort(), ['lib/v5/api-text.ts', 'lib/v5/find.ts', 'lib/v5/program-file.ts']);
+});
+
+test('B10: the first find after an unlink says so with the sign-in link, once; the open list too', async () => {
+  const { unlinkInstallation } = await import('../v6/builders');
+  const link = 'https://earnkit.test/link/abcdefghijklmnop';
+  const line = `This agent was unlinked from your account. Sign in once at ${link} to link it again.`;
+  const { id, builderId } = await linkedWith(OWNER_RECORD);
+  await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT });
+  assert.equal(await unlinkInstallation(id, builderId, NOW), true);
+  const later = new Date(NOW.getTime() + H);
+  const first = await mcpCall({ ...ctx(id, later), linkUrl: async () => link }, 'find', { project: PROJECT });
+  assert.equal(first.isError, false, first.text);
+  assert.equal(first.reply!.linked_notice, line);
+  const show = first.reply!.show_to_builder as string;
+  assert.ok(show.endsWith(` ${line}`), show);
+  // The notice carries the link: the closing block offers it once.
+  assert.equal(show.split(link).length, 2, show);
+  const second = await mcpCall({ ...ctx(id, new Date(later.getTime() + H)), linkUrl: async () => link }, 'find', { project: PROJECT });
+  assert.equal(second.reply!.linked_notice, null);
+  assert.ok(!(second.reply!.show_to_builder as string).includes('unlinked'));
+
+  const other = await linkedWith(OWNER_RECORD);
+  await unlinkInstallation(other.id, other.builderId, NOW);
+  const list = await mcpCall({ ...ctx(other.id, later), linkUrl: async () => link }, 'find', {});
+  const listShow = list.reply!.show_to_builder as string;
+  assert.equal(list.reply!.linked_notice, line);
+  assert.ok(listShow.endsWith(`\n\n${line}`), listShow);
+  assert.equal(listShow.split(link).length, 2, listShow);
+  // No sign-in configured: the notice alone.
+  const third = await linkedWith(OWNER_RECORD);
+  await unlinkInstallation(third.id, third.builderId, NOW);
+  const bare = await mcpCall({ ...ctx(third.id, later), linkUrl: async () => null }, 'find', { project: PROJECT });
+  assert.equal(bare.reply!.linked_notice, 'This agent was unlinked from your account.');
+});
+
+test('C12: a name saved with record, then find in the same session: read fresh; name and email are two items', async () => {
+  const { id, builderId } = await linkedWith({});
+  const c = { ...ctx(id), builderId, evidence: LIVE };
+  const s = await mcpCall(c, 'record', { set: { person: { name: 'Ada' } } });
+  assert.equal(s.isError, false, s.text);
+  const a = await mcpCall({ ...c, now: new Date(NOW.getTime() + 1000) }, 'find', { project: PROJECT });
+  // The find read the saved record: the name is no longer missing, the email still is.
+  const missingA = a.reply!.record_missing as string[];
+  assert.ok(!missingA.includes('your name') && missingA.includes('your email'), JSON.stringify(missingA));
+  await mcpCall(c, 'record', { set: { person: { email: 'ada@example.com' } } });
+  const b = await mcpCall({ ...c, now: new Date(NOW.getTime() + 2000) }, 'find', { project: PROJECT });
+  const missingB = b.reply!.record_missing as string[];
+  assert.ok(!missingB.includes('your name') && !missingB.includes('your email'), JSON.stringify(missingB));
 });

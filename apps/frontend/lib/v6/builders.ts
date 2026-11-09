@@ -90,7 +90,7 @@ export async function linkInstallation(installationId: number, builderId: number
   return inTx(db, async (tx) => {
     const [inst] = await tx<{ builder_id: number | null }[]>`SELECT builder_id FROM installations WHERE id = ${installationId} FOR UPDATE`;
     if (inst?.builder_id != null && inst.builder_id !== builderId) throw new LinkRefused('other_builder');
-    if (inst?.builder_id == null) await tx`UPDATE installations SET builder_id = ${builderId}, linked_at = ${now} WHERE id = ${installationId}`;
+    if (inst?.builder_id == null) await tx`UPDATE installations SET builder_id = ${builderId}, linked_at = ${now}, unlinked_at = NULL WHERE id = ${installationId}`;
     // Rows of both ledgers are locked in a stable order, so two links to one builder never interleave.
     await tx`SELECT 1 FROM applications WHERE owner IN (${from}, ${to}) ORDER BY owner, program_id FOR UPDATE`;
     await tx`DELETE FROM applications i USING applications b
@@ -106,12 +106,43 @@ export async function linkInstallation(installationId: number, builderId: number
   });
 }
 
-/** Removes the builder and everything theirs: sessions, their installations' link codes, the b: ledger. */
+/**
+ * Unlinks the builder's own installation (v6.1.7 B10): its ledger rows stay with the builder, and `unlinked_at`
+ * marks it so the agent's next find says it was unlinked. False when it is not this builder's.
+ */
+export async function unlinkInstallation(installationId: number, builderId: number, now: Date): Promise<boolean> {
+  const r = await sql()`UPDATE installations SET builder_id = NULL, linked_at = NULL, unlinked_at = ${now}
+    WHERE id = ${installationId} AND builder_id = ${builderId}`;
+  return r.count > 0;
+}
+
+/** True after an unlink until the notice is taken; reads only. A linked installation has none. */
+export async function hasUnlinkedNotice(installationId: number): Promise<boolean> {
+  const [r] = await sql()`SELECT 1 FROM installations WHERE id = ${installationId} AND unlinked_at IS NOT NULL AND builder_id IS NULL`;
+  return Boolean(r);
+}
+
+/** True once after an unlink (find shows the notice); clears the mark. A linked installation has none to take. */
+export async function takeUnlinkedNotice(installationId: number): Promise<boolean> {
+  const r = await sql()`UPDATE installations SET unlinked_at = NULL
+    WHERE id = ${installationId} AND unlinked_at IS NOT NULL AND builder_id IS NULL`;
+  return r.count > 0;
+}
+
+/**
+ * Removes the builder and everything theirs: sessions, their installations' link codes, the b: ledger, and their
+ * reviewing (reviewer rows, screen jobs with their applicants and outcomes; v6.1.7 B11). One transaction.
+ */
 export async function deleteBuilder(id: number): Promise<void> {
   const owner = `b:${id}`;
   await sql().begin(async (tx) => {
     await tx`DELETE FROM sessions WHERE builder_id = ${id}`;
     await tx`DELETE FROM program_reviewers WHERE builder_id = ${id}`;
+    const jobs = (await tx<{ id: string }[]>`DELETE FROM screen_jobs WHERE builder_id = ${id} RETURNING id`).map((r) => r.id);
+    if (jobs.length > 0) {
+      await tx`DELETE FROM screen_applicants WHERE job_id = ANY(${jobs})`;
+      await tx`DELETE FROM screen_outcomes WHERE job_id = ANY(${jobs})`;
+    }
     await tx`DELETE FROM link_codes WHERE installation_id IN (SELECT id FROM installations WHERE builder_id = ${id})`;
     await tx`DELETE FROM applications WHERE owner = ${owner}`;
     await tx`DELETE FROM application_history WHERE owner = ${owner}`;

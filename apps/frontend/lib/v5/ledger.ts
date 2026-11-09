@@ -1,8 +1,9 @@
 /**
  * The builder's ledger, keyed by its owner ('b:<builder>' once linked, else 'i:<installation>'):
  * applications (one row per program, plus an append-only history), closed gap items, and the
- * summary `track` and `find` show. A win over the
- * program's stated maximum (or 5,000,000 when none is stated) is refused; investments are never "asked".
+ * summary `track` and `find` show. One application and one result per program: a second `applied`, or a result
+ * over a result, is refused and changes nothing. A win is whole dollars; one over the program's stated maximum, else
+ * its pool, else 10,000,000, is refused; investments are never "asked".
  */
 import { sql } from './db';
 import { categoryOf, eligibilityOf } from './program-file';
@@ -23,8 +24,12 @@ export type Ledger = {
 };
 
 const RESULTS = ['won', 'rejected', 'no_result'];
-/** The most a win can be when the program states no maximum. */
-const MAX_WIN_USD = 5_000_000;
+/** The most a win can be when the program states neither a maximum nor a pool. */
+const MAX_WIN_USD = 10_000_000;
+/** The most a win in this program can be: its maximum, else its pool, else MAX_WIN_USD. Pure. */
+export const winCapOf = (program: ProgramRow | null | undefined): number => program?.file.max_award_usd ?? program?.file.pool_usd ?? MAX_WIN_USD;
+/** A win over the program's cap is refused with this line, in the ledger and in a program's screen outcomes (v6.1.7 C38). */
+export const OVER_CAP = "That's more than this program pays; check the amount.";
 const DAY = 86_400_000;
 
 /** When results are due: the file's date, else the close plus the weeks after, else null. */
@@ -46,10 +51,26 @@ async function withOwn(ids: string[], programs: ProgramRow[]): Promise<Map<strin
 /** The installation an 'i:' owner names. Pure. */
 const installationOf = (owner: string): number | undefined => (/^i:(\d+)$/.exec(owner) ? Number(owner.slice(2)) : undefined);
 
+const usd = (n: number) => '$' + Math.round(n).toLocaleString('en-US');
+/** "Nov 4": a day in UTC. Pure. */
+const dayOf = (d: Date) => new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(d);
+/** "won $3,000", "rejected", "no result": a row's result in words. Pure. */
+const resultWords = (status: string, amount: string | null) =>
+  status === 'won' ? `won ${usd(Number(amount ?? 0))}` : status === 'no_result' ? 'no result' : status;
+
+/** The program's title: the catalog's, else the one stored when it was sent, else the id. */
+export async function titleOf(owner: string, programId: string): Promise<string> {
+  const p = await getProgram(programId);
+  if (p) return p.file.title;
+  const [r] = await sql()<{ title: string | null }[]>`SELECT title FROM applications WHERE owner = ${owner} AND program_id = ${programId}`;
+  return r?.title ?? programId;
+}
+
 /**
  * Writes set the owner and the writing installation (`o.installationId`, which an 'i:' owner implies). A `gap_done`
- * whose item is not one of the program's own item keys (or `users`) is refused and clears nothing; the refusal carries
- * the keys for the agent in `items`, never in builder text.
+ * with no item, or one that is not one of the program's own item keys (`users` only when it has a users item, v6.1.7
+ * C27), is refused and clears nothing; the refusal carries the keys for the agent in `items`, never in builder text.
+ * A `gap_done` whose item was already noted answers `repeated` (v6.1.7, C26).
  */
 export async function record(
   owner: string,
@@ -62,47 +83,63 @@ export async function record(
     /** applied only: the builder's standing approval (policy.auto_apply) was on when it was tracked. */
     autoApplied?: boolean;
   } = {},
-): Promise<{ ok: true } | { ok: false; note: string; items?: string[] }> {
+): Promise<{ ok: true; repeated?: true } | { ok: false; note: string; items?: string[] }> {
   const installationId = o.installationId ?? installationOf(owner);
   if (installationId === undefined) throw new Error('record needs the writing installation');
   const now = o.now ?? new Date();
   const program = await getProgram(programId);
-  if (!program) return { ok: false, note: "I don't know that program." };
-  if (status === 'won' && !(typeof o.amount_usd === 'number' && Number.isFinite(o.amount_usd) && o.amount_usd > 0))
-    return { ok: false, note: 'Tell me how much you won, as a number above zero.' };
-  if (status === 'won' && o.amount_usd! > (program.file.max_award_usd ?? MAX_WIN_USD))
-    return { ok: false, note: "That's more than this program pays; check the amount." };
-  if (status === 'gap_done' && !o.item) return { ok: false, note: 'Tell me which item you finished.' };
-  if (status === 'gap_done') {
-    // Only one of the program's own items, or the unknown-users gap (v6.1.6).
-    const keys = [...new Set([...eligibilityOf(program.file).map(itemKey), 'users'])];
-    // The keys go to the agent only: builder text never carries them (v6.1.6, 25a).
-    if (!keys.includes(o.item!)) return { ok: false, note: 'Tell me which item you finished.', items: keys };
+  const unknown = { ok: false, note: "I don't know that program." } as const;
+  // A result may land after the program left the catalog, when the owner's ledger holds it (checked below).
+  if (!program && !RESULTS.includes(status)) return unknown;
+  if (status === 'won' && !(typeof o.amount_usd === 'number' && Number.isInteger(o.amount_usd) && o.amount_usd >= 1))
+    return { ok: false, note: 'Tell me how much you won, as whole dollars.' };
+  if (status === 'won' && o.amount_usd! > winCapOf(program)) return { ok: false, note: OVER_CAP };
+  if (status === 'gap_done' && program) {
+    // Only one of the program's own items; the unknown-users gap ('users') only when it has a users item (v6.1.7, C27).
+    const items = eligibilityOf(program.file);
+    const keys = [...new Set([...items.map(itemKey), ...(items.some((x) => x.kind === 'users') ? ['users'] : [])])];
+    // The keys go to the agent only: builder text never carries them (v6.1.6, 25a); also when no item came (C11).
+    if (!o.item || !keys.includes(o.item)) return { ok: false, note: 'Tell me which item you finished.', items: keys };
   }
+  if (status === 'gap_done' && !o.item) return { ok: false, note: 'Tell me which item you finished.' };
   if (status === 'started') throw new Error('a claim is written by claims.claim');
   const amount = status === 'won' ? o.amount_usd! : null;
   const note = o.note ?? null;
+  let repeated = false;
 
   return (await sql().begin(async (tx) => {
-    const [row] = await tx<{ status: string }[]>`
-      SELECT status FROM applications WHERE owner = ${owner} AND program_id = ${programId} FOR UPDATE`;
-    if (status === 'applied' && row && RESULTS.includes(row.status))
-      return { ok: false, note: 'That one already has a result here.' } as const;
+    // One decision at a time per owner and program (the claim's lock), even when no row exists yet.
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${owner + ':' + programId}))`;
+    const [row] = await tx<{ status: string; amount_usd: string | null; at: Date; client_name: string | null }[]>`
+      SELECT a.status, a.amount_usd, a.at, i.client_name FROM applications a LEFT JOIN installations i ON i.id = a.installation_id
+      WHERE a.owner = ${owner} AND a.program_id = ${programId} FOR UPDATE OF a`;
+    if (!program && !row) return unknown;
+    const resulted = row && RESULTS.includes(row.status);
+    if (resulted && status === 'skipped') return { ok: false, note: 'That one already has a result here; nothing to skip.' } as const;
+    if (resulted && RESULTS.includes(status) && row.status === status && (status !== 'won' || Number(row.amount_usd) === amount))
+      return { ok: false, note: 'Already recorded.' } as const;
+    if (resulted && (status === 'applied' || RESULTS.includes(status)))
+      return { ok: false, note: `That one already has a result here: ${resultWords(row.status, row.amount_usd)}.` } as const;
+    if (status === 'applied' && row?.status === 'applied')
+      return { ok: false, note: `Already sent here on ${dayOf(row.at)} by ${row.client_name ?? 'another agent'}; nothing recorded.` } as const;
     if (RESULTS.includes(status) && (!row || row.status === 'skipped' || row.status === 'started')) return { ok: false, note: "You haven't applied to that one here." } as const;
     if (status === 'unskip') {
       // Only a skipped row can be unskipped: the row goes, and the program can come back in the list.
       if (row?.status !== 'skipped') return { ok: false, note: "That one isn't skipped here." } as const;
       await tx`DELETE FROM applications WHERE owner = ${owner} AND program_id = ${programId}`;
     } else if (status === 'gap_done') {
-      await tx`INSERT INTO gaps_done (owner, installation_id, program_id, item, at) VALUES (${owner}, ${installationId}, ${programId}, ${o.item!}, ${now})
-        ON CONFLICT (owner, program_id, item) DO UPDATE SET at = EXCLUDED.at`;
+      // xmax = 0 only on a fresh insert: an existing row means the item was already noted.
+      const [g] = await tx<{ inserted: boolean }[]>`INSERT INTO gaps_done (owner, installation_id, program_id, item, at) VALUES (${owner}, ${installationId}, ${programId}, ${o.item!}, ${now})
+        ON CONFLICT (owner, program_id, item) DO UPDATE SET at = EXCLUDED.at RETURNING (xmax = 0) AS inserted`;
+      repeated = !g.inserted;
     } else if (status === 'applied') {
       // Over a claim the row keeps claimed_at and claimed_by: what was claimed, then sent.
-      await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, note, at, submitted_by, fields_used, project_id, auto_applied)
-        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, ${note}, ${now}, ${o.submitted_by ?? null}, ${o.fields_used ?? null}, ${o.project_id ?? null}, ${o.autoApplied === true})
+      // The title is kept, so a result still reads once the program leaves the catalog.
+      await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, note, at, submitted_by, fields_used, project_id, auto_applied, title)
+        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, ${note}, ${now}, ${o.submitted_by ?? null}, ${o.fields_used ?? null}, ${o.project_id ?? null}, ${o.autoApplied === true}, ${program!.file.title})
         ON CONFLICT (owner, program_id) DO UPDATE
           SET installation_id = EXCLUDED.installation_id, status = 'applied', amount_usd = NULL, note = EXCLUDED.note, at = EXCLUDED.at,
-              submitted_by = EXCLUDED.submitted_by, fields_used = EXCLUDED.fields_used, auto_applied = EXCLUDED.auto_applied,
+              submitted_by = EXCLUDED.submitted_by, fields_used = EXCLUDED.fields_used, auto_applied = EXCLUDED.auto_applied, title = EXCLUDED.title,
               project_id = COALESCE(EXCLUDED.project_id, applications.project_id)`;
     } else if (status === 'skipped' && row?.status === 'started') {
       // A skip over a claim replaces it: the claim is gone, the skip stays.
@@ -117,8 +154,8 @@ export async function record(
     }
     await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, note, at)
       VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${amount}, ${note}, ${now})`;
-    return { ok: true } as const;
-  })) as { ok: true } | { ok: false; note: string };
+    return repeated ? ({ ok: true, repeated: true } as const) : ({ ok: true } as const);
+  })) as { ok: true; repeated?: true } | { ok: false; note: string };
 }
 
 export async function summary(owner: string, programs: ProgramRow[], now: Date): Promise<Ledger> {

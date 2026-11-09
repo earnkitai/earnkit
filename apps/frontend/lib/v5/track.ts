@@ -7,7 +7,10 @@ import { getRecord, ownerKey } from '../v6/builders';
 import { claim } from '../v6/claims';
 import { forgetGap, lastGaps } from './installations';
 import { getProgram, listOpenPrograms } from './programs';
-import { record, summary, type Ledger, type Status } from './ledger';
+import { doneItems, record, summary, titleOf, type Ledger, type Status } from './ledger';
+import { clock } from './reply';
+import { sql } from './db';
+import { inputDetail } from './tool-input';
 
 export const TrackInput = z
   .object({
@@ -24,18 +27,22 @@ export const TrackInput = z
 
 type Result = { show_to_builder: string; agent_note: string; ledger: Ledger; already_started?: true };
 
-/** "09:14 UTC" for today (UTC), "Nov 5, 22:10 UTC" for another day; "earlier today" when the time does not read. Pure. */
-export const clock = (iso: string, now: Date) => {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return 'earlier today';
-  const hm = `${d.toISOString().slice(11, 16)} UTC`;
-  if (d.toISOString().slice(0, 10) === now.toISOString().slice(0, 10)) return hm;
-  return `${new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(d)}, ${hm}`;
-};
-
 const usd = (n: number) => '$' + Math.round(n).toLocaleString('en-US');
 
+/** True when the owner's row for the program is an application already sent (applied or with a result). */
+async function sentHere(owner: string, programId: string): Promise<boolean> {
+  const [r] = await sql()<{ status: string }[]>`SELECT status FROM applications WHERE owner = ${owner} AND program_id = ${programId}`;
+  return r !== undefined && r.status !== 'started' && r.status !== 'skipped';
+}
+
 export type TrackContext = { installationId: number; builderId: number | null; now: Date };
+
+export const TRACK_UNREAD = 'I could not read that. Send the program, a status, and for a win the amount.';
+
+/** Whether `projectId` is one of the linked builder's record projects (an unlinked installation has none). */
+async function knownProject(builderId: number | null, projectId: string): Promise<boolean> {
+  return builderId !== null && (await getRecord(builderId)).projects.some((p) => p.id === projectId);
+}
 
 export async function track(ctx: TrackContext, input: unknown): Promise<Result> {
   const owner = ownerKey(ctx.installationId, ctx.builderId);
@@ -45,12 +52,36 @@ export async function track(ctx: TrackContext, input: unknown): Promise<Result> 
     agent_note: agentNote,
     ledger: await summary(owner, programs, ctx.now),
   });
+  // The MCP layer passes anything through (tool-input.ts): this is the only check, with the detail for the agent.
   const parsed = TrackInput.safeParse(input);
-  if (!parsed.success) return refuse('I could not read that. Send the program, a status, and for a win the amount.');
-  const i = parsed.data;
+  if (!parsed.success) return refuse(TRACK_UNREAD, `Nothing was recorded. ${inputDetail(parsed.error)}`);
+  // An unknown project_id is dropped, and named for the agent (v6.1.7, C17).
+  const { project_id, ...rest } = parsed.data;
+  if (project_id === undefined || (await knownProject(ctx.builderId, project_id))) return act(ctx, owner, programs, refuse, parsed.data);
+  const r = await act(ctx, owner, programs, refuse, rest);
+  return { ...r, agent_note: `${r.agent_note} project_id ${project_id} is not known; ignored.`.trim() };
+}
+
+async function act(
+  ctx: TrackContext,
+  owner: string,
+  programs: Awaited<ReturnType<typeof listOpenPrograms>>,
+  refuse: (note: string, agentNote?: string) => Promise<Result>,
+  i: z.infer<typeof TrackInput>,
+): Promise<Result> {
   if (i.status === 'started') {
     const program = await getProgram(i.program_id);
     if (!program) return refuse("I don't know that program.");
+    const sentAlready = {
+      show_to_builder: `${program.file.title} was already sent.`,
+      agent_note: 'Do not submit this one; it was already sent.',
+    };
+    // The same open list find reads (active, not past its close, not stale): a program not in it is never claimed.
+    // An application already sent says so first, even when its program has since closed (v6.1.7).
+    if (!programs.some((p) => p.id === program.id) && (await sentHere(owner, program.id)))
+      return { ...sentAlready, ledger: await summary(owner, programs, ctx.now), already_started: true };
+    if (!programs.some((p) => p.id === program.id))
+      return refuse(`${program.file.title} is not open; nothing to start.`, 'Do not submit this one; call find for what is open.');
     const c = await claim(owner, i.program_id, i.project_id ?? null, ctx.installationId, ctx.now);
     if (!c.ok && 'skipped' in c)
       return {
@@ -60,21 +91,30 @@ export async function track(ctx: TrackContext, input: unknown): Promise<Result> 
       };
     if (!c.ok)
       return {
-        show_to_builder: c.already.sent
-          ? `${program.file.title} was already sent.`
-          : `${program.file.title} is already being handled since ${clock(c.already.since, ctx.now)} by ${c.already.by ?? 'another agent'}.`,
-        agent_note: c.already.sent ? 'Do not submit this one; it was already sent.' : 'Do not submit this one; call find again later.',
+        ...(c.already.sent
+          ? sentAlready
+          : {
+              show_to_builder: `${program.file.title} is already being handled since ${clock(c.already.since, ctx.now)} by ${c.already.by ?? 'another agent'}.`,
+              agent_note: 'Do not submit this one; call find again later.',
+            }),
         ledger: await summary(owner, programs, ctx.now),
         already_started: true,
       };
-    // The last find called this one a gap: say what was still missing, so it is fixed before the form goes in.
+    // The last find called this one a gap: say what was still missing, so it is fixed before the form goes in. Not
+    // when the builder (through any of their agents) has since closed that item (v6.1.7, C23).
     const gap = (await lastGaps(ctx.installationId))[program.id];
-    if (gap)
-      return {
-        show_to_builder: `Started. When I last looked it was still one change away: ${gap}. Make sure that is done first.`,
-        agent_note: 'Make the change before you submit, or call find again to check it. Then fill the form from the fields, submit, and call track with applied, submitted_by and fields_used.',
-        ledger: await summary(owner, programs, ctx.now),
-      };
+    if (gap && !(gap.item && (await doneItems(owner, program.id)).has(gap.item)))
+      return gap.kind === 'rule'
+        ? {
+            show_to_builder: `Started. When I last looked it still had a rule to confirm: ${gap.what}. Say yes if that is you.`,
+            agent_note: "If the builder says the rule fits, call track gap_done with that gap's item, then find again. Otherwise skip the program.",
+            ledger: await summary(owner, programs, ctx.now),
+          }
+        : {
+            show_to_builder: `Started. When I last looked it was still one change away: ${gap.what}. Make sure that is done first.`,
+            agent_note: 'Make the change before you submit, or call find again to check it. Then fill the form from the fields, submit, and call track with applied, submitted_by and fields_used.',
+            ledger: await summary(owner, programs, ctx.now),
+          };
     return {
       show_to_builder: 'Started. Nothing else will submit this one for 24 hours.',
       agent_note: 'Fill the form from the fields, submit, then call track with applied, submitted_by and fields_used.',
@@ -89,19 +129,27 @@ export async function track(ctx: TrackContext, input: unknown): Promise<Result> 
   if (!res.ok)
     return res.items ? refuse(res.note, `Items for this program: ${res.items.join(', ')}. Call track gap_done with one of them.`) : refuse(res.note);
   if (i.status === 'gap_done') await forgetGap(ctx.installationId, i.program_id);
-  const title = (await getProgram(i.program_id))!.file.title;
-  const lines: Record<Exclude<Status, 'started'>, string> = {
+  if (i.status === 'gap_done') {
+    // A repeat says so (v6.1.7, C26); a rule is confirmed, not re-read from the repo (m3).
+    const [show, note] = 'repeated' in res
+      ? ['Already noted.', 'Call find again for the updated ledger.']
+      : i.item!.startsWith('rule:')
+        ? ['Noted. That rule counts as confirmed.', 'Call find again; the program comes back ready.']
+        : ["Noted. I'll re-check the repo on the next look.", 'Call find again so the repo is re-read.'];
+    return { show_to_builder: show, agent_note: note, ledger: await summary(owner, programs, ctx.now) };
+  }
+  const title = await titleOf(owner, i.program_id);
+  const lines: Record<Exclude<Status, 'started' | 'gap_done'>, string> = {
     applied: "Tracked. I'll ask how it went when results are due.",
     won: `Recorded: ${usd(i.amount_usd ?? 0)} from ${title}.`,
     rejected: 'Recorded. On to the next one.',
     no_result: 'Recorded.',
     skipped: `Skipped ${title}. I won't bring it up again.`,
     unskip: `Unskipped ${title}. It can come back in the list.`,
-    gap_done: "Noted. I'll re-check the repo on the next look.",
   };
   return {
     show_to_builder: lines[i.status],
-    agent_note: i.status === 'gap_done' ? 'Call find again so the repo is re-read.' : 'Call find again for the updated ledger.',
+    agent_note: 'Call find again for the updated ledger.',
     ledger: await summary(owner, programs, ctx.now),
   };
 }

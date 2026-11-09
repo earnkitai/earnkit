@@ -5,7 +5,7 @@
 export const OLD_TOOLS = ['score', 'tell', 'prepare', 'confirm', 'list_programs', 'get_program', 'prepare_submission', 'confirm_entry', 'record_submission', 'launch_token', 'tell_earnkit'];
 
 export const OLD_TOOL_TEXT =
-  "EarnKit's tools changed. Refresh this server's tool list, or remove and re-add the EarnKit connector. The tools are now find (what this repo can earn) and track (what the builder did).";
+  "EarnKit's tools changed. Refresh this server's tool list, or remove and re-add the EarnKit connector. The tools are now find (what this repo can earn), track (what the builder did), record (the builder's facts, kept once) and screen (for a program's reviewer).";
 
 type Msg = { id?: unknown; method?: unknown; params?: { name?: unknown } };
 

@@ -99,3 +99,19 @@ test('shownGapsOf (R18f): in-person programs never appear in the default gap lis
   assert.deepEqual(shownGapsOf([ranked[0], ranked[2]], false, 3, inPerson), []);
   assert.deepEqual(shownGapsOf(ranked, true, 3, inPerson), ranked);
 });
+
+test('rankGaps (R18e tie-break): among rule-only programs on the project chains with no award, the first reported chain first, then catalog order (v6.1.7)', () => {
+  const programs = new Map([
+    row('arb-rule', { chains: ['arbitrum'] }),
+    row('arb-other', { chains: ['arbitrum'] }),
+    row('base-rule', { chains: ['base'] }),
+    row('arb-award', { chains: ['arbitrum'], max_award_usd: 1000 }),
+  ].map((r) => [r.id, r]));
+  const input = ['arb-rule', 'arb-other', 'base-rule', 'arb-award'].map((id) => v(id, { status: 'gap', gaps: [ruleGap(id)] }));
+  const both = new Set(['arbitrum', 'base']);
+  // A stated award still ranks first; then the program on the first reported chain; then catalog order.
+  assert.deepEqual(rankGaps(input, programs, both, 'base').map((x) => x.program_id), ['arb-award', 'base-rule', 'arb-rule', 'arb-other']);
+  assert.deepEqual(rankGaps(input, programs, both, 'arbitrum').map((x) => x.program_id), ['arb-award', 'arb-rule', 'arb-other', 'base-rule']);
+  assert.deepEqual(rankGaps(input, programs, both).map((x) => x.program_id), ['arb-award', 'arb-rule', 'arb-other', 'base-rule']);
+  assert.deepEqual(shownGapsOf(rankGaps(input.slice(0, 3), programs, both, 'base'), false, 3, remote).map((x) => x.program_id), ['base-rule']);
+});

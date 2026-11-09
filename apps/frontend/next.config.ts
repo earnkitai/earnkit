@@ -28,6 +28,8 @@ export const LEGAL_REDIRECTS = [
 export const NOINDEX_PATHS = ['/me', '/me/:path*', '/link/:path*', '/auth/:path*'];
 
 const nextConfig: NextConfig = {
+  // No X-Powered-By: the framework is nobody's business (v6.1.7 S5).
+  poweredByHeader: false,
   async redirects() {
     return LEGAL_REDIRECTS;
   },

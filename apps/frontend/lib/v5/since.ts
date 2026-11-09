@@ -24,11 +24,11 @@ function dayOf(p: ProgramRow['file']): string | null {
   return closeDay(p) ?? new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(new Date(p.ends_at));
 }
 
-/** The changed fields in builder words. Pure. */
-function whatOf(p: ProgramRow['file'], fields: Set<string>): string | null {
+/** The changed fields in builder words; `firstOpen`: no status change before this one, so it was never open (C33). Pure. */
+function whatOf(p: ProgramRow['file'], fields: Set<string>, firstOpen: boolean): string | null {
   if (fields.has('status') && p.status === 'closed') return 'closed';
   const out: string[] = [];
-  if (fields.has('status') && p.status === 'active') out.push('open again');
+  if (fields.has('status') && p.status === 'active') out.push(firstOpen ? 'now open' : 'open again');
   if (fields.has('ends_at')) out.push(p.ends_at ? `deadline moved to ${dayOf(p)}` : 'no deadline now');
   if (fields.has('max_award_usd')) out.push('amount changed');
   if (FORM_FIELDS.some((f) => fields.has(f))) out.push('form changed');
@@ -62,10 +62,18 @@ export async function since(
   for (const p of await programsById([...fieldsOf.keys()].filter((id) => !byId.has(id)))) byId.set(p.id, p);
 
   const fresh = (id: string) => (byId.get(id)?.created_at.getTime() ?? 0) > lastFindAt.getTime();
+  // v6.1.7 C33: a program whose only status change is the one that opened it was upcoming (or closed) since it was
+  // created, never active: it is "now open". An earlier status change means it was open before: "open again".
+  const opened = [...fieldsOf].filter(([, f]) => f.has('status')).map(([id]) => id);
+  const statusChanges = new Map(
+    opened.length === 0 ? [] : (await sql()<{ program_id: string; n: number }[]>`
+      SELECT program_id, count(*)::int AS n FROM program_changes
+      WHERE program_id = ANY(${opened}) AND 'status' = ANY(fields) AND at <= ${now} GROUP BY program_id`).map((r) => [r.program_id, r.n]),
+  );
   const changed: Since['changed'] = [];
   for (const [id, fields] of fieldsOf) {
     const p = byId.get(id);
-    const what = p && !fresh(id) ? whatOf(p.file, fields) : null;
+    const what = p && !fresh(id) ? whatOf(p.file, fields, (statusChanges.get(id) ?? 0) <= 1) : null;
     if (p && what) changed.push({ program_id: id, title: p.file.title, what });
   }
   const closing: Since['closing'] = [];

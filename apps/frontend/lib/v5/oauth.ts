@@ -74,26 +74,48 @@ export function clientNameOf(v: unknown): string | null {
   return t || null;
 }
 
-/** Hosted agents' redirect hosts: their servers register for many people, so many builders share their IPs. */
-export const HOSTED_REDIRECT_HOSTS = ['grok.com', 'x.ai', 'x.com', 'meta.ai', 'claude.ai', 'chatgpt.com', 'openai.com'] as const;
-const under = (host: string, list: readonly string[]) => list.some((h) => host === h || host.endsWith(`.${h}`));
+/**
+ * Hosted agents' callbacks: their servers register for many people. Each is the exact host and the
+ * path its callback sits under (an exact path, or one ending in '/' for a prefix). A hosted client
+ * only gets a higher per-client ceiling; every address still counts on the one per-address floor (v6.1.7, B5).
+ */
+export const HOSTED_REDIRECTS = {
+  'grok.com': '/connectors/',
+  'x.ai': '/connectors/',
+  'x.com': '/connectors/',
+  'meta.ai': '/connectors/',
+  'claude.ai': '/api/mcp/auth_callback',
+  'chatgpt.com': '/connector_platform_oauth_redirect',
+  'openai.com': '/connector_platform_oauth_redirect',
+} as const satisfies Record<string, string>;
+export const HOSTED_REDIRECT_HOSTS = Object.keys(HOSTED_REDIRECTS) as (keyof typeof HOSTED_REDIRECTS)[];
+
+/** The hosted service one redirect URI is a callback of: exact host, default port, no user, the vendor's path. Pure. */
+function hostedCallbackHost(uri: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(uri);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'https:' || url.port || url.username || url.password) return null;
+  const host = url.hostname.toLowerCase();
+  if (!Object.hasOwn(HOSTED_REDIRECTS, host)) return null;
+  const path = HOSTED_REDIRECTS[host as keyof typeof HOSTED_REDIRECTS] as string;
+  // The registered string itself, not only its normalised form: a dot segment never counts.
+  if (/\/\.\.?(?:[/?#]|$)|%2e/i.test(uri)) return null;
+  const ok = path.endsWith('/') ? url.pathname.startsWith(path) && url.pathname.length > path.length : url.pathname === path;
+  return ok ? host : null;
+}
 
 /**
- * The hosted service a client runs on: its host when every redirect URI is https on that one host
- * and the host is a known hosted service, else null (a mixed list, or the client name, never
- * counts: anyone can pick either). Pure.
+ * The hosted service a client runs on: its host when every redirect URI is that service's callback,
+ * else null (a mixed list, or the client name, never counts: anyone can pick either). Pure.
  */
 export function hostedRedirectHost(uris: readonly string[]): string | null {
-  const hosts = uris.map((u) => {
-    try {
-      const url = new URL(u);
-      return url.protocol === 'https:' ? url.hostname.toLowerCase().replace(/\.$/, '') : null;
-    } catch {
-      return null;
-    }
-  });
+  const hosts = uris.map(hostedCallbackHost);
   const h = hosts[0];
-  return h && hosts.every((x) => x === h) && under(h, HOSTED_REDIRECT_HOSTS) ? h : null;
+  return h && hosts.every((x) => x === h) ? h : null;
 }
 
 /** A client's key in the limits: the first 32 hex of sha256(client_id). Never log client ids. Pure. */

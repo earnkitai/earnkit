@@ -6,12 +6,17 @@
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { isKnownChain } from '../v5/chains';
+import { dropControls } from '../v5/controls';
 import { ANSWER_KINDS, PROGRAM_CATEGORIES, type AnswerKind, type FieldKind } from '../v5/program-file';
 
-const CONTROL = /[\u0000-\u001f\u007f]/;
 /** Newlines and tabs are fine in prose; other control characters are not. */
 const CONTROL_PROSE = /[\u0000-\u0008\u000b-\u001f\u007f]/;
-const line = (max: number) => z.string().max(max).refine((s) => !CONTROL.test(s), 'no control characters');
+/**
+ * One line as saved (v6.1.7 S4): tabs and line breaks become a plain space, every other control or format character
+ * (bidi overrides, zero-width marks) is dropped, and runs of spaces collapse to one. Pure.
+ */
+export const cleanLine = (s: string): string => dropControls(s);
+const line = (max: number) => z.string().overwrite(cleanLine).max(max);
 const prose = (max: number) => z.string().max(max).refine((s) => !CONTROL_PROSE.test(s), 'no control characters');
 const https = line(500).pipe(z.url({ protocol: /^https$/ }));
 const githubRepo = line(300).regex(/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/?$/, 'must be an https://github.com/<owner>/<repo> link');
@@ -33,7 +38,7 @@ function isTimeZone(tz: string): boolean {
 const Person = z.object({
   name: line(80), email, x: line(40), linkedin: https, location: line(80),
   timezone: line(64).refine(isTimeZone, 'must be an IANA time zone'), phone: line(30), bio: prose(280),
-  technical: z.boolean(), based_country: line(2).regex(/^[A-Z]{2}$/, 'must be two capital letters'),
+  technical: z.boolean(), based_country: line(2).regex(/^[A-Z]{2}$/, 'two capital letters, like US'),
 }).partial().strip();
 const TeamMember = z.object({ name: line(80), role: line(80).optional(), github: line(40).optional(), x: line(40).optional(), email: email.optional() }).strip();
 const Company = z.object({
@@ -68,6 +73,15 @@ const Policy = z.object({
   categories: z.array(z.enum(PROGRAM_CATEGORIES)).max(PROGRAM_CATEGORIES.length).transform((c) => [...new Set(c)]).default([...PROGRAM_CATEGORIES]), max_ask_usd: z.number().min(0).optional(),
   never: z.array(line(100)).max(50).default([]), agent_may_submit: z.boolean().default(true),
 }).strip();
+const LEAF_BLOCKS: Record<string, z.ZodObject> = { person: Person, company: Company, docs: Docs, traction: Traction, policy: Policy };
+/** The schema of one editable leaf, by its /me path (an answer's is its text's), or null. Pure. */
+export function fieldSchema(path: string): z.ZodType | null {
+  const [block, a, b] = path.split('.');
+  if (block === 'answers' || (block === 'projects' && b === 'answers')) return Answer.shape.text;
+  const shape: z.ZodRawShape | undefined = block === 'projects' ? Project.shape : LEAF_BLOCKS[block]?.shape;
+  const key = block === 'projects' ? b : a;
+  return shape && key !== undefined && Object.hasOwn(shape, key) ? (shape[key] as z.ZodType) : null;
+}
 const Meta = z.object({ set_by: z.enum(['builder', 'agent']), set_at: line(40), approved_at: line(40).optional() }).strip();
 export type Meta = z.infer<typeof Meta>;
 
@@ -350,7 +364,9 @@ export const hasDoc = (record: BuilderRecord, need: string): boolean => NEED_DOC
  */
 export function recordMissing(record: BuilderRecord, o: { needs: string[]; kinds: string[]; verifiedUsage?: boolean }): string[] {
   const out: string[] = [];
-  if (!record.person.name || !record.person.email) out.push('your name and email');
+  // Two items, so a saved name is no longer named as missing (v6.1.7 C12).
+  if (!record.person.name) out.push('your name');
+  if (!record.person.email) out.push('your email');
   if (!record.projects.some((p) => p.repo_url || p.live_url)) out.push('a project with its repo or site');
   if (!o.verifiedUsage && !isApproved(record, 'traction.line_pre_launch')) out.push('one approved line on traction');
   const kinds = [...new Set(o.kinds.map((k) => answerKindOf(k as FieldKind)).filter((k): k is AnswerKind => k !== null))];

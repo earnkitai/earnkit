@@ -10,7 +10,8 @@
   "summary": "EUR 5,000 to 50,000 · next deadline Jan 3, 12:00 CET",
   "category": "grant",
   "eligibility": [
-    { "kind": "rule", "note": "software released under an open licence, using open standards where possible" }
+    { "kind": "rule", "note": "software released under an open licence, using open standards where possible" },
+    { "kind": "rule", "note": "EU-funded calls need a strong European dimension, usually Horizon Europe-eligible applicants" }
   ],
   "starts_at": null,
   "ends_at": "2027-01-03T12:00:00+01:00",

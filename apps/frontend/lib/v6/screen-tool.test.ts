@@ -11,7 +11,7 @@ import { type Evidence, type Row } from './evidence';
 import { evidence, liveRows } from './fixtures/evidence-builder';
 import { EMPTY_RECORD } from './record';
 import { addReviewer } from './reviewers';
-import { workQueue } from './screen-worker';
+import { SCREEN_BATCH, workQueue } from './screen-worker';
 
 after(() => sql().end());
 
@@ -65,7 +65,7 @@ test('a reviewer queues a job and gets job_id; the eleventh screen in a day is r
   const r = await mcpCall(c, 'screen', { program_id: 'scr-queue', applicants: APPLICANTS });
   assert.equal(r.isError, false, r.text);
   assert.match(r.reply!.job_id as string, /^[A-Za-z0-9_-]{16}$/);
-  assert.equal(r.reply!.show_to_builder, 'Queued 2 applicants for Grants scr-queue; 0 already read. Results by tomorrow morning, or sooner when EarnKit runs the queue.');
+  assert.equal(r.reply!.show_to_builder, 'Queued 2 applicants for Grants scr-queue; 0 already read. Results by tomorrow morning.');
   assert.equal(r.reply!.agent_note, 'Call screen with job_id for progress and results. Tell the builder what each tier means: used, live, building, unverified, flagged.');
   const [w] = await sql()`SELECT count FROM rate_windows WHERE key = ${`screenJobs:b:${c.builderId}`} AND window_start = ${windowStart(NOW, 86_400_000)}`;
   assert.equal(w.count, 1);
@@ -141,4 +141,66 @@ test('R7 screen unlinked with sign-in configured: the installation link, one lin
     for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k];
     else process.env[k] = v;
   }
+});
+
+test('C35: input screen cannot read is its one line, the detail in the agent note, never a validation dump', async () => {
+  const c = await linked();
+  for (const args of [{ applicants: 'everyone' }, { job_id: 7 }, { outcomes: [{ ref: 'r', outcome: 'maybe' }] }, { extra: true }]) {
+    const r = await mcpCall(c, 'screen', args);
+    assert.equal(r.isError, false, r.text);
+    assert.equal(r.reply!.show_to_builder, "I could not read that. Send the applicant list, or a screen's id for its results.");
+    assert.match(r.reply!.agent_note as string, /^Nothing was queued\. /);
+  }
+  const u = await mcpCall({ ...c, builderId: null }, 'screen', { extra: true });
+  assert.equal(u.reply!.show_to_builder, "I could not read that. Send the applicant list, or a screen's id for its results.");
+});
+
+test('C18: a signed-in builder who reviews no program, with no program named, is told so in one line', async () => {
+  const c = await linked();
+  for (const args of [{}, { applicants: APPLICANTS }]) {
+    const r = await mcpCall(c, 'screen', args);
+    assert.equal(r.isError, false, r.text);
+    assert.equal(r.reply!.show_to_builder, 'You review no program yet.');
+  }
+});
+
+test('C39: a threshold outside 0 to 100 is refused with one line and nothing is queued', async () => {
+  const c = await reviewerOf('scr-thresh');
+  for (const [k, v] of [['used_funded_senders', -5], ['push_within_days', 101]] as const) {
+    const r = await mcpCall(c, 'screen', { program_id: 'scr-thresh', applicants: APPLICANTS, thresholds: { [k]: v } });
+    assert.equal(r.isError, false, r.text);
+    assert.equal(r.reply!.show_to_builder, `Threshold ${k} must be from 0 to 100.`);
+    assert.equal('job_id' in r.reply!, false);
+  }
+  const ok = await mcpCall(c, 'screen', { program_id: 'scr-thresh', applicants: APPLICANTS, thresholds: { used_funded_senders: 0, push_within_days: 100 } });
+  assert.ok(ok.reply!.job_id, ok.text);
+});
+
+test('C19, C38: outcomes name the refs not found; a win over the program\'s cap is refused as the ledger refuses it', async () => {
+  await upsertProgram(programFixture({ id: 'scr-out', title: 'Grants scr-out', max_award_usd: 5000 }), 'file', NOW);
+  const c = await linked();
+  assert.deepEqual(await addReviewer('scr-out', c.login, null), { ok: true, builder_id: c.builderId });
+  const q = await mcpCall(c, 'screen', { program_id: 'scr-out', applicants: APPLICANTS });
+  const jobId = q.reply!.job_id as string;
+  const over = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'r-2', outcome: 'rejected' }, { ref: 'r-1', outcome: 'won', amount_usd: 5001 }] });
+  assert.equal(over.reply!.show_to_builder, "That's more than this program pays; check the amount.");
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_outcomes WHERE job_id = ${jobId}`)[0].n, 0);
+  const r = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'r-1', outcome: 'won', amount_usd: 5000 }, { ref: 'zz', outcome: 'rejected' }, { ref: 'yy', outcome: 'shortlisted' }] });
+  assert.equal(r.reply!.show_to_builder, 'Recorded 1 outcome; not found: zz and yy.');
+  assert.equal(r.reply!.recorded, 1);
+  const none = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'zz', outcome: 'rejected' }] });
+  assert.equal(none.reply!.show_to_builder, 'Recorded 0 outcomes; not found: zz.');
+});
+
+test('B14: the promise counts the queue ahead against the daily run of SCREEN_BATCH', async () => {
+  assert.equal(SCREEN_BATCH, 200);
+  // No table cleared: these two jobs are written a day before every other test's, so only their own rows are ahead.
+  const EARLY = new Date(NOW.getTime() - 86_400_000);
+  const a = await reviewerOf('scr-big');
+  const many = Array.from({ length: 200 }, (_, k) => ({ ref: `m-${k}`, name: `App ${k}` }));
+  const first = await mcpCall({ ...a, now: EARLY }, 'screen', { program_id: 'scr-big', applicants: many });
+  assert.equal(first.reply!.show_to_builder, 'Queued 200 applicants for Grants scr-big; 0 already read. Results by tomorrow morning.');
+  const b = await reviewerOf('scr-after');
+  const second = await mcpCall({ ...b, now: new Date(EARLY.getTime() + 60_000) }, 'screen', { program_id: 'scr-after', applicants: APPLICANTS });
+  assert.equal(second.reply!.show_to_builder, 'Queued 2 applicants for Grants scr-after; 0 already read. 200 applicants ahead of yours; results within 2 days.');
 });

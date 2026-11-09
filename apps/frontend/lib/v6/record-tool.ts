@@ -4,6 +4,8 @@
  * Only the linked installation's calls read the record. Approval happens on /me only.
  */
 import { z } from 'zod';
+import { looksSecret, MAX_ARG_DEPTH } from '../v5/secrets';
+import { inputDetail } from '../v5/tool-input';
 import { ANSWER_KINDS, type AnswerKind } from '../v5/program-file';
 import { listOpenPrograms } from '../v5/programs';
 import { answerBrief } from './answer-brief';
@@ -13,7 +15,7 @@ import { createLinkCode } from './link-routes';
 import { listWords, signInLine } from './reply-words';
 
 export { listWords, signInLine };
-import { APPROVABLE, type BuilderRecord, completeness, mergeRecord, recordMissing } from './record';
+import { APPROVABLE, type BuilderRecord, completeness, KIND_WORDS, mergeRecord, recordMissing } from './record';
 
 export const RecordInput = z
   .object({
@@ -83,16 +85,104 @@ function briefFor(kind: AnswerKind, record: BuilderRecord) {
   return answerBrief(kind, record, { repo_url: p?.repo_url ?? null, live_url: p?.live_url ?? null, chains: p?.chains_claimed ?? [], first_commit_at: null });
 }
 
+export const RECORD_UNREAD = 'I could not read that. Send the facts to save, or ask for the record.';
+
+/** The one "missing" line of record get and record set (v6.1.7 C30); null when nothing is missing. Pure. */
+export function missingLine(missing: string[]): string | null {
+  return missing.length > 0 ? `Still missing: ${listWords(missing)}.` : null;
+}
+
+/**
+ * One refused part of a set (a merge problem "path: why") in builder words: the leaf named plainly, never the path
+ * (v6.1.7 C29). Pure.
+ */
+/** Record keys that read as field names, in the builder's words (v6.1.7 task 6 review). */
+const LEAF_WORDS: Record<string, string> = {
+  repo_url: 'repo link', live_url: 'live link', demo_url: 'demo link', resume_url: 'resume link', deck_url: 'deck link',
+  founder_video_url: 'founder video link', demo_video_url: 'demo video link', line_pre_launch: 'pre-launch line', id: 'short name',
+  one_liner: 'one line', chains_claimed: 'chains', based_country: 'country', raised_usd: 'money raised', raised_from: 'raised from',
+  revenue_usd_claim: 'revenue claim', launch_date: 'launch date', max_per_night: 'most per night', max_ask_usd: 'top amount',
+  auto_apply: 'apply without asking', agent_may_submit: 'agent may submit', x: 'X handle',
+};
+export function refusedWords(problem: string): string {
+  const cut = problem.indexOf(': ');
+  const path = cut < 0 ? problem : problem.slice(0, cut);
+  const why = cut < 0 ? '' : problem.slice(cut + 2);
+  const parts = path.split('.');
+  const answer = /(^|\.)answers\.([a-z_]+)/.exec(path)?.[2];
+  const leaf = parts.filter((x) => x !== 'text' && !/^\d+$/.test(x)).at(-1) ?? path;
+  const what =
+    path === 'set' ? 'what was sent'
+    : answer && Object.hasOwn(KIND_WORDS, answer) ? `the answer on ${KIND_WORDS[answer as keyof typeof KIND_WORDS]}`
+    : `${parts[0] === 'projects' && leaf !== 'projects' ? 'project ' : ''}${LEAF_WORDS[leaf] ?? leaf.replace(/_/g, ' ')}`;
+  if (why === 'not a field') return `${what} is not something I keep`;
+  if (why.startsWith('set by EarnKit')) return `${what} is set by EarnKit only`;
+  if (why.startsWith('set by the builder')) return `${what} is yours to set on earnkit.com/me`;
+  return `${what} was not valid`;
+}
+
+/** "Saved 2.", "Saved 1; 1 not saved: email was not valid.", "Nothing saved: ...", "Nothing new to save." (C29). Pure. */
+export function savedLine(saved: number, problems: string[], secrets: number): string {
+  const reasons = [...problems.map(refusedWords), ...(secrets > 0 ? [secrets === 1 ? 'one looked like a secret' : `${secrets} looked like secrets`] : [])];
+  const refused = problems.length + secrets;
+  if (saved > 0) return refused > 0 ? `Saved ${saved}; ${refused} not saved: ${listWords(reasons)}.` : `Saved ${saved}.`;
+  return refused > 0 ? `Nothing saved: ${listWords(reasons)}.` : 'Nothing new to save.';
+}
+
+/** An answer sent as plain text (C20): the shape the record takes, for the agent. */
+const answerShapeNote = (problems: string[]): string | null => {
+  const kind = problems.map((p) => /(?:^|\.)answers\.([a-z_]+): not an object$/.exec(p)?.[1]).find(Boolean);
+  return kind
+    ? `Send each answer as { kind, text }, keyed by its kind: answers: { ${kind}: { text: "..." } } (or under a project's answers). Kinds: ${ANSWER_KINDS.join(', ')}.`
+    : null;
+};
+
+/**
+ * `set` without any string that looks like a secret key (or the route's placeholder for one): such a field, or
+ * list entry, is skipped, never stored (v6.1.7, B9). `skipped` counts them. The walk stops at MAX_ARG_DEPTH. Pure.
+ */
+export function withoutSecrets(value: unknown, depth = 0): { value: unknown; skipped: number } {
+  if (depth >= MAX_ARG_DEPTH || !value || typeof value !== 'object') return { value, skipped: 0 };
+  let skipped = 0;
+  const keep = (v: unknown): { keep: boolean; value: unknown } => {
+    if (typeof v === 'string' && looksSecret(v)) {
+      skipped += 1;
+      return { keep: false, value: v };
+    }
+    const r = withoutSecrets(v, depth + 1);
+    skipped += r.skipped;
+    return { keep: true, value: r.value };
+  };
+  if (Array.isArray(value)) {
+    const out = value.map(keep).filter((x) => x.keep).map((x) => x.value);
+    return { value: skipped ? out : value, skipped };
+  }
+  const out = Object.fromEntries(
+    Object.entries(value)
+      .map(([k, v]) => [k, keep(v)] as const)
+      .filter(([, x]) => x.keep)
+      .map(([k, x]) => [k, x.value]),
+  );
+  return { value: skipped ? out : value, skipped };
+}
+
 export async function recordTool(ctx: { installationId: number; builderId: number | null; now: Date }, input: unknown): Promise<RecordReply> {
-  const i = RecordInput.parse(input);
+  // The MCP layer passes anything through (tool-input.ts): this is the only check, with the detail for the agent.
+  const parsed = RecordInput.safeParse(input);
+  if (!parsed.success)
+    return { show_to_builder: RECORD_UNREAD, agent_note: `Nothing was saved. ${inputDetail(parsed.error)}`, linked: ctx.builderId !== null };
+  const i = parsed.data;
   if (ctx.builderId === null) return unlinked(ctx.installationId, ctx.now, i.set !== undefined);
   const asks = await programAsks(ctx.now);
   let record: BuilderRecord;
   let m: ReturnType<typeof mergeRecord> | null = null;
   const problems: string[] = [];
+  let secrets = 0;
   if (i.set !== undefined) {
     // Read, merge and save under the row's lock, so two agents' sets never lose one another.
-    const set = i.set;
+    const clean = withoutSecrets(i.set);
+    secrets = clean.skipped;
+    const set = clean.value;
     const out = await withRecord(ctx.builderId, ctx.now, (current) => {
       const merged = mergeRecord(current, set, 'agent', ctx.now);
       return { record: merged.changed.length > 0 ? merged.record : null, result: merged };
@@ -107,12 +197,14 @@ export async function recordTool(ctx: { installationId: number; builderId: numbe
   }
   const brief = i.brief ? briefFor(i.brief, record) : undefined;
 
+  const missing = recordMissing(record, asks);
   if (m) {
-    const missing = recordMissing(record, asks);
-    const head = m.changed.length > 0 ? 'Saved.' : 'Nothing new to save.';
+    // Facts saved: a new project counts by its facts, not once more for itself.
+    const facts = m.changed.filter((p) => !m!.changed.some((q) => q.startsWith(`${p}.`)));
+    const head = savedLine(facts.length, m.problems, secrets);
     return {
-      show_to_builder: missing.length > 0 ? `${head} Still missing: ${listWords(missing)}.` : head,
-      agent_note: m.changed.some(APPROVABLE) ? APPROVAL_NOTE : brief ? BRIEF_NOTE : '',
+      show_to_builder: [head, missingLine(missing)].filter(Boolean).join(' '),
+      agent_note: [m.changed.some(APPROVABLE) ? APPROVAL_NOTE : brief ? BRIEF_NOTE : '', answerShapeNote(m.problems)].filter(Boolean).join(' '),
       linked: true,
       missing,
       ...(m.problems.length > 0 ? { problems: m.problems } : {}),
@@ -121,14 +213,13 @@ export async function recordTool(ctx: { installationId: number; builderId: numbe
     };
   }
 
-  const blocks = completeness(record);
-  const n = blocks.filled.length;
+  const n = completeness(record).filled.length;
   return {
-    show_to_builder: blocks.missing.length > 0 ? `Your record has ${n} of 6 blocks; missing: ${listWords(blocks.missing, 6)}.` : `Your record has ${n} of 6 blocks.`,
+    show_to_builder: [`Your record has ${n} of 6 blocks.`, missingLine(missing)].filter(Boolean).join(' '),
     agent_note: brief ? BRIEF_NOTE : '',
     linked: true,
     record,
-    missing: recordMissing(record, asks),
+    missing,
     ...(problems.length > 0 ? { problems } : {}),
     ...(brief ? { brief } : {}),
   };

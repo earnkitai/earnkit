@@ -14,6 +14,7 @@ import {
   originFor,
   redirectClass,
   registerClient,
+  registrationLimitKey,
 } from './oauth';
 import { authorizeGet, registerPost, tokenPost } from './oauth-routes';
 import { connectInstallation } from './installations';
@@ -30,7 +31,7 @@ const authorize = (params: URLSearchParams): URL => {
 const verifier = 'a-long-random-verifier-string-for-pkce-0123456789';
 const challenge = createHash('sha256').update(verifier).digest('base64url');
 const redirect = 'http://127.0.0.1:33418/callback';
-const hosted = 'https://grok.com/connectors/callback';
+const hosted = 'https://claude.ai/api/mcp/auth_callback';
 const params = (clientId: string, extra: Record<string, string> = {}) =>
   new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: redirect, code_challenge: challenge, code_challenge_method: 'S256', state: 'xyz', ...extra });
 const tokenForm = (clientId: string, code: string, v = verifier, uri = redirect) =>
@@ -78,18 +79,65 @@ test('register, authorize and token through the routes: straight to the client, 
   assert.equal((await connectInstallation(access_token))?.id, caller.id);
 });
 
-test('register: the hosted tier and host bucket only when every redirect is on the hosted host', async () => {
+test('register: every address counts on the one per-address floor; the host bucket only when every redirect is a hosted callback', async () => {
   const keys = async (ip: string) =>
     (await sql()<{ key: string }[]>`SELECT key FROM rate_windows WHERE key LIKE ${'%' + ip}`).map((r) => r.key).sort();
   const reg = (uris: string[], ip: string) => registerPost(new Request('https://earnkit.test/oauth/register', {
     method: 'POST', headers: { 'content-type': 'application/json', 'x-real-ip': ip }, body: JSON.stringify({ redirect_uris: uris }),
   }));
-  assert.equal((await reg([hosted, 'https://evil.example/cb'], '10.9.0.1')).status, 201);
-  assert.deepEqual(await keys('10.9.0.1'), ['oauthRegister:10.9.0.1']);
-  assert.equal((await sql()`SELECT 1 FROM rate_windows WHERE key = 'oauthRegisterHost:host:grok.com'`).length, 0);
-  assert.equal((await reg([hosted, 'https://grok.com/other'], '10.9.0.2')).status, 201);
-  assert.deepEqual(await keys('10.9.0.2'), ['oauthRegisterHosted:10.9.0.2']);
-  assert.equal((await sql()`SELECT 1 FROM rate_windows WHERE key = 'oauthRegisterHost:host:grok.com'`).length, 1);
+  const hostRows = async () => (await sql()`SELECT 1 FROM rate_windows WHERE key = 'oauthRegisterHost:host:claude.ai'`).length;
+  const ip = (n: number) => `10.9.${Math.floor(Math.random() * 250)}.${n}`;
+  const [a, b] = [ip(1), ip(2)];
+  assert.equal((await reg([hosted, 'https://evil.example/cb'], a)).status, 201);
+  assert.deepEqual(await keys(a), [`oauthRegister:${a}`]);
+  assert.equal((await reg([hosted], b)).status, 201);
+  assert.deepEqual(await keys(b), [`oauthRegister:${b}`]);
+  assert.equal(await hostRows(), 1);
+});
+
+test('B5 (Review Focus 4): a hosted-redirect client from an address over its floor is refused with the same text as any other', async () => {
+  const ip = `10.77.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
+  const now = new Date();
+  const start = (secs: number) => new Date(Math.floor(now.getTime() / (secs * 1000)) * secs * 1000);
+  await sql()`DELETE FROM rate_windows WHERE key LIKE ${'%' + ip}`;
+  await sql()`INSERT INTO rate_windows (key, window_start, count) VALUES (${'oauthRegister:' + ip}, ${start(3_600)}, 50), (${'installHour:' + ip}, ${start(3_600)}, 50)`;
+  const reg = (uris: string[]) => registerPost(new Request('https://earnkit.test/oauth/register', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-real-ip': ip }, body: JSON.stringify({ redirect_uris: uris }),
+  }));
+  const plain = await reg([redirect]);
+  const viaHost = await reg([hosted]);
+  const anyPath = await reg(['https://claude.ai/anything']);
+  assert.equal(plain.status, 429);
+  // The refusal says when to come back: the seconds left in the hour window.
+  assert.match(plain.headers.get('retry-after') ?? '', /^[1-9]\d*$/);
+  assert.ok(Number(plain.headers.get('retry-after')) <= 3_600);
+  assert.equal(viaHost.status, 429);
+  assert.equal(anyPath.status, 429);
+  const text = ((await plain.json()) as { error_description: string }).error_description;
+  assert.equal(((await viaHost.json()) as { error_description: string }).error_description, text);
+  assert.equal(((await anyPath.json()) as { error_description: string }).error_description, text);
+  // A code for a hosted client is refused at the token exchange the same way as any other.
+  const token = (id: string, uri: string) => tokenPost(new Request('https://earnkit.test/oauth/token', {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-real-ip': ip }, body: tokenForm(id, codeOf(id, uri), verifier, uri).toString(),
+  }));
+  const a = registerClient({ redirect_uris: [redirect] }).client_id;
+  const b = registerClient({ redirect_uris: [hosted] }).client_id;
+  const ta = await token(a, redirect);
+  const tb = await token(b, hosted);
+  assert.equal(ta.status, 429);
+  assert.equal(tb.status, 429);
+  assert.equal(((await tb.json()) as { error_description: string }).error_description, ((await ta.json()) as { error_description: string }).error_description);
+});
+
+test('B5: the hosted tier only raises the per-client install limit', async () => {
+  const ip = `10.78.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
+  const id = registerClient({ redirect_uris: [hosted] }).client_id;
+  const r = await tokenPost(new Request('https://earnkit.test/oauth/token', {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-real-ip': ip }, body: tokenForm(id, codeOf(id, hosted), verifier, hosted).toString(),
+  }));
+  assert.equal(r.status, 200);
+  const keys = (await sql()<{ key: string }[]>`SELECT key FROM rate_windows WHERE key = ${'installHour:' + ip} OR key = ${'installClientHosted:' + registrationLimitKey(id)}`).map((x) => x.key).sort();
+  assert.deepEqual(keys, [`installClientHosted:${registrationLimitKey(id)}`, `installHour:${ip}`]);
 });
 
 test('an unknown client is refused on our page, never redirected', async () => {
@@ -107,7 +155,7 @@ test('/mcp without a token, or with an unknown one, is 401 with the resource met
     assert.equal(r.status, 401);
     assert.equal(r.headers.get('www-authenticate'), 'Bearer resource_metadata="https://earnkit.test/.well-known/oauth-protected-resource/mcp"');
   }
-  assert.equal((await mcpGet(new Request('https://earnkit.test/mcp'))).status, 401);
+  assert.equal((await mcpGet(new Request('https://earnkit.test/mcp'))).status, 405);
 });
 
 test('/mcp with a token lists the four tools; a body over 1 MB is 413', async () => {
@@ -182,13 +230,26 @@ test('each registration is its own client; every token is its own installation',
 });
 
 test('the limit key and the public origin', () => {
-  assert.equal(clientLimitKey([hosted]), 'host:grok.com');
+  assert.equal(clientLimitKey([hosted]), 'host:claude.ai');
   assert.equal(clientLimitKey([redirect]), null);
   assert.equal(clientLimitKey([hosted, 'https://evil.example/cb']), null);
   assert.equal(hostedRedirectHost([hosted, 'https://evil.example/cb']), null);
   assert.equal(hostedRedirectHost(['https://evil.example/cb', hosted]), null);
   assert.equal(hostedRedirectHost([hosted, 'http://127.0.0.1:1/cb']), null);
-  assert.equal(hostedRedirectHost([hosted]), 'grok.com');
+  assert.equal(hostedRedirectHost([hosted]), 'claude.ai');
+  // B5: exact host and the vendor's callback path; anything else under the host is not hosted.
+  assert.equal(hostedRedirectHost(['https://claude.ai/anything']), null);
+  assert.equal(hostedRedirectHost(['https://claude.ai/api/mcp/auth_callbackX']), null);
+  assert.equal(hostedRedirectHost(['https://evil.claude.ai/api/mcp/auth_callback']), null);
+  // Lookalike hosts: the vendor's name as a prefix of another host, or in another host's path.
+  assert.equal(hostedRedirectHost(['https://claude.ai.evil.com/api/mcp/auth_callback']), null);
+  assert.equal(hostedRedirectHost(['https://evil.com/claude.ai/api/mcp/auth_callback']), null);
+  assert.equal(hostedRedirectHost(['https://claude.ai:8443/api/mcp/auth_callback']), null);
+  assert.equal(hostedRedirectHost(['https://u@claude.ai/api/mcp/auth_callback']), null);
+  assert.equal(hostedRedirectHost(['https://claude.ai/api/mcp/../../x']), null);
+  assert.equal(hostedRedirectHost(['https://chatgpt.com/x']), null);
+  assert.equal(hostedRedirectHost(['https://chatgpt.com/connector_platform_oauth_redirect']), 'chatgpt.com');
+  assert.equal(hostedRedirectHost(['https://grok.com/connectors/callback']), 'grok.com');
   assert.equal(originFor({ NODE_ENV: 'production', EARNKIT_URL: 'https://earnkit.com/' }, 'https://attacker.example/x'), 'https://earnkit.com');
   assert.throws(() => originFor({ NODE_ENV: 'production' }, 'https://attacker.example/x'), /EARNKIT_URL is not set/);
   assert.equal(originFor({ NODE_ENV: 'development' }, 'http://localhost:3000/mcp'), 'http://localhost:3000');

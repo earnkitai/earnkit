@@ -1,14 +1,17 @@
 /**
  * The MCP server: four tools, find, track, record and screen, and the server instructions. Built per request
  * (the route is stateless). Each tool call counts against the installation's and the IP's hourly
- * limits; over either it is the busy-for-an-hour result. A tool's reply is its JSON; an unexpected
- * error (a database blip) is one plain line, logged by name only.
+ * limits; over either it is the busy result, with the minutes the window has left. A tool's reply is its JSON;
+ * arguments nested past MAX_ARG_DEPTH are the plain line; an unexpected error (a database blip) is one plain
+ * line, logged by name only.
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { find, type FindContext } from './find';
 import { PROGRAM_CATEGORIES } from './program-file';
-import { LIMITS, hit } from './rate-limit';
+import { LIMITS, busyText, hit } from './rate-limit';
+import { MAX_ARG_DEPTH, tooDeep } from './secrets';
+import { COULD_NOT_READ, TOO_DEEP_NOTE, lenient } from './tool-input';
 import { TrackInput, track } from './track';
 import { RecordInput, recordTool } from '../v6/record-tool';
 import { ScreenInput, screenTool } from '../v6/screen-tool';
@@ -36,7 +39,8 @@ export const RECORD_DESCRIPTION =
 export const SCREEN_DESCRIPTION =
   "For a program's reviewer: hand EarnKit the applicant list (name, repo, site, contracts, pitch) and get it back in named tiers with public evidence; with job_id, progress and results; with outcomes, who won.";
 export const BUSY = 'EarnKit is busy. Try again in a minute.';
-export const BUSY_HOUR = 'EarnKit is busy. Try again in an hour.';
+/** Over an hourly limit: the window's seconds left as minutes (or hours) (v6.1.7, C8). */
+export const BUSY_HOUR = busyText;
 
 const any = (what: string) => z.unknown().optional().describe(what);
 /** Read leniently (project-input.ts): a bad field is dropped and named, never a refusal. */
@@ -56,17 +60,26 @@ const PROJECT = z
   })
   .describe('The project you are in');
 
-/** Counts one tool call against the IP floor and the installation's limit; false when over either. */
-async function allowed(ctx: McpContext, now: Date): Promise<boolean> {
+/** Counts one tool call against the IP floor and the installation's limit; the seconds to wait when over either, else null. */
+async function refusedFor(ctx: McpContext, now: Date): Promise<number | null> {
   const count = (name: 'mcp' | 'mcpIp', who: string | number) => hit(`${name}:${who}`, LIMITS[name].limit, LIMITS[name].windowSeconds, now);
-  if (ctx.ip && !(await count('mcpIp', ctx.ip)).allowed) return false;
-  return (await count('mcp', ctx.installationId)).allowed;
+  if (ctx.ip) {
+    const ip = await count('mcpIp', ctx.ip);
+    if (!ip.allowed) return ip.retryAfter;
+  }
+  const own = await count('mcp', ctx.installationId);
+  return own.allowed ? null : own.retryAfter;
 }
 
-async function run(ctx: McpContext, name: string, fn: () => Promise<unknown>) {
+const reply = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(value) }] });
+
+async function run(ctx: McpContext, name: string, args: unknown, fn: () => Promise<unknown>) {
   try {
-    if (!(await allowed(ctx, ctx.now ?? new Date()))) return { content: [{ type: 'text' as const, text: BUSY_HOUR }], isError: true };
-    return { content: [{ type: 'text' as const, text: JSON.stringify(await fn()) }] };
+    // Before any walk of the arguments (v6.1.7, B4); the route refuses these before the transport too.
+    if (tooDeep(args, MAX_ARG_DEPTH)) return reply({ show_to_builder: COULD_NOT_READ, agent_note: TOO_DEEP_NOTE });
+    const wait = await refusedFor(ctx, ctx.now ?? new Date());
+    if (wait !== null) return { content: [{ type: 'text' as const, text: BUSY_HOUR(wait) }], isError: true };
+    return reply(await fn());
   } catch (err) {
     if (err instanceof z.ZodError)
       return { content: [{ type: 'text' as const, text: `Invalid input: ${err.issues.map((i) => `${i.path.join('.') || 'input'}: ${i.message}`).join('; ')}` }], isError: true };
@@ -95,22 +108,22 @@ export function createMcpServer(ctx: McpContext): McpServer {
           .optional(),
       },
     },
-    (args) => run(ctx, 'find', () => find({ installationId: ctx.installationId, builderId: ctx.builderId, now: now(), gh: ctx.gh, evidence: ctx.evidence, linkUrl: ctx.linkUrl }, args)),
+    (args) => run(ctx, 'find', args, () => find({ installationId: ctx.installationId, builderId: ctx.builderId, now: now(), gh: ctx.gh, evidence: ctx.evidence, linkUrl: ctx.linkUrl }, args)),
   );
   server.registerTool(
     'track',
-    { description: TRACK_DESCRIPTION, inputSchema: TrackInput },
-    (args) => run(ctx, 'track', () => track({ installationId: ctx.installationId, builderId: ctx.builderId, now: now() }, args)),
+    { description: TRACK_DESCRIPTION, inputSchema: lenient(TrackInput) },
+    (args) => run(ctx, 'track', args, () => track({ installationId: ctx.installationId, builderId: ctx.builderId, now: now() }, args)),
   );
   server.registerTool(
     'record',
-    { description: RECORD_DESCRIPTION, inputSchema: RecordInput },
-    (args) => run(ctx, 'record', () => recordTool({ installationId: ctx.installationId, builderId: ctx.builderId, now: now() }, args)),
+    { description: RECORD_DESCRIPTION, inputSchema: lenient(RecordInput) },
+    (args) => run(ctx, 'record', args, () => recordTool({ installationId: ctx.installationId, builderId: ctx.builderId, now: now() }, args)),
   );
   server.registerTool(
     'screen',
-    { description: SCREEN_DESCRIPTION, inputSchema: ScreenInput },
-    (args) => run(ctx, 'screen', () => screenTool({ installationId: ctx.installationId, builderId: ctx.builderId, now: now() }, args)),
+    { description: SCREEN_DESCRIPTION, inputSchema: lenient(ScreenInput) },
+    (args) => run(ctx, 'screen', args, () => screenTool({ installationId: ctx.installationId, builderId: ctx.builderId, now: now() }, args)),
   );
   return server;
 }

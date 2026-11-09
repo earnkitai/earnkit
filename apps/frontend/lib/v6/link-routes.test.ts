@@ -99,7 +99,7 @@ test('GET /link renders the confirm page with the agent name and no redirect', a
   assert.match(r.headers.get('content-type') ?? '', /^text\/html/);
   assert.match(r.headers.get('content-security-policy') ?? '', /frame-ancestors 'none'/);
   const html = await r.text();
-  assert.ok(html.includes('Link the agent calling itself <strong>Claude &lt;Code&gt;</strong>, first seen Nov 6, to your GitHub account?'));
+  assert.ok(html.includes('Link the agent calling itself <strong><bdi>Claude &lt;Code&gt;</bdi></strong>, first seen Nov 6, to your GitHub account?'));
   assert.ok(html.includes('<form method="post">'));
   assert.ok(html.includes('Continue with GitHub'));
   assert.ok(html.includes('Once linked, it can read and change your record and apply to programs in your name.'));
@@ -139,13 +139,14 @@ test('POST /link sets ek_link and redirects to GitHub with a state whose nonce i
   assert.equal(cross.headers.get('set-cookie'), null);
 });
 
-test('GET and POST answer 404 for an unknown or expired code', async () => {
+test('GET and POST answer 404 for an unknown or expired code; a code EarnKit never makes is not valid (v6.1.7 S1)', async () => {
   const code = await createLinkCode(await install(), NOW);
   const later = new Date(NOW.getTime() + 16 * MIN);
-  for (const [c, now] of [['nope', NOW], ['x'.repeat(500), NOW], [code, later]] as const) {
+  const cases = [['nope', NOW, 'This link is not valid.'], ['x'.repeat(500), NOW, 'This link is not valid.'], ['x'.repeat(22), NOW, EXPIRED], [code, later, EXPIRED]] as const;
+  for (const [c, now, words] of cases) {
     for (const r of [await linkGet(req(`/link/${c}`), c, { now }), await linkPost(req(`/link/${c}`, { method: 'POST' }), c, { now })]) {
       assert.equal(r.status, 404);
-      assert.equal(await r.text(), EXPIRED);
+      assert.equal(await r.text(), words);
     }
   }
 });

@@ -36,7 +36,7 @@ const queue = async (programId: string, applicants: Parameters<typeof createJob>
 };
 
 test('the batch sizes and the trigger cap', () => {
-  assert.deepEqual([SCREEN_BATCH, SCREEN_TRIGGER_MAX, SCREEN_TRIGGER_MS], [40, 300, 600_000]);
+  assert.deepEqual([SCREEN_BATCH, SCREEN_TRIGGER_MAX, SCREEN_TRIGGER_MS], [200, 300, 600_000]);
 });
 
 test('workQueue reads a two-applicant job over the recorded fakes: tiers, because, public rows; a failing read is failed and the job still finishes', async () => {

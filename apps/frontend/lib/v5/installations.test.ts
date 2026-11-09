@@ -1,7 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
-import { builderOf, connectInstallation, lastGaps, markFind, saveInstallation } from './installations';
+import { builderOf, cleanClientName, connectInstallation, lastGaps, markFind, saveInstallation } from './installations';
 import { linkInstallation, upsertBuilder } from '../v6/builders';
 
 after(() => sql().end());
@@ -24,8 +24,24 @@ test('connectInstallation returns builderId null before linking and the builder 
 test("markFind keeps the last find's gaps; lastGaps reads them, {} before any find", async () => {
   const id = await saveInstallation('gaps-' + Math.random());
   assert.deepEqual(await lastGaps(id), {});
-  await markFind(id, NOW, { 'p-1': 'add Base Builder Codes' });
-  assert.deepEqual(await lastGaps(id), { 'p-1': 'add Base Builder Codes' });
+  const g = { what: 'add Base Builder Codes', kind: 'builder_codes', item: 'builder_codes' };
+  await markFind(id, NOW, { 'p-1': g });
+  assert.deepEqual(await lastGaps(id), { 'p-1': g });
+  // No gaps passed (a category-filtered find, v6.1.7 C24a): the time moves, the gaps stay.
   await markFind(id, new Date(NOW.getTime() + 60_000));
+  assert.deepEqual(await lastGaps(id), { 'p-1': g });
+  await markFind(id, new Date(NOW.getTime() + 120_000), {});
   assert.deepEqual(await lastGaps(id), {});
+});
+
+test('an agent name is cleaned at registration: control and format characters out, 60 characters (v6.1.7 C1)', async () => {
+  const id = await saveInstallation('name-' + Math.random(), `  Evil\u202Eagent\u200B\u0007 \n ${'x'.repeat(100)}  `);
+  const [row] = await sql()<{ client_name: string }[]>`SELECT client_name FROM installations WHERE id = ${id}`;
+  assert.equal(row.client_name, `Evilagent ${'x'.repeat(100)}`.slice(0, 60));
+  assert.equal(row.client_name.length, 60);
+  assert.equal(cleanClientName('\u202E\u200B  '), null);
+  assert.equal(cleanClientName(null), null);
+  assert.equal(cleanClientName('Claude Code'), 'Claude Code');
+  // 60 characters, not 60 UTF-16 units: an astral character is never cut in half.
+  assert.equal(cleanClientName('\u{1F600}'.repeat(70)), '\u{1F600}'.repeat(60));
 });

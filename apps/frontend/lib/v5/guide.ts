@@ -107,14 +107,16 @@ export function guideText(row: ProgramRow, now: Date = new Date()): Guide {
     ...(p.focus ? [{ label: 'priorities', url: p.focus.source_url }] : []),
   ];
   const seen = new Set<string>();
+  const closes = closesOf(p, now);
   return {
     title: p.title,
     money: moneyOf(p),
-    closes: closesOf(p, now),
+    closes,
     rules: p.rules,
     eligibility: eligibilityList(eligibilityOf(p)),
     fields: p.submission_requirements.map((r) => ({ label: r.label, todo: r.todo ?? (r.required ? r.label.toLowerCase() : 'optional') })),
-    submit: p.submit === 'builder' ? 'Needs your click to submit' : 'Your agent may submit',
+    // A closed program takes no entries: no word on who submits (v6.1.7 C7).
+    submit: closes === CLOSED ? null : p.submit === 'builder' ? 'Needs your click to submit' : 'Your agent may submit',
     sign_in: signInOf(p),
     needs: p.needs.map((n) => NEEDS_WORDS[n]),
     bar: p.min_tier ? BAR_WORDS[p.min_tier] : null,

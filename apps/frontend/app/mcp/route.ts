@@ -5,7 +5,8 @@ import { createMcpServer } from '../../lib/v5/mcp';
 import { answerOldTools } from '../../lib/v5/old-tools';
 import { publicOrigin } from '../../lib/v5/oauth';
 import { clientIp } from '../../lib/v5/rate-limit';
-import { BODY_TOO_LARGE, readCapped, scrubToolCalls, withScrubNotes } from '../../lib/v5/secrets';
+import { BODY_TOO_LARGE, MAX_ARG_DEPTH, readCapped, scrubToolCalls, withScrubNotes } from '../../lib/v5/secrets';
+import { UNREADABLE_REQUEST, answerUnreadable, plainErrors } from '../../lib/v5/tool-input';
 
 /**
  * A POSTed JSON body over 1 MB is answered 413 before it is parsed; each `tools/call`'s arguments
@@ -33,6 +34,14 @@ async function scrubbed(request: Request): Promise<{ request: Request | null; id
     console.log(`[mcp] old tool ${split.names.join(',')}`);
     old.push(...split.answers);
     parsed = split.rest;
+    if (parsed === null) return { request: null, ids: none, old, batch };
+  }
+  // Too deep, or arguments that are not an object: one plain line here, before any walk (v6.1.7, B4, C35).
+  const unread = answerUnreadable(parsed, MAX_ARG_DEPTH);
+  if (unread.answers.length > 0 || unread.rest !== parsed) {
+    console.log(`[mcp] unreadable ${unread.answers.length}`);
+    old.push(...unread.answers);
+    parsed = unread.rest;
     if (parsed === null) return { request: null, ids: none, old, batch };
   }
   const scrub = scrubToolCalls(parsed);
@@ -69,8 +78,16 @@ async function handle(request: Request) {
   await createMcpServer({ installationId: caller.id, builderId: caller.builderId, ip: clientIp(request.headers) }).connect(transport);
   const s = await scrubbed(request);
   if (s instanceof Response) return s;
-  if (s.request === null) return json(s.batch ? s.old : s.old[0], 200);
-  let response = await withScrubNotes(await transport.handleRequest(s.request), s.ids);
+  if (s.request === null) return s.old.length > 0 ? json(s.batch ? s.old : s.old[0], 200) : new Response(null, { status: 202, headers: CORS });
+  let response: Response;
+  try {
+    // A refusal by the MCP library is one plain line; its detail goes to the log only (v6.1.7, C35).
+    response = await plainErrors(await withScrubNotes(await transport.handleRequest(s.request), s.ids));
+  } catch (err) {
+    // Input shape never answers a bare 500.
+    console.error('[mcp] request failed', err instanceof Error ? err.name : typeof err);
+    return json({ jsonrpc: '2.0', id: null, error: { code: -32600, message: UNREADABLE_REQUEST } }, 400);
+  }
   if (s.old.length > 0) {
     // A batch with an old call: its answers join the transport's replies.
     const rest = (await response.clone().json().catch(() => [])) as unknown;
@@ -81,7 +98,9 @@ async function handle(request: Request) {
   return new Response(response.body, { status: response.status, headers });
 }
 
-export const GET = handle;
+/** EarnKit never pushes, so there is no event stream to open (v6.1.7, B6). */
+export const GET = (_request?: Request) =>
+  json({ error: 'method_not_allowed', error_description: 'EarnKit does not push. Send requests with POST.' }, 405, { Allow: 'POST, DELETE' });
 export const POST = handle;
 export const DELETE = handle;
 export const OPTIONS = preflight;

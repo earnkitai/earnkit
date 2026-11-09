@@ -66,3 +66,64 @@ test('a bare string chain is a mainnet chain; an unknown bare string is dropped 
   assert.deepEqual(r.project.chains, [{ chain: 'base', mainnet: true }, { chain: 'arc', mainnet: true }]);
   assert.deepEqual(r.problems, ['chain nowhere dropped: not a known chain']);
 });
+
+test('C13: chains are deduplicated by chain, mainnet and contract; entries beyond 20 are named, not read', () => {
+  const c = '0x' + 'b'.repeat(40);
+  const r = parseProject({ ...base, chains: ['base', 'base', { chain: 'Base', mainnet: true }, { chain: 'base', mainnet: true, contract: c }, { chain: 'base', mainnet: true, contract: c.toUpperCase().replace('0X', '0x') }, { chain: 'base', mainnet: false }] });
+  assert.ok(r.ok);
+  assert.deepEqual(r.project.chains, [{ chain: 'base', mainnet: true }, { chain: 'base', mainnet: true, contract: c }, { chain: 'base', mainnet: false }]);
+  assert.deepEqual(r.problems, []);
+  const many = parseProject({ ...base, chains: Array.from({ length: 10_000 }, () => 'base') });
+  assert.ok(many.ok);
+  assert.deepEqual(many.project.chains, [{ chain: 'base', mainnet: true }]);
+  assert.deepEqual(many.problems, []);
+  // Repeats are dropped before the cap: twenty copies never push a real chain out.
+  const real = parseProject({ ...base, chains: [...Array.from({ length: 20 }, () => 'base'), 'arc', 'tempo', 'monad', 'robinhood', 'avalanche'] });
+  assert.ok(real.ok);
+  assert.deepEqual(real.project.chains?.map((x) => x.chain), ['base', 'arc', 'tempo', 'monad', 'robinhood', 'avalanche']);
+  assert.deepEqual(real.problems, []);
+  // Twenty-five different entries: twenty read, five named.
+  const wide = parseProject({ ...base, chains: Array.from({ length: 25 }, (_, i) => `x${i}`) });
+  assert.ok(wide.ok);
+  assert.equal(wide.problems.length, 21);
+  assert.equal(wide.problems[20], '5 chains beyond 20 were not read');
+});
+
+test('C14: a commit date after now plus one day is dropped with a problem; today and tomorrow stand', () => {
+  const now = new Date('2026-11-10T12:00:00Z');
+  const r = parseProject({ ...base, first_commit_at: '2099-01-01', last_commit_at: '+275760-09-13T00:00:00.000Z' }, now);
+  assert.ok(r.ok);
+  assert.equal(r.project.first_commit_at, undefined);
+  assert.equal(r.project.last_commit_at, undefined);
+  assert.deepEqual(r.problems, ['last_commit_at is in the future; not used', 'first_commit_at is in the future; not used']);
+  const ok = parseProject({ ...base, last_commit_at: '2026-11-11T11:00:00Z' }, now);
+  assert.ok(ok.ok);
+  assert.equal(ok.project.last_commit_at, '2026-11-11T11:00:00.000Z');
+  assert.deepEqual(ok.problems, []);
+});
+
+test('C15: control and format characters are stripped from every project string; nothing left is missing', () => {
+  assert.deepEqual(parseProject({ name: '​‌‍﻿', description: 'd' }), { ok: false, problem: 'name: missing' });
+  const r = parseProject({ name: '‮Tip\u0000jar​', description: 'Tips\u0007 for⁦ creators.', repo_url: 'https://github.com/a/b​', chains: ['ba​se'] });
+  assert.ok(r.ok);
+  assert.equal(r.project.name, 'Tipjar');
+  assert.equal(r.project.description, 'Tips for creators.');
+  assert.equal(r.project.repo_url, 'https://github.com/a/b');
+  assert.deepEqual(r.project.chains, [{ chain: 'base', mainnet: true }]);
+  // A tab or line break becomes one space, so two lines keep their word boundary (final review I1).
+  const two = parseProject({ name: 'Tip\tjar', description: 'Built on Base.\nUsed by 200 people.\r\n\tDaily.' });
+  assert.ok(two.ok);
+  assert.equal(two.project.name, 'Tip jar');
+  assert.equal(two.project.description, 'Built on Base. Used by 200 people. Daily.');
+  // Joiners inside a word or emoji sequence stay; stray ones go.
+  const joined = parseProject({ name: '\u0645\u06CC\u200C\u062E\u0648\u0627\u0645 \u{1F468}\u200D\u{1F469}', description: '\u200Dd\u200C' });
+  assert.ok(joined.ok);
+  assert.equal(joined.project.name, '\u0645\u06CC\u200C\u062E\u0648\u0627\u0645 \u{1F468}\u200D\u{1F469}');
+  assert.equal(joined.project.description, 'd');
+});
+
+test('C16: a name or description that is not text says so, not missing', () => {
+  assert.deepEqual(parseProject({ name: 42, description: 'd' }), { ok: false, problem: 'name: not text' });
+  assert.deepEqual(parseProject({ name: 'X', description: true }), { ok: false, problem: 'description: not text' });
+  assert.deepEqual(parseProject({ name: 'X', description: null }), { ok: false, problem: 'description: missing' });
+});

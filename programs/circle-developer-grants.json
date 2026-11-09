@@ -9,8 +9,6 @@
   "summary": "$5,000 to $100,000 USDC grants · rolling",
   "max_award_usd": 100000,
   "min_award_usd": 5000,
-  "pool_usd": 135000,
-  "pool_source_url": "https://circle.questbook.app/",
   "ideas": [
     "An agent that settles payments in USDC on Arc",
     "A peer-to-peer payments app using Circle Wallets",

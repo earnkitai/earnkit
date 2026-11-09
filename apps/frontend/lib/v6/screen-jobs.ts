@@ -172,14 +172,19 @@ async function buildersOnRepo(key: string): Promise<number[]> {
  * write, such as a win with no amount, is left out). Shortlisted writes no ledger row. Returns only how
  * many outcomes were recorded: whether any reached a builder's ledger never goes back to the program.
  */
-export async function recordOutcomes(jobId: string, builderId: number, outcomes: Outcome[], now: Date): Promise<{ recorded: number }> {
+export async function recordOutcomes(jobId: string, builderId: number, outcomes: Outcome[], now: Date): Promise<{ recorded: number; notFound: string[] }> {
   const [job] = await sql()<{ program_id: string; installation_id: number }[]>`
     SELECT program_id, installation_id FROM screen_jobs WHERE id = ${jobId} AND builder_id = ${builderId} AND expires_at > ${now}`;
-  if (!job) return { recorded: 0 };
+  if (!job) return { recorded: 0, notFound: [] };
   let recorded = 0;
+  // Refs not in this screen, in the order given, once each (v6.1.7 C19).
+  const notFound: string[] = [];
   for (const o of outcomes) {
     const [a] = await sql()<{ repo_key: string | null }[]>`SELECT repo_key FROM screen_applicants WHERE job_id = ${jobId} AND ref = ${o.ref}`;
-    if (!a) continue;
+    if (!a) {
+      if (!notFound.includes(o.ref)) notFound.push(o.ref);
+      continue;
+    }
     const amount = o.outcome === 'won' && o.amount_usd != null ? o.amount_usd : null;
     await sql()`INSERT INTO screen_outcomes (job_id, ref, outcome, amount_usd, at) VALUES (${jobId}, ${o.ref}, ${o.outcome}, ${amount}, ${now})
       ON CONFLICT (job_id, ref) DO UPDATE SET outcome = EXCLUDED.outcome, amount_usd = EXCLUDED.amount_usd, at = EXCLUDED.at`;
@@ -197,7 +202,19 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
     if (applied.length !== 1) continue;
     await record(applied[0].owner, job.program_id, o.outcome, { installationId: applied[0].installation_id, amount_usd: amount ?? undefined, now });
   }
-  return { recorded };
+  return { recorded, notFound };
+}
+
+/**
+ * Unread applicants queued ahead of this job: those of unexpired jobs created before it (the worker reads the
+ * oldest job first; one created at the same moment goes by id, as the worker orders them). For the screen promise.
+ */
+export async function queuedAhead(jobId: string, now: Date): Promise<number> {
+  const [r] = await sql()<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM screen_applicants a JOIN screen_jobs j ON j.id = a.job_id, screen_jobs me
+    WHERE me.id = ${jobId} AND a.status = ANY(${UNREAD}) AND j.expires_at > ${now}
+      AND (j.created_at, j.id) < (me.created_at, me.id)`;
+  return r?.n ?? 0;
 }
 
 /**

@@ -23,7 +23,7 @@
   "chain_required": true,
   "eligibility": [
     { "kind": "chain", "value": "solana" },
-    { "kind": "rule", "note": "a mobile-first Android dApp integrating the Solana Mobile Stack: Mobile Wallet Adapter and Seed Vault" }
+    { "kind": "feature", "value": "Mobile Wallet Adapter and Seed Vault in an Android app" }
   ],
   "setup": [],
   "each_time": [

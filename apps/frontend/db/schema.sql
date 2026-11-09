@@ -164,6 +164,8 @@ CREATE TABLE IF NOT EXISTS builders (
 );
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS builder_id int;
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS linked_at timestamptz;
+-- v6.1.7 B10: set when the builder unlinks it on /me; the next find says so once and clears it.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS unlinked_at timestamptz;
 CREATE TABLE IF NOT EXISTS link_codes (
   code            text PRIMARY KEY,
   installation_id int NOT NULL,
@@ -217,6 +219,8 @@ ALTER TABLE applications ADD COLUMN IF NOT EXISTS claimed_at timestamptz;
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS claimed_by int;
 -- Sent under the builder's standing approval (policy.auto_apply on when it was tracked).
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS auto_applied boolean NOT NULL DEFAULT false;
+-- The program's title when it was sent, so a result still reads once the program leaves the catalog (v6.1.7).
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS title text;
 
 -- The owner's daily digest: the day it covered and when it was sent; the next digest starts there.
 CREATE TABLE IF NOT EXISTS owner_digests (

@@ -72,6 +72,11 @@ test('shape: the v4.9 keys, closes_in from the clock, no sort-only field', async
 test('filters: category and status; a bad value is 400', async () => {
   assert.deepEqual((await get('?category=hackathon', ROWS)).body.programs.map((p) => p.id), ['h-soon']);
   assert.deepEqual((await get('?status=upcoming', ROWS)).body.programs.map((p) => p.id), ['u-up']);
+  // "open" is the site's word for active (v6.1.7 S2).
+  const open = await get('?status=open', ROWS);
+  assert.equal(open.status, 200);
+  assert.deepEqual(open.body.programs.map((p) => p.id), (await get('?status=active', ROWS)).body.programs.map((p) => p.id));
+  assert.ok(open.body.programs.length > 0 && open.body.programs.every((p) => p.status === 'active'));
   const bad = await get('?category=nft', ROWS);
   assert.equal(bad.status, 400);
   assert.deepEqual(bad.body.problems, ['category: one of grant, hackathon, investment, bounty']);

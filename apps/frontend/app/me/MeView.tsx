@@ -170,7 +170,7 @@ function Policy({ fields, csrf }: { fields: MeField[]; csrf: string }) {
   );
 }
 
-export default function MeView({ data, problem }: { data: MeData; problem: string | null }) {
+export default function MeView({ data, problem, note = null }: { data: MeData; problem: string | null; note?: string | null }) {
   const { csrf } = data;
   return (
     <div className={`${PAGE_COL} flex flex-col gap-4 pb-10 pt-6 md:pt-10`}>
@@ -188,14 +188,30 @@ export default function MeView({ data, problem }: { data: MeData; problem: strin
       </div>
 
       {problem && (
-        <p role="alert" className={`${CARD_RUST.replace('rounded-[36px]', 'rounded-[24px]')} px-5 py-4 text-[15px] text-s-rust-light`}>
+        <p role="alert" className={`${CARD_RUST.replace('rounded-[36px]', 'rounded-[24px]')} whitespace-pre-line px-5 py-4 text-[15px] text-s-rust-light`}>
           {problem}
+        </p>
+      )}
+
+      {note && (
+        <p role="status" className={`${CARD_PANEL.replace('rounded-[36px]', 'rounded-[24px]')} px-5 py-4 text-[15px] text-s-good-text`}>
+          {note}
         </p>
       )}
 
       {data.link && (
         <Card id="link" title={ME_LINK_TITLE} card={CARD_NAVY}>
-          <p className="text-[15px] leading-[1.6] text-s-on-navy-soft">{data.link.text}</p>
+          <p className="text-[15px] leading-[1.6] text-s-on-navy-soft">
+            {data.link.parts ? (
+              <>
+                {data.link.parts[0]}
+                <bdi>{data.link.parts[1]}</bdi>
+                {data.link.parts[2]}
+              </>
+            ) : (
+              data.link.text
+            )}
+          </p>
           {data.link.code && (
             <div className="flex flex-wrap gap-3">
               {(['link', 'deny'] as const).map((action) => (
@@ -272,7 +288,7 @@ export default function MeView({ data, problem }: { data: MeData; problem: strin
             {data.installations.map((a) => (
               <li key={a.id} className="flex flex-wrap items-center justify-between gap-3 border-t border-s-line py-3 text-[15px] first:border-t-0">
                 <span className="flex flex-col">
-                  {a.client_name ?? ME_AN_AGENT}
+                  <bdi>{a.client_name ?? ME_AN_AGENT}</bdi>
                   {a.linked_at && <span className={META}>{ME_LINKED(a.linked_at)}</span>}
                 </span>
                 <form method="post" action="/me/unlink">

@@ -77,7 +77,7 @@ export const DOCS_SESSION = {
 };
 export const DOCS_RECORD = {
   title: 'Your record',
-  text: 'Sign in once with GitHub and your agents share one record: your facts, links, documents and the answers you approved. Once you are signed in, nothing is sent that you did not approve. Delete it any time.',
+  text: 'Sign in once with GitHub and your agents share one record: your facts, links, documents and the answers you approved. Once you are signed in, nothing is sent that you did not approve. Delete it any time. Ask your agent for your sign-in link.',
 };
 export const DOCS_SCREEN = {
   title: 'Screening, for programs',
@@ -150,8 +150,15 @@ export const ME_LINKED = (day: string): string => `Linked ${day}.`;
 export const ME_UNLINK = 'Unlink';
 /** The banner above the record after sign-in from /link/<code>: the link happens only on Link this agent. */
 export const ME_LINK_TITLE = 'Link an agent to this account?';
-export const ME_LINK_LINE = (agent: string | null, day: string): string =>
-  `${agent ? `The agent calling itself ${agent}` : 'Your agent'}, first seen ${day}, asked for this link. Only link an agent running on your own computer. If someone sent you this link, choose Not me.`;
+/** The link banner in three parts: the words before the agent's own name, the name (shown isolated, it is the agent's text) and the rest. */
+export const ME_LINK_PARTS = (agent: string | null, day: string): [string, string, string] => {
+  const rest = `, first seen ${day}, asked for this link. Only link an agent running on your own computer. If someone sent you this link, choose Not me.`;
+  return agent ? ['The agent calling itself ', agent, rest] : ['Your agent', '', rest];
+};
+export const ME_LINK_LINE = (agent: string | null, day: string): string => ME_LINK_PARTS(agent, day).join('');
+/** After POST /me/link (v6.1.7 C2). */
+export const ME_LINK_DONE = (agent: string | null): string => `Linked: ${agent ?? 'your agent'}.`;
+export const ME_LINK_NOT = 'Not linked.';
 export const ME_LINK_YES = 'Link this agent';
 export const ME_LINK_NO = 'Not me';
 export const ME_DELETE_TITLE = 'Delete your record';
@@ -181,7 +188,7 @@ export const ME_LABELS = {
   'docs.other': 'Other links',
   'traction.line_pre_launch': 'One line when nothing is verified yet', 'traction.waitlist': 'Waitlist', 'traction.revenue_usd_claim': 'Revenue claim (USD)',
   'traction.notes': 'Notes',
-  'policy.auto_apply': 'Apply without asking', 'policy.max_per_night': 'At most, per night', 'policy.categories': 'Categories',
+  'policy.auto_apply': 'Apply without asking', 'policy.max_per_night': 'Most per night', 'policy.categories': 'Categories',
   'policy.max_ask_usd': 'Never above (USD)', 'policy.never': 'Programs to skip', 'policy.agent_may_submit': 'Your agent may submit forms',
   'company.raised': 'Money raised',
 } as const;
@@ -204,5 +211,21 @@ export const ME_ERRORS = {
   broken: 'Your record could not be read, so nothing was saved. Try again later.',
   changed: 'This text changed since you opened the page. Read it again.',
   yesNo: 'choose yes or no.',
-  number: 'must be a number.',
+  linkExpired: 'That link expired. Ask your agent for a new one.',
+} as const;
+/** What a value must be, in plain words, after "<label>: " (v6.1.7 C4). */
+const amount = (n: number) => n.toLocaleString('en-US');
+export const ME_VALUE_WORDS = {
+  under: (n: number) => `at most ${amount(n)} characters`,
+  atMost: (n: number) => `at most ${amount(n)}`,
+  option: 'pick one of the options',
+  https: 'a link starting with https://',
+  email: 'an email address',
+  range: (a: number | null, b: number | null, whole: boolean) => {
+    const what = whole ? 'a whole number' : 'a number';
+    if (a !== null && b !== null) return `${what} from ${amount(a)} to ${amount(b)}`;
+    if (a !== null) return `${what} of ${amount(a)} or more`;
+    if (b !== null) return `${what} up to ${amount(b)}`;
+    return what;
+  },
 } as const;

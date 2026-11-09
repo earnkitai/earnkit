@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { sql } from '../v5/db';
 import { getRecord, saveRecord, upsertBuilder } from './builders';
 import { createLinkCode } from './link-routes';
-import { approvalPathOf, csrfToken, meData, verifyCsrf } from './me-view';
+import { type MeData, approvalPathOf, csrfToken, meData, verifyCsrf } from './me-view';
 import { APPROVABLE, mergeRecord } from './record';
 
 after(() => sql().end());
@@ -76,10 +76,11 @@ test('/me?link=<code> with a live code shows the link banner with the agent name
   const code = await createLinkCode(await inst('Claude <Code>'), NOW);
   const d = await meData(b, NOW, 'sess', code);
   const text = 'The agent calling itself Claude <Code>, first seen Nov 6, asked for this link. Only link an agent running on your own computer. If someone sent you this link, choose Not me.';
-  assert.deepEqual(d.link, { code, text });
+  assert.deepEqual(d.link, { code, text, parts: ['The agent calling itself ', 'Claude <Code>', text.slice('The agent calling itself Claude <Code>'.length)] });
   const html = renderToStaticMarkup(MeView({ data: d, problem: null }));
   assert.ok(html.includes('Link an agent to this account?'), html);
-  assert.ok(html.includes(text.replace('<Code>', '&lt;Code&gt;')));
+  // The agent's own name sits isolated, so its text cannot turn the sentence around (v6.1.7 C1).
+  assert.ok(html.includes(text.replace('Claude <Code>', '<bdi>Claude &lt;Code&gt;</bdi>')), html);
   assert.ok(!html.includes('<Code>'));
   for (const action of ['link', 'deny']) {
     const form = html.match(new RegExp(`<form action="/me/link" method="post">(?:(?!</form>).)*value="${action}"(?:(?!</form>).)*</form>`))?.[0] ?? '';
@@ -93,10 +94,17 @@ test('/me?link=<code> with a live code shows the link banner with the agent name
   const unnamed = await createLinkCode(await inst(null), NOW);
   assert.equal((await meData(b, NOW, 'sess', unnamed)).link?.text, 'Your agent, first seen Nov 6, asked for this link. Only link an agent running on your own computer. If someone sent you this link, choose Not me.');
 
-  for (const dead of [await meData(b, new Date(NOW.getTime() + 16 * 60_000), 'sess', code), await meData(b, NOW, 'sess', 'not-a-code')]) {
-    assert.deepEqual(dead.link, { code: null, text: 'This link has expired. Ask your agent for a new one.' });
-    const page = renderToStaticMarkup(MeView({ data: dead, problem: null }));
-    assert.ok(page.includes('This link has expired. Ask your agent for a new one.'));
+  // A dead code says it expired; a code EarnKit never makes says it is not valid (v6.1.7 S1).
+  const dead: [MeData, string][] = [
+    [await meData(b, new Date(NOW.getTime() + 16 * 60_000), 'sess', code), 'This link has expired. Ask your agent for a new one.'],
+    [await meData(b, NOW, 'sess', 'not-a-code'), 'This link is not valid.'],
+    [await meData(b, NOW, 'sess', 'x'.repeat(1024)), 'This link is not valid.'],
+    [await meData(b, NOW, 'sess', '<script>'), 'This link is not valid.'],
+  ];
+  for (const [d2, words] of dead) {
+    assert.deepEqual(d2.link, { code: null, text: words, parts: null });
+    const page = renderToStaticMarkup(MeView({ data: d2, problem: null }));
+    assert.ok(page.includes(words));
     assert.ok(!page.includes('/me/link'));
     assert.ok(!page.includes('Link this agent'));
   }
@@ -113,7 +121,7 @@ test('/me?link=<code> for an agent already linked to another account reads the O
   await sql()`UPDATE installations SET builder_id = ${owner.id}, linked_at = ${NOW} WHERE id = ${id}`;
   const other = 'This agent is already linked to another account. Install EarnKit again for a fresh link.';
   const d = await meData(me, NOW, 'sess', code);
-  assert.deepEqual(d.link, { code: null, text: other });
+  assert.deepEqual(d.link, { code: null, text: other, parts: null });
   const page = renderToStaticMarkup(MeView({ data: d, problem: null }));
   assert.ok(page.includes(other), page);
   assert.ok(!page.includes('/me/link'));
@@ -121,4 +129,32 @@ test('/me?link=<code> for an agent already linked to another account reads the O
   assert.ok(!page.includes('Not me'));
   // The account it is linked to still sees the buttons.
   assert.equal((await meData(owner, NOW, 'sess', code)).link?.code, code);
+});
+
+test('an agent name with bidi and zero-width marks is cleaned on read and isolated on the banner and the agents list (v6.1.7 C1)', async () => {
+  const b = await upsertBuilder({ github_id: 810_005, login: 'bidi', name: null, avatar_url: null }, NOW);
+  // A row saved before names were cleaned at registration.
+  const raw = `Evil\u202Eagent\u200B<img src=x>${'z'.repeat(80)}`;
+  const id = (await sql()`INSERT INTO installations (token_hash, client_name, created_at) VALUES (${'mv-' + Math.random()}, ${raw}, ${NOW}) RETURNING id`)[0].id as number;
+  const code = await createLinkCode(id, NOW);
+  const d = await meData(b, NOW, 'sess', code);
+  const name = `Evilagent<img src=x>${'z'.repeat(80)}`.slice(0, 60);
+  assert.equal(d.link?.parts?.[1], name);
+  assert.ok(!/[\u202E\u200B]/.test(d.link?.text ?? ''));
+  await sql()`UPDATE installations SET builder_id = ${b.id}, linked_at = ${NOW} WHERE id = ${id}`;
+  const linked = await meData(b, NOW, 'sess');
+  assert.equal(linked.installations[0].client_name, name);
+  const html = renderToStaticMarkup(MeView({ data: linked, problem: null }));
+  assert.ok(html.includes(`<bdi>${name.replace('<', '&lt;').replace('>', '&gt;')}</bdi>`), html);
+  assert.ok(!html.includes('\u202E'));
+});
+
+test('a note is shown plainly, apart from a refusal, and several refusal lines keep their breaks (v6.1.7 C2, B1)', async () => {
+  const b = await upsertBuilder({ github_id: 810_006, login: 'noted', name: null, avatar_url: null }, NOW);
+  const d = await meData(b, NOW, 'sess');
+  const ok = renderToStaticMarkup(MeView({ data: d, problem: null, note: 'Linked: Codex.' }));
+  assert.ok(/<p role="status"[^>]*>Linked: Codex\.<\/p>/.test(ok), ok);
+  assert.ok(!ok.includes('role="alert"'));
+  const bad = renderToStaticMarkup(MeView({ data: d, problem: 'Most per night: a whole number from 1 to 20.\nCategories: pick one of the options.' }));
+  assert.ok(/<p role="alert" class="[^"]*whitespace-pre-line[^"]*">Most per night: a whole number from 1 to 20\.\nCategories: pick one of the options\.<\/p>/.test(bad), bad);
 });

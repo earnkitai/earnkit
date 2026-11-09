@@ -110,7 +110,8 @@ export async function programsListGet(
 ): Promise<Response> {
   const q = new URL(request.url).searchParams;
   const category = q.get('category');
-  const status = q.get('status');
+  // "open" is what the site and /api/stats call active (v6.1.7 S2).
+  const status = q.get('status') === 'open' ? 'active' : q.get('status');
   const problems: string[] = [];
   if (category !== null && !(PROGRAM_CATEGORIES as readonly string[]).includes(category))
     problems.push(`category: one of ${PROGRAM_CATEGORIES.join(', ')}`);

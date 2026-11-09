@@ -5,7 +5,7 @@
  */
 import { json, readCapped, readParams } from './http';
 import { installationExists, saveInstallation } from './installations';
-import { OAuthError, checkAuthorize, clientLimitKey, exchangeCode, hostedRedirectHost, issueCode, publicOrigin, registerClient } from './oauth';
+import { OAuthError, checkAuthorize, clientLimitKey, exchangeCode, issueCode, publicOrigin, registerClient } from './oauth';
 import { LIMITS, REGISTER_HOST_WARN, RateLimitError, clientIp, enforce } from './rate-limit';
 
 const TOO_MANY = 'Too many new EarnKit connections from this address.';
@@ -27,15 +27,6 @@ const tooMany = (err: RateLimitError) =>
 const page = (text: string, status: number, headers: Record<string, string> = {}) =>
   new Response(text, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', ...headers } });
 
-/**
- * The per-IP floor. A client whose redirect host is a known hosted service runs on that service's
- * servers, so many builders share a few IPs: it gets the higher floor, which still refuses.
- */
-async function ipFloor(name: 'installHour' | 'oauthRegister', ip: string, what: string, hostedHost: string | null) {
-  const limit = hostedHost ? (name === 'installHour' ? 'installHourHosted' : 'oauthRegisterHosted') : name;
-  await enforce(limit, ip, what);
-}
-
 export async function tokenPost(request: Request) {
   try {
     const params = await readParams(request, MAX_OAUTH_BODY);
@@ -43,13 +34,14 @@ export async function tokenPost(request: Request) {
     const { token, limitKey, hostedHost, clientName } = exchangeCode(params);
     // A replayed code is free.
     if (!(await installationExists(token))) {
-      let limit = hostedHost ? 'installHourHosted' : 'installHour';
+      // Every address counts on the one floor first; a hosted client only gets a higher per-client ceiling (v6.1.7, B5).
+      let limit = 'installHour';
       try {
-        await ipFloor('installHour', clientIp(request.headers), TOO_MANY, hostedHost);
-        limit = 'installClient';
-        await enforce('installClient', limitKey, TOO_MANY_CLIENT);
+        await enforce('installHour', clientIp(request.headers), TOO_MANY);
+        limit = hostedHost ? 'installClientHosted' : 'installClient';
+        await enforce(limit as 'installClient' | 'installClientHosted', limitKey, TOO_MANY_CLIENT);
       } catch (err) {
-        if (err instanceof RateLimitError) logLimited('token', limit, limitKey);
+        if (err instanceof RateLimitError) logLimited('token', limit, hostedHost ? `host:${hostedHost}` : limitKey);
         throw err;
       }
     }
@@ -81,9 +73,9 @@ export async function authorizeGet(request: Request, deps: AuthorizeDeps = {}) {
 }
 
 /**
- * RFC 7591 dynamic client registration, rate limited per IP; a client whose redirects are all on
- * one hosted service gets that service's higher IP floor and its daily ceiling. Any other client
- * is counted per registration at the token exchange (installClient).
+ * RFC 7591 dynamic client registration, rate limited per IP for every client; a client whose
+ * redirects are all one hosted service's callback also counts on that service's daily ceiling. Any
+ * other client is counted per registration at the token exchange (installClient).
  */
 export async function registerPost(request: Request) {
   let key: string | null = null;
@@ -100,9 +92,7 @@ export async function registerPost(request: Request) {
     const metadata = (typeof parsed === 'object' && parsed !== null ? parsed : {}) as { redirect_uris?: unknown; client_name?: unknown };
     const uris = Array.isArray(metadata.redirect_uris) ? metadata.redirect_uris.filter((u): u is string => typeof u === 'string') : [];
     key = clientLimitKey(uris);
-    const hostedHost = hostedRedirectHost(uris);
-    if (hostedHost) limit = 'oauthRegisterHosted';
-    await ipFloor('oauthRegister', clientIp(request.headers), 'Too many client registrations from this address.', hostedHost);
+    await enforce('oauthRegister', clientIp(request.headers), 'Too many client registrations from this address.');
     if (key) {
       limit = 'oauthRegisterHost';
       const r = await enforce('oauthRegisterHost', key, 'Too many client registrations from this agent today.');

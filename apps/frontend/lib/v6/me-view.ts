@@ -6,9 +6,10 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { sql } from '../v5/db';
 import { ANSWER_KINDS, PROGRAM_CATEGORIES } from '../v5/program-file';
-import { ME_BLOCKS, ME_LABELS, ME_LINK_LINE, ME_STATUS, monthDay } from '../v5/site-copy';
+import { cleanClientName } from '../v5/installations';
+import { ME_BLOCKS, ME_LABELS, ME_LINK_PARTS, ME_STATUS, monthDay } from '../v5/site-copy';
 import { type Builder, getRecord } from './builders';
-import { EXPIRED, OTHER, liveCode } from './link-routes';
+import { EXPIRED, INVALID, OTHER, codeShaped, liveCode } from './link-routes';
 import { APPROVABLE, type BuilderRecord, isApproved, KIND_WORDS } from './record';
 
 export type FieldKind = 'text' | 'long' | 'url' | 'bool' | 'number' | 'choice';
@@ -27,12 +28,16 @@ export type MeData = {
   pending_approvals: { path: string; label: string; text: string; seen: string }[];
   ledger: { title: string; program_id: string; status: string; at: string }[];
   installations: { id: number; client_name: string | null; linked_at: string }[];
-  /** After sign-in from /link/<code>: the code to confirm and the banner text; code null when it is no longer live. */
-  link: { code: string | null; text: string } | null;
+  /**
+   * After sign-in from /link/<code>: the code to confirm and the banner text; code null when it is no longer live.
+   * `parts`: the text split around the agent's own name, which the page shows isolated (v6.1.7 C1); null without one.
+   */
+  link: { code: string | null; text: string; parts: [string, string, string] | null } | null;
 };
 
 const DAY = 86_400_000;
-const utcDay = (d: Date) => d.toISOString().slice(0, 10);
+/** The UTC day of a time, YYYY-MM-DD. Pure. */
+export const utcDay = (d: Date) => d.toISOString().slice(0, 10);
 
 export function authSecret(): string {
   const s = process.env.EARNKIT_AUTH_SECRET;
@@ -56,10 +61,19 @@ export function verifyCsrf(token: string, builderId: number, now: Date, secret: 
   return ok.some(Boolean);
 }
 
-/** A problem line's signature, so /me shows only lines its own handlers wrote (never a crafted link's text). Pure. */
-export const problemSig = (line: string, secret: string): string => createHmac('sha256', secret).update(`me-problem:${line}`).digest('base64url').slice(0, 22);
-export const problemShown = (line: string | undefined, sig: string | undefined, secret: string): string | null =>
-  line && sig && same(sig, problemSig(line, secret)) ? line : null;
+/**
+ * A /me line's signature over its key (problem or note), the builder it was written for and the UTC day, so /me shows
+ * only lines its own handlers wrote for this builder, as the kind they were written as, today or yesterday (never a
+ * crafted link's text, never another builder's line, never a link kept for later). Pure.
+ */
+export const problemSig = (key: 'problem' | 'note', line: string, builderId: number, day: string, secret: string): string =>
+  createHmac('sha256', secret).update(`me-${key}:${builderId}:${day}:${line}`).digest('base64url').slice(0, 22);
+/** The line when its signature was made for this key and builder today or yesterday; anything else is not shown. Pure. */
+export function problemShown(key: 'problem' | 'note', line: string | undefined, sig: string | undefined, builderId: number, now: Date, secret: string): string | null {
+  if (!line || !sig) return null;
+  const ok = [0, 1].map((n) => same(sig, problemSig(key, line, builderId, utcDay(new Date(now.getTime() - n * DAY)), secret)));
+  return ok.some(Boolean) ? line : null;
+}
 
 /** The set_at the builder sees for an approvable path ('' when it has no meta); approvePost checks it. Pure. */
 export const seenOf = (record: BuilderRecord, path: string): string => record.meta[path]?.set_at ?? '';
@@ -164,14 +178,17 @@ export function pendingApprovals(record: BuilderRecord): MeData['pending_approva
 
 /**
  * The link banner for /me?link=<code>: the agent that asked; that it is already linked to another account (no
- * buttons: the post would answer that); or that the link expired.
+ * buttons: the post would answer that); that the link expired; or, for a code EarnKit never makes, that it is not valid.
  */
 async function linkBanner(code: string | null | undefined, builderId: number, now: Date): Promise<MeData['link']> {
   if (code === null || code === undefined) return null;
+  if (!codeShaped(code)) return { code: null, text: INVALID, parts: null };
   const live = await liveCode(code, now);
-  if (!live) return { code: null, text: EXPIRED };
-  if (live.builder_id !== null && Number(live.builder_id) !== builderId) return { code: null, text: OTHER };
-  return { code, text: ME_LINK_LINE(live.client_name, monthDay(live.created_at)) };
+  if (!live) return { code: null, text: EXPIRED, parts: null };
+  if (live.builder_id !== null && Number(live.builder_id) !== builderId) return { code: null, text: OTHER, parts: null };
+  const name = cleanClientName(live.client_name);
+  const parts = ME_LINK_PARTS(name, monthDay(live.created_at));
+  return { code, text: parts.join(''), parts: name ? parts : null };
 }
 
 /** The page's data for this builder only; `session` is the request's session cookie value (the csrf binds to it); `link` is the ?link= code, if any. */
@@ -190,7 +207,7 @@ export async function meData(builder: Builder, now: Date, session: string, link?
     blocks: recordBlocks(record),
     pending_approvals: pendingApprovals(record),
     ledger: ledger.map((r) => ({ title: r.title ?? r.program_id, program_id: r.program_id, status: ME_STATUS[r.status] ?? cap(r.status.replaceAll('_', ' ')), at: monthDay(r.at) })),
-    installations: agents.map((r) => ({ id: r.id, client_name: r.client_name, linked_at: r.linked_at ? monthDay(r.linked_at) : '' })),
+    installations: agents.map((r) => ({ id: r.id, client_name: cleanClientName(r.client_name), linked_at: r.linked_at ? monthDay(r.linked_at) : '' })),
     link: await linkBanner(link, builder.id, now),
   };
 }
