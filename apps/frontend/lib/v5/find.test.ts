@@ -48,22 +48,24 @@ test('first find has no since', async () => {
     show,
     [
       'Ready to apply, 5:',
-      "1. Alliance ALL19, $400K at admission, closes in 14 days. Your agent fills the one answer on the page. First: start the application with the first founder's email.",
-      "2. Avalanche Team1 Mini Grants, up to $10,000. Drafted: 4 of 9 answers from the repo, the rest from your agent's memory. First: sign in to the Avalanche Builder Hub.",
-      "3. Z Fellows, up to $10K investment. Drafted: 1 of 23 answers from the repo, the rest from your agent's memory.",
-      '4. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Your agent fills all 6 answers on the page. Needs your investor deck file.',
-      "5. Base Ecosystem Fund, pre-seed and seed investment, a long shot: an investment program with no stated amount. Drafted: 2 of 21 answers from the repo, the rest from your agent's memory.",
+      "1. Alliance ALL19, $400K at admission, closes in 14 days. Your agent drafts the one answer. First: start the application with the first founder's email.",
+      '2. Avalanche Team1 Mini Grants, up to $10,000. Your agent drafts 7 answers. Needs your consent to share data with Team1 and amount you request in USD. First: sign in to the Avalanche Builder Hub.',
+      '3. Z Fellows, up to $10K investment. Your agent drafts 21 answers. Needs your birthday and phone number.',
+      '4. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Your agent drafts 5 answers. Needs your investor deck file.',
+      "5. Base Ecosystem Fund, pre-seed and seed investment, a long shot: an investment program with no stated amount. Your agent drafts 19 answers. Needs your company's X link and current traction.",
       '',
       'One change away, 2:',
       '6. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
       '7. Base Builder Grant Program, up to $5,000: add Base Builder Codes to the app and tell me if real people use it.',
       '',
+      'Before applying: Sign in once to Avalanche Builder Hub for 1 of them.',
+      '',
       'Say yes to apply to all 5, numbers to skip, or "do 6" and I\'ll make the change first.',
     ].join('\n'),
   );
-  // Only what nobody but the builder can give: no contacts or team.
+  // Only what nobody but the builder can give: no contacts or team. Whole words, so a program named Team1 is not "team".
   for (const p of reply.ready as { needs: string[]; setup: string[] }[])
-    for (const n of p.needs.filter((x) => !p.setup.includes(x))) assert.doesNotMatch(n, /email|name|team|telegram|x profile/i);
+    for (const n of p.needs.filter((x) => !p.setup.includes(x))) assert.doesNotMatch(n, /email|name|\bteam\b|telegram|x profile/i);
 });
 
 /** A synthetic in-person program (the real ones close once their attend-by date passes). */
@@ -285,23 +287,27 @@ test('unlinked without oauth is v5', async () => {
   const r = await mcpCall(ctx(await installation()), 'find', { project: PROJECT });
   assert.equal(r.isError, false, r.text);
   const show = r.reply!.show_to_builder as string;
-  assert.doesNotMatch(show, /Sign in/);
+  assert.doesNotMatch(show, /Sign in once at/);
   assert.doesNotMatch(show, /record/i);
   assert.equal(r.reply!.linked, false);
   assert.equal('sign_in' in r.reply!, false);
   assert.ok(CLOSINGS.some((c) => c.test(show.split('\n').at(-1)!)), show);
-  assert.deepEqual([r.reply!.record_missing, r.reply!.blockers, r.reply!.evidence_summary, r.reply!.applied_overnight, r.reply!.released, r.reply!.auto_apply], [[], [], null, [], [], false]);
+  assert.deepEqual([r.reply!.record_missing, r.reply!.evidence_summary, r.reply!.applied_overnight, r.reply!.released, r.reply!.auto_apply], [[], null, [], [], false]);
+  // v6.1.3 R4: the blockers are named unlinked too.
+  assert.ok((r.reply!.blockers as unknown[]).length > 0);
   assert.doesNotMatch(r.reply!.agent_note as string, /approved answers|style contract/);
 });
 
-test('unlinked with sign-in configured: v5 plus the sign-in line, last', async () => withEnv(OAUTH_ENV, async () => {
+test('unlinked with sign-in configured: the closing line, then the sign-in as its second sentence (R5a)', async () => withEnv(OAUTH_ENV, async () => {
   const r = await mcpCall(ctx(await installation()), 'find', { project: PROJECT });
   const show = r.reply!.show_to_builder as string;
-  const lines = show.split('\n');
+  const blocks = show.split('\n\n');
   const link = r.reply!.sign_in as string;
   assert.match(link, /\/link\//);
-  assert.equal(lines.at(-1), `Sign in once at ${link} so I remember you across agents.`);
-  assert.ok(CLOSINGS.some((c) => c.test(lines.at(-3)!)), show);
+  const sentence = ` Sign in once at ${link} and I read your repo for proof and remember you.`;
+  assert.ok(blocks.at(-1)!.endsWith(sentence), show);
+  assert.ok(CLOSINGS.some((c) => c.test(blocks.at(-1)!.slice(0, -sentence.length))), show);
+  assert.equal(show.match(/Sign in once at/g)!.length, 1);
   assert.equal(r.reply!.linked, false);
 }));
 
@@ -330,7 +336,7 @@ test('linked: record fields, what the record lacks, blockers, and the own tier r
   assert.deepEqual((reply.evidence_summary as { tier: string }).tier, 'live');
   const show = reply.show_to_builder as string;
   assert.match(show, /^1\. [^\n]+ \d+ from your record, \d+ from the repo/m);
-  assert.match(show, /\n\nBefore tonight: [^\n]*Sign in once to Avalanche Builder Hub for 1 of them\.[^\n]*Still missing from your record: [^\n]+\./);
+  assert.match(show, /\n\nBefore applying: [^\n]*Sign in once to Avalanche Builder Hub for 1 of them\.[^\n]*Still missing from your record: [^\n]+\./);
   assert.match(show, /\n\nYour project reads as live, no verified usage yet\. Next: [^\n]+\.\n\n/);
   assert.doesNotMatch(show, /Sign in once at/);
   assert.match(reply.agent_note as string, /Fit approved answers by cutting, never by adding; the style contract travels on each field\./);
@@ -367,17 +373,124 @@ test('min_tier above the project tier moves the program to gaps with kind tier; 
     assert.ok(g, JSON.stringify(gaps.map((x) => x.program_id)));
     assert.deepEqual(g.gap, { kind: 'tier', item: 'tier:used', what: '25 funded wallets on mainnet in 90 days; you have 0', effort: 'weeks', agent_can: false, details: { tier: 'live', min_tier: 'used' } });
     assert.ok(!ids(r.reply!.ready).includes('f-tier'));
-    // A read that fails leaves the tier unknown: the program stays ready.
+    // A read that fails leaves the own tier unknown: the bar falls back to the provisional one (R3c), building here.
     const other = await linkedWith(OWNER_RECORD);
     const u = await mcpCall({ ...ctx(other.id), builderId: other.builderId, evidence: async () => { throw new Error('down'); } }, 'find', { project: PROJECT, filter: { all: true } });
-    assert.ok(ids(u.reply!.ready).includes('f-tier'));
-    // Unlinked: no tier, no bar.
+    assert.ok(ids(u.reply!.gaps).includes('f-tier'));
+    assert.match(u.reply!.show_to_builder as string, /Tier Grant, Up to \$5,000: Link GitHub so EarnKit can confirm your product has users\./);
+    // Unlinked (v6.1.3 R3): the repo read reads as building at most, so a used bar is a gap; an unread repo has no bar.
     const v5 = await mcpCall(ctx(await installation()), 'find', { project: PROJECT, filter: { all: true } });
-    assert.ok(ids(v5.reply!.ready).includes('f-tier'));
+    assert.ok(ids(v5.reply!.gaps).includes('f-tier'));
+    const unread = await mcpCall(ctx(await installation()), 'find', { project: { ...PROJECT, private: true }, filter: { all: true } });
+    assert.ok(ids(unread.reply!.ready).includes('f-tier'));
   } finally {
     await sql()`DELETE FROM programs WHERE id = 'f-tier'`;
   }
 });
+
+// v6.1.3 R3: unlinked, a provisional tier from the repo read gates min_tier; it never reaches evidence_summary.
+const CONFIRM = 'Link GitHub so EarnKit can confirm your product is live';
+async function withLiveBar<T>(run: () => Promise<T>): Promise<T> {
+  const { programFixture } = await import('./fixtures/program');
+  await upsertProgram(programFixture({ id: 'f-live', title: 'Live Grant', min_tier: 'live' }), 'file', NOW);
+  try {
+    return await run();
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'f-live'`;
+  }
+}
+
+/** The builder's text has Live Grant as a ready line and no confirm line. */
+function assertLiveReady(show: string) {
+  assert.match(show, /^\d+\. Live Grant, Up to \$5,000\. /m, show);
+  assert.doesNotMatch(show, /Link GitHub so EarnKit can confirm/, show);
+}
+
+test('unlinked: each bar names itself in the gap line (R3b)', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  const { provisionalGate } = await import('../v6/find-record');
+  const ready = { program_id: 'f', status: 'ready' as const, gaps: [], reason: null, long_shot: null };
+  const line = (min: 'used' | 'live' | 'building', tier: 'building' | 'unverified' | 'live') =>
+    provisionalGate(ready, { id: 'f', file: programFixture({ id: 'f', min_tier: min }) } as never, tier).gaps[0]?.what;
+  assert.equal(line('used', 'live'), 'Link GitHub so EarnKit can confirm your product has users');
+  assert.equal(line('live', 'building'), 'Link GitHub so EarnKit can confirm your product is live');
+  assert.equal(line('building', 'unverified'), 'Link GitHub so EarnKit can confirm your product has code');
+});
+
+test('unlinked: a public repo with no live URL from code and no mainnet contract is a gap with the link line (R3)', async () => withLiveBar(async () => {
+  const { live_url: _, ...noLink } = PROJECT;
+  const r = await mcpCall(ctx(await installation()), 'find', { project: noLink, filter: { all: true } });
+  assert.equal(r.isError, false, r.text);
+  assert.equal(r.reply!.as_reported, false);
+  assert.ok(!ids(r.reply!.ready).includes('f-live'));
+  const g = (r.reply!.gaps as { program_id: string; n: number; gap: { kind: string; what: string; details?: unknown } }[]).find((x) => x.program_id === 'f-live');
+  assert.ok(g, JSON.stringify(ids(r.reply!.gaps)));
+  assert.equal(g.gap.kind, 'tier');
+  assert.equal(g.gap.what, CONFIRM);
+  assert.match(r.reply!.show_to_builder as string, new RegExp(`^${g.n}\\. Live Grant, Up to \\$5,000: ${CONFIRM}\\.$`, 'm'));
+  assert.equal(r.reply!.evidence_summary, null);
+  // A live URL the agent reports is not the code's: still the gap (the earnkit repo has no homepage).
+  const reported = await mcpCall(ctx(await installation()), 'find', { project: PROJECT, filter: { all: true } });
+  assert.ok(ids(reported.reply!.gaps).includes('f-live'));
+  assert.equal(reported.reply!.evidence_summary, null);
+}));
+
+test('unlinked: a live URL read from the code passes the live bar (R3)', async () => withLiveBar(async () => {
+  const dash = replayFetch('nextjs-dashboard');
+  const r = await mcpCall({ installationId: await installation(), builderId: null, now: NOW, gh: dash.fetch }, 'find', {
+    project: { name: 'Dashboard', description: 'A dashboard.', repo_url: `https://github.com/${dash.repo}` }, filter: { all: true },
+  });
+  assert.equal(r.isError, false, r.text);
+  assert.ok(ids(r.reply!.ready).includes('f-live'), JSON.stringify(ids(r.reply!.gaps)));
+  assert.equal(r.reply!.evidence_summary, null);
+  assertLiveReady(r.reply!.show_to_builder as string);
+  // R3a: the agent passing the live URL (as the note asks) keeps the code's homepage: still live.
+  const passed = await mcpCall({ installationId: await installation(), builderId: null, now: NOW, gh: dash.fetch }, 'find', {
+    project: { name: 'Dashboard', description: 'A dashboard.', repo_url: `https://github.com/${dash.repo}`, live_url: 'https://dashboard-v1-ashy.vercel.app' }, filter: { all: true },
+  });
+  assert.equal(passed.isError, false, passed.text);
+  assert.ok(ids(passed.reply!.ready).includes('f-live'), JSON.stringify(ids(passed.reply!.gaps)));
+  assertLiveReady(passed.reply!.show_to_builder as string);
+}));
+
+test('linked with an empty record: the provisional bar holds after sign-in, with the line for the bar (R3c)', async () => withLiveBar(async () => {
+  const { id, builderId } = await linkedWith({});
+  const { live_url: _, ...noLink } = PROJECT;
+  const r = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: noLink, filter: { all: true } });
+  assert.equal(r.isError, false, r.text);
+  assert.equal(r.reply!.linked, true);
+  const g = (r.reply!.gaps as { program_id: string; n: number; gap: { kind: string; what: string } }[]).find((x) => x.program_id === 'f-live');
+  assert.ok(g, JSON.stringify(ids(r.reply!.gaps)));
+  assert.equal(g.gap.kind, 'tier');
+  assert.match(r.reply!.show_to_builder as string, new RegExp(`^${g.n}\\. Live Grant, Up to \\$5,000: Link GitHub so EarnKit can confirm your product is live\\.$`, 'm'));
+  assert.equal(r.reply!.evidence_summary, null);
+}));
+
+test('unlinked: a repo that could not be read applies no tier bar (R3)', async () => withLiveBar(async () => {
+  const { live_url: _, ...noLink } = PROJECT;
+  const r = await mcpCall(ctx(await installation()), 'find', { project: { ...noLink, private: true }, filter: { all: true } });
+  assert.equal(r.isError, false, r.text);
+  assert.equal(r.reply!.as_reported, true);
+  assert.ok(ids(r.reply!.ready).includes('f-live'));
+  assert.ok(!(r.reply!.gaps as { gap: { kind: string } }[]).some((g) => g.gap.kind === 'tier'));
+}));
+
+test('unlinked: blockers name the sign-ins, clicks and documents as linked does, never outside_approval (R4)', async () => withInPerson(async () => {
+  const r = await mcpCall(ctx(await installation()), 'find', { project: PROJECT, filter: { all: true } });
+  const blockers = r.reply!.blockers as { program_id: string; sign_in: string | null; needs_click: boolean; needs: string[]; outside_approval?: true }[];
+  const av = blockers.find((b) => b.program_id === 'avalanche-team1-mini-grants');
+  assert.ok(av, JSON.stringify(blockers));
+  assert.equal(av.sign_in, 'Avalanche Builder Hub');
+  assert.ok(blockers.every((b) => !('outside_approval' in b)));
+  // Only ready programs are named; the in-person one keeps its own block.
+  const ready = new Set(ids(r.reply!.ready));
+  assert.ok(blockers.every((b) => ready.has(b.program_id)));
+  const show = r.reply!.show_to_builder as string;
+  assert.match(show, /Sign in once to Avalanche Builder Hub for 1 of them\./);
+  assert.match(show, /\n\nIn person, apply to attend first:\n/);
+  assert.equal(r.reply!.evidence_summary, null);
+  assert.deepEqual(r.reply!.record_missing, []);
+}));
 
 test('auto_apply changes the closing line and the agent note; never removes a program', async () => {
   const { id, builderId } = await linkedWith({ ...OWNER_RECORD, policy: { auto_apply: true, max_per_night: 2, never: ['z-fellows'] } });

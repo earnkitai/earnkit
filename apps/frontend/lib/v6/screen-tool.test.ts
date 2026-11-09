@@ -50,10 +50,10 @@ test('screen needs a reviewer: unlinked and linked non-reviewer each answer one 
   await upsertProgram(programFixture({ id: 'scr-none' }), 'file', NOW);
   const u = await mcpCall({ installationId: inst!.id, builderId: null, now: NOW }, 'screen', { program_id: 'scr-none', applicants: APPLICANTS });
   assert.equal(u.isError, false, u.text);
-  assert.equal(u.reply!.show_to_builder, 'Sign in first; the owner then marks you as a reviewer for your program.');
+  assert.equal(u.reply!.show_to_builder, 'Sign in first, then ask EarnKit to add you as a reviewer for your program.');
   const c = await linked();
   const n = await mcpCall(c, 'screen', { program_id: 'scr-none', applicants: APPLICANTS });
-  assert.equal(n.reply!.show_to_builder, 'You are not a reviewer for that program here; ask the EarnKit owner.');
+  assert.equal(n.reply!.show_to_builder, 'You are not yet a reviewer for that program here. Ask EarnKit to add you.');
   assert.equal('job_id' in n.reply!, false);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs`)[0].n, 0);
   // A refused non-reviewer never counts against the daily limit.
@@ -121,4 +121,24 @@ test('results carry public evidence only; outcomes record', async () => {
   assert.doesNotMatch(JSON.stringify(one.reply), /ledger|usable/i);
   const late = await mcpCall({ ...c, now: new Date(NOW.getTime() + 31 * 86_400_000) }, 'screen', { job_id: jobId });
   assert.equal(late.reply!.show_to_builder, 'That screen has expired; queue the list again.');
+});
+
+test('R7 screen unlinked with sign-in configured: the installation link, one line ending with a full stop', async () => {
+  const keys = ['GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET', 'EARNKIT_URL', 'EARNKIT_AUTH_SECRET'] as const;
+  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  Object.assign(process.env, { GITHUB_OAUTH_CLIENT_ID: 'Iv1.client', GITHUB_OAUTH_CLIENT_SECRET: 'shh', EARNKIT_URL: 'https://earnkit.test/', EARNKIT_AUTH_SECRET: 'screen-test-secret' });
+  try {
+    const token = 'screen-unlinked-link-' + Math.random();
+    await saveInstallation(token, 'Agent');
+    const inst = await connectInstallation(token);
+    const u = await mcpCall({ installationId: inst!.id, builderId: null, now: NOW }, 'screen', { program_id: 'scr-none', applicants: APPLICANTS });
+    assert.equal(u.isError, false, u.text);
+    const show = u.reply!.show_to_builder as string;
+    assert.match(show, /^Sign in once at https:\/\/earnkit\.test\/link\/[A-Za-z0-9_-]{16,} so EarnKit knows which program you review for\.$/);
+    assert.ok(!/owner/i.test(show), show);
+    assert.equal((await sql()`SELECT count(*)::int AS n FROM link_codes WHERE installation_id = ${inst!.id}`)[0].n, 1);
+  } finally {
+    for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
 });

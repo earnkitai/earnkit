@@ -20,7 +20,7 @@ theirs shares: facts, links, documents, answers and standing approval. They read
 
 ## Connect an agent
 
-MCP server URL: **`https://earnkit.com/mcp`** (remote, OAuth). Approve it when the browser opens;
+MCP server URL: **`https://earnkit.com/mcp`** (remote, OAuth). It connects at once;
 no account needed. The full guide is at [earnkit.com/docs](https://earnkit.com/docs).
 
 | Agent | How |

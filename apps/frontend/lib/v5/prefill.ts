@@ -27,9 +27,43 @@ export type Field = {
   form_id?: string;
 };
 
-/** Only what nobody but the builder can produce; team, contacts and money raised come from the agent's memory. */
+/** Only what nobody but the builder can produce. */
 const BUILDER_KINDS: ReadonlySet<string> = new Set(['demo_video']);
+/** Facts about the builder's work and money: linked or not, the agent never writes these, it asks once. */
+const PERSONAL_KINDS: ReadonlySet<string> = new Set(['traction', 'raised']);
 const words = (s: string): string[] => s.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+const fieldWords = (r: SubmissionRequirement): string[] => [...words(r.key), ...words(r.label)];
+/** A personal fact, a consent or an amount, by its key or label ("age" whole word only, so "usage" is not one). */
+const PERSONAL = /^(amounts?|budgets?|consents?|birth.*|phones?|age|ages|citizen.*|gender.*|ethnic.*)$/;
+const isPersonal = (r: SubmissionRequirement) => PERSONAL_KINDS.has(r.kind) || fieldWords(r).some((w) => PERSONAL.test(w));
+
+/**
+ * Which URL a links field takes, by its key and label: the live or the repo URL only; 'any' (a generic link: live, else repo);
+ * 'both' (a text field labelled only "links" or "relevant links"); or null, the builder's.
+ */
+type LinkPick = 'live' | 'repo' | 'any' | 'both' | null;
+const NOT_OURS = /^(x|twitter|linkedin|farcaster|discord|telegram|deck|pitch|other|store|hunt|explorer)$/;
+const LIVE = /^(site|website|live|product|app)$/;
+const REPO = /^(repo|repository|github|code|source)$/;
+function linkPick(r: SubmissionRequirement): LinkPick {
+  const all = fieldWords(r);
+  if (all.some((w) => NOT_OURS.test(w))) return null;
+  // R1a: repo words beat live words ("App repository", "Link to the app's source code").
+  if (all.some((w) => REPO.test(w))) return 'repo';
+  if (all.some((w) => LIVE.test(w))) return 'live';
+  const label = words(r.label).join(' ');
+  if (label === 'url') return 'live';
+  if (label === 'link' || label === 'links' || label === 'relevant links') return r.type === 'text' ? 'both' : 'any';
+  return null;
+}
+/** The value a links field takes from a live and a repo URL, and which of them it is. A url field never gets two. */
+function pickLinks(r: SubmissionRequirement, live: string | null | undefined, repo: string | null | undefined): { value: string; which: 'live' | 'repo' | 'both' } | null {
+  const pick = linkPick(r);
+  if (pick === 'both' && live && repo) return { value: `${live} ${repo}`, which: 'both' };
+  if ((pick === 'live' || pick === 'any' || pick === 'both') && live) return { value: live, which: 'live' };
+  if ((pick === 'repo' || pick === 'any' || pick === 'both') && repo) return { value: repo, which: 'repo' };
+  return null;
+}
 
 /** A filled value and whether the public code read gave it (not the agent's report). */
 type Filled = { value: string; repo: boolean } | null;
@@ -79,10 +113,15 @@ function valueOf(r: SubmissionRequirement, program: ProgramRow['file'], facts: R
   if (r.type === 'file') return null;
   if (r.kind === 'name') return fromText(facts.name);
   if (r.kind === 'one_liner') return fromText(facts.description);
-  if (r.kind === 'links') {
-    const links = [facts.live_url, facts.repo_url].filter((x): x is string => !!x);
-    const read = (facts.live_url && facts.live_url_basis === 'code') || (facts.repo_url && facts.repo_url_basis === 'code');
-    return filledBy(facts, links.length > 0 ? links.join(' ') : null, read ? 'code' : 'reported');
+  // A links field: project_field decides when set (tried above); otherwise the key and label pick one URL.
+  if (r.kind === 'links' && r.project_field === undefined) {
+    const p = pickLinks(r, facts.live_url, facts.repo_url);
+    if (!p) return null;
+    const read =
+      p.which === 'live' ? facts.live_url_basis === 'code'
+      : p.which === 'repo' ? facts.repo_url_basis === 'code'
+      : facts.live_url_basis === 'code' || facts.repo_url_basis === 'code';
+    return filledBy(facts, p.value, read ? 'code' : 'reported');
   }
   return null;
 }
@@ -133,7 +172,12 @@ function recordValue(r: SubmissionRequirement, rec: RecordContext): FromRecord {
   const fact = (value: string | null | undefined): FromRecord => (value ? { value, prose: false } : null);
   switch (r.kind) {
     case 'contact': return fact(contactValue(r, record.person));
-    case 'links': return fact([project?.live_url, project?.repo_url].filter(Boolean).join(' ') || null);
+    case 'links': {
+      if (r.project_field === 'live_url') return fact(project?.live_url);
+      if (r.project_field === 'repo_url') return fact(project?.repo_url);
+      if (r.project_field !== undefined) return null;
+      return fact(pickLinks(r, project?.live_url, project?.repo_url)?.value);
+    }
     case 'demo_video': return fact(record.docs.demo_video_url);
     case 'raised': {
       if (!isApproved(record, 'company.raised')) return null;
@@ -158,6 +202,7 @@ function recordValue(r: SubmissionRequirement, rec: RecordContext): FromRecord {
 const pick = (a: { text: string; short: string | null }, r: SubmissionRequirement) =>
   r.max_chars !== undefined && r.max_chars < 300 && a.short ? a.short : a.text;
 
+const CONTACT_SOURCES = ['git config and the environment', 'what the builder told you'];
 const ASK_ONCE = 'the builder, once: store the answer with record before using it';
 
 /**
@@ -183,18 +228,27 @@ export function prefill(
     };
     const fromRecord = rec ? recordValue(r, rec) : null;
     if (fromRecord) return { ...base, value: fromRecord.value, from: 'record', ...(fromRecord.prose ? { style: STYLE_CONTRACT } : {}) };
+    // Linked or not, traction, money raised, consents, amounts and personal facts are the builder's: never guessed, never drafted.
+    if (isPersonal(r)) return { ...base, value: null, from: 'builder' };
+    // Contacts (R2a): linked, the record answers first and the rest are the builder's; unlinked, the agent knows who it
+    // works for (never asks a stranger who they are, never invents).
+    if (r.kind === 'contact') {
+      if (rec) return { ...base, value: null, from: 'builder' };
+      return { ...base, value: null, from: 'agent', sources: [...CONTACT_SOURCES, ...sourcesOf(facts, guidance)] };
+    }
     const filled = valueOf(r, file, facts);
     if (filled !== null) {
       if (filled.repo) facts_from_repo++;
       if (filled.repo && r.required) repo_required++;
       return { ...base, value: filled.value, from: 'earnkit' };
     }
-    if (r.type === 'file' || BUILDER_KINDS.has(r.kind) || /contract/.test(r.key))
+    if (r.type === 'file' || BUILDER_KINDS.has(r.kind) || r.kind === 'links' || /contract/.test(r.key))
       return { ...base, value: null, from: 'builder' };
     if (r.type === 'choice' || r.type === 'multi_choice')
       return { ...base, value: null, from: 'agent', sources: ['the options', 'the description'] };
-    // Linked: what the record should hold (contacts, traction) is the builder's; prose the agent asks once and stores.
-    if (rec && (r.kind === 'contact' || r.kind === 'traction')) return { ...base, value: null, from: 'builder' };
+    // The agent drafts only what the repo and the sources can carry: prose, a name or one-liner, and 'other' text.
+    const draftable = isProse(r.kind) || r.kind === 'name' || r.kind === 'one_liner' || (r.kind === 'other' && r.type === 'text');
+    if (!draftable) return { ...base, value: null, from: 'builder' };
     const sources = sourcesOf(facts, guidance);
     return { ...base, value: null, from: 'agent', sources: rec && (isProse(r.kind) || r.kind === 'other') ? [...sources, ASK_ONCE] : sources };
   });

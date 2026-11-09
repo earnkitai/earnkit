@@ -57,7 +57,9 @@ test('unlinked and configured: the sign-in link, and nothing saved', async () =>
   const link = r.reply!.sign_in as string;
   assert.match(link, /\/link\/[A-Za-z0-9_-]{16,}$/);
   assert.ok(link.startsWith('https://earnkit.test/link/'), link);
-  assert.equal(r.reply!.show_to_builder, `Sign in once at ${link} so I remember you across agents.`);
+  // R8: a set while unlinked says the fact was not saved and what to do; get keeps the plain sign-in line.
+  assert.equal(r.reply!.show_to_builder, `Not saved. Sign in once at ${link}, then tell me again.`);
+  assert.equal(again.reply!.show_to_builder, `Sign in once at ${link} so I remember you across agents.`);
   const [n] = await sql()`SELECT count(*)::int AS n FROM link_codes WHERE installation_id = ${id}`;
   assert.equal(n.n, 1);
 });

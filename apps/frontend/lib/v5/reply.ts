@@ -3,12 +3,16 @@
  * `agentNote` (what the agent does next). In-person programs get their own block after ready and
  * gaps, with their setup, and are never in the count to apply to. Linked, the record's blocks follow. Pure.
  */
-import { EVIDENCE_NOT_READ, listWords, signInLine } from '../v6/reply-words';
+import { EVIDENCE_NOT_READ, listWords, signInSentence } from '../v6/reply-words';
 import { compactUsd } from './programs-read';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
 import { READS_PAUSED } from './repo-facts';
 
 type R = Omit<FindReply, 'show_to_builder' | 'agent_note'>;
+
+/** How the agent drafts the fields EarnKit did not fill (find and one program alike). */
+export const AGENT_FIELDS =
+  "'agent' fields you draft from the repo, the field's sources and what you already know about the builder; 'builder' fields you ask once, all together. Never invent a personal fact, an amount or a number.";
 const NEEDS_SHOWN = 3;
 
 /**
@@ -43,21 +47,35 @@ function readyLine(p: ReadyProgram, linked: boolean): string {
   if (p.closes_in) head += `, closes ${p.closes_in}`;
   if (p.long_shot) head += `, a long shot: ${p.long_shot}`;
   const fromRecord = linked ? recordDrafted(p) : null;
-  const v5 =
-    p.total === 1
-      ? p.facts_from_repo > 0
-        ? 'Drafted: the one answer from the repo.'
-        : 'Your agent fills the one answer on the page.'
-      : p.facts_from_repo > 0
-        ? `Drafted: ${Math.min(p.facts_from_repo, p.total)} of ${p.total} answers from the repo, the rest from your agent's memory.`
-        : `Your agent fills all ${p.total} answers on the page.`;
-  const drafted = fromRecord ?? v5;
   // Setup items are steps ("sign in to ..."), the rest are things ("a Loom demo"): each reads its own way.
   const steps = p.needs.filter((x) => p.setup.includes(x));
   // Linked, the k that need the builder are already named.
   const needs = fromRecord ? [] : p.needs.filter((x) => !p.setup.includes(x)).map(bare);
   const shown = needs.length > NEEDS_SHOWN ? [...needs.slice(0, NEEDS_SHOWN), `${needs.length - NEEDS_SHOWN} more`] : needs;
-  return `${head}. ${drafted}${shown.length > 0 ? ` Needs your ${joinAnd(shown)}.` : ''}${steps.length > 0 ? ` First: ${steps.join('; ')}.` : ''}`;
+  const first = steps.length > 0 ? ` First: ${steps.join('; ')}.` : '';
+  return `${head}.${fromRecord ? ` ${fromRecord}` : drafted(p, linked, needs.length, shown)}${first}`;
+}
+
+/**
+ * R2c: n answers from the repo (or record), k the agent drafts, b only the builder gives, over the required total.
+ * The agent drafts its fields itself and asks only for the b. Each sentence comes with its leading space, or ''. Pure.
+ */
+function drafted(p: ReadyProgram, linked: boolean, b: number, shown: string[]): string {
+  const total = p.total;
+  const n = Math.min(p.repo_required + (linked ? p.from_record : 0), total);
+  const k = Math.max(total - n - b, 0);
+  const needsYour = b > 0 ? ` Needs your ${joinAnd(shown)}.` : '';
+  if (total > 0 && n === total) return total === 1 ? ' Drafted: the one answer from the repo.' : ` Drafted: all ${total} answers from the repo.`;
+  if (n > 0) {
+    const head = ` Drafted: ${n} of ${total} answers from the repo`;
+    if (k > 0) return b > 0 ? `${head}, ${k} more by your agent.${needsYour}` : `${head}, the rest by your agent.`;
+    return `${head}.${needsYour}`;
+  }
+  if (k > 0) {
+    if (b > 0) return ` Your agent drafts ${k} ${k === 1 ? 'answer' : 'answers'}.${needsYour}`;
+    return total === 1 ? ' Your agent drafts the one answer.' : ` Your agent drafts all ${total} answers.`;
+  }
+  return needsYour;
 }
 
 /** An in-person program: the money, the close, and what attending takes. */
@@ -98,8 +116,9 @@ function signInWords(kind: string, n: number): string {
 const titlesOf = (r: R, bs: R['blockers']) =>
   bs.map((b) => r.ready.find((p) => p.program_id === b.program_id)?.title).filter((t): t is string => !!t);
 
-/** "Before tonight: ..." with the sign-ins grouped, the clicks and what the record lacks; null when there is nothing. Pure. */
-function beforeTonight(r: R): string | null {
+/** "Before applying: ..." ("Before tonight: ..." when the agent sends tonight) with the sign-ins grouped, the clicks
+ *  and what the record lacks; null when there is nothing. Pure. */
+function beforeTonight(r: R, tonight: boolean): string | null {
   const counts = new Map<string, number>();
   for (const b of r.blockers) if (b.sign_in) counts.set(b.sign_in, (counts.get(b.sign_in) ?? 0) + 1);
   const parts = [...counts].map(([kind, n]) => `${signInWords(kind, n)}.`);
@@ -109,7 +128,8 @@ function beforeTonight(r: R): string | null {
   const outside = titlesOf(r, r.blockers.filter((b) => b.outside_approval && !b.needs_click));
   if (outside.length > 0) parts.push(`Outside your standing approval, you say yes yourself: ${listWords(outside, outside.length)}.`);
   if (r.record_missing.length > 0) parts.push(`Still missing from your record: ${listWords(r.record_missing)}.`);
-  return parts.length > 0 ? `Before tonight: ${parts.join(' ')}` : null;
+  if (parts.length === 0) return null;
+  return `${tonight ? 'Before tonight' : 'Before applying'}: ${parts.join(' ')}`;
 }
 
 function closingLine(ready: number, gaps: number, firstGap: number, inPerson: number): string {
@@ -144,13 +164,15 @@ export function replyText(r: R, first: boolean): string {
     const asked = l.asked_usd > 0 ? ` (${compactUsd(l.asked_usd)} asked)` : '';
     blocks.push(`Ledger: ${l.applied} applied${asked}, ${l.won} won, ${l.pending} pending${soon}.`);
   }
-  const before = beforeTonight(r);
+  // One condition for the heading and the closing: the agent sends tonight (never unlinked, where auto_apply is false).
+  const tonight = r.auto_apply ? Math.min(agentCanApply(r).length, r.max_per_night ?? ready.length) : 0;
+  const before = beforeTonight(r, tonight > 0);
   if (before) blocks.push(before);
   if (r.applied_overnight.length > 0) blocks.push(`Applied under your standing approval: ${r.applied_overnight.map((a) => a.title).join(', ')}.`);
   if (r.evidence_summary) blocks.push(r.evidence_summary.line);
-  const tonight = r.auto_apply ? Math.min(agentCanApply(r).length, r.max_per_night ?? ready.length) : 0;
-  blocks.push(tonight > 0 ? `Applying tonight to ${tonight}; say stop to hold any.` : closingLine(ready.length, r.gaps.length, r.gaps[0]?.n ?? ready.length + 1, inPerson.length));
-  if (r.sign_in && !r.linked) blocks.push(signInLine(r.sign_in));
+  const closing = tonight > 0 ? `Applying tonight to ${tonight}; say stop to hold any.` : closingLine(ready.length, r.gaps.length, r.gaps[0]?.n ?? ready.length + 1, inPerson.length);
+  // R5a: saying yes is the one action; unlinked with a link, signing in is the closing block's second sentence.
+  blocks.push(r.sign_in && !r.linked ? `${closing} ${signInSentence(r.sign_in)}` : closing);
   return blocks.join('\n\n');
 }
 
@@ -161,8 +183,8 @@ export function agentNote(r: R, o: { more: number }): string {
   const lines = [
     'Open with show_to_builder in your own words: warm, direct, short, no emojis, no em dashes, no invented facts.',
     r.linked
-      ? "Draft each ready program from its fields: 'record' and 'earnkit' values as given; 'agent' fields you write from your memory and the field's sources; 'builder' fields you ask once, all together."
-      : "Draft each ready program from its fields: 'earnkit' values as given; 'agent' fields you write from your memory and the field's sources; 'builder' fields you ask once, all together.",
+      ? `Draft each ready program from its fields: 'record' and 'earnkit' values as given; ${AGENT_FIELDS}`
+      : `Draft each ready program from its fields: 'earnkit' values as given; ${AGENT_FIELDS}`,
     // With standing approval the agent does not wait for a yes; the limits replace it.
     r.auto_apply ? standing : 'Submit only when the builder says yes, in your own browser, field by field (form_id names the form field when given).',
     'Call track with applied after each submission, and with won (amount_usd), rejected or no_result after each result; skipped for a number they skip.',

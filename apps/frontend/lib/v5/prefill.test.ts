@@ -35,7 +35,7 @@ const rowWith = (reqs: unknown[], over: Record<string, unknown> = {}) =>
   toRow(programFixture({ id: 'p', submission_requirements: reqs as never, ...over }));
 
 const FILLED = 3; // live_product_url, project_name_description, demo_loom (no contract in the recorded facts)
-test('base-builder-grants: facts fill; prose, team and contacts go to the agent', async () => {
+test('base-builder-grants: facts fill; prose, team and contacts go to the agent; traction to the builder', async () => {
   const facts = await factsOf('earnkit', { live_url: 'https://earnkit.com', demo_url: 'https://loom.com/share/x' });
   const out = prefill(fromFile('base-builder-grants'), facts);
   const by = Object.fromEntries(out.fields.map((f) => [f.key, f]));
@@ -52,11 +52,11 @@ test('base-builder-grants: facts fill; prose, team and contacts go to the agent'
   assert.equal(by.founding_team.value, null);
   assert.ok((by.founding_team.sources ?? []).length > 0);
   assert.equal(by.email.from, 'agent');
-  assert.equal(by.usage_numbers.from, 'agent');
+  assert.deepEqual(by.email.sources?.slice(0, 2), ['git config and the environment', 'what the builder told you']);
+  assert.equal(by.usage_numbers.from, 'builder');
   assert.equal(by.usage_numbers.value, null);
-  assert.ok(by.usage_numbers.sources?.some((s) => s.startsWith('live: ')));
   assert.equal(by.full_name.from, 'agent');
-  assert.deepEqual(out.fields.filter((f) => f.from === 'builder').map((f) => f.key), ['contract_address']);
+  assert.deepEqual(out.fields.filter((f) => f.from === 'builder').map((f) => f.key), ['contract_address', 'usage_numbers']);
   assert.equal(out.filled, FILLED);
   // The name, one-liner, live and demo links are what the agent passed, not the repo read: none counts.
   assert.equal(out.facts_from_repo, 0);
@@ -119,7 +119,7 @@ test('contract with none on the program chain is a builder field; chain fills th
   assert.equal(out.fields[1].from, 'earnkit');
 });
 
-test('file and demo_video with no value are builder fields; team, contact and raised are the agent\'s', async () => {
+test('file, demo_video and raised with no value are builder fields; team and contact are the agent\'s', async () => {
   const facts = await factsOf('nextjs-dashboard');
   const out = prefill(rowWith([
     req({ key: 'deck', label: 'Deck', type: 'file' }),
@@ -128,7 +128,7 @@ test('file and demo_video with no value are builder fields; team, contact and ra
     req({ key: 'team', label: 'Team', type: 'text', kind: 'team' }),
     req({ key: 'email', label: 'Email', type: 'email', kind: 'contact' }),
   ]), facts);
-  assert.deepEqual(out.fields.map((f) => f.from), ['builder', 'builder', 'agent', 'agent', 'agent']);
+  assert.deepEqual(out.fields.map((f) => f.from), ['builder', 'builder', 'builder', 'agent', 'agent']);
 });
 
 test('facts_from_repo counts links, contract and chain values, never the passed name, description or a choice', () => {
@@ -293,4 +293,96 @@ test('the counts are over required fields: an optional record field is in fields
   assert.equal(out.filled, 2);
   assert.equal(out.total, 2);
   assert.ok(out.from_record + out.repo_required + out.need_you.length <= out.total);
+});
+
+/** Facts whose live and repo links were both read from the code. */
+const LINK_FACTS: RepoFacts = {
+  name: 'App', description: 'An app.', repo_url: 'https://github.com/a/b', public: true, as_reported: false,
+  live_url: 'https://app.example.com', demo_url: null, chains: [], contracts: [], builder_codes: false, users: null,
+  first_commit_at: null, last_commit_at: null, readme_excerpt: null, homepage: null, integrations: [],
+  repo_url_basis: 'code', live_url_basis: 'code', demo_url_basis: null,
+};
+
+test('R1: each link field gets one URL by its key and label; X, deck and other links are the builder', () => {
+  const out = prefill(rowWith([
+    req({ key: 'x_url', label: 'X profile', type: 'url', kind: 'links', todo: 'your X profile' }),
+    req({ key: 'website', label: 'Website', type: 'url', kind: 'links', todo: 'your website' }),
+    req({ key: 'repo_url', label: 'GitHub repo', type: 'url', kind: 'links', project_field: 'repo_url', todo: 'your repo' }),
+    req({ key: 'other_links', label: 'Other links', type: 'url', kind: 'links', todo: 'other links' }),
+    req({ key: 'pitch_deck', label: 'Pitch deck', type: 'url', kind: 'links', todo: 'your pitch deck' }),
+  ]), LINK_FACTS);
+  const by = Object.fromEntries(out.fields.map((f) => [f.key, f]));
+  assert.deepEqual([by.x_url.value, by.x_url.from], [null, 'builder']);
+  assert.deepEqual([by.pitch_deck.value, by.pitch_deck.from], [null, 'builder']);
+  assert.deepEqual([by.website.value, by.website.from], ['https://app.example.com', 'earnkit']);
+  assert.deepEqual([by.repo_url.value, by.repo_url.from], ['https://github.com/a/b', 'earnkit']);
+  assert.deepEqual([by.other_links.value, by.other_links.from], [null, 'builder']);
+  assert.equal(out.facts_from_repo, 2);
+});
+
+test('R1a: repo words beat live words: "App repository" and "Link to the app\'s source code" take the repo URL', () => {
+  const out = prefill(rowWith([
+    req({ key: 'app_repo', label: 'App repository', type: 'url', kind: 'links' }),
+    req({ key: 'src', label: "Link to the app's source code", type: 'url', kind: 'links' }),
+  ]), LINK_FACTS);
+  for (const f of out.fields) assert.deepEqual([f.key, f.value, f.from], [f.key, 'https://github.com/a/b', 'earnkit']);
+});
+
+test('R1: a url field never gets two URLs; a text field labelled only "Links" may take both', () => {
+  const out = prefill(rowWith([
+    req({ key: 'links', label: 'Links', type: 'text', kind: 'links' }),
+    req({ key: 'relevant', label: 'Relevant links', type: 'url', kind: 'links' }),
+    req({ key: 'code', label: 'Source code', type: 'url', kind: 'links' }),
+    req({ key: 'live', label: 'Live product', type: 'url', kind: 'links', project_field: 'live_url' }),
+  ]), { ...LINK_FACTS, live_url: null, live_url_basis: null });
+  const by = Object.fromEntries(out.fields.map((f) => [f.key, f]));
+  assert.equal(by.links.value, 'https://github.com/a/b');
+  assert.equal(by.relevant.value, 'https://github.com/a/b');
+  assert.equal(by.code.value, 'https://github.com/a/b');
+  // project_field decides: no live URL is the builder's, never the repo in its place.
+  assert.deepEqual([by.live.value, by.live.from], [null, 'builder']);
+  const both = prefill(rowWith([req({ key: 'links', label: 'Links', type: 'text', kind: 'links' })]), LINK_FACTS).fields[0];
+  assert.equal(both.value, 'https://app.example.com https://github.com/a/b');
+  for (const f of prefill(rowWith([
+    req({ key: 'relevant', label: 'Relevant links', type: 'url', kind: 'links' }),
+    req({ key: 'url', label: 'URL', type: 'url', kind: 'links' }),
+  ]), LINK_FACTS).fields) assert.equal(f.value, 'https://app.example.com');
+});
+
+test('R2/R2a unlinked: consent, amounts, phone, birthday and traction are the builder; contacts and prose stay the agent', () => {
+  const out = prefill(rowWith([
+    req({ key: 'email', label: 'Email', type: 'email', kind: 'contact' }),
+    req({ key: 'phone', label: 'Phone', type: 'text', kind: 'other' }),
+    req({ key: 'birthday', label: 'Birthday', type: 'text', kind: 'other' }),
+    req({ key: 'consent_team1', label: 'I consent', type: 'choice', kind: 'other', options: ['Yes'] }),
+    req({ key: 'requested_amount_usd', label: 'Requested amount', type: 'text', kind: 'other' }),
+    req({ key: 'traction', label: 'Traction', type: 'text', kind: 'traction' }),
+    req({ key: 'raised', label: 'Raised', type: 'text', kind: 'raised' }),
+    req({ key: 'problem', label: 'Problem', type: 'text', kind: 'problem' }),
+    req({ key: 'usage', label: 'How do people use it?', type: 'text', kind: 'other' }),
+  ]), LINK_FACTS);
+  const by = Object.fromEntries(out.fields.map((f) => [f.key, f]));
+  // R2a: unlinked, a contact is the agent's (it knows who it works for); linked it is the builder's.
+  assert.equal(by.email.from, 'agent');
+  assert.deepEqual(by.email.sources?.slice(0, 2), ['git config and the environment', 'what the builder told you']);
+  assert.equal(prefill(rowWith([req({ key: 'email', label: 'Email', type: 'email', kind: 'contact' })]), LINK_FACTS, rec(EMPTY_RECORD)).fields[0].from, 'builder');
+  // A contact-kind phone or birthday is still the builder's.
+  const zf = prefill(rowWith([req({ key: 'dob', label: 'Birthday', type: 'text', kind: 'contact' }), req({ key: 'tel', label: 'Phone Number', type: 'text', kind: 'contact' })]), LINK_FACTS);
+  assert.deepEqual(zf.fields.map((f) => f.from), ['builder', 'builder']);
+  for (const k of ['phone', 'birthday', 'consent_team1', 'requested_amount_usd', 'traction', 'raised'])
+    assert.deepEqual([k, by[k].value, by[k].from], [k, null, 'builder']);
+  assert.equal(by.problem.from, 'agent');
+  // "age" is a whole word: "usage" is not a personal fact.
+  assert.equal(by.usage.from, 'agent');
+});
+
+test('R1 linked: the record fills a url field with one link, and an X profile not at all', () => {
+  const record = recordWith({ projects: [{ id: 'earnkit', repo_url: 'https://github.com/jenil/earnkit', live_url: 'https://earnkit.com' }] });
+  const out = prefill(rowWith([
+    req({ key: 'website', label: 'Website', type: 'url', kind: 'links' }),
+    req({ key: 'x_url', label: 'X profile', type: 'url', kind: 'links' }),
+  ]), LINK_FACTS, { record, projectId: 'earnkit', verifiedUsage: null });
+  const by = Object.fromEntries(out.fields.map((f) => [f.key, f]));
+  assert.deepEqual([by.website.value, by.website.from], ['https://earnkit.com', 'record']);
+  assert.deepEqual([by.x_url.value, by.x_url.from], [null, 'builder']);
 });

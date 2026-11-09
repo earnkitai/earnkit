@@ -12,5 +12,12 @@ export function listWords(items: string[], max = 3): string {
   return shown.length <= 1 ? shown.join('') : `${shown.slice(0, -1).join(', ')} and ${shown[shown.length - 1]}`;
 }
 
-/** The one line that offers the link. Pure. */
+/** Unlinked, a program whose tier bar the repo read alone does not clear: the one change that settles it, naming the bar (R3b). Pure. */
+export const confirmLine = (min: 'used' | 'live' | 'building') =>
+  `Link GitHub so EarnKit can confirm your product ${min === 'used' ? 'has users' : min === 'live' ? 'is live' : 'has code'}.`;
+
+/** The one line that offers the link (the record tool and find's open list). Pure. */
 export const signInLine = (link: string) => `Sign in once at ${link} so I remember you across agents.`;
+
+/** Unlinked find (R5a): the second sentence of the closing block; saying yes stays the one action. Pure. */
+export const signInSentence = (link: string) => `Sign in once at ${link} and I read your repo for proof and remember you.`;

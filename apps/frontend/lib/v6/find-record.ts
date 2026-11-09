@@ -1,7 +1,8 @@
 /**
  * The record side of find for a linked installation: the project it picks, the builder's own tier
  * (read at most once a day, else the stored one), min_tier gating, the never list, blockers
- * and what the record still lacks for the ready programs. Only find calls this, and only when linked.
+ * and what the record still lacks for the ready programs. Only find calls this. Unlinked (v6.1.3), find uses
+ * only `provisionalTier`, `tierGate` and `blockersOf` against the empty record; nothing here is stored.
  */
 import type { Gap, Verdict } from '../v5/eligibility';
 import { categoryOf } from '../v5/program-file';
@@ -12,7 +13,7 @@ import { withRecord, readStoredRecord } from './builders';
 import type { Evidence, Subject } from './evidence';
 import { evidenceSummary, ownEvidence, usageLine } from './own-evidence';
 import { hasDoc, recordMissing, type BuilderRecord, type Project } from './record';
-import { EVIDENCE_NOT_READ } from './reply-words';
+import { confirmLine, EVIDENCE_NOT_READ } from './reply-words';
 import { TIERS, place, type Tier } from './tiers';
 
 export { EVIDENCE_NOT_READ };
@@ -112,6 +113,22 @@ export function tierGate(v: Verdict, row: ProgramRow, tier: Tier | null, line: s
   const gap: Gap = { kind: 'tier', item: `tier:${min}`, what: nextOf(line, min), effort: 'weeks', agent_can: false, details: { tier, min_tier: min } };
   return { ...v, status: 'gap', gaps: [gap] };
 }
+
+/**
+ * Unlinked, the tier the public code read alone supports: 'live' for a live URL or a mainnet contract read
+ * from the code (a repo homepage counts even when the agent also passes the live URL, R3a; homepage is set only by the read), 'building' for any other public repo read, null (no bar) when the repo was not read.
+ * Never stored and never shown as the builder's tier. Pure.
+ */
+export function provisionalTier(facts: RepoFacts): Tier | null {
+  if (!facts.public || facts.as_reported) return null;
+  const mainnet = new Set(facts.chains.filter((c) => c.mainnet).map((c) => c.chain));
+  if (facts.live_url_basis === 'code' || facts.homepage !== null || facts.contracts.some((c) => c.basis === 'code' && mainnet.has(c.chain))) return 'live';
+  return 'building';
+}
+
+/** `tierGate` for an unlinked find: the gap names linking GitHub as the change, and the bar (R3b). Pure. */
+export const provisionalGate = (v: Verdict, row: ProgramRow, tier: Tier | null): Verdict =>
+  row.file.min_tier ? tierGate(v, row, tier, ` Next: ${confirmLine(row.file.min_tier)}`) : v;
 
 /** The programs the builder lists: everything but the never list. Pure. */
 export const notNever = (record: BuilderRecord) => (row: ProgramRow) => !record.policy.never.includes(row.id);

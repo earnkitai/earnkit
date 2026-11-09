@@ -93,7 +93,10 @@ test('no install copy mentions signing in, X, GitHub or a wallet', async () => {
   const all = [...AGENTS.flatMap((a) => strings(a.name, [a.note, a.installNote, a.stepsLead, a.message, a.code, a.after, a.afterCode, a.last, a.steps])), ...strings('docs', copy.DOCS_STEPS), ['prompt', GROK_BOT_PROMPT] as [string, string], ['muse', MUSE_MESSAGE] as [string, string]];
   assert.ok(all.length > 20);
   for (const [name, s] of all) assert.ok(!BAD.test(s), `${name}: "${s}"`);
-  assert.equal(copy.DOCS_STEPS[1], 'Approve the connection');
+  assert.equal(copy.DOCS_STEPS[1], 'It connects on its own');
+  // R6: the authorize endpoint approves at once (a 302 with the code), so no copy asks the builder to approve a page.
+  for (const [name, s] of all) assert.ok(!s.includes('Approve it when the page opens'), `${name}: "${s}"`);
+  assert.equal(all.filter(([, s]) => s.includes('It connects at once. No account needed.')).length, 3);
 });
 
 test('the /me words: verbatim lines, sentences end with a full stop, no path in a label', () => {
