@@ -1,6 +1,6 @@
 /**
  * GET /api/stats, public: nine counts from the database. No installation, program application or
- * person is ever named. The money is the open grants' and prizes' top amount summed, investments left out.
+ * person is ever named. The money is the open grants' and prizes' pool, else top award, summed, investments left out.
  */
 import { sql } from './db';
 import { json } from './http';
@@ -15,14 +15,14 @@ export type Stats = Record<(typeof STATS_KEYS)[number], number>;
 const WEEK_MS = 7 * 86_400_000;
 
 /**
- * The money open to win: over the open programs that are not investments, each one's `max_award_usd`
- * when set, else its `pool_usd` (a hackathon's prize pool), else 0, summed. An investment is not money
- * to win, so it counts nothing. Pure.
+ * The money open to win: over the open programs that are not investments, each one's `pool_usd` when
+ * set (the whole pool is open; the max award is one winner's share), else its `max_award_usd`, else 0,
+ * summed. An investment is not money to win, so it counts nothing. Pure.
  */
 export const openMoneyUsd = (rows: ProgramRow[]): number =>
   rows
     .filter((r) => categoryOf(r.file) !== 'investment')
-    .reduce((sum, r) => sum + (r.file.max_award_usd ?? r.file.pool_usd ?? 0), 0);
+    .reduce((sum, r) => sum + (r.file.pool_usd ?? r.file.max_award_usd ?? 0), 0);
 
 /** The statuses of an application the builder sent: applied, or any result. */
 const SENT = ['applied', 'won', 'rejected', 'no_result'];

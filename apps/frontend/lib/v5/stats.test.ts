@@ -28,7 +28,7 @@ test('programs and money come from the open programs; investments are left out o
   assert.equal(after.open_money_usd, openMoneyUsd(await listOpenPrograms(NOW)));
 });
 
-test('openMoneyUsd: a grant counts its max, a hackathon its pool, an investment nothing', () => {
+test('openMoneyUsd: a stated pool counts first, else the max; an investment nothing', () => {
   const rowOf = (over: Parameters<typeof programFixture>[0]): ProgramRow => {
     const file = programFixture(over);
     return { id: file.id, file, source: 'file', created_at: NOW, updated_at: NOW, verified_at: null, stale_since: null };
@@ -39,7 +39,8 @@ test('openMoneyUsd: a grant counts its max, a hackathon its pool, an investment 
     rowOf({ id: 'm-invest', investment: true, max_award_usd: 400_000 }),
   ];
   assert.equal(openMoneyUsd(rows), 35_000);
-  assert.equal(openMoneyUsd([rowOf({ id: 'm-both', max_award_usd: 3000, pool_usd: 30_000 })]), 3000);
+  assert.equal(openMoneyUsd([rowOf({ id: 'm-hack-both', max_award_usd: 5000, pool_usd: 25_000, in_person: true })]), 25_000);
+  assert.equal(openMoneyUsd([rowOf({ id: 'm-grant-only', max_award_usd: 10_000 })]), 10_000);
   assert.equal(openMoneyUsd([rowOf({ id: 'm-none' })]), 0);
 });
 
