@@ -352,7 +352,11 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const shownReady = shownReadyOf(readyV, all, (v) => byId.get(v.program_id)!.file.in_person);
   // Real changes first, then at most one rule-only program by default (R18b), the one fitting the project's chains
   // (R18e). In-person programs are never in the default gap list (R18d, R18f); `more` counts them.
-  const shownGaps = shownGapsOf(gapV, all, MAX_GAPS, (v) => byId.get(v.program_id)!.file.in_person);
+  // The one rule-bearing slot prefers a program on the builder's chains (fix round 3): the reported ones in order,
+  // then the ones the code read found.
+  const projectChains = [...new Set([...(project.chains ?? []).map((c) => c.chain), ...facts.chains.map((c) => c.chain)])];
+  const shownGaps = shownGapsOf(gapV, all, MAX_GAPS, (v) => byId.get(v.program_id)!.file.in_person, projectChains,
+    (v, chain) => byId.get(v.program_id)!.file.chains.includes(chain));
   const more = readyV.length - shownReady.length + gapV.length - shownGaps.length;
   // In display order with the numbers the builder sees: ready, gaps, then in person.
   // Only another installation's claim marks a program: this agent's own claim is its to send.

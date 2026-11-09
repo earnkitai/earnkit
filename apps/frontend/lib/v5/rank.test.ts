@@ -146,3 +146,18 @@ test('shownGapsOf (v6.1.8 fix round 2): at most one rule-bearing program, the be
   // No rule-free program: the one rule-bearing program alone.
   assert.deepEqual(shownGapsOf([mixed('vr'), mixed('codegeist'), v('otf', { status: 'gap', gaps: [ruleGap('otf')] })], false, 3, remote).map((x) => x.program_id), ['vr']);
 });
+
+test('shownGapsOf (v6.1.8 fix round 3): the rule slot prefers a program naming the project\'s chains, the first chain first; else rank order', () => {
+  const on: Record<string, string[]> = { vr: [], base: ['base'], arb: ['arbitrum'], arbRule: ['arbitrum'] };
+  const names = (x: Verdict, c: string) => (on[x.program_id] ?? []).includes(c);
+  const ranked = [
+    v('vr', { status: 'gap', gaps: [gap('hours'), ruleGap('vr')] }), v('circle', { status: 'gap', gaps: [gap('hours')] }),
+    v('arb', { status: 'gap', gaps: [gap('days'), ruleGap('a')] }), v('base', { status: 'gap', gaps: [ruleGap('b')] }),
+  ];
+  const show = (chains: string[]) => shownGapsOf(ranked, false, 3, remote, chains, names).map((x) => x.program_id);
+  assert.deepEqual(show(['base', 'arbitrum']), ['circle', 'base']);
+  assert.deepEqual(show(['arbitrum', 'base']), ['circle', 'arb']);
+  assert.deepEqual(show(['monad', 'arbitrum']), ['circle', 'arb']);
+  assert.deepEqual(show([]), ['circle', 'vr']);
+  assert.deepEqual(show(['monad']), ['circle', 'vr']);
+});

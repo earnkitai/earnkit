@@ -68,16 +68,23 @@ export function rankGaps(v: Verdict[], programs: Programs, mainnets: ReadonlySet
 const ruleBearing = (v: Verdict) => v.gaps.some((g) => g.kind === 'rule');
 
 /**
- * The gap list shown (R18b, v6.1.8 fix round 2): all of it when `all`; else at most one program that carries an
- * unconfirmed rule (a real change plus a rule, or rules only), the best-ranked one, in the last slot, and the other
- * slots filled by rule-free programs in rank order. A list with no rule-free programs shows the one rule-bearing
- * program alone. In-person programs never appear in the default list (R18d, R18f); `filter.all` shows them and
- * `more` counts every program left out. Input in rankGaps order. Pure.
+ * The gap list shown (R18b, v6.1.8 fix rounds 2 and 3): all of it when `all`; else at most one program that carries
+ * an unconfirmed rule (a real change plus a rule, or rules only), in the last slot, and the other slots filled by
+ * rule-free programs in rank order. That one program prefers fit over money: the first rule-bearing program (in rank
+ * order) naming `chains[0]`, else `chains[1]`, and so on (`names`: whether a program names a chain); only when none
+ * names one of the project's chains does rank order pick it. A list with no rule-free programs shows the one
+ * rule-bearing program alone. In-person programs never appear in the default list (R18d, R18f); `filter.all` shows
+ * them and `more` counts every program left out. Input in rankGaps order. Pure.
  */
-export function shownGapsOf(gapV: Verdict[], all: boolean, max: number, inPerson: (v: Verdict) => boolean): Verdict[] {
+export function shownGapsOf(
+  gapV: Verdict[], all: boolean, max: number, inPerson: (v: Verdict) => boolean,
+  chains: readonly string[] = [], names: (v: Verdict, chain: string) => boolean = () => false,
+): Verdict[] {
   if (all) return gapV;
   const remote = gapV.filter((v) => !inPerson(v));
   const free = remote.filter((v) => !ruleBearing(v));
-  const rule = remote.find(ruleBearing);
+  const bearing = remote.filter(ruleBearing);
+  const onChain = chains.map((c) => bearing.find((v) => names(v, c))).find((v) => v !== undefined);
+  const rule = onChain ?? bearing[0];
   return rule ? [...free.slice(0, max - 1), rule] : free.slice(0, max);
 }

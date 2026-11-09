@@ -67,13 +67,13 @@ test('first find has no since', async () => {
       'One change away, 3:',
       '2. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
       '3. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.',
-      '4. Meta VR Start Developer Competition 2026, $1,000,000 in prizes: a demo video. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.',
+      '4. Base Ecosystem Fund, pre-seed and seed investment. Their rule: a pre-seed or seed stage startup that chooses Base as its home.',
       '',
       'In person, apply to attend first:',
       '5. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account to start the application.',
       "6. Alliance ALL19, $400K at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
       '',
-      'Say yes to apply, skip it, or "do 2" and I\'ll make the change first.',
+      'Say yes to apply, skip it, "yes 4" if its rule fits you, or "do 2" and I\'ll make the change first.',
     ].join('\n'),
   );
   // Only what nobody but the builder can give: no contacts or team. Whole words, so a program named Team1 is not "team".
@@ -864,26 +864,21 @@ test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets
       'One change away, 3:',
       '2. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
       '3. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.',
-      '4. Meta VR Start Developer Competition 2026, $1,000,000 in prizes: a demo video. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.',
+      '4. Base Ecosystem Fund, pre-seed and seed investment. Their rule: a pre-seed or seed stage startup that chooses Base as its home.',
       '',
       'In person, apply to attend first:',
       '5. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account to start the application.',
       "6. Alliance ALL19, $400K at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
       '',
-      'Say yes to apply, skip it, or "do 2" and I\'ll make the change first.',
+      'Say yes to apply, skip it, "yes 4" if its rule fits you, or "do 2" and I\'ll make the change first.',
     ].join('\n'),
   );
-  // Without the repo's Arbitrum, the Base rule-only program ranks first among the rule-only ones, ahead of the $900K
-  // chain-agnostic one. Since fix round 2 (v6.1.8) the one rule-bearing default slot goes to Meta VR (a real change
-  // and a rule ranks before rules only), so the R18e order is checked in the full list.
+  // Without the repo's Arbitrum, the Base rule-only program takes the slot ahead of the $900K chain-agnostic one and
+  // ahead of the richer Meta VR: the rule slot prefers a program on the builder's chain (v6.1.8 fix round 3).
   const { repo_url: _, ...baseOnly } = PROJECT_A;
-  const b = await mcpCall(ctx(await installation()), 'find', { project: baseOnly, filter: { all: true } });
-  const rule = (b.reply!.gaps as (G & { in_person: boolean })[]).filter((g) => !g.in_person && [g.gap, ...g.also].every((x) => x.kind === 'rule'));
-  assert.equal(rule[0]?.program_id, 'base-ecosystem-fund', b.reply!.show_to_builder as string);
-  assert.ok(rule.findIndex((g) => g.program_id === 'otf-internet-freedom-fund') > 0);
-  const d = await mcpCall(ctx(await installation()), 'find', { project: baseOnly });
-  const ruled = (d.reply!.gaps as G[]).filter((g) => [g.gap, ...g.also].some((x) => x.kind === 'rule'));
-  assert.deepEqual(ruled.map((g) => g.program_id), ['meta-vr-start-competition-2026'], d.reply!.show_to_builder as string);
+  const b = await mcpCall(ctx(await installation()), 'find', { project: baseOnly });
+  const ruled = (b.reply!.gaps as G[]).filter((g) => [g.gap, ...g.also].some((x) => x.kind === 'rule'));
+  assert.deepEqual(ruled.map((g) => g.program_id), ['base-ecosystem-fund'], b.reply!.show_to_builder as string);
 });
 
 test('R18e, R18f, C54, B20: projects B (dotfiles) and C (notes) report no chain: no contract step, the chain-agnostic rule last, no in-person gap program by default (v6.1.6, v6.1.8)', async () => {
