@@ -10,11 +10,11 @@ import { readEvidence, type Evidence, type Subject } from '../v6/evidence';
 import { blockersOf, notNever, missingFor, provisionalGate, provisionalTier, recordSide, storedRecordContext, tierGate, type Blocker, type RecordSide } from '../v6/find-record';
 import { EMPTY_RECORD } from '../v6/record';
 import { signInLink } from '../v6/record-tool';
-import { signInLine } from '../v6/reply-words';
+import { linkedNoticeLine, signInLine } from '../v6/reply-words';
 import { timeLeftWords } from './deadline';
 import { evaluate, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
-import { lastFindAt, markFind } from './installations';
+import { lastFindAt, markFind, newlyLinkedLogin } from './installations';
 import { askOutcome, claimed, doneByProgram, doneItems, excluded, markAsked, summary, type Ledger } from './ledger';
 import { prefill, type Field } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, ruleNotes, type Category, type Program } from './program-file';
@@ -107,6 +107,8 @@ export type FindReply = {
   max_per_night?: number;
   /** Unlinked with sign-in configured: the link that links this installation to a builder. */
   sign_in?: string;
+  /** The first find after a link: the GitHub account it linked to, as the closing block's last sentence (security M2). */
+  linked_notice: string | null;
 };
 export type ProgramReply = {
   show_to_builder: string; agent_note: string; program: Program | null; fields: Field[]; guide: Guide | null; verdict?: Verdict;
@@ -235,18 +237,26 @@ async function openList(ctx: FindContext, problem: string | null): Promise<FindR
   if (programs.length > MAX_LISTED) lines.push(`and ${programs.length - MAX_LISTED} more.`);
   const ledger = await summary(ownerOf(ctx), programs, ctx.now);
   const link = ctx.builderId === null ? await linkOf(ctx) : null;
+  const notice = await linkedNotice(ctx);
   const list = programs.length > 0 ? `Open now:\n${lines.join('\n')}\nTell me which project and I'll match it.` : "Nothing is open right now. I'll say when something opens.";
   return {
-    show_to_builder: link ? `${list}\n\n${signInLine(link)}` : list,
+    show_to_builder: [link ? `${list}\n\n${signInLine(link)}` : list, notice].filter(Boolean).join(' '),
     agent_note: [
       ...(problem ? [`The project was not read: ${problem}.`] : []),
       'Pass the project next time (name, description, repo_url, chains, live_url) so EarnKit can match it and pre-fill each form.',
     ].join('\n'),
     since: { from: null, new: [], changed: [], closing: [] },
     ready: [], gaps: [], ledger, ask_outcome: [], as_reported: false, ...unlinkedPart(), linked: ctx.builderId !== null,
-    ...(link ? { sign_in: link } : {}),
+    ...(link ? { sign_in: link } : {}), linked_notice: notice,
   };
 }
+
+/** Linked since the last find: the sentence that says to which GitHub account; else null. Read before markFind. */
+const linkedNotice = async (ctx: FindContext) => {
+  if (ctx.builderId === null) return null;
+  const login = await newlyLinkedLogin(ctx.installationId);
+  return login ? linkedNoticeLine(login) : null;
+};
 
 /** The unlinked installation's sign-in link, or null (never a failure). */
 const linkOf = (ctx: FindContext) => (ctx.linkUrl ?? (() => signInLink(ctx.installationId, ctx.now)))().catch(() => null);
@@ -328,6 +338,7 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   );
 
   const last = await lastFindAt(ctx.installationId);
+  const notice = await linkedNotice(ctx);
   const overnight = side ? await appliedOvernight(owner, last) : [];
   const link = side ? null : await linkOf(ctx);
   const moved = await since(owner, last, open, ready.map((r) => r.program_id), ctx.now, gaps.map((g) => g.program_id));
@@ -343,6 +354,7 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
     ...(side
       ? linkedPart(side, ready.map((p) => byId.get(p.program_id)!), released, overnight)
       : { ...unlinkedPart(), blockers: blockersOf(ready.map((p) => byId.get(p.program_id)!), EMPTY_RECORD), ...(link ? { sign_in: link } : {}) }),
+    linked_notice: notice,
   };
   // Every gap of this find (not only the shown ones), in rank order, so track started can say what is still missing.
   await markFind(ctx.installationId, ctx.now, Object.fromEntries(gapV.slice(0, MAX_REMEMBERED_GAPS).map((v) => [v.program_id, v.gaps[0].what])));

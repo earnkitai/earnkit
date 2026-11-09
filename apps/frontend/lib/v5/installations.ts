@@ -57,6 +57,14 @@ export async function forgetGap(id: number, programId: string): Promise<void> {
   await sql()`UPDATE installations SET last_gaps = last_gaps - ${programId}::text WHERE id = ${id} AND last_gaps IS NOT NULL`;
 }
 
+/** The linked builder's GitHub login when the link is newer than the last find (or no find yet); else null. Read before markFind. */
+export async function newlyLinkedLogin(id: number): Promise<string | null> {
+  const [row] = await sql()<{ login: string }[]>`
+    SELECT b.login FROM installations i JOIN builders b ON b.id = i.builder_id
+    WHERE i.id = ${id} AND i.linked_at IS NOT NULL AND (i.last_find_at IS NULL OR i.linked_at > i.last_find_at)`;
+  return row?.login ?? null;
+}
+
 export async function lastFindAt(id: number): Promise<Date | null> {
   const [row] = await sql()<{ last_find_at: Date | null }[]>`SELECT last_find_at FROM installations WHERE id = ${id}`;
   return row?.last_find_at ?? null;

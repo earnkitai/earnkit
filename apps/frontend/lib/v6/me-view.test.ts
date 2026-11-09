@@ -1,11 +1,17 @@
 import { after, test } from 'node:test';
+import * as React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import MeView from '../../app/me/MeView';
 import assert from 'node:assert/strict';
 import { sql } from '../v5/db';
 import { getRecord, saveRecord, upsertBuilder } from './builders';
+import { createLinkCode } from './link-routes';
 import { approvalPathOf, csrfToken, meData, verifyCsrf } from './me-view';
 import { APPROVABLE, mergeRecord } from './record';
 
 after(() => sql().end());
+// tsx compiles the components without the automatic JSX runtime, so they need React in scope.
+(globalThis as { React?: typeof React }).React = React;
 process.env.EARNKIT_AUTH_SECRET = 'me-view-secret-0123456789abcdef0123456789';
 const SECRET = process.env.EARNKIT_AUTH_SECRET;
 const NOW = new Date('2026-11-06T12:00:00Z');
@@ -56,4 +62,39 @@ test('the csrf verifies for today and yesterday and not two days ago', () => {
   assert.ok(!verifyCsrf(csrfToken(7, day(0), 'another-secret-0123456789abcdef'), 7, NOW, SECRET));
   assert.ok(!verifyCsrf('', 7, NOW, SECRET));
   assert.match(csrfToken(7, day(0), SECRET), /^[A-Za-z0-9_-]{43}$/);
+});
+
+test('/me?link=<code> with a live code shows the link banner with the agent name and both buttons; a dead code says it expired', async () => {
+  const b = await upsertBuilder({ github_id: 810_002, login: 'linkee', name: null, avatar_url: null }, NOW);
+  const inst = async (name: string | null) =>
+    (await sql()`INSERT INTO installations (token_hash, client_name, created_at) VALUES (${'mv-' + Math.random()}, ${name}, ${NOW}) RETURNING id`)[0].id as number;
+  const code = await createLinkCode(await inst('Claude <Code>'), NOW);
+  const d = await meData(b, NOW, code);
+  const text = 'The agent calling itself Claude <Code>, first seen Nov 6, asked for this link. Only link an agent running on your own computer. If someone sent you this link, choose Not me.';
+  assert.deepEqual(d.link, { code, text });
+  const html = renderToStaticMarkup(MeView({ data: d, problem: null }));
+  assert.ok(html.includes('Link an agent to this account?'), html);
+  assert.ok(html.includes(text.replace('<Code>', '&lt;Code&gt;')));
+  assert.ok(!html.includes('<Code>'));
+  for (const action of ['link', 'deny']) {
+    const form = html.match(new RegExp(`<form action="/me/link" method="post">(?:(?!</form>).)*value="${action}"(?:(?!</form>).)*</form>`))?.[0] ?? '';
+    assert.ok(form.includes(`name="code" value="${code}"`), action);
+    assert.ok(form.includes(`name="csrf" value="${d.csrf}"`), action);
+  }
+  assert.ok(html.includes('>Link this agent</button>'));
+  assert.ok(html.includes('>Not me</button>'));
+  assert.ok(html.indexOf('Link an agent to this account?') < html.indexOf('id="person"'));
+
+  const unnamed = await createLinkCode(await inst(null), NOW);
+  assert.equal((await meData(b, NOW, unnamed)).link?.text, 'Your agent, first seen Nov 6, asked for this link. Only link an agent running on your own computer. If someone sent you this link, choose Not me.');
+
+  for (const dead of [await meData(b, new Date(NOW.getTime() + 16 * 60_000), code), await meData(b, NOW, 'not-a-code')]) {
+    assert.deepEqual(dead.link, { code: null, text: 'This link has expired. Ask your agent for a new one.' });
+    const page = renderToStaticMarkup(MeView({ data: dead, problem: null }));
+    assert.ok(page.includes('This link has expired. Ask your agent for a new one.'));
+    assert.ok(!page.includes('/me/link'));
+    assert.ok(!page.includes('Link this agent'));
+  }
+  assert.equal((await meData(b, NOW)).link, null);
+  assert.ok(!renderToStaticMarkup(MeView({ data: await meData(b, NOW), problem: null })).includes('Link an agent to this account?'));
 });

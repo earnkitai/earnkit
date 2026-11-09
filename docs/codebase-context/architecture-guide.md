@@ -261,9 +261,13 @@ installation works as in v5, except (v6.1.3) that `find` bars `min_tier` program
 public code read (`provisionalTier`: a repo homepage, live URL or mainnet contract from code is live, any other read repo is building,
 an unread repo has no bar; never shown as evidence; the gap line names the bar; a linked builder with no own tier read yet meets the same bar), names `blockersOf` against `EMPTY_RECORD` under
 "Before applying:" ("Before tonight:" only when the agent sends tonight under standing approval), and keeps the closing line as the one action with the sign-in as its second sentence. The first `find` (and `record`) on an unlinked installation carries a one-time link
-`earnkit.com/link/<code>` (15 minutes, hash stored, `link-routes.ts`); the builder confirms, signs in with GitHub
-(`read:user`, `github-auth.ts`), and the callback links the installation and starts a 30-day session (`ek_me` cookie,
-`sessions.ts`). The ledger's owner is `b:<builder>` once linked, else `i:<installation>` (`ownerKey`); linking moves
+`earnkit.com/link/<code>` (15 minutes, hash stored, `link-routes.ts`); the builder continues, signs in with GitHub
+(`read:user`, `github-auth.ts`), and the callback only starts a 30-day session (`ek_me` cookie, `sessions.ts`) and lands
+on `/me?link=<code>` (v6.1.6, security H1: a sent link plus one click no longer links a stranger's agent). There a banner
+names the agent and its first-seen day; Link this agent (`POST /me/link`, session and csrf) marks the code used and
+links the installation in one transaction (`consumeLinkCode`), Not me ends the code (`denyLinkCode`). The first `find`
+after a link (its `linked_at` later than its `last_find_at`) ends the closing block with "This agent is now linked to
+GitHub account {login}." (`linked_notice`, security M2); `markFind` moves `last_find_at`, so it shows once. The ledger's owner is `b:<builder>` once linked, else `i:<installation>` (`ownerKey`); linking moves
 the installation's rows to the builder (the newer row per program wins), so every agent of one builder shares one
 ledger. A second agent links to the same builder; an installation linked to another builder is refused.
 

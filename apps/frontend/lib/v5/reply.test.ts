@@ -49,7 +49,7 @@ const NO_SINCE = { from: null, new: [], changed: [], closing: [] };
 const base = (over: Partial<R> = {}): R => {
   const r: R = {
     since: NO_SINCE, ready: [], gaps: [], ledger: LEDGER0, ask_outcome: [], as_reported: false,
-    linked: false, record_missing: [], blockers: [], evidence_summary: null, applied_overnight: [], released: [], auto_apply: false,
+    linked: false, record_missing: [], blockers: [], evidence_summary: null, applied_overnight: [], released: [], auto_apply: false, linked_notice: null,
     ...over,
   };
   return { ...r, ...numbered(r.ready, r.gaps) };
@@ -469,4 +469,10 @@ test('R19: with no repo read the sign-in sentence only promises to remember (v6.
 
 test('R26: the left-out count says what was left out (v6.1.6)', () => {
   assert.ok(agentNote(MONDAY, { more: 4 }).split('\n').includes('4 more: gaps and in-person programs. Ask with filter.all for the full list.'));
+});
+
+test('a linked notice is the last sentence of the closing block', () => {
+  const notice = 'This agent is now linked to GitHub account ada. Unlink any time at earnkit.com/me.';
+  assert.equal(replyText(base({ linked: true, linked_notice: notice }), false), `Nothing fits yet. I'll say when something opens. ${notice}`);
+  assert.ok(!replyText(base({ linked: true }), false).includes('now linked'));
 });

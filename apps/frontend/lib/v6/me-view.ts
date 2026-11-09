@@ -6,8 +6,9 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { sql } from '../v5/db';
 import { ANSWER_KINDS, PROGRAM_CATEGORIES } from '../v5/program-file';
-import { ME_BLOCKS, ME_LABELS, ME_STATUS, monthDay } from '../v5/site-copy';
+import { ME_BLOCKS, ME_LABELS, ME_LINK_LINE, ME_STATUS, monthDay } from '../v5/site-copy';
 import { type Builder, getRecord } from './builders';
+import { EXPIRED, liveCode } from './link-routes';
 import { APPROVABLE, type BuilderRecord, isApproved, KIND_WORDS } from './record';
 
 export type FieldKind = 'text' | 'long' | 'url' | 'bool' | 'number' | 'choice';
@@ -26,6 +27,8 @@ export type MeData = {
   pending_approvals: { path: string; label: string; text: string; seen: string }[];
   ledger: { title: string; program_id: string; status: string; at: string }[];
   installations: { id: number; client_name: string | null; linked_at: string }[];
+  /** After sign-in from /link/<code>: the code to confirm and the banner text; code null when it is no longer live. */
+  link: { code: string | null; text: string } | null;
 };
 
 const DAY = 86_400_000;
@@ -156,8 +159,15 @@ export function pendingApprovals(record: BuilderRecord): MeData['pending_approva
   return out;
 }
 
-/** The page's data for this builder only. */
-export async function meData(builder: Builder, now: Date): Promise<MeData> {
+/** The link banner for /me?link=<code>: the agent that asked, or that the link expired. */
+async function linkBanner(code: string | null | undefined, now: Date): Promise<MeData['link']> {
+  if (code === null || code === undefined) return null;
+  const live = await liveCode(code, now);
+  return live ? { code, text: ME_LINK_LINE(live.client_name, monthDay(live.created_at)) } : { code: null, text: EXPIRED };
+}
+
+/** The page's data for this builder only; `link` is the ?link= code, if any. */
+export async function meData(builder: Builder, now: Date, link?: string | null): Promise<MeData> {
   const record = await getRecord(builder.id);
   const owner = `b:${builder.id}`;
   const ledger = await sql()<{ title: string | null; program_id: string; status: string; at: Date }[]>`
@@ -173,5 +183,6 @@ export async function meData(builder: Builder, now: Date): Promise<MeData> {
     pending_approvals: pendingApprovals(record),
     ledger: ledger.map((r) => ({ title: r.title ?? r.program_id, program_id: r.program_id, status: ME_STATUS[r.status] ?? cap(r.status.replaceAll('_', ' ')), at: monthDay(r.at) })),
     installations: agents.map((r) => ({ id: r.id, client_name: r.client_name, linked_at: r.linked_at ? monthDay(r.linked_at) : '' })),
+    link: await linkBanner(link, now),
   };
 }

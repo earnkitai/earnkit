@@ -217,7 +217,8 @@ export function replyText(r: R, first: boolean): string {
   const firstDo = r.gaps.find((g) => !ruleOnlyGap(g))?.n ?? null;
   const closing = tonight > 0 ? `Applying tonight to ${tonight}; say stop to hold any.` : closingLine(ready.length, firstRule, firstDo, inPerson.length);
   // R5a: saying yes is the one action; unlinked with a link, signing in is the closing block's second sentence.
-  blocks.push(r.sign_in && !r.linked ? `${closing} ${signInSentence(r.sign_in, !r.as_reported)}` : closing);
+  // The first find after a link names the account it linked to, last (security M2).
+  blocks.push([closing, r.sign_in && !r.linked ? signInSentence(r.sign_in, !r.as_reported) : null, r.linked_notice].filter(Boolean).join(' '));
   return blocks.join('\n\n');
 }
 

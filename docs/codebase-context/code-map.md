@@ -97,14 +97,14 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v5/fixtures/record-owner.json`: A sample owner record (EarnKit project, approved answers) for `replay.mts --linked`
 - `apps/frontend/lib/v6/builders.ts`: Builders (one row per GitHub account): `upsertBuilder`, `getBuilder`, `ownerKey` ('b:' or 'i:'), `getRecord`, `saveRecord`, `withRecord` (a locked read-merge-save), `linkInstallation` (re-keys the installation's ledger to the builder), `deleteBuilder`
 - `apps/frontend/lib/v6/github-auth.ts`: GitHub sign-in (read:user): `oauthConfigured`, `authorizeUrl`, the signed state (link code and browser nonce, 15 minutes), `exchangeCode`
-- `apps/frontend/lib/v6/link-routes.ts`: `/link/<code>` (confirm page, then GitHub) and `/auth/github/callback` (links the installation, starts a session, lands on /me); `createLinkCode` (15 minutes, hash stored); per-IP limit
+- `apps/frontend/lib/v6/link-routes.ts`: `/link/<code>` (confirm page, then GitHub) and `/auth/github/callback` (starts a session, lands on /me?link=<code>; links nothing); `createLinkCode` (15 minutes, hash stored); `consumeLinkCode` (marks used and links in one transaction) and `denyLinkCode` for POST /me/link; per-IP limit
 - `apps/frontend/lib/v6/sessions.ts`: Browser sessions for /me: the `ek_me` HttpOnly cookie (hash stored, 30 days), `sessionBuilder`, `endSession`, `clearCookie`, `cookieValue`
 - `apps/frontend/lib/v6/record.ts`: The record: `BuilderRecord` schema, `mergeRecord` (bad leaves dropped with a problem line, `set_by` stamps, policy builder only), `approvePath`, `unapprovePath`, `isApproved`, `APPROVABLE`, `answerFor`, `recordMissing`, `completeness`, `KIND_WORDS`; pure
 - `apps/frontend/lib/v6/record-tool.ts`: The `record` MCP tool: get, set (merged as the agent, never approved), brief; unlinked, the sign-in link
 - `apps/frontend/lib/v6/answer-brief.ts`: The brief behind one answer kind: the reviewer's question, record and repo facts as lines, the length band and the style contract; pure
 - `apps/frontend/lib/v6/reply-words.ts`: Words shared by the find reply and the record tool: the list joiner, `signInLine` (record and find's open list), `signInSentence` (the unlinked find's closing block, after the closing line), `confirmLine` (the unlinked tier gap per bar), `EVIDENCE_NOT_READ`; pure
-- `apps/frontend/lib/v6/me-view.ts`: /me's data: `meData` (the record as blocks of fields in builder words, pending approvals, the ledger, linked agents), `csrfToken` and `verifyCsrf` (HMAC of builder and UTC day, today or yesterday), `problemSig`
-- `apps/frontend/lib/v6/me-routes.ts`: /me's handlers: `meGet` (the session gate, 302 to /docs#record), `editPost`, `approvePost`, `policyPost`, `unlinkPost`, `deletePost`, `signoutPost` (web form under 64 KB, session and csrf, else 415, 413 or 403)
+- `apps/frontend/lib/v6/me-view.ts`: /me's data: `meData` (the record as blocks of fields in builder words, pending approvals, the ledger, linked agents, the ?link= banner), `csrfToken` and `verifyCsrf` (HMAC of builder and UTC day, today or yesterday), `problemSig`
+- `apps/frontend/lib/v6/me-routes.ts`: /me's handlers: `meGet` (the session gate, 302 to /docs#record), `editPost`, `approvePost`, `policyPost`, `unlinkPost`, `linkPost` (confirm or refuse a link code), `deletePost`, `signoutPost` (web form under 64 KB, session and csrf, else 415, 413 or 403)
 - `apps/frontend/lib/v6/fixtures/github-oauth.ts`: A fetch fake for GitHub sign-in (token exchange and user read)
 
 ## apps/frontend/app (routes and components)
@@ -166,7 +166,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/app/auth/github/callback/route.ts`: GET /auth/github/callback (via lib/v6/link-routes.ts)
 - `apps/frontend/app/me/page.tsx`: /me: the signed-in builder's record, server-rendered from `meData`, noindex
 - `apps/frontend/app/me/MeView.tsx`: /me's markup: pending approvals, one panel per block, standing approval, applications, agents, delete; plain forms, no client script
-- `apps/frontend/app/me/{edit,approve,policy,unlink,delete,signout}/route.ts`: POST handlers (via lib/v6/me-routes.ts)
+- `apps/frontend/app/me/{edit,approve,policy,unlink,link,delete,signout}/route.ts`: POST handlers (via lib/v6/me-routes.ts)
 
 ## apps/frontend/scripts and db
 

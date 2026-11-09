@@ -148,6 +148,12 @@ export const ME_AGENTS_EMPTY = 'No agents linked.';
 export const ME_AN_AGENT = 'An agent';
 export const ME_LINKED = (day: string): string => `Linked ${day}.`;
 export const ME_UNLINK = 'Unlink';
+/** The banner above the record after sign-in from /link/<code>: the link happens only on Link this agent. */
+export const ME_LINK_TITLE = 'Link an agent to this account?';
+export const ME_LINK_LINE = (agent: string | null, day: string): string =>
+  `${agent ? `The agent calling itself ${agent}` : 'Your agent'}, first seen ${day}, asked for this link. Only link an agent running on your own computer. If someone sent you this link, choose Not me.`;
+export const ME_LINK_YES = 'Link this agent';
+export const ME_LINK_NO = 'Not me';
 export const ME_DELETE_TITLE = 'Delete your record';
 export const ME_DELETE_LINE = 'This removes your record, your ledger and your sign-ins. Your agents keep working as new, anonymous installations.';
 export const ME_DELETE_HINT = 'Type your GitHub login to confirm.';

@@ -34,6 +34,8 @@ const rec = replayFetch('earnkit');
 // The agent knows the live link (it passes it); whether real people use it, it does not say.
 const PROJECT = { name: 'EarnKit', description: 'Grants for builders.', repo_url: `https://github.com/${rec.repo}`, live_url: 'https://earnkit.com' };
 const ctx = (id: number, now = NOW) => ({ installationId: id, builderId: null, now, gh: rec.fetch });
+/** The first find after a link ends with the linked notice (security M2). */
+const NOTICE_TAIL = '( This agent is now linked to GitHub account \\S+\\. Unlink any time at earnkit\\.com/me\\.)?';
 const ids = (xs: unknown) => (xs as { program_id: string }[]).map((x) => x.program_id);
 
 test('first find has no since', async () => {
@@ -579,7 +581,7 @@ test('auto_apply changes the closing line and the agent note; never removes a pr
   const blocked = new Set((r.reply!.blockers as { program_id: string; sign_in: string | null; needs_click: boolean }[]).filter((b) => b.sign_in || b.needs_click).map((b) => b.program_id));
   const free = (r.reply!.ready as { program_id: string; in_person: boolean }[]).filter((p) => !p.in_person && !blocked.has(p.program_id)).length;
   assert.ok(free >= 1, show);
-  assert.match(show, new RegExp(`\\n\\nApplying tonight to ${Math.min(2, free)}; say stop to hold any\\.$`));
+  assert.match(show, new RegExp(`\\n\\nApplying tonight to ${Math.min(2, free)}; say stop to hold any\\.${NOTICE_TAIL}$`));
   assert.doesNotMatch(show, /Say yes/);
   assert.equal(r.reply!.auto_apply, true);
   assert.match(r.reply!.agent_note as string, /^Standing approval is on: for each ready program within the limits, call track started/m);
@@ -609,7 +611,7 @@ test('categories limit only what the agent sends alone: an investment program st
   const named = invest.filter((p) => !blockers.find((b) => b.program_id === p.program_id)!.needs_click).map((p) => p.title);
   assert.ok(named.length > 0);
   assert.ok(show.includes(`Outside your standing approval, you say yes yourself: ${named.length === 1 ? named[0] : `${named.slice(0, -1).join(', ')} and ${named.at(-1)}`}.`), show);
-  assert.match(show, free.length > 0 ? new RegExp(`\\n\\nApplying tonight to ${free.length}; say stop to hold any\\.$`) : /Say yes/);
+  assert.match(show, free.length > 0 ? new RegExp(`\\n\\nApplying tonight to ${free.length}; say stop to hold any\\.${NOTICE_TAIL}$`) : /Say yes/);
   assert.match(r.reply!.agent_note as string, /outside_approval/);
 });
 
@@ -631,7 +633,7 @@ test('max_ask_usd keeps a larger ask out of tonight and names it; a program with
     const show = r.reply!.show_to_builder as string;
     assert.match(show, /Outside your standing approval, you say yes yourself: [^\n]*Big Grant[^\n]*\./);
     assert.doesNotMatch(show, /yourself: [^\n]*Open Grant/);
-    assert.match(show, new RegExp(`\\n\\nApplying tonight to ${free.length}; say stop to hold any\\.$`));
+    assert.match(show, new RegExp(`\\n\\nApplying tonight to ${free.length}; say stop to hold any\\.${NOTICE_TAIL}$`));
     // With auto_apply off, the limits change nothing.
     const off = await linkedWith({ ...OWNER_RECORD, policy: { max_ask_usd: 10_000, categories: ['grant'] } });
     const o = await mcpCall({ ...ctx(off.id), builderId: off.builderId, evidence: LIVE }, 'find', { project: PROJECT, filter: { all: true } });
@@ -821,4 +823,22 @@ test('R18d: under filter.all, Antler (in person, rule only) says its rule and wh
     lineOf(r.reply!.show_to_builder as string, g.n),
     `${g.n}. Antler US Residency, $500K to $1M investment. Their rule: at least one co-founder already has independent US work authorization; no visa sponsorship. First: work in person at Antler's NYC, SF or Austin office for up to 3 months. Say "yes ${g.n}" if that is you.`,
   );
+});
+
+test('the first find after a link says which GitHub account it is linked to; the second does not', async () => {
+  const { id, builderId } = await linkedWith(OWNER_RECORD);
+  const login = (await sql()`SELECT login FROM builders WHERE id = ${builderId}`)[0].login as string;
+  const notice = `This agent is now linked to GitHub account ${login}. Unlink any time at earnkit.com/me.`;
+  const first = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT });
+  assert.equal(first.isError, false, first.text);
+  assert.equal(first.reply!.linked_notice, notice);
+  const show = first.reply!.show_to_builder as string;
+  assert.ok(show.endsWith(` ${notice}`), show);
+  assert.ok(show.split('\n\n').at(-1)!.startsWith('Say '), show);
+  const second = await mcpCall({ ...ctx(id, new Date(NOW.getTime() + H)), builderId, evidence: LIVE }, 'find', { project: PROJECT });
+  assert.equal(second.reply!.linked_notice, null);
+  assert.ok(!(second.reply!.show_to_builder as string).includes('now linked'));
+  // An unlinked find never carries it.
+  const plain = await mcpCall(ctx(await installation()), 'find', { project: PROJECT });
+  assert.equal(plain.reply!.linked_notice, null);
 });
