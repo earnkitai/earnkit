@@ -54,7 +54,7 @@ const base = (over: Partial<R> = {}): R => {
 const MONDAY = base({
   ready: [
     ready({
-      title: 'Alliance ALL19', money: '$400K at admission', closes_in: 'in 14 days', filled: 3, facts_from_repo: 2, total: 9,
+      title: 'Alliance ALL19', money: '$400K at admission', closes_in: 'in 14 days', filled: 3, facts_from_repo: 2, repo_required: 2, total: 9,
       needs: ["the first founder's email"],
     }),
     ready({ title: 'Arc Builders Fund', money: 'investment from Circle Ventures', long_shot: 'an investment program with no stated amount', total: 5 }),
@@ -68,8 +68,8 @@ test('the Monday text: two ready, one gap, a ledger with one applied', () => {
     replyText(MONDAY, false),
     [
       'Ready to apply, 2:',
-      "1. Alliance ALL19, $400K at admission, closes in 14 days. Drafted: 2 of 9 answers from the repo, the rest your agent asks you once. Needs your first founder's email.",
-      '2. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Your agent fills all 5 answers on the page.',
+      "1. Alliance ALL19, $400K at admission, closes in 14 days. Drafted: 2 of 9 answers from the repo, 6 more by your agent. Needs your first founder's email.",
+      '2. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Your agent drafts all 5 answers.',
       '',
       'One change away, 1:',
       '3. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
@@ -89,7 +89,7 @@ test('the since line: only when something changed, never on the first find', () 
       changed: [{ program_id: 'c', title: 'Circle Developer Grants', what: 'deadline moved to Nov 20' }],
       closing: [{ program_id: 'd', title: 'Alliance ALL19', closes_at: '2026-11-07T00:00:00.000Z' }],
     },
-    ready: [ready({ program_id: 'd', title: 'Alliance ALL19', money: '$400K at admission', closes_in: 'in 3 days', filled: 1, facts_from_repo: 1, total: 4 })],
+    ready: [ready({ program_id: 'd', title: 'Alliance ALL19', money: '$400K at admission', closes_in: 'in 3 days', filled: 1, facts_from_repo: 1, repo_required: 1, total: 4 })],
     ledger: { ...LEDGER0, applied: 2, asked_usd: 115000, won: 1, pending: 1, closing_soon: [{ program_id: 'x', title: 'X', closes_at: '' }] },
   });
   assert.equal(
@@ -98,7 +98,7 @@ test('the since line: only when something changed, never on the first find', () 
       'Since Nov 2: 2 new programs you fit; Circle Developer Grants: deadline moved to Nov 20; Alliance ALL19 closes in 3 days.',
       '',
       'Ready to apply, 1:',
-      "1. Alliance ALL19, $400K at admission, closes in 3 days. Drafted: 1 of 4 answers from the repo, the rest your agent asks you once.",
+      "1. Alliance ALL19, $400K at admission, closes in 3 days. Drafted: 1 of 4 answers from the repo, the rest by your agent.",
       '',
       'Ledger: 2 applied ($115K asked), 1 won, 1 pending, 1 closing soon.',
       '',
@@ -121,7 +121,7 @@ test('gaps only, the agent can do it, and the needs list is cut at three', () =>
   const many = base({ ready: [ready({ title: 'B', needs: ['your full name', 'your email', 'a Loom product demo', 'your X handle', 'an investor deck file'] })] });
   assert.match(replyText(many, false), /Needs your full name, email, Loom product demo and 2 more\.$/m);
   const setup = base({ ready: [ready({ title: 'S', setup: ['sign in to the Builder Hub'], needs: ['sign in to the Builder Hub', 'a Loom product demo'] })] });
-  // R2b: the one answer is the builder's, so the agent drafts none of it.
+  // R2c: the one answer is the builder's, so the agent drafts none of it.
   assert.match(replyText(setup, false), /^1\. S, \$1K\. Needs your Loom product demo\. First: sign in to the Builder Hub\.$/m);
 });
 
@@ -143,8 +143,8 @@ test('in person: its own block after ready and gaps, with the setup, and never i
     replyText(r, false),
     [
       'Ready to apply, 2:',
-      "1. Alliance ALL19, $400K at admission, closes in 14 days. Drafted: 2 of 9 answers from the repo, the rest your agent asks you once. Needs your first founder's email.",
-      '2. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Your agent fills all 5 answers on the page.',
+      "1. Alliance ALL19, $400K at admission, closes in 14 days. Drafted: 2 of 9 answers from the repo, 6 more by your agent. Needs your first founder's email.",
+      '2. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Your agent drafts all 5 answers.',
       '',
       'One change away, 1:',
       '3. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
@@ -195,28 +195,32 @@ test('repo reads paused: its own agent line, never "send them corrected"', () =>
   assert.ok(both.includes('Some project facts were dropped: live_url dropped: not a web link. Send them corrected next time.'));
 });
 
-test('a reported-only program with passed links reads "Your agent fills the one answer on the page."', () => {
-  assert.match(replyText(base({ ready: [ready({ title: 'R', filled: 3, facts_from_repo: 0 })] }), false), /^1\. R, \$1K\. Your agent fills the one answer on the page\.$/m);
+test('a reported-only program with passed links reads "Your agent drafts the one answer."', () => {
+  assert.match(replyText(base({ ready: [ready({ title: 'R', filled: 3, facts_from_repo: 0 })] }), false), /^1\. R, \$1K\. Your agent drafts the one answer\.$/m);
 });
 
-test('the ready line is honest about the answers: n of total, never above total, or all of them by the agent', () => {
+test('the ready line is honest about the answers (R2c): n from the repo, k by the agent, the builder\'s named, never above total', () => {
   const line = (over: Partial<ReadyProgram>) => replyText(base({ ready: [ready({ title: 'Z Fellows', money: '$10K', ...over })] }), false).split('\n')[1];
-  assert.equal(line({ facts_from_repo: 2, total: 23 }), "1. Z Fellows, $10K. Drafted: 2 of 23 answers from the repo, the rest your agent asks you once.");
-  assert.equal(line({ facts_from_repo: 6, total: 4 }), "1. Z Fellows, $10K. Drafted: 4 of 4 answers from the repo, the rest your agent asks you once.");
-  assert.equal(line({ facts_from_repo: 0, total: 23 }), '1. Z Fellows, $10K. Your agent fills all 23 answers on the page.');
-  // R2b: none from the repo but some only the builder gives: never "fills all", the agent drafts the rest.
-  assert.equal(line({ facts_from_repo: 0, total: 23, needs: ['your birthday', 'your phone number'] }), '1. Z Fellows, $10K. Your agent drafts 21 answers; needs your birthday and phone number.');
-  assert.equal(line({ facts_from_repo: 0, total: 2, needs: ['your birthday'] }), '1. Z Fellows, $10K. Your agent drafts 1 answer; needs your birthday.');
+  assert.equal(line({ repo_required: 2, total: 9, needs: ['your email'] }), '1. Z Fellows, $10K. Drafted: 2 of 9 answers from the repo, 6 more by your agent. Needs your email.');
+  assert.equal(line({ repo_required: 2, total: 23 }), '1. Z Fellows, $10K. Drafted: 2 of 23 answers from the repo, the rest by your agent.');
+  assert.equal(line({ repo_required: 1, total: 2, needs: ['your birthday'] }), '1. Z Fellows, $10K. Drafted: 1 of 2 answers from the repo. Needs your birthday.');
+  assert.equal(line({ repo_required: 0, total: 23, needs: ['your birthday', 'your phone number'] }), '1. Z Fellows, $10K. Your agent drafts 21 answers. Needs your birthday and phone number.');
+  assert.equal(line({ total: 2, needs: ['your birthday'] }), '1. Z Fellows, $10K. Your agent drafts 1 answer. Needs your birthday.');
+  assert.equal(line({ total: 23 }), '1. Z Fellows, $10K. Your agent drafts all 23 answers.');
+  assert.equal(line({ total: 1, needs: ['your birthday'] }), '1. Z Fellows, $10K. Needs your birthday.');
+  assert.equal(line({ repo_required: 4, total: 4 }), '1. Z Fellows, $10K. Drafted: all 4 answers from the repo.');
+  // Never above total; optional fields read from the repo (facts_from_repo) are not in the count.
+  assert.equal(line({ repo_required: 6, facts_from_repo: 9, total: 4 }), '1. Z Fellows, $10K. Drafted: all 4 answers from the repo.');
   assert.equal(
-    line({ facts_from_repo: 0, total: 3, setup: ['sign in to the Hub'], needs: ['sign in to the Hub', 'your birthday'] }),
-    '1. Z Fellows, $10K. Your agent drafts 2 answers; needs your birthday. First: sign in to the Hub.',
+    line({ total: 3, setup: ['sign in to the Hub'], needs: ['sign in to the Hub', 'your birthday'] }),
+    '1. Z Fellows, $10K. Your agent drafts 2 answers. Needs your birthday. First: sign in to the Hub.',
   );
 });
 
 test('one required answer reads in the singular', () => {
-  const line = (facts_from_repo: number) => replyText(base({ ready: [ready({ title: 'One', money: '$1K', facts_from_repo, total: 1 })] }), false).split('\n')[1];
+  const line = (repo_required: number) => replyText(base({ ready: [ready({ title: 'One', money: '$1K', repo_required, total: 1 })] }), false).split('\n')[1];
   assert.equal(line(1), '1. One, $1K. Drafted: the one answer from the repo.');
-  assert.equal(line(0), '1. One, $1K. Your agent fills the one answer on the page.');
+  assert.equal(line(0), '1. One, $1K. Your agent drafts the one answer.');
 });
 
 const BANNED = /—|\p{Extended_Pictographic}|\b(score|rank|grade|points|coin|token|streak)s?\b/iu;
@@ -233,10 +237,10 @@ test('linked: the ready line names what the record and the repo give and who els
   const four = base({ linked: true, ready: [ready({ title: 'B', from_record: 1, total: 6, need_you: ['your phone', 'your birthday', 'where you are based', 'your Telegram username'] })] });
   assert.equal(replyText(four, false).split('\n')[1], '1. B, $1K. 1 from your record, 0 from the repo, 4 need you: your phone, your birthday, where you are based and 1 more.');
   const zero = base({ linked: true, ready: [ready({ title: 'C', total: 4 })] });
-  assert.equal(replyText(zero, false).split('\n')[1], '1. C, $1K. Your agent fills all 4 answers on the page.');
-  // Unlinked: v5's words, whatever the counts say.
-  const unlinked = base({ ready: [ready({ title: 'Z Fellows', money: '$10K', from_record: 3, facts_from_repo: 2, total: 6, need_you: ['x'] })] });
-  assert.equal(replyText(unlinked, false).split('\n')[1], "1. Z Fellows, $10K. Drafted: 2 of 6 answers from the repo, the rest your agent asks you once.");
+  assert.equal(replyText(zero, false).split('\n')[1], '1. C, $1K. Your agent drafts all 4 answers.');
+  // Unlinked: the repo's count only, whatever the record counts say.
+  const unlinked = base({ ready: [ready({ title: 'Z Fellows', money: '$10K', from_record: 3, facts_from_repo: 2, repo_required: 2, total: 6, need_you: ['x'] })] });
+  assert.equal(replyText(unlinked, false).split('\n')[1], '1. Z Fellows, $10K. Drafted: 2 of 6 answers from the repo, the rest by your agent.');
 });
 
 const LINKED = base({

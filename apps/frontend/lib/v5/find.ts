@@ -263,11 +263,15 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const programs = open.filter((r) => !skip.has(r.id) && listed(r) && (!i.filter?.category || categoryOf(r.file) === i.filter.category));
   const byId = new Map(programs.map((r) => [r.id, r]));
   const done = await doneByProgram(owner);
-  // Unlinked, the bar is the tier the public code read alone supports (none when it was not read); never shown as evidence.
-  const provisional = side ? null : provisionalTier(facts);
+  // The builder's own tier when one was read; else (unlinked, or linked before any read: R3c) the tier the public code
+  // read alone supports, none when it was not read. The provisional tier is never shown as evidence.
+  const provisional = provisionalTier(facts);
   const verdicts = programs
     .map((r) => evaluate(r, facts, done.get(r.id) ?? new Set<string>(), ctx.now))
-    .map((v) => (side ? tierGate(v, byId.get(v.program_id)!, side.tier, side.summary?.line) : provisionalGate(v, byId.get(v.program_id)!, provisional)));
+    .map((v) => {
+      const row = byId.get(v.program_id)!;
+      return side?.tier ? tierGate(v, row, side.tier, side.summary?.line) : provisionalGate(v, row, provisional);
+    });
 
   const readyV = rankReady(verdicts.filter((v) => v.status === 'ready'), byId);
   const gapV = rankGaps(verdicts.filter((v) => v.status === 'gap'), byId);

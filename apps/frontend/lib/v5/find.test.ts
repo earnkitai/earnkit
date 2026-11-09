@@ -48,11 +48,11 @@ test('first find has no since', async () => {
     show,
     [
       'Ready to apply, 5:',
-      "1. Alliance ALL19, $400K at admission, closes in 14 days. Your agent fills the one answer on the page. First: start the application with the first founder's email.",
-      '2. Avalanche Team1 Mini Grants, up to $10,000. Drafted: 1 of 9 answers from the repo, the rest your agent asks you once. Needs your consent to share data with Team1 and amount you request in USD. First: sign in to the Avalanche Builder Hub.',
-      '3. Z Fellows, up to $10K investment. Your agent drafts 21 answers; needs your birthday and phone number.',
-      '4. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Your agent drafts 5 answers; needs your investor deck file.',
-      "5. Base Ecosystem Fund, pre-seed and seed investment, a long shot: an investment program with no stated amount. Your agent drafts 19 answers; needs your company's X link and current traction.",
+      "1. Alliance ALL19, $400K at admission, closes in 14 days. Your agent drafts the one answer. First: start the application with the first founder's email.",
+      '2. Avalanche Team1 Mini Grants, up to $10,000. Your agent drafts 7 answers. Needs your consent to share data with Team1 and amount you request in USD. First: sign in to the Avalanche Builder Hub.',
+      '3. Z Fellows, up to $10K investment. Your agent drafts 21 answers. Needs your birthday and phone number.',
+      '4. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Your agent drafts 5 answers. Needs your investor deck file.',
+      "5. Base Ecosystem Fund, pre-seed and seed investment, a long shot: an investment program with no stated amount. Your agent drafts 19 answers. Needs your company's X link and current traction.",
       '',
       'One change away, 2:',
       '6. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
@@ -373,10 +373,11 @@ test('min_tier above the project tier moves the program to gaps with kind tier; 
     assert.ok(g, JSON.stringify(gaps.map((x) => x.program_id)));
     assert.deepEqual(g.gap, { kind: 'tier', item: 'tier:used', what: '25 funded wallets on mainnet in 90 days; you have 0', effort: 'weeks', agent_can: false, details: { tier: 'live', min_tier: 'used' } });
     assert.ok(!ids(r.reply!.ready).includes('f-tier'));
-    // A read that fails leaves the tier unknown: the program stays ready.
+    // A read that fails leaves the own tier unknown: the bar falls back to the provisional one (R3c), building here.
     const other = await linkedWith(OWNER_RECORD);
     const u = await mcpCall({ ...ctx(other.id), builderId: other.builderId, evidence: async () => { throw new Error('down'); } }, 'find', { project: PROJECT, filter: { all: true } });
-    assert.ok(ids(u.reply!.ready).includes('f-tier'));
+    assert.ok(ids(u.reply!.gaps).includes('f-tier'));
+    assert.match(u.reply!.show_to_builder as string, /Tier Grant, Up to \$5,000: Link GitHub so EarnKit can confirm your product has users\./);
     // Unlinked (v6.1.3 R3): the repo read reads as building at most, so a used bar is a gap; an unread repo has no bar.
     const v5 = await mcpCall(ctx(await installation()), 'find', { project: PROJECT, filter: { all: true } });
     assert.ok(ids(v5.reply!.gaps).includes('f-tier'));
@@ -450,6 +451,19 @@ test('unlinked: a live URL read from the code passes the live bar (R3)', async (
   assert.equal(passed.isError, false, passed.text);
   assert.ok(ids(passed.reply!.ready).includes('f-live'), JSON.stringify(ids(passed.reply!.gaps)));
   assertLiveReady(passed.reply!.show_to_builder as string);
+}));
+
+test('linked with an empty record: the provisional bar holds after sign-in, with the line for the bar (R3c)', async () => withLiveBar(async () => {
+  const { id, builderId } = await linkedWith({});
+  const { live_url: _, ...noLink } = PROJECT;
+  const r = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: noLink, filter: { all: true } });
+  assert.equal(r.isError, false, r.text);
+  assert.equal(r.reply!.linked, true);
+  const g = (r.reply!.gaps as { program_id: string; n: number; gap: { kind: string; what: string } }[]).find((x) => x.program_id === 'f-live');
+  assert.ok(g, JSON.stringify(ids(r.reply!.gaps)));
+  assert.equal(g.gap.kind, 'tier');
+  assert.match(r.reply!.show_to_builder as string, new RegExp(`^${g.n}\\. Live Grant, Up to \\$5,000: Link GitHub so EarnKit can confirm your product is live\\.$`, 'm'));
+  assert.equal(r.reply!.evidence_summary, null);
 }));
 
 test('unlinked: a repo that could not be read applies no tier bar (R3)', async () => withLiveBar(async () => {

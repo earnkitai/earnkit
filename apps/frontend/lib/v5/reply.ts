@@ -52,24 +52,30 @@ function readyLine(p: ReadyProgram, linked: boolean): string {
   // Linked, the k that need the builder are already named.
   const needs = fromRecord ? [] : p.needs.filter((x) => !p.setup.includes(x)).map(bare);
   const shown = needs.length > NEEDS_SHOWN ? [...needs.slice(0, NEEDS_SHOWN), `${needs.length - NEEDS_SHOWN} more`] : needs;
-  const needsYour = shown.length > 0 ? `Needs your ${joinAnd(shown)}.` : '';
   const first = steps.length > 0 ? ` First: ${steps.join('; ')}.` : '';
-  // R2b: nothing from the repo and some answers only the builder gives: the agent drafts the rest, never "all".
-  if (!fromRecord && p.facts_from_repo === 0 && needs.length > 0) {
-    const k = Math.max(p.total - needs.length, 0);
-    const drafts = k > 0 ? `Your agent drafts ${k} ${k === 1 ? 'answer' : 'answers'}; needs your ${joinAnd(shown)}.` : needsYour;
-    return `${head}. ${drafts}${first}`;
+  return `${head}.${fromRecord ? ` ${fromRecord}` : drafted(p, linked, needs.length, shown)}${first}`;
+}
+
+/**
+ * R2c: n answers from the repo (or record), k the agent drafts, b only the builder gives, over the required total.
+ * The agent drafts its fields itself and asks only for the b. Each sentence comes with its leading space, or ''. Pure.
+ */
+function drafted(p: ReadyProgram, linked: boolean, b: number, shown: string[]): string {
+  const total = p.total;
+  const n = Math.min(p.repo_required + (linked ? p.from_record : 0), total);
+  const k = Math.max(total - n - b, 0);
+  const needsYour = b > 0 ? ` Needs your ${joinAnd(shown)}.` : '';
+  if (total > 0 && n === total) return total === 1 ? ' Drafted: the one answer from the repo.' : ` Drafted: all ${total} answers from the repo.`;
+  if (n > 0) {
+    const head = ` Drafted: ${n} of ${total} answers from the repo`;
+    if (k > 0) return b > 0 ? `${head}, ${k} more by your agent.${needsYour}` : `${head}, the rest by your agent.`;
+    return `${head}.${needsYour}`;
   }
-  const drafted =
-    fromRecord ??
-    (p.total === 1
-      ? p.facts_from_repo > 0
-        ? 'Drafted: the one answer from the repo.'
-        : 'Your agent fills the one answer on the page.'
-      : p.facts_from_repo > 0
-        ? `Drafted: ${Math.min(p.facts_from_repo, p.total)} of ${p.total} answers from the repo, the rest your agent asks you once.`
-        : `Your agent fills all ${p.total} answers on the page.`);
-  return `${head}. ${drafted}${needsYour ? ` ${needsYour}` : ''}${first}`;
+  if (k > 0) {
+    if (b > 0) return ` Your agent drafts ${k} ${k === 1 ? 'answer' : 'answers'}.${needsYour}`;
+    return total === 1 ? ' Your agent drafts the one answer.' : ` Your agent drafts all ${total} answers.`;
+  }
+  return needsYour;
 }
 
 /** An in-person program: the money, the close, and what attending takes. */

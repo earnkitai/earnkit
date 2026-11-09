@@ -320,6 +320,14 @@ test('R1: each link field gets one URL by its key and label; X, deck and other l
   assert.equal(out.facts_from_repo, 2);
 });
 
+test('R1a: repo words beat live words: "App repository" and "Link to the app\'s source code" take the repo URL', () => {
+  const out = prefill(rowWith([
+    req({ key: 'app_repo', label: 'App repository', type: 'url', kind: 'links' }),
+    req({ key: 'src', label: "Link to the app's source code", type: 'url', kind: 'links' }),
+  ]), LINK_FACTS);
+  for (const f of out.fields) assert.deepEqual([f.key, f.value, f.from], [f.key, 'https://github.com/a/b', 'earnkit']);
+});
+
 test('R1: a url field never gets two URLs; a text field labelled only "Links" may take both', () => {
   const out = prefill(rowWith([
     req({ key: 'links', label: 'Links', type: 'text', kind: 'links' }),

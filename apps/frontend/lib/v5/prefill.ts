@@ -48,8 +48,9 @@ const REPO = /^(repo|repository|github|code|source)$/;
 function linkPick(r: SubmissionRequirement): LinkPick {
   const all = fieldWords(r);
   if (all.some((w) => NOT_OURS.test(w))) return null;
-  if (all.some((w) => LIVE.test(w))) return 'live';
+  // R1a: repo words beat live words ("App repository", "Link to the app's source code").
   if (all.some((w) => REPO.test(w))) return 'repo';
+  if (all.some((w) => LIVE.test(w))) return 'live';
   const label = words(r.label).join(' ');
   if (label === 'url') return 'live';
   if (label === 'link' || label === 'links' || label === 'relevant links') return r.type === 'text' ? 'both' : 'any';
