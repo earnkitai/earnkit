@@ -19,7 +19,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v5/guide.ts`: A program's guide: money, close, who can apply, form fields, rules, sources
 - `apps/frontend/lib/v5/health.ts`: Daily freshness probe: links, page text changes (under 80% words shared), stale flags, passed deadlines
 - `apps/frontend/lib/v5/http.ts`: Route helpers: JSON and CORS answers, `readParams` (form or JSON under a cap, null over it), secret and Bearer checks, `readCapped` (a request's or response's body under a byte cap)
-- `apps/frontend/lib/v5/installations.ts`: Installation rows: save a token, connect a token, stamp last_find_at and `last_gaps` (`markFind`), read them (`lastGaps`)
+- `apps/frontend/lib/v5/installations.ts`: Installation rows: save a token, connect a token, stamp last_find_at and `last_gaps` (`markFind`), read them (`lastGaps`), and `newlyLinkedLogin` (the GitHub login when the installation was linked after its last find, for the one-time linked notice)
 - `apps/frontend/lib/v5/landing.ts`: Landing and /programs data: one tile per listed program and the hero money chip
 - `apps/frontend/lib/v5/ledger.ts`: The ledger: applications, history, closed gap items (`gap_done` takes only the program's own items or `users`), the summary
 - `apps/frontend/lib/v5/llms.ts`: The text of /llms.txt
@@ -102,7 +102,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v6/record.ts`: The record: `BuilderRecord` schema, `mergeRecord` (bad leaves dropped with a problem line, `set_by` stamps, policy builder only), `approvePath`, `unapprovePath`, `isApproved`, `APPROVABLE`, `answerFor`, `recordMissing`, `completeness`, `KIND_WORDS`; pure
 - `apps/frontend/lib/v6/record-tool.ts`: The `record` MCP tool: get, set (merged as the agent, never approved), brief; unlinked, the sign-in link
 - `apps/frontend/lib/v6/answer-brief.ts`: The brief behind one answer kind: the reviewer's question, record and repo facts as lines, the length band and the style contract; pure
-- `apps/frontend/lib/v6/reply-words.ts`: Words shared by the find reply and the record tool: the list joiner, `signInLine` (record and find's open list), `signInSentence` (the unlinked find's closing block, after the closing line), `confirmLine` (the unlinked tier gap per bar), `EVIDENCE_NOT_READ`; pure
+- `apps/frontend/lib/v6/reply-words.ts`: Words shared by the find reply and the record tool: the list joiner, `signInLine` (record and find's open list), `signInSentence` (the unlinked find's closing block, after the closing line), `confirmLine` (the unlinked tier gap per bar), `EVIDENCE_NOT_READ`; pure `linkedNoticeLine` (the one-time sentence after a link: linked to GitHub account X, unlink at earnkit.com/me).
 - `apps/frontend/lib/v6/me-view.ts`: /me's data: `meData` (the record as blocks of fields in builder words, pending approvals, the ledger, linked agents, the ?link= banner), `csrfToken` and `verifyCsrf` (HMAC of builder, session cookie value and UTC day, today or yesterday), `problemSig`
 - `apps/frontend/lib/v6/me-routes.ts`: /me's handlers: `meGet` (the session gate, 302 to /docs#record), `editPost`, `approvePost`, `policyPost`, `unlinkPost`, `linkPost` (confirm or refuse a link code), `deletePost`, `signoutPost` (web form under 64 KB, session and csrf, else 415, 413 or 403)
 - `apps/frontend/lib/v6/fixtures/github-oauth.ts`: A fetch fake for GitHub sign-in (token exchange and user read)
