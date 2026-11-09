@@ -330,7 +330,8 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const shownGaps = shownGapsOf(gapV, all, MAX_GAPS, (v) => byId.get(v.program_id)!.file.in_person);
   const more = readyV.length - shownReady.length + gapV.length - shownGaps.length;
   // In display order with the numbers the builder sees: ready, gaps, then in person.
-  const holds = side ? await claimed(owner) : new Map<string, { since: string }>();
+  // Only another installation's claim marks a program: this agent's own claim is its to send.
+  const holds = side ? new Map([...(await claimed(owner))].filter(([, h]) => h.by !== ctx.installationId)) : new Map<string, { since: string }>();
   const { ready, gaps } = numbered(
     shownReady.map((v) => {
       const r = readyOf(byId.get(v.program_id)!, v, facts, ctx.now, side);
@@ -361,5 +362,5 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   };
   // Every gap of this find (not only the shown ones), in rank order, so track started can say what is still missing.
   await markFind(ctx.installationId, ctx.now, Object.fromEntries(gapV.slice(0, MAX_REMEMBERED_GAPS).map((v) => [v.program_id, v.gaps[0].what])));
-  return { show_to_builder: replyText(r, last === null), agent_note: agentNote(r, { more }), ...r };
+  return { show_to_builder: replyText(r, last === null, ctx.now), agent_note: agentNote(r, { more }), ...r };
 }

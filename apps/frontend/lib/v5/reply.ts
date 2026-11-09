@@ -37,6 +37,15 @@ export function numbered<P extends { in_person: boolean }, G>(ready: P[], gaps: 
   };
 }
 
+/** "09:14 UTC" for today (UTC), "Nov 5, 22:10 UTC" for another day; "earlier today" when the time does not read. Pure. */
+export const clock = (iso: string, now: Date) => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'earlier today';
+  const hm = `${d.toISOString().slice(11, 16)} UTC`;
+  if (d.toISOString().slice(0, 10) === now.toISOString().slice(0, 10)) return hm;
+  return `${new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(d)}, ${hm}`;
+};
+
 /** "a, b and c". Pure. */
 const joinAnd = (xs: string[]): string => (xs.length <= 1 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
 
@@ -51,7 +60,7 @@ function recordDrafted(p: ReadyProgram): string | null {
   return k > 0 ? `${head}, ${k} ${k === 1 ? 'needs' : 'need'} you: ${listWords(p.need_you)}.` : `${head}.`;
 }
 
-function readyLine(p: ReadyProgram, linked: boolean): string {
+function readyLine(p: ReadyProgram, linked: boolean, now: Date): string {
   let head = `${p.n}. ${p.title}, ${p.money}`;
   if (p.closes_in) head += `, closes ${p.closes_in}`;
   // The long odds are their own sentence after the head, never a label on the money.
@@ -63,7 +72,9 @@ function readyLine(p: ReadyProgram, linked: boolean): string {
   const needs = fromRecord ? [] : p.needs.filter((x) => !p.setup.includes(x)).map(bare);
   const shown = needs.length > NEEDS_SHOWN ? [...needs.slice(0, NEEDS_SHOWN), `${needs.length - NEEDS_SHOWN} more`] : needs;
   const first = steps.length > 0 ? ` First: ${steps.join('; ')}.` : '';
-  return `${head}.${fromRecord ? ` ${fromRecord}` : drafted(p, linked, needs.length, shown)}${first}`;
+  // Another agent of the builder's holds it: still numbered, so the builder can name it, but not in the yes count.
+  const held = p.claimed_since ? ` Being handled by your other agent since ${clock(p.claimed_since, now)}.` : '';
+  return `${head}.${fromRecord ? ` ${fromRecord}` : drafted(p, linked, needs.length, shown)}${first}${held}`;
 }
 
 /**
@@ -173,7 +184,7 @@ function beforeTonight(r: R, tonight: boolean): string | null {
  * "Say ..." with a clause per kind present: the ready ones, the first rule-only gap ("yes r"), the first gap with a
  * change ("do g"); the last clause after "or". Pure.
  */
-function closingLine(ready: number, firstRule: number | null, firstDo: number | null, inPerson: number): string {
+function closingLine(ready: number, firstRule: number | null, firstDo: number | null, inPerson: number, held = 0): string {
   const clauses = [
     ...(ready === 1 ? ['yes to apply', 'skip it'] : ready > 1 ? [`yes to apply to all ${ready}`, 'numbers to skip'] : []),
     ...(firstRule !== null ? [`"yes ${firstRule}" if its rule fits you`] : []),
@@ -182,6 +193,7 @@ function closingLine(ready: number, firstRule: number | null, firstDo: number | 
   if (clauses.length === 1) return `Say ${clauses[0]}.`;
   if (clauses.length > 1) return `Say ${clauses.slice(0, -1).join(', ')}, or ${clauses.at(-1)}.`;
   if (inPerson > 0) return "Tell me which you can attend and I'll draft it once you're in.";
+  if (held > 0) return "Your other agent is handling these; I'll say when something new opens.";
   return "Nothing fits yet. I'll say when something opens.";
 }
 
@@ -191,14 +203,16 @@ function agentCanApply(r: R): ReadyProgram[] {
   return r.ready.filter((p) => !p.in_person && !blocked.has(p.program_id) && !p.claimed_since);
 }
 
-/** What the builder sees. The since line never shows on the first find. */
-export function replyText(r: R, first: boolean): string {
+/** What the builder sees. The since line never shows on the first find; `now` reads the claim times. */
+export function replyText(r: R, first: boolean, now: Date = new Date()): string {
   const blocks: string[] = [];
   const since = first ? null : sinceLine(r);
   if (since) blocks.push(since);
   const ready = r.ready.filter((p) => !p.in_person);
   const inPerson = r.ready.filter((p) => p.in_person);
-  if (ready.length > 0) blocks.push([`Ready to apply, ${ready.length}:`, ...ready.map((p) => readyLine(p, r.linked))].join('\n'));
+  // A program another agent holds leaves the count to say yes to (v6.1.7, C37).
+  const free = ready.filter((p) => !p.claimed_since);
+  if (ready.length > 0) blocks.push([`Ready to apply, ${ready.length}:`, ...ready.map((p) => readyLine(p, r.linked, now))].join('\n'));
   if (r.gaps.length > 0) blocks.push([`One change away, ${r.gaps.length}:`, ...r.gaps.map(gapLine)].join('\n'));
   if (inPerson.length > 0) blocks.push(['In person, apply to attend first:', ...inPerson.map(inPersonLine)].join('\n'));
   const l = r.ledger;
@@ -215,7 +229,7 @@ export function replyText(r: R, first: boolean): string {
   if (r.evidence_summary) blocks.push(r.evidence_summary.line);
   const firstRule = r.gaps.find(ruleOnlyGap)?.n ?? null;
   const firstDo = r.gaps.find((g) => !ruleOnlyGap(g))?.n ?? null;
-  const closing = tonight > 0 ? `Applying tonight to ${tonight}; say stop to hold any.` : closingLine(ready.length, firstRule, firstDo, inPerson.length);
+  const closing = tonight > 0 ? `Applying tonight to ${tonight}; say stop to hold any.` : closingLine(free.length, firstRule, firstDo, inPerson.length, ready.length - free.length);
   // R5a: saying yes is the one action; unlinked with a link, signing in is the closing block's second sentence.
   // The first find after a link names the account it linked to, last (security M2).
   blocks.push([closing, r.sign_in && !r.linked ? signInSentence(r.sign_in, !r.as_reported) : null, r.linked_notice].filter(Boolean).join(' '));
@@ -250,7 +264,7 @@ export function agentNote(r: R, o: { more: number }): string {
   if (r.linked) lines.push('Fit approved answers by cutting, never by adding; the style contract travels on each field.');
   if (r.blockers.length > 0) lines.push('Sign-ins and clicks the builder must do are in blockers; name them once, together.');
   if (r.record_missing.length > 0) lines.push('Ask for the missing record items once, all together, and save each with record.');
-  if (r.ready.some((p) => p.claimed_since)) lines.push('A ready program with claimed_since is claimed by one of the builder\'s agents: submit it only if you made that claim.');
+  if (r.ready.some((p) => p.claimed_since)) lines.push('A ready program with claimed_since is claimed by another of the builder\'s agents: do not submit it.');
   if (r.released.length > 0) lines.push(`Claims left unsent for 24 hours were released: ${r.released.join(', ')}.`);
   if (r.as_reported) lines.push('No public repo was read, so the match used the facts you reported; tell the builder the match is as reported by you.');
   const dropped = (r.problems ?? []).filter((p) => p !== READS_PAUSED && p !== EVIDENCE_NOT_READ);

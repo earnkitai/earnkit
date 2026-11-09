@@ -217,6 +217,8 @@ ALTER TABLE applications ADD COLUMN IF NOT EXISTS claimed_at timestamptz;
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS claimed_by int;
 -- Sent under the builder's standing approval (policy.auto_apply on when it was tracked).
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS auto_applied boolean NOT NULL DEFAULT false;
+-- The program's title when it was sent, so a result still reads once the program leaves the catalog (v6.1.7).
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS title text;
 
 -- The owner's daily digest: the day it covered and when it was sent; the next digest starts there.
 CREATE TABLE IF NOT EXISTS owner_digests (

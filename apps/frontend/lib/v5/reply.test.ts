@@ -476,3 +476,30 @@ test('a linked notice is the last sentence of the closing block', () => {
   assert.equal(replyText(base({ linked: true, linked_notice: notice }), false), `Nothing fits yet. I'll say when something opens. ${notice}`);
   assert.ok(!replyText(base({ linked: true }), false).includes('now linked'));
 });
+
+test('a program another agent of the builder holds says so on its line and leaves the count to say yes to (v6.1.7, C37)', () => {
+  const NOW = new Date('2026-11-04T12:00:00Z');
+  const r = base({
+    linked: true,
+    ready: [
+      ready({ title: 'Free One' }),
+      ready({ title: 'Held One', claimed_since: '2026-11-04T10:00:00.000Z' }),
+      ready({ title: 'Free Two' }),
+      ready({ title: 'Held Two', claimed_since: '2026-11-03T22:10:00.000Z' }),
+    ],
+  });
+  const text = replyText(r, false, NOW);
+  const lines = text.split('\n');
+  assert.ok(lines.includes('Ready to apply, 4:'), text);
+  assert.ok(lines.some((l) => /^2\. Held One, \$1K\. .* Being handled by your other agent since 10:00 UTC\.$/.test(l)), text);
+  assert.ok(lines.some((l) => /^4\. Held Two, \$1K\. .* Being handled by your other agent since Nov 3, 22:10 UTC\.$/.test(l)), text);
+  assert.ok(!/^1\. Free One.*Being handled/m.test(text), text);
+  assert.match(text, /\n\nSay yes to apply to all 2, or numbers to skip\.$/);
+  // One free: the singular; none free: no yes at all, and nothing claims "nothing fits".
+  const one = base({ linked: true, ready: [ready({ title: 'Free One' }), ready({ title: 'Held One', claimed_since: '2026-11-04T10:00:00.000Z' })] });
+  assert.match(replyText(one, false, NOW), /\n\nSay yes to apply, or skip it\.$/);
+  const none = base({ linked: true, ready: [ready({ title: 'Held One', claimed_since: '2026-11-04T10:00:00.000Z' })] });
+  const t = replyText(none, false, NOW);
+  assert.doesNotMatch(t, /Say yes|Nothing fits/);
+  assert.match(t, /\n\nYour other agent is handling these; I'll say when something new opens\.$/);
+});

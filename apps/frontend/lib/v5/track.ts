@@ -7,7 +7,8 @@ import { getRecord, ownerKey } from '../v6/builders';
 import { claim } from '../v6/claims';
 import { forgetGap, lastGaps } from './installations';
 import { getProgram, listOpenPrograms } from './programs';
-import { record, summary, type Ledger, type Status } from './ledger';
+import { record, summary, titleOf, type Ledger, type Status } from './ledger';
+import { clock } from './reply';
 
 export const TrackInput = z
   .object({
@@ -23,15 +24,6 @@ export const TrackInput = z
   .strict();
 
 type Result = { show_to_builder: string; agent_note: string; ledger: Ledger; already_started?: true };
-
-/** "09:14 UTC" for today (UTC), "Nov 5, 22:10 UTC" for another day; "earlier today" when the time does not read. Pure. */
-export const clock = (iso: string, now: Date) => {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return 'earlier today';
-  const hm = `${d.toISOString().slice(11, 16)} UTC`;
-  if (d.toISOString().slice(0, 10) === now.toISOString().slice(0, 10)) return hm;
-  return `${new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(d)}, ${hm}`;
-};
 
 const usd = (n: number) => '$' + Math.round(n).toLocaleString('en-US');
 
@@ -51,6 +43,9 @@ export async function track(ctx: TrackContext, input: unknown): Promise<Result> 
   if (i.status === 'started') {
     const program = await getProgram(i.program_id);
     if (!program) return refuse("I don't know that program.");
+    // The same open list find reads (active, not past its close, not stale): a program not in it is never claimed.
+    if (!programs.some((p) => p.id === program.id))
+      return refuse(`${program.file.title} is not open; nothing to start.`, 'Do not submit this one; call find for what is open.');
     const c = await claim(owner, i.program_id, i.project_id ?? null, ctx.installationId, ctx.now);
     if (!c.ok && 'skipped' in c)
       return {
@@ -89,7 +84,7 @@ export async function track(ctx: TrackContext, input: unknown): Promise<Result> 
   if (!res.ok)
     return res.items ? refuse(res.note, `Items for this program: ${res.items.join(', ')}. Call track gap_done with one of them.`) : refuse(res.note);
   if (i.status === 'gap_done') await forgetGap(ctx.installationId, i.program_id);
-  const title = (await getProgram(i.program_id))!.file.title;
+  const title = await titleOf(owner, i.program_id);
   const lines: Record<Exclude<Status, 'started'>, string> = {
     applied: "Tracked. I'll ask how it went when results are due.",
     won: `Recorded: ${usd(i.amount_usd ?? 0)} from ${title}.`,

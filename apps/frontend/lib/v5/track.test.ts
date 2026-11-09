@@ -20,14 +20,61 @@ test('the six replies', async () => {
   const say = async (input: unknown) => (await track(c, input)).show_to_builder;
   assert.equal(await say({ program_id: 't6-a', status: 'applied' }), "Tracked. I'll ask how it went when results are due.");
   assert.equal(await say({ program_id: 't6-a', status: 'won', amount_usd: 5000 }), 'Recorded: $5,000 from Alpha Grant.');
-  assert.equal(await say({ program_id: 't6-a', status: 'rejected' }), 'Recorded. On to the next one.');
-  assert.equal(await say({ program_id: 't6-a', status: 'no_result' }), 'Recorded.');
-  assert.equal(await say({ program_id: 't6-a', status: 'skipped' }), "Skipped Alpha Grant. I won't bring it up again.");
+  // One result per program (v6.1.7): each result on its own program.
+  await upsertProgram(programFixture({ id: 't6-a2', title: 'Alpha Two' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 't6-a3', title: 'Alpha Three' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 't6-a4', title: 'Alpha Four' }), 'file', NOW);
+  for (const id of ['t6-a2', 't6-a3']) await say({ program_id: id, status: 'applied' });
+  assert.equal(await say({ program_id: 't6-a2', status: 'rejected' }), 'Recorded. On to the next one.');
+  assert.equal(await say({ program_id: 't6-a3', status: 'no_result' }), 'Recorded.');
+  assert.equal(await say({ program_id: 't6-a4', status: 'skipped' }), "Skipped Alpha Four. I won't bring it up again.");
   assert.equal(await say({ program_id: 't6-a', status: 'gap_done', item: 'users' }), 'Noted. I\'ll re-check the repo on the next look.');
   await upsertProgram(programFixture({ id: 't6-b', title: 'Beta' }), 'file', NOW);
   const r = await track(c, { program_id: 't6-b', status: 'applied' });
   assert.equal(r.agent_note, 'Call find again for the updated ledger.');
-  assert.equal(r.ledger.applied, 2);
+  assert.equal(r.ledger.applied, 4);
+});
+
+test('started on a program that is not open says so and claims nothing (v6.1.7, B7)', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 't7-closed', title: 'Closed Grant', status: 'closed' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 't7-past', title: 'Past Grant', ends_at: '2026-11-01T00:00:00Z' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 't7-soon', title: 'Soon Grant', status: 'upcoming', opens_note: 'Opens in December' }), 'file', NOW);
+  for (const [id, title] of [['t7-closed', 'Closed Grant'], ['t7-past', 'Past Grant'], ['t7-soon', 'Soon Grant']]) {
+    const r = await track(c, { program_id: id, status: 'started' });
+    assert.equal(r.show_to_builder, `${title} is not open; nothing to start.`);
+    assert.equal(r.agent_note, 'Do not submit this one; call find for what is open.');
+    assert.equal('already_started' in r, false);
+  }
+  const n = (await sql()`SELECT count(*)::int AS n FROM applications WHERE installation_id = ${c.installationId}`)[0].n;
+  assert.equal(n, 0);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM application_history WHERE installation_id = ${c.installationId}`)[0].n, 0);
+});
+
+test('one application and one result per program, in builder words (v6.1.7, B8, B13, C28)', async () => {
+  const { a, c } = await twoAgents();
+  await upsertProgram(programFixture({ id: 't7-one', title: 'One Grant' }), 'file', NOW);
+  await track(a, { program_id: 't7-one', status: 'applied', submitted_by: 'agent' });
+  const second = await track(c, { program_id: 't7-one', status: 'applied', submitted_by: 'agent' });
+  assert.equal(second.show_to_builder, 'Already sent here on Nov 4 by Claude Code; nothing recorded.');
+  assert.equal(second.agent_note, 'Nothing was recorded.');
+  assert.equal((await track(a, { program_id: 't7-one', status: 'won', amount_usd: 0.4 })).show_to_builder, 'Tell me how much you won, as whole dollars.');
+  assert.equal((await track(a, { program_id: 't7-one', status: 'won', amount_usd: 3000 })).show_to_builder, 'Recorded: $3,000 from One Grant.');
+  const rej = await track(c, { program_id: 't7-one', status: 'rejected' });
+  assert.equal(rej.show_to_builder, 'That one already has a result here: won $3,000.');
+  assert.equal(rej.ledger.won_usd, 3000);
+  assert.equal((await track(c, { program_id: 't7-one', status: 'won', amount_usd: 3000 })).show_to_builder, 'Already recorded.');
+  assert.equal((await track(c, { program_id: 't7-one', status: 'skipped' })).show_to_builder, 'That one already has a result here; nothing to skip.');
+});
+
+test('a result for a program gone from the catalog uses the title stored when it was sent (v6.1.7, C36)', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 't7-gone', title: 'Gone Grant' }), 'file', NOW);
+  await track(c, { program_id: 't7-gone', status: 'applied' });
+  await sql()`DELETE FROM programs WHERE id = 't7-gone'`;
+  const r = await track(c, { program_id: 't7-gone', status: 'won', amount_usd: 2500 });
+  assert.equal(r.show_to_builder, 'Recorded: $2,500 from Gone Grant.');
+  assert.equal(r.ledger.won_usd, 2500);
 });
 
 test('refusals say so and record nothing', async () => {

@@ -663,14 +663,21 @@ test('a stale claim shows in released; a live one stays ready, marked', async ()
   const { claim } = await import('../v6/claims');
   await claim(`b:${builderId}`, 'alliance-all19', 'earnkit', id, new Date(NOW.getTime() - 25 * H));
   // v6.1.4: the default list shows two in-person programs (YC and Alliance), so the live claim is on one shown.
-  await claim(`b:${builderId}`, 'y-combinator', 'earnkit', id, new Date(NOW.getTime() - H));
+  // v6.1.7: only another installation's claim marks a program; this installation's own claim does not.
+  const [other] = await sql()`INSERT INTO installations (token_hash, client_name) VALUES (${'find-other-' + Math.random()}, 'Cursor') RETURNING id`;
+  const { linkInstallation } = await import('../v6/builders');
+  await linkInstallation(other.id as number, builderId, NOW);
+  await claim(`b:${builderId}`, 'y-combinator', 'earnkit', other.id as number, new Date(NOW.getTime() - H));
+  await claim(`b:${builderId}`, 'arbitrum-mentorship-cohort-2', 'earnkit', id, new Date(NOW.getTime() - H));
   const r = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT });
   assert.deepEqual(r.reply!.released, ['alliance-all19']);
   assert.match(r.reply!.agent_note as string, /released: alliance-all19/);
   const ready = r.reply!.ready as { program_id: string; claimed_since?: string }[];
   assert.ok(ids(ready).includes('alliance-all19'));
   assert.equal(ready.find((p) => p.program_id === 'y-combinator')?.claimed_since, new Date(NOW.getTime() - H).toISOString());
-  assert.match(r.reply!.agent_note as string, /claimed_since is claimed by one of the builder's agents: submit it only if you made that claim\./);
+  assert.ok(ids(ready).includes('arbitrum-mentorship-cohort-2'));
+  assert.equal(ready.find((p) => p.program_id === 'arbitrum-mentorship-cohort-2')?.claimed_since, undefined);
+  assert.match(r.reply!.agent_note as string, /claimed_since is claimed by another of the builder's agents: do not submit it\./);
 });
 
 test('find with program_id, linked: the record fills an approved answer; unlinked as before', async () => {
