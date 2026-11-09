@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import { getProgram } from '../v5/programs';
 import { LIMITS, hit } from '../v5/rate-limit';
+import { signInLink } from './record-tool';
 import { reviewerPrograms } from './reviewers';
 import { createJob, jobResults, jobStatus, recordOutcomes, ScreenApplicant, type ScreenResults } from './screen-jobs';
 import { DEFAULT_THRESHOLDS, TIERS, type Thresholds } from './tiers';
@@ -26,8 +27,9 @@ export const ScreenInput = z
 export type ScreenReply = { show_to_builder: string; agent_note: string; job_id?: string; results?: ScreenResults; recorded?: number };
 
 export const SCREEN_TEXT = {
-  unlinked: 'Sign in first; the owner then marks you as a reviewer for your program.',
-  notReviewer: 'You are not a reviewer for that program here; ask the EarnKit owner.',
+  unlinked: (link: string) => `Sign in once at ${link} so EarnKit knows which program you review for.`,
+  unlinkedNoLink: 'Sign in first, then ask EarnKit to add you as a reviewer for your program.',
+  notReviewer: 'You are not yet a reviewer for that program here. Ask EarnKit to add you.',
   limit: 'Ten screens a day is the limit here.',
   whichProgram: 'Name the program you are screening for.',
   empty: 'Hand me at least one applicant.',
@@ -59,7 +61,11 @@ function thresholdsOf(given: Record<string, number> | undefined): Partial<Thresh
 
 export async function screenTool(ctx: { installationId: number; builderId: number | null; now: Date }, raw: unknown): Promise<ScreenReply> {
   const input = ScreenInput.parse(raw);
-  if (ctx.builderId === null) return line(SCREEN_TEXT.unlinked);
+  if (ctx.builderId === null) {
+    // R7: the installation's sign-in link, as find and record give it; no link (not configured, or refused) keeps one plain line.
+    const link = await signInLink(ctx.installationId, ctx.now);
+    return line(link ? SCREEN_TEXT.unlinked(link) : SCREEN_TEXT.unlinkedNoLink);
+  }
   const programs = await reviewerPrograms(ctx.builderId);
 
   if (input.job_id) {

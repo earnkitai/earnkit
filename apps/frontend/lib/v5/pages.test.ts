@@ -156,8 +156,10 @@ test('a stale API program has no guide; a closed file program says Closed and ha
   assert.ok(!m.includes(">Ask your agent<"));
 });
 
-test('/docs says "Approve the connection" once', () => {
-  assert.equal(textOf(html(DocsPage())).split('Approve the connection').length - 1, 1);
+test('/docs says "It connects on its own" once and never asks the builder to approve a page', () => {
+  const t = textOf(html(DocsPage()));
+  assert.equal(t.split('It connects on its own').length - 1, 1);
+  assert.ok(!t.includes('Approve the connection') && !t.includes('Approve it when the page opens'));
 });
 
 test('an unknown id is gated before any per-id read', async () => {

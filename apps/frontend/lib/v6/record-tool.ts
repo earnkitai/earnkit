@@ -55,10 +55,12 @@ export async function signInLink(installationId: number, now: Date): Promise<str
   }
 }
 
-async function unlinked(installationId: number, now: Date): Promise<RecordReply> {
+/** Unlinked: the sign-in link; a set says plainly that nothing was saved and to tell it again after signing in (R8). */
+async function unlinked(installationId: number, now: Date, setting: boolean): Promise<RecordReply> {
   const link = await signInLink(installationId, now);
   if (!link) return { show_to_builder: NOT_READY, agent_note: SIGN_IN_NOTE, linked: false };
-  return { show_to_builder: signInLine(link), agent_note: SIGN_IN_NOTE, linked: false, sign_in: link };
+  const show = setting ? `Not saved. Sign in once at ${link}, then tell me again.` : signInLine(link);
+  return { show_to_builder: show, agent_note: SIGN_IN_NOTE, linked: false, sign_in: link };
 }
 
 /** What the open programs ask: their needs, and the answer kinds their forms ask. */
@@ -83,7 +85,7 @@ function briefFor(kind: AnswerKind, record: BuilderRecord) {
 
 export async function recordTool(ctx: { installationId: number; builderId: number | null; now: Date }, input: unknown): Promise<RecordReply> {
   const i = RecordInput.parse(input);
-  if (ctx.builderId === null) return unlinked(ctx.installationId, ctx.now);
+  if (ctx.builderId === null) return unlinked(ctx.installationId, ctx.now, i.set !== undefined);
   const asks = await programAsks(ctx.now);
   let record: BuilderRecord;
   let m: ReturnType<typeof mergeRecord> | null = null;

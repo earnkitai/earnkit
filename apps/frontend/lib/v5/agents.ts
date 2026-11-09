@@ -114,11 +114,11 @@ export const AGENTS: Agent[] = [
     icon: '/images/agents/grok-bot.png',
     install: grokBotPromptLink(GROK_BOT_PROMPT),
     installLabel: 'Open in Grok Bot',
-    installNote: 'Press Enter, then "Add it" and "Authorize". Approve it when the page opens. No account needed.',
+    installNote: 'Press Enter, then "Add it" and "Authorize". It connects at once. No account needed.',
     stepsLead: 'Or by hand:',
     steps: [
       'Plugins, then "Add a custom connector".',
-      `Server URL ${MCP_URL}, "Save", then "Authenticate". Approve it when the page opens. No account needed.`,
+      `Server URL ${MCP_URL}, "Save", then "Authenticate". It connects at once. No account needed.`,
     ],
   },
   {
@@ -153,7 +153,7 @@ export const AGENTS: Agent[] = [
       'In claude.ai or the desktop app, open "Customize", then "Connectors".',
       'Choose "+ Add", then "Add custom connector".',
       'Name it EarnKit, paste the EarnKit link, choose "Continue".',
-      'Choose "Add". Approve it when the page opens. No account needed.',
+      'Choose "Add". It connects at once. No account needed.',
       'In a chat, choose "+", then "Connectors", and turn EarnKit on.',
     ],
   },
