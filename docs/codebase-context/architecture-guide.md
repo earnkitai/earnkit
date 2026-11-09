@@ -56,8 +56,9 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
 6. `since.ts` lists programs new, changed (deadline, amount, status, form) and closing within 7 days since this
    installation's `last_find_at`. Empty on the first call.
 7. `ledger.ts` summarises the installation's applications; results past due become `ask_outcome`.
-8. `reply.ts` writes `show_to_builder` and `agent_note`. It shows at most 5 ready and 3 gaps, then in-person
-   programs in their own block with their setup (never in "apply to all N"), and ends with exactly one closing line.
+8. `find` caps the lists (at most 5 remote ready, 3 gaps, then at most 2 in person) and `reply.ts` writes `show_to_builder` and `agent_note`. It shows at most 5 remote ready and 3 gaps, then at most 2
+   in-person programs in their own block with their setup (never in "apply to all N"), and ends with exactly one
+   closing line. `find` caps remote and in-person ready apart, so an in-person program never takes a remote slot.
    `find` returns `ready` in that display order (in person last) and gives every ready and gap item its displayed
    number `n`, so "skip 4" maps to the item with `n` 4. No emoji, no em dash, no tool or field names, no coins, points or scores.
 

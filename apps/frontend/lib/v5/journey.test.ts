@@ -139,7 +139,8 @@ test('the owner, linked: record set, approved on /me, find fills from it, starte
     },
   });
   assert.match(set.show_to_builder as string, /^Saved\./);
-  const before = await call(NOW, 'find', { project: { ...p, live_url: 'https://earnkit.com', users: true } });
+  // v6.1.4: Z Fellows is the fourth in-person program, past the default two, so the full list shows it.
+  const before = await call(NOW, 'find', { project: { ...p, live_url: 'https://earnkit.com', users: true }, filter: { all: true } });
   const z0 = (before.ready as { program_id: string; fields: { key: string; from: string }[] }[]).find((x) => x.program_id === 'z-fellows')!;
   assert.notEqual(z0.fields.find((f) => f.key === 'problem')!.from, 'record');
 
@@ -149,7 +150,7 @@ test('the owner, linked: record set, approved on /me, find fills from it, starte
   await saveRecord(b.id, record, NOW);
 
   const t1 = new Date(NOW.getTime() + H);
-  // v6.1.2: the first five ready are in person (no drafted line), so the full list shows the ready one the record fills.
+  // Z Fellows is past the default two in-person programs (v6.1.4), so the full list shows the one the record fills.
   const first = await call(t1, 'find', { project: { ...p, live_url: 'https://earnkit.com', users: true }, filter: { all: true } });
   assert.equal(first.linked, true);
   const z = (first.ready as { program_id: string; from_record: number; fields: { key: string; from: string; value: string | null }[] }[]).find((x) => x.program_id === 'z-fellows')!;

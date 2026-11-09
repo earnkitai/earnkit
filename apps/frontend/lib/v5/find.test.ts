@@ -49,26 +49,40 @@ test('first find has no since', async () => {
   assert.equal(
     show,
     [
+      'Ready to apply, 1:',
+      '1. Arbitrum Mentorship Program: Cohort 2, $100K in prizes, closes in 32 days, a long shot: few prizes for many entries. Drafted: 2 of 22 answers from the repo, 17 more by your agent. Needs your top 3 successes, whether you raised funds before and current TVL range.',
+      '',
       'One change away, 3:',
-      '1. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
-      '2. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.',
-      '3. Monad Blitz Oregon, $4,600 prize pool: deploy the contract on Monad.',
+      '2. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
+      '3. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.',
+      '4. Monad Blitz Oregon, $4,600 prize pool: deploy the contract on Monad.',
       '',
       'In person, apply to attend first:',
-      '4. Y Combinator Winter 2027 Batch, $500K investment. A YC account to start the application.',
-      "5. Alliance ALL19, $400K at admission, closes in 14 days. Start the application with the first founder's email.",
-      '6. Entrepreneurs First US, up to $250K investment or $10K grant.',
-      '7. Z Fellows, up to $10K investment.',
-      '8. Solana Incubator Cohort 6, NYC incubator with relocation stipend, closes in 30 days. Every founder willing to move to NYC for 3 months.',
+      '5. Y Combinator Winter 2027 Batch, $500K investment. A YC account to start the application.',
+      "6. Alliance ALL19, $400K at admission, closes in 14 days. Start the application with the first founder's email.",
       '',
-      'Before applying: Sign in once to Y Combinator for 1 of them. Needs your click: Y Combinator Winter 2027 Batch and Entrepreneurs First US.',
+      'Before applying: Sign in once to Y Combinator for 1 of them. Needs your click: Y Combinator Winter 2027 Batch.',
       '',
-      'Say "do 1" and I\'ll make the change first.',
+      'Say yes to apply, skip it, or "do 2" and I\'ll make the change first.',
     ].join('\n'),
   );
   // Only what nobody but the builder can give: no contacts or team. Whole words, so a program named Team1 is not "team".
   for (const p of reply.ready as { needs: string[]; setup: string[] }[])
     for (const n of p.needs.filter((x) => !p.setup.includes(x))) assert.doesNotMatch(n, /email|name|\bteam\b|telegram|x profile/i);
+});
+
+test('default list: in-person programs never take a remote ready slot (v6.1.4)', async () => {
+  const r = await mcpCall(ctx(await installation()), 'find', { project: PROJECT });
+  const show = r.reply!.show_to_builder as string;
+  const ready = r.reply!.ready as { title: string; in_person: boolean }[];
+  const remote = ready.filter((p) => !p.in_person);
+  const attend = ready.filter((p) => p.in_person);
+  assert.ok(remote.length >= 1 && remote.length <= 5, show);
+  assert.ok(attend.length <= 2, show);
+  assert.match(show, /^Ready to apply/m);
+  assert.ok(remote.some((p) => p.title === 'Arbitrum Mentorship Program: Cohort 2'), show);
+  const block = show.split('\n\nIn person, apply to attend first:\n')[1]?.split('\n\n')[0] ?? '';
+  assert.ok(block.split('\n').filter(Boolean).length <= 2, show);
 });
 
 /** A synthetic in-person program (the real ones close once their attend-by date passes). */
@@ -90,7 +104,7 @@ test('the numbers the builder sees are the n of each item: ready in order, gaps,
   const ready = reply.ready as { program_id: string; title: string; n: number; in_person: boolean }[];
   const gaps = reply.gaps as { program_id: string; title: string; n: number }[];
   const printed = (n: number) => new RegExp(`^${n}\\. ([^,]+),`, 'm').exec(show)?.[1];
-  // The full list (v6.1.2: the first five ready are all in person, so only filter.all shows a ready one ahead of the gaps).
+  // The full list, so the synthetic in-person program shows past the default two (v6.1.4).
   assert.equal(printed(1), ready[0].title);
   assert.deepEqual([ready[0].in_person, ready[0].n], [false, 1]);
   assert.equal(printed(36), ready[3].title);
@@ -589,13 +603,14 @@ test('a stale claim shows in released; a live one stays ready, marked', async ()
   const { id, builderId } = await linkedWith(OWNER_RECORD);
   const { claim } = await import('../v6/claims');
   await claim(`b:${builderId}`, 'alliance-all19', 'earnkit', id, new Date(NOW.getTime() - 25 * H));
-  await claim(`b:${builderId}`, 'z-fellows', 'earnkit', id, new Date(NOW.getTime() - H));
+  // v6.1.4: the default list shows two in-person programs (YC and Alliance), so the live claim is on one shown.
+  await claim(`b:${builderId}`, 'y-combinator', 'earnkit', id, new Date(NOW.getTime() - H));
   const r = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT });
   assert.deepEqual(r.reply!.released, ['alliance-all19']);
   assert.match(r.reply!.agent_note as string, /released: alliance-all19/);
   const ready = r.reply!.ready as { program_id: string; claimed_since?: string }[];
   assert.ok(ids(ready).includes('alliance-all19'));
-  assert.equal(ready.find((p) => p.program_id === 'z-fellows')?.claimed_since, new Date(NOW.getTime() - H).toISOString());
+  assert.equal(ready.find((p) => p.program_id === 'y-combinator')?.claimed_since, new Date(NOW.getTime() - H).toISOString());
   assert.match(r.reply!.agent_note as string, /claimed_since is claimed by one of the builder's agents: submit it only if you made that claim\./);
 });
 
