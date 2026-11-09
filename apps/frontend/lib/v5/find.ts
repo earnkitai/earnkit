@@ -117,6 +117,8 @@ const MAX_READY = 5;
 /** In-person ready programs get their own slots: they never take a remote one's (v6.1.4). */
 const MAX_IN_PERSON = 2;
 const MAX_GAPS = 3;
+// The gaps markFind keeps for track started, at most this many, in rank order.
+const MAX_REMEMBERED_GAPS = 60;
 const MAX_LISTED = 10;
 
 /** Whose ledger this find reads: the builder's once linked, else the installation's. Pure. */
@@ -312,6 +314,7 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
       ? linkedPart(side, ready.map((p) => byId.get(p.program_id)!), released, overnight)
       : { ...unlinkedPart(), blockers: blockersOf(ready.map((p) => byId.get(p.program_id)!), EMPTY_RECORD), ...(link ? { sign_in: link } : {}) }),
   };
-  await markFind(ctx.installationId, ctx.now);
+  // Every gap of this find (not only the shown ones), in rank order, so track started can say what is still missing.
+  await markFind(ctx.installationId, ctx.now, Object.fromEntries(gapV.slice(0, MAX_REMEMBERED_GAPS).map((v) => [v.program_id, v.gaps[0].what])));
   return { show_to_builder: replyText(r, last === null), agent_note: agentNote(r, { more }), ...r };
 }

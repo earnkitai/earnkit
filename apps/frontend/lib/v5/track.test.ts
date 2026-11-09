@@ -4,6 +4,7 @@ import { sql } from './db';
 import { upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
 import { track } from './track';
+import { markFind } from './installations';
 
 after(() => sql().end());
 
@@ -166,4 +167,25 @@ test('applied sets auto_applied from the builder record at that moment; unlinked
   await track(u, { program_id: 't6-on', status: 'applied', submitted_by: 'agent' });
   const [ur] = await sql()`SELECT auto_applied FROM applications WHERE installation_id = ${u.installationId}`;
   assert.equal(ur.auto_applied, false);
+});
+
+test('started on a program the last find called a gap says so', async () => {
+  const two = await twoAgents();
+  await upsertProgram(programFixture({ id: 't6-gap', title: 'Gap Grant' }), 'file', NOW);
+  await markFind(two.a.installationId, NOW, { 't6-gap': 'add Base Builder Codes' });
+  const r = await track(two.a, { program_id: 't6-gap', status: 'started' });
+  assert.equal(r.show_to_builder, 'Started. When I last looked it was still one change away: add Base Builder Codes. Do that first.');
+  assert.equal(r.agent_note, 'Make the change before you submit, or call find again to check it. Then fill the form from the fields, submit, and call track with applied, submitted_by and fields_used.');
+  assert.equal('already_started' in r, false);
+  const other = await track({ ...two.c, now: new Date(NOW.getTime() + 3_600_000) }, { program_id: 't6-gap', status: 'started' });
+  assert.equal(other.already_started, true);
+});
+
+test('started on a program the last find did not call a gap keeps the plain line', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 't6-nogap' }), 'file', NOW);
+  await markFind(c.installationId, NOW, { 'some-other-program': 'add Base Builder Codes' });
+  const r = await track(c, { program_id: 't6-nogap', status: 'started' });
+  assert.equal(r.show_to_builder, 'Started. Nothing else will submit this one for 24 hours.');
+  assert.equal(r.agent_note, 'Fill the form from the fields, submit, then call track with applied, submitted_by and fields_used.');
 });

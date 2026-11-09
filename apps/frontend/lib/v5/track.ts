@@ -5,6 +5,7 @@
 import { z } from 'zod';
 import { getRecord, ownerKey } from '../v6/builders';
 import { claim } from '../v6/claims';
+import { lastGaps } from './installations';
 import { getProgram, listOpenPrograms } from './programs';
 import { record, summary, type Ledger, type Status } from './ledger';
 
@@ -65,6 +66,14 @@ export async function track(ctx: TrackContext, input: unknown): Promise<Result> 
         agent_note: c.already.sent ? 'Do not submit this one; it was already sent.' : 'Do not submit this one; call find again later.',
         ledger: await summary(owner, programs, ctx.now),
         already_started: true,
+      };
+    // The last find called this one a gap: say what was still missing, so it is fixed before the form goes in.
+    const gap = (await lastGaps(ctx.installationId))[program.id];
+    if (gap)
+      return {
+        show_to_builder: `Started. When I last looked it was still one change away: ${gap}. Do that first.`,
+        agent_note: 'Make the change before you submit, or call find again to check it. Then fill the form from the fields, submit, and call track with applied, submitted_by and fields_used.',
+        ledger: await summary(owner, programs, ctx.now),
       };
     return {
       show_to_builder: 'Started. Nothing else will submit this one for 24 hours.',

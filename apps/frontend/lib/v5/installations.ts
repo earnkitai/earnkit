@@ -1,7 +1,7 @@
 /**
  * Installations: one row per issued token; only the token's hash is stored. The token exchange
  * saves one; /mcp connects a token to its installation and its builder, if linked; find stamps
- * last_find_at.
+ * last_find_at and its gaps.
  */
 import { createHash } from 'node:crypto';
 import { sql } from './db';
@@ -41,9 +41,15 @@ export async function builderOf(installationId: number): Promise<number | null> 
   return row?.builder_id ?? null;
 }
 
-/** Stamps a find: last_find_at and last_seen_at. */
-export async function markFind(id: number, now: Date): Promise<void> {
-  await sql()`UPDATE installations SET last_find_at = ${now}, last_seen_at = GREATEST(last_seen_at, ${now}) WHERE id = ${id}`;
+/** Stamps a find: last_find_at, last_seen_at, and the find's gaps (program_id to the first gap's what), replacing the last. */
+export async function markFind(id: number, now: Date, gaps: Record<string, string> = {}): Promise<void> {
+  await sql()`UPDATE installations SET last_find_at = ${now}, last_seen_at = GREATEST(last_seen_at, ${now}), last_gaps = ${sql().json(gaps)} WHERE id = ${id}`;
+}
+
+/** The last find's gaps (program_id to the first gap's what); {} before any find. */
+export async function lastGaps(id: number): Promise<Record<string, string>> {
+  const [row] = await sql()<{ last_gaps: Record<string, string> | null }[]>`SELECT last_gaps FROM installations WHERE id = ${id}`;
+  return row?.last_gaps ?? {};
 }
 
 export async function lastFindAt(id: number): Promise<Date | null> {
