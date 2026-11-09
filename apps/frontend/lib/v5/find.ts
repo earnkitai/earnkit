@@ -200,12 +200,12 @@ async function openList(ctx: FindContext, problem: string | null): Promise<FindR
   const programs = await listOpenPrograms(ctx.now);
   const lines = programs.slice(0, MAX_LISTED).map((r) => {
     const left = closesIn(r.file, ctx.now);
-    return `${r.file.title}, ${moneyOf(r.file)}${left ? `, closes ${left}` : ''}`;
+    return `${r.file.title}, ${moneyOf(r.file)}${left ? `, closes ${left}` : ''}.`;
   });
-  if (programs.length > MAX_LISTED) lines.push(`and ${programs.length - MAX_LISTED} more`);
+  if (programs.length > MAX_LISTED) lines.push(`and ${programs.length - MAX_LISTED} more.`);
   const ledger = await summary(ownerOf(ctx), programs, ctx.now);
   const link = ctx.builderId === null ? await linkOf(ctx) : null;
-  const list = programs.length > 0 ? `Open now:\n${lines.join('\n')}` : "Nothing is open right now. I'll say when something opens.";
+  const list = programs.length > 0 ? `Open now:\n${lines.join('\n')}\nTell me which project and I'll match it.` : "Nothing is open right now. I'll say when something opens.";
   return {
     show_to_builder: link ? `${list}\n\n${signInLine(link)}` : list,
     agent_note: [

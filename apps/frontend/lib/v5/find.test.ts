@@ -51,7 +51,7 @@ test('first find has no since', async () => {
     show,
     [
       'Ready to apply, 1:',
-      '1. Arbitrum Mentorship Program: Cohort 2, $100K in prizes, closes in 32 days, a long shot: few prizes for many entries. Drafted: 2 of 22 answers from the repo, 17 more by your agent. Needs your top 3 successes, whether you raised funds before and current TVL range.',
+      '1. Arbitrum Mentorship Program: Cohort 2, $100K in prizes, closes in 32 days. Long odds: few prizes for many entries. Drafted: 2 of 22 answers from the repo, 17 more by your agent. Needs your top 3 successes, whether you raised funds before and current TVL range.',
       '',
       'One change away, 3:',
       '2. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
@@ -231,6 +231,9 @@ test('find with no project: the open list and the ask for the project', async ()
   const show = r.reply!.show_to_builder as string;
   assert.match(show, /^Open now:\n/);
   assert.ok(show.includes('Alliance ALL19, $400K at admission, closes in'), show);
+  const lines = show.split('\n');
+  for (const line of lines.slice(1)) assert.ok(line.endsWith('.'), line);
+  assert.equal(lines.at(-1), "Tell me which project and I'll match it.");
   assert.match(r.reply!.agent_note as string, /project/);
   const [row] = await sql()`SELECT last_find_at FROM installations WHERE id = ${id}`;
   assert.equal(row.last_find_at, null);
@@ -664,6 +667,9 @@ test('a failed own read keeps the stored tier line; a broken link never fails fi
     const link = open.reply!.sign_in as string;
     assert.match(link, /\/link\//);
     assert.match(open.reply!.show_to_builder as string, /^Open now:\n/);
-    assert.equal((open.reply!.show_to_builder as string).split('\n').at(-1), `Sign in once at ${link} so I remember you across agents.`);
+    const openLines = (open.reply!.show_to_builder as string).split('\n');
+    assert.equal(openLines.at(-1), `Sign in once at ${link} so I remember you across agents.`);
+    assert.deepEqual(openLines.slice(-3, -1), ["Tell me which project and I'll match it.", '']);
+    for (const line of openLines.slice(1, -3)) assert.ok(line.endsWith('.'), line);
   });
 });

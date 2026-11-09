@@ -76,7 +76,7 @@ export const DOCS_SESSION = {
 };
 export const DOCS_RECORD = {
   title: 'Your record',
-  text: 'Sign in once with GitHub and your agents share one record: your facts, links, documents and the answers you approved. Nothing is sent that you did not approve. Delete it any time.',
+  text: 'Sign in once with GitHub and your agents share one record: your facts, links, documents and the answers you approved. Once you are signed in, nothing is sent that you did not approve. Delete it any time.',
 };
 export const DOCS_SCREEN = {
   title: 'Screening, for programs',
@@ -114,7 +114,7 @@ export const TERMS_SECTIONS = [
     title: 'Your record',
     lines: [
       'Once you sign in with GitHub, EarnKit keeps one private record for you: the facts, links and answers you or your agent give it, your ledger and your linked agents.',
-      'Only you and your own linked agents see it. An answer your agent wrote is never sent until you approve it on /me.',
+      'Only you and your own linked agents see it. Once you are signed in, an answer your agent wrote is never sent until you approve it on /me. Before that, your agent acts on what you tell it in the chat.',
       'You can edit or delete it any time on /me. Delete removes the record, the ledger and your sign-ins.',
     ],
   },

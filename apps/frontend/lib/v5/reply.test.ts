@@ -69,7 +69,7 @@ test('the Monday text: two ready, one gap, a ledger with one applied', () => {
     [
       'Ready to apply, 2:',
       "1. Alliance ALL19, $400K at admission, closes in 14 days. Drafted: 2 of 9 answers from the repo, 6 more by your agent. Needs your first founder's email.",
-      '2. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Your agent drafts all 5 answers.',
+      '2. Arc Builders Fund, investment from Circle Ventures. Long odds: an investment program with no stated amount. Your agent drafts all 5 answers.',
       '',
       'One change away, 1:',
       '3. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
@@ -144,7 +144,7 @@ test('in person: its own block after ready and gaps, with the setup, and never i
     [
       'Ready to apply, 2:',
       "1. Alliance ALL19, $400K at admission, closes in 14 days. Drafted: 2 of 9 answers from the repo, 6 more by your agent. Needs your first founder's email.",
-      '2. Arc Builders Fund, investment from Circle Ventures, a long shot: an investment program with no stated amount. Your agent drafts all 5 answers.',
+      '2. Arc Builders Fund, investment from Circle Ventures. Long odds: an investment program with no stated amount. Your agent drafts all 5 answers.',
       '',
       'One change away, 1:',
       '3. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',

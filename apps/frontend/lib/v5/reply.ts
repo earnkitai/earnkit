@@ -45,7 +45,8 @@ function recordDrafted(p: ReadyProgram): string | null {
 function readyLine(p: ReadyProgram, linked: boolean): string {
   let head = `${p.n}. ${p.title}, ${p.money}`;
   if (p.closes_in) head += `, closes ${p.closes_in}`;
-  if (p.long_shot) head += `, a long shot: ${p.long_shot}`;
+  // The long odds are their own sentence after the head, never a label on the money.
+  if (p.long_shot) head += `. Long odds: ${p.long_shot}`;
   const fromRecord = linked ? recordDrafted(p) : null;
   // Setup items are steps ("sign in to ..."), the rest are things ("a Loom demo"): each reads its own way.
   const steps = p.needs.filter((x) => p.setup.includes(x));
