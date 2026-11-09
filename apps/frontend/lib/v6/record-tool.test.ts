@@ -92,7 +92,7 @@ test('linked: set saves, get reads it back; missing lists the founder video when
 test('the Saved line: three missing items, then "and n more"; the approval note only when an approvable path changed', async () => {
   const c = await linked();
   const plain = await mcpCall(c, 'record', { set: { person: { location: 'London' } } });
-  assert.match(plain.reply!.show_to_builder as string, /^Saved 1\. Still missing: your name and email, a project with its repo or site, one approved line on traction and \d+ more\.$/);
+  assert.match(plain.reply!.show_to_builder as string, /^Saved 1\. Still missing: your name, your email, a project with its repo or site and \d+ more\.$/);
   assert.equal(plain.reply!.agent_note, '');
   const ans = await mcpCall(c, 'record', { set: { answers: { problem: { text: 'Fees are high.' } } } });
   assert.equal(ans.reply!.agent_note, 'Approved answers come from earnkit.com/me, where the builder reads and approves each one; an unapproved answer is never used in a form.');

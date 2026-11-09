@@ -250,6 +250,8 @@ test('signoutPost ends the session; unlinkPost unlinks only the builder\'s own i
   assert.equal((await sql()`SELECT builder_id FROM installations WHERE id = ${theirs}`)[0].builder_id, other.b.id);
   await unlinkPost(post('/me/unlink', { csrf, installation_id: String(mine) }, { cookie }), deps);
   assert.deepEqual({ ...(await sql()`SELECT builder_id, linked_at FROM installations WHERE id = ${mine}`)[0] }, { builder_id: null, linked_at: null });
+  // The refused id and the other builder's agent carry no unlink mark (B10).
+  assert.equal((await sql()`SELECT unlinked_at FROM installations WHERE id = ${theirs}`)[0].unlinked_at, null);
   const out = await signoutPost(post('/me/signout', { csrf }, { cookie }), deps);
   assert.equal(out.status, 303);
   assert.match(out.headers.get('set-cookie') ?? '', /Max-Age=0/);
@@ -366,4 +368,24 @@ test('a csrf minted under one session fails under another session of the same bu
   const other = await linkPost(post('/me/link', { csrf, code, action: 'link' }, { cookie: `ek_me=${second}` }), deps);
   refused(b.id, other, EXPIRED_PAGE);
   assert.equal(await instBuilder(id), null);
+});
+
+test('B10: /me/unlink sets unlinked_at, and that agent\'s next find says it was unlinked, once', async () => {
+  const { find } = await import('../v5/find');
+  const { b, cookie, csrf } = await signedIn();
+  const inst = (await sql()`INSERT INTO installations (token_hash) VALUES (${'me-unl-' + Math.random()}) RETURNING id`)[0].id as number;
+  await linkInstallation(inst, b.id, NOW);
+  assert.equal((await unlinkPost(post('/me/unlink', { csrf, installation_id: String(inst) }, { cookie }), deps)).status, 303);
+  const [row] = await sql()`SELECT builder_id, unlinked_at FROM installations WHERE id = ${inst}`;
+  assert.equal(row.builder_id, null);
+  assert.equal((row.unlinked_at as Date).toISOString(), NOW.toISOString());
+  const link = 'https://earnkit.test/link/abcdefghijklmnop';
+  const ctx = { installationId: inst, builderId: null, now: new Date(NOW.getTime() + 60_000), linkUrl: async () => link };
+  const first = (await find(ctx, {})) as { linked_notice: string | null; show_to_builder: string };
+  const line = `This agent was unlinked from your account. Sign in once at ${link} to link it again.`;
+  assert.equal(first.linked_notice, line);
+  assert.ok(first.show_to_builder.endsWith(line), first.show_to_builder);
+  assert.equal((await sql()`SELECT unlinked_at FROM installations WHERE id = ${inst}`)[0].unlinked_at, null);
+  const second = (await find({ ...ctx, now: new Date(NOW.getTime() + 120_000) }, {})) as { linked_notice: string | null };
+  assert.equal(second.linked_notice, null);
 });

@@ -149,7 +149,7 @@ test('recordMissing names "your founder video link" when needs has founder_video
 test('recordMissing in builder words: name and email, a project, the traction line, unapproved answers, docs', () => {
   const m = recordMissing(EMPTY_RECORD, { needs: ['resume', 'deck', 'pitch_pdf', 'demo_video'], kinds: ['problem', 'how_it_works'] });
   assert.deepEqual(m, [
-    'your name and email', 'a project with its repo or site', 'one approved line on traction',
+    'your name', 'your email', 'a project with its repo or site', 'one approved line on traction',
     'an approved answer on the problem', 'an approved answer on the solution',
     'your demo video link', 'your resume link', 'your deck link', 'your pitch PDF link',
   ]);

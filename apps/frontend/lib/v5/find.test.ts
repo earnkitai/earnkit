@@ -1010,15 +1010,17 @@ test('B10: the first find after an unlink says so with the sign-in link, once; t
   assert.equal(bare.reply!.linked_notice, 'This agent was unlinked from your account.');
 });
 
-test('C12: a name saved with record, then find in the same session: read fresh; name and email stay one item until both are in', async () => {
+test('C12: a name saved with record, then find in the same session: read fresh; name and email are two items', async () => {
   const { id, builderId } = await linkedWith({});
   const c = { ...ctx(id), builderId, evidence: LIVE };
   const s = await mcpCall(c, 'record', { set: { person: { name: 'Ada' } } });
   assert.equal(s.isError, false, s.text);
   const a = await mcpCall({ ...c, now: new Date(NOW.getTime() + 1000) }, 'find', { project: PROJECT });
-  // The email is still missing, so the one item stays: the find read the saved record (the name is there).
-  assert.ok((a.reply!.record_missing as string[]).includes('your name and email'));
+  // The find read the saved record: the name is no longer missing, the email still is.
+  const missingA = a.reply!.record_missing as string[];
+  assert.ok(!missingA.includes('your name') && missingA.includes('your email'), JSON.stringify(missingA));
   await mcpCall(c, 'record', { set: { person: { email: 'ada@example.com' } } });
   const b = await mcpCall({ ...c, now: new Date(NOW.getTime() + 2000) }, 'find', { project: PROJECT });
-  assert.ok(!(b.reply!.record_missing as string[]).includes('your name and email'), JSON.stringify(b.reply!.record_missing));
+  const missingB = b.reply!.record_missing as string[];
+  assert.ok(!missingB.includes('your name') && !missingB.includes('your email'), JSON.stringify(missingB));
 });

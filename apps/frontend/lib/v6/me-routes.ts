@@ -6,12 +6,11 @@
  */
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { sql } from '../v5/db';
 import { readCapped } from '../v5/http';
 import { publicOrigin } from '../v5/oauth';
 import { cleanClientName } from '../v5/installations';
 import { ME_BLOCKS, ME_ERRORS, ME_LABELS, ME_LINK_DONE, ME_LINK_NOT, ME_VALUE_WORDS } from '../v5/site-copy';
-import { type Builder, deleteBuilder, getRecord, withRecord } from './builders';
+import { type Builder, deleteBuilder, getRecord, unlinkInstallation, withRecord } from './builders';
 import { INVALID, OTHER, codeShaped, consumeLinkCode, denyLinkCode, liveCode } from './link-routes';
 import { type MeField, authSecret, problemSig, recordBlocks, seenOf, verifyCsrf } from './me-view';
 import { APPROVABLE, approvePath, fieldSchema, mergeRecord, unapprovePath } from './record';
@@ -208,14 +207,14 @@ export async function policyPost(request: Request, deps: Deps = {}): Promise<Res
   return merge(g.builder, g.now, { policy }, ME_BLOCKS.policy, 'policy');
 }
 
-/** POST /me/unlink: csrf, installation_id; only the builder's own. Its ledger rows stay with the builder. */
+/** POST /me/unlink: csrf, installation_id; only the builder's own. Its ledger rows stay with the builder; its next find says it was unlinked (B10). */
 export async function unlinkPost(request: Request, deps: Deps = {}): Promise<Response> {
   const g = await guard(request, deps);
   if (g instanceof Response) return g;
   const raw = g.form.get('installation_id') ?? '';
   const id = /^\d{1,10}$/.test(raw) ? Number(raw) : 0;
   if (id < 1 || id > MAX_ID) return problemAt(g.builder.id, ME_ERRORS.field);
-  await sql()`UPDATE installations SET builder_id = NULL, linked_at = NULL WHERE id = ${id} AND builder_id = ${g.builder.id}`;
+  await unlinkInstallation(id, g.builder.id, g.now);
   return back('/me#agents');
 }
 

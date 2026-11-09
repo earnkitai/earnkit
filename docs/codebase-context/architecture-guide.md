@@ -113,7 +113,7 @@ one of the program's own eligibility items or `users`; any other item is refused
 program's items. It is trusted only for kinds EarnKit cannot verify (`feature`, `users`, `demo_video`, `rule`);
 verifiable kinds are re-read from the repo.
 `won` with an amount is the one fact that later feeds an aggregate "what wins" view; nothing aggregate is shown yet.
-A `won` above the program's `max_award_usd` (or 5,000,000 when none is stated) is refused and writes nothing.
+A `won` above the program's `max_award_usd`, else its `pool_usd`, else 10,000,000 when it states neither, is refused and writes nothing.
 `asked_usd` leaves out investment programs.
 
 ## Freshness and the daily job

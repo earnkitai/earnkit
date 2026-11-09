@@ -363,7 +363,9 @@ export const hasDoc = (record: BuilderRecord, need: string): boolean => NEED_DOC
  */
 export function recordMissing(record: BuilderRecord, o: { needs: string[]; kinds: string[]; verifiedUsage?: boolean }): string[] {
   const out: string[] = [];
-  if (!record.person.name || !record.person.email) out.push('your name and email');
+  // Two items, so a saved name is no longer named as missing (v6.1.7 C12).
+  if (!record.person.name) out.push('your name');
+  if (!record.person.email) out.push('your email');
   if (!record.projects.some((p) => p.repo_url || p.live_url)) out.push('a project with its repo or site');
   if (!o.verifiedUsage && !isApproved(record, 'traction.line_pre_launch')) out.push('one approved line on traction');
   const kinds = [...new Set(o.kinds.map((k) => answerKindOf(k as FieldKind)).filter((k): k is AnswerKind => k !== null))];
