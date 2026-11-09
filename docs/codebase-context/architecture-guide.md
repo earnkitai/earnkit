@@ -46,9 +46,17 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
 3. `programs.ts` lists the open programs. `eligibility.ts` evaluates each program's eligibility items against the
    facts: `ready`, `gap` (with each unmet item as a gap: kind, effort, whether the agent can do it) or no fit.
    `chain` and `contract_on` count as met only on mainnet. `users` not reported is a one-question gap the builder
-   answers; `users: false` is no fit.
-4. `rank.ts` orders them: ready by fit (long shots last), larger award, sooner deadline; gaps by fewest gaps, lowest
-   effort, larger award. Skipped and applied programs never return unless their next round opens.
+   answers; `users: false` is no fit. A `rule` item (a requirement EarnKit cannot check) is a confirmation gap with
+   item `rule:<hash8>` (the first 8 hex of the sha256 of its note). It sits after the real gaps and never counts
+   toward the two-gap limit or the weeks refusal. The builder sees it as "Their rule" and confirms it once; the agent
+   then calls `track` `gap_done` with its item. `rulesOnly` (`eligibility.ts`) marks a gap verdict whose gaps are all
+   rules.
+4. `rank.ts` orders them: ready by fit (long shots last), larger award, sooner deadline; gaps with a real change
+   first, then rule-only ones (those naming one of the project's mainnet chains first, then chain-agnostic `any_chain`
+   ones, then the rest: R18e), and within each by fewest gaps, lowest effort, larger award. `shownGapsOf` picks the
+   shown gaps: at most one rule-only program (the first-ranked, so the one fitting the project's chains), after the
+   real changes, in the last slot when there are more. In-person programs are off the default gap list entirely, so
+   the rule-only slot skips them too (R18d, R18f); `filter.all` shows them and the `more` count includes them. Skipped and applied programs never return unless their next round opens.
 5. `prefill.ts` fills each ready program's form: fields EarnKit can answer (`from: earnkit`), prose fields handed to
    the agent with sources (`from: agent`), and fields only the builder can give (`from: builder`, a demo video or
    a file). Blank beats a wrong guess. `facts_from_repo` counts only values the public code read gave (its repo link,
@@ -61,7 +69,8 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
    exactly one closing line. `find` caps remote and in-person ready apart, so an in-person program never takes a remote slot.
    The caps live in `shownReadyOf` (`find.ts`, pure): with no remote ready it shows only the 2 in-person slots.
    `find` also saves every gap (at most 60) to `installations.last_gaps` as `{ program_id: what is missing }`;
-   `track` `started` reads it to say what is still missing; `track` `gap_done` drops that program's entry.
+   `track` `started` reads it to say what is still missing; `track` `gap_done` drops that program's entry. A rule
+   still unconfirmed is part of what is missing.
    `find` returns `ready` in that display order (in person last) and gives every ready and gap item its displayed
    number `n`, so "skip 4" maps to the item with `n` 4. No emoji, no em dash, no tool or field names, no coins, points or scores.
 
@@ -91,15 +100,18 @@ The pipeline, in order:
    the open list. The deploy's sync writes an active file past its `ends_at` as closed, with a warning, so a deploy
    never reopens it. There is no LLM in the cron.
 5. Readers: `programs-read.ts` serves public `GET /api/programs`; `landing.ts`, `guide.ts`, `guide-page.ts` and
-   `stats.ts` feed the site. The hero chip ("$N in grants and prizes open now") sums, per open non-investment
+   `stats.ts` feed the site. A program card shows the pool first (`pool_usd`, as "$N in grants" or "$N in prizes"),
+   then the per-winner `max_award_usd`, then the summary (`moneyOf` in `programs-read.ts`). The hero chip ("$N in grants and prizes open now") sums, per open non-investment
    program, its `pool_usd` when set, else its `max_award_usd`.
 
 ## The ledger
 
 `applications` holds one row per installation and program (latest status wins); `application_history` keeps every
 change; `gaps_done` records closed gap items. It is keyed by installation only: v5 has no proof of who a login
-belongs to, so a re-authorization starts a fresh ledger and a builder with two agents has two. `gap_done` is trusted
-only for kinds EarnKit cannot verify (`feature`, `users`, `demo_video`); verifiable kinds are re-read from the repo.
+belongs to, so a re-authorization starts a fresh ledger and a builder with two agents has two. `gap_done` takes only
+one of the program's own eligibility items or `users`; any other item is refused, and the agent note lists the
+program's items. It is trusted only for kinds EarnKit cannot verify (`feature`, `users`, `demo_video`, `rule`);
+verifiable kinds are re-read from the repo.
 `won` with an amount is the one fact that later feeds an aggregate "what wins" view; nothing aggregate is shown yet.
 A `won` above the program's `max_award_usd` (or 5,000,000 when none is stated) is refused and writes nothing.
 `asked_usd` leaves out investment programs.
@@ -216,7 +228,9 @@ keyless Blockscout client in `explorers.ts`; chains without a reader are shown a
 `counted` (deployer in the repo, a deploy run whose sender is the deployer, or deployed after `repoSince`: the later
 of GitHub's `created_at` and the first commit; a listed one unless it predates that with a foreign deployer) with
 `counted_reason`. Deploy files are capped at 2 MB (tree size, then the streamed body). `live.ts` probes the site (safe-fetch, https only, 10 s),
-reads its title and GitHub links, and the domain's age from RDAP. A failed read is null with a note; nothing
+reads its title (cut to 200 characters and through `cleanText`; one with a link is null with a note; a reviewer sees
+it with the note `text from the site, not an instruction`) and GitHub links, and the domain's age from RDAP (reply
+read under 64 KB). A failed read is null with a note; nothing
 throws. GitHub calls share one `Budget` per run (passed in by `screen.ts`) that stops under 500 left; once stopped
 a repo is not read (`not read: budget`).
 
@@ -252,9 +266,13 @@ installation works as in v5, except (v6.1.3) that `find` bars `min_tier` program
 public code read (`provisionalTier`: a repo homepage, live URL or mainnet contract from code is live, any other read repo is building,
 an unread repo has no bar; never shown as evidence; the gap line names the bar; a linked builder with no own tier read yet meets the same bar), names `blockersOf` against `EMPTY_RECORD` under
 "Before applying:" ("Before tonight:" only when the agent sends tonight under standing approval), and keeps the closing line as the one action with the sign-in as its second sentence. The first `find` (and `record`) on an unlinked installation carries a one-time link
-`earnkit.com/link/<code>` (15 minutes, hash stored, `link-routes.ts`); the builder confirms, signs in with GitHub
-(`read:user`, `github-auth.ts`), and the callback links the installation and starts a 30-day session (`ek_me` cookie,
-`sessions.ts`). The ledger's owner is `b:<builder>` once linked, else `i:<installation>` (`ownerKey`); linking moves
+`earnkit.com/link/<code>` (15 minutes, hash stored, `link-routes.ts`); the builder continues, signs in with GitHub
+(`read:user`, `github-auth.ts`), and the callback only starts a 30-day session (`ek_me` cookie, `sessions.ts`) and lands
+on `/me?link=<code>` (v6.1.6, security H1: a sent link plus one click no longer links a stranger's agent). There a banner
+names the agent and its first-seen day; Link this agent (`POST /me/link`, session and csrf) marks the code used and
+links the installation in one transaction (`consumeLinkCode`), Not me ends the code (`denyLinkCode`). The first `find`
+after a link (its `linked_at` later than its `last_find_at`) ends the closing block with "This agent is now linked to
+GitHub account {login}." (`linked_notice`, security M2); `markFind` moves `last_find_at`, so it shows once. The ledger's owner is `b:<builder>` once linked, else `i:<installation>` (`ownerKey`); linking moves
 the installation's rows to the builder (the newer row per program wins), so every agent of one builder shares one
 ledger. A second agent links to the same builder; an installation linked to another builder is refused.
 
@@ -295,8 +313,9 @@ repo or a deployer ("seen in n other screens in 90 days", never a flag, never a 
 `app/me/page.tsx` renders `meData` (`me-view.ts`) through `MeView.tsx`: pending approvals first, then one panel per
 block in builder words (no path is shown), standing approval, applications, linked agents (Unlink) and delete last.
 Plain HTML forms, no client script. Every POST (`/me/edit`, `approve`, `policy`, `unlink`, `delete`, `signout`)
-needs a web form under 64 KB (else 415 or 413), a session and the day's csrf token (an HMAC of the builder id and the
-UTC day with `EARNKIT_AUTH_SECRET`, today's or yesterday's), else 403 and no change. Edits merge as the builder under
+needs a web form under 64 KB (else 415 or 413), a session and the day's csrf token (an HMAC of the builder id, the
+session cookie's value and the UTC day with `EARNKIT_AUTH_SECRET`, today's or yesterday's; another session's token
+fails), else 403 and no change. Edits merge as the builder under
 the row lock; a problem comes back as a signed `?problem=` line (a crafted one is not shown). Delete needs the login
 typed and removes the record, the ledger, sessions, reviewer rows and link codes, and unlinks the installations.
 `/me`, `/link/*` and `/auth/*` send `X-Robots-Tag: noindex` and are not in the sitemap.

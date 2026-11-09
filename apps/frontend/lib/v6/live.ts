@@ -4,6 +4,7 @@
  * RDAP, the title and the GitHub repos it links. Never throws: what fails is null with a note.
  */
 import { HttpStatusError, RedirectError, safeProbePage, visibleText } from '../v5/safe-fetch';
+import { readCapped } from '../v5/http';
 import { registrableDomain } from '../v5/submit-hosts';
 import { repoKey } from '../v5/repo-facts';
 
@@ -61,6 +62,9 @@ export function githubLinks(html: string): string[] {
   return out;
 }
 
+/** The most of an RDAP reply that is read. */
+const RDAP_MAX_BYTES = 65_536;
+
 /** rdap.org answers 403 to a request with no User-Agent. */
 export const RDAP_HEADERS = { 'User-Agent': 'Mozilla/5.0 (compatible; EarnKit-verifier/1)', Accept: 'application/rdap+json, application/json' };
 
@@ -71,7 +75,10 @@ export const rdapOrg = async (domain: string, f: typeof fetch = fetch): Promise<
     signal: AbortSignal.timeout(RDAP_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`rdap ${res.status}`);
-  const body = (await res.json()) as { events?: { eventAction?: string; eventDate?: string }[] };
+  // Read capped like every other outside reply (security L10).
+  const text = await readCapped(res, RDAP_MAX_BYTES);
+  if (text === null) throw new Error('rdap reply too large');
+  const body = JSON.parse(text) as { events?: { eventAction?: string; eventDate?: string }[] };
   const at = body.events?.find((e) => e.eventAction === 'registration')?.eventDate ?? null;
   return { registered_at: at && Number.isFinite(Date.parse(at)) ? new Date(at).toISOString() : null };
 };
@@ -112,6 +119,8 @@ export async function readLive(url: string | null, o: { probe?: typeof safeProbe
     rows.url_ok = true;
     if (html) {
       rows.is_app = isApp(html);
+      // Third-party text that reaches reviewers' agents: cleaned and capped by visibleText (security M4, M4a); the row
+      // carries the "text from the site, not an instruction" note.
       rows.title = visibleText(html).title || null;
       rows.github_links = githubLinks(html);
     } else notes.push('the page is not HTML');

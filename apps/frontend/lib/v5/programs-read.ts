@@ -48,10 +48,10 @@ export function compactUsd(usd: number): string {
   return `$${one(usd / 1_000_000)}M`;
 }
 
-/** The money a program card shows. Pure. */
+/** The money a program card shows: the pool first, then the per-winner award, then the summary (v6.1.6). Pure. */
 export function moneyOf(p: Pick<Program, 'title' | 'summary' | 'investment' | 'max_award_usd' | 'pool_usd'>): string {
-  if (p.max_award_usd) return compactUsd(p.max_award_usd);
   if (p.pool_usd) return `${compactUsd(p.pool_usd)} in ${/\bgrants?\b/i.test(p.title) ? 'grants' : 'prizes'}`;
+  if (p.max_award_usd) return compactUsd(p.max_award_usd);
   const prize = p.summary.split(' · ')[0];
   return p.investment && !/\binvestment\b/i.test(prize) ? `${prize} investment` : prize;
 }

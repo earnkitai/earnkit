@@ -43,7 +43,7 @@ test('unlinked and sign-in not configured: linked false, no sign_in, the session
   assert.equal(r.reply!.linked, false);
   assert.equal('sign_in' in r.reply!, false);
   assert.equal(r.reply!.show_to_builder, 'Sign-in is not ready yet; I will keep what you tell me in this session only.');
-  assert.equal(r.reply!.agent_note, 'Show the link and stop asking for personal facts until the builder has signed in. Call record with get afterwards.');
+  assert.equal(r.reply!.agent_note, 'Show the link once. Ask for personal facts once, all together, when a form needs them; nothing is saved until the builder has signed in. Call record with get afterwards.');
   assert.equal('record' in r.reply!, false);
 });
 

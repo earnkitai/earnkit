@@ -1,7 +1,7 @@
 import { CARD_NAVY, CARD_PANEL, CARD_RUST, H1_SITE, PAGE_COL, PILL_WHITE } from '../components/site/ui';
 import {
   ME_AGENTS_EMPTY, ME_AGENTS_TITLE, ME_AN_AGENT, ME_APPROVE, ME_APPROVED, ME_BY_AGENT, ME_CHOICES, ME_DELETE, ME_DELETE_HINT,
-  ME_DELETE_LINE, ME_DELETE_TITLE, ME_HINTS, ME_LABELS, ME_LEDGER_EMPTY, ME_LEDGER_TITLE, ME_LINKED, ME_NO, ME_NO_PROJECTS, ME_NOT_SET,
+  ME_DELETE_LINE, ME_DELETE_TITLE, ME_HINTS, ME_LABELS, ME_LEDGER_EMPTY, ME_LEDGER_TITLE, ME_LINK_NO, ME_LINK_TITLE, ME_LINK_YES, ME_LINKED, ME_NO, ME_NO_PROJECTS, ME_NOT_SET,
   ME_PENDING_LINE, ME_PENDING_TITLE, ME_POLICY_LINE, ME_SAVE, ME_SIGN_OUT, ME_SIGNED_IN, ME_TITLE, ME_UNAPPROVE, ME_UNLINK, ME_YES,
 } from '../../lib/v5/site-copy';
 import { approvalPathOf, type MeData, type MeField } from '../../lib/v6/me-view';
@@ -191,6 +191,26 @@ export default function MeView({ data, problem }: { data: MeData; problem: strin
         <p role="alert" className={`${CARD_RUST.replace('rounded-[36px]', 'rounded-[24px]')} px-5 py-4 text-[15px] text-s-rust-light`}>
           {problem}
         </p>
+      )}
+
+      {data.link && (
+        <Card id="link" title={ME_LINK_TITLE} card={CARD_NAVY}>
+          <p className="text-[15px] leading-[1.6] text-s-on-navy-soft">{data.link.text}</p>
+          {data.link.code && (
+            <div className="flex flex-wrap gap-3">
+              {(['link', 'deny'] as const).map((action) => (
+                <form key={action} method="post" action="/me/link">
+                  <Csrf token={csrf} />
+                  <input type="hidden" name="code" value={data.link!.code!} />
+                  <input type="hidden" name="action" value={action} />
+                  <button type="submit" className={action === 'link' ? SAVE : GHOST}>
+                    {action === 'link' ? ME_LINK_YES : ME_LINK_NO}
+                  </button>
+                </form>
+              ))}
+            </div>
+          )}
+        </Card>
       )}
 
       {data.pending_approvals.length > 0 && (

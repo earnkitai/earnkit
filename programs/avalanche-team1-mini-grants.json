@@ -16,7 +16,7 @@
   "needs_repo": false,
   "chains": ["avalanche"],
   "eligibility": [
-    { "kind": "feature", "note": "a project or community initiative for the Avalanche ecosystem" }
+    { "kind": "rule", "note": "a project or community initiative for the Avalanche ecosystem" }
   ],
   "setup": [
     "sign in to the Avalanche Builder Hub"
@@ -46,7 +46,7 @@
     { "key": "requested_amount_usd", "label": "Requested Amount (USD)", "kind": "other", "todo": "the amount you request in USD", "type": "text", "required": true, "description": "Whole dollars. Maximum $10,000 USD.", "from": "builder", "guidance": {"pattern": "Whole dollars, at most 10,000. Match it to the milestones.", "source_url": "https://www.team1.network/grants"} },
     { "key": "summary", "label": "Summary", "kind": "solution", "todo": "a summary of what the grant will fund", "type": "text", "required": true, "description": "Briefly describe your project and what the grant will fund. Up to 4,000 characters.", "from": "project", "max_chars": 4000 },
     { "key": "milestones", "label": "Milestones", "kind": "milestones", "todo": "the milestones you plan to deliver", "type": "text", "required": true, "description": "List the milestones you plan to deliver with this grant. Up to 4,000 characters.", "from": "builder", "max_chars": 4000 },
-    { "key": "why_grant", "label": "Why You Deserve a Grant", "kind": "why_you", "todo": "why you deserve a grant", "type": "text", "required": true, "description": "Tell us why you'd be a great fit for a mini grant. We'd love to hear about your impact and how the funding would help. Up to 4,000 characters.", "from": "builder", "max_chars": 4000 },
+    { "key": "why_grant", "label": "Why You Deserve a Grant", "kind": "why_you", "todo": "the case for a grant", "type": "text", "required": true, "description": "Tell us why you'd be a great fit for a mini grant. We'd love to hear about your impact and how the funding would help. Up to 4,000 characters.", "from": "builder", "max_chars": 4000 },
     { "key": "additional_url", "label": "Additional Link", "kind": "links", "type": "url", "required": false, "description": "Optional. A deck, demo, or any supporting material.", "project_field": "demo_url", "from": "project" },
     { "key": "x_profile", "label": "X Profile", "kind": "contact", "todo": "your X profile", "type": "text", "required": true, "description": "Your X handle or profile link.", "from": "builder" },
     { "key": "telegram", "label": "Telegram", "kind": "contact", "type": "text", "required": false, "description": "Optional.", "from": "builder" }

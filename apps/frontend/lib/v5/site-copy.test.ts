@@ -2,6 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as copy from './site-copy';
 import { LLMS_TEXT } from './llms';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 
 const EMOJI = /\p{Extended_Pictographic}/u;
 const BANNED = /\b(coins?|points?|scores?|scored|ranks?|ranked|ranking|streaks?|tokens?|leaderboards?|profiles?)\b/i;
@@ -89,6 +93,39 @@ test('the llms text names the connect line, the tools and the API', () => {
   assert.match(LLMS_TEXT, /https:\/\/earnkit\.com\/programs\/</);
 });
 
+test('the OpenClaw and Claude connect steps match their docs', async () => {
+  const { AGENTS, MCP_URL } = await import('./agents');
+  const open = AGENTS.find((a) => a.name === 'OpenClaw')!;
+  assert.deepEqual(open.steps, ['Stop the gateway, then add and approve it where OpenClaw runs:']);
+  assert.equal(open.code, ['openclaw gateway stop', `openclaw mcp add earnkit --url ${MCP_URL} --transport streamable-http --auth oauth`, 'openclaw mcp login earnkit', 'openclaw gateway start'].join('\n'));
+  assert.equal(open.after, undefined);
+  assert.equal(open.afterCode, undefined);
+  assert.equal(open.last, 'On a server with no browser, run the --code command the login prints.');
+  const claude = AGENTS.find((a) => a.name === 'Claude')!;
+  assert.deepEqual(claude.steps, [
+    'In claude.ai or the desktop app, open "Customize", then "Connectors".',
+    'Choose "+ Add", then "Add custom connector".',
+    'Name it EarnKit, paste the EarnKit link, choose "Continue".',
+    'Keep the connection settings it detected and choose "Continue" again. If it asks for an OAuth client, choose "Register automatically".',
+    'Choose "Add". It connects at once. No account needed.',
+    'In a chat, choose "+", then "Connectors", and turn EarnKit on.',
+  ]);
+});
+
+test('every copy of the connect steps carries the approve and reload steps', () => {
+  for (const [name, text] of [['llms', LLMS_TEXT], ['README', readFileSync(join(ROOT, 'README.md'), 'utf8')]] as const) {
+    assert.ok(/\/mcp`?, pick earnkit,[^\n]*Authenticate/.test(text), `${name}: Claude Code /mcp then Authenticate`);
+    assert.ok(text.includes('/reload-mcp'), `${name}: Hermes /reload-mcp`);
+    const seq = ['openclaw gateway stop', 'openclaw mcp add earnkit --url https://earnkit.com/mcp --transport streamable-http --auth oauth', 'openclaw mcp login earnkit', 'openclaw gateway start'];
+    let at = -1;
+    for (const line of seq) {
+      const i = text.indexOf(line, at + 1);
+      assert.ok(i > at, `${name}: OpenClaw "${line}" in order`);
+      at = i;
+    }
+  }
+});
+
 test('no install copy mentions signing in, X, GitHub or a wallet', async () => {
   const { AGENTS, GROK_BOT_PROMPT, MUSE_MESSAGE } = await import('./agents');
   const BAD = /sign in|sign-in|x\.com|github|wallet/i;
@@ -115,4 +152,9 @@ test('the /me words: verbatim lines, sentences end with a full stop, no path in 
     assert.equal(s[0], s[0].toUpperCase(), `${name}: sentence case "${s}"`);
     assert.ok(!/\s[A-Z][a-z]/.test(s.replace(/\b(USD|X|LinkedIn)\b/g, '')), `${name}: sentence case "${s}"`);
   }
+});
+
+test('/llms.txt keeps the label before a second command: "Then approve it:" sits above codex mcp login (m12)', () => {
+  assert.ok(LLMS_TEXT.includes('    Then approve it:\n    codex mcp login earnkit'), LLMS_TEXT);
+  assert.ok(LLMS_TEXT.includes('    Then approve it:\n    hermes mcp login earnkit'), LLMS_TEXT);
 });

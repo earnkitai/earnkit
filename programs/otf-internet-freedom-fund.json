@@ -10,7 +10,7 @@
   "summary": "$10,000 to $900,000 · rolling",
   "min_award_usd": 10000,
   "eligibility": [
-    { "kind": "feature", "note": "advances internet freedom for people in repressive environments: circumvention, safe communication or access to blocked information" }
+    { "kind": "rule", "note": "advances internet freedom for people in repressive environments: circumvention, safe communication or access to blocked information" }
   ],
   "max_award_usd": 900000,
   "category": "grant",
@@ -45,11 +45,11 @@
     { "key": "similar_projects", "label": "Are there similar projects that exist already? How is your project different or complementary to those projects?", "kind": "competitors", "todo": "similar projects and the difference", "type": "text", "required": true, "from": "project" },
     { "key": "duration", "label": "How long do you estimate activities will take?", "kind": "milestones", "todo": "the estimated duration", "type": "text", "required": true, "from": "builder" },
     { "key": "funding_needed", "label": "How much funding do you estimate you will need? (In US Dollars)", "kind": "use_of_funds", "todo": "the USD amount needed", "type": "text", "required": true, "from": "builder" },
-    { "key": "beneficiaries", "label": "Who would benefit from this project?", "kind": "ecosystem_fit", "todo": "who benefits and how", "type": "text", "required": true, "description": "Be specific about the intended users or audiences; \"benefits everyone\" is not accepted.", "from": "project" },
-    { "key": "user_location", "label": "Where are your intended users, or audiences located?", "kind": "other", "todo": "where your users are located", "type": "text", "required": true, "description": "Regions follow the United Nations Statistics Division breakdown.", "from": "builder" },
+    { "key": "beneficiaries", "label": "Who would benefit from this project?", "kind": "ecosystem_fit", "todo": "the beneficiaries and the benefit", "type": "text", "required": true, "description": "Be specific about the intended users or audiences; \"benefits everyone\" is not accepted.", "from": "project" },
+    { "key": "user_location", "label": "Where are your intended users, or audiences located?", "kind": "other", "todo": "the user locations", "type": "text", "required": true, "description": "Regions follow the United Nations Statistics Division breakdown.", "from": "builder" },
     { "key": "name", "label": "What is your name?", "kind": "contact", "todo": "your name or a pseudonym", "type": "text", "required": true, "description": "A name, pseudonym, nickname or project name.", "from": "builder" },
     { "key": "email", "label": "What email address should we use to contact you?", "kind": "contact", "todo": "your email", "type": "email", "required": true, "from": "builder" },
-    { "key": "why_you", "label": "Why are you, and your team members, the right people to work on this project?", "kind": "why_you", "todo": "why your team fits", "type": "text", "required": true, "description": "Relevant expertise, knowledge and past work.", "from": "builder" },
+    { "key": "why_you", "label": "Why are you, and your team members, the right people to work on this project?", "kind": "why_you", "todo": "the team fit", "type": "text", "required": true, "description": "Relevant expertise, knowledge and past work.", "from": "builder" },
     { "key": "start_date", "label": "What is your proposed start date for this project?", "kind": "other", "type": "text", "required": false, "description": "Only for community convenings or gatherings; at least 90 days after submission.", "from": "builder" }
   ],
   "focus": {

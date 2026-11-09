@@ -44,7 +44,7 @@
   ],
   "submission_requirements": [
     { "key": "manifest_domain", "label": "Domain hosting /.well-known/farcaster.json", "kind": "links", "todo": "a live domain serving farcaster.json", "type": "url", "required": true, "description": "A bare domain or subdomain, entered exactly as in the Manifest Tool.", "project_field": "live_url", "from": "project" },
-    { "key": "account_association", "label": "Signed accountAssociation from the Mini App Manifest Tool", "kind": "other", "todo": "sign the manifest with your account", "type": "text", "required": true, "description": "Generated in Farcaster's Mini App Manifest Tool while signed in to the account that owns the app, then copied into farcaster.json.", "from": "builder" }
+    { "key": "account_association", "label": "Signed accountAssociation from the Mini App Manifest Tool", "kind": "other", "todo": "the account signature on the manifest", "type": "text", "required": true, "description": "Generated in Farcaster's Mini App Manifest Tool while signed in to the account that owns the app, then copied into farcaster.json.", "from": "builder" }
   ],
   "submit": "builder",
   "sign_in": "platform",

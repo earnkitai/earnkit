@@ -1,5 +1,6 @@
 import { after, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
@@ -139,6 +140,9 @@ test('long shot text', async () => {
   const f = await factsOf('earnkit');
   assert.equal(evaluate(toRow(programFixture({ id: 'p', tag: 'long shot' })), f, new Set(), NOW).long_shot, 'few prizes for many entries');
   assert.equal(evaluate(toRow(programFixture({ id: 'p', investment: true })), f, new Set(), NOW).long_shot, 'an investment program with no stated amount');
+  // R20 (v6.1.6): investment or in person, the odds are about selection, not prizes.
+  assert.equal(evaluate(toRow(programFixture({ id: 'p', tag: 'long shot', investment: true, category: 'investment', max_award_usd: 500000 })), f, new Set(), NOW).long_shot, 'many apply, few are taken');
+  assert.equal(evaluate(toRow(programFixture({ id: 'p', tag: 'long shot', in_person: true })), f, new Set(), NOW).long_shot, 'many apply, few are taken');
   assert.equal(evaluate(toRow(programFixture({ id: 'p' })), f, new Set(), NOW).long_shot, null);
 });
 
@@ -182,4 +186,45 @@ test('integration: met when the code uses it, else a days gap the agent can do w
   assert.deepEqual(v.gaps, [
     { kind: 'integration', item: 'integration:smart_wallet', what: 'add Smart Wallet', effort: 'days', agent_can: true, details: { docs: 'https://docs.base.org/smart-wallet' } },
   ]);
+});
+
+test('a rule is a confirmation gap: alone it is one answer away, confirmed once with its item (v6.1.6, R18a)', async () => {
+  const f = await factsOf('earnkit');
+  const note = 'a clear open source license on the repo';
+  const p = toRow(programFixture({ id: 'p', tag: undefined, eligibility: [{ kind: 'rule', note }] }));
+  const v = evaluate(p, f, new Set(), NOW);
+  assert.equal(v.status, 'gap');
+  const item = `rule:${createHash('sha256').update(note).digest('hex').slice(0, 8)}`;
+  assert.deepEqual(v.gaps, [{ kind: 'rule', item, what: note, effort: 'hours', agent_can: false }]);
+  assert.deepEqual(v.rules, [note]);
+  const done = evaluate(p, f, new Set([item]), NOW);
+  assert.equal(done.status, 'ready');
+  assert.deepEqual(done.rules, [note]);
+  assert.deepEqual(evaluate(toRow(programFixture({ id: 'p' })), f, new Set(), NOW).rules, []);
+});
+
+test('a rule beside a real gap: the real gap first, then the rule, in one gap verdict (v6.1.6)', async () => {
+  const f = await factsOf('earnkit');
+  const p = toRow(programFixture({ id: 'p', tag: undefined, eligibility: [{ kind: 'rule', note: 'y' }, { kind: 'demo_video' }, { kind: 'rule', note: 'x' }] }));
+  const v = evaluate(p, f, new Set(), NOW);
+  assert.equal(v.status, 'gap');
+  assert.deepEqual(v.gaps.map((g) => [g.kind, g.what]), [['demo_video', 'a demo video'], ['rule', 'y'], ['rule', 'x']]);
+  assert.deepEqual(v.rules, ['y', 'x']);
+});
+
+test('rules count toward neither the two-gap limit nor the weeks refusal (v6.1.6)', async () => {
+  const f = await factsOf('earnkit');
+  const three = toRow(programFixture({ id: 'p', tag: undefined, eligibility: [{ kind: 'rule', note: 'a' }, { kind: 'rule', note: 'b' }, { kind: 'rule', note: 'c' }, { kind: 'demo_video' }] }));
+  const v = evaluate(three, f, new Set(), NOW);
+  assert.equal(v.status, 'gap');
+  assert.equal(v.gaps.length, 4);
+  const real = toRow(programFixture({ id: 'p', tag: undefined, eligibility: [{ kind: 'rule', note: 'a' }, { kind: 'demo_video' }, { kind: 'feature', value: 'x y' }, { kind: 'builder_codes' }] }));
+  assert.equal(evaluate(real, f, new Set(), NOW).status, 'no');
+});
+
+test('feature with a value still gaps (v6.1.6)', async () => {
+  const v = evaluate(toRow(programFixture({ id: 'p', tag: undefined, eligibility: [{ kind: 'feature', value: 'an AI agent' }] })), await factsOf('earnkit'), new Set(), NOW);
+  assert.equal(v.status, 'gap');
+  assert.deepEqual(v.gaps.map((g) => g.item), ['feature:an AI agent']);
+  assert.deepEqual(v.rules, []);
 });

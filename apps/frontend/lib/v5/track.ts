@@ -11,11 +11,11 @@ import { record, summary, type Ledger, type Status } from './ledger';
 
 export const TrackInput = z
   .object({
-    program_id: z.string().min(1),
+    program_id: z.string().min(1).max(80),
     status: z.enum(['started', 'applied', 'won', 'rejected', 'no_result', 'skipped', 'unskip', 'gap_done']),
-    amount_usd: z.number().optional(),
+    amount_usd: z.number().finite().min(0).max(100_000_000).optional(),
     note: z.string().max(280).optional(),
-    item: z.string().optional(),
+    item: z.string().max(80).optional(),
     project_id: z.string().max(40).optional(),
     submitted_by: z.enum(['agent', 'builder']).optional(),
     fields_used: z.array(z.string().max(60)).max(60).optional(),
@@ -40,9 +40,9 @@ export type TrackContext = { installationId: number; builderId: number | null; n
 export async function track(ctx: TrackContext, input: unknown): Promise<Result> {
   const owner = ownerKey(ctx.installationId, ctx.builderId);
   const programs = await listOpenPrograms(ctx.now);
-  const refuse = async (note: string): Promise<Result> => ({
+  const refuse = async (note: string, agentNote = 'Nothing was recorded.'): Promise<Result> => ({
     show_to_builder: note,
-    agent_note: 'Nothing was recorded.',
+    agent_note: agentNote,
     ledger: await summary(owner, programs, ctx.now),
   });
   const parsed = TrackInput.safeParse(input);
@@ -86,7 +86,8 @@ export async function track(ctx: TrackContext, input: unknown): Promise<Result> 
   const autoApplied = i.status === 'applied' && i.submitted_by === 'agent' && ctx.builderId !== null && (await getRecord(ctx.builderId)).policy.auto_apply;
   const applied = i.status === 'applied' ? { submitted_by: i.submitted_by, fields_used: i.fields_used, project_id: i.project_id, autoApplied } : {};
   const res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, amount_usd: i.amount_usd, note: i.note, item: i.item, now: ctx.now, ...applied });
-  if (!res.ok) return refuse(res.note);
+  if (!res.ok)
+    return res.items ? refuse(res.note, `Items for this program: ${res.items.join(', ')}. Call track gap_done with one of them.`) : refuse(res.note);
   if (i.status === 'gap_done') await forgetGap(ctx.installationId, i.program_id);
   const title = (await getProgram(i.program_id))!.file.title;
   const lines: Record<Exclude<Status, 'started'>, string> = {

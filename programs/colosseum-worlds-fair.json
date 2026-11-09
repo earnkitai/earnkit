@@ -79,7 +79,7 @@
       "key": "team_location",
       "label": "Where the team is located",
       "kind": "other",
-      "todo": "where the team is located",
+      "todo": "the team location",
       "type": "text",
       "required": true,
       "from": "builder"

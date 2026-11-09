@@ -25,6 +25,7 @@ const ready = (over: Partial<ReadyProgram> & { title: string }): ReadyProgram =>
   total: 1,
   needs: [],
   setup: [],
+  rules: [],
   n: 0,
   ...over,
 });
@@ -36,6 +37,9 @@ const gap = (over: Partial<GapProgram> & { title: string }): GapProgram => ({
   closes_at: null,
   gap: { kind: 'chain', item: 'chain:arc', what: 'deploy the contract on Arc', effort: 'hours', agent_can: false },
   also: [],
+  rules: [],
+  in_person: false,
+  setup: [],
   n: 0,
   ...over,
 });
@@ -45,7 +49,7 @@ const NO_SINCE = { from: null, new: [], changed: [], closing: [] };
 const base = (over: Partial<R> = {}): R => {
   const r: R = {
     since: NO_SINCE, ready: [], gaps: [], ledger: LEDGER0, ask_outcome: [], as_reported: false,
-    linked: false, record_missing: [], blockers: [], evidence_summary: null, applied_overnight: [], released: [], auto_apply: false,
+    linked: false, record_missing: [], blockers: [], evidence_summary: null, applied_overnight: [], released: [], auto_apply: false, linked_notice: null,
     ...over,
   };
   return { ...r, ...numbered(r.ready, r.gaps) };
@@ -150,7 +154,7 @@ test('in person: its own block after ready and gaps, with the setup, and never i
       '3. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
       '',
       'In person, apply to attend first:',
-      '4. ETHGlobal Mumbai, up to $15K per partner prize, closes in 2 days. Apply to attend by Nov 3 and get accepted; stake a small amount of ETH; be in Mumbai Nov 5 to 7.',
+      '4. ETHGlobal Mumbai, up to $15K per partner prize, closes in 2 days. First: apply to attend by Nov 3 and get accepted; stake a small amount of ETH; be in Mumbai Nov 5 to 7.',
       '',
       'Say yes to apply to all 2, numbers to skip, or "do 3" and I\'ll make the change first.',
     ].join('\n'),
@@ -181,9 +185,9 @@ test('every closing line, and the copy rules', () => {
 
 test('agentNote: fields, yes only, track after each, the counts left out, ask once', () => {
   const n = agentNote({ ...MONDAY, ask_outcome: [{ program_id: 'z', title: 'Zeta Grant' }] }, { more: 2 });
-  for (const s of ["'earnkit'", "'agent'", "'builder'", 'sources', 'yes', 'own browser', 'track', 'applied', 'Zeta Grant', '2 more fit; ask with filter.all for the full list.'])
+  for (const s of ["'earnkit'", "'agent'", "'builder'", 'sources', 'yes', 'own browser', 'track', 'applied', 'Zeta Grant', '2 more left out: ready past the cap, gaps and in-person programs. Ask with filter.all for the full list.'])
     assert.ok(n.includes(s), s);
-  assert.ok(!agentNote(MONDAY, { more: 0 }).includes('more fit'));
+  assert.ok(!agentNote(MONDAY, { more: 0 }).includes('more: gaps'));
   assert.ok(n.includes('Pass users and live_url in the project whenever you know them; never invent them.'));
 });
 
@@ -338,4 +342,137 @@ test('every linked line ends with a full stop and has no banned word', () => {
     assert.doesNotMatch(text, /\b(find|track|show_to_builder|agent_note|program_id|need_you|blockers)\b|\.json\b/, text);
     for (const line of text.split('\n').filter((l) => l.length > 0 && !l.endsWith(':'))) assert.ok(line.endsWith('.'), line);
   }
+});
+
+const RULE_NOTE = 'A "Their rule" gap is a program rule EarnKit cannot check. If the builder says it fits, call track gap_done with that gap\'s item, then find again.';
+const ruleGap = (what: string, item = 'rule:0000000a') => ({ kind: 'rule' as const, item, what, effort: 'hours' as const, agent_can: false });
+const VIDEO = { kind: 'demo_video' as const, item: 'demo_video', what: 'a demo video', effort: 'hours' as const, agent_can: false };
+
+test('rules (R18a): ready and in-person lines show none; a gap line shows its rules after the change; rules only ask "yes n" (v6.1.6)', () => {
+  const r = base({
+    ready: [
+      ready({
+        title: 'Base Ecosystem Fund', money: 'pre-seed and seed investment', long_shot: 'an investment program with no stated amount', total: 2,
+        rules: ['a pre-seed or seed stage startup that chooses Base as its home'], setup: ['sign in to the portal'], needs: ['sign in to the portal'],
+      }),
+      ready({ title: 'Meetup', money: '$5K', in_person: true, setup: ['be in Lisbon'], needs: ['be in Lisbon'], rules: ['a team of two or more'] }),
+    ],
+    gaps: [
+      gap({ title: 'Goose Grants', money: '$10K', gap: ruleGap('a project built with or for goose'), also: [ruleGap('work not already funded by an employer or client', 'rule:0000000b')], rules: ['a project built with or for goose', 'work not already funded by an employer or client'] }),
+      gap({ title: 'Colosseum', money: '$25K', gap: VIDEO, also: [ruleGap('the team has not raised venture capital')], rules: ['the team has not raised venture capital'] }),
+    ],
+  });
+  assert.equal(
+    replyText(r, true),
+    [
+      'Ready to apply, 1:',
+      '1. Base Ecosystem Fund, pre-seed and seed investment. Long odds: an investment program with no stated amount. Your agent drafts all 2 answers. First: sign in to the portal.',
+      '',
+      'One change away, 2:',
+      '2. Goose Grants, $10K. Their rule: a project built with or for goose. Their rule: work not already funded by an employer or client. Say "yes 2" if that is you.',
+      '3. Colosseum, $25K: a demo video. Their rule: the team has not raised venture capital.',
+      '',
+      'In person, apply to attend first:',
+      '4. Meetup, $5K. First: be in Lisbon.',
+      '',
+      'Say yes to apply, skip it, "yes 2" if its rule fits you, or "do 3" and I\'ll make the change first.',
+    ].join('\n'),
+  );
+  const lines = agentNote(r, { more: 0 }).split('\n');
+  const at = lines.indexOf(RULE_NOTE);
+  assert.ok(at > 0, lines.join('\n'));
+  assert.match(lines[at - 1], /^Draft each ready program from its fields/);
+  assert.ok(!agentNote(MONDAY, { more: 0 }).includes('Their rule'));
+});
+
+test('the closing line names "yes r" only when a rule-only gap exists, "do g" only when a change does (v6.1.6)', () => {
+  const rulesOnly = gap({ title: 'R', gap: ruleGap('x'), rules: ['x'] });
+  const end = (r: R) => replyText(r, true).split('\n').at(-1);
+  assert.equal(end(base({ gaps: [rulesOnly] })), 'Say "yes 1" if its rule fits you.');
+  assert.equal(end(base({ ready: MONDAY.ready, gaps: [rulesOnly] })), 'Say yes to apply to all 2, numbers to skip, or "yes 3" if its rule fits you.');
+  assert.equal(end(base({ gaps: [rulesOnly, MONDAY.gaps[0]] })), 'Say "yes 1" if its rule fits you, or "do 2" and I\'ll make the change first.');
+  assert.doesNotMatch(agentNote(base({ gaps: [rulesOnly] }), { more: 0 }), /On "do <n>"/);
+  assert.ok(agentNote(base({ gaps: [rulesOnly] }), { more: 0 }).includes(RULE_NOTE));
+});
+
+test('R18d: an in-person gap line says what attending takes, after its rules (rule-only and with a real gap)', () => {
+  const attend = { in_person: true, setup: ['work 3 months from the office'] };
+  const r = base({
+    gaps: [
+      gap({ title: 'Residency', money: '$500K', gap: ruleGap('a co-founder with US work authorization'), rules: ['a co-founder with US work authorization'], ...attend }),
+      gap({ title: 'Camp', money: '$10K', gap: VIDEO, also: [ruleGap('a team of two')], rules: ['a team of two'], ...attend }),
+    ],
+  });
+  const lines = replyText(r, true).split('\n');
+  assert.ok(lines.includes('1. Residency, $500K. Their rule: a co-founder with US work authorization. First: work 3 months from the office. Say "yes 1" if that is you.'), lines.join('\n'));
+  assert.ok(lines.includes('2. Camp, $10K: a demo video. Their rule: a team of two. First: work 3 months from the office.'), lines.join('\n'));
+});
+
+test('R20/R21: an in-person line says its odds, then what attending takes, then what it needs from you (v6.1.6)', () => {
+  const yc = ready({
+    title: 'Y Combinator Winter 2027 Batch', money: '$500K investment', in_person: true, long_shot: 'many apply, few are taken',
+    setup: ['a YC account to start the application'], needs: ['a YC account to start the application', 'your email', 'a Loom product demo'],
+  });
+  const alliance = ready({
+    title: 'Alliance ALL19', money: '$400K at admission', closes_in: 'in 14 days', in_person: true,
+    setup: ["start the application with the first founder's email", 'your passport'], needs: ["start the application with the first founder's email", 'your passport'],
+  });
+  const bare = ready({ title: 'Bare Summit', money: '$5K', in_person: true });
+  const text = replyText(base({ ready: [yc, alliance, bare] }), true);
+  assert.equal(
+    text.split('\n\n')[0],
+    [
+      'In person, apply to attend first:',
+      '1. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account to start the application. Needs your email and Loom product demo.',
+      "2. Alliance ALL19, $400K at admission, closes in 14 days. First: start the application with the first founder's email; your passport.",
+      '3. Bare Summit, $5K. Attend in person.',
+    ].join('\n'),
+  );
+});
+
+test('R21: an in-person gap with no setup reads "Attend in person." after its rules (v6.1.6)', () => {
+  const g = gap({ title: 'Residency', money: '$1M', in_person: true, gap: ruleGap('a US co-founder'), rules: ['a US co-founder'] });
+  assert.equal(
+    replyText(base({ gaps: [g] }), true).split('\n')[1],
+    '1. Residency, $1M. Their rule: a US co-founder. Attend in person. Say "yes 1" if that is you.',
+  );
+  const withSetup = { ...g, setup: ['the right to work in the US'] };
+  assert.equal(
+    replyText(base({ gaps: [withSetup] }), true).split('\n')[1],
+    '1. Residency, $1M. Their rule: a US co-founder. Needs the right to work in the US. Say "yes 1" if that is you.',
+  );
+});
+
+test('R21: the Before block never names an in-person program\'s sign-in or click; others unchanged (v6.1.6)', () => {
+  const r = base({
+    ready: [
+      ready({ program_id: 'yc', title: 'Y Combinator', in_person: true, setup: ['a YC account'], needs: ['a YC account'] }),
+      ready({ program_id: 'cl', title: 'Click Grant' }),
+    ],
+    blockers: [
+      { program_id: 'yc', sign_in: 'Y Combinator', needs_click: true, needs: [] },
+      { program_id: 'cl', sign_in: 'email', needs_click: true, needs: [] },
+    ],
+  });
+  const before = replyText(r, true).split('\n\n').find((b) => b.startsWith('Before applying: '));
+  assert.equal(before, 'Before applying: Sign in once by email for 1 of them. Needs your click: Click Grant.');
+  const onlyYc = base({ ready: r.ready.filter((p) => p.in_person), blockers: [r.blockers[0]] });
+  assert.ok(!replyText(onlyYc, true).includes('Before applying'), replyText(onlyYc, true));
+});
+
+test('R19: with no repo read the sign-in sentence only promises to remember (v6.1.6)', () => {
+  const link = 'https://earnkit.test/link/abcdefghijklmnop';
+  const text = replyText({ ...MONDAY, sign_in: link, as_reported: true }, false);
+  assert.ok(text.endsWith(` Sign in once at ${link} and I remember you across agents.`), text);
+  assert.doesNotMatch(text, /read your repo/);
+});
+
+test('R26: the left-out count says what was left out (v6.1.6)', () => {
+  assert.ok(agentNote(MONDAY, { more: 4 }).split('\n').includes('4 more left out: ready past the cap, gaps and in-person programs. Ask with filter.all for the full list.'));
+});
+
+test('a linked notice is the last sentence of the closing block', () => {
+  const notice = 'This agent is now linked to GitHub account ada. Unlink any time at earnkit.com/me.';
+  assert.equal(replyText(base({ linked: true, linked_notice: notice }), false), `Nothing fits yet. I'll say when something opens. ${notice}`);
+  assert.ok(!replyText(base({ linked: true }), false).includes('now linked'));
 });

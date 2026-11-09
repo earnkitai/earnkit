@@ -12,20 +12,20 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v5/cron.ts`: POST /api/cron handler: freshness probe, repo cache sweep, the screen queue's share (`SCREEN_BATCH`), then the owner digest; a JSON body `{ job_id }` runs only that job's queue (300 applicants or 10 minutes)
 - `apps/frontend/lib/v5/db.ts`: Postgres pool and transaction helpers
 - `apps/frontend/lib/v5/deadline.ts`: A program's close in words: close day in its time zone and time left
-- `apps/frontend/lib/v5/eligibility.ts`: Repo facts against a program's eligibility items: ready, gap, or no fit
+- `apps/frontend/lib/v5/eligibility.ts`: Repo facts against a program's eligibility items: ready, gap, or no fit; a `rule` is a confirmation gap `rule:<hash8>` outside the two-gap limit (`ruleItem`, `itemKey`, `rulesOnly`)
 - `apps/frontend/lib/v5/find.ts`: The find tool: ready, gaps, since, ledger, one program's details, or the open list; `shownReadyOf` caps remote and in-person ready apart; saves gaps to `last_gaps`
 - `apps/frontend/lib/v5/github.ts`: Public GitHub reads with EarnKit's server token; `ghResponse` and `ghPage` expose the link and rate-limit headers
 - `apps/frontend/lib/v5/guide-page.ts`: Data for /programs/[id]: the guide plus page context, as plain JSON
 - `apps/frontend/lib/v5/guide.ts`: A program's guide: money, close, who can apply, form fields, rules, sources
 - `apps/frontend/lib/v5/health.ts`: Daily freshness probe: links, page text changes (under 80% words shared), stale flags, passed deadlines
-- `apps/frontend/lib/v5/http.ts`: Route helpers: JSON and CORS answers, params, secret and Bearer checks, capped bodies
-- `apps/frontend/lib/v5/installations.ts`: Installation rows: save a token, connect a token, stamp last_find_at and `last_gaps` (`markFind`), read them (`lastGaps`)
+- `apps/frontend/lib/v5/http.ts`: Route helpers: JSON and CORS answers, `readParams` (form or JSON under a cap, null over it), secret and Bearer checks, `readCapped` (a request's or response's body under a byte cap)
+- `apps/frontend/lib/v5/installations.ts`: Installation rows: save a token, connect a token, stamp last_find_at and `last_gaps` (`markFind`), read them (`lastGaps`), and `newlyLinkedLogin` (the GitHub login when the installation was linked after its last find, for the one-time linked notice)
 - `apps/frontend/lib/v5/landing.ts`: Landing and /programs data: one tile per listed program and the hero money chip
-- `apps/frontend/lib/v5/ledger.ts`: The ledger: applications, history, closed gap items, the summary
+- `apps/frontend/lib/v5/ledger.ts`: The ledger: applications, history, closed gap items (`gap_done` takes only the program's own items or `users`), the summary
 - `apps/frontend/lib/v5/llms.ts`: The text of /llms.txt
 - `apps/frontend/lib/v5/mail.ts`: Owner emails over Resend, idempotent; a no-op without RESEND_API_KEY
 - `apps/frontend/lib/v5/mcp.ts`: The MCP server: find and track, their descriptions, the server instructions, the per-installation and per-IP tool-call limits
-- `apps/frontend/lib/v5/oauth-routes.ts`: OAuth register, authorize and token handlers with rate limits
+- `apps/frontend/lib/v5/oauth-routes.ts`: OAuth register, authorize and token handlers with rate limits; register and token bodies read under `MAX_OAUTH_BODY` (16 KB, else 413)
 - `apps/frontend/lib/v5/oauth.ts`: OAuth 2.1 with PKCE and dynamic client registration, anonymous approval
 - `apps/frontend/lib/v5/owner-digest.ts`: The owner's daily email: closures, failed links, changed pages, program changes with revert links
 - `apps/frontend/lib/v5/prefill.ts`: Form pre-fill: EarnKit values, agent prose with sources, builder-only fields
@@ -33,11 +33,11 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v5/program-file.ts`: The program record schema (programs/*.json and API writes)
 - `apps/frontend/lib/v5/programs-api.ts`: The write API: upsert or close, audit log, approve and revert
 - `apps/frontend/lib/v5/programs-pending.ts`: Link check, owner email and signed approve/revert links for pending writes
-- `apps/frontend/lib/v5/programs-read.ts`: Public GET /api/programs list
+- `apps/frontend/lib/v5/programs-read.ts`: Public GET /api/programs list; `moneyOf`, the card money (pool first, then the per-winner award, then the summary)
 - `apps/frontend/lib/v5/programs-sync.ts`: Reads and checks programs/*.json and writes them (an expired active file as closed), for programs:check and programs:sync
 - `apps/frontend/lib/v5/programs.ts`: The programs table: list open programs, read one, write one
 - `apps/frontend/lib/v5/project-input.ts`: Lenient parse of the project an agent reports
-- `apps/frontend/lib/v5/rank.ts`: Ordering of ready and gap verdicts
+- `apps/frontend/lib/v5/rank.ts`: Ordering of ready and gap verdicts (real changes before rule-only); `shownGapsOf` shows at most one rule-only program
 - `apps/frontend/lib/v5/rate-limit.ts`: Fixed-window counters in Postgres
 - `apps/frontend/lib/v5/reply.ts`: The words of a find reply: show_to_builder and agent_note
 - `apps/frontend/lib/v5/repo-facts.ts`: Repo facts: public read, 7-day cache, 10 uncached reads a day per installation, the 30-day sweep, merged with agent-reported facts
@@ -74,7 +74,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v6/code.ts`: Code evidence rows per repo: fork parent, own commits (compare) and own share, starter overlap (share of the repo's paths from a starter, reported at 0.2 or more) and files beyond it, 60 and 90-day commits (a fork's only after the fork point) and active weeks, releases, tests, CI, open issues by search (no pull requests); the shared GitHub `Budget` (stops under 500 left); never throws
 - `apps/frontend/lib/v6/team.ts`: Team evidence rows per repo from its 90-day commits (shared with `code.ts` per Budget; a fork's after the fork point; a starter's maintainers dropped): top 5 authors, account ages (under 30 days not counted), top share, other used repos; never throws
 - `apps/frontend/lib/v6/boilerplates.json`: Known starters' file paths and top 10 maintainers (create-next-app, OnchainKit, MiniKit, Hardhat, Solana, Scaffold-ETH 2, Next.js Learn dashboard) for `templateOverlap` and the team
-- `apps/frontend/lib/v6/live.ts`: Live rows for a site: loads (2xx in 10 s, not an error page), `is_app` heuristic (form, bundle script, wallet connect), domain age from RDAP (none on shared hosts), title, linked GitHub repos; never throws
+- `apps/frontend/lib/v6/live.ts`: Live rows for a site: loads (2xx in 10 s, not an error page), `is_app` heuristic (form, bundle script, wallet connect), domain age from RDAP (none on shared hosts), title (`visibleText` through `cleanTitle` in safe-fetch: tags and control characters stripped, cut to `TITLE_MAX` in that one place, never refused for naming a domain; the row note says it is text from the site, not an instruction), linked GitHub repos, RDAP reply read under 64 KB; never throws
 - `apps/frontend/lib/v6/integrations.ts`: Integrations registry per chain (OnchainKit, Smart Wallet, Paymaster, Basenames, MiniKit, Builder Codes, USDC, CCTP, Circle Wallets, Anchor, web3.js, Blinks, wagmi, viem, ethers, Hardhat, Foundry) and `detectIntegrations` from package.json, source text and paths
 - `apps/frontend/lib/v6/depth.ts`: Depth rows for a read repo: integrations and chains on mainnet and testnet; pure
 - `apps/frontend/lib/v6/evidence.ts`: `readEvidence`: one repo read into code, team and depth, the subject's, the repo's deploy runs' and the repo's named contracts (at most 10), each `counted` or not with its reason (`countedBy`), the site; one GitHub `Budget` passed in per run; 7-day `evidence_cache` per repo (while pushed_at holds) and per contract, partial blocks and live rows never cached; `flattenRows` gives one row per value with basis and read time
@@ -91,20 +91,20 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v6/claims.ts`: `claim` (a 'started' applications row; a second within 24 hours by any of the builder's agents answers `already` with the claiming agent's client name), `releaseStale`, `appliedOvernight` (agent-submitted since the last find)
 - `apps/frontend/lib/v6/find-record.ts`: The record side of find: linked, `pickProject`, `recordSide` (record, own tier under the 24-hour rule, `evidence_read_at` and `last_tier` written by EarnKit), `tierGate` (min_tier: a ready program below the bar becomes one 'tier' gap), `notNever`, `withinApproval`, `blockersOf`, `missingFor`; unlinked (and linked before any own tier is read), `provisionalTier` (live from a code homepage, live URL or mainnet contract; building for any other read repo; null unread, so no bar) and `provisionalGate` (the gap line names the bar: "Link GitHub so EarnKit can confirm your product has users / is live / has code."), and `blockersOf` against `EMPTY_RECORD`
 - `apps/frontend/lib/v6/reviewers.ts`: A program's reviewers (`program_reviewers`): `addReviewer` (a signed-in builder by GitHub id, else by a login only one account has used; an existing program), `removeReviewer`, `reviewerPrograms`, `reviewersPost` (programs bearer, 404 while the API is off)
-- `apps/frontend/lib/v6/screen-jobs.ts`: Screen jobs: `ScreenApplicant`, `createJob` (12-byte id, identical pitches counted then dropped, 30 days), `jobStatus`, `jobResults` (sorted by tier, public rows only), `recordOutcomes` (`screen_outcomes`; won or rejected into a matching builder's ledger only after their applied row), `xpCounts` (other programs' screens in 90 days by repo or deployer, and their outcomes), `sweepScreens` (jobs over 90 days)
+- `apps/frontend/lib/v6/screen-jobs.ts`: Screen jobs: `ScreenApplicant`, `createJob` (12-byte id, identical pitches counted then dropped, 30 days), `jobStatus`, `jobResults` (sorted by tier, public rows only; the site title row carries `SITE_TEXT_NOTE`), `recordOutcomes` (`screen_outcomes`; won or rejected into a matching builder's ledger only after their applied row), `xpCounts` (other programs' screens in 90 days by repo or deployer, and their outcomes), `sweepScreens` (jobs over 90 days)
 - `apps/frontend/lib/v6/screen-worker.ts`: `workQueue`: queued applicants (the oldest job first, or only a named job), each taken atomically before it is read (a budget stop requeues and ends the run; a retryable null tier is retried up to 3 times), as the pilot reads them, on one Budget per call; placed with the job's thresholds, shared contributors inside the job and `xpCounts`; a failed read is `failed` with a one-line error and the job still advances
 - `apps/frontend/lib/v6/screen-tool.ts`: The `screen` MCP tool: reviewers only (one-line refusals), 10 jobs a day per reviewer, queue, results with the totals line, outcomes
 - `apps/frontend/lib/v5/fixtures/record-owner.json`: A sample owner record (EarnKit project, approved answers) for `replay.mts --linked`
 - `apps/frontend/lib/v6/builders.ts`: Builders (one row per GitHub account): `upsertBuilder`, `getBuilder`, `ownerKey` ('b:' or 'i:'), `getRecord`, `saveRecord`, `withRecord` (a locked read-merge-save), `linkInstallation` (re-keys the installation's ledger to the builder), `deleteBuilder`
 - `apps/frontend/lib/v6/github-auth.ts`: GitHub sign-in (read:user): `oauthConfigured`, `authorizeUrl`, the signed state (link code and browser nonce, 15 minutes), `exchangeCode`
-- `apps/frontend/lib/v6/link-routes.ts`: `/link/<code>` (confirm page, then GitHub) and `/auth/github/callback` (links the installation, starts a session, lands on /me); `createLinkCode` (15 minutes, hash stored); per-IP limit
+- `apps/frontend/lib/v6/link-routes.ts`: `/link/<code>` (confirm page, then GitHub) and `/auth/github/callback` (starts a session, lands on /me?link=<code>; links nothing); `createLinkCode` (15 minutes, hash stored); `consumeLinkCode` (marks used and links in one transaction) and `denyLinkCode` for POST /me/link; per-IP limit
 - `apps/frontend/lib/v6/sessions.ts`: Browser sessions for /me: the `ek_me` HttpOnly cookie (hash stored, 30 days), `sessionBuilder`, `endSession`, `clearCookie`, `cookieValue`
 - `apps/frontend/lib/v6/record.ts`: The record: `BuilderRecord` schema, `mergeRecord` (bad leaves dropped with a problem line, `set_by` stamps, policy builder only), `approvePath`, `unapprovePath`, `isApproved`, `APPROVABLE`, `answerFor`, `recordMissing`, `completeness`, `KIND_WORDS`; pure
 - `apps/frontend/lib/v6/record-tool.ts`: The `record` MCP tool: get, set (merged as the agent, never approved), brief; unlinked, the sign-in link
 - `apps/frontend/lib/v6/answer-brief.ts`: The brief behind one answer kind: the reviewer's question, record and repo facts as lines, the length band and the style contract; pure
-- `apps/frontend/lib/v6/reply-words.ts`: Words shared by the find reply and the record tool: the list joiner, `signInLine` (record and find's open list), `signInSentence` (the unlinked find's closing block, after the closing line), `confirmLine` (the unlinked tier gap per bar), `EVIDENCE_NOT_READ`; pure
-- `apps/frontend/lib/v6/me-view.ts`: /me's data: `meData` (the record as blocks of fields in builder words, pending approvals, the ledger, linked agents), `csrfToken` and `verifyCsrf` (HMAC of builder and UTC day, today or yesterday), `problemSig`
-- `apps/frontend/lib/v6/me-routes.ts`: /me's handlers: `meGet` (the session gate, 302 to /docs#record), `editPost`, `approvePost`, `policyPost`, `unlinkPost`, `deletePost`, `signoutPost` (web form under 64 KB, session and csrf, else 415, 413 or 403)
+- `apps/frontend/lib/v6/reply-words.ts`: Words shared by the find reply and the record tool: the list joiner, `signInLine` (record and find's open list), `signInSentence` (the unlinked find's closing block, after the closing line), `confirmLine` (the unlinked tier gap per bar), `EVIDENCE_NOT_READ`; pure `linkedNoticeLine` (the one-time sentence after a link: linked to GitHub account X, unlink at earnkit.com/me).
+- `apps/frontend/lib/v6/me-view.ts`: /me's data: `meData` (the record as blocks of fields in builder words, pending approvals, the ledger, linked agents, the ?link= banner), `csrfToken` and `verifyCsrf` (HMAC of builder, session cookie value and UTC day, today or yesterday), `problemSig`
+- `apps/frontend/lib/v6/me-routes.ts`: /me's handlers: `meGet` (the session gate, 302 to /docs#record), `editPost`, `approvePost`, `policyPost`, `unlinkPost`, `linkPost` (confirm or refuse a link code), `deletePost`, `signoutPost` (web form under 64 KB, session and csrf, else 415, 413 or 403)
 - `apps/frontend/lib/v6/fixtures/github-oauth.ts`: A fetch fake for GitHub sign-in (token exchange and user read)
 
 ## apps/frontend/app (routes and components)
@@ -166,7 +166,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/app/auth/github/callback/route.ts`: GET /auth/github/callback (via lib/v6/link-routes.ts)
 - `apps/frontend/app/me/page.tsx`: /me: the signed-in builder's record, server-rendered from `meData`, noindex
 - `apps/frontend/app/me/MeView.tsx`: /me's markup: pending approvals, one panel per block, standing approval, applications, agents, delete; plain forms, no client script
-- `apps/frontend/app/me/{edit,approve,policy,unlink,delete,signout}/route.ts`: POST handlers (via lib/v6/me-routes.ts)
+- `apps/frontend/app/me/{edit,approve,policy,unlink,link,delete,signout}/route.ts`: POST handlers (via lib/v6/me-routes.ts)
 
 ## apps/frontend/scripts and db
 

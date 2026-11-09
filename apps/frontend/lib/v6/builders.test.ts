@@ -50,7 +50,7 @@ test('linkInstallation moves i: applications to b: and keeps the newer status on
   await record(ownerKey(one, null), 'bl-a', 'applied', { now: NOW });
   await record(ownerKey(one, null), 'bl-b', 'skipped', { now: NOW });
   await record(ownerKey(one, null), 'bl-dup', 'applied', { now: NOW });
-  await record(ownerKey(one, null), 'bl-dup', 'gap_done', { item: 'license', now: NOW });
+  await record(ownerKey(one, null), 'bl-dup', 'gap_done', { item: 'users', now: NOW });
   assert.deepEqual(await linkInstallation(one, b.id, NOW), { migrated: 3 });
   assert.deepEqual(await rows(`i:${one}`), []);
   assert.deepEqual(await rows(`b:${b.id}`), [
@@ -66,7 +66,7 @@ test('linkInstallation moves i: applications to b: and keeps the newer status on
   const later = new Date(NOW.getTime() + DAY);
   await record(ownerKey(two, null), 'bl-dup', 'applied', { now: later });
   await record(ownerKey(two, null), 'bl-dup', 'rejected', { now: later });
-  await record(ownerKey(two, null), 'bl-dup', 'gap_done', { item: 'license', now: later });
+  await record(ownerKey(two, null), 'bl-dup', 'gap_done', { item: 'users', now: later });
   assert.deepEqual(await linkInstallation(two, b.id, later), { migrated: 1 });
   assert.deepEqual(await rows(`b:${b.id}`), [
     { program_id: 'bl-a', status: 'applied' },
@@ -76,7 +76,7 @@ test('linkInstallation moves i: applications to b: and keeps the newer status on
   const hist = (await sql()`SELECT count(*)::int AS n FROM application_history WHERE owner = ${`b:${b.id}`}`)[0].n;
   assert.equal(hist, 7);
   const gaps = await sql()`SELECT item FROM gaps_done WHERE owner = ${`b:${b.id}`}`;
-  assert.deepEqual(gaps.map((g) => g.item), ['license']);
+  assert.deepEqual(gaps.map((g) => g.item), ['users']);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM gaps_done WHERE owner LIKE 'i:%' AND owner IN (${`i:${one}`}, ${`i:${two}`})`)[0].n, 0);
 });
 
@@ -114,7 +114,7 @@ test('deleteBuilder leaves no builder, session, link code or b: ledger row; the 
   await record(ownerKey(one, null), 'bl-del', 'applied', { now: NOW });
   await createLinkCode(one, NOW);
   await linkInstallation(one, b.id, NOW);
-  await record(ownerKey(one, b.id), 'bl-del', 'gap_done', { installationId: one, item: 'x', now: NOW });
+  await record(ownerKey(one, b.id), 'bl-del', 'gap_done', { installationId: one, item: 'users', now: NOW });
   await createSession(b.id, NOW);
   await deleteBuilder(b.id);
   const owner = `b:${b.id}`;
@@ -152,9 +152,9 @@ test('a record under b:A from X does not raise beside an orphan i:X row for the 
   await linkInstallation(x, a.id, NOW);
   // A call in flight at link time writes under the old owner.
   await record(ownerKey(x, null), 'bl-orphan', 'applied', { now: NOW });
-  await record(ownerKey(x, null), 'bl-orphan', 'gap_done', { item: 'y', now: NOW });
+  await record(ownerKey(x, null), 'bl-orphan', 'gap_done', { item: 'users', now: NOW });
   assert.equal((await record(ownerKey(x, a.id), 'bl-orphan', 'applied', { installationId: x, now: NOW })).ok, true);
-  assert.equal((await record(ownerKey(x, a.id), 'bl-orphan', 'gap_done', { installationId: x, item: 'y', now: NOW })).ok, true);
+  assert.equal((await record(ownerKey(x, a.id), 'bl-orphan', 'gap_done', { installationId: x, item: 'users', now: NOW })).ok, true);
   assert.deepEqual(await rows(`b:${a.id}`), [{ program_id: 'bl-orphan', status: 'applied' }]);
   assert.deepEqual(await rows(`i:${x}`), [{ program_id: 'bl-orphan', status: 'applied' }]);
 });

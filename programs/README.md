@@ -64,8 +64,10 @@ drafted from the project; `builder`: only the builder can answer) and `kind` (`n
 `one_liner`, `problem`, `solution`, `how_it_works`, `traction`, `team`, `why_you`,
 `use_of_funds`, `milestones`, `competitors`, `risks`, `ecosystem_fit`, `what_next`, `past_work`,
 `help_needed`, `demo_video`, `links`, `contact`, `raised`, `other`). A required item
-also needs `todo`: a short builder to-do, lowercase start, at most 40 characters, no trailing
-punctuation or links (`"a live link on Arc mainnet"`). Optional: `description`, `project_field`,
+also needs `todo`: a short noun phrase for what the builder gives, lowercase start, at most 40
+characters, no trailing punctuation or links (`"a live link on Arc mainnet"`, `"the YC application
+answers"`). It reads after "Needs your", so never start it with a verb or a question word
+(`"the stage"`, not `"how far along you are"`). Optional: `description`, `project_field`,
 `max_chars` (only a stated limit), `guidance` (the program's own advice, with `source_url`).
 
 ### `eligibility`
@@ -85,8 +87,16 @@ states something the fields above cannot say:
 ```
 
 Kinds: `live_product`, `chain`, `contract_on`, `builder_codes`, `users`, `new_work_after`,
-`demo_video`, `in_person`, `feature`, `integration`. `value` (a chain slug, a date or, for `integration`, an integration key like `smart_wallet`) and `note` (at most 140
-characters) are optional.
+`demo_video`, `in_person`, `feature`, `integration`, `rule`. `value` (a chain slug, a date or, for `integration`, an integration key like `smart_wallet`) and `note` (at most 140
+characters) are optional. `rule` is a requirement the source states that EarnKit cannot check (a
+licence, a stage, who the team is); shown to the builder as 'Their rule' and confirmed once with track
+gap_done; it never counts toward the two-gap limit. It needs a
+`note` (the rule as a phrase, no trailing full stop) and takes no `value`. `feature` is a capability
+the project must have (`value`), a gap the builder or the agent can build.
+
+```json
+{ "kind": "rule", "note": "a clear open source license on the repo" }
+```
 
 ### `form`
 

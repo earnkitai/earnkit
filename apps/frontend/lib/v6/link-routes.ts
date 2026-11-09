@@ -1,7 +1,8 @@
 /**
  * The link from agent to builder: a one-time code the agent shows (/link/<code>) opens a confirm
  * page; its button (POST) binds this browser with a nonce cookie and goes to GitHub sign-in; the
- * callback checks the nonce, links the installation, starts a session and lands on /me. Rate
+ * callback checks the nonce, starts a session and lands on /me?link=<code>, where the signed-in
+ * builder confirms the link (POST /me/link: consumeLinkCode) or refuses it (denyLinkCode). Rate
  * limited per IP; only the code's hash is stored; nothing logs a token, a code or a secret.
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
@@ -17,9 +18,9 @@ import { cookieOf, cookieValue, createSession } from './sessions';
 const TTL_MS = 15 * 60_000;
 const LINK_COOKIE = 'ek_link';
 const NOT_SET_UP = 'GitHub sign-in is not set up yet.';
-const EXPIRED = 'This link has expired. Ask your agent for a new one.';
+export const EXPIRED = 'This link has expired. Ask your agent for a new one.';
 const FAILED = 'Sign-in failed. Ask your agent for a new link.';
-const OTHER = 'This agent is already linked to another account. Install EarnKit again for a fresh link.';
+export const OTHER = 'This agent is already linked to another account. Install EarnKit again for a fresh link.';
 /** A code as createLinkCode makes it: 22 base64url characters of an HMAC. */
 const CODE_SHAPE = /^[A-Za-z0-9_-]{22}$/;
 
@@ -58,12 +59,12 @@ export async function createLinkCode(installationId: number, now: Date): Promise
   }) as Promise<string>;
 }
 
-type Live = { installation_id: number; client_name: string | null; created_at: Date };
-/** The unused, unexpired code's installation, or null. */
-async function liveCode(code: string, now: Date): Promise<Live | null> {
+export type Live = { installation_id: number; client_name: string | null; created_at: Date; builder_id: number | null };
+/** The unused, unexpired code's installation (with the builder it is already linked to, if any), or null. */
+export async function liveCode(code: string, now: Date): Promise<Live | null> {
   if (!CODE_SHAPE.test(code)) return null;
   const [r] = await sql()<Live[]>`
-    SELECT l.installation_id, i.client_name, i.created_at FROM link_codes l JOIN installations i ON i.id = l.installation_id
+    SELECT l.installation_id, i.client_name, i.created_at, i.builder_id FROM link_codes l JOIN installations i ON i.id = l.installation_id
     WHERE l.code = ${hash(code)} AND l.used_at IS NULL AND l.expires_at > ${now}`;
   return r ?? null;
 }
@@ -95,7 +96,7 @@ function confirmPage(live: Live, origin: string): Response {
 <p style="font-size:18px;line-height:1.5">Link ${who}, first seen ${day(live.created_at)}, to your GitHub account?</p>
 <p style="color:#9AA0B4;font-size:15px;line-height:1.5">Once linked, it can read and change your record and apply to programs in your name. You can unlink it any time at ${host}/me.</p>
 <form method="post"><button type="submit" style="background:${SITE.blue};color:#fff;border:0;border-radius:8px;padding:12px 20px;font-size:16px;cursor:pointer">Continue with GitHub</button></form>
-<p style="color:#9AA0B4;font-size:14px;line-height:1.5">Only continue if you asked your agent for this link just now. If someone sent you this link, close this page.</p>
+<p style="color:#9AA0B4;font-size:14px;line-height:1.5">After you sign in, you confirm the link on your record page. Only continue if you asked your agent for this link just now. If someone sent you this link, close this page.</p>
 </main></body></html>`;
   return new Response(html, {
     status: 200,
@@ -140,7 +141,33 @@ export function linkPost(request: Request, code: string, deps: { now?: Date } = 
 /** Equal strings, in constant time. Pure. */
 const same = (a: string, b: string) => timingSafeEqual(createHash('sha256').update(a).digest(), createHash('sha256').update(b).digest());
 
-/** GET /auth/github/callback: the GitHub user becomes the builder the code's installation links to. */
+/**
+ * Single use: the code is marked used and its installation linked to the builder together, or neither.
+ * 'dead' for an unknown, used or expired code; 'other' when the installation is linked to another builder.
+ */
+export async function consumeLinkCode(code: string, builderId: number, now: Date): Promise<'linked' | 'dead' | 'other'> {
+  if (!CODE_SHAPE.test(code)) return 'dead';
+  try {
+    return (await sql().begin(async (tx) => {
+      const [used] = await tx<{ installation_id: number }[]>`
+        UPDATE link_codes SET used_at = ${now} WHERE code = ${hash(code)} AND used_at IS NULL AND expires_at > ${now} RETURNING installation_id`;
+      if (!used) return 'dead';
+      await linkInstallation(used.installation_id, builderId, now, tx);
+      return 'linked';
+    })) as 'linked' | 'dead';
+  } catch (err) {
+    if (err instanceof LinkRefused) return 'other';
+    throw err;
+  }
+}
+
+/** Ends a live code now: the builder said it was not theirs. */
+export async function denyLinkCode(code: string, now: Date): Promise<void> {
+  if (!CODE_SHAPE.test(code)) return;
+  await sql()`UPDATE link_codes SET expires_at = ${now} WHERE code = ${hash(code)} AND used_at IS NULL AND expires_at > ${now}`;
+}
+
+/** GET /auth/github/callback: signs the GitHub user in and sends them to /me?link=<code> to confirm the link there. */
 export function callbackGet(request: Request, deps: { now?: Date; gh?: typeof fetch } = {}): Promise<Response> {
   return guarded(request, async () => {
     const now = deps.now ?? new Date();
@@ -160,23 +187,9 @@ export function callbackGet(request: Request, deps: { now?: Date; gh?: typeof fe
       return page(FAILED, 400);
     }
     const builder = await upsertBuilder(user, now);
-    let done: boolean;
-    try {
-      // Single use: the code is marked and the installation linked together, or neither.
-      done = await sql().begin(async (tx) => {
-        const [used] = await tx<{ installation_id: number }[]>`
-          UPDATE link_codes SET used_at = ${now} WHERE code = ${hash(linked.code)} AND used_at IS NULL AND expires_at > ${now} RETURNING installation_id`;
-        if (!used) return false;
-        await linkInstallation(used.installation_id, builder.id, now, tx);
-        return true;
-      }) as boolean;
-    } catch (err) {
-      if (err instanceof LinkRefused) return page(OTHER, 400);
-      throw err;
-    }
-    if (!done) return page(FAILED, 400);
     const { cookie } = await createSession(builder.id, now);
-    const headers = new Headers({ Location: '/me', 'Cache-Control': 'no-store' });
+    // Nothing is linked here: a link someone else sent would otherwise bind their agent on one click.
+    const headers = new Headers({ Location: `/me?link=${encodeURIComponent(linked.code)}`, 'Cache-Control': 'no-store' });
     headers.append('Set-Cookie', cookie);
     headers.append('Set-Cookie', cookieOf(LINK_COOKIE, '', 0));
     return new Response(null, { status: 302, headers });

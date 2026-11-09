@@ -1,12 +1,11 @@
 /** The text at /llms.txt: what EarnKit is and how an agent or a researcher uses it. */
 import { AGENTS, MCP_URL, type Agent } from './agents';
 
-/** One agent's way in: its commands or message when it has them, else its steps. */
+/** One agent's way in: its commands and the steps after them when it has commands, its message, else its steps. */
 function connectLines(a: Agent): string {
-  const body = a.code
-    ? [a.code, a.afterCode].filter(Boolean).join('\n')
+  const text = a.code
+    ? [a.code, a.after, a.afterCode, a.last].filter(Boolean).join('\n')
     : a.message ?? a.steps.join(' ');
-  const text = body;
   return text.includes('\n') ? `- ${a.name}:\n${text.split('\n').map((l) => `    ${l}`).join('\n')}` : `- ${a.name}: ${text}`;
 }
 

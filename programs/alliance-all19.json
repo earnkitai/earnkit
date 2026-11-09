@@ -20,7 +20,7 @@
   "tag": "long shot",
   "min_product_score": 5,
   "setup": [
-    "start the application with the first founder's email"
+    "open the application with the first founder's email"
   ],
   "each_time": [],
   "rules": [

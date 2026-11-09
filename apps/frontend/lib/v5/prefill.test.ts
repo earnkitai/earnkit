@@ -386,3 +386,15 @@ test('R1 linked: the record fills a url field with one link, and an X profile no
   assert.deepEqual([by.website.value, by.website.from], ['https://earnkit.com', 'record']);
   assert.deepEqual([by.x_url.value, by.x_url.from], [null, 'builder']);
 });
+
+test('an other text field with nothing to draft from is the builder\'s, never the agent\'s with no sources (v6.1.6)', () => {
+  const none: RepoFacts = { ...LINK_FACTS, repo_url: null, live_url: null, repo_url_basis: null, live_url_basis: null, public: false, as_reported: true };
+  const row = rowWith([req({ key: 'batch_preference', label: 'Batch preference', type: 'text', description: 'Choose Winter 2027, or name a later batch.' })]);
+  const bare = prefill(row, none).fields[0];
+  assert.equal(bare.from, 'builder');
+  assert.equal(bare.sources, undefined);
+  assert.equal(prefill(row, none, rec(EMPTY_RECORD)).fields[0].from, 'builder');
+  const withRepo = prefill(row, LINK_FACTS).fields[0];
+  assert.equal(withRepo.from, 'agent');
+  assert.ok((withRepo.sources ?? []).length > 0);
+});

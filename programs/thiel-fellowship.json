@@ -20,7 +20,7 @@
   "tag": "long shot",
   "min_tier": "building",
   "eligibility": [
-    { "kind": "feature", "note": "applicant aged 22 or younger with no university degree, who will drop out of college if selected" }
+    { "kind": "rule", "note": "applicant aged 22 or younger with no university degree, who will drop out of college if selected" }
   ],
   "setup": [],
   "each_time": [],
@@ -33,7 +33,7 @@
     "Fellows receive $250,000 over two years, and the Foundation takes no equity. Fellows can be based anywhere."
   ],
   "submission_requirements": [
-    { "key": "application", "label": "Online application", "kind": "other", "todo": "complete the online application", "type": "text", "required": true, "description": "The application site needs a browser and its questions are not on the public pages.", "from": "builder" }
+    { "key": "application", "label": "Online application", "kind": "other", "todo": "the online application answers", "type": "text", "required": true, "description": "The application site needs a browser and its questions are not on the public pages.", "from": "builder" }
   ],
   "form": { "platform": "other", "url": "https://thielfellowship.my.site.com/apply/s/" },
   "submit": "builder",

@@ -10,19 +10,19 @@ import { readEvidence, type Evidence, type Subject } from '../v6/evidence';
 import { blockersOf, notNever, missingFor, provisionalGate, provisionalTier, recordSide, storedRecordContext, tierGate, type Blocker, type RecordSide } from '../v6/find-record';
 import { EMPTY_RECORD } from '../v6/record';
 import { signInLink } from '../v6/record-tool';
-import { signInLine } from '../v6/reply-words';
+import { linkedNoticeLine, signInLine } from '../v6/reply-words';
 import { timeLeftWords } from './deadline';
 import { evaluate, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
-import { lastFindAt, markFind } from './installations';
+import { lastFindAt, markFind, newlyLinkedLogin } from './installations';
 import { askOutcome, claimed, doneByProgram, doneItems, excluded, markAsked, summary, type Ledger } from './ledger';
 import { prefill, type Field } from './prefill';
-import { PROGRAM_CATEGORIES, categoryOf, type Category, type Program } from './program-file';
+import { PROGRAM_CATEGORIES, categoryOf, ruleNotes, type Category, type Program } from './program-file';
 import { getProgram, isOpen, listOpenPrograms, type ProgramRow } from './programs';
 import { parseProject, type Project } from './project-input';
-import { rankGaps, rankReady } from './rank';
+import { rankGaps, rankReady, shownGapsOf } from './rank';
 import { repoFacts, type RepoFacts } from './repo-facts';
-import { AGENT_FIELDS, agentNote, numbered, replyText } from './reply';
+import { AGENT_FIELDS, RULE_NOTE, agentNote, numbered, replyText, ruleSentence } from './reply';
 import { since, type Since } from './since';
 
 export const FindInput = z.object({
@@ -60,6 +60,8 @@ export type ReadyProgram = {
   needs: string[];
   /** What taking part needs before applying (in person: attending). */
   setup: string[];
+  /** The notes of all the program's rules; a ready program has confirmed them, so its line shows none (v6.1.6). */
+  rules: string[];
   /** The number the builder sees (and says) for it. */
   n: number;
   /** Set while another agent of the builder's holds a claim on it (track started). */
@@ -75,6 +77,11 @@ export type GapProgram = {
   gap: Gap;
   /** Any second change the program needs. */
   also: Gap[];
+  /** The notes of all the program's rules; the unconfirmed ones are rule gaps in `gap`/`also` (v6.1.6). */
+  rules: string[];
+  in_person: boolean;
+  /** What taking part needs before applying; in person, its attend sentence is in the gap line (R18d). */
+  setup: string[];
   /** The number the builder sees (and says) for it. */
   n: number;
 };
@@ -100,8 +107,14 @@ export type FindReply = {
   max_per_night?: number;
   /** Unlinked with sign-in configured: the link that links this installation to a builder. */
   sign_in?: string;
+  /** The first find after a link: the GitHub account it linked to, as the closing block's last sentence (security M2). */
+  linked_notice: string | null;
 };
-export type ProgramReply = { show_to_builder: string; agent_note: string; program: Program | null; fields: Field[]; guide: Guide | null; verdict?: Verdict };
+export type ProgramReply = {
+  show_to_builder: string; agent_note: string; program: Omit<Program, 'reviewers_contact'> | null; fields: Field[]; guide: Guide | null; verdict?: Verdict;
+  /** The program's rules EarnKit cannot check, each its own "Their rule" line (v6.1.6). */
+  rules: string[];
+};
 export type FindContext = {
   installationId: number;
   builderId: number | null;
@@ -162,19 +175,23 @@ function readyOf(row: ProgramRow, v: Verdict, facts: RepoFacts, now: Date, side:
     fields, filled, facts_from_repo, repo_required, from_record, need_you, total,
     needs: [...p.setup, ...fields.filter((f) => f.from === 'builder' && f.required).map((f) => todo.get(f.key) ?? f.label.toLowerCase())],
     setup: p.setup,
+    rules: v.rules,
   };
 }
 
 const gapOf = (row: ProgramRow, v: Verdict): Omit<GapProgram, 'n'> => ({
   program_id: row.id, title: row.file.title, money: moneyOf(row.file), max_award_usd: row.file.max_award_usd ?? null,
-  category: categoryOf(row.file), closes_at: row.file.ends_at, gap: v.gaps[0], also: v.gaps.slice(1),
+  category: categoryOf(row.file), closes_at: row.file.ends_at, gap: v.gaps[0], also: v.gaps.slice(1), rules: v.rules,
+  in_person: row.file.in_person, setup: row.file.setup,
 });
 
 /** One program: its file, its fields (for the project, when given) and the verdict. */
 async function oneProgram(ctx: FindContext, id: string, project: Project | null, projectId?: string): Promise<ProgramReply> {
   const row = await getProgram(id);
-  if (!row) return { show_to_builder: "I don't know that program.", agent_note: 'Call find with the project for the programs it fits.', program: null, fields: [], guide: null };
+  if (!row) return { show_to_builder: "I don't know that program.", agent_note: 'Call find with the project for the programs it fits.', program: null, fields: [], guide: null, rules: [] };
   const p = row.file;
+  // reviewers_contact is the owner's only: never in a tool reply (security M1).
+  const { reviewers_contact: _owner, ...pub } = p;
   const facts = project ? await factsOf(project, ctx) : EMPTY_FACTS;
   // Linked: the record fills first, as in the match (no evidence read here: the stored usage line).
   const rec = ctx.builderId === null ? null : await storedRecordContext(ctx.builderId, projectId, facts.repo_url ?? project?.repo_url ?? null);
@@ -183,24 +200,32 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const verdict = project ? evaluate(row, facts, await doneItems(ownerOf(ctx), id), ctx.now) : undefined;
   const left = closesIn(p, ctx.now);
   const open = isOpen(p, ctx.now);
-  const when = p.status === 'upcoming' ? null : !open ? 'closed' : left ? `closes ${left}` : 'no deadline';
-  const ask = open ? 'Want me to draft it?' : p.status === 'upcoming' ? `Not open yet: ${p.opens_note ?? 'no date announced'}.` : 'This one is closed.';
+  const when = p.status === 'upcoming' ? null : !open ? 'closed' : left ? `closes ${left}` : 'rolling';
+  const ask = open ? (p.in_person ? 'Want me to start the application to attend?' : 'Want me to draft it?') : p.status === 'upcoming' ? `Not open yet: ${p.opens_note ?? 'no date announced'}.` : 'This one is closed.';
   const guide = guideText(row, ctx.now);
-  const rules = guideLines(guide);
+  const guideRules = guideLines(guide);
+  // Their rules: what the program requires that EarnKit cannot check, each its own line after the money (v6.1.6).
+  const rules = ruleNotes(p);
   return {
-    show_to_builder: [`${p.title}, ${moneyOf(p)}${when ? `, ${when}` : ''}.`, ...(rules.length > 0 ? [`Apply at ${p.submission_url}.`, ...rules, ask] : [`Apply at ${p.submission_url}. ${ask}`])].join('\n'),
+    show_to_builder: [
+      `${p.title}, ${moneyOf(p)}${when ? `, ${when}` : ''}.`,
+      ...rules.map(ruleSentence),
+      ...(guideRules.length > 0 ? [`Apply at ${p.submission_url}.`, ...guideRules, ask] : [`Apply at ${p.submission_url}. ${ask}`]),
+    ].join('\n'),
     agent_note: (open
       ? [
           project ? `Draft from fields: ${fitted ? "'record' and 'earnkit'" : "'earnkit'"} values as given; ${AGENT_FIELDS}` : 'Call again with the project so the fields come pre-filled.',
+          ...(verdict?.gaps.some((g) => g.kind === 'rule') ? [RULE_NOTE] : []),
           'Submit only on a yes, in your own browser, then call track with applied.',
           ...(fitted ? ['Fit approved answers by cutting, never by adding; the style contract travels on each field.'] : []),
         ]
       : ['It takes no entries now: draft nothing and submit nothing. Call find with the project for what is open.']
     ).join('\n'),
-    program: p,
+    program: pub,
     fields,
     guide,
     ...(verdict ? { verdict } : {}),
+    rules,
   };
 }
 
@@ -214,18 +239,26 @@ async function openList(ctx: FindContext, problem: string | null): Promise<FindR
   if (programs.length > MAX_LISTED) lines.push(`and ${programs.length - MAX_LISTED} more.`);
   const ledger = await summary(ownerOf(ctx), programs, ctx.now);
   const link = ctx.builderId === null ? await linkOf(ctx) : null;
+  const notice = await linkedNotice(ctx);
   const list = programs.length > 0 ? `Open now:\n${lines.join('\n')}\nTell me which project and I'll match it.` : "Nothing is open right now. I'll say when something opens.";
   return {
-    show_to_builder: link ? `${list}\n\n${signInLine(link)}` : list,
+    show_to_builder: [link ? `${list}\n\n${signInLine(link)}` : list, notice].filter(Boolean).join(' '),
     agent_note: [
       ...(problem ? [`The project was not read: ${problem}.`] : []),
       'Pass the project next time (name, description, repo_url, chains, live_url) so EarnKit can match it and pre-fill each form.',
     ].join('\n'),
     since: { from: null, new: [], changed: [], closing: [] },
     ready: [], gaps: [], ledger, ask_outcome: [], as_reported: false, ...unlinkedPart(), linked: ctx.builderId !== null,
-    ...(link ? { sign_in: link } : {}),
+    ...(link ? { sign_in: link } : {}), linked_notice: notice,
   };
 }
+
+/** Linked since the last find: the sentence that says to which GitHub account; else null. Read before markFind. */
+const linkedNotice = async (ctx: FindContext) => {
+  if (ctx.builderId === null) return null;
+  const login = await newlyLinkedLogin(ctx.installationId);
+  return login ? linkedNoticeLine(login) : null;
+};
 
 /** The unlinked installation's sign-in link, or null (never a failure). */
 const linkOf = (ctx: FindContext) => (ctx.linkUrl ?? (() => signInLink(ctx.installationId, ctx.now)))().catch(() => null);
@@ -287,11 +320,14 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
     });
 
   const readyV = rankReady(verdicts.filter((v) => v.status === 'ready'), byId);
-  const gapV = rankGaps(verdicts.filter((v) => v.status === 'gap'), byId);
+  const mainnets = new Set(facts.chains.filter((c) => c.mainnet).map((c) => c.chain));
+  const gapV = rankGaps(verdicts.filter((v) => v.status === 'gap'), byId, mainnets);
   // Remote and in-person ready programs are capped apart, each in rank order, so the default list always leads with
   // something the builder can apply to now.
   const shownReady = shownReadyOf(readyV, all, (v) => byId.get(v.program_id)!.file.in_person);
-  const shownGaps = all ? gapV : gapV.slice(0, MAX_GAPS);
+  // Real changes first, then at most one rule-only program by default (R18b), the one fitting the project's chains
+  // (R18e). In-person programs are never in the default gap list (R18d, R18f); `more` counts them.
+  const shownGaps = shownGapsOf(gapV, all, MAX_GAPS, (v) => byId.get(v.program_id)!.file.in_person);
   const more = readyV.length - shownReady.length + gapV.length - shownGaps.length;
   // In display order with the numbers the builder sees: ready, gaps, then in person.
   const holds = side ? await claimed(owner) : new Map<string, { since: string }>();
@@ -305,6 +341,7 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   );
 
   const last = await lastFindAt(ctx.installationId);
+  const notice = await linkedNotice(ctx);
   const overnight = side ? await appliedOvernight(owner, last) : [];
   const link = side ? null : await linkOf(ctx);
   const moved = await since(owner, last, open, ready.map((r) => r.program_id), ctx.now, gaps.map((g) => g.program_id));
@@ -320,6 +357,7 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
     ...(side
       ? linkedPart(side, ready.map((p) => byId.get(p.program_id)!), released, overnight)
       : { ...unlinkedPart(), blockers: blockersOf(ready.map((p) => byId.get(p.program_id)!), EMPTY_RECORD), ...(link ? { sign_in: link } : {}) }),
+    linked_notice: notice,
   };
   // Every gap of this find (not only the shown ones), in rank order, so track started can say what is still missing.
   await markFind(ctx.installationId, ctx.now, Object.fromEntries(gapV.slice(0, MAX_REMEMBERED_GAPS).map((v) => [v.program_id, v.gaps[0].what])));

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { mcpCall, mcpInstructions, mcpListTools } from './fixtures/mcp-call';
 import { FIND_DESCRIPTION, RECORD_DESCRIPTION, SCREEN_DESCRIPTION, SERVER_INSTRUCTIONS, TRACK_DESCRIPTION } from './mcp';
-import { windowStart } from './rate-limit';
+import { clientIp, windowStart } from './rate-limit';
 
 after(() => sql().end());
 
@@ -91,4 +91,13 @@ test('the per-IP floor: the 601st call from one address in an hour is busy, what
   assert.equal(busy.text, BUSY_HOUR);
   const other = await mcpCall({ ...c, ip: '203.0.113.10' }, 'track', { program_id: 'no-such', status: 'skipped' });
   assert.equal(other.isError, false, other.text);
+});
+
+test('clientIp: the rightmost x-forwarded-for entry wins; x-real-ip only without one; then the socket (security M3)', () => {
+  const h = (o: Record<string, string>) => new Headers(o);
+  assert.equal(clientIp(h({ 'x-forwarded-for': '1.1.1.1, 203.0.113.7', 'x-real-ip': '9.9.9.9' })), '203.0.113.7');
+  assert.equal(clientIp(h({ 'x-forwarded-for': '203.0.113.8' }), '10.0.0.1'), '203.0.113.8');
+  assert.equal(clientIp(h({ 'x-real-ip': '203.0.113.9' }), '10.0.0.1'), '203.0.113.9');
+  assert.equal(clientIp(h({}), '203.0.113.10'), '203.0.113.10');
+  assert.equal(clientIp(h({})), 'unknown');
 });

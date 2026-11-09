@@ -34,7 +34,7 @@ export type RecordReply = {
   brief?: ReturnType<typeof answerBrief>;
 };
 
-const SIGN_IN_NOTE = 'Show the link and stop asking for personal facts until the builder has signed in. Call record with get afterwards.';
+const SIGN_IN_NOTE = 'Show the link once. Ask for personal facts once, all together, when a form needs them; nothing is saved until the builder has signed in. Call record with get afterwards.';
 const NOT_READY = 'Sign-in is not ready yet; I will keep what you tell me in this session only.';
 const APPROVAL_NOTE = 'Approved answers come from earnkit.com/me, where the builder reads and approves each one; an unapproved answer is never used in a form.';
 const BROKEN = 'Your record could not be read; nothing was saved.';

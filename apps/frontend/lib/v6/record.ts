@@ -127,7 +127,8 @@ function mergeFields(cur: { [k: string]: unknown }, patch: unknown, shape: z.Zod
       problems.push(bad(path, 'set by EarnKit only'));
       continue;
     }
-    const schema = shape[key] as z.ZodType | undefined;
+    // Own keys only: an inherited name (__proto__, constructor, toString) is not a field (security L1).
+    const schema = Object.hasOwn(shape, key) ? (shape[key] as z.ZodType) : undefined;
     if (!schema) {
       problems.push(bad(path, 'not a field'));
       continue;
@@ -242,7 +243,7 @@ export function mergeRecord(current: BuilderRecord, patch: unknown, by: By, now:
     if (key === 'meta' || key === 'evidence_read_at') problems.push(bad(key, 'set by EarnKit only'));
     // Standing approval and its limits are the builder's consent, given on /me only.
     else if (key === 'policy' && by === 'agent') problems.push(bad('policy', 'set by the builder on earnkit.com/me only'));
-    else if (key in BLOCKS) {
+    else if (Object.hasOwn(BLOCKS, key)) {
       const block = BLOCKS[key as keyof typeof BLOCKS];
       leaves.push(...mergeFields(rec[key as keyof typeof BLOCKS] as { [k: string]: unknown }, value, block.shape, key, problems));
     } else if (key === 'team') {

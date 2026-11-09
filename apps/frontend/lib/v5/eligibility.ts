@@ -2,13 +2,18 @@
  * Eligibility and gaps: a project's repo facts against a program's eligibility items. Each unmet
  * item is a gap with its effort and whether the agent can do it. Pure: no I/O, time only via `now`.
  */
+import { createHash } from 'node:crypto';
 import { integrationDocs, integrationLabel } from '../v6/integrations';
 import { CHAIN_REGISTRY, chainName } from './chains';
-import { ELIGIBILITY_KINDS, categoryOf, eligibilityOf, type EligibilityItem } from './program-file';
+import { categoryOf, eligibilityOf, ruleNotes, type EligibilityItem, type EligibilityKind } from './program-file';
 import type { ProgramRow } from './programs';
 import type { RepoFacts } from './repo-facts';
 
-export type GapKind = (typeof ELIGIBILITY_KINDS)[number];
+/**
+ * A rule (v6.1.6, R18a) is a confirmation gap: EarnKit cannot check it, so the builder confirms it once
+ * (track gap_done with its item). It never counts toward MAX_GAPS or the weeks refusal.
+ */
+export type GapKind = EligibilityKind;
 export type Effort = 'minutes' | 'hours' | 'days' | 'weeks';
 export type Gap = {
   /** 'tier': the program's min_tier is above the project's tier (set by find, never by evaluate). */
@@ -25,15 +30,19 @@ export type Verdict = {
   gaps: Gap[];
   reason: string | null;
   long_shot: string | null;
+  /** The notes of all the program's `rule` items, in file order, confirmed or not. */
+  rules: string[];
 };
 
 const EFFORT: Record<GapKind, Effort> = {
   builder_codes: 'minutes', live_product: 'hours', chain: 'hours', contract_on: 'hours', demo_video: 'hours',
-  feature: 'days', integration: 'days', users: 'weeks', new_work_after: 'weeks', in_person: 'weeks',
+  feature: 'days', integration: 'days', users: 'weeks', new_work_after: 'weeks', in_person: 'weeks', rule: 'hours',
 };
 const MAX_GAPS = 2;
 
-const itemKey = (i: EligibilityItem) => (i.value ? `${i.kind}:${i.value}` : i.kind);
+/** A rule's item is 'rule:' and the first 8 hex of the sha256 of its note: stable while the note is. */
+export const ruleItem = (note: string) => `rule:${createHash('sha256').update(note).digest('hex').slice(0, 8)}`;
+export const itemKey = (i: EligibilityItem) => (i.kind === 'rule' ? ruleItem(i.note ?? '') : i.value ? `${i.kind}:${i.value}` : i.kind);
 const chainDetails = (chain: string) => {
   const c = CHAIN_REGISTRY[chain];
   return { chain, rpc: c?.rpc ?? null, explorer: c?.explorer ?? null };
@@ -50,6 +59,7 @@ function gapOf(i: EligibilityItem): Gap {
     case 'demo_video': return { ...base, what: 'a demo video' };
     case 'integration': return { ...base, what: `add ${integrationLabel(v) ?? v}`, agent_can: true, details: { docs: integrationDocs(v) } };
     case 'feature': return { ...base, what: v || i.note || 'a feature the program asks for' };
+    case 'rule': return { ...base, what: i.note ?? '' };
     default: return { ...base, what: 'real users first' };
   }
 }
@@ -58,19 +68,23 @@ const date = (s: string) => s.slice(0, 10);
 /** Users not reported: a question only the builder answers, not weeks of work. */
 const USERS_UNKNOWN: Gap = { kind: 'users', item: 'users', what: 'tell me if real people use it', effort: 'hours', agent_can: false };
 
+/** Gaps that are all rules to confirm (R18a): one answer away, no change to make. False for none. Pure. */
+export const rulesOnly = (gaps: Gap[]): boolean => gaps.length > 0 && gaps.every((g) => g.kind === 'rule');
+
 /** The program against the facts: ready, a short list of gaps, or no. `done` holds items the builder says are done. */
 export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string>, now: Date): Verdict {
   const p = program.file;
   const long_shot =
-    p.tag === 'long shot' ? 'few prizes for many entries'
+    p.tag === 'long shot' ? (categoryOf(p) === 'investment' || p.in_person ? 'many apply, few are taken' : 'few prizes for many entries')
     : categoryOf(p) === 'investment' && p.max_award_usd == null ? 'an investment program with no stated amount'
     : null;
-  const out = (status: Verdict['status'], gaps: Gap[], reason: string | null): Verdict => ({ program_id: program.id, status, gaps, reason, long_shot });
+  const items = eligibilityOf(p);
+  const rules = ruleNotes(p);
+  const out = (status: Verdict['status'], gaps: Gap[], reason: string | null): Verdict => ({ program_id: program.id, status, gaps, reason, long_shot, rules });
 
   if (p.status !== 'active') return out('no', [], 'not open');
   if (p.ends_at && Date.parse(p.ends_at) <= now.getTime()) return out('no', [], 'closed');
 
-  const items = eligibilityOf(p);
   const gaps: Gap[] = [];
   let inPerson = false;
   const chainItems = items.filter((i) => i.kind === 'chain');
@@ -96,14 +110,18 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
       }
       case 'in_person': inPerson = true; break;
       case 'demo_video':
-      case 'feature': if (!done.has(itemKey(i))) gaps.push(gapOf(i)); break;
+      case 'feature':
+      case 'rule': if (!done.has(itemKey(i))) gaps.push(gapOf(i)); break;
     }
   }
 
   const reason = inPerson ? 'in person' : null;
   if (gaps.length === 0) return out('ready', [], reason);
-  if (gaps.length > MAX_GAPS || gaps.some((g) => g.effort === 'weeks')) {
-    return out('no', gaps, `needs ${gaps.map((g) => g.what).join(', ')}`);
+  // Real gaps first, then the rules to confirm; only the real ones count toward the limits.
+  const real = gaps.filter((g) => g.kind !== 'rule');
+  const ordered = [...real, ...gaps.filter((g) => g.kind === 'rule')];
+  if (real.length > MAX_GAPS || real.some((g) => g.effort === 'weeks')) {
+    return out('no', ordered, `needs ${real.map((g) => g.what).join(', ')}`);
   }
-  return out('gap', gaps, reason);
+  return out('gap', ordered, reason);
 }

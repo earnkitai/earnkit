@@ -1,13 +1,14 @@
 /**
  * The data /me renders: the signed-in builder's record as blocks of editable fields in builder words,
  * the answers waiting for approval, their ledger and linked agents, and the day's csrf token
- * (an HMAC of the builder id and the UTC day, accepted today and the day after). Reads only this builder's rows.
+ * (an HMAC of the builder id, the session and the UTC day, accepted today and the day after). Reads only this builder's rows.
  */
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { sql } from '../v5/db';
 import { ANSWER_KINDS, PROGRAM_CATEGORIES } from '../v5/program-file';
-import { ME_BLOCKS, ME_LABELS, ME_STATUS, monthDay } from '../v5/site-copy';
+import { ME_BLOCKS, ME_LABELS, ME_LINK_LINE, ME_STATUS, monthDay } from '../v5/site-copy';
 import { type Builder, getRecord } from './builders';
+import { EXPIRED, OTHER, liveCode } from './link-routes';
 import { APPROVABLE, type BuilderRecord, isApproved, KIND_WORDS } from './record';
 
 export type FieldKind = 'text' | 'long' | 'url' | 'bool' | 'number' | 'choice';
@@ -26,6 +27,8 @@ export type MeData = {
   pending_approvals: { path: string; label: string; text: string; seen: string }[];
   ledger: { title: string; program_id: string; status: string; at: string }[];
   installations: { id: number; client_name: string | null; linked_at: string }[];
+  /** After sign-in from /link/<code>: the code to confirm and the banner text; code null when it is no longer live. */
+  link: { code: string | null; text: string } | null;
 };
 
 const DAY = 86_400_000;
@@ -37,16 +40,19 @@ export function authSecret(): string {
   return s;
 }
 
-/** base64url HMAC-SHA256 of "me-csrf:<builder>:<YYYY-MM-DD>". Pure. */
-export const csrfToken = (builderId: number, day: string, secret: string): string =>
-  createHmac('sha256', secret).update(`me-csrf:${builderId}:${day}`).digest('base64url');
+/**
+ * base64url HMAC-SHA256 of "me-csrf:<builder>:<session token>:<YYYY-MM-DD>": bound to the session cookie's
+ * value, so a token leaked from one session's page fails under any other (security L4). Pure.
+ */
+export const csrfToken = (builderId: number, day: string, secret: string, sessionToken: string): string =>
+  createHmac('sha256', secret).update(`me-csrf:${builderId}:${sessionToken}:${day}`).digest('base64url');
 
 const same = (a: string, b: string) => timingSafeEqual(createHash('sha256').update(a).digest(), createHash('sha256').update(b).digest());
 
-/** Today's or yesterday's token for this builder, compared in constant time. Pure. */
-export function verifyCsrf(token: string, builderId: number, now: Date, secret: string): boolean {
-  if (!token) return false;
-  const ok = [0, 1].map((n) => same(token, csrfToken(builderId, utcDay(new Date(now.getTime() - n * DAY)), secret)));
+/** Today's or yesterday's token for this builder and this session, compared in constant time. Pure. */
+export function verifyCsrf(token: string, builderId: number, now: Date, secret: string, sessionToken: string): boolean {
+  if (!token || !sessionToken) return false;
+  const ok = [0, 1].map((n) => same(token, csrfToken(builderId, utcDay(new Date(now.getTime() - n * DAY)), secret, sessionToken)));
   return ok.some(Boolean);
 }
 
@@ -156,8 +162,20 @@ export function pendingApprovals(record: BuilderRecord): MeData['pending_approva
   return out;
 }
 
-/** The page's data for this builder only. */
-export async function meData(builder: Builder, now: Date): Promise<MeData> {
+/**
+ * The link banner for /me?link=<code>: the agent that asked; that it is already linked to another account (no
+ * buttons: the post would answer that); or that the link expired.
+ */
+async function linkBanner(code: string | null | undefined, builderId: number, now: Date): Promise<MeData['link']> {
+  if (code === null || code === undefined) return null;
+  const live = await liveCode(code, now);
+  if (!live) return { code: null, text: EXPIRED };
+  if (live.builder_id !== null && Number(live.builder_id) !== builderId) return { code: null, text: OTHER };
+  return { code, text: ME_LINK_LINE(live.client_name, monthDay(live.created_at)) };
+}
+
+/** The page's data for this builder only; `session` is the request's session cookie value (the csrf binds to it); `link` is the ?link= code, if any. */
+export async function meData(builder: Builder, now: Date, session: string, link?: string | null): Promise<MeData> {
   const record = await getRecord(builder.id);
   const owner = `b:${builder.id}`;
   const ledger = await sql()<{ title: string | null; program_id: string; status: string; at: Date }[]>`
@@ -168,10 +186,11 @@ export async function meData(builder: Builder, now: Date): Promise<MeData> {
   return {
     login: builder.login,
     name: builder.name,
-    csrf: csrfToken(builder.id, utcDay(now), authSecret()),
+    csrf: csrfToken(builder.id, utcDay(now), authSecret(), session),
     blocks: recordBlocks(record),
     pending_approvals: pendingApprovals(record),
     ledger: ledger.map((r) => ({ title: r.title ?? r.program_id, program_id: r.program_id, status: ME_STATUS[r.status] ?? cap(r.status.replaceAll('_', ' ')), at: monthDay(r.at) })),
     installations: agents.map((r) => ({ id: r.id, client_name: r.client_name, linked_at: r.linked_at ? monthDay(r.linked_at) : '' })),
+    link: await linkBanner(link, builder.id, now),
   };
 }

@@ -21,7 +21,7 @@
   "category": "grant",
   "min_tier": "building",
   "eligibility": [
-    { "kind": "feature", "note": "open source software from a small or early-stage project" }
+    { "kind": "rule", "note": "open source software from a small or early-stage project" }
   ],
   "setup": [],
   "each_time": [
@@ -34,7 +34,7 @@
     "FUTO funds open source software and the people building it to challenge the tech oligopoly; every listed microgrant recipient is an open source project."
   ],
   "submission_requirements": [
-    { "key": "application_email", "label": "Grant application email to grantapps@futo.org", "type": "text", "required": true, "todo": "email a short description of the project", "description": "The page states no form or fields; applications go by email. Describe the project, link the repository and say what the grant would fund.", "from": "project", "kind": "solution" }
+    { "key": "application_email", "label": "Grant application email to grantapps@futo.org", "type": "text", "required": true, "todo": "the short project description email", "description": "The page states no form or fields; applications go by email. Describe the project, link the repository and say what the grant would fund.", "from": "project", "kind": "solution" }
   ],
   "focus": {
     "areas": ["Open source software against tech monopolies", "Small and early-stage projects"],

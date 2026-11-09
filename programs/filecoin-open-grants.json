@@ -11,7 +11,7 @@
   "max_award_usd": 50000,
   "min_tier": "building",
   "eligibility": [
-    { "kind": "feature", "note": "work that enhances the Filecoin network, not only IPFS, libp2p or similar stacks" }
+    { "kind": "rule", "note": "work that enhances the Filecoin network, not only IPFS, libp2p or similar stacks" }
   ],
   "ideas": [
     "A Filecoin integration for a popular developer tool",
@@ -44,14 +44,14 @@
   "submission_requirements": [
     { "key": "project_name", "label": "Project Name", "type": "text", "required": true, "from": "project", "kind": "name", "todo": "a project name", "project_field": "name" },
     { "key": "category", "label": "Proposal Category", "type": "choice", "required": true, "from": "project", "kind": "other", "todo": "a proposal category", "options": ["Developer and data tooling", "Integrations", "Research & protocols", "Storage", "Retrieval", "FVM", "Other"] },
-    { "key": "individual_or_entity", "label": "Individual or Entity Name", "type": "text", "required": true, "from": "builder", "kind": "contact", "todo": "who signs: you or your entity", "description": "Is the proposal on behalf of an individual, or an entity/organization? The agreement and any payments must be completed by the same party." },
+    { "key": "individual_or_entity", "label": "Individual or Entity Name", "type": "text", "required": true, "from": "builder", "kind": "contact", "todo": "the signer (you or your entity)", "description": "Is the proposal on behalf of an individual, or an entity/organization? The agreement and any payments must be completed by the same party." },
     { "key": "proposer", "label": "Proposer (GitHub username)", "type": "text", "required": true, "from": "builder", "kind": "contact", "todo": "your GitHub username" },
     { "key": "repos", "label": "Project Repo(s)", "type": "url", "required": true, "from": "project", "kind": "links", "todo": "the project's GitHub repos", "project_field": "repo_url" },
     { "key": "affiliations", "label": "(Optional) Filecoin ecosystem affiliations", "type": "text", "required": false, "from": "builder", "kind": "other", "description": "Disclose existing work relationships with Protocol Labs Network organizations, including Protocol Labs, Filecoin Foundation and Filecoin Foundation for the Decentralized Web." },
     { "key": "technical_sponsor", "label": "(Optional) Technical Sponsor", "type": "text", "required": false, "from": "builder", "kind": "other" },
-    { "key": "open_source", "label": "Do you agree to open source all work you do on behalf of this RFP under the MIT/Apache-2 dual-license?", "type": "choice", "required": true, "from": "builder", "kind": "other", "todo": "agree to the MIT/Apache-2 license", "options": ["Yes", "No"] },
+    { "key": "open_source", "label": "Do you agree to open source all work you do on behalf of this RFP under the MIT/Apache-2 dual-license?", "type": "choice", "required": true, "from": "builder", "kind": "other", "todo": "the MIT/Apache-2 license agreement", "options": ["Yes", "No"] },
     { "key": "summary", "label": "Project Summary", "type": "text", "required": true, "from": "project", "kind": "problem", "todo": "a 2 to 3 paragraph summary", "description": "The problem you are addressing and how this project addresses it, 2 to 3 paragraphs." },
-    { "key": "impact", "label": "Impact", "type": "text", "required": true, "from": "project", "kind": "ecosystem_fit", "todo": "why it matters for Filecoin", "description": "Why the proposal is valuable for Filecoin, IPFS or related ecosystems: pain points, benefits, risks, what success looks like. 2 to 3 paragraphs." },
+    { "key": "impact", "label": "Impact", "type": "text", "required": true, "from": "project", "kind": "ecosystem_fit", "todo": "the value for Filecoin", "description": "Why the proposal is valuable for Filecoin, IPFS or related ecosystems: pain points, benefits, risks, what success looks like. 2 to 3 paragraphs." },
     { "key": "outcomes", "label": "Outcomes", "type": "text", "required": true, "from": "project", "kind": "solution", "todo": "deliverables and success metrics", "description": "Final deliverables, a specification of the software, and the metrics for success." },
     { "key": "data_onboarding", "label": "Data Onboarding", "type": "text", "required": false, "from": "builder", "kind": "traction", "description": "If you will onboard data to Filecoin, projected amounts at month 1, 3, 6 and 12." },
     { "key": "adoption", "label": "Adoption, Reach, and Growth Strategies", "type": "text", "required": true, "from": "project", "kind": "what_next", "todo": "your audience and growth plan", "description": "Target audience, its size, how you engage it, and how you will onboard your first 10 and 100 users." },
@@ -61,9 +61,9 @@
     { "key": "team_members", "label": "Team Members", "type": "text", "required": true, "from": "builder", "kind": "team", "todo": "your team members" },
     { "key": "linkedin", "label": "Team Member LinkedIn Profiles", "type": "text", "required": true, "from": "builder", "kind": "team", "todo": "team LinkedIn profiles" },
     { "key": "team_website", "label": "Team Website", "type": "url", "required": true, "from": "project", "kind": "links", "todo": "a team website link", "project_field": "live_url" },
-    { "key": "experience", "label": "Relevant Experience", "type": "text", "required": true, "from": "builder", "kind": "why_you", "todo": "why your team fits this work" },
+    { "key": "experience", "label": "Relevant Experience", "type": "text", "required": true, "from": "builder", "kind": "why_you", "todo": "the team fit for this work" },
     { "key": "team_repos", "label": "Team code repositories", "type": "text", "required": true, "from": "builder", "kind": "past_work", "todo": "links to prior related repos" },
-    { "key": "additional", "label": "Additional Information", "type": "text", "required": true, "from": "builder", "kind": "contact", "todo": "how you heard of it and an email", "description": "How you learned about Open Grants, the best email for the grant agreement, and anything else useful." }
+    { "key": "additional", "label": "Additional Information", "type": "text", "required": true, "from": "builder", "kind": "contact", "todo": "the way you heard of it and an email", "description": "How you learned about Open Grants, the best email for the grant agreement, and anything else useful." }
   ],
   "focus": {
     "areas": ["Developer and data tooling", "Filecoin integrations into existing tools", "Storage, retrieval and FVM projects"],

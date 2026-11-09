@@ -193,3 +193,26 @@ test('the limit key and the public origin', () => {
   assert.throws(() => originFor({ NODE_ENV: 'production' }, 'https://attacker.example/x'), /EARNKIT_URL is not set/);
   assert.equal(originFor({ NODE_ENV: 'development' }, 'http://localhost:3000/mcp'), 'http://localhost:3000');
 });
+
+test('register and token read at most 16 KB: over the cap is 413 in the JSON error shape (security M5)', async () => {
+  const big = JSON.stringify({ redirect_uris: [redirect], pad: 'x'.repeat(17_000) });
+  const reg = await registerPost(new Request('https://earnkit.test/oauth/register', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-real-ip': '10.9.9.1' }, body: big,
+  }));
+  assert.equal(reg.status, 413);
+  const r = (await reg.json()) as { error: string; error_description: string };
+  assert.equal(r.error, 'invalid_request');
+  assert.equal(r.error_description, 'Request too large: EarnKit reads at most 16 KB here.');
+  for (const type of ['application/json', 'application/x-www-form-urlencoded']) {
+    const tok = await tokenPost(new Request('https://earnkit.test/oauth/token', {
+      method: 'POST', headers: { 'content-type': type, 'x-real-ip': '10.9.9.2' }, body: type === 'application/json' ? big : `pad=${'x'.repeat(17_000)}`,
+    }));
+    assert.equal(tok.status, 413);
+    assert.deepEqual(await tok.json(), r);
+  }
+  // Under the cap still parses.
+  const ok = await registerPost(new Request('https://earnkit.test/oauth/register', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-real-ip': '10.9.9.3' }, body: JSON.stringify({ redirect_uris: [redirect], pad: 'x'.repeat(15_000) }),
+  }));
+  assert.equal(ok.status, 201);
+});

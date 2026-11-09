@@ -19,7 +19,7 @@
   "investment": true,
   "tag": "long shot",
   "eligibility": [
-    { "kind": "feature", "note": "a team committed to Base as its default implementation and network of choice, with no formal Seed round raised" }
+    { "kind": "rule", "note": "a team committed to Base as its default implementation and network of choice, with no formal Seed round raised" }
   ],
   "setup": [],
   "each_time": [],

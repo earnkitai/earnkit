@@ -19,5 +19,10 @@ export const confirmLine = (min: 'used' | 'live' | 'building') =>
 /** The one line that offers the link (the record tool and find's open list). Pure. */
 export const signInLine = (link: string) => `Sign in once at ${link} so I remember you across agents.`;
 
-/** Unlinked find (R5a): the second sentence of the closing block; saying yes stays the one action. Pure. */
-export const signInSentence = (link: string) => `Sign in once at ${link} and I read your repo for proof and remember you.`;
+/** Unlinked find (R5a): the second sentence of the closing block; saying yes stays the one action. With no repo read
+ *  (R19) it promises only to remember. Pure. */
+export const signInSentence = (link: string, repoRead: boolean) =>
+  repoRead ? `Sign in once at ${link} and I read your repo for proof and remember you.` : `Sign in once at ${link} and I remember you across agents.`;
+
+/** The first find after a link (security M2): the account this agent now writes to, and where to undo it. Pure. */
+export const linkedNoticeLine = (login: string) => `This agent is now linked to GitHub account ${login}. Unlink any time at earnkit.com/me.`;

@@ -220,3 +220,21 @@ test('problem-line keys are cut to 60 characters', () => {
   const { problems } = merge({ [key]: 1, person: { [key]: 1 } });
   assert.deepEqual(problems.sort(), [`${'k'.repeat(60)}: not a field`, `person.${'k'.repeat(53)}: not a field`].sort());
 });
+
+test('inherited-key names in a patch are the normal problem line, never a throw (security L1)', () => {
+  for (const raw of ['{"__proto__":{"name":"x"}}', '{"constructor":{"name":"x"}}', '{"toString":{"name":"x"}}', '{"hasOwnProperty":1}']) {
+    const key = Object.keys(JSON.parse(raw))[0];
+    const { record, problems } = merge(JSON.parse(raw));
+    assert.deepEqual(problems, [`${key}: not a field`], raw);
+    assert.deepEqual(record, EMPTY_RECORD);
+  }
+  for (const key of ['__proto__', 'constructor', 'toString', 'valueOf']) {
+    for (const block of ['person', 'company', 'traction', 'docs', 'policy']) {
+      const { problems } = merge(JSON.parse(`{"${block}":{"${key}":{"a":1}}}`), 'builder');
+      assert.deepEqual(problems, [`${block}.${key}: not a field`], `${block}.${key}`);
+    }
+    const a = merge(JSON.parse(`{"answers":{"${key}":{"text":"x"}}}`));
+    assert.deepEqual(a.problems, [`answers.${key}: not a field`]);
+  }
+  assert.equal(({} as { name?: unknown }).name, undefined, 'Object.prototype is untouched');
+});

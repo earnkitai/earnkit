@@ -5,7 +5,8 @@
  * program's stated maximum (or 5,000,000 when none is stated) is refused; investments are never "asked".
  */
 import { sql } from './db';
-import { categoryOf } from './program-file';
+import { categoryOf, eligibilityOf } from './program-file';
+import { itemKey } from './eligibility';
 import { getProgram, programsById, type ProgramRow } from './programs';
 
 /** 'started' is a claim (lib/v6/claims.ts): not an application yet, so the summary leaves it out. */
@@ -45,7 +46,11 @@ async function withOwn(ids: string[], programs: ProgramRow[]): Promise<Map<strin
 /** The installation an 'i:' owner names. Pure. */
 const installationOf = (owner: string): number | undefined => (/^i:(\d+)$/.exec(owner) ? Number(owner.slice(2)) : undefined);
 
-/** Writes set the owner and the writing installation (`o.installationId`, which an 'i:' owner implies). */
+/**
+ * Writes set the owner and the writing installation (`o.installationId`, which an 'i:' owner implies). A `gap_done`
+ * whose item is not one of the program's own item keys (or `users`) is refused and clears nothing; the refusal carries
+ * the keys for the agent in `items`, never in builder text.
+ */
 export async function record(
   owner: string,
   programId: string,
@@ -57,7 +62,7 @@ export async function record(
     /** applied only: the builder's standing approval (policy.auto_apply) was on when it was tracked. */
     autoApplied?: boolean;
   } = {},
-): Promise<{ ok: true } | { ok: false; note: string }> {
+): Promise<{ ok: true } | { ok: false; note: string; items?: string[] }> {
   const installationId = o.installationId ?? installationOf(owner);
   if (installationId === undefined) throw new Error('record needs the writing installation');
   const now = o.now ?? new Date();
@@ -68,6 +73,12 @@ export async function record(
   if (status === 'won' && o.amount_usd! > (program.file.max_award_usd ?? MAX_WIN_USD))
     return { ok: false, note: "That's more than this program pays; check the amount." };
   if (status === 'gap_done' && !o.item) return { ok: false, note: 'Tell me which item you finished.' };
+  if (status === 'gap_done') {
+    // Only one of the program's own items, or the unknown-users gap (v6.1.6).
+    const keys = [...new Set([...eligibilityOf(program.file).map(itemKey), 'users'])];
+    // The keys go to the agent only: builder text never carries them (v6.1.6, 25a).
+    if (!keys.includes(o.item!)) return { ok: false, note: 'Tell me which item you finished.', items: keys };
+  }
   if (status === 'started') throw new Error('a claim is written by claims.claim');
   const amount = status === 'won' ? o.amount_usd! : null;
   const note = o.note ?? null;

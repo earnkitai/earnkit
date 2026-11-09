@@ -23,7 +23,7 @@ test('the six replies', async () => {
   assert.equal(await say({ program_id: 't6-a', status: 'rejected' }), 'Recorded. On to the next one.');
   assert.equal(await say({ program_id: 't6-a', status: 'no_result' }), 'Recorded.');
   assert.equal(await say({ program_id: 't6-a', status: 'skipped' }), "Skipped Alpha Grant. I won't bring it up again.");
-  assert.equal(await say({ program_id: 't6-a', status: 'gap_done', item: 'x' }), 'Noted. I\'ll re-check the repo on the next look.');
+  assert.equal(await say({ program_id: 't6-a', status: 'gap_done', item: 'users' }), 'Noted. I\'ll re-check the repo on the next look.');
   await upsertProgram(programFixture({ id: 't6-b', title: 'Beta' }), 'file', NOW);
   const r = await track(c, { program_id: 't6-b', status: 'applied' });
   assert.equal(r.agent_note, 'Call find again for the updated ledger.');
@@ -194,8 +194,36 @@ test('gap_done forgets the remembered gap, so started keeps the plain line', asy
   const c = await ctx();
   await upsertProgram(programFixture({ id: 't6-gapdone' }), 'file', NOW);
   await markFind(c.installationId, NOW, { 't6-gapdone': 'add Base Builder Codes', 't6-keep': 'a demo video' });
-  await track(c, { program_id: 't6-gapdone', status: 'gap_done', item: 'add Base Builder Codes' });
+  await track(c, { program_id: 't6-gapdone', status: 'gap_done', item: 'users' });
   const r = await track(c, { program_id: 't6-gapdone', status: 'started' });
   assert.equal(r.show_to_builder, 'Started. Nothing else will submit this one for 24 hours.');
   assert.deepEqual(await lastGaps(c.installationId), { 't6-keep': 'a demo video' });
+});
+
+test('gap_done with an item the program does not have is refused, and the remembered gap stays (v6.1.6)', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 't6-gapbad', eligibility: [{ kind: 'chain', value: 'arc' }] }), 'file', NOW);
+  await markFind(c.installationId, NOW, { 't6-gapbad': 'deploy on Arc' });
+  const r = await track(c, { program_id: 't6-gapbad', status: 'gap_done', item: 'nope' });
+  assert.equal(r.show_to_builder, 'Tell me which item you finished.');
+  assert.equal(r.agent_note, 'Items for this program: chain:arc, users. Call track gap_done with one of them.');
+  assert.deepEqual(await lastGaps(c.installationId), { 't6-gapbad': 'deploy on Arc' });
+});
+
+test('TrackInput caps: program_id and item at 80, amount_usd finite and between 0 and 100,000,000 (security L2)', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 't6-cap', title: 'Cap Grant' }), 'file', NOW);
+  const refused = [
+    { program_id: 'x'.repeat(81), status: 'applied' },
+    { program_id: 't6-cap', status: 'gap_done', item: 'i'.repeat(81) },
+    { program_id: 't6-cap', status: 'won', amount_usd: -1 },
+    { program_id: 't6-cap', status: 'won', amount_usd: 100_000_001 },
+    { program_id: 't6-cap', status: 'won', amount_usd: Number.POSITIVE_INFINITY },
+    { program_id: 't6-cap', status: 'won', amount_usd: Number.NaN },
+  ];
+  for (const input of refused) assert.equal((await track(c, input)).agent_note, 'Nothing was recorded.', JSON.stringify(input));
+  const n = (await sql()`SELECT count(*)::int AS n FROM application_history WHERE installation_id = ${c.installationId}`)[0].n;
+  assert.equal(n, 0);
+  // The cap itself passes the input check and meets the program's own limit instead.
+  assert.equal((await track(c, { program_id: 't6-cap', status: 'won', amount_usd: 100_000_000 })).show_to_builder, "That's more than this program pays; check the amount.");
 });

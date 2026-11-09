@@ -28,6 +28,11 @@ const CLOSINGS = [
   /Say yes to apply, or skip it\.$/,
   /Say yes to apply, skip it, or "do \d+" and I'll make the change first\.$/,
   /Applying tonight to \d+; say stop to hold any\.$/,
+  // v6.1.6 (R18a): a rule-only gap is named with "yes r".
+  /Say yes to apply, skip it, or "yes \d+" if its rule fits you\.$/,
+  /Say yes to apply to all \d+, numbers to skip, or "yes \d+" if its rule fits you\.$/,
+  /Say yes to apply(, skip it| to all \d+, numbers to skip), "yes \d+" if its rule fits you, or "do \d+" and I'll make the change first\.$/,
+  /Say "yes \d+" if its rule fits you(, or "do \d+" and I'll make the change first)?\.$/,
 ];
 const seen: string[] = [];
 
@@ -179,8 +184,9 @@ test('every line the builder saw follows the copy rules and ends with one closin
     assert.doesNotMatch(show, /\b(find|track|show_to_builder|agent_note|program_id|amount_usd|gap_done)\b|\.json\b/, show);
     const isReply = /Ready to apply|One change away|Nothing fits yet/.test(show);
     if (!isReply) continue;
-    const last = show.split('\n').at(-1)!;
+    // The first find after a link adds the linked notice to the closing line (security M2).
+    const last = show.split('\n').at(-1)!.replace(/ This agent is now linked to GitHub account \S+\. Unlink any time at earnkit\.com\/me\.$/, '');
     assert.equal(CLOSINGS.filter((c) => c.test(last)).length, 1, show);
-    assert.equal(show.split('\n').filter((l) => /^(Say yes|Say "do|Nothing fits yet|Applying tonight)/.test(l)).length, 1, show);
+    assert.equal(show.split('\n').filter((l) => /^(Say yes|Say "do|Say "yes|Nothing fits yet|Applying tonight)/.test(l)).length, 1, show);
   }
 });

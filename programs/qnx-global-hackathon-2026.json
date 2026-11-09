@@ -21,7 +21,7 @@
   "min_tier": "building",
   "eligibility": [
     { "kind": "demo_video" },
-    { "kind": "feature", "note": "runs on QNX 8.0 (hardware or QEMU) or is a host tool that builds, tests or analyzes QNX 8.0 software" }
+    { "kind": "rule", "note": "runs on QNX 8.0 (hardware or QEMU) or is a host tool that builds, tests or analyzes QNX 8.0 software" }
   ],
   "setup": [
     "a Devpost account joined to the hackathon",

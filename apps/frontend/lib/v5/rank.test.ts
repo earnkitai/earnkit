@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rankGaps, rankReady } from './rank';
+import { rankGaps, rankReady, shownGapsOf } from './rank';
 import type { Gap, Verdict } from './eligibility';
 import type { ProgramRow } from './programs';
 import { programFixture } from './fixtures/program';
@@ -8,7 +8,7 @@ import { programFixture } from './fixtures/program';
 const row = (id: string, over: Record<string, unknown> = {}): ProgramRow => ({
   id, file: programFixture({ id, ...over }), source: 'file', created_at: new Date(0), updated_at: new Date(0), verified_at: null, stale_since: null,
 });
-const v = (id: string, over: Partial<Verdict> = {}): Verdict => ({ program_id: id, status: 'ready', gaps: [], reason: null, long_shot: null, ...over });
+const v = (id: string, over: Partial<Verdict> = {}): Verdict => ({ program_id: id, status: 'ready', gaps: [], reason: null, long_shot: null, rules: [], ...over });
 const gap = (effort: Gap['effort']): Gap => ({ kind: 'feature', item: 'feature:x', what: 'x', effort, agent_can: false });
 
 test('rankReady: not long shot first, then bigger award with unknown last, then sooner deadline', () => {
@@ -29,4 +29,73 @@ test('rankGaps: fewest gaps, then lowest effort, then money', () => {
     programs,
   );
   assert.deepEqual(out.map((x) => x.program_id), ['d', 'b', 'a', 'c']);
+});
+
+const remote = () => false;
+const ruleGap = (note: string): Gap => ({ kind: 'rule', item: `rule:${note}`, what: note, effort: 'hours', agent_can: false });
+
+test('rankGaps (R18b): real changes first, rule-only programs after, each ranked as before', () => {
+  const programs = new Map([row('r-big', { max_award_usd: 90000 }), row('r-small', { max_award_usd: 100 }), row('real-days', { max_award_usd: 10 }), row('real-weeks'), row('mixed')].map((r) => [r.id, r]));
+  const out = rankGaps(
+    [v('r-small', { status: 'gap', gaps: [ruleGap('a')] }), v('r-big', { status: 'gap', gaps: [ruleGap('b')] }),
+     v('real-weeks', { status: 'gap', gaps: [gap('weeks')] }), v('mixed', { status: 'gap', gaps: [gap('hours'), ruleGap('c')] }),
+     v('real-days', { status: 'gap', gaps: [gap('days')] })],
+    programs,
+  );
+  assert.deepEqual(out.map((x) => x.program_id), ['real-days', 'real-weeks', 'mixed', 'r-big', 'r-small']);
+});
+
+test('shownGapsOf (R18b): three rule-only and two real gaps show the two real then one rule-only; all is unchanged', () => {
+  const real = [v('x1', { status: 'gap', gaps: [gap('hours')] }), v('x2', { status: 'gap', gaps: [gap('days')] })];
+  const rules = [v('r1', { status: 'gap', gaps: [ruleGap('a')] }), v('r2', { status: 'gap', gaps: [ruleGap('b')] }), v('r3', { status: 'gap', gaps: [ruleGap('c')] })];
+  const ranked = [...real, ...rules];
+  assert.deepEqual(shownGapsOf(ranked, false, 3, remote).map((x) => x.program_id), ['x1', 'x2', 'r1']);
+  assert.deepEqual(shownGapsOf(ranked, true, 3, remote), ranked);
+  // More real changes than slots: the rule-only one still takes the last slot; none: the real ones fill them all.
+  const four = [...real, v('x3', { status: 'gap', gaps: [gap('days')] }), v('x4', { status: 'gap', gaps: [gap('days')] })];
+  assert.deepEqual(shownGapsOf([...four, ...rules], false, 3, remote).map((x) => x.program_id), ['x1', 'x2', 'r1']);
+  assert.deepEqual(shownGapsOf(four, false, 3, remote).map((x) => x.program_id), ['x1', 'x2', 'x3']);
+  assert.deepEqual(shownGapsOf(rules, false, 3, remote).map((x) => x.program_id), ['r1']);
+});
+
+test('shownGapsOf (R18d): an in-person rule-only program never takes the rule-only slot; all still lists it', () => {
+  const real = [v('x1', { status: 'gap', gaps: [gap('hours')] })];
+  const rules = [v('attend', { status: 'gap', gaps: [ruleGap('a')] }), v('r2', { status: 'gap', gaps: [ruleGap('b')] })];
+  const inPerson = (x: Verdict) => x.program_id === 'attend';
+  assert.deepEqual(shownGapsOf([...real, ...rules], false, 3, inPerson).map((x) => x.program_id), ['x1', 'r2']);
+  assert.deepEqual(shownGapsOf([...real, rules[0]], false, 3, inPerson).map((x) => x.program_id), ['x1']);
+  assert.deepEqual(shownGapsOf([...real, ...rules], true, 3, inPerson).map((x) => x.program_id), ['x1', 'attend', 'r2']);
+});
+
+test('rankGaps (R18e): rule-only programs naming a project mainnet first, then chain-agnostic, then the rest, each by award', () => {
+  const programs = new Map([
+    row('agnostic-big', { chains: [], any_chain: true, max_award_usd: 900000 }),
+    row('base-rule', { chains: ['base'] }),
+    row('arc-rule', { chains: ['arc'], max_award_usd: 500000 }),
+    row('agnostic-small', { chains: [], any_chain: true, max_award_usd: 1000 }),
+    row('real', { chains: ['arc'] }),
+  ].map((r) => [r.id, r]));
+  const input = [
+    v('agnostic-big', { status: 'gap', gaps: [ruleGap('a')] }), v('arc-rule', { status: 'gap', gaps: [ruleGap('b')] }),
+    v('agnostic-small', { status: 'gap', gaps: [ruleGap('c')] }), v('base-rule', { status: 'gap', gaps: [ruleGap('d')] }),
+    v('real', { status: 'gap', gaps: [gap('days')] }),
+  ];
+  // A Base project: the Base rule-only program before the $900K chain-agnostic one.
+  assert.deepEqual(rankGaps(input, programs, new Set(['base'])).map((x) => x.program_id), ['real', 'base-rule', 'agnostic-big', 'agnostic-small', 'arc-rule']);
+  // No chain: chain-agnostic first, then the rest by award.
+  assert.deepEqual(rankGaps(input, programs, new Set()).map((x) => x.program_id), ['real', 'agnostic-big', 'agnostic-small', 'arc-rule', 'base-rule']);
+  assert.deepEqual(rankGaps(input, programs).map((x) => x.program_id), ['real', 'agnostic-big', 'agnostic-small', 'arc-rule', 'base-rule']);
+  // The default list's one rule-only slot takes the first.
+  assert.deepEqual(shownGapsOf(rankGaps(input, programs, new Set(['base'])), false, 3, remote).map((x) => x.program_id), ['real', 'base-rule']);
+});
+
+test('shownGapsOf (R18f): in-person programs never appear in the default gap list; all still lists them', () => {
+  const ranked = [
+    v('attend-real', { status: 'gap', gaps: [gap('minutes')] }), v('x1', { status: 'gap', gaps: [gap('hours')] }),
+    v('attend-rule', { status: 'gap', gaps: [ruleGap('a')] }), v('r1', { status: 'gap', gaps: [ruleGap('b')] }),
+  ];
+  const inPerson = (x: Verdict) => x.program_id.startsWith('attend');
+  assert.deepEqual(shownGapsOf(ranked, false, 3, inPerson).map((x) => x.program_id), ['x1', 'r1']);
+  assert.deepEqual(shownGapsOf([ranked[0], ranked[2]], false, 3, inPerson), []);
+  assert.deepEqual(shownGapsOf(ranked, true, 3, inPerson), ranked);
 });

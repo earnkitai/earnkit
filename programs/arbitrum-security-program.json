@@ -12,7 +12,7 @@
   "min_tier": "building",
   "eligibility": [
     { "kind": "chain", "value": "arbitrum" },
-    { "kind": "feature", "note": "smart contract code that is audit-ready, with a defined audit scope" }
+    { "kind": "rule", "note": "smart contract code that is audit-ready, with a defined audit scope" }
   ],
   "ideas": [
     "A lending protocol preparing its first audit",
@@ -74,17 +74,17 @@
     { "key": "vms", "label": "Which Virtual Machines are you targeting?", "type": "multi_choice", "required": true, "from": "project", "kind": "other", "todo": "the virtual machines you target", "options": ["Ethereum", "Solana", "Bitcoin", "Move", "Other"] },
     { "key": "chains_targeted", "label": "Which chains are you targeting?", "type": "multi_choice", "required": true, "from": "project", "kind": "ecosystem_fit", "todo": "the chains you target", "options": ["Arbitrum One", "Arbitrum Nova", "Arbitrum Orbit Chain", "Base", "Polygon", "Scroll", "zkSync", "Monad", "MegaETH", "Other"] },
     { "key": "classification", "label": "How would you classify the project primarily?", "type": "multi_choice", "required": true, "from": "project", "kind": "other", "todo": "a project category", "options": ["Defi", "Gaming", "Bridges and on-ramp", "Infra & Tools", "AI", "DePIn", "Other", "NFT"] },
-    { "key": "started", "label": "When did you start to work on this?", "type": "text", "required": true, "from": "builder", "kind": "past_work", "todo": "when you started, with any pivots" },
+    { "key": "started", "label": "When did you start to work on this?", "type": "text", "required": true, "from": "builder", "kind": "past_work", "todo": "the start date and any pivots" },
     { "key": "competition", "label": "Describe the competition and or the alternatives and why you are better", "type": "text", "required": true, "from": "project", "kind": "competitors", "todo": "competitors and why you win" },
     { "key": "traction", "label": "What's your current traction?", "type": "text", "required": true, "from": "builder", "kind": "traction", "todo": "your current traction", "description": "If pre-launch, present proxy metrics of interest (e.g. letters of intent, socials)." },
-    { "key": "token_plans", "label": "Does the project have a token or plan to launch one?", "type": "choice", "required": true, "from": "builder", "kind": "other", "todo": "answer the launch plans question", "options": ["Yes", "No"], "description": "If yes, the form asks which chain, from the same chain list." },
+    { "key": "token_plans", "label": "Does the project have a token or plan to launch one?", "type": "choice", "required": true, "from": "builder", "kind": "other", "todo": "the answer on launch plans", "options": ["Yes", "No"], "description": "If yes, the form asks which chain, from the same chain list." },
     { "key": "prior_funding", "label": "Did you fundraise or receive any other type of grants previously?", "type": "text", "required": true, "from": "builder", "kind": "raised", "todo": "prior raises and grants", "description": "Include the dates, amounts and investors/contributors/grants." },
     { "key": "cash", "label": "How much money does the company have? (USD)", "type": "text", "required": true, "from": "builder", "kind": "raised", "todo": "cash on hand in USD" },
     { "key": "burn", "label": "What's the monthly burn rate? (USD)", "type": "text", "required": true, "from": "builder", "kind": "raised", "todo": "monthly burn in USD" },
     { "key": "runway", "label": "What's the runway? (months)", "type": "text", "required": true, "from": "builder", "kind": "raised", "todo": "runway in months" },
     { "key": "referral", "label": "Referral", "type": "text", "required": false, "from": "builder", "kind": "other" },
-    { "key": "ack_alignment", "label": "I acknowledge that participation is subject to final approval, and contingent on reaching an agreement regarding the project's alignment with the Arbitrum ecosystem (e.g., branding, deployment strategy, marketing, and ecosystem integration).", "type": "choice", "required": true, "from": "builder", "kind": "other", "todo": "accept the alignment terms", "options": ["I acknowledge"] },
-    { "key": "ack_exclusive", "label": "I acknowledge that the project accepts that the audited code is exclusive to Arbitrum for a set period of time.", "type": "choice", "required": true, "from": "builder", "kind": "other", "todo": "accept Arbitrum exclusivity", "options": ["I acknowledge"] }
+    { "key": "ack_alignment", "label": "I acknowledge that participation is subject to final approval, and contingent on reaching an agreement regarding the project's alignment with the Arbitrum ecosystem (e.g., branding, deployment strategy, marketing, and ecosystem integration).", "type": "choice", "required": true, "from": "builder", "kind": "other", "todo": "the acceptance of the alignment terms", "options": ["I acknowledge"] },
+    { "key": "ack_exclusive", "label": "I acknowledge that the project accepts that the audited code is exclusive to Arbitrum for a set period of time.", "type": "choice", "required": true, "from": "builder", "kind": "other", "todo": "the acceptance of Arbitrum exclusivity", "options": ["I acknowledge"] }
   ],
   "form": { "platform": "tally", "url": "https://tally.so/r/3xzEzv" },
   "submit": "either",

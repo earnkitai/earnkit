@@ -4,7 +4,7 @@
  * and what the record still lacks for the ready programs. Only find calls this. Unlinked (v6.1.3), find uses
  * only `provisionalTier`, `tierGate` and `blockersOf` against the empty record; nothing here is stored.
  */
-import type { Gap, Verdict } from '../v5/eligibility';
+import { rulesOnly, type Gap, type Verdict } from '../v5/eligibility';
 import { categoryOf } from '../v5/program-file';
 import type { RecordContext } from '../v5/prefill';
 import type { ProgramRow } from '../v5/programs';
@@ -106,12 +106,16 @@ const nextOf = (line: string | undefined, min: string) => {
   return m ? m[1] : `the project reading as ${min}`;
 };
 
-/** A ready verdict on a program whose min_tier is above a known tier becomes one tier gap; anything else is unchanged. Pure. */
+/**
+ * A ready verdict, or a gap verdict of rules only (R18c), on a program whose min_tier is above a known tier gets the
+ * tier gap as its real gap, ahead of any rules (never ask to confirm a rule for a program out of reach); anything
+ * else is unchanged. Pure.
+ */
 export function tierGate(v: Verdict, row: ProgramRow, tier: Tier | null, line: string | undefined): Verdict {
   const min = row.file.min_tier;
-  if (v.status !== 'ready' || !min || !tier || RANK[tier] >= RANK[min]) return v;
+  if ((v.status !== 'ready' && !(v.status === 'gap' && rulesOnly(v.gaps))) || !min || !tier || RANK[tier] >= RANK[min]) return v;
   const gap: Gap = { kind: 'tier', item: `tier:${min}`, what: nextOf(line, min), effort: 'weeks', agent_can: false, details: { tier, min_tier: min } };
-  return { ...v, status: 'gap', gaps: [gap] };
+  return { ...v, status: 'gap', gaps: [gap, ...v.gaps] };
 }
 
 /**

@@ -40,6 +40,12 @@ test('every program is a tile: no cap, money, closes, kind', () => {
   assert.equal(tiles.find((t) => t.id === 'n-1')!.when, 'Rolling, apply anytime');
 });
 
+test('a tile with a pool and a per-winner award shows the pool, and a pool tile is not big (v6.1.6)', () => {
+  const [t] = landingTiles([rowOf({ id: 'meta-vr', title: 'Meta Horizon VR Competition', summary: '$100K top prize · $1M in prizes', max_award_usd: 100_000, pool_usd: 1_000_000 })], NOW);
+  assert.equal(t.money, '$1M in prizes');
+  assert.equal(t.big, false);
+});
+
 test('an upcoming program reads Not open yet', () => {
   const [t] = landingTiles([rowOf({ id: 'u-1', status: 'upcoming', opens_note: 'Opens in January', submission_requirements: [] })], NOW);
   assert.equal(t.when, 'Not open yet');
