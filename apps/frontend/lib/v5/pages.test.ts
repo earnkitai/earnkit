@@ -22,6 +22,7 @@ import { getRecord, saveRecord, upsertBuilder } from '../v6/builders';
 import { meData } from '../v6/me-view';
 import { mergeRecord } from '../v6/record';
 import { linkGet } from '../v6/link-routes';
+import nextConfig from '../../next.config';
 
 // tsx compiles the components without the automatic JSX runtime, so they need React in scope.
 (globalThis as { React?: typeof React }).React = React;
@@ -199,10 +200,14 @@ test('/link/nope is 404 text when sign-in is set up and 503 when not', async () 
     const on = await linkGet(new Request('https://earnkit.com/link/nope', { headers: { 'x-real-ip': '198.51.100.202' } }), 'nope');
     assert.equal(on.status, 404);
     assert.match(on.headers.get('content-type') ?? '', /^text\/plain/);
-    assert.equal(await on.text(), 'This link has expired. Ask your agent for a new one.');
+    assert.equal(await on.text(), 'This link is not valid.');
   } finally {
     keys.forEach((k, i) => (saved[i] === undefined ? delete process.env[k] : (process.env[k] = saved[i])));
   }
+});
+
+test('no response names the framework: X-Powered-By is off (v6.1.7 S5)', () => {
+  assert.equal(nextConfig.poweredByHeader, false);
 });
 
 test('the sitemap has no /me, /link or /auth', async () => {

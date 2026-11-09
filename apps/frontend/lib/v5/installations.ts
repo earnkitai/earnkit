@@ -17,12 +17,22 @@ export async function installationExists(token: string): Promise<boolean> {
 }
 
 /**
+ * An agent's own name as EarnKit keeps and shows it (v6.1.7 C1): control and format characters (bidi overrides,
+ * zero-width marks) dropped, spaces collapsed, at most 60 characters; null when nothing is left. Pure.
+ */
+export function cleanClientName(name: string | null | undefined): string | null {
+  if (!name) return null;
+  const s = Array.from(name.replace(/[\t\n\r]/g, ' ').replace(/\p{C}/gu, '').replace(/\s+/g, ' ').trim()).slice(0, 60).join('').trim();
+  return s || null;
+}
+
+/**
  * Records the installation for a newly issued token: one row per token (a re-authorization is a
- * new installation with a fresh ledger). Idempotent for a replayed code. Returns its id.
+ * new installation with a fresh ledger). Idempotent for a replayed code. The agent's name is cleaned first. Returns its id.
  */
 export async function saveInstallation(token: string, clientName: string | null = null): Promise<number> {
   const [r] = await sql()<{ id: number }[]>`
-    INSERT INTO installations (token_hash, client_name) VALUES (${hash(token)}, ${clientName})
+    INSERT INTO installations (token_hash, client_name) VALUES (${hash(token)}, ${cleanClientName(clientName)})
     ON CONFLICT (token_hash) DO UPDATE SET client_name = COALESCE(EXCLUDED.client_name, installations.client_name)
     RETURNING id`;
   return r.id;

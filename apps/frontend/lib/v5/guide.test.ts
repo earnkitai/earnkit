@@ -33,6 +33,13 @@ test('closes: a date, rolling, not open yet, closed', () => {
   assert.equal(guideText(rowOf(programFixture({ id: 'a-d', status: 'closed' }))).closes, 'Closed');
 });
 
+test('a closed program says nothing about who submits (v6.1.7 C7)', () => {
+  assert.equal(guideText(rowOf(programFixture({ id: 'a-d', status: 'closed' }))).submit, null);
+  assert.equal(guideText(rowOf(programFixture({ id: 'a-e', status: 'closed', submit: 'builder' }))).submit, null);
+  assert.equal(guideText(rowOf(programFixture({ id: 'a-f', ends_at: '2020-01-01T00:00:00Z' }))).submit, null);
+  assert.equal(guideText(rowOf(programFixture({ id: 'a-g' }))).submit, 'Your agent may submit');
+});
+
 test('past rounds, focus, best bet and sources come from the record', () => {
   const g = guideText(rowOf(programFixture({
     id: 'a-e',

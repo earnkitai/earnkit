@@ -8,6 +8,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { sql } from '../v5/db';
 import { publicOrigin } from '../v5/oauth';
+import { cleanClientName } from '../v5/installations';
 import { escapeHtml } from '../v5/programs-pending';
 import { RateLimitError, clientIp, enforce } from '../v5/rate-limit';
 import { SITE } from '../v5/site-theme';
@@ -21,8 +22,12 @@ const NOT_SET_UP = 'GitHub sign-in is not set up yet.';
 export const EXPIRED = 'This link has expired. Ask your agent for a new one.';
 const FAILED = 'Sign-in failed. Ask your agent for a new link.';
 export const OTHER = 'This agent is already linked to another account. Install EarnKit again for a fresh link.';
+/** A code that is not one EarnKit makes: garbage, cut or too long (v6.1.7 S1). */
+export const INVALID = 'This link is not valid.';
 /** A code as createLinkCode makes it: 22 base64url characters of an HMAC. */
 const CODE_SHAPE = /^[A-Za-z0-9_-]{22}$/;
+/** True for a code of the shape EarnKit makes (live or not). Pure. */
+export const codeShaped = (code: string): boolean => CODE_SHAPE.test(code);
 
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
 const page = (text: string, status: number, headers: Record<string, string> = {}) =>
@@ -88,7 +93,8 @@ const day = (d: Date) => new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', mon
 /** The confirm page: one button, no script, never framed. `origin` names where /me is. Pure. */
 function confirmPage(live: Live, origin: string): Response {
   const host = escapeHtml(origin.replace(/^https?:\/\//, ''));
-  const who = live.client_name ? `the agent calling itself <strong>${escapeHtml(live.client_name)}</strong>` : 'your agent';
+  const name = cleanClientName(live.client_name);
+  const who = name ? `the agent calling itself <strong><bdi>${escapeHtml(name)}</bdi></strong>` : 'your agent';
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Link your agent</title></head>
 <body style="margin:0;background:${SITE.page};color:#E8EAF2;font-family:system-ui,sans-serif">
 <main style="max-width:480px;margin:15vh auto 0;padding:0 16px">
@@ -115,6 +121,7 @@ function confirmPage(live: Live, origin: string): Response {
 /** GET /link/<code>: the confirm page for a live code. */
 export function linkGet(request: Request, code: string, deps: { now?: Date } = {}): Promise<Response> {
   return guarded(request, async () => {
+    if (!codeShaped(code)) return page(INVALID, 404);
     const live = await liveCode(code, deps.now ?? new Date());
     return live ? confirmPage(live, publicOrigin(request)) : page(EXPIRED, 404);
   });
@@ -128,6 +135,7 @@ export function linkPost(request: Request, code: string, deps: { now?: Date } = 
     // The button is on our page; a form posted from another site is refused.
     const from = request.headers.get('origin');
     if (from && from !== origin) return page(FAILED, 403);
+    if (!codeShaped(code)) return page(INVALID, 404);
     if (!(await liveCode(code, now))) return page(EXPIRED, 404);
     const nonce = randomBytes(16).toString('base64url');
     const state = signState({ code, nonce, exp: now.getTime() + TTL_MS }, secret());

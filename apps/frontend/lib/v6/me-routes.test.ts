@@ -34,6 +34,16 @@ const post = (path: string, form: Record<string, string | string[]>, o: { cookie
   });
 };
 const deps = { now: NOW };
+/** The signed line a 303 to /me carries: its key (problem or note), the text, and whether the page would show it. */
+const lineOf = (r: Response) => {
+  const loc = new URL(r.headers.get('location') ?? '/', 'https://earnkit.test');
+  const key = loc.searchParams.has('problem') ? 'problem' : loc.searchParams.has('note') ? 'note' : null;
+  const text = key ? loc.searchParams.get(key)! : null;
+  return { status: r.status, path: loc.pathname, key, text, shown: text !== null && problemShown(text, loc.searchParams.get('sig') ?? '', SECRET) === text };
+};
+const refused = (r: Response, text: string) => assert.deepEqual(lineOf(r), { status: 303, path: '/me', key: 'problem', text, shown: true });
+const FIELD = 'That cannot be changed here.';
+const EXPIRED_PAGE = 'This page expired. Reload it and try again.';
 
 test('me refuses without a session', async () => {
   const { b, csrf } = await signedIn();
@@ -52,12 +62,13 @@ test('me refuses without a session', async () => {
   assert.ok(await getBuilder(b.id));
 });
 
-test('a wrong csrf is 403 and nothing changes', async () => {
+test('a wrong or old csrf comes back to /me with the expired line and nothing changes (v6.1.7 C5)', async () => {
   const { b, cookie, token } = await signedIn();
   const other = csrfToken(b.id + 1, DAY, SECRET, token);
-  for (const csrf of ['', 'nope', other]) {
+  const old = csrfToken(b.id, new Date(NOW.getTime() - 2 * 86_400_000).toISOString().slice(0, 10), SECRET, token);
+  for (const csrf of ['', 'nope', other, old]) {
     const r = await editPost(post('/me/edit', { csrf, path: 'person.name', value: 'Mallory' }, { cookie }), deps);
-    assert.equal(r.status, 403);
+    refused(r, EXPIRED_PAGE);
   }
   assert.equal((await getRecord(b.id)).person.name, undefined);
 });
@@ -85,7 +96,7 @@ test('editPost on person.name saves with set_by builder', async () => {
   const rec = await getRecord(b.id);
   assert.equal(rec.person.name, 'Ada Lovelace');
   assert.equal(rec.meta['person.name'].set_by, 'builder');
-  // An empty value clears it; a bad one comes back as a problem in builder words; an unknown path is 400.
+  // An empty value clears it; a bad one comes back as a problem in builder words; an unknown path is a line too.
   const bad = await editPost(post('/me/edit', { csrf, path: 'person.email', value: 'not-an-email' }, { cookie }), deps);
   assert.equal(bad.status, 303);
   const problem = new URL(bad.headers.get('location')!, 'https://earnkit.test').searchParams.get('problem')!;
@@ -94,7 +105,7 @@ test('editPost on person.name saves with set_by builder', async () => {
   const sig = new URL(bad.headers.get('location')!, 'https://earnkit.test').searchParams.get('sig')!;
   assert.equal(problemShown(problem, sig, SECRET), problem);
   assert.equal(problemShown('Crafted text.', sig, SECRET), null);
-  assert.equal((await editPost(post('/me/edit', { csrf, path: 'meta.x', value: '1' }, { cookie }), deps)).status, 400);
+  refused(await editPost(post('/me/edit', { csrf, path: 'meta.x', value: '1' }, { cookie }), deps), FIELD);
   assert.equal((await editPost(post('/me/edit', { csrf, path: 'person.technical', value: 'on' }, { cookie }), deps)).status, 303);
   assert.equal((await getRecord(b.id)).person.technical, true);
   await editPost(post('/me/edit', { csrf, path: 'person.name', value: '' }, { cookie }), deps);
@@ -106,7 +117,7 @@ test('editPost on a project field and a project answer', async () => {
   await saveRecord(b.id, mergeRecord(await getRecord(b.id), { projects: [{ id: 'kit', name: 'Kit' }] }, 'agent', NOW).record, NOW);
   assert.equal((await editPost(post('/me/edit', { csrf, path: 'projects.kit.one_liner', value: 'Grants for builders' }, { cookie }), deps)).headers.get('location'), '/me#projects');
   assert.equal((await getRecord(b.id)).projects[0].one_liner, 'Grants for builders');
-  assert.equal((await editPost(post('/me/edit', { csrf, path: 'projects.nope.name', value: 'x' }, { cookie }), deps)).status, 400);
+  refused(await editPost(post('/me/edit', { csrf, path: 'projects.nope.name', value: 'x' }, { cookie }), deps), FIELD);
 });
 
 test('approvePost sets approved_at and answerFor then returns the text', async () => {
@@ -122,7 +133,7 @@ test('approvePost sets approved_at and answerFor then returns the text', async (
   assert.deepEqual(answerFor(rec, null, 'problem'), { text: 'Builders miss grants.', short: null });
   await approvePost(post('/me/approve', { csrf, path: 'answers.problem', action: 'unapprove' }, { cookie }), deps);
   assert.equal(answerFor(await getRecord(b.id), null, 'problem'), null);
-  assert.equal((await approvePost(post('/me/approve', { csrf, path: 'person.name', action: 'approve' }, { cookie }), deps)).status, 400);
+  refused(await approvePost(post('/me/approve', { csrf, path: 'person.name', action: 'approve' }, { cookie }), deps), FIELD);
 });
 
 test('an approval is bound to the text seen: an agent write since the render is not approved', async () => {
@@ -148,8 +159,8 @@ test('an approval is bound to the text seen: an agent write since the render is 
 
 test('policy changes only through /me/policy; the skip list is the one edit row', async () => {
   const { b, cookie, csrf } = await signedIn();
-  assert.equal((await editPost(post('/me/edit', { csrf, path: 'policy.auto_apply', value: 'on' }, { cookie }), deps)).status, 400);
-  assert.equal((await editPost(post('/me/edit', { csrf, path: 'policy.max_per_night', value: '20' }, { cookie }), deps)).status, 400);
+  refused(await editPost(post('/me/edit', { csrf, path: 'policy.auto_apply', value: 'on' }, { cookie }), deps), FIELD);
+  refused(await editPost(post('/me/edit', { csrf, path: 'policy.max_per_night', value: '20' }, { cookie }), deps), FIELD);
   assert.equal((await getRecord(b.id)).policy.auto_apply, false);
   assert.equal((await editPost(post('/me/edit', { csrf, path: 'policy.never', value: 'base-builder-grants\nzz-other' }, { cookie }), deps)).status, 303);
   assert.deepEqual((await getRecord(b.id)).policy.never, ['base-builder-grants', 'zz-other']);
@@ -171,6 +182,39 @@ test('policyPost turns auto_apply on with max_per_night 3', async () => {
   assert.equal((await getRecord(b.id)).policy.agent_may_submit, false);
 });
 
+test('a /me/policy post with one bad value changes nothing and names the field (v6.1.7 B1, Review Focus 5)', async () => {
+  const { b, cookie, csrf } = await signedIn();
+  const before = await getRecord(b.id);
+  const r = await policyPost(post('/me/policy', { csrf, auto_apply: 'on', max_per_night: '50', 'categories[]': ['grant'], agent_may_submit: 'on' }, { cookie }), deps);
+  refused(r, 'Most per night: a whole number from 1 to 20.');
+  assert.deepEqual(await getRecord(b.id), before, 'auto apply, categories and the rest stay as they were');
+  for (const bad of ['2.5', 'abc', '0']) {
+    refused(await policyPost(post('/me/policy', { csrf, auto_apply: 'on', max_per_night: bad }, { cookie }), deps), 'Most per night: a whole number from 1 to 20.');
+  }
+  // Every bad field gets its own line, in the page's labels.
+  const two = await policyPost(post('/me/policy', { csrf, auto_apply: 'on', max_per_night: '50', max_ask_usd: '-5', 'categories[]': ['grant', '<script>'] }, { cookie }), deps);
+  refused(two, 'Most per night: a whole number from 1 to 20.\nNever above (USD): a number of 0 or more.\nCategories: pick one of the options.');
+  assert.deepEqual(await getRecord(b.id), before);
+});
+
+test('edit problems read as plain words, never the checker\'s (v6.1.7 C4)', async () => {
+  const { b, cookie, csrf } = await signedIn();
+  const cases: [string, string, string][] = [
+    ['person.bio', 'x'.repeat(300), 'Short bio: keep it under 280 characters.'],
+    ['person.name', 'x'.repeat(10_240), 'Name: keep it under 80 characters.'],
+    ['company.stage', 'unicorn', 'Stage: pick one of the options.'],
+    ['traction.waitlist', '-5', 'Waitlist: a whole number from 0 to 10,000,000.'],
+    ['traction.waitlist', '2.5', 'Waitlist: a whole number from 0 to 10,000,000.'],
+    ['company.raised_usd', 'lots', 'Raised (USD): a number from 0 to 1,000,000,000.'],
+    ['docs.deck_url', 'javascript:alert(1)', 'Deck link: a link starting with https://.'],
+    ['person.email', 'not-an-email', 'Email: an email address.'],
+  ];
+  for (const [path, value, line] of cases) refused(await editPost(post('/me/edit', { csrf, path, value }, { cookie }), deps), line);
+  const rec = await getRecord(b.id);
+  assert.equal(rec.person.bio, undefined);
+  assert.equal(rec.company.stage, undefined);
+});
+
 test('delete removes everything', async () => {
   const { b, cookie, csrf } = await signedIn('deleteme');
   const inst = (await sql()`INSERT INTO installations (token_hash) VALUES (${'me-' + Math.random()}) RETURNING id`)[0].id as number;
@@ -178,7 +222,7 @@ test('delete removes everything', async () => {
   await sql()`INSERT INTO applications (installation_id, owner, program_id, status, at) VALUES (${inst}, ${'b:' + b.id}, 'zz-me-del', 'applied', ${NOW})`;
   await sql()`INSERT INTO link_codes (code, installation_id, created_at, expires_at, nonce) VALUES (${'me-del-' + inst}, ${inst}, ${NOW}, ${new Date(NOW.getTime() + 900_000)}, 'n')`;
   const wrong = await deletePost(post('/me/delete', { csrf, confirm: 'someone-else' }, { cookie }), deps);
-  assert.equal(wrong.status, 400);
+  refused(wrong, 'Type your GitHub login exactly to delete.');
   assert.ok(await getBuilder(b.id));
   assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${'b:' + b.id}`)[0].n, 1);
   const r = await deletePost(post('/me/delete', { csrf, confirm: 'deleteme' }, { cookie }), deps);
@@ -200,6 +244,9 @@ test('signoutPost ends the session; unlinkPost unlinks only the builder\'s own i
   await linkInstallation(mine, b.id, NOW);
   await linkInstallation(theirs, other.b.id, NOW);
   assert.equal((await unlinkPost(post('/me/unlink', { csrf, installation_id: String(theirs) }, { cookie }), deps)).status, 303);
+  // An id no installation can have is a line, never a 500 (v6.1.7 B3).
+  for (const id of ['1099511627776', '2147483648', '99999999999999999999', 'abc', '', '0', '-1', '1e3'])
+    refused(await unlinkPost(post('/me/unlink', { csrf, installation_id: id }, { cookie }), deps), FIELD);
   assert.equal((await sql()`SELECT builder_id FROM installations WHERE id = ${theirs}`)[0].builder_id, other.b.id);
   await unlinkPost(post('/me/unlink', { csrf, installation_id: String(mine) }, { cookie }), deps);
   assert.deepEqual({ ...(await sql()`SELECT builder_id, linked_at FROM installations WHERE id = ${mine}`)[0] }, { builder_id: null, linked_at: null });
@@ -227,8 +274,7 @@ test('POST /me/link action=link links the installation to the signed-in builder,
   const id = await linkInst();
   const code = await createLinkCode(id, NOW);
   const r = await linkPost(post('/me/link', { csrf, code, action: 'link' }, { cookie }), deps);
-  assert.equal(r.status, 303);
-  assert.equal(r.headers.get('location'), '/me');
+  assert.deepEqual(lineOf(r), { status: 303, path: '/me', key: 'note', text: 'Linked: Claude Code.', shown: true });
   assert.equal(await instBuilder(id), b.id);
   assert.ok((await codeRow(id)).used_at);
 });
@@ -238,61 +284,60 @@ test('POST /me/link action=deny expires the code and links nothing', async () =>
   const id = await linkInst();
   const code = await createLinkCode(id, NOW);
   const r = await linkPost(post('/me/link', { csrf, code, action: 'deny' }, { cookie }), deps);
-  assert.equal(r.status, 303);
-  assert.equal(r.headers.get('location'), '/me');
+  assert.deepEqual(lineOf(r), { status: 303, path: '/me', key: 'note', text: 'Not linked.', shown: true });
   assert.equal(await instBuilder(id), null);
   const row = await codeRow(id);
   assert.equal(row.used_at, null);
   assert.equal((row.expires_at as Date).toISOString(), NOW.toISOString());
-  // Denied is dead: a link after it does nothing.
-  assert.equal((await linkPost(post('/me/link', { csrf, code, action: 'link' }, { cookie }), deps)).headers.get('location'), '/me');
+  // Denied is dead: a link after it does nothing and says so.
+  refused(await linkPost(post('/me/link', { csrf, code, action: 'link' }, { cookie }), deps), 'That link expired. Ask your agent for a new one.');
   assert.equal(await instBuilder(id), null);
+  // A code EarnKit never makes is not valid, for either button.
+  for (const bad of ['nope', 'x'.repeat(1024), '%3Cscript%3E'])
+    for (const action of ['link', 'deny']) refused(await linkPost(post('/me/link', { csrf, code: bad, action }, { cookie }), deps), 'This link is not valid.');
 });
 
-test('POST /me/link without the csrf is 403 and links nothing', async () => {
+test('POST /me/link without the csrf comes back with the expired line and links nothing', async () => {
   const { cookie, b, token } = await signedIn();
   const id = await linkInst();
   const code = await createLinkCode(id, NOW);
   for (const csrf of [undefined, 'nope', csrfToken(b.id + 1, DAY, SECRET, token)]) {
     const r = await linkPost(post('/me/link', { ...(csrf === undefined ? {} : { csrf }), code, action: 'link' }, { cookie }), deps);
-    assert.equal(r.status, 403);
+    refused(r, EXPIRED_PAGE);
   }
   assert.equal(await instBuilder(id), null);
   assert.equal((await codeRow(id)).used_at, null);
 });
 
-test('a second action=link on a used code links nothing and redirects to /me', async () => {
+test('a second action=link on a used code links nothing and comes back with the expired line', async () => {
   const first = await signedIn();
   const second = await signedIn();
   const id = await linkInst();
   const code = await createLinkCode(id, NOW);
   await linkPost(post('/me/link', { csrf: first.csrf, code, action: 'link' }, { cookie: first.cookie }), deps);
   const r = await linkPost(post('/me/link', { csrf: second.csrf, code, action: 'link' }, { cookie: second.cookie }), deps);
-  assert.equal(r.status, 303);
-  assert.equal(r.headers.get('location'), '/me');
+  refused(r, 'That link expired. Ask your agent for a new one.');
   assert.equal(await instBuilder(id), first.b.id);
 });
 
-test('POST /me/link on an installation linked to another account meanwhile is 400 with the exact sentence', async () => {
+test('POST /me/link on an installation linked to another account meanwhile comes back with the exact sentence', async () => {
   const mine = await signedIn();
   const theirs = await signedIn();
   const id = await linkInst();
   const code = await createLinkCode(id, NOW);
   await linkInstallation(id, theirs.b.id, NOW);
   const r = await linkPost(post('/me/link', { csrf: mine.csrf, code, action: 'link' }, { cookie: mine.cookie }), deps);
-  assert.equal(r.status, 400);
-  assert.equal(await r.text(), OTHER);
+  refused(r, OTHER);
   assert.equal(await instBuilder(id), theirs.b.id);
   assert.equal((await codeRow(id)).used_at, null);
-  const bad = await linkPost(post('/me/link', { csrf: mine.csrf, code, action: 'maybe' }, { cookie: mine.cookie }), deps);
-  assert.equal(bad.status, 400);
+  refused(await linkPost(post('/me/link', { csrf: mine.csrf, code, action: 'maybe' }, { cookie: mine.cookie }), deps), FIELD);
 });
 
 test('a csrf minted under one session fails under another session of the same builder (security L4)', async () => {
   const { b, cookie, csrf } = await signedIn();
   const { token: second } = await createSession(b.id, NOW);
   const r = await editPost(post('/me/edit', { csrf, path: 'person.name', value: 'Mallory' }, { cookie: `ek_me=${second}` }), deps);
-  assert.equal(r.status, 403);
+  refused(r, EXPIRED_PAGE);
   assert.equal((await getRecord(b.id)).person.name, undefined);
   const ok = await editPost(post('/me/edit', { csrf, path: 'person.name', value: 'Pat' }, { cookie }), deps);
   assert.equal(ok.status, 303);
@@ -301,6 +346,6 @@ test('a csrf minted under one session fails under another session of the same bu
   const id = await linkInst();
   const code = await createLinkCode(id, NOW);
   const other = await linkPost(post('/me/link', { csrf, code, action: 'link' }, { cookie: `ek_me=${second}` }), deps);
-  assert.equal(other.status, 403);
+  refused(other, EXPIRED_PAGE);
   assert.equal(await instBuilder(id), null);
 });

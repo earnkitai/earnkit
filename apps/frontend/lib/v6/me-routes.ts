@@ -1,17 +1,20 @@
 /**
  * /me's handlers: the session gate (no session: 302 to /docs#record) and the form posts. Every post needs
- * a web form under 64 KB, a session and today's csrf token for that session, else 415, 413 or 403 with no change. Edits
- * merge as the builder through the record's row lock; approvals only here. No path is shown to the builder.
+ * a web form under 64 KB, a session and today's csrf token for that session, else 415, 413 or 403 with no change. Past
+ * the session every refusal comes back to /me with a signed line (v6.1.7 C5), and a form with any bad value saves
+ * nothing (B1). Edits merge as the builder through the record's row lock; approvals only here. No path is shown to the builder.
  */
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
 import { sql } from '../v5/db';
 import { readCapped } from '../v5/http';
 import { publicOrigin } from '../v5/oauth';
-import { ME_ERRORS } from '../v5/site-copy';
+import { cleanClientName } from '../v5/installations';
+import { ME_BLOCKS, ME_ERRORS, ME_LABELS, ME_LINK_DONE, ME_LINK_NOT, ME_VALUE_WORDS } from '../v5/site-copy';
 import { type Builder, deleteBuilder, getRecord, withRecord } from './builders';
-import { OTHER, consumeLinkCode, denyLinkCode } from './link-routes';
+import { INVALID, OTHER, codeShaped, consumeLinkCode, denyLinkCode, liveCode } from './link-routes';
 import { type MeField, authSecret, problemSig, recordBlocks, seenOf, verifyCsrf } from './me-view';
-import { APPROVABLE, approvePath, mergeRecord, unapprovePath } from './record';
+import { APPROVABLE, approvePath, fieldSchema, mergeRecord, unapprovePath } from './record';
 import { COOKIE, clearCookie, cookieValue, endSession, sessionBuilder } from './sessions';
 
 type Deps = { now?: Date };
@@ -21,7 +24,13 @@ const text = (status: number, body: string, headers: Record<string, string> = {}
   new Response(body, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', ...headers } });
 const back = (location: string, headers: Record<string, string> = {}) =>
   new Response(null, { status: 303, headers: { Location: location, 'Cache-Control': 'no-store', ...headers } });
-const problemAt = (line: string) => back(`/me?problem=${encodeURIComponent(line)}&sig=${problemSig(line, authSecret())}`);
+const signed = (key: 'problem' | 'note', line: string) => back(`/me?${key}=${encodeURIComponent(line)}&sig=${problemSig(line, authSecret())}`);
+/** Back to /me with a refusal line; several lines (one per bad field) are joined by line breaks. */
+const problemAt = (line: string) => signed('problem', line);
+/** Back to /me with a plain line that is not a refusal (v6.1.7 C2). */
+const noteAt = (line: string) => signed('note', line);
+/** The largest id a Postgres integer holds (v6.1.7 B3). */
+const MAX_ID = 2_147_483_647;
 
 /** GET /me (the proxy): no live session is a 302 to /docs#record with no body; with one the page renders. */
 export async function meGet(request: Request, deps: Deps = {}): Promise<Response> {
@@ -46,7 +55,7 @@ async function guard(request: Request, deps: Deps): Promise<Response | { builder
   if (!builder) return text(403, ME_ERRORS.signin);
   const form = new URLSearchParams(body);
   const session = cookieValue(request.headers.get('cookie'), COOKIE) ?? '';
-  if (!verifyCsrf(form.get('csrf') ?? '', builder.id, now, authSecret(), session)) return text(403, ME_ERRORS.expired);
+  if (!verifyCsrf(form.get('csrf') ?? '', builder.id, now, authSecret(), session)) return problemAt(ME_ERRORS.expired);
   return { builder, form, now };
 }
 
@@ -63,10 +72,8 @@ function valueOf(f: MeField, raw: string): { ok: true; value: unknown } | { ok: 
     if (v === 'off' || v === 'false') return { ok: true, value: false };
     return { ok: false, problem: `${f.label}: ${ME_ERRORS.yesNo}` };
   }
-  if (f.kind === 'number') {
-    const n = Number(v.replace(/[$,\s]/g, ''));
-    return Number.isFinite(n) ? { ok: true, value: n } : { ok: false, problem: `${f.label}: ${ME_ERRORS.number}` };
-  }
+  // Not a number reads as NaN: wordsOf names what the field takes.
+  if (f.kind === 'number') return { ok: true, value: Number(v.replace(/[$,\s]/g, '')) };
   if (f.path === 'docs.other')
     return { ok: true, value: lines(v).map((l) => { const at = l.lastIndexOf(' '); return at < 0 ? { label: 'Link', url: l } : { label: l.slice(0, at).trim(), url: l.slice(at + 1) }; }) };
   if (f.path === 'policy.never') return { ok: true, value: lines(v) };
@@ -91,14 +98,48 @@ const problemWords = (label: string, line: string) => {
   return `${label}: ${issue.charAt(0).toLowerCase()}${issue.slice(1)}${/[.!?]$/.test(issue) ? '' : '.'}`;
 };
 
-/** Merges `patch` as the builder under the row lock; a problem comes back as a 303 to /me?problem=. */
+type Wrapped = z.ZodType & { unwrap?: () => z.ZodType };
+/** The schema under optional, nullable and default wrappers (an array stays an array). Pure. */
+function inner(schema: z.ZodType): z.ZodType {
+  let s = schema as Wrapped;
+  while (!(s instanceof z.ZodArray) && typeof s.unwrap === 'function') s = s.unwrap() as Wrapped;
+  return s;
+}
+const bound = (n: number | null | undefined) => (typeof n === 'number' && Number.isFinite(n) ? n : null);
+
+/**
+ * What the field takes, in plain words (v6.1.7 C4), when `value` does not fit the leaf at `path`; null when it fits
+ * (or clears). An answer's value is checked as its text. Pure.
+ */
+export function wordsOf(path: string, value: unknown): string | null {
+  const schema = fieldSchema(path);
+  if (!schema || value === null) return null;
+  const v = typeof value === 'object' && !Array.isArray(value) && 'text' in value ? (value as { text: unknown }).text : value;
+  const r = schema.safeParse(v);
+  if (r.success) return null;
+  const i = r.error.issues[0];
+  const num = inner(schema);
+  if (num instanceof z.ZodNumber) return ME_VALUE_WORDS.range(bound(num.minValue), bound(num.maxValue), Boolean(num.isInt));
+  if (i.code === 'too_big' && i.origin === 'string') return ME_VALUE_WORDS.under(Number(i.maximum));
+  if (i.code === 'too_big' && i.origin === 'array') return ME_VALUE_WORDS.atMost(Number(i.maximum));
+  if (i.code === 'invalid_value') return ME_VALUE_WORDS.option;
+  if (i.code === 'invalid_format' && i.format === 'url') return ME_VALUE_WORDS.https;
+  if (i.code === 'invalid_format' && i.format === 'email') return ME_VALUE_WORDS.email;
+  const m = i.message.replace(/\.$/, '');
+  return `${m.charAt(0).toLowerCase()}${m.slice(1)}`;
+}
+
+/**
+ * Merges `patch` as the builder under the row lock, all or nothing (v6.1.7 B1): any problem saves nothing and
+ * comes back as a 303 to /me?problem=, one line per bad field.
+ */
 async function merge(builder: Builder, now: Date, patch: unknown, label: string, anchor: string): Promise<Response> {
   const out = await withRecord(builder.id, now, (current) => {
     const m = mergeRecord(current, patch, 'builder', now);
-    return { record: m.changed.length > 0 ? m.record : null, result: m.problems };
+    return { record: m.problems.length === 0 && m.changed.length > 0 ? m.record : null, result: m.problems };
   });
   if (out.broken) return problemAt(ME_ERRORS.broken);
-  if (out.result.length > 0) return problemAt(problemWords(label, out.result[0]));
+  if (out.result.length > 0) return problemAt([...new Set(out.result.map((l) => problemWords(label, l)))].join('\n'));
   return back(`/me#${anchor}`);
 }
 
@@ -111,9 +152,11 @@ export async function editPost(request: Request, deps: Deps = {}): Promise<Respo
   const block = blocks.find((b) => b.fields.some((f) => f.path === path));
   const f = block?.fields.find((x) => x.path === path);
   // Standing approval changes only through /me/policy; the skip list is its one edit row.
-  if (!block || !f || (path.startsWith('policy.') && path !== 'policy.never')) return text(400, ME_ERRORS.field);
+  if (!block || !f || (path.startsWith('policy.') && path !== 'policy.never')) return problemAt(ME_ERRORS.field);
   const v = valueOf(f, g.form.get('value') ?? '');
   if (!v.ok) return problemAt(v.problem);
+  const words = wordsOf(path, v.value);
+  if (words) return problemAt(`${f.label}: ${words}.`);
   return merge(g.builder, g.now, patchOf(path, v.value), f.label, block.key);
 }
 
@@ -123,7 +166,7 @@ export async function approvePost(request: Request, deps: Deps = {}): Promise<Re
   if (g instanceof Response) return g;
   const path = g.form.get('path') ?? '';
   const action = g.form.get('action');
-  if (!APPROVABLE(path) || (action !== 'approve' && action !== 'unapprove')) return text(400, ME_ERRORS.field);
+  if (!APPROVABLE(path) || (action !== 'approve' && action !== 'unapprove')) return problemAt(ME_ERRORS.field);
   const seen = g.form.get('seen') ?? '';
   const out = await withRecord(g.builder.id, g.now, (current) => {
     // An agent write since the page was rendered: the builder has not read this text.
@@ -146,48 +189,62 @@ export async function policyPost(request: Request, deps: Deps = {}): Promise<Res
     const v = (g.form.get(k) ?? '').replace(/[$,\s]/g, '');
     return v === '' ? null : Number(v);
   };
-  const nums = { max_per_night: num('max_per_night'), max_ask_usd: num('max_ask_usd') };
-  if (Object.values(nums).some((n) => n !== null && !Number.isFinite(n))) return problemAt(`Limits: ${ME_ERRORS.number}`);
   const policy = {
     auto_apply: on(g.form.get('auto_apply')),
-    ...nums,
+    max_per_night: num('max_per_night'),
+    max_ask_usd: num('max_ask_usd'),
     categories: [...g.form.getAll('categories[]'), ...g.form.getAll('categories')],
     agent_may_submit: on(g.form.get('agent_may_submit')),
   };
-  return merge(g.builder, g.now, { policy }, 'Standing approval', 'policy');
+  // All or nothing (v6.1.7 B1): one bad value saves none of the form; every bad field is named as the page shows it.
+  const labels = ME_LABELS as Record<string, string>;
+  const problems = Object.entries(policy).flatMap(([k, v]) => {
+    const words = wordsOf(`policy.${k}`, v);
+    return words ? [`${labels[`policy.${k}`]}: ${words}.`] : [];
+  });
+  if (problems.length > 0) return problemAt(problems.join('\n'));
+  return merge(g.builder, g.now, { policy }, ME_BLOCKS.policy, 'policy');
 }
 
 /** POST /me/unlink: csrf, installation_id; only the builder's own. Its ledger rows stay with the builder. */
 export async function unlinkPost(request: Request, deps: Deps = {}): Promise<Response> {
   const g = await guard(request, deps);
   if (g instanceof Response) return g;
-  const id = Number(g.form.get('installation_id'));
-  if (!Number.isSafeInteger(id)) return text(400, ME_ERRORS.field);
+  const raw = g.form.get('installation_id') ?? '';
+  const id = /^\d{1,10}$/.test(raw) ? Number(raw) : 0;
+  if (id < 1 || id > MAX_ID) return problemAt(ME_ERRORS.field);
   await sql()`UPDATE installations SET builder_id = NULL, linked_at = NULL WHERE id = ${id} AND builder_id = ${g.builder.id}`;
   return back('/me#agents');
 }
 
 /**
  * POST /me/link: csrf, code, action link or deny. Link marks the code used and links its agent to this builder;
- * deny ends the code. Both, and a dead code, are a 303 to /me like every other post; an agent linked to another
- * account is a 400.
+ * deny ends the code. Every outcome is a 303 to /me with its line (v6.1.7 C2): linked, not linked, expired, not
+ * valid, or linked to another account.
  */
 export async function linkPost(request: Request, deps: Deps = {}): Promise<Response> {
   const g = await guard(request, deps);
   if (g instanceof Response) return g;
   const code = g.form.get('code') ?? '';
   const action = g.form.get('action');
-  if (action !== 'link' && action !== 'deny') return text(400, ME_ERRORS.field);
-  if (action === 'deny') await denyLinkCode(code, g.now);
-  else if ((await consumeLinkCode(code, g.builder.id, g.now)) === 'other') return text(400, OTHER);
-  return back('/me');
+  if (action !== 'link' && action !== 'deny') return problemAt(ME_ERRORS.field);
+  if (!codeShaped(code)) return problemAt(INVALID);
+  if (action === 'deny') {
+    await denyLinkCode(code, g.now);
+    return noteAt(ME_LINK_NOT);
+  }
+  const live = await liveCode(code, g.now);
+  const out = await consumeLinkCode(code, g.builder.id, g.now);
+  if (out === 'other') return problemAt(OTHER);
+  if (out === 'dead') return problemAt(ME_ERRORS.linkExpired);
+  return noteAt(ME_LINK_DONE(cleanClientName(live?.client_name)));
 }
 
 /** POST /me/delete: csrf, confirm (the GitHub login). Removes everything theirs and the cookie. */
 export async function deletePost(request: Request, deps: Deps = {}): Promise<Response> {
   const g = await guard(request, deps);
   if (g instanceof Response) return g;
-  if ((g.form.get('confirm') ?? '').trim().toLowerCase() !== g.builder.login.toLowerCase()) return text(400, ME_ERRORS.confirm);
+  if ((g.form.get('confirm') ?? '').trim().toLowerCase() !== g.builder.login.toLowerCase()) return problemAt(ME_ERRORS.confirm);
   await deleteBuilder(g.builder.id);
   return back('/', { 'Set-Cookie': clearCookie() });
 }

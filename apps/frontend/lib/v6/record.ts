@@ -8,10 +8,14 @@ import { z } from 'zod';
 import { isKnownChain } from '../v5/chains';
 import { ANSWER_KINDS, PROGRAM_CATEGORIES, type AnswerKind, type FieldKind } from '../v5/program-file';
 
-const CONTROL = /[\u0000-\u001f\u007f]/;
 /** Newlines and tabs are fine in prose; other control characters are not. */
 const CONTROL_PROSE = /[\u0000-\u0008\u000b-\u001f\u007f]/;
-const line = (max: number) => z.string().max(max).refine((s) => !CONTROL.test(s), 'no control characters');
+/**
+ * One line as saved (v6.1.7 S4): tabs and line breaks become a plain space, every other control or format character
+ * (bidi overrides, zero-width marks) is dropped, and runs of spaces collapse to one. Pure.
+ */
+export const cleanLine = (s: string): string => s.replace(/[\t\n\r]/g, ' ').replace(/\p{C}/gu, '').replace(/ {2,}/g, ' ');
+const line = (max: number) => z.string().overwrite(cleanLine).max(max);
 const prose = (max: number) => z.string().max(max).refine((s) => !CONTROL_PROSE.test(s), 'no control characters');
 const https = line(500).pipe(z.url({ protocol: /^https$/ }));
 const githubRepo = line(300).regex(/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/?$/, 'must be an https://github.com/<owner>/<repo> link');
@@ -68,6 +72,15 @@ const Policy = z.object({
   categories: z.array(z.enum(PROGRAM_CATEGORIES)).max(PROGRAM_CATEGORIES.length).transform((c) => [...new Set(c)]).default([...PROGRAM_CATEGORIES]), max_ask_usd: z.number().min(0).optional(),
   never: z.array(line(100)).max(50).default([]), agent_may_submit: z.boolean().default(true),
 }).strip();
+const LEAF_BLOCKS: Record<string, z.ZodObject> = { person: Person, company: Company, docs: Docs, traction: Traction, policy: Policy };
+/** The schema of one editable leaf, by its /me path (an answer's is its text's), or null. Pure. */
+export function fieldSchema(path: string): z.ZodType | null {
+  const [block, a, b] = path.split('.');
+  if (block === 'answers' || (block === 'projects' && b === 'answers')) return Answer.shape.text;
+  const shape: z.ZodRawShape | undefined = block === 'projects' ? Project.shape : LEAF_BLOCKS[block]?.shape;
+  const key = block === 'projects' ? b : a;
+  return shape && key !== undefined && Object.hasOwn(shape, key) ? (shape[key] as z.ZodType) : null;
+}
 const Meta = z.object({ set_by: z.enum(['builder', 'agent']), set_at: line(40), approved_at: line(40).optional() }).strip();
 export type Meta = z.infer<typeof Meta>;
 
