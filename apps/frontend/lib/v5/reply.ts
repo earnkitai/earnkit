@@ -18,7 +18,7 @@ const NEEDS_SHOWN = 3;
 
 /** The agent note line for rule gaps (v6.1.6, R18a): EarnKit shows them, the builder confirms each once. */
 export const RULE_NOTE =
-  'A "Their rule" gap is a program rule EarnKit cannot check. If the builder says it fits, call track gap_done with that gap\'s item, then find again.';
+  'A "Their rule" gap is a program rule EarnKit cannot check. If the builder says it fits, call track gap_done with that gap\'s item, then find again. Their yes stands: when the program comes back ready, draft and submit it without asking again.';
 /** A program rule as the builder reads it; the note keeps its own capitals and gets the full stop. Pure. */
 export const ruleSentence = (note: string): string => `Their rule: ${note}.`;
 /** Each rule as its own sentence, each with its leading space, or ''. Pure. */
@@ -123,14 +123,15 @@ function inPersonLine(p: ReadyProgram): string {
 const ruleOnlyGap = (g: GapProgram) => rulesOnly([g.gap, ...g.also]);
 
 /**
- * The real gaps after the colon, then one "Their rule" sentence per rule to confirm; rules only: the rules and
- * "yes n". In person, the attend sentence follows the rules (R18d), so an in-person program always says so.
+ * The real gaps after the colon, then one "Their rule" sentence per rule to confirm; rules only: the rules alone, the
+ * closing line asks the one "yes r" (v6.1.7, m1). In person, the attend sentence follows the rules (R18d), so an
+ * in-person program always says so.
  */
 function gapLine(g: GapProgram): string {
   const all = [g.gap, ...g.also];
   const rules = ruleSentences(all.filter((x) => x.kind === 'rule').map((x) => x.what));
   const attend = g.in_person ? attendSentence(g.setup) : '';
-  if (ruleOnlyGap(g)) return `${g.n}. ${g.title}, ${g.money}.${rules}${attend} Say "yes ${g.n}" if that is you.`;
+  if (ruleOnlyGap(g)) return `${g.n}. ${g.title}, ${g.money}.${rules}${attend}`;
   const real = all.filter((x) => x.kind !== 'rule');
   const can = real.every((x) => x.agent_can) ? ' (I can do this)' : '';
   return `${g.n}. ${g.title}, ${g.money}: ${joinAnd(real.map((x) => x.what))}${can}.${rules}${attend}`;

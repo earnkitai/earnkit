@@ -181,9 +181,11 @@ test('excluded holds applied and skipped; skipped keeps an application', async (
 
 test('gap_done writes gaps_done only', async () => {
   const i = await install();
-  await prog('l-gap');
-  assert.equal((await record(o(i), 'l-gap', 'gap_done', { item: 'users', now: NOW })).ok, true);
-  assert.deepEqual(await counts(i), { apps: 0, hist: 1 });
+  await prog('l-gap', { eligibility: [{ kind: 'users' }] });
+  assert.deepEqual(await record(o(i), 'l-gap', 'gap_done', { item: 'users', now: NOW }), { ok: true });
+  // The row existed: the same item again says so (v6.1.7, C26).
+  assert.deepEqual(await record(o(i), 'l-gap', 'gap_done', { item: 'users', now: NOW }), { ok: true, repeated: true });
+  assert.deepEqual(await counts(i), { apps: 0, hist: 2 });
   assert.deepEqual([...(await doneItems(o(i), 'l-gap'))], ['users']);
 });
 
@@ -191,7 +193,10 @@ test('gap_done refuses an item that is not one of the program\'s, names the real
   const i = await install();
   await prog('l-gap-arc', { eligibility: [{ kind: 'chain', value: 'arc' }] });
   const r = await record(o(i), 'l-gap-arc', 'gap_done', { item: 'nope', now: NOW });
-  assert.deepEqual(r, { ok: false, note: 'Tell me which item you finished.', items: ['chain:arc', 'users'] });
+  assert.deepEqual(r, { ok: false, note: 'Tell me which item you finished.', items: ['chain:arc'] });
+  // users only when the program has a users item (v6.1.7, C27); without an item the keys come back too (C11).
+  assert.deepEqual(await record(o(i), 'l-gap-arc', 'gap_done', { item: 'users', now: NOW }), { ok: false, note: 'Tell me which item you finished.', items: ['chain:arc'] });
+  assert.deepEqual(await record(o(i), 'l-gap-arc', 'gap_done', { now: NOW }), { ok: false, note: 'Tell me which item you finished.', items: ['chain:arc'] });
   assert.deepEqual(await counts(i), { apps: 0, hist: 0 });
   assert.deepEqual([...(await doneItems(o(i), 'l-gap-arc'))], []);
   assert.equal((await record(o(i), 'l-gap-arc', 'gap_done', { item: 'chain:arc', now: NOW })).ok, true);
@@ -286,7 +291,7 @@ test('a record under one b: owner from two installations is one row, written by 
   const two = await install();
   // Past the builders sequence, so no other file's builder shares it.
   const b = `b:${2 ** 30}`;
-  await prog('l-b1');
+  await prog('l-b1', { eligibility: [{ kind: 'users' }] });
   await record(b, 'l-b1', 'applied', { installationId: one, now: NOW });
   await record(b, 'l-b1', 'won', { installationId: two, amount_usd: 100, now: new Date(NOW.getTime() + DAY) });
   await record(b, 'l-b1', 'gap_done', { installationId: one, item: 'users', now: NOW });

@@ -28,7 +28,8 @@ test('the six replies', async () => {
   assert.equal(await say({ program_id: 't6-a2', status: 'rejected' }), 'Recorded. On to the next one.');
   assert.equal(await say({ program_id: 't6-a3', status: 'no_result' }), 'Recorded.');
   assert.equal(await say({ program_id: 't6-a4', status: 'skipped' }), "Skipped Alpha Four. I won't bring it up again.");
-  assert.equal(await say({ program_id: 't6-a', status: 'gap_done', item: 'users' }), 'Noted. I\'ll re-check the repo on the next look.');
+  await upsertProgram(programFixture({ id: 't6-a5', title: 'Alpha Users', eligibility: [{ kind: 'users' }] }), 'file', NOW);
+  assert.equal(await say({ program_id: 't6-a5', status: 'gap_done', item: 'users' }), 'Noted. I\'ll re-check the repo on the next look.');
   await upsertProgram(programFixture({ id: 't6-b', title: 'Beta' }), 'file', NOW);
   const r = await track(c, { program_id: 't6-b', status: 'applied' });
   assert.equal(r.agent_note, 'Call find again for the updated ledger.');
@@ -219,7 +220,7 @@ test('applied sets auto_applied from the builder record at that moment; unlinked
 test('started on a program the last find called a gap says so', async () => {
   const two = await twoAgents();
   await upsertProgram(programFixture({ id: 't6-gap', title: 'Gap Grant' }), 'file', NOW);
-  await markFind(two.a.installationId, NOW, { 't6-gap': 'add Base Builder Codes' });
+  await markFind(two.a.installationId, NOW, { 't6-gap': { what: 'add Base Builder Codes', kind: 'builder_codes', item: 'builder_codes' } });
   const r = await track(two.a, { program_id: 't6-gap', status: 'started' });
   assert.equal(r.show_to_builder, 'Started. When I last looked it was still one change away: add Base Builder Codes. Make sure that is done first.');
   assert.equal(r.agent_note, 'Make the change before you submit, or call find again to check it. Then fill the form from the fields, submit, and call track with applied, submitted_by and fields_used.');
@@ -231,7 +232,7 @@ test('started on a program the last find called a gap says so', async () => {
 test('started on a program the last find did not call a gap keeps the plain line', async () => {
   const c = await ctx();
   await upsertProgram(programFixture({ id: 't6-nogap' }), 'file', NOW);
-  await markFind(c.installationId, NOW, { 'some-other-program': 'add Base Builder Codes' });
+  await markFind(c.installationId, NOW, { 'some-other-program': { what: 'add Base Builder Codes', kind: 'builder_codes', item: 'builder_codes' } });
   const r = await track(c, { program_id: 't6-nogap', status: 'started' });
   assert.equal(r.show_to_builder, 'Started. Nothing else will submit this one for 24 hours.');
   assert.equal(r.agent_note, 'Fill the form from the fields, submit, then call track with applied, submitted_by and fields_used.');
@@ -239,22 +240,31 @@ test('started on a program the last find did not call a gap keeps the plain line
 
 test('gap_done forgets the remembered gap, so started keeps the plain line', async () => {
   const c = await ctx();
-  await upsertProgram(programFixture({ id: 't6-gapdone' }), 'file', NOW);
-  await markFind(c.installationId, NOW, { 't6-gapdone': 'add Base Builder Codes', 't6-keep': 'a demo video' });
+  await upsertProgram(programFixture({ id: 't6-gapdone', eligibility: [{ kind: 'users' }] }), 'file', NOW);
+  const keep = { what: 'a demo video', kind: 'demo_video', item: 'demo_video' };
+  await markFind(c.installationId, NOW, { 't6-gapdone': { what: 'tell me if real people use it', kind: 'users', item: 'users' }, 't6-keep': keep });
   await track(c, { program_id: 't6-gapdone', status: 'gap_done', item: 'users' });
   const r = await track(c, { program_id: 't6-gapdone', status: 'started' });
   assert.equal(r.show_to_builder, 'Started. Nothing else will submit this one for 24 hours.');
-  assert.deepEqual(await lastGaps(c.installationId), { 't6-keep': 'a demo video' });
+  assert.deepEqual(await lastGaps(c.installationId), { 't6-keep': keep });
 });
 
 test('gap_done with an item the program does not have is refused, and the remembered gap stays (v6.1.6)', async () => {
   const c = await ctx();
   await upsertProgram(programFixture({ id: 't6-gapbad', eligibility: [{ kind: 'chain', value: 'arc' }] }), 'file', NOW);
-  await markFind(c.installationId, NOW, { 't6-gapbad': 'deploy on Arc' });
+  const arc = { what: 'deploy on Arc', kind: 'chain', item: 'chain:arc' };
+  await markFind(c.installationId, NOW, { 't6-gapbad': arc });
   const r = await track(c, { program_id: 't6-gapbad', status: 'gap_done', item: 'nope' });
   assert.equal(r.show_to_builder, 'Tell me which item you finished.');
-  assert.equal(r.agent_note, 'Items for this program: chain:arc, users. Call track gap_done with one of them.');
-  assert.deepEqual(await lastGaps(c.installationId), { 't6-gapbad': 'deploy on Arc' });
+  assert.equal(r.agent_note, 'Items for this program: chain:arc. Call track gap_done with one of them.');
+  assert.deepEqual(await lastGaps(c.installationId), { 't6-gapbad': arc });
+  // C27 (v6.1.7): users only when the program has a users item.
+  const u = await track(c, { program_id: 't6-gapbad', status: 'gap_done', item: 'users' });
+  assert.deepEqual([u.show_to_builder, u.agent_note], ['Tell me which item you finished.', 'Items for this program: chain:arc. Call track gap_done with one of them.']);
+  // C11 (v6.1.7): without an item, the agent gets the same list.
+  const none = await track(c, { program_id: 't6-gapbad', status: 'gap_done' });
+  assert.deepEqual([none.show_to_builder, none.agent_note], ['Tell me which item you finished.', 'Items for this program: chain:arc. Call track gap_done with one of them.']);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM gaps_done WHERE installation_id = ${c.installationId}`)[0].n, 0);
 });
 
 test('TrackInput caps: program_id and item at 80, amount_usd finite and between 0 and 100,000,000 (security L2)', async () => {
@@ -273,4 +283,60 @@ test('TrackInput caps: program_id and item at 80, amount_usd finite and between 
   assert.equal(n, 0);
   // The cap itself passes the input check and meets the program's own limit instead.
   assert.equal((await track(c, { program_id: 't6-cap', status: 'won', amount_usd: 100_000_000 })).show_to_builder, "That's more than this program pays; check the amount.");
+});
+
+const RULE = 'a team of two or more';
+const ruleWhat = async () => (await import('./eligibility')).ruleItem(RULE);
+
+test('started on a remembered rule gap says it still had a rule to confirm (v6.1.7, m2, C25)', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 't7-rule', title: 'Rule Grant', eligibility: [{ kind: 'rule', note: RULE }] }), 'file', NOW);
+  await markFind(c.installationId, NOW, { 't7-rule': { what: RULE, kind: 'rule', item: await ruleWhat() } });
+  const r = await track(c, { program_id: 't7-rule', status: 'started' });
+  assert.equal(r.show_to_builder, `Started. When I last looked it still had a rule to confirm: ${RULE}. Say yes if that is you.`);
+  assert.equal(r.agent_note, 'If the builder says the rule fits, call track gap_done with that gap\'s item, then find again. Otherwise skip the program.');
+});
+
+test('a legacy last_gaps string reads as kind other and keeps the change line (v6.1.7, m2)', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 't7-legacy', title: 'Legacy Grant' }), 'file', NOW);
+  await sql()`UPDATE installations SET last_gaps = ${sql().json({ 't7-legacy': 'a demo video' })} WHERE id = ${c.installationId}`;
+  assert.deepEqual(await lastGaps(c.installationId), { 't7-legacy': { what: 'a demo video', kind: 'other' } });
+  const r = await track(c, { program_id: 't7-legacy', status: 'started' });
+  assert.equal(r.show_to_builder, 'Started. When I last looked it was still one change away: a demo video. Make sure that is done first.');
+});
+
+test("another agent's confirmation of the remembered gap skips the remark (v6.1.7, C23)", async () => {
+  const { a, c } = await twoAgents();
+  await upsertProgram(programFixture({ id: 't7-both', title: 'Both Grant', eligibility: [{ kind: 'rule', note: RULE }] }), 'file', NOW);
+  const item = await ruleWhat();
+  await markFind(c.installationId, NOW, { 't7-both': { what: RULE, kind: 'rule', item } });
+  await track(a, { program_id: 't7-both', status: 'gap_done', item });
+  const r = await track(c, { program_id: 't7-both', status: 'started' });
+  assert.equal(r.show_to_builder, 'Started. Nothing else will submit this one for 24 hours.');
+});
+
+test('gap_done on a rule says it counts as confirmed; any repeat says already noted (v6.1.7, m3, C26)', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 't7-gd', title: 'Confirm Grant', eligibility: [{ kind: 'rule', note: RULE }, { kind: 'users' }] }), 'file', NOW);
+  const item = await ruleWhat();
+  const first = await track(c, { program_id: 't7-gd', status: 'gap_done', item });
+  assert.deepEqual([first.show_to_builder, first.agent_note], ['Noted. That rule counts as confirmed.', 'Call find again; the program comes back ready.']);
+  const again = await track(c, { program_id: 't7-gd', status: 'gap_done', item });
+  assert.deepEqual([again.show_to_builder, again.agent_note], ['Already noted.', 'Call find again for the updated ledger.']);
+  const users = await track(c, { program_id: 't7-gd', status: 'gap_done', item: 'users' });
+  assert.deepEqual([users.show_to_builder, users.agent_note], ["Noted. I'll re-check the repo on the next look.", 'Call find again so the repo is re-read.']);
+  assert.equal((await track(c, { program_id: 't7-gd', status: 'gap_done', item: 'users' })).show_to_builder, 'Already noted.');
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM gaps_done WHERE installation_id = ${c.installationId}`)[0].n, 2);
+});
+
+test('started on an application already sent whose program has since closed says it was sent (v6.1.7)', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 't7-sentclosed', title: 'Gone Grant' }), 'file', NOW);
+  await track(c, { program_id: 't7-sentclosed', status: 'applied', submitted_by: 'agent' });
+  await upsertProgram(programFixture({ id: 't7-sentclosed', title: 'Gone Grant', status: 'closed' }), 'file', NOW);
+  const r = await track(c, { program_id: 't7-sentclosed', status: 'started' });
+  assert.equal(r.show_to_builder, 'Gone Grant was already sent.');
+  assert.equal(r.agent_note, 'Do not submit this one; it was already sent.');
+  assert.equal(r.already_started, true);
 });

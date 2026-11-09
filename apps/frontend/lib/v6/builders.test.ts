@@ -18,7 +18,8 @@ let gh = 900_000;
 const install = async () =>
   ((await sql()`INSERT INTO installations (token_hash) VALUES (${'builders-' + Math.random()}) RETURNING id`)[0].id as number);
 const prog = async (id: string) => {
-  await upsertProgram(programFixture({ id, max_award_usd: 5000 }), 'file', NOW);
+  // A users item, so gap_done with item users is one of its own (v6.1.7, C27).
+  await upsertProgram(programFixture({ id, max_award_usd: 5000, eligibility: [{ kind: 'users' }] }), 'file', NOW);
   return (await getProgram(id))!;
 };
 const builder = (login = 'ada') => upsertBuilder({ github_id: ++gh, login, name: 'Ada', avatar_url: null }, NOW);

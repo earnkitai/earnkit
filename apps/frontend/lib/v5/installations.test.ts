@@ -24,8 +24,12 @@ test('connectInstallation returns builderId null before linking and the builder 
 test("markFind keeps the last find's gaps; lastGaps reads them, {} before any find", async () => {
   const id = await saveInstallation('gaps-' + Math.random());
   assert.deepEqual(await lastGaps(id), {});
-  await markFind(id, NOW, { 'p-1': 'add Base Builder Codes' });
-  assert.deepEqual(await lastGaps(id), { 'p-1': 'add Base Builder Codes' });
+  const g = { what: 'add Base Builder Codes', kind: 'builder_codes', item: 'builder_codes' };
+  await markFind(id, NOW, { 'p-1': g });
+  assert.deepEqual(await lastGaps(id), { 'p-1': g });
+  // No gaps passed (a filtered find, v6.1.7 C24): the time moves, the gaps stay.
   await markFind(id, new Date(NOW.getTime() + 60_000));
+  assert.deepEqual(await lastGaps(id), { 'p-1': g });
+  await markFind(id, new Date(NOW.getTime() + 120_000), {});
   assert.deepEqual(await lastGaps(id), {});
 });

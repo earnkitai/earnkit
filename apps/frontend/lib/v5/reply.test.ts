@@ -344,11 +344,12 @@ test('every linked line ends with a full stop and has no banned word', () => {
   }
 });
 
-const RULE_NOTE = 'A "Their rule" gap is a program rule EarnKit cannot check. If the builder says it fits, call track gap_done with that gap\'s item, then find again.';
+const RULE_NOTE =
+  'A "Their rule" gap is a program rule EarnKit cannot check. If the builder says it fits, call track gap_done with that gap\'s item, then find again. Their yes stands: when the program comes back ready, draft and submit it without asking again.';
 const ruleGap = (what: string, item = 'rule:0000000a') => ({ kind: 'rule' as const, item, what, effort: 'hours' as const, agent_can: false });
 const VIDEO = { kind: 'demo_video' as const, item: 'demo_video', what: 'a demo video', effort: 'hours' as const, agent_can: false };
 
-test('rules (R18a): ready and in-person lines show none; a gap line shows its rules after the change; rules only ask "yes n" (v6.1.6)', () => {
+test('rules (R18a): ready and in-person lines show none; a gap line shows its rules after the change; only the closing asks "yes n" (v6.1.6, v6.1.7 m1)', () => {
   const r = base({
     ready: [
       ready({
@@ -369,7 +370,7 @@ test('rules (R18a): ready and in-person lines show none; a gap line shows its ru
       '1. Base Ecosystem Fund, pre-seed and seed investment. Long odds: an investment program with no stated amount. Your agent drafts all 2 answers. First: sign in to the portal.',
       '',
       'One change away, 2:',
-      '2. Goose Grants, $10K. Their rule: a project built with or for goose. Their rule: work not already funded by an employer or client. Say "yes 2" if that is you.',
+      '2. Goose Grants, $10K. Their rule: a project built with or for goose. Their rule: work not already funded by an employer or client.',
       '3. Colosseum, $25K: a demo video. Their rule: the team has not raised venture capital.',
       '',
       'In person, apply to attend first:',
@@ -378,6 +379,8 @@ test('rules (R18a): ready and in-person lines show none; a gap line shows its ru
       'Say yes to apply, skip it, "yes 2" if its rule fits you, or "do 3" and I\'ll make the change first.',
     ].join('\n'),
   );
+  // m1 (v6.1.7): one "yes n" per reply, in the closing line only.
+  assert.equal(replyText(r, true).match(/"yes 2"/g)?.length, 1);
   const lines = agentNote(r, { more: 0 }).split('\n');
   const at = lines.indexOf(RULE_NOTE);
   assert.ok(at > 0, lines.join('\n'));
@@ -404,7 +407,7 @@ test('R18d: an in-person gap line says what attending takes, after its rules (ru
     ],
   });
   const lines = replyText(r, true).split('\n');
-  assert.ok(lines.includes('1. Residency, $500K. Their rule: a co-founder with US work authorization. First: work 3 months from the office. Say "yes 1" if that is you.'), lines.join('\n'));
+  assert.ok(lines.includes('1. Residency, $500K. Their rule: a co-founder with US work authorization. First: work 3 months from the office.'), lines.join('\n'));
   assert.ok(lines.includes('2. Camp, $10K: a demo video. Their rule: a team of two. First: work 3 months from the office.'), lines.join('\n'));
 });
 
@@ -434,12 +437,12 @@ test('R21: an in-person gap with no setup reads "Attend in person." after its ru
   const g = gap({ title: 'Residency', money: '$1M', in_person: true, gap: ruleGap('a US co-founder'), rules: ['a US co-founder'] });
   assert.equal(
     replyText(base({ gaps: [g] }), true).split('\n')[1],
-    '1. Residency, $1M. Their rule: a US co-founder. Attend in person. Say "yes 1" if that is you.',
+    '1. Residency, $1M. Their rule: a US co-founder. Attend in person.',
   );
   const withSetup = { ...g, setup: ['the right to work in the US'] };
   assert.equal(
     replyText(base({ gaps: [withSetup] }), true).split('\n')[1],
-    '1. Residency, $1M. Their rule: a US co-founder. Needs the right to work in the US. Say "yes 1" if that is you.',
+    '1. Residency, $1M. Their rule: a US co-founder. Needs the right to work in the US.',
   );
 });
 

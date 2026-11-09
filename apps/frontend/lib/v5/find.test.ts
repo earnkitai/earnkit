@@ -67,7 +67,7 @@ test('first find has no since', async () => {
       'One change away, 3:',
       '2. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
       '3. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.',
-      '4. Arbitrum Security Program, audit subsidy. Their rule: smart contract code that is audit-ready, with a defined audit scope. Say "yes 4" if that is you.',
+      '4. Arbitrum Security Program, audit subsidy. Their rule: smart contract code that is audit-ready, with a defined audit scope.',
       '',
       'In person, apply to attend first:',
       '5. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account to start the application.',
@@ -81,11 +81,12 @@ test('first find has no since', async () => {
     for (const n of p.needs.filter((x) => !p.setup.includes(x))) assert.doesNotMatch(n, /email|name|\bteam\b|telegram|x profile/i);
 });
 
-test('find saves every gap it found for track to read (last_gaps)', async () => {
-  type G = { program_id: string; gap: { what: string } };
-  // Every gap of this project, with its first gap's what, as filter.all lists them.
+test('find saves every gap it found for track to read (last_gaps: what, kind and item)', async () => {
+  type G = { program_id: string; gap: { what: string; kind: string; item: string } };
+  // Every gap of this project, with its first gap's what, kind and item, as filter.all lists them.
   const every = (await mcpCall(ctx(await installation()), 'find', { project: PROJECT, filter: { all: true } })).reply!.gaps as G[];
-  const want = Object.fromEntries(every.map((g) => [g.program_id, g.gap.what]));
+  const want = Object.fromEntries(every.map((g) => [g.program_id, { what: g.gap.what, kind: g.gap.kind, item: g.gap.item }]));
+  assert.ok(Object.values(want).some((g) => g.kind === 'rule'), 'fixture needs a rule gap');
   // A default find shows only some of them, and still saves them all.
   const id = await installation();
   const shown = (await mcpCall(ctx(id), 'find', { project: PROJECT })).reply!.gaps as G[];
@@ -93,7 +94,26 @@ test('find saves every gap it found for track to read (last_gaps)', async () => 
   const saved = await lastGaps(id);
   assert.deepEqual(saved, want);
   assert.ok(Object.keys(saved).length > shown.length);
-  for (const g of shown) assert.equal(saved[g.program_id], g.gap.what);
+  for (const g of shown) assert.equal(saved[g.program_id].what, g.gap.what);
+});
+
+test('only a find without filter writes the last gaps; a filtered one stamps the time and keeps them (v6.1.7, C24)', async () => {
+  const id = await installation();
+  await mcpCall(ctx(id), 'find', { project: PROJECT });
+  const before = await lastGaps(id);
+  assert.ok(Object.keys(before).length > 0);
+  const later = new Date(NOW.getTime() + H);
+  const r = await mcpCall(ctx(id, later), 'find', { project: PROJECT, filter: { category: 'investment' } });
+  assert.equal(r.isError, false, r.text);
+  assert.deepEqual(await lastGaps(id), before);
+  const [row] = await sql()`SELECT last_find_at FROM installations WHERE id = ${id}`;
+  assert.equal((row.last_find_at as Date).toISOString(), later.toISOString());
+  await mcpCall(ctx(id, later), 'find', { project: PROJECT, filter: { all: true } });
+  assert.deepEqual(await lastGaps(id), before);
+  // A default find replaces them.
+  await sql()`UPDATE installations SET last_gaps = '{}'::jsonb WHERE id = ${id}`;
+  await mcpCall(ctx(id, later), 'find', { project: PROJECT });
+  assert.deepEqual(await lastGaps(id), before);
 });
 
 test('default list: in-person programs never take a remote ready slot (v6.1.4)', async () => {
@@ -774,11 +794,11 @@ const NO_CHAIN_GAPS = [
   'One change away, 3:',
   '1. Arbitrum Mentorship Program: Cohort 2, $100K in prizes: deploy the contract on Arbitrum.',
   '2. Meta VR Start Developer Competition 2026, $1,000,000 in prizes: a demo video. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.',
-  '3. OTF Internet Freedom Fund, $10,000 to $900,000. Their rule: advances internet freedom for people in repressive environments: circumvention, safe communication or access to blocked information. Say "yes 3" if that is you.',
+  '3. OTF Internet Freedom Fund, $10,000 to $900,000. Their rule: advances internet freedom for people in repressive environments: circumvention, safe communication or access to blocked information.',
   '',
 ];
 
-test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets a rule-only program on one of its chains, before any chain-agnostic one (v6.1.6)', async () => {
+test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets the rule-only program on its first reported chain, Base (v6.1.6, v6.1.7)', async () => {
   const r = await mcpCall(ctx(await installation()), 'find', { project: PROJECT_A });
   assert.equal(r.isError, false, r.text);
   assert.equal(
@@ -790,7 +810,7 @@ test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets
       'One change away, 3:',
       '2. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
       '3. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.',
-      '4. Arbitrum Security Program, audit subsidy. Their rule: smart contract code that is audit-ready, with a defined audit scope. Say "yes 4" if that is you.',
+      '4. Base Ecosystem Fund, pre-seed and seed investment. Their rule: a pre-seed or seed stage startup that chooses Base as its home.',
       '',
       'In person, apply to attend first:',
       '5. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account to start the application.',
@@ -832,10 +852,11 @@ test('project A (R18a): Base Ecosystem Fund is one answer away; gap_done with it
   assert.deepEqual([g.gap.kind, g.gap.what, g.also], ['rule', BASE_RULE, []]);
   assert.match(g.gap.item, /^rule:[0-9a-f]{8}$/);
   const line = lineOf(blockOf(show, 'One change away'), g.n);
-  assert.equal(line, `${g.n}. Base Ecosystem Fund, pre-seed and seed investment. Their rule: ${BASE_RULE}. Say "yes ${g.n}" if that is you.`);
-  assert.ok((r.reply!.agent_note as string).includes('A "Their rule" gap is a program rule EarnKit cannot check. If the builder says it fits, call track gap_done with that gap\'s item, then find again.'));
+  assert.equal(line, `${g.n}. Base Ecosystem Fund, pre-seed and seed investment. Their rule: ${BASE_RULE}.`);
+  assert.ok((r.reply!.agent_note as string).split('\n').includes('A "Their rule" gap is a program rule EarnKit cannot check. If the builder says it fits, call track gap_done with that gap\'s item, then find again. Their yes stands: when the program comes back ready, draft and submit it without asking again.'));
   const t = await mcpCall(ctx(id), 'track', { program_id: 'base-ecosystem-fund', status: 'gap_done', item: g.gap.item });
   assert.equal(t.isError, false, t.text);
+  assert.deepEqual([t.reply!.show_to_builder, t.reply!.agent_note], ['Noted. That rule counts as confirmed.', 'Call find again; the program comes back ready.']);
   const again = await mcpCall(ctx(id), 'find', { project: PROJECT_A, filter: { all: true } });
   const show2 = again.reply!.show_to_builder as string;
   const p = (again.reply!.ready as { program_id: string; n: number }[]).find((x) => x.program_id === 'base-ecosystem-fund');
@@ -894,7 +915,7 @@ test('R18d: under filter.all, Antler (in person, rule only) says its rule and wh
   assert.ok(g, JSON.stringify(ids(r.reply!.gaps)));
   assert.equal(
     lineOf(r.reply!.show_to_builder as string, g.n),
-    `${g.n}. Antler US Residency, $500K to $1M investment. Their rule: at least one co-founder already has independent US work authorization; no visa sponsorship. First: work in person at Antler's NYC, SF or Austin office for up to 3 months. Say "yes ${g.n}" if that is you.`,
+    `${g.n}. Antler US Residency, $500K to $1M investment. Their rule: at least one co-founder already has independent US work authorization; no visa sponsorship. First: work in person at Antler's NYC, SF or Austin office for up to 3 months.`,
   );
 });
 

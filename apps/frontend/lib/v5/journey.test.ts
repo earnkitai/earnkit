@@ -188,5 +188,8 @@ test('every line the builder saw follows the copy rules and ends with one closin
     const last = show.split('\n').at(-1)!.replace(/ This agent is now linked to GitHub account \S+\. Unlink any time at earnkit\.com\/me\.$/, '');
     assert.equal(CLOSINGS.filter((c) => c.test(last)).length, 1, show);
     assert.equal(show.split('\n').filter((l) => /^(Say yes|Say "do|Say "yes|Nothing fits yet|Applying tonight)/.test(l)).length, 1, show);
+    // One "yes n" per reply, in the closing line only (v6.1.7, m1).
+    assert.ok((show.match(/"yes \d+"/g) ?? []).length <= 1, show);
+    assert.ok(!show.split('\n').slice(0, -1).some((l) => /"yes \d+"/.test(l)), show);
   }
 });

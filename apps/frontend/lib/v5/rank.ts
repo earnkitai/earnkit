@@ -2,7 +2,8 @@
  * Ordering of verdicts. Ready: fit first (not a long shot), then the larger award, then the
  * sooner deadline. Gaps: programs with a real change first, then rule-only ones (R18b); rule-only ones naming one
  * of the project's mainnet chains first, then chain-agnostic ones, then the rest (R18e); within each, fewest gaps, then
- * lowest effort, then the larger award. Pure.
+ * lowest effort, then the larger award; rule-only ones on the project's chains that state no award put one naming the
+ * project's first reported chain first (v6.1.7), then keep catalog (input) order. Pure.
  */
 import { rulesOnly, type Effort, type Verdict } from './eligibility';
 import type { ProgramRow } from './programs';
@@ -34,13 +35,23 @@ export function rankReady(v: Verdict[], programs: Programs): Verdict[] {
   );
 }
 
-/** `mainnets`: the chains the project reported on mainnet (R18e); none puts chain-agnostic rule-only programs first. */
-export function rankGaps(v: Verdict[], programs: Programs, mainnets: ReadonlySet<string> = new Set()): Verdict[] {
+/** 0 when the program's chains include `first` (the project's first reported chain), else 1. */
+const onFirst = (v: Verdict, m: Programs, first: string | undefined) => (first && m.get(v.program_id)?.file.chains.includes(first) ? 0 : 1);
+
+/**
+ * `mainnets`: the chains the project reported on mainnet (R18e); none puts chain-agnostic rule-only programs first.
+ * `first`: the project's first reported chain, the tie-break among rule-only programs on its chains with no award.
+ */
+export function rankGaps(v: Verdict[], programs: Programs, mainnets: ReadonlySet<string> = new Set(), first?: string): Verdict[] {
+  const firstTie = (a: Verdict, b: Verdict) =>
+    rulesOnly(a.gaps) && rulesOnly(b.gaps) && reach(a, programs, mainnets) === 0 && award(a, programs) === null && award(b, programs) === null
+      ? cmp(onFirst(a, programs, first), onFirst(b, programs, first))
+      : 0;
   return [...v].sort(
     (a, b) =>
       cmp(Number(rulesOnly(a.gaps)), Number(rulesOnly(b.gaps))) ||
       (rulesOnly(a.gaps) && rulesOnly(b.gaps) ? cmp(reach(a, programs, mainnets), reach(b, programs, mainnets)) : 0) ||
-      cmp(a.gaps.length, b.gaps.length) || cmp(effortOf(a), effortOf(b)) || byAward(a, b, programs),
+      cmp(a.gaps.length, b.gaps.length) || cmp(effortOf(a), effortOf(b)) || byAward(a, b, programs) || firstTie(a, b),
   );
 }
 

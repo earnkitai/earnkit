@@ -321,7 +321,8 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
 
   const readyV = rankReady(verdicts.filter((v) => v.status === 'ready'), byId);
   const mainnets = new Set(facts.chains.filter((c) => c.mainnet).map((c) => c.chain));
-  const gapV = rankGaps(verdicts.filter((v) => v.status === 'gap'), byId, mainnets);
+  // R18e tie-break (v6.1.7): the chain the agent reported first, not the repo's first read.
+  const gapV = rankGaps(verdicts.filter((v) => v.status === 'gap'), byId, mainnets, project.chains?.[0]?.chain);
   // Remote and in-person ready programs are capped apart, each in rank order, so the default list always leads with
   // something the builder can apply to now.
   const shownReady = shownReadyOf(readyV, all, (v) => byId.get(v.program_id)!.file.in_person);
@@ -361,6 +362,10 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
     linked_notice: notice,
   };
   // Every gap of this find (not only the shown ones), in rank order, so track started can say what is still missing.
-  await markFind(ctx.installationId, ctx.now, Object.fromEntries(gapV.slice(0, MAX_REMEMBERED_GAPS).map((v) => [v.program_id, v.gaps[0].what])));
+  // Only a find without filter writes them (v6.1.7, C24): a filtered one sees only part of the list.
+  const remembered = i.filter === undefined
+    ? Object.fromEntries(gapV.slice(0, MAX_REMEMBERED_GAPS).map((v) => [v.program_id, { what: v.gaps[0].what, kind: v.gaps[0].kind, item: v.gaps[0].item }]))
+    : undefined;
+  await markFind(ctx.installationId, ctx.now, remembered);
   return { show_to_builder: replyText(r, last === null, ctx.now), agent_note: agentNote(r, { more }), ...r };
 }

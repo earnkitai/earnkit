@@ -64,8 +64,9 @@ export async function titleOf(owner: string, programId: string): Promise<string>
 
 /**
  * Writes set the owner and the writing installation (`o.installationId`, which an 'i:' owner implies). A `gap_done`
- * whose item is not one of the program's own item keys (or `users`) is refused and clears nothing; the refusal carries
- * the keys for the agent in `items`, never in builder text.
+ * with no item, or one that is not one of the program's own item keys (`users` only when it has a users item, v6.1.7
+ * C27), is refused and clears nothing; the refusal carries the keys for the agent in `items`, never in builder text.
+ * A `gap_done` whose item was already noted answers `repeated` (v6.1.7, C26).
  */
 export async function record(
   owner: string,
@@ -78,7 +79,7 @@ export async function record(
     /** applied only: the builder's standing approval (policy.auto_apply) was on when it was tracked. */
     autoApplied?: boolean;
   } = {},
-): Promise<{ ok: true } | { ok: false; note: string; items?: string[] }> {
+): Promise<{ ok: true; repeated?: true } | { ok: false; note: string; items?: string[] }> {
   const installationId = o.installationId ?? installationOf(owner);
   if (installationId === undefined) throw new Error('record needs the writing installation');
   const now = o.now ?? new Date();
@@ -90,16 +91,18 @@ export async function record(
     return { ok: false, note: 'Tell me how much you won, as whole dollars.' };
   if (status === 'won' && o.amount_usd! > (program?.file.max_award_usd ?? program?.file.pool_usd ?? MAX_WIN_USD))
     return { ok: false, note: "That's more than this program pays; check the amount." };
-  if (status === 'gap_done' && !o.item) return { ok: false, note: 'Tell me which item you finished.' };
   if (status === 'gap_done' && program) {
-    // Only one of the program's own items, or the unknown-users gap (v6.1.6).
-    const keys = [...new Set([...eligibilityOf(program.file).map(itemKey), 'users'])];
-    // The keys go to the agent only: builder text never carries them (v6.1.6, 25a).
-    if (!keys.includes(o.item!)) return { ok: false, note: 'Tell me which item you finished.', items: keys };
+    // Only one of the program's own items; the unknown-users gap ('users') only when it has a users item (v6.1.7, C27).
+    const items = eligibilityOf(program.file);
+    const keys = [...new Set([...items.map(itemKey), ...(items.some((x) => x.kind === 'users') ? ['users'] : [])])];
+    // The keys go to the agent only: builder text never carries them (v6.1.6, 25a); also when no item came (C11).
+    if (!o.item || !keys.includes(o.item)) return { ok: false, note: 'Tell me which item you finished.', items: keys };
   }
+  if (status === 'gap_done' && !o.item) return { ok: false, note: 'Tell me which item you finished.' };
   if (status === 'started') throw new Error('a claim is written by claims.claim');
   const amount = status === 'won' ? o.amount_usd! : null;
   const note = o.note ?? null;
+  let repeated = false;
 
   return (await sql().begin(async (tx) => {
     // One decision at a time per owner and program (the claim's lock), even when no row exists yet.
@@ -122,8 +125,10 @@ export async function record(
       if (row?.status !== 'skipped') return { ok: false, note: "That one isn't skipped here." } as const;
       await tx`DELETE FROM applications WHERE owner = ${owner} AND program_id = ${programId}`;
     } else if (status === 'gap_done') {
-      await tx`INSERT INTO gaps_done (owner, installation_id, program_id, item, at) VALUES (${owner}, ${installationId}, ${programId}, ${o.item!}, ${now})
-        ON CONFLICT (owner, program_id, item) DO UPDATE SET at = EXCLUDED.at`;
+      // xmax = 0 only on a fresh insert: an existing row means the item was already noted.
+      const [g] = await tx<{ inserted: boolean }[]>`INSERT INTO gaps_done (owner, installation_id, program_id, item, at) VALUES (${owner}, ${installationId}, ${programId}, ${o.item!}, ${now})
+        ON CONFLICT (owner, program_id, item) DO UPDATE SET at = EXCLUDED.at RETURNING (xmax = 0) AS inserted`;
+      repeated = !g.inserted;
     } else if (status === 'applied') {
       // Over a claim the row keeps claimed_at and claimed_by: what was claimed, then sent.
       // The title is kept, so a result still reads once the program leaves the catalog.
@@ -146,8 +151,8 @@ export async function record(
     }
     await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, note, at)
       VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${amount}, ${note}, ${now})`;
-    return { ok: true } as const;
-  })) as { ok: true } | { ok: false; note: string };
+    return repeated ? ({ ok: true, repeated: true } as const) : ({ ok: true } as const);
+  })) as { ok: true; repeated?: true } | { ok: false; note: string };
 }
 
 export async function summary(owner: string, programs: ProgramRow[], now: Date): Promise<Ledger> {

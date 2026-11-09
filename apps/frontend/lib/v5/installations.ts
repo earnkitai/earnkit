@@ -41,15 +41,27 @@ export async function builderOf(installationId: number): Promise<number | null> 
   return row?.builder_id ?? null;
 }
 
-/** Stamps a find: last_find_at, last_seen_at, and the find's gaps (program_id to the first gap's what), replacing the last. */
-export async function markFind(id: number, now: Date, gaps: Record<string, string> = {}): Promise<void> {
+/** A remembered gap: the first gap's what, its kind ('rule' for a rule to confirm) and its item (none in rows before v6.1.7). */
+export type RememberedGap = { what: string; kind: string; item?: string };
+
+/**
+ * Stamps a find: last_find_at and last_seen_at; with `gaps` (a find without filter, v6.1.7 C24) also its gaps
+ * (program_id to the first gap), replacing the last. `undefined` leaves the last gaps as they were.
+ */
+export async function markFind(id: number, now: Date, gaps?: Record<string, RememberedGap>): Promise<void> {
+  if (gaps === undefined) {
+    await sql()`UPDATE installations SET last_find_at = ${now}, last_seen_at = GREATEST(last_seen_at, ${now}) WHERE id = ${id}`;
+    return;
+  }
   await sql()`UPDATE installations SET last_find_at = ${now}, last_seen_at = GREATEST(last_seen_at, ${now}), last_gaps = ${sql().json(gaps)} WHERE id = ${id}`;
 }
 
-/** The last find's gaps (program_id to the first gap's what); {} before any find. */
-export async function lastGaps(id: number): Promise<Record<string, string>> {
-  const [row] = await sql()<{ last_gaps: Record<string, string> | null }[]>`SELECT last_gaps FROM installations WHERE id = ${id}`;
-  return row?.last_gaps ?? {};
+/** The last find's gaps (program_id to the first gap); a value stored as a string (before v6.1.7) reads as kind 'other'. {} before any find. */
+export async function lastGaps(id: number): Promise<Record<string, RememberedGap>> {
+  const [row] = await sql()<{ last_gaps: Record<string, string | RememberedGap> | null }[]>`SELECT last_gaps FROM installations WHERE id = ${id}`;
+  return Object.fromEntries(
+    Object.entries(row?.last_gaps ?? {}).map(([k, g]) => [k, typeof g === 'string' ? { what: g, kind: 'other' } : g]),
+  );
 }
 
 /** Drops one program from the last find's gaps: the builder reported that gap done (track gap_done). */
