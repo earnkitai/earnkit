@@ -1319,7 +1319,8 @@ test('N1 (v6.1.12, Review Focus 1): a Quest project with one other step sees Met
       '',
       ...inPersonBlock(4),
       '',
-      'Nothing is ready yet. First: a demo video. Tell me when it is done and I look again.',
+      // Fix round 1 (v6.1.12): the cheapest step shown closes the reply, the users question before the demo video.
+      USERS_FIRST,
     ].join('\n'),
   );
   // An Atlassian Forge app sees Codegeist the same way.
@@ -1800,15 +1801,15 @@ test('v6.1.9: after the builder says yes to the rule, the program comes back rea
   // N3 (v6.1.12, Review Focus 2): answers still missing, so the line carries its needs and the closing names them;
   // the yes stands, and no second yes is asked.
   const lines = (after.reply!.show_to_builder as string).split('\n');
-  assert.equal(lines[0], 'Solana Foundation Grants, milestone grants. Your agent drafts 9 answers. Needs your amount you request.');
-  assert.equal(lines.at(-1), 'Solana Foundation Grants is yours once I have your amount you request.');
+  assert.equal(lines[0], 'Solana Foundation Grants, milestone grants. Your agent drafts 9 answers. Needs your requested amount.');
+  assert.equal(lines.at(-1), 'Solana Foundation Grants is yours once I have your requested amount.');
   const list = await mcpCall(c, 'find', { project });
   const ready = (list.reply!.ready as { program_id: string; rule_yes?: true }[]).find((p) => p.program_id === 'solana-foundation-grants');
   assert.equal(ready?.rule_yes, true);
   const show = list.reply!.show_to_builder as string;
   assert.doesNotMatch(show, /Your yes stands/);
   // The others ready (as many as earlier tests left open) are asked for their yes after it.
-  assert.match(show.split('\n\n').at(-1)!, /^Solana Foundation Grants is yours once I have your amount you request\.( Say yes and I apply(?: to all \d+\. Or say the numbers to skip)?\.)?$/);
+  assert.match(show.split('\n\n').at(-1)!, /^Solana Foundation Grants is yours once I have your requested amount\.( Say yes and I apply(?: to all \d+\. Or say the numbers to skip)?\.)?$/);
 });
 
 test('N9 (v6.1.9): the one-program detail tells the agent to pass project_id when the project is not in the record', async () => {

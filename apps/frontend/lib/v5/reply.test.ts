@@ -666,9 +666,9 @@ test('M1 (v6.1.9): nothing ready and no rule-only program shown: the closing off
   const USERS = { kind: 'users' as const, item: 'users', what: 'tell me if real people use it', effort: 'hours' as const, agent_can: false };
   const floss = gap({ title: 'FLOSS/fund', gap: USERS });
   assert.equal(end(base({ gaps: [floss] })), 'Nothing is ready yet. Do real people use it? Say yes and I apply.');
-  // A demo video (with a rule beside it) first: tell me when it is done.
+  // A demo video (with a rule beside it) listed first: the cheaper users question still closes (fix round 1, v6.1.12).
   const vr = gap({ title: 'Meta VR', gap: VIDEO, also: [ruleGap('hands first')], rules: ['hands first'] });
-  assert.equal(end(base({ gaps: [vr, floss] })), 'Nothing is ready yet. First: a demo video. Tell me when it is done and I look again.');
+  assert.equal(end(base({ gaps: [vr, floss] })), 'Nothing is ready yet. Do real people use it? Say yes and I apply.');
   // I2 (v6.1.9 final): the only step program shown carries a rule: the rule is asked first, once.
   const vrAlone = replyText(base({ gaps: [vr] }), true);
   assert.equal(vrAlone.split('\n').at(-1), 'Nothing is ready yet. Say "yes 1" if its rule fits you.');
@@ -781,22 +781,22 @@ test('L1d-2 (v6.1.11): an in-person gap line keeps its one attend sentence, neve
 });
 
 test('N3 (v6.1.12, Review Focus 2): after a rule yes or a users yes on a program that still needs answers, the closing names them and never asks for yes again', () => {
-  const sol = ready({ title: 'Solana Foundation Grants', rule_yes: true, need_you: ['your website link', 'the amount you request'], needs: ['your website link', 'the amount you request'] });
+  const sol = ready({ title: 'Solana Foundation Grants', rule_yes: true, need_you: ['your website link', 'the requested amount'], needs: ['your website link', 'the requested amount'] });
   const end = (r: R) => replyText(r, true).split('\n\n').at(-1)!;
-  assert.equal(end(base({ ready: [sol] })), 'Solana Foundation Grants is yours once I have your website link and amount you request.');
+  assert.equal(end(base({ ready: [sol] })), 'Solana Foundation Grants is yours once I have your website link and requested amount.');
   // Three needs read "a, b and c".
   const three = ready({ title: 'FLOSS/fund', rule_yes: true, need_you: ['your funding manifest link', 'the problem', 'a demo video'], needs: ['your funding manifest link', 'the problem', 'a demo video'] });
   assert.equal(end(base({ ready: [three] })), 'FLOSS/fund is yours once I have your funding manifest link, problem and demo video.');
   // Beside another ready program: that one is asked for its yes, this one is not counted again.
-  assert.equal(end(base({ ready: [sol, ready({ title: 'Other Grant' })] })), 'Solana Foundation Grants is yours once I have your website link and amount you request. Say yes and I apply.');
+  assert.equal(end(base({ ready: [sol, ready({ title: 'Other Grant' })] })), 'Solana Foundation Grants is yours once I have your website link and requested amount. Say yes and I apply.');
   assert.equal(
     end(base({ ready: [sol, ready({ title: 'Other Grant' }), ready({ title: 'Third Grant' })] })),
-    'Solana Foundation Grants is yours once I have your website link and amount you request. Say yes and I apply to all 2. Or say the numbers to skip.',
+    'Solana Foundation Grants is yours once I have your website link and requested amount. Say yes and I apply to all 2. Or say the numbers to skip.',
   );
   // Beside one fully ready with its yes: both said, no yes asked.
   assert.equal(
     end(base({ ready: [ready({ title: 'Users Grant', rule_yes: true }), sol] })),
-    'Your yes stands for Users Grant: I apply now. Solana Foundation Grants is yours once I have your website link and amount you request.',
+    'Your yes stands for Users Grant: I apply now. Solana Foundation Grants is yours once I have your website link and requested amount.',
   );
   // Alone, no yes is asked at all.
   assert.doesNotMatch(replyText(base({ ready: [sol] }), true), /Say yes|—|\b(score|rank|grade|points|coin|token|streak)s?\b/i);
@@ -830,4 +830,22 @@ test('F9 (v6.1.12): the empty-repo note and the Builder Codes note are one sente
   // Each alone: its own sentence, as before.
   assert.ok(replyText(base({ repo_notes: ['empty'] }), true).split('\n\n').includes('The repo is empty, so I matched on what you told me.'));
   assert.ok(replyText(base({ repo_notes: ['no_builder_codes'] }), true).split('\n\n').includes('The repo does not send Builder Codes yet.'));
+});
+
+test('fix round 1 (v6.1.12): the nothing-ready closing picks the cheapest step shown, a question before a change, whatever the line order', () => {
+  const USERS = { kind: 'users' as const, item: 'users', what: 'tell me if real people use it', effort: 'hours' as const, agent_can: false };
+  const STARTED = { kind: 'new_work_after' as const, item: 'new_work_after:2026-10-22', what: 'tell me when you started this', effort: 'minutes' as const, agent_can: false };
+  const vr = gap({ title: 'Meta VR', gap: VIDEO, also: [ruleGap('a hands-first experience')] });
+  const floss = gap({ title: 'FLOSS/fund', gap: USERS });
+  const end = (gaps: GapProgram[]) => replyText(base({ gaps }), true).split('\n').at(-1);
+  assert.equal(end([vr, floss]), 'Nothing is ready yet. Do real people use it? Say yes and I apply.');
+  assert.equal(end([vr, gap({ title: 'UGREEN', gap: STARTED })]), 'Nothing is ready yet. First: tell me when you started this, and I look again.');
+  // Changes only: the first one, as before.
+  assert.equal(end([vr, gap({ title: 'Arc Fund' })]), 'Nothing is ready yet. First: a demo video. Tell me when it is done and I look again.');
+});
+
+test('fix round 1 (v6.1.12): the N3 closing lists at most three needs, then "and n more"', () => {
+  const needs = ['your website link', 'the requested amount', 'the problem', 'your team', 'a demo video'];
+  const r = base({ ready: [ready({ title: 'Solana Foundation Grants', rule_yes: true, need_you: needs, needs })] });
+  assert.equal(replyText(r, true).split('\n\n').at(-1), 'Solana Foundation Grants is yours once I have your website link, requested amount, problem and 2 more.');
 });

@@ -58,6 +58,9 @@ const dollars = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
 /** "a, b and c". Pure. */
 const joinAnd = (xs: string[]): string => (xs.length <= 1 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
 
+/** At most NEEDS_SHOWN needs, then "{n} more" (fix round 1, v6.1.12, for the N3 closing). Pure. */
+const capped = (needs: string[]): string[] => (needs.length > NEEDS_SHOWN ? [...needs.slice(0, NEEDS_SHOWN), `${needs.length - NEEDS_SHOWN} more`] : needs);
+
 /** A to-do as it reads after "Needs your": "your email" and "a Loom product demo" lose their first word. */
 const bare = (todo: string) => todo.replace(/^(your|a|an|the)\s+/i, '');
 
@@ -335,11 +338,16 @@ export type FirstStep = { users: true } | { users: false; what: string; started?
  * read), already says its action, so the next program is looked at. Null when none has such a step. Pure.
  */
 export function firstStepOf(gaps: GapProgram[]): FirstStep | null {
-  for (const g of gaps) {
-    if (g.in_person || ruleOnlyGap(g)) continue;
-    const real = [g.gap, ...g.also].filter((x) => x.kind !== 'rule');
-    if (canDo(real)) continue;
+  const steps = gaps.filter((g) => !g.in_person && !ruleOnlyGap(g)).map((g) => [g.gap, ...g.also].filter((x) => x.kind !== 'rule'));
+  // Fix round 1 (v6.1.12): the cheapest step shown closes the reply: a question (the users question, the started
+  // question) before any change, whatever the line order.
+  for (const real of steps) {
     if (real.length > 0 && real.every(usersQuestion)) return { users: true };
+    const asked = real.length > 0 && real.every(startedQuestion) ? real[0] : null;
+    if (asked) return { users: false, what: asked.what, started: true };
+  }
+  for (const real of steps) {
+    if (canDo(real)) continue;
     const x = real.find((y) => !ownSentenceGap(y) && !usersQuestion(y));
     if (x) return { users: false, what: x.what, ...(startedQuestion(x) ? { started: true as const } : {}) };
   }
@@ -368,7 +376,7 @@ export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number
   if (stands.length > 0 || waits.length > 0) {
     const said = [
       ...(stands.length > 0 ? [`Your yes stands for ${listWords(stands, stands.length)}: I apply now.`] : []),
-      ...waits.map((w) => `${w.title} is yours once I have your ${joinAnd(w.needs.map(bare))}.`),
+      ...waits.map((w) => `${w.title} is yours once I have your ${joinAnd(capped(w.needs.map(bare)))}.`),
     ].join(' ');
     const left = o.ready - stands.length - waits.length;
     return left > 0 ? `${said} ${closingLine({ ...o, ready: left, yesStands: [], yesWaits: [] })}` : said;
