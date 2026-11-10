@@ -380,7 +380,7 @@ after a link (its `linked_at` later than its `last_find_at`) ends the closing bl
 GitHub account {login}." (`linked_notice`, security M2); `markFind` moves `last_find_at`, so it shows once. An unlink on
 /me (`unlinkInstallation`) sets `installations.unlinked_at`; the next `find` of that agent (match or open list) ends with
 "This agent was unlinked from your account. Sign in once at {link} to link it again." in place of the sign-in sentence,
-and clears the mark once that reply is built (`takeUnlinkedNotice`, v6.1.7 B10; a find that throws first keeps it). The unlinked agent's ledger stays with the builder; its live claims there are released in the same transaction, and its later sends land in its own `i:` ledger (L13-2, v6.1.14). The unlink takes the ledger's per-program lock on those claims, and `record` (applied) and `claim` read the installation FOR SHARE under that lock (`stillLinked`), so a send in flight lands before the unlink or answers `UNLINKED_MEANWHILE` (T5-F4). The ledger's owner is `b:<builder>` once linked, else `i:<installation>` (`ownerKey`); linking moves
+and clears the mark once that reply is built (`takeUnlinkedNotice`, v6.1.7 B10; a find that throws first keeps it). The unlinked agent's ledger stays with the builder; its live claims there are released in the same transaction, and its later sends land in its own `i:` ledger (L13-2, v6.1.14). The unlink takes the ledger's per-program lock on those claims, and `record` (every agent status; a screen outcome passes `fromScreen`) and `claim` read the installation FOR SHARE under that lock (`stillLinked`: a `b:` owner needs the row linked to that builder, an `i:` owner must be the writing installation), so a call in flight lands before the unlink or answers `UNLINKED_MEANWHILE` (T5-F4, fix round 2). The ledger's owner is `b:<builder>` once linked, else `i:<installation>` (`ownerKey`); linking moves
 the installation's rows to the builder, so every agent of one builder shares one ledger. Where both ledgers hold a
 program, the migration never downgrades (v6.1.8 B15): a result beats applied, which beats a claim or a skip; among
 results won beats rejected beats no_result whatever the time, so a relink never loses a win (v6.1.9 N3); of two equal statuses the newer `at` stays; the losing row is dropped (history is all kept). Deleting
@@ -534,7 +534,8 @@ refused with the ledger's line and nothing is recorded), which also reach a buil
 applicant row's `application_id`: the id `track started` answered the builder's agent with a note to put it in the
 form's reference field (`applications.application_id`, issued by `claims.claim`, kept by the send, carried on a link
 merge), for this program; never by repo or site (L13-1, T5-F1 v6.1.14). An id on more than one applicant of the
-program (another ref in any unexpired screen of it) is ambiguous and reaches no ledger (T5-F3). The CSV path reads an
+program (any other row in any screen of it, expired too, except the same applicant queued again elsewhere: same repo,
+site and contracts; the reviewer's ref is never identity) is ambiguous and reaches no ledger (T5-F3, fix round 2). The CSV path reads an
 `application_id` column too (T5-F2). A row without one is named in the note as "Not matched to an
 EarnKit application"; a win with no amount is passed on as a win with none (`amount not given`, L13-13); a second
 outcome replaces the first only when not older, and the note names what it replaced (L13-12). The notes never say

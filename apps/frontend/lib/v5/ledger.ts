@@ -105,6 +105,8 @@ export async function record(
     /** won only, from a program's screen (L13-13, v6.1.14): the program gave no amount; the win is kept with none,
      *  its note AMOUNT_NOT_GIVEN. A later win with the amount completes it. */
     amountNotGiven?: true;
+    /** A program's screen outcome (screen-jobs.recordOutcomes): not an agent's call, so the link check is skipped. */
+    fromScreen?: true;
   } = {},
 ): Promise<{ ok: true; repeated?: true; night?: true; closed?: true } | { ok: false; note: string; items?: string[] }> {
   const installationId = o.installationId ?? installationOf(owner);
@@ -138,8 +140,9 @@ export async function record(
   return (await sql().begin(async (tx) => {
     // One decision at a time per owner and program (the claim's lock), even when no row exists yet.
     await tx`SELECT pg_advisory_xact_lock(hashtext(${owner + ':' + programId}))`;
-    // T5-F4 (v6.1.14): a send of an agent unlinked meanwhile never lands in the builder's ledger.
-    if (status === 'applied' && !(await stillLinked(tx, owner, installationId))) return { ok: false, note: UNLINKED_MEANWHILE } as const;
+    // T5-F4 (v6.1.14, fix round 2): no call of an agent unlinked meanwhile lands in the builder's ledger, whatever its
+    // status; a program's screen outcome (`fromScreen`) is written as the application's own installation and skips it.
+    if (!o.fromScreen && !(await stillLinked(tx, owner, installationId))) return { ok: false, note: UNLINKED_MEANWHILE } as const;
     const [row] = await tx<{ status: string; amount_usd: string | null; at: Date; client_name: string | null; claimed_at: Date | null; claimed_by: number | null }[]>`
       SELECT a.status, a.amount_usd, a.at, i.client_name, a.claimed_at, a.claimed_by FROM applications a LEFT JOIN installations i ON i.id = a.installation_id
       WHERE a.owner = ${owner} AND a.program_id = ${programId} FOR UPDATE OF a`;

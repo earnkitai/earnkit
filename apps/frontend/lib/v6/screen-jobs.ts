@@ -202,7 +202,8 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
   const ambiguous: string[] = [];
   const once = (list: string[], ref: string) => void (list.includes(ref) || list.push(ref));
   for (const o of outcomes) {
-    const [a] = await sql()<{ application_id: string | null }[]>`SELECT application_id FROM screen_applicants WHERE job_id = ${jobId} AND ref = ${o.ref}`;
+    const [a] = await sql()<{ application_id: string | null; repo_key: string | null; live_url: string | null; contracts: unknown }[]>`
+      SELECT application_id, repo_key, live_url, contracts FROM screen_applicants WHERE job_id = ${jobId} AND ref = ${o.ref}`;
     if (!a) {
       once(notFound, o.ref);
       continue;
@@ -225,13 +226,20 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
     const same = before && before.outcome === o.outcome && (before.amount_usd === null ? null : Number(before.amount_usd)) === amount;
     if (before && !same) replaced.push(`${o.ref} (was ${before.outcome === 'shortlisted' ? 'shortlisted' : resultWords(before.outcome, before.amount_usd)})`);
     if (o.outcome === 'shortlisted') continue;
-    // T5-F3 (v6.1.14): an id another applicant of this program carries too (another ref in any unexpired screen of it)
-    // is ambiguous: an id given to a program can be copied, so neither row reaches a ledger. The same ref queued again
-    // in another screen is the same applicant.
+    // T5-F3 (v6.1.14, fix round 2): an id another applicant row of this program carries too is ambiguous: an id given to
+    // a program can be copied, so neither row reaches a ledger. Every other row counts (any screen of the program, expired
+    // too), except the same applicant queued again in another screen: the same repo, site and contracts, with at least one
+    // of them given. The reviewer's ref is never identity (a "row 3" ref is the list's position); another row of this
+    // same screen is always another applicant.
     if (a.application_id) {
       const others = await sql()<{ ref: string; job_id: string }[]>`
-        SELECT a.ref, a.job_id FROM screen_applicants a JOIN screen_jobs j ON j.id = a.job_id
-        WHERE a.application_id = ${a.application_id} AND j.program_id = ${job.program_id} AND j.expires_at > ${now} AND a.ref <> ${o.ref}`;
+        SELECT x.ref, x.job_id FROM screen_applicants x JOIN screen_jobs j ON j.id = x.job_id
+        WHERE x.application_id = ${a.application_id} AND j.program_id = ${job.program_id}
+          AND NOT (x.job_id = ${jobId} AND x.ref = ${o.ref})
+          AND NOT (x.job_id <> ${jobId}
+            AND x.repo_key IS NOT DISTINCT FROM ${a.repo_key}::text AND x.live_url IS NOT DISTINCT FROM ${a.live_url}::text
+            AND x.contracts = ${sql().json(a.contracts as never)}::jsonb
+            AND (${a.repo_key}::text IS NOT NULL OR ${a.live_url}::text IS NOT NULL OR jsonb_array_length(x.contracts) > 0))`;
       if (others.length > 0) {
         const here = [o.ref, ...others.filter((x) => x.job_id === jobId).map((x) => x.ref)].sort();
         const group = listWords([...here, ...others.filter((x) => x.job_id !== jobId).map((x) => `${x.ref} (another screen)`).sort()], 10);
@@ -251,7 +259,7 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
     }
     if (o.outcome === 'won' && amount === null) once(noAmount, o.ref);
     await record(app.owner, job.program_id, o.outcome, {
-      installationId: app.installation_id, now, ...(amount === null ? (o.outcome === 'won' ? { amountNotGiven: true as const } : {}) : { amount_usd: amount }),
+      installationId: app.installation_id, now, fromScreen: true, ...(amount === null ? (o.outcome === 'won' ? { amountNotGiven: true as const } : {}) : { amount_usd: amount }),
     });
   }
   const notes = [

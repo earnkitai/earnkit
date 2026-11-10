@@ -21,15 +21,16 @@ export const UNLINKED_MEANWHILE = 'This agent was just unlinked from your accoun
 /**
  * T5-F4 (v6.1.14): inside the owner's per-program lock, whether the writing installation still belongs to a 'b:' owner.
  * The installation's row is read FOR SHARE, so an unlink (which updates it) waits for this write, or this write sees
- * the unlink. Refused: linked to another builder, or unlinked with its notice not yet shown (the window an in-flight
- * call falls in). An 'i:' owner, or an installation with no row, passes.
+ * the unlink. A 'b:' owner passes only when the installation's row exists and is linked to that builder (fix round 2):
+ * a missing row or a NULL builder_id refuses. An 'i:' owner is the installation's own ledger, named by the installation
+ * that writes it (ownerKey of an unlinked installation), so no link can be lost: it passes when the owner names the
+ * writing installation, else refuses.
  */
 export async function stillLinked(tx: Db, owner: string, installationId: number): Promise<boolean> {
-  if (!owner.startsWith('b:')) return true;
-  const [r] = await tx<{ builder_id: number | null; unlinked_at: Date | null }[]>`
-    SELECT builder_id, unlinked_at FROM installations WHERE id = ${installationId} FOR SHARE`;
-  if (!r) return true;
-  return r.builder_id === null ? r.unlinked_at === null : r.builder_id === Number(owner.slice(2));
+  if (owner.startsWith('i:')) return owner === `i:${installationId}`;
+  if (!owner.startsWith('b:')) return false;
+  const [r] = await tx<{ builder_id: number | null }[]>`SELECT builder_id FROM installations WHERE id = ${installationId} FOR SHARE`;
+  return r !== undefined && r.builder_id !== null && r.builder_id === Number(owner.slice(2));
 }
 type Row = { status: string; claimed_at: Date | null; claimed_by: number | null; installation_id: number; at: Date };
 

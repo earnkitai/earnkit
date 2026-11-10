@@ -81,6 +81,8 @@ test('a second applied from another agent of the owner names the first and keeps
   const one = await named('Claude Code');
   const two = await named(null);
   const b = `b:${2 ** 30 + 7}`;
+  // Both agents are linked to the owner's builder (fix round 2: only a linked agent writes a b: ledger).
+  await sql()`UPDATE installations SET builder_id = ${2 ** 30 + 7} WHERE id IN (${one}, ${two})`;
   await prog('l-b13');
   await record(b, 'l-b13', 'applied', { installationId: one, submitted_by: 'agent', fields_used: ['a'], now: new Date('2026-11-03T22:10:00Z') });
   const r = await record(b, 'l-b13', 'applied', { installationId: two, submitted_by: 'builder', now: NOW });
@@ -327,6 +329,7 @@ test('a record under one b: owner from two installations is one row, written by 
   const two = await install();
   // Past the builders sequence, so no other file's builder shares it.
   const b = `b:${2 ** 30}`;
+  await sql()`UPDATE installations SET builder_id = ${2 ** 30} WHERE id IN (${one}, ${two})`;
   await prog('l-b1', { eligibility: [{ kind: 'users' }] });
   await record(b, 'l-b1', 'applied', { installationId: one, now: NOW });
   await record(b, 'l-b1', 'won', { installationId: two, amount_usd: 100, now: new Date(NOW.getTime() + DAY) });
@@ -358,4 +361,31 @@ test('v6.1.9: with no results date, EarnKit asks 30 days after the send', async 
   await markAsked(o(i), ['ao-nodate-a'], NOW);
   assert.deepEqual(await askOutcome(o(i), [a, b], NOW), []);
   assert.deepEqual((await askOutcome(o(i), [a, b], new Date(NOW.getTime() + 2 * DAY))).map((x) => x.program_id), ['ao-nodate-b']);
+});
+
+test('fix round 2 (v6.1.14): a b: ledger takes only calls of an installation linked to that builder; i: only its own', async () => {
+  const { stillLinked } = await import('../v6/claims');
+  const linked = await install();
+  const unlinked = await install();
+  const B = 2 ** 30 + 11;
+  await sql()`UPDATE installations SET builder_id = ${B} WHERE id = ${linked}`;
+  const at = (owner: string, i: number) => sql().begin((tx) => stillLinked(tx, owner, i)) as Promise<boolean>;
+  assert.equal(await at(`b:${B}`, linked), true);
+  assert.equal(await at(`b:${B + 1}`, linked), false);
+  // NULL builder_id refuses whatever unlinked_at says; a missing row refuses.
+  assert.equal(await at(`b:${B}`, unlinked), false);
+  assert.equal(await at(`b:${B}`, 2 ** 30), false);
+  assert.equal(await at(o(unlinked), unlinked), true);
+  assert.equal(await at(o(linked), unlinked), false);
+  // Every agent status is refused with the one line; nothing is written.
+  await prog('l-fr2');
+  const UNL = 'This agent was just unlinked from your account; nothing recorded.';
+  for (const [status, extra] of [['applied', {}], ['won', { amount_usd: 10 }], ['skipped', {}], ['rejected', {}], ['no_result', {}]] as const)
+    assert.deepEqual(await record(`b:${B}`, 'l-fr2', status, { installationId: unlinked, now: NOW, ...extra }), { ok: false, note: UNL }, status);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${`b:${B}`}`)[0].n, 0);
+  // The linked one writes; a program's screen outcome (fromScreen) lands as the application's own installation.
+  assert.deepEqual(await record(`b:${B}`, 'l-fr2', 'applied', { installationId: linked, now: NOW }), { ok: true });
+  await sql()`UPDATE installations SET builder_id = NULL WHERE id = ${linked}`;
+  assert.deepEqual(await record(`b:${B}`, 'l-fr2', 'won', { installationId: linked, amount_usd: 10, now: NOW }), { ok: false, note: UNL });
+  assert.deepEqual(await record(`b:${B}`, 'l-fr2', 'won', { installationId: linked, amount_usd: 10, now: NOW, fromScreen: true }), { ok: true });
 });
