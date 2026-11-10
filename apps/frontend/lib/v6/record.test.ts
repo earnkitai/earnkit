@@ -291,3 +291,9 @@ test('C53: an unknown chain is named', () => {
   const { problems } = merge({ projects: [{ id: 'p1', chains_claimed: ['base', 'notachain'] }] });
   assert.ok(problems.some((l) => l.endsWith('not a known chain: notachain')), problems.join('|'));
 });
+
+test('final fix (v6.1.12, F10): the record tool saves each chain once, in first order, as /me does', () => {
+  const { record, problems } = merge({ projects: [{ id: 'p1', name: 'App', chains_claimed: ['base', 'base', 'arc', 'base'] }] });
+  assert.deepEqual(problems, []);
+  assert.deepEqual(record.projects[0].chains_claimed, ['base', 'arc']);
+});

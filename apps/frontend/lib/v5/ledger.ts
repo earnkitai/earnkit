@@ -34,6 +34,8 @@ export const winCapOf = (program: ProgramRow | null | undefined): number => prog
 /** A win over the program's cap is refused with this line, in the ledger and in a program's screen outcomes (v6.1.7 C38). */
 export const OVER_CAP = "That's more than this program pays; check the amount.";
 const DAY = 86_400_000;
+/** How long after its close a send still counts under standing approval (F8, v6.1.12). */
+export const CLOSED_GRACE_MS = 3_600_000;
 
 /** When results are due: the file's date, else the close plus the weeks after, else null. */
 function resultsDate(p: ProgramRow): Date | null {
@@ -91,7 +93,7 @@ export async function record(
      *  recorded as not under standing approval and answers `night` (v6.1.8 B18). */
     maxPerNight?: number;
   } = {},
-): Promise<{ ok: true; repeated?: true; night?: true } | { ok: false; note: string; items?: string[] }> {
+): Promise<{ ok: true; repeated?: true; night?: true; closed?: true } | { ok: false; note: string; items?: string[] }> {
   const installationId = o.installationId ?? installationOf(owner);
   if (installationId === undefined) throw new Error('record needs the writing installation');
   const now = o.now ?? new Date();
@@ -115,6 +117,7 @@ export async function record(
   const note = o.note ?? null;
   let repeated = false;
   let night = false;
+  let closed = false;
 
   return (await sql().begin(async (tx) => {
     // One decision at a time per owner and program (the claim's lock), even when no row exists yet.
@@ -144,6 +147,12 @@ export async function record(
       repeated = !g.inserted;
     } else if (status === 'applied') {
       let auto = o.autoApplied === true;
+      // F8 (v6.1.12): a program closed over an hour before the send is never sent under standing approval; within the
+      // hour the send went in as it closed.
+      if (auto && program!.file.ends_at && now.getTime() - Date.parse(program!.file.ends_at) > CLOSED_GRACE_MS) {
+        auto = false;
+        closed = true;
+      }
       if (auto && o.maxPerNight !== undefined) {
         // Tonight's sends under standing approval: the last 24 hours, counted one at a time per owner.
         await tx`SELECT pg_advisory_xact_lock(hashtext(${owner + ':auto'}))`;
@@ -174,8 +183,8 @@ export async function record(
     }
     await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, note, at)
       VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${amount}, ${note}, ${now})`;
-    return repeated ? ({ ok: true, repeated: true } as const) : night ? ({ ok: true, night: true } as const) : ({ ok: true } as const);
-  })) as { ok: true; repeated?: true; night?: true } | { ok: false; note: string };
+    return repeated ? ({ ok: true, repeated: true } as const) : night ? ({ ok: true, night: true } as const) : closed ? ({ ok: true, closed: true } as const) : ({ ok: true } as const);
+  })) as { ok: true; repeated?: true; night?: true; closed?: true } | { ok: false; note: string };
 }
 
 /**

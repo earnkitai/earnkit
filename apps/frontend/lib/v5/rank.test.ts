@@ -292,3 +292,37 @@ test('O1 (v6.1.10, Review Focus 2): a program closing within 7 days is always in
   // Unlikely, it is not one the project fits: left to the full list.
   assert.deepEqual(shownGapsOf(ranked, false, 3, remote, [], () => false, () => false, { soon, unlikely: (x) => x.program_id === 'paypal' }).map((x) => x.program_id), ['a', 'b', 'vr']);
 });
+
+test('N1 (v6.1.12, Review Focus 1): a rule-bearing keyword hit takes its own slot in rank order; rules with no hit keep the one last slot', () => {
+  const programs = new Map([
+    row('floss', { chains: [], any_chain: true, max_award_usd: 100_000 }), row('vr', { chains: [], any_chain: true, pool_usd: 1_000_000, reward: '$1,000,000 in prizes' }),
+    row('cg', { chains: [], any_chain: true, max_award_usd: 50_000 }), row('thiel', { chains: [], any_chain: true, max_award_usd: 250_000 }),
+    row('a', { chains: [], any_chain: true, max_award_usd: 10 }), row('b', { chains: [], any_chain: true, max_award_usd: 10 }),
+  ].map((r) => [r.id, r]));
+  const vr = v('vr', { status: 'gap', gaps: [gap('hours'), ruleGap('vr')] });
+  const cg = v('cg', { status: 'gap', gaps: [gap('hours'), ruleGap('cg')] });
+  const thiel = v('thiel', { status: 'gap', gaps: [ruleGap('t')] });
+  const free = (id: string, e: Gap['effort'] = 'hours') => v(id, { status: 'gap', gaps: [gap(e)] });
+  const hit = (x: Verdict) => x.program_id === 'vr' || x.program_id === 'cg';
+  // Rank order: the hit competes with rule-free steps by change count, effort, then money (the $1M VR before FLOSS).
+  const ranked = rankGaps([free('floss'), thiel, vr], programs, new Set(), undefined, [], hit);
+  assert.deepEqual(ranked.map((x) => x.program_id), ['vr', 'floss', 'thiel']);
+  // A Quest project with one other step sees Meta VR in its default list, in rank order; the hit counts as a step, so
+  // the rule with no hit keeps the one last slot.
+  assert.deepEqual(shownGapsOf(ranked, false, 3, remote, [], () => false, () => false, { hit }).map((x) => x.program_id), ['vr', 'floss', 'thiel']);
+  assert.deepEqual(shownGapsOf(ranked.filter((x) => x !== thiel), false, 3, remote, [], () => false, () => false, { hit }).map((x) => x.program_id), ['vr', 'floss']);
+  // A cheaper effort step still ranks first; the hit keeps its own place.
+  const cheap = rankGaps([free('floss', 'minutes'), vr], programs, new Set(), undefined, [], hit);
+  assert.deepEqual(shownGapsOf(cheap, false, 3, remote, [], () => false, () => false, { hit }).map((x) => x.program_id), ['floss', 'vr']);
+  // Two hits and a rule with no hit: both hits in rank order, and the rule with no hit still takes the one last slot.
+  const many = rankGaps([free('a'), thiel, cg, vr], programs, new Set(), undefined, [], hit);
+  assert.deepEqual(many.map((x) => x.program_id), ['vr', 'cg', 'a', 'thiel']);
+  assert.deepEqual(shownGapsOf(many, false, 3, remote, [], () => false, () => false, { hit }).map((x) => x.program_id), ['vr', 'cg', 'thiel']);
+  assert.deepEqual(shownGapsOf(many, false, 4, remote, [], () => false, () => false, { hit }).map((x) => x.program_id), ['vr', 'cg', 'a', 'thiel']);
+  // Without the hit: one rule-free step, so the list is that one alone (N-2 holds for rules with no hit).
+  const plain = rankGaps([free('floss'), vr], programs);
+  assert.deepEqual(plain.map((x) => x.program_id), ['floss', 'vr']);
+  assert.deepEqual(shownGapsOf(plain, false, 3, remote).map((x) => x.program_id), ['floss']);
+  // filter.all is rank order, unchanged.
+  assert.deepEqual(shownGapsOf(ranked, true, 3, remote, [], () => false, () => false, { hit }), ranked);
+});

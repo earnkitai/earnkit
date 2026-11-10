@@ -12,13 +12,13 @@ import { EMPTY_RECORD, unapprovedSince } from '../v6/record';
 import { signInLink } from '../v6/record-tool';
 import { DELETED_NOTICE, NO_RECORD_PROJECT, linkedNoticeLine, signInLine, signInSentence, unlinkedNoticeLine } from '../v6/reply-words';
 import { timeLeftWords } from './deadline';
-import { evaluate, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
+import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
 import { lastFindAt, markFind, newlyLinkedLogin, rememberProject } from './installations';
 import { askOutcome, autoSentSince, claimed, codeDoneAt, doneByProgram, doneItems, excluded, markAsked, summary, type Ledger } from './ledger';
 import { prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
-import { isOpen, listOpenPrograms, programByName, type ProgramRow } from './programs';
+import { isOpen, listOpenPrograms, programByName, unknownProgramLine, type ProgramRow } from './programs';
 import { parseProject, projectKeyOf, type Project } from './project-input';
 import { rankGaps, rankReady, shownGapsOf } from './rank';
 import { repoFacts, type RepoFacts, type RepoNote } from './repo-facts';
@@ -250,18 +250,23 @@ function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram
   if (r.in_person) return [inPersonLine(r, true), ...o.rules];
   // Fix round 1 (v6.1.10): the yes stands only for a fully ready program, nothing left in need you.
   const yesStands = r.rule_yes && !o.draftOnly && r.need_you.length === 0 ? [r.title] : [];
-  return [readyLine(r, o.linked, o.now, true), ...o.rules, closingLine({ ready: 1, draftOnly: o.draftOnly, gaps: 0, firstRule: null, inPerson: 0, held: 0, yesStands })];
+  // N3 (v6.1.12): the yes stands for one that still needs answers too; the closing names them, never a second yes.
+  const yesWaits = r.rule_yes && !o.draftOnly && r.need_you.length > 0 ? [{ title: r.title, needs: r.need_you }] : [];
+  return [readyLine(r, o.linked, o.now, true), ...o.rules, closingLine({ ready: 1, draftOnly: o.draftOnly, gaps: 0, firstRule: null, inPerson: 0, held: 0, yesStands, yesWaits })];
 }
 
 /** One program: its file, its fields (for the project, when given) and the verdict, said as the find line says it. */
 async function oneProgram(ctx: FindContext, id: string, project: Project | null, projectId?: string, ask?: string): Promise<ProgramReply> {
-  // v6.1.9: the id, or what the builder calls it ("yc", "Y Combinator"), when it names one program.
-  const { row, suggest } = await programByName(id);
+  // v6.1.9: the id, or what the builder calls it ("yc", "Y Combinator"), when it names one program; F4 (v6.1.12): its
+  // organizer too, and several are asked about.
+  const { row, suggest } = await programByName(id, ctx.now);
   if (!row)
     return {
-      show_to_builder: ["I don't know that program.", suggest ? `Did you mean ${suggest}?` : null].filter(Boolean).join(' '),
+      show_to_builder: unknownProgramLine(suggest),
       agent_note: 'Call find with the project for the programs it fits.', program: null, fields: [], guide: null, rules: [],
     };
+  // Final fix (v6.1.12, I2): matched by another name, the first line names the program (every line here leads with it).
+  const renamed = row.id !== id;
   id = row.id;
   const p = row.file;
   // reviewers_contact is the owner's only: never in a tool reply (security M1).
@@ -303,6 +308,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
         ? verdictText(row, verdict, () => readyOf(row, verdict, facts, ctx.now, rec, done), { linked: ctx.builderId !== null, now: ctx.now, draftOnly, rules: guideRules, signIn, done })
         : [`${p.title}, ${moneyOf(p)}${when ? `, ${when}` : ''}.`, ...rules.map(ruleSentence), ...guideRules];
   const real = verdict?.status === 'gap' ? verdict.gaps.filter((g) => g.kind !== 'rule') : [];
+  if (renamed && !show[0]?.includes(p.title)) show.unshift(`${p.title}.`);
   return {
     show_to_builder: show.join('\n'),
     agent_note: (open
@@ -473,7 +479,9 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const projectChains = [...new Set([...(project.chains ?? []).map((c) => c.chain), ...facts.chains.map((c) => c.chain)])];
   // R18e tie-break (v6.1.7): the chain the agent reported first, not the repo's first read. N-4 (v6.1.9): a program on
   // the project's own chain ranks first.
-  const gapV = rankGaps(verdicts.filter((v) => v.status === 'gap'), byId, mainnets, project.chains?.[0]?.chain, projectChains);
+  // N1 (v6.1.12): a rule-bearing program whose rule keyword the project names competes as a rule-free step.
+  const hit = (v: Verdict) => keywordHit(byId.get(v.program_id)!, facts, v.gaps);
+  const gapV = rankGaps(verdicts.filter((v) => v.status === 'gap'), byId, mainnets, project.chains?.[0]?.chain, projectChains, hit);
   // N-3 (v6.1.9): a program the builder acted on (a step marked done, or a live claim of theirs) heads its group in the
   // default list until it is applied or skipped (both leave the list).
   // L1d-1 (v6.1.11): only a claim on this project counts, by its stored project (the record id or the project key).
@@ -495,9 +503,10 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const unlikelyV = (v: Verdict) => unlikely(byId.get(v.program_id)!, facts, v.gaps);
   // Acted-on programs first, then those closing soon, then real changes and at most one rule-bearing program by default
   // (R18b): the one on the project's chains if any (R18e, fix round 3) in its rank place (L1c-3), else the first, in
-  // the last slot only (N-2). In-person programs are never in the default step list (R18d, R18f); `more` counts them.
+  // the last slot only (N-2); a keyword hit takes its own slot in rank order (N1, v6.1.12). In-person programs are
+  // never in the default step list (R18d, R18f); `more` counts them.
   const stepGaps = shownGapsOf(gapV, all, MAX_GAPS, attending, projectChains,
-    (v, chain) => byId.get(v.program_id)!.file.chains.includes(chain), pinned, { unlikely: unlikelyV, soon });
+    (v, chain) => byId.get(v.program_id)!.file.chains.includes(chain), pinned, { unlikely: unlikelyV, soon, hit });
   // O2 (v6.1.10): an in-person program that needs only a rule to confirm lists in the In person block, in the slots
   // the in-person ready ones leave (all of them with filter.all), each closing soon past the cap.
   const attendRule = (v: Verdict) => attending(v) && rulesOnly(v.gaps);
@@ -538,7 +547,7 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
     ...(problems.length > 0 ? { problems } : {}),
     ...(facts.notes && facts.notes.length > 0 ? { repo_notes: facts.notes } : {}),
     ...(side
-      ? linkedPart(side, ready.map((p) => byId.get(p.program_id)!), released, overnight, sentToday, Boolean(project.repo_url))
+      ? linkedPart(side, ready.map((p) => byId.get(p.program_id)!), released, overnight, sentToday, Boolean(project.repo_url || project.live_url))
       : { ...unlinkedPart(), blockers: blockersOf(ready.map((p) => byId.get(p.program_id)!), EMPTY_RECORD), ...(link && notice !== DELETED_NOTICE ? { sign_in: link } : {}) }),
     linked_notice: notice,
   };

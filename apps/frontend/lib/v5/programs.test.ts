@@ -1,7 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
-import { getProgram, isOpen, listListedPrograms, listOpenPrograms, upsertProgram } from './programs';
+import { getProgram, isOpen, listListedPrograms, listOpenPrograms, programByName, unknownProgramLine, upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
 
 after(() => sql().end());
@@ -82,4 +82,32 @@ test('isOpen: active and not past ends_at', () => {
   assert.equal(isOpen(p, new Date('2026-11-06T00:00:00Z')), false);
   assert.equal(isOpen({ ...p, status: 'closed' }, NOW), false);
   assert.equal(isOpen({ ...p, ends_at: null }, NOW), true);
+});
+
+test('Review Focus 3 (v6.1.12, F4): a program by its id, title or organizer, any case, spaces and punctuation ignored', async () => {
+  const one = async (name: string) => {
+    const r = await programByName(name, NOW);
+    return { id: r.row?.id ?? null, line: r.row ? null : unknownProgramLine(r.suggest) };
+  };
+  // Exactly one match resolves.
+  for (const [name, id] of [
+    ['yc', 'y-combinator'], ['YC', 'y-combinator'], ['ycombinator', 'y-combinator'], ['Y Combinator', 'y-combinator'], ['y-combinator', 'y-combinator'],
+    ['Y.Combinator', 'y-combinator'], ['Thiel Foundation', 'thiel-fellowship'], ['Circle Developer', 'circle-developer-grants'],
+    ['a16z', 'a16z-speedrun'], ['Solana Foundation', 'solana-foundation-grants'], ['monad blitz oregon', 'monad-blitz-oregon'],
+    // Final fix (v6.1.12, I2): a unique start of four characters or more; an organizer's whole name, brackets or not.
+    ['kiro', 'kiroween-2026'], ['Kiro (AWS)', 'kiroween-2026'], ['atlassian', 'codegeist-2026'], ['Ethereum Security', 'ethereum-security-subsidy-program'],
+  ] as const) assert.deepEqual(await one(name), { id, line: null }, name);
+  // Final fix (v6.1.12, I2): an organizer's first word alone is only offered, beside that organizer's other programs.
+  for (const name of ['ethereum', 'Ethereum Foundation']) assert.deepEqual(await one(name), { id: null, line: "I don't know that program. Did you mean Ethereum Security Subsidy Program?" }, name);
+  assert.deepEqual(await one('thiel'), { id: null, line: "I don't know that program. Did you mean Thiel Fellowship?" });
+  assert.deepEqual(await one('circle'), { id: null, line: "I don't know that program. Did you mean Circle Developer Grants or Arc Builders Fund?" });
+  // Under four characters, or an organizer in brackets, or part of an organizer's name: none.
+  for (const name of ['aws', 'fi', 'kir', 'zerodha']) assert.deepEqual(await one(name), { id: null, line: "I don't know that program." }, name);
+  // Several: the first two by rank (open first, then the larger award, the sooner close), as a question.
+  assert.deepEqual(await one('Base'), { id: null, line: "I don't know that program. Did you mean Base Builder Grant Program or Base Ecosystem Fund?" });
+  assert.deepEqual(await one('monad'), { id: null, line: "I don't know that program. Did you mean Monad Blitz Oregon or Monad Blitz @广州 (Guangzhou)?" });
+  assert.deepEqual(await one('Monad Blitz'), { id: null, line: "I don't know that program. Did you mean Monad Blitz Oregon or Monad Blitz @广州 (Guangzhou)?" });
+  assert.deepEqual(await one('uniswap'), { id: null, line: "I don't know that program. Did you mean Uniswap Foundation Open Grants or Uniswap Foundation Security Fund (UFSF) Audit Subsidies?" });
+  // None.
+  for (const name of ['qqq-unknown', '', '  ', '?!']) assert.deepEqual(await one(name), { id: null, line: "I don't know that program." }, name);
 });

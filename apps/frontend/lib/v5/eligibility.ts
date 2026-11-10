@@ -198,9 +198,18 @@ export const names = (text: string, phrase: string): boolean =>
  * licence rule), or whose keyword rules are all confirmed, is never unlikely. Pure.
  */
 export function unlikely(program: ProgramRow, facts: RepoFacts, gaps: Gap[]): boolean {
+  return keywordsNamed(program, facts, gaps) === false;
+}
+
+/** N1 (v6.1.12): a rule still to confirm carries keywords and the project names one of the program's keywords: the
+ *  rule is likely the project's, so the program competes for a slot like a rule-free one (rank.ts). Pure. */
+export const keywordHit = (program: ProgramRow, facts: RepoFacts, gaps: Gap[]): boolean => keywordsNamed(program, facts, gaps) === true;
+
+/** null when no rule still to confirm carries keywords; else whether the project names one of the program's keywords. Pure. */
+function keywordsNamed(program: ProgramRow, facts: RepoFacts, gaps: Gap[]): boolean | null {
   const pending = new Set(gaps.filter((g) => g.kind === 'rule').map((g) => g.item));
   const items = eligibilityOf(program.file).filter((i) => i.kind === 'rule');
-  if (!items.some((i) => (i.keywords?.length ?? 0) > 0 && pending.has(itemKey(i)))) return false;
+  if (!items.some((i) => (i.keywords?.length ?? 0) > 0 && pending.has(itemKey(i)))) return null;
   const text = projectWords(facts);
-  return !items.flatMap((i) => i.keywords ?? []).some((k) => names(text, k));
+  return items.flatMap((i) => i.keywords ?? []).some((k) => names(text, k));
 }

@@ -9,6 +9,9 @@ import { isKnownChain } from '../v5/chains';
 import { dropControls } from '../v5/controls';
 import { ANSWER_KINDS, PROGRAM_CATEGORIES, type AnswerKind, type FieldKind } from '../v5/program-file';
 
+/** Each value once, in first order (F10, v6.1.12): the one de-duplication /me and the record tool share. Pure. */
+export const onceEach = <T>(xs: readonly T[]): T[] => [...new Set(xs)];
+
 /** Newlines and tabs are fine in prose; other control characters are not. */
 const CONTROL_PROSE = /[\u0000-\u0008\u000b-\u001f\u007f]/;
 /**
@@ -55,7 +58,8 @@ const Project = z.object({
   name: line(80).optional(), one_liner: line(140).optional(), description: prose(600).optional(), goals: prose(600).optional(),
   repo_url: githubRepo.nullable().optional(), live_url: https.optional(), demo_url: https.optional(), category: line(40).optional(),
   // The bad one is named (v6.1.8 C53).
-  chains_claimed: z.array(line(40).refine(isKnownChain, { error: (i) => `not a known chain: ${String(i.input)}` })).max(20).optional(),
+  // Each chain saved once, in first order, on every write path (F10, v6.1.12; final fix: the record tool too).
+  chains_claimed: z.array(line(40).refine(isKnownChain, { error: (i) => `not a known chain: ${String(i.input)}` })).max(20).transform(onceEach).optional(),
   answers: Answers.prefault({}),
   /** EarnKit only (find): when the evidence was last read, the tier then and its verified usage line. */
   evidence_read_at: iso.optional(),

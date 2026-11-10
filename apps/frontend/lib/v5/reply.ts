@@ -58,6 +58,9 @@ const dollars = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
 /** "a, b and c". Pure. */
 const joinAnd = (xs: string[]): string => (xs.length <= 1 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
 
+/** At most NEEDS_SHOWN needs, then "{n} more" (fix round 1, v6.1.12): the ready line and the N3 closing. Pure. */
+const capped = (needs: string[]): string[] => (needs.length > NEEDS_SHOWN ? [...needs.slice(0, NEEDS_SHOWN), `${needs.length - NEEDS_SHOWN} more`] : needs);
+
 /** A to-do as it reads after "Needs your": "your email" and "a Loom product demo" lose their first word. */
 const bare = (todo: string) => todo.replace(/^(your|a|an|the)\s+/i, '');
 
@@ -66,29 +69,40 @@ const bare = (todo: string) => todo.replace(/^(your|a|an|the)\s+/i, '');
  * the agent's part only when it drafts some (F2, v6.1.10: a told fact is its draft, never "need you"); null when the
  * record, the repo and the builder give none. Pure.
  */
-function recordDrafted(p: ReadyProgram): string | null {
+function recordDrafted(p: ReadyProgram, named: Named): string | null {
   const k = p.need_you.length;
   if (p.from_record + p.repo_required + k === 0) return null;
   const a = Math.max(p.total - p.from_record - p.repo_required - k, 0);
   const head = `${p.from_record} from your record, ${p.repo_required} from the repo${a > 0 ? `, ${a} by your agent` : ''}`;
-  return k > 0 ? `${head}, ${k} ${k === 1 ? 'needs' : 'need'} you: ${listWords(p.need_you)}.` : `${head}.`;
+  // F5 (v6.1.12): an answer another block of the reply already names is not named again here.
+  const own = p.need_you.filter((x) => !named(x));
+  return own.length > 0 ? `${head}, ${own.length} ${own.length === 1 ? 'needs' : 'need'} you: ${listWords(own)}.` : `${head}.`;
 }
+
+/** Whether another block of the reply already names a need (F5, v6.1.12: the missing email in the Before block). */
+type Named = (need: string) => boolean;
+/** The builder's own email as a need ("your email"), as the record names it missing (lib/v6/record.ts). */
+const EMAIL_NEED = /^(your |the )?email( address)?$/i;
+/** F5 (v6.1.12): the Before block names the missing email ("Still missing for these programs: your email"), so the
+ *  reply's other blocks do not. Pure. */
+export const namedBefore = (r: Pick<R, 'record_missing'>): Named =>
+  r.record_missing.some((m) => EMAIL_NEED.test(m)) ? (need) => EMAIL_NEED.test(need) : () => false;
 
 /** "3. " before a list line; nothing on the one-program reply (`alone`, v6.1.8 1b), which shows the line alone. Pure. */
 const num = (n: number, alone: boolean) => (alone ? '' : `${n}. `);
 
 /** A ready program's line; `alone` leaves out the list number (the one-program reply). Pure. */
-export function readyLine(p: ReadyProgram, linked: boolean, now: Date, alone = false): string {
+export function readyLine(p: ReadyProgram, linked: boolean, now: Date, alone = false, named: Named = () => false): string {
   let head = `${num(p.n, alone)}${p.title}, ${p.money}`;
   if (p.closes_in) head += `, closes ${p.closes_in}`;
   // The long odds are their own sentence after the head, never a label on the money.
   if (p.long_shot) head += `. Long odds: ${p.long_shot}`;
-  const fromRecord = linked ? recordDrafted(p) : null;
+  const fromRecord = linked ? recordDrafted(p, named) : null;
   // Setup items are steps ("sign in to ..."), the rest are things ("a Loom demo"): each reads its own way.
   const steps = p.needs.filter((x) => p.setup.includes(x));
   // Linked, the k that need the builder are already named.
   const needs = fromRecord ? [] : p.needs.filter((x) => !p.setup.includes(x)).map(bare);
-  const shown = needs.length > NEEDS_SHOWN ? [...needs.slice(0, NEEDS_SHOWN), `${needs.length - NEEDS_SHOWN} more`] : needs;
+  const shown = capped(needs);
   const first = steps.length > 0 ? ` First: ${steps.join('; ')}.` : '';
   // Another agent of the builder's holds it: still numbered, so the builder can name it, but not in the yes count.
   const held = p.claimed_since ? ` Being handled by your other agent since ${clock(p.claimed_since, now)}.` : '';
@@ -146,7 +160,7 @@ export function inPersonLine(p: ReadyProgram, alone = false): string {
     return `${head} Needs ${joinAnd(shown)}.`;
   }
   const needs = own.map(bare);
-  const shown = needs.length > NEEDS_SHOWN ? [...needs.slice(0, NEEDS_SHOWN), `${needs.length - NEEDS_SHOWN} more`] : needs;
+  const shown = capped(needs);
   const needsYour = shown.length > 0 ? ` Needs your ${joinAnd(shown)}.` : '';
   return `${head}${attendSentence(p.setup)}${needsYour}`;
 }
@@ -311,21 +325,34 @@ function beforeTonight(r: R, tonight: number): string | null {
   return `Before applying: ${parts.join(' ')}`;
 }
 
+/** N3 (v6.1.12): a program the builder said yes to (a rule or the users question) that still needs these answers. */
+export type YesWait = { title: string; needs: string[] };
+
 /** The step the closing offers (M1, v6.1.9): the users question, or what to make. */
-export type FirstStep = { users: true } | { users: false; what: string; started?: true };
+export type FirstStep = { users: true; more?: true } | { users: false; what: string; started?: true };
 
 /**
  * The first shown gap program's step the builder takes, for the closing when nothing is ready and no rule-only program
- * is shown (M1, v6.1.9): the users question when it is the program's whole step; else its first real change. A program
+ * is shown (M1, v6.1.9): the users question when it is the program's only change (`more` when a setup step or a rule is left
+ * beside it, so the yes is no send yet); else its first real change. A program
  * EarnKit makes ("do n" on its line), or whose step is its own sentence (sign in, add the project, the proof being
  * read), already says its action, so the next program is looked at. Null when none has such a step. Pure.
  */
 export function firstStepOf(gaps: GapProgram[]): FirstStep | null {
-  for (const g of gaps) {
-    if (g.in_person || ruleOnlyGap(g)) continue;
-    const real = [g.gap, ...g.also].filter((x) => x.kind !== 'rule');
+  const shown = gaps.filter((g) => !g.in_person && !ruleOnlyGap(g));
+  const steps = shown.map((g) => [g.gap, ...g.also].filter((x) => x.kind !== 'rule'));
+  // Fix round 1 (v6.1.12): the cheapest step shown closes the reply: a question (the users question, the started
+  // question) before any change, whatever the line order.
+  for (const [i, real] of steps.entries()) {
+    // Final fix (v6.1.12, I1): the yes makes the program ready only with no setup step and no rule left beside it.
+    const g = shown[i];
+    const more = g.setup.length > 0 || [g.gap, ...g.also].some((x) => x.kind === 'rule');
+    if (real.length > 0 && real.every(usersQuestion)) return more ? { users: true, more: true } : { users: true };
+    const asked = real.length > 0 && real.every(startedQuestion) ? real[0] : null;
+    if (asked) return { users: false, what: asked.what, started: true };
+  }
+  for (const real of steps) {
     if (canDo(real)) continue;
-    if (real.length > 0 && real.every(usersQuestion)) return { users: true };
     const x = real.find((y) => !ownSentenceGap(y) && !usersQuestion(y));
     if (x) return { users: false, what: x.what, ...(startedQuestion(x) ? { started: true as const } : {}) };
   }
@@ -346,12 +373,18 @@ export const IN_PERSON_CLOSING = 'Nothing remote is ready yet. Say yes and I sta
  * programs listed, IN_PERSON_CLOSING (O2, fix round 1). The gap lines carry their own "do n" and "yes n".
  * `inPerson`: the in-person programs listed, ready or rule-only. Pure.
  */
-export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number; firstRule: number | null; inPerson: number; held: number; firstStep?: FirstStep | null; yesStands?: string[]; stepRule?: number | null }): string {
+export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number; firstRule: number | null; inPerson: number; held: number; firstStep?: FirstStep | null; yesStands?: string[]; yesWaits?: YesWait[]; stepRule?: number | null }): string {
   // v6.1.9: the builder's yes to a rule already stands for the program it made ready: no second yes is asked for it.
+  // N3 (v6.1.12): nor for one that still needs answers: the closing names them instead.
   const stands = o.yesStands ?? [];
-  if (stands.length > 0) {
-    const head = `Your yes stands for ${listWords(stands, stands.length)}: I apply now.`;
-    return o.ready > stands.length ? `${head} ${closingLine({ ...o, ready: o.ready - stands.length, yesStands: [] })}` : head;
+  const waits = o.yesWaits ?? [];
+  if (stands.length > 0 || waits.length > 0) {
+    const said = [
+      ...(stands.length > 0 ? [`Your yes stands for ${listWords(stands, stands.length)}: I apply now.`] : []),
+      ...waits.map((w) => `${w.title} needs your ${joinAnd(capped(w.needs.map(bare)))}; then I apply.`),
+    ].join(' ');
+    const left = o.ready - stands.length - waits.length;
+    return left > 0 ? `${said} ${closingLine({ ...o, ready: left, yesStands: [], yesWaits: [] })}` : said;
   }
   const { ready, draftOnly } = o;
   if (ready === 1) return draftOnly ? 'Say yes and I draft it for you to send.' : 'Say yes and I apply.';
@@ -363,7 +396,7 @@ export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number
     // I2 (v6.1.9 final): the only step program shown carries a rule beside its change: the rule is asked first.
     if (o.stepRule != null) return `Nothing is ready yet. Say "yes ${o.stepRule}" if its rule fits you.`;
     const step = o.firstStep ?? null;
-    if (step?.users) return 'Nothing is ready yet. Do real people use it? Say yes and I apply.';
+    if (step?.users) return `Nothing is ready yet. Do real people use it? Say yes and ${step.more ? 'I look again' : 'I apply'}.`;
     // I3 (v6.1.9 final): "First:" reads as a sentence for a noun or a verb phrase.
     // O3 (v6.1.10): the started question is asked as one.
     if (step && !step.users && step.started) return 'Nothing is ready yet. First: tell me when you started this, and I look again.';
@@ -390,9 +423,11 @@ const agentCanApply = (r: Pick<R, 'ready' | 'blockers'>): ReadyProgram[] => send
  *  sendable programs that wait on a required answer, grouped by the same answers; null when none waits. Pure. */
 function waitingLine(r: R): string | null {
   if (!r.auto_apply) return null;
+  const named = namedBefore(r);
   const groups = new Map<string, string[]>();
   for (const p of sendable(r)) {
-    const answers = emptyAnswers(p);
+    // F5 (v6.1.12): the email the Before block names is not named again.
+    const answers = emptyAnswers(p).filter((x) => !named(x));
     if (answers.length === 0) continue;
     const words = `your ${listWords(answers.map(bare))}`;
     groups.set(words, [...(groups.get(words) ?? []), p.title]);
@@ -426,6 +461,17 @@ export const REPO_NOTE: Record<RepoNote, string> = {
   no_builder_codes: 'The repo does not send Builder Codes yet.',
 };
 
+/** F9 (v6.1.12): the empty repo and the missing Builder Codes, when both apply, as one sentence. */
+export const EMPTY_NO_CODES = 'The repo is empty and does not send Builder Codes yet, so I matched on what you told me.';
+/** The read's notes as the builder reads them, each once, the empty-repo and Builder Codes pair merged (F9). Pure. */
+export function repoNoteText(notes: RepoNote[]): string {
+  const both = notes.includes('empty') && notes.includes('no_builder_codes');
+  return notes
+    .filter((n) => !(both && n === 'no_builder_codes'))
+    .map((n) => (both && n === 'empty' ? EMPTY_NO_CODES : REPO_NOTE[n]))
+    .join(' ');
+}
+
 /** What the builder sees. The since line never shows on the first find; `now` reads the claim times. */
 export function replyText(r: R, first: boolean, now: Date = new Date()): string {
   const blocks: string[] = [];
@@ -444,7 +490,8 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   // A held ready program closes with the held line (I1), which names no rule.
   const ruleInClosing = ready.length === 0 ? firstRule : null;
   // The headlines count with parentheses (C56, 3.21); "step" covers a change and a rule to confirm.
-  if (ready.length > 0) blocks.push([`Ready to apply (${ready.length}):`, ...ready.map((p) => readyLine(p, r.linked, now))].join('\n'));
+  const named = namedBefore(r);
+  if (ready.length > 0) blocks.push([`Ready to apply (${ready.length}):`, ...ready.map((p) => readyLine(p, r.linked, now, false, named))].join('\n'));
   if (steps.length > 0) blocks.push([`One step away (${steps.length}):`, ...steps.map((g) => gapLine(g, ruleInClosing))].join('\n'));
   if (attendCount > 0) blocks.push([`In person (${attendCount}):`, ...inPerson.map((p) => inPersonLine(p)), ...attendRules.map((g) => gapLine(g))].join('\n'));
   const l = r.ledger;
@@ -465,10 +512,12 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   if (r.evidence_summary) blocks.push(r.evidence_summary.line);
   // What the read was, once each, just before the closing (money first stays first).
   const notes = [...new Set(r.repo_notes ?? [])];
-  if (notes.length > 0) blocks.push(notes.map((n) => REPO_NOTE[n]).join(' '));
+  if (notes.length > 0) blocks.push(repoNoteText(notes));
   // C44: the builder presses submit on every ready one (their policy, or each program's own), so the agent drafts.
   const click = new Set(r.blockers.filter((b) => b.needs_click).map((b) => b.program_id));
   const draftOnly = free.length > 0 && free.every((p) => click.has(p.program_id));
+  // The builder's yes stands for these (a rule or the users question): never asked again.
+  const yesd = free.filter((p) => p.rule_yes && !click.has(p.program_id) && !r.blockers.some((b) => b.program_id === p.program_id && b.sign_in));
   const closing =
     tonight > 0
       ? `Applying tonight to ${listWords(tonightList.map((p) => p.title), tonight)}. Say stop to hold any.`
@@ -478,7 +527,12 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
           closingLine({
             ready: free.length, draftOnly, gaps: steps.length, firstRule, inPerson: attendCount, held: ready.length - free.length, firstStep: firstStepOf(steps), stepRule: stepRuleOf(steps),
             // Fix round 1 (v6.1.10): only for a program fully ready, every required answer held (nothing in need you).
-            yesStands: free.filter((p) => p.rule_yes && p.need_you.length === 0 && !click.has(p.program_id) && !r.blockers.some((b) => b.program_id === p.program_id && b.sign_in)).map((p) => p.title),
+            yesStands: yesd.filter((p) => p.need_you.length === 0).map((p) => p.title),
+            // N3 (v6.1.12): one that still needs answers names them (the email once, F5), never a second yes.
+            yesWaits: yesd.filter((p) => p.need_you.length > 0).map((p) => {
+              const own = p.need_you.filter((x) => !named(x));
+              return { title: p.title, needs: own.length > 0 ? own : p.need_you };
+            }),
           }),
         ].join(' ');
   // R5a: saying yes is the one action; unlinked with a link, signing in is the closing block's second sentence.

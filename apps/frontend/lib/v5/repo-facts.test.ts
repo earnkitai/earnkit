@@ -398,3 +398,29 @@ test('L1c-4 (v6.1.10): an empty repo (its tree read fails) is cached like any ot
   const left = await hit(`repoRead:${id}`, LIMITS.repoRead.limit, LIMITS.repoRead.windowSeconds, NOW);
   assert.equal(left.remaining, LIMITS.repoRead.limit - 2);
 });
+
+test('F7 (v6.1.12): after a code step the unpushed repo is checked once; the row keeps the check time and is trusted until a push', async () => {
+  const rec = replayFetch('nextjs-dashboard');
+  const p = project({ repo_url: `https://github.com/${rec.repo}` });
+  await repoFacts(p, { gh: rec.fetch, now: NOW });
+  const step = new Date(NOW.getTime() + 5 * 60_000);
+  const at = (min: number) => new Date(NOW.getTime() + min * 60_000);
+  const before = rec.calls.length;
+  await repoFacts(p, { gh: rec.fetch, now: at(6), staleAfter: step });
+  assert.equal(rec.calls.length, before + 1, 'one check of the repo object');
+  const [row] = await sql()<{ checked: string; fetched_at: Date }[]>`SELECT facts->>'checked_at' AS checked, fetched_at FROM repo_cache`;
+  assert.equal(row.checked, at(6).toISOString());
+  assert.equal(row.fetched_at.toISOString(), NOW.toISOString());
+  for (const min of [7, 8, 9]) await repoFacts(p, { gh: rec.fetch, now: at(min), staleAfter: step });
+  assert.equal(rec.calls.length, before + 1, 'no call while unpushed');
+  // A later code step checks again, once.
+  await repoFacts(p, { gh: rec.fetch, now: at(11), staleAfter: at(10) });
+  await repoFacts(p, { gh: rec.fetch, now: at(12), staleAfter: at(10) });
+  assert.equal(rec.calls.length, before + 2);
+  // A push re-reads everything, and the new row has no check time.
+  const pushed = replayFetch('nextjs-dashboard', (u, b) => (u.endsWith(`/repos/${rec.repo.toLowerCase()}`) ? b.replace(/"pushed_at":\s*"[^"]*"/, '"pushed_at":"2026-11-05T00:00:00Z"') : b));
+  await repoFacts(p, { gh: pushed.fetch, now: at(21), staleAfter: at(20) });
+  assert.ok(pushed.calls.length > 1);
+  const [fresh] = await sql()<{ checked: string | null; fetched_at: Date }[]>`SELECT facts->>'checked_at' AS checked, fetched_at FROM repo_cache`;
+  assert.deepEqual([fresh.checked, fresh.fetched_at.toISOString()], [null, at(21).toISOString()]);
+});
