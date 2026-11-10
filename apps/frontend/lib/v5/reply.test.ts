@@ -1013,15 +1013,33 @@ test('L1f-1, L1f-3 (v6.1.14): the public repo and archive gaps read as gaps, the
   const end = (r: R) => replyText(r, true).split('\n').at(-1);
   const PUBLIC = { kind: 'repo' as const, item: 'repo:public', what: 'a public repo', setup: 'make the repo public', effort: 'minutes' as const, agent_can: false };
   const ARCHIVED = { kind: 'repo' as const, item: 'repo:archived', what: 'the repo is archived', setup: 'tell me the live repo', effort: 'minutes' as const, agent_can: false };
-  const SETUP = ['make the repo public', 'publish a funding manifest on your site or repo'];
-  const floss = gap({ title: 'FLOSS/fund', gap: PUBLIC, setup: SETUP, n: 1 });
+  const MANIFEST = 'publish a funding manifest on your site or repo';
+  const floss = gap({ title: 'FLOSS/fund', gap: PUBLIC, setup: [MANIFEST], n: 1 });
+  const RULE = { kind: 'rule' as const, item: 'rule:abcd1234', what: 'an OSI-approved open source license', effort: 'hours' as const, agent_can: false };
+  const hero = gap({ title: 'HeroDevs', gap: PUBLIC, also: [RULE], rules: [RULE.what], n: 2 });
+  // The one-program line (no closing step) and a line the closing does not name keep the gap's step after "First:".
   assert.equal(gapLine(floss), '1. FLOSS/fund, $1K: a public repo. First: make the repo public; publish a funding manifest on your site or repo.');
-  assert.equal(end(base({ gaps: [floss] })), 'Nothing is ready yet. First: make the repo public. Tell me when it is done and I look again.');
-  assert.doesNotMatch(replyText(base({ gaps: [floss] }), true), /Say yes and I apply/);
+  assert.equal(gapLine(floss, true), 'FLOSS/fund, $1K: a public repo. First: make the repo public; publish a funding manifest on your site or repo.');
+  // Fix round 1 (I1): the closing names the step, so the lines leave it out: said once.
+  const both = replyText(base({ gaps: [floss, hero] }), true);
+  assert.equal(both, [
+    'One step away (2):',
+    '1. FLOSS/fund, $1K: a public repo. First: publish a funding manifest on your site or repo.',
+    '2. HeroDevs, $1K: a public repo. Their rule: an OSI-approved open source license.',
+    '',
+    'Nothing is ready yet. First: make the repo public. Tell me when it is done and I look again.',
+  ].join('\n'));
+  assert.equal(both.match(/make the repo public/g)?.length, 1);
+  assert.doesNotMatch(both, /Say yes and I apply/);
   assert.equal(gapAction(floss), 'Tell me when the repo is public and I look again.');
-  const atom = gap({ title: 'FLOSS/fund', gap: ARCHIVED, setup: ['tell me the live repo', 'publish a funding manifest on your site or repo'], n: 1 });
-  assert.equal(gapLine(atom), '1. FLOSS/fund, $1K: the repo is archived. First: tell me the live repo; publish a funding manifest on your site or repo.');
+  const atom = gap({ title: 'FLOSS/fund', gap: ARCHIVED, setup: [MANIFEST], n: 1 });
+  assert.equal(gapLine(atom, true), 'FLOSS/fund, $1K: the repo is archived. First: tell me the live repo; publish a funding manifest on your site or repo.');
+  const archived = replyText(base({ gaps: [atom] }), true);
+  assert.equal(archived, ['One step away (1):', '1. FLOSS/fund, $1K: the repo is archived. First: publish a funding manifest on your site or repo.', '', 'Nothing is ready yet. First: tell me the live repo, and I look again.'].join('\n'));
   assert.equal(end(base({ gaps: [atom] })), 'Nothing is ready yet. First: tell me the live repo, and I look again.');
-  assert.equal(gapAction({ ...atom, setup: ['tell me the live repo'] }), 'Tell me the live repo and I look again.');
+  assert.equal(gapAction({ ...atom, setup: [] }), 'Tell me the live repo and I look again.');
+  // M3: the code closing is picked by the gap's kind.
+  assert.equal(firstStepOf([gap({ title: 'FUTO', gap: { kind: 'repo', item: 'repo', what: 'any words', effort: 'days', agent_can: false } })])?.users === false, true);
+  assert.equal(end(base({ gaps: [gap({ title: 'FUTO', gap: { kind: 'repo', item: 'repo', what: 'any words', effort: 'days', agent_can: false }, n: 1 })] })), 'Nothing is ready yet. Tell me when the code is in a repo and I look again.');
   assert.match(agentNote(base({ gaps: [floss, atom] }), { more: 0 }), /pass private: false[^\n]*live repo_url/);
 });

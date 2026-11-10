@@ -298,8 +298,7 @@ const gapOf = (row: ProgramRow, v: Verdict, done: Set<string> = new Set(), now?:
   return {
     program_id: row.id, title: row.file.title, money: moneyOf(row.file), max_award_usd: row.file.max_award_usd ?? null,
     category: categoryOf(row.file), closes_at: row.file.ends_at, gap: v.gaps[0], also: v.gaps.slice(1), rules: v.rules,
-    // v6.1.14 (L1f-1, L1f-3): a gap's own step (make the repo public, tell me the live repo) comes first after "First:".
-    in_person: row.file.in_person, setup: [...v.gaps.flatMap((g) => (g.setup ? [g.setup] : [])), ...row.file.setup], ...(again.length > 0 ? { looked_again: again } : {}),
+    in_person: row.file.in_person, setup: row.file.setup, ...(again.length > 0 ? { looked_again: again } : {}),
     ...(left ? { closes_in: left } : {}),
     ...(hit ? { keyword_hit: true as const } : {}),
   };

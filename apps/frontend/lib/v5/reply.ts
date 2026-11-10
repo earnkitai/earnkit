@@ -265,13 +265,17 @@ export const lookedAgainSentences = (g: Pick<GapProgram, 'looked_again'>): strin
  * come as "First: ..." before the rules (L1d-2). `alone` (the one-program reply,
  * v6.1.8 1b): no number and no "do n", since `gapAction` gives the action on its own line.
  */
-export function gapLine(g: GapProgram, alone = false): string {
+export function gapLine(g: GapProgram, alone = false, closed: string | null = null): string {
   const all = [g.gap, ...g.also];
   const rules = ruleSentences(all.filter((x) => x.kind === 'rule').map((x) => x.what));
-  const attend = g.in_person ? attendSentence(g.setup) : '';
+  // v6.1.14 (L1f-1, L1f-3): a gap's own step (make the repo public, tell me the live repo) leads the setup steps;
+  // fix round 1 (I1): the step the closing names (`closed`) is said there only.
+  const own = all.flatMap((x) => (x.setup ? [x.setup] : []));
+  const setup = [...own.filter((x) => x !== closed), ...g.setup];
+  const attend = g.in_person ? attendSentence([...own, ...g.setup]) : '';
   // L1d-2 (v6.1.11): the setup steps (an account, a sprint) after the gaps and before the rules, as on a ready line;
   // in person, the attend sentence already says them.
-  const first = !g.in_person && g.setup.length > 0 ? ` First: ${g.setup.join('; ')}.` : '';
+  const first = !g.in_person && setup.length > 0 ? ` First: ${setup.join('; ')}.` : '';
   // O1 (v6.1.10): a program closing within 7 days says so after the money.
   const money = `${g.money}${g.closes_in ? `, closes ${g.closes_in}` : ''}`;
   if (ruleOnlyGap(g)) return `${num(g.n, alone)}${g.title}, ${money}.${first}${rules}${attend}`;
@@ -374,7 +378,7 @@ function beforeTonight(r: R, tonight: number): string | null {
 export type YesWait = { title: string; needs: string[]; draft?: true };
 
 /** The step the closing offers (M1, v6.1.9): the users question, or what to make. */
-export type FirstStep = { users: true; more?: true } | { users: false; what: string; started?: true };
+export type FirstStep = { users: true; more?: true } | { users: false; what: string; started?: true; code?: true; setup?: true };
 
 /**
  * The first shown gap program's step the builder takes, for the closing when nothing is ready and no rule-only program
@@ -400,7 +404,12 @@ export function firstStepOf(gaps: GapProgram[]): FirstStep | null {
     if (canDo(real)) continue;
     const x = real.find((y) => !ownSentenceGap(y) && !usersQuestion(y));
     // v6.1.14 (L1f-1, L1f-3): a gap with its own step (make the repo public) closes on that step.
-    if (x) return { users: false, what: x.setup ?? x.what, ...(startedQuestion(x) ? { started: true as const } : {}) };
+    // Fix round 1 (M3): code in a repo is flagged by its kind; a gap's own step (I1) is flagged so the lines leave it out.
+    if (x)
+      return {
+        users: false, what: x.setup ?? x.what,
+        ...(startedQuestion(x) ? { started: true as const } : {}), ...(needsCode(x) ? { code: true as const } : {}), ...(x.setup ? { setup: true as const } : {}),
+      };
   }
   return null;
 }
@@ -412,6 +421,13 @@ export const stepRuleOf = (gaps: GapProgram[]): number | null =>
   ![gaps[0].gap, ...gaps[0].also].filter((x) => x.kind !== 'rule').every(needsCode)
     ? gaps[0].n
     : null;
+
+/** Fix round 1 (v6.1.14, I1): the gap's own step the closing names (closingLine's first-step branch), or null. Pure. */
+export function closingSetup(o: { ready: number; held: number; gaps: number; firstRule: number | null; stepRule?: number | null; firstStep?: FirstStep | null }): string | null {
+  const step = o.firstStep;
+  if (!step || step.users || !step.setup) return null;
+  return o.ready === 0 && o.held === 0 && o.gaps > 0 && o.firstRule === null && o.stepRule == null ? step.what : null;
+}
 
 /** The closing when nothing fits (v6.1.14): EarnKit never writes first, so the builder asks again. */
 export const NOTHING_FITS = 'Nothing fits yet. Ask again any time and I show what is new.';
@@ -457,7 +473,7 @@ export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number
     // I3 (v6.1.9 final): "First:" reads as a sentence for a noun or a verb phrase.
     // O3 (v6.1.10): the started question is asked as one.
     if (step && !step.users && step.started) return 'Nothing is ready yet. First: tell me when you started this, and I look again.';
-    if (step && step.what === 'code in a repo') return `Nothing is ready yet. ${CODE_CLOSING}`;
+    if (step && step.code) return `Nothing is ready yet. ${CODE_CLOSING}`;
     if (step && telling(step.what)) return `Nothing is ready yet. First: ${step.what}, and I look again.`;
     if (step) return `Nothing is ready yet. First: ${step.what}. Tell me when it is done and I look again.`;
     // A reply that lists in-person programs never ends on the bare line (O2, v6.1.10).
@@ -576,7 +592,11 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   // Review Focus 1 (v6.1.14): a program whose needs the closing names reads them there only (not on tonight's send).
   const namedInClosing = new Set(tonight > 0 ? [] : waits.map((p) => p.program_id));
   if (ready.length > 0) blocks.push([`Ready to apply (${ready.length}):`, ...ready.map((p) => readyLine(p, r.linked, now, false, named, namedInClosing.has(p.program_id)))].join('\n'));
-  if (steps.length > 0) blocks.push([`One step away (${steps.length}):`, ...steps.map((g) => gapLine(g))].join('\n'));
+  // Fix round 1 (v6.1.14, I1): a gap's own step the closing names is left off the lines.
+  const firstStep = firstStepOf(steps);
+  const stepRule = stepRuleOf(steps);
+  const closed = tonight > 0 ? null : closingSetup({ ready: free.length, held: ready.length - free.length + heldInPerson, gaps: steps.length, firstRule, stepRule, firstStep });
+  if (steps.length > 0) blocks.push([`One step away (${steps.length}):`, ...steps.map((g) => gapLine(g, false, closed))].join('\n'));
   if (attendCount > 0) blocks.push([`In person (${attendCount}):`, ...inPerson.map((p) => inPersonLine(p, false, now)), ...attendRules.map((g) => gapLine(g))].join('\n'));
   const l = r.ledger;
   if (l.applied > 0) {
@@ -605,7 +625,7 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
           ...(limitUsed ? [LIMIT_USED] : []),
           closingLine({
             // Fix round 1 (I2): an in-person program held for another project is listed, never a yes.
-            ready: free.length, draftOnly, gaps: steps.length, firstRule, inPerson: attendCount - heldInPerson, held: ready.length - free.length + heldInPerson, firstStep: firstStepOf(steps), stepRule: stepRuleOf(steps),
+            ready: free.length, draftOnly, gaps: steps.length, firstRule, inPerson: attendCount - heldInPerson, held: ready.length - free.length + heldInPerson, firstStep, stepRule,
             yesStands: stands.filter((p) => !click.has(p.program_id)).map((p) => p.title),
             draftStands: stands.filter((p) => click.has(p.program_id)).map((p) => p.title),
             // N3 (v6.1.12): one that still needs answers names them (the email once, F5), never a second yes.

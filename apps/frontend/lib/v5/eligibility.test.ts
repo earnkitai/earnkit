@@ -499,3 +499,26 @@ test('L1f-3 (v6.1.14): an archived repo is never asked the users question: its o
   const live = evaluate(fromFile('floss-fund-zerodha'), { ...facts, notes: [] }, new Set(), NOW);
   assert.deepEqual(live.gaps.map((g) => g.item), ['users']);
 });
+
+test('M1 (v6.1.14 fix round 1): a repo the read finds private is private, never gone: FLOSS/fund is never ready for it, fresh or cached', async () => {
+  const floss = fromFile('floss-fund-zerodha');
+  const turned = (slug: string) => replayFetch(slug, (u, b) => (/api\.github\.com\/repos\/[^/]+\/[^/]+$/.test(u) ? b.replace('"private":false', '"private":true') : b));
+  const pp = (repo: string) => {
+    const r = parseProject({ name: 'App', description: 'An app.', repo_url: `https://github.com/${repo}`, users: true, live_url: 'https://app.example' });
+    assert.ok(r.ok);
+    return r.project;
+  };
+  // A fresh read.
+  const fresh = turned('nextjs-dashboard');
+  const f = await repoFacts(pp(fresh.repo), { gh: fresh.fetch, now: NOW });
+  assert.deepEqual([f.private, f.notes], [true, ['private']]);
+  assert.deepEqual(evaluate(floss, f, new Set(), NOW).gaps.map((g) => g.item), ['repo:public']);
+  // A cached public row the re-check (two hours on) finds private.
+  await sql()`DELETE FROM repo_cache`;
+  const pub = replayFetch('nextjs-dashboard');
+  assert.equal(evaluate(floss, await repoFacts(pp(pub.repo), { gh: pub.fetch, now: NOW }), new Set(), NOW).status, 'ready');
+  const later = new Date(NOW.getTime() + 2 * 3_600_000);
+  const c = await repoFacts(pp(pub.repo), { gh: turned('nextjs-dashboard').fetch, now: later });
+  assert.deepEqual([c.private, c.notes], [true, ['private']]);
+  assert.notEqual(evaluate(floss, c, new Set(), later).status, 'ready');
+});

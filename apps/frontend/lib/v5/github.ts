@@ -19,6 +19,14 @@ export class GitHubError extends Error {
   }
 }
 
+/** M1 (v6.1.14 fix round 1): the read found the repo private (a 404 to every caller, but private, never gone). */
+export class RepoPrivateError extends GitHubError {
+  constructor() {
+    super('GitHub: repo is private', 404);
+    this.name = 'RepoPrivateError';
+  }
+}
+
 export type Repo = {
   full_name: string;
   html_url: string;
@@ -140,7 +148,7 @@ export async function readRepo(fullName: string, o: { token?: string; fetch?: Fe
   const f = o.fetch ?? fetch;
   const token = o.token ?? process.env.GITHUB_TOKEN;
   const repo = await readRepoObject(fullName, token, f);
-  if (repo.private) throw new GitHubError('GitHub: repo is private', 404);
+  if (repo.private) throw new RepoPrivateError();
   let partial = false;
   const [tree, first] = await Promise.all([
     gh<{ tree: TreeEntry[] }>(`/repos/${fullName}/git/trees/${encodeURIComponent(repo.default_branch)}?recursive=1`, token, f).then(
