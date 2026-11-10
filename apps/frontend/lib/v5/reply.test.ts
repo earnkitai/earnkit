@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { agentNote, attendRuleGap, gapAction, gapLine, notFitLine, numbered, replyText, stepRuleOf } from './reply';
+import { agentNote, attendRuleGap, gapAction, gapLine, notFitLine, numbered, replyText, firstStepOf, stepRuleOf } from './reply';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
 import type { Ledger } from './ledger';
 
@@ -783,20 +783,20 @@ test('L1d-2 (v6.1.11): an in-person gap line keeps its one attend sentence, neve
 test('N3 (v6.1.12, Review Focus 2): after a rule yes or a users yes on a program that still needs answers, the closing names them and never asks for yes again', () => {
   const sol = ready({ title: 'Solana Foundation Grants', rule_yes: true, need_you: ['your website link', 'the requested amount'], needs: ['your website link', 'the requested amount'] });
   const end = (r: R) => replyText(r, true).split('\n\n').at(-1)!;
-  assert.equal(end(base({ ready: [sol] })), 'Solana Foundation Grants is yours once I have your website link and requested amount.');
+  assert.equal(end(base({ ready: [sol] })), 'Solana Foundation Grants needs your website link and requested amount; then I apply.');
   // Three needs read "a, b and c".
   const three = ready({ title: 'FLOSS/fund', rule_yes: true, need_you: ['your funding manifest link', 'the problem', 'a demo video'], needs: ['your funding manifest link', 'the problem', 'a demo video'] });
-  assert.equal(end(base({ ready: [three] })), 'FLOSS/fund is yours once I have your funding manifest link, problem and demo video.');
+  assert.equal(end(base({ ready: [three] })), 'FLOSS/fund needs your funding manifest link, problem and demo video; then I apply.');
   // Beside another ready program: that one is asked for its yes, this one is not counted again.
-  assert.equal(end(base({ ready: [sol, ready({ title: 'Other Grant' })] })), 'Solana Foundation Grants is yours once I have your website link and requested amount. Say yes and I apply.');
+  assert.equal(end(base({ ready: [sol, ready({ title: 'Other Grant' })] })), 'Solana Foundation Grants needs your website link and requested amount; then I apply. Say yes and I apply.');
   assert.equal(
     end(base({ ready: [sol, ready({ title: 'Other Grant' }), ready({ title: 'Third Grant' })] })),
-    'Solana Foundation Grants is yours once I have your website link and requested amount. Say yes and I apply to all 2. Or say the numbers to skip.',
+    'Solana Foundation Grants needs your website link and requested amount; then I apply. Say yes and I apply to all 2. Or say the numbers to skip.',
   );
   // Beside one fully ready with its yes: both said, no yes asked.
   assert.equal(
     end(base({ ready: [ready({ title: 'Users Grant', rule_yes: true }), sol] })),
-    'Your yes stands for Users Grant: I apply now. Solana Foundation Grants is yours once I have your website link and requested amount.',
+    'Your yes stands for Users Grant: I apply now. Solana Foundation Grants needs your website link and requested amount; then I apply.',
   );
   // Alone, no yes is asked at all.
   assert.doesNotMatch(replyText(base({ ready: [sol] }), true), /Say yes|—|\b(score|rank|grade|points|coin|token|streak)s?\b/i);
@@ -847,5 +847,21 @@ test('fix round 1 (v6.1.12): the nothing-ready closing picks the cheapest step s
 test('fix round 1 (v6.1.12): the N3 closing lists at most three needs, then "and n more"', () => {
   const needs = ['your website link', 'the requested amount', 'the problem', 'your team', 'a demo video'];
   const r = base({ ready: [ready({ title: 'Solana Foundation Grants', rule_yes: true, need_you: needs, needs })] });
-  assert.equal(replyText(r, true).split('\n\n').at(-1), 'Solana Foundation Grants is yours once I have your website link, requested amount, problem and 2 more.');
+  assert.equal(replyText(r, true).split('\n\n').at(-1), 'Solana Foundation Grants needs your website link, requested amount, problem and 2 more; then I apply.');
+});
+
+test('final fix (v6.1.12, I1): the users-question closing promises a send only when the yes makes the program ready', () => {
+  const USERS = { kind: 'users' as const, item: 'users', what: 'tell me if real people use it', effort: 'hours' as const, agent_can: false };
+  const end = (gaps: GapProgram[]) => replyText(base({ gaps }), true).split('\n').at(-1);
+  // The users question is the whole step: the yes applies.
+  assert.equal(end([gap({ title: 'Used Grant', gap: USERS })]), 'Nothing is ready yet. Do real people use it? Say yes and I apply.');
+  assert.deepEqual(firstStepOf([gap({ title: 'Used Grant', gap: USERS })]), { users: true });
+  // A setup step left after the yes: I look again.
+  const floss = gap({ title: 'FLOSS/fund', gap: USERS, setup: ['publish a funding manifest on your site or repo'] });
+  assert.equal(end([floss]), 'Nothing is ready yet. Do real people use it? Say yes and I look again.');
+  assert.deepEqual(firstStepOf([floss]), { users: true, more: true });
+  // A rule left beside it (shown beside a change, so the rule is not asked first): I look again.
+  const hero = gap({ title: 'HeroDevs', gap: USERS, also: [ruleGap('an OSI-approved open source license')], rules: ['an OSI-approved open source license'] });
+  assert.equal(end([gap({ title: 'Arc Fund' }), hero]), 'Nothing is ready yet. Do real people use it? Say yes and I look again.');
+  for (const t of [end([floss]), end([gap({ title: 'Arc Fund' }), hero])]) assert.doesNotMatch(t!, /I apply|—|\b(score|rank|grade|points|coin|token|streak)s?\b/i);
 });

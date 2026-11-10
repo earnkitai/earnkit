@@ -265,6 +265,8 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
       show_to_builder: unknownProgramLine(suggest),
       agent_note: 'Call find with the project for the programs it fits.', program: null, fields: [], guide: null, rules: [],
     };
+  // Final fix (v6.1.12, I2): matched by another name, the first line names the program (every line here leads with it).
+  const renamed = row.id !== id;
   id = row.id;
   const p = row.file;
   // reviewers_contact is the owner's only: never in a tool reply (security M1).
@@ -306,6 +308,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
         ? verdictText(row, verdict, () => readyOf(row, verdict, facts, ctx.now, rec, done), { linked: ctx.builderId !== null, now: ctx.now, draftOnly, rules: guideRules, signIn, done })
         : [`${p.title}, ${moneyOf(p)}${when ? `, ${when}` : ''}.`, ...rules.map(ruleSentence), ...guideRules];
   const real = verdict?.status === 'gap' ? verdict.gaps.filter((g) => g.kind !== 'rule') : [];
+  if (renamed && !show[0]?.includes(p.title)) show.unshift(`${p.title}.`);
   return {
     show_to_builder: show.join('\n'),
     agent_note: (open

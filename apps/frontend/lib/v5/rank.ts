@@ -104,16 +104,15 @@ export function rankGaps(v: Verdict[], programs: Programs, mainnets: ReadonlySet
  * The gap list shown (R18b, v6.1.8 fix rounds 2 and 3, v6.1.9, v6.1.10): all of it when `all`. Else, first the
  * programs the builder acted on (`pinned`: a step marked done or a live claim, N-3), in rank order, whatever they
  * carry; then every program closing soon (`soon`, O1: within 7 days), ahead of the cap; then at most one program that
- * carries an unconfirmed rule (none when one already shown carries one) among rule-free programs in rank order for the
- * other slots. A program whose rule is unlikely to be the project's (`unlikely`, L1c-2: its keywords named nowhere)
+ * carries an unconfirmed rule and no keyword hit (none when one already shown carries one) among rule-free programs in
+ * rank order for the other slots; a keyword hit (`hit`, N1, v6.1.12) is no rule-slot program but takes its own slot in
+ * rank order as a rule-free one does. A program whose rule is unlikely to be the project's (`unlikely`, L1c-2: its keywords named nowhere)
  * is left out unless acted on. The one rule-bearing program is the first (in rank order) naming `chains[0]`, else
  * `chains[1]`, and so on (`names`: whether a program names a chain), else the first in rank order. On one of the
  * project's chains it takes its place in rank order (L1c-3). Off them it is shown only after `max - 1` other programs,
  * or alone as a list of one when nothing else is shown (N-2); with some others but fewer than that, the list is those
  * and leaves it to `filter.all`. In-person programs never appear here (R18d, R18f; a rule-only one is in the In person
- * block, find.ts); `filter.all` shows them and `more` counts every program left out. A keyword hit (`hit`, N1,
- * v6.1.12) is no rule-slot program: it takes its own slot in rank order as a rule-free one does. Input in rankGaps
- * order. Pure.
+ * block, find.ts); `filter.all` shows them and `more` counts every program left out. Input in rankGaps order. Pure.
  */
 export function shownGapsOf(
   gapV: Verdict[], all: boolean, max: number, inPerson: (v: Verdict) => boolean,

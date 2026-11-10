@@ -27,6 +27,8 @@ const CLOSINGS = [
   /Say yes and I draft all \d+ for you to send\. Or say the numbers to skip\.$/,
   /Say yes and I draft it for you to send\.$/,
   /Nothing is ready yet\.( Say "yes \d+" if that rule fits you\.)?$/,
+  // Final fix (v6.1.12, I1): the users yes on a program with a setup step or a rule left.
+  /Nothing is ready yet\. Do real people use it\? Say yes and I look again\.$/,
   // O2 (v6.1.10): in-person programs listed and nothing remote ready.
   /Nothing remote is ready yet\. Say yes and I start the in-person applications\.$/,
   /Nothing fits yet\. I'll say when something opens\.$/,

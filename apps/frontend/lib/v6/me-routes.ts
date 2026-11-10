@@ -14,7 +14,7 @@ import { ME_BLOCKS, ME_ERRORS, ME_LABELS, ME_LINK_DONE, ME_LINK_NOT, ME_PICK_CAT
 import { type Builder, deleteBuilder, getRecord, unlinkInstallation, withRecord } from './builders';
 import { ALREADY_LINKED, INVALID, OTHER, codeShaped, consumeLinkCode, denyLinkCode, linkedBy, liveCode } from './link-routes';
 import { type MeField, authSecret, problemSig, recordBlocks, seenOf, utcDay, verifyCsrf } from './me-view';
-import { APPROVABLE, type BuilderRecord, approvePath, fieldSchema, mergeRecord, unapprovePath } from './record';
+import { APPROVABLE, type BuilderRecord, approvePath, fieldSchema, mergeRecord, onceEach, unapprovePath } from './record';
 import { COOKIE, clearCookie, cookieValue, endSession, sessionBuilder } from './sessions';
 
 type Deps = { now?: Date };
@@ -89,7 +89,7 @@ function valueOf(f: MeField, raw: string): { ok: true; value: unknown } | { ok: 
     const given = list(v);
     const bad = given.filter((c) => !isKnownChain(c.toLowerCase()));
     if (bad.length > 0) return { ok: false, problem: `Not a known chain: ${bad.join(', ')}.` };
-    return { ok: true, value: [...new Set(given.map((c) => c.toLowerCase()))] };
+    return { ok: true, value: onceEach(given.map((c) => c.toLowerCase())) };
   }
   if (f.path === 'policy.categories') return { ok: true, value: list(v) };
   if (/(^|\.)answers\.[a-z_]+$/.test(f.path)) return { ok: true, value: { text: v } };

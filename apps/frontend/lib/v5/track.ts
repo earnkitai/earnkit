@@ -127,15 +127,36 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   if (!parsed.success) return refuse(TRACK_UNREAD, `Nothing was recorded. ${inputDetail(parsed.error)}`);
   // F4 (v6.1.12): the program by what the builder calls it, as find takes it. A name that is no one program records
   // nothing, except a result on an id the ledger holds as sent, whose program may have left the catalog since.
-  const { row, suggest } = await programByName(parsed.data.program_id, ctx.now);
+  // Final fix (v6.1.12, Task 2 I1): a result on an id the ledger holds as sent is that one, before any matching.
+  const raw = parsed.data.program_id;
+  const held = RESULT_STATUSES.includes(parsed.data.status) && (await sentHere(owner, raw));
+  const { row, suggest } = held ? { row: null, suggest: [] } : await programByName(raw, ctx.now);
   const data = row ? { ...parsed.data, program_id: row.id } : parsed.data;
   // An unknown project_id is dropped, and named for the agent (v6.1.7, C17).
   const { project_id, ...rest } = data;
   const known = project_id === undefined || (await knownProject(ctx.builderId, project_id));
-  const r = !row && !(RESULT_STATUSES.includes(data.status) && (await sentHere(owner, data.program_id)))
+  const acted = !row && !held
     ? await refuse(unknownProgramLine(suggest))
     : await act(ctx, owner, programs, refuse, known ? data : rest);
+  // Final fix (v6.1.12, I2): matched by another name, the first line says which program it was.
+  const r = row && row.id !== raw
+    ? { ...acted, show_to_builder: namedFirst(acted.show_to_builder, row.file.title), agent_note: `Matched ${row.id}. ${acted.agent_note}` }
+    : acted;
   return known ? r : { ...r, agent_note: `${r.agent_note} project_id ${project_id} is not known; ignored.`.trim() };
+}
+
+/**
+ * The builder line with the program named in its first sentence, when it does not name it already: "Started." reads
+ * "Started: {title}.", "Tracked." "Tracked: {title}." Pure.
+ */
+export function namedFirst(show: string, title: string): string {
+  if (show.includes(title)) return show;
+  const named = show
+    .replace(/^(Started|Tracked|Recorded|Noted)\./, `$1: ${title}.`)
+    .replace(/^Already (skipped|noted)\./, `Already $1: ${title}.`)
+    .replace(/^You skipped that one\./, `You skipped ${title}.`)
+    .replace(/^Sent, but /, `Sent ${title}, but `);
+  return named === show ? `${title}: ${show}` : named;
 }
 
 /**

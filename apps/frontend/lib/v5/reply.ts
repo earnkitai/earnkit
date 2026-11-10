@@ -58,7 +58,7 @@ const dollars = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
 /** "a, b and c". Pure. */
 const joinAnd = (xs: string[]): string => (xs.length <= 1 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
 
-/** At most NEEDS_SHOWN needs, then "{n} more" (fix round 1, v6.1.12, for the N3 closing). Pure. */
+/** At most NEEDS_SHOWN needs, then "{n} more" (fix round 1, v6.1.12): the ready line and the N3 closing. Pure. */
 const capped = (needs: string[]): string[] => (needs.length > NEEDS_SHOWN ? [...needs.slice(0, NEEDS_SHOWN), `${needs.length - NEEDS_SHOWN} more`] : needs);
 
 /** A to-do as it reads after "Needs your": "your email" and "a Loom product demo" lose their first word. */
@@ -102,7 +102,7 @@ export function readyLine(p: ReadyProgram, linked: boolean, now: Date, alone = f
   const steps = p.needs.filter((x) => p.setup.includes(x));
   // Linked, the k that need the builder are already named.
   const needs = fromRecord ? [] : p.needs.filter((x) => !p.setup.includes(x)).map(bare);
-  const shown = needs.length > NEEDS_SHOWN ? [...needs.slice(0, NEEDS_SHOWN), `${needs.length - NEEDS_SHOWN} more`] : needs;
+  const shown = capped(needs);
   const first = steps.length > 0 ? ` First: ${steps.join('; ')}.` : '';
   // Another agent of the builder's holds it: still numbered, so the builder can name it, but not in the yes count.
   const held = p.claimed_since ? ` Being handled by your other agent since ${clock(p.claimed_since, now)}.` : '';
@@ -160,7 +160,7 @@ export function inPersonLine(p: ReadyProgram, alone = false): string {
     return `${head} Needs ${joinAnd(shown)}.`;
   }
   const needs = own.map(bare);
-  const shown = needs.length > NEEDS_SHOWN ? [...needs.slice(0, NEEDS_SHOWN), `${needs.length - NEEDS_SHOWN} more`] : needs;
+  const shown = capped(needs);
   const needsYour = shown.length > 0 ? ` Needs your ${joinAnd(shown)}.` : '';
   return `${head}${attendSentence(p.setup)}${needsYour}`;
 }
@@ -329,20 +329,25 @@ function beforeTonight(r: R, tonight: number): string | null {
 export type YesWait = { title: string; needs: string[] };
 
 /** The step the closing offers (M1, v6.1.9): the users question, or what to make. */
-export type FirstStep = { users: true } | { users: false; what: string; started?: true };
+export type FirstStep = { users: true; more?: true } | { users: false; what: string; started?: true };
 
 /**
  * The first shown gap program's step the builder takes, for the closing when nothing is ready and no rule-only program
- * is shown (M1, v6.1.9): the users question when it is the program's whole step; else its first real change. A program
+ * is shown (M1, v6.1.9): the users question when it is the program's only change (`more` when a setup step or a rule is left
+ * beside it, so the yes is no send yet); else its first real change. A program
  * EarnKit makes ("do n" on its line), or whose step is its own sentence (sign in, add the project, the proof being
  * read), already says its action, so the next program is looked at. Null when none has such a step. Pure.
  */
 export function firstStepOf(gaps: GapProgram[]): FirstStep | null {
-  const steps = gaps.filter((g) => !g.in_person && !ruleOnlyGap(g)).map((g) => [g.gap, ...g.also].filter((x) => x.kind !== 'rule'));
+  const shown = gaps.filter((g) => !g.in_person && !ruleOnlyGap(g));
+  const steps = shown.map((g) => [g.gap, ...g.also].filter((x) => x.kind !== 'rule'));
   // Fix round 1 (v6.1.12): the cheapest step shown closes the reply: a question (the users question, the started
   // question) before any change, whatever the line order.
-  for (const real of steps) {
-    if (real.length > 0 && real.every(usersQuestion)) return { users: true };
+  for (const [i, real] of steps.entries()) {
+    // Final fix (v6.1.12, I1): the yes makes the program ready only with no setup step and no rule left beside it.
+    const g = shown[i];
+    const more = g.setup.length > 0 || [g.gap, ...g.also].some((x) => x.kind === 'rule');
+    if (real.length > 0 && real.every(usersQuestion)) return more ? { users: true, more: true } : { users: true };
     const asked = real.length > 0 && real.every(startedQuestion) ? real[0] : null;
     if (asked) return { users: false, what: asked.what, started: true };
   }
@@ -376,7 +381,7 @@ export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number
   if (stands.length > 0 || waits.length > 0) {
     const said = [
       ...(stands.length > 0 ? [`Your yes stands for ${listWords(stands, stands.length)}: I apply now.`] : []),
-      ...waits.map((w) => `${w.title} is yours once I have your ${joinAnd(capped(w.needs.map(bare)))}.`),
+      ...waits.map((w) => `${w.title} needs your ${joinAnd(capped(w.needs.map(bare)))}; then I apply.`),
     ].join(' ');
     const left = o.ready - stands.length - waits.length;
     return left > 0 ? `${said} ${closingLine({ ...o, ready: left, yesStands: [], yesWaits: [] })}` : said;
@@ -391,7 +396,7 @@ export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number
     // I2 (v6.1.9 final): the only step program shown carries a rule beside its change: the rule is asked first.
     if (o.stepRule != null) return `Nothing is ready yet. Say "yes ${o.stepRule}" if its rule fits you.`;
     const step = o.firstStep ?? null;
-    if (step?.users) return 'Nothing is ready yet. Do real people use it? Say yes and I apply.';
+    if (step?.users) return `Nothing is ready yet. Do real people use it? Say yes and ${step.more ? 'I look again' : 'I apply'}.`;
     // I3 (v6.1.9 final): "First:" reads as a sentence for a noun or a verb phrase.
     // O3 (v6.1.10): the started question is asked as one.
     if (step && !step.users && step.started) return 'Nothing is ready yet. First: tell me when you started this, and I look again.';

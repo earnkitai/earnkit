@@ -71,8 +71,19 @@ const plain = (x: string) => x.normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
 const squash = (x: string) => plain(x).replace(/ /g, '');
 /** "y-combinator" to "yc": each word's first letter. Pure. */
 const initials = (x: string) => plain(x).split(' ').map((w) => w[0] ?? '').join('');
-/** The organizer's names: "Kiro (AWS)" is "kiro" and "aws"; "Monad Foundation, OpenBuild and Box" is three. Pure. */
-const organizers = (x: string) => x.split(/[(),/]|\band\b|&/).map(squash).filter(Boolean);
+/** One organizer each: "Monad Foundation, OpenBuild and Box" is three. Pure. */
+const organizerParts = (x: string) => x.split(/,|&|\band\b/);
+/** Without what is in brackets: "Kiro (AWS)" is "Kiro ". Pure. */
+const unbracketed = (x: string) => x.replace(/\([^)]*\)/g, ' ');
+/**
+ * The organizer's whole names (final fix, v6.1.12, I2): each organizer as written and without its brackets, so
+ * "Kiro (AWS)" is "kiroaws" and "kiro", never "aws". Pure.
+ */
+const organizers = (x: string) => organizerParts(x).flatMap((o) => [squash(o), squash(unbracketed(o))]).filter(Boolean);
+/** Each organizer's first word: "Ethereum Foundation Trillion Dollar Security Initiative" leads with "ethereum". Pure. */
+const organizerLeads = (x: string) => organizerParts(x).map((o) => plain(unbracketed(o)).split(' ')[0]).filter(Boolean);
+/** The shortest start of a title or id that names a program (final fix, v6.1.12, I2): "fi" or "aws" name none. */
+const MIN_PREFIX = 4;
 /** Words that say nothing about which program it is. */
 const COMMON = new Set(['the', 'and', 'for', 'of', 'a', 'an', 'program', 'programs', 'grant', 'grants', 'fund', 'batch', 'cohort', 'foundation']);
 /** The money a program puts up: the larger of its top award and its pool, -1 when it states neither. Pure. */
@@ -98,8 +109,9 @@ export function unknownProgramLine(suggest: readonly string[]): string {
 /**
  * A program by what the builder calls it, the one resolver find and track share (v6.1.9; F4, v6.1.12): its id as given,
  * else, case, spaces and punctuation ignored, the first of these that any program fits: its whole id or title, or its
- * id's initials ("yc"); the start of its title or id ("monad", "Base"); one of its organizer's names, or the start of one
- * ("uniswap", "Thiel Foundation"). Exactly one program fitting is the `row`; several are `suggest`, the first two by
+ * id's initials ("yc"); the start of its title or id, four characters at least and not an organizer's first word alone
+ * ("monad", "Base"; never "fi" or "ethereum"); one of its organizers' whole names ("Thiel Foundation", "Kiro", never
+ * "aws"). Exactly one program fitting is the `row`; several are `suggest`, the first two by
  * byLookupRank; none, `suggest` holds the titles sharing a word with the name (two at most, by rank).
  */
 export async function programByName(name: string, now: Date = new Date()): Promise<{ row: ProgramRow | null; suggest: string[] }> {
@@ -109,16 +121,22 @@ export async function programByName(name: string, now: Date = new Date()): Promi
   const q = words.replace(/ /g, '');
   if (!q) return { row: null, suggest: [] };
   const rows = parseRows(await sql()<RawRow[]>`SELECT id, file, source, created_at, updated_at, verified_at, stale_since FROM programs ORDER BY id`);
-  const prefix = q.length >= 2;
-  const tests: ((r: ProgramRow) => boolean)[] = [
-    (r) => squash(r.id) === q || squash(r.file.title) === q || (!words.includes(' ') && q.length >= 2 && initials(r.id) === q),
-    (r) => prefix && (squash(r.file.title).startsWith(q) || squash(r.id).startsWith(q)),
-    (r) => prefix && organizers(r.file.organizer).some((o) => o.startsWith(q)),
+  const prefix = q.length >= MIN_PREFIX;
+  // Final fix (v6.1.12, I2): the first word of an organizer that is not its whole name ("ethereum" for the Ethereum
+  // Foundation) names the organizer, which may run programs the catalog does not hold: a start of a title on it is
+  // only offered, never taken, beside that organizer's other programs ("circle" asks, as Circle runs several).
+  const led = (r: ProgramRow) => organizerLeads(r.file.organizer).includes(words);
+  const orgWord = rows.some((r) => led(r) && !organizers(r.file.organizer).includes(q));
+  const tests: [(r: ProgramRow) => boolean, boolean][] = [
+    [(r) => squash(r.id) === q || squash(r.file.title) === q || (!words.includes(' ') && q.length >= 2 && initials(r.id) === q), true],
+    [(r) => prefix && (squash(r.file.title).startsWith(q) || squash(r.id).startsWith(q)), !orgWord],
+    [(r) => organizers(r.file.organizer).includes(q), true],
   ];
   const titles = (hits: ProgramRow[]) => byLookupRank(hits, now).slice(0, 2).map((r) => r.file.title);
-  for (const t of tests) {
+  for (const [t, takes] of tests) {
     const hits = rows.filter(t);
-    if (hits.length === 1) return { row: hits[0], suggest: [] };
+    if (hits.length === 1 && takes) return { row: hits[0], suggest: [] };
+    if (hits.length > 0 && !takes) return { row: null, suggest: titles([...new Set([...hits, ...rows.filter(led)])]) };
     if (hits.length > 1) return { row: null, suggest: titles(hits) };
   }
   const named = new Set(words.split(' ').filter((w) => w.length >= 2 && !COMMON.has(w)));

@@ -844,12 +844,21 @@ test('Review Focus 4 (v6.1.12, F8): a send under standing approval to a program 
   await p('f8-direct', 2 * H);
   assert.deepEqual(await record('b:' + b.id, 'f8-direct', 'applied', { installationId: c.installationId, now: NOW, submitted_by: 'agent', autoApplied: true }), { ok: true, closed: true });
   assert.equal(await auto('f8-direct'), false);
+  // Final fix (v6.1.12): the edge. Closed exactly an hour ago still counts; a minute past the hour it had closed.
+  await p('f8-hour', H);
+  await p('f8-hour-1', H + 60_000);
+  assert.equal((await send('f8-hour')).show_to_builder, 'f8-hour closed on Nov 4; recorded anyway.');
+  assert.equal(await auto('f8-hour'), true);
+  assert.equal((await send('f8-hour-1')).show_to_builder, 'f8-hour-1 closed on Nov 4; recorded anyway. Sent, but outside your standing approval: it had closed.');
+  assert.equal(await auto('f8-hour-1'), false);
 });
 
 test('F4 (v6.1.12): track takes the program by what the builder calls it; several or none says so and records nothing', async () => {
   const c = await ctx();
   const started = await track(c, { program_id: 'yc', status: 'started' });
-  assert.equal(started.show_to_builder, 'Started.');
+  // Final fix (v6.1.12, I2): matched by another name, the first line names the program.
+  assert.equal(started.show_to_builder, 'Started: Y Combinator Winter 2027 Batch.');
+  assert.match(started.agent_note, /^Matched y-combinator\. /);
   assert.equal((await sql()`SELECT program_id FROM applications WHERE installation_id = ${c.installationId}`)[0].program_id, 'y-combinator');
   const skipped = await track(c, { program_id: 'Thiel Foundation', status: 'skipped' });
   assert.equal(skipped.show_to_builder, "Skipped Thiel Fellowship. I won't bring it up again.");
@@ -872,4 +881,35 @@ test('F6 (v6.1.12): a code step marked done on a project with no repo asks to be
   // With a repo the read is the check.
   const repo = await track(c, { program_id: 'f6-live', status: 'gap_done', item: 'live_product', project: { name: 'Has Repo', repo_url: 'https://github.com/a/b' } });
   assert.deepEqual([repo.show_to_builder, repo.agent_note], ['Noted. I check the repo on the next look.', 'Call find again so the repo is re-read.']);
+});
+
+test('final fix (v6.1.12, I2): loose names record nothing; a name that is one program says which it recorded', async () => {
+  const c = await ctx();
+  const count = async () => (await sql()`SELECT count(*)::int AS n FROM applications WHERE installation_id = ${c.installationId}`)[0].n;
+  // An organizer's first word, a parent organizer in brackets, two letters: no program, nothing written.
+  assert.equal((await track(c, { program_id: 'ethereum', status: 'applied', submitted_by: 'builder' })).show_to_builder, "I don't know that program. Did you mean Ethereum Security Subsidy Program?");
+  assert.equal((await track(c, { program_id: 'aws', status: 'applied', submitted_by: 'builder' })).show_to_builder, "I don't know that program.");
+  assert.equal((await track(c, { program_id: 'fi', status: 'applied', submitted_by: 'builder' })).show_to_builder, "I don't know that program.");
+  assert.equal(await count(), 0);
+  // A unique start of four characters or more resolves, and the line names it.
+  const sent = await track(c, { program_id: 'kiro', status: 'applied', submitted_by: 'builder' });
+  assert.equal(sent.show_to_builder, "Tracked: Kiroween 2026. I'll ask how it went when results are due.");
+  assert.match(sent.agent_note, /^Matched kiroween-2026\. /);
+  assert.equal((await sql()`SELECT program_id FROM applications WHERE installation_id = ${c.installationId}`)[0].program_id, 'kiroween-2026');
+  assert.equal((await track(c, { program_id: 'kiro', status: 'no_result' })).show_to_builder, 'Recorded: Kiroween 2026.');
+  // The id itself: the plain line, as before.
+  assert.equal((await track(c, { program_id: 'codegeist-2026', status: 'applied', submitted_by: 'builder' })).show_to_builder, "Tracked. I'll ask how it went when results are due.");
+});
+
+test('final fix (v6.1.12, Task 2 I1): a result on an id held as sent is that id, before any matching', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 'ff-held', title: 'Held Grant' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'ff-held-studio', title: 'Held Grant Studio' }), 'file', NOW);
+  await track(c, { program_id: 'ff-held', status: 'applied', submitted_by: 'builder' });
+  // The sent program leaves the catalog; its id still starts the other one's.
+  await sql()`DELETE FROM programs WHERE id = 'ff-held'`;
+  const won = await track(c, { program_id: 'ff-held', status: 'won', amount_usd: 1000 });
+  assert.equal(won.show_to_builder, 'Recorded: $1,000 from Held Grant.');
+  const rows = await sql()`SELECT program_id, status FROM applications WHERE installation_id = ${c.installationId} ORDER BY program_id`;
+  assert.deepEqual(rows.map((r) => [r.program_id, r.status]), [['ff-held', 'won']]);
 });

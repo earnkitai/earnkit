@@ -1015,7 +1015,7 @@ const THAT_RULE_FIRST = 'Nothing is ready yet. Say "yes 1" if that rule fits you
 const COLOSSEUM_LINE = (n: number) => `${n}. Colosseum Eternal, $25,000 award: a demo video. First: sign up for a Colosseum account; start the four-week sprint in the Eternal dashboard. Their rule: a crypto product built during the four-week sprint. Their rule: the team has not raised venture capital for the startup it submits.`;
 /** Fix round 1 (v6.1.10): a remote step shown closes the reply with its own step, in-person programs listed or not. */
 const RULE_FIRST = 'Nothing is ready yet. Say "yes 1" if its rule fits you.';
-const USERS_FIRST = 'Nothing is ready yet. Do real people use it? Say yes and I apply.';
+const USERS_FIRST = 'Nothing is ready yet. Do real people use it? Say yes and I look again.';
 /** The rule-bearing program alone, a list of one (N-2, v6.1.9 fix round 1). */
 const META_VR_ONLY = ['One step away (1):', META_VR_LINE(1)];
 
@@ -1795,7 +1795,15 @@ test('v6.1.9: find with program_id takes the id or the name in any case; else a 
     ['monad', "I don't know that program. Did you mean Monad Blitz Oregon or Monad Blitz @广州 (Guangzhou)?"],
     ['Monad Blitz', "I don't know that program. Did you mean Monad Blitz Oregon or Monad Blitz @广州 (Guangzhou)?"],
     ['uniswap', "I don't know that program. Did you mean Uniswap Foundation Open Grants or Uniswap Foundation Security Fund (UFSF) Audit Subsidies?"],
+    // Final fix (v6.1.12, I2): an organizer's first word, a bracketed parent organizer, two letters: no program.
+    ['ethereum', "I don't know that program. Did you mean Ethereum Security Subsidy Program?"],
+    ['aws', "I don't know that program."],
+    ['fi', "I don't know that program."],
   ]) assert.equal((await mcpCall(ctx(await installation()), 'find', { program_id: name })).reply!.show_to_builder, line, name);
+  // Final fix (v6.1.12, I2): a loose name that is one program: the detail's first line names it.
+  const kiro = await mcpCall(ctx(await installation()), 'find', { program_id: 'kiro' });
+  assert.equal((kiro.reply!.program as { id: string }).id, 'kiroween-2026');
+  assert.match(kiro.reply!.show_to_builder as string, /^Kiroween 2026, /);
   const none = await mcpCall(ctx(await installation()), 'find', { program_id: 'qqq-unknown' });
   assert.equal(none.reply!.show_to_builder, "I don't know that program.");
 });
@@ -1814,14 +1822,14 @@ test('v6.1.9: after the builder says yes to the rule, the program comes back rea
   // the yes stands, and no second yes is asked.
   const lines = (after.reply!.show_to_builder as string).split('\n');
   assert.equal(lines[0], 'Solana Foundation Grants, milestone grants. Your agent drafts 9 answers. Needs your requested amount.');
-  assert.equal(lines.at(-1), 'Solana Foundation Grants is yours once I have your requested amount.');
+  assert.equal(lines.at(-1), 'Solana Foundation Grants needs your requested amount; then I apply.');
   const list = await mcpCall(c, 'find', { project });
   const ready = (list.reply!.ready as { program_id: string; rule_yes?: true }[]).find((p) => p.program_id === 'solana-foundation-grants');
   assert.equal(ready?.rule_yes, true);
   const show = list.reply!.show_to_builder as string;
   assert.doesNotMatch(show, /Your yes stands/);
   // The others ready (as many as earlier tests left open) are asked for their yes after it.
-  assert.match(show.split('\n\n').at(-1)!, /^Solana Foundation Grants is yours once I have your requested amount\.( Say yes and I apply(?: to all \d+\. Or say the numbers to skip)?\.)?$/);
+  assert.match(show.split('\n\n').at(-1)!, /^Solana Foundation Grants needs your requested amount; then I apply\.( Say yes and I apply(?: to all \d+\. Or say the numbers to skip)?\.)?$/);
 });
 
 test('N9 (v6.1.9): the one-program detail tells the agent to pass project_id when the project is not in the record', async () => {
@@ -1963,9 +1971,9 @@ test('F3 and fix round 1 (v6.1.10), N3 (v6.1.12): the users yes and the rule yes
   // FLOSS/fund still needs its manifest link: its line says so and the closing asks for it, never a second yes (N3,
   // v6.1.12), on the detail and in the list alike.
   const floss = await mcpCall(c, 'find', { program_id: 'floss-fund-zerodha', project: CLI });
-  assert.equal(floss.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000. Needs your funding manifest link. First: publish a funding manifest on your site or repo.', 'FLOSS/fund is yours once I have your funding manifest link.'].join('\n'));
+  assert.equal(floss.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000. Needs your funding manifest link. First: publish a funding manifest on your site or repo.', 'FLOSS/fund needs your funding manifest link; then I apply.'].join('\n'));
   const listed = await mcpCall(c, 'find', { project: CLI });
-  assert.match((listed.reply!.show_to_builder as string).split('\n\n').at(-1)!, /^FLOSS\/fund is yours once I have your funding manifest link\.( Say yes and I apply(?: to all \d+\. Or say the numbers to skip)?\.)?$/);
+  assert.match((listed.reply!.show_to_builder as string).split('\n\n').at(-1)!, /^FLOSS\/fund needs your funding manifest link; then I apply\.( Say yes and I apply(?: to all \d+\. Or say the numbers to skip)?\.)?$/);
   // Fully ready (the one answer is the agent's draft): the yes stands, for the users yes and the rule yes alike.
   const { programFixture } = await import('./fixtures/program');
   const { ruleItem } = await import('./eligibility');
