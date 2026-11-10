@@ -204,8 +204,11 @@ minutes), no probe, sweep or digest.
 Copy lives in `site-copy.ts`, install steps in `agents.ts` (read by the site, `/docs` and `/llms.txt`), colours in
 `site-theme.ts` (mirrored in `globals.css`). See `apps/frontend/DESIGN.md`. OAuth (`oauth.ts`, `oauth-routes.ts`) is
 standard (PKCE, dynamic client registration) and approves at once; the issued token is the installation. A
-many-builder hosted registration gets no client key. Every register and token request counts on the one per-IP floor;
-the hosted tier (every redirect URI is a listed vendor's exact host and callback path, `HOSTED_REDIRECTS`) only raises
+many-builder hosted registration gets no client key. Every register and token request counts on the one per-IP floor
+(an hour) and on its address block's daily cap (v6.1.13 B1: IPv4 /16, IPv6 /48, `blockOf` in `rate-limit.ts`; 2,000
+registrations, `oauthRegisterBlock`, and 2,000 installs, `installBlock`, a day; over it, "Too many sign-ups from your
+network today. Try again tomorrow."). No ceiling is shared by every user of one hosted service, so one network
+rotating addresses never locks out another; the hosted tier (every redirect URI is a listed vendor's exact host and callback path, `HOSTED_REDIRECTS`) only raises
 the per-client ceiling (`installClientHosted`). `GET /mcp` is 405 (`Allow: POST, DELETE`): EarnKit never pushes. `rate-limit.ts` keeps fixed-window counters in Postgres. Each MCP tool call counts
 120 an hour per installation and 600 an hour per client IP; over either, the call answers the tool result "EarnKit
 is busy. Try again in about {n} minutes." (hours past 90 minutes; not a transport error, so clients show it). `secrets.ts` scrubs secret
@@ -384,7 +387,12 @@ field without a value and every `agent` field with no sources, judged by `from`,
 record and the send's project, its passed links, else the record project's, else the last find's project key, merged
 with that repo's cached read as find had it (`cachedRepoFacts`, no fetch; the report alone with no cached row)),
 and find's standing note says "Under standing approval, send only when every required answer is filled; otherwise wait
-for the builder." Find holds the same line: a ready program with a required builder answer still empty leaves the
+for the builder." The ready-at-send rule (v6.1.13 B2): with every required answer vouched, the send counts as under
+standing approval only when the program's verdict for that project is ready at send time: find's `evaluate` and gate
+(`readyAtSend` and `storedSide` in `find-record.ts`: the stored tier, no evidence read) over the same facts, with the
+owner's done steps and confirmed rules on that project; a closed program is judged as it stood at its close (F8 then
+decides). A gap, a rule left to confirm, a bar not met or not a fit is recorded with "it was still a step away".
+`fields_used` keeps its first 200 keys, each cut to 60, and is never refused (B6): the form already went out. Find holds the same line: a ready program with a required builder answer still empty leaves the
 tonight list and is named in its own block, "Before tonight (nothing is sent until these are in): your {answers} for
 {titles}." (no tonight line when nothing can go). A contract the read still does not find adds "Pass the contract
 address if it is on chain." to the agent note. A send that does count as under standing approval puts the installation's `last_find_at` back to
@@ -429,7 +437,9 @@ category ticked ("Pick at least one category.", C43).
 
 **The claim rule.** Before filling, the agent tracks `started` (`claims.ts`): one claim per owner and program (an
 advisory lock); another agent of the same builder within 24 hours gets `already` with the claiming agent's name; a
-claim with no `applied` after 24 hours is released. A skip stands over a claim.
+claim with no `applied` after 24 hours is released. A skip stands over a claim. An `applied` from another agent of the
+owner while the claim is live writes nothing and answers "Your other agent is handling that one; nothing recorded."
+(v6.1.13 B3, `OTHER_AGENT_HOLDS` in `ledger.ts`); the holder's own send is unchanged.
 
 **The screen queue and the cron trigger.** `screen` (`screen-tool.ts`) is for a reviewer: a signed-in builder the
 owner adds with `POST /api/programs/reviewers`. With `applicants` (up to 200) it queues a job (`screen-jobs.ts

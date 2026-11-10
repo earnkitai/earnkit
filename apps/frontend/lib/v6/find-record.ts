@@ -4,7 +4,7 @@
  * and what the record still lacks for the ready programs. Only find calls this. Unlinked (v6.1.3), find uses
  * only `provisionalTier`, `tierGate` and `blockersOf` against the empty record; nothing here is stored.
  */
-import { rulesOnly, type Gap, type Verdict } from '../v5/eligibility';
+import { evaluate, rulesOnly, type Gap, type Verdict } from '../v5/eligibility';
 import { categoryOf } from '../v5/program-file';
 import type { RecordContext } from '../v5/prefill';
 import type { ProgramRow } from '../v5/programs';
@@ -212,6 +212,23 @@ export const NIGHT_LIMIT = 'the nightly limit was reached';
 export const REQUIRED_MISSING = 'a required answer was missing';
 /** The reason when the program had closed over an hour before the send (F8, v6.1.12; the ledger's record-time check). */
 export const HAD_CLOSED = 'it had closed';
+
+/** The reason when the program's verdict for the project was not ready at send time (v6.1.13, B2). */
+export const STEP_AWAY = 'it was still a step away';
+
+/** The record side from the stored record alone (no evidence read, nothing stored): the picked project's stored tier. Pure. */
+export function storedSide(rec: RecordContext): RecordSide {
+  const stored = rec.record.projects.find((p) => p.id === rec.projectId)?.last_tier;
+  const tier = isTier(stored?.tier) ? stored.tier : null;
+  return { record: rec.record, projectId: rec.projectId, verifiedUsage: rec.verifiedUsage, tier, summary: tier ? { tier, line: stored!.line } : null, problems: [] };
+}
+
+/**
+ * Whether the program's verdict for the project is ready (v6.1.13, B2): find's `evaluate` with the owner's done steps,
+ * then find's gate (`gateFor`) on the side's tier. A gap, a rule left to confirm, a bar not met or not a fit is not. Pure.
+ */
+export const readyAtSend = (row: ProgramRow, facts: RepoFacts, done: Set<string>, side: RecordSide, now: Date): boolean =>
+  gateFor(side, facts)(evaluate(row, facts, done, now), row).status === 'ready';
 
 /** The program's required field keys that `fieldsUsed` does not name (none sent: all of them). Pure. */
 export const requiredLeftOut = (row: ProgramRow, fieldsUsed: string[] | undefined): string[] =>

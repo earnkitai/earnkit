@@ -79,20 +79,67 @@ test('register, authorize and token through the routes: straight to the client, 
   assert.equal((await connectInstallation(access_token))?.id, caller.id);
 });
 
-test('register: every address counts on the one per-address floor; the host bucket only when every redirect is a hosted callback', async () => {
+test('register: every address counts on its per-address floor and its block; no shared hosted ceiling (v6.1.13, B1)', async () => {
   const keys = async (ip: string) =>
     (await sql()<{ key: string }[]>`SELECT key FROM rate_windows WHERE key LIKE ${'%' + ip}`).map((r) => r.key).sort();
   const reg = (uris: string[], ip: string) => registerPost(new Request('https://earnkit.test/oauth/register', {
     method: 'POST', headers: { 'content-type': 'application/json', 'x-real-ip': ip }, body: JSON.stringify({ redirect_uris: uris }),
   }));
-  const hostRows = async () => (await sql()`SELECT 1 FROM rate_windows WHERE key = 'oauthRegisterHost:host:claude.ai'`).length;
   const ip = (n: number) => `10.9.${Math.floor(Math.random() * 250)}.${n}`;
   const [a, b] = [ip(1), ip(2)];
   assert.equal((await reg([hosted, 'https://evil.example/cb'], a)).status, 201);
   assert.deepEqual(await keys(a), [`oauthRegister:${a}`]);
   assert.equal((await reg([hosted], b)).status, 201);
   assert.deepEqual(await keys(b), [`oauthRegister:${b}`]);
-  assert.equal(await hostRows(), 1);
+  assert.equal((await sql()`SELECT 1 FROM rate_windows WHERE key LIKE 'oauthRegisterHost:%'`).length, 0);
+  assert.equal((await sql()`SELECT 1 FROM rate_windows WHERE key = 'oauthRegisterBlock:10.9.0.0/16'`).length, 1);
+});
+
+test('B1 (v6.1.13, Review Focus 1): ten thousand registrations from one address block never block another block', async () => {
+  const today = new Date(Math.floor(Date.now() / 86_400_000) * 86_400_000);
+  const full = ['198.18.0.0/16', '2001:db8:aaaa::/48'];
+  const preset = async () => {
+    for (const block of full)
+      for (const name of ['oauthRegisterBlock', 'installBlock'])
+        await sql()`INSERT INTO rate_windows (key, window_start, count) VALUES (${`${name}:${block}`}, ${today}, 10000)
+          ON CONFLICT (key, window_start) DO UPDATE SET count = 10000`;
+  };
+  const reg = (ip: string) => registerPost(new Request('https://earnkit.test/oauth/register', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify({ redirect_uris: [hosted] }),
+  }));
+  const token = (ip: string) => {
+    const id = registerClient({ redirect_uris: [hosted] }).client_id;
+    return tokenPost(new Request('https://earnkit.test/oauth/token', {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-forwarded-for': ip }, body: tokenForm(id, codeOf(id, hosted), verifier, hosted).toString(),
+    }));
+  };
+  const r = () => Math.floor(Math.random() * 250);
+  const hex = () => Math.floor(Math.random() * 0xffff).toString(16);
+  await preset();
+  try {
+    // A fresh address inside a full block: the network's day is spent, said in one line with no retry clause.
+    for (const ip of [`198.18.${r()}.${r()}`, `2001:db8:aaaa:${hex()}::1`]) {
+      const refused = await reg(ip);
+      assert.equal(refused.status, 429, ip);
+      assert.equal(((await refused.json()) as { error_description: string }).error_description, 'Too many sign-ups from your network today. Try again tomorrow.');
+      assert.match(refused.headers.get('retry-after') ?? '', /^[1-9]\d*$/);
+      const t = await token(ip);
+      assert.equal(t.status, 429, ip);
+      assert.equal(((await t.json()) as { error_description: string }).error_description, 'Too many sign-ups from your network today. Try again tomorrow.');
+    }
+    // Every other block still signs up, hosted callback and all.
+    for (const ip of [`198.19.${r()}.${r()}`, `2001:db8:bbbb:${hex()}::1`, `10.12.${r()}.${r()}`]) {
+      assert.equal((await reg(ip)).status, 201, ip);
+      assert.equal((await token(ip)).status, 200, ip);
+    }
+    // Rotating /64s inside one /48 is one block.
+    const before = Number((await sql()`SELECT count FROM rate_windows WHERE key = 'oauthRegisterBlock:2001:db8:cccc::/48' AND window_start = ${today}`)[0]?.count ?? 0);
+    for (let n = 0; n < 3; n++) assert.equal((await reg(`2001:db8:cccc:${hex()}::${n + 1}`)).status, 201);
+    const [after] = await sql()`SELECT count FROM rate_windows WHERE key = 'oauthRegisterBlock:2001:db8:cccc::/48' AND window_start = ${today}`;
+    assert.equal(Number(after.count), before + 3);
+  } finally {
+    await sql()`DELETE FROM rate_windows WHERE key IN ${sql()(full.flatMap((b) => [`oauthRegisterBlock:${b}`, `installBlock:${b}`]))}`;
+  }
 });
 
 test('B5 (Review Focus 4): a hosted-redirect client from an address over its floor is refused with the same text as any other', async () => {

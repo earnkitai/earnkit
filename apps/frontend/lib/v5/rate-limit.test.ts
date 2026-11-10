@@ -1,7 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
-import { busyText, countHit, setSweepForTests } from './rate-limit';
+import { LIMITS, blockOf, busyText, clientIp, countHit, setSweepForTests } from './rate-limit';
 
 after(() => sql().end());
 
@@ -39,4 +39,18 @@ test('I5 (v6.1.9 final): the sweep compares windows against the caller\'s clock,
   } finally {
     setSweepForTests(undefined);
   }
+});
+
+test('B1 (v6.1.13): the shared hosted ceiling is gone; each address block has a daily cap of 2,000 sign-ups and 2,000 installs', () => {
+  assert.ok(!('oauthRegisterHost' in LIMITS));
+  assert.deepEqual(LIMITS.oauthRegisterBlock, { limit: 2_000, windowSeconds: 86_400 });
+  assert.deepEqual(LIMITS.installBlock, { limit: 2_000, windowSeconds: 86_400 });
+  const block = (ip: string) => blockOf(clientIp(new Headers({ 'x-forwarded-for': ip })));
+  assert.equal(block('10.11.5.77'), '10.11.0.0/16');
+  assert.equal(block('10.11.200.1'), '10.11.0.0/16');
+  assert.equal(block('::ffff:10.11.5.78'), '10.11.0.0/16');
+  assert.equal(block('2001:db8:11:5::1'), '2001:db8:11::/48');
+  assert.equal(block('2001:0db8:0011:ffff:1:2:3:4'), '2001:db8:11::/48');
+  assert.equal(block('[2001:db8::1]'), '2001:db8:0::/48');
+  assert.equal(blockOf('unknown'), 'unknown');
 });

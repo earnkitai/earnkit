@@ -6,11 +6,11 @@ import { z } from 'zod';
 import { getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason } from '../v6/builders';
 import { DELETED_NOTICE } from '../v6/reply-words';
 import { claim } from '../v6/claims';
-import { HAD_CLOSED, NIGHT_LIMIT, REQUIRED_MISSING, outsideApproval, requiredLeftOut, storedRecordContext } from '../v6/find-record';
+import { HAD_CLOSED, NIGHT_LIMIT, REQUIRED_MISSING, STEP_AWAY, outsideApproval, readyAtSend, requiredLeftOut, storedRecordContext, storedSide } from '../v6/find-record';
 import { prefill, reportedFacts, unvouchedRequired } from './prefill';
 import { cachedRepoFacts } from './repo-facts';
 import { forgetGap, lastGaps, lastProjectKey, unmarkNightFind } from './installations';
-import { projectKeyOf } from './project-input';
+import { parseProject, projectKeyOf } from './project-input';
 import { getProgram, isOpen, listOpenPrograms, programByName, unknownProgramLine } from './programs';
 import { dayOf, doneItems, record, summary, titleOf, type Ledger, type Status } from './ledger';
 import { clock } from './reply';
@@ -22,6 +22,9 @@ import { inputDetail } from './tool-input';
 /** A passed project field: any value (read leniently), but text no longer than `n` (final round). Pure. */
 const capped = (n: number) => (v: unknown) => typeof v !== 'string' || v.length <= n;
 
+/** The most field keys a send keeps (v6.1.13, B6); the rest are dropped, never refused. */
+export const FIELDS_KEPT = 200;
+
 export const TrackInput = z
   .object({
     program_id: z.string().min(1).max(80),
@@ -31,7 +34,8 @@ export const TrackInput = z
     item: z.string().max(80).optional(),
     project_id: z.string().max(40).optional(),
     submitted_by: z.enum(['agent', 'builder']).optional(),
-    fields_used: z.array(z.string().max(60)).max(60).optional(),
+    /** B6 (v6.1.13): the form already went out, so a long list is never refused: the first FIELDS_KEPT keys, each cut to 60. */
+    fields_used: z.array(z.string()).transform((xs) => xs.slice(0, FIELDS_KEPT).map((x) => x.slice(0, 60))).optional(),
     /** The project find was called with (v6.1.10 L1c-1): only its name and repo link are read, the rest is ignored. */
     project: z.object({ name: z.unknown().refine(capped(120)).optional(), repo_url: z.unknown().refine(capped(500)).optional() }).passthrough().optional()
       .describe('The project you passed to find (its name and repo_url), so its steps stay with it'),
@@ -159,12 +163,14 @@ export function namedFirst(show: string, title: string): string {
   return named === show ? `${title}: ${show}` : named;
 }
 
+type ProgramRowOf = NonNullable<Awaited<ReturnType<typeof getProgram>>>;
+
 /**
- * The required fields a send under standing approval cannot vouch for: the program prefilled with the stored record and
- * the send's project (its passed links, else the record project's; else the last find's project key), with the repo's
- * cached read merged in as find had it.
+ * What a send under standing approval is judged on: the program prefilled with the stored record and the send's
+ * project (its passed links, else the record project's; else the last find's project key), with the repo's cached
+ * read merged in as find had it (I3, v6.1.10 final: no fetch; with no cached read, the report alone).
  */
-export async function unvouchedAtSend(ctx: TrackContext, i: z.infer<typeof TrackInput>, row: NonNullable<Awaited<ReturnType<typeof getProgram>>>): Promise<string[]> {
+async function sendFacts(ctx: TrackContext, i: z.infer<typeof TrackInput>) {
   const passed = (i.project ?? {}) as Record<string, unknown>;
   const last = passed.name === undefined && passed.repo_url === undefined ? await lastProjectKey(ctx.installationId) : '';
   const fromKey = last.startsWith('name:') ? { name: last.slice(5) } : last ? { repo_url: last } : {};
@@ -176,14 +182,36 @@ export async function unvouchedAtSend(ctx: TrackContext, i: z.infer<typeof Track
     name: name ?? stored?.name ?? null, description: str(passed.description),
     repo_url: repo ?? stored?.repo_url ?? null, live_url: str(passed.live_url) ?? stored?.live_url ?? null, demo_url: str(passed.demo_url),
   };
-  // I3 (v6.1.10 final): the facts find used, the project's cached repo read (no fetch) merged with the report, so a
-  // contract find filled from the repo is vouched here too; with no cached read, the report alone.
+  // B2 (v6.1.13): the chains and the users answer the agent passed, read as find reads them, so the verdict is find's.
+  const extra = parseProject({ name: 'p', description: 'p', chains: passed.chains, users: passed.users }, ctx.now);
+  const more = extra.ok ? { ...(extra.project.chains ? { chains: extra.project.chains } : {}), users: extra.project.users ?? null } : { users: null };
   const cached = await cachedRepoFacts({
-    name: reported.name ?? '', description: reported.description ?? '', users: null,
+    name: reported.name ?? '', description: reported.description ?? '', ...more,
     ...(reported.repo_url ? { repo_url: reported.repo_url } : {}), ...(reported.live_url ? { live_url: reported.live_url } : {}), ...(reported.demo_url ? { demo_url: reported.demo_url } : {}),
   });
-  const facts = cached ?? reportedFacts(reported);
+  const facts = cached ?? { ...reportedFacts(reported), users: more.users, chains: (more.chains ?? []).map((c) => ({ chain: c.chain, mainnet: c.mainnet, basis: 'reported' as const })) };
+  return { facts, rec };
+}
+
+/** The required fields a send under standing approval cannot vouch for (`unvouchedRequired` over `sendFacts`). */
+export async function unvouchedAtSend(ctx: TrackContext, i: z.infer<typeof TrackInput>, row: ProgramRowOf): Promise<string[]> {
+  const { facts, rec } = await sendFacts(ctx, i);
   return unvouchedRequired(prefill(row, facts, rec).fields).map((f) => f.key);
+}
+
+/**
+ * Why a send under standing approval is not one, from what EarnKit knows at send time (null: it is one): a required
+ * answer it cannot vouch for, else (B2, v6.1.13) a verdict for this project that is not ready, by the same `evaluate`
+ * and gate find uses, with the owner's done steps and confirmed rules on this project and the stored tier. A program
+ * that closed is judged as it stood at its close: the ledger says whether the send came too late.
+ */
+async function notApprovedAtSend(ctx: TrackContext, owner: string, i: z.infer<typeof TrackInput>, row: ProgramRowOf, projectKey: string): Promise<string | null> {
+  const { facts, rec } = await sendFacts(ctx, i);
+  if (requiredLeftOut(row, i.fields_used).length > 0 || unvouchedRequired(prefill(row, facts, rec).fields).length > 0) return REQUIRED_MISSING;
+  const ends = row.file.ends_at ? Date.parse(row.file.ends_at) : null;
+  const at = ends !== null && ends <= ctx.now.getTime() ? new Date(ends - 1) : ctx.now;
+  const done = await doneItems(owner, row.id, projectKey);
+  return readyAtSend(row, facts, done, storedSide(rec), at) ? null : STEP_AWAY;
 }
 
 async function act(
@@ -261,8 +289,8 @@ async function act(
   // F1 (v6.1.10, fix round 2): and every required field must be one EarnKit vouches for (`unvouchedRequired`, the rule
   // find holds the tonight list on), over the program prefilled with the stored record and the send's project, whatever
   // keys fields_used names.
-  const owed = standing && row ? await unvouchedAtSend(ctx, i, row) : [];
-  let outside = standing && row ? (outsideApproval(policy!, row) ?? (requiredLeftOut(row, i.fields_used).length > 0 || owed.length > 0 ? REQUIRED_MISSING : null)) : null;
+  // B2 (v6.1.13): and the program's verdict for this project must be ready, as find would list it now.
+  let outside = standing && row ? (outsideApproval(policy!, row) ?? (await notApprovedAtSend(ctx, owner, i, row, project.key))) : null;
   const applied = i.status === 'applied'
     ? { submitted_by: i.submitted_by, fields_used: i.fields_used, project_id: i.project_id, autoApplied: standing && outside === null, ...(standing ? { maxPerNight: policy!.policy.max_per_night } : {}) }
     : {};

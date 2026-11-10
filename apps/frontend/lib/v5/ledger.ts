@@ -9,9 +9,13 @@ import { sql, type Db } from './db';
 import { categoryOf, eligibilityOf } from './program-file';
 import { codeChecked, itemKey } from './eligibility';
 import { getProgram, programsById, type ProgramRow } from './programs';
+import { CLAIM_HOURS } from '../v6/claims';
 
 /** gap_done without a known item (v6.1.8, 3.10): the builder names the change, the agent gets the item keys. */
 export const WHICH_CHANGE = 'Which change did you finish? Say the program and the change.';
+
+/** An agent's send over another of the owner's agents' live claim (v6.1.13, B3): nothing is written. */
+export const OTHER_AGENT_HOLDS = 'Your other agent is handling that one; nothing recorded.';
 
 /** 'started' is a claim (lib/v6/claims.ts): not an application yet, so the summary leaves it out. */
 export type Status = 'started' | 'applied' | 'won' | 'rejected' | 'no_result' | 'skipped' | 'unskip' | 'gap_done';
@@ -122,8 +126,8 @@ export async function record(
   return (await sql().begin(async (tx) => {
     // One decision at a time per owner and program (the claim's lock), even when no row exists yet.
     await tx`SELECT pg_advisory_xact_lock(hashtext(${owner + ':' + programId}))`;
-    const [row] = await tx<{ status: string; amount_usd: string | null; at: Date; client_name: string | null }[]>`
-      SELECT a.status, a.amount_usd, a.at, i.client_name FROM applications a LEFT JOIN installations i ON i.id = a.installation_id
+    const [row] = await tx<{ status: string; amount_usd: string | null; at: Date; client_name: string | null; claimed_at: Date | null; claimed_by: number | null }[]>`
+      SELECT a.status, a.amount_usd, a.at, i.client_name, a.claimed_at, a.claimed_by FROM applications a LEFT JOIN installations i ON i.id = a.installation_id
       WHERE a.owner = ${owner} AND a.program_id = ${programId} FOR UPDATE OF a`;
     if (!program && !row) return unknown;
     const resulted = row && RESULTS.includes(row.status);
@@ -134,6 +138,10 @@ export async function record(
       return { ok: false, note: `That one already has a result here: ${resultWords(row.status, row.amount_usd)}.` } as const;
     if (status === 'applied' && row?.status === 'applied')
       return { ok: false, note: `Already sent here on ${dayOf(row.at)} by ${row.client_name ?? 'another agent'}; nothing recorded.` } as const;
+    // B3 (v6.1.13): a live claim of another installation of this owner holds the program; only its holder sends it.
+    if (status === 'applied' && row?.status === 'started' && row.claimed_by !== null && row.claimed_by !== installationId
+      && row.claimed_at !== null && row.claimed_at.getTime() > now.getTime() - CLAIM_HOURS * 3_600_000)
+      return { ok: false, note: OTHER_AGENT_HOLDS } as const;
     if (RESULTS.includes(status) && (!row || row.status === 'skipped' || row.status === 'started')) return { ok: false, note: "You haven't applied to that one here." } as const;
     if (status === 'unskip') {
       // Only a skipped row can be unskipped: the row goes, and the program can come back in the list.

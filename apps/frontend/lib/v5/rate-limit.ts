@@ -13,13 +13,16 @@ export const LIMITS = {
   oauthAuthorize: { limit: 60, windowSeconds: 3_600 },
   /** POST /oauth/register, per client IP: the abuse floor. */
   oauthRegister: { limit: 50, windowSeconds: 3_600 },
-  /** POST /oauth/register, per agent app (its https redirect host): a high ceiling, warned at REGISTER_HOST_WARN. */
-  oauthRegisterHost: { limit: 10_000, windowSeconds: 86_400 },
+  /** POST /oauth/register, per address block (IPv4 /16, IPv6 /48) a day (v6.1.13, B1): one network can never spend
+   *  every other network's sign-ups, as the one shared hosted ceiling let it. */
+  oauthRegisterBlock: { limit: 2_000, windowSeconds: 86_400 },
   /** New installations (POST /oauth/token that creates one), per registration, and per IP as the floor for every client. */
   installClient: { limit: 500, windowSeconds: 86_400 },
   /** The per-registration ceiling for a hosted service's callback client: the hosted tier raises only this (v6.1.7, B5). */
   installClientHosted: { limit: 5_000, windowSeconds: 86_400 },
   installHour: { limit: 50, windowSeconds: 3_600 },
+  /** New installations per address block a day (v6.1.13, B1), beside the per-address floor and the per-client limits. */
+  installBlock: { limit: 2_000, windowSeconds: 86_400 },
   /** MCP tool calls, per installation, and per client IP as the floor. */
   mcp: { limit: 120, windowSeconds: 3_600 },
   mcpIp: { limit: 600, windowSeconds: 3_600 },
@@ -31,8 +34,8 @@ export const LIMITS = {
   screenJobs: { limit: 10, windowSeconds: 86_400 },
 } as const;
 
-/** Registrations per agent app a day at which a warning is logged, before oauthRegisterHost refuses. */
-export const REGISTER_HOST_WARN = 8_000;
+/** The 429 text of the per-block daily caps (v6.1.13, B1): the whole line, with no retry clause after it. */
+export const BLOCK_LIMITED = 'Too many sign-ups from your network today. Try again tomorrow.';
 
 /** The start of the fixed window `now` falls in. Pure. */
 export const windowStart = (now: Date, windowMs: number) =>
@@ -110,6 +113,17 @@ function ipKey(ip: string): string {
 }
 
 /**
+ * The address block a rate-limit key (`ipKey`) is in (v6.1.13, B1): IPv4 as its /16 ("10.9.0.0/16"), IPv6 as its /48
+ * ("2001:db8:11::/48"); anything else ('unknown') as is. Pure.
+ */
+export function blockOf(key: string): string {
+  const v4 = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(key);
+  if (v4) return `${v4[1]}.${v4[2]}.0.0/16`;
+  const v6 = /^([0-9a-f]+):([0-9a-f]+):([0-9a-f]+):[0-9a-f]+::\/64$/.exec(key);
+  return v6 ? `${v6[1]}:${v6[2]}:${v6[3]}::/48` : key;
+}
+
+/**
  * The caller's IP, as a rate-limit key. Railway's edge appends the client's address to
  * `x-forwarded-for`, so its rightmost entry is the one we trust (entries to its left, and any
  * `x-real-ip`, are whatever the client sent: a client-sent x-real-ip must never win, or one header
@@ -156,13 +170,14 @@ export async function hit(
   return hitResult(await countHit(key, windowSeconds, now), limit, windowSeconds, now);
 }
 
-/** A refused call: the message says what was limited and when to try again. */
+/** A refused call: the message says what was limited and when to try again (`whole`: `what` already says it). */
 export class RateLimitError extends Error {
   constructor(
     what: string,
     readonly retryAfter: number,
+    whole = false,
   ) {
-    super(`${what} Try again in ${retryText(retryAfter)}.`);
+    super(whole ? what : `${what} Try again in ${retryText(retryAfter)}.`);
     // Every log that prints err.name shows the class.
     this.name = 'RateLimitError';
   }
@@ -173,9 +188,10 @@ export async function enforce(
   name: keyof typeof LIMITS,
   who: string | number,
   what: string,
+  whole = false,
 ) {
   const { limit, windowSeconds } = LIMITS[name];
   const r = await hit(`${name}:${who}`, limit, windowSeconds);
-  if (!r.allowed) throw new RateLimitError(what, r.retryAfter);
+  if (!r.allowed) throw new RateLimitError(what, r.retryAfter, whole);
   return r;
 }

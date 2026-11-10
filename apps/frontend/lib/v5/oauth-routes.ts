@@ -6,7 +6,7 @@
 import { json, readCapped, readParams } from './http';
 import { installationExists, saveInstallation } from './installations';
 import { OAuthError, checkAuthorize, clientLimitKey, exchangeCode, issueCode, publicOrigin, registerClient } from './oauth';
-import { LIMITS, REGISTER_HOST_WARN, RateLimitError, clientIp, enforce } from './rate-limit';
+import { BLOCK_LIMITED, RateLimitError, blockOf, clientIp, enforce } from './rate-limit';
 
 const TOO_MANY = 'Too many new EarnKit connections from this address.';
 const TOO_MANY_CLIENT = 'Too many new EarnKit connections from this agent today.';
@@ -37,7 +37,11 @@ export async function tokenPost(request: Request) {
       // Every address counts on the one floor first; a hosted client only gets a higher per-client ceiling (v6.1.7, B5).
       let limit = 'installHour';
       try {
-        await enforce('installHour', clientIp(request.headers), TOO_MANY);
+        const ip = clientIp(request.headers);
+        await enforce('installHour', ip, TOO_MANY);
+        // B1 (v6.1.13): each address block a day, so one network never spends another's installs.
+        limit = 'installBlock';
+        await enforce('installBlock', blockOf(ip), BLOCK_LIMITED, true);
         limit = hostedHost ? 'installClientHosted' : 'installClient';
         await enforce(limit as 'installClient' | 'installClientHosted', limitKey, TOO_MANY_CLIENT);
       } catch (err) {
@@ -73,9 +77,9 @@ export async function authorizeGet(request: Request, deps: AuthorizeDeps = {}) {
 }
 
 /**
- * RFC 7591 dynamic client registration, rate limited per IP for every client; a client whose
- * redirects are all one hosted service's callback also counts on that service's daily ceiling. Any
- * other client is counted per registration at the token exchange (installClient).
+ * RFC 7591 dynamic client registration, rate limited per address an hour and per address block a day for every
+ * client (v6.1.13, B1: no ceiling shared by every user of one hosted service, which one network could fill for all).
+ * Installations are counted per registration at the token exchange (installClient, installClientHosted).
  */
 export async function registerPost(request: Request) {
   let key: string | null = null;
@@ -92,13 +96,10 @@ export async function registerPost(request: Request) {
     const metadata = (typeof parsed === 'object' && parsed !== null ? parsed : {}) as { redirect_uris?: unknown; client_name?: unknown };
     const uris = Array.isArray(metadata.redirect_uris) ? metadata.redirect_uris.filter((u): u is string => typeof u === 'string') : [];
     key = clientLimitKey(uris);
-    await enforce('oauthRegister', clientIp(request.headers), 'Too many client registrations from this address.');
-    if (key) {
-      limit = 'oauthRegisterHost';
-      const r = await enforce('oauthRegisterHost', key, 'Too many client registrations from this agent today.');
-      if (r.remaining === LIMITS.oauthRegisterHost.limit - REGISTER_HOST_WARN)
-        console.warn(`[oauth] register near the daily ceiling of ${LIMITS.oauthRegisterHost.limit} (${key.slice(5)})`);
-    }
+    const ip = clientIp(request.headers);
+    await enforce('oauthRegister', ip, 'Too many client registrations from this address.');
+    limit = 'oauthRegisterBlock';
+    await enforce('oauthRegisterBlock', blockOf(ip), BLOCK_LIMITED, true);
     return json(registerClient(metadata), 201);
   } catch (err) {
     if (err instanceof RateLimitError) {
