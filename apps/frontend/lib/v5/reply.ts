@@ -206,7 +206,21 @@ export function gapLine(g: GapProgram, ruleInClosing: number | null = null, alon
   return `${head}${alone ? '' : doSentence(g.n, real)}${confirm}${rules}${attend}`;
 }
 
-function sinceLine(r: R): string | null {
+/**
+ * What waits on the builder from the time since this agent's last find (C48) and what was sent under standing
+ * approval meanwhile; a find with no project carries them too (v6.1.8 fix round 1). Pure.
+ */
+export function reportLines(r: Pick<R, 'approvals_again' | 'applied_overnight'>): string[] {
+  const out: string[] = [];
+  if (r.approvals_again)
+    out.push(r.approvals_again === 1
+      ? 'One answer waits for your approval again at earnkit.com/me.'
+      : `${r.approvals_again} answers wait for your approval again at earnkit.com/me.`);
+  if (r.applied_overnight.length > 0) out.push(`Applied under your standing approval: ${r.applied_overnight.map((a) => a.title).join(', ')}.`);
+  return out;
+}
+
+export function sinceLine(r: Pick<R, 'since' | 'ready'>): string | null {
   const s = r.since;
   if (!s.from || s.new.length + s.changed.length + s.closing.length === 0) return null;
   const parts: string[] = [];
@@ -316,11 +330,7 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   const tonight = tonightList.length;
   const before = beforeTonight(r, tonight > 0);
   if (before) blocks.push(before);
-  if (r.approvals_again)
-    blocks.push(r.approvals_again === 1
-      ? 'One answer waits for your approval again at earnkit.com/me.'
-      : `${r.approvals_again} answers wait for your approval again at earnkit.com/me.`);
-  if (r.applied_overnight.length > 0) blocks.push(`Applied under your standing approval: ${r.applied_overnight.map((a) => a.title).join(', ')}.`);
+  blocks.push(...reportLines(r));
   if (r.evidence_summary) blocks.push(r.evidence_summary.line);
   // What the read was, once each, just before the closing (money first stays first).
   const notes = [...new Set(r.repo_notes ?? [])];

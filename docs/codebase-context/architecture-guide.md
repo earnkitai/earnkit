@@ -291,7 +291,7 @@ program, the migration never downgrades (v6.1.8 B15): a result (won, rejected, n
 claim or a skip; of two equal statuses the newer `at` stays; the losing row is dropped (history is all kept). Deleting
 the account (`deleteBuilder`) marks each linked installation (`unlinked_at`, `unlinked_reason = 'deleted'`), so its
 next `find` or `record` call says "Your record was deleted at earnkit.com/me; this agent is unlinked." once (C51). A
-find with no project stamps `last_find_at` too, so the linked notice shows once (C47). A second agent links to the same builder; an installation linked to another builder is refused.
+find with no project stamps `last_find_at` too, so the linked notice shows once (C47). Linked, that open list carries the report a project find would (the since line, the answers waiting again, "Applied under your standing approval: ...") in its closing block, so the stamp never swallows it. A second agent links to the same builder; an installation linked to another builder is refused.
 
 **The record and approvals.** One JSON record per builder (`record.ts`, strict): person, team, company, projects
 (several, each with its own answers), docs (links only), traction, the answer bank and the policy, with `meta[path] =

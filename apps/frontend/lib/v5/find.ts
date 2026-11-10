@@ -4,7 +4,7 @@
  * open list. Linked, it also reads the builder's record (lib/v6/find-record.ts). EarnKit writes no prose.
  */
 import { z } from 'zod';
-import { ownerKey, takeUnlinkedNotice, unlinkedReason } from '../v6/builders';
+import { getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason } from '../v6/builders';
 import { appliedOvernight, releaseStale } from '../v6/claims';
 import { readEvidence, type Evidence, type Subject } from '../v6/evidence';
 import { blockersOf, notNever, missingFor, provisionalGate, provisionalTier, recordSide, storedRecordContext, storedTierOf, tierGate, type Blocker, type RecordSide } from '../v6/find-record';
@@ -22,7 +22,7 @@ import { getProgram, isOpen, listOpenPrograms, type ProgramRow } from './program
 import { parseProject, type Project } from './project-input';
 import { rankGaps, rankReady, shownGapsOf } from './rank';
 import { repoFacts, type RepoFacts, type RepoNote } from './repo-facts';
-import { AGENT_FIELDS, CUT_NOTE, RULE_NOTE, agentNote, canDo, closingLine, gapAction, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyText, ruleSentence, signInOnly } from './reply';
+import { AGENT_FIELDS, CUT_NOTE, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyText, ruleSentence, signInOnly } from './reply';
 import { since, type Since } from './since';
 
 export const FindInput = z.object({
@@ -298,20 +298,42 @@ async function openList(ctx: FindContext, problem: string | null): Promise<FindR
   const list = programs.length > 0 ? `Open now:\n${lines.join('\n')}\nTell me which project and I'll match it.` : "Nothing is open right now. I'll say when something opens.";
   // After an unlink the notice carries the link, in place of the plain sign-in line.
   const unlinkedNow = ctx.builderId === null && notice !== null;
+  // Linked, the report a project find would give from this agent's last find (fix round 1): what moved, the answers
+  // that wait again (C48) and what was sent under standing approval, in the closing block, since this find stamps.
+  const report = ctx.builderId === null ? null : await linkedReport(ctx, programs);
+  const closing = report ? [sinceLine(report), ...reportLines(report), notice].filter(Boolean).join(' ') : '';
   const reply = {
-    show_to_builder: unlinkedNow ? `${list}\n\n${notice}` : [link ? `${list}\n\n${signInLine(link)}` : list, notice].filter(Boolean).join(' '),
+    show_to_builder: unlinkedNow
+      ? `${list}\n\n${notice}`
+      : report
+        ? (closing ? `${list}\n\n${closing}` : list)
+        : [link ? `${list}\n\n${signInLine(link)}` : list, notice].filter(Boolean).join(' '),
     agent_note: [
       ...(problem ? [`The project was not read: ${problem}.`] : []),
       'Pass the project next time (name, description, repo_url, chains, live_url) so EarnKit can match it and pre-fill each form.',
     ].join('\n'),
-    since: { from: null, new: [], changed: [], closing: [] },
+    since: report?.since ?? { from: null, new: [], changed: [], closing: [] },
     ready: [], gaps: [], ledger, ask_outcome: [], as_reported: false, ...unlinkedPart(), linked: ctx.builderId !== null,
+    ...(report ? { applied_overnight: report.applied_overnight, ...(report.approvals_again ? { approvals_again: report.approvals_again } : {}) } : {}),
     ...(link ? { sign_in: link } : {}), linked_notice: notice,
   };
   // A find with no project is a find too (v6.1.8 C47): the linked notice shows once. The gaps stay as they were.
   await markFind(ctx.installationId, ctx.now);
   await noticeTaken(ctx, notice);
   return reply;
+}
+
+/** A linked open list's report from this agent's last find: since, the overnight sends and the answers waiting again. */
+async function linkedReport(ctx: FindContext, programs: ProgramRow[]) {
+  const owner = ownerOf(ctx);
+  const last = await lastFindAt(ctx.installationId);
+  const record = await getRecord(ctx.builderId!);
+  return {
+    since: await since(owner, last, programs, [], ctx.now),
+    ready: [] as ReadyProgram[],
+    applied_overnight: await appliedOvernight(owner, last),
+    approvals_again: unapprovedSince(record, last),
+  };
 }
 
 /**

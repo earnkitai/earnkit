@@ -1414,3 +1414,28 @@ test('C48: when another agent\'s change takes answers back from approval, the ne
   const third = await mcpCall({ ...c, now: new Date(later.getTime() + 2 * H) }, 'find', { project: PROJECT });
   assert.equal(third.reply!.approvals_again, undefined);
 });
+
+test('fix round 1: a linked find with no project reports the overnight sends and answers waiting again; the next project find does not repeat them', async () => {
+  const { getRecord, saveRecord } = await import('../v6/builders');
+  const { mergeRecord } = await import('../v6/record');
+  const { record } = await import('./ledger');
+  const rec2 = { ...OWNER_RECORD, answers: { why_you: { text: 'We ship.' } } };
+  const { id, builderId } = await linkedWith(rec2, ['answers.why_you']);
+  const c = { ...ctx(id), builderId, evidence: LIVE };
+  await mcpCall(c, 'find', { project: PROJECT });
+  const night = new Date(NOW.getTime() + 8 * H);
+  const [p] = (await sql()`SELECT id, file->>'title' AS title FROM programs WHERE id = 'z-fellows'`) as unknown as { id: string; title: string }[];
+  const sent = await record(`b:${builderId}`, p.id, 'applied', { installationId: id, now: night, submitted_by: 'agent', autoApplied: true });
+  assert.equal(sent.ok, true);
+  await saveRecord(builderId, mergeRecord(await getRecord(builderId), { answers: { why_you: { short: 'Ship.' } } }, 'agent', night).record, night);
+  const morning = new Date(NOW.getTime() + 20 * H);
+  const list = await mcpCall({ ...c, now: morning }, 'find', {});
+  const show = list.reply!.show_to_builder as string;
+  assert.ok(show.includes(`Applied under your standing approval: ${p.title}.`), show);
+  assert.ok(show.includes('One answer waits for your approval again at earnkit.com/me.'), show);
+  assert.deepEqual((list.reply!.applied_overnight as { program_id: string }[]).map((x) => x.program_id), ['z-fellows']);
+  assert.equal(list.reply!.approvals_again, 1);
+  const next = await mcpCall({ ...c, now: new Date(morning.getTime() + H) }, 'find', { project: PROJECT });
+  assert.deepEqual(next.reply!.applied_overnight, []);
+  assert.doesNotMatch(next.reply!.show_to_builder as string, /Applied under your standing approval|wait for your approval again|waits for your approval again/);
+});
