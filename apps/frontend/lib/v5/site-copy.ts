@@ -23,13 +23,14 @@ export function programKind(c: { investment?: boolean; in_person?: boolean; rewa
 }
 
 export const HERO_TITLE = 'Get funded for what you ship.';
-export const HERO_SUB = 'Your agent finds the grants and prizes you fit and applies. Free.';
+export const HERO_SUB = 'Your agent finds the grants and prizes you fit and fills the forms. Free.';
 export const CTA_INSTALL = 'Add EarnKit to your agent';
 export const NAV_INSTALL = 'Add to your agent';
 /** One line each, no titles (v6.2.0). */
-export const STEPS = ['Add EarnKit to your agent.', 'Ask what this repo can earn.', 'Say yes. It applies and tracks the result.'];
+export const STEPS = ['Add EarnKit to your agent.', 'Ask what this repo can earn.', 'Say yes. It fills the form and sends it, or hands you the draft to send.'];
 
-export const EARN_TITLE = 'This week';
+/** Several of the six are rolling, so not "this week" (v6.1.14). */
+export const EARN_TITLE = 'Open now';
 /** The link under the landing's six to /programs. */
 export const EARN_ALL = (n: number): string => `See all ${n} programs`;
 export const EARN_EMPTY = 'Nothing is open right now.';
@@ -37,7 +38,7 @@ export const ROLLING = 'Rolling';
 export const NOT_OPEN_YET = 'Not open yet';
 export const CLOSED = 'Closed';
 export const PROGRAMS_TITLE = 'Programs';
-export const PROGRAMS_DESCRIPTION = 'Every grant, hackathon and bounty EarnKit lists, with the money and the close date.';
+export const PROGRAMS_DESCRIPTION = 'Every grant, hackathon and investment EarnKit lists, with the money and the close date.';
 export const ALL_PROGRAMS = 'All programs';
 export const FOOT_CTA = 'Ask your agent what you can earn.';
 export const ART_CREDIT = 'Art: C.W. Eckersberg, 1815 · G.P. Panini, c. 1734';

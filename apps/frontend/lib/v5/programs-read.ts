@@ -48,12 +48,20 @@ export function compactUsd(usd: number): string {
   return `$${one(usd / 1_000_000)}M`;
 }
 
-/** The money a program card shows: the pool first, then the per-winner award, then the summary (v6.1.6). Pure. */
-export function moneyOf(p: Pick<Program, 'title' | 'summary' | 'investment' | 'max_award_usd' | 'pool_usd'>): string {
-  if (p.pool_usd) return `${compactUsd(p.pool_usd)} in ${/\bgrants?\b/i.test(p.title) ? 'grants' : 'prizes'}`;
-  if (p.max_award_usd) return compactUsd(p.max_award_usd);
+/** A money threshold the builder must reach (" at $10M USDG TVL"), never money paid (v6.1.14). */
+const THRESHOLD = /\s+at\s+[$€£]\s?[\d.,]+\s?[KMB]?\b.*$/i;
+
+/**
+ * The money a program card shows: the pool first, then the per-winner award, then the summary (v6.1.6). A range (a
+ * low end in the file, or a summary that says "up to") reads "Up to $900K" (v6.1.14): its top is not the award. The
+ * summary's money never carries a threshold the builder must reach. Pure.
+ */
+export function moneyOf(p: Pick<Program, 'title' | 'summary' | 'investment' | 'max_award_usd' | 'pool_usd' | 'min_award_usd'>): string {
   const prize = p.summary.split(' · ')[0];
-  return p.investment && !/\binvestment\b/i.test(prize) ? `${prize} investment` : prize;
+  if (p.pool_usd) return `${compactUsd(p.pool_usd)} in ${/\bgrants?\b/i.test(p.title) ? 'grants' : 'prizes'}`;
+  if (p.max_award_usd) return p.min_award_usd || /^up to\b/i.test(prize) ? `Up to ${compactUsd(p.max_award_usd)}` : compactUsd(p.max_award_usd);
+  const award = prize.replace(THRESHOLD, '');
+  return p.investment && !/\binvestment\b/i.test(award) ? `${award} investment` : award;
 }
 
 const closesIn = (status: ListedProgram['status'], closesAt: string | null, now: Date) =>

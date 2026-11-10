@@ -34,11 +34,13 @@ test('copy rules: no emoji, no em dash, none of the banned words', () => {
 
 test('the hero and the steps are verbatim', () => {
   assert.equal(copy.HERO_TITLE, 'Get funded for what you ship.');
-  assert.equal(copy.HERO_SUB, 'Your agent finds the grants and prizes you fit and applies. Free.');
+  assert.equal(copy.HERO_SUB, 'Your agent finds the grants and prizes you fit and fills the forms. Free.');
   assert.equal(copy.CTA_INSTALL, 'Add EarnKit to your agent');
-  assert.deepEqual(copy.STEPS, ['Add EarnKit to your agent.', 'Ask what this repo can earn.', 'Say yes. It applies and tracks the result.']);
+  assert.deepEqual(copy.STEPS, ['Add EarnKit to your agent.', 'Ask what this repo can earn.', 'Say yes. It fills the form and sends it, or hands you the draft to send.']);
   assert.ok(!('STEPS_TITLE' in copy));
-  assert.equal(copy.EARN_TITLE, 'This week');
+  assert.equal(copy.EARN_TITLE, 'Open now');
+  // v6.1.14: no bounty is listed, ten investments are.
+  assert.equal(copy.PROGRAMS_DESCRIPTION, 'Every grant, hackathon and investment EarnKit lists, with the money and the close date.');
   assert.equal(copy.EARN_ALL(45), 'See all 45 programs');
   assert.equal(copy.FOOT_CTA, 'Ask your agent what you can earn.');
   assert.equal(copy.PROGRAMS_TITLE, 'Programs');
@@ -144,9 +146,9 @@ test('no install copy mentions signing in, X, GitHub or a wallet', async () => {
   // R6: the authorize endpoint approves at once (a 302 with the code), so no copy asks the builder to approve a page.
   for (const [name, s] of all) assert.ok(!s.includes('Approve it when the page opens'), `${name}: "${s}"`);
   // Said once, in the intro line above the tabs, never again in a tab (lane 5, 2).
-  assert.equal(all.filter(([, s]) => s.includes('connects at once') || s.includes('No account needed')).length, 0);
+  assert.equal(all.filter(([, s]) => s.includes('connects at once') || s.includes('needs no account')).length, 0);
   const { CONNECTOR_LINE } = await import('./agents');
-  assert.equal(CONNECTOR_LINE, 'A connector lets your AI use EarnKit. It connects at once. No account needed.');
+  assert.equal(CONNECTOR_LINE, 'A connector lets your AI use EarnKit. It connects at once. The approve step needs no account.');
   const grok = AGENTS.find((a) => a.name === 'Grok Bot')!;
   assert.equal(grok.installNote, 'Press Enter, then "Add it" and "Authorize".');
   assert.equal(grok.steps[1], `Server URL https://earnkit.com/mcp, "Save", then "Authenticate".`);

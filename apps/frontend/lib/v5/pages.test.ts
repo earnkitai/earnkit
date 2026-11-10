@@ -73,7 +73,7 @@ test('/ shows the hero, the steps, at most six programs, the link to all of them
   const t = textOf(m);
   assert.ok(t.includes(HERO_TITLE));
   for (const step of STEPS) assert.ok(t.includes(step), step);
-  assert.ok(t.includes('This week'));
+  assert.ok(t.includes('Open now'));
   assert.ok(cardLinks(m).length <= 6, String(cardLinks(m).length));
   assert.match(t, /See all \d+ programs/);
   assert.ok(!m.includes('href="/programs/zz-page-soon"') && !m.includes('href="/programs/zz-page-shut"'));
@@ -114,7 +114,7 @@ test('the landing grid is 1, 2 then 3 columns; /programs keeps auto-fit (v6.2.0)
 
 test('no featured programs but some listed: the title, "Nothing is open right now." and the pill (v6.2.0)', () => {
   const t = textOf(html(React.createElement(Opportunities, { programs: [], total: 45 })));
-  assert.equal(t, `This week ${EARN_EMPTY} ${EARN_ALL(45)}`);
+  assert.equal(t, `Open now ${EARN_EMPTY} ${EARN_ALL(45)}`);
   assert.equal(EARN_EMPTY, 'Nothing is open right now.');
 });
 
@@ -139,7 +139,7 @@ test('a failed read: the hero and the steps, no programs and no link (v6.2.0)', 
   const t = textOf(m);
   assert.ok(t.includes(HERO_TITLE));
   for (const step of STEPS) assert.ok(t.includes(step), step);
-  assert.ok(!t.includes('This week') && !/See all/.test(t));
+  assert.ok(!t.includes('Open now') && !/See all/.test(t));
   assert.deepEqual(cardLinks(m), []);
 });
 

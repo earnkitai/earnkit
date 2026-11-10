@@ -8,6 +8,9 @@ import Money from '../site/Money';
 const BLUE = { card: 'rounded-[32px] border border-s-blue-line bg-[linear-gradient(160deg,var(--ek-s-blue-top)_0%,var(--ek-s-blue-bottom)_100%)] text-s-text', sub: 'text-s-on-navy-soft' };
 const NEUTRAL = { card: `${CARD_NEUTRAL} hover:border-s-line-hover`, sub: 'text-s-muted' };
 
+/** A range's money (v6.1.14): on a big tile, "Up to" is drawn small above the figure. */
+const UP_TO = 'Up to ';
+
 /** Marks drawn in one flat colour that may not read on white (black or white on transparent): forced black on the white tile. */
 const DARK_MARKS = new Set(['alliance-all19', 'thiel-fellowship']);
 /** Wordmarks with no square mark from the organizer: drawn 96 by 28 on a white tile as wide as the mark, like the name tile. */
@@ -45,7 +48,7 @@ export function Logo({ id, logo, organizer }: { id: string; logo: string | null;
 }
 
 /**
- * The programs grid, each card to its guide. On the landing (`full` false): "This week", the six featured
+ * The programs grid, each card to its guide. On the landing (`full` false): "Open now", the six featured
  * cards (the first blue, the rest neutral) and one white pill to /programs with the listed count; the section
  * is the `#earn` anchor the hero chip lands on; six read as 3 by 2 on a desktop, 2 by 3 on a tablet, one column on a phone. On /programs (`full`): the page title, the description line
  * and every listed program, all neutral, in auto-fit columns. Upcoming programs carry a "Not open yet" chip. With no cards,
@@ -85,8 +88,9 @@ export default function Opportunities({ programs, total, full = false }: { progr
                   </span>
                 </span>
                 <span className="mt-auto text-[16px] font-semibold [overflow-wrap:anywhere]">{t.title}</span>
+                {t.big && t.money.startsWith(UP_TO) ? <span className={`-mb-1 text-[15px] ${look.sub}`}>Up to</span> : null}
                 <span className={`ek-serif leading-[0.9] ${t.big ? 'text-[52px] md:text-[64px]' : 'text-[28px] leading-none'}`}>
-                  <Money text={t.money} />
+                  <Money text={t.big ? t.money.replace(UP_TO, '') : t.money} />
                 </span>
                 <span className={`text-[13px] ${look.sub}`}>{t.kind}</span>
               </Link>
