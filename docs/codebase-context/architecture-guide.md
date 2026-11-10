@@ -206,7 +206,9 @@ A `won` above the program's `max_award_usd`, else its `pool_usd`, else 10,000,00
 Ledger invariants (v6.1.7, `ledger.ts record`, every write under one advisory lock per owner and program, the same lock
 `claims.claim` takes, and every refusal returns before any write): one application and one result per program. A
 second `applied` from any of the builder's agents records nothing and answers "Already sent here on {day} by {agent};
-nothing recorded." A second result answers that it already has one. A program that is not open cannot be started
+nothing recorded." A second result answers that it already has one, except a second win with an amount over a win
+with one: a second payment, added to the total (under the cap) and answered "Recorded: ${n} more from {title}, ${total}
+in total."; the history keeps each payment (L15-17 v6.1.14). A program that is not open cannot be started
 ("{title} is not open; nothing to start."), and an already sent one says it was sent before that check. A win is
 capped at the program's `max_award_usd`, else its `pool_usd`, else 10,000,000, in whole dollars. A result for a
 program gone from the catalog keeps the title stored when it was sent. Another agent's live claim leaves the program
@@ -281,7 +283,7 @@ keys from tool-call bodies before anything sees them.
 | `project_reports` | The project as reported at the owner's last find, per owner and project key (v6.1.13; a find with a repo writes its name key too), read by a send's check and `resolvedKey`; moved on link, deleted with the account, swept after 180 days without a find |
 | `owner_digests` | The days a digest covered |
 | `program_reviewers` | Builders the owner marked as a program's reviewers (may call `screen`) |
-| `screen_jobs`, `screen_applicants`, `screen_outcomes` | Screen jobs (30 days), each applicant's tier, because, line, public rows and deployers (no pitch column), and the program's outcomes; the counts across programs read only these |
+| `screen_jobs`, `screen_applicants`, `screen_outcomes` | Screen jobs (30 days), each applicant's tier, because, line, public rows and deployers (no pitch column), and the program's outcomes; they belong to the program (`builder_id` NULL once its reviewer deleted their account); the program's own counts read only these |
 
 v4 tables stay in the production database, unread. `pnpm db:v4-tables` lists them with row counts and prints
 DROP statements; it never runs them. Dropping is an owner step after a backup.
@@ -546,13 +548,24 @@ applicant row's `application_id`: the id `track started` answered the builder's 
 form's reference field (`applications.application_id`, issued by `claims.claim`, kept by the send, carried on a link
 merge), for this program; never by repo or site (L13-1, T5-F1 v6.1.14). An id on more than one applicant of the
 program (any other row in any screen of it, expired too; facts and refs never make two rows one applicant) is
-ambiguous and reaches no ledger (T5-F3); only the reviewer's `requeue: true` on a row supersedes the earlier screens'
-rows with its id, and an earlier row a later requeued row replaced is named as such (fix round 3). The CSV path reads an
+ambiguous and reaches no ledger (T5-F3). A row is not live only when a later row's `requeue: { job_id, ref }` names it
+exactly; `badRequeues` refuses the whole list when the named row is not in a screen of the same program with the same
+id (or the requeued row has none), so a copied id always clashes (Task 8 security follow-up, v6.1.14); an earlier row a
+requeue names is answered as superseded. Jobs and outcomes belong to the program (L15-12): `jobStatus`, `jobResults`
+and `recordOutcomes` take any reviewer marked on the job's program (`program_reviewers`), so a colleague reads,
+continues and requeues the program's rows; `deleteBuilder` leaves them, `screen_jobs.builder_id` set to NULL (L15-18).
+An outcome on the reviewer's own application (owner `b:` the reviewer, or `i:` an installation linked to them) is not
+written and the owner hears "You applied to this one; another reviewer posts its result." (L15-1, Review Focus 10);
+the rest of the batch goes on. A second win on one applicant adds to the screen's and the ledger's total (L15-17).
+Results come 25 applicants a page (`PAGE_SIZE`, `page` from 1); the totals line ends "Ask for page {n} for the rest."
+and the reply carries `next_page`, null on the last (L15-3). The CSV path reads an
 `application_id` column too (T5-F2). A row without one is named in the note as "Not matched to an
 EarnKit application"; a win with no amount is passed on as a win with none (`amount not given`, L13-13); a second
 outcome replaces the first only when not older, and the note names what it replaced (L13-12). The notes never say
-whether a ledger took it. `xpCounts` gives each read the screens by other programs in 90 days sharing the
-repo or a deployer ("seen in n other screens in 90 days", never a flag, never a program name).
+whether a ledger took it. `xpCounts` gives each read the program's own earlier screens in 90 days sharing the repo
+or a deployer and the outcomes it reported ("seen in n earlier screens of this program in 90 days", never a flag);
+another program's screens and outcomes are never counted or shown (L15-11 v6.1.14, as the terms say). Marking a
+reviewer again without a contact keeps the saved one (L15-2).
 
 **/me.** `proxy.ts` sends a visitor without a live session to `/docs#record` (302, `me-routes.ts meGet`).
 `app/me/page.tsx` renders `meData` (`me-view.ts`) through `MeView.tsx`: pending approvals first, then one panel per
