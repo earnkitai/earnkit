@@ -235,9 +235,9 @@ test('applied sets auto_applied from the builder record at that moment; unlinked
   const linked = { ...c, builderId: b.id };
   await upsertProgram(programFixture({ id: 't6-on', title: 'On' }), 'file', NOW);
   await upsertProgram(programFixture({ id: 't6-off', title: 'Off' }), 'file', NOW);
-  await track(linked, { program_id: 't6-off', status: 'applied', submitted_by: 'agent' });
+  await track(linked, { program_id: 't6-off', status: 'applied', submitted_by: 'agent', fields_used: ['project_name'] });
   await saveRecord(b.id, mergeRecord(EMPTY_RECORD, { policy: { auto_apply: true } }, 'builder', NOW).record, NOW);
-  await track(linked, { program_id: 't6-on', status: 'applied', submitted_by: 'agent' });
+  await track(linked, { program_id: 't6-on', status: 'applied', submitted_by: 'agent', fields_used: ['project_name'] });
   // With standing approval on, a form the builder sent themselves is still not an auto-applied one.
   await upsertProgram(programFixture({ id: 't6-self', title: 'Self' }), 'file', NOW);
   await track(linked, { program_id: 't6-self', status: 'applied', submitted_by: 'builder' });
@@ -400,7 +400,7 @@ test('B18: an agent send is under standing approval only within every limit; oth
   const linked = { ...c, builderId: b.id };
   const policy = (p: Record<string, unknown>) =>
     saveRecord(b.id, mergeRecord(EMPTY_RECORD, { policy: { auto_apply: true, max_per_night: 1, categories: ['grant'], ...p } }, 'builder', NOW).record, NOW);
-  const send = (id: string, at = NOW) => track({ ...linked, now: at }, { program_id: id, status: 'applied', submitted_by: 'agent' });
+  const send = (id: string, at = NOW) => track({ ...linked, now: at }, { program_id: id, status: 'applied', submitted_by: 'agent', fields_used: ['project_name'] });
   const auto = async (id: string) => (await sql()`SELECT auto_applied FROM applications WHERE owner = ${'b:' + b.id} AND program_id = ${id}`)[0].auto_applied;
   const p = (id: string, over: Record<string, unknown> = {}) => upsertProgram(programFixture({ id, title: id, ...over }), 'file', NOW);
   await p('b18-a', { category: 'grant' });
@@ -448,18 +448,18 @@ test('Review Focus 4 (v6.1.9 N2): recording an old win today does not use tonigh
   for (const id of ['rf4-old', 'rf4-new', 'rf4-next', 'rf4-legacy']) await upsertProgram(programFixture({ id, title: id, category: 'grant', max_award_usd: 5000 }), 'file', NOW);
   const owner = 'b:' + b.id;
   const threeDaysAgo = new Date(NOW.getTime() - 3 * 86_400_000);
-  const sent = await track({ ...linked, now: threeDaysAgo }, { program_id: 'rf4-old', status: 'applied', submitted_by: 'agent' });
+  const sent = await track({ ...linked, now: threeDaysAgo }, { program_id: 'rf4-old', status: 'applied', submitted_by: 'agent', fields_used: ['project_name'] });
   assert.equal(sent.show_to_builder, "Tracked. I'll ask how it went when results are due.");
   // The result lands today: it moves `at`, never the send time.
   assert.equal((await track(linked, { program_id: 'rf4-old', status: 'won', amount_usd: 1000 })).show_to_builder, 'Recorded: $1,000 from rf4-old.');
   const [old] = await sql()`SELECT sent_at, at FROM applications WHERE owner = ${owner} AND program_id = 'rf4-old'`;
   assert.equal((old.sent_at as Date).toISOString(), threeDaysAgo.toISOString());
   assert.equal((old.at as Date).toISOString(), NOW.toISOString());
-  const today = await track({ ...linked, now: new Date(NOW.getTime() + 60_000) }, { program_id: 'rf4-new', status: 'applied', submitted_by: 'agent' });
+  const today = await track({ ...linked, now: new Date(NOW.getTime() + 60_000) }, { program_id: 'rf4-new', status: 'applied', submitted_by: 'agent', fields_used: ['project_name'] });
   assert.equal(today.show_to_builder, "Tracked. I'll ask how it went when results are due.");
   assert.equal((await sql()`SELECT auto_applied FROM applications WHERE owner = ${owner} AND program_id = 'rf4-new'`)[0].auto_applied, true);
   // The second send today is past the limit.
-  const next = await track({ ...linked, now: new Date(NOW.getTime() + 120_000) }, { program_id: 'rf4-next', status: 'applied', submitted_by: 'agent' });
+  const next = await track({ ...linked, now: new Date(NOW.getTime() + 120_000) }, { program_id: 'rf4-next', status: 'applied', submitted_by: 'agent', fields_used: ['project_name'] });
   assert.equal(next.show_to_builder, 'Sent, but outside your standing approval: the nightly limit was reached.');
 });
 
@@ -474,7 +474,7 @@ test('N2 (v6.1.9): a row from before the send time was kept counts by its at', a
   await upsertProgram(programFixture({ id: 'n2-now', title: 'n2-now', category: 'grant' }), 'file', NOW);
   await sql()`INSERT INTO applications (owner, installation_id, program_id, status, at, auto_applied)
     VALUES (${'b:' + b.id}, ${c.installationId}, 'n2-legacy', 'applied', ${new Date(NOW.getTime() - 3_600_000)}, true)`;
-  const r = await track({ ...c, builderId: b.id }, { program_id: 'n2-now', status: 'applied', submitted_by: 'agent' });
+  const r = await track({ ...c, builderId: b.id }, { program_id: 'n2-now', status: 'applied', submitted_by: 'agent', fields_used: ['project_name'] });
   assert.equal(r.show_to_builder, 'Sent, but outside your standing approval: the nightly limit was reached.');
 });
 
@@ -492,7 +492,7 @@ test('N1 (v6.1.9): the tonight list leaves out the sends already made under stan
   const project = { name: 'N1 App', description: 'An app for builders.', live_url: 'https://n1.example', users: true };
   const closing = async () => ((await find({ ...a2, builderId: b.id }, { project })) as { show_to_builder: string }).show_to_builder.split('\n\n').at(-1);
   assert.match((await closing())!, /^Applying tonight to /);
-  await track({ ...a, builderId: b.id }, { program_id: 'n1-alpha', status: 'applied', submitted_by: 'agent' });
+  await track({ ...a, builderId: b.id }, { program_id: 'n1-alpha', status: 'applied', submitted_by: 'agent', fields_used: ['project_name'] });
   assert.match((await closing())!, /^Tonight's limit is used; the next sends wait until tomorrow\. Say yes and I apply/);
   // A day later the room is back.
   const tomorrow = ((await find({ ...a2, builderId: b.id, now: new Date(NOW.getTime() + 86_400_000 + 60_000) }, { project })) as { show_to_builder: string }).show_to_builder;
@@ -510,4 +510,103 @@ test('C51 (v6.1.9): track as the first call after the account was deleted carrie
   assert.equal(first.show_to_builder, 'Your record was deleted at earnkit.com/me; this agent is unlinked. Started.');
   const second = await track(c, { program_id: 'c51-t', status: 'applied', submitted_by: 'agent' });
   assert.equal(second.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+});
+
+test('S6 (v6.1.9): a send under standing approval with a required answer left out is recorded as not approved', async () => {
+  const { linkInstallation, saveRecord, upsertBuilder } = await import('../v6/builders');
+  const { EMPTY_RECORD, mergeRecord } = await import('../v6/record');
+  const c = await ctx();
+  const b = await upsertBuilder({ github_id: 930_201, login: 's6', name: 'S', avatar_url: null }, NOW);
+  await linkInstallation(c.installationId, b.id, NOW);
+  await saveRecord(b.id, mergeRecord(EMPTY_RECORD, { policy: { auto_apply: true, max_per_night: 5, categories: ['grant'] } }, 'builder', NOW).record, NOW);
+  const two = [
+    { key: 'project_name', label: 'Project name', type: 'text', required: true, from: 'project', kind: 'name', todo: 'a project name' },
+    { key: 'problem', label: 'The problem', type: 'text', required: true, from: 'builder', kind: 'problem', todo: 'the problem' },
+    { key: 'extra', label: 'Anything else', type: 'text', required: false, from: 'builder', kind: 'other', todo: 'anything else' },
+  ];
+  for (const id of ['s6-short', 's6-none', 's6-full']) await upsertProgram(programFixture({ id, title: id, category: 'grant', submission_requirements: two as never }), 'file', NOW);
+  const owner = 'b:' + b.id;
+  const auto = async (id: string) => (await sql()`SELECT auto_applied FROM applications WHERE owner = ${owner} AND program_id = ${id}`)[0].auto_applied;
+  const short = await track({ ...c, builderId: b.id }, { program_id: 's6-short', status: 'applied', submitted_by: 'agent', fields_used: ['project_name', 'extra'] });
+  assert.equal(short.show_to_builder, 'Sent, but outside your standing approval: a required answer was missing.');
+  assert.equal(await auto('s6-short'), false);
+  const none = await track({ ...c, builderId: b.id }, { program_id: 's6-none', status: 'applied', submitted_by: 'agent' });
+  assert.equal(none.show_to_builder, 'Sent, but outside your standing approval: a required answer was missing.');
+  assert.equal(await auto('s6-none'), false);
+  const full = await track({ ...c, builderId: b.id }, { program_id: 's6-full', status: 'applied', submitted_by: 'agent', fields_used: ['project_name', 'problem'] });
+  assert.equal(full.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal(await auto('s6-full'), true);
+});
+
+test('v6.1.9: started on an in-person or builder-only program tells the agent the builder presses submit', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 'bs-room', title: 'Room', in_person: true }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'bs-self', title: 'Self', submit: 'builder' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'bs-agent', title: 'Agent' }), 'file', NOW);
+  for (const id of ['bs-room', 'bs-self']) {
+    const r = await track(c, { program_id: id, status: 'started' });
+    assert.equal(r.show_to_builder, 'Started.', id);
+    assert.ok(r.agent_note.includes('The builder presses submit; prepare the answers and hand them over.'), id);
+    assert.doesNotMatch(r.agent_note, /fields, submit,/);
+  }
+  const plain = await track(c, { program_id: 'bs-agent', status: 'started' });
+  assert.equal(plain.agent_note, 'Fill the form from the fields, submit, then call track with applied, submitted_by and fields_used.');
+});
+
+test('v6.1.9: applied as the first call after the account was deleted answers the notice alone and writes nothing', async () => {
+  const { deleteBuilder, linkInstallation, upsertBuilder } = await import('../v6/builders');
+  const c = await ctx();
+  const b = await upsertBuilder({ github_id: 930_202, login: 'gone', name: 'G', avatar_url: null }, NOW);
+  await linkInstallation(c.installationId, b.id, NOW);
+  await deleteBuilder(b.id, NOW);
+  await upsertProgram(programFixture({ id: 'del-a', title: 'Del Grant' }), 'file', NOW);
+  const r = await track(c, { program_id: 'del-a', status: 'applied', submitted_by: 'agent' });
+  assert.equal(r.show_to_builder, 'Your record was deleted at earnkit.com/me; this agent is unlinked.');
+  assert.match(r.agent_note, /^Nothing was recorded/);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE installation_id = ${c.installationId}`)[0].n, 0);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM application_history WHERE installation_id = ${c.installationId}`)[0].n, 0);
+  // The notice is said once; the next send is this installation's own.
+  const again = await track(c, { program_id: 'del-a', status: 'applied', submitted_by: 'agent' });
+  assert.equal(again.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+});
+
+test('v6.1.9: applied after the program closed is recorded and says so', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 'cl-late', title: 'Late Grant', ends_at: '2026-11-04T03:14:00Z' }), 'file', NOW);
+  const r = await track(c, { program_id: 'cl-late', status: 'applied', submitted_by: 'builder' });
+  assert.equal(r.show_to_builder, 'Late Grant closed on Nov 4; recorded anyway.');
+  assert.equal(r.ledger.applied, 1);
+});
+
+test('v6.1.9: a second skip says it is already skipped', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 'sk-two', title: 'Skip Two' }), 'file', NOW);
+  assert.equal((await track(c, { program_id: 'sk-two', status: 'skipped' })).show_to_builder, "Skipped Skip Two. I won't bring it up again.");
+  assert.equal((await track(c, { program_id: 'sk-two', status: 'skipped' })).show_to_builder, 'Already skipped.');
+});
+
+test('v6.1.9: the night routine\'s find before a send under standing approval leaves the overnight report for the morning', async () => {
+  const { linkInstallation, saveRecord, upsertBuilder } = await import('../v6/builders');
+  const { EMPTY_RECORD, mergeRecord } = await import('../v6/record');
+  const { find } = await import('./find');
+  const c = await ctx();
+  const b = await upsertBuilder({ github_id: 930_203, login: 'night', name: 'N', avatar_url: null }, NOW);
+  await linkInstallation(c.installationId, b.id, NOW);
+  await saveRecord(b.id, mergeRecord(EMPTY_RECORD, { policy: { auto_apply: true, max_per_night: 1, categories: ['grant'] } }, 'builder', NOW).record, NOW);
+  for (const id of ['nf-a', 'nf-b']) await upsertProgram(programFixture({ id, title: id, category: 'grant' }), 'file', NOW);
+  const linked = (h: number) => ({ ...c, builderId: b.id, now: new Date(NOW.getTime() + h * 3_600_000) });
+  const project = { name: 'Night App', description: 'An app.', live_url: 'https://night.example', users: true };
+  const send = (h: number, id: string) => track(linked(h), { program_id: id, status: 'applied', submitted_by: 'agent', fields_used: ['project_name'] });
+  await find(linked(0), { project });
+  // Night 1: the routine's find, then a send.
+  await find(linked(10), { project });
+  await send(10.1, 'nf-a');
+  // Night 2: the routine's find sees night 1's send, then sends again.
+  await find(linked(34), { project });
+  await send(34.1, 'nf-b');
+  const morning = (await find(linked(40), { project })) as { applied_overnight: { program_id: string }[] };
+  assert.deepEqual(morning.applied_overnight.map((x) => x.program_id), ['nf-a', 'nf-b']);
+  // The morning find was the builder's: the next one starts after it.
+  const later = (await find(linked(41), { project })) as { applied_overnight: unknown[] };
+  assert.deepEqual(later.applied_overnight, []);
 });

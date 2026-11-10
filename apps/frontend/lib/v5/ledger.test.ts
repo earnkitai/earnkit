@@ -310,3 +310,16 @@ test('a b: owner without the writing installation is refused', async () => {
   await prog('l-b-none');
   await assert.rejects(record(`b:${2 ** 30 + 1}`, 'l-b-none', 'applied', { now: NOW }));
 });
+
+test('v6.1.9: with no results date, EarnKit asks 30 days after the send', async () => {
+  const i = await install();
+  const a = await prog('ao-nodate-a');
+  const b = await prog('ao-nodate-b');
+  assert.equal(a.file.results_due ?? null, null);
+  await record(o(i), 'ao-nodate-a', 'applied', { now: new Date(NOW.getTime() - 31 * DAY) });
+  await record(o(i), 'ao-nodate-b', 'applied', { now: new Date(NOW.getTime() - 29 * DAY) });
+  assert.deepEqual((await askOutcome(o(i), [a, b], NOW)).map((x) => x.program_id), ['ao-nodate-a']);
+  await markAsked(o(i), ['ao-nodate-a'], NOW);
+  assert.deepEqual(await askOutcome(o(i), [a, b], NOW), []);
+  assert.deepEqual((await askOutcome(o(i), [a, b], new Date(NOW.getTime() + 2 * DAY))).map((x) => x.program_id), ['ao-nodate-b']);
+});

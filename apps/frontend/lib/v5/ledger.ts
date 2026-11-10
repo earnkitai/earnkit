@@ -7,7 +7,7 @@
  */
 import { sql, type Db } from './db';
 import { categoryOf, eligibilityOf } from './program-file';
-import { itemKey } from './eligibility';
+import { codeChecked, itemKey } from './eligibility';
 import { getProgram, programsById, type ProgramRow } from './programs';
 
 /** gap_done without a known item (v6.1.8, 3.10): the builder names the change, the agent gets the item keys. */
@@ -56,7 +56,7 @@ const installationOf = (owner: string): number | undefined => (/^i:(\d+)$/.exec(
 
 const usd = (n: number) => '$' + Math.round(n).toLocaleString('en-US');
 /** "Nov 4": a day in UTC. Pure. */
-const dayOf = (d: Date) => new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(d);
+export const dayOf = (d: Date) => new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(d);
 /** "won $3,000", "rejected", "no result": a row's result in words. Pure. */
 const resultWords = (status: string, amount: string | null) =>
   status === 'won' ? `won ${usd(Number(amount ?? 0))}` : status === 'no_result' ? 'no result' : status;
@@ -229,6 +229,13 @@ export async function doneItems(owner: string, programId: string): Promise<Set<s
   return new Set(rows.map((r) => r.item));
 }
 
+/** When the owner last marked a code-checked step done (v6.1.9 S4), or null: a repo read cached before it is stale. */
+export async function codeDoneAt(owner: string): Promise<Date | null> {
+  const rows = await sql()<{ item: string; at: Date }[]>`SELECT item, at FROM gaps_done WHERE owner = ${owner}`;
+  const times = rows.filter((r) => codeChecked(r.item)).map((r) => r.at.getTime());
+  return times.length > 0 ? new Date(Math.max(...times)) : null;
+}
+
 /** Every closed gap item of the owner, by program: one query for a whole find. */
 export async function doneByProgram(owner: string): Promise<Map<string, Set<string>>> {
   const rows = await sql()<{ program_id: string; item: string }[]>`
@@ -238,19 +245,25 @@ export async function doneByProgram(owner: string): Promise<Map<string, Set<stri
   return out;
 }
 
-/** Applied programs whose results date has passed and that the builder has not been asked about. */
+/** Days after the send EarnKit asks how it went, for a program with no results date (v6.1.9). */
+export const ASK_AFTER_DAYS = 30;
+
+/**
+ * Applied programs whose results date has passed and that the builder has not been asked about. A program with no
+ * results date is asked about ASK_AFTER_DAYS after the send (its sent_at, else its at for a row from before v6.1.9).
+ */
 export async function askOutcome(owner: string, programs: ProgramRow[], now: Date): Promise<{ program_id: string; title: string }[]> {
-  const rows = await sql()<{ program_id: string }[]>`
-    SELECT program_id FROM applications
+  const rows = await sql()<{ program_id: string; sent: Date }[]>`
+    SELECT program_id, COALESCE(sent_at, at) AS sent FROM applications
     WHERE owner = ${owner} AND status = 'applied' AND asked_outcome_at IS NULL`;
-  const open = new Set(rows.map((r) => r.program_id));
-  const byId = await withOwn([...open], programs);
-  return [...open]
+  const sent = new Map(rows.map((r) => [r.program_id, r.sent]));
+  const byId = await withOwn([...sent.keys()], programs);
+  return [...sent.keys()]
     .map((id) => byId.get(id))
     .filter((p): p is ProgramRow => p !== undefined)
     .filter((p) => {
-      const d = resultsDate(p);
-      return d !== null && d.getTime() <= now.getTime();
+      const d = resultsDate(p) ?? new Date(sent.get(p.id)!.getTime() + ASK_AFTER_DAYS * DAY);
+      return d.getTime() <= now.getTime();
     })
     .map((p) => ({ program_id: p.id, title: p.file.title }));
 }

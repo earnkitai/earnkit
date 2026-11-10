@@ -208,6 +208,12 @@ export function outsideApproval(record: BuilderRecord, row: ProgramRow): string 
 }
 /** The reason when the night's sends under standing approval already reached max_per_night. */
 export const NIGHT_LIMIT = 'the nightly limit was reached';
+/** The reason when an agent's send under standing approval left a required answer out (v6.1.9 S6). */
+export const REQUIRED_MISSING = 'a required answer was missing';
+
+/** The program's required field keys that `fieldsUsed` does not name (none sent: all of them). Pure. */
+export const requiredLeftOut = (row: ProgramRow, fieldsUsed: string[] | undefined): string[] =>
+  row.file.submission_requirements.filter((r) => r.required && !(fieldsUsed ?? []).includes(r.key)).map((r) => r.key);
 
 /** The sign-in a blocker names: the kind, or the platform's name. Pure. */
 const signInOf = (row: ProgramRow): string | null =>

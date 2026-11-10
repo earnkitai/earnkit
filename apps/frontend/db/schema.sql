@@ -101,6 +101,9 @@ ALTER TABLE installations ADD COLUMN IF NOT EXISTS client_name text;
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS last_find_at timestamptz;
 -- The last find's gaps: program_id to the first gap's what; track started reads it.
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS last_gaps jsonb;
+-- The find before the last one: an agent's send under standing approval puts last_find_at back to it, so the night
+-- routine's own find never takes the overnight report from the builder (v6.1.9).
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS prev_find_at timestamptz;
 
 -- Fixed-window request counters. Old windows are deleted as new ones start.
 CREATE TABLE IF NOT EXISTS rate_windows (

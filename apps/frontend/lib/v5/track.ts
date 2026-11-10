@@ -6,10 +6,10 @@ import { z } from 'zod';
 import { getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason } from '../v6/builders';
 import { DELETED_NOTICE } from '../v6/reply-words';
 import { claim } from '../v6/claims';
-import { NIGHT_LIMIT, outsideApproval } from '../v6/find-record';
-import { forgetGap, lastGaps } from './installations';
-import { getProgram, listOpenPrograms } from './programs';
-import { doneItems, record, summary, titleOf, type Ledger, type Status } from './ledger';
+import { NIGHT_LIMIT, REQUIRED_MISSING, outsideApproval, requiredLeftOut } from '../v6/find-record';
+import { forgetGap, lastGaps, unmarkNightFind } from './installations';
+import { getProgram, isOpen, listOpenPrograms } from './programs';
+import { dayOf, doneItems, record, summary, titleOf, type Ledger, type Status } from './ledger';
 import { clock } from './reply';
 import { codeChecked, itemKey } from './eligibility';
 import { eligibilityOf } from './program-file';
@@ -56,7 +56,26 @@ async function knownProject(builderId: number | null, projectId: string): Promis
   return builderId !== null && (await getRecord(builderId)).projects.some((p) => p.id === projectId);
 }
 
+/** The agent's next step on a program the builder presses submit on (in person, or builder-only; v6.1.9). */
+export const BUILDER_SUBMITS = 'The builder presses submit; prepare the answers and hand them over.';
+/** After track started: fill and submit, or (`builderSubmits`) fill and hand over. */
+const sendNote = (builderSubmits: boolean) =>
+  builderSubmits
+    ? `Fill the form from the fields. ${BUILDER_SUBMITS} Once it is sent, call track with applied, submitted_by builder and fields_used.`
+    : 'Fill the form from the fields, submit, then call track with applied, submitted_by and fields_used.';
+
 export async function track(ctx: TrackContext, input: unknown): Promise<Result> {
+  // v6.1.9: a send tracked as the first call after the account was deleted writes nothing; the notice alone answers.
+  const sending = (input as { status?: unknown } | null)?.status === 'applied';
+  if (sending && ctx.builderId === null && (await unlinkedReason(ctx.installationId)) === 'deleted') {
+    const owner = ownerKey(ctx.installationId, null);
+    const r: Result = {
+      show_to_builder: DELETED_NOTICE,
+      agent_note: 'Nothing was recorded: the builder deleted their record and this agent is unlinked. Ask the builder before you track this send again.',
+      ledger: await summary(owner, await listOpenPrograms(ctx.now), ctx.now),
+    };
+    if (await takeUnlinkedNotice(ctx.installationId)) return r;
+  }
   const r = await answer(ctx, input);
   // C51 (v6.1.9): the first call after the account was deleted carries the notice, track as well as find and record;
   // taken once the reply is built, so a throw keeps it for the next call.
@@ -122,6 +141,7 @@ async function act(
       };
     // The last find called this one a gap: say what was still missing, so it is fixed before the form goes in. Not
     // when the builder (through any of their agents) has since closed that item (v6.1.7, C23).
+    const builderSubmits = program.file.in_person || program.file.submit === 'builder';
     const gap = (await lastGaps(ctx.installationId))[program.id];
     if (gap && !(gap.item && (await doneItems(owner, program.id)).has(gap.item)))
       return gap.kind === 'rule'
@@ -132,13 +152,13 @@ async function act(
           }
         : {
             show_to_builder: `Started. When I last looked it was still one change away: ${gap.what}. Make sure that is done first.`,
-            agent_note: 'Make the change before you submit, or call find again to check it. Then fill the form from the fields, submit, and call track with applied, submitted_by and fields_used.',
+            agent_note: `Make the change before you submit, or call find again to check it. ${builderSubmits ? sendNote(true) : 'Then fill the form from the fields, submit, and call track with applied, submitted_by and fields_used.'}`,
             ledger: await summary(owner, programs, ctx.now),
           };
     return {
       // N11 (v6.1.9): an unlinked agent has no other agents to speak of.
       show_to_builder: ctx.builderId === null ? 'Started.' : 'Started. Your other agents leave this one alone for 24 hours.',
-      agent_note: 'Fill the form from the fields, submit, then call track with applied, submitted_by and fields_used.',
+      agent_note: sendNote(builderSubmits),
       ledger: await summary(owner, programs, ctx.now),
     };
   }
@@ -147,13 +167,19 @@ async function act(
   // only within every limit (v6.1.8 B18): `outside` says why not; the nightly count is the ledger's, under its lock.
   const policy = i.status === 'applied' && i.submitted_by === 'agent' && ctx.builderId !== null ? await getRecord(ctx.builderId) : null;
   const standing = policy?.policy.auto_apply === true;
-  const row = standing ? await getProgram(i.program_id) : null;
-  let outside = standing && row ? outsideApproval(policy!, row) : null;
+  const row = i.status === 'applied' ? await getProgram(i.program_id) : null;
+  // S6 (v6.1.9): within the limits, a send under standing approval also needs every required answer.
+  let outside = standing && row ? (outsideApproval(policy!, row) ?? (requiredLeftOut(row, i.fields_used).length > 0 ? REQUIRED_MISSING : null)) : null;
   const applied = i.status === 'applied'
     ? { submitted_by: i.submitted_by, fields_used: i.fields_used, project_id: i.project_id, autoApplied: standing && outside === null, ...(standing ? { maxPerNight: policy!.policy.max_per_night } : {}) }
     : {};
+  // A second skip says so (v6.1.9, lane 8 simplify).
+  if (i.status === 'skipped' && (await sql()`SELECT 1 FROM applications WHERE owner = ${owner} AND program_id = ${i.program_id} AND status = 'skipped'`).length > 0)
+    return { show_to_builder: 'Already skipped.', agent_note: 'Call find again for the updated ledger.', ledger: await summary(owner, programs, ctx.now) };
   const res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, amount_usd: i.amount_usd, note: i.note, item: i.item, now: ctx.now, ...applied });
   if (res.ok && 'night' in res) outside = NIGHT_LIMIT;
+  // The find before a send under standing approval was the night routine's: it leaves the overnight report (v6.1.9).
+  if (res.ok && i.status === 'applied' && standing && outside === null) await unmarkNightFind(ctx.installationId);
   if (!res.ok)
     return res.items ? refuse(res.note, `Items for this program: ${res.items.join(', ')}. Call track gap_done with one of them.`) : refuse(res.note);
   if (i.status === 'gap_done') await forgetGap(ctx.installationId, i.program_id);
@@ -180,14 +206,18 @@ async function act(
     skipped: `Skipped ${title}. I won't bring it up again.`,
     unskip: `Unskipped ${title}. It can come back in the list.`,
   };
+  // v6.1.9: a send after the program closed is still recorded, and says so.
+  const closed = i.status === 'applied' && row && !isOpen(row.file, ctx.now) && row.file.ends_at && Date.parse(row.file.ends_at) <= ctx.now.getTime()
+    ? `${row.file.title} closed on ${dayOf(new Date(row.file.ends_at))}; recorded anyway.`
+    : null;
   if (i.status === 'applied' && outside)
     return {
-      show_to_builder: `Sent, but outside your standing approval: ${outside}.`,
+      show_to_builder: [closed, `Sent, but outside your standing approval: ${outside}.`].filter(Boolean).join(' '),
       agent_note: 'Recorded as applied, not under standing approval. Send nothing else alone that falls outside the limits; ask the builder first. Call find again for the updated ledger.',
       ledger: await summary(owner, programs, ctx.now),
     };
   return {
-    show_to_builder: lines[i.status],
+    show_to_builder: closed ?? lines[i.status],
     agent_note: 'Call find again for the updated ledger.',
     ledger: await summary(owner, programs, ctx.now),
   };

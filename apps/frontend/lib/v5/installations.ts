@@ -61,10 +61,21 @@ export type RememberedGap = { what: string; kind: string; item?: string };
  */
 export async function markFind(id: number, now: Date, gaps?: Record<string, RememberedGap>): Promise<void> {
   if (gaps === undefined) {
-    await sql()`UPDATE installations SET last_find_at = ${now}, last_seen_at = GREATEST(last_seen_at, ${now}) WHERE id = ${id}`;
+    await sql()`UPDATE installations SET prev_find_at = last_find_at, last_find_at = ${now}, last_seen_at = GREATEST(last_seen_at, ${now}) WHERE id = ${id}`;
     return;
   }
-  await sql()`UPDATE installations SET last_find_at = ${now}, last_seen_at = GREATEST(last_seen_at, ${now}), last_gaps = ${sql().json(gaps)} WHERE id = ${id}`;
+  await sql()`UPDATE installations SET prev_find_at = last_find_at, last_find_at = ${now}, last_seen_at = GREATEST(last_seen_at, ${now}), last_gaps = ${sql().json(gaps)} WHERE id = ${id}`;
+}
+
+/**
+ * An agent's send under standing approval: the find before it was the night routine's, not the builder's, so it does
+ * not count as seen; last_find_at goes back to the find before, and the morning find reports every overnight send
+ * (v6.1.9). A second send the same night changes nothing.
+ */
+export async function unmarkNightFind(id: number): Promise<void> {
+  // No find before it: a moment before the night's find, so its sends still count as after it.
+  await sql()`UPDATE installations SET last_find_at = COALESCE(prev_find_at, last_find_at - interval '1 millisecond')
+    WHERE id = ${id} AND last_find_at IS NOT NULL AND last_find_at IS DISTINCT FROM prev_find_at`;
 }
 
 /** The last find's gaps (program_id to the first gap); a value stored as a string (before v6.1.7) reads as kind 'other'. {} before any find. */
