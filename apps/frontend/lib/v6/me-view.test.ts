@@ -113,6 +113,11 @@ test('/me?link=<code> with a live code shows the link banner with the agent name
     assert.ok(!page.includes('Link this agent'));
   }
   assert.equal((await meData(b, NOW, 'sess')).link, null);
+  // N4: reopening /me?link= after this builder used the code says the agent is linked, never that it expired.
+  const usedCode = await createLinkCode(await inst('Claude Code'), NOW);
+  const { consumeLinkCode } = await import('./link-routes');
+  assert.equal(await consumeLinkCode(usedCode, b.id, NOW), 'linked');
+  assert.deepEqual((await meData(b, NOW, 'sess', usedCode)).link, { code: null, text: 'This agent is linked.', parts: null });
   assert.ok(!renderToStaticMarkup(MeView({ data: await meData(b, NOW, 'sess'), problem: null })).includes('Link an agent to this account?'));
 });
 

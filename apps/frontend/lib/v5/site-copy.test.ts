@@ -141,7 +141,6 @@ test('no install copy mentions signing in, X, GitHub or a wallet', async () => {
   const all = [...AGENTS.flatMap((a) => strings(a.name, [a.note, a.installNote, a.stepsLead, a.message, a.code, a.after, a.afterCode, a.last, a.steps])), ...strings('docs', copy.DOCS_STEPS), ['prompt', GROK_BOT_PROMPT] as [string, string], ['muse', MUSE_MESSAGE] as [string, string]];
   assert.ok(all.length > 20);
   for (const [name, s] of all) assert.ok(!BAD.test(s), `${name}: "${s}"`);
-  assert.equal(copy.DOCS_STEPS[1], 'It connects on its own');
   // R6: the authorize endpoint approves at once (a 302 with the code), so no copy asks the builder to approve a page.
   for (const [name, s] of all) assert.ok(!s.includes('Approve it when the page opens'), `${name}: "${s}"`);
   // Said once, in the intro line above the tabs, never again in a tab (lane 5, 2).
@@ -151,7 +150,7 @@ test('no install copy mentions signing in, X, GitHub or a wallet', async () => {
   const grok = AGENTS.find((a) => a.name === 'Grok Bot')!;
   assert.equal(grok.installNote, 'Press Enter, then "Add it" and "Authorize".');
   assert.equal(grok.steps[1], `Server URL https://earnkit.com/mcp, "Save", then "Authenticate".`);
-  assert.deepEqual(copy.DOCS_STEPS, ['Add EarnKit', 'It connects on its own', 'Ask what this repo can earn.']);
+  assert.deepEqual(copy.DOCS_STEPS, ['Add EarnKit', 'Ask what this repo can earn.']);
 });
 
 test('the /me words: verbatim lines, sentences end with a full stop, no path in a label', () => {

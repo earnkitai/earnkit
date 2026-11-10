@@ -281,6 +281,12 @@ test('POST /me/link action=link links the installation to the signed-in builder,
   assert.deepEqual(lineOf(r, b.id), { status: 303, path: '/me', key: 'note', text: 'Linked: Claude Code.', shown: true });
   assert.equal(await instBuilder(id), b.id);
   assert.ok((await codeRow(id)).used_at);
+  // N4: a double click after the link says the agent is linked, not that the link expired.
+  const again = await linkPost(post('/me/link', { csrf, code, action: 'link' }, { cookie }), deps);
+  assert.deepEqual(lineOf(again, b.id), { status: 303, path: '/me', key: 'note', text: 'This agent is linked.', shown: true });
+  // Another builder's double click on the same used code still reads expired.
+  const other = await signedIn();
+  refused(other.b.id, await linkPost(post('/me/link', { csrf: other.csrf, code, action: 'link' }, { cookie: other.cookie }), deps), 'That link expired. Ask your agent for a new one.');
 });
 
 test('a signed /me line is bound to its builder: an agent-named Linked line shows on no other page (fix round 1)', async () => {

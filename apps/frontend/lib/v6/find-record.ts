@@ -14,7 +14,7 @@ import { withRecord, readStoredRecord } from './builders';
 import type { Evidence, Subject } from './evidence';
 import { evidenceSummary, ownEvidence, usageLine } from './own-evidence';
 import { hasDoc, recordMissing, type BuilderRecord, type Project } from './record';
-import { confirmLine, EVIDENCE_NOT_READ, NO_RECORD_PROJECT } from './reply-words';
+import { confirmLine, EVIDENCE_NOT_READ, NO_RECORD_PROJECT, PROOF_READING } from './reply-words';
 import { TIERS, place, type Tier } from './tiers';
 
 export { EVIDENCE_NOT_READ };
@@ -60,12 +60,6 @@ export async function storedRecordContext(builderId: number, projectId: string |
 }
 
 const isTier = (t: string | undefined): t is Tier => (TIERS as readonly string[]).includes(t ?? '');
-
-/** The record project's stored tier and its line (no read), or null: what the one-program reply gates on (v6.1.8, 1b). Pure. */
-export function storedTierOf(record: BuilderRecord, projectId: string | null): { tier: Tier; line: string } | null {
-  const t = record.projects.find((p) => p.id === projectId)?.last_tier;
-  return t && isTier(t.tier) ? { tier: t.tier, line: t.line } : null;
-}
 
 /** Loads the record and, for a project with a repo or site, the builder's own tier under the 24-hour rule. */
 export async function recordSide(
@@ -128,10 +122,12 @@ export const TIER_NEED: Record<'used' | 'live' | 'building', string> = { used: '
  * A ready verdict, or a gap verdict of rules only (R18c), on a program whose min_tier is above a known tier gets the
  * tier gap as its real gap, ahead of any rules (never ask to confirm a rule for a program out of reach). With no tier
  * at all (B20, v6.1.8: nothing read, no repo or live link reported) a program with a bar is not a fit, never ready
- * and never a gap. Anything else is unchanged. Pure.
+ * and never a gap. The bars are onchain evidence (B20b): a project with no chain, reported or read (`onchain` false),
+ * is never gated; `evaluate` turns its `used` bar into the users question. Anything else is unchanged. Pure.
  */
-export function tierGate(v: Verdict, row: ProgramRow, tier: Tier | null, line: string | undefined): Verdict {
+export function tierGate(v: Verdict, row: ProgramRow, tier: Tier | null, line: string | undefined, onchain: boolean): Verdict {
   const min = row.file.min_tier;
+  if (!onchain) return v;
   if (min && !tier && v.status !== 'no') return { ...v, status: 'no', gaps: [], reason: `needs a ${TIER_NEED[min]}` };
   if ((v.status !== 'ready' && !(v.status === 'gap' && rulesOnly(v.gaps))) || !min || !tier || RANK[tier] >= RANK[min]) return v;
   const gap: Gap = { kind: 'tier', item: `tier:${min}`, what: nextOf(line, min), effort: 'weeks', agent_can: false, details: { tier, min_tier: min } };
@@ -148,15 +144,28 @@ export function tierGate(v: Verdict, row: ProgramRow, tier: Tier | null, line: s
  */
 export function provisionalTier(facts: RepoFacts): Tier | null {
   if (!facts.public || facts.as_reported) return facts.live_url || facts.repo_url ? 'building' : null;
+  // An empty repo was read and holds nothing (final review M6): building only on a reported live link.
+  if (facts.notes?.includes('empty')) return facts.live_url ? 'building' : null;
   if (facts.notes?.includes('archived')) return 'building';
   const mainnet = new Set(facts.chains.filter((c) => c.mainnet).map((c) => c.chain));
   if (facts.live_url_basis === 'code' || facts.homepage !== null || facts.contracts.some((c) => c.basis === 'code' && mainnet.has(c.chain))) return 'live';
   return 'building';
 }
 
-/** `tierGate` for an unlinked find: the gap names linking GitHub as the change, and the bar (R3b). Pure. */
-export const provisionalGate = (v: Verdict, row: ProgramRow, tier: Tier | null): Verdict =>
-  row.file.min_tier ? tierGate(v, row, tier, ` Next: ${confirmLine(row.file.min_tier)}`) : v;
+/** `tierGate` without the builder's own tier: unlinked, the gap names signing in and the bar (R3b); linked (no own
+ *  tier read yet), that the proof is still being read (I2). Pure. */
+export const provisionalGate = (v: Verdict, row: ProgramRow, tier: Tier | null, o: { onchain: boolean; linked: boolean }): Verdict =>
+  row.file.min_tier ? tierGate(v, row, tier, ` Next: ${o.linked ? PROOF_READING : confirmLine(row.file.min_tier)}`, o.onchain) : v;
+
+/** The one gate the list and the one-program reply share (I3): the builder's own tier when read, else the provisional
+ *  one. A project's bars apply only when it has a chain (B20b). Pure. */
+export function gateFor(side: RecordSide | null, facts: RepoFacts): (v: Verdict, row: ProgramRow) => Verdict {
+  const provisional = provisionalTier(facts);
+  const onchain = facts.chains.length > 0;
+  return (v, row) => side?.tier
+    ? tierGate(v, row, side.tier, side.summary?.line, onchain)
+    : provisionalGate(v, row, provisional, { onchain, linked: side !== null });
+}
 
 /** The programs the builder lists: everything but the never list, matched on the title or the slug, any case (v6.1.8:
  *  /me asks for titles, older lists hold slugs). Pure. */

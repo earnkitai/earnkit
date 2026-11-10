@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason } from '../v6/builders';
 import { appliedOvernight, releaseStale } from '../v6/claims';
 import { readEvidence, type Evidence, type Subject } from '../v6/evidence';
-import { blockersOf, notNever, missingFor, provisionalGate, provisionalTier, recordSide, storedRecordContext, storedTierOf, tierGate, type Blocker, type RecordSide } from '../v6/find-record';
+import { blockersOf, gateFor, notNever, missingFor, recordSide, storedRecordContext, type Blocker, type RecordSide } from '../v6/find-record';
 import { EMPTY_RECORD, unapprovedSince } from '../v6/record';
 import { signInLink } from '../v6/record-tool';
 import { DELETED_NOTICE, linkedNoticeLine, signInLine, signInSentence, unlinkedNoticeLine } from '../v6/reply-words';
@@ -220,16 +220,16 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   // reviewers_contact is the owner's only: never in a tool reply (security M1).
   const { reviewers_contact: _owner, ...pub } = p;
   const facts = project ? await factsOf(project, ctx) : EMPTY_FACTS;
-  // Linked: the record fills first, as in the match (no evidence read here: the stored usage line).
-  const rec = ctx.builderId === null ? null : await storedRecordContext(ctx.builderId, projectId, facts.repo_url ?? project?.repo_url ?? null, project?.name ?? null);
+  // Linked: the record fills first, as in the match. With a project, the same record side the list reads (the
+  // 24-hour rule), so the two gate on the same tier (v6.1.8 final fix, I3); with none, the stored record alone.
+  const side = ctx.builderId !== null && project
+    ? await recordSide({ builderId: ctx.builderId, now: ctx.now, projectId, facts, read: readerOf(ctx) })
+    : null;
+  const rec: RecordContext | null = side ?? (ctx.builderId === null ? null : await storedRecordContext(ctx.builderId, projectId, facts.repo_url, null));
   const { fields } = prefill(row, facts, rec);
   const fitted = fields.some((f) => f.from === 'record');
-  // Gated as the list gates it: the stored tier when linked and read, else the provisional one (v6.1.8, 1b).
-  const stored = rec ? storedTierOf(rec.record, rec.projectId) : null;
   const verdict = project
-    ? ((v: Verdict) => (stored ? tierGate(v, row, stored.tier, stored.line) : provisionalGate(v, row, provisionalTier(facts))))(
-        evaluate(row, facts, await doneItems(ownerOf(ctx), id), ctx.now),
-      )
+    ? gateFor(side, facts)(evaluate(row, facts, await doneItems(ownerOf(ctx), id), ctx.now), row)
     : undefined;
   const left = closesIn(p, ctx.now);
   const open = isOpen(p, ctx.now);
@@ -315,7 +315,7 @@ async function openList(ctx: FindContext, problem: string | null): Promise<FindR
     since: report?.since ?? { from: null, new: [], changed: [], closing: [] },
     ready: [], gaps: [], ledger, ask_outcome: [], as_reported: false, ...unlinkedPart(), linked: ctx.builderId !== null,
     ...(report ? { applied_overnight: report.applied_overnight, ...(report.approvals_again ? { approvals_again: report.approvals_again } : {}) } : {}),
-    ...(link ? { sign_in: link } : {}), linked_notice: notice,
+    ...(link && notice !== DELETED_NOTICE ? { sign_in: link } : {}), linked_notice: notice,
   };
   // A find with no project is a find too (v6.1.8 C47): the linked notice shows once. The gaps stay as they were.
   await markFind(ctx.installationId, ctx.now);
@@ -356,6 +356,9 @@ const noticeTaken = async (ctx: FindContext, notice: string | null) => {
   if (ctx.builderId === null && notice !== null) await takeUnlinkedNotice(ctx.installationId);
 };
 
+/** The builder's own evidence reader: the context's, else the live read. */
+const readerOf = (ctx: FindContext) => ctx.evidence ?? ((s: Subject) => readEvidence(s, { now: ctx.now, ...(ctx.gh ? { gh: ctx.gh } : {}) }));
+
 /** The unlinked installation's sign-in link, or null (never a failure). */
 const linkOf = (ctx: FindContext) => (ctx.linkUrl ?? (() => signInLink(ctx.installationId, ctx.now)))().catch(() => null);
 
@@ -392,10 +395,7 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const open = await listOpenPrograms(ctx.now);
   const owner = ownerOf(ctx);
   // The record is read only for a linked installation.
-  const side = ctx.builderId === null ? null : await recordSide({
-    builderId: ctx.builderId, now: ctx.now, projectId: i.project_id, facts,
-    read: ctx.evidence ?? ((s) => readEvidence(s, { now: ctx.now, ...(ctx.gh ? { gh: ctx.gh } : {}) })),
-  });
+  const side = ctx.builderId === null ? null : await recordSide({ builderId: ctx.builderId, now: ctx.now, projectId: i.project_id, facts, read: readerOf(ctx) });
   if (side) problems.push(...side.problems);
   // A project_id the record does not hold is named, and the match goes on by the repo (v6.1.7, C17).
   if (i.project_id !== undefined && !side?.record.projects.some((p) => p.id === i.project_id)) problems.push('project_id not known; matched without it');
@@ -409,14 +409,11 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const done = await doneByProgram(owner);
   // The builder's own tier when one was read; else (unlinked, or linked before any read: R3c) the tier the public code
   // read alone supports; not read, the tier the report supports (B20, v6.1.8), none for nothing reported, where no
-  // program with a bar fits. The provisional tier is never shown as evidence.
-  const provisional = provisionalTier(facts);
+  // program with a bar fits. Bars apply only to a project with a chain (B20b). The provisional tier is never shown as evidence.
+  const gate = gateFor(side, facts);
   const verdicts = programs
     .map((r) => evaluate(r, facts, done.get(r.id) ?? new Set<string>(), ctx.now))
-    .map((v) => {
-      const row = byId.get(v.program_id)!;
-      return side?.tier ? tierGate(v, row, side.tier, side.summary?.line) : provisionalGate(v, row, provisional);
-    });
+    .map((v) => gate(v, byId.get(v.program_id)!));
 
   const readyV = rankReady(verdicts.filter((v) => v.status === 'ready'), byId);
   const mainnets = new Set(facts.chains.filter((c) => c.mainnet).map((c) => c.chain));
@@ -464,7 +461,7 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
     ...(facts.notes && facts.notes.length > 0 ? { repo_notes: facts.notes } : {}),
     ...(side
       ? linkedPart(side, ready.map((p) => byId.get(p.program_id)!), released, overnight)
-      : { ...unlinkedPart(), blockers: blockersOf(ready.map((p) => byId.get(p.program_id)!), EMPTY_RECORD), ...(link ? { sign_in: link } : {}) }),
+      : { ...unlinkedPart(), blockers: blockersOf(ready.map((p) => byId.get(p.program_id)!), EMPTY_RECORD), ...(link && notice !== DELETED_NOTICE ? { sign_in: link } : {}) }),
     linked_notice: notice,
   };
   // Every gap of this find (not only the shown ones), in rank order, so track started can say what is still missing.

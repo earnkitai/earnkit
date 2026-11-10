@@ -81,7 +81,12 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
     p.tag === 'long shot' ? (prizes(p) ? 'few prizes for many entries' : 'many apply, few are taken')
     : categoryOf(p) === 'investment' && p.max_award_usd == null ? 'an investment program with no stated amount'
     : null;
-  const items = eligibilityOf(p);
+  // B20b (v6.1.8): the tier bars are onchain evidence, so a project with no chain is never gated by one; its `used`
+  // bar becomes the users question (the program's own users item, else an implied one, confirmed by a yes).
+  const own = eligibilityOf(p);
+  const items: EligibilityItem[] = p.min_tier === 'used' && facts.chains.length === 0 && !own.some((i) => i.kind === 'users')
+    ? [...own, { kind: 'users' } as EligibilityItem]
+    : own;
   const rules = ruleNotes(p);
   const out = (status: Verdict['status'], gaps: Gap[], reason: string | null): Verdict => ({ program_id: program.id, status, gaps, reason, long_shot, rules });
 

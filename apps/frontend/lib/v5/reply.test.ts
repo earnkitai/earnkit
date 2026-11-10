@@ -548,6 +548,23 @@ test('a program another agent of the builder holds says so on its line and leave
   assert.match(t, /\n\nYour other agent is handling these; I'll say when something new opens\.$/);
 });
 
+test('I1 (v6.1.8 final fix): one ready program held by another agent and one gap shown never closes "Nothing is ready yet."', () => {
+  const NOW = new Date('2026-11-04T12:00:00Z');
+  const RULE = { kind: 'rule' as const, item: 'rule:abcd1234', what: 'a public good', effort: 'hours' as const, agent_can: false };
+  const r = base({
+    linked: true,
+    ready: [ready({ n: 1, title: 'Held One', claimed_since: '2026-11-04T10:00:00.000Z' })],
+    gaps: [gap({ n: 2, title: 'Rule Grant', gap: RULE })],
+  });
+  const t = replyText(r, false, NOW);
+  assert.match(t, /^Ready to apply \(1\):/m, t);
+  assert.match(t, /^One step away \(1\):/m, t);
+  assert.doesNotMatch(t, /Nothing is ready yet/, t);
+  assert.match(t, /\n\nYour other agent is handling these; I'll say when something new opens\.$/, t);
+  // The closing names no rule, so the rule's own line keeps its "yes n".
+  assert.match(t, /^2\. Rule Grant, \$1K\. Their rule: a public good\. Say "yes 2" if that is you\.$/m, t);
+});
+
 test('the one-program reply (v6.1.8, 1b): the gap line without its number or "do n", and one action by what the gap is', () => {
   const BC = { kind: 'builder_codes' as const, item: 'builder_codes', what: 'add Base Builder Codes to the app', effort: 'hours' as const, agent_can: true };
   const USERS = { kind: 'users' as const, item: 'users', what: 'tell me if real people use it', effort: 'hours' as const, agent_can: false };

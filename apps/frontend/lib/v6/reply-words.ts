@@ -20,6 +20,12 @@ const CONFIRM: Record<'used' | 'live' | 'building', string> = { used: 'real peop
  *  (R3b); in a find it stands alone after the program's gaps (v6.1.8, C57). Pure. */
 export const confirmLine = (min: 'used' | 'live' | 'building') => `Sign in once so EarnKit can confirm ${CONFIRM[min]}.`;
 
+/** Linked, with no tier of the builder's own yet (a private repo, a failed read, the 24-hour window): the bar's line,
+ *  since the builder has already signed in (v6.1.8 final fix, I2). Pure. */
+export const PROOF_READING = 'Your proof is still being read; ask again in a minute.';
+/** Whether a gap's words are PROOF_READING without its full stop. Pure. */
+export const isProofReadingWhat = (what: string): boolean => `${what}.` === PROOF_READING;
+
 /** Whether a gap's words are a confirmLine without its full stop (the unlinked tier gap). Pure. */
 export const isConfirmWhat = (what: string): boolean => (Object.keys(CONFIRM) as (keyof typeof CONFIRM)[]).some((k) => confirmLine(k) === `${what}.`);
 

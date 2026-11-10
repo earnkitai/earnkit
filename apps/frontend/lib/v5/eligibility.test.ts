@@ -247,3 +247,20 @@ test('feature with a value still gaps (v6.1.6)', async () => {
   assert.deepEqual(v.gaps.map((g) => g.item), ['feature:an AI agent']);
   assert.deepEqual(v.rules, []);
 });
+
+test('C1 (v6.1.8 final fix, B20b): a used bar on a chainless project is the users question, implied when the program has no users item', async () => {
+  const p = toRow(programFixture({ id: 'p-used', min_tier: 'used', tag: undefined }));
+  assert.ok(!(p.file.eligibility ?? []).some((i) => i.kind === 'users'));
+  const chainless = { ...(await factsOf('nextjs-dashboard')), chains: [] };
+  const ask = evaluate(p, chainless, new Set(), NOW);
+  assert.equal(ask.status, 'gap');
+  assert.deepEqual(ask.gaps.map((g) => [g.item, g.what]), [['users', 'tell me if real people use it']]);
+  // Confirmed through track gap_done with item 'users', or users: true on the project.
+  assert.equal(evaluate(p, chainless, new Set(['users']), NOW).status, 'ready');
+  assert.equal(evaluate(p, { ...chainless, users: true }, new Set(), NOW).status, 'ready');
+  // A project with a chain keeps the bar (find's tierGate), so no users question is added.
+  const onBase = { ...chainless, chains: [{ chain: 'base', mainnet: true, basis: 'reported' as const }] };
+  assert.equal(evaluate(p, onBase, new Set(), NOW).status, 'ready');
+  // A live or building bar adds nothing.
+  assert.equal(evaluate(toRow(programFixture({ id: 'p-live', min_tier: 'live', tag: undefined })), chainless, new Set(), NOW).status, 'ready');
+});

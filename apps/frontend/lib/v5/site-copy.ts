@@ -70,7 +70,8 @@ export const DOCS_NAV: [string, string][] = [
 ];
 export const DOCS_DESCRIPTION = 'How to add EarnKit to your agent, how a session goes, your record, screening for programs, and how programs are checked.';
 export const DOCS_INSTALL_TITLE = 'Add EarnKit to your agent';
-export const DOCS_STEPS = ['Add EarnKit', 'It connects on its own', 'Ask what this repo can earn.'];
+/** The intro line above the install tabs already says it connects at once, so no step says it again (v6.1.8, Task 6). */
+export const DOCS_STEPS = ['Add EarnKit', 'Ask what this repo can earn.'];
 export const DOCS_SESSION = {
   title: 'How a session goes',
   text: 'Your agent asks what the repo can earn. It drafts every fit with the facts from the repo. You say yes and it submits in its own browser and tracks the result.',

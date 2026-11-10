@@ -3,7 +3,7 @@
  * `agentNote` (what the agent does next). In-person programs get their own block after ready and
  * gaps, with their setup, and are never in the count to apply to. Linked, the record's blocks follow. Pure.
  */
-import { EVIDENCE_NOT_READ, NO_RECORD_PROJECT, isConfirmWhat, listWords, signInSentence } from '../v6/reply-words';
+import { EVIDENCE_NOT_READ, NO_RECORD_PROJECT, isConfirmWhat, isProofReadingWhat, listWords, signInSentence } from '../v6/reply-words';
 import { rulesOnly, type Gap } from './eligibility';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
 import { READS_PAUSED, type RepoNote } from './repo-facts';
@@ -143,8 +143,11 @@ export function inPersonLine(p: ReadyProgram, alone = false): string {
 /** A gap program whose gaps are only rules to confirm (R18a). Pure. */
 export const ruleOnlyGap = (g: GapProgram) => rulesOnly([g.gap, ...g.also]);
 
-/** The unlinked tier gap ("Sign in once so EarnKit can confirm ..."): its own sentence, never after the colon (C57). */
+/** The unlinked tier gap ("Sign in once so EarnKit can confirm ..."). */
 const confirmGap = (x: Gap) => x.kind === 'tier' && isConfirmWhat(x.what);
+/** A tier gap said as its own sentence, never after the colon (C57): the unlinked one, or the linked "proof is still
+ *  being read" (I2). */
+const ownSentenceGap = (x: Gap) => confirmGap(x) || (x.kind === 'tier' && isProofReadingWhat(x.what));
 /** What EarnKit does on "do n", by the gap's kind (v6.1.8, 1a). A contract deploy is never EarnKit's: it needs the
  *  builder's keys and gas, so chain gaps are not agent_can. */
 const DO_VERB: Partial<Record<Gap['kind'], string>> = { builder_codes: 'add them', integration: 'add it' };
@@ -173,6 +176,7 @@ export function gapAction(g: GapProgram, signIn: string | null = null): string |
   if (ruleOnlyGap(g)) return 'Say yes if that is you and I draft it.';
   const real = [g.gap, ...g.also].filter((x) => x.kind !== 'rule');
   if (signIn && signInOnly([g.gap, ...g.also])) return signIn;
+  if (real.every((x) => x.kind === 'tier' && isProofReadingWhat(x.what))) return null;
   if (canDo(real)) return `Say "do" and I ${doVerb(real, true)} first.`;
   if (real.every(usersQuestion)) return 'Say yes if they do and I draft it.';
   return 'Tell me when that is done and I apply.';
@@ -200,8 +204,8 @@ export function gapLine(g: GapProgram, ruleInClosing: number | null = null, alon
   const attend = g.in_person ? attendSentence(g.setup) : '';
   if (ruleOnlyGap(g)) return `${num(g.n, alone)}${g.title}, ${g.money}.${rules}${attend}${alone || g.n === ruleInClosing ? '' : ` Say "yes ${g.n}" if that is you.`}`;
   const real = all.filter((x) => x.kind !== 'rule');
-  const listed = real.filter((x) => !confirmGap(x));
-  const confirm = real.filter(confirmGap).map((x) => ` ${x.what}.`).join('');
+  const listed = real.filter((x) => !ownSentenceGap(x));
+  const confirm = real.filter(ownSentenceGap).map((x) => ` ${x.what}.`).join('');
   const head = `${num(g.n, alone)}${g.title}, ${g.money}${listed.length > 0 ? `: ${joinAnd(listed.map((x) => x.what))}` : ''}.`;
   return `${head}${alone ? '' : doSentence(g.n, real)}${confirm}${rules}${attend}`;
 }
@@ -280,9 +284,10 @@ export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number
   const { ready, draftOnly } = o;
   if (ready === 1) return draftOnly ? 'Say yes and I draft it for you to send.' : 'Say yes and I apply.';
   if (ready > 1) return `${draftOnly ? `Say yes and I draft all ${ready} for you to send.` : `Say yes and I apply to all ${ready}.`} Or say the numbers to skip.`;
+  // Ready programs held by another agent are listed as ready, so the reply never says nothing is ready (I1).
+  if (o.held > 0) return "Your other agent is handling these; I'll say when something new opens.";
   if (o.gaps > 0) return o.firstRule !== null ? `Nothing is ready yet. Say "yes ${o.firstRule}" if that rule fits you.` : 'Nothing is ready yet.';
   if (o.inPerson > 0) return "Tell me which you can attend and I'll draft it once you're in.";
-  if (o.held > 0) return "Your other agent is handling these; I'll say when something new opens.";
   return "Nothing fits yet. I'll say when something opens.";
 }
 
@@ -313,7 +318,8 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   const free = ready.filter((p) => !p.claimed_since);
   // With nothing ready to say yes to, the closing names the first rule-only gap, so its own line does not (1a).
   const firstRule = r.gaps.find(ruleOnlyGap)?.n ?? null;
-  const ruleInClosing = free.length === 0 ? firstRule : null;
+  // A held ready program closes with the held line (I1), which names no rule.
+  const ruleInClosing = ready.length === 0 ? firstRule : null;
   // The headlines count with parentheses (C56, 3.21); "step" covers a change and a rule to confirm.
   if (ready.length > 0) blocks.push([`Ready to apply (${ready.length}):`, ...ready.map((p) => readyLine(p, r.linked, now))].join('\n'));
   if (r.gaps.length > 0) blocks.push([`One step away (${r.gaps.length}):`, ...r.gaps.map((g) => gapLine(g, ruleInClosing))].join('\n'));

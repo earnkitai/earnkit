@@ -164,9 +164,10 @@ test('a stale API program has no guide; a closed file program says Closed and ha
   assert.ok(!m.includes(">Ask your agent<"));
 });
 
-test('/docs says "It connects on its own" once and never asks the builder to approve a page', () => {
+test('/docs says it connects once (the intro line) and never asks the builder to approve a page', () => {
   const t = textOf(html(DocsPage()));
-  assert.equal(t.split('It connects on its own').length - 1, 1);
+  assert.equal(t.split('connects').length - 1, 1, t);
+  assert.ok(t.includes('It connects at once.'));
   assert.ok(!t.includes('Approve the connection') && !t.includes('Approve it when the page opens'));
 });
 

@@ -22,6 +22,8 @@ const NOT_SET_UP = 'GitHub sign-in is not set up yet.';
 export const EXPIRED = 'This link has expired. Ask your agent for a new one.';
 const FAILED = 'Sign-in failed. Ask your agent for a new link.';
 export const OTHER = 'This agent is already linked to another account. Install EarnKit again for a fresh link.';
+/** A used code whose agent is linked to this builder: a second click on "Link this agent" (v6.1.7 N4). */
+export const ALREADY_LINKED = 'This agent is linked.';
 /** A code that is not one EarnKit makes: garbage, cut or too long (v6.1.7 S1). */
 export const INVALID = 'This link is not valid.';
 /** A code as createLinkCode makes it: 22 base64url characters of an HMAC. */
@@ -167,6 +169,15 @@ export async function consumeLinkCode(code: string, builderId: number, now: Date
     if (err instanceof LinkRefused) return 'other';
     throw err;
   }
+}
+
+/** Whether the code was used and its installation is linked to this builder (a double click after the link, N4). */
+export async function linkedBy(code: string, builderId: number): Promise<boolean> {
+  if (!CODE_SHAPE.test(code)) return false;
+  const rows = await sql()`
+    SELECT 1 FROM link_codes l JOIN installations i ON i.id = l.installation_id
+    WHERE l.code = ${hash(code)} AND l.used_at IS NOT NULL AND i.builder_id = ${builderId}`;
+  return rows.length > 0;
 }
 
 /** Ends a live code now: the builder said it was not theirs. */

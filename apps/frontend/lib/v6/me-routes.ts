@@ -11,7 +11,7 @@ import { publicOrigin } from '../v5/oauth';
 import { cleanClientName } from '../v5/installations';
 import { ME_BLOCKS, ME_ERRORS, ME_LABELS, ME_LINK_DONE, ME_LINK_NOT, ME_PICK_CATEGORY, ME_VALUE_WORDS } from '../v5/site-copy';
 import { type Builder, deleteBuilder, getRecord, unlinkInstallation, withRecord } from './builders';
-import { INVALID, OTHER, codeShaped, consumeLinkCode, denyLinkCode, liveCode } from './link-routes';
+import { ALREADY_LINKED, INVALID, OTHER, codeShaped, consumeLinkCode, denyLinkCode, linkedBy, liveCode } from './link-routes';
 import { type MeField, authSecret, problemSig, recordBlocks, seenOf, utcDay, verifyCsrf } from './me-view';
 import { APPROVABLE, type BuilderRecord, approvePath, fieldSchema, mergeRecord, unapprovePath } from './record';
 import { COOKIE, clearCookie, cookieValue, endSession, sessionBuilder } from './sessions';
@@ -262,7 +262,7 @@ export async function linkPost(request: Request, deps: Deps = {}): Promise<Respo
   const live = await liveCode(code, g.now);
   const out = await consumeLinkCode(code, g.builder.id, g.now);
   if (out === 'other') return problemAt(g, OTHER);
-  if (out === 'dead') return problemAt(g, ME_ERRORS.linkExpired);
+  if (out === 'dead') return (await linkedBy(code, g.builder.id)) ? noteAt(g, ALREADY_LINKED) : problemAt(g, ME_ERRORS.linkExpired);
   return noteAt(g, ME_LINK_DONE(cleanClientName(live?.client_name)));
 }
 
