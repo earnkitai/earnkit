@@ -22,7 +22,7 @@ import { isOpen, listOpenPrograms, programByName, type ProgramRow } from './prog
 import { parseProject, type Project } from './project-input';
 import { rankGaps, rankReady, shownGapsOf } from './rank';
 import { repoFacts, type RepoFacts, type RepoNote } from './repo-facts';
-import { AGENT_FIELDS, CUT_NOTE, NO_PROJECT_NOTE, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyText, ruleSentence, signInOnly } from './reply';
+import { AGENT_FIELDS, CONTRACT_NOTE, CUT_NOTE, NO_PROJECT_NOTE, contractLookedAgain, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyText, ruleSentence, signInOnly } from './reply';
 import { since, type Since } from './since';
 
 export const FindInput = z.object({
@@ -290,6 +290,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
                 : ['The builder makes each change (never deploy a contract for them); when they say it is done, call track with gap_done and the gap\'s item, then call find with program_id again.']),
               ...(fitted ? ['Fit approved answers by cutting, never by adding; the style contract travels on each field.'] : []),
               ...(side?.problems.includes(NO_RECORD_PROJECT) ? [NO_PROJECT_NOTE] : []),
+              ...(verdict?.status === 'gap' && contractLookedAgain(gapOf(row, verdict, done)) ? [CONTRACT_NOTE] : []),
               ...(ask === 'rules' ? [] : ["The program's rules are in guide.rules; show them only when the builder asks, or call again with ask 'rules'."]),
             ]
       : ['It takes no entries now: draft nothing and submit nothing. Call find with the project for what is open.']

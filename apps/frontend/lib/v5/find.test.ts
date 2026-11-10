@@ -788,11 +788,15 @@ test('auto_apply changes the closing line and the agent note; never removes a pr
   const { id, builderId } = await linkedWith({ ...OWNER_RECORD, policy: { auto_apply: true, max_per_night: 2, never: ['z-fellows'] } });
   const r = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT });
   const show = r.reply!.show_to_builder as string;
-  const blocked = new Set((r.reply!.blockers as { program_id: string; sign_in: string | null; needs_click: boolean }[]).filter((b) => b.sign_in || b.needs_click).map((b) => b.program_id));
-  const free = (r.reply!.ready as { program_id: string; title: string; in_person: boolean }[]).filter((p) => !p.in_person && !blocked.has(p.program_id));
-  assert.ok(free.length >= 1, show);
-  assert.match(show, tonightRe(free.slice(0, 2).map((p) => p.title)));
-  assert.doesNotMatch(show, /Say yes/);
+  const free = freeOf(r.reply!);
+  // S6 fix round 1 (v6.1.9): a program waiting on a required builder answer is not sent tonight; it is named as waiting.
+  const waits = freeOf(r.reply!, true).filter((p) => !free.includes(p));
+  assert.ok(free.length + waits.length >= 1, show);
+  if (free.length > 0) {
+    assert.match(show, tonightRe(free.slice(0, 2).map((p) => p.title)));
+    assert.doesNotMatch(show, /Say yes/);
+  } else assert.match(show, /\n\nSay yes and I apply\./);
+  for (const p of waits) assert.match(show, new RegExp(`\n\nBefore tonight \\(nothing is sent until these are in\\): [^\n]*for [^\n]*${p.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   assert.equal(r.reply!.auto_apply, true);
   assert.match(r.reply!.agent_note as string, /^Standing approval is on: for each ready program within the limits, call track started/m);
   assert.ok(!ids(r.reply!.ready).includes('z-fellows'));
@@ -805,9 +809,11 @@ const tonightRe = (titles: string[]) => {
   return new RegExp(`\\n\\nApplying tonight to ${words.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\. Say stop to hold any\\.${NOTICE_TAIL}$`);
 };
 /** The ready programs the agent may send alone tonight: no sign-in, click or approval limit in the way. */
-const freeOf = (reply: Record<string, unknown>) => {
+const freeOf = (reply: Record<string, unknown>, waiting = false) => {
   const blocked = new Set((reply.blockers as B[]).filter((b) => b.sign_in || b.needs_click || b.outside_approval).map((b) => b.program_id));
-  return (reply.ready as { program_id: string; title: string; in_person: boolean }[]).filter((p) => !p.in_person && !blocked.has(p.program_id));
+  // S6 fix round 1 (v6.1.9): and every required builder answer in (`waiting` keeps the ones that wait on one).
+  return (reply.ready as { program_id: string; title: string; in_person: boolean; needs: string[]; setup: string[] }[])
+    .filter((p) => !p.in_person && !blocked.has(p.program_id) && (waiting || p.needs.every((n) => p.setup.includes(n))));
 };
 
 test('categories limit only what the agent sends alone: an investment program stays ready, not counted tonight', async () => {

@@ -339,10 +339,30 @@ export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number
   return "Nothing fits yet. I'll say when something opens.";
 }
 
-/** Ready programs (not in person) an agent can send alone: no click, no sign-in, within the standing approval, no claim held by an agent. Pure. */
-function agentCanApply(r: Pick<R, 'ready' | 'blockers'>): ReadyProgram[] {
+/** The required answers only the builder gives, still empty, as to-dos ("the problem"): `needs` past the setup steps. Pure. */
+const emptyAnswers = (p: ReadyProgram): string[] => p.needs.filter((x) => !p.setup.includes(x));
+
+/** Ready programs (not in person) with no click, no sign-in, within the standing approval and no claim held by an agent. Pure. */
+function sendable(r: Pick<R, 'ready' | 'blockers'>): ReadyProgram[] {
   const blocked = new Set(r.blockers.filter((b) => b.needs_click || b.sign_in || b.outside_approval).map((b) => b.program_id));
   return r.ready.filter((p) => !p.in_person && !blocked.has(p.program_id) && !p.claimed_since);
+}
+/** Of those, the ones an agent can send alone: every required answer filled (v6.1.9 S6, fix round 1). Pure. */
+const agentCanApply = (r: Pick<R, 'ready' | 'blockers'>): ReadyProgram[] => sendable(r).filter((p) => emptyAnswers(p).length === 0);
+
+/** With standing approval: "Before tonight (nothing is sent until these are in): your problem for A; ..." for the
+ *  sendable programs that wait on a required answer, grouped by the same answers; null when none waits. Pure. */
+function waitingLine(r: R): string | null {
+  if (!r.auto_apply) return null;
+  const groups = new Map<string, string[]>();
+  for (const p of sendable(r)) {
+    const answers = emptyAnswers(p);
+    if (answers.length === 0) continue;
+    const words = `your ${listWords(answers.map(bare))}`;
+    groups.set(words, [...(groups.get(words) ?? []), p.title]);
+  }
+  if (groups.size === 0) return null;
+  return `Before tonight (nothing is sent until these are in): ${[...groups].map(([w, t]) => `${w} for ${listWords(t, t.length)}`).join('; ')}.`;
 }
 
 /** The closing when tonight's sends under standing approval already reached max_per_night (v6.1.9 N1). */
@@ -399,6 +419,8 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   const tonight = tonightList.length;
   const before = beforeTonight(r, tonight);
   if (before) blocks.push(before);
+  const waiting = waitingLine(r);
+  if (waiting) blocks.push(waiting);
   blocks.push(...reportLines(r));
   if (r.evidence_summary) blocks.push(r.evidence_summary.line);
   // What the read was, once each, just before the closing (money first stays first).
@@ -426,6 +448,11 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   blocks.push([closing, signIn, r.linked_notice].filter(Boolean).join(' '));
   return blocks.join('\n\n');
 }
+
+/** A contract the read still does not find may be on chain only (v6.1.9 fix round 1). */
+export const CONTRACT_NOTE = 'Pass the contract address if it is on chain.';
+/** Whether the gap's "looked again" names a contract. Pure. */
+export const contractLookedAgain = (g: Pick<GapProgram, 'looked_again'>): boolean => (g.looked_again ?? []).some((w) => /contract on /.test(w));
 
 /** C41 (v6.1.8): no record project matched, so only record-level answers were used; also on the one-program detail (N9, v6.1.9). */
 export const NO_PROJECT_NOTE =
@@ -460,6 +487,7 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
         ? 'On "do <n>": make that gap\'s change (its details carry the docs), push, call track with gap_done and the gap\'s item, then call find again. Where a gap line offers no "do", the builder makes the change and tells you when it is done.'
         : 'The builder makes each change (never deploy a contract for them); when they say it is done, call track with gap_done and the gap\'s item, then call find again.',
     );
+  if (r.gaps.some(contractLookedAgain)) lines.push(CONTRACT_NOTE);
   if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.kind === 'users' && x.effort === 'hours')))
     lines.push('"Tell me if real people use it" is a question, not work: ask the builder once; on yes, pass users: true next time or call track with gap_done and item users.');
   if (o.more > 0) lines.push(`${o.more} more left out: ready past the cap, gaps and in-person programs. Ask with filter.all for the full list.`);

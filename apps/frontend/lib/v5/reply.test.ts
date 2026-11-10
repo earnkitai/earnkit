@@ -652,3 +652,24 @@ test('v6.1.9: an in-person need the setup step already names is said once', () =
   const line = replyText(r, true).split('\n').find((l) => l.includes('Alliance'))!;
   assert.equal(line, "1. Alliance ALL19, $1K. First: open the application with the first founder's email.");
 });
+
+test('S6 fix round 1 (v6.1.9): tonight names only sends with every required answer; the others wait, named', () => {
+  const r = base({
+    auto_apply: true, max_per_night: 5, auto_sent_today: 0, linked: true,
+    ready: [ready({ title: 'Full Grant' }), ready({ title: 'Short Grant', needs: ['the problem'] })],
+  });
+  const blocks = replyText(r, true).split('\n\n');
+  assert.equal(blocks.at(-1), 'Applying tonight to Full Grant. Say stop to hold any.');
+  assert.ok(blocks.includes('Before tonight (nothing is sent until these are in): your problem for Short Grant.'), blocks.join('\n\n'));
+  // Nothing can go tonight: no tonight line, the wait is named, and the builder can still say yes.
+  const none = base({ auto_apply: true, max_per_night: 5, auto_sent_today: 0, linked: true, ready: [ready({ title: 'Short Grant', needs: ['the problem'] })] });
+  const show = replyText(none, true);
+  assert.doesNotMatch(show, /Applying tonight|Tonight's send/);
+  assert.match(show, /Before tonight \(nothing is sent until these are in\): your problem for Short Grant\.\n\nSay yes and I apply\.$/);
+});
+
+test('fix round 1 (v6.1.9): a contract the read still does not find tells the agent to pass its address', () => {
+  const g = gap({ title: 'Arc Fund', gap: { kind: 'chain', item: 'chain:arc', what: 'deploy the contract on Arc', effort: 'hours', agent_can: false }, looked_again: ['the contract on Arc'] });
+  assert.ok(agentNote(base({ gaps: [g] }), { more: 0 }).split('\n').includes('Pass the contract address if it is on chain.'));
+  assert.ok(!agentNote(base({ gaps: [gap({ title: 'Arc Fund' })] }), { more: 0 }).includes('Pass the contract address'));
+});

@@ -338,9 +338,13 @@ your standing approval: {reason}." (`outsideApproval` in `find-record.ts`). The 
 every limit, a send under standing approval also needs every required field of the program's form in `fields_used`
 (`requiredLeftOut`); one left out (or no `fields_used`) is recorded the same way with "a required answer was missing",
 and find's standing note says "Under standing approval, send only when every required answer is filled; otherwise wait
-for the builder." A send that does count as under standing approval puts the installation's `last_find_at` back to
+for the builder." Find holds the same line: a ready program with a required builder answer still empty leaves the
+tonight list and is named in its own block, "Before tonight (nothing is sent until these are in): your {answers} for
+{titles}." (no tonight line when nothing can go). A contract the read still does not find adds "Pass the contract
+address if it is on chain." to the agent note. A send that does count as under standing approval puts the installation's `last_find_at` back to
 `prev_find_at` (`unmarkNightFind`): the find before it was the night routine's, so the morning find still reports every
-overnight send. `applied` after the program closed is recorded with "{title} closed on {day}; recorded anyway.";
+overnight send (a builder's daytime find followed by an in-chat send repeats its since line once; a night with no
+sends still takes the report). `applied` after the program closed is recorded with "{title} closed on {day}; recorded anyway.";
 `applied` as the first call after the account was deleted answers the deleted notice alone and writes nothing;
 `started` on an in-person or builder-only program tells the agent "The builder presses submit; prepare the answers and
 hand them over." A rule the builder confirmed marks the ready program `rule_yes`, and the closing reads "Your yes stands
