@@ -250,3 +250,13 @@ test('T6 (v6.1.14): an applicant sent with the old repo key is read as repo_url;
   const rows = await sql()<{ ref: string; repo_url: string | null }[]>`SELECT ref, repo_url FROM screen_applicants WHERE job_id = ${q.reply!.job_id as string} ORDER BY ref`;
   assert.deepEqual(rows.map((r) => [r.ref, r.repo_url]), [['a-1', 'https://github.com/acme/oldkey'], ['a-2', 'https://github.com/acme/both']]);
 });
+
+test('F5 (v6.1.14 fix round 1): a repo that is not text is refused by the key the agent sent, and nothing is queued', async () => {
+  const c = await reviewerOf('scr-badrepo');
+  const r = await mcpCall(c, 'screen', { program_id: 'scr-badrepo', applicants: [{ ref: 'b-1', repo: { url: 'https://github.com/acme/x' } }] });
+  assert.equal(r.isError, false, r.text);
+  assert.equal(r.reply!.show_to_builder, "I could not read that. Send the applicant list, or a screen's id for its results.");
+  assert.equal(r.reply!.agent_note, 'Nothing was queued. applicants.0.repo: not text; send the repo link as text in repo_url.');
+  assert.doesNotMatch(r.reply!.agent_note as string, /repo_url:/);
+  assert.equal('job_id' in r.reply!, false);
+});

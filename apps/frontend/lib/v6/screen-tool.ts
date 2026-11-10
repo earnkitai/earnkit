@@ -81,9 +81,12 @@ export function promiseLine(ahead: number, total: number): string {
 
 export async function screenTool(ctx: { installationId: number; builderId: number | null; now: Date }, raw: unknown): Promise<ScreenReply> {
   // The MCP layer passes anything through (tool-input.ts): this is the only check, with the detail for the agent.
-  // T6 (v6.1.14): an applicant's old `repo` key reads as `repo_url` when that is not given.
+  // T6 (v6.1.14): an applicant's old `repo` key, as text, reads as `repo_url` when that is not given; any other `repo` is refused by its own key (F5).
   const r = raw as { applicants?: unknown } | null;
-  const aliased = Array.isArray(r?.applicants) ? { ...r, applicants: r.applicants.map((a) => (a && typeof a === 'object' && 'repo' in a && !('repo_url' in a) ? { ...a, repo_url: a.repo } : a)) } : raw;
+  const list: unknown[] = Array.isArray(r?.applicants) ? r.applicants : [];
+  const badRepo = list.findIndex((a) => a && typeof a === 'object' && 'repo' in a && a.repo != null && typeof a.repo !== 'string' && !('repo_url' in a));
+  if (badRepo >= 0) return line(SCREEN_TEXT.unread, `Nothing was queued. applicants.${badRepo}.repo: not text; send the repo link as text in repo_url.`);
+  const aliased = list.length ? { ...r, applicants: list.map((a) => (a && typeof a === 'object' && 'repo' in a && typeof a.repo === 'string' && !('repo_url' in a) ? { ...a, repo_url: a.repo } : a)) } : raw;
   const parsed = ScreenInput.safeParse(aliased);
   if (!parsed.success) return line(SCREEN_TEXT.unread, `Nothing was queued. ${inputDetail(parsed.error)}`);
   const input = parsed.data;

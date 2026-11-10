@@ -5,7 +5,7 @@
  * fails. users is null when not reported.
  */
 import { z } from 'zod';
-import { CHAIN_REGISTRY, isKnownChain } from './chains';
+import { CHAIN_REGISTRY, chainOfId, isKnownChain } from './chains';
 import { dropControls } from './controls';
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
@@ -48,7 +48,7 @@ export const ProjectArg = z
     live_url: any('The live app link'),
     demo_url: any('A demo video link'),
     chains: any(
-      'Chains the code deploys to, as a list: "base" alone is Base mainnet, or { "chain": "base", "mainnet": true, "contract": "0x" and 40 hex }; mainnet defaults to true, false for a testnet. Pass contract addresses whenever the deploy config has them (chain: base, arc, monad, solana...)',
+      'Chains the code deploys to, as a list: "base" alone is Base mainnet, or { "chain": "base", "mainnet": true, "contract": "0x4200000000000000000000000000000000000006" }; an 0x address on EVM chains, base58 on solana, as { "chain": "solana", "mainnet": true, "contract": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc" }. mainnet defaults to true; send false (or the testnet name or chain id) for a testnet. Pass contract addresses whenever the deploy config has them (chain: base, arc, monad, solana...)',
     ),
     first_commit_at: any('ISO 8601, from git log --reverse'),
     last_commit_at: any('ISO 8601, from git log'),
@@ -83,6 +83,47 @@ const webUrl = (v: unknown): string | null => {
     return null;
   }
 };
+
+/** Words that name a testnet in a chain slug or a network (v6.1.14 fix round 1, F1). */
+const TESTNET_WORDS = new Set(['sepolia', 'goerli', 'holesky', 'hoodi', 'testnet', 'devnet', 'amoy', 'mumbai', 'fuji', 'moderato']);
+/** A testnet named alone: the chain it belongs to. */
+const TESTNET_HOME: Record<string, string> = { sepolia: 'ethereum', goerli: 'ethereum', holesky: 'ethereum', hoodi: 'ethereum', amoy: 'polygon', mumbai: 'polygon', fuji: 'avalanche', moderato: 'tempo' };
+/** Retired or extra testnet ids the registry does not list (Goerli, Holesky, Hoodi, Base Goerli, Mumbai, Arbitrum Goerli, OP Goerli). */
+const EXTRA_TESTNET_IDS = new Set([5, 17000, 560048, 84531, 80001, 421613, 420]);
+const words = (v: string) => v.split(/[-_.\s]+/).filter(Boolean);
+
+/**
+ * The chain and network one reported entry names (v6.1.14 T1, fix round 1 F1). A testnet in any form wins: `testnet:
+ * true`, a `network` or `chain` with a testnet word (`base-sepolia` is base, `sepolia` alone ethereum), or a
+ * `chain_id`/`chainId` that is a testnet id. Only an entry with no testnet signal and no `mainnet` is mainnet; an
+ * unknown id is a problem line. `mainnet` is the given value otherwise (checked by the caller). Pure.
+ */
+function networkOf(o: Record<string, unknown>): { chain: string; mainnet: unknown; problem?: string } {
+  let chain = typeof o.chain === 'string' ? clean(o.chain).trim().toLowerCase() : '';
+  let testnet = o.testnet === true || o.testnet === 'true';
+  if (!isKnownChain(chain)) {
+    const parts = words(chain);
+    const rest = parts.filter((w) => !TESTNET_WORDS.has(w));
+    const marked = parts.find((w) => TESTNET_WORDS.has(w));
+    const home = rest.length ? rest.join('-') : marked ? TESTNET_HOME[marked] ?? '' : '';
+    if (marked && isKnownChain(home)) {
+      chain = home;
+      testnet = true;
+    }
+  }
+  if (typeof o.network === 'string' && words(clean(o.network).toLowerCase()).some((w) => TESTNET_WORDS.has(w))) testnet = true;
+  const rawId = o.chain_id ?? o.chainId;
+  if (rawId != null) {
+    const id = typeof rawId === 'number' ? rawId : typeof rawId === 'string' && /^\d{1,12}$/.test(rawId.trim()) ? Number(rawId) : NaN;
+    const known = Number.isSafeInteger(id) ? chainOfId(id) : null;
+    if (known) {
+      if (!chain) chain = known.chain;
+      if (!known.mainnet) testnet = true;
+    } else if (EXTRA_TESTNET_IDS.has(id)) testnet = true;
+    else return { chain, mainnet: o.mainnet, problem: `chain ${chain || '?'} dropped: chain_id ${String(rawId).slice(0, 20)} is not a known network; send mainnet true or false` };
+  }
+  return { chain, mainnet: testnet ? false : (o.mainnet ?? true) };
+}
 
 /**
  * Parses a report into a Project. Optional fields that do not hold up are dropped and named in `problems`; a commit
@@ -133,10 +174,11 @@ export function parseProject(v: unknown, now = new Date(), o: { partial?: boolea
     let read = 0;
     let extra = 0;
     for (const c of raw.chains) {
-      // A bare slug ("base") is that chain on mainnet; so is an object that leaves mainnet out (v6.1.14 T1).
+      // A bare slug ("base") is that chain on mainnet; so is an object that leaves mainnet out and names no testnet (v6.1.14 T1, F1).
       const o = (typeof c === 'string' ? { chain: c } : typeof c === 'object' && c !== null ? c : {}) as Record<string, unknown>;
-      const e: Record<string, unknown> = { ...o, mainnet: o.mainnet ?? true };
-      const chain = typeof e.chain === 'string' ? clean(e.chain).trim().toLowerCase() : '';
+      const net = networkOf(o);
+      const e: Record<string, unknown> = { ...o, mainnet: net.mainnet };
+      const chain = net.chain;
       const given = typeof e.contract === 'string' ? clean(e.contract).trim() : e.contract;
       // An entry exactly like an earlier one is a repeat and costs nothing.
       const key = `${chain}|${String(e.mainnet)}|${typeof given === 'string' ? given.toLowerCase() : String(given)}`;
@@ -147,6 +189,10 @@ export function parseProject(v: unknown, now = new Date(), o: { partial?: boolea
       }
       read++;
       seen.add(key);
+      if (net.problem) {
+        problems.push(net.problem);
+        continue;
+      }
       if (!isKnownChain(chain)) {
         problems.push(`chain ${typeof e.chain === 'string' ? clean(e.chain).slice(0, 40) : '?'} dropped: not a known chain`);
         continue;

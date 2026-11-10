@@ -109,6 +109,15 @@ test('T1, Review Focus 3 (v6.1.14): find and track keep a chain object passed wi
   assert.doesNotMatch(t.reply!.agent_note as string, /mainnet/);
 });
 
+test('F3 (v6.1.14 fix round 1): a find with program_id says linked as the default find does', async () => {
+  const c = await ctx();
+  const one = await mcpCall(c, 'find', { program_id: 'base-builder-grants', project: { name: 'X', description: 'An app.' } });
+  assert.equal(one.isError, false, one.text);
+  assert.equal(one.reply!.linked, false);
+  const unknown = await mcpCall(c, 'find', { program_id: 'no-such-program-at-all' });
+  assert.equal(unknown.reply!.linked, false);
+});
+
 test('B4: arguments nested past 64 levels are the plain line, never a stack overflow', async () => {
   const c = await ctx();
   let deep: unknown = 'x';

@@ -137,6 +137,8 @@ export type ProgramReply = {
   rules: string[];
   /** Unlinked, when signing in is the one step left: the sign-in link its action line gives (v6.1.8 fix round 1). */
   sign_in?: string;
+  /** Whether the installation is linked, as the default find says it (v6.1.14 fix round 1, F3). */
+  linked: boolean;
 };
 export type FindContext = {
   installationId: number;
@@ -292,7 +294,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   if (!row)
     return {
       show_to_builder: unknownProgramLine(suggest),
-      agent_note: 'Call find with the project for the programs it fits.', program: null, fields: [], guide: null, rules: [],
+      agent_note: 'Call find with the project for the programs it fits.', program: null, fields: [], guide: null, rules: [], linked: ctx.builderId !== null,
     };
   // Final fix (v6.1.12, I2): matched by another name, the first line names the program (every line here leads with it).
   const renamed = row.id !== id;
@@ -372,6 +374,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
     ...(verdict ? { verdict } : {}),
     rules,
     ...(link ? { sign_in: link } : {}),
+    linked: ctx.builderId !== null,
   };
 }
 

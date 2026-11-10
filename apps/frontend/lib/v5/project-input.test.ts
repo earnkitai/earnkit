@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ProjectInput, parseProject, projectKeyOf } from './project-input';
+import { ProjectArg, ProjectInput, parseProject, projectKeyOf } from './project-input';
 
 const base = { name: 'Tipjar', description: 'Tips for creators.' };
 
@@ -232,4 +232,56 @@ test('T1, Review Focus 3 (v6.1.14): a chain object without mainnet keeps its cha
   assert.equal(bad.project.chains, undefined);
   assert.deepEqual(bad.problems, ['chain base dropped: mainnet must be true or false']);
   assert.equal(ProjectInput.shape.chains.parse([{ chain: 'base' }])![0].mainnet, true);
+});
+
+test('F1 (v6.1.14 fix round 1): a chain object that names a testnet in any form is a testnet, with no problem line', () => {
+  const c = '0x' + 'd'.repeat(40);
+  const forms: [unknown, string][] = [
+    [{ chain: 'base', testnet: true, contract: c }, 'base'],
+    [{ chain: 'base', network: 'sepolia', contract: c }, 'base'],
+    [{ chain: 'base', network: 'base-sepolia', contract: c }, 'base'],
+    [{ chain: 'base', chain_id: 84532, contract: c }, 'base'],
+    [{ chain: 'base', chainId: '84532', contract: c }, 'base'],
+    [{ chain: 'base-sepolia', contract: c }, 'base'],
+    [{ chain: 'base', mainnet: true, testnet: true, contract: c }, 'base'],
+    [{ chain: 'sepolia', contract: c }, 'ethereum'],
+    [{ chain: 'ethereum', chain_id: 11155111, contract: c }, 'ethereum'],
+    [{ chain: 'ethereum', network: 'holesky', contract: c }, 'ethereum'],
+    [{ chain: 'ethereum', chain_id: 17000, contract: c }, 'ethereum'],
+    [{ chain: 'arbitrum', chain_id: 421614, contract: c }, 'arbitrum'],
+    [{ chain: 'polygon', network: 'amoy', contract: c }, 'polygon'],
+    [{ chain: 'polygon', chain_id: 80002, contract: c }, 'polygon'],
+    [{ chain: 'avalanche', network: 'fuji', contract: c }, 'avalanche'],
+    [{ chain: 'avalanche', chain_id: 43113, contract: c }, 'avalanche'],
+    [{ chain: 'monad-testnet', contract: c }, 'monad'],
+    [{ chain_id: 84532, contract: c }, 'base'],
+    ['base-sepolia', 'base'],
+  ];
+  for (const [entry, chain] of forms) {
+    const r = parseProject({ ...base, chains: [entry] });
+    assert.ok(r.ok);
+    assert.deepEqual(r.problems, [], JSON.stringify(entry));
+    assert.deepEqual(r.project.chains?.map((x) => [x.chain, x.mainnet]), [[chain, false]], JSON.stringify(entry));
+  }
+  const sol = parseProject({ ...base, chains: [{ chain: 'solana', network: 'devnet' }, 'solana-devnet'] });
+  assert.ok(sol.ok);
+  assert.deepEqual(sol.project.chains, [{ chain: 'solana', mainnet: false }]);
+  // A mainnet id or network stays mainnet; an unknown id is named, not guessed.
+  const main = parseProject({ ...base, chains: [{ chain: 'base', chain_id: 8453, contract: c }, { chain: 'base', network: 'mainnet' }] });
+  assert.ok(main.ok);
+  assert.deepEqual(main.project.chains, [{ chain: 'base', mainnet: true, contract: c }, { chain: 'base', mainnet: true }]);
+  const odd = parseProject({ ...base, chains: [{ chain: 'base', chain_id: 999999, contract: c }] });
+  assert.ok(odd.ok);
+  assert.equal(odd.project.chains, undefined);
+  assert.deepEqual(odd.problems, ['chain base dropped: chain_id 999999 is not a known network; send mainnet true or false']);
+});
+
+test('F4 (v6.1.14 fix round 1): the chains examples in the description parse as written', () => {
+  const desc = (ProjectArg.shape.chains.description ?? '') as string;
+  const examples = [...desc.matchAll(/\{ "chain"[^}]*\}/g)].map((m) => JSON.parse(m[0]));
+  assert.equal(examples.length, 2);
+  const r = parseProject({ ...base, chains: ['base', ...examples] });
+  assert.ok(r.ok);
+  assert.deepEqual(r.problems, []);
+  assert.deepEqual(r.project.chains?.map((x) => [x.chain, x.mainnet, Boolean(x.contract)]), [['base', true, false], ['base', true, true], ['solana', true, true]]);
 });

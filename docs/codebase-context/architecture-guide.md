@@ -43,7 +43,9 @@ item exactly; screen's description names `ref` (required), `repo_url` and `live_
 1. `project-input.ts` parses what the agent reported, leniently: a bad link, unknown chain or bad date is dropped
    and a name over 80 or a description over 280 characters is cut, each with a problem line for the agent; only a
    missing name or description fails. `users` is true, false or null (not reported). A chain is a bare slug (`"base"`, mainnet) or an object;
-   an object that leaves `mainnet` out is mainnet (v6.1.14 T1), and only a `mainnet` that is not true or false drops it.
+   an object that leaves `mainnet` out is mainnet (v6.1.14 T1) unless it names a testnet in any form (`testnet: true`, a
+   `network` or slug with a testnet word such as `base-sepolia`, or a testnet `chain_id`; fix round 1 F1), which is
+   mainnet false; an unknown `chain_id` or a `mainnet` that is not true or false drops it with a problem line.
 2. `repo-facts.ts` reads a public GitHub repo with EarnKit's own token (`github.ts`: repo, tree, README, up to 12
    config files for chain detection, first commit date) and merges it with what the agent reported. Facts are cached
    7 days in `repo_cache` and re-read when `pushed_at` moves; the cron sweeps rows over 30 days. A row is trusted
@@ -472,7 +474,7 @@ category ticked ("Pick at least one category.", C43).
 | `find` | As v5, plus on a linked installation: the project picked from the record, fields filled from the record first (approved answers, facts), then the repo, then the agent; the builder's own tier read at most once a day (`own-evidence.ts`), `min_tier` gating, the policy's filters, blockers (sign-in, needs a click), what the record still lacks, and what was applied overnight. Unlinked: the sign-in line. |
 | `track` | As v5, plus `started` (a claim) and `unskip`; `applied` carries `submitted_by` and `fields_used`; `auto_applied` only for an agent's submission under standing approval. |
 | `record` | `get`, `set` (merged as the agent, never approved), `brief` (the question and facts behind one answer kind, `answer-brief.ts`). Unlinked: the sign-in link. |
-| `screen` | A program's reviewer only: queue an applicant list, read the results by `job_id`, record `outcomes`. An applicant's old `repo` key reads as `repo_url` when that is not given (v6.1.14 T6). |
+| `screen` | A program's reviewer only: queue an applicant list, read the results by `job_id`, record `outcomes`. An applicant's old `repo` key, as text, reads as `repo_url` when that is not given (v6.1.14 T6); a `repo` that is not text is refused by that key. A find with `program_id` carries `linked` too (F3). |
 
 **The claim rule.** Before filling, the agent tracks `started` (`claims.ts`): one claim per owner and program (an
 advisory lock); another agent of the same builder within 24 hours gets `already` with the claiming agent's name; a
