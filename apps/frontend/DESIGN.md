@@ -12,7 +12,7 @@ opacity modifier on a token class. Class strings live in `app/components/site/ui
 |---|---|---|
 | `page` | `#0B0C14` | Docs, terms, program guides, 404 |
 | `deep` | `#05060D` | Landing (a page that renders `[data-ek-deep]` turns the body deep) |
-| `card-top` to `card-bottom` | `#121629` to `#0C0F1E` | Neutral card: 180deg gradient, 7% white hairline, 16% on hover |
+| `card-top` to `card-bottom` | `#121629` to `#0C0F1E` | Neutral card (`CARD_NEUTRAL`): 180deg gradient, `line` 7% white hairline; program cards `line-hover` 16% on hover |
 | `blue` | `#2D6BE0` | Blue card: accents and the install strip |
 | `navy` | `#142159` | Navy card: counts and notes |
 | `rust` | `#241008` | Rust card: the 404; accents `#FF6A1F`, `#FF8A4C` |
@@ -21,7 +21,7 @@ opacity modifier on a token class. Class strings live in `app/components/site/ui
 
 Text on a card (`site-theme.ts` holds a few more keys than the surfaces below use): white, `muted` `#A8B0CC` on page and panel, `on-blue-soft` `#F4F7FF` on blue, `on-navy` `#A9C2FF` on
 navy, `rust-sub` `#D9B8A6` on rust, `ink` `#0B0C14` and `ink-body` `#2B3550` on light. `dim` `#747C97` is for the
-page background only, never on a card (a test scans `app/`).
+page background only, never on a card (`pages.test.ts` scans `app/components` for `s-dim` outside the footer, raw hex and `/NN` on token classes).
 
 ## Type
 
@@ -36,8 +36,11 @@ Kaftan numbers (`Money.tsx`).
 | Section title `H2_SITE` | 64px | 44px |
 | Landing hero title | 96px, one line | `clamp(28px, 9.6vw, 96px)`, one line down to 320px |
 | Hero sub, program text | 19px | 17px |
-| Steps and Activity titles | 40px | 32px |
-| Opportunities big number | 64px | 52px |
+| Steps numerals (Kaftan) | 40px | 32px |
+| Steps lines | 19px | 17px |
+| Program card money, one figure | 64px | 52px |
+| Program card money, otherwise | 28px | 28px |
+| Program card title | 16px semibold | 16px semibold |
 | Docs title | 56px | 40px |
 | 404 | 140px | 96px |
 | Body, rows | 15px | 15px |
@@ -110,7 +113,19 @@ Lovable and Bolt steps, the v0 note; no Replit until confirmed).
 
 The hero chip is the open programs' grant and prize money, pools first, investments left out: "$1.7M in grants and prizes open now" (`site-copy.ts heroChipText`, `stats.ts openMoneyUsd`); no open money, no chip.
 It is 44px at least (36px from md) with vertical padding and a 22px radius, so a long chip wraps to two balanced lines on a
-320px phone. The cards below list every open program, each with its chain.
+320px phone.
+
+## Landing and /programs
+
+Hero, 72px (128px from md), the steps card, the same gap, the programs, the footer. The steps are one full-width
+`CARD_NEUTRAL` card with an ordered list of the three `STEPS` lines: a Kaftan numeral and one Funnel Sans line each,
+stacked on a phone and three columns from md; no icons, no titles, no heading above it. The programs section is
+`H2_SITE` "This week", the six featured cards (`featuredTiles`) in 3 by 2 on a desktop (one column on a phone, two from sm,
+three from lg), then one `PILL_WHITE` "See all {n} programs" to /programs, centred; with no featured card,
+"Nothing is open right now." under the title. A card: the logo tile (a wordmark on a wide tile), "Closes {day}" or "Rolling" top
+right at 13px, the title, the money in Kaftan, the kind line at 13px. Two looks only: the first card blue, every other
+card neutral (multi-hue cards read as cheap, owner 2026-11-10). /programs is `H1_SITE` "Programs", the description
+line at 17px muted, and every listed program on neutral cards in an auto-fit grid (260px minimum), no pill.
 
 ## Copy rules
 

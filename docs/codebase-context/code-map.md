@@ -20,7 +20,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v5/health.ts`: Daily freshness probe: links, page text changes (under 80% words shared), stale flags, passed deadlines
 - `apps/frontend/lib/v5/http.ts`: Route helpers: JSON and CORS answers, `readParams` (form or JSON under a cap, null over it), secret and Bearer checks, `readCapped` (a request's or response's body under a byte cap)
 - `apps/frontend/lib/v5/installations.ts`: Installation rows: save a token, connect a token, stamp last_find_at and `last_gaps` (`markFind`), read them (`lastGaps`), `newlyLinkedLogin` (the GitHub login when the installation was linked after its last find, for the one-time linked notice), and `unmarkNightFind` (a send under standing approval puts `last_find_at` back to `prev_find_at`, v6.1.9)
-- `apps/frontend/lib/v5/landing.ts`: Landing and /programs data: one tile per listed program and the hero money chip
+- `apps/frontend/lib/v5/landing.ts`: Landing and /programs data: one tile per listed program (`landingTiles`), the landing's six (`featuredTiles`), the listed count and the hero money chip
 - `apps/frontend/lib/v5/ledger.ts`: The ledger: applications, history, closed gap items (`gap_done` takes only the program's own items or `users`), the summary; `askOutcome` (results past due, or 30 days after the send when the program has none) and `codeDoneAt` (the last code-checked step marked done, which makes a cached repo read stale; v6.1.9)
 - `apps/frontend/lib/v5/llms.ts`: The text of /llms.txt
 - `apps/frontend/lib/v5/mail.ts`: Owner emails over Resend, idempotent; a no-op without RESEND_API_KEY
@@ -127,8 +127,8 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/app/components/common/InstallButton.tsx`: The install button that opens the install sheet
 - `apps/frontend/app/components/landing/Hero.tsx`: Landing hero: statement, money chip, install picker
 - `apps/frontend/app/components/landing/HeroArt.tsx`: The hero painting and its light
-- `apps/frontend/app/components/landing/Opportunities.tsx`: The open programs list on the landing
-- `apps/frontend/app/components/landing/Steps.tsx`: The three steps on the landing
+- `apps/frontend/app/components/landing/Opportunities.tsx`: The programs grid: six featured cards and the See all pill on the landing, every card on /programs (`full`)
+- `apps/frontend/app/components/landing/Steps.tsx`: The three steps on the landing, one card with a numbered list
 - `apps/frontend/app/components/sections/AddToAgent.tsx`: The install sheet content
 - `apps/frontend/app/components/sections/agents.tsx`: Agent tab data and rendering for the install surfaces
 - `apps/frontend/app/components/site/AgentMarks.tsx`: Agent logos

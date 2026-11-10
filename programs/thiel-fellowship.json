@@ -37,5 +37,9 @@
   ],
   "form": { "platform": "other", "url": "https://thielfellowship.my.site.com/apply/s/" },
   "submit": "builder",
-  "reviewers_contact": "team@thielfellowship.org"
+  "reviewers_contact": "team@thielfellowship.org",
+  "logo": {
+    "path": "programs/thiel-fellowship.svg",
+    "source_url": "https://thielfellowship.org/"
+  }
 }

@@ -7,7 +7,7 @@ export default function SchemaOrg() {
     logo: 'https://earnkit.com/logo.png',
     slogan: 'Get funded for what you ship.',
     description:
-      'EarnKit finds the programs a builder\'s repo fits and drafts every application. Agents connect at https://earnkit.com/mcp.',
+      'EarnKit finds the grants and prizes a builder\'s repo fits and applies. Free. Agents connect at https://earnkit.com/mcp.',
     sameAs: ['https://x.com/EarnKitAI'],
     parentOrganization: {
       '@type': 'Organization',

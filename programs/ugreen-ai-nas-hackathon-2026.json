@@ -61,5 +61,9 @@
   "submit": "builder",
   "sign_in": "platform",
   "platform_name": "Devpost",
-  "reviewers_contact": "Email the hackathon manager from the UGREEN Hackathon Devpost page; UGREEN Community for questions"
+  "reviewers_contact": "Email the hackathon manager from the UGREEN Hackathon Devpost page; UGREEN Community for questions",
+  "logo": {
+    "path": "programs/ugreen-ai-nas-hackathon-2026.svg",
+    "source_url": "https://www.ugreen.com/"
+  }
 }

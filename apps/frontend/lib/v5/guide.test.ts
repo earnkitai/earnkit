@@ -17,7 +17,7 @@ test('base-builder-grants: money, closes, eligibility in plain words, fields, ru
   const g = guideText(real('base-builder-grants'));
   assert.equal(g.title, 'Base Builder Grant Program');
   assert.equal(g.money, '$5K');
-  assert.equal(g.closes, 'Rolling, apply anytime');
+  assert.equal(g.closes, 'Rolling');
   assert.ok(g.eligibility.includes('a live product'));
   assert.ok(g.eligibility.includes('on Base'));
   assert.ok(g.fields.length > 0);
@@ -28,7 +28,7 @@ test('base-builder-grants: money, closes, eligibility in plain words, fields, ru
 
 test('closes: a date, rolling, not open yet, closed', () => {
   assert.equal(guideText(rowOf(programFixture({ id: 'a-a', ends_at: '2026-12-01T20:00:00Z', summary: 'Up to $5,000 · 11:59 PM PT' }))).closes, 'Closes Dec 1');
-  assert.equal(guideText(rowOf(programFixture({ id: 'a-b' }))).closes, 'Rolling, apply anytime');
+  assert.equal(guideText(rowOf(programFixture({ id: 'a-b' }))).closes, 'Rolling');
   assert.equal(guideText(rowOf(programFixture({ id: 'a-c', status: 'upcoming', opens_note: 'Opens in January', submission_requirements: [] }))).closes, 'Not open yet');
   assert.equal(guideText(rowOf(programFixture({ id: 'a-d', status: 'closed' }))).closes, 'Closed');
 });

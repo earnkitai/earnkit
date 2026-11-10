@@ -14,14 +14,14 @@ export const metadata: Metadata = {
   alternates: { canonical: 'https://earnkit.com/programs' },
 };
 
-/** Every listed program, open or upcoming: the same list as the landing. */
+/** Every listed program, open or upcoming, all on neutral cards; the landing shows six of them. */
 export default async function ProgramsPage() {
   const landing = await getLanding();
   if (!landing) return <Unavailable text="The programs are unavailable right now. Try again in a few minutes." />;
   return (
     <>
       <div className={`${PAGE_COL_WIDE} pt-2`}>
-        <Opportunities programs={landing.tiles} h1 title={PROGRAMS_TITLE} />
+        <Opportunities programs={landing.tiles} total={landing.total} full />
       </div>
       <Footer />
     </>

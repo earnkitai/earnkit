@@ -30,7 +30,7 @@ const kaftan = localFont({
 
 const TITLE = 'EarnKit | Get funded for what you ship.';
 const DESCRIPTION =
-  'Add EarnKit to your AI agent and ask "What can I earn?". It finds the programs your repo fits and drafts every application.';
+  'Add EarnKit to your AI agent and ask "What can I earn?". It finds the grants and prizes your repo fits and applies. Free.';
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://earnkit.com'),

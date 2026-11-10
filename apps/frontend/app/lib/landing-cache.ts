@@ -4,7 +4,7 @@ import { readLanding, type Landing } from '../../lib/v5/landing';
 import { gatedGuidePage, guideTextById, listGuideIds, type GuidePage } from '../../lib/v5/guide-page';
 import { cachedRead } from './cached';
 
-const landing = cachedRead(() => readLanding(), ['landing-v5']);
+const landing = cachedRead(() => readLanding(), ['landing-v6.2']);
 const guideIds = cachedRead(() => listGuideIds(), ['guide-ids-v5']);
 const guide = cachedRead((id: string) => guideTextById(id), ['guide-v5']);
 
