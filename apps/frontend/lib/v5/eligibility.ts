@@ -69,11 +69,12 @@ const date = (s: string) => s.slice(0, 10);
 const USERS_UNKNOWN: Gap = { kind: 'users', item: 'users', what: 'tell me if real people use it', effort: 'hours', agent_can: false };
 
 /**
- * B20c (v6.1.9): whether the project exists for the users question: a repo read that holds code (not empty), or a
- * live link. An idea, an unread repo with no live link, or an empty repo does not. Pure.
+ * B20c (v6.1.9, fix round 1): whether the project exists for the users question: a live link, or a repo named that is
+ * not an empty read (a private or unread repo is the builder's word, marked as reported). Only a repo-less project
+ * with no live link, or an empty repo read, does not. Pure.
  */
 export const exists = (facts: RepoFacts): boolean =>
-  Boolean(facts.live_url) || (facts.public && !facts.as_reported && !(facts.notes ?? []).includes('empty'));
+  Boolean(facts.live_url) || (Boolean(facts.repo_url) && !(facts.notes ?? []).includes('empty'));
 
 /** Gaps that are all rules to confirm (R18a): one answer away, no change to make. False for none. Pure. */
 export const rulesOnly = (gaps: Gap[]): boolean => gaps.length > 0 && gaps.every((g) => g.kind === 'rule');

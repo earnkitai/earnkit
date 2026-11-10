@@ -425,7 +425,7 @@ test('the closing line is one action (v6.1.8, 1a): yes to the ready ones, else "
   assert.match(replyText(base({ ready: MONDAY.ready, gaps: [rulesOnly] }), true), /^3\. R, \$1K\. Their rule: x\. Say "yes 3" if that is you\.$/m);
   assert.equal(end(base({ gaps: [rulesOnly, MONDAY.gaps[0]] })), 'Nothing is ready yet. Say "yes 1" if that rule fits you.');
   // M1 (v6.1.9): with no rule-only program shown, the closing offers the first step.
-  assert.equal(end(base({ gaps: [MONDAY.gaps[0]] })), 'Nothing is ready yet. Tell me when deploy the contract on Arc is done and I look again.');
+  assert.equal(end(base({ gaps: [MONDAY.gaps[0]] })), 'Nothing is ready yet. The first step is deploy the contract on Arc; tell me when it is done and I look again.');
   // C44: the builder presses submit on every ready one, so the agent drafts.
   const clicks = MONDAY.ready.map((p) => ({ program_id: p.program_id, sign_in: null, needs_click: true, needs: [] }));
   assert.equal(end({ ...MONDAY, blockers: clicks }), 'Say yes and I draft all 2 for you to send. Or say the numbers to skip.');
@@ -596,7 +596,7 @@ test('M1 (v6.1.9): nothing ready and no rule-only program shown: the closing off
   assert.equal(end(base({ gaps: [floss] })), 'Nothing is ready yet. Do real people use it? Say yes and I apply.');
   // A demo video (with a rule beside it) first: tell me when it is done.
   const vr = gap({ title: 'Meta VR', gap: VIDEO, also: [ruleGap('hands first')], rules: ['hands first'] });
-  assert.equal(end(base({ gaps: [vr, floss] })), 'Nothing is ready yet. Tell me when a demo video is done and I look again.');
+  assert.equal(end(base({ gaps: [vr, floss] })), 'Nothing is ready yet. The first step is a demo video; tell me when it is done and I look again.');
   // A program EarnKit makes ("do n" on its line) or a sign-in step is passed over for the next program's step.
   const codes = gap({ title: 'Base Batches', gap: { kind: 'builder_codes', item: 'builder_codes', what: 'add Base Builder Codes to the app', effort: 'minutes', agent_can: true } });
   const signIn = gap({ title: 'Live Grant', gap: { kind: 'tier', item: 'tier:live', what: 'Sign in once so EarnKit can confirm your product is live', effort: 'weeks', agent_can: false } });

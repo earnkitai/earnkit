@@ -311,7 +311,7 @@ export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number
     if (o.firstRule !== null) return `Nothing is ready yet. Say "yes ${o.firstRule}" if that rule fits you.`;
     const step = o.firstStep ?? null;
     if (step?.users) return 'Nothing is ready yet. Do real people use it? Say yes and I apply.';
-    if (step) return `Nothing is ready yet. Tell me when ${step.what} is done and I look again.`;
+    if (step) return `Nothing is ready yet. The first step is ${step.what}; tell me when it is done and I look again.`;
     return 'Nothing is ready yet.';
   }
   if (o.inPerson > 0) return "Tell me which you can attend and I'll draft it once you're in.";

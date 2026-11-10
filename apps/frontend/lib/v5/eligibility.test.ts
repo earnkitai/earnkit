@@ -265,7 +265,7 @@ test('C1 (v6.1.8 final fix, B20b): a used bar on a chainless project is the user
   assert.equal(evaluate(toRow(programFixture({ id: 'p-live', min_tier: 'live', tag: undefined })), chainless, new Set(), NOW).status, 'ready');
 });
 
-test('B20c (v6.1.9, Review Focus 1): the users question needs a project that exists; a repo-less or empty project is not a fit for a used program', async () => {
+test('B20c (v6.1.9, Review Focus 1, fix round 1): the users question needs a project that exists; a repo-less or empty project is not a fit for a used program, a private repo is', async () => {
   const floss = fromFile('floss-fund-zerodha');
   const usersOnly = toRow(programFixture({ id: 'p-users', tag: undefined, eligibility: [{ kind: 'users' }] }));
   const parsed = parseProject({ name: 'Rent Split', description: 'An idea: an app that splits rent.' });
@@ -279,11 +279,17 @@ test('B20c (v6.1.9, Review Focus 1): the users question needs a project that exi
       assert.deepEqual([v.status, v.reason, v.gaps], ['no', 'needs a product people use', []], p.id);
     }
   }
-  // A repo read with code, or a live link given, keeps the question.
+  // A repo read with code, a live link given, or a private repo (the builder's word) keeps the question.
   const code = { ...(await factsOf('nextjs-dashboard')), chains: [] };
   assert.deepEqual(evaluate(floss, code, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
   const live = { ...idea, live_url: 'https://rentsplit.app' };
   assert.deepEqual(evaluate(floss, live, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
+  const pp = parseProject({ name: 'Billing Core', description: 'Usage-based billing.', repo_url: 'https://github.com/acme-private/billing-core', private: true });
+  assert.ok(pp.ok);
+  const priv = await repoFacts(pp.project, { now: NOW });
+  assert.deepEqual([priv.as_reported, priv.notes], [true, ['private']]);
+  assert.deepEqual(evaluate(floss, priv, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
+  assert.equal(evaluate(floss, { ...priv, users: true }, new Set(), NOW).status, 'ready');
   assert.equal(evaluate(floss, { ...empty, live_url: 'https://x.dev', users: true }, new Set(), NOW).status, 'ready');
   // A program that asks for no users is unchanged.
   assert.equal(evaluate(toRow(programFixture({ id: 'p-none', tag: undefined, eligibility: [] })), idea, new Set(), NOW).status, 'ready');

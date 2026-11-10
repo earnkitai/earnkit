@@ -56,8 +56,8 @@ test('shownGapsOf (R18b): three rule-only and two real gaps show the two real th
   const four = [...real, v('x3', { status: 'gap', gaps: [gap('days')] }), v('x4', { status: 'gap', gaps: [gap('days')] })];
   assert.deepEqual(shownGapsOf([...four, ...rules], false, 3, remote).map((x) => x.program_id), ['x1', 'x2', 'r1']);
   assert.deepEqual(shownGapsOf(four, false, 3, remote).map((x) => x.program_id), ['x1', 'x2', 'x3']);
-  // No rule-free program: the rule-only one may take only the last slot, so none shows (N-2, v6.1.9).
-  assert.deepEqual(shownGapsOf(rules, false, 3, remote), []);
+  // No rule-free program: the rule-only one alone, a list of one (N-2, v6.1.9 fix round 1).
+  assert.deepEqual(shownGapsOf(rules, false, 3, remote).map((x) => x.program_id), ['r1']);
 });
 
 test('shownGapsOf (R18d): an in-person rule-only program never takes the rule-only slot; all still lists it', () => {
@@ -99,6 +99,7 @@ test('shownGapsOf (R18f): in-person programs never appear in the default gap lis
   ];
   const inPerson = (x: Verdict) => x.program_id.startsWith('attend');
   assert.deepEqual(shownGapsOf(ranked, false, 3, inPerson).map((x) => x.program_id), ['x1']);
+  assert.deepEqual(shownGapsOf([ranked[0], ranked[2], ranked[3]], false, 3, inPerson).map((x) => x.program_id), ['r1']);
   assert.deepEqual(shownGapsOf([...ranked, v('x2', { status: 'gap', gaps: [gap('hours')] })], false, 3, inPerson).map((x) => x.program_id), ['x1', 'x2', 'r1']);
   assert.deepEqual(shownGapsOf([ranked[0], ranked[2]], false, 3, inPerson), []);
   assert.deepEqual(shownGapsOf(ranked, true, 3, inPerson), ranked);
@@ -147,8 +148,8 @@ test('shownGapsOf (v6.1.8 fix round 2): at most one rule-bearing program, the be
   const ranked = [mixed('vr'), mixed('codegeist'), free('circle'), free('floss'), v('otf', { status: 'gap', gaps: [ruleGap('otf')] })];
   assert.deepEqual(shownGapsOf(ranked, false, 3, remote).map((x) => x.program_id), ['circle', 'floss', 'vr']);
   assert.deepEqual(shownGapsOf(ranked, true, 3, remote), ranked);
-  // No rule-free program: none (N-2, v6.1.9: the rule-bearing program takes only the last slot).
-  assert.deepEqual(shownGapsOf([mixed('vr'), mixed('codegeist'), v('otf', { status: 'gap', gaps: [ruleGap('otf')] })], false, 3, remote), []);
+  // No rule-free program: the one rule-bearing program alone, a list of one (N-2, v6.1.9 fix round 1).
+  assert.deepEqual(shownGapsOf([mixed('vr'), mixed('codegeist'), v('otf', { status: 'gap', gaps: [ruleGap('otf')] })], false, 3, remote).map((x) => x.program_id), ['vr']);
 });
 
 test('shownGapsOf (v6.1.8 fix round 3): the rule slot prefers a program naming the project\'s chains, the first chain first; else rank order', () => {
@@ -175,8 +176,9 @@ test('N-2 (v6.1.9): a rule-bearing program off the project\'s chains takes only 
   assert.deepEqual(shownGapsOf([mixed('vr'), free('a'), free('b'), free('c')], false, 3, remote).map((x) => x.program_id), ['a', 'b', 'vr']);
   // One rule-free program (the SaaS, CLI and dotfiles shape): that one alone, never Meta VR as the second line.
   assert.deepEqual(shownGapsOf([mixed('vr'), free('floss')], false, 3, remote).map((x) => x.program_id), ['floss']);
-  // None: no step line at all; filter.all still lists it.
-  assert.deepEqual(shownGapsOf([mixed('vr'), mixed('codegeist')], false, 3, remote), []);
+  // None: the rule-bearing program alone, a list of one (fix round 1); nothing at all, no step line; filter.all lists all.
+  assert.deepEqual(shownGapsOf([mixed('vr'), mixed('codegeist')], false, 3, remote).map((x) => x.program_id), ['vr']);
+  assert.deepEqual(shownGapsOf([], false, 3, remote), []);
   assert.deepEqual(shownGapsOf([mixed('vr'), mixed('codegeist')], true, 3, remote).map((x) => x.program_id), ['vr', 'codegeist']);
 });
 

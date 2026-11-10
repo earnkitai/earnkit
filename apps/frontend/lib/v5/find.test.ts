@@ -987,7 +987,11 @@ const inPersonBlock = (n: number, noRepo = false) => [
   `${n}. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account${noRepo ? ', your application answers and the batch you want' : ''}.`,
   `${n + 1}. Alliance ALL19, $400K at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.`,
 ];
-const ATTEND = "Tell me which you can attend and I'll draft it once you're in.";
+const META_VR_LINE = (n: number) => `${n}. Meta VR Start Developer Competition 2026, $1,000,000 in prizes: a demo video. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.`;
+/** The rule-bearing program alone, a list of one (N-2, v6.1.9 fix round 1). */
+const META_VR_ONLY = ['One step away (1):', META_VR_LINE(1)];
+/** M1 (v6.1.9 fix round 1): the closing names the first change. */
+const DEMO_FIRST = 'Nothing is ready yet. The first step is a demo video; tell me when it is done and I look again.';
 
 test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets the rule-only program on its first reported chain, Base (v6.1.6, v6.1.7)', async () => {
   const r = await mcpCall(ctx(await installation()), 'find', { project: PROJECT_A });
@@ -1019,19 +1023,22 @@ test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets
   assert.deepEqual(ruled.map((g) => g.program_id), ['base-ecosystem-fund'], b.reply!.show_to_builder as string);
 });
 
-test('R18e, R18f, C54, B20, B20c: projects B (dotfiles, repo unread) and C (notes, no repo) report no chain: no contract step, no used program, no rule-bearing line two, no in-person gap program by default (v6.1.6, v6.1.8, v6.1.9)', async () => {
+test('R18e, R18f, C54, B20, B20c: projects B (dotfiles, repo unread) and C (notes, no repo) report no chain: no contract step, no rule-bearing line two, no in-person gap program by default (v6.1.6, v6.1.8, v6.1.9)', async () => {
   const b = await mcpCall(ctx(await installation()), 'find', { project: PROJECT_B });
   assert.equal(b.isError, false, b.text);
-  // Its repo is not recorded, so the replay answers 404: unread, said once (fix round 1). Nothing exists to ask the
-  // users question of (B20c), and Meta VR may take only a third line (N-2): only the in-person block is left.
-  assert.equal(b.reply!.show_to_builder, [...inPersonBlock(1), '', 'I could not read the repo; matched on what you told me.', '', ATTEND].join('\n'));
+  // Its repo is not recorded, so the replay answers 404: unread, said once (fix round 1). A repo named is the builder's
+  // word, so the users question stands (B20c fix round 1); with one rule-free step, Meta VR may not be line two (N-2).
+  assert.equal(
+    b.reply!.show_to_builder,
+    ['One step away (1):', '1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.', '', ...inPersonBlock(2), '', 'I could not read the repo; matched on what you told me.', '', 'Nothing is ready yet. Do real people use it? Say yes and I apply.'].join('\n'),
+  );
+  // No repo and no live link: nothing to ask the users question of (B20c); the rule-bearing program stands alone as a
+  // list of one (N-2 fix round 1), and the closing names its first step (M1).
   const c = await mcpCall(ctx(await installation()), 'find', { project: PROJECT_C });
   assert.equal(c.isError, false, c.text);
-  assert.equal(c.reply!.show_to_builder, [...inPersonBlock(1, true), '', ATTEND].join('\n'));
-  for (const r of [b, c]) {
-    assert.doesNotMatch(r.reply!.show_to_builder as string, /Meta VR|FLOSS|real people use it/);
-    assert.match(r.reply!.agent_note as string, /more left out: [^\n]*Ask with filter\.all for the full list\./);
-  }
+  assert.equal(c.reply!.show_to_builder, [...META_VR_ONLY, '', ...inPersonBlock(2, true), '', DEMO_FIRST].join('\n'));
+  assert.doesNotMatch(c.reply!.show_to_builder as string, /FLOSS|real people use it/);
+  for (const r of [b, c]) assert.match(r.reply!.agent_note as string, /more left out: [^\n]*Ask with filter\.all for the full list\./);
   const allC = await mcpCall(ctx(await installation()), 'find', { project: PROJECT_C, filter: { all: true } });
   assert.equal((allC.reply!.not_fit as { program_id: string; reason: string }[]).find((n) => n.program_id === 'floss-fund-zerodha')?.reason, 'needs a product people use');
   for (const r of [b, c]) {
@@ -1084,7 +1091,7 @@ test('C54 (v6.1.8, Review Focus 1): the web2 SaaS fixture\'s default and full re
   assert.equal(notFit.get('solana-foundation-grants'), 'needs a contract on Solana');
 });
 
-test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, users said) is ready for FLOSS with no sign-in bar and no rule-bearing line two; the full list leads with Meta VR', async () => {
+test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, users said) is ready for FLOSS with no sign-in bar, then Meta VR alone as its step; the full list leads with Meta VR', async () => {
   const r = await mcpCall(await dashCtx(), 'find', { project: VR });
   assert.equal(r.isError, false, r.text);
   assert.equal(
@@ -1093,24 +1100,28 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
       'Ready to apply (1):',
       '1. FLOSS/fund, $10,000 to $100,000. Needs your funding manifest link. First: publish a funding.json manifest on your site or repo.',
       '',
-      ...inPersonBlock(2),
+      'One step away (1):',
+      META_VR_LINE(2),
+      '',
+      ...inPersonBlock(3),
       '',
       'Say yes and I apply.',
     ].join('\n'),
   );
-  assert.doesNotMatch(r.reply!.show_to_builder as string, /Sign in once so EarnKit|Meta VR/);
+  assert.doesNotMatch(r.reply!.show_to_builder as string, /Sign in once so EarnKit/);
   // One real change each, so the money decides: $1M pool, $120K pool, then PayPal's $67,500 pool.
   const all = await mcpCall(await dashCtx(), 'find', { project: VR, filter: { all: true } });
   assert.deepEqual(ids(all.reply!.gaps).slice(0, 3), ['meta-vr-start-competition-2026', 'codegeist-2026', 'paypal-ai-hackathon']);
-  // B20c (Review Focus 1): the same persona with a private repo and no live link has nothing EarnKit can see exist.
-  const hidden = await mcpCall(ctx(await installation()), 'find', { project: { ...VR, private: true }, filter: { all: true } });
-  assert.equal((hidden.reply!.not_fit as { program_id: string; reason: string }[]).find((n) => n.program_id === 'floss-fund-zerodha')?.reason, 'needs a product people use');
+  // B20c fix round 1 (persona 9): a private repo is the builder's word, so it exists; users said, FLOSS/fund is ready.
+  const hidden = await mcpCall(ctx(await installation()), 'find', { project: { ...VR, private: true } });
+  assert.match(blockOf(hidden.reply!.show_to_builder as string, 'Ready to apply'), /^1\. FLOSS\/fund, /m);
+  assert.match(hidden.reply!.show_to_builder as string, /^Private repo: matched on what you told me\.$/m);
 });
 
 test('N-3 (v6.1.9, Review Focus 2): the VR persona marks the demo video done and Meta VR heads the next default list as rule-only with its yes', async () => {
   const c = await dashCtx();
   const first = await mcpCall(c, 'find', { project: VR });
-  assert.doesNotMatch(first.reply!.show_to_builder as string, /Meta VR/);
+  assert.equal(blockOf(first.reply!.show_to_builder as string, 'One step away'), ['One step away (1):', META_VR_LINE(2)].join('\n'));
   const started = await mcpCall(c, 'track', { program_id: 'meta-vr-start-competition-2026', status: 'started' });
   assert.equal(started.isError, false, started.text);
   // Started alone pins it (a live claim): it heads the step list with its demo video and rule.
@@ -1130,9 +1141,9 @@ test('N-3 (v6.1.9, Review Focus 2): the VR persona marks the demo video done and
   assert.equal(ids(again.reply!.gaps)[0], 'meta-vr-start-competition-2026');
   assert.doesNotMatch(show, /Codegeist/);
   assert.equal(show.split('\n').at(-1), 'Say yes and I apply.');
-  // Another installation of no claim and no step done does not see it pinned.
+  // Another installation, with no claim and no step done, still sees the demo video step.
   const other = await mcpCall(await dashCtx(), 'find', { project: VR });
-  assert.doesNotMatch(other.reply!.show_to_builder as string, /Meta VR/);
+  assert.equal(blockOf(other.reply!.show_to_builder as string, 'One step away'), ['One step away (1):', META_VR_LINE(2)].join('\n'));
   // Skipped, it leaves the list.
   await mcpCall(c, 'track', { program_id: 'meta-vr-start-competition-2026', status: 'skipped' });
   const skipped = await mcpCall(c, 'find', { project: VR });
@@ -1146,9 +1157,9 @@ test('B20c (v6.1.9, Review Focus 1): a repo-less idea and an empty repo are neve
   const ideaCtx = async () => ({ installationId: await installation(), builderId: null, now: NOW });
   const emptyCtx = async () => ({ installationId: await installation(), builderId: null, now: NOW, gh: emptyRec.fetch });
   const idea = await mcpCall(await ideaCtx(), 'find', { project: IDEA });
-  assert.equal(idea.reply!.show_to_builder, [...inPersonBlock(1, true), '', ATTEND].join('\n'));
+  assert.equal(idea.reply!.show_to_builder, [...META_VR_ONLY, '', ...inPersonBlock(2, true), '', DEMO_FIRST].join('\n'));
   const empty = await mcpCall(await emptyCtx(), 'find', { project: EMPTY });
-  assert.equal(empty.reply!.show_to_builder, [...inPersonBlock(1), '', 'The repo is empty, so I matched on what you told me.', '', ATTEND].join('\n'));
+  assert.equal(empty.reply!.show_to_builder, [...META_VR_ONLY, '', ...inPersonBlock(2), '', 'The repo is empty, so I matched on what you told me.', '', DEMO_FIRST].join('\n'));
   for (const [mk, project] of [[ideaCtx, IDEA], [emptyCtx, EMPTY]] as const) {
     // Even after the builder says yes (users: true, or gap_done users): not a fit, never ready, never a step.
     const c = await mk();
