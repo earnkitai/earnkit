@@ -39,6 +39,7 @@ states; leave out what it does not. Never guess a reward, a deadline or a requir
 | `verified_at` | the day the facts were checked (`YYYY-MM-DD`), never ahead of today |
 | `existing_work` | `allowed`, `new_work_only` or `unknown` |
 | `needs_repo` | whether entering needs a repo or a live product |
+| `open_source` | `true` when the program's rule is an open source license or open source software (a rule or a `rules` line must say so; `programs:check` refuses it otherwise); a private repo is then one step from it, `a public repo`, never ready. Leave it out (false) when open source is judged on, not required, or only the funded work must be released open |
 | `chains`, `any_chain` | registered chain slugs, or `any_chain: true` and none |
 | `chain_required` | `true` only when the source requires one of `chains` at the project's core |
 | `needs_contract` | a chain (one of `chains`) where a deployed mainnet contract is required |
