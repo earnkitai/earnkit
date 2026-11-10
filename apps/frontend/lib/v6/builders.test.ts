@@ -324,3 +324,28 @@ test('C51: deleteBuilder marks each linked installation, so its next call says t
   await unlinkInstallation(two, c.id, NOW);
   assert.equal(await unlinkedReason(two), 'unlinked');
 });
+
+test('T5-F6 (v6.1.14): on link the stronger row stays and carries the dropped row\'s application id when it has none', async () => {
+  const b = await builder('carry');
+  const one = await install();
+  await prog('bl-carry');
+  await linkInstallation(one, b.id, NOW);
+  assert.deepEqual(await record(`b:${b.id}`, 'bl-carry', 'applied', { installationId: one, now: NOW }), { ok: true });
+  assert.deepEqual(await record(`b:${b.id}`, 'bl-carry', 'won', { installationId: one, amount_usd: 100, now: NOW }), { ok: true });
+  // A win from before v6.1.14 has no id.
+  await sql()`UPDATE applications SET application_id = NULL WHERE owner = ${`b:${b.id}`} AND program_id = 'bl-carry'`;
+  const two = await install();
+  assert.deepEqual(await record(`i:${two}`, 'bl-carry', 'applied', { installationId: two, now: new Date(NOW.getTime() + DAY) }), { ok: true });
+  const [i] = await sql()`SELECT application_id FROM applications WHERE owner = ${`i:${two}`} AND program_id = 'bl-carry'`;
+  await linkInstallation(two, b.id, new Date(NOW.getTime() + DAY));
+  const kept = await sql()`SELECT status, application_id FROM applications WHERE owner = ${`b:${b.id}`} AND program_id = 'bl-carry'`;
+  assert.deepEqual(kept.map((r) => [r.status, r.application_id]), [['won', i.application_id]]);
+  // A kept row with its own id keeps it.
+  await prog('bl-carry2');
+  assert.deepEqual(await record(`b:${b.id}`, 'bl-carry2', 'applied', { installationId: one, now: NOW }), { ok: true });
+  const [own] = await sql()`SELECT application_id FROM applications WHERE owner = ${`b:${b.id}`} AND program_id = 'bl-carry2'`;
+  const three = await install();
+  assert.deepEqual(await record(`i:${three}`, 'bl-carry2', 'skipped', { installationId: three, now: NOW }), { ok: true });
+  await linkInstallation(three, b.id, NOW);
+  assert.equal((await sql()`SELECT application_id FROM applications WHERE owner = ${`b:${b.id}`} AND program_id = 'bl-carry2'`)[0].application_id, own.application_id);
+});

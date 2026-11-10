@@ -4,13 +4,33 @@
  * owner and program (an advisory lock). A claim with no 'applied' after 24 hours is released.
  */
 import { sql } from '../v5/db';
+import { randomBytes } from 'node:crypto';
+import type { Db } from '../v5/db';
 import { programsById } from '../v5/programs';
 
 export const CLAIM_HOURS = 24;
+/** L13-1, T5-F1 (v6.1.14): a new application's own id, issued with the claim (else with the send). */
+export const newApplicationId = () => `ek-${randomBytes(9).toString('base64url')}`;
 const HOUR = 3_600_000;
 /** `sent`: the row is an application already sent, not a live claim. */
 type Already = { since: string; by: string | null; sent: boolean };
-export type ClaimResult = { ok: true } | { ok: false; already: Already } | { ok: false; skipped: true };
+export type ClaimResult = { ok: true } | { ok: false; already: Already } | { ok: false; skipped: true } | { ok: false; unlinked: true };
+
+/** T5-F4 (v6.1.14): a send or claim whose agent was unlinked from the builder meanwhile records nothing. */
+export const UNLINKED_MEANWHILE = 'This agent was just unlinked from your account; nothing recorded.';
+/**
+ * T5-F4 (v6.1.14): inside the owner's per-program lock, whether the writing installation still belongs to a 'b:' owner.
+ * The installation's row is read FOR SHARE, so an unlink (which updates it) waits for this write, or this write sees
+ * the unlink. Refused: linked to another builder, or unlinked with its notice not yet shown (the window an in-flight
+ * call falls in). An 'i:' owner, or an installation with no row, passes.
+ */
+export async function stillLinked(tx: Db, owner: string, installationId: number): Promise<boolean> {
+  if (!owner.startsWith('b:')) return true;
+  const [r] = await tx<{ builder_id: number | null; unlinked_at: Date | null }[]>`
+    SELECT builder_id, unlinked_at FROM installations WHERE id = ${installationId} FOR SHARE`;
+  if (!r) return true;
+  return r.builder_id === null ? r.unlinked_at === null : r.builder_id === Number(owner.slice(2));
+}
 type Row = { status: string; claimed_at: Date | null; claimed_by: number | null; installation_id: number; at: Date };
 
 const clientOf = async (installationId: number | null): Promise<string | null> => {
@@ -32,19 +52,24 @@ export async function claim(owner: string, programId: string, projectId: string 
   const out = await sql().begin(async (tx) => {
     // One claim decision at a time per owner and program, even when no row exists yet.
     await tx`SELECT pg_advisory_xact_lock(hashtext(${owner + ':' + programId}))`;
+    if (!(await stillLinked(tx, owner, installationId))) return { unlinked: true as const };
     const read = async () =>
       (await tx<Row[]>`SELECT status, claimed_at, claimed_by, installation_id, at FROM applications WHERE owner = ${owner} AND program_id = ${programId} FOR UPDATE`)[0];
     const row = await read();
     if (row?.status === 'skipped') return { skipped: true as const };
     if (row?.status === 'started' && row.claimed_at && row.claimed_at > stale && row.claimed_by === installationId) {
-      await tx`UPDATE applications SET claimed_at = ${now} WHERE owner = ${owner} AND program_id = ${programId}`;
+      await tx`UPDATE applications SET claimed_at = ${now}, application_id = COALESCE(application_id, ${newApplicationId()})
+        WHERE owner = ${owner} AND program_id = ${programId}`;
       return { ok: true as const };
     }
     if (row && !(row.status === 'started' && row.claimed_at && row.claimed_at <= stale)) return { held: holder(row), sent: row.status !== 'started' };
-    const won = await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, note, at, project_id, claimed_at, claimed_by)
-      VALUES (${owner}, ${installationId}, ${programId}, 'started', NULL, NULL, ${now}, ${projectId}, ${now}, ${installationId})
+    // T5-F1 (v6.1.14): the application's own id is issued with the claim, before the form is filled, so the agent
+    // can put it in the form; a stale claim taken over keeps its id; the send keeps it (ledger.record).
+    const won = await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, note, at, project_id, claimed_at, claimed_by, application_id)
+      VALUES (${owner}, ${installationId}, ${programId}, 'started', NULL, NULL, ${now}, ${projectId}, ${now}, ${installationId}, ${newApplicationId()})
       ON CONFLICT (owner, program_id) DO UPDATE
         SET installation_id = EXCLUDED.installation_id, status = 'started', amount_usd = NULL, note = NULL, at = EXCLUDED.at,
+            application_id = COALESCE(applications.application_id, EXCLUDED.application_id),
             project_id = EXCLUDED.project_id, claimed_at = EXCLUDED.claimed_at, claimed_by = EXCLUDED.claimed_by,
             submitted_by = NULL, fields_used = NULL, auto_applied = false
         WHERE applications.status = 'started' AND applications.claimed_at <= ${stale}
@@ -58,6 +83,7 @@ export async function claim(owner: string, programId: string, projectId: string 
     return { ok: true as const };
   });
   if ('ok' in out) return { ok: true };
+  if ('unlinked' in out) return { ok: false, unlinked: true };
   if ('skipped' in out) return { ok: false, skipped: true };
   return { ok: false, already: { since: out.held.since.toISOString(), by: await clientOf(out.held.by), sent: out.sent } };
 }

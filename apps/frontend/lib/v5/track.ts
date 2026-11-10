@@ -5,7 +5,7 @@
 import { z } from 'zod';
 import { getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason } from '../v6/builders';
 import { DELETED_NOTICE } from '../v6/reply-words';
-import { claim } from '../v6/claims';
+import { UNLINKED_MEANWHILE, claim } from '../v6/claims';
 import { APPROVAL_OFF, HAD_CLOSED, NIGHT_LIMIT, NOT_OPENED, REQUIRED_MISSING, STEP_AWAY, outsideApproval, readyAtSend, requiredLeftOut, storedRecordContext, storedSide } from '../v6/find-record';
 import { prefill, unvouchedRequired } from './prefill';
 import { cachedRepoFacts, reportOnlyFacts } from './repo-facts';
@@ -42,7 +42,7 @@ export const TrackInput = z
   })
   .strict();
 
-/** `application_id` (L13-1, v6.1.14): on a send recorded, the application's own id; a program's screen matches its outcome by it. */
+/** `application_id` (L13-1, T5-F1 v6.1.14): on a claim and on a send recorded, the application's own id; a program's screen matches its outcome by it. */
 type Result = { show_to_builder: string; agent_note: string; ledger: Ledger; already_started?: true; application_id?: string };
 /** The track input with its project parsed as find parses it (`parseProject`, partial: v6.1.13 B5). */
 type TrackIn = Omit<z.infer<typeof TrackInput>, 'project'> & { project?: Project };
@@ -58,6 +58,9 @@ async function sentHere(owner: string, programId: string): Promise<boolean> {
   const [r] = await sql()<{ status: string }[]>`SELECT status FROM applications WHERE owner = ${owner} AND program_id = ${programId}`;
   return r !== undefined && r.status !== 'started' && r.status !== 'skipped';
 }
+
+/** T5-F1 (v6.1.14): the agent note a claim adds, so the id goes in the form. */
+export const APPLICATION_ID_NOTE = "If the form has a reference field, put application_id in it, so the program's result reaches this ledger.";
 
 /** The sent application's own id (L13-1, v6.1.14), as the reply field; none for a row without one. */
 async function applicationIdOf(owner: string, programId: string): Promise<{ application_id?: string }> {
@@ -293,6 +296,7 @@ async function act(
       return refuse(`${program.file.title} is not open; nothing to start.`, 'Do not submit this one; call find for what is open.');
     // L1d-1 (v6.1.11): with no project_id the claim stores the project key, so find pins it on that project only.
     const c = await claim(owner, i.program_id, i.project_id ?? (project.key || null), ctx.installationId, ctx.now);
+    if (!c.ok && 'unlinked' in c) return refuse(UNLINKED_MEANWHILE);
     if (!c.ok && 'skipped' in c)
       return {
         show_to_builder: 'You skipped that one. Say unskip to bring it back.',
@@ -310,12 +314,15 @@ async function act(
         ledger: await summary(owner, programs, ctx.now),
         already_started: true,
       };
+    // T5-F1 (v6.1.14): the claim carries the application's own id, for the form's reference field.
+    const id = await applicationIdOf(owner, program.id);
+    const started = (r: Result): Result => (id.application_id ? { ...r, ...id, agent_note: `${r.agent_note} ${APPLICATION_ID_NOTE}` } : r);
     // The last find called this one a gap: say what was still missing, so it is fixed before the form goes in. Not
     // when the builder (through any of their agents) has since closed that item (v6.1.7, C23).
     const builderSubmits = program.file.in_person || program.file.submit === 'builder';
     const gap = sameAsLast ? (await lastGaps(ctx.installationId))[program.id] : undefined;
     if (gap && !(gap.item && (await doneItems(owner, program.id, project.key)).has(gap.item)))
-      return gap.kind === 'rule'
+      return started(gap.kind === 'rule'
         ? {
             show_to_builder: `Started. When I last looked it still had a rule to confirm: ${gap.what}. Say yes if that is you.`,
             agent_note: "If the builder says the rule fits, call track gap_done with that gap's item, then find again. Otherwise skip the program.",
@@ -325,13 +332,13 @@ async function act(
             show_to_builder: `Started. When I last looked it was still one change away: ${gap.what}.`,
             agent_note: `Make the change before you submit, or call find again to check it. ${builderSubmits ? sendNote(true) : 'Then fill the form from the fields, submit, and call track with applied, submitted_by and fields_used.'}`,
             ledger: await summary(owner, programs, ctx.now),
-          };
-    return {
+          });
+    return started({
       // N11 (v6.1.9): an unlinked agent has no other agents to speak of.
       show_to_builder: ctx.builderId === null ? 'Started.' : 'Started. Your other agents leave this one alone for 24 hours.',
       agent_note: sendNote(builderSubmits),
       ledger: await summary(owner, programs, ctx.now),
-    };
+    });
   }
   // Sent under standing approval: the builder's policy at this moment (never for an unlinked installation), and only
   // an agent's own submission; a form the builder sent is never one. With the policy on, the send counts as approved

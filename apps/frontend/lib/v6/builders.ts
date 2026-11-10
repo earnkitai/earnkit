@@ -96,6 +96,10 @@ export async function linkInstallation(installationId: number, builderId: number
       await tx`UPDATE installations SET builder_id = ${builderId}, linked_at = ${now}, unlinked_at = NULL, unlinked_reason = NULL WHERE id = ${installationId}`;
     // Rows of both ledgers are locked in a stable order, so two links to one builder never interleave.
     await tx`SELECT 1 FROM applications WHERE owner IN (${from}, ${to}) ORDER BY owner, program_id FOR UPDATE`;
+    // T5-F6 (v6.1.14): the dropped row's application id, carried onto the kept row when that one has none.
+    const both = await tx<{ program_id: string; i_id: string | null; b_id: string | null }[]>`
+      SELECT i.program_id, i.application_id AS i_id, b.application_id AS b_id FROM applications i JOIN applications b
+        ON b.owner = ${to} AND b.program_id = i.program_id WHERE i.owner = ${from}`;
     // A later skip or claim from the unlinked time never replaces a win or an application (lane 7 relink); among
     // results, won beats rejected beats no_result whatever the time (v6.1.9 N3): a relink never loses a win.
     await tx`DELETE FROM applications i USING applications b
@@ -107,6 +111,10 @@ export async function linkInstallation(installationId: number, builderId: number
     await tx`DELETE FROM applications b USING applications i
       WHERE b.owner = ${to} AND i.owner = ${from} AND i.program_id = b.program_id`;
     const moved = await tx`UPDATE applications SET owner = ${to} WHERE owner = ${from}`;
+    for (const p of both) {
+      const id = p.i_id ?? p.b_id;
+      if (id) await tx`UPDATE applications SET application_id = ${id} WHERE owner = ${to} AND program_id = ${p.program_id} AND application_id IS NULL`;
+    }
     await tx`UPDATE application_history SET owner = ${to} WHERE owner = ${from}`;
     // A done step keeps its project (v6.1.10 L1c-1): only the same project's repeat is merged.
     await tx`DELETE FROM gaps_done i USING gaps_done b
@@ -129,11 +137,18 @@ export async function linkInstallation(installationId: number, builderId: number
  * them at once; its later calls write its own ledger, never the builder's.
  */
 export async function unlinkInstallation(installationId: number, builderId: number, now: Date): Promise<boolean> {
+  const owner = `b:${builderId}`;
   return sql().begin(async (tx) => {
+    // T5-F4 (v6.1.14): the ledger's per-program lock on each of its claims first (in one order, so two unlinks never
+    // deadlock), then the installation's row; a send or claim in flight either lands before the unlink or sees it
+    // (ledger.record and claims.claim read the installation FOR SHARE under the same lock).
+    const held = await tx<{ program_id: string }[]>`SELECT program_id FROM applications
+      WHERE owner = ${owner} AND status = 'started' AND claimed_by = ${installationId} ORDER BY program_id`;
+    for (const h of held) await tx`SELECT pg_advisory_xact_lock(hashtext(${owner + ':' + h.program_id}))`;
     const r = await tx`UPDATE installations SET builder_id = NULL, linked_at = NULL, unlinked_at = ${now}, unlinked_reason = 'unlinked'
       WHERE id = ${installationId} AND builder_id = ${builderId}`;
     if (r.count === 0) return false;
-    await tx`DELETE FROM applications WHERE owner = ${`b:${builderId}`} AND status = 'started' AND claimed_by = ${installationId}`;
+    await tx`DELETE FROM applications WHERE owner = ${owner} AND status = 'started' AND claimed_by = ${installationId}`;
     return true;
   }) as Promise<boolean>;
 }

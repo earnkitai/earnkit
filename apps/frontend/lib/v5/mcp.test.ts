@@ -24,7 +24,7 @@ test('four tools, their descriptions and the server instructions, verbatim', asy
   );
   assert.equal(
     TRACK_DESCRIPTION,
-    "What the builder did: started (a claim before filling), applied (with submitted_by, and fields_used: the field keys from find's fields), won (with amount_usd), rejected, no_result, skipped, unskip (a skipped program may come back), or gap_done (item: the gap's item from find, copied exactly as given; project: the same object you passed to find). Call started before filling and applied after every submission. The applied reply's application_id is the application's id at EarnKit: when the program asks for an EarnKit id, give it that.",
+    "What the builder did: started (a claim before filling), applied (with submitted_by, and fields_used: the field keys from find's fields), won (with amount_usd), rejected, no_result, skipped, unskip (a skipped program may come back), or gap_done (item: the gap's item from find, copied exactly as given; project: the same object you passed to find). Call started before filling and applied after every submission. The started reply's application_id is the application's id at EarnKit: put it in the form's reference field when there is one, and give it when the program asks for an EarnKit id.",
   );
   assert.equal(tools[0].description, FIND_DESCRIPTION);
   assert.equal(tools[1].description, TRACK_DESCRIPTION);

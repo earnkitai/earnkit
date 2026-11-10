@@ -15,6 +15,8 @@ export type Applicant = {
   live_url: string | null;
   contracts: { chain: string; address: string }[];
   pitch: string | null;
+  /** T5-F2 (v6.1.14): the EarnKit application id the applicant gave the program, if any. */
+  application_id?: string | null;
   problems: string[];
 };
 
@@ -22,13 +24,14 @@ export type Applicant = {
 export class CsvError extends Error {}
 
 /** Header names after `headerKey` (so "GitHub URL" is github_url, "Project Name" is project_name). A "Project URL" is the site, never the name. */
-const COLUMNS: Record<'ref' | 'name' | 'repo' | 'live' | 'contracts' | 'pitch', string[]> = {
+const COLUMNS: Record<'ref' | 'name' | 'repo' | 'live' | 'contracts' | 'pitch' | 'application_id', string[]> = {
   ref: ['ref', 'id'],
   name: ['name', 'project', 'project_name', 'team', 'team_name'],
   repo: ['repo', 'repo_url', 'repository', 'repository_url', 'github', 'github_url', 'github_repo', 'source', 'source_url'],
   live: ['url', 'website', 'website_url', 'live', 'live_url', 'site', 'site_url', 'project_url', 'demo', 'demo_url', 'app_url'],
   contracts: ['contract', 'contracts', 'address', 'contract_address', 'contract_addresses'],
   pitch: ['pitch', 'description', 'summary'],
+  application_id: ['application_id', 'earnkit_id', 'earnkit_application_id'],
 };
 
 /** A header cell as a column key: lowercase, spaces and dashes to underscores. Pure. */
@@ -139,6 +142,7 @@ export function parseApplicants(csv: string, o: { chain?: string } = {}): Applic
       live_url: get('live'),
       contracts: cs.contracts,
       pitch: get('pitch'),
+      application_id: get('application_id')?.slice(0, 40) ?? null,
       problems,
     };
   });

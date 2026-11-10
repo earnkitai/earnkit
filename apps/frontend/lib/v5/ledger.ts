@@ -5,12 +5,11 @@
  * over a result, is refused and changes nothing. A win is whole dollars; one over the program's stated maximum, else
  * its pool, else 10,000,000, is refused; investments are never "asked".
  */
-import { randomBytes } from 'node:crypto';
 import { sql, type Db } from './db';
 import { categoryOf, eligibilityOf } from './program-file';
 import { codeChecked, forExistingCode, itemKey } from './eligibility';
 import { getProgram, programsById, type ProgramRow } from './programs';
-import { CLAIM_HOURS } from '../v6/claims';
+import { CLAIM_HOURS, UNLINKED_MEANWHILE, newApplicationId, stillLinked } from '../v6/claims';
 import { projectKeyOf, type Project } from './project-input';
 
 /** gap_done without a known item (v6.1.8, 3.10): the builder names the change, the agent gets the item keys. */
@@ -72,8 +71,7 @@ export const AMOUNT_NOT_GIVEN = 'amount not given';
 /** "won $3,000", "won, amount not given", "rejected", "no result": a row's result in words. Pure. */
 export const resultWords = (status: string, amount: string | null) =>
   status === 'won' ? (amount === null ? `won, ${AMOUNT_NOT_GIVEN}` : `won ${usd(Number(amount))}`) : status === 'no_result' ? 'no result' : status;
-/** L13-1 (v6.1.14): a new application's own id, given to the agent that tracked the send. */
-export const newApplicationId = () => `ek-${randomBytes(9).toString('base64url')}`;
+export { newApplicationId };
 
 /** The program's title: the catalog's, else the one stored when it was sent, else the id. */
 export async function titleOf(owner: string, programId: string): Promise<string> {
@@ -140,6 +138,8 @@ export async function record(
   return (await sql().begin(async (tx) => {
     // One decision at a time per owner and program (the claim's lock), even when no row exists yet.
     await tx`SELECT pg_advisory_xact_lock(hashtext(${owner + ':' + programId}))`;
+    // T5-F4 (v6.1.14): a send of an agent unlinked meanwhile never lands in the builder's ledger.
+    if (status === 'applied' && !(await stillLinked(tx, owner, installationId))) return { ok: false, note: UNLINKED_MEANWHILE } as const;
     const [row] = await tx<{ status: string; amount_usd: string | null; at: Date; client_name: string | null; claimed_at: Date | null; claimed_by: number | null }[]>`
       SELECT a.status, a.amount_usd, a.at, i.client_name, a.claimed_at, a.claimed_by FROM applications a LEFT JOIN installations i ON i.id = a.installation_id
       WHERE a.owner = ${owner} AND a.program_id = ${programId} FOR UPDATE OF a`;

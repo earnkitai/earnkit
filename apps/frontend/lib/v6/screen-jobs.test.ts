@@ -76,7 +76,7 @@ test('L13-1 (v6.1.14): recordOutcomes writes a ledger only through the applicati
   const j = await job(r, [
     { ref: 'c-1', name: 'Winner', repo_url: 'https://github.com/acme/winner', application_id: await appId(`b:${applied.id}`, 'jobs-c') },
     { ref: 'c-2', name: 'No id', repo_url: 'https://github.com/acme/winner' },
-    { ref: 'c-3', name: 'Short', application_id: await appId(`b:${applied.id}`, 'jobs-c') },
+    { ref: 'c-3', name: 'Short' },
     { ref: 'c-4', name: 'No Amount', application_id: await appId(`b:${noAmount.id}`, 'jobs-c') },
     { ref: 'c-5', name: 'Wrong program', application_id: await appId(`b:${elsewhere.id}`, 'jobs-c-other') },
     { ref: 'c-6', name: 'Made up', application_id: 'ek-madeupmadeup' },
@@ -134,6 +134,47 @@ test('L13-1 (v6.1.14, Review Focus 7): a fake applicant with a victim\'s repo le
   assert.deepEqual(await status(real), ['won', 5000]);
   // The victim's own win is still theirs to record.
   assert.deepEqual(await record(`b:${victim.id}`, 'jobs-rf7', 'won', { installationId: 4242, amount_usd: 3000, now: NOW }), { ok: true });
+});
+
+test('T5-F3 (v6.1.14): one id on two applicant rows of the program is ambiguous: neither reaches a ledger, the note names both', async () => {
+  const r = await reviewer('jobs-amb');
+  const victim = await upsertBuilder({ github_id: ++gh, login: 'ambv' + gh, name: null, avatar_url: null }, NOW);
+  assert.deepEqual(await record(`b:${victim.id}`, 'jobs-amb', 'applied', { installationId: 4242, now: NOW }), { ok: true });
+  const id = await appId(`b:${victim.id}`, 'jobs-amb');
+  const j = await job(r, [{ ref: 'victim', name: 'V', application_id: id }, { ref: 'imposter', name: 'I', application_id: id }]);
+  assert.deepEqual(await recordOutcomes(j.id, r.builderId, [{ ref: 'imposter', outcome: 'rejected' }, { ref: 'victim', outcome: 'won', amount_usd: 900 }], NOW),
+    { recorded: 2, notFound: [], notes: ['Not passed on, one EarnKit id on more than one applicant: imposter and victim.'] });
+  assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${victim.id}`} AND program_id = 'jobs-amb'`)[0].status, 'applied');
+  // A later screen of the program with the id on another ref: ambiguous too, named as another screen's.
+  const r2 = await reviewer('jobs-amb2');
+  const b2 = await upsertBuilder({ github_id: ++gh, login: 'ambw' + gh, name: null, avatar_url: null }, NOW);
+  assert.deepEqual(await record(`b:${b2.id}`, 'jobs-amb2', 'applied', { installationId: 4242, now: NOW }), { ok: true });
+  const id2 = await appId(`b:${b2.id}`, 'jobs-amb2');
+  const first = await job(r2, [{ ref: 'w', name: 'W', application_id: id2 }]);
+  const second = await job(r2, [{ ref: 'copy', name: 'C', application_id: id2 }]);
+  assert.deepEqual((await recordOutcomes(second.id, r2.builderId, [{ ref: 'copy', outcome: 'rejected' }], NOW)).notes,
+    ['Not passed on, one EarnKit id on more than one applicant: copy and w (another screen).']);
+  assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${b2.id}`} AND program_id = 'jobs-amb2'`)[0].status, 'applied');
+  // The same ref queued again in another screen is the same applicant, not ambiguous.
+  const again = await job(r2, [{ ref: 'w', name: 'W', application_id: id2 }]);
+  assert.deepEqual((await recordOutcomes(again.id, r2.builderId, [{ ref: 'w', outcome: 'won', amount_usd: 50 }], NOW)).notes,
+    ['Not passed on, one EarnKit id on more than one applicant: w and copy (another screen).']);
+  void first;
+});
+
+test('T5-F5 (v6.1.14): two outcome calls for one ref at once keep the later one and name what each replaced', async () => {
+  const r = await reviewer('jobs-race');
+  const j = await job(r, [{ ref: 'v', name: 'V' }]);
+  const at = (h: number) => new Date(NOW.getTime() + h * 3_600_000);
+  await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'rejected' }], at(0));
+  const [a, b] = await Promise.all([
+    recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 100 }], at(1)),
+    recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'shortlisted' }], at(2)),
+  ]);
+  const replaced = [...a.notes, ...b.notes].filter((n) => n.startsWith('Replaced'));
+  assert.ok(replaced.length >= 1, JSON.stringify([a, b]));
+  assert.ok(b.notes.some((n) => /^Replaced the outcome recorded before: v \(was (rejected|won \$100)\)\.$/.test(n)), JSON.stringify(b));
+  assert.equal((await sql()`SELECT outcome FROM screen_outcomes WHERE job_id = ${j.id} AND ref = 'v'`)[0].outcome, 'shortlisted');
 });
 
 test('L13-12 (v6.1.14): a second outcome replaces the first only when newer, and the note names what it replaced', async () => {

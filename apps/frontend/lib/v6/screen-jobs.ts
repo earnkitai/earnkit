@@ -174,6 +174,8 @@ export const OUTCOME_NOTES = {
   noAmount: (refs: string[]) => `Passed on as a win, amount not given: ${listWords(refs, 10)}.`,
   replaced: (items: string[]) => `Replaced the outcome recorded before: ${listWords(items, 10)}.`,
   older: (refs: string[]) => `Not recorded, a later outcome is already kept: ${listWords(refs, 10)}.`,
+  /** T5-F3 (v6.1.14): one id on more than one applicant of the program; each group names every row carrying it. */
+  ambiguous: (groups: string[]) => `Not passed on, one EarnKit id on more than one applicant: ${groups.join('; ')}.`,
 } as const;
 
 /**
@@ -182,7 +184,8 @@ export const OUTCOME_NOTES = {
  * the application the applicant row names by its EarnKit id (L13-1, v6.1.14), only when that application is for this
  * program: never by repo or site, since a record or an applicant list can name any repo. It is written as that
  * application's own installation, through ledger.record so its caps and its one result per program hold; a win with
- * no amount is passed on as a win with none (L13-13). Shortlisted writes no ledger row. `notes` are for the reviewer's
+ * no amount is passed on as a win with none (L13-13). An id more than one applicant of the program carries reaches no
+ * ledger (T5-F3). Shortlisted writes no ledger row. `notes` are for the reviewer's
  * agent: what the screen did, never whether a ledger took it.
  */
 export async function recordOutcomes(jobId: string, builderId: number, outcomes: Outcome[], now: Date): Promise<{ recorded: number; notFound: string[]; notes: string[] }> {
@@ -196,6 +199,7 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
   const noAmount: string[] = [];
   const older: string[] = [];
   const replaced: string[] = [];
+  const ambiguous: string[] = [];
   const once = (list: string[], ref: string) => void (list.includes(ref) || list.push(ref));
   for (const o of outcomes) {
     const [a] = await sql()<{ application_id: string | null }[]>`SELECT application_id FROM screen_applicants WHERE job_id = ${jobId} AND ref = ${o.ref}`;
@@ -204,12 +208,16 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
       continue;
     }
     const amount = o.outcome === 'won' && o.amount_usd != null ? o.amount_usd : null;
-    const [before] = await sql()<{ outcome: string; amount_usd: string | null; at: Date }[]>`
-      SELECT outcome, amount_usd, at FROM screen_outcomes WHERE job_id = ${jobId} AND ref = ${o.ref}`;
-    const kept = await sql()`INSERT INTO screen_outcomes (job_id, ref, outcome, amount_usd, at) VALUES (${jobId}, ${o.ref}, ${o.outcome}, ${amount}, ${now})
-      ON CONFLICT (job_id, ref) DO UPDATE SET outcome = EXCLUDED.outcome, amount_usd = EXCLUDED.amount_usd, at = EXCLUDED.at
-      WHERE EXCLUDED.at >= screen_outcomes.at RETURNING ref`;
-    if (kept.length === 0) {
+    // T5-F5 (v6.1.14): the outcome it replaces is read under the row's lock, in the upsert's transaction.
+    const { before, kept } = (await sql().begin(async (tx) => {
+      const [b] = await tx<{ outcome: string; amount_usd: string | null; at: Date }[]>`
+        SELECT outcome, amount_usd, at FROM screen_outcomes WHERE job_id = ${jobId} AND ref = ${o.ref} FOR UPDATE`;
+      const k = await tx`INSERT INTO screen_outcomes (job_id, ref, outcome, amount_usd, at) VALUES (${jobId}, ${o.ref}, ${o.outcome}, ${amount}, ${now})
+        ON CONFLICT (job_id, ref) DO UPDATE SET outcome = EXCLUDED.outcome, amount_usd = EXCLUDED.amount_usd, at = EXCLUDED.at
+        WHERE EXCLUDED.at >= screen_outcomes.at RETURNING ref`;
+      return { before: b, kept: k.length > 0 };
+    })) as { before: { outcome: string; amount_usd: string | null; at: Date } | undefined; kept: boolean };
+    if (!kept) {
       once(older, o.ref);
       continue;
     }
@@ -217,6 +225,20 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
     const same = before && before.outcome === o.outcome && (before.amount_usd === null ? null : Number(before.amount_usd)) === amount;
     if (before && !same) replaced.push(`${o.ref} (was ${before.outcome === 'shortlisted' ? 'shortlisted' : resultWords(before.outcome, before.amount_usd)})`);
     if (o.outcome === 'shortlisted') continue;
+    // T5-F3 (v6.1.14): an id another applicant of this program carries too (another ref in any unexpired screen of it)
+    // is ambiguous: an id given to a program can be copied, so neither row reaches a ledger. The same ref queued again
+    // in another screen is the same applicant.
+    if (a.application_id) {
+      const others = await sql()<{ ref: string; job_id: string }[]>`
+        SELECT a.ref, a.job_id FROM screen_applicants a JOIN screen_jobs j ON j.id = a.job_id
+        WHERE a.application_id = ${a.application_id} AND j.program_id = ${job.program_id} AND j.expires_at > ${now} AND a.ref <> ${o.ref}`;
+      if (others.length > 0) {
+        const here = [o.ref, ...others.filter((x) => x.job_id === jobId).map((x) => x.ref)].sort();
+        const group = listWords([...here, ...others.filter((x) => x.job_id !== jobId).map((x) => `${x.ref} (another screen)`).sort()], 10);
+        if (!ambiguous.includes(group)) ambiguous.push(group);
+        continue;
+      }
+    }
     // The application the applicant row names, for this program only; a sent one (applied, or with a result the ledger keeps).
     const [app] = a.application_id
       ? await sql()<{ owner: string; installation_id: number }[]>`
@@ -237,6 +259,7 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
     ...(older.length ? [OUTCOME_NOTES.older(older)] : []),
     ...(noAmount.length ? [OUTCOME_NOTES.noAmount(noAmount)] : []),
     ...(unmatched.length ? [OUTCOME_NOTES.unmatched(unmatched)] : []),
+    ...(ambiguous.length ? [OUTCOME_NOTES.ambiguous(ambiguous)] : []),
   ];
   return { recorded, notFound, notes };
 }
