@@ -224,7 +224,6 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
       ? [
           project ? `Draft from fields: ${fitted ? "'record' and 'earnkit'" : "'earnkit'"} values as given; ${AGENT_FIELDS}` : 'Call again with the project so the fields come pre-filled.',
           ...(verdict?.gaps.some((g) => g.kind === 'rule') ? [RULE_NOTE] : []),
-          'Submit only on a yes, in your own browser, then call track with applied.',
           ...(fitted ? ['Fit approved answers by cutting, never by adding; the style contract travels on each field.'] : []),
         ]
       : ['It takes no entries now: draft nothing and submit nothing. Call find with the project for what is open.']

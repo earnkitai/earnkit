@@ -87,7 +87,7 @@ test('catalog words: submit, sign-in, needs, bar and the integration item', () =
   assert.equal(g.bar, 'Bar: a live product');
   assert.deepEqual(g.eligibility, ['uses Smart Wallet']);
   const plain = guideText(rowOf(programFixture({ id: 'a-i', submit: 'builder' })));
-  assert.equal(plain.submit, 'Needs your click to submit');
+  assert.equal(plain.submit, 'You press submit yourself');
   assert.equal(plain.sign_in, null);
   assert.deepEqual(plain.needs, []);
   assert.equal(plain.bar, null);

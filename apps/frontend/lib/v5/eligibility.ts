@@ -52,8 +52,9 @@ function gapOf(i: EligibilityItem): Gap {
   const base = { kind: i.kind, item: itemKey(i), effort: EFFORT[i.kind], agent_can: false };
   const v = i.value ?? '';
   switch (i.kind) {
-    case 'chain': return { ...base, what: `deploy the contract on ${chainName(v)}`, details: chainDetails(v) };
-    case 'contract_on': return { ...base, what: `a contract on ${chainName(v)}`, details: chainDetails(v) };
+    // The agent deploys from the repo with the chain's RPC (v6.1.8, 1a: "do n" and I deploy it).
+    case 'chain': return { ...base, what: `deploy the contract on ${chainName(v)}`, agent_can: true, details: chainDetails(v) };
+    case 'contract_on': return { ...base, what: `a contract on ${chainName(v)}`, agent_can: true, details: chainDetails(v) };
     case 'builder_codes': return { ...base, what: 'add Base Builder Codes to the app', agent_can: true };
     case 'live_product': return { ...base, what: 'put a live link up' };
     case 'demo_video': return { ...base, what: 'a demo video' };

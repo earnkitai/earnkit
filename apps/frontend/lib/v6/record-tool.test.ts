@@ -44,7 +44,7 @@ test('unlinked and sign-in not configured: linked false, no sign_in, the session
   assert.equal(r.isError, false, r.text);
   assert.equal(r.reply!.linked, false);
   assert.equal('sign_in' in r.reply!, false);
-  assert.equal(r.reply!.show_to_builder, 'Sign-in is not ready yet; I will keep what you tell me in this session only.');
+  assert.equal(r.reply!.show_to_builder, "I can't save that yet, so I keep it for this chat.");
   assert.equal(r.reply!.agent_note, 'Show the link once. Ask for personal facts once, all together, when a form needs them; nothing is saved until the builder has signed in. Call record with get afterwards.');
   assert.equal('record' in r.reply!, false);
 });
@@ -87,7 +87,7 @@ test('linked: set saves, get reads it back; missing lists the founder video when
   assert.ok((g.reply!.missing as string[]).includes('your founder video link'));
   // C30: get and set say what is missing with one line, from one list.
   assert.deepEqual(g.reply!.missing, s.reply!.missing);
-  assert.equal(g.reply!.show_to_builder, `Your record has 2 of 6 blocks. Still missing: ${listWords(missing)}.`);
+  assert.equal(g.reply!.show_to_builder, `Your record is missing: ${listWords(missing)}.`);
 });
 
 test('the Saved line: three missing items, then "and n more"; the approval note only when an approvable path changed', async () => {

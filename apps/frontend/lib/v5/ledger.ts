@@ -10,6 +10,9 @@ import { categoryOf, eligibilityOf } from './program-file';
 import { itemKey } from './eligibility';
 import { getProgram, programsById, type ProgramRow } from './programs';
 
+/** gap_done without a known item (v6.1.8, 3.10): the builder names the change, the agent gets the item keys. */
+export const WHICH_CHANGE = 'Which change did you finish? Say the program and the change.';
+
 /** 'started' is a claim (lib/v6/claims.ts): not an application yet, so the summary leaves it out. */
 export type Status = 'started' | 'applied' | 'won' | 'rejected' | 'no_result' | 'skipped' | 'unskip' | 'gap_done';
 export type Ledger = {
@@ -99,9 +102,9 @@ export async function record(
     const items = eligibilityOf(program.file);
     const keys = [...new Set([...items.map(itemKey), ...(items.some((x) => x.kind === 'users') ? ['users'] : [])])];
     // The keys go to the agent only: builder text never carries them (v6.1.6, 25a); also when no item came (C11).
-    if (!o.item || !keys.includes(o.item)) return { ok: false, note: 'Tell me which item you finished.', items: keys };
+    if (!o.item || !keys.includes(o.item)) return { ok: false, note: WHICH_CHANGE, items: keys };
   }
-  if (status === 'gap_done' && !o.item) return { ok: false, note: 'Tell me which item you finished.' };
+  if (status === 'gap_done' && !o.item) return { ok: false, note: WHICH_CHANGE };
   if (status === 'started') throw new Error('a claim is written by claims.claim');
   const amount = status === 'won' ? o.amount_usd! : null;
   const note = o.note ?? null;

@@ -13,17 +13,14 @@ beforeEach(() => sql()`DELETE FROM repo_cache`);
 const NOW = new Date('2026-11-04T12:00:00Z');
 const H = 3_600_000;
 const CLOSINGS = [
-  /Say yes to apply to all \d+, numbers to skip, or "do \d+" and I'll make the change first\.$/,
-  /Say yes to apply to all \d+, or numbers to skip\.$/,
-  /Say yes to apply, or skip it\.$/,
-  /Say yes to apply, skip it, or "do \d+" and I'll make the change first\.$/,
-  /Say "do \d+" and I'll make the change first\.$/,
+  // v6.1.8 (1a): one action. The gap lines carry their own "do n" and "yes n".
+  /Say yes and I apply to all \d+\. Or say the numbers to skip\.$/,
+  /Say yes and I apply\.$/,
+  /Say yes and I draft all \d+ for you to send\. Or say the numbers to skip\.$/,
+  /Say yes and I draft it for you to send\.$/,
+  /Nothing is ready yet\.( Say "yes \d+" if that rule fits you\.)?$/,
   /Nothing fits yet\. I'll say when something opens\.$/,
-  // v6.1.6 (R18a): a rule-only gap is named with "yes r".
-  /Say yes to apply, skip it, or "yes \d+" if its rule fits you\.$/,
-  /Say yes to apply to all \d+, numbers to skip, or "yes \d+" if its rule fits you\.$/,
-  /Say yes to apply(, skip it| to all \d+, numbers to skip), "yes \d+" if its rule fits you, or "do \d+" and I'll make the change first\.$/,
-  /Say "yes \d+" if its rule fits you(, or "do \d+" and I'll make the change first)?\.$/,
+  /Applying tonight to [^\n]+\. Say stop to hold any\.$/,
 ];
 
 async function installation() {
@@ -61,19 +58,19 @@ test('first find has no since', async () => {
   assert.equal(
     show,
     [
-      'Ready to apply, 1:',
+      'Ready to apply (1):',
       '1. Arbitrum Mentorship Program: Cohort 2, $100K in prizes, closes in 32 days. Long odds: few prizes for many entries. Drafted: 2 of 22 answers from the repo, 17 more by your agent. Needs your top 3 successes, funding raised before and current TVL range.',
       '',
-      'One change away, 3:',
-      '2. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
+      'One step away (3):',
+      '2. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc. Say "do 2" and I deploy it.',
       '3. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.',
-      '4. Base Ecosystem Fund, pre-seed and seed investment. Their rule: a pre-seed or seed stage startup that chooses Base as its home.',
+      '4. Base Ecosystem Fund, pre-seed and seed investment. Their rule: a pre-seed or seed stage startup that chooses Base as its home. Say "yes 4" if that is you.',
       '',
-      'In person, apply to attend first:',
-      '5. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account to start the application.',
+      'In person (2):',
+      '5. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account.',
       "6. Alliance ALL19, $400K at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
       '',
-      'Say yes to apply, skip it, "yes 4" if its rule fits you, or "do 2" and I\'ll make the change first.',
+      'Say yes and I apply.',
     ].join('\n'),
   );
   // Only what nobody but the builder can give: no contacts or team. Whole words, so a program named Team1 is not "team".
@@ -132,7 +129,7 @@ test('default list: in-person programs never take a remote ready slot (v6.1.4)',
   assert.match(show, /^Ready to apply/m);
   // v6.1.6 (R18a): rule-only programs are one answer away, so one remote program is ready, as in v6.1.4.
   assert.deepEqual(remote.map((p) => p.title), ['Arbitrum Mentorship Program: Cohort 2'], show);
-  const block = show.split('\n\nIn person, apply to attend first:\n')[1]?.split('\n\n')[0] ?? '';
+  const block = show.split(/\n\nIn person \(\d+\):\n/)[1]?.split('\n\n')[0] ?? '';
   assert.ok(block.split('\n').filter(Boolean).length <= 2, show);
 });
 
@@ -451,10 +448,10 @@ test('linked: record fields, what the record lacks, blockers, and the own tier r
   // v6.1.6 (R21): Y Combinator is in person, so its line names what attending takes and the Before block does not.
   assert.match(show, /\n\nBefore applying: [^\n]*Still missing from your record: [^\n]+\./);
   assert.doesNotMatch(show.split('\n\n').find((b) => b.startsWith('Before applying: '))!, /Y Combinator/);
-  assert.match(show, /\n\nYour project reads as live, no verified usage yet\. Next: [^\n]+\.\n\n/);
+  assert.match(show, /\n\nYour project is live, with no verified usage yet\. Next: [^\n]+\.\n\n/);
   assert.doesNotMatch(show, /Sign in once at/);
   assert.match(reply.agent_note as string, /Fit approved answers by cutting, never by adding; the style contract travels on each field\./);
-  assert.match(reply.agent_note as string, /Sign-ins and clicks the builder must do are in blockers/);
+  assert.doesNotMatch(reply.agent_note as string, /blockers; name them once|Submit only/);
   assert.equal(reads, 1);
 
   // Inside 24 hours: no read, the stored tier.
@@ -491,7 +488,7 @@ test('min_tier above the project tier moves the program to gaps with kind tier; 
     const other = await linkedWith(OWNER_RECORD);
     const u = await mcpCall({ ...ctx(other.id), builderId: other.builderId, evidence: async () => { throw new Error('down'); } }, 'find', { project: PROJECT, filter: { all: true } });
     assert.ok(ids(u.reply!.gaps).includes('f-tier'));
-    assert.match(u.reply!.show_to_builder as string, /Tier Grant, Up to \$5,000: Link GitHub so EarnKit can confirm your product has users\./);
+    assert.match(u.reply!.show_to_builder as string, /Tier Grant, Up to \$5,000\. Sign in once so EarnKit can confirm real people use it\./);
     // Unlinked (v6.1.3 R3): the repo read reads as building at most, so a used bar is a gap. Unread (B20, v6.1.8):
     // the report's live link reads as live, still under a used bar; nothing reported is not a fit.
     const v5 = await mcpCall(ctx(await installation()), 'find', { project: PROJECT, filter: { all: true } });
@@ -507,7 +504,7 @@ test('min_tier above the project tier moves the program to gaps with kind tier; 
 });
 
 // v6.1.3 R3: unlinked, a provisional tier from the repo read gates min_tier; it never reaches evidence_summary.
-const CONFIRM = 'Link GitHub so EarnKit can confirm your product is live';
+const CONFIRM = 'Sign in once so EarnKit can confirm your product is live';
 async function withLiveBar<T>(run: () => Promise<T>): Promise<T> {
   const { programFixture } = await import('./fixtures/program');
   await upsertProgram(programFixture({ id: 'f-live', title: 'Live Grant', min_tier: 'live' }), 'file', NOW);
@@ -521,7 +518,7 @@ async function withLiveBar<T>(run: () => Promise<T>): Promise<T> {
 /** The builder's text has Live Grant as a ready line and no confirm line. */
 function assertLiveReady(show: string) {
   assert.match(show, /^\d+\. Live Grant, Up to \$5,000\. /m, show);
-  assert.doesNotMatch(show, /Link GitHub so EarnKit can confirm/, show);
+  assert.doesNotMatch(show, /Sign in once so EarnKit can confirm/, show);
 }
 
 test('unlinked: each bar names itself in the gap line (R3b)', async () => {
@@ -530,9 +527,9 @@ test('unlinked: each bar names itself in the gap line (R3b)', async () => {
   const ready = { program_id: 'f', status: 'ready' as const, gaps: [], reason: null, long_shot: null, rules: [] };
   const line = (min: 'used' | 'live' | 'building', tier: 'building' | 'unverified' | 'live') =>
     provisionalGate(ready, { id: 'f', file: programFixture({ id: 'f', min_tier: min }) } as never, tier).gaps[0]?.what;
-  assert.equal(line('used', 'live'), 'Link GitHub so EarnKit can confirm your product has users');
-  assert.equal(line('live', 'building'), 'Link GitHub so EarnKit can confirm your product is live');
-  assert.equal(line('building', 'unverified'), 'Link GitHub so EarnKit can confirm your product has code');
+  assert.equal(line('used', 'live'), 'Sign in once so EarnKit can confirm real people use it');
+  assert.equal(line('live', 'building'), 'Sign in once so EarnKit can confirm your product is live');
+  assert.equal(line('building', 'unverified'), 'Sign in once so EarnKit can confirm your project has code');
 });
 
 test('unlinked: a public repo with no live URL from code and no mainnet contract is a gap with the link line (R3)', async () => withLiveBar(async () => {
@@ -545,7 +542,7 @@ test('unlinked: a public repo with no live URL from code and no mainnet contract
   assert.ok(g, JSON.stringify(ids(r.reply!.gaps)));
   assert.equal(g.gap.kind, 'tier');
   assert.equal(g.gap.what, CONFIRM);
-  assert.match(r.reply!.show_to_builder as string, new RegExp(`^${g.n}\\. Live Grant, Up to \\$5,000: ${CONFIRM}\\.$`, 'm'));
+  assert.match(r.reply!.show_to_builder as string, new RegExp(`^${g.n}\\. Live Grant, Up to \\$5,000\\. ${CONFIRM}\\.$`, 'm'));
   assert.equal(r.reply!.evidence_summary, null);
   // A live URL the agent reports is not the code's: still the gap (the earnkit repo has no homepage).
   const reported = await mcpCall(ctx(await installation()), 'find', { project: PROJECT, filter: { all: true } });
@@ -580,7 +577,7 @@ test('linked with an empty record: the provisional bar holds after sign-in, with
   const g = (r.reply!.gaps as { program_id: string; n: number; gap: { kind: string; what: string } }[]).find((x) => x.program_id === 'f-live');
   assert.ok(g, JSON.stringify(ids(r.reply!.gaps)));
   assert.equal(g.gap.kind, 'tier');
-  assert.match(r.reply!.show_to_builder as string, new RegExp(`^${g.n}\\. Live Grant, Up to \\$5,000: Link GitHub so EarnKit can confirm your product is live\\.$`, 'm'));
+  assert.match(r.reply!.show_to_builder as string, new RegExp(`^${g.n}\\. Live Grant, Up to \\$5,000\\. Sign in once so EarnKit can confirm your product is live\\.$`, 'm'));
   assert.equal(r.reply!.evidence_summary, null);
 }));
 
@@ -669,7 +666,7 @@ test('unlinked: blockers name the sign-ins, clicks and documents as linked does,
   const show = r.reply!.show_to_builder as string;
   // v6.1.6 (R21): the in-person line says what attending takes; the Before block never repeats it.
   assert.doesNotMatch(show, /Sign in once to Y Combinator/);
-  assert.match(show, /\n\nIn person, apply to attend first:\n/);
+  assert.match(show, /\n\nIn person \(\d+\):\n/);
   assert.equal(r.reply!.evidence_summary, null);
   assert.deepEqual(r.reply!.record_missing, []);
 }));
@@ -679,9 +676,9 @@ test('auto_apply changes the closing line and the agent note; never removes a pr
   const r = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT });
   const show = r.reply!.show_to_builder as string;
   const blocked = new Set((r.reply!.blockers as { program_id: string; sign_in: string | null; needs_click: boolean }[]).filter((b) => b.sign_in || b.needs_click).map((b) => b.program_id));
-  const free = (r.reply!.ready as { program_id: string; in_person: boolean }[]).filter((p) => !p.in_person && !blocked.has(p.program_id)).length;
-  assert.ok(free >= 1, show);
-  assert.match(show, new RegExp(`\\n\\nApplying tonight to ${Math.min(2, free)}; say stop to hold any\\.${NOTICE_TAIL}$`));
+  const free = (r.reply!.ready as { program_id: string; title: string; in_person: boolean }[]).filter((p) => !p.in_person && !blocked.has(p.program_id));
+  assert.ok(free.length >= 1, show);
+  assert.match(show, tonightRe(free.slice(0, 2).map((p) => p.title)));
   assert.doesNotMatch(show, /Say yes/);
   assert.equal(r.reply!.auto_apply, true);
   assert.match(r.reply!.agent_note as string, /^Standing approval is on: for each ready program within the limits, call track started/m);
@@ -689,10 +686,15 @@ test('auto_apply changes the closing line and the agent note; never removes a pr
 });
 
 type B = { program_id: string; sign_in: string | null; needs_click: boolean; outside_approval?: true };
+/** The closing line when the agent applies tonight: the programs named (C40). */
+const tonightRe = (titles: string[]) => {
+  const words = titles.length <= 1 ? titles.join('') : `${titles.slice(0, -1).join(', ')} and ${titles.at(-1)}`;
+  return new RegExp(`\\n\\nApplying tonight to ${words.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\. Say stop to hold any\\.${NOTICE_TAIL}$`);
+};
 /** The ready programs the agent may send alone tonight: no sign-in, click or approval limit in the way. */
 const freeOf = (reply: Record<string, unknown>) => {
   const blocked = new Set((reply.blockers as B[]).filter((b) => b.sign_in || b.needs_click || b.outside_approval).map((b) => b.program_id));
-  return (reply.ready as { program_id: string; in_person: boolean }[]).filter((p) => !p.in_person && !blocked.has(p.program_id));
+  return (reply.ready as { program_id: string; title: string; in_person: boolean }[]).filter((p) => !p.in_person && !blocked.has(p.program_id));
 };
 
 test('categories limit only what the agent sends alone: an investment program stays ready, not counted tonight', async () => {
@@ -708,10 +710,14 @@ test('categories limit only what the agent sends alone: an investment program st
   const free = freeOf(r.reply!);
   assert.ok(free.every((p) => !invest.some((x) => x.program_id === p.program_id)));
   const show = r.reply!.show_to_builder as string;
-  const named = invest.filter((p) => !blockers.find((b) => b.program_id === p.program_id)!.needs_click).map((p) => p.title);
-  assert.ok(named.length > 0);
-  assert.ok(show.includes(`Outside your standing approval, you say yes yourself: ${named.length === 1 ? named[0] : `${named.slice(0, -1).join(', ')} and ${named.at(-1)}`}.`), show);
-  assert.match(show, free.length > 0 ? new RegExp(`\\n\\nApplying tonight to ${free.length}; say stop to hold any\\.${NOTICE_TAIL}$`) : /Say yes/);
+  // C46: an in-person program is never in the outside-approval list.
+  const named = invest.filter((p) => !p.in_person && !blockers.find((b) => b.program_id === p.program_id)!.needs_click).map((p) => p.title);
+  for (const p of invest.filter((x) => x.in_person)) assert.doesNotMatch(show.split('\n\n').find((b) => b.startsWith('Before')) ?? '', new RegExp(p.title));
+  // Here every remote investment program needs the builder's submit, so none is named; the in-person ones never are.
+  assert.ok(invest.some((p) => p.in_person), JSON.stringify(ids(invest)));
+  if (named.length > 0) assert.ok(show.includes(`Outside your standing approval, you say yes yourself: ${named.length === 1 ? named[0] : `${named.slice(0, -1).join(', ')} and ${named.at(-1)}`}.`), show);
+  else assert.doesNotMatch(show, /Outside your standing approval/, show);
+  assert.match(show, free.length > 0 ? tonightRe(free.map((p) => p.title)) : /Say yes/);
   assert.match(r.reply!.agent_note as string, /outside_approval/);
 });
 
@@ -728,12 +734,13 @@ test('max_ask_usd keeps a larger ask out of tonight and names it; a program with
     const blockers = r.reply!.blockers as B[];
     assert.deepEqual(blockers.find((b) => b.program_id === 'f-big'), { program_id: 'f-big', sign_in: null, needs_click: false, needs: [], outside_approval: true });
     assert.equal(blockers.find((b) => b.program_id === 'f-open'), undefined);
-    const free = ids(freeOf(r.reply!));
+    const freeRows = freeOf(r.reply!);
+    const free = ids(freeRows);
     assert.ok(free.includes('f-open') && !free.includes('f-big'), JSON.stringify(free));
     const show = r.reply!.show_to_builder as string;
     assert.match(show, /Outside your standing approval, you say yes yourself: [^\n]*Big Grant[^\n]*\./);
     assert.doesNotMatch(show, /yourself: [^\n]*Open Grant/);
-    assert.match(show, new RegExp(`\\n\\nApplying tonight to ${free.length}; say stop to hold any\\.${NOTICE_TAIL}$`));
+    assert.match(show, tonightRe(freeRows.map((p) => p.title)));
     // With auto_apply off, the limits change nothing.
     const off = await linkedWith({ ...OWNER_RECORD, policy: { max_ask_usd: 10_000, categories: ['grant'] } });
     const o = await mcpCall({ ...ctx(off.id), builderId: off.builderId, evidence: LIVE }, 'find', { project: PROJECT, filter: { all: true } });
@@ -859,24 +866,24 @@ const blockOf = (show: string, head: string) => show.split('\n\n').find((b) => b
 const PROJECT_B = { name: 'dotfiles', description: 'Mathias Bynens dotfiles for macOS', repo_url: 'https://github.com/mathiasbynens/dotfiles' };
 const PROJECT_C = { name: 'My notes', description: 'Personal markdown notes and dotfiles' };
 const IN_PERSON_TAIL = [
-  'In person, apply to attend first:',
-  '4. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account to start the application.',
+  'In person (2):',
+  '4. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account.',
   "5. Alliance ALL19, $400K at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
   '',
-  'Say "yes 3" if its rule fits you, or "do 1" and I\'ll make the change first.',
+  'Nothing is ready yet.',
 ];
 // v6.1.8 (C54): no chain reported and none in the code, so no contract program; B's repo is named but unread
 // (building, B20), so it keeps the programs with a building bar; C named nothing, so only programs with no bar.
 const B_GAPS = [
-  'One change away, 3:',
+  'One step away (3):',
   '1. FLOSS/fund, $10,000 to $100,000: put a live link up and tell me if real people use it.',
   '2. Farcaster Developer Rewards, $10,000 across 100 apps this week: put a live link up and tell me if real people use it.',
   '3. Meta VR Start Developer Competition 2026, $1,000,000 in prizes: a demo video. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.',
   '',
 ];
-const B_TAIL = [...IN_PERSON_TAIL.slice(0, -1), 'I could not read the repo; matched on what you told me.', '', 'Say "do 1" and I\'ll make the change first.'];
+const B_TAIL = [...IN_PERSON_TAIL.slice(0, -1), 'I could not read the repo; matched on what you told me.', '', 'Nothing is ready yet.'];
 const C_GAPS = [
-  'One change away, 1:',
+  'One step away (1):',
   '1. OTF Internet Freedom Fund, $10,000 to $900,000. Their rule: advances internet freedom for people in repressive environments: circumvention, safe communication or access to blocked information.',
   '',
 ];
@@ -887,19 +894,19 @@ test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets
   assert.equal(
     r.reply!.show_to_builder,
     [
-      'Ready to apply, 1:',
+      'Ready to apply (1):',
       '1. Arbitrum Mentorship Program: Cohort 2, $100K in prizes, closes in 32 days. Long odds: few prizes for many entries. Drafted: 2 of 22 answers from the repo, 17 more by your agent. Needs your top 3 successes, funding raised before and current TVL range.',
       '',
-      'One change away, 3:',
-      '2. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
+      'One step away (3):',
+      '2. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc. Say "do 2" and I deploy it.',
       '3. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.',
-      '4. Base Ecosystem Fund, pre-seed and seed investment. Their rule: a pre-seed or seed stage startup that chooses Base as its home.',
+      '4. Base Ecosystem Fund, pre-seed and seed investment. Their rule: a pre-seed or seed stage startup that chooses Base as its home. Say "yes 4" if that is you.',
       '',
-      'In person, apply to attend first:',
-      '5. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account to start the application.',
+      'In person (2):',
+      '5. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account.',
       "6. Alliance ALL19, $400K at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
       '',
-      'Say yes to apply, skip it, "yes 4" if its rule fits you, or "do 2" and I\'ll make the change first.',
+      'Say yes and I apply.',
     ].join('\n'),
   );
   // Without the repo's Arbitrum, the Base rule-only program takes the slot ahead of the $900K chain-agnostic one and
@@ -921,11 +928,11 @@ test('R18e, R18f, C54, B20: projects B (dotfiles) and C (notes) report no chain:
     c.reply!.show_to_builder,
     [
       ...C_GAPS,
-      'In person, apply to attend first:',
-      '2. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account to start the application. Needs your YC application answers and batch you want.',
+      'In person (2):',
+      '2. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and the batch you want.',
       "3. Alliance ALL19, $400K at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
       '',
-      'Say "yes 1" if its rule fits you.',
+      'Nothing is ready yet. Say "yes 1" if that rule fits you.',
     ].join('\n'),
   );
   for (const r of [b, c]) {
@@ -950,13 +957,12 @@ test('C54 (v6.1.8, Review Focus 1): the web2 SaaS fixture\'s default and full re
   assert.equal(
     d.reply!.show_to_builder,
     [
-      'One change away, 3:',
+      'One step away (3):',
       '1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.',
       '2. Farcaster Developer Rewards, $10,000 across 100 apps this week: tell me if real people use it.',
       '3. Meta VR Start Developer Competition 2026, $1,000,000 in prizes: a demo video. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.',
       '',
-      ...IN_PERSON_TAIL.slice(0, -1),
-      'Say "do 1" and I\'ll make the change first.',
+      ...IN_PERSON_TAIL,
     ].join('\n'),
   );
   const all = await mcpCall(await dashCtx(), 'find', { project: SAAS, filter: { all: true } });
@@ -975,13 +981,25 @@ test('C60, fix rounds 1 and 2 (v6.1.8): the VR persona reads FLOSS, Farcaster, t
   const r = await mcpCall(ctx(await installation()), 'find', { project: VR });
   assert.equal(r.isError, false, r.text);
   assert.deepEqual(
-    blockOf(r.reply!.show_to_builder as string, 'One change away').split('\n'),
+    blockOf(r.reply!.show_to_builder as string, 'One step away').split('\n'),
     [
-      'One change away, 3:',
+      'One step away (3):',
       '1. FLOSS/fund, $10,000 to $100,000: put a live link up.',
       '2. Farcaster Developer Rewards, $10,000 across 100 apps this week: put a live link up.',
       '3. Meta VR Start Developer Competition 2026, $1,000,000 in prizes: a demo video. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.',
     ],
+  );
+  // The whole first reply (re-pinned in v6.1.8): the one action, the in-person block counted.
+  assert.equal(
+    r.reply!.show_to_builder,
+    [
+      ...blockOf(r.reply!.show_to_builder as string, 'One step away').split('\n'),
+      '',
+      ...IN_PERSON_TAIL.slice(0, -1),
+      'Private repo: matched on what you told me.',
+      '',
+      'Nothing is ready yet.',
+    ].join('\n'),
   );
   // One real change each, so the money decides: $1M pool, $120K pool, then FLOSS/fund's $100K live link.
   const all = await mcpCall(ctx(await installation()), 'find', { project: VR, filter: { all: true } });
@@ -1068,8 +1086,8 @@ test('project A (R18a): Base Ecosystem Fund is one answer away; gap_done with it
   assert.ok(g, show);
   assert.deepEqual([g.gap.kind, g.gap.what, g.also], ['rule', BASE_RULE, []]);
   assert.match(g.gap.item, /^rule:[0-9a-f]{8}$/);
-  const line = lineOf(blockOf(show, 'One change away'), g.n);
-  assert.equal(line, `${g.n}. Base Ecosystem Fund, pre-seed and seed investment. Their rule: ${BASE_RULE}.`);
+  const line = lineOf(blockOf(show, 'One step away'), g.n);
+  assert.equal(line, `${g.n}. Base Ecosystem Fund, pre-seed and seed investment. Their rule: ${BASE_RULE}. Say "yes ${g.n}" if that is you.`);
   assert.ok((r.reply!.agent_note as string).split('\n').includes('A "Their rule" gap is a program rule EarnKit cannot check. If the builder says it fits, call track gap_done with that gap\'s item, then find again. Their yes stands: when the program comes back ready, draft and submit it without asking again.'));
   const t = await mcpCall(ctx(id), 'track', { program_id: 'base-ecosystem-fund', status: 'gap_done', item: g.gap.item });
   assert.equal(t.isError, false, t.text);
@@ -1116,7 +1134,7 @@ test('R18c: a rule-only program above the project tier shows the tier gap first,
     assert.ok(g, JSON.stringify(ids(r.reply!.gaps)));
     assert.deepEqual([g.gap.kind, g.also.map((a) => a.kind)], ['tier', ['rule']]);
     const line = lineOf(r.reply!.show_to_builder as string, g.n);
-    assert.equal(line, `${g.n}. Rule Grant, Up to $5,000: Link GitHub so EarnKit can confirm your product has users. Their rule: a team of two or more.`);
+    assert.equal(line, `${g.n}. Rule Grant, Up to $5,000. Sign in once so EarnKit can confirm real people use it. Their rule: a team of two or more.`);
     assert.doesNotMatch(line, /Say "yes/);
   } finally {
     await sql()`DELETE FROM programs WHERE id = 'f-rule-used'`;
@@ -1132,7 +1150,7 @@ test('R18d: under filter.all, Antler (in person, rule only) says its rule and wh
   assert.ok(g, JSON.stringify(ids(r.reply!.gaps)));
   assert.equal(
     lineOf(r.reply!.show_to_builder as string, g.n),
-    `${g.n}. Antler US Residency, $500K to $1M investment. Their rule: at least one co-founder already has independent US work authorization; no visa sponsorship. First: work in person at Antler's NYC, SF or Austin office for up to 3 months.`,
+    `${g.n}. Antler US Residency, $500K to $1M investment. Their rule: at least one co-founder already has independent US work authorization; no visa sponsorship. First: work in person at Antler's NYC, SF or Austin office for up to 3 months. Say "yes ${g.n}" if that is you.`,
   );
 });
 

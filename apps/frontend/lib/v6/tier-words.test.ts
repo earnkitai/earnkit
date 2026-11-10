@@ -56,7 +56,7 @@ test('reviewer line for a flagged placement names the rule', () => {
 test('builder line for used has no Next', () => {
   const line = builderLine(place(usedE(), X, undefined, NOW));
   assert.ok(!line.includes('Next'), line);
-  assert.equal(line, 'Your project reads as used: wallets the deployer did not fund use it on mainnet.');
+  assert.equal(line, 'Your project is in use: wallets the deployer did not fund use it on mainnet.');
 });
 
 test('no line says paying their own gas', () => {
@@ -68,13 +68,13 @@ test('no line says paying their own gas', () => {
 
 test('builder line for live matches the design example', () => {
   const p = place(evidence({ live: up, onchain: [contract({ tx_90d: 9, funded_senders_90d: 4 })] }), X, undefined, NOW);
-  assert.equal(builderLine(p), 'Your project reads as live, no verified usage yet. Next: 25 funded wallets on mainnet in 90 days; you have 4.');
+  assert.equal(builderLine(p), 'Your project is live, with no verified usage yet. Next: 25 funded wallets on mainnet in 90 days; you have 4.');
 });
 
 test('builder head for live branches on gap, not on the next words', () => {
   const p = place(evidence({ live: up, onchain: [contract({ tx_90d: 9, funded_senders_90d: 4 })] }), X, undefined, NOW);
-  assert.equal(builderLine({ ...p, gap: 'push', next: 'Push to the repo; EarnKit found no push date.' }), 'Your project reads as live. Next: push to the repo; EarnKit found no push date.');
-  assert.match(builderLine({ ...p, next: 'Anything at all.' }), /^Your project reads as live, no verified usage yet\./);
+  assert.equal(builderLine({ ...p, gap: 'push', next: 'Push to the repo; EarnKit found no push date.' }), 'Your project is live. Next: push to the repo; EarnKit found no push date.');
+  assert.match(builderLine({ ...p, next: 'Anything at all.' }), /^Your project is live, with no verified usage yet\./);
 });
 
 test('numbers carry thousands separators in the builder line', () => {

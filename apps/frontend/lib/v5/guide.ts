@@ -17,7 +17,7 @@ export type Guide = {
   rules: string[];
   eligibility: string[];
   fields: { label: string; todo: string }[];
-  /** Who submits, short: "Your agent may submit" or "Needs your click to submit". */
+  /** Who submits, short: "Your agent may submit" or "You press submit yourself". */
   submit: string | null;
   /** "Sign-in: Google", or null when the form needs none. */
   sign_in: string | null;
@@ -116,7 +116,7 @@ export function guideText(row: ProgramRow, now: Date = new Date()): Guide {
     eligibility: eligibilityList(eligibilityOf(p)),
     fields: p.submission_requirements.map((r) => ({ label: r.label, todo: r.todo ?? (r.required ? r.label.toLowerCase() : 'optional') })),
     // A closed program takes no entries: no word on who submits (v6.1.7 C7).
-    submit: closes === CLOSED ? null : p.submit === 'builder' ? 'Needs your click to submit' : 'Your agent may submit',
+    submit: closes === CLOSED ? null : p.submit === 'builder' ? 'You press submit yourself' : 'Your agent may submit',
     sign_in: signInOf(p),
     needs: p.needs.map((n) => NEEDS_WORDS[n]),
     bar: p.min_tier ? BAR_WORDS[p.min_tier] : null,

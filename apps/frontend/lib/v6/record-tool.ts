@@ -15,7 +15,7 @@ import { createLinkCode } from './link-routes';
 import { listWords, signInLine } from './reply-words';
 
 export { listWords, signInLine };
-import { APPROVABLE, type BuilderRecord, completeness, KIND_WORDS, mergeRecord, recordMissing } from './record';
+import { APPROVABLE, type BuilderRecord, KIND_WORDS, mergeRecord, recordMissing } from './record';
 
 export const RecordInput = z
   .object({
@@ -37,7 +37,7 @@ export type RecordReply = {
 };
 
 const SIGN_IN_NOTE = 'Show the link once. Ask for personal facts once, all together, when a form needs them; nothing is saved until the builder has signed in. Call record with get afterwards.';
-const NOT_READY = 'Sign-in is not ready yet; I will keep what you tell me in this session only.';
+const NOT_READY = "I can't save that yet, so I keep it for this chat.";
 const APPROVAL_NOTE = 'Approved answers come from earnkit.com/me, where the builder reads and approves each one; an unapproved answer is never used in a form.';
 const BROKEN = 'Your record could not be read; nothing was saved.';
 const BROKEN_NOTE = 'Tell the builder to open earnkit.com/me; the owner can inspect the stored row.';
@@ -213,9 +213,9 @@ export async function recordTool(ctx: { installationId: number; builderId: numbe
     };
   }
 
-  const n = completeness(record).filled.length;
+  // One sentence (v6.1.8): what is missing, named, or that nothing is.
   return {
-    show_to_builder: [`Your record has ${n} of 6 blocks.`, missingLine(missing)].filter(Boolean).join(' '),
+    show_to_builder: missing.length > 0 ? `Your record is missing: ${listWords(missing)}.` : 'Your record has nothing missing.',
     agent_note: brief ? BRIEF_NOTE : '',
     linked: true,
     record,

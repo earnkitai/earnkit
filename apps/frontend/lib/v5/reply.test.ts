@@ -71,16 +71,16 @@ test('the Monday text: two ready, one gap, a ledger with one applied', () => {
   assert.equal(
     replyText(MONDAY, false),
     [
-      'Ready to apply, 2:',
+      'Ready to apply (2):',
       "1. Alliance ALL19, $400K at admission, closes in 14 days. Drafted: 2 of 9 answers from the repo, 6 more by your agent. Needs your first founder's email.",
       '2. Arc Builders Fund, investment from Circle Ventures. Long odds: an investment program with no stated amount. Your agent drafts all 5 answers.',
       '',
-      'One change away, 1:',
+      'One step away (1):',
       '3. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
       '',
-      'Ledger: 1 applied ($5K asked), 0 won, 1 pending.',
+      'Ledger: 1 applied, 0 won, 1 pending.',
       '',
-      'Say yes to apply to all 2, numbers to skip, or "do 3" and I\'ll make the change first.',
+      'Say yes and I apply to all 2. Or say the numbers to skip.',
     ].join('\n'),
   );
 });
@@ -101,15 +101,17 @@ test('the since line: only when something changed, never on the first find', () 
     [
       'Since Nov 2: 2 new programs you fit; Circle Developer Grants: deadline moved to Nov 20; Alliance ALL19 closes in 3 days.',
       '',
-      'Ready to apply, 1:',
+      'Ready to apply (1):',
       "1. Alliance ALL19, $400K at admission, closes in 3 days. Drafted: 1 of 4 answers from the repo, the rest by your agent.",
       '',
-      'Ledger: 2 applied ($115K asked), 1 won, 1 pending, 1 closing soon.',
+      'Ledger: 2 applied, 1 won, 1 pending, 1 closing soon.',
       '',
-      'Say yes to apply, or skip it.',
+      'Say yes and I apply.',
     ].join('\n'),
   );
   assert.ok(!replyText(r, true).includes('Since'));
+  // A win shows what was won, never what was asked (3.6).
+  assert.match(replyText({ ...r, ledger: { ...r.ledger, won_usd: 25000 } }, false), /^Ledger: 2 applied, 1 won \(\$25,000\), 1 pending, 1 closing soon\.$/m);
 });
 
 test('gaps only, the agent can do it, and the needs list is cut at three', () => {
@@ -118,8 +120,21 @@ test('gaps only, the agent can do it, and the needs list is cut at three', () =>
   });
   assert.equal(
     replyText(r, false),
-    ['One change away, 1:', '1. Base Batches, $100K: add Base Builder Codes to the app (I can do this).', '', 'Say "do 1" and I\'ll make the change first.'].join('\n'),
+    ['One step away (1):', '1. Base Batches, $100K: add Base Builder Codes to the app. Say "do 1" and I add them.', '', 'Nothing is ready yet.'].join('\n'),
   );
+  // "do n" by the gap's kind, only when EarnKit can make every real gap (1a, 3.7).
+  const one = (g: GapProgram['gap'], also: GapProgram['also'] = []) => replyText(base({ gaps: [gap({ title: 'G', gap: g, also })] }), false).split('\n')[1];
+  const ARC = { kind: 'contract_on' as const, item: 'contract_on:arc', what: 'a contract on Arc', effort: 'hours' as const, agent_can: true };
+  const SW = { kind: 'integration' as const, item: 'integration:smart_wallet', what: 'add Smart Wallet', effort: 'days' as const, agent_can: true };
+  const DEMO = { kind: 'demo_video' as const, item: 'demo_video', what: 'a demo video', effort: 'hours' as const, agent_can: false };
+  assert.equal(one(ARC), '1. G, $1K: a contract on Arc. Say "do 1" and I deploy it.');
+  assert.equal(one(SW), '1. G, $1K: add Smart Wallet. Say "do 1" and I add it.');
+  assert.equal(one(ARC, [SW]), '1. G, $1K: a contract on Arc and add Smart Wallet. Say "do 1" and I make both changes.');
+  assert.equal(one(ARC, [DEMO]), '1. G, $1K: a contract on Arc and a demo video.');
+  // C57: the unlinked tier gate is its own sentence after the gaps, never after a colon.
+  const TIER = { kind: 'tier' as const, item: 'tier:used', what: 'Sign in once so EarnKit can confirm real people use it', effort: 'weeks' as const, agent_can: false };
+  assert.equal(one(TIER), '1. G, $1K. Sign in once so EarnKit can confirm real people use it.');
+  assert.equal(one(TIER, [DEMO]), '1. G, $1K: a demo video. Sign in once so EarnKit can confirm real people use it.');
   const two = base({ gaps: [gap({ title: 'G', money: '$1K', also: [{ kind: 'live_product', item: 'live_product', what: 'put a live link up', effort: 'hours', agent_can: false }] })] });
   assert.match(replyText(two, false), /^1\. G, \$1K: deploy the contract on Arc and put a live link up\.$/m);
   const many = base({ ready: [ready({ title: 'B', needs: ['your full name', 'your email', 'a Loom product demo', 'your X handle', 'an investor deck file'] })] });
@@ -131,9 +146,9 @@ test('gaps only, the agent can do it, and the needs list is cut at three', () =>
 
 test('one ready program: no "all 1"', () => {
   const one = base({ ready: [MONDAY.ready[0]] });
-  assert.match(replyText(one, false), /\n\nSay yes to apply, or skip it\.$/);
+  assert.match(replyText(one, false), /\n\nSay yes and I apply\.$/);
   const withGap = base({ ready: [MONDAY.ready[0]], gaps: MONDAY.gaps });
-  assert.match(replyText(withGap, false), /\n\nSay yes to apply, skip it, or "do 2" and I'll make the change first\.$/);
+  assert.match(replyText(withGap, false), /\n\nSay yes and I apply\.$/);
 });
 
 test('in person: its own block after ready and gaps, with the setup, and never in the count to apply to', () => {
@@ -146,27 +161,27 @@ test('in person: its own block after ready and gaps, with the setup, and never i
   assert.equal(
     replyText(r, false),
     [
-      'Ready to apply, 2:',
+      'Ready to apply (2):',
       "1. Alliance ALL19, $400K at admission, closes in 14 days. Drafted: 2 of 9 answers from the repo, 6 more by your agent. Needs your first founder's email.",
       '2. Arc Builders Fund, investment from Circle Ventures. Long odds: an investment program with no stated amount. Your agent drafts all 5 answers.',
       '',
-      'One change away, 1:',
+      'One step away (1):',
       '3. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
       '',
-      'In person, apply to attend first:',
+      'In person (1):',
       '4. ETHGlobal Mumbai, up to $15K per partner prize, closes in 2 days. First: apply to attend by Nov 3 and get accepted; stake a small amount of ETH; be in Mumbai Nov 5 to 7.',
       '',
-      'Say yes to apply to all 2, numbers to skip, or "do 3" and I\'ll make the change first.',
+      'Say yes and I apply to all 2. Or say the numbers to skip.',
     ].join('\n'),
   );
   const only = replyText(base({ ready: [mumbai] }), false);
-  assert.ok(only.startsWith('In person, apply to attend first:\n1. ETHGlobal Mumbai'), only);
+  assert.ok(only.startsWith('In person (1):\n1. ETHGlobal Mumbai'), only);
   assert.doesNotMatch(only, /Say yes to apply/);
   assert.match(agentNote(r, { more: 0 }), /In-person programs .* draft nothing for one until the builder says yes to attending it/);
   assert.doesNotMatch(agentNote(MONDAY, { more: 0 }), /In-person/);
 });
 
-test('a ledger of investments only names no asked amount', () => {
+test('a ledger never names an asked amount (3.6)', () => {
   const r = base({ ledger: { ...LEDGER0, applied: 1, asked_usd: 0, pending: 1 } });
   assert.match(replyText(r, false), /^Ledger: 1 applied, 0 won, 1 pending\.$/m);
 });
@@ -185,10 +200,13 @@ test('every closing line, and the copy rules', () => {
 
 test('agentNote: fields, yes only, track after each, the counts left out, ask once', () => {
   const n = agentNote({ ...MONDAY, ask_outcome: [{ program_id: 'z', title: 'Zeta Grant' }] }, { more: 2 });
-  for (const s of ["'earnkit'", "'agent'", "'builder'", 'sources', 'yes', 'own browser', 'track', 'applied', 'Zeta Grant', '2 more left out: ready past the cap, gaps and in-person programs. Ask with filter.all for the full list.'])
+  for (const s of ["'earnkit'", "'agent'", "'builder'", 'sources', 'form_id', 'track', 'won', 'Zeta Grant', '2 more left out: ready past the cap, gaps and in-person programs. Ask with filter.all for the full list.'])
     assert.ok(n.includes(s), s);
   assert.ok(!agentNote(MONDAY, { more: 0 }).includes('more: gaps'));
   assert.ok(n.includes('Pass users and live_url in the project whenever you know them; never invent them.'));
+  // 3.34: who reported what, said plainly.
+  assert.ok(agentNote(base({ as_reported: true }), { more: 0 }).includes('tell the builder the match used what they reported, not a repo read.'));
+  assert.ok(!agentNote(base({ as_reported: true }), { more: 0 }).includes('as reported by you'));
 });
 
 test('repo reads paused: its own agent line, never "send them corrected"', () => {
@@ -263,7 +281,7 @@ const LINKED = base({
   ],
   record_missing: ['your founder video link', 'an approved answer on the problem', 'your deck link', 'your resume link'],
   applied_overnight: [{ program_id: 'x', title: 'Alliance ALL19' }, { program_id: 'y', title: 'Arc Builders Fund' }],
-  evidence_summary: { tier: 'live', line: 'Your project reads as live, no verified usage yet. Next: 25 funded wallets on mainnet in 90 days; you have 4.' },
+  evidence_summary: { tier: 'live', line: 'Your project is live, with no verified usage yet. Next: 25 funded wallets on mainnet in 90 days; you have 4.' },
 });
 
 test('the "Before applying" paragraph groups the sign-ins, names the clicks and the first three missing; "Before tonight" only when the agent sends tonight (R5b)', () => {
@@ -271,26 +289,29 @@ test('the "Before applying" paragraph groups the sign-ins, names the clicks and 
   const before = text.split('\n\n').find((b) => b.startsWith('Before applying: '))!;
   assert.equal(
     before,
-    "Before applying: Sign in once to Google on your agent's computer for 2 of them. Sign in once to Avalanche Builder Hub for 1 of them. Sign in once by email for 1 of them. Needs your click: Click Grant. Still missing from your record: your founder video link, an approved answer on the problem, your deck link and 1 more.",
+    "Before applying: you sign in to Google on your agent's computer for Base Builder Grant and Google Two; you sign in to Avalanche Builder Hub for Avalanche Team1; you sign in by email and press submit yourself on Click Grant. Still missing from your record: your founder video link, an approved answer on the problem, your deck link and 1 more.",
   );
   const blocks = text.split('\n\n');
   assert.deepEqual(blocks.slice(-4), [
     before,
     'Applied under your standing approval: Alliance ALL19, Arc Builders Fund.',
-    'Your project reads as live, no verified usage yet. Next: 25 funded wallets on mainnet in 90 days; you have 4.',
-    'Say yes to apply to all 4, or numbers to skip.',
+    'Your project is live, with no verified usage yet. Next: 25 funded wallets on mainnet in 90 days; you have 4.',
+    'Say yes and I apply to all 4. Or say the numbers to skip.',
   ]);
+  assert.doesNotMatch(text.replace(/Click Grant/g, ''), /click/i);
   assert.doesNotMatch(text, /Before tonight/);
   // Standing approval with nothing an agent can send alone (every program blocked): nothing goes tonight.
-  assert.match(replyText({ ...LINKED, auto_apply: true, max_per_night: 5 }, false), /\n\nBefore applying: Sign in once to Google/);
+  assert.match(replyText({ ...LINKED, auto_apply: true, max_per_night: 5 }, false), /\n\nBefore applying: you sign in to Google/);
   // Standing approval and one program free to send: the agent applies tonight.
   const free = base({ ...LINKED, ready: [...LINKED.ready, ready({ program_id: 'f1', title: 'Free', from_record: 1, total: 1 })], auto_apply: true, max_per_night: 5 });
   const tonight = replyText(free, false);
-  assert.match(tonight, /\n\nBefore tonight: Sign in once to Google/);
-  assert.match(tonight, /\n\nApplying tonight to 1; say stop to hold any\.$/);
+  assert.match(tonight, /\n\nBefore tonight \(nothing is sent until these are in\): you sign in to Google/);
+  assert.match(tonight, /\n\nApplying tonight to Free\. Say stop to hold any\.$/);
   const note = agentNote(LINKED, { more: 0 });
   assert.ok(note.includes('Fit approved answers by cutting, never by adding; the style contract travels on each field.'));
-  assert.ok(note.includes('Sign-ins and clicks the builder must do are in blockers; name them once, together.'));
+  // The Before block names the sign-ins and the submits; the note does not repeat them, nor the submit rule (v6.1.8).
+  assert.ok(!note.includes('blockers; name them once'));
+  assert.ok(!note.includes('Submit only'));
   assert.ok(note.includes('Ask for the missing record items once, all together, and save each with record.'));
   assert.ok(!note.includes('Standing approval is on'));
   assert.ok(!agentNote(MONDAY, { more: 0 }).includes('Fit approved answers'));
@@ -305,18 +326,19 @@ test('standing approval: the closing line counts what an agent can send alone, a
     max_per_night: 2,
   });
   // Four have a sign-in or a click, one is claimed: three are free, capped at two.
-  assert.match(replyText(r, false), /\n\nApplying tonight to 2; say stop to hold any\.$/);
+  assert.match(replyText(r, false), /\n\nApplying tonight to F1 and F2\. Say stop to hold any\.$/);
   assert.doesNotMatch(replyText(r, false), /Say yes/);
-  assert.match(replyText({ ...r, max_per_night: 9 }, false), /Applying tonight to 3; say stop to hold any\.$/);
+  assert.match(replyText({ ...r, max_per_night: 9 }, false), /Applying tonight to F1, F2 and F3\. Say stop to hold any\.$/);
   // Nothing an agent can send alone: the usual closing.
-  assert.match(replyText({ ...LINKED, auto_apply: true, max_per_night: 5 }, false), /Say yes to apply to all 4, or numbers to skip\.$/);
+  assert.match(replyText({ ...LINKED, auto_apply: true, max_per_night: 5 }, false), /Say yes and I apply to all 4\. Or say the numbers to skip\.$/);
   const note = agentNote(r, { more: 0 });
   assert.ok(note.includes(
     'Standing approval is on: for each ready program within the limits, call track started, fill from fields, submit where the program allows an agent, then track applied with submitted_by agent and fields_used. Stop at max_per_night. Never submit where blockers say needs_click, outside_approval or a sign-in you do not have.',
   ));
-  assert.ok(!note.includes('Submit only when the builder says yes'));
+  assert.ok(!note.includes('Submit only'));
   assert.ok(note.includes("Draft each ready program from its fields: 'record' and 'earnkit' values as given;"));
-  assert.ok(agentNote(LINKED, { more: 0 }).includes('Submit only when the builder says yes'));
+  // The submit rule lives in the server instructions only (v6.1.8).
+  assert.ok(!agentNote(LINKED, { more: 0 }).includes('Submit only'));
   assert.ok(agentNote(MONDAY, { more: 0 }).includes("Draft each ready program from its fields: 'earnkit' values as given;"));
 });
 
@@ -326,12 +348,12 @@ test('unlinked with a sign-in link: saying yes is the one action, the sign-in it
   const blocks = text.split('\n\n');
   assert.equal(
     blocks.at(-1),
-    `Say yes to apply to all 2, numbers to skip, or "do 3" and I'll make the change first. Sign in once at ${link} and I read your repo for proof and remember you.`,
+    `Say yes and I apply to all 2. Or say the numbers to skip. Sign in once at ${link} and I read your repo for proof and remember you.`,
   );
-  assert.equal(blocks.at(-2), 'Ledger: 1 applied ($5K asked), 0 won, 1 pending.');
+  assert.equal(blocks.at(-2), 'Ledger: 1 applied, 0 won, 1 pending.');
   assert.equal(text.match(/Sign in once at/g)!.length, 1);
   // Without a link the closing line stays alone.
-  assert.match(replyText(MONDAY, false), /\n\nSay yes to apply to all 2, numbers to skip, or "do 3" and I'll make the change first\.$/);
+  assert.match(replyText(MONDAY, false), /\n\nSay yes and I apply to all 2\. Or say the numbers to skip\.$/);
   assert.doesNotMatch(replyText({ ...LINKED, sign_in: link }, false), /Sign in once at/);
 });
 
@@ -349,7 +371,7 @@ const RULE_NOTE =
 const ruleGap = (what: string, item = 'rule:0000000a') => ({ kind: 'rule' as const, item, what, effort: 'hours' as const, agent_can: false });
 const VIDEO = { kind: 'demo_video' as const, item: 'demo_video', what: 'a demo video', effort: 'hours' as const, agent_can: false };
 
-test('rules (R18a): ready and in-person lines show none; a gap line shows its rules after the change; only the closing asks "yes n" (v6.1.6, v6.1.7 m1)', () => {
+test('rules (R18a): ready and in-person lines show none; a gap line shows its rules after the change; a rule-only line asks its own "yes n" (v6.1.8, 1a)', () => {
   const r = base({
     ready: [
       ready({
@@ -366,20 +388,20 @@ test('rules (R18a): ready and in-person lines show none; a gap line shows its ru
   assert.equal(
     replyText(r, true),
     [
-      'Ready to apply, 1:',
+      'Ready to apply (1):',
       '1. Base Ecosystem Fund, pre-seed and seed investment. Long odds: an investment program with no stated amount. Your agent drafts all 2 answers. First: sign in to the portal.',
       '',
-      'One change away, 2:',
-      '2. Goose Grants, $10K. Their rule: a project built with or for goose. Their rule: work not already funded by an employer or client.',
+      'One step away (2):',
+      '2. Goose Grants, $10K. Their rule: a project built with or for goose. Their rule: work not already funded by an employer or client. Say "yes 2" if that is you.',
       '3. Colosseum, $25K: a demo video. Their rule: the team has not raised venture capital.',
       '',
-      'In person, apply to attend first:',
+      'In person (1):',
       '4. Meetup, $5K. First: be in Lisbon.',
       '',
-      'Say yes to apply, skip it, "yes 2" if its rule fits you, or "do 3" and I\'ll make the change first.',
+      'Say yes and I apply.',
     ].join('\n'),
   );
-  // m1 (v6.1.7): one "yes n" per reply, in the closing line only.
+  // One "yes n" per reply: on its line while something is ready, never repeated in the closing.
   assert.equal(replyText(r, true).match(/"yes 2"/g)?.length, 1);
   const lines = agentNote(r, { more: 0 }).split('\n');
   const at = lines.indexOf(RULE_NOTE);
@@ -388,12 +410,22 @@ test('rules (R18a): ready and in-person lines show none; a gap line shows its ru
   assert.ok(!agentNote(MONDAY, { more: 0 }).includes('Their rule'));
 });
 
-test('the closing line names "yes r" only when a rule-only gap exists, "do g" only when a change does (v6.1.6)', () => {
+test('the closing line is one action (v6.1.8, 1a): yes to the ready ones, else "Nothing is ready yet." and the first rule\'s yes', () => {
   const rulesOnly = gap({ title: 'R', gap: ruleGap('x'), rules: ['x'] });
   const end = (r: R) => replyText(r, true).split('\n').at(-1);
-  assert.equal(end(base({ gaps: [rulesOnly] })), 'Say "yes 1" if its rule fits you.');
-  assert.equal(end(base({ ready: MONDAY.ready, gaps: [rulesOnly] })), 'Say yes to apply to all 2, numbers to skip, or "yes 3" if its rule fits you.');
-  assert.equal(end(base({ gaps: [rulesOnly, MONDAY.gaps[0]] })), 'Say "yes 1" if its rule fits you, or "do 2" and I\'ll make the change first.');
+  const nothingReady = replyText(base({ gaps: [rulesOnly] }), true);
+  assert.equal(nothingReady.split('\n').at(-1), 'Nothing is ready yet. Say "yes 1" if that rule fits you.');
+  // Said once: the line the closing names does not ask it again.
+  assert.equal(nothingReady.match(/"yes 1"/g)?.length, 1, nothingReady);
+  assert.equal(end(base({ ready: MONDAY.ready, gaps: [rulesOnly] })), 'Say yes and I apply to all 2. Or say the numbers to skip.');
+  assert.match(replyText(base({ ready: MONDAY.ready, gaps: [rulesOnly] }), true), /^3\. R, \$1K\. Their rule: x\. Say "yes 3" if that is you\.$/m);
+  assert.equal(end(base({ gaps: [rulesOnly, MONDAY.gaps[0]] })), 'Nothing is ready yet. Say "yes 1" if that rule fits you.');
+  assert.equal(end(base({ gaps: [MONDAY.gaps[0]] })), 'Nothing is ready yet.');
+  // C44: the builder presses submit on every ready one, so the agent drafts.
+  const clicks = MONDAY.ready.map((p) => ({ program_id: p.program_id, sign_in: null, needs_click: true, needs: [] }));
+  assert.equal(end({ ...MONDAY, blockers: clicks }), 'Say yes and I draft all 2 for you to send. Or say the numbers to skip.');
+  assert.equal(end(base({ ready: [MONDAY.ready[0]], blockers: [clicks[0]] })), 'Say yes and I draft it for you to send.');
+  assert.equal(end({ ...MONDAY, blockers: [clicks[0]] }), 'Say yes and I apply to all 2. Or say the numbers to skip.');
   assert.doesNotMatch(agentNote(base({ gaps: [rulesOnly] }), { more: 0 }), /On "do <n>"/);
   assert.ok(agentNote(base({ gaps: [rulesOnly] }), { more: 0 }).includes(RULE_NOTE));
 });
@@ -414,7 +446,7 @@ test('R18d: an in-person gap line says what attending takes, after its rules (ru
 test('R20/R21: an in-person line says its odds, then what attending takes, then what it needs from you (v6.1.6)', () => {
   const yc = ready({
     title: 'Y Combinator Winter 2027 Batch', money: '$500K investment', in_person: true, long_shot: 'many apply, few are taken',
-    setup: ['a YC account to start the application'], needs: ['a YC account to start the application', 'your email', 'a Loom product demo'],
+    setup: ['a YC account'], needs: ['a YC account', 'your application answers', 'the batch you want'],
   });
   const alliance = ready({
     title: 'Alliance ALL19', money: '$400K at admission', closes_in: 'in 14 days', in_person: true,
@@ -425,8 +457,8 @@ test('R20/R21: an in-person line says its odds, then what attending takes, then 
   assert.equal(
     text.split('\n\n')[0],
     [
-      'In person, apply to attend first:',
-      '1. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account to start the application. Needs your email and Loom product demo.',
+      'In person (3):',
+      '1. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and the batch you want.',
       "2. Alliance ALL19, $400K at admission, closes in 14 days. First: start the application with the first founder's email; your passport.",
       '3. Bare Summit, $5K. Attend in person.',
     ].join('\n'),
@@ -458,7 +490,13 @@ test('R21: the Before block never names an in-person program\'s sign-in or click
     ],
   });
   const before = replyText(r, true).split('\n\n').find((b) => b.startsWith('Before applying: '));
-  assert.equal(before, 'Before applying: Sign in once by email for 1 of them. Needs your click: Click Grant.');
+  assert.equal(before, 'Before applying: you sign in by email and press submit yourself on Click Grant.');
+  // C46: an in-person program is never in the outside-approval list.
+  const outside = base({ ...r, blockers: r.blockers.map((b) => ({ ...b, needs_click: false, outside_approval: true as const })) });
+  assert.equal(
+    replyText(outside, true).split('\n\n').find((b) => b.startsWith('Before applying: ')),
+    'Before applying: you sign in by email for Click Grant. Outside your standing approval, you say yes yourself: Click Grant.',
+  );
   const onlyYc = base({ ready: r.ready.filter((p) => p.in_person), blockers: [r.blockers[0]] });
   assert.ok(!replyText(onlyYc, true).includes('Before applying'), replyText(onlyYc, true));
 });
@@ -493,14 +531,14 @@ test('a program another agent of the builder holds says so on its line and leave
   });
   const text = replyText(r, false, NOW);
   const lines = text.split('\n');
-  assert.ok(lines.includes('Ready to apply, 4:'), text);
+  assert.ok(lines.includes('Ready to apply (4):'), text);
   assert.ok(lines.some((l) => /^2\. Held One, \$1K\. .* Being handled by your other agent since 10:00 UTC\.$/.test(l)), text);
   assert.ok(lines.some((l) => /^4\. Held Two, \$1K\. .* Being handled by your other agent since Nov 3, 22:10 UTC\.$/.test(l)), text);
   assert.ok(!/^1\. Free One.*Being handled/m.test(text), text);
-  assert.match(text, /\n\nSay yes to apply to all 2, or numbers to skip\.$/);
+  assert.match(text, /\n\nSay yes and I apply to all 2\. Or say the numbers to skip\.$/);
   // One free: the singular; none free: no yes at all, and nothing claims "nothing fits".
   const one = base({ linked: true, ready: [ready({ title: 'Free One' }), ready({ title: 'Held One', claimed_since: '2026-11-04T10:00:00.000Z' })] });
-  assert.match(replyText(one, false, NOW), /\n\nSay yes to apply, or skip it\.$/);
+  assert.match(replyText(one, false, NOW), /\n\nSay yes and I apply\.$/);
   const none = base({ linked: true, ready: [ready({ title: 'Held One', claimed_since: '2026-11-04T10:00:00.000Z' })] });
   const t = replyText(none, false, NOW);
   assert.doesNotMatch(t, /Say yes|Nothing fits/);

@@ -12,9 +12,14 @@ export function listWords(items: string[], max = 3): string {
   return shown.length <= 1 ? shown.join('') : `${shown.slice(0, -1).join(', ')} and ${shown[shown.length - 1]}`;
 }
 
-/** Unlinked, a program whose tier bar the repo read alone does not clear: the one change that settles it, naming the bar (R3b). Pure. */
-export const confirmLine = (min: 'used' | 'live' | 'building') =>
-  `Link GitHub so EarnKit can confirm your product ${min === 'used' ? 'has users' : min === 'live' ? 'is live' : 'has code'}.`;
+const CONFIRM: Record<'used' | 'live' | 'building', string> = { used: 'real people use it', live: 'your product is live', building: 'your project has code' };
+
+/** Unlinked, a program whose tier bar the repo read alone does not clear: the one step that settles it, naming the bar
+ *  (R3b); in a find it stands alone after the program's gaps (v6.1.8, C57). Pure. */
+export const confirmLine = (min: 'used' | 'live' | 'building') => `Sign in once so EarnKit can confirm ${CONFIRM[min]}.`;
+
+/** Whether a gap's words are a confirmLine without its full stop (the unlinked tier gap). Pure. */
+export const isConfirmWhat = (what: string): boolean => (Object.keys(CONFIRM) as (keyof typeof CONFIRM)[]).some((k) => confirmLine(k) === `${what}.`);
 
 /** The one line that offers the link (the record tool and find's open list). Pure. */
 export const signInLine = (link: string) => `Sign in once at ${link} so I remember you across agents.`;
