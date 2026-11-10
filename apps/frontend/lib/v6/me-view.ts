@@ -26,7 +26,8 @@ export type MeData = {
   login: string; name: string | null; csrf: string;
   blocks: { key: BlockKey; title: string; fields: MeField[] }[];
   pending_approvals: { path: string; label: string; text: string; seen: string }[];
-  ledger: { title: string; program_id: string; status: string; at: string }[];
+  /** The title only, never the slug (v6.1.8, lane 5). */
+  ledger: { title: string; status: string; at: string }[];
   installations: { id: number; client_name: string | null; linked_at: string }[];
   /**
    * After sign-in from /link/<code>: the code to confirm and the banner text; code null when it is no longer live.
@@ -206,7 +207,7 @@ export async function meData(builder: Builder, now: Date, session: string, link?
     csrf: csrfToken(builder.id, utcDay(now), authSecret(), session),
     blocks: recordBlocks(record),
     pending_approvals: pendingApprovals(record),
-    ledger: ledger.map((r) => ({ title: r.title ?? r.program_id, program_id: r.program_id, status: ME_STATUS[r.status] ?? cap(r.status.replaceAll('_', ' ')), at: monthDay(r.at) })),
+    ledger: ledger.map((r) => ({ title: r.title ?? r.program_id, status: ME_STATUS[r.status] ?? cap(r.status.replaceAll('_', ' ')), at: monthDay(r.at) })),
     installations: agents.map((r) => ({ id: r.id, client_name: cleanClientName(r.client_name), linked_at: r.linked_at ? monthDay(r.linked_at) : '' })),
     link: await linkBanner(link, builder.id, now),
   };

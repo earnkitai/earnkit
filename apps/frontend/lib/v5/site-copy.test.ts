@@ -74,8 +74,17 @@ test('the docs say the six sections and stay short', () => {
 test('the terms are five sections', () => {
   assert.deepEqual(copy.TERMS_SECTIONS.map((s) => s.title), ['What EarnKit reads', 'What it stores', 'What it never does', 'Your record', 'Programs']);
   const rec = copy.TERMS_SECTIONS[3].lines.join(' ');
-  for (const w of ['private', '/me', 'delete']) assert.ok(rec.toLowerCase().includes(w), w);
-  assert.ok(rec.includes('Once you are signed in, an answer your agent wrote is never sent until you approve it on /me. Before that, your agent acts on what you tell it in the chat.'), rec);
+  for (const w of ['private', 'delete']) assert.ok(rec.toLowerCase().includes(w), w);
+  assert.deepEqual(copy.TERMS_SECTIONS[3].lines.slice(1), [
+    'Only you and your linked agents see it. Nothing your agent wrote is sent until you approve it.',
+    'You can edit or delete it any time on your record page.',
+  ]);
+  assert.deepEqual(copy.TERMS_LINKS, [['your record page', '/me']]);
+  assert.ok(copy.TERMS_SECTIONS[3].lines.some((l) => l.includes(copy.TERMS_LINKS[0][0])));
+  assert.deepEqual(copy.TERMS_SECTIONS[0].lines[0], 'Public repos, as anyone on GitHub can.');
+  // No path, no ledger and no second copy of the delete line on the terms (lane 5, 2 and 3.29 to 3.30).
+  const all = copy.TERMS_SECTIONS.flatMap((s) => s.lines).join(' ');
+  assert.ok(!/\/me\b|ledger|Delete removes|own GitHub access|own linked/.test(all), all);
   const never = copy.TERMS_SECTIONS[2].lines.join(' ');
   for (const w of ['submit', 'hold a wallet', 'launch a token', 'sell data', 'email builders']) assert.ok(never.includes(w), w);
 });
@@ -107,7 +116,7 @@ test('the OpenClaw and Claude connect steps match their docs', async () => {
     'Choose "+ Add", then "Add custom connector".',
     'Name it EarnKit, paste the EarnKit link, choose "Continue".',
     'Keep the connection settings it detected and choose "Continue" again. If it asks for an OAuth client, choose "Register automatically".',
-    'Choose "Add". It connects at once. No account needed.',
+    'Choose "Add".',
     'In a chat, choose "+", then "Connectors", and turn EarnKit on.',
   ]);
 });
@@ -135,13 +144,28 @@ test('no install copy mentions signing in, X, GitHub or a wallet', async () => {
   assert.equal(copy.DOCS_STEPS[1], 'It connects on its own');
   // R6: the authorize endpoint approves at once (a 302 with the code), so no copy asks the builder to approve a page.
   for (const [name, s] of all) assert.ok(!s.includes('Approve it when the page opens'), `${name}: "${s}"`);
-  assert.equal(all.filter(([, s]) => s.includes('It connects at once. No account needed.')).length, 3);
+  // Said once, in the intro line above the tabs, never again in a tab (lane 5, 2).
+  assert.equal(all.filter(([, s]) => s.includes('connects at once') || s.includes('No account needed')).length, 0);
+  const { CONNECTOR_LINE } = await import('./agents');
+  assert.equal(CONNECTOR_LINE, 'A connector lets your AI use EarnKit. It connects at once. No account needed.');
+  const grok = AGENTS.find((a) => a.name === 'Grok Bot')!;
+  assert.equal(grok.installNote, 'Press Enter, then "Add it" and "Authorize".');
+  assert.equal(grok.steps[1], `Server URL https://earnkit.com/mcp, "Save", then "Authenticate".`);
+  assert.deepEqual(copy.DOCS_STEPS, ['Add EarnKit', 'It connects on its own', 'Ask what this repo can earn.']);
 });
 
 test('the /me words: verbatim lines, sentences end with a full stop, no path in a label', () => {
   assert.equal(copy.ME_TITLE, 'Your record');
   assert.equal(copy.ME_PENDING_LINE, 'Read these, then approve each: an unapproved answer is never sent.');
-  assert.equal(copy.ME_DELETE_LINE, 'This removes your record, your ledger and your sign-ins. Your agents keep working as new, anonymous installations.');
+  assert.equal(copy.ME_DELETE_LINE, 'This removes your record, your applications and your sign-ins. Your agents keep working, unsigned.');
+  assert.equal(copy.ME_LABELS['policy.auto_apply'], 'Apply overnight without asking, within these limits');
+  assert.equal(copy.ME_LABELS['policy.agent_may_submit'], 'Press submit for me');
+  assert.equal(copy.ME_LABELS['policy.max_ask_usd'], 'Skip awards above (USD)');
+  assert.equal(copy.ME_LABELS['traction.line_pre_launch'], 'Your one line on traction');
+  assert.equal(copy.ME_HINTS['policy.never'], 'One program per line, by its title (for example Base Builder Grants).');
+  assert.equal(copy.ME_LINK_LINE(null, 'Nov 6'), 'Your agent, first seen Nov 6, asked for this link. If you did not ask your agent for this just now, choose Not me.');
+  // No slug, path or file name in a /me hint (lane 5, 3.27).
+  for (const s of Object.values(copy.ME_HINTS)) assert.ok(!/[a-z]+-[a-z]+-[a-z]+|\/me\b/.test(s), s);
   assert.equal(copy.ME_APPROVED('Nov 7'), 'Approved Nov 7.');
   assert.equal(copy.ME_LINKED('Nov 7'), 'Linked Nov 7.');
   assert.equal(copy.ME_ERRORS.changed, 'This text changed since you opened the page. Read it again.');

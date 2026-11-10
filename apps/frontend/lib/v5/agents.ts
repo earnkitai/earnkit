@@ -1,8 +1,9 @@
 /** The install steps per agent: pure data, read by the install sheet, the /docs page and /llms.txt. */
 export const MCP_URL = 'https://earnkit.com/mcp';
 
-/** "connector" explained once, in the intro both install surfaces show above the tabs (Grok Bot's tab uses the word). */
-export const CONNECTOR_LINE = 'A connector lets your AI use EarnKit.';
+/** "connector" explained once, in the intro both install surfaces show above the tabs (Grok Bot's tab uses the word),
+ *  with the one line that it connects at once, said here only, not again in each tab (v6.1.8, lane 5). */
+export const CONNECTOR_LINE = 'A connector lets your AI use EarnKit. It connects at once. No account needed.';
 
 /** Pure. The tab a key moves to from `at` among `n` tabs (arrows wrap, Home and End jump), or null for any other key. */
 export function tabKeyTarget(key: string, at: number, n: number): number | null {
@@ -114,11 +115,11 @@ export const AGENTS: Agent[] = [
     icon: '/images/agents/grok-bot.png',
     install: grokBotPromptLink(GROK_BOT_PROMPT),
     installLabel: 'Open in Grok Bot',
-    installNote: 'Press Enter, then "Add it" and "Authorize". It connects at once. No account needed.',
+    installNote: 'Press Enter, then "Add it" and "Authorize".',
     stepsLead: 'Or by hand:',
     steps: [
       'Plugins, then "Add a custom connector".',
-      `Server URL ${MCP_URL}, "Save", then "Authenticate". It connects at once. No account needed.`,
+      `Server URL ${MCP_URL}, "Save", then "Authenticate".`,
     ],
   },
   {
@@ -157,7 +158,7 @@ export const AGENTS: Agent[] = [
       'Choose "+ Add", then "Add custom connector".',
       'Name it EarnKit, paste the EarnKit link, choose "Continue".',
       'Keep the connection settings it detected and choose "Continue" again. If it asks for an OAuth client, choose "Register automatically".',
-      'Choose "Add". It connects at once. No account needed.',
+      'Choose "Add".',
       'In a chat, choose "+", then "Connectors", and turn EarnKit on.',
     ],
   },

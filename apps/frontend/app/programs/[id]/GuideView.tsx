@@ -119,7 +119,7 @@ export default function GuideView({ id, page }: { id: string; page: GuidePage })
           </Link>
           {sources.length > 0 ? (
             <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[14px] text-s-muted">
-              <span>{GUIDE_SOURCES_TITLE}:</span>
+              <span>{`${GUIDE_SOURCES_TITLE}:`}</span>
               {sources.map((s) => (
                 <a key={s.url} href={s.url} title={new URL(s.url).hostname} target="_blank" rel="noopener noreferrer" className={LINK}>
                   {s.label}

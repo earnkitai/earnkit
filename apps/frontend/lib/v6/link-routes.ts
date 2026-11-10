@@ -102,7 +102,7 @@ function confirmPage(live: Live, origin: string): Response {
 <p style="font-size:18px;line-height:1.5">Link ${who}, first seen ${day(live.created_at)}, to your GitHub account?</p>
 <p style="color:#9AA0B4;font-size:15px;line-height:1.5">Once linked, it can read and change your record and apply to programs in your name. You can unlink it any time at ${host}/me.</p>
 <form method="post"><button type="submit" style="background:${SITE.blue};color:#fff;border:0;border-radius:8px;padding:12px 20px;font-size:16px;cursor:pointer">Continue with GitHub</button></form>
-<p style="color:#9AA0B4;font-size:14px;line-height:1.5">After you sign in, you confirm the link on your record page. Only continue if you asked your agent for this link just now. If someone sent you this link, close this page.</p>
+<p style="color:#9AA0B4;font-size:14px;line-height:1.5">After you sign in, you confirm the link on your record page. If you did not ask your agent for this just now, close this page.</p>
 </main></body></html>`;
   return new Response(html, {
     status: 200,

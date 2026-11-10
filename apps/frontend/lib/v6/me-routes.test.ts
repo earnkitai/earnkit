@@ -193,7 +193,7 @@ test('a /me/policy post with one bad value changes nothing and names the field (
   }
   // Every bad field gets its own line, in the page's labels.
   const two = await policyPost(post('/me/policy', { csrf, auto_apply: 'on', max_per_night: '50', max_ask_usd: '-5', 'categories[]': ['grant', '<script>'] }, { cookie }), deps);
-  refused(b.id, two, 'Most per night: a whole number from 1 to 20.\nNever above (USD): a number of 0 or more.\nCategories: pick one of the options.');
+  refused(b.id, two, 'Most per night: a whole number from 1 to 20.\nSkip awards above (USD): a number of 0 or more.\nCategories: pick one of the options.');
   assert.deepEqual(await getRecord(b.id), before);
 });
 

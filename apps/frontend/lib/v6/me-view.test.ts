@@ -75,7 +75,7 @@ test('/me?link=<code> with a live code shows the link banner with the agent name
     (await sql()`INSERT INTO installations (token_hash, client_name, created_at) VALUES (${'mv-' + Math.random()}, ${name}, ${NOW}) RETURNING id`)[0].id as number;
   const code = await createLinkCode(await inst('Claude <Code>'), NOW);
   const d = await meData(b, NOW, 'sess', code);
-  const text = 'The agent calling itself Claude <Code>, first seen Nov 6, asked for this link. Only link an agent running on your own computer. If someone sent you this link, choose Not me.';
+  const text = 'The agent calling itself Claude <Code>, first seen Nov 6, asked for this link. If you did not ask your agent for this just now, choose Not me.';
   assert.deepEqual(d.link, { code, text, parts: ['The agent calling itself ', 'Claude <Code>', text.slice('The agent calling itself Claude <Code>'.length)] });
   const html = renderToStaticMarkup(MeView({ data: d, problem: null }));
   assert.ok(html.includes('Link an agent to this account?'), html);
@@ -90,9 +90,13 @@ test('/me?link=<code> with a live code shows the link banner with the agent name
   assert.ok(html.includes('>Link this agent</button>'));
   assert.ok(html.includes('>Not me</button>'));
   assert.ok(html.indexOf('Link an agent to this account?') < html.indexOf('id="person"'));
+  // The ledger rows show the program's title only, never its slug (lane 5, 3.27).
+  const rows = renderToStaticMarkup(MeView({ data: { ...d, link: null, ledger: [{ title: 'Base Builder Grants', status: 'Applied', at: 'Nov 6' }] }, problem: null }));
+  assert.ok(rows.includes('Base Builder Grants') && rows.includes('Applied, Nov 6'), rows);
+  assert.ok(!/base-builder-grants/.test(rows), rows);
 
   const unnamed = await createLinkCode(await inst(null), NOW);
-  assert.equal((await meData(b, NOW, 'sess', unnamed)).link?.text, 'Your agent, first seen Nov 6, asked for this link. Only link an agent running on your own computer. If someone sent you this link, choose Not me.');
+  assert.equal((await meData(b, NOW, 'sess', unnamed)).link?.text, 'Your agent, first seen Nov 6, asked for this link. If you did not ask your agent for this just now, choose Not me.');
 
   // A dead code says it expired; a code EarnKit never makes says it is not valid (v6.1.7 S1).
   const dead: [MeData, string][] = [

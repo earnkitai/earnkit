@@ -267,10 +267,7 @@ export default function MeView({ data, problem, note = null }: { data: MeData; p
           <ul>
             {data.ledger.map((l, i) => (
               <li key={i} className="flex flex-wrap items-baseline justify-between gap-x-4 border-t border-s-line py-3 text-[15px] first:border-t-0">
-                <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-                  {l.title}
-                  <span className={META}>{l.program_id}</span>
-                </span>
+                <span className="min-w-0">{l.title}</span>
                 <span className="text-s-muted">
                   {l.status}, {l.at}
                 </span>

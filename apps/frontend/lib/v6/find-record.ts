@@ -149,8 +149,12 @@ export function provisionalTier(facts: RepoFacts): Tier | null {
 export const provisionalGate = (v: Verdict, row: ProgramRow, tier: Tier | null): Verdict =>
   row.file.min_tier ? tierGate(v, row, tier, ` Next: ${confirmLine(row.file.min_tier)}`) : v;
 
-/** The programs the builder lists: everything but the never list. Pure. */
-export const notNever = (record: BuilderRecord) => (row: ProgramRow) => !record.policy.never.includes(row.id);
+/** The programs the builder lists: everything but the never list, matched on the title or the slug, any case (v6.1.8:
+ *  /me asks for titles, older lists hold slugs). Pure. */
+export const notNever = (record: BuilderRecord) => {
+  const skip = new Set(record.policy.never.map((n) => n.trim().toLowerCase()).filter(Boolean));
+  return (row: ProgramRow) => !skip.has(row.id.toLowerCase()) && !skip.has((row.file.title ?? '').trim().toLowerCase());
+};
 
 /** Whether the standing approval covers sending this program alone: its category is ticked and its
  *  stated amount is within max_ask_usd (no stated amount is never over it). Pure. */

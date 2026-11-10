@@ -82,6 +82,8 @@ test('/programs/<id> renders the guide; a missing logo file renders no image', a
   assert.ok(t.includes('https://example.com/grants') || t.includes('program page'));
   assert.ok(!m.includes('/programs/zz-page-open.svg'), 'no image for a logo file that does not exist');
   assert.ok(!/<img[^>]+programs\/zz/.test(m));
+  // One text node, so no gap before the colon (lane 5, 4).
+  assert.ok(m.includes('>Sources:</span>'), m);
   const meta = await guideMetadata(params('zz-page-open'));
   assert.match(String(meta.title), /Page Open Grants/);
 });
@@ -110,7 +112,12 @@ test('/docs: the six sections, under 330 words, the copy rules', () => {
 });
 
 test('/terms: five sections; "token" only in "launch a token"', () => {
-  const t = textOf(html(TermsPage()));
+  const m = html(TermsPage());
+  const t = textOf(m);
+  // The record page is a link, not a path (lane 5, 3.30).
+  assert.match(m, /any time on <a [^>]*href="\/me"[^>]*>your record page<\/a>\./);
+  assert.ok(t.replaceAll(' .', '.').includes('You can edit or delete it any time on your record page.'), t);
+  assert.ok(!/\s\/me\b/.test(t), t);
   for (const s of ['What EarnKit reads', 'What it stores', 'What it never does', 'Your record', 'Programs']) assert.ok(t.includes(s), s);
   assert.ok(!BANNED.test(t.replaceAll('launch a token', '')), t.match(BANNED)?.[0]);
   assert.ok(!t.includes('—'));
@@ -226,8 +233,8 @@ test('/me renders the record in builder words: approvals first, plain forms, no 
   assert.ok(!/<script/i.test(m));
   assert.ok(m.includes('&lt;b&gt;Email: bad.&lt;/b&gt;'), 'the problem line is escaped');
   assert.ok(t.indexOf('Read these, then approve each: an unapproved answer is never sent.') < t.indexOf('About you'));
-  assert.ok(t.lastIndexOf('This removes your record, your ledger and your sign-ins.') > t.indexOf('Your agents'));
-  for (const w of ['About you', 'Your projects', 'The company', 'Your documents', 'Traction', 'Your answers', 'Standing approval', 'Apply without asking'])
+  assert.ok(t.lastIndexOf('This removes your record, your applications and your sign-ins. Your agents keep working, unsigned.') > t.indexOf('Your agents'));
+  for (const w of ['About you', 'Your projects', 'The company', 'Your documents', 'Traction', 'Your answers', 'Standing approval', 'Apply overnight without asking, within these limits', 'Press submit for me', 'Skip awards above (USD)', 'Your one line on traction'])
     assert.ok(t.includes(w), w);
   assert.ok(!/\b(person|company|traction|policy|answers)\.[a-z_]+\b/.test(t), 'no path is shown');
   assert.ok(!BANNED.test(t.replace('pagesme', '')), t.match(BANNED)?.[0]);

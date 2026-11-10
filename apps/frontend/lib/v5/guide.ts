@@ -23,7 +23,7 @@ export type Guide = {
   sign_in: string | null;
   /** Extra material, in words: "a founder video". */
   needs: string[];
-  /** "Bar: a live product", or null when the program sets none. */
+  /** "Needs a live product", or null when the program sets none. */
   bar: string | null;
   focus: string | null;
   past_rounds: string[];
@@ -87,7 +87,7 @@ const NEEDS_WORDS: Record<(typeof NEEDS)[number], string> = {
   founder_video: 'a founder video', demo_video: 'a demo video', resume: 'a resume', deck: 'a deck', pitch_pdf: 'a pitch PDF',
 };
 const BAR_WORDS: Record<(typeof MIN_TIER)[number], string> = {
-  used: 'Bar: a used product', live: 'Bar: a live product', building: 'Bar: a repo with recent commits',
+  used: 'Needs a used product', live: 'Needs a live product', building: 'Needs a repo with recent commits',
 };
 const SIGN_IN_WORDS: Record<'google' | 'github' | 'email', string> = { google: 'Google', github: 'GitHub', email: 'email' };
 
