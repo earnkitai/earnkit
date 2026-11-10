@@ -46,6 +46,13 @@ item exactly; screen's description names `ref` (required), `repo_url` and `live_
    an object that leaves `mainnet` out is mainnet (v6.1.14 T1) unless it names a testnet in any form (`testnet: true`, a
    `network` or slug with a testnet word such as `base-sepolia`, or a testnet `chain_id`; fix round 1 F1), which is
    mainnet false; an unknown `chain_id` or a `mainnet` that is not true or false drops it with a problem line.
+   v6.1.14 L13-15: only a code host's link (`CODE_HOSTS`: github.com, gitlab.com, codeberg.org, bitbucket.org and their
+   subdomains; `isCodeHost`) is a repo; any other `repo_url` (a bit.ly link) is read as the live link, or dropped beside
+   one, with a problem line, and never keys the project by repo (`projectKeyOf`). Before any of this, find reads its
+   arguments leniently (L13-4, `readLoosely` in `tool-input.ts`, shared with track; find is registered with
+   `lenient(FindArgs)`): a null field is left out, a string project is no project (the open list), a numeric id is its
+   text, an over-long id is cut (no match, the plain unknown line), `filter.all` "true" is true, a bad `filter.category`
+   is dropped; what was dropped is one agent-note line, "Some arguments were not read: ...".
 2. `repo-facts.ts` reads a public GitHub repo with EarnKit's own token (`github.ts`: repo, tree, README, up to 12
    config files for chain detection, first commit date) and merges it with what the agent reported. Facts are cached
    7 days in `repo_cache` and re-read when `pushed_at` moves; the cron sweeps rows over 30 days. A row is trusted
@@ -81,7 +88,7 @@ item exactly; screen's description names `ref` (required), `repo_url` and `live_
    gaps: first the acted-on programs (N-3; a claim counts only on the project it stored, its record id or project key,
    and never pins another project: L1d-1, v6.1.11; another agent's claim for another project still marks the program's
    line `Being handled by your other agent for {project name}.`, in the default list and `filter.all`, and leaves the yes
-   count: C1, v6.1.13, `held_for`, the name from the record project, else the owner's report for that key, else the `name:` key or the repo path; a held in-person program is listed under In person with its line but is no yes in the closing, counting as held), then every program closing within 7 days that the project fits (O1, ahead
+   count: C1, v6.1.13, `held_for`, the name from the record project, else the owner's report for that key, else the `name:` key or the repo path; a held in-person program is listed under In person with its line but is no yes in the closing, counting as held; L13-8 and L12-1, v6.1.14: a claim with no project holds the program on every project's list, by default and in `filter.all`, as "Being handled by your other agent since {time}." on its ready or in-person line, out of the yes), then every program closing within 7 days that the project fits (O1, ahead
    of the cap; its line says `closes in {n} days`), then at most one rule-bearing program among rule-free ones. That
    one, on the project's chains, takes its rank place; off them it is shown only after `max - 1` others or alone
    (N-2). A keyword hit (`keywordHit`, `eligibility.ts`, N1 v6.1.12: a rule still to confirm whose keywords the project
@@ -199,10 +206,18 @@ nothing recorded." A second result answers that it already has one. A program th
 capped at the program's `max_award_usd`, else its `pool_usd`, else 10,000,000, in whole dollars. A result for a
 program gone from the catalog keeps the title stored when it was sent. Another agent's live claim leaves the program
 out of tonight's count (N) and is shown as being handled by the other agent; an agent's own claim counts toward N.
+v6.1.14 L13-9: tonight's list is computed once per find over every ready program, acted-on first (`tonightAll` in
+find, `tonightOf` over them), carried as the reply's `tonight` ({ programs, limit_used }) and read by `tonightIn`, so
+the default and `filter.all` replies name the same list; when it names programs past the shown list the agent note
+says to call find with program_id for their fields. L13-10: a program outside the approval only by its award (its
+blocker's `over_limit_usd`) reads "you say yes yourself to {titles}, over your {limit} limit". L13-18: the line reads
+"Your applications: {n} sent, {n} won ({$}), {n} rejected, {n} waiting{, n closing soon}." with each zero count left
+out. L13-17: the since line leaves out a close that a listed line already says.
 
 ## Freshness and the daily job
 
-`.github/workflows/earnkit-cron.yml` posts to `/api/cron` once a day with `CRON_SECRET`. `cron.ts` runs the probe
+`.github/workflows/earnkit-cron.yml` posts to `/api/cron` once a day with `CRON_SECRET` (v6.1.14 L13-11: a secret under
+32 characters answers 503 "cron is not set up" with one `[cron]` ops log line, never 401). `cron.ts` runs the probe
 (`health.ts`), the `repo_cache` sweep (rows over 30 days, answered as `swept`), the screen queue's daily share
 (screen jobs over 90 days deleted with their rows, then `workQueue` with `SCREEN_BATCH` 200 within 5 minutes,
 answered as `screen` with `swept`), then the owner's digest (`owner-digest.ts`: programs closed by deadline, failed links, changed pages
@@ -428,6 +443,12 @@ standing approval only when the program's verdict for that project is ready at s
 (`readyAtSend` and `storedSide` in `find-record.ts`: the stored tier, no evidence read) over the same facts, with the
 owner's done steps and confirmed rules on that project; a closed program is judged as it stood at its close (F8 then
 decides). A gap, a rule left to confirm, a bar not met or not a fit is recorded with "it was still a step away".
+v6.1.14 L13-6: a program not yet open (`status: upcoming`) is recorded outside it with "it has not opened yet"
+(`NOT_OPENED`). L13-7: a linked find with a project stamps `installations.last_find_auto` (`markFindAuto`); an
+agent's send after the builder turned standing approval off since that find reads "Sent, but outside your standing
+approval: it was off." (`APPROVAL_OFF`, `findAutoWas`); the builder's own submit, or a find that saw it off, keeps
+the plain line. L12-4: track reads its arguments with find's `readLoosely`, so a null project is the last find's
+project (its done step lands under `last_project_key`), a string one is dropped and named, a numeric id is its text.
 `fields_used` keeps its first 200 keys, each cut to 60, and is never refused (B6): the form already went out. Find holds the same line: a ready program with a required builder answer still empty leaves the
 tonight list and is named in its own block, "Before tonight (nothing is sent until these are in): your {answers} for
 {titles}." (no tonight line when nothing can go). A contract the read still does not find adds "Pass the contract
