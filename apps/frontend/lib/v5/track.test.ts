@@ -493,7 +493,7 @@ test('N1 (v6.1.9): the tonight list leaves out the sends already made under stan
   const closing = async () => ((await find({ ...a2, builderId: b.id }, { project })) as { show_to_builder: string }).show_to_builder.split('\n\n').at(-1);
   assert.match((await closing())!, /^Applying tonight to /);
   await track({ ...a, builderId: b.id }, { program_id: 'n1-alpha', status: 'applied', submitted_by: 'agent' });
-  assert.equal(await closing(), "Tonight's limit is used; the next sends wait until tomorrow.");
+  assert.match((await closing())!, /^Tonight's limit is used; the next sends wait until tomorrow\. Say yes and I apply/);
   // A day later the room is back.
   const tomorrow = ((await find({ ...a2, builderId: b.id, now: new Date(NOW.getTime() + 86_400_000 + 60_000) }, { project })) as { show_to_builder: string }).show_to_builder;
   assert.doesNotMatch(tomorrow, /limit is used/);

@@ -320,7 +320,7 @@ test('the "Before applying" paragraph groups the sign-ins, names the clicks and 
   assert.match(replyText({ ...two, auto_sent_today: 0 }, false), /\n\nApplying tonight to Free and Free Two\. Say stop to hold any\.$/);
   assert.match(replyText({ ...two, auto_sent_today: 1 }, false), /\n\nApplying tonight to Free\. Say stop to hold any\.$/);
   const used = replyText({ ...two, auto_sent_today: 2 }, false);
-  assert.equal(used.split('\n\n').at(-1), "Tonight's limit is used; the next sends wait until tomorrow.");
+  assert.equal(used.split('\n\n').at(-1), "Tonight's limit is used; the next sends wait until tomorrow. Say yes and I apply to all 6. Or say the numbers to skip.");
   assert.doesNotMatch(used, /Applying tonight|Tonight's send/);
   assert.match(used, /\n\nBefore applying: you sign in to Google/);
   assert.ok(agentNote({ ...two, auto_sent_today: 2 }, { more: 0 }).includes("Tonight's limit is used: send nothing alone until 24 hours after the last send under standing approval."));

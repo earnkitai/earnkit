@@ -401,9 +401,11 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   const closing =
     tonight > 0
       ? `Applying tonight to ${listWords(tonightList.map((p) => p.title), tonight)}. Say stop to hold any.`
-      : limitUsed
-        ? LIMIT_USED
-        : closingLine({ ready: free.length, draftOnly, gaps: r.gaps.length, firstRule, inPerson: inPerson.length, held: ready.length - free.length, firstStep: firstStepOf(r.gaps) });
+      : [
+          // N1 (v6.1.9, fix round 1): the used limit takes the tonight list's place; the builder can still say yes.
+          ...(limitUsed ? [LIMIT_USED] : []),
+          closingLine({ ready: free.length, draftOnly, gaps: r.gaps.length, firstRule, inPerson: inPerson.length, held: ready.length - free.length, firstStep: firstStepOf(r.gaps) }),
+        ].join(' ');
   // R5a: saying yes is the one action; unlinked with a link, signing in is the closing block's second sentence.
   // The first find after a link names the account it linked to, last (security M2); after an unlink the notice
   // carries the sign-in link itself, so the sign-in sentence is left out (v6.1.7 B10).
