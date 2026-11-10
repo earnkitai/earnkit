@@ -198,7 +198,9 @@ test('every line the builder saw follows the copy rules and ends with one closin
     }
     if (!isReply) continue;
     // The first find after a link adds the linked notice to the closing line (security M2).
-    const last = show.split('\n').at(-1)!.replace(/ This agent is now linked to GitHub account \S+\. Unlink any time at earnkit\.com\/me\.$/, '');
+    // Fix round 1 (v6.1.14, F2): a proof gap with no link to give adds the linkless sign-in to the closing line.
+    const last = show.split('\n').at(-1)!.replace(/ This agent is now linked to GitHub account \S+\. Unlink any time at earnkit\.com\/me\.$/, '').replace(/ Sign in once and I (check that|remember you)\.$/, '');
+    if (/^\d+\. .*: proof that /m.test(show)) assert.match(show.split('\n').at(-1)!, /Sign in once\b/, show);
     assert.equal(CLOSINGS.filter((c) => c.test(last)).length, 1, show);
     assert.equal(show.split('\n').filter((l) => /^(Say yes|Say "do|Say "yes|Nothing fits yet|Nothing is ready yet|Nothing remote is ready yet|Applying tonight)/.test(l)).length, 1, show);
     // Each "yes n" and "do n" is said once (v6.1.8, 1a).

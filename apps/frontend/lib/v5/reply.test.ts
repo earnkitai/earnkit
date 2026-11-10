@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { agentNote, attendRuleGap, gapAction, gapLine, notFitLine, numbered, replyText, firstStepOf, stepRuleOf } from './reply';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
 import type { Ledger } from './ledger';
+import { DELETED_NOTICE } from '../v6/reply-words';
 
 type R = Omit<FindReply, 'show_to_builder' | 'agent_note'>;
 
@@ -716,8 +717,9 @@ test('M1 (v6.1.9): nothing ready and no rule-only program shown: the closing off
   // A program EarnKit makes ("do n" on its line) or a sign-in step is passed over for the next program's step.
   const codes = gap({ title: 'Base Batches', gap: { kind: 'builder_codes', item: 'builder_codes', what: 'add Base Builder Codes to the app', effort: 'minutes', agent_can: true } });
   const signIn = gap({ title: 'Live Grant', gap: { kind: 'tier', item: 'tier:live', what: 'proof that your product is live', effort: 'weeks', agent_can: false } });
-  assert.equal(end(base({ gaps: [codes, signIn, floss] })), 'Nothing is ready yet. Do real people use it? Say yes and I apply.');
-  assert.equal(end(base({ gaps: [codes, signIn] })), 'Nothing is ready yet.');
+  // F2 (fix round 1, v6.1.14): the proof gap shown with no link: the linkless sign-in follows the closing.
+  assert.equal(end(base({ gaps: [codes, signIn, floss] })), 'Nothing is ready yet. Do real people use it? Say yes and I apply. Sign in once and I check that.');
+  assert.equal(end(base({ gaps: [codes, signIn] })), 'Nothing is ready yet. Sign in once and I check that.');
   // A rule-only program shown keeps its "yes n"; something ready keeps the yes to apply.
   const rule = gap({ title: 'R', gap: ruleGap('x'), rules: ['x'] });
   assert.equal(end(base({ gaps: [floss, rule] })), 'Nothing is ready yet. Say "yes 2" if that rule fits you.');
@@ -958,4 +960,22 @@ test('Review Focus 2 (v6.1.14): an unlinked builder reads the sign-in ask once p
   assert.equal(gapLine({ ...gap({ title: 'G', gap: TIER, also: [DEMO] }), n: 1 }), '1. G, $1K: proof that real people use it and a demo video.');
   // No proof gap shown: the closing keeps its repo-read promise.
   assert.match(replyText(base({ sign_in: link, ready: [ready({ title: 'A' })] }), true), /Sign in once at \S+ and I read your repo for proof and remember you\.$/);
+});
+
+test('fix round 1 (v6.1.14, F1 and F2): the proof sign-in promises a check only after a repo read, and is said without a link when none can be made', () => {
+  const TIER = { kind: 'tier' as const, item: 'tier:used', what: 'proof that real people use it', effort: 'weeks' as const, agent_can: false };
+  const link = 'https://earnkit.com/link?c=abc';
+  const end = (over: Partial<R>) => replyText(base({ gaps: [gap({ title: 'Sign Grant', money: 'Up to $5,000', gap: TIER })], ...over }), true).split('\n\n').at(-1);
+  // F1: nothing read.
+  assert.equal(end({ sign_in: link, as_reported: true }), `Nothing is ready yet. Sign in once at ${link} and I remember you.`);
+  assert.equal(end({ sign_in: link, repo_notes: ['empty'] }), `Nothing is ready yet. Sign in once at ${link} and I remember you.`);
+  // F2: no link (linkOf failed).
+  assert.equal(end({}), 'Nothing is ready yet. Sign in once and I check that.');
+  assert.equal(end({ as_reported: true }), 'Nothing is ready yet. Sign in once and I remember you.');
+  // F2: after the account was deleted, no link is given, the sign-in is still said once, the notice last.
+  const del = replyText(base({ gaps: [gap({ title: 'Sign Grant', money: 'Up to $5,000', gap: TIER })], linked_notice: DELETED_NOTICE }), true);
+  assert.equal(del.split('\n\n').at(-1), `Nothing is ready yet. Sign in once and I check that. ${DELETED_NOTICE}`);
+  assert.equal(del.match(/Sign in/g)!.length, 1, del);
+  // No proof gap and no link: no sign-in sentence, as before.
+  assert.equal(replyText(base({ ready: [ready({ title: 'A' })] }), true).split('\n\n').at(-1), 'Say yes and I apply.');
 });

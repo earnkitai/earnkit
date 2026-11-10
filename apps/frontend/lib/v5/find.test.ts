@@ -310,7 +310,8 @@ test('1b (v6.1.8): FLOSS/fund for a CLI on Base: not a fit with no live link, si
   assert.equal(no.reply!.show_to_builder, 'FLOSS/fund, $10,000 to $100,000. Not a fit: needs a product people use.');
   const live = { ...CLI, live_url: 'https://ripgrep.dev' };
   const gap = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: live });
-  assert.equal(gap.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000: proof that real people use it. First: publish a funding manifest on your site or repo.', 'Tell me when that is done and I apply.'].join('\n'));
+  // F2 (fix round 1, v6.1.14): no link in this context and nothing read: the sign-in is the one action, without a link.
+  assert.equal(gap.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000: proof that real people use it. First: publish a funding manifest on your site or repo.', 'Sign in once and I remember you.'].join('\n'));
   // Linked, with the used tier stored: ready, the list's ready line and the one yes.
   const { getRecord, saveRecord } = await import('../v6/builders');
   const { id, builderId } = await linkedWith({ projects: [{ id: 'rg', name: 'ripgrep', live_url: 'https://ripgrep.dev' }] });
@@ -1736,9 +1737,13 @@ test('fix round 1 (v6.1.8, 1b): unlinked, with signing in the one step left, the
     assert.equal(pub.sign_in, link);
     assert.ok((pub.agent_note as string).split('\n').includes('Show the sign-in link once as the reply gives it; once the builder has signed in, call find with program_id again.'));
     assert.doesNotMatch(pub.agent_note as string, /The builder makes each change/);
-    // Nothing read (v6.1.14): the proof is still the gap and signing in is still what checks it, asked once.
+    // Nothing read (fix round 1, v6.1.14 F1): the sign-in promises only to remember, asked once.
     const priv = await call('f-sign', { name: 'ripgrep', description: 'A line-oriented search tool for the command line.', private: true, users: true, live_url: 'https://ripgrep.dev', chains: [{ chain: 'base', mainnet: true }] });
-    assert.equal((priv.show_to_builder as string).split('\n')[1], `Sign in once at ${link} and I check that and remember you.`);
+    assert.equal((priv.show_to_builder as string).split('\n')[1], `Sign in once at ${link} and I remember you.`);
+    // No link can be made (F2): the one-program reply still ends on the sign-in, without a link.
+    const noLink = (await mcpCall({ ...ctx(await installation()), linkUrl: async () => { throw new Error('no link'); } }, 'find', { program_id: 'f-sign', project: { ...PROJECT, users: true } })).reply!;
+    assert.equal(noLink.show_to_builder, ['Sign Grant, Up to $5,000: proof that real people use it.', 'Sign in once and I check that.'].join('\n'));
+    assert.equal(noLink.sign_in, undefined);
     assert.equal(priv.sign_in, link);
     // A gap that is not signing in carries no link.
     const notSign = await call('circle-developer-grants', PROJECT);
@@ -1935,7 +1940,8 @@ test('v6.1.9: after the builder says yes to the rule, the program comes back rea
   const show = list.reply!.show_to_builder as string;
   assert.doesNotMatch(show, /Your yes stands/);
   // The others ready (as many as earlier tests left open) are asked for their yes after it.
-  assert.match(show.split('\n\n').at(-1)!, /^Solana Foundation Grants needs your requested amount; then I apply\.( Say yes and I apply(?: to all \d+\. Or say the numbers to skip)?\.)?$/);
+  // F2 (fix round 1, v6.1.14): a proof gap is listed and this context gives no link, so the linkless sign-in ends it.
+  assert.match(show.split('\n\n').at(-1)!, /^Solana Foundation Grants needs your requested amount; then I apply\.( Say yes and I apply(?: to all \d+\. Or say the numbers to skip)?\.)? Sign in once and I check that\.$/);
 });
 
 test('N9 (v6.1.9): the one-program detail tells the agent to pass project_id when the project is not in the record', async () => {
