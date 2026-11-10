@@ -10,7 +10,7 @@ import { readEvidence, type Evidence, type Subject } from '../v6/evidence';
 import { blockersOf, notNever, missingFor, provisionalGate, provisionalTier, recordSide, storedRecordContext, storedTierOf, tierGate, type Blocker, type RecordSide } from '../v6/find-record';
 import { EMPTY_RECORD } from '../v6/record';
 import { signInLink } from '../v6/record-tool';
-import { linkedNoticeLine, signInLine, unlinkedNoticeLine } from '../v6/reply-words';
+import { linkedNoticeLine, signInLine, signInSentence, unlinkedNoticeLine } from '../v6/reply-words';
 import { timeLeftWords } from './deadline';
 import { evaluate, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
@@ -22,7 +22,7 @@ import { getProgram, isOpen, listOpenPrograms, type ProgramRow } from './program
 import { parseProject, type Project } from './project-input';
 import { rankGaps, rankReady, shownGapsOf } from './rank';
 import { repoFacts, type RepoFacts, type RepoNote } from './repo-facts';
-import { AGENT_FIELDS, RULE_NOTE, agentNote, canDo, closingLine, gapAction, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyText, ruleSentence } from './reply';
+import { AGENT_FIELDS, RULE_NOTE, agentNote, canDo, closingLine, gapAction, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyText, ruleSentence, signInOnly } from './reply';
 import { since, type Since } from './since';
 
 export const FindInput = z.object({
@@ -120,6 +120,8 @@ export type ProgramReply = {
   show_to_builder: string; agent_note: string; program: Omit<Program, 'reviewers_contact'> | null; fields: Field[]; guide: Guide | null; verdict?: Verdict;
   /** The program's rules EarnKit cannot check, each its own "Their rule" line (v6.1.6). */
   rules: string[];
+  /** Unlinked, when signing in is the one step left: the sign-in link its action line gives (v6.1.8 fix round 1). */
+  sign_in?: string;
 };
 export type FindContext = {
   installationId: number;
@@ -196,12 +198,12 @@ const gapOf = (row: ProgramRow, v: Verdict): Omit<GapProgram, 'n'> => ({
  * EarnKit applies (or drafts, when the builder presses submit); a gap, its action (`gapAction`); not a fit or in
  * person, the line alone. The rules list only when asked (`withRules`), between the line and the action. Pure.
  */
-function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram, 'n'>, o: { linked: boolean; now: Date; draftOnly: boolean; rules: string[] }): string[] {
+function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram, 'n'>, o: { linked: boolean; now: Date; draftOnly: boolean; rules: string[]; signIn: string | null }): string[] {
   const p = row.file;
   if (v.status === 'no') return [notFitLine(p.title, moneyOf(p), v.reason ?? 'does not fit'), ...o.rules];
   if (v.status === 'gap') {
     const g = { ...gapOf(row, v), n: 0 };
-    return [gapLine(g, null, true), ...o.rules, gapAction(g)].filter((l): l is string => l !== null);
+    return [gapLine(g, null, true), ...o.rules, gapAction(g, o.signIn)].filter((l): l is string => l !== null);
   }
   const r = { ...ready(), n: 0 };
   if (r.in_person) return [inPersonLine(r, true), ...o.rules];
@@ -239,12 +241,16 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const opens = (p.opens_note ?? 'no date announced').trim().replace(/\.+$/, '');
   // The builder presses submit: yes drafts it for them to send (C44).
   const draftOnly = p.submit === 'builder' || rec?.record.policy.agent_may_submit === false;
+  // Unlinked, with signing in the one step left: the action is the sign-in sentence with its link, as the list closes.
+  const signStep = open && ctx.builderId === null && verdict?.status === 'gap' && !p.in_person && signInOnly(verdict.gaps);
+  const link = signStep ? await linkOf(ctx) : null;
+  const signIn = link ? signInSentence(link, !facts.as_reported && !(facts.notes ?? []).includes('empty')) : null;
   const show = p.status === 'upcoming'
     ? [`${p.title}, ${moneyOf(p)}. Not open yet: ${opens}.`, ...rules.map(ruleSentence), ...guideRules]
     : !open
       ? [`${p.title}, ${moneyOf(p)}, ${when}.`, ...rules.map(ruleSentence), ...guideRules, 'This one is closed.']
       : verdict
-        ? verdictText(row, verdict, () => readyOf(row, verdict, facts, ctx.now, rec), { linked: ctx.builderId !== null, now: ctx.now, draftOnly, rules: guideRules })
+        ? verdictText(row, verdict, () => readyOf(row, verdict, facts, ctx.now, rec), { linked: ctx.builderId !== null, now: ctx.now, draftOnly, rules: guideRules, signIn })
         : [`${p.title}, ${moneyOf(p)}${when ? `, ${when}` : ''}.`, ...rules.map(ruleSentence), ...guideRules];
   const real = verdict?.status === 'gap' ? verdict.gaps.filter((g) => g.kind !== 'rule') : [];
   return {
@@ -257,7 +263,9 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
           : [
               `Draft from fields: ${fitted ? "'record' and 'earnkit'" : "'earnkit'"} values as given; ${AGENT_FIELDS}`,
               ...(verdict?.gaps.some((g) => g.kind === 'rule') ? [RULE_NOTE] : []),
-              ...(real.length === 0 ? [] : canDo(real)
+              ...(real.length === 0 ? [] : link
+                ? ['Show the sign-in link once as the reply gives it; once the builder has signed in, call find with program_id again.']
+                : canDo(real)
                 ? ['On "do": make the gap\'s change (its details carry the docs), push, call track with gap_done and the gap\'s item, then call find with program_id again.']
                 : ['The builder makes each change (never deploy a contract for them); when they say it is done, call track with gap_done and the gap\'s item, then call find with program_id again.']),
               ...(fitted ? ['Fit approved answers by cutting, never by adding; the style contract travels on each field.'] : []),
@@ -270,6 +278,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
     guide,
     ...(verdict ? { verdict } : {}),
     rules,
+    ...(link ? { sign_in: link } : {}),
   };
 }
 

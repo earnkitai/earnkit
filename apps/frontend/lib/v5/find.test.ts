@@ -155,8 +155,8 @@ test('the numbers the builder sees are the n of each item: ready in order, gaps,
   // The full list, so the synthetic in-person program shows past the default two (v6.1.4).
   assert.equal(printed(1), ready[0].title);
   assert.deepEqual([ready[0].in_person, ready[0].n], [false, 1]);
-  assert.equal(printed(36), ready[3].title);
-  assert.equal(ready[3].n, 36);
+  assert.equal(printed(37), ready[3].title);
+  assert.equal(ready[3].n, 37);
   const inPerson = ready.find((p) => p.in_person)!;
   assert.equal(printed(inPerson.n), inPerson.title);
   // The real in-person programs are open now too: from the first in-person one on, every ready item is in person, numbered after every gap.
@@ -1309,4 +1309,46 @@ test('C12: a name saved with record, then find in the same session: read fresh; 
   const b = await mcpCall({ ...c, now: new Date(NOW.getTime() + 2000) }, 'find', { project: PROJECT });
   const missingB = b.reply!.record_missing as string[];
   assert.ok(!missingB.includes('your name') && !missingB.includes('your email'), JSON.stringify(missingB));
+});
+
+test('fix round 1 (v6.1.8, 1b): unlinked, with signing in the one step left, the one-program action is the sign-in sentence with its link', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  await upsertProgram(programFixture({ id: 'f-sign', title: 'Sign Grant', min_tier: 'used' }), 'file', NOW);
+  try {
+    const link = 'https://earnkit.com/link/abc';
+    const call = async (program_id: string, project: Record<string, unknown>) =>
+      (await mcpCall({ ...ctx(await installation()), linkUrl: async () => link }, 'find', { program_id, project })).reply!;
+    const pub = await call('f-sign', { ...PROJECT, users: true });
+    assert.equal(pub.show_to_builder, ['Sign Grant, Up to $5,000. Sign in once so EarnKit can confirm real people use it.', `Sign in once at ${link} and I read your repo for proof and remember you.`].join('\n'));
+    assert.equal(pub.sign_in, link);
+    assert.ok((pub.agent_note as string).split('\n').includes('Show the sign-in link once as the reply gives it; once the builder has signed in, call find with program_id again.'));
+    assert.doesNotMatch(pub.agent_note as string, /The builder makes each change/);
+    // Nothing read: the sentence promises only to remember, as the list's does.
+    const priv = await call('f-sign', { name: 'ripgrep', description: 'A line-oriented search tool for the command line.', private: true, users: true, live_url: 'https://ripgrep.dev' });
+    assert.equal((priv.show_to_builder as string).split('\n')[1], `Sign in once at ${link} and I remember you across agents.`);
+    assert.equal(priv.sign_in, link);
+    // A gap that is not signing in carries no link.
+    const notSign = await call('circle-developer-grants', PROJECT);
+    assert.equal((notSign.verdict as { status: string }).status, 'gap');
+    assert.equal(notSign.sign_in, undefined);
+    assert.doesNotMatch(notSign.show_to_builder as string, /Sign in once at/);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'f-sign'`;
+  }
+});
+
+test('fix round 1 (v6.1.8, 1b): the one-program line is the list line without its number, for a ready and a gap program', async () => {
+  const list = (await mcpCall(ctx(await installation()), 'find', { project: PROJECT })).reply!;
+  const r = (list.ready as { program_id: string; n: number; in_person: boolean }[]).find((p) => !p.in_person)!;
+  const listLine = lineOf(list.show_to_builder as string, r.n);
+  const one = await mcpCall(ctx(await installation()), 'find', { program_id: r.program_id, project: PROJECT });
+  assert.equal((one.reply!.show_to_builder as string).split('\n')[0], listLine.replace(/^\d+\. /, ''));
+  const d = replayFetch('nextjs-dashboard');
+  const onBase = { name: 'Dashboard', description: 'An admin dashboard.', repo_url: `https://github.com/${d.repo}`, live_url: 'https://dash.example.com', users: true, chains: [{ chain: 'base', mainnet: true }] };
+  const c = async () => ({ installationId: await installation(), builderId: null, now: NOW, gh: d.fetch });
+  const all = (await mcpCall(await c(), 'find', { project: onBase, filter: { all: true } })).reply!;
+  const g = (all.gaps as G[]).find((x) => x.program_id === 'base-builder-grants')!;
+  const gapListLine = lineOf(all.show_to_builder as string, g.n);
+  const detail = await mcpCall(await c(), 'find', { program_id: 'base-builder-grants', project: onBase });
+  assert.equal((detail.reply!.show_to_builder as string).split('\n')[0], gapListLine.replace(/^\d+\. /, '').replace(/ Say "do \d+" and I [^.]+\.$/, ''));
 });

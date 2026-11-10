@@ -163,16 +163,24 @@ const usersQuestion = (x: Gap) => x.kind === 'users' && x.effort === 'hours';
 /**
  * The one action under a one-program gap line (v6.1.8, 1b), or null: rules only, a yes that drafts; EarnKit can make
  * every real gap, "do" and it makes that change first; the users question, a yes; else the builder makes the change
- * and says when. In person: none, the line already says to attend. Pure.
+ * and says when. Signing in is the only real step and there is a link (`signIn`, fix round 1): the sign-in sentence
+ * with the link. In person: none, the line already says to attend. Pure.
  */
-export function gapAction(g: GapProgram): string | null {
+export function gapAction(g: GapProgram, signIn: string | null = null): string | null {
   if (g.in_person) return null;
   if (ruleOnlyGap(g)) return 'Say yes if that is you and I draft it.';
   const real = [g.gap, ...g.also].filter((x) => x.kind !== 'rule');
+  if (signIn && signInOnly([g.gap, ...g.also])) return signIn;
   if (canDo(real)) return `Say "do" and I ${doVerb(real, true)} first.`;
   if (real.every(usersQuestion)) return 'Say yes if they do and I draft it.';
   return 'Tell me when that is done and I apply.';
 }
+
+/** Whether every real gap (rules aside) is the unlinked "Sign in once so EarnKit can confirm ..." step. Pure. */
+export const signInOnly = (gaps: Gap[]): boolean => {
+  const real = gaps.filter((x) => x.kind !== 'rule');
+  return real.length > 0 && real.every(confirmGap);
+};
 
 /** A program that does not fit, on the one-program reply (v6.1.8, 1b). Pure. */
 export const notFitLine = (title: string, money: string, reason: string): string => `${title}, ${money}. Not a fit: ${reason}.`;
