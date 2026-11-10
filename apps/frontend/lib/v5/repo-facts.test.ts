@@ -87,7 +87,9 @@ test('reported facts fill the gaps; live_url and demo_url from the report win; r
   assert.equal(f.live_url_basis, 'reported');
   assert.equal(f.demo_url_basis, 'reported');
   assert.equal(f.repo_url_basis, 'code');
-  assert.equal(f.builder_codes, true);
+  // v6.1.9: the code read beats the report; it finds no Builder Codes, and the builder is told once.
+  assert.equal(f.builder_codes, false);
+  assert.deepEqual(f.notes, ['no_builder_codes']);
   assert.equal(f.users, true);
   assert.equal(f.public, true);
 });
@@ -354,4 +356,28 @@ test('B20 (v6.1.8): reads paused and a private repo are named once, each its own
   assert.deepEqual((await repoFacts(project({ repo_url: 'https://gitlab.com/a/b' }), { now: NOW })).notes, ['unread']);
   const down = (async () => { throw new Error('network down'); }) as unknown as typeof fetch;
   assert.deepEqual((await repoFacts(project({ repo_url: `https://github.com/${rec.repo}` }), { gh: down, now: NOW })).notes, ['unread']);
+});
+
+test('N-6 (v6.1.9): a cache row saved before v6.1.8 (no fork or archived field) is stale and re-read, so the archived and fork sentences come back', async () => {
+  for (const [slug, note] of [['archived-dashboard', 'archived'], ['fork-dashboard', 'fork']] as const) {
+    await sql()`DELETE FROM repo_cache`;
+    const first = replayFetch(slug);
+    const p = project({ repo_url: `https://github.com/${first.repo}` });
+    await repoFacts(p, { gh: first.fetch, now: NOW });
+    // The row as the pre-v6.1.8 cache wrote it: no fork, archived, empty or readme_lead keys.
+    await sql()`UPDATE repo_cache SET facts = facts - 'fork' - 'archived' - 'empty' - 'readme_lead'`;
+    const [old] = await sql()`SELECT facts FROM repo_cache`;
+    assert.ok(!('fork' in old.facts) && !('archived' in old.facts));
+    // Within the hour a fresh row is never re-read; this one is, since it lacks the fields.
+    const again = replayFetch(slug);
+    const f = await repoFacts(p, { gh: again.fetch, now: new Date(NOW.getTime() + 60_000) });
+    assert.ok(again.calls.length > 1, JSON.stringify(again.calls));
+    assert.deepEqual(f.notes, [note]);
+    const [row] = await sql()`SELECT facts FROM repo_cache`;
+    assert.equal(row.facts[note], true);
+    // Now complete, the row is a cache hit again.
+    const third = replayFetch(slug);
+    await repoFacts(p, { gh: third.fetch, now: new Date(NOW.getTime() + 120_000) });
+    assert.equal(third.calls.length, 0);
+  }
 });

@@ -6,7 +6,6 @@
  */
 import { rulesOnly, type Gap, type Verdict } from '../v5/eligibility';
 import { categoryOf } from '../v5/program-file';
-import { ME_CHOICES } from '../v5/site-copy';
 import type { RecordContext } from '../v5/prefill';
 import type { ProgramRow } from '../v5/programs';
 import type { RepoFacts } from '../v5/repo-facts';
@@ -14,7 +13,7 @@ import { withRecord, readStoredRecord } from './builders';
 import type { Evidence, Subject } from './evidence';
 import { evidenceSummary, ownEvidence, usageLine } from './own-evidence';
 import { hasDoc, recordMissing, type BuilderRecord, type Project } from './record';
-import { confirmLine, EVIDENCE_NOT_READ, NO_RECORD_PROJECT, PROOF_READING } from './reply-words';
+import { ADD_PROJECT, confirmLine, EVIDENCE_NOT_READ, NO_RECORD_PROJECT, PROOF_READING } from './reply-words';
 import { TIERS, place, type Tier } from './tiers';
 
 export { EVIDENCE_NOT_READ };
@@ -153,9 +152,12 @@ export function provisionalTier(facts: RepoFacts): Tier | null {
 }
 
 /** `tierGate` without the builder's own tier: unlinked, the gap names signing in and the bar (R3b); linked (no own
- *  tier read yet), that the proof is still being read (I2). Pure. */
-export const provisionalGate = (v: Verdict, row: ProgramRow, tier: Tier | null, o: { onchain: boolean; linked: boolean }): Verdict =>
-  row.file.min_tier ? tierGate(v, row, tier, ` Next: ${o.linked ? PROOF_READING : confirmLine(row.file.min_tier)}`, o.onchain) : v;
+ *  tier read yet), that the proof is still being read (I2), or, when no project in the record matches the find
+ *  (`noProject`), to add it so its proof can be read (I2 nuance, v6.1.9). Pure. */
+export const provisionalGate = (v: Verdict, row: ProgramRow, tier: Tier | null, o: { onchain: boolean; linked: boolean; noProject?: boolean }): Verdict =>
+  row.file.min_tier
+    ? tierGate(v, row, tier, ` Next: ${o.linked ? (o.noProject ? ADD_PROJECT : PROOF_READING) : confirmLine(row.file.min_tier)}`, o.onchain)
+    : v;
 
 /** The one gate the list and the one-program reply share (I3): the builder's own tier when read, else the provisional
  *  one. A project's bars apply only when it has a chain (B20b). Pure. */
@@ -164,7 +166,7 @@ export function gateFor(side: RecordSide | null, facts: RepoFacts): (v: Verdict,
   const onchain = facts.chains.length > 0;
   return (v, row) => side?.tier
     ? tierGate(v, row, side.tier, side.summary?.line, onchain)
-    : provisionalGate(v, row, provisional, { onchain, linked: side !== null });
+    : provisionalGate(v, row, provisional, { onchain, linked: side !== null, noProject: side !== null && side.projectId === null });
 }
 
 /** The programs the builder lists: everything but the never list, matched on the title or the slug, any case (v6.1.8:
@@ -188,6 +190,10 @@ const moneyIn = (record: BuilderRecord, row: ProgramRow) => {
  *  money is within max_ask_usd. Pure. */
 export const withinApproval = (record: BuilderRecord) => (row: ProgramRow) => categoryIn(record, row) && moneyIn(record, row);
 
+/** A category as a plural noun inside a sentence (v6.1.9 N5): "bounties", "grants". Pure. */
+const CATEGORY_PLURAL: Record<string, string> = { grant: 'grants', hackathon: 'hackathons', investment: 'investments', bounty: 'bounties' };
+const categoryWords = (c: string) => CATEGORY_PLURAL[c] ?? `${c.toLowerCase()} programs`;
+
 /**
  * Why an agent's send of this program is outside the builder's standing approval, in one plain clause, or null when
  * the policy covers it (the nightly count aside, which the ledger checks under its lock; v6.1.8 B18). Pure.
@@ -196,12 +202,18 @@ export function outsideApproval(record: BuilderRecord, row: ProgramRow): string 
   if (row.file.in_person) return 'it is in person';
   if (row.file.submit === 'builder') return 'only you may apply to it';
   if (!record.policy.agent_may_submit) return 'your agent may not press submit';
-  if (!categoryIn(record, row)) return `${ME_CHOICES[categoryOf(row.file)] ?? categoryOf(row.file)} is not in your categories`;
+  if (!categoryIn(record, row)) return `${categoryWords(categoryOf(row.file))} are not in your categories`;
   if (!moneyIn(record, row)) return 'its award is above your limit';
   return null;
 }
 /** The reason when the night's sends under standing approval already reached max_per_night. */
 export const NIGHT_LIMIT = 'the nightly limit was reached';
+/** The reason when an agent's send under standing approval left a required answer out (v6.1.9 S6). */
+export const REQUIRED_MISSING = 'a required answer was missing';
+
+/** The program's required field keys that `fieldsUsed` does not name (none sent: all of them). Pure. */
+export const requiredLeftOut = (row: ProgramRow, fieldsUsed: string[] | undefined): string[] =>
+  row.file.submission_requirements.filter((r) => r.required && !(fieldsUsed ?? []).includes(r.key)).map((r) => r.key);
 
 /** The sign-in a blocker names: the kind, or the platform's name. Pure. */
 const signInOf = (row: ProgramRow): string | null =>

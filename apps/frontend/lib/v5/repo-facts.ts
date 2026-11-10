@@ -15,9 +15,10 @@ import { addressKey, type Project } from './project-input';
 export type Basis = 'code' | 'reported';
 /**
  * What the builder is told about the read, one sentence each (v6.1.8, B20 and C59): reads paused for the day, a
- * private repo, any other repo link not read (a 404, a non-GitHub link, an outage; fix round 1), a fork, an archived repo (counts as not live), an empty repo.
+ * private repo, any other repo link not read (a 404, a non-GitHub link, an outage; fix round 1), a fork, an archived repo (counts as not live), an empty repo,
+ * Builder Codes reported but not in the code read (v6.1.9).
  */
-export type RepoNote = 'paused' | 'private' | 'unread' | 'fork' | 'archived' | 'empty';
+export type RepoNote = 'paused' | 'private' | 'unread' | 'fork' | 'archived' | 'empty' | 'no_builder_codes';
 export type RepoFacts = {
   name: string;
   description: string;
@@ -50,7 +51,7 @@ export type RepoFacts = {
 type CodeFacts = Pick<RepoFacts, 'chains' | 'contracts' | 'builder_codes' | 'integrations' | 'first_commit_at' | 'last_commit_at' | 'readme_excerpt' | 'homepage'> & {
   html_url: string;
   pushed_at: string;
-  /** From the repo object (v6.1.8); a row cached before has none of these, read as false and null. */
+  /** From the repo object (v6.1.8); a row cached before has none of these and is re-read (N-6, v6.1.9). */
   fork?: boolean;
   archived?: boolean;
   empty?: boolean;
@@ -239,15 +240,23 @@ export async function sweepRepoCache(now: Date): Promise<number> {
 /** A cached row from before integrations were read has none. Pure. */
 const withIntegrations = (f: CodeFacts): CodeFacts => ({ ...f, integrations: f.integrations ?? [] });
 
-/** The repo's code facts: from repo_cache while fresh and unpushed, else a new read. Throws when the repo cannot be read. */
-async function cachedCodeFacts(key: string, f: Fetch, now: Date, installationId?: number): Promise<CodeFacts> {
+/** N-6 (v6.1.9): a row saved before v6.1.8 lacks the fork and archived fields, so it is stale whatever its age. Pure. */
+const complete = (f: CodeFacts) => 'fork' in f && 'archived' in f;
+
+/**
+ * The repo's code facts: from repo_cache while fresh and unpushed, else a new read. Throws when the repo cannot be read.
+ * A row read before `staleAfter` (the builder marked a code change done since, v6.1.9 S4) skips the hour's trust and
+ * checks for a push first.
+ */
+async function cachedCodeFacts(key: string, f: Fetch, now: Date, installationId?: number, staleAfter?: Date | null): Promise<CodeFacts> {
   const [row] = await sql()<{ facts: CodeFacts; pushed_at: Date | null; fetched_at: Date }[]>`
     SELECT facts, pushed_at, fetched_at FROM repo_cache WHERE repo = ${key}`;
   const forget = () => sql()`DELETE FROM repo_cache WHERE repo = ${key}`;
-  if (row) {
+  if (row && complete(row.facts)) {
     const age = now.getTime() - row.fetched_at.getTime();
-    if (age >= 0 && age < HOUR_MS) return withIntegrations(row.facts);
-    if (age >= 0 && age < 7 * DAY_MS && row.pushed_at) {
+    const stale = staleAfter != null && row.fetched_at.getTime() < staleAfter.getTime();
+    if (age >= 0 && age < HOUR_MS && !stale) return withIntegrations(row.facts);
+    if (age >= 0 && age < 7 * DAY_MS && (row.pushed_at || stale)) {
       let live;
       try {
         live = await readRepoObject(key, undefined, f);
@@ -263,7 +272,7 @@ async function cachedCodeFacts(key: string, f: Fetch, now: Date, installationId?
         await forget();
         throw new GitHubError('GitHub: repo is private', 404);
       }
-      if (Date.parse(live.pushed_at) === row.pushed_at.getTime()) return withIntegrations(row.facts);
+      if (row.pushed_at && Date.parse(live.pushed_at) === row.pushed_at.getTime()) return withIntegrations(row.facts);
     }
   }
   await countRead(installationId, now);
@@ -291,13 +300,13 @@ async function cachedCodeFacts(key: string, f: Fetch, now: Date, installationId?
  * code adds chains and contracts, never removes a reported one or its mainnet. An archived repo's homepage is not
  * a live link (C59). A description left out is the README's first sentence (C58).
  */
-export async function repoFacts(project: Project, deps: { gh?: Fetch; now?: Date; installationId?: number } = {}): Promise<RepoFacts> {
+export async function repoFacts(project: Project, deps: { gh?: Fetch; now?: Date; installationId?: number; staleAfter?: Date | null } = {}): Promise<RepoFacts> {
   const key = project.private ? null : repoKey(project.repo_url);
   let code: CodeFacts | null = null;
   let paused = false;
   if (key) {
     try {
-      code = await cachedCodeFacts(key, deps.gh ?? fetch, deps.now ?? new Date(), deps.installationId);
+      code = await cachedCodeFacts(key, deps.gh ?? fetch, deps.now ?? new Date(), deps.installationId, deps.staleAfter);
     } catch (err) {
       paused = err instanceof ReadsPaused;
       code = null;
@@ -321,6 +330,7 @@ export async function repoFacts(project: Project, deps: { gh?: Fetch; now?: Date
     ...(code?.fork ? (['fork'] as const) : []),
     ...(archived ? (['archived'] as const) : []),
     ...(code?.empty ? (['empty'] as const) : []),
+    ...(code && !code.builder_codes && project.builder_codes ? (['no_builder_codes'] as const) : []),
   ];
   return {
     name: project.name,
@@ -335,7 +345,8 @@ export async function repoFacts(project: Project, deps: { gh?: Fetch; now?: Date
     demo_url: project.demo_url ?? null,
     chains,
     contracts,
-    builder_codes: Boolean(code?.builder_codes || project.builder_codes),
+    // A code read beats the report: a repo read that finds none says so (v6.1.9); unread, the report stands.
+    builder_codes: code ? code.builder_codes : Boolean(project.builder_codes),
     integrations: code?.integrations ?? [],
     users: project.users ?? null,
     first_commit_at: code?.first_commit_at ?? project.first_commit_at ?? null,

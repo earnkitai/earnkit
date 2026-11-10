@@ -94,9 +94,9 @@ test('the Saved line: three missing items, then "and n more"; the approval note 
   const c = await linked();
   const plain = await mcpCall(c, 'record', { set: { person: { location: 'London' } } });
   assert.match(plain.reply!.show_to_builder as string, /^Saved 1\. Still missing: your name, your email, a project with its repo or site and \d+ more\.$/);
-  assert.equal(plain.reply!.agent_note, '');
+  assert.equal(plain.reply!.agent_note, 'Ask the builder once, all together, for what missing lists, and save each with record set; then call find with the project.');
   const ans = await mcpCall(c, 'record', { set: { answers: { problem: { text: 'Fees are high.' } } } });
-  assert.equal(ans.reply!.agent_note, 'Approved answers come from earnkit.com/me, where the builder reads and approves each one; an unapproved answer is never used in a form.');
+  assert.match(ans.reply!.agent_note as string, /^Approved answers come from earnkit\.com\/me, where the builder reads and approves each one; an unapproved answer is never used in a form\. Ask the builder once/);
 });
 
 test('set with meta or evidence_read_at: a problem line and no change', async () => {
@@ -284,4 +284,12 @@ test('C50 and B17: a brief counts items, not blocks; an answer the builder rewro
   await mcpCall(c, 'record', { set: { answers: { problem: { short: 'Fees.' } } } });
   const again = await mcpCall(c, 'record', { brief: 'problem' });
   assert.doesNotMatch(again.reply!.agent_note as string, /no short form/);
+});
+
+test('v6.1.9: record get and set always say what to do next', async () => {
+  const c = await linked();
+  const get = await mcpCall(c, 'record', { get: true });
+  assert.equal(get.reply!.agent_note, 'Ask the builder once, all together, for what missing lists, and save each with record set; then call find with the project.');
+  const nothing = await mcpCall(c, 'record', { set: {} });
+  assert.match(nothing.reply!.agent_note as string, /call find with the project\.$/);
 });

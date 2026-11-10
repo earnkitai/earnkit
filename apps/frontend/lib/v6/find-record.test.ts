@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { notNever, pickProject } from './find-record';
+import { notNever, outsideApproval, pickProject } from './find-record';
 import { EMPTY_RECORD, mergeRecord } from './record';
 import type { ProgramRow } from '../v5/programs';
 
@@ -25,4 +25,13 @@ test('C41: the record project is picked by project_id, repo or name; another pro
   assert.equal(pickProject(r, undefined, null, ' project two ')?.id, 'two');
   assert.equal(pickProject(r, undefined, null, 'Project Three'), null);
   assert.equal(pickProject(r, undefined, null), null);
+});
+
+test('N5 (v6.1.9): the category reason is a lower-case plural mid-sentence', () => {
+  const rec = { ...EMPTY_RECORD, policy: { ...EMPTY_RECORD.policy, auto_apply: true, agent_may_submit: true, categories: ['hackathon' as const] } };
+  const of = (category: string) => ({ id: category, file: { title: category, category, needs: [], submission_requirements: [] } }) as unknown as ProgramRow;
+  assert.equal(outsideApproval(rec, of('bounty')), 'bounties are not in your categories');
+  assert.equal(outsideApproval(rec, of('grant')), 'grants are not in your categories');
+  assert.equal(outsideApproval(rec, of('investment')), 'investments are not in your categories');
+  assert.equal(outsideApproval(rec, of('hackathon')), null);
 });

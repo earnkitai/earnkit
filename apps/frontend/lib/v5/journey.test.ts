@@ -159,10 +159,13 @@ test('the owner, linked: record set, approved on /me, find fills from it, starte
   assert.ok(z.from_record >= 2);
   assert.match(first.show_to_builder as string, /\d+ from your record, \d+ from the repo/);
 
-  const top = (first.ready as { program_id: string }[])[0].program_id;
+  const topReady = (first.ready as { program_id: string; fields: { key: string; required: boolean }[] }[])[0];
+  const top = topReady.program_id;
+  // v6.1.9 S6: a send under standing approval names every required answer it filled.
+  const required = topReady.fields.filter((f) => f.required).map((f) => f.key);
   const started = await call(new Date(t1.getTime() + 60_000), 'track', { program_id: top, status: 'started', project_id: 'earnkit' });
   assert.equal(started.show_to_builder, 'Started. Your other agents leave this one alone for 24 hours.');
-  const applied = await call(new Date(t1.getTime() + 120_000), 'track', { program_id: top, status: 'applied', submitted_by: 'agent', fields_used: ['email', 'problem'], project_id: 'earnkit' });
+  const applied = await call(new Date(t1.getTime() + 120_000), 'track', { program_id: top, status: 'applied', submitted_by: 'agent', fields_used: [...new Set(['email', 'problem', ...required])], project_id: 'earnkit' });
   assert.equal((applied.ledger as { applied: number }).applied, 1);
 
   const next = await call(new Date(NOW.getTime() + 10 * H), 'find', { project: { ...p, live_url: 'https://earnkit.com', users: true } });

@@ -209,13 +209,17 @@ export async function recordTool(ctx: { installationId: number; builderId: numbe
   const items = recordItems(record, asks);
   const missing = items.missing;
   const briefNote = i.brief ? [BRIEF_NOTE, shortNote(i.brief, record)].filter(Boolean).join(' ') : '';
+  // v6.1.9: every get and set says what to do next.
+  const next = missing.length > 0
+    ? 'Ask the builder once, all together, for what missing lists, and save each with record set; then call find with the project.'
+    : 'Call find with the project for what it can apply to now.';
   if (m) {
     // Facts saved: a new project counts by its facts, not once more for itself.
     const facts = m.changed.filter((p) => !m!.changed.some((q) => q.startsWith(`${p}.`)));
     const head = savedLine(facts.length, m.problems, secrets);
     return {
       show_to_builder: [head, missingLine(missing)].filter(Boolean).join(' '),
-      agent_note: [m.changed.some(APPROVABLE) ? APPROVAL_NOTE : briefNote, answerShapeNote(m.problems)].filter(Boolean).join(' '),
+      agent_note: [m.changed.some(APPROVABLE) ? APPROVAL_NOTE : briefNote, answerShapeNote(m.problems), next].filter(Boolean).join(' '),
       linked: true,
       missing,
       ...(m.problems.length > 0 ? { problems: m.problems } : {}),
@@ -230,7 +234,7 @@ export async function recordTool(ctx: { installationId: number; builderId: numbe
     show_to_builder: brief && !i.get
       ? `Your record has ${have} of ${items.total} ${items.total === 1 ? 'item' : 'items'}.`
       : missing.length > 0 ? `Your record is missing: ${listWords(missing)}.` : 'Your record has nothing missing.',
-    agent_note: briefNote,
+    agent_note: briefNote || next,
     linked: true,
     record,
     missing,

@@ -19,9 +19,9 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v5/guide.ts`: A program's guide: money, close, who can apply, form fields, rules, sources
 - `apps/frontend/lib/v5/health.ts`: Daily freshness probe: links, page text changes (under 80% words shared), stale flags, passed deadlines
 - `apps/frontend/lib/v5/http.ts`: Route helpers: JSON and CORS answers, `readParams` (form or JSON under a cap, null over it), secret and Bearer checks, `readCapped` (a request's or response's body under a byte cap)
-- `apps/frontend/lib/v5/installations.ts`: Installation rows: save a token, connect a token, stamp last_find_at and `last_gaps` (`markFind`), read them (`lastGaps`), and `newlyLinkedLogin` (the GitHub login when the installation was linked after its last find, for the one-time linked notice)
+- `apps/frontend/lib/v5/installations.ts`: Installation rows: save a token, connect a token, stamp last_find_at and `last_gaps` (`markFind`), read them (`lastGaps`), `newlyLinkedLogin` (the GitHub login when the installation was linked after its last find, for the one-time linked notice), and `unmarkNightFind` (a send under standing approval puts `last_find_at` back to `prev_find_at`, v6.1.9)
 - `apps/frontend/lib/v5/landing.ts`: Landing and /programs data: one tile per listed program and the hero money chip
-- `apps/frontend/lib/v5/ledger.ts`: The ledger: applications, history, closed gap items (`gap_done` takes only the program's own items or `users`), the summary
+- `apps/frontend/lib/v5/ledger.ts`: The ledger: applications, history, closed gap items (`gap_done` takes only the program's own items or `users`), the summary; `askOutcome` (results past due, or 30 days after the send when the program has none) and `codeDoneAt` (the last code-checked step marked done, which makes a cached repo read stale; v6.1.9)
 - `apps/frontend/lib/v5/llms.ts`: The text of /llms.txt
 - `apps/frontend/lib/v5/mail.ts`: Owner emails over Resend, idempotent; a no-op without RESEND_API_KEY
 - `apps/frontend/lib/v5/mcp.ts`: The MCP server: find and track, their descriptions, the server instructions, the per-installation and per-IP tool-call limits
@@ -35,10 +35,10 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v5/programs-pending.ts`: Link check, owner email and signed approve/revert links for pending writes
 - `apps/frontend/lib/v5/programs-read.ts`: Public GET /api/programs list; `moneyOf`, the card money (pool first, then the per-winner award, then the summary)
 - `apps/frontend/lib/v5/programs-sync.ts`: Reads and checks programs/*.json and writes them (an expired active file as closed), for programs:check and programs:sync
-- `apps/frontend/lib/v5/programs.ts`: The programs table: list open programs, read one, write one
+- `apps/frontend/lib/v5/programs.ts`: The programs table: list open programs, read one, find one by what the builder calls it (`programByName`, v6.1.9), write one
 - `apps/frontend/lib/v5/project-input.ts`: Lenient parse of the project an agent reports (chains: exact repeats dropped, then at most 20 read)
 - `apps/frontend/lib/v5/controls.ts`: `dropControls`, the one cleaner for a line of agent or builder text: tabs and line breaks to a space, other control and format characters dropped except a joiner inside a word or emoji, spaces collapsed; used by project-input, `cleanClientName` and the record's `cleanLine`; pure
-- `apps/frontend/lib/v5/rank.ts`: Ordering of ready and gap verdicts (real changes before rule-only); `shownGapsOf` shows at most one rule-only program
+- `apps/frontend/lib/v5/rank.ts`: Ordering of ready and gap verdicts (real changes before rule-only); `shownGapsOf` shows acted-on programs first, then at most one rule-bearing program, in the last slot
 - `apps/frontend/lib/v5/rate-limit.ts`: Fixed-window counters in Postgres
 - `apps/frontend/lib/v5/reply.ts`: The words of a find reply: show_to_builder and agent_note
 - `apps/frontend/lib/v5/repo-facts.ts`: Repo facts: public read, 7-day cache, 10 uncached reads a day per installation, the 30-day sweep, merged with agent-reported facts

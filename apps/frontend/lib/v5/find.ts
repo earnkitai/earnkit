@@ -5,24 +5,24 @@
  */
 import { z } from 'zod';
 import { getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason } from '../v6/builders';
-import { appliedOvernight, releaseStale } from '../v6/claims';
+import { appliedOvernight, CLAIM_HOURS, releaseStale } from '../v6/claims';
 import { readEvidence, type Evidence, type Subject } from '../v6/evidence';
 import { blockersOf, gateFor, notNever, missingFor, recordSide, storedRecordContext, type Blocker, type RecordSide } from '../v6/find-record';
 import { EMPTY_RECORD, unapprovedSince } from '../v6/record';
 import { signInLink } from '../v6/record-tool';
-import { DELETED_NOTICE, linkedNoticeLine, signInLine, signInSentence, unlinkedNoticeLine } from '../v6/reply-words';
+import { DELETED_NOTICE, NO_RECORD_PROJECT, linkedNoticeLine, signInLine, signInSentence, unlinkedNoticeLine } from '../v6/reply-words';
 import { timeLeftWords } from './deadline';
-import { evaluate, type Gap, type Verdict } from './eligibility';
+import { evaluate, lookedAgain, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
 import { lastFindAt, markFind, newlyLinkedLogin } from './installations';
-import { askOutcome, claimed, doneByProgram, doneItems, excluded, markAsked, summary, type Ledger } from './ledger';
+import { askOutcome, autoSentSince, claimed, codeDoneAt, doneByProgram, doneItems, excluded, markAsked, summary, type Ledger } from './ledger';
 import { prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, ruleNotes, type Category, type Program } from './program-file';
-import { getProgram, isOpen, listOpenPrograms, type ProgramRow } from './programs';
+import { isOpen, listOpenPrograms, programByName, type ProgramRow } from './programs';
 import { parseProject, type Project } from './project-input';
 import { rankGaps, rankReady, shownGapsOf } from './rank';
 import { repoFacts, type RepoFacts, type RepoNote } from './repo-facts';
-import { AGENT_FIELDS, CUT_NOTE, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyText, ruleSentence, signInOnly } from './reply';
+import { AGENT_FIELDS, CONTRACT_NOTE, CUT_NOTE, NO_PROJECT_NOTE, contractLookedAgain, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyText, ruleSentence, signInOnly } from './reply';
 import { since, type Since } from './since';
 
 export const FindInput = z.object({
@@ -69,6 +69,8 @@ export type ReadyProgram = {
   n: number;
   /** Set while another agent of the builder's holds a claim on it (track started). */
   claimed_since?: string;
+  /** The builder confirmed its rules (track gap_done): that yes stands, so the closing asks for no second one (v6.1.9). */
+  rule_yes?: true;
 };
 export type GapProgram = {
   program_id: string;
@@ -87,6 +89,8 @@ export type GapProgram = {
   setup: string[];
   /** The number the builder sees (and says) for it. */
   n: number;
+  /** N-5 (v6.1.9): what the builder marked done that the read still does not find, each said once after the line. */
+  looked_again?: string[];
 };
 export type FindReply = {
   show_to_builder: string;
@@ -112,6 +116,8 @@ export type FindReply = {
   auto_apply: boolean;
   /** With auto_apply: the most the agent applies to in one night. */
   max_per_night?: number;
+  /** With auto_apply: the sends under standing approval in the last 24 hours, which tonight's list leaves room for (v6.1.9 N1). */
+  auto_sent_today?: number;
   /** Unlinked with sign-in configured: the link that links this installation to a builder. */
   sign_in?: string;
   /** The first find after a link: the GitHub account it linked to, as the closing block's last sentence (security M2);
@@ -164,16 +170,18 @@ const EMPTY_FACTS: RepoFacts = {
   builder_codes: false, integrations: [], users: null, first_commit_at: null, last_commit_at: null, readme_excerpt: null, homepage: null,
 };
 
-/** A read that fails is the agent's report alone (repoFacts falls back the same way when GitHub fails). */
+/** A read that fails is the agent's report alone (repoFacts falls back the same way when GitHub fails). A code change
+ *  the builder marked done since the cached read makes the read check for a push (v6.1.9 S4). */
 async function factsOf(project: Project, ctx: FindContext): Promise<RepoFacts> {
   try {
-    return await repoFacts(project, { gh: ctx.gh, now: ctx.now, installationId: ctx.installationId });
+    const staleAfter = await codeDoneAt(ownerOf(ctx));
+    return await repoFacts(project, { gh: ctx.gh, now: ctx.now, installationId: ctx.installationId, staleAfter });
   } catch {
     return repoFacts({ ...project, private: true }, { now: ctx.now });
   }
 }
 
-function readyOf(row: ProgramRow, v: Verdict, facts: RepoFacts, now: Date, side: RecordContext | null): Omit<ReadyProgram, 'n'> {
+function readyOf(row: ProgramRow, v: Verdict, facts: RepoFacts, now: Date, side: RecordContext | null, done: Set<string> = new Set()): Omit<ReadyProgram, 'n'> {
   const p = row.file;
   const rec = side ? { record: side.record, projectId: side.projectId, verifiedUsage: side.verifiedUsage } : null;
   const { fields, filled, facts_from_repo, repo_required, from_record, total, need_you } = prefill(row, facts, rec);
@@ -186,36 +194,47 @@ function readyOf(row: ProgramRow, v: Verdict, facts: RepoFacts, now: Date, side:
     needs: [...p.setup, ...fields.filter((f) => f.from === 'builder' && f.required).map((f) => todo.get(f.key) ?? f.label.toLowerCase())],
     setup: p.setup,
     rules: v.rules,
+    ...(v.rules.length > 0 && [...done].some((k) => k.startsWith('rule:')) ? { rule_yes: true as const } : {}),
   };
 }
 
-const gapOf = (row: ProgramRow, v: Verdict): Omit<GapProgram, 'n'> => ({
-  program_id: row.id, title: row.file.title, money: moneyOf(row.file), max_award_usd: row.file.max_award_usd ?? null,
-  category: categoryOf(row.file), closes_at: row.file.ends_at, gap: v.gaps[0], also: v.gaps.slice(1), rules: v.rules,
-  in_person: row.file.in_person, setup: row.file.setup,
-});
+const gapOf = (row: ProgramRow, v: Verdict, done: Set<string> = new Set()): Omit<GapProgram, 'n'> => {
+  const again = lookedAgain(v.gaps, done);
+  return {
+    program_id: row.id, title: row.file.title, money: moneyOf(row.file), max_award_usd: row.file.max_award_usd ?? null,
+    category: categoryOf(row.file), closes_at: row.file.ends_at, gap: v.gaps[0], also: v.gaps.slice(1), rules: v.rules,
+    in_person: row.file.in_person, setup: row.file.setup, ...(again.length > 0 ? { looked_again: again } : {}),
+  };
+};
 
 /**
  * The verdict as the find list would render it, without the number, then its one action (v6.1.8, 1b): ready, yes and
  * EarnKit applies (or drafts, when the builder presses submit); a gap, its action (`gapAction`); not a fit or in
  * person, the line alone. The rules list only when asked (`withRules`), between the line and the action. Pure.
  */
-function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram, 'n'>, o: { linked: boolean; now: Date; draftOnly: boolean; rules: string[]; signIn: string | null }): string[] {
+function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram, 'n'>, o: { linked: boolean; now: Date; draftOnly: boolean; rules: string[]; signIn: string | null; done: Set<string> }): string[] {
   const p = row.file;
   if (v.status === 'no') return [notFitLine(p.title, moneyOf(p), v.reason ?? 'does not fit'), ...o.rules];
   if (v.status === 'gap') {
-    const g = { ...gapOf(row, v), n: 0 };
+    const g = { ...gapOf(row, v, o.done), n: 0 };
     return [gapLine(g, null, true), ...o.rules, gapAction(g, o.signIn)].filter((l): l is string => l !== null);
   }
   const r = { ...ready(), n: 0 };
   if (r.in_person) return [inPersonLine(r, true), ...o.rules];
-  return [readyLine(r, o.linked, o.now, true), ...o.rules, closingLine({ ready: 1, draftOnly: o.draftOnly, gaps: 0, firstRule: null, inPerson: 0, held: 0 })];
+  const yesStands = r.rule_yes && !o.draftOnly ? [r.title] : [];
+  return [readyLine(r, o.linked, o.now, true), ...o.rules, closingLine({ ready: 1, draftOnly: o.draftOnly, gaps: 0, firstRule: null, inPerson: 0, held: 0, yesStands })];
 }
 
 /** One program: its file, its fields (for the project, when given) and the verdict, said as the find line says it. */
 async function oneProgram(ctx: FindContext, id: string, project: Project | null, projectId?: string, ask?: string): Promise<ProgramReply> {
-  const row = await getProgram(id);
-  if (!row) return { show_to_builder: "I don't know that program.", agent_note: 'Call find with the project for the programs it fits.', program: null, fields: [], guide: null, rules: [] };
+  // v6.1.9: the id, or what the builder calls it ("yc", "Y Combinator"), when it names one program.
+  const { row, suggest } = await programByName(id);
+  if (!row)
+    return {
+      show_to_builder: ["I don't know that program.", suggest ? `Did you mean ${suggest}?` : null].filter(Boolean).join(' '),
+      agent_note: 'Call find with the project for the programs it fits.', program: null, fields: [], guide: null, rules: [],
+    };
+  id = row.id;
   const p = row.file;
   // reviewers_contact is the owner's only: never in a tool reply (security M1).
   const { reviewers_contact: _owner, ...pub } = p;
@@ -228,9 +247,8 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const rec: RecordContext | null = side ?? (ctx.builderId === null ? null : await storedRecordContext(ctx.builderId, projectId, facts.repo_url, null));
   const { fields } = prefill(row, facts, rec);
   const fitted = fields.some((f) => f.from === 'record');
-  const verdict = project
-    ? gateFor(side, facts)(evaluate(row, facts, await doneItems(ownerOf(ctx), id), ctx.now), row)
-    : undefined;
+  const done = project ? await doneItems(ownerOf(ctx), id) : new Set<string>();
+  const verdict = project ? gateFor(side, facts)(evaluate(row, facts, done, ctx.now), row) : undefined;
   const left = closesIn(p, ctx.now);
   const open = isOpen(p, ctx.now);
   const when = p.status === 'upcoming' ? null : !open ? 'closed' : left ? `closes ${left}` : 'rolling';
@@ -252,7 +270,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
     : !open
       ? [`${p.title}, ${moneyOf(p)}, ${when}.`, ...rules.map(ruleSentence), ...guideRules, 'This one is closed.']
       : verdict
-        ? verdictText(row, verdict, () => readyOf(row, verdict, facts, ctx.now, rec), { linked: ctx.builderId !== null, now: ctx.now, draftOnly, rules: guideRules, signIn })
+        ? verdictText(row, verdict, () => readyOf(row, verdict, facts, ctx.now, rec, done), { linked: ctx.builderId !== null, now: ctx.now, draftOnly, rules: guideRules, signIn, done })
         : [`${p.title}, ${moneyOf(p)}${when ? `, ${when}` : ''}.`, ...rules.map(ruleSentence), ...guideRules];
   const real = verdict?.status === 'gap' ? verdict.gaps.filter((g) => g.kind !== 'rule') : [];
   return {
@@ -271,6 +289,8 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
                 ? ['On "do": make the gap\'s change (its details carry the docs), push, call track with gap_done and the gap\'s item, then call find with program_id again.']
                 : ['The builder makes each change (never deploy a contract for them); when they say it is done, call track with gap_done and the gap\'s item, then call find with program_id again.']),
               ...(fitted ? ['Fit approved answers by cutting, never by adding; the style contract travels on each field.'] : []),
+              ...(side?.problems.includes(NO_RECORD_PROJECT) ? [NO_PROJECT_NOTE] : []),
+              ...(verdict?.status === 'gap' && contractLookedAgain(gapOf(row, verdict, done)) ? [CONTRACT_NOTE] : []),
               ...(ask === 'rules' ? [] : ["The program's rules are in guide.rules; show them only when the builder asks, or call again with ask 'rules'."]),
             ]
       : ['It takes no entries now: draft nothing and submit nothing. Call find with the project for what is open.']
@@ -368,7 +388,7 @@ const unlinkedPart = (): Pick<FindReply, 'linked' | 'record_missing' | 'blockers
 });
 
 /** The record's part of the reply, for a linked find. */
-function linkedPart(side: RecordSide, rows: ProgramRow[], released: string[], overnight: FindReply['applied_overnight']) {
+function linkedPart(side: RecordSide, rows: ProgramRow[], released: string[], overnight: FindReply['applied_overnight'], sentToday: number) {
   const policy = side.record.policy;
   return {
     linked: true,
@@ -378,7 +398,7 @@ function linkedPart(side: RecordSide, rows: ProgramRow[], released: string[], ov
     applied_overnight: overnight,
     released,
     auto_apply: policy.auto_apply,
-    ...(policy.auto_apply ? { max_per_night: policy.max_per_night } : {}),
+    ...(policy.auto_apply ? { max_per_night: policy.max_per_night, auto_sent_today: sentToday } : {}),
   };
 }
 
@@ -417,35 +437,44 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
 
   const readyV = rankReady(verdicts.filter((v) => v.status === 'ready'), byId);
   const mainnets = new Set(facts.chains.filter((c) => c.mainnet).map((c) => c.chain));
-  // R18e tie-break (v6.1.7): the chain the agent reported first, not the repo's first read.
-  const gapV = rankGaps(verdicts.filter((v) => v.status === 'gap'), byId, mainnets, project.chains?.[0]?.chain);
-  // Remote and in-person ready programs are capped apart, each in rank order, so the default list always leads with
-  // something the builder can apply to now.
-  const shownReady = shownReadyOf(readyV, all, (v) => byId.get(v.program_id)!.file.in_person);
-  // Real changes first, then at most one rule-only program by default (R18b), the one fitting the project's chains
-  // (R18e). In-person programs are never in the default gap list (R18d, R18f); `more` counts them.
-  // The one rule-bearing slot prefers a program on the builder's chains (fix round 3): the reported ones in order,
-  // then the ones the code read found.
+  // The project's own chains: the reported ones in order, then the ones the code read found (fix round 3, N-4).
   const projectChains = [...new Set([...(project.chains ?? []).map((c) => c.chain), ...facts.chains.map((c) => c.chain)])];
+  // R18e tie-break (v6.1.7): the chain the agent reported first, not the repo's first read. N-4 (v6.1.9): a program on
+  // the project's own chain ranks first.
+  const gapV = rankGaps(verdicts.filter((v) => v.status === 'gap'), byId, mainnets, project.chains?.[0]?.chain, projectChains);
+  // N-3 (v6.1.9): a program the builder acted on (a step marked done, or a live claim of theirs) heads its group in the
+  // default list until it is applied or skipped (both leave the list).
+  const claims = await claimed(owner);
+  const live = [...claims].filter(([, h]) => Date.parse(h.since) > ctx.now.getTime() - CLAIM_HOURS * 3_600_000).map(([id]) => id);
+  const acted = new Set([...done.keys(), ...live]);
+  const pinned = (v: Verdict) => acted.has(v.program_id);
+  // Remote and in-person ready programs are capped apart, each in rank order (acted-on first), so the default list
+  // always leads with something the builder can apply to now.
+  const readyOrder = all ? readyV : [...readyV.filter(pinned), ...readyV.filter((v) => !pinned(v))];
+  const shownReady = shownReadyOf(readyOrder, all, (v) => byId.get(v.program_id)!.file.in_person);
+  // Acted-on programs first, then real changes and at most one rule-bearing program by default (R18b): the one on the
+  // project's chains if any (R18e, fix round 3), else the first, in the last slot only (N-2 beats N-4). In-person
+  // programs are never in the default gap list (R18d, R18f); `more` counts them.
   const shownGaps = shownGapsOf(gapV, all, MAX_GAPS, (v) => byId.get(v.program_id)!.file.in_person, projectChains,
-    (v, chain) => byId.get(v.program_id)!.file.chains.includes(chain));
+    (v, chain) => byId.get(v.program_id)!.file.chains.includes(chain), pinned);
   const more = readyV.length - shownReady.length + gapV.length - shownGaps.length;
   // In display order with the numbers the builder sees: ready, gaps, then in person.
   // Only another installation's claim marks a program: this agent's own claim is its to send.
-  const holds = side ? new Map([...(await claimed(owner))].filter(([, h]) => h.by !== ctx.installationId)) : new Map<string, { since: string }>();
+  const holds = side ? new Map([...claims].filter(([, h]) => h.by !== ctx.installationId)) : new Map<string, { since: string }>();
   const { ready, gaps } = numbered(
     shownReady.map((v) => {
-      const r = readyOf(byId.get(v.program_id)!, v, facts, ctx.now, side);
+      const r = readyOf(byId.get(v.program_id)!, v, facts, ctx.now, side, done.get(v.program_id));
       const hold = holds.get(v.program_id);
       return hold ? { ...r, claimed_since: hold.since } : r;
     }),
-    shownGaps.map((v) => gapOf(byId.get(v.program_id)!, v)),
+    shownGaps.map((v) => gapOf(byId.get(v.program_id)!, v, done.get(v.program_id))),
   );
 
   const last = await lastFindAt(ctx.installationId);
   const link = side ? null : await linkOf(ctx);
   const notice = await linkedNotice(ctx, link);
   const overnight = side ? await appliedOvernight(owner, last) : [];
+  const sentToday = side?.record.policy.auto_apply ? await autoSentSince(owner, new Date(ctx.now.getTime() - 86_400_000)) : 0;
   const again = side ? unapprovedSince(side.record, last) : 0;
   const moved = await since(owner, last, open, ready.map((r) => r.program_id), ctx.now, gaps.map((g) => g.program_id));
   const ledger = await summary(owner, open, ctx.now);
@@ -460,7 +489,7 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
     ...(problems.length > 0 ? { problems } : {}),
     ...(facts.notes && facts.notes.length > 0 ? { repo_notes: facts.notes } : {}),
     ...(side
-      ? linkedPart(side, ready.map((p) => byId.get(p.program_id)!), released, overnight)
+      ? linkedPart(side, ready.map((p) => byId.get(p.program_id)!), released, overnight, sentToday)
       : { ...unlinkedPart(), blockers: blockersOf(ready.map((p) => byId.get(p.program_id)!), EMPTY_RECORD), ...(link && notice !== DELETED_NOTICE ? { sign_in: link } : {}) }),
     linked_notice: notice,
   };

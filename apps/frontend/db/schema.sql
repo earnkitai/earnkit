@@ -101,6 +101,9 @@ ALTER TABLE installations ADD COLUMN IF NOT EXISTS client_name text;
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS last_find_at timestamptz;
 -- The last find's gaps: program_id to the first gap's what; track started reads it.
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS last_gaps jsonb;
+-- The find before the last one: an agent's send under standing approval puts last_find_at back to it, so the night
+-- routine's own find never takes the overnight report from the builder (v6.1.9).
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS prev_find_at timestamptz;
 
 -- Fixed-window request counters. Old windows are deleted as new ones start.
 CREATE TABLE IF NOT EXISTS rate_windows (
@@ -223,6 +226,13 @@ ALTER TABLE applications ADD COLUMN IF NOT EXISTS claimed_by int;
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS auto_applied boolean NOT NULL DEFAULT false;
 -- The program's title when it was sent, so a result still reads once the program leaves the catalog (v6.1.7).
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS title text;
+-- When the application was sent: set on applied, never rewritten by a result; the nightly limit counts it (v6.1.9).
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS sent_at timestamptz;
+-- Auto rows from before v6.1.9: the send's own time, from the history's last applied row, else `at` while still applied.
+UPDATE applications a SET sent_at = COALESCE(
+  (SELECT max(h.at) FROM application_history h WHERE h.owner = a.owner AND h.program_id = a.program_id AND h.status = 'applied'),
+  CASE WHEN a.status = 'applied' THEN a.at END)
+WHERE a.sent_at IS NULL AND a.auto_applied;
 
 -- The owner's daily digest: the day it covered and when it was sent; the next digest starts there.
 CREATE TABLE IF NOT EXISTS owner_digests (

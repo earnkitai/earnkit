@@ -157,7 +157,12 @@ export const MAX_TEAM = 10;
 
 const obj = (o: object) => o as Record<string, unknown>;
 const fromSpecs = (record: BuilderRecord, block: string, specs: Spec[]) =>
-  specs.map((s) => field(record, `${block}.${s.key}`, label(`${block}.${s.key}`), s, obj(record[block as keyof BuilderRecord] as object)[s.key]));
+  specs.map((s) => field(record, `${block}.${s.key}`, label(`${block}.${s.key}`), s, valueAt(record, block, s.key)));
+/** A leaf's stored value; an old record's empty category list with standing approval on reads as every category, as the server counts it (v6.1.9 N6). */
+function valueAt(record: BuilderRecord, block: string, key: string): unknown {
+  if (block === 'policy' && key === 'categories' && record.policy.auto_apply && record.policy.categories.length === 0) return [...PROGRAM_CATEGORIES];
+  return obj(record[block as keyof BuilderRecord] as object)[key];
+}
 const answerLabel = (kind: string) => cap(KIND_WORDS[kind as keyof typeof KIND_WORDS]);
 
 /** Every editable leaf of the record, by block, in display order, with its label in builder words. Pure. */
@@ -216,7 +221,7 @@ export async function meData(builder: Builder, now: Date, session: string, link?
   const record = await getRecord(builder.id);
   const owner = `b:${builder.id}`;
   const ledger = await sql()<{ title: string | null; program_id: string; status: string; at: Date }[]>`
-    SELECT p.file->>'title' AS title, a.program_id, a.status, a.at FROM applications a LEFT JOIN programs p ON p.id = a.program_id
+    SELECT COALESCE(p.file->>'title', a.title) AS title, a.program_id, a.status, a.at FROM applications a LEFT JOIN programs p ON p.id = a.program_id
     WHERE a.owner = ${owner} ORDER BY a.at DESC LIMIT 100`;
   const agents = await sql()<{ id: number; client_name: string | null; linked_at: Date | null }[]>`
     SELECT id, client_name, linked_at FROM installations WHERE builder_id = ${builder.id} ORDER BY linked_at DESC NULLS LAST, id`;

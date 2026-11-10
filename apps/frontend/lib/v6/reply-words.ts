@@ -23,8 +23,11 @@ export const confirmLine = (min: 'used' | 'live' | 'building') => `Sign in once 
 /** Linked, with no tier of the builder's own yet (a private repo, a failed read, the 24-hour window): the bar's line,
  *  since the builder has already signed in (v6.1.8 final fix, I2). Pure. */
 export const PROOF_READING = 'Your proof is still being read; ask again in a minute.';
-/** Whether a gap's words are PROOF_READING without its full stop. Pure. */
-export const isProofReadingWhat = (what: string): boolean => `${what}.` === PROOF_READING;
+/** Linked, with no project in the record matching the find (I2 nuance, v6.1.9): the bar's line names the step that
+ *  lets EarnKit read the proof. Pure. */
+export const ADD_PROJECT = 'Add this project to your record so EarnKit can read its proof.';
+/** Whether a gap's words are a linked bar line (PROOF_READING or ADD_PROJECT) without its full stop. Pure. */
+export const isProofReadingWhat = (what: string): boolean => `${what}.` === PROOF_READING || `${what}.` === ADD_PROJECT;
 
 /** Whether a gap's words are a confirmLine without its full stop (the unlinked tier gap). Pure. */
 export const isConfirmWhat = (what: string): boolean => (Object.keys(CONFIRM) as (keyof typeof CONFIRM)[]).some((k) => confirmLine(k) === `${what}.`);

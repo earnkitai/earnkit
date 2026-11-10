@@ -75,7 +75,7 @@ export async function appliedOvernight(owner: string, since: Date | null): Promi
   if (!since) return [];
   const rows = await sql()<{ program_id: string }[]>`
     SELECT program_id FROM applications
-    WHERE owner = ${owner} AND status = 'applied' AND auto_applied AND at > ${since} ORDER BY at, program_id`;
+    WHERE owner = ${owner} AND status = 'applied' AND auto_applied AND COALESCE(sent_at, at) > ${since} ORDER BY COALESCE(sent_at, at), program_id`;
   const byId = new Map((await programsById(rows.map((r) => r.program_id))).map((p) => [p.id, p]));
   return rows.map((r) => ({ program_id: r.program_id, title: byId.get(r.program_id)?.file.title ?? r.program_id }));
 }

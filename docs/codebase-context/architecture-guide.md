@@ -39,7 +39,14 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
    missing name or description fails. `users` is true, false or null (not reported).
 2. `repo-facts.ts` reads a public GitHub repo with EarnKit's own token (`github.ts`: repo, tree, README, up to 12
    config files for chain detection, first commit date) and merges it with what the agent reported. Facts are cached
-   7 days in `repo_cache` and re-read when `pushed_at` moves; the cron sweeps rows over 30 days. An installation gets
+   7 days in `repo_cache` and re-read when `pushed_at` moves; the cron sweeps rows over 30 days. A row is trusted
+   without a push check for an hour, except when the owner marked a code-checked step done (`gap_done` on chain,
+   contract_on, builder_codes, live_product or integration) after it was read: find passes that time (`codeDoneAt`) as
+   `staleAfter`, and the read checks for a push first, so the next find sees the change (v6.1.9 S4). A public read
+   beats a reported `builder_codes: true`: none in the code is none, said once as "The repo does not send Builder
+   Codes yet." (repo note `no_builder_codes`). With no read to confirm them (none, or an empty repo), the name,
+   description and options matched on them are `from: 'agent'` with the source "what the builder told you", never
+   EarnKit's value (S12). An installation gets
    10 uncached reads a UTC day (a cache hit is free); past that the facts are agent-reported only with the problem
    "repo reads paused until tomorrow". A private or unreadable repo is agent-reported only, and the reply says so
    (`as_reported`).
@@ -63,7 +70,9 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
    homepage, contracts and chains with basis `code`), never anything the agent passed; the reply says "Drafted: N facts from the repo." only when N is above zero.
 6. `since.ts` lists programs new, changed (deadline, amount, status, form) and closing within 7 days since this
    installation's `last_find_at`. Empty on the first call.
-7. `ledger.ts` summarises the installation's applications; results past due become `ask_outcome`.
+7. `ledger.ts` summarises the installation's applications; results past due become `ask_outcome`. A program with no
+   results date is asked about 30 days after the send (`sent_at`, else `at`; `ASK_AFTER_DAYS`, v6.1.9), so "I'll ask
+   how it went when results are due." is always kept.
 8. `find` caps the lists (at most 5 remote ready, 3 gaps, then at most 2 in person) and `reply.ts` writes `show_to_builder` and `agent_note`. In-person
    programs get their own block with their setup (never in "apply to all N"), and the reply ends with
    exactly one closing line. `find` caps remote and in-person ready apart, so an in-person program never takes a remote slot.
@@ -174,7 +183,7 @@ keys from tool-call bodies before anything sees them.
 | `program_changes` | Field-level changes, for `since` and the owner digest |
 | `program_writes` | The write API's audit log and the pending writes |
 | `program_health` | The freshness probe: link status, page hash and text, failing days, changed_at |
-| `installations` | One row per issued token (hash only): client name, `last_seen_at`, `last_find_at`, `last_gaps` (the last find's gaps), `builder_id` and `linked_at` when linked, `unlinked_at` and `unlinked_reason` (set by an unlink on /me or the account's deletion, cleared by the next find or a new link) |
+| `installations` | One row per issued token (hash only): client name, `last_seen_at`, `last_find_at`, `prev_find_at` (the find before; v6.1.9), `last_gaps` (the last find's gaps), `builder_id` and `linked_at` when linked, `unlinked_at` and `unlinked_reason` (set by an unlink on /me or the account's deletion, cleared by the next find or a new link) |
 | `rate_windows` | Request counters |
 | `repo_cache` | Public repo facts, 7 days; swept after 30 |
 | `evidence_cache` | v6 evidence blocks per repo (`repo:<owner/name>`, with pushed_at) and per contract, used for 7 days; not swept yet |
@@ -275,7 +284,7 @@ Design `v6-design.md` (sections 4, 5, 8, 10, 14); plan `v6.1-plan.md`; ledger `v
 installation works as in v5, except (v6.1.3) that `find` bars `min_tier` programs on a provisional tier from the
 public code read (`provisionalTier`: a repo homepage, live URL or mainnet contract from code is live, any other read repo is building,
 not read (B20): building when a repo or live link is reported, a reported live link never live, else no tier and no fit for a program with a bar; never shown as evidence; the gap line names the bar; a linked builder with no own tier read yet meets the same bar, said as "Your proof is still being read; ask again in a minute."). The bars are onchain evidence (B20b): they apply only to a project with a chain, reported or read; for a chainless project a `used` bar becomes the users question (the program's users item, else an implied one) and a `live` or `building` bar does not apply. The unlinked path names `blockersOf` against `EMPTY_RECORD` under
-"Before applying:" as one sentence naming the programs per thing the builder does ("you sign in by email and press submit yourself on X"; "Before tonight (nothing is sent until these are in):" only when the agent sends tonight under standing approval), and keeps the closing line as the one action with the sign-in as its second sentence (v6.1.8: "Say yes and I apply to all n. Or say the numbers to skip.", "Say yes and I apply.", "Nothing is ready yet." with the first rule's yes, "Applying tonight to {titles}."; each gap line carries its own "Say \"do n\"" only when EarnKit can make every real gap, and each rule-only line its own "Say \"yes n\" if that is you."). The first `find` (and `record`) on an unlinked installation carries a one-time link
+"Before applying:" as one sentence naming the programs per thing the builder does ("you sign in by email and press submit yourself on X"; "Before tonight (nothing is sent until these are in):" when the agent sends tonight under standing approval, or when nothing can go), and keeps the closing line as the one action with the sign-in as its second sentence (v6.1.8: "Say yes and I apply to all n. Or say the numbers to skip.", "Say yes and I apply.", "Nothing is ready yet." with the first rule's yes (v6.1.9: also the rule of the only step program shown, "if its rule fits you"; else "First: {step}. Tell me when it is done and I look again."), "Applying tonight to {titles}."; each gap line carries its own "Say \"do n\"" only when EarnKit can make every real gap, and each rule-only line its own "Say \"yes n\" if that is you."). The first `find` (and `record`) on an unlinked installation carries a one-time link
 `earnkit.com/link/<code>` (15 minutes, hash stored, `link-routes.ts`); the builder continues, signs in with GitHub
 (`read:user`, `github-auth.ts`), and the callback only starts a 30-day session (`ek_me` cookie, `sessions.ts`) and lands
 on `/me?link=<code>` (v6.1.6, security H1: a sent link plus one click no longer links a stranger's agent). There a banner
@@ -287,10 +296,10 @@ GitHub account {login}." (`linked_notice`, security M2); `markFind` moves `last_
 "This agent was unlinked from your account. Sign in once at {link} to link it again." in place of the sign-in sentence,
 and clears the mark once that reply is built (`takeUnlinkedNotice`, v6.1.7 B10; a find that throws first keeps it). The unlinked agent's ledger stays with the builder. The ledger's owner is `b:<builder>` once linked, else `i:<installation>` (`ownerKey`); linking moves
 the installation's rows to the builder, so every agent of one builder shares one ledger. Where both ledgers hold a
-program, the migration never downgrades (v6.1.8 B15): a result (won, rejected, no_result) beats applied, which beats a
-claim or a skip; of two equal statuses the newer `at` stays; the losing row is dropped (history is all kept). Deleting
+program, the migration never downgrades (v6.1.8 B15): a result beats applied, which beats a claim or a skip; among
+results won beats rejected beats no_result whatever the time, so a relink never loses a win (v6.1.9 N3); of two equal statuses the newer `at` stays; the losing row is dropped (history is all kept). Deleting
 the account (`deleteBuilder`) marks each linked installation (`unlinked_at`, `unlinked_reason = 'deleted'`), so its
-next `find` or `record` call says "Your record was deleted at earnkit.com/me; this agent is unlinked." once (C51). A
+next `find`, `record` or `track` call (v6.1.9) says "Your record was deleted at earnkit.com/me; this agent is unlinked." once (C51). A
 find with no project stamps `last_find_at` too, so the linked notice shows once (C47). Linked, that open list carries the report a project find would (the since line, the answers waiting again, "Applied under your standing approval: ...") in its closing block, so the stamp never swallows it. A second agent links to the same builder; an installation linked to another builder is refused.
 
 **The record and approvals.** One JSON record per builder (`record.ts`, strict): person, team, company, projects
@@ -316,9 +325,34 @@ shows on `/me` under About you, a name and role per member, editable through `/m
 Standing approval at record time (v6.1.8 B18): `track applied` with `submitted_by: 'agent'` is `auto_applied` only
 when the policy covered it at that moment: `auto_apply` on, the program not in person, not builder-only,
 `agent_may_submit` on, its category ticked (none ticked reads as all), the larger of its award and pool within
-`max_ask_usd`, and (counted in `ledger.record` under an owner lock) fewer than `max_per_night` auto-applied rows in the
-last 24 hours. Otherwise the row is recorded with `auto_applied: false` and the builder line reads "Sent, but outside
-your standing approval: {reason}." (`outsideApproval` in `find-record.ts`). `/me/policy` refuses auto apply with no
+`max_ask_usd`, and (counted in `ledger.record` under an owner lock) fewer than `max_per_night` auto-applied rows sent in
+the last 24 hours. The count reads `applications.sent_at` (v6.1.9 N2): set on `applied`, never rewritten by a result,
+so recording an old win today uses none of tonight's limit; a row from before it has none and counts by `at`
+(`autoSentSince`). Find's tonight list subtracts the same count: none left, the closing reads "Tonight's limit is used;
+the next sends wait until tomorrow." (N1). With sends tonight, the steps block reads "Tonight's send goes ahead. These
+would add {n} more: ..." (N4). `gap_done` on a code-checked item (chain, contract_on, builder_codes, live_product,
+integration) answers "Noted. I check the repo on the next look." and, while the read still misses it, the next find
+adds "I looked again and did not find {what}; it stays a step." after that program's line; any other item is the
+builder's word, answers "Noted." and counts done (N-5). Otherwise the row is recorded with `auto_applied: false` and the builder line reads "Sent, but outside
+your standing approval: {reason}." (`outsideApproval` in `find-record.ts`). The required-answer rule (v6.1.9 S6): within
+every limit, a send under standing approval also needs every required field of the program's form in `fields_used`
+(`requiredLeftOut`); one left out (or no `fields_used`) is recorded the same way with "a required answer was missing",
+and find's standing note says "Under standing approval, send only when every required answer is filled; otherwise wait
+for the builder." Find holds the same line: a ready program with a required builder answer still empty leaves the
+tonight list and is named in its own block, "Before tonight (nothing is sent until these are in): your {answers} for
+{titles}." (no tonight line when nothing can go). A contract the read still does not find adds "Pass the contract
+address if it is on chain." to the agent note. A send that does count as under standing approval puts the installation's `last_find_at` back to
+`prev_find_at` (`unmarkNightFind`): the find before it was the night routine's, so the morning find still reports every
+overnight send (a builder's daytime find followed by an in-chat send repeats its since line once; a night with no
+sends still takes the report). `applied` after the program closed is recorded with "{title} closed on {day}; recorded anyway.";
+`applied` as the first call after the account was deleted answers the deleted notice alone and writes nothing;
+`started` on an in-person or builder-only program tells the agent "The builder presses submit; prepare the answers and
+hand them over." A rule the builder confirmed marks the ready program `rule_yes`, and the closing reads "Your yes stands
+for {title}: I apply now." instead of asking again. `find { program_id }` resolves an id or a name (`programByName`:
+case-insensitive id or title, a title's leading words, the id's initials such as "yc"), else "I don't know that
+program." with "Did you mean {title}?" when exactly one title shares a word. Find's record line reads "Still missing for
+these programs: ..." (what these forms need); `record get` keeps "Your record is missing: ..." (every fact), and both
+`record get` and `set` carry an agent note. `/me/policy` refuses auto apply with no
 category ticked ("Pick at least one category.", C43).
 
 **The four tools** (`lib/v5/mcp.ts`):

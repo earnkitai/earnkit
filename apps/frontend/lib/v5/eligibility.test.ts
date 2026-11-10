@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
-import { evaluate } from './eligibility';
+import { codeChecked, evaluate, exists, lookedAgain, type Gap } from './eligibility';
 import { repoFacts, type RepoFacts } from './repo-facts';
 import { parseProject } from './project-input';
 import { ProgramFile } from './program-file';
@@ -31,8 +31,11 @@ async function factsOf(slug: string, over: Record<string, unknown> = {}): Promis
 
 test('EarnKit vs Base: ready with builder codes and users, else the builder codes gap', async () => {
   const base = fromFile('base-builder-grants');
-  const ready = evaluate(base, await factsOf('earnkit', { live_url: 'https://earnkit.com', builder_codes: true, users: true }), new Set(), NOW);
-  assert.equal(ready.status, 'ready');
+  // The report stands where no repo was read (private); a public read that finds none beats it (v6.1.9).
+  const ready = evaluate(base, await factsOf('earnkit', { live_url: 'https://earnkit.com', builder_codes: true, users: true, private: true, chains: [{ chain: 'base', mainnet: true, contract: '0x' + 'a'.repeat(40) }] }), new Set(), NOW);
+  assert.equal(ready.status, 'ready', JSON.stringify(ready));
+  const reported = evaluate(base, await factsOf('earnkit', { live_url: 'https://earnkit.com', builder_codes: true, users: true }), new Set(), NOW);
+  assert.deepEqual([reported.status, reported.gaps[0]?.kind], ['gap', 'builder_codes']);
   const v = evaluate(base, await factsOf('earnkit', { live_url: 'https://earnkit.com', users: true }), new Set(), NOW);
   assert.equal(v.status, 'gap');
   assert.equal(v.gaps.length, 1);
@@ -263,4 +266,58 @@ test('C1 (v6.1.8 final fix, B20b): a used bar on a chainless project is the user
   assert.equal(evaluate(p, onBase, new Set(), NOW).status, 'ready');
   // A live or building bar adds nothing.
   assert.equal(evaluate(toRow(programFixture({ id: 'p-live', min_tier: 'live', tag: undefined })), chainless, new Set(), NOW).status, 'ready');
+});
+
+test('B20c, B20d (v6.1.9, Review Focus 1, fix rounds 1 and 2): the users question needs a project that exists (code read, a live link, private, or reads paused); repo-less, unread or empty is not a fit for a used program', async () => {
+  const floss = fromFile('floss-fund-zerodha');
+  const usersOnly = toRow(programFixture({ id: 'p-users', tag: undefined, eligibility: [{ kind: 'users' }] }));
+  const parsed = parseProject({ name: 'Rent Split', description: 'An idea: an app that splits rent.' });
+  assert.ok(parsed.ok);
+  const idea = await repoFacts(parsed.project, { now: NOW });
+  const empty = await factsOf('empty-repo');
+  assert.deepEqual(empty.notes, ['empty']);
+  for (const facts of [idea, empty, { ...idea, users: true }, { ...empty, users: true }]) {
+    for (const p of [floss, usersOnly]) {
+      const v = evaluate(p, facts, new Set(['users']), NOW);
+      assert.deepEqual([v.status, v.reason, v.gaps], ['no', 'needs a product people use', []], p.id);
+    }
+  }
+  // A repo read with code, a live link given, or a private repo (the builder's word) keeps the question.
+  const code = { ...(await factsOf('nextjs-dashboard')), chains: [] };
+  assert.deepEqual(evaluate(floss, code, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
+  const live = { ...idea, live_url: 'https://rentsplit.app' };
+  assert.deepEqual(evaluate(floss, live, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
+  const pp = parseProject({ name: 'Billing Core', description: 'Usage-based billing.', repo_url: 'https://github.com/acme-private/billing-core', private: true });
+  assert.ok(pp.ok);
+  const priv = await repoFacts(pp.project, { now: NOW });
+  assert.deepEqual([priv.as_reported, priv.notes], [true, ['private']]);
+  assert.deepEqual(evaluate(floss, priv, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
+  assert.equal(evaluate(floss, { ...priv, users: true }, new Set(), NOW).status, 'ready');
+  assert.equal(evaluate(floss, { ...empty, live_url: 'https://x.dev', users: true }, new Set(), NOW).status, 'ready');
+  // B20d (fix round 2): reads paused for the day keeps the builder's word; a repo link that was not read (a 404 or a
+  // failed read) does not exist for the question.
+  const named = { ...idea, repo_url: 'https://github.com/a/b' };
+  assert.deepEqual(evaluate(floss, { ...named, notes: ['paused'] }, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
+  assert.deepEqual(evaluate(floss, { ...named, notes: ['unread'], users: true }, new Set(), NOW).reason, 'needs a product people use');
+  // I4 (final review): a repo-less project with a mainnet contract (reported) exists; a testnet one does not.
+  const pc = parseProject({ name: 'Vault', description: 'A closed-source vault.', chains: [{ chain: 'base', mainnet: true, contract: '0x1111111111111111111111111111111111111111' }] });
+  assert.ok(pc.ok);
+  const contracted = await repoFacts(pc.project, { now: NOW });
+  assert.equal(contracted.repo_url, null);
+  assert.equal(contracted.contracts.length, 1);
+  assert.equal(exists(contracted), true);
+  assert.deepEqual(evaluate(usersOnly, contracted, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
+  assert.equal(exists({ ...contracted, chains: contracted.chains.map((c) => ({ ...c, mainnet: false })) }), false);
+  // A program that asks for no users is unchanged.
+  assert.equal(evaluate(toRow(programFixture({ id: 'p-none', tag: undefined, eligibility: [] })), idea, new Set(), NOW).status, 'ready');
+});
+
+test('N-5 (v6.1.9): code-checked items are re-read, each said as the thing the read looks for; the builder\'s word is not', () => {
+  for (const item of ['chain:base', 'contract_on:base', 'builder_codes', 'live_product', 'integration:x']) assert.equal(codeChecked(item), true, item);
+  for (const item of ['demo_video', 'users', 'feature:x', 'rule:0123abcd']) assert.equal(codeChecked(item), false, item);
+  const g = (kind: Gap['kind'], item: string, chain?: string): Gap => ({ kind, item, what: 'x', effort: 'hours', agent_can: false, ...(chain ? { details: { chain } } : {}) });
+  const gaps = [g('chain', 'chain:base', 'base'), g('contract_on', 'contract_on:base', 'base'), g('builder_codes', 'builder_codes'), g('live_product', 'live_product'), g('demo_video', 'demo_video')];
+  assert.deepEqual(lookedAgain(gaps, new Set(['chain:base', 'contract_on:base', 'builder_codes', 'live_product', 'demo_video'])),
+    ['the contract on Base', 'a contract on Base', 'Base Builder Codes in the app', 'a live link']);
+  assert.deepEqual(lookedAgain(gaps, new Set()), []);
 });

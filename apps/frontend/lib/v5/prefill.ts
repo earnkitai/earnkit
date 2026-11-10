@@ -68,11 +68,12 @@ function pickLinks(r: SubmissionRequirement, live: string | null | undefined, re
   return null;
 }
 
-/** A filled value and whether the public code read gave it (not the agent's report). */
-type Filled = { value: string; repo: boolean } | null;
+/** A filled value and whether the public code read gave it (not the agent's report); `told`: it is the agent's
+ *  report as text (the name, the description, an option matched on them). */
+type Filled = { value: string; repo: boolean; told?: true } | null;
 const filledBy = (facts: RepoFacts, value: string | null, basis: Basis | null | undefined): Filled =>
   value ? { value, repo: !facts.as_reported && basis === 'code' } : null;
-const fromText = (value: string | null): Filled => (value ? { value, repo: false } : null);
+const fromText = (value: string | null): Filled => (value ? { value, repo: false, told: true } : null);
 
 function projectValue(r: SubmissionRequirement, facts: RepoFacts): Filled {
   switch (r.project_field) {
@@ -209,7 +210,9 @@ const pick = (a: { text: string; short: string | null }, r: SubmissionRequiremen
 /** What the agent does with a record value over the field's cap (v6.1.8 C42). Pure. */
 export const cutNote = (n: number) => `Cut to ${n} characters, keeping the meaning.`;
 
-const CONTACT_SOURCES = ['git config and the environment', 'what the builder told you'];
+/** The source of a fact the agent reported and no repo read confirmed (v6.1.9 S12). */
+export const TOLD_SOURCE = 'what the builder told you';
+const CONTACT_SOURCES = ['git config and the environment', TOLD_SOURCE];
 const ASK_ONCE = 'the builder, once: store the answer with record before using it';
 
 /**
@@ -249,6 +252,10 @@ export function prefill(
       return { ...base, value: null, from: 'agent', sources: [...CONTACT_SOURCES, ...sourcesOf(facts, guidance)] };
     }
     const filled = valueOf(r, file, facts);
+    // S12 (v6.1.9): with no repo read to confirm it (none, or an empty repo), what the agent reported is never EarnKit's
+    // value: the agent drafts it from what the builder told it, under the never-invent rule.
+    if (filled?.told && (facts.as_reported || (facts.notes ?? []).includes('empty')))
+      return { ...base, value: null, from: 'agent', sources: [TOLD_SOURCE, ...sourcesOf(facts, guidance)] };
     if (filled !== null) {
       if (filled.repo) facts_from_repo++;
       if (filled.repo && r.required) repo_required++;

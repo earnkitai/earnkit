@@ -29,7 +29,7 @@ export type McpContext = {
 };
 
 export const SERVER_INSTRUCTIONS =
-  "Call record with get at the start of every session, then find with the project you are in. Open with find's reply in your own words. Draft every form from find's fields: 'earnkit' and 'record' values as given, 'agent' values you draft from the field's sources, 'builder' values you ask the builder for once, all together; approved answers fitted by cutting, never by adding. Anything the builder tells you that a form could ask, save with record before using it. Submit in your own browser only after track started, and only when the builder said yes or their standing approval covers it. After each submission call track applied. When find's reply carries a sign-in link, show it once as the reply gives it; until the builder signs in, nothing is saved across agents. Never write a sentence about traction yourself. Never name tools, fields or files. Never invent an amount, a deadline or a rule.";
+  "Call record with get at the start of every session, then find with the project you are in, unless the builder is only screening applicants. Open with find's reply in your own words. Draft every form from find's fields: 'earnkit' and 'record' values as given, 'agent' values you draft from the field's sources, 'builder' values you ask the builder for once, all together; approved answers fitted by cutting, never by adding. Anything the builder tells you that a form could ask, save with record before using it. Submit in your own browser only after track started, and only when the builder said yes or their standing approval covers it. After each submission call track applied. When find's reply carries a sign-in link, show it once as the reply gives it; until the builder signs in, nothing is saved across agents. Never write a sentence about traction yourself. Never name tools, fields or files. Never invent an amount, a deadline or a rule.";
 export const FIND_DESCRIPTION =
   "What can this repo earn: the programs it fits with every field pre-filled, the ones one change away, and the ledger. Call it at session start with the project you are in, and again when the builder asks about money or programs. With program_id: whether the project fits that program, and its details and form.";
 export const TRACK_DESCRIPTION =
@@ -98,7 +98,7 @@ export function createMcpServer(ctx: McpContext): McpServer {
       description: FIND_DESCRIPTION,
       inputSchema: {
         project: PROJECT.optional(),
-        program_id: z.string().max(100).optional().describe("One program's id: its details, rules and form instead of the match"),
+        program_id: z.string().max(100).optional().describe("One program's id or its name: its details, rules and form instead of the match"),
         project_id: z.string().max(40).optional().describe("The record's project to match and fill from; omit to pick by the repo"),
         ask: z.string().max(40).optional().describe("With program_id: 'rules' when the builder asks for the program's rules"),
         filter: z

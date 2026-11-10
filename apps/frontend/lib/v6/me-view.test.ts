@@ -8,6 +8,8 @@ import { getRecord, saveRecord, upsertBuilder } from './builders';
 import { createLinkCode } from './link-routes';
 import { type MeData, approvalPathOf, csrfToken, meData, verifyCsrf } from './me-view';
 import { APPROVABLE, mergeRecord } from './record';
+import { upsertProgram } from '../v5/programs';
+import { programFixture } from '../v5/fixtures/program';
 
 after(() => sql().end());
 // tsx compiles the components without the automatic JSX runtime, so they need React in scope.
@@ -191,4 +193,28 @@ test('B16 and B19: each answer shows its short form, pending and approved; the t
   assert.ok(html.includes('5,000 paying customers'));
   assert.ok(html.includes('Hidden Partner'));
   assert.ok(html.indexOf('Your team') > html.indexOf('About you') && html.indexOf('Your team') < html.indexOf('Your projects'));
+});
+
+test('v6.1.9 N6 and N10: an old empty category list with standing approval on shows every box ticked; the add row has no remove hint', async () => {
+  const b = await upsertBuilder({ github_id: 810_061, login: 'oldpolicy', name: 'O', avatar_url: null }, NOW);
+  const rec = mergeRecord(await getRecord(b.id), { team: [{ name: 'Cut Person' }] }, 'agent', NOW).record;
+  await saveRecord(b.id, { ...rec, policy: { ...rec.policy, auto_apply: true, categories: [] } }, NOW);
+  const d = await meData(b, NOW, 'sess');
+  const cats = d.blocks.find((x) => x.key === 'policy')!.fields.find((f) => f.path === 'policy.categories')!;
+  assert.equal(cats.value.split(', ').length, cats.options!.length, 'all ticked');
+  // Standing approval off: the empty list stays as stored, nothing ticked (Task 3 review Minor).
+  await saveRecord(b.id, { ...rec, policy: { ...rec.policy, auto_apply: false, categories: [] } }, NOW);
+  const off = (await meData(b, NOW, 'sess')).blocks.find((x) => x.key === 'policy')!.fields.find((f) => f.path === 'policy.categories')!;
+  assert.equal(off.value, '', 'none ticked');
+  const html = renderToStaticMarkup(React.createElement(MeView, { data: d, problem: null }));
+  assert.equal(html.split('Clear the name to remove them.').length, 2, 'one member, one hint; the add row has none');
+});
+
+test('v6.1.9: the ledger row shows the catalog title now, else the stored title, else the id', async () => {
+  const b = await upsertBuilder({ github_id: 810_062, login: 'ledgertitle', name: 'L', avatar_url: null }, NOW);
+  await upsertProgram(programFixture({ id: 'lt-live', title: 'Renamed Grant' }), 'file', NOW);
+  const owner = `b:${b.id}`;
+  await sql()`INSERT INTO applications (installation_id, owner, program_id, status, at, title) VALUES (0, ${owner}, 'lt-live', 'applied', ${NOW}, 'Old Name'), (0, ${owner}, 'lt-gone', 'applied', ${new Date(NOW.getTime() - 1000)}, 'Stored Name'), (0, ${owner}, 'lt-bare', 'applied', ${new Date(NOW.getTime() - 2000)}, NULL)`;
+  const d = await meData(b, NOW, 'sess');
+  assert.deepEqual(d.ledger.map((r) => r.title), ['Renamed Grant', 'Stored Name', 'lt-bare']);
 });

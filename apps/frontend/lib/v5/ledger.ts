@@ -5,9 +5,9 @@
  * over a result, is refused and changes nothing. A win is whole dollars; one over the program's stated maximum, else
  * its pool, else 10,000,000, is refused; investments are never "asked".
  */
-import { sql } from './db';
+import { sql, type Db } from './db';
 import { categoryOf, eligibilityOf } from './program-file';
-import { itemKey } from './eligibility';
+import { codeChecked, itemKey } from './eligibility';
 import { getProgram, programsById, type ProgramRow } from './programs';
 
 /** gap_done without a known item (v6.1.8, 3.10): the builder names the change, the agent gets the item keys. */
@@ -56,7 +56,7 @@ const installationOf = (owner: string): number | undefined => (/^i:(\d+)$/.exec(
 
 const usd = (n: number) => '$' + Math.round(n).toLocaleString('en-US');
 /** "Nov 4": a day in UTC. Pure. */
-const dayOf = (d: Date) => new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(d);
+export const dayOf = (d: Date) => new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(d);
 /** "won $3,000", "rejected", "no result": a row's result in words. Pure. */
 const resultWords = (status: string, amount: string | null) =>
   status === 'won' ? `won ${usd(Number(amount ?? 0))}` : status === 'no_result' ? 'no result' : status;
@@ -144,19 +144,18 @@ export async function record(
       if (auto && o.maxPerNight !== undefined) {
         // Tonight's sends under standing approval: the last 24 hours, counted one at a time per owner.
         await tx`SELECT pg_advisory_xact_lock(hashtext(${owner + ':auto'}))`;
-        const [n] = await tx<{ n: number }[]>`SELECT count(*)::int AS n FROM applications
-          WHERE owner = ${owner} AND auto_applied AND program_id <> ${programId} AND at > ${new Date(now.getTime() - DAY)}`;
-        if (n.n >= o.maxPerNight) {
+        if ((await autoSentSince(owner, new Date(now.getTime() - DAY), tx, programId)) >= o.maxPerNight) {
           auto = false;
           night = true;
         }
       }
       // Over a claim the row keeps claimed_at and claimed_by: what was claimed, then sent.
       // The title is kept, so a result still reads once the program leaves the catalog.
-      await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, note, at, submitted_by, fields_used, project_id, auto_applied, title)
-        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, ${note}, ${now}, ${o.submitted_by ?? null}, ${o.fields_used ?? null}, ${o.project_id ?? null}, ${auto}, ${program!.file.title})
+      // sent_at is the send time: a result later moves `at`, never this (v6.1.9 N2).
+      await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, note, at, sent_at, submitted_by, fields_used, project_id, auto_applied, title)
+        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, ${note}, ${now}, ${now}, ${o.submitted_by ?? null}, ${o.fields_used ?? null}, ${o.project_id ?? null}, ${auto}, ${program!.file.title})
         ON CONFLICT (owner, program_id) DO UPDATE
-          SET installation_id = EXCLUDED.installation_id, status = 'applied', amount_usd = NULL, note = EXCLUDED.note, at = EXCLUDED.at,
+          SET installation_id = EXCLUDED.installation_id, status = 'applied', amount_usd = NULL, note = EXCLUDED.note, at = EXCLUDED.at, sent_at = EXCLUDED.sent_at,
               submitted_by = EXCLUDED.submitted_by, fields_used = EXCLUDED.fields_used, auto_applied = EXCLUDED.auto_applied, title = EXCLUDED.title,
               project_id = COALESCE(EXCLUDED.project_id, applications.project_id)`;
     } else if (status === 'skipped' && row?.status === 'started') {
@@ -174,6 +173,16 @@ export async function record(
       VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${amount}, ${note}, ${now})`;
     return repeated ? ({ ok: true, repeated: true } as const) : night ? ({ ok: true, night: true } as const) : ({ ok: true } as const);
   })) as { ok: true; repeated?: true; night?: true } | { ok: false; note: string };
+}
+
+/**
+ * Sends under standing approval since `since` (by the send time; a row from before v6.1.9 without one reads its
+ * `at`), other than `except`. The nightly limit counts these (v6.1.9 N2); find subtracts them from tonight (N1).
+ */
+export async function autoSentSince(owner: string, since: Date, db: Db = sql(), except = ''): Promise<number> {
+  const [r] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM applications
+    WHERE owner = ${owner} AND auto_applied AND program_id <> ${except} AND COALESCE(sent_at, at) > ${since}`;
+  return r.n;
 }
 
 export async function summary(owner: string, programs: ProgramRow[], now: Date): Promise<Ledger> {
@@ -220,6 +229,13 @@ export async function doneItems(owner: string, programId: string): Promise<Set<s
   return new Set(rows.map((r) => r.item));
 }
 
+/** When the owner last marked a code-checked step done (v6.1.9 S4), or null: a repo read cached before it is stale. */
+export async function codeDoneAt(owner: string): Promise<Date | null> {
+  const rows = await sql()<{ item: string; at: Date }[]>`SELECT item, at FROM gaps_done WHERE owner = ${owner}`;
+  const times = rows.filter((r) => codeChecked(r.item)).map((r) => r.at.getTime());
+  return times.length > 0 ? new Date(Math.max(...times)) : null;
+}
+
 /** Every closed gap item of the owner, by program: one query for a whole find. */
 export async function doneByProgram(owner: string): Promise<Map<string, Set<string>>> {
   const rows = await sql()<{ program_id: string; item: string }[]>`
@@ -229,19 +245,25 @@ export async function doneByProgram(owner: string): Promise<Map<string, Set<stri
   return out;
 }
 
-/** Applied programs whose results date has passed and that the builder has not been asked about. */
+/** Days after the send EarnKit asks how it went, for a program with no results date (v6.1.9). */
+export const ASK_AFTER_DAYS = 30;
+
+/**
+ * Applied programs whose results date has passed and that the builder has not been asked about. A program with no
+ * results date is asked about ASK_AFTER_DAYS after the send (its sent_at, else its at for a row from before v6.1.9).
+ */
 export async function askOutcome(owner: string, programs: ProgramRow[], now: Date): Promise<{ program_id: string; title: string }[]> {
-  const rows = await sql()<{ program_id: string }[]>`
-    SELECT program_id FROM applications
+  const rows = await sql()<{ program_id: string; sent: Date }[]>`
+    SELECT program_id, COALESCE(sent_at, at) AS sent FROM applications
     WHERE owner = ${owner} AND status = 'applied' AND asked_outcome_at IS NULL`;
-  const open = new Set(rows.map((r) => r.program_id));
-  const byId = await withOwn([...open], programs);
-  return [...open]
+  const sent = new Map(rows.map((r) => [r.program_id, r.sent]));
+  const byId = await withOwn([...sent.keys()], programs);
+  return [...sent.keys()]
     .map((id) => byId.get(id))
     .filter((p): p is ProgramRow => p !== undefined)
     .filter((p) => {
-      const d = resultsDate(p);
-      return d !== null && d.getTime() <= now.getTime();
+      const d = resultsDate(p) ?? new Date(sent.get(p.id)!.getTime() + ASK_AFTER_DAYS * DAY);
+      return d.getTime() <= now.getTime();
     })
     .map((p) => ({ program_id: p.id, title: p.file.title }));
 }
