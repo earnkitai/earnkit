@@ -1333,6 +1333,25 @@ test('L12-7 (v6.1.14), Review Focus 9: a Solana project with no repo sees Solana
   assert.equal(gaps.gap.what, 'code in a repo');
 });
 
+test('fix round 1 (v6.1.14, T7-F1, T7-F2): an owner-only link meets no bar; gap_done on the code step of Solana Foundation Grants is noted', async () => {
+  const SOL = { name: 'Solflare Tips', description: 'Tipping for creators on Solana', chains: [{ chain: 'solana', mainnet: true }] };
+  const c = ctx(await installation());
+  const bare = (await mcpCall(c, 'find', { project: SOL })).reply!.show_to_builder as string;
+  // T7-F1: the owner's page is neither repo nor live link, so the reply is the one with no link (no building bar met).
+  for (const link of ['https://github.com/lane12', 'https://github.com/orgs/acme']) {
+    const owner = await mcpCall(ctx(await installation()), 'find', { project: { ...SOL, repo_url: link } });
+    assert.equal(owner.reply!.show_to_builder, bare, link);
+    assert.match(owner.text, /repo_url names no repo; kept as a plain link, not read/);
+  }
+  // T7-F2: the code step shown is the step gap_done takes, for a program that does not require a repo too.
+  const done = await mcpCall(c, 'track', { program_id: 'solana-foundation-grants', status: 'gap_done', item: 'repo', project: SOL });
+  assert.equal(done.isError, false, done.text);
+  assert.equal(done.reply!.show_to_builder, 'Noted. Tell me when it is live and I look again.');
+  // The read settles it: with no repo yet the step still shows.
+  const again = await mcpCall(c, 'find', { project: SOL });
+  assert.match(again.reply!.show_to_builder as string, /Solana Foundation Grants, milestone grants: code in a repo\./);
+});
+
 test('L12-7 (v6.1.14): a keyword hit whose only change is code in a repo shows on a chain as it does with none; a student on a chain still sees Thiel', async () => {
   const HOOK = { name: 'Hookswap', description: 'A Uniswap limit order tool' };
   const onEth = await mcpCall(ctx(await installation()), 'find', { project: { ...HOOK, chains: [{ chain: 'ethereum', mainnet: true }] } });

@@ -228,17 +228,23 @@ test('L12-6 (v6.1.14): a host with a trailing dot is the same repo; an owner-onl
   }
   // Two repos of one owner given as the owner's link are two projects, by name.
   assert.notEqual(projectKeyOf({ name: 'One', repo_url: 'https://github.com/lane12' }), projectKeyOf({ name: 'Two', repo_url: 'https://github.com/lane12' }));
-  // parseProject keeps it as a plain link: the live link when none is given, else dropped beside it; never the repo.
-  const alone = parseProject({ ...base, repo_url: 'https://github.com/lane12' });
-  assert.ok(alone.ok);
-  assert.equal(alone.project.repo_url, undefined);
-  assert.equal(alone.project.live_url, 'https://github.com/lane12');
-  assert.deepEqual(alone.problems, ['repo_url names no repo; read as the live link']);
+  // Fix round 1 (T7-F1, T7-F6): kept as a plain link, neither the repo nor the live link; GitHub's own pages too.
+  for (const v of ['https://github.com/lane12', 'https://github.com/orgs/acme', 'https://github.com/sponsors/x', 'https://github.com/users/x', 'https://github.com/topics/x']) {
+    assert.equal(canonicalRepoLink(v), null, v);
+    const r = parseProject({ ...base, repo_url: v });
+    assert.ok(r.ok);
+    assert.equal(r.project.repo_url, undefined, v);
+    assert.equal(r.project.live_url, undefined, v);
+    assert.equal(r.project.link, v, v);
+    assert.deepEqual(r.problems, ['repo_url names no repo; kept as a plain link, not read'], v);
+    assert.equal(projectKeyOf(r.project), 'name:tipjar', v);
+  }
   const beside = parseProject({ ...base, repo_url: 'https://github.com/lane12', live_url: 'https://keyrepo.example' });
   assert.ok(beside.ok);
-  assert.equal(beside.project.repo_url, undefined);
   assert.equal(beside.project.live_url, 'https://keyrepo.example/');
-  assert.deepEqual(beside.problems, ['repo_url dropped: names no repo']);
+  assert.equal(beside.project.link, 'https://github.com/lane12');
+  // An owner named orgs-like but a real repo stays a repo.
+  assert.equal(canonicalRepoLink('https://github.com/acme/orgs'), 'https://github.com/acme/orgs');
   // The dotted host is a repo and parses as one.
   const dotted = parseProject({ ...base, repo_url: 'https://github.com./lane12/keyrepo' });
   assert.ok(dotted.ok);

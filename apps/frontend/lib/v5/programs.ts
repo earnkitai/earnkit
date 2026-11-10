@@ -91,6 +91,9 @@ const YEAR = /^\d{4}$/;
 /** The words a program answers to (L12-3, L12-5, v6.1.14): those of its id, title and organizer, brackets included
  *  ("FLOSS/fund (Zerodha)" answers to "zerodha"). Pure. */
 const wordsOfProgram = (r: ProgramRow) => new Set([r.id, r.file.title, r.file.organizer].flatMap((x) => plain(x).split(' ')).filter(Boolean));
+/** The words a short word (under four characters) may name (fix round 1, T7-F3): the id's and title's words and the
+ *  id's initials ("arc", "yc"), never an organizer's ("aws" from "Kiro (AWS)"). Pure. */
+const shortWordsOfProgram = (r: ProgramRow) => new Set([...[r.id, r.file.title].flatMap((x) => plain(x).split(' ')), initials(r.id)].filter(Boolean));
 /** The money a program puts up: the larger of its top award and its pool, -1 when it states neither. Pure. */
 const awardOf = (p: Program) => Math.max(p.max_award_usd ?? -1, p.pool_usd ?? -1);
 
@@ -150,14 +153,19 @@ export async function programByName(name: string, now: Date = new Date()): Promi
     if (!takes && fit.length > 0) return { row: null, suggest: titles(fit) };
     if (hits.length > 1) return { row: null, suggest: titles(hits) };
   }
-  // L12-3 (v6.1.14): every word of the name, stopwords and years dropped when another word is left, in one program's
-  // id, title or organizer (L12-5: brackets included). A lone word names a program only at four characters or more
-  // ("zerodha", never "aws"). One program is the row, several are asked about, none is no program.
+  // L12-3 (v6.1.14): every word of the name, stopwords and years dropped, in one program's id, title or organizer
+  // (L12-5: brackets included). A single typed word names a program only at four characters or more ("zerodha", never
+  // "aws"); beside another typed word a short word may name an id or title word or the id's initials ("arc grants",
+  // "yc batch"; fix round 1, T7-F3). Only stopwords, years or "foundation" name none (T7-F4). One program is the row,
+  // several are asked about, none is no program.
   const all = words.split(' ');
-  const kept = all.filter((w) => !COMMON.has(w) && !YEAR.test(w));
-  const asked = kept.length > 0 ? kept : all.filter((w) => !YEAR.test(w));
-  if (asked.length === 0 || (asked.length === 1 && asked[0].length < MIN_PREFIX)) return { row: null, suggest: [] };
-  const fit = rows.filter((r) => { const own = wordsOfProgram(r); return asked.every((w) => own.has(w)); });
+  const asked = all.filter((w) => !COMMON.has(w) && !YEAR.test(w));
+  if (asked.every((w) => w === 'foundation') || (all.length === 1 && asked[0].length < MIN_PREFIX)) return { row: null, suggest: [] };
+  const fit = rows.filter((r) => {
+    const own = wordsOfProgram(r);
+    const short = shortWordsOfProgram(r);
+    return asked.every((w) => (w.length < MIN_PREFIX ? short : own).has(w));
+  });
   if (fit.length === 1) return { row: fit[0], suggest: [] };
   return { row: null, suggest: titles(fit) };
 }

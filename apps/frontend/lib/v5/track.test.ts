@@ -293,14 +293,14 @@ test('gap_done with an item the program does not have is refused, and the rememb
   await markFind(c.installationId, NOW, { 't6-gapbad': arc });
   const r = await track(c, { program_id: 't6-gapbad', status: 'gap_done', item: 'nope' });
   assert.equal(r.show_to_builder, 'Which change did you finish? Say the program and the change.');
-  assert.equal(r.agent_note, 'Items for this program: chain:arc. Call track gap_done with one of them.');
+  assert.equal(r.agent_note, 'Items for this program: chain:arc, repo. Call track gap_done with one of them.');
   assert.deepEqual(await lastGaps(c.installationId), { 't6-gapbad': arc });
   // C27 (v6.1.7): users only when the program has a users item.
   const u = await track(c, { program_id: 't6-gapbad', status: 'gap_done', item: 'users' });
-  assert.deepEqual([u.show_to_builder, u.agent_note], ['Which change did you finish? Say the program and the change.', 'Items for this program: chain:arc. Call track gap_done with one of them.']);
+  assert.deepEqual([u.show_to_builder, u.agent_note], ['Which change did you finish? Say the program and the change.', 'Items for this program: chain:arc, repo. Call track gap_done with one of them.']);
   // C11 (v6.1.7): without an item, the agent gets the same list.
   const none = await track(c, { program_id: 't6-gapbad', status: 'gap_done' });
-  assert.deepEqual([none.show_to_builder, none.agent_note], ['Which change did you finish? Say the program and the change.', 'Items for this program: chain:arc. Call track gap_done with one of them.']);
+  assert.deepEqual([none.show_to_builder, none.agent_note], ['Which change did you finish? Say the program and the change.', 'Items for this program: chain:arc, repo. Call track gap_done with one of them.']);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM gaps_done WHERE installation_id = ${c.installationId}`)[0].n, 0);
 });
 

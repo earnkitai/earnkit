@@ -102,7 +102,8 @@ item exactly; screen's description names `ref` (required), `repo_url` and `live_
    or topics (the first three as prose: links, fenced code and inline code removed, `proseOf`, C3 v6.1.13; the README
    excerpt itself drops inline code spans; then identifiers dropped, `wordsOf`, L12-2 v6.1.14: a token holding `-`, `/`,
    `.` or `_`, or letters mixed with digits, unless it is itself a keyword or a word of one, so `npm i quest-cli` names
-   no Quest while `mini-app`, `web3`, `team1` and `v4 hook` still count; topics and chains are read as given), `unlikely` (`eligibility.ts`) holds and the program is left to `filter.all` (counted in `more`); a rule
+   no Quest while `mini-app`, `web3`, `team1` and `v4 hook` still count, as does a prose compound of letter-only parts
+whose capitalised part is a keyword (`AR/VR`, `VR-ready`, `Uniswap-based`; fix round 1, T7-F5); topics and chains are read as given), `unlikely` (`eligibility.ts`) holds and the program is left to `filter.all` (counted in `more`); a rule
    with no keywords keeps the slot rule. With nothing ready, the closing's rule question names a keyword-hit rule-only
    program first (`keyword_hit` on the gap, L1e-5, v6.1.13), else the first in list order. One yes per reply (L1e-2,
    T3-R5): no rule line, remote or in person, carries its own `Say "yes n" if that is you.`; the closing is the one
@@ -184,8 +185,9 @@ verifiable kinds are re-read from the repo.
 A done step belongs to one project (v6.1.10, L1c-1): `gaps_done` carries `project_key` and is unique on
 (owner, project_key, program_id, item). `projectKeyOf` (`project-input.ts`, pure) gives the key: the repo link in its
 one canonical form (`canonicalRepoLink`, v6.1.13 B4: https, host lower-cased without `www.`, no port, no `user@`, no
-query or fragment, a trailing dot on the host dropped (L12-6, v6.1.14), on github.com owner and name only, on other hosts the path up to its first `-` segment (so `-/tree/...`, `-/blob/...`, `-/issues` fold and a subgroup named `tree` stays), no trailing slash or `.git`; an owner or group alone (`github.com/owner`) names no repo, has no repo key and is
-parsed as a plain link, the live link when none is given, else dropped beside it (L12-6), so the project keys by name;
+query or fragment, a trailing dot on the host dropped (L12-6, v6.1.14), on github.com owner and name only, on other hosts the path up to its first `-` segment (so `-/tree/...`, `-/blob/...`, `-/issues` fold and a subgroup named `tree` stays), no trailing slash or `.git`; an owner or group alone (`github.com/owner`), or one of GitHub's own pages (`orgs/`,
+`users/`, `sponsors/`, `topics/` and the like), names no repo, has no repo key and is parsed as a plain link (`link`),
+neither the repo nor the live link, so it meets no bar and the project keys by name (L12-6; fix round 1, T7-F1, T7-F6);
 the repo read's cache key `repoKey` reads the same helper), else `name:` and the name NFKC and case-folded, else `''`
 (rows from before v6.1.10 stay at `''`). The first find that adds the repo to a project found by name moves its
 `gaps_done`, claim `project_id` and `project_reports` rows from the `name:` key to the repo key in one transaction
@@ -379,7 +381,9 @@ public code read (`provisionalTier`: a repo homepage, live URL or mainnet contra
 not read (B20): building when a repo or live link is reported, a reported live link never live, else no tier and no fit for a program with a bar; never shown as evidence; the gap line names the bar; a linked builder with no own tier read yet meets the same bar, said as "Your proof is still being read; ask again in a minute."). The bars are onchain evidence (B20b): they apply only to a project with a chain, reported or read; for a chainless project a `used` bar becomes the users question (the program's users item, else an implied one) and a `live` or `building` bar does not apply. With no tier at all on a chain (nothing read, no repo or live link), a
 `building` bar never hides a program on one of the project's own chains, or a keyword hit, whose only change is code in
 a repo: it is a gap of `code in a repo` (`NEEDS_CODE`) and its rules (`codeStep` in `gateFor`, L12-7, v6.1.14), so a
-Solana project with no repo sees Solana Foundation Grants as its step; any other program with a bar is still no fit. The unlinked path names `blockersOf` against `EMPTY_RECORD` under
+Solana project with no repo sees Solana Foundation Grants as its step; any other program with a bar is still no fit.
+`gap_done` takes the code step (`repo`) on any program (fix round 1, T7-F2), answered "Noted. Tell me when it is live
+and I look again." with no repo; the read settles it. The unlinked path names `blockersOf` against `EMPTY_RECORD` under
 "Before applying:" as one sentence naming the programs per thing the builder does ("you sign in by email and press submit yourself on X"; "Before tonight (nothing is sent until these are in):" when the agent sends tonight under standing approval, or when nothing can go), and keeps the closing line as the one action with the sign-in as its second sentence (v6.1.8: "Say yes and I apply to all n. Or say the numbers to skip.", "Say yes and I apply.", "Nothing is ready yet." with the first rule's yes (v6.1.9: also the rule of the only step program shown, "if that rule fits you"; else "First: {step}. Tell me when it is done and I look again."), "Applying tonight to {titles}."; each gap line carries its own "Say \"do n\"" only when EarnKit can make every real gap, and each rule-only line its own "Say \"yes n\" if that is you."). The first `find` (and `record`) on an unlinked installation carries a one-time link
 `earnkit.com/link/<code>` (15 minutes, hash stored, `link-routes.ts`); the builder continues, signs in with GitHub
 (`read:user`, `github-auth.ts`), and the callback only starts a 30-day session (`ek_me` cookie, `sessions.ts`) and lands
@@ -507,7 +511,9 @@ organizer's other programs (final fix, v6.1.12, I2): exactly one is that program
 several ask ("circle"). Else (L12-3, L12-5, v6.1.14) every word of the name, stopwords (`the`, `program`, `grant`,
 `grants`, `fund` and the like) and four-digit years dropped while another word is left, must be among one program's
 id, title and organizer words, brackets included ("paypal hackathon", "thiel fellowship 2027", "zerodha" for
-"FLOSS/fund (Zerodha)"); a lone word under four characters names none ("aws"). One program fitting is used, and when it is not the id
+"FLOSS/fund (Zerodha)"); a single typed word under four characters names none ("aws"); beside another typed word a
+short word names an id or title word or the id's initials, never an organizer's ("arc grants" asks the Arc programs,
+"yc batch" is Y Combinator; fix round 1, T7-F3); only stopwords, years or "foundation" name none (T7-F4). One program fitting is used, and when it is not the id
 passed, track's and the detail's first line names it ("Started: {title}.", "Tracked: {title}."; `namedFirst`); several answer "Did you mean {title one} or {title two}?" alone (L1e-1, v6.1.13) (the first two by `byLookupRank`: open, then upcoming, then the rest; larger award; sooner close);
 none, "I don't know that program." alone (a word naming no program is never a guess from the others: "Combinator Labs", "base-nope"; L12-3). Track records nothing on such a name; a result on an id the ledger
 holds as sent is that id, before any matching (final fix, v6.1.12). Find's record line reads "Still missing for

@@ -213,15 +213,23 @@ export const proseOf = (text: string): string =>
 /** An identifier, not a word of prose (L12-2, v6.1.14): a token holding `-`, `/`, `.` or `_`, or letters mixed with
  *  digits (`quest-cli`, `src/quest`, `quest.js`, `quest2`). Pure. */
 const identifier = (t: string): boolean => /[-/._]/.test(t) || (/\p{L}/u.test(t) && /\p{N}/u.test(t));
+/** A prose compound (fix round 1, T7-F5): letter-only parts joined by `-` or `/` where a part written with a capital
+ *  is one of `keep` (`AR/VR`, `VR-ready`, `Uniswap-based`); a package name in lower case (`quest-cli`) is none. Pure. */
+const compound = (core: string, keep: ReadonlySet<string>): boolean => {
+  const parts = core.split(/[-/]/);
+  return parts.length > 1 && parts.every((x) => /^\p{L}+$/u.test(x)) && parts.some((x) => /\p{Lu}/u.test(x) && keep.has(x.toLowerCase()));
+};
 /**
  * Prose with its identifiers dropped (L12-2, v6.1.14): each whitespace token, its outer punctuation aside, that reads as
  * an identifier is left out, unless the token (a hyphen as a space) is itself one of `keep` (the program's keywords and
- * their words), so `mini-app`, `web3`, `team1` and `v4` stay as prose while `npm i quest-cli` names no Quest. Pure.
+ * their words), so `mini-app`, `web3`, `team1` and `v4` stay as prose while `npm i quest-cli` names no Quest, or is a
+ * prose compound naming one (`compound`, T7-F5). Pure.
  */
 export const wordsOf = (text: string, keep: ReadonlySet<string>): string =>
   text.split(/\s+/).filter((tok) => {
-    const core = tok.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '').toLowerCase();
-    return !identifier(core) || keep.has(core.replace(/-/g, ' '));
+    const raw = tok.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+    const core = raw.toLowerCase();
+    return !identifier(core) || keep.has(core.replace(/-/g, ' ')) || compound(raw, keep);
   }).join(' ');
 /** What the project says about itself, lower-cased: its name, description and README excerpt as prose (links, code and
  *  identifiers dropped, L12-2), its topics (L1c-2), and its own chains, reported and read, by slug and name (T3-R3,

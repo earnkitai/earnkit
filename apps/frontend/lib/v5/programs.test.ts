@@ -130,6 +130,16 @@ test('L12-3, L12-5 (v6.1.14): every word of a lookup names one program, organize
   // Several programs every word names: the first two by rank, as a question.
   assert.match((await one('solana grants')).line ?? '', /^Did you mean Solana [^?]+ or Solana [^?]+\?$/);
   // A word that names no program: no program, never a guess from the other words.
+  // Fix round 1 (T7-F3): beside another typed word a short word names an id or title word, or the id's initials.
+  assert.deepEqual(await one('yc batch'), { id: 'y-combinator', line: null });
+  // Two Arc programs: asked, by rank.
+  for (const name of ['arc grants', 'arc fund'])
+    assert.deepEqual(await one(name), { id: null, line: 'Did you mean Arc Builders Fund or Arc Microgrants?' }, name);
+  // A short word never names a bracketed organizer, even beside another word.
+  assert.deepEqual(await one('aws grants'), { id: null, line: "I don't know that program." });
+  // T7-F4: only stopwords, or only "foundation", is no program.
+  for (const name of ['foundation', 'grants', 'the fund', 'grant program 2027', 'Foundation Grants'])
+    assert.deepEqual(await one(name), { id: null, line: "I don't know that program." }, name);
   for (const name of ['l12-nope', 'base-nope', 'monad-xyz', 'Combinator Labs', 'paypal qqq', '2027'])
     assert.deepEqual(await one(name), { id: null, line: "I don't know that program." }, name);
 });

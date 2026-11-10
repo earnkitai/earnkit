@@ -30,6 +30,9 @@ export const ProjectInput = z.object({
   private: z.boolean().optional(),
   builder_codes: z.boolean().optional(),
   users: z.boolean().nullable().optional(),
+  /** A code host's page that names no repo (an owner, `orgs/...`): kept as given, read as neither repo nor live link,
+   *  never evidence (fix round 1, T7-F1). Not advertised; parseProject sets it. */
+  link: z.string().optional(),
 });
 export type Project = z.infer<typeof ProjectInput>;
 
@@ -147,14 +150,19 @@ export function parseProject(v: unknown, now = new Date(), o: { partial?: boolea
     if (url) out[k] = url;
     else urlProblems.push(`${k} dropped: not a web link`);
   }
-  // L13-15 (v6.1.14): only a code host's link is a repo; any other link is the live link (or dropped beside one). L12-6
-  // (v6.1.14): so is a code host's link that names no repo (an owner's page, `github.com/owner`): a plain link.
-  if (typeof out.repo_url === 'string' && (!isCodeHost(out.repo_url) || canonicalRepoLink(out.repo_url) === null)) {
-    const why = isCodeHost(out.repo_url) ? ['names no repo', 'names no repo'] : ['is not a code host', 'not a code host'];
+  // L12-6 (v6.1.14), fix round 1 (T7-F1, T7-F6): a code host's link that names no repo (an owner's page,
+  // `github.com/owner`, `github.com/orgs/acme`) is neither the repo nor the live link: a plain link, no evidence.
+  if (typeof out.repo_url === 'string' && isCodeHost(out.repo_url) && canonicalRepoLink(out.repo_url) === null) {
+    out.link = out.repo_url;
+    urlProblems.push('repo_url names no repo; kept as a plain link, not read');
+    delete out.repo_url;
+  }
+  // L13-15 (v6.1.14): only a code host's link is a repo; any other link is the live link (or dropped beside one).
+  if (typeof out.repo_url === 'string' && !isCodeHost(out.repo_url)) {
     if (out.live_url === undefined) {
       out.live_url = out.repo_url;
-      urlProblems.push(`repo_url ${why[0]}; read as the live link`);
-    } else urlProblems.push(`repo_url dropped: ${why[1]}`);
+      urlProblems.push('repo_url is not a code host; read as the live link');
+    } else urlProblems.push('repo_url dropped: not a code host');
     delete out.repo_url;
   }
   for (const k of ['name', 'description'] as const) {
@@ -229,6 +237,9 @@ export function parseProject(v: unknown, now = new Date(), o: { partial?: boolea
 /** The hosts whose links are code in a repo (L13-15, v6.1.14), each with its subdomains. */
 export const CODE_HOSTS = ['github.com', 'gitlab.com', 'codeberg.org', 'bitbucket.org'] as const;
 
+/** github.com first segments that are GitHub's own pages, never an owner (fix round 1, T7-F6). */
+const GITHUB_PAGES = new Set(['orgs', 'users', 'sponsors', 'topics', 'marketplace', 'settings', 'apps', 'collections', 'features', 'explore', 'search', 'notifications', 'organizations', 'enterprises', 'login', 'about', 'pricing']);
+
 /** A link's host lower-cased, a trailing dot dropped (`github.com.` is github.com; L12-6, v6.1.14). Pure. */
 const hostOf = (u: URL): string => u.hostname.toLowerCase().replace(/\.$/, '');
 
@@ -267,8 +278,9 @@ export function canonicalRepoLink(v: unknown): string | null {
   const host = hostOf(u).replace(/^www\./, '');
   if (!host) return null;
   let parts = u.pathname.split('/').filter(Boolean);
-  // L12-6 (v6.1.14): an owner or group alone (`github.com/owner`) names no repo, so it has no repo key.
-  if (parts.length < 2) return null;
+  // L12-6 (v6.1.14): an owner or group alone (`github.com/owner`) names no repo, so it has no repo key; nor does one of
+  // GitHub's own pages (`orgs/acme`, `users/x`, `sponsors/x`, `topics/x`; fix round 1, T7-F6).
+  if (parts.length < 2 || (host === 'github.com' && GITHUB_PAGES.has(parts[0].toLowerCase()))) return null;
   // github.com: owner and name only. Elsewhere (GitLab and the like) the project ends at its first `-` segment, so
   // `-/tree/...`, `-/blob/...` and `-/issues` fold, and a subgroup that happens to be named `tree` stays (fix round 1, M1).
   const dash = parts.findIndex((x, i) => i >= 2 && x === '-');

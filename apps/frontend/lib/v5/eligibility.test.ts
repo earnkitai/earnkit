@@ -455,6 +455,12 @@ test('L12-2 (v6.1.14): identifiers in prose (package names, paths, dotted or mix
   assert.equal(hitOf(fromFile('colosseum-eternal'), facts({ name: 'Pay', description: 'A web3 wallet.', chains: [] })), true);
   assert.equal(hitOf(fromFile('avalanche-team1-mini-grants'), facts({ name: 'Pay', description: 'Built at a Team1 meetup.' })), true);
   assert.equal(hitOf(fromFile('uniswap-foundation-open-grants'), facts({ name: 'Orders', description: 'A v4 hook for limit orders.' })), true);
+  // Fix round 1 (T7-F5): a prose compound whose capitalised part is a keyword keeps its hit; lower-case package names do not.
+  for (const description of ['An AR/VR game.', 'A VR/AR app.', 'A VR-ready app.'])
+    assert.equal(hitOf(vr, facts({ name: 'Game', description })), true, description);
+  assert.equal(hitOf(fromFile('uniswap-foundation-open-grants'), facts({ name: 'Router', description: 'A Uniswap-based router.' })), true);
+  for (const description of ['Install quest-cli today.', 'See src/quest for more.'])
+    assert.equal(hitOf(vr, facts({ name: 'Log Viewer', description })), false, description);
   // Topics are tags, not prose: a hyphenated topic still names its words.
   assert.equal(hitOf(vr, facts({ name: 'Game', description: 'A game.', topics: ['quest-game'] })), true);
 });

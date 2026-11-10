@@ -8,7 +8,7 @@
  */
 import { sql, type Db } from './db';
 import { categoryOf, eligibilityOf } from './program-file';
-import { codeChecked, forExistingCode, itemKey } from './eligibility';
+import { codeChecked, itemKey } from './eligibility';
 import { getProgram, programsById, type ProgramRow } from './programs';
 import { CLAIM_HOURS, UNLINKED_MEANWHILE, newApplicationId, stillLinked } from '../v6/claims';
 import { projectKeyOf, type Project } from './project-input';
@@ -124,9 +124,9 @@ export async function record(
   if (status === 'gap_done' && program) {
     // Only one of the program's own items; the unknown-users gap ('users') only when it has a users item (v6.1.7, C27).
     const items = eligibilityOf(program.file);
-    // T3-R1 (v6.1.13): a needs_repo grant for existing code takes its code-in-a-repo step ('repo'), re-checked by the read.
-    const repo = program.file.needs_repo === true && forExistingCode(program.file);
-    const keys = [...new Set([...items.map(itemKey), ...(items.some((x) => x.kind === 'users') ? ['users'] : []), ...(repo ? ['repo'] : [])])];
+    // T3-R1 (v6.1.13): the code-in-a-repo step ('repo') is taken, re-checked by the read; fix round 1 (T7-F2, v6.1.14):
+    // for any program, as the bar's code step (L12-7) shows on programs that do not require a repo too.
+    const keys = [...new Set([...items.map(itemKey), ...(items.some((x) => x.kind === 'users') ? ['users'] : []), 'repo'])];
     // The keys go to the agent only: builder text never carries them (v6.1.6, 25a); also when no item came (C11).
     if (!o.item || !keys.includes(o.item)) return { ok: false, note: WHICH_CHANGE, items: keys };
   }
