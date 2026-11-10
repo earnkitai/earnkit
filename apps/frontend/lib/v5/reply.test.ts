@@ -79,7 +79,7 @@ test('the Monday text: two ready, one gap, a ledger with one applied', () => {
       'One step away (1):',
       '3. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
       '',
-      'Your applications: 1 sent, 0 won, 1 waiting.',
+      'Your applications: 1 sent, 1 waiting.',
       '',
       'Say yes and I apply to all 2. Or say the numbers to skip.',
     ].join('\n'),
@@ -100,7 +100,8 @@ test('the since line: only when something changed, never on the first find', () 
   assert.equal(
     replyText(r, false),
     [
-      'Since Nov 2: 2 new programs you fit; Circle Developer Grants: deadline moved to Nov 20; Alliance ALL19 closes in 3 days.',
+      // L13-17 (v6.1.14): Alliance's close is on its ready line, so the since line does not repeat it.
+      'Since Nov 2: 2 new programs you fit; Circle Developer Grants: deadline moved to Nov 20.',
       '',
       'Ready to apply (1):',
       "1. Alliance ALL19, $400K at admission, closes in 3 days. Drafted: 1 of 4 answers from the repo, the rest by your agent.",
@@ -113,6 +114,20 @@ test('the since line: only when something changed, never on the first find', () 
   assert.ok(!replyText(r, true).includes('Since'));
   // A win shows what was won, never what was asked (3.6).
   assert.match(replyText({ ...r, ledger: { ...r.ledger, won_usd: 25000 } }, false), /^Your applications: 2 sent, 1 won \(\$25,000\), 1 waiting, 1 closing soon\.$/m);
+  // L13-17: a close that is on no shown line keeps its date; with nothing else moved and every close shown, no since line.
+  const away = { ...r, since: { ...r.since, closing: [...r.since.closing, { program_id: 'e', title: 'Elsewhere Grant', closes_at: '2026-11-09T00:00:00.000Z' }] } };
+  assert.match(replyText(away, false), /^Since Nov 2: 2 new programs you fit; Circle Developer Grants: deadline moved to Nov 20; Elsewhere Grant closes 2026-11-09\.$/m);
+  const onlyShown = { ...r, since: { ...r.since, new: [], changed: [] } };
+  assert.doesNotMatch(replyText(onlyShown, false), /Since/);
+});
+
+test('L13-18 (v6.1.14): the applications line counts sent, won, rejected and waiting, each only when there are any', () => {
+  const line = (l: Partial<typeof LEDGER0>) => replyText(base({ ledger: { ...LEDGER0, ...l } }), false).split('\n\n').find((b) => b.startsWith('Your applications'));
+  assert.equal(line({ applied: 1, rejected: 1 }), 'Your applications: 1 sent, 1 rejected.');
+  assert.equal(line({ applied: 4, won: 1, won_usd: 5000, rejected: 1, pending: 2 }), 'Your applications: 4 sent, 1 won ($5,000), 1 rejected, 2 waiting.');
+  assert.equal(line({ applied: 2, won: 1, won_usd: 900, pending: 1, closing_soon: [{ program_id: 'x', title: 'X', closes_at: '' }] }), 'Your applications: 2 sent, 1 won ($900), 1 waiting, 1 closing soon.');
+  // A result with no outcome counted (no result) is only sent.
+  assert.equal(line({ applied: 1 }), 'Your applications: 1 sent.');
 });
 
 test('gaps only, the agent can do it, and the needs list is cut at three', () => {
@@ -188,7 +203,7 @@ test('in person: its own block after ready and gaps, with the setup, and never i
 
 test('a ledger never names an asked amount (3.6)', () => {
   const r = base({ ledger: { ...LEDGER0, applied: 1, asked_usd: 0, pending: 1 } });
-  assert.match(replyText(r, false), /^Your applications: 1 sent, 0 won, 1 waiting\.$/m);
+  assert.match(replyText(r, false), /^Your applications: 1 sent, 1 waiting\.$/m);
 });
 
 test('nothing fits', () => {
@@ -331,6 +346,9 @@ test('the "Before applying" paragraph groups the sign-ins, names the clicks and 
   // An outside-approval program reads as a step that would add one more.
   const out = base({ ...free, record_missing: [], blockers: [{ program_id: 'av', sign_in: null, needs_click: false, needs: [], outside_approval: true }] });
   assert.ok(replyText(out, false).split('\n\n').includes("Tonight's sends go ahead. These would add 1 more: you say yes yourself to Avalanche Team1."));
+  // L13-10 (v6.1.14): over the builder's limit, the reason is named.
+  const over = base({ ...free, record_missing: [], blockers: [{ program_id: 'av', sign_in: null, needs_click: false, needs: [], outside_approval: true, over_limit_usd: 10_000 }] });
+  assert.ok(replyText(over, false).split('\n\n').includes("Tonight's sends go ahead. These would add 1 more: you say yes yourself to Avalanche Team1, over your $10,000 limit."), replyText(over, false));
   const note = agentNote(LINKED, { more: 0 });
   assert.ok(note.includes('Fit approved answers by cutting, never by adding; the style contract travels on each field.'));
   // The Before block names the sign-ins and the submits; the note does not repeat them, nor the submit rule (v6.1.8).
@@ -374,7 +392,7 @@ test('unlinked with a sign-in link: saying yes is the one action, the sign-in it
     blocks.at(-1),
     `Say yes and I apply to all 2. Or say the numbers to skip. Sign in once at ${link} and I read your repo for proof and remember you.`,
   );
-  assert.equal(blocks.at(-2), 'Your applications: 1 sent, 0 won, 1 waiting.');
+  assert.equal(blocks.at(-2), 'Your applications: 1 sent, 1 waiting.');
   assert.equal(text.match(/Sign in once at/g)!.length, 1);
   // Without a link the closing line stays alone.
   assert.match(replyText(MONDAY, false), /\n\nSay yes and I apply to all 2\. Or say the numbers to skip\.$/);

@@ -297,16 +297,16 @@ export function reportLines(r: Pick<R, 'approvals_again' | 'applied_overnight'>)
   return out;
 }
 
-export function sinceLine(r: Pick<R, 'since' | 'ready'>): string | null {
+export function sinceLine(r: Pick<R, 'since' | 'ready'> & Partial<Pick<R, 'gaps'>>): string | null {
   const s = r.since;
-  if (!s.from || s.new.length + s.changed.length + s.closing.length === 0) return null;
+  // L13-17 (v6.1.14): a close a listed line already says ("closes in 3 days") is not repeated here.
+  const onLine = new Set([...r.ready, ...(r.gaps ?? [])].filter((p) => p.closes_in).map((p) => p.program_id));
+  const closing = s.closing.filter((c) => !onLine.has(c.program_id));
+  if (!s.from || s.new.length + s.changed.length + closing.length === 0) return null;
   const parts: string[] = [];
   if (s.new.length > 0) parts.push(`${s.new.length} new ${s.new.length === 1 ? 'program' : 'programs'} you fit`);
   for (const c of s.changed) parts.push(`${c.title}: ${c.what}`);
-  for (const c of s.closing) {
-    const inWords = r.ready.find((p) => p.program_id === c.program_id)?.closes_in;
-    parts.push(`${c.title} closes ${inWords ?? new Date(c.closes_at).toISOString().slice(0, 10)}`);
-  }
+  for (const c of closing) parts.push(`${c.title} closes ${new Date(c.closes_at).toISOString().slice(0, 10)}`);
   const day = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(new Date(s.from));
   return `Since ${day}: ${parts.join('; ')}.`;
 }
@@ -344,7 +344,19 @@ function beforeTonight(r: R, tonight: number): string | null {
   // What these programs' forms need (v6.1.9); record get names everything the record lacks.
   const missing = r.record_missing.length > 0 ? `Still missing for these programs: ${listWords(r.record_missing)}.` : null;
   if (tonight > 0) {
-    const steps = [...clauses, ...(outside.length > 0 ? [`you say yes yourself to ${listWords(outside, outside.length)}`] : [])];
+    // L13-10 (v6.1.14): an ask over the builder's limit names the limit.
+    const overBy = new Map<number, string[]>();
+    const plainOutside: string[] = [];
+    for (const b of remote.filter((x) => x.outside_approval && !x.needs_click)) {
+      const t = titlesOf(r, [b]);
+      if (b.over_limit_usd !== undefined) overBy.set(b.over_limit_usd, [...(overBy.get(b.over_limit_usd) ?? []), ...t]);
+      else plainOutside.push(...t);
+    }
+    const yes = [
+      ...(plainOutside.length > 0 ? [`you say yes yourself to ${listWords(plainOutside, plainOutside.length)}`] : []),
+      ...[...overBy].filter(([, t]) => t.length > 0).map(([cap, t]) => `you say yes yourself to ${listWords(t, t.length)}, over your ${dollars(cap)} limit`),
+    ];
+    const steps = [...clauses, ...yes];
     const more = new Set([...groups.values(), outside].flat()).size;
     const head = tonight === 1 ? "Tonight's send goes ahead." : "Tonight's sends go ahead.";
     const add = steps.length > 0 ? `These would add ${more} more: ${steps.join('; ')}.` : null;
@@ -571,8 +583,10 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
     const soon = l.closing_soon.length > 0 ? `, ${l.closing_soon.length} closing soon` : '';
     // What was won, never what was asked (v6.1.8, 3.6).
     const won = l.won > 0 && l.won_usd > 0 ? ` (${dollars(l.won_usd)})` : '';
-    // v6.1.14: the /me page's name for it, never the internal "ledger".
-    blocks.push(`Your applications: ${l.applied} sent, ${l.won} won${won}, ${l.pending} waiting${soon}.`);
+    // v6.1.14: the /me page's name for it, never the internal "ledger". L13-18: a rejection counts too; a count of
+    // none is left out (waiting is said whenever any wait).
+    const counts = [`${l.applied} sent`, ...(l.won > 0 ? [`${l.won} won${won}`] : []), ...(l.rejected > 0 ? [`${l.rejected} rejected`] : []), ...(l.pending > 0 ? [`${l.pending} waiting${soon}`] : [])];
+    blocks.push(`Your applications: ${counts.join(', ')}.`);
   }
   const before = beforeTonight(r, tonight);
   if (before) blocks.push(before);

@@ -30,6 +30,8 @@ export type Blocker = {
   program_id: string; sign_in: string | null; needs_click: boolean; needs: string[];
   /** With auto_apply: outside the standing approval's categories or max_ask_usd, so the builder says yes to it. */
   outside_approval?: true;
+  /** L13-10 (v6.1.14): outside it only by its award, over the builder's max_ask_usd: that limit. */
+  over_limit_usd?: number;
 };
 
 const sameRepo = (a: string | null | undefined, b: string | null | undefined) =>
@@ -255,8 +257,12 @@ export function blockersOf(rows: ProgramRow[], record: BuilderRecord): Blocker[]
     const needs = row.file.needs.filter((n) => !hasDoc(record, n));
     const sign_in = signInOf(row);
     const outside = record.policy.auto_apply && !within(row);
+    const overLimit = outside && categoryIn(record, row) && record.policy.max_ask_usd !== undefined;
     if (sign_in || needs_click || needs.length > 0 || outside)
-      out.push({ program_id: row.id, sign_in, needs_click, needs, ...(outside ? { outside_approval: true as const } : {}) });
+      out.push({
+        program_id: row.id, sign_in, needs_click, needs,
+        ...(outside ? { outside_approval: true as const } : {}), ...(overLimit ? { over_limit_usd: record.policy.max_ask_usd } : {}),
+      });
   }
   return out;
 }

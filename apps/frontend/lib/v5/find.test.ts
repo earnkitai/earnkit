@@ -866,14 +866,14 @@ test('max_ask_usd keeps a larger ask out of tonight and names it; a program with
     const ready = ids(r.reply!.ready);
     assert.ok(ready.includes('f-big') && ready.includes('f-open'), JSON.stringify(ready));
     const blockers = r.reply!.blockers as B[];
-    assert.deepEqual(blockers.find((b) => b.program_id === 'f-big'), { program_id: 'f-big', sign_in: null, needs_click: false, needs: [], outside_approval: true });
+    assert.deepEqual(blockers.find((b) => b.program_id === 'f-big'), { program_id: 'f-big', sign_in: null, needs_click: false, needs: [], outside_approval: true, over_limit_usd: 10_000 });
     assert.equal(blockers.find((b) => b.program_id === 'f-open'), undefined);
     const freeRows = freeOf(r.reply!);
     const free = ids(freeRows);
     assert.ok(free.includes('f-open') && !free.includes('f-big'), JSON.stringify(free));
     const show = r.reply!.show_to_builder as string;
     // N4 (v6.1.9): tonight goes ahead; the ask outside the approval would add more.
-    assert.match(show, /Tonight's sends? goes? ahead\. These would add \d+ more: [^\n]*you say yes yourself to [^\n]*Big Grant[^\n]*\./);
+    assert.match(show, /Tonight's sends? goes? ahead\. These would add \d+ more: [^\n]*you say yes yourself to [^\n]*Big Grant[^\n]*, over your \$10,000 limit[.;]/);
     assert.doesNotMatch(show, /yes yourself to [^\n]*Open Grant/);
     assert.match(show, tonightRe(freeRows.map((p) => p.title)));
     // With auto_apply off, the limits change nothing.
