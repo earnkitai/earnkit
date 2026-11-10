@@ -446,7 +446,18 @@ builder submits reads the same in the draft wording (L1e-3, v6.1.13; list and de
 {title}: I draft it for you to send." and "{title} needs your {needs}; then I draft it for you to send.". A program
 that funds existing code (`needs_repo`, existing work allowed, not a hackathon or in person) is one step, `code in a
 repo` (`NEEDS_CODE`, item `repo`, re-checked by the read), from a project with no live link and no repo link or an
-empty repo (L1e-6, fix round 1 T3-R1: FUTO is an idea's one remote step). The email the
+empty repo (L1e-6, fix round 1 T3-R1: FUTO is an idea's one remote step); when that is the step program's only change,
+the closing is "Tell me when the code is in a repo and I look again." and the detail's action the same (L1f-2,
+v6.1.14: no rule yes before the code exists; the rule closing reads "if that rule fits you" everywhere). v6.1.14 L1f-1:
+a program file with `open_source: true` (its rule is an open source license or open source software; `programs:check`
+wants a rule naming it) is never ready for a private repo (the report's `private`, carried as `RepoFacts.private`, or the
+`private` note): its gap is `a public repo` (`PUBLIC_REPO`, item `repo:public`, setup `make the repo public`). L1f-3: an
+archived repo, for a program that wants the code or its users (`needs_repo`, a users item or a used bar), gets `the repo
+is archived` (`ARCHIVED_REPO`, item `repo:archived`, setup `tell me the live repo`) and never the users question. A gap's
+`setup` leads the line's "First:" (find's `gapOf` puts it before the program's setup) and is the closing's step
+("First: make the repo public. Tell me when it is done and I look again.", "First: tell me the live repo, and I look
+again."); neither is closed by gap_done: the agent passes `private: false` or the live `repo_url` (`REPO_STEP_NOTE`).
+track's started reply after a gap ends on the gap ("...one change away: {what}."). The email the
 "Before applying" block names (`record_missing`) is named once per reply: the drafted line, the Before tonight line and
 the N3 closing leave it out unless it is the only need (`namedBefore`, F5, v6.1.12). A new-work program (`new_work_after`) with no first-commit date is
 the question step "tell me when you started this" (minutes, never the agent's, never a reason to refuse; O3, v6.1.10):
