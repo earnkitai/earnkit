@@ -23,19 +23,17 @@ export function programKind(c: { investment?: boolean; in_person?: boolean; rewa
 }
 
 export const HERO_TITLE = 'Get funded for what you ship.';
-export const HERO_SUB = 'Your agent finds the programs your repo fits and drafts every application. Free.';
+export const HERO_SUB = 'Your agent finds the grants you fit and applies. Free.';
 export const CTA_INSTALL = 'Add EarnKit to your agent';
 export const NAV_INSTALL = 'Add to your agent';
-export const STEPS_TITLE = 'How it works';
-export const STEPS = [
-  ['Connect', 'Add EarnKit to the agent you already use. Nothing to sign up for.'],
-  ['Ask', 'Your agent asks what this repo can earn and gets every fit, pre-filled.'],
-  ['Say yes', 'Your agent submits in its own browser and tracks the result.'],
-] as const;
+/** One line each, no titles (v6.2.0). */
+export const STEPS = ['Add EarnKit to your agent.', 'Ask what this repo can earn.', 'Say yes. It applies and tracks the result.'];
 
-export const EARN_TITLE = 'Open programs';
+export const EARN_TITLE = 'This week';
+/** The link under the landing's six to /programs. */
+export const EARN_ALL = (n: number): string => `See all ${n} programs`;
 export const EARN_EMPTY = 'Nothing is open right now.';
-export const ROLLING = 'Rolling, apply anytime';
+export const ROLLING = 'Rolling';
 export const NOT_OPEN_YET = 'Not open yet';
 export const CLOSED = 'Closed';
 export const PROGRAMS_TITLE = 'Programs';

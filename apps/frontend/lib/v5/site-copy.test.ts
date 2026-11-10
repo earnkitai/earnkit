@@ -34,14 +34,14 @@ test('copy rules: no emoji, no em dash, none of the banned words', () => {
 
 test('the hero and the steps are verbatim', () => {
   assert.equal(copy.HERO_TITLE, 'Get funded for what you ship.');
-  assert.equal(copy.HERO_SUB, 'Your agent finds the programs your repo fits and drafts every application. Free.');
+  assert.equal(copy.HERO_SUB, 'Your agent finds the grants you fit and applies. Free.');
   assert.equal(copy.CTA_INSTALL, 'Add EarnKit to your agent');
-  assert.deepEqual(copy.STEPS, [
-    ['Connect', 'Add EarnKit to the agent you already use. Nothing to sign up for.'],
-    ['Ask', 'Your agent asks what this repo can earn and gets every fit, pre-filled.'],
-    ['Say yes', 'Your agent submits in its own browser and tracks the result.'],
-  ]);
-  assert.equal(copy.EARN_TITLE, 'Open programs');
+  assert.deepEqual(copy.STEPS, ['Add EarnKit to your agent.', 'Ask what this repo can earn.', 'Say yes. It applies and tracks the result.']);
+  assert.ok(!('STEPS_TITLE' in copy));
+  assert.equal(copy.EARN_TITLE, 'This week');
+  assert.equal(copy.EARN_ALL(45), 'See all 45 programs');
+  assert.equal(copy.FOOT_CTA, 'Ask your agent what you can earn.');
+  assert.equal(copy.PROGRAMS_TITLE, 'Programs');
 });
 
 test('formatters', () => {
@@ -53,7 +53,7 @@ test('formatters', () => {
   assert.equal(copy.heroChipText(105_000), '$105K in grants and prizes open now');
   assert.equal(copy.heroChipText(35_000), '$35K in grants and prizes open now');
   assert.equal(copy.monthDay(new Date('2026-11-04T12:00:00Z')), 'Nov 4');
-  assert.equal(copy.ROLLING, 'Rolling, apply anytime');
+  assert.equal(copy.ROLLING, 'Rolling');
   assert.equal(copy.programKind({ in_person: true }), 'hackathon');
   assert.equal(copy.programKind({ investment: true }), 'investment');
   assert.equal(copy.programKind({ reward: 'Up to 500 USDC' }), 'grant, in USDC');

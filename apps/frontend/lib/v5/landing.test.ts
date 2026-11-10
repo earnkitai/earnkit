@@ -1,7 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
-import { landingFrom, landingTiles, logoOf, readLanding } from './landing';
+import { featuredTiles, landingFrom, landingTiles, logoOf, readLanding } from './landing';
 import { programFixture } from './fixtures/program';
 import { upsertProgram, type ProgramRow } from './programs';
 import type { Stats } from './stats';
@@ -37,7 +37,7 @@ test('every program is a tile: no cap, money, closes, kind', () => {
   assert.equal(dated.when, 'Closes Dec 1');
   assert.equal(dated.big, true);
   assert.equal(dated.kind, 'grant');
-  assert.equal(tiles.find((t) => t.id === 'n-1')!.when, 'Rolling, apply anytime');
+  assert.equal(tiles.find((t) => t.id === 'n-1')!.when, 'Rolling');
 });
 
 test('a tile with a pool and a per-winner award shows the pool, and a pool tile is not big (v6.1.6)', () => {
@@ -65,7 +65,47 @@ test('landingFrom: the chip is the stats money; none at zero', () => {
   const l = landingFrom([rowOf({ id: 'c-1' })], STATS, NOW);
   assert.equal(l.chip, '$105K in grants and prizes open now');
   assert.equal(l.tiles.length, 1);
+  assert.deepEqual(l.featured.map((t) => t.id), []);
+  assert.equal(l.total, 1);
   assert.equal(landingFrom([], { ...STATS, open_money_usd: 0 }, NOW).chip, null);
+});
+
+const DAY = 86_400_000;
+const inDays = (n: number) => new Date(NOW.getTime() + n * DAY).toISOString();
+
+test('featuredTiles: six by the rule (v6.2.0)', () => {
+  const rows = [
+    rowOf({ id: 'f-big-pool', organizer: 'Org C', title: 'C Grants', pool_usd: 1_000_000, max_award_usd: 10_000, ends_at: null }),
+    rowOf({ id: 'f-soon-later', organizer: 'Org B', max_award_usd: 2000, ends_at: inDays(10), summary: 'Up to $1,000 · 11:59 PM UTC' }),
+    rowOf({ id: 'f-invest', organizer: 'Org H', investment: true, max_award_usd: 500_000 }),
+    rowOf({ id: 'f-big-award', organizer: 'Org D', max_award_usd: 100_000, ends_at: inDays(40), summary: 'Up to $1,000 · 11:59 PM UTC' }),
+    rowOf({ id: 'f-upcoming', organizer: 'Org I', status: 'upcoming', opens_note: 'Opens in January', submission_requirements: [], max_award_usd: 900_000 }),
+    rowOf({ id: 'f-c-hack', organizer: '  org c ', title: 'C Hackathon', in_person: true, pool_usd: 500_000 }),
+    rowOf({ id: 'f-prose', organizer: 'Org J', summary: 'Credits and support · rolling' }),
+    rowOf({ id: 'f-mid', organizer: 'Org E', max_award_usd: 50_000 }),
+    rowOf({ id: 'f-far-small', organizer: 'Org K', max_award_usd: 3000, ends_at: inDays(20), summary: 'Up to $1,000 · 11:59 PM UTC' }),
+    rowOf({ id: 'f-mid-pool', organizer: 'Org F', pool_usd: 20_000 }),
+    rowOf({ id: 'f-soon-small', organizer: 'Org A', max_award_usd: 1000, ends_at: inDays(5), summary: 'Up to $1,000 · 11:59 PM UTC' }),
+    rowOf({ id: 'f-small', organizer: 'Org G', max_award_usd: 5000 }),
+  ];
+  const six = featuredTiles(rows, NOW);
+  assert.deepEqual(six.map((t) => t.id), ['f-soon-small', 'f-soon-later', 'f-big-pool', 'f-big-award', 'f-mid', 'f-mid-pool']);
+  assert.deepEqual(six.map((t) => t.money), ['$1K', '$2K', '$1M in grants', '$100K', '$50K', '$20K in grants']);
+  assert.ok(six.every((t) => t.status === 'active' && t.kind !== 'investment'));
+  const l = landingFrom(rows, STATS, NOW);
+  assert.equal(l.total, 12);
+  assert.equal(l.tiles.length, 12);
+  assert.deepEqual(l.featured, six);
+});
+
+test('featuredTiles: an empty organizer is its title; equal money goes by id; a rolling summary is not closing soon', () => {
+  const rows = [
+    rowOf({ id: 'g-b', organizer: ' ', title: 'Same Grants', max_award_usd: 5000 }),
+    rowOf({ id: 'g-a', organizer: ' ', title: 'Same Grants', max_award_usd: 5000 }),
+    rowOf({ id: 'g-c', organizer: ' ', title: 'Other Grants', max_award_usd: 5000 }),
+    rowOf({ id: 'g-roll', organizer: 'Roll Org', max_award_usd: 1000, ends_at: inDays(3), summary: 'Up to $1,000 · rolling' }),
+  ];
+  assert.deepEqual(featuredTiles(rows, NOW).map((t) => t.id), ['g-a', 'g-c', 'g-roll']);
 });
 
 test('readLanding lists the open and upcoming programs of the database', async () => {

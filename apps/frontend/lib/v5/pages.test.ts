@@ -57,8 +57,8 @@ test('/ shows the hero, the steps, every listed program and the install button',
   const m = html(await Home());
   const t = textOf(m);
   assert.ok(t.includes(HERO_TITLE));
-  for (const [title] of STEPS) assert.ok(t.includes(title), title);
-  assert.ok(t.includes('Open programs'));
+  for (const step of STEPS) assert.ok(t.includes(step), step);
+  assert.ok(t.includes('This week'));
   assert.ok(m.includes('href="/programs/zz-page-open"') && m.includes('href="/programs/zz-page-soon"'));
   assert.ok(!m.includes('href="/programs/zz-page-shut"'));
   assert.ok(t.includes('Not open yet'));

@@ -1,6 +1,7 @@
 /**
- * The landing and /programs data: one tile per listed program (open or upcoming), Base first,
- * and the hero's money chip. Plain JSON, so it can be cached.
+ * The landing and /programs data: one tile per listed program (open or upcoming), Base first, for
+ * /programs; the six featured tiles and the listed count for the landing; the hero's money chip.
+ * Plain JSON, so it can be cached.
  */
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -19,14 +20,22 @@ export type Tile = {
   money: string;
   /** True when the money is one short figure ("$5K"), shown large. */
   big: boolean;
-  /** "Closes Nov 18", "Rolling, apply anytime" or "Not open yet". */
+  /** "Closes Nov 18", "Rolling" or "Not open yet". */
   when: string;
   kind: string;
   status: 'active' | 'upcoming';
   /** A file under public/, or null (no logo, or the file is missing). */
   logo: string | null;
 };
-export type Landing = { chip: string | null; tiles: Tile[] };
+export type Landing = {
+  chip: string | null;
+  /** Every listed program, for /programs. */
+  tiles: Tile[];
+  /** The landing's six, by featuredTiles. */
+  featured: Tile[];
+  /** How many programs are listed (open plus upcoming), for the link to /programs. */
+  total: number;
+};
 
 const LOCAL_LOGO = /^programs\/[a-z0-9-]+\.(svg|png)$/;
 const PUBLIC_DIRS = [join(process.cwd(), 'public'), join(process.cwd(), 'apps/frontend/public')];
@@ -53,30 +62,68 @@ export function byRelevance(a: Program, b: Program): number {
   return later(a) - later(b) || reach(a) - reach(b) || inv(a) - inv(b) || at(a) - at(b) || (b.max_award_usd ?? -1) - (a.max_award_usd ?? -1) || a.id.localeCompare(b.id);
 }
 
+function tileOf(p: Program): Tile {
+  const money = moneyOf(p);
+  const day = closeDay(p);
+  return {
+    id: p.id,
+    title: p.title,
+    organizer: p.organizer.trim() || p.title,
+    money,
+    big: /^\$[\d.]+[KM]?$/.test(money),
+    when: p.status === 'upcoming' ? NOT_OPEN_YET : day ? `Closes ${day}` : ROLLING,
+    kind: programKind(p),
+    status: p.status === 'upcoming' ? 'upcoming' : 'active',
+    logo: logoOf(p),
+  };
+}
+
 /** One tile per program, in the list's order. Pure apart from the logo file check. */
 export function landingTiles(rows: ProgramRow[], _now: Date): Tile[] {
-  return rows
+  return rows.map((r) => r.file).sort(byRelevance).map(tileOf);
+}
+
+const FEATURED = 6;
+const SOON_MS = 14 * 86_400_000;
+
+/**
+ * The landing's six (v6.2.0): open programs only, no investments, only those with a number
+ * (`max_award_usd` or `pool_usd`); closing within 14 days first (soonest first), then the larger of
+ * award and pool, then the id; one per organizer (trimmed, lower-cased; empty is the title).
+ * Pure apart from the logo file check.
+ */
+export function featuredTiles(rows: ProgramRow[], now: Date): Tile[] {
+  const soonAt = (p: Program): number | null => {
+    if (!closeDay(p)) return null;
+    const left = Date.parse(p.ends_at!) - now.getTime();
+    return left >= 0 && left <= SOON_MS ? left : null;
+  };
+  const size = (p: Program) => Math.max(p.max_award_usd ?? 0, p.pool_usd ?? 0);
+  const ranked = rows
     .map((r) => r.file)
-    .sort(byRelevance)
-    .map((p): Tile => {
-      const money = moneyOf(p);
-      const day = closeDay(p);
-      return {
-        id: p.id,
-        title: p.title,
-        organizer: p.organizer.trim() || p.title,
-        money,
-        big: /^\$[\d.]+[KM]?$/.test(money),
-        when: p.status === 'upcoming' ? NOT_OPEN_YET : day ? `Closes ${day}` : ROLLING,
-        kind: programKind(p),
-        status: p.status === 'upcoming' ? 'upcoming' : 'active',
-        logo: logoOf(p),
-      };
-    });
+    .filter((p) => p.status === 'active' && !p.investment && (p.max_award_usd || p.pool_usd))
+    .map((p) => ({ p, soon: soonAt(p), size: size(p) }))
+    .sort(
+      (a, b) =>
+        Number(a.soon === null) - Number(b.soon === null) ||
+        (a.soon ?? 0) - (b.soon ?? 0) ||
+        b.size - a.size ||
+        a.p.id.localeCompare(b.p.id),
+    );
+  const seen = new Set<string>();
+  const out: Tile[] = [];
+  for (const { p } of ranked) {
+    const org = (p.organizer.trim() || p.title).trim().toLowerCase();
+    if (seen.has(org)) continue;
+    seen.add(org);
+    out.push(tileOf(p));
+    if (out.length === FEATURED) break;
+  }
+  return out;
 }
 
 export function landingFrom(rows: ProgramRow[], stats: Stats, now: Date): Landing {
-  return { chip: heroChipText(stats.open_money_usd), tiles: landingTiles(rows, now) };
+  return { chip: heroChipText(stats.open_money_usd), tiles: landingTiles(rows, now), featured: featuredTiles(rows, now), total: rows.length };
 }
 
 /** The one read behind the landing and /programs. It rejects when the database is unreachable. */
