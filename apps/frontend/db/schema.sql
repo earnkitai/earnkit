@@ -211,12 +211,19 @@ DELETE FROM applications a USING applications b
 WHERE a.owner = b.owner AND a.program_id = b.program_id AND (a.at < b.at OR (a.at = b.at AND a.ctid < b.ctid));
 CREATE UNIQUE INDEX IF NOT EXISTS applications_owner_program ON applications (owner, program_id);
 CREATE INDEX IF NOT EXISTS application_history_owner ON application_history (owner, program_id, at DESC);
+-- v6.1.10 (L1c-1): a done step belongs to one project, keyed by projectKeyOf (repo link, else name:, else ''). Rows from
+-- before stay at '' (the old global step). The project's index replaces the owner's, so a rerun merges only true repeats.
+ALTER TABLE gaps_done ADD COLUMN IF NOT EXISTS project_key text NOT NULL DEFAULT '';
 DELETE FROM gaps_done a USING gaps_done b
-WHERE a.owner = b.owner AND a.program_id = b.program_id AND a.item = b.item AND (a.at < b.at OR (a.at = b.at AND a.ctid < b.ctid));
-CREATE UNIQUE INDEX IF NOT EXISTS gaps_done_owner_item ON gaps_done (owner, program_id, item);
+WHERE a.owner = b.owner AND a.project_key = b.project_key AND a.program_id = b.program_id AND a.item = b.item
+  AND (a.at < b.at OR (a.at = b.at AND a.ctid < b.ctid));
+CREATE UNIQUE INDEX IF NOT EXISTS gaps_done_owner_project_item ON gaps_done (owner, project_key, program_id, item);
+DROP INDEX IF EXISTS gaps_done_owner_item;
 -- The owner indexes replace the per-installation keys (an installation's stray i: row and its b: row may share a program).
 ALTER TABLE applications DROP CONSTRAINT IF EXISTS applications_pkey;
 ALTER TABLE gaps_done DROP CONSTRAINT IF EXISTS gaps_done_pkey;
+-- The last find's project, so a track without one keeps its steps with it.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS last_project_key text;
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS project_id text;
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS submitted_by text;
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS fields_used text[];

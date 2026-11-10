@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseProject } from './project-input';
+import { parseProject, projectKeyOf } from './project-input';
 
 const base = { name: 'Tipjar', description: 'Tips for creators.' };
 
@@ -163,4 +163,16 @@ test('C58 (v6.1.8): the description may be left out when a repo link is given; n
   assert.deepEqual(parseProject({ name: 'linux' }), { ok: false, problem: 'description: missing' });
   // A repo link that does not hold up is no link.
   assert.equal(parseProject({ name: 'linux', repo_url: 'not a link' }).ok, false);
+});
+
+test('projectKeyOf: the repo link lower-cased without a trailing slash or .git, else name:, else empty (v6.1.10, L1c-1)', () => {
+  assert.equal(projectKeyOf({ name: 'X', repo_url: 'https://github.com/Acme/App.git' }), 'https://github.com/acme/app');
+  assert.equal(projectKeyOf({ repo_url: 'https://github.com/Acme/App/' }), 'https://github.com/acme/app');
+  assert.equal(projectKeyOf({ name: 'X', repo_url: 'https://github.com/acme/app' }), projectKeyOf({ name: 'Y', repo_url: 'https://GitHub.com/acme/app/' }));
+  assert.equal(projectKeyOf({ name: '  My App ' }), 'name:my app');
+  assert.equal(projectKeyOf({ name: 'My App', repo_url: '' }), 'name:my app');
+  assert.equal(projectKeyOf({ name: '   ' }), '');
+  assert.equal(projectKeyOf({}), '');
+  assert.equal(projectKeyOf(null), '');
+  assert.equal(projectKeyOf({ name: 7, repo_url: 7 }), '');
 });

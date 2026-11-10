@@ -14,15 +14,15 @@ import { DELETED_NOTICE, NO_RECORD_PROJECT, linkedNoticeLine, signInLine, signIn
 import { timeLeftWords } from './deadline';
 import { evaluate, lookedAgain, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
-import { lastFindAt, markFind, newlyLinkedLogin } from './installations';
+import { lastFindAt, markFind, newlyLinkedLogin, rememberProject } from './installations';
 import { askOutcome, autoSentSince, claimed, codeDoneAt, doneByProgram, doneItems, excluded, markAsked, summary, type Ledger } from './ledger';
 import { prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, ruleNotes, type Category, type Program } from './program-file';
 import { isOpen, listOpenPrograms, programByName, type ProgramRow } from './programs';
-import { parseProject, type Project } from './project-input';
+import { parseProject, projectKeyOf, type Project } from './project-input';
 import { rankGaps, rankReady, shownGapsOf } from './rank';
 import { repoFacts, type RepoFacts, type RepoNote } from './repo-facts';
-import { AGENT_FIELDS, CONTRACT_NOTE, CUT_NOTE, NO_PROJECT_NOTE, contractLookedAgain, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyText, ruleSentence, signInOnly } from './reply';
+import { AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, contractLookedAgain, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyText, ruleSentence, signInOnly } from './reply';
 import { since, type Since } from './since';
 
 export const FindInput = z.object({
@@ -174,7 +174,7 @@ const EMPTY_FACTS: RepoFacts = {
  *  the builder marked done since the cached read makes the read check for a push (v6.1.9 S4). */
 async function factsOf(project: Project, ctx: FindContext): Promise<RepoFacts> {
   try {
-    const staleAfter = await codeDoneAt(ownerOf(ctx));
+    const staleAfter = await codeDoneAt(ownerOf(ctx), projectKeyOf(project));
     return await repoFacts(project, { gh: ctx.gh, now: ctx.now, installationId: ctx.installationId, staleAfter });
   } catch {
     return repoFacts({ ...project, private: true }, { now: ctx.now });
@@ -247,7 +247,9 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const rec: RecordContext | null = side ?? (ctx.builderId === null ? null : await storedRecordContext(ctx.builderId, projectId, facts.repo_url, null));
   const { fields } = prefill(row, facts, rec);
   const fitted = fields.some((f) => f.from === 'record');
-  const done = project ? await doneItems(ownerOf(ctx), id) : new Set<string>();
+  // Done steps are the project's own (v6.1.10 L1c-1); a track after this one without a project marks them on it.
+  if (project) await rememberProject(ctx.installationId, projectKeyOf(project));
+  const done = project ? await doneItems(ownerOf(ctx), id, projectKeyOf(project)) : new Set<string>();
   const verdict = project ? gateFor(side, facts)(evaluate(row, facts, done, ctx.now), row) : undefined;
   const left = closesIn(p, ctx.now);
   const open = isOpen(p, ctx.now);
@@ -283,6 +285,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
           : [
               `Draft from fields: ${fitted ? `'record' and 'earnkit' values as given, ${CUT_NOTE}` : "'earnkit' values as given"}; ${AGENT_FIELDS}`,
               ...(verdict?.gaps.some((g) => g.kind === 'rule') ? [RULE_NOTE] : []),
+              ...(real.length === 0 && !verdict?.gaps.some((g) => g.kind === 'rule') ? [] : [SAME_PROJECT]),
               ...(real.length === 0 ? [] : link
                 ? ['Show the sign-in link once as the reply gives it; once the builder has signed in, call find with program_id again.']
                 : canDo(real)
@@ -426,7 +429,7 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const listed = side ? notNever(side.record) : () => true;
   const programs = open.filter((r) => !skip.has(r.id) && listed(r) && (!i.filter?.category || categoryOf(r.file) === i.filter.category));
   const byId = new Map(programs.map((r) => [r.id, r]));
-  const done = await doneByProgram(owner);
+  const done = await doneByProgram(owner, projectKeyOf(project));
   // The builder's own tier when one was read; else (unlinked, or linked before any read: R3c) the tier the public code
   // read alone supports; not read, the tier the report supports (B20, v6.1.8), none for nothing reported, where no
   // program with a bar fits. Bars apply only to a project with a chain (B20b). The provisional tier is never shown as evidence.
@@ -501,7 +504,7 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   // C58: a description left out is the README's first sentence, or nothing when the README was not read.
   const description = project.description ? null : facts.description ? 'readme' : 'none';
   const reply = { show_to_builder: replyText(r, last === null, ctx.now), agent_note: agentNote(r, { more, description }), ...r };
-  await markFind(ctx.installationId, ctx.now, remembered);
+  await markFind(ctx.installationId, ctx.now, remembered, projectKeyOf(project));
   await noticeTaken(ctx, notice);
   return reply;
 }

@@ -19,9 +19,9 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v5/guide.ts`: A program's guide: money, close, who can apply, form fields, rules, sources
 - `apps/frontend/lib/v5/health.ts`: Daily freshness probe: links, page text changes (under 80% words shared), stale flags, passed deadlines
 - `apps/frontend/lib/v5/http.ts`: Route helpers: JSON and CORS answers, `readParams` (form or JSON under a cap, null over it), secret and Bearer checks, `readCapped` (a request's or response's body under a byte cap)
-- `apps/frontend/lib/v5/installations.ts`: Installation rows: save a token, connect a token, stamp last_find_at and `last_gaps` (`markFind`), read them (`lastGaps`), `newlyLinkedLogin` (the GitHub login when the installation was linked after its last find, for the one-time linked notice), and `unmarkNightFind` (a send under standing approval puts `last_find_at` back to `prev_find_at`, v6.1.9)
+- `apps/frontend/lib/v5/installations.ts`: Installation rows: save a token, connect a token, stamp last_find_at, `last_gaps` and `last_project_key` (`markFind`, `rememberProject`), read them (`lastGaps`, `lastProjectKey`), `newlyLinkedLogin` (the GitHub login when the installation was linked after its last find, for the one-time linked notice), and `unmarkNightFind` (a send under standing approval puts `last_find_at` back to `prev_find_at`, v6.1.9)
 - `apps/frontend/lib/v5/landing.ts`: Landing and /programs data: one tile per listed program (`landingTiles`), the landing's six (`featuredTiles`), the listed count and the hero money chip
-- `apps/frontend/lib/v5/ledger.ts`: The ledger: applications, history, closed gap items (`gap_done` takes only the program's own items or `users`), the summary; `askOutcome` (results past due, or 30 days after the send when the program has none) and `codeDoneAt` (the last code-checked step marked done, which makes a cached repo read stale; v6.1.9)
+- `apps/frontend/lib/v5/ledger.ts`: The ledger: applications, history, closed gap items per project key (`gap_done` takes only the program's own items or `users`; v6.1.10), the summary; `askOutcome` (results past due, or 30 days after the send when the program has none) and `codeDoneAt` (the last code-checked step marked done, which makes a cached repo read stale; v6.1.9)
 - `apps/frontend/lib/v5/llms.ts`: The text of /llms.txt
 - `apps/frontend/lib/v5/mail.ts`: Owner emails over Resend, idempotent; a no-op without RESEND_API_KEY
 - `apps/frontend/lib/v5/mcp.ts`: The MCP server: find and track, their descriptions, the server instructions, the per-installation and per-IP tool-call limits
@@ -36,7 +36,7 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v5/programs-read.ts`: Public GET /api/programs list; `moneyOf`, the card money (pool first, then the per-winner award, then the summary)
 - `apps/frontend/lib/v5/programs-sync.ts`: Reads and checks programs/*.json and writes them (an expired active file as closed), for programs:check and programs:sync
 - `apps/frontend/lib/v5/programs.ts`: The programs table: list open programs, read one, find one by what the builder calls it (`programByName`, v6.1.9), write one
-- `apps/frontend/lib/v5/project-input.ts`: Lenient parse of the project an agent reports (chains: exact repeats dropped, then at most 20 read)
+- `apps/frontend/lib/v5/project-input.ts`: Lenient parse of the project an agent reports (chains: exact repeats dropped, then at most 20 read); `projectKeyOf`, the project a done step belongs to (v6.1.10)
 - `apps/frontend/lib/v5/controls.ts`: `dropControls`, the one cleaner for a line of agent or builder text: tabs and line breaks to a space, other control and format characters dropped except a joiner inside a word or emoji, spaces collapsed; used by project-input, `cleanClientName` and the record's `cleanLine`; pure
 - `apps/frontend/lib/v5/rank.ts`: Ordering of ready and gap verdicts (real changes before rule-only); `shownGapsOf` shows acted-on programs first, then at most one rule-bearing program, in the last slot
 - `apps/frontend/lib/v5/rate-limit.ts`: Fixed-window counters in Postgres

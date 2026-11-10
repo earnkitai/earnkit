@@ -123,6 +123,13 @@ belongs to, so a re-authorization starts a fresh ledger and a builder with two a
 one of the program's own eligibility items (`users` only when the program has a `users` item); any other item is
 refused, and the agent note lists the program's items. It is trusted only for kinds EarnKit cannot verify (`feature`, `users`, `demo_video`, `rule`);
 verifiable kinds are re-read from the repo.
+A done step belongs to one project (v6.1.10, L1c-1): `gaps_done` carries `project_key` and is unique on
+(owner, project_key, program_id, item). `projectKeyOf` (`project-input.ts`, pure) gives the key: the repo link lower-cased
+without a trailing slash or `.git`, else `name:` and the name lower-cased and trimmed, else `''` (rows from before v6.1.10
+stay at `''`). `find` reads done steps (`doneItems`, `doneByProgram`, `codeDoneAt`) with its project's key and keeps it in
+`installations.last_project_key`; `track` takes the key from its `project` (`name`, `repo_url`), else the record project
+named by `project_id`, else `last_project_key`. `last_gaps` are the last find's project's: `started` on another project
+skips the remembered remark and `gap_done` there leaves them. Linking an installation moves its rows with their keys.
 `won` with an amount is the one fact that later feeds an aggregate "what wins" view; nothing aggregate is shown yet.
 A `won` above the program's `max_award_usd`, else its `pool_usd`, else 10,000,000 when it states neither, is refused and writes nothing.
 `asked_usd` leaves out investment programs.

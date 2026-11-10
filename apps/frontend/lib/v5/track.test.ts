@@ -637,3 +637,30 @@ test('I1 (v6.1.9 final): the night sequence: a send under standing approval, no 
   assert.deepEqual(morning.applied_overnight.map((x) => x.program_id), ['i1-a']);
   assert.match(morning.show_to_builder, /Applied under your standing approval: Night Grant\./);
 });
+
+test('gap_done marks the step on its project: the one passed, else the last find\'s; started on another project skips the last find\'s remark (v6.1.10, L1c-1)', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 't10-pk', title: 'Project Grant', eligibility: [{ kind: 'users' }, { kind: 'demo_video' }] }), 'file', NOW);
+  const A = { name: 'Alpha', repo_url: 'https://github.com/acme/alpha' };
+  const keys = async () =>
+    (await sql()`SELECT project_key, item FROM gaps_done WHERE installation_id = ${c.installationId} ORDER BY project_key, item`).map((r) => ({ ...r }));
+  await markFind(c.installationId, NOW, { 't10-pk': { what: 'a demo video', kind: 'demo_video', item: 'demo_video' } }, 'https://github.com/acme/alpha');
+  // A project passed wins (extra project fields are ignored), and Beta's step leaves Alpha's remembered gap alone.
+  const b = await track(c, { program_id: 't10-pk', status: 'gap_done', item: 'demo_video', project: { name: 'Beta App', description: 'x', users: true } });
+  assert.equal(b.show_to_builder, 'Noted.');
+  assert.deepEqual(Object.keys(await lastGaps(c.installationId)), ['t10-pk']);
+  // Started on Beta does not speak for Alpha's gap; on Alpha it does.
+  assert.equal((await track(c, { program_id: 't10-pk', status: 'started', project: { name: 'Beta App' } })).show_to_builder, 'Started.');
+  // The last find was Alpha's: a track without a project marks it there; the same item is new on Alpha.
+  assert.equal((await track(c, { program_id: 't10-pk', status: 'gap_done', item: 'demo_video' })).show_to_builder, 'Noted.');
+  assert.equal((await track(c, { program_id: 't10-pk', status: 'gap_done', item: 'demo_video', project: A })).show_to_builder, 'Already noted.');
+  assert.deepEqual(await keys(), [{ project_key: 'https://github.com/acme/alpha', item: 'demo_video' }, { project_key: 'name:beta app', item: 'demo_video' }]);
+});
+
+test('started on the last find\'s project keeps the remembered remark (v6.1.10, L1c-1)', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 't10-pk2', title: 'Remark Grant', eligibility: [{ kind: 'demo_video' }] }), 'file', NOW);
+  await markFind(c.installationId, NOW, { 't10-pk2': { what: 'a demo video', kind: 'demo_video', item: 'demo_video' } }, 'https://github.com/acme/alpha');
+  const s = await track(c, { program_id: 't10-pk2', status: 'started', project: { repo_url: 'https://github.com/Acme/Alpha.git' } });
+  assert.equal(s.show_to_builder, 'Started. When I last looked it was still one change away: a demo video. Make sure that is done first.');
+});

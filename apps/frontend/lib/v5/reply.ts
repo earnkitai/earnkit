@@ -465,6 +465,9 @@ export const contractLookedAgain = (g: Pick<GapProgram, 'looked_again'>): boolea
 export const NO_PROJECT_NOTE =
   "No project in the builder's record matched this one by project_id, repo or name, so no project answers were used; pass project_id (record get lists them) next time.";
 
+/** Done steps belong to one project (v6.1.10 L1c-1): track carries the project find was called with. */
+export const SAME_PROJECT = 'Pass the same project on track so its steps stay with it.';
+
 /**
  * What the agent does with the reply. `more`: ready and gap programs left out of the lists. `description` (C58): the
  * project came with none, and the README's first sentence stood in ('readme') or nothing could (`none`).
@@ -494,6 +497,7 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
         ? 'On "do <n>": make that gap\'s change (its details carry the docs), push, call track with gap_done and the gap\'s item, then call find again. Where a gap line offers no "do", the builder makes the change and tells you when it is done.'
         : 'The builder makes each change (never deploy a contract for them); when they say it is done, call track with gap_done and the gap\'s item, then call find again.',
     );
+  if (r.gaps.length > 0) lines.push(SAME_PROJECT);
   if (r.gaps.some(contractLookedAgain)) lines.push(CONTRACT_NOTE);
   if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.kind === 'users' && x.effort === 'hours')))
     lines.push('"Tell me if real people use it" is a question, not work: ask the builder once; on yes, pass users: true next time or call track with gap_done and item users.');

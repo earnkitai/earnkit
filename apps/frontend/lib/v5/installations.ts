@@ -57,9 +57,11 @@ export type RememberedGap = { what: string; kind: string; item?: string };
 
 /**
  * Stamps a find: last_find_at and last_seen_at; with `gaps` (a find without a category filter, v6.1.7 C24a) also its gaps
- * (program_id to the first gap), replacing the last. `undefined` leaves the last gaps as they were.
+ * (program_id to the first gap), replacing the last. `undefined` leaves the last gaps as they were. With `projectKey`
+ * (a find with a project, v6.1.10 L1c-1) also the project a track without one belongs to.
  */
-export async function markFind(id: number, now: Date, gaps?: Record<string, RememberedGap>): Promise<void> {
+export async function markFind(id: number, now: Date, gaps?: Record<string, RememberedGap>, projectKey?: string): Promise<void> {
+  if (projectKey !== undefined) await rememberProject(id, projectKey);
   if (gaps === undefined) {
     await sql()`UPDATE installations SET prev_find_at = last_find_at, last_find_at = ${now}, last_seen_at = GREATEST(last_seen_at, ${now}) WHERE id = ${id}`;
     return;
@@ -76,6 +78,17 @@ export async function unmarkNightFind(id: number): Promise<void> {
   // No find before it: a moment before the night's find, so its sends still count as after it.
   await sql()`UPDATE installations SET last_find_at = COALESCE(prev_find_at, last_find_at - interval '1 millisecond')
     WHERE id = ${id} AND last_find_at IS NOT NULL AND last_find_at IS DISTINCT FROM prev_find_at`;
+}
+
+/** Keeps the project of a find (projectKeyOf), so the next track without one marks its steps on it (v6.1.10 L1c-1). */
+export async function rememberProject(id: number, projectKey: string): Promise<void> {
+  await sql()`UPDATE installations SET last_project_key = ${projectKey} WHERE id = ${id}`;
+}
+
+/** The project of the last find with one (projectKeyOf); '' before any. */
+export async function lastProjectKey(id: number): Promise<string> {
+  const [row] = await sql()<{ k: string | null }[]>`SELECT last_project_key AS k FROM installations WHERE id = ${id}`;
+  return row?.k ?? '';
 }
 
 /** The last find's gaps (program_id to the first gap); a value stored as a string (before v6.1.7) reads as kind 'other'. {} before any find. */

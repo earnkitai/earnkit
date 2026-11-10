@@ -138,3 +138,14 @@ export function parseProject(v: unknown, now = new Date()): { ok: true; project:
 
   return { ok: true, project: out as Project, problems };
 }
+
+/**
+ * The project a done step belongs to (v6.1.10, L1c-1): the repo link lower-cased without a trailing slash or `.git`,
+ * else `name:` and the name lower-cased and trimmed; '' when neither (a row from before v6.1.10 reads the same). Pure.
+ */
+export function projectKeyOf(project: { name?: unknown; repo_url?: unknown } | null | undefined): string {
+  const repo = typeof project?.repo_url === 'string' ? project.repo_url.trim().toLowerCase().replace(/\/+$/, '').replace(/\.git$/, '').replace(/\/+$/, '') : '';
+  if (repo) return repo;
+  const name = typeof project?.name === 'string' ? project.name.trim().toLowerCase() : '';
+  return name ? `name:${name}` : '';
+}

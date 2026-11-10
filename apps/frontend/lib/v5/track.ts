@@ -7,7 +7,8 @@ import { getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason } from '../v6/b
 import { DELETED_NOTICE } from '../v6/reply-words';
 import { claim } from '../v6/claims';
 import { NIGHT_LIMIT, REQUIRED_MISSING, outsideApproval, requiredLeftOut } from '../v6/find-record';
-import { forgetGap, lastGaps, unmarkNightFind } from './installations';
+import { forgetGap, lastGaps, lastProjectKey, unmarkNightFind } from './installations';
+import { projectKeyOf } from './project-input';
 import { getProgram, isOpen, listOpenPrograms } from './programs';
 import { dayOf, doneItems, record, summary, titleOf, type Ledger, type Status } from './ledger';
 import { clock } from './reply';
@@ -26,6 +27,9 @@ export const TrackInput = z
     project_id: z.string().max(40).optional(),
     submitted_by: z.enum(['agent', 'builder']).optional(),
     fields_used: z.array(z.string().max(60)).max(60).optional(),
+    /** The project find was called with (v6.1.10 L1c-1): only its name and repo link are read, the rest is ignored. */
+    project: z.object({ name: z.unknown().optional(), repo_url: z.unknown().optional() }).passthrough().optional()
+      .describe('The project you passed to find (its name and repo_url), so its steps stay with it'),
   })
   .strict();
 
@@ -40,16 +44,31 @@ async function sentHere(owner: string, programId: string): Promise<boolean> {
 }
 
 /** The program's rules the owner has not confirmed yet. */
-async function rulesLeft(owner: string, programId: string): Promise<number> {
+async function rulesLeft(owner: string, programId: string, projectKey: string): Promise<number> {
   const program = await getProgram(programId);
   if (!program) return 0;
-  const done = await doneItems(owner, programId);
+  const done = await doneItems(owner, programId, projectKey);
   return [...new Set(eligibilityOf(program.file).filter((x) => x.kind === 'rule').map(itemKey))].filter((k) => !done.has(k)).length;
 }
 
 export type TrackContext = { installationId: number; builderId: number | null; now: Date };
 
 export const TRACK_UNREAD = 'I could not read that. Send the program, a status, and for a win the amount.';
+
+/**
+ * The project this track is about (projectKeyOf, v6.1.10 L1c-1): the project passed, else the record project named by
+ * project_id, else the installation's last find with a project. `given` is false for the last find's.
+ */
+async function projectOf(ctx: TrackContext, i: { project?: { name?: unknown; repo_url?: unknown }; project_id?: string }): Promise<{ key: string; given: boolean }> {
+  const passed = projectKeyOf(i.project);
+  if (passed) return { key: passed, given: true };
+  if (i.project_id !== undefined && ctx.builderId !== null) {
+    const p = (await getRecord(ctx.builderId)).projects.find((x) => x.id === i.project_id);
+    const key = projectKeyOf(p);
+    if (key) return { key, given: true };
+  }
+  return { key: await lastProjectKey(ctx.installationId), given: false };
+}
 
 /** Whether `projectId` is one of the linked builder's record projects (an unlinked installation has none). */
 async function knownProject(builderId: number | null, projectId: string): Promise<boolean> {
@@ -108,6 +127,9 @@ async function act(
   refuse: (note: string, agentNote?: string) => Promise<Result>,
   i: z.infer<typeof TrackInput>,
 ): Promise<Result> {
+  const project = await projectOf(ctx, i);
+  // The last find's gaps are its project's: another project passed here is not that one.
+  const sameAsLast = !project.given || project.key === (await lastProjectKey(ctx.installationId));
   if (i.status === 'started') {
     const program = await getProgram(i.program_id);
     if (!program) return refuse("I don't know that program.");
@@ -142,8 +164,8 @@ async function act(
     // The last find called this one a gap: say what was still missing, so it is fixed before the form goes in. Not
     // when the builder (through any of their agents) has since closed that item (v6.1.7, C23).
     const builderSubmits = program.file.in_person || program.file.submit === 'builder';
-    const gap = (await lastGaps(ctx.installationId))[program.id];
-    if (gap && !(gap.item && (await doneItems(owner, program.id)).has(gap.item)))
+    const gap = sameAsLast ? (await lastGaps(ctx.installationId))[program.id] : undefined;
+    if (gap && !(gap.item && (await doneItems(owner, program.id, project.key)).has(gap.item)))
       return gap.kind === 'rule'
         ? {
             show_to_builder: `Started. When I last looked it still had a rule to confirm: ${gap.what}. Say yes if that is you.`,
@@ -176,18 +198,18 @@ async function act(
   // A second skip says so (v6.1.9, lane 8 simplify).
   if (i.status === 'skipped' && (await sql()`SELECT 1 FROM applications WHERE owner = ${owner} AND program_id = ${i.program_id} AND status = 'skipped'`).length > 0)
     return { show_to_builder: 'Already skipped.', agent_note: 'Call find again for the updated ledger.', ledger: await summary(owner, programs, ctx.now) };
-  const res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, amount_usd: i.amount_usd, note: i.note, item: i.item, now: ctx.now, ...applied });
+  const res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, amount_usd: i.amount_usd, note: i.note, item: i.item, projectKey: project.key, now: ctx.now, ...applied });
   if (res.ok && 'night' in res) outside = NIGHT_LIMIT;
   // The find before a send under standing approval was the night routine's: it leaves the overnight report (v6.1.9).
   if (res.ok && i.status === 'applied' && standing && outside === null) await unmarkNightFind(ctx.installationId);
   if (!res.ok)
     return res.items ? refuse(res.note, `Items for this program: ${res.items.join(', ')}. Call track gap_done with one of them.`) : refuse(res.note);
-  if (i.status === 'gap_done') await forgetGap(ctx.installationId, i.program_id);
+  if (i.status === 'gap_done' && sameAsLast) await forgetGap(ctx.installationId, i.program_id);
   if (i.status === 'gap_done') {
     // A repeat says so (v6.1.7, C26); a rule is confirmed, not re-read from the repo (m3).
     // N2 (v6.1.8): the program comes back ready only when no other rule of it is left to confirm.
     // N-5 (v6.1.9): what the code or the report settles is re-checked on the next find; the builder's word counts done.
-    const left = i.item!.startsWith('rule:') && !('repeated' in res) ? await rulesLeft(owner, i.program_id) : 0;
+    const left = i.item!.startsWith('rule:') && !('repeated' in res) ? await rulesLeft(owner, i.program_id, project.key) : 0;
     const [show, note] = 'repeated' in res
       ? ['Already noted.', 'Call find again for the updated ledger.']
       : i.item!.startsWith('rule:')

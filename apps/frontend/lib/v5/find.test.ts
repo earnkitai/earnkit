@@ -1656,3 +1656,35 @@ test('S4 (v6.1.9): a code step marked done makes the next find check the repo ag
   await mcpCall(c(7), 'find', { project: PROJECT });
   assert.ok(calls > 0, 'the step marked done sends the read back to GitHub');
 });
+
+test('Review Focus 1 (v6.1.10, L1c-1): two projects of one builder never share a done step', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  const { ruleItem } = await import('./eligibility');
+  const RULE = 'a team of two or more';
+  await upsertProgram(programFixture({ id: 'pk-users', title: 'Team Grant', max_award_usd: 4000, eligibility: [{ kind: 'rule', note: RULE }] }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'pk-demo', title: 'Demo Grant', max_award_usd: 4000, eligibility: [{ kind: 'demo_video' }] }), 'file', NOW);
+  const c = ctx(await installation());
+  const A = { name: 'Alpha App', description: 'An app for builders.' };
+  const B = { name: 'Beta App', description: 'Another app for builders.' };
+  const status = async (id: string, p: Record<string, unknown>) => ((await mcpCall(c, 'find', { program_id: id, project: p })).reply!.verdict as { status: string }).status;
+  const listed = async (p: Record<string, unknown>) => {
+    const r = (await mcpCall(c, 'find', { project: p, filter: { all: true } })).reply!;
+    return { ready: ids(r.ready), gaps: ids(r.gaps) };
+  };
+  // A's yes to the rule (the track carries no project: the last find was A's).
+  assert.ok((await listed(A)).gaps.includes('pk-users'));
+  assert.equal((await mcpCall(c, 'track', { program_id: 'pk-users', status: 'gap_done', item: ruleItem(RULE) })).reply!.show_to_builder, 'Noted. That rule counts as confirmed.');
+  assert.ok((await listed(A)).ready.includes('pk-users'));
+  const b = await listed(B);
+  assert.ok(b.gaps.includes('pk-users') && !b.ready.includes('pk-users'));
+  assert.equal(await status('pk-users', B), 'gap');
+  // B's demo video, passed with its project after a find of A: A keeps its step.
+  await listed(A);
+  await mcpCall(c, 'track', { program_id: 'pk-demo', status: 'gap_done', item: 'demo_video', project: B });
+  assert.equal(await status('pk-demo', B), 'ready');
+  assert.equal(await status('pk-demo', A), 'gap');
+  assert.equal(await status('pk-users', A), 'ready');
+  // The find note asks for the same project on track.
+  const note = (await mcpCall(c, 'find', { project: A })).reply!.agent_note as string;
+  assert.ok(note.split('\n').includes('Pass the same project on track so its steps stay with it.'), note);
+});
