@@ -443,3 +443,15 @@ test('C43 and C53: standing approval on with no category is refused; an unknown 
   await saveRecord(b.id, mergeRecord(await getRecord(b.id), { projects: [{ id: 'kit', name: 'Kit' }] }, 'agent', NOW).record, NOW);
   refused(b.id, await editPost(post('/me/edit', { csrf, path: 'projects.kit.chains_claimed', value: 'base, solana, notachain' }, { cookie }), deps), 'Not a known chain: notachain.');
 });
+
+test('v6.1.9 N7 and N8: renaming a team member drops the old github, x and email; chains match in any case and every bad one is named', async () => {
+  const { b, cookie, csrf } = await signedIn();
+  await saveRecord(b.id, mergeRecord(await getRecord(b.id), { team: [{ name: 'Cut Person' }, { name: 'Hidden Partner', role: 'COO', github: 'hiddenp', x: 'hp', email: 'hp@example.com' }], projects: [{ id: 'kit', name: 'Kit' }] }, 'agent', NOW).record, NOW);
+  await editPost(post('/me/edit', { csrf, path: 'team.1.name', value: 'New Person' }, { cookie }), deps);
+  assert.deepEqual((await getRecord(b.id)).team[1], { name: 'New Person', role: 'COO' });
+  await editPost(post('/me/edit', { csrf, path: 'team.1.role', value: 'CTO' }, { cookie }), deps);
+  assert.deepEqual((await getRecord(b.id)).team[1], { name: 'New Person', role: 'CTO' });
+  refused(b.id, await editPost(post('/me/edit', { csrf, path: 'projects.kit.chains_claimed', value: 'Base, foo, bar' }, { cookie }), deps), 'Not a known chain: foo, bar.');
+  assert.equal((await editPost(post('/me/edit', { csrf, path: 'projects.kit.chains_claimed', value: 'Base, ARC' }, { cookie }), deps)).headers.get('location'), '/me#projects');
+  assert.deepEqual((await getRecord(b.id)).projects[0].chains_claimed, ['base', 'arc']);
+});

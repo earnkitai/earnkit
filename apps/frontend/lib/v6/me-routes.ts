@@ -4,6 +4,7 @@
  * the session every refusal comes back to /me with a signed line (v6.1.7 C5), and a form with any bad value saves
  * nothing (B1). Edits merge as the builder through the record's row lock; approvals only here. No path is shown to the builder.
  */
+import { isKnownChain } from '../v5/chains';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { readCapped } from '../v5/http';
@@ -83,7 +84,14 @@ function valueOf(f: MeField, raw: string): { ok: true; value: unknown } | { ok: 
   if (f.path === 'docs.other')
     return { ok: true, value: lines(v).map((l) => { const at = l.lastIndexOf(' '); return at < 0 ? { label: 'Link', url: l } : { label: l.slice(0, at).trim(), url: l.slice(at + 1) }; }) };
   if (f.path === 'policy.never') return { ok: true, value: lines(v) };
-  if (leaf === 'chains_claimed' || f.path === 'policy.categories') return { ok: true, value: list(v) };
+  if (leaf === 'chains_claimed') {
+    // Any case matches; every unknown one is named (v6.1.9 N8).
+    const given = list(v);
+    const bad = given.filter((c) => !isKnownChain(c.toLowerCase()));
+    if (bad.length > 0) return { ok: false, problem: `Not a known chain: ${bad.join(', ')}.` };
+    return { ok: true, value: given.map((c) => c.toLowerCase()) };
+  }
+  if (f.path === 'policy.categories') return { ok: true, value: list(v) };
   if (/(^|\.)answers\.[a-z_]+$/.test(f.path)) return { ok: true, value: { text: v } };
   return { ok: true, value: v };
 }
@@ -101,6 +109,8 @@ function patchOf(path: string, value: unknown, current: BuilderRecord): unknown 
     if (rest[1] === 'name' && value === null) team.splice(at, 1);
     else if (at < team.length) {
       const m = team[at] as Record<string, unknown>;
+      // A new name is a new person: the old one's github, x and email do not carry over (v6.1.9 N7).
+      if (rest[1] === 'name' && value !== m.name) for (const k of ['github', 'x', 'email']) delete m[k];
       if (value === null) delete m[rest[1]];
       else m[rest[1]] = value;
     } else if (rest[1] === 'name' && at === team.length) team.push({ name: value as string });

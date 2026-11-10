@@ -71,7 +71,8 @@ function Short({ text, tone = META }: { text: string | undefined; tone?: string 
 /** One row: the label, the input and Save; an approvable field with a value gets its approval control. */
 function Field({ f, csrf }: { f: MeField; csrf: string }) {
   const id = `f-${f.path}`;
-  const hint = hintOf(f.path);
+  // The empty add row has no one to remove (v6.1.9 N10).
+  const hint = /^team\.\d+\.name$/.test(f.path) && f.value === '' ? undefined : hintOf(f.path);
   return (
     <div className="flex flex-col gap-2 border-t border-s-line py-4 first:border-t-0 md:grid md:grid-cols-[220px_1fr] md:gap-x-5">
       <label htmlFor={id} className="flex flex-col gap-0.5 text-[15px] text-s-text md:pt-2.5">
