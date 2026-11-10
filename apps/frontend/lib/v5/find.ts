@@ -23,7 +23,7 @@ import { ProjectArg, nameKeyOf, parseProject, projectKeyOf, type Project } from 
 import { readLoosely, type LooseRules } from './tool-input';
 import { rankGaps, rankReady, shownGapsOf } from './rank';
 import { repoFacts, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
-import { AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, contractLookedAgain, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyText, ruleSentence, hasProof, signInOnly } from './reply';
+import { AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, contractLookedAgain, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyText, ruleSentence, hasProof, signInOnly, tonightOf } from './reply';
 import { since, type Since } from './since';
 
 /**
@@ -166,6 +166,9 @@ export type FindReply = {
   max_per_night?: number;
   /** With auto_apply: the sends under standing approval in the last 24 hours, which tonight's list leaves room for (v6.1.9 N1). */
   auto_sent_today?: number;
+  /** With auto_apply (L13-9, v6.1.14): what the agent sends alone tonight, over every ready program, not only the shown
+   *  ones; `limit_used`: there were some to send and the night's limit left no room. */
+  tonight?: { programs: { program_id: string; title: string }[]; limit_used: boolean };
   /** Unlinked with sign-in configured: the link that links this installation to a builder. */
   sign_in?: string;
   /** The first find after a link: the GitHub account it linked to, as the closing block's last sentence (security M2);
@@ -636,11 +639,27 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
     (g) => g.in_person && rulesOnly([g.gap, ...g.also]),
   );
 
+  /** Every ready program in `order` as the list would show it (the shown one when it is shown), held ones marked. */
+  const tonightAll = (side: RecordSide, order: Verdict[], shown: ReadyProgram[]) => {
+    const rows = order.map((v) => byId.get(v.program_id)!);
+    const every = order.map((v) => {
+      const own = shown.find((p) => p.program_id === v.program_id);
+      if (own) return own;
+      const hold = holds.get(v.program_id);
+      const r = { ...readyOf(byId.get(v.program_id)!, v, facts, ctx.now, side, done.own.get(v.program_id)), n: 0 };
+      return hold ? { ...r, claimed_since: hold.since } : r;
+    });
+    const t = tonightOf({ auto_apply: true, max_per_night: side.record.policy.max_per_night, auto_sent_today: sentToday, ready: every, blockers: blockersOf(rows, side.record) });
+    return { programs: t.list.map((p) => ({ program_id: p.program_id, title: p.title })), limit_used: t.limitUsed };
+  };
   const last = await lastFindAt(ctx.installationId);
   const link = side ? null : await linkOf(ctx);
   const notice = await linkedNotice(ctx, link);
   const overnight = side ? await appliedOvernight(owner, last) : [];
   const sentToday = side?.record.policy.auto_apply ? await autoSentSince(owner, new Date(ctx.now.getTime() - 86_400_000)) : 0;
+  // L13-9 (v6.1.14): tonight's list is one computation over every ready program (acted-on first), the same by default
+  // and in filter.all: the cap of what is shown never decides what goes.
+  const tonight = side?.record.policy.auto_apply ? tonightAll(side, [...readyV.filter(pinned), ...readyV.filter((v) => !pinned(v))], ready) : undefined;
   const again = side ? unapprovedSince(side.record, last) : 0;
   const moved = await since(owner, last, open, ready.map((r) => r.program_id), ctx.now, gaps.map((g) => g.program_id));
   const ledger = await summary(owner, open, ctx.now);
@@ -658,6 +677,7 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
       ? linkedPart(side, ready.map((p) => byId.get(p.program_id)!), released, overnight, sentToday, Boolean(project.repo_url || project.live_url))
       : { ...unlinkedPart(), blockers: blockersOf(ready.map((p) => byId.get(p.program_id)!), EMPTY_RECORD), ...(link && notice !== DELETED_NOTICE ? { sign_in: link } : {}) }),
     linked_notice: notice,
+    ...(tonight ? { tonight } : {}),
   };
   // Every gap of this find (not only the shown ones), in rank order, so track started can say what is still missing.
   // An unfiltered find and filter.all write them; a category filter sees only part of the list and leaves them (v6.1.7, C24a).

@@ -2222,3 +2222,27 @@ test('L13-8, L12-1 (v6.1.14): another agent\'s claim with no project holds the p
     assert.doesNotMatch(show, /Say yes and I apply\.$/);
   }
 });
+
+test('L13-9 (v6.1.14): one tonight list, the same by default and in filter.all; the shown cap never decides what goes', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  const extra = Array.from({ length: 7 }, (_, k) => `l139-${k}`);
+  for (const id of extra) await upsertProgram(programFixture({ id, title: `Night Grant ${id.slice(-1)}`, category: 'grant' }), 'file', NOW);
+  try {
+    const { id, builderId } = await linkedWith({ ...OWNER_RECORD, policy: { auto_apply: true, max_per_night: 20, categories: ['grant'] } });
+    const c = { ...ctx(id), builderId, evidence: LIVE };
+    const byDefault = await mcpCall(c, 'find', { project: PROJECT });
+    const all = await mcpCall(c, 'find', { project: PROJECT, filter: { all: true } });
+    const tonight = byDefault.reply!.tonight as { programs: { program_id: string; title: string }[]; limit_used: boolean };
+    assert.deepEqual(all.reply!.tonight, tonight);
+    for (const x of extra) assert.ok(ids(tonight.programs).includes(x), x);
+    // More go tonight than the default list shows.
+    const shown = (byDefault.reply!.ready as { in_person: boolean }[]).filter((p) => !p.in_person).length;
+    assert.ok(tonight.programs.length > shown, `${tonight.programs.length} vs ${shown}`);
+    const line = (r: typeof all) => /Applying tonight to [^\n]+?\. Say stop to hold any\./.exec(r.reply!.show_to_builder as string)?.[0];
+    assert.ok(line(byDefault));
+    assert.equal(line(byDefault), line(all));
+    assert.match(byDefault.reply!.agent_note as string, /Tonight's list names programs past the shown list: call find with program_id for each one's fields before you send it\./);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id LIKE 'l139-%'`;
+  }
+});

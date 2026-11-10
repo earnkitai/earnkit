@@ -498,6 +498,14 @@ export function tonightOf(r: Pick<R, 'auto_apply' | 'max_per_night' | 'auto_sent
   return { list: can.slice(0, room), limitUsed: can.length > 0 && room === 0 };
 }
 
+/**
+ * Tonight's list as the reply reads it (L13-9, v6.1.14): find's one computation over every ready program when the reply
+ * carries it, else `tonightOf` over the listed ones. Pure.
+ */
+export function tonightIn(r: Pick<R, 'auto_apply' | 'max_per_night' | 'auto_sent_today' | 'ready' | 'blockers' | 'tonight'>): { list: { program_id: string; title: string }[]; limitUsed: boolean } {
+  return r.tonight ? { list: r.tonight.programs, limitUsed: r.tonight.limit_used } : tonightOf(r);
+}
+
 /** The one sentence for each thing the builder is told about the repo read (v6.1.8, B20 and C59); a repo link not read gets exactly one of the first three. */
 export const REPO_NOTE: Record<RepoNote, string> = {
   paused: 'Repo reads are paused until tomorrow; matched on what you told me.',
@@ -539,7 +547,7 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   const firstRule = (steps.find((g) => ruleOnlyGap(g) && g.keyword_hit) ?? steps.find(ruleOnlyGap))?.n ?? null;
   const named = namedBefore(r);
   // One condition for the heading and the closing: the agent sends tonight (never unlinked, where auto_apply is false).
-  const { list: tonightList, limitUsed } = tonightOf(r);
+  const { list: tonightList, limitUsed } = tonightIn(r);
   const tonight = tonightList.length;
   const click = new Set(r.blockers.filter((b) => b.needs_click).map((b) => b.program_id));
   // The builder's yes stands for these (a rule or the users question): never asked again. L1e-3 (v6.1.13): a program
@@ -642,7 +650,11 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
     // With standing approval the agent does not wait for a yes; the limits replace it.
     // The submit rule itself is in the server instructions, once (v6.1.8); here only what this reply adds.
     ...(r.auto_apply ? [standing] : ['Fill field by field; form_id names the form field when given.']),
-    ...(tonightOf(r).limitUsed ? ['Tonight\'s limit is used: send nothing alone until 24 hours after the last send under standing approval.'] : []),
+    ...(tonightIn(r).limitUsed ? ['Tonight\'s limit is used: send nothing alone until 24 hours after the last send under standing approval.'] : []),
+    // L13-9 (v6.1.14): tonight's list is over every ready program, so it may name ones past the shown list.
+    ...(tonightIn(r).list.some((t) => !r.ready.some((p) => p.program_id === t.program_id))
+      ? ["Tonight's list names programs past the shown list: call find with program_id for each one's fields before you send it."]
+      : []),
     'Call track with won (amount_usd), rejected or no_result after each result; skipped for a number they skip.',
     'Pass users and live_url in the project whenever you know them; never invent them.',
     'The numbers the builder says are each item\'s n in ready and gaps ("skip 4" is the item with n 4), not its place in the list.',
