@@ -1796,19 +1796,19 @@ test('v6.1.9: find with program_id takes the id or the name in any case; else a 
     assert.equal((r.reply!.program as { id: string }).id, 'y-combinator', name);
   }
   const near = await mcpCall(ctx(await installation()), 'find', { program_id: 'Combinator Labs' });
-  assert.equal(near.reply!.show_to_builder, "I don't know that program. Did you mean Y Combinator Winter 2027 Batch?");
+  assert.equal(near.reply!.show_to_builder, "Did you mean Y Combinator Winter 2027 Batch?");
   // F4 (v6.1.12, Review Focus 3): the common names; one match resolves, several are asked about, two by rank.
-  for (const [name, id] of [['ycombinator', 'y-combinator'], ['Thiel Foundation', 'thiel-fellowship'], ['monad blitz oregon', 'monad-blitz-oregon']]) {
+  // L1e-1 (v6.1.13, Review Focus 6): an organizer's first word that leads to one program resolves: floss, thiel.
+  for (const [name, id] of [['ycombinator', 'y-combinator'], ['Thiel Foundation', 'thiel-fellowship'], ['monad blitz oregon', 'monad-blitz-oregon'], ['floss', 'floss-fund-zerodha'], ['thiel', 'thiel-fellowship']]) {
     const r = await mcpCall(ctx(await installation()), 'find', { program_id: name });
     assert.equal((r.reply!.program as { id: string }).id, id, name);
   }
   for (const [name, line] of [
-    ['Base', "I don't know that program. Did you mean Base Builder Grant Program or Base Ecosystem Fund?"],
-    ['monad', "I don't know that program. Did you mean Monad Blitz Oregon or Monad Blitz @广州 (Guangzhou)?"],
-    ['Monad Blitz', "I don't know that program. Did you mean Monad Blitz Oregon or Monad Blitz @广州 (Guangzhou)?"],
-    ['uniswap', "I don't know that program. Did you mean Uniswap Foundation Open Grants or Uniswap Foundation Security Fund (UFSF) Audit Subsidies?"],
-    // Final fix (v6.1.12, I2): an organizer's first word, a bracketed parent organizer, two letters: no program.
-    ['ethereum', "I don't know that program. Did you mean Ethereum Security Subsidy Program?"],
+    ['Base', "Did you mean Base Builder Grant Program or Base Ecosystem Fund?"],
+    ['monad', "Did you mean Monad Blitz Oregon or Monad Blitz @广州 (Guangzhou)?"],
+    ['Monad Blitz', "Did you mean Monad Blitz Oregon or Monad Blitz @广州 (Guangzhou)?"],
+    ['uniswap', "Did you mean Uniswap Foundation Open Grants or Uniswap Foundation Security Fund (UFSF) Audit Subsidies?"],
+    // Final fix (v6.1.12, I2): a bracketed parent organizer, two letters: no program.
     ['aws', "I don't know that program."],
     ['fi', "I don't know that program."],
   ]) assert.equal((await mcpCall(ctx(await installation()), 'find', { program_id: name })).reply!.show_to_builder, line, name);

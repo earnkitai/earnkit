@@ -888,7 +888,7 @@ test('F4 (v6.1.12): track takes the program by what the builder calls it; severa
   const skipped = await track(c, { program_id: 'Thiel Foundation', status: 'skipped' });
   assert.equal(skipped.show_to_builder, "Skipped Thiel Fellowship. I won't bring it up again.");
   const several = await track(c, { program_id: 'uniswap', status: 'applied', submitted_by: 'builder' });
-  assert.equal(several.show_to_builder, "I don't know that program. Did you mean Uniswap Foundation Open Grants or Uniswap Foundation Security Fund (UFSF) Audit Subsidies?");
+  assert.equal(several.show_to_builder, "Did you mean Uniswap Foundation Open Grants or Uniswap Foundation Security Fund (UFSF) Audit Subsidies?");
   assert.equal(several.agent_note, 'Nothing was recorded.');
   assert.equal((await track(c, { program_id: 'qqq-zzz', status: 'skipped' })).show_to_builder, "I don't know that program.");
   assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE installation_id = ${c.installationId}`)[0].n, 2);
@@ -911,8 +911,7 @@ test('F6 (v6.1.12): a code step marked done on a project with no repo asks to be
 test('final fix (v6.1.12, I2): loose names record nothing; a name that is one program says which it recorded', async () => {
   const c = await ctx();
   const count = async () => (await sql()`SELECT count(*)::int AS n FROM applications WHERE installation_id = ${c.installationId}`)[0].n;
-  // An organizer's first word, a parent organizer in brackets, two letters: no program, nothing written.
-  assert.equal((await track(c, { program_id: 'ethereum', status: 'applied', submitted_by: 'builder' })).show_to_builder, "I don't know that program. Did you mean Ethereum Security Subsidy Program?");
+  // A parent organizer in brackets, two letters: no program, nothing written.
   assert.equal((await track(c, { program_id: 'aws', status: 'applied', submitted_by: 'builder' })).show_to_builder, "I don't know that program.");
   assert.equal((await track(c, { program_id: 'fi', status: 'applied', submitted_by: 'builder' })).show_to_builder, "I don't know that program.");
   assert.equal(await count(), 0);
@@ -922,6 +921,10 @@ test('final fix (v6.1.12, I2): loose names record nothing; a name that is one pr
   assert.match(sent.agent_note, /^Matched kiroween-2026\. /);
   assert.equal((await sql()`SELECT program_id FROM applications WHERE installation_id = ${c.installationId}`)[0].program_id, 'kiroween-2026');
   assert.equal((await track(c, { program_id: 'kiro', status: 'no_result' })).show_to_builder, 'Recorded: Kiroween 2026.');
+  // L1e-1 (v6.1.13): an organizer's first word that leads to one program resolves ("thiel"), and the line names it.
+  const thiel = await track(c, { program_id: 'thiel', status: 'skipped' });
+  assert.equal(thiel.show_to_builder, "Skipped Thiel Fellowship. I won't bring it up again.");
+  assert.equal((await track(c, { program_id: 'floss', status: 'started' })).show_to_builder, 'Started: FLOSS/fund.');
   // The id itself: the plain line, as before.
   assert.equal((await track(c, { program_id: 'codegeist-2026', status: 'applied', submitted_by: 'builder' })).show_to_builder, "Tracked. I'll ask how it went when results are due.");
 });

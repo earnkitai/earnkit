@@ -97,17 +97,20 @@ test('Review Focus 3 (v6.1.12, F4): a program by its id, title or organizer, any
     // Final fix (v6.1.12, I2): a unique start of four characters or more; an organizer's whole name, brackets or not.
     ['kiro', 'kiroween-2026'], ['Kiro (AWS)', 'kiroween-2026'], ['atlassian', 'codegeist-2026'], ['Ethereum Security', 'ethereum-security-subsidy-program'],
   ] as const) assert.deepEqual(await one(name), { id, line: null }, name);
-  // Final fix (v6.1.12, I2): an organizer's first word alone is only offered, beside that organizer's other programs.
-  for (const name of ['ethereum', 'Ethereum Foundation']) assert.deepEqual(await one(name), { id: null, line: "I don't know that program. Did you mean Ethereum Security Subsidy Program?" }, name);
-  assert.deepEqual(await one('thiel'), { id: null, line: "I don't know that program. Did you mean Thiel Fellowship?" });
-  assert.deepEqual(await one('circle'), { id: null, line: "I don't know that program. Did you mean Circle Developer Grants or Arc Builders Fund?" });
+  // L1e-1 (v6.1.13): an organizer's first word that leads to exactly one program resolves, whatever field matched.
+  for (const [name, id] of [['floss', 'floss-fund-zerodha'], ['thiel', 'thiel-fellowship'], ['ethereum', 'ethereum-security-subsidy-program']] as const)
+    assert.deepEqual(await one(name), { id, line: null }, name);
+  // A word that matches no field is only offered, as a question alone (L1e-1).
+  assert.deepEqual(await one('Ethereum Foundation'), { id: null, line: 'Did you mean Ethereum Security Subsidy Program?' });
+  // Two or more real matches still ask, the question alone.
+  assert.deepEqual(await one('circle'), { id: null, line: 'Did you mean Circle Developer Grants or Arc Builders Fund?' });
   // Under four characters, or an organizer in brackets, or part of an organizer's name: none.
   for (const name of ['aws', 'fi', 'kir', 'zerodha']) assert.deepEqual(await one(name), { id: null, line: "I don't know that program." }, name);
   // Several: the first two by rank (open first, then the larger award, the sooner close), as a question.
-  assert.deepEqual(await one('Base'), { id: null, line: "I don't know that program. Did you mean Base Builder Grant Program or Base Ecosystem Fund?" });
-  assert.deepEqual(await one('monad'), { id: null, line: "I don't know that program. Did you mean Monad Blitz Oregon or Monad Blitz @广州 (Guangzhou)?" });
-  assert.deepEqual(await one('Monad Blitz'), { id: null, line: "I don't know that program. Did you mean Monad Blitz Oregon or Monad Blitz @广州 (Guangzhou)?" });
-  assert.deepEqual(await one('uniswap'), { id: null, line: "I don't know that program. Did you mean Uniswap Foundation Open Grants or Uniswap Foundation Security Fund (UFSF) Audit Subsidies?" });
+  assert.deepEqual(await one('Base'), { id: null, line: "Did you mean Base Builder Grant Program or Base Ecosystem Fund?" });
+  assert.deepEqual(await one('monad'), { id: null, line: "Did you mean Monad Blitz Oregon or Monad Blitz @广州 (Guangzhou)?" });
+  assert.deepEqual(await one('Monad Blitz'), { id: null, line: "Did you mean Monad Blitz Oregon or Monad Blitz @广州 (Guangzhou)?" });
+  assert.deepEqual(await one('uniswap'), { id: null, line: "Did you mean Uniswap Foundation Open Grants or Uniswap Foundation Security Fund (UFSF) Audit Subsidies?" });
   // None.
   for (const name of ['qqq-unknown', '', '  ', '?!']) assert.deepEqual(await one(name), { id: null, line: "I don't know that program." }, name);
 });
