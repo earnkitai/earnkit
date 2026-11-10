@@ -615,10 +615,10 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const more = readyV.length - shownReady.length + gapV.length - shownGaps.length;
   // In display order with the numbers the builder sees: ready, gaps, then in person.
   // Only another installation's claim marks a program: this agent's own claim is its to send. A claim on another
-  // project marks it too, by that project's name (C1, v6.1.13), never pinning it (L1d-1); a row with no project only in
-  // the full list.
+  // project marks it too, by that project's name (C1, v6.1.13), never pinning it (L1d-1); a claim with no project holds
+  // it on every project's list, by default and in the full list (L13-8, L12-1, v6.1.14).
   const holds = side
-    ? new Map([...allClaims].filter(([, h]) => h.by !== ctx.installationId && (all || h.project !== null)))
+    ? new Map([...allClaims].filter(([, h]) => h.by !== ctx.installationId))
     : new Map<string, { since: string; project: string | null }>();
   const heldReports = new Map<string, string | null>();
   for (const v of shownReady) {

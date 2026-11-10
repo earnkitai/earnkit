@@ -153,10 +153,12 @@ const THING = /^(a|an|the|your)\s/i;
  * An in-person program: the money, the close, the odds, what attending takes, then what it needs from the builder.
  * When attending takes things (a YC account), those and the builder's needs are one "Needs" sentence (v6.1.8). Pure.
  */
-export function inPersonLine(p: ReadyProgram, alone = false): string {
+export function inPersonLine(p: ReadyProgram, alone = false, now?: Date): string {
   const line = attendLine(p, alone);
-  // C1 (v6.1.13): held by another agent for another project, its line says so.
-  return p.held_for ? `${line} Being handled by your other agent for ${p.held_for}.` : line;
+  // C1 (v6.1.13): held by another agent for another project, its line says so; L13-8 (v6.1.14): held with no project,
+  // since when, as a ready line says it.
+  if (p.held_for) return `${line} Being handled by your other agent for ${p.held_for}.`;
+  return p.claimed_since && now ? `${line} Being handled by your other agent since ${clock(p.claimed_since, now)}.` : line;
 }
 
 /** The in-person line before any hold: head, odds, the attend step and the needs. Pure. */
@@ -555,7 +557,7 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   const namedInClosing = new Set(tonight > 0 ? [] : waits.map((p) => p.program_id));
   if (ready.length > 0) blocks.push([`Ready to apply (${ready.length}):`, ...ready.map((p) => readyLine(p, r.linked, now, false, named, namedInClosing.has(p.program_id)))].join('\n'));
   if (steps.length > 0) blocks.push([`One step away (${steps.length}):`, ...steps.map((g) => gapLine(g))].join('\n'));
-  if (attendCount > 0) blocks.push([`In person (${attendCount}):`, ...inPerson.map((p) => inPersonLine(p)), ...attendRules.map((g) => gapLine(g))].join('\n'));
+  if (attendCount > 0) blocks.push([`In person (${attendCount}):`, ...inPerson.map((p) => inPersonLine(p, false, now)), ...attendRules.map((g) => gapLine(g))].join('\n'));
   const l = r.ledger;
   if (l.applied > 0) {
     const soon = l.closing_soon.length > 0 ? `, ${l.closing_soon.length} closing soon` : '';
