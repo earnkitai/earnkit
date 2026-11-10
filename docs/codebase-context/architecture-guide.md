@@ -96,7 +96,7 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
    The users question closes "Do real people use it? Say yes and I apply." only when that yes makes the program ready;
    with a setup step or a rule left beside it, "Do real people use it? Say yes and I look again." (final fix, v6.1.12); only when no remote step is shown (or none names an
    action) and in-person programs are listed is the closing `Nothing remote is ready yet. Say yes and I start the
-   in-person applications.` (fix round 1). `filter.all`
+   in-person applications.` (fix round 1). v6.1.14 says each thing once: a ready line whose needs the closing names (a yes that waits) drops its own "Needs your"; unlinked, the bar is the gap "proof that real people use it" and the sign-in is asked once, in the closing ("Sign in once at <link> and I check that and remember you."); the one-program reply appends that sentence after its action when the proof sits beside other gaps; nothing fits closes "Ask again any time and I show what is new.", since EarnKit never writes first. `filter.all`
    shows everything and the `more` count includes what is left out. Skipped and applied programs never return unless
    their next round opens. An empty repo read is cached like any other (L1c-4). A remote gap line names the program's
    `setup` steps as ` First: a; b.` after its gaps and before its rules (L1d-2, v6.1.11), so catalog `setup` items are
@@ -148,7 +148,7 @@ The pipeline, in order:
    never reopens it. There is no LLM in the cron.
 5. Readers: `programs-read.ts` serves public `GET /api/programs`; `landing.ts`, `guide.ts`, `guide-page.ts` and
    `stats.ts` feed the site. A program card shows the pool first (`pool_usd`, as "$N in grants" or "$N in prizes"),
-   then the per-winner `max_award_usd`, then the summary (`moneyOf` in `programs-read.ts`). The hero chip ("$N in grants and prizes open now") sums, per open non-investment
+   then the per-winner `max_award_usd` ("Up to $900K" for a range: a `min_award_usd` or a summary that says "up to", v6.1.14; a big tile draws "Up to" small above the figure), then the summary, never a threshold the builder must reach (" at $10M USDG TVL" is cut) (`moneyOf` in `programs-read.ts`). The landing copy (`site-copy.ts`) promises what the replies deliver (v6.1.14): "fills the forms", step 3 "It fills the form and sends it, or hands you the draft to send.", the six under "Open now". The hero chip ("$N in grants and prizes open now") sums, per open non-investment
    program, its `pool_usd` when set, else its `max_award_usd`. The landing shows six programs (`featuredTiles` in
    `landing.ts`: open, not investments, at least $10K; closing within 14 days with at least $25K first, then by money;
    one per organizer, at most three hackathons) and a link to /programs, which lists every one (`landingTiles`).
