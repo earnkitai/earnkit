@@ -15,11 +15,11 @@ import { timeLeftWords } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
 import { lastFindAt, markFind, newlyLinkedLogin, rememberProject } from './installations';
-import { askOutcome, autoSentSince, claimed, codeDoneAt, doneByProgram, doneItems, excluded, markAsked, summary, type Ledger } from './ledger';
+import { askOutcome, autoSentSince, claimed, codeDoneAt, doneByProgram, doneItems, excluded, markAsked, rekeyProject, saveReport, summary, type Ledger } from './ledger';
 import { prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
 import { isOpen, listOpenPrograms, programByName, unknownProgramLine, type ProgramRow } from './programs';
-import { parseProject, projectKeyOf, type Project } from './project-input';
+import { nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
 import { rankGaps, rankReady, shownGapsOf } from './rank';
 import { repoFacts, type RepoFacts, type RepoNote } from './repo-facts';
 import { AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, contractLookedAgain, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyText, ruleSentence, signInOnly } from './reply';
@@ -445,6 +445,10 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const parsed = i.project === undefined ? null : parseProject(i.project, ctx.now);
   const project = parsed?.ok ? parsed.project : null;
   const problems = parsed?.ok ? [...parsed.problems] : [];
+  // B4 (v6.1.13): the first find that adds the repo to a project found by name moves its steps and claims to the repo key.
+  if (project?.repo_url) await rekeyProject(ownerOf(ctx), nameKeyOf(project), projectKeyOf(project));
+  // The report as parsed, so a send on this project is judged on no less (v6.1.13, Task 1 review I1).
+  if (project) await saveReport(ownerOf(ctx), projectKeyOf(project), project, ctx.now);
   if (i.program_id) return oneProgram(ctx, i.program_id, project, i.project_id, i.ask);
   if (!project) return openList(ctx, parsed && !parsed.ok ? parsed.problem : null);
 

@@ -7,20 +7,17 @@ import { getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason } from '../v6/b
 import { DELETED_NOTICE } from '../v6/reply-words';
 import { claim } from '../v6/claims';
 import { HAD_CLOSED, NIGHT_LIMIT, REQUIRED_MISSING, STEP_AWAY, outsideApproval, readyAtSend, requiredLeftOut, storedRecordContext, storedSide } from '../v6/find-record';
-import { prefill, reportedFacts, unvouchedRequired } from './prefill';
-import { cachedRepoFacts } from './repo-facts';
+import { prefill, unvouchedRequired } from './prefill';
+import { cachedRepoFacts, reportOnlyFacts } from './repo-facts';
 import { forgetGap, lastGaps, lastProjectKey, unmarkNightFind } from './installations';
-import { parseProject, projectKeyOf } from './project-input';
+import { parseProject, projectKeyOf, type Project } from './project-input';
 import { getProgram, isOpen, listOpenPrograms, programByName, unknownProgramLine } from './programs';
-import { dayOf, doneItems, record, summary, titleOf, type Ledger, type Status } from './ledger';
+import { dayOf, doneItems, record, reportOf, summary, titleOf, type Ledger, type Status } from './ledger';
 import { clock } from './reply';
 import { codeChecked, itemKey } from './eligibility';
 import { eligibilityOf } from './program-file';
 import { sql } from './db';
 import { inputDetail } from './tool-input';
-
-/** A passed project field: any value (read leniently), but text no longer than `n` (final round). Pure. */
-const capped = (n: number) => (v: unknown) => typeof v !== 'string' || v.length <= n;
 
 /** The most field keys a send keeps (v6.1.13, B6); the rest are dropped, never refused. */
 export const FIELDS_KEPT = 200;
@@ -36,13 +33,15 @@ export const TrackInput = z
     submitted_by: z.enum(['agent', 'builder']).optional(),
     /** B6 (v6.1.13): the form already went out, so a long list is never refused: the first FIELDS_KEPT keys, each cut to 60. */
     fields_used: z.array(z.string()).transform((xs) => xs.slice(0, FIELDS_KEPT).map((x) => x.slice(0, 60))).optional(),
-    /** The project find was called with (v6.1.10 L1c-1): only its name and repo link are read, the rest is ignored. */
-    project: z.object({ name: z.unknown().refine(capped(120)).optional(), repo_url: z.unknown().refine(capped(500)).optional() }).passthrough().optional()
-      .describe('The project you passed to find (its name and repo_url), so its steps stay with it'),
+    /** The project find was called with (v6.1.10 L1c-1), read by find's own parser and limits (v6.1.13 B5): cut and dropped, never refused. */
+    project: z.object({}).passthrough().optional()
+      .describe('The project exactly as you passed it to find (name, description, repo_url, live_url, chains with contracts, users), so its steps and checks stay with it'),
   })
   .strict();
 
 type Result = { show_to_builder: string; agent_note: string; ledger: Ledger; already_started?: true };
+/** The track input with its project parsed as find parses it (`parseProject`, partial: v6.1.13 B5). */
+type TrackIn = Omit<z.infer<typeof TrackInput>, 'project'> & { project?: Project };
 
 /** Whether a project key (projectKeyOf) names no repo: a name alone, or no project. Pure. */
 const repoLess = (key: string) => key === '' || key.startsWith('name:');
@@ -75,7 +74,7 @@ export const TRACK_UNREAD = 'I could not read that. Send the program, a status, 
  * The project this track is about (projectKeyOf, v6.1.10 L1c-1): the project passed, else the record project named by
  * project_id, else the installation's last find with a project. `given` is false for the last find's.
  */
-async function projectOf(ctx: TrackContext, i: { project?: { name?: unknown; repo_url?: unknown }; project_id?: string }): Promise<{ key: string; given: boolean }> {
+async function projectOf(ctx: TrackContext, i: { project?: Project; project_id?: string }): Promise<{ key: string; given: boolean }> {
   const passed = projectKeyOf(i.project);
   if (passed) return { key: passed, given: true };
   if (i.project_id !== undefined && ctx.builderId !== null) {
@@ -132,10 +131,14 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   // F4 (v6.1.12): the program by what the builder calls it, as find takes it. A name that is no one program records
   // nothing, except a result on an id the ledger holds as sent, whose program may have left the catalog since.
   // Final fix (v6.1.12, Task 2 I1): a result on an id the ledger holds as sent is that one, before any matching.
-  const raw = parsed.data.program_id;
-  const held = RESULT_STATUSES.includes(parsed.data.status) && (await sentHere(owner, raw));
+  // B5 (v6.1.13): the project as find reads it, with find's limits: a long name is cut, a long link dropped, never refused.
+  const read = parsed.data.project === undefined ? null : parseProject(parsed.data.project, ctx.now, { partial: true });
+  const projectProblems = read?.ok ? read.problems : [];
+  const given: TrackIn = { ...parsed.data, project: read?.ok ? read.project : undefined };
+  const raw = given.program_id;
+  const held = RESULT_STATUSES.includes(given.status) && (await sentHere(owner, raw));
   const { row, suggest } = held ? { row: null, suggest: [] } : await programByName(raw, ctx.now);
-  const data = row ? { ...parsed.data, program_id: row.id } : parsed.data;
+  const data = row ? { ...given, program_id: row.id } : given;
   // An unknown project_id is dropped, and named for the agent (v6.1.7, C17).
   const { project_id, ...rest } = data;
   const known = project_id === undefined || (await knownProject(ctx.builderId, project_id));
@@ -146,7 +149,8 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   const r = row && row.id !== raw
     ? { ...acted, show_to_builder: namedFirst(acted.show_to_builder, row.file.title), agent_note: `Matched ${row.id}. ${acted.agent_note}` }
     : acted;
-  return known ? r : { ...r, agent_note: `${r.agent_note} project_id ${project_id} is not known; ignored.`.trim() };
+  const p = projectProblems.length > 0 ? { ...r, agent_note: `${r.agent_note} Project: ${projectProblems.join('; ')}.`.trim() } : r;
+  return known ? p : { ...p, agent_note: `${p.agent_note} project_id ${project_id} is not known; ignored.`.trim() };
 }
 
 /**
@@ -165,38 +169,62 @@ export function namedFirst(show: string, title: string): string {
 
 type ProgramRowOf = NonNullable<Awaited<ReturnType<typeof getProgram>>>;
 
+/** Chains of two reports as one list: each chain, network and contract once, the earlier report's first. Pure. */
+const chainsOf = (...lists: (Project['chains'] | undefined)[]): Project['chains'] => {
+  const out: NonNullable<Project['chains']> = [];
+  for (const c of lists.flatMap((l) => l ?? []))
+    if (!out.some((x) => x.chain === c.chain && x.mainnet === c.mainnet && (x.contract ?? '').toLowerCase() === (c.contract ?? '').toLowerCase())) out.push(c);
+  return out.length > 0 ? out : undefined;
+};
+
 /**
- * What a send under standing approval is judged on: the program prefilled with the stored record and the send's
- * project (its passed links, else the record project's; else the last find's project key), with the repo's cached
- * read merged in as find had it (I3, v6.1.10 final: no fetch; with no cached read, the report alone).
+ * What a send under standing approval is judged on, built as find builds its facts (v6.1.13, Task 1 review I1 and I2):
+ * the project the owner's last find reported on this project key, then the send's own project (parsed as find parses
+ * it, B5) on top, its chains added to the find's, never removing one; the name and links fall back to the record
+ * project's, else the last find's project key. Then the repo's cached read merged in as find had it (I3, v6.1.10
+ * final: no fetch), and with no cached read the report alone, merged as find merges it (`reportOnlyFacts`).
  */
-async function sendFacts(ctx: TrackContext, i: z.infer<typeof TrackInput>) {
-  const passed = (i.project ?? {}) as Record<string, unknown>;
-  const last = passed.name === undefined && passed.repo_url === undefined ? await lastProjectKey(ctx.installationId) : '';
+async function sendFacts(ctx: TrackContext, i: TrackIn, projectKey: string) {
+  const passed: Partial<Project> = i.project ?? {};
+  const last = !passed.name && !passed.repo_url ? await lastProjectKey(ctx.installationId) : '';
   const fromKey = last.startsWith('name:') ? { name: last.slice(5) } : last ? { repo_url: last } : {};
+  const kept = (await reportOf(ownerKey(ctx.installationId, ctx.builderId), projectKey)) ?? null;
   const repo = str(passed.repo_url) ?? (fromKey as { repo_url?: string }).repo_url ?? null;
   const name = str(passed.name) ?? (fromKey as { name?: string }).name ?? null;
-  const rec = await storedRecordContext(ctx.builderId!, i.project_id, repo, name);
+  const rec = await storedRecordContext(ctx.builderId!, i.project_id, repo ?? kept?.repo_url ?? null, name ?? kept?.name ?? null);
   const stored = rec.record.projects.find((p) => p.id === rec.projectId);
-  const reported = {
-    name: name ?? stored?.name ?? null, description: str(passed.description),
-    repo_url: repo ?? stored?.repo_url ?? null, live_url: str(passed.live_url) ?? stored?.live_url ?? null, demo_url: str(passed.demo_url),
+  const given = Object.fromEntries(Object.entries(passed).filter(([, v]) => v !== undefined && v !== null && v !== '')) as Partial<Project>;
+  const link = (v: string | null | undefined) => (v ? v : undefined);
+  const project: Project = {
+    ...(kept ?? {}),
+    ...given,
+    name: str(passed.name) ?? kept?.name ?? name ?? stored?.name ?? '',
+    description: str(passed.description) ?? kept?.description ?? '',
+    repo_url: link(repo ?? kept?.repo_url ?? stored?.repo_url),
+    live_url: link(str(passed.live_url) ?? kept?.live_url ?? stored?.live_url),
+    demo_url: link(str(passed.demo_url) ?? kept?.demo_url),
+    chains: chainsOf(kept?.chains, passed.chains),
+    users: passed.users ?? kept?.users ?? null,
   };
-  // B2 (v6.1.13): the chains and the users answer the agent passed, read as find reads them, so the verdict is find's.
-  const extra = parseProject({ name: 'p', description: 'p', chains: passed.chains, users: passed.users }, ctx.now);
-  const more = extra.ok ? { ...(extra.project.chains ? { chains: extra.project.chains } : {}), users: extra.project.users ?? null } : { users: null };
-  const cached = await cachedRepoFacts({
-    name: reported.name ?? '', description: reported.description ?? '', ...more,
-    ...(reported.repo_url ? { repo_url: reported.repo_url } : {}), ...(reported.live_url ? { live_url: reported.live_url } : {}), ...(reported.demo_url ? { demo_url: reported.demo_url } : {}),
-  });
-  const facts = cached ?? { ...reportedFacts(reported), users: more.users, chains: (more.chains ?? []).map((c) => ({ chain: c.chain, mainnet: c.mainnet, basis: 'reported' as const })) };
+  for (const k of ['repo_url', 'live_url', 'demo_url', 'chains'] as const) if (project[k] === undefined) delete project[k];
+  const facts = (await cachedRepoFacts(project)) ?? reportOnlyFacts(project);
   return { facts, rec };
 }
 
-/** The required fields a send under standing approval cannot vouch for (`unvouchedRequired` over `sendFacts`). */
-export async function unvouchedAtSend(ctx: TrackContext, i: z.infer<typeof TrackInput>, row: ProgramRowOf): Promise<string[]> {
-  const { facts, rec } = await sendFacts(ctx, i);
-  return unvouchedRequired(prefill(row, facts, rec).fields).map((f) => f.key);
+/**
+ * The send-time check find's tonight list would make (M2, v6.1.13: production and the tests share this path): the facts,
+ * the record context, and the required fields EarnKit cannot vouch for (`unvouchedRequired`). `projectKey` defaults to
+ * the send's project (`projectOf`).
+ */
+async function sendCheck(ctx: TrackContext, i: TrackIn, row: ProgramRowOf, projectKey?: string) {
+  const key = projectKey ?? (await projectOf(ctx, i)).key;
+  const { facts, rec } = await sendFacts(ctx, i, key);
+  return { facts, rec, key, unvouched: unvouchedRequired(prefill(row, facts, rec).fields).map((f) => f.key) };
+}
+
+/** The required fields a send under standing approval cannot vouch for (`sendCheck`). */
+export async function unvouchedAtSend(ctx: TrackContext, i: TrackIn, row: ProgramRowOf): Promise<string[]> {
+  return (await sendCheck(ctx, i, row)).unvouched;
 }
 
 /**
@@ -205,9 +233,9 @@ export async function unvouchedAtSend(ctx: TrackContext, i: z.infer<typeof Track
  * and gate find uses, with the owner's done steps and confirmed rules on this project and the stored tier. A program
  * that closed is judged as it stood at its close: the ledger says whether the send came too late.
  */
-async function notApprovedAtSend(ctx: TrackContext, owner: string, i: z.infer<typeof TrackInput>, row: ProgramRowOf, projectKey: string): Promise<string | null> {
-  const { facts, rec } = await sendFacts(ctx, i);
-  if (requiredLeftOut(row, i.fields_used).length > 0 || unvouchedRequired(prefill(row, facts, rec).fields).length > 0) return REQUIRED_MISSING;
+async function notApprovedAtSend(ctx: TrackContext, owner: string, i: TrackIn, row: ProgramRowOf, projectKey: string): Promise<string | null> {
+  const { facts, rec, unvouched } = await sendCheck(ctx, i, row, projectKey);
+  if (requiredLeftOut(row, i.fields_used).length > 0 || unvouched.length > 0) return REQUIRED_MISSING;
   const ends = row.file.ends_at ? Date.parse(row.file.ends_at) : null;
   const at = ends !== null && ends <= ctx.now.getTime() ? new Date(ends - 1) : ctx.now;
   const done = await doneItems(owner, row.id, projectKey);
@@ -219,7 +247,7 @@ async function act(
   owner: string,
   programs: Awaited<ReturnType<typeof listOpenPrograms>>,
   refuse: (note: string, agentNote?: string) => Promise<Result>,
-  i: z.infer<typeof TrackInput>,
+  i: TrackIn,
 ): Promise<Result> {
   const project = await projectOf(ctx, i);
   // The last find's gaps are its project's: another project passed here is not that one.

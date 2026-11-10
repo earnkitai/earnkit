@@ -60,14 +60,18 @@ const webUrl = (v: unknown): string | null => {
 
 /**
  * Parses a report into a Project. Optional fields that do not hold up are dropped and named in `problems`; a commit
- * date more than a day past `now` is dropped too. Pure.
+ * date more than a day past `now` is dropped too. `partial` (track, v6.1.13 B5): the same limits, but a name or
+ * description missing or not text is never a refusal: it reads '' (one not text is named in `problems`). Pure.
  */
-export function parseProject(v: unknown, now = new Date()): { ok: true; project: Project; problems: string[] } | { ok: false; problem: string } {
-  const raw = (typeof v === 'object' && v !== null ? v : {}) as Record<string, unknown>;
+export function parseProject(v: unknown, now = new Date(), o: { partial?: boolean } = {}): { ok: true; project: Project; problems: string[] } | { ok: false; problem: string } {
+  const raw = { ...(typeof v === 'object' && v !== null ? v : {}) } as Record<string, unknown>;
   const problems: string[] = [];
   const out: Record<string, unknown> = { users: null };
   for (const k of ['name', 'description'] as const) {
-    if (raw[k] != null && typeof raw[k] !== 'string') return { ok: false, problem: `${k}: not text` };
+    if (raw[k] == null || typeof raw[k] === 'string') continue;
+    if (!o.partial) return { ok: false, problem: `${k}: not text` };
+    problems.push(`${k} dropped: not text`);
+    delete raw[k];
   }
   const urlProblems: string[] = [];
   for (const k of URL_FIELDS) {
@@ -79,7 +83,7 @@ export function parseProject(v: unknown, now = new Date()): { ok: true; project:
   for (const k of ['name', 'description'] as const) {
     const t = text(raw[k]);
     // A repo link stands in for the description (C58): the README's first sentence is read in its place.
-    if (!t && !(k === 'description' && out.repo_url)) return { ok: false, problem: `${k}: missing` };
+    if (!t && !o.partial && !(k === 'description' && out.repo_url)) return { ok: false, problem: `${k}: missing` };
     if (t.length > MAX[k]) problems.push(`${k} cut to ${MAX[k]} characters`);
     out[k] = t.slice(0, MAX[k]);
   }
@@ -140,14 +144,49 @@ export function parseProject(v: unknown, now = new Date()): { ok: true; project:
 }
 
 /**
- * The project a done step belongs to (v6.1.10, L1c-1): the repo link lower-cased without a trailing slash or `.git`,
- * else `name:` and the name lower-cased and trimmed; '' when neither (a row from before v6.1.10 reads the same). The
- * link and name are cleaned as parseProject cleans them (a web link only, controls dropped, spaces collapsed, the name
- * cut to 80), so a raw project (track) and the parsed one (find) give one key (final round). Pure.
+ * The one canonical form of a repo link (v6.1.13, B4), shared by projectKeyOf and the repo read's cache key
+ * (repo-facts `repoKey`): https, the host lower-cased without `www.`, no port, no `user@`, no query or fragment, no
+ * `/tree/...` or `/blob/...` suffix (on github.com only owner and name), no trailing slash or `.git`, all lower case;
+ * null for anything that is not an http or https link. No length cap here (projectKeyOf caps as parseProject does). Pure.
+ */
+export function canonicalRepoLink(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  let u: URL;
+  try {
+    u = new URL(clean(v).trim());
+  } catch {
+    return null;
+  }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+  const host = u.hostname.toLowerCase().replace(/^www\./, '');
+  if (!host) return null;
+  let parts = u.pathname.split('/').filter(Boolean);
+  const cut = parts.findIndex((x, i) => i >= 2 && (x === 'tree' || x === 'blob'));
+  if (cut >= 0) parts = parts.slice(0, cut);
+  if (parts.at(-1) === '-') parts = parts.slice(0, -1);
+  if (host === 'github.com') parts = parts.slice(0, 2);
+  const path = parts.join('/').replace(/(\.git)+$/i, '');
+  return `https://${host}${path ? `/${path}` : ''}`.toLowerCase();
+}
+
+/** A name as a key compares it (v6.1.13 Low 13): NFKC, then full case folding (ß and SS, fullwidth letters). Pure. */
+const nameFold = (s: string) => s.normalize('NFKC').toUpperCase().toLowerCase();
+
+/**
+ * The project a done step belongs to (v6.1.10, L1c-1): the repo link in its canonical form (`canonicalRepoLink`, the
+ * key the repo read uses, v6.1.13 B4), else `name:` and the name folded and trimmed; '' when neither (a row from before
+ * v6.1.10 reads the same). The link and name are cleaned as parseProject cleans them (a web link of at most 500
+ * characters only, controls dropped, spaces collapsed, the name cut to 80), so a raw project and the parsed one give
+ * one key. Pure.
  */
 export function projectKeyOf(project: { name?: unknown; repo_url?: unknown } | null | undefined): string {
-  const repo = (webUrl(project?.repo_url) ?? '').toLowerCase().replace(/\/+$/, '').replace(/\.git$/, '').replace(/\/+$/, '');
+  const repo = webUrl(project?.repo_url) ? canonicalRepoLink(project?.repo_url) : null;
   if (repo) return repo;
-  const name = text(project?.name).slice(0, MAX.name).trim().toLowerCase();
+  return nameKeyOf(project);
+}
+
+/** The `name:` key of a project, whatever its link: what the project was keyed by before its repo was known. Pure. */
+export function nameKeyOf(project: { name?: unknown } | null | undefined): string {
+  const name = nameFold(text(project?.name).slice(0, MAX.name).trim()).trim();
   return name ? `name:${name}` : '';
 }

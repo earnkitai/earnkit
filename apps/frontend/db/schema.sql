@@ -317,3 +317,12 @@ CREATE TABLE IF NOT EXISTS screen_outcomes (
   at         timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (job_id, ref)
 );
+-- v6.1.13 (Task 1 review I1): the project as the agent reported it at its last find, per owner and project key
+-- (projectKeyOf), so a send under standing approval is never judged on less than the find was.
+CREATE TABLE IF NOT EXISTS project_reports (
+  owner       text NOT NULL,
+  project_key text NOT NULL,
+  report      jsonb NOT NULL,
+  at          timestamptz NOT NULL,
+  PRIMARY KEY (owner, project_key)
+);

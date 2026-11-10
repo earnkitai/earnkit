@@ -10,6 +10,7 @@ import { categoryOf, eligibilityOf } from './program-file';
 import { codeChecked, itemKey } from './eligibility';
 import { getProgram, programsById, type ProgramRow } from './programs';
 import { CLAIM_HOURS } from '../v6/claims';
+import type { Project } from './project-input';
 
 /** gap_done without a known item (v6.1.8, 3.10): the builder names the change, the agent gets the item keys. */
 export const WHICH_CHANGE = 'Which change did you finish? Say the program and the change.';
@@ -248,6 +249,42 @@ export async function doneItems(owner: string, programId: string, projectKey: st
   const rows = await sql()<{ item: string }[]>`
     SELECT item FROM gaps_done WHERE owner = ${owner} AND project_key = ${projectKey} AND program_id = ${programId}`;
   return new Set(rows.map((r) => r.item));
+}
+
+/**
+ * B4 (v6.1.13): a project first found by name alone and later with its repo keeps its steps and claims. The owner's
+ * done steps and application rows stored under `from` (the `name:` key) move to `to` (the repo key) in one
+ * transaction; a step already under `to` keeps the newer of the two times. A no-op when the keys are one or `from` is ''.
+ */
+export async function rekeyProject(owner: string, from: string, to: string): Promise<void> {
+  if (!from || !to || from === to) return;
+  await sql().begin(async (tx) => {
+    await tx`DELETE FROM gaps_done o USING gaps_done n
+      WHERE o.owner = ${owner} AND o.project_key = ${from} AND n.owner = ${owner} AND n.project_key = ${to}
+        AND n.program_id = o.program_id AND n.item = o.item AND n.at >= o.at`;
+    await tx`DELETE FROM gaps_done n USING gaps_done o
+      WHERE o.owner = ${owner} AND o.project_key = ${from} AND n.owner = ${owner} AND n.project_key = ${to}
+        AND n.program_id = o.program_id AND n.item = o.item`;
+    await tx`UPDATE gaps_done SET project_key = ${to} WHERE owner = ${owner} AND project_key = ${from}`;
+    await tx`UPDATE applications SET project_id = ${to} WHERE owner = ${owner} AND project_id = ${from}`;
+    await tx`DELETE FROM project_reports o USING project_reports n
+      WHERE o.owner = ${owner} AND o.project_key = ${from} AND n.owner = ${owner} AND n.project_key = ${to}`;
+    await tx`UPDATE project_reports SET project_key = ${to} WHERE owner = ${owner} AND project_key = ${from}`;
+  });
+}
+
+/** Keeps the project as the agent reported it at this find (parsed, v6.1.13 Task 1 review I1), per owner and project key. */
+export async function saveReport(owner: string, projectKey: string, report: Project, now: Date): Promise<void> {
+  if (!projectKey) return;
+  await sql()`INSERT INTO project_reports (owner, project_key, report, at) VALUES (${owner}, ${projectKey}, ${sql().json(report as never)}, ${now})
+    ON CONFLICT (owner, project_key) DO UPDATE SET report = EXCLUDED.report, at = EXCLUDED.at`;
+}
+
+/** The project as reported at the owner's last find on this project key, or null. */
+export async function reportOf(owner: string, projectKey: string): Promise<Project | null> {
+  if (!projectKey) return null;
+  const [r] = await sql()<{ report: Project }[]>`SELECT report FROM project_reports WHERE owner = ${owner} AND project_key = ${projectKey}`;
+  return r?.report ?? null;
 }
 
 /** When the owner last marked a code-checked step done on this project (v6.1.9 S4), or null: a repo read cached before it is stale. */

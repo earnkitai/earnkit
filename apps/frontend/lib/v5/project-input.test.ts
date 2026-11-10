@@ -185,3 +185,30 @@ test('projectKeyOf: the repo link lower-cased without a trailing slash or .git, 
   // A link that is not a web link is no repo key: the name stands, as in find.
   assert.equal(projectKeyOf({ name: 'X', repo_url: 'github.com/a/b' }), 'name:x');
 });
+
+test('B4 (v6.1.13): one canonical repo link for projectKeyOf and the repo read; every spelling of one repo is one key', async () => {
+  const { canonicalRepoLink } = await import('./project-input');
+  const { repoKey } = await import('./repo-facts');
+  const key = 'https://github.com/lane11/keyrepo';
+  for (const v of [
+    'https://github.com/lane11/keyrepo', 'https://www.github.com/lane11/keyrepo', 'https://github.com/lane11/keyrepo/tree/main',
+    'https://github.com/lane11/keyrepo/blob/main/README.md', 'https://github.com/lane11/keyrepo?tab=readme-ov-file', 'https://github.com/lane11/keyrepo#readme',
+    'http://github.com/lane11/keyrepo', 'https://github.com:8443/lane11/keyrepo', 'https://github.com/lane11/keyrepo.git?x=1',
+    'https://me@github.com/lane11/keyrepo', 'https://GitHub.com/Lane11/KeyRepo/', 'https://github.com/lane11/keyrepo.git/',
+  ]) {
+    assert.equal(canonicalRepoLink(v), key, v);
+    assert.equal(projectKeyOf({ name: 'X', repo_url: v }), key, v);
+    assert.equal(repoKey(v), 'lane11/keyrepo', v);
+  }
+  // Another host keeps its path, less a tree or blob suffix.
+  assert.equal(canonicalRepoLink('https://www.GitLab.com/group/sub/proj/-/tree/main?x=1#y'), 'https://gitlab.com/group/sub/proj');
+  assert.equal(canonicalRepoLink('ftp://github.com/a/b'), null);
+  assert.equal(canonicalRepoLink('not a link'), null);
+  assert.equal(repoKey('https://gitlab.com/a/b'), null);
+});
+
+test('Low 13 (v6.1.13): a name key folds Unicode, so one name in any form is one project', () => {
+  assert.equal(projectKeyOf({ name: 'Café' }), projectKeyOf({ name: 'Café' }));
+  assert.equal(projectKeyOf({ name: 'STRASSE' }), projectKeyOf({ name: 'straße' }));
+  assert.equal(projectKeyOf({ name: 'ＺＩＰ' }), 'name:zip');
+});

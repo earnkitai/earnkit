@@ -1994,3 +1994,44 @@ test('F3 and fix round 1 (v6.1.10), N3 (v6.1.12): the users yes and the rule yes
   const rule = await mcpCall(c, 'find', { program_id: 'f3-rule', project: CLI });
   assert.equal((rule.reply!.show_to_builder as string).split('\n').at(-1), 'Your yes stands for Rule Grant: I apply now.');
 });
+
+test('Review Focus 3 (v6.1.13, B4): a done step survives any spelling of the same repo link; a name-only project keeps its steps once its repo is added', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  await upsertProgram(programFixture({ id: 'rf3-demo', title: 'Spelled Grant', max_award_usd: 4000, eligibility: [{ kind: 'demo_video' }] }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'rf3-two', title: 'Second Grant', max_award_usd: 4000, eligibility: [{ kind: 'demo_video' }] }), 'file', NOW);
+  const status = async (c: ReturnType<typeof ctx>, id: string, p: Record<string, unknown>) =>
+    ((await mcpCall(c, 'find', { program_id: id, project: p })).reply!.verdict as { status: string }).status;
+  const repo = PROJECT.repo_url;
+  const [owner, name] = rec.repo.split('/');
+  const spellings = [
+    `https://www.github.com/${rec.repo}`, `${repo}/tree/main`, `${repo}?tab=readme-ov-file`, `${repo}#readme`, repo.replace('https:', 'http:'),
+    `https://github.com:8443/${rec.repo}`, `${repo}.git?x=1`, `https://me@github.com/${rec.repo}`, `https://GitHub.com/${owner.toUpperCase()}/${name}/`,
+  ];
+  for (const spelled of spellings) {
+    const c = ctx(await installation());
+    assert.equal(await status(c, 'rf3-demo', PROJECT), 'gap', spelled);
+    const done = await mcpCall(c, 'track', { program_id: 'rf3-demo', status: 'gap_done', item: 'demo_video', project: { ...PROJECT, repo_url: spelled } });
+    assert.equal(done.isError, false, done.text);
+    assert.equal(await status(c, 'rf3-demo', PROJECT), 'ready', spelled);
+    // And the other way: the find spelled so reads the step marked on the plain link.
+    assert.equal(await status(c, 'rf3-demo', { ...PROJECT, repo_url: spelled }), 'ready', spelled);
+  }
+  // Found by name first: the step done and the claim move to the repo key on the first find with the repo.
+  const c = ctx(await installation());
+  const NAMED = { name: 'Keyed App', description: 'Grants for builders.' };
+  assert.equal(await status(c, 'rf3-demo', NAMED), 'gap');
+  await mcpCall(c, 'track', { program_id: 'rf3-demo', status: 'gap_done', item: 'demo_video' });
+  await mcpCall(c, 'track', { program_id: 'rf3-two', status: 'started', project: NAMED });
+  assert.equal(await status(c, 'rf3-demo', { ...NAMED, repo_url: `${repo}/tree/main` }), 'ready');
+  const owned = 'i:' + c.installationId;
+  assert.deepEqual((await sql()`SELECT DISTINCT project_key FROM gaps_done WHERE owner = ${owned}`).map((r) => r.project_key), [repo.toLowerCase()]);
+  const [claimRow] = await sql()`SELECT project_id FROM applications WHERE owner = ${owned} AND program_id = 'rf3-two'`;
+  assert.equal(claimRow.project_id, repo.toLowerCase());
+  // A step under both keys keeps the newer time.
+  const older = new Date(NOW.getTime() - 2 * H);
+  await sql()`INSERT INTO gaps_done (owner, installation_id, project_key, program_id, item, at) VALUES (${owned}, ${c.installationId}, 'name:keyed app', 'rf3-demo', 'demo_video', ${new Date(NOW.getTime() + H)})`;
+  await sql()`UPDATE gaps_done SET at = ${older} WHERE owner = ${owned} AND project_key = ${repo.toLowerCase()}`;
+  await mcpCall(c, 'find', { program_id: 'rf3-demo', project: { ...NAMED, repo_url: repo } });
+  const rows = await sql()`SELECT project_key, at FROM gaps_done WHERE owner = ${owned}`;
+  assert.deepEqual(rows.map((r) => [r.project_key, (r.at as Date).toISOString()]), [[repo.toLowerCase(), new Date(NOW.getTime() + H).toISOString()]]);
+});
