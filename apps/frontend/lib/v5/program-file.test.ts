@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { programProblems } from './program-checks';
-import { ProgramFile, eligibilityOf } from './program-file';
+import { ProgramFile, categoryOf, eligibilityOf, ruleNotes } from './program-file';
+import { moneyOf } from './programs-read';
+import { programKind } from './site-copy';
 import { programFixture } from './fixtures/program';
 
 const DIR = join(import.meta.dirname, '..', '..', '..', '..', 'programs');
@@ -167,4 +169,39 @@ test('L1c-2 (v6.1.10): the catalog keywords are on the domain rules, none on lic
   assert.deepEqual(kw('avalanche-team1-mini-grants'), ['avalanche', 'avax', 'team1', 'subnet']);
   for (const f of ['antler-us-residency', 'github-secure-open-source-fund', 'herodevs-sustainability-fund', 'sovereign-tech-fund'])
     assert.deepEqual(kw(f), [], f);
+});
+
+test('Review Focus 5 (v6.1.14): the three re-kinded programs read as grants on /programs and in replies, never hackathons', () => {
+  for (const f of ['arbitrum-stablecoin-growth-program', 'arbitrum-mentorship-cohort-2', 'solana-incubator-cohort-6']) {
+    const p = ProgramFile.parse(read(`${f}.json`));
+    assert.equal(p.category, 'grant', f);
+    assert.equal(categoryOf(p), 'grant', f);
+    assert.equal(programKind(p), 'grant', f);
+  }
+  // The file's own category is the tile's kind; without one the reward words still decide.
+  assert.equal(programKind({ category: 'grant', reward: '$100K in prizes' }), 'grant');
+  assert.equal(programKind({ category: 'grant', reward: 'Up to 500 USDC' }), 'grant, in USDC');
+  assert.equal(programKind({ reward: '$100K in prizes' }), 'hackathon');
+});
+
+test('v6.1.14 catalog truth: Thiel has no repo bar; money lines never show a threshold or a floor as the award', () => {
+  const thiel = ProgramFile.parse(read('thiel-fellowship.json'));
+  assert.equal(thiel.min_tier, undefined);
+  assert.equal(thiel.needs_repo, false);
+  assert.deepEqual(ruleNotes(thiel), ['applicant aged 22 or younger with no university degree, who will drop out of college if selected']);
+  const reply = (p: { summary: string }) => p.summary.split(' · ')[0];
+
+  const arb = ProgramFile.parse(read('arbitrum-stablecoin-growth-program.json'));
+  assert.equal(reply(arb), 'incentives + 200K ARB for the first 10 teams');
+  assert.equal(moneyOf(arb), 'incentives + 200K ARB for the first 10 teams');
+  assert.ok(arb.rules.some((r) => r.includes('$10M of USDG TVL')));
+
+  const lido = ProgramFile.parse(read('lido-lego-grants.json'));
+  assert.equal(moneyOf(lido), 'Up to $100K');
+  assert.equal(reply(lido), 'Up to $100,000 by tier, more by DAO vote');
+
+  const stf = ProgramFile.parse(read('sovereign-tech-fund.json'));
+  assert.equal(stf.max_award_usd, undefined);
+  assert.equal(moneyOf(stf), 'From EUR 50,000 of work, no maximum stated');
+  assert.equal(reply(stf), 'From EUR 50,000 of work, no maximum stated');
 });

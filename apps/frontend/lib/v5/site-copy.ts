@@ -15,11 +15,14 @@ export const monthDay = (d: Date): string => `${MONTHS[d.getUTCMonth()]} ${d.get
 export const heroChipText = (usd: number): string | null =>
   usd > 0 ? `${compactUsd(usd)} in grants and prizes open now` : null;
 
-/** "grant", "grant, in USDC", "hackathon" or "investment". Pure. */
-export function programKind(c: { investment?: boolean; in_person?: boolean; reward?: string }): string {
+/** The file's category, else "grant", "grant, in USDC", "hackathon" or "investment". Pure. */
+export function programKind(c: { category?: string; investment?: boolean; in_person?: boolean; reward?: string }): string {
+  const usdc = /\bUSDC\b/.test(c.reward ?? '');
+  // v6.1.14: the file's own category wins over the reward words ("$100K in prizes" on a mentorship cohort).
+  if (c.category) return c.category === 'grant' && usdc ? 'grant, in USDC' : c.category;
   if (c.investment) return 'investment';
   if (c.in_person === true || /\bprizes?\b/i.test(c.reward ?? '')) return 'hackathon';
-  return /\bUSDC\b/.test(c.reward ?? '') ? 'grant, in USDC' : 'grant';
+  return usdc ? 'grant, in USDC' : 'grant';
 }
 
 export const HERO_TITLE = 'Get funded for what you ship.';
