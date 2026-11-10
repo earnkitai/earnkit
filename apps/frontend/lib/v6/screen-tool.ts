@@ -17,11 +17,11 @@ import { DEFAULT_THRESHOLDS, TIERS, type Thresholds } from './tiers';
 export const ScreenInput = z
   .object({
     program_id: z.string().max(100).optional().describe('The program you review; omit when you review one'),
-    applicants: z.array(ScreenApplicant).optional().describe('The list to screen, each { ref (required), name, repo_url, live_url, contracts: [{ chain, address }], pitch, applied_at }'),
+    applicants: z.array(ScreenApplicant).optional().describe('The list to screen, each { ref (required), name, repo_url, live_url, contracts: [{ chain, address }], pitch, applied_at, application_id }'),
     thresholds: z.record(z.string(), z.number()).optional().describe('Tier thresholds to override, by name'),
     job_id: z.string().max(40).optional().describe('A queued screen: its progress and results'),
     outcomes: z
-      .array(z.object({ ref: z.string().max(60), outcome: z.enum(['won', 'rejected', 'shortlisted']), amount_usd: z.number().max(1e9).optional() }).strict())
+      .array(z.object({ ref: z.string().max(60), outcome: z.enum(['won', 'rejected', 'shortlisted']), amount_usd: z.number().finite().optional() }).strict())
       .optional()
       .describe('With job_id: the decisions, by ref'),
   })
@@ -50,6 +50,8 @@ export const SCREEN_TEXT = {
   stopNote: 'Show this line and stop.',
 } as const;
 
+/** L13-5 (v6.1.14): a refused outcomes call writes none of them. */
+const OUTCOMES_UNWRITTEN = 'Nothing was recorded. Show this line and stop.';
 const line = (show: string, agent_note: string = SCREEN_TEXT.stopNote): ScreenReply => ({ show_to_builder: show, agent_note });
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -88,7 +90,9 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
   if (badRepo >= 0) return line(SCREEN_TEXT.unread, `Nothing was queued. applicants.${badRepo}.repo: not text; send the repo link as text in repo_url.`);
   const aliased = list.length ? { ...r, applicants: list.map((a) => (a && typeof a === 'object' && 'repo' in a && typeof a.repo === 'string' && !('repo_url' in a) ? { ...a, repo_url: a.repo } : a)) } : raw;
   const parsed = ScreenInput.safeParse(aliased);
-  if (!parsed.success) return line(SCREEN_TEXT.unread, `Nothing was queued. ${inputDetail(parsed.error)}`);
+  // L13-5 (v6.1.14): the note says what was not written: outcomes are recorded, a list is queued.
+  const nothing = r && typeof r === 'object' && 'outcomes' in r ? 'Nothing was recorded.' : 'Nothing was queued.';
+  if (!parsed.success) return line(SCREEN_TEXT.unread, `${nothing} ${inputDetail(parsed.error)}`);
   const input = parsed.data;
   // C2 (v6.1.13): a list over SCREEN_MAX was read, it is only too long: one line, nothing written.
   if ((input.applicants?.length ?? 0) > SCREEN_MAX) return line(SCREEN_TEXT.overMax, 'Nothing was queued. Split the list and call screen once per part.');
@@ -107,14 +111,15 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
     if (input.outcomes) {
       // A win over what the program pays is refused as the ledger refuses it, and nothing is recorded (v6.1.7 C38).
       // Low 19 (v6.1.13): a win is whole dollars, at least 1, as the ledger takes it.
-      if (input.outcomes.some((o) => o.outcome === 'won' && o.amount_usd != null && !(Number.isInteger(o.amount_usd) && o.amount_usd >= 1))) return line(WHOLE_DOLLARS);
+      if (input.outcomes.some((o) => o.outcome === 'won' && o.amount_usd != null && !(Number.isInteger(o.amount_usd) && o.amount_usd >= 1))) return line(WHOLE_DOLLARS, OUTCOMES_UNWRITTEN);
       const cap = winCapOf(await getProgram(s.program_id));
-      if (input.outcomes.some((o) => o.outcome === 'won' && o.amount_usd != null && o.amount_usd > cap)) return line(OVER_CAP);
-      const { recorded, notFound } = await recordOutcomes(input.job_id, ctx.builderId, input.outcomes, ctx.now);
+      // L13-5 (v6.1.14): any amount over the cap, however large, is this line, as the ledger answers it.
+      if (input.outcomes.some((o) => o.outcome === 'won' && o.amount_usd != null && o.amount_usd > cap)) return line(OVER_CAP, OUTCOMES_UNWRITTEN);
+      const { recorded, notFound, notes } = await recordOutcomes(input.job_id, ctx.builderId, input.outcomes, ctx.now);
       // The refs not in this screen are named (C19).
       const show = notFound.length > 0 ? `Recorded ${plural(recorded, 'outcome')}; not found: ${listWords(notFound, 10)}.` : `Recorded ${plural(recorded, 'outcome')}.`;
       const note = notFound.length > 0 ? 'Tell the builder the outcomes are recorded, and which refs this screen does not hold.' : 'Tell the builder the outcomes are recorded.';
-      return { ...line(show, note), recorded };
+      return { ...line(show, [note, ...notes].join(' ')), recorded };
     }
     const results = await jobResults(input.job_id, ctx.builderId, ctx.now);
     if (!results) return line(SCREEN_TEXT.expired);

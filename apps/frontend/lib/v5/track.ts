@@ -21,13 +21,17 @@ import { inputDetail } from './tool-input';
 
 /** The most field keys a send keeps (v6.1.13, B6); the rest are dropped, never refused. */
 export const FIELDS_KEPT = 200;
+/** The most characters of a send's note the ledger keeps (L13-3, v6.1.14). */
+export const NOTE_KEPT = 280;
 
 export const TrackInput = z
   .object({
     program_id: z.string().min(1).max(80),
     status: z.enum(['started', 'applied', 'won', 'rejected', 'no_result', 'skipped', 'unskip', 'gap_done']),
-    amount_usd: z.number().finite().min(0).max(100_000_000).optional(),
-    note: z.string().max(280).optional(),
+    /** L13-5 (v6.1.14): no ceiling here; the ledger answers a win over the program's pay with its own line. */
+    amount_usd: z.number().finite().min(0).optional(),
+    /** L13-3 (v6.1.14): the form already went out, so a long note is cut to NOTE_KEPT characters, never refused. */
+    note: z.string().transform((x) => x.slice(0, NOTE_KEPT)).optional(),
     item: z.string().max(80).optional(),
     project_id: z.string().max(40).optional(),
     submitted_by: z.enum(['agent', 'builder']).optional(),
@@ -38,7 +42,8 @@ export const TrackInput = z
   })
   .strict();
 
-type Result = { show_to_builder: string; agent_note: string; ledger: Ledger; already_started?: true };
+/** `application_id` (L13-1, v6.1.14): on a send recorded, the application's own id; a program's screen matches its outcome by it. */
+type Result = { show_to_builder: string; agent_note: string; ledger: Ledger; already_started?: true; application_id?: string };
 /** The track input with its project parsed as find parses it (`parseProject`, partial: v6.1.13 B5). */
 type TrackIn = Omit<z.infer<typeof TrackInput>, 'project'> & { project?: Project };
 
@@ -52,6 +57,12 @@ const usd = (n: number) => '$' + Math.round(n).toLocaleString('en-US');
 async function sentHere(owner: string, programId: string): Promise<boolean> {
   const [r] = await sql()<{ status: string }[]>`SELECT status FROM applications WHERE owner = ${owner} AND program_id = ${programId}`;
   return r !== undefined && r.status !== 'started' && r.status !== 'skipped';
+}
+
+/** The sent application's own id (L13-1, v6.1.14), as the reply field; none for a row without one. */
+async function applicationIdOf(owner: string, programId: string): Promise<{ application_id?: string }> {
+  const [r] = await sql()<{ application_id: string | null }[]>`SELECT application_id FROM applications WHERE owner = ${owner} AND program_id = ${programId}`;
+  return r?.application_id ? { application_id: r.application_id } : {};
 }
 
 /** The program's rules the owner has not confirmed yet. */
@@ -304,7 +315,7 @@ async function act(
             ledger: await summary(owner, programs, ctx.now),
           }
         : {
-            show_to_builder: `Started. When I last looked it was still one change away: ${gap.what}. Make sure that is done first.`,
+            show_to_builder: `Started. When I last looked it was still one change away: ${gap.what}.`,
             agent_note: `Make the change before you submit, or call find again to check it. ${builderSubmits ? sendNote(true) : 'Then fill the form from the fields, submit, and call track with applied, submitted_by and fields_used.'}`,
             ledger: await summary(owner, programs, ctx.now),
           };
@@ -376,12 +387,14 @@ async function act(
     : null;
   if (i.status === 'applied' && outside)
     return {
+      ...(await applicationIdOf(owner, i.program_id)),
       show_to_builder: [closed, `Sent, but outside your standing approval: ${outside}.`].filter(Boolean).join(' '),
       agent_note: 'Recorded as applied, not under standing approval. Send nothing else alone that falls outside the limits; ask the builder first. Call find again for the updated ledger.',
       ledger: await summary(owner, programs, ctx.now),
     };
   // I1 (v6.1.9 final): after a send under standing approval the agent does not find again, so the morning report stays.
   return {
+    ...(i.status === 'applied' ? await applicationIdOf(owner, i.program_id) : {}),
     show_to_builder: closed ?? lines[i.status],
     agent_note: i.status === 'applied' && standing && outside === null
       ? "Done for tonight. The builder's next find reports it; do not call find again until they ask."

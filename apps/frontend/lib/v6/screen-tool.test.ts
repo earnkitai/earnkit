@@ -113,11 +113,14 @@ test('results carry public evidence only; outcomes record', async () => {
   const o = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'r-1', outcome: 'won', amount_usd: 2000 }, { ref: 'r-2', outcome: 'rejected' }] });
   // Nothing about whether a builder's ledger was reached: a builder's ledger never reaches a program.
   assert.equal(o.reply!.show_to_builder, 'Recorded 2 outcomes.');
-  assert.equal(o.reply!.agent_note, 'Tell the builder the outcomes are recorded.');
+  // L13-1 (v6.1.14): rows with no EarnKit application id are named as unmatched; nothing about any ledger.
+  assert.equal(o.reply!.agent_note, 'Tell the builder the outcomes are recorded. Not matched to an EarnKit application: r-1 and r-2.');
   assert.equal(o.reply!.recorded, 2);
   assert.doesNotMatch(JSON.stringify(o.reply), /ledger/i);
   const one = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'r-2', outcome: 'won' }] });
   assert.equal(one.reply!.show_to_builder, 'Recorded 1 outcome.');
+  // L13-12 (v6.1.14): the note names the outcome it replaced.
+  assert.equal(one.reply!.agent_note, 'Tell the builder the outcomes are recorded. Replaced the outcome recorded before: r-2 (was rejected). Not matched to an EarnKit application: r-2.');
   assert.doesNotMatch(JSON.stringify(one.reply), /ledger|usable/i);
   const late = await mcpCall({ ...c, now: new Date(NOW.getTime() + 31 * 86_400_000) }, 'screen', { job_id: jobId });
   assert.equal(late.reply!.show_to_builder, 'That screen has expired; queue the list again.');
@@ -149,7 +152,8 @@ test('C35: input screen cannot read is its one line, the detail in the agent not
     const r = await mcpCall(c, 'screen', args);
     assert.equal(r.isError, false, r.text);
     assert.equal(r.reply!.show_to_builder, "I could not read that. Send the applicant list, or a screen's id for its results.");
-    assert.match(r.reply!.agent_note as string, /^Nothing was queued\. /);
+    // L13-5 (v6.1.14): outcomes are recorded, not queued, so their note says so.
+    assert.match(r.reply!.agent_note as string, 'outcomes' in args ? /^Nothing was recorded\. / : /^Nothing was queued\. /);
   }
   const u = await mcpCall({ ...c, builderId: null }, 'screen', { extra: true });
   assert.equal(u.reply!.show_to_builder, "I could not read that. Send the applicant list, or a screen's id for its results.");
@@ -184,7 +188,11 @@ test('C19, C38: outcomes name the refs not found; a win over the program\'s cap 
   const jobId = q.reply!.job_id as string;
   const over = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'r-2', outcome: 'rejected' }, { ref: 'r-1', outcome: 'won', amount_usd: 5001 }] });
   assert.equal(over.reply!.show_to_builder, "That's more than this program pays; check the amount.");
+  assert.equal(over.reply!.agent_note, 'Nothing was recorded. Show this line and stop.');
   assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_outcomes WHERE job_id = ${jobId}`)[0].n, 0);
+  // L13-5 (v6.1.14): a win far past the schema's old ceiling is the same line, not an unread input.
+  const huge = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'r-1', outcome: 'won', amount_usd: 1e12 }] });
+  assert.deepEqual([huge.reply!.show_to_builder, huge.reply!.agent_note], ["That's more than this program pays; check the amount.", 'Nothing was recorded. Show this line and stop.']);
   const r = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'r-1', outcome: 'won', amount_usd: 5000 }, { ref: 'zz', outcome: 'rejected' }, { ref: 'yy', outcome: 'shortlisted' }] });
   assert.equal(r.reply!.show_to_builder, 'Recorded 1 outcome; not found: zz and yy.');
   assert.equal(r.reply!.recorded, 1);

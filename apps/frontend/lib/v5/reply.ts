@@ -209,6 +209,12 @@ const doVerb = (real: Gap[], named: boolean): string =>
   real.length > 1 ? 'make both changes' : named ? real[0].what : (DO_VERB[real[0].kind] ?? 'make the change');
 /** The "tell me if real people use it" question: a yes, not work (the same gap the agent note names). Pure. */
 const usersQuestion = (x: Gap) => x.kind === 'users' && x.effort === 'hours';
+/** T3-R1 (v6.1.13): the code-in-a-repo step of a grant for existing code (eligibility's NEEDS_CODE). Pure. */
+const needsCode = (x: Gap) => x.kind === 'repo' && x.item === 'repo';
+/** L1f-2 (v6.1.14): the closing when the step's only change is code in a repo: one action, no rule yes before the code exists. */
+export const CODE_CLOSING = 'Tell me when the code is in a repo and I look again.';
+/** L1f-3 (v6.1.14): a step the builder takes by telling (the live repo): asked as one. Pure. */
+const telling = (step: string) => /^tell me /.test(step);
 /** O3 (v6.1.10): the "tell me when you started this" question: a date the builder gives, not work. Pure. */
 export const startedQuestion = (x: Gap) => x.kind === 'new_work_after' && x.effort === 'minutes';
 
@@ -227,6 +233,11 @@ export function gapAction(g: GapProgram, signIn: string | null = null): string |
   if (canDo(real)) return `Say "do" and I ${doVerb(real, true)} first.`;
   if (real.every(usersQuestion)) return 'Say yes if they do and I draft it.';
   if (real.every(startedQuestion)) return 'Tell me when you started and I check it.';
+  if (real.every(needsCode)) return CODE_CLOSING;
+  // L1f-1 (v6.1.14): a private repo for an open source program: the repo made public comes first, then a look again.
+  if (real.some((x) => x.item === 'repo:public')) return 'Tell me when the repo is public and I look again.';
+  // L1f-3 (v6.1.14): a step that is telling (the live repo) is asked as one.
+  if (real.length === 1 && real[0].setup && telling(real[0].setup)) return `T${real[0].setup.slice(1)} and I look again.`;
   return 'Tell me when that is done and I apply.';
 }
 
@@ -374,14 +385,19 @@ export function firstStepOf(gaps: GapProgram[]): FirstStep | null {
   for (const real of steps) {
     if (canDo(real)) continue;
     const x = real.find((y) => !ownSentenceGap(y) && !usersQuestion(y));
-    if (x) return { users: false, what: x.what, ...(startedQuestion(x) ? { started: true as const } : {}) };
+    // v6.1.14 (L1f-1, L1f-3): a gap with its own step (make the repo public) closes on that step.
+    if (x) return { users: false, what: x.setup ?? x.what, ...(startedQuestion(x) ? { started: true as const } : {}) };
   }
   return null;
 }
 
 /** I2 (v6.1.9 final): the number of the only step program shown when it has an unconfirmed rule (not in person), else null. Pure. */
 export const stepRuleOf = (gaps: GapProgram[]): number | null =>
-  gaps.length === 1 && !gaps[0].in_person && [gaps[0].gap, ...gaps[0].also].some((x) => x.kind === 'rule') ? gaps[0].n : null;
+  gaps.length === 1 && !gaps[0].in_person && [gaps[0].gap, ...gaps[0].also].some((x) => x.kind === 'rule') &&
+  // L1f-2 (v6.1.14): a rule yes cannot make a program with no code ready, so its code step closes instead.
+  ![gaps[0].gap, ...gaps[0].also].filter((x) => x.kind !== 'rule').every(needsCode)
+    ? gaps[0].n
+    : null;
 
 /** The closing when nothing fits (v6.1.14): EarnKit never writes first, so the builder asks again. */
 export const NOTHING_FITS = 'Nothing fits yet. Ask again any time and I show what is new.';
@@ -421,12 +437,14 @@ export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number
   if (o.gaps > 0) {
     if (o.firstRule !== null) return `Nothing is ready yet. Say "yes ${o.firstRule}" if that rule fits you.`;
     // I2 (v6.1.9 final): the only step program shown carries a rule beside its change: the rule is asked first.
-    if (o.stepRule != null) return `Nothing is ready yet. Say "yes ${o.stepRule}" if its rule fits you.`;
+    if (o.stepRule != null) return `Nothing is ready yet. Say "yes ${o.stepRule}" if that rule fits you.`;
     const step = o.firstStep ?? null;
     if (step?.users) return `Nothing is ready yet. Do real people use it? Say yes and ${step.more ? 'I look again' : 'I apply'}.`;
     // I3 (v6.1.9 final): "First:" reads as a sentence for a noun or a verb phrase.
     // O3 (v6.1.10): the started question is asked as one.
     if (step && !step.users && step.started) return 'Nothing is ready yet. First: tell me when you started this, and I look again.';
+    if (step && step.what === 'code in a repo') return `Nothing is ready yet. ${CODE_CLOSING}`;
+    if (step && telling(step.what)) return `Nothing is ready yet. First: ${step.what}, and I look again.`;
     if (step) return `Nothing is ready yet. First: ${step.what}. Tell me when it is done and I look again.`;
     // A reply that lists in-person programs never ends on the bare line (O2, v6.1.10).
     return o.inPerson > 0 ? IN_PERSON_CLOSING : 'Nothing is ready yet.';
@@ -595,6 +613,10 @@ export const CONTRACT_NOTE = 'Pass the contract address if it is on chain.';
 /** Whether the gap's "looked again" names a contract. Pure. */
 export const contractLookedAgain = (g: Pick<GapProgram, 'looked_again'>): boolean => (g.looked_again ?? []).some((w) => /contract on /.test(w));
 
+/** v6.1.14 (L1f-1, L1f-3): the public repo and archive steps are settled by the next report, never by gap_done. */
+export const REPO_STEP_NOTE =
+  'A public repo or an archived repo is settled by the project you pass, not by gap_done: when the builder makes the repo public, pass private: false next time; for an archived repo, pass the live repo_url they give.';
+
 /** C41 (v6.1.8): no record project matched, so only record-level answers were used; also on the one-program detail (N9, v6.1.9). */
 export const NO_PROJECT_NOTE =
   "No project in the builder's record matched this one by project_id, repo or name, so no project answers were used; pass project_id (record get lists them) next time.";
@@ -632,6 +654,8 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
         : 'The builder makes each change (never deploy a contract for them); when they say it is done, call track with gap_done and the gap\'s item, then call find again.',
     );
   if (r.gaps.length > 0) lines.push(SAME_PROJECT);
+  if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.item === 'repo:public' || x.item === 'repo:archived')))
+    lines.push(REPO_STEP_NOTE);
   if (r.gaps.some(contractLookedAgain)) lines.push(CONTRACT_NOTE);
   if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.kind === 'users' && x.effort === 'hours')))
     lines.push('"Tell me if real people use it" is a question, not work: ask the builder once; on yes, pass users: true next time or call track with gap_done and item users.');

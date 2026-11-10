@@ -24,7 +24,7 @@ test('four tools, their descriptions and the server instructions, verbatim', asy
   );
   assert.equal(
     TRACK_DESCRIPTION,
-    "What the builder did: started (a claim before filling), applied (with submitted_by, and fields_used: the field keys from find's fields), won (with amount_usd), rejected, no_result, skipped, unskip (a skipped program may come back), or gap_done (item: the gap's item from find, copied exactly as given; project: the same object you passed to find). Call started before filling and applied after every submission.",
+    "What the builder did: started (a claim before filling), applied (with submitted_by, and fields_used: the field keys from find's fields), won (with amount_usd), rejected, no_result, skipped, unskip (a skipped program may come back), or gap_done (item: the gap's item from find, copied exactly as given; project: the same object you passed to find). Call started before filling and applied after every submission. The applied reply's application_id is the application's id at EarnKit: when the program asks for an EarnKit id, give it that.",
   );
   assert.equal(tools[0].description, FIND_DESCRIPTION);
   assert.equal(tools[1].description, TRACK_DESCRIPTION);
@@ -40,7 +40,7 @@ test('four tools, their descriptions and the server instructions, verbatim', asy
   assert.equal(tools[2].description, RECORD_DESCRIPTION);
   assert.equal(
     SCREEN_DESCRIPTION,
-    "For a program's reviewer: hand EarnKit the applicant list, each { ref (your id for them, required), name, repo_url, live_url, contracts: [{ chain, address }], pitch }, and get it back in named tiers with public evidence; with job_id, progress and results; with outcomes, who won.",
+    "For a program's reviewer: hand EarnKit the applicant list, each { ref (your id for them, required), name, repo_url, live_url, contracts: [{ chain, address }], pitch, application_id (the EarnKit id the applicant gave you, if any) }, and get it back in named tiers with public evidence; with job_id, progress and results; with outcomes, who won.",
   );
   assert.equal(tools[3].description, SCREEN_DESCRIPTION);
   assert.equal(

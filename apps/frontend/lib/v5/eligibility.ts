@@ -22,6 +22,8 @@ export type Gap = {
   what: string;
   effort: Effort;
   agent_can: boolean;
+  /** v6.1.14 (L1f-1, L1f-3): the step that closes the gap, said after "First:" on its line and in the closing. */
+  setup?: string;
   details?: { chain?: string; rpc?: string | null; explorer?: string | null; docs?: string | null; tier?: string; min_tier?: string };
 };
 export type Verdict = {
@@ -81,7 +83,7 @@ export function lookedAgain(gaps: Gap[], done: Set<string>): string[] {
       case 'contract_on': return `a contract on ${chain}`;
       case 'builder_codes': return 'Base Builder Codes in the app';
       case 'live_product': return 'a live link';
-      case 'repo': return 'code in a repo';
+      case 'repo': return g.item === 'repo' ? 'code in a repo' : g.what;
       default: return g.what.replace(/^add /, '');
     }
   });
@@ -92,6 +94,10 @@ const date = (s: string) => s.slice(0, 10);
 const startedQuestion = (i: EligibilityItem): Gap => ({ kind: 'new_work_after', item: itemKey(i), what: 'tell me when you started this', effort: 'minutes', agent_can: false });
 /** T3-R1 (v6.1.13): code in a repo, the step a needs_repo grant for existing code is from an idea or an empty repo. */
 export const NEEDS_CODE: Gap = { kind: 'repo', item: 'repo', what: 'code in a repo', effort: 'days', agent_can: false };
+/** L1f-1 (v6.1.14): an open source program and a private repo: the repo made public, re-checked by the next report or read. */
+export const PUBLIC_REPO: Gap = { kind: 'repo', item: 'repo:public', what: 'a public repo', setup: 'make the repo public', effort: 'minutes', agent_can: false };
+/** L1f-3 (v6.1.14): an archived repo, for a program that wants the code or its users: the live repo, never the users question. */
+export const ARCHIVED_REPO: Gap = { kind: 'repo', item: 'repo:archived', what: 'the repo is archived', setup: 'tell me the live repo', effort: 'minutes', agent_can: false };
 /** Users not reported: a question only the builder answers, not weeks of work. */
 const USERS_UNKNOWN: Gap = { kind: 'users', item: 'users', what: 'tell me if real people use it', effort: 'hours', agent_can: false };
 
@@ -146,6 +152,13 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
   // an event) is one step from a project with nothing to show (no live link, and no repo link or a repo the read found
   // empty): code in a repo, a real change competing in the ordinary step slots. The read settles it.
   if (p.needs_repo && forExistingCode(p) && !facts.live_url && (!facts.repo_url || (facts.notes ?? []).includes('empty'))) gaps.push(NEEDS_CODE);
+  // L1f-1 (v6.1.14): an open source program is never ready for a private repo (reported private, or a link not read
+  // for being private): its step is making the repo public.
+  if (p.open_source && (facts.private || (facts.notes ?? []).includes('private'))) gaps.push(PUBLIC_REPO);
+  // L1f-3 (v6.1.14): an archived repo, for a program that wants the code or its users: the archive is the gap, and the
+  // users question waits for the live repo.
+  const archived = (facts.notes ?? []).includes('archived') && (p.needs_repo === true || p.min_tier === 'used' || own.some((i) => i.kind === 'users'));
+  if (archived) gaps.push(ARCHIVED_REPO);
   let inPerson = false;
   const chainItems = items.filter((i) => i.kind === 'chain');
   const mainnets = new Set(facts.chains.filter((c) => c.mainnet).map((c) => c.chain));
@@ -161,7 +174,7 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
       case 'builder_codes': if (!facts.builder_codes) gaps.push(gapOf(i)); break;
       case 'users':
         if (facts.users === false) gaps.push(gapOf(i));
-        else if (facts.users !== true && !done.has(itemKey(i))) gaps.push(USERS_UNKNOWN);
+        else if (facts.users !== true && !done.has(itemKey(i)) && !archived) gaps.push(USERS_UNKNOWN);
         break;
       case 'new_work_after': {
         // O3 (v6.1.10): no first-commit date is a question, not a refusal; the builder's word (gap_done) settles it.

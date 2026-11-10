@@ -5,6 +5,7 @@
  * over a result, is refused and changes nothing. A win is whole dollars; one over the program's stated maximum, else
  * its pool, else 10,000,000, is refused; investments are never "asked".
  */
+import { randomBytes } from 'node:crypto';
 import { sql, type Db } from './db';
 import { categoryOf, eligibilityOf } from './program-file';
 import { codeChecked, forExistingCode, itemKey } from './eligibility';
@@ -66,9 +67,13 @@ const installationOf = (owner: string): number | undefined => (/^i:(\d+)$/.exec(
 const usd = (n: number) => '$' + Math.round(n).toLocaleString('en-US');
 /** "Nov 4": a day in UTC. Pure. */
 export const dayOf = (d: Date) => new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(d);
-/** "won $3,000", "rejected", "no result": a row's result in words. Pure. */
-const resultWords = (status: string, amount: string | null) =>
-  status === 'won' ? `won ${usd(Number(amount ?? 0))}` : status === 'no_result' ? 'no result' : status;
+/** L13-13 (v6.1.14): a program's win passed on without its amount, as the row's note says. */
+export const AMOUNT_NOT_GIVEN = 'amount not given';
+/** "won $3,000", "won, amount not given", "rejected", "no result": a row's result in words. Pure. */
+export const resultWords = (status: string, amount: string | null) =>
+  status === 'won' ? (amount === null ? `won, ${AMOUNT_NOT_GIVEN}` : `won ${usd(Number(amount))}`) : status === 'no_result' ? 'no result' : status;
+/** L13-1 (v6.1.14): a new application's own id, given to the agent that tracked the send. */
+export const newApplicationId = () => `ek-${randomBytes(9).toString('base64url')}`;
 
 /** The program's title: the catalog's, else the one stored when it was sent, else the id. */
 export async function titleOf(owner: string, programId: string): Promise<string> {
@@ -99,6 +104,9 @@ export async function record(
     /** applied with autoApplied: the policy's max_per_night. Counted here under the owner's lock: a send past it is
      *  recorded as not under standing approval and answers `night` (v6.1.8 B18). */
     maxPerNight?: number;
+    /** won only, from a program's screen (L13-13, v6.1.14): the program gave no amount; the win is kept with none,
+     *  its note AMOUNT_NOT_GIVEN. A later win with the amount completes it. */
+    amountNotGiven?: true;
   } = {},
 ): Promise<{ ok: true; repeated?: true; night?: true; closed?: true } | { ok: false; note: string; items?: string[] }> {
   const installationId = o.installationId ?? installationOf(owner);
@@ -108,9 +116,10 @@ export async function record(
   const unknown = { ok: false, note: "I don't know that program." } as const;
   // A result may land after the program left the catalog, when the owner's ledger holds it (checked below).
   if (!program && !RESULTS.includes(status)) return unknown;
-  if (status === 'won' && !(typeof o.amount_usd === 'number' && Number.isInteger(o.amount_usd) && o.amount_usd >= 1))
+  const noAmount = status === 'won' && o.amountNotGiven === true && o.amount_usd === undefined;
+  if (status === 'won' && !noAmount && !(typeof o.amount_usd === 'number' && Number.isInteger(o.amount_usd) && o.amount_usd >= 1))
     return { ok: false, note: WHOLE_DOLLARS };
-  if (status === 'won' && o.amount_usd! > winCapOf(program)) return { ok: false, note: OVER_CAP };
+  if (status === 'won' && !noAmount && o.amount_usd! > winCapOf(program)) return { ok: false, note: OVER_CAP };
   if (status === 'gap_done' && program) {
     // Only one of the program's own items; the unknown-users gap ('users') only when it has a users item (v6.1.7, C27).
     const items = eligibilityOf(program.file);
@@ -122,8 +131,8 @@ export async function record(
   }
   if (status === 'gap_done' && !o.item) return { ok: false, note: WHICH_CHANGE };
   if (status === 'started') throw new Error('a claim is written by claims.claim');
-  const amount = status === 'won' ? o.amount_usd! : null;
-  const note = o.note ?? null;
+  const amount = status === 'won' && !noAmount ? o.amount_usd! : null;
+  const note = noAmount ? AMOUNT_NOT_GIVEN : o.note ?? null;
   let repeated = false;
   let night = false;
   let closed = false;
@@ -135,9 +144,11 @@ export async function record(
       SELECT a.status, a.amount_usd, a.at, i.client_name, a.claimed_at, a.claimed_by FROM applications a LEFT JOIN installations i ON i.id = a.installation_id
       WHERE a.owner = ${owner} AND a.program_id = ${programId} FOR UPDATE OF a`;
     if (!program && !row) return unknown;
-    const resulted = row && RESULTS.includes(row.status);
+    // L13-13 (v6.1.14): a win kept without its amount takes the amount once; nothing else replaces a result.
+    const completes = row?.status === 'won' && row.amount_usd === null && status === 'won' && amount !== null;
+    const resulted = row && RESULTS.includes(row.status) && !completes;
     if (resulted && status === 'skipped') return { ok: false, note: 'That one already has a result here; nothing to skip.' } as const;
-    if (resulted && RESULTS.includes(status) && row.status === status && (status !== 'won' || Number(row.amount_usd) === amount))
+    if (resulted && RESULTS.includes(status) && row.status === status && (status !== 'won' || (row.amount_usd === null ? null : Number(row.amount_usd)) === amount))
       return { ok: false, note: 'Already recorded.' } as const;
     if (resulted && (status === 'applied' || RESULTS.includes(status)))
       return { ok: false, note: `That one already has a result here: ${resultWords(row.status, row.amount_usd)}.` } as const;
@@ -177,10 +188,12 @@ export async function record(
       // Over a claim the row keeps claimed_at and claimed_by: what was claimed, then sent.
       // The title is kept, so a result still reads once the program leaves the catalog.
       // sent_at is the send time: a result later moves `at`, never this (v6.1.9 N2).
-      await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, note, at, sent_at, submitted_by, fields_used, project_id, auto_applied, title)
-        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, ${note}, ${now}, ${now}, ${o.submitted_by ?? null}, ${o.fields_used ?? null}, ${o.project_id ?? null}, ${auto}, ${program!.file.title})
+      // L13-1 (v6.1.14): the application's own id, kept when the row already has one.
+      await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, note, at, sent_at, submitted_by, fields_used, project_id, auto_applied, title, application_id)
+        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, ${note}, ${now}, ${now}, ${o.submitted_by ?? null}, ${o.fields_used ?? null}, ${o.project_id ?? null}, ${auto}, ${program!.file.title}, ${newApplicationId()})
         ON CONFLICT (owner, program_id) DO UPDATE
           SET installation_id = EXCLUDED.installation_id, status = 'applied', amount_usd = NULL, note = EXCLUDED.note, at = EXCLUDED.at, sent_at = EXCLUDED.sent_at,
+              application_id = COALESCE(applications.application_id, EXCLUDED.application_id),
               submitted_by = EXCLUDED.submitted_by, fields_used = EXCLUDED.fields_used, auto_applied = EXCLUDED.auto_applied, title = EXCLUDED.title,
               project_id = COALESCE(EXCLUDED.project_id, applications.project_id)`;
     } else if (status === 'skipped' && row?.status === 'started') {

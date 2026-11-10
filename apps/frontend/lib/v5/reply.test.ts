@@ -706,7 +706,7 @@ test('M1 (v6.1.9): nothing ready and no rule-only program shown: the closing off
   assert.equal(end(base({ gaps: [vr, floss] })), 'Nothing is ready yet. Do real people use it? Say yes and I apply.');
   // I2 (v6.1.9 final): the only step program shown carries a rule: the rule is asked first, once.
   const vrAlone = replyText(base({ gaps: [vr] }), true);
-  assert.equal(vrAlone.split('\n').at(-1), 'Nothing is ready yet. Say "yes 1" if its rule fits you.');
+  assert.equal(vrAlone.split('\n').at(-1), 'Nothing is ready yet. Say "yes 1" if that rule fits you.');
   assert.equal(vrAlone.match(/"yes 1"/g)?.length, 1, vrAlone);
   assert.equal(stepRuleOf([{ ...vr, n: 3 }]), 3);
   assert.equal(stepRuleOf([vr, floss]), null);
@@ -978,4 +978,32 @@ test('fix round 1 (v6.1.14, F1 and F2): the proof sign-in promises a check only 
   assert.equal(del.match(/Sign in/g)!.length, 1, del);
   // No proof gap and no link: no sign-in sentence, as before.
   assert.equal(replyText(base({ ready: [ready({ title: 'A' })] }), true).split('\n\n').at(-1), 'Say yes and I apply.');
+});
+
+test('L1f-2 (v6.1.14): a step program whose only change is code in a repo closes on that, never a rule yes before the code exists', () => {
+  const end = (r: R) => replyText(r, true).split('\n').at(-1);
+  const CODE = { kind: 'repo' as const, item: 'repo', what: 'code in a repo', effort: 'days' as const, agent_can: false };
+  const RULE = { kind: 'rule' as const, item: 'rule:abcd1234', what: 'open source software', effort: 'hours' as const, agent_can: false };
+  const futo = gap({ title: 'FUTO Microgrants', gap: CODE, also: [RULE], rules: ['open source software'], n: 1 });
+  assert.equal(stepRuleOf([futo]), null);
+  assert.equal(end(base({ gaps: [futo] })), 'Nothing is ready yet. Tell me when the code is in a repo and I look again.');
+  assert.equal(end(base({ gaps: [{ ...futo, also: [] }] })), 'Nothing is ready yet. Tell me when the code is in a repo and I look again.');
+  assert.equal(gapAction(futo), 'Tell me when the code is in a repo and I look again.');
+});
+
+test('L1f-1, L1f-3 (v6.1.14): the public repo and archive gaps read as gaps, their step after "First:" and in the closing', () => {
+  const end = (r: R) => replyText(r, true).split('\n').at(-1);
+  const PUBLIC = { kind: 'repo' as const, item: 'repo:public', what: 'a public repo', setup: 'make the repo public', effort: 'minutes' as const, agent_can: false };
+  const ARCHIVED = { kind: 'repo' as const, item: 'repo:archived', what: 'the repo is archived', setup: 'tell me the live repo', effort: 'minutes' as const, agent_can: false };
+  const SETUP = ['make the repo public', 'publish a funding manifest on your site or repo'];
+  const floss = gap({ title: 'FLOSS/fund', gap: PUBLIC, setup: SETUP, n: 1 });
+  assert.equal(gapLine(floss), '1. FLOSS/fund, $1K: a public repo. First: make the repo public; publish a funding manifest on your site or repo.');
+  assert.equal(end(base({ gaps: [floss] })), 'Nothing is ready yet. First: make the repo public. Tell me when it is done and I look again.');
+  assert.doesNotMatch(replyText(base({ gaps: [floss] }), true), /Say yes and I apply/);
+  assert.equal(gapAction(floss), 'Tell me when the repo is public and I look again.');
+  const atom = gap({ title: 'FLOSS/fund', gap: ARCHIVED, setup: ['tell me the live repo', 'publish a funding manifest on your site or repo'], n: 1 });
+  assert.equal(gapLine(atom), '1. FLOSS/fund, $1K: the repo is archived. First: tell me the live repo; publish a funding manifest on your site or repo.');
+  assert.equal(end(base({ gaps: [atom] })), 'Nothing is ready yet. First: tell me the live repo, and I look again.');
+  assert.equal(gapAction({ ...atom, setup: ['tell me the live repo'] }), 'Tell me the live repo and I look again.');
+  assert.match(agentNote(base({ gaps: [floss, atom] }), { more: 0 }), /pass private: false[^\n]*live repo_url/);
 });

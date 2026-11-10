@@ -124,12 +124,18 @@ export async function linkInstallation(installationId: number, builderId: number
 
 /**
  * Unlinks the builder's own installation (v6.1.7 B10): its ledger rows stay with the builder, and `unlinked_at`
- * marks it so the agent's next find says it was unlinked. False when it is not this builder's.
+ * marks it so the agent's next find says it was unlinked. False when it is not this builder's. In the same
+ * transaction its claims in the builder's ledger are released (L13-2, v6.1.14), so the builder's other agents send
+ * them at once; its later calls write its own ledger, never the builder's.
  */
 export async function unlinkInstallation(installationId: number, builderId: number, now: Date): Promise<boolean> {
-  const r = await sql()`UPDATE installations SET builder_id = NULL, linked_at = NULL, unlinked_at = ${now}, unlinked_reason = 'unlinked'
-    WHERE id = ${installationId} AND builder_id = ${builderId}`;
-  return r.count > 0;
+  return sql().begin(async (tx) => {
+    const r = await tx`UPDATE installations SET builder_id = NULL, linked_at = NULL, unlinked_at = ${now}, unlinked_reason = 'unlinked'
+      WHERE id = ${installationId} AND builder_id = ${builderId}`;
+    if (r.count === 0) return false;
+    await tx`DELETE FROM applications WHERE owner = ${`b:${builderId}`} AND status = 'started' AND claimed_by = ${installationId}`;
+    return true;
+  }) as Promise<boolean>;
 }
 
 /** True after an unlink until the notice is taken; reads only. A linked installation has none. */

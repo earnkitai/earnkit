@@ -328,8 +328,11 @@ test('B20c, B20d (v6.1.9, Review Focus 1, fix rounds 1 and 2): the users questio
   assert.ok(pp.ok);
   const priv = await repoFacts(pp.project, { now: NOW });
   assert.deepEqual([priv.as_reported, priv.notes], [true, ['private']]);
-  assert.deepEqual(evaluate(floss, priv, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
-  assert.equal(evaluate(floss, { ...priv, users: true }, new Set(), NOW).status, 'ready');
+  // L1f-1 (v6.1.14): FLOSS/fund is open source, so the private repo is a step from it too, never ready.
+  assert.deepEqual(evaluate(floss, priv, new Set(), NOW).gaps.map((g) => g.what), ['a public repo', 'tell me if real people use it']);
+  assert.deepEqual(evaluate(usersOnly, priv, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
+  assert.equal(evaluate(usersOnly, { ...priv, users: true }, new Set(), NOW).status, 'ready');
+  assert.equal(evaluate(floss, { ...priv, users: true }, new Set(), NOW).status, 'gap');
   assert.equal(evaluate(floss, { ...empty, live_url: 'https://x.dev', users: true }, new Set(), NOW).status, 'ready');
   // B20d (fix round 2): reads paused for the day keeps the builder's word; a repo link that was not read (a 404 or a
   // failed read) does not exist for the question.
@@ -453,4 +456,46 @@ test('L1c-2 final (v6.1.10): the keyword matcher takes punctuation as a boundary
   // Meta's models are not the VR competition.
   const vr = eligibilityKeywords('meta-vr-start-competition-2026');
   assert.equal(vr.some((k) => names('Fine-tunes meta-llama by Meta AI', k)), false);
+});
+
+/** v6.1.14 L1f-1: the catalog programs whose rule is an open source license or open source software. */
+const OPEN_SOURCE = [
+  'floss-fund-zerodha', 'futo-microgrants', 'github-secure-open-source-fund', 'herodevs-sustainability-fund', 'kiroween-2026',
+  'neon-open-source-program', 'nlnet-open-call', 'paypal-ai-hackathon', 'qnx-global-hackathon-2026', 'sovereign-tech-fund',
+];
+const PUBLIC_GAP = ['repo', 'repo:public', 'a public repo', 'make the repo public'];
+const gapRow = (g: Gap) => [g.kind, g.item, g.what, g.setup];
+
+test('L1f-1 (v6.1.14, Review Focus 6): a private repo is never ready for an open source program: its one step is a public repo', async () => {
+  for (const f of OPEN_SOURCE) assert.equal(fromFile(f).file.open_source, true, f);
+  assert.equal(fromFile('base-builder-grants').file.open_source, false);
+  const floss = fromFile('floss-fund-zerodha');
+  const parsed = parseProject({ name: 'Billing Core', description: 'Usage-based billing engine for B2B APIs', repo_url: 'https://github.com/acme-private/billing-core', private: true, users: true });
+  assert.ok(parsed.ok);
+  const hidden = await repoFacts(parsed.project, { now: NOW });
+  assert.equal(hidden.private, true);
+  const v = evaluate(floss, hidden, new Set(), NOW);
+  assert.deepEqual([v.status, v.gaps.map(gapRow)], ['gap', [PUBLIC_GAP]]);
+  // HeroDevs too: the public repo before its license rule.
+  const hero = evaluate(fromFile('herodevs-sustainability-fund'), hidden, new Set(), NOW);
+  assert.deepEqual(hero.gaps.map((g) => g.item).slice(0, 1), ['repo:public']);
+  // The agent's word alone (no repo link) is a private repo too.
+  const noLink = parseProject({ name: 'Billing Core', description: 'Billing', private: true, users: true, live_url: 'https://billing.example' });
+  assert.ok(noLink.ok);
+  assert.deepEqual(evaluate(floss, await repoFacts(noLink.project, { now: NOW }), new Set(), NOW).gaps.map(gapRow), [PUBLIC_GAP]);
+  // Public: no such gap; a program with no open source rule never asks it.
+  const open = { ...hidden, private: undefined, notes: [], public: true, as_reported: false };
+  assert.equal(evaluate(floss, open, new Set(), NOW).status, 'ready');
+  assert.ok(!evaluate(toRow(programFixture({ id: 'p-closed', tag: undefined })), hidden, new Set(), NOW).gaps.some((g) => g.item === 'repo:public'));
+});
+
+test('L1f-3 (v6.1.14): an archived repo is never asked the users question: its one step is the archive, told the live repo', async () => {
+  const facts = await factsOf('archived-dashboard');
+  assert.ok(facts.notes?.includes('archived'));
+  const v = evaluate(fromFile('floss-fund-zerodha'), facts, new Set(), NOW);
+  assert.deepEqual([v.status, v.gaps.map(gapRow)], ['gap', [['repo', 'repo:archived', 'the repo is archived', 'tell me the live repo']]]);
+  assert.ok(!v.gaps.some((g) => g.kind === 'users'));
+  // A live repo gets the users question as before.
+  const live = evaluate(fromFile('floss-fund-zerodha'), { ...facts, notes: [] }, new Set(), NOW);
+  assert.deepEqual(live.gaps.map((g) => g.item), ['users']);
 });

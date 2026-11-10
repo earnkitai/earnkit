@@ -6,6 +6,7 @@ import { replayFetch } from './fixtures/github';
 import { mcpCall } from './fixtures/mcp-call';
 import { lastGaps } from './installations';
 import { shownReadyOf } from './find';
+import { REPO_STEP_NOTE } from './reply';
 
 after(() => sql().end());
 beforeEach(() => sql()`DELETE FROM repo_cache`);
@@ -290,7 +291,7 @@ test('1b (v6.1.8): Solana Foundation Grants for a Solana dapp names the one rule
 });
 
 test('C1 (v6.1.8 final fix, B20b): FLOSS/fund for a chainless CLI asks the users question, never the sign-in bar; a yes makes it ready', async () => {
-  const CLI = { name: 'ripgrep', description: 'A line-oriented search tool for the command line.', private: true, live_url: 'https://ripgrep.dev' };
+  const CLI = { name: 'ripgrep', description: 'A line-oriented search tool for the command line.', live_url: 'https://ripgrep.dev' };
   const ask = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: CLI });
   assert.equal(ask.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.', 'Say yes if they do and I draft it.'].join('\n'));
   const yes = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: { ...CLI, users: true } });
@@ -304,7 +305,7 @@ test('C1 (v6.1.8 final fix, B20b): FLOSS/fund for a chainless CLI asks the users
 });
 
 test('1b (v6.1.8): FLOSS/fund for a CLI on Base: not a fit with no live link, sign in to confirm users, then ready with one yes', async () => {
-  const CLI = { name: 'ripgrep', description: 'A line-oriented search tool for the command line.', private: true, users: true, chains: [{ chain: 'base', mainnet: true }] };
+  const CLI = { name: 'ripgrep', description: 'A line-oriented search tool for the command line.', users: true, chains: [{ chain: 'base', mainnet: true }] };
   const no = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: CLI });
   // B20c (v6.1.9): nothing EarnKit can see exists, so the users bar is not a fit before any tier.
   assert.equal(no.reply!.show_to_builder, 'FLOSS/fund, $10,000 to $100,000. Not a fit: needs a product people use.');
@@ -1020,13 +1021,15 @@ const META_VR_LINE = (n: number) => `${n}. Meta VR Start Developer Competition 2
 const FUTO_ONLY = ['One step away (1):', '1. FUTO Microgrants, $1,000 to $5,000. Their rule: open source software from a small or early-stage project.'];
 /** Fix round 1 (T3-R1): an idea, notes or an empty repo: FUTO one real step away (code in a repo), then in person. */
 const FUTO_CODE = '1. FUTO Microgrants, $1,000 to $5,000: code in a repo. Their rule: open source software from a small or early-stage project.';
-const IDEA_REPLY = (notes: string[] = []) => ['One step away (1):', FUTO_CODE, '', ...inPersonBlock(2), '', ...notes.flatMap((x) => [x, '']), RULE_FIRST].join('\n');
+const IDEA_REPLY = (notes: string[] = []) => ['One step away (1):', FUTO_CODE, '', ...inPersonBlock(2), '', ...notes.flatMap((x) => [x, '']), CODE_FIRST].join('\n');
 /** The closing on a rule-only program the reply lists first. */
 const THAT_RULE_FIRST = 'Nothing is ready yet. Say "yes 1" if that rule fits you.';
 /** L1d-2 (v6.1.11, Review Focus 2): Colosseum's line names its account and sprint, never "a demo video" alone. */
 const COLOSSEUM_LINE = (n: number) => `${n}. Colosseum Eternal, $25,000 award: a demo video. First: sign up for a Colosseum account; start the four-week sprint in the Eternal dashboard. Their rules: a crypto product built during the four-week sprint; the team has not raised venture capital for the startup it submits.`;
 /** Fix round 1 (v6.1.10): a remote step shown closes the reply with its own step, in-person programs listed or not. */
-const RULE_FIRST = 'Nothing is ready yet. Say "yes 1" if its rule fits you.';
+const RULE_FIRST = 'Nothing is ready yet. Say "yes 1" if that rule fits you.';
+/** L1f-2 (v6.1.14): the only step needs code first, so the closing asks for that, never the rule yes. */
+const CODE_FIRST = 'Nothing is ready yet. Tell me when the code is in a repo and I look again.';
 const USERS_FIRST = 'Nothing is ready yet. Do real people use it? Say yes and I look again.';
 /** The rule-bearing program alone, a list of one (N-2, v6.1.9 fix round 1). */
 const META_VR_ONLY = ['One step away (1):', META_VR_LINE(1)];
@@ -1164,27 +1167,30 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
   // One real change each, so the money decides: $1M pool, $120K pool, then PayPal's $67,500 pool.
   const all = await mcpCall(await dashCtx(), 'find', { project: VR, filter: { all: true } });
   assert.deepEqual(ids(all.reply!.gaps).slice(0, 3), ['meta-vr-start-competition-2026', 'codegeist-2026', 'paypal-ai-hackathon']);
-  // B20c fix round 1 (persona 9): a private repo is the builder's word, so it exists; users said, FLOSS/fund is ready.
+  // B20c fix round 1 (persona 9): a private repo is the builder's word, so it exists. L1f-1 (v6.1.14, Review Focus 6):
+  // FLOSS/fund and HeroDevs are open source programs, so the private repo is one step from each (a public repo), never
+  // ready and never "Say yes and I apply.".
   const hidden = await mcpCall(ctx(await installation()), 'find', { project: { ...VR, private: true } });
-  assert.match(blockOf(hidden.reply!.show_to_builder as string, 'Ready to apply'), /^1\. FLOSS\/fund, /m);
-  assert.match(hidden.reply!.show_to_builder as string, /^Private repo: matched on what you told me\.$/m);
-  // v6.1.10: the private persona's whole reply, pinned (the VR words are its own, so the VR rule is likely).
+  assert.equal(blockOf(hidden.reply!.show_to_builder as string, 'Ready to apply'), '');
+  assert.doesNotMatch(hidden.reply!.show_to_builder as string, /Say yes and I apply/);
   assert.equal(
     hidden.reply!.show_to_builder,
     [
-      'Ready to apply (1):',
-      '1. FLOSS/fund, $10,000 to $100,000. Needs your funding manifest link. First: publish a funding manifest on your site or repo.',
-      '',
-      'One step away (1):',
+      'One step away (3):',
+      '1. FLOSS/fund, $10,000 to $100,000: a public repo. First: make the repo public; publish a funding manifest on your site or repo.',
       META_VR_LINE(2),
+      '3. HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: a public repo. First: make the repo public. Their rule: an OSI-approved open source license.',
       '',
-      ...inPersonBlock(3),
+      ...inPersonBlock(4),
       '',
       'Private repo: matched on what you told me.',
       '',
-      'Say yes and I apply.',
+      'Nothing is ready yet. First: make the repo public. Tell me when it is done and I look again.',
     ].join('\n'),
   );
+  const one = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss', project: { ...VR, private: true } });
+  assert.equal(one.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000: a public repo. First: make the repo public; publish a funding manifest on your site or repo.', 'Tell me when the repo is public and I look again.'].join('\n'));
+  assert.ok((hidden.reply!.agent_note as string).split('\n').includes(REPO_STEP_NOTE));
 });
 
 test('N-3 (v6.1.9, Review Focus 2): the VR persona marks the demo video done and Meta VR heads the next default list as rule-only with its yes', async () => {
@@ -1340,6 +1346,31 @@ test('L1d-1 (v6.1.11), C1 (v6.1.13): another agent\'s claim on another project r
   assert.match(allShow.split('\n').find((l) => l.includes('Y Combinator'))!, / Being handled by your other agent for another project\.$/);
   const allReady = all.reply!.ready as { program_id: string; claimed_since?: string }[];
   assert.equal(allReady.find((p) => p.program_id === 'y-combinator')?.claimed_since, new Date(NOW.getTime() - H).toISOString());
+});
+
+test('L1f-3 (v6.1.14, persona 12): an archived repo is never asked the users question; its line reads the archive as a gap', async () => {
+  const rec = replayFetch('archived-dashboard');
+  const ATOM = { name: 'Atom', description: 'The hackable text editor', repo_url: `https://github.com/${rec.repo}` };
+  const c = { installationId: await installation(), builderId: null, now: NOW, gh: rec.fetch };
+  const r = await mcpCall(c, 'find', { project: ATOM });
+  const show = r.reply!.show_to_builder as string;
+  assert.doesNotMatch(show, /real people use it/);
+  assert.equal(show, [
+    'One step away (1):',
+    '1. FLOSS/fund, $10,000 to $100,000: the repo is archived. First: tell me the live repo; publish a funding manifest on your site or repo.',
+    '',
+    ...inPersonBlock(2),
+    '',
+    'This repo is archived; programs want active work.',
+    '',
+    'Nothing is ready yet. First: tell me the live repo, and I look again.',
+  ].join('\n'));
+  assert.ok((r.reply!.agent_note as string).split('\n').includes(REPO_STEP_NOTE));
+  const one = await mcpCall(c, 'find', { program_id: 'herodevs', project: ATOM });
+  assert.equal(one.reply!.show_to_builder, [
+    'HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: the repo is archived. First: tell me the live repo. Their rule: an OSI-approved open source license.',
+    'Tell me the live repo and I look again.',
+  ].join('\n'));
 });
 
 test('B20c (v6.1.9, Review Focus 1): a repo-less idea and an empty repo are never asked the users question, and a yes never makes FLOSS/fund ready', async () => {
@@ -2075,7 +2106,7 @@ test('F1, F2, lane 8 #1, #8, #10 (v6.1.10): the problem the record lacks holds t
 });
 
 test('F3 and fix round 1 (v6.1.10), N3 (v6.1.12): the users yes and the rule yes stand for a fully ready program; with answers missing the closing names them', async () => {
-  const CLI = { name: 'ripgrep', description: 'A line-oriented search tool for the command line.', private: true, live_url: 'https://ripgrep.dev' };
+  const CLI = { name: 'ripgrep', description: 'A line-oriented search tool for the command line.', live_url: 'https://ripgrep.dev' };
   const c = ctx(await installation());
   const ask = await mcpCall(c, 'find', { program_id: 'floss-fund-zerodha', project: CLI });
   assert.equal((ask.reply!.show_to_builder as string).split('\n').at(-1), 'Say yes if they do and I draft it.');

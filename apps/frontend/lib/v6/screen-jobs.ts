@@ -1,17 +1,17 @@
 /**
  * Screen jobs: a reviewer's applicant list queued for the worker (pitches compared at creation and
- * dropped), the results with public rows only, the program's outcomes (into a matching builder's ledger
- * when they had applied) and the counts across programs. Results live 30 days.
+ * dropped), the results with public rows only, the program's outcomes (into the ledger of the application the
+ * applicant row names by its EarnKit id, never by repo) and the counts across programs. Results live 30 days.
  */
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { sql } from '../v5/db';
 import { isKnownChain } from '../v5/chains';
-import { record } from '../v5/ledger';
+import { record, resultWords } from '../v5/ledger';
 import { repoKey } from '../v5/repo-facts';
 import { type Applicant, identicalPitches } from './applicants';
 import type { Row } from './evidence';
-import { parseRecord } from './record';
+import { listWords } from './reply-words';
 import { type Flag, type Thresholds, type Tier, TIERS } from './tiers';
 
 export const ScreenApplicant = z
@@ -23,6 +23,7 @@ export const ScreenApplicant = z
     contracts: z.array(z.object({ chain: z.string().trim().max(40), address: z.string().trim().max(80) }).strip()).max(10).optional(),
     pitch: z.string().max(4000).optional().describe('Compared for identical pitches only; never stored'),
     applied_at: z.iso.datetime({ offset: true }).optional(),
+    application_id: z.string().trim().min(1).max(40).optional().describe('The EarnKit application id the applicant gave the program, if any'),
   })
   .strip();
 export type ScreenApplicant = z.infer<typeof ScreenApplicant>;
@@ -96,7 +97,7 @@ export async function createJob(o: {
     const repo = repoOf(a.repo_url);
     return {
       ref, name: a.name || ref, repo_url: repo.url, repo_key: repo.key, live_url: a.live_url || null,
-      contracts: contractsOf(a.contracts), applied_at: a.applied_at ?? null, pitch: a.pitch ?? null,
+      contracts: contractsOf(a.contracts), applied_at: a.applied_at ?? null, pitch: a.pitch ?? null, application_id: a.application_id ?? null,
     };
   });
   const pitches = identicalPitches(list.map((a): Applicant => ({ ...a, problems: [] })));
@@ -111,8 +112,8 @@ export async function createJob(o: {
     await tx`INSERT INTO screen_jobs (id, program_id, builder_id, installation_id, created_at, thresholds, total, expires_at)
       VALUES (${id}, ${o.programId}, ${o.builderId}, ${o.installationId}, ${o.now}, ${o.thresholds ? tx.json(o.thresholds) : null}, ${list.length}, ${expires})`;
     for (const a of list) {
-      await tx`INSERT INTO screen_applicants (job_id, ref, name, repo_key, repo_url, live_url, contracts, applied_at, identical_pitch)
-        VALUES (${id}, ${a.ref}, ${a.name}, ${a.repo_key}, ${a.repo_url}, ${a.live_url}, ${tx.json(a.contracts)}, ${a.applied_at}, ${pitches.get(a.ref) ?? 0})`;
+      await tx`INSERT INTO screen_applicants (job_id, ref, name, repo_key, repo_url, live_url, contracts, applied_at, identical_pitch, application_id)
+        VALUES (${id}, ${a.ref}, ${a.name}, ${a.repo_key}, ${a.repo_url}, ${a.live_url}, ${tx.json(a.contracts)}, ${a.applied_at}, ${pitches.get(a.ref) ?? 0}, ${a.application_id})`;
     }
   });
   return { id, total: list.length, cached };
@@ -167,54 +168,77 @@ export async function sweepScreens(now: Date): Promise<number> {
   }) as Promise<number>;
 }
 
-/** Builders whose record has a project on this repo. */
-async function buildersOnRepo(key: string): Promise<number[]> {
-  const rows = await sql()<{ id: number; record: unknown }[]>`
-    SELECT DISTINCT b.id, b.record FROM builders b,
-      jsonb_array_elements(CASE WHEN jsonb_typeof(b.record->'projects') = 'array' THEN b.record->'projects' ELSE '[]'::jsonb END) p
-    WHERE strpos(lower(p->>'repo_url'), ${key}) > 0`;
-  return rows.filter((r) => parseRecord(r.record, r.id).projects.some((p) => p.repo_url && repoKey(p.repo_url) === key)).map((r) => r.id);
-}
+/** L13-1, L13-12, L13-13 (v6.1.14): the reviewer's agent hears what each outcome did, never what a builder's ledger holds. */
+export const OUTCOME_NOTES = {
+  unmatched: (refs: string[]) => `Not matched to an EarnKit application: ${listWords(refs, 10)}.`,
+  noAmount: (refs: string[]) => `Passed on as a win, amount not given: ${listWords(refs, 10)}.`,
+  replaced: (items: string[]) => `Replaced the outcome recorded before: ${listWords(items, 10)}.`,
+  older: (refs: string[]) => `Not recorded, a later outcome is already kept: ${listWords(refs, 10)}.`,
+} as const;
 
 /**
- * The program's decisions. Each is kept for the counts across programs; a won or rejected one also goes
- * to the ledger of the one builder whose record project is the same repo and who had applied to this program
- * (two such builders: neither, the repo claim is ambiguous),
- * written as that builder's applying installation (through ledger.record, so its caps hold; a refused
- * write, such as a win with no amount, is left out). Shortlisted writes no ledger row. Returns only how
- * many outcomes were recorded: whether any reached a builder's ledger never goes back to the program.
+ * The program's decisions. Each is kept for the counts across programs; a second one for an applicant replaces the
+ * first only when newer (L13-12), and the note says which it replaced. A won or rejected one also goes to the ledger of
+ * the application the applicant row names by its EarnKit id (L13-1, v6.1.14), only when that application is for this
+ * program: never by repo or site, since a record or an applicant list can name any repo. It is written as that
+ * application's own installation, through ledger.record so its caps and its one result per program hold; a win with
+ * no amount is passed on as a win with none (L13-13). Shortlisted writes no ledger row. `notes` are for the reviewer's
+ * agent: what the screen did, never whether a ledger took it.
  */
-export async function recordOutcomes(jobId: string, builderId: number, outcomes: Outcome[], now: Date): Promise<{ recorded: number; notFound: string[] }> {
+export async function recordOutcomes(jobId: string, builderId: number, outcomes: Outcome[], now: Date): Promise<{ recorded: number; notFound: string[]; notes: string[] }> {
   const [job] = await sql()<{ program_id: string; installation_id: number }[]>`
     SELECT program_id, installation_id FROM screen_jobs WHERE id = ${jobId} AND builder_id = ${builderId} AND expires_at > ${now}`;
-  if (!job) return { recorded: 0, notFound: [] };
+  if (!job) return { recorded: 0, notFound: [], notes: [] };
   let recorded = 0;
   // Refs not in this screen, in the order given, once each (v6.1.7 C19).
   const notFound: string[] = [];
+  const unmatched: string[] = [];
+  const noAmount: string[] = [];
+  const older: string[] = [];
+  const replaced: string[] = [];
+  const once = (list: string[], ref: string) => void (list.includes(ref) || list.push(ref));
   for (const o of outcomes) {
-    const [a] = await sql()<{ repo_key: string | null }[]>`SELECT repo_key FROM screen_applicants WHERE job_id = ${jobId} AND ref = ${o.ref}`;
+    const [a] = await sql()<{ application_id: string | null }[]>`SELECT application_id FROM screen_applicants WHERE job_id = ${jobId} AND ref = ${o.ref}`;
     if (!a) {
-      if (!notFound.includes(o.ref)) notFound.push(o.ref);
+      once(notFound, o.ref);
       continue;
     }
     const amount = o.outcome === 'won' && o.amount_usd != null ? o.amount_usd : null;
-    await sql()`INSERT INTO screen_outcomes (job_id, ref, outcome, amount_usd, at) VALUES (${jobId}, ${o.ref}, ${o.outcome}, ${amount}, ${now})
-      ON CONFLICT (job_id, ref) DO UPDATE SET outcome = EXCLUDED.outcome, amount_usd = EXCLUDED.amount_usd, at = EXCLUDED.at`;
-    recorded++;
-    if (o.outcome === 'shortlisted' || !a.repo_key) continue;
-    // The applied builders whose record names this repo. Two of them is ambiguous: the outcome belongs to
-    // one, and a record can claim any repo, so neither ledger is written.
-    const applied: { owner: string; installation_id: number }[] = [];
-    for (const id of await buildersOnRepo(a.repo_key)) {
-      const owner = `b:${id}`;
-      const [row] = await sql()<{ installation_id: number }[]>`
-        SELECT installation_id FROM applications WHERE owner = ${owner} AND program_id = ${job.program_id} AND status = 'applied'`;
-      if (row) applied.push({ owner, installation_id: row.installation_id });
+    const [before] = await sql()<{ outcome: string; amount_usd: string | null; at: Date }[]>`
+      SELECT outcome, amount_usd, at FROM screen_outcomes WHERE job_id = ${jobId} AND ref = ${o.ref}`;
+    const kept = await sql()`INSERT INTO screen_outcomes (job_id, ref, outcome, amount_usd, at) VALUES (${jobId}, ${o.ref}, ${o.outcome}, ${amount}, ${now})
+      ON CONFLICT (job_id, ref) DO UPDATE SET outcome = EXCLUDED.outcome, amount_usd = EXCLUDED.amount_usd, at = EXCLUDED.at
+      WHERE EXCLUDED.at >= screen_outcomes.at RETURNING ref`;
+    if (kept.length === 0) {
+      once(older, o.ref);
+      continue;
     }
-    if (applied.length !== 1) continue;
-    await record(applied[0].owner, job.program_id, o.outcome, { installationId: applied[0].installation_id, amount_usd: amount ?? undefined, now });
+    recorded++;
+    const same = before && before.outcome === o.outcome && (before.amount_usd === null ? null : Number(before.amount_usd)) === amount;
+    if (before && !same) replaced.push(`${o.ref} (was ${before.outcome === 'shortlisted' ? 'shortlisted' : resultWords(before.outcome, before.amount_usd)})`);
+    if (o.outcome === 'shortlisted') continue;
+    // The application the applicant row names, for this program only; a sent one (applied, or with a result the ledger keeps).
+    const [app] = a.application_id
+      ? await sql()<{ owner: string; installation_id: number }[]>`
+          SELECT owner, installation_id FROM applications WHERE application_id = ${a.application_id} AND program_id = ${job.program_id}
+            AND status NOT IN ('started', 'skipped')`
+      : [];
+    if (!app) {
+      once(unmatched, o.ref);
+      continue;
+    }
+    if (o.outcome === 'won' && amount === null) once(noAmount, o.ref);
+    await record(app.owner, job.program_id, o.outcome, {
+      installationId: app.installation_id, now, ...(amount === null ? (o.outcome === 'won' ? { amountNotGiven: true as const } : {}) : { amount_usd: amount }),
+    });
   }
-  return { recorded, notFound };
+  const notes = [
+    ...(replaced.length ? [OUTCOME_NOTES.replaced(replaced)] : []),
+    ...(older.length ? [OUTCOME_NOTES.older(older)] : []),
+    ...(noAmount.length ? [OUTCOME_NOTES.noAmount(noAmount)] : []),
+    ...(unmatched.length ? [OUTCOME_NOTES.unmatched(unmatched)] : []),
+  ];
+  return { recorded, notFound, notes };
 }
 
 /**

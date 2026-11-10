@@ -317,6 +317,11 @@ CREATE TABLE IF NOT EXISTS screen_outcomes (
   at         timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (job_id, ref)
 );
+-- v6.1.14 (L13-1): the application's own id, given to the builder's agent when it tracked the send. A screen outcome
+-- reaches a ledger only through it (never by repo): the applicant row carries it, the outcome goes to that row's owner.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS application_id text;
+CREATE UNIQUE INDEX IF NOT EXISTS applications_application_id ON applications (application_id) WHERE application_id IS NOT NULL;
+ALTER TABLE screen_applicants ADD COLUMN IF NOT EXISTS application_id text;
 -- v6.1.13 (Task 1 review I1): the project as the agent reported it at its last find, per owner and project key
 -- (projectKeyOf), so a send under standing approval is never judged on less than the find was.
 CREATE TABLE IF NOT EXISTS project_reports (

@@ -51,6 +51,10 @@ export function programProblems(p: Program, now: Date = new Date()): string[] {
     problems.push(`pool_usd: ${q.pool_usd} must be stated in reward as a pool (e.g. "$${q.pool_usd.toLocaleString('en-US')} in prizes")`);
   if (q.min_award_usd !== undefined && !amountStated(q.min_award_usd, q.reward))
     problems.push(`min_award_usd: ${q.min_award_usd} must be stated in reward`);
+  // L1f-1 (v6.1.14): the flag says the program's rule is open source code; a rule (or a rules line) must say so.
+  const OPEN = /open[ -]source|\bOSI\b|free\/libre|\bopen licen[cs]e/i;
+  if (q.open_source && ![...q.rules, ...(q.eligibility ?? []).map((i) => i.note ?? '')].some((t) => OPEN.test(t)))
+    problems.push('open_source: true needs a rule naming open source code or its license');
   if (Date.parse(`${q.verified_at}T00:00:00Z`) > now.getTime()) problems.push(`verified_at: ${q.verified_at} is in the future`);
   return problems;
 }

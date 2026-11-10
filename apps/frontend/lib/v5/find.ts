@@ -21,7 +21,7 @@ import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category
 import { isOpen, listOpenPrograms, programByName, unknownProgramLine, type ProgramRow } from './programs';
 import { nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
 import { rankGaps, rankReady, shownGapsOf } from './rank';
-import { repoFacts, type RepoFacts, type RepoNote } from './repo-facts';
+import { repoFacts, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
 import { AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, contractLookedAgain, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyText, ruleSentence, hasProof, signInOnly } from './reply';
 import { since, type Since } from './since';
 
@@ -220,7 +220,8 @@ async function factsOf(project: Project, ctx: FindContext, key: string): Promise
     const staleAfter = await codeDoneAt(ownerOf(ctx), key);
     return await repoFacts(project, { gh: ctx.gh, now: ctx.now, installationId: ctx.installationId, staleAfter });
   } catch {
-    return repoFacts({ ...project, private: true }, { now: ctx.now });
+    // v6.1.14 (L1f-1): the report alone, never marked private for a failed read (a private repo is a step from open source programs).
+    return reportOnlyFacts(project);
   }
 }
 
@@ -253,7 +254,8 @@ const gapOf = (row: ProgramRow, v: Verdict, done: Set<string> = new Set(), now?:
   return {
     program_id: row.id, title: row.file.title, money: moneyOf(row.file), max_award_usd: row.file.max_award_usd ?? null,
     category: categoryOf(row.file), closes_at: row.file.ends_at, gap: v.gaps[0], also: v.gaps.slice(1), rules: v.rules,
-    in_person: row.file.in_person, setup: row.file.setup, ...(again.length > 0 ? { looked_again: again } : {}),
+    // v6.1.14 (L1f-1, L1f-3): a gap's own step (make the repo public, tell me the live repo) comes first after "First:".
+    in_person: row.file.in_person, setup: [...v.gaps.flatMap((g) => (g.setup ? [g.setup] : [])), ...row.file.setup], ...(again.length > 0 ? { looked_again: again } : {}),
     ...(left ? { closes_in: left } : {}),
     ...(hit ? { keyword_hit: true as const } : {}),
   };

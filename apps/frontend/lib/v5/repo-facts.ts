@@ -48,6 +48,8 @@ export type RepoFacts = {
   problems?: string[];
   /** What the builder is told about the read, in this order; none when absent (built by hand). */
   notes?: RepoNote[];
+  /** v6.1.14 L1f-1: the agent reported the repo private (a public read never sees a private repo: it reads as gone). */
+  private?: true;
 };
 
 type CodeFacts = Pick<RepoFacts, 'chains' | 'contracts' | 'builder_codes' | 'integrations' | 'first_commit_at' | 'last_commit_at' | 'readme_excerpt' | 'homepage' | 'topics'> & {
@@ -384,5 +386,6 @@ function mergedFacts(project: Project, code: CodeFacts | null, paused: boolean):
     ...(code?.topics && code.topics.length > 0 ? { topics: code.topics } : {}),
     ...(paused ? { problems: [READS_PAUSED] } : {}),
     notes,
+    ...(project.private ? { private: true as const } : {}),
   };
 }

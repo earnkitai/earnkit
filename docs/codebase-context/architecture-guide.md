@@ -365,7 +365,7 @@ after a link (its `linked_at` later than its `last_find_at`) ends the closing bl
 GitHub account {login}." (`linked_notice`, security M2); `markFind` moves `last_find_at`, so it shows once. An unlink on
 /me (`unlinkInstallation`) sets `installations.unlinked_at`; the next `find` of that agent (match or open list) ends with
 "This agent was unlinked from your account. Sign in once at {link} to link it again." in place of the sign-in sentence,
-and clears the mark once that reply is built (`takeUnlinkedNotice`, v6.1.7 B10; a find that throws first keeps it). The unlinked agent's ledger stays with the builder. The ledger's owner is `b:<builder>` once linked, else `i:<installation>` (`ownerKey`); linking moves
+and clears the mark once that reply is built (`takeUnlinkedNotice`, v6.1.7 B10; a find that throws first keeps it). The unlinked agent's ledger stays with the builder; its live claims there are released in the same transaction, and its later sends land in its own `i:` ledger (L13-2, v6.1.14). The ledger's owner is `b:<builder>` once linked, else `i:<installation>` (`ownerKey`); linking moves
 the installation's rows to the builder, so every agent of one builder shares one ledger. Where both ledgers hold a
 program, the migration never downgrades (v6.1.8 B15): a result beats applied, which beats a claim or a skip; among
 results won beats rejected beats no_result whatever the time, so a relink never loses a win (v6.1.9 N3); of two equal statuses the newer `at` stays; the losing row is dropped (history is all kept). Deleting
@@ -495,8 +495,12 @@ the third) and stores tier, flags, because, line and public rows only (`github`,
 `record`). The daily cron gives the queue 300 s; `POST /api/cron` with `{ "job_id": "..." }` is the owner's trigger
 (that job only, at most 300 applicants in 600 s). With `job_id` the tool answers the totals line and the results;
 with `outcomes` it records the program's decisions (refs not in the job are named; a win over the program's cap is
-refused with the ledger's line and nothing is recorded), which also reach a builder's ledger when their record project is
-the same repo and they had applied. `xpCounts` gives each read the screens by other programs in 90 days sharing the
+refused with the ledger's line and nothing is recorded), which also reach a builder's ledger only through the
+applicant row's `application_id`: the id `track applied` answered the builder's agent (`applications.application_id`),
+for this program; never by repo or site (L13-1, v6.1.14). A row without one is named in the note as "Not matched to an
+EarnKit application"; a win with no amount is passed on as a win with none (`amount not given`, L13-13); a second
+outcome replaces the first only when not older, and the note names what it replaced (L13-12). The notes never say
+whether a ledger took it. `xpCounts` gives each read the screens by other programs in 90 days sharing the
 repo or a deployer ("seen in n other screens in 90 days", never a flag, never a program name).
 
 **/me.** `proxy.ts` sends a visitor without a live session to `/docs#record` (302, `me-routes.ts meGet`).
