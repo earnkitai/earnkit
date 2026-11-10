@@ -256,3 +256,13 @@ test('readLoosely (v6.1.14, L13-4): nulls left out, numbers as text, cuts, objec
   assert.deepEqual(readLoosely('nope', rules), { args: {}, problems: [] });
   assert.deepEqual(readLoosely({ f: [1] }, rules), { args: {}, problems: ['f dropped: not an object'] });
 });
+
+test('T6-F4 (v6.1.14 fix round 1): a field find still cannot read after the lenient pass is dropped and named', async () => {
+  const c = await ctx();
+  for (const program_id of [{}, true]) {
+    const r = await mcpCall(c, 'find', { program_id });
+    assert.equal(r.isError, false, r.text);
+    assert.doesNotMatch(r.text, /MCP error|Input validation|Invalid input|-32602/);
+    assert.match(r.reply!.agent_note as string, /Some arguments were not read: program_id dropped: not text\./);
+  }
+});

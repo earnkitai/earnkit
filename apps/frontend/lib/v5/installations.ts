@@ -6,6 +6,7 @@
 import { createHash } from 'node:crypto';
 import { sql } from './db';
 import { dropControls } from './controls';
+import { INVALID_CLIENT_NAME, OAuthError, reservedClientName } from './oauth';
 
 export type Caller = { id: number; builderId: number | null };
 
@@ -32,6 +33,8 @@ export function cleanClientName(name: string | null | undefined): string | null 
  * new installation with a fresh ledger). Idempotent for a replayed code. The agent's name is cleaned first. Returns its id.
  */
 export async function saveInstallation(token: string, clientName: string | null = null): Promise<number> {
+  // T6-F2 (v6.1.14): no installation is saved under EarnKit's own name, whoever calls this.
+  if (reservedClientName(clientName)) throw new OAuthError('invalid_client_metadata', INVALID_CLIENT_NAME);
   const [r] = await sql()<{ id: number }[]>`
     INSERT INTO installations (token_hash, client_name) VALUES (${hash(token)}, ${cleanClientName(clientName)})
     ON CONFLICT (token_hash) DO UPDATE SET client_name = COALESCE(EXCLUDED.client_name, installations.client_name)

@@ -256,6 +256,8 @@ export function canonicalRepoLink(v: unknown): string | null {
     return null;
   }
   if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+  // T6-F3 (v6.1.14): only a code host's link has a repo key (CODE_HOSTS), for every caller.
+  if (!isCodeHost(v)) return null;
   const host = u.hostname.toLowerCase().replace(/^www\./, '');
   if (!host) return null;
   let parts = u.pathname.split('/').filter(Boolean);
@@ -278,8 +280,8 @@ const nameFold = (s: string) => s.normalize('NFKC').toUpperCase().toLowerCase();
  * one key. Pure.
  */
 export function projectKeyOf(project: { name?: unknown; repo_url?: unknown } | null | undefined): string {
-  // Only a code host's link keys by repo (L13-15, v6.1.14), as parseProject reads it.
-  const repo = webUrl(project?.repo_url) && isCodeHost(project?.repo_url) ? canonicalRepoLink(project?.repo_url) : null;
+  // Only a code host's link keys by repo (L13-15, v6.1.14; canonicalRepoLink holds the list), as parseProject reads it.
+  const repo = webUrl(project?.repo_url) ? canonicalRepoLink(project?.repo_url) : null;
   if (repo) return repo;
   return nameKeyOf(project);
 }

@@ -59,7 +59,7 @@ export function findInputOf(input: unknown): { i: z.infer<typeof FindInput>; unr
   if (!r.success) {
     for (const k of new Set(r.error.issues.map((x) => String(x.path[0] ?? '')))) {
       delete args[k];
-      problems.push(`${k || 'input'} dropped: not read`);
+      problems.push(`${k || 'input'} dropped: ${k === 'filter' ? 'not read' : 'not text'}`);
     }
     r = FindInput.safeParse(args);
   }

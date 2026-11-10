@@ -358,3 +358,32 @@ test("L13-16 (v6.1.14): a client name that is EarnKit's own, in any case or spel
   }
   for (const name of ['Claude Code', 'Cursor', 'Kit', 'Earn']) assert.equal((await reg(name, `10.9.1.${++n}`)).status, 201, name);
 });
+
+test('T6-F1 (v6.1.14 fix round 1): look-alike letters and accents fold before the reserved-name check', async () => {
+  const { reservedClientName } = await import('./oauth-routes');
+  for (const name of ['ЕarnКit', 'Εarnkιt', 'éarnkit', 'Earn Kit', 'EАRNKІT', 'εαrnκιτ', 'ЕАRNКIТ bot'])
+    assert.equal(reservedClientName(name), true, name);
+  for (const name of ['Claude Code', 'Cursor', 'Ёлка', 'Ελληνικά', 'Earn', 'Kit']) assert.equal(reservedClientName(name), false, name);
+  const r = await registerPost(new Request('https://earnkit.test/oauth/register', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-real-ip': '10.9.2.1' },
+    body: JSON.stringify({ redirect_uris: [redirect], client_name: 'ЕarnКit' }),
+  }));
+  assert.equal(r.status, 400);
+  assert.deepEqual(await r.json(), { error: 'invalid_client_metadata', error_description: INVALID_CLIENT_NAME });
+});
+
+test('T6-F2 (v6.1.14 fix round 1): a client id registered before the check, carrying a reserved name, cannot install', async () => {
+  // registerClient signs any name, as registration did before v6.1.14.
+  const { client_id } = registerClient({ redirect_uris: [redirect], client_name: 'EarnKit' });
+  const before = (await sql()`SELECT count(*)::int AS n FROM installations`)[0].n as number;
+  const tok = await tokenPost(new Request('https://earnkit.test/oauth/token', {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-real-ip': '10.9.2.2' },
+    body: tokenForm(client_id, codeOf(client_id)).toString(),
+  }));
+  assert.equal(tok.status, 400);
+  assert.deepEqual(await tok.json(), { error: 'invalid_client_metadata', error_description: INVALID_CLIENT_NAME });
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM installations`)[0].n, before);
+  // saveInstallation refuses it too, whatever calls it.
+  const { saveInstallation } = await import('./installations');
+  await assert.rejects(saveInstallation('ek_reserved_' + Math.random(), 'Earn Kit'), (e) => e instanceof OAuthError && e.message === INVALID_CLIENT_NAME);
+});

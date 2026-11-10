@@ -308,3 +308,10 @@ test('L13-15 (v6.1.14): only a code host is a repo; any other link is the live l
   // With no description, a link that is not a code host does not stand in for it.
   assert.deepEqual(parseProject({ name: 'X', repo_url: 'https://bit.ly/3xYz' }), { ok: false, problem: 'description: missing' });
 });
+
+test('T6-F3 (v6.1.14 fix round 1): canonicalRepoLink keys code hosts only; bit.ly never gets a repo key', async () => {
+  const { canonicalRepoLink } = await import('./project-input');
+  assert.equal(canonicalRepoLink('https://bit.ly/x'), null);
+  assert.equal(canonicalRepoLink('https://example.com/a/b'), null);
+  assert.equal(canonicalRepoLink('https://codeberg.org/A/B.git'), 'https://codeberg.org/a/b');
+});

@@ -74,6 +74,28 @@ export function clientNameOf(v: unknown): string | null {
   return t || null;
 }
 
+/** L13-16 (v6.1.14): a client may not register or install under EarnKit's own name. */
+export const INVALID_CLIENT_NAME = "client_name may not be EarnKit's own name; send the agent's name.";
+
+/** T6-F1 (v6.1.14): Cyrillic and Greek letters that read as Latin ones, folded before the reserved-name check. */
+const LOOKALIKES: Record<string, string> = {
+  а: 'a', е: 'e', о: 'o', р: 'p', с: 'c', у: 'y', х: 'x', к: 'k', і: 'i', ј: 'j', ѕ: 's', т: 't', н: 'h', м: 'm', в: 'b',
+  А: 'a', Е: 'e', О: 'o', Р: 'p', С: 'c', У: 'y', Х: 'x', К: 'k', І: 'i', Ј: 'j', Ѕ: 's', Т: 't', Н: 'h', М: 'm', В: 'b',
+  α: 'a', ε: 'e', ο: 'o', ρ: 'p', τ: 't', υ: 'u', κ: 'k', ι: 'i', ν: 'v',
+  Α: 'a', Ε: 'e', Ο: 'o', Ρ: 'p', Τ: 't', Υ: 'y', Κ: 'k', Ι: 'i', Ν: 'n', Β: 'b', Η: 'h', Μ: 'm', Χ: 'x', Ζ: 'z',
+};
+
+/**
+ * Whether a client name is EarnKit's own (L13-16, T6-F1): NFKC (widths), NFKD with combining marks dropped (accents),
+ * Cyrillic and Greek look-alikes folded to Latin, lower case, letters and digits only, holding `earnkit`. Pure.
+ */
+export function reservedClientName(v: unknown): boolean {
+  if (typeof v !== 'string') return false;
+  const bare = v.normalize('NFKC').normalize('NFKD').replace(/\p{M}/gu, '');
+  const latin = [...bare].map((ch) => LOOKALIKES[ch] ?? ch).join('');
+  return latin.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '').includes('earnkit');
+}
+
 /**
  * Hosted agents' callbacks: their servers register for many people. Each is the exact host and the
  * path its callback sits under (an exact path, or one ending in '/' for a prefix). A hosted client
