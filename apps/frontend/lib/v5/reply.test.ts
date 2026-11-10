@@ -753,3 +753,29 @@ test('O3 (v6.1.10): the started question is asked as one: its line, its one acti
   assert.match(agentNote(base({ gaps: [g] }), { more: 0 }), /"Tell me when you started this" is a question, not work: ask the builder once; pass first_commit_at/);
   assert.doesNotMatch(show, /—|\b(score|rank|grade|points|coin|token|streak)s?\b/i);
 });
+
+test('L1d-2 (v6.1.11, Review Focus 2): a gap line names its setup steps as "First:" after its gaps and before its rules', () => {
+  const setup = ['sign up for a Colosseum account', 'start the four-week sprint in the Eternal dashboard'];
+  const vc = 'the team has not raised venture capital for the startup it submits';
+  const g = gap({ title: 'Colosseum Eternal', money: '$25,000 award', gap: VIDEO, also: [ruleGap(vc)], rules: [vc], setup });
+  const line = 'Colosseum Eternal, $25,000 award: a demo video. First: sign up for a Colosseum account; start the four-week sprint in the Eternal dashboard. Their rule: the team has not raised venture capital for the startup it submits.';
+  assert.equal(gapLine({ ...g, n: 2 }), `2. ${line}`);
+  assert.equal(gapLine({ ...g, n: 2 }, null, true), line);
+  assert.doesNotMatch(gapLine({ ...g, n: 2 }), /: a demo video\. Their rule/);
+  // Rules only: the steps come before the rules and the "yes n" ask.
+  const ruled = gap({ title: 'Sprint', money: '$5K', gap: ruleGap('a crypto product'), rules: ['a crypto product'], setup: ['sign up for an account'] });
+  assert.equal(gapLine({ ...ruled, n: 1 }), '1. Sprint, $5K. First: sign up for an account. Their rule: a crypto product. Say "yes 1" if that is you.');
+  // With "do n" and the sign-in sentence, the steps follow every gap sentence.
+  const codes = { kind: 'builder_codes' as const, item: 'builder_codes', what: 'add Base Builder Codes to the app', effort: 'minutes' as const, agent_can: true };
+  const done = gap({ title: 'Base', money: '$5K', gap: codes, setup: ['sign in to the portal'] });
+  assert.equal(gapLine({ ...done, n: 3 }), '3. Base, $5K: add Base Builder Codes to the app. Say "do 3" and I add them. First: sign in to the portal.');
+  // No setup: unchanged.
+  assert.equal(gapLine({ ...gap({ title: 'C', money: '$1K', gap: VIDEO }), n: 1 }), '1. C, $1K: a demo video.');
+});
+
+test('L1d-2 (v6.1.11): an in-person gap line keeps its one attend sentence, never a second "First:"', () => {
+  const g = gap({ title: 'Blitz', money: '$1K', in_person: true, gap: ruleGap('a team of two'), rules: ['a team of two'], setup: ['be in Eugene, Oregon on November 15'] });
+  const line = gapLine({ ...g, n: 1 });
+  assert.equal(line, '1. Blitz, $1K. Their rule: a team of two. First: be in Eugene, Oregon on November 15. Say "yes 1" if that is you.');
+  assert.equal(line.match(/First:/g)!.length, 1);
+});

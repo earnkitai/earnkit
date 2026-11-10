@@ -29,10 +29,10 @@
   ],
   "setup": [
     "send about $1 of USDC on Arc to a deploy wallet",
-    "a public GitHub repo",
-    "a host for a live link",
+    "make the GitHub repo public",
+    "host a live link",
     "log in to DoraHacks",
-    "your public GitHub, X, or Farcaster profile"
+    "share your public GitHub, X, or Farcaster profile"
   ],
   "each_time": [],
   "rules": [

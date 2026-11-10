@@ -25,8 +25,8 @@
     { "kind": "rule", "note": "an AI Skill for UGREEN AI NAS (UGOS) built with the UGREEN Skill Developer Package", "keywords": ["ugreen", "nas"] }
   ],
   "setup": [
-    "a Devpost account joined to the hackathon",
-    "the UGREEN Skill Developer Package"
+    "join the hackathon with a Devpost account",
+    "get the UGREEN Skill Developer Package"
   ],
   "each_time": [
     "a proposal PDF of at most 500 words",

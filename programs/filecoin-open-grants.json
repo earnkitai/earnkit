@@ -27,7 +27,7 @@
   "chains": [],
   "any_chain": true,
   "setup": [
-    "a GitHub account to open the proposal issue"
+    "sign in to GitHub to open the proposal issue"
   ],
   "each_time": [
     "a milestone table with dates and funding"

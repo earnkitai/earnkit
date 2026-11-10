@@ -16,9 +16,9 @@
   "needs_repo": true,
   "chains": ["base"],
   "setup": [
-    "a little ETH on Base for gas",
-    "a public GitHub repo",
-    "a host for a live link"
+    "get a little ETH on Base for gas",
+    "make the GitHub repo public",
+    "host a live link"
   ],
   "each_time": [],
   "rules": [

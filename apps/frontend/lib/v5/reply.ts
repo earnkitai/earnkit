@@ -216,21 +216,25 @@ export const lookedAgainSentences = (g: Pick<GapProgram, 'looked_again'>): strin
  * The real gaps after the colon, with "do n" only when EarnKit can make all of them (v6.1.8, 1a); the unlinked tier
  * gap as its own sentence (C57); then one "Their rule" sentence per rule to confirm. Rules only: the rules, then
  * 'Say "yes n" if that is you.', except on the program the closing line already names (`ruleInClosing`). In person,
- * the attend sentence follows the rules (R18d), so an in-person program always says so. `alone` (the one-program reply,
+ * the attend sentence follows the rules (R18d), so an in-person program always says so; otherwise the setup steps
+ * come as "First: ..." before the rules (L1d-2). `alone` (the one-program reply,
  * v6.1.8 1b): no number and no "do n" or "yes n", since `gapAction` gives the action on its own line.
  */
 export function gapLine(g: GapProgram, ruleInClosing: number | null = null, alone = false): string {
   const all = [g.gap, ...g.also];
   const rules = ruleSentences(all.filter((x) => x.kind === 'rule').map((x) => x.what));
   const attend = g.in_person ? attendSentence(g.setup) : '';
+  // L1d-2 (v6.1.11): the setup steps (an account, a sprint) after the gaps and before the rules, as on a ready line;
+  // in person, the attend sentence already says them.
+  const first = !g.in_person && g.setup.length > 0 ? ` First: ${g.setup.join('; ')}.` : '';
   // O1 (v6.1.10): a program closing within 7 days says so after the money.
   const money = `${g.money}${g.closes_in ? `, closes ${g.closes_in}` : ''}`;
-  if (ruleOnlyGap(g)) return `${num(g.n, alone)}${g.title}, ${money}.${rules}${attend}${alone || g.n === ruleInClosing ? '' : ` Say "yes ${g.n}" if that is you.`}`;
+  if (ruleOnlyGap(g)) return `${num(g.n, alone)}${g.title}, ${money}.${first}${rules}${attend}${alone || g.n === ruleInClosing ? '' : ` Say "yes ${g.n}" if that is you.`}`;
   const real = all.filter((x) => x.kind !== 'rule');
   const listed = real.filter((x) => !ownSentenceGap(x));
   const confirm = real.filter(ownSentenceGap).map((x) => ` ${x.what}.`).join('');
   const head = `${num(g.n, alone)}${g.title}, ${money}${listed.length > 0 ? `: ${joinAnd(listed.map((x) => x.what))}` : ''}.`;
-  return `${head}${alone ? '' : doSentence(g.n, real)}${confirm}${rules}${attend}${lookedAgainSentences(g)}`;
+  return `${head}${alone ? '' : doSentence(g.n, real)}${confirm}${first}${rules}${attend}${lookedAgainSentences(g)}`;
 }
 
 /**

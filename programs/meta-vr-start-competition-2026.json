@@ -25,9 +25,9 @@
     { "kind": "rule", "note": "a hands-first experience for Meta VR devices, entered by a Meta VR Start member", "keywords": ["vr", "quest", "hands-first", "oculus"] }
   ],
   "setup": [
-    "membership in the Meta VR Start program",
-    "a Meta account with Developer Access enabled",
-    "a Devpost account joined to the competition"
+    "join the Meta VR Start program",
+    "turn on Developer Access for your Meta account",
+    "join the competition with a Devpost account"
   ],
   "each_time": [
     "a build judges can launch on a Meta VR device",

@@ -26,10 +26,10 @@
   ],
   "setup": [
     "log in to DoraHacks",
-    "a project built in Arc Studio",
-    "USDC on Arc for gas",
-    "a public GitHub repo",
-    "your public GitHub, X, or Farcaster profile"
+    "build the project in Arc Studio",
+    "get USDC on Arc for gas",
+    "make the GitHub repo public",
+    "share your public GitHub, X, or Farcaster profile"
   ],
   "each_time": [
     "a video walkthrough of the build"

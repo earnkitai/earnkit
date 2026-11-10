@@ -24,8 +24,8 @@
   "chains": [],
   "any_chain": true,
   "setup": [
-    "a Devpost account joined to the hackathon",
-    "a PayPal Developer account (sandbox)"
+    "join the hackathon with a Devpost account",
+    "sign up for a PayPal Developer account (sandbox)"
   ],
   "each_time": [
     "a public demo video under 3 minutes",

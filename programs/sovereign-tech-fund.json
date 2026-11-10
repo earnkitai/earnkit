@@ -24,7 +24,7 @@
     { "kind": "rule", "note": "work costing over EUR 50,000 on base technology, not a user-facing app" }
   ],
   "setup": [
-    "an account on the application platform, with notification emails on"
+    "make an account on the application platform and turn on its notification emails"
   ],
   "each_time": [
     "a work plan with hours, months and a EUR cost"
