@@ -73,24 +73,26 @@ test('landingFrom: the chip is the stats money; none at zero', () => {
 const DAY = 86_400_000;
 const inDays = (n: number) => new Date(NOW.getTime() + n * DAY).toISOString();
 
+const DATED = 'Up to $1,000 · 11:59 PM UTC';
+
 test('featuredTiles: six by the rule (v6.2.0)', () => {
   const rows = [
-    rowOf({ id: 'f-big-pool', organizer: 'Org C', title: 'C Grants', pool_usd: 1_000_000, max_award_usd: 10_000, ends_at: null }),
-    rowOf({ id: 'f-soon-later', organizer: 'Org B', max_award_usd: 2000, ends_at: inDays(10), summary: 'Up to $1,000 · 11:59 PM UTC' }),
-    rowOf({ id: 'f-invest', organizer: 'Org H', investment: true, max_award_usd: 500_000 }),
-    rowOf({ id: 'f-big-award', organizer: 'Org D', max_award_usd: 100_000, ends_at: inDays(40), summary: 'Up to $1,000 · 11:59 PM UTC' }),
-    rowOf({ id: 'f-upcoming', organizer: 'Org I', status: 'upcoming', opens_note: 'Opens in January', submission_requirements: [], max_award_usd: 900_000 }),
-    rowOf({ id: 'f-c-hack', organizer: '  org c ', title: 'C Hackathon', in_person: true, pool_usd: 500_000 }),
-    rowOf({ id: 'f-prose', organizer: 'Org J', summary: 'Credits and support · rolling' }),
-    rowOf({ id: 'f-mid', organizer: 'Org E', max_award_usd: 50_000 }),
-    rowOf({ id: 'f-far-small', organizer: 'Org K', max_award_usd: 3000, ends_at: inDays(20), summary: 'Up to $1,000 · 11:59 PM UTC' }),
-    rowOf({ id: 'f-mid-pool', organizer: 'Org F', pool_usd: 20_000 }),
-    rowOf({ id: 'f-soon-small', organizer: 'Org A', max_award_usd: 1000, ends_at: inDays(5), summary: 'Up to $1,000 · 11:59 PM UTC' }),
-    rowOf({ id: 'f-small', organizer: 'Org G', max_award_usd: 5000 }),
+    rowOf({ id: 'f-big-pool', organizer: 'Cee Labs', title: 'C Grants', pool_usd: 1_000_000, max_award_usd: 10_000 }),
+    rowOf({ id: 'f-soon-later', organizer: 'Bee Org', max_award_usd: 30_000, ends_at: inDays(10), summary: DATED }),
+    rowOf({ id: 'f-soon-tiny', organizer: 'Tiny Org', title: 'Tiny Hack', in_person: true, pool_usd: 4600, ends_at: inDays(1), summary: DATED }),
+    rowOf({ id: 'f-soon-small', organizer: 'Small Org', max_award_usd: 12_000, ends_at: inDays(2), summary: DATED }),
+    rowOf({ id: 'f-invest', organizer: 'Inv Org', investment: true, max_award_usd: 500_000 }),
+    rowOf({ id: 'f-big-award', organizer: 'Dee Org', max_award_usd: 100_000, ends_at: inDays(40), summary: DATED }),
+    rowOf({ id: 'f-upcoming', organizer: 'Up Org', status: 'upcoming', opens_note: 'Opens in January', submission_requirements: [], max_award_usd: 900_000 }),
+    rowOf({ id: 'f-c-hack', organizer: '  cee Labs ', title: 'C Hackathon', in_person: true, pool_usd: 500_000 }),
+    rowOf({ id: 'f-prose', organizer: 'Prose Org', summary: 'Credits and support · rolling' }),
+    rowOf({ id: 'f-soon-first', organizer: 'Ay Org', max_award_usd: 25_000, ends_at: inDays(5), summary: DATED }),
+    rowOf({ id: 'f-mid-pool', organizer: 'Eff Org', pool_usd: 20_000 }),
+    rowOf({ id: 'f-small', organizer: 'Gee Org', max_award_usd: 10_000 }),
   ];
   const six = featuredTiles(rows, NOW);
-  assert.deepEqual(six.map((t) => t.id), ['f-soon-small', 'f-soon-later', 'f-big-pool', 'f-big-award', 'f-mid', 'f-mid-pool']);
-  assert.deepEqual(six.map((t) => t.money), ['$1K', '$2K', '$1M in grants', '$100K', '$50K', '$20K in grants']);
+  assert.deepEqual(six.map((t) => t.id), ['f-soon-first', 'f-soon-later', 'f-big-pool', 'f-big-award', 'f-mid-pool', 'f-soon-small']);
+  assert.deepEqual(six.map((t) => t.money), ['$25K', '$30K', '$1M in grants', '$100K', '$20K in grants', '$12K']);
   assert.ok(six.every((t) => t.status === 'active' && t.kind !== 'investment'));
   const l = landingFrom(rows, STATS, NOW);
   assert.equal(l.total, 12);
@@ -98,12 +100,33 @@ test('featuredTiles: six by the rule (v6.2.0)', () => {
   assert.deepEqual(l.featured, six);
 });
 
+test('featuredTiles: a $4,600 program never features, even alone and closing tomorrow', () => {
+  const rows = [rowOf({ id: 'h-tiny', title: 'Blitz Hack', in_person: true, pool_usd: 4600, ends_at: inDays(1), summary: DATED })];
+  assert.deepEqual(featuredTiles(rows, NOW), []);
+});
+
+test('featuredTiles: a fourth hackathon is skipped for the next grant', () => {
+  const hack = (id: string, usd: number) => rowOf({ id, organizer: `${id} Org`, title: `${id} Hackathon`, in_person: true, pool_usd: usd });
+  const rows = [hack('h1', 900_000), hack('h2', 800_000), hack('h3', 700_000), hack('h4', 600_000), rowOf({ id: 'g1', organizer: 'Grant Org', max_award_usd: 50_000 })];
+  const six = featuredTiles(rows, NOW);
+  assert.deepEqual(six.map((t) => t.id), ['h1', 'h2', 'h3', 'g1']);
+  assert.equal(six.filter((t) => t.kind === 'hackathon').length, 3);
+});
+
+test('featuredTiles: the Monad pair counts once (organizer first word)', () => {
+  const rows = [
+    rowOf({ id: 'm-oregon', organizer: 'Monad Foundation and Oregon Blockchain Group', in_person: true, pool_usd: 40_000 }),
+    rowOf({ id: 'm-gz', organizer: 'Monad Foundation, OpenBuild and Box', in_person: true, pool_usd: 30_000 }),
+  ];
+  assert.deepEqual(featuredTiles(rows, NOW).map((t) => t.id), ['m-oregon']);
+});
+
 test('featuredTiles: an empty organizer is its title; equal money goes by id; a rolling summary is not closing soon', () => {
   const rows = [
-    rowOf({ id: 'g-b', organizer: ' ', title: 'Same Grants', max_award_usd: 5000 }),
-    rowOf({ id: 'g-a', organizer: ' ', title: 'Same Grants', max_award_usd: 5000 }),
-    rowOf({ id: 'g-c', organizer: ' ', title: 'Other Grants', max_award_usd: 5000 }),
-    rowOf({ id: 'g-roll', organizer: 'Roll Org', max_award_usd: 1000, ends_at: inDays(3), summary: 'Up to $1,000 · rolling' }),
+    rowOf({ id: 'g-b', organizer: ' ', title: 'Same Grants', max_award_usd: 50_000 }),
+    rowOf({ id: 'g-a', organizer: ' ', title: 'Same Grants', max_award_usd: 50_000 }),
+    rowOf({ id: 'g-c', organizer: ' ', title: 'Other Grants', max_award_usd: 50_000 }),
+    rowOf({ id: 'g-roll', organizer: 'Roll Org', max_award_usd: 30_000, ends_at: inDays(3), summary: 'Up to $30,000 · rolling' }),
   ];
   assert.deepEqual(featuredTiles(rows, NOW).map((t) => t.id), ['g-a', 'g-c', 'g-roll']);
 });

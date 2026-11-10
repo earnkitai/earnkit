@@ -84,24 +84,28 @@ export function landingTiles(rows: ProgramRow[], _now: Date): Tile[] {
 }
 
 const FEATURED = 6;
+const MAX_HACKATHONS = 3;
+const MIN_USD = 10_000;
+const SOON_MIN_USD = 25_000;
 const SOON_MS = 14 * 86_400_000;
 
 /**
- * The landing's six (v6.2.0): open programs only, no investments, only those with a number
- * (`max_award_usd` or `pool_usd`); closing within 14 days first (soonest first), then the larger of
- * award and pool, then the id; one per organizer (trimmed, lower-cased; empty is the title).
+ * The landing's six (v6.2.0): open programs only, no investments, money of at least $10K
+ * (the larger of `pool_usd` and `max_award_usd`); those closing within 14 days with at least $25K
+ * first (soonest first), then by money, then the id; one per organizer (the organizer's first word,
+ * lower-cased; the title when there is no organizer); at most three hackathons.
  * Pure apart from the logo file check.
  */
 export function featuredTiles(rows: ProgramRow[], now: Date): Tile[] {
+  const size = (p: Program) => Math.max(p.max_award_usd ?? 0, p.pool_usd ?? 0);
   const soonAt = (p: Program): number | null => {
-    if (!closeDay(p)) return null;
+    if (size(p) < SOON_MIN_USD || !closeDay(p)) return null;
     const left = Date.parse(p.ends_at!) - now.getTime();
     return left >= 0 && left <= SOON_MS ? left : null;
   };
-  const size = (p: Program) => Math.max(p.max_award_usd ?? 0, p.pool_usd ?? 0);
   const ranked = rows
     .map((r) => r.file)
-    .filter((p) => p.status === 'active' && !p.investment && (p.max_award_usd || p.pool_usd))
+    .filter((p) => p.status === 'active' && !p.investment && size(p) >= MIN_USD)
     .map((p) => ({ p, soon: soonAt(p), size: size(p) }))
     .sort(
       (a, b) =>
@@ -112,11 +116,15 @@ export function featuredTiles(rows: ProgramRow[], now: Date): Tile[] {
     );
   const seen = new Set<string>();
   const out: Tile[] = [];
+  let hackathons = 0;
   for (const { p } of ranked) {
-    const org = (p.organizer.trim() || p.title).trim().toLowerCase();
-    if (seen.has(org)) continue;
+    const org = (p.organizer.trim() || p.title).trim().split(/\s+/)[0].toLowerCase();
+    const tile = tileOf(p);
+    const hack = tile.kind === 'hackathon';
+    if (seen.has(org) || (hack && hackathons >= MAX_HACKATHONS)) continue;
     seen.add(org);
-    out.push(tileOf(p));
+    if (hack) hackathons++;
+    out.push(tile);
     if (out.length === FEATURED) break;
   }
   return out;
