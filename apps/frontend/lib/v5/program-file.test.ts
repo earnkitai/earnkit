@@ -128,7 +128,7 @@ test('a rule item needs a note and takes no value (v6.1.6)', () => {
   assert.equal(ProgramFile.safeParse({ ...base, eligibility: [{ kind: 'rule', note: 'ends with a stop.' }] }).success, false);
 });
 
-test('L1c-2 (v6.1.10), L1e-2 (v6.1.13): a rule item may carry up to 10 lower-case keywords of at most 30 characters; no other item takes them', () => {
+test('L1c-2 (v6.1.10): a rule item may carry up to 8 lower-case keywords of at most 30 characters; no other item takes them', () => {
   const base = programFixture({ id: 'kw-test' });
   const rule = (keywords: unknown) => ({ ...base, eligibility: [{ kind: 'rule', note: 'a hands-first experience for Meta VR devices', keywords }] });
   const ok = ProgramFile.safeParse(rule(['vr', 'quest', 'mini app']));
@@ -138,8 +138,7 @@ test('L1c-2 (v6.1.10), L1e-2 (v6.1.13): a rule item may carry up to 10 lower-cas
   assert.equal(ProgramFile.safeParse(rule([' vr'])).success, false);
   assert.equal(ProgramFile.safeParse(rule([''])).success, false);
   assert.equal(ProgramFile.safeParse(rule(['x'.repeat(31)])).success, false);
-  assert.equal(ProgramFile.safeParse(rule(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'])).success, true);
-  assert.equal(ProgramFile.safeParse(rule(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k'])).success, false);
+  assert.equal(ProgramFile.safeParse(rule(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'])).success, false);
   assert.equal(ProgramFile.safeParse(rule([])).success, false);
   assert.equal(ProgramFile.safeParse({ ...base, eligibility: [{ kind: 'demo_video', keywords: ['vr'] }] }).success, false);
 });
@@ -163,8 +162,8 @@ test('L1c-2 (v6.1.10): the catalog keywords are on the domain rules, none on lic
   assert.deepEqual(kw('uniswap-foundation-security-fund'), ['uniswap', 'v4 hook', 'uniswap hook']);
   // Final round: never a bare "meta" (Meta's models) or "forge" (every Foundry README) either.
   for (const f of files) assert.ok(!eligibilityOf(ProgramFile.parse(read(f))).some((i) => (i.keywords ?? []).some((k) => ['hook', 'v4', 'meta', 'forge'].includes(k))), f);
-  // L1e-2 (v6.1.13): the brief's words for the age rule; Avalanche's ecosystem rule names its chain.
-  assert.deepEqual(kw('thiel-fellowship'), ['student', 'students', 'college', 'university', 'dropout', 'drop out', 'fellowship', 'undergrad', '22', 'under 23']);
+  // L1e-2 (v6.1.13, fix round 1 T3-R2): who the age rule is for, never a bare number or "fellowship"; Avalanche's ecosystem rule names its chain.
+  assert.deepEqual(kw('thiel-fellowship'), ['student', 'students', 'college', 'university', 'dropout', 'drop out', 'undergrad']);
   assert.deepEqual(kw('avalanche-team1-mini-grants'), ['avalanche', 'avax', 'team1', 'subnet']);
   for (const f of ['antler-us-residency', 'github-secure-open-source-fund', 'herodevs-sustainability-fund', 'sovereign-tech-fund'])
     assert.deepEqual(kw(f), [], f);

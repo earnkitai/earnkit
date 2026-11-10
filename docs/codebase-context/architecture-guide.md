@@ -77,15 +77,16 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
    one, on the project's chains, takes its rank place; off them it is shown only after `max - 1` others or alone
    (N-2). A keyword hit (`keywordHit`, `eligibility.ts`, N1 v6.1.12: a rule still to confirm whose keywords the project
    names) is no rule-slot program: it competes as a rule-free step, own chain first, and ranks as a step with no rule
-   left; only programs with no hit and no keywords on their rules keep the one rule slot (`keyed`, L1e-2, v6.1.13: a
-   rule whose keywords say which builders it is for, Thiel's `student`, `college` and the rest, shows only on a hit). A rule item may carry `keywords` (L1c-2): when a rule still to confirm has keywords and the project names
+   left; only programs with no hit keep the one rule slot, and a keyworded rule with no hit is `unlikely`, so the slot
+   holds rules with no keywords (L1e-2, v6.1.13: Thiel's `student`, `college` and the rest say which builders it is
+   for). The project's own chains, reported and read, count as its words (T3-R3: a project on Avalanche names it). A rule item may carry `keywords` (L1c-2): when a rule still to confirm has keywords and the project names
    none of the program's keywords (whole word or phrase, case-insensitive, a hyphen read as a space) in its name, description, README excerpt
    or topics (the first three as prose: links, fenced code and inline code removed, `proseOf`, C3 v6.1.13; the README
    excerpt itself drops inline code spans), `unlikely` (`eligibility.ts`) holds and the program is left to `filter.all` (counted in `more`); a rule
    with no keywords keeps the slot rule. With nothing ready, the closing's rule question names a keyword-hit rule-only
-   program first (`keyword_hit` on the gap, L1e-5, v6.1.13), else the first in list order. One yes per reply (L1e-2):
-   when a ready program takes the closing (`Say yes and I apply.` or the draft form), no rule-only line carries its
-   own `Say "yes n" if that is you.` (the builder may still answer `yes n`). Several rules still to confirm read as one
+   program first (`keyword_hit` on the gap, L1e-5, v6.1.13), else the first in list order. One yes per reply (L1e-2,
+   T3-R5): no rule line, remote or in person, carries its own `Say "yes n" if that is you.`; the closing is the one
+   yes, and the builder may still answer `yes n` for any numbered line. Several rules still to confirm read as one
    sentence, `Their rules: a; b.` (L1e-6). Every gap line closing in 14 whole days or fewer says `closes in {n} days`
    (L1e-6; the 7-day O1 rule still decides who jumps the cap). In-person programs are off the default step list (R18d, R18f); a rule-only
    in-person program is listed in the In person block after the ready ones, with its rule and `Say "yes n" if that is
@@ -433,8 +434,9 @@ with answers still missing, the closing names them instead of a second yes: "{ti
 apply." (at most three, then "and n more"; N3, v6.1.12), and any other ready programs keep their yes. A program the
 builder submits reads the same in the draft wording (L1e-3, v6.1.13; list and detail alike): "Your yes stands for
 {title}: I draft it for you to send." and "{title} needs your {needs}; then I draft it for you to send.". A program
-that funds existing code (`needs_repo`, existing work allowed, not a hackathon or in person) is no fit, "needs code in
-a repo", for a project with no live link and no repo link or an empty repo (L1e-6, v6.1.13: FUTO for an idea). The email the
+that funds existing code (`needs_repo`, existing work allowed, not a hackathon or in person) is one step, `code in a
+repo` (`NEEDS_CODE`, item `repo`, re-checked by the read), from a project with no live link and no repo link or an
+empty repo (L1e-6, fix round 1 T3-R1: FUTO is an idea's one remote step). The email the
 "Before applying" block names (`record_missing`) is named once per reply: the drafted line, the Before tonight line and
 the N3 closing leave it out unless it is the only need (`namedBefore`, F5, v6.1.12). A new-work program (`new_work_after`) with no first-commit date is
 the question step "tell me when you started this" (minutes, never the agent's, never a reason to refuse; O3, v6.1.10):

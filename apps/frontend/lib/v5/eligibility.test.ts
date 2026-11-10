@@ -284,6 +284,27 @@ test('C1 (v6.1.8 final fix, B20b): a used bar on a chainless project is the user
   assert.equal(evaluate(toRow(programFixture({ id: 'p-live', min_tier: 'live', tag: undefined })), chainless, new Set(), NOW).status, 'ready');
 });
 
+test('L1e-6 fix round 1 (v6.1.13, T3-R1): a needs_repo grant for existing code is one step, code in a repo, from an idea or an empty repo; a repo with code or a live link has none', async () => {
+  const futo = fromFile('futo-microgrants');
+  const parsed = parseProject({ name: 'Rent Split', description: 'An idea: an app that splits rent.' });
+  assert.ok(parsed.ok);
+  const idea = await repoFacts(parsed.project, { now: NOW });
+  const empty = await factsOf('empty-repo');
+  for (const facts of [idea, empty]) {
+    const v = evaluate(futo, facts, new Set(), NOW);
+    assert.deepEqual([v.status, v.reason, v.gaps.map((g) => [g.kind, g.item, g.what])], ['gap', null, [['repo', 'repo', 'code in a repo'], ['rule', ruleItem('open source software from a small or early-stage project'), 'open source software from a small or early-stage project']]]);
+  }
+  // The builder's word is not the read: "repo" marked done is re-checked, and the step stays.
+  assert.equal(codeChecked('repo'), true);
+  assert.equal(evaluate(futo, idea, new Set(['repo']), NOW).gaps[0].kind, 'repo');
+  const code = { ...(await factsOf('nextjs-dashboard')), chains: [] };
+  assert.ok(!evaluate(futo, code, new Set(), NOW).gaps.some((g) => g.kind === 'repo'));
+  assert.ok(!evaluate(futo, { ...idea, live_url: 'https://rentsplit.app' }, new Set(), NOW).gaps.some((g) => g.kind === 'repo'));
+  // Hackathons are exempt.
+  const qnx = fromFile('qnx-global-hackathon-2026');
+  assert.ok(!evaluate(qnx, idea, new Set(), NOW).gaps.some((g) => g.kind === 'repo'));
+});
+
 test('B20c, B20d (v6.1.9, Review Focus 1, fix rounds 1 and 2): the users question needs a project that exists (code read, a live link, private, or reads paused); repo-less, unread or empty is not a fit for a used program', async () => {
   const floss = fromFile('floss-fund-zerodha');
   const usersOnly = toRow(programFixture({ id: 'p-users', tag: undefined, eligibility: [{ kind: 'users' }] }));
@@ -366,9 +387,17 @@ test('L1c-2 (v6.1.10): a rule with keywords is unlikely unless the project names
   assert.equal(unlikely(thiel, idea, evaluate(thiel, idea, new Set(), NOW).gaps), true);
   const student = facts({ name: 'micrograd', description: 'My student side project: a tiny scalar autograd engine' });
   assert.equal(keywordHit(thiel, student, evaluate(thiel, student, new Set(), NOW).gaps), true);
-  // Whole words: "2022" names no keyword.
-  const acme = facts({ name: 'Acme', description: 'Billing engine for B2B APIs, built in 2022' });
-  assert.equal(keywordHit(thiel, acme, evaluate(thiel, acme, new Set(), NOW).gaps), false);
+  // Fix round 1 (T3-R3): the project's own chains count as its words: Avalanche on Avalanche is a hit, no prose needed.
+  const ava = fromFile('avalanche-team1-mini-grants');
+  const onAva = facts({ name: 'Pay', description: 'Payments for shops', chains: [{ chain: 'avalanche', mainnet: true, basis: 'reported' } as never] });
+  assert.equal(keywordHit(ava, onAva, evaluate(ava, onAva, new Set(), NOW).gaps), true);
+  const offAva = facts({ name: 'Pay', description: 'Payments for shops' });
+  assert.equal(unlikely(ava, offAva, evaluate(ava, offAva, new Set(), NOW).gaps), true);
+  // Fix round 1 (T3-R2): no number and no "fellowship": a team of 22 and a fellowship-named project are no hit.
+  for (const [name, description] of [['Acme', 'A team of 22 building billing for B2B APIs'], ['Fellowship Finder', 'Find a research fellowship near you']]) {
+    const f = facts({ name, description });
+    assert.equal(keywordHit(thiel, f, evaluate(thiel, f, new Set(), NOW).gaps), false, description);
+  }
   // A phrase matches as a phrase: "mini app" for Farcaster.
   const fc = fromFile('farcaster-developer-rewards');
   const fcRule: Gap[] = [{ kind: 'rule', item: ruleItem('a Farcaster Mini App'), what: 'a Farcaster Mini App', effort: 'hours', agent_can: false }];

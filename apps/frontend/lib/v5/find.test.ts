@@ -1017,8 +1017,9 @@ const META_VR_LINE = (n: number) => `${n}. Meta VR Start Developer Competition 2
  *  sees it; FUTO, a rule with no keywords, takes the one no-hit slot where the project has code to show (L1e-6: an
  *  idea or an empty repo has none, and is left the in-person block alone). */
 const FUTO_ONLY = ['One step away (1):', '1. FUTO Microgrants, $1,000 to $5,000. Their rule: open source software from a small or early-stage project.'];
-/** An idea or an empty repo: no step at all, the in-person block and its closing. */
-const IN_PERSON_ONLY = (notes: string[] = []) => [...inPersonBlock(1), '', ...notes.flatMap((x) => [x, '']), 'Nothing remote is ready yet. Say yes and I start the in-person applications.'].join('\n');
+/** Fix round 1 (T3-R1): an idea, notes or an empty repo: FUTO one real step away (code in a repo), then in person. */
+const FUTO_CODE = '1. FUTO Microgrants, $1,000 to $5,000: code in a repo. Their rule: open source software from a small or early-stage project.';
+const IDEA_REPLY = (notes: string[] = []) => ['One step away (1):', FUTO_CODE, '', ...inPersonBlock(2), '', ...notes.flatMap((x) => [x, '']), RULE_FIRST].join('\n');
 /** The closing on a rule-only program the reply lists first. */
 const THAT_RULE_FIRST = 'Nothing is ready yet. Say "yes 1" if that rule fits you.';
 /** L1d-2 (v6.1.11, Review Focus 2): Colosseum's line names its account and sprint, never "a demo video" alone. */
@@ -1084,7 +1085,7 @@ test('R18e, R18f, C54, B20, B20c, B20d: projects B (dotfiles, repo link answers 
   // list of one (N-2 fix round 1), and the closing asks its rule first (I2, final).
   const c = await mcpCall(ctx(await installation()), 'find', { project: PROJECT_C });
   assert.equal(c.isError, false, c.text);
-  assert.equal(c.reply!.show_to_builder, IN_PERSON_ONLY());
+  assert.equal(c.reply!.show_to_builder, IDEA_REPLY());
   for (const r of [b, c]) assert.doesNotMatch(r.reply!.show_to_builder as string, /FLOSS|real people use it/);
   for (const r of [b, c]) assert.match(r.reply!.agent_note as string, /more left out: [^\n]*Ask with filter\.all for the full list\./);
   for (const project of [PROJECT_B, PROJECT_C]) {
@@ -1271,18 +1272,26 @@ test('L1e-3 (v6.1.13, Review Focus 8, personas 8 and 15): after the Thiel rule y
     const after = await mcpCall(c, 'find', { program_id: 'thiel', project });
     const list = await mcpCall(c, 'find', { project });
     const show = list.reply!.show_to_builder as string;
-    lines.push([after.reply!.show_to_builder as string, lineOf(show, 1), show.split('\n\n').at(-1)!]);
+    lines.push([after.reply!.show_to_builder as string, lineOf(show, 1), lineOf(show, 2), show.split('\n\n').at(-1)!]);
     assert.doesNotMatch(show, /Say yes/, show);
-    assert.doesNotMatch(show, /FUTO/, show);
   }
   assert.deepEqual(lines[0], lines[1]);
   assert.deepEqual(lines[0], [
     ['Thiel Fellowship, $250,000 over two years. Long odds: many apply, few are taken. Needs your online application answers.', 'Thiel Fellowship needs your online application answers; then I draft it for you to send.'].join('\n'),
     '1. Thiel Fellowship, $250,000 over two years. Long odds: many apply, few are taken. Needs your online application answers.',
+    // Fix round 1 (T3-R1): FUTO is one real step away, code in a repo, with no yes of its own (T3-R5).
+    FUTO_CODE.replace(/^1\./, '2.'),
     'Thiel Fellowship needs your online application answers; then I draft it for you to send.',
   ]);
 });
 
+
+test('fix round 1 (v6.1.13, T3-R3): a project reporting chain avalanche, no Avalanche word in its prose, sees Avalanche Team1 by default', async () => {
+  const r = await mcpCall(ctx(await installation()), 'find', { project: { name: 'Shop Pay', description: 'Payments for small shops', chains: [{ chain: 'avalanche', mainnet: true }] } });
+  assert.ok(ids(r.reply!.gaps).includes('avalanche-team1-mini-grants'), r.reply!.show_to_builder as string);
+  const plain = await mcpCall(ctx(await installation()), 'find', { project: { name: 'Shop Pay', description: 'Payments for small shops' } });
+  assert.ok(!ids(plain.reply!.gaps).includes('avalanche-team1-mini-grants'), plain.reply!.show_to_builder as string);
+});
 
 test('L1d-1 (v6.1.11, Review Focus 1): a claim on one project never pins or leads another project of the builder', async () => {
   const c = await dashCtx();
@@ -1295,8 +1304,8 @@ test('L1d-1 (v6.1.11, Review Focus 1): a claim on one project never pins or lead
   const IDEA = { name: 'Rent Split', description: 'An idea: an app that splits rent and bills between roommates' };
   const other = await mcpCall(c, 'find', { project: IDEA });
   const show = other.reply!.show_to_builder as string;
-  assert.doesNotMatch(show, /Meta VR|One step away/);
-  assert.ok(show.endsWith(IN_PERSON_ONLY()), show);
+  assert.doesNotMatch(show, /Meta VR/);
+  assert.ok(show.endsWith(IDEA_REPLY()), show);
   // The claimed project itself still has it pinned.
   const own = await mcpCall(c, 'find', { project: VR });
   assert.equal(ids(own.reply!.gaps)[0], 'meta-vr-start-competition-2026');
@@ -1338,10 +1347,10 @@ test('B20c (v6.1.9, Review Focus 1): a repo-less idea and an empty repo are neve
   const ideaCtx = async () => ({ installationId: await installation(), builderId: null, now: NOW });
   const emptyCtx = async () => ({ installationId: await installation(), builderId: null, now: NOW, gh: emptyRec.fetch });
   const idea = await mcpCall(await ideaCtx(), 'find', { project: IDEA });
-  // L1e-2, L1e-6 (v6.1.13, persona 8): no Thiel (no student word), no FUTO (no code): the in-person block alone.
-  assert.equal(idea.reply!.show_to_builder, IN_PERSON_ONLY());
+  // L1e-2 (v6.1.13, persona 8): no Thiel (no student word); fix round 1 (T3-R1): FUTO one real step away, code in a repo.
+  assert.equal(idea.reply!.show_to_builder, IDEA_REPLY());
   const empty = await mcpCall(await emptyCtx(), 'find', { project: EMPTY });
-  assert.equal(empty.reply!.show_to_builder, IN_PERSON_ONLY(['The repo is empty, so I matched on what you told me.']));
+  assert.equal(empty.reply!.show_to_builder, IDEA_REPLY(['The repo is empty, so I matched on what you told me.']));
   for (const [mk, project] of [[ideaCtx, IDEA], [emptyCtx, EMPTY]] as const) {
     // Even after the builder says yes (users: true, or gap_done users): not a fit, never ready, never a step.
     const c = await mk();

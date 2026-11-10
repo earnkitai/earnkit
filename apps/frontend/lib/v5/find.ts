@@ -267,7 +267,7 @@ function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram
   if (v.status === 'no') return [notFitLine(p.title, moneyOf(p), v.reason ?? 'does not fit'), ...o.rules];
   if (v.status === 'gap') {
     const g = { ...gapOf(row, v, o.done, o.now), n: 0 };
-    return [gapLine(g, null, true), ...o.rules, gapAction(g, o.signIn)].filter((l): l is string => l !== null);
+    return [gapLine(g, true), ...o.rules, gapAction(g, o.signIn)].filter((l): l is string => l !== null);
   }
   const r = { ...ready(), n: 0 };
   if (r.in_person) return [inPersonLine(r, true), ...o.rules];
@@ -536,14 +536,12 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const shownReady = shownReadyOf(readyOrder, all, attending, soon);
   // L1c-2 (v6.1.10): a rule the project names none of the keywords of is unlikely: the full list only.
   const unlikelyV = (v: Verdict) => unlikely(byId.get(v.program_id)!, facts, v.gaps);
-  // L1e-2 (v6.1.13): a program whose rules carry keywords is shown on a hit only, never in the no-hit rule slot.
-  const keyed = (v: Verdict) => eligibilityOf(byId.get(v.program_id)!.file).some((x) => x.kind === 'rule' && (x.keywords?.length ?? 0) > 0);
   // Acted-on programs first, then those closing soon, then real changes and at most one rule-bearing program by default
   // (R18b): the one on the project's chains if any (R18e, fix round 3) in its rank place (L1c-3), else the first, in
   // the last slot only (N-2); a keyword hit takes its own slot in rank order (N1, v6.1.12). In-person programs are
   // never in the default step list (R18d, R18f); `more` counts them.
   const stepGaps = shownGapsOf(gapV, all, MAX_GAPS, attending, projectChains,
-    (v, chain) => byId.get(v.program_id)!.file.chains.includes(chain), pinned, { unlikely: unlikelyV, soon, hit, keyed });
+    (v, chain) => byId.get(v.program_id)!.file.chains.includes(chain), pinned, { unlikely: unlikelyV, soon, hit });
   // O2 (v6.1.10): an in-person program that needs only a rule to confirm lists in the In person block, in the slots
   // the in-person ready ones leave (all of them with filter.all), each closing soon past the cap.
   const attendRule = (v: Verdict) => attending(v) && rulesOnly(v.gaps);

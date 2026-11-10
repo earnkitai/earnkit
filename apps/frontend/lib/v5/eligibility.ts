@@ -17,7 +17,7 @@ export type GapKind = EligibilityKind;
 export type Effort = 'minutes' | 'hours' | 'days' | 'weeks';
 export type Gap = {
   /** 'tier': the program's min_tier is above the project's tier (set by find, never by evaluate). */
-  kind: GapKind | 'tier';
+  kind: GapKind | 'tier' | 'repo';
   item: string;
   what: string;
   effort: Effort;
@@ -69,7 +69,7 @@ function gapOf(i: EligibilityItem): Gap {
  * item is noted, and while the read still misses it the find says so once after that program's line. Every other item
  * (a demo video, users, a feature, a rule) is the builder's word and counts done.
  */
-const CODE_CHECKED = new Set<string>(['chain', 'contract_on', 'builder_codes', 'live_product', 'integration']);
+const CODE_CHECKED = new Set<string>(['chain', 'contract_on', 'builder_codes', 'live_product', 'integration', 'repo']);
 export const codeChecked = (item: string): boolean => CODE_CHECKED.has(item.split(':')[0]);
 
 /** What the read looked for, as a thing ("the contract on Base"), for each code-checked gap the builder marked done. Pure. */
@@ -81,6 +81,7 @@ export function lookedAgain(gaps: Gap[], done: Set<string>): string[] {
       case 'contract_on': return `a contract on ${chain}`;
       case 'builder_codes': return 'Base Builder Codes in the app';
       case 'live_product': return 'a live link';
+      case 'repo': return 'code in a repo';
       default: return g.what.replace(/^add /, '');
     }
   });
@@ -89,6 +90,8 @@ export function lookedAgain(gaps: Gap[], done: Set<string>): string[] {
 const date = (s: string) => s.slice(0, 10);
 /** O3 (v6.1.10): a new-work program with no first-commit date: a question only the builder answers, in minutes. */
 const startedQuestion = (i: EligibilityItem): Gap => ({ kind: 'new_work_after', item: itemKey(i), what: 'tell me when you started this', effort: 'minutes', agent_can: false });
+/** T3-R1 (v6.1.13): code in a repo, the step a needs_repo grant for existing code is from an idea or an empty repo. */
+export const NEEDS_CODE: Gap = { kind: 'repo', item: 'repo', what: 'code in a repo', effort: 'days', agent_can: false };
 /** Users not reported: a question only the builder answers, not weeks of work. */
 const USERS_UNKNOWN: Gap = { kind: 'users', item: 'users', what: 'tell me if real people use it', effort: 'hours', agent_can: false };
 
@@ -113,7 +116,7 @@ export const rulesOnly = (gaps: Gap[]): boolean => gaps.length > 0 && gaps.every
 const prizes = (p: ProgramRow['file']) => p.pool_usd != null || /\bprizes?\b/i.test(p.reward);
 
 /** L1e-6 (v6.1.13): a program that funds code already written: existing work allowed, not a hackathon, not in person. Pure. */
-const forExistingCode = (p: ProgramRow['file']): boolean => p.existing_work === 'allowed' && categoryOf(p) !== 'hackathon' && !p.in_person;
+export const forExistingCode = (p: ProgramRow['file']): boolean => p.existing_work === 'allowed' && categoryOf(p) !== 'hackathon' && !p.in_person;
 
 /** The program against the facts: ready, a short list of gaps, or no. `done` holds items the builder says are done. */
 export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string>, now: Date): Verdict {
@@ -138,11 +141,11 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
   if (onchain && facts.chains.length === 0) return out('no', [], `needs a contract on ${chainName(onchain.value ?? '')}`);
   // B20c (v6.1.9): a program that wants used software (a used bar or a users item) asks only a project that exists.
   if ((p.min_tier === 'used' || own.some((i) => i.kind === 'users')) && !exists(facts)) return out('no', [], 'needs a product people use');
-  // L1e-6 (v6.1.13): a grant for existing code (needs_repo, existing work welcome, not a hackathon or an event) is no
-  // fit for a project with nothing to show: no live link, and no repo link (an idea) or a repo the read found empty.
-  if (p.needs_repo && forExistingCode(p) && !facts.live_url && (!facts.repo_url || (facts.notes ?? []).includes('empty'))) return out('no', [], 'needs code in a repo');
-
   const gaps: Gap[] = [];
+  // L1e-6 (v6.1.13, fix round 1 T3-R1): a grant for existing code (needs_repo, existing work welcome, not a hackathon or
+  // an event) is one step from a project with nothing to show (no live link, and no repo link or a repo the read found
+  // empty): code in a repo, a real change competing in the ordinary step slots. The read settles it.
+  if (p.needs_repo && forExistingCode(p) && !facts.live_url && (!facts.repo_url || (facts.notes ?? []).includes('empty'))) gaps.push(NEEDS_CODE);
   let inPerson = false;
   const chainItems = items.filter((i) => i.kind === 'chain');
   const mainnets = new Set(facts.chains.filter((c) => c.mainnet).map((c) => c.chain));
@@ -194,9 +197,12 @@ export const proseOf = (text: string): string =>
     .replace(/```[\s\S]*?(```|$)/g, ' ')
     .replace(/`[^`\n]*`/g, ' ')
     .replace(/\b(?:https?:\/\/|www\.)\S+/gi, ' ');
-/** What the project says about itself, lower-cased: its name, description and README excerpt as prose, and its topics (L1c-2). Pure. */
+/** What the project says about itself, lower-cased: its name, description and README excerpt as prose, its topics
+ *  (L1c-2), and its own chains, reported and read, by slug and name (T3-R3, v6.1.13: a project on Avalanche names
+ *  Avalanche). Pure. */
 const projectWords = (facts: RepoFacts): string =>
-  [proseOf(facts.name), proseOf(facts.description), proseOf(facts.readme_excerpt ?? ''), ...(facts.topics ?? [])].join('\n').toLowerCase();
+  [proseOf(facts.name), proseOf(facts.description), proseOf(facts.readme_excerpt ?? ''), ...(facts.topics ?? []),
+    ...facts.chains.flatMap((c) => [c.chain, chainName(c.chain)])].join('\n').toLowerCase();
 /** A hyphen reads as a space on both sides, so `mini app` matches "mini-app" (v6.1.10 final). Pure. */
 const unhyphen = (s: string): string => s.replace(/-/g, ' ');
 /** Whether `text` holds `phrase` as a whole word or phrase (letters and digits on neither side), any case. Pure. */

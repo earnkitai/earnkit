@@ -238,14 +238,13 @@ export const lookedAgainSentences = (g: Pick<GapProgram, 'looked_again'>): strin
 
 /**
  * The real gaps after the colon, with "do n" only when EarnKit can make all of them (v6.1.8, 1a); the unlinked tier
- * gap as its own sentence (C57); then the rules to confirm as one sentence (L1e-6, v6.1.13). Rules only: the rules, then
- * 'Say "yes n" if that is you.', except on the program the closing line already names (`ruleInClosing`), and on none
- * when it is 'all' (L1e-2, v6.1.13: a ready program's yes takes the closing, one yes per reply). In person,
+ * gap as its own sentence (C57); then the rules to confirm as one sentence (L1e-6, v6.1.13). A rule line never asks
+ * its own yes (T3-R5, v6.1.13): the closing is the reply's one yes, and "yes n" still works for any numbered line. In person,
  * the attend sentence follows the rules (R18d), so an in-person program always says so; otherwise the setup steps
  * come as "First: ..." before the rules (L1d-2). `alone` (the one-program reply,
- * v6.1.8 1b): no number and no "do n" or "yes n", since `gapAction` gives the action on its own line.
+ * v6.1.8 1b): no number and no "do n", since `gapAction` gives the action on its own line.
  */
-export function gapLine(g: GapProgram, ruleInClosing: number | 'all' | null = null, alone = false): string {
+export function gapLine(g: GapProgram, alone = false): string {
   const all = [g.gap, ...g.also];
   const rules = ruleSentences(all.filter((x) => x.kind === 'rule').map((x) => x.what));
   const attend = g.in_person ? attendSentence(g.setup) : '';
@@ -254,8 +253,7 @@ export function gapLine(g: GapProgram, ruleInClosing: number | 'all' | null = nu
   const first = !g.in_person && g.setup.length > 0 ? ` First: ${g.setup.join('; ')}.` : '';
   // O1 (v6.1.10): a program closing within 7 days says so after the money.
   const money = `${g.money}${g.closes_in ? `, closes ${g.closes_in}` : ''}`;
-  const quiet = alone || ruleInClosing === 'all' || g.n === ruleInClosing;
-  if (ruleOnlyGap(g)) return `${num(g.n, alone)}${g.title}, ${money}.${first}${rules}${attend}${quiet ? '' : ` Say "yes ${g.n}" if that is you.`}`;
+  if (ruleOnlyGap(g)) return `${num(g.n, alone)}${g.title}, ${money}.${first}${rules}${attend}`;
   const real = all.filter((x) => x.kind !== 'rule');
   const listed = real.filter((x) => !ownSentenceGap(x));
   const confirm = real.filter(ownSentenceGap).map((x) => ` ${x.what}.`).join('');
@@ -383,7 +381,7 @@ export const IN_PERSON_CLOSING = 'Nothing remote is ready yet. Say yes and I sta
  * The one action (v6.1.8, 1a): yes to the ready ones ("I draft ... for you to send" when the builder presses submit
  * on every one, C44); with none ready and remote steps shown "Nothing is ready yet." and the first rule-only gap's
  * "yes r", else the first step (M1, v6.1.9); with no remote step shown (or none of those to name) and in-person
- * programs listed, IN_PERSON_CLOSING (O2, fix round 1). The gap lines carry their own "do n" and "yes n".
+ * programs listed, IN_PERSON_CLOSING (O2, fix round 1). The gap lines carry their own "do n"; no line asks its own yes (T3-R5).
  * `inPerson`: the in-person programs listed, ready or rule-only. Pure.
  */
 export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number; firstRule: number | null; inPerson: number; held: number; firstStep?: FirstStep | null; yesStands?: string[]; draftStands?: string[]; yesWaits?: YesWait[]; stepRule?: number | null }): string {
@@ -495,15 +493,15 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   if (since) blocks.push(since);
   const ready = r.ready.filter((p) => !p.in_person);
   const inPerson = r.ready.filter((p) => p.in_person);
-  // O2 (v6.1.10): a rule-only in-person program is in the In person block, after the ready ones, with its own yes.
+  // O2 (v6.1.10): a rule-only in-person program is in the In person block, after the ready ones.
   const steps = r.gaps.filter((g) => !attendRuleGap(g));
   const attendRules = r.gaps.filter(attendRuleGap);
   const attendCount = inPerson.length + attendRules.length;
   const heldInPerson = inPerson.filter((p) => p.claimed_since).length;
   // A program another agent holds leaves the count to say yes to (v6.1.7, C37).
   const free = ready.filter((p) => !p.claimed_since);
-  // With nothing ready to say yes to, the closing names a rule-only gap, so its own line does not (1a): a keyword hit
-  // when one is listed (L1e-5, v6.1.13: its words make the rule likely), else the first in list order.
+  // With nothing ready to say yes to, the closing names a rule-only gap (1a): a keyword hit when one is listed (L1e-5,
+  // v6.1.13: its words make the rule likely), else the first in list order.
   const firstRule = (steps.find((g) => ruleOnlyGap(g) && g.keyword_hit) ?? steps.find(ruleOnlyGap))?.n ?? null;
   const named = namedBefore(r);
   // One condition for the heading and the closing: the agent sends tonight (never unlinked, where auto_apply is false).
@@ -520,14 +518,10 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   // Fix round 1 (v6.1.10): the yes stands only for a program fully ready, every required answer held (nothing in need you).
   const stands = yesd.filter((p) => p.need_you.length === 0);
   const waits = yesd.filter((p) => p.need_you.length > 0);
-  // L1e-2 (v6.1.13): a ready program's yes takes the closing, so no rule-only line asks its own (one yes per reply);
-  // a held ready program closes with the held line (I1), which names no rule.
-  const readyYes = tonight === 0 && unsaid.length > 0;
-  const ruleInClosing: number | 'all' | null = readyYes ? 'all' : ready.length === 0 ? firstRule : null;
   // The headlines count with parentheses (C56, 3.21); "step" covers a change and a rule to confirm.
   if (ready.length > 0) blocks.push([`Ready to apply (${ready.length}):`, ...ready.map((p) => readyLine(p, r.linked, now, false, named))].join('\n'));
-  if (steps.length > 0) blocks.push([`One step away (${steps.length}):`, ...steps.map((g) => gapLine(g, ruleInClosing))].join('\n'));
-  if (attendCount > 0) blocks.push([`In person (${attendCount}):`, ...inPerson.map((p) => inPersonLine(p)), ...attendRules.map((g) => gapLine(g, readyYes ? 'all' : null))].join('\n'));
+  if (steps.length > 0) blocks.push([`One step away (${steps.length}):`, ...steps.map((g) => gapLine(g))].join('\n'));
+  if (attendCount > 0) blocks.push([`In person (${attendCount}):`, ...inPerson.map((p) => inPersonLine(p)), ...attendRules.map((g) => gapLine(g))].join('\n'));
   const l = r.ledger;
   if (l.applied > 0) {
     const soon = l.closing_soon.length > 0 ? `, ${l.closing_soon.length} closing soon` : '';
@@ -605,7 +599,7 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
     'The numbers the builder says are each item\'s n in ready and gaps ("skip 4" is the item with n 4), not its place in the list.',
   ];
   if (r.ready.some((p) => p.in_person) || r.gaps.some(attendRuleGap))
-    lines.push('In-person programs (in_person: true) are not in "yes to all": draft nothing for one until the builder says yes to attending it and its setup. When the reply closes on starting the in-person applications, a yes is that yes for each one listed; for one with a rule ("yes n" on its line, or that closing yes), call track gap_done with its rule item first.');
+    lines.push('In-person programs (in_person: true) are not in "yes to all": draft nothing for one until the builder says yes to attending it and its setup. When the reply closes on starting the in-person applications, a yes is that yes for each one listed; for one with a rule (a "yes n" from the builder, or that closing yes), call track gap_done with its rule item first.');
   if (r.gaps.some((g) => !ruleOnlyGap(g)))
     lines.push(
       r.gaps.some((g) => canDo([g.gap, ...g.also].filter((x) => x.kind !== 'rule')))
