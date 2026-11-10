@@ -24,7 +24,7 @@ One Next.js app (`apps/frontend`) on Railway, one Postgres database, one daily j
 
 | Tool | Does |
 |---|---|
-| `find` | What the project can earn now (`ready`, pre-filled), what is one change away (`gaps`), what moved since the last call (`since`), and the ledger. With `program_id`: one program's details, form and guide. With no project: the open list. |
+| `find` | What the project can earn now (`ready`, pre-filled), what is one change away (`gaps`), what moved since the last call (`since`), and the ledger. With `program_id`: whether the project fits that program, as its find line without the number plus one action (v6.1.8), and its details, form and guide; the rules list reaches the builder only with no project or `ask: 'rules'`. With no project: the open list. |
 | `track` | Records what the builder did: `applied`, `won` (with `amount_usd`), `rejected`, `no_result`, `skipped`, `gap_done` (with `item`). |
 
 Every reply carries `show_to_builder` (plain text the agent may reword) and `agent_note` (what the agent does
@@ -174,7 +174,7 @@ keys from tool-call bodies before anything sees them.
 | `program_changes` | Field-level changes, for `since` and the owner digest |
 | `program_writes` | The write API's audit log and the pending writes |
 | `program_health` | The freshness probe: link status, page hash and text, failing days, changed_at |
-| `installations` | One row per issued token (hash only): client name, `last_seen_at`, `last_find_at`, `last_gaps` (the last find's gaps), `builder_id` and `linked_at` when linked, `unlinked_at` (set by an unlink on /me, cleared by the next find or a new link) |
+| `installations` | One row per issued token (hash only): client name, `last_seen_at`, `last_find_at`, `last_gaps` (the last find's gaps), `builder_id` and `linked_at` when linked, `unlinked_at` and `unlinked_reason` (set by an unlink on /me or the account's deletion, cleared by the next find or a new link) |
 | `rate_windows` | Request counters |
 | `repo_cache` | Public repo facts, 7 days; swept after 30 |
 | `evidence_cache` | v6 evidence blocks per repo (`repo:<owner/name>`, with pushed_at) and per contract, used for 7 days; not swept yet |
@@ -274,8 +274,8 @@ Design `v6-design.md` (sections 4, 5, 8, 10, 14); plan `v6.1-plan.md`; ledger `v
 **Identity and the owner key.** A builder is a GitHub account (`builders`, `lib/v6/builders.ts`). An unlinked
 installation works as in v5, except (v6.1.3) that `find` bars `min_tier` programs on a provisional tier from the
 public code read (`provisionalTier`: a repo homepage, live URL or mainnet contract from code is live, any other read repo is building,
-an unread repo has no bar; never shown as evidence; the gap line names the bar; a linked builder with no own tier read yet meets the same bar), names `blockersOf` against `EMPTY_RECORD` under
-"Before applying:" ("Before tonight:" only when the agent sends tonight under standing approval), and keeps the closing line as the one action with the sign-in as its second sentence. The first `find` (and `record`) on an unlinked installation carries a one-time link
+not read (B20): building when a repo or live link is reported, a reported live link never live, else no tier and no fit for a program with a bar; never shown as evidence; the gap line names the bar; a linked builder with no own tier read yet meets the same bar, said as "Your proof is still being read; ask again in a minute."). The bars are onchain evidence (B20b): they apply only to a project with a chain, reported or read; for a chainless project a `used` bar becomes the users question (the program's users item, else an implied one) and a `live` or `building` bar does not apply. The unlinked path names `blockersOf` against `EMPTY_RECORD` under
+"Before applying:" as one sentence naming the programs per thing the builder does ("you sign in by email and press submit yourself on X"; "Before tonight (nothing is sent until these are in):" only when the agent sends tonight under standing approval), and keeps the closing line as the one action with the sign-in as its second sentence (v6.1.8: "Say yes and I apply to all n. Or say the numbers to skip.", "Say yes and I apply.", "Nothing is ready yet." with the first rule's yes, "Applying tonight to {titles}."; each gap line carries its own "Say \"do n\"" only when EarnKit can make every real gap, and each rule-only line its own "Say \"yes n\" if that is you."). The first `find` (and `record`) on an unlinked installation carries a one-time link
 `earnkit.com/link/<code>` (15 minutes, hash stored, `link-routes.ts`); the builder continues, signs in with GitHub
 (`read:user`, `github-auth.ts`), and the callback only starts a 30-day session (`ek_me` cookie, `sessions.ts`) and lands
 on `/me?link=<code>` (v6.1.6, security H1: a sent link plus one click no longer links a stranger's agent). There a banner
@@ -286,8 +286,12 @@ GitHub account {login}." (`linked_notice`, security M2); `markFind` moves `last_
 /me (`unlinkInstallation`) sets `installations.unlinked_at`; the next `find` of that agent (match or open list) ends with
 "This agent was unlinked from your account. Sign in once at {link} to link it again." in place of the sign-in sentence,
 and clears the mark once that reply is built (`takeUnlinkedNotice`, v6.1.7 B10; a find that throws first keeps it). The unlinked agent's ledger stays with the builder. The ledger's owner is `b:<builder>` once linked, else `i:<installation>` (`ownerKey`); linking moves
-the installation's rows to the builder (the newer row per program wins), so every agent of one builder shares one
-ledger. A second agent links to the same builder; an installation linked to another builder is refused.
+the installation's rows to the builder, so every agent of one builder shares one ledger. Where both ledgers hold a
+program, the migration never downgrades (v6.1.8 B15): a result (won, rejected, no_result) beats applied, which beats a
+claim or a skip; of two equal statuses the newer `at` stays; the losing row is dropped (history is all kept). Deleting
+the account (`deleteBuilder`) marks each linked installation (`unlinked_at`, `unlinked_reason = 'deleted'`), so its
+next `find` or `record` call says "Your record was deleted at earnkit.com/me; this agent is unlinked." once (C51). A
+find with no project stamps `last_find_at` too, so the linked notice shows once (C47). Linked, that open list carries the report a project find would (the since line, the answers waiting again, "Applied under your standing approval: ...") in its closing block, so the stamp never swallows it. A second agent links to the same builder; an installation linked to another builder is refused.
 
 **The record and approvals.** One JSON record per builder (`record.ts`, strict): person, team, company, projects
 (several, each with its own answers), docs (links only), traction, the answer bank and the policy, with `meta[path] =
@@ -296,6 +300,26 @@ change to an approvable path (answers, project answers, the pre-launch traction 
 only the builder approves, on `/me` (`approvePath`), and `answerFor` returns only approved text, so an unapproved
 answer is never fitted into a form. `policy` (standing approval: `auto_apply`, `max_per_night`, `categories`,
 `max_ask_usd`, `never`, `agent_may_submit`) is the builder's only. Writes go through `withRecord` (row lock).
+
+The short form (v6.1.8 B16, B17): an answer's `short` is a cut of its `text` that fields under 300 characters carry.
+`/me` shows it under the answer ("Short form, for fields under 300 characters."), pending and approved, and approving
+the answer approves both (one path). A new text drops the old short unless a new one comes with it, so the builder's
+edit on `/me` leaves no approved short behind; `record brief` tells the agent to redraft it. `prefill` uses a short only
+through `answerFor`, so never without its approved text. A record value longer than the field's `max_chars` is marked
+`fit: 'cut'` with `fit_note` "Cut to {n} characters, keeping the meaning." (C42). An agent's change that drops an
+approval stamps `meta[path].unapproved_at`; the next find of the builder's agents says "{n} answers wait for your
+approval again at earnkit.com/me." (C48). Project answers are used only for the record project matched by
+`project_id`, repo or name; with none matched, none, and the agent note asks for `project_id` (C41). The team list
+shows on `/me` under About you, a name and role per member, editable through `/me/edit` paths `team.{i}.name|role`
+(B19).
+
+Standing approval at record time (v6.1.8 B18): `track applied` with `submitted_by: 'agent'` is `auto_applied` only
+when the policy covered it at that moment: `auto_apply` on, the program not in person, not builder-only,
+`agent_may_submit` on, its category ticked (none ticked reads as all), the larger of its award and pool within
+`max_ask_usd`, and (counted in `ledger.record` under an owner lock) fewer than `max_per_night` auto-applied rows in the
+last 24 hours. Otherwise the row is recorded with `auto_applied: false` and the builder line reads "Sent, but outside
+your standing approval: {reason}." (`outsideApproval` in `find-record.ts`). `/me/policy` refuses auto apply with no
+category ticked ("Pick at least one category.", C43).
 
 **The four tools** (`lib/v5/mcp.ts`):
 

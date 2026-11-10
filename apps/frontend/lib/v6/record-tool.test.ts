@@ -5,7 +5,7 @@ import { programFixture } from '../v5/fixtures/program';
 import { mcpCall } from '../v5/fixtures/mcp-call';
 import { connectInstallation, saveInstallation } from '../v5/installations';
 import { upsertProgram } from '../v5/programs';
-import { getRecord, linkInstallation, saveRecord, upsertBuilder } from './builders';
+import { deleteBuilder, getRecord, linkInstallation, saveRecord, upsertBuilder } from './builders';
 import { EMPTY_RECORD, approvePath } from './record';
 import { listWords } from './reply-words';
 import { refusedWords } from './record-tool';
@@ -44,7 +44,7 @@ test('unlinked and sign-in not configured: linked false, no sign_in, the session
   assert.equal(r.isError, false, r.text);
   assert.equal(r.reply!.linked, false);
   assert.equal('sign_in' in r.reply!, false);
-  assert.equal(r.reply!.show_to_builder, 'Sign-in is not ready yet; I will keep what you tell me in this session only.');
+  assert.equal(r.reply!.show_to_builder, "I can't save that yet, so I keep it for this chat.");
   assert.equal(r.reply!.agent_note, 'Show the link once. Ask for personal facts once, all together, when a form needs them; nothing is saved until the builder has signed in. Call record with get afterwards.');
   assert.equal('record' in r.reply!, false);
 });
@@ -87,7 +87,7 @@ test('linked: set saves, get reads it back; missing lists the founder video when
   assert.ok((g.reply!.missing as string[]).includes('your founder video link'));
   // C30: get and set say what is missing with one line, from one list.
   assert.deepEqual(g.reply!.missing, s.reply!.missing);
-  assert.equal(g.reply!.show_to_builder, `Your record has 2 of 6 blocks. Still missing: ${listWords(missing)}.`);
+  assert.equal(g.reply!.show_to_builder, `Your record is missing: ${listWords(missing)}.`);
 });
 
 test('the Saved line: three missing items, then "and n more"; the approval note only when an approvable path changed', async () => {
@@ -148,7 +148,7 @@ test('B9: a set field that looks like a secret is skipped, never stored; the lin
   assert.equal(rec.person.email, 'ada@example.com');
   // As the route delivers it: the key already swapped for the placeholder.
   const p = await mcpCall(c, 'record', { set: { person: { name: '[key removed]', location: 'x [key removed]' } } });
-  assert.match(p.reply!.show_to_builder as string, /^Nothing saved: 2 looked like secrets\. Still missing: /);
+  assert.match(p.reply!.show_to_builder as string, /^Not saved: 2 looked like secrets\. Still missing: /);
   assert.equal((await getRecord(c.builderId)).person.name, undefined);
   const clean = await mcpCall(c, 'record', { set: { person: { name: 'Ada' } } });
   assert.doesNotMatch(clean.reply!.show_to_builder as string, /not saved/i);
@@ -228,7 +228,7 @@ test('a projects entry without an id: a problem line and no change', async () =>
   const problems = r.reply!.problems as string[];
   assert.equal(problems.length, 1);
   assert.match(problems[0], /^projects\.id: /);
-  assert.match(r.reply!.show_to_builder as string, /^Nothing saved: project short name was not valid\. /);
+  assert.match(r.reply!.show_to_builder as string, /^Not saved: project short name was not valid\. /);
   assert.deepEqual(await getRecord(c.builderId), before);
 });
 
@@ -238,7 +238,7 @@ test('C29: record set counts what it saved and names what it did not; never a ba
   assert.match(r.reply!.show_to_builder as string, /^Saved 1; 1 not saved: email was not valid\. Still missing: /);
   assert.equal((await getRecord(c.builderId)).person.name, 'Ada');
   const t = await mcpCall(c, 'record', { set: { team: { lead: 'x' } } });
-  assert.match(t.reply!.show_to_builder as string, /^Nothing saved: team was not valid\. /);
+  assert.match(t.reply!.show_to_builder as string, /^Not saved: team was not valid\. /);
   const same = await mcpCall(c, 'record', { set: { person: { name: 'Ada' } } });
   assert.match(same.reply!.show_to_builder as string, /^Nothing new to save\. /);
   for (const x of [r, t, same]) {
@@ -252,7 +252,7 @@ test('C20: an answer sent as plain text: the agent note names the shape the reco
   const c = await linked();
   const r = await mcpCall(c, 'record', { set: { answers: { problem: 'Fees are high.' } } });
   assert.deepEqual(r.reply!.problems, ['answers.problem: not an object']);
-  assert.match(r.reply!.show_to_builder as string, /^Nothing saved: the answer on the problem was not valid\. /);
+  assert.match(r.reply!.show_to_builder as string, /^Not saved: the answer on the problem was not valid\. /);
   const note = r.reply!.agent_note as string;
   assert.ok(note.includes('{ kind, text }'), note);
   assert.ok(note.includes('answers: { problem: { text: "..." } }'), note);
@@ -263,4 +263,25 @@ test('not saved reasons name the fact in plain words, never a record key (v6.1.7
   assert.equal(refusedWords('traction.line_pre_launch: too long'), 'pre-launch line was not valid');
   assert.equal(refusedWords('projects.1.id: too long'), 'project short name was not valid');
   assert.equal(refusedWords('person.email: bad'), 'email was not valid');
+});
+
+test('C51: after the account is deleted, the next record call of a linked agent says so, once', async () => {
+  const c = await linked();
+  await deleteBuilder(c.builderId, NOW);
+  const first = await mcpCall({ ...c, builderId: null }, 'record', { get: true });
+  assert.equal(first.reply!.show_to_builder, "Your record was deleted at earnkit.com/me; this agent is unlinked. I can't save that yet, so I keep it for this chat.");
+  const second = await mcpCall({ ...c, builderId: null }, 'record', { get: true });
+  assert.equal(second.reply!.show_to_builder, "I can't save that yet, so I keep it for this chat.");
+});
+
+test('C50 and B17: a brief counts items, not blocks; an answer the builder rewrote (no short) asks the agent to redraft its short', async () => {
+  const c = await linked();
+  await mcpCall(c, 'record', { set: { answers: { problem: { text: 'Fees.' } } } });
+  const r = await mcpCall(c, 'record', { brief: 'problem' });
+  assert.match(r.reply!.show_to_builder as string, /^Your record has \d+ of \d+ items\.$/);
+  assert.doesNotMatch(r.reply!.show_to_builder as string, /blocks/);
+  assert.match(r.reply!.agent_note as string, /no short form: draft one of at most 280 characters/);
+  await mcpCall(c, 'record', { set: { answers: { problem: { short: 'Fees.' } } } });
+  const again = await mcpCall(c, 'record', { brief: 'problem' });
+  assert.doesNotMatch(again.reply!.agent_note as string, /no short form/);
 });

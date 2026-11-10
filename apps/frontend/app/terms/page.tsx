@@ -1,6 +1,24 @@
+import Link from 'next/link';
 import Footer from '../components/common/Footer';
 import { CARD_PANEL, H1_SITE, PAGE_COL } from '../components/site/ui';
-import { TERMS_DESCRIPTION, TERMS_SECTIONS, TERMS_TITLE } from '../../lib/v5/site-copy';
+import { TERMS_DESCRIPTION, TERMS_LINKS, TERMS_SECTIONS, TERMS_TITLE } from '../../lib/v5/site-copy';
+
+/** A terms line with its TERMS_LINKS words as links (the record page, not the bare path). */
+function withLinks(line: string) {
+  const hit = TERMS_LINKS.find(([words]) => line.includes(words));
+  if (!hit) return line;
+  const [words, href] = hit;
+  const at = line.indexOf(words);
+  return (
+    <>
+      {line.slice(0, at)}
+      <Link href={href} className="underline underline-offset-4 hover:text-s-text">
+        {words}
+      </Link>
+      {line.slice(at + words.length)}
+    </>
+  );
+}
 
 export function generateMetadata() {
   return {
@@ -21,7 +39,7 @@ export default function TermsPage() {
             <h2 className="ek-serif text-[28px] leading-none md:text-[32px]">{s.title}</h2>
             {s.lines.map((l) => (
               <p key={l} className="text-[16px] leading-normal text-s-muted">
-                {l}
+                {withLinks(l)}
               </p>
             ))}
           </section>

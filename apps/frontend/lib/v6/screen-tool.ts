@@ -31,15 +31,15 @@ export type ScreenReply = { show_to_builder: string; agent_note: string; job_id?
 
 export const SCREEN_TEXT = {
   unlinked: (link: string) => `Sign in once at ${link} so EarnKit knows which program you review for.`,
-  unlinkedNoLink: 'Sign in first, then ask EarnKit to add you as a reviewer for your program.',
-  notReviewer: 'You are not yet a reviewer for that program here. Ask EarnKit to add you.',
+  unlinkedNoLink: 'Screening is for program reviewers.',
+  notReviewer: 'Screening is for program reviewers, and you do not review that program.',
   noProgram: 'You review no program yet.',
-  limit: 'Ten screens a day is the limit here.',
+  limit: 'You can queue ten screens a day.',
   whichProgram: 'Name the program you are screening for.',
   empty: 'Hand me at least one applicant.',
-  noJob: 'No screen with that id here.',
+  noJob: "I don't have that screen.",
   expired: 'That screen has expired; queue the list again.',
-  nothing: 'Hand me an applicant list to queue, or a job_id for its results.',
+  nothing: 'Give me an applicant list, or the screen you queued.',
   unread: "I could not read that. Send the applicant list, or a screen's id for its results.",
   queuedNote: 'Call screen with job_id for progress and results. Tell the builder what each tier means: used, live, building, unverified, flagged.',
   sortNote: 'Sort: used, then live, then building; flagged last with the rule named.',
@@ -125,7 +125,7 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
   const job = await createJob({ programId, builderId: ctx.builderId, installationId: ctx.installationId, applicants: input.applicants, thresholds, now: ctx.now });
   const ahead = await queuedAhead(job.id, ctx.now);
   return {
-    show_to_builder: `Queued ${plural(job.total, 'applicant')} for ${program.file.title}; ${job.cached} already read. ${promiseLine(ahead, job.total)}`,
+    show_to_builder: `Queued ${plural(job.total, 'applicant')} for ${program.file.title}. ${promiseLine(ahead, job.total)}`,
     agent_note: SCREEN_TEXT.queuedNote,
     job_id: job.id,
   };

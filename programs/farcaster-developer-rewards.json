@@ -21,11 +21,11 @@
   "any_chain": true,
   "eligibility": [
     { "kind": "live_product" },
-    { "kind": "users", "note": "rewards follow the Mini App's usage and onchain transactions" }
+    { "kind": "users", "note": "rewards follow the Mini App's usage and onchain transactions" },
+    { "kind": "rule", "note": "a Farcaster Mini App" }
   ],
   "setup": [
-    "host farcaster.json on the app's domain",
-    "sign accountAssociation in the Manifest Tool"
+    "publish the Farcaster manifest on your domain and sign it in the Manifest Tool"
   ],
   "each_time": [],
   "rules": [
@@ -43,7 +43,7 @@
     "A small game with onchain rewards for players"
   ],
   "submission_requirements": [
-    { "key": "manifest_domain", "label": "Domain hosting /.well-known/farcaster.json", "kind": "links", "todo": "a live domain serving farcaster.json", "type": "url", "required": true, "description": "A bare domain or subdomain, entered exactly as in the Manifest Tool.", "project_field": "live_url", "from": "project" },
+    { "key": "manifest_domain", "label": "Domain hosting /.well-known/farcaster.json", "kind": "links", "todo": "a live domain hosting the manifest", "type": "url", "required": true, "description": "A bare domain or subdomain, entered exactly as in the Manifest Tool.", "project_field": "live_url", "from": "project" },
     { "key": "account_association", "label": "Signed accountAssociation from the Mini App Manifest Tool", "kind": "other", "todo": "the account signature on the manifest", "type": "text", "required": true, "description": "Generated in Farcaster's Mini App Manifest Tool while signed in to the account that owns the app, then copied into farcaster.json.", "from": "builder" }
   ],
   "submit": "builder",

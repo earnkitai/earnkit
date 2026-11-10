@@ -31,7 +31,7 @@ test('labels have no path or dot; every pending approval is an approvable path',
   const d = await meData(b, NOW, 'sess');
   assert.equal(d.csrf, csrfToken(b.id, NOW.toISOString().slice(0, 10), SECRET, 'sess'), 'the page mints the csrf from its session');
   assert.equal(d.login, 'viewer');
-  assert.deepEqual(d.blocks.map((x) => x.key), ['person', 'projects', 'company', 'docs', 'traction', 'answers', 'policy']);
+  assert.deepEqual(d.blocks.map((x) => x.key), ['person', 'team', 'projects', 'company', 'docs', 'traction', 'answers', 'policy']);
   for (const block of d.blocks) {
     assert.ok(!/[._]/.test(block.title), block.title);
     for (const f of block.fields) {
@@ -75,7 +75,7 @@ test('/me?link=<code> with a live code shows the link banner with the agent name
     (await sql()`INSERT INTO installations (token_hash, client_name, created_at) VALUES (${'mv-' + Math.random()}, ${name}, ${NOW}) RETURNING id`)[0].id as number;
   const code = await createLinkCode(await inst('Claude <Code>'), NOW);
   const d = await meData(b, NOW, 'sess', code);
-  const text = 'The agent calling itself Claude <Code>, first seen Nov 6, asked for this link. Only link an agent running on your own computer. If someone sent you this link, choose Not me.';
+  const text = 'The agent calling itself Claude <Code>, first seen Nov 6, asked for this link. If you did not ask your agent for this just now, choose Not me.';
   assert.deepEqual(d.link, { code, text, parts: ['The agent calling itself ', 'Claude <Code>', text.slice('The agent calling itself Claude <Code>'.length)] });
   const html = renderToStaticMarkup(MeView({ data: d, problem: null }));
   assert.ok(html.includes('Link an agent to this account?'), html);
@@ -90,9 +90,13 @@ test('/me?link=<code> with a live code shows the link banner with the agent name
   assert.ok(html.includes('>Link this agent</button>'));
   assert.ok(html.includes('>Not me</button>'));
   assert.ok(html.indexOf('Link an agent to this account?') < html.indexOf('id="person"'));
+  // The ledger rows show the program's title only, never its slug (lane 5, 3.27).
+  const rows = renderToStaticMarkup(MeView({ data: { ...d, link: null, ledger: [{ title: 'Base Builder Grants', status: 'Applied', at: 'Nov 6' }] }, problem: null }));
+  assert.ok(rows.includes('Base Builder Grants') && rows.includes('Applied, Nov 6'), rows);
+  assert.ok(!/base-builder-grants/.test(rows), rows);
 
   const unnamed = await createLinkCode(await inst(null), NOW);
-  assert.equal((await meData(b, NOW, 'sess', unnamed)).link?.text, 'Your agent, first seen Nov 6, asked for this link. Only link an agent running on your own computer. If someone sent you this link, choose Not me.');
+  assert.equal((await meData(b, NOW, 'sess', unnamed)).link?.text, 'Your agent, first seen Nov 6, asked for this link. If you did not ask your agent for this just now, choose Not me.');
 
   // A dead code says it expired; a code EarnKit never makes says it is not valid (v6.1.7 S1).
   const dead: [MeData, string][] = [
@@ -109,6 +113,11 @@ test('/me?link=<code> with a live code shows the link banner with the agent name
     assert.ok(!page.includes('Link this agent'));
   }
   assert.equal((await meData(b, NOW, 'sess')).link, null);
+  // N4: reopening /me?link= after this builder used the code says the agent is linked, never that it expired.
+  const usedCode = await createLinkCode(await inst('Claude Code'), NOW);
+  const { consumeLinkCode } = await import('./link-routes');
+  assert.equal(await consumeLinkCode(usedCode, b.id, NOW), 'linked');
+  assert.deepEqual((await meData(b, NOW, 'sess', usedCode)).link, { code: null, text: 'This agent is linked.', parts: null });
   assert.ok(!renderToStaticMarkup(MeView({ data: await meData(b, NOW, 'sess'), problem: null })).includes('Link an agent to this account?'));
 });
 
@@ -157,4 +166,29 @@ test('a note is shown plainly, apart from a refusal, and several refusal lines k
   assert.ok(!ok.includes('role="alert"'));
   const bad = renderToStaticMarkup(MeView({ data: d, problem: 'Most per night: a whole number from 1 to 20.\nCategories: pick one of the options.' }));
   assert.ok(/<p role="alert" class="[^"]*whitespace-pre-line[^"]*">Most per night: a whole number from 1 to 20\.\nCategories: pick one of the options\.<\/p>/.test(bad), bad);
+});
+
+test('B16 and B19: each answer shows its short form, pending and approved; the team list shows under About you', async () => {
+  const b = await upsertBuilder({ github_id: 810_050, login: 'shorty', name: 'S', avatar_url: null }, NOW);
+  const patch = {
+    answers: { problem: { text: 'Teams lose time on payouts.', short: 'Payouts; we serve 5,000 paying customers.' } },
+    team: [{ name: 'Cut Person', role: 'CEO' }, { name: 'Hidden Partner', role: 'CFO' }],
+  };
+  await saveRecord(b.id, mergeRecord(await getRecord(b.id), patch, 'agent', NOW).record, NOW);
+  const d = await meData(b, NOW, 'sess');
+  const pending = d.pending_approvals.find((p) => p.path === 'answers.problem')!;
+  assert.equal(pending.short, 'Payouts; we serve 5,000 paying customers.');
+  const fields = d.blocks.flatMap((x) => x.fields);
+  assert.equal(fields.find((f) => f.path === 'answers.problem')!.short, 'Payouts; we serve 5,000 paying customers.');
+  const team = d.blocks.find((x) => x.key === 'team')!;
+  assert.deepEqual(team.fields.map((f) => [f.path, f.label, f.value, f.set_by]), [
+    ['team.0.name', 'Member 1', 'Cut Person', 'agent'], ['team.0.role', 'Member 1 role', 'CEO', 'agent'],
+    ['team.1.name', 'Member 2', 'Hidden Partner', 'agent'], ['team.1.role', 'Member 2 role', 'CFO', 'agent'],
+    ['team.2.name', 'Add a member', '', null],
+  ]);
+  const html = renderToStaticMarkup(React.createElement(MeView, { data: d, problem: null }));
+  assert.equal(html.split('Short form, for fields under 300 characters.').length, 3, 'once pending, once under the answer');
+  assert.ok(html.includes('5,000 paying customers'));
+  assert.ok(html.includes('Hidden Partner'));
+  assert.ok(html.indexOf('Your team') > html.indexOf('About you') && html.indexOf('Your team') < html.indexOf('Your projects'));
 });

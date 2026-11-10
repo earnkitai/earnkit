@@ -42,7 +42,8 @@ test('rankGaps (R18b): real changes first, rule-only programs after, each ranked
      v('real-days', { status: 'gap', gaps: [gap('days')] })],
     programs,
   );
-  assert.deepEqual(out.map((x) => x.program_id), ['real-days', 'real-weeks', 'mixed', 'r-big', 'r-small']);
+  // v6.1.8 fix round 1: a rule is not a change, so 'mixed' (one hours change and a rule) leads the one-change programs.
+  assert.deepEqual(out.map((x) => x.program_id), ['mixed', 'real-days', 'real-weeks', 'r-big', 'r-small']);
 });
 
 test('shownGapsOf (R18b): three rule-only and two real gaps show the two real then one rule-only; all is unchanged', () => {
@@ -114,4 +115,49 @@ test('rankGaps (R18e tie-break): among rule-only programs on the project chains 
   assert.deepEqual(rankGaps(input, programs, both, 'arbitrum').map((x) => x.program_id), ['arb-award', 'arb-rule', 'arb-other', 'base-rule']);
   assert.deepEqual(rankGaps(input, programs, both).map((x) => x.program_id), ['arb-award', 'arb-rule', 'arb-other', 'base-rule']);
   assert.deepEqual(shownGapsOf(rankGaps(input.slice(0, 3), programs, both, 'base'), false, 3, remote).map((x) => x.program_id), ['base-rule']);
+});
+
+test('C60 (v6.1.8): the money sort reads the larger of the award and the pool, so a $1M pool outranks a $100K award', () => {
+  const programs = new Map([
+    row('award', { max_award_usd: 100_000 }), row('pool', { max_award_usd: 100_000, pool_usd: 1_000_000, reward: '$1,000,000 in prizes' }),
+    row('pool-only', { pool_usd: 500_000, reward: '$500,000 in prizes' }),
+  ].map((r) => [r.id, r]));
+  assert.deepEqual(rankReady([v('award'), v('pool-only'), v('pool')], programs).map((x) => x.program_id), ['pool', 'pool-only', 'award']);
+  const g = (id: string) => v(id, { status: 'gap', gaps: [gap('hours')] });
+  assert.deepEqual(rankGaps([g('award'), g('pool-only'), g('pool')], programs).map((x) => x.program_id), ['pool', 'pool-only', 'award']);
+});
+
+test('fix round 1 (v6.1.8): rule gaps do not count toward the number of changes; a $1M pool with a demo video and a rule outranks a $100K live link', () => {
+  const programs = new Map([row('vr', { max_award_usd: 100_000, pool_usd: 1_000_000, reward: '$1,000,000 in prizes' }), row('floss', { max_award_usd: 100_000 }), row('two', { max_award_usd: 9_000_000 })].map((r) => [r.id, r]));
+  const out = rankGaps(
+    [v('floss', { status: 'gap', gaps: [gap('hours')] }), v('two', { status: 'gap', gaps: [gap('hours'), gap('hours')] }), v('vr', { status: 'gap', gaps: [gap('hours'), ruleGap('vr')] })],
+    programs,
+  );
+  assert.deepEqual(out.map((x) => x.program_id), ['vr', 'floss', 'two']);
+});
+
+test('shownGapsOf (v6.1.8 fix round 2): at most one rule-bearing program, the best-ranked, in the last slot; rule-free ones fill the rest', () => {
+  const mixed = (id: string) => v(id, { status: 'gap', gaps: [gap('hours'), ruleGap(id)] });
+  const free = (id: string) => v(id, { status: 'gap', gaps: [gap('hours')] });
+  // Rank order: a change-plus-rule program ranked first (Meta VR), another one, two rule-free, a rule-only one.
+  const ranked = [mixed('vr'), mixed('codegeist'), free('circle'), free('floss'), v('otf', { status: 'gap', gaps: [ruleGap('otf')] })];
+  assert.deepEqual(shownGapsOf(ranked, false, 3, remote).map((x) => x.program_id), ['circle', 'floss', 'vr']);
+  assert.deepEqual(shownGapsOf(ranked, true, 3, remote), ranked);
+  // No rule-free program: the one rule-bearing program alone.
+  assert.deepEqual(shownGapsOf([mixed('vr'), mixed('codegeist'), v('otf', { status: 'gap', gaps: [ruleGap('otf')] })], false, 3, remote).map((x) => x.program_id), ['vr']);
+});
+
+test('shownGapsOf (v6.1.8 fix round 3): the rule slot prefers a program naming the project\'s chains, the first chain first; else rank order', () => {
+  const on: Record<string, string[]> = { vr: [], base: ['base'], arb: ['arbitrum'], arbRule: ['arbitrum'] };
+  const names = (x: Verdict, c: string) => (on[x.program_id] ?? []).includes(c);
+  const ranked = [
+    v('vr', { status: 'gap', gaps: [gap('hours'), ruleGap('vr')] }), v('circle', { status: 'gap', gaps: [gap('hours')] }),
+    v('arb', { status: 'gap', gaps: [gap('days'), ruleGap('a')] }), v('base', { status: 'gap', gaps: [ruleGap('b')] }),
+  ];
+  const show = (chains: string[]) => shownGapsOf(ranked, false, 3, remote, chains, names).map((x) => x.program_id);
+  assert.deepEqual(show(['base', 'arbitrum']), ['circle', 'base']);
+  assert.deepEqual(show(['arbitrum', 'base']), ['circle', 'arb']);
+  assert.deepEqual(show(['monad', 'arbitrum']), ['circle', 'arb']);
+  assert.deepEqual(show([]), ['circle', 'vr']);
+  assert.deepEqual(show(['monad']), ['circle', 'vr']);
 });

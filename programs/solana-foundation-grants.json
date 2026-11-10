@@ -24,7 +24,7 @@
   "min_tier": "building",
   "eligibility": [
     { "kind": "chain", "value": "solana" },
-    { "kind": "rule", "note": "a public good: a significant open source contribution to the Solana ecosystem or a meaningful free community offering" }
+    { "kind": "rule", "note": "a public good, meaning a significant open source contribution to the Solana ecosystem or a free community offering" }
   ],
   "setup": [],
   "each_time": [

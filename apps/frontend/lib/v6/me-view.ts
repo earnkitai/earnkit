@@ -7,13 +7,13 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { sql } from '../v5/db';
 import { ANSWER_KINDS, PROGRAM_CATEGORIES } from '../v5/program-file';
 import { cleanClientName } from '../v5/installations';
-import { ME_BLOCKS, ME_LABELS, ME_LINK_PARTS, ME_STATUS, monthDay } from '../v5/site-copy';
+import { ME_BLOCKS, ME_LABELS, ME_LINK_PARTS, ME_STATUS, ME_TEAM, monthDay } from '../v5/site-copy';
 import { type Builder, getRecord } from './builders';
-import { EXPIRED, INVALID, OTHER, codeShaped, liveCode } from './link-routes';
+import { ALREADY_LINKED, EXPIRED, INVALID, OTHER, codeShaped, linkedBy, liveCode } from './link-routes';
 import { APPROVABLE, type BuilderRecord, isApproved, KIND_WORDS } from './record';
 
 export type FieldKind = 'text' | 'long' | 'url' | 'bool' | 'number' | 'choice';
-export type BlockKey = 'person' | 'projects' | 'company' | 'docs' | 'traction' | 'answers' | 'policy';
+export type BlockKey = 'person' | 'team' | 'projects' | 'company' | 'docs' | 'traction' | 'answers' | 'policy';
 export type MeField = {
   path: string; label: string; value: string; kind: FieldKind; options?: string[];
   set_by: 'builder' | 'agent' | null; approvable: boolean; approved: boolean;
@@ -21,12 +21,15 @@ export type MeField = {
   approved_on: string | null;
   /** The approval's set_at as rendered ('' without one): approve is refused when it moved since. */
   seen: string;
+  /** An answer's short form, shown under it and approved with it (v6.1.8 B16). */
+  short?: string;
 };
 export type MeData = {
   login: string; name: string | null; csrf: string;
   blocks: { key: BlockKey; title: string; fields: MeField[] }[];
-  pending_approvals: { path: string; label: string; text: string; seen: string }[];
-  ledger: { title: string; program_id: string; status: string; at: string }[];
+  pending_approvals: { path: string; label: string; text: string; seen: string; short?: string }[];
+  /** The title only, never the slug (v6.1.8, lane 5). */
+  ledger: { title: string; status: string; at: string }[];
   installations: { id: number; client_name: string | null; linked_at: string }[];
   /**
    * After sign-in from /link/<code>: the code to confirm and the banner text; code null when it is no longer live.
@@ -126,15 +129,31 @@ function shown(key: string, v: unknown): string {
 function field(record: BuilderRecord, path: string, labelText: string, spec: { kind: FieldKind; options?: readonly string[] }, v: unknown, labelKey = path): MeField {
   // The two raised fields share one approval, shown on the amount unless only the source is set.
   const approvable = APPROVABLE(approvalPathOf(path)) && !(path === 'company.raised_from' && record.company.raised_usd !== undefined);
-  const meta = record.meta[approvalPathOf(path)] ?? record.meta[path];
+  // The team list is one path in the record: each member's fields show who set the list.
+  const meta = record.meta[approvalPathOf(path)] ?? record.meta[path] ?? (path.startsWith('team.') ? record.meta.team : undefined);
   const approved = approvable && isApproved(record, approvalPathOf(path));
+  const short = isObj(v) && typeof v.short === 'string' ? v.short : undefined;
   return {
     path, label: labelText, value: shown(labelKey, v), kind: spec.kind, ...(spec.options ? { options: [...spec.options] } : {}),
     set_by: meta?.set_by ?? null, approvable, approved,
     approved_on: approved && meta?.approved_at ? monthDay(new Date(meta.approved_at)) : null,
     seen: seenOf(record, approvalPathOf(path)),
+    ...(short ? { short } : {}),
   };
 }
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** The team list as fields (v6.1.8 B19): each member's name and role, then an empty row to add one while there is room. Pure. */
+function teamFields(record: BuilderRecord): MeField[] {
+  const text = { kind: 'text' as const };
+  const rows = record.team.flatMap((m, i) => [
+    field(record, `team.${i}.name`, ME_TEAM.name(i + 1), text, m.name),
+    field(record, `team.${i}.role`, ME_TEAM.role(i + 1), text, m.role),
+  ]);
+  return record.team.length < MAX_TEAM ? [...rows, { ...field(record, `team.${record.team.length}.name`, ME_TEAM.add, text, undefined), set_by: null }] : rows;
+}
+/** The most members the record keeps. */
+export const MAX_TEAM = 10;
 
 const obj = (o: object) => o as Record<string, unknown>;
 const fromSpecs = (record: BuilderRecord, block: string, specs: Spec[]) =>
@@ -149,6 +168,7 @@ export function recordBlocks(record: BuilderRecord): MeData['blocks'] {
   ]);
   return [
     { key: 'person', title: ME_BLOCKS.person, fields: fromSpecs(record, 'person', PERSON) },
+    { key: 'team', title: ME_BLOCKS.team, fields: teamFields(record) },
     { key: 'projects', title: ME_BLOCKS.projects, fields: projects },
     { key: 'company', title: ME_BLOCKS.company, fields: fromSpecs(record, 'company', COMPANY) },
     { key: 'docs', title: ME_BLOCKS.docs, fields: fromSpecs(record, 'docs', DOCS) },
@@ -163,12 +183,12 @@ const usd = (n: number) => `$${n.toLocaleString('en-US')}`;
 /** Approvable paths holding a value the builder has not approved, with the text they would approve. Pure. */
 export function pendingApprovals(record: BuilderRecord): MeData['pending_approvals'] {
   const out: MeData['pending_approvals'] = [];
-  const add = (path: string, labelText: string, text: string | undefined) => {
-    if (text && APPROVABLE(path) && !isApproved(record, path)) out.push({ path, label: labelText, text, seen: seenOf(record, path) });
+  const add = (path: string, labelText: string, text: string | undefined, short?: string) => {
+    if (text && APPROVABLE(path) && !isApproved(record, path)) out.push({ path, label: labelText, text, seen: seenOf(record, path), ...(short ? { short } : {}) });
   };
-  for (const k of ANSWER_KINDS) add(`answers.${k}`, answerLabel(k), record.answers[k]?.text);
+  for (const k of ANSWER_KINDS) add(`answers.${k}`, answerLabel(k), record.answers[k]?.text, record.answers[k]?.short);
   for (const p of record.projects)
-    for (const k of ANSWER_KINDS) add(`projects.${p.id}.answers.${k}`, `${p.name ?? p.id}: ${KIND_WORDS[k]}`, p.answers[k]?.text);
+    for (const k of ANSWER_KINDS) add(`projects.${p.id}.answers.${k}`, `${p.name ?? p.id}: ${KIND_WORDS[k]}`, p.answers[k]?.text, p.answers[k]?.short);
   add('traction.line_pre_launch', label('traction.line_pre_launch'), record.traction.line_pre_launch);
   const { raised_usd: n, raised_from: from } = record.company;
   const raised = [n !== undefined ? usd(n) : '', from ? `from ${from}` : ''].filter(Boolean).join(' ');
@@ -184,7 +204,7 @@ async function linkBanner(code: string | null | undefined, builderId: number, no
   if (code === null || code === undefined) return null;
   if (!codeShaped(code)) return { code: null, text: INVALID, parts: null };
   const live = await liveCode(code, now);
-  if (!live) return { code: null, text: EXPIRED, parts: null };
+  if (!live) return { code: null, text: (await linkedBy(code, builderId)) ? ALREADY_LINKED : EXPIRED, parts: null };
   if (live.builder_id !== null && Number(live.builder_id) !== builderId) return { code: null, text: OTHER, parts: null };
   const name = cleanClientName(live.client_name);
   const parts = ME_LINK_PARTS(name, monthDay(live.created_at));
@@ -206,7 +226,7 @@ export async function meData(builder: Builder, now: Date, session: string, link?
     csrf: csrfToken(builder.id, utcDay(now), authSecret(), session),
     blocks: recordBlocks(record),
     pending_approvals: pendingApprovals(record),
-    ledger: ledger.map((r) => ({ title: r.title ?? r.program_id, program_id: r.program_id, status: ME_STATUS[r.status] ?? cap(r.status.replaceAll('_', ' ')), at: monthDay(r.at) })),
+    ledger: ledger.map((r) => ({ title: r.title ?? r.program_id, status: ME_STATUS[r.status] ?? cap(r.status.replaceAll('_', ' ')), at: monthDay(r.at) })),
     installations: agents.map((r) => ({ id: r.id, client_name: cleanClientName(r.client_name), linked_at: r.linked_at ? monthDay(r.linked_at) : '' })),
     link: await linkBanner(link, builder.id, now),
   };

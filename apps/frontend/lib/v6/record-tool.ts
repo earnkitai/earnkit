@@ -9,13 +9,13 @@ import { inputDetail } from '../v5/tool-input';
 import { ANSWER_KINDS, type AnswerKind } from '../v5/program-file';
 import { listOpenPrograms } from '../v5/programs';
 import { answerBrief } from './answer-brief';
-import { LinkRefused, readStoredRecord, withRecord } from './builders';
+import { LinkRefused, readStoredRecord, takeUnlinkedNotice, unlinkedReason, withRecord } from './builders';
 import { oauthConfigured } from './github-auth';
 import { createLinkCode } from './link-routes';
-import { listWords, signInLine } from './reply-words';
+import { DELETED_NOTICE, listWords, signInLine } from './reply-words';
 
 export { listWords, signInLine };
-import { APPROVABLE, type BuilderRecord, completeness, KIND_WORDS, mergeRecord, recordMissing } from './record';
+import { APPROVABLE, type BuilderRecord, KIND_WORDS, mergeRecord, recordItems } from './record';
 
 export const RecordInput = z
   .object({
@@ -37,11 +37,16 @@ export type RecordReply = {
 };
 
 const SIGN_IN_NOTE = 'Show the link once. Ask for personal facts once, all together, when a form needs them; nothing is saved until the builder has signed in. Call record with get afterwards.';
-const NOT_READY = 'Sign-in is not ready yet; I will keep what you tell me in this session only.';
+const NOT_READY = "I can't save that yet, so I keep it for this chat.";
 const APPROVAL_NOTE = 'Approved answers come from earnkit.com/me, where the builder reads and approves each one; an unapproved answer is never used in a form.';
 const BROKEN = 'Your record could not be read; nothing was saved.';
 const BROKEN_NOTE = 'Tell the builder to open earnkit.com/me; the owner can inspect the stored row.';
 const BRIEF_NOTE = 'Draft the answer from the brief and save it with record set; the builder approves it on earnkit.com/me before any form uses it.';
+/** The kind's saved answer has a text but no short form (the builder rewrote it on /me, v6.1.8 B17): redraft the short. Pure. */
+const shortNote = (kind: AnswerKind, record: BuilderRecord): string | null =>
+  [record.answers[kind], ...record.projects.map((p) => p.answers[kind])].some((a) => a && !a.short)
+    ? `This answer has no short form: draft one of at most 280 characters from its text and save it as the answer's short with record set (answers.${kind}.short); the builder approves text and short together on earnkit.com/me.`
+    : null;
 
 const origin = () => (process.env.EARNKIT_URL?.trim() || 'http://localhost:3000').replace(/\/$/, '');
 
@@ -59,10 +64,13 @@ export async function signInLink(installationId: number, now: Date): Promise<str
 
 /** Unlinked: the sign-in link; a set says plainly that nothing was saved and to tell it again after signing in (R8). */
 async function unlinked(installationId: number, now: Date, setting: boolean): Promise<RecordReply> {
+  // The account this agent was linked to was deleted (v6.1.8 C51): said first, once, by whichever call comes next.
+  const deleted = (await unlinkedReason(installationId)) === 'deleted' && (await takeUnlinkedNotice(installationId));
+  const lead = (show: string) => (deleted ? `${DELETED_NOTICE} ${show}` : show);
   const link = await signInLink(installationId, now);
-  if (!link) return { show_to_builder: NOT_READY, agent_note: SIGN_IN_NOTE, linked: false };
+  if (!link) return { show_to_builder: lead(NOT_READY), agent_note: SIGN_IN_NOTE, linked: false };
   const show = setting ? `Not saved. Sign in once at ${link}, then tell me again.` : signInLine(link);
-  return { show_to_builder: show, agent_note: SIGN_IN_NOTE, linked: false, sign_in: link };
+  return { show_to_builder: lead(show), agent_note: SIGN_IN_NOTE, linked: false, sign_in: link };
 }
 
 /** What the open programs ask: their needs, and the answer kinds their forms ask. */
@@ -121,12 +129,13 @@ export function refusedWords(problem: string): string {
   return `${what} was not valid`;
 }
 
-/** "Saved 2.", "Saved 1; 1 not saved: email was not valid.", "Nothing saved: ...", "Nothing new to save." (C29). Pure. */
+/** "Saved 2.", "Saved 1; 1 not saved: email was not valid.", "Not saved: ..." (only when nothing was, v6.1.8 N1),
+ *  "Nothing new to save." (C29). Pure. */
 export function savedLine(saved: number, problems: string[], secrets: number): string {
   const reasons = [...problems.map(refusedWords), ...(secrets > 0 ? [secrets === 1 ? 'one looked like a secret' : `${secrets} looked like secrets`] : [])];
   const refused = problems.length + secrets;
   if (saved > 0) return refused > 0 ? `Saved ${saved}; ${refused} not saved: ${listWords(reasons)}.` : `Saved ${saved}.`;
-  return refused > 0 ? `Nothing saved: ${listWords(reasons)}.` : 'Nothing new to save.';
+  return refused > 0 ? `Not saved: ${listWords(reasons)}.` : 'Nothing new to save.';
 }
 
 /** An answer sent as plain text (C20): the shape the record takes, for the agent. */
@@ -197,14 +206,16 @@ export async function recordTool(ctx: { installationId: number; builderId: numbe
   }
   const brief = i.brief ? briefFor(i.brief, record) : undefined;
 
-  const missing = recordMissing(record, asks);
+  const items = recordItems(record, asks);
+  const missing = items.missing;
+  const briefNote = i.brief ? [BRIEF_NOTE, shortNote(i.brief, record)].filter(Boolean).join(' ') : '';
   if (m) {
     // Facts saved: a new project counts by its facts, not once more for itself.
     const facts = m.changed.filter((p) => !m!.changed.some((q) => q.startsWith(`${p}.`)));
     const head = savedLine(facts.length, m.problems, secrets);
     return {
       show_to_builder: [head, missingLine(missing)].filter(Boolean).join(' '),
-      agent_note: [m.changed.some(APPROVABLE) ? APPROVAL_NOTE : brief ? BRIEF_NOTE : '', answerShapeNote(m.problems)].filter(Boolean).join(' '),
+      agent_note: [m.changed.some(APPROVABLE) ? APPROVAL_NOTE : briefNote, answerShapeNote(m.problems)].filter(Boolean).join(' '),
       linked: true,
       missing,
       ...(m.problems.length > 0 ? { problems: m.problems } : {}),
@@ -213,10 +224,13 @@ export async function recordTool(ctx: { installationId: number; builderId: numbe
     };
   }
 
-  const n = completeness(record).filled.length;
+  // One sentence (v6.1.8): what is missing, named, or that nothing is. A brief alone counts the items (C50).
+  const have = items.total - missing.length;
   return {
-    show_to_builder: [`Your record has ${n} of 6 blocks.`, missingLine(missing)].filter(Boolean).join(' '),
-    agent_note: brief ? BRIEF_NOTE : '',
+    show_to_builder: brief && !i.get
+      ? `Your record has ${have} of ${items.total} ${items.total === 1 ? 'item' : 'items'}.`
+      : missing.length > 0 ? `Your record is missing: ${listWords(missing)}.` : 'Your record has nothing missing.',
+    agent_note: briefNote,
     linked: true,
     record,
     missing,

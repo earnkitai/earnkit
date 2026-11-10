@@ -21,18 +21,14 @@ before(() => sql()`DELETE FROM repo_cache`);
 const NOW = new Date('2026-11-04T12:00:00Z');
 const H = 3_600_000;
 const CLOSINGS = [
-  /Say yes to apply to all \d+, numbers to skip, or "do \d+" and I'll make the change first\.$/,
-  /Say yes to apply to all \d+, or numbers to skip\.$/,
-  /Say "do \d+" and I'll make the change first\.$/,
+  // v6.1.8 (1a): one action. The gap lines carry their own "do n" and "yes n".
+  /Say yes and I apply to all \d+\. Or say the numbers to skip\.$/,
+  /Say yes and I apply\.$/,
+  /Say yes and I draft all \d+ for you to send\. Or say the numbers to skip\.$/,
+  /Say yes and I draft it for you to send\.$/,
+  /Nothing is ready yet\.( Say "yes \d+" if that rule fits you\.)?$/,
   /Nothing fits yet\. I'll say when something opens\.$/,
-  /Say yes to apply, or skip it\.$/,
-  /Say yes to apply, skip it, or "do \d+" and I'll make the change first\.$/,
-  /Applying tonight to \d+; say stop to hold any\.$/,
-  // v6.1.6 (R18a): a rule-only gap is named with "yes r".
-  /Say yes to apply, skip it, or "yes \d+" if its rule fits you\.$/,
-  /Say yes to apply to all \d+, numbers to skip, or "yes \d+" if its rule fits you\.$/,
-  /Say yes to apply(, skip it| to all \d+, numbers to skip), "yes \d+" if its rule fits you, or "do \d+" and I'll make the change first\.$/,
-  /Say "yes \d+" if its rule fits you(, or "do \d+" and I'll make the change first)?\.$/,
+  /Applying tonight to [^\n]+\. Say stop to hold any\.$/,
 ];
 const seen: string[] = [];
 
@@ -74,7 +70,7 @@ test('a stranger with an app on no chain gets gaps or "Nothing fits yet" and no 
   assert.ok(gaps.length > 0 || /Nothing fits yet\. I'll say when something opens\.$/.test(show), show);
   // A program's own setup steps ("First: sign in to its hub") and its blockers ("Before applying: Sign in once to
   // its hub", v6.1.3 R4) are the program's, not EarnKit asking who they are.
-  const ours = show.replace(/ First: [^\n]*/g, '').replace(/^Before applying: [^\n]*/m, '').replace(/^In person, apply to attend first:\n(\d+\. [^\n]*\n?)+/m, '');
+  const ours = show.replace(/ First: [^\n]*/g, '').replace(/^Before applying: [^\n]*/m, '').replace(/^In person \(\d+\):\n(\d+\. [^\n]*\n?)+/m, '');
   assert.doesNotMatch(ours, /\b(email|sign in|sign up|log in|your name|your team|telegram|account)\b/i);
   assert.equal(reply.as_reported, false);
 });
@@ -165,7 +161,7 @@ test('the owner, linked: record set, approved on /me, find fills from it, starte
 
   const top = (first.ready as { program_id: string }[])[0].program_id;
   const started = await call(new Date(t1.getTime() + 60_000), 'track', { program_id: top, status: 'started', project_id: 'earnkit' });
-  assert.equal(started.show_to_builder, 'Started. Nothing else will submit this one for 24 hours.');
+  assert.equal(started.show_to_builder, 'Started. Your other agents leave this one alone for 24 hours.');
   const applied = await call(new Date(t1.getTime() + 120_000), 'track', { program_id: top, status: 'applied', submitted_by: 'agent', fields_used: ['email', 'problem'], project_id: 'earnkit' });
   assert.equal((applied.ledger as { applied: number }).applied, 1);
 
@@ -182,14 +178,13 @@ test('every line the builder saw follows the copy rules and ends with one closin
     assert.doesNotMatch(show, /—/, show);
     assert.doesNotMatch(show, /\b(coin|points|score|rank|streak|token)s?\b/i, show);
     assert.doesNotMatch(show, /\b(find|track|show_to_builder|agent_note|program_id|amount_usd|gap_done)\b|\.json\b/, show);
-    const isReply = /Ready to apply|One change away|Nothing fits yet/.test(show);
+    const isReply = /Ready to apply|One step away|Nothing fits yet/.test(show);
     if (!isReply) continue;
     // The first find after a link adds the linked notice to the closing line (security M2).
     const last = show.split('\n').at(-1)!.replace(/ This agent is now linked to GitHub account \S+\. Unlink any time at earnkit\.com\/me\.$/, '');
     assert.equal(CLOSINGS.filter((c) => c.test(last)).length, 1, show);
-    assert.equal(show.split('\n').filter((l) => /^(Say yes|Say "do|Say "yes|Nothing fits yet|Applying tonight)/.test(l)).length, 1, show);
-    // One "yes n" per reply, in the closing line only (v6.1.7, m1).
-    assert.ok((show.match(/"yes \d+"/g) ?? []).length <= 1, show);
-    assert.ok(!show.split('\n').slice(0, -1).some((l) => /"yes \d+"/.test(l)), show);
+    assert.equal(show.split('\n').filter((l) => /^(Say yes|Say "do|Say "yes|Nothing fits yet|Nothing is ready yet|Applying tonight)/.test(l)).length, 1, show);
+    // Each "yes n" and "do n" is said once (v6.1.8, 1a).
+    for (const ask of show.match(/"(yes|do) \d+"/g) ?? []) assert.equal(show.split(ask).length, 2, show);
   }
 });

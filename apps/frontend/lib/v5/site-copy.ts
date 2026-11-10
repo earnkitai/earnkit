@@ -70,7 +70,8 @@ export const DOCS_NAV: [string, string][] = [
 ];
 export const DOCS_DESCRIPTION = 'How to add EarnKit to your agent, how a session goes, your record, screening for programs, and how programs are checked.';
 export const DOCS_INSTALL_TITLE = 'Add EarnKit to your agent';
-export const DOCS_STEPS = ['Add the server', 'It connects on its own', 'Ask: what can I earn?'];
+/** The intro line above the install tabs already says it connects at once, so no step says it again (v6.1.8, Task 6). */
+export const DOCS_STEPS = ['Add EarnKit', 'Ask what this repo can earn.'];
 export const DOCS_SESSION = {
   title: 'How a session goes',
   text: 'Your agent asks what the repo can earn. It drafts every fit with the facts from the repo. You say yes and it submits in its own browser and tracks the result.',
@@ -95,7 +96,7 @@ export const TERMS_SECTIONS = [
   {
     title: 'What EarnKit reads',
     lines: [
-      'Public repos, with its own GitHub access.',
+      'Public repos, as anyone on GitHub can.',
       'For private repos, only what your agent reports to it.',
     ],
   },
@@ -114,9 +115,9 @@ export const TERMS_SECTIONS = [
   {
     title: 'Your record',
     lines: [
-      'Once you sign in with GitHub, EarnKit keeps one private record for you: the facts, links and answers you or your agent give it, your ledger and your linked agents.',
-      'Only you and your own linked agents see it. Once you are signed in, an answer your agent wrote is never sent until you approve it on /me. Before that, your agent acts on what you tell it in the chat.',
-      'You can edit or delete it any time on /me. Delete removes the record, the ledger and your sign-ins.',
+      'Once you sign in with GitHub, EarnKit keeps one private record for you: the facts, links and answers you or your agent give it, your applications and your linked agents.',
+      'Only you and your linked agents see it. Nothing your agent wrote is sent until you approve it.',
+      'You can edit or delete it any time on your record page.',
     ],
   },
   {
@@ -127,6 +128,8 @@ export const TERMS_SECTIONS = [
     ],
   },
 ] as const;
+/** Words in a terms line the page shows as a link: the record page is a place, not a path (v6.1.8, lane 5). */
+export const TERMS_LINKS: [string, string][] = [['your record page', '/me']];
 
 export const ME_TITLE = 'Your record';
 export const ME_DESCRIPTION = 'Your facts, links, documents and answers, kept once for every agent of yours.';
@@ -141,6 +144,17 @@ export const ME_PENDING_TITLE = 'Waiting for you';
 export const ME_PENDING_LINE = 'Read these, then approve each: an unapproved answer is never sent.';
 export const ME_NO_PROJECTS = 'No projects yet. Your agent adds them as you work.';
 export const ME_POLICY_LINE = 'Your agent applies on its own only when this is on, within these limits.';
+/** Under an answer: the short form the agent cut from it, which approving the answer approves too (v6.1.8 B16). */
+export const ME_SHORT_LABEL = 'Short form, for fields under 300 characters.';
+/** The team list under About you (v6.1.8 B19): one name and one role per member, and a row to add one. */
+export const ME_TEAM = {
+  name: (n: number) => `Member ${n}`,
+  role: (n: number) => `Member ${n} role`,
+  add: 'Add a member',
+  hint: 'Clear the name to remove them.',
+} as const;
+/** Standing approval on with no category ticked (v6.1.8 C43). */
+export const ME_PICK_CATEGORY = 'Pick at least one category.';
 export const ME_LEDGER_TITLE = 'Your applications';
 export const ME_LEDGER_EMPTY = 'Nothing tracked yet.';
 export const ME_AGENTS_TITLE = 'Your agents';
@@ -152,7 +166,7 @@ export const ME_UNLINK = 'Unlink';
 export const ME_LINK_TITLE = 'Link an agent to this account?';
 /** The link banner in three parts: the words before the agent's own name, the name (shown isolated, it is the agent's text) and the rest. */
 export const ME_LINK_PARTS = (agent: string | null, day: string): [string, string, string] => {
-  const rest = `, first seen ${day}, asked for this link. Only link an agent running on your own computer. If someone sent you this link, choose Not me.`;
+  const rest = `, first seen ${day}, asked for this link. If you did not ask your agent for this just now, choose Not me.`;
   return agent ? ['The agent calling itself ', agent, rest] : ['Your agent', '', rest];
 };
 export const ME_LINK_LINE = (agent: string | null, day: string): string => ME_LINK_PARTS(agent, day).join('');
@@ -162,7 +176,7 @@ export const ME_LINK_NOT = 'Not linked.';
 export const ME_LINK_YES = 'Link this agent';
 export const ME_LINK_NO = 'Not me';
 export const ME_DELETE_TITLE = 'Delete your record';
-export const ME_DELETE_LINE = 'This removes your record, your ledger and your sign-ins. Your agents keep working as new, anonymous installations.';
+export const ME_DELETE_LINE = 'This removes your record, your applications and your sign-ins. Your agents keep working, unsigned.';
 export const ME_DELETE_HINT = 'Type your GitHub login to confirm.';
 export const ME_DELETE = 'Delete everything';
 export const ME_NOT_SET = 'Not set';
@@ -170,6 +184,7 @@ export const ME_YES = 'Yes';
 export const ME_NO = 'No';
 export const ME_BLOCKS = {
   person: 'About you',
+  team: 'Your team',
   projects: 'Your projects',
   company: 'The company',
   docs: 'Your documents',
@@ -186,10 +201,10 @@ export const ME_LABELS = {
   'company.raised_from': 'Raised from', 'company.stage': 'Stage', 'company.launch_date': 'Launch date',
   'docs.resume_url': 'Resume link', 'docs.deck_url': 'Deck link', 'docs.founder_video_url': 'Founder video link', 'docs.demo_video_url': 'Demo video link',
   'docs.other': 'Other links',
-  'traction.line_pre_launch': 'One line when nothing is verified yet', 'traction.waitlist': 'Waitlist', 'traction.revenue_usd_claim': 'Revenue claim (USD)',
+  'traction.line_pre_launch': 'Your one line on traction', 'traction.waitlist': 'Waitlist', 'traction.revenue_usd_claim': 'Revenue claim (USD)',
   'traction.notes': 'Notes',
-  'policy.auto_apply': 'Apply without asking', 'policy.max_per_night': 'Most per night', 'policy.categories': 'Categories',
-  'policy.max_ask_usd': 'Never above (USD)', 'policy.never': 'Programs to skip', 'policy.agent_may_submit': 'Your agent may submit forms',
+  'policy.auto_apply': 'Apply overnight without asking, within these limits', 'policy.max_per_night': 'Most per night', 'policy.categories': 'Categories',
+  'policy.max_ask_usd': 'Skip awards above (USD)', 'policy.never': 'Programs to skip', 'policy.agent_may_submit': 'Press submit for me',
   'company.raised': 'Money raised',
 } as const;
 /** The words for a stored choice: company stages and program categories. */
@@ -200,7 +215,7 @@ export const ME_CHOICES: Record<string, string> = {
 export const ME_STATUS: Record<string, string> = {
   started: 'Started', applied: 'Applied', won: 'Won', rejected: 'Rejected', no_result: 'No result', skipped: 'Skipped',
 };
-export const ME_HINTS = { 'docs.other': 'One per line: a label, then the link.', 'policy.never': 'One program per line, the short name shown in your applications (for example base-builder-grants).', 'project.chains_claimed': 'Comma separated.' } as const;
+export const ME_HINTS = { 'docs.other': 'One per line: a label, then the link.', 'policy.never': 'One program per line, by its title (for example Base Builder Grants).', 'project.chains_claimed': 'Comma separated.' } as const;
 export const ME_ERRORS = {
   signin: 'Sign in again from the link your agent gives you.',
   expired: 'This page expired. Reload it and try again.',

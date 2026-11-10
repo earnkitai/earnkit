@@ -39,6 +39,6 @@ test('evidenceSummary: the tier and the builder line; null when nothing was plac
   const e = evidence({ live: liveRows({ url: 'https://x.dev', url_ok: true }) });
   const s = evidenceSummary(place(e, X0, undefined, NOW), e);
   assert.equal(s?.tier, 'live');
-  assert.match(s!.line, /^Your project reads as live, no verified usage yet\. Next: 25 funded wallets on mainnet in 90 days; you have 0\.$/);
+  assert.match(s!.line, /^Your project is live, with no verified usage yet\. Next: 25 funded wallets on mainnet in 90 days; you have 0\.$/);
   assert.equal(evidenceSummary(place(null, X0), null), null);
 });

@@ -10,6 +10,9 @@ import { categoryOf, eligibilityOf } from './program-file';
 import { itemKey } from './eligibility';
 import { getProgram, programsById, type ProgramRow } from './programs';
 
+/** gap_done without a known item (v6.1.8, 3.10): the builder names the change, the agent gets the item keys. */
+export const WHICH_CHANGE = 'Which change did you finish? Say the program and the change.';
+
 /** 'started' is a claim (lib/v6/claims.ts): not an application yet, so the summary leaves it out. */
 export type Status = 'started' | 'applied' | 'won' | 'rejected' | 'no_result' | 'skipped' | 'unskip' | 'gap_done';
 export type Ledger = {
@@ -80,10 +83,13 @@ export async function record(
     installationId?: number; amount_usd?: number; note?: string; item?: string; now?: Date;
     /** applied only: who pressed submit, the field keys sent and the record's project. */
     submitted_by?: 'agent' | 'builder'; fields_used?: string[]; project_id?: string;
-    /** applied only: the builder's standing approval (policy.auto_apply) was on when it was tracked. */
+    /** applied only: the builder's standing approval covered this send when it was tracked (track checks the policy). */
     autoApplied?: boolean;
+    /** applied with autoApplied: the policy's max_per_night. Counted here under the owner's lock: a send past it is
+     *  recorded as not under standing approval and answers `night` (v6.1.8 B18). */
+    maxPerNight?: number;
   } = {},
-): Promise<{ ok: true; repeated?: true } | { ok: false; note: string; items?: string[] }> {
+): Promise<{ ok: true; repeated?: true; night?: true } | { ok: false; note: string; items?: string[] }> {
   const installationId = o.installationId ?? installationOf(owner);
   if (installationId === undefined) throw new Error('record needs the writing installation');
   const now = o.now ?? new Date();
@@ -99,13 +105,14 @@ export async function record(
     const items = eligibilityOf(program.file);
     const keys = [...new Set([...items.map(itemKey), ...(items.some((x) => x.kind === 'users') ? ['users'] : [])])];
     // The keys go to the agent only: builder text never carries them (v6.1.6, 25a); also when no item came (C11).
-    if (!o.item || !keys.includes(o.item)) return { ok: false, note: 'Tell me which item you finished.', items: keys };
+    if (!o.item || !keys.includes(o.item)) return { ok: false, note: WHICH_CHANGE, items: keys };
   }
-  if (status === 'gap_done' && !o.item) return { ok: false, note: 'Tell me which item you finished.' };
+  if (status === 'gap_done' && !o.item) return { ok: false, note: WHICH_CHANGE };
   if (status === 'started') throw new Error('a claim is written by claims.claim');
   const amount = status === 'won' ? o.amount_usd! : null;
   const note = o.note ?? null;
   let repeated = false;
+  let night = false;
 
   return (await sql().begin(async (tx) => {
     // One decision at a time per owner and program (the claim's lock), even when no row exists yet.
@@ -133,10 +140,21 @@ export async function record(
         ON CONFLICT (owner, program_id, item) DO UPDATE SET at = EXCLUDED.at RETURNING (xmax = 0) AS inserted`;
       repeated = !g.inserted;
     } else if (status === 'applied') {
+      let auto = o.autoApplied === true;
+      if (auto && o.maxPerNight !== undefined) {
+        // Tonight's sends under standing approval: the last 24 hours, counted one at a time per owner.
+        await tx`SELECT pg_advisory_xact_lock(hashtext(${owner + ':auto'}))`;
+        const [n] = await tx<{ n: number }[]>`SELECT count(*)::int AS n FROM applications
+          WHERE owner = ${owner} AND auto_applied AND program_id <> ${programId} AND at > ${new Date(now.getTime() - DAY)}`;
+        if (n.n >= o.maxPerNight) {
+          auto = false;
+          night = true;
+        }
+      }
       // Over a claim the row keeps claimed_at and claimed_by: what was claimed, then sent.
       // The title is kept, so a result still reads once the program leaves the catalog.
       await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, note, at, submitted_by, fields_used, project_id, auto_applied, title)
-        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, ${note}, ${now}, ${o.submitted_by ?? null}, ${o.fields_used ?? null}, ${o.project_id ?? null}, ${o.autoApplied === true}, ${program!.file.title})
+        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, ${note}, ${now}, ${o.submitted_by ?? null}, ${o.fields_used ?? null}, ${o.project_id ?? null}, ${auto}, ${program!.file.title})
         ON CONFLICT (owner, program_id) DO UPDATE
           SET installation_id = EXCLUDED.installation_id, status = 'applied', amount_usd = NULL, note = EXCLUDED.note, at = EXCLUDED.at,
               submitted_by = EXCLUDED.submitted_by, fields_used = EXCLUDED.fields_used, auto_applied = EXCLUDED.auto_applied, title = EXCLUDED.title,
@@ -154,8 +172,8 @@ export async function record(
     }
     await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, note, at)
       VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${amount}, ${note}, ${now})`;
-    return repeated ? ({ ok: true, repeated: true } as const) : ({ ok: true } as const);
-  })) as { ok: true; repeated?: true } | { ok: false; note: string };
+    return repeated ? ({ ok: true, repeated: true } as const) : night ? ({ ok: true, night: true } as const) : ({ ok: true } as const);
+  })) as { ok: true; repeated?: true; night?: true } | { ok: false; note: string };
 }
 
 export async function summary(owner: string, programs: ProgramRow[], now: Date): Promise<Ledger> {

@@ -21,6 +21,9 @@ export type Field = {
   sources?: string[];
   /** On a prose field filled from the record: how to fit it (cut, never add). */
   style?: string;
+  /** A record value longer than max_chars (v6.1.8 C42): never sent as given; the agent cuts it as `fit_note` says. */
+  fit?: 'cut';
+  fit_note?: string;
   options?: string[];
   max_chars?: number;
   guidance?: string;
@@ -198,9 +201,13 @@ function recordValue(r: SubmissionRequirement, rec: RecordContext): FromRecord {
   return a ? { value: pick(a, r), prose: true } : null;
 }
 
-/** The short answer when the field caps under 300 characters and one exists, else the full text. */
+/** The short answer when the field caps under 300 characters and one exists, else the full text. `a` is an approved
+ *  answer (answerFor): a short form is used only with its approved text, never on its own (v6.1.8 B16). */
 const pick = (a: { text: string; short: string | null }, r: SubmissionRequirement) =>
   r.max_chars !== undefined && r.max_chars < 300 && a.short ? a.short : a.text;
+
+/** What the agent does with a record value over the field's cap (v6.1.8 C42). Pure. */
+export const cutNote = (n: number) => `Cut to ${n} characters, keeping the meaning.`;
 
 const CONTACT_SOURCES = ['git config and the environment', 'what the builder told you'];
 const ASK_ONCE = 'the builder, once: store the answer with record before using it';
@@ -227,7 +234,12 @@ export function prefill(
       ...(file.form?.fields?.[r.key] ? { form_id: file.form.fields[r.key] } : {}),
     };
     const fromRecord = rec ? recordValue(r, rec) : null;
-    if (fromRecord) return { ...base, value: fromRecord.value, from: 'record', ...(fromRecord.prose ? { style: STYLE_CONTRACT } : {}) };
+    const over = fromRecord && r.max_chars !== undefined && fromRecord.value.length > r.max_chars;
+    if (fromRecord)
+      return {
+        ...base, value: fromRecord.value, from: 'record', ...(fromRecord.prose ? { style: STYLE_CONTRACT } : {}),
+        ...(over ? { fit: 'cut' as const, fit_note: cutNote(r.max_chars!) } : {}),
+      };
     // Linked or not, traction, money raised, consents, amounts and personal facts are the builder's: never guessed, never drafted.
     if (isPersonal(r)) return { ...base, value: null, from: 'builder' };
     // Contacts (R2a): linked, the record answers first and the rest are the builder's; unlinked, the agent knows who it

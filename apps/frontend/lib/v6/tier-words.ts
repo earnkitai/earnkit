@@ -16,14 +16,14 @@ export function reviewerLine(p: Placement, e: Evidence | null): string {
 }
 
 const READS: Record<Tier, (p: Placement) => string> = {
-  used: () => 'Your project reads as used: wallets the deployer did not fund use it on mainnet.',
-  live: (p) => (p.gap === 'funded_senders' ? 'Your project reads as live, no verified usage yet.' : 'Your project reads as live.'),
-  building: () => 'Your project reads as building, nothing live yet.',
-  unverified: () => 'Your project reads as unverified, nothing recent EarnKit could check.',
-  flagged: (p) => `Your project reads as flagged on the ${rules(p)} rule${new Set(p.flags.map((f) => f.rule)).size > 1 ? 's' : ''}.`,
+  used: () => 'Your project is in use: wallets the deployer did not fund use it on mainnet.',
+  live: (p) => (p.gap === 'funded_senders' ? 'Your project is live, with no verified usage yet.' : 'Your project is live.'),
+  building: () => 'Your project has code, with nothing live yet.',
+  unverified: () => 'Your project is unverified, with nothing recent EarnKit could check.',
+  flagged: (p) => `Your project is flagged on the ${rules(p)} rule${new Set(p.flags.map((f) => f.rule)).size > 1 ? 's' : ''}.`,
 };
 
-/** "Your project reads as live, no verified usage yet. Next: 25 funded wallets on mainnet in 90 days; you have 4." Pure. */
+/** "Your project is live, with no verified usage yet. Next: 25 funded wallets on mainnet in 90 days; you have 4." Pure. */
 export function builderLine(p: Placement): string {
   if (!p.tier) return 'Your project is not read yet.';
   const head = READS[p.tier](p);

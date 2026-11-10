@@ -9,11 +9,11 @@ import { z } from 'zod';
 import { readCapped } from '../v5/http';
 import { publicOrigin } from '../v5/oauth';
 import { cleanClientName } from '../v5/installations';
-import { ME_BLOCKS, ME_ERRORS, ME_LABELS, ME_LINK_DONE, ME_LINK_NOT, ME_VALUE_WORDS } from '../v5/site-copy';
+import { ME_BLOCKS, ME_ERRORS, ME_LABELS, ME_LINK_DONE, ME_LINK_NOT, ME_PICK_CATEGORY, ME_VALUE_WORDS } from '../v5/site-copy';
 import { type Builder, deleteBuilder, getRecord, unlinkInstallation, withRecord } from './builders';
-import { INVALID, OTHER, codeShaped, consumeLinkCode, denyLinkCode, liveCode } from './link-routes';
+import { ALREADY_LINKED, INVALID, OTHER, codeShaped, consumeLinkCode, denyLinkCode, linkedBy, liveCode } from './link-routes';
 import { type MeField, authSecret, problemSig, recordBlocks, seenOf, utcDay, verifyCsrf } from './me-view';
-import { APPROVABLE, approvePath, fieldSchema, mergeRecord, unapprovePath } from './record';
+import { APPROVABLE, type BuilderRecord, approvePath, fieldSchema, mergeRecord, unapprovePath } from './record';
 import { COOKIE, clearCookie, cookieValue, endSession, sessionBuilder } from './sessions';
 
 type Deps = { now?: Date };
@@ -88,9 +88,24 @@ function valueOf(f: MeField, raw: string): { ok: true; value: unknown } | { ok: 
   return { ok: true, value: v };
 }
 
-/** The one-leaf patch mergeRecord takes for a field path. Pure. */
-function patchOf(path: string, value: unknown): unknown {
+/**
+ * The one-leaf patch mergeRecord takes for a field path, from the record as it is under the lock. A team member's
+ * field replaces the list (it is kept whole): an empty name removes that member, a name past the end adds one, an
+ * empty role clears it (v6.1.8 B19). Pure.
+ */
+function patchOf(path: string, value: unknown, current: BuilderRecord): unknown {
   const [block, ...rest] = path.split('.');
+  if (block === 'team') {
+    const at = Number(rest[0]);
+    const team = current.team.map((m) => ({ ...m }));
+    if (rest[1] === 'name' && value === null) team.splice(at, 1);
+    else if (at < team.length) {
+      const m = team[at] as Record<string, unknown>;
+      if (value === null) delete m[rest[1]];
+      else m[rest[1]] = value;
+    } else if (rest[1] === 'name' && at === team.length) team.push({ name: value as string });
+    return { team };
+  }
   if (block === 'projects') {
     const [id, key, kind] = rest;
     return { projects: [key === 'answers' ? { id, answers: { [kind]: value } } : { id, [key]: value }] };
@@ -140,9 +155,9 @@ export function wordsOf(path: string, value: unknown): string | null {
  * Merges `patch` as the builder under the row lock, all or nothing (v6.1.7 B1): any problem saves nothing and
  * comes back as a 303 to /me?problem=, one line per bad field.
  */
-async function merge(builder: Builder, now: Date, patch: unknown, label: string, anchor: string): Promise<Response> {
+async function merge(builder: Builder, now: Date, patch: unknown | ((current: BuilderRecord) => unknown), label: string, anchor: string): Promise<Response> {
   const out = await withRecord(builder.id, now, (current) => {
-    const m = mergeRecord(current, patch, 'builder', now);
+    const m = mergeRecord(current, typeof patch === 'function' ? patch(current) : patch, 'builder', now);
     return { record: m.problems.length === 0 && m.changed.length > 0 ? m.record : null, result: m.problems };
   });
   if (out.broken) return problemAt({ builder, now }, ME_ERRORS.broken);
@@ -163,8 +178,10 @@ export async function editPost(request: Request, deps: Deps = {}): Promise<Respo
   const v = valueOf(f, g.form.get('value') ?? '');
   if (!v.ok) return problemAt(g, v.problem);
   const words = wordsOf(path, v.value);
+  // An unknown chain is named on its own (v6.1.8 C53): "Not a known chain: solanaa."
+  if (words?.startsWith('not a known chain')) return problemAt(g, `N${words.slice(1)}.`);
   if (words) return problemAt(g, `${f.label}: ${words}.`);
-  return merge(g.builder, g.now, patchOf(path, v.value), f.label, block.key);
+  return merge(g.builder, g.now, (current: BuilderRecord) => patchOf(path, v.value, current), f.label, block.key);
 }
 
 /** POST /me/approve: csrf, path (approvable), action approve or unapprove; approve needs `seen`, the set_at shown. */
@@ -209,6 +226,8 @@ export async function policyPost(request: Request, deps: Deps = {}): Promise<Res
     const words = wordsOf(`policy.${k}`, v);
     return words ? [`${labels[`policy.${k}`]}: ${words}.`] : [];
   });
+  // On with nothing ticked would be off in effect while the page shows it on (v6.1.8 C43).
+  if (policy.auto_apply && policy.categories.length === 0) problems.push(ME_PICK_CATEGORY);
   if (problems.length > 0) return problemAt(g, problems.join('\n'));
   return merge(g.builder, g.now, { policy }, ME_BLOCKS.policy, 'policy');
 }
@@ -243,7 +262,7 @@ export async function linkPost(request: Request, deps: Deps = {}): Promise<Respo
   const live = await liveCode(code, g.now);
   const out = await consumeLinkCode(code, g.builder.id, g.now);
   if (out === 'other') return problemAt(g, OTHER);
-  if (out === 'dead') return problemAt(g, ME_ERRORS.linkExpired);
+  if (out === 'dead') return (await linkedBy(code, g.builder.id)) ? noteAt(g, ALREADY_LINKED) : problemAt(g, ME_ERRORS.linkExpired);
   return noteAt(g, ME_LINK_DONE(cleanClientName(live?.client_name)));
 }
 
@@ -252,7 +271,7 @@ export async function deletePost(request: Request, deps: Deps = {}): Promise<Res
   const g = await guard(request, deps);
   if (g instanceof Response) return g;
   if ((g.form.get('confirm') ?? '').trim().toLowerCase() !== g.builder.login.toLowerCase()) return problemAt(g, ME_ERRORS.confirm);
-  await deleteBuilder(g.builder.id);
+  await deleteBuilder(g.builder.id, g.now);
   return back('/', { 'Set-Cookie': clearCookie() });
 }
 

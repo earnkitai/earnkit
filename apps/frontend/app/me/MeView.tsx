@@ -2,7 +2,7 @@ import { CARD_NAVY, CARD_PANEL, CARD_RUST, H1_SITE, PAGE_COL, PILL_WHITE } from 
 import {
   ME_AGENTS_EMPTY, ME_AGENTS_TITLE, ME_AN_AGENT, ME_APPROVE, ME_APPROVED, ME_BY_AGENT, ME_CHOICES, ME_DELETE, ME_DELETE_HINT,
   ME_DELETE_LINE, ME_DELETE_TITLE, ME_HINTS, ME_LABELS, ME_LEDGER_EMPTY, ME_LEDGER_TITLE, ME_LINK_NO, ME_LINK_TITLE, ME_LINK_YES, ME_LINKED, ME_NO, ME_NO_PROJECTS, ME_NOT_SET,
-  ME_PENDING_LINE, ME_PENDING_TITLE, ME_POLICY_LINE, ME_SAVE, ME_SIGN_OUT, ME_SIGNED_IN, ME_TITLE, ME_UNAPPROVE, ME_UNLINK, ME_YES,
+  ME_PENDING_LINE, ME_PENDING_TITLE, ME_POLICY_LINE, ME_SAVE, ME_SHORT_LABEL, ME_SIGN_OUT, ME_SIGNED_IN, ME_TEAM, ME_TITLE, ME_UNAPPROVE, ME_UNLINK, ME_YES,
 } from '../../lib/v5/site-copy';
 import { approvalPathOf, type MeData, type MeField } from '../../lib/v6/me-view';
 
@@ -52,9 +52,21 @@ function Input({ f, id }: { f: MeField; id: string }) {
 }
 
 const hintOf = (path: string) => {
+  if (/^team\.\d+\.name$/.test(path)) return ME_TEAM.hint;
   const key = path.startsWith('projects.') ? `project.${path.split('.').slice(2).join('.')}` : path;
   return (ME_HINTS as Record<string, string>)[key];
 };
+
+/** An answer's short form under it (v6.1.8 B16): what fields under 300 characters carry, approved with the answer. */
+function Short({ text, tone = META }: { text: string | undefined; tone?: string }) {
+  if (!text) return null;
+  return (
+    <div className="flex flex-col gap-1">
+      <span className={tone}>{ME_SHORT_LABEL}</span>
+      <p className="whitespace-pre-wrap text-[15px] leading-[1.6]">{text}</p>
+    </div>
+  );
+}
 
 /** One row: the label, the input and Save; an approvable field with a value gets its approval control. */
 function Field({ f, csrf }: { f: MeField; csrf: string }) {
@@ -78,6 +90,7 @@ function Field({ f, csrf }: { f: MeField; csrf: string }) {
             {ME_SAVE}
           </button>
         </form>
+        <Short text={f.short} />
         {f.approvable && f.value !== '' && (
           <Approval path={approvalPathOf(f.path)} approvedOn={f.approved_on} seen={f.seen} csrf={csrf} />
         )}
@@ -237,6 +250,7 @@ export default function MeView({ data, problem, note = null }: { data: MeData; p
               <li key={p.path} className="flex flex-col gap-2 rounded-[24px] bg-s-navy-inner p-4 md:p-5">
                 <span className="text-[13px] text-s-on-navy">{p.label}</span>
                 <p className="whitespace-pre-wrap text-[15px] leading-[1.6]">{p.text}</p>
+                <Short text={p.short} tone="text-[13px] text-s-on-navy" />
                 <Approval path={p.path} approvedOn={null} seen={p.seen} csrf={csrf} />
               </li>
             ))}
@@ -267,10 +281,7 @@ export default function MeView({ data, problem, note = null }: { data: MeData; p
           <ul>
             {data.ledger.map((l, i) => (
               <li key={i} className="flex flex-wrap items-baseline justify-between gap-x-4 border-t border-s-line py-3 text-[15px] first:border-t-0">
-                <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-                  {l.title}
-                  <span className={META}>{l.program_id}</span>
-                </span>
+                <span className="min-w-0">{l.title}</span>
                 <span className="text-s-muted">
                   {l.status}, {l.at}
                 </span>

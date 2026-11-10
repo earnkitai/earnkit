@@ -10,9 +10,14 @@ import { CHAIN_REGISTRY, chainOfId } from './chains';
 import { sql } from './db';
 import { GitHubError, readRepo, readRepoObject, type RepoRead } from './github';
 import { LIMITS, hit } from './rate-limit';
-import type { Project } from './project-input';
+import { addressKey, type Project } from './project-input';
 
 export type Basis = 'code' | 'reported';
+/**
+ * What the builder is told about the read, one sentence each (v6.1.8, B20 and C59): reads paused for the day, a
+ * private repo, any other repo link not read (a 404, a non-GitHub link, an outage; fix round 1), a fork, an archived repo (counts as not live), an empty repo.
+ */
+export type RepoNote = 'paused' | 'private' | 'unread' | 'fork' | 'archived' | 'empty';
 export type RepoFacts = {
   name: string;
   description: string;
@@ -38,11 +43,19 @@ export type RepoFacts = {
   homepage: string | null;
   /** Why the repo was not read, when that is worth telling the agent. */
   problems?: string[];
+  /** What the builder is told about the read, in this order; none when absent (built by hand). */
+  notes?: RepoNote[];
 };
 
 type CodeFacts = Pick<RepoFacts, 'chains' | 'contracts' | 'builder_codes' | 'integrations' | 'first_commit_at' | 'last_commit_at' | 'readme_excerpt' | 'homepage'> & {
   html_url: string;
   pushed_at: string;
+  /** From the repo object (v6.1.8); a row cached before has none of these, read as false and null. */
+  fork?: boolean;
+  archived?: boolean;
+  empty?: boolean;
+  /** The README's first sentence of prose, the stand-in for a description the agent left out (C58). */
+  readme_lead?: string | null;
 };
 type Fetch = typeof fetch;
 
@@ -153,6 +166,22 @@ export function readmeExcerpt(md: string | null): string | null {
   return text ? text.slice(0, 2048) : null;
 }
 
+/** The first sentence of the README's first prose paragraph (no heading, badge, list, table or HTML), up to 280
+ *  characters, no pictographs; null when there is none. Pure. */
+export function readmeLead(md: string | null): string | null {
+  if (!md) return null;
+  const paragraphs = md.replace(/```[\s\S]*?```/g, '\n\n').replace(/<!--[\s\S]*?-->/g, ' ').split(/\n\s*\n/);
+  for (const raw of paragraphs) {
+    const p = raw.trim();
+    if (!p || /^(#|!\[|\[!\[|<|\||[-*+]\s|\d+\.\s|>|={3,}|-{3,})/.test(p)) continue;
+    const text = (readmeExcerpt(p) ?? '').replace(/\p{Extended_Pictographic}\uFE0F?/gu, '').replace(/\s+/g, ' ').trim();
+    if (text.split(' ').length < 3) continue;
+    const sentence = /^(.+?[.!?])(?:\s|$)/.exec(text)?.[1] ?? text;
+    return sentence.slice(0, 280).trim();
+  }
+  return null;
+}
+
 // ---- read and cache ----
 
 /** "owner/name" lowercase from a github.com repo link, else null. Pure. */
@@ -183,6 +212,10 @@ function codeFactsOf(r: RepoRead): CodeFacts {
     homepage: r.repo.homepage?.trim() || null,
     html_url: r.repo.html_url,
     pushed_at: r.repo.pushed_at,
+    fork: r.repo.fork === true,
+    archived: r.repo.archived === true,
+    empty: r.repo.size === 0,
+    readme_lead: readmeLead(r.readme),
   };
 }
 
@@ -254,7 +287,9 @@ async function cachedCodeFacts(key: string, f: Fetch, now: Date, installationId?
 /**
  * The facts for a project: its public GitHub repo read and cached, then the agent's report merged in.
  * The report fills what the read lacks; its live_url and demo_url win; reported chains the code lacks
- * stay with basis 'reported'.
+ * stay with basis 'reported', and a reported mainnet stands where the code found the chain without one (C55): the
+ * code adds chains and contracts, never removes a reported one or its mainnet. An archived repo's homepage is not
+ * a live link (C59). A description left out is the README's first sentence (C58).
  */
 export async function repoFacts(project: Project, deps: { gh?: Fetch; now?: Date; installationId?: number } = {}): Promise<RepoFacts> {
   const key = project.private ? null : repoKey(project.repo_url);
@@ -268,22 +303,35 @@ export async function repoFacts(project: Project, deps: { gh?: Fetch; now?: Date
       code = null;
     }
   }
-  const chains: RepoFacts['chains'] = [...(code?.chains ?? [])];
+  const chains: RepoFacts['chains'] = (code?.chains ?? []).map((c) => ({ ...c }));
   const contracts: RepoFacts['contracts'] = (code?.contracts ?? []).map((c) => ({ ...c, basis: 'code' as const }));
   for (const c of project.chains ?? []) {
-    if (!chains.some((x) => x.chain === c.chain)) chains.push({ chain: c.chain, mainnet: c.mainnet, basis: 'reported' });
-    if (c.contract && !contracts.some((x) => x.address === c.contract!.toLowerCase())) contracts.push({ chain: c.chain, address: c.contract.toLowerCase(), basis: 'reported' });
+    const have = chains.find((x) => x.chain === c.chain);
+    if (!have) chains.push({ chain: c.chain, mainnet: c.mainnet, basis: 'reported' });
+    else if (c.mainnet) have.mainnet = true;
+    const address = c.contract ? addressKey(c.chain, c.contract) : null;
+    if (address && !contracts.some((x) => x.address === address)) contracts.push({ chain: c.chain, address, basis: 'reported' });
   }
+  const archived = code?.archived === true;
+  const homeLive = archived ? null : (code?.homepage ?? null);
+  // A repo link given and not read is said once, with the one reason that applies.
+  const unread: RepoNote[] = !project.repo_url || code ? [] : [paused ? 'paused' : project.private ? 'private' : 'unread'];
+  const notes: RepoNote[] = [
+    ...unread,
+    ...(code?.fork ? (['fork'] as const) : []),
+    ...(archived ? (['archived'] as const) : []),
+    ...(code?.empty ? (['empty'] as const) : []),
+  ];
   return {
     name: project.name,
-    description: project.description,
+    description: project.description || (code ? (code.readme_lead ?? readmeLead(code.readme_excerpt)) : null) || '',
     repo_url: code ? code.html_url : (project.repo_url ?? null),
     repo_url_basis: code ? 'code' : project.repo_url ? 'reported' : null,
-    live_url_basis: project.live_url ? 'reported' : code?.homepage ? 'code' : null,
+    live_url_basis: project.live_url ? 'reported' : homeLive ? 'code' : null,
     demo_url_basis: project.demo_url ? 'reported' : null,
     public: code !== null,
     as_reported: code === null,
-    live_url: project.live_url ?? code?.homepage ?? null,
+    live_url: project.live_url ?? homeLive,
     demo_url: project.demo_url ?? null,
     chains,
     contracts,
@@ -295,5 +343,6 @@ export async function repoFacts(project: Project, deps: { gh?: Fetch; now?: Date
     readme_excerpt: code?.readme_excerpt ?? null,
     homepage: code?.homepage ?? null,
     ...(paused ? { problems: [READS_PAUSED] } : {}),
+    notes,
   };
 }

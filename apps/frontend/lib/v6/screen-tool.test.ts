@@ -50,10 +50,10 @@ test('screen needs a reviewer: unlinked and linked non-reviewer each answer one 
   await upsertProgram(programFixture({ id: 'scr-none' }), 'file', NOW);
   const u = await mcpCall({ installationId: inst!.id, builderId: null, now: NOW }, 'screen', { program_id: 'scr-none', applicants: APPLICANTS });
   assert.equal(u.isError, false, u.text);
-  assert.equal(u.reply!.show_to_builder, 'Sign in first, then ask EarnKit to add you as a reviewer for your program.');
+  assert.equal(u.reply!.show_to_builder, 'Screening is for program reviewers.');
   const c = await linked();
   const n = await mcpCall(c, 'screen', { program_id: 'scr-none', applicants: APPLICANTS });
-  assert.equal(n.reply!.show_to_builder, 'You are not yet a reviewer for that program here. Ask EarnKit to add you.');
+  assert.equal(n.reply!.show_to_builder, 'Screening is for program reviewers, and you do not review that program.');
   assert.equal('job_id' in n.reply!, false);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs`)[0].n, 0);
   // A refused non-reviewer never counts against the daily limit.
@@ -65,7 +65,7 @@ test('a reviewer queues a job and gets job_id; the eleventh screen in a day is r
   const r = await mcpCall(c, 'screen', { program_id: 'scr-queue', applicants: APPLICANTS });
   assert.equal(r.isError, false, r.text);
   assert.match(r.reply!.job_id as string, /^[A-Za-z0-9_-]{16}$/);
-  assert.equal(r.reply!.show_to_builder, 'Queued 2 applicants for Grants scr-queue; 0 already read. Results by tomorrow morning.');
+  assert.equal(r.reply!.show_to_builder, 'Queued 2 applicants for Grants scr-queue. Results by tomorrow morning.');
   assert.equal(r.reply!.agent_note, 'Call screen with job_id for progress and results. Tell the builder what each tier means: used, live, building, unverified, flagged.');
   const [w] = await sql()`SELECT count FROM rate_windows WHERE key = ${`screenJobs:b:${c.builderId}`} AND window_start = ${windowStart(NOW, 86_400_000)}`;
   assert.equal(w.count, 1);
@@ -73,7 +73,7 @@ test('a reviewer queues a job and gets job_id; the eleventh screen in a day is r
   const tenth = await mcpCall(c, 'screen', { program_id: 'scr-queue', applicants: APPLICANTS });
   assert.ok(tenth.reply!.job_id, tenth.text);
   const over = await mcpCall(c, 'screen', { program_id: 'scr-queue', applicants: APPLICANTS });
-  assert.equal(over.reply!.show_to_builder, 'Ten screens a day is the limit here.');
+  assert.equal(over.reply!.show_to_builder, 'You can queue ten screens a day.');
   assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs WHERE builder_id = ${c.builderId}`)[0].n, 2);
 });
 
@@ -107,7 +107,7 @@ test('results carry public evidence only; outcomes record', async () => {
   assert.ok(results.applicants.every((a) => a.rows.every((x) => x.basis !== 'record')));
   assert.ok(results.applicants.find((a) => a.ref === 'r-1')!.because.includes('seen in 1 other screen in 90 days'));
   const nosy = await mcpCall(other, 'screen', { job_id: jobId });
-  assert.equal(nosy.reply!.show_to_builder, 'No screen with that id here.');
+  assert.equal(nosy.reply!.show_to_builder, "I don't have that screen.");
   assert.equal('results' in nosy.reply!, false);
 
   const o = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'r-1', outcome: 'won', amount_usd: 2000 }, { ref: 'r-2', outcome: 'rejected' }] });
@@ -199,8 +199,8 @@ test('B14: the promise counts the queue ahead against the daily run of SCREEN_BA
   const a = await reviewerOf('scr-big');
   const many = Array.from({ length: 200 }, (_, k) => ({ ref: `m-${k}`, name: `App ${k}` }));
   const first = await mcpCall({ ...a, now: EARLY }, 'screen', { program_id: 'scr-big', applicants: many });
-  assert.equal(first.reply!.show_to_builder, 'Queued 200 applicants for Grants scr-big; 0 already read. Results by tomorrow morning.');
+  assert.equal(first.reply!.show_to_builder, 'Queued 200 applicants for Grants scr-big. Results by tomorrow morning.');
   const b = await reviewerOf('scr-after');
   const second = await mcpCall({ ...b, now: new Date(EARLY.getTime() + 60_000) }, 'screen', { program_id: 'scr-after', applicants: APPLICANTS });
-  assert.equal(second.reply!.show_to_builder, 'Queued 2 applicants for Grants scr-after; 0 already read. 200 applicants ahead of yours; results within 2 days.');
+  assert.equal(second.reply!.show_to_builder, 'Queued 2 applicants for Grants scr-after. 200 applicants ahead of yours; results within 2 days.');
 });

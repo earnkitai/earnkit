@@ -22,6 +22,8 @@ const NOT_SET_UP = 'GitHub sign-in is not set up yet.';
 export const EXPIRED = 'This link has expired. Ask your agent for a new one.';
 const FAILED = 'Sign-in failed. Ask your agent for a new link.';
 export const OTHER = 'This agent is already linked to another account. Install EarnKit again for a fresh link.';
+/** A used code whose agent is linked to this builder: a second click on "Link this agent" (v6.1.7 N4). */
+export const ALREADY_LINKED = 'This agent is linked.';
 /** A code that is not one EarnKit makes: garbage, cut or too long (v6.1.7 S1). */
 export const INVALID = 'This link is not valid.';
 /** A code as createLinkCode makes it: 22 base64url characters of an HMAC. */
@@ -102,7 +104,7 @@ function confirmPage(live: Live, origin: string): Response {
 <p style="font-size:18px;line-height:1.5">Link ${who}, first seen ${day(live.created_at)}, to your GitHub account?</p>
 <p style="color:#9AA0B4;font-size:15px;line-height:1.5">Once linked, it can read and change your record and apply to programs in your name. You can unlink it any time at ${host}/me.</p>
 <form method="post"><button type="submit" style="background:${SITE.blue};color:#fff;border:0;border-radius:8px;padding:12px 20px;font-size:16px;cursor:pointer">Continue with GitHub</button></form>
-<p style="color:#9AA0B4;font-size:14px;line-height:1.5">After you sign in, you confirm the link on your record page. Only continue if you asked your agent for this link just now. If someone sent you this link, close this page.</p>
+<p style="color:#9AA0B4;font-size:14px;line-height:1.5">After you sign in, you confirm the link on your record page. If you did not ask your agent for this just now, close this page.</p>
 </main></body></html>`;
   return new Response(html, {
     status: 200,
@@ -167,6 +169,15 @@ export async function consumeLinkCode(code: string, builderId: number, now: Date
     if (err instanceof LinkRefused) return 'other';
     throw err;
   }
+}
+
+/** Whether the code was used and its installation is linked to this builder (a double click after the link, N4). */
+export async function linkedBy(code: string, builderId: number): Promise<boolean> {
+  if (!CODE_SHAPE.test(code)) return false;
+  const rows = await sql()`
+    SELECT 1 FROM link_codes l JOIN installations i ON i.id = l.installation_id
+    WHERE l.code = ${hash(code)} AND l.used_at IS NOT NULL AND i.builder_id = ${builderId}`;
+  return rows.length > 0;
 }
 
 /** Ends a live code now: the builder said it was not theirs. */

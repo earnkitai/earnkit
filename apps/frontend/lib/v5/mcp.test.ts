@@ -19,7 +19,7 @@ test('four tools, their descriptions and the server instructions, verbatim', asy
   assert.deepEqual(tools.map((t) => t.name), ['find', 'track', 'record', 'screen']);
   assert.equal(
     FIND_DESCRIPTION,
-    'What can this repo earn: the programs it fits with every field pre-filled, the ones one change away, and the ledger. Call it at session start with the project you are in, and again when the builder asks about money or programs. With program_id: that program\'s details and form.',
+    'What can this repo earn: the programs it fits with every field pre-filled, the ones one change away, and the ledger. Call it at session start with the project you are in, and again when the builder asks about money or programs. With program_id: whether the project fits that program, and its details and form.',
   );
   assert.equal(
     TRACK_DESCRIPTION,
@@ -29,6 +29,7 @@ test('four tools, their descriptions and the server instructions, verbatim', asy
   assert.equal(tools[1].description, TRACK_DESCRIPTION);
   const props = (i: number) => (tools[i].inputSchema as { properties: Record<string, { enum?: string[] }> }).properties;
   assert.ok('project_id' in props(0));
+  assert.deepEqual(Object.keys(props(0)), ['project', 'program_id', 'project_id', 'ask', 'filter']);
   assert.deepEqual(['project_id', 'submitted_by', 'fields_used'].filter((k) => k in props(1)), ['project_id', 'submitted_by', 'fields_used']);
   assert.ok(props(1).status.enum?.includes('started'));
   assert.equal(
@@ -90,6 +91,18 @@ test('B4: arguments nested past 64 levels are the plain line, never a stack over
     assert.equal(r.reply!.show_to_builder, 'I could not read that.');
     assert.equal(r.reply!.agent_note, 'The arguments were nested too deep.');
   }
+});
+
+test('find takes ask leniently: rules shows the rules list, any other value is ignored (v6.1.8, 1b)', async () => {
+  const c = await ctx();
+  const project = { name: 'X', description: 'An app.' };
+  const plain = await mcpCall(c, 'find', { program_id: 'base-builder-grants', project });
+  const other = await mcpCall(c, 'find', { program_id: 'base-builder-grants', project, ask: 'everything' });
+  const rules = await mcpCall(c, 'find', { program_id: 'base-builder-grants', project, ask: 'rules' });
+  assert.equal(other.isError, false, other.text);
+  assert.equal(other.reply!.show_to_builder, plain.reply!.show_to_builder);
+  assert.doesNotMatch(plain.reply!.show_to_builder as string, /^Rules:$/m);
+  assert.match(rules.reply!.show_to_builder as string, /^Rules:$/m);
 });
 
 test('C17: an unknown project_id is a problem line on find, and named in the agent note on track', async () => {

@@ -36,8 +36,9 @@ export const KEY_REMOVED = '[key removed]';
 /** A PEM private key's body is at most this long (a 4096-bit RSA key is about 3,300 characters). */
 export const PEM_MAX_BODY = 10_000;
 
-export const SCRUB_LINE =
-  'That looked like a secret key, so I removed it and saved nothing. If it was a live key, roll it now in that dashboard. Never paste keys in chat.';
+/** What to do about a key pasted in chat. */
+export const SCRUB_ROLL = 'If it was a live key, roll it now in that dashboard. Never paste keys in chat.';
+export const SCRUB_LINE = `That looked like a secret key, so I removed it and saved nothing. ${SCRUB_ROLL}`;
 
 type Scrubbed = { value: unknown; removed: number };
 
@@ -214,7 +215,8 @@ export function scrubToolCalls(body: unknown): { body: unknown; removed: number;
 const withShowLine = (r: Record<string, unknown>) => {
   const show = r.show_to_builder;
   const out: Record<string, unknown> = { scrub_note: SCRUB_LINE, ...r };
-  if (typeof show === 'string') out.show_to_builder = show ? `${SCRUB_LINE}\n\n${show}` : SCRUB_LINE;
+  // A record set that saved the rest opens with its own "Saved n" line, which already names the key (v6.1.8 N1).
+  if (typeof show === 'string') out.show_to_builder = /^Saved \d/.test(show) ? `${show}\n\n${SCRUB_ROLL}` : show ? `${SCRUB_LINE}\n\n${show}` : SCRUB_LINE;
   return out;
 };
 export function withScrubNote(message: unknown): unknown {

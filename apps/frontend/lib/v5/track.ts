@@ -5,10 +5,13 @@
 import { z } from 'zod';
 import { getRecord, ownerKey } from '../v6/builders';
 import { claim } from '../v6/claims';
+import { NIGHT_LIMIT, outsideApproval } from '../v6/find-record';
 import { forgetGap, lastGaps } from './installations';
 import { getProgram, listOpenPrograms } from './programs';
 import { doneItems, record, summary, titleOf, type Ledger, type Status } from './ledger';
 import { clock } from './reply';
+import { itemKey } from './eligibility';
+import { eligibilityOf } from './program-file';
 import { sql } from './db';
 import { inputDetail } from './tool-input';
 
@@ -33,6 +36,14 @@ const usd = (n: number) => '$' + Math.round(n).toLocaleString('en-US');
 async function sentHere(owner: string, programId: string): Promise<boolean> {
   const [r] = await sql()<{ status: string }[]>`SELECT status FROM applications WHERE owner = ${owner} AND program_id = ${programId}`;
   return r !== undefined && r.status !== 'started' && r.status !== 'skipped';
+}
+
+/** The program's rules the owner has not confirmed yet. */
+async function rulesLeft(owner: string, programId: string): Promise<number> {
+  const program = await getProgram(programId);
+  if (!program) return 0;
+  const done = await doneItems(owner, programId);
+  return [...new Set(eligibilityOf(program.file).filter((x) => x.kind === 'rule').map(itemKey))].filter((k) => !done.has(k)).length;
 }
 
 export type TrackContext = { installationId: number; builderId: number | null; now: Date };
@@ -85,7 +96,7 @@ async function act(
     const c = await claim(owner, i.program_id, i.project_id ?? null, ctx.installationId, ctx.now);
     if (!c.ok && 'skipped' in c)
       return {
-        show_to_builder: `You skipped ${program.file.title} here; say unskip it if you want it back.`,
+        show_to_builder: 'You skipped that one. Say unskip to bring it back.',
         agent_note: 'Do not submit this one.',
         ledger: await summary(owner, programs, ctx.now),
       };
@@ -116,25 +127,34 @@ async function act(
             ledger: await summary(owner, programs, ctx.now),
           };
     return {
-      show_to_builder: 'Started. Nothing else will submit this one for 24 hours.',
+      show_to_builder: 'Started. Your other agents leave this one alone for 24 hours.',
       agent_note: 'Fill the form from the fields, submit, then call track with applied, submitted_by and fields_used.',
       ledger: await summary(owner, programs, ctx.now),
     };
   }
-  // Sent under standing approval: the builder's policy at this moment (never for an unlinked installation).
-  // Only an agent's own submission under the builder's standing approval; a form the builder sent is never one.
-  const autoApplied = i.status === 'applied' && i.submitted_by === 'agent' && ctx.builderId !== null && (await getRecord(ctx.builderId)).policy.auto_apply;
-  const applied = i.status === 'applied' ? { submitted_by: i.submitted_by, fields_used: i.fields_used, project_id: i.project_id, autoApplied } : {};
+  // Sent under standing approval: the builder's policy at this moment (never for an unlinked installation), and only
+  // an agent's own submission; a form the builder sent is never one. With the policy on, the send counts as approved
+  // only within every limit (v6.1.8 B18): `outside` says why not; the nightly count is the ledger's, under its lock.
+  const policy = i.status === 'applied' && i.submitted_by === 'agent' && ctx.builderId !== null ? await getRecord(ctx.builderId) : null;
+  const standing = policy?.policy.auto_apply === true;
+  const row = standing ? await getProgram(i.program_id) : null;
+  let outside = standing && row ? outsideApproval(policy!, row) : null;
+  const applied = i.status === 'applied'
+    ? { submitted_by: i.submitted_by, fields_used: i.fields_used, project_id: i.project_id, autoApplied: standing && outside === null, ...(standing ? { maxPerNight: policy!.policy.max_per_night } : {}) }
+    : {};
   const res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, amount_usd: i.amount_usd, note: i.note, item: i.item, now: ctx.now, ...applied });
+  if (res.ok && 'night' in res) outside = NIGHT_LIMIT;
   if (!res.ok)
     return res.items ? refuse(res.note, `Items for this program: ${res.items.join(', ')}. Call track gap_done with one of them.`) : refuse(res.note);
   if (i.status === 'gap_done') await forgetGap(ctx.installationId, i.program_id);
   if (i.status === 'gap_done') {
     // A repeat says so (v6.1.7, C26); a rule is confirmed, not re-read from the repo (m3).
+    // N2 (v6.1.8): the program comes back ready only when no other rule of it is left to confirm.
+    const left = i.item!.startsWith('rule:') && !('repeated' in res) ? await rulesLeft(owner, i.program_id) : 0;
     const [show, note] = 'repeated' in res
       ? ['Already noted.', 'Call find again for the updated ledger.']
       : i.item!.startsWith('rule:')
-        ? ['Noted. That rule counts as confirmed.', 'Call find again; the program comes back ready.']
+        ? ['Noted. That rule counts as confirmed.', left === 0 ? 'Call find again; the program comes back ready.' : `Call find again; ${left === 1 ? 'one rule is' : `${left} rules are`} left.`]
         : ["Noted. I'll re-check the repo on the next look.", 'Call find again so the repo is re-read.'];
     return { show_to_builder: show, agent_note: note, ledger: await summary(owner, programs, ctx.now) };
   }
@@ -147,6 +167,12 @@ async function act(
     skipped: `Skipped ${title}. I won't bring it up again.`,
     unskip: `Unskipped ${title}. It can come back in the list.`,
   };
+  if (i.status === 'applied' && outside)
+    return {
+      show_to_builder: `Sent, but outside your standing approval: ${outside}.`,
+      agent_note: 'Recorded as applied, not under standing approval. Send nothing else alone that falls outside the limits; ask the builder first. Call find again for the updated ledger.',
+      ledger: await summary(owner, programs, ctx.now),
+    };
   return {
     show_to_builder: lines[i.status],
     agent_note: 'Call find again for the updated ledger.',

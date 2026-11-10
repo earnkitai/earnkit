@@ -103,7 +103,8 @@ test('GET /link renders the confirm page with the agent name and no redirect', a
   assert.ok(html.includes('<form method="post">'));
   assert.ok(html.includes('Continue with GitHub'));
   assert.ok(html.includes('Once linked, it can read and change your record and apply to programs in your name.'));
-  assert.ok(html.includes('After you sign in, you confirm the link on your record page. Only continue if you asked your agent for this link just now. If someone sent you this link, close this page.'));
+  assert.ok(html.includes('After you sign in, you confirm the link on your record page. If you did not ask your agent for this just now, close this page.'));
+  assert.ok(!/Only continue|someone sent you/.test(html));
   assert.equal(/<script/i.test(html), false);
   assert.equal(/—/.test(html), false);
   const unnamed = await createLinkCode(await install(), NOW);

@@ -31,7 +31,7 @@ export type McpContext = {
 export const SERVER_INSTRUCTIONS =
   "Call record with get at the start of every session, then find with the project you are in. Open with find's reply in your own words. Draft every form from find's fields: 'earnkit' and 'record' values as given, 'agent' values you draft from the field's sources, 'builder' values you ask the builder for once, all together; approved answers fitted by cutting, never by adding. Anything the builder tells you that a form could ask, save with record before using it. Submit in your own browser only after track started, and only when the builder said yes or their standing approval covers it. After each submission call track applied. When find's reply carries a sign-in link, show it once as the reply gives it; until the builder signs in, nothing is saved across agents. Never write a sentence about traction yourself. Never name tools, fields or files. Never invent an amount, a deadline or a rule.";
 export const FIND_DESCRIPTION =
-  "What can this repo earn: the programs it fits with every field pre-filled, the ones one change away, and the ledger. Call it at session start with the project you are in, and again when the builder asks about money or programs. With program_id: that program's details and form.";
+  "What can this repo earn: the programs it fits with every field pre-filled, the ones one change away, and the ledger. Call it at session start with the project you are in, and again when the builder asks about money or programs. With program_id: whether the project fits that program, and its details and form.";
 export const TRACK_DESCRIPTION =
   'What the builder did: started (a claim before filling), applied (with submitted_by and fields_used), won (with amount_usd), rejected, no_result, skipped, unskip (a skipped program may come back), or gap_done (with item). Call started before filling and applied after every submission.';
 export const RECORD_DESCRIPTION =
@@ -47,7 +47,7 @@ const any = (what: string) => z.unknown().optional().describe(what);
 const PROJECT = z
   .object({
     name: any('The project name (required)'),
-    description: any('One line on what it does (required)'),
+    description: any('One line on what it does (required without repo_url: then the README first sentence stands in)'),
     repo_url: any('The GitHub link from the git remote; omit when there is none'),
     live_url: any('The live app link'),
     demo_url: any('A demo video link'),
@@ -100,6 +100,7 @@ export function createMcpServer(ctx: McpContext): McpServer {
         project: PROJECT.optional(),
         program_id: z.string().max(100).optional().describe("One program's id: its details, rules and form instead of the match"),
         project_id: z.string().max(40).optional().describe("The record's project to match and fill from; omit to pick by the repo"),
+        ask: z.string().max(40).optional().describe("With program_id: 'rules' when the builder asks for the program's rules"),
         filter: z
           .object({
             category: z.enum(PROGRAM_CATEGORIES).optional(),

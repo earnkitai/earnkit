@@ -84,10 +84,13 @@ test('catalog words: submit, sign-in, needs, bar and the integration item', () =
   assert.equal(g.submit, 'Your agent may submit');
   assert.equal(g.sign_in, 'Sign-in: Avalanche Builder Hub');
   assert.deepEqual(g.needs, ['a founder video']);
-  assert.equal(g.bar, 'Bar: a live product');
+  assert.equal(g.bar, 'Needs a live product');
+  // No "Bar": EarnKit's own word (lane 5, 3.31).
+  assert.equal(guideText(rowOf(programFixture({ id: 'a-k', min_tier: 'used' }))).bar, 'Needs a used product');
+  assert.equal(guideText(rowOf(programFixture({ id: 'a-l', min_tier: 'building' }))).bar, 'Needs a repo with recent commits');
   assert.deepEqual(g.eligibility, ['uses Smart Wallet']);
   const plain = guideText(rowOf(programFixture({ id: 'a-i', submit: 'builder' })));
-  assert.equal(plain.submit, 'Needs your click to submit');
+  assert.equal(plain.submit, 'You press submit yourself');
   assert.equal(plain.sign_in, null);
   assert.deepEqual(plain.needs, []);
   assert.equal(plain.bar, null);

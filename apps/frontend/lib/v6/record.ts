@@ -54,7 +54,8 @@ const Project = z.object({
   id: line(40).regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'must be a lowercase slug'),
   name: line(80).optional(), one_liner: line(140).optional(), description: prose(600).optional(), goals: prose(600).optional(),
   repo_url: githubRepo.nullable().optional(), live_url: https.optional(), demo_url: https.optional(), category: line(40).optional(),
-  chains_claimed: z.array(line(40).refine(isKnownChain, 'not a known chain')).max(20).optional(),
+  // The bad one is named (v6.1.8 C53).
+  chains_claimed: z.array(line(40).refine(isKnownChain, { error: (i) => `not a known chain: ${String(i.input)}` })).max(20).optional(),
   answers: Answers.prefault({}),
   /** EarnKit only (find): when the evidence was last read, the tier then and its verified usage line. */
   evidence_read_at: iso.optional(),
@@ -78,11 +79,14 @@ const LEAF_BLOCKS: Record<string, z.ZodObject> = { person: Person, company: Comp
 export function fieldSchema(path: string): z.ZodType | null {
   const [block, a, b] = path.split('.');
   if (block === 'answers' || (block === 'projects' && b === 'answers')) return Answer.shape.text;
+  // A team member's name or role, by its place in the list (v6.1.8 B19).
+  if (block === 'team') return /^\d+$/.test(a ?? '') && (b === 'name' || b === 'role') ? TeamMember.shape.name : null;
   const shape: z.ZodRawShape | undefined = block === 'projects' ? Project.shape : LEAF_BLOCKS[block]?.shape;
   const key = block === 'projects' ? b : a;
   return shape && key !== undefined && Object.hasOwn(shape, key) ? (shape[key] as z.ZodType) : null;
 }
-const Meta = z.object({ set_by: z.enum(['builder', 'agent']), set_at: line(40), approved_at: line(40).optional() }).strip();
+/** unapproved_at: when an agent's change dropped an approval the builder had given (v6.1.8 C48); cleared on approval. */
+const Meta = z.object({ set_by: z.enum(['builder', 'agent']), set_at: line(40), approved_at: line(40).optional(), unapproved_at: line(40).optional() }).strip();
 export type Meta = z.infer<typeof Meta>;
 
 export const BuilderRecord = z.object({
@@ -184,10 +188,13 @@ function mergeAnswers(cur: { [k: string]: unknown }, patch: unknown, prefix: str
         problems.push(bad(path, 'not an object'));
         continue;
       }
-      const prev = (cur[kind] ?? {}) as { [k: string]: unknown };
+      const { short: oldShort, ...prev } = (cur[kind] ?? {}) as { [k: string]: unknown };
       // An agent's text is the agent's, whatever it claims; a builder may say either.
       const writtenBy = by === 'agent' || !('written_by' in value) ? by : value.written_by;
-      const r = Answer.safeParse({ ...prev, ...value, written_by: writtenBy });
+      // A new text drops the old short form unless a new one comes with it: the short is a cut of the text, and a
+      // builder's edit on /me must leave no approved short behind (v6.1.8 B17). The agent redrafts it from the brief.
+      const newText = 'text' in value && value.text !== prev.text;
+      const r = Answer.safeParse({ ...prev, ...(newText || oldShort === undefined ? {} : { short: oldShort }), ...value, written_by: writtenBy });
       if (!r.success) {
         problems.push(issue(path, r.error));
         continue;
@@ -280,7 +287,9 @@ export function mergeRecord(current: BuilderRecord, patch: unknown, by: By, now:
   for (const path of changed) {
     const prev = record.meta[path];
     const keep = by === 'builder' && prev?.approved_at ? { approved_at: prev.approved_at } : {};
-    record.meta[path] = { set_by: by, set_at: now.toISOString(), ...keep };
+    // An agent's change to an approved text: when the approval dropped, so the builder's other agents can say so (C48).
+    const unapproved = by === 'agent' && APPROVABLE(path) && prev?.approved_at ? now.toISOString() : keep.approved_at ? undefined : prev?.unapproved_at;
+    record.meta[path] = { set_by: by, set_at: now.toISOString(), ...keep, ...(unapproved ? { unapproved_at: unapproved } : {}) };
   }
   return { record: changed.length > 0 ? record : current, problems, changed };
 }
@@ -311,7 +320,7 @@ function valueAt(record: BuilderRecord, path: string): unknown {
 /** Approves an approvable path that holds a value (only /me calls this); otherwise the record unchanged. */
 export function approvePath(record: BuilderRecord, path: string, now: Date): BuilderRecord {
   if (!APPROVABLE(path) || valueAt(record, path) === undefined) return record;
-  const prev = record.meta[path] ?? { set_by: 'builder' as const, set_at: now.toISOString() };
+  const { unapproved_at: _, ...prev } = record.meta[path] ?? { set_by: 'builder' as const, set_at: now.toISOString() };
   return { ...record, meta: { ...record.meta, [path]: { ...prev, approved_at: now.toISOString() } } };
 }
 
@@ -320,6 +329,16 @@ export function unapprovePath(record: BuilderRecord, path: string): BuilderRecor
   if (!prev?.approved_at) return record;
   const { approved_at: _, ...rest } = prev;
   return { ...record, meta: { ...record.meta, [path]: rest } };
+}
+
+/**
+ * Answers an agent's change took back from approval after `since` (any time when null) and still waiting: what the
+ * builder's other agents say on their next find (v6.1.8 C48). Pure.
+ */
+export function unapprovedSince(record: BuilderRecord, since: Date | null): number {
+  return Object.entries(record.meta).filter(
+    ([path, m]) => m.unapproved_at && (!since || Date.parse(m.unapproved_at) > since.getTime()) && !isApproved(record, path) && valueAt(record, path) !== undefined,
+  ).length;
 }
 
 export const isApproved = (record: BuilderRecord, path: string): boolean =>
@@ -358,25 +377,30 @@ const NEED_DOCS: { need: string; has: (r: BuilderRecord) => boolean; words: stri
 /** Whether the record holds the document a program needs (founder_video, deck, ...); unknown needs are held. Pure. */
 export const hasDoc = (record: BuilderRecord, need: string): boolean => NEED_DOCS.find((d) => d.need === need)?.has(record) ?? true;
 
+type Asks = { needs: string[]; kinds: string[]; verifiedUsage?: boolean };
+
 /**
- * What the record lacks for the open programs, in builder words. `needs`: the programs' needs;
- * `kinds`: the answer kinds their forms ask; `verifiedUsage`: usage numbers exist, so no traction line is needed.
+ * The items the open programs ask of the record (`total`) and the ones it lacks, in builder words (`missing`). `needs`:
+ * the programs' needs; `kinds`: the answer kinds their forms ask; `verifiedUsage`: usage numbers exist, so no traction
+ * line is needed. A traction field reads the usage or the line, never the bank: traction is one item (v6.1.8 C49).
  */
-export function recordMissing(record: BuilderRecord, o: { needs: string[]; kinds: string[]; verifiedUsage?: boolean }): string[] {
-  const out: string[] = [];
+export function recordItems(record: BuilderRecord, o: Asks): { total: number; missing: string[] } {
+  const items: [boolean, string][] = [];
   // Two items, so a saved name is no longer named as missing (v6.1.7 C12).
-  if (!record.person.name) out.push('your name');
-  if (!record.person.email) out.push('your email');
-  if (!record.projects.some((p) => p.repo_url || p.live_url)) out.push('a project with its repo or site');
-  if (!o.verifiedUsage && !isApproved(record, 'traction.line_pre_launch')) out.push('one approved line on traction');
-  const kinds = [...new Set(o.kinds.map((k) => answerKindOf(k as FieldKind)).filter((k): k is AnswerKind => k !== null))];
+  items.push([Boolean(record.person.name), 'your name'], [Boolean(record.person.email), 'your email']);
+  items.push([record.projects.some((p) => p.repo_url || p.live_url), 'a project with its repo or site']);
+  if (!o.verifiedUsage) items.push([isApproved(record, 'traction.line_pre_launch'), 'one approved line on traction']);
+  const kinds = [...new Set(o.kinds.map((k) => answerKindOf(k as FieldKind)).filter((k): k is AnswerKind => k !== null && k !== 'traction'))];
   for (const k of ANSWER_KINDS.filter((x) => kinds.includes(x))) {
     const any = answerFor(record, null, k) ?? record.projects.map((p) => answerFor(record, p.id, k)).find(Boolean);
-    if (!any) out.push(`an approved answer on ${KIND_WORDS[k]}`);
+    items.push([Boolean(any), `an approved answer on ${KIND_WORDS[k]}`]);
   }
-  for (const d of NEED_DOCS) if (o.needs.includes(d.need) && !d.has(record)) out.push(d.words);
-  return out;
+  for (const d of NEED_DOCS) if (o.needs.includes(d.need)) items.push([d.has(record), d.words]);
+  return { total: items.length, missing: items.filter(([has]) => !has).map(([, words]) => words) };
 }
+
+/** What the record lacks for the open programs, in builder words (`recordItems`' missing). Pure. */
+export const recordMissing = (record: BuilderRecord, o: Asks): string[] => recordItems(record, o).missing;
 
 const filledObj = (o: object) => Object.values(o).some((v) => v !== undefined && !(Array.isArray(v) && v.length === 0));
 const BLOCK_WORDS: [string, (r: BuilderRecord) => boolean][] = [
