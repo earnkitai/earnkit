@@ -10,7 +10,7 @@ import { HAD_CLOSED, NIGHT_LIMIT, REQUIRED_MISSING, STEP_AWAY, outsideApproval, 
 import { prefill, unvouchedRequired } from './prefill';
 import { cachedRepoFacts, reportOnlyFacts } from './repo-facts';
 import { forgetGap, lastGaps, lastProjectKey, unmarkNightFind } from './installations';
-import { nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
+import { PROJECT_DESCRIPTION, ProjectArg, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
 import { getProgram, isOpen, listOpenPrograms, programByName, unknownProgramLine } from './programs';
 import { dayOf, doneItems, record, reportOf, resolvedKey, summary, titleOf, type Ledger, type Status } from './ledger';
 import { clock } from './reply';
@@ -33,9 +33,8 @@ export const TrackInput = z
     submitted_by: z.enum(['agent', 'builder']).optional(),
     /** B6 (v6.1.13): the form already went out, so a long list is never refused: the first FIELDS_KEPT keys, each cut to 60. */
     fields_used: z.array(z.string()).transform((xs) => xs.slice(0, FIELDS_KEPT).map((x) => x.slice(0, 60))).optional(),
-    /** The project find was called with (v6.1.10 L1c-1), read by find's own parser and limits (v6.1.13 B5): cut and dropped, never refused. */
-    project: z.object({}).passthrough().optional()
-      .describe('The project exactly as you passed it to find (name, description, repo_url, live_url, chains with contracts, users), so its steps and checks stay with it'),
+    /** The project find was called with (v6.1.10 L1c-1), find's own schema (v6.1.14 T5), read by find's parser and limits (v6.1.13 B5): cut and dropped, never refused. */
+    project: ProjectArg.loose().describe(PROJECT_DESCRIPTION).optional(),
   })
   .strict();
 

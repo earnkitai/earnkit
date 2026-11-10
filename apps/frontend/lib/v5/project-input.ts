@@ -23,7 +23,8 @@ export const ProjectInput = z.object({
   repo_url: z.string().optional(),
   live_url: z.string().optional(),
   demo_url: z.string().optional(),
-  chains: z.array(z.object({ chain: z.string(), mainnet: z.boolean(), contract: z.string().optional() })).optional(),
+  /** mainnet left out is mainnet (v6.1.14 T1). */
+  chains: z.array(z.object({ chain: z.string(), mainnet: z.boolean().default(true), contract: z.string().optional() })).optional(),
   last_commit_at: z.string().optional(),
   first_commit_at: z.string().optional(),
   private: z.boolean().optional(),
@@ -31,6 +32,31 @@ export const ProjectInput = z.object({
   users: z.boolean().nullable().optional(),
 });
 export type Project = z.infer<typeof ProjectInput>;
+
+/** find's and track's project (v6.1.14 T5): one description, so the two never drift. */
+export const PROJECT_DESCRIPTION = 'The project you are in; pass track the same object you passed to find, unchanged';
+const any = (what: string) => z.unknown().optional().describe(what);
+/**
+ * The project as find and track advertise it (one schema, v6.1.14 T5). Every field reads leniently (`parseProject`):
+ * a bad field is dropped and named, never a refusal.
+ */
+export const ProjectArg = z
+  .object({
+    name: any('The project name (required)'),
+    description: any('One line on what it does (required without repo_url: then the README first sentence stands in)'),
+    repo_url: any('The GitHub link from the git remote; omit when there is none'),
+    live_url: any('The live app link'),
+    demo_url: any('A demo video link'),
+    chains: any(
+      'Chains the code deploys to, as a list: "base" alone is Base mainnet, or { "chain": "base", "mainnet": true, "contract": "0x" and 40 hex }; mainnet defaults to true, false for a testnet. Pass contract addresses whenever the deploy config has them (chain: base, arc, monad, solana...)',
+    ),
+    first_commit_at: any('ISO 8601, from git log --reverse'),
+    last_commit_at: any('ISO 8601, from git log'),
+    private: any('true when the repo is private: EarnKit then matches on what you report'),
+    builder_codes: any('true when the app sends Base Builder Codes'),
+    users: any('true when real people use it, false when not; omit it when you do not know'),
+  })
+  .describe(PROJECT_DESCRIPTION);
 
 const MAX = { name: 80, description: 280 } as const;
 /**
@@ -107,8 +133,9 @@ export function parseProject(v: unknown, now = new Date(), o: { partial?: boolea
     let read = 0;
     let extra = 0;
     for (const c of raw.chains) {
-      // A bare slug ("base") is that chain on mainnet.
-      const e = (typeof c === 'string' ? { chain: c, mainnet: true } : typeof c === 'object' && c !== null ? c : {}) as Record<string, unknown>;
+      // A bare slug ("base") is that chain on mainnet; so is an object that leaves mainnet out (v6.1.14 T1).
+      const o = (typeof c === 'string' ? { chain: c } : typeof c === 'object' && c !== null ? c : {}) as Record<string, unknown>;
+      const e: Record<string, unknown> = { ...o, mainnet: o.mainnet ?? true };
       const chain = typeof e.chain === 'string' ? clean(e.chain).trim().toLowerCase() : '';
       const given = typeof e.contract === 'string' ? clean(e.contract).trim() : e.contract;
       // An entry exactly like an earlier one is a repeat and costs nothing.

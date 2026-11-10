@@ -148,7 +148,7 @@ test('no install copy mentions signing in, X, GitHub or a wallet', async () => {
   // Said once, in the intro line above the tabs, never again in a tab (lane 5, 2).
   assert.equal(all.filter(([, s]) => s.includes('connects at once') || s.includes('needs no account')).length, 0);
   const { CONNECTOR_LINE } = await import('./agents');
-  assert.equal(CONNECTOR_LINE, 'A connector lets your AI use EarnKit. It connects at once. The approve step needs no account.');
+  assert.equal(CONNECTOR_LINE, 'A connector lets your AI use EarnKit. It connects at once. The connect prompt needs no account.');
   const grok = AGENTS.find((a) => a.name === 'Grok Bot')!;
   assert.equal(grok.installNote, 'Press Enter, then "Add it" and "Authorize".');
   assert.equal(grok.steps[1], `Server URL https://earnkit.com/mcp, "Save", then "Authenticate".`);

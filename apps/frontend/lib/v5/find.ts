@@ -332,7 +332,8 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   // action itself when it is the one step left.
   const signStep = open && ctx.builderId === null && verdict?.status === 'gap' && !p.in_person && hasProof(verdict.gaps);
   const link = signStep ? await linkOf(ctx) : null;
-  const signIn = link ? signInSentence(link, !facts.as_reported && !(facts.notes ?? []).includes('empty'), true) : null;
+  // Fix round 1 (v6.1.14, F2): with no link to give, the sign-in is still said, without one.
+  const signIn = signStep ? signInSentence(link, !facts.as_reported && !(facts.notes ?? []).includes('empty'), true) : null;
   const show = p.status === 'upcoming'
     ? [`${p.title}, ${moneyOf(p)}. Not open yet: ${opens}.`, ...rules.map(ruleSentence), ...guideRules]
     : !open

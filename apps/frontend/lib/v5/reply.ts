@@ -577,7 +577,15 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   // The first find after a link names the account it linked to, last (security M2); after an unlink the notice
   // carries the sign-in link itself, so the sign-in sentence is left out (v6.1.7 B10).
   // An empty repo was read but gave nothing to prove: the sign-in promises only to remember (C59).
-  const signIn = r.sign_in && !r.linked && !r.linked_notice ? signInSentence(r.sign_in, !r.as_reported && !notes.includes('empty'), showsProof(r.gaps)) : null;
+  // Fix round 1 (v6.1.14, F2): with a proof gap shown and no link to give (linkOf failed, or the account was deleted),
+  // the sign-in is still the action, said once without a link.
+  const read = !r.as_reported && !notes.includes('empty');
+  const proof = showsProof(r.gaps);
+  const signIn = r.linked
+    ? null
+    : r.sign_in
+      ? (r.linked_notice ? null : signInSentence(r.sign_in, read, proof))
+      : proof ? signInSentence(null, read, true) : null;
   blocks.push([closing, signIn, r.linked_notice].filter(Boolean).join(' '));
   return blocks.join('\n\n');
 }

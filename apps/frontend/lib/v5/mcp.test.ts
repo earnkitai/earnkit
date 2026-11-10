@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { mcpCall, mcpInstructions, mcpListTools } from './fixtures/mcp-call';
 import { FIND_DESCRIPTION, RECORD_DESCRIPTION, SCREEN_DESCRIPTION, SERVER_INSTRUCTIONS, TRACK_DESCRIPTION } from './mcp';
+import { PROJECT_DESCRIPTION } from './project-input';
 import { clientIp, windowStart } from './rate-limit';
 
 after(() => sql().end());
@@ -19,11 +20,11 @@ test('four tools, their descriptions and the server instructions, verbatim', asy
   assert.deepEqual(tools.map((t) => t.name), ['find', 'track', 'record', 'screen']);
   assert.equal(
     FIND_DESCRIPTION,
-    'What can this repo earn: the programs it fits with every field pre-filled, the ones one change away, and the ledger. Call it at session start with the project you are in, and again when the builder asks about money or programs. With program_id: whether the project fits that program, and its details and form.',
+    'What can this repo earn: the programs it fits with every field pre-filled, the ones one change away, and the ledger. Call it first in every session with the project you are in, and again when the builder asks about money or programs. Pass every project fact you can read before the first call: chains with contract addresses, live_url, users (true only if you know), first_commit_at. Programs match on them, and a missing fact shows as a gap. With program_id: whether the project fits that program, and its details and form.',
   );
   assert.equal(
     TRACK_DESCRIPTION,
-    'What the builder did: started (a claim before filling), applied (with submitted_by and fields_used), won (with amount_usd), rejected, no_result, skipped, unskip (a skipped program may come back), or gap_done (with item and the project you passed to find). Call started before filling and applied after every submission.',
+    "What the builder did: started (a claim before filling), applied (with submitted_by, and fields_used: the field keys from find's fields), won (with amount_usd), rejected, no_result, skipped, unskip (a skipped program may come back), or gap_done (item: the gap's item from find, copied exactly as given; project: the same object you passed to find). Call started before filling and applied after every submission.",
   );
   assert.equal(tools[0].description, FIND_DESCRIPTION);
   assert.equal(tools[1].description, TRACK_DESCRIPTION);
@@ -34,17 +35,17 @@ test('four tools, their descriptions and the server instructions, verbatim', asy
   assert.ok(props(1).status.enum?.includes('started'));
   assert.equal(
     RECORD_DESCRIPTION,
-    "The builder's record: facts, links, documents, answers and standing approval, kept once and read by every agent of theirs. Call it with get at session start; call it with set for every new fact the builder gives; with brief for the question and facts behind one answer kind.",
+    "The builder's record: facts, links, documents and answers, kept once and read by every agent of theirs. Call it with get after find, once find's reply has linked true; call it with set for every new fact the builder gives; with brief for the question and facts behind one answer kind.",
   );
   assert.equal(tools[2].description, RECORD_DESCRIPTION);
   assert.equal(
     SCREEN_DESCRIPTION,
-    "For a program's reviewer: hand EarnKit the applicant list (name, repo, site, contracts, pitch) and get it back in named tiers with public evidence; with job_id, progress and results; with outcomes, who won.",
+    "For a program's reviewer: hand EarnKit the applicant list, each { ref (your id for them, required), name, repo_url, live_url, contracts: [{ chain, address }], pitch }, and get it back in named tiers with public evidence; with job_id, progress and results; with outcomes, who won.",
   );
   assert.equal(tools[3].description, SCREEN_DESCRIPTION);
   assert.equal(
     SERVER_INSTRUCTIONS,
-    "Call record with get at the start of every session, then find with the project you are in, unless the builder is only screening applicants. Open with find's reply in your own words. Draft every form from find's fields: 'earnkit' and 'record' values as given, 'agent' values you draft from the field's sources, 'builder' values you ask the builder for once, all together; approved answers fitted by cutting, never by adding. Anything the builder tells you that a form could ask, save with record before using it. Submit in your own browser only after track started, and only when the builder said yes or their standing approval covers it. After each submission call track applied. When find's reply carries a sign-in link, show it once as the reply gives it; until the builder signs in, nothing is saved across agents. Never write a sentence about traction yourself. Never name tools, fields or files. Never invent an amount, a deadline or a rule.",
+    "Call find first in every session with the project you are in, unless the builder is only screening applicants. Call record with get after that, and only when find's reply has linked true. Open with find's reply in your own words. Draft every form from find's fields: 'earnkit' and 'record' values as given, 'agent' values you draft from the field's sources, 'builder' values you ask the builder for once, all together; approved answers fitted by cutting, never by adding. Anything the builder tells you that a form could ask, save with record before using it. Submit in your own browser only after track started, and only when the builder said yes or their standing approval covers it. After each submission call track applied. When find's reply carries a sign-in link, show it once as the reply gives it; until the builder signs in, nothing is saved across agents. Never write a sentence about traction yourself. Never name tools, fields or files. Never invent an amount, a deadline or a rule.",
   );
   assert.equal(await mcpInstructions(c), SERVER_INSTRUCTIONS);
 });
@@ -79,6 +80,33 @@ test('track, record and screen advertise the same strict schemas they enforce in
   assert.equal(schema(2).properties.get.type, 'boolean');
   assert.equal(schema(3).additionalProperties, false);
   assert.equal(schema(3).properties.job_id.type, 'string');
+});
+
+test('T5, T6 (v6.1.14): find and track take one project schema; screen names ref, repo_url and live_url, with ref required', async () => {
+  const tools = await mcpListTools(await ctx());
+  type S = { properties: Record<string, { description?: string; properties?: Record<string, unknown>; items?: { required?: string[]; properties?: Record<string, unknown> } }> };
+  const props = (i: number) => (tools[i].inputSchema as S).properties;
+  assert.equal(props(0).project.description, PROJECT_DESCRIPTION);
+  assert.equal(props(1).project.description, PROJECT_DESCRIPTION);
+  assert.deepEqual(Object.keys(props(1).project.properties ?? {}), Object.keys(props(0).project.properties ?? {}));
+  assert.deepEqual(Object.keys(props(0).project.properties ?? {}), ['name', 'description', 'repo_url', 'live_url', 'demo_url', 'chains', 'first_commit_at', 'last_commit_at', 'private', 'builder_codes', 'users']);
+  for (const k of ['ref', 'repo_url', 'live_url']) assert.ok(SCREEN_DESCRIPTION.includes(k), k);
+  assert.match(SCREEN_DESCRIPTION, /ref \(your id for them, required\)/);
+  assert.deepEqual(props(3).applicants.items?.required, ['ref']);
+  assert.ok(!/projects \(by id\)|standing approval/.test(RECORD_DESCRIPTION + JSON.stringify(props(2))));
+  assert.match(JSON.stringify(props(2).set), /projects as a list/);
+});
+
+test('T1, Review Focus 3 (v6.1.14): find and track keep a chain object passed without mainnet, with no problem line', async () => {
+  const c = await ctx();
+  const project = { name: 'Chainy', description: 'An app.', chains: [{ chain: 'base', contract: '0x' + 'c'.repeat(40) }, 'arc'] };
+  const f = await mcpCall(c, 'find', { project });
+  assert.equal(f.isError, false, f.text);
+  assert.ok(!JSON.stringify(f.reply!.problems ?? []).includes('mainnet'), JSON.stringify(f.reply!.problems));
+  assert.doesNotMatch(f.reply!.show_to_builder as string, /needs a contract on Base/);
+  const t = await mcpCall(c, 'track', { program_id: 'no-such', status: 'skipped', project });
+  assert.equal(t.isError, false, t.text);
+  assert.doesNotMatch(t.reply!.agent_note as string, /mainnet/);
 });
 
 test('B4: arguments nested past 64 levels are the plain line, never a stack overflow', async () => {

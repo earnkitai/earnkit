@@ -236,3 +236,17 @@ test('Low 18 and 19 (v6.1.13): an applicant repeated exactly is screened once; a
   }
   assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_outcomes WHERE job_id = ${jobId}`)[0].n, 0);
 });
+
+test('T6 (v6.1.14): an applicant sent with the old repo key is read as repo_url; a given repo_url wins', async () => {
+  const c = await reviewerOf('scr-alias');
+  const q = await mcpCall(c, 'screen', {
+    program_id: 'scr-alias',
+    applicants: [
+      { ref: 'a-1', name: 'Old Key', repo: 'https://github.com/acme/oldkey' },
+      { ref: 'a-2', name: 'Both', repo: 'https://github.com/acme/ignored', repo_url: 'https://github.com/acme/both' },
+    ],
+  });
+  assert.equal(q.isError, false, q.text);
+  const rows = await sql()<{ ref: string; repo_url: string | null }[]>`SELECT ref, repo_url FROM screen_applicants WHERE job_id = ${q.reply!.job_id as string} ORDER BY ref`;
+  assert.deepEqual(rows.map((r) => [r.ref, r.repo_url]), [['a-1', 'https://github.com/acme/oldkey'], ['a-2', 'https://github.com/acme/both']]);
+});

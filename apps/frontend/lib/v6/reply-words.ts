@@ -36,14 +36,14 @@ export const isConfirmWhat = (what: string): boolean => (Object.keys(CONFIRM) as
 export const signInLine = (link: string) => `Sign in once at ${link} so I remember you across agents.`;
 
 /** Unlinked find (R5a): the second sentence of the closing block; saying yes stays the one action. With a proof gap
- *  shown (`proof`, v6.1.14) it is the one sign-in ask and says it checks that; else with no repo read (R19) it promises
- *  only to remember. Pure. */
-export const signInSentence = (link: string, repoRead: boolean, proof = false) =>
-  proof
-    ? `Sign in once at ${link} and I check that and remember you.`
-    : repoRead
-      ? `Sign in once at ${link} and I read your repo for proof and remember you.`
-      : `Sign in once at ${link} and I remember you across agents.`;
+ *  shown (`proof`, v6.1.14) it is the one sign-in ask: "I check that" only when a repo was read, else it promises only
+ *  to remember (R19). With no link to give (`link` null: linkOf failed, or after the account was deleted), only the
+ *  proof shape is said, linkless: "Sign in once and I check that." or "Sign in once and I remember you." (fix round 1). Pure. */
+export function signInSentence(link: string | null, repoRead: boolean, proof = false): string {
+  if (link === null) return repoRead ? 'Sign in once and I check that.' : 'Sign in once and I remember you.';
+  if (proof) return repoRead ? `Sign in once at ${link} and I check that and remember you.` : `Sign in once at ${link} and I remember you.`;
+  return repoRead ? `Sign in once at ${link} and I read your repo for proof and remember you.` : `Sign in once at ${link} and I remember you across agents.`;
+}
 
 /** The first find after a link (security M2): the account this agent now writes to, and where to undo it. Pure. */
 export const linkedNoticeLine = (login: string) => `This agent is now linked to GitHub account ${login}. Unlink any time at earnkit.com/me.`;

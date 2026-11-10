@@ -11,7 +11,7 @@ function connectLines(a: Agent): string {
 
 export const LLMS_TEXT = `# EarnKit
 
-EarnKit finds the grants, hackathons and bounties a builder's repo fits, pre-fills every
+EarnKit finds the grants, hackathons and investments a builder's repo fits, pre-fills every
 application from the repo, and tracks the result. It runs inside the builder's own agent.
 Free. Nothing to sign up for.
 

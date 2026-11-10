@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseProject, projectKeyOf } from './project-input';
+import { ProjectInput, parseProject, projectKeyOf } from './project-input';
 
 const base = { name: 'Tipjar', description: 'Tips for creators.' };
 
@@ -215,4 +215,21 @@ test('Low 13 (v6.1.13): a name key folds Unicode, so one name in any form is one
   assert.equal(projectKeyOf({ name: 'Café' }), projectKeyOf({ name: 'Café' }));
   assert.equal(projectKeyOf({ name: 'STRASSE' }), projectKeyOf({ name: 'straße' }));
   assert.equal(projectKeyOf({ name: 'ＺＩＰ' }), 'name:zip');
+});
+
+test('T1, Review Focus 3 (v6.1.14): a chain object without mainnet keeps its chain on mainnet; the bare string still parses; a mainnet not true or false is still named', () => {
+  const c = '0x' + 'b'.repeat(40);
+  const r = parseProject({ ...base, chains: [{ chain: 'base', contract: c }, 'arc', { chain: 'monad', mainnet: null }] });
+  assert.ok(r.ok);
+  assert.deepEqual(r.project.chains, [{ chain: 'base', mainnet: true, contract: c }, { chain: 'arc', mainnet: true }, { chain: 'monad', mainnet: true }]);
+  assert.deepEqual(r.problems, []);
+  // Left out and true are one entry.
+  const same = parseProject({ ...base, chains: [{ chain: 'base', contract: c }, { chain: 'base', mainnet: true, contract: c }] });
+  assert.ok(same.ok);
+  assert.deepEqual(same.project.chains, [{ chain: 'base', mainnet: true, contract: c }]);
+  const bad = parseProject({ ...base, chains: [{ chain: 'base', mainnet: 'yes' }] });
+  assert.ok(bad.ok);
+  assert.equal(bad.project.chains, undefined);
+  assert.deepEqual(bad.problems, ['chain base dropped: mainnet must be true or false']);
+  assert.equal(ProjectInput.shape.chains.parse([{ chain: 'base' }])![0].mainnet, true);
 });

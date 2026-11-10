@@ -17,7 +17,7 @@ import { DEFAULT_THRESHOLDS, TIERS, type Thresholds } from './tiers';
 export const ScreenInput = z
   .object({
     program_id: z.string().max(100).optional().describe('The program you review; omit when you review one'),
-    applicants: z.array(ScreenApplicant).optional().describe('The list to screen: ref, name, repo_url, live_url, contracts, pitch, applied_at'),
+    applicants: z.array(ScreenApplicant).optional().describe('The list to screen, each { ref (required), name, repo_url, live_url, contracts: [{ chain, address }], pitch, applied_at }'),
     thresholds: z.record(z.string(), z.number()).optional().describe('Tier thresholds to override, by name'),
     job_id: z.string().max(40).optional().describe('A queued screen: its progress and results'),
     outcomes: z
@@ -81,7 +81,10 @@ export function promiseLine(ahead: number, total: number): string {
 
 export async function screenTool(ctx: { installationId: number; builderId: number | null; now: Date }, raw: unknown): Promise<ScreenReply> {
   // The MCP layer passes anything through (tool-input.ts): this is the only check, with the detail for the agent.
-  const parsed = ScreenInput.safeParse(raw);
+  // T6 (v6.1.14): an applicant's old `repo` key reads as `repo_url` when that is not given.
+  const r = raw as { applicants?: unknown } | null;
+  const aliased = Array.isArray(r?.applicants) ? { ...r, applicants: r.applicants.map((a) => (a && typeof a === 'object' && 'repo' in a && !('repo_url' in a) ? { ...a, repo_url: a.repo } : a)) } : raw;
+  const parsed = ScreenInput.safeParse(aliased);
   if (!parsed.success) return line(SCREEN_TEXT.unread, `Nothing was queued. ${inputDetail(parsed.error)}`);
   const input = parsed.data;
   // C2 (v6.1.13): a list over SCREEN_MAX was read, it is only too long: one line, nothing written.

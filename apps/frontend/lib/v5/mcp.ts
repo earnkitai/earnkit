@@ -9,6 +9,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { find, type FindContext } from './find';
 import { PROGRAM_CATEGORIES } from './program-file';
+import { ProjectArg } from './project-input';
 import { LIMITS, busyText, hit } from './rate-limit';
 import { MAX_ARG_DEPTH, tooDeep } from './secrets';
 import { COULD_NOT_READ, TOO_DEEP_NOTE, lenient } from './tool-input';
@@ -29,36 +30,18 @@ export type McpContext = {
 };
 
 export const SERVER_INSTRUCTIONS =
-  "Call record with get at the start of every session, then find with the project you are in, unless the builder is only screening applicants. Open with find's reply in your own words. Draft every form from find's fields: 'earnkit' and 'record' values as given, 'agent' values you draft from the field's sources, 'builder' values you ask the builder for once, all together; approved answers fitted by cutting, never by adding. Anything the builder tells you that a form could ask, save with record before using it. Submit in your own browser only after track started, and only when the builder said yes or their standing approval covers it. After each submission call track applied. When find's reply carries a sign-in link, show it once as the reply gives it; until the builder signs in, nothing is saved across agents. Never write a sentence about traction yourself. Never name tools, fields or files. Never invent an amount, a deadline or a rule.";
+  "Call find first in every session with the project you are in, unless the builder is only screening applicants. Call record with get after that, and only when find's reply has linked true. Open with find's reply in your own words. Draft every form from find's fields: 'earnkit' and 'record' values as given, 'agent' values you draft from the field's sources, 'builder' values you ask the builder for once, all together; approved answers fitted by cutting, never by adding. Anything the builder tells you that a form could ask, save with record before using it. Submit in your own browser only after track started, and only when the builder said yes or their standing approval covers it. After each submission call track applied. When find's reply carries a sign-in link, show it once as the reply gives it; until the builder signs in, nothing is saved across agents. Never write a sentence about traction yourself. Never name tools, fields or files. Never invent an amount, a deadline or a rule.";
 export const FIND_DESCRIPTION =
-  "What can this repo earn: the programs it fits with every field pre-filled, the ones one change away, and the ledger. Call it at session start with the project you are in, and again when the builder asks about money or programs. With program_id: whether the project fits that program, and its details and form.";
+  "What can this repo earn: the programs it fits with every field pre-filled, the ones one change away, and the ledger. Call it first in every session with the project you are in, and again when the builder asks about money or programs. Pass every project fact you can read before the first call: chains with contract addresses, live_url, users (true only if you know), first_commit_at. Programs match on them, and a missing fact shows as a gap. With program_id: whether the project fits that program, and its details and form.";
 export const TRACK_DESCRIPTION =
-  'What the builder did: started (a claim before filling), applied (with submitted_by and fields_used), won (with amount_usd), rejected, no_result, skipped, unskip (a skipped program may come back), or gap_done (with item and the project you passed to find). Call started before filling and applied after every submission.';
+  "What the builder did: started (a claim before filling), applied (with submitted_by, and fields_used: the field keys from find's fields), won (with amount_usd), rejected, no_result, skipped, unskip (a skipped program may come back), or gap_done (item: the gap's item from find, copied exactly as given; project: the same object you passed to find). Call started before filling and applied after every submission.";
 export const RECORD_DESCRIPTION =
-  "The builder's record: facts, links, documents, answers and standing approval, kept once and read by every agent of theirs. Call it with get at session start; call it with set for every new fact the builder gives; with brief for the question and facts behind one answer kind.";
+  "The builder's record: facts, links, documents and answers, kept once and read by every agent of theirs. Call it with get after find, once find's reply has linked true; call it with set for every new fact the builder gives; with brief for the question and facts behind one answer kind.";
 export const SCREEN_DESCRIPTION =
-  "For a program's reviewer: hand EarnKit the applicant list (name, repo, site, contracts, pitch) and get it back in named tiers with public evidence; with job_id, progress and results; with outcomes, who won.";
+  "For a program's reviewer: hand EarnKit the applicant list, each { ref (your id for them, required), name, repo_url, live_url, contracts: [{ chain, address }], pitch }, and get it back in named tiers with public evidence; with job_id, progress and results; with outcomes, who won.";
 export const BUSY = 'EarnKit is busy. Try again in a minute.';
 /** Over an hourly limit: the window's seconds left as minutes (or hours) (v6.1.7, C8). */
 export const BUSY_HOUR = busyText;
-
-const any = (what: string) => z.unknown().optional().describe(what);
-/** Read leniently (project-input.ts): a bad field is dropped and named, never a refusal. */
-const PROJECT = z
-  .object({
-    name: any('The project name (required)'),
-    description: any('One line on what it does (required without repo_url: then the README first sentence stands in)'),
-    repo_url: any('The GitHub link from the git remote; omit when there is none'),
-    live_url: any('The live app link'),
-    demo_url: any('A demo video link'),
-    chains: any('[{ chain, mainnet, contract? }] as the code or deploy config shows them (chain: base, arc, monad, solana...)'),
-    first_commit_at: any('ISO 8601, from git log --reverse'),
-    last_commit_at: any('ISO 8601, from git log'),
-    private: any('true when the repo is private: EarnKit then matches on what you report'),
-    builder_codes: any('true when the app sends Base Builder Codes'),
-    users: any('true when real people use it, false when not; omit it when you do not know'),
-  })
-  .describe('The project you are in');
 
 /** Counts one tool call against the IP floor and the installation's limit; the seconds to wait when over either, else null. */
 async function refusedFor(ctx: McpContext, now: Date): Promise<number | null> {
@@ -97,7 +80,7 @@ export function createMcpServer(ctx: McpContext): McpServer {
     {
       description: FIND_DESCRIPTION,
       inputSchema: {
-        project: PROJECT.optional(),
+        project: ProjectArg.optional(),
         program_id: z.string().max(100).optional().describe("One program's id or its name: its details, rules and form instead of the match"),
         project_id: z.string().max(40).optional().describe("The record's project to match and fill from; omit to pick by the repo"),
         ask: z.string().max(40).optional().describe("With program_id: 'rules' when the builder asks for the program's rules"),

@@ -151,7 +151,8 @@ export function provisionalTier(facts: RepoFacts): Tier | null {
   return 'building';
 }
 
-/** `tierGate` without the builder's own tier: unlinked, the gap names signing in and the bar (R3b); linked (no own
+/** `tierGate` without the builder's own tier: unlinked, the gap names the bar (`proof that ...`, R3b) and the reply asks
+ *  the sign-in once (v6.1.14); linked (no own
  *  tier read yet), that the proof is still being read (I2), or, when no project in the record matches the find
  *  (`noProject`), to add it so its proof can be read (I2 nuance, v6.1.9). Pure. */
 export const provisionalGate = (v: Verdict, row: ProgramRow, tier: Tier | null, o: { onchain: boolean; linked: boolean; noProject?: boolean }): Verdict =>
