@@ -1217,6 +1217,73 @@ test('N-3 (v6.1.9, Review Focus 2): the VR persona marks the demo video done and
   assert.doesNotMatch(skipped.reply!.show_to_builder as string, /Meta VR/);
 });
 
+/** Lane 1e (v6.1.13): the persona words of the fifth live run, on the replayed public Next.js repo (code read). */
+const STARTER = { name: 'Next.js SaaS Starter', description: 'SaaS starter with Stripe subscriptions, team billing and a dashboard', repo_url: `https://github.com/${dash.repo}`, live_url: 'https://next-saas-start.vercel.app', users: true };
+const STUDENT = { name: 'micrograd', description: 'My student side project: a tiny scalar autograd engine and neural net library', repo_url: `https://github.com/${dash.repo}` };
+const RIPGREP = { name: 'ripgrep', description: 'Recursively searches directories for a regex pattern while respecting gitignore', repo_url: `https://github.com/${dash.repo}` };
+const THIEL_LINE = 'Thiel Fellowship, $250,000 over two years. Their rule: applicant aged 22 or younger with no university degree, who will drop out of college if selected.';
+
+test('L1e-2 (v6.1.13, Review Focus 7, persona 1): a company never sees Thiel; a ready FLOSS/fund leaves exactly one "Say"', async () => {
+  const r = await mcpCall(await dashCtx(), 'find', { project: STARTER });
+  const show = r.reply!.show_to_builder as string;
+  assert.doesNotMatch(show, /Thiel/);
+  assert.equal(show.match(/\bSay\b/g)?.length, 1, show);
+  assert.equal(show.split('\n\n').at(-1), 'Say yes and I apply.');
+});
+
+test('L1e-2 and L1e-5 (v6.1.13, persona 7): a student project sees Thiel by default, and filter.all closes on its rule', async () => {
+  const r = await mcpCall(await dashCtx(), 'find', { project: STUDENT });
+  const show = r.reply!.show_to_builder as string;
+  const g = (r.reply!.gaps as G[]).find((x) => x.program_id === 'thiel-fellowship');
+  assert.ok(g, show);
+  assert.equal(lineOf(show, g.n), `${g.n}. ${THIEL_LINE}`);
+  const all = await mcpCall(await dashCtx(), 'find', { project: STUDENT, filter: { all: true } });
+  const t = (all.reply!.gaps as G[]).find((x) => x.program_id === 'thiel-fellowship')!;
+  assert.equal((all.reply!.show_to_builder as string).split('\n').at(-1), `Nothing is ready yet. Say "yes ${t.n}" if that rule fits you.`);
+});
+
+test('L1e-4 (v6.1.13, Review Focus 9, persona 4): after the users yes on FLOSS/fund, HeroDevs never asks it again', async () => {
+  const c = await dashCtx();
+  await mcpCall(c, 'find', { project: RIPGREP });
+  const yes = await mcpCall(c, 'track', { program_id: 'floss', status: 'gap_done', item: 'users', project: RIPGREP });
+  assert.equal(yes.isError, false, yes.text);
+  const again = await mcpCall(c, 'find', { project: RIPGREP, filter: { all: true } });
+  const show = again.reply!.show_to_builder as string;
+  assert.doesNotMatch(show, /real people use it/);
+  const hero = [...(again.reply!.gaps as G[]), ...(again.reply!.ready as G[])].find((x) => x.program_id === 'herodevs-sustainability-fund');
+  assert.ok(hero, show);
+  assert.doesNotMatch(lineOf(show, hero.n), /real people/);
+  // The send-time verdict reads the same project fact: track started names no users step for HeroDevs.
+  const started = await mcpCall(c, 'track', { program_id: 'herodevs-sustainability-fund', status: 'started', project: RIPGREP });
+  assert.doesNotMatch(started.reply!.show_to_builder as string, /real people/);
+});
+
+test('L1e-3 (v6.1.13, Review Focus 8, personas 8 and 15): after the Thiel rule yes, the idea and the empty repo read one line and a closing that names the answers', async () => {
+  const emptyRec = replayFetch('empty-repo');
+  const IDEA = { name: 'Rent Split', description: 'An idea: an app that splits rent and bills between roommates' };
+  const EMPTY = { name: 'LibreDesktop project list', description: 'A list of LibreDesktop projects', repo_url: `https://github.com/${emptyRec.repo}` };
+  const lines: string[][] = [];
+  for (const [project, gh] of [[IDEA, undefined], [EMPTY, emptyRec.fetch]] as const) {
+    const c = { installationId: await installation(), builderId: null, now: NOW, ...(gh ? { gh } : {}) };
+    const one = await mcpCall(c, 'find', { program_id: 'thiel', project });
+    const g = one.reply!.verdict as { gaps: { item: string }[] };
+    await mcpCall(c, 'track', { program_id: 'thiel', status: 'gap_done', item: g.gaps[0].item, project });
+    const after = await mcpCall(c, 'find', { program_id: 'thiel', project });
+    const list = await mcpCall(c, 'find', { project });
+    const show = list.reply!.show_to_builder as string;
+    lines.push([after.reply!.show_to_builder as string, lineOf(show, 1), show.split('\n\n').at(-1)!]);
+    assert.doesNotMatch(show, /Say yes/, show);
+    assert.doesNotMatch(show, /FUTO/, show);
+  }
+  assert.deepEqual(lines[0], lines[1]);
+  assert.deepEqual(lines[0], [
+    ['Thiel Fellowship, $250,000 over two years. Long odds: many apply, few are taken. Needs your online application answers.', 'Thiel Fellowship needs your online application answers; then I draft it for you to send.'].join('\n'),
+    '1. Thiel Fellowship, $250,000 over two years. Long odds: many apply, few are taken. Needs your online application answers.',
+    'Thiel Fellowship needs your online application answers; then I draft it for you to send.',
+  ]);
+});
+
+
 test('L1d-1 (v6.1.11, Review Focus 1): a claim on one project never pins or leads another project of the builder', async () => {
   const c = await dashCtx();
   await mcpCall(c, 'find', { project: VR });
@@ -2075,68 +2142,3 @@ test('Low 22 (v6.1.13): Arbitrum Open House São Paulo opens with when submissio
   assert.match((r.reply!.show_to_builder as string).split('\n')[0], /\. Not open yet: Submissions run Feb 8 to Mar 1, 2027; registration is open on HackQuest since Nov 2, 2026, and the requirements are not published yet\.$/);
 });
 
-/** Lane 1e (v6.1.13): the persona words of the fifth live run, on the replayed public Next.js repo (code read). */
-const STARTER = { name: 'Next.js SaaS Starter', description: 'SaaS starter with Stripe subscriptions, team billing and a dashboard', repo_url: `https://github.com/${dash.repo}`, live_url: 'https://next-saas-start.vercel.app', users: true };
-const STUDENT = { name: 'micrograd', description: 'My student side project: a tiny scalar autograd engine and neural net library', repo_url: `https://github.com/${dash.repo}` };
-const RIPGREP = { name: 'ripgrep', description: 'Recursively searches directories for a regex pattern while respecting gitignore', repo_url: `https://github.com/${dash.repo}` };
-const THIEL_LINE = 'Thiel Fellowship, $250,000 over two years. Their rule: applicant aged 22 or younger with no university degree, who will drop out of college if selected.';
-
-test('L1e-2 (v6.1.13, Review Focus 7, persona 1): a company never sees Thiel; a ready FLOSS/fund leaves exactly one "Say"', async () => {
-  const r = await mcpCall(await dashCtx(), 'find', { project: STARTER });
-  const show = r.reply!.show_to_builder as string;
-  assert.doesNotMatch(show, /Thiel/);
-  assert.equal(show.match(/\bSay\b/g)?.length, 1, show);
-  assert.equal(show.split('\n\n').at(-1), 'Say yes and I apply.');
-});
-
-test('L1e-2 and L1e-5 (v6.1.13, persona 7): a student project sees Thiel by default, and filter.all closes on its rule', async () => {
-  const r = await mcpCall(await dashCtx(), 'find', { project: STUDENT });
-  const show = r.reply!.show_to_builder as string;
-  const g = (r.reply!.gaps as G[]).find((x) => x.program_id === 'thiel-fellowship');
-  assert.ok(g, show);
-  assert.equal(lineOf(show, g.n), `${g.n}. ${THIEL_LINE}`);
-  const all = await mcpCall(await dashCtx(), 'find', { project: STUDENT, filter: { all: true } });
-  const t = (all.reply!.gaps as G[]).find((x) => x.program_id === 'thiel-fellowship')!;
-  assert.equal((all.reply!.show_to_builder as string).split('\n').at(-1), `Nothing is ready yet. Say "yes ${t.n}" if that rule fits you.`);
-});
-
-test('L1e-4 (v6.1.13, Review Focus 9, persona 4): after the users yes on FLOSS/fund, HeroDevs never asks it again', async () => {
-  const c = await dashCtx();
-  await mcpCall(c, 'find', { project: RIPGREP });
-  const yes = await mcpCall(c, 'track', { program_id: 'floss', status: 'gap_done', item: 'users', project: RIPGREP });
-  assert.equal(yes.isError, false, yes.text);
-  const again = await mcpCall(c, 'find', { project: RIPGREP, filter: { all: true } });
-  const show = again.reply!.show_to_builder as string;
-  assert.doesNotMatch(show, /real people use it/);
-  const hero = [...(again.reply!.gaps as G[]), ...(again.reply!.ready as G[])].find((x) => x.program_id === 'herodevs-sustainability-fund');
-  assert.ok(hero, show);
-  assert.doesNotMatch(lineOf(show, hero.n), /real people/);
-  // The send-time verdict reads the same project fact: track started names no users step for HeroDevs.
-  const started = await mcpCall(c, 'track', { program_id: 'herodevs-sustainability-fund', status: 'started', project: RIPGREP });
-  assert.doesNotMatch(started.reply!.show_to_builder as string, /real people/);
-});
-
-test('L1e-3 (v6.1.13, Review Focus 8, personas 8 and 15): after the Thiel rule yes, the idea and the empty repo read one line and a closing that names the answers', async () => {
-  const emptyRec = replayFetch('empty-repo');
-  const IDEA = { name: 'Rent Split', description: 'An idea: an app that splits rent and bills between roommates' };
-  const EMPTY = { name: 'LibreDesktop project list', description: 'A list of LibreDesktop projects', repo_url: `https://github.com/${emptyRec.repo}` };
-  const lines: string[][] = [];
-  for (const [project, gh] of [[IDEA, undefined], [EMPTY, emptyRec.fetch]] as const) {
-    const c = { installationId: await installation(), builderId: null, now: NOW, ...(gh ? { gh } : {}) };
-    const one = await mcpCall(c, 'find', { program_id: 'thiel', project });
-    const g = one.reply!.verdict as { gaps: { item: string }[] };
-    await mcpCall(c, 'track', { program_id: 'thiel', status: 'gap_done', item: g.gaps[0].item, project });
-    const after = await mcpCall(c, 'find', { program_id: 'thiel', project });
-    const list = await mcpCall(c, 'find', { project });
-    const show = list.reply!.show_to_builder as string;
-    lines.push([after.reply!.show_to_builder as string, lineOf(show, 1), show.split('\n\n').at(-1)!]);
-    assert.doesNotMatch(show, /Say yes/, show);
-    assert.doesNotMatch(show, /FUTO/, show);
-  }
-  assert.deepEqual(lines[0], lines[1]);
-  assert.deepEqual(lines[0], [
-    ['Thiel Fellowship, $250,000 over two years. Long odds: many apply, few are taken. Needs your online application answers.', 'Thiel Fellowship needs your online application answers; then I draft it for you to send.'].join('\n'),
-    '1. Thiel Fellowship, $250,000 over two years. Long odds: many apply, few are taken. Needs your online application answers.',
-    'Thiel Fellowship needs your online application answers; then I draft it for you to send.',
-  ]);
-});
