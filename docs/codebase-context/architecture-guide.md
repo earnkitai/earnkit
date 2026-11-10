@@ -545,8 +545,9 @@ refused with the ledger's line and nothing is recorded), which also reach a buil
 applicant row's `application_id`: the id `track started` answered the builder's agent with a note to put it in the
 form's reference field (`applications.application_id`, issued by `claims.claim`, kept by the send, carried on a link
 merge), for this program; never by repo or site (L13-1, T5-F1 v6.1.14). An id on more than one applicant of the
-program (any other row in any screen of it, expired too, except the same applicant queued again elsewhere: same repo,
-site and contracts; the reviewer's ref is never identity) is ambiguous and reaches no ledger (T5-F3, fix round 2). The CSV path reads an
+program (any other row in any screen of it, expired too; facts and refs never make two rows one applicant) is
+ambiguous and reaches no ledger (T5-F3); only the reviewer's `requeue: true` on a row supersedes the earlier screens'
+rows with its id, and an earlier row a later requeued row replaced is named as such (fix round 3). The CSV path reads an
 `application_id` column too (T5-F2). A row without one is named in the note as "Not matched to an
 EarnKit application"; a win with no amount is passed on as a win with none (`amount not given`, L13-13); a second
 outcome replaces the first only when not older, and the note names what it replaced (L13-12). The notes never say

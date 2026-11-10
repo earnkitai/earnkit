@@ -17,7 +17,7 @@ import { DEFAULT_THRESHOLDS, TIERS, type Thresholds } from './tiers';
 export const ScreenInput = z
   .object({
     program_id: z.string().max(100).optional().describe('The program you review; omit when you review one'),
-    applicants: z.array(ScreenApplicant).optional().describe('The list to screen, each { ref (required), name, repo_url, live_url, contracts: [{ chain, address }], pitch, applied_at, application_id }'),
+    applicants: z.array(ScreenApplicant).optional().describe('The list to screen, each { ref (required), name, repo_url, live_url, contracts: [{ chain, address }], pitch, applied_at, application_id, requeue }'),
     thresholds: z.record(z.string(), z.number()).optional().describe('Tier thresholds to override, by name'),
     job_id: z.string().max(40).optional().describe('A queued screen: its progress and results'),
     outcomes: z

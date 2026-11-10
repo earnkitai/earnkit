@@ -24,6 +24,7 @@ export const ScreenApplicant = z
     pitch: z.string().max(4000).optional().describe('Compared for identical pitches only; never stored'),
     applied_at: z.iso.datetime({ offset: true }).optional(),
     application_id: z.string().trim().min(1).max(40).optional().describe('The EarnKit application id the applicant gave the program, if any'),
+    requeue: z.boolean().optional().describe('true when you queue this applicant again: the row replaces your earlier rows with its application_id'),
   })
   .strip();
 export type ScreenApplicant = z.infer<typeof ScreenApplicant>;
@@ -97,7 +98,7 @@ export async function createJob(o: {
     const repo = repoOf(a.repo_url);
     return {
       ref, name: a.name || ref, repo_url: repo.url, repo_key: repo.key, live_url: a.live_url || null,
-      contracts: contractsOf(a.contracts), applied_at: a.applied_at ?? null, pitch: a.pitch ?? null, application_id: a.application_id ?? null,
+      contracts: contractsOf(a.contracts), applied_at: a.applied_at ?? null, pitch: a.pitch ?? null, application_id: a.application_id ?? null, requeue: a.requeue === true,
     };
   });
   const pitches = identicalPitches(list.map((a): Applicant => ({ ...a, problems: [] })));
@@ -112,8 +113,8 @@ export async function createJob(o: {
     await tx`INSERT INTO screen_jobs (id, program_id, builder_id, installation_id, created_at, thresholds, total, expires_at)
       VALUES (${id}, ${o.programId}, ${o.builderId}, ${o.installationId}, ${o.now}, ${o.thresholds ? tx.json(o.thresholds) : null}, ${list.length}, ${expires})`;
     for (const a of list) {
-      await tx`INSERT INTO screen_applicants (job_id, ref, name, repo_key, repo_url, live_url, contracts, applied_at, identical_pitch, application_id)
-        VALUES (${id}, ${a.ref}, ${a.name}, ${a.repo_key}, ${a.repo_url}, ${a.live_url}, ${tx.json(a.contracts)}, ${a.applied_at}, ${pitches.get(a.ref) ?? 0}, ${a.application_id})`;
+      await tx`INSERT INTO screen_applicants (job_id, ref, name, repo_key, repo_url, live_url, contracts, applied_at, identical_pitch, application_id, requeue)
+        VALUES (${id}, ${a.ref}, ${a.name}, ${a.repo_key}, ${a.repo_url}, ${a.live_url}, ${tx.json(a.contracts)}, ${a.applied_at}, ${pitches.get(a.ref) ?? 0}, ${a.application_id}, ${a.requeue})`;
     }
   });
   return { id, total: list.length, cached };
@@ -175,6 +176,8 @@ export const OUTCOME_NOTES = {
   replaced: (items: string[]) => `Replaced the outcome recorded before: ${listWords(items, 10)}.`,
   older: (refs: string[]) => `Not recorded, a later outcome is already kept: ${listWords(refs, 10)}.`,
   /** T5-F3 (v6.1.14): one id on more than one applicant of the program; each group names every row carrying it. */
+  /** Fix round 3: an earlier row a later screen's requeued row replaced. */
+  superseded: (refs: string[]) => `Not passed on, a requeued row in a later screen carries its EarnKit id now: ${listWords(refs, 10)}.`,
   ambiguous: (groups: string[]) => `Not passed on, one EarnKit id on more than one applicant: ${groups.join('; ')}.`,
 } as const;
 
@@ -200,10 +203,11 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
   const older: string[] = [];
   const replaced: string[] = [];
   const ambiguous: string[] = [];
+  const superseded: string[] = [];
   const once = (list: string[], ref: string) => void (list.includes(ref) || list.push(ref));
   for (const o of outcomes) {
-    const [a] = await sql()<{ application_id: string | null; repo_key: string | null; live_url: string | null; contracts: unknown }[]>`
-      SELECT application_id, repo_key, live_url, contracts FROM screen_applicants WHERE job_id = ${jobId} AND ref = ${o.ref}`;
+    const [a] = await sql()<{ application_id: string | null; requeue: boolean }[]>`
+      SELECT application_id, requeue FROM screen_applicants WHERE job_id = ${jobId} AND ref = ${o.ref}`;
     if (!a) {
       once(notFound, o.ref);
       continue;
@@ -226,23 +230,27 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
     const same = before && before.outcome === o.outcome && (before.amount_usd === null ? null : Number(before.amount_usd)) === amount;
     if (before && !same) replaced.push(`${o.ref} (was ${before.outcome === 'shortlisted' ? 'shortlisted' : resultWords(before.outcome, before.amount_usd)})`);
     if (o.outcome === 'shortlisted') continue;
-    // T5-F3 (v6.1.14, fix round 2): an id another applicant row of this program carries too is ambiguous: an id given to
-    // a program can be copied, so neither row reaches a ledger. Every other row counts (any screen of the program, expired
-    // too), except the same applicant queued again in another screen: the same repo, site and contracts, with at least one
-    // of them given. The reviewer's ref is never identity (a "row 3" ref is the list's position); another row of this
-    // same screen is always another applicant.
+    // T5-F3 (v6.1.14, fix rounds 2 and 3): an id another applicant row of this program carries too is ambiguous: an id
+    // given to a program can be copied, with the applicant's repo, site and contracts, so neither row reaches a ledger.
+    // Every other row counts (any screen of the program, expired too) but the exact row. Only the reviewer's own mark
+    // separates a requeue from a copy: a row with `requeue` supersedes the rows of earlier screens with its id, and a
+    // later screen's requeued row supersedes this one. Two rows of one screen are always two applicants.
     if (a.application_id) {
-      const others = await sql()<{ ref: string; job_id: string }[]>`
-        SELECT x.ref, x.job_id FROM screen_applicants x JOIN screen_jobs j ON j.id = x.job_id
-        WHERE x.application_id = ${a.application_id} AND j.program_id = ${job.program_id}
-          AND NOT (x.job_id = ${jobId} AND x.ref = ${o.ref})
-          AND NOT (x.job_id <> ${jobId}
-            AND x.repo_key IS NOT DISTINCT FROM ${a.repo_key}::text AND x.live_url IS NOT DISTINCT FROM ${a.live_url}::text
-            AND x.contracts = ${sql().json(a.contracts as never)}::jsonb
-            AND (${a.repo_key}::text IS NOT NULL OR ${a.live_url}::text IS NOT NULL OR jsonb_array_length(x.contracts) > 0))`;
-      if (others.length > 0) {
-        const here = [o.ref, ...others.filter((x) => x.job_id === jobId).map((x) => x.ref)].sort();
-        const group = listWords([...here, ...others.filter((x) => x.job_id !== jobId).map((x) => `${x.ref} (another screen)`).sort()], 10);
+      const others = await sql()<{ ref: string; job_id: string; requeue: boolean; later: boolean }[]>`
+        SELECT x.ref, x.job_id, x.requeue, (j.created_at, j.id) > (me.created_at, me.id) AS later
+        FROM screen_applicants x JOIN screen_jobs j ON j.id = x.job_id, screen_jobs me
+        WHERE me.id = ${jobId} AND x.application_id = ${a.application_id} AND j.program_id = ${job.program_id}
+          AND NOT (x.job_id = ${jobId} AND x.ref = ${o.ref})`;
+      const elsewhere = others.filter((x) => x.job_id !== jobId);
+      const by = elsewhere.filter((x) => x.later && x.requeue);
+      if (by.length > 0) {
+        once(superseded, o.ref);
+        continue;
+      }
+      const clash = [...others.filter((x) => x.job_id === jobId), ...elsewhere.filter((x) => x.later || !a.requeue)];
+      if (clash.length > 0) {
+        const here = [o.ref, ...clash.filter((x) => x.job_id === jobId).map((x) => x.ref)].sort();
+        const group = listWords([...here, ...clash.filter((x) => x.job_id !== jobId).map((x) => `${x.ref} (another screen)`).sort()], 10);
         if (!ambiguous.includes(group)) ambiguous.push(group);
         continue;
       }
@@ -268,6 +276,7 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
     ...(noAmount.length ? [OUTCOME_NOTES.noAmount(noAmount)] : []),
     ...(unmatched.length ? [OUTCOME_NOTES.unmatched(unmatched)] : []),
     ...(ambiguous.length ? [OUTCOME_NOTES.ambiguous(ambiguous)] : []),
+    ...(superseded.length ? [OUTCOME_NOTES.superseded(superseded)] : []),
   ];
   return { recorded, notFound, notes };
 }

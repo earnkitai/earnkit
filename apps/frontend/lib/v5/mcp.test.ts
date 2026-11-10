@@ -40,7 +40,7 @@ test('four tools, their descriptions and the server instructions, verbatim', asy
   assert.equal(tools[2].description, RECORD_DESCRIPTION);
   assert.equal(
     SCREEN_DESCRIPTION,
-    "For a program's reviewer: hand EarnKit the applicant list, each { ref (your id for them, required), name, repo_url, live_url, contracts: [{ chain, address }], pitch, application_id (the EarnKit id the applicant gave you, if any) }, and get it back in named tiers with public evidence; with job_id, progress and results; with outcomes, who won.",
+    "For a program's reviewer: hand EarnKit the applicant list, each { ref (your id for them, required), name, repo_url, live_url, contracts: [{ chain, address }], pitch, application_id (the EarnKit id the applicant gave you, if any), requeue (true when you queue an applicant again; that row replaces your earlier rows with its application_id) }, and get it back in named tiers with public evidence; with job_id, progress and results; with outcomes, who won.",
   );
   assert.equal(tools[3].description, SCREEN_DESCRIPTION);
   assert.equal(

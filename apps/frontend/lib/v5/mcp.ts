@@ -36,7 +36,7 @@ export const TRACK_DESCRIPTION =
 export const RECORD_DESCRIPTION =
   "The builder's record: facts, links, documents and answers, kept once and read by every agent of theirs. Call it with get after find, once find's reply has linked true; call it with set for every new fact the builder gives; with brief for the question and facts behind one answer kind.";
 export const SCREEN_DESCRIPTION =
-  "For a program's reviewer: hand EarnKit the applicant list, each { ref (your id for them, required), name, repo_url, live_url, contracts: [{ chain, address }], pitch, application_id (the EarnKit id the applicant gave you, if any) }, and get it back in named tiers with public evidence; with job_id, progress and results; with outcomes, who won.";
+  "For a program's reviewer: hand EarnKit the applicant list, each { ref (your id for them, required), name, repo_url, live_url, contracts: [{ chain, address }], pitch, application_id (the EarnKit id the applicant gave you, if any), requeue (true when you queue an applicant again; that row replaces your earlier rows with its application_id) }, and get it back in named tiers with public evidence; with job_id, progress and results; with outcomes, who won.";
 export const BUSY = 'EarnKit is busy. Try again in a minute.';
 /** Over an hourly limit: the window's seconds left as minutes (or hours) (v6.1.7, C8). */
 export const BUSY_HOUR = busyText;

@@ -153,8 +153,8 @@ test('T5-F3 (v6.1.14): one id on two applicant rows of the program is ambiguous:
   assert.deepEqual(await recordOutcomes(j.id, r.builderId, [{ ref: 'imposter', outcome: 'rejected' }, { ref: 'victim', outcome: 'won', amount_usd: 900 }], NOW),
     { recorded: 2, notFound: [], notes: ['Not passed on, one EarnKit id on more than one applicant: imposter and victim.'] });
   assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${victim.id}`} AND program_id = 'jobs-amb'`)[0].status, 'applied');
-  // Fix round 2: the same applicant (same repo, site and contracts) queued again in another screen under a new ref is
-  // not ambiguous; another applicant carrying the id in another screen, expired too, is; a "row N" ref is no identity.
+  // Fix round 3: facts never make two rows one applicant. A copier's row with the victim's id, repo and site in a second
+  // screen (the first one expired) is ambiguous; only the reviewer's requeue mark supersedes the earlier row.
   const r2 = await reviewer('jobs-amb2');
   const b2 = await upsertBuilder({ github_id: ++gh, login: 'ambw' + gh, name: null, avatar_url: null }, NOW);
   assert.deepEqual(await record(`b:${b2.id}`, 'jobs-amb2', 'applied', { installationId: await instOf(b2.id), now: NOW }), { ok: true });
@@ -162,18 +162,27 @@ test('T5-F3 (v6.1.14): one id on two applicant rows of the program is ambiguous:
   const W = { name: 'W', repo_url: 'https://github.com/acme/w', live_url: 'https://w.example/', application_id: id2 };
   const old = await job(r2, [{ ref: 'row 1', ...W }], new Date(NOW.getTime() - 40 * 86_400_000));
   assert.ok((await sql()`SELECT expires_at FROM screen_jobs WHERE id = ${old.id}`)[0].expires_at < NOW);
-  const requeued = await job(r2, [{ ref: 'w-2', ...W }]);
+  const copier = await job(r2, [{ ref: 'w-copy', ...W }], new Date(NOW.getTime() - 2000));
+  assert.deepEqual((await recordOutcomes(copier.id, r2.builderId, [{ ref: 'w-copy', outcome: 'rejected' }], NOW)).notes,
+    ['Not passed on, one EarnKit id on more than one applicant: w-copy and row 1 (another screen).']);
+  assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${b2.id}`} AND program_id = 'jobs-amb2'`)[0].status, 'applied');
+  // Two rows with one id in one screen are two rows, requeue or not.
+  const twice = await job(r2, [{ ref: 'a', ...W, requeue: true }, { ref: 'b', ...W }], new Date(NOW.getTime() - 1000));
+  assert.deepEqual((await recordOutcomes(twice.id, r2.builderId, [{ ref: 'a', outcome: 'rejected' }], NOW)).notes,
+    ['Not passed on, one EarnKit id on more than one applicant: a and b.']);
+  // The reviewer's requeued row lands; every earlier row with the id is superseded.
+  const requeued = await job(r2, [{ ref: 'w-2', ...W, requeue: true }]);
   assert.deepEqual(await recordOutcomes(requeued.id, r2.builderId, [{ ref: 'w-2', outcome: 'won', amount_usd: 50 }], NOW), { recorded: 1, notFound: [], notes: [] });
   assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${b2.id}`} AND program_id = 'jobs-amb2'`)[0].status, 'won');
-  // Another applicant (another repo) with the copied id, in a later screen: ambiguous, the expired row and the requeued one named.
-  const copy = await job(r2, [{ ref: 'row 1', name: 'C', repo_url: 'https://github.com/evil/c', application_id: id2 }]);
-  assert.deepEqual((await recordOutcomes(copy.id, r2.builderId, [{ ref: 'row 1', outcome: 'rejected' }], NOW)).notes,
-    ['Not passed on, one EarnKit id on more than one applicant: row 1, row 1 (another screen) and w-2 (another screen).']);
-  assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${b2.id}`} AND program_id = 'jobs-amb2'`)[0].status, 'won');
-  // Two rows with the same facts and one id in one screen are two rows: ambiguous (the other screen's copy named too).
-  const twice = await job(r2, [{ ref: 'a', ...W }, { ref: 'b', ...W }]);
-  assert.deepEqual((await recordOutcomes(twice.id, r2.builderId, [{ ref: 'a', outcome: 'rejected' }], NOW)).notes,
-    ['Not passed on, one EarnKit id on more than one applicant: a, b and row 1 (another screen).']);
+  assert.deepEqual((await recordOutcomes(copier.id, r2.builderId, [{ ref: 'w-copy', outcome: 'won', amount_usd: 70 }], NOW)).notes,
+    ['Replaced the outcome recorded before: w-copy (was rejected).', 'Not passed on, a requeued row in a later screen carries its EarnKit id now: w-copy.']);
+  // requeue on an id with no earlier row is a normal row.
+  const r3 = await reviewer('jobs-amb3');
+  const b3 = await upsertBuilder({ github_id: ++gh, login: 'ambx' + gh, name: null, avatar_url: null }, NOW);
+  assert.deepEqual(await record(`b:${b3.id}`, 'jobs-amb3', 'applied', { installationId: await instOf(b3.id), now: NOW }), { ok: true });
+  const fresh = await job(r3, [{ ref: 'x', name: 'X', application_id: await appId(`b:${b3.id}`, 'jobs-amb3'), requeue: true }]);
+  assert.deepEqual(await recordOutcomes(fresh.id, r3.builderId, [{ ref: 'x', outcome: 'rejected' }], NOW), { recorded: 1, notFound: [], notes: [] });
+  assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${b3.id}`} AND program_id = 'jobs-amb3'`)[0].status, 'rejected');
 });
 
 test('T5-F5 (v6.1.14): two outcome calls for one ref at once keep the later one and name what each replaced', async () => {
