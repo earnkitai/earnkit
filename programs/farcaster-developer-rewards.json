@@ -22,7 +22,7 @@
   "eligibility": [
     { "kind": "live_product" },
     { "kind": "users", "note": "rewards follow the Mini App's usage and onchain transactions" },
-    { "kind": "rule", "note": "a Farcaster Mini App" }
+    { "kind": "rule", "note": "a Farcaster Mini App", "keywords": ["farcaster", "mini app", "warpcast"] }
   ],
   "setup": [
     "publish the Farcaster manifest on your domain and sign it in the Manifest Tool"

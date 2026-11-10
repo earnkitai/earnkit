@@ -174,3 +174,24 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
   }
   return out('gap', ordered, reason);
 }
+
+/** What the project says about itself, lower-cased: its name, description, README excerpt and topics (L1c-2). Pure. */
+const projectWords = (facts: RepoFacts): string =>
+  [facts.name, facts.description, facts.readme_excerpt ?? '', ...(facts.topics ?? [])].join('\n').toLowerCase();
+/** Whether `text` holds `phrase` as a whole word or phrase (letters and digits on neither side). Pure. */
+const names = (text: string, phrase: string): boolean =>
+  new RegExp(`(?<![\\p{L}\\p{N}])${phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'u').test(text);
+
+/**
+ * L1c-2 (v6.1.10): whether the program's rule is unlikely to be the project's. True when a rule still to confirm (in
+ * `gaps`) carries keywords and the project names none of the program's keywords in its name, description, README
+ * excerpt or topics; such a program shows only in the full list. A program whose rules carry no keywords (a person or
+ * licence rule), or whose keyword rules are all confirmed, is never unlikely. Pure.
+ */
+export function unlikely(program: ProgramRow, facts: RepoFacts, gaps: Gap[]): boolean {
+  const pending = new Set(gaps.filter((g) => g.kind === 'rule').map((g) => g.item));
+  const items = eligibilityOf(program.file).filter((i) => i.kind === 'rule');
+  if (!items.some((i) => (i.keywords?.length ?? 0) > 0 && pending.has(itemKey(i)))) return false;
+  const text = projectWords(facts);
+  return !items.flatMap((i) => i.keywords ?? []).some((k) => names(text, k));
+}

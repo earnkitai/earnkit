@@ -127,3 +127,38 @@ test('a rule item needs a note and takes no value (v6.1.6)', () => {
   assert.equal(ProgramFile.safeParse({ ...base, eligibility: [{ kind: 'rule', note: 'x', value: 'y' }] }).success, false);
   assert.equal(ProgramFile.safeParse({ ...base, eligibility: [{ kind: 'rule', note: 'ends with a stop.' }] }).success, false);
 });
+
+test('L1c-2 (v6.1.10): a rule item may carry up to 8 lower-case keywords of at most 30 characters; no other item takes them', () => {
+  const base = programFixture({ id: 'kw-test' });
+  const rule = (keywords: unknown) => ({ ...base, eligibility: [{ kind: 'rule', note: 'a hands-first experience for Meta VR devices', keywords }] });
+  const ok = ProgramFile.safeParse(rule(['vr', 'quest', 'mini app']));
+  assert.ok(ok.success);
+  assert.deepEqual(eligibilityOf(ok.data!)[0], { kind: 'rule', note: 'a hands-first experience for Meta VR devices', keywords: ['vr', 'quest', 'mini app'] });
+  assert.equal(ProgramFile.safeParse(rule(['VR'])).success, false);
+  assert.equal(ProgramFile.safeParse(rule([' vr'])).success, false);
+  assert.equal(ProgramFile.safeParse(rule([''])).success, false);
+  assert.equal(ProgramFile.safeParse(rule(['x'.repeat(31)])).success, false);
+  assert.equal(ProgramFile.safeParse(rule(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'])).success, false);
+  assert.equal(ProgramFile.safeParse(rule([])).success, false);
+  assert.equal(ProgramFile.safeParse({ ...base, eligibility: [{ kind: 'demo_video', keywords: ['vr'] }] }).success, false);
+});
+
+test('L1c-2 (v6.1.10): the catalog keywords are on the domain rules, none on person or licence rules', () => {
+  const kw = (f: string) => eligibilityOf(ProgramFile.parse(read(`${f}.json`))).flatMap((i) => i.keywords ?? []);
+  assert.deepEqual(kw('meta-vr-start-competition-2026'), ['vr', 'quest', 'meta', 'hands-first', 'oculus']);
+  assert.deepEqual(kw('codegeist-2026'), ['atlassian', 'forge', 'jira', 'confluence']);
+  assert.deepEqual(kw('qnx-global-hackathon-2026'), ['qnx']);
+  assert.deepEqual(kw('paypal-ai-hackathon'), ['paypal']);
+  assert.deepEqual(kw('farcaster-developer-rewards'), ['farcaster', 'mini app', 'warpcast']);
+  assert.deepEqual(kw('kiroween-2026'), ['kiro']);
+  assert.deepEqual(kw('solana-mobile-builder-grants'), ['solana mobile', 'seeker', 'saga', 'android']);
+  assert.deepEqual(kw('ugreen-ai-nas-hackathon-2026'), ['ugreen', 'nas']);
+  assert.deepEqual(kw('otf-internet-freedom-fund'), ['censorship', 'circumvention', 'privacy', 'vpn', 'tor']);
+  assert.deepEqual(kw('goose-grant-program'), ['goose']);
+  assert.deepEqual(kw('filecoin-open-grants'), ['filecoin', 'fvm', 'ipfs']);
+  assert.deepEqual(kw('lido-lego-grants'), ['lido', 'steth']);
+  assert.deepEqual(kw('uniswap-foundation-open-grants'), ['uniswap', 'hook', 'v4']);
+  assert.deepEqual(kw('uniswap-foundation-security-fund'), ['uniswap', 'hook', 'v4']);
+  for (const f of ['thiel-fellowship', 'antler-us-residency', 'github-secure-open-source-fund', 'herodevs-sustainability-fund', 'sovereign-tech-fund'])
+    assert.deepEqual(kw(f), [], f);
+});

@@ -58,12 +58,23 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
    toward the two-gap limit or the weeks refusal. The builder sees it as "Their rule" and confirms it once; the agent
    then calls `track` `gap_done` with its item. `rulesOnly` (`eligibility.ts`) marks a gap verdict whose gaps are all
    rules.
-4. `rank.ts` orders them: ready by fit (long shots last), larger award, sooner deadline; gaps with a real change
-   first, then rule-only ones (those naming one of the project's mainnet chains first, then chain-agnostic `any_chain`
-   ones, then the rest: R18e), and within each by fewest gaps, lowest effort, larger award. `shownGapsOf` picks the
-   shown gaps: at most one rule-only program (the first-ranked, so the one fitting the project's chains), after the
-   real changes, in the last slot when there are more. In-person programs are off the default gap list entirely, so
-   the rule-only slot skips them too (R18d, R18f); `filter.all` shows them and the `more` count includes them. Skipped and applied programs never return unless their next round opens.
+4. `rank.ts` orders them: ready by fit (long shots last), larger award, sooner deadline. Gaps (L1c-3, v6.1.10):
+   programs on the project's own chains first (the reported chain before the read one), rule-free before
+   rule-bearing; then chain-agnostic ones, rule-free before rule-bearing; then programs on other chains (their
+   deploys). Within each, real changes before rule-only ones (rule-only ones naming a project mainnet first, then
+   chain-agnostic, then the rest: R18e), then fewest gaps, lowest effort, larger award. `shownGapsOf` picks the shown
+   gaps: first the acted-on programs (N-3), then every program closing within 7 days that the project fits (O1, ahead
+   of the cap; its line says `closes in {n} days`), then at most one rule-bearing program among rule-free ones. That
+   one, on the project's chains, takes its rank place; off them it is shown only after `max - 1` others or alone
+   (N-2). A rule item may carry `keywords` (L1c-2): when a rule still to confirm has keywords and the project names
+   none of the program's keywords (whole word or phrase, case-insensitive) in its name, description, README excerpt
+   or topics, `unlikely` (`eligibility.ts`) holds and the program is left to `filter.all` (counted in `more`); a rule
+   with no keywords keeps the slot rule. In-person programs are off the default step list (R18d, R18f); a rule-only
+   in-person program is listed in the In person block after the ready ones, with its rule and `Say "yes n" if that is
+   you.` (O2), in the in-person slots the ready ones leave. When in-person programs are listed and nothing remote is
+   ready the closing is `Nothing remote is ready yet. Say yes and I start the in-person applications.` `filter.all`
+   shows everything and the `more` count includes what is left out. Skipped and applied programs never return unless
+   their next round opens. An empty repo read is cached like any other (L1c-4).
 5. `prefill.ts` fills each ready program's form: fields EarnKit can answer (`from: earnkit`), prose fields handed to
    the agent with sources (`from: agent`), and fields only the builder can give (`from: builder`, a demo video or
    a file). Blank beats a wrong guess. `facts_from_repo` counts only values the public code read gave (its repo link,

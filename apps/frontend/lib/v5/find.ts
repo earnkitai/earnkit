@@ -12,7 +12,7 @@ import { EMPTY_RECORD, unapprovedSince } from '../v6/record';
 import { signInLink } from '../v6/record-tool';
 import { DELETED_NOTICE, NO_RECORD_PROJECT, linkedNoticeLine, signInLine, signInSentence, unlinkedNoticeLine } from '../v6/reply-words';
 import { timeLeftWords } from './deadline';
-import { evaluate, lookedAgain, type Gap, type Verdict } from './eligibility';
+import { evaluate, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
 import { lastFindAt, markFind, newlyLinkedLogin, rememberProject } from './installations';
 import { askOutcome, autoSentSince, claimed, codeDoneAt, doneByProgram, doneItems, excluded, markAsked, summary, type Ledger } from './ledger';
@@ -91,6 +91,8 @@ export type GapProgram = {
   n: number;
   /** N-5 (v6.1.9): what the builder marked done that the read still does not find, each said once after the line. */
   looked_again?: string[];
+  /** O1 (v6.1.10): set when it closes within 7 days ("in 2 days"), said on its line. */
+  closes_in?: string;
 };
 export type FindReply = {
   show_to_builder: string;
@@ -150,13 +152,29 @@ const MAX_GAPS = 3;
 const MAX_REMEMBERED_GAPS = 60;
 const MAX_LISTED = 10;
 
+/** O1 (v6.1.10): a program closing within this many days is always in the default reply, ahead of the caps. */
+const SOON_DAYS = 7;
+/** Whether the program closes within SOON_DAYS of `now` (and is not closed). Pure. */
+export const closingSoon = (p: Pick<Program, 'ends_at'>, now: Date): boolean => {
+  const left = p.ends_at ? Date.parse(p.ends_at) - now.getTime() : NaN;
+  return left > 0 && left <= SOON_DAYS * 86_400_000;
+};
+
+/** The first `n` of `xs` in order, plus every one closing soon (O1, v6.1.10) wherever it is. Pure. */
+export function cappedOf<T>(xs: T[], n: number, soon: (v: T) => boolean = () => false): T[] {
+  const kept: T[] = [];
+  for (const v of xs) if (soon(v) || kept.length < n) kept.push(v);
+  return kept;
+}
+
 /** The ready list shown: all of it when `all`, else the first MAX_READY remote then the first MAX_IN_PERSON in person,
- * each in input (rank) order. Zero remote leaves only the in-person slots. */
-export function shownReadyOf<T>(readyV: T[], all: boolean, inPerson: (v: T) => boolean): T[] {
+ * each in input (rank) order, plus any closing soon (`soon`, O1) past the caps. Zero remote leaves only the in-person
+ * slots. */
+export function shownReadyOf<T>(readyV: T[], all: boolean, inPerson: (v: T) => boolean, soon: (v: T) => boolean = () => false): T[] {
   if (all) return readyV;
   const remoteV = readyV.filter((v) => !inPerson(v));
   const attendV = readyV.filter(inPerson);
-  return [...remoteV.slice(0, MAX_READY), ...attendV.slice(0, MAX_IN_PERSON)];
+  return [...cappedOf(remoteV, MAX_READY, soon), ...cappedOf(attendV, MAX_IN_PERSON, soon)];
 }
 
 /** Whose ledger this find reads: the builder's once linked, else the installation's. Pure. */
@@ -198,12 +216,14 @@ function readyOf(row: ProgramRow, v: Verdict, facts: RepoFacts, now: Date, side:
   };
 }
 
-const gapOf = (row: ProgramRow, v: Verdict, done: Set<string> = new Set()): Omit<GapProgram, 'n'> => {
+const gapOf = (row: ProgramRow, v: Verdict, done: Set<string> = new Set(), now?: Date): Omit<GapProgram, 'n'> => {
   const again = lookedAgain(v.gaps, done);
+  const left = now && closingSoon(row.file, now) ? closesIn(row.file, now) : null;
   return {
     program_id: row.id, title: row.file.title, money: moneyOf(row.file), max_award_usd: row.file.max_award_usd ?? null,
     category: categoryOf(row.file), closes_at: row.file.ends_at, gap: v.gaps[0], also: v.gaps.slice(1), rules: v.rules,
     in_person: row.file.in_person, setup: row.file.setup, ...(again.length > 0 ? { looked_again: again } : {}),
+    ...(left ? { closes_in: left } : {}),
   };
 };
 
@@ -216,7 +236,7 @@ function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram
   const p = row.file;
   if (v.status === 'no') return [notFitLine(p.title, moneyOf(p), v.reason ?? 'does not fit'), ...o.rules];
   if (v.status === 'gap') {
-    const g = { ...gapOf(row, v, o.done), n: 0 };
+    const g = { ...gapOf(row, v, o.done, o.now), n: 0 };
     return [gapLine(g, null, true), ...o.rules, gapAction(g, o.signIn)].filter((l): l is string => l !== null);
   }
   const r = { ...ready(), n: 0 };
@@ -454,12 +474,23 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   // Remote and in-person ready programs are capped apart, each in rank order (acted-on first), so the default list
   // always leads with something the builder can apply to now.
   const readyOrder = all ? readyV : [...readyV.filter(pinned), ...readyV.filter((v) => !pinned(v))];
-  const shownReady = shownReadyOf(readyOrder, all, (v) => byId.get(v.program_id)!.file.in_person);
-  // Acted-on programs first, then real changes and at most one rule-bearing program by default (R18b): the one on the
-  // project's chains if any (R18e, fix round 3), else the first, in the last slot only (N-2 beats N-4). In-person
-  // programs are never in the default gap list (R18d, R18f); `more` counts them.
-  const shownGaps = shownGapsOf(gapV, all, MAX_GAPS, (v) => byId.get(v.program_id)!.file.in_person, projectChains,
-    (v, chain) => byId.get(v.program_id)!.file.chains.includes(chain), pinned);
+  // O1 (v6.1.10): a program closing within 7 days that the project fits is always listed, ahead of the caps.
+  const soon = (v: Verdict) => closingSoon(byId.get(v.program_id)!.file, ctx.now);
+  const attending = (v: Verdict) => byId.get(v.program_id)!.file.in_person;
+  const shownReady = shownReadyOf(readyOrder, all, attending, soon);
+  // L1c-2 (v6.1.10): a rule the project names none of the keywords of is unlikely: the full list only.
+  const unlikelyV = (v: Verdict) => unlikely(byId.get(v.program_id)!, facts, v.gaps);
+  // Acted-on programs first, then those closing soon, then real changes and at most one rule-bearing program by default
+  // (R18b): the one on the project's chains if any (R18e, fix round 3) in its rank place (L1c-3), else the first, in
+  // the last slot only (N-2). In-person programs are never in the default step list (R18d, R18f); `more` counts them.
+  const stepGaps = shownGapsOf(gapV, all, MAX_GAPS, attending, projectChains,
+    (v, chain) => byId.get(v.program_id)!.file.chains.includes(chain), pinned, { unlikely: unlikelyV, soon });
+  // O2 (v6.1.10): an in-person program that needs only a rule to confirm lists in the In person block, in the slots
+  // the in-person ready ones leave (all of them with filter.all), each closing soon past the cap.
+  const attendRule = (v: Verdict) => attending(v) && rulesOnly(v.gaps);
+  const attendV = gapV.filter((v) => attendRule(v) && (all || !unlikelyV(v)));
+  const attendShown = all ? attendV : cappedOf(attendV, Math.max(0, MAX_IN_PERSON - shownReady.filter(attending).length), soon);
+  const shownGaps = [...stepGaps.filter((v) => !attendRule(v)), ...attendShown];
   const more = readyV.length - shownReady.length + gapV.length - shownGaps.length;
   // In display order with the numbers the builder sees: ready, gaps, then in person.
   // Only another installation's claim marks a program: this agent's own claim is its to send.
@@ -470,7 +501,8 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
       const hold = holds.get(v.program_id);
       return hold ? { ...r, claimed_since: hold.since } : r;
     }),
-    shownGaps.map((v) => gapOf(byId.get(v.program_id)!, v, done.get(v.program_id))),
+    shownGaps.map((v) => gapOf(byId.get(v.program_id)!, v, done.get(v.program_id), ctx.now)),
+    (g) => g.in_person && rulesOnly([g.gap, ...g.also]),
   );
 
   const last = await lastFindAt(ctx.installationId);

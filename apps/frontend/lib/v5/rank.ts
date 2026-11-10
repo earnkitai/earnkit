@@ -1,10 +1,12 @@
 /**
  * Ordering of verdicts. Ready: fit first (not a long shot), then the larger award (or pool), then the
- * sooner deadline. Gaps: programs with a real change first, then rule-only ones (R18b); rule-only ones naming one
- * of the project's mainnet chains first, then chain-agnostic ones, then the rest (R18e); within each, fewest gaps (real
- * changes only for a program with one: a rule is not a change, v6.1.8), then
- * lowest effort, then the larger award; rule-only ones on the project's chains that state no award put one naming the
- * project's first reported chain first (v6.1.7), then keep catalog (input) order. Pure.
+ * sooner deadline. Gaps (L1c-3, v6.1.10): programs on the project's own chains first (the reported chain before the
+ * read one), rule-free before rule-bearing; then chain-agnostic ones, rule-free before rule-bearing; then programs on
+ * other chains (their deploys). Within each: real changes before rule-only ones (R18b); rule-only ones naming one of
+ * the project's mainnet chains first, then chain-agnostic, then the rest (R18e); fewest gaps (real changes only for a
+ * program with one: a rule is not a change, v6.1.8), then lowest effort, then the larger award; rule-only ones on the
+ * project's chains that state no award put one naming the project's first reported chain first (v6.1.7), then keep
+ * catalog (input) order. Pure.
  */
 import { rulesOnly, type Effort, type Gap, type Verdict } from './eligibility';
 import type { ProgramRow } from './programs';
@@ -55,55 +57,77 @@ const ownChain = (v: Verdict, m: Programs, chains: readonly string[]) => {
   return i < 0 ? chains.length : i;
 };
 
+/** Whether a gap program carries a rule to confirm, with or without a real change. Pure. */
+const ruleBearing = (v: Verdict) => v.gaps.some((g) => g.kind === 'rule');
+
 /**
  * `mainnets`: the chains the project reported on mainnet (R18e); none puts chain-agnostic rule-only programs first.
  * `first`: the project's first reported chain, the tie-break among rule-only programs on its chains with no award.
- * `chains` (N-4, v6.1.9): the project's own chains, reported then read; a program on one of them ranks before every
- * other, the earlier chain first, so a deploy on another chain comes after every same-chain program.
+ * `chains` (N-4, v6.1.9): the project's own chains, reported then read (with none given, its mainnets stand in); a
+ * program on one of them ranks before every other, the earlier chain first, rule-free before rule-bearing (L1c-3,
+ * v6.1.10); then chain-agnostic programs, rule-free before rule-bearing; a deploy on another chain comes last.
  */
 export function rankGaps(v: Verdict[], programs: Programs, mainnets: ReadonlySet<string> = new Set(), first?: string, chains: readonly string[] = []): Verdict[] {
   const firstTie = (a: Verdict, b: Verdict) =>
     rulesOnly(a.gaps) && rulesOnly(b.gaps) && reach(a, programs, mainnets) === 0 && award(a, programs) === null && award(b, programs) === null
       ? cmp(onFirst(a, programs, first), onFirst(b, programs, first))
       : 0;
+  // L1c-3: [group, own chain's place, rule-bearing]; group 0 own chain, 1 chain-agnostic, 2 another chain.
+  const own = (x: Verdict) => (chains.length > 0 ? ownChain(x, programs, chains) : reach(x, programs, mainnets) === 0 ? 0 : 1);
+  const owned = chains.length > 0 ? chains.length : 1;
+  const key = (x: Verdict): number[] => {
+    const at = own(x);
+    if (at < owned) return [0, at, Number(ruleBearing(x))];
+    const f = programs.get(x.program_id)?.file;
+    return f && (f.any_chain || f.chains.length === 0) ? [1, 0, Number(ruleBearing(x))] : [2, 0, 0];
+  };
+  const byKey = (a: Verdict, b: Verdict) => {
+    const [ka, kb] = [key(a), key(b)];
+    return cmp(ka[0], kb[0]) || cmp(ka[1], kb[1]) || cmp(ka[2], kb[2]);
+  };
   return [...v].sort(
     (a, b) =>
-      cmp(ownChain(a, programs, chains), ownChain(b, programs, chains)) ||
+      byKey(a, b) ||
       cmp(Number(rulesOnly(a.gaps)), Number(rulesOnly(b.gaps))) ||
       (rulesOnly(a.gaps) && rulesOnly(b.gaps) ? cmp(reach(a, programs, mainnets), reach(b, programs, mainnets)) : 0) ||
       cmp(changes(a).length, changes(b).length) || cmp(effortOf(changes(a)), effortOf(changes(b))) || byAward(a, b, programs) || firstTie(a, b),
   );
 }
 
-/** Whether a gap program carries a rule to confirm, with or without a real change. Pure. */
-const ruleBearing = (v: Verdict) => v.gaps.some((g) => g.kind === 'rule');
-
 /**
- * The gap list shown (R18b, v6.1.8 fix rounds 2 and 3, v6.1.9): all of it when `all`. Else, first the programs the
- * builder acted on (`pinned`: a step marked done or a live claim, N-3), in rank order, whatever they carry; then at
- * most one program that carries an unconfirmed rule (a real change plus a rule, or rules only; none when a pinned one
- * carries one), and rule-free programs in rank order (N-4's own-chain-first order) for the other slots. That one
- * program is the first rule-bearing program (in rank order) naming `chains[0]`, else `chains[1]`, and so on (`names`:
- * whether a program names a chain), else the first in rank order. It takes only the last slot (N-2, which beats N-4
- * for a rule-bearing program): after `max - 1` rule-free programs, or alone as a list of one when nothing else is
- * shown; with some rule-free programs but fewer than the slots before it, the list is those and leaves it to
- * `filter.all`. In-person programs never appear in the default list (R18d, R18f); `filter.all` shows them and `more`
- * counts every program left out. Input in rankGaps order. Pure.
+ * The gap list shown (R18b, v6.1.8 fix rounds 2 and 3, v6.1.9, v6.1.10): all of it when `all`. Else, first the
+ * programs the builder acted on (`pinned`: a step marked done or a live claim, N-3), in rank order, whatever they
+ * carry; then every program closing soon (`soon`, O1: within 7 days), ahead of the cap; then at most one program that
+ * carries an unconfirmed rule (none when one already shown carries one) among rule-free programs in rank order for the
+ * other slots. A program whose rule is unlikely to be the project's (`unlikely`, L1c-2: its keywords named nowhere)
+ * is left out unless acted on. The one rule-bearing program is the first (in rank order) naming `chains[0]`, else
+ * `chains[1]`, and so on (`names`: whether a program names a chain), else the first in rank order. On one of the
+ * project's chains it takes its place in rank order (L1c-3). Off them it is shown only after `max - 1` other programs,
+ * or alone as a list of one when nothing else is shown (N-2); with some others but fewer than that, the list is those
+ * and leaves it to `filter.all`. In-person programs never appear here (R18d, R18f; a rule-only one is in the In person
+ * block, find.ts); `filter.all` shows them and `more` counts every program left out. Input in rankGaps order. Pure.
  */
 export function shownGapsOf(
   gapV: Verdict[], all: boolean, max: number, inPerson: (v: Verdict) => boolean,
   chains: readonly string[] = [], names: (v: Verdict, chain: string) => boolean = () => false,
   pinned: (v: Verdict) => boolean = () => false,
+  o: { unlikely?: (v: Verdict) => boolean; soon?: (v: Verdict) => boolean } = {},
 ): Verdict[] {
   if (all) return gapV;
+  const unlikely = o.unlikely ?? (() => false);
+  const soon = o.soon ?? (() => false);
   const remote = gapV.filter((v) => !inPerson(v));
   const top = remote.filter(pinned).slice(0, max);
-  const rest = remote.filter((v) => !pinned(v));
-  const room = max - top.length;
-  if (room <= 0) return top;
+  const likely = remote.filter((v) => !pinned(v) && !unlikely(v));
+  const head = [...top, ...likely.filter(soon)];
+  const rest = likely.filter((v) => !soon(v));
+  const room = max - head.length;
+  if (room <= 0) return head;
   const free = rest.filter((v) => !ruleBearing(v));
-  const bearing = top.some(ruleBearing) ? [] : rest.filter(ruleBearing);
+  const bearing = head.some(ruleBearing) ? [] : rest.filter(ruleBearing);
   const rule = chains.map((c) => bearing.find((v) => names(v, c))).find((v) => v !== undefined) ?? bearing[0];
-  const last = rule && (free.length >= room - 1 || (free.length === 0 && top.length === 0));
-  return [...top, ...(last ? [...free.slice(0, room - 1), rule] : free.slice(0, room))];
+  const own = rule !== undefined && chains.some((c) => names(rule, c));
+  if (!rule || !(own || free.length >= room - 1 || (free.length === 0 && head.length === 0))) return [...head, ...free.slice(0, room)];
+  const pick = new Set(own ? rest.filter((v) => v === rule || !ruleBearing(v)).slice(0, room) : [...free.slice(0, room - 1), rule]);
+  return [...head, ...rest.filter((v) => pick.has(v))];
 }

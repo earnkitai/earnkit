@@ -23,7 +23,7 @@
     { "kind": "new_work_after", "value": "2026-10-30T09:00:00-07:00" },
     { "kind": "demo_video" },
     { "kind": "feature", "value": "/.kiro directory at the repo root" },
-    { "kind": "rule", "note": "built with Kiro" }
+    { "kind": "rule", "note": "built with Kiro", "keywords": ["kiro"] }
   ],
   "setup": [
     "a Devpost account joined to Kiroween 2026",

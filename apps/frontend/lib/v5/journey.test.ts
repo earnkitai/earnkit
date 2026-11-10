@@ -27,6 +27,8 @@ const CLOSINGS = [
   /Say yes and I draft all \d+ for you to send\. Or say the numbers to skip\.$/,
   /Say yes and I draft it for you to send\.$/,
   /Nothing is ready yet\.( Say "yes \d+" if that rule fits you\.)?$/,
+  // O2 (v6.1.10): in-person programs listed and nothing remote ready.
+  /Nothing remote is ready yet\. Say yes and I start the in-person applications\.$/,
   /Nothing fits yet\. I'll say when something opens\.$/,
   /Applying tonight to [^\n]+\. Say stop to hold any\.$/,
 ];
@@ -181,12 +183,14 @@ test('every line the builder saw follows the copy rules and ends with one closin
     assert.doesNotMatch(show, /—/, show);
     assert.doesNotMatch(show, /\b(coin|points|score|rank|streak|token)s?\b/i, show);
     assert.doesNotMatch(show, /\b(find|track|show_to_builder|agent_note|program_id|amount_usd|gap_done)\b|\.json\b/, show);
-    const isReply = /Ready to apply|One step away|Nothing fits yet/.test(show);
+    const isReply = /Ready to apply|One step away|In person \(|Nothing fits yet/.test(show);
+    // O2 (v6.1.10, Review Focus 5): a reply that lists in-person programs never ends on "Nothing is ready yet".
+    if (/^In person \(/m.test(show)) assert.doesNotMatch(show.split('\n').at(-1)!, /^Nothing is ready yet/, show);
     if (!isReply) continue;
     // The first find after a link adds the linked notice to the closing line (security M2).
     const last = show.split('\n').at(-1)!.replace(/ This agent is now linked to GitHub account \S+\. Unlink any time at earnkit\.com\/me\.$/, '');
     assert.equal(CLOSINGS.filter((c) => c.test(last)).length, 1, show);
-    assert.equal(show.split('\n').filter((l) => /^(Say yes|Say "do|Say "yes|Nothing fits yet|Nothing is ready yet|Applying tonight)/.test(l)).length, 1, show);
+    assert.equal(show.split('\n').filter((l) => /^(Say yes|Say "do|Say "yes|Nothing fits yet|Nothing is ready yet|Nothing remote is ready yet|Applying tonight)/.test(l)).length, 1, show);
     // Each "yes n" and "do n" is said once (v6.1.8, 1a).
     for (const ask of show.match(/"(yes|do) \d+"/g) ?? []) assert.equal(show.split(ask).length, 2, show);
   }

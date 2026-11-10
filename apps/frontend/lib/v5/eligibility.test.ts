@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
-import { codeChecked, evaluate, exists, lookedAgain, type Gap } from './eligibility';
+import { codeChecked, evaluate, exists, lookedAgain, ruleItem, unlikely, type Gap } from './eligibility';
 import { repoFacts, type RepoFacts } from './repo-facts';
 import { parseProject } from './project-input';
 import { ProgramFile } from './program-file';
@@ -320,4 +320,33 @@ test('N-5 (v6.1.9): code-checked items are re-read, each said as the thing the r
   assert.deepEqual(lookedAgain(gaps, new Set(['chain:base', 'contract_on:base', 'builder_codes', 'live_product', 'demo_video'])),
     ['the contract on Base', 'a contract on Base', 'Base Builder Codes in the app', 'a live link']);
   assert.deepEqual(lookedAgain(gaps, new Set()), []);
+});
+
+test('L1c-2 (v6.1.10): a rule with keywords is unlikely unless the project names one, as a whole word or phrase, in its name, description, README or topics', async () => {
+  const vr = fromFile('meta-vr-start-competition-2026');
+  const facts = (over: Partial<RepoFacts>): RepoFacts => ({ ...(await0), ...over });
+  const await0 = await repoFacts({ name: 'x', description: '' }, { now: NOW });
+  const gapsOf = (f: RepoFacts, done = new Set<string>()) => evaluate(vr, f, done, NOW).gaps;
+  const idea = facts({ name: 'Rent Split', description: 'An idea: an app that splits rent and bills between roommates' });
+  assert.equal(unlikely(vr, idea, gapsOf(idea)), true);
+  for (const f of [
+    facts({ name: 'Rent Split', description: 'A hands-first game for Meta Quest 3' }),
+    facts({ name: 'QUEST runner', description: 'x' }),
+    facts({ name: 'x', description: 'y', readme_excerpt: 'Built for Oculus headsets.' }),
+    facts({ name: 'x', description: 'y', topics: ['vr', 'unity'] }),
+  ]) assert.equal(unlikely(vr, f, gapsOf(f)), false, f.description + (f.readme_excerpt ?? ''));
+  // Whole words only: "Conquest" and "vram" name no keyword.
+  const near = facts({ name: 'Conquest', description: 'A vram profiler' });
+  assert.equal(unlikely(vr, near, gapsOf(near)), true);
+  // The rule confirmed (a yes): no rule left to judge, so not unlikely.
+  const rule = gapsOf(idea).find((g) => g.kind === 'rule')!.item;
+  assert.equal(unlikely(vr, idea, gapsOf(idea, new Set([rule]))), false);
+  // A program whose rules carry no keywords (a person rule) is never unlikely.
+  const thiel = fromFile('thiel-fellowship');
+  assert.equal(unlikely(thiel, idea, evaluate(thiel, idea, new Set(), NOW).gaps), false);
+  // A phrase matches as a phrase: "mini app" for Farcaster.
+  const fc = fromFile('farcaster-developer-rewards');
+  const fcRule: Gap[] = [{ kind: 'rule', item: ruleItem('a Farcaster Mini App'), what: 'a Farcaster Mini App', effort: 'hours', agent_can: false }];
+  assert.equal(unlikely(fc, facts({ name: 'Tipper', description: 'A Mini App for tipping' }), fcRule), false);
+  assert.equal(unlikely(fc, facts({ name: 'Tipper', description: 'A mini tipping app' }), fcRule), true);
 });

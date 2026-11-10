@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { agentNote, gapAction, gapLine, notFitLine, numbered, replyText, stepRuleOf } from './reply';
+import { agentNote, attendRuleGap, gapAction, gapLine, notFitLine, numbered, replyText, stepRuleOf } from './reply';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
 import type { Ledger } from './ledger';
 
@@ -52,7 +52,7 @@ const base = (over: Partial<R> = {}): R => {
     linked: false, record_missing: [], blockers: [], evidence_summary: null, applied_overnight: [], released: [], auto_apply: false, linked_notice: null,
     ...over,
   };
-  return { ...r, ...numbered(r.ready, r.gaps) };
+  return { ...r, ...numbered(r.ready, r.gaps, attendRuleGap) };
 };
 
 const MONDAY = base({
@@ -451,7 +451,7 @@ test('the closing line is one action (v6.1.8, 1a): yes to the ready ones, else "
   assert.ok(agentNote(base({ gaps: [rulesOnly] }), { more: 0 }).includes(RULE_NOTE));
 });
 
-test('R18d: an in-person gap line says what attending takes, after its rules (rule-only and with a real gap)', () => {
+test('R18d, O2 (v6.1.10, Review Focus 5): an in-person gap line says what attending takes, after its rules; a rule-only one is in the In person block with its yes', () => {
   const attend = { in_person: true, setup: ['work 3 months from the office'] };
   const r = base({
     gaps: [
@@ -459,9 +459,53 @@ test('R18d: an in-person gap line says what attending takes, after its rules (ru
       gap({ title: 'Camp', money: '$10K', gap: VIDEO, also: [ruleGap('a team of two')], rules: ['a team of two'], ...attend }),
     ],
   });
-  const lines = replyText(r, true).split('\n');
-  assert.ok(lines.includes('1. Residency, $500K. Their rule: a co-founder with US work authorization. First: work 3 months from the office.'), lines.join('\n'));
-  assert.ok(lines.includes('2. Camp, $10K: a demo video. Their rule: a team of two. First: work 3 months from the office.'), lines.join('\n'));
+  assert.equal(
+    replyText(r, true),
+    [
+      'One step away (1):',
+      '1. Camp, $10K: a demo video. Their rule: a team of two. First: work 3 months from the office.',
+      '',
+      'In person (1):',
+      '2. Residency, $500K. Their rule: a co-founder with US work authorization. First: work 3 months from the office. Say "yes 2" if that is you.',
+      '',
+      'Nothing remote is ready yet. Say yes and I start the in-person applications.',
+    ].join('\n'),
+  );
+});
+
+test('O2 (v6.1.10, Review Focus 5): a reply that lists in-person programs never ends on "Nothing is ready yet"; rule-only ones follow the ready ones in the block', () => {
+  const yc = ready({ title: 'Y Combinator', money: '$500K investment', in_person: true, setup: ['a YC account'], needs: ['a YC account'] });
+  const antler = gap({ title: 'Antler', money: '$250K', in_person: true, gap: ruleGap('a co-founder with US work authorization'), rules: ['a co-founder with US work authorization'] });
+  const floss = gap({ title: 'FLOSS/fund', money: '$10,000 to $100,000', gap: { kind: 'users', item: 'users', what: 'tell me if real people use it', effort: 'hours', agent_can: false } });
+  const otf = gap({ title: 'OTF', money: '$900K', gap: ruleGap('advances internet freedom') });
+  const r = base({ ready: [yc], gaps: [floss, otf, antler] });
+  assert.equal(
+    replyText(r, true),
+    [
+      'One step away (2):',
+      '1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.',
+      '2. OTF, $900K. Their rule: advances internet freedom. Say "yes 2" if that is you.',
+      '',
+      'In person (2):',
+      '3. Y Combinator, $500K investment. Needs a YC account.',
+      '4. Antler, $250K. Their rule: a co-founder with US work authorization. Attend in person. Say "yes 4" if that is you.',
+      '',
+      'Nothing remote is ready yet. Say yes and I start the in-person applications.',
+    ].join('\n'),
+  );
+  // In person alone: the same closing; nothing listed in person, the closings as before.
+  assert.equal(replyText(base({ ready: [yc] }), true).split('\n').at(-1), 'Nothing remote is ready yet. Say yes and I start the in-person applications.');
+  assert.equal(replyText(base({ gaps: [floss] }), true).split('\n').at(-1), 'Nothing is ready yet. Do real people use it? Say yes and I apply.');
+  // Something remote ready: its yes, never the in-person closing.
+  assert.equal(replyText(base({ ready: [ready({ title: 'Grant' }), yc], gaps: [antler] }), true).split('\n').at(-1), 'Say yes and I apply.');
+  assert.match(agentNote(r, { more: 0 }), /closes on starting the in-person applications/);
+});
+
+test('O1 (v6.1.10): a step closing within 7 days says so after its money', () => {
+  const paypal = gap({ title: 'PayPal AI Hackathon', money: '$67,500 in prizes', closes_in: 'in 2 days', gap: VIDEO, also: [ruleGap('uses a PayPal API')] });
+  assert.equal(replyText(base({ gaps: [paypal] }), true).split('\n')[1], '1. PayPal AI Hackathon, $67,500 in prizes, closes in 2 days: a demo video. Their rule: uses a PayPal API.');
+  const rule = gap({ title: 'Kiroween', money: '$100K', closes_in: 'in 5 days', gap: ruleGap('built with Kiro') });
+  assert.equal(replyText(base({ gaps: [paypal, rule] }), true).split('\n')[2], '2. Kiroween, $100K, closes in 5 days. Their rule: built with Kiro.');
 });
 
 test('R20/R21: an in-person line says its odds, then what attending takes, then what it needs from you (v6.1.6)', () => {
@@ -490,12 +534,12 @@ test('R21: an in-person gap with no setup reads "Attend in person." after its ru
   const g = gap({ title: 'Residency', money: '$1M', in_person: true, gap: ruleGap('a US co-founder'), rules: ['a US co-founder'] });
   assert.equal(
     replyText(base({ gaps: [g] }), true).split('\n')[1],
-    '1. Residency, $1M. Their rule: a US co-founder. Attend in person.',
+    '1. Residency, $1M. Their rule: a US co-founder. Attend in person. Say "yes 1" if that is you.',
   );
   const withSetup = { ...g, setup: ['the right to work in the US'] };
   assert.equal(
     replyText(base({ gaps: [withSetup] }), true).split('\n')[1],
-    '1. Residency, $1M. Their rule: a US co-founder. Needs the right to work in the US.',
+    '1. Residency, $1M. Their rule: a US co-founder. Needs the right to work in the US. Say "yes 1" if that is you.',
   );
 });
 

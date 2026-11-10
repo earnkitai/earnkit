@@ -19,7 +19,7 @@
   "any_chain": true,
   "category": "grant",
   "eligibility": [
-    { "kind": "rule", "note": "a project built with or for the goose agent, released with an open-source-first mindset" },
+    { "kind": "rule", "note": "a project built with or for the goose agent, released with an open-source-first mindset", "keywords": ["goose"] },
     { "kind": "rule", "note": "work not already funded by an employer or client" }
   ],
   "setup": [],
