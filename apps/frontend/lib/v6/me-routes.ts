@@ -4,9 +4,9 @@
  * the session every refusal comes back to /me with a signed line (v6.1.7 C5), and a form with any bad value saves
  * nothing (B1). Edits merge as the builder through the record's row lock; approvals only here. No path is shown to the builder.
  */
-import { isKnownChain } from '../v5/chains';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { isKnownChain } from '../v5/chains';
 import { readCapped } from '../v5/http';
 import { publicOrigin } from '../v5/oauth';
 import { cleanClientName } from '../v5/installations';
@@ -96,6 +96,12 @@ function valueOf(f: MeField, raw: string): { ok: true; value: unknown } | { ok: 
   return { ok: true, value: v };
 }
 
+/** Two member names, ignoring case and spacing. Pure. */
+const sameName = (a: unknown, b: unknown): boolean => {
+  const key = (x: unknown) => String(x ?? '').toLowerCase().replace(/\s+/g, '');
+  return key(a) === key(b);
+};
+
 /**
  * The one-leaf patch mergeRecord takes for a field path, from the record as it is under the lock. A team member's
  * field replaces the list (it is kept whole): an empty name removes that member, a name past the end adds one, an
@@ -109,8 +115,9 @@ function patchOf(path: string, value: unknown, current: BuilderRecord): unknown 
     if (rest[1] === 'name' && value === null) team.splice(at, 1);
     else if (at < team.length) {
       const m = team[at] as Record<string, unknown>;
-      // A new name is a new person: the old one's github, x and email do not carry over (v6.1.9 N7).
-      if (rest[1] === 'name' && value !== m.name) for (const k of ['github', 'x', 'email']) delete m[k];
+      // A new name is a new person: the old one's github, x and email do not carry over (v6.1.9 N7). A fix of case or
+      // spacing is the same person (final review M10).
+      if (rest[1] === 'name' && !sameName(value, m.name)) for (const k of ['github', 'x', 'email']) delete m[k];
       if (value === null) delete m[rest[1]];
       else m[rest[1]] = value;
     } else if (rest[1] === 'name' && at === team.length) team.push({ name: value as string });

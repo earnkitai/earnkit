@@ -256,7 +256,7 @@ test('Review Focus 5 (v6.1.9 N3): a relink never turns a win into a rejection; w
   const b = await builder('relink3');
   const one = await install();
   const two = await install();
-  for (const id of ['bl-w-b', 'bl-w-i', 'bl-r-nr']) await prog(id);
+  for (const id of ['bl-w-b', 'bl-w-i', 'bl-r-nr', 'bl-w-nr']) await prog(id);
   await linkInstallation(one, b.id, NOW);
   const bo = ownerKey(one, b.id);
   const io = ownerKey(two, null);
@@ -277,14 +277,20 @@ test('Review Focus 5 (v6.1.9 N3): a relink never turns a win into a rejection; w
   await record(bo, 'bl-r-nr', 'rejected', { installationId: one, now: NOW });
   await record(io, 'bl-r-nr', 'applied', { now: later });
   await record(io, 'bl-r-nr', 'no_result', { now: latest });
+  // A win beats a newer no result (Task 2 review Minor).
+  await record(bo, 'bl-w-nr', 'applied', { installationId: one, now: NOW });
+  await record(bo, 'bl-w-nr', 'won', { installationId: one, amount_usd: 333, now: NOW });
+  await record(io, 'bl-w-nr', 'applied', { now: later });
+  await record(io, 'bl-w-nr', 'no_result', { now: latest });
   await linkInstallation(two, b.id, new Date(latest.getTime() + DAY));
   assert.deepEqual(await rows(`b:${b.id}`), [
     { program_id: 'bl-r-nr', status: 'rejected' },
     { program_id: 'bl-w-b', status: 'won' },
     { program_id: 'bl-w-i', status: 'won' },
+    { program_id: 'bl-w-nr', status: 'won' },
   ]);
   const amounts = await sql()`SELECT program_id, amount_usd FROM applications WHERE owner = ${`b:${b.id}`} AND status = 'won' ORDER BY program_id`;
-  assert.deepEqual(amounts.map((r) => Number(r.amount_usd)), [111, 222]);
+  assert.deepEqual(amounts.map((r) => Number(r.amount_usd)), [111, 222, 333]);
 });
 
 test('C51: deleteBuilder marks each linked installation, so its next call says the record was deleted, once', async () => {

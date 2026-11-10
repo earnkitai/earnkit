@@ -228,6 +228,11 @@ ALTER TABLE applications ADD COLUMN IF NOT EXISTS auto_applied boolean NOT NULL 
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS title text;
 -- When the application was sent: set on applied, never rewritten by a result; the nightly limit counts it (v6.1.9).
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS sent_at timestamptz;
+-- Auto rows from before v6.1.9: the send's own time, from the history's last applied row, else `at` while still applied.
+UPDATE applications a SET sent_at = COALESCE(
+  (SELECT max(h.at) FROM application_history h WHERE h.owner = a.owner AND h.program_id = a.program_id AND h.status = 'applied'),
+  CASE WHEN a.status = 'applied' THEN a.at END)
+WHERE a.sent_at IS NULL AND a.auto_applied;
 
 -- The owner's daily digest: the day it covered and when it was sent; the next digest starts there.
 CREATE TABLE IF NOT EXISTS owner_digests (

@@ -202,6 +202,10 @@ test('v6.1.9 N6 and N10: an old empty category list with standing approval on sh
   const d = await meData(b, NOW, 'sess');
   const cats = d.blocks.find((x) => x.key === 'policy')!.fields.find((f) => f.path === 'policy.categories')!;
   assert.equal(cats.value.split(', ').length, cats.options!.length, 'all ticked');
+  // Standing approval off: the empty list stays as stored, nothing ticked (Task 3 review Minor).
+  await saveRecord(b.id, { ...rec, policy: { ...rec.policy, auto_apply: false, categories: [] } }, NOW);
+  const off = (await meData(b, NOW, 'sess')).blocks.find((x) => x.key === 'policy')!.fields.find((f) => f.path === 'policy.categories')!;
+  assert.equal(off.value, '', 'none ticked');
   const html = renderToStaticMarkup(React.createElement(MeView, { data: d, problem: null }));
   assert.equal(html.split('Clear the name to remove them.').length, 2, 'one member, one hint; the add row has none');
 });
