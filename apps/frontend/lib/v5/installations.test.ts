@@ -1,7 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
-import { builderOf, cleanClientName, connectInstallation, lastGaps, markFind, saveInstallation } from './installations';
+import { builderOf, cleanClientName, connectInstallation, lastGaps, lastProjectKey, markFind, rememberProject, saveInstallation } from './installations';
 import { linkInstallation, upsertBuilder } from '../v6/builders';
 
 after(() => sql().end());
@@ -19,6 +19,33 @@ test('connectInstallation returns builderId null before linking and the builder 
   assert.equal(await builderOf(id), b.id);
   assert.equal(await connectInstallation('no-such-token'), null);
   assert.equal(await builderOf(2 ** 30), null);
+});
+
+test('markFind keeps the project of a find with one; a find without leaves it (v6.1.10, L1c-1)', async () => {
+  const id = await saveInstallation('pk-' + Math.random());
+  assert.equal(await lastProjectKey(id), '');
+  await markFind(id, NOW, {}, 'https://github.com/acme/a');
+  assert.equal(await lastProjectKey(id), 'https://github.com/acme/a');
+  await markFind(id, new Date(NOW.getTime() + 60_000));
+  assert.equal(await lastProjectKey(id), 'https://github.com/acme/a');
+  await markFind(id, new Date(NOW.getTime() + 120_000), undefined, 'name:b app');
+  assert.equal(await lastProjectKey(id), 'name:b app');
+});
+
+test('final round (v6.1.10): the last gaps and their project are written together; another project drops the gaps', async () => {
+  const id = await saveInstallation('pg-' + Math.random());
+  const g = { what: 'add Base Builder Codes', kind: 'builder_codes', item: 'builder_codes' };
+  await markFind(id, NOW, { 'p-1': g }, 'https://github.com/acme/a');
+  assert.deepEqual([await lastProjectKey(id), await lastGaps(id)], ['https://github.com/acme/a', { 'p-1': g }]);
+  // The same project again (a one-program find of it): its gaps stay.
+  await rememberProject(id, 'https://github.com/acme/a');
+  assert.deepEqual(await lastGaps(id), { 'p-1': g });
+  // A one-program or category find of another project: the gaps were A's, so they go with the key change.
+  await rememberProject(id, 'name:b app');
+  assert.deepEqual([await lastProjectKey(id), await lastGaps(id)], ['name:b app', {}]);
+  await markFind(id, NOW, { 'p-1': g }, 'https://github.com/acme/a');
+  await markFind(id, new Date(NOW.getTime() + 60_000), undefined, 'name:b app');
+  assert.deepEqual([await lastProjectKey(id), await lastGaps(id)], ['name:b app', {}]);
 });
 
 test("markFind keeps the last find's gaps; lastGaps reads them, {} before any find", async () => {

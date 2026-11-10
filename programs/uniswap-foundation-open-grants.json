@@ -24,7 +24,7 @@
   "any_chain": true,
   "min_tier": "building",
   "eligibility": [
-    { "kind": "rule", "note": "work that contributes to the Uniswap ecosystem and benefits people beyond your own product" }
+    { "kind": "rule", "note": "work that contributes to the Uniswap ecosystem and benefits people beyond your own product", "keywords": ["uniswap", "v4 hook", "uniswap hook"] }
   ],
   "setup": [],
   "each_time": [

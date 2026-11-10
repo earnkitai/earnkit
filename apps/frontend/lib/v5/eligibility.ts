@@ -87,6 +87,8 @@ export function lookedAgain(gaps: Gap[], done: Set<string>): string[] {
 }
 
 const date = (s: string) => s.slice(0, 10);
+/** O3 (v6.1.10): a new-work program with no first-commit date: a question only the builder answers, in minutes. */
+const startedQuestion = (i: EligibilityItem): Gap => ({ kind: 'new_work_after', item: itemKey(i), what: 'tell me when you started this', effort: 'minutes', agent_can: false });
 /** Users not reported: a question only the builder answers, not weeks of work. */
 const USERS_UNKNOWN: Gap = { kind: 'users', item: 'users', what: 'tell me if real people use it', effort: 'hours', agent_can: false };
 
@@ -153,8 +155,11 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
         else if (facts.users !== true && !done.has(itemKey(i))) gaps.push(USERS_UNKNOWN);
         break;
       case 'new_work_after': {
+        // O3 (v6.1.10): no first-commit date is a question, not a refusal; the builder's word (gap_done) settles it.
         const first = facts.first_commit_at ? Date.parse(facts.first_commit_at) : NaN;
-        if (!(first >= Date.parse(v))) return out('no', [], `needs work started after ${date(v)}`);
+        if (Number.isNaN(first)) {
+          if (!done.has(itemKey(i))) gaps.push(startedQuestion(i));
+        } else if (!(first >= Date.parse(v))) return out('no', [], `needs work started after ${date(v)}`);
         break;
       }
       case 'in_person': inPerson = true; break;
@@ -169,8 +174,33 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
   // Real gaps first, then the rules to confirm; only the real ones count toward the limits.
   const real = gaps.filter((g) => g.kind !== 'rule');
   const ordered = [...real, ...gaps.filter((g) => g.kind === 'rule')];
-  if (real.length > MAX_GAPS || real.some((g) => g.effort === 'weeks')) {
-    return out('no', ordered, `needs ${real.map((g) => g.what).join(', ')}`);
+  // O3 (v6.1.10): the started question is asked, never a reason to refuse: it counts toward neither limit.
+  const work = real.filter((g) => !(g.kind === 'new_work_after' && g.effort === 'minutes'));
+  if (work.length > MAX_GAPS || work.some((g) => g.effort === 'weeks')) {
+    return out('no', ordered, `needs ${work.map((g) => g.what).join(', ')}`);
   }
   return out('gap', ordered, reason);
+}
+
+/** What the project says about itself, lower-cased: its name, description, README excerpt and topics (L1c-2). Pure. */
+const projectWords = (facts: RepoFacts): string =>
+  [facts.name, facts.description, facts.readme_excerpt ?? '', ...(facts.topics ?? [])].join('\n').toLowerCase();
+/** A hyphen reads as a space on both sides, so `mini app` matches "mini-app" (v6.1.10 final). Pure. */
+const unhyphen = (s: string): string => s.replace(/-/g, ' ');
+/** Whether `text` holds `phrase` as a whole word or phrase (letters and digits on neither side), any case. Pure. */
+export const names = (text: string, phrase: string): boolean =>
+  new RegExp(`(?<![\\p{L}\\p{N}])${unhyphen(phrase.toLowerCase()).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'u').test(unhyphen(text.toLowerCase()));
+
+/**
+ * L1c-2 (v6.1.10): whether the program's rule is unlikely to be the project's. True when a rule still to confirm (in
+ * `gaps`) carries keywords and the project names none of the program's keywords in its name, description, README
+ * excerpt or topics; such a program shows only in the full list. A program whose rules carry no keywords (a person or
+ * licence rule), or whose keyword rules are all confirmed, is never unlikely. Pure.
+ */
+export function unlikely(program: ProgramRow, facts: RepoFacts, gaps: Gap[]): boolean {
+  const pending = new Set(gaps.filter((g) => g.kind === 'rule').map((g) => g.item));
+  const items = eligibilityOf(program.file).filter((i) => i.kind === 'rule');
+  if (!items.some((i) => (i.keywords?.length ?? 0) > 0 && pending.has(itemKey(i)))) return false;
+  const text = projectWords(facts);
+  return !items.flatMap((i) => i.keywords ?? []).some((k) => names(text, k));
 }

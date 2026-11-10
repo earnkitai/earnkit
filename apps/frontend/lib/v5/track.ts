@@ -6,8 +6,11 @@ import { z } from 'zod';
 import { getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason } from '../v6/builders';
 import { DELETED_NOTICE } from '../v6/reply-words';
 import { claim } from '../v6/claims';
-import { NIGHT_LIMIT, REQUIRED_MISSING, outsideApproval, requiredLeftOut } from '../v6/find-record';
-import { forgetGap, lastGaps, unmarkNightFind } from './installations';
+import { NIGHT_LIMIT, REQUIRED_MISSING, outsideApproval, requiredLeftOut, storedRecordContext } from '../v6/find-record';
+import { prefill, reportedFacts, unvouchedRequired } from './prefill';
+import { cachedRepoFacts } from './repo-facts';
+import { forgetGap, lastGaps, lastProjectKey, unmarkNightFind } from './installations';
+import { projectKeyOf } from './project-input';
 import { getProgram, isOpen, listOpenPrograms } from './programs';
 import { dayOf, doneItems, record, summary, titleOf, type Ledger, type Status } from './ledger';
 import { clock } from './reply';
@@ -15,6 +18,9 @@ import { codeChecked, itemKey } from './eligibility';
 import { eligibilityOf } from './program-file';
 import { sql } from './db';
 import { inputDetail } from './tool-input';
+
+/** A passed project field: any value (read leniently), but text no longer than `n` (final round). Pure. */
+const capped = (n: number) => (v: unknown) => typeof v !== 'string' || v.length <= n;
 
 export const TrackInput = z
   .object({
@@ -26,11 +32,16 @@ export const TrackInput = z
     project_id: z.string().max(40).optional(),
     submitted_by: z.enum(['agent', 'builder']).optional(),
     fields_used: z.array(z.string().max(60)).max(60).optional(),
+    /** The project find was called with (v6.1.10 L1c-1): only its name and repo link are read, the rest is ignored. */
+    project: z.object({ name: z.unknown().refine(capped(120)).optional(), repo_url: z.unknown().refine(capped(500)).optional() }).passthrough().optional()
+      .describe('The project you passed to find (its name and repo_url), so its steps stay with it'),
   })
   .strict();
 
 type Result = { show_to_builder: string; agent_note: string; ledger: Ledger; already_started?: true };
 
+/** A passed project fact as text, or null. Pure. */
+const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v : null);
 const usd = (n: number) => '$' + Math.round(n).toLocaleString('en-US');
 
 /** True when the owner's row for the program is an application already sent (applied or with a result). */
@@ -40,16 +51,31 @@ async function sentHere(owner: string, programId: string): Promise<boolean> {
 }
 
 /** The program's rules the owner has not confirmed yet. */
-async function rulesLeft(owner: string, programId: string): Promise<number> {
+async function rulesLeft(owner: string, programId: string, projectKey: string): Promise<number> {
   const program = await getProgram(programId);
   if (!program) return 0;
-  const done = await doneItems(owner, programId);
+  const done = await doneItems(owner, programId, projectKey);
   return [...new Set(eligibilityOf(program.file).filter((x) => x.kind === 'rule').map(itemKey))].filter((k) => !done.has(k)).length;
 }
 
 export type TrackContext = { installationId: number; builderId: number | null; now: Date };
 
 export const TRACK_UNREAD = 'I could not read that. Send the program, a status, and for a win the amount.';
+
+/**
+ * The project this track is about (projectKeyOf, v6.1.10 L1c-1): the project passed, else the record project named by
+ * project_id, else the installation's last find with a project. `given` is false for the last find's.
+ */
+async function projectOf(ctx: TrackContext, i: { project?: { name?: unknown; repo_url?: unknown }; project_id?: string }): Promise<{ key: string; given: boolean }> {
+  const passed = projectKeyOf(i.project);
+  if (passed) return { key: passed, given: true };
+  if (i.project_id !== undefined && ctx.builderId !== null) {
+    const p = (await getRecord(ctx.builderId)).projects.find((x) => x.id === i.project_id);
+    const key = projectKeyOf(p);
+    if (key) return { key, given: true };
+  }
+  return { key: await lastProjectKey(ctx.installationId), given: false };
+}
 
 /** Whether `projectId` is one of the linked builder's record projects (an unlinked installation has none). */
 async function knownProject(builderId: number | null, projectId: string): Promise<boolean> {
@@ -101,6 +127,33 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   return { ...r, agent_note: `${r.agent_note} project_id ${project_id} is not known; ignored.`.trim() };
 }
 
+/**
+ * The required fields a send under standing approval cannot vouch for: the program prefilled with the stored record and
+ * the send's project (its passed links, else the record project's; else the last find's project key), with the repo's
+ * cached read merged in as find had it.
+ */
+export async function unvouchedAtSend(ctx: TrackContext, i: z.infer<typeof TrackInput>, row: NonNullable<Awaited<ReturnType<typeof getProgram>>>): Promise<string[]> {
+  const passed = (i.project ?? {}) as Record<string, unknown>;
+  const last = passed.name === undefined && passed.repo_url === undefined ? await lastProjectKey(ctx.installationId) : '';
+  const fromKey = last.startsWith('name:') ? { name: last.slice(5) } : last ? { repo_url: last } : {};
+  const repo = str(passed.repo_url) ?? (fromKey as { repo_url?: string }).repo_url ?? null;
+  const name = str(passed.name) ?? (fromKey as { name?: string }).name ?? null;
+  const rec = await storedRecordContext(ctx.builderId!, i.project_id, repo, name);
+  const stored = rec.record.projects.find((p) => p.id === rec.projectId);
+  const reported = {
+    name: name ?? stored?.name ?? null, description: str(passed.description),
+    repo_url: repo ?? stored?.repo_url ?? null, live_url: str(passed.live_url) ?? stored?.live_url ?? null, demo_url: str(passed.demo_url),
+  };
+  // I3 (v6.1.10 final): the facts find used, the project's cached repo read (no fetch) merged with the report, so a
+  // contract find filled from the repo is vouched here too; with no cached read, the report alone.
+  const cached = await cachedRepoFacts({
+    name: reported.name ?? '', description: reported.description ?? '', users: null,
+    ...(reported.repo_url ? { repo_url: reported.repo_url } : {}), ...(reported.live_url ? { live_url: reported.live_url } : {}), ...(reported.demo_url ? { demo_url: reported.demo_url } : {}),
+  });
+  const facts = cached ?? reportedFacts(reported);
+  return unvouchedRequired(prefill(row, facts, rec).fields).map((f) => f.key);
+}
+
 async function act(
   ctx: TrackContext,
   owner: string,
@@ -108,6 +161,9 @@ async function act(
   refuse: (note: string, agentNote?: string) => Promise<Result>,
   i: z.infer<typeof TrackInput>,
 ): Promise<Result> {
+  const project = await projectOf(ctx, i);
+  // The last find's gaps are its project's: another project passed here is not that one.
+  const sameAsLast = !project.given || project.key === (await lastProjectKey(ctx.installationId));
   if (i.status === 'started') {
     const program = await getProgram(i.program_id);
     if (!program) return refuse("I don't know that program.");
@@ -142,8 +198,8 @@ async function act(
     // The last find called this one a gap: say what was still missing, so it is fixed before the form goes in. Not
     // when the builder (through any of their agents) has since closed that item (v6.1.7, C23).
     const builderSubmits = program.file.in_person || program.file.submit === 'builder';
-    const gap = (await lastGaps(ctx.installationId))[program.id];
-    if (gap && !(gap.item && (await doneItems(owner, program.id)).has(gap.item)))
+    const gap = sameAsLast ? (await lastGaps(ctx.installationId))[program.id] : undefined;
+    if (gap && !(gap.item && (await doneItems(owner, program.id, project.key)).has(gap.item)))
       return gap.kind === 'rule'
         ? {
             show_to_builder: `Started. When I last looked it still had a rule to confirm: ${gap.what}. Say yes if that is you.`,
@@ -169,25 +225,29 @@ async function act(
   const standing = policy?.policy.auto_apply === true;
   const row = i.status === 'applied' ? await getProgram(i.program_id) : null;
   // S6 (v6.1.9): within the limits, a send under standing approval also needs every required answer.
-  let outside = standing && row ? (outsideApproval(policy!, row) ?? (requiredLeftOut(row, i.fields_used).length > 0 ? REQUIRED_MISSING : null)) : null;
+  // F1 (v6.1.10, fix round 2): and every required field must be one EarnKit vouches for (`unvouchedRequired`, the rule
+  // find holds the tonight list on), over the program prefilled with the stored record and the send's project, whatever
+  // keys fields_used names.
+  const owed = standing && row ? await unvouchedAtSend(ctx, i, row) : [];
+  let outside = standing && row ? (outsideApproval(policy!, row) ?? (requiredLeftOut(row, i.fields_used).length > 0 || owed.length > 0 ? REQUIRED_MISSING : null)) : null;
   const applied = i.status === 'applied'
     ? { submitted_by: i.submitted_by, fields_used: i.fields_used, project_id: i.project_id, autoApplied: standing && outside === null, ...(standing ? { maxPerNight: policy!.policy.max_per_night } : {}) }
     : {};
   // A second skip says so (v6.1.9, lane 8 simplify).
   if (i.status === 'skipped' && (await sql()`SELECT 1 FROM applications WHERE owner = ${owner} AND program_id = ${i.program_id} AND status = 'skipped'`).length > 0)
     return { show_to_builder: 'Already skipped.', agent_note: 'Call find again for the updated ledger.', ledger: await summary(owner, programs, ctx.now) };
-  const res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, amount_usd: i.amount_usd, note: i.note, item: i.item, now: ctx.now, ...applied });
+  const res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, amount_usd: i.amount_usd, note: i.note, item: i.item, projectKey: project.key, now: ctx.now, ...applied });
   if (res.ok && 'night' in res) outside = NIGHT_LIMIT;
   // The find before a send under standing approval was the night routine's: it leaves the overnight report (v6.1.9).
   if (res.ok && i.status === 'applied' && standing && outside === null) await unmarkNightFind(ctx.installationId);
   if (!res.ok)
     return res.items ? refuse(res.note, `Items for this program: ${res.items.join(', ')}. Call track gap_done with one of them.`) : refuse(res.note);
-  if (i.status === 'gap_done') await forgetGap(ctx.installationId, i.program_id);
+  if (i.status === 'gap_done' && sameAsLast) await forgetGap(ctx.installationId, i.program_id);
   if (i.status === 'gap_done') {
     // A repeat says so (v6.1.7, C26); a rule is confirmed, not re-read from the repo (m3).
     // N2 (v6.1.8): the program comes back ready only when no other rule of it is left to confirm.
     // N-5 (v6.1.9): what the code or the report settles is re-checked on the next find; the builder's word counts done.
-    const left = i.item!.startsWith('rule:') && !('repeated' in res) ? await rulesLeft(owner, i.program_id) : 0;
+    const left = i.item!.startsWith('rule:') && !('repeated' in res) ? await rulesLeft(owner, i.program_id, project.key) : 0;
     const [show, note] = 'repeated' in res
       ? ['Already noted.', 'Call find again for the updated ledger.']
       : i.item!.startsWith('rule:')

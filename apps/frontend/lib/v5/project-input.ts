@@ -138,3 +138,16 @@ export function parseProject(v: unknown, now = new Date()): { ok: true; project:
 
   return { ok: true, project: out as Project, problems };
 }
+
+/**
+ * The project a done step belongs to (v6.1.10, L1c-1): the repo link lower-cased without a trailing slash or `.git`,
+ * else `name:` and the name lower-cased and trimmed; '' when neither (a row from before v6.1.10 reads the same). The
+ * link and name are cleaned as parseProject cleans them (a web link only, controls dropped, spaces collapsed, the name
+ * cut to 80), so a raw project (track) and the parsed one (find) give one key (final round). Pure.
+ */
+export function projectKeyOf(project: { name?: unknown; repo_url?: unknown } | null | undefined): string {
+  const repo = (webUrl(project?.repo_url) ?? '').toLowerCase().replace(/\/+$/, '').replace(/\.git$/, '').replace(/\/+$/, '');
+  if (repo) return repo;
+  const name = text(project?.name).slice(0, MAX.name).trim().toLowerCase();
+  return name ? `name:${name}` : '';
+}

@@ -42,13 +42,15 @@ export type RepoFacts = {
   last_commit_at: string | null;
   readme_excerpt: string | null;
   homepage: string | null;
+  /** The repo's GitHub topics (v6.1.10, L1c-2); none when not read or cached before. */
+  topics?: string[];
   /** Why the repo was not read, when that is worth telling the agent. */
   problems?: string[];
   /** What the builder is told about the read, in this order; none when absent (built by hand). */
   notes?: RepoNote[];
 };
 
-type CodeFacts = Pick<RepoFacts, 'chains' | 'contracts' | 'builder_codes' | 'integrations' | 'first_commit_at' | 'last_commit_at' | 'readme_excerpt' | 'homepage'> & {
+type CodeFacts = Pick<RepoFacts, 'chains' | 'contracts' | 'builder_codes' | 'integrations' | 'first_commit_at' | 'last_commit_at' | 'readme_excerpt' | 'homepage' | 'topics'> & {
   html_url: string;
   pushed_at: string;
   /** From the repo object (v6.1.8); a row cached before has none of these and is re-read (N-6, v6.1.9). */
@@ -211,6 +213,7 @@ function codeFactsOf(r: RepoRead): CodeFacts {
     last_commit_at: r.repo.pushed_at,
     readme_excerpt: readmeExcerpt(r.readme),
     homepage: r.repo.homepage?.trim() || null,
+    topics: (r.repo.topics ?? []).filter((t): t is string => typeof t === 'string').slice(0, 20),
     html_url: r.repo.html_url,
     pushed_at: r.repo.pushed_at,
     fork: r.repo.fork === true,
@@ -284,8 +287,9 @@ async function cachedCodeFacts(key: string, f: Fetch, now: Date, installationId?
     throw err;
   }
   const facts = codeFactsOf(read);
-  // A partial read (a failed tree or file) is returned but never cached.
-  if (!read.partial) {
+  // A partial read (a failed tree or file) is returned but never cached; an empty repo has no tree to read, so its
+  // failed tree read is the whole answer and it is cached like any other (v6.1.10 L1c-4).
+  if (!read.partial || facts.empty) {
     await sql()`
       INSERT INTO repo_cache (repo, facts, fetched_at, pushed_at) VALUES (${key}, ${sql().json(facts)}, ${now}, ${facts.pushed_at})
       ON CONFLICT (repo) DO UPDATE SET facts = EXCLUDED.facts, fetched_at = EXCLUDED.fetched_at, pushed_at = EXCLUDED.pushed_at`;
@@ -312,6 +316,23 @@ export async function repoFacts(project: Project, deps: { gh?: Fetch; now?: Date
       code = null;
     }
   }
+  return mergedFacts(project, code, paused);
+}
+
+/**
+ * The facts find last read for a project, from its repo_cache row alone (never a fetch, never counted as a read), merged
+ * with the report exactly as repoFacts merges them; null when the repo has no complete cached row (v6.1.10 final, I3:
+ * track's send check sees the same contracts and chains find vouched for).
+ */
+export async function cachedRepoFacts(project: Project): Promise<RepoFacts | null> {
+  const key = project.private ? null : repoKey(project.repo_url);
+  if (!key) return null;
+  const [row] = await sql()<{ facts: CodeFacts }[]>`SELECT facts FROM repo_cache WHERE repo = ${key}`;
+  return row && complete(row.facts) ? mergedFacts(project, withIntegrations(row.facts), false) : null;
+}
+
+/** The code read (or none) and the agent's report as one set of facts (repoFacts' merge rules). Pure. */
+function mergedFacts(project: Project, code: CodeFacts | null, paused: boolean): RepoFacts {
   const chains: RepoFacts['chains'] = (code?.chains ?? []).map((c) => ({ ...c }));
   const contracts: RepoFacts['contracts'] = (code?.contracts ?? []).map((c) => ({ ...c, basis: 'code' as const }));
   for (const c of project.chains ?? []) {
@@ -353,6 +374,7 @@ export async function repoFacts(project: Project, deps: { gh?: Fetch; now?: Date
     last_commit_at: code?.last_commit_at ?? project.last_commit_at ?? null,
     readme_excerpt: code?.readme_excerpt ?? null,
     homepage: code?.homepage ?? null,
+    ...(code?.topics && code.topics.length > 0 ? { topics: code.topics } : {}),
     ...(paused ? { problems: [READS_PAUSED] } : {}),
     notes,
   };

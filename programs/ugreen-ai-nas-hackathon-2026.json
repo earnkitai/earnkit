@@ -22,7 +22,7 @@
   "min_tier": "building",
   "eligibility": [
     { "kind": "new_work_after", "value": "2026-10-22T09:00:00-07:00" },
-    { "kind": "rule", "note": "an AI Skill for UGREEN AI NAS (UGOS) built with the UGREEN Skill Developer Package" }
+    { "kind": "rule", "note": "an AI Skill for UGREEN AI NAS (UGOS) built with the UGREEN Skill Developer Package", "keywords": ["ugreen", "nas"] }
   ],
   "setup": [
     "a Devpost account joined to the hackathon",

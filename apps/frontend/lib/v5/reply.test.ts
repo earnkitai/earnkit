@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { agentNote, gapAction, gapLine, notFitLine, numbered, replyText, stepRuleOf } from './reply';
+import { agentNote, attendRuleGap, gapAction, gapLine, notFitLine, numbered, replyText, stepRuleOf } from './reply';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
 import type { Ledger } from './ledger';
 
@@ -52,7 +52,7 @@ const base = (over: Partial<R> = {}): R => {
     linked: false, record_missing: [], blockers: [], evidence_summary: null, applied_overnight: [], released: [], auto_apply: false, linked_notice: null,
     ...over,
   };
-  return { ...r, ...numbered(r.ready, r.gaps) };
+  return { ...r, ...numbered(r.ready, r.gaps, attendRuleGap) };
 };
 
 const MONDAY = base({
@@ -261,7 +261,10 @@ test('linked: the ready line names what the record and the repo give and who els
   const none = base({ linked: true, ready: [ready({ title: 'A', from_record: 2, facts_from_repo: 1, repo_required: 1, total: 3 })] });
   assert.equal(replyText(none, false).split('\n')[1], '1. A, $1K. 2 from your record, 1 from the repo.');
   const four = base({ linked: true, ready: [ready({ title: 'B', from_record: 1, total: 6, need_you: ['your phone', 'your birthday', 'where you are based', 'your Telegram username'] })] });
-  assert.equal(replyText(four, false).split('\n')[1], '1. B, $1K. 1 from your record, 0 from the repo, 4 need you: your phone, your birthday, where you are based and 1 more.');
+  assert.equal(replyText(four, false).split('\n')[1], '1. B, $1K. 1 from your record, 0 from the repo, 1 by your agent, 4 need you: your phone, your birthday, where you are based and 1 more.');
+  // F2 (v6.1.10): the name and tagline the agent passed are its drafts, never "need you".
+  const told = base({ linked: true, ready: [ready({ title: 'N', from_record: 1, total: 4, need_you: ['the problem'], needs: ['the problem'] })] });
+  assert.equal(replyText(told, false).split('\n')[1], '1. N, $1K. 1 from your record, 0 from the repo, 2 by your agent, 1 needs you: the problem.');
   const zero = base({ linked: true, ready: [ready({ title: 'C', total: 4 })] });
   assert.equal(replyText(zero, false).split('\n')[1], '1. C, $1K. Your agent drafts all 4 answers.');
   // Unlinked: the repo's count only, whatever the record counts say.
@@ -451,7 +454,7 @@ test('the closing line is one action (v6.1.8, 1a): yes to the ready ones, else "
   assert.ok(agentNote(base({ gaps: [rulesOnly] }), { more: 0 }).includes(RULE_NOTE));
 });
 
-test('R18d: an in-person gap line says what attending takes, after its rules (rule-only and with a real gap)', () => {
+test('R18d, O2 (v6.1.10, Review Focus 5): an in-person gap line says what attending takes, after its rules; a rule-only one is in the In person block with its yes', () => {
   const attend = { in_person: true, setup: ['work 3 months from the office'] };
   const r = base({
     gaps: [
@@ -459,9 +462,62 @@ test('R18d: an in-person gap line says what attending takes, after its rules (ru
       gap({ title: 'Camp', money: '$10K', gap: VIDEO, also: [ruleGap('a team of two')], rules: ['a team of two'], ...attend }),
     ],
   });
-  const lines = replyText(r, true).split('\n');
-  assert.ok(lines.includes('1. Residency, $500K. Their rule: a co-founder with US work authorization. First: work 3 months from the office.'), lines.join('\n'));
-  assert.ok(lines.includes('2. Camp, $10K: a demo video. Their rule: a team of two. First: work 3 months from the office.'), lines.join('\n'));
+  assert.equal(
+    replyText(r, true),
+    [
+      'One step away (1):',
+      '1. Camp, $10K: a demo video. Their rule: a team of two. First: work 3 months from the office.',
+      '',
+      'In person (1):',
+      '2. Residency, $500K. Their rule: a co-founder with US work authorization. First: work 3 months from the office. Say "yes 2" if that is you.',
+      '',
+      'Nothing remote is ready yet. Say yes and I start the in-person applications.',
+    ].join('\n'),
+  );
+});
+
+test('O2 (v6.1.10, Review Focus 5): a reply that lists in-person programs never ends on "Nothing is ready yet"; rule-only ones follow the ready ones in the block', () => {
+  const yc = ready({ title: 'Y Combinator', money: '$500K investment', in_person: true, setup: ['a YC account'], needs: ['a YC account'] });
+  const antler = gap({ title: 'Antler', money: '$250K', in_person: true, gap: ruleGap('a co-founder with US work authorization'), rules: ['a co-founder with US work authorization'] });
+  const floss = gap({ title: 'FLOSS/fund', money: '$10,000 to $100,000', gap: { kind: 'users', item: 'users', what: 'tell me if real people use it', effort: 'hours', agent_can: false } });
+  const otf = gap({ title: 'OTF', money: '$900K', gap: ruleGap('advances internet freedom') });
+  const r = base({ ready: [yc], gaps: [floss, otf, antler] });
+  assert.equal(
+    replyText(r, true),
+    [
+      'One step away (2):',
+      '1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.',
+      '2. OTF, $900K. Their rule: advances internet freedom.',
+      '',
+      'In person (2):',
+      '3. Y Combinator, $500K investment. Needs a YC account.',
+      '4. Antler, $250K. Their rule: a co-founder with US work authorization. Attend in person. Say "yes 4" if that is you.',
+      '',
+      // Fix round 1: remote steps shown, so the closing uses the first remote one (here its rule-only yes).
+      'Nothing is ready yet. Say "yes 2" if that rule fits you.',
+    ].join('\n'),
+  );
+  // In person alone, or rule-only in person alone: the in-person closing.
+  assert.equal(replyText(base({ ready: [yc] }), true).split('\n').at(-1), 'Nothing remote is ready yet. Say yes and I start the in-person applications.');
+  assert.equal(replyText(base({ gaps: [antler] }), true).split('\n').at(-1), 'Nothing remote is ready yet. Say yes and I start the in-person applications.');
+  // A remote step shown: its step closes the reply, in-person programs listed or not.
+  assert.equal(replyText(base({ gaps: [floss] }), true).split('\n').at(-1), 'Nothing is ready yet. Do real people use it? Say yes and I apply.');
+  assert.equal(replyText(base({ ready: [yc], gaps: [floss] }), true).split('\n').at(-1), 'Nothing is ready yet. Do real people use it? Say yes and I apply.');
+  assert.equal(replyText(base({ ready: [yc], gaps: [gap({ title: 'Circle' })] }), true).split('\n').at(-1), 'Nothing is ready yet. First: deploy the contract on Arc. Tell me when it is done and I look again.');
+  // A remote step that names its own action ("do n") and in-person programs: never the bare line.
+  const codes = gap({ title: 'Base Batches', gap: { kind: 'builder_codes', item: 'builder_codes', what: 'add Base Builder Codes to the app', effort: 'minutes', agent_can: true } });
+  assert.equal(replyText(base({ gaps: [codes] }), true).split('\n').at(-1), 'Nothing is ready yet.');
+  assert.equal(replyText(base({ ready: [yc], gaps: [codes] }), true).split('\n').at(-1), 'Nothing remote is ready yet. Say yes and I start the in-person applications.');
+  // Something remote ready: its yes, never the in-person closing.
+  assert.equal(replyText(base({ ready: [ready({ title: 'Grant' }), yc], gaps: [antler] }), true).split('\n').at(-1), 'Say yes and I apply.');
+  assert.match(agentNote(r, { more: 0 }), /closes on starting the in-person applications/);
+});
+
+test('O1 (v6.1.10): a step closing within 7 days says so after its money', () => {
+  const paypal = gap({ title: 'PayPal AI Hackathon', money: '$67,500 in prizes', closes_in: 'in 2 days', gap: VIDEO, also: [ruleGap('uses a PayPal API')] });
+  assert.equal(replyText(base({ gaps: [paypal] }), true).split('\n')[1], '1. PayPal AI Hackathon, $67,500 in prizes, closes in 2 days: a demo video. Their rule: uses a PayPal API.');
+  const rule = gap({ title: 'Kiroween', money: '$100K', closes_in: 'in 5 days', gap: ruleGap('built with Kiro') });
+  assert.equal(replyText(base({ gaps: [paypal, rule] }), true).split('\n')[2], '2. Kiroween, $100K, closes in 5 days. Their rule: built with Kiro.');
 });
 
 test('R20/R21: an in-person line says its odds, then what attending takes, then what it needs from you (v6.1.6)', () => {
@@ -490,12 +546,12 @@ test('R21: an in-person gap with no setup reads "Attend in person." after its ru
   const g = gap({ title: 'Residency', money: '$1M', in_person: true, gap: ruleGap('a US co-founder'), rules: ['a US co-founder'] });
   assert.equal(
     replyText(base({ gaps: [g] }), true).split('\n')[1],
-    '1. Residency, $1M. Their rule: a US co-founder. Attend in person.',
+    '1. Residency, $1M. Their rule: a US co-founder. Attend in person. Say "yes 1" if that is you.',
   );
   const withSetup = { ...g, setup: ['the right to work in the US'] };
   assert.equal(
     replyText(base({ gaps: [withSetup] }), true).split('\n')[1],
-    '1. Residency, $1M. Their rule: a US co-founder. Needs the right to work in the US.',
+    '1. Residency, $1M. Their rule: a US co-founder. Needs the right to work in the US. Say "yes 1" if that is you.',
   );
 });
 
@@ -685,4 +741,15 @@ test('fix round 1 (v6.1.9): a contract the read still does not find tells the ag
   const g = gap({ title: 'Arc Fund', gap: { kind: 'chain', item: 'chain:arc', what: 'deploy the contract on Arc', effort: 'hours', agent_can: false }, looked_again: ['the contract on Arc'] });
   assert.ok(agentNote(base({ gaps: [g] }), { more: 0 }).split('\n').includes('Pass the contract address if it is on chain.'));
   assert.ok(!agentNote(base({ gaps: [gap({ title: 'Arc Fund' })] }), { more: 0 }).includes('Pass the contract address'));
+});
+
+test('O3 (v6.1.10): the started question is asked as one: its line, its one action and the closing', () => {
+  const STARTED = { kind: 'new_work_after' as const, item: 'new_work_after:2026-10-22T09:00:00-07:00', what: 'tell me when you started this', effort: 'minutes' as const, agent_can: false };
+  const g = gap({ title: 'UGREEN Hackathon 2026 on AI NAS', money: '$46,000 in prizes', gap: STARTED, n: 1 });
+  assert.equal(gapLine(g), '1. UGREEN Hackathon 2026 on AI NAS, $46,000 in prizes: tell me when you started this.');
+  assert.equal(gapAction(g), 'Tell me when you started and I check it.');
+  const show = replyText(base({ gaps: [g] }), true);
+  assert.equal(show.split('\n').at(-1), 'Nothing is ready yet. First: tell me when you started this, and I look again.');
+  assert.match(agentNote(base({ gaps: [g] }), { more: 0 }), /"Tell me when you started this" is a question, not work: ask the builder once; pass first_commit_at/);
+  assert.doesNotMatch(show, /—|\b(score|rank|grade|points|coin|token|streak)s?\b/i);
 });

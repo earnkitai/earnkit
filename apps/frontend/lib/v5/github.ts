@@ -32,6 +32,8 @@ export type Repo = {
   archived?: boolean;
   /** In KB; 0 for a repo with no commits. */
   size?: number;
+  /** The repo's topics, lower-case (v6.1.10). */
+  topics?: string[];
   parent?: { full_name: string; default_branch: string };
 };
 export type TreeEntry = { path: string; type: string; size?: number };

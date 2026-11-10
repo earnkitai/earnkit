@@ -108,8 +108,9 @@ export async function linkInstallation(installationId: number, builderId: number
       WHERE b.owner = ${to} AND i.owner = ${from} AND i.program_id = b.program_id`;
     const moved = await tx`UPDATE applications SET owner = ${to} WHERE owner = ${from}`;
     await tx`UPDATE application_history SET owner = ${to} WHERE owner = ${from}`;
+    // A done step keeps its project (v6.1.10 L1c-1): only the same project's repeat is merged.
     await tx`DELETE FROM gaps_done i USING gaps_done b
-      WHERE i.owner = ${from} AND b.owner = ${to} AND i.program_id = b.program_id AND i.item = b.item`;
+      WHERE i.owner = ${from} AND b.owner = ${to} AND i.project_key = b.project_key AND i.program_id = b.program_id AND i.item = b.item`;
     await tx`UPDATE gaps_done SET owner = ${to} WHERE owner = ${from}`;
     return { migrated: moved.count };
   });

@@ -98,6 +98,18 @@ the project must have (`value`), a gap the builder or the agent can build.
 { "kind": "rule", "note": "a clear open source license on the repo" }
 ```
 
+A domain `rule` (one about a platform, product or ecosystem) may carry `keywords`: lower-case words or
+phrases, at most 8, each at most 30 characters, that a project on that platform would name. A project
+that names none of them (whole word or phrase, any case, a hyphen read as a space) in its name, description, README or GitHub
+topics is unlikely to meet the rule, so the program shows only in the full list. A person or licence
+rule (age, work authorization, funding raised, an open source license) carries none. Never a word another
+field uses for something else: no bare `meta` (Meta's models), `forge` (Foundry), `hook` or `v4`; use the phrase. Only `rule`
+items take keywords.
+
+```json
+{ "kind": "rule", "note": "a Farcaster Mini App", "keywords": ["farcaster", "mini app", "warpcast"] }
+```
+
 ### `form`
 
 The application form, so a draft can be pre-filled: `platform` (`google`, `airtable`, `tally`,

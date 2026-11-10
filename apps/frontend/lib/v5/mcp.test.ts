@@ -23,7 +23,7 @@ test('four tools, their descriptions and the server instructions, verbatim', asy
   );
   assert.equal(
     TRACK_DESCRIPTION,
-    'What the builder did: started (a claim before filling), applied (with submitted_by and fields_used), won (with amount_usd), rejected, no_result, skipped, unskip (a skipped program may come back), or gap_done (with item). Call started before filling and applied after every submission.',
+    'What the builder did: started (a claim before filling), applied (with submitted_by and fields_used), won (with amount_usd), rejected, no_result, skipped, unskip (a skipped program may come back), or gap_done (with item and the project you passed to find). Call started before filling and applied after every submission.',
   );
   assert.equal(tools[0].description, FIND_DESCRIPTION);
   assert.equal(tools[1].description, TRACK_DESCRIPTION);

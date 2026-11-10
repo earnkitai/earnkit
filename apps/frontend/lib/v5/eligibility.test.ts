@@ -4,10 +4,10 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
-import { codeChecked, evaluate, exists, lookedAgain, type Gap } from './eligibility';
+import { codeChecked, evaluate, exists, lookedAgain, names, ruleItem, unlikely, type Gap } from './eligibility';
 import { repoFacts, type RepoFacts } from './repo-facts';
 import { parseProject } from './project-input';
-import { ProgramFile } from './program-file';
+import { ProgramFile, eligibilityOf } from './program-file';
 import type { ProgramRow } from './programs';
 import { replayFetch } from './fixtures/github';
 import { programFixture } from './fixtures/program';
@@ -21,6 +21,8 @@ const toRow = (file: ProgramRow['file']): ProgramRow => ({
 });
 const fromFile = (slug: string) =>
   toRow(ProgramFile.parse(JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs', `${slug}.json`), 'utf8'))));
+/** The keywords on a catalog file's rules. */
+const eligibilityKeywords = (slug: string) => eligibilityOf(fromFile(slug).file).flatMap((i) => i.keywords ?? []);
 
 async function factsOf(slug: string, over: Record<string, unknown> = {}): Promise<RepoFacts> {
   const rec = replayFetch(slug);
@@ -108,6 +110,20 @@ test('new work only with a first commit before the start is no', async () => {
   const v = evaluate(p, await factsOf('earnkit'), new Set(), NOW);
   assert.equal(v.status, 'no');
   assert.equal(v.reason, 'needs work started after 2030-01-01');
+});
+
+test('O3 (v6.1.10, Review Focus 4): no first-commit date asks when the work started, never a refusal; a date or the builder\'s word settles it', async () => {
+  const p = toRow(programFixture({ id: 'p', existing_work: 'new_work_only', starts_at: '2026-10-01T00:00:00Z' }));
+  const item = 'new_work_after:2026-10-01T00:00:00Z';
+  const f = { ...(await factsOf('earnkit')), first_commit_at: null };
+  const v = evaluate(p, f, new Set(), NOW);
+  assert.equal(v.status, 'gap', JSON.stringify(v));
+  assert.deepEqual(v.gaps, [{ kind: 'new_work_after', item, what: 'tell me when you started this', effort: 'minutes', agent_can: false }]);
+  assert.equal(codeChecked(item), false);
+  assert.equal(evaluate(p, f, new Set([item]), NOW).status, 'ready');
+  assert.equal(evaluate(p, { ...f, first_commit_at: '2026-10-20T00:00:00Z' }, new Set(), NOW).status, 'ready');
+  const before = evaluate(p, { ...f, first_commit_at: '2026-09-01T00:00:00Z' }, new Set(), NOW);
+  assert.deepEqual([before.status, before.reason], ['no', 'needs work started after 2026-10-01']);
 });
 
 test('in person stays ready with the reason', async () => {
@@ -320,4 +336,61 @@ test('N-5 (v6.1.9): code-checked items are re-read, each said as the thing the r
   assert.deepEqual(lookedAgain(gaps, new Set(['chain:base', 'contract_on:base', 'builder_codes', 'live_product', 'demo_video'])),
     ['the contract on Base', 'a contract on Base', 'Base Builder Codes in the app', 'a live link']);
   assert.deepEqual(lookedAgain(gaps, new Set()), []);
+});
+
+test('L1c-2 (v6.1.10): a rule with keywords is unlikely unless the project names one, as a whole word or phrase, in its name, description, README or topics', async () => {
+  const vr = fromFile('meta-vr-start-competition-2026');
+  const facts = (over: Partial<RepoFacts>): RepoFacts => ({ ...(await0), ...over });
+  const await0 = await repoFacts({ name: 'x', description: '' }, { now: NOW });
+  const gapsOf = (f: RepoFacts, done = new Set<string>()) => evaluate(vr, f, done, NOW).gaps;
+  const idea = facts({ name: 'Rent Split', description: 'An idea: an app that splits rent and bills between roommates' });
+  assert.equal(unlikely(vr, idea, gapsOf(idea)), true);
+  for (const f of [
+    facts({ name: 'Rent Split', description: 'A hands-first game for Meta Quest 3' }),
+    facts({ name: 'QUEST runner', description: 'x' }),
+    facts({ name: 'x', description: 'y', readme_excerpt: 'Built for Oculus headsets.' }),
+    facts({ name: 'x', description: 'y', topics: ['vr', 'unity'] }),
+  ]) assert.equal(unlikely(vr, f, gapsOf(f)), false, f.description + (f.readme_excerpt ?? ''));
+  // Whole words only: "Conquest" and "vram" name no keyword.
+  const near = facts({ name: 'Conquest', description: 'A vram profiler' });
+  assert.equal(unlikely(vr, near, gapsOf(near)), true);
+  // The rule confirmed (a yes): no rule left to judge, so not unlikely.
+  const rule = gapsOf(idea).find((g) => g.kind === 'rule')!.item;
+  assert.equal(unlikely(vr, idea, gapsOf(idea, new Set([rule]))), false);
+  // A program whose rules carry no keywords (a person rule) is never unlikely.
+  const thiel = fromFile('thiel-fellowship');
+  assert.equal(unlikely(thiel, idea, evaluate(thiel, idea, new Set(), NOW).gaps), false);
+  // A phrase matches as a phrase: "mini app" for Farcaster.
+  const fc = fromFile('farcaster-developer-rewards');
+  const fcRule: Gap[] = [{ kind: 'rule', item: ruleItem('a Farcaster Mini App'), what: 'a Farcaster Mini App', effort: 'hours', agent_can: false }];
+  assert.equal(unlikely(fc, facts({ name: 'Tipper', description: 'A Mini App for tipping' }), fcRule), false);
+  assert.equal(unlikely(fc, facts({ name: 'Tipper', description: 'A mini tipping app' }), fcRule), true);
+});
+
+test('L1c-2 final (v6.1.10): the keyword matcher takes punctuation as a boundary, a hyphen as a space, and a phrase only whole', () => {
+  // Punctuation next to the keyword is a boundary.
+  assert.equal(names('a game for meta (quest) headsets', 'quest'), true);
+  assert.equal(names('vr, ar and xr', 'vr'), true);
+  assert.equal(names('"Oculus"', 'oculus'), true);
+  // A hyphen reads as a space, on either side.
+  assert.equal(names('a farcaster mini-app for tips', 'mini app'), true);
+  assert.equal(names('a hands first demo', 'hands-first'), true);
+  // A phrase at a word boundary, at the start, the end, and next to a line break.
+  assert.equal(names('v4 hook for limit orders', 'v4 hook'), true);
+  assert.equal(names('a uniswap v4 hook', 'v4 hook'), true);
+  assert.equal(names('readme\natlassian forge app', 'atlassian forge'), true);
+  // Not inside a longer word, and not the words apart.
+  assert.equal(names('a uniswap v4 hooked bot', 'v4 hook'), false);
+  assert.equal(names('xv4 hook', 'v4 hook'), false);
+  assert.equal(names('a mini tipping app', 'mini app'), false);
+  assert.equal(names('a miniapp', 'mini app'), false);
+  // A React hook is not Uniswap, and a Foundry repo is not Codegeist.
+  const uni = ['uniswap', 'v4 hook', 'uniswap hook'];
+  assert.equal(uni.some((k) => names('A React hook for forms', k)), false);
+  const codegeist = eligibilityKeywords('codegeist-2026');
+  assert.equal(codegeist.some((k) => names('Run forge build and forge test to deploy the vault.', k)), false);
+  assert.equal(codegeist.some((k) => names('An Atlassian Forge app for Jira', k)), true);
+  // Meta's models are not the VR competition.
+  const vr = eligibilityKeywords('meta-vr-start-competition-2026');
+  assert.equal(vr.some((k) => names('Fine-tunes meta-llama by Meta AI', k)), false);
 });

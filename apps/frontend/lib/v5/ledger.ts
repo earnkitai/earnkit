@@ -81,6 +81,8 @@ export async function record(
   status: Status,
   o: {
     installationId?: number; amount_usd?: number; note?: string; item?: string; now?: Date;
+    /** gap_done only: the project the step belongs to (projectKeyOf; '' for none, v6.1.10 L1c-1). */
+    projectKey?: string;
     /** applied only: who pressed submit, the field keys sent and the record's project. */
     submitted_by?: 'agent' | 'builder'; fields_used?: string[]; project_id?: string;
     /** applied only: the builder's standing approval covered this send when it was tracked (track checks the policy). */
@@ -136,8 +138,9 @@ export async function record(
       await tx`DELETE FROM applications WHERE owner = ${owner} AND program_id = ${programId}`;
     } else if (status === 'gap_done') {
       // xmax = 0 only on a fresh insert: an existing row means the item was already noted.
-      const [g] = await tx<{ inserted: boolean }[]>`INSERT INTO gaps_done (owner, installation_id, program_id, item, at) VALUES (${owner}, ${installationId}, ${programId}, ${o.item!}, ${now})
-        ON CONFLICT (owner, program_id, item) DO UPDATE SET at = EXCLUDED.at RETURNING (xmax = 0) AS inserted`;
+      const [g] = await tx<{ inserted: boolean }[]>`INSERT INTO gaps_done (owner, installation_id, project_key, program_id, item, at)
+        VALUES (${owner}, ${installationId}, ${o.projectKey ?? ''}, ${programId}, ${o.item!}, ${now})
+        ON CONFLICT (owner, project_key, program_id, item) DO UPDATE SET at = EXCLUDED.at RETURNING (xmax = 0) AS inserted`;
       repeated = !g.inserted;
     } else if (status === 'applied') {
       let auto = o.autoApplied === true;
@@ -223,23 +226,24 @@ export async function excluded(owner: string): Promise<Set<string>> {
   return new Set(rows.map((r) => r.program_id));
 }
 
-export async function doneItems(owner: string, programId: string): Promise<Set<string>> {
+/** The steps the owner marked done for the program on this project (projectKeyOf, v6.1.10 L1c-1). */
+export async function doneItems(owner: string, programId: string, projectKey: string): Promise<Set<string>> {
   const rows = await sql()<{ item: string }[]>`
-    SELECT item FROM gaps_done WHERE owner = ${owner} AND program_id = ${programId}`;
+    SELECT item FROM gaps_done WHERE owner = ${owner} AND project_key = ${projectKey} AND program_id = ${programId}`;
   return new Set(rows.map((r) => r.item));
 }
 
-/** When the owner last marked a code-checked step done (v6.1.9 S4), or null: a repo read cached before it is stale. */
-export async function codeDoneAt(owner: string): Promise<Date | null> {
-  const rows = await sql()<{ item: string; at: Date }[]>`SELECT item, at FROM gaps_done WHERE owner = ${owner}`;
+/** When the owner last marked a code-checked step done on this project (v6.1.9 S4), or null: a repo read cached before it is stale. */
+export async function codeDoneAt(owner: string, projectKey: string): Promise<Date | null> {
+  const rows = await sql()<{ item: string; at: Date }[]>`SELECT item, at FROM gaps_done WHERE owner = ${owner} AND project_key = ${projectKey}`;
   const times = rows.filter((r) => codeChecked(r.item)).map((r) => r.at.getTime());
   return times.length > 0 ? new Date(Math.max(...times)) : null;
 }
 
-/** Every closed gap item of the owner, by program: one query for a whole find. */
-export async function doneByProgram(owner: string): Promise<Map<string, Set<string>>> {
+/** Every closed gap item of the owner on this project, by program: one query for a whole find. */
+export async function doneByProgram(owner: string, projectKey: string): Promise<Map<string, Set<string>>> {
   const rows = await sql()<{ program_id: string; item: string }[]>`
-    SELECT program_id, item FROM gaps_done WHERE owner = ${owner}`;
+    SELECT program_id, item FROM gaps_done WHERE owner = ${owner} AND project_key = ${projectKey}`;
   const out = new Map<string, Set<string>>();
   for (const r of rows) out.set(r.program_id, (out.get(r.program_id) ?? new Set<string>()).add(r.item));
   return out;

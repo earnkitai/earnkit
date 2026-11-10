@@ -12,16 +12,16 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v5/cron.ts`: POST /api/cron handler: freshness probe, repo cache sweep, the screen queue's share (`SCREEN_BATCH`), then the owner digest; a JSON body `{ job_id }` runs only that job's queue (300 applicants or 10 minutes)
 - `apps/frontend/lib/v5/db.ts`: Postgres pool and transaction helpers
 - `apps/frontend/lib/v5/deadline.ts`: A program's close in words: close day in its time zone and time left
-- `apps/frontend/lib/v5/eligibility.ts`: Repo facts against a program's eligibility items: ready, gap, or no fit; a `rule` is a confirmation gap `rule:<hash8>` outside the two-gap limit (`ruleItem`, `itemKey`, `rulesOnly`)
+- `apps/frontend/lib/v5/eligibility.ts`: Repo facts against a program's eligibility items: ready, gap, or no fit; a `rule` is a confirmation gap `rule:<hash8>` outside the two-gap limit (`ruleItem`, `itemKey`, `rulesOnly`); `unlikely`: a rule whose `keywords` the project names nowhere (v6.1.10)
 - `apps/frontend/lib/v5/find.ts`: The find tool: ready, gaps, since, ledger, one program's details, or the open list; `shownReadyOf` caps remote and in-person ready apart; saves gaps to `last_gaps`
 - `apps/frontend/lib/v5/github.ts`: Public GitHub reads with EarnKit's server token; `ghResponse` and `ghPage` expose the link and rate-limit headers
 - `apps/frontend/lib/v5/guide-page.ts`: Data for /programs/[id]: the guide plus page context, as plain JSON
 - `apps/frontend/lib/v5/guide.ts`: A program's guide: money, close, who can apply, form fields, rules, sources
 - `apps/frontend/lib/v5/health.ts`: Daily freshness probe: links, page text changes (under 80% words shared), stale flags, passed deadlines
 - `apps/frontend/lib/v5/http.ts`: Route helpers: JSON and CORS answers, `readParams` (form or JSON under a cap, null over it), secret and Bearer checks, `readCapped` (a request's or response's body under a byte cap)
-- `apps/frontend/lib/v5/installations.ts`: Installation rows: save a token, connect a token, stamp last_find_at and `last_gaps` (`markFind`), read them (`lastGaps`), `newlyLinkedLogin` (the GitHub login when the installation was linked after its last find, for the one-time linked notice), and `unmarkNightFind` (a send under standing approval puts `last_find_at` back to `prev_find_at`, v6.1.9)
+- `apps/frontend/lib/v5/installations.ts`: Installation rows: save a token, connect a token, stamp last_find_at, `last_gaps` and `last_project_key` (`markFind`, `rememberProject`), read them (`lastGaps`, `lastProjectKey`), `newlyLinkedLogin` (the GitHub login when the installation was linked after its last find, for the one-time linked notice), and `unmarkNightFind` (a send under standing approval puts `last_find_at` back to `prev_find_at`, v6.1.9)
 - `apps/frontend/lib/v5/landing.ts`: Landing and /programs data: one tile per listed program (`landingTiles`), the landing's six (`featuredTiles`), the listed count and the hero money chip
-- `apps/frontend/lib/v5/ledger.ts`: The ledger: applications, history, closed gap items (`gap_done` takes only the program's own items or `users`), the summary; `askOutcome` (results past due, or 30 days after the send when the program has none) and `codeDoneAt` (the last code-checked step marked done, which makes a cached repo read stale; v6.1.9)
+- `apps/frontend/lib/v5/ledger.ts`: The ledger: applications, history, closed gap items per project key (`gap_done` takes only the program's own items or `users`; v6.1.10), the summary; `askOutcome` (results past due, or 30 days after the send when the program has none) and `codeDoneAt` (the last code-checked step marked done, which makes a cached repo read stale; v6.1.9)
 - `apps/frontend/lib/v5/llms.ts`: The text of /llms.txt
 - `apps/frontend/lib/v5/mail.ts`: Owner emails over Resend, idempotent; a no-op without RESEND_API_KEY
 - `apps/frontend/lib/v5/mcp.ts`: The MCP server: find and track, their descriptions, the server instructions, the per-installation and per-IP tool-call limits
@@ -36,12 +36,12 @@ One line per file. Orientation and flows are in `architecture-guide.md`. Tests s
 - `apps/frontend/lib/v5/programs-read.ts`: Public GET /api/programs list; `moneyOf`, the card money (pool first, then the per-winner award, then the summary)
 - `apps/frontend/lib/v5/programs-sync.ts`: Reads and checks programs/*.json and writes them (an expired active file as closed), for programs:check and programs:sync
 - `apps/frontend/lib/v5/programs.ts`: The programs table: list open programs, read one, find one by what the builder calls it (`programByName`, v6.1.9), write one
-- `apps/frontend/lib/v5/project-input.ts`: Lenient parse of the project an agent reports (chains: exact repeats dropped, then at most 20 read)
+- `apps/frontend/lib/v5/project-input.ts`: Lenient parse of the project an agent reports (chains: exact repeats dropped, then at most 20 read); `projectKeyOf`, the project a done step belongs to (v6.1.10)
 - `apps/frontend/lib/v5/controls.ts`: `dropControls`, the one cleaner for a line of agent or builder text: tabs and line breaks to a space, other control and format characters dropped except a joiner inside a word or emoji, spaces collapsed; used by project-input, `cleanClientName` and the record's `cleanLine`; pure
-- `apps/frontend/lib/v5/rank.ts`: Ordering of ready and gap verdicts (real changes before rule-only); `shownGapsOf` shows acted-on programs first, then at most one rule-bearing program, in the last slot
+- `apps/frontend/lib/v5/rank.ts`: Ordering of ready and gap verdicts (real changes before rule-only); own chain, then chain-agnostic, then other chains, rule-free before rule-bearing (v6.1.10); `shownGapsOf` shows acted-on programs first, then those closing within 7 days, then at most one rule-bearing program (in its rank place on the project's chains, else the last slot), leaving unlikely ones to `filter.all`
 - `apps/frontend/lib/v5/rate-limit.ts`: Fixed-window counters in Postgres
 - `apps/frontend/lib/v5/reply.ts`: The words of a find reply: show_to_builder and agent_note
-- `apps/frontend/lib/v5/repo-facts.ts`: Repo facts: public read, 7-day cache, 10 uncached reads a day per installation, the 30-day sweep, merged with agent-reported facts
+- `apps/frontend/lib/v5/repo-facts.ts`: Repo facts: public read, 7-day cache, 10 uncached reads a day per installation, the 30-day sweep, merged with agent-reported facts; `cachedRepoFacts` (the cached row alone, no fetch, for track's send check)
 - `apps/frontend/lib/v5/code-signals.ts`: Shared source-text signals: known token contracts and Builder Codes detection (used by repo-facts and v6/integrations)
 - `apps/frontend/lib/v5/safe-fetch.ts`: SSRF-safe GETs and link probes on third-party hosts
 - `apps/frontend/lib/v5/secrets.ts`: Scrubs secret keys from tool-call bodies before anything sees them

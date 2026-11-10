@@ -11,7 +11,7 @@
   "category": "grant",
   "min_tier": "building",
   "eligibility": [
-    { "kind": "rule", "note": "smart contracts in the Uniswap ecosystem (a v4 hook or a Uniswap integration) with a date they will be ready for audit" }
+    { "kind": "rule", "note": "smart contracts in the Uniswap ecosystem (a v4 hook or a Uniswap integration) with a date they will be ready for audit", "keywords": ["uniswap", "v4 hook", "uniswap hook"] }
   ],
   "ideas": [
     "A Uniswap v4 hook ready for its audit",

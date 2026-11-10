@@ -12,7 +12,7 @@ import type { RepoFacts } from '../v5/repo-facts';
 import { withRecord, readStoredRecord } from './builders';
 import type { Evidence, Subject } from './evidence';
 import { evidenceSummary, ownEvidence, usageLine } from './own-evidence';
-import { hasDoc, recordMissing, type BuilderRecord, type Project } from './record';
+import { PROJECT_ITEM, hasDoc, recordMissing, type BuilderRecord, type Project } from './record';
 import { ADD_PROJECT, confirmLine, EVIDENCE_NOT_READ, NO_RECORD_PROJECT, PROOF_READING } from './reply-words';
 import { TIERS, place, type Tier } from './tiers';
 
@@ -235,11 +235,13 @@ export function blockersOf(rows: ProgramRow[], record: BuilderRecord): Blocker[]
   return out;
 }
 
-/** What the record lacks for these programs, in builder words. A traction field reads the usage or the pre-launch line, never the bank. Pure. */
-export function missingFor(rows: ProgramRow[], record: BuilderRecord, verifiedUsage: boolean): string[] {
-  return recordMissing(record, {
+/** What the record lacks for these programs, in builder words. A traction field reads the usage or the pre-launch line,
+ *  never the bank. `repoPassed` (lane 8 #10, v6.1.10): the find passed a repo, so the project with a link is not missing. Pure. */
+export function missingFor(rows: ProgramRow[], record: BuilderRecord, verifiedUsage: boolean, repoPassed = false): string[] {
+  const missing = recordMissing(record, {
     needs: [...new Set(rows.flatMap((r) => r.file.needs))],
     kinds: [...new Set(rows.flatMap((r) => r.file.submission_requirements.map((q) => q.kind)))].filter((k) => k !== 'traction'),
     verifiedUsage,
   });
+  return repoPassed ? missing.filter((m) => m !== PROJECT_ITEM) : missing;
 }

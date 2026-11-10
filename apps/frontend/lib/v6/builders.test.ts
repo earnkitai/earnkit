@@ -81,6 +81,21 @@ test('linkInstallation moves i: applications to b: and keeps the newer status on
   assert.equal((await sql()`SELECT count(*)::int AS n FROM gaps_done WHERE owner LIKE 'i:%' AND owner IN (${`i:${one}`}, ${`i:${two}`})`)[0].n, 0);
 });
 
+test('linkInstallation keeps each done step with its project; only the same project\'s repeat merges (v6.1.10, L1c-1)', async () => {
+  const b = await builder();
+  const one = await install();
+  const two = await install();
+  await prog('bl-pk');
+  const A = 'https://github.com/acme/a';
+  await record(ownerKey(one, null), 'bl-pk', 'gap_done', { item: 'users', projectKey: A, now: NOW });
+  await linkInstallation(one, b.id, NOW);
+  await record(ownerKey(two, null), 'bl-pk', 'gap_done', { item: 'users', projectKey: A, now: NOW });
+  await record(ownerKey(two, null), 'bl-pk', 'gap_done', { item: 'users', projectKey: 'name:b app', now: NOW });
+  await linkInstallation(two, b.id, NOW);
+  const gaps = await sql()`SELECT project_key, item FROM gaps_done WHERE owner = ${`b:${b.id}`} AND program_id = 'bl-pk' ORDER BY project_key`;
+  assert.deepEqual(gaps.map((g) => ({ ...g })), [{ project_key: A, item: 'users' }, { project_key: 'name:b app', item: 'users' }]);
+});
+
 test('an older i: row loses to the b: row on the same program', async () => {
   const b = await builder();
   const one = await install();

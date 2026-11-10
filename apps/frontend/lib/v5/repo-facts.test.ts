@@ -381,3 +381,20 @@ test('N-6 (v6.1.9): a cache row saved before v6.1.8 (no fork or archived field) 
     assert.equal(third.calls.length, 0);
   }
 });
+
+test('L1c-4 (v6.1.10): an empty repo (its tree read fails) is cached like any other: the next read is free and makes one call', async () => {
+  const { hit, LIMITS } = await import('./rate-limit');
+  const id = 900_000 + Math.floor(Math.random() * 1000);
+  const rec = replayFetch('empty-repo');
+  const p = project({ repo_url: `https://github.com/${rec.repo}` });
+  const first = await repoFacts(p, { gh: rec.fetch, now: NOW, installationId: id });
+  assert.deepEqual(first.notes, ['empty']);
+  assert.equal(await cached(), 1);
+  // Within the hour: from the cache, no GitHub call and no read counted.
+  const again = replayFetch('empty-repo');
+  const second = await repoFacts(p, { gh: again.fetch, now: new Date(NOW.getTime() + 60_000), installationId: id });
+  assert.deepEqual([second.notes, again.calls.length], [['empty'], 0]);
+  // One read counted for the installation, not two.
+  const left = await hit(`repoRead:${id}`, LIMITS.repoRead.limit, LIMITS.repoRead.windowSeconds, NOW);
+  assert.equal(left.remaining, LIMITS.repoRead.limit - 2);
+});

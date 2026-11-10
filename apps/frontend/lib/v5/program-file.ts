@@ -168,11 +168,16 @@ const EligibilityItemSchema = z
     kind: z.enum(ELIGIBILITY_KINDS),
     value: z.string().min(1).max(100).optional(),
     note: z.string().min(1).max(140).optional(),
+    /** L1c-2 (v6.1.10), a rule only: lower-case words or phrases that name what the rule is about ("vr", "mini app").
+     *  A project that names none of them in its name, description, README or topics is unlikely to meet the rule, so
+     *  the program shows only in the full list. A person or licence rule carries none. */
+    keywords: z.array(z.string().min(1).max(30).refine((k) => k === k.toLowerCase() && k === k.trim(), 'a keyword is lower-case, no outer spaces')).min(1).max(8).optional(),
   })
   // A rule is its note, read as a sentence ("Their rule: {note}."): a note, no value, no full stop of its own.
   .refine((i) => i.kind !== 'rule' || (i.note !== undefined && i.value === undefined && !i.note.endsWith('.')), {
     message: 'a rule needs a note (no trailing full stop) and takes no value',
-  });
+  })
+  .refine((i) => i.kind === 'rule' || i.keywords === undefined, { message: 'only a rule takes keywords' });
 export type EligibilityItem = z.infer<typeof EligibilityItemSchema>;
 
 export const PROGRAM_CATEGORIES = ['grant', 'hackathon', 'investment', 'bounty'] as const;

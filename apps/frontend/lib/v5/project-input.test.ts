@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseProject } from './project-input';
+import { parseProject, projectKeyOf } from './project-input';
 
 const base = { name: 'Tipjar', description: 'Tips for creators.' };
 
@@ -163,4 +163,25 @@ test('C58 (v6.1.8): the description may be left out when a repo link is given; n
   assert.deepEqual(parseProject({ name: 'linux' }), { ok: false, problem: 'description: missing' });
   // A repo link that does not hold up is no link.
   assert.equal(parseProject({ name: 'linux', repo_url: 'not a link' }).ok, false);
+});
+
+test('projectKeyOf: the repo link lower-cased without a trailing slash or .git, else name:, else empty (v6.1.10, L1c-1)', () => {
+  assert.equal(projectKeyOf({ name: 'X', repo_url: 'https://github.com/Acme/App.git' }), 'https://github.com/acme/app');
+  assert.equal(projectKeyOf({ repo_url: 'https://github.com/Acme/App/' }), 'https://github.com/acme/app');
+  assert.equal(projectKeyOf({ name: 'X', repo_url: 'https://github.com/acme/app' }), projectKeyOf({ name: 'Y', repo_url: 'https://GitHub.com/acme/app/' }));
+  assert.equal(projectKeyOf({ name: '  My App ' }), 'name:my app');
+  assert.equal(projectKeyOf({ name: 'My App', repo_url: '' }), 'name:my app');
+  assert.equal(projectKeyOf({ name: '   ' }), '');
+  assert.equal(projectKeyOf({}), '');
+  assert.equal(projectKeyOf(null), '');
+  assert.equal(projectKeyOf({ name: 7, repo_url: 7 }), '');
+  // Final round: cleaned as parseProject cleans, so the raw project and the parsed one key the same.
+  for (const raw of [{ name: 'My  App' }, { name: 'My\tApp\u200b' }, { name: 'X', repo_url: 'github.com/a/b' }, { name: 'X', repo_url: ' https://github.com/A/B.git ' }, { name: 'n'.repeat(100) }]) {
+    const parsed = parseProject({ ...raw, description: 'd' });
+    assert.ok(parsed.ok);
+    assert.equal(projectKeyOf(raw), projectKeyOf(parsed.project), JSON.stringify(raw));
+  }
+  assert.equal(projectKeyOf({ name: 'My  App' }), 'name:my app');
+  // A link that is not a web link is no repo key: the name stands, as in find.
+  assert.equal(projectKeyOf({ name: 'X', repo_url: 'github.com/a/b' }), 'name:x');
 });

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { getProgram, upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
-import { askOutcome, doneItems, excluded, markAsked, record, summary, titleOf } from './ledger';
+import { askOutcome, codeDoneAt, doneByProgram, doneItems, excluded, markAsked, record, summary, titleOf } from './ledger';
 
 after(() => sql().end());
 
@@ -186,7 +186,26 @@ test('gap_done writes gaps_done only', async () => {
   // The row existed: the same item again says so (v6.1.7, C26).
   assert.deepEqual(await record(o(i), 'l-gap', 'gap_done', { item: 'users', now: NOW }), { ok: true, repeated: true });
   assert.deepEqual(await counts(i), { apps: 0, hist: 2 });
-  assert.deepEqual([...(await doneItems(o(i), 'l-gap'))], ['users']);
+  assert.deepEqual([...(await doneItems(o(i), 'l-gap', ''))], ['users']);
+});
+
+test('a done step belongs to its project: two projects of one owner never share it (v6.1.10, L1c-1)', async () => {
+  const i = await install();
+  await prog('l-gap-p', { eligibility: [{ kind: 'users' }, { kind: 'demo_video' }] });
+  const A = 'https://github.com/acme/a';
+  const B = 'name:b app';
+  assert.deepEqual(await record(o(i), 'l-gap-p', 'gap_done', { item: 'users', projectKey: A, now: NOW }), { ok: true });
+  assert.deepEqual([...(await doneItems(o(i), 'l-gap-p', A))], ['users']);
+  assert.deepEqual([...(await doneItems(o(i), 'l-gap-p', B))], []);
+  assert.deepEqual([...(await doneItems(o(i), 'l-gap-p', ''))], []);
+  // The same item on the other project is new there, not a repeat.
+  assert.deepEqual(await record(o(i), 'l-gap-p', 'gap_done', { item: 'users', projectKey: B, now: NOW }), { ok: true });
+  assert.deepEqual(await record(o(i), 'l-gap-p', 'gap_done', { item: 'users', projectKey: B, now: NOW }), { ok: true, repeated: true });
+  await record(o(i), 'l-gap-p', 'gap_done', { item: 'demo_video', projectKey: B, now: NOW });
+  assert.deepEqual([...(await doneItems(o(i), 'l-gap-p', A))], ['users']);
+  assert.deepEqual([...(await doneItems(o(i), 'l-gap-p', B))].sort(), ['demo_video', 'users']);
+  assert.deepEqual([...((await doneByProgram(o(i), A)).get('l-gap-p') ?? [])], ['users']);
+  assert.equal(await codeDoneAt(o(i), B), null);
 });
 
 test('gap_done refuses an item that is not one of the program\'s, names the real ones and writes nothing (v6.1.6)', async () => {
@@ -198,9 +217,9 @@ test('gap_done refuses an item that is not one of the program\'s, names the real
   assert.deepEqual(await record(o(i), 'l-gap-arc', 'gap_done', { item: 'users', now: NOW }), { ok: false, note: 'Which change did you finish? Say the program and the change.', items: ['chain:arc'] });
   assert.deepEqual(await record(o(i), 'l-gap-arc', 'gap_done', { now: NOW }), { ok: false, note: 'Which change did you finish? Say the program and the change.', items: ['chain:arc'] });
   assert.deepEqual(await counts(i), { apps: 0, hist: 0 });
-  assert.deepEqual([...(await doneItems(o(i), 'l-gap-arc'))], []);
+  assert.deepEqual([...(await doneItems(o(i), 'l-gap-arc', ''))], []);
   assert.equal((await record(o(i), 'l-gap-arc', 'gap_done', { item: 'chain:arc', now: NOW })).ok, true);
-  assert.deepEqual([...(await doneItems(o(i), 'l-gap-arc'))], ['chain:arc']);
+  assert.deepEqual([...(await doneItems(o(i), 'l-gap-arc', ''))], ['chain:arc']);
 });
 
 test('askOutcome lists a passed results date once asked is marked', async () => {
@@ -302,7 +321,7 @@ test('a record under one b: owner from two installations is one row, written by 
   assert.deepEqual(hist.map((r) => r.installation_id), [one, two, one, two]);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM gaps_done WHERE owner = ${b} AND program_id = 'l-b1'`)[0].n, 1);
   assert.equal((await summary(b, [], NOW)).won, 1);
-  assert.deepEqual([...(await doneItems(b, 'l-b1'))], ['users']);
+  assert.deepEqual([...(await doneItems(b, 'l-b1', ''))], ['users']);
   assert.deepEqual(await counts(one), { apps: 0, hist: 2 });
 });
 

@@ -27,6 +27,8 @@ const CLOSINGS = [
   /Say yes and I draft all \d+ for you to send\. Or say the numbers to skip\.$/,
   /Say yes and I draft it for you to send\.$/,
   /Nothing is ready yet\.( Say "yes \d+" if that rule fits you\.)?$/,
+  // O2 (v6.1.10): in-person programs listed and nothing remote ready.
+  /Nothing remote is ready yet\. Say yes and I start the in-person applications\.$/,
   /Nothing fits yet\. I'll say when something opens\.$/,
   /Applying tonight to [^\n]+\. Say stop to hold any\.$/,
 ];
@@ -117,7 +119,7 @@ test('a Solana repo gets a reply, no crash, and nothing is taken as reported', a
   assert.ok(typeof base.show_to_builder === 'string');
 });
 
-test('the owner, linked: record set, approved on /me, find fills from it, started, applied, and the next find says so', async () => {
+test('the owner, linked: record set, approved on /me, find fills from it, started, applied; a send the record cannot fill is outside the standing approval (F1)', async () => {
   const id = await stranger();
   const b = await upsertBuilder({ github_id: 990_001, login: 'jenil', name: 'Jenil', avatar_url: null }, NOW);
   await linkInstallation(id, b.id, NOW);
@@ -167,10 +169,14 @@ test('the owner, linked: record set, approved on /me, find fills from it, starte
   assert.equal(started.show_to_builder, 'Started. Your other agents leave this one alone for 24 hours.');
   const applied = await call(new Date(t1.getTime() + 120_000), 'track', { program_id: top, status: 'applied', submitted_by: 'agent', fields_used: [...new Set(['email', 'problem', ...required])], project_id: 'earnkit' });
   assert.equal((applied.ledger as { applied: number }).applied, 1);
+  // F1 (v6.1.10): the find held it back ("Before tonight") for answers only the builder gives that the record lacks,
+  // so naming every key does not make the send one under standing approval.
+  assert.match(first.show_to_builder as string, /Before tonight \(nothing is sent until these are in\): [^\n]+ for Arbitrum Mentorship Program: Cohort 2\./);
+  assert.equal(applied.show_to_builder, 'Sent, but outside your standing approval: a required answer was missing.');
 
   const next = await call(new Date(NOW.getTime() + 10 * H), 'find', { project: { ...p, live_url: 'https://earnkit.com', users: true } });
-  assert.deepEqual((next.applied_overnight as { program_id: string }[]).map((a) => a.program_id), [top]);
-  assert.match(next.show_to_builder as string, /\n\nApplied under your standing approval: [^\n]+\./);
+  assert.deepEqual(next.applied_overnight, []);
+  assert.doesNotMatch(next.show_to_builder as string, /Applied under your standing approval/);
   assert.ok(!(next.ready as { program_id: string }[]).some((x) => x.program_id === top));
 });
 
@@ -181,12 +187,18 @@ test('every line the builder saw follows the copy rules and ends with one closin
     assert.doesNotMatch(show, /—/, show);
     assert.doesNotMatch(show, /\b(coin|points|score|rank|streak|token)s?\b/i, show);
     assert.doesNotMatch(show, /\b(find|track|show_to_builder|agent_note|program_id|amount_usd|gap_done)\b|\.json\b/, show);
-    const isReply = /Ready to apply|One step away|Nothing fits yet/.test(show);
+    const isReply = /Ready to apply|One step away|In person \(|Nothing fits yet/.test(show);
+    // O2 (v6.1.10, Review Focus 5, fix round 1): a reply that lists in-person programs never ends on the bare "Nothing is
+    // ready yet."; with no remote step shown it ends on starting the in-person applications.
+    if (/^In person \(/m.test(show)) {
+      assert.notEqual(show.split('\n').at(-1), 'Nothing is ready yet.', show);
+      if (!/^(Ready to apply|One step away) \(/m.test(show)) assert.match(show, /Nothing remote is ready yet\. Say yes and I start the in-person applications\.$/, show);
+    }
     if (!isReply) continue;
     // The first find after a link adds the linked notice to the closing line (security M2).
     const last = show.split('\n').at(-1)!.replace(/ This agent is now linked to GitHub account \S+\. Unlink any time at earnkit\.com\/me\.$/, '');
     assert.equal(CLOSINGS.filter((c) => c.test(last)).length, 1, show);
-    assert.equal(show.split('\n').filter((l) => /^(Say yes|Say "do|Say "yes|Nothing fits yet|Nothing is ready yet|Applying tonight)/.test(l)).length, 1, show);
+    assert.equal(show.split('\n').filter((l) => /^(Say yes|Say "do|Say "yes|Nothing fits yet|Nothing is ready yet|Nothing remote is ready yet|Applying tonight)/.test(l)).length, 1, show);
     // Each "yes n" and "do n" is said once (v6.1.8, 1a).
     for (const ask of show.match(/"(yes|do) \d+"/g) ?? []) assert.equal(show.split(ask).length, 2, show);
   }

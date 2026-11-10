@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
-import { prefill } from './prefill';
+import { prefill, unvouchedRequired } from './prefill';
 import { repoFacts, type RepoFacts } from './repo-facts';
 import { parseProject } from './project-input';
 import { ProgramFile } from './program-file';
@@ -200,9 +200,13 @@ test('unapproved answers are not fitted', async () => {
   assert.notEqual(f.from, 'record');
   assert.equal(f.value, null);
   assert.equal(f.style, undefined);
-  assert.equal(f.from, 'agent');
+  // Lane 8 #1 (v6.1.10): linked, an answer the record does not hold is the builder's to give once (never sent as
+  // the agent's), with the sources to help word it.
+  assert.equal(f.from, 'builder');
   assert.equal(f.sources?.at(-1), 'the builder, once: store the answer with record before using it');
   assert.deepEqual(out.need_you, ['the problem']);
+  assert.deepEqual(unvouchedRequired(out.fields).map((x) => x.key), ['problem']);
+  assert.deepEqual(unvouchedRequired(prefill(problemRow(), facts, rec(recordWith(PROBLEM, ['answers.problem']))).fields), []);
   // Unlinked (no record): v5's agent field, without the ask-once source.
   assert.ok(!prefill(problemRow(), facts).fields[0].sources?.some((x) => x.includes('store the answer')));
 });
@@ -443,11 +447,35 @@ test('S12 (v6.1.9): with no repo read to confirm them, what the agent reported i
       assert.equal(by[k].value, null, k);
       assert.equal(by[k].sources![0], 'what the builder told you', k);
     }
-    // The drafted count says so: the two are the agent's, not filled by EarnKit.
-    assert.ok(out.need_you.includes('an answer'));
+    // F2 (v6.1.10): the two are the agent's drafts, not filled by EarnKit and never "need you".
+    assert.deepEqual(out.need_you, []);
     assert.equal(out.filled, 1);
   }
   // A repo read that is not empty: the passed name and description stay EarnKit's values as before.
   const out = prefill(row, read);
   assert.deepEqual(out.fields.map((f) => f.from), ['earnkit', 'earnkit', 'earnkit']);
+});
+
+test('F1 fix round 2 (v6.1.10): unvouchedRequired is every required builder field without a value and every agent field with no sources; never by kind or key', () => {
+  const f = (key: string, from: string, o: { sources?: string[]; value?: string; required?: boolean; kind?: string } = {}) =>
+    ({ key, label: key, type: 'text', required: o.required ?? true, kind: o.kind ?? 'other', value: o.value ?? null, from, ...(o.sources ? { sources: o.sources } : {}) }) as never;
+  const fields = [
+    f('a', 'earnkit', { value: 'x' }), f('b', 'record', { value: 'x' }), f('c', 'agent', { sources: ['README: x'] }),
+    f('d', 'agent', { sources: [] }), f('e', 'agent'), f('linkedin', 'builder', { kind: 'links' }), f('chains_and_tools', 'builder', { kind: 'how_it_works', sources: ['README: x'] }),
+    f('opt', 'builder', { required: false }),
+  ];
+  assert.deepEqual(unvouchedRequired(fields).map((x: { key: string }) => x.key), ['d', 'e', 'linkedin', 'chains_and_tools']);
+});
+
+test('lane 8 #8 (v6.1.10): need_you is every required builder field without a record value, the same list the line names', async () => {
+  const facts = await factsOf('earnkit');
+  const row = rowWith([
+    req({ key: 'problem', label: 'Problem', type: 'text', kind: 'problem', todo: 'the problem' }),
+    req({ key: 'phone', label: 'Phone', type: 'text', kind: 'other', todo: 'your phone' }),
+    req({ key: 'email', label: 'Email', type: 'email', kind: 'contact', todo: 'your email' }),
+  ]);
+  const unlinked = prefill(row, facts);
+  assert.deepEqual(unlinked.need_you, ['your phone']);
+  const linked = prefill(row, facts, rec(recordWith({ person: { email: 'a@example.com' } })));
+  assert.deepEqual(linked.need_you, ['the problem', 'your phone']);
 });
