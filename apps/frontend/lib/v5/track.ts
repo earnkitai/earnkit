@@ -7,7 +7,7 @@ import { getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason } from '../v6/b
 import { DELETED_NOTICE } from '../v6/reply-words';
 import { claim } from '../v6/claims';
 import { NIGHT_LIMIT, REQUIRED_MISSING, outsideApproval, requiredLeftOut, storedRecordContext } from '../v6/find-record';
-import { owedByBuilder } from './prefill';
+import { prefill, reportedFacts, unvouchedRequired } from './prefill';
 import { forgetGap, lastGaps, lastProjectKey, unmarkNightFind } from './installations';
 import { projectKeyOf } from './project-input';
 import { getProgram, isOpen, listOpenPrograms } from './programs';
@@ -123,6 +123,25 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   return { ...r, agent_note: `${r.agent_note} project_id ${project_id} is not known; ignored.`.trim() };
 }
 
+/**
+ * The required fields a send under standing approval cannot vouch for: the program prefilled with the stored record and
+ * the send's project (its passed links, else the record project's; else the last find's project key), as reported.
+ */
+export async function unvouchedAtSend(ctx: TrackContext, i: z.infer<typeof TrackInput>, row: NonNullable<Awaited<ReturnType<typeof getProgram>>>): Promise<string[]> {
+  const passed = (i.project ?? {}) as Record<string, unknown>;
+  const last = passed.name === undefined && passed.repo_url === undefined ? await lastProjectKey(ctx.installationId) : '';
+  const fromKey = last.startsWith('name:') ? { name: last.slice(5) } : last ? { repo_url: last } : {};
+  const repo = str(passed.repo_url) ?? (fromKey as { repo_url?: string }).repo_url ?? null;
+  const name = str(passed.name) ?? (fromKey as { name?: string }).name ?? null;
+  const rec = await storedRecordContext(ctx.builderId!, i.project_id, repo, name);
+  const stored = rec.record.projects.find((p) => p.id === rec.projectId);
+  const facts = reportedFacts({
+    name: name ?? stored?.name ?? null, description: str(passed.description),
+    repo_url: repo ?? stored?.repo_url ?? null, live_url: str(passed.live_url) ?? stored?.live_url ?? null, demo_url: str(passed.demo_url),
+  });
+  return unvouchedRequired(prefill(row, facts, rec).fields).map((f) => f.key);
+}
+
 async function act(
   ctx: TrackContext,
   owner: string,
@@ -194,9 +213,10 @@ async function act(
   const standing = policy?.policy.auto_apply === true;
   const row = i.status === 'applied' ? await getProgram(i.program_id) : null;
   // S6 (v6.1.9): within the limits, a send under standing approval also needs every required answer.
-  // F1 (v6.1.10): and a required answer only the builder gives that the record does not hold is missing, whatever
+  // F1 (v6.1.10, fix round 2): and every required field must be one EarnKit vouches for (`unvouchedRequired`, the rule
+  // find holds the tonight list on), over the program prefilled with the stored record and the send's project, whatever
   // keys fields_used names.
-  const owed = standing && row ? owedByBuilder(row, await storedRecordContext(ctx.builderId!, i.project_id, str(i.project?.repo_url), str(i.project?.name))) : [];
+  const owed = standing && row ? await unvouchedAtSend(ctx, i, row) : [];
   let outside = standing && row ? (outsideApproval(policy!, row) ?? (requiredLeftOut(row, i.fields_used).length > 0 || owed.length > 0 ? REQUIRED_MISSING : null)) : null;
   const applied = i.status === 'applied'
     ? { submitted_by: i.submitted_by, fields_used: i.fields_used, project_id: i.project_id, autoApplied: standing && outside === null, ...(standing ? { maxPerNight: policy!.policy.max_per_night } : {}) }

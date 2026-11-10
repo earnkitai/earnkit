@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
-import { owedByBuilder, prefill, vouched } from './prefill';
+import { prefill, unvouchedRequired } from './prefill';
 import { repoFacts, type RepoFacts } from './repo-facts';
 import { parseProject } from './project-input';
 import { ProgramFile } from './program-file';
@@ -205,8 +205,8 @@ test('unapproved answers are not fitted', async () => {
   assert.equal(f.from, 'builder');
   assert.equal(f.sources?.at(-1), 'the builder, once: store the answer with record before using it');
   assert.deepEqual(out.need_you, ['the problem']);
-  assert.deepEqual(owedByBuilder(problemRow(), rec(recordWith(PROBLEM))), ['problem']);
-  assert.deepEqual(owedByBuilder(problemRow(), rec(recordWith(PROBLEM, ['answers.problem']))), []);
+  assert.deepEqual(unvouchedRequired(out.fields).map((x) => x.key), ['problem']);
+  assert.deepEqual(unvouchedRequired(prefill(problemRow(), facts, rec(recordWith(PROBLEM, ['answers.problem']))).fields), []);
   // Unlinked (no record): v5's agent field, without the ask-once source.
   assert.ok(!prefill(problemRow(), facts).fields[0].sources?.some((x) => x.includes('store the answer')));
 });
@@ -456,9 +456,15 @@ test('S12 (v6.1.9): with no repo read to confirm them, what the agent reported i
   assert.deepEqual(out.fields.map((f) => f.from), ['earnkit', 'earnkit', 'earnkit']);
 });
 
-test('F1 (v6.1.10): EarnKit vouches for its own values, the record\'s and an agent draft with sources; never a builder field', () => {
-  const f = (from: string, sources?: string[]) => ({ key: 'k', label: 'K', type: 'text', required: true, kind: 'other', value: null, from, ...(sources ? { sources } : {}) }) as never;
-  assert.deepEqual([f('earnkit'), f('record'), f('agent', ['README: x']), f('agent', []), f('builder', ['README: x'])].map(vouched), [true, true, true, false, false]);
+test('F1 fix round 2 (v6.1.10): unvouchedRequired is every required builder field without a value and every agent field with no sources; never by kind or key', () => {
+  const f = (key: string, from: string, o: { sources?: string[]; value?: string; required?: boolean; kind?: string } = {}) =>
+    ({ key, label: key, type: 'text', required: o.required ?? true, kind: o.kind ?? 'other', value: o.value ?? null, from, ...(o.sources ? { sources: o.sources } : {}) }) as never;
+  const fields = [
+    f('a', 'earnkit', { value: 'x' }), f('b', 'record', { value: 'x' }), f('c', 'agent', { sources: ['README: x'] }),
+    f('d', 'agent', { sources: [] }), f('e', 'agent'), f('linkedin', 'builder', { kind: 'links' }), f('chains_and_tools', 'builder', { kind: 'how_it_works', sources: ['README: x'] }),
+    f('opt', 'builder', { required: false }),
+  ];
+  assert.deepEqual(unvouchedRequired(fields).map((x: { key: string }) => x.key), ['d', 'e', 'linkedin', 'chains_and_tools']);
 });
 
 test('lane 8 #8 (v6.1.10): need_you is every required builder field without a record value, the same list the line names', async () => {

@@ -284,31 +284,30 @@ export function prefill(
     repo_required,
     from_record: fields.filter((f) => f.required && f.from === 'record').length,
     total: fields.filter((f) => f.required).length,
-    // Lane 8 #8 (v6.1.10): one list, every required builder field without a record value; the agent's drafts
+    // Lane 8 #8 (v6.1.10): one list, the unvouched required fields (fix round 2); the agent's drafts with sources
     // (a told fact included, F2) are never "need you".
-    need_you: fields.filter((f) => f.required && f.from === 'builder').map((f) => todo.get(f.key) ?? f.label.toLowerCase()),
+    need_you: unvouchedRequired(fields).map((f) => todo.get(f.key) ?? f.label.toLowerCase()),
   };
 }
 
-/** F1 (v6.1.10): a value EarnKit can vouch for: its own, the record's, or an agent draft with sources. Pure. */
-export const vouched = (f: Field): boolean => f.from === 'earnkit' || f.from === 'record' || (f.from === 'agent' && (f.sources?.length ?? 0) > 0);
-
-/** The facts a send is checked against when no repo read is at hand: the record project's links, as reported. */
-const NO_READ: RepoFacts = {
-  name: '', description: '', repo_url: null, repo_url_basis: null, live_url_basis: null, demo_url_basis: null, public: false, as_reported: true, live_url: null, demo_url: null, chains: [], contracts: [],
-  builder_codes: false, integrations: [], users: null, first_commit_at: null, last_commit_at: null, readme_excerpt: null, homepage: null,
-};
-/** Fields a repo read can fill (links, a contract, a chain, a project field): never judged without that read. */
-const readFillable = (r: SubmissionRequirement) => r.kind === 'links' || r.project_field !== undefined || /contract|chain/.test(r.key);
-
 /**
- * F1 and lane 8 #1 (v6.1.10): the program's required fields only the builder gives that the record does not hold
- * (a personal fact, a contact, a file, a prose answer not approved), whatever the repo says: the keys a send under
- * standing approval cannot count as filled, whichever keys the agent names. Pure.
+ * The one vouched-field rule (F1, v6.1.10, fix round 2): every required field whose value EarnKit cannot vouch for: a
+ * `builder` field without a value, or an `agent` field with no sources. Judged by `from`, value and sources only, never
+ * by kind or key. Find holds a send on it (need_you, the tonight list) and track counts a send as under standing
+ * approval only when it is empty, whatever keys the agent names. Pure.
  */
-export function owedByBuilder(program: ProgramRow, rec: RecordContext): string[] {
-  const reqs = new Map(program.file.submission_requirements.map((r) => [r.key, r]));
-  return prefill(program, NO_READ, rec).fields
-    .filter((f) => f.required && f.from === 'builder' && !readFillable(reqs.get(f.key)!))
-    .map((f) => f.key);
+export function unvouchedRequired(fields: Field[]): Field[] {
+  return fields.filter((f) => f.required && ((f.from === 'builder' && !f.value) || (f.from === 'agent' && (f.sources?.length ?? 0) === 0)));
+}
+
+/** What a send's project reports (its passed links, or the stored project's), as facts with no repo read behind them. */
+export type ReportedProject = { name?: string | null; description?: string | null; repo_url?: string | null; live_url?: string | null; demo_url?: string | null };
+/** The facts a send is checked against at track time: the project's own report, never a read. Pure. */
+export function reportedFacts(p: ReportedProject): RepoFacts {
+  return {
+    name: p.name ?? '', description: p.description ?? '', repo_url: p.repo_url ?? null, live_url: p.live_url ?? null, demo_url: p.demo_url ?? null,
+    repo_url_basis: p.repo_url ? 'reported' : null, live_url_basis: p.live_url ? 'reported' : null, demo_url_basis: p.demo_url ? 'reported' : null,
+    public: false, as_reported: true, chains: [], contracts: [], builder_codes: false, integrations: [], users: null,
+    first_commit_at: null, last_commit_at: null, readme_excerpt: null, homepage: null,
+  };
 }

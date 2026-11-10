@@ -48,7 +48,7 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
    description and options matched on them are `from: 'agent'` with the source "what the builder told you", never
    EarnKit's value (S12); they count as the agent's drafts, never as "need you" (F2, v6.1.10). `need_you` is one list:
    every required `builder` field without a record value, and the ready line's "Needs your ..." and "k need you" read
-   it (lane 8 #8). Linked, a prose answer the record does not hold is `builder` (asked once, stored with record), with
+   it (lane 8 #8; it is `unvouchedRequired`'s list). Linked, a prose answer the record does not hold is `builder` (asked once, stored with record), with
    the sources kept to help word it (lane 8 #1). An installation gets
    10 uncached reads a UTC day (a cache hit is free); past that the facts are agent-reported only with the problem
    "repo reads paused until tomorrow". A private or unreadable repo is agent-reported only, and the reply says so
@@ -362,10 +362,11 @@ builder's word, answers "Noted." and counts done (N-5). Otherwise the row is rec
 your standing approval: {reason}." (`outsideApproval` in `find-record.ts`). The required-answer rule (v6.1.9 S6): within
 every limit, a send under standing approval also needs every required field of the program's form in `fields_used`
 (`requiredLeftOut`); one left out (or no `fields_used`) is recorded the same way with "a required answer was missing",
-and so is a send whose form has a required field EarnKit cannot vouch for (the vouched-field rule, v6.1.10 F1: a value
-is vouched when it is `earnkit`, `record`, or an `agent` draft with sources; `owedByBuilder` in `prefill.ts` lists the
-required `builder` fields the stored record does not hold, read-fillable links, contracts and chains aside), whatever
-keys `fields_used` names,
+and so is a send whose form has a required field EarnKit cannot vouch for, whatever keys `fields_used` names (the
+vouched-field rule, v6.1.10 F1: one helper, `unvouchedRequired(fields)` in `prefill.ts`, returns every required `builder`
+field without a value and every `agent` field with no sources, judged by `from`, value and sources only; find's
+`need_you` and tonight list read it, and track's `unvouchedAtSend` runs it over the program prefilled with the stored
+record and the send's project, its passed links, else the record project's, else the last find's project key),
 and find's standing note says "Under standing approval, send only when every required answer is filled; otherwise wait
 for the builder." Find holds the same line: a ready program with a required builder answer still empty leaves the
 tonight list and is named in its own block, "Before tonight (nothing is sent until these are in): your {answers} for
