@@ -422,3 +422,32 @@ test('B16: a short form whose text is not approved is never used; an agent\'s ne
   assert.notEqual(f.from, 'record');
   assert.equal(f.value, null);
 });
+
+test('S12 (v6.1.9): with no repo read to confirm them, what the agent reported is the agent\'s to draft, never EarnKit\'s', () => {
+  const read: RepoFacts = {
+    name: 'App', description: 'The leading DeFi super app with 50,000 daily users', repo_url: 'https://github.com/a/b', public: true, as_reported: false,
+    live_url: null, demo_url: null, chains: [{ chain: 'base', mainnet: true, basis: 'reported' }], contracts: [], builder_codes: false, users: null,
+    first_commit_at: null, last_commit_at: null, readme_excerpt: null, homepage: null, integrations: [],
+    repo_url_basis: 'code', live_url_basis: null, demo_url_basis: null,
+  };
+  const row = rowWith([
+    req({ key: 'name', label: 'Name', type: 'text', kind: 'name', project_field: 'name' }),
+    req({ key: 'building', label: 'What are you building', type: 'text', kind: 'one_liner' }),
+    req({ key: 'repo', label: 'Repo', type: 'url', kind: 'links', project_field: 'repo_url' }),
+  ]);
+  for (const facts of [{ ...read, notes: ['empty' as const] }, { ...read, as_reported: true, public: false, repo_url_basis: 'reported' as const }]) {
+    const out = prefill(row, facts);
+    const by = Object.fromEntries(out.fields.map((f) => [f.key, f]));
+    for (const k of ['name', 'building']) {
+      assert.equal(by[k].from, 'agent', k);
+      assert.equal(by[k].value, null, k);
+      assert.equal(by[k].sources![0], 'what the builder told you', k);
+    }
+    // The drafted count says so: the two are the agent's, not filled by EarnKit.
+    assert.ok(out.need_you.includes('an answer'));
+    assert.equal(out.filled, 1);
+  }
+  // A repo read that is not empty: the passed name and description stay EarnKit's values as before.
+  const out = prefill(row, read);
+  assert.deepEqual(out.fields.map((f) => f.from), ['earnkit', 'earnkit', 'earnkit']);
+});

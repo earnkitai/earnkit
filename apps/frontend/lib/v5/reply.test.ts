@@ -293,7 +293,7 @@ test('the "Before applying" paragraph groups the sign-ins, names the clicks and 
   const before = text.split('\n\n').find((b) => b.startsWith('Before applying: '))!;
   assert.equal(
     before,
-    "Before applying: you sign in to Google on your agent's computer for Base Builder Grant and Google Two; you sign in to Avalanche Builder Hub for Avalanche Team1; you sign in by email and press submit yourself on Click Grant. Still missing from your record: your founder video link, an approved answer on the problem, your deck link and 1 more.",
+    "Before applying: you sign in to Google on your agent's computer for Base Builder Grant and Google Two; you sign in to Avalanche Builder Hub for Avalanche Team1; you sign in by email and press submit yourself on Click Grant. Still missing for these programs: your founder video link, an approved answer on the problem, your deck link and 1 more.",
   );
   const blocks = text.split('\n\n');
   assert.deepEqual(blocks.slice(-4), [
@@ -311,7 +311,7 @@ test('the "Before applying" paragraph groups the sign-ins, names the clicks and 
   const tonight = replyText(free, false);
   // N4 (v6.1.9): tonight waits on none of the builder's steps; they would add more.
   assert.ok(tonight.split('\n\n').includes(
-    "Tonight's send goes ahead. These would add 4 more: you sign in to Google on your agent's computer for Base Builder Grant and Google Two; you sign in to Avalanche Builder Hub for Avalanche Team1; you sign in by email and press submit yourself on Click Grant. Still missing from your record: your founder video link, an approved answer on the problem, your deck link and 1 more.",
+    "Tonight's send goes ahead. These would add 4 more: you sign in to Google on your agent's computer for Base Builder Grant and Google Two; you sign in to Avalanche Builder Hub for Avalanche Team1; you sign in by email and press submit yourself on Click Grant. Still missing for these programs: your founder video link, an approved answer on the problem, your deck link and 1 more.",
   ), tonight);
   assert.doesNotMatch(tonight, /Before tonight|nothing is sent until/);
   assert.match(tonight, /\n\nApplying tonight to Free\. Say stop to hold any\.$/);
@@ -623,4 +623,32 @@ test('M1 (v6.1.9): nothing ready and no rule-only program shown: the closing off
   assert.equal(end(base({ gaps: [floss, rule] })), 'Nothing is ready yet. Say "yes 2" if that rule fits you.');
   assert.equal(end(base({ ready: [MONDAY.ready[0]], gaps: [floss] })), 'Say yes and I apply.');
   for (const t of [end(base({ gaps: [floss] })), end(base({ gaps: [vr] }))]) assert.doesNotMatch(t!, /—|\b(score|rank|grade|points|coin|token|streak)s?\b/i);
+});
+
+test('v6.1.9: after the builder\'s yes on a rule, the program it made ready is applied to without a second yes', () => {
+  const one = base({ ready: [ready({ title: 'Solana Foundation Grants', rule_yes: true, rules: ['a public good'] })] });
+  assert.equal(replyText(one, true).split('\n\n').at(-1), 'Your yes stands for Solana Foundation Grants: I apply now.');
+  const two = base({ ready: [ready({ title: 'Solana Foundation Grants', rule_yes: true }), ready({ title: 'Other Grant' })] });
+  assert.equal(replyText(two, true).split('\n\n').at(-1), 'Your yes stands for Solana Foundation Grants: I apply now. Say yes and I apply.');
+  // The builder presses submit on it: no "I apply now".
+  const click = base({ ready: [ready({ title: 'Click Grant', rule_yes: true })], blockers: [{ program_id: 'click-grant', sign_in: null, needs_click: true, needs: [] }] });
+  assert.equal(replyText(click, true).split('\n\n').at(-1), 'Say yes and I draft it for you to send.');
+});
+
+test('v6.1.9: the standing note asks for every required answer; record_missing is told apart from record get', () => {
+  const note = agentNote(base({ auto_apply: true, linked: true, record_missing: ['your email'] }), { more: 0 });
+  assert.ok(note.includes('Under standing approval, send only when every required answer is filled; otherwise wait for the builder.'));
+  assert.ok(note.includes('record_missing names only what these programs need; record get names everything the record lacks.'));
+  assert.match(replyText(base({ linked: true, record_missing: ['your email'], ready: [ready({ title: 'A' })] }), true), /Before applying: Still missing for these programs: your email\./);
+});
+
+test('v6.1.9: Builder Codes reported but not in the code read is said once', () => {
+  const show = replyText(base({ repo_notes: ['no_builder_codes', 'no_builder_codes'] }), true);
+  assert.equal(show.split('The repo does not send Builder Codes yet.').length, 2);
+});
+
+test('v6.1.9: an in-person need the setup step already names is said once', () => {
+  const r = base({ ready: [ready({ title: 'Alliance ALL19', in_person: true, setup: ["open the application with the first founder's email"], needs: ["open the application with the first founder's email", "the first founder's email"] })] });
+  const line = replyText(r, true).split('\n').find((l) => l.includes('Alliance'))!;
+  assert.equal(line, "1. Alliance ALL19, $1K. First: open the application with the first founder's email.");
 });

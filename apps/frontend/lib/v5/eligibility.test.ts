@@ -31,8 +31,11 @@ async function factsOf(slug: string, over: Record<string, unknown> = {}): Promis
 
 test('EarnKit vs Base: ready with builder codes and users, else the builder codes gap', async () => {
   const base = fromFile('base-builder-grants');
-  const ready = evaluate(base, await factsOf('earnkit', { live_url: 'https://earnkit.com', builder_codes: true, users: true }), new Set(), NOW);
-  assert.equal(ready.status, 'ready');
+  // The report stands where no repo was read (private); a public read that finds none beats it (v6.1.9).
+  const ready = evaluate(base, await factsOf('earnkit', { live_url: 'https://earnkit.com', builder_codes: true, users: true, private: true, chains: [{ chain: 'base', mainnet: true, contract: '0x' + 'a'.repeat(40) }] }), new Set(), NOW);
+  assert.equal(ready.status, 'ready', JSON.stringify(ready));
+  const reported = evaluate(base, await factsOf('earnkit', { live_url: 'https://earnkit.com', builder_codes: true, users: true }), new Set(), NOW);
+  assert.deepEqual([reported.status, reported.gaps[0]?.kind], ['gap', 'builder_codes']);
   const v = evaluate(base, await factsOf('earnkit', { live_url: 'https://earnkit.com', users: true }), new Set(), NOW);
   assert.equal(v.status, 'gap');
   assert.equal(v.gaps.length, 1);

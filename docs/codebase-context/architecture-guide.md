@@ -39,7 +39,14 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
    missing name or description fails. `users` is true, false or null (not reported).
 2. `repo-facts.ts` reads a public GitHub repo with EarnKit's own token (`github.ts`: repo, tree, README, up to 12
    config files for chain detection, first commit date) and merges it with what the agent reported. Facts are cached
-   7 days in `repo_cache` and re-read when `pushed_at` moves; the cron sweeps rows over 30 days. An installation gets
+   7 days in `repo_cache` and re-read when `pushed_at` moves; the cron sweeps rows over 30 days. A row is trusted
+   without a push check for an hour, except when the owner marked a code-checked step done (`gap_done` on chain,
+   contract_on, builder_codes, live_product or integration) after it was read: find passes that time (`codeDoneAt`) as
+   `staleAfter`, and the read checks for a push first, so the next find sees the change (v6.1.9 S4). A public read
+   beats a reported `builder_codes: true`: none in the code is none, said once as "The repo does not send Builder
+   Codes yet." (repo note `no_builder_codes`). With no read to confirm them (none, or an empty repo), the name,
+   description and options matched on them are `from: 'agent'` with the source "what the builder told you", never
+   EarnKit's value (S12). An installation gets
    10 uncached reads a UTC day (a cache hit is free); past that the facts are agent-reported only with the problem
    "repo reads paused until tomorrow". A private or unreadable repo is agent-reported only, and the reply says so
    (`as_reported`).
@@ -63,7 +70,9 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
    homepage, contracts and chains with basis `code`), never anything the agent passed; the reply says "Drafted: N facts from the repo." only when N is above zero.
 6. `since.ts` lists programs new, changed (deadline, amount, status, form) and closing within 7 days since this
    installation's `last_find_at`. Empty on the first call.
-7. `ledger.ts` summarises the installation's applications; results past due become `ask_outcome`.
+7. `ledger.ts` summarises the installation's applications; results past due become `ask_outcome`. A program with no
+   results date is asked about 30 days after the send (`sent_at`, else `at`; `ASK_AFTER_DAYS`, v6.1.9), so "I'll ask
+   how it went when results are due." is always kept.
 8. `find` caps the lists (at most 5 remote ready, 3 gaps, then at most 2 in person) and `reply.ts` writes `show_to_builder` and `agent_note`. In-person
    programs get their own block with their setup (never in "apply to all N"), and the reply ends with
    exactly one closing line. `find` caps remote and in-person ready apart, so an in-person program never takes a remote slot.
@@ -174,7 +183,7 @@ keys from tool-call bodies before anything sees them.
 | `program_changes` | Field-level changes, for `since` and the owner digest |
 | `program_writes` | The write API's audit log and the pending writes |
 | `program_health` | The freshness probe: link status, page hash and text, failing days, changed_at |
-| `installations` | One row per issued token (hash only): client name, `last_seen_at`, `last_find_at`, `last_gaps` (the last find's gaps), `builder_id` and `linked_at` when linked, `unlinked_at` and `unlinked_reason` (set by an unlink on /me or the account's deletion, cleared by the next find or a new link) |
+| `installations` | One row per issued token (hash only): client name, `last_seen_at`, `last_find_at`, `prev_find_at` (the find before; v6.1.9), `last_gaps` (the last find's gaps), `builder_id` and `linked_at` when linked, `unlinked_at` and `unlinked_reason` (set by an unlink on /me or the account's deletion, cleared by the next find or a new link) |
 | `rate_windows` | Request counters |
 | `repo_cache` | Public repo facts, 7 days; swept after 30 |
 | `evidence_cache` | v6 evidence blocks per repo (`repo:<owner/name>`, with pushed_at) and per contract, used for 7 days; not swept yet |
@@ -325,7 +334,21 @@ would add {n} more: ..." (N4). `gap_done` on a code-checked item (chain, contrac
 integration) answers "Noted. I check the repo on the next look." and, while the read still misses it, the next find
 adds "I looked again and did not find {what}; it stays a step." after that program's line; any other item is the
 builder's word, answers "Noted." and counts done (N-5). Otherwise the row is recorded with `auto_applied: false` and the builder line reads "Sent, but outside
-your standing approval: {reason}." (`outsideApproval` in `find-record.ts`). `/me/policy` refuses auto apply with no
+your standing approval: {reason}." (`outsideApproval` in `find-record.ts`). The required-answer rule (v6.1.9 S6): within
+every limit, a send under standing approval also needs every required field of the program's form in `fields_used`
+(`requiredLeftOut`); one left out (or no `fields_used`) is recorded the same way with "a required answer was missing",
+and find's standing note says "Under standing approval, send only when every required answer is filled; otherwise wait
+for the builder." A send that does count as under standing approval puts the installation's `last_find_at` back to
+`prev_find_at` (`unmarkNightFind`): the find before it was the night routine's, so the morning find still reports every
+overnight send. `applied` after the program closed is recorded with "{title} closed on {day}; recorded anyway.";
+`applied` as the first call after the account was deleted answers the deleted notice alone and writes nothing;
+`started` on an in-person or builder-only program tells the agent "The builder presses submit; prepare the answers and
+hand them over." A rule the builder confirmed marks the ready program `rule_yes`, and the closing reads "Your yes stands
+for {title}: I apply now." instead of asking again. `find { program_id }` resolves an id or a name (`programByName`:
+case-insensitive id or title, a title's leading words, the id's initials such as "yc"), else "I don't know that
+program." with "Did you mean {title}?" when exactly one title shares a word. Find's record line reads "Still missing for
+these programs: ..." (what these forms need); `record get` keeps "Your record is missing: ..." (every fact), and both
+`record get` and `set` carry an agent note. `/me/policy` refuses auto apply with no
 category ticked ("Pick at least one category.", C43).
 
 **The four tools** (`lib/v5/mcp.ts`):

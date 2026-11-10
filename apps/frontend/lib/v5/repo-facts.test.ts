@@ -87,7 +87,9 @@ test('reported facts fill the gaps; live_url and demo_url from the report win; r
   assert.equal(f.live_url_basis, 'reported');
   assert.equal(f.demo_url_basis, 'reported');
   assert.equal(f.repo_url_basis, 'code');
-  assert.equal(f.builder_codes, true);
+  // v6.1.9: the code read beats the report; it finds no Builder Codes, and the builder is told once.
+  assert.equal(f.builder_codes, false);
+  assert.deepEqual(f.notes, ['no_builder_codes']);
   assert.equal(f.users, true);
   assert.equal(f.public, true);
 });

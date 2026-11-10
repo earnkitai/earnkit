@@ -524,7 +524,7 @@ test('linked: record fields, what the record lacks, blockers, and the own tier r
   const show = reply.show_to_builder as string;
   assert.match(show, /^1\. [^\n]+ \d+ from your record, \d+ from the repo/m);
   // v6.1.6 (R21): Y Combinator is in person, so its line names what attending takes and the Before block does not.
-  assert.match(show, /\n\nBefore applying: [^\n]*Still missing from your record: [^\n]+\./);
+  assert.match(show, /\n\nBefore applying: [^\n]*Still missing for these programs: [^\n]+\./);
   assert.doesNotMatch(show.split('\n\n').find((b) => b.startsWith('Before applying: '))!, /Y Combinator/);
   assert.match(show, /\n\nYour project is live, with no verified usage yet\. Next: [^\n]+\.\n\n/);
   assert.doesNotMatch(show, /Sign in once at/);
@@ -1592,4 +1592,61 @@ test('N-5 (v6.1.9): a step marked done that the read still misses is said once p
   assert.deepEqual([demo.reply!.show_to_builder, demo.reply!.agent_note], ['Noted.', 'Call find again; that step counts as done.']);
   const after = await one('n5-demo');
   assert.doesNotMatch(after, /demo video|looked again/);
+});
+
+test('v6.1.9: find with program_id takes the id or the name in any case; else a guess when one title shares a word', async () => {
+  for (const name of ['yc', 'YC', 'Y Combinator', 'y combinator winter 2027 batch', 'Y-Combinator']) {
+    const r = await mcpCall(ctx(await installation()), 'find', { program_id: name });
+    assert.equal(r.isError, false, r.text);
+    assert.match(r.reply!.show_to_builder as string, /^Y Combinator Winter 2027 Batch, /, name);
+    assert.equal((r.reply!.program as { id: string }).id, 'y-combinator', name);
+  }
+  const near = await mcpCall(ctx(await installation()), 'find', { program_id: 'Combinator Labs' });
+  assert.equal(near.reply!.show_to_builder, "I don't know that program. Did you mean Y Combinator Winter 2027 Batch?");
+  const none = await mcpCall(ctx(await installation()), 'find', { program_id: 'qqq-unknown' });
+  assert.equal(none.reply!.show_to_builder, "I don't know that program.");
+});
+
+test('v6.1.9: after the builder says yes to the rule, the program comes back ready and the yes stands', async () => {
+  const saber = replayFetch('saber-distributor');
+  const devnet = ((u: RequestInfo | URL) =>
+    String(u).endsWith('/Anchor.toml') ? Promise.resolve(new Response('[programs.devnet]\nx = "y"\n[provider]\ncluster = "devnet"')) : saber.fetch(u)) as typeof fetch;
+  const project = { name: 'Orca Whirlpools', description: 'Concentrated liquidity DEX on Solana', repo_url: `https://github.com/${saber.repo}`, live_url: 'https://www.orca.so', users: true, chains: [{ chain: 'solana', mainnet: true, contract: 'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc' }] };
+  const c = { installationId: await installation(), builderId: null, now: NOW, gh: devnet };
+  const before = await mcpCall(c, 'find', { program_id: 'solana-foundation-grants', project });
+  const rule = (before.reply!.verdict as { gaps: { kind: string; item: string }[] }).gaps.find((g) => g.kind === 'rule')!;
+  await mcpCall(c, 'track', { program_id: 'solana-foundation-grants', status: 'gap_done', item: rule.item });
+  const after = await mcpCall(c, 'find', { program_id: 'solana-foundation-grants', project });
+  assert.equal((after.reply!.show_to_builder as string).split('\n').at(-1), 'Your yes stands for Solana Foundation Grants: I apply now.');
+  const list = await mcpCall(c, 'find', { project });
+  const ready = (list.reply!.ready as { program_id: string; rule_yes?: true }[]).find((p) => p.program_id === 'solana-foundation-grants');
+  assert.equal(ready?.rule_yes, true);
+  assert.match((list.reply!.show_to_builder as string).split('\n\n').at(-1)!, /^Your yes stands for Solana Foundation Grants: I apply now\./);
+});
+
+test('N9 (v6.1.9): the one-program detail tells the agent to pass project_id when the project is not in the record', async () => {
+  const { id, builderId } = await linkedWith({ projects: [{ id: 'other', name: 'Other App', repo_url: 'https://github.com/someone/other' }] });
+  const r = await mcpCall({ installationId: id, builderId, now: NOW, gh: rec.fetch, evidence: async () => ({ live: [], usage: [] }) as never }, 'find', { program_id: 'base-builder-grants', project: PROJECT });
+  assert.equal(r.isError, false, r.text);
+  assert.ok((r.reply!.agent_note as string).split('\n').some((l) => l.includes('pass project_id (record get lists them) next time')), r.reply!.agent_note as string);
+});
+
+test('S4 (v6.1.9): a code step marked done makes the next find check the repo again, though the cached read is fresh', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  await upsertProgram(programFixture({ id: 's4-codes', title: 'S4 Codes Grant', eligibility: [{ kind: 'builder_codes' }] as never }), 'file', NOW);
+  let calls = 0;
+  const spy = ((u: RequestInfo | URL) => {
+    calls++;
+    return rec.fetch(u);
+  }) as typeof fetch;
+  const c = (min: number) => ({ installationId: id, builderId: null, now: new Date(NOW.getTime() + min * 60_000), gh: spy });
+  const id = await installation();
+  await mcpCall(c(0), 'find', { project: PROJECT });
+  calls = 0;
+  await mcpCall(c(5), 'find', { project: PROJECT });
+  assert.equal(calls, 0, 'a fresh read is served from the cache');
+  const done = await mcpCall(c(6), 'track', { program_id: 's4-codes', status: 'gap_done', item: 'builder_codes' });
+  assert.equal(done.reply!.agent_note, 'Call find again so the repo is re-read.');
+  await mcpCall(c(7), 'find', { project: PROJECT });
+  assert.ok(calls > 0, 'the step marked done sends the read back to GitHub');
 });

@@ -127,7 +127,8 @@ const THING = /^(a|an|the|your)\s/i;
 export function inPersonLine(p: ReadyProgram, alone = false): string {
   const odds = p.long_shot ? ` Long odds: ${p.long_shot}.` : '';
   const head = `${num(p.n, alone)}${p.title}, ${p.money}${p.closes_in ? `, closes ${p.closes_in}` : ''}.${odds}`;
-  const own = p.needs.filter((x) => !p.setup.includes(x));
+  // A need the setup step already names ("open the application with the first founder's email") is said once.
+  const own = p.needs.filter((x) => !p.setup.includes(x) && !p.setup.some((step) => step.includes(x)));
   const things = p.setup.length > 0 && THING.test(p.setup[0]);
   if (things && own.length > 0) {
     const all = [...p.setup, ...own];
@@ -273,7 +274,8 @@ function beforeTonight(r: R, tonight: number): string | null {
   const clauses = [...groups].filter(([, t]) => t.length > 0).map(([words, t]) => `${words} ${listWords(t, t.length)}`);
   // Named once: a program the builder submits is not named again here.
   const outside = titlesOf(r, remote.filter((b) => b.outside_approval && !b.needs_click));
-  const missing = r.record_missing.length > 0 ? `Still missing from your record: ${listWords(r.record_missing)}.` : null;
+  // What these programs' forms need (v6.1.9); record get names everything the record lacks.
+  const missing = r.record_missing.length > 0 ? `Still missing for these programs: ${listWords(r.record_missing)}.` : null;
   if (tonight > 0) {
     const steps = [...clauses, ...(outside.length > 0 ? [`you say yes yourself to ${listWords(outside, outside.length)}`] : [])];
     const more = new Set([...groups.values(), outside].flat()).size;
@@ -314,7 +316,13 @@ export function firstStepOf(gaps: GapProgram[]): FirstStep | null {
  * on every one, C44), or with none ready and gaps shown "Nothing is ready yet." and the first rule-only gap's
  * "yes r", else the first step (M1, v6.1.9). The gap lines carry their own "do n" and "yes n". Pure.
  */
-export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number; firstRule: number | null; inPerson: number; held: number; firstStep?: FirstStep | null }): string {
+export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number; firstRule: number | null; inPerson: number; held: number; firstStep?: FirstStep | null; yesStands?: string[] }): string {
+  // v6.1.9: the builder's yes to a rule already stands for the program it made ready: no second yes is asked for it.
+  const stands = o.yesStands ?? [];
+  if (stands.length > 0) {
+    const head = `Your yes stands for ${listWords(stands, stands.length)}: I apply now.`;
+    return o.ready > stands.length ? `${head} ${closingLine({ ...o, ready: o.ready - stands.length, yesStands: [] })}` : head;
+  }
   const { ready, draftOnly } = o;
   if (ready === 1) return draftOnly ? 'Say yes and I draft it for you to send.' : 'Say yes and I apply.';
   if (ready > 1) return `${draftOnly ? `Say yes and I draft all ${ready} for you to send.` : `Say yes and I apply to all ${ready}.`} Or say the numbers to skip.`;
@@ -359,6 +367,7 @@ export const REPO_NOTE: Record<RepoNote, string> = {
   fork: 'This repo is a fork; programs judge the original.',
   archived: 'This repo is archived; programs want active work.',
   empty: 'The repo is empty, so I matched on what you told me.',
+  no_builder_codes: 'The repo does not send Builder Codes yet.',
 };
 
 /** What the builder sees. The since line never shows on the first find; `now` reads the claim times. */
@@ -404,7 +413,10 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
       : [
           // N1 (v6.1.9, fix round 1): the used limit takes the tonight list's place; the builder can still say yes.
           ...(limitUsed ? [LIMIT_USED] : []),
-          closingLine({ ready: free.length, draftOnly, gaps: r.gaps.length, firstRule, inPerson: inPerson.length, held: ready.length - free.length, firstStep: firstStepOf(r.gaps) }),
+          closingLine({
+            ready: free.length, draftOnly, gaps: r.gaps.length, firstRule, inPerson: inPerson.length, held: ready.length - free.length, firstStep: firstStepOf(r.gaps),
+            yesStands: free.filter((p) => p.rule_yes && !click.has(p.program_id)).map((p) => p.title),
+          }),
         ].join(' ');
   // R5a: saying yes is the one action; unlinked with a link, signing in is the closing block's second sentence.
   // The first find after a link names the account it linked to, last (security M2); after an unlink the notice
@@ -415,13 +427,17 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   return blocks.join('\n\n');
 }
 
+/** C41 (v6.1.8): no record project matched, so only record-level answers were used; also on the one-program detail (N9, v6.1.9). */
+export const NO_PROJECT_NOTE =
+  "No project in the builder's record matched this one by project_id, repo or name, so no project answers were used; pass project_id (record get lists them) next time.";
+
 /**
  * What the agent does with the reply. `more`: ready and gap programs left out of the lists. `description` (C58): the
  * project came with none, and the README's first sentence stood in ('readme') or nothing could (`none`).
  */
 export function agentNote(r: R, o: { more: number; description?: 'readme' | 'none' | null }): string {
   const standing =
-    'Standing approval is on: for each ready program within the limits, call track started, fill from fields, submit where the program allows an agent, then track applied with submitted_by agent and fields_used. Stop at max_per_night. Never submit where blockers say needs_click, outside_approval or a sign-in you do not have.';
+    'Standing approval is on: for each ready program within the limits, call track started, fill from fields, submit where the program allows an agent, then track applied with submitted_by agent and fields_used. Stop at max_per_night. Never submit where blockers say needs_click, outside_approval or a sign-in you do not have. Under standing approval, send only when every required answer is filled; otherwise wait for the builder.';
   const lines = [
     'Open with show_to_builder in your own words: warm, direct, short, no emojis, no em dashes, no invented facts.',
     r.linked
@@ -450,7 +466,8 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
   if (r.ask_outcome.length > 0)
     lines.push(`Ask once how each went: ${r.ask_outcome.map((a) => a.title).join(', ')}. Pass each answer to track (won with amount_usd, rejected or no_result).`);
   if (r.linked) lines.push('Fit approved answers by cutting, never by adding; the style contract travels on each field.');
-  if (r.record_missing.length > 0) lines.push('Ask for the missing record items once, all together, and save each with record.');
+  if (r.record_missing.length > 0)
+    lines.push('Ask for the missing record items once, all together, and save each with record. record_missing names only what these programs need; record get names everything the record lacks.');
   if (r.ready.some((p) => p.claimed_since)) lines.push('A ready program with claimed_since is claimed by another of the builder\'s agents: do not submit it.');
   if (r.released.length > 0) lines.push(`Claims left unsent for 24 hours were released: ${r.released.join(', ')}.`);
   const paused = r.problems?.includes(READS_PAUSED) === true;
@@ -460,7 +477,7 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
   if (o.description === 'none') lines.push('No description was passed and no README could stand in; pass one next time.');
   // C41 (v6.1.8): no record project is this one, so only record-level answers were used.
   if (r.problems?.includes(NO_RECORD_PROJECT))
-    lines.push("No project in the builder's record matched this one by project_id, repo or name, so no project answers were used; pass project_id (record get lists them) next time.");
+    lines.push(NO_PROJECT_NOTE);
   const dropped = (r.problems ?? []).filter((p) => p !== READS_PAUSED && p !== EVIDENCE_NOT_READ && p !== NO_RECORD_PROJECT);
   if (dropped.length > 0) lines.push(`Some project facts were dropped: ${dropped.join('; ')}. Send them corrected next time.`);
   if (paused) lines.push('Repo reads are paused for this installation until tomorrow; the match used what you reported.');

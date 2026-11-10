@@ -10,19 +10,19 @@ import { readEvidence, type Evidence, type Subject } from '../v6/evidence';
 import { blockersOf, gateFor, notNever, missingFor, recordSide, storedRecordContext, type Blocker, type RecordSide } from '../v6/find-record';
 import { EMPTY_RECORD, unapprovedSince } from '../v6/record';
 import { signInLink } from '../v6/record-tool';
-import { DELETED_NOTICE, linkedNoticeLine, signInLine, signInSentence, unlinkedNoticeLine } from '../v6/reply-words';
+import { DELETED_NOTICE, NO_RECORD_PROJECT, linkedNoticeLine, signInLine, signInSentence, unlinkedNoticeLine } from '../v6/reply-words';
 import { timeLeftWords } from './deadline';
 import { evaluate, lookedAgain, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
 import { lastFindAt, markFind, newlyLinkedLogin } from './installations';
-import { askOutcome, autoSentSince, claimed, doneByProgram, doneItems, excluded, markAsked, summary, type Ledger } from './ledger';
+import { askOutcome, autoSentSince, claimed, codeDoneAt, doneByProgram, doneItems, excluded, markAsked, summary, type Ledger } from './ledger';
 import { prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, ruleNotes, type Category, type Program } from './program-file';
-import { getProgram, isOpen, listOpenPrograms, type ProgramRow } from './programs';
+import { isOpen, listOpenPrograms, programByName, type ProgramRow } from './programs';
 import { parseProject, type Project } from './project-input';
 import { rankGaps, rankReady, shownGapsOf } from './rank';
 import { repoFacts, type RepoFacts, type RepoNote } from './repo-facts';
-import { AGENT_FIELDS, CUT_NOTE, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyText, ruleSentence, signInOnly } from './reply';
+import { AGENT_FIELDS, CUT_NOTE, NO_PROJECT_NOTE, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyText, ruleSentence, signInOnly } from './reply';
 import { since, type Since } from './since';
 
 export const FindInput = z.object({
@@ -69,6 +69,8 @@ export type ReadyProgram = {
   n: number;
   /** Set while another agent of the builder's holds a claim on it (track started). */
   claimed_since?: string;
+  /** The builder confirmed its rules (track gap_done): that yes stands, so the closing asks for no second one (v6.1.9). */
+  rule_yes?: true;
 };
 export type GapProgram = {
   program_id: string;
@@ -168,16 +170,18 @@ const EMPTY_FACTS: RepoFacts = {
   builder_codes: false, integrations: [], users: null, first_commit_at: null, last_commit_at: null, readme_excerpt: null, homepage: null,
 };
 
-/** A read that fails is the agent's report alone (repoFacts falls back the same way when GitHub fails). */
+/** A read that fails is the agent's report alone (repoFacts falls back the same way when GitHub fails). A code change
+ *  the builder marked done since the cached read makes the read check for a push (v6.1.9 S4). */
 async function factsOf(project: Project, ctx: FindContext): Promise<RepoFacts> {
   try {
-    return await repoFacts(project, { gh: ctx.gh, now: ctx.now, installationId: ctx.installationId });
+    const staleAfter = await codeDoneAt(ownerOf(ctx));
+    return await repoFacts(project, { gh: ctx.gh, now: ctx.now, installationId: ctx.installationId, staleAfter });
   } catch {
     return repoFacts({ ...project, private: true }, { now: ctx.now });
   }
 }
 
-function readyOf(row: ProgramRow, v: Verdict, facts: RepoFacts, now: Date, side: RecordContext | null): Omit<ReadyProgram, 'n'> {
+function readyOf(row: ProgramRow, v: Verdict, facts: RepoFacts, now: Date, side: RecordContext | null, done: Set<string> = new Set()): Omit<ReadyProgram, 'n'> {
   const p = row.file;
   const rec = side ? { record: side.record, projectId: side.projectId, verifiedUsage: side.verifiedUsage } : null;
   const { fields, filled, facts_from_repo, repo_required, from_record, total, need_you } = prefill(row, facts, rec);
@@ -190,6 +194,7 @@ function readyOf(row: ProgramRow, v: Verdict, facts: RepoFacts, now: Date, side:
     needs: [...p.setup, ...fields.filter((f) => f.from === 'builder' && f.required).map((f) => todo.get(f.key) ?? f.label.toLowerCase())],
     setup: p.setup,
     rules: v.rules,
+    ...(v.rules.length > 0 && [...done].some((k) => k.startsWith('rule:')) ? { rule_yes: true as const } : {}),
   };
 }
 
@@ -216,13 +221,20 @@ function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram
   }
   const r = { ...ready(), n: 0 };
   if (r.in_person) return [inPersonLine(r, true), ...o.rules];
-  return [readyLine(r, o.linked, o.now, true), ...o.rules, closingLine({ ready: 1, draftOnly: o.draftOnly, gaps: 0, firstRule: null, inPerson: 0, held: 0 })];
+  const yesStands = r.rule_yes && !o.draftOnly ? [r.title] : [];
+  return [readyLine(r, o.linked, o.now, true), ...o.rules, closingLine({ ready: 1, draftOnly: o.draftOnly, gaps: 0, firstRule: null, inPerson: 0, held: 0, yesStands })];
 }
 
 /** One program: its file, its fields (for the project, when given) and the verdict, said as the find line says it. */
 async function oneProgram(ctx: FindContext, id: string, project: Project | null, projectId?: string, ask?: string): Promise<ProgramReply> {
-  const row = await getProgram(id);
-  if (!row) return { show_to_builder: "I don't know that program.", agent_note: 'Call find with the project for the programs it fits.', program: null, fields: [], guide: null, rules: [] };
+  // v6.1.9: the id, or what the builder calls it ("yc", "Y Combinator"), when it names one program.
+  const { row, suggest } = await programByName(id);
+  if (!row)
+    return {
+      show_to_builder: ["I don't know that program.", suggest ? `Did you mean ${suggest}?` : null].filter(Boolean).join(' '),
+      agent_note: 'Call find with the project for the programs it fits.', program: null, fields: [], guide: null, rules: [],
+    };
+  id = row.id;
   const p = row.file;
   // reviewers_contact is the owner's only: never in a tool reply (security M1).
   const { reviewers_contact: _owner, ...pub } = p;
@@ -258,7 +270,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
     : !open
       ? [`${p.title}, ${moneyOf(p)}, ${when}.`, ...rules.map(ruleSentence), ...guideRules, 'This one is closed.']
       : verdict
-        ? verdictText(row, verdict, () => readyOf(row, verdict, facts, ctx.now, rec), { linked: ctx.builderId !== null, now: ctx.now, draftOnly, rules: guideRules, signIn, done })
+        ? verdictText(row, verdict, () => readyOf(row, verdict, facts, ctx.now, rec, done), { linked: ctx.builderId !== null, now: ctx.now, draftOnly, rules: guideRules, signIn, done })
         : [`${p.title}, ${moneyOf(p)}${when ? `, ${when}` : ''}.`, ...rules.map(ruleSentence), ...guideRules];
   const real = verdict?.status === 'gap' ? verdict.gaps.filter((g) => g.kind !== 'rule') : [];
   return {
@@ -277,6 +289,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
                 ? ['On "do": make the gap\'s change (its details carry the docs), push, call track with gap_done and the gap\'s item, then call find with program_id again.']
                 : ['The builder makes each change (never deploy a contract for them); when they say it is done, call track with gap_done and the gap\'s item, then call find with program_id again.']),
               ...(fitted ? ['Fit approved answers by cutting, never by adding; the style contract travels on each field.'] : []),
+              ...(side?.problems.includes(NO_RECORD_PROJECT) ? [NO_PROJECT_NOTE] : []),
               ...(ask === 'rules' ? [] : ["The program's rules are in guide.rules; show them only when the builder asks, or call again with ask 'rules'."]),
             ]
       : ['It takes no entries now: draft nothing and submit nothing. Call find with the project for what is open.']
@@ -449,7 +462,7 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const holds = side ? new Map([...claims].filter(([, h]) => h.by !== ctx.installationId)) : new Map<string, { since: string }>();
   const { ready, gaps } = numbered(
     shownReady.map((v) => {
-      const r = readyOf(byId.get(v.program_id)!, v, facts, ctx.now, side);
+      const r = readyOf(byId.get(v.program_id)!, v, facts, ctx.now, side, done.get(v.program_id));
       const hold = holds.get(v.program_id);
       return hold ? { ...r, claimed_since: hold.since } : r;
     }),
