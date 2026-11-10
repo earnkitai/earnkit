@@ -6,7 +6,8 @@ import { z } from 'zod';
 import { getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason } from '../v6/builders';
 import { DELETED_NOTICE } from '../v6/reply-words';
 import { claim } from '../v6/claims';
-import { NIGHT_LIMIT, REQUIRED_MISSING, outsideApproval, requiredLeftOut } from '../v6/find-record';
+import { NIGHT_LIMIT, REQUIRED_MISSING, outsideApproval, requiredLeftOut, storedRecordContext } from '../v6/find-record';
+import { owedByBuilder } from './prefill';
 import { forgetGap, lastGaps, lastProjectKey, unmarkNightFind } from './installations';
 import { projectKeyOf } from './project-input';
 import { getProgram, isOpen, listOpenPrograms } from './programs';
@@ -35,6 +36,8 @@ export const TrackInput = z
 
 type Result = { show_to_builder: string; agent_note: string; ledger: Ledger; already_started?: true };
 
+/** A passed project fact as text, or null. Pure. */
+const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v : null);
 const usd = (n: number) => '$' + Math.round(n).toLocaleString('en-US');
 
 /** True when the owner's row for the program is an application already sent (applied or with a result). */
@@ -191,7 +194,10 @@ async function act(
   const standing = policy?.policy.auto_apply === true;
   const row = i.status === 'applied' ? await getProgram(i.program_id) : null;
   // S6 (v6.1.9): within the limits, a send under standing approval also needs every required answer.
-  let outside = standing && row ? (outsideApproval(policy!, row) ?? (requiredLeftOut(row, i.fields_used).length > 0 ? REQUIRED_MISSING : null)) : null;
+  // F1 (v6.1.10): and a required answer only the builder gives that the record does not hold is missing, whatever
+  // keys fields_used names.
+  const owed = standing && row ? owedByBuilder(row, await storedRecordContext(ctx.builderId!, i.project_id, str(i.project?.repo_url), str(i.project?.name))) : [];
+  let outside = standing && row ? (outsideApproval(policy!, row) ?? (requiredLeftOut(row, i.fields_used).length > 0 || owed.length > 0 ? REQUIRED_MISSING : null)) : null;
   const applied = i.status === 'applied'
     ? { submitted_by: i.submitted_by, fields_used: i.fields_used, project_id: i.project_id, autoApplied: standing && outside === null, ...(standing ? { maxPerNight: policy!.policy.max_per_night } : {}) }
     : {};

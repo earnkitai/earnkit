@@ -110,6 +110,20 @@ test('new work only with a first commit before the start is no', async () => {
   assert.equal(v.reason, 'needs work started after 2030-01-01');
 });
 
+test('O3 (v6.1.10, Review Focus 4): no first-commit date asks when the work started, never a refusal; a date or the builder\'s word settles it', async () => {
+  const p = toRow(programFixture({ id: 'p', existing_work: 'new_work_only', starts_at: '2026-10-01T00:00:00Z' }));
+  const item = 'new_work_after:2026-10-01T00:00:00Z';
+  const f = { ...(await factsOf('earnkit')), first_commit_at: null };
+  const v = evaluate(p, f, new Set(), NOW);
+  assert.equal(v.status, 'gap', JSON.stringify(v));
+  assert.deepEqual(v.gaps, [{ kind: 'new_work_after', item, what: 'tell me when you started this', effort: 'minutes', agent_can: false }]);
+  assert.equal(codeChecked(item), false);
+  assert.equal(evaluate(p, f, new Set([item]), NOW).status, 'ready');
+  assert.equal(evaluate(p, { ...f, first_commit_at: '2026-10-20T00:00:00Z' }, new Set(), NOW).status, 'ready');
+  const before = evaluate(p, { ...f, first_commit_at: '2026-09-01T00:00:00Z' }, new Set(), NOW);
+  assert.deepEqual([before.status, before.reason], ['no', 'needs work started after 2026-10-01']);
+});
+
 test('in person stays ready with the reason', async () => {
   const v = evaluate(toRow(programFixture({ id: 'p', in_person: true })), await factsOf('earnkit'), new Set(), NOW);
   assert.equal(v.status, 'ready');

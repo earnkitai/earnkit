@@ -61,11 +61,16 @@ const joinAnd = (xs: string[]): string => (xs.length <= 1 ? (xs[0] ?? '') : `${x
 /** A to-do as it reads after "Needs your": "your email" and "a Loom product demo" lose their first word. */
 const bare = (todo: string) => todo.replace(/^(your|a|an|the)\s+/i, '');
 
-/** Linked: "n from your record, m from the repo, k need you: a, b and c.", all over required fields; null when all are zero. Pure. */
+/**
+ * Linked: "n from your record, m from the repo, a by your agent, k need you: a, b and c.", all over required fields;
+ * the agent's part only when it drafts some (F2, v6.1.10: a told fact is its draft, never "need you"); null when the
+ * record, the repo and the builder give none. Pure.
+ */
 function recordDrafted(p: ReadyProgram): string | null {
   const k = p.need_you.length;
   if (p.from_record + p.repo_required + k === 0) return null;
-  const head = `${p.from_record} from your record, ${p.repo_required} from the repo`;
+  const a = Math.max(p.total - p.from_record - p.repo_required - k, 0);
+  const head = `${p.from_record} from your record, ${p.repo_required} from the repo${a > 0 ? `, ${a} by your agent` : ''}`;
   return k > 0 ? `${head}, ${k} ${k === 1 ? 'needs' : 'need'} you: ${listWords(p.need_you)}.` : `${head}.`;
 }
 
@@ -172,6 +177,8 @@ const doVerb = (real: Gap[], named: boolean): string =>
   real.length > 1 ? 'make both changes' : named ? real[0].what : (DO_VERB[real[0].kind] ?? 'make the change');
 /** The "tell me if real people use it" question: a yes, not work (the same gap the agent note names). Pure. */
 const usersQuestion = (x: Gap) => x.kind === 'users' && x.effort === 'hours';
+/** O3 (v6.1.10): the "tell me when you started this" question: a date the builder gives, not work. Pure. */
+export const startedQuestion = (x: Gap) => x.kind === 'new_work_after' && x.effort === 'minutes';
 
 /**
  * The one action under a one-program gap line (v6.1.8, 1b), or null: rules only, a yes that drafts; EarnKit can make
@@ -187,6 +194,7 @@ export function gapAction(g: GapProgram, signIn: string | null = null): string |
   if (real.every((x) => x.kind === 'tier' && isProofReadingWhat(x.what))) return null;
   if (canDo(real)) return `Say "do" and I ${doVerb(real, true)} first.`;
   if (real.every(usersQuestion)) return 'Say yes if they do and I draft it.';
+  if (real.every(startedQuestion)) return 'Tell me when you started and I check it.';
   return 'Tell me when that is done and I apply.';
 }
 
@@ -300,7 +308,7 @@ function beforeTonight(r: R, tonight: number): string | null {
 }
 
 /** The step the closing offers (M1, v6.1.9): the users question, or what to make. */
-export type FirstStep = { users: true } | { users: false; what: string };
+export type FirstStep = { users: true } | { users: false; what: string; started?: true };
 
 /**
  * The first shown gap program's step the builder takes, for the closing when nothing is ready and no rule-only program
@@ -315,7 +323,7 @@ export function firstStepOf(gaps: GapProgram[]): FirstStep | null {
     if (canDo(real)) continue;
     if (real.length > 0 && real.every(usersQuestion)) return { users: true };
     const x = real.find((y) => !ownSentenceGap(y) && !usersQuestion(y));
-    if (x) return { users: false, what: x.what };
+    if (x) return { users: false, what: x.what, ...(startedQuestion(x) ? { started: true as const } : {}) };
   }
   return null;
 }
@@ -353,6 +361,8 @@ export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number
     const step = o.firstStep ?? null;
     if (step?.users) return 'Nothing is ready yet. Do real people use it? Say yes and I apply.';
     // I3 (v6.1.9 final): "First:" reads as a sentence for a noun or a verb phrase.
+    // O3 (v6.1.10): the started question is asked as one.
+    if (step && !step.users && step.started) return 'Nothing is ready yet. First: tell me when you started this, and I look again.';
     if (step) return `Nothing is ready yet. First: ${step.what}. Tell me when it is done and I look again.`;
     // A reply that lists in-person programs never ends on the bare line (O2, v6.1.10).
     return o.inPerson > 0 ? IN_PERSON_CLOSING : 'Nothing is ready yet.';
@@ -520,6 +530,8 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
   if (r.gaps.some(contractLookedAgain)) lines.push(CONTRACT_NOTE);
   if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.kind === 'users' && x.effort === 'hours')))
     lines.push('"Tell me if real people use it" is a question, not work: ask the builder once; on yes, pass users: true next time or call track with gap_done and item users.');
+  if (r.gaps.some((g) => [g.gap, ...g.also].some(startedQuestion)))
+    lines.push('"Tell me when you started this" is a question, not work: ask the builder once; pass first_commit_at in the project next time, or, when they started after the program\'s start, call track with gap_done and that gap\'s item. Never invent the date.');
   if (o.more > 0) lines.push(`${o.more} more left out: ready past the cap, gaps and in-person programs. Ask with filter.all for the full list.`);
   if (r.ask_outcome.length > 0)
     lines.push(`Ask once how each went: ${r.ask_outcome.map((a) => a.title).join(', ')}. Pass each answer to track (won with amount_usd, rejected or no_result).`);

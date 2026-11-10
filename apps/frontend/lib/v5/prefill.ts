@@ -271,7 +271,10 @@ export function prefill(
     const sources = sourcesOf(facts, guidance);
     // An 'other' answer with nothing to draft from is the builder's, never the agent's with no sources (v6.1.6).
     if (r.kind === 'other' && sources.length === 0) return { ...base, value: null, from: 'builder' };
-    return { ...base, value: null, from: 'agent', sources: rec && (isProse(r.kind) || r.kind === 'other') ? [...sources, ASK_ONCE] : sources };
+    // Lane 8 #1 (v6.1.10): linked, a prose answer the record does not hold is the builder's to give once and store
+    // with record; the agent may help word it from the sources, but it is never sent as the agent's own.
+    if (rec && (isProse(r.kind) || r.kind === 'other')) return { ...base, value: null, from: 'builder', sources: [...sources, ASK_ONCE] };
+    return { ...base, value: null, from: 'agent', sources };
   });
   const todo = new Map(file.submission_requirements.map((r) => [r.key, r.todo]));
   return {
@@ -281,6 +284,31 @@ export function prefill(
     repo_required,
     from_record: fields.filter((f) => f.required && f.from === 'record').length,
     total: fields.filter((f) => f.required).length,
-    need_you: fields.filter((f) => f.required && (f.from === 'builder' || f.from === 'agent')).map((f) => todo.get(f.key) ?? f.label.toLowerCase()),
+    // Lane 8 #8 (v6.1.10): one list, every required builder field without a record value; the agent's drafts
+    // (a told fact included, F2) are never "need you".
+    need_you: fields.filter((f) => f.required && f.from === 'builder').map((f) => todo.get(f.key) ?? f.label.toLowerCase()),
   };
+}
+
+/** F1 (v6.1.10): a value EarnKit can vouch for: its own, the record's, or an agent draft with sources. Pure. */
+export const vouched = (f: Field): boolean => f.from === 'earnkit' || f.from === 'record' || (f.from === 'agent' && (f.sources?.length ?? 0) > 0);
+
+/** The facts a send is checked against when no repo read is at hand: the record project's links, as reported. */
+const NO_READ: RepoFacts = {
+  name: '', description: '', repo_url: null, repo_url_basis: null, live_url_basis: null, demo_url_basis: null, public: false, as_reported: true, live_url: null, demo_url: null, chains: [], contracts: [],
+  builder_codes: false, integrations: [], users: null, first_commit_at: null, last_commit_at: null, readme_excerpt: null, homepage: null,
+};
+/** Fields a repo read can fill (links, a contract, a chain, a project field): never judged without that read. */
+const readFillable = (r: SubmissionRequirement) => r.kind === 'links' || r.project_field !== undefined || /contract|chain/.test(r.key);
+
+/**
+ * F1 and lane 8 #1 (v6.1.10): the program's required fields only the builder gives that the record does not hold
+ * (a personal fact, a contact, a file, a prose answer not approved), whatever the repo says: the keys a send under
+ * standing approval cannot count as filled, whichever keys the agent names. Pure.
+ */
+export function owedByBuilder(program: ProgramRow, rec: RecordContext): string[] {
+  const reqs = new Map(program.file.submission_requirements.map((r) => [r.key, r]));
+  return prefill(program, NO_READ, rec).fields
+    .filter((f) => f.required && f.from === 'builder' && !readFillable(reqs.get(f.key)!))
+    .map((f) => f.key);
 }

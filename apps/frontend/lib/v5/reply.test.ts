@@ -261,7 +261,10 @@ test('linked: the ready line names what the record and the repo give and who els
   const none = base({ linked: true, ready: [ready({ title: 'A', from_record: 2, facts_from_repo: 1, repo_required: 1, total: 3 })] });
   assert.equal(replyText(none, false).split('\n')[1], '1. A, $1K. 2 from your record, 1 from the repo.');
   const four = base({ linked: true, ready: [ready({ title: 'B', from_record: 1, total: 6, need_you: ['your phone', 'your birthday', 'where you are based', 'your Telegram username'] })] });
-  assert.equal(replyText(four, false).split('\n')[1], '1. B, $1K. 1 from your record, 0 from the repo, 4 need you: your phone, your birthday, where you are based and 1 more.');
+  assert.equal(replyText(four, false).split('\n')[1], '1. B, $1K. 1 from your record, 0 from the repo, 1 by your agent, 4 need you: your phone, your birthday, where you are based and 1 more.');
+  // F2 (v6.1.10): the name and tagline the agent passed are its drafts, never "need you".
+  const told = base({ linked: true, ready: [ready({ title: 'N', from_record: 1, total: 4, need_you: ['the problem'], needs: ['the problem'] })] });
+  assert.equal(replyText(told, false).split('\n')[1], '1. N, $1K. 1 from your record, 0 from the repo, 2 by your agent, 1 needs you: the problem.');
   const zero = base({ linked: true, ready: [ready({ title: 'C', total: 4 })] });
   assert.equal(replyText(zero, false).split('\n')[1], '1. C, $1K. Your agent drafts all 4 answers.');
   // Unlinked: the repo's count only, whatever the record counts say.
@@ -738,4 +741,15 @@ test('fix round 1 (v6.1.9): a contract the read still does not find tells the ag
   const g = gap({ title: 'Arc Fund', gap: { kind: 'chain', item: 'chain:arc', what: 'deploy the contract on Arc', effort: 'hours', agent_can: false }, looked_again: ['the contract on Arc'] });
   assert.ok(agentNote(base({ gaps: [g] }), { more: 0 }).split('\n').includes('Pass the contract address if it is on chain.'));
   assert.ok(!agentNote(base({ gaps: [gap({ title: 'Arc Fund' })] }), { more: 0 }).includes('Pass the contract address'));
+});
+
+test('O3 (v6.1.10): the started question is asked as one: its line, its one action and the closing', () => {
+  const STARTED = { kind: 'new_work_after' as const, item: 'new_work_after:2026-10-22T09:00:00-07:00', what: 'tell me when you started this', effort: 'minutes' as const, agent_can: false };
+  const g = gap({ title: 'UGREEN Hackathon 2026 on AI NAS', money: '$46,000 in prizes', gap: STARTED, n: 1 });
+  assert.equal(gapLine(g), '1. UGREEN Hackathon 2026 on AI NAS, $46,000 in prizes: tell me when you started this.');
+  assert.equal(gapAction(g), 'Tell me when you started and I check it.');
+  const show = replyText(base({ gaps: [g] }), true);
+  assert.equal(show.split('\n').at(-1), 'Nothing is ready yet. First: tell me when you started this, and I look again.');
+  assert.match(agentNote(base({ gaps: [g] }), { more: 0 }), /"Tell me when you started this" is a question, not work: ask the builder once; pass first_commit_at/);
+  assert.doesNotMatch(show, /—|\b(score|rank|grade|points|coin|token|streak)s?\b/i);
 });

@@ -119,7 +119,7 @@ test('a Solana repo gets a reply, no crash, and nothing is taken as reported', a
   assert.ok(typeof base.show_to_builder === 'string');
 });
 
-test('the owner, linked: record set, approved on /me, find fills from it, started, applied, and the next find says so', async () => {
+test('the owner, linked: record set, approved on /me, find fills from it, started, applied; a send the record cannot fill is outside the standing approval (F1)', async () => {
   const id = await stranger();
   const b = await upsertBuilder({ github_id: 990_001, login: 'jenil', name: 'Jenil', avatar_url: null }, NOW);
   await linkInstallation(id, b.id, NOW);
@@ -169,10 +169,14 @@ test('the owner, linked: record set, approved on /me, find fills from it, starte
   assert.equal(started.show_to_builder, 'Started. Your other agents leave this one alone for 24 hours.');
   const applied = await call(new Date(t1.getTime() + 120_000), 'track', { program_id: top, status: 'applied', submitted_by: 'agent', fields_used: [...new Set(['email', 'problem', ...required])], project_id: 'earnkit' });
   assert.equal((applied.ledger as { applied: number }).applied, 1);
+  // F1 (v6.1.10): the find held it back ("Before tonight") for answers only the builder gives that the record lacks,
+  // so naming every key does not make the send one under standing approval.
+  assert.match(first.show_to_builder as string, /Before tonight \(nothing is sent until these are in\): [^\n]+ for Arbitrum Mentorship Program: Cohort 2\./);
+  assert.equal(applied.show_to_builder, 'Sent, but outside your standing approval: a required answer was missing.');
 
   const next = await call(new Date(NOW.getTime() + 10 * H), 'find', { project: { ...p, live_url: 'https://earnkit.com', users: true } });
-  assert.deepEqual((next.applied_overnight as { program_id: string }[]).map((a) => a.program_id), [top]);
-  assert.match(next.show_to_builder as string, /\n\nApplied under your standing approval: [^\n]+\./);
+  assert.deepEqual(next.applied_overnight, []);
+  assert.doesNotMatch(next.show_to_builder as string, /Applied under your standing approval/);
   assert.ok(!(next.ready as { program_id: string }[]).some((x) => x.program_id === top));
 });
 

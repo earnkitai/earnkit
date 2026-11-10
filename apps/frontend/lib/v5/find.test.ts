@@ -294,8 +294,9 @@ test('C1 (v6.1.8 final fix, B20b): FLOSS/fund for a chainless CLI asks the users
   const ask = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: CLI });
   assert.equal(ask.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000: tell me if real people use it.', 'Say yes if they do and I draft it.'].join('\n'));
   const yes = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: { ...CLI, users: true } });
+  // F3 (v6.1.10): the users yes stands: no second yes is asked for it.
   assert.equal((yes.reply!.verdict as { status: string }).status, 'ready');
-  assert.equal(yes.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000. Needs your funding manifest link. First: publish a funding.json manifest on your site or repo.', 'Say yes and I apply.'].join('\n'));
+  assert.equal(yes.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000. Needs your funding manifest link. First: publish a funding.json manifest on your site or repo.', 'Your yes stands for FLOSS/fund: I apply now.'].join('\n'));
   // With no live link and the repo not read, nothing EarnKit can see exists (B20c, v6.1.9): not a fit, even on a yes.
   const { live_url: _l, ...bare } = CLI;
   const bareYes = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: { ...bare, users: true } });
@@ -324,7 +325,7 @@ test('1b (v6.1.8): FLOSS/fund for a CLI on Base: not a fit with no live link, si
   const lines = (r.reply!.show_to_builder as string).split('\n');
   assert.equal(lines.length, 2, r.reply!.show_to_builder as string);
   assert.match(lines[0], /^FLOSS\/fund, \$10,000 to \$100,000\. \d+ from your record, \d+ from the repo[^\n]*\.$/);
-  assert.equal(lines[1], 'Say yes and I apply.');
+  assert.equal(lines[1], 'Your yes stands for FLOSS/fund: I apply now.');
 });
 
 test('find with program_id: a closed program is closed, an upcoming one not open yet; neither offers a draft', async () => {
@@ -1139,7 +1140,7 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
       '',
       ...inPersonBlock(3),
       '',
-      'Say yes and I apply.',
+      'Your yes stands for FLOSS/fund: I apply now.',
     ].join('\n'),
   );
   assert.doesNotMatch(r.reply!.show_to_builder as string, /Sign in once so EarnKit/);
@@ -1164,7 +1165,7 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
       '',
       'Private repo: matched on what you told me.',
       '',
-      'Say yes and I apply.',
+      'Your yes stands for FLOSS/fund: I apply now.',
     ].join('\n'),
   );
 });
@@ -1191,7 +1192,7 @@ test('N-3 (v6.1.9, Review Focus 2): the VR persona marks the demo video done and
   );
   assert.equal(ids(again.reply!.gaps)[0], 'meta-vr-start-competition-2026');
   assert.doesNotMatch(show, /Codegeist/);
-  assert.equal(show.split('\n').at(-1), 'Say yes and I apply.');
+  assert.equal(show.split('\n').at(-1), 'Your yes stands for FLOSS/fund: I apply now.');
   // Another installation, with no claim and no step done, still sees the demo video step.
   const other = await mcpCall(await dashCtx(), 'find', { project: VR });
   assert.equal(blockOf(other.reply!.show_to_builder as string, 'One step away'), ['One step away (1):', META_VR_LINE(2)].join('\n'));
@@ -1746,4 +1747,78 @@ test('Review Focus 1 (v6.1.10, L1c-1): two projects of one builder never share a
   // The find note asks for the same project on track.
   const note = (await mcpCall(c, 'find', { project: A })).reply!.agent_note as string;
   assert.ok(note.split('\n').includes('Pass the same project on track so its steps stay with it.'), note);
+});
+
+test('O3 (v6.1.10, Review Focus 4): a project with no first-commit date is asked when it started for a new-work hackathon, never refused; its word settles it', async () => {
+  const IDEA = { name: 'Rent Split', description: 'An idea: an app that splits rent and bills between roommates' };
+  const c = { installationId: await installation(), builderId: null, now: NOW };
+  const all = await mcpCall(c, 'find', { project: IDEA, filter: { all: true } });
+  const notFit = (all.reply!.not_fit as { program_id: string; reason: string }[]).map((n) => n.program_id);
+  for (const id of ['ugreen-ai-nas-hackathon-2026', 'kiroween-2026']) {
+    assert.ok(!notFit.includes(id), id);
+    const g = (all.reply!.gaps as { program_id: string; gap: { kind: string; item: string; what: string }; also: { kind: string; what: string }[] }[]).find((x) => x.program_id === id);
+    assert.ok(g, id);
+    const started = [g.gap, ...g.also].find((x) => x.kind === 'new_work_after');
+    assert.equal(started?.what, 'tell me when you started this', id);
+  }
+  assert.match(all.reply!.agent_note as string, /"Tell me when you started this" is a question, not work/);
+  const one = await mcpCall(c, 'find', { program_id: 'kiroween-2026', project: IDEA });
+  assert.equal(one.reply!.show_to_builder, 'Kiroween 2026, $100,000 in prizes: tell me when you started this, a demo video and /.kiro directory at the repo root. Their rule: built with Kiro.\nTell me when that is done and I apply.');
+  const item = ((one.reply!.verdict as { gaps: { kind: string; item: string }[] }).gaps.find((x) => x.kind === 'new_work_after'))!.item;
+  const t = await mcpCall(c, 'track', { program_id: 'kiroween-2026', status: 'gap_done', item, project: IDEA });
+  assert.equal(t.reply!.show_to_builder, 'Noted.');
+  const again = await mcpCall(c, 'find', { program_id: 'kiroween-2026', project: IDEA });
+  assert.equal(again.reply!.show_to_builder, 'Kiroween 2026, $100,000 in prizes: a demo video and /.kiro directory at the repo root. Their rule: built with Kiro.\nTell me when that is done and I apply.');
+  assert.ok(!(again.reply!.verdict as { gaps: { kind: string }[] }).gaps.some((x) => x.kind === 'new_work_after'));
+  // A first-commit date in the project settles it too: after the start fits, before it does not.
+  const late = await mcpCall(c, 'find', { program_id: 'ugreen-ai-nas-hackathon-2026', project: { ...IDEA, first_commit_at: '2026-10-25T00:00:00Z' } });
+  assert.ok(!(late.reply!.verdict as { gaps: { kind: string }[] }).gaps.some((x) => x.kind === 'new_work_after'));
+  const early = await mcpCall(c, 'find', { program_id: 'ugreen-ai-nas-hackathon-2026', project: { ...IDEA, first_commit_at: '2026-01-01T00:00:00Z' } });
+  assert.equal((early.reply!.verdict as { status: string }).status, 'no');
+});
+
+test('O4 (v6.1.10): the no-project open list marks each in-person program', async () => {
+  const r = await mcpCall(ctx(await installation()), 'find', {});
+  const show = r.reply!.show_to_builder as string;
+  const lines = show.split('\n');
+  for (const l of ['Monad Blitz Oregon, $4,600 prize pool, closes in 6 days, in person.', 'Alliance ALL19, $400K at admission, closes in 14 days, in person.', 'Solana Incubator Cohort 6, NYC incubator with relocation stipend, closes in 30 days, in person.', 'Kiroween 2026, $100,000 in prizes, closes in 30 days.'])
+    assert.ok(lines.includes(l), show);
+});
+
+const NIGHT_FIELDS = [
+  { key: 'project_name', label: 'Project name', type: 'text', required: true, from: 'project', kind: 'name', todo: 'a project name' },
+  { key: 'tagline', label: 'Tagline', type: 'text', required: true, from: 'project', kind: 'one_liner', todo: 'a tagline', max_chars: 80 },
+  { key: 'problem', label: 'What problem do you solve', type: 'text', required: true, from: 'project', kind: 'problem', todo: 'the problem', max_chars: 300 },
+  { key: 'email', label: 'Contact email', type: 'email', required: true, from: 'builder', kind: 'contact', todo: 'your email' },
+];
+
+test('F1, F2, lane 8 #1, #8, #10 (v6.1.10): the problem the record lacks holds the send and is the one "need you"; the told name and tagline are the agent\'s', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  await upsertProgram(programFixture({ id: 'f1-night', title: 'Night Grant', category: 'grant', max_award_usd: 900_000, submission_requirements: NIGHT_FIELDS as never }), 'file', NOW);
+  const { id, builderId } = await linkedWith({ person: { name: 'Ada Lovelace', email: 'ada@example.com' }, policy: { auto_apply: true, max_per_night: 5, categories: ['grant'] } });
+  const c = { ...ctx(id), builderId };
+  // No repo: the name and tagline the agent passed are its drafts (F2), the problem is the builder's (lane 8 #1).
+  const bare = await mcpCall(c, 'find', { project: { name: 'Night App', description: 'Night shifts for nurses.', live_url: 'https://night.example' } });
+  const show = bare.reply!.show_to_builder as string;
+  const line = show.split('\n').find((l) => l.includes('Night Grant'))!;
+  assert.match(line, /^\d+\. Night Grant, Up to \$5,000\. 1 from your record, 0 from the repo, 2 by your agent, 1 needs you: the problem\.$/);
+  const night = (bare.reply!.ready as { program_id: string; need_you: string[]; needs: string[] }[]).find((p) => p.program_id === 'f1-night')!;
+  assert.deepEqual([night.need_you, night.needs], [['the problem'], ['the problem']]);
+  // Off the tonight list, named as waiting (F1).
+  assert.doesNotMatch(show.split('\n\n').at(-1)!, /Night Grant/);
+  assert.match(show, /Before tonight \(nothing is sent until these are in\): [^\n]*your problem for [^\n]*Night Grant/);
+  // With a repo the same line, and the record is never asked for a project with its repo or site (lane 8 #10).
+  const repo = await mcpCall(c, 'find', { project: { ...PROJECT, name: 'Night App' } });
+  assert.ok(!(repo.reply!.record_missing as string[]).includes('a project with its repo or site'), JSON.stringify(repo.reply!.record_missing));
+  assert.ok((bare.reply!.record_missing as string[]).includes('a project with its repo or site'));
+});
+
+test('F3 (v6.1.10): after gap_done users readies FLOSS/fund, its yes stands', async () => {
+  const CLI = { name: 'ripgrep', description: 'A line-oriented search tool for the command line.', private: true, live_url: 'https://ripgrep.dev' };
+  const c = ctx(await installation());
+  const ask = await mcpCall(c, 'find', { program_id: 'floss-fund-zerodha', project: CLI });
+  assert.equal((ask.reply!.show_to_builder as string).split('\n').at(-1), 'Say yes if they do and I draft it.');
+  await mcpCall(c, 'track', { program_id: 'floss-fund-zerodha', status: 'gap_done', item: 'users', project: CLI });
+  const after = await mcpCall(c, 'find', { program_id: 'floss-fund-zerodha', project: CLI });
+  assert.equal(after.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000. Needs your funding manifest link. First: publish a funding.json manifest on your site or repo.', 'Your yes stands for FLOSS/fund: I apply now.'].join('\n'));
 });

@@ -377,6 +377,9 @@ const NEED_DOCS: { need: string; has: (r: BuilderRecord) => boolean; words: stri
 /** Whether the record holds the document a program needs (founder_video, deck, ...); unknown needs are held. Pure. */
 export const hasDoc = (record: BuilderRecord, need: string): boolean => NEED_DOCS.find((d) => d.need === need)?.has(record) ?? true;
 
+/** The record item for a project with a link (lane 8 #10, v6.1.10: never missing on a find that passed a repo). */
+export const PROJECT_ITEM = 'a project with its repo or site';
+
 type Asks = { needs: string[]; kinds: string[]; verifiedUsage?: boolean };
 
 /**
@@ -388,7 +391,7 @@ export function recordItems(record: BuilderRecord, o: Asks): { total: number; mi
   const items: [boolean, string][] = [];
   // Two items, so a saved name is no longer named as missing (v6.1.7 C12).
   items.push([Boolean(record.person.name), 'your name'], [Boolean(record.person.email), 'your email']);
-  items.push([record.projects.some((p) => p.repo_url || p.live_url), 'a project with its repo or site']);
+  items.push([record.projects.some((p) => p.repo_url || p.live_url), PROJECT_ITEM]);
   if (!o.verifiedUsage) items.push([isApproved(record, 'traction.line_pre_launch'), 'one approved line on traction']);
   const kinds = [...new Set(o.kinds.map((k) => answerKindOf(k as FieldKind)).filter((k): k is AnswerKind => k !== null && k !== 'traction'))];
   for (const k of ANSWER_KINDS.filter((x) => kinds.includes(x))) {

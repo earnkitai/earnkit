@@ -491,7 +491,10 @@ test('N1 (v6.1.9): the tonight list leaves out the sends already made under stan
   await linkInstallation(a2.installationId, b.id, NOW);
   await saveRecord(b.id, mergeRecord(EMPTY_RECORD, { policy: { auto_apply: true, max_per_night: 1, categories: ['grant'] } }, 'builder', NOW).record, NOW);
   await upsertProgram(programFixture({ id: 'n1-alpha', title: 'N1 Alpha Grant', category: 'grant' }), 'file', NOW);
-  const project = { name: 'N1 App', description: 'An app for builders.', live_url: 'https://n1.example', users: true };
+  // F1 (v6.1.10): a catalog program whose prose answer the record lacks is never sent alone, so the room left is
+  // shown on a second fixture; users left unsaid keeps the users yes (F3) out of the closing.
+  await upsertProgram(programFixture({ id: 'n1-beta', title: 'N1 Beta Grant', category: 'grant' }), 'file', NOW);
+  const project = { name: 'N1 App', description: 'An app for builders.', live_url: 'https://n1.example' };
   const closing = async () => ((await find({ ...a2, builderId: b.id }, { project })) as { show_to_builder: string }).show_to_builder.split('\n\n').at(-1);
   assert.match((await closing())!, /^Applying tonight to /);
   await track({ ...a, builderId: b.id }, { program_id: 'n1-alpha', status: 'applied', submitted_by: 'agent', fields_used: ['project_name'] });
@@ -535,9 +538,18 @@ test('S6 (v6.1.9): a send under standing approval with a required answer left ou
   const none = await track({ ...c, builderId: b.id }, { program_id: 's6-none', status: 'applied', submitted_by: 'agent' });
   assert.equal(none.show_to_builder, 'Sent, but outside your standing approval: a required answer was missing.');
   assert.equal(await auto('s6-none'), false);
-  const full = await track({ ...c, builderId: b.id }, { program_id: 's6-full', status: 'applied', submitted_by: 'agent', fields_used: ['project_name', 'problem'] });
-  assert.equal(full.show_to_builder, "Tracked. I'll ask how it went when results are due.");
-  assert.equal(await auto('s6-full'), true);
+  // F1 and lane 8 #1 (v6.1.10): naming every key does not fill the problem the record lacks: not approved.
+  const named = await track({ ...c, builderId: b.id }, { program_id: 's6-full', status: 'applied', submitted_by: 'agent', fields_used: ['project_name', 'problem'] });
+  assert.equal(named.show_to_builder, 'Sent, but outside your standing approval: a required answer was missing.');
+  assert.equal(await auto('s6-full'), false);
+  // With the problem approved in the record, the same send is under standing approval.
+  const { approvePath } = await import('../v6/record');
+  const answered = mergeRecord(EMPTY_RECORD, { policy: { auto_apply: true, max_per_night: 5, categories: ['grant'] }, answers: { problem: { text: 'Builders lose weeks on grant forms.' } } }, 'builder', NOW).record;
+  await saveRecord(b.id, approvePath(answered, 'answers.problem', NOW), NOW);
+  await upsertProgram(programFixture({ id: 's6-held', title: 's6-held', category: 'grant', submission_requirements: two as never }), 'file', NOW);
+  const held = await track({ ...c, builderId: b.id }, { program_id: 's6-held', status: 'applied', submitted_by: 'agent', fields_used: ['project_name', 'problem'] });
+  assert.equal(held.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal(await auto('s6-held'), true);
 });
 
 test('v6.1.9: started on an in-person or builder-only program tells the agent the builder presses submit', async () => {

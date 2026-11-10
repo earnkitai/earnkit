@@ -46,7 +46,10 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
    beats a reported `builder_codes: true`: none in the code is none, said once as "The repo does not send Builder
    Codes yet." (repo note `no_builder_codes`). With no read to confirm them (none, or an empty repo), the name,
    description and options matched on them are `from: 'agent'` with the source "what the builder told you", never
-   EarnKit's value (S12). An installation gets
+   EarnKit's value (S12); they count as the agent's drafts, never as "need you" (F2, v6.1.10). `need_you` is one list:
+   every required `builder` field without a record value, and the ready line's "Needs your ..." and "k need you" read
+   it (lane 8 #8). Linked, a prose answer the record does not hold is `builder` (asked once, stored with record), with
+   the sources kept to help word it (lane 8 #1). An installation gets
    10 uncached reads a UTC day (a cache hit is free); past that the facts are agent-reported only with the problem
    "repo reads paused until tomorrow". A private or unreadable repo is agent-reported only, and the reply says so
    (`as_reported`).
@@ -359,6 +362,10 @@ builder's word, answers "Noted." and counts done (N-5). Otherwise the row is rec
 your standing approval: {reason}." (`outsideApproval` in `find-record.ts`). The required-answer rule (v6.1.9 S6): within
 every limit, a send under standing approval also needs every required field of the program's form in `fields_used`
 (`requiredLeftOut`); one left out (or no `fields_used`) is recorded the same way with "a required answer was missing",
+and so is a send whose form has a required field EarnKit cannot vouch for (the vouched-field rule, v6.1.10 F1: a value
+is vouched when it is `earnkit`, `record`, or an `agent` draft with sources; `owedByBuilder` in `prefill.ts` lists the
+required `builder` fields the stored record does not hold, read-fillable links, contracts and chains aside), whatever
+keys `fields_used` names,
 and find's standing note says "Under standing approval, send only when every required answer is filled; otherwise wait
 for the builder." Find holds the same line: a ready program with a required builder answer still empty leaves the
 tonight list and is named in its own block, "Before tonight (nothing is sent until these are in): your {answers} for
@@ -369,8 +376,13 @@ overnight send (a builder's daytime find followed by an in-chat send repeats its
 sends still takes the report). `applied` after the program closed is recorded with "{title} closed on {day}; recorded anyway.";
 `applied` as the first call after the account was deleted answers the deleted notice alone and writes nothing;
 `started` on an in-person or builder-only program tells the agent "The builder presses submit; prepare the answers and
-hand them over." A rule the builder confirmed marks the ready program `rule_yes`, and the closing reads "Your yes stands
-for {title}: I apply now." instead of asking again. `find { program_id }` resolves an id or a name (`programByName`:
+hand them over." A rule the builder confirmed marks the ready program `rule_yes` (so does the users yes, `gap_done users`
+or `users: true`, on a program that asks it; F3, v6.1.10), and the closing reads "Your yes stands
+for {title}: I apply now." instead of asking again. A new-work program (`new_work_after`) with no first-commit date is
+the question step "tell me when you started this" (minutes, never the agent's, never a reason to refuse; O3, v6.1.10):
+a later find with `first_commit_at` or `gap_done` with its item settles it. The no-project open list ends each
+in-person line with ", in person" (O4). A find that passed a repo never lists "a project with its repo or site" in
+`record_missing` (lane 8 #10). `find { program_id }` resolves an id or a name (`programByName`:
 case-insensitive id or title, a title's leading words, the id's initials such as "yc"), else "I don't know that
 program." with "Did you mean {title}?" when exactly one title shares a word. Find's record line reads "Still missing for
 these programs: ..." (what these forms need); `record get` keeps "Your record is missing: ..." (every fact), and both

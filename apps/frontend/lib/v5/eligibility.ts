@@ -87,6 +87,8 @@ export function lookedAgain(gaps: Gap[], done: Set<string>): string[] {
 }
 
 const date = (s: string) => s.slice(0, 10);
+/** O3 (v6.1.10): a new-work program with no first-commit date: a question only the builder answers, in minutes. */
+const startedQuestion = (i: EligibilityItem): Gap => ({ kind: 'new_work_after', item: itemKey(i), what: 'tell me when you started this', effort: 'minutes', agent_can: false });
 /** Users not reported: a question only the builder answers, not weeks of work. */
 const USERS_UNKNOWN: Gap = { kind: 'users', item: 'users', what: 'tell me if real people use it', effort: 'hours', agent_can: false };
 
@@ -153,8 +155,11 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
         else if (facts.users !== true && !done.has(itemKey(i))) gaps.push(USERS_UNKNOWN);
         break;
       case 'new_work_after': {
+        // O3 (v6.1.10): no first-commit date is a question, not a refusal; the builder's word (gap_done) settles it.
         const first = facts.first_commit_at ? Date.parse(facts.first_commit_at) : NaN;
-        if (!(first >= Date.parse(v))) return out('no', [], `needs work started after ${date(v)}`);
+        if (Number.isNaN(first)) {
+          if (!done.has(itemKey(i))) gaps.push(startedQuestion(i));
+        } else if (!(first >= Date.parse(v))) return out('no', [], `needs work started after ${date(v)}`);
         break;
       }
       case 'in_person': inPerson = true; break;
@@ -169,8 +174,10 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
   // Real gaps first, then the rules to confirm; only the real ones count toward the limits.
   const real = gaps.filter((g) => g.kind !== 'rule');
   const ordered = [...real, ...gaps.filter((g) => g.kind === 'rule')];
-  if (real.length > MAX_GAPS || real.some((g) => g.effort === 'weeks')) {
-    return out('no', ordered, `needs ${real.map((g) => g.what).join(', ')}`);
+  // O3 (v6.1.10): the started question is asked, never a reason to refuse: it counts toward neither limit.
+  const work = real.filter((g) => !(g.kind === 'new_work_after' && g.effort === 'minutes'));
+  if (work.length > MAX_GAPS || work.some((g) => g.effort === 'weeks')) {
+    return out('no', ordered, `needs ${work.map((g) => g.what).join(', ')}`);
   }
   return out('gap', ordered, reason);
 }

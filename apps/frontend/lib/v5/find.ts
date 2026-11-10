@@ -17,7 +17,7 @@ import { guideLines, guideText, type Guide } from './guide';
 import { lastFindAt, markFind, newlyLinkedLogin, rememberProject } from './installations';
 import { askOutcome, autoSentSince, claimed, codeDoneAt, doneByProgram, doneItems, excluded, markAsked, summary, type Ledger } from './ledger';
 import { prefill, type Field, type RecordContext } from './prefill';
-import { PROGRAM_CATEGORIES, categoryOf, ruleNotes, type Category, type Program } from './program-file';
+import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
 import { isOpen, listOpenPrograms, programByName, type ProgramRow } from './programs';
 import { parseProject, projectKeyOf, type Project } from './project-input';
 import { rankGaps, rankReady, shownGapsOf } from './rank';
@@ -69,7 +69,8 @@ export type ReadyProgram = {
   n: number;
   /** Set while another agent of the builder's holds a claim on it (track started). */
   claimed_since?: string;
-  /** The builder confirmed its rules (track gap_done): that yes stands, so the closing asks for no second one (v6.1.9). */
+  /** The builder confirmed its rules (track gap_done) or, F3 (v6.1.10), said real people use it: that yes stands, so
+   *  the closing asks for no second one (v6.1.9). */
   rule_yes?: true;
 };
 export type GapProgram = {
@@ -199,20 +200,25 @@ async function factsOf(project: Project, ctx: FindContext): Promise<RepoFacts> {
   }
 }
 
+/** F3 (v6.1.10): the builder said real people use it (gap_done users, or users: true passed) to a program that asks
+ *  (its own users item, or a used bar on a chainless project): that yes stands as a rule's does. Pure. */
+const usersYes = (p: Program, facts: RepoFacts, done: Set<string>): boolean =>
+  (eligibilityOf(p).some((i) => i.kind === 'users') || (p.min_tier === 'used' && facts.chains.length === 0)) && (done.has('users') || facts.users === true);
+
 function readyOf(row: ProgramRow, v: Verdict, facts: RepoFacts, now: Date, side: RecordContext | null, done: Set<string> = new Set()): Omit<ReadyProgram, 'n'> {
   const p = row.file;
   const rec = side ? { record: side.record, projectId: side.projectId, verifiedUsage: side.verifiedUsage } : null;
   const { fields, filled, facts_from_repo, repo_required, from_record, total, need_you } = prefill(row, facts, rec);
-  const todo = new Map(p.submission_requirements.map((r) => [r.key, r.todo]));
   return {
     program_id: row.id, title: p.title, money: moneyOf(p), max_award_usd: p.max_award_usd ?? null, category: categoryOf(p),
     closes_at: p.ends_at, closes_in: closesIn(p, now), long_shot: v.long_shot, in_person: p.in_person, submission_url: p.submission_url,
     ...(p.form ? { form: p.form } : {}),
     fields, filled, facts_from_repo, repo_required, from_record, need_you, total,
-    needs: [...p.setup, ...fields.filter((f) => f.from === 'builder' && f.required).map((f) => todo.get(f.key) ?? f.label.toLowerCase())],
+    // Lane 8 #8 (v6.1.10): the builder's answers are need_you itself, so the line and the count never disagree.
+    needs: [...p.setup, ...need_you],
     setup: p.setup,
     rules: v.rules,
-    ...(v.rules.length > 0 && [...done].some((k) => k.startsWith('rule:')) ? { rule_yes: true as const } : {}),
+    ...((v.rules.length > 0 && [...done].some((k) => k.startsWith('rule:'))) || usersYes(p, facts, done) ? { rule_yes: true as const } : {}),
   };
 }
 
@@ -332,7 +338,8 @@ async function openList(ctx: FindContext, problem: string | null): Promise<FindR
   const programs = await listOpenPrograms(ctx.now);
   const lines = programs.slice(0, MAX_LISTED).map((r) => {
     const left = closesIn(r.file, ctx.now);
-    return `${r.file.title}, ${moneyOf(r.file)}${left ? `, closes ${left}` : ''}.`;
+    // O4 (v6.1.10): an in-person program says so on its line.
+    return `${r.file.title}, ${moneyOf(r.file)}${left ? `, closes ${left}` : ''}${r.file.in_person ? ', in person' : ''}.`;
   });
   if (programs.length > MAX_LISTED) lines.push(`and ${programs.length - MAX_LISTED} more.`);
   const ledger = await summary(ownerOf(ctx), programs, ctx.now);
@@ -411,11 +418,11 @@ const unlinkedPart = (): Pick<FindReply, 'linked' | 'record_missing' | 'blockers
 });
 
 /** The record's part of the reply, for a linked find. */
-function linkedPart(side: RecordSide, rows: ProgramRow[], released: string[], overnight: FindReply['applied_overnight'], sentToday: number) {
+function linkedPart(side: RecordSide, rows: ProgramRow[], released: string[], overnight: FindReply['applied_overnight'], sentToday: number, repoPassed: boolean) {
   const policy = side.record.policy;
   return {
     linked: true,
-    record_missing: missingFor(rows, side.record, side.verifiedUsage !== null),
+    record_missing: missingFor(rows, side.record, side.verifiedUsage !== null, repoPassed),
     blockers: blockersOf(rows, side.record),
     evidence_summary: side.summary,
     applied_overnight: overnight,
@@ -524,7 +531,7 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
     ...(problems.length > 0 ? { problems } : {}),
     ...(facts.notes && facts.notes.length > 0 ? { repo_notes: facts.notes } : {}),
     ...(side
-      ? linkedPart(side, ready.map((p) => byId.get(p.program_id)!), released, overnight, sentToday)
+      ? linkedPart(side, ready.map((p) => byId.get(p.program_id)!), released, overnight, sentToday, Boolean(project.repo_url))
       : { ...unlinkedPart(), blockers: blockersOf(ready.map((p) => byId.get(p.program_id)!), EMPTY_RECORD), ...(link && notice !== DELETED_NOTICE ? { sign_in: link } : {}) }),
     linked_notice: notice,
   };
