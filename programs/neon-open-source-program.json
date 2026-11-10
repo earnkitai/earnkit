@@ -23,7 +23,7 @@
     { "kind": "rule", "note": "an active GitHub Sponsors profile for the maintainer or project" }
   ],
   "setup": [
-    "an active GitHub Sponsors profile"
+    "set up an active GitHub Sponsors profile"
   ],
   "each_time": [],
   "rules": [

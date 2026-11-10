@@ -23,7 +23,7 @@
     { "kind": "users", "note": "existing, widely used and impactful open source projects; very new or little-used projects are not considered" }
   ],
   "setup": [
-    "publish a funding.json manifest on your site or repo"
+    "publish a funding manifest on your site or repo"
   ],
   "each_time": [],
   "rules": [

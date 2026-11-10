@@ -28,7 +28,7 @@
   "chains": ["arbitrum"],
   "chain_required": true,
   "setup": [
-    "audit-ready code with a defined scope",
+    "get the code audit-ready with a defined scope",
     "sign a Commitment Agreement with the Foundation"
   ],
   "each_time": [

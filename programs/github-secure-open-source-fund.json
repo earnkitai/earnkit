@@ -25,7 +25,7 @@
   "any_chain": true,
   "setup": [
     "sign up for GitHub Sponsors if you have not",
-    "a clear open source license on the repo"
+    "add a clear open source license to the repo"
   ],
   "each_time": [
     "security background and impact answers"

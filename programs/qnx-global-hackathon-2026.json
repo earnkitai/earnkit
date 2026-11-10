@@ -25,8 +25,8 @@
     { "kind": "rule", "note": "a public code repo with a visible open source license" }
   ],
   "setup": [
-    "a Devpost account joined to the hackathon",
-    "free QNX SDP 8.0 access through QNX Everywhere"
+    "join the hackathon with a Devpost account",
+    "get free QNX SDP 8.0 access through QNX Everywhere"
   ],
   "each_time": [
     "a public open source repo that builds for QNX 8.0",

@@ -177,7 +177,8 @@ async function act(
       return { ...sentAlready, ledger: await summary(owner, programs, ctx.now), already_started: true };
     if (!programs.some((p) => p.id === program.id))
       return refuse(`${program.file.title} is not open; nothing to start.`, 'Do not submit this one; call find for what is open.');
-    const c = await claim(owner, i.program_id, i.project_id ?? null, ctx.installationId, ctx.now);
+    // L1d-1 (v6.1.11): with no project_id the claim stores the project key, so find pins it on that project only.
+    const c = await claim(owner, i.program_id, i.project_id ?? (project.key || null), ctx.installationId, ctx.now);
     if (!c.ok && 'skipped' in c)
       return {
         show_to_builder: 'You skipped that one. Say unskip to bring it back.',

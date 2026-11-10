@@ -476,7 +476,11 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const gapV = rankGaps(verdicts.filter((v) => v.status === 'gap'), byId, mainnets, project.chains?.[0]?.chain, projectChains);
   // N-3 (v6.1.9): a program the builder acted on (a step marked done, or a live claim of theirs) heads its group in the
   // default list until it is applied or skipped (both leave the list).
-  const claims = await claimed(owner);
+  // L1d-1 (v6.1.11): only a claim on this project counts, by its stored project (the record id or the project key).
+  const key = projectKeyOf(project);
+  const here = (p: string | null) => p !== null && (p === key || p === i.project_id || p === side?.projectId);
+  const allClaims = await claimed(owner);
+  const claims = new Map([...allClaims].filter(([, h]) => here(h.project)));
   const live = [...claims].filter(([, h]) => Date.parse(h.since) > ctx.now.getTime() - CLAIM_HOURS * 3_600_000).map(([id]) => id);
   const acted = new Set([...done.keys(), ...live]);
   const pinned = (v: Verdict) => acted.has(v.program_id);
@@ -502,8 +506,9 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const shownGaps = [...stepGaps.filter((v) => !attendRule(v)), ...attendShown];
   const more = readyV.length - shownReady.length + gapV.length - shownGaps.length;
   // In display order with the numbers the builder sees: ready, gaps, then in person.
-  // Only another installation's claim marks a program: this agent's own claim is its to send.
-  const holds = side ? new Map([...claims].filter(([, h]) => h.by !== ctx.installationId)) : new Map<string, { since: string }>();
+  // Only another installation's claim marks a program: this agent's own claim is its to send. A claim on another
+  // project marks it only in the full list (L1d-1).
+  const holds = side ? new Map([...(all ? allClaims : claims)].filter(([, h]) => h.by !== ctx.installationId)) : new Map<string, { since: string }>();
   const { ready, gaps } = numbered(
     shownReady.map((v) => {
       const r = readyOf(byId.get(v.program_id)!, v, facts, ctx.now, side, done.get(v.program_id));

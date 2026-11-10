@@ -28,7 +28,7 @@
   "chains": ["ethereum"],
   "chain_required": true,
   "setup": [
-    "a security budget to co-fund the audit"
+    "set aside a security budget to co-fund the audit"
   ],
   "each_time": [
     "audit scope: lines of code and contract count",

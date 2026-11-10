@@ -23,8 +23,8 @@
   "chains": [],
   "any_chain": true,
   "setup": [
-    "a Devpost account joined to Codegeist 2026",
-    "a free Atlassian Cloud Developer License"
+    "join Codegeist 2026 with a Devpost account",
+    "get a free Atlassian Cloud Developer License"
   ],
   "each_time": [
     "a Forge installation link for judges",

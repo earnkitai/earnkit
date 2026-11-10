@@ -278,9 +278,12 @@ export async function markAsked(owner: string, programIds: string[], now: Date):
     WHERE owner = ${owner} AND program_id IN ${sql()(programIds)}`;
 }
 
-/** The owner's live claims by program: when and by which installation. */
-export async function claimed(owner: string): Promise<Map<string, { since: string; by: number | null }>> {
-  const rows = await sql()<{ program_id: string; claimed_at: Date | null; claimed_by: number | null }[]>`
-    SELECT program_id, claimed_at, claimed_by FROM applications WHERE owner = ${owner} AND status = 'started'`;
-  return new Map(rows.map((r) => [r.program_id, { since: (r.claimed_at ?? new Date(0)).toISOString(), by: r.claimed_by }]));
+/**
+ * The owner's live claims by program: when, by which installation, and for which project (the record project id or the
+ * project key the claim stored; null for a row from before v6.1.11, which matches no project).
+ */
+export async function claimed(owner: string): Promise<Map<string, { since: string; by: number | null; project: string | null }>> {
+  const rows = await sql()<{ program_id: string; claimed_at: Date | null; claimed_by: number | null; project_id: string | null }[]>`
+    SELECT program_id, claimed_at, claimed_by, project_id FROM applications WHERE owner = ${owner} AND status = 'started'`;
+  return new Map(rows.map((r) => [r.program_id, { since: (r.claimed_at ?? new Date(0)).toISOString(), by: r.claimed_by, project: r.project_id }]));
 }

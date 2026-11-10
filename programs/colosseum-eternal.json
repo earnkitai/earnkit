@@ -46,6 +46,7 @@
   ],
   "eligibility": [
     { "kind": "demo_video" },
+    { "kind": "rule", "note": "a crypto product built during the four-week sprint", "keywords": ["solana", "crypto", "web3", "onchain", "blockchain", "defi", "nft"] },
     { "kind": "rule", "note": "the team has not raised venture capital for the startup it submits" }
   ],
   "submission_requirements": [

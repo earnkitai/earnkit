@@ -27,8 +27,8 @@
   "chains": [],
   "any_chain": true,
   "setup": [
-    "a registered legal entity for KYB",
-    "contracts finalized and ready for audit"
+    "register a legal entity for KYB",
+    "finalize the contracts for audit"
   ],
   "each_time": [
     "lines of code to audit and a ready-by date",

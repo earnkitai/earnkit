@@ -66,7 +66,8 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
    rule-bearing; then chain-agnostic ones, rule-free before rule-bearing; then programs on other chains (their
    deploys). Within each, real changes before rule-only ones (rule-only ones naming a project mainnet first, then
    chain-agnostic, then the rest: R18e), then fewest gaps, lowest effort, larger award. `shownGapsOf` picks the shown
-   gaps: first the acted-on programs (N-3), then every program closing within 7 days that the project fits (O1, ahead
+   gaps: first the acted-on programs (N-3; a claim counts only on the project it stored, its record id or project key,
+   and another project's claim shows its hold only under `filter.all`: L1d-1, v6.1.11), then every program closing within 7 days that the project fits (O1, ahead
    of the cap; its line says `closes in {n} days`), then at most one rule-bearing program among rule-free ones. That
    one, on the project's chains, takes its rank place; off them it is shown only after `max - 1` others or alone
    (N-2). A rule item may carry `keywords` (L1c-2): when a rule still to confirm has keywords and the project names
@@ -79,7 +80,9 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
    action) and in-person programs are listed is the closing `Nothing remote is ready yet. Say yes and I start the
    in-person applications.` (fix round 1). `filter.all`
    shows everything and the `more` count includes what is left out. Skipped and applied programs never return unless
-   their next round opens. An empty repo read is cached like any other (L1c-4).
+   their next round opens. An empty repo read is cached like any other (L1c-4). A remote gap line names the program's
+   `setup` steps as ` First: a; b.` after its gaps and before its rules (L1d-2, v6.1.11), so catalog `setup` items are
+   verb phrases; an in-person line says them once in its attend sentence.
 5. `prefill.ts` fills each ready program's form: fields EarnKit can answer (`from: earnkit`), prose fields handed to
    the agent with sources (`from: agent`), and fields only the builder can give (`from: builder`, a demo video or
    a file). Blank beats a wrong guess. `facts_from_repo` counts only values the public code read gave (its repo link,
