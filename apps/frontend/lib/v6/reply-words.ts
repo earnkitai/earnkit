@@ -3,6 +3,8 @@
  * problem name for an own-evidence read that failed. No database, no imports.
  */
 export const EVIDENCE_NOT_READ = 'evidence not read';
+/** The problem a linked find carries when the record holds projects and none is this one (v6.1.8 C41). */
+export const NO_RECORD_PROJECT = 'no record project matched';
 
 /** "a", "a and b", "a, b and c", "a, b, c and 2 more". Pure. */
 export function listWords(items: string[], max = 3): string {

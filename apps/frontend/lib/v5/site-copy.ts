@@ -143,6 +143,17 @@ export const ME_PENDING_TITLE = 'Waiting for you';
 export const ME_PENDING_LINE = 'Read these, then approve each: an unapproved answer is never sent.';
 export const ME_NO_PROJECTS = 'No projects yet. Your agent adds them as you work.';
 export const ME_POLICY_LINE = 'Your agent applies on its own only when this is on, within these limits.';
+/** Under an answer: the short form the agent cut from it, which approving the answer approves too (v6.1.8 B16). */
+export const ME_SHORT_LABEL = 'Short form, for fields under 300 characters.';
+/** The team list under About you (v6.1.8 B19): one name and one role per member, and a row to add one. */
+export const ME_TEAM = {
+  name: (n: number) => `Member ${n}`,
+  role: (n: number) => `Member ${n} role`,
+  add: 'Add a member',
+  hint: 'Clear the name to remove them.',
+} as const;
+/** Standing approval on with no category ticked (v6.1.8 C43). */
+export const ME_PICK_CATEGORY = 'Pick at least one category.';
 export const ME_LEDGER_TITLE = 'Your applications';
 export const ME_LEDGER_EMPTY = 'Nothing tracked yet.';
 export const ME_AGENTS_TITLE = 'Your agents';
@@ -172,6 +183,7 @@ export const ME_YES = 'Yes';
 export const ME_NO = 'No';
 export const ME_BLOCKS = {
   person: 'About you',
+  team: 'Your team',
   projects: 'Your projects',
   company: 'The company',
   docs: 'Your documents',

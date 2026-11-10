@@ -189,7 +189,7 @@ test('a /me/policy post with one bad value changes nothing and names the field (
   refused(b.id, r, 'Most per night: a whole number from 1 to 20.');
   assert.deepEqual(await getRecord(b.id), before, 'auto apply, categories and the rest stay as they were');
   for (const bad of ['2.5', 'abc', '0']) {
-    refused(b.id, await policyPost(post('/me/policy', { csrf, auto_apply: 'on', max_per_night: bad }, { cookie }), deps), 'Most per night: a whole number from 1 to 20.');
+    refused(b.id, await policyPost(post('/me/policy', { csrf, auto_apply: 'on', max_per_night: bad, 'categories[]': ['grant'] }, { cookie }), deps), 'Most per night: a whole number from 1 to 20.');
   }
   // Every bad field gets its own line, in the page's labels.
   const two = await policyPost(post('/me/policy', { csrf, auto_apply: 'on', max_per_night: '50', max_ask_usd: '-5', 'categories[]': ['grant', '<script>'] }, { cookie }), deps);
@@ -396,4 +396,44 @@ test('B10: /me/unlink sets unlinked_at, and that agent\'s next find says it was 
   assert.equal((await sql()`SELECT unlinked_at FROM installations WHERE id = ${inst}`)[0].unlinked_at, null);
   const second = (await find({ ...ctx, now: new Date(NOW.getTime() + 120_000) }, {})) as { linked_notice: string | null };
   assert.equal(second.linked_notice, null);
+});
+
+test('B17: the builder\'s edit of an approved answer leaves no approved short behind; prefill then sends the text', async () => {
+  const { b, cookie, csrf } = await signedIn();
+  await saveRecord(b.id, mergeRecord(await getRecord(b.id), { answers: { problem: { text: 'Teams lose time on payouts.', short: 'Payouts; we serve 5,000 paying customers.' } } }, 'agent', NOW).record, NOW);
+  const seen = seenOf(await getRecord(b.id), 'answers.problem');
+  await approvePost(post('/me/approve', { csrf, path: 'answers.problem', action: 'approve', seen }, { cookie }), deps);
+  assert.deepEqual(answerFor(await getRecord(b.id), null, 'problem'), { text: 'Teams lose time on payouts.', short: 'Payouts; we serve 5,000 paying customers.' });
+  const r = await editPost(post('/me/edit', { csrf, path: 'answers.problem', value: 'Teams lose time on payouts. We have no customers yet.' }, { cookie }), deps);
+  assert.equal(r.headers.get('location'), '/me#answers');
+  const rec = await getRecord(b.id);
+  assert.equal(rec.answers.problem?.short, undefined);
+  assert.deepEqual(answerFor(rec, null, 'problem'), { text: 'Teams lose time on payouts. We have no customers yet.', short: null });
+});
+
+test('B19: the team list is editable on /me: a role, a new member, a removal', async () => {
+  const { b, cookie, csrf } = await signedIn();
+  await saveRecord(b.id, mergeRecord(await getRecord(b.id), { team: [{ name: 'Cut Person', role: 'CEO' }, { name: 'Hidden Partner', role: 'CFO' }] }, 'agent', NOW).record, NOW);
+  assert.equal((await editPost(post('/me/edit', { csrf, path: 'team.0.role', value: 'Founder' }, { cookie }), deps)).headers.get('location'), '/me#team');
+  await editPost(post('/me/edit', { csrf, path: 'team.2.name', value: 'Sam Cofounder' }, { cookie }), deps);
+  await editPost(post('/me/edit', { csrf, path: 'team.1.name', value: '' }, { cookie }), deps);
+  await editPost(post('/me/edit', { csrf, path: 'team.1.role', value: '' }, { cookie }), deps);
+  const rec = await getRecord(b.id);
+  assert.deepEqual(rec.team, [{ name: 'Cut Person', role: 'Founder' }, { name: 'Sam Cofounder' }]);
+  assert.equal(rec.meta.team.set_by, 'builder');
+  refused(b.id, await editPost(post('/me/edit', { csrf, path: 'team.5.name', value: 'x' }, { cookie }), deps), FIELD);
+  refused(b.id, await editPost(post('/me/edit', { csrf, path: 'team.0.github', value: 'x' }, { cookie }), deps), FIELD);
+  refused(b.id, await editPost(post('/me/edit', { csrf, path: 'team.0.name', value: 'x'.repeat(81) }, { cookie }), deps), 'Member 1: at most 80 characters.');
+});
+
+test('C43 and C53: standing approval on with no category is refused; an unknown chain is named', async () => {
+  const { b, cookie, csrf } = await signedIn();
+  const before = await getRecord(b.id);
+  refused(b.id, await policyPost(post('/me/policy', { csrf, auto_apply: 'on', max_per_night: '5', agent_may_submit: 'on' }, { cookie }), deps), 'Pick at least one category.');
+  refused(b.id, await policyPost(post('/me/policy', { csrf, auto_apply: 'on', max_per_night: '50' }, { cookie }), deps), 'Most per night: a whole number from 1 to 20.\nPick at least one category.');
+  assert.deepEqual(await getRecord(b.id), before);
+  // Off with none ticked is fine: nothing is sent alone.
+  assert.equal((await policyPost(post('/me/policy', { csrf, max_per_night: '5' }, { cookie }), deps)).headers.get('location'), '/me#policy');
+  await saveRecord(b.id, mergeRecord(await getRecord(b.id), { projects: [{ id: 'kit', name: 'Kit' }] }, 'agent', NOW).record, NOW);
+  refused(b.id, await editPost(post('/me/edit', { csrf, path: 'projects.kit.chains_claimed', value: 'base, solana, notachain' }, { cookie }), deps), 'Not a known chain: notachain.');
 });

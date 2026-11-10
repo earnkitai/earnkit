@@ -398,3 +398,27 @@ test('an other text field with nothing to draft from is the builder\'s, never th
   assert.equal(withRepo.from, 'agent');
   assert.ok((withRepo.sources ?? []).length > 0);
 });
+
+test('C42: a record value longer than the field is marked to cut, with the note; one that fits is not', async () => {
+  const facts = await factsOf('earnkit');
+  const long = 'x'.repeat(299);
+  const r = rec(recordWith({ answers: { one_liner: { text: long } } }, ['answers.one_liner']));
+  const row = rowWith([req({ key: 'tagline', label: 'Tagline', type: 'text', kind: 'one_liner', max_chars: 60, todo: 'a tagline' })]);
+  const f = prefill(row, facts, r).fields[0];
+  assert.deepEqual([f.from, f.value, f.fit, f.fit_note], ['record', long, 'cut', 'Cut to 60 characters, keeping the meaning.']);
+  // A short form longer than the field is cut too.
+  const s = rec(recordWith(PROBLEM, ['answers.problem']));
+  const tight = prefill(problemRow({ max_chars: 20 }), facts, s).fields[0];
+  assert.deepEqual([tight.value, tight.fit], [PROBLEM.answers.problem.short, 'cut']);
+  const fits = prefill(problemRow({ max_chars: 200 }), facts, s).fields[0];
+  assert.equal('fit' in fits, false);
+});
+
+test('B16: a short form whose text is not approved is never used; an agent\'s new short drops the approval', async () => {
+  const facts = await factsOf('earnkit');
+  const approved = recordWith(PROBLEM, ['answers.problem']);
+  const changed = mergeRecord(approved, { answers: { problem: { short: 'Builders serve 5,000 paying customers.' } } }, 'agent', NOW).record;
+  const f = prefill(problemRow({ max_chars: 200 }), facts, rec(changed)).fields[0];
+  assert.notEqual(f.from, 'record');
+  assert.equal(f.value, null);
+});

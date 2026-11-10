@@ -15,7 +15,7 @@ import { createLinkCode } from './link-routes';
 import { DELETED_NOTICE, listWords, signInLine } from './reply-words';
 
 export { listWords, signInLine };
-import { APPROVABLE, type BuilderRecord, KIND_WORDS, mergeRecord, recordMissing } from './record';
+import { APPROVABLE, type BuilderRecord, KIND_WORDS, mergeRecord, recordItems } from './record';
 
 export const RecordInput = z
   .object({
@@ -42,6 +42,11 @@ const APPROVAL_NOTE = 'Approved answers come from earnkit.com/me, where the buil
 const BROKEN = 'Your record could not be read; nothing was saved.';
 const BROKEN_NOTE = 'Tell the builder to open earnkit.com/me; the owner can inspect the stored row.';
 const BRIEF_NOTE = 'Draft the answer from the brief and save it with record set; the builder approves it on earnkit.com/me before any form uses it.';
+/** The kind's saved answer has a text but no short form (the builder rewrote it on /me, v6.1.8 B17): redraft the short. Pure. */
+const shortNote = (kind: AnswerKind, record: BuilderRecord): string | null =>
+  [record.answers[kind], ...record.projects.map((p) => p.answers[kind])].some((a) => a && !a.short)
+    ? `This answer has no short form: draft one of at most 280 characters from its text and save it as the answer's short with record set (answers.${kind}.short); the builder approves text and short together on earnkit.com/me.`
+    : null;
 
 const origin = () => (process.env.EARNKIT_URL?.trim() || 'http://localhost:3000').replace(/\/$/, '');
 
@@ -201,14 +206,16 @@ export async function recordTool(ctx: { installationId: number; builderId: numbe
   }
   const brief = i.brief ? briefFor(i.brief, record) : undefined;
 
-  const missing = recordMissing(record, asks);
+  const items = recordItems(record, asks);
+  const missing = items.missing;
+  const briefNote = i.brief ? [BRIEF_NOTE, shortNote(i.brief, record)].filter(Boolean).join(' ') : '';
   if (m) {
     // Facts saved: a new project counts by its facts, not once more for itself.
     const facts = m.changed.filter((p) => !m!.changed.some((q) => q.startsWith(`${p}.`)));
     const head = savedLine(facts.length, m.problems, secrets);
     return {
       show_to_builder: [head, missingLine(missing)].filter(Boolean).join(' '),
-      agent_note: [m.changed.some(APPROVABLE) ? APPROVAL_NOTE : brief ? BRIEF_NOTE : '', answerShapeNote(m.problems)].filter(Boolean).join(' '),
+      agent_note: [m.changed.some(APPROVABLE) ? APPROVAL_NOTE : briefNote, answerShapeNote(m.problems)].filter(Boolean).join(' '),
       linked: true,
       missing,
       ...(m.problems.length > 0 ? { problems: m.problems } : {}),
@@ -217,10 +224,13 @@ export async function recordTool(ctx: { installationId: number; builderId: numbe
     };
   }
 
-  // One sentence (v6.1.8): what is missing, named, or that nothing is.
+  // One sentence (v6.1.8): what is missing, named, or that nothing is. A brief alone counts the items (C50).
+  const have = items.total - missing.length;
   return {
-    show_to_builder: missing.length > 0 ? `Your record is missing: ${listWords(missing)}.` : 'Your record has nothing missing.',
-    agent_note: brief ? BRIEF_NOTE : '',
+    show_to_builder: brief && !i.get
+      ? `Your record has ${have} of ${items.total} ${items.total === 1 ? 'item' : 'items'}.`
+      : missing.length > 0 ? `Your record is missing: ${listWords(missing)}.` : 'Your record has nothing missing.',
+    agent_note: briefNote,
     linked: true,
     record,
     missing,

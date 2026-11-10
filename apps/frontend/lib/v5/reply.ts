@@ -3,7 +3,7 @@
  * `agentNote` (what the agent does next). In-person programs get their own block after ready and
  * gaps, with their setup, and are never in the count to apply to. Linked, the record's blocks follow. Pure.
  */
-import { EVIDENCE_NOT_READ, isConfirmWhat, listWords, signInSentence } from '../v6/reply-words';
+import { EVIDENCE_NOT_READ, NO_RECORD_PROJECT, isConfirmWhat, listWords, signInSentence } from '../v6/reply-words';
 import { rulesOnly, type Gap } from './eligibility';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
 import { READS_PAUSED, type RepoNote } from './repo-facts';
@@ -11,6 +11,8 @@ import { READS_PAUSED, type RepoNote } from './repo-facts';
 type R = Omit<FindReply, 'show_to_builder' | 'agent_note'>;
 
 /** How the agent drafts the fields EarnKit did not fill (find and one program alike). */
+/** C42 (v6.1.8): a record value over its field's cap is never sent as given. */
+export const CUT_NOTE = "except a field marked fit 'cut', which you cut to its max_chars as its fit_note says";
 export const AGENT_FIELDS =
   "'agent' fields you draft from the repo, the field's sources and what you already know about the builder; 'builder' fields you ask once, all together. Never invent a personal fact, an amount or a number.";
 const NEEDS_SHOWN = 3;
@@ -345,7 +347,7 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
   const lines = [
     'Open with show_to_builder in your own words: warm, direct, short, no emojis, no em dashes, no invented facts.',
     r.linked
-      ? `Draft each ready program from its fields: 'record' and 'earnkit' values as given; ${AGENT_FIELDS}`
+      ? `Draft each ready program from its fields: 'record' and 'earnkit' values as given, ${CUT_NOTE}; ${AGENT_FIELDS}`
       : `Draft each ready program from its fields: 'earnkit' values as given; ${AGENT_FIELDS}`,
     ...(r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.kind === 'rule')) ? [RULE_NOTE] : []),
     // With standing approval the agent does not wait for a yes; the limits replace it.
@@ -377,7 +379,10 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
   if (r.as_reported && !paused) lines.push('No public repo was read, so the match used the facts you reported; tell the builder the match used what they reported, not a repo read.');
   if (o.description === 'readme') lines.push("No description was passed, so the README's first sentence stood in for it; pass one next time if it reads wrong.");
   if (o.description === 'none') lines.push('No description was passed and no README could stand in; pass one next time.');
-  const dropped = (r.problems ?? []).filter((p) => p !== READS_PAUSED && p !== EVIDENCE_NOT_READ);
+  // C41 (v6.1.8): no record project is this one, so only record-level answers were used.
+  if (r.problems?.includes(NO_RECORD_PROJECT))
+    lines.push("No project in the builder's record matched this one by project_id, repo or name, so no project answers were used; pass project_id (record get lists them) next time.");
+  const dropped = (r.problems ?? []).filter((p) => p !== READS_PAUSED && p !== EVIDENCE_NOT_READ && p !== NO_RECORD_PROJECT);
   if (dropped.length > 0) lines.push(`Some project facts were dropped: ${dropped.join('; ')}. Send them corrected next time.`);
   if (paused) lines.push('Repo reads are paused for this installation until tomorrow; the match used what you reported.');
   return lines.join('\n');

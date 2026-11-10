@@ -273,3 +273,15 @@ test('C51: after the account is deleted, the next record call of a linked agent 
   const second = await mcpCall({ ...c, builderId: null }, 'record', { get: true });
   assert.equal(second.reply!.show_to_builder, "I can't save that yet, so I keep it for this chat.");
 });
+
+test('C50 and B17: a brief counts items, not blocks; an answer the builder rewrote (no short) asks the agent to redraft its short', async () => {
+  const c = await linked();
+  await mcpCall(c, 'record', { set: { answers: { problem: { text: 'Fees.' } } } });
+  const r = await mcpCall(c, 'record', { brief: 'problem' });
+  assert.match(r.reply!.show_to_builder as string, /^Your record has \d+ of \d+ items\.$/);
+  assert.doesNotMatch(r.reply!.show_to_builder as string, /blocks/);
+  assert.match(r.reply!.agent_note as string, /no short form: draft one of at most 280 characters/);
+  await mcpCall(c, 'record', { set: { answers: { problem: { short: 'Fees.' } } } });
+  const again = await mcpCall(c, 'record', { brief: 'problem' });
+  assert.doesNotMatch(again.reply!.agent_note as string, /no short form/);
+});

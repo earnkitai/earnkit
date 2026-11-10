@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   APPROVABLE, BuilderRecord, EMPTY_RECORD, KIND_WORDS, answerFor, approvePath, completeness, isApproved, mergeRecord, parseRecord,
-  recordMissing, unapprovePath,
+  recordItems, recordMissing, unapprovePath,
 } from './record';
 import { ANSWER_KINDS } from '../v5/program-file';
 
@@ -244,4 +244,50 @@ test('inherited-key names in a patch are the normal problem line, never a throw 
     assert.deepEqual(a.problems, [`answers.${key}: not a field`]);
   }
   assert.equal(({} as { name?: unknown }).name, undefined, 'Object.prototype is untouched');
+});
+
+test('B17: a new text drops the old short form (the builder\'s edit leaves no approved short); a short alone keeps the text', () => {
+  let r = merge({ answers: { problem: { text: 'Teams lose time on payouts.', short: 'Payouts; we serve 5,000 paying customers.' } } }).record;
+  r = approvePath(r, 'answers.problem', NOW);
+  const edited = merge({ answers: { problem: { text: 'Teams lose time on payouts. We have no customers yet.' } } }, 'builder', r, LATER).record;
+  assert.equal(edited.answers.problem?.short, undefined);
+  assert.deepEqual(answerFor(edited, null, 'problem'), { text: 'Teams lose time on payouts. We have no customers yet.', short: null });
+  // The agent redrafts the short: the answer waits for approval again, text and short together.
+  const redrafted = merge({ answers: { problem: { short: 'Payouts take teams days.' } } }, 'agent', edited, LATER).record;
+  assert.equal(redrafted.answers.problem?.text, 'Teams lose time on payouts. We have no customers yet.');
+  assert.equal(redrafted.answers.problem?.short, 'Payouts take teams days.');
+  assert.equal(answerFor(redrafted, null, 'problem'), null);
+  // The same text sent again with a new short keeps both.
+  const both = merge({ answers: { problem: { text: 'Teams lose time on payouts. We have no customers yet.', short: 'Short.' } } }, 'agent', redrafted, LATER).record;
+  assert.equal(both.answers.problem?.short, 'Short.');
+});
+
+test('C48: an agent change that drops an approval stamps when; approving again clears it', () => {
+  let r = merge({ answers: { problem: { text: 'Fees.' } } }).record;
+  r = approvePath(r, 'answers.problem', NOW);
+  const changed = merge({ answers: { problem: { short: 'F.' } } }, 'agent', r, LATER).record;
+  assert.equal(changed.meta['answers.problem'].unapproved_at, LATER.toISOString());
+  assert.equal(approvePath(changed, 'answers.problem', LATER).meta['answers.problem'].unapproved_at, undefined);
+  // Never approved: nothing to stamp.
+  assert.equal(merge({ answers: { why_you: { text: 'Us.' } } }, 'agent', r, LATER).record.meta['answers.why_you'].unapproved_at, undefined);
+});
+
+test('C49: traction is one item in the missing list (the line), never also an answer', () => {
+  const m = recordMissing(EMPTY_RECORD, { needs: [], kinds: ['traction', 'problem'] });
+  assert.deepEqual(m.filter((x) => /traction/.test(x)), ['one approved line on traction']);
+});
+
+test('C50: recordItems counts the items the open programs ask, and the ones missing', () => {
+  const asks = { needs: ['deck'], kinds: ['problem', 'traction'] };
+  const empty = recordItems(EMPTY_RECORD, asks);
+  // name, email, project, traction line, problem, deck.
+  assert.deepEqual([empty.total, empty.missing.length], [6, 6]);
+  const r = merge({ person: { name: 'Ada' } }).record;
+  assert.deepEqual([recordItems(r, asks).total, recordItems(r, asks).missing.length], [6, 5]);
+  assert.deepEqual(recordItems(r, asks).missing, recordMissing(r, asks));
+});
+
+test('C53: an unknown chain is named', () => {
+  const { problems } = merge({ projects: [{ id: 'p1', chains_claimed: ['base', 'notachain'] }] });
+  assert.ok(problems.some((l) => l.endsWith('not a known chain: notachain')), problems.join('|'));
 });

@@ -851,9 +851,13 @@ test('find with program_id, linked: the record fills an approved answer; unlinke
   assert.deepEqual([problem.from, problem.value, typeof problem.style], ['record', 'Builders lose weeks on grant forms.', 'string']);
   assert.equal(fields.find((f) => f.key === 'email')!.value, 'jenil@example.com');
   assert.match(r.reply!.agent_note as string, /Fit approved answers by cutting, never by adding; the style contract travels on each field\./);
-  // Without a project, the record still fills (the first project).
+  // Without a project or project_id, no project's answers stand in (v6.1.8 C41); the record's facts still fill.
   const bare = await mcpCall({ ...ctx(id), builderId }, 'find', { program_id: 'z-fellows' });
-  assert.equal((bare.reply!.fields as { key: string; from: string }[]).find((f) => f.key === 'problem')!.from, 'record');
+  const bareFields = bare.reply!.fields as { key: string; from: string; value: string | null }[];
+  assert.notEqual(bareFields.find((f) => f.key === 'problem')!.from, 'record');
+  assert.equal(bareFields.find((f) => f.key === 'email')!.value, 'jenil@example.com');
+  const byId = await mcpCall({ ...ctx(id), builderId }, 'find', { program_id: 'z-fellows', project_id: 'earnkit' });
+  assert.equal((byId.reply!.fields as { key: string; from: string }[]).find((f) => f.key === 'problem')!.from, 'record');
   const v5 = await mcpCall(ctx(await installation()), 'find', { program_id: 'z-fellows', project: PROJECT });
   const v5fields = v5.reply!.fields as { from: string }[];
   assert.ok(v5fields.every((f) => f.from !== 'record'));
@@ -1381,4 +1385,14 @@ test('C47: a find with no project stamps the find, so the linked notice shows on
   assert.equal(second.reply!.linked_notice, null);
   const [row] = await sql()`SELECT last_find_at FROM installations WHERE id = ${id}`;
   assert.equal((row.last_find_at as Date).toISOString(), new Date(NOW.getTime() + H).toISOString());
+});
+
+test('C41: a project the record does not hold gets no project answers, and the agent is told to pass project_id', async () => {
+  const { id, builderId } = await linkedWith({ projects: [{ id: 'other', name: 'Other Thing', answers: { why_you: { text: 'Other why.' } } }] }, ['projects.other.answers.why_you']);
+  const r = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT });
+  assert.equal(r.isError, false, r.text);
+  assert.ok((r.reply!.problems as string[]).includes('no record project matched'));
+  assert.match(r.reply!.agent_note as string, /pass project_id \(record get lists them\) next time/);
+  assert.doesNotMatch(r.reply!.agent_note as string, /dropped: no record project/);
+  assert.ok(!JSON.stringify(r.reply!.ready).includes('Other why.'));
 });

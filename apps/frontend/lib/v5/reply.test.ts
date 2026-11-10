@@ -339,7 +339,7 @@ test('standing approval: the closing line counts what an agent can send alone, a
     'Standing approval is on: for each ready program within the limits, call track started, fill from fields, submit where the program allows an agent, then track applied with submitted_by agent and fields_used. Stop at max_per_night. Never submit where blockers say needs_click, outside_approval or a sign-in you do not have.',
   ));
   assert.ok(!note.includes('Submit only'));
-  assert.ok(note.includes("Draft each ready program from its fields: 'record' and 'earnkit' values as given;"));
+  assert.ok(note.includes("Draft each ready program from its fields: 'record' and 'earnkit' values as given, except a field marked fit 'cut', which you cut to its max_chars as its fit_note says;"));
   // The submit rule lives in the server instructions only (v6.1.8).
   assert.ok(!agentNote(LINKED, { more: 0 }).includes('Submit only'));
   assert.ok(agentNote(MONDAY, { more: 0 }).includes("Draft each ready program from its fields: 'earnkit' values as given;"));

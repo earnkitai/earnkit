@@ -13,7 +13,7 @@ import { withRecord, readStoredRecord } from './builders';
 import type { Evidence, Subject } from './evidence';
 import { evidenceSummary, ownEvidence, usageLine } from './own-evidence';
 import { hasDoc, recordMissing, type BuilderRecord, type Project } from './record';
-import { confirmLine, EVIDENCE_NOT_READ } from './reply-words';
+import { confirmLine, EVIDENCE_NOT_READ, NO_RECORD_PROJECT } from './reply-words';
 import { TIERS, place, type Tier } from './tiers';
 
 export { EVIDENCE_NOT_READ };
@@ -35,20 +35,26 @@ export type Blocker = {
 const sameRepo = (a: string | null | undefined, b: string | null | undefined) =>
   !!a && !!b && a.toLowerCase().replace(/\/+$/, '').replace(/\.git$/, '') === b.toLowerCase().replace(/\/+$/, '').replace(/\.git$/, '');
 
-/** `project_id`, else the project whose repo is the one reported, else the first, else none. Pure. */
-export function pickProject(record: BuilderRecord, projectId: string | undefined, repoUrl: string | null): Project | null {
+const sameName = (a: string | null | undefined, b: string | null | undefined) => !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/**
+ * `project_id`, else the project whose repo is the one reported, else the one with the reported name (any case), else
+ * none (v6.1.8 C41): another project's answers are never used for this one. Pure.
+ */
+export function pickProject(record: BuilderRecord, projectId: string | undefined, repoUrl: string | null, name?: string | null): Project | null {
   return (
     (projectId ? record.projects.find((p) => p.id === projectId) : undefined) ??
     record.projects.find((p) => sameRepo(p.repo_url, repoUrl)) ??
-    record.projects[0] ??
+    record.projects.find((p) => sameName(p.name, name)) ??
     null
   );
 }
 
+
 /** The record, the picked project and its stored usage line, for one program's pre-fill (no evidence read). */
-export async function storedRecordContext(builderId: number, projectId: string | undefined, repoUrl: string | null): Promise<RecordContext> {
+export async function storedRecordContext(builderId: number, projectId: string | undefined, repoUrl: string | null, name?: string | null): Promise<RecordContext> {
   const { record } = await readStoredRecord(builderId);
-  const project = pickProject(record, projectId, repoUrl);
+  const project = pickProject(record, projectId, repoUrl, name);
   return { record, projectId: project?.id ?? null, verifiedUsage: project?.last_tier?.usage ?? null };
 }
 
@@ -65,8 +71,10 @@ export async function recordSide(
   o: { builderId: number; now: Date; projectId?: string; facts: RepoFacts; read: (s: Subject) => Promise<Evidence> },
 ): Promise<RecordSide> {
   const { record } = await readStoredRecord(o.builderId);
-  const project = pickProject(record, o.projectId, o.facts.repo_url);
+  const project = pickProject(record, o.projectId, o.facts.repo_url, o.facts.name);
   const side: RecordSide = { record, projectId: project?.id ?? null, verifiedUsage: null, tier: null, summary: null, problems: [] };
+  // A project_id the record lacks is named by find itself; a project not named at all gets this note.
+  if (!project && record.projects.length > 0 && o.projectId === undefined) side.problems.push(NO_RECORD_PROJECT);
   if (!project) return side;
   const stored = project.last_tier;
   if (isTier(stored?.tier)) {

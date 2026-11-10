@@ -22,7 +22,7 @@ import { getProgram, isOpen, listOpenPrograms, type ProgramRow } from './program
 import { parseProject, type Project } from './project-input';
 import { rankGaps, rankReady, shownGapsOf } from './rank';
 import { repoFacts, type RepoFacts, type RepoNote } from './repo-facts';
-import { AGENT_FIELDS, RULE_NOTE, agentNote, canDo, closingLine, gapAction, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyText, ruleSentence, signInOnly } from './reply';
+import { AGENT_FIELDS, CUT_NOTE, RULE_NOTE, agentNote, canDo, closingLine, gapAction, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyText, ruleSentence, signInOnly } from './reply';
 import { since, type Since } from './since';
 
 export const FindInput = z.object({
@@ -219,7 +219,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const { reviewers_contact: _owner, ...pub } = p;
   const facts = project ? await factsOf(project, ctx) : EMPTY_FACTS;
   // Linked: the record fills first, as in the match (no evidence read here: the stored usage line).
-  const rec = ctx.builderId === null ? null : await storedRecordContext(ctx.builderId, projectId, facts.repo_url ?? project?.repo_url ?? null);
+  const rec = ctx.builderId === null ? null : await storedRecordContext(ctx.builderId, projectId, facts.repo_url ?? project?.repo_url ?? null, project?.name ?? null);
   const { fields } = prefill(row, facts, rec);
   const fitted = fields.some((f) => f.from === 'record');
   // Gated as the list gates it: the stored tier when linked and read, else the provisional one (v6.1.8, 1b).
@@ -261,7 +261,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
         : verdict?.status === 'no'
           ? ['It does not fit this project: draft nothing and submit nothing unless the builder asks again with a project it fits.']
           : [
-              `Draft from fields: ${fitted ? "'record' and 'earnkit'" : "'earnkit'"} values as given; ${AGENT_FIELDS}`,
+              `Draft from fields: ${fitted ? `'record' and 'earnkit' values as given, ${CUT_NOTE}` : "'earnkit' values as given"}; ${AGENT_FIELDS}`,
               ...(verdict?.gaps.some((g) => g.kind === 'rule') ? [RULE_NOTE] : []),
               ...(real.length === 0 ? [] : link
                 ? ['Show the sign-in link once as the reply gives it; once the builder has signed in, call find with program_id again.']

@@ -31,7 +31,7 @@ test('labels have no path or dot; every pending approval is an approvable path',
   const d = await meData(b, NOW, 'sess');
   assert.equal(d.csrf, csrfToken(b.id, NOW.toISOString().slice(0, 10), SECRET, 'sess'), 'the page mints the csrf from its session');
   assert.equal(d.login, 'viewer');
-  assert.deepEqual(d.blocks.map((x) => x.key), ['person', 'projects', 'company', 'docs', 'traction', 'answers', 'policy']);
+  assert.deepEqual(d.blocks.map((x) => x.key), ['person', 'team', 'projects', 'company', 'docs', 'traction', 'answers', 'policy']);
   for (const block of d.blocks) {
     assert.ok(!/[._]/.test(block.title), block.title);
     for (const f of block.fields) {
@@ -161,4 +161,29 @@ test('a note is shown plainly, apart from a refusal, and several refusal lines k
   assert.ok(!ok.includes('role="alert"'));
   const bad = renderToStaticMarkup(MeView({ data: d, problem: 'Most per night: a whole number from 1 to 20.\nCategories: pick one of the options.' }));
   assert.ok(/<p role="alert" class="[^"]*whitespace-pre-line[^"]*">Most per night: a whole number from 1 to 20\.\nCategories: pick one of the options\.<\/p>/.test(bad), bad);
+});
+
+test('B16 and B19: each answer shows its short form, pending and approved; the team list shows under About you', async () => {
+  const b = await upsertBuilder({ github_id: 810_050, login: 'shorty', name: 'S', avatar_url: null }, NOW);
+  const patch = {
+    answers: { problem: { text: 'Teams lose time on payouts.', short: 'Payouts; we serve 5,000 paying customers.' } },
+    team: [{ name: 'Cut Person', role: 'CEO' }, { name: 'Hidden Partner', role: 'CFO' }],
+  };
+  await saveRecord(b.id, mergeRecord(await getRecord(b.id), patch, 'agent', NOW).record, NOW);
+  const d = await meData(b, NOW, 'sess');
+  const pending = d.pending_approvals.find((p) => p.path === 'answers.problem')!;
+  assert.equal(pending.short, 'Payouts; we serve 5,000 paying customers.');
+  const fields = d.blocks.flatMap((x) => x.fields);
+  assert.equal(fields.find((f) => f.path === 'answers.problem')!.short, 'Payouts; we serve 5,000 paying customers.');
+  const team = d.blocks.find((x) => x.key === 'team')!;
+  assert.deepEqual(team.fields.map((f) => [f.path, f.label, f.value, f.set_by]), [
+    ['team.0.name', 'Member 1', 'Cut Person', 'agent'], ['team.0.role', 'Member 1 role', 'CEO', 'agent'],
+    ['team.1.name', 'Member 2', 'Hidden Partner', 'agent'], ['team.1.role', 'Member 2 role', 'CFO', 'agent'],
+    ['team.2.name', 'Add a member', '', null],
+  ]);
+  const html = renderToStaticMarkup(React.createElement(MeView, { data: d, problem: null }));
+  assert.equal(html.split('Short form, for fields under 300 characters.').length, 3, 'once pending, once under the answer');
+  assert.ok(html.includes('5,000 paying customers'));
+  assert.ok(html.includes('Hidden Partner'));
+  assert.ok(html.indexOf('Your team') > html.indexOf('About you') && html.indexOf('Your team') < html.indexOf('Your projects'));
 });
