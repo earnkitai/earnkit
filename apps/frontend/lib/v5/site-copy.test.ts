@@ -34,7 +34,7 @@ test('copy rules: no emoji, no em dash, none of the banned words', () => {
 
 test('the hero and the steps are verbatim', () => {
   assert.equal(copy.HERO_TITLE, 'Get funded for what you ship.');
-  assert.equal(copy.HERO_SUB, 'Your agent finds the grants you fit and applies. Free.');
+  assert.equal(copy.HERO_SUB, 'Your agent finds the grants and prizes you fit and applies. Free.');
   assert.equal(copy.CTA_INSTALL, 'Add EarnKit to your agent');
   assert.deepEqual(copy.STEPS, ['Add EarnKit to your agent.', 'Ask what this repo can earn.', 'Say yes. It applies and tracks the result.']);
   assert.ok(!('STEPS_TITLE' in copy));

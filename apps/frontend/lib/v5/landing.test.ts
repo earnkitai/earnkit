@@ -1,7 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
-import { featuredTiles, landingFrom, landingTiles, logoOf, readLanding } from './landing';
+import { featuredTiles, landingFrom, landingTiles, logoOf, orgKey, readLanding } from './landing';
 import { programFixture } from './fixtures/program';
 import { upsertProgram, type ProgramRow } from './programs';
 import type { Stats } from './stats';
@@ -93,6 +93,7 @@ test('featuredTiles: six by the rule (v6.2.0)', () => {
   const six = featuredTiles(rows, NOW);
   assert.deepEqual(six.map((t) => t.id), ['f-soon-first', 'f-soon-later', 'f-big-pool', 'f-big-award', 'f-mid-pool', 'f-soon-small']);
   assert.deepEqual(six.map((t) => t.money), ['$25K', '$30K', '$1M in grants', '$100K', '$20K in grants', '$12K']);
+  assert.equal(six[0].when, 'Closes Nov 9');
   assert.ok(six.every((t) => t.status === 'active' && t.kind !== 'investment'));
   const l = landingFrom(rows, STATS, NOW);
   assert.equal(l.total, 12);
@@ -119,6 +120,20 @@ test('featuredTiles: the Monad pair counts once (organizer first word)', () => {
     rowOf({ id: 'm-gz', organizer: 'Monad Foundation, OpenBuild and Box', in_person: true, pool_usd: 30_000 }),
   ];
   assert.deepEqual(featuredTiles(rows, NOW).map((t) => t.id), ['m-oregon']);
+});
+
+test('featuredTiles: the organizer key skips "the", "open" and "foundation" before the first word', () => {
+  assert.equal(orgKey('Open Technology Fund'), 'technology');
+  assert.equal(orgKey('The Graph Foundation'), 'graph');
+  assert.equal(orgKey('  Thiel Foundation '), 'thiel');
+  assert.equal(orgKey('Open'), 'open');
+  const rows = [
+    rowOf({ id: 'o-otf', organizer: 'Open Technology Fund', max_award_usd: 900_000 }),
+    rowOf({ id: 'o-oc', organizer: 'Open Collective', max_award_usd: 50_000 }),
+    rowOf({ id: 't-graph', organizer: 'The Graph Foundation', max_award_usd: 40_000 }),
+    rowOf({ id: 't-gitcoin', organizer: 'The Gitcoin Foundation', max_award_usd: 30_000 }),
+  ];
+  assert.deepEqual(featuredTiles(rows, NOW).map((t) => t.id), ['o-otf', 'o-oc', 't-graph', 't-gitcoin']);
 });
 
 test('featuredTiles: an empty organizer is its title; equal money goes by id; a rolling summary is not closing soon', () => {

@@ -6,14 +6,14 @@ import { sql } from './db';
 import { programFixture } from './fixtures/program';
 import { upsertProgram } from './programs';
 import { gatedGuidePage, guideTextById, listGuideIds } from './guide-page';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { EARN_ALL, HERO_TITLE, PROGRAMS_DESCRIPTION, STEPS } from './site-copy';
+import { EARN_ALL, EARN_EMPTY, HERO_TITLE, PROGRAMS_DESCRIPTION, STEPS } from './site-copy';
 import type { Landing, Tile } from './landing';
 import Home from '../../app/page';
 import HomeView from '../../app/HomeView';
 import Steps from '../../app/components/landing/Steps';
-import Opportunities from '../../app/components/landing/Opportunities';
+import Opportunities, { Logo } from '../../app/components/landing/Opportunities';
 import ProgramsPage from '../../app/programs/page';
 import ProgramGuidePage, { generateMetadata as guideMetadata } from '../../app/programs/[id]/page';
 import DocsPage from '../../app/docs/page';
@@ -96,10 +96,42 @@ test('the landing with 45 programs: six cards, then one link "See all 45 program
 test('the landing cards: the first blue, the other five neutral; /programs all neutral (v6.2.0)', () => {
   const landing = html(React.createElement(Opportunities, { programs: TILES45.slice(0, 6), total: 45 }));
   assert.equal(landing.match(/border-s-blue-line/g)?.length, 1);
-  assert.equal(landing.match(/border-s-step-line/g)?.length, 5);
+  assert.equal(landing.match(/border border-s-line bg-gradient-to-b from-s-card-top to-s-card-bottom/g)?.length, 5);
+  assert.equal(landing.match(/hover:border-s-line-hover/g)?.length, 5);
   const all = html(React.createElement(Opportunities, { programs: TILES45, total: 45, full: true }));
   assert.equal(all.match(/border-s-blue-line/g), null);
-  assert.equal(all.match(/border-s-step-line/g)?.length, 45);
+  assert.equal(all.match(/border border-s-line bg-gradient-to-b from-s-card-top to-s-card-bottom/g)?.length, 45);
+});
+
+test('the landing grid is 1, 2 then 3 columns; /programs keeps auto-fit (v6.2.0)', () => {
+  const landing = html(React.createElement(Opportunities, { programs: TILES45.slice(0, 6), total: 45 }));
+  assert.match(landing, /class="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"/);
+  assert.ok(!landing.includes('auto-fit'));
+  const all = html(React.createElement(Opportunities, { programs: TILES45, total: 45, full: true }));
+  assert.match(all, /class="grid gap-4 \[grid-template-columns:repeat\(auto-fit,minmax\(260px,1fr\)\)\]"/);
+  assert.ok(!all.includes('lg:grid-cols-3'));
+});
+
+test('no featured programs but some listed: the title, "Nothing is open right now." and the pill (v6.2.0)', () => {
+  const t = textOf(html(React.createElement(Opportunities, { programs: [], total: 45 })));
+  assert.equal(t, `This week ${EARN_EMPTY} ${EARN_ALL(45)}`);
+  assert.equal(EARN_EMPTY, 'Nothing is open right now.');
+});
+
+test('logos: a wordmark gets the wide tile, a flat mark is forced black, a square mark the 52px tile (v6.2.0)', () => {
+  const wide = html(React.createElement(Logo, { id: 'thiel-fellowship', logo: '/programs/thiel-fellowship.svg', organizer: 'Thiel Foundation' }));
+  assert.ok(wide.includes('data-ek-logo-wide') && wide.includes('w-[96px]') && wide.includes('brightness-0'));
+  const square = html(React.createElement(Logo, { id: 'paypal-ai-hackathon', logo: '/programs/paypal-ai-hackathon.png', organizer: 'PayPal' }));
+  assert.ok(square.includes('w-[52px]') && !square.includes('data-ek-logo-wide') && !square.includes('brightness-0'));
+});
+
+test('components write no raw hex and no /NN opacity on a token class; s-dim only in the footer (DESIGN.md)', () => {
+  const dir = join(import.meta.dirname, '../../app/components');
+  for (const f of readdirSync(dir, { recursive: true, encoding: 'utf8' }).filter((x) => x.endsWith('.tsx'))) {
+    const src = readFileSync(join(dir, f), 'utf8');
+    assert.ok(!/\[#[0-9a-fA-F]{3,8}\]|\bs-[a-z0-9-]+\/\d/.test(src), f);
+    if (!f.endsWith('Footer.tsx')) assert.ok(!src.includes('s-dim'), f);
+  }
 });
 
 test('a failed read: the hero and the steps, no programs and no link (v6.2.0)', () => {
@@ -113,7 +145,7 @@ test('a failed read: the hero and the steps, no programs and no link (v6.2.0)', 
 
 test('the steps: one card, an ordered list of the three lines with serif numerals, no icons, no title (v6.2.0)', () => {
   const m = html(React.createElement(Steps));
-  assert.equal(m.match(/<ol/g)?.length, 1);
+  assert.equal(m.match(/<ol role="list"/g)?.length, 1);
   assert.ok(!/<svg|<h[1-6]/.test(m));
   const items = [...m.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/g)].map((x) => x[1]);
   assert.equal(items.length, 3);

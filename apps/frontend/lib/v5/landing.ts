@@ -88,12 +88,22 @@ const MAX_HACKATHONS = 3;
 const MIN_USD = 10_000;
 const SOON_MIN_USD = 25_000;
 const SOON_MS = 14 * 86_400_000;
+const ORG_STOPWORDS = new Set(['the', 'open', 'foundation']);
+
+/** The organizer key for one-per-organizer: the first word not in `ORG_STOPWORDS`, lower-cased (else the first word). Pure. */
+export const orgKey = (name: string): string => {
+  const words = name.trim().toLowerCase().split(/\s+/);
+  return words.find((w) => !ORG_STOPWORDS.has(w)) ?? words[0];
+};
 
 /**
  * The landing's six (v6.2.0): open programs only, no investments, money of at least $10K
  * (the larger of `pool_usd` and `max_award_usd`); those closing within 14 days with at least $25K
- * first (soonest first), then by money, then the id; one per organizer (the organizer's first word,
- * lower-cased; the title when there is no organizer); at most three hackathons.
+ * first (soonest first), then by money, then the id; one per organizer (`orgKey`: the organizer's first word
+ * after `the`, `open` and `foundation`, lower-cased; the title when there is no organizer); at most three hackathons.
+ * Merge risk: the key merges every organizer that shares a first word. Wanted: "Monad Foundation ..." pairs,
+ * Solana Labs / Foundation / Mobile, the Arbitrum programs. Unwanted: two different orgs with one first word
+ * (say "Ethereum Foundation" and another Ethereum org); the stopwords keep "The ..." and "Open ..." apart.
  * Pure apart from the logo file check.
  */
 export function featuredTiles(rows: ProgramRow[], now: Date): Tile[] {
@@ -118,7 +128,7 @@ export function featuredTiles(rows: ProgramRow[], now: Date): Tile[] {
   const out: Tile[] = [];
   let hackathons = 0;
   for (const { p } of ranked) {
-    const org = (p.organizer.trim() || p.title).trim().split(/\s+/)[0].toLowerCase();
+    const org = orgKey(p.organizer.trim() || p.title);
     const tile = tileOf(p);
     const hack = tile.kind === 'hackathon';
     if (seen.has(org) || (hack && hackathons >= MAX_HACKATHONS)) continue;

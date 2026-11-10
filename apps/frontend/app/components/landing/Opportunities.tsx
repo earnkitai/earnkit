@@ -6,21 +6,31 @@ import Money from '../site/Money';
 
 /** The two card looks: blue (the landing's first card) and neutral (every other card); each with its secondary text colour. */
 const BLUE = { card: 'rounded-[32px] border border-s-blue-line bg-[linear-gradient(160deg,var(--ek-s-blue-top)_0%,var(--ek-s-blue-bottom)_100%)] text-s-text', sub: 'text-s-on-navy-soft' };
-const NEUTRAL = { card: CARD_NEUTRAL, sub: 'text-s-muted' };
+const NEUTRAL = { card: `${CARD_NEUTRAL} hover:border-s-line-hover`, sub: 'text-s-muted' };
 
-/** Marks drawn dark on their own (black on transparent): forced black so they read on the white tile. */
-const DARK_MARKS = new Set(['alliance-all19']);
+/** Marks drawn in one flat colour that may not read on white (black or white on transparent): forced black on the white tile. */
+const DARK_MARKS = new Set(['alliance-all19', 'thiel-fellowship']);
+/** Wordmarks with no square mark from the organizer: drawn 96 by 28 on a white tile as wide as the mark, like the name tile. */
+const WIDE_MARKS = new Set(['ugreen-ai-nas-hackathon-2026', 'thiel-fellowship']);
 
 /**
- * The program's mark on a white 52px tile. Without a logo file, the organizer's name in ink on the same
- * white tile, as wide as the name. Logos are local files only (the tile's `logo` is checked to exist).
+ * The program's mark on a white 52px tile (a wordmark in `WIDE_MARKS` on a tile as wide as the mark). Without
+ * a logo file, the organizer's name in ink on the same white tile, as wide as the name. Logos are local files only (the tile's `logo` is checked to exist).
  */
 export function Logo({ id, logo, organizer }: { id: string; logo: string | null; organizer: string }) {
+  const dark = DARK_MARKS.has(id) ? 'brightness-0' : '';
+  if (logo && WIDE_MARKS.has(id))
+    return (
+      <span data-ek-logo-wide="" className="inline-flex h-[52px] shrink-0 items-center justify-center rounded-2xl bg-s-light px-3.5">
+        {/* eslint-disable-next-line @next/next/no-img-element -- a small local file; lazy: below the fold */}
+        <img src={logo} alt="" width={96} height={28} loading="lazy" className={`h-[28px] w-[96px] object-contain ${dark}`} />
+      </span>
+    );
   if (logo)
     return (
       <span className="inline-flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-2xl bg-s-light text-s-ink">
         {/* eslint-disable-next-line @next/next/no-img-element -- a small local file; lazy: below the fold */}
-        <img src={logo} alt="" width={30} height={30} loading="lazy" className={`h-[30px] w-[30px] object-contain ${DARK_MARKS.has(id) ? 'brightness-0' : ''}`} />
+        <img src={logo} alt="" width={30} height={30} loading="lazy" className={`h-[30px] w-[30px] object-contain ${dark}`} />
       </span>
     );
   return (
@@ -37,8 +47,9 @@ export function Logo({ id, logo, organizer }: { id: string; logo: string | null;
 /**
  * The programs grid, each card to its guide. On the landing (`full` false): "This week", the six featured
  * cards (the first blue, the rest neutral) and one white pill to /programs with the listed count; the section
- * is the `#earn` anchor the hero chip lands on. On /programs (`full`): the page title, the description line
- * and every listed program, all neutral. Upcoming programs carry a "Not open yet" chip.
+ * is the `#earn` anchor the hero chip lands on; six read as 3 by 2 on a desktop, 2 by 3 on a tablet, one column on a phone. On /programs (`full`): the page title, the description line
+ * and every listed program, all neutral, in auto-fit columns. Upcoming programs carry a "Not open yet" chip. With no cards,
+ * "Nothing is open right now." under the title (and on the landing the pill still, when programs are listed).
  */
 export default function Opportunities({ programs, total, full = false }: { programs: Tile[]; total: number; full?: boolean }) {
   return (
@@ -56,7 +67,7 @@ export default function Opportunities({ programs, total, full = false }: { progr
         </h2>
       )}
       {programs.length > 0 ? (
-        <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(260px,1fr))]">
+        <div className={`grid gap-4 ${full ? '[grid-template-columns:repeat(auto-fit,minmax(260px,1fr))]' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'}`}>
           {programs.map((t, i) => {
             const look = !full && i === 0 ? BLUE : NEUTRAL;
             return (
@@ -82,9 +93,9 @@ export default function Opportunities({ programs, total, full = false }: { progr
             );
           })}
         </div>
-      ) : total === 0 ? (
+      ) : (
         <p className="px-2 text-[16px] text-s-muted">{EARN_EMPTY}</p>
-      ) : null}
+      )}
       {!full && total > 0 ? (
         <div className="flex justify-center">
           <Link href="/programs" className={PILL_WHITE}>

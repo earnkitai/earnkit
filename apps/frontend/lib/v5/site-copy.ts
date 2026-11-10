@@ -23,7 +23,7 @@ export function programKind(c: { investment?: boolean; in_person?: boolean; rewa
 }
 
 export const HERO_TITLE = 'Get funded for what you ship.';
-export const HERO_SUB = 'Your agent finds the grants you fit and applies. Free.';
+export const HERO_SUB = 'Your agent finds the grants and prizes you fit and applies. Free.';
 export const CTA_INSTALL = 'Add EarnKit to your agent';
 export const NAV_INSTALL = 'Add to your agent';
 /** One line each, no titles (v6.2.0). */
