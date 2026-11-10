@@ -111,7 +111,9 @@ The pipeline, in order:
 5. Readers: `programs-read.ts` serves public `GET /api/programs`; `landing.ts`, `guide.ts`, `guide-page.ts` and
    `stats.ts` feed the site. A program card shows the pool first (`pool_usd`, as "$N in grants" or "$N in prizes"),
    then the per-winner `max_award_usd`, then the summary (`moneyOf` in `programs-read.ts`). The hero chip ("$N in grants and prizes open now") sums, per open non-investment
-   program, its `pool_usd` when set, else its `max_award_usd`.
+   program, its `pool_usd` when set, else its `max_award_usd`. The landing shows six programs (`featuredTiles` in
+   `landing.ts`: open, not investments, at least $10K; closing within 14 days with at least $25K first, then by money;
+   one per organizer, at most three hackathons) and a link to /programs, which lists every one (`landingTiles`).
 
 ## The ledger
 
@@ -149,7 +151,7 @@ minutes), no probe, sweep or digest.
 
 | Route | Is |
 |---|---|
-| `/` | Landing: one statement, the install picker, the open programs, counts and open money |
+| `/` | Landing: one statement, the install picker, the three steps, six featured programs and a link to all of them, open money |
 | `/programs`, `/programs/[id]` | Public, indexable guide to every listed program; closed ones render without an Apply link |
 | `/docs` | Install steps per agent, how a session goes, your record, screening for programs, how programs are checked |
 | `/install` | Permanent redirect to `/docs#install` (old links) |

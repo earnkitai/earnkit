@@ -1,16 +1,12 @@
 import Link from 'next/link';
-import { H1_SITE, H2_SITE } from '../site/ui';
+import { CARD_NEUTRAL, H1_SITE, H2_SITE, PILL_WHITE } from '../site/ui';
 import type { Tile } from '../../../lib/v5/landing';
-import { EARN_EMPTY, EARN_TITLE } from '../../../lib/v5/site-copy';
+import { EARN_ALL, EARN_EMPTY, EARN_TITLE, PROGRAMS_DESCRIPTION, PROGRAMS_TITLE } from '../../../lib/v5/site-copy';
 import Money from '../site/Money';
 
-/** The four card looks in order: blue, step, rust, step; each with its secondary text colour. */
-const LOOKS = [
-  { card: 'border-s-blue-line bg-[linear-gradient(160deg,var(--ek-s-blue-top)_0%,var(--ek-s-blue-bottom)_100%)]', sub: 'text-s-on-navy-soft' },
-  { card: 'border-s-step-line bg-gradient-to-br from-s-step-top to-s-step-bottom', sub: 'text-s-muted' },
-  { card: 'border-s-rust-line bg-[linear-gradient(160deg,var(--ek-s-rust-top)_0%,var(--ek-s-rust-bottom)_100%)]', sub: 'text-s-rust-sub' },
-  { card: 'border-s-step-line bg-gradient-to-br from-s-step-top to-s-step-bottom', sub: 'text-s-muted' },
-] as const;
+/** The two card looks: blue (the landing's first card) and neutral (every other card); each with its secondary text colour. */
+const BLUE = { card: 'rounded-[32px] border border-s-blue-line bg-[linear-gradient(160deg,var(--ek-s-blue-top)_0%,var(--ek-s-blue-bottom)_100%)] text-s-text', sub: 'text-s-on-navy-soft' };
+const NEUTRAL = { card: CARD_NEUTRAL, sub: 'text-s-muted' };
 
 /** Marks drawn dark on their own (black on transparent): forced black so they read on the white tile. */
 const DARK_MARKS = new Set(['alliance-all19']);
@@ -39,25 +35,35 @@ export function Logo({ id, logo, organizer }: { id: string; logo: string | null;
 }
 
 /**
- * The open programs, every one of them, each card to its guide (the `#earn` anchor the hero chip lands on).
- * Upcoming programs carry a "Not open yet" chip. `h1`: the section is the page's title (/programs).
+ * The programs grid, each card to its guide. On the landing (`full` false): "This week", the six featured
+ * cards (the first blue, the rest neutral) and one white pill to /programs with the listed count; the section
+ * is the `#earn` anchor the hero chip lands on. On /programs (`full`): the page title, the description line
+ * and every listed program, all neutral. Upcoming programs carry a "Not open yet" chip.
  */
-export default function Opportunities({ programs, h1 = false, title = EARN_TITLE }: { programs: Tile[]; h1?: boolean; title?: string }) {
-  const Heading = h1 ? 'h1' : 'h2';
+export default function Opportunities({ programs, total, full = false }: { programs: Tile[]; total: number; full?: boolean }) {
   return (
     <section id="earn" aria-labelledby="earn-title" className="flex scroll-mt-6 flex-col gap-8">
-      <Heading id="earn-title" className={`${h1 ? H1_SITE : H2_SITE} px-2`}>
-        {title}
-      </Heading>
+      {full ? (
+        <div className="flex flex-col gap-4 px-2">
+          <h1 id="earn-title" className={H1_SITE}>
+            {PROGRAMS_TITLE}
+          </h1>
+          <p className="text-[17px] leading-normal text-s-muted">{PROGRAMS_DESCRIPTION}</p>
+        </div>
+      ) : (
+        <h2 id="earn-title" className={`${H2_SITE} px-2`}>
+          {EARN_TITLE}
+        </h2>
+      )}
       {programs.length > 0 ? (
         <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(260px,1fr))]">
           {programs.map((t, i) => {
-            const look = LOOKS[i % LOOKS.length];
+            const look = !full && i === 0 ? BLUE : NEUTRAL;
             return (
               <Link
                 key={t.id}
                 href={`/programs/${t.id}`}
-                className={`flex min-h-[290px] min-w-0 flex-col gap-2 rounded-[32px] border p-[26px] text-s-text motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-1 ${look.card}`}
+                className={`flex min-h-[290px] min-w-0 flex-col gap-2 p-[26px] motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-1 ${look.card}`}
               >
                 <span className="flex items-center justify-between gap-3">
                   <Logo id={t.id} logo={t.logo} organizer={t.organizer} />
@@ -76,9 +82,16 @@ export default function Opportunities({ programs, h1 = false, title = EARN_TITLE
             );
           })}
         </div>
-      ) : (
+      ) : total === 0 ? (
         <p className="px-2 text-[16px] text-s-muted">{EARN_EMPTY}</p>
-      )}
+      ) : null}
+      {!full && total > 0 ? (
+        <div className="flex justify-center">
+          <Link href="/programs" className={PILL_WHITE}>
+            {EARN_ALL(total)}
+          </Link>
+        </div>
+      ) : null}
     </section>
   );
 }

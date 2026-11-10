@@ -3,6 +3,8 @@
  * Cards carry their fill, radius and text colour; each page adds its own padding and layout.
  */
 
+/** Neutral card (the landing's steps, program cards): a soft navy gradient and a hairline; secondary text is s-muted. */
+export const CARD_NEUTRAL = 'rounded-[32px] border border-s-step-line bg-gradient-to-br from-s-step-top to-s-step-bottom text-s-text';
 /** Blue card (docs: your record): secondary text is s-on-blue-soft. */
 export const CARD_BLUE = 'rounded-[36px] bg-s-blue text-s-on-blue';
 /** Navy card: secondary text is s-on-navy or s-on-navy-soft. */

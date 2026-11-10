@@ -6,8 +6,14 @@ import { sql } from './db';
 import { programFixture } from './fixtures/program';
 import { upsertProgram } from './programs';
 import { gatedGuidePage, guideTextById, listGuideIds } from './guide-page';
-import { HERO_TITLE, STEPS } from './site-copy';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { EARN_ALL, HERO_TITLE, PROGRAMS_DESCRIPTION, STEPS } from './site-copy';
+import type { Landing, Tile } from './landing';
 import Home from '../../app/page';
+import HomeView from '../../app/HomeView';
+import Steps from '../../app/components/landing/Steps';
+import Opportunities from '../../app/components/landing/Opportunities';
 import ProgramsPage from '../../app/programs/page';
 import ProgramGuidePage, { generateMetadata as guideMetadata } from '../../app/programs/[id]/page';
 import DocsPage from '../../app/docs/page';
@@ -53,24 +59,88 @@ before(async () => {
   await sql()`INSERT INTO programs (id, file, source, category, status) VALUES ('zz-page-broken', '{}'::jsonb, 'file', 'grant', 'closed') ON CONFLICT DO NOTHING`;
 });
 
-test('/ shows the hero, the steps, every listed program and the install button', async () => {
+/** The program card links (`/programs/<id>`), not the pill or the footer's `/programs`. */
+const cardLinks = (markup: string) => markup.match(/href="\/programs\/[^"]+"/g) ?? [];
+const tileOf = (i: number): Tile => ({
+  id: `t-${i}`, title: `Tile ${i} Grants`, organizer: `Org ${i}`, money: i % 2 ? '$50K' : '$1M in prizes', big: i % 2 === 1,
+  when: i % 3 ? 'Closes Dec 1' : 'Rolling', kind: 'grant', status: 'active', logo: null,
+});
+const TILES45 = Array.from({ length: 45 }, (_, i) => tileOf(i));
+const LANDING45: Landing = { chip: '$1.7M in grants and prizes open now', tiles: TILES45, featured: TILES45.slice(0, 6), total: 45 };
+
+test('/ shows the hero, the steps, at most six programs, the link to all of them and the install button', async () => {
   const m = html(await Home());
   const t = textOf(m);
   assert.ok(t.includes(HERO_TITLE));
   for (const step of STEPS) assert.ok(t.includes(step), step);
   assert.ok(t.includes('This week'));
-  assert.ok(m.includes('href="/programs/zz-page-open"') && m.includes('href="/programs/zz-page-soon"'));
-  assert.ok(!m.includes('href="/programs/zz-page-shut"'));
-  assert.ok(t.includes('Not open yet'));
+  assert.ok(cardLinks(m).length <= 6, String(cardLinks(m).length));
+  assert.match(t, /See all \d+ programs/);
+  assert.ok(!m.includes('href="/programs/zz-page-soon"') && !m.includes('href="/programs/zz-page-shut"'));
   assert.ok(t.includes('Add EarnKit to your agent'));
   assert.ok(!/Leaderboard|Feed|Bench|Activity/.test(t));
   assert.ok(!BANNED.test(t), t.match(BANNED)?.[0]);
 });
 
-test('/programs is a page with the same list, not a redirect', async () => {
+test('the landing with 45 programs: six cards, then one link "See all 45 programs" to /programs (v6.2.0)', () => {
+  const m = html(React.createElement(HomeView, { landing: LANDING45 }));
+  const t = textOf(m);
+  assert.deepEqual(cardLinks(m), TILES45.slice(0, 6).map((x) => `href="/programs/${x.id}"`));
+  assert.equal(EARN_ALL(45), 'See all 45 programs');
+  assert.match(m, /<a[^>]*href="\/programs"[^>]*>See all 45 programs<\/a>/);
+  assert.equal(t.split('See all 45 programs').length, 2);
+  assert.ok(t.includes('Closes Dec 1') && t.includes('Rolling'));
+  assert.ok(!BANNED.test(t), t.match(BANNED)?.[0]);
+});
+
+test('the landing cards: the first blue, the other five neutral; /programs all neutral (v6.2.0)', () => {
+  const landing = html(React.createElement(Opportunities, { programs: TILES45.slice(0, 6), total: 45 }));
+  assert.equal(landing.match(/border-s-blue-line/g)?.length, 1);
+  assert.equal(landing.match(/border-s-step-line/g)?.length, 5);
+  const all = html(React.createElement(Opportunities, { programs: TILES45, total: 45, full: true }));
+  assert.equal(all.match(/border-s-blue-line/g), null);
+  assert.equal(all.match(/border-s-step-line/g)?.length, 45);
+});
+
+test('a failed read: the hero and the steps, no programs and no link (v6.2.0)', () => {
+  const m = html(React.createElement(HomeView, { landing: null }));
+  const t = textOf(m);
+  assert.ok(t.includes(HERO_TITLE));
+  for (const step of STEPS) assert.ok(t.includes(step), step);
+  assert.ok(!t.includes('This week') && !/See all/.test(t));
+  assert.deepEqual(cardLinks(m), []);
+});
+
+test('the steps: one card, an ordered list of the three lines with serif numerals, no icons, no title (v6.2.0)', () => {
+  const m = html(React.createElement(Steps));
+  assert.equal(m.match(/<ol/g)?.length, 1);
+  assert.ok(!/<svg|<h[1-6]/.test(m));
+  const items = [...m.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/g)].map((x) => x[1]);
+  assert.equal(items.length, 3);
+  items.forEach((li, i) => {
+    assert.match(li, new RegExp(`<span[^>]*ek-serif[^>]*>${i + 1}</span>`));
+    assert.equal(textOf(li.replace(/<span[^>]*ek-serif[^>]*>\d<\/span>/, '')), STEPS[i]);
+  });
+  assert.equal(textOf(m), STEPS.map((s, i) => `${i + 1} ${s}`).join(' '));
+});
+
+test('no rust look remains in the landing components (v6.2.0)', () => {
+  for (const f of ['Opportunities.tsx', 'Steps.tsx']) {
+    const src = readFileSync(join(import.meta.dirname, '../../app/components/landing', f), 'utf8');
+    assert.ok(!/rust/i.test(src), f);
+  }
+});
+
+test('/programs is a page with every listed program, the title and the description line, not a redirect', async () => {
   const m = html(await ProgramsPage());
   assert.ok(m.includes('href="/programs/zz-page-open"') && m.includes('href="/programs/zz-page-soon"'));
   assert.match(m, /<h1[^>]*>Programs<\/h1>/);
+  assert.ok(textOf(m).includes(PROGRAMS_DESCRIPTION));
+  assert.ok(textOf(m).includes('Not open yet'));
+  assert.ok(!/See all/.test(textOf(m)));
+  const all = html(React.createElement(Opportunities, { programs: TILES45, total: 45, full: true }));
+  assert.equal(cardLinks(all).length, 45);
+  assert.ok(!/See all/.test(textOf(all)));
 });
 
 test('/programs/<id> renders the guide; a missing logo file renders no image', async () => {

@@ -6,10 +6,10 @@ import { PAGE_COL_WIDE } from './components/site/ui';
 import type { Landing } from '../lib/v5/landing';
 
 /**
- * The homepage: the hero (with the money chip), the three steps, the open programs, then the footer.
- * `landing` is null when the read failed: the hero (without the chip) and the steps render and the
- * list is skipped, so a failed read claims nothing. It lives outside page.tsx because a page file may
- * only export Next's own fields.
+ * The homepage: the hero (with the money chip), the three steps in one card, the six featured programs
+ * and the link to all of them, then the footer. `landing` is null when the read failed: the hero (without
+ * the chip) and the steps render and the programs are skipped, so a failed read claims nothing. It lives
+ * outside page.tsx because a page file may only export Next's own fields.
  */
 export default function HomeView({ landing }: { landing: Landing | null }) {
   return (
@@ -17,7 +17,7 @@ export default function HomeView({ landing }: { landing: Landing | null }) {
       <div className={`${PAGE_COL_WIDE} flex flex-col gap-[72px] pt-2 md:gap-32`}>
         <Hero chip={landing?.chip ?? null} />
         <Steps />
-        {landing ? <Opportunities programs={landing.tiles} /> : null}
+        {landing ? <Opportunities programs={landing.featured} total={landing.total} /> : null}
       </div>
       <Footer />
     </div>
