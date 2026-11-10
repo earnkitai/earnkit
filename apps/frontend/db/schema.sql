@@ -331,3 +331,6 @@ CREATE TABLE IF NOT EXISTS project_reports (
   at          timestamptz NOT NULL,
   PRIMARY KEY (owner, project_key)
 );
+-- v6.1.14 (L13-7): whether standing approval was on at this installation's last find with a project, so an agent's
+-- send after the builder turned it off says so.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS last_find_auto boolean;

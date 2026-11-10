@@ -1161,3 +1161,42 @@ test('L13-2 (v6.1.14, Review Focus 8): an unlink on /me releases that agent\'s c
   const [i] = await sql()`SELECT status FROM applications WHERE owner = ${'i:' + a.installationId} AND program_id = 'l13-unl'`;
   assert.equal(i.status, 'applied');
 });
+
+test('L13-6 (v6.1.14): a send under standing approval to a program that has not opened is recorded outside it: it has not opened yet', async () => {
+  const { linkInstallation, saveRecord, upsertBuilder } = await import('../v6/builders');
+  const { EMPTY_RECORD, mergeRecord } = await import('../v6/record');
+  const c = await ctx();
+  const b = await upsertBuilder({ github_id: 930_614, login: 'l136', name: 'B', avatar_url: null }, NOW);
+  await linkInstallation(c.installationId, b.id, NOW);
+  await saveRecord(b.id, mergeRecord(EMPTY_RECORD, { policy: { auto_apply: true, max_per_night: 20, categories: ['grant'] } }, 'builder', NOW).record, NOW);
+  await upsertProgram(programFixture({ id: 'l136-soon', title: 'Soon Grant', category: 'grant', status: 'upcoming', opens_note: 'Opens Nov 11' }), 'file', NOW);
+  const r = await track({ ...c, builderId: b.id }, { program_id: 'l136-soon', status: 'applied', submitted_by: 'agent', project: { name: 'App' }, fields_used: ['project_name'] });
+  assert.equal(r.show_to_builder, 'Sent, but outside your standing approval: it has not opened yet.');
+  assert.match(r.agent_note, /^Recorded as applied, not under standing approval\./);
+  const [row] = await sql()`SELECT status, auto_applied FROM applications WHERE owner = ${'b:' + b.id} AND program_id = 'l136-soon'`;
+  assert.deepEqual({ ...row }, { status: 'applied', auto_applied: false });
+});
+
+test('L13-7 (v6.1.14): an agent send after the builder turned standing approval off since the find says it was off; with it never on, the plain line', async () => {
+  const { linkInstallation, saveRecord, upsertBuilder } = await import('../v6/builders');
+  const { EMPTY_RECORD, mergeRecord } = await import('../v6/record');
+  const { markFindAuto } = await import('./installations');
+  const c = await ctx();
+  const b = await upsertBuilder({ github_id: 930_617, login: 'l137', name: 'B', avatar_url: null }, NOW);
+  await linkInstallation(c.installationId, b.id, NOW);
+  await saveRecord(b.id, mergeRecord(EMPTY_RECORD, { policy: { auto_apply: false } }, 'builder', NOW).record, NOW);
+  await upsertProgram(programFixture({ id: 'l137-a', title: 'Off Grant A', category: 'grant' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'l137-b', title: 'Off Grant B', category: 'grant' }), 'file', NOW);
+  const linked = { ...c, builderId: b.id };
+  const send = (id: string, by = 'agent') => track(linked, { program_id: id, status: 'applied', submitted_by: by, project: { name: 'App' }, fields_used: ['project_name'] });
+  // The last find saw standing approval on; it is off now.
+  await markFindAuto(c.installationId, true);
+  const off = await send('l137-a');
+  assert.equal(off.show_to_builder, 'Sent, but outside your standing approval: it was off.');
+  assert.match(off.agent_note, /^Recorded as applied, not under standing approval\./);
+  // The builder's own submit, or a find that saw it off: the plain line.
+  assert.equal((await send('l137-b', 'builder')).show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  await sql()`DELETE FROM applications WHERE program_id = 'l137-b'`;
+  await markFindAuto(c.installationId, false);
+  assert.equal((await send('l137-b')).show_to_builder, "Tracked. I'll ask how it went when results are due.");
+});

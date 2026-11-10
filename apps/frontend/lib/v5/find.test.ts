@@ -2194,3 +2194,12 @@ test('Low 22 (v6.1.13): Arbitrum Open House São Paulo opens with when submissio
   assert.match((r.reply!.show_to_builder as string).split('\n')[0], /\. Not open yet: Submissions run Feb 8 to Mar 1, 2027; registration is open on HackQuest since Nov 2, 2026, and the requirements are not published yet\.$/);
 });
 
+
+test('L13-7 (v6.1.14): a linked find keeps whether standing approval was on, for the send after it', async () => {
+  const on = await linkedWith({ ...OWNER_RECORD, policy: { auto_apply: true, max_per_night: 5, categories: ['grant'] } });
+  await mcpCall({ ...ctx(on.id), builderId: on.builderId, evidence: LIVE }, 'find', { project: PROJECT });
+  const off = await linkedWith(OWNER_RECORD);
+  await mcpCall({ ...ctx(off.id), builderId: off.builderId, evidence: LIVE }, 'find', { project: PROJECT });
+  const rows = await sql()`SELECT id, last_find_auto FROM installations WHERE id IN (${on.id}, ${off.id})`;
+  assert.deepEqual(Object.fromEntries(rows.map((r) => [r.id, r.last_find_auto])), { [on.id]: true, [off.id]: false });
+});

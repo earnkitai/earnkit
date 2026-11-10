@@ -85,6 +85,17 @@ export async function unmarkNightFind(id: number): Promise<void> {
     WHERE id = ${id} AND last_find_at IS NOT NULL AND last_find_at IS DISTINCT FROM prev_find_at`;
 }
 
+/** L13-7 (v6.1.14): stamps whether standing approval was on at this find (a linked find with a project). */
+export async function markFindAuto(id: number, on: boolean): Promise<void> {
+  await sql()`UPDATE installations SET last_find_auto = ${on} WHERE id = ${id}`;
+}
+
+/** Whether standing approval was on at this installation's last find with a project (false before any). */
+export async function findAutoWas(id: number): Promise<boolean> {
+  const [row] = await sql()<{ on: boolean | null }[]>`SELECT last_find_auto AS on FROM installations WHERE id = ${id}`;
+  return row?.on === true;
+}
+
 /**
  * Keeps the project of a find (projectKeyOf), so the next track without one marks its steps on it (v6.1.10 L1c-1).
  * Another project than the last drops the last gaps in the same statement: they were that project's (final round).

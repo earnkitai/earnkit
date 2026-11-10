@@ -6,10 +6,10 @@ import { z } from 'zod';
 import { getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason } from '../v6/builders';
 import { DELETED_NOTICE } from '../v6/reply-words';
 import { claim } from '../v6/claims';
-import { HAD_CLOSED, NIGHT_LIMIT, REQUIRED_MISSING, STEP_AWAY, outsideApproval, readyAtSend, requiredLeftOut, storedRecordContext, storedSide } from '../v6/find-record';
+import { APPROVAL_OFF, HAD_CLOSED, NIGHT_LIMIT, NOT_OPENED, REQUIRED_MISSING, STEP_AWAY, outsideApproval, readyAtSend, requiredLeftOut, storedRecordContext, storedSide } from '../v6/find-record';
 import { prefill, unvouchedRequired } from './prefill';
 import { cachedRepoFacts, reportOnlyFacts } from './repo-facts';
-import { forgetGap, lastGaps, lastProjectKey, unmarkNightFind } from './installations';
+import { findAutoWas, forgetGap, lastGaps, lastProjectKey, unmarkNightFind } from './installations';
 import { PROJECT_DESCRIPTION, ProjectArg, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
 import { getProgram, isOpen, listOpenPrograms, programByName, unknownProgramLine } from './programs';
 import { dayOf, doneItems, record, reportOf, resolvedKey, summary, titleOf, type Ledger, type Status } from './ledger';
@@ -344,7 +344,11 @@ async function act(
   // find holds the tonight list on), over the program prefilled with the stored record and the send's project, whatever
   // keys fields_used names.
   // B2 (v6.1.13): and the program's verdict for this project must be ready, as find would list it now.
-  let outside = standing && row ? (outsideApproval(policy!, row) ?? (await notApprovedAtSend(ctx, owner, i, row, project.key))) : null;
+  // L13-6 (v6.1.14): a program that has not opened is never sent under it. L13-7: an agent's send after the builder
+  // turned it off since this agent's last find (which saw it on) says it was off.
+  let outside = standing && row
+    ? (row.file.status === 'upcoming' ? NOT_OPENED : (outsideApproval(policy!, row) ?? (await notApprovedAtSend(ctx, owner, i, row, project.key))))
+    : policy && row && (await findAutoWas(ctx.installationId)) ? APPROVAL_OFF : null;
   const applied = i.status === 'applied'
     ? { submitted_by: i.submitted_by, fields_used: i.fields_used, project_id: i.project_id, autoApplied: standing && outside === null, ...(standing ? { maxPerNight: policy!.policy.max_per_night } : {}) }
     : {};

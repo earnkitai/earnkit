@@ -14,7 +14,7 @@ import { DELETED_NOTICE, NO_RECORD_PROJECT, linkedNoticeLine, signInLine, signIn
 import { timeLeftWords } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
-import { lastFindAt, markFind, newlyLinkedLogin, rememberProject } from './installations';
+import { lastFindAt, markFind, markFindAuto, newlyLinkedLogin, rememberProject } from './installations';
 import { askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, markAsked, rekeyProject, reportOf, resolvedKey, saveReport, summary, type Ledger } from './ledger';
 import { prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
@@ -668,6 +668,8 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   const description = project.description ? null : facts.description ? 'readme' : 'none';
   const reply = { show_to_builder: replyText(r, last === null, ctx.now), agent_note: [agentNote(r, { more, description }), unreadNote(unread)].filter(Boolean).join('\n'), ...r };
   await markFind(ctx.installationId, ctx.now, remembered, key);
+  // L13-7 (v6.1.14): whether standing approval was on, so a send after it is turned off says so.
+  if (side) await markFindAuto(ctx.installationId, side.record.policy.auto_apply);
   await noticeTaken(ctx, notice);
   return reply;
 }

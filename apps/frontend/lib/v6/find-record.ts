@@ -217,6 +217,12 @@ export const HAD_CLOSED = 'it had closed';
 /** The reason when the program's verdict for the project was not ready at send time (v6.1.13, B2). */
 export const STEP_AWAY = 'it was still a step away';
 
+/** The reason when the program had not opened at send time (L13-6, v6.1.14). */
+export const NOT_OPENED = 'it has not opened yet';
+
+/** The reason when the builder turned standing approval off after the agent's last find saw it on (L13-7, v6.1.14). */
+export const APPROVAL_OFF = 'it was off';
+
 /** The record side from the stored record alone (no evidence read, nothing stored): the picked project's stored tier. Pure. */
 export function storedSide(rec: RecordContext): RecordSide {
   const stored = rec.record.projects.find((p) => p.id === rec.projectId)?.last_tier;
