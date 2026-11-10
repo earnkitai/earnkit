@@ -146,7 +146,7 @@ export function parseProject(v: unknown, now = new Date(), o: { partial?: boolea
 /**
  * The one canonical form of a repo link (v6.1.13, B4), shared by projectKeyOf and the repo read's cache key
  * (repo-facts `repoKey`): https, the host lower-cased without `www.`, no port, no `user@`, no query or fragment, no
- * `/tree/...` or `/blob/...` suffix (on github.com only owner and name), no trailing slash or `.git`, all lower case;
+ * `/tree/...` or `/blob/...` suffix (on github.com only owner and name; elsewhere the path up to its first `-` segment), no trailing slash or `.git`, all lower case;
  * null for anything that is not an http or https link. No length cap here (projectKeyOf caps as parseProject does). Pure.
  */
 export function canonicalRepoLink(v: unknown): string | null {
@@ -161,10 +161,10 @@ export function canonicalRepoLink(v: unknown): string | null {
   const host = u.hostname.toLowerCase().replace(/^www\./, '');
   if (!host) return null;
   let parts = u.pathname.split('/').filter(Boolean);
-  const cut = parts.findIndex((x, i) => i >= 2 && (x === 'tree' || x === 'blob'));
-  if (cut >= 0) parts = parts.slice(0, cut);
-  if (parts.at(-1) === '-') parts = parts.slice(0, -1);
-  if (host === 'github.com') parts = parts.slice(0, 2);
+  // github.com: owner and name only. Elsewhere (GitLab and the like) the project ends at its first `-` segment, so
+  // `-/tree/...`, `-/blob/...` and `-/issues` fold, and a subgroup that happens to be named `tree` stays (fix round 1, M1).
+  const dash = parts.findIndex((x, i) => i >= 2 && x === '-');
+  parts = host === 'github.com' ? parts.slice(0, 2) : dash >= 0 ? parts.slice(0, dash) : parts;
   const path = parts.join('/').replace(/(\.git)+$/i, '');
   return `https://${host}${path ? `/${path}` : ''}`.toLowerCase();
 }

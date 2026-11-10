@@ -1061,6 +1061,19 @@ test('Task 1 review I1 and I2 (v6.1.13): the send is judged on the find\'s repor
   assert.ok(!r.ready.some((x) => x.program_id === 'i1-bar'));
   assert.equal((await send('i1-bar', { name: 'Chain App' })).show_to_builder, 'Sent, but outside your standing approval: it was still a step away.');
   assert.equal(await auto('i1-bar'), false);
+  // Fix round 1 (I1), P1: a find with the repo, then a name-only send. P2: a name-only find, then a send with the repo.
+  await p('i1-bar-p1', { min_tier: 'live' });
+  await p('i1-bar-p2', { min_tier: 'live' });
+  const P1 = { name: 'Chain Repo App', description: 'An app on Base.', repo_url: 'https://github.com/ada/chain-repo-app', private: true, chains: [{ chain: 'base', mainnet: true }] };
+  const f1 = (await find(linked, { project: P1, filter: { all: true } })) as unknown as { ready: { program_id: string }[] };
+  assert.ok(!f1.ready.some((x) => x.program_id === 'i1-bar-p1'));
+  assert.equal((await send('i1-bar-p1', { name: 'Chain Repo App' })).show_to_builder, 'Sent, but outside your standing approval: it was still a step away.');
+  assert.equal(await auto('i1-bar-p1'), false);
+  const P2 = { name: 'Chain Name App', description: 'An app on Base.', chains: [{ chain: 'base', mainnet: true }] };
+  const f2 = (await find(linked, { project: P2, filter: { all: true } })) as unknown as { ready: { program_id: string }[] };
+  assert.ok(!f2.ready.some((x) => x.program_id === 'i1-bar-p2'));
+  assert.equal((await send('i1-bar-p2', { name: 'Chain Name App', repo_url: 'https://github.com/ada/chain-name-app', private: true })).show_to_builder, 'Sent, but outside your standing approval: it was still a step away.');
+  assert.equal(await auto('i1-bar-p2'), false);
 });
 
 test('Low 17 (v6.1.13): a skip over a program already sent says so and records nothing', async () => {

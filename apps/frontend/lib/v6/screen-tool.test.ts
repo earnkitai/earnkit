@@ -225,12 +225,12 @@ test('C2 (v6.1.13): over 200 applicants or outcomes is one line that says to sen
 
 test('Low 18 and 19 (v6.1.13): an applicant repeated exactly is screened once; a win under $1 or not whole dollars is refused as the ledger refuses it', async () => {
   const c = await reviewerOf('scr-rep');
-  const same = Array.from({ length: 200 }, () => ({ ref: 'same' }));
+  const same = [...Array.from({ length: 199 }, () => ({ ref: 'same', name: 'Same' })), { name: 'Same', ref: 'same' }];
   const q = await mcpCall(c, 'screen', { program_id: 'scr-rep', applicants: same });
   assert.match(q.reply!.show_to_builder as string, /^Queued 1 applicant for Grants scr-rep\. /);
   const jobId = q.reply!.job_id as string;
   assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_applicants WHERE job_id = ${jobId}`)[0].n, 1);
-  for (const amount_usd of [0.4, 2.5]) {
+  for (const amount_usd of [0.4, 2.5, 0, -5]) {
     const r = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'same', outcome: 'won', amount_usd }] });
     assert.equal(r.reply!.show_to_builder, 'Tell me how much you won, as whole dollars.', String(amount_usd));
   }

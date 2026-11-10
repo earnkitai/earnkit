@@ -15,7 +15,7 @@ import { timeLeftWords } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
 import { lastFindAt, markFind, newlyLinkedLogin, rememberProject } from './installations';
-import { askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, markAsked, rekeyProject, saveReport, summary, type Ledger } from './ledger';
+import { askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, markAsked, rekeyProject, reportOf, saveReport, summary, type Ledger } from './ledger';
 import { prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
 import { isOpen, listOpenPrograms, programByName, unknownProgramLine, type ProgramRow } from './programs';
@@ -201,11 +201,12 @@ const EMPTY_FACTS: RepoFacts = {
   builder_codes: false, integrations: [], users: null, first_commit_at: null, last_commit_at: null, readme_excerpt: null, homepage: null,
 };
 
-/** The name of the project a claim is for (C1, v6.1.13): the record project by id or key, else the name in a `name:`
- *  key, else the repo's path; null when there is none. Pure. */
-function heldProjectName(project: string, side: RecordSide): string | null {
+/** The name of the project a claim is for (C1, v6.1.13): the record project by id or key, else the name the owner
+ *  reported for that key (`reported`, fix round 1 M3), else the name in a `name:` key, else the repo's path; null when
+ *  there is none. Pure. */
+function heldProjectName(project: string, side: RecordSide, reported: string | null): string | null {
   const own = side.record.projects.find((p) => p.id === project || projectKeyOf(p) === project);
-  const name = own?.name ?? (project.startsWith('name:') ? project.slice(5) : project.replace(/^https:\/\/[^/]+\/?/, ''));
+  const name = own?.name ?? (reported || null) ?? (project.startsWith('name:') ? project.slice(5) : project.replace(/^https:\/\/[^/]+\/?/, ''));
   const clean = name.trim().replace(/[.!?;:,]+$/, '').trim();
   return clean || null;
 }
@@ -477,7 +478,8 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   // B4 (v6.1.13): the first find that adds the repo to a project found by name moves its steps and claims to the repo key.
   if (project?.repo_url) await rekeyProject(ownerOf(ctx), nameKeyOf(project), projectKeyOf(project));
   // The report as parsed, so a send on this project is judged on no less (v6.1.13, Task 1 review I1).
-  if (project) await saveReport(ownerOf(ctx), projectKeyOf(project), project, ctx.now);
+  // Fix round 1 (I1): with a repo, under its name key too, so a name-only send reads it.
+  if (project) for (const k of new Set([projectKeyOf(project), nameKeyOf(project)])) await saveReport(ownerOf(ctx), k, project, ctx.now);
   if (i.program_id) return oneProgram(ctx, i.program_id, project, i.project_id, i.ask);
   if (!project) return openList(ctx, parsed && !parsed.ok ? parsed.problem : null);
 
@@ -554,13 +556,18 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   // project marks it too, by that project's name (C1, v6.1.13), never pinning it (L1d-1); a row with no project only in
   // the full list.
   const holds = side
-    ? new Map([...allClaims].filter(([, h]) => h.by !== ctx.installationId && (all || here(h.project) || h.project !== null)))
+    ? new Map([...allClaims].filter(([, h]) => h.by !== ctx.installationId && (all || h.project !== null)))
     : new Map<string, { since: string; project: string | null }>();
+  const heldReports = new Map<string, string | null>();
+  for (const v of shownReady) {
+    const h = holds.get(v.program_id);
+    if (h?.project && !here(h.project) && !heldReports.has(h.project)) heldReports.set(h.project, (await reportOf(owner, h.project))?.name ?? null);
+  }
   const { ready, gaps } = numbered(
     shownReady.map((v) => {
       const r = readyOf(byId.get(v.program_id)!, v, facts, ctx.now, side, done.own.get(v.program_id));
       const hold = holds.get(v.program_id);
-      const other = hold && hold.project !== null && !here(hold.project) ? heldProjectName(hold.project, side!) : null;
+      const other = hold && hold.project !== null && !here(hold.project) ? heldProjectName(hold.project, side!, heldReports.get(hold.project) ?? null) : null;
       return hold ? { ...r, claimed_since: hold.since, ...(other ? { held_for: other } : {}) } : r;
     }),
     shownGaps.map((v) => gapOf(byId.get(v.program_id)!, v, done.of(v.program_id), ctx.now, hit(v))),

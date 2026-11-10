@@ -10,7 +10,7 @@ import { HAD_CLOSED, NIGHT_LIMIT, REQUIRED_MISSING, STEP_AWAY, outsideApproval, 
 import { prefill, unvouchedRequired } from './prefill';
 import { cachedRepoFacts, reportOnlyFacts } from './repo-facts';
 import { forgetGap, lastGaps, lastProjectKey, unmarkNightFind } from './installations';
-import { parseProject, projectKeyOf, type Project } from './project-input';
+import { nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
 import { getProgram, isOpen, listOpenPrograms, programByName, unknownProgramLine } from './programs';
 import { dayOf, doneItems, record, reportOf, summary, titleOf, type Ledger, type Status } from './ledger';
 import { clock } from './reply';
@@ -188,7 +188,10 @@ async function sendFacts(ctx: TrackContext, i: TrackIn, projectKey: string) {
   const passed: Partial<Project> = i.project ?? {};
   const last = !passed.name && !passed.repo_url ? await lastProjectKey(ctx.installationId) : '';
   const fromKey = last.startsWith('name:') ? { name: last.slice(5) } : last ? { repo_url: last } : {};
-  const kept = (await reportOf(ownerKey(ctx.installationId, ctx.builderId), projectKey)) ?? null;
+  // Fix round 1 (I1): the send's own key first, then its name key (a find by name, a send with the repo).
+  const reporter = ownerKey(ctx.installationId, ctx.builderId);
+  const nameKey = nameKeyOf(i.project);
+  const kept = (await reportOf(reporter, projectKey)) ?? (nameKey && nameKey !== projectKey ? await reportOf(reporter, nameKey) : null);
   const repo = str(passed.repo_url) ?? (fromKey as { repo_url?: string }).repo_url ?? null;
   const name = str(passed.name) ?? (fromKey as { name?: string }).name ?? null;
   const rec = await storedRecordContext(ctx.builderId!, i.project_id, repo ?? kept?.repo_url ?? null, name ?? kept?.name ?? null);

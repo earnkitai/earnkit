@@ -202,6 +202,10 @@ test('B4 (v6.1.13): one canonical repo link for projectKeyOf and the repo read; 
   }
   // Another host keeps its path, less a tree or blob suffix.
   assert.equal(canonicalRepoLink('https://www.GitLab.com/group/sub/proj/-/tree/main?x=1#y'), 'https://gitlab.com/group/sub/proj');
+  // Fix round 1 (M1): any `-` suffix folds; a subgroup named tree is kept.
+  assert.equal(canonicalRepoLink('https://gitlab.com/group/sub/proj/-/issues'), 'https://gitlab.com/group/sub/proj');
+  assert.equal(canonicalRepoLink('https://gitlab.com/group/tree/proj'), 'https://gitlab.com/group/tree/proj');
+  assert.equal(canonicalRepoLink('https://gitlab.com/group/tree/proj/-/blob/main/x.md'), 'https://gitlab.com/group/tree/proj');
   assert.equal(canonicalRepoLink('ftp://github.com/a/b'), null);
   assert.equal(canonicalRepoLink('not a link'), null);
   assert.equal(repoKey('https://gitlab.com/a/b'), null);

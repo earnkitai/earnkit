@@ -641,6 +641,16 @@ test('C1 (v6.1.13): a program held for another project names it on its line, rem
   assert.equal(lines.at(-1), 'Say yes and I apply to all 2. Or say the numbers to skip.');
 });
 
+test('C1 fix round 1 (I2): one held in-person program and nothing else ready never ends in the in-person closing', async () => {
+  const { IN_PERSON_CLOSING } = await import('./reply');
+  const NOW = new Date('2026-11-04T12:00:00Z');
+  const r = base({ linked: true, ready: [ready({ title: 'Held Away', in_person: true, claimed_since: '2026-11-04T10:00:00.000Z', held_for: 'Rent Split' })] });
+  const text = replyText(r, false, NOW);
+  assert.match(text, /In person \(1\):\n1\. Held Away, .* Being handled by your other agent for Rent Split\./);
+  assert.notEqual(text.split('\n').at(-1), IN_PERSON_CLOSING);
+  assert.doesNotMatch(text, /Say yes/);
+});
+
 test('I1 (v6.1.8 final fix): one ready program held by another agent and one gap shown never closes "Nothing is ready yet."', () => {
   const NOW = new Date('2026-11-04T12:00:00Z');
   const RULE = { kind: 'rule' as const, item: 'rule:abcd1234', what: 'a public good', effort: 'hours' as const, agent_can: false };

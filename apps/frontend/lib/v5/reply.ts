@@ -499,6 +499,7 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   const steps = r.gaps.filter((g) => !attendRuleGap(g));
   const attendRules = r.gaps.filter(attendRuleGap);
   const attendCount = inPerson.length + attendRules.length;
+  const heldInPerson = inPerson.filter((p) => p.claimed_since).length;
   // A program another agent holds leaves the count to say yes to (v6.1.7, C37).
   const free = ready.filter((p) => !p.claimed_since);
   // With nothing ready to say yes to, the closing names a rule-only gap, so its own line does not (1a): a keyword hit
@@ -550,7 +551,8 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
           // N1 (v6.1.9, fix round 1): the used limit takes the tonight list's place; the builder can still say yes.
           ...(limitUsed ? [LIMIT_USED] : []),
           closingLine({
-            ready: free.length, draftOnly, gaps: steps.length, firstRule, inPerson: attendCount, held: ready.length - free.length, firstStep: firstStepOf(steps), stepRule: stepRuleOf(steps),
+            // Fix round 1 (I2): an in-person program held for another project is listed, never a yes.
+            ready: free.length, draftOnly, gaps: steps.length, firstRule, inPerson: attendCount - heldInPerson, held: ready.length - free.length + heldInPerson, firstStep: firstStepOf(steps), stepRule: stepRuleOf(steps),
             yesStands: stands.filter((p) => !click.has(p.program_id)).map((p) => p.title),
             draftStands: stands.filter((p) => click.has(p.program_id)).map((p) => p.title),
             // N3 (v6.1.12): one that still needs answers names them (the email once, F5), never a second yes.

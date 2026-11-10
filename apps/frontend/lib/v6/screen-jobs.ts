@@ -67,6 +67,12 @@ const contractsOf = (cs: ScreenApplicant['contracts']) =>
     .filter((c) => isKnownChain(c.chain) && /^0x[0-9a-f]{40}$/.test(c.address));
 
 /** Queues the list. Refs are made unique ("r-1 (2)"); the pitch is used here for the identical count and dropped. */
+/** JSON with every object's keys sorted, so one applicant sent with its keys in another order is the same (fix round 1, M5). Pure. */
+const canonicalJson = (v: unknown): string =>
+  Array.isArray(v) ? `[${v.map(canonicalJson).join(',')}]`
+  : v && typeof v === 'object' ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonicalJson((v as Record<string, unknown>)[k])}`).join(',')}}`
+  : JSON.stringify(v) ?? 'null';
+
 export async function createJob(o: {
   programId: string;
   builderId: number;
@@ -80,7 +86,7 @@ export async function createJob(o: {
   // Low 18 (v6.1.13): an applicant repeated exactly (same ref and every field) is screened once.
   const seen = new Set<string>();
   const unique = o.applicants.filter((a) => {
-    const k = JSON.stringify(a);
+    const k = canonicalJson(a);
     return !seen.has(k) && Boolean(seen.add(k));
   });
   const list = unique.map((a) => {
