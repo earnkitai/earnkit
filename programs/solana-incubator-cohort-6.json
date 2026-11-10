@@ -25,7 +25,7 @@
   "needs_repo": false,
   "chains": ["solana"],
   "setup": [
-    "every founder willing to move to NYC for 3 months"
+    "commit every founder to move to NYC for 3 months"
   ],
   "each_time": [
     "team, idea and traction answers",
@@ -55,7 +55,7 @@
     { "key": "web3_experience", "label": "Web3 / Solana development experience", "type": "text", "required": true, "from": "builder", "kind": "past_work", "todo": "your Web3 and Solana experience", "description": "Does your team have blockchain development experience? How proficient is your team with Solana / Rust? Please tell us about prior Web3 projects you have worked on if applicable." },
     { "key": "blockchain_selection", "label": "Blockchain selection", "type": "text", "required": true, "from": "project", "kind": "ecosystem_fit", "todo": "the chain you build on", "description": "Are you building your product on Solana? A different chain? Still choosing?" },
     { "key": "intro_video", "label": "1 minute intro video", "type": "url", "required": false, "from": "builder", "kind": "demo_video", "description": "A 1 minute YouTube / Loom video introducing the founders, your company, and why you want to work with Solana Labs." },
-    { "key": "problem", "label": "What is the problem your company is trying to solve? For what customer? How are you solving it?", "type": "text", "required": true, "from": "project", "kind": "problem", "todo": "the problem, customer and solution", "max_chars": 600 },
+    { "key": "problem", "label": "What is the problem your company is trying to solve? For what customer? How are you solving it?", "type": "text", "required": true, "from": "project", "kind": "problem", "todo": "the problem you solve and for whom", "max_chars": 600 },
     { "key": "why_idea", "label": "What drove you to this idea? How do you know that there is a burning need for what you are building?", "type": "text", "required": true, "from": "builder", "kind": "why_you", "todo": "the idea's reason and proof of need", "max_chars": 600 },
     { "key": "founder_market_fit", "label": "Describe your founder-market fit. What makes you the right team to build this?", "type": "text", "required": true, "from": "builder", "kind": "why_you", "todo": "your founder-market fit", "max_chars": 600 },
     { "key": "uses_solana", "label": "How does your product / idea use Solana?", "type": "text", "required": true, "from": "project", "kind": "how_it_works", "todo": "the use of Solana in the product", "max_chars": 600 },
@@ -64,7 +64,7 @@
     { "key": "mobile", "label": "Can your product be used on mobile devices? If yes, would you be interested in interfacing with the Solana Mobile team about your idea?", "type": "choice", "required": false, "from": "project", "kind": "other", "options": ["Yes", "No"] },
     { "key": "progress", "label": "How far along are you?", "type": "text", "required": true, "from": "project", "kind": "traction", "todo": "the stage", "description": "Tell us about your progress: do you have a live product customers are using, are you iterating through ideas, etc." },
     { "key": "active_users", "label": "Active users", "type": "text", "required": true, "from": "builder", "kind": "traction", "todo": "active users and 6-month growth", "description": "How many active users / paying customers do you have? What has been the growth over the last 6 months?" },
-    { "key": "revenue", "label": "Revenue", "type": "text", "required": true, "from": "builder", "kind": "traction", "todo": "revenue, sources and growth", "description": "Are you making revenue? How much, and from what sources? What has been the growth over the last 6 months?" },
+    { "key": "revenue", "label": "Revenue", "type": "text", "required": true, "from": "builder", "kind": "traction", "todo": "your revenue and its growth", "description": "Are you making revenue? How much, and from what sources? What has been the growth over the last 6 months?" },
     { "key": "go_to_market", "label": "Go-to-Market", "type": "text", "required": true, "from": "builder", "kind": "what_next", "todo": "your distribution advantage", "description": "What is your unique distribution advantage for growing users / revenue?" },
     { "key": "raised", "label": "How much money have you raised to date?", "type": "text", "required": true, "from": "builder", "kind": "raised", "todo": "the amount raised", "description": "If you've raised: who did you raise from, how much from each source / round, at what valuation, and when?" },
     { "key": "runway", "label": "How long is your runway?", "type": "text", "required": true, "from": "builder", "kind": "other", "todo": "your runway in months", "description": "(In months)" },

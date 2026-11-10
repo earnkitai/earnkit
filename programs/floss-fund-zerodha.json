@@ -18,15 +18,13 @@
   "needs_repo": true,
   "chains": [],
   "any_chain": true,
-  "tag": "needs a live product",
   "min_tier": "used",
   "eligibility": [
-    { "kind": "live_product" },
-    { "kind": "users", "note": "existing, widely used and impactful open source projects; very new or little-used projects are not considered" }
+    { "kind": "users", "note": "existing, widely used and impactful open source projects; very new or little-used projects are not considered" },
+    { "kind": "rule", "note": "a bank account and tax papers to receive the funds" }
   ],
   "setup": [
-    "a funding.json manifest published on your site or repo",
-    "a bank account and tax documents to receive funds"
+    "publish a funding.json manifest on your site or repo"
   ],
   "each_time": [],
   "rules": [
@@ -40,7 +38,7 @@
     "Funded projects are asked to publicly acknowledge the fund with a link to its website."
   ],
   "submission_requirements": [
-    { "key": "funding_json_url", "label": "funding.json manifest URL", "kind": "links", "todo": "the URL of your funding.json", "type": "url", "required": true, "description": "The manifest needs entity (type, role, name, email, description, webpage), funding channels and plans (amount, currency, frequency); projects list name, description, webpage, repository, licenses and tags. URLs on another host are unverified unless that host serves /.well-known/funding-manifest-urls.", "from": "project" }
+    { "key": "funding_json_url", "label": "funding.json manifest URL", "kind": "links", "todo": "the funding manifest link", "type": "url", "required": true, "description": "The manifest needs entity (type, role, name, email, description, webpage), funding channels and plans (amount, currency, frequency); projects list name, description, webpage, repository, licenses and tags. URLs on another host are unverified unless that host serves /.well-known/funding-manifest-urls.", "from": "project" }
   ],
   "past_rounds": [
     {
