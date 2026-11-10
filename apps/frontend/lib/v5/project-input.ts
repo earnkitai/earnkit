@@ -147,12 +147,14 @@ export function parseProject(v: unknown, now = new Date(), o: { partial?: boolea
     if (url) out[k] = url;
     else urlProblems.push(`${k} dropped: not a web link`);
   }
-  // L13-15 (v6.1.14): only a code host's link is a repo; any other link is the live link (or dropped beside one).
-  if (typeof out.repo_url === 'string' && !isCodeHost(out.repo_url)) {
+  // L13-15 (v6.1.14): only a code host's link is a repo; any other link is the live link (or dropped beside one). L12-6
+  // (v6.1.14): so is a code host's link that names no repo (an owner's page, `github.com/owner`): a plain link.
+  if (typeof out.repo_url === 'string' && (!isCodeHost(out.repo_url) || canonicalRepoLink(out.repo_url) === null)) {
+    const why = isCodeHost(out.repo_url) ? ['names no repo', 'names no repo'] : ['is not a code host', 'not a code host'];
     if (out.live_url === undefined) {
       out.live_url = out.repo_url;
-      urlProblems.push('repo_url is not a code host; read as the live link');
-    } else urlProblems.push('repo_url dropped: not a code host');
+      urlProblems.push(`repo_url ${why[0]}; read as the live link`);
+    } else urlProblems.push(`repo_url dropped: ${why[1]}`);
     delete out.repo_url;
   }
   for (const k of ['name', 'description'] as const) {
@@ -227,6 +229,9 @@ export function parseProject(v: unknown, now = new Date(), o: { partial?: boolea
 /** The hosts whose links are code in a repo (L13-15, v6.1.14), each with its subdomains. */
 export const CODE_HOSTS = ['github.com', 'gitlab.com', 'codeberg.org', 'bitbucket.org'] as const;
 
+/** A link's host lower-cased, a trailing dot dropped (`github.com.` is github.com; L12-6, v6.1.14). Pure. */
+const hostOf = (u: URL): string => u.hostname.toLowerCase().replace(/\.$/, '');
+
 /** Whether `v` is an http or https link on a code host (CODE_HOSTS or a subdomain of one, `www.` included). Pure. */
 export function isCodeHost(v: unknown): boolean {
   if (typeof v !== 'string') return false;
@@ -234,7 +239,7 @@ export function isCodeHost(v: unknown): boolean {
   try {
     const u = new URL(clean(v).trim());
     if (u.protocol !== 'https:' && u.protocol !== 'http:') return false;
-    host = u.hostname.toLowerCase();
+    host = hostOf(u);
   } catch {
     return false;
   }
@@ -245,7 +250,8 @@ export function isCodeHost(v: unknown): boolean {
  * The one canonical form of a repo link (v6.1.13, B4), shared by projectKeyOf and the repo read's cache key
  * (repo-facts `repoKey`): https, the host lower-cased without `www.`, no port, no `user@`, no query or fragment, no
  * `/tree/...` or `/blob/...` suffix (on github.com only owner and name; elsewhere the path up to its first `-` segment), no trailing slash or `.git`, all lower case;
- * null for anything that is not an http or https link. No length cap here (projectKeyOf caps as parseProject does). Pure.
+ * a trailing dot on the host dropped (L12-6, v6.1.14); null for anything that is not an http or https link on a code
+ * host, or that names no repo (an owner or group alone, L12-6). No length cap here (projectKeyOf caps as parseProject does). Pure.
  */
 export function canonicalRepoLink(v: unknown): string | null {
   if (typeof v !== 'string') return null;
@@ -258,9 +264,11 @@ export function canonicalRepoLink(v: unknown): string | null {
   if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
   // T6-F3 (v6.1.14): only a code host's link has a repo key (CODE_HOSTS), for every caller.
   if (!isCodeHost(v)) return null;
-  const host = u.hostname.toLowerCase().replace(/^www\./, '');
+  const host = hostOf(u).replace(/^www\./, '');
   if (!host) return null;
   let parts = u.pathname.split('/').filter(Boolean);
+  // L12-6 (v6.1.14): an owner or group alone (`github.com/owner`) names no repo, so it has no repo key.
+  if (parts.length < 2) return null;
   // github.com: owner and name only. Elsewhere (GitLab and the like) the project ends at its first `-` segment, so
   // `-/tree/...`, `-/blob/...` and `-/issues` fold, and a subgroup that happens to be named `tree` stays (fix round 1, M1).
   const dash = parts.findIndex((x, i) => i >= 2 && x === '-');

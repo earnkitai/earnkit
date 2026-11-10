@@ -211,6 +211,41 @@ test('B4 (v6.1.13): one canonical repo link for projectKeyOf and the repo read; 
   assert.equal(repoKey('https://gitlab.com/a/b'), null);
 });
 
+test('L12-6 (v6.1.14): a host with a trailing dot is the same repo; an owner-only link is no repo, kept as a plain link, and the project keys by name', async () => {
+  const { canonicalRepoLink, isCodeHost } = await import('./project-input');
+  const { repoKey } = await import('./repo-facts');
+  for (const v of ['https://github.com./lane12/keyrepo', 'https://WWW.GitHub.com./lane12/keyrepo/tree/main']) {
+    assert.equal(isCodeHost(v), true, v);
+    assert.equal(canonicalRepoLink(v), 'https://github.com/lane12/keyrepo', v);
+    assert.equal(projectKeyOf({ name: 'X', repo_url: v }), 'https://github.com/lane12/keyrepo', v);
+    assert.equal(repoKey(v), 'lane12/keyrepo', v);
+  }
+  assert.equal(canonicalRepoLink('https://gitlab.com./group/proj'), 'https://gitlab.com/group/proj');
+  // An owner (or group) with no repo segment is not a repo link.
+  for (const v of ['https://github.com/lane12', 'https://github.com/lane12/', 'https://gitlab.com/group', 'https://github.com', 'https://github.com./lane12']) {
+    assert.equal(canonicalRepoLink(v), null, v);
+    assert.equal(projectKeyOf({ name: 'Key Repo', repo_url: v }), 'name:key repo', v);
+  }
+  // Two repos of one owner given as the owner's link are two projects, by name.
+  assert.notEqual(projectKeyOf({ name: 'One', repo_url: 'https://github.com/lane12' }), projectKeyOf({ name: 'Two', repo_url: 'https://github.com/lane12' }));
+  // parseProject keeps it as a plain link: the live link when none is given, else dropped beside it; never the repo.
+  const alone = parseProject({ ...base, repo_url: 'https://github.com/lane12' });
+  assert.ok(alone.ok);
+  assert.equal(alone.project.repo_url, undefined);
+  assert.equal(alone.project.live_url, 'https://github.com/lane12');
+  assert.deepEqual(alone.problems, ['repo_url names no repo; read as the live link']);
+  const beside = parseProject({ ...base, repo_url: 'https://github.com/lane12', live_url: 'https://keyrepo.example' });
+  assert.ok(beside.ok);
+  assert.equal(beside.project.repo_url, undefined);
+  assert.equal(beside.project.live_url, 'https://keyrepo.example/');
+  assert.deepEqual(beside.problems, ['repo_url dropped: names no repo']);
+  // The dotted host is a repo and parses as one.
+  const dotted = parseProject({ ...base, repo_url: 'https://github.com./lane12/keyrepo' });
+  assert.ok(dotted.ok);
+  assert.equal(dotted.project.repo_url, 'https://github.com./lane12/keyrepo');
+  assert.deepEqual(dotted.problems, []);
+});
+
 test('Low 13 (v6.1.13): a name key folds Unicode, so one name in any form is one project', () => {
   assert.equal(projectKeyOf({ name: 'Café' }), projectKeyOf({ name: 'Café' }));
   assert.equal(projectKeyOf({ name: 'STRASSE' }), projectKeyOf({ name: 'straße' }));
