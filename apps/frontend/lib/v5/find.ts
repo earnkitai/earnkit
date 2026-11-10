@@ -69,6 +69,8 @@ export type ReadyProgram = {
   n: number;
   /** Set while another agent of the builder's holds a claim on it (track started). */
   claimed_since?: string;
+  /** C1 (v6.1.13): the other project the claim is for, by name, when it is not this one. */
+  held_for?: string;
   /** The builder confirmed its rules (track gap_done) or, F3 (v6.1.10), said real people use it: that yes stands, so
    *  the closing asks for no second one (v6.1.9). */
   rule_yes?: true;
@@ -189,6 +191,15 @@ const EMPTY_FACTS: RepoFacts = {
   builder_codes: false, integrations: [], users: null, first_commit_at: null, last_commit_at: null, readme_excerpt: null, homepage: null,
 };
 
+/** The name of the project a claim is for (C1, v6.1.13): the record project by id or key, else the name in a `name:`
+ *  key, else the repo's path; null when there is none. Pure. */
+function heldProjectName(project: string, side: RecordSide): string | null {
+  const own = side.record.projects.find((p) => p.id === project || projectKeyOf(p) === project);
+  const name = own?.name ?? (project.startsWith('name:') ? project.slice(5) : project.replace(/^https:\/\/[^/]+\/?/, ''));
+  const clean = name.trim().replace(/[.!?;:,]+$/, '').trim();
+  return clean || null;
+}
+
 /** A read that fails is the agent's report alone (repoFacts falls back the same way when GitHub fails). A code change
  *  the builder marked done since the cached read makes the read check for a push (v6.1.9 S4). */
 async function factsOf(project: Project, ctx: FindContext): Promise<RepoFacts> {
@@ -303,7 +314,8 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const show = p.status === 'upcoming'
     ? [`${p.title}, ${moneyOf(p)}. Not open yet: ${opens}.`, ...rules.map(ruleSentence), ...guideRules]
     : !open
-      ? [`${p.title}, ${moneyOf(p)}, ${when}.`, ...rules.map(ruleSentence), ...guideRules, 'This one is closed.']
+      // Low 20 (v6.1.13): closed is said once, and a closed program's rules are not listed.
+      ? [`${p.title}, ${moneyOf(p)}, ${when}.`]
       : verdict
         ? verdictText(row, verdict, () => readyOf(row, verdict, facts, ctx.now, rec, done), { linked: ctx.builderId !== null, now: ctx.now, draftOnly, rules: guideRules, signIn, done })
         : [`${p.title}, ${moneyOf(p)}${when ? `, ${when}` : ''}.`, ...rules.map(ruleSentence), ...guideRules];
@@ -520,13 +532,17 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const more = readyV.length - shownReady.length + gapV.length - shownGaps.length;
   // In display order with the numbers the builder sees: ready, gaps, then in person.
   // Only another installation's claim marks a program: this agent's own claim is its to send. A claim on another
-  // project marks it only in the full list (L1d-1).
-  const holds = side ? new Map([...(all ? allClaims : claims)].filter(([, h]) => h.by !== ctx.installationId)) : new Map<string, { since: string }>();
+  // project marks it too, by that project's name (C1, v6.1.13), never pinning it (L1d-1); a row with no project only in
+  // the full list.
+  const holds = side
+    ? new Map([...allClaims].filter(([, h]) => h.by !== ctx.installationId && (all || here(h.project) || h.project !== null)))
+    : new Map<string, { since: string; project: string | null }>();
   const { ready, gaps } = numbered(
     shownReady.map((v) => {
       const r = readyOf(byId.get(v.program_id)!, v, facts, ctx.now, side, done.get(v.program_id));
       const hold = holds.get(v.program_id);
-      return hold ? { ...r, claimed_since: hold.since } : r;
+      const other = hold && hold.project !== null && !here(hold.project) ? heldProjectName(hold.project, side!) : null;
+      return hold ? { ...r, claimed_since: hold.since, ...(other ? { held_for: other } : {}) } : r;
     }),
     shownGaps.map((v) => gapOf(byId.get(v.program_id)!, v, done.get(v.program_id), ctx.now)),
     (g) => g.in_person && rulesOnly([g.gap, ...g.also]),

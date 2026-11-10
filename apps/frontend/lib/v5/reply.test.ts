@@ -622,6 +622,23 @@ test('a program another agent of the builder holds says so on its line and leave
   assert.match(t, /\n\nYour other agent is handling these; I'll say when something new opens\.$/);
 });
 
+test('C1 (v6.1.13): a program held for another project names it on its line, remote or in person, and leaves the count to say yes to', () => {
+  const NOW = new Date('2026-11-04T12:00:00Z');
+  const r = base({
+    linked: true,
+    ready: [
+      ready({ title: 'Free One' }),
+      ready({ title: 'Held One', claimed_since: '2026-11-04T10:00:00.000Z', held_for: 'Rent Split' }),
+      ready({ title: 'Free Two' }),
+      ready({ title: 'Held Away', in_person: true, claimed_since: '2026-11-04T10:00:00.000Z', held_for: 'Rent Split' }),
+    ],
+  });
+  const lines = replyText(r, false, NOW).split('\n');
+  assert.ok(lines.some((l) => /^2\. Held One, \$1K\. .* Being handled by your other agent for Rent Split\.$/.test(l)), lines.join('\n'));
+  assert.ok(lines.some((l) => /^4\. Held Away, \$1K\..* Being handled by your other agent for Rent Split\.$/.test(l)), lines.join('\n'));
+  assert.equal(lines.at(-1), 'Say yes and I apply to all 2. Or say the numbers to skip.');
+});
+
 test('I1 (v6.1.8 final fix): one ready program held by another agent and one gap shown never closes "Nothing is ready yet."', () => {
   const NOW = new Date('2026-11-04T12:00:00Z');
   const RULE = { kind: 'rule' as const, item: 'rule:abcd1234', what: 'a public good', effort: 'hours' as const, agent_can: false };

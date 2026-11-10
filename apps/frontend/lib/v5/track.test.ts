@@ -1059,3 +1059,17 @@ test('Task 1 review I1 and I2 (v6.1.13): the send is judged on the find\'s repor
   assert.equal((await send('i1-bar', { name: 'Chain App' })).show_to_builder, 'Sent, but outside your standing approval: it was still a step away.');
   assert.equal(await auto('i1-bar'), false);
 });
+
+test('Low 17 (v6.1.13): a skip over a program already sent says so and records nothing', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 'l17-a', title: 'Sent Grant' }), 'file', NOW);
+  await track(c, { program_id: 'l17-a', status: 'applied' });
+  const history = async () => (await sql()`SELECT count(*)::int AS n FROM application_history WHERE owner = ${'i:' + c.installationId}`)[0].n;
+  const before = await history();
+  const r = await track(c, { program_id: 'l17-a', status: 'skipped' });
+  assert.equal(r.show_to_builder, 'That one was already sent; nothing to skip.');
+  assert.equal(r.agent_note, 'Nothing was recorded.');
+  assert.equal(await history(), before);
+  assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${'i:' + c.installationId} AND program_id = 'l17-a'`)[0].status, 'applied');
+});
+

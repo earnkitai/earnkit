@@ -155,11 +155,13 @@ export function detectCode(files: { path: string; text: string }[], paths: strin
 
 // ---- README ----
 
-/** The first 2 KB of a README with markdown and HTML markup removed. Pure. */
-export function readmeExcerpt(md: string | null): string | null {
+/** The first 2 KB of a README with markdown and HTML markup removed; inline code spans are dropped too (C3, v6.1.13),
+ *  except for the lead sentence (`keepCode`), which keeps their words. Pure. */
+export function readmeExcerpt(md: string | null, keepCode = false): string | null {
   if (!md) return null;
   const text = md
     .replace(/```[\s\S]*?```/g, ' ')
+    .replace(keepCode ? /(?!)/g : /`[^`\n]*`/g, ' ')
     .replace(/<!--[\s\S]*?-->/g, ' ')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
@@ -179,7 +181,7 @@ export function readmeLead(md: string | null): string | null {
   for (const raw of paragraphs) {
     const p = raw.trim();
     if (!p || /^(#|!\[|\[!\[|<|\||[-*+]\s|\d+\.\s|>|={3,}|-{3,})/.test(p)) continue;
-    const text = (readmeExcerpt(p) ?? '').replace(/\p{Extended_Pictographic}\uFE0F?/gu, '').replace(/\s+/g, ' ').trim();
+    const text = (readmeExcerpt(p, true) ?? '').replace(/\p{Extended_Pictographic}\uFE0F?/gu, '').replace(/\s+/g, ' ').trim();
     if (text.split(' ').length < 3) continue;
     const sentence = /^(.+?[.!?])(?:\s|$)/.exec(text)?.[1] ?? text;
     return sentence.slice(0, 280).trim();

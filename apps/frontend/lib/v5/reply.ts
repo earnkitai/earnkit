@@ -105,7 +105,8 @@ export function readyLine(p: ReadyProgram, linked: boolean, now: Date, alone = f
   const shown = capped(needs);
   const first = steps.length > 0 ? ` First: ${steps.join('; ')}.` : '';
   // Another agent of the builder's holds it: still numbered, so the builder can name it, but not in the yes count.
-  const held = p.claimed_since ? ` Being handled by your other agent since ${clock(p.claimed_since, now)}.` : '';
+  // C1 (v6.1.13): a claim for another project names it.
+  const held = p.held_for ? ` Being handled by your other agent for ${p.held_for}.` : p.claimed_since ? ` Being handled by your other agent since ${clock(p.claimed_since, now)}.` : '';
   return `${head}.${fromRecord ? ` ${fromRecord}` : drafted(p, linked, needs.length, shown)}${first}${held}`;
 }
 
@@ -149,6 +150,13 @@ const THING = /^(a|an|the|your)\s/i;
  * When attending takes things (a YC account), those and the builder's needs are one "Needs" sentence (v6.1.8). Pure.
  */
 export function inPersonLine(p: ReadyProgram, alone = false): string {
+  const line = attendLine(p, alone);
+  // C1 (v6.1.13): held by another agent for another project, its line says so.
+  return p.held_for ? `${line} Being handled by your other agent for ${p.held_for}.` : line;
+}
+
+/** The in-person line before any hold: head, odds, the attend step and the needs. Pure. */
+function attendLine(p: ReadyProgram, alone: boolean): string {
   const odds = p.long_shot ? ` Long odds: ${p.long_shot}.` : '';
   const head = `${num(p.n, alone)}${p.title}, ${p.money}${p.closes_in ? `, closes ${p.closes_in}` : ''}.${odds}`;
   // A need the setup step already names ("open the application with the first founder's email") is said once.

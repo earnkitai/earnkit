@@ -4,8 +4,8 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
-import { codeChecked, evaluate, exists, lookedAgain, names, ruleItem, unlikely, type Gap } from './eligibility';
-import { repoFacts, type RepoFacts } from './repo-facts';
+import { codeChecked, evaluate, exists, keywordHit, lookedAgain, names, ruleItem, unlikely, type Gap } from './eligibility';
+import { readmeExcerpt, repoFacts, type RepoFacts } from './repo-facts';
 import { parseProject } from './project-input';
 import { ProgramFile, eligibilityOf } from './program-file';
 import type { ProgramRow } from './programs';
@@ -365,6 +365,28 @@ test('L1c-2 (v6.1.10): a rule with keywords is unlikely unless the project names
   const fcRule: Gap[] = [{ kind: 'rule', item: ruleItem('a Farcaster Mini App'), what: 'a Farcaster Mini App', effort: 'hours', agent_can: false }];
   assert.equal(unlikely(fc, facts({ name: 'Tipper', description: 'A Mini App for tipping' }), fcRule), false);
   assert.equal(unlikely(fc, facts({ name: 'Tipper', description: 'A mini tipping app' }), fcRule), true);
+});
+
+test('C3 (v6.1.13): keywords inside links, code blocks and inline code are not the project naming them', async () => {
+  const vr = fromFile('meta-vr-start-competition-2026');
+  const base = await repoFacts({ name: 'x', description: '' }, { now: NOW });
+  const facts = (over: Partial<RepoFacts>): RepoFacts => ({ ...base, ...over });
+  const gapsOf = (f: RepoFacts) => evaluate(vr, f, new Set(), NOW).gaps;
+  for (const f of [
+    facts({ name: 'Log viewer', description: 'Reads logs. See https://x.example/quest and www.quest.example/docs' }),
+    facts({ name: 'Log viewer', description: 'Reads logs. Install with `npm i quest-cli`.' }),
+    facts({ name: 'Log viewer', description: 'Reads logs.\n```\nquest run\n```' }),
+    facts({ name: 'https://quest.example', description: 'Reads logs.' }),
+    facts({ name: 'Log viewer', description: 'Reads logs.', readme_excerpt: 'Reads logs. See http://x.example/oculus for more.' }),
+  ]) {
+    assert.equal(unlikely(vr, f, gapsOf(f)), true, f.name + ' ' + f.description + ' ' + (f.readme_excerpt ?? ''));
+    assert.equal(keywordHit(vr, f, gapsOf(f)), false);
+  }
+  // Prose next to a link still counts.
+  const prose = facts({ name: 'Log viewer', description: 'A Quest game. See https://x.example/docs' });
+  assert.equal(keywordHit(vr, prose, gapsOf(prose)), true);
+  // The README excerpt drops inline code spans, so a package name in backticks is never read as prose.
+  assert.equal(readmeExcerpt('Reads logs. Install with `npm i quest-cli` today.'), 'Reads logs. Install with today.');
 });
 
 test('L1c-2 final (v6.1.10): the keyword matcher takes punctuation as a boundary, a hyphen as a space, and a phrase only whole', () => {

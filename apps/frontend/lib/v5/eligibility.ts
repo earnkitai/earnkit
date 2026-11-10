@@ -182,9 +182,15 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
   return out('gap', ordered, reason);
 }
 
-/** What the project says about itself, lower-cased: its name, description, README excerpt and topics (L1c-2). Pure. */
+/** Text as prose (C3, v6.1.13): links (http, https, www), fenced code blocks and inline code removed. Pure. */
+export const proseOf = (text: string): string =>
+  text
+    .replace(/```[\s\S]*?(```|$)/g, ' ')
+    .replace(/`[^`\n]*`/g, ' ')
+    .replace(/\b(?:https?:\/\/|www\.)\S+/gi, ' ');
+/** What the project says about itself, lower-cased: its name, description and README excerpt as prose, and its topics (L1c-2). Pure. */
 const projectWords = (facts: RepoFacts): string =>
-  [facts.name, facts.description, facts.readme_excerpt ?? '', ...(facts.topics ?? [])].join('\n').toLowerCase();
+  [proseOf(facts.name), proseOf(facts.description), proseOf(facts.readme_excerpt ?? ''), ...(facts.topics ?? [])].join('\n').toLowerCase();
 /** A hyphen reads as a space on both sides, so `mini app` matches "mini-app" (v6.1.10 final). Pure. */
 const unhyphen = (s: string): string => s.replace(/-/g, ' ');
 /** Whether `text` holds `phrase` as a whole word or phrase (letters and digits on neither side), any case. Pure. */

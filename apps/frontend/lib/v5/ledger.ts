@@ -38,6 +38,8 @@ const MAX_WIN_USD = 10_000_000;
 export const winCapOf = (program: ProgramRow | null | undefined): number => program?.file.max_award_usd ?? program?.file.pool_usd ?? MAX_WIN_USD;
 /** A win over the program's cap is refused with this line, in the ledger and in a program's screen outcomes (v6.1.7 C38). */
 export const OVER_CAP = "That's more than this program pays; check the amount.";
+/** A win that is not whole dollars of at least 1 (the screen's outcomes say the same, v6.1.13 Low 19). */
+export const WHOLE_DOLLARS = 'Tell me how much you won, as whole dollars.';
 const DAY = 86_400_000;
 /** How long after its close a send still counts under standing approval (F8, v6.1.12). */
 export const CLOSED_GRACE_MS = 3_600_000;
@@ -107,7 +109,7 @@ export async function record(
   // A result may land after the program left the catalog, when the owner's ledger holds it (checked below).
   if (!program && !RESULTS.includes(status)) return unknown;
   if (status === 'won' && !(typeof o.amount_usd === 'number' && Number.isInteger(o.amount_usd) && o.amount_usd >= 1))
-    return { ok: false, note: 'Tell me how much you won, as whole dollars.' };
+    return { ok: false, note: WHOLE_DOLLARS };
   if (status === 'won' && o.amount_usd! > winCapOf(program)) return { ok: false, note: OVER_CAP };
   if (status === 'gap_done' && program) {
     // Only one of the program's own items; the unknown-users gap ('users') only when it has a users item (v6.1.7, C27).

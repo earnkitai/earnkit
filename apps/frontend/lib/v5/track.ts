@@ -322,6 +322,9 @@ async function act(
   const applied = i.status === 'applied'
     ? { submitted_by: i.submitted_by, fields_used: i.fields_used, project_id: i.project_id, autoApplied: standing && outside === null, ...(standing ? { maxPerNight: policy!.policy.max_per_night } : {}) }
     : {};
+  // Low 17 (v6.1.13): a program sent and waiting on its result has nothing to skip (one with a result says so in the ledger).
+  if (i.status === 'skipped' && (await sql()`SELECT 1 FROM applications WHERE owner = ${owner} AND program_id = ${i.program_id} AND status = 'applied'`).length > 0)
+    return refuse('That one was already sent; nothing to skip.');
   // A second skip says so (v6.1.9, lane 8 simplify).
   if (i.status === 'skipped' && (await sql()`SELECT 1 FROM applications WHERE owner = ${owner} AND program_id = ${i.program_id} AND status = 'skipped'`).length > 0)
     return { show_to_builder: 'Already skipped.', agent_note: 'Call find again for the updated ledger.', ledger: await summary(owner, programs, ctx.now) };

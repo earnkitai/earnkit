@@ -338,7 +338,10 @@ test('find with program_id: a closed program is closed, an upcoming one not open
   for (const pid of ['f-shut', 'f-past']) {
     const r = await mcpCall(ctx(id), 'find', { program_id: pid, project: PROJECT });
     const show = r.reply!.show_to_builder as string;
-    assert.match(show, /This one is closed\.$/, show);
+    // Low 20 (v6.1.13): closed is said once, in one line, and no rules are listed, with a project or without.
+    assert.match(show, /^(Shut|Past) Grants, [^\n]*, closed\.$/, show);
+    const bare = (await mcpCall(ctx(id), 'find', { program_id: pid })).reply!.show_to_builder as string;
+    assert.equal(bare, show);
     assert.doesNotMatch(show, /draft|Apply at|https?:/);
     // With a project the rules list waits to be asked for (v6.1.8, 1b).
     assert.doesNotMatch(show, /^Rules:/m);
@@ -1225,24 +1228,33 @@ test('L1d-1 (v6.1.11, Review Focus 1): a claim on one project never pins or lead
   assert.equal(ids(own.reply!.gaps)[0], 'meta-vr-start-competition-2026');
 });
 
-test('L1d-1 (v6.1.11): another agent\'s claim on another project is not "being handled" by default, but filter.all shows its hold', async () => {
+test('L1d-1 (v6.1.11), C1 (v6.1.13): another agent\'s claim on another project reads that project\'s name on its line, by default and in filter.all, and leaves the yes count', async () => {
   const { id, builderId } = await linkedWith(OWNER_RECORD);
   const { claim } = await import('../v6/claims');
   const [other] = await sql()`INSERT INTO installations (token_hash, client_name) VALUES (${'find-other-' + Math.random()}, 'Cursor') RETURNING id`;
   const { linkInstallation } = await import('../v6/builders');
   await linkInstallation(other.id as number, builderId, NOW);
+  const before = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT });
   await claim(`b:${builderId}`, 'y-combinator', 'name:another project', other.id as number, new Date(NOW.getTime() - H));
   // A row from before v6.1.11 with no project matches nothing.
   await claim(`b:${builderId}`, 'alliance-all19', null, other.id as number, new Date(NOW.getTime() - H));
   const r = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT });
-  const ready = r.reply!.ready as { program_id: string; claimed_since?: string }[];
+  const ready = r.reply!.ready as { program_id: string; claimed_since?: string; title: string }[];
   assert.ok(ids(ready).includes('y-combinator'));
-  assert.equal(ready.find((p) => p.program_id === 'y-combinator')?.claimed_since, undefined);
+  assert.equal(ready.find((p) => p.program_id === 'y-combinator')?.claimed_since, new Date(NOW.getTime() - H).toISOString());
   assert.equal(ready.find((p) => p.program_id === 'alliance-all19')?.claimed_since, undefined);
+  const show = r.reply!.show_to_builder as string;
+  const line = show.split('\n').find((l) => l.includes('Y Combinator'))!;
+  assert.match(line, / Being handled by your other agent for another project\.$/);
+  assert.equal(show.split('\n').filter((l) => l.includes('Being handled')).length, 1);
+  // It is no yes: the same list less one to say yes to; it neither pins nor leads the list.
+  assert.deepEqual(ids(ready), ids(before.reply!.ready));
+  assert.match(r.reply!.agent_note as string, /claimed_since is claimed by another of the builder's agents: do not submit it\./);
   const all = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT, filter: { all: true } });
+  const allShow = all.reply!.show_to_builder as string;
+  assert.match(allShow.split('\n').find((l) => l.includes('Y Combinator'))!, / Being handled by your other agent for another project\.$/);
   const allReady = all.reply!.ready as { program_id: string; claimed_since?: string }[];
   assert.equal(allReady.find((p) => p.program_id === 'y-combinator')?.claimed_since, new Date(NOW.getTime() - H).toISOString());
-  assert.match(all.reply!.agent_note as string, /claimed_since is claimed by another of the builder's agents: do not submit it\./);
 });
 
 test('B20c (v6.1.9, Review Focus 1): a repo-less idea and an empty repo are never asked the users question, and a yes never makes FLOSS/fund ready', async () => {
@@ -2034,4 +2046,14 @@ test('Review Focus 3 (v6.1.13, B4): a done step survives any spelling of the sam
   await mcpCall(c, 'find', { program_id: 'rf3-demo', project: { ...NAMED, repo_url: repo } });
   const rows = await sql()`SELECT project_key, at FROM gaps_done WHERE owner = ${owned}`;
   assert.deepEqual(rows.map((r) => [r.project_key, (r.at as Date).toISOString()]), [[repo.toLowerCase(), new Date(NOW.getTime() + H).toISOString()]]);
+});
+
+test('Low 22 (v6.1.13): Arbitrum Open House São Paulo opens with when submissions run', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { ProgramFile } = await import('./program-file');
+  const file = ProgramFile.parse(JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/arbitrum-open-house-sao-paulo.json'), 'utf8')));
+  await upsertProgram(file, 'file', NOW);
+  const r = await mcpCall(ctx(await installation()), 'find', { program_id: 'arbitrum-open-house-sao-paulo' });
+  assert.match((r.reply!.show_to_builder as string).split('\n')[0], /\. Not open yet: Submissions run Feb 8 to Mar 1, 2027; registration is open on HackQuest since Nov 2, 2026, and the requirements are not published yet\.$/);
 });

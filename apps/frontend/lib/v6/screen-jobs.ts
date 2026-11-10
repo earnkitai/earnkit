@@ -77,7 +77,13 @@ export async function createJob(o: {
 }): Promise<{ id: string; total: number; cached: number }> {
   const id = randomBytes(12).toString('base64url');
   const refs = new Set<string>();
-  const list = o.applicants.map((a) => {
+  // Low 18 (v6.1.13): an applicant repeated exactly (same ref and every field) is screened once.
+  const seen = new Set<string>();
+  const unique = o.applicants.filter((a) => {
+    const k = JSON.stringify(a);
+    return !seen.has(k) && Boolean(seen.add(k));
+  });
+  const list = unique.map((a) => {
     let ref = a.ref;
     for (let k = 2; refs.has(ref); k++) ref = `${a.ref} (${k})`;
     refs.add(ref);

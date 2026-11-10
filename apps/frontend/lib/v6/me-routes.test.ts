@@ -323,8 +323,10 @@ test('POST /me/link action=deny expires the code and links nothing', async () =>
   const row = await codeRow(id);
   assert.equal(row.used_at, null);
   assert.equal((row.expires_at as Date).toISOString(), NOW.toISOString());
-  // Denied is dead: a link after it does nothing and says so.
-  refused(b.id, await linkPost(post('/me/link', { csrf, code, action: 'link' }, { cookie }), deps), 'That link expired. Ask your agent for a new one.');
+  // Denied is dead: a link after it does nothing and says so, as the Not me said it (Low 16, v6.1.13).
+  assert.deepEqual(lineOf(await linkPost(post('/me/link', { csrf, code, action: 'link' }, { cookie }), deps), b.id), { status: 303, path: '/me', key: 'note', text: 'Not linked.', shown: true });
+  const { meData } = await import('./me-view');
+  assert.equal((await meData(b, new Date(NOW.getTime() + 60_000), 'sess', code)).link?.text, 'Not linked.');
   assert.equal(await instBuilder(id), null);
   // A code EarnKit never makes is not valid, for either button.
   for (const bad of ['nope', 'x'.repeat(1024), '%3Cscript%3E'])
