@@ -122,6 +122,13 @@ export function clientIp(headers: Headers, remoteAddress?: string): string {
   return ip ? ipKey(ip) : 'unknown';
 }
 
+/** Whether this first hit also sweeps old windows (one in a hundred); replaceable in tests. */
+let sweep = (): boolean => Math.random() < 0.01;
+/** Tests only: sets the sweep's chance (true always, false never); undefined restores it. */
+export function setSweepForTests(always: boolean | undefined): void {
+  sweep = always === undefined ? () => Math.random() < 0.01 : () => always;
+}
+
 /** Counts one request for `key` in the current `windowSeconds` window; the window's count so far. */
 export async function countHit(key: string, windowSeconds: number, now = new Date()): Promise<number> {
   const start = windowStart(now, windowSeconds * 1000);
@@ -131,9 +138,10 @@ export async function countHit(key: string, windowSeconds: number, now = new Dat
     RETURNING count`;
   if (row.count === 1) {
     await sql()`DELETE FROM rate_windows WHERE key = ${key} AND window_start < ${start}`;
-    // Keys that never come back (one-off IPs) are swept now and then; no window is over a day.
-    if (Math.random() < 0.01)
-      await sql()`DELETE FROM rate_windows WHERE window_start < now() - interval '2 days'`;
+    // Keys that never come back (one-off IPs) are swept now and then; no window is over a day. Against the caller's
+    // clock, not the database's, so a fixed clock keeps its windows (v6.1.9 final I5).
+    if (sweep())
+      await sql()`DELETE FROM rate_windows WHERE window_start < ${new Date(now.getTime() - 2 * 86_400_000)}`;
   }
   return row.count;
 }

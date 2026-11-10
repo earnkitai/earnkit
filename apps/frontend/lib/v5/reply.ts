@@ -311,12 +311,16 @@ export function firstStepOf(gaps: GapProgram[]): FirstStep | null {
   return null;
 }
 
+/** I2 (v6.1.9 final): the number of the only step program shown when it has an unconfirmed rule (not in person), else null. Pure. */
+export const stepRuleOf = (gaps: GapProgram[]): number | null =>
+  gaps.length === 1 && !gaps[0].in_person && [gaps[0].gap, ...gaps[0].also].some((x) => x.kind === 'rule') ? gaps[0].n : null;
+
 /**
  * The one action (v6.1.8, 1a): yes to the ready ones ("I draft ... for you to send" when the builder presses submit
  * on every one, C44), or with none ready and gaps shown "Nothing is ready yet." and the first rule-only gap's
  * "yes r", else the first step (M1, v6.1.9). The gap lines carry their own "do n" and "yes n". Pure.
  */
-export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number; firstRule: number | null; inPerson: number; held: number; firstStep?: FirstStep | null; yesStands?: string[] }): string {
+export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number; firstRule: number | null; inPerson: number; held: number; firstStep?: FirstStep | null; yesStands?: string[]; stepRule?: number | null }): string {
   // v6.1.9: the builder's yes to a rule already stands for the program it made ready: no second yes is asked for it.
   const stands = o.yesStands ?? [];
   if (stands.length > 0) {
@@ -330,9 +334,12 @@ export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number
   if (o.held > 0) return "Your other agent is handling these; I'll say when something new opens.";
   if (o.gaps > 0) {
     if (o.firstRule !== null) return `Nothing is ready yet. Say "yes ${o.firstRule}" if that rule fits you.`;
+    // I2 (v6.1.9 final): the only step program shown carries a rule beside its change: the rule is asked first.
+    if (o.stepRule != null) return `Nothing is ready yet. Say "yes ${o.stepRule}" if its rule fits you.`;
     const step = o.firstStep ?? null;
     if (step?.users) return 'Nothing is ready yet. Do real people use it? Say yes and I apply.';
-    if (step) return `Nothing is ready yet. The first step is ${step.what}; tell me when it is done and I look again.`;
+    // I3 (v6.1.9 final): "First:" reads as a sentence for a noun or a verb phrase.
+    if (step) return `Nothing is ready yet. First: ${step.what}. Tell me when it is done and I look again.`;
     return 'Nothing is ready yet.';
   }
   if (o.inPerson > 0) return "Tell me which you can attend and I'll draft it once you're in.";
@@ -436,8 +443,8 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
           // N1 (v6.1.9, fix round 1): the used limit takes the tonight list's place; the builder can still say yes.
           ...(limitUsed ? [LIMIT_USED] : []),
           closingLine({
-            ready: free.length, draftOnly, gaps: r.gaps.length, firstRule, inPerson: inPerson.length, held: ready.length - free.length, firstStep: firstStepOf(r.gaps),
-            yesStands: free.filter((p) => p.rule_yes && !click.has(p.program_id)).map((p) => p.title),
+            ready: free.length, draftOnly, gaps: r.gaps.length, firstRule, inPerson: inPerson.length, held: ready.length - free.length, firstStep: firstStepOf(r.gaps), stepRule: stepRuleOf(r.gaps),
+            yesStands: free.filter((p) => p.rule_yes && !click.has(p.program_id) && !r.blockers.some((b) => b.program_id === p.program_id && b.sign_in)).map((p) => p.title),
           }),
         ].join(' ');
   // R5a: saying yes is the one action; unlinked with a link, signing in is the closing block's second sentence.
@@ -464,7 +471,7 @@ export const NO_PROJECT_NOTE =
  */
 export function agentNote(r: R, o: { more: number; description?: 'readme' | 'none' | null }): string {
   const standing =
-    'Standing approval is on: for each ready program within the limits, call track started, fill from fields, submit where the program allows an agent, then track applied with submitted_by agent and fields_used. Stop at max_per_night. Never submit where blockers say needs_click, outside_approval or a sign-in you do not have. Under standing approval, send only when every required answer is filled; otherwise wait for the builder.';
+    'Standing approval is on: for each ready program within the limits, call track started, fill from fields, submit where the program allows an agent, then track applied with submitted_by agent and fields_used (the field keys). Stop at max_per_night. Never submit where blockers say needs_click, outside_approval or a sign-in you do not have. Under standing approval, send only when every required answer is filled; otherwise wait for the builder.';
   const lines = [
     'Open with show_to_builder in your own words: warm, direct, short, no emojis, no em dashes, no invented facts.',
     r.linked

@@ -414,9 +414,11 @@ test('B18: an agent send is under standing approval only within every limit; oth
 
   const first = await send('b18-a');
   assert.equal(first.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal(first.agent_note, "Done for tonight. The builder's next find reports it; do not call find again until they ask.");
   assert.equal(await auto('b18-a'), true);
   const second = await send('b18-b', new Date(NOW.getTime() + 60_000));
   assert.equal(second.show_to_builder, 'Sent, but outside your standing approval: the nightly limit was reached.');
+  assert.match(second.agent_note, /Call find again for the updated ledger\.$/);
   assert.equal(await auto('b18-b'), false);
   const cases: [string, string][] = [
     ['b18-bounty', 'bounties are not in your categories'],
@@ -609,4 +611,29 @@ test('v6.1.9: the night routine\'s find before a send under standing approval le
   // The morning find was the builder's: the next one starts after it.
   const later = (await find(linked(41), { project })) as { applied_overnight: unknown[] };
   assert.deepEqual(later.applied_overnight, []);
+});
+
+test('I1 (v6.1.9 final): the night sequence: a send under standing approval, no find after it, and the morning find of another installation of the builder reports it', async () => {
+  const { linkInstallation, saveRecord, upsertBuilder } = await import('../v6/builders');
+  const { EMPTY_RECORD, mergeRecord } = await import('../v6/record');
+  const { find } = await import('./find');
+  const night = await ctx();
+  const day = await ctx();
+  const b = await upsertBuilder({ github_id: 930_204, login: 'night2', name: 'N', avatar_url: null }, NOW);
+  await linkInstallation(night.installationId, b.id, NOW);
+  await linkInstallation(day.installationId, b.id, NOW);
+  await saveRecord(b.id, mergeRecord(EMPTY_RECORD, { policy: { auto_apply: true, max_per_night: 1, categories: ['grant'] } }, 'builder', NOW).record, NOW);
+  await upsertProgram(programFixture({ id: 'i1-a', title: 'Night Grant', category: 'grant' }), 'file', NOW);
+  const at = (c: typeof night, h: number) => ({ ...c, builderId: b.id, now: new Date(NOW.getTime() + h * 3_600_000) });
+  const project = { name: 'Night App', description: 'An app.', live_url: 'https://night.example', users: true };
+  await find(at(day, 0), { project });
+  // The night routine: its find, then the send; the note tells the agent to stop there.
+  await find(at(night, 10), { project });
+  const sent = await track(at(night, 10.1), { program_id: 'i1-a', status: 'applied', submitted_by: 'agent', fields_used: ['project_name'] });
+  assert.equal(sent.agent_note, "Done for tonight. The builder's next find reports it; do not call find again until they ask.");
+  assert.doesNotMatch(sent.agent_note, /Call find again/);
+  // The morning: the builder's other installation reports it.
+  const morning = (await find(at(day, 18), { project })) as { applied_overnight: { program_id: string }[]; show_to_builder: string };
+  assert.deepEqual(morning.applied_overnight.map((x) => x.program_id), ['i1-a']);
+  assert.match(morning.show_to_builder, /Applied under your standing approval: Night Grant\./);
 });

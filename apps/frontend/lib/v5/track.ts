@@ -216,9 +216,12 @@ async function act(
       agent_note: 'Recorded as applied, not under standing approval. Send nothing else alone that falls outside the limits; ask the builder first. Call find again for the updated ledger.',
       ledger: await summary(owner, programs, ctx.now),
     };
+  // I1 (v6.1.9 final): after a send under standing approval the agent does not find again, so the morning report stays.
   return {
     show_to_builder: closed ?? lines[i.status],
-    agent_note: 'Call find again for the updated ledger.',
+    agent_note: i.status === 'applied' && standing && outside === null
+      ? "Done for tonight. The builder's next find reports it; do not call find again until they ask."
+      : 'Call find again for the updated ledger.',
     ledger: await summary(owner, programs, ctx.now),
   };
 }

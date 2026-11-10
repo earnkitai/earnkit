@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { agentNote, gapAction, gapLine, notFitLine, numbered, replyText } from './reply';
+import { agentNote, gapAction, gapLine, notFitLine, numbered, replyText, stepRuleOf } from './reply';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
 import type { Ledger } from './ledger';
 
@@ -353,7 +353,7 @@ test('standing approval: the closing line counts what an agent can send alone, a
   assert.match(replyText({ ...LINKED, auto_apply: true, max_per_night: 5 }, false), /Say yes and I apply to all 4\. Or say the numbers to skip\.$/);
   const note = agentNote(r, { more: 0 });
   assert.ok(note.includes(
-    'Standing approval is on: for each ready program within the limits, call track started, fill from fields, submit where the program allows an agent, then track applied with submitted_by agent and fields_used. Stop at max_per_night. Never submit where blockers say needs_click, outside_approval or a sign-in you do not have.',
+    'Standing approval is on: for each ready program within the limits, call track started, fill from fields, submit where the program allows an agent, then track applied with submitted_by agent and fields_used (the field keys). Stop at max_per_night. Never submit where blockers say needs_click, outside_approval or a sign-in you do not have.',
   ));
   assert.ok(!note.includes('Submit only'));
   assert.ok(note.includes("Draft each ready program from its fields: 'record' and 'earnkit' values as given, except a field marked fit 'cut', which you cut to its max_chars as its fit_note says;"));
@@ -441,7 +441,7 @@ test('the closing line is one action (v6.1.8, 1a): yes to the ready ones, else "
   assert.match(replyText(base({ ready: MONDAY.ready, gaps: [rulesOnly] }), true), /^3\. R, \$1K\. Their rule: x\. Say "yes 3" if that is you\.$/m);
   assert.equal(end(base({ gaps: [rulesOnly, MONDAY.gaps[0]] })), 'Nothing is ready yet. Say "yes 1" if that rule fits you.');
   // M1 (v6.1.9): with no rule-only program shown, the closing offers the first step.
-  assert.equal(end(base({ gaps: [MONDAY.gaps[0]] })), 'Nothing is ready yet. The first step is deploy the contract on Arc; tell me when it is done and I look again.');
+  assert.equal(end(base({ gaps: [MONDAY.gaps[0]] })), 'Nothing is ready yet. First: deploy the contract on Arc. Tell me when it is done and I look again.');
   // C44: the builder presses submit on every ready one, so the agent drafts.
   const clicks = MONDAY.ready.map((p) => ({ program_id: p.program_id, sign_in: null, needs_click: true, needs: [] }));
   assert.equal(end({ ...MONDAY, blockers: clicks }), 'Say yes and I draft all 2 for you to send. Or say the numbers to skip.');
@@ -612,7 +612,17 @@ test('M1 (v6.1.9): nothing ready and no rule-only program shown: the closing off
   assert.equal(end(base({ gaps: [floss] })), 'Nothing is ready yet. Do real people use it? Say yes and I apply.');
   // A demo video (with a rule beside it) first: tell me when it is done.
   const vr = gap({ title: 'Meta VR', gap: VIDEO, also: [ruleGap('hands first')], rules: ['hands first'] });
-  assert.equal(end(base({ gaps: [vr, floss] })), 'Nothing is ready yet. The first step is a demo video; tell me when it is done and I look again.');
+  assert.equal(end(base({ gaps: [vr, floss] })), 'Nothing is ready yet. First: a demo video. Tell me when it is done and I look again.');
+  // I2 (v6.1.9 final): the only step program shown carries a rule: the rule is asked first, once.
+  const vrAlone = replyText(base({ gaps: [vr] }), true);
+  assert.equal(vrAlone.split('\n').at(-1), 'Nothing is ready yet. Say "yes 1" if its rule fits you.');
+  assert.equal(vrAlone.match(/"yes 1"/g)?.length, 1, vrAlone);
+  assert.equal(stepRuleOf([{ ...vr, n: 3 }]), 3);
+  assert.equal(stepRuleOf([vr, floss]), null);
+  assert.equal(stepRuleOf([floss]), null);
+  assert.equal(stepRuleOf([{ ...vr, in_person: true }]), null);
+  // Something ready keeps the yes to apply.
+  assert.equal(end(base({ ready: [MONDAY.ready[0]], gaps: [vr] })), 'Say yes and I apply.');
   // A program EarnKit makes ("do n" on its line) or a sign-in step is passed over for the next program's step.
   const codes = gap({ title: 'Base Batches', gap: { kind: 'builder_codes', item: 'builder_codes', what: 'add Base Builder Codes to the app', effort: 'minutes', agent_can: true } });
   const signIn = gap({ title: 'Live Grant', gap: { kind: 'tier', item: 'tier:live', what: 'Sign in once so EarnKit can confirm your product is live', effort: 'weeks', agent_can: false } });
@@ -633,6 +643,9 @@ test('v6.1.9: after the builder\'s yes on a rule, the program it made ready is a
   // The builder presses submit on it: no "I apply now".
   const click = base({ ready: [ready({ title: 'Click Grant', rule_yes: true })], blockers: [{ program_id: 'click-grant', sign_in: null, needs_click: true, needs: [] }] });
   assert.equal(replyText(click, true).split('\n\n').at(-1), 'Say yes and I draft it for you to send.');
+  // A sign-in the agent does not have: no "I apply now" either (final review M2).
+  const signIn = base({ ready: [ready({ title: 'Mail Grant', rule_yes: true })], blockers: [{ program_id: 'mail-grant', sign_in: 'email', needs_click: false, needs: [] }] });
+  assert.doesNotMatch(replyText(signIn, true), /I apply now/);
 });
 
 test('v6.1.9: the standing note asks for every required answer; record_missing is told apart from record get', () => {

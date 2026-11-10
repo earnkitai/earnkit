@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
-import { codeChecked, evaluate, lookedAgain, type Gap } from './eligibility';
+import { codeChecked, evaluate, exists, lookedAgain, type Gap } from './eligibility';
 import { repoFacts, type RepoFacts } from './repo-facts';
 import { parseProject } from './project-input';
 import { ProgramFile } from './program-file';
@@ -299,6 +299,15 @@ test('B20c, B20d (v6.1.9, Review Focus 1, fix rounds 1 and 2): the users questio
   const named = { ...idea, repo_url: 'https://github.com/a/b' };
   assert.deepEqual(evaluate(floss, { ...named, notes: ['paused'] }, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
   assert.deepEqual(evaluate(floss, { ...named, notes: ['unread'], users: true }, new Set(), NOW).reason, 'needs a product people use');
+  // I4 (final review): a repo-less project with a mainnet contract (reported) exists; a testnet one does not.
+  const pc = parseProject({ name: 'Vault', description: 'A closed-source vault.', chains: [{ chain: 'base', mainnet: true, contract: '0x1111111111111111111111111111111111111111' }] });
+  assert.ok(pc.ok);
+  const contracted = await repoFacts(pc.project, { now: NOW });
+  assert.equal(contracted.repo_url, null);
+  assert.equal(contracted.contracts.length, 1);
+  assert.equal(exists(contracted), true);
+  assert.deepEqual(evaluate(usersOnly, contracted, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
+  assert.equal(exists({ ...contracted, chains: contracted.chains.map((c) => ({ ...c, mainnet: false })) }), false);
   // A program that asks for no users is unchanged.
   assert.equal(evaluate(toRow(programFixture({ id: 'p-none', tag: undefined, eligibility: [] })), idea, new Set(), NOW).status, 'ready');
 });

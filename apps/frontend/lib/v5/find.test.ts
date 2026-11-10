@@ -998,8 +998,8 @@ const inPersonBlock = (n: number, noRepo = false) => [
 const META_VR_LINE = (n: number) => `${n}. Meta VR Start Developer Competition 2026, $1,000,000 in prizes: a demo video. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.`;
 /** The rule-bearing program alone, a list of one (N-2, v6.1.9 fix round 1). */
 const META_VR_ONLY = ['One step away (1):', META_VR_LINE(1)];
-/** M1 (v6.1.9 fix round 1): the closing names the first change. */
-const DEMO_FIRST = 'Nothing is ready yet. The first step is a demo video; tell me when it is done and I look again.';
+/** I2 (v6.1.9 final): the only step program shown carries a rule, so the closing asks the rule first. */
+const RULE_FIRST = 'Nothing is ready yet. Say "yes 1" if its rule fits you.';
 
 test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets the rule-only program on its first reported chain, Base (v6.1.6, v6.1.7)', async () => {
   const r = await mcpCall(ctx(await installation()), 'find', { project: PROJECT_A });
@@ -1040,7 +1040,7 @@ test('R18e, R18f, C54, B20, B20c, B20d: projects B (dotfiles, repo link answers 
   assert.deepEqual(b.reply!.repo_notes, ['unread']);
   assert.equal(
     b.reply!.show_to_builder,
-    [...META_VR_ONLY, '', ...inPersonBlock(2), '', 'I could not read the repo; matched on what you told me.', '', DEMO_FIRST].join('\n'),
+    [...META_VR_ONLY, '', ...inPersonBlock(2), '', 'I could not read the repo; matched on what you told me.', '', RULE_FIRST].join('\n'),
   );
   // The same repo with reads paused for the day (the daily cap): the repo likely exists, the users question stands.
   const { hit, LIMITS } = await import('./rate-limit');
@@ -1053,10 +1053,10 @@ test('R18e, R18f, C54, B20, B20c, B20d: projects B (dotfiles, repo link answers 
     ['One step away (1):', '1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.', '', ...inPersonBlock(2), '', 'Repo reads are paused until tomorrow; matched on what you told me.', '', 'Nothing is ready yet. Do real people use it? Say yes and I apply.'].join('\n'),
   );
   // No repo and no live link: nothing to ask the users question of (B20c); the rule-bearing program stands alone as a
-  // list of one (N-2 fix round 1), and the closing names its first step (M1).
+  // list of one (N-2 fix round 1), and the closing asks its rule first (I2, final).
   const c = await mcpCall(ctx(await installation()), 'find', { project: PROJECT_C });
   assert.equal(c.isError, false, c.text);
-  assert.equal(c.reply!.show_to_builder, [...META_VR_ONLY, '', ...inPersonBlock(2, true), '', DEMO_FIRST].join('\n'));
+  assert.equal(c.reply!.show_to_builder, [...META_VR_ONLY, '', ...inPersonBlock(2, true), '', RULE_FIRST].join('\n'));
   for (const r of [b, c]) assert.doesNotMatch(r.reply!.show_to_builder as string, /FLOSS|real people use it/);
   for (const r of [b, c]) assert.match(r.reply!.agent_note as string, /more left out: [^\n]*Ask with filter\.all for the full list\./);
   for (const project of [PROJECT_B, PROJECT_C]) {
@@ -1179,9 +1179,9 @@ test('B20c (v6.1.9, Review Focus 1): a repo-less idea and an empty repo are neve
   const ideaCtx = async () => ({ installationId: await installation(), builderId: null, now: NOW });
   const emptyCtx = async () => ({ installationId: await installation(), builderId: null, now: NOW, gh: emptyRec.fetch });
   const idea = await mcpCall(await ideaCtx(), 'find', { project: IDEA });
-  assert.equal(idea.reply!.show_to_builder, [...META_VR_ONLY, '', ...inPersonBlock(2, true), '', DEMO_FIRST].join('\n'));
+  assert.equal(idea.reply!.show_to_builder, [...META_VR_ONLY, '', ...inPersonBlock(2, true), '', RULE_FIRST].join('\n'));
   const empty = await mcpCall(await emptyCtx(), 'find', { project: EMPTY });
-  assert.equal(empty.reply!.show_to_builder, [...META_VR_ONLY, '', ...inPersonBlock(2), '', 'The repo is empty, so I matched on what you told me.', '', DEMO_FIRST].join('\n'));
+  assert.equal(empty.reply!.show_to_builder, [...META_VR_ONLY, '', ...inPersonBlock(2), '', 'The repo is empty, so I matched on what you told me.', '', RULE_FIRST].join('\n'));
   for (const [mk, project] of [[ideaCtx, IDEA], [emptyCtx, EMPTY]] as const) {
     // Even after the builder says yes (users: true, or gap_done users): not a fit, never ready, never a step.
     const c = await mk();
