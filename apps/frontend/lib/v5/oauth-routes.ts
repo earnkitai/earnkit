@@ -6,10 +6,23 @@
 import { json, readCapped, readParams } from './http';
 import { installationExists, saveInstallation } from './installations';
 import { OAuthError, checkAuthorize, clientLimitKey, exchangeCode, issueCode, publicOrigin, registerClient } from './oauth';
-import { BLOCK_LIMITED, RateLimitError, blockOf, clientIp, enforce } from './rate-limit';
+import { BLOCK_LIMITED, BLOCK_WARN_SHARE, LIMITS, RateLimitError, blockOf, clientIp, enforce } from './rate-limit';
 
 const TOO_MANY = 'Too many new EarnKit connections from this address.';
 const TOO_MANY_CLIENT = 'Too many new EarnKit connections from this agent today.';
+
+/**
+ * Counts one hit on a block's daily cap; logs once, as the count reaches BLOCK_WARN_SHARE of it, so refusals never
+ * start unannounced (I3). Ops text only, never in a reply.
+ */
+async function enforceBlock(name: 'oauthRegisterBlock' | 'installBlock', ip: string) {
+  const block = blockOf(ip);
+  const { limit } = LIMITS[name];
+  const r = await enforce(name, block, BLOCK_LIMITED, true);
+  const count = limit - r.remaining;
+  if (count === Math.ceil(limit * BLOCK_WARN_SHARE)) console.warn(`[oauth] block near cap: ${name} ${block} at ${count} of ${limit} today`);
+  return r;
+}
 
 function logLimited(route: string, limit: string, key: string | null) {
   const host = key?.startsWith('host:') ? key.slice(5) : key ? 'per-registration client' : 'no client';
@@ -41,7 +54,7 @@ export async function tokenPost(request: Request) {
         await enforce('installHour', ip, TOO_MANY);
         // B1 (v6.1.13): each address block a day, so one network never spends another's installs.
         limit = 'installBlock';
-        await enforce('installBlock', blockOf(ip), BLOCK_LIMITED, true);
+        await enforceBlock('installBlock', ip);
         limit = hostedHost ? 'installClientHosted' : 'installClient';
         await enforce(limit as 'installClient' | 'installClientHosted', limitKey, TOO_MANY_CLIENT);
       } catch (err) {
@@ -99,7 +112,7 @@ export async function registerPost(request: Request) {
     const ip = clientIp(request.headers);
     await enforce('oauthRegister', ip, 'Too many client registrations from this address.');
     limit = 'oauthRegisterBlock';
-    await enforce('oauthRegisterBlock', blockOf(ip), BLOCK_LIMITED, true);
+    await enforceBlock('oauthRegisterBlock', ip);
     return json(registerClient(metadata), 201);
   } catch (err) {
     if (err instanceof RateLimitError) {

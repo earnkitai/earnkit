@@ -205,9 +205,10 @@ Copy lives in `site-copy.ts`, install steps in `agents.ts` (read by the site, `/
 `site-theme.ts` (mirrored in `globals.css`). See `apps/frontend/DESIGN.md`. OAuth (`oauth.ts`, `oauth-routes.ts`) is
 standard (PKCE, dynamic client registration) and approves at once; the issued token is the installation. A
 many-builder hosted registration gets no client key. Every register and token request counts on the one per-IP floor
-(an hour) and on its address block's daily cap (v6.1.13 B1: IPv4 /16, IPv6 /48, `blockOf` in `rate-limit.ts`; 2,000
-registrations, `oauthRegisterBlock`, and 2,000 installs, `installBlock`, a day; over it, "Too many sign-ups from your
-network today. Try again tomorrow."). No ceiling is shared by every user of one hosted service, so one network
+(an hour) and on its address block's daily cap (v6.1.13 B1: IPv4 /16, IPv6 /48, `blockOf` in `rate-limit.ts`; 5,000
+registrations, `oauthRegisterBlock`, and 5,000 installs, `installBlock`, a day, so one hosted vendor's /16 can still
+reach `installClientHosted`; over it, "Too many sign-ups from your network today. Try again tomorrow."; one ops log
+`[oauth] block near cap` as a block reaches 80 percent of its day). Hex IPv4-mapped IPv6 is unmapped to its IPv4. No ceiling is shared by every user of one hosted service, so one network
 rotating addresses never locks out another; the hosted tier (every redirect URI is a listed vendor's exact host and callback path, `HOSTED_REDIRECTS`) only raises
 the per-client ceiling (`installClientHosted`). `GET /mcp` is 405 (`Allow: POST, DELETE`): EarnKit never pushes. `rate-limit.ts` keeps fixed-window counters in Postgres. Each MCP tool call counts
 120 an hour per installation and 600 an hour per client IP; over either, the call answers the tool result "EarnKit

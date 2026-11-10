@@ -137,8 +137,27 @@ test('B1 (v6.1.13, Review Focus 1): ten thousand registrations from one address 
     for (let n = 0; n < 3; n++) assert.equal((await reg(`2001:db8:cccc:${hex()}::${n + 1}`)).status, 201);
     const [after] = await sql()`SELECT count FROM rate_windows WHERE key = 'oauthRegisterBlock:2001:db8:cccc::/48' AND window_start = ${today}`;
     assert.equal(Number(after.count), before + 3);
+    // Fix round 1 (I3): the cap is 5,000 a day, and one ops warning is logged as a block reaches 80 percent of it.
+    const edge = `198.20.${r()}.${r()}`;
+    const set = (n: number) => sql()`INSERT INTO rate_windows (key, window_start, count) VALUES ('oauthRegisterBlock:198.20.0.0/16', ${today}, ${n})
+      ON CONFLICT (key, window_start) DO UPDATE SET count = ${n}`;
+    const warned: string[] = [];
+    const warn = console.warn;
+    console.warn = (...a: unknown[]) => void warned.push(a.join(' '));
+    try {
+      await set(3_998);
+      assert.equal((await reg(edge)).status, 201);
+      assert.equal((await reg(`198.20.${r()}.${r()}`)).status, 201);
+      assert.equal((await reg(`198.20.${r()}.${r()}`)).status, 201);
+    } finally {
+      console.warn = warn;
+    }
+    assert.deepEqual(warned.filter((w) => w.includes('block near cap')), ['[oauth] block near cap: oauthRegisterBlock 198.20.0.0/16 at 4000 of 5000 today']);
+    await set(4_999);
+    assert.equal((await reg(`198.20.${r()}.${r()}`)).status, 201);
+    assert.equal((await reg(`198.20.${r()}.${r()}`)).status, 429);
   } finally {
-    await sql()`DELETE FROM rate_windows WHERE key IN ${sql()(full.flatMap((b) => [`oauthRegisterBlock:${b}`, `installBlock:${b}`]))}`;
+    await sql()`DELETE FROM rate_windows WHERE key IN ${sql()([...full, '198.20.0.0/16'].flatMap((b) => [`oauthRegisterBlock:${b}`, `installBlock:${b}`]))}`;
   }
 });
 

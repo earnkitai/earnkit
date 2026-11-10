@@ -41,10 +41,10 @@ test('I5 (v6.1.9 final): the sweep compares windows against the caller\'s clock,
   }
 });
 
-test('B1 (v6.1.13): the shared hosted ceiling is gone; each address block has a daily cap of 2,000 sign-ups and 2,000 installs', () => {
+test('B1 (v6.1.13): the shared hosted ceiling is gone; each address block has a daily cap of 5,000 sign-ups and 5,000 installs', () => {
   assert.ok(!('oauthRegisterHost' in LIMITS));
-  assert.deepEqual(LIMITS.oauthRegisterBlock, { limit: 2_000, windowSeconds: 86_400 });
-  assert.deepEqual(LIMITS.installBlock, { limit: 2_000, windowSeconds: 86_400 });
+  assert.deepEqual(LIMITS.oauthRegisterBlock, { limit: 5_000, windowSeconds: 86_400 });
+  assert.deepEqual(LIMITS.installBlock, { limit: 5_000, windowSeconds: 86_400 });
   const block = (ip: string) => blockOf(clientIp(new Headers({ 'x-forwarded-for': ip })));
   assert.equal(block('10.11.5.77'), '10.11.0.0/16');
   assert.equal(block('10.11.200.1'), '10.11.0.0/16');
@@ -53,4 +53,8 @@ test('B1 (v6.1.13): the shared hosted ceiling is gone; each address block has a 
   assert.equal(block('2001:0db8:0011:ffff:1:2:3:4'), '2001:db8:11::/48');
   assert.equal(block('[2001:db8::1]'), '2001:db8:0::/48');
   assert.equal(blockOf('unknown'), 'unknown');
+  // M1 (fix round 1): the hex IPv4-mapped forms are the IPv4 address, never one shared ::/48.
+  for (const ip of ['::ffff:a0b:54e', '::FFFF:0A0B:054E', '0:0:0:0:0:ffff:a0b:54e', '::ffff:0:a0b:54e'])
+    assert.equal(clientIp(new Headers({ 'x-forwarded-for': ip })), '10.11.5.78', ip);
+  assert.equal(block('::ffff:a0b:54e'), '10.11.0.0/16');
 });

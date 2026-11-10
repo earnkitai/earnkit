@@ -15,14 +15,14 @@ export const LIMITS = {
   oauthRegister: { limit: 50, windowSeconds: 3_600 },
   /** POST /oauth/register, per address block (IPv4 /16, IPv6 /48) a day (v6.1.13, B1): one network can never spend
    *  every other network's sign-ups, as the one shared hosted ceiling let it. */
-  oauthRegisterBlock: { limit: 2_000, windowSeconds: 86_400 },
+  oauthRegisterBlock: { limit: 5_000, windowSeconds: 86_400 },
   /** New installations (POST /oauth/token that creates one), per registration, and per IP as the floor for every client. */
   installClient: { limit: 500, windowSeconds: 86_400 },
   /** The per-registration ceiling for a hosted service's callback client: the hosted tier raises only this (v6.1.7, B5). */
   installClientHosted: { limit: 5_000, windowSeconds: 86_400 },
   installHour: { limit: 50, windowSeconds: 3_600 },
   /** New installations per address block a day (v6.1.13, B1), beside the per-address floor and the per-client limits. */
-  installBlock: { limit: 2_000, windowSeconds: 86_400 },
+  installBlock: { limit: 5_000, windowSeconds: 86_400 },
   /** MCP tool calls, per installation, and per client IP as the floor. */
   mcp: { limit: 120, windowSeconds: 3_600 },
   mcpIp: { limit: 600, windowSeconds: 3_600 },
@@ -36,6 +36,8 @@ export const LIMITS = {
 
 /** The 429 text of the per-block daily caps (v6.1.13, B1): the whole line, with no retry clause after it. */
 export const BLOCK_LIMITED = 'Too many sign-ups from your network today. Try again tomorrow.';
+/** The share of a block's day at which one ops warning is logged, before its cap refuses (v6.1.13 fix round 1, I3). */
+export const BLOCK_WARN_SHARE = 0.8;
 
 /** The start of the fixed window `now` falls in. Pure. */
 export const windowStart = (now: Date, windowMs: number) =>
@@ -106,6 +108,11 @@ function ipKey(ip: string): string {
           ...Array(Math.max(0, 8 - left.length - right.length)).fill('0'),
           ...right,
         ];
+  // M1 (v6.1.13 fix round 1): the hex IPv4-mapped forms (::ffff:a.b as hex, and ::ffff:0:a.b) are that IPv4 address.
+  const n = groups.map((g) => parseInt(g, 16) || 0);
+  const v4 = (hi: number, lo: number) => `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+  if (groups.length === 8 && n.slice(0, 5).every((x) => x === 0) && n[5] === 0xffff) return v4(n[6], n[7]);
+  if (groups.length === 8 && n.slice(0, 4).every((x) => x === 0) && n[4] === 0xffff && n[5] === 0) return v4(n[6], n[7]);
   return `${groups
     .slice(0, 4)
     .map((g) => (parseInt(g, 16) || 0).toString(16))
