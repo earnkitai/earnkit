@@ -72,7 +72,7 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
    gaps: first the acted-on programs (N-3; a claim counts only on the project it stored, its record id or project key,
    and never pins another project: L1d-1, v6.1.11; another agent's claim for another project still marks the program's
    line `Being handled by your other agent for {project name}.`, in the default list and `filter.all`, and leaves the yes
-   count: C1, v6.1.13, `held_for`, the name from the record project, the `name:` key or the repo path), then every program closing within 7 days that the project fits (O1, ahead
+   count: C1, v6.1.13, `held_for`, the name from the record project, else the owner's report for that key, else the `name:` key or the repo path; a held in-person program is listed under In person with its line but is no yes in the closing, counting as held), then every program closing within 7 days that the project fits (O1, ahead
    of the cap; its line says `closes in {n} days`), then at most one rule-bearing program among rule-free ones. That
    one, on the project's chains, takes its rank place; off them it is shown only after `max - 1` others or alone
    (N-2). A keyword hit (`keywordHit`, `eligibility.ts`, N1 v6.1.12: a rule still to confirm whose keywords the project
@@ -164,11 +164,11 @@ verifiable kinds are re-read from the repo.
 A done step belongs to one project (v6.1.10, L1c-1): `gaps_done` carries `project_key` and is unique on
 (owner, project_key, program_id, item). `projectKeyOf` (`project-input.ts`, pure) gives the key: the repo link in its
 one canonical form (`canonicalRepoLink`, v6.1.13 B4: https, host lower-cased without `www.`, no port, no `user@`, no
-query or fragment, no `/tree/...` or `/blob/...` suffix, on github.com owner and name only, no trailing slash or `.git`;
+query or fragment, on github.com owner and name only, on other hosts the path up to its first `-` segment (so `-/tree/...`, `-/blob/...`, `-/issues` fold and a subgroup named `tree` stays), no trailing slash or `.git`;
 the repo read's cache key `repoKey` reads the same helper), else `name:` and the name NFKC and case-folded, else `''`
 (rows from before v6.1.10 stay at `''`). The first find that adds the repo to a project found by name moves its
 `gaps_done`, claim `project_id` and `project_reports` rows from the `name:` key to the repo key in one transaction
-(`rekeyProject` in `ledger.ts`; a step under both keeps the newer time). `find` reads done steps (`doneItems`, `doneOn`, `codeDoneAt`) with its project's key;
+(`rekeyProject` in `ledger.ts`: rows copied with ON CONFLICT so a step marked at the same moment cannot fail the find, the newer time winning, then the `name:` rows deleted). A project named alone whose `name:` report names a repo is read under that repo's key (`resolvedKey` in `ledger.ts`, final round W1 and W2): find's steps, claims and report and track's key (`projectOf`), so a send or find by name sees what a find with the repo marked; a name-only find of it keeps the repo link in its report. `find` reads done steps (`doneItems`, `doneOn`, `codeDoneAt`) with that key;
 a project item (`PROJECT_ITEMS`: `users`) done on any program of the project counts for every program on it (L1e-4,
 v6.1.13: `Done.of`), for find, track and the send check alike, while a yes said (`rule_yes`) and the acted-on pin stay
 the program's own (`Done.own`) and keeps it in
@@ -249,7 +249,7 @@ keys from tool-call bodies before anything sees them.
 | `repo_cache` | Public repo facts, 7 days; swept after 30 |
 | `evidence_cache` | v6 evidence blocks per repo (`repo:<owner/name>`, with pushed_at) and per contract, used for 7 days; not swept yet |
 | `applications`, `application_history`, `gaps_done` | The ledger |
-| `project_reports` | The project as reported at the owner's last find, per owner and project key (v6.1.13), read by a send's check; moved on link, deleted with the account |
+| `project_reports` | The project as reported at the owner's last find, per owner and project key (v6.1.13; a find with a repo writes its name key too), read by a send's check and `resolvedKey`; moved on link, deleted with the account, swept after 180 days without a find |
 | `owner_digests` | The days a digest covered |
 | `program_reviewers` | Builders the owner marked as a program's reviewers (may call `screen`) |
 | `screen_jobs`, `screen_applicants`, `screen_outcomes` | Screen jobs (30 days), each applicant's tier, because, line, public rows and deployers (no pitch column), and the program's outcomes; the counts across programs read only these |
@@ -406,8 +406,9 @@ vouched-field rule, v6.1.10 F1: one helper, `unvouchedRequired(fields)` in `pref
 field without a value and every `agent` field with no sources, judged by `from`, value and sources only; find's
 `need_you` and tonight list read it, and track's `unvouchedAtSend` runs it over the program prefilled with the stored
 record and the send's project, merged as find merges (v6.1.13, Task 1 review I1 and I2: `sendFacts` in `track.ts`):
-the project the owner's last find reported on that project key (`project_reports`, written by every find with a project,
-`saveReport`/`reportOf` in `ledger.ts`), then the send's parsed project on top (its chains added, never removing one),
+the project the owner's last find reported (`project_reports`, written by every find with a project under its key and,
+with a repo, its name key too; read under the send's resolved key, then its name key; `saveReport`/`reportOf` in
+`ledger.ts`; rows no find updated for 180 days go in the cron's sweep, `sweepReports`), then the send's parsed project on top (its chains added, never removing one),
 the name and links falling back to the record project's and the last find's key; then that repo's cached read
 (`cachedRepoFacts`, no fetch), else the report alone through find's own merge (`reportOnlyFacts` in `repo-facts.ts`),
 so reported contracts, Builder Codes and commit dates count; `sendCheck` is the one path production and

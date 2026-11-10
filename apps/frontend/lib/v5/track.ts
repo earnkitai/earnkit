@@ -12,7 +12,7 @@ import { cachedRepoFacts, reportOnlyFacts } from './repo-facts';
 import { forgetGap, lastGaps, lastProjectKey, unmarkNightFind } from './installations';
 import { nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
 import { getProgram, isOpen, listOpenPrograms, programByName, unknownProgramLine } from './programs';
-import { dayOf, doneItems, record, reportOf, summary, titleOf, type Ledger, type Status } from './ledger';
+import { dayOf, doneItems, record, reportOf, resolvedKey, summary, titleOf, type Ledger, type Status } from './ledger';
 import { clock } from './reply';
 import { codeChecked, itemKey } from './eligibility';
 import { eligibilityOf } from './program-file';
@@ -72,9 +72,15 @@ export const TRACK_UNREAD = 'I could not read that. Send the program, a status, 
 
 /**
  * The project this track is about (projectKeyOf, v6.1.10 L1c-1): the project passed, else the record project named by
- * project_id, else the installation's last find with a project. `given` is false for the last find's.
+ * project_id, else the installation's last find with a project. `given` is false for the last find's. A name key whose
+ * report names a repo is that repo's key (`resolvedKey`, W1 final round), as find reads it.
  */
 async function projectOf(ctx: TrackContext, i: { project?: Project; project_id?: string }): Promise<{ key: string; given: boolean }> {
+  const p = await givenProjectOf(ctx, i);
+  return { ...p, key: await resolvedKey(ownerKey(ctx.installationId, ctx.builderId), p.key) };
+}
+
+async function givenProjectOf(ctx: TrackContext, i: { project?: Project; project_id?: string }): Promise<{ key: string; given: boolean }> {
   const passed = projectKeyOf(i.project);
   if (passed) return { key: passed, given: true };
   if (i.project_id !== undefined && ctx.builderId !== null) {

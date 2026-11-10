@@ -15,7 +15,7 @@ import { timeLeftWords } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
 import { lastFindAt, markFind, newlyLinkedLogin, rememberProject } from './installations';
-import { askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, markAsked, rekeyProject, reportOf, saveReport, summary, type Ledger } from './ledger';
+import { askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, markAsked, rekeyProject, reportOf, resolvedKey, saveReport, summary, type Ledger } from './ledger';
 import { prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
 import { isOpen, listOpenPrograms, programByName, unknownProgramLine, type ProgramRow } from './programs';
@@ -213,9 +213,9 @@ function heldProjectName(project: string, side: RecordSide, reported: string | n
 
 /** A read that fails is the agent's report alone (repoFacts falls back the same way when GitHub fails). A code change
  *  the builder marked done since the cached read makes the read check for a push (v6.1.9 S4). */
-async function factsOf(project: Project, ctx: FindContext): Promise<RepoFacts> {
+async function factsOf(project: Project, ctx: FindContext, key: string): Promise<RepoFacts> {
   try {
-    const staleAfter = await codeDoneAt(ownerOf(ctx), projectKeyOf(project));
+    const staleAfter = await codeDoneAt(ownerOf(ctx), key);
     return await repoFacts(project, { gh: ctx.gh, now: ctx.now, installationId: ctx.installationId, staleAfter });
   } catch {
     return repoFacts({ ...project, private: true }, { now: ctx.now });
@@ -282,7 +282,7 @@ function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram
 }
 
 /** One program: its file, its fields (for the project, when given) and the verdict, said as the find line says it. */
-async function oneProgram(ctx: FindContext, id: string, project: Project | null, projectId?: string, ask?: string): Promise<ProgramReply> {
+async function oneProgram(ctx: FindContext, id: string, project: Project | null, projectId: string | undefined, ask: string | undefined, key: string): Promise<ProgramReply> {
   // v6.1.9: the id, or what the builder calls it ("yc", "Y Combinator"), when it names one program; F4 (v6.1.12): its
   // organizer too, and several are asked about.
   const { row, suggest } = await programByName(id, ctx.now);
@@ -297,7 +297,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const p = row.file;
   // reviewers_contact is the owner's only: never in a tool reply (security M1).
   const { reviewers_contact: _owner, ...pub } = p;
-  const facts = project ? await factsOf(project, ctx) : EMPTY_FACTS;
+  const facts = project ? await factsOf(project, ctx, key) : EMPTY_FACTS;
   // Linked: the record fills first, as in the match. With a project, the same record side the list reads (the
   // 24-hour rule), so the two gate on the same tier (v6.1.8 final fix, I3); with none, the stored record alone.
   const side = ctx.builderId !== null && project
@@ -307,9 +307,9 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const { fields } = prefill(row, facts, rec);
   const fitted = fields.some((f) => f.from === 'record');
   // Done steps are the project's own (v6.1.10 L1c-1); a track after this one without a project marks them on it.
-  if (project) await rememberProject(ctx.installationId, projectKeyOf(project));
+  if (project) await rememberProject(ctx.installationId, key);
   // L1e-4 (v6.1.13): a project item (users) done on any program of the project counts here; a yes said is this program's own.
-  const doneHere = project ? await doneOn(ownerOf(ctx), projectKeyOf(project)) : null;
+  const doneHere = project ? await doneOn(ownerOf(ctx), key) : null;
   const done = doneHere?.of(id) ?? new Set<string>();
   const ownDone = doneHere?.own.get(id) ?? new Set<string>();
   const verdict = project ? gateFor(side, facts)(evaluate(row, facts, done, ctx.now), row) : undefined;
@@ -477,13 +477,19 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const problems = parsed?.ok ? [...parsed.problems] : [];
   // B4 (v6.1.13): the first find that adds the repo to a project found by name moves its steps and claims to the repo key.
   if (project?.repo_url) await rekeyProject(ownerOf(ctx), nameKeyOf(project), projectKeyOf(project));
+  // W2 (final round): a project by name alone whose report names a repo is read under that repo's key (steps, claims, report).
+  const key = project ? await resolvedKey(ownerOf(ctx), projectKeyOf(project)) : '';
   // The report as parsed, so a send on this project is judged on no less (v6.1.13, Task 1 review I1).
-  // Fix round 1 (I1): with a repo, under its name key too, so a name-only send reads it.
-  if (project) for (const k of new Set([projectKeyOf(project), nameKeyOf(project)])) await saveReport(ownerOf(ctx), k, project, ctx.now);
-  if (i.program_id) return oneProgram(ctx, i.program_id, project, i.project_id, i.ask);
+  // Fix round 1 (I1): with a repo, under its name key too, so a name-only send reads it. A name-only find of a project
+  // known by its repo keeps that repo link in the report, so the name keeps resolving.
+  if (project) {
+    const report = key !== projectKeyOf(project) && !project.repo_url ? { ...project, repo_url: (await reportOf(ownerOf(ctx), nameKeyOf(project)))?.repo_url } : project;
+    for (const k of new Set([key, projectKeyOf(project), nameKeyOf(project)])) await saveReport(ownerOf(ctx), k, report as Project, ctx.now);
+  }
+  if (i.program_id) return oneProgram(ctx, i.program_id, project, i.project_id, i.ask, key);
   if (!project) return openList(ctx, parsed && !parsed.ok ? parsed.problem : null);
 
-  const facts = await factsOf(project, ctx);
+  const facts = await factsOf(project, ctx, key);
   problems.push(...(facts.problems ?? []));
   const open = await listOpenPrograms(ctx.now);
   const owner = ownerOf(ctx);
@@ -499,7 +505,7 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const listed = side ? notNever(side.record) : () => true;
   const programs = open.filter((r) => !skip.has(r.id) && listed(r) && (!i.filter?.category || categoryOf(r.file) === i.filter.category));
   const byId = new Map(programs.map((r) => [r.id, r]));
-  const done = await doneOn(owner, projectKeyOf(project));
+  const done = await doneOn(owner, key);
   // The builder's own tier when one was read; else (unlinked, or linked before any read: R3c) the tier the public code
   // read alone supports; not read, the tier the report supports (B20, v6.1.8), none for nothing reported, where no
   // program with a bar fits. Bars apply only to a project with a chain (B20b). The provisional tier is never shown as evidence.
@@ -520,7 +526,6 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   // N-3 (v6.1.9): a program the builder acted on (a step marked done, or a live claim of theirs) heads its group in the
   // default list until it is applied or skipped (both leave the list).
   // L1d-1 (v6.1.11): only a claim on this project counts, by its stored project (the record id or the project key).
-  const key = projectKeyOf(project);
   const here = (p: string | null) => p !== null && (p === key || p === i.project_id || p === side?.projectId);
   const allClaims = await claimed(owner);
   const claims = new Map([...allClaims].filter(([, h]) => here(h.project)));
@@ -603,7 +608,7 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   // C58: a description left out is the README's first sentence, or nothing when the README was not read.
   const description = project.description ? null : facts.description ? 'readme' : 'none';
   const reply = { show_to_builder: replyText(r, last === null, ctx.now), agent_note: agentNote(r, { more, description }), ...r };
-  await markFind(ctx.installationId, ctx.now, remembered, projectKeyOf(project));
+  await markFind(ctx.installationId, ctx.now, remembered, key);
   await noticeTaken(ctx, notice);
   return reply;
 }

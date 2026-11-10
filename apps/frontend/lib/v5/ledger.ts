@@ -10,7 +10,7 @@ import { categoryOf, eligibilityOf } from './program-file';
 import { codeChecked, forExistingCode, itemKey } from './eligibility';
 import { getProgram, programsById, type ProgramRow } from './programs';
 import { CLAIM_HOURS } from '../v6/claims';
-import type { Project } from './project-input';
+import { projectKeyOf, type Project } from './project-input';
 
 /** gap_done without a known item (v6.1.8, 3.10): the builder names the change, the agent gets the item keys. */
 export const WHICH_CHANGE = 'Which change did you finish? Say the program and the change.';
@@ -282,17 +282,22 @@ export async function doneItems(owner: string, programId: string, projectKey: st
 export async function rekeyProject(owner: string, from: string, to: string): Promise<void> {
   if (!from || !to || from === to) return;
   await sql().begin(async (tx) => {
-    await tx`DELETE FROM gaps_done o USING gaps_done n
-      WHERE o.owner = ${owner} AND o.project_key = ${from} AND n.owner = ${owner} AND n.project_key = ${to}
-        AND n.program_id = o.program_id AND n.item = o.item AND n.at >= o.at`;
-    await tx`DELETE FROM gaps_done n USING gaps_done o
-      WHERE o.owner = ${owner} AND o.project_key = ${from} AND n.owner = ${owner} AND n.project_key = ${to}
-        AND n.program_id = o.program_id AND n.item = o.item`;
-    await tx`UPDATE gaps_done SET project_key = ${to} WHERE owner = ${owner} AND project_key = ${from}`;
+    // W4 (final round): copied with ON CONFLICT, so a step marked under `to` at this moment never breaks the unique
+    // index; the newer time (and its installation) wins. Then the `from` rows go.
+    await tx`INSERT INTO gaps_done (owner, installation_id, project_key, program_id, item, at)
+      SELECT owner, installation_id, ${to}, program_id, item, at FROM gaps_done WHERE owner = ${owner} AND project_key = ${from}
+      ON CONFLICT (owner, project_key, program_id, item) DO UPDATE
+        SET installation_id = CASE WHEN EXCLUDED.at > gaps_done.at THEN EXCLUDED.installation_id ELSE gaps_done.installation_id END,
+            at = GREATEST(gaps_done.at, EXCLUDED.at)`;
+    await tx`DELETE FROM gaps_done WHERE owner = ${owner} AND project_key = ${from}`;
+    // One application row per owner and program, so a claim's project moves without a conflict.
     await tx`UPDATE applications SET project_id = ${to} WHERE owner = ${owner} AND project_id = ${from}`;
-    await tx`DELETE FROM project_reports o USING project_reports n
-      WHERE o.owner = ${owner} AND o.project_key = ${from} AND n.owner = ${owner} AND n.project_key = ${to}`;
-    await tx`UPDATE project_reports SET project_key = ${to} WHERE owner = ${owner} AND project_key = ${from}`;
+    await tx`INSERT INTO project_reports (owner, project_key, report, at)
+      SELECT owner, ${to}, report, at FROM project_reports WHERE owner = ${owner} AND project_key = ${from}
+      ON CONFLICT (owner, project_key) DO UPDATE
+        SET report = CASE WHEN EXCLUDED.at > project_reports.at THEN EXCLUDED.report ELSE project_reports.report END,
+            at = GREATEST(project_reports.at, EXCLUDED.at)`;
+    await tx`DELETE FROM project_reports WHERE owner = ${owner} AND project_key = ${from}`;
   });
 }
 
@@ -301,6 +306,24 @@ export async function saveReport(owner: string, projectKey: string, report: Proj
   if (!projectKey) return;
   await sql()`INSERT INTO project_reports (owner, project_key, report, at) VALUES (${owner}, ${projectKey}, ${sql().json(report as never)}, ${now})
     ON CONFLICT (owner, project_key) DO UPDATE SET report = EXCLUDED.report, at = EXCLUDED.at`;
+}
+
+/** Days a report stays without a find that updates it (W3, final round): the cron's sweep drops older ones. */
+export const REPORT_DAYS = 180;
+/** Deletes the reports no find has updated for REPORT_DAYS days; the count deleted. */
+export async function sweepReports(now: Date): Promise<number> {
+  return (await sql()`DELETE FROM project_reports WHERE at < ${new Date(now.getTime() - REPORT_DAYS * DAY)}`).count;
+}
+
+/**
+ * W1 and W2 (final round): the one key a project's steps, claims and report are read under. A `name:` key whose report
+ * (the owner's last find by that name, or with it) names a repo resolves to that repo's key, so a find or send by name
+ * alone sees what a find with the repo marked; any other key is itself.
+ */
+export async function resolvedKey(owner: string, key: string): Promise<string> {
+  if (!key.startsWith('name:')) return key;
+  const repo = (await reportOf(owner, key))?.repo_url;
+  return (repo && projectKeyOf({ repo_url: repo })) || key;
 }
 
 /** The project as reported at the owner's last find on this project key, or null. */

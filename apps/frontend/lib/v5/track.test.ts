@@ -1089,3 +1089,33 @@ test('Low 17 (v6.1.13): a skip over a program already sent says so and records n
   assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${'i:' + c.installationId} AND program_id = 'l17-a'`)[0].status, 'applied');
 });
 
+
+test('W1 and W2 (v6.1.13 final round): a project known by its repo, named alone at send or at find, keeps its steps and verdict', async () => {
+  const { linkInstallation, saveRecord, upsertBuilder } = await import('../v6/builders');
+  const { EMPTY_RECORD, mergeRecord } = await import('../v6/record');
+  const { ruleItem } = await import('./eligibility');
+  const { find } = await import('./find');
+  const c = await ctx();
+  const b = await upsertBuilder({ github_id: 930_415, login: 'w1', name: 'W', avatar_url: null }, NOW);
+  await linkInstallation(c.installationId, b.id, NOW);
+  await saveRecord(b.id, mergeRecord(EMPTY_RECORD, { policy: { auto_apply: true, max_per_night: 20, categories: ['grant'] } }, 'builder', NOW).record, NOW);
+  const linked = { ...c, builderId: b.id };
+  const W_RULE = 'a project that keeps one key';
+  await upsertProgram(programFixture({ id: 'w1-rule', title: 'Key Grant', category: 'grant', eligibility: [{ kind: 'rule', note: W_RULE }] }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'w2-rule', title: 'Key Grant Two', category: 'grant', eligibility: [{ kind: 'rule', note: W_RULE }] }), 'file', NOW);
+  const P = { name: 'One Key App', description: 'An app.', repo_url: 'https://github.com/ada/one-key-app', private: true };
+  const readyIds = async (project: Record<string, unknown>) =>
+    ((await find(linked, { project, filter: { all: true } })) as unknown as { ready: { program_id: string }[] }).ready.map((x) => x.program_id);
+  assert.ok(!(await readyIds(P)).includes('w1-rule'));
+  for (const id of ['w1-rule', 'w2-rule']) await track(linked, { program_id: id, status: 'gap_done', item: ruleItem(W_RULE), project: P });
+  assert.ok((await readyIds(P)).includes('w1-rule'));
+  // W1: a name-only send of a program find listed as ready is under standing approval.
+  const sent = await track(linked, { program_id: 'w1-rule', status: 'applied', submitted_by: 'agent', fields_used: ['project_name'], project: { name: 'One Key App' } });
+  assert.equal(sent.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal((await sql()`SELECT auto_applied FROM applications WHERE owner = ${'b:' + b.id} AND program_id = 'w1-rule'`)[0].auto_applied, true);
+  // W2: a name-only find does not ask the yes again.
+  const byName = await readyIds({ name: 'One Key App', description: 'An app.' });
+  assert.ok(byName.includes('w2-rule'), byName.join(','));
+  // And the next find with the repo still sees it.
+  assert.ok((await readyIds(P)).includes('w2-rule'));
+});
