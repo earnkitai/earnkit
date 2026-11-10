@@ -1,8 +1,9 @@
 /**
- * Unreadable tool input at the MCP layer (v6.1.7, C35/C21), four jobs:
+ * Unreadable tool input at the MCP layer (v6.1.7, C35/C21), five jobs:
  * - `lenient`: track, record and screen are registered with a lenient copy of their strict schema, so the MCP library
  *   never refuses an argument with its own validation dump; each tool validates with its strict schema and answers
  *   one builder line;
+ * - `readLoosely`: find's and track's read of wrong-typed arguments before that check (v6.1.14, L13-4);
  * - `inputDetail`: that strict check's detail, for the agent note;
  * - `answerUnreadable`: the route's split of a body into calls answered at once (too deep, not an object) and the rest;
  * - `plainErrors`: the response rewrite that replaces library error codes with plain words.
@@ -24,6 +25,80 @@ export function lenient(strict: z.ZodObject): z.ZodObject {
   const shape: Record<string, z.ZodType> = {};
   for (const k of Object.keys(strict.shape)) shape[k] = z.unknown().optional().meta(json.properties?.[k] ?? {});
   return z.looseObject(shape).meta({ ...(json.required?.length ? { required: json.required } : {}), additionalProperties: false });
+}
+
+/** How a tool's arguments are read before its strict check (`readLoosely`). Paths are a key or `parent.key`. */
+export type LooseRules = {
+  /** Text fields: a finite number is its text. */
+  text?: string[];
+  /** Text fields cut to this many characters, so an over-long id reads as no match, never a refusal. */
+  cut?: Record<string, number>;
+  /** Object fields: anything else is dropped and named. */
+  objects?: string[];
+  /** Boolean fields: "true" and "false" (any case) are those; anything else is dropped and named. */
+  booleans?: string[];
+  /** Fields with fixed values: a value in any case is that value; anything else is dropped and named. */
+  enums?: Record<string, readonly string[]>;
+};
+
+/**
+ * L13-4, L12-4 (v6.1.14): a tool's arguments read leniently before its strict check, as track, record and screen read
+ * theirs since v6.1.7, so a wrong type gets the tool's plain lines, never the library's validation text: a null field
+ * is a field left out (at the top and inside an object field), and `rules` say what each field may be. `problems` name
+ * what was dropped, for the agent note only. Pure.
+ */
+export function readLoosely(input: unknown, rules: LooseRules): { args: Record<string, unknown>; problems: string[] } {
+  const args: Record<string, unknown> = input && typeof input === 'object' && !Array.isArray(input) ? { ...(input as Record<string, unknown>) } : {};
+  const problems: string[] = [];
+  const drop = (o: Record<string, unknown>, k: string, path: string, why: string) => {
+    delete o[k];
+    problems.push(`${path} dropped: ${why}`);
+  };
+  for (const k of Object.keys(args)) if (args[k] === null) delete args[k];
+  for (const path of rules.objects ?? []) {
+    const v = args[path];
+    if (v === undefined) continue;
+    if (typeof v !== 'object' || Array.isArray(v)) drop(args, path, path, 'not an object');
+    else {
+      const copy = { ...(v as Record<string, unknown>) };
+      for (const k of Object.keys(copy)) if (copy[k] === null) delete copy[k];
+      args[path] = copy;
+    }
+  }
+  /** The object holding a path's field, and the field's key; null when its parent is not an object. */
+  const at = (path: string): [Record<string, unknown>, string] | null => {
+    const [a, b] = path.split('.');
+    if (b === undefined) return [args, a];
+    const parent = args[a];
+    return parent && typeof parent === 'object' && !Array.isArray(parent) ? [parent as Record<string, unknown>, b] : null;
+  };
+  for (const path of rules.text ?? []) {
+    const p = at(path);
+    if (p && typeof p[0][p[1]] === 'number' && Number.isFinite(p[0][p[1]])) p[0][p[1]] = String(p[0][p[1]]);
+  }
+  for (const [path, max] of Object.entries(rules.cut ?? {})) {
+    const p = at(path);
+    const v = p?.[0][p[1]];
+    if (p && typeof v === 'string' && v.length > max) p[0][p[1]] = v.slice(0, max);
+  }
+  for (const path of rules.booleans ?? []) {
+    const p = at(path);
+    const v = p?.[0][p[1]];
+    if (!p || v === undefined || typeof v === 'boolean') continue;
+    const t = typeof v === 'string' ? v.trim().toLowerCase() : '';
+    if (t === 'true' || t === 'false') p[0][p[1]] = t === 'true';
+    else drop(p[0], p[1], path, 'not true or false');
+  }
+  for (const [path, values] of Object.entries(rules.enums ?? {})) {
+    const p = at(path);
+    const v = p?.[0][p[1]];
+    if (!p || v === undefined) continue;
+    const t = typeof v === 'string' ? v.trim().toLowerCase() : null;
+    const hit = values.find((x) => x.toLowerCase() === t);
+    if (hit !== undefined) p[0][p[1]] = hit;
+    else drop(p[0], p[1], path, `not one of ${values.join(', ')}`);
+  }
+  return { args, problems };
 }
 
 /** A strict schema's refusal as one agent-note sentence: the first five issues, at most 300 characters. Pure. */

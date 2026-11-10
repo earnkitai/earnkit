@@ -7,9 +7,7 @@
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { find, type FindContext } from './find';
-import { PROGRAM_CATEGORIES } from './program-file';
-import { ProjectArg } from './project-input';
+import { FindArgs, find, type FindContext } from './find';
 import { LIMITS, busyText, hit } from './rate-limit';
 import { MAX_ARG_DEPTH, tooDeep } from './secrets';
 import { COULD_NOT_READ, TOO_DEEP_NOTE, lenient } from './tool-input';
@@ -79,18 +77,8 @@ export function createMcpServer(ctx: McpContext): McpServer {
     'find',
     {
       description: FIND_DESCRIPTION,
-      inputSchema: {
-        project: ProjectArg.optional(),
-        program_id: z.string().max(100).optional().describe("One program's id or its name: its details, rules and form instead of the match"),
-        project_id: z.string().max(40).optional().describe("The record's project to match and fill from; omit to pick by the repo"),
-        ask: z.string().max(40).optional().describe("With program_id: 'rules' when the builder asks for the program's rules"),
-        filter: z
-          .object({
-            category: z.enum(PROGRAM_CATEGORIES).optional(),
-            all: z.boolean().optional().describe('true for every program, including the ones that do not fit, with the reason'),
-          })
-          .optional(),
-      },
+      // L13-4 (v6.1.14): registered leniently like the others; find reads its arguments itself (findInputOf).
+      inputSchema: lenient(FindArgs),
     },
     (args) => run(ctx, 'find', args, () => find({ installationId: ctx.installationId, builderId: ctx.builderId, now: now(), gh: ctx.gh, evidence: ctx.evidence, linkUrl: ctx.linkUrl }, args)),
   );

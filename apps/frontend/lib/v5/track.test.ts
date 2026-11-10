@@ -804,7 +804,6 @@ test('I3 final (v6.1.10): a required contract find filled from the cached repo r
 });
 
 test('final round (v6.1.10), B5 (v6.1.13): the track project is read as find reads it (cut and dropped, never refused) and keyed as find keys it', async () => {
-  const { TRACK_UNREAD } = await import('./track');
   const c = await ctx();
   await upsertProgram(programFixture({ id: 'fcap-a', title: 'Cap Grant', eligibility: [{ kind: 'users' }] }), 'file', NOW);
   const long = await track(c, { program_id: 'fcap-a', status: 'started', project: { name: 'n'.repeat(121) } });
@@ -819,8 +818,10 @@ test('final round (v6.1.10), B5 (v6.1.13): the track project is read as find rea
   assert.equal((await track(c, { program_id: 'fcap-a', status: 'gap_done', item: 'users', project: { name: 'My  App' } })).show_to_builder, 'Noted.');
   const rows = await sql()`SELECT project_key FROM gaps_done WHERE owner = ${'i:' + c.installationId} AND program_id = 'fcap-a' ORDER BY project_key`;
   assert.deepEqual(rows.map((r) => r.project_key), ['name:a', 'name:my app']);
-  // A project that is not an object is still not read.
-  assert.equal((await track(c, { program_id: 'fcap-a', status: 'skipped', project: 'My App' })).show_to_builder, TRACK_UNREAD);
+  // L13-4 (v6.1.14): a project that is not an object is dropped and named for the agent; the step still records.
+  const str = await track(c, { program_id: 'fcap-a', status: 'skipped', project: 'My App' });
+  assert.equal(str.show_to_builder, "Skipped Cap Grant. I won't bring it up again.");
+  assert.match(str.agent_note, / Some arguments were not read: project dropped: not an object\.$/);
 });
 
 test('Review Focus 4 (v6.1.13, B5): the find\'s own project, however long, is accepted by track', async () => {

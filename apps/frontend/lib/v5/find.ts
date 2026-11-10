@@ -19,11 +19,52 @@ import { askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, markA
 import { prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
 import { isOpen, listOpenPrograms, programByName, unknownProgramLine, type ProgramRow } from './programs';
-import { nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
+import { ProjectArg, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
+import { readLoosely, type LooseRules } from './tool-input';
 import { rankGaps, rankReady, shownGapsOf } from './rank';
 import { repoFacts, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
 import { AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, contractLookedAgain, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyText, ruleSentence, hasProof, signInOnly } from './reply';
 import { since, type Since } from './since';
+
+/**
+ * find as agents see it (v6.1.14 T5: track's project schema), registered leniently (L13-4): `find` reads the arguments
+ * with FIND_LOOSE, then FindInput.
+ */
+export const FindArgs = z.object({
+  project: ProjectArg.optional(),
+  program_id: z.string().max(100).optional().describe("One program's id or its name: its details, rules and form instead of the match"),
+  project_id: z.string().max(40).optional().describe("The record's project to match and fill from; omit to pick by the repo"),
+  ask: z.string().max(40).optional().describe("With program_id: 'rules' when the builder asks for the program's rules"),
+  filter: z
+    .object({
+      category: z.enum(PROGRAM_CATEGORIES).optional(),
+      all: z.boolean().optional().describe('true for every program, including the ones that do not fit, with the reason'),
+    })
+    .optional(),
+});
+
+/** L13-4 (v6.1.14): a null or string project, a numeric or over-long id, a string filter.all read as plain input. */
+const FIND_LOOSE: LooseRules = {
+  text: ['program_id', 'project_id', 'ask'],
+  cut: { program_id: 100, project_id: 40, ask: 40 },
+  objects: ['project', 'filter'],
+  booleans: ['filter.all'],
+  enums: { 'filter.category': PROGRAM_CATEGORIES },
+};
+
+/** The arguments as find reads them: FIND_LOOSE, then any field FindInput still refuses dropped and named. Pure. */
+export function findInputOf(input: unknown): { i: z.infer<typeof FindInput>; unread: string[] } {
+  const { args, problems } = readLoosely(input, FIND_LOOSE);
+  let r = FindInput.safeParse(args);
+  if (!r.success) {
+    for (const k of new Set(r.error.issues.map((x) => String(x.path[0] ?? '')))) {
+      delete args[k];
+      problems.push(`${k || 'input'} dropped: not read`);
+    }
+    r = FindInput.safeParse(args);
+  }
+  return { i: r.success ? r.data : {}, unread: problems };
+}
 
 export const FindInput = z.object({
   project: z.unknown().optional(),
@@ -479,8 +520,17 @@ function linkedPart(side: RecordSide, rows: ProgramRow[], released: string[], ov
   };
 }
 
+/** The agent's line for arguments find could not read (L13-4, v6.1.14), or ''. Pure. */
+const unreadNote = (unread: string[]) => (unread.length > 0 ? `Some arguments were not read: ${unread.join('; ')}.` : '');
+
 export async function find(ctx: FindContext, input: unknown): Promise<FindReply | ProgramReply> {
-  const i = FindInput.parse(input ?? {});
+  const { i, unread } = findInputOf(input);
+  const r = await findWith(ctx, i, unread);
+  // The one-program and open-list replies take the line here; the match's agent note has it in place.
+  return unread.length > 0 && !r.agent_note.includes(unreadNote(unread)) ? { ...r, agent_note: [r.agent_note, unreadNote(unread)].join('\n') } : r;
+}
+
+async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: string[]): Promise<FindReply | ProgramReply> {
   const parsed = i.project === undefined ? null : parseProject(i.project, ctx.now);
   const project = parsed?.ok ? parsed.project : null;
   const problems = parsed?.ok ? [...parsed.problems] : [];
@@ -616,7 +666,7 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
     : undefined;
   // C58: a description left out is the README's first sentence, or nothing when the README was not read.
   const description = project.description ? null : facts.description ? 'readme' : 'none';
-  const reply = { show_to_builder: replyText(r, last === null, ctx.now), agent_note: agentNote(r, { more, description }), ...r };
+  const reply = { show_to_builder: replyText(r, last === null, ctx.now), agent_note: [agentNote(r, { more, description }), unreadNote(unread)].filter(Boolean).join('\n'), ...r };
   await markFind(ctx.installationId, ctx.now, remembered, key);
   await noticeTaken(ctx, notice);
   return reply;

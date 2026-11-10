@@ -17,7 +17,7 @@ import { clock } from './reply';
 import { codeChecked, itemKey } from './eligibility';
 import { eligibilityOf } from './program-file';
 import { sql } from './db';
-import { inputDetail } from './tool-input';
+import { inputDetail, readLoosely, type LooseRules } from './tool-input';
 
 /** The most field keys a send keeps (v6.1.13, B6); the rest are dropped, never refused. */
 export const FIELDS_KEPT = 200;
@@ -77,6 +77,9 @@ export type TrackContext = { installationId: number; builderId: number | null; n
 
 /** The statuses a ledger row may take after its program left the catalog. */
 const RESULT_STATUSES: readonly string[] = ['won', 'rejected', 'no_result'];
+
+/** L12-4, L13-4 (v6.1.14): how track reads wrong-typed arguments before TrackInput (`readLoosely`). */
+const TRACK_LOOSE: LooseRules = { text: ['program_id', 'project_id', 'item'], objects: ['project'] };
 
 export const TRACK_UNREAD = 'I could not read that. Send the program, a status, and for a win the amount.';
 
@@ -142,7 +145,10 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
     ledger: await summary(owner, programs, ctx.now),
   });
   // The MCP layer passes anything through (tool-input.ts): this is the only check, with the detail for the agent.
-  const parsed = TrackInput.safeParse(input);
+  // L12-4, L13-4 (v6.1.14): read leniently first, as find reads its arguments: a null project is no project (the
+  // last find's), a string one is dropped and named, a numeric id is its text.
+  const loose = readLoosely(input, TRACK_LOOSE);
+  const parsed = TrackInput.safeParse(loose.args);
   if (!parsed.success) return refuse(TRACK_UNREAD, `Nothing was recorded. ${inputDetail(parsed.error)}`);
   // F4 (v6.1.12): the program by what the builder calls it, as find takes it. A name that is no one program records
   // nothing, except a result on an id the ledger holds as sent, whose program may have left the catalog since.
@@ -165,7 +171,8 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   const r = row && row.id !== raw
     ? { ...acted, show_to_builder: namedFirst(acted.show_to_builder, row.file.title), agent_note: `Matched ${row.id}. ${acted.agent_note}` }
     : acted;
-  const p = projectProblems.length > 0 ? { ...r, agent_note: `${r.agent_note} Project: ${projectProblems.join('; ')}.`.trim() } : r;
+  const p0 = projectProblems.length > 0 ? { ...r, agent_note: `${r.agent_note} Project: ${projectProblems.join('; ')}.`.trim() } : r;
+  const p = loose.problems.length > 0 ? { ...p0, agent_note: `${p0.agent_note} Some arguments were not read: ${loose.problems.join('; ')}.` } : p0;
   return known ? p : { ...p, agent_note: `${p.agent_note} project_id ${project_id} is not known; ignored.`.trim() };
 }
 

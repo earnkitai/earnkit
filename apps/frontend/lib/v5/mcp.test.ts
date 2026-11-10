@@ -200,3 +200,59 @@ test('clientIp: the rightmost x-forwarded-for entry wins; x-real-ip only without
   assert.equal(clientIp(h({}), '203.0.113.10'), '203.0.113.10');
   assert.equal(clientIp(h({})), 'unknown');
 });
+
+test('L13-4, L12-4 (v6.1.14): find and track read wrong-typed arguments leniently: the plain lines, never the library text', async () => {
+  const { upsertProgram } = await import('./programs');
+  const { programFixture } = await import('./fixtures/program');
+  await upsertProgram(programFixture({ id: 'l134-users', title: 'Lenient Users Grant', eligibility: [{ kind: 'users' }] }), 'file', NOW);
+  const c = await ctx();
+  const plain = (r: { isError: boolean; text: string }) => {
+    assert.equal(r.isError, false, r.text);
+    assert.doesNotMatch(r.text, /MCP error|Input validation|Invalid input|-32602/);
+  };
+  // A null or string project is no project: the open list.
+  for (const project of [null, 'my app']) {
+    const r = await mcpCall(c, 'find', { project });
+    plain(r);
+    assert.match(r.reply!.show_to_builder as string, /^Open now:|^Nothing is open right now/);
+  }
+  // A numeric program id is its text; one over 100 characters is no one program (the plain unknown line).
+  const num = await mcpCall(c, 'find', { program_id: 12345 });
+  plain(num);
+  const long = await mcpCall(c, 'find', { program_id: 'x'.repeat(200) });
+  plain(long);
+  assert.equal(long.reply!.show_to_builder, num.reply!.show_to_builder);
+  // A string filter.all reads as the boolean; a category that is not one is dropped and named for the agent.
+  const P = { name: 'Lenient App', description: 'An app for lenient tests.' };
+  const all = await mcpCall(c, 'find', { project: P, filter: { all: 'true' } });
+  plain(all);
+  assert.ok(Array.isArray(all.reply!.not_fit), 'filter.all "true" is the full list');
+  const cat = await mcpCall(c, 'find', { project: P, filter: { category: 'money' } });
+  plain(cat);
+  assert.match(cat.reply!.agent_note as string, /Some arguments were not read: filter\.category dropped: not one of [a-z, ]+\./);
+  // track with a null project: the done step goes under the last find's project.
+  const done = await mcpCall(c, 'track', { program_id: 'l134-users', status: 'gap_done', item: 'users', project: null });
+  plain(done);
+  assert.equal(done.reply!.show_to_builder, 'Noted.');
+  const [row] = await sql()`SELECT project_key FROM gaps_done WHERE installation_id = ${c.installationId} AND program_id = 'l134-users'`;
+  assert.equal(row.project_key, 'name:lenient app');
+  // A string project on track is dropped and named; the step still records; a numeric program id reads as text.
+  const str = await mcpCall(c, 'track', { program_id: 12345, status: 'skipped', project: 'x' });
+  plain(str);
+  assert.match(str.reply!.agent_note as string, /project dropped: not an object/);
+});
+
+test('readLoosely (v6.1.14, L13-4): nulls left out, numbers as text, cuts, objects, booleans and enums named when dropped', async () => {
+  const { readLoosely } = await import('./tool-input');
+  const rules = { text: ['a', 'f.n'], cut: { a: 3 }, objects: ['o', 'f'], booleans: ['f.all'], enums: { 'f.cat': ['grant', 'bounty'] as const } };
+  assert.deepEqual(readLoosely({ a: 12345, b: null, o: 'x', f: { all: 'TRUE', cat: 'Grant', n: 7, z: null } }, rules), {
+    args: { a: '123', f: { all: true, cat: 'grant', n: '7' } },
+    problems: ['o dropped: not an object'],
+  });
+  assert.deepEqual(readLoosely({ f: { all: 'yes', cat: 'money' } }, rules), {
+    args: { f: {} },
+    problems: ['f.all dropped: not true or false', 'f.cat dropped: not one of grant, bounty'],
+  });
+  assert.deepEqual(readLoosely('nope', rules), { args: {}, problems: [] });
+  assert.deepEqual(readLoosely({ f: [1] }, rules), { args: {}, problems: ['f dropped: not an object'] });
+});
