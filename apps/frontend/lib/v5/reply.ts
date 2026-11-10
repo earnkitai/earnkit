@@ -473,7 +473,8 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
           ...(limitUsed ? [LIMIT_USED] : []),
           closingLine({
             ready: free.length, draftOnly, gaps: steps.length, firstRule, inPerson: attendCount, held: ready.length - free.length, firstStep: firstStepOf(steps), stepRule: stepRuleOf(steps),
-            yesStands: free.filter((p) => p.rule_yes && !click.has(p.program_id) && !r.blockers.some((b) => b.program_id === p.program_id && b.sign_in)).map((p) => p.title),
+            // Fix round 1 (v6.1.10): only for a program fully ready, every required answer held (nothing in need you).
+            yesStands: free.filter((p) => p.rule_yes && p.need_you.length === 0 && !click.has(p.program_id) && !r.blockers.some((b) => b.program_id === p.program_id && b.sign_in)).map((p) => p.title),
           }),
         ].join(' ');
   // R5a: saying yes is the one action; unlinked with a link, signing in is the closing block's second sentence.

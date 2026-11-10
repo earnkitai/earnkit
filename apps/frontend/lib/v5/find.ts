@@ -247,7 +247,8 @@ function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram
   }
   const r = { ...ready(), n: 0 };
   if (r.in_person) return [inPersonLine(r, true), ...o.rules];
-  const yesStands = r.rule_yes && !o.draftOnly ? [r.title] : [];
+  // Fix round 1 (v6.1.10): the yes stands only for a fully ready program, nothing left in need you.
+  const yesStands = r.rule_yes && !o.draftOnly && r.need_you.length === 0 ? [r.title] : [];
   return [readyLine(r, o.linked, o.now, true), ...o.rules, closingLine({ ready: 1, draftOnly: o.draftOnly, gaps: 0, firstRule: null, inPerson: 0, held: 0, yesStands })];
 }
 

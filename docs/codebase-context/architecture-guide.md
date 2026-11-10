@@ -378,7 +378,8 @@ sends still takes the report). `applied` after the program closed is recorded wi
 `started` on an in-person or builder-only program tells the agent "The builder presses submit; prepare the answers and
 hand them over." A rule the builder confirmed marks the ready program `rule_yes` (so does the users yes, `gap_done users`
 or `users: true`, on a program that asks it; F3, v6.1.10), and the closing reads "Your yes stands
-for {title}: I apply now." instead of asking again. A new-work program (`new_work_after`) with no first-commit date is
+for {title}: I apply now." instead of asking again, only when that program is fully ready (nothing in `need_you`);
+with answers still missing its line carries its needs and the closing is the normal one (fix round 1). A new-work program (`new_work_after`) with no first-commit date is
 the question step "tell me when you started this" (minutes, never the agent's, never a reason to refuse; O3, v6.1.10):
 a later find with `first_commit_at` or `gap_done` with its item settles it. The no-project open list ends each
 in-person line with ", in person" (O4). A find that passed a repo never lists "a project with its repo or site" in
