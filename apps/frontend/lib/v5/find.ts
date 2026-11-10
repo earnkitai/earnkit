@@ -439,7 +439,7 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const readyOrder = all ? readyV : [...readyV.filter(pinned), ...readyV.filter((v) => !pinned(v))];
   const shownReady = shownReadyOf(readyOrder, all, (v) => byId.get(v.program_id)!.file.in_person);
   // Acted-on programs first, then real changes and at most one rule-bearing program by default (R18b): the one on the
-  // project's chains (R18e, fix round 3) in its rank place, else one off them in the last slot only (N-2). In-person
+  // project's chains if any (R18e, fix round 3), else the first, in the last slot only (N-2 beats N-4). In-person
   // programs are never in the default gap list (R18d, R18f); `more` counts them.
   const shownGaps = shownGapsOf(gapV, all, MAX_GAPS, (v) => byId.get(v.program_id)!.file.in_person, projectChains,
     (v, chain) => byId.get(v.program_id)!.file.chains.includes(chain), pinned);

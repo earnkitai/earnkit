@@ -61,11 +61,12 @@ test('first find has no since', async () => {
       'Ready to apply (1):',
       '1. Arbitrum Mentorship Program: Cohort 2, $100K in prizes, closes in 32 days. Long odds: few prizes for many entries. Drafted: 2 of 22 answers from the repo, 17 more by your agent. Needs your top 3 successes, funding raised before and current TVL range.',
       '',
-      // N-4 (v6.1.9): the programs on the project's own chain (Base) first; the Arc deploy after them.
+      // N-4 (v6.1.9): among rule-free programs the one on the project's own chain (Base) first, the Arc deploy after;
+      // the rule-bearing Base program takes the last slot (N-2 beats N-4, fix round 2).
       'One step away (3):',
       '2. Base Builder Grant Program, up to $5,000: add Base Builder Codes to the app and tell me if real people use it.',
-      '3. Base Ecosystem Fund, pre-seed and seed investment. Their rule: a pre-seed or seed stage startup that chooses Base as its home. Say "yes 3" if that is you.',
-      '4. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
+      '3. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
+      '4. Base Ecosystem Fund, pre-seed and seed investment. Their rule: a pre-seed or seed stage startup that chooses Base as its home. Say "yes 4" if that is you.',
       '',
       'In person (2):',
       '5. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account.',
@@ -1003,11 +1004,12 @@ test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets
       'Ready to apply (1):',
       '1. Arbitrum Mentorship Program: Cohort 2, $100K in prizes, closes in 32 days. Long odds: few prizes for many entries. Drafted: 2 of 22 answers from the repo, 17 more by your agent. Needs your top 3 successes, funding raised before and current TVL range.',
       '',
-      // N-4 (v6.1.9): the programs on the project's own chain (Base) first; the Arc deploy after them.
+      // N-4 (v6.1.9): among rule-free programs the one on the project's own chain (Base) first, the Arc deploy after;
+      // the rule-bearing Base program takes the last slot (N-2 beats N-4, fix round 2).
       'One step away (3):',
       '2. Base Builder Grant Program, up to $5,000: add Base Builder Codes to the app and tell me if real people use it.',
-      '3. Base Ecosystem Fund, pre-seed and seed investment. Their rule: a pre-seed or seed stage startup that chooses Base as its home. Say "yes 3" if that is you.',
-      '4. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
+      '3. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
+      '4. Base Ecosystem Fund, pre-seed and seed investment. Their rule: a pre-seed or seed stage startup that chooses Base as its home. Say "yes 4" if that is you.',
       '',
       'In person (2):',
       '5. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account.',
@@ -1024,24 +1026,37 @@ test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets
   assert.deepEqual(ruled.map((g) => g.program_id), ['base-ecosystem-fund'], b.reply!.show_to_builder as string);
 });
 
-test('R18e, R18f, C54, B20, B20c: projects B (dotfiles, repo unread) and C (notes, no repo) report no chain: no contract step, no rule-bearing line two, no in-person gap program by default (v6.1.6, v6.1.8, v6.1.9)', async () => {
+test('R18e, R18f, C54, B20, B20c, B20d: projects B (dotfiles, repo link answers 404) and C (notes, no repo) report no chain: no contract step, no users question, the rule-bearing program alone, no in-person gap program by default (v6.1.6, v6.1.8, v6.1.9)', async () => {
   const b = await mcpCall(ctx(await installation()), 'find', { project: PROJECT_B });
   assert.equal(b.isError, false, b.text);
-  // Its repo is not recorded, so the replay answers 404: unread, said once (fix round 1). A repo named is the builder's
-  // word, so the users question stands (B20c fix round 1); with one rule-free step, Meta VR may not be line two (N-2).
+  // Its repo is not recorded, so the replay answers 404: unread, said once (fix round 1). A repo link that was not read
+  // does not exist for the users question (B20d), so FLOSS/fund is not a fit; Meta VR stands alone, a list of one (N-2).
+  assert.deepEqual(b.reply!.repo_notes, ['unread']);
   assert.equal(
     b.reply!.show_to_builder,
-    ['One step away (1):', '1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.', '', ...inPersonBlock(2), '', 'I could not read the repo; matched on what you told me.', '', 'Nothing is ready yet. Do real people use it? Say yes and I apply.'].join('\n'),
+    [...META_VR_ONLY, '', ...inPersonBlock(2), '', 'I could not read the repo; matched on what you told me.', '', DEMO_FIRST].join('\n'),
+  );
+  // The same repo with reads paused for the day (the daily cap): the repo likely exists, the users question stands.
+  const { hit, LIMITS } = await import('./rate-limit');
+  const capped = await installation();
+  for (let n = 0; n < LIMITS.repoRead.limit; n++) await hit(`repoRead:${capped}`, LIMITS.repoRead.limit, LIMITS.repoRead.windowSeconds, NOW);
+  const paused = await mcpCall(ctx(capped), 'find', { project: PROJECT_B });
+  assert.deepEqual(paused.reply!.repo_notes, ['paused']);
+  assert.equal(
+    paused.reply!.show_to_builder,
+    ['One step away (1):', '1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.', '', ...inPersonBlock(2), '', 'Repo reads are paused until tomorrow; matched on what you told me.', '', 'Nothing is ready yet. Do real people use it? Say yes and I apply.'].join('\n'),
   );
   // No repo and no live link: nothing to ask the users question of (B20c); the rule-bearing program stands alone as a
   // list of one (N-2 fix round 1), and the closing names its first step (M1).
   const c = await mcpCall(ctx(await installation()), 'find', { project: PROJECT_C });
   assert.equal(c.isError, false, c.text);
   assert.equal(c.reply!.show_to_builder, [...META_VR_ONLY, '', ...inPersonBlock(2, true), '', DEMO_FIRST].join('\n'));
-  assert.doesNotMatch(c.reply!.show_to_builder as string, /FLOSS|real people use it/);
+  for (const r of [b, c]) assert.doesNotMatch(r.reply!.show_to_builder as string, /FLOSS|real people use it/);
   for (const r of [b, c]) assert.match(r.reply!.agent_note as string, /more left out: [^\n]*Ask with filter\.all for the full list\./);
-  const allC = await mcpCall(ctx(await installation()), 'find', { project: PROJECT_C, filter: { all: true } });
-  assert.equal((allC.reply!.not_fit as { program_id: string; reason: string }[]).find((n) => n.program_id === 'floss-fund-zerodha')?.reason, 'needs a product people use');
+  for (const project of [PROJECT_B, PROJECT_C]) {
+    const all = await mcpCall(ctx(await installation()), 'find', { project, filter: { all: true } });
+    assert.equal((all.reply!.not_fit as { program_id: string; reason: string }[]).find((n) => n.program_id === 'floss-fund-zerodha')?.reason, 'needs a product people use', project.name);
+  }
   for (const r of [b, c]) {
     assert.ok((r.reply!.gaps as { in_person: boolean }[]).every((g) => !g.in_person), JSON.stringify(ids(r.reply!.gaps)));
     assert.doesNotMatch(r.reply!.show_to_builder as string, /deploy the contract|a contract on/);

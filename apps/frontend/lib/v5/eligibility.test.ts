@@ -265,7 +265,7 @@ test('C1 (v6.1.8 final fix, B20b): a used bar on a chainless project is the user
   assert.equal(evaluate(toRow(programFixture({ id: 'p-live', min_tier: 'live', tag: undefined })), chainless, new Set(), NOW).status, 'ready');
 });
 
-test('B20c (v6.1.9, Review Focus 1, fix round 1): the users question needs a project that exists; a repo-less or empty project is not a fit for a used program, a private repo is', async () => {
+test('B20c, B20d (v6.1.9, Review Focus 1, fix rounds 1 and 2): the users question needs a project that exists (code read, a live link, private, or reads paused); repo-less, unread or empty is not a fit for a used program', async () => {
   const floss = fromFile('floss-fund-zerodha');
   const usersOnly = toRow(programFixture({ id: 'p-users', tag: undefined, eligibility: [{ kind: 'users' }] }));
   const parsed = parseProject({ name: 'Rent Split', description: 'An idea: an app that splits rent.' });
@@ -291,6 +291,11 @@ test('B20c (v6.1.9, Review Focus 1, fix round 1): the users question needs a pro
   assert.deepEqual(evaluate(floss, priv, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
   assert.equal(evaluate(floss, { ...priv, users: true }, new Set(), NOW).status, 'ready');
   assert.equal(evaluate(floss, { ...empty, live_url: 'https://x.dev', users: true }, new Set(), NOW).status, 'ready');
+  // B20d (fix round 2): reads paused for the day keeps the builder's word; a repo link that was not read (a 404 or a
+  // failed read) does not exist for the question.
+  const named = { ...idea, repo_url: 'https://github.com/a/b' };
+  assert.deepEqual(evaluate(floss, { ...named, notes: ['paused'] }, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
+  assert.deepEqual(evaluate(floss, { ...named, notes: ['unread'], users: true }, new Set(), NOW).reason, 'needs a product people use');
   // A program that asks for no users is unchanged.
   assert.equal(evaluate(toRow(programFixture({ id: 'p-none', tag: undefined, eligibility: [] })), idea, new Set(), NOW).status, 'ready');
 });

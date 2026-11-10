@@ -82,13 +82,13 @@ const ruleBearing = (v: Verdict) => v.gaps.some((g) => g.kind === 'rule');
  * The gap list shown (R18b, v6.1.8 fix rounds 2 and 3, v6.1.9): all of it when `all`. Else, first the programs the
  * builder acted on (`pinned`: a step marked done or a live claim, N-3), in rank order, whatever they carry; then at
  * most one program that carries an unconfirmed rule (a real change plus a rule, or rules only; none when a pinned one
- * carries one), and rule-free programs in rank order for the other slots. That one program is the first rule-bearing
- * program (in rank order) naming `chains[0]`, else `chains[1]`, and so on (`names`: whether a program names a chain):
- * on the project's own chain it keeps its rank place (N-4). Only when none names one of the project's chains does
- * rank order pick it, and then it may take only the last slot (N-2): after `max - 1` rule-free programs, or alone as
- * a list of one when nothing else is shown (fix round 1); with some rule-free programs but fewer than the slots before
- * it, the list is those and leaves it to `filter.all`. In-person programs never appear in the default list
- * (R18d, R18f); `filter.all` shows them and `more` counts every program left out. Input in rankGaps order. Pure.
+ * carries one), and rule-free programs in rank order (N-4's own-chain-first order) for the other slots. That one
+ * program is the first rule-bearing program (in rank order) naming `chains[0]`, else `chains[1]`, and so on (`names`:
+ * whether a program names a chain), else the first in rank order. It takes only the last slot (N-2, which beats N-4
+ * for a rule-bearing program): after `max - 1` rule-free programs, or alone as a list of one when nothing else is
+ * shown; with some rule-free programs but fewer than the slots before it, the list is those and leaves it to
+ * `filter.all`. In-person programs never appear in the default list (R18d, R18f); `filter.all` shows them and `more`
+ * counts every program left out. Input in rankGaps order. Pure.
  */
 export function shownGapsOf(
   gapV: Verdict[], all: boolean, max: number, inPerson: (v: Verdict) => boolean,
@@ -103,12 +103,7 @@ export function shownGapsOf(
   if (room <= 0) return top;
   const free = rest.filter((v) => !ruleBearing(v));
   const bearing = top.some(ruleBearing) ? [] : rest.filter(ruleBearing);
-  const onChain = chains.map((c) => bearing.find((v) => names(v, c))).find((v) => v !== undefined);
-  if (onChain) {
-    const list = rest.filter((v) => v === onChain || !ruleBearing(v));
-    return [...top, ...(list.indexOf(onChain) < room ? list.slice(0, room) : [...list.slice(0, room - 1), onChain])];
-  }
-  const rule = bearing[0];
+  const rule = chains.map((c) => bearing.find((v) => names(v, c))).find((v) => v !== undefined) ?? bearing[0];
   const last = rule && (free.length >= room - 1 || (free.length === 0 && top.length === 0));
   return [...top, ...(last ? [...free.slice(0, room - 1), rule] : free.slice(0, room))];
 }
