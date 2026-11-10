@@ -4,7 +4,7 @@ import { sql } from '../v5/db';
 import { programFixture } from '../v5/fixtures/program';
 import { record, summary } from '../v5/ledger';
 import { getProgram, upsertProgram } from '../v5/programs';
-import { LinkRefused, deleteBuilder, getBuilder, hasUnlinkedNotice, linkInstallation, ownerKey, takeUnlinkedNotice, unlinkInstallation, upsertBuilder } from './builders';
+import { LinkRefused, deleteBuilder, getBuilder, hasUnlinkedNotice, linkInstallation, ownerKey, takeUnlinkedNotice, unlinkInstallation, unlinkedReason, upsertBuilder } from './builders';
 import { createSession } from './sessions';
 import { createLinkCode } from './link-routes';
 
@@ -205,4 +205,66 @@ test('B10: unlinkInstallation unlinks only the builder\'s own and marks it; the 
   await unlinkInstallation(one, b.id, NOW);
   await linkInstallation(one, b.id, NOW);
   assert.equal((await sql()`SELECT unlinked_at FROM installations WHERE id = ${one}`)[0].unlinked_at, null);
+});
+
+test('B15: a win survives an unlink and relink with a skipped row in between; an application beats a later claim', async () => {
+  const b = await builder('relink');
+  const one = await install();
+  await prog('bl-win');
+  await prog('bl-app');
+  await linkInstallation(one, b.id, NOW);
+  await record(ownerKey(one, b.id), 'bl-app', 'applied', { installationId: one, now: NOW });
+  await record(ownerKey(one, b.id), 'bl-win', 'applied', { installationId: one, now: NOW });
+  await record(ownerKey(one, b.id), 'bl-win', 'won', { installationId: one, amount_usd: 1000, now: NOW });
+  assert.equal(await unlinkInstallation(one, b.id, NOW), true);
+  const later = new Date(NOW.getTime() + DAY);
+  // Unlinked, the same agent skips the program it won and claims the one it applied to.
+  await record(ownerKey(one, null), 'bl-win', 'skipped', { now: later });
+  await sql()`INSERT INTO applications (owner, installation_id, program_id, status, at, claimed_at, claimed_by)
+    VALUES (${ownerKey(one, null)}, ${one}, 'bl-app', 'started', ${later}, ${later}, ${one})`;
+  await linkInstallation(one, b.id, new Date(later.getTime() + DAY));
+  assert.deepEqual(await rows(`b:${b.id}`), [
+    { program_id: 'bl-app', status: 'applied' },
+    { program_id: 'bl-win', status: 'won' },
+  ]);
+  assert.deepEqual(await rows(`i:${one}`), []);
+  const [won] = await sql()`SELECT amount_usd FROM applications WHERE owner = ${`b:${b.id}`} AND program_id = 'bl-win'`;
+  assert.equal(Number(won.amount_usd), 1000);
+});
+
+test('B15: equal statuses keep the newer row; applied beats an older skip from the builder ledger', async () => {
+  const b = await builder('relink2');
+  const one = await install();
+  const two = await install();
+  await prog('bl-eq');
+  await prog('bl-up');
+  await linkInstallation(one, b.id, NOW);
+  await record(ownerKey(one, b.id), 'bl-eq', 'skipped', { installationId: one, note: 'old', now: NOW });
+  await record(ownerKey(one, b.id), 'bl-up', 'skipped', { installationId: one, now: new Date(NOW.getTime() + 2 * DAY) });
+  await record(ownerKey(two, null), 'bl-eq', 'skipped', { note: 'new', now: new Date(NOW.getTime() + DAY) });
+  await record(ownerKey(two, null), 'bl-up', 'applied', { now: new Date(NOW.getTime() + DAY) });
+  await linkInstallation(two, b.id, NOW);
+  assert.deepEqual(await rows(`b:${b.id}`), [
+    { program_id: 'bl-eq', status: 'skipped' },
+    { program_id: 'bl-up', status: 'applied' },
+  ]);
+  const [eq] = await sql()`SELECT note FROM applications WHERE owner = ${`b:${b.id}`} AND program_id = 'bl-eq'`;
+  assert.equal(eq.note, 'new');
+});
+
+test('C51: deleteBuilder marks each linked installation, so its next call says the record was deleted, once', async () => {
+  const b = await builder('gone');
+  const one = await install();
+  await linkInstallation(one, b.id, NOW);
+  await deleteBuilder(b.id, NOW);
+  assert.equal(await unlinkedReason(one), 'deleted');
+  assert.equal(await hasUnlinkedNotice(one), true);
+  assert.equal(await takeUnlinkedNotice(one), true);
+  assert.equal(await unlinkedReason(one), null);
+  // A plain unlink reads as unlinked.
+  const c = await builder('gone2');
+  const two = await install();
+  await linkInstallation(two, c.id, NOW);
+  await unlinkInstallation(two, c.id, NOW);
+  assert.equal(await unlinkedReason(two), 'unlinked');
 });

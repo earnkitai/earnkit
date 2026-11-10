@@ -4,13 +4,13 @@
  * open list. Linked, it also reads the builder's record (lib/v6/find-record.ts). EarnKit writes no prose.
  */
 import { z } from 'zod';
-import { hasUnlinkedNotice, ownerKey, takeUnlinkedNotice } from '../v6/builders';
+import { ownerKey, takeUnlinkedNotice, unlinkedReason } from '../v6/builders';
 import { appliedOvernight, releaseStale } from '../v6/claims';
 import { readEvidence, type Evidence, type Subject } from '../v6/evidence';
 import { blockersOf, notNever, missingFor, provisionalGate, provisionalTier, recordSide, storedRecordContext, storedTierOf, tierGate, type Blocker, type RecordSide } from '../v6/find-record';
 import { EMPTY_RECORD } from '../v6/record';
 import { signInLink } from '../v6/record-tool';
-import { linkedNoticeLine, signInLine, signInSentence, unlinkedNoticeLine } from '../v6/reply-words';
+import { DELETED_NOTICE, linkedNoticeLine, signInLine, signInSentence, unlinkedNoticeLine } from '../v6/reply-words';
 import { timeLeftWords } from './deadline';
 import { evaluate, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
@@ -306,17 +306,23 @@ async function openList(ctx: FindContext, problem: string | null): Promise<FindR
     ready: [], gaps: [], ledger, ask_outcome: [], as_reported: false, ...unlinkedPart(), linked: ctx.builderId !== null,
     ...(link ? { sign_in: link } : {}), linked_notice: notice,
   };
+  // A find with no project is a find too (v6.1.8 C47): the linked notice shows once. The gaps stay as they were.
+  await markFind(ctx.installationId, ctx.now);
   await noticeTaken(ctx, notice);
   return reply;
 }
 
 /**
  * Linked since the last find: the sentence that says to which GitHub account. Unlinked on /me since (v6.1.7 B10):
- * the unlinked line with `link`, shown once: `noticeTaken` clears it after the reply is built, so a throw on the way
+ * the unlinked line with `link`; the account deleted since: DELETED_NOTICE (v6.1.8 C51); each shown once: `noticeTaken` clears it after the reply is built, so a throw on the way
  * keeps it for the next find. Else null. Read before markFind.
  */
 const linkedNotice = async (ctx: FindContext, link: string | null) => {
-  if (ctx.builderId === null) return (await hasUnlinkedNotice(ctx.installationId)) ? unlinkedNoticeLine(link) : null;
+  if (ctx.builderId === null) {
+    // The account was deleted (v6.1.8 C51): that line alone; unlinked on /me: the line with the sign-in link.
+    const why = await unlinkedReason(ctx.installationId);
+    return why === 'deleted' ? DELETED_NOTICE : why === 'unlinked' ? unlinkedNoticeLine(link) : null;
+  }
   const login = await newlyLinkedLogin(ctx.installationId);
   return login ? linkedNoticeLine(login) : null;
 };

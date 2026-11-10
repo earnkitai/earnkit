@@ -252,7 +252,7 @@ export async function deletePost(request: Request, deps: Deps = {}): Promise<Res
   const g = await guard(request, deps);
   if (g instanceof Response) return g;
   if ((g.form.get('confirm') ?? '').trim().toLowerCase() !== g.builder.login.toLowerCase()) return problemAt(g, ME_ERRORS.confirm);
-  await deleteBuilder(g.builder.id);
+  await deleteBuilder(g.builder.id, g.now);
   return back('/', { 'Set-Cookie': clearCookie() });
 }
 

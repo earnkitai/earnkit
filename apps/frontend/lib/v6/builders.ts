@@ -80,7 +80,8 @@ export async function touchBuilder(id: number, now: Date): Promise<void> {
 
 /**
  * Links the installation to the builder and re-keys its ledger, in one transaction (the caller's
- * when `db` is one). On a program both ledgers hold, the row with the newer `at` stays; history is
+ * when `db` is one). On a program both ledgers hold, the stronger row stays and the other is dropped (v6.1.8 B15): a
+ * result beats an application, which beats a claim or a skip; of two equal ones the newer `at` stays. History is
  * all kept; duplicate gap items are dropped. `migrated`: the applications moved. Linked to another
  * builder: LinkRefused and nothing changes; to this one again: only stray i: rows move.
  */
@@ -90,13 +91,19 @@ export async function linkInstallation(installationId: number, builderId: number
   return inTx(db, async (tx) => {
     const [inst] = await tx<{ builder_id: number | null }[]>`SELECT builder_id FROM installations WHERE id = ${installationId} FOR UPDATE`;
     if (inst?.builder_id != null && inst.builder_id !== builderId) throw new LinkRefused('other_builder');
-    if (inst?.builder_id == null) await tx`UPDATE installations SET builder_id = ${builderId}, linked_at = ${now}, unlinked_at = NULL WHERE id = ${installationId}`;
+    if (inst?.builder_id == null)
+      await tx`UPDATE installations SET builder_id = ${builderId}, linked_at = ${now}, unlinked_at = NULL, unlinked_reason = NULL WHERE id = ${installationId}`;
     // Rows of both ledgers are locked in a stable order, so two links to one builder never interleave.
     await tx`SELECT 1 FROM applications WHERE owner IN (${from}, ${to}) ORDER BY owner, program_id FOR UPDATE`;
+    // A later skip or claim from the unlinked time never replaces a win or an application (lane 7 relink).
     await tx`DELETE FROM applications i USING applications b
-      WHERE i.owner = ${from} AND b.owner = ${to} AND i.program_id = b.program_id AND i.at <= b.at`;
+      WHERE i.owner = ${from} AND b.owner = ${to} AND i.program_id = b.program_id
+        AND ((CASE WHEN i.status IN ('won', 'rejected', 'no_result') THEN 3 WHEN i.status = 'applied' THEN 2 ELSE 1 END)
+          < (CASE WHEN b.status IN ('won', 'rejected', 'no_result') THEN 3 WHEN b.status = 'applied' THEN 2 ELSE 1 END)
+          OR ((CASE WHEN i.status IN ('won', 'rejected', 'no_result') THEN 3 WHEN i.status = 'applied' THEN 2 ELSE 1 END)
+            = (CASE WHEN b.status IN ('won', 'rejected', 'no_result') THEN 3 WHEN b.status = 'applied' THEN 2 ELSE 1 END) AND i.at <= b.at))`;
     await tx`DELETE FROM applications b USING applications i
-      WHERE b.owner = ${to} AND i.owner = ${from} AND i.program_id = b.program_id AND b.at < i.at`;
+      WHERE b.owner = ${to} AND i.owner = ${from} AND i.program_id = b.program_id`;
     const moved = await tx`UPDATE applications SET owner = ${to} WHERE owner = ${from}`;
     await tx`UPDATE application_history SET owner = ${to} WHERE owner = ${from}`;
     await tx`DELETE FROM gaps_done i USING gaps_done b
@@ -111,7 +118,7 @@ export async function linkInstallation(installationId: number, builderId: number
  * marks it so the agent's next find says it was unlinked. False when it is not this builder's.
  */
 export async function unlinkInstallation(installationId: number, builderId: number, now: Date): Promise<boolean> {
-  const r = await sql()`UPDATE installations SET builder_id = NULL, linked_at = NULL, unlinked_at = ${now}
+  const r = await sql()`UPDATE installations SET builder_id = NULL, linked_at = NULL, unlinked_at = ${now}, unlinked_reason = 'unlinked'
     WHERE id = ${installationId} AND builder_id = ${builderId}`;
   return r.count > 0;
 }
@@ -122,18 +129,27 @@ export async function hasUnlinkedNotice(installationId: number): Promise<boolean
   return Boolean(r);
 }
 
+/** Why the installation was unlinked, while its notice is untaken: on /me ('unlinked') or with the account ('deleted',
+ *  v6.1.8 C51); a mark from before v6.1.8 reads as 'unlinked'. Null when there is none to show. */
+export async function unlinkedReason(installationId: number): Promise<'unlinked' | 'deleted' | null> {
+  const [r] = await sql()<{ reason: string | null }[]>`SELECT unlinked_reason AS reason FROM installations
+    WHERE id = ${installationId} AND unlinked_at IS NOT NULL AND builder_id IS NULL`;
+  return r ? (r.reason === 'deleted' ? 'deleted' : 'unlinked') : null;
+}
+
 /** True once after an unlink (find shows the notice); clears the mark. A linked installation has none to take. */
 export async function takeUnlinkedNotice(installationId: number): Promise<boolean> {
-  const r = await sql()`UPDATE installations SET unlinked_at = NULL
+  const r = await sql()`UPDATE installations SET unlinked_at = NULL, unlinked_reason = NULL
     WHERE id = ${installationId} AND unlinked_at IS NOT NULL AND builder_id IS NULL`;
   return r.count > 0;
 }
 
 /**
  * Removes the builder and everything theirs: sessions, their installations' link codes, the b: ledger, and their
- * reviewing (reviewer rows, screen jobs with their applicants and outcomes; v6.1.7 B11). One transaction.
+ * reviewing (reviewer rows, screen jobs with their applicants and outcomes; v6.1.7 B11). One transaction. Each linked
+ * installation is marked, so its next call says the record was deleted (v6.1.8 C51).
  */
-export async function deleteBuilder(id: number): Promise<void> {
+export async function deleteBuilder(id: number, now: Date = new Date()): Promise<void> {
   const owner = `b:${id}`;
   await sql().begin(async (tx) => {
     await tx`DELETE FROM sessions WHERE builder_id = ${id}`;
@@ -147,7 +163,7 @@ export async function deleteBuilder(id: number): Promise<void> {
     await tx`DELETE FROM applications WHERE owner = ${owner}`;
     await tx`DELETE FROM application_history WHERE owner = ${owner}`;
     await tx`DELETE FROM gaps_done WHERE owner = ${owner}`;
-    await tx`UPDATE installations SET builder_id = NULL, linked_at = NULL WHERE builder_id = ${id}`;
+    await tx`UPDATE installations SET builder_id = NULL, linked_at = NULL, unlinked_at = ${now}, unlinked_reason = 'deleted' WHERE builder_id = ${id}`;
     await tx`DELETE FROM builders WHERE id = ${id}`;
   });
 }

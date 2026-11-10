@@ -345,8 +345,10 @@ test('find with no project: the open list and the ask for the project', async ()
   for (const line of lines.slice(1)) assert.ok(line.endsWith('.'), line);
   assert.equal(lines.at(-1), "Tell me which project and I'll match it.");
   assert.match(r.reply!.agent_note as string, /project/);
-  const [row] = await sql()`SELECT last_find_at FROM installations WHERE id = ${id}`;
-  assert.equal(row.last_find_at, null);
+  // A find with no project is a find too (v6.1.8 C47).
+  const [row] = await sql()`SELECT last_find_at, last_gaps FROM installations WHERE id = ${id}`;
+  assert.equal((row.last_find_at as Date).toISOString(), NOW.toISOString());
+  assert.equal(row.last_gaps, null);
 });
 
 test('a project with problems still matches; the problems go to the agent', async () => {
@@ -1348,4 +1350,35 @@ test('fix round 1 (v6.1.8, 1b): the one-program line is the list line without it
   const gapListLine = lineOf(all.show_to_builder as string, g.n);
   const detail = await mcpCall(await c(), 'find', { program_id: 'base-builder-grants', project: onBase });
   assert.equal((detail.reply!.show_to_builder as string).split('\n')[0], gapListLine.replace(/^\d+\. /, '').replace(/ Say "do \d+" and I [^.]+\.$/, ''));
+});
+
+test('C51, N5: after the account is deleted, the next find of a linked agent says so, once', async () => {
+  const { deleteBuilder } = await import('../v6/builders');
+  const line = 'Your record was deleted at earnkit.com/me; this agent is unlinked.';
+  const { id, builderId } = await linkedWith(OWNER_RECORD);
+  await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT });
+  await deleteBuilder(builderId, NOW);
+  const later = new Date(NOW.getTime() + H);
+  const first = await mcpCall({ ...ctx(id, later), linkUrl: async () => null }, 'find', { project: PROJECT });
+  assert.equal(first.reply!.linked_notice, line);
+  assert.ok((first.reply!.show_to_builder as string).endsWith(` ${line}`), first.reply!.show_to_builder as string);
+  const second = await mcpCall({ ...ctx(id, new Date(later.getTime() + H)), linkUrl: async () => null }, 'find', { project: PROJECT });
+  assert.equal(second.reply!.linked_notice, null);
+  // The open list says it too.
+  const other = await linkedWith(OWNER_RECORD);
+  await deleteBuilder(other.builderId, NOW);
+  const list = await mcpCall({ ...ctx(other.id, later), linkUrl: async () => null }, 'find', {});
+  assert.equal(list.reply!.linked_notice, line);
+  assert.ok((list.reply!.show_to_builder as string).endsWith(`\n\n${line}`), list.reply!.show_to_builder as string);
+});
+
+test('C47: a find with no project stamps the find, so the linked notice shows once', async () => {
+  const { id, builderId } = await linkedWith(OWNER_RECORD);
+  const c = { ...ctx(id), builderId, evidence: LIVE };
+  const first = await mcpCall(c, 'find', {});
+  assert.match(first.reply!.linked_notice as string, /now linked/);
+  const second = await mcpCall({ ...c, now: new Date(NOW.getTime() + H) }, 'find', {});
+  assert.equal(second.reply!.linked_notice, null);
+  const [row] = await sql()`SELECT last_find_at FROM installations WHERE id = ${id}`;
+  assert.equal((row.last_find_at as Date).toISOString(), new Date(NOW.getTime() + H).toISOString());
 });

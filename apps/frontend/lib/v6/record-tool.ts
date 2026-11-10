@@ -9,10 +9,10 @@ import { inputDetail } from '../v5/tool-input';
 import { ANSWER_KINDS, type AnswerKind } from '../v5/program-file';
 import { listOpenPrograms } from '../v5/programs';
 import { answerBrief } from './answer-brief';
-import { LinkRefused, readStoredRecord, withRecord } from './builders';
+import { LinkRefused, readStoredRecord, takeUnlinkedNotice, unlinkedReason, withRecord } from './builders';
 import { oauthConfigured } from './github-auth';
 import { createLinkCode } from './link-routes';
-import { listWords, signInLine } from './reply-words';
+import { DELETED_NOTICE, listWords, signInLine } from './reply-words';
 
 export { listWords, signInLine };
 import { APPROVABLE, type BuilderRecord, KIND_WORDS, mergeRecord, recordMissing } from './record';
@@ -59,10 +59,13 @@ export async function signInLink(installationId: number, now: Date): Promise<str
 
 /** Unlinked: the sign-in link; a set says plainly that nothing was saved and to tell it again after signing in (R8). */
 async function unlinked(installationId: number, now: Date, setting: boolean): Promise<RecordReply> {
+  // The account this agent was linked to was deleted (v6.1.8 C51): said first, once, by whichever call comes next.
+  const deleted = (await unlinkedReason(installationId)) === 'deleted' && (await takeUnlinkedNotice(installationId));
+  const lead = (show: string) => (deleted ? `${DELETED_NOTICE} ${show}` : show);
   const link = await signInLink(installationId, now);
-  if (!link) return { show_to_builder: NOT_READY, agent_note: SIGN_IN_NOTE, linked: false };
+  if (!link) return { show_to_builder: lead(NOT_READY), agent_note: SIGN_IN_NOTE, linked: false };
   const show = setting ? `Not saved. Sign in once at ${link}, then tell me again.` : signInLine(link);
-  return { show_to_builder: show, agent_note: SIGN_IN_NOTE, linked: false, sign_in: link };
+  return { show_to_builder: lead(show), agent_note: SIGN_IN_NOTE, linked: false, sign_in: link };
 }
 
 /** What the open programs ask: their needs, and the answer kinds their forms ask. */
@@ -121,12 +124,13 @@ export function refusedWords(problem: string): string {
   return `${what} was not valid`;
 }
 
-/** "Saved 2.", "Saved 1; 1 not saved: email was not valid.", "Nothing saved: ...", "Nothing new to save." (C29). Pure. */
+/** "Saved 2.", "Saved 1; 1 not saved: email was not valid.", "Not saved: ..." (only when nothing was, v6.1.8 N1),
+ *  "Nothing new to save." (C29). Pure. */
 export function savedLine(saved: number, problems: string[], secrets: number): string {
   const reasons = [...problems.map(refusedWords), ...(secrets > 0 ? [secrets === 1 ? 'one looked like a secret' : `${secrets} looked like secrets`] : [])];
   const refused = problems.length + secrets;
   if (saved > 0) return refused > 0 ? `Saved ${saved}; ${refused} not saved: ${listWords(reasons)}.` : `Saved ${saved}.`;
-  return refused > 0 ? `Nothing saved: ${listWords(reasons)}.` : 'Nothing new to save.';
+  return refused > 0 ? `Not saved: ${listWords(reasons)}.` : 'Nothing new to save.';
 }
 
 /** An answer sent as plain text (C20): the shape the record takes, for the agent. */

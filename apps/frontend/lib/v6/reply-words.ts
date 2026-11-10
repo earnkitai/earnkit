@@ -35,3 +35,6 @@ export const linkedNoticeLine = (login: string) => `This agent is now linked to 
 /** The first find after the builder unlinked this agent on /me (v6.1.7 B10); it carries the sign-in link when there is one. Pure. */
 export const unlinkedNoticeLine = (link: string | null) =>
   link ? `This agent was unlinked from your account. Sign in once at ${link} to link it again.` : 'This agent was unlinked from your account.';
+
+/** The first call after the builder deleted their account on /me, from an agent that was linked to it (v6.1.8 C51). Pure. */
+export const DELETED_NOTICE = 'Your record was deleted at earnkit.com/me; this agent is unlinked.';
