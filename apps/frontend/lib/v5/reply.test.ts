@@ -779,3 +779,55 @@ test('L1d-2 (v6.1.11): an in-person gap line keeps its one attend sentence, neve
   assert.equal(line, '1. Blitz, $1K. Their rule: a team of two. First: be in Eugene, Oregon on November 15. Say "yes 1" if that is you.');
   assert.equal(line.match(/First:/g)!.length, 1);
 });
+
+test('N3 (v6.1.12, Review Focus 2): after a rule yes or a users yes on a program that still needs answers, the closing names them and never asks for yes again', () => {
+  const sol = ready({ title: 'Solana Foundation Grants', rule_yes: true, need_you: ['your website link', 'the amount you request'], needs: ['your website link', 'the amount you request'] });
+  const end = (r: R) => replyText(r, true).split('\n\n').at(-1)!;
+  assert.equal(end(base({ ready: [sol] })), 'Solana Foundation Grants is yours once I have your website link and amount you request.');
+  // Three needs read "a, b and c".
+  const three = ready({ title: 'FLOSS/fund', rule_yes: true, need_you: ['your funding manifest link', 'the problem', 'a demo video'], needs: ['your funding manifest link', 'the problem', 'a demo video'] });
+  assert.equal(end(base({ ready: [three] })), 'FLOSS/fund is yours once I have your funding manifest link, problem and demo video.');
+  // Beside another ready program: that one is asked for its yes, this one is not counted again.
+  assert.equal(end(base({ ready: [sol, ready({ title: 'Other Grant' })] })), 'Solana Foundation Grants is yours once I have your website link and amount you request. Say yes and I apply.');
+  assert.equal(
+    end(base({ ready: [sol, ready({ title: 'Other Grant' }), ready({ title: 'Third Grant' })] })),
+    'Solana Foundation Grants is yours once I have your website link and amount you request. Say yes and I apply to all 2. Or say the numbers to skip.',
+  );
+  // Beside one fully ready with its yes: both said, no yes asked.
+  assert.equal(
+    end(base({ ready: [ready({ title: 'Users Grant', rule_yes: true }), sol] })),
+    'Your yes stands for Users Grant: I apply now. Solana Foundation Grants is yours once I have your website link and amount you request.',
+  );
+  // Alone, no yes is asked at all.
+  assert.doesNotMatch(replyText(base({ ready: [sol] }), true), /Say yes|—|\b(score|rank|grade|points|coin|token|streak)s?\b/i);
+  // No yes given: the plain closing, as before.
+  assert.equal(end(base({ ready: [{ ...sol, rule_yes: undefined }] })), 'Say yes and I apply.');
+});
+
+test('F5 (v6.1.12): the missing email is named once per reply: the Before block keeps it, the drafted line drops it', () => {
+  const p = ready({ title: 'Prose Grant', total: 4, from_record: 1, repo_required: 0, need_you: ['the problem', 'your email'], needs: ['the problem', 'your email'] });
+  const show = replyText(base({ linked: true, record_missing: ['your email'], ready: [p] }), true);
+  assert.equal(show.match(/email/g)!.length, 1, show);
+  assert.match(show, /^1\. Prose Grant, \$1K\. 1 from your record, 0 from the repo, 1 by your agent, 1 needs you: the problem\.$/m);
+  assert.match(show, /Before applying: Still missing for these programs: your email\./);
+  // With standing approval, the wait names the problem only.
+  const auto = replyText(base({ linked: true, auto_apply: true, max_per_night: 5, auto_sent_today: 0, record_missing: ['your email'], ready: [p] }), true);
+  assert.equal(auto.match(/email/g)!.length, 1, auto);
+  assert.match(auto, /Before tonight \(nothing is sent until these are in\): your problem for Prose Grant\./);
+  // Only the email missing: the drafted line ends at the counts.
+  const only = ready({ title: 'Mail Grant', total: 2, from_record: 1, need_you: ['your email'], needs: ['your email'] });
+  const one = replyText(base({ linked: true, record_missing: ['your email'], ready: [only] }), true);
+  assert.equal(one.match(/email/g)!.length, 1, one);
+  assert.match(one, /^1\. Mail Grant, \$1K\. 1 from your record, 0 from the repo\.$/m);
+  // The record holds the email (not in the Before block): the drafted line names it, as before.
+  assert.match(replyText(base({ linked: true, ready: [p] }), true), /2 need you: the problem and your email\./);
+});
+
+test('F9 (v6.1.12): the empty-repo note and the Builder Codes note are one sentence', () => {
+  const show = replyText(base({ repo_notes: ['empty', 'no_builder_codes'] }), true);
+  assert.ok(show.split('\n\n').includes('The repo is empty and does not send Builder Codes yet, so I matched on what you told me.'), show);
+  assert.doesNotMatch(show, /The repo does not send Builder Codes yet\./);
+  // Each alone: its own sentence, as before.
+  assert.ok(replyText(base({ repo_notes: ['empty'] }), true).split('\n\n').includes('The repo is empty, so I matched on what you told me.'));
+  assert.ok(replyText(base({ repo_notes: ['no_builder_codes'] }), true).split('\n\n').includes('The repo does not send Builder Codes yet.'));
+});

@@ -59,6 +59,8 @@ const ownChain = (v: Verdict, m: Programs, chains: readonly string[]) => {
 
 /** Whether a gap program carries a rule to confirm, with or without a real change. Pure. */
 const ruleBearing = (v: Verdict) => v.gaps.some((g) => g.kind === 'rule');
+/** A keyword hit (N1, v6.1.12): a rule-bearing program whose rule keyword the project names. */
+type Hit = (v: Verdict) => boolean;
 
 /**
  * `mainnets`: the chains the project reported on mainnet (R18e); none puts chain-agnostic rule-only programs first.
@@ -66,8 +68,12 @@ const ruleBearing = (v: Verdict) => v.gaps.some((g) => g.kind === 'rule');
  * `chains` (N-4, v6.1.9): the project's own chains, reported then read (with none given, its mainnets stand in); a
  * program on one of them ranks before every other, the earlier chain first, rule-free before rule-bearing (L1c-3,
  * v6.1.10); then chain-agnostic programs, rule-free before rule-bearing; a deploy on another chain comes last.
+ * `hit` (N1, v6.1.12): a keyword hit ranks as a rule-free step does (own chain first, then real-gap count, effort,
+ * money), never behind the rule-free ones for its rule.
  */
-export function rankGaps(v: Verdict[], programs: Programs, mainnets: ReadonlySet<string> = new Set(), first?: string, chains: readonly string[] = []): Verdict[] {
+export function rankGaps(v: Verdict[], programs: Programs, mainnets: ReadonlySet<string> = new Set(), first?: string, chains: readonly string[] = [], hit: Hit = () => false): Verdict[] {
+  const bears = (x: Verdict) => ruleBearing(x) && !hit(x);
+  const only = (x: Verdict) => rulesOnly(x.gaps) && !hit(x);
   const firstTie = (a: Verdict, b: Verdict) =>
     rulesOnly(a.gaps) && rulesOnly(b.gaps) && reach(a, programs, mainnets) === 0 && award(a, programs) === null && award(b, programs) === null
       ? cmp(onFirst(a, programs, first), onFirst(b, programs, first))
@@ -77,9 +83,9 @@ export function rankGaps(v: Verdict[], programs: Programs, mainnets: ReadonlySet
   const owned = chains.length > 0 ? chains.length : 1;
   const key = (x: Verdict): number[] => {
     const at = own(x);
-    if (at < owned) return [0, at, Number(ruleBearing(x))];
+    if (at < owned) return [0, at, Number(bears(x))];
     const f = programs.get(x.program_id)?.file;
-    return f && (f.any_chain || f.chains.length === 0) ? [1, 0, Number(ruleBearing(x))] : [2, 0, 0];
+    return f && (f.any_chain || f.chains.length === 0) ? [1, 0, Number(bears(x))] : [2, 0, 0];
   };
   const byKey = (a: Verdict, b: Verdict) => {
     const [ka, kb] = [key(a), key(b)];
@@ -88,8 +94,8 @@ export function rankGaps(v: Verdict[], programs: Programs, mainnets: ReadonlySet
   return [...v].sort(
     (a, b) =>
       byKey(a, b) ||
-      cmp(Number(rulesOnly(a.gaps)), Number(rulesOnly(b.gaps))) ||
-      (rulesOnly(a.gaps) && rulesOnly(b.gaps) ? cmp(reach(a, programs, mainnets), reach(b, programs, mainnets)) : 0) ||
+      cmp(Number(only(a)), Number(only(b))) ||
+      (only(a) && only(b) ? cmp(reach(a, programs, mainnets), reach(b, programs, mainnets)) : 0) ||
       cmp(changes(a).length, changes(b).length) || cmp(effortOf(changes(a)), effortOf(changes(b))) || byAward(a, b, programs) || firstTie(a, b),
   );
 }
@@ -105,17 +111,22 @@ export function rankGaps(v: Verdict[], programs: Programs, mainnets: ReadonlySet
  * project's chains it takes its place in rank order (L1c-3). Off them it is shown only after `max - 1` other programs,
  * or alone as a list of one when nothing else is shown (N-2); with some others but fewer than that, the list is those
  * and leaves it to `filter.all`. In-person programs never appear here (R18d, R18f; a rule-only one is in the In person
- * block, find.ts); `filter.all` shows them and `more` counts every program left out. Input in rankGaps order. Pure.
+ * block, find.ts); `filter.all` shows them and `more` counts every program left out. A keyword hit (`hit`, N1,
+ * v6.1.12) is no rule-slot program: it takes its own slot in rank order as a rule-free one does. Input in rankGaps
+ * order. Pure.
  */
 export function shownGapsOf(
   gapV: Verdict[], all: boolean, max: number, inPerson: (v: Verdict) => boolean,
   chains: readonly string[] = [], names: (v: Verdict, chain: string) => boolean = () => false,
   pinned: (v: Verdict) => boolean = () => false,
-  o: { unlikely?: (v: Verdict) => boolean; soon?: (v: Verdict) => boolean } = {},
+  o: { unlikely?: (v: Verdict) => boolean; soon?: (v: Verdict) => boolean; hit?: Hit } = {},
 ): Verdict[] {
   if (all) return gapV;
   const unlikely = o.unlikely ?? (() => false);
   const soon = o.soon ?? (() => false);
+  const hit = o.hit ?? (() => false);
+  // The one rule slot is for rule-bearing programs with no keyword hit; a hit competes as a rule-free step.
+  const slotted = (v: Verdict) => ruleBearing(v) && !hit(v);
   const remote = gapV.filter((v) => !inPerson(v));
   const top = remote.filter(pinned).slice(0, max);
   const likely = remote.filter((v) => !pinned(v) && !unlikely(v));
@@ -123,11 +134,11 @@ export function shownGapsOf(
   const rest = likely.filter((v) => !soon(v));
   const room = max - head.length;
   if (room <= 0) return head;
-  const free = rest.filter((v) => !ruleBearing(v));
-  const bearing = head.some(ruleBearing) ? [] : rest.filter(ruleBearing);
+  const free = rest.filter((v) => !slotted(v));
+  const bearing = head.some(slotted) ? [] : rest.filter(slotted);
   const rule = chains.map((c) => bearing.find((v) => names(v, c))).find((v) => v !== undefined) ?? bearing[0];
   const own = rule !== undefined && chains.some((c) => names(rule, c));
   if (!rule || !(own || free.length >= room - 1 || (free.length === 0 && head.length === 0))) return [...head, ...free.slice(0, room)];
-  const pick = new Set(own ? rest.filter((v) => v === rule || !ruleBearing(v)).slice(0, room) : [...free.slice(0, room - 1), rule]);
+  const pick = new Set(own ? rest.filter((v) => v === rule || !slotted(v)).slice(0, room) : [...free.slice(0, room - 1), rule]);
   return [...head, ...rest.filter((v) => pick.has(v))];
 }
