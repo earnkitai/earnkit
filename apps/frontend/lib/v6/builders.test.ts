@@ -7,6 +7,7 @@ import { getProgram, upsertProgram } from '../v5/programs';
 import { LinkRefused, deleteBuilder, getBuilder, hasUnlinkedNotice, linkInstallation, ownerKey, takeUnlinkedNotice, unlinkInstallation, unlinkedReason, upsertBuilder } from './builders';
 import { createSession } from './sessions';
 import { createLinkCode } from './link-routes';
+import { jobStatus } from './screen-jobs';
 
 after(() => sql().end());
 // createLinkCode derives codes with the auth secret.
@@ -175,7 +176,7 @@ test('a record under b:A from X does not raise beside an orphan i:X row for the 
   assert.deepEqual(await rows(`i:${x}`), [{ program_id: 'bl-orphan', status: 'applied' }]);
 });
 
-test('B11: deleteBuilder also removes their reviewer rows, screen jobs, applicants and outcomes; another reviewer keeps theirs', async () => {
+test('B11, L15-18 (v6.1.14): deleteBuilder removes their reviewer rows; the program keeps their screens, applicants and outcomes, unowned, and its other reviewer reads them', async () => {
   const b = await builder('rev');
   const other = await builder('rev2');
   const one = await install();
@@ -190,8 +191,16 @@ test('B11: deleteBuilder also removes their reviewer rows, screen jobs, applican
   const n = async (q: Promise<{ n: number }[]>) => (await q)[0].n;
   assert.equal(await n(sql()`SELECT count(*)::int AS n FROM program_reviewers WHERE builder_id = ${b.id}`), 0);
   assert.equal(await n(sql()`SELECT count(*)::int AS n FROM screen_jobs WHERE builder_id = ${b.id}`), 0);
-  assert.equal(await n(sql()`SELECT count(*)::int AS n FROM screen_applicants WHERE job_id = 'bl-job-a'`), 0);
-  assert.equal(await n(sql()`SELECT count(*)::int AS n FROM screen_outcomes WHERE job_id = 'bl-job-a'`), 0);
+  // L15-18: the program's history stays: the job, its applicant and its outcome, the job tied to no builder.
+  const [kept] = await sql()`SELECT program_id, builder_id FROM screen_jobs WHERE id = 'bl-job-a'`;
+  assert.deepEqual([kept.program_id, kept.builder_id], ['bl-del-rev', null]);
+  assert.equal(await n(sql()`SELECT count(*)::int AS n FROM screen_applicants WHERE job_id = 'bl-job-a'`), 1);
+  assert.equal(await n(sql()`SELECT count(*)::int AS n FROM screen_outcomes WHERE job_id = 'bl-job-a'`), 1);
+  // The program's other reviewer reads the job the deleted one queued (L15-12).
+  assert.equal((await jobStatus('bl-job-a', other.id, NOW))?.program_id, 'bl-del-rev');
+  // Deleting again, or another delete, changes nothing more.
+  await deleteBuilder(b.id);
+  assert.equal(await n(sql()`SELECT count(*)::int AS n FROM screen_outcomes WHERE job_id = 'bl-job-a'`), 1);
   // The other reviewer's rows stay.
   assert.equal(await n(sql()`SELECT count(*)::int AS n FROM screen_jobs WHERE builder_id = ${other.id}`), 1);
   assert.equal(await n(sql()`SELECT count(*)::int AS n FROM screen_applicants WHERE job_id = 'bl-job-b'`), 1);

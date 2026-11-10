@@ -77,3 +77,15 @@ test('a login two builders have used is refused; github_id picks the account, fo
   assert.deepEqual(await reviewerPrograms(now.id), []);
   assert.deepEqual(await addReviewer('rev-grants', null, null, 999_999_999), { ok: false, reason: 'no builder with that GitHub id has signed in' });
 });
+
+test('L15-2 (v6.1.14): marking a reviewer again without a contact keeps the saved one; a new contact replaces it', async () => {
+  const b = await builder('l15contact');
+  const contactOf = async () => (await sql()`SELECT contact FROM program_reviewers WHERE builder_id = ${b.id} AND program_id = 'rev-grants'`)[0].contact;
+  assert.equal((await post({ program_id: 'rev-grants', github_login: 'l15contact', contact: 'grants@example.com' })).status, 200);
+  assert.equal((await post({ program_id: 'rev-grants', github_login: 'l15contact' })).status, 200);
+  assert.equal(await contactOf(), 'grants@example.com');
+  assert.equal((await post({ program_id: 'rev-grants', github_login: 'l15contact', contact: '  ' })).status, 200);
+  assert.equal(await contactOf(), 'grants@example.com');
+  await addReviewer('rev-grants', 'l15contact', 'new@example.com');
+  assert.equal(await contactOf(), 'new@example.com');
+});

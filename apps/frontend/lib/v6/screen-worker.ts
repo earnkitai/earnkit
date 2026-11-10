@@ -122,9 +122,9 @@ export async function workQueue(o: { now: Date; limit: number; jobId?: string; d
       const p = place(e, { identical_pitch: a.identical_pitch, shared_contributors: shared, xp }, thresholdsOf(a.thresholds), o.now);
       const at = o.now.toISOString();
       const xpRows: Row[] = [
-        { key: 'xp.applications_90d', value: xp.applications_90d, basis: 'earnkit', read_at: at, note: 'screens by other programs in 90 days' },
-        { key: 'xp.outcomes_won', value: xp.outcomes.won, basis: 'earnkit', read_at: at, note: 'reported by those programs' },
-        { key: 'xp.outcomes_rejected', value: xp.outcomes.rejected, basis: 'earnkit', read_at: at, note: 'reported by those programs' },
+        { key: 'xp.applications_90d', value: xp.applications_90d, basis: 'earnkit', read_at: at, note: 'earlier screens by this program in 90 days' },
+        { key: 'xp.outcomes_won', value: xp.outcomes.won, basis: 'earnkit', read_at: at, note: 'reported by this program' },
+        { key: 'xp.outcomes_rejected', value: xp.outcomes.rejected, basis: 'earnkit', read_at: at, note: 'reported by this program' },
       ];
       const rows = [...flattenRows(e), ...xpRows].filter((r) => PUBLIC_BASES.has(r.basis));
       if (!p.tier && notes.some(retryable)) {

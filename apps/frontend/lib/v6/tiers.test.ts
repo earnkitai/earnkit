@@ -364,12 +364,12 @@ test('place defaults now and thresholds', () => {
   assert.equal(place(evidence({ live: up }), X).tier, 'live');
 });
 
-test('screens by other programs show in because, never as a flag; zero says nothing', () => {
+test('the program\'s own earlier screens show in because, never as a flag; zero says nothing (L15-11)', () => {
   const xp = (n: number) => ({ ...X, xp: { applications_90d: n, outcomes: { won: 0, rejected: n } } });
   const seen = at(used(), xp(7));
   assert.equal(seen.tier, 'used');
   assert.deepEqual(seen.flags, []);
-  assert.ok(seen.because.includes('seen in 7 other screens in 90 days'));
-  assert.ok(at(used(), xp(1)).because.includes('seen in 1 other screen in 90 days'));
+  assert.ok(seen.because.includes('seen in 7 earlier screens of this program in 90 days'));
+  assert.ok(at(used(), xp(1)).because.includes('seen in 1 earlier screen of this program in 90 days'));
   assert.ok(!at(used(), xp(0)).because.some((b) => b.startsWith('seen in')));
 });

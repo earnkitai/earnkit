@@ -82,7 +82,7 @@ export const DOCS_RECORD = {
 };
 export const DOCS_SCREEN = {
   title: 'Screening, for programs',
-  text: "Hand your applicant list to your agent and EarnKit returns it in five tiers with public evidence: used, live, building, unverified, flagged. We read the repo, the chain and the site. We never show a builder's record, another program's name or another applicant's text.",
+  text: "Hand your applicant list to your agent and EarnKit returns it in five tiers with public evidence: used, live, building, unverified, flagged. We read the repo, the chain and the site. We never show a builder's record, another program's name, screens or results, or another applicant's text. A program's reviewers share its screens, and they stay with the program when a reviewer leaves.",
 };
 export const DOCS_CHECKED = {
   title: 'How programs are checked',
@@ -124,7 +124,7 @@ export const TERMS_SECTIONS = [
     title: 'Programs',
     lines: [
       'A program that screens its applicants sees only public evidence: the repo, the chain and the site.',
-      "It never sees your record, the other programs you applied to or another applicant's text.",
+      "It never sees your record, the other programs you applied to, what another program decided or another applicant's text.",
     ],
   },
 ] as const;

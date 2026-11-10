@@ -82,7 +82,7 @@ test('results carry public evidence only; outcomes record', async () => {
   await sql()`DELETE FROM screen_applicants`;
   const c = await reviewerOf('scr-results');
   const other = await reviewerOf('scr-other-program');
-  // Another program screened the same repo first: the count shows, its id never does.
+  // Another program screened the same repo first: neither its count nor its id shows (L15-11, v6.1.14).
   await mcpCall(other, 'screen', { program_id: 'scr-other-program', applicants: [{ ref: 'z', name: 'Coffee Pay', repo_url: 'https://github.com/acme/coffee', pitch: 'Their own words about another thing.' }] });
   await workQueue({ now: NOW, limit: 10, deps: { evidence: fake } });
   // A builder with a record on the same repo: nothing of theirs reaches the program.
@@ -105,7 +105,10 @@ test('results carry public evidence only; outcomes record', async () => {
   assert.ok(!s.includes('scr-other-program'), s);
   assert.ok(!s.includes('person.') && !s.includes('"answers"') && !s.includes('Ada'), s);
   assert.ok(results.applicants.every((a) => a.rows.every((x) => x.basis !== 'record')));
-  assert.ok(results.applicants.find((a) => a.ref === 'r-1')!.because.includes('seen in 1 other screen in 90 days'));
+  const r1 = results.applicants.find((a) => a.ref === 'r-1')!;
+  assert.ok(!r1.because.some((x) => x.startsWith('seen in')), JSON.stringify(r1.because));
+  assert.deepEqual(r1.rows.filter((x) => x.key.startsWith('xp.')).map((x) => x.value), [0, 0, 0]);
+  assert.equal(r.reply!.next_page, null);
   const nosy = await mcpCall(other, 'screen', { job_id: jobId });
   assert.equal(nosy.reply!.show_to_builder, "I don't have that screen.");
   assert.equal('results' in nosy.reply!, false);
@@ -267,4 +270,60 @@ test('F5 (v6.1.14 fix round 1): a repo that is not text is refused by the key th
   assert.equal(r.reply!.agent_note, 'Nothing was queued. applicants.0.repo: not text; send the repo link as text in repo_url.');
   assert.doesNotMatch(r.reply!.agent_note as string, /repo_url:/);
   assert.equal('job_id' in r.reply!, false);
+});
+
+test('L15-3 (v6.1.14): results come 25 a page; the last line asks for the next page and next_page names it, null on the last', async () => {
+  const c = await reviewerOf('scr-pages');
+  const list = Array.from({ length: 30 }, (_, k) => ({ ref: `p-${k}`, name: `P${k}`, live_url: `https://p${k}.example/` }));
+  const q = await mcpCall(c, 'screen', { program_id: 'scr-pages', applicants: list });
+  const jobId = q.reply!.job_id as string;
+  const one = await mcpCall(c, 'screen', { job_id: jobId });
+  assert.equal(one.reply!.show_to_builder, '30 applicants: 0 used, 0 live, 0 building, 0 unverified, 0 flagged; 30 pending. Ask for page 2 for the rest.');
+  assert.equal(one.reply!.next_page, 2);
+  assert.equal((one.reply!.results as { applicants: unknown[] }).applicants.length, 25);
+  assert.match(one.reply!.agent_note as string, /Call screen with job_id and page 2 for the next 25\.$/);
+  const two = await mcpCall(c, 'screen', { job_id: jobId, page: 2 });
+  assert.equal(two.reply!.show_to_builder, '30 applicants: 0 used, 0 live, 0 building, 0 unverified, 0 flagged; 30 pending.');
+  assert.equal(two.reply!.next_page, null);
+  assert.equal((two.reply!.results as { applicants: unknown[] }).applicants.length, 5);
+  const bad = await mcpCall(c, 'screen', { job_id: jobId, page: 0 });
+  assert.equal(bad.reply!.show_to_builder, "I could not read that. Send the applicant list, or a screen's id for its results.");
+});
+
+test('L15-1 and L15-12 (v6.1.14): a colleague reads and continues the job; the reviewer\'s own application is refused in one line, the rest recorded', async () => {
+  const c = await reviewerOf('scr-team');
+  const mate = await linked();
+  assert.deepEqual(await addReviewer('scr-team', mate.login, null), { ok: true, builder_id: mate.builderId });
+  // The colleague applied to the program from their own account.
+  const { record } = await import('../v5/ledger');
+  assert.deepEqual(await record(`b:${mate.builderId}`, 'scr-team', 'applied', { installationId: mate.installationId, now: NOW }), { ok: true });
+  const [{ application_id }] = await sql()`SELECT application_id FROM applications WHERE owner = ${`b:${mate.builderId}`} AND program_id = 'scr-team'`;
+  const q = await mcpCall(c, 'screen', { program_id: 'scr-team', applicants: [{ ref: 'mate', name: 'Mate', application_id }, { ref: 'x', name: 'X' }] });
+  const jobId = q.reply!.job_id as string;
+  const read = await mcpCall(mate, 'screen', { job_id: jobId });
+  assert.equal(read.reply!.show_to_builder, '2 applicants: 0 used, 0 live, 0 building, 0 unverified, 0 flagged; 2 pending.');
+  const own = await mcpCall(mate, 'screen', { job_id: jobId, outcomes: [{ ref: 'mate', outcome: 'won', amount_usd: 500 }, { ref: 'x', outcome: 'rejected' }] });
+  assert.equal(own.reply!.show_to_builder, 'Recorded 1 outcome. You applied to this one; another reviewer posts its result.');
+  assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${mate.builderId}`} AND program_id = 'scr-team'`)[0].status, 'applied');
+  const posted = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'mate', outcome: 'won', amount_usd: 500 }] });
+  assert.equal(posted.reply!.show_to_builder, 'Recorded 1 outcome.');
+  assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${mate.builderId}`} AND program_id = 'scr-team'`)[0].status, 'won');
+});
+
+test('Task 8 security follow-up (v6.1.14): a requeue naming no earlier row of the program with the same id is refused and nothing is queued', async () => {
+  const c = await reviewerOf('scr-requeue');
+  const first = await mcpCall(c, 'screen', { program_id: 'scr-requeue', applicants: [{ ref: 'a', name: 'A', application_id: 'ek-aaaaaaaaaaaa' }] });
+  const jobId = first.reply!.job_id as string;
+  const before = (await sql()`SELECT count(*)::int AS n FROM screen_jobs`)[0].n;
+  const bad = await mcpCall(c, 'screen', { program_id: 'scr-requeue', applicants: [
+    { ref: 'b', name: 'B', application_id: 'ek-bbbbbbbbbbbb', requeue: { job_id: jobId, ref: 'a' } },
+    { ref: 'c', name: 'C', application_id: 'ek-aaaaaaaaaaaa', requeue: { job_id: jobId, ref: 'nope' } },
+  ] });
+  assert.equal(bad.reply!.show_to_builder, "Not queued: the earlier row named for b and c is not in this program's screens with the same EarnKit id.");
+  assert.match(bad.reply!.agent_note as string, /^Nothing was queued\./);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs`)[0].n, before);
+  const blind = await mcpCall(c, 'screen', { program_id: 'scr-requeue', applicants: [{ ref: 'd', name: 'D', application_id: 'ek-aaaaaaaaaaaa', requeue: true }] });
+  assert.equal(blind.reply!.show_to_builder, "I could not read that. Send the applicant list, or a screen's id for its results.");
+  const good = await mcpCall(c, 'screen', { program_id: 'scr-requeue', applicants: [{ ref: 'a2', name: 'A', application_id: 'ek-aaaaaaaaaaaa', requeue: { job_id: jobId, ref: 'a' } }] });
+  assert.ok(good.reply!.job_id, good.text);
 });

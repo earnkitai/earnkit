@@ -10,16 +10,17 @@ import { getProgram } from '../v5/programs';
 import { LIMITS, hit } from '../v5/rate-limit';
 import { listWords, signInLink } from './record-tool';
 import { reviewerPrograms } from './reviewers';
-import { createJob, jobResults, jobStatus, queuedAhead, recordOutcomes, ScreenApplicant, type ScreenResults } from './screen-jobs';
+import { badRequeues, createJob, jobResults, jobStatus, OWN_APPLICATION, queuedAhead, recordOutcomes, ScreenApplicant, type ScreenResults } from './screen-jobs';
 import { SCREEN_BATCH } from './screen-worker';
 import { DEFAULT_THRESHOLDS, TIERS, type Thresholds } from './tiers';
 
 export const ScreenInput = z
   .object({
     program_id: z.string().max(100).optional().describe('The program you review; omit when you review one'),
-    applicants: z.array(ScreenApplicant).optional().describe('The list to screen, each { ref (required), name, repo_url, live_url, contracts: [{ chain, address }], pitch, applied_at, application_id, requeue }'),
+    applicants: z.array(ScreenApplicant).optional().describe('The list to screen, each { ref (required), name, repo_url, live_url, contracts: [{ chain, address }], pitch, applied_at, application_id, requeue: { job_id, ref } of the earlier row it replaces }'),
     thresholds: z.record(z.string(), z.number()).optional().describe('Tier thresholds to override, by name'),
     job_id: z.string().max(40).optional().describe('A queued screen: its progress and results'),
+    page: z.number().int().min(1).max(1000).optional().describe('With job_id: the page of results, 25 applicants each, from 1; next_page names the next, null on the last'),
     outcomes: z
       .array(z.object({ ref: z.string().max(60), outcome: z.enum(['won', 'rejected', 'shortlisted']), amount_usd: z.number().finite().optional() }).strict())
       .optional()
@@ -28,7 +29,7 @@ export const ScreenInput = z
   .strict();
 /** The most applicants or outcomes one call reads (C2, v6.1.13); 200 is read, 201 refused. */
 export const SCREEN_MAX = 200;
-export type ScreenReply = { show_to_builder: string; agent_note: string; job_id?: string; results?: ScreenResults; recorded?: number };
+export type ScreenReply = { show_to_builder: string; agent_note: string; job_id?: string; results?: ScreenResults; next_page?: number | null; recorded?: number };
 
 export const SCREEN_TEXT = {
   unlinked: (link: string) => `Sign in once at ${link} so EarnKit knows which program you review for.`,
@@ -48,6 +49,10 @@ export const SCREEN_TEXT = {
   sortNote: 'Sort: used, then live, then building; flagged last with the rule named.',
   pendingNote: 'Call screen with job_id again later for the rest.',
   stopNote: 'Show this line and stop.',
+  /** L15-3 (v6.1.14): the last line of a page with more to come. */
+  nextPage: (n: number) => `Ask for page ${n} for the rest.`,
+  /** Task 8 security follow-up (v6.1.14): a requeue that names no earlier row of the program with the same EarnKit id. */
+  badRequeue: (refs: string) => `Not queued: the earlier row named for ${refs} is not in this program's screens with the same EarnKit id.`,
 } as const;
 
 /** L13-5 (v6.1.14): a refused outcomes call writes none of them. */
@@ -115,15 +120,24 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
       const cap = winCapOf(await getProgram(s.program_id));
       // L13-5 (v6.1.14): any amount over the cap, however large, is this line, as the ledger answers it.
       if (input.outcomes.some((o) => o.outcome === 'won' && o.amount_usd != null && o.amount_usd > cap)) return line(OVER_CAP, OUTCOMES_UNWRITTEN);
-      const { recorded, notFound, notes } = await recordOutcomes(input.job_id, ctx.builderId, input.outcomes, ctx.now);
-      // The refs not in this screen are named (C19).
-      const show = notFound.length > 0 ? `Recorded ${plural(recorded, 'outcome')}; not found: ${listWords(notFound, 10)}.` : `Recorded ${plural(recorded, 'outcome')}.`;
+      const { recorded, notFound, notes, own } = await recordOutcomes(input.job_id, ctx.builderId, input.outcomes, ctx.now);
+      // The refs not in this screen are named (C19); L15-1 (v6.1.14): an outcome on the reviewer's own application is refused in one line.
+      const counted = notFound.length > 0 ? `Recorded ${plural(recorded, 'outcome')}; not found: ${listWords(notFound, 10)}.` : `Recorded ${plural(recorded, 'outcome')}.`;
+      const show = own ? `${counted} ${OWN_APPLICATION}` : counted;
       const note = notFound.length > 0 ? 'Tell the builder the outcomes are recorded, and which refs this screen does not hold.' : 'Tell the builder the outcomes are recorded.';
       return { ...line(show, [note, ...notes].join(' ')), recorded };
     }
-    const results = await jobResults(input.job_id, ctx.builderId, ctx.now);
+    const results = await jobResults(input.job_id, ctx.builderId, ctx.now, input.page ?? 1);
     if (!results) return line(SCREEN_TEXT.expired);
-    return { show_to_builder: totalsLine(results), agent_note: results.finished ? SCREEN_TEXT.sortNote : SCREEN_TEXT.pendingNote, job_id: results.job_id, results };
+    // L15-3 (v6.1.14): one page of 25; the last line asks for the next when there is one.
+    const more = results.next_page !== null ? ` ${SCREEN_TEXT.nextPage(results.next_page)}` : '';
+    return {
+      show_to_builder: `${totalsLine(results)}${more}`,
+      agent_note: [results.finished ? SCREEN_TEXT.sortNote : SCREEN_TEXT.pendingNote, ...(results.next_page !== null ? [`Call screen with job_id and page ${results.next_page} for the next 25.`] : [])].join(' '),
+      job_id: results.job_id,
+      results,
+      next_page: results.next_page,
+    };
   }
 
   // A builder who reviews no program and names none hears that in one line (v6.1.7 C18).
@@ -137,6 +151,9 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
   if (typeof thresholds === 'string') return line(thresholds);
   const program = await getProgram(programId);
   if (!program) return line(SCREEN_TEXT.notReviewer);
+  // Task 8 security follow-up (v6.1.14): a requeue must name an earlier row of this program carrying the same id.
+  const bad = await badRequeues(programId, input.applicants);
+  if (bad.length > 0) return line(SCREEN_TEXT.badRequeue(listWords(bad, 10)), 'Nothing was queued. Each requeue names { job_id, ref } of an earlier row of this program with the same application_id; fix or drop it and call screen again.');
   // Counted atomically, per reviewer (not per installation), only once every refusal above has passed.
   const { limit, windowSeconds } = LIMITS.screenJobs;
   if (!(await hit(`screenJobs:b:${ctx.builderId}`, limit, windowSeconds, ctx.now)).allowed) return line(SCREEN_TEXT.limit);

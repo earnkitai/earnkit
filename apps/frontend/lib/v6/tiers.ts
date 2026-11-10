@@ -46,7 +46,7 @@ export type Flag = { rule: string; detail: string };
 /** What stands between a placement and the tier above: the condition `next` names. */
 export type Gap = 'funded_senders' | 'site' | 'push' | 'commits' | 'repo_or_site' | 'flag';
 export type Placement = { tier: Tier | null; flags: Flag[]; because: string[]; next: string | null; gap: Gap | null };
-/** The counts across applicants; `xp`: screens by other programs in 90 days (shown, never a flag). */
+/** The counts across applicants; `xp`: the program's own earlier screens in 90 days (shown, never a flag; L15-11). */
 export type Counts = {
   identical_pitch: number;
   shared_contributors: number;
@@ -153,7 +153,7 @@ export function place(
 
   const context: string[] = [];
   if (e.team?.contributors_90d != null) context.push(plural(e.team.contributors_90d, 'contributor'));
-  if (x.xp && x.xp.applications_90d > 0) context.push(`seen in ${plural(x.xp.applications_90d, 'other screen')} in 90 days`);
+  if (x.xp && x.xp.applications_90d > 0) context.push(`seen in ${plural(x.xp.applications_90d, 'earlier screen')} of this program in 90 days`);
   const skipped = [
     ...notCounted.slice(0, NOT_COUNTED_SHOWN).map((k) => `${short(k.address)} on ${chainName(k.chain)}: ${k.counted_reason ?? 'not counted'}`),
     ...(notCounted.length > NOT_COUNTED_SHOWN ? [`${plural(notCounted.length - NOT_COUNTED_SHOWN, 'more contract')} not counted`] : []),

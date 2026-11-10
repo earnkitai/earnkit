@@ -176,19 +176,16 @@ export async function takeUnlinkedNotice(installationId: number): Promise<boolea
 
 /**
  * Removes the builder and everything theirs: sessions, their installations' link codes, the b: ledger, and their
- * reviewing (reviewer rows, screen jobs with their applicants and outcomes; v6.1.7 B11). One transaction. Each linked
- * installation is marked, so its next call says the record was deleted (v6.1.8 C51).
+ * reviewer rows (v6.1.7 B11). The screens they queued, with their applicants and outcomes, belong to the program and
+ * stay, no longer tied to the builder (L15-18, v6.1.14). One transaction. Each linked installation is marked, so its
+ * next call says the record was deleted (v6.1.8 C51).
  */
 export async function deleteBuilder(id: number, now: Date = new Date()): Promise<void> {
   const owner = `b:${id}`;
   await sql().begin(async (tx) => {
     await tx`DELETE FROM sessions WHERE builder_id = ${id}`;
     await tx`DELETE FROM program_reviewers WHERE builder_id = ${id}`;
-    const jobs = (await tx<{ id: string }[]>`DELETE FROM screen_jobs WHERE builder_id = ${id} RETURNING id`).map((r) => r.id);
-    if (jobs.length > 0) {
-      await tx`DELETE FROM screen_applicants WHERE job_id = ANY(${jobs})`;
-      await tx`DELETE FROM screen_outcomes WHERE job_id = ANY(${jobs})`;
-    }
+    await tx`UPDATE screen_jobs SET builder_id = NULL WHERE builder_id = ${id}`;
     await tx`DELETE FROM link_codes WHERE installation_id IN (SELECT id FROM installations WHERE builder_id = ${id})`;
     await tx`DELETE FROM applications WHERE owner = ${owner}`;
     await tx`DELETE FROM application_history WHERE owner = ${owner}`;

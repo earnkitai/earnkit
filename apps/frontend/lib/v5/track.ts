@@ -393,7 +393,10 @@ async function act(
   const title = await titleOf(owner, i.program_id);
   const lines: Record<Exclude<Status, 'started' | 'gap_done'>, string> = {
     applied: "Tracked. I'll ask how it went when results are due.",
-    won: `Recorded: ${usd(i.amount_usd ?? 0)} from ${title}.`,
+    // L15-17 (v6.1.14): a second payment adds, and the line reads the total.
+    won: 'total_usd' in res && res.total_usd !== undefined
+      ? `Recorded: ${usd(i.amount_usd ?? 0)} more from ${title}, ${usd(res.total_usd)} in total.`
+      : `Recorded: ${usd(i.amount_usd ?? 0)} from ${title}.`,
     rejected: 'Recorded. On to the next one.',
     no_result: 'Recorded.',
     skipped: `Skipped ${title}. I won't bring it up again.`,

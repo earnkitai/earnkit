@@ -106,7 +106,7 @@ test('a win is whole dollars, at least 1 (v6.1.7, B8)', async () => {
   assert.equal((await record(o(i), 'l-whole', 'won', { amount_usd: 1, now: NOW })).ok, true);
 });
 
-test('a result over a result is refused and changes nothing; the same one again is already recorded (v6.1.7, B8, B12)', async () => {
+test('a result over a result is refused and changes nothing; the same one again is already recorded; a second win adds (v6.1.7, B8, B12; L15-17)', async () => {
   const i = await install();
   await prog('l-res', { max_award_usd: 10_000 });
   await record(o(i), 'l-res', 'applied', { now: NOW });
@@ -115,13 +115,20 @@ test('a result over a result is refused and changes nothing; the same one again 
   const won = { ok: false, note: 'That one already has a result here: won $3,000.' };
   assert.deepEqual(await record(o(i), 'l-res', 'rejected', { now: NOW }), won);
   assert.deepEqual(await record(o(i), 'l-res', 'no_result', { now: NOW }), won);
-  assert.deepEqual(await record(o(i), 'l-res', 'won', { amount_usd: 5000, now: NOW }), won);
   assert.deepEqual(await record(o(i), 'l-res', 'applied', { now: NOW }), won);
-  assert.deepEqual(await record(o(i), 'l-res', 'won', { amount_usd: 3000, now: NOW }), { ok: false, note: 'Already recorded.' });
   assert.deepEqual(await counts(i), before);
+  // L15-17 (v6.1.14): a second win is a second payment: it adds, the same amount too, and the total stays under the cap.
+  assert.deepEqual(await record(o(i), 'l-res', 'won', { amount_usd: 3000, now: NOW }), { ok: true, total_usd: 6000 });
+  assert.deepEqual(await record(o(i), 'l-res', 'won', { amount_usd: 5000, now: NOW }), { ok: false, note: "That's more than this program pays; check the amount." });
+  assert.deepEqual(await record(o(i), 'l-res', 'won', { amount_usd: 1000, now: NOW }), { ok: true, total_usd: 7000 });
   const [row] = await sql()`SELECT status, amount_usd FROM applications WHERE installation_id = ${i} AND program_id = 'l-res'`;
-  assert.deepEqual([row.status, Number(row.amount_usd)], ['won', 3000]);
-  assert.equal((await summary(o(i), [], NOW)).won_usd, 3000);
+  assert.deepEqual([row.status, Number(row.amount_usd)], ['won', 7000]);
+  assert.equal((await summary(o(i), [], NOW)).won, 1);
+  assert.equal((await summary(o(i), [], NOW)).won_usd, 7000);
+  // Each payment is kept in the history.
+  const paid = await sql()`SELECT amount_usd FROM application_history WHERE owner = ${o(i)} AND program_id = 'l-res' AND status = 'won' ORDER BY at, amount_usd`;
+  assert.deepEqual(paid.map((x) => Number(x.amount_usd)).sort((a, b) => a - b), [1000, 3000, 3000]);
+  assert.deepEqual(await record(o(i), 'l-res', 'rejected', { now: NOW }), { ok: false, note: 'That one already has a result here: won $7,000.' });
   await prog('l-rej');
   await record(o(i), 'l-rej', 'applied', { now: NOW });
   await record(o(i), 'l-rej', 'rejected', { now: NOW });

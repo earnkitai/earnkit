@@ -62,8 +62,10 @@ also edit or delete everything. Unlinked agents keep working with no sign-in.
 
 A program's reviewer is marked by EarnKit. Their agent calls screen with the applicants (name, repo,
 site, contracts, pitch). Each comes back used, live, building, unverified or flagged, with the public
-evidence behind it: the repo, the chain and the site. A reviewer never sees a builder's record,
-another program's name or another applicant's text.
+evidence behind it: the repo, the chain and the site, 25 applicants a page. A reviewer never sees a
+builder's record, another program's name, screens or results, or another applicant's text. A
+program's reviewers share its screens and results, which stay with the program when a reviewer
+leaves. A reviewer never posts the result of their own application.
 
 ## Program pages
 

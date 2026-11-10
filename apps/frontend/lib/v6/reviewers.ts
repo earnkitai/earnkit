@@ -31,14 +31,15 @@ async function builderOf(githubLogin: string | null, githubId?: number): Promise
   return rows[0] ? { id: rows[0].id } : { reason: NO_BUILDER };
 }
 
-/** Marks the builder (by GitHub id, else by login) a reviewer of the program; again updates the contact. */
+/** Marks the builder (by GitHub id, else by login) a reviewer of the program; again updates the contact when one is
+ *  sent and keeps the saved one when none is (L15-2, v6.1.14). */
 export async function addReviewer(programId: string, githubLogin: string | null, contact: string | null, githubId?: number): Promise<ReviewerResult> {
   if (!(await getProgram(programId))) return { ok: false, reason: NO_PROGRAM };
   const b = await builderOf(githubLogin, githubId);
   if ('reason' in b) return { ok: false, reason: b.reason };
   const id = b.id;
   await sql()`INSERT INTO program_reviewers (program_id, builder_id, contact) VALUES (${programId}, ${id}, ${contact})
-    ON CONFLICT (program_id, builder_id) DO UPDATE SET contact = EXCLUDED.contact`;
+    ON CONFLICT (program_id, builder_id) DO UPDATE SET contact = COALESCE(EXCLUDED.contact, program_reviewers.contact)`;
   return { ok: true, builder_id: id };
 }
 
