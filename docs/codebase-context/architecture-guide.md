@@ -77,11 +77,17 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
    one, on the project's chains, takes its rank place; off them it is shown only after `max - 1` others or alone
    (N-2). A keyword hit (`keywordHit`, `eligibility.ts`, N1 v6.1.12: a rule still to confirm whose keywords the project
    names) is no rule-slot program: it competes as a rule-free step, own chain first, and ranks as a step with no rule
-   left; only programs with no hit keep the one rule slot. A rule item may carry `keywords` (L1c-2): when a rule still to confirm has keywords and the project names
+   left; only programs with no hit and no keywords on their rules keep the one rule slot (`keyed`, L1e-2, v6.1.13: a
+   rule whose keywords say which builders it is for, Thiel's `student`, `college` and the rest, shows only on a hit). A rule item may carry `keywords` (L1c-2): when a rule still to confirm has keywords and the project names
    none of the program's keywords (whole word or phrase, case-insensitive, a hyphen read as a space) in its name, description, README excerpt
    or topics (the first three as prose: links, fenced code and inline code removed, `proseOf`, C3 v6.1.13; the README
    excerpt itself drops inline code spans), `unlikely` (`eligibility.ts`) holds and the program is left to `filter.all` (counted in `more`); a rule
-   with no keywords keeps the slot rule. In-person programs are off the default step list (R18d, R18f); a rule-only
+   with no keywords keeps the slot rule. With nothing ready, the closing's rule question names a keyword-hit rule-only
+   program first (`keyword_hit` on the gap, L1e-5, v6.1.13), else the first in list order. One yes per reply (L1e-2):
+   when a ready program takes the closing (`Say yes and I apply.` or the draft form), no rule-only line carries its
+   own `Say "yes n" if that is you.` (the builder may still answer `yes n`). Several rules still to confirm read as one
+   sentence, `Their rules: a; b.` (L1e-6). Every gap line closing in 14 whole days or fewer says `closes in {n} days`
+   (L1e-6; the 7-day O1 rule still decides who jumps the cap). In-person programs are off the default step list (R18d, R18f); a rule-only
    in-person program is listed in the In person block after the ready ones, with its rule and `Say "yes n" if that is
    you.` (O2), in the in-person slots the ready ones leave. With nothing remote ready, a shown remote step closes the reply
    (its rule's yes, the users question or `First: {step}.`), the cheapest step shown first: a question (the users
@@ -96,7 +102,8 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
    verb phrases; an in-person line says them once in its attend sentence.
 5. `prefill.ts` fills each ready program's form: fields EarnKit can answer (`from: earnkit`), prose fields handed to
    the agent with sources (`from: agent`), and fields only the builder can give (`from: builder`, a demo video or
-   a file). Blank beats a wrong guess. `facts_from_repo` counts only values the public code read gave (its repo link,
+   a file, or an `other` answer the program file marks `from: builder`, unlinked: Thiel's and YC's application
+   answers, Base's revenue; L1e-3, v6.1.13, so an idea and an empty repo read the same need). Blank beats a wrong guess. `facts_from_repo` counts only values the public code read gave (its repo link,
    homepage, contracts and chains with basis `code`), never anything the agent passed; the reply says "Drafted: N facts from the repo." only when N is above zero.
 6. `since.ts` lists programs new, changed (deadline, amount, status, form) and closing within 7 days since this
    installation's `last_find_at`. Empty on the first call.
@@ -160,7 +167,10 @@ query or fragment, no `/tree/...` or `/blob/...` suffix, on github.com owner and
 the repo read's cache key `repoKey` reads the same helper), else `name:` and the name NFKC and case-folded, else `''`
 (rows from before v6.1.10 stay at `''`). The first find that adds the repo to a project found by name moves its
 `gaps_done`, claim `project_id` and `project_reports` rows from the `name:` key to the repo key in one transaction
-(`rekeyProject` in `ledger.ts`; a step under both keeps the newer time). `find` reads done steps (`doneItems`, `doneByProgram`, `codeDoneAt`) with its project's key and keeps it in
+(`rekeyProject` in `ledger.ts`; a step under both keeps the newer time). `find` reads done steps (`doneItems`, `doneOn`, `codeDoneAt`) with its project's key;
+a project item (`PROJECT_ITEMS`: `users`) done on any program of the project counts for every program on it (L1e-4,
+v6.1.13: `Done.of`), for find, track and the send check alike, while a yes said (`rule_yes`) and the acted-on pin stay
+the program's own (`Done.own`) and keeps it in
 `installations.last_project_key`; `track` takes the key from its `project` (`name`, `repo_url`), else the record project
 named by `project_id`, else `last_project_key`. Track parses its `project` with find's own `parseProject` and limits
 (v6.1.13 B5, `partial`: a long name is cut to 80, a bad or long link dropped, a missing name never refused; the problems go
@@ -420,7 +430,11 @@ hand them over." A rule the builder confirmed marks the ready program `rule_yes`
 on a program that asks it; F3, v6.1.10; a `users: true` the agent passed settles the users item but is no yes, final round), and the closing reads "Your yes stands
 for {title}: I apply now." instead of asking again, only when that program is fully ready (nothing in `need_you`);
 with answers still missing, the closing names them instead of a second yes: "{title} needs your {needs}; then I
-apply." (at most three, then "and n more"; N3, v6.1.12), and any other ready programs keep their yes. The email the
+apply." (at most three, then "and n more"; N3, v6.1.12), and any other ready programs keep their yes. A program the
+builder submits reads the same in the draft wording (L1e-3, v6.1.13; list and detail alike): "Your yes stands for
+{title}: I draft it for you to send." and "{title} needs your {needs}; then I draft it for you to send.". A program
+that funds existing code (`needs_repo`, existing work allowed, not a hackathon or in person) is no fit, "needs code in
+a repo", for a project with no live link and no repo link or an empty repo (L1e-6, v6.1.13: FUTO for an idea). The email the
 "Before applying" block names (`record_missing`) is named once per reply: the drafted line, the Before tonight line and
 the N3 closing leave it out unless it is the only need (`namedBefore`, F5, v6.1.12). A new-work program (`new_work_after`) with no first-commit date is
 the question step "tell me when you started this" (minutes, never the agent's, never a reason to refuse; O3, v6.1.10):
@@ -431,11 +445,11 @@ in-person line with ", in person" (O4). A find that passed a repo never lists "a
 spaces and punctuation ignored, the first tier any program fits: the whole id or title or the id's initials ("yc",
 "ycombinator"); the start of a title or id, four characters at least ("monad", "Base", "kiro"); one organizer's whole
 name, as written or without its brackets ("Thiel Foundation", "Kiro"; never "aws" from "Kiro (AWS)"). A start that is
-an organizer's first word alone, not its whole name ("ethereum", "thiel", "circle"), is only offered beside that
-organizer's other programs, never taken (final fix, v6.1.12, I2). One program fitting is used, and when it is not the id
-passed, track's and the detail's first line names it ("Started: {title}.", "Tracked: {title}."; `namedFirst`); several answer "I don't know that program. Did you mean {title one}
-or {title two}?" (the first two by `byLookupRank`: open, then upcoming, then the rest; larger award; sooner close);
-none, "I don't know that program." with up to two titles sharing a word. Track records nothing on such a name; a result on an id the ledger
+an organizer's first word alone, not its whole name ("ethereum", "thiel", "circle", "floss"), is weighed beside that
+organizer's other programs (final fix, v6.1.12, I2): exactly one is that program ("floss", "thiel"; L1e-1, v6.1.13),
+several ask ("circle"). One program fitting is used, and when it is not the id
+passed, track's and the detail's first line names it ("Started: {title}.", "Tracked: {title}."; `namedFirst`); several answer "Did you mean {title one} or {title two}?" alone (L1e-1, v6.1.13) (the first two by `byLookupRank`: open, then upcoming, then the rest; larger award; sooner close);
+none, "Did you mean {title}?" for up to two titles sharing a word, else "I don't know that program." alone. Track records nothing on such a name; a result on an id the ledger
 holds as sent is that id, before any matching (final fix, v6.1.12). Find's record line reads "Still missing for
 these programs: ..." (what these forms need); `record get` keeps "Your record is missing: ..." (every fact), and both
 `record get` and `set` carry an agent note. `/me/policy` refuses auto apply with no
