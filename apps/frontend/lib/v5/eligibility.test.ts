@@ -430,6 +430,35 @@ test('C3 (v6.1.13): keywords inside links, code blocks and inline code are not t
   assert.equal(readmeExcerpt('Reads logs. Install with `npm i quest-cli` today.'), 'Reads logs. Install with today.');
 });
 
+test('L12-2 (v6.1.14): identifiers in prose (package names, paths, dotted or mixed tokens) are not the project naming a keyword', async () => {
+  const vr = fromFile('meta-vr-start-competition-2026');
+  const base = await repoFacts({ name: 'x', description: '' }, { now: NOW });
+  const facts = (over: Partial<RepoFacts>): RepoFacts => ({ ...base, ...over });
+  const hitOf = (p: ProgramRow, f: RepoFacts) => keywordHit(p, f, evaluate(p, f, new Set(), NOW).gaps);
+  for (const description of [
+    'A log viewer for servers. Install with npm i quest-cli to start.',
+    'Reads logs from quest_runner and src/quest/main.ts.',
+    'Ships quest.js and quest2 builds.',
+    'Install quest-cli.',
+  ]) {
+    const f = facts({ name: 'Log Viewer', description });
+    assert.equal(hitOf(vr, f), false, description);
+    assert.equal(unlikely(vr, f, evaluate(vr, f, new Set(), NOW).gaps), true, description);
+  }
+  // The words themselves in prose still count, punctuation around them a boundary.
+  for (const description of ['A Quest game for hands.', 'A game for Meta (Quest) headsets.', 'A hands-first demo.'])
+    assert.equal(hitOf(vr, facts({ name: 'Game', description })), true, description);
+  // An identifier-like token that is itself a keyword, or a word of one, stays: mini-app, web3, team1, v4 hook.
+  const fc = fromFile('farcaster-developer-rewards');
+  const fcRule: Gap[] = [{ kind: 'rule', item: ruleItem('a Farcaster Mini App'), what: 'a Farcaster Mini App', effort: 'hours', agent_can: false }];
+  assert.equal(keywordHit(fc, facts({ name: 'Tipper', description: 'A mini-app for tipping.' }), fcRule), true);
+  assert.equal(hitOf(fromFile('colosseum-eternal'), facts({ name: 'Pay', description: 'A web3 wallet.', chains: [] })), true);
+  assert.equal(hitOf(fromFile('avalanche-team1-mini-grants'), facts({ name: 'Pay', description: 'Built at a Team1 meetup.' })), true);
+  assert.equal(hitOf(fromFile('uniswap-foundation-open-grants'), facts({ name: 'Orders', description: 'A v4 hook for limit orders.' })), true);
+  // Topics are tags, not prose: a hyphenated topic still names its words.
+  assert.equal(hitOf(vr, facts({ name: 'Game', description: 'A game.', topics: ['quest-game'] })), true);
+});
+
 test('L1c-2 final (v6.1.10): the keyword matcher takes punctuation as a boundary, a hyphen as a space, and a phrase only whole', () => {
   // Punctuation next to the keyword is a boundary.
   assert.equal(names('a game for meta (quest) headsets', 'quest'), true);

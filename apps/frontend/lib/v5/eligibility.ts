@@ -210,11 +210,24 @@ export const proseOf = (text: string): string =>
     .replace(/```[\s\S]*?(```|$)/g, ' ')
     .replace(/`[^`\n]*`/g, ' ')
     .replace(/\b(?:https?:\/\/|www\.)\S+/gi, ' ');
-/** What the project says about itself, lower-cased: its name, description and README excerpt as prose, its topics
- *  (L1c-2), and its own chains, reported and read, by slug and name (T3-R3, v6.1.13: a project on Avalanche names
- *  Avalanche). Pure. */
-const projectWords = (facts: RepoFacts): string =>
-  [proseOf(facts.name), proseOf(facts.description), proseOf(facts.readme_excerpt ?? ''), ...(facts.topics ?? []),
+/** An identifier, not a word of prose (L12-2, v6.1.14): a token holding `-`, `/`, `.` or `_`, or letters mixed with
+ *  digits (`quest-cli`, `src/quest`, `quest.js`, `quest2`). Pure. */
+const identifier = (t: string): boolean => /[-/._]/.test(t) || (/\p{L}/u.test(t) && /\p{N}/u.test(t));
+/**
+ * Prose with its identifiers dropped (L12-2, v6.1.14): each whitespace token, its outer punctuation aside, that reads as
+ * an identifier is left out, unless the token (a hyphen as a space) is itself one of `keep` (the program's keywords and
+ * their words), so `mini-app`, `web3`, `team1` and `v4` stay as prose while `npm i quest-cli` names no Quest. Pure.
+ */
+export const wordsOf = (text: string, keep: ReadonlySet<string>): string =>
+  text.split(/\s+/).filter((tok) => {
+    const core = tok.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '').toLowerCase();
+    return !identifier(core) || keep.has(core.replace(/-/g, ' '));
+  }).join(' ');
+/** What the project says about itself, lower-cased: its name, description and README excerpt as prose (links, code and
+ *  identifiers dropped, L12-2), its topics (L1c-2), and its own chains, reported and read, by slug and name (T3-R3,
+ *  v6.1.13: a project on Avalanche names Avalanche). `keep`: the keywords and their words an identifier may be. Pure. */
+const projectWords = (facts: RepoFacts, keep: ReadonlySet<string>): string =>
+  [...[facts.name, facts.description, facts.readme_excerpt ?? ''].map((t) => wordsOf(proseOf(t), keep)), ...(facts.topics ?? []),
     ...facts.chains.flatMap((c) => [c.chain, chainName(c.chain)])].join('\n').toLowerCase();
 /** A hyphen reads as a space on both sides, so `mini app` matches "mini-app" (v6.1.10 final). Pure. */
 const unhyphen = (s: string): string => s.replace(/-/g, ' ');
@@ -241,6 +254,8 @@ function keywordsNamed(program: ProgramRow, facts: RepoFacts, gaps: Gap[]): bool
   const pending = new Set(gaps.filter((g) => g.kind === 'rule').map((g) => g.item));
   const items = eligibilityOf(program.file).filter((i) => i.kind === 'rule');
   if (!items.some((i) => (i.keywords?.length ?? 0) > 0 && pending.has(itemKey(i)))) return null;
-  const text = projectWords(facts);
-  return items.flatMap((i) => i.keywords ?? []).some((k) => names(text, k));
+  const keywords = items.flatMap((i) => i.keywords ?? []);
+  const keep = new Set(keywords.flatMap((k) => { const w = unhyphen(k.toLowerCase()); return [w, ...w.split(' ')]; }));
+  const text = projectWords(facts, keep);
+  return keywords.some((k) => names(text, k));
 }
