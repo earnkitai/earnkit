@@ -6,7 +6,6 @@
  */
 import { rulesOnly, type Gap, type Verdict } from '../v5/eligibility';
 import { categoryOf } from '../v5/program-file';
-import { ME_CHOICES } from '../v5/site-copy';
 import type { RecordContext } from '../v5/prefill';
 import type { ProgramRow } from '../v5/programs';
 import type { RepoFacts } from '../v5/repo-facts';
@@ -191,6 +190,10 @@ const moneyIn = (record: BuilderRecord, row: ProgramRow) => {
  *  money is within max_ask_usd. Pure. */
 export const withinApproval = (record: BuilderRecord) => (row: ProgramRow) => categoryIn(record, row) && moneyIn(record, row);
 
+/** A category as a plural noun inside a sentence (v6.1.9 N5): "bounties", "grants". Pure. */
+const CATEGORY_PLURAL: Record<string, string> = { grant: 'grants', hackathon: 'hackathons', investment: 'investments', bounty: 'bounties' };
+const categoryWords = (c: string) => CATEGORY_PLURAL[c] ?? `${c.toLowerCase()} programs`;
+
 /**
  * Why an agent's send of this program is outside the builder's standing approval, in one plain clause, or null when
  * the policy covers it (the nightly count aside, which the ledger checks under its lock; v6.1.8 B18). Pure.
@@ -199,7 +202,7 @@ export function outsideApproval(record: BuilderRecord, row: ProgramRow): string 
   if (row.file.in_person) return 'it is in person';
   if (row.file.submit === 'builder') return 'only you may apply to it';
   if (!record.policy.agent_may_submit) return 'your agent may not press submit';
-  if (!categoryIn(record, row)) return `${ME_CHOICES[categoryOf(row.file)] ?? categoryOf(row.file)} is not in your categories`;
+  if (!categoryIn(record, row)) return `${categoryWords(categoryOf(row.file))} are not in your categories`;
   if (!moneyIn(record, row)) return 'its award is above your limit';
   return null;
 }

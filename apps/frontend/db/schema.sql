@@ -223,6 +223,8 @@ ALTER TABLE applications ADD COLUMN IF NOT EXISTS claimed_by int;
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS auto_applied boolean NOT NULL DEFAULT false;
 -- The program's title when it was sent, so a result still reads once the program leaves the catalog (v6.1.7).
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS title text;
+-- When the application was sent: set on applied, never rewritten by a result; the nightly limit counts it (v6.1.9).
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS sent_at timestamptz;
 
 -- The owner's daily digest: the day it covered and when it was sent; the next digest starts there.
 CREATE TABLE IF NOT EXISTS owner_digests (

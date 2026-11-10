@@ -3,14 +3,15 @@
  * with one line for the builder, one for the agent, and the updated ledger.
  */
 import { z } from 'zod';
-import { getRecord, ownerKey } from '../v6/builders';
+import { getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason } from '../v6/builders';
+import { DELETED_NOTICE } from '../v6/reply-words';
 import { claim } from '../v6/claims';
 import { NIGHT_LIMIT, outsideApproval } from '../v6/find-record';
 import { forgetGap, lastGaps } from './installations';
 import { getProgram, listOpenPrograms } from './programs';
 import { doneItems, record, summary, titleOf, type Ledger, type Status } from './ledger';
 import { clock } from './reply';
-import { itemKey } from './eligibility';
+import { codeChecked, itemKey } from './eligibility';
 import { eligibilityOf } from './program-file';
 import { sql } from './db';
 import { inputDetail } from './tool-input';
@@ -56,6 +57,14 @@ async function knownProject(builderId: number | null, projectId: string): Promis
 }
 
 export async function track(ctx: TrackContext, input: unknown): Promise<Result> {
+  const r = await answer(ctx, input);
+  // C51 (v6.1.9): the first call after the account was deleted carries the notice, track as well as find and record;
+  // taken once the reply is built, so a throw keeps it for the next call.
+  if (ctx.builderId !== null || (await unlinkedReason(ctx.installationId)) !== 'deleted' || !(await takeUnlinkedNotice(ctx.installationId))) return r;
+  return { ...r, show_to_builder: `${DELETED_NOTICE} ${r.show_to_builder}` };
+}
+
+async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   const owner = ownerKey(ctx.installationId, ctx.builderId);
   const programs = await listOpenPrograms(ctx.now);
   const refuse = async (note: string, agentNote = 'Nothing was recorded.'): Promise<Result> => ({
@@ -127,7 +136,8 @@ async function act(
             ledger: await summary(owner, programs, ctx.now),
           };
     return {
-      show_to_builder: 'Started. Your other agents leave this one alone for 24 hours.',
+      // N11 (v6.1.9): an unlinked agent has no other agents to speak of.
+      show_to_builder: ctx.builderId === null ? 'Started.' : 'Started. Your other agents leave this one alone for 24 hours.',
       agent_note: 'Fill the form from the fields, submit, then call track with applied, submitted_by and fields_used.',
       ledger: await summary(owner, programs, ctx.now),
     };
@@ -150,12 +160,15 @@ async function act(
   if (i.status === 'gap_done') {
     // A repeat says so (v6.1.7, C26); a rule is confirmed, not re-read from the repo (m3).
     // N2 (v6.1.8): the program comes back ready only when no other rule of it is left to confirm.
+    // N-5 (v6.1.9): what the code or the report settles is re-checked on the next find; the builder's word counts done.
     const left = i.item!.startsWith('rule:') && !('repeated' in res) ? await rulesLeft(owner, i.program_id) : 0;
     const [show, note] = 'repeated' in res
       ? ['Already noted.', 'Call find again for the updated ledger.']
       : i.item!.startsWith('rule:')
         ? ['Noted. That rule counts as confirmed.', left === 0 ? 'Call find again; the program comes back ready.' : `Call find again; ${left === 1 ? 'one rule is' : `${left} rules are`} left.`]
-        : ["Noted. I'll re-check the repo on the next look.", 'Call find again so the repo is re-read.'];
+        : codeChecked(i.item!)
+          ? ['Noted. I check the repo on the next look.', 'Call find again so the repo is re-read.']
+          : ['Noted.', 'Call find again; that step counts as done.'];
     return { show_to_builder: show, agent_note: note, ledger: await summary(owner, programs, ctx.now) };
   }
   const title = await titleOf(owner, i.program_id);

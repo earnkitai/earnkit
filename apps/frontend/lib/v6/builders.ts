@@ -81,7 +81,8 @@ export async function touchBuilder(id: number, now: Date): Promise<void> {
 /**
  * Links the installation to the builder and re-keys its ledger, in one transaction (the caller's
  * when `db` is one). On a program both ledgers hold, the stronger row stays and the other is dropped (v6.1.8 B15): a
- * result beats an application, which beats a claim or a skip; of two equal ones the newer `at` stays. History is
+ * result beats an application, which beats a claim or a skip; won beats rejected beats no_result whatever the time
+ * (v6.1.9 N3); of two equal ones the newer `at` stays. History is
  * all kept; duplicate gap items are dropped. `migrated`: the applications moved. Linked to another
  * builder: LinkRefused and nothing changes; to this one again: only stray i: rows move.
  */
@@ -95,13 +96,14 @@ export async function linkInstallation(installationId: number, builderId: number
       await tx`UPDATE installations SET builder_id = ${builderId}, linked_at = ${now}, unlinked_at = NULL, unlinked_reason = NULL WHERE id = ${installationId}`;
     // Rows of both ledgers are locked in a stable order, so two links to one builder never interleave.
     await tx`SELECT 1 FROM applications WHERE owner IN (${from}, ${to}) ORDER BY owner, program_id FOR UPDATE`;
-    // A later skip or claim from the unlinked time never replaces a win or an application (lane 7 relink).
+    // A later skip or claim from the unlinked time never replaces a win or an application (lane 7 relink); among
+    // results, won beats rejected beats no_result whatever the time (v6.1.9 N3): a relink never loses a win.
     await tx`DELETE FROM applications i USING applications b
       WHERE i.owner = ${from} AND b.owner = ${to} AND i.program_id = b.program_id
-        AND ((CASE WHEN i.status IN ('won', 'rejected', 'no_result') THEN 3 WHEN i.status = 'applied' THEN 2 ELSE 1 END)
-          < (CASE WHEN b.status IN ('won', 'rejected', 'no_result') THEN 3 WHEN b.status = 'applied' THEN 2 ELSE 1 END)
-          OR ((CASE WHEN i.status IN ('won', 'rejected', 'no_result') THEN 3 WHEN i.status = 'applied' THEN 2 ELSE 1 END)
-            = (CASE WHEN b.status IN ('won', 'rejected', 'no_result') THEN 3 WHEN b.status = 'applied' THEN 2 ELSE 1 END) AND i.at <= b.at))`;
+        AND ((CASE i.status WHEN 'won' THEN 5 WHEN 'rejected' THEN 4 WHEN 'no_result' THEN 3 WHEN 'applied' THEN 2 ELSE 1 END)
+          < (CASE b.status WHEN 'won' THEN 5 WHEN 'rejected' THEN 4 WHEN 'no_result' THEN 3 WHEN 'applied' THEN 2 ELSE 1 END)
+          OR ((CASE i.status WHEN 'won' THEN 5 WHEN 'rejected' THEN 4 WHEN 'no_result' THEN 3 WHEN 'applied' THEN 2 ELSE 1 END)
+            = (CASE b.status WHEN 'won' THEN 5 WHEN 'rejected' THEN 4 WHEN 'no_result' THEN 3 WHEN 'applied' THEN 2 ELSE 1 END) AND i.at <= b.at))`;
     await tx`DELETE FROM applications b USING applications i
       WHERE b.owner = ${to} AND i.owner = ${from} AND i.program_id = b.program_id`;
     const moved = await tx`UPDATE applications SET owner = ${to} WHERE owner = ${from}`;

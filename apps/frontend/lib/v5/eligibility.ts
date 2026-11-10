@@ -64,6 +64,28 @@ function gapOf(i: EligibilityItem): Gap {
   }
 }
 
+/**
+ * N-5 (v6.1.9): items the code or the project report settles, so a builder's "done" is re-checked, not taken: the
+ * item is noted, and while the read still misses it the find says so once after that program's line. Every other item
+ * (a demo video, users, a feature, a rule) is the builder's word and counts done.
+ */
+const CODE_CHECKED = new Set<string>(['chain', 'contract_on', 'builder_codes', 'live_product', 'integration']);
+export const codeChecked = (item: string): boolean => CODE_CHECKED.has(item.split(':')[0]);
+
+/** What the read looked for, as a thing ("the contract on Base"), for each code-checked gap the builder marked done. Pure. */
+export function lookedAgain(gaps: Gap[], done: Set<string>): string[] {
+  return gaps.filter((g) => codeChecked(g.kind) && done.has(g.item)).map((g) => {
+    const chain = chainName(g.details?.chain ?? '');
+    switch (g.kind) {
+      case 'chain': return `the contract on ${chain}`;
+      case 'contract_on': return `a contract on ${chain}`;
+      case 'builder_codes': return 'Base Builder Codes in the app';
+      case 'live_product': return 'a live link';
+      default: return g.what.replace(/^add /, '');
+    }
+  });
+}
+
 const date = (s: string) => s.slice(0, 10);
 /** Users not reported: a question only the builder answers, not weeks of work. */
 const USERS_UNKNOWN: Gap = { kind: 'users', item: 'users', what: 'tell me if real people use it', effort: 'hours', agent_can: false };

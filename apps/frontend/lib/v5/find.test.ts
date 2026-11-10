@@ -850,8 +850,9 @@ test('max_ask_usd keeps a larger ask out of tonight and names it; a program with
     const free = ids(freeRows);
     assert.ok(free.includes('f-open') && !free.includes('f-big'), JSON.stringify(free));
     const show = r.reply!.show_to_builder as string;
-    assert.match(show, /Outside your standing approval, you say yes yourself: [^\n]*Big Grant[^\n]*\./);
-    assert.doesNotMatch(show, /yourself: [^\n]*Open Grant/);
+    // N4 (v6.1.9): tonight goes ahead; the ask outside the approval would add more.
+    assert.match(show, /Tonight's sends? goes? ahead\. These would add \d+ more: [^\n]*you say yes yourself to [^\n]*Big Grant[^\n]*\./);
+    assert.doesNotMatch(show, /yes yourself to [^\n]*Open Grant/);
     assert.match(show, tonightRe(freeRows.map((p) => p.title)));
     // With auto_apply off, the limits change nothing.
     const off = await linkedWith({ ...OWNER_RECORD, policy: { max_ask_usd: 10_000, categories: ['grant'] } });
@@ -1548,4 +1549,32 @@ test('fix round 1: a linked find with no project reports the overnight sends and
   const next = await mcpCall({ ...c, now: new Date(morning.getTime() + H) }, 'find', { project: PROJECT });
   assert.deepEqual(next.reply!.applied_overnight, []);
   assert.doesNotMatch(next.reply!.show_to_builder as string, /Applied under your standing approval|wait for your approval again|waits for your approval again/);
+});
+
+test('N-5 (v6.1.9): a step marked done that the read still misses is said once per find after its line; the builder\'s word counts done', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  await upsertProgram(programFixture({ id: 'n5-live', title: 'Live Link Grant', max_award_usd: 4000, eligibility: [{ kind: 'live_product' }] }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'n5-demo', title: 'Demo Grant', max_award_usd: 4000, eligibility: [{ kind: 'demo_video' }] }), 'file', NOW);
+  const c = ctx(await installation());
+  const project = { name: 'N5 App', description: 'An app for builders.' };
+  const one = async (id: string, p: Record<string, unknown> = project) => (await mcpCall(c, 'find', { program_id: id, project: p })).reply!.show_to_builder as string;
+  const LOOKED = 'I looked again and did not find a live link; it stays a step.';
+  assert.doesNotMatch(await one('n5-live'), /looked again/);
+  const noted = await mcpCall(c, 'track', { program_id: 'n5-live', status: 'gap_done', item: 'live_product' });
+  assert.equal(noted.reply!.show_to_builder, 'Noted. I check the repo on the next look.');
+  assert.equal((await one('n5-live')).split('\n')[0], `Live Link Grant, Up to $5,000: put a live link up. ${LOOKED}`);
+  // In the full list, after that program's line, once per find, every find while it is missing.
+  for (let k = 0; k < 2; k++) {
+    const all = (await mcpCall(c, 'find', { project, filter: { all: true } })).reply!.show_to_builder as string;
+    const line = all.split('\n').find((l) => l.includes('Live Link Grant'))!;
+    assert.ok(line.endsWith(`: put a live link up. ${LOOKED}`), line);
+    assert.equal(all.split(LOOKED).length, 2);
+  }
+  // Found: no sentence, and it is ready.
+  assert.doesNotMatch(await one('n5-live', { ...project, live_url: 'https://n5.example' }), /looked again/);
+  // A demo video is the builder's word: noted, and it counts done.
+  const demo = await mcpCall(c, 'track', { program_id: 'n5-demo', status: 'gap_done', item: 'demo_video' });
+  assert.deepEqual([demo.reply!.show_to_builder, demo.reply!.agent_note], ['Noted.', 'Call find again; that step counts as done.']);
+  const after = await one('n5-demo');
+  assert.doesNotMatch(after, /demo video|looked again/);
 });

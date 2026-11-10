@@ -252,6 +252,41 @@ test('B15: equal statuses keep the newer row; applied beats an older skip from t
   assert.equal(eq.note, 'new');
 });
 
+test('Review Focus 5 (v6.1.9 N3): a relink never turns a win into a rejection; won beats rejected beats no_result whatever the time', async () => {
+  const b = await builder('relink3');
+  const one = await install();
+  const two = await install();
+  for (const id of ['bl-w-b', 'bl-w-i', 'bl-r-nr']) await prog(id);
+  await linkInstallation(one, b.id, NOW);
+  const bo = ownerKey(one, b.id);
+  const io = ownerKey(two, null);
+  const later = new Date(NOW.getTime() + DAY);
+  const latest = new Date(NOW.getTime() + 2 * DAY);
+  // A win in the builder ledger; a newer rejection in the other.
+  await record(bo, 'bl-w-b', 'applied', { installationId: one, now: NOW });
+  await record(bo, 'bl-w-b', 'won', { installationId: one, amount_usd: 111, now: NOW });
+  await record(io, 'bl-w-b', 'applied', { now: later });
+  await record(io, 'bl-w-b', 'rejected', { now: latest });
+  // A win in the unlinked ledger; a newer rejection in the builder's.
+  await record(io, 'bl-w-i', 'applied', { now: NOW });
+  await record(io, 'bl-w-i', 'won', { amount_usd: 222, now: NOW });
+  await record(bo, 'bl-w-i', 'applied', { installationId: one, now: later });
+  await record(bo, 'bl-w-i', 'rejected', { installationId: one, now: latest });
+  // A rejection beats a newer no result.
+  await record(bo, 'bl-r-nr', 'applied', { installationId: one, now: NOW });
+  await record(bo, 'bl-r-nr', 'rejected', { installationId: one, now: NOW });
+  await record(io, 'bl-r-nr', 'applied', { now: later });
+  await record(io, 'bl-r-nr', 'no_result', { now: latest });
+  await linkInstallation(two, b.id, new Date(latest.getTime() + DAY));
+  assert.deepEqual(await rows(`b:${b.id}`), [
+    { program_id: 'bl-r-nr', status: 'rejected' },
+    { program_id: 'bl-w-b', status: 'won' },
+    { program_id: 'bl-w-i', status: 'won' },
+  ]);
+  const amounts = await sql()`SELECT program_id, amount_usd FROM applications WHERE owner = ${`b:${b.id}`} AND status = 'won' ORDER BY program_id`;
+  assert.deepEqual(amounts.map((r) => Number(r.amount_usd)), [111, 222]);
+});
+
 test('C51: deleteBuilder marks each linked installation, so its next call says the record was deleted, once', async () => {
   const b = await builder('gone');
   const one = await install();

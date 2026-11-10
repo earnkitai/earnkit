@@ -309,8 +309,24 @@ test('the "Before applying" paragraph groups the sign-ins, names the clicks and 
   // Standing approval and one program free to send: the agent applies tonight.
   const free = base({ ...LINKED, ready: [...LINKED.ready, ready({ program_id: 'f1', title: 'Free', from_record: 1, total: 1 })], auto_apply: true, max_per_night: 5 });
   const tonight = replyText(free, false);
-  assert.match(tonight, /\n\nBefore tonight \(nothing is sent until these are in\): you sign in to Google/);
+  // N4 (v6.1.9): tonight waits on none of the builder's steps; they would add more.
+  assert.ok(tonight.split('\n\n').includes(
+    "Tonight's send goes ahead. These would add 4 more: you sign in to Google on your agent's computer for Base Builder Grant and Google Two; you sign in to Avalanche Builder Hub for Avalanche Team1; you sign in by email and press submit yourself on Click Grant. Still missing from your record: your founder video link, an approved answer on the problem, your deck link and 1 more.",
+  ), tonight);
+  assert.doesNotMatch(tonight, /Before tonight|nothing is sent until/);
   assert.match(tonight, /\n\nApplying tonight to Free\. Say stop to hold any\.$/);
+  // N1 (v6.1.9): the sends already made in the last 24 hours leave less room; none left, no tonight list.
+  const two = base({ ...free, ready: [...free.ready, ready({ program_id: 'f2', title: 'Free Two', from_record: 1, total: 1 })], max_per_night: 2 });
+  assert.match(replyText({ ...two, auto_sent_today: 0 }, false), /\n\nApplying tonight to Free and Free Two\. Say stop to hold any\.$/);
+  assert.match(replyText({ ...two, auto_sent_today: 1 }, false), /\n\nApplying tonight to Free\. Say stop to hold any\.$/);
+  const used = replyText({ ...two, auto_sent_today: 2 }, false);
+  assert.equal(used.split('\n\n').at(-1), "Tonight's limit is used; the next sends wait until tomorrow.");
+  assert.doesNotMatch(used, /Applying tonight|Tonight's send/);
+  assert.match(used, /\n\nBefore applying: you sign in to Google/);
+  assert.ok(agentNote({ ...two, auto_sent_today: 2 }, { more: 0 }).includes("Tonight's limit is used: send nothing alone until 24 hours after the last send under standing approval."));
+  // An outside-approval program reads as a step that would add one more.
+  const out = base({ ...free, record_missing: [], blockers: [{ program_id: 'av', sign_in: null, needs_click: false, needs: [], outside_approval: true }] });
+  assert.ok(replyText(out, false).split('\n\n').includes("Tonight's sends go ahead. These would add 1 more: you say yes yourself to Avalanche Team1."));
   const note = agentNote(LINKED, { more: 0 });
   assert.ok(note.includes('Fit approved answers by cutting, never by adding; the style contract travels on each field.'));
   // The Before block names the sign-ins and the submits; the note does not repeat them, nor the submit rule (v6.1.8).

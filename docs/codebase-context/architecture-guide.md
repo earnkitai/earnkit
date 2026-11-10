@@ -287,10 +287,10 @@ GitHub account {login}." (`linked_notice`, security M2); `markFind` moves `last_
 "This agent was unlinked from your account. Sign in once at {link} to link it again." in place of the sign-in sentence,
 and clears the mark once that reply is built (`takeUnlinkedNotice`, v6.1.7 B10; a find that throws first keeps it). The unlinked agent's ledger stays with the builder. The ledger's owner is `b:<builder>` once linked, else `i:<installation>` (`ownerKey`); linking moves
 the installation's rows to the builder, so every agent of one builder shares one ledger. Where both ledgers hold a
-program, the migration never downgrades (v6.1.8 B15): a result (won, rejected, no_result) beats applied, which beats a
-claim or a skip; of two equal statuses the newer `at` stays; the losing row is dropped (history is all kept). Deleting
+program, the migration never downgrades (v6.1.8 B15): a result beats applied, which beats a claim or a skip; among
+results won beats rejected beats no_result whatever the time, so a relink never loses a win (v6.1.9 N3); of two equal statuses the newer `at` stays; the losing row is dropped (history is all kept). Deleting
 the account (`deleteBuilder`) marks each linked installation (`unlinked_at`, `unlinked_reason = 'deleted'`), so its
-next `find` or `record` call says "Your record was deleted at earnkit.com/me; this agent is unlinked." once (C51). A
+next `find`, `record` or `track` call (v6.1.9) says "Your record was deleted at earnkit.com/me; this agent is unlinked." once (C51). A
 find with no project stamps `last_find_at` too, so the linked notice shows once (C47). Linked, that open list carries the report a project find would (the since line, the answers waiting again, "Applied under your standing approval: ...") in its closing block, so the stamp never swallows it. A second agent links to the same builder; an installation linked to another builder is refused.
 
 **The record and approvals.** One JSON record per builder (`record.ts`, strict): person, team, company, projects
@@ -316,8 +316,15 @@ shows on `/me` under About you, a name and role per member, editable through `/m
 Standing approval at record time (v6.1.8 B18): `track applied` with `submitted_by: 'agent'` is `auto_applied` only
 when the policy covered it at that moment: `auto_apply` on, the program not in person, not builder-only,
 `agent_may_submit` on, its category ticked (none ticked reads as all), the larger of its award and pool within
-`max_ask_usd`, and (counted in `ledger.record` under an owner lock) fewer than `max_per_night` auto-applied rows in the
-last 24 hours. Otherwise the row is recorded with `auto_applied: false` and the builder line reads "Sent, but outside
+`max_ask_usd`, and (counted in `ledger.record` under an owner lock) fewer than `max_per_night` auto-applied rows sent in
+the last 24 hours. The count reads `applications.sent_at` (v6.1.9 N2): set on `applied`, never rewritten by a result,
+so recording an old win today uses none of tonight's limit; a row from before it has none and counts by `at`
+(`autoSentSince`). Find's tonight list subtracts the same count: none left, the closing reads "Tonight's limit is used;
+the next sends wait until tomorrow." (N1). With sends tonight, the steps block reads "Tonight's send goes ahead. These
+would add {n} more: ..." (N4). `gap_done` on a code-checked item (chain, contract_on, builder_codes, live_product,
+integration) answers "Noted. I check the repo on the next look." and, while the read still misses it, the next find
+adds "I looked again and did not find {what}; it stays a step." after that program's line; any other item is the
+builder's word, answers "Noted." and counts done (N-5). Otherwise the row is recorded with `auto_applied: false` and the builder line reads "Sent, but outside
 your standing approval: {reason}." (`outsideApproval` in `find-record.ts`). `/me/policy` refuses auto apply with no
 category ticked ("Pick at least one category.", C43).
 

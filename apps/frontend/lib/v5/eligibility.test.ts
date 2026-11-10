@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
-import { evaluate } from './eligibility';
+import { codeChecked, evaluate, lookedAgain, type Gap } from './eligibility';
 import { repoFacts, type RepoFacts } from './repo-facts';
 import { parseProject } from './project-input';
 import { ProgramFile } from './program-file';
@@ -293,4 +293,14 @@ test('B20c (v6.1.9, Review Focus 1, fix round 1): the users question needs a pro
   assert.equal(evaluate(floss, { ...empty, live_url: 'https://x.dev', users: true }, new Set(), NOW).status, 'ready');
   // A program that asks for no users is unchanged.
   assert.equal(evaluate(toRow(programFixture({ id: 'p-none', tag: undefined, eligibility: [] })), idea, new Set(), NOW).status, 'ready');
+});
+
+test('N-5 (v6.1.9): code-checked items are re-read, each said as the thing the read looks for; the builder\'s word is not', () => {
+  for (const item of ['chain:base', 'contract_on:base', 'builder_codes', 'live_product', 'integration:x']) assert.equal(codeChecked(item), true, item);
+  for (const item of ['demo_video', 'users', 'feature:x', 'rule:0123abcd']) assert.equal(codeChecked(item), false, item);
+  const g = (kind: Gap['kind'], item: string, chain?: string): Gap => ({ kind, item, what: 'x', effort: 'hours', agent_can: false, ...(chain ? { details: { chain } } : {}) });
+  const gaps = [g('chain', 'chain:base', 'base'), g('contract_on', 'contract_on:base', 'base'), g('builder_codes', 'builder_codes'), g('live_product', 'live_product'), g('demo_video', 'demo_video')];
+  assert.deepEqual(lookedAgain(gaps, new Set(['chain:base', 'contract_on:base', 'builder_codes', 'live_product', 'demo_video'])),
+    ['the contract on Base', 'a contract on Base', 'Base Builder Codes in the app', 'a live link']);
+  assert.deepEqual(lookedAgain(gaps, new Set()), []);
 });
