@@ -275,18 +275,45 @@ function beforeTonight(r: R, tonight: boolean): string | null {
   return `${tonight ? 'Before tonight (nothing is sent until these are in)' : 'Before applying'}: ${parts.join(' ')}`;
 }
 
+/** The step the closing offers (M1, v6.1.9): the users question, or what to make. */
+export type FirstStep = { users: true } | { users: false; what: string };
+
+/**
+ * The first shown gap program's step the builder takes, for the closing when nothing is ready and no rule-only program
+ * is shown (M1, v6.1.9): the users question when it is the program's whole step; else its first real change. A program
+ * EarnKit makes ("do n" on its line), or whose step is its own sentence (sign in, add the project, the proof being
+ * read), already says its action, so the next program is looked at. Null when none has such a step. Pure.
+ */
+export function firstStepOf(gaps: GapProgram[]): FirstStep | null {
+  for (const g of gaps) {
+    if (g.in_person || ruleOnlyGap(g)) continue;
+    const real = [g.gap, ...g.also].filter((x) => x.kind !== 'rule');
+    if (canDo(real)) continue;
+    if (real.length > 0 && real.every(usersQuestion)) return { users: true };
+    const x = real.find((y) => !ownSentenceGap(y) && !usersQuestion(y));
+    if (x) return { users: false, what: x.what };
+  }
+  return null;
+}
+
 /**
  * The one action (v6.1.8, 1a): yes to the ready ones ("I draft ... for you to send" when the builder presses submit
  * on every one, C44), or with none ready and gaps shown "Nothing is ready yet." and the first rule-only gap's
- * "yes r". The gap lines carry their own "do n" and "yes n". Pure.
+ * "yes r", else the first step (M1, v6.1.9). The gap lines carry their own "do n" and "yes n". Pure.
  */
-export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number; firstRule: number | null; inPerson: number; held: number }): string {
+export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number; firstRule: number | null; inPerson: number; held: number; firstStep?: FirstStep | null }): string {
   const { ready, draftOnly } = o;
   if (ready === 1) return draftOnly ? 'Say yes and I draft it for you to send.' : 'Say yes and I apply.';
   if (ready > 1) return `${draftOnly ? `Say yes and I draft all ${ready} for you to send.` : `Say yes and I apply to all ${ready}.`} Or say the numbers to skip.`;
   // Ready programs held by another agent are listed as ready, so the reply never says nothing is ready (I1).
   if (o.held > 0) return "Your other agent is handling these; I'll say when something new opens.";
-  if (o.gaps > 0) return o.firstRule !== null ? `Nothing is ready yet. Say "yes ${o.firstRule}" if that rule fits you.` : 'Nothing is ready yet.';
+  if (o.gaps > 0) {
+    if (o.firstRule !== null) return `Nothing is ready yet. Say "yes ${o.firstRule}" if that rule fits you.`;
+    const step = o.firstStep ?? null;
+    if (step?.users) return 'Nothing is ready yet. Do real people use it? Say yes and I apply.';
+    if (step) return `Nothing is ready yet. Tell me when ${step.what} is done and I look again.`;
+    return 'Nothing is ready yet.';
+  }
   if (o.inPerson > 0) return "Tell me which you can attend and I'll draft it once you're in.";
   return "Nothing fits yet. I'll say when something opens.";
 }
@@ -347,7 +374,7 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   const closing =
     tonight > 0
       ? `Applying tonight to ${listWords(tonightList.map((p) => p.title), tonight)}. Say stop to hold any.`
-      : closingLine({ ready: free.length, draftOnly, gaps: r.gaps.length, firstRule, inPerson: inPerson.length, held: ready.length - free.length });
+      : closingLine({ ready: free.length, draftOnly, gaps: r.gaps.length, firstRule, inPerson: inPerson.length, held: ready.length - free.length, firstStep: firstStepOf(r.gaps) });
   // R5a: saying yes is the one action; unlinked with a link, signing in is the closing block's second sentence.
   // The first find after a link names the account it linked to, last (security M2); after an unlink the notice
   // carries the sign-in link itself, so the sign-in sentence is left out (v6.1.7 B10).

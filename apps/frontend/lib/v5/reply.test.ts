@@ -120,6 +120,7 @@ test('gaps only, the agent can do it, and the needs list is cut at three', () =>
   });
   assert.equal(
     replyText(r, false),
+    // M1 (v6.1.9): the line already offers "do 1", so the closing names no second action.
     ['One step away (1):', '1. Base Batches, $100K: add Base Builder Codes to the app. Say "do 1" and I add them.', '', 'Nothing is ready yet.'].join('\n'),
   );
   // "do n" by the gap's kind, only when EarnKit can make every real gap (1a, 3.7).
@@ -423,7 +424,8 @@ test('the closing line is one action (v6.1.8, 1a): yes to the ready ones, else "
   assert.equal(end(base({ ready: MONDAY.ready, gaps: [rulesOnly] })), 'Say yes and I apply to all 2. Or say the numbers to skip.');
   assert.match(replyText(base({ ready: MONDAY.ready, gaps: [rulesOnly] }), true), /^3\. R, \$1K\. Their rule: x\. Say "yes 3" if that is you\.$/m);
   assert.equal(end(base({ gaps: [rulesOnly, MONDAY.gaps[0]] })), 'Nothing is ready yet. Say "yes 1" if that rule fits you.');
-  assert.equal(end(base({ gaps: [MONDAY.gaps[0]] })), 'Nothing is ready yet.');
+  // M1 (v6.1.9): with no rule-only program shown, the closing offers the first step.
+  assert.equal(end(base({ gaps: [MONDAY.gaps[0]] })), 'Nothing is ready yet. Tell me when deploy the contract on Arc is done and I look again.');
   // C44: the builder presses submit on every ready one, so the agent drafts.
   const clicks = MONDAY.ready.map((p) => ({ program_id: p.program_id, sign_in: null, needs_click: true, needs: [] }));
   assert.equal(end({ ...MONDAY, blockers: clicks }), 'Say yes and I draft all 2 for you to send. Or say the numbers to skip.');
@@ -585,4 +587,24 @@ test('the one-program reply (v6.1.8, 1b): the gap line without its number or "do
   assert.equal(gapLine(attend, null, true), 'Residency, $1K. Their rule: a US co-founder. Attend in person.');
   assert.equal(gapAction(attend), null);
   assert.equal(notFitLine('Base Grant', '$1K', 'needs a contract on Base'), 'Base Grant, $1K. Not a fit: needs a contract on Base.');
+});
+
+test('M1 (v6.1.9): nothing ready and no rule-only program shown: the closing offers the first step, the users question as a yes', () => {
+  const end = (r: R) => replyText(r, true).split('\n').at(-1);
+  const USERS = { kind: 'users' as const, item: 'users', what: 'tell me if real people use it', effort: 'hours' as const, agent_can: false };
+  const floss = gap({ title: 'FLOSS/fund', gap: USERS });
+  assert.equal(end(base({ gaps: [floss] })), 'Nothing is ready yet. Do real people use it? Say yes and I apply.');
+  // A demo video (with a rule beside it) first: tell me when it is done.
+  const vr = gap({ title: 'Meta VR', gap: VIDEO, also: [ruleGap('hands first')], rules: ['hands first'] });
+  assert.equal(end(base({ gaps: [vr, floss] })), 'Nothing is ready yet. Tell me when a demo video is done and I look again.');
+  // A program EarnKit makes ("do n" on its line) or a sign-in step is passed over for the next program's step.
+  const codes = gap({ title: 'Base Batches', gap: { kind: 'builder_codes', item: 'builder_codes', what: 'add Base Builder Codes to the app', effort: 'minutes', agent_can: true } });
+  const signIn = gap({ title: 'Live Grant', gap: { kind: 'tier', item: 'tier:live', what: 'Sign in once so EarnKit can confirm your product is live', effort: 'weeks', agent_can: false } });
+  assert.equal(end(base({ gaps: [codes, signIn, floss] })), 'Nothing is ready yet. Do real people use it? Say yes and I apply.');
+  assert.equal(end(base({ gaps: [codes, signIn] })), 'Nothing is ready yet.');
+  // A rule-only program shown keeps its "yes n"; something ready keeps the yes to apply.
+  const rule = gap({ title: 'R', gap: ruleGap('x'), rules: ['x'] });
+  assert.equal(end(base({ gaps: [floss, rule] })), 'Nothing is ready yet. Say "yes 2" if that rule fits you.');
+  assert.equal(end(base({ ready: [MONDAY.ready[0]], gaps: [floss] })), 'Say yes and I apply.');
+  for (const t of [end(base({ gaps: [floss] })), end(base({ gaps: [vr] }))]) assert.doesNotMatch(t!, /—|\b(score|rank|grade|points|coin|token|streak)s?\b/i);
 });

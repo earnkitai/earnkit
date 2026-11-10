@@ -56,16 +56,17 @@ test('shownGapsOf (R18b): three rule-only and two real gaps show the two real th
   const four = [...real, v('x3', { status: 'gap', gaps: [gap('days')] }), v('x4', { status: 'gap', gaps: [gap('days')] })];
   assert.deepEqual(shownGapsOf([...four, ...rules], false, 3, remote).map((x) => x.program_id), ['x1', 'x2', 'r1']);
   assert.deepEqual(shownGapsOf(four, false, 3, remote).map((x) => x.program_id), ['x1', 'x2', 'x3']);
-  assert.deepEqual(shownGapsOf(rules, false, 3, remote).map((x) => x.program_id), ['r1']);
+  // No rule-free program: the rule-only one may take only the last slot, so none shows (N-2, v6.1.9).
+  assert.deepEqual(shownGapsOf(rules, false, 3, remote), []);
 });
 
 test('shownGapsOf (R18d): an in-person rule-only program never takes the rule-only slot; all still lists it', () => {
-  const real = [v('x1', { status: 'gap', gaps: [gap('hours')] })];
+  const real = [v('x1', { status: 'gap', gaps: [gap('hours')] }), v('x2', { status: 'gap', gaps: [gap('hours')] })];
   const rules = [v('attend', { status: 'gap', gaps: [ruleGap('a')] }), v('r2', { status: 'gap', gaps: [ruleGap('b')] })];
   const inPerson = (x: Verdict) => x.program_id === 'attend';
-  assert.deepEqual(shownGapsOf([...real, ...rules], false, 3, inPerson).map((x) => x.program_id), ['x1', 'r2']);
-  assert.deepEqual(shownGapsOf([...real, rules[0]], false, 3, inPerson).map((x) => x.program_id), ['x1']);
-  assert.deepEqual(shownGapsOf([...real, ...rules], true, 3, inPerson).map((x) => x.program_id), ['x1', 'attend', 'r2']);
+  assert.deepEqual(shownGapsOf([...real, ...rules], false, 3, inPerson).map((x) => x.program_id), ['x1', 'x2', 'r2']);
+  assert.deepEqual(shownGapsOf([...real, rules[0]], false, 3, inPerson).map((x) => x.program_id), ['x1', 'x2']);
+  assert.deepEqual(shownGapsOf([...real, ...rules], true, 3, inPerson).map((x) => x.program_id), ['x1', 'x2', 'attend', 'r2']);
 });
 
 test('rankGaps (R18e): rule-only programs naming a project mainnet first, then chain-agnostic, then the rest, each by award', () => {
@@ -86,8 +87,9 @@ test('rankGaps (R18e): rule-only programs naming a project mainnet first, then c
   // No chain: chain-agnostic first, then the rest by award.
   assert.deepEqual(rankGaps(input, programs, new Set()).map((x) => x.program_id), ['real', 'agnostic-big', 'agnostic-small', 'arc-rule', 'base-rule']);
   assert.deepEqual(rankGaps(input, programs).map((x) => x.program_id), ['real', 'agnostic-big', 'agnostic-small', 'arc-rule', 'base-rule']);
-  // The default list's one rule-only slot takes the first.
-  assert.deepEqual(shownGapsOf(rankGaps(input, programs, new Set(['base'])), false, 3, remote).map((x) => x.program_id), ['real', 'base-rule']);
+  // The default list's one rule-only slot takes the one on the project's chain, in its rank place.
+  const names = (x: Verdict, c: string) => programs.get(x.program_id)!.file.chains.includes(c);
+  assert.deepEqual(shownGapsOf(rankGaps(input, programs, new Set(['base'])), false, 3, remote, ['base'], names).map((x) => x.program_id), ['real', 'base-rule']);
 });
 
 test('shownGapsOf (R18f): in-person programs never appear in the default gap list; all still lists them', () => {
@@ -96,7 +98,8 @@ test('shownGapsOf (R18f): in-person programs never appear in the default gap lis
     v('attend-rule', { status: 'gap', gaps: [ruleGap('a')] }), v('r1', { status: 'gap', gaps: [ruleGap('b')] }),
   ];
   const inPerson = (x: Verdict) => x.program_id.startsWith('attend');
-  assert.deepEqual(shownGapsOf(ranked, false, 3, inPerson).map((x) => x.program_id), ['x1', 'r1']);
+  assert.deepEqual(shownGapsOf(ranked, false, 3, inPerson).map((x) => x.program_id), ['x1']);
+  assert.deepEqual(shownGapsOf([...ranked, v('x2', { status: 'gap', gaps: [gap('hours')] })], false, 3, inPerson).map((x) => x.program_id), ['x1', 'x2', 'r1']);
   assert.deepEqual(shownGapsOf([ranked[0], ranked[2]], false, 3, inPerson), []);
   assert.deepEqual(shownGapsOf(ranked, true, 3, inPerson), ranked);
 });
@@ -114,7 +117,8 @@ test('rankGaps (R18e tie-break): among rule-only programs on the project chains 
   assert.deepEqual(rankGaps(input, programs, both, 'base').map((x) => x.program_id), ['arb-award', 'base-rule', 'arb-rule', 'arb-other']);
   assert.deepEqual(rankGaps(input, programs, both, 'arbitrum').map((x) => x.program_id), ['arb-award', 'arb-rule', 'arb-other', 'base-rule']);
   assert.deepEqual(rankGaps(input, programs, both).map((x) => x.program_id), ['arb-award', 'arb-rule', 'arb-other', 'base-rule']);
-  assert.deepEqual(shownGapsOf(rankGaps(input.slice(0, 3), programs, both, 'base'), false, 3, remote).map((x) => x.program_id), ['base-rule']);
+  const names = (x: Verdict, c: string) => programs.get(x.program_id)!.file.chains.includes(c);
+  assert.deepEqual(shownGapsOf(rankGaps(input.slice(0, 3), programs, both, 'base'), false, 3, remote, ['base', 'arbitrum'], names).map((x) => x.program_id), ['base-rule']);
 });
 
 test('C60 (v6.1.8): the money sort reads the larger of the award and the pool, so a $1M pool outranks a $100K award', () => {
@@ -143,8 +147,8 @@ test('shownGapsOf (v6.1.8 fix round 2): at most one rule-bearing program, the be
   const ranked = [mixed('vr'), mixed('codegeist'), free('circle'), free('floss'), v('otf', { status: 'gap', gaps: [ruleGap('otf')] })];
   assert.deepEqual(shownGapsOf(ranked, false, 3, remote).map((x) => x.program_id), ['circle', 'floss', 'vr']);
   assert.deepEqual(shownGapsOf(ranked, true, 3, remote), ranked);
-  // No rule-free program: the one rule-bearing program alone.
-  assert.deepEqual(shownGapsOf([mixed('vr'), mixed('codegeist'), v('otf', { status: 'gap', gaps: [ruleGap('otf')] })], false, 3, remote).map((x) => x.program_id), ['vr']);
+  // No rule-free program: none (N-2, v6.1.9: the rule-bearing program takes only the last slot).
+  assert.deepEqual(shownGapsOf([mixed('vr'), mixed('codegeist'), v('otf', { status: 'gap', gaps: [ruleGap('otf')] })], false, 3, remote), []);
 });
 
 test('shownGapsOf (v6.1.8 fix round 3): the rule slot prefers a program naming the project\'s chains, the first chain first; else rank order', () => {
@@ -155,9 +159,61 @@ test('shownGapsOf (v6.1.8 fix round 3): the rule slot prefers a program naming t
     v('arb', { status: 'gap', gaps: [gap('days'), ruleGap('a')] }), v('base', { status: 'gap', gaps: [ruleGap('b')] }),
   ];
   const show = (chains: string[]) => shownGapsOf(ranked, false, 3, remote, chains, names).map((x) => x.program_id);
+  // On the project's chain it keeps its rank place (here after circle, as the input ranks it).
   assert.deepEqual(show(['base', 'arbitrum']), ['circle', 'base']);
   assert.deepEqual(show(['arbitrum', 'base']), ['circle', 'arb']);
   assert.deepEqual(show(['monad', 'arbitrum']), ['circle', 'arb']);
-  assert.deepEqual(show([]), ['circle', 'vr']);
-  assert.deepEqual(show(['monad']), ['circle', 'vr']);
+  // Off the project's chains, with one rule-free program: the list is that one alone (N-2, v6.1.9).
+  assert.deepEqual(show([]), ['circle']);
+  assert.deepEqual(show(['monad']), ['circle']);
+});
+
+test('N-2 (v6.1.9): a rule-bearing program off the project\'s chains takes only the last slot; with fewer rule-free programs the list is shorter', () => {
+  const mixed = (id: string) => v(id, { status: 'gap', gaps: [gap('hours'), ruleGap(id)] });
+  const free = (id: string) => v(id, { status: 'gap', gaps: [gap('hours')] });
+  // Two rule-free programs: the rule-bearing one is line three.
+  assert.deepEqual(shownGapsOf([mixed('vr'), free('a'), free('b'), free('c')], false, 3, remote).map((x) => x.program_id), ['a', 'b', 'vr']);
+  // One rule-free program (the SaaS, CLI and dotfiles shape): that one alone, never Meta VR as the second line.
+  assert.deepEqual(shownGapsOf([mixed('vr'), free('floss')], false, 3, remote).map((x) => x.program_id), ['floss']);
+  // None: no step line at all; filter.all still lists it.
+  assert.deepEqual(shownGapsOf([mixed('vr'), mixed('codegeist')], false, 3, remote), []);
+  assert.deepEqual(shownGapsOf([mixed('vr'), mixed('codegeist')], true, 3, remote).map((x) => x.program_id), ['vr', 'codegeist']);
+});
+
+test('N-3 (v6.1.9, Review Focus 2): a program the builder acted on heads the default list, rule-only or not, and takes the one rule-bearing place', () => {
+  const free = (id: string) => v(id, { status: 'gap', gaps: [gap('hours')] });
+  const vrRule = v('vr', { status: 'gap', gaps: [ruleGap('vr')] });
+  const codegeist = v('codegeist', { status: 'gap', gaps: [gap('hours'), ruleGap('cg')] });
+  const acted = (x: Verdict) => x.program_id === 'vr';
+  // Rule-only after its demo video was marked done, ranked last: still first, and no second rule-bearing program.
+  assert.deepEqual(shownGapsOf([codegeist, free('a'), free('b'), vrRule], false, 3, remote, [], () => false, acted).map((x) => x.program_id), ['vr', 'a', 'b']);
+  assert.deepEqual(shownGapsOf([codegeist, vrRule], false, 3, remote, [], () => false, acted).map((x) => x.program_id), ['vr']);
+  // A rule-free acted-on program heads too; the rest fill as before, the rule-bearing one in the last slot.
+  assert.deepEqual(shownGapsOf([codegeist, free('a'), free('b')], false, 3, remote, [], () => false, (x) => x.program_id === 'b').map((x) => x.program_id), ['b', 'a', 'codegeist']);
+  assert.deepEqual(shownGapsOf([codegeist, free('a'), free('b')], false, 3, remote, [], () => false, (x) => x.program_id === 'b' || x.program_id === 'a').map((x) => x.program_id), ['a', 'b', 'codegeist']);
+  // Only the last slot: one acted-on program and no other rule-free one leaves the rule-bearing program out.
+  assert.deepEqual(shownGapsOf([codegeist, free('b')], false, 3, remote, [], () => false, (x) => x.program_id === 'b').map((x) => x.program_id), ['b']);
+  // filter.all keeps rank order.
+  assert.deepEqual(shownGapsOf([codegeist, vrRule], true, 3, remote, [], () => false, acted).map((x) => x.program_id), ['codegeist', 'vr']);
+});
+
+test('N-4 (v6.1.9, Review Focus 3): a program on the project\'s own chain ranks first, the reported chain before the read one; another chain\'s deploy after them', () => {
+  const programs = new Map([
+    row('arb-deploy', { chains: ['arbitrum'], max_award_usd: 100_000 }), row('arc-deploy', { chains: ['arc'], max_award_usd: 100_000 }),
+    row('base-rule', { chains: ['base'] }), row('floss', { chains: [], any_chain: true, max_award_usd: 100_000 }), row('opt-rule', { chains: ['optimism'] }),
+  ].map((r) => [r.id, r]));
+  const deploy = (id: string, c: string): Verdict => v(id, { status: 'gap', gaps: [{ kind: 'chain', item: `chain:${c}`, what: `deploy the contract on ${c}`, effort: 'hours', agent_can: false }] });
+  const input = [deploy('arb-deploy', 'arbitrum'), deploy('arc-deploy', 'arc'), v('base-rule', { status: 'gap', gaps: [ruleGap('b')] }), v('floss', { status: 'gap', gaps: [gap('hours')] }), v('opt-rule', { status: 'gap', gaps: [ruleGap('o')] })];
+  const base = new Set(['base']);
+  const ranked = rankGaps(input, programs, base, 'base', ['base']);
+  assert.deepEqual(ranked.map((x) => x.program_id), ['base-rule', 'arb-deploy', 'arc-deploy', 'floss', 'opt-rule']);
+  const names = (x: Verdict, c: string) => programs.get(x.program_id)!.file.chains.includes(c);
+  // Project A's shape: the Base program is line one, before the Arbitrum and Arc deploys.
+  assert.deepEqual(shownGapsOf(ranked, false, 3, remote, ['base'], names).map((x) => x.program_id), ['base-rule', 'arb-deploy', 'arc-deploy']);
+  // A Base project whose code also reads Arbitrum: Base (reported) first, then the Arbitrum deploy, then Arc.
+  assert.deepEqual(rankGaps(input, programs, base, 'base', ['base', 'arbitrum']).map((x) => x.program_id), ['base-rule', 'arb-deploy', 'arc-deploy', 'floss', 'opt-rule']);
+  // Arbitrum reported first: the Arbitrum deploy leads.
+  assert.deepEqual(rankGaps(input, programs, base, 'arbitrum', ['arbitrum', 'base']).map((x) => x.program_id), ['arb-deploy', 'base-rule', 'arc-deploy', 'floss', 'opt-rule']);
+  // No chains: unchanged.
+  assert.deepEqual(rankGaps(input, programs).map((x) => x.program_id), rankGaps(input, programs, new Set(), undefined, []).map((x) => x.program_id));
 });

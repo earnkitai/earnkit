@@ -5,7 +5,7 @@
  */
 import { z } from 'zod';
 import { getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason } from '../v6/builders';
-import { appliedOvernight, releaseStale } from '../v6/claims';
+import { appliedOvernight, CLAIM_HOURS, releaseStale } from '../v6/claims';
 import { readEvidence, type Evidence, type Subject } from '../v6/evidence';
 import { blockersOf, gateFor, notNever, missingFor, recordSide, storedRecordContext, type Blocker, type RecordSide } from '../v6/find-record';
 import { EMPTY_RECORD, unapprovedSince } from '../v6/record';
@@ -417,22 +417,30 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
 
   const readyV = rankReady(verdicts.filter((v) => v.status === 'ready'), byId);
   const mainnets = new Set(facts.chains.filter((c) => c.mainnet).map((c) => c.chain));
-  // R18e tie-break (v6.1.7): the chain the agent reported first, not the repo's first read.
-  const gapV = rankGaps(verdicts.filter((v) => v.status === 'gap'), byId, mainnets, project.chains?.[0]?.chain);
-  // Remote and in-person ready programs are capped apart, each in rank order, so the default list always leads with
-  // something the builder can apply to now.
-  const shownReady = shownReadyOf(readyV, all, (v) => byId.get(v.program_id)!.file.in_person);
-  // Real changes first, then at most one rule-only program by default (R18b), the one fitting the project's chains
-  // (R18e). In-person programs are never in the default gap list (R18d, R18f); `more` counts them.
-  // The one rule-bearing slot prefers a program on the builder's chains (fix round 3): the reported ones in order,
-  // then the ones the code read found.
+  // The project's own chains: the reported ones in order, then the ones the code read found (fix round 3, N-4).
   const projectChains = [...new Set([...(project.chains ?? []).map((c) => c.chain), ...facts.chains.map((c) => c.chain)])];
+  // R18e tie-break (v6.1.7): the chain the agent reported first, not the repo's first read. N-4 (v6.1.9): a program on
+  // the project's own chain ranks first.
+  const gapV = rankGaps(verdicts.filter((v) => v.status === 'gap'), byId, mainnets, project.chains?.[0]?.chain, projectChains);
+  // N-3 (v6.1.9): a program the builder acted on (a step marked done, or a live claim of theirs) heads its group in the
+  // default list until it is applied or skipped (both leave the list).
+  const claims = await claimed(owner);
+  const live = [...claims].filter(([, h]) => Date.parse(h.since) > ctx.now.getTime() - CLAIM_HOURS * 3_600_000).map(([id]) => id);
+  const acted = new Set([...done.keys(), ...live]);
+  const pinned = (v: Verdict) => acted.has(v.program_id);
+  // Remote and in-person ready programs are capped apart, each in rank order (acted-on first), so the default list
+  // always leads with something the builder can apply to now.
+  const readyOrder = all ? readyV : [...readyV.filter(pinned), ...readyV.filter((v) => !pinned(v))];
+  const shownReady = shownReadyOf(readyOrder, all, (v) => byId.get(v.program_id)!.file.in_person);
+  // Acted-on programs first, then real changes and at most one rule-bearing program by default (R18b): the one on the
+  // project's chains (R18e, fix round 3) in its rank place, else one off them in the last slot only (N-2). In-person
+  // programs are never in the default gap list (R18d, R18f); `more` counts them.
   const shownGaps = shownGapsOf(gapV, all, MAX_GAPS, (v) => byId.get(v.program_id)!.file.in_person, projectChains,
-    (v, chain) => byId.get(v.program_id)!.file.chains.includes(chain));
+    (v, chain) => byId.get(v.program_id)!.file.chains.includes(chain), pinned);
   const more = readyV.length - shownReady.length + gapV.length - shownGaps.length;
   // In display order with the numbers the builder sees: ready, gaps, then in person.
   // Only another installation's claim marks a program: this agent's own claim is its to send.
-  const holds = side ? new Map([...(await claimed(owner))].filter(([, h]) => h.by !== ctx.installationId)) : new Map<string, { since: string }>();
+  const holds = side ? new Map([...claims].filter(([, h]) => h.by !== ctx.installationId)) : new Map<string, { since: string }>();
   const { ready, gaps } = numbered(
     shownReady.map((v) => {
       const r = readyOf(byId.get(v.program_id)!, v, facts, ctx.now, side);

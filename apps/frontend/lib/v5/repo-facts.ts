@@ -50,7 +50,7 @@ export type RepoFacts = {
 type CodeFacts = Pick<RepoFacts, 'chains' | 'contracts' | 'builder_codes' | 'integrations' | 'first_commit_at' | 'last_commit_at' | 'readme_excerpt' | 'homepage'> & {
   html_url: string;
   pushed_at: string;
-  /** From the repo object (v6.1.8); a row cached before has none of these, read as false and null. */
+  /** From the repo object (v6.1.8); a row cached before has none of these and is re-read (N-6, v6.1.9). */
   fork?: boolean;
   archived?: boolean;
   empty?: boolean;
@@ -239,12 +239,15 @@ export async function sweepRepoCache(now: Date): Promise<number> {
 /** A cached row from before integrations were read has none. Pure. */
 const withIntegrations = (f: CodeFacts): CodeFacts => ({ ...f, integrations: f.integrations ?? [] });
 
+/** N-6 (v6.1.9): a row saved before v6.1.8 lacks the fork and archived fields, so it is stale whatever its age. Pure. */
+const complete = (f: CodeFacts) => 'fork' in f && 'archived' in f;
+
 /** The repo's code facts: from repo_cache while fresh and unpushed, else a new read. Throws when the repo cannot be read. */
 async function cachedCodeFacts(key: string, f: Fetch, now: Date, installationId?: number): Promise<CodeFacts> {
   const [row] = await sql()<{ facts: CodeFacts; pushed_at: Date | null; fetched_at: Date }[]>`
     SELECT facts, pushed_at, fetched_at FROM repo_cache WHERE repo = ${key}`;
   const forget = () => sql()`DELETE FROM repo_cache WHERE repo = ${key}`;
-  if (row) {
+  if (row && complete(row.facts)) {
     const age = now.getTime() - row.fetched_at.getTime();
     if (age >= 0 && age < HOUR_MS) return withIntegrations(row.facts);
     if (age >= 0 && age < 7 * DAY_MS && row.pushed_at) {

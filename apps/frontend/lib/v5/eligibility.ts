@@ -68,6 +68,13 @@ const date = (s: string) => s.slice(0, 10);
 /** Users not reported: a question only the builder answers, not weeks of work. */
 const USERS_UNKNOWN: Gap = { kind: 'users', item: 'users', what: 'tell me if real people use it', effort: 'hours', agent_can: false };
 
+/**
+ * B20c (v6.1.9): whether the project exists for the users question: a repo read that holds code (not empty), or a
+ * live link. An idea, an unread repo with no live link, or an empty repo does not. Pure.
+ */
+export const exists = (facts: RepoFacts): boolean =>
+  Boolean(facts.live_url) || (facts.public && !facts.as_reported && !(facts.notes ?? []).includes('empty'));
+
 /** Gaps that are all rules to confirm (R18a): one answer away, no change to make. False for none. Pure. */
 export const rulesOnly = (gaps: Gap[]): boolean => gaps.length > 0 && gaps.every((g) => g.kind === 'rule');
 
@@ -95,6 +102,8 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
   // C54 (v6.1.8): a project with no chain reported and none in its code is not one change from a contract program.
   const onchain = items.find((i) => i.kind === 'chain' || i.kind === 'contract_on');
   if (onchain && facts.chains.length === 0) return out('no', [], `needs a contract on ${chainName(onchain.value ?? '')}`);
+  // B20c (v6.1.9): a program that wants used software (a used bar or a users item) asks only a project that exists.
+  if ((p.min_tier === 'used' || own.some((i) => i.kind === 'users')) && !exists(facts)) return out('no', [], 'needs a product people use');
 
   const gaps: Gap[] = [];
   let inPerson = false;
