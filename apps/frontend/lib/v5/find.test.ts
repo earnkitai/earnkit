@@ -1396,3 +1396,21 @@ test('C41: a project the record does not hold gets no project answers, and the a
   assert.doesNotMatch(r.reply!.agent_note as string, /dropped: no record project/);
   assert.ok(!JSON.stringify(r.reply!.ready).includes('Other why.'));
 });
+
+test('C48: when another agent\'s change takes answers back from approval, the next find of this agent says so, once', async () => {
+  const { getRecord, saveRecord } = await import('../v6/builders');
+  const { mergeRecord } = await import('../v6/record');
+  const rec2 = { ...OWNER_RECORD, answers: { why_you: { text: 'We ship.' }, team: { text: 'Two of us.' } } };
+  const { id, builderId } = await linkedWith(rec2, ['answers.why_you', 'answers.team', 'projects.earnkit.answers.problem']);
+  const c = { ...ctx(id), builderId, evidence: LIVE };
+  const first = await mcpCall(c, 'find', { project: PROJECT });
+  assert.equal(first.reply!.approvals_again, undefined);
+  // Another agent adds short forms: both approvals drop.
+  const later = new Date(NOW.getTime() + H);
+  await saveRecord(builderId, mergeRecord(await getRecord(builderId), { answers: { why_you: { short: 'Ship.' }, team: { short: 'Two.' } } }, 'agent', later).record, later);
+  const next = await mcpCall({ ...c, now: new Date(later.getTime() + H) }, 'find', { project: PROJECT });
+  assert.equal(next.reply!.approvals_again, 2);
+  assert.ok((next.reply!.show_to_builder as string).includes('\n\n2 answers wait for your approval again at earnkit.com/me.\n\n'), next.reply!.show_to_builder as string);
+  const third = await mcpCall({ ...c, now: new Date(later.getTime() + 2 * H) }, 'find', { project: PROJECT });
+  assert.equal(third.reply!.approvals_again, undefined);
+});

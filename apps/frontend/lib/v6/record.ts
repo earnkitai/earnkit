@@ -331,6 +331,16 @@ export function unapprovePath(record: BuilderRecord, path: string): BuilderRecor
   return { ...record, meta: { ...record.meta, [path]: rest } };
 }
 
+/**
+ * Answers an agent's change took back from approval after `since` (any time when null) and still waiting: what the
+ * builder's other agents say on their next find (v6.1.8 C48). Pure.
+ */
+export function unapprovedSince(record: BuilderRecord, since: Date | null): number {
+  return Object.entries(record.meta).filter(
+    ([path, m]) => m.unapproved_at && (!since || Date.parse(m.unapproved_at) > since.getTime()) && !isApproved(record, path) && valueAt(record, path) !== undefined,
+  ).length;
+}
+
 export const isApproved = (record: BuilderRecord, path: string): boolean =>
   APPROVABLE(path) && Boolean(record.meta[path]?.approved_at) && valueAt(record, path) !== undefined;
 

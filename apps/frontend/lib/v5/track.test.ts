@@ -390,3 +390,49 @@ test('started on an application already sent whose program has since closed says
   assert.equal(r.agent_note, 'Do not submit this one; it was already sent.');
   assert.equal(r.already_started, true);
 });
+
+test('B18: an agent send is under standing approval only within every limit; otherwise recorded as not, with the reason', async () => {
+  const { linkInstallation, saveRecord, upsertBuilder } = await import('../v6/builders');
+  const { EMPTY_RECORD, mergeRecord } = await import('../v6/record');
+  const c = await ctx();
+  const b = await upsertBuilder({ github_id: 930_101, login: 'limits', name: 'L', avatar_url: null }, NOW);
+  await linkInstallation(c.installationId, b.id, NOW);
+  const linked = { ...c, builderId: b.id };
+  const policy = (p: Record<string, unknown>) =>
+    saveRecord(b.id, mergeRecord(EMPTY_RECORD, { policy: { auto_apply: true, max_per_night: 1, categories: ['grant'], ...p } }, 'builder', NOW).record, NOW);
+  const send = (id: string, at = NOW) => track({ ...linked, now: at }, { program_id: id, status: 'applied', submitted_by: 'agent' });
+  const auto = async (id: string) => (await sql()`SELECT auto_applied FROM applications WHERE owner = ${'b:' + b.id} AND program_id = ${id}`)[0].auto_applied;
+  const p = (id: string, over: Record<string, unknown> = {}) => upsertProgram(programFixture({ id, title: id, ...over }), 'file', NOW);
+  await p('b18-a', { category: 'grant' });
+  await p('b18-b', { category: 'grant' });
+  await p('b18-bounty', { category: 'bounty' });
+  await p('b18-big', { category: 'grant', max_award_usd: 5000, pool_usd: 900_000 });
+  await p('b18-self', { category: 'grant', submit: 'builder' });
+  await p('b18-room', { category: 'grant', in_person: true });
+  await p('b18-nosub', { category: 'grant' });
+  await policy({ max_ask_usd: 100_000 });
+
+  const first = await send('b18-a');
+  assert.equal(first.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal(await auto('b18-a'), true);
+  const second = await send('b18-b', new Date(NOW.getTime() + 60_000));
+  assert.equal(second.show_to_builder, 'Sent, but outside your standing approval: the nightly limit was reached.');
+  assert.equal(await auto('b18-b'), false);
+  const cases: [string, string][] = [
+    ['b18-bounty', 'Bounties is not in your categories'],
+    ['b18-big', 'its award is above your limit'],
+    ['b18-self', 'only you may apply to it'],
+    ['b18-room', 'it is in person'],
+  ];
+  for (const [id, why] of cases) {
+    const r = await send(id, new Date(NOW.getTime() + 2 * 86_400_000));
+    assert.equal(r.show_to_builder, `Sent, but outside your standing approval: ${why}.`, id);
+    assert.equal(await auto(id), false, id);
+  }
+  await policy({ agent_may_submit: false, max_per_night: 5 });
+  const nosub = await send('b18-nosub', new Date(NOW.getTime() + 3 * 86_400_000));
+  assert.equal(nosub.show_to_builder, 'Sent, but outside your standing approval: your agent may not press submit.');
+  // The next find says nothing was applied under standing approval but the one within it.
+  const { appliedOvernight } = await import('../v6/claims');
+  assert.deepEqual((await appliedOvernight('b:' + b.id, new Date(NOW.getTime() - 1))).map((x) => x.program_id), ['b18-a']);
+});

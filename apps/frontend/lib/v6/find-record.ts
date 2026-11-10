@@ -6,6 +6,7 @@
  */
 import { rulesOnly, type Gap, type Verdict } from '../v5/eligibility';
 import { categoryOf } from '../v5/program-file';
+import { ME_CHOICES } from '../v5/site-copy';
 import type { RecordContext } from '../v5/prefill';
 import type { ProgramRow } from '../v5/programs';
 import type { RepoFacts } from '../v5/repo-facts';
@@ -164,13 +165,34 @@ export const notNever = (record: BuilderRecord) => {
   return (row: ProgramRow) => !skip.has(row.id.toLowerCase()) && !skip.has((row.file.title ?? '').trim().toLowerCase());
 };
 
-/** Whether the standing approval covers sending this program alone: its category is ticked and its
- *  stated amount is within max_ask_usd (no stated amount is never over it). Pure. */
-export const withinApproval = (record: BuilderRecord) => (row: ProgramRow) => {
+/** The program's category is ticked (none ticked reads as all, v6.1.8 B18). Pure. */
+const categoryIn = (record: BuilderRecord, row: ProgramRow) =>
+  record.policy.categories.length === 0 || record.policy.categories.includes(categoryOf(row.file));
+/** The program's money within max_ask_usd: the larger of its award and its pool; neither stated is never over it. Pure. */
+const moneyIn = (record: BuilderRecord, row: ProgramRow) => {
   const cap = record.policy.max_ask_usd;
-  const ask = row.file.max_award_usd;
-  return record.policy.categories.includes(categoryOf(row.file)) && (cap === undefined || ask === undefined || ask <= cap);
+  const amounts = [row.file.max_award_usd, row.file.pool_usd].filter((n): n is number => typeof n === 'number');
+  return cap === undefined || amounts.length === 0 || Math.max(...amounts) <= cap;
 };
+
+/** Whether the standing approval's limits cover sending this program alone: its category is ticked and its
+ *  money is within max_ask_usd. Pure. */
+export const withinApproval = (record: BuilderRecord) => (row: ProgramRow) => categoryIn(record, row) && moneyIn(record, row);
+
+/**
+ * Why an agent's send of this program is outside the builder's standing approval, in one plain clause, or null when
+ * the policy covers it (the nightly count aside, which the ledger checks under its lock; v6.1.8 B18). Pure.
+ */
+export function outsideApproval(record: BuilderRecord, row: ProgramRow): string | null {
+  if (row.file.in_person) return 'it is in person';
+  if (row.file.submit === 'builder') return 'only you may apply to it';
+  if (!record.policy.agent_may_submit) return 'your agent may not press submit';
+  if (!categoryIn(record, row)) return `${ME_CHOICES[categoryOf(row.file)] ?? categoryOf(row.file)} is not in your categories`;
+  if (!moneyIn(record, row)) return 'its award is above your limit';
+  return null;
+}
+/** The reason when the night's sends under standing approval already reached max_per_night. */
+export const NIGHT_LIMIT = 'the nightly limit was reached';
 
 /** The sign-in a blocker names: the kind, or the platform's name. Pure. */
 const signInOf = (row: ProgramRow): string | null =>

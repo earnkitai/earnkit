@@ -316,6 +316,10 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   const tonight = tonightList.length;
   const before = beforeTonight(r, tonight > 0);
   if (before) blocks.push(before);
+  if (r.approvals_again)
+    blocks.push(r.approvals_again === 1
+      ? 'One answer waits for your approval again at earnkit.com/me.'
+      : `${r.approvals_again} answers wait for your approval again at earnkit.com/me.`);
   if (r.applied_overnight.length > 0) blocks.push(`Applied under your standing approval: ${r.applied_overnight.map((a) => a.title).join(', ')}.`);
   if (r.evidence_summary) blocks.push(r.evidence_summary.line);
   // What the read was, once each, just before the closing (money first stays first).

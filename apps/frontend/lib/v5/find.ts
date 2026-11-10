@@ -8,7 +8,7 @@ import { ownerKey, takeUnlinkedNotice, unlinkedReason } from '../v6/builders';
 import { appliedOvernight, releaseStale } from '../v6/claims';
 import { readEvidence, type Evidence, type Subject } from '../v6/evidence';
 import { blockersOf, notNever, missingFor, provisionalGate, provisionalTier, recordSide, storedRecordContext, storedTierOf, tierGate, type Blocker, type RecordSide } from '../v6/find-record';
-import { EMPTY_RECORD } from '../v6/record';
+import { EMPTY_RECORD, unapprovedSince } from '../v6/record';
 import { signInLink } from '../v6/record-tool';
 import { DELETED_NOTICE, linkedNoticeLine, signInLine, signInSentence, unlinkedNoticeLine } from '../v6/reply-words';
 import { timeLeftWords } from './deadline';
@@ -90,6 +90,8 @@ export type GapProgram = {
 };
 export type FindReply = {
   show_to_builder: string;
+  /** Linked: answers an agent's change took back from approval since this agent's last find (v6.1.8 C48). */
+  approvals_again?: number;
   agent_note: string;
   since: Since;
   ready: ReadyProgram[];
@@ -425,6 +427,7 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const link = side ? null : await linkOf(ctx);
   const notice = await linkedNotice(ctx, link);
   const overnight = side ? await appliedOvernight(owner, last) : [];
+  const again = side ? unapprovedSince(side.record, last) : 0;
   const moved = await since(owner, last, open, ready.map((r) => r.program_id), ctx.now, gaps.map((g) => g.program_id));
   const ledger = await summary(owner, open, ctx.now);
   const ask = await askOutcome(owner, open, ctx.now);
@@ -434,6 +437,7 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
     since: moved, ready, gaps,
     ...(all ? { not_fit: verdicts.filter((v) => v.status === 'no').map((v) => ({ program_id: v.program_id, title: byId.get(v.program_id)!.file.title, reason: v.reason ?? 'does not fit' })) } : {}),
     ledger, ask_outcome: ask, as_reported: facts.as_reported,
+    ...(again > 0 ? { approvals_again: again } : {}),
     ...(problems.length > 0 ? { problems } : {}),
     ...(facts.notes && facts.notes.length > 0 ? { repo_notes: facts.notes } : {}),
     ...(side

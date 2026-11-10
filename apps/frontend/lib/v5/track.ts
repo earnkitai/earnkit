@@ -5,6 +5,7 @@
 import { z } from 'zod';
 import { getRecord, ownerKey } from '../v6/builders';
 import { claim } from '../v6/claims';
+import { NIGHT_LIMIT, outsideApproval } from '../v6/find-record';
 import { forgetGap, lastGaps } from './installations';
 import { getProgram, listOpenPrograms } from './programs';
 import { doneItems, record, summary, titleOf, type Ledger, type Status } from './ledger';
@@ -131,11 +132,18 @@ async function act(
       ledger: await summary(owner, programs, ctx.now),
     };
   }
-  // Sent under standing approval: the builder's policy at this moment (never for an unlinked installation).
-  // Only an agent's own submission under the builder's standing approval; a form the builder sent is never one.
-  const autoApplied = i.status === 'applied' && i.submitted_by === 'agent' && ctx.builderId !== null && (await getRecord(ctx.builderId)).policy.auto_apply;
-  const applied = i.status === 'applied' ? { submitted_by: i.submitted_by, fields_used: i.fields_used, project_id: i.project_id, autoApplied } : {};
+  // Sent under standing approval: the builder's policy at this moment (never for an unlinked installation), and only
+  // an agent's own submission; a form the builder sent is never one. With the policy on, the send counts as approved
+  // only within every limit (v6.1.8 B18): `outside` says why not; the nightly count is the ledger's, under its lock.
+  const policy = i.status === 'applied' && i.submitted_by === 'agent' && ctx.builderId !== null ? await getRecord(ctx.builderId) : null;
+  const standing = policy?.policy.auto_apply === true;
+  const row = standing ? await getProgram(i.program_id) : null;
+  let outside = standing && row ? outsideApproval(policy!, row) : null;
+  const applied = i.status === 'applied'
+    ? { submitted_by: i.submitted_by, fields_used: i.fields_used, project_id: i.project_id, autoApplied: standing && outside === null, ...(standing ? { maxPerNight: policy!.policy.max_per_night } : {}) }
+    : {};
   const res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, amount_usd: i.amount_usd, note: i.note, item: i.item, now: ctx.now, ...applied });
+  if (res.ok && 'night' in res) outside = NIGHT_LIMIT;
   if (!res.ok)
     return res.items ? refuse(res.note, `Items for this program: ${res.items.join(', ')}. Call track gap_done with one of them.`) : refuse(res.note);
   if (i.status === 'gap_done') await forgetGap(ctx.installationId, i.program_id);
@@ -159,6 +167,12 @@ async function act(
     skipped: `Skipped ${title}. I won't bring it up again.`,
     unskip: `Unskipped ${title}. It can come back in the list.`,
   };
+  if (i.status === 'applied' && outside)
+    return {
+      show_to_builder: `Sent, but outside your standing approval: ${outside}.`,
+      agent_note: 'Recorded as applied, not under standing approval. Send nothing else alone that falls outside the limits; ask the builder first. Call find again for the updated ledger.',
+      ledger: await summary(owner, programs, ctx.now),
+    };
   return {
     show_to_builder: lines[i.status],
     agent_note: 'Call find again for the updated ledger.',
