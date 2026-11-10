@@ -4,6 +4,10 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { programProblems } from './program-checks';
 import { ProgramFile, categoryOf, eligibilityOf, ruleNotes } from './program-file';
+import { moneyOf as replyMoney } from './find';
+import { guideText } from './guide';
+import { landingTiles } from './landing';
+import type { ProgramRow } from './programs';
 import { moneyOf } from './programs-read';
 import { programKind } from './site-copy';
 import { programFixture } from './fixtures/program';
@@ -178,18 +182,33 @@ test('Review Focus 5 (v6.1.14): the three re-kinded programs read as grants on /
     assert.equal(categoryOf(p), 'grant', f);
     assert.equal(programKind(p), 'grant', f);
   }
-  // The file's own category is the tile's kind; without one the reward words still decide.
+  // The file's own category is the tile's kind, never the reward words; a grant in USDC says so.
   assert.equal(programKind({ category: 'grant', reward: '$100K in prizes' }), 'grant');
   assert.equal(programKind({ category: 'grant', reward: 'Up to 500 USDC' }), 'grant, in USDC');
-  assert.equal(programKind({ reward: '$100K in prizes' }), 'hackathon');
+  // Fix round 1 (I1): three hackathons with a pool and a top prize carry their category.
+  for (const f of ['arbitrum-open-house-sao-paulo', 'colosseum-worlds-fair', 'monad-metropolis'])
+    assert.equal(ProgramFile.parse(read(`${f}.json`)).category, 'hackathon', f);
+});
+
+test('I1 (v6.1.14): every catalog program has one kind on the landing tile, /programs and replies', () => {
+  const ps = files.map((f) => ProgramFile.parse(read(f)));
+  const rows = ps.map((file) => ({ id: file.id, file, source: 'file' }) as unknown as ProgramRow);
+  const tiles = new Map(landingTiles(rows, new Date('2026-11-11T00:00:00Z')).map((t) => [t.id, t.kind]));
+  for (const p of ps) {
+    const kind = categoryOf(p);
+    assert.equal(tiles.get(p.id)?.replace(', in USDC', ''), kind, p.id);
+    assert.equal(programKind(p).replace(', in USDC', ''), kind, p.id);
+  }
 });
 
 test('v6.1.14 catalog truth: Thiel has no repo bar; money lines never show a threshold or a floor as the award', () => {
   const thiel = ProgramFile.parse(read('thiel-fellowship.json'));
   assert.equal(thiel.min_tier, undefined);
   assert.equal(thiel.needs_repo, false);
+  const row = { id: thiel.id, file: thiel, source: 'file', created_at: new Date(0), updated_at: new Date(0), verified_at: null, stale_since: null } as ProgramRow;
+  assert.equal(guideText(row).bar, null);
   assert.deepEqual(ruleNotes(thiel), ['applicant aged 22 or younger with no university degree, who will drop out of college if selected']);
-  const reply = (p: { summary: string }) => p.summary.split(' · ')[0];
+  const reply = replyMoney;
 
   const arb = ProgramFile.parse(read('arbitrum-stablecoin-growth-program.json'));
   assert.equal(reply(arb), 'incentives + 200K ARB for the first 10 teams');

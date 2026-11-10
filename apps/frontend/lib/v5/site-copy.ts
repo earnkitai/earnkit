@@ -2,6 +2,7 @@
  * Every string the site shows that is not data, and the pure formatters the cards use.
  * Plain words: no emoji, no em dash. The terms page alone may say "launch a token".
  */
+import { categoryOf } from './program-file';
 import { compactUsd } from './programs-read';
 
 export { compactUsd };
@@ -15,14 +16,11 @@ export const monthDay = (d: Date): string => `${MONTHS[d.getUTCMonth()]} ${d.get
 export const heroChipText = (usd: number): string | null =>
   usd > 0 ? `${compactUsd(usd)} in grants and prizes open now` : null;
 
-/** The file's category, else "grant", "grant, in USDC", "hackathon" or "investment". Pure. */
-export function programKind(c: { category?: string; investment?: boolean; in_person?: boolean; reward?: string }): string {
-  const usdc = /\bUSDC\b/.test(c.reward ?? '');
-  // v6.1.14: the file's own category wins over the reward words ("$100K in prizes" on a mentorship cohort).
-  if (c.category) return c.category === 'grant' && usdc ? 'grant, in USDC' : c.category;
-  if (c.investment) return 'investment';
-  if (c.in_person === true || /\bprizes?\b/i.test(c.reward ?? '')) return 'hackathon';
-  return usdc ? 'grant, in USDC' : 'grant';
+/** The program's kind: `categoryOf` (one rule for the landing, /programs and replies, v6.1.14), a grant paid in
+ *  USDC as "grant, in USDC". Pure. */
+export function programKind(p: Partial<Parameters<typeof categoryOf>[0]> & { reward?: string }): string {
+  const c = categoryOf({ ...p, investment: p.investment ?? false, in_person: p.in_person ?? false });
+  return c === 'grant' && /\bUSDC\b/.test(p.reward ?? '') ? 'grant, in USDC' : c;
 }
 
 export const HERO_TITLE = 'Get funded for what you ship.';
