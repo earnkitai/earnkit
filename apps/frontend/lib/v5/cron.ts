@@ -59,6 +59,12 @@ async function sweepAuth(now: Date): Promise<{ link_codes: number; sessions: num
 export async function cronPost(request: Request, deps: CronDeps = {}): Promise<Response> {
   const secret = process.env.CRON_SECRET;
   if (!secret) return json({ error: 'cron is not set up' }, 503);
+  // L13-11 (v6.1.14): a secret under 32 characters never matches (secretMatches), so the job is not set up: 503 and
+  // one ops line, never a 401 that reads like a wrong secret. The length is in the log only.
+  if (secret.length < 32) {
+    console.error('[cron] CRON_SECRET is under 32 characters; set one of at least 32 so the daily job can run');
+    return json({ error: 'cron is not set up' }, 503);
+  }
   if (!bearerMatches(request.headers.get('authorization'), secret)) return json({ error: 'unauthorized' }, 401);
   const now = deps.now ?? new Date();
   const work = deps.workQueue ?? workQueue;

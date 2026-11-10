@@ -158,3 +158,22 @@ test('cronPost: the plain run sweeps link codes and sessions expired over a day 
   await sql()`DELETE FROM link_codes WHERE code LIKE 'cr-%'`;
   await sql()`DELETE FROM sessions WHERE token_hash LIKE 'cr-%'`;
 });
+
+test('L13-11 (v6.1.14): a CRON_SECRET under 32 characters answers 503 with one ops log line, the right secret too', async () => {
+  const short = 's'.repeat(20);
+  process.env.CRON_SECRET = short;
+  const logged: string[] = [];
+  const was = console.error;
+  console.error = (...a: unknown[]) => void logged.push(a.map(String).join(' '));
+  try {
+    const r = await cronPost(req(`Bearer ${short}`), deps);
+    assert.equal(r.status, 503);
+    assert.deepEqual(await r.json(), { error: 'cron is not set up' });
+    assert.equal((await cronPost(req('Bearer nope'), deps)).status, 503);
+  } finally {
+    console.error = was;
+  }
+  assert.equal(logged.length, 2);
+  assert.match(logged[0], /^\[cron\] CRON_SECRET is under 32 characters/);
+  assert.doesNotMatch(logged[0], new RegExp(short));
+});

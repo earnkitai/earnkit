@@ -52,7 +52,8 @@ test('base-builder-grants: facts fill; prose, team and contacts go to the agent;
   assert.equal(by.founding_team.value, null);
   assert.ok((by.founding_team.sources ?? []).length > 0);
   assert.equal(by.email.from, 'agent');
-  assert.deepEqual(by.email.sources?.slice(0, 2), ['git config and the environment', 'what the builder told you']);
+  // L13-20 (v6.1.14): only where an email can sit; never the repo link, the chains or the commit dates.
+  assert.deepEqual(by.email.sources, ['git config and the environment', 'what the builder told you', 'the README', 'the package manifests', 'the GitHub profile']);
   assert.equal(by.usage_numbers.from, 'builder');
   assert.equal(by.usage_numbers.value, null);
   assert.equal(by.full_name.from, 'agent');

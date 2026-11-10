@@ -67,7 +67,8 @@ async function guard(request: Request, deps: Deps): Promise<Response | { builder
 }
 
 const lines = (v: string) => v.split('\n').map((l) => l.trim()).filter(Boolean);
-const list = (v: string) => v.split(',').map((l) => l.trim()).filter(Boolean);
+/** A list field (chains, categories): one per line or comma separated (L13-14, v6.1.14). Pure. */
+const list = (v: string) => v.split(/[,\n]/).map((l) => l.trim()).filter(Boolean);
 
 /** A form value as the field's stored value; an empty one clears (null). Pure. */
 function valueOf(f: MeField, raw: string): { ok: true; value: unknown } | { ok: false; problem: string } {

@@ -9,6 +9,12 @@ import { OAuthError, checkAuthorize, clientLimitKey, exchangeCode, issueCode, pu
 import { BLOCK_LIMITED, BLOCK_WARN_SHARE, LIMITS, RateLimitError, blockOf, clientIp, enforce } from './rate-limit';
 
 const TOO_MANY = 'Too many new EarnKit connections from this address.';
+/** L13-16 (v6.1.14): a client may not register under EarnKit's own name. */
+export const INVALID_CLIENT_NAME = "client_name may not be EarnKit's own name; send the agent's name.";
+
+/** Whether a client name is EarnKit's own: it holds `earnkit` in any case or width, punctuation and spaces ignored. Pure. */
+export const reservedClientName = (v: unknown): boolean =>
+  typeof v === 'string' && v.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '').includes('earnkit');
 const TOO_MANY_CLIENT = 'Too many new EarnKit connections from this agent today.';
 
 /**
@@ -113,6 +119,7 @@ export async function registerPost(request: Request) {
     await enforce('oauthRegister', ip, 'Too many client registrations from this address.');
     limit = 'oauthRegisterBlock';
     await enforceBlock('oauthRegisterBlock', ip);
+    if (reservedClientName(metadata.client_name)) throw new OAuthError('invalid_client_metadata', INVALID_CLIENT_NAME);
     return json(registerClient(metadata), 201);
   } catch (err) {
     if (err instanceof RateLimitError) {

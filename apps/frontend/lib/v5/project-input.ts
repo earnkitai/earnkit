@@ -147,6 +147,14 @@ export function parseProject(v: unknown, now = new Date(), o: { partial?: boolea
     if (url) out[k] = url;
     else urlProblems.push(`${k} dropped: not a web link`);
   }
+  // L13-15 (v6.1.14): only a code host's link is a repo; any other link is the live link (or dropped beside one).
+  if (typeof out.repo_url === 'string' && !isCodeHost(out.repo_url)) {
+    if (out.live_url === undefined) {
+      out.live_url = out.repo_url;
+      urlProblems.push('repo_url is not a code host; read as the live link');
+    } else urlProblems.push('repo_url dropped: not a code host');
+    delete out.repo_url;
+  }
   for (const k of ['name', 'description'] as const) {
     const t = text(raw[k]);
     // A repo link stands in for the description (C58): the README's first sentence is read in its place.
@@ -216,6 +224,23 @@ export function parseProject(v: unknown, now = new Date(), o: { partial?: boolea
   return { ok: true, project: out as Project, problems };
 }
 
+/** The hosts whose links are code in a repo (L13-15, v6.1.14), each with its subdomains. */
+export const CODE_HOSTS = ['github.com', 'gitlab.com', 'codeberg.org', 'bitbucket.org'] as const;
+
+/** Whether `v` is an http or https link on a code host (CODE_HOSTS or a subdomain of one, `www.` included). Pure. */
+export function isCodeHost(v: unknown): boolean {
+  if (typeof v !== 'string') return false;
+  let host: string;
+  try {
+    const u = new URL(clean(v).trim());
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return false;
+    host = u.hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  return CODE_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
+}
+
 /**
  * The one canonical form of a repo link (v6.1.13, B4), shared by projectKeyOf and the repo read's cache key
  * (repo-facts `repoKey`): https, the host lower-cased without `www.`, no port, no `user@`, no query or fragment, no
@@ -253,7 +278,8 @@ const nameFold = (s: string) => s.normalize('NFKC').toUpperCase().toLowerCase();
  * one key. Pure.
  */
 export function projectKeyOf(project: { name?: unknown; repo_url?: unknown } | null | undefined): string {
-  const repo = webUrl(project?.repo_url) ? canonicalRepoLink(project?.repo_url) : null;
+  // Only a code host's link keys by repo (L13-15, v6.1.14), as parseProject reads it.
+  const repo = webUrl(project?.repo_url) && isCodeHost(project?.repo_url) ? canonicalRepoLink(project?.repo_url) : null;
   if (repo) return repo;
   return nameKeyOf(project);
 }

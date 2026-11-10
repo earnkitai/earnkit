@@ -285,3 +285,26 @@ test('F4 (v6.1.14 fix round 1): the chains examples in the description parse as 
   assert.deepEqual(r.problems, []);
   assert.deepEqual(r.project.chains?.map((x) => [x.chain, x.mainnet, Boolean(x.contract)]), [['base', true, false], ['base', true, true], ['solana', true, true]]);
 });
+
+test('L13-15 (v6.1.14): only a code host is a repo; any other link is the live link, and a shortener never counts as code', async () => {
+  const { isCodeHost } = await import('./project-input');
+  for (const u of ['https://github.com/a/b', 'https://gitlab.com/g/p', 'https://codeberg.org/a/b', 'https://bitbucket.org/a/b', 'https://gitlab.example.gitlab.com/a/b', 'https://www.github.com/a/b', 'https://gist.github.com/a/1'])
+    assert.equal(isCodeHost(u), true, u);
+  for (const u of ['https://bit.ly/3xYz', 'https://example.com/a/b', 'https://notgithub.com/a/b', 'https://github.com.evil.io/a/b', 'not a link'])
+    assert.equal(isCodeHost(u), false, u);
+  // The bit.ly case (lane 13, S14): read as the live link, named for the agent; no repo, no repo key.
+  const r = parseProject({ name: 'FUTO thing', description: 'An app', repo_url: 'https://bit.ly/3xYz' });
+  assert.ok(r.ok);
+  assert.equal(r.project.repo_url, undefined);
+  assert.equal(r.project.live_url, 'https://bit.ly/3xYz');
+  assert.deepEqual(r.problems, ['repo_url is not a code host; read as the live link']);
+  assert.equal(projectKeyOf({ name: 'FUTO thing', repo_url: 'https://bit.ly/3xYz' }), 'name:futo thing');
+  // A live link given too stays; the other link is dropped.
+  const both = parseProject({ name: 'X', description: 'd', repo_url: 'https://example.com/x', live_url: 'https://x.app' });
+  assert.ok(both.ok);
+  assert.equal(both.project.live_url, 'https://x.app/');
+  assert.equal(both.project.repo_url, undefined);
+  assert.deepEqual(both.problems, ['repo_url dropped: not a code host']);
+  // With no description, a link that is not a code host does not stand in for it.
+  assert.deepEqual(parseProject({ name: 'X', repo_url: 'https://bit.ly/3xYz' }), { ok: false, problem: 'description: missing' });
+});

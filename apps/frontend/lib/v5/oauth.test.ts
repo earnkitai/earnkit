@@ -16,7 +16,7 @@ import {
   registerClient,
   registrationLimitKey,
 } from './oauth';
-import { authorizeGet, registerPost, tokenPost } from './oauth-routes';
+import { INVALID_CLIENT_NAME, authorizeGet, registerPost, tokenPost } from './oauth-routes';
 import { connectInstallation } from './installations';
 import { GET as mcpGet, POST as mcpPost } from '../../app/mcp/route';
 
@@ -342,4 +342,19 @@ test('register and token read at most 16 KB: over the cap is 413 in the JSON err
     method: 'POST', headers: { 'content-type': 'application/json', 'x-real-ip': '10.9.9.3' }, body: JSON.stringify({ redirect_uris: [redirect], pad: 'x'.repeat(15_000) }),
   }));
   assert.equal(ok.status, 201);
+});
+
+test("L13-16 (v6.1.14): a client name that is EarnKit's own, in any case or spelling, is refused at registration", async () => {
+  const reg = (client_name: string, ip: string) =>
+    registerPost(new Request('https://earnkit.test/oauth/register', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-real-ip': ip },
+      body: JSON.stringify({ redirect_uris: [redirect], client_name }),
+    }));
+  let n = 0;
+  for (const name of ['EarnKit', 'earnkit', 'Earn Kit', 'EARN-KIT', 'e.a.r.n.k.i.t', 'EarnKit Agent', 'My earnkit bot', 'ＥａｒｎＫｉｔ']) {
+    const r = await reg(name, `10.9.0.${++n}`);
+    assert.equal(r.status, 400, name);
+    assert.deepEqual(await r.json(), { error: 'invalid_client_metadata', error_description: INVALID_CLIENT_NAME }, name);
+  }
+  for (const name of ['Claude Code', 'Cursor', 'Kit', 'Earn']) assert.equal((await reg(name, `10.9.1.${++n}`)).status, 201, name);
 });
