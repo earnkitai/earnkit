@@ -170,7 +170,8 @@ const EligibilityItemSchema = z
     note: z.string().min(1).max(140).optional(),
     /** L1c-2 (v6.1.10), a rule only: lower-case words or phrases that name what the rule is about ("vr", "mini app").
      *  A project that names none of them in its name, description, README or topics is unlikely to meet the rule, so
-     *  the program shows only in the full list. A person or licence rule carries none. */
+     *  the program shows only in the full list. A licence rule carries none; a person rule may name who it is for
+     *  ("student", "college": L1e-2, v6.1.13), and then it shows only on a hit. Eight at most. */
     keywords: z.array(z.string().min(1).max(30).refine((k) => k === k.toLowerCase() && k === k.trim(), 'a keyword is lower-case, no outer spaces')).min(1).max(8).optional(),
   })
   // A rule is its note, read as a sentence ("Their rule: {note}."): a note, no value, no full stop of its own.

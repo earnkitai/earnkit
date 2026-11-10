@@ -204,3 +204,35 @@ test('B14: the promise counts the queue ahead against the daily run of SCREEN_BA
   const second = await mcpCall({ ...b, now: new Date(EARLY.getTime() + 60_000) }, 'screen', { program_id: 'scr-after', applicants: APPLICANTS });
   assert.equal(second.reply!.show_to_builder, 'Queued 2 applicants for Grants scr-after. 200 applicants ahead of yours; results within 2 days.');
 });
+
+test('C2 (v6.1.13): over 200 applicants or outcomes is one line that says to send the rest; 200 is read', async () => {
+  const CAP = 'At most 200 at a time; send the rest in another call.';
+  const c = await reviewerOf('scr-cap');
+  const list = (n: number) => Array.from({ length: n }, (_, k) => ({ ref: `c-${k}`, name: `App ${k}` }));
+  const over = await mcpCall(c, 'screen', { program_id: 'scr-cap', applicants: list(201) });
+  assert.equal(over.reply!.show_to_builder, CAP);
+  assert.match(over.reply!.agent_note as string, /^Nothing was queued\./);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs WHERE program_id = 'scr-cap'`)[0].n, 0);
+  const ok = await mcpCall(c, 'screen', { program_id: 'scr-cap', applicants: list(200) });
+  assert.match(ok.reply!.show_to_builder as string, /^Queued 200 applicants/);
+  const jobId = ok.reply!.job_id as string;
+  const outcomes = (n: number) => Array.from({ length: n }, (_, k) => ({ ref: `c-${k % 200}`, outcome: 'rejected' }));
+  const tooMany = await mcpCall(c, 'screen', { job_id: jobId, outcomes: outcomes(201) });
+  assert.equal(tooMany.reply!.show_to_builder, CAP);
+  assert.match(tooMany.reply!.agent_note as string, /^Nothing was recorded\./);
+  assert.equal((await mcpCall(c, 'screen', { job_id: jobId, outcomes: outcomes(200) })).reply!.show_to_builder, 'Recorded 200 outcomes.');
+});
+
+test('Low 18 and 19 (v6.1.13): an applicant repeated exactly is screened once; a win under $1 or not whole dollars is refused as the ledger refuses it', async () => {
+  const c = await reviewerOf('scr-rep');
+  const same = [...Array.from({ length: 199 }, () => ({ ref: 'same', name: 'Same' })), { name: 'Same', ref: 'same' }];
+  const q = await mcpCall(c, 'screen', { program_id: 'scr-rep', applicants: same });
+  assert.match(q.reply!.show_to_builder as string, /^Queued 1 applicant for Grants scr-rep\. /);
+  const jobId = q.reply!.job_id as string;
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_applicants WHERE job_id = ${jobId}`)[0].n, 1);
+  for (const amount_usd of [0.4, 2.5, 0, -5]) {
+    const r = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'same', outcome: 'won', amount_usd }] });
+    assert.equal(r.reply!.show_to_builder, 'Tell me how much you won, as whole dollars.', String(amount_usd));
+  }
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_outcomes WHERE job_id = ${jobId}`)[0].n, 0);
+});

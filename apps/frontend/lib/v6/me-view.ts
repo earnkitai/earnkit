@@ -7,9 +7,9 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { sql } from '../v5/db';
 import { ANSWER_KINDS, PROGRAM_CATEGORIES } from '../v5/program-file';
 import { cleanClientName } from '../v5/installations';
-import { ME_BLOCKS, ME_LABELS, ME_LINK_PARTS, ME_STATUS, ME_TEAM, monthDay } from '../v5/site-copy';
+import { ME_BLOCKS, ME_LABELS, ME_LINK_NOT, ME_LINK_PARTS, ME_STATUS, ME_TEAM, monthDay } from '../v5/site-copy';
 import { type Builder, getRecord } from './builders';
-import { ALREADY_LINKED, EXPIRED, INVALID, OTHER, codeShaped, linkedBy, liveCode } from './link-routes';
+import { ALREADY_LINKED, EXPIRED, INVALID, OTHER, codeShaped, deniedCode, linkedBy, liveCode } from './link-routes';
 import { APPROVABLE, type BuilderRecord, isApproved, KIND_WORDS } from './record';
 
 export type FieldKind = 'text' | 'long' | 'url' | 'bool' | 'number' | 'choice';
@@ -209,7 +209,8 @@ async function linkBanner(code: string | null | undefined, builderId: number, no
   if (code === null || code === undefined) return null;
   if (!codeShaped(code)) return { code: null, text: INVALID, parts: null };
   const live = await liveCode(code, now);
-  if (!live) return { code: null, text: (await linkedBy(code, builderId)) ? ALREADY_LINKED : EXPIRED, parts: null };
+  // Low 16 (v6.1.13): a code the builder said Not me to says what they chose.
+  if (!live) return { code: null, text: (await linkedBy(code, builderId)) ? ALREADY_LINKED : (await deniedCode(code)) ? ME_LINK_NOT : EXPIRED, parts: null };
   if (live.builder_id !== null && Number(live.builder_id) !== builderId) return { code: null, text: OTHER, parts: null };
   const name = cleanClientName(live.client_name);
   const parts = ME_LINK_PARTS(name, monthDay(live.created_at));

@@ -180,10 +180,17 @@ export async function linkedBy(code: string, builderId: number): Promise<boolean
   return rows.length > 0;
 }
 
-/** Ends a live code now: the builder said it was not theirs. */
+/** Ends a live code now: the builder said it was not theirs. It expires at its own creation time, the mark that says
+ *  it was denied, not timed out or replaced (Low 16, v6.1.13: `deniedCode`). */
 export async function denyLinkCode(code: string, now: Date): Promise<void> {
   if (!CODE_SHAPE.test(code)) return;
-  await sql()`UPDATE link_codes SET expires_at = ${now} WHERE code = ${hash(code)} AND used_at IS NULL AND expires_at > ${now}`;
+  await sql()`UPDATE link_codes SET expires_at = created_at WHERE code = ${hash(code)} AND used_at IS NULL AND expires_at > ${now}`;
+}
+
+/** True for a code the builder answered Not me to (`denyLinkCode`). */
+export async function deniedCode(code: string): Promise<boolean> {
+  if (!CODE_SHAPE.test(code)) return false;
+  return (await sql()`SELECT 1 FROM link_codes WHERE code = ${hash(code)} AND used_at IS NULL AND expires_at = created_at`).length > 0;
 }
 
 /** GET /auth/github/callback: signs the GitHub user in and sends them to /me?link=<code> to confirm the link there. */

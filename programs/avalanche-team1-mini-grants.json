@@ -16,7 +16,7 @@
   "needs_repo": false,
   "chains": ["avalanche"],
   "eligibility": [
-    { "kind": "rule", "note": "a project or community initiative for the Avalanche ecosystem" }
+    { "kind": "rule", "note": "a project or community initiative for the Avalanche ecosystem", "keywords": ["avalanche", "avax", "team1", "subnet"] }
   ],
   "setup": [
     "sign in to the Avalanche Builder Hub"

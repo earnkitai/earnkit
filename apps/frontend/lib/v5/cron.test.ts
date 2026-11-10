@@ -47,6 +47,14 @@ test('cronPost: the sweep after health drops a repo_cache row over 30 days old a
   assert.deepEqual((await sql()`SELECT repo FROM repo_cache`).map((r) => r.repo), ['c/new']);
 });
 
+test('W3 (v6.1.13 final round): the sweep drops a project report no find updated for 180 days and keeps a recent one', async () => {
+  const day = 86_400_000;
+  await sql()`INSERT INTO project_reports (owner, project_key, report, at) VALUES
+    ('i:1', 'name:old', '{}', ${new Date(deps.now.getTime() - 181 * day)}), ('i:1', 'name:recent', '{}', ${new Date(deps.now.getTime() - 10 * day)})`;
+  await cronPost(req(`Bearer ${SECRET}`), deps);
+  assert.deepEqual((await sql()`SELECT project_key FROM project_reports WHERE owner = 'i:1'`).map((r) => r.project_key), ['name:recent']);
+});
+
 test('cronPost: a thrown step answers 500 with the step name only', async () => {
   const boom = { ...deps, probe: async () => {}, runHealth: async () => { throw new Error('secret detail'); } };
   const res = await cronPost(req(`Bearer ${SECRET}`), boom);

@@ -269,8 +269,9 @@ export function prefill(
     const draftable = isProse(r.kind) || r.kind === 'name' || r.kind === 'one_liner' || (r.kind === 'other' && r.type === 'text');
     if (!draftable) return { ...base, value: null, from: 'builder' };
     const sources = sourcesOf(facts, guidance);
-    // An 'other' answer with nothing to draft from is the builder's, never the agent's with no sources (v6.1.6).
-    if (r.kind === 'other' && sources.length === 0) return { ...base, value: null, from: 'builder' };
+    // An 'other' answer with nothing to draft from is the builder's, never the agent's with no sources (v6.1.6); so is
+    // one the program file marks the builder's (L1e-3, v6.1.13: Thiel's application answers, whatever the repo holds).
+    if (r.kind === 'other' && (sources.length === 0 || (r.from === 'builder' && !rec))) return { ...base, value: null, from: 'builder' };
     // Lane 8 #1 (v6.1.10): linked, a prose answer the record does not hold is the builder's to give once and store
     // with record; the agent may help word it from the sources, but it is never sent as the agent's own.
     if (rec && (isProse(r.kind) || r.kind === 'other')) return { ...base, value: null, from: 'builder', sources: [...sources, ASK_ONCE] };

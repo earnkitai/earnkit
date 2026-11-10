@@ -5,7 +5,7 @@
  */
 import { z } from 'zod';
 import { inputDetail } from '../v5/tool-input';
-import { OVER_CAP, winCapOf } from '../v5/ledger';
+import { OVER_CAP, WHOLE_DOLLARS, winCapOf } from '../v5/ledger';
 import { getProgram } from '../v5/programs';
 import { LIMITS, hit } from '../v5/rate-limit';
 import { listWords, signInLink } from './record-tool';
@@ -17,16 +17,17 @@ import { DEFAULT_THRESHOLDS, TIERS, type Thresholds } from './tiers';
 export const ScreenInput = z
   .object({
     program_id: z.string().max(100).optional().describe('The program you review; omit when you review one'),
-    applicants: z.array(ScreenApplicant).max(200).optional().describe('The list to screen: ref, name, repo_url, live_url, contracts, pitch, applied_at'),
+    applicants: z.array(ScreenApplicant).optional().describe('The list to screen: ref, name, repo_url, live_url, contracts, pitch, applied_at'),
     thresholds: z.record(z.string(), z.number()).optional().describe('Tier thresholds to override, by name'),
     job_id: z.string().max(40).optional().describe('A queued screen: its progress and results'),
     outcomes: z
-      .array(z.object({ ref: z.string().max(60), outcome: z.enum(['won', 'rejected', 'shortlisted']), amount_usd: z.number().positive().max(1e9).optional() }).strict())
-      .max(200)
+      .array(z.object({ ref: z.string().max(60), outcome: z.enum(['won', 'rejected', 'shortlisted']), amount_usd: z.number().max(1e9).optional() }).strict())
       .optional()
       .describe('With job_id: the decisions, by ref'),
   })
   .strict();
+/** The most applicants or outcomes one call reads (C2, v6.1.13); 200 is read, 201 refused. */
+export const SCREEN_MAX = 200;
 export type ScreenReply = { show_to_builder: string; agent_note: string; job_id?: string; results?: ScreenResults; recorded?: number };
 
 export const SCREEN_TEXT = {
@@ -41,6 +42,8 @@ export const SCREEN_TEXT = {
   expired: 'That screen has expired; queue the list again.',
   nothing: 'Give me an applicant list, or the screen you queued.',
   unread: "I could not read that. Send the applicant list, or a screen's id for its results.",
+  /** C2 (v6.1.13): over SCREEN_MAX applicants or outcomes in one call. */
+  overMax: 'At most 200 at a time; send the rest in another call.',
   queuedNote: 'Call screen with job_id for progress and results. Tell the builder what each tier means: used, live, building, unverified, flagged.',
   sortNote: 'Sort: used, then live, then building; flagged last with the rule named.',
   pendingNote: 'Call screen with job_id again later for the rest.',
@@ -81,6 +84,9 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
   const parsed = ScreenInput.safeParse(raw);
   if (!parsed.success) return line(SCREEN_TEXT.unread, `Nothing was queued. ${inputDetail(parsed.error)}`);
   const input = parsed.data;
+  // C2 (v6.1.13): a list over SCREEN_MAX was read, it is only too long: one line, nothing written.
+  if ((input.applicants?.length ?? 0) > SCREEN_MAX) return line(SCREEN_TEXT.overMax, 'Nothing was queued. Split the list and call screen once per part.');
+  if ((input.outcomes?.length ?? 0) > SCREEN_MAX) return line(SCREEN_TEXT.overMax, 'Nothing was recorded. Split the outcomes and call screen once per part.');
   if (ctx.builderId === null) {
     // R7: the installation's sign-in link, as find and record give it; no link (not configured, or refused) keeps one plain line.
     const link = await signInLink(ctx.installationId, ctx.now);
@@ -94,6 +100,8 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
     if (s.expired) return line(SCREEN_TEXT.expired);
     if (input.outcomes) {
       // A win over what the program pays is refused as the ledger refuses it, and nothing is recorded (v6.1.7 C38).
+      // Low 19 (v6.1.13): a win is whole dollars, at least 1, as the ledger takes it.
+      if (input.outcomes.some((o) => o.outcome === 'won' && o.amount_usd != null && !(Number.isInteger(o.amount_usd) && o.amount_usd >= 1))) return line(WHOLE_DOLLARS);
       const cap = winCapOf(await getProgram(s.program_id));
       if (input.outcomes.some((o) => o.outcome === 'won' && o.amount_usd != null && o.amount_usd > cap)) return line(OVER_CAP);
       const { recorded, notFound } = await recordOutcomes(input.job_id, ctx.builderId, input.outcomes, ctx.now);

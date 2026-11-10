@@ -13,6 +13,7 @@ import type { Mailer } from './mail';
 import { sendOwnerDigest } from './owner-digest';
 import { programsChanged } from './programs-api';
 import { sweepRepoCache } from './repo-facts';
+import { sweepReports } from './ledger';
 import type { Probe } from './safe-fetch';
 
 export type CronDeps = {
@@ -84,6 +85,8 @@ export async function cronPost(request: Request, deps: CronDeps = {}): Promise<R
   let swept: number;
   try {
     swept = await sweepRepoCache(now);
+    // W3 (final round): reports no find has updated for 180 days.
+    await sweepReports(now);
   } catch (err) {
     return failed('sweep', err);
   }

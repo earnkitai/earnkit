@@ -7,11 +7,16 @@
  */
 import { sql, type Db } from './db';
 import { categoryOf, eligibilityOf } from './program-file';
-import { codeChecked, itemKey } from './eligibility';
+import { codeChecked, forExistingCode, itemKey } from './eligibility';
 import { getProgram, programsById, type ProgramRow } from './programs';
+import { CLAIM_HOURS } from '../v6/claims';
+import { projectKeyOf, type Project } from './project-input';
 
 /** gap_done without a known item (v6.1.8, 3.10): the builder names the change, the agent gets the item keys. */
 export const WHICH_CHANGE = 'Which change did you finish? Say the program and the change.';
+
+/** An agent's send over another of the owner's agents' live claim (v6.1.13, B3): nothing is written. */
+export const OTHER_AGENT_HOLDS = 'Your other agent is handling that one; nothing recorded.';
 
 /** 'started' is a claim (lib/v6/claims.ts): not an application yet, so the summary leaves it out. */
 export type Status = 'started' | 'applied' | 'won' | 'rejected' | 'no_result' | 'skipped' | 'unskip' | 'gap_done';
@@ -33,6 +38,8 @@ const MAX_WIN_USD = 10_000_000;
 export const winCapOf = (program: ProgramRow | null | undefined): number => program?.file.max_award_usd ?? program?.file.pool_usd ?? MAX_WIN_USD;
 /** A win over the program's cap is refused with this line, in the ledger and in a program's screen outcomes (v6.1.7 C38). */
 export const OVER_CAP = "That's more than this program pays; check the amount.";
+/** A win that is not whole dollars of at least 1 (the screen's outcomes say the same, v6.1.13 Low 19). */
+export const WHOLE_DOLLARS = 'Tell me how much you won, as whole dollars.';
 const DAY = 86_400_000;
 /** How long after its close a send still counts under standing approval (F8, v6.1.12). */
 export const CLOSED_GRACE_MS = 3_600_000;
@@ -102,12 +109,14 @@ export async function record(
   // A result may land after the program left the catalog, when the owner's ledger holds it (checked below).
   if (!program && !RESULTS.includes(status)) return unknown;
   if (status === 'won' && !(typeof o.amount_usd === 'number' && Number.isInteger(o.amount_usd) && o.amount_usd >= 1))
-    return { ok: false, note: 'Tell me how much you won, as whole dollars.' };
+    return { ok: false, note: WHOLE_DOLLARS };
   if (status === 'won' && o.amount_usd! > winCapOf(program)) return { ok: false, note: OVER_CAP };
   if (status === 'gap_done' && program) {
     // Only one of the program's own items; the unknown-users gap ('users') only when it has a users item (v6.1.7, C27).
     const items = eligibilityOf(program.file);
-    const keys = [...new Set([...items.map(itemKey), ...(items.some((x) => x.kind === 'users') ? ['users'] : [])])];
+    // T3-R1 (v6.1.13): a needs_repo grant for existing code takes its code-in-a-repo step ('repo'), re-checked by the read.
+    const repo = program.file.needs_repo === true && forExistingCode(program.file);
+    const keys = [...new Set([...items.map(itemKey), ...(items.some((x) => x.kind === 'users') ? ['users'] : []), ...(repo ? ['repo'] : [])])];
     // The keys go to the agent only: builder text never carries them (v6.1.6, 25a); also when no item came (C11).
     if (!o.item || !keys.includes(o.item)) return { ok: false, note: WHICH_CHANGE, items: keys };
   }
@@ -122,8 +131,8 @@ export async function record(
   return (await sql().begin(async (tx) => {
     // One decision at a time per owner and program (the claim's lock), even when no row exists yet.
     await tx`SELECT pg_advisory_xact_lock(hashtext(${owner + ':' + programId}))`;
-    const [row] = await tx<{ status: string; amount_usd: string | null; at: Date; client_name: string | null }[]>`
-      SELECT a.status, a.amount_usd, a.at, i.client_name FROM applications a LEFT JOIN installations i ON i.id = a.installation_id
+    const [row] = await tx<{ status: string; amount_usd: string | null; at: Date; client_name: string | null; claimed_at: Date | null; claimed_by: number | null }[]>`
+      SELECT a.status, a.amount_usd, a.at, i.client_name, a.claimed_at, a.claimed_by FROM applications a LEFT JOIN installations i ON i.id = a.installation_id
       WHERE a.owner = ${owner} AND a.program_id = ${programId} FOR UPDATE OF a`;
     if (!program && !row) return unknown;
     const resulted = row && RESULTS.includes(row.status);
@@ -134,6 +143,10 @@ export async function record(
       return { ok: false, note: `That one already has a result here: ${resultWords(row.status, row.amount_usd)}.` } as const;
     if (status === 'applied' && row?.status === 'applied')
       return { ok: false, note: `Already sent here on ${dayOf(row.at)} by ${row.client_name ?? 'another agent'}; nothing recorded.` } as const;
+    // B3 (v6.1.13): a live claim of another installation of this owner holds the program; only its holder sends it.
+    if (status === 'applied' && row?.status === 'started' && row.claimed_by !== null && row.claimed_by !== installationId
+      && row.claimed_at !== null && row.claimed_at.getTime() > now.getTime() - CLAIM_HOURS * 3_600_000)
+      return { ok: false, note: OTHER_AGENT_HOLDS } as const;
     if (RESULTS.includes(status) && (!row || row.status === 'skipped' || row.status === 'started')) return { ok: false, note: "You haven't applied to that one here." } as const;
     if (status === 'unskip') {
       // Only a skipped row can be unskipped: the row goes, and the program can come back in the list.
@@ -235,11 +248,89 @@ export async function excluded(owner: string): Promise<Set<string>> {
   return new Set(rows.map((r) => r.program_id));
 }
 
-/** The steps the owner marked done for the program on this project (projectKeyOf, v6.1.10 L1c-1). */
+/** L1e-4 (v6.1.13): items that are facts about the project, not one program's step: done on any program of the
+ *  project, they are done for every program on it. */
+export const PROJECT_ITEMS: readonly string[] = ['users'];
+
+/** The owner's done steps on this project, by program, and the project items done on any of them (L1e-4). */
+export type Done = {
+  /** The program's own done steps plus the project items: what its gaps are judged on. */
+  of: (programId: string) => Set<string>;
+  /** Only the steps marked on this program: a yes said to it (rule_yes) and what it was acted on for. */
+  own: Map<string, Set<string>>;
+};
+
+/** Pure. */
+const doneOf = (rows: { program_id: string; item: string }[]): Done => {
+  const own = new Map<string, Set<string>>();
+  for (const r of rows) own.set(r.program_id, (own.get(r.program_id) ?? new Set<string>()).add(r.item));
+  const project = rows.filter((r) => PROJECT_ITEMS.includes(r.item)).map((r) => r.item);
+  return { own, of: (id) => new Set([...(own.get(id) ?? []), ...project]) };
+};
+
+/** The steps the owner marked done for the program on this project (projectKeyOf, v6.1.10 L1c-1), with the project
+ *  items done on any program of it (L1e-4, v6.1.13): the one read track, the one-program find and the send check use. */
 export async function doneItems(owner: string, programId: string, projectKey: string): Promise<Set<string>> {
-  const rows = await sql()<{ item: string }[]>`
-    SELECT item FROM gaps_done WHERE owner = ${owner} AND project_key = ${projectKey} AND program_id = ${programId}`;
-  return new Set(rows.map((r) => r.item));
+  return (await doneOn(owner, projectKey)).of(programId);
+}
+
+/**
+ * B4 (v6.1.13): a project first found by name alone and later with its repo keeps its steps and claims. The owner's
+ * done steps and application rows stored under `from` (the `name:` key) move to `to` (the repo key) in one
+ * transaction; a step already under `to` keeps the newer of the two times. A no-op when the keys are one or `from` is ''.
+ */
+export async function rekeyProject(owner: string, from: string, to: string): Promise<void> {
+  if (!from || !to || from === to) return;
+  await sql().begin(async (tx) => {
+    // W4 (final round): copied with ON CONFLICT, so a step marked under `to` at this moment never breaks the unique
+    // index; the newer time (and its installation) wins. Then the `from` rows go.
+    await tx`INSERT INTO gaps_done (owner, installation_id, project_key, program_id, item, at)
+      SELECT owner, installation_id, ${to}, program_id, item, at FROM gaps_done WHERE owner = ${owner} AND project_key = ${from}
+      ON CONFLICT (owner, project_key, program_id, item) DO UPDATE
+        SET installation_id = CASE WHEN EXCLUDED.at > gaps_done.at THEN EXCLUDED.installation_id ELSE gaps_done.installation_id END,
+            at = GREATEST(gaps_done.at, EXCLUDED.at)`;
+    await tx`DELETE FROM gaps_done WHERE owner = ${owner} AND project_key = ${from}`;
+    // One application row per owner and program, so a claim's project moves without a conflict.
+    await tx`UPDATE applications SET project_id = ${to} WHERE owner = ${owner} AND project_id = ${from}`;
+    await tx`INSERT INTO project_reports (owner, project_key, report, at)
+      SELECT owner, ${to}, report, at FROM project_reports WHERE owner = ${owner} AND project_key = ${from}
+      ON CONFLICT (owner, project_key) DO UPDATE
+        SET report = CASE WHEN EXCLUDED.at > project_reports.at THEN EXCLUDED.report ELSE project_reports.report END,
+            at = GREATEST(project_reports.at, EXCLUDED.at)`;
+    await tx`DELETE FROM project_reports WHERE owner = ${owner} AND project_key = ${from}`;
+  });
+}
+
+/** Keeps the project as the agent reported it at this find (parsed, v6.1.13 Task 1 review I1), per owner and project key. */
+export async function saveReport(owner: string, projectKey: string, report: Project, now: Date): Promise<void> {
+  if (!projectKey) return;
+  await sql()`INSERT INTO project_reports (owner, project_key, report, at) VALUES (${owner}, ${projectKey}, ${sql().json(report as never)}, ${now})
+    ON CONFLICT (owner, project_key) DO UPDATE SET report = EXCLUDED.report, at = EXCLUDED.at`;
+}
+
+/** Days a report stays without a find that updates it (W3, final round): the cron's sweep drops older ones. */
+export const REPORT_DAYS = 180;
+/** Deletes the reports no find has updated for REPORT_DAYS days; the count deleted. */
+export async function sweepReports(now: Date): Promise<number> {
+  return (await sql()`DELETE FROM project_reports WHERE at < ${new Date(now.getTime() - REPORT_DAYS * DAY)}`).count;
+}
+
+/**
+ * W1 and W2 (final round): the one key a project's steps, claims and report are read under. A `name:` key whose report
+ * (the owner's last find by that name, or with it) names a repo resolves to that repo's key, so a find or send by name
+ * alone sees what a find with the repo marked; any other key is itself.
+ */
+export async function resolvedKey(owner: string, key: string): Promise<string> {
+  if (!key.startsWith('name:')) return key;
+  const repo = (await reportOf(owner, key))?.repo_url;
+  return (repo && projectKeyOf({ repo_url: repo })) || key;
+}
+
+/** The project as reported at the owner's last find on this project key, or null. */
+export async function reportOf(owner: string, projectKey: string): Promise<Project | null> {
+  if (!projectKey) return null;
+  const [r] = await sql()<{ report: Project }[]>`SELECT report FROM project_reports WHERE owner = ${owner} AND project_key = ${projectKey}`;
+  return r?.report ?? null;
 }
 
 /** When the owner last marked a code-checked step done on this project (v6.1.9 S4), or null: a repo read cached before it is stale. */
@@ -249,13 +340,12 @@ export async function codeDoneAt(owner: string, projectKey: string): Promise<Dat
   return times.length > 0 ? new Date(Math.max(...times)) : null;
 }
 
-/** Every closed gap item of the owner on this project, by program: one query for a whole find. */
-export async function doneByProgram(owner: string, projectKey: string): Promise<Map<string, Set<string>>> {
+/** Every closed gap item of the owner on this project, by program, and the project items (L1e-4): one query for a
+ *  whole find. */
+export async function doneOn(owner: string, projectKey: string): Promise<Done> {
   const rows = await sql()<{ program_id: string; item: string }[]>`
     SELECT program_id, item FROM gaps_done WHERE owner = ${owner} AND project_key = ${projectKey}`;
-  const out = new Map<string, Set<string>>();
-  for (const r of rows) out.set(r.program_id, (out.get(r.program_id) ?? new Set<string>()).add(r.item));
-  return out;
+  return doneOf(rows);
 }
 
 /** Days after the send EarnKit asks how it went, for a program with no results date (v6.1.9). */

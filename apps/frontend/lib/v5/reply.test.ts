@@ -394,7 +394,7 @@ const RULE_NOTE =
 const ruleGap = (what: string, item = 'rule:0000000a') => ({ kind: 'rule' as const, item, what, effort: 'hours' as const, agent_can: false });
 const VIDEO = { kind: 'demo_video' as const, item: 'demo_video', what: 'a demo video', effort: 'hours' as const, agent_can: false };
 
-test('rules (R18a): ready and in-person lines show none; a gap line shows its rules after the change; a rule-only line asks its own "yes n" (v6.1.8, 1a)', () => {
+test('rules (R18a): ready and in-person lines show none; a gap line shows its rules after the change, as one sentence (L1e-6, v6.1.13); with something ready no rule line asks its own "yes n" (L1e-2)', () => {
   const r = base({
     ready: [
       ready({
@@ -415,7 +415,7 @@ test('rules (R18a): ready and in-person lines show none; a gap line shows its ru
       '1. Base Ecosystem Fund, pre-seed and seed investment. Long odds: an investment program with no stated amount. Your agent drafts all 2 answers. First: sign in to the portal.',
       '',
       'One step away (2):',
-      '2. Goose Grants, $10K. Their rule: a project built with or for goose. Their rule: work not already funded by an employer or client. Say "yes 2" if that is you.',
+      '2. Goose Grants, $10K. Their rules: a project built with or for goose; work not already funded by an employer or client.',
       '3. Colosseum, $25K: a demo video. Their rule: the team has not raised venture capital.',
       '',
       'In person (1):',
@@ -424,8 +424,9 @@ test('rules (R18a): ready and in-person lines show none; a gap line shows its ru
       'Say yes and I apply.',
     ].join('\n'),
   );
-  // One "yes n" per reply: on its line while something is ready, never repeated in the closing.
-  assert.equal(replyText(r, true).match(/"yes 2"/g)?.length, 1);
+  // L1e-2 (v6.1.13): one yes per reply: something ready takes the closing, so the rule line asks no "yes n".
+  assert.equal(replyText(r, true).match(/"yes 2"/g), null);
+  assert.equal(replyText(r, true).match(/\bSay\b/g)?.length, 1);
   const lines = agentNote(r, { more: 0 }).split('\n');
   const at = lines.indexOf(RULE_NOTE);
   assert.ok(at > 0, lines.join('\n'));
@@ -441,7 +442,8 @@ test('the closing line is one action (v6.1.8, 1a): yes to the ready ones, else "
   // Said once: the line the closing names does not ask it again.
   assert.equal(nothingReady.match(/"yes 1"/g)?.length, 1, nothingReady);
   assert.equal(end(base({ ready: MONDAY.ready, gaps: [rulesOnly] })), 'Say yes and I apply to all 2. Or say the numbers to skip.');
-  assert.match(replyText(base({ ready: MONDAY.ready, gaps: [rulesOnly] }), true), /^3\. R, \$1K\. Their rule: x\. Say "yes 3" if that is you\.$/m);
+  // L1e-2 (v6.1.13): with something ready, the rule reads as a plain sentence; "yes 3" still works in track.
+  assert.match(replyText(base({ ready: MONDAY.ready, gaps: [rulesOnly] }), true), /^3\. R, \$1K\. Their rule: x\.$/m);
   assert.equal(end(base({ gaps: [rulesOnly, MONDAY.gaps[0]] })), 'Nothing is ready yet. Say "yes 1" if that rule fits you.');
   // M1 (v6.1.9): with no rule-only program shown, the closing offers the first step.
   assert.equal(end(base({ gaps: [MONDAY.gaps[0]] })), 'Nothing is ready yet. First: deploy the contract on Arc. Tell me when it is done and I look again.');
@@ -454,7 +456,7 @@ test('the closing line is one action (v6.1.8, 1a): yes to the ready ones, else "
   assert.ok(agentNote(base({ gaps: [rulesOnly] }), { more: 0 }).includes(RULE_NOTE));
 });
 
-test('R18d, O2 (v6.1.10, Review Focus 5): an in-person gap line says what attending takes, after its rules; a rule-only one is in the In person block with its yes', () => {
+test('R18d, O2 (v6.1.10, Review Focus 5): an in-person gap line says what attending takes, after its rules; a rule-only one is in the In person block (T3-R5: with no yes of its own)', () => {
   const attend = { in_person: true, setup: ['work 3 months from the office'] };
   const r = base({
     gaps: [
@@ -469,7 +471,7 @@ test('R18d, O2 (v6.1.10, Review Focus 5): an in-person gap line says what attend
       '1. Camp, $10K: a demo video. Their rule: a team of two. First: work 3 months from the office.',
       '',
       'In person (1):',
-      '2. Residency, $500K. Their rule: a co-founder with US work authorization. First: work 3 months from the office. Say "yes 2" if that is you.',
+      '2. Residency, $500K. Their rule: a co-founder with US work authorization. First: work 3 months from the office.',
       '',
       'Nothing remote is ready yet. Say yes and I start the in-person applications.',
     ].join('\n'),
@@ -491,7 +493,7 @@ test('O2 (v6.1.10, Review Focus 5): a reply that lists in-person programs never 
       '',
       'In person (2):',
       '3. Y Combinator, $500K investment. Needs a YC account.',
-      '4. Antler, $250K. Their rule: a co-founder with US work authorization. Attend in person. Say "yes 4" if that is you.',
+      '4. Antler, $250K. Their rule: a co-founder with US work authorization. Attend in person.',
       '',
       // Fix round 1: remote steps shown, so the closing uses the first remote one (here its rule-only yes).
       'Nothing is ready yet. Say "yes 2" if that rule fits you.',
@@ -500,6 +502,11 @@ test('O2 (v6.1.10, Review Focus 5): a reply that lists in-person programs never 
   // In person alone, or rule-only in person alone: the in-person closing.
   assert.equal(replyText(base({ ready: [yc] }), true).split('\n').at(-1), 'Nothing remote is ready yet. Say yes and I start the in-person applications.');
   assert.equal(replyText(base({ gaps: [antler] }), true).split('\n').at(-1), 'Nothing remote is ready yet. Say yes and I start the in-person applications.');
+  // T3-R5 (v6.1.13): the closing is the only Say, beside a rule-only in-person line and a remote rule alike.
+  for (const gaps of [[antler], [gap({ title: 'Open', gap: ruleGap('an open licence'), rules: ['an open licence'] }), antler]]) {
+    const t = replyText(base({ gaps }), true);
+    assert.equal(t.match(/\bSay\b/g)?.length, 1, t);
+  }
   // A remote step shown: its step closes the reply, in-person programs listed or not.
   assert.equal(replyText(base({ gaps: [floss] }), true).split('\n').at(-1), 'Nothing is ready yet. Do real people use it? Say yes and I apply.');
   assert.equal(replyText(base({ ready: [yc], gaps: [floss] }), true).split('\n').at(-1), 'Nothing is ready yet. Do real people use it? Say yes and I apply.');
@@ -546,12 +553,12 @@ test('R21: an in-person gap with no setup reads "Attend in person." after its ru
   const g = gap({ title: 'Residency', money: '$1M', in_person: true, gap: ruleGap('a US co-founder'), rules: ['a US co-founder'] });
   assert.equal(
     replyText(base({ gaps: [g] }), true).split('\n')[1],
-    '1. Residency, $1M. Their rule: a US co-founder. Attend in person. Say "yes 1" if that is you.',
+    '1. Residency, $1M. Their rule: a US co-founder. Attend in person.',
   );
   const withSetup = { ...g, setup: ['the right to work in the US'] };
   assert.equal(
     replyText(base({ gaps: [withSetup] }), true).split('\n')[1],
-    '1. Residency, $1M. Their rule: a US co-founder. Needs the right to work in the US. Say "yes 1" if that is you.',
+    '1. Residency, $1M. Their rule: a US co-founder. Needs the right to work in the US.',
   );
 });
 
@@ -622,6 +629,33 @@ test('a program another agent of the builder holds says so on its line and leave
   assert.match(t, /\n\nYour other agent is handling these; I'll say when something new opens\.$/);
 });
 
+test('C1 (v6.1.13): a program held for another project names it on its line, remote or in person, and leaves the count to say yes to', () => {
+  const NOW = new Date('2026-11-04T12:00:00Z');
+  const r = base({
+    linked: true,
+    ready: [
+      ready({ title: 'Free One' }),
+      ready({ title: 'Held One', claimed_since: '2026-11-04T10:00:00.000Z', held_for: 'Rent Split' }),
+      ready({ title: 'Free Two' }),
+      ready({ title: 'Held Away', in_person: true, claimed_since: '2026-11-04T10:00:00.000Z', held_for: 'Rent Split' }),
+    ],
+  });
+  const lines = replyText(r, false, NOW).split('\n');
+  assert.ok(lines.some((l) => /^2\. Held One, \$1K\. .* Being handled by your other agent for Rent Split\.$/.test(l)), lines.join('\n'));
+  assert.ok(lines.some((l) => /^4\. Held Away, \$1K\..* Being handled by your other agent for Rent Split\.$/.test(l)), lines.join('\n'));
+  assert.equal(lines.at(-1), 'Say yes and I apply to all 2. Or say the numbers to skip.');
+});
+
+test('C1 fix round 1 (I2): one held in-person program and nothing else ready never ends in the in-person closing', async () => {
+  const { IN_PERSON_CLOSING } = await import('./reply');
+  const NOW = new Date('2026-11-04T12:00:00Z');
+  const r = base({ linked: true, ready: [ready({ title: 'Held Away', in_person: true, claimed_since: '2026-11-04T10:00:00.000Z', held_for: 'Rent Split' })] });
+  const text = replyText(r, false, NOW);
+  assert.match(text, /In person \(1\):\n1\. Held Away, .* Being handled by your other agent for Rent Split\./);
+  assert.notEqual(text.split('\n').at(-1), IN_PERSON_CLOSING);
+  assert.doesNotMatch(text, /Say yes/);
+});
+
 test('I1 (v6.1.8 final fix): one ready program held by another agent and one gap shown never closes "Nothing is ready yet."', () => {
   const NOW = new Date('2026-11-04T12:00:00Z');
   const RULE = { kind: 'rule' as const, item: 'rule:abcd1234', what: 'a public good', effort: 'hours' as const, agent_can: false };
@@ -635,15 +669,15 @@ test('I1 (v6.1.8 final fix): one ready program held by another agent and one gap
   assert.match(t, /^One step away \(1\):/m, t);
   assert.doesNotMatch(t, /Nothing is ready yet/, t);
   assert.match(t, /\n\nYour other agent is handling these; I'll say when something new opens\.$/, t);
-  // The closing names no rule, so the rule's own line keeps its "yes n".
-  assert.match(t, /^2\. Rule Grant, \$1K\. Their rule: a public good\. Say "yes 2" if that is you\.$/m, t);
+  // T3-R5 (v6.1.13): no rule line asks its own yes, whatever the closing; "yes 2" still works in track.
+  assert.match(t, /^2\. Rule Grant, \$1K\. Their rule: a public good\.$/m, t);
 });
 
 test('the one-program reply (v6.1.8, 1b): the gap line without its number or "do n", and one action by what the gap is', () => {
   const BC = { kind: 'builder_codes' as const, item: 'builder_codes', what: 'add Base Builder Codes to the app', effort: 'hours' as const, agent_can: true };
   const USERS = { kind: 'users' as const, item: 'users', what: 'tell me if real people use it', effort: 'hours' as const, agent_can: false };
   const codes = gap({ title: 'Base Grant', n: 3, gap: BC });
-  assert.equal(gapLine(codes, null, true), 'Base Grant, $1K: add Base Builder Codes to the app.');
+  assert.equal(gapLine(codes, true), 'Base Grant, $1K: add Base Builder Codes to the app.');
   assert.equal(gapLine(codes), '3. Base Grant, $1K: add Base Builder Codes to the app. Say "do 3" and I add them.');
   assert.equal(gapAction(codes), 'Say "do" and I add Base Builder Codes to the app first.');
   assert.equal(gapAction(gap({ title: 'Two', gap: BC, also: [{ ...BC, kind: 'integration', item: 'integration:x', what: 'add X' }] })), 'Say "do" and I make both changes first.');
@@ -652,11 +686,11 @@ test('the one-program reply (v6.1.8, 1b): the gap line without its number or "do
   assert.equal(gapAction(gap({ title: 'Video', gap: VIDEO, also: [ruleGap('a team')] })), 'Tell me when that is done and I apply.');
   assert.equal(gapAction(gap({ title: 'Used', gap: USERS })), 'Say yes if they do and I draft it.');
   const rule = gap({ title: 'Fund', n: 2, gap: ruleGap('a seed stage startup') });
-  assert.equal(gapLine(rule, null, true), 'Fund, $1K. Their rule: a seed stage startup.');
+  assert.equal(gapLine(rule, true), 'Fund, $1K. Their rule: a seed stage startup.');
   assert.equal(gapAction(rule), 'Say yes if that is you and I draft it.');
   // In person: the line says to attend; no action line.
   const attend = gap({ title: 'Residency', in_person: true, gap: ruleGap('a US co-founder') });
-  assert.equal(gapLine(attend, null, true), 'Residency, $1K. Their rule: a US co-founder. Attend in person.');
+  assert.equal(gapLine(attend, true), 'Residency, $1K. Their rule: a US co-founder. Attend in person.');
   assert.equal(gapAction(attend), null);
   assert.equal(notFitLine('Base Grant', '$1K', 'needs a contract on Base'), 'Base Grant, $1K. Not a fit: needs a contract on Base.');
 });
@@ -691,14 +725,41 @@ test('M1 (v6.1.9): nothing ready and no rule-only program shown: the closing off
   for (const t of [end(base({ gaps: [floss] })), end(base({ gaps: [vr] }))]) assert.doesNotMatch(t!, /—|\b(score|rank|grade|points|coin|token|streak)s?\b/i);
 });
 
+test('L1e-5 and L1e-2 (v6.1.13, Review Focus 7): the closing asks a keyword-hit rule first; a ready program leaves exactly one "Say"', () => {
+  const a = gap({ program_id: 'a', title: 'Open Rule', money: '$9K', gap: ruleGap('an open licence'), rules: ['an open licence'] });
+  const hit = gap({ program_id: 'b', title: 'Student Rule', money: '$5K', gap: ruleGap('a student', 'rule:0000000c'), rules: ['a student'], keyword_hit: true });
+  const all = replyText(base({ gaps: [a, hit] }), true);
+  assert.equal(all.split('\n').at(-1), 'Nothing is ready yet. Say "yes 2" if that rule fits you.');
+  // T3-R5: the closing is the only Say; the other rule line reads its rule alone.
+  assert.match(all, /^1\. Open Rule, \$9K\. Their rule: an open licence\.$/m);
+  assert.equal(all.match(/\bSay\b/g)?.length, 1, all);
+  // No hit: the first in list order, as before.
+  assert.equal(replyText(base({ gaps: [a, { ...hit, keyword_hit: undefined }] }), true).split('\n').at(-1), 'Nothing is ready yet. Say "yes 1" if that rule fits you.');
+  // A ready FLOSS/fund with Thiel on line 2: one Say in the whole reply.
+  const floss = ready({ program_id: 'floss-fund-zerodha', title: 'FLOSS/fund', money: '$10,000 to $100,000' });
+  const thiel = gap({ program_id: 'thiel-fellowship', title: 'Thiel Fellowship', money: '$250,000 over two years', gap: ruleGap('applicant aged 22 or younger'), rules: ['applicant aged 22 or younger'], keyword_hit: true });
+  const text = replyText(base({ ready: [floss], gaps: [thiel] }), true);
+  assert.equal(text.match(/\bSay\b/g)?.length, 1, text);
+  assert.match(text, /^2\. Thiel Fellowship, \$250,000 over two years\. Their rule: applicant aged 22 or younger\.$/m);
+  assert.equal(text.split('\n').at(-1), 'Say yes and I apply.');
+});
+
 test('v6.1.9: after the builder\'s yes on a rule, the program it made ready is applied to without a second yes', () => {
   const one = base({ ready: [ready({ title: 'Solana Foundation Grants', rule_yes: true, rules: ['a public good'] })] });
   assert.equal(replyText(one, true).split('\n\n').at(-1), 'Your yes stands for Solana Foundation Grants: I apply now.');
   const two = base({ ready: [ready({ title: 'Solana Foundation Grants', rule_yes: true }), ready({ title: 'Other Grant' })] });
   assert.equal(replyText(two, true).split('\n\n').at(-1), 'Your yes stands for Solana Foundation Grants: I apply now. Say yes and I apply.');
-  // The builder presses submit on it: no "I apply now".
+  // The builder presses submit on it: no "I apply now"; L1e-3 (v6.1.13): the yes stands, in the draft wording.
   const click = base({ ready: [ready({ title: 'Click Grant', rule_yes: true })], blockers: [{ program_id: 'click-grant', sign_in: null, needs_click: true, needs: [] }] });
-  assert.equal(replyText(click, true).split('\n\n').at(-1), 'Say yes and I draft it for you to send.');
+  assert.equal(replyText(click, true).split('\n\n').at(-1), 'Your yes stands for Click Grant: I draft it for you to send.');
+  // Review Focus 8 (L1e-3): with answers missing, the closing names them and never asks for yes again.
+  const thiel = base({
+    ready: [ready({ program_id: 'thiel-fellowship', title: 'Thiel Fellowship', rule_yes: true, need_you: ['the online application answers'], needs: ['the online application answers'] })],
+    blockers: [{ program_id: 'thiel-fellowship', sign_in: null, needs_click: true, needs: [] }],
+  });
+  const end = replyText(thiel, true).split('\n\n').at(-1);
+  assert.equal(end, 'Thiel Fellowship needs your online application answers; then I draft it for you to send.');
+  assert.doesNotMatch(replyText(thiel, true), /Say yes/);
   // A sign-in the agent does not have: no "I apply now" either (final review M2).
   const signIn = base({ ready: [ready({ title: 'Mail Grant', rule_yes: true })], blockers: [{ program_id: 'mail-grant', sign_in: 'email', needs_click: false, needs: [] }] });
   assert.doesNotMatch(replyText(signIn, true), /I apply now/);
@@ -760,11 +821,11 @@ test('L1d-2 (v6.1.11, Review Focus 2): a gap line names its setup steps as "Firs
   const g = gap({ title: 'Colosseum Eternal', money: '$25,000 award', gap: VIDEO, also: [ruleGap(vc)], rules: [vc], setup });
   const line = 'Colosseum Eternal, $25,000 award: a demo video. First: sign up for a Colosseum account; start the four-week sprint in the Eternal dashboard. Their rule: the team has not raised venture capital for the startup it submits.';
   assert.equal(gapLine({ ...g, n: 2 }), `2. ${line}`);
-  assert.equal(gapLine({ ...g, n: 2 }, null, true), line);
+  assert.equal(gapLine({ ...g, n: 2 }, true), line);
   assert.doesNotMatch(gapLine({ ...g, n: 2 }), /: a demo video\. Their rule/);
   // Rules only: the steps come before the rules and the "yes n" ask.
   const ruled = gap({ title: 'Sprint', money: '$5K', gap: ruleGap('a crypto product'), rules: ['a crypto product'], setup: ['sign up for an account'] });
-  assert.equal(gapLine({ ...ruled, n: 1 }), '1. Sprint, $5K. First: sign up for an account. Their rule: a crypto product. Say "yes 1" if that is you.');
+  assert.equal(gapLine({ ...ruled, n: 1 }), '1. Sprint, $5K. First: sign up for an account. Their rule: a crypto product.');
   // With "do n" and the sign-in sentence, the steps follow every gap sentence.
   const codes = { kind: 'builder_codes' as const, item: 'builder_codes', what: 'add Base Builder Codes to the app', effort: 'minutes' as const, agent_can: true };
   const done = gap({ title: 'Base', money: '$5K', gap: codes, setup: ['sign in to the portal'] });
@@ -776,7 +837,7 @@ test('L1d-2 (v6.1.11, Review Focus 2): a gap line names its setup steps as "Firs
 test('L1d-2 (v6.1.11): an in-person gap line keeps its one attend sentence, never a second "First:"', () => {
   const g = gap({ title: 'Blitz', money: '$1K', in_person: true, gap: ruleGap('a team of two'), rules: ['a team of two'], setup: ['be in Eugene, Oregon on November 15'] });
   const line = gapLine({ ...g, n: 1 });
-  assert.equal(line, '1. Blitz, $1K. Their rule: a team of two. First: be in Eugene, Oregon on November 15. Say "yes 1" if that is you.');
+  assert.equal(line, '1. Blitz, $1K. Their rule: a team of two. First: be in Eugene, Oregon on November 15.');
   assert.equal(line.match(/First:/g)!.length, 1);
 });
 

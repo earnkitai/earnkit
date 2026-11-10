@@ -143,7 +143,7 @@ test('L1c-2 (v6.1.10): a rule item may carry up to 8 lower-case keywords of at m
   assert.equal(ProgramFile.safeParse({ ...base, eligibility: [{ kind: 'demo_video', keywords: ['vr'] }] }).success, false);
 });
 
-test('L1c-2 (v6.1.10): the catalog keywords are on the domain rules, none on person or licence rules', () => {
+test('L1c-2 (v6.1.10): the catalog keywords are on the domain rules, none on licence rules; L1e-2 (v6.1.13): Thiel names who its person rule is for', () => {
   const kw = (f: string) => eligibilityOf(ProgramFile.parse(read(`${f}.json`))).flatMap((i) => i.keywords ?? []);
   assert.deepEqual(kw('meta-vr-start-competition-2026'), ['vr', 'quest', 'hands-first', 'oculus']);
   assert.deepEqual(kw('codegeist-2026'), ['atlassian', 'atlassian forge', 'jira', 'confluence']);
@@ -162,6 +162,9 @@ test('L1c-2 (v6.1.10): the catalog keywords are on the domain rules, none on per
   assert.deepEqual(kw('uniswap-foundation-security-fund'), ['uniswap', 'v4 hook', 'uniswap hook']);
   // Final round: never a bare "meta" (Meta's models) or "forge" (every Foundry README) either.
   for (const f of files) assert.ok(!eligibilityOf(ProgramFile.parse(read(f))).some((i) => (i.keywords ?? []).some((k) => ['hook', 'v4', 'meta', 'forge'].includes(k))), f);
-  for (const f of ['thiel-fellowship', 'antler-us-residency', 'github-secure-open-source-fund', 'herodevs-sustainability-fund', 'sovereign-tech-fund'])
+  // L1e-2 (v6.1.13, fix round 1 T3-R2): who the age rule is for, never a bare number or "fellowship"; Avalanche's ecosystem rule names its chain.
+  assert.deepEqual(kw('thiel-fellowship'), ['student', 'students', 'college', 'university', 'dropout', 'drop out', 'undergrad']);
+  assert.deepEqual(kw('avalanche-team1-mini-grants'), ['avalanche', 'avax', 'team1', 'subnet']);
+  for (const f of ['antler-us-residency', 'github-secure-open-source-fund', 'herodevs-sustainability-fund', 'sovereign-tech-fund'])
     assert.deepEqual(kw(f), [], f);
 });

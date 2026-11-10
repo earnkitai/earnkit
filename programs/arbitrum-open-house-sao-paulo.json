@@ -15,7 +15,7 @@
   "ends_at": "2027-03-01T02:59:00Z",
   "verified_at": "2026-11-09",
   "status": "upcoming",
-  "opens_note": "Registration is open on HackQuest since Nov 2, 2026; submissions run Feb 8 to Mar 1, 2027 and the requirements are not published yet.",
+  "opens_note": "Submissions run Feb 8 to Mar 1, 2027; registration is open on HackQuest since Nov 2, 2026, and the requirements are not published yet.",
   "existing_work": "allowed",
   "needs_repo": true,
   "chains": ["arbitrum", "robinhood"],

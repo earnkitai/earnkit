@@ -70,15 +70,25 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
    deploys). Within each, real changes before rule-only ones (rule-only ones naming a project mainnet first, then
    chain-agnostic, then the rest: R18e), then fewest gaps, lowest effort, larger award. `shownGapsOf` picks the shown
    gaps: first the acted-on programs (N-3; a claim counts only on the project it stored, its record id or project key,
-   and another project's claim shows its hold only under `filter.all`: L1d-1, v6.1.11), then every program closing within 7 days that the project fits (O1, ahead
+   and never pins another project: L1d-1, v6.1.11; another agent's claim for another project still marks the program's
+   line `Being handled by your other agent for {project name}.`, in the default list and `filter.all`, and leaves the yes
+   count: C1, v6.1.13, `held_for`, the name from the record project, else the owner's report for that key, else the `name:` key or the repo path; a held in-person program is listed under In person with its line but is no yes in the closing, counting as held), then every program closing within 7 days that the project fits (O1, ahead
    of the cap; its line says `closes in {n} days`), then at most one rule-bearing program among rule-free ones. That
    one, on the project's chains, takes its rank place; off them it is shown only after `max - 1` others or alone
    (N-2). A keyword hit (`keywordHit`, `eligibility.ts`, N1 v6.1.12: a rule still to confirm whose keywords the project
    names) is no rule-slot program: it competes as a rule-free step, own chain first, and ranks as a step with no rule
-   left; only programs with no hit keep the one rule slot. A rule item may carry `keywords` (L1c-2): when a rule still to confirm has keywords and the project names
+   left; only programs with no hit keep the one rule slot, and a keyworded rule with no hit is `unlikely`, so the slot
+   holds rules with no keywords (L1e-2, v6.1.13: Thiel's `student`, `college` and the rest say which builders it is
+   for). The project's own chains, reported and read, count as its words (T3-R3: a project on Avalanche names it). A rule item may carry `keywords` (L1c-2): when a rule still to confirm has keywords and the project names
    none of the program's keywords (whole word or phrase, case-insensitive, a hyphen read as a space) in its name, description, README excerpt
-   or topics, `unlikely` (`eligibility.ts`) holds and the program is left to `filter.all` (counted in `more`); a rule
-   with no keywords keeps the slot rule. In-person programs are off the default step list (R18d, R18f); a rule-only
+   or topics (the first three as prose: links, fenced code and inline code removed, `proseOf`, C3 v6.1.13; the README
+   excerpt itself drops inline code spans), `unlikely` (`eligibility.ts`) holds and the program is left to `filter.all` (counted in `more`); a rule
+   with no keywords keeps the slot rule. With nothing ready, the closing's rule question names a keyword-hit rule-only
+   program first (`keyword_hit` on the gap, L1e-5, v6.1.13), else the first in list order. One yes per reply (L1e-2,
+   T3-R5): no rule line, remote or in person, carries its own `Say "yes n" if that is you.`; the closing is the one
+   yes, and the builder may still answer `yes n` for any numbered line. Several rules still to confirm read as one
+   sentence, `Their rules: a; b.` (L1e-6). Every gap line closing in 14 whole days or fewer says `closes in {n} days`
+   (L1e-6; the 7-day O1 rule still decides who jumps the cap). In-person programs are off the default step list (R18d, R18f); a rule-only
    in-person program is listed in the In person block after the ready ones, with its rule and `Say "yes n" if that is
    you.` (O2), in the in-person slots the ready ones leave. With nothing remote ready, a shown remote step closes the reply
    (its rule's yes, the users question or `First: {step}.`), the cheapest step shown first: a question (the users
@@ -93,7 +103,8 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
    verb phrases; an in-person line says them once in its attend sentence.
 5. `prefill.ts` fills each ready program's form: fields EarnKit can answer (`from: earnkit`), prose fields handed to
    the agent with sources (`from: agent`), and fields only the builder can give (`from: builder`, a demo video or
-   a file). Blank beats a wrong guess. `facts_from_repo` counts only values the public code read gave (its repo link,
+   a file, or an `other` answer the program file marks `from: builder`, unlinked: Thiel's and YC's application
+   answers, Base's revenue; L1e-3, v6.1.13, so an idea and an empty repo read the same need). Blank beats a wrong guess. `facts_from_repo` counts only values the public code read gave (its repo link,
    homepage, contracts and chains with basis `code`), never anything the agent passed; the reply says "Drafted: N facts from the repo." only when N is above zero.
 6. `since.ts` lists programs new, changed (deadline, amount, status, form) and closing within 7 days since this
    installation's `last_find_at`. Empty on the first call.
@@ -151,12 +162,20 @@ one of the program's own eligibility items (`users` only when the program has a 
 refused, and the agent note lists the program's items. It is trusted only for kinds EarnKit cannot verify (`feature`, `users`, `demo_video`, `rule`);
 verifiable kinds are re-read from the repo.
 A done step belongs to one project (v6.1.10, L1c-1): `gaps_done` carries `project_key` and is unique on
-(owner, project_key, program_id, item). `projectKeyOf` (`project-input.ts`, pure) gives the key: the repo link lower-cased
-without a trailing slash or `.git`, else `name:` and the name lower-cased and trimmed, else `''` (rows from before v6.1.10
-stay at `''`). `find` reads done steps (`doneItems`, `doneByProgram`, `codeDoneAt`) with its project's key and keeps it in
+(owner, project_key, program_id, item). `projectKeyOf` (`project-input.ts`, pure) gives the key: the repo link in its
+one canonical form (`canonicalRepoLink`, v6.1.13 B4: https, host lower-cased without `www.`, no port, no `user@`, no
+query or fragment, on github.com owner and name only, on other hosts the path up to its first `-` segment (so `-/tree/...`, `-/blob/...`, `-/issues` fold and a subgroup named `tree` stays), no trailing slash or `.git`;
+the repo read's cache key `repoKey` reads the same helper), else `name:` and the name NFKC and case-folded, else `''`
+(rows from before v6.1.10 stay at `''`). The first find that adds the repo to a project found by name moves its
+`gaps_done`, claim `project_id` and `project_reports` rows from the `name:` key to the repo key in one transaction
+(`rekeyProject` in `ledger.ts`: rows copied with ON CONFLICT so a step marked at the same moment cannot fail the find, the newer time winning, then the `name:` rows deleted). A project named alone whose `name:` report names a repo is read under that repo's key (`resolvedKey` in `ledger.ts`, final round W1 and W2): find's steps, claims and report and track's key (`projectOf`), so a send or find by name sees what a find with the repo marked; a name-only find of it keeps the repo link in its report. `find` reads done steps (`doneItems`, `doneOn`, `codeDoneAt`) with that key;
+a project item (`PROJECT_ITEMS`: `users`) done on any program of the project counts for every program on it (L1e-4,
+v6.1.13: `Done.of`), for find, track and the send check alike, while a yes said (`rule_yes`) and the acted-on pin stay
+the program's own (`Done.own`) and keeps it in
 `installations.last_project_key`; `track` takes the key from its `project` (`name`, `repo_url`), else the record project
-named by `project_id`, else `last_project_key` (the same cleaning as `parseProject`, so a raw and a parsed project key
-alike; track caps `name` at 120 and `repo_url` at 500). `last_gaps` are the last find's project's and written with its key: a
+named by `project_id`, else `last_project_key`. Track parses its `project` with find's own `parseProject` and limits
+(v6.1.13 B5, `partial`: a long name is cut to 80, a bad or long link dropped, a missing name never refused; the problems go
+in the agent note), so a key is find's key. `last_gaps` are the last find's project's and written with its key: a
 find of another project that writes no gaps drops them (`rememberProject`); `started` on another project
 skips the remembered remark and `gap_done` there leaves them. Linking an installation moves its rows with their keys.
 `won` with an amount is the one fact that later feeds an aggregate "what wins" view; nothing aggregate is shown yet.
@@ -204,8 +223,12 @@ minutes), no probe, sweep or digest.
 Copy lives in `site-copy.ts`, install steps in `agents.ts` (read by the site, `/docs` and `/llms.txt`), colours in
 `site-theme.ts` (mirrored in `globals.css`). See `apps/frontend/DESIGN.md`. OAuth (`oauth.ts`, `oauth-routes.ts`) is
 standard (PKCE, dynamic client registration) and approves at once; the issued token is the installation. A
-many-builder hosted registration gets no client key. Every register and token request counts on the one per-IP floor;
-the hosted tier (every redirect URI is a listed vendor's exact host and callback path, `HOSTED_REDIRECTS`) only raises
+many-builder hosted registration gets no client key. Every register and token request counts on the one per-IP floor
+(an hour) and on its address block's daily cap (v6.1.13 B1: IPv4 /16, IPv6 /48, `blockOf` in `rate-limit.ts`; 5,000
+registrations, `oauthRegisterBlock`, and 5,000 installs, `installBlock`, a day, so one hosted vendor's /16 can still
+reach `installClientHosted`; over it, "Too many sign-ups from your network today. Try again tomorrow."; one ops log
+`[oauth] block near cap` as a block reaches 80 percent of its day). Hex IPv4-mapped IPv6 is unmapped to its IPv4. No ceiling is shared by every user of one hosted service, so one network
+rotating addresses never locks out another; the hosted tier (every redirect URI is a listed vendor's exact host and callback path, `HOSTED_REDIRECTS`) only raises
 the per-client ceiling (`installClientHosted`). `GET /mcp` is 405 (`Allow: POST, DELETE`): EarnKit never pushes. `rate-limit.ts` keeps fixed-window counters in Postgres. Each MCP tool call counts
 120 an hour per installation and 600 an hour per client IP; over either, the call answers the tool result "EarnKit
 is busy. Try again in about {n} minutes." (hours past 90 minutes; not a transport error, so clients show it). `secrets.ts` scrubs secret
@@ -226,6 +249,7 @@ keys from tool-call bodies before anything sees them.
 | `repo_cache` | Public repo facts, 7 days; swept after 30 |
 | `evidence_cache` | v6 evidence blocks per repo (`repo:<owner/name>`, with pushed_at) and per contract, used for 7 days; not swept yet |
 | `applications`, `application_history`, `gaps_done` | The ledger |
+| `project_reports` | The project as reported at the owner's last find, per owner and project key (v6.1.13; a find with a repo writes its name key too), read by a send's check and `resolvedKey`; moved on link, deleted with the account, swept after 180 days without a find |
 | `owner_digests` | The days a digest covered |
 | `program_reviewers` | Builders the owner marked as a program's reviewers (may call `screen`) |
 | `screen_jobs`, `screen_applicants`, `screen_outcomes` | Screen jobs (30 days), each applicant's tier, because, line, public rows and deployers (no pitch column), and the program's outcomes; the counts across programs read only these |
@@ -381,10 +405,21 @@ and so is a send whose form has a required field EarnKit cannot vouch for, whate
 vouched-field rule, v6.1.10 F1: one helper, `unvouchedRequired(fields)` in `prefill.ts`, returns every required `builder`
 field without a value and every `agent` field with no sources, judged by `from`, value and sources only; find's
 `need_you` and tonight list read it, and track's `unvouchedAtSend` runs it over the program prefilled with the stored
-record and the send's project, its passed links, else the record project's, else the last find's project key, merged
-with that repo's cached read as find had it (`cachedRepoFacts`, no fetch; the report alone with no cached row)),
+record and the send's project, merged as find merges (v6.1.13, Task 1 review I1 and I2: `sendFacts` in `track.ts`):
+the project the owner's last find reported (`project_reports`, written by every find with a project under its key and,
+with a repo, its name key too; read under the send's resolved key, then its name key; `saveReport`/`reportOf` in
+`ledger.ts`; rows no find updated for 180 days go in the cron's sweep, `sweepReports`), then the send's parsed project on top (its chains added, never removing one),
+the name and links falling back to the record project's and the last find's key; then that repo's cached read
+(`cachedRepoFacts`, no fetch), else the report alone through find's own merge (`reportOnlyFacts` in `repo-facts.ts`),
+so reported contracts, Builder Codes and commit dates count; `sendCheck` is the one path production and
+`unvouchedAtSend` share),
 and find's standing note says "Under standing approval, send only when every required answer is filled; otherwise wait
-for the builder." Find holds the same line: a ready program with a required builder answer still empty leaves the
+for the builder." The ready-at-send rule (v6.1.13 B2): with every required answer vouched, the send counts as under
+standing approval only when the program's verdict for that project is ready at send time: find's `evaluate` and gate
+(`readyAtSend` and `storedSide` in `find-record.ts`: the stored tier, no evidence read) over the same facts, with the
+owner's done steps and confirmed rules on that project; a closed program is judged as it stood at its close (F8 then
+decides). A gap, a rule left to confirm, a bar not met or not a fit is recorded with "it was still a step away".
+`fields_used` keeps its first 200 keys, each cut to 60, and is never refused (B6): the form already went out. Find holds the same line: a ready program with a required builder answer still empty leaves the
 tonight list and is named in its own block, "Before tonight (nothing is sent until these are in): your {answers} for
 {titles}." (no tonight line when nothing can go). A contract the read still does not find adds "Pass the contract
 address if it is on chain." to the agent note. A send that does count as under standing approval puts the installation's `last_find_at` back to
@@ -397,7 +432,12 @@ hand them over." A rule the builder confirmed marks the ready program `rule_yes`
 on a program that asks it; F3, v6.1.10; a `users: true` the agent passed settles the users item but is no yes, final round), and the closing reads "Your yes stands
 for {title}: I apply now." instead of asking again, only when that program is fully ready (nothing in `need_you`);
 with answers still missing, the closing names them instead of a second yes: "{title} needs your {needs}; then I
-apply." (at most three, then "and n more"; N3, v6.1.12), and any other ready programs keep their yes. The email the
+apply." (at most three, then "and n more"; N3, v6.1.12), and any other ready programs keep their yes. A program the
+builder submits reads the same in the draft wording (L1e-3, v6.1.13; list and detail alike): "Your yes stands for
+{title}: I draft it for you to send." and "{title} needs your {needs}; then I draft it for you to send.". A program
+that funds existing code (`needs_repo`, existing work allowed, not a hackathon or in person) is one step, `code in a
+repo` (`NEEDS_CODE`, item `repo`, re-checked by the read), from a project with no live link and no repo link or an
+empty repo (L1e-6, fix round 1 T3-R1: FUTO is an idea's one remote step). The email the
 "Before applying" block names (`record_missing`) is named once per reply: the drafted line, the Before tonight line and
 the N3 closing leave it out unless it is the only need (`namedBefore`, F5, v6.1.12). A new-work program (`new_work_after`) with no first-commit date is
 the question step "tell me when you started this" (minutes, never the agent's, never a reason to refuse; O3, v6.1.10):
@@ -408,11 +448,11 @@ in-person line with ", in person" (O4). A find that passed a repo never lists "a
 spaces and punctuation ignored, the first tier any program fits: the whole id or title or the id's initials ("yc",
 "ycombinator"); the start of a title or id, four characters at least ("monad", "Base", "kiro"); one organizer's whole
 name, as written or without its brackets ("Thiel Foundation", "Kiro"; never "aws" from "Kiro (AWS)"). A start that is
-an organizer's first word alone, not its whole name ("ethereum", "thiel", "circle"), is only offered beside that
-organizer's other programs, never taken (final fix, v6.1.12, I2). One program fitting is used, and when it is not the id
-passed, track's and the detail's first line names it ("Started: {title}.", "Tracked: {title}."; `namedFirst`); several answer "I don't know that program. Did you mean {title one}
-or {title two}?" (the first two by `byLookupRank`: open, then upcoming, then the rest; larger award; sooner close);
-none, "I don't know that program." with up to two titles sharing a word. Track records nothing on such a name; a result on an id the ledger
+an organizer's first word alone, not its whole name ("ethereum", "thiel", "circle", "floss"), is weighed beside that
+organizer's other programs (final fix, v6.1.12, I2): exactly one is that program ("floss", "thiel"; L1e-1, v6.1.13),
+several ask ("circle"). One program fitting is used, and when it is not the id
+passed, track's and the detail's first line names it ("Started: {title}.", "Tracked: {title}."; `namedFirst`); several answer "Did you mean {title one} or {title two}?" alone (L1e-1, v6.1.13) (the first two by `byLookupRank`: open, then upcoming, then the rest; larger award; sooner close);
+none, "Did you mean {title}?" for up to two titles sharing a word, else "I don't know that program." alone. Track records nothing on such a name; a result on an id the ledger
 holds as sent is that id, before any matching (final fix, v6.1.12). Find's record line reads "Still missing for
 these programs: ..." (what these forms need); `record get` keeps "Your record is missing: ..." (every fact), and both
 `record get` and `set` carry an agent note. `/me/policy` refuses auto apply with no
@@ -429,11 +469,14 @@ category ticked ("Pick at least one category.", C43).
 
 **The claim rule.** Before filling, the agent tracks `started` (`claims.ts`): one claim per owner and program (an
 advisory lock); another agent of the same builder within 24 hours gets `already` with the claiming agent's name; a
-claim with no `applied` after 24 hours is released. A skip stands over a claim.
+claim with no `applied` after 24 hours is released. A skip stands over a claim. An `applied` from another agent of the
+owner while the claim is live writes nothing and answers "Your other agent is handling that one; nothing recorded."
+(v6.1.13 B3, `OTHER_AGENT_HOLDS` in `ledger.ts`); the holder's own send is unchanged.
 
 **The screen queue and the cron trigger.** `screen` (`screen-tool.ts`) is for a reviewer: a signed-in builder the
-owner adds with `POST /api/programs/reviewers`. With `applicants` (up to 200) it queues a job (`screen-jobs.ts
-createJob`: pitches compared for `identical_pitch`, then dropped; 10 jobs a day per reviewer; thresholds from 0 to
+owner adds with `POST /api/programs/reviewers`. With `applicants` (up to 200; over that, or over 200 outcomes, one line:
+"At most 200 at a time; send the rest in another call.", C2 v6.1.13) it queues a job (`screen-jobs.ts
+createJob`: an applicant repeated exactly is kept once (Low 18, v6.1.13), pitches compared for `identical_pitch`, then dropped; 10 jobs a day per reviewer; thresholds from 0 to
 100). The promise is computed from the queue (v6.1.7 B14): the unread applicants of unexpired jobs created before this
 one (`queuedAhead`) plus this job's, against `SCREEN_BATCH` per daily run: "Results by tomorrow morning." when they fit
 in one run, else "{n} applicants ahead of yours; results within {d} days.". The cron's `workQueue`

@@ -100,19 +100,21 @@ export function byLookupRank(rows: ProgramRow[], now: Date): ProgramRow[] {
     standing(a.file) - standing(b.file) || awardOf(b.file) - awardOf(a.file) || ends(a.file) - ends(b.file) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
-/** The builder line for a name that is no one program: up to two titles to pick from, as a question. Pure. */
+/** The builder line for a name that is no one program: up to two titles to pick from, as a question alone (L1e-1,
+ *  v6.1.13); "I don't know that program." only when nothing is offered. Pure. */
 export function unknownProgramLine(suggest: readonly string[]): string {
   const [a, b] = suggest;
-  return a === undefined ? "I don't know that program." : `I don't know that program. Did you mean ${b === undefined ? a : `${a} or ${b}`}?`;
+  return a === undefined ? "I don't know that program." : `Did you mean ${b === undefined ? a : `${a} or ${b}`}?`;
 }
 
 /**
  * A program by what the builder calls it, the one resolver find and track share (v6.1.9; F4, v6.1.12): its id as given,
  * else, case, spaces and punctuation ignored, the first of these that any program fits: its whole id or title, or its
- * id's initials ("yc"); the start of its title or id, four characters at least and not an organizer's first word alone
- * ("monad", "Base"; never "fi" or "ethereum"); one of its organizers' whole names ("Thiel Foundation", "Kiro", never
- * "aws"). Exactly one program fitting is the `row`; several are `suggest`, the first two by
- * byLookupRank; none, `suggest` holds the titles sharing a word with the name (two at most, by rank).
+ * id's initials ("yc"); the start of its title or id, four characters at least ("monad", "Base"; never "fi"), an
+ * organizer's first word only when that organizer runs no other program ("floss", "thiel"; L1e-1, v6.1.13); one of its
+ * organizers' whole names ("Thiel Foundation", "Kiro", never "aws"). Exactly one program fitting is the `row`; several
+ * are `suggest`, the first two by byLookupRank; none, `suggest` holds the titles sharing a word with the name (two at
+ * most, by rank).
  */
 export async function programByName(name: string, now: Date = new Date()): Promise<{ row: ProgramRow | null; suggest: string[] }> {
   const exact = await getProgram(name);
@@ -123,8 +125,9 @@ export async function programByName(name: string, now: Date = new Date()): Promi
   const rows = parseRows(await sql()<RawRow[]>`SELECT id, file, source, created_at, updated_at, verified_at, stale_since FROM programs ORDER BY id`);
   const prefix = q.length >= MIN_PREFIX;
   // Final fix (v6.1.12, I2): the first word of an organizer that is not its whole name ("ethereum" for the Ethereum
-  // Foundation) names the organizer, which may run programs the catalog does not hold: a start of a title on it is
-  // only offered, never taken, beside that organizer's other programs ("circle" asks, as Circle runs several).
+  // Foundation) names the organizer: a start of a title on it is weighed beside that organizer's other programs
+  // ("circle" asks, as Circle runs several). L1e-1 (v6.1.13): when that is exactly one program ("floss", "thiel"),
+  // it is the one.
   const led = (r: ProgramRow) => organizerLeads(r.file.organizer).includes(words);
   const orgWord = rows.some((r) => led(r) && !organizers(r.file.organizer).includes(q));
   const tests: [(r: ProgramRow) => boolean, boolean][] = [
@@ -135,8 +138,10 @@ export async function programByName(name: string, now: Date = new Date()): Promi
   const titles = (hits: ProgramRow[]) => byLookupRank(hits, now).slice(0, 2).map((r) => r.file.title);
   for (const [t, takes] of tests) {
     const hits = rows.filter(t);
-    if (hits.length === 1 && takes) return { row: hits[0], suggest: [] };
-    if (hits.length > 0 && !takes) return { row: null, suggest: titles([...new Set([...hits, ...rows.filter(led)])]) };
+    // `takes` false: the hits are weighed with the organizer's other programs.
+    const fit = takes || hits.length === 0 ? hits : [...new Set([...hits, ...rows.filter(led)])];
+    if (fit.length === 1) return { row: fit[0], suggest: [] };
+    if (!takes && fit.length > 0) return { row: null, suggest: titles(fit) };
     if (hits.length > 1) return { row: null, suggest: titles(hits) };
   }
   const named = new Set(words.split(' ').filter((w) => w.length >= 2 && !COMMON.has(w)));

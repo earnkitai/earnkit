@@ -21,7 +21,7 @@ export function programFixture(over: Partial<Program> & { id: string }): Program
     chains: ['base'],
     summary: 'Up to $5,000 · rolling',
     rules: [],
-    needs_repo: true,
+    needs_repo: false,
     submission_requirements: [
       { key: 'project_name', label: 'Project name', type: 'text', required: true, from: 'project', kind: 'name', todo: 'a project name' },
     ],

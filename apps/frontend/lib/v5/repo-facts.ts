@@ -10,7 +10,7 @@ import { CHAIN_REGISTRY, chainOfId } from './chains';
 import { sql } from './db';
 import { GitHubError, readRepo, readRepoObject, type RepoRead } from './github';
 import { LIMITS, hit } from './rate-limit';
-import { addressKey, type Project } from './project-input';
+import { addressKey, canonicalRepoLink, type Project } from './project-input';
 
 export type Basis = 'code' | 'reported';
 /**
@@ -155,11 +155,13 @@ export function detectCode(files: { path: string; text: string }[], paths: strin
 
 // ---- README ----
 
-/** The first 2 KB of a README with markdown and HTML markup removed. Pure. */
-export function readmeExcerpt(md: string | null): string | null {
+/** The first 2 KB of a README with markdown and HTML markup removed; inline code spans are dropped too (C3, v6.1.13),
+ *  except for the lead sentence (`keepCode`), which keeps their words. Pure. */
+export function readmeExcerpt(md: string | null, keepCode = false): string | null {
   if (!md) return null;
   const text = md
     .replace(/```[\s\S]*?```/g, ' ')
+    .replace(keepCode ? /(?!)/g : /`[^`\n]*`/g, ' ')
     .replace(/<!--[\s\S]*?-->/g, ' ')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
@@ -179,7 +181,7 @@ export function readmeLead(md: string | null): string | null {
   for (const raw of paragraphs) {
     const p = raw.trim();
     if (!p || /^(#|!\[|\[!\[|<|\||[-*+]\s|\d+\.\s|>|={3,}|-{3,})/.test(p)) continue;
-    const text = (readmeExcerpt(p) ?? '').replace(/\p{Extended_Pictographic}\uFE0F?/gu, '').replace(/\s+/g, ' ').trim();
+    const text = (readmeExcerpt(p, true) ?? '').replace(/\p{Extended_Pictographic}\uFE0F?/gu, '').replace(/\s+/g, ' ').trim();
     if (text.split(' ').length < 3) continue;
     const sentence = /^(.+?[.!?])(?:\s|$)/.exec(text)?.[1] ?? text;
     return sentence.slice(0, 280).trim();
@@ -189,18 +191,13 @@ export function readmeLead(md: string | null): string | null {
 
 // ---- read and cache ----
 
-/** "owner/name" lowercase from a github.com repo link, else null. Pure. */
+/** "owner/name" lowercase from a github.com repo link, else null: the cache key, read from the one canonical link
+ *  (`canonicalRepoLink`, shared with projectKeyOf; v6.1.13 B4). Pure. */
 export function repoKey(url: string | undefined): string | null {
-  if (!url) return null;
-  try {
-    const u = new URL(url);
-    if (u.hostname.toLowerCase() !== 'github.com' && u.hostname.toLowerCase() !== 'www.github.com') return null;
-    const [owner, name] = u.pathname.split('/').filter(Boolean);
-    const repo = name?.replace(/\.git$/i, '');
-    return owner && repo && /^[\w.-]+$/.test(owner) && /^[\w.-]+$/.test(repo) && !/^\.+$/.test(repo) ? `${owner}/${repo}`.toLowerCase() : null;
-  } catch {
-    return null;
-  }
+  const link = canonicalRepoLink(url);
+  if (!link?.startsWith('https://github.com/')) return null;
+  const [owner, repo] = link.slice('https://github.com/'.length).split('/');
+  return owner && repo && /^[\w.-]+$/.test(owner) && /^[\w.-]+$/.test(repo) && !/^\.+$/.test(repo) ? `${owner}/${repo}` : null;
 }
 
 function codeFactsOf(r: RepoRead): CodeFacts {
@@ -337,6 +334,9 @@ export async function cachedRepoFacts(project: Project): Promise<RepoFacts | nul
   const [row] = await sql()<{ facts: CodeFacts }[]>`SELECT facts FROM repo_cache WHERE repo = ${key}`;
   return row && complete(row.facts) ? mergedFacts(project, withIntegrations(row.facts), false) : null;
 }
+
+/** The agent's report alone as facts, merged as find merges a report with no repo read (v6.1.13, Task 1 review I2). Pure. */
+export const reportOnlyFacts = (project: Project): RepoFacts => mergedFacts(project, null, false);
 
 /** The code read (or none) and the agent's report as one set of facts (repoFacts' merge rules). Pure. */
 function mergedFacts(project: Project, code: CodeFacts | null, paused: boolean): RepoFacts {

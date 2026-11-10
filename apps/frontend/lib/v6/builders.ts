@@ -112,6 +112,12 @@ export async function linkInstallation(installationId: number, builderId: number
     await tx`DELETE FROM gaps_done i USING gaps_done b
       WHERE i.owner = ${from} AND b.owner = ${to} AND i.project_key = b.project_key AND i.program_id = b.program_id AND i.item = b.item`;
     await tx`UPDATE gaps_done SET owner = ${to} WHERE owner = ${from}`;
+    // The reported projects (v6.1.13): the newer report of one project stays.
+    await tx`DELETE FROM project_reports i USING project_reports b
+      WHERE i.owner = ${from} AND b.owner = ${to} AND i.project_key = b.project_key AND i.at <= b.at`;
+    await tx`DELETE FROM project_reports b USING project_reports i
+      WHERE b.owner = ${to} AND i.owner = ${from} AND i.project_key = b.project_key`;
+    await tx`UPDATE project_reports SET owner = ${to} WHERE owner = ${from}`;
     return { migrated: moved.count };
   });
 }
@@ -166,6 +172,7 @@ export async function deleteBuilder(id: number, now: Date = new Date()): Promise
     await tx`DELETE FROM applications WHERE owner = ${owner}`;
     await tx`DELETE FROM application_history WHERE owner = ${owner}`;
     await tx`DELETE FROM gaps_done WHERE owner = ${owner}`;
+    await tx`DELETE FROM project_reports WHERE owner = ${owner}`;
     await tx`UPDATE installations SET builder_id = NULL, linked_at = NULL, unlinked_at = ${now}, unlinked_reason = 'deleted' WHERE builder_id = ${id}`;
     await tx`DELETE FROM builders WHERE id = ${id}`;
   });

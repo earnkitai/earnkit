@@ -104,7 +104,8 @@ export function rankGaps(v: Verdict[], programs: Programs, mainnets: ReadonlySet
  * The gap list shown (R18b, v6.1.8 fix rounds 2 and 3, v6.1.9, v6.1.10): all of it when `all`. Else, first the
  * programs the builder acted on (`pinned`: a step marked done or a live claim, N-3), in rank order, whatever they
  * carry; then every program closing soon (`soon`, O1: within 7 days), ahead of the cap; then at most one program that
- * carries an unconfirmed rule and no keyword hit (none when one already shown carries one) among rule-free programs in
+ * carries an unconfirmed rule and no keyword hit (a keyworded rule with no hit is `unlikely` and already left out:
+ * L1e-2, v6.1.13) (none when one already shown carries one) among rule-free programs in
  * rank order for the other slots; a keyword hit (`hit`, N1, v6.1.12) is no rule-slot program but takes its own slot in
  * rank order as a rule-free one does. A program whose rule is unlikely to be the project's (`unlikely`, L1c-2: its keywords named nowhere)
  * is left out unless acted on. The one rule-bearing program is the first (in rank order) naming `chains[0]`, else
@@ -134,6 +135,8 @@ export function shownGapsOf(
   const room = max - head.length;
   if (room <= 0) return head;
   const free = rest.filter((v) => !slotted(v));
+  // L1e-2 (v6.1.13): a rule still to confirm that carries keywords leaves the slot through `unlikely` (no hit: the full
+  // list only) or competes as a step (a hit), so the no-hit slot holds rules with no keywords.
   const bearing = head.some(slotted) ? [] : rest.filter(slotted);
   const rule = chains.map((c) => bearing.find((v) => names(v, c))).find((v) => v !== undefined) ?? bearing[0];
   const own = rule !== undefined && chains.some((c) => names(rule, c));
