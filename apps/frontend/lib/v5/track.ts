@@ -30,6 +30,8 @@ export const TrackInput = z
     status: z.enum(['started', 'applied', 'won', 'rejected', 'no_result', 'skipped', 'unskip', 'gap_done']),
     /** L13-5 (v6.1.14): no ceiling here; the ledger answers a win over the program's pay with its own line. */
     amount_usd: z.number().finite().min(0).optional(),
+    /** T8-F1 (v6.1.14): won only: a further payment of a win already recorded, with the caller's own key (a repeat adds nothing). */
+    payment: z.object({ key: z.string().trim().min(1).max(80) }).strict().optional(),
     /** L13-3 (v6.1.14): the form already went out, so a long note is cut to NOTE_KEPT characters, never refused. */
     note: z.string().transform((x) => x.slice(0, NOTE_KEPT)).optional(),
     item: z.string().max(80).optional(),
@@ -365,7 +367,8 @@ async function act(
   // A second skip says so (v6.1.9, lane 8 simplify).
   if (i.status === 'skipped' && (await sql()`SELECT 1 FROM applications WHERE owner = ${owner} AND program_id = ${i.program_id} AND status = 'skipped'`).length > 0)
     return { show_to_builder: 'Already skipped.', agent_note: 'Call find again for the updated ledger.', ledger: await summary(owner, programs, ctx.now) };
-  const res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, amount_usd: i.amount_usd, note: i.note, item: i.item, projectKey: project.key, now: ctx.now, ...applied });
+  const res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, amount_usd: i.amount_usd, note: i.note, item: i.item, projectKey: project.key, now: ctx.now, ...applied,
+    ...(i.status === 'won' && i.payment ? { payment: { key: `t:${i.payment.key}` } } : {}) });
   if (res.ok && 'night' in res) outside = NIGHT_LIMIT;
   if (res.ok && 'closed' in res) outside = HAD_CLOSED;
   // The find before a send under standing approval was the night routine's: it leaves the overnight report (v6.1.9).
@@ -393,10 +396,12 @@ async function act(
   const title = await titleOf(owner, i.program_id);
   const lines: Record<Exclude<Status, 'started' | 'gap_done'>, string> = {
     applied: "Tracked. I'll ask how it went when results are due.",
-    // L15-17 (v6.1.14): a second payment adds, and the line reads the total.
+    // L15-17, T8-F1 (v6.1.14): a further payment adds and the line reads the total; an unmarked other amount corrects.
     won: 'total_usd' in res && res.total_usd !== undefined
       ? `Recorded: ${usd(i.amount_usd ?? 0)} more from ${title}, ${usd(res.total_usd)} in total.`
-      : `Recorded: ${usd(i.amount_usd ?? 0)} from ${title}.`,
+      : 'replaced_usd' in res && res.replaced_usd !== undefined
+        ? `Recorded: ${usd(i.amount_usd ?? 0)} from ${title}. Replaced the earlier amount.`
+        : `Recorded: ${usd(i.amount_usd ?? 0)} from ${title}.`,
     rejected: 'Recorded. On to the next one.',
     no_result: 'Recorded.',
     skipped: `Skipped ${title}. I won't bring it up again.`,

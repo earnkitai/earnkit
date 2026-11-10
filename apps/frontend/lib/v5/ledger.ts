@@ -2,8 +2,9 @@
  * The builder's ledger, keyed by its owner ('b:<builder>' once linked, else 'i:<installation>'):
  * applications (one row per program, plus an append-only history), closed gap items, and the
  * summary `track` and `find` show. One application and one result per program: a second `applied`, or a result
- * over a result, is refused and changes nothing, except a second win, which is a second payment and adds to the total
- * (L15-17, v6.1.14). A win is whole dollars; one over the program's stated maximum, else
+ * over a result, is refused and changes nothing, except a second win (L15-17, T8-F1 v6.1.14): marked a further
+ * payment (`payment.key`, kept in the history; a repeated key changes nothing) it adds to the total under the cap;
+ * unmarked, the same amount is already recorded and another amount is a correction that replaces it. A win is whole dollars; one over the program's stated maximum, else
  * its pool, else 10,000,000, is refused; investments are never "asked".
  */
 import { sql, type Db } from './db';
@@ -106,10 +107,12 @@ export async function record(
     /** won only, from a program's screen (L13-13, v6.1.14): the program gave no amount; the win is kept with none,
      *  its note AMOUNT_NOT_GIVEN. A later win with the amount completes it. */
     amountNotGiven?: true;
+    /** won only (T8-F1, v6.1.14): a further payment of a win, its caller's idempotency key; adds to the total once per key. */
+    payment?: { key: string };
     /** A program's screen outcome (screen-jobs.recordOutcomes): not an agent's call, so the link check is skipped. */
     fromScreen?: true;
   } = {},
-): Promise<{ ok: true; repeated?: true; night?: true; closed?: true; total_usd?: number } | { ok: false; note: string; items?: string[] }> {
+): Promise<{ ok: true; repeated?: true; night?: true; closed?: true; total_usd?: number; replaced_usd?: number } | { ok: false; note: string; items?: string[] }> {
   const installationId = o.installationId ?? installationOf(owner);
   if (installationId === undefined) throw new Error('record needs the writing installation');
   const now = o.now ?? new Date();
@@ -138,6 +141,8 @@ export async function record(
   let night = false;
   let closed = false;
   let total: number | null = null;
+  let replacedFrom: number | null = null;
+  const paymentKey = status === 'won' && o.payment ? o.payment.key : null;
 
   return (await sql().begin(async (tx) => {
     // One decision at a time per owner and program (the claim's lock), even when no row exists yet.
@@ -151,13 +156,21 @@ export async function record(
     if (!program && !row) return unknown;
     // L13-13 (v6.1.14): a win kept without its amount takes the amount once; nothing else replaces a result.
     const completes = row?.status === 'won' && row.amount_usd === null && status === 'won' && amount !== null;
-    // L15-17 (v6.1.14): a win with an amount over a win with an amount is a second payment: it adds, the total under the cap.
-    const adds = row?.status === 'won' && row.amount_usd !== null && status === 'won' && amount !== null;
+    // T8-F1 (v6.1.14): a payment key already kept for this application changes nothing (a retried call).
+    if (paymentKey !== null && row?.status === 'won'
+      && (await tx`SELECT 1 FROM application_history WHERE owner = ${owner} AND program_id = ${programId} AND payment_key = ${paymentKey}`).length > 0)
+      return { ok: false, note: 'Already recorded.' } as const;
+    // L15-17, T8-F1 (v6.1.14): a win with an amount over a win with an amount: marked a further payment, it adds (the
+    // total under the cap); unmarked, another amount is a correction that replaces it (the same amount is already recorded).
+    const bothWon = row?.status === 'won' && row.amount_usd !== null && status === 'won' && amount !== null;
+    const adds = bothWon && paymentKey !== null;
+    const corrects = bothWon && paymentKey === null && Number(row.amount_usd) !== amount;
     if (adds) {
       total = Number(row.amount_usd) + amount;
       if (total > winCapOf(program)) return { ok: false, note: OVER_CAP } as const;
     }
-    const resulted = row && RESULTS.includes(row.status) && !completes && !adds;
+    if (corrects) replacedFrom = Number(row.amount_usd);
+    const resulted = row && RESULTS.includes(row.status) && !completes && !adds && !corrects;
     if (resulted && status === 'skipped') return { ok: false, note: 'That one already has a result here; nothing to skip.' } as const;
     if (resulted && RESULTS.includes(status) && row.status === status && (status !== 'won' || (row.amount_usd === null ? null : Number(row.amount_usd)) === amount))
       return { ok: false, note: 'Already recorded.' } as const;
@@ -211,8 +224,8 @@ export async function record(
       // A skip over a claim replaces it: the claim is gone, the skip stays.
       await tx`UPDATE applications SET installation_id = ${installationId}, status = 'skipped', note = ${note}, at = ${now},
         claimed_at = NULL, claimed_by = NULL WHERE owner = ${owner} AND program_id = ${programId}`;
-    } else if (total !== null) {
-      await tx`UPDATE applications SET installation_id = ${installationId}, amount_usd = ${total}, at = ${now} WHERE owner = ${owner} AND program_id = ${programId}`;
+    } else if (total !== null || replacedFrom !== null) {
+      await tx`UPDATE applications SET installation_id = ${installationId}, amount_usd = ${total ?? amount}, at = ${now} WHERE owner = ${owner} AND program_id = ${programId}`;
     } else if (!(status === 'skipped' && row)) {
       // A skip on a program already in the ledger hides nothing new: the application stays as it is.
       await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, note, at)
@@ -220,11 +233,11 @@ export async function record(
         ON CONFLICT (owner, program_id) DO UPDATE
           SET installation_id = EXCLUDED.installation_id, status = EXCLUDED.status, amount_usd = EXCLUDED.amount_usd, note = EXCLUDED.note, at = EXCLUDED.at`;
     }
-    await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, note, at)
-      VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${amount}, ${note}, ${now})`;
+    await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, note, at, payment_key)
+      VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${amount}, ${note}, ${now}, ${paymentKey})`;
     return repeated ? ({ ok: true, repeated: true } as const) : night ? ({ ok: true, night: true } as const) : closed ? ({ ok: true, closed: true } as const)
-      : total !== null ? ({ ok: true, total_usd: total } as const) : ({ ok: true } as const);
-  })) as { ok: true; repeated?: true; night?: true; closed?: true; total_usd?: number } | { ok: false; note: string };
+      : total !== null ? ({ ok: true, total_usd: total } as const) : replacedFrom !== null ? ({ ok: true, replaced_usd: replacedFrom } as const) : ({ ok: true } as const);
+  })) as { ok: true; repeated?: true; night?: true; closed?: true; total_usd?: number; replaced_usd?: number } | { ok: false; note: string };
 }
 
 /**

@@ -209,8 +209,11 @@ Ledger invariants (v6.1.7, `ledger.ts record`, every write under one advisory lo
 `claims.claim` takes, and every refusal returns before any write): one application and one result per program. A
 second `applied` from any of the builder's agents records nothing and answers "Already sent here on {day} by {agent};
 nothing recorded." A second result answers that it already has one, except a second win with an amount over a win
-with one: a second payment, added to the total (under the cap) and answered "Recorded: ${n} more from {title}, ${total}
-in total."; the history keeps each payment (L15-17 v6.1.14). A program that is not open cannot be started
+with one (L15-17, T8-F1 v6.1.14): marked a further payment (`payment: { key }`, the caller's own key, kept in
+`application_history.payment_key`; a repeated key is "Already recorded.") it adds to the total under the cap, answered
+"Recorded: ${n} more from {title}, ${total} in total."; unmarked, the same amount is "Already recorded." and another
+amount is a correction that replaces it ("Recorded: ${n} from {title}. Replaced the earlier amount."). Track keys are
+stored as `t:<key>`, screen keys as `s:<key>`. A program that is not open cannot be started
 ("{title} is not open; nothing to start."), and an already sent one says it was sent before that check. A win is
 capped at the program's `max_award_usd`, else its `pool_usd`, else 10,000,000, in whole dollars. A result for a
 program gone from the catalog keeps the title stored when it was sent. Another agent's live claim leaves the program
@@ -562,9 +565,14 @@ and `recordOutcomes` take any reviewer marked on the job's program (`program_rev
 continues and requeues the program's rows; `deleteBuilder` leaves them, `screen_jobs.builder_id` set to NULL (L15-18).
 An outcome on the reviewer's own application (owner `b:` the reviewer, or `i:` an installation linked to them) is not
 written and the owner hears "You applied to this one; another reviewer posts its result." (L15-1, Review Focus 10);
-the rest of the batch goes on. A second win on one applicant adds to the screen's and the ledger's total (L15-17).
-Results come 25 applicants a page (`PAGE_SIZE`, `page` from 1); the totals line ends "Ask for page {n} for the rest."
-and the reply carries `next_page`, null on the last (L15-3). The CSV path reads an
+the rest of the batch goes on. A win marked a further payment (`payment: { key }`) adds to the screen's and the
+ledger's total once per key (`screen_outcomes.payment_keys`); a total over the program's cap writes nothing and the
+owner hears the ledger's own over-cap line (T8-F3); unmarked, another amount replaces the first in both (T8-F1).
+Results come 25 applicants a page (`PAGE_SIZE`, `page` from 1); pages follow the queued order (`screen_applicants.seq`)
+with pending rows in place, sorted by tier only inside a page, so a read landing between pages moves no row (T8-F2);
+the totals line ends "Ask for page {n} for the rest." and the reply carries `next_page`, null on the last (L15-3).
+The old `requeue` boolean column stays nullable and ignored through v6.1.14 (T8-F5) and is dropped later. Rows read
+before v6.1.14 may carry the old cross-program `xp.*` values until they expire (30 days, T8-F4 accepted). The CSV path reads an
 `application_id` column too (T5-F2). A row without one is named in the note as "Not matched to an
 EarnKit application"; a win with no amount is passed on as a win with none (`amount not given`, L13-13); a second
 outcome replaces the first only when not older, and the note names what it replaced (L13-12). The notes never say

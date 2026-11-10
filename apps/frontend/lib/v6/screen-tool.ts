@@ -22,9 +22,14 @@ export const ScreenInput = z
     job_id: z.string().max(40).optional().describe('A queued screen: its progress and results'),
     page: z.number().int().min(1).max(1000).optional().describe('With job_id: the page of results, 25 applicants each, from 1; next_page names the next, null on the last'),
     outcomes: z
-      .array(z.object({ ref: z.string().max(60), outcome: z.enum(['won', 'rejected', 'shortlisted']), amount_usd: z.number().finite().optional() }).strict())
+      .array(
+        z.object({
+          ref: z.string().max(60), outcome: z.enum(['won', 'rejected', 'shortlisted']), amount_usd: z.number().finite().optional(),
+          payment: z.object({ key: z.string().trim().min(1).max(80) }).strict().optional(),
+        }).strict(),
+      )
       .optional()
-      .describe('With job_id: the decisions, by ref'),
+      .describe('With job_id: the decisions, by ref; a further payment of a win already posted: won with that amount and payment: { key }, a key of your own'),
   })
   .strict();
 /** The most applicants or outcomes one call reads (C2, v6.1.13); 200 is read, 201 refused. */
@@ -120,10 +125,11 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
       const cap = winCapOf(await getProgram(s.program_id));
       // L13-5 (v6.1.14): any amount over the cap, however large, is this line, as the ledger answers it.
       if (input.outcomes.some((o) => o.outcome === 'won' && o.amount_usd != null && o.amount_usd > cap)) return line(OVER_CAP, OUTCOMES_UNWRITTEN);
-      const { recorded, notFound, notes, own } = await recordOutcomes(input.job_id, ctx.builderId, input.outcomes, ctx.now);
+      const { recorded, notFound, notes, own, overCap } = await recordOutcomes(input.job_id, ctx.builderId, input.outcomes, ctx.now);
       // The refs not in this screen are named (C19); L15-1 (v6.1.14): an outcome on the reviewer's own application is refused in one line.
       const counted = notFound.length > 0 ? `Recorded ${plural(recorded, 'outcome')}; not found: ${listWords(notFound, 10)}.` : `Recorded ${plural(recorded, 'outcome')}.`;
-      const show = own ? `${counted} ${OWN_APPLICATION}` : counted;
+      // T8-F3 (v6.1.14): a further payment over the program's cap is refused with the ledger's own line.
+      const show = [counted, ...(own ? [OWN_APPLICATION] : []), ...(overCap ? [OVER_CAP] : [])].join(' ');
       const note = notFound.length > 0 ? 'Tell the builder the outcomes are recorded, and which refs this screen does not hold.' : 'Tell the builder the outcomes are recorded.';
       return { ...line(show, [note, ...notes].join(' ')), recorded };
     }

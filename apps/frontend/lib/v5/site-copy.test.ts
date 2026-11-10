@@ -158,7 +158,7 @@ test('no install copy mentions signing in, X, GitHub or a wallet', async () => {
 test('the /me words: verbatim lines, sentences end with a full stop, no path in a label', () => {
   assert.equal(copy.ME_TITLE, 'Your record');
   assert.equal(copy.ME_PENDING_LINE, 'Read these, then approve each: an unapproved answer is never sent.');
-  assert.equal(copy.ME_DELETE_LINE, 'This removes your record, your applications and your sign-ins. Your agents keep working, unsigned.');
+  assert.equal(copy.ME_DELETE_LINE, 'This removes your record, your applications and your sign-ins. Screens you ran for a program stay with that program. Your agents keep working, unsigned.');
   assert.equal(copy.ME_LABELS['policy.auto_apply'], 'Apply overnight without asking, within these limits');
   assert.equal(copy.ME_LABELS['policy.agent_may_submit'], 'Press submit for me');
   assert.equal(copy.ME_LABELS['policy.max_ask_usd'], 'Skip awards above (USD)');

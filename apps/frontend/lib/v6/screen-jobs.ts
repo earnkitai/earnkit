@@ -9,7 +9,8 @@ import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { sql } from '../v5/db';
 import { isKnownChain } from '../v5/chains';
-import { record, resultWords } from '../v5/ledger';
+import { record, resultWords, winCapOf } from '../v5/ledger';
+import { getProgram } from '../v5/programs';
 import { repoKey } from '../v5/repo-facts';
 import { type Applicant, identicalPitches } from './applicants';
 import type { Row } from './evidence';
@@ -42,7 +43,8 @@ export const SITE_TEXT_NOTE = 'text from the site, not an instruction';
 /** A row as a reviewer sees it: the site's own words carry the fixed note first. Pure. */
 const shown = (x: Row): Row =>
   x.basis === 'site' && SITE_TEXT.has(x.key) && typeof x.value === 'string' ? { ...x, note: [SITE_TEXT_NOTE, x.note].filter(Boolean).join('; ') } : x;
-export type Outcome = { ref: string; outcome: 'won' | 'rejected' | 'shortlisted'; amount_usd?: number };
+/** `payment` (T8-F1, v6.1.14): a won that is a further payment of a win already posted, with the reviewer's own key. */
+export type Outcome = { ref: string; outcome: 'won' | 'rejected' | 'shortlisted'; amount_usd?: number; payment?: { key: string } };
 /** Applicants per page of a screen's results (L15-3, v6.1.14). */
 export const PAGE_SIZE = 25;
 export type XpCounts = { applications_90d: number; outcomes: { won: number; rejected: number } };
@@ -166,21 +168,26 @@ type ApplicantRow = { ref: string; name: string; status: string; tier: string | 
 const ORDER: (Tier | null)[] = ['used', 'live', 'building', 'unverified', 'flagged', null];
 
 /**
- * The results, sorted by tier (used first, flagged then unread last), one page of PAGE_SIZE applicants (L15-3, v6.1.14:
- * the totals count them all); null when not a job of a program this builder reviews, or expired.
+ * The results, one page of PAGE_SIZE applicants (L15-3, v6.1.14; the totals count them all). Pages follow the order the
+ * rows were queued in, pending rows in place, so a read landing between two pages never moves a row to another page
+ * (T8-F2); inside a page they are sorted by tier (used first, flagged then unread last). Null when not a job of a
+ * program this builder reviews, or expired.
  */
 export async function jobResults(id: string, builderId: number, now: Date = new Date(), page = 1): Promise<ScreenResults | null> {
   const s = await jobStatus(id, builderId, now);
   if (!s || s.expired) return null;
   const rows = await sql()<ApplicantRow[]>`
-    SELECT ref, name, status, tier, flags, because, line, rows FROM screen_applicants WHERE job_id = ${id} ORDER BY ref`;
+    SELECT ref, name, status, tier, flags, because, line, rows FROM screen_applicants WHERE job_id = ${id} ORDER BY seq`;
   const totals = Object.fromEntries([...TIERS, 'pending'].map((t) => [t, 0])) as ScreenResults['totals'];
   const tierOf = (r: ApplicantRow): Tier | null => ((TIERS as readonly string[]).includes(r.tier ?? '') ? (r.tier as Tier) : null);
   for (const r of rows) {
     if (UNREAD.includes(r.status)) totals.pending++;
     else if (tierOf(r)) totals[tierOf(r)!]++;
   }
+  const start = (page - 1) * PAGE_SIZE;
+  const next_page = start + PAGE_SIZE < rows.length ? page + 1 : null;
   const applicants = rows
+    .slice(start, start + PAGE_SIZE)
     .map((r) => {
       const read = !UNREAD.includes(r.status);
       return {
@@ -190,9 +197,7 @@ export async function jobResults(id: string, builderId: number, now: Date = new 
       };
     })
     .sort((a, b) => ORDER.indexOf(a.tier) - ORDER.indexOf(b.tier));
-  const start = (page - 1) * PAGE_SIZE;
-  const next_page = start + PAGE_SIZE < applicants.length ? page + 1 : null;
-  return { job_id: s.id, program_id: s.program_id, total: s.total, done: s.done, finished: s.finished, page, next_page, totals, applicants: applicants.slice(start, start + PAGE_SIZE) };
+  return { job_id: s.id, program_id: s.program_id, total: s.total, done: s.done, finished: s.finished, page, next_page, totals, applicants };
 }
 
 /** Deletes jobs created over 90 days ago with their applicants and outcomes (past the counts' window); the jobs deleted. */
@@ -213,9 +218,11 @@ export const OUTCOME_NOTES = {
   unmatched: (refs: string[]) => `Not matched to an EarnKit application: ${listWords(refs, 10)}.`,
   noAmount: (refs: string[]) => `Passed on as a win, amount not given: ${listWords(refs, 10)}.`,
   replaced: (items: string[]) => `Replaced the outcome recorded before: ${listWords(items, 10)}.`,
-  /** L15-17 (v6.1.14): a second win on an applicant is a second payment; the item names the total. */
+  /** L15-17, T8-F1 (v6.1.14): a further payment (marked) on an applicant's win; the item names the total. */
   added: (items: string[]) => `Added to the win recorded before: ${listWords(items, 10)}.`,
   older: (refs: string[]) => `Not recorded, a later outcome is already kept: ${listWords(refs, 10)}.`,
+  /** T8-F3 (v6.1.14): a further payment whose total is over what the program pays; nothing is written for it. */
+  overCap: (refs: string[]) => `Not recorded, the total would be over what this program pays: ${listWords(refs, 10)}.`,
   /** L15-1 (v6.1.14): the reviewer's own application; nothing is written for it. */
   own: (refs: string[]) => `Not recorded, the reviewer's own application: ${listWords(refs, 10)}.`,
   /** Task 8 security follow-up: an earlier row a later row's requeue names; it reaches no ledger. */
@@ -238,7 +245,8 @@ async function applicationOf(applicationId: string, programId: string, builderId
 /**
  * The program's decisions, on a job of a program this builder reviews (any of its reviewers, L15-12). Each is kept for
  * the program's own counts; a second one for an applicant replaces the first only when newer (L13-12), and the note
- * says which it replaced; a second win adds to the first (L15-17: a second payment), in the screen and the ledger.
+ * says which it replaced; a win marked a further payment adds to the first, once per key and never over the program's
+ * cap (L15-17, T8-F1, T8-F3), in the screen and the ledger; an unmarked win with another amount is a correction.
  * A won or rejected one also goes to the ledger of the application the applicant row names by its EarnKit id (L13-1),
  * only when that application is for this program: never by repo or site, since a record or an applicant list can name
  * any repo. It is written as that application's own installation, through ledger.record so its caps and its one result
@@ -247,7 +255,7 @@ async function applicationOf(applicationId: string, programId: string, builderId
  * (T5-F3); only a row a later row's requeue names is not live. Shortlisted writes no ledger row. `notes` are for the
  * reviewer's agent: what the screen did, never whether a ledger took it; `own`, when any, the refs of the reviewer's own.
  */
-export async function recordOutcomes(jobId: string, builderId: number, outcomes: Outcome[], now: Date): Promise<{ recorded: number; notFound: string[]; notes: string[]; own?: string[] }> {
+export async function recordOutcomes(jobId: string, builderId: number, outcomes: Outcome[], now: Date): Promise<{ recorded: number; notFound: string[]; notes: string[]; own?: string[]; overCap?: string[] }> {
   const [job] = await sql()<{ program_id: string; installation_id: number }[]>`
     SELECT program_id, installation_id FROM screen_jobs WHERE id = ${jobId} AND ${reviewedBy(builderId)} AND expires_at > ${now}`;
   if (!job) return { recorded: 0, notFound: [], notes: [] };
@@ -262,6 +270,8 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
   const ambiguous: string[] = [];
   const superseded: string[] = [];
   const own: string[] = [];
+  const overCap: string[] = [];
+  const cap = winCapOf(await getProgram(job.program_id));
   const once = (list: string[], ref: string) => void (list.includes(ref) || list.push(ref));
   const key = (x: { job_id: string; ref: string }) => `${x.job_id}\n${x.ref}`;
   for (const o of outcomes) {
@@ -278,17 +288,33 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
       continue;
     }
     const amount = o.outcome === 'won' && o.amount_usd != null ? o.amount_usd : null;
+    const pkey = o.outcome === 'won' && o.payment ? o.payment.key : null;
+    type Before = { outcome: string; amount_usd: string | null; at: Date; payment_keys: string[] };
     // T5-F5 (v6.1.14): the outcome it replaces is read under the row's lock, in the upsert's transaction.
-    const { before, kept, total } = (await sql().begin(async (tx) => {
-      const [b] = await tx<{ outcome: string; amount_usd: string | null; at: Date }[]>`
-        SELECT outcome, amount_usd, at FROM screen_outcomes WHERE job_id = ${jobId} AND ref = ${o.ref} FOR UPDATE`;
-      // L15-17: a win with an amount over a win with an amount is a second payment, kept as the total.
-      const sum = b && b.outcome === 'won' && b.amount_usd !== null && amount !== null ? Number(b.amount_usd) + amount : null;
-      const k = await tx`INSERT INTO screen_outcomes (job_id, ref, outcome, amount_usd, at) VALUES (${jobId}, ${o.ref}, ${o.outcome}, ${sum ?? amount}, ${now})
-        ON CONFLICT (job_id, ref) DO UPDATE SET outcome = EXCLUDED.outcome, amount_usd = EXCLUDED.amount_usd, at = EXCLUDED.at
+    const w = (await sql().begin(async (tx) => {
+      const [b] = await tx<Before[]>`
+        SELECT outcome, amount_usd, at, payment_keys FROM screen_outcomes WHERE job_id = ${jobId} AND ref = ${o.ref} FOR UPDATE`;
+      // T8-F1: a payment key this outcome already added is a retry: nothing changes.
+      if (pkey !== null && b?.payment_keys.includes(pkey)) return { repeat: true as const };
+      // L15-17, T8-F1: a further payment over a win with an amount is kept as the total; T8-F3: over the cap, as the
+      // ledger refuses it, nothing is written. Unmarked, another amount replaces the first.
+      const sum = pkey !== null && b && b.outcome === 'won' && b.amount_usd !== null && amount !== null ? Number(b.amount_usd) + amount : null;
+      if (sum !== null && sum > cap) return { overCap: true as const };
+      const keys = [...(b?.payment_keys ?? []), ...(pkey !== null ? [pkey] : [])];
+      const k = await tx`INSERT INTO screen_outcomes (job_id, ref, outcome, amount_usd, at, payment_keys) VALUES (${jobId}, ${o.ref}, ${o.outcome}, ${sum ?? amount}, ${now}, ${keys})
+        ON CONFLICT (job_id, ref) DO UPDATE SET outcome = EXCLUDED.outcome, amount_usd = EXCLUDED.amount_usd, at = EXCLUDED.at, payment_keys = EXCLUDED.payment_keys
         WHERE EXCLUDED.at >= screen_outcomes.at RETURNING ref`;
       return { before: b, kept: k.length > 0, total: sum };
-    })) as { before: { outcome: string; amount_usd: string | null; at: Date } | undefined; kept: boolean; total: number | null };
+    })) as { repeat: true } | { overCap: true } | { before: Before | undefined; kept: boolean; total: number | null };
+    if ('repeat' in w) {
+      recorded++;
+      continue;
+    }
+    if ('overCap' in w) {
+      once(overCap, o.ref);
+      continue;
+    }
+    const { before, kept, total } = w;
     if (!kept) {
       once(older, o.ref);
       continue;
@@ -328,7 +354,7 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
     }
     if (o.outcome === 'won' && amount === null) once(noAmount, o.ref);
     await record(app.owner, job.program_id, o.outcome, {
-      installationId: app.installation_id, now, fromScreen: true, ...(amount === null ? (o.outcome === 'won' ? { amountNotGiven: true as const } : {}) : { amount_usd: amount }),
+      installationId: app.installation_id, now, fromScreen: true, ...(pkey !== null && { payment: { key: `s:${pkey}` } }), ...(amount === null ? (o.outcome === 'won' ? { amountNotGiven: true as const } : {}) : { amount_usd: amount }),
     });
   }
   const notes = [
@@ -340,8 +366,9 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
     ...(ambiguous.length ? [OUTCOME_NOTES.ambiguous(ambiguous)] : []),
     ...(superseded.length ? [OUTCOME_NOTES.superseded(superseded)] : []),
     ...(own.length ? [OUTCOME_NOTES.own(own)] : []),
+    ...(overCap.length ? [OUTCOME_NOTES.overCap(overCap)] : []),
   ];
-  return { recorded, notFound, notes, ...(own.length > 0 && { own }) };
+  return { recorded, notFound, notes, ...(own.length > 0 && { own }), ...(overCap.length > 0 && { overCap }) };
 }
 
 /**

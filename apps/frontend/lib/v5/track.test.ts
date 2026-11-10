@@ -64,11 +64,19 @@ test('one application and one result per program, in builder words (v6.1.7, B8, 
   const rej = await track(c, { program_id: 't7-one', status: 'rejected' });
   assert.equal(rej.show_to_builder, 'That one already has a result here: won $3,000.');
   assert.equal(rej.ledger.won_usd, 3000);
-  // L15-17 (v6.1.14): a second payment adds, and the line and the ledger read the total.
-  const more = await track(c, { program_id: 't7-one', status: 'won', amount_usd: 1250 });
-  assert.equal(more.show_to_builder, 'Recorded: $1,250 more from One Grant, $4,250 in total.');
-  assert.equal(more.ledger.won_usd, 4250);
+  // T8-F1 (v6.1.14): a resend is already recorded; another amount corrects; a marked further payment adds once.
+  assert.equal((await track(c, { program_id: 't7-one', status: 'won', amount_usd: 3000 })).show_to_builder, 'Already recorded.');
+  const fixed = await track(c, { program_id: 't7-one', status: 'won', amount_usd: 2000 });
+  assert.equal(fixed.show_to_builder, 'Recorded: $2,000 from One Grant. Replaced the earlier amount.');
+  assert.equal(fixed.ledger.won_usd, 2000);
+  const more = await track(c, { program_id: 't7-one', status: 'won', amount_usd: 1250, payment: { key: 'second' } });
+  assert.equal(more.show_to_builder, 'Recorded: $1,250 more from One Grant, $3,250 in total.');
+  assert.equal(more.ledger.won_usd, 3250);
   assert.equal(more.ledger.won, 1);
+  // A retried call with the same key adds nothing.
+  const retry = await track(a, { program_id: 't7-one', status: 'won', amount_usd: 1250, payment: { key: 'second' } });
+  assert.equal(retry.show_to_builder, 'Already recorded.');
+  assert.equal(retry.ledger.won_usd, 3250);
   assert.equal((await track(c, { program_id: 't7-one', status: 'skipped' })).show_to_builder, 'That one already has a result here; nothing to skip.');
 });
 

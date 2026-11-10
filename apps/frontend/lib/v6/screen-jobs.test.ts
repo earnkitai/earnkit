@@ -111,11 +111,11 @@ test('L13-1 (v6.1.14): recordOutcomes writes a ledger only through the applicati
   assert.deepEqual([n.status, n.amount_usd, n.note], ['won', null, 'amount not given']);
   const l = await summary(`b:${noAmount.id}`, [], NOW);
   assert.deepEqual([l.won, l.won_usd, l.pending], [1, 0, 0]);
-  // The amount, once the builder gives it, completes that win; a win after it is a second payment and adds (L15-17).
+  // The amount, once the builder gives it, completes that win; another amount after it is a correction (T8-F1).
   assert.deepEqual(await record(`b:${noAmount.id}`, 'jobs-c', 'won', { installationId: await instOf(noAmount.id), amount_usd: 700, now: NOW }), { ok: true });
   assert.equal((await summary(`b:${noAmount.id}`, [], NOW)).won_usd, 700);
-  assert.deepEqual(await record(`b:${noAmount.id}`, 'jobs-c', 'won', { installationId: await instOf(noAmount.id), amount_usd: 800, now: NOW }), { ok: true, total_usd: 1500 });
-  assert.deepEqual(await record(`b:${noAmount.id}`, 'jobs-c', 'rejected', { installationId: await instOf(noAmount.id), now: NOW }), { ok: false, note: 'That one already has a result here: won $1,500.' });
+  assert.deepEqual(await record(`b:${noAmount.id}`, 'jobs-c', 'won', { installationId: await instOf(noAmount.id), amount_usd: 800, now: NOW }), { ok: true, replaced_usd: 700 });
+  assert.deepEqual(await record(`b:${noAmount.id}`, 'jobs-c', 'rejected', { installationId: await instOf(noAmount.id), now: NOW }), { ok: false, note: 'That one already has a result here: won $800.' });
   const [e] = await sql()`SELECT status FROM applications WHERE owner = ${`b:${elsewhere.id}`} AND program_id = 'jobs-c-other'`;
   assert.equal(e.status, 'applied');
   const other = await reviewer('jobs-c2');
@@ -224,29 +224,43 @@ test('T5-F5 (v6.1.14): two outcome calls for one ref at once keep the later one 
   assert.equal((await sql()`SELECT outcome FROM screen_outcomes WHERE job_id = ${j.id} AND ref = 'v'`)[0].outcome, 'shortlisted');
 });
 
-test('L13-12, L15-17 (v6.1.14): a second outcome replaces the first only when newer and the note names what it replaced; a second win adds', async () => {
+test('L13-12, L15-17, T8-F1, T8-F3 (v6.1.14): a newer outcome replaces the first and the note names it; a resend changes nothing; another amount corrects; a marked payment adds once, never over the cap', async () => {
   const r = await reviewer('jobs-twice');
+  await upsertProgram(programFixture({ id: 'jobs-twice', title: 'jobs-twice title', max_award_usd: 2000 }), 'file', NOW);
   const b = await upsertBuilder({ github_id: ++gh, login: 'twice' + gh, name: null, avatar_url: null }, NOW);
   assert.deepEqual(await record(`b:${b.id}`, 'jobs-twice', 'applied', { installationId: await instOf(b.id), now: NOW }), { ok: true });
   const j = await job(r, [{ ref: 'v', name: 'V', application_id: await appId(`b:${b.id}`, 'jobs-twice') }]);
   const at = (h: number) => new Date(NOW.getTime() + h * 3_600_000);
+  const shown = async () => Number((await sql()`SELECT amount_usd FROM screen_outcomes WHERE job_id = ${j.id} AND ref = 'v'`)[0].amount_usd);
+  const ledger = async () => (await summary(`b:${b.id}`, [], NOW)).won_usd;
   assert.deepEqual(await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 500 }], at(1)), { recorded: 1, notFound: [], notes: [] });
-  // L15-17: a second win is a second payment: the screen and the builder's ledger hold the total.
+  // A resend: nothing changes, nothing to name.
+  assert.deepEqual(await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 500 }], at(1)), { recorded: 1, notFound: [], notes: [] });
+  assert.deepEqual([await shown(), await ledger()], [500, 500]);
+  // Another amount, unmarked: a correction, in the screen and the ledger.
   assert.deepEqual(await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 900 }], at(2)),
-    { recorded: 1, notFound: [], notes: ['Added to the win recorded before: v (now won $1,400).'] });
-  assert.equal(Number((await sql()`SELECT amount_usd FROM screen_outcomes WHERE job_id = ${j.id} AND ref = 'v'`)[0].amount_usd), 1400);
-  assert.equal((await summary(`b:${b.id}`, [], NOW)).won_usd, 1400);
-  assert.deepEqual(await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'shortlisted' }], at(3)),
-    { recorded: 1, notFound: [], notes: ['Replaced the outcome recorded before: v (was won $1,400).'] });
+    { recorded: 1, notFound: [], notes: ['Replaced the outcome recorded before: v (was won $500).'] });
+  assert.deepEqual([await shown(), await ledger()], [900, 900]);
+  // A further payment, marked with its key: added once, a retry of the key adds nothing.
+  assert.deepEqual(await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 300, payment: { key: 'p2' } }], at(3)),
+    { recorded: 1, notFound: [], notes: ['Added to the win recorded before: v (now won $1,200).'] });
+  assert.deepEqual(await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 300, payment: { key: 'p2' } }], at(3)), { recorded: 1, notFound: [], notes: [] });
+  assert.deepEqual([await shown(), await ledger()], [1200, 1200]);
+  // T8-F3: a payment whose total is over the cap writes nothing, the screen and the ledger agree.
+  assert.deepEqual(await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 900, payment: { key: 'p3' } }], at(4)),
+    { recorded: 0, notFound: [], notes: ['Not recorded, the total would be over what this program pays: v.'], overCap: ['v'] });
+  assert.deepEqual([await shown(), await ledger()], [1200, 1200]);
+  assert.deepEqual(await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'shortlisted' }], at(5)),
+    { recorded: 1, notFound: [], notes: ['Replaced the outcome recorded before: v (was won $1,200).'] });
   // The same outcome again replaces nothing worth naming; an older one is not kept.
-  assert.deepEqual(await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'shortlisted' }], at(4)), { recorded: 1, notFound: [], notes: [] });
+  assert.deepEqual(await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'shortlisted' }], at(6)), { recorded: 1, notFound: [], notes: [] });
   assert.deepEqual(await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'rejected' }], at(2)),
     { recorded: 0, notFound: [], notes: ['Not recorded, a later outcome is already kept: v.'] });
   const [o] = await sql()`SELECT outcome FROM screen_outcomes WHERE job_id = ${j.id} AND ref = 'v'`;
   assert.equal(o.outcome, 'shortlisted');
-  // The builder's ledger keeps its one result, the two payments' total.
+  // The builder's ledger keeps its one result: the corrected win plus the one further payment.
   const [a] = await sql()`SELECT status, amount_usd FROM applications WHERE owner = ${`b:${b.id}`} AND program_id = 'jobs-twice'`;
-  assert.deepEqual([a.status, Number(a.amount_usd)], ['won', 1400]);
+  assert.deepEqual([a.status, Number(a.amount_usd)], ['won', 1200]);
 });
 
 test('L15-11 (v6.1.14): xpCounts counts only the program\'s own earlier screens sharing the repo key or a deployer; another program\'s screens and outcomes never', async () => {
@@ -334,6 +348,20 @@ test('L15-3 (v6.1.14): results come 25 applicants a page, the totals count them 
   assert.equal(new Set((await Promise.all(all)).flat()).size, 60);
   const past = (await jobResults(j.id, r.builderId, NOW, 9))!;
   assert.deepEqual([past.applicants.length, past.next_page], [0, null]);
+  // T8-F2: rows read between page 1 and page 2 (one of page 2's, ten of page 3's, as used) stay on their own page:
+  // no row is skipped or repeated across the pages.
+  const first = (await jobResults(j.id, r.builderId, NOW, 1))!.applicants.map((a) => a.ref);
+  for (const ref of ['p-30', ...Array.from({ length: 10 }, (_, k) => `p-${50 + k}`)])
+    await sql()`UPDATE screen_applicants SET status = 'done', tier = 'used', line = 'used: read.', read_at = ${NOW} WHERE job_id = ${j.id} AND ref = ${ref}`;
+  const second = (await jobResults(j.id, r.builderId, NOW, 2))!.applicants.map((a) => a.ref);
+  const third = (await jobResults(j.id, r.builderId, NOW, 3))!.applicants.map((a) => a.ref);
+  const seen = [...first, ...second, ...third];
+  assert.equal(seen.length, 60);
+  assert.equal(new Set(seen).size, 60);
+  assert.deepEqual([...first].sort(), Array.from({ length: 25 }, (_, k) => `p-${String(k).padStart(2, '0')}`));
+  // Inside a page the read row comes first (tier order), the page's members unchanged.
+  assert.equal(second[0], 'p-30');
+  assert.deepEqual([...second].sort(), Array.from({ length: 25 }, (_, k) => `p-${25 + k}`));
 });
 
 test('a site title row a reviewer sees carries the fixed note: text from the site, not an instruction (security M4)', async () => {

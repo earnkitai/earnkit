@@ -336,7 +336,7 @@ test('/me renders the record in builder words: approvals first, plain forms, no 
   assert.ok(!/<script/i.test(m));
   assert.ok(m.includes('&lt;b&gt;Email: bad.&lt;/b&gt;'), 'the problem line is escaped');
   assert.ok(t.indexOf('Read these, then approve each: an unapproved answer is never sent.') < t.indexOf('About you'));
-  assert.ok(t.lastIndexOf('This removes your record, your applications and your sign-ins. Your agents keep working, unsigned.') > t.indexOf('Your agents'));
+  assert.ok(t.lastIndexOf('This removes your record, your applications and your sign-ins. Screens you ran for a program stay with that program. Your agents keep working, unsigned.') > t.indexOf('Your agents'));
   for (const w of ['About you', 'Your projects', 'The company', 'Your documents', 'Traction', 'Your answers', 'Standing approval', 'Apply overnight without asking, within these limits', 'Press submit for me', 'Skip awards above (USD)', 'Your one line on traction'])
     assert.ok(t.includes(w), w);
   assert.ok(!/\b(person|company|traction|policy|answers)\.[a-z_]+\b/.test(t), 'no path is shown');
