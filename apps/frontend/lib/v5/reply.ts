@@ -139,11 +139,14 @@ const ruleOnlyGap = (g: GapProgram) => rulesOnly([g.gap, ...g.also]);
 
 /** The unlinked tier gap ("Sign in once so EarnKit can confirm ..."): its own sentence, never after the colon (C57). */
 const confirmGap = (x: Gap) => x.kind === 'tier' && isConfirmWhat(x.what);
-/** What EarnKit does on "do n", by the gap's kind (v6.1.8, 1a). */
-const DO_VERB: Partial<Record<Gap['kind'], string>> = { chain: 'deploy it', contract_on: 'deploy it', builder_codes: 'add them', integration: 'add it' };
+/** What EarnKit does on "do n", by the gap's kind (v6.1.8, 1a). A contract deploy is never EarnKit's: it needs the
+ *  builder's keys and gas, so chain gaps are not agent_can. */
+const DO_VERB: Partial<Record<Gap['kind'], string>> = { builder_codes: 'add them', integration: 'add it' };
+/** Whether EarnKit can make every real gap of the program, so its line offers "do n". Pure. */
+const canDo = (real: Gap[]) => real.length > 0 && real.every((x) => x.agent_can);
 /** ' Say "do n" and I ...' when EarnKit can make every real gap of the program, else ''. Pure. */
 function doSentence(n: number, real: Gap[]): string {
-  if (real.length === 0 || !real.every((x) => x.agent_can)) return '';
+  if (!canDo(real)) return '';
   const verb = real.length > 1 ? 'make both changes' : (DO_VERB[real[0].kind] ?? 'make the change');
   return ` Say "do ${n}" and I ${verb}.`;
 }
@@ -320,7 +323,11 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
   if (r.ready.some((p) => p.in_person))
     lines.push('In-person programs (in_person: true) are not in "yes to all": draft nothing for one until the builder says yes to attending it and its setup.');
   if (r.gaps.some((g) => !ruleOnlyGap(g)))
-    lines.push('On "do <n>": make that gap\'s change (its details carry the chain\'s RPC and explorer), push, call track with gap_done and the gap\'s item, then call find again. Where a gap line offers no "do", the builder makes the change and tells you when it is done.');
+    lines.push(
+      r.gaps.some((g) => canDo([g.gap, ...g.also].filter((x) => x.kind !== 'rule')))
+        ? 'On "do <n>": make that gap\'s change (its details carry the docs), push, call track with gap_done and the gap\'s item, then call find again. Where a gap line offers no "do", the builder makes the change and tells you when it is done.'
+        : 'The builder makes each change (never deploy a contract for them); when they say it is done, call track with gap_done and the gap\'s item, then call find again.',
+    );
   if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.kind === 'users' && x.effort === 'hours')))
     lines.push('"Tell me if real people use it" is a question, not work: ask the builder once; on yes, pass users: true next time or call track with gap_done and item users.');
   if (o.more > 0) lines.push(`${o.more} more left out: ready past the cap, gaps and in-person programs. Ask with filter.all for the full list.`);

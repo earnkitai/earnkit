@@ -124,12 +124,15 @@ test('gaps only, the agent can do it, and the needs list is cut at three', () =>
   );
   // "do n" by the gap's kind, only when EarnKit can make every real gap (1a, 3.7).
   const one = (g: GapProgram['gap'], also: GapProgram['also'] = []) => replyText(base({ gaps: [gap({ title: 'G', gap: g, also })] }), false).split('\n')[1];
-  const ARC = { kind: 'contract_on' as const, item: 'contract_on:arc', what: 'a contract on Arc', effort: 'hours' as const, agent_can: true };
+  const ARC = { kind: 'contract_on' as const, item: 'contract_on:arc', what: 'a contract on Arc', effort: 'hours' as const, agent_can: false };
   const SW = { kind: 'integration' as const, item: 'integration:smart_wallet', what: 'add Smart Wallet', effort: 'days' as const, agent_can: true };
   const DEMO = { kind: 'demo_video' as const, item: 'demo_video', what: 'a demo video', effort: 'hours' as const, agent_can: false };
-  assert.equal(one(ARC), '1. G, $1K: a contract on Arc. Say "do 1" and I deploy it.');
+  // A contract deploy is never EarnKit's change (fix round 1): the line ends after the gap.
+  assert.equal(one(ARC), '1. G, $1K: a contract on Arc.');
+  assert.ok(!agentNote(base({ gaps: [gap({ title: 'G', gap: ARC })] }), { more: 0 }).includes('On "do <n>"'));
   assert.equal(one(SW), '1. G, $1K: add Smart Wallet. Say "do 1" and I add it.');
-  assert.equal(one(ARC, [SW]), '1. G, $1K: a contract on Arc and add Smart Wallet. Say "do 1" and I make both changes.');
+  assert.equal(one(ARC, [SW]), '1. G, $1K: a contract on Arc and add Smart Wallet.');
+  assert.equal(one(SW, [{ ...SW, item: 'integration:x', what: 'add X' }]), '1. G, $1K: add Smart Wallet and add X. Say "do 1" and I make both changes.');
   assert.equal(one(ARC, [DEMO]), '1. G, $1K: a contract on Arc and a demo video.');
   // C57: the unlinked tier gate is its own sentence after the gaps, never after a colon.
   const TIER = { kind: 'tier' as const, item: 'tier:used', what: 'Sign in once so EarnKit can confirm real people use it', effort: 'weeks' as const, agent_can: false };
