@@ -54,6 +54,12 @@ export async function storedRecordContext(builderId: number, projectId: string |
 
 const isTier = (t: string | undefined): t is Tier => (TIERS as readonly string[]).includes(t ?? '');
 
+/** The record project's stored tier and its line (no read), or null: what the one-program reply gates on (v6.1.8, 1b). Pure. */
+export function storedTierOf(record: BuilderRecord, projectId: string | null): { tier: Tier; line: string } | null {
+  const t = record.projects.find((p) => p.id === projectId)?.last_tier;
+  return t && isTier(t.tier) ? { tier: t.tier, line: t.line } : null;
+}
+
 /** Loads the record and, for a project with a repo or site, the builder's own tier under the 24-hour rule. */
 export async function recordSide(
   o: { builderId: number; now: Date; projectId?: string; facts: RepoFacts; read: (s: Subject) => Promise<Evidence> },

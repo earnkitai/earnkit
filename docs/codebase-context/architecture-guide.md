@@ -24,7 +24,7 @@ One Next.js app (`apps/frontend`) on Railway, one Postgres database, one daily j
 
 | Tool | Does |
 |---|---|
-| `find` | What the project can earn now (`ready`, pre-filled), what is one change away (`gaps`), what moved since the last call (`since`), and the ledger. With `program_id`: one program's details, form and guide. With no project: the open list. |
+| `find` | What the project can earn now (`ready`, pre-filled), what is one change away (`gaps`), what moved since the last call (`since`), and the ledger. With `program_id`: whether the project fits that program, as its find line without the number plus one action (v6.1.8), and its details, form and guide; the rules list reaches the builder only with no project or `ask: 'rules'`. With no project: the open list. |
 | `track` | Records what the builder did: `applied`, `won` (with `amount_usd`), `rejected`, `no_result`, `skipped`, `gap_done` (with `item`). |
 
 Every reply carries `show_to_builder` (plain text the agent may reword) and `agent_note` (what the agent does

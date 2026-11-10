@@ -62,8 +62,12 @@ function recordDrafted(p: ReadyProgram): string | null {
   return k > 0 ? `${head}, ${k} ${k === 1 ? 'needs' : 'need'} you: ${listWords(p.need_you)}.` : `${head}.`;
 }
 
-function readyLine(p: ReadyProgram, linked: boolean, now: Date): string {
-  let head = `${p.n}. ${p.title}, ${p.money}`;
+/** "3. " before a list line; nothing on the one-program reply (`alone`, v6.1.8 1b), which shows the line alone. Pure. */
+const num = (n: number, alone: boolean) => (alone ? '' : `${n}. `);
+
+/** A ready program's line; `alone` leaves out the list number (the one-program reply). Pure. */
+export function readyLine(p: ReadyProgram, linked: boolean, now: Date, alone = false): string {
+  let head = `${num(p.n, alone)}${p.title}, ${p.money}`;
   if (p.closes_in) head += `, closes ${p.closes_in}`;
   // The long odds are their own sentence after the head, never a label on the money.
   if (p.long_shot) head += `. Long odds: ${p.long_shot}`;
@@ -118,9 +122,9 @@ const THING = /^(a|an|the|your)\s/i;
  * An in-person program: the money, the close, the odds, what attending takes, then what it needs from the builder.
  * When attending takes things (a YC account), those and the builder's needs are one "Needs" sentence (v6.1.8). Pure.
  */
-function inPersonLine(p: ReadyProgram): string {
+export function inPersonLine(p: ReadyProgram, alone = false): string {
   const odds = p.long_shot ? ` Long odds: ${p.long_shot}.` : '';
-  const head = `${p.n}. ${p.title}, ${p.money}${p.closes_in ? `, closes ${p.closes_in}` : ''}.${odds}`;
+  const head = `${num(p.n, alone)}${p.title}, ${p.money}${p.closes_in ? `, closes ${p.closes_in}` : ''}.${odds}`;
   const own = p.needs.filter((x) => !p.setup.includes(x));
   const things = p.setup.length > 0 && THING.test(p.setup[0]);
   if (things && own.length > 0) {
@@ -135,7 +139,7 @@ function inPersonLine(p: ReadyProgram): string {
 }
 
 /** A gap program whose gaps are only rules to confirm (R18a). Pure. */
-const ruleOnlyGap = (g: GapProgram) => rulesOnly([g.gap, ...g.also]);
+export const ruleOnlyGap = (g: GapProgram) => rulesOnly([g.gap, ...g.also]);
 
 /** The unlinked tier gap ("Sign in once so EarnKit can confirm ..."): its own sentence, never after the colon (C57). */
 const confirmGap = (x: Gap) => x.kind === 'tier' && isConfirmWhat(x.what);
@@ -143,30 +147,53 @@ const confirmGap = (x: Gap) => x.kind === 'tier' && isConfirmWhat(x.what);
  *  builder's keys and gas, so chain gaps are not agent_can. */
 const DO_VERB: Partial<Record<Gap['kind'], string>> = { builder_codes: 'add them', integration: 'add it' };
 /** Whether EarnKit can make every real gap of the program, so its line offers "do n". Pure. */
-const canDo = (real: Gap[]) => real.length > 0 && real.every((x) => x.agent_can);
+export const canDo = (real: Gap[]) => real.length > 0 && real.every((x) => x.agent_can);
 /** ' Say "do n" and I ...' when EarnKit can make every real gap of the program, else ''. Pure. */
 function doSentence(n: number, real: Gap[]): string {
   if (!canDo(real)) return '';
-  const verb = real.length > 1 ? 'make both changes' : (DO_VERB[real[0].kind] ?? 'make the change');
-  return ` Say "do ${n}" and I ${verb}.`;
+  return ` Say "do ${n}" and I ${doVerb(real, false)}.`;
 }
+/** What "do" makes: in a list line the short verb ("add them"); on the one-program reply, where no list names the
+ *  change twice, the change itself ("add Base Builder Codes to the app"). Pure. */
+const doVerb = (real: Gap[], named: boolean): string =>
+  real.length > 1 ? 'make both changes' : named ? real[0].what : (DO_VERB[real[0].kind] ?? 'make the change');
+/** The "tell me if real people use it" question: a yes, not work (the same gap the agent note names). Pure. */
+const usersQuestion = (x: Gap) => x.kind === 'users' && x.effort === 'hours';
+
+/**
+ * The one action under a one-program gap line (v6.1.8, 1b), or null: rules only, a yes that drafts; EarnKit can make
+ * every real gap, "do" and it makes that change first; the users question, a yes; else the builder makes the change
+ * and says when. In person: none, the line already says to attend. Pure.
+ */
+export function gapAction(g: GapProgram): string | null {
+  if (g.in_person) return null;
+  if (ruleOnlyGap(g)) return 'Say yes if that is you and I draft it.';
+  const real = [g.gap, ...g.also].filter((x) => x.kind !== 'rule');
+  if (canDo(real)) return `Say "do" and I ${doVerb(real, true)} first.`;
+  if (real.every(usersQuestion)) return 'Say yes if they do and I draft it.';
+  return 'Tell me when that is done and I apply.';
+}
+
+/** A program that does not fit, on the one-program reply (v6.1.8, 1b). Pure. */
+export const notFitLine = (title: string, money: string, reason: string): string => `${title}, ${money}. Not a fit: ${reason}.`;
 
 /**
  * The real gaps after the colon, with "do n" only when EarnKit can make all of them (v6.1.8, 1a); the unlinked tier
  * gap as its own sentence (C57); then one "Their rule" sentence per rule to confirm. Rules only: the rules, then
  * 'Say "yes n" if that is you.', except on the program the closing line already names (`ruleInClosing`). In person,
- * the attend sentence follows the rules (R18d), so an in-person program always says so.
+ * the attend sentence follows the rules (R18d), so an in-person program always says so. `alone` (the one-program reply,
+ * v6.1.8 1b): no number and no "do n" or "yes n", since `gapAction` gives the action on its own line.
  */
-function gapLine(g: GapProgram, ruleInClosing: number | null = null): string {
+export function gapLine(g: GapProgram, ruleInClosing: number | null = null, alone = false): string {
   const all = [g.gap, ...g.also];
   const rules = ruleSentences(all.filter((x) => x.kind === 'rule').map((x) => x.what));
   const attend = g.in_person ? attendSentence(g.setup) : '';
-  if (ruleOnlyGap(g)) return `${g.n}. ${g.title}, ${g.money}.${rules}${attend}${g.n === ruleInClosing ? '' : ` Say "yes ${g.n}" if that is you.`}`;
+  if (ruleOnlyGap(g)) return `${num(g.n, alone)}${g.title}, ${g.money}.${rules}${attend}${alone || g.n === ruleInClosing ? '' : ` Say "yes ${g.n}" if that is you.`}`;
   const real = all.filter((x) => x.kind !== 'rule');
   const listed = real.filter((x) => !confirmGap(x));
   const confirm = real.filter(confirmGap).map((x) => ` ${x.what}.`).join('');
-  const head = listed.length > 0 ? `${g.n}. ${g.title}, ${g.money}: ${joinAnd(listed.map((x) => x.what))}.` : `${g.n}. ${g.title}, ${g.money}.`;
-  return `${head}${doSentence(g.n, real)}${confirm}${rules}${attend}`;
+  const head = `${num(g.n, alone)}${g.title}, ${g.money}${listed.length > 0 ? `: ${joinAnd(listed.map((x) => x.what))}` : ''}.`;
+  return `${head}${alone ? '' : doSentence(g.n, real)}${confirm}${rules}${attend}`;
 }
 
 function sinceLine(r: R): string | null {
@@ -225,7 +252,7 @@ function beforeTonight(r: R, tonight: boolean): string | null {
  * on every one, C44), or with none ready and gaps shown "Nothing is ready yet." and the first rule-only gap's
  * "yes r". The gap lines carry their own "do n" and "yes n". Pure.
  */
-function closingLine(o: { ready: number; draftOnly: boolean; gaps: number; firstRule: number | null; inPerson: number; held: number }): string {
+export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number; firstRule: number | null; inPerson: number; held: number }): string {
   const { ready, draftOnly } = o;
   if (ready === 1) return draftOnly ? 'Say yes and I draft it for you to send.' : 'Say yes and I apply.';
   if (ready > 1) return `${draftOnly ? `Say yes and I draft all ${ready} for you to send.` : `Say yes and I apply to all ${ready}.`} Or say the numbers to skip.`;
@@ -266,7 +293,7 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   // The headlines count with parentheses (C56, 3.21); "step" covers a change and a rule to confirm.
   if (ready.length > 0) blocks.push([`Ready to apply (${ready.length}):`, ...ready.map((p) => readyLine(p, r.linked, now))].join('\n'));
   if (r.gaps.length > 0) blocks.push([`One step away (${r.gaps.length}):`, ...r.gaps.map((g) => gapLine(g, ruleInClosing))].join('\n'));
-  if (inPerson.length > 0) blocks.push([`In person (${inPerson.length}):`, ...inPerson.map(inPersonLine)].join('\n'));
+  if (inPerson.length > 0) blocks.push([`In person (${inPerson.length}):`, ...inPerson.map((p) => inPersonLine(p))].join('\n'));
   const l = r.ledger;
   if (l.applied > 0) {
     const soon = l.closing_soon.length > 0 ? `, ${l.closing_soon.length} closing soon` : '';

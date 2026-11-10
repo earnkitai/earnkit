@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { agentNote, numbered, replyText } from './reply';
+import { agentNote, gapAction, gapLine, notFitLine, numbered, replyText } from './reply';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
 import type { Ledger } from './ledger';
 
@@ -546,4 +546,26 @@ test('a program another agent of the builder holds says so on its line and leave
   const t = replyText(none, false, NOW);
   assert.doesNotMatch(t, /Say yes|Nothing fits/);
   assert.match(t, /\n\nYour other agent is handling these; I'll say when something new opens\.$/);
+});
+
+test('the one-program reply (v6.1.8, 1b): the gap line without its number or "do n", and one action by what the gap is', () => {
+  const BC = { kind: 'builder_codes' as const, item: 'builder_codes', what: 'add Base Builder Codes to the app', effort: 'hours' as const, agent_can: true };
+  const USERS = { kind: 'users' as const, item: 'users', what: 'tell me if real people use it', effort: 'hours' as const, agent_can: false };
+  const codes = gap({ title: 'Base Grant', n: 3, gap: BC });
+  assert.equal(gapLine(codes, null, true), 'Base Grant, $1K: add Base Builder Codes to the app.');
+  assert.equal(gapLine(codes), '3. Base Grant, $1K: add Base Builder Codes to the app. Say "do 3" and I add them.');
+  assert.equal(gapAction(codes), 'Say "do" and I add Base Builder Codes to the app first.');
+  assert.equal(gapAction(gap({ title: 'Two', gap: BC, also: [{ ...BC, kind: 'integration', item: 'integration:x', what: 'add X' }] })), 'Say "do" and I make both changes first.');
+  // A contract deploy is the builder's (keys and gas).
+  assert.equal(gapAction(gap({ title: 'Arc Grant' })), 'Tell me when that is done and I apply.');
+  assert.equal(gapAction(gap({ title: 'Video', gap: VIDEO, also: [ruleGap('a team')] })), 'Tell me when that is done and I apply.');
+  assert.equal(gapAction(gap({ title: 'Used', gap: USERS })), 'Say yes if they do and I draft it.');
+  const rule = gap({ title: 'Fund', n: 2, gap: ruleGap('a seed stage startup') });
+  assert.equal(gapLine(rule, null, true), 'Fund, $1K. Their rule: a seed stage startup.');
+  assert.equal(gapAction(rule), 'Say yes if that is you and I draft it.');
+  // In person: the line says to attend; no action line.
+  const attend = gap({ title: 'Residency', in_person: true, gap: ruleGap('a US co-founder') });
+  assert.equal(gapLine(attend, null, true), 'Residency, $1K. Their rule: a US co-founder. Attend in person.');
+  assert.equal(gapAction(attend), null);
+  assert.equal(notFitLine('Base Grant', '$1K', 'needs a contract on Base'), 'Base Grant, $1K. Not a fit: needs a contract on Base.');
 });
