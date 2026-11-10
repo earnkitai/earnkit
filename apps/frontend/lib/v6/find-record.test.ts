@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { notNever, outsideApproval, pickProject } from './find-record';
 import { EMPTY_RECORD, mergeRecord } from './record';
 import type { ProgramRow } from '../v5/programs';
+import type { Gap } from '../v5/eligibility';
 
 const row = (id: string, title: string) => ({ id, file: { title } }) as unknown as ProgramRow;
 
@@ -34,4 +35,23 @@ test('N5 (v6.1.9): the category reason is a lower-case plural mid-sentence', () 
   assert.equal(outsideApproval(rec, of('grant')), 'grants are not in your categories');
   assert.equal(outsideApproval(rec, of('investment')), 'investments are not in your categories');
   assert.equal(outsideApproval(rec, of('hackathon')), null);
+});
+
+test('L12-7 (v6.1.14): with no tier, a building bar on an own-chain or keyword-hit program asks for code in a repo; any other stays no fit', async () => {
+  const { gateFor } = await import('./find-record');
+  const { NEEDS_CODE } = await import('../v5/eligibility');
+  const prog = (id: string, over: Record<string, unknown>) => ({ id, file: { title: id, min_tier: 'building', chains: [], any_chain: true, eligibility: [], ...over } }) as unknown as ProgramRow;
+  const facts = { name: 'Tips', description: 'Tipping on Solana', readme_excerpt: null, topics: [], chains: [{ chain: 'solana', mainnet: true }], public: false, as_reported: true, live_url: null, repo_url: null, notes: [] } as never;
+  const rule: Gap = { kind: 'rule', item: 'rule:x', what: 'x', effort: 'hours', agent_can: false };
+  const gate = gateFor(null, facts);
+  const own = gate({ program_id: 'own', status: 'gap', gaps: [rule], reason: null, long_shot: null, rules: [] }, prog('own', { chains: ['solana'], any_chain: false }));
+  assert.equal(own.status, 'gap');
+  assert.deepEqual(own.gaps, [NEEDS_CODE, rule]);
+  // A ready own-chain program: the code is its one step.
+  assert.deepEqual(gate({ program_id: 'own', status: 'ready', gaps: [], reason: null, long_shot: null, rules: [] }, prog('own', { chains: ['solana'], any_chain: false })).gaps, [NEEDS_CODE]);
+  // Another real change, a higher bar, or neither own chain nor a keyword hit: no fit, as before.
+  const feature: Gap = { kind: 'feature', item: 'feature:y', what: 'y', effort: 'days', agent_can: false };
+  assert.equal(gate({ program_id: 'own', status: 'gap', gaps: [feature, rule], reason: null, long_shot: null, rules: [] }, prog('own', { chains: ['solana'], any_chain: false })).status, 'no');
+  assert.equal(gate({ program_id: 'own', status: 'ready', gaps: [], reason: null, long_shot: null, rules: [] }, prog('own', { chains: ['solana'], any_chain: false, min_tier: 'live' })).status, 'no');
+  assert.equal(gate({ program_id: 'any', status: 'gap', gaps: [rule], reason: null, long_shot: null, rules: [] }, prog('any', {})).status, 'no');
 });

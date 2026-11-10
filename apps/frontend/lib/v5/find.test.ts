@@ -1303,6 +1303,62 @@ test('fix round 1 (v6.1.13, T3-R3): a project reporting chain avalanche, no Aval
   assert.ok(!ids(plain.reply!.gaps).includes('avalanche-team1-mini-grants'), plain.reply!.show_to_builder as string);
 });
 
+test('L12-7 (v6.1.14), Review Focus 9: a Solana project with no repo sees Solana Foundation Grants as its step and never a Base deploy by default', async () => {
+  const SOL = { name: 'Solflare Tips', description: 'Tipping for creators on Solana', chains: [{ chain: 'solana', mainnet: true }] };
+  const r = await mcpCall(ctx(await installation()), 'find', { project: SOL });
+  assert.equal(r.isError, false, r.text);
+  const show = r.reply!.show_to_builder as string;
+  assert.equal(
+    show,
+    [
+      'One step away (1):',
+      '1. Solana Foundation Grants, milestone grants: code in a repo. Their rule: a public good, meaning a significant open source contribution to the Solana ecosystem or a free community offering.',
+      '',
+      'In person (2):',
+      '2. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and the batch you want.',
+      "3. Alliance ALL19, $400K at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
+      '',
+      'Nothing is ready yet. Tell me when the code is in a repo and I look again.',
+    ].join('\n'),
+  );
+  assert.doesNotMatch(show, /deploy the contract on|—|\b(coin|points|score|rank|grade|streak|token)s?\b/i);
+  // The full list keeps the other chains' deploys, and the own chain's programs with their real gaps.
+  const all = await mcpCall(ctx(await installation()), 'find', { project: SOL, filter: { all: true } });
+  const shown = all.reply!.show_to_builder as string;
+  for (const id of ['solana-foundation-grants', 'solana-incubator-cohort-6', 'base-ecosystem-fund', 'monad-blitz-oregon']) assert.ok(ids(all.reply!.gaps).includes(id), id);
+  assert.match(shown, /\d+\. Base Ecosystem Fund, pre-seed and seed investment: deploy the contract on Base\. /);
+  assert.match(shown, /\d+\. Solana Incubator Cohort 6, NYC incubator with relocation stipend: code in a repo\. /);
+  // The own chain's grant carries code in a repo as its real gap.
+  const gaps = (all.reply!.gaps as { program_id: string; gap: { what: string } }[]).find((g) => g.program_id === 'solana-foundation-grants')!;
+  assert.equal(gaps.gap.what, 'code in a repo');
+});
+
+test('L12-7 (v6.1.14): a keyword hit whose only change is code in a repo shows on a chain as it does with none; a student on a chain still sees Thiel', async () => {
+  const HOOK = { name: 'Hookswap', description: 'A Uniswap limit order tool' };
+  const onEth = await mcpCall(ctx(await installation()), 'find', { project: { ...HOOK, chains: [{ chain: 'ethereum', mainnet: true }] } });
+  const eth = onEth.reply!.show_to_builder as string;
+  assert.equal(
+    eth.split('\n\n')[0],
+    [
+      'One step away (3):',
+      '1. Ethereum Security Subsidy Program, up to 30% of audit cost: code in a repo. First: set aside a security budget to co-fund the audit. Their rule: smart contracts for Ethereum mainnet with a defined audit scope (lines of code and contract count).',
+      '2. Uniswap Foundation Open Grants, amount by milestone budget: code in a repo. Their rule: work that contributes to the Uniswap ecosystem and benefits people beyond your own product.',
+      '3. Uniswap Foundation Security Fund (UFSF) Audit Subsidies, up to 100% audit subsidy: code in a repo. First: register a legal entity for KYB; finalize the contracts for audit. Their rule: smart contracts in the Uniswap ecosystem (a v4 hook or a Uniswap integration) with a date they will be ready for audit.',
+    ].join('\n'),
+  );
+  assert.ok(eth.endsWith('Nothing is ready yet. Tell me when the code is in a repo and I look again.'), eth);
+  const plain = await mcpCall(ctx(await installation()), 'find', { project: HOOK });
+  assert.ok(ids(plain.reply!.gaps).includes('uniswap-foundation-open-grants'));
+  // A student on Base or Solana still sees Thiel by default.
+  for (const chains of [[{ chain: 'base', mainnet: true }], ['solana']]) {
+    const r = await mcpCall(ctx(await installation()), 'find', { project: { name: 'Campus Pay', description: 'A college student app for splitting bills', chains } });
+    assert.ok(ids(r.reply!.gaps).includes('thiel-fellowship'), r.reply!.show_to_builder as string);
+    assert.match(r.reply!.show_to_builder as string, /\d\. Thiel Fellowship, \$250,000 over two years\. Their rule: applicant aged 22 or younger/);
+  }
+  // A program on another chain or no keyword hit keeps its bar: Z Fellows (no rule) is still no fit on a chain with no code.
+  assert.ok(!ids(onEth.reply!.gaps).includes('z-fellows'));
+});
+
 test('L1d-1 (v6.1.11, Review Focus 1): a claim on one project never pins or leads another project of the builder', async () => {
   const c = await dashCtx();
   await mcpCall(c, 'find', { project: VR });

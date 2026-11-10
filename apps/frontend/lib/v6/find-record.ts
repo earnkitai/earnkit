@@ -4,7 +4,7 @@
  * and what the record still lacks for the ready programs. Only find calls this. Unlinked (v6.1.3), find uses
  * only `provisionalTier`, `tierGate` and `blockersOf` against the empty record; nothing here is stored.
  */
-import { evaluate, rulesOnly, type Gap, type Verdict } from '../v5/eligibility';
+import { NEEDS_CODE, evaluate, keywordHit, rulesOnly, type Gap, type Verdict } from '../v5/eligibility';
 import { categoryOf } from '../v5/program-file';
 import type { RecordContext } from '../v5/prefill';
 import type { ProgramRow } from '../v5/programs';
@@ -162,14 +162,29 @@ export const provisionalGate = (v: Verdict, row: ProgramRow, tier: Tier | null, 
     ? tierGate(v, row, tier, ` Next: ${o.linked ? (o.noProject ? ADD_PROJECT : PROOF_READING) : confirmLine(row.file.min_tier)}`, o.onchain)
     : v;
 
+/**
+ * L12-7 (v6.1.14): with no tier at all (nothing read, no repo or live link) a `building` bar asks for code, so a program
+ * on one of the project's own chains, or one whose rule keyword the project names (a keyword hit), is never hidden by
+ * it when code in a repo is its only change: it is a gap of `code in a repo` (NEEDS_CODE) and its rules, never a no.
+ * Anything else is null (the bar decides as before). Pure.
+ */
+function codeStep(v: Verdict, row: ProgramRow, facts: RepoFacts, tier: Tier | null): Verdict | null {
+  if (tier || row.file.min_tier !== 'building' || v.status === 'no' || facts.chains.length === 0) return null;
+  if (!v.gaps.every((g) => g.kind === 'rule' || g.item === NEEDS_CODE.item)) return null;
+  const own = row.file.chains.some((c) => facts.chains.some((f) => f.chain === c));
+  if (!own && !keywordHit(row, facts, v.gaps)) return null;
+  return { ...v, status: 'gap', gaps: [NEEDS_CODE, ...v.gaps.filter((g) => g.item !== NEEDS_CODE.item)], reason: null };
+}
+
 /** The one gate the list and the one-program reply share (I3): the builder's own tier when read, else the provisional
- *  one. A project's bars apply only when it has a chain (B20b). Pure. */
+ *  one. A project's bars apply only when it has a chain (B20b); with no tier, an own-chain or keyword-hit program asks
+ *  for code in a repo instead (L12-7, v6.1.14: `codeStep`). Pure. */
 export function gateFor(side: RecordSide | null, facts: RepoFacts): (v: Verdict, row: ProgramRow) => Verdict {
   const provisional = provisionalTier(facts);
   const onchain = facts.chains.length > 0;
   return (v, row) => side?.tier
     ? tierGate(v, row, side.tier, side.summary?.line, onchain)
-    : provisionalGate(v, row, provisional, { onchain, linked: side !== null, noProject: side !== null && side.projectId === null });
+    : codeStep(v, row, facts, provisional) ?? provisionalGate(v, row, provisional, { onchain, linked: side !== null, noProject: side !== null && side.projectId === null });
 }
 
 /** The programs the builder lists: everything but the never list, matched on the title or the slug, any case (v6.1.8:

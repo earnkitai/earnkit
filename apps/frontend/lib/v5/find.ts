@@ -21,7 +21,7 @@ import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category
 import { isOpen, listOpenPrograms, programByName, unknownProgramLine, type ProgramRow } from './programs';
 import { ProjectArg, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
 import { readLoosely, type LooseRules } from './tool-input';
-import { rankGaps, rankReady, shownGapsOf } from './rank';
+import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
 import { repoFacts, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
 import { AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, contractLookedAgain, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyText, ruleSentence, hasProof, signInOnly, tonightOf } from './reply';
 import { since, type Since } from './since';
@@ -606,8 +606,10 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // (R18b): the one on the project's chains if any (R18e, fix round 3) in its rank place (L1c-3), else the first, in
   // the last slot only (N-2); a keyword hit takes its own slot in rank order (N1, v6.1.12). In-person programs are
   // never in the default step list (R18d, R18f); `more` counts them.
+  // L12-7 (v6.1.14): a project with a chain never sees a deploy on another chain by default; filter.all shows it.
   const stepGaps = shownGapsOf(gapV, all, MAX_GAPS, attending, projectChains,
-    (v, chain) => byId.get(v.program_id)!.file.chains.includes(chain), pinned, { unlikely: unlikelyV, soon, hit });
+    (v, chain) => byId.get(v.program_id)!.file.chains.includes(chain), pinned,
+    { unlikely: unlikelyV, soon, hit, offChain: (v) => offChain(v, byId, projectChains) });
   // O2 (v6.1.10): an in-person program that needs only a rule to confirm lists in the In person block, in the slots
   // the in-person ready ones leave (all of them with filter.all), each closing soon past the cap.
   const attendRule = (v: Verdict) => attending(v) && rulesOnly(v.gaps);
