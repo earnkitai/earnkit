@@ -22,7 +22,7 @@ import { isOpen, listOpenPrograms, programByName, unknownProgramLine, type Progr
 import { nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
 import { rankGaps, rankReady, shownGapsOf } from './rank';
 import { repoFacts, type RepoFacts, type RepoNote } from './repo-facts';
-import { AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, contractLookedAgain, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyText, ruleSentence, signInOnly } from './reply';
+import { AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, contractLookedAgain, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyText, ruleSentence, hasProof, signInOnly } from './reply';
 import { since, type Since } from './since';
 
 export const FindInput = z.object({
@@ -267,7 +267,9 @@ function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram
   if (v.status === 'no') return [notFitLine(p.title, moneyOf(p), v.reason ?? 'does not fit'), ...o.rules];
   if (v.status === 'gap') {
     const g = { ...gapOf(row, v, o.done, o.now), n: 0 };
-    return [gapLine(g, true), ...o.rules, gapAction(g, o.signIn)].filter((l): l is string => l !== null);
+    // Review Focus 2 (v6.1.14): the proof gap's sign-in is asked once, last; when it is the only step it is the action.
+    const signLast = o.signIn && !signInOnly([g.gap, ...g.also]) ? o.signIn : null;
+    return [gapLine(g, true), ...o.rules, gapAction(g, o.signIn), signLast].filter((l): l is string => l !== null);
   }
   const r = { ...ready(), n: 0 };
   if (r.in_person) return [inPersonLine(r, true), ...o.rules];
@@ -278,7 +280,8 @@ function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram
   const draftStands = o.draftOnly ? stands : [];
   // N3 (v6.1.12): the yes stands for one that still needs answers too; the closing names them, never a second yes.
   const yesWaits = r.rule_yes && r.need_you.length > 0 ? [{ title: r.title, needs: r.need_you, ...(o.draftOnly ? { draft: true as const } : {}) }] : [];
-  return [readyLine(r, o.linked, o.now, true), ...o.rules, closingLine({ ready: 1, draftOnly: o.draftOnly, gaps: 0, firstRule: null, inPerson: 0, held: 0, yesStands, draftStands, yesWaits })];
+  // Review Focus 1 (v6.1.14): the closing names the needs of a yes that waits, so the line does not.
+  return [readyLine(r, o.linked, o.now, true, () => false, yesWaits.length > 0), ...o.rules, closingLine({ ready: 1, draftOnly: o.draftOnly, gaps: 0, firstRule: null, inPerson: 0, held: 0, yesStands, draftStands, yesWaits })];
 }
 
 /** One program: its file, its fields (for the project, when given) and the verdict, said as the find line says it. */
@@ -325,10 +328,11 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const opens = (p.opens_note ?? 'no date announced').trim().replace(/\.+$/, '');
   // The builder presses submit: yes drafts it for them to send (C44).
   const draftOnly = p.submit === 'builder' || rec?.record.policy.agent_may_submit === false;
-  // Unlinked, with signing in the one step left: the action is the sign-in sentence with its link, as the list closes.
-  const signStep = open && ctx.builderId === null && verdict?.status === 'gap' && !p.in_person && signInOnly(verdict.gaps);
+  // Unlinked, with the proof among the gaps: the sign-in sentence with its link, once, as the list closes (v6.1.14); the
+  // action itself when it is the one step left.
+  const signStep = open && ctx.builderId === null && verdict?.status === 'gap' && !p.in_person && hasProof(verdict.gaps);
   const link = signStep ? await linkOf(ctx) : null;
-  const signIn = link ? signInSentence(link, !facts.as_reported && !(facts.notes ?? []).includes('empty')) : null;
+  const signIn = link ? signInSentence(link, !facts.as_reported && !(facts.notes ?? []).includes('empty'), true) : null;
   const show = p.status === 'upcoming'
     ? [`${p.title}, ${moneyOf(p)}. Not open yet: ${opens}.`, ...rules.map(ruleSentence), ...guideRules]
     : !open
@@ -350,9 +354,8 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
               `Draft from fields: ${fitted ? `'record' and 'earnkit' values as given, ${CUT_NOTE}` : "'earnkit' values as given"}; ${AGENT_FIELDS}`,
               ...(verdict?.gaps.some((g) => g.kind === 'rule') ? [RULE_NOTE] : []),
               ...(real.length === 0 && !verdict?.gaps.some((g) => g.kind === 'rule') ? [] : [SAME_PROJECT]),
-              ...(real.length === 0 ? [] : link
-                ? ['Show the sign-in link once as the reply gives it; once the builder has signed in, call find with program_id again.']
-                : canDo(real)
+              ...(link ? ['Show the sign-in link once as the reply gives it; once the builder has signed in, call find with program_id again.'] : []),
+              ...(real.length === 0 || (link && signInOnly(real)) ? [] : canDo(real)
                 ? ['On "do": make the gap\'s change (its details carry the docs), push, call track with gap_done and the gap\'s item, then call find with program_id again.']
                 : ['The builder makes each change (never deploy a contract for them); when they say it is done, call track with gap_done and the gap\'s item, then call find with program_id again.']),
               ...(fitted ? ['Fit approved answers by cutting, never by adding; the style contract travels on each field.'] : []),
@@ -383,7 +386,7 @@ async function openList(ctx: FindContext, problem: string | null): Promise<FindR
   const ledger = await summary(ownerOf(ctx), programs, ctx.now);
   const link = ctx.builderId === null ? await linkOf(ctx) : null;
   const notice = await linkedNotice(ctx, link);
-  const list = programs.length > 0 ? `Open now:\n${lines.join('\n')}\nTell me which project and I'll match it.` : "Nothing is open right now. I'll say when something opens.";
+  const list = programs.length > 0 ? `Open now:\n${lines.join('\n')}\nTell me which project and I'll match it.` : 'Nothing is open right now. Ask again any time and I show what is new.';
   // After an unlink the notice carries the link, in place of the plain sign-in line.
   const unlinkedNow = ctx.builderId === null && notice !== null;
   // Linked, the report a project find would give from this agent's last find (fix round 1): what moved, the answers

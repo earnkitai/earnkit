@@ -93,13 +93,14 @@ export const namedBefore = (r: Pick<R, 'record_missing'>): Named =>
 /** "3. " before a list line; nothing on the one-program reply (`alone`, v6.1.8 1b), which shows the line alone. Pure. */
 const num = (n: number, alone: boolean) => (alone ? '' : `${n}. `);
 
-/** A ready program's line; `alone` leaves out the list number (the one-program reply). Pure. */
-export function readyLine(p: ReadyProgram, linked: boolean, now: Date, alone = false, named: Named = () => false): string {
+/** A ready program's line; `alone` leaves out the list number (the one-program reply). `waits` (v6.1.14): the closing
+ *  names this program's needs ("X needs your ...; then I apply."), so the line does not. Pure. */
+export function readyLine(p: ReadyProgram, linked: boolean, now: Date, alone = false, named: Named = () => false, waits = false): string {
   let head = `${num(p.n, alone)}${p.title}, ${p.money}`;
   if (p.closes_in) head += `, closes ${p.closes_in}`;
   // The long odds are their own sentence after the head, never a label on the money.
   if (p.long_shot) head += `. Long odds: ${p.long_shot}`;
-  const fromRecord = linked ? recordDrafted(p, named) : null;
+  const fromRecord = linked ? recordDrafted(p, waits ? () => true : named) : null;
   // Setup items are steps ("sign in to ..."), the rest are things ("a Loom demo"): each reads its own way.
   const steps = p.needs.filter((x) => p.setup.includes(x));
   // Linked, the k that need the builder are already named.
@@ -109,7 +110,7 @@ export function readyLine(p: ReadyProgram, linked: boolean, now: Date, alone = f
   // Another agent of the builder's holds it: still numbered, so the builder can name it, but not in the yes count.
   // C1 (v6.1.13): a claim for another project names it.
   const held = p.held_for ? ` Being handled by your other agent for ${p.held_for}.` : p.claimed_since ? ` Being handled by your other agent since ${clock(p.claimed_since, now)}.` : '';
-  return `${head}.${fromRecord ? ` ${fromRecord}` : drafted(p, linked, needs.length, shown)}${first}${held}`;
+  return `${head}.${fromRecord ? ` ${fromRecord}` : drafted(p, linked, needs.length, waits ? [] : shown)}${first}${held}`;
 }
 
 /**
@@ -120,7 +121,8 @@ function drafted(p: ReadyProgram, linked: boolean, b: number, shown: string[]): 
   const total = p.total;
   const n = Math.min(p.repo_required + (linked ? p.from_record : 0), total);
   const k = Math.max(total - n - b, 0);
-  const needsYour = b > 0 ? ` Needs your ${joinAnd(shown)}.` : '';
+  // `shown` is empty when the closing names the needs (v6.1.14): the counts stay, the names go.
+  const needsYour = b > 0 && shown.length > 0 ? ` Needs your ${joinAnd(shown)}.` : '';
   if (total > 0 && n === total) return total === 1 ? ' Drafted: the one answer from the repo.' : ` Drafted: all ${total} answers from the repo.`;
   if (n > 0) {
     const head = ` Drafted: ${n} of ${total} answers from the repo`;
@@ -180,11 +182,17 @@ export const ruleOnlyGap = (g: GapProgram) => rulesOnly([g.gap, ...g.also]);
 /** O2 (v6.1.10): an in-person program that needs only its rule confirmed: listed in the In person block. Pure. */
 export const attendRuleGap = (g: GapProgram) => g.in_person && ruleOnlyGap(g);
 
-/** The unlinked tier gap ("Sign in once so EarnKit can confirm ..."). */
+/** The unlinked tier gap ("proof that real people use it"); its sign-in is asked once, in the closing (v6.1.14). */
 const confirmGap = (x: Gap) => x.kind === 'tier' && isConfirmWhat(x.what);
-/** A tier gap said as its own sentence, never after the colon (C57): the unlinked one, or the linked "proof is still
- *  being read" (I2). */
-const ownSentenceGap = (x: Gap) => confirmGap(x) || (x.kind === 'tier' && isProofReadingWhat(x.what));
+/** Whether a reply's gaps show the unlinked proof gap, so its closing says what signing in checks (v6.1.14). Pure. */
+export const showsProof = (gaps: Pick<GapProgram, 'gap' | 'also'>[]): boolean => gaps.some((g) => hasProof([g.gap, ...g.also]));
+/** Whether one program's gaps hold the unlinked proof. Pure. */
+export const hasProof = (gaps: Gap[]): boolean => gaps.some(confirmGap);
+/** A tier gap whose action is not a change the closing names: the unlinked proof (signing in, in the closing), or the
+ *  linked "proof is still being read" (I2). */
+const ownSentenceGap = (x: Gap) => confirmGap(x) || readingGap(x);
+/** The linked "proof is still being read" (I2): its own sentence, never after the colon (C57). */
+const readingGap = (x: Gap) => x.kind === 'tier' && isProofReadingWhat(x.what);
 /** What EarnKit does on "do n", by the gap's kind (v6.1.8, 1a). A contract deploy is never EarnKit's: it needs the
  *  builder's keys and gas, so chain gaps are not agent_can. */
 const DO_VERB: Partial<Record<Gap['kind'], string>> = { builder_codes: 'add them', integration: 'add it' };
@@ -222,7 +230,7 @@ export function gapAction(g: GapProgram, signIn: string | null = null): string |
   return 'Tell me when that is done and I apply.';
 }
 
-/** Whether every real gap (rules aside) is the unlinked "Sign in once so EarnKit can confirm ..." step. Pure. */
+/** Whether every real gap (rules aside) is the unlinked proof, settled by signing in. Pure. */
 export const signInOnly = (gaps: Gap[]): boolean => {
   const real = gaps.filter((x) => x.kind !== 'rule');
   return real.length > 0 && real.every(confirmGap);
@@ -255,8 +263,9 @@ export function gapLine(g: GapProgram, alone = false): string {
   const money = `${g.money}${g.closes_in ? `, closes ${g.closes_in}` : ''}`;
   if (ruleOnlyGap(g)) return `${num(g.n, alone)}${g.title}, ${money}.${first}${rules}${attend}`;
   const real = all.filter((x) => x.kind !== 'rule');
-  const listed = real.filter((x) => !ownSentenceGap(x));
-  const confirm = real.filter(ownSentenceGap).map((x) => ` ${x.what}.`).join('');
+  // v6.1.14: the unlinked proof is listed with the other gaps; its sign-in is the closing's.
+  const listed = real.filter((x) => !readingGap(x));
+  const confirm = real.filter(readingGap).map((x) => ` ${x.what}.`).join('');
   const head = `${num(g.n, alone)}${g.title}, ${money}${listed.length > 0 ? `: ${joinAnd(listed.map((x) => x.what))}` : ''}.`;
   return `${head}${alone ? '' : doSentence(g.n, real)}${confirm}${first}${rules}${attend}${lookedAgainSentences(g)}`;
 }
@@ -374,6 +383,9 @@ export function firstStepOf(gaps: GapProgram[]): FirstStep | null {
 export const stepRuleOf = (gaps: GapProgram[]): number | null =>
   gaps.length === 1 && !gaps[0].in_person && [gaps[0].gap, ...gaps[0].also].some((x) => x.kind === 'rule') ? gaps[0].n : null;
 
+/** The closing when nothing fits (v6.1.14): EarnKit never writes first, so the builder asks again. */
+export const NOTHING_FITS = 'Nothing fits yet. Ask again any time and I show what is new.';
+
 /** O2 (v6.1.10): the closing when in-person programs are listed and nothing remote is ready. */
 export const IN_PERSON_CLOSING = 'Nothing remote is ready yet. Say yes and I start the in-person applications.';
 
@@ -404,7 +416,8 @@ export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number
   if (ready === 1) return draftOnly ? 'Say yes and I draft it for you to send.' : 'Say yes and I apply.';
   if (ready > 1) return `${draftOnly ? `Say yes and I draft all ${ready} for you to send.` : `Say yes and I apply to all ${ready}.`} Or say the numbers to skip.`;
   // Ready programs held by another agent are listed as ready, so the reply never says nothing is ready (I1).
-  if (o.held > 0) return "Your other agent is handling these; I'll say when something new opens.";
+  // v6.1.14: no promise to write first.
+  if (o.held > 0) return 'Your other agent is handling these.';
   if (o.gaps > 0) {
     if (o.firstRule !== null) return `Nothing is ready yet. Say "yes ${o.firstRule}" if that rule fits you.`;
     // I2 (v6.1.9 final): the only step program shown carries a rule beside its change: the rule is asked first.
@@ -419,7 +432,8 @@ export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number
     return o.inPerson > 0 ? IN_PERSON_CLOSING : 'Nothing is ready yet.';
   }
   if (o.inPerson > 0) return IN_PERSON_CLOSING;
-  return "Nothing fits yet. I'll say when something opens.";
+  // v6.1.14: nothing is pushed to the builder, so nothing is promised.
+  return NOTHING_FITS;
 }
 
 /** The required answers only the builder gives, still empty, as to-dos ("the problem"): `needs` past the setup steps. Pure. */
@@ -519,7 +533,9 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   const stands = yesd.filter((p) => p.need_you.length === 0);
   const waits = yesd.filter((p) => p.need_you.length > 0);
   // The headlines count with parentheses (C56, 3.21); "step" covers a change and a rule to confirm.
-  if (ready.length > 0) blocks.push([`Ready to apply (${ready.length}):`, ...ready.map((p) => readyLine(p, r.linked, now, false, named))].join('\n'));
+  // Review Focus 1 (v6.1.14): a program whose needs the closing names reads them there only (not on tonight's send).
+  const namedInClosing = new Set(tonight > 0 ? [] : waits.map((p) => p.program_id));
+  if (ready.length > 0) blocks.push([`Ready to apply (${ready.length}):`, ...ready.map((p) => readyLine(p, r.linked, now, false, named, namedInClosing.has(p.program_id)))].join('\n'));
   if (steps.length > 0) blocks.push([`One step away (${steps.length}):`, ...steps.map((g) => gapLine(g))].join('\n'));
   if (attendCount > 0) blocks.push([`In person (${attendCount}):`, ...inPerson.map((p) => inPersonLine(p)), ...attendRules.map((g) => gapLine(g))].join('\n'));
   const l = r.ledger;
@@ -527,7 +543,8 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
     const soon = l.closing_soon.length > 0 ? `, ${l.closing_soon.length} closing soon` : '';
     // What was won, never what was asked (v6.1.8, 3.6).
     const won = l.won > 0 && l.won_usd > 0 ? ` (${dollars(l.won_usd)})` : '';
-    blocks.push(`Ledger: ${l.applied} applied, ${l.won} won${won}, ${l.pending} pending${soon}.`);
+    // v6.1.14: the /me page's name for it, never the internal "ledger".
+    blocks.push(`Your applications: ${l.applied} sent, ${l.won} won${won}, ${l.pending} waiting${soon}.`);
   }
   const before = beforeTonight(r, tonight);
   if (before) blocks.push(before);
@@ -560,7 +577,7 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   // The first find after a link names the account it linked to, last (security M2); after an unlink the notice
   // carries the sign-in link itself, so the sign-in sentence is left out (v6.1.7 B10).
   // An empty repo was read but gave nothing to prove: the sign-in promises only to remember (C59).
-  const signIn = r.sign_in && !r.linked && !r.linked_notice ? signInSentence(r.sign_in, !r.as_reported && !notes.includes('empty')) : null;
+  const signIn = r.sign_in && !r.linked && !r.linked_notice ? signInSentence(r.sign_in, !r.as_reported && !notes.includes('empty'), showsProof(r.gaps)) : null;
   blocks.push([closing, signIn, r.linked_notice].filter(Boolean).join(' '));
   return blocks.join('\n\n');
 }
