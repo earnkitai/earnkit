@@ -1921,15 +1921,22 @@ test('N-5 (v6.1.9): a step marked done that the read still misses is said once p
   assert.doesNotMatch(after, /demo video|looked again/);
 });
 
-test('v6.1.9: find with program_id takes the id or the name in any case; else a guess when one title shares a word', async () => {
+test('v6.1.9: find with program_id takes the id or the name in any case; L12-3 (v6.1.14): every word must name the program', async () => {
   for (const name of ['yc', 'YC', 'Y Combinator', 'y combinator winter 2027 batch', 'Y-Combinator']) {
     const r = await mcpCall(ctx(await installation()), 'find', { program_id: name });
     assert.equal(r.isError, false, r.text);
     assert.match(r.reply!.show_to_builder as string, /^Y Combinator Winter 2027 Batch, /, name);
     assert.equal((r.reply!.program as { id: string }).id, 'y-combinator', name);
   }
+  // L12-3 (v6.1.14): a word naming no program ("labs") is no program, never a guess from the other word.
   const near = await mcpCall(ctx(await installation()), 'find', { program_id: 'Combinator Labs' });
-  assert.equal(near.reply!.show_to_builder, "Did you mean Y Combinator Winter 2027 Batch?");
+  assert.equal(near.reply!.show_to_builder, "I don't know that program.");
+  for (const [name, id] of [['paypal hackathon', 'paypal-ai-hackathon'], ['thiel fellowship 2027', 'thiel-fellowship'], ['zerodha', 'floss-fund-zerodha']]) {
+    const r = await mcpCall(ctx(await installation()), 'find', { program_id: name });
+    assert.equal((r.reply!.program as { id: string }).id, id, name);
+  }
+  for (const name of ['l12-nope', 'base-nope', 'monad-xyz'])
+    assert.equal((await mcpCall(ctx(await installation()), 'find', { program_id: name })).reply!.show_to_builder, "I don't know that program.", name);
   // F4 (v6.1.12, Review Focus 3): the common names; one match resolves, several are asked about, two by rank.
   // L1e-1 (v6.1.13, Review Focus 6): an organizer's first word that leads to one program resolves: floss, thiel.
   for (const [name, id] of [['ycombinator', 'y-combinator'], ['Thiel Foundation', 'thiel-fellowship'], ['monad blitz oregon', 'monad-blitz-oregon'], ['floss', 'floss-fund-zerodha'], ['thiel', 'thiel-fellowship']]) {
