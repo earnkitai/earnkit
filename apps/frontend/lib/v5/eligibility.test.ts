@@ -4,10 +4,10 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
-import { codeChecked, evaluate, exists, lookedAgain, ruleItem, unlikely, type Gap } from './eligibility';
+import { codeChecked, evaluate, exists, lookedAgain, names, ruleItem, unlikely, type Gap } from './eligibility';
 import { repoFacts, type RepoFacts } from './repo-facts';
 import { parseProject } from './project-input';
-import { ProgramFile } from './program-file';
+import { ProgramFile, eligibilityOf } from './program-file';
 import type { ProgramRow } from './programs';
 import { replayFetch } from './fixtures/github';
 import { programFixture } from './fixtures/program';
@@ -21,6 +21,8 @@ const toRow = (file: ProgramRow['file']): ProgramRow => ({
 });
 const fromFile = (slug: string) =>
   toRow(ProgramFile.parse(JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs', `${slug}.json`), 'utf8'))));
+/** The keywords on a catalog file's rules. */
+const eligibilityKeywords = (slug: string) => eligibilityOf(fromFile(slug).file).flatMap((i) => i.keywords ?? []);
 
 async function factsOf(slug: string, over: Record<string, unknown> = {}): Promise<RepoFacts> {
   const rec = replayFetch(slug);
@@ -363,4 +365,32 @@ test('L1c-2 (v6.1.10): a rule with keywords is unlikely unless the project names
   const fcRule: Gap[] = [{ kind: 'rule', item: ruleItem('a Farcaster Mini App'), what: 'a Farcaster Mini App', effort: 'hours', agent_can: false }];
   assert.equal(unlikely(fc, facts({ name: 'Tipper', description: 'A Mini App for tipping' }), fcRule), false);
   assert.equal(unlikely(fc, facts({ name: 'Tipper', description: 'A mini tipping app' }), fcRule), true);
+});
+
+test('L1c-2 final (v6.1.10): the keyword matcher takes punctuation as a boundary, a hyphen as a space, and a phrase only whole', () => {
+  // Punctuation next to the keyword is a boundary.
+  assert.equal(names('a game for meta (quest) headsets', 'quest'), true);
+  assert.equal(names('vr, ar and xr', 'vr'), true);
+  assert.equal(names('"Oculus"', 'oculus'), true);
+  // A hyphen reads as a space, on either side.
+  assert.equal(names('a farcaster mini-app for tips', 'mini app'), true);
+  assert.equal(names('a hands first demo', 'hands-first'), true);
+  // A phrase at a word boundary, at the start, the end, and next to a line break.
+  assert.equal(names('v4 hook for limit orders', 'v4 hook'), true);
+  assert.equal(names('a uniswap v4 hook', 'v4 hook'), true);
+  assert.equal(names('readme\natlassian forge app', 'atlassian forge'), true);
+  // Not inside a longer word, and not the words apart.
+  assert.equal(names('a uniswap v4 hooked bot', 'v4 hook'), false);
+  assert.equal(names('xv4 hook', 'v4 hook'), false);
+  assert.equal(names('a mini tipping app', 'mini app'), false);
+  assert.equal(names('a miniapp', 'mini app'), false);
+  // A React hook is not Uniswap, and a Foundry repo is not Codegeist.
+  const uni = ['uniswap', 'v4 hook', 'uniswap hook'];
+  assert.equal(uni.some((k) => names('A React hook for forms', k)), false);
+  const codegeist = eligibilityKeywords('codegeist-2026');
+  assert.equal(codegeist.some((k) => names('Run forge build and forge test to deploy the vault.', k)), false);
+  assert.equal(codegeist.some((k) => names('An Atlassian Forge app for Jira', k)), true);
+  // Meta's models are not the VR competition.
+  const vr = eligibilityKeywords('meta-vr-start-competition-2026');
+  assert.equal(vr.some((k) => names('Fine-tunes meta-llama by Meta AI', k)), false);
 });

@@ -1832,6 +1832,12 @@ test('F3 and fix round 1 (v6.1.10): the users yes and the rule yes stand only fo
   await upsertProgram(programFixture({ id: 'f3-rule', title: 'Rule Grant', eligibility: [{ kind: 'rule', note: 'a solo builder' }] }), 'file', NOW);
   const used0 = await mcpCall(c, 'find', { program_id: 'f3-used', project: CLI });
   assert.equal((used0.reply!.show_to_builder as string).split('\n').at(-1), 'Say yes if they do and I draft it.');
+  // Final round (I2): users: true the agent passed settles the users item (ready), but the builder said nothing, so
+  // the closing asks for the yes; only gap_done users (the builder's yes relayed) makes it stand.
+  const passed = await mcpCall(c, 'find', { program_id: 'f3-used', project: { ...CLI, users: true } });
+  assert.equal((passed.reply!.verdict as { status: string }).status, 'ready');
+  assert.equal(passed.reply!.show_to_builder, ['Used Grant, Up to $5,000. Your agent drafts the one answer.', 'Say yes and I apply.'].join('\n'));
+  assert.doesNotMatch(JSON.stringify(passed.reply), /yes stands/);
   await mcpCall(c, 'track', { program_id: 'f3-used', status: 'gap_done', item: 'users', project: CLI });
   const used = await mcpCall(c, 'find', { program_id: 'f3-used', project: CLI });
   assert.equal(used.reply!.show_to_builder, ['Used Grant, Up to $5,000. Your agent drafts the one answer.', 'Your yes stands for Used Grant: I apply now.'].join('\n'));

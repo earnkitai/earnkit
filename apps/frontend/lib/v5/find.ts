@@ -200,10 +200,11 @@ async function factsOf(project: Project, ctx: FindContext): Promise<RepoFacts> {
   }
 }
 
-/** F3 (v6.1.10): the builder said real people use it (gap_done users, or users: true passed) to a program that asks
- *  (its own users item, or a used bar on a chainless project): that yes stands as a rule's does. Pure. */
+/** F3 (v6.1.10): the builder said real people use it to a program that asks (its own users item, or a used bar on a
+ *  chainless project): that yes stands as a rule's does. Only the builder's own yes, relayed as gap_done users (final
+ *  round, I2): a users: true the agent passed still settles the users item, but it is no yes to send. Pure. */
 const usersYes = (p: Program, facts: RepoFacts, done: Set<string>): boolean =>
-  (eligibilityOf(p).some((i) => i.kind === 'users') || (p.min_tier === 'used' && facts.chains.length === 0)) && (done.has('users') || facts.users === true);
+  (eligibilityOf(p).some((i) => i.kind === 'users') || (p.min_tier === 'used' && facts.chains.length === 0)) && done.has('users');
 
 function readyOf(row: ProgramRow, v: Verdict, facts: RepoFacts, now: Date, side: RecordContext | null, done: Set<string> = new Set()): Omit<ReadyProgram, 'n'> {
   const p = row.file;

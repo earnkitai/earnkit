@@ -185,9 +185,11 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
 /** What the project says about itself, lower-cased: its name, description, README excerpt and topics (L1c-2). Pure. */
 const projectWords = (facts: RepoFacts): string =>
   [facts.name, facts.description, facts.readme_excerpt ?? '', ...(facts.topics ?? [])].join('\n').toLowerCase();
-/** Whether `text` holds `phrase` as a whole word or phrase (letters and digits on neither side). Pure. */
-const names = (text: string, phrase: string): boolean =>
-  new RegExp(`(?<![\\p{L}\\p{N}])${phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'u').test(text);
+/** A hyphen reads as a space on both sides, so `mini app` matches "mini-app" (v6.1.10 final). Pure. */
+const unhyphen = (s: string): string => s.replace(/-/g, ' ');
+/** Whether `text` holds `phrase` as a whole word or phrase (letters and digits on neither side), any case. Pure. */
+export const names = (text: string, phrase: string): boolean =>
+  new RegExp(`(?<![\\p{L}\\p{N}])${unhyphen(phrase.toLowerCase()).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'u').test(unhyphen(text.toLowerCase()));
 
 /**
  * L1c-2 (v6.1.10): whether the program's rule is unlikely to be the project's. True when a rule still to confirm (in

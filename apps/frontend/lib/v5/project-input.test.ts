@@ -175,4 +175,13 @@ test('projectKeyOf: the repo link lower-cased without a trailing slash or .git, 
   assert.equal(projectKeyOf({}), '');
   assert.equal(projectKeyOf(null), '');
   assert.equal(projectKeyOf({ name: 7, repo_url: 7 }), '');
+  // Final round: cleaned as parseProject cleans, so the raw project and the parsed one key the same.
+  for (const raw of [{ name: 'My  App' }, { name: 'My\tApp\u200b' }, { name: 'X', repo_url: 'github.com/a/b' }, { name: 'X', repo_url: ' https://github.com/A/B.git ' }, { name: 'n'.repeat(100) }]) {
+    const parsed = parseProject({ ...raw, description: 'd' });
+    assert.ok(parsed.ok);
+    assert.equal(projectKeyOf(raw), projectKeyOf(parsed.project), JSON.stringify(raw));
+  }
+  assert.equal(projectKeyOf({ name: 'My  App' }), 'name:my app');
+  // A link that is not a web link is no repo key: the name stands, as in find.
+  assert.equal(projectKeyOf({ name: 'X', repo_url: 'github.com/a/b' }), 'name:x');
 });

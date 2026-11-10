@@ -145,8 +145,8 @@ test('L1c-2 (v6.1.10): a rule item may carry up to 8 lower-case keywords of at m
 
 test('L1c-2 (v6.1.10): the catalog keywords are on the domain rules, none on person or licence rules', () => {
   const kw = (f: string) => eligibilityOf(ProgramFile.parse(read(`${f}.json`))).flatMap((i) => i.keywords ?? []);
-  assert.deepEqual(kw('meta-vr-start-competition-2026'), ['vr', 'quest', 'meta', 'hands-first', 'oculus']);
-  assert.deepEqual(kw('codegeist-2026'), ['atlassian', 'forge', 'jira', 'confluence']);
+  assert.deepEqual(kw('meta-vr-start-competition-2026'), ['vr', 'quest', 'hands-first', 'oculus']);
+  assert.deepEqual(kw('codegeist-2026'), ['atlassian', 'atlassian forge', 'jira', 'confluence']);
   assert.deepEqual(kw('qnx-global-hackathon-2026'), ['qnx']);
   assert.deepEqual(kw('paypal-ai-hackathon'), ['paypal']);
   assert.deepEqual(kw('farcaster-developer-rewards'), ['farcaster', 'mini app', 'warpcast']);
@@ -160,7 +160,8 @@ test('L1c-2 (v6.1.10): the catalog keywords are on the domain rules, none on per
   // Fix round 1: phrases, never a bare "hook" or "v4" (a React hook is not Uniswap).
   assert.deepEqual(kw('uniswap-foundation-open-grants'), ['uniswap', 'v4 hook', 'uniswap hook']);
   assert.deepEqual(kw('uniswap-foundation-security-fund'), ['uniswap', 'v4 hook', 'uniswap hook']);
-  for (const f of files) assert.ok(!eligibilityOf(ProgramFile.parse(read(f))).some((i) => (i.keywords ?? []).some((k) => k === 'hook' || k === 'v4')), f);
+  // Final round: never a bare "meta" (Meta's models) or "forge" (every Foundry README) either.
+  for (const f of files) assert.ok(!eligibilityOf(ProgramFile.parse(read(f))).some((i) => (i.keywords ?? []).some((k) => ['hook', 'v4', 'meta', 'forge'].includes(k))), f);
   for (const f of ['thiel-fellowship', 'antler-us-residency', 'github-secure-open-source-fund', 'herodevs-sustainability-fund', 'sovereign-tech-fund'])
     assert.deepEqual(kw(f), [], f);
 });

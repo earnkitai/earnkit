@@ -316,6 +316,23 @@ export async function repoFacts(project: Project, deps: { gh?: Fetch; now?: Date
       code = null;
     }
   }
+  return mergedFacts(project, code, paused);
+}
+
+/**
+ * The facts find last read for a project, from its repo_cache row alone (never a fetch, never counted as a read), merged
+ * with the report exactly as repoFacts merges them; null when the repo has no complete cached row (v6.1.10 final, I3:
+ * track's send check sees the same contracts and chains find vouched for).
+ */
+export async function cachedRepoFacts(project: Project): Promise<RepoFacts | null> {
+  const key = project.private ? null : repoKey(project.repo_url);
+  if (!key) return null;
+  const [row] = await sql()<{ facts: CodeFacts }[]>`SELECT facts FROM repo_cache WHERE repo = ${key}`;
+  return row && complete(row.facts) ? mergedFacts(project, withIntegrations(row.facts), false) : null;
+}
+
+/** The code read (or none) and the agent's report as one set of facts (repoFacts' merge rules). Pure. */
+function mergedFacts(project: Project, code: CodeFacts | null, paused: boolean): RepoFacts {
   const chains: RepoFacts['chains'] = (code?.chains ?? []).map((c) => ({ ...c }));
   const contracts: RepoFacts['contracts'] = (code?.contracts ?? []).map((c) => ({ ...c, basis: 'code' as const }));
   for (const c of project.chains ?? []) {

@@ -756,3 +756,64 @@ test('F1 fix round 2 (v6.1.10): find and track judge one fixture by the same lis
   assert.deepEqual(await unvouchedAtSend({ ...c, builderId: b.id }, i, row), fromFind);
   assert.equal((await track({ ...c, builderId: b.id }, i)).show_to_builder, 'Sent, but outside your standing approval: a required answer was missing.');
 });
+
+test('I3 final (v6.1.10): a required contract find filled from the cached repo read is vouched at send time; with no cached read it is not', async () => {
+  const { linkInstallation, saveRecord, upsertBuilder } = await import('../v6/builders');
+  const { EMPTY_RECORD, mergeRecord } = await import('../v6/record');
+  const { find } = await import('./find');
+  const { getProgram } = await import('./programs');
+  const { unvouchedAtSend } = await import('./track');
+  const { unvouchedRequired } = await import('./prefill');
+  const c = await ctx();
+  const b = await upsertBuilder({ github_id: 930_304, login: 'fr3', name: 'F', avatar_url: null }, NOW);
+  await linkInstallation(c.installationId, b.id, NOW);
+  await saveRecord(b.id, mergeRecord(EMPTY_RECORD, { policy: { auto_apply: true, max_per_night: 10, categories: ['grant'] } }, 'builder', NOW).record, NOW);
+  const fields = [
+    { key: 'project_name', label: 'Project name', type: 'text', required: true, from: 'project', kind: 'name', todo: 'a project name' },
+    { key: 'contract_address', label: 'Contract address on Base', type: 'text', required: true, from: 'project', kind: 'other', todo: 'your contract address on Base' },
+  ];
+  await upsertProgram(programFixture({ id: 'fi3-contract', title: 'Contract Grant', category: 'grant', submission_requirements: fields as never }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'fi3-unread', title: 'Unread Grant', category: 'grant', submission_requirements: fields as never }), 'file', NOW);
+  const address = '0x' + 'ab'.repeat(20);
+  const cached = {
+    chains: [{ chain: 'base', mainnet: true }], contracts: [{ chain: 'base', address }], builder_codes: false, integrations: [],
+    first_commit_at: '2026-01-01T00:00:00.000Z', last_commit_at: '2026-11-01T00:00:00.000Z', readme_excerpt: 'A vault on Base.', homepage: null, topics: [],
+    html_url: 'https://github.com/ada/vault', pushed_at: '2026-11-01T00:00:00.000Z', fork: false, archived: false, empty: false, readme_lead: 'A vault on Base.',
+  };
+  await sql()`DELETE FROM repo_cache WHERE repo = 'ada/vault'`;
+  await sql()`INSERT INTO repo_cache (repo, facts, fetched_at, pushed_at) VALUES ('ada/vault', ${sql().json(cached)}, ${NOW}, ${new Date(cached.pushed_at)})`;
+  const project = { name: 'Vault', description: 'A vault on Base.', repo_url: 'https://github.com/ada/vault' };
+  // Find fills the contract from the cached read: nothing unvouched, so it is on tonight's list.
+  const r = (await find({ ...c, builderId: b.id }, { project, filter: { all: true } })) as unknown as { ready: { program_id: string; fields: never[] }[] };
+  const ready = r.ready.find((p) => p.program_id === 'fi3-contract')!;
+  assert.deepEqual(unvouchedRequired(ready.fields), []);
+  // Track reads the same cached row (no fetch is possible here: no gh is passed) and agrees.
+  const row = (await getProgram('fi3-contract'))!;
+  const i = { program_id: 'fi3-contract', status: 'applied' as const, submitted_by: 'agent' as const, fields_used: ['project_name', 'contract_address'], project };
+  assert.deepEqual(await unvouchedAtSend({ ...c, builderId: b.id }, i, row), []);
+  assert.equal((await track({ ...c, builderId: b.id }, i)).show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.equal((await sql()`SELECT auto_applied FROM applications WHERE owner = ${'b:' + b.id} AND program_id = 'fi3-contract'`)[0].auto_applied, true);
+  // The last find's project key alone (no project passed) reaches the same cached row.
+  assert.deepEqual(await unvouchedAtSend({ ...c, builderId: b.id }, { ...i, project: undefined }, row), []);
+  // No cached read for the repo: the report alone, which holds no contract, so the send is outside approval.
+  const other = { ...project, repo_url: 'https://github.com/ada/unread' };
+  const j = { ...i, program_id: 'fi3-unread', project: other };
+  assert.deepEqual(await unvouchedAtSend({ ...c, builderId: b.id }, j, (await getProgram('fi3-unread'))!), ['contract_address']);
+  assert.equal((await track({ ...c, builderId: b.id }, j)).show_to_builder, 'Sent, but outside your standing approval: a required answer was missing.');
+});
+
+test('final round (v6.1.10): the track project is capped (name 120, repo link 500) and keyed as find keys it', async () => {
+  const { TRACK_UNREAD } = await import('./track');
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 'fcap-a', title: 'Cap Grant', eligibility: [{ kind: 'users' }] }), 'file', NOW);
+  const long = await track(c, { program_id: 'fcap-a', status: 'started', project: { name: 'n'.repeat(121) } });
+  assert.equal(long.show_to_builder, TRACK_UNREAD);
+  const longRepo = await track(c, { program_id: 'fcap-a', status: 'started', project: { name: 'A', repo_url: 'https://github.com/a/' + 'b'.repeat(480) } });
+  assert.equal(longRepo.show_to_builder, TRACK_UNREAD);
+  // At the caps it is read; a name with two spaces lands on the key find gives the parsed name.
+  assert.equal((await track(c, { program_id: 'fcap-a', status: 'gap_done', item: 'users', project: { name: 'My  App' } })).show_to_builder, 'Noted.');
+  const rows = await sql()`SELECT project_key FROM gaps_done WHERE owner = ${'i:' + c.installationId} AND program_id = 'fcap-a'`;
+  assert.deepEqual(rows.map((r) => r.project_key), ['name:my app']);
+  const atCap = await track(c, { program_id: 'fcap-a', status: 'skipped', project: { name: 'n'.repeat(120) } });
+  assert.notEqual(atCap.show_to_builder, TRACK_UNREAD);
+});

@@ -61,6 +61,11 @@ export type RememberedGap = { what: string; kind: string; item?: string };
  * (a find with a project, v6.1.10 L1c-1) also the project a track without one belongs to.
  */
 export async function markFind(id: number, now: Date, gaps?: Record<string, RememberedGap>, projectKey?: string): Promise<void> {
+  // The gaps and their project are written in one statement (final round), so the two never describe different projects.
+  if (gaps !== undefined && projectKey !== undefined) {
+    await sql()`UPDATE installations SET prev_find_at = last_find_at, last_find_at = ${now}, last_seen_at = GREATEST(last_seen_at, ${now}), last_gaps = ${sql().json(gaps)}, last_project_key = ${projectKey} WHERE id = ${id}`;
+    return;
+  }
   if (projectKey !== undefined) await rememberProject(id, projectKey);
   if (gaps === undefined) {
     await sql()`UPDATE installations SET prev_find_at = last_find_at, last_find_at = ${now}, last_seen_at = GREATEST(last_seen_at, ${now}) WHERE id = ${id}`;
@@ -80,9 +85,13 @@ export async function unmarkNightFind(id: number): Promise<void> {
     WHERE id = ${id} AND last_find_at IS NOT NULL AND last_find_at IS DISTINCT FROM prev_find_at`;
 }
 
-/** Keeps the project of a find (projectKeyOf), so the next track without one marks its steps on it (v6.1.10 L1c-1). */
+/**
+ * Keeps the project of a find (projectKeyOf), so the next track without one marks its steps on it (v6.1.10 L1c-1).
+ * Another project than the last drops the last gaps in the same statement: they were that project's (final round).
+ */
 export async function rememberProject(id: number, projectKey: string): Promise<void> {
-  await sql()`UPDATE installations SET last_project_key = ${projectKey} WHERE id = ${id}`;
+  await sql()`UPDATE installations SET last_gaps = CASE WHEN last_project_key IS DISTINCT FROM ${projectKey} THEN NULL ELSE last_gaps END,
+    last_project_key = ${projectKey} WHERE id = ${id}`;
 }
 
 /** The project of the last find with one (projectKeyOf); '' before any. */

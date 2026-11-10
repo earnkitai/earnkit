@@ -8,6 +8,7 @@ import { DELETED_NOTICE } from '../v6/reply-words';
 import { claim } from '../v6/claims';
 import { NIGHT_LIMIT, REQUIRED_MISSING, outsideApproval, requiredLeftOut, storedRecordContext } from '../v6/find-record';
 import { prefill, reportedFacts, unvouchedRequired } from './prefill';
+import { cachedRepoFacts } from './repo-facts';
 import { forgetGap, lastGaps, lastProjectKey, unmarkNightFind } from './installations';
 import { projectKeyOf } from './project-input';
 import { getProgram, isOpen, listOpenPrograms } from './programs';
@@ -17,6 +18,9 @@ import { codeChecked, itemKey } from './eligibility';
 import { eligibilityOf } from './program-file';
 import { sql } from './db';
 import { inputDetail } from './tool-input';
+
+/** A passed project field: any value (read leniently), but text no longer than `n` (final round). Pure. */
+const capped = (n: number) => (v: unknown) => typeof v !== 'string' || v.length <= n;
 
 export const TrackInput = z
   .object({
@@ -29,7 +33,7 @@ export const TrackInput = z
     submitted_by: z.enum(['agent', 'builder']).optional(),
     fields_used: z.array(z.string().max(60)).max(60).optional(),
     /** The project find was called with (v6.1.10 L1c-1): only its name and repo link are read, the rest is ignored. */
-    project: z.object({ name: z.unknown().optional(), repo_url: z.unknown().optional() }).passthrough().optional()
+    project: z.object({ name: z.unknown().refine(capped(120)).optional(), repo_url: z.unknown().refine(capped(500)).optional() }).passthrough().optional()
       .describe('The project you passed to find (its name and repo_url), so its steps stay with it'),
   })
   .strict();
@@ -125,7 +129,8 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
 
 /**
  * The required fields a send under standing approval cannot vouch for: the program prefilled with the stored record and
- * the send's project (its passed links, else the record project's; else the last find's project key), as reported.
+ * the send's project (its passed links, else the record project's; else the last find's project key), with the repo's
+ * cached read merged in as find had it.
  */
 export async function unvouchedAtSend(ctx: TrackContext, i: z.infer<typeof TrackInput>, row: NonNullable<Awaited<ReturnType<typeof getProgram>>>): Promise<string[]> {
   const passed = (i.project ?? {}) as Record<string, unknown>;
@@ -135,10 +140,17 @@ export async function unvouchedAtSend(ctx: TrackContext, i: z.infer<typeof Track
   const name = str(passed.name) ?? (fromKey as { name?: string }).name ?? null;
   const rec = await storedRecordContext(ctx.builderId!, i.project_id, repo, name);
   const stored = rec.record.projects.find((p) => p.id === rec.projectId);
-  const facts = reportedFacts({
+  const reported = {
     name: name ?? stored?.name ?? null, description: str(passed.description),
     repo_url: repo ?? stored?.repo_url ?? null, live_url: str(passed.live_url) ?? stored?.live_url ?? null, demo_url: str(passed.demo_url),
+  };
+  // I3 (v6.1.10 final): the facts find used, the project's cached repo read (no fetch) merged with the report, so a
+  // contract find filled from the repo is vouched here too; with no cached read, the report alone.
+  const cached = await cachedRepoFacts({
+    name: reported.name ?? '', description: reported.description ?? '', users: null,
+    ...(reported.repo_url ? { repo_url: reported.repo_url } : {}), ...(reported.live_url ? { live_url: reported.live_url } : {}), ...(reported.demo_url ? { demo_url: reported.demo_url } : {}),
   });
+  const facts = cached ?? reportedFacts(reported);
   return unvouchedRequired(prefill(row, facts, rec).fields).map((f) => f.key);
 }
 

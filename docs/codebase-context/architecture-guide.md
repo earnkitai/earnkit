@@ -70,7 +70,7 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
    of the cap; its line says `closes in {n} days`), then at most one rule-bearing program among rule-free ones. That
    one, on the project's chains, takes its rank place; off them it is shown only after `max - 1` others or alone
    (N-2). A rule item may carry `keywords` (L1c-2): when a rule still to confirm has keywords and the project names
-   none of the program's keywords (whole word or phrase, case-insensitive) in its name, description, README excerpt
+   none of the program's keywords (whole word or phrase, case-insensitive, a hyphen read as a space) in its name, description, README excerpt
    or topics, `unlikely` (`eligibility.ts`) holds and the program is left to `filter.all` (counted in `more`); a rule
    with no keywords keeps the slot rule. In-person programs are off the default step list (R18d, R18f); a rule-only
    in-person program is listed in the In person block after the ready ones, with its rule and `Say "yes n" if that is
@@ -144,7 +144,9 @@ A done step belongs to one project (v6.1.10, L1c-1): `gaps_done` carries `projec
 without a trailing slash or `.git`, else `name:` and the name lower-cased and trimmed, else `''` (rows from before v6.1.10
 stay at `''`). `find` reads done steps (`doneItems`, `doneByProgram`, `codeDoneAt`) with its project's key and keeps it in
 `installations.last_project_key`; `track` takes the key from its `project` (`name`, `repo_url`), else the record project
-named by `project_id`, else `last_project_key`. `last_gaps` are the last find's project's: `started` on another project
+named by `project_id`, else `last_project_key` (the same cleaning as `parseProject`, so a raw and a parsed project key
+alike; track caps `name` at 120 and `repo_url` at 500). `last_gaps` are the last find's project's and written with its key: a
+find of another project that writes no gaps drops them (`rememberProject`); `started` on another project
 skips the remembered remark and `gap_done` there leaves them. Linking an installation moves its rows with their keys.
 `won` with an amount is the one fact that later feeds an aggregate "what wins" view; nothing aggregate is shown yet.
 A `won` above the program's `max_award_usd`, else its `pool_usd`, else 10,000,000 when it states neither, is refused and writes nothing.
@@ -366,7 +368,8 @@ and so is a send whose form has a required field EarnKit cannot vouch for, whate
 vouched-field rule, v6.1.10 F1: one helper, `unvouchedRequired(fields)` in `prefill.ts`, returns every required `builder`
 field without a value and every `agent` field with no sources, judged by `from`, value and sources only; find's
 `need_you` and tonight list read it, and track's `unvouchedAtSend` runs it over the program prefilled with the stored
-record and the send's project, its passed links, else the record project's, else the last find's project key),
+record and the send's project, its passed links, else the record project's, else the last find's project key, merged
+with that repo's cached read as find had it (`cachedRepoFacts`, no fetch; the report alone with no cached row)),
 and find's standing note says "Under standing approval, send only when every required answer is filled; otherwise wait
 for the builder." Find holds the same line: a ready program with a required builder answer still empty leaves the
 tonight list and is named in its own block, "Before tonight (nothing is sent until these are in): your {answers} for
@@ -377,8 +380,8 @@ overnight send (a builder's daytime find followed by an in-chat send repeats its
 sends still takes the report). `applied` after the program closed is recorded with "{title} closed on {day}; recorded anyway.";
 `applied` as the first call after the account was deleted answers the deleted notice alone and writes nothing;
 `started` on an in-person or builder-only program tells the agent "The builder presses submit; prepare the answers and
-hand them over." A rule the builder confirmed marks the ready program `rule_yes` (so does the users yes, `gap_done users`
-or `users: true`, on a program that asks it; F3, v6.1.10), and the closing reads "Your yes stands
+hand them over." A rule the builder confirmed marks the ready program `rule_yes` (so does the users yes, `gap_done users` only,
+on a program that asks it; F3, v6.1.10; a `users: true` the agent passed settles the users item but is no yes, final round), and the closing reads "Your yes stands
 for {title}: I apply now." instead of asking again, only when that program is fully ready (nothing in `need_you`);
 with answers still missing its line carries its needs and the closing is the normal one (fix round 1). A new-work program (`new_work_after`) with no first-commit date is
 the question step "tell me when you started this" (minutes, never the agent's, never a reason to refuse; O3, v6.1.10):
