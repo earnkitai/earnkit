@@ -104,7 +104,8 @@ export function rankGaps(v: Verdict[], programs: Programs, mainnets: ReadonlySet
  * The gap list shown (R18b, v6.1.8 fix rounds 2 and 3, v6.1.9, v6.1.10): all of it when `all`. Else, first the
  * programs the builder acted on (`pinned`: a step marked done or a live claim, N-3), in rank order, whatever they
  * carry; then every program closing soon (`soon`, O1: within 7 days), ahead of the cap; then at most one program that
- * carries an unconfirmed rule and no keyword hit (none when one already shown carries one) among rule-free programs in
+ * carries an unconfirmed rule, no keyword hit and no keywords on its rules (`keyed`, L1e-2, v6.1.13: such a program
+ * shows only on a hit) (none when one already shown carries one) among rule-free programs in
  * rank order for the other slots; a keyword hit (`hit`, N1, v6.1.12) is no rule-slot program but takes its own slot in
  * rank order as a rule-free one does. A program whose rule is unlikely to be the project's (`unlikely`, L1c-2: its keywords named nowhere)
  * is left out unless acted on. The one rule-bearing program is the first (in rank order) naming `chains[0]`, else
@@ -118,12 +119,13 @@ export function shownGapsOf(
   gapV: Verdict[], all: boolean, max: number, inPerson: (v: Verdict) => boolean,
   chains: readonly string[] = [], names: (v: Verdict, chain: string) => boolean = () => false,
   pinned: (v: Verdict) => boolean = () => false,
-  o: { unlikely?: (v: Verdict) => boolean; soon?: (v: Verdict) => boolean; hit?: Hit } = {},
+  o: { unlikely?: (v: Verdict) => boolean; soon?: (v: Verdict) => boolean; hit?: Hit; keyed?: (v: Verdict) => boolean } = {},
 ): Verdict[] {
   if (all) return gapV;
   const unlikely = o.unlikely ?? (() => false);
   const soon = o.soon ?? (() => false);
   const hit = o.hit ?? (() => false);
+  const keyed = o.keyed ?? (() => false);
   // The one rule slot is for rule-bearing programs with no keyword hit; a hit competes as a rule-free step.
   const slotted = (v: Verdict) => ruleBearing(v) && !hit(v);
   const remote = gapV.filter((v) => !inPerson(v));
@@ -134,7 +136,9 @@ export function shownGapsOf(
   const room = max - head.length;
   if (room <= 0) return head;
   const free = rest.filter((v) => !slotted(v));
-  const bearing = head.some(slotted) ? [] : rest.filter(slotted);
+  // L1e-2 (v6.1.13): the no-hit rule slot takes only a program whose rules carry no keywords; one whose rules carry
+  // them says by those words which builders it is for, so it shows only on a hit.
+  const bearing = head.some(slotted) ? [] : rest.filter((v) => slotted(v) && !keyed(v));
   const rule = chains.map((c) => bearing.find((v) => names(v, c))).find((v) => v !== undefined) ?? bearing[0];
   const own = rule !== undefined && chains.some((c) => names(rule, c));
   if (!rule || !(own || free.length >= room - 1 || (free.length === 0 && head.length === 0))) return [...head, ...free.slice(0, room)];

@@ -112,6 +112,9 @@ export const rulesOnly = (gaps: Gap[]): boolean => gaps.length > 0 && gaps.every
 /** A hackathon for the odds (v6.1.8, 3.3): a prize pool, or a reward paid in prizes. Pure. */
 const prizes = (p: ProgramRow['file']) => p.pool_usd != null || /\bprizes?\b/i.test(p.reward);
 
+/** L1e-6 (v6.1.13): a program that funds code already written: existing work allowed, not a hackathon, not in person. Pure. */
+const forExistingCode = (p: ProgramRow['file']): boolean => p.existing_work === 'allowed' && categoryOf(p) !== 'hackathon' && !p.in_person;
+
 /** The program against the facts: ready, a short list of gaps, or no. `done` holds items the builder says are done. */
 export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string>, now: Date): Verdict {
   const p = program.file;
@@ -135,6 +138,9 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
   if (onchain && facts.chains.length === 0) return out('no', [], `needs a contract on ${chainName(onchain.value ?? '')}`);
   // B20c (v6.1.9): a program that wants used software (a used bar or a users item) asks only a project that exists.
   if ((p.min_tier === 'used' || own.some((i) => i.kind === 'users')) && !exists(facts)) return out('no', [], 'needs a product people use');
+  // L1e-6 (v6.1.13): a grant for existing code (needs_repo, existing work welcome, not a hackathon or an event) is no
+  // fit for a project with nothing to show: no live link, and no repo link (an idea) or a repo the read found empty.
+  if (p.needs_repo && forExistingCode(p) && !facts.live_url && (!facts.repo_url || (facts.notes ?? []).includes('empty'))) return out('no', [], 'needs code in a repo');
 
   const gaps: Gap[] = [];
   let inPerson = false;

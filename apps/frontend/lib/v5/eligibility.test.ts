@@ -357,9 +357,18 @@ test('L1c-2 (v6.1.10): a rule with keywords is unlikely unless the project names
   // The rule confirmed (a yes): no rule left to judge, so not unlikely.
   const rule = gapsOf(idea).find((g) => g.kind === 'rule')!.item;
   assert.equal(unlikely(vr, idea, gapsOf(idea, new Set([rule]))), false);
-  // A program whose rules carry no keywords (a person rule) is never unlikely.
+  // A program whose rules carry no keywords (a licence rule) is never unlikely.
+  const futo = fromFile('futo-microgrants');
+  const code = facts({ name: 'Rent Split', description: 'An app that splits rent', repo_url: 'https://github.com/a/rent' });
+  assert.equal(unlikely(futo, code, evaluate(futo, code, new Set(), NOW).gaps), false);
+  // L1e-2 (v6.1.13): a person rule may name who it is for: Thiel is unlikely for the idea, likely for a student.
   const thiel = fromFile('thiel-fellowship');
-  assert.equal(unlikely(thiel, idea, evaluate(thiel, idea, new Set(), NOW).gaps), false);
+  assert.equal(unlikely(thiel, idea, evaluate(thiel, idea, new Set(), NOW).gaps), true);
+  const student = facts({ name: 'micrograd', description: 'My student side project: a tiny scalar autograd engine' });
+  assert.equal(keywordHit(thiel, student, evaluate(thiel, student, new Set(), NOW).gaps), true);
+  // Whole words: "2022" names no keyword.
+  const acme = facts({ name: 'Acme', description: 'Billing engine for B2B APIs, built in 2022' });
+  assert.equal(keywordHit(thiel, acme, evaluate(thiel, acme, new Set(), NOW).gaps), false);
   // A phrase matches as a phrase: "mini app" for Farcaster.
   const fc = fromFile('farcaster-developer-rewards');
   const fcRule: Gap[] = [{ kind: 'rule', item: ruleItem('a Farcaster Mini App'), what: 'a Farcaster Mini App', effort: 'hours', agent_can: false }];

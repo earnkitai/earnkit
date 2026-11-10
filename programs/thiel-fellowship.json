@@ -20,7 +20,7 @@
   "tag": "long shot",
   "min_tier": "building",
   "eligibility": [
-    { "kind": "rule", "note": "applicant aged 22 or younger with no university degree, who will drop out of college if selected" }
+    { "kind": "rule", "note": "applicant aged 22 or younger with no university degree, who will drop out of college if selected", "keywords": ["student", "students", "college", "university", "dropout", "drop out", "fellowship", "undergrad", "22", "under 23"] }
   ],
   "setup": [],
   "each_time": [],

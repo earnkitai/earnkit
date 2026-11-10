@@ -56,7 +56,8 @@ test('base-builder-grants: facts fill; prose, team and contacts go to the agent;
   assert.equal(by.usage_numbers.from, 'builder');
   assert.equal(by.usage_numbers.value, null);
   assert.equal(by.full_name.from, 'agent');
-  assert.deepEqual(out.fields.filter((f) => f.from === 'builder').map((f) => f.key), ['contract_address', 'usage_numbers']);
+  // L1e-3 (v6.1.13): an 'other' answer the file marks the builder's (revenue, the Builder Code, credits) is theirs.
+  assert.deepEqual(out.fields.filter((f) => f.from === 'builder').map((f) => f.key), ['contract_address', 'usage_numbers', 'revenue', 'builder_code', 'credits', 'what_changed']);
   assert.equal(out.filled, FILLED);
   // The name, one-liner, live and demo links are what the agent passed, not the repo read: none counts.
   assert.equal(out.facts_from_repo, 0);

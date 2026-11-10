@@ -394,7 +394,7 @@ const RULE_NOTE =
 const ruleGap = (what: string, item = 'rule:0000000a') => ({ kind: 'rule' as const, item, what, effort: 'hours' as const, agent_can: false });
 const VIDEO = { kind: 'demo_video' as const, item: 'demo_video', what: 'a demo video', effort: 'hours' as const, agent_can: false };
 
-test('rules (R18a): ready and in-person lines show none; a gap line shows its rules after the change; a rule-only line asks its own "yes n" (v6.1.8, 1a)', () => {
+test('rules (R18a): ready and in-person lines show none; a gap line shows its rules after the change, as one sentence (L1e-6, v6.1.13); with something ready no rule line asks its own "yes n" (L1e-2)', () => {
   const r = base({
     ready: [
       ready({
@@ -415,7 +415,7 @@ test('rules (R18a): ready and in-person lines show none; a gap line shows its ru
       '1. Base Ecosystem Fund, pre-seed and seed investment. Long odds: an investment program with no stated amount. Your agent drafts all 2 answers. First: sign in to the portal.',
       '',
       'One step away (2):',
-      '2. Goose Grants, $10K. Their rule: a project built with or for goose. Their rule: work not already funded by an employer or client. Say "yes 2" if that is you.',
+      '2. Goose Grants, $10K. Their rules: a project built with or for goose; work not already funded by an employer or client.',
       '3. Colosseum, $25K: a demo video. Their rule: the team has not raised venture capital.',
       '',
       'In person (1):',
@@ -424,8 +424,9 @@ test('rules (R18a): ready and in-person lines show none; a gap line shows its ru
       'Say yes and I apply.',
     ].join('\n'),
   );
-  // One "yes n" per reply: on its line while something is ready, never repeated in the closing.
-  assert.equal(replyText(r, true).match(/"yes 2"/g)?.length, 1);
+  // L1e-2 (v6.1.13): one yes per reply: something ready takes the closing, so the rule line asks no "yes n".
+  assert.equal(replyText(r, true).match(/"yes 2"/g), null);
+  assert.equal(replyText(r, true).match(/\bSay\b/g)?.length, 1);
   const lines = agentNote(r, { more: 0 }).split('\n');
   const at = lines.indexOf(RULE_NOTE);
   assert.ok(at > 0, lines.join('\n'));
@@ -441,7 +442,8 @@ test('the closing line is one action (v6.1.8, 1a): yes to the ready ones, else "
   // Said once: the line the closing names does not ask it again.
   assert.equal(nothingReady.match(/"yes 1"/g)?.length, 1, nothingReady);
   assert.equal(end(base({ ready: MONDAY.ready, gaps: [rulesOnly] })), 'Say yes and I apply to all 2. Or say the numbers to skip.');
-  assert.match(replyText(base({ ready: MONDAY.ready, gaps: [rulesOnly] }), true), /^3\. R, \$1K\. Their rule: x\. Say "yes 3" if that is you\.$/m);
+  // L1e-2 (v6.1.13): with something ready, the rule reads as a plain sentence; "yes 3" still works in track.
+  assert.match(replyText(base({ ready: MONDAY.ready, gaps: [rulesOnly] }), true), /^3\. R, \$1K\. Their rule: x\.$/m);
   assert.equal(end(base({ gaps: [rulesOnly, MONDAY.gaps[0]] })), 'Nothing is ready yet. Say "yes 1" if that rule fits you.');
   // M1 (v6.1.9): with no rule-only program shown, the closing offers the first step.
   assert.equal(end(base({ gaps: [MONDAY.gaps[0]] })), 'Nothing is ready yet. First: deploy the contract on Arc. Tell me when it is done and I look again.');
@@ -708,14 +710,39 @@ test('M1 (v6.1.9): nothing ready and no rule-only program shown: the closing off
   for (const t of [end(base({ gaps: [floss] })), end(base({ gaps: [vr] }))]) assert.doesNotMatch(t!, /—|\b(score|rank|grade|points|coin|token|streak)s?\b/i);
 });
 
+test('L1e-5 and L1e-2 (v6.1.13, Review Focus 7): the closing asks a keyword-hit rule first; a ready program leaves exactly one "Say"', () => {
+  const a = gap({ program_id: 'a', title: 'Open Rule', money: '$9K', gap: ruleGap('an open licence'), rules: ['an open licence'] });
+  const hit = gap({ program_id: 'b', title: 'Student Rule', money: '$5K', gap: ruleGap('a student', 'rule:0000000c'), rules: ['a student'], keyword_hit: true });
+  const all = replyText(base({ gaps: [a, hit] }), true);
+  assert.equal(all.split('\n').at(-1), 'Nothing is ready yet. Say "yes 2" if that rule fits you.');
+  assert.match(all, /^1\. Open Rule, \$9K\. Their rule: an open licence\. Say "yes 1" if that is you\.$/m);
+  // No hit: the first in list order, as before.
+  assert.equal(replyText(base({ gaps: [a, { ...hit, keyword_hit: undefined }] }), true).split('\n').at(-1), 'Nothing is ready yet. Say "yes 1" if that rule fits you.');
+  // A ready FLOSS/fund with Thiel on line 2: one Say in the whole reply.
+  const floss = ready({ program_id: 'floss-fund-zerodha', title: 'FLOSS/fund', money: '$10,000 to $100,000' });
+  const thiel = gap({ program_id: 'thiel-fellowship', title: 'Thiel Fellowship', money: '$250,000 over two years', gap: ruleGap('applicant aged 22 or younger'), rules: ['applicant aged 22 or younger'], keyword_hit: true });
+  const text = replyText(base({ ready: [floss], gaps: [thiel] }), true);
+  assert.equal(text.match(/\bSay\b/g)?.length, 1, text);
+  assert.match(text, /^2\. Thiel Fellowship, \$250,000 over two years\. Their rule: applicant aged 22 or younger\.$/m);
+  assert.equal(text.split('\n').at(-1), 'Say yes and I apply.');
+});
+
 test('v6.1.9: after the builder\'s yes on a rule, the program it made ready is applied to without a second yes', () => {
   const one = base({ ready: [ready({ title: 'Solana Foundation Grants', rule_yes: true, rules: ['a public good'] })] });
   assert.equal(replyText(one, true).split('\n\n').at(-1), 'Your yes stands for Solana Foundation Grants: I apply now.');
   const two = base({ ready: [ready({ title: 'Solana Foundation Grants', rule_yes: true }), ready({ title: 'Other Grant' })] });
   assert.equal(replyText(two, true).split('\n\n').at(-1), 'Your yes stands for Solana Foundation Grants: I apply now. Say yes and I apply.');
-  // The builder presses submit on it: no "I apply now".
+  // The builder presses submit on it: no "I apply now"; L1e-3 (v6.1.13): the yes stands, in the draft wording.
   const click = base({ ready: [ready({ title: 'Click Grant', rule_yes: true })], blockers: [{ program_id: 'click-grant', sign_in: null, needs_click: true, needs: [] }] });
-  assert.equal(replyText(click, true).split('\n\n').at(-1), 'Say yes and I draft it for you to send.');
+  assert.equal(replyText(click, true).split('\n\n').at(-1), 'Your yes stands for Click Grant: I draft it for you to send.');
+  // Review Focus 8 (L1e-3): with answers missing, the closing names them and never asks for yes again.
+  const thiel = base({
+    ready: [ready({ program_id: 'thiel-fellowship', title: 'Thiel Fellowship', rule_yes: true, need_you: ['the online application answers'], needs: ['the online application answers'] })],
+    blockers: [{ program_id: 'thiel-fellowship', sign_in: null, needs_click: true, needs: [] }],
+  });
+  const end = replyText(thiel, true).split('\n\n').at(-1);
+  assert.equal(end, 'Thiel Fellowship needs your online application answers; then I draft it for you to send.');
+  assert.doesNotMatch(replyText(thiel, true), /Say yes/);
   // A sign-in the agent does not have: no "I apply now" either (final review M2).
   const signIn = base({ ready: [ready({ title: 'Mail Grant', rule_yes: true })], blockers: [{ program_id: 'mail-grant', sign_in: 'email', needs_click: false, needs: [] }] });
   assert.doesNotMatch(replyText(signIn, true), /I apply now/);

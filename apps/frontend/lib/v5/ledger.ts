@@ -246,11 +246,30 @@ export async function excluded(owner: string): Promise<Set<string>> {
   return new Set(rows.map((r) => r.program_id));
 }
 
-/** The steps the owner marked done for the program on this project (projectKeyOf, v6.1.10 L1c-1). */
+/** L1e-4 (v6.1.13): items that are facts about the project, not one program's step: done on any program of the
+ *  project, they are done for every program on it. */
+export const PROJECT_ITEMS: readonly string[] = ['users'];
+
+/** The owner's done steps on this project, by program, and the project items done on any of them (L1e-4). */
+export type Done = {
+  /** The program's own done steps plus the project items: what its gaps are judged on. */
+  of: (programId: string) => Set<string>;
+  /** Only the steps marked on this program: a yes said to it (rule_yes) and what it was acted on for. */
+  own: Map<string, Set<string>>;
+};
+
+/** Pure. */
+const doneOf = (rows: { program_id: string; item: string }[]): Done => {
+  const own = new Map<string, Set<string>>();
+  for (const r of rows) own.set(r.program_id, (own.get(r.program_id) ?? new Set<string>()).add(r.item));
+  const project = rows.filter((r) => PROJECT_ITEMS.includes(r.item)).map((r) => r.item);
+  return { own, of: (id) => new Set([...(own.get(id) ?? []), ...project]) };
+};
+
+/** The steps the owner marked done for the program on this project (projectKeyOf, v6.1.10 L1c-1), with the project
+ *  items done on any program of it (L1e-4, v6.1.13): the one read track, the one-program find and the send check use. */
 export async function doneItems(owner: string, programId: string, projectKey: string): Promise<Set<string>> {
-  const rows = await sql()<{ item: string }[]>`
-    SELECT item FROM gaps_done WHERE owner = ${owner} AND project_key = ${projectKey} AND program_id = ${programId}`;
-  return new Set(rows.map((r) => r.item));
+  return (await doneOn(owner, projectKey)).of(programId);
 }
 
 /**
@@ -296,13 +315,12 @@ export async function codeDoneAt(owner: string, projectKey: string): Promise<Dat
   return times.length > 0 ? new Date(Math.max(...times)) : null;
 }
 
-/** Every closed gap item of the owner on this project, by program: one query for a whole find. */
-export async function doneByProgram(owner: string, projectKey: string): Promise<Map<string, Set<string>>> {
+/** Every closed gap item of the owner on this project, by program, and the project items (L1e-4): one query for a
+ *  whole find. */
+export async function doneOn(owner: string, projectKey: string): Promise<Done> {
   const rows = await sql()<{ program_id: string; item: string }[]>`
     SELECT program_id, item FROM gaps_done WHERE owner = ${owner} AND project_key = ${projectKey}`;
-  const out = new Map<string, Set<string>>();
-  for (const r of rows) out.set(r.program_id, (out.get(r.program_id) ?? new Set<string>()).add(r.item));
-  return out;
+  return doneOf(rows);
 }
 
 /** Days after the send EarnKit asks how it went, for a program with no results date (v6.1.9). */

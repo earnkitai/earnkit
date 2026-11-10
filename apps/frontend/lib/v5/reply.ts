@@ -22,8 +22,10 @@ export const RULE_NOTE =
   'A "Their rule" gap is a program rule EarnKit cannot check. If the builder says it fits, call track gap_done with that gap\'s item, then find again. Their yes stands: when the program comes back ready, draft and submit it without asking again.';
 /** A program rule as the builder reads it; the note keeps its own capitals and gets the full stop. Pure. */
 export const ruleSentence = (note: string): string => `Their rule: ${note}.`;
-/** Each rule as its own sentence, each with its leading space, or ''. Pure. */
-const ruleSentences = (rules: string[]): string => rules.map((r) => ` ${ruleSentence(r)}`).join('');
+/** L1e-6 (v6.1.13): the rules still to confirm as one sentence with its leading space ("Their rule: a." for one,
+ *  "Their rules: a; b." for several), or ''. Pure. */
+export const ruleSentences = (rules: string[]): string =>
+  rules.length === 0 ? '' : rules.length === 1 ? ` ${ruleSentence(rules[0])}` : ` Their rules: ${rules.join('; ')}.`;
 
 /**
  * The lists in display order with their numbers: ready (not in person) 1..k, then the gaps, then the in-person
@@ -236,13 +238,14 @@ export const lookedAgainSentences = (g: Pick<GapProgram, 'looked_again'>): strin
 
 /**
  * The real gaps after the colon, with "do n" only when EarnKit can make all of them (v6.1.8, 1a); the unlinked tier
- * gap as its own sentence (C57); then one "Their rule" sentence per rule to confirm. Rules only: the rules, then
- * 'Say "yes n" if that is you.', except on the program the closing line already names (`ruleInClosing`). In person,
+ * gap as its own sentence (C57); then the rules to confirm as one sentence (L1e-6, v6.1.13). Rules only: the rules, then
+ * 'Say "yes n" if that is you.', except on the program the closing line already names (`ruleInClosing`), and on none
+ * when it is 'all' (L1e-2, v6.1.13: a ready program's yes takes the closing, one yes per reply). In person,
  * the attend sentence follows the rules (R18d), so an in-person program always says so; otherwise the setup steps
  * come as "First: ..." before the rules (L1d-2). `alone` (the one-program reply,
  * v6.1.8 1b): no number and no "do n" or "yes n", since `gapAction` gives the action on its own line.
  */
-export function gapLine(g: GapProgram, ruleInClosing: number | null = null, alone = false): string {
+export function gapLine(g: GapProgram, ruleInClosing: number | 'all' | null = null, alone = false): string {
   const all = [g.gap, ...g.also];
   const rules = ruleSentences(all.filter((x) => x.kind === 'rule').map((x) => x.what));
   const attend = g.in_person ? attendSentence(g.setup) : '';
@@ -251,7 +254,8 @@ export function gapLine(g: GapProgram, ruleInClosing: number | null = null, alon
   const first = !g.in_person && g.setup.length > 0 ? ` First: ${g.setup.join('; ')}.` : '';
   // O1 (v6.1.10): a program closing within 7 days says so after the money.
   const money = `${g.money}${g.closes_in ? `, closes ${g.closes_in}` : ''}`;
-  if (ruleOnlyGap(g)) return `${num(g.n, alone)}${g.title}, ${money}.${first}${rules}${attend}${alone || g.n === ruleInClosing ? '' : ` Say "yes ${g.n}" if that is you.`}`;
+  const quiet = alone || ruleInClosing === 'all' || g.n === ruleInClosing;
+  if (ruleOnlyGap(g)) return `${num(g.n, alone)}${g.title}, ${money}.${first}${rules}${attend}${quiet ? '' : ` Say "yes ${g.n}" if that is you.`}`;
   const real = all.filter((x) => x.kind !== 'rule');
   const listed = real.filter((x) => !ownSentenceGap(x));
   const confirm = real.filter(ownSentenceGap).map((x) => ` ${x.what}.`).join('');
@@ -333,8 +337,9 @@ function beforeTonight(r: R, tonight: number): string | null {
   return `Before applying: ${parts.join(' ')}`;
 }
 
-/** N3 (v6.1.12): a program the builder said yes to (a rule or the users question) that still needs these answers. */
-export type YesWait = { title: string; needs: string[] };
+/** N3 (v6.1.12): a program the builder said yes to (a rule or the users question) that still needs these answers;
+ *  `draft` (L1e-3, v6.1.13): the builder submits it, so EarnKit drafts it for them to send. */
+export type YesWait = { title: string; needs: string[]; draft?: true };
 
 /** The step the closing offers (M1, v6.1.9): the users question, or what to make. */
 export type FirstStep = { users: true; more?: true } | { users: false; what: string; started?: true };
@@ -381,18 +386,21 @@ export const IN_PERSON_CLOSING = 'Nothing remote is ready yet. Say yes and I sta
  * programs listed, IN_PERSON_CLOSING (O2, fix round 1). The gap lines carry their own "do n" and "yes n".
  * `inPerson`: the in-person programs listed, ready or rule-only. Pure.
  */
-export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number; firstRule: number | null; inPerson: number; held: number; firstStep?: FirstStep | null; yesStands?: string[]; yesWaits?: YesWait[]; stepRule?: number | null }): string {
+export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number; firstRule: number | null; inPerson: number; held: number; firstStep?: FirstStep | null; yesStands?: string[]; draftStands?: string[]; yesWaits?: YesWait[]; stepRule?: number | null }): string {
   // v6.1.9: the builder's yes to a rule already stands for the program it made ready: no second yes is asked for it.
-  // N3 (v6.1.12): nor for one that still needs answers: the closing names them instead.
+  // N3 (v6.1.12): nor for one that still needs answers: the closing names them instead. L1e-3 (v6.1.13): a program
+  // the builder submits reads the same with the draft wording (`draftStands`, a wait's `draft`).
   const stands = o.yesStands ?? [];
+  const drafts = o.draftStands ?? [];
   const waits = o.yesWaits ?? [];
-  if (stands.length > 0 || waits.length > 0) {
+  if (stands.length > 0 || drafts.length > 0 || waits.length > 0) {
     const said = [
       ...(stands.length > 0 ? [`Your yes stands for ${listWords(stands, stands.length)}: I apply now.`] : []),
-      ...waits.map((w) => `${w.title} needs your ${joinAnd(capped(w.needs.map(bare)))}; then I apply.`),
+      ...(drafts.length > 0 ? [`Your yes stands for ${listWords(drafts, drafts.length)}: I draft ${drafts.length === 1 ? 'it' : 'them'} for you to send.`] : []),
+      ...waits.map((w) => `${w.title} needs your ${joinAnd(capped(w.needs.map(bare)))}; then ${w.draft ? 'I draft it for you to send' : 'I apply'}.`),
     ].join(' ');
-    const left = o.ready - stands.length - waits.length;
-    return left > 0 ? `${said} ${closingLine({ ...o, ready: left, yesStands: [], yesWaits: [] })}` : said;
+    const left = o.ready - stands.length - drafts.length - waits.length;
+    return left > 0 ? `${said} ${closingLine({ ...o, ready: left, yesStands: [], draftStands: [], yesWaits: [] })}` : said;
   }
   const { ready, draftOnly } = o;
   if (ready === 1) return draftOnly ? 'Say yes and I draft it for you to send.' : 'Say yes and I apply.';
@@ -493,15 +501,32 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   const attendCount = inPerson.length + attendRules.length;
   // A program another agent holds leaves the count to say yes to (v6.1.7, C37).
   const free = ready.filter((p) => !p.claimed_since);
-  // With nothing ready to say yes to, the closing names the first rule-only gap, so its own line does not (1a).
-  const firstRule = steps.find(ruleOnlyGap)?.n ?? null;
-  // A held ready program closes with the held line (I1), which names no rule.
-  const ruleInClosing = ready.length === 0 ? firstRule : null;
-  // The headlines count with parentheses (C56, 3.21); "step" covers a change and a rule to confirm.
+  // With nothing ready to say yes to, the closing names a rule-only gap, so its own line does not (1a): a keyword hit
+  // when one is listed (L1e-5, v6.1.13: its words make the rule likely), else the first in list order.
+  const firstRule = (steps.find((g) => ruleOnlyGap(g) && g.keyword_hit) ?? steps.find(ruleOnlyGap))?.n ?? null;
   const named = namedBefore(r);
+  // One condition for the heading and the closing: the agent sends tonight (never unlinked, where auto_apply is false).
+  const { list: tonightList, limitUsed } = tonightOf(r);
+  const tonight = tonightList.length;
+  const click = new Set(r.blockers.filter((b) => b.needs_click).map((b) => b.program_id));
+  // The builder's yes stands for these (a rule or the users question): never asked again. L1e-3 (v6.1.13): a program
+  // the builder submits too, its closing in the draft wording.
+  const yesd = free.filter((p) => p.rule_yes && !r.blockers.some((b) => b.program_id === p.program_id && b.sign_in));
+  // C44: the builder presses submit on every ready one left to say yes to (their policy, or each program's own), so
+  // the agent drafts.
+  const unsaid = free.filter((p) => !yesd.includes(p));
+  const draftOnly = unsaid.length > 0 && unsaid.every((p) => click.has(p.program_id));
+  // Fix round 1 (v6.1.10): the yes stands only for a program fully ready, every required answer held (nothing in need you).
+  const stands = yesd.filter((p) => p.need_you.length === 0);
+  const waits = yesd.filter((p) => p.need_you.length > 0);
+  // L1e-2 (v6.1.13): a ready program's yes takes the closing, so no rule-only line asks its own (one yes per reply);
+  // a held ready program closes with the held line (I1), which names no rule.
+  const readyYes = tonight === 0 && unsaid.length > 0;
+  const ruleInClosing: number | 'all' | null = readyYes ? 'all' : ready.length === 0 ? firstRule : null;
+  // The headlines count with parentheses (C56, 3.21); "step" covers a change and a rule to confirm.
   if (ready.length > 0) blocks.push([`Ready to apply (${ready.length}):`, ...ready.map((p) => readyLine(p, r.linked, now, false, named))].join('\n'));
   if (steps.length > 0) blocks.push([`One step away (${steps.length}):`, ...steps.map((g) => gapLine(g, ruleInClosing))].join('\n'));
-  if (attendCount > 0) blocks.push([`In person (${attendCount}):`, ...inPerson.map((p) => inPersonLine(p)), ...attendRules.map((g) => gapLine(g))].join('\n'));
+  if (attendCount > 0) blocks.push([`In person (${attendCount}):`, ...inPerson.map((p) => inPersonLine(p)), ...attendRules.map((g) => gapLine(g, readyYes ? 'all' : null))].join('\n'));
   const l = r.ledger;
   if (l.applied > 0) {
     const soon = l.closing_soon.length > 0 ? `, ${l.closing_soon.length} closing soon` : '';
@@ -509,9 +534,6 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
     const won = l.won > 0 && l.won_usd > 0 ? ` (${dollars(l.won_usd)})` : '';
     blocks.push(`Ledger: ${l.applied} applied, ${l.won} won${won}, ${l.pending} pending${soon}.`);
   }
-  // One condition for the heading and the closing: the agent sends tonight (never unlinked, where auto_apply is false).
-  const { list: tonightList, limitUsed } = tonightOf(r);
-  const tonight = tonightList.length;
   const before = beforeTonight(r, tonight);
   if (before) blocks.push(before);
   const waiting = waitingLine(r);
@@ -521,11 +543,6 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   // What the read was, once each, just before the closing (money first stays first).
   const notes = [...new Set(r.repo_notes ?? [])];
   if (notes.length > 0) blocks.push(repoNoteText(notes));
-  // C44: the builder presses submit on every ready one (their policy, or each program's own), so the agent drafts.
-  const click = new Set(r.blockers.filter((b) => b.needs_click).map((b) => b.program_id));
-  const draftOnly = free.length > 0 && free.every((p) => click.has(p.program_id));
-  // The builder's yes stands for these (a rule or the users question): never asked again.
-  const yesd = free.filter((p) => p.rule_yes && !click.has(p.program_id) && !r.blockers.some((b) => b.program_id === p.program_id && b.sign_in));
   const closing =
     tonight > 0
       ? `Applying tonight to ${listWords(tonightList.map((p) => p.title), tonight)}. Say stop to hold any.`
@@ -534,12 +551,12 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
           ...(limitUsed ? [LIMIT_USED] : []),
           closingLine({
             ready: free.length, draftOnly, gaps: steps.length, firstRule, inPerson: attendCount, held: ready.length - free.length, firstStep: firstStepOf(steps), stepRule: stepRuleOf(steps),
-            // Fix round 1 (v6.1.10): only for a program fully ready, every required answer held (nothing in need you).
-            yesStands: yesd.filter((p) => p.need_you.length === 0).map((p) => p.title),
+            yesStands: stands.filter((p) => !click.has(p.program_id)).map((p) => p.title),
+            draftStands: stands.filter((p) => click.has(p.program_id)).map((p) => p.title),
             // N3 (v6.1.12): one that still needs answers names them (the email once, F5), never a second yes.
-            yesWaits: yesd.filter((p) => p.need_you.length > 0).map((p) => {
+            yesWaits: waits.map((p) => {
               const own = p.need_you.filter((x) => !named(x));
-              return { title: p.title, needs: own.length > 0 ? own : p.need_you };
+              return { title: p.title, needs: own.length > 0 ? own : p.need_you, ...(click.has(p.program_id) ? { draft: true as const } : {}) };
             }),
           }),
         ].join(' ');

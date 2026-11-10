@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { getProgram, upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
-import { askOutcome, codeDoneAt, doneByProgram, doneItems, excluded, markAsked, record, summary, titleOf } from './ledger';
+import { askOutcome, codeDoneAt, doneItems, doneOn, excluded, markAsked, record, summary, titleOf } from './ledger';
 
 after(() => sql().end());
 
@@ -204,8 +204,25 @@ test('a done step belongs to its project: two projects of one owner never share 
   await record(o(i), 'l-gap-p', 'gap_done', { item: 'demo_video', projectKey: B, now: NOW });
   assert.deepEqual([...(await doneItems(o(i), 'l-gap-p', A))], ['users']);
   assert.deepEqual([...(await doneItems(o(i), 'l-gap-p', B))].sort(), ['demo_video', 'users']);
-  assert.deepEqual([...((await doneByProgram(o(i), A)).get('l-gap-p') ?? [])], ['users']);
+  assert.deepEqual([...((await doneOn(o(i), A)).own.get('l-gap-p') ?? [])], ['users']);
   assert.equal(await codeDoneAt(o(i), B), null);
+});
+
+test('L1e-4 (v6.1.13): a users yes on one program of a project counts for every program on it, and only that project', async () => {
+  const i = await install();
+  await prog('l-users-a', { eligibility: [{ kind: 'users' }] });
+  await prog('l-users-b', { eligibility: [{ kind: 'users' }, { kind: 'demo_video' }] });
+  const A = 'https://github.com/acme/users-a';
+  await record(o(i), 'l-users-a', 'gap_done', { item: 'users', projectKey: A, now: NOW });
+  await record(o(i), 'l-users-b', 'gap_done', { item: 'demo_video', projectKey: A, now: NOW });
+  assert.deepEqual([...(await doneItems(o(i), 'l-users-b', A))].sort(), ['demo_video', 'users']);
+  assert.deepEqual([...(await doneItems(o(i), 'l-users-c', A))], ['users']);
+  assert.deepEqual([...(await doneItems(o(i), 'l-users-b', 'name:other'))], []);
+  // A step that is the program's own (the demo video) stays its own; the yes said stays the program's it was said to.
+  const done = await doneOn(o(i), A);
+  assert.deepEqual([...done.of('l-users-a')], ['users']);
+  assert.deepEqual([...(done.own.get('l-users-b') ?? [])], ['demo_video']);
+  assert.equal(done.own.has('l-users-c'), false);
 });
 
 test('gap_done refuses an item that is not one of the program\'s, names the real ones and writes nothing (v6.1.6)', async () => {

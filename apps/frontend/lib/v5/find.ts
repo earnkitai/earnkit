@@ -15,7 +15,7 @@ import { timeLeftWords } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
 import { lastFindAt, markFind, newlyLinkedLogin, rememberProject } from './installations';
-import { askOutcome, autoSentSince, claimed, codeDoneAt, doneByProgram, doneItems, excluded, markAsked, rekeyProject, saveReport, summary, type Ledger } from './ledger';
+import { askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, markAsked, rekeyProject, saveReport, summary, type Ledger } from './ledger';
 import { prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
 import { isOpen, listOpenPrograms, programByName, unknownProgramLine, type ProgramRow } from './programs';
@@ -94,8 +94,10 @@ export type GapProgram = {
   n: number;
   /** N-5 (v6.1.9): what the builder marked done that the read still does not find, each said once after the line. */
   looked_again?: string[];
-  /** O1 (v6.1.10): set when it closes within 7 days ("in 2 days"), said on its line. */
+  /** O1 (v6.1.10): set when it closes within 14 days ("in 2 days"; L1e-6, v6.1.13: every kind of line), said on its line. */
   closes_in?: string;
+  /** L1e-5 (v6.1.13): its rule's keywords are in the project's words, so the closing's rule question names it first. */
+  keyword_hit?: true;
 };
 export type FindReply = {
   show_to_builder: string;
@@ -161,6 +163,14 @@ const SOON_DAYS = 7;
 export const closingSoon = (p: Pick<Program, 'ends_at'>, now: Date): boolean => {
   const left = p.ends_at ? Date.parse(p.ends_at) - now.getTime() : NaN;
   return left > 0 && left <= SOON_DAYS * 86_400_000;
+};
+
+/** L1e-6 (v6.1.13): a list line says when it closes from this many days out, whatever the program's kind. */
+const DATE_DAYS = 14;
+/** Whether the program closes in DATE_DAYS whole days or fewer (the "in N days" the line says; not closed). Pure. */
+const closesWithinDate = (p: Pick<Program, 'ends_at'>, now: Date): boolean => {
+  const left = p.ends_at ? Date.parse(p.ends_at) - now.getTime() : NaN;
+  return left > 0 && left < (DATE_DAYS + 1) * 86_400_000;
 };
 
 /** The first `n` of `xs` in order, plus every one closing soon (O1, v6.1.10) wherever it is. Pure. */
@@ -234,14 +244,15 @@ function readyOf(row: ProgramRow, v: Verdict, facts: RepoFacts, now: Date, side:
   };
 }
 
-const gapOf = (row: ProgramRow, v: Verdict, done: Set<string> = new Set(), now?: Date): Omit<GapProgram, 'n'> => {
+const gapOf = (row: ProgramRow, v: Verdict, done: Set<string> = new Set(), now?: Date, hit = false): Omit<GapProgram, 'n'> => {
   const again = lookedAgain(v.gaps, done);
-  const left = now && closingSoon(row.file, now) ? closesIn(row.file, now) : null;
+  const left = now && closesWithinDate(row.file, now) ? closesIn(row.file, now) : null;
   return {
     program_id: row.id, title: row.file.title, money: moneyOf(row.file), max_award_usd: row.file.max_award_usd ?? null,
     category: categoryOf(row.file), closes_at: row.file.ends_at, gap: v.gaps[0], also: v.gaps.slice(1), rules: v.rules,
     in_person: row.file.in_person, setup: row.file.setup, ...(again.length > 0 ? { looked_again: again } : {}),
     ...(left ? { closes_in: left } : {}),
+    ...(hit ? { keyword_hit: true as const } : {}),
   };
 };
 
@@ -259,11 +270,14 @@ function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram
   }
   const r = { ...ready(), n: 0 };
   if (r.in_person) return [inPersonLine(r, true), ...o.rules];
-  // Fix round 1 (v6.1.10): the yes stands only for a fully ready program, nothing left in need you.
-  const yesStands = r.rule_yes && !o.draftOnly && r.need_you.length === 0 ? [r.title] : [];
+  // Fix round 1 (v6.1.10): the yes stands only for a fully ready program, nothing left in need you. L1e-3 (v6.1.13): one
+  // the builder submits too, in the draft wording.
+  const stands = r.rule_yes && r.need_you.length === 0 ? [r.title] : [];
+  const yesStands = o.draftOnly ? [] : stands;
+  const draftStands = o.draftOnly ? stands : [];
   // N3 (v6.1.12): the yes stands for one that still needs answers too; the closing names them, never a second yes.
-  const yesWaits = r.rule_yes && !o.draftOnly && r.need_you.length > 0 ? [{ title: r.title, needs: r.need_you }] : [];
-  return [readyLine(r, o.linked, o.now, true), ...o.rules, closingLine({ ready: 1, draftOnly: o.draftOnly, gaps: 0, firstRule: null, inPerson: 0, held: 0, yesStands, yesWaits })];
+  const yesWaits = r.rule_yes && r.need_you.length > 0 ? [{ title: r.title, needs: r.need_you, ...(o.draftOnly ? { draft: true as const } : {}) }] : [];
+  return [readyLine(r, o.linked, o.now, true), ...o.rules, closingLine({ ready: 1, draftOnly: o.draftOnly, gaps: 0, firstRule: null, inPerson: 0, held: 0, yesStands, draftStands, yesWaits })];
 }
 
 /** One program: its file, its fields (for the project, when given) and the verdict, said as the find line says it. */
@@ -293,7 +307,10 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const fitted = fields.some((f) => f.from === 'record');
   // Done steps are the project's own (v6.1.10 L1c-1); a track after this one without a project marks them on it.
   if (project) await rememberProject(ctx.installationId, projectKeyOf(project));
-  const done = project ? await doneItems(ownerOf(ctx), id, projectKeyOf(project)) : new Set<string>();
+  // L1e-4 (v6.1.13): a project item (users) done on any program of the project counts here; a yes said is this program's own.
+  const doneHere = project ? await doneOn(ownerOf(ctx), projectKeyOf(project)) : null;
+  const done = doneHere?.of(id) ?? new Set<string>();
+  const ownDone = doneHere?.own.get(id) ?? new Set<string>();
   const verdict = project ? gateFor(side, facts)(evaluate(row, facts, done, ctx.now), row) : undefined;
   const left = closesIn(p, ctx.now);
   const open = isOpen(p, ctx.now);
@@ -317,7 +334,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
       // Low 20 (v6.1.13): closed is said once, and a closed program's rules are not listed.
       ? [`${p.title}, ${moneyOf(p)}, ${when}.`]
       : verdict
-        ? verdictText(row, verdict, () => readyOf(row, verdict, facts, ctx.now, rec, done), { linked: ctx.builderId !== null, now: ctx.now, draftOnly, rules: guideRules, signIn, done })
+        ? verdictText(row, verdict, () => readyOf(row, verdict, facts, ctx.now, rec, ownDone), { linked: ctx.builderId !== null, now: ctx.now, draftOnly, rules: guideRules, signIn, done })
         : [`${p.title}, ${moneyOf(p)}${when ? `, ${when}` : ''}.`, ...rules.map(ruleSentence), ...guideRules];
   const real = verdict?.status === 'gap' ? verdict.gaps.filter((g) => g.kind !== 'rule') : [];
   if (renamed && !show[0]?.includes(p.title)) show.unshift(`${p.title}.`);
@@ -480,13 +497,13 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const listed = side ? notNever(side.record) : () => true;
   const programs = open.filter((r) => !skip.has(r.id) && listed(r) && (!i.filter?.category || categoryOf(r.file) === i.filter.category));
   const byId = new Map(programs.map((r) => [r.id, r]));
-  const done = await doneByProgram(owner, projectKeyOf(project));
+  const done = await doneOn(owner, projectKeyOf(project));
   // The builder's own tier when one was read; else (unlinked, or linked before any read: R3c) the tier the public code
   // read alone supports; not read, the tier the report supports (B20, v6.1.8), none for nothing reported, where no
   // program with a bar fits. Bars apply only to a project with a chain (B20b). The provisional tier is never shown as evidence.
   const gate = gateFor(side, facts);
   const verdicts = programs
-    .map((r) => evaluate(r, facts, done.get(r.id) ?? new Set<string>(), ctx.now))
+    .map((r) => evaluate(r, facts, done.of(r.id), ctx.now))
     .map((v) => gate(v, byId.get(v.program_id)!));
 
   const readyV = rankReady(verdicts.filter((v) => v.status === 'ready'), byId);
@@ -506,7 +523,7 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const allClaims = await claimed(owner);
   const claims = new Map([...allClaims].filter(([, h]) => here(h.project)));
   const live = [...claims].filter(([, h]) => Date.parse(h.since) > ctx.now.getTime() - CLAIM_HOURS * 3_600_000).map(([id]) => id);
-  const acted = new Set([...done.keys(), ...live]);
+  const acted = new Set([...done.own.keys(), ...live]);
   const pinned = (v: Verdict) => acted.has(v.program_id);
   // Remote and in-person ready programs are capped apart, each in rank order (acted-on first), so the default list
   // always leads with something the builder can apply to now.
@@ -517,12 +534,14 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   const shownReady = shownReadyOf(readyOrder, all, attending, soon);
   // L1c-2 (v6.1.10): a rule the project names none of the keywords of is unlikely: the full list only.
   const unlikelyV = (v: Verdict) => unlikely(byId.get(v.program_id)!, facts, v.gaps);
+  // L1e-2 (v6.1.13): a program whose rules carry keywords is shown on a hit only, never in the no-hit rule slot.
+  const keyed = (v: Verdict) => eligibilityOf(byId.get(v.program_id)!.file).some((x) => x.kind === 'rule' && (x.keywords?.length ?? 0) > 0);
   // Acted-on programs first, then those closing soon, then real changes and at most one rule-bearing program by default
   // (R18b): the one on the project's chains if any (R18e, fix round 3) in its rank place (L1c-3), else the first, in
   // the last slot only (N-2); a keyword hit takes its own slot in rank order (N1, v6.1.12). In-person programs are
   // never in the default step list (R18d, R18f); `more` counts them.
   const stepGaps = shownGapsOf(gapV, all, MAX_GAPS, attending, projectChains,
-    (v, chain) => byId.get(v.program_id)!.file.chains.includes(chain), pinned, { unlikely: unlikelyV, soon, hit });
+    (v, chain) => byId.get(v.program_id)!.file.chains.includes(chain), pinned, { unlikely: unlikelyV, soon, hit, keyed });
   // O2 (v6.1.10): an in-person program that needs only a rule to confirm lists in the In person block, in the slots
   // the in-person ready ones leave (all of them with filter.all), each closing soon past the cap.
   const attendRule = (v: Verdict) => attending(v) && rulesOnly(v.gaps);
@@ -539,12 +558,12 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
     : new Map<string, { since: string; project: string | null }>();
   const { ready, gaps } = numbered(
     shownReady.map((v) => {
-      const r = readyOf(byId.get(v.program_id)!, v, facts, ctx.now, side, done.get(v.program_id));
+      const r = readyOf(byId.get(v.program_id)!, v, facts, ctx.now, side, done.own.get(v.program_id));
       const hold = holds.get(v.program_id);
       const other = hold && hold.project !== null && !here(hold.project) ? heldProjectName(hold.project, side!) : null;
       return hold ? { ...r, claimed_since: hold.since, ...(other ? { held_for: other } : {}) } : r;
     }),
-    shownGaps.map((v) => gapOf(byId.get(v.program_id)!, v, done.get(v.program_id), ctx.now)),
+    shownGaps.map((v) => gapOf(byId.get(v.program_id)!, v, done.of(v.program_id), ctx.now, hit(v))),
     (g) => g.in_person && rulesOnly([g.gap, ...g.also]),
   );
 
