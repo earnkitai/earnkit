@@ -329,9 +329,10 @@ export const IN_PERSON_CLOSING = 'Nothing remote is ready yet. Say yes and I sta
 
 /**
  * The one action (v6.1.8, 1a): yes to the ready ones ("I draft ... for you to send" when the builder presses submit
- * on every one, C44); with none ready and in-person programs listed, IN_PERSON_CLOSING (O2, v6.1.10); with none ready
- * and steps shown "Nothing is ready yet." and the first rule-only gap's "yes r", else the first step (M1, v6.1.9). The
- * gap lines carry their own "do n" and "yes n". `inPerson`: the in-person programs listed, ready or rule-only. Pure.
+ * on every one, C44); with none ready and remote steps shown "Nothing is ready yet." and the first rule-only gap's
+ * "yes r", else the first step (M1, v6.1.9); with no remote step shown (or none of those to name) and in-person
+ * programs listed, IN_PERSON_CLOSING (O2, fix round 1). The gap lines carry their own "do n" and "yes n".
+ * `inPerson`: the in-person programs listed, ready or rule-only. Pure.
  */
 export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number; firstRule: number | null; inPerson: number; held: number; firstStep?: FirstStep | null; yesStands?: string[]; stepRule?: number | null }): string {
   // v6.1.9: the builder's yes to a rule already stands for the program it made ready: no second yes is asked for it.
@@ -345,7 +346,6 @@ export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number
   if (ready > 1) return `${draftOnly ? `Say yes and I draft all ${ready} for you to send.` : `Say yes and I apply to all ${ready}.`} Or say the numbers to skip.`;
   // Ready programs held by another agent are listed as ready, so the reply never says nothing is ready (I1).
   if (o.held > 0) return "Your other agent is handling these; I'll say when something new opens.";
-  if (o.inPerson > 0) return IN_PERSON_CLOSING;
   if (o.gaps > 0) {
     if (o.firstRule !== null) return `Nothing is ready yet. Say "yes ${o.firstRule}" if that rule fits you.`;
     // I2 (v6.1.9 final): the only step program shown carries a rule beside its change: the rule is asked first.
@@ -354,8 +354,10 @@ export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number
     if (step?.users) return 'Nothing is ready yet. Do real people use it? Say yes and I apply.';
     // I3 (v6.1.9 final): "First:" reads as a sentence for a noun or a verb phrase.
     if (step) return `Nothing is ready yet. First: ${step.what}. Tell me when it is done and I look again.`;
-    return 'Nothing is ready yet.';
+    // A reply that lists in-person programs never ends on the bare line (O2, v6.1.10).
+    return o.inPerson > 0 ? IN_PERSON_CLOSING : 'Nothing is ready yet.';
   }
+  if (o.inPerson > 0) return IN_PERSON_CLOSING;
   return "Nothing fits yet. I'll say when something opens.";
 }
 
@@ -425,8 +427,8 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   const free = ready.filter((p) => !p.claimed_since);
   // With nothing ready to say yes to, the closing names the first rule-only gap, so its own line does not (1a).
   const firstRule = steps.find(ruleOnlyGap)?.n ?? null;
-  // A held ready program closes with the held line (I1), and in-person programs with theirs (O2): neither names a rule.
-  const ruleInClosing = ready.length === 0 && attendCount === 0 ? firstRule : null;
+  // A held ready program closes with the held line (I1), which names no rule.
+  const ruleInClosing = ready.length === 0 ? firstRule : null;
   // The headlines count with parentheses (C56, 3.21); "step" covers a change and a rule to confirm.
   if (ready.length > 0) blocks.push([`Ready to apply (${ready.length}):`, ...ready.map((p) => readyLine(p, r.linked, now))].join('\n'));
   if (steps.length > 0) blocks.push([`One step away (${steps.length}):`, ...steps.map((g) => gapLine(g, ruleInClosing))].join('\n'));

@@ -71,8 +71,10 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
    or topics, `unlikely` (`eligibility.ts`) holds and the program is left to `filter.all` (counted in `more`); a rule
    with no keywords keeps the slot rule. In-person programs are off the default step list (R18d, R18f); a rule-only
    in-person program is listed in the In person block after the ready ones, with its rule and `Say "yes n" if that is
-   you.` (O2), in the in-person slots the ready ones leave. When in-person programs are listed and nothing remote is
-   ready the closing is `Nothing remote is ready yet. Say yes and I start the in-person applications.` `filter.all`
+   you.` (O2), in the in-person slots the ready ones leave. With nothing remote ready, a shown remote step closes the reply
+   (its rule's yes, the users question or `First: {step}.`); only when no remote step is shown (or none names an
+   action) and in-person programs are listed is the closing `Nothing remote is ready yet. Say yes and I start the
+   in-person applications.` (fix round 1). `filter.all`
    shows everything and the `more` count includes what is left out. Skipped and applied programs never return unless
    their next round opens. An empty repo read is cached like any other (L1c-4).
 5. `prefill.ts` fills each ready program's form: fields EarnKit can answer (`from: earnkit`), prose fields handed to

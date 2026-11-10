@@ -1007,8 +1007,9 @@ const inPersonBlock = (n: number, noRepo = false) => [
 const META_VR_LINE = (n: number) => `${n}. Meta VR Start Developer Competition 2026, $1,000,000 in prizes: a demo video. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.`;
 /** L1c-2 (v6.1.10): with the VR rule unlikely (no keyword named), the rule slot goes to a rule with no keywords. */
 const COLOSSEUM_ONLY = ['One step away (1):', '1. Colosseum Eternal, $25,000 award: a demo video. Their rule: the team has not raised venture capital for the startup it submits.'];
-/** O2 (v6.1.10): in-person programs listed and nothing remote ready. */
-const IN_PERSON_CLOSING = 'Nothing remote is ready yet. Say yes and I start the in-person applications.';
+/** Fix round 1 (v6.1.10): a remote step shown closes the reply with its own step, in-person programs listed or not. */
+const RULE_FIRST = 'Nothing is ready yet. Say "yes 1" if its rule fits you.';
+const USERS_FIRST = 'Nothing is ready yet. Do real people use it? Say yes and I apply.';
 /** The rule-bearing program alone, a list of one (N-2, v6.1.9 fix round 1). */
 const META_VR_ONLY = ['One step away (1):', META_VR_LINE(1)];
 
@@ -1051,7 +1052,7 @@ test('R18e, R18f, C54, B20, B20c, B20d: projects B (dotfiles, repo link answers 
   assert.deepEqual(b.reply!.repo_notes, ['unread']);
   assert.equal(
     b.reply!.show_to_builder,
-    [...COLOSSEUM_ONLY, '', ...inPersonBlock(2), '', 'I could not read the repo; matched on what you told me.', '', IN_PERSON_CLOSING].join('\n'),
+    [...COLOSSEUM_ONLY, '', ...inPersonBlock(2), '', 'I could not read the repo; matched on what you told me.', '', RULE_FIRST].join('\n'),
   );
   // The same repo with reads paused for the day (the daily cap): the repo likely exists, the users question stands.
   const { hit, LIMITS } = await import('./rate-limit');
@@ -1061,13 +1062,13 @@ test('R18e, R18f, C54, B20, B20c, B20d: projects B (dotfiles, repo link answers 
   assert.deepEqual(paused.reply!.repo_notes, ['paused']);
   assert.equal(
     paused.reply!.show_to_builder,
-    ['One step away (1):', '1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.', '', ...inPersonBlock(2), '', 'Repo reads are paused until tomorrow; matched on what you told me.', '', IN_PERSON_CLOSING].join('\n'),
+    ['One step away (1):', '1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.', '', ...inPersonBlock(2), '', 'Repo reads are paused until tomorrow; matched on what you told me.', '', USERS_FIRST].join('\n'),
   );
   // No repo and no live link: nothing to ask the users question of (B20c); the rule-bearing program stands alone as a
   // list of one (N-2 fix round 1), and the closing asks its rule first (I2, final).
   const c = await mcpCall(ctx(await installation()), 'find', { project: PROJECT_C });
   assert.equal(c.isError, false, c.text);
-  assert.equal(c.reply!.show_to_builder, [...COLOSSEUM_ONLY, '', ...inPersonBlock(2, true), '', IN_PERSON_CLOSING].join('\n'));
+  assert.equal(c.reply!.show_to_builder, [...COLOSSEUM_ONLY, '', ...inPersonBlock(2, true), '', RULE_FIRST].join('\n'));
   for (const r of [b, c]) assert.doesNotMatch(r.reply!.show_to_builder as string, /FLOSS|real people use it/);
   for (const r of [b, c]) assert.match(r.reply!.agent_note as string, /more left out: [^\n]*Ask with filter\.all for the full list\./);
   for (const project of [PROJECT_B, PROJECT_C]) {
@@ -1105,7 +1106,7 @@ test('C54 (v6.1.8, Review Focus 1): the web2 SaaS fixture\'s default and full re
       '',
       ...inPersonBlock(2),
       '',
-      IN_PERSON_CLOSING,
+      USERS_FIRST,
     ].join('\n'),
   );
   assert.match(d.reply!.agent_note as string, /more left out: [^\n]*Ask with filter\.all for the full list\./);
@@ -1207,9 +1208,9 @@ test('B20c (v6.1.9, Review Focus 1): a repo-less idea and an empty repo are neve
   const ideaCtx = async () => ({ installationId: await installation(), builderId: null, now: NOW });
   const emptyCtx = async () => ({ installationId: await installation(), builderId: null, now: NOW, gh: emptyRec.fetch });
   const idea = await mcpCall(await ideaCtx(), 'find', { project: IDEA });
-  assert.equal(idea.reply!.show_to_builder, [...COLOSSEUM_ONLY, '', ...inPersonBlock(2, true), '', IN_PERSON_CLOSING].join('\n'));
+  assert.equal(idea.reply!.show_to_builder, [...COLOSSEUM_ONLY, '', ...inPersonBlock(2, true), '', RULE_FIRST].join('\n'));
   const empty = await mcpCall(await emptyCtx(), 'find', { project: EMPTY });
-  assert.equal(empty.reply!.show_to_builder, [...COLOSSEUM_ONLY, '', ...inPersonBlock(2), '', 'The repo is empty, so I matched on what you told me.', '', IN_PERSON_CLOSING].join('\n'));
+  assert.equal(empty.reply!.show_to_builder, [...COLOSSEUM_ONLY, '', ...inPersonBlock(2), '', 'The repo is empty, so I matched on what you told me.', '', RULE_FIRST].join('\n'));
   for (const [mk, project] of [[ideaCtx, IDEA], [emptyCtx, EMPTY]] as const) {
     // Even after the builder says yes (users: true, or gap_done users): not a fit, never ready, never a step.
     const c = await mk();
@@ -1229,7 +1230,7 @@ test('L1c-2 (v6.1.10, Review Focus 3): an idea that names no VR word never opens
   assert.doesNotMatch(plain.reply!.show_to_builder as string, /Meta VR/);
   assert.match(plain.reply!.agent_note as string, /more left out/);
   const quest = await mcpCall(await ideaCtx(), 'find', { project: { name: 'Rent Split', description: 'An idea: a Quest app that splits rent and bills between roommates' } });
-  assert.equal(quest.reply!.show_to_builder, [...META_VR_ONLY, '', ...inPersonBlock(2, true), '', IN_PERSON_CLOSING].join('\n'));
+  assert.equal(quest.reply!.show_to_builder, [...META_VR_ONLY, '', ...inPersonBlock(2, true), '', RULE_FIRST].join('\n'));
   // The full list still has it for the plain idea, as a step.
   const all = await mcpCall(await ideaCtx(), 'find', { project: { name: 'Rent Split', description: 'An idea: an app that splits rent and bills between roommates' }, filter: { all: true } });
   assert.ok(ids(all.reply!.gaps).includes('meta-vr-start-competition-2026'), JSON.stringify(ids(all.reply!.gaps)));

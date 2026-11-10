@@ -157,8 +157,10 @@ test('L1c-2 (v6.1.10): the catalog keywords are on the domain rules, none on per
   assert.deepEqual(kw('goose-grant-program'), ['goose']);
   assert.deepEqual(kw('filecoin-open-grants'), ['filecoin', 'fvm', 'ipfs']);
   assert.deepEqual(kw('lido-lego-grants'), ['lido', 'steth']);
-  assert.deepEqual(kw('uniswap-foundation-open-grants'), ['uniswap', 'hook', 'v4']);
-  assert.deepEqual(kw('uniswap-foundation-security-fund'), ['uniswap', 'hook', 'v4']);
+  // Fix round 1: phrases, never a bare "hook" or "v4" (a React hook is not Uniswap).
+  assert.deepEqual(kw('uniswap-foundation-open-grants'), ['uniswap', 'v4 hook', 'uniswap hook']);
+  assert.deepEqual(kw('uniswap-foundation-security-fund'), ['uniswap', 'v4 hook', 'uniswap hook']);
+  for (const f of files) assert.ok(!eligibilityOf(ProgramFile.parse(read(f))).some((i) => (i.keywords ?? []).some((k) => k === 'hook' || k === 'v4')), f);
   for (const f of ['thiel-fellowship', 'antler-us-residency', 'github-secure-open-source-fund', 'herodevs-sustainability-fund', 'sovereign-tech-fund'])
     assert.deepEqual(kw(f), [], f);
 });

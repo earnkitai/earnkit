@@ -484,18 +484,27 @@ test('O2 (v6.1.10, Review Focus 5): a reply that lists in-person programs never 
     [
       'One step away (2):',
       '1. FLOSS/fund, $10,000 to $100,000: tell me if real people use it.',
-      '2. OTF, $900K. Their rule: advances internet freedom. Say "yes 2" if that is you.',
+      '2. OTF, $900K. Their rule: advances internet freedom.',
       '',
       'In person (2):',
       '3. Y Combinator, $500K investment. Needs a YC account.',
       '4. Antler, $250K. Their rule: a co-founder with US work authorization. Attend in person. Say "yes 4" if that is you.',
       '',
-      'Nothing remote is ready yet. Say yes and I start the in-person applications.',
+      // Fix round 1: remote steps shown, so the closing uses the first remote one (here its rule-only yes).
+      'Nothing is ready yet. Say "yes 2" if that rule fits you.',
     ].join('\n'),
   );
-  // In person alone: the same closing; nothing listed in person, the closings as before.
+  // In person alone, or rule-only in person alone: the in-person closing.
   assert.equal(replyText(base({ ready: [yc] }), true).split('\n').at(-1), 'Nothing remote is ready yet. Say yes and I start the in-person applications.');
+  assert.equal(replyText(base({ gaps: [antler] }), true).split('\n').at(-1), 'Nothing remote is ready yet. Say yes and I start the in-person applications.');
+  // A remote step shown: its step closes the reply, in-person programs listed or not.
   assert.equal(replyText(base({ gaps: [floss] }), true).split('\n').at(-1), 'Nothing is ready yet. Do real people use it? Say yes and I apply.');
+  assert.equal(replyText(base({ ready: [yc], gaps: [floss] }), true).split('\n').at(-1), 'Nothing is ready yet. Do real people use it? Say yes and I apply.');
+  assert.equal(replyText(base({ ready: [yc], gaps: [gap({ title: 'Circle' })] }), true).split('\n').at(-1), 'Nothing is ready yet. First: deploy the contract on Arc. Tell me when it is done and I look again.');
+  // A remote step that names its own action ("do n") and in-person programs: never the bare line.
+  const codes = gap({ title: 'Base Batches', gap: { kind: 'builder_codes', item: 'builder_codes', what: 'add Base Builder Codes to the app', effort: 'minutes', agent_can: true } });
+  assert.equal(replyText(base({ gaps: [codes] }), true).split('\n').at(-1), 'Nothing is ready yet.');
+  assert.equal(replyText(base({ ready: [yc], gaps: [codes] }), true).split('\n').at(-1), 'Nothing remote is ready yet. Say yes and I start the in-person applications.');
   // Something remote ready: its yes, never the in-person closing.
   assert.equal(replyText(base({ ready: [ready({ title: 'Grant' }), yc], gaps: [antler] }), true).split('\n').at(-1), 'Say yes and I apply.');
   assert.match(agentNote(r, { more: 0 }), /closes on starting the in-person applications/);
