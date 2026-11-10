@@ -20,8 +20,7 @@
   "any_chain": true,
   "min_tier": "used",
   "eligibility": [
-    { "kind": "users", "note": "existing, widely used and impactful open source projects; very new or little-used projects are not considered" },
-    { "kind": "rule", "note": "a bank account and tax papers to receive the funds" }
+    { "kind": "users", "note": "existing, widely used and impactful open source projects; very new or little-used projects are not considered" }
   ],
   "setup": [
     "publish a funding.json manifest on your site or repo"
@@ -34,7 +33,7 @@
     "Request up to $100,000 in one year, as a minimum of $10,000 and multiples of $25,000 thereafter.",
     "Apply by publishing a funding.json manifest (see fundingjson.org) and submitting its URL to the directory. The application is publicly visible on the directory.",
     "Projects are evaluated on value, impact, criticality and innovation by Zerodha's internal investment committee. Decisions come by email.",
-    "The applicant or legal entity needs a bank account and the tax documents its jurisdiction requires. Paperwork after acceptance can take up to 4 weeks.",
+    "A bank account and tax papers are needed to receive the funds. Paperwork after acceptance can take up to 4 weeks.",
     "Funded projects are asked to publicly acknowledge the fund with a link to its website."
   ],
   "submission_requirements": [
