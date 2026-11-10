@@ -75,5 +75,9 @@
   "sign_in": "platform",
   "platform_name": "Devpost",
   "needs": ["demo_video"],
-  "reviewers_contact": "Email the hackathon manager from the competition's Devpost page; Meta Developer Forum for support"
+  "reviewers_contact": "Email the hackathon manager from the competition's Devpost page; Meta Developer Forum for support",
+  "logo": {
+    "path": "programs/meta-vr-start-competition-2026.svg",
+    "source_url": "https://www.meta.com/"
+  }
 }

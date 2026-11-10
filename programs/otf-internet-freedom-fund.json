@@ -63,5 +63,9 @@
   "form": { "platform": "other", "url": "https://apply.opentech.fund/internet-freedom-fund-concept-note/" },
   "submit": "builder",
   "reviewers_contact": "hello@opentech.fund",
-  "sign_in": "email"
+  "sign_in": "email",
+  "logo": {
+    "path": "programs/otf-internet-freedom-fund.png",
+    "source_url": "https://www.opentech.fund/"
+  }
 }

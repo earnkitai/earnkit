@@ -64,5 +64,9 @@
   "sign_in": "platform",
   "platform_name": "Devpost",
   "needs": ["demo_video"],
-  "reviewers_contact": "Email the hackathon manager from the PayPal AI Hackathon Devpost page"
+  "reviewers_contact": "Email the hackathon manager from the PayPal AI Hackathon Devpost page",
+  "logo": {
+    "path": "programs/paypal-ai-hackathon.png",
+    "source_url": "https://newsroom.paypal-corp.com/media-resources"
+  }
 }
