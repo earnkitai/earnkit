@@ -85,11 +85,11 @@ function valueOf(f: MeField, raw: string): { ok: true; value: unknown } | { ok: 
     return { ok: true, value: lines(v).map((l) => { const at = l.lastIndexOf(' '); return at < 0 ? { label: 'Link', url: l } : { label: l.slice(0, at).trim(), url: l.slice(at + 1) }; }) };
   if (f.path === 'policy.never') return { ok: true, value: lines(v) };
   if (leaf === 'chains_claimed') {
-    // Any case matches; every unknown one is named (v6.1.9 N8).
+    // Any case matches; every unknown one is named (v6.1.9 N8); each chain is saved once, in first order (F10, v6.1.12).
     const given = list(v);
     const bad = given.filter((c) => !isKnownChain(c.toLowerCase()));
     if (bad.length > 0) return { ok: false, problem: `Not a known chain: ${bad.join(', ')}.` };
-    return { ok: true, value: given.map((c) => c.toLowerCase()) };
+    return { ok: true, value: [...new Set(given.map((c) => c.toLowerCase()))] };
   }
   if (f.path === 'policy.categories') return { ok: true, value: list(v) };
   if (/(^|\.)answers\.[a-z_]+$/.test(f.path)) return { ok: true, value: { text: v } };

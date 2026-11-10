@@ -65,37 +65,64 @@ export async function getProgram(id: string): Promise<ProgramRow | null> {
   return parseRows(rows)[0] ?? null;
 }
 
-/** Lower case, every run of other characters one space. Pure. */
-const plain = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-/** "y-combinator" or "Y Combinator Winter" to "yc...": each word's first letter. Pure. */
+/** Lower case, accents dropped, every run of other characters one space. Pure. */
+const plain = (x: string) => x.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+/** Lower case with no spaces or punctuation: "Y-Combinator", "y combinator" and "ycombinator" are one. Pure. */
+const squash = (x: string) => plain(x).replace(/ /g, '');
+/** "y-combinator" to "yc": each word's first letter. Pure. */
 const initials = (x: string) => plain(x).split(' ').map((w) => w[0] ?? '').join('');
+/** The organizer's names: "Kiro (AWS)" is "kiro" and "aws"; "Monad Foundation, OpenBuild and Box" is three. Pure. */
+const organizers = (x: string) => x.split(/[(),/]|\band\b|&/).map(squash).filter(Boolean);
 /** Words that say nothing about which program it is. */
-const COMMON = new Set(['the', 'and', 'for', 'of', 'a', 'an', 'program', 'programs', 'grant', 'grants', 'fund', 'batch', 'cohort']);
+const COMMON = new Set(['the', 'and', 'for', 'of', 'a', 'an', 'program', 'programs', 'grant', 'grants', 'fund', 'batch', 'cohort', 'foundation']);
+/** The money a program puts up: the larger of its top award and its pool, -1 when it states neither. Pure. */
+const awardOf = (p: Program) => Math.max(p.max_award_usd ?? -1, p.pool_usd ?? -1);
 
 /**
- * A program by what the builder calls it (v6.1.9): its id, else its id or title in any case, a title's leading words
- * ("Y Combinator"), or its id's initials ("yc"), when exactly one program matches. Otherwise null, with `suggest`:
- * the one title that shares a word with it, when exactly one does.
+ * Several programs a name fits, best first (F4, v6.1.12): open ones, then upcoming, then the rest; then the larger award,
+ * the sooner close, the id. Pure.
  */
-export async function programByName(name: string): Promise<{ row: ProgramRow | null; suggest: string | null }> {
+export function byLookupRank(rows: ProgramRow[], now: Date): ProgramRow[] {
+  const standing = (p: Program) => (isOpen(p, now) ? 0 : p.status === 'upcoming' ? 1 : 2);
+  const ends = (p: Program) => (p.ends_at ? Date.parse(p.ends_at) : Infinity);
+  return [...rows].sort((a, b) =>
+    standing(a.file) - standing(b.file) || awardOf(b.file) - awardOf(a.file) || ends(a.file) - ends(b.file) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+/** The builder line for a name that is no one program: up to two titles to pick from, as a question. Pure. */
+export function unknownProgramLine(suggest: readonly string[]): string {
+  const [a, b] = suggest;
+  return a === undefined ? "I don't know that program." : `I don't know that program. Did you mean ${b === undefined ? a : `${a} or ${b}`}?`;
+}
+
+/**
+ * A program by what the builder calls it, the one resolver find and track share (v6.1.9; F4, v6.1.12): its id as given,
+ * else, case, spaces and punctuation ignored, the first of these that any program fits: its whole id or title, or its
+ * id's initials ("yc"); the start of its title or id ("monad", "Base"); one of its organizer's names, or the start of one
+ * ("uniswap", "Thiel Foundation"). Exactly one program fitting is the `row`; several are `suggest`, the first two by
+ * byLookupRank; none, `suggest` holds the titles sharing a word with the name (two at most, by rank).
+ */
+export async function programByName(name: string, now: Date = new Date()): Promise<{ row: ProgramRow | null; suggest: string[] }> {
   const exact = await getProgram(name);
-  if (exact) return { row: exact, suggest: null };
-  const q = plain(name);
-  if (!q) return { row: null, suggest: null };
+  if (exact) return { row: exact, suggest: [] };
+  const words = plain(name);
+  const q = words.replace(/ /g, '');
+  if (!q) return { row: null, suggest: [] };
   const rows = parseRows(await sql()<RawRow[]>`SELECT id, file, source, created_at, updated_at, verified_at, stale_since FROM programs ORDER BY id`);
+  const prefix = q.length >= 2;
   const tests: ((r: ProgramRow) => boolean)[] = [
-    (r) => plain(r.id) === q || plain(r.file.title) === q,
-    (r) => plain(r.file.title).startsWith(`${q} `) || plain(r.id).startsWith(`${q} `),
-    (r) => !q.includes(' ') && q.length >= 2 && initials(r.id) === q,
+    (r) => squash(r.id) === q || squash(r.file.title) === q || (!words.includes(' ') && q.length >= 2 && initials(r.id) === q),
+    (r) => prefix && (squash(r.file.title).startsWith(q) || squash(r.id).startsWith(q)),
+    (r) => prefix && organizers(r.file.organizer).some((o) => o.startsWith(q)),
   ];
+  const titles = (hits: ProgramRow[]) => byLookupRank(hits, now).slice(0, 2).map((r) => r.file.title);
   for (const t of tests) {
     const hits = rows.filter(t);
-    if (hits.length === 1) return { row: hits[0], suggest: null };
-    if (hits.length > 1) break;
+    if (hits.length === 1) return { row: hits[0], suggest: [] };
+    if (hits.length > 1) return { row: null, suggest: titles(hits) };
   }
-  const words = new Set(q.split(' ').filter((w) => w.length >= 2 && !COMMON.has(w)));
-  const near = rows.filter((r) => plain(r.file.title).split(' ').some((w) => words.has(w)));
-  return { row: null, suggest: near.length === 1 ? near[0].file.title : null };
+  const named = new Set(words.split(' ').filter((w) => w.length >= 2 && !COMMON.has(w)));
+  return { row: null, suggest: titles(rows.filter((r) => plain(r.file.title).split(' ').some((w) => named.has(w)))) };
 }
 
 /** The programs with these ids, whatever their status, deadline or staleness. */

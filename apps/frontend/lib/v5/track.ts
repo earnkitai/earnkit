@@ -6,12 +6,12 @@ import { z } from 'zod';
 import { getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason } from '../v6/builders';
 import { DELETED_NOTICE } from '../v6/reply-words';
 import { claim } from '../v6/claims';
-import { NIGHT_LIMIT, REQUIRED_MISSING, outsideApproval, requiredLeftOut, storedRecordContext } from '../v6/find-record';
+import { HAD_CLOSED, NIGHT_LIMIT, REQUIRED_MISSING, outsideApproval, requiredLeftOut, storedRecordContext } from '../v6/find-record';
 import { prefill, reportedFacts, unvouchedRequired } from './prefill';
 import { cachedRepoFacts } from './repo-facts';
 import { forgetGap, lastGaps, lastProjectKey, unmarkNightFind } from './installations';
 import { projectKeyOf } from './project-input';
-import { getProgram, isOpen, listOpenPrograms } from './programs';
+import { getProgram, isOpen, listOpenPrograms, programByName, unknownProgramLine } from './programs';
 import { dayOf, doneItems, record, summary, titleOf, type Ledger, type Status } from './ledger';
 import { clock } from './reply';
 import { codeChecked, itemKey } from './eligibility';
@@ -40,6 +40,8 @@ export const TrackInput = z
 
 type Result = { show_to_builder: string; agent_note: string; ledger: Ledger; already_started?: true };
 
+/** Whether a project key (projectKeyOf) names no repo: a name alone, or no project. Pure. */
+const repoLess = (key: string) => key === '' || key.startsWith('name:');
 /** A passed project fact as text, or null. Pure. */
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v : null);
 const usd = (n: number) => '$' + Math.round(n).toLocaleString('en-US');
@@ -59,6 +61,9 @@ async function rulesLeft(owner: string, programId: string, projectKey: string): 
 }
 
 export type TrackContext = { installationId: number; builderId: number | null; now: Date };
+
+/** The statuses a ledger row may take after its program left the catalog. */
+const RESULT_STATUSES: readonly string[] = ['won', 'rejected', 'no_result'];
 
 export const TRACK_UNREAD = 'I could not read that. Send the program, a status, and for a win the amount.';
 
@@ -120,11 +125,17 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   // The MCP layer passes anything through (tool-input.ts): this is the only check, with the detail for the agent.
   const parsed = TrackInput.safeParse(input);
   if (!parsed.success) return refuse(TRACK_UNREAD, `Nothing was recorded. ${inputDetail(parsed.error)}`);
+  // F4 (v6.1.12): the program by what the builder calls it, as find takes it. A name that is no one program records
+  // nothing, except a result on an id the ledger holds as sent, whose program may have left the catalog since.
+  const { row, suggest } = await programByName(parsed.data.program_id, ctx.now);
+  const data = row ? { ...parsed.data, program_id: row.id } : parsed.data;
   // An unknown project_id is dropped, and named for the agent (v6.1.7, C17).
-  const { project_id, ...rest } = parsed.data;
-  if (project_id === undefined || (await knownProject(ctx.builderId, project_id))) return act(ctx, owner, programs, refuse, parsed.data);
-  const r = await act(ctx, owner, programs, refuse, rest);
-  return { ...r, agent_note: `${r.agent_note} project_id ${project_id} is not known; ignored.`.trim() };
+  const { project_id, ...rest } = data;
+  const known = project_id === undefined || (await knownProject(ctx.builderId, project_id));
+  const r = !row && !(RESULT_STATUSES.includes(data.status) && (await sentHere(owner, data.program_id)))
+    ? await refuse(unknownProgramLine(suggest))
+    : await act(ctx, owner, programs, refuse, known ? data : rest);
+  return known ? r : { ...r, agent_note: `${r.agent_note} project_id ${project_id} is not known; ignored.`.trim() };
 }
 
 /**
@@ -239,6 +250,7 @@ async function act(
     return { show_to_builder: 'Already skipped.', agent_note: 'Call find again for the updated ledger.', ledger: await summary(owner, programs, ctx.now) };
   const res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, amount_usd: i.amount_usd, note: i.note, item: i.item, projectKey: project.key, now: ctx.now, ...applied });
   if (res.ok && 'night' in res) outside = NIGHT_LIMIT;
+  if (res.ok && 'closed' in res) outside = HAD_CLOSED;
   // The find before a send under standing approval was the night routine's: it leaves the overnight report (v6.1.9).
   if (res.ok && i.status === 'applied' && standing && outside === null) await unmarkNightFind(ctx.installationId);
   if (!res.ok)
@@ -253,8 +265,11 @@ async function act(
       ? ['Already noted.', 'Call find again for the updated ledger.']
       : i.item!.startsWith('rule:')
         ? ['Noted. That rule counts as confirmed.', left === 0 ? 'Call find again; the program comes back ready.' : `Call find again; ${left === 1 ? 'one rule is' : `${left} rules are`} left.`]
-        : codeChecked(i.item!)
+        : codeChecked(i.item!) && !repoLess(project.key)
           ? ['Noted. I check the repo on the next look.', 'Call find again so the repo is re-read.']
+          : codeChecked(i.item!)
+            // F6 (v6.1.12): no repo to check; the builder says when it is up.
+            ? ['Noted. Tell me when it is live and I look again.', 'When the builder says it is live, call find again with its repo or live link.']
           : ['Noted.', 'Call find again; that step counts as done.'];
     return { show_to_builder: show, agent_note: note, ledger: await summary(owner, programs, ctx.now) };
   }

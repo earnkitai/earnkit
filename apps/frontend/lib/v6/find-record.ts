@@ -210,6 +210,8 @@ export function outsideApproval(record: BuilderRecord, row: ProgramRow): string 
 export const NIGHT_LIMIT = 'the nightly limit was reached';
 /** The reason when an agent's send under standing approval left a required answer out (v6.1.9 S6). */
 export const REQUIRED_MISSING = 'a required answer was missing';
+/** The reason when the program had closed over an hour before the send (F8, v6.1.12; the ledger's record-time check). */
+export const HAD_CLOSED = 'it had closed';
 
 /** The program's required field keys that `fieldsUsed` does not name (none sent: all of them). Pure. */
 export const requiredLeftOut = (row: ProgramRow, fieldsUsed: string[] | undefined): string[] =>
@@ -236,7 +238,8 @@ export function blockersOf(rows: ProgramRow[], record: BuilderRecord): Blocker[]
 }
 
 /** What the record lacks for these programs, in builder words. A traction field reads the usage or the pre-launch line,
- *  never the bank. `repoPassed` (lane 8 #10, v6.1.10): the find passed a repo, so the project with a link is not missing. Pure. */
+ *  never the bank. `repoPassed` (lane 8 #10, v6.1.10): the find passed a repo (or, N5 v6.1.12, a live link), so the project with a link
+ *  is not missing. Pure. */
 export function missingFor(rows: ProgramRow[], record: BuilderRecord, verifiedUsage: boolean, repoPassed = false): string[] {
   const missing = recordMissing(record, {
     needs: [...new Set(rows.flatMap((r) => r.file.needs))],

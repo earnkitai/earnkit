@@ -59,6 +59,8 @@ type CodeFacts = Pick<RepoFacts, 'chains' | 'contracts' | 'builder_codes' | 'int
   empty?: boolean;
   /** The README's first sentence of prose, the stand-in for a description the agent left out (C58). */
   readme_lead?: string | null;
+  /** When a code step sent this row back to GitHub and the repo was found unpushed (F7, v6.1.12); a new read has none. */
+  checked_at?: string;
 };
 type Fetch = typeof fetch;
 
@@ -249,7 +251,8 @@ const complete = (f: CodeFacts) => 'fork' in f && 'archived' in f;
 /**
  * The repo's code facts: from repo_cache while fresh and unpushed, else a new read. Throws when the repo cannot be read.
  * A row read before `staleAfter` (the builder marked a code change done since, v6.1.9 S4) skips the hour's trust and
- * checks for a push first.
+ * checks for a push first; found unpushed, the row keeps that check's time (`checked_at`, F7 v6.1.12), so the step sends
+ * the read back once and the row is trusted again until the next push or step.
  */
 async function cachedCodeFacts(key: string, f: Fetch, now: Date, installationId?: number, staleAfter?: Date | null): Promise<CodeFacts> {
   const [row] = await sql()<{ facts: CodeFacts; pushed_at: Date | null; fetched_at: Date }[]>`
@@ -257,7 +260,8 @@ async function cachedCodeFacts(key: string, f: Fetch, now: Date, installationId?
   const forget = () => sql()`DELETE FROM repo_cache WHERE repo = ${key}`;
   if (row && complete(row.facts)) {
     const age = now.getTime() - row.fetched_at.getTime();
-    const stale = staleAfter != null && row.fetched_at.getTime() < staleAfter.getTime();
+    const checked = Math.max(row.fetched_at.getTime(), Date.parse(row.facts.checked_at ?? '') || 0);
+    const stale = staleAfter != null && checked < staleAfter.getTime();
     if (age >= 0 && age < HOUR_MS && !stale) return withIntegrations(row.facts);
     if (age >= 0 && age < 7 * DAY_MS && (row.pushed_at || stale)) {
       let live;
@@ -275,7 +279,10 @@ async function cachedCodeFacts(key: string, f: Fetch, now: Date, installationId?
         await forget();
         throw new GitHubError('GitHub: repo is private', 404);
       }
-      if (row.pushed_at && Date.parse(live.pushed_at) === row.pushed_at.getTime()) return withIntegrations(row.facts);
+      if (row.pushed_at && Date.parse(live.pushed_at) === row.pushed_at.getTime()) {
+        if (stale) await sql()`UPDATE repo_cache SET facts = jsonb_set(facts, '{checked_at}', to_jsonb(${now.toISOString()}::text)) WHERE repo = ${key}`;
+        return withIntegrations(row.facts);
+      }
     }
   }
   await countRead(installationId, now);

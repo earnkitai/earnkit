@@ -42,7 +42,9 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
    7 days in `repo_cache` and re-read when `pushed_at` moves; the cron sweeps rows over 30 days. A row is trusted
    without a push check for an hour, except when the owner marked a code-checked step done (`gap_done` on chain,
    contract_on, builder_codes, live_product or integration) after it was read: find passes that time (`codeDoneAt`) as
-   `staleAfter`, and the read checks for a push first, so the next find sees the change (v6.1.9 S4). A public read
+   `staleAfter`, and the read checks for a push first, so the next find sees the change (v6.1.9 S4). Found unpushed,
+   the row keeps that check's time in its facts (`checked_at`; no new column), and a row checked after `staleAfter` is
+   no longer stale: one re-read per code step, then the row is trusted as before until the next push (F7, v6.1.12). A public read
    beats a reported `builder_codes: true`: none in the code is none, said once as "The repo does not send Builder
    Codes yet." (repo note `no_builder_codes`). With no read to confirm them (none, or an empty repo), the name,
    description and options matched on them are `from: 'agent'` with the source "what the builder told you", never
@@ -356,12 +358,14 @@ Standing approval at record time (v6.1.8 B18): `track applied` with `submitted_b
 when the policy covered it at that moment: `auto_apply` on, the program not in person, not builder-only,
 `agent_may_submit` on, its category ticked (none ticked reads as all), the larger of its award and pool within
 `max_ask_usd`, and (counted in `ledger.record` under an owner lock) fewer than `max_per_night` auto-applied rows sent in
-the last 24 hours. The count reads `applications.sent_at` (v6.1.9 N2): set on `applied`, never rewritten by a result,
+the last 24 hours, and the program not closed more than an hour before the send (`CLOSED_GRACE_MS`, checked in
+`ledger.record`: such a send is recorded as not, and track's reason is "it had closed"; F8, v6.1.12). The count reads `applications.sent_at` (v6.1.9 N2): set on `applied`, never rewritten by a result,
 so recording an old win today uses none of tonight's limit; a row from before it has none and counts by `at`
 (`autoSentSince`). Find's tonight list subtracts the same count: none left, the closing reads "Tonight's limit is used;
 the next sends wait until tomorrow." (N1). With sends tonight, the steps block reads "Tonight's send goes ahead. These
 would add {n} more: ..." (N4). `gap_done` on a code-checked item (chain, contract_on, builder_codes, live_product,
-integration) answers "Noted. I check the repo on the next look." and, while the read still misses it, the next find
+integration) answers "Noted. I check the repo on the next look." (on a project with no repo, its key a name or
+none: "Noted. Tell me when it is live and I look again.", F6 v6.1.12) and, while the read still misses it, the next find
 adds "I looked again and did not find {what}; it stays a step." after that program's line; any other item is the
 builder's word, answers "Noted." and counts done (N-5). Otherwise the row is recorded with `auto_applied: false` and the builder line reads "Sent, but outside
 your standing approval: {reason}." (`outsideApproval` in `find-record.ts`). The required-answer rule (v6.1.9 S6): within
@@ -390,9 +394,14 @@ with answers still missing its line carries its needs and the closing is the nor
 the question step "tell me when you started this" (minutes, never the agent's, never a reason to refuse; O3, v6.1.10):
 a later find with `first_commit_at` or `gap_done` with its item settles it. The no-project open list ends each
 in-person line with ", in person" (O4). A find that passed a repo never lists "a project with its repo or site" in
-`record_missing` (lane 8 #10). `find { program_id }` resolves an id or a name (`programByName`:
-case-insensitive id or title, a title's leading words, the id's initials such as "yc"), else "I don't know that
-program." with "Did you mean {title}?" when exactly one title shares a word. Find's record line reads "Still missing for
+`record_missing` (lane 8 #10), nor does one that passed a live link (N5, v6.1.12). `find { program_id }` and every
+`track` resolve the name with one helper (`programByName` in `programs.ts`, F4 v6.1.12): the id as given, else, case,
+spaces and punctuation ignored, the first tier any program fits: the whole id or title or the id's initials ("yc",
+"ycombinator"); the start of a title or id ("monad", "Base"); one of the organizer's names or its start ("uniswap",
+"Thiel Foundation"). One program fitting is used; several answer "I don't know that program. Did you mean {title one}
+or {title two}?" (the first two by `byLookupRank`: open, then upcoming, then the rest; larger award; sooner close);
+none, "I don't know that program." with up to two titles sharing a word. Track records nothing on such a name, except a
+result on an id the ledger holds as sent. Find's record line reads "Still missing for
 these programs: ..." (what these forms need); `record get` keeps "Your record is missing: ..." (every fact), and both
 `record get` and `set` carry an agent note. `/me/policy` refuses auto apply with no
 category ticked ("Pick at least one category.", C43).

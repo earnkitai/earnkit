@@ -817,3 +817,59 @@ test('final round (v6.1.10): the track project is capped (name 120, repo link 50
   const atCap = await track(c, { program_id: 'fcap-a', status: 'skipped', project: { name: 'n'.repeat(120) } });
   assert.notEqual(atCap.show_to_builder, TRACK_UNREAD);
 });
+
+test('Review Focus 4 (v6.1.12, F8): a send under standing approval to a program closed over an hour ago is not under it: it had closed', async () => {
+  const { linkInstallation, saveRecord, upsertBuilder } = await import('../v6/builders');
+  const { EMPTY_RECORD, mergeRecord } = await import('../v6/record');
+  const c = await ctx();
+  const b = await upsertBuilder({ github_id: 930_311, login: 'f8', name: 'F', avatar_url: null }, NOW);
+  await linkInstallation(c.installationId, b.id, NOW);
+  await saveRecord(b.id, mergeRecord(EMPTY_RECORD, { policy: { auto_apply: true, max_per_night: 5, categories: ['grant'] } }, 'builder', NOW).record, NOW);
+  const H = 3_600_000;
+  const p = (id: string, endsAgo: number) => upsertProgram(programFixture({ id, title: id, category: 'grant', ends_at: new Date(NOW.getTime() - endsAgo).toISOString() }), 'file', NOW);
+  await p('f8-hours', 3 * H);
+  await p('f8-minutes', 20 * 60_000);
+  const send = (id: string) => track({ ...c, builderId: b.id }, { program_id: id, status: 'applied', submitted_by: 'agent', project: { name: 'App' }, fields_used: ['project_name'] });
+  const auto = async (id: string) => (await sql()`SELECT auto_applied FROM applications WHERE owner = ${'b:' + b.id} AND program_id = ${id}`)[0].auto_applied;
+  const late = await send('f8-hours');
+  assert.equal(late.show_to_builder, 'f8-hours closed on Nov 4; recorded anyway. Sent, but outside your standing approval: it had closed.');
+  assert.equal(await auto('f8-hours'), false);
+  assert.equal(late.ledger.applied, 1);
+  // Within the hour it still counts: the agent sent it as it closed.
+  const just = await send('f8-minutes');
+  assert.equal(just.show_to_builder, 'f8-minutes closed on Nov 4; recorded anyway.');
+  assert.equal(await auto('f8-minutes'), true);
+  // The ledger's own check: a send recorded as approved after the hour is stored as not.
+  const { record } = await import('./ledger');
+  await p('f8-direct', 2 * H);
+  assert.deepEqual(await record('b:' + b.id, 'f8-direct', 'applied', { installationId: c.installationId, now: NOW, submitted_by: 'agent', autoApplied: true }), { ok: true, closed: true });
+  assert.equal(await auto('f8-direct'), false);
+});
+
+test('F4 (v6.1.12): track takes the program by what the builder calls it; several or none says so and records nothing', async () => {
+  const c = await ctx();
+  const started = await track(c, { program_id: 'yc', status: 'started' });
+  assert.equal(started.show_to_builder, 'Started.');
+  assert.equal((await sql()`SELECT program_id FROM applications WHERE installation_id = ${c.installationId}`)[0].program_id, 'y-combinator');
+  const skipped = await track(c, { program_id: 'Thiel Foundation', status: 'skipped' });
+  assert.equal(skipped.show_to_builder, "Skipped Thiel Fellowship. I won't bring it up again.");
+  const several = await track(c, { program_id: 'uniswap', status: 'applied', submitted_by: 'builder' });
+  assert.equal(several.show_to_builder, "I don't know that program. Did you mean Uniswap Foundation Open Grants or Uniswap Foundation Security Fund (UFSF) Audit Subsidies?");
+  assert.equal(several.agent_note, 'Nothing was recorded.');
+  assert.equal((await track(c, { program_id: 'qqq-zzz', status: 'skipped' })).show_to_builder, "I don't know that program.");
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE installation_id = ${c.installationId}`)[0].n, 2);
+});
+
+test('F6 (v6.1.12): a code step marked done on a project with no repo asks to be told when it is live', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 'f6-live', title: 'F6 Live', eligibility: [{ kind: 'live_product' }] }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'f6-chain', title: 'F6 Chain', eligibility: [{ kind: 'chain', value: 'arc' }] as never }), 'file', NOW);
+  const bare = await track(c, { program_id: 'f6-chain', status: 'gap_done', item: 'chain:arc', project: { name: 'No Repo' } });
+  assert.deepEqual([bare.show_to_builder, bare.agent_note], ['Noted. Tell me when it is live and I look again.', 'When the builder says it is live, call find again with its repo or live link.']);
+  assert.doesNotMatch(bare.show_to_builder, /repo/);
+  const none = await track(c, { program_id: 'f6-live', status: 'gap_done', item: 'live_product' });
+  assert.equal(none.show_to_builder, 'Noted. Tell me when it is live and I look again.');
+  // With a repo the read is the check.
+  const repo = await track(c, { program_id: 'f6-live', status: 'gap_done', item: 'live_product', project: { name: 'Has Repo', repo_url: 'https://github.com/a/b' } });
+  assert.deepEqual([repo.show_to_builder, repo.agent_note], ['Noted. I check the repo on the next look.', 'Call find again so the repo is re-read.']);
+});

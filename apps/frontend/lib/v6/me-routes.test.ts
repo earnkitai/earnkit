@@ -459,4 +459,9 @@ test('v6.1.9 N7 and N8: renaming a team member drops the old github, x and email
   refused(b.id, await editPost(post('/me/edit', { csrf, path: 'projects.kit.chains_claimed', value: 'Base, foo, bar' }, { cookie }), deps), 'Not a known chain: foo, bar.');
   assert.equal((await editPost(post('/me/edit', { csrf, path: 'projects.kit.chains_claimed', value: 'Base, ARC' }, { cookie }), deps)).headers.get('location'), '/me#projects');
   assert.deepEqual((await getRecord(b.id)).projects[0].chains_claimed, ['base', 'arc']);
+  // Review Focus 5 (v6.1.12, F10): a chain given twice, in any case or with an empty slot, is saved once, in first order.
+  for (const [value, saved] of [['base,,base', ['base']], ['Base, base', ['base']], ['base, ARC, Arc', ['base', 'arc']], ['arc, base, ARC, base', ['arc', 'base']]] as const) {
+    await editPost(post('/me/edit', { csrf, path: 'projects.kit.chains_claimed', value }, { cookie }), deps);
+    assert.deepEqual((await getRecord(b.id)).projects[0].chains_claimed, saved, value);
+  }
 });

@@ -1757,7 +1757,8 @@ test('N-5 (v6.1.9): a step marked done that the read still misses is said once p
   const LOOKED = 'I looked again and did not find a live link; it stays a step.';
   assert.doesNotMatch(await one('n5-live'), /looked again/);
   const noted = await mcpCall(c, 'track', { program_id: 'n5-live', status: 'gap_done', item: 'live_product' });
-  assert.equal(noted.reply!.show_to_builder, 'Noted. I check the repo on the next look.');
+  // F6 (v6.1.12): the project has no repo, so there is none to check.
+  assert.equal(noted.reply!.show_to_builder, 'Noted. Tell me when it is live and I look again.');
   assert.equal((await one('n5-live')).split('\n')[0], `Live Link Grant, Up to $5,000: put a live link up. ${LOOKED}`);
   // In the full list, after that program's line, once per find, every find while it is missing.
   for (let k = 0; k < 2; k++) {
@@ -1784,6 +1785,17 @@ test('v6.1.9: find with program_id takes the id or the name in any case; else a 
   }
   const near = await mcpCall(ctx(await installation()), 'find', { program_id: 'Combinator Labs' });
   assert.equal(near.reply!.show_to_builder, "I don't know that program. Did you mean Y Combinator Winter 2027 Batch?");
+  // F4 (v6.1.12, Review Focus 3): the common names; one match resolves, several are asked about, two by rank.
+  for (const [name, id] of [['ycombinator', 'y-combinator'], ['Thiel Foundation', 'thiel-fellowship'], ['monad blitz oregon', 'monad-blitz-oregon']]) {
+    const r = await mcpCall(ctx(await installation()), 'find', { program_id: name });
+    assert.equal((r.reply!.program as { id: string }).id, id, name);
+  }
+  for (const [name, line] of [
+    ['Base', "I don't know that program. Did you mean Base Builder Grant Program or Base Ecosystem Fund?"],
+    ['monad', "I don't know that program. Did you mean Monad Blitz Oregon or Monad Blitz @广州 (Guangzhou)?"],
+    ['Monad Blitz', "I don't know that program. Did you mean Monad Blitz Oregon or Monad Blitz @广州 (Guangzhou)?"],
+    ['uniswap', "I don't know that program. Did you mean Uniswap Foundation Open Grants or Uniswap Foundation Security Fund (UFSF) Audit Subsidies?"],
+  ]) assert.equal((await mcpCall(ctx(await installation()), 'find', { program_id: name })).reply!.show_to_builder, line, name);
   const none = await mcpCall(ctx(await installation()), 'find', { program_id: 'qqq-unknown' });
   assert.equal(none.reply!.show_to_builder, "I don't know that program.");
 });
@@ -1837,6 +1849,10 @@ test('S4 (v6.1.9): a code step marked done makes the next find check the repo ag
   assert.equal(done.reply!.agent_note, 'Call find again so the repo is re-read.');
   await mcpCall(c(7), 'find', { project: PROJECT });
   assert.ok(calls > 0, 'the step marked done sends the read back to GitHub');
+  // F7 (v6.1.12): once; unpushed, the next finds trust the cached read again.
+  calls = 0;
+  for (const min of [8, 9, 10]) await mcpCall(c(min), 'find', { project: PROJECT });
+  assert.equal(calls, 0, 'an unpushed repo is not re-read on every find');
 });
 
 test('Review Focus 1 (v6.1.10, L1c-1): two projects of one builder never share a done step', async () => {
@@ -1932,7 +1948,10 @@ test('F1, F2, lane 8 #1, #8, #10 (v6.1.10): the problem the record lacks holds t
   // With a repo the same line, and the record is never asked for a project with its repo or site (lane 8 #10).
   const repo = await mcpCall(c, 'find', { project: { ...PROJECT, name: 'Night App' } });
   assert.ok(!(repo.reply!.record_missing as string[]).includes('a project with its repo or site'), JSON.stringify(repo.reply!.record_missing));
-  assert.ok((bare.reply!.record_missing as string[]).includes('a project with its repo or site'));
+  // N5 (v6.1.12): a live link passed is the site, so it is not asked for either; with no link at all it is.
+  assert.ok(!(bare.reply!.record_missing as string[]).includes('a project with its repo or site'), JSON.stringify(bare.reply!.record_missing));
+  const none = await mcpCall(c, 'find', { project: { name: 'Night App', description: 'Night shifts for nurses.' } });
+  assert.ok((none.reply!.record_missing as string[]).includes('a project with its repo or site'));
 });
 
 test('F3 and fix round 1 (v6.1.10), N3 (v6.1.12): the users yes and the rule yes stand for a fully ready program; with answers missing the closing names them', async () => {

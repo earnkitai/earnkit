@@ -18,7 +18,7 @@ import { lastFindAt, markFind, newlyLinkedLogin, rememberProject } from './insta
 import { askOutcome, autoSentSince, claimed, codeDoneAt, doneByProgram, doneItems, excluded, markAsked, summary, type Ledger } from './ledger';
 import { prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
-import { isOpen, listOpenPrograms, programByName, type ProgramRow } from './programs';
+import { isOpen, listOpenPrograms, programByName, unknownProgramLine, type ProgramRow } from './programs';
 import { parseProject, projectKeyOf, type Project } from './project-input';
 import { rankGaps, rankReady, shownGapsOf } from './rank';
 import { repoFacts, type RepoFacts, type RepoNote } from './repo-facts';
@@ -257,11 +257,12 @@ function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram
 
 /** One program: its file, its fields (for the project, when given) and the verdict, said as the find line says it. */
 async function oneProgram(ctx: FindContext, id: string, project: Project | null, projectId?: string, ask?: string): Promise<ProgramReply> {
-  // v6.1.9: the id, or what the builder calls it ("yc", "Y Combinator"), when it names one program.
-  const { row, suggest } = await programByName(id);
+  // v6.1.9: the id, or what the builder calls it ("yc", "Y Combinator"), when it names one program; F4 (v6.1.12): its
+  // organizer too, and several are asked about.
+  const { row, suggest } = await programByName(id, ctx.now);
   if (!row)
     return {
-      show_to_builder: ["I don't know that program.", suggest ? `Did you mean ${suggest}?` : null].filter(Boolean).join(' '),
+      show_to_builder: unknownProgramLine(suggest),
       agent_note: 'Call find with the project for the programs it fits.', program: null, fields: [], guide: null, rules: [],
     };
   id = row.id;
@@ -543,7 +544,7 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
     ...(problems.length > 0 ? { problems } : {}),
     ...(facts.notes && facts.notes.length > 0 ? { repo_notes: facts.notes } : {}),
     ...(side
-      ? linkedPart(side, ready.map((p) => byId.get(p.program_id)!), released, overnight, sentToday, Boolean(project.repo_url))
+      ? linkedPart(side, ready.map((p) => byId.get(p.program_id)!), released, overnight, sentToday, Boolean(project.repo_url || project.live_url))
       : { ...unlinkedPart(), blockers: blockersOf(ready.map((p) => byId.get(p.program_id)!), EMPTY_RECORD), ...(link && notice !== DELETED_NOTICE ? { sign_in: link } : {}) }),
     linked_notice: notice,
   };
