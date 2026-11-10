@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from '../v5/db';
 import { programFixture } from '../v5/fixtures/program';
 import { connectInstallation, saveInstallation } from '../v5/installations';
-import { record } from '../v5/ledger';
+import { claimed, record } from '../v5/ledger';
 import { upsertProgram } from '../v5/programs';
 import { linkInstallation, ownerKey, upsertBuilder } from './builders';
 import { appliedOvernight, claim, releaseStale } from './claims';
@@ -100,4 +100,14 @@ test('skips and claims: a skip replaces a claim; a claim over a skip refuses; re
   assert.deepEqual(await releaseStale(owner, new Date(NOW.getTime() + 80 * H)), []);
   const [still] = await sql()`SELECT status FROM applications WHERE owner = ${owner} AND program_id = 'cl-skip'`;
   assert.equal(still.status, 'skipped');
+});
+
+test('L1d-1 (v6.1.11): claimed returns each claim\'s stored project; the hold stays per owner and program across projects', async () => {
+  await upsertProgram(programFixture({ id: 'cl-proj', title: 'Project Grant' }), 'file', NOW);
+  const { owner, a, c } = await builderWithTwoAgents();
+  assert.deepEqual(await claim(owner, 'cl-proj', 'https://github.com/x/a', a, NOW), { ok: true });
+  assert.deepEqual((await claimed(owner)).get('cl-proj'), { since: NOW.toISOString(), by: a, project: 'https://github.com/x/a' });
+  // Another project of the same builder is still held off for 24 hours.
+  const other = await claim(owner, 'cl-proj', 'https://github.com/x/b', c, new Date(NOW.getTime() + H));
+  assert.equal(other.ok, false);
 });

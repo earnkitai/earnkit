@@ -66,7 +66,8 @@ next). The server instructions (the whole text sent to agents) sit in `mcp.ts` a
    rule-bearing; then chain-agnostic ones, rule-free before rule-bearing; then programs on other chains (their
    deploys). Within each, real changes before rule-only ones (rule-only ones naming a project mainnet first, then
    chain-agnostic, then the rest: R18e), then fewest gaps, lowest effort, larger award. `shownGapsOf` picks the shown
-   gaps: first the acted-on programs (N-3), then every program closing within 7 days that the project fits (O1, ahead
+   gaps: first the acted-on programs (N-3; a claim counts only on the project it stored, its record id or project key,
+   and another project's claim shows its hold only under `filter.all`: L1d-1, v6.1.11), then every program closing within 7 days that the project fits (O1, ahead
    of the cap; its line says `closes in {n} days`), then at most one rule-bearing program among rule-free ones. That
    one, on the project's chains, takes its rank place; off them it is shown only after `max - 1` others or alone
    (N-2). A rule item may carry `keywords` (L1c-2): when a rule still to confirm has keywords and the project names

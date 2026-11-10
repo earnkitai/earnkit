@@ -1202,6 +1202,44 @@ test('N-3 (v6.1.9, Review Focus 2): the VR persona marks the demo video done and
   assert.doesNotMatch(skipped.reply!.show_to_builder as string, /Meta VR/);
 });
 
+test('L1d-1 (v6.1.11, Review Focus 1): a claim on one project never pins or leads another project of the builder', async () => {
+  const c = await dashCtx();
+  await mcpCall(c, 'find', { project: VR });
+  const started = await mcpCall(c, 'track', { program_id: 'meta-vr-start-competition-2026', status: 'started', project: VR });
+  assert.equal(started.isError, false, started.text);
+  const [row] = await sql()`SELECT project_id FROM applications WHERE program_id = 'meta-vr-start-competition-2026' AND installation_id = ${c.installationId}`;
+  assert.equal(row.project_id, `https://github.com/${dash.repo}`.toLowerCase());
+  // Another project of the same builder: the VR claim does not pin, so the idea opens as it always does.
+  const IDEA = { name: 'Rent Split', description: 'An idea: an app that splits rent and bills between roommates' };
+  const other = await mcpCall(c, 'find', { project: IDEA });
+  const show = other.reply!.show_to_builder as string;
+  assert.doesNotMatch(show, /Meta VR/);
+  assert.equal(show.slice(show.indexOf('One step away')), [...COLOSSEUM_ONLY, '', ...inPersonBlock(2, true), '', RULE_FIRST].join('\n'));
+  // The claimed project itself still has it pinned.
+  const own = await mcpCall(c, 'find', { project: VR });
+  assert.equal(ids(own.reply!.gaps)[0], 'meta-vr-start-competition-2026');
+});
+
+test('L1d-1 (v6.1.11): another agent\'s claim on another project is not "being handled" by default, but filter.all shows its hold', async () => {
+  const { id, builderId } = await linkedWith(OWNER_RECORD);
+  const { claim } = await import('../v6/claims');
+  const [other] = await sql()`INSERT INTO installations (token_hash, client_name) VALUES (${'find-other-' + Math.random()}, 'Cursor') RETURNING id`;
+  const { linkInstallation } = await import('../v6/builders');
+  await linkInstallation(other.id as number, builderId, NOW);
+  await claim(`b:${builderId}`, 'y-combinator', 'name:another project', other.id as number, new Date(NOW.getTime() - H));
+  // A row from before v6.1.11 with no project matches nothing.
+  await claim(`b:${builderId}`, 'alliance-all19', null, other.id as number, new Date(NOW.getTime() - H));
+  const r = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT });
+  const ready = r.reply!.ready as { program_id: string; claimed_since?: string }[];
+  assert.ok(ids(ready).includes('y-combinator'));
+  assert.equal(ready.find((p) => p.program_id === 'y-combinator')?.claimed_since, undefined);
+  assert.equal(ready.find((p) => p.program_id === 'alliance-all19')?.claimed_since, undefined);
+  const all = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT, filter: { all: true } });
+  const allReady = all.reply!.ready as { program_id: string; claimed_since?: string }[];
+  assert.equal(allReady.find((p) => p.program_id === 'y-combinator')?.claimed_since, new Date(NOW.getTime() - H).toISOString());
+  assert.match(all.reply!.agent_note as string, /claimed_since is claimed by another of the builder's agents: do not submit it\./);
+});
+
 test('B20c (v6.1.9, Review Focus 1): a repo-less idea and an empty repo are never asked the users question, and a yes never makes FLOSS/fund ready', async () => {
   const IDEA = { name: 'Rent Split', description: 'An idea: an app that splits rent and bills between roommates' };
   const emptyRec = replayFetch('empty-repo');
