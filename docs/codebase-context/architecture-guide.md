@@ -363,7 +363,7 @@ cached. `--no-cache` on the script skips the table both ways.
 
 **The tiers.** `tiers.ts` `place(evidence, counts, thresholds?, now?)` is pure and names one of five tiers, flags
 first: flagged (a starter match with under 10 own files, a starter fork with under 20 commits after the fork or
-another fork under 20% own work, an identical pitch, shared contributors, unfunded senders), used (site loads, 25
+another fork under 20% own work, an identical pitch, shared contributors, self-funded users), used (site loads, 25
 or more wallets the deployer did not fund on one mainnet contract in 90 days, pushed within 60 days), live (site
 loads or a mainnet contract with transactions), building (commits in 60 days, nothing live), unverified (nothing
 recent EarnKit could check). L15-6, L15-7, L15-8 (v6.1.14): the usage row reads "{n} senders the deployer did not
@@ -372,6 +372,14 @@ contract with any sender the deployer did not fund is at least building (next: t
 "site loads" ("site is for sale"); with no repo block the row says why ("private repo", "GitLab repo, not read",
 "account link, not a repo"); a contract on a chain with no reader is named "{address} on Monad: not read". Only counted mainnet contracts count; the others are listed with their reason. `DEFAULT_THRESHOLDS` carry
 their reasons. `tier-words.ts` turns a placement into the reviewer's line and the builder's line.
+v6.1.15 (#6, #15): a placement carries `next` (the exact rule, agent and owner words) and `builder_next` (the builder's
+form, which `builderLine` reads, falling back to `next` for a stored placement): the live usage gap reads "about 25
+outside users in 90 days; I count {M}.", the building gap "A live product: a site that loads or a contract in use.",
+and the flag "At least 20% of sampled users from outside the team; I count {M} of {S}."; every other gap's equals
+`next`. The find tier gap is cut from the stored builder line, so a linked builder's gap never names deployer, senders
+or mainnet. The farmed-wallet flag's rule id is `self_funded_users` (read "self-funded users"; a row stored as
+`unfunded` reads the same, `RULE_WORDS`); the threshold names are unchanged. The CSV and the results rows show the
+count as `outside_senders_90d`, with `funded_senders_90d` beside it as an alias until v6.1.16.
 
 **The pilot script.** `pnpm screen <csv> --program <id> [--chain base] [--out <dir>] [--no-cache] [--thresholds
 <json>]` (`scripts/screen.mts` over `lib/v6/screen.ts`). `applicants.ts` parses the CSV (columns by name; a bad
