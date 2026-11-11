@@ -1563,7 +1563,7 @@ test('L1d-1 (v6.1.11, Review Focus 1): a claim on one project never pins or lead
   assert.equal(ids(own.reply!.gaps)[0], 'meta-vr-start-competition-2026');
 });
 
-test('L1d-1 (v6.1.11), C1 (v6.1.13): another agent\'s claim on another project reads that project\'s name on its line, by default and in filter.all, and leaves the yes count', async () => {
+test('L1d-1 (v6.1.11), C1 (v6.1.13), ruling 12 (v6.1.16): another agent\'s claim on another project says so on its line without that project\'s name, by default and in filter.all, and leaves the yes count', async () => {
   const { id, builderId } = await linkedWith(OWNER_RECORD);
   const { claim } = await import('../v6/claims');
   const [other] = await sql()`INSERT INTO installations (token_hash, client_name) VALUES (${'find-other-' + Math.random()}, 'Cursor') RETURNING id`;
@@ -1580,15 +1580,17 @@ test('L1d-1 (v6.1.11), C1 (v6.1.13): another agent\'s claim on another project r
   assert.equal(ready.find((p) => p.program_id === 'alliance-all19')?.claimed_since, new Date(NOW.getTime() - H).toISOString());
   const show = r.reply!.show_to_builder as string;
   const line = show.split('\n').find((l) => l.includes('Y Combinator'))!;
-  assert.match(line, / Being handled by your other agent for another project\.$/);
+  assert.match(line, / Being handled by your other agent\.$/);
+  assert.doesNotMatch(show, /another project/);
   assert.match(show.split('\n').find((l) => /^\d+\. Alliance ALL19/.test(l))!, / Being handled by your other agent since 11:00 UTC\.$/);
   assert.equal(show.split('\n').filter((l) => l.includes('Being handled')).length, 2);
-  // It is no yes: the same list less one to say yes to; it neither pins nor leads the list.
-  assert.deepEqual(ids(ready), ids(before.reply!.ready));
+  // It is no yes: the same list less one to say yes to; it neither pins nor leads the list (L17-6, v6.1.16: a held
+  // remote one moves after the ones this agent can send, so the lists are compared as sets).
+  assert.deepEqual(ids(ready).sort(), ids(before.reply!.ready).sort());
   assert.match(r.reply!.agent_note as string, /claimed_since is claimed by another of the builder's agents: do not submit it\./);
   const all = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { project: PROJECT, filter: { all: true } });
   const allShow = all.reply!.show_to_builder as string;
-  assert.match(allShow.split('\n').find((l) => l.includes('Y Combinator'))!, / Being handled by your other agent for another project\.$/);
+  assert.match(allShow.split('\n').find((l) => l.includes('Y Combinator'))!, / Being handled by your other agent\.$/);
   const allReady = all.reply!.ready as { program_id: string; claimed_since?: string }[];
   assert.equal(allReady.find((p) => p.program_id === 'y-combinator')?.claimed_since, new Date(NOW.getTime() - H).toISOString());
 });
@@ -2474,7 +2476,7 @@ test('L13-7 (v6.1.14): a linked find keeps whether standing approval was on, for
   assert.deepEqual(Object.fromEntries(rows.map((r) => [r.id, r.last_find_auto])), { [on.id]: true, [off.id]: false });
 });
 
-test('L13-8, L12-1 (v6.1.14): another agent\'s claim with no project holds the program on this list, by default and in filter.all, out of the yes', async () => {
+test('L13-8, L12-1 (v6.1.14), L17-6 (v6.1.16): another agent\'s claim with no project holds the program on this list, in the held block, by default and in filter.all, out of the yes', async () => {
   const { id, builderId } = await linkedWith(OWNER_RECORD);
   const { claim } = await import('../v6/claims');
   const [other] = await sql()`INSERT INTO installations (token_hash, client_name) VALUES (${'find-l138-' + Math.random()}, 'Cursor') RETURNING id`;
@@ -2486,7 +2488,12 @@ test('L13-8, L12-1 (v6.1.14): another agent\'s claim with no project holds the p
     const ready = r.reply!.ready as { program_id: string; claimed_since?: string }[];
     assert.equal(ready.find((p) => p.program_id === 'arbitrum-mentorship-cohort-2')?.claimed_since, new Date(NOW.getTime() - H).toISOString(), JSON.stringify(filter));
     const show = r.reply!.show_to_builder as string;
-    assert.match(show.split('\n').find((l) => l.includes('Arbitrum Mentorship Program'))!, / Being handled by your other agent since 11:00 UTC\.$/);
+    // L17-6 (v6.1.16): a held remote program is listed under its own heading, after Ready; the heading says it.
+    const blocks = show.split('\n\n');
+    const held = blocks.find((b) => b.startsWith('Being handled by your other agent (1):'));
+    assert.ok(held?.includes('Arbitrum Mentorship Program'), show);
+    assert.ok(!blocks.find((b) => b.startsWith('Ready to apply'))?.includes('Arbitrum Mentorship Program'), show);
+    assert.doesNotMatch(held!, /\d+\. .*Being handled/);
     // Never a plain ready one in the yes.
     assert.doesNotMatch(show, /Say yes and I apply\.$/);
   }
