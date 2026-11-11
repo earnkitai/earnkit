@@ -68,6 +68,21 @@ export async function meGet(request: Request, deps: Deps = {}): Promise<Response
   return res;
 }
 
+/**
+ * Whether a /me post came from EarnKit's own page (L31-3, v6.1.16 Task 17): its Origin is the public origin, or it
+ * has no Origin and its Referer's origin is. Neither header, or an unreadable Referer, is false.
+ */
+export function sameOrigin(request: Request): boolean {
+  const us = publicOrigin(request);
+  const from = request.headers.get('origin');
+  if (from !== null) return from === us;
+  try {
+    return new URL(request.headers.get('referer') ?? '').origin === us;
+  } catch {
+    return false;
+  }
+}
+
 /** The checks every post shares; on success the builder, the form and the time. */
 async function guard(request: Request, deps: Deps): Promise<Response | { builder: Builder; form: URLSearchParams; now: Date }> {
   const type = (request.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
@@ -77,8 +92,8 @@ async function guard(request: Request, deps: Deps): Promise<Response | { builder
   if (body instanceof Response) return body;
   if (body === null) return text(413, ME_ERRORS.large);
   const now = deps.now ?? new Date();
-  const from = request.headers.get('origin');
-  if (from && from !== publicOrigin(request)) return text(403, ME_ERRORS.expired);
+  // L31-3 (v6.1.16 Task 17): a same-origin Origin, or with none a same-origin Referer, before the session and csrf.
+  if (!sameOrigin(request)) return text(403, ME_ERRORS.notFromUs);
   const builder = await sessionBuilder(request.headers.get('cookie'), now);
   if (!builder) return text(403, ME_ERRORS.signin);
   const form = new URLSearchParams(body);

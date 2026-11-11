@@ -24,12 +24,17 @@ async function signedIn(login = `me${gh}`) {
   const { token } = await createSession(b.id, NOW);
   return { b, token, cookie: `ek_me=${token}`, csrf: csrfToken(b.id, DAY, SECRET, token) };
 }
-const post = (path: string, form: Record<string, string | string[]>, o: { cookie?: string; type?: string; body?: string } = {}) => {
+/** A /me form post; from EarnKit's own page (Origin) unless `origin` says otherwise (null: no Origin header). */
+const post = (path: string, form: Record<string, string | string[]>, o: { cookie?: string; type?: string; body?: string; origin?: string | null; referer?: string } = {}) => {
   const body = new URLSearchParams();
   for (const [k, v] of Object.entries(form)) for (const x of Array.isArray(v) ? v : [v]) body.append(k, x);
+  const origin = o.origin === undefined ? 'https://earnkit.test' : o.origin;
   return new Request(`https://earnkit.test${path}`, {
     method: 'POST',
-    headers: { 'content-type': o.type ?? 'application/x-www-form-urlencoded', ...(o.cookie ? { cookie: o.cookie } : {}) },
+    headers: {
+      'content-type': o.type ?? 'application/x-www-form-urlencoded', ...(o.cookie ? { cookie: o.cookie } : {}),
+      ...(origin !== null ? { origin } : {}), ...(o.referer ? { referer: o.referer } : {}),
+    },
     body: o.body ?? body.toString(),
   });
 };
@@ -571,4 +576,33 @@ test('L27-8 (v6.1.16): team rows save together, a removed member last so the oth
   assert.deepEqual((await getRecord(b.id)).policy.never, ['Base Builder Grants', 'zz-other']);
   const bad = await policyPost(post('/me/policy', { csrf, max_per_night: '50' }, { cookie }), deps);
   assert.deepEqual(placeOf(bad), { at: 'policy', saved: null, hash: '#policy' });
+});
+
+test('L31-3 (v6.1.16 Task 17): every /me post needs a same-origin Origin or Referer, before the csrf check', async () => {
+  const { b, cookie, csrf } = await signedIn();
+  const NOT_FROM_US = 'That form did not come from EarnKit.';
+  const handlers: [typeof editPost, string, Record<string, string>][] = [
+    [editPost, '/me/edit', { csrf, path: 'person.name', value: 'Origin Test' }],
+    [approvePost, '/me/approve', { csrf, path: 'person.name', action: 'approve', seen: '' }],
+    [policyPost, '/me/policy', { csrf }],
+    [unlinkPost, '/me/unlink', { csrf, installation_id: '1' }],
+    [linkPost, '/me/link', { csrf, code: 'x', action: 'deny' }],
+    [deletePost, '/me/delete', { csrf, confirm: b.login }],
+    [signoutPost, '/me/signout', { csrf }],
+  ];
+  for (const [handler, path, form] of handlers)
+    for (const o of [{ origin: null }, { origin: 'https://evil.example' }, { origin: 'null' }, { origin: null, referer: 'https://evil.example/me' }, { origin: null, referer: 'not a url' }]) {
+      const r = await handler(post(path, form, { cookie, ...o }), deps);
+      assert.equal(r.status, 403, `${path} ${JSON.stringify(o)}`);
+      assert.equal(await r.text(), NOT_FROM_US);
+    }
+  // Lane 24 re-pinned: a valid csrf with no Origin and no Referer is refused, and nothing is saved.
+  assert.equal((await getRecord(b.id)).person.name ?? null, null);
+  // A same-origin Referer with no Origin is accepted; a same-origin Origin is accepted.
+  const byReferer = await editPost(post('/me/edit', { csrf, path: 'person.name', value: 'Ref Test' }, { cookie, origin: null, referer: 'https://earnkit.test/me#person' }), deps);
+  assert.equal(byReferer.status, 303);
+  assert.equal((await getRecord(b.id)).person.name, 'Ref Test');
+  const byOrigin = await editPost(post('/me/edit', { csrf, path: 'person.name', value: 'Origin Test' }, { cookie }), deps);
+  assert.equal(byOrigin.status, 303);
+  assert.equal((await getRecord(b.id)).person.name, 'Origin Test');
 });

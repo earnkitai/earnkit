@@ -274,6 +274,8 @@ export const ME_HINTS = { 'docs.other': 'One per line: a label, then the link.',
 export const ME_ERRORS = {
   signin: 'Sign in again from the link your agent gives you.',
   expired: 'This page expired. Reload it and try again.',
+  /** L31-3 (v6.1.16 Task 17): a /me post with no same-origin Origin or Referer. */
+  notFromUs: 'That form did not come from EarnKit.',
   form: 'Send this as a web form.',
   large: 'That is too long to save.',
   slow: 'The request took too long. Try again.',
