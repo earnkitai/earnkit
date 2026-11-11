@@ -52,3 +52,17 @@ test('FR-6 (v6.1.15): rules and eligibility notes in K or M are refused; the cat
   assert.deepEqual(programProblems(programFixture({ id: 'p-note-k', eligibility: [{ kind: 'users', note: 'at least $1M in balances' }] }), NOW), ['eligibility.0.note: money must be in full figures ("$1,000,000", never "$1M")']);
   assert.deepEqual(programProblems(programFixture({ id: 'p-rule-full', rules: ['Deal: up to $1,000,000 on a SAFE.'] }), NOW), []);
 });
+
+test('L21-2 (v6.1.16): a closed program carries no open-window sentence; the same file active passes', () => {
+  const NOW = new Date('2026-11-11T00:00:00Z');
+  const rules = ['Applications are open until Dec 6.', 'Winners are named in January.'];
+  assert.deepEqual(programProblems(programFixture({ id: 'p-closed-open', status: 'closed', rules }), NOW), [
+    'status: a closed program carries no open-window sentence: "Applications are open until Dec 6."',
+  ]);
+  assert.deepEqual(programProblems(programFixture({ id: 'p-active-open', status: 'active', rules }), NOW), []);
+  assert.deepEqual(
+    programProblems(programFixture({ id: 'p-closed-desc', status: 'closed', description: 'A grant. Apply now on the portal.' }), NOW),
+    ['status: a closed program carries no open-window sentence: "Apply now on the portal."'],
+  );
+  assert.deepEqual(programProblems(programFixture({ id: 'p-closed-past', status: 'closed', rules: ['SR008 applications ran October 12 to November 1, 2026, 11:59 PM PT.'] }), NOW), []);
+});
