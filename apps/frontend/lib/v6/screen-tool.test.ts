@@ -76,7 +76,7 @@ test('a reviewer queues a job and gets job_id; the eleventh screen in a day is r
   const tenth = await mcpCall(c, 'screen', { program_id: 'scr-queue', applicants: APPLICANTS });
   assert.ok(tenth.reply!.job_id, tenth.text);
   const over = await mcpCall(c, 'screen', { program_id: 'scr-queue', applicants: APPLICANTS });
-  assert.equal(over.reply!.show_to_builder, 'You can queue ten screens a day.');
+  assert.equal(over.reply!.show_to_builder, 'You can queue ten screens a day. Try again tomorrow.');
   assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs WHERE builder_id = ${c.builderId}`)[0].n, 2);
 });
 
@@ -242,7 +242,26 @@ test('B14: the promise counts the queue ahead against the daily run of SCREEN_BA
   assert.equal(first.reply!.show_to_builder, 'Queued 200 applicants for Grants scr-big. Results come once a day, within 24 hours.');
   const b = await reviewerOf('scr-after');
   const second = await mcpCall({ ...b, now: new Date(EARLY.getTime() + 60_000) }, 'screen', { program_id: 'scr-after', applicants: APPLICANTS });
-  assert.equal(second.reply!.show_to_builder, 'Queued 2 applicants for Grants scr-after. Results come in daily runs; 200 applicants ahead of yours, all within 2 days.');
+  assert.equal(second.reply!.show_to_builder, 'Queued 2 applicants for Grants scr-after. Results within 2 days.');
+});
+
+test('L26-6 (v6.1.16): 200, 200 and 100 from one reviewer: 1, 2 and 3 days, never "ahead of yours"; 201 and 501 are refused', async () => {
+  // Two days before every other test's jobs, so only this reviewer's own rows are queued before these.
+  const EARLY = new Date(NOW.getTime() - 2 * 86_400_000);
+  const a = await reviewerOf('scr-l266');
+  const list = (from: number, n: number) => Array.from({ length: n }, (_, k) => ({ ref: `l266-${from + k}`, name: `App ${from + k}` }));
+  const replies: string[] = [];
+  for (const [i, [from, n]] of [[0, 200], [200, 200], [400, 100]].entries())
+    replies.push((await mcpCall({ ...a, now: new Date(EARLY.getTime() + i * 60_000) }, 'screen', { program_id: 'scr-l266', applicants: list(from, n) })).reply!.show_to_builder as string);
+  assert.deepEqual(replies, [
+    'Queued 200 applicants for Grants scr-l266. Results come once a day, within 24 hours.',
+    'Queued 200 applicants for Grants scr-l266. Results within 2 days.',
+    'Queued 100 applicants for Grants scr-l266. Results within 3 days.',
+  ]);
+  for (const n of [201, 501]) {
+    const over = await mcpCall({ ...a, now: EARLY }, 'screen', { program_id: 'scr-l266', applicants: list(1_000, n) });
+    assert.equal(over.reply!.show_to_builder, 'At most 200 at a time; send the rest in another call.');
+  }
 });
 
 test('C2 (v6.1.13): over 200 applicants or outcomes is one line that says to send the rest; 200 is read', async () => {
@@ -304,24 +323,24 @@ test('F5 (v6.1.14 fix round 1): a repo that is not text is refused by the key th
   assert.equal('job_id' in r.reply!, false);
 });
 
-test('L15-3 (v6.1.14): results come 25 a page; the last line asks for the next page and next_page names it, null on the last', async () => {
+test('L15-3 (v6.1.14), L26-4 (v6.1.16): results come 10 a page; the last line asks for the next page and next_page names it, null on the last', async () => {
   const c = await reviewerOf('scr-pages');
   const list = Array.from({ length: 30 }, (_, k) => ({ ref: `p-${k}`, name: `P${k}`, live_url: `https://p${k}.example/` }));
   const q = await mcpCall(c, 'screen', { program_id: 'scr-pages', applicants: list });
   const jobId = q.reply!.job_id as string;
   const one = await mcpCall(c, 'screen', { job_id: jobId });
   // L21-27 (v6.1.16): a page that exists leads with where it is.
-  assert.equal(one.reply!.show_to_builder, 'Page 1 of 2. 30 applicants: 0 used, 0 live, 0 building, 0 unverified, 0 flagged; 30 pending. Ask for page 2 for the rest.');
+  assert.equal(one.reply!.show_to_builder, 'Page 1 of 3. 30 applicants: 0 used, 0 live, 0 building, 0 unverified, 0 flagged; 30 pending. Ask for page 2 for the rest.');
   assert.equal(one.reply!.next_page, 2);
-  assert.equal((one.reply!.results as { applicants: unknown[] }).applicants.length, 25);
-  assert.match(one.reply!.agent_note as string, /Call screen with job_id and page 2 for the next 25\.$/);
-  const two = await mcpCall(c, 'screen', { job_id: jobId, page: 2 });
-  assert.equal(two.reply!.show_to_builder, 'Page 2 of 2. 30 applicants: 0 used, 0 live, 0 building, 0 unverified, 0 flagged; 30 pending.');
-  assert.equal(two.reply!.next_page, null);
-  assert.equal((two.reply!.results as { applicants: unknown[] }).applicants.length, 5);
-  // L16-12 (v6.1.16): a page past the last says so.
-  const past = await mcpCall(c, 'screen', { job_id: jobId, page: 3 });
-  assert.equal(past.reply!.show_to_builder, '30 applicants: 0 used, 0 live, 0 building, 0 unverified, 0 flagged; 30 pending. No more results.');
+  assert.equal((one.reply!.results as { applicants: unknown[] }).applicants.length, 10);
+  assert.match(one.reply!.agent_note as string, /Call screen with job_id and page 2 for the next 10\.$/);
+  const three = await mcpCall(c, 'screen', { job_id: jobId, page: 3 });
+  assert.equal(three.reply!.show_to_builder, 'Page 3 of 3. 30 applicants: 0 used, 0 live, 0 building, 0 unverified, 0 flagged; 30 pending.');
+  assert.equal(three.reply!.next_page, null);
+  assert.equal((three.reply!.results as { applicants: unknown[] }).applicants.length, 10);
+  // L16-12, L26-12 (v6.1.16): a page past the last names how many there are.
+  const past = await mcpCall(c, 'screen', { job_id: jobId, page: 50 });
+  assert.equal(past.reply!.show_to_builder, '30 applicants: 0 used, 0 live, 0 building, 0 unverified, 0 flagged; 30 pending. That screen has 3 pages.');
   assert.equal(past.reply!.next_page, null);
   const bad = await mcpCall(c, 'screen', { job_id: jobId, page: 0 });
   assert.equal(bad.reply!.show_to_builder, '');
@@ -373,7 +392,7 @@ test('L15-4 (v6.1.14): applicant fields the screen does not read are named in th
     { ref: 'i-2', name: 'Old key', repo: 'https://github.com/acme/old' },
   ] });
   assert.equal(q.isError, false, q.text);
-  assert.match(q.reply!.show_to_builder as string, /^Queued 2 applicants for Grants scr-ign\. Results come in daily runs; /);
+  assert.match(q.reply!.show_to_builder as string, /^Queued 2 applicants for Grants scr-ign\. Results (come once a day, within 24 hours|within \d+ days)\.$/);
   assert.equal(q.reply!.agent_note, 'Call screen with job_id for progress and results. Tell the builder what each tier means: used, live, building, unverified, flagged. '
     + 'Unknown applicant fields ignored: github, website, contract_address. Send the repo as repo_url, the site as live_url, contracts as [{ chain, address }]. '
     + 'Merged, one ref given more than once: i-1. Contracts left out, not read: solana (i-1).');
@@ -558,7 +577,7 @@ test('L17-5 (v6.1.16): applicants still queued are not queued again; the reply c
   assert.equal(first.isError, false, first.text);
   const more = await mcpCall(c, 'screen', { program_id: 'scr-already', applicants: [...APPLICANTS, { ref: 'r-3', name: 'Third', repo_url: 'https://github.com/acme/third' }] });
   // The promise after it depends on the shared queue ahead (other tests' rows), so only the head is pinned.
-  assert.match(more.reply!.show_to_builder as string, /^Queued 1 applicant for Grants scr-already; 2 already queued\. Results come in daily runs; /);
+  assert.match(more.reply!.show_to_builder as string, /^Queued 1 applicant for Grants scr-already; 2 already queued\. Results (come once a day, within 24 hours|within \d+ days)\.$/);
   assert.match(more.reply!.agent_note as string, new RegExp(`Already queued: r-1 \\(row r-1 of screen ${first.reply!.job_id}\\) and r-2 \\(row r-2 of screen ${first.reply!.job_id}\\)\\.$`));
   assert.ok(more.reply!.job_id);
   const none = await mcpCall(c, 'screen', { program_id: 'scr-already', applicants: APPLICANTS });
@@ -566,6 +585,9 @@ test('L17-5 (v6.1.16): applicants still queued are not queued again; the reply c
   assert.equal(none.reply!.agent_note, `Already queued: r-1 (row r-1 of screen ${first.reply!.job_id}) and r-2 (row r-2 of screen ${first.reply!.job_id}). Nothing was queued; their results come with the screens that hold them.`);
   assert.equal('job_id' in none.reply!, false);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs WHERE program_id = 'scr-already'`)[0].n, 2);
+  // v6.1.16 Task 12 (from Task 4): the call that queued nothing new never counts against the day's ten.
+  const [w] = await sql()`SELECT count FROM rate_windows WHERE key = ${`screenJobs:b:${c.builderId}`} AND window_start = ${windowStart(NOW, 86_400_000)}`;
+  assert.equal(w.count, 2);
 });
 
 test('v6.1.16 Task 16: when the last daily run stopped at its deadline, the results line says how many of the job were read', async () => {

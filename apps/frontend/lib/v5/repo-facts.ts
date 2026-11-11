@@ -8,8 +8,8 @@ import { detectIntegrations } from '../v6/integrations';
 import { builderCodesIn, KNOWN_TOKEN_ADDRESSES } from './code-signals';
 import { CHAIN_REGISTRY, chainOfId } from './chains';
 import { sql } from './db';
-import { GitHubError, RepoPrivateError, readRepo, readRepoObject, type RepoRead } from './github';
-import { LIMITS, hit } from './rate-limit';
+import { GitHubError, GitHubSlow, RepoPrivateError, readRepo, readRepoObject, type RepoRead } from './github';
+import { LIMITS, hit, uncountHit } from './rate-limit';
 import { addressKey, canonicalRepoLink, type Project } from './project-input';
 import { cleanText } from './controls';
 
@@ -18,9 +18,9 @@ export type Basis = 'code' | 'reported';
  * What the builder is told about the read, one sentence each (v6.1.8, B20 and C59): reads paused for the day, a
  * private repo, a public repo on another code host (EarnKit reads GitHub only, L1g-3 v6.1.15), any other repo link not
  * read (a 404, an outage; fix round 1), a fork, an archived repo (counts as not live), an empty repo,
- * Builder Codes reported but not in the code read (v6.1.9).
+ * Builder Codes reported but not in the code read (v6.1.9); a read past its time budget (`slow`, L26-8 v6.1.16).
  */
-export type RepoNote = 'paused' | 'private' | 'other_host' | 'unread' | 'fork' | 'archived' | 'empty' | 'no_builder_codes';
+export type RepoNote = 'slow' | 'paused' | 'private' | 'other_host' | 'unread' | 'fork' | 'archived' | 'empty' | 'no_builder_codes';
 export type RepoFacts = {
   name: string;
   description: string;
@@ -239,6 +239,17 @@ async function countRead(installationId: number | undefined, now: Date) {
   if (!(await hit(`repoRead:${installationId}`, limit, windowSeconds, now)).allowed) throw new ReadsPaused();
 }
 
+/** L26-8, L26-9 (v6.1.16 Task 12): a read that timed out or found no public repo gives the day's read back. */
+async function uncountRead(installationId: number | undefined, now: Date) {
+  if (installationId !== undefined) await uncountHit(`repoRead:${installationId}`, LIMITS.repoRead.windowSeconds, now);
+}
+
+/** L26-9 (v6.1.16 Task 12): how long a 404 or a private answer is kept, so a missing repo is read once per window. */
+export const MISS_KEEP_MS = 30 * 60_000;
+/** A kept miss in repo_cache: the facts are only `{ miss }`, never complete, so no other reader takes them as a read. */
+type Miss = { miss: 'gone' | 'private' };
+const isMiss = (f: unknown): f is Miss => typeof f === 'object' && f !== null && 'miss' in f;
+
 /** Deletes repo_cache rows read over 30 days ago; the count deleted. */
 export async function sweepRepoCache(now: Date): Promise<number> {
   const rows = await sql()`DELETE FROM repo_cache WHERE fetched_at < ${new Date(now.getTime() - 30 * DAY_MS)} RETURNING repo`;
@@ -260,7 +271,18 @@ const complete = (f: CodeFacts) => 'fork' in f && 'archived' in f;
 async function cachedCodeFacts(key: string, f: Fetch, now: Date, installationId?: number, staleAfter?: Date | null): Promise<CodeFacts> {
   const [row] = await sql()<{ facts: CodeFacts; pushed_at: Date | null; fetched_at: Date }[]>`
     SELECT facts, pushed_at, fetched_at FROM repo_cache WHERE repo = ${key}`;
-  const forget = () => sql()`DELETE FROM repo_cache WHERE repo = ${key}`;
+  const keepMiss = (miss: Miss['miss']) => sql()`
+    INSERT INTO repo_cache (repo, facts, fetched_at, pushed_at) VALUES (${key}, ${sql().json({ miss })}, ${now}, NULL)
+    ON CONFLICT (repo) DO UPDATE SET facts = EXCLUDED.facts, fetched_at = EXCLUDED.fetched_at, pushed_at = NULL`;
+  // L26-9: a miss kept under 30 minutes answers as a fresh one did, with no GitHub call and no read counted; a step the
+  // builder marked done since sends it back to GitHub.
+  if (row && isMiss(row.facts)) {
+    const age = now.getTime() - row.fetched_at.getTime();
+    if (age >= 0 && age < MISS_KEEP_MS && !(staleAfter != null && row.fetched_at.getTime() < staleAfter.getTime())) {
+      if (row.facts.miss === 'private') throw new RepoPrivateError();
+      throw new GitHubError(`GitHub: /repos/${key} not found (or private)`, 404);
+    }
+  }
   if (row && complete(row.facts)) {
     const age = now.getTime() - row.fetched_at.getTime();
     const checked = Math.max(row.fetched_at.getTime(), Date.parse(row.facts.checked_at ?? '') || 0);
@@ -273,13 +295,13 @@ async function cachedCodeFacts(key: string, f: Fetch, now: Date, installationId?
       } catch (err) {
         // Gone or private: unreadable, so the cached copy must not outlive it. Anything else is transient.
         if (err instanceof GitHubError && err.status === 404) {
-          await forget();
+          await keepMiss('gone');
           throw err;
         }
         return withIntegrations(row.facts);
       }
       if (live.private === true) {
-        await forget();
+        await keepMiss('private');
         throw new RepoPrivateError();
       }
       if (row.pushed_at && Date.parse(live.pushed_at) === row.pushed_at.getTime()) {
@@ -293,7 +315,10 @@ async function cachedCodeFacts(key: string, f: Fetch, now: Date, installationId?
   try {
     read = await readRepo(key, { fetch: f });
   } catch (err) {
-    if (row && err instanceof GitHubError && err.status === 404) await forget();
+    // L26-8, L26-9: a timed-out read and a missing or private repo never count against the day's reads; the miss is kept.
+    if (err instanceof GitHubSlow || err instanceof RepoPrivateError || (err instanceof GitHubError && err.status === 404)) await uncountRead(installationId, now);
+    if (err instanceof RepoPrivateError) await keepMiss('private');
+    else if (err instanceof GitHubError && err.status === 404) await keepMiss('gone');
     throw err;
   }
   const facts = codeFactsOf(read);
@@ -317,14 +342,14 @@ async function cachedCodeFacts(key: string, f: Fetch, now: Date, installationId?
 export async function repoFacts(project: Project, deps: { gh?: Fetch; now?: Date; installationId?: number; staleAfter?: Date | null } = {}): Promise<RepoFacts> {
   const key = project.private ? null : repoKey(project.repo_url);
   let code: CodeFacts | null = null;
-  let paused = false;
+  let paused: Unread = false;
   // M1 (v6.1.14 fix round 1): a repo the read finds private is private, never gone, report or not.
   let found = false;
   if (key) {
     try {
       code = await cachedCodeFacts(key, deps.gh ?? fetch, deps.now ?? new Date(), deps.installationId, deps.staleAfter);
     } catch (err) {
-      paused = err instanceof ReadsPaused;
+      paused = err instanceof ReadsPaused ? 'paused' : err instanceof GitHubSlow ? 'slow' : false;
       found = err instanceof RepoPrivateError;
       code = null;
     }
@@ -357,7 +382,9 @@ function onGitHub(url: string): boolean {
 }
 
 /** The code read (or none) and the agent's report as one set of facts (repoFacts' merge rules). Pure. */
-function mergedFacts(project: Project, code: CodeFacts | null, paused: boolean): RepoFacts {
+/** Why a GitHub repo was not read, when it is no fault of the repo: the day's reads used, or the read's budget (L26-8). */
+type Unread = 'paused' | 'slow' | false;
+function mergedFacts(project: Project, code: CodeFacts | null, paused: Unread): RepoFacts {
   const chains: RepoFacts['chains'] = (code?.chains ?? []).map((c) => ({ ...c }));
   const contracts: RepoFacts['contracts'] = (code?.contracts ?? []).map((c) => ({ ...c, basis: 'code' as const }));
   for (const c of project.chains ?? []) {
@@ -374,7 +401,7 @@ function mergedFacts(project: Project, code: CodeFacts | null, paused: boolean):
   const lead = code?.readme_lead ? cleanText(code.readme_lead, 280) || null : null;
   const homeLive = archived ? null : homepage;
   // A repo link given and not read is said once, with the one reason that applies.
-  const unread: RepoNote[] = !project.repo_url || code ? [] : [paused ? 'paused' : project.private ? 'private' : onGitHub(project.repo_url) ? 'unread' : 'other_host'];
+  const unread: RepoNote[] = !project.repo_url || code ? [] : [paused || (project.private ? 'private' : onGitHub(project.repo_url) ? 'unread' : 'other_host')];
   const notes: RepoNote[] = [
     ...unread,
     ...(code?.fork ? (['fork'] as const) : []),
@@ -404,7 +431,7 @@ function mergedFacts(project: Project, code: CodeFacts | null, paused: boolean):
     readme_excerpt: readme,
     homepage,
     ...(code?.topics && code.topics.length > 0 ? { topics: code.topics } : {}),
-    ...(paused ? { problems: [READS_PAUSED] } : {}),
+    ...(paused === 'paused' ? { problems: [READS_PAUSED] } : {}),
     notes,
     ...(project.private ? { private: true as const } : {}),
   };

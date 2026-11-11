@@ -59,6 +59,13 @@ const shown = (x: Row): Row[] => {
   if (m) return [{ ...x, key: `${m[1]}outside_senders_90d` }, x]; // alias until v6.1.16
   return [x.basis === 'site' && SITE_TEXT.has(x.key) && typeof x.value === 'string' ? { ...x, note: [SITE_TEXT_NOTE, x.note].filter(Boolean).join('; ') } : x];
 };
+/** A results row: `read_at` only when it differs from its applicant's (L26-4). */
+export type ShownRow = Omit<Row, 'read_at'> & { read_at?: string };
+/** L26-4 (v6.1.16 Task 12): the applicant's read time (the latest of its rows), and each row without it unless older. Pure. */
+function readOnce(rows: Row[]): { read_at: string | null; rows: ShownRow[] } {
+  const read_at = rows.reduce<string | null>((m, r) => (r.read_at && (!m || r.read_at > m) ? r.read_at : m), null);
+  return { read_at, rows: rows.map(({ read_at: at, ...r }) => (at && at !== read_at ? { ...r, read_at: at } : r)) };
+}
 /** `payment` (T8-F1, v6.1.14): a won that is a further payment of a win already posted, with the reviewer's own key. */
 export type Outcome = {
   ref: string; outcome: 'won' | 'rejected' | 'shortlisted'; payment?: { key: string };
@@ -72,8 +79,8 @@ const moneyOf = (o: Outcome): Amounts | null =>
   o.outcome !== 'won' ? null : o.money ? { [o.money.currency]: cents(o.money.value) } : o.amount_usd != null ? { USD: cents(o.amount_usd) } : null;
 /** A value rounded to the cent, to be stored (the cap reads the given value first, L22-5). Pure. */
 const cents = (v: number): number => Math.round(v * 100) / 100;
-/** Applicants per page of a screen's results (L15-3, v6.1.14). */
-export const PAGE_SIZE = 25;
+/** Applicants per page of a screen's results (L15-3, v6.1.14; 10 from v6.1.16 Task 12, L26-4: a page stays under 20 KB). */
+export const PAGE_SIZE = 10;
 export type XpCounts = { applications_90d: number; outcomes: { won: number; rejected: number } };
 export type ScreenResults = {
   job_id: string;
@@ -88,7 +95,8 @@ export type ScreenResults = {
   next_page: number | null;
   totals: Record<Tier | 'pending', number>;
   /** `result` and `amount` (L22-12, v6.1.16): the program's outcome posted for the applicant, its money in the one format. */
-  applicants: { ref: string; name: string; tier: Tier | null; flags: Flag[]; because: string[]; line: string | null; result: 'won' | 'rejected' | 'shortlisted' | null; amount: string | null; rows?: Row[] }[];
+  /** `read_at` (L26-4, v6.1.16 Task 12): when the applicant was read, once; a row keeps its own only when it was read earlier (a cache). */
+  applicants: { ref: string; name: string; tier: Tier | null; flags: Flag[]; because: string[]; line: string | null; result: 'won' | 'rejected' | 'shortlisted' | null; amount: string | null; read_at?: string | null; rows?: ShownRow[] }[];
 };
 export type JobStatus = { id: string; program_id: string; total: number; done: number; finished: boolean; expired: boolean; last_run_left: number };
 
@@ -432,7 +440,7 @@ export async function jobResults(id: string, builderId: number, now: Date = new 
         line: read ? (r.line != null ? currentReviewerLine(r.line) : 'no tier: the read failed.') : null,
         result: r.outcome ?? null,
         amount: r.outcome === 'won' ? amountsText(keptAmounts({ ...r, outcome: 'won' })) || null : null,
-        ...(read && { rows: (r.rows ?? []).filter((x) => PUBLIC_BASES.has(x.basis)).flatMap(shown) }),
+        ...(read && readOnce((r.rows ?? []).filter((x) => PUBLIC_BASES.has(x.basis)).flatMap(shown))),
       };
     })
     .sort((a, b) => ORDER.indexOf(a.tier) - ORDER.indexOf(b.tier));
@@ -494,12 +502,25 @@ export const OUTCOME_NOTES = {
 export const OWN_APPLICATION = 'You applied to this one; another reviewer posts its result.';
 
 /** The application with this EarnKit id for the program, any status, and whether it is this builder's own. */
+/** An `i:<n>` owner's installation id, or null for any other owner (L26-10, v6.1.16 Task 12: looked up by id, an index). Pure. */
+export const installationOwner = (owner: string): number | null => {
+  const id = /^i:(\d{1,15})$/.exec(owner) ? Number(owner.slice(2)) : NaN;
+  return Number.isSafeInteger(id) ? id : null;
+};
+
+/** The builder an `i:<n>` owner's installation is linked to, by its id (L26-10); null when none. */
+async function ownerInstallationBuilder(owner: string): Promise<number | null> {
+  const id = installationOwner(owner);
+  if (id === null) return null;
+  return (await sql()<{ builder_id: number | null }[]>`SELECT builder_id FROM installations WHERE id = ${id}`)[0]?.builder_id ?? null;
+}
+
 async function applicationOf(applicationId: string, programId: string, builderId: number) {
-  const [app] = await sql()<{ owner: string; installation_id: number; status: string; own: boolean; project_id: string | null }[]>`
-    SELECT a.owner, a.installation_id, a.status, a.project_id,
-      (a.owner = ${`b:${builderId}`} OR EXISTS (SELECT 1 FROM installations i WHERE a.owner = 'i:' || i.id AND i.builder_id = ${builderId})) AS own
-    FROM applications a WHERE a.application_id = ${applicationId} AND a.program_id = ${programId}`;
-  return app;
+  const [app] = await sql()<{ owner: string; installation_id: number; status: string; project_id: string | null }[]>`
+    SELECT a.owner, a.installation_id, a.status, a.project_id FROM applications a WHERE a.application_id = ${applicationId} AND a.program_id = ${programId}`;
+  if (!app) return app;
+  const own = app.owner === `b:${builderId}` || (await ownerInstallationBuilder(app.owner)) === builderId;
+  return { ...app, own };
 }
 
 type ProjectSide = { repo: string | null; name: string | null };
@@ -517,9 +538,7 @@ async function applicationProject(owner: string, projectId: string | null): Prom
   if (projectId.startsWith('name:')) return { repo: null, name: projectId.slice(5) || null };
   const repo = repoSide(projectId);
   if (repo) return { repo, name: null };
-  const builder = owner.startsWith('b:')
-    ? Number(owner.slice(2))
-    : ((await sql()<{ builder_id: number | null }[]>`SELECT builder_id FROM installations WHERE 'i:' || id = ${owner}`)[0]?.builder_id ?? null);
+  const builder = owner.startsWith('b:') ? Number(owner.slice(2)) : await ownerInstallationBuilder(owner);
   if (builder === null || !Number.isSafeInteger(builder)) return null;
   const p = (await getRecord(builder)).projects.find((x) => x.id === projectId);
   if (!p) return null;

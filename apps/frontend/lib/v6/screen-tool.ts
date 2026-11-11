@@ -11,7 +11,7 @@ import { AMOUNT_DOT, AMOUNT_UNREAD, UNKNOWN_CURRENCY_NOTE, comparable, overCap, 
 import { moneyText } from '../v5/programs-read';
 import { getProgram } from '../v5/programs';
 import { SHORT_LINK_NOTE } from '../v5/project-input';
-import { LIMITS, hit } from '../v5/rate-limit';
+import { LIMITS, hit, uncountHit } from '../v5/rate-limit';
 import { listWords, signInLink } from './record-tool';
 import { reviewerPrograms } from './reviewers';
 import { badRequeues, createJob, jobResults, jobStatus, NOT_PASSED, type Outcome, PAGE_SIZE, OUTCOME_NOTES, OWN_APPLICATION, queuedAhead, recordOutcomes, REF_MAX, ScreenApplicant, type ScreenResults } from './screen-jobs';
@@ -24,7 +24,7 @@ export const ScreenInput = z
     applicants: z.array(ScreenApplicant).optional().describe('The list to screen, each { ref (required), name, repo_url, live_url, contracts: [{ chain, address }], pitch, applied_at, application_id, requeue: { job_id, ref } of the earlier row it replaces }'),
     thresholds: z.record(z.string(), z.number()).optional().describe('Tier thresholds to override, by name'),
     job_id: z.string().max(40).optional().describe('A queued screen: its progress and results'),
-    page: z.number().int().min(1).max(1000).optional().describe('With job_id: the page of results, 25 applicants each, from 1; next_page names the next, null on the last'),
+    page: z.number().int().min(1).max(1000).optional().describe('With job_id: the page of results, 10 applicants each, from 1; next_page names the next, null on the last'),
     outcomes: z
       .array(
         z.object({
@@ -51,7 +51,8 @@ export const SCREEN_TEXT = {
   unlinkedNoLink: 'Screening is for program reviewers.',
   notReviewer: `Screening is for program reviewers, and you do not review that program. ${ASK_ACCESS}`,
   noProgram: `You review no program yet. ${ASK_ACCESS}`,
-  limit: 'You can queue ten screens a day.',
+  /** L26-12 (v6.1.16 Task 12). */
+  limit: 'You can queue ten screens a day. Try again tomorrow.',
   whichProgram: 'Name the program you are screening for.',
   empty: 'Hand me at least one applicant.',
   noJob: "I don't have that screen.",
@@ -77,8 +78,8 @@ export const SCREEN_TEXT = {
   nextPage: (n: number) => `Ask for page ${n} for the rest.`,
   /** v6.1.16 Task 16 (L30 time budget): the last daily run stopped at its deadline before this job was all read. */
   readToday: (n: number, m: number) => `${n} of ${m} read today; the rest tomorrow.`,
-  /** L16-12 (v6.1.16): a results page past the last. */
-  noMore: 'No more results.',
+  /** L16-12, L26-12 (v6.1.16 Task 12): a results page past the last. */
+  noMore: (pages: number) => `That screen has ${plural(pages, 'page')}.`,
   /** Fix round 1 (C1): an outcome a builder's ledger did not take; the refs are in the agent note. */
   builderStands: "Not passed on; the builder's record stands.",
   /** L16-16 (v6.1.16): every outcome of the call was already recorded. */
@@ -87,10 +88,10 @@ export const SCREEN_TEXT = {
   badRequeue: (refs: string) => `Not queued: the earlier row named for ${refs} is not in this program's screens with the same EarnKit id.`,
 } as const;
 
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const line = (show: string, agent_note: string = SCREEN_TEXT.stopNote): ScreenReply => ({ show_to_builder: show, agent_note });
 /** L29-9 (v6.1.16 Task 15): a refusal, answered isError true with the same text. */
 const no = (show: string, agent_note?: string): ScreenReply => refuse(line(show, agent_note));
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** "412 applicants: 31 used, 88 live, 190 building, 74 unverified, 29 flagged; 0 pending." Pure. */
 export function totalsLine(r: ScreenResults): string {
@@ -117,12 +118,13 @@ function thresholdsOf(given: Record<string, number> | undefined): Partial<Thresh
 }
 
 /**
- * When the results come (v6.1.7 B14): the daily run reads SCREEN_BATCH applicants, oldest job first, so the job
- * is done in the next run when it fits after the queue ahead of it; else in as many daily runs as the two need. Pure.
+ * When the results come (v6.1.7 B14, L26-6 v6.1.16 Task 12): the daily run reads SCREEN_BATCH applicants of the one
+ * shared queue, oldest job first, so the job is done in the next run when it fits after the rows queued before it; else
+ * in as many daily runs as the two need. The line never counts anyone's rows as "ahead of yours". Pure.
  */
-export function promiseLine(ahead: number, total: number): string {
-  const days = Math.ceil((ahead + total) / SCREEN_BATCH);
-  return days <= 1 ? SCREEN_TEXT.promise : `Results come in daily runs; ${plural(ahead, 'applicant')} ahead of yours, all within ${days} days.`;
+export function promiseLine(queuedBefore: number, total: number): string {
+  const days = Math.ceil((queuedBefore + total) / SCREEN_BATCH);
+  return days <= 1 ? SCREEN_TEXT.promise : `Results within ${days} days.`;
 }
 
 /** The applicant fields ScreenApplicant reads; `repo` reads as repo_url when that is not given (T6). */
@@ -255,18 +257,18 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
     }
     const results = await jobResults(input.job_id, ctx.builderId, ctx.now, input.page ?? 1);
     if (!results) return no(SCREEN_TEXT.expired);
-    // L15-3 (v6.1.14): one page of 25; the last line asks for the next when there is one. L16-12 (v6.1.16): a page past
-    // the last says so.
+    // L15-3 (v6.1.14): one page of PAGE_SIZE (10, L26-4); the last line asks for the next when there is one. L16-12,
+    // L26-12 (v6.1.16): a page past the last names how many there are.
+    const pages = Math.ceil(results.total / PAGE_SIZE);
     const more = results.next_page !== null ? ` ${SCREEN_TEXT.nextPage(results.next_page)}`
-      : results.page > 1 && results.applicants.length === 0 ? ` ${SCREEN_TEXT.noMore}` : '';
+      : results.page > 1 && results.applicants.length === 0 ? ` ${SCREEN_TEXT.noMore(pages)}` : '';
     const short = results.last_run_left > 0 ? ` ${SCREEN_TEXT.readToday(results.done, results.total)}` : '';
     // L21-27 (v6.1.16): with more than one page, a page that exists leads with where it is: "Page 2 of 3."
-    const pages = Math.ceil(results.total / PAGE_SIZE);
     const at = pages > 1 && results.page <= pages ? `Page ${results.page} of ${pages}. ` : '';
     return {
       show_to_builder: `${at}${totalsLine(results)}${short}${more}`,
       // L24-19 (v6.1.16 Task 11): the names are the applicants' own words, said once per results reply.
-      agent_note: [results.finished ? SCREEN_TEXT.sortNote : SCREEN_TEXT.pendingNote, APPLICANT_TEXT_NOTE, ...(results.next_page !== null ? [`Call screen with job_id and page ${results.next_page} for the next 25.`] : [])].join(' '),
+      agent_note: [results.finished ? SCREEN_TEXT.sortNote : SCREEN_TEXT.pendingNote, APPLICANT_TEXT_NOTE, ...(results.next_page !== null ? [`Call screen with job_id and page ${results.next_page} for the next ${PAGE_SIZE}.`] : [])].join(' '),
       job_id: results.job_id,
       results,
       next_page: results.next_page,
@@ -289,11 +291,14 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
   if (bad.length > 0) return no(SCREEN_TEXT.badRequeue(listWords(bad, 10)), 'Nothing was queued. Each requeue names { job_id, ref } of an earlier row of this program with the same application_id; fix or drop it and call screen again.');
   // Counted atomically, per reviewer (not per installation), only once every refusal above has passed.
   const { limit, windowSeconds } = LIMITS.screenJobs;
-  if (!(await hit(`screenJobs:b:${ctx.builderId}`, limit, windowSeconds, ctx.now)).allowed) return no(SCREEN_TEXT.limit);
+  const dayKey = `screenJobs:b:${ctx.builderId}`;
+  if (!(await hit(dayKey, limit, windowSeconds, ctx.now)).allowed) return no(SCREEN_TEXT.limit);
 
   const job = await createJob({ programId, builderId: ctx.builderId, installationId: ctx.installationId, applicants: input.applicants, thresholds: thresholds as Partial<Thresholds>, now: ctx.now });
   // L17-5 (v6.1.16): applicants a live screen of the program already holds are not queued again; with none left, no job.
   const k = job.already.length;
+  // v6.1.16 Task 12 (from Task 4): a call that queued nothing new never counts against the day's ten.
+  if (job.id === null) await uncountHit(dayKey, windowSeconds, ctx.now);
   if (job.id === null)
     return line(`Nothing new to queue for ${program.file.title}; ${k} already queued.`, [...job.notes, 'Nothing was queued; their results come with the screens that hold them.'].join(' '));
   const ahead = await queuedAhead(job.id, ctx.now);

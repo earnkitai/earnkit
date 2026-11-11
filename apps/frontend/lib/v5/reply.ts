@@ -624,6 +624,8 @@ export function tonightIn(r: Pick<R, 'auto_apply' | 'max_per_night' | 'auto_sent
 
 /** The one sentence for each thing the builder is told about the repo read (v6.1.8, B20 and C59); a repo link not read gets exactly one of the first four. */
 export const REPO_NOTE: Record<RepoNote, string> = {
+  /** L26-8 (v6.1.16 Task 12): the read passed its time budget. */
+  slow: 'GitHub was slow; matched on what you told me. I read it again next time.',
   paused: 'Repo reads are paused until tomorrow; matched on what you told me.',
   private: 'Private repo: matched on what you told me.',
   other_host: 'I read GitHub repos only; matched on what you told me.',

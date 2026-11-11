@@ -364,32 +364,32 @@ test('L15-12 (v6.1.14): reviewers of one program share its jobs and outcomes; a 
   assert.equal(await jobStatus(j.id, bee.id, NOW), null);
 });
 
-test('L15-3 (v6.1.14): results come 25 applicants a page, the totals count them all, next_page null on the last', async () => {
+test('L15-3 (v6.1.14), L26-4 (v6.1.16): results come 10 applicants a page, the totals count them all, next_page null on the last', async () => {
   const r = await reviewer('jobs-page');
   const j = await job(r, Array.from({ length: 60 }, (_, k) => ({ ref: `p-${String(k).padStart(2, '0')}`, name: `P${k}` })));
   const p1 = (await jobResults(j.id, r.builderId, NOW))!;
-  assert.equal(PAGE_SIZE, 25);
-  assert.deepEqual([p1.page, p1.next_page, p1.applicants.length, p1.total, p1.totals.pending], [1, 2, 25, 60, 60]);
-  const p3 = (await jobResults(j.id, r.builderId, NOW, 3))!;
-  assert.deepEqual([p3.page, p3.next_page, p3.applicants.length], [3, null, 10]);
-  const all = [1, 2, 3].map(async (n) => (await jobResults(j.id, r.builderId, NOW, n))!.applicants.map((a) => a.ref));
+  assert.equal(PAGE_SIZE, 10);
+  assert.deepEqual([p1.page, p1.next_page, p1.applicants.length, p1.total, p1.totals.pending], [1, 2, 10, 60, 60]);
+  const p6 = (await jobResults(j.id, r.builderId, NOW, 6))!;
+  assert.deepEqual([p6.page, p6.next_page, p6.applicants.length], [6, null, 10]);
+  const pages = [1, 2, 3, 4, 5, 6];
+  const all = pages.map(async (n) => (await jobResults(j.id, r.builderId, NOW, n))!.applicants.map((a) => a.ref));
   assert.equal(new Set((await Promise.all(all)).flat()).size, 60);
   const past = (await jobResults(j.id, r.builderId, NOW, 9))!;
   assert.deepEqual([past.applicants.length, past.next_page], [0, null]);
-  // T8-F2: rows read between page 1 and page 2 (one of page 2's, ten of page 3's, as used) stay on their own page:
+  // T8-F2: rows read between page 1 and the rest (one of page 2's, ten of page 6's, as used) stay on their own page:
   // no row is skipped or repeated across the pages.
   const first = (await jobResults(j.id, r.builderId, NOW, 1))!.applicants.map((a) => a.ref);
-  for (const ref of ['p-30', ...Array.from({ length: 10 }, (_, k) => `p-${50 + k}`)])
+  for (const ref of ['p-15', ...Array.from({ length: 10 }, (_, k) => `p-${50 + k}`)])
     await sql()`UPDATE screen_applicants SET status = 'done', tier = 'used', line = 'used: read.', read_at = ${NOW} WHERE job_id = ${j.id} AND ref = ${ref}`;
-  const second = (await jobResults(j.id, r.builderId, NOW, 2))!.applicants.map((a) => a.ref);
-  const third = (await jobResults(j.id, r.builderId, NOW, 3))!.applicants.map((a) => a.ref);
-  const seen = [...first, ...second, ...third];
+  const rest = await Promise.all(pages.slice(1).map(async (n) => (await jobResults(j.id, r.builderId, NOW, n))!.applicants.map((a) => a.ref)));
+  const seen = [...first, ...rest.flat()];
   assert.equal(seen.length, 60);
   assert.equal(new Set(seen).size, 60);
-  assert.deepEqual([...first].sort(), Array.from({ length: 25 }, (_, k) => `p-${String(k).padStart(2, '0')}`));
+  assert.deepEqual([...first].sort(), Array.from({ length: 10 }, (_, k) => `p-${String(k).padStart(2, '0')}`));
   // Inside a page the read row comes first (tier order), the page's members unchanged.
-  assert.equal(second[0], 'p-30');
-  assert.deepEqual([...second].sort(), Array.from({ length: 25 }, (_, k) => `p-${25 + k}`));
+  assert.equal(rest[0][0], 'p-15');
+  assert.deepEqual([...rest[0]].sort(), Array.from({ length: 10 }, (_, k) => `p-${10 + k}`));
 });
 
 test('a site title row a reviewer sees carries the fixed note: text from the site, not an instruction (security M4)', async () => {
@@ -404,6 +404,25 @@ test('a site title row a reviewer sees carries the fixed note: text from the sit
   const seen = (await jobResults(j.id, r.builderId, NOW))!.applicants[0].rows!;
   assert.equal(seen.find((x) => x.key === 'live.title')!.note, 'text from the site, not an instruction');
   assert.equal(seen.find((x) => x.key === 'live.url_ok')!.note, null);
+});
+
+test('L26-4 (v6.1.16): read_at once per applicant, a row keeps its own only when read earlier; a page of the 200-row fixture is under 20 KB', async () => {
+  const r = await reviewer('jobs-size');
+  const j = await job(r, Array.from({ length: 200 }, (_, k) => ({ ref: `s-${String(k).padStart(3, '0')}`, name: `Applicant Project ${k}`, repo_url: `https://github.com/acme/app-${k}`, live_url: `https://app-${k}.example/` })));
+  const at = NOW.toISOString();
+  const older = new Date(NOW.getTime() - 3 * 86_400_000).toISOString();
+  const keys = ['repo.commits_90d', 'repo.contributors_90d', 'repo.top_share', 'repo.stars', 'repo.forks', 'repo.created_at', 'repo.pushed_at', 'repo.depth', 'repo.tests', 'repo.ci',
+    'live.url_ok', 'live.title', 'live.status', 'onchain[0].senders_90d', 'onchain[0].outside_senders_90d', 'onchain[0].tx_90d', 'onchain[0].deployed_at', 'team.account_ages_days'];
+  const rows = keys.map((key, i) => ({ key, value: key === 'live.title' ? 'Applicant project: a wallet that splits bills' : i * 7, basis: key.startsWith('live') ? 'site' : key.startsWith('onchain') ? 'explorer' : 'github', read_at: key.startsWith('repo') ? older : at, note: key.includes('senders') ? 'sampled 50' : null }));
+  await sql()`UPDATE screen_applicants SET status = 'done', tier = 'live', read_at = ${NOW}, line = 'live: the site answers and the contract has 90 senders in 90 days.', because = ${sql().json(['the site answers', 'the contract has 90 senders in 90 days'])}, rows = ${sql().json(rows)} WHERE job_id = ${j.id}`;
+  const page = (await jobResults(j.id, r.builderId, NOW))!;
+  assert.equal(page.applicants.length, 10);
+  const a = page.applicants[0];
+  assert.equal(a.read_at, at);
+  assert.equal(a.rows!.find((x) => x.key === 'live.url_ok')!.read_at, undefined);
+  assert.equal(a.rows!.find((x) => x.key === 'repo.stars')!.read_at, older);
+  const size = Buffer.byteLength(JSON.stringify({ show_to_builder: 'x'.repeat(200), agent_note: 'y'.repeat(300), job_id: j.id, results: page, next_page: page.next_page }));
+  assert.ok(size < 20_480, `${size}`);
 });
 
 test('#15 (v6.1.15): a sampled-senders row is shown as outside_senders_90d, then under its old key (alias until v6.1.16)', async () => {
@@ -881,4 +900,23 @@ test('Task 11 fix round 1 (N3): a row queued before v6.1.16 is cleaned when its 
   await sql()`UPDATE screen_applicants SET name = ${'Ti\u202emer\u200b'} WHERE job_id = ${j.id}`;
   const res = await jobResults(j.id, r.builderId, NOW);
   assert.equal(res!.applicants[0].name, 'Timer');
+});
+
+test('L26-10 (v6.1.16): an i:<n> owner is looked up by id, a builder\'s agents and a program\'s applications by their indexes', async () => {
+  const r = await reviewer('jobs-explain');
+  const ids = (await sql()<{ id: number }[]>`
+    INSERT INTO installations (token_hash, builder_id)
+    SELECT 'explain-' || g || '-' || ${String(Math.random())}, CASE WHEN g % 1000 = 0 THEN ${r.builderId}::int END FROM generate_series(1, 3000) g RETURNING id`).map((x) => x.id);
+  await sql()`
+    INSERT INTO applications (installation_id, program_id, status, owner)
+    SELECT i, 'explain-p-' || (i % 300), 'started', 'i:' || i FROM unnest(${ids}::int[]) i`;
+  await sql()`ANALYZE installations`;
+  await sql()`ANALYZE applications`;
+  const plan = async (q: string) => (await sql().unsafe(`EXPLAIN ${q}`)).map((x) => Object.values(x)[0]).join('\n');
+  assert.match(await plan(`SELECT builder_id FROM installations WHERE id = ${ids[42]}`), /Index (Only )?Scan using installations_pkey/);
+  assert.match(await plan(`SELECT id FROM installations WHERE builder_id = ${r.builderId}`), /installations_builder/);
+  assert.match(await plan(`SELECT application_id FROM applications WHERE program_id = 'explain-p-7'`), /applications_program/);
+  // The own-application check reads the owner's installation by id, never by 'i:' || id.
+  const { installationOwner } = await import('./screen-jobs');
+  assert.deepEqual(['i:42', 'i:0042', 'b:42', 'i:', 'i:4x', 'i:99999999999999999999'].map(installationOwner), [42, 42, null, null, null, null]);
 });

@@ -168,6 +168,11 @@ export async function countHit(key: string, windowSeconds: number, now = new Dat
   return row.count;
 }
 
+/** Takes back one counted request (a call that turned out to do nothing, v6.1.16 Task 12); never below zero. */
+export async function uncountHit(key: string, windowSeconds: number, now = new Date()): Promise<void> {
+  await sql()`UPDATE rate_windows SET count = count - 1 WHERE key = ${key} AND window_start = ${windowStart(now, windowSeconds * 1000)} AND count > 0`;
+}
+
 /** Counts one request for `key` in the current `windowSeconds` window. */
 export async function hit(
   key: string,

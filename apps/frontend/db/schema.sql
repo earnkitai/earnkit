@@ -404,3 +404,8 @@ ALTER TABLE applications ADD COLUMN IF NOT EXISTS held_at timestamptz;
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS last_list jsonb;
 -- v6.1.16 Task 15 (L29-11): what the next send needs from the builder (at most two), from the last linked project find.
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS next_needs jsonb;
+-- v6.1.16 Task 12 (L26-10): the lookups that grow with installations and applications use an index: a builder's agents
+-- (/me, deleteBuilder, an outcome's own-application check) and a program's applications; a program's screens (Task 4).
+CREATE INDEX IF NOT EXISTS installations_builder ON installations (builder_id) WHERE builder_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS applications_program ON applications (program_id);
+CREATE INDEX IF NOT EXISTS screen_jobs_program ON screen_jobs (program_id);

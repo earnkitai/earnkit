@@ -106,7 +106,7 @@ const USERS_UNKNOWN: Gap = { kind: 'users', item: 'users', what: 'tell me if rea
 /**
  * B20d (v6.1.9, fix round 2): whether the project exists for the users question: a repo read that holds code (not
  * empty), a live link, a private repo, a public repo on another code host (EarnKit reads GitHub only; I1, v6.1.15 fix
- * round 1), or a repo whose read was paused for the day (the repo likely exists; the builder's word stands, marked as
+ * round 1), or a repo whose read was paused for the day or passed its time budget (L26-8) (the repo likely exists; the builder's word stands, marked as
  * reported), or a contract on a mainnet (reported or read; v6.1.9 final I4). A repo
  * link that was not read (a 404, a failed read), an empty repo or no repo at all is not. Pure.
  */
@@ -114,7 +114,7 @@ export const exists = (facts: RepoFacts): boolean => {
   const notes = facts.notes ?? [];
   if (facts.live_url) return true;
   if (facts.contracts.some((c) => facts.chains.some((x) => x.chain === c.chain && x.mainnet))) return true;
-  if (notes.includes('private') || notes.includes('paused') || notes.includes('other_host')) return true;
+  if (notes.includes('private') || notes.includes('paused') || notes.includes('slow') || notes.includes('other_host')) return true;
   return facts.public && !facts.as_reported && !notes.includes('empty');
 };
 
