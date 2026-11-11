@@ -61,16 +61,21 @@ export const upperFirst = (text: string): string => (/^[a-z][A-Z]/.test(text) ? 
  *  "DeFi", "PayPal"). */
 const PLAIN_CAPITAL = /^[A-Z][a-z]*(?:[-'][a-z]+)*(?=$|[\s,:;.])/;
 
+/** A month opening a phrase keeps its capital (L27-18, v6.1.16): "Nov 12" never reads "nov 12" mid-sentence. */
+const MONTH_WORDS: ReadonlySet<string> = new Set(['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Sept', 'Oct', 'Nov', 'Dec',
+  'January', 'February', 'March', 'April', 'June', 'July', 'August', 'September', 'October', 'November', 'December']);
+
 /** Every word of a registered chain's name ("Ethereum", "Robinhood", "Chain"): a phrase opening with one keeps it. */
 export const CHAIN_WORDS: ReadonlySet<string> = new Set(Object.values(CHAIN_REGISTRY).flatMap((c) => c.name.split(/\s+/)));
 
 /**
  * The text for mid-sentence (one rule wherever a phrase is lower-cased, v6.1.15): a plain capitalised first word is
- * lower-cased, unless it is "I", a chain's name or one of `names` (an ecosystem's words); else as written. Pure.
+ * lower-cased, unless it is "I", a month (L27-18, v6.1.16), a chain's name or one of `names` (an ecosystem's words);
+ * a currency code ("EUR") is never plain. Else as written. Pure.
  */
 export function lowerFirst(text: string, names: Iterable<string> = []): string {
   const first = text.split(/[\s,:;.]/)[0];
-  if (!PLAIN_CAPITAL.test(text) || first === 'I' || CHAIN_WORDS.has(first) || new Set(names).has(first)) return text;
+  if (!PLAIN_CAPITAL.test(text) || first === 'I' || MONTH_WORDS.has(first) || CHAIN_WORDS.has(first) || new Set(names).has(first)) return text;
   return text.charAt(0).toLowerCase() + text.slice(1);
 }
 

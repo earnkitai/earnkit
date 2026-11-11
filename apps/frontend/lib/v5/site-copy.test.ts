@@ -370,3 +370,12 @@ test('S (v6.1.16): the page cache keys carry the build id, so a deploy never ser
   const config = readFileSync(join(ROOT, 'apps/frontend/next.config.ts'), 'utf8');
   assert.match(config, /env: \{ EK_BUILD_ID: process\.env\.RAILWAY_GIT_COMMIT_SHA \|\| String\(Date\.now\(\)\) \}/);
 });
+
+test('L27-18 (v6.1.16): mid-sentence lower-casing never touches a month or a currency code', async () => {
+  const { moneyAt, lowerFirst } = await import('./programs-read');
+  assert.equal(moneyAt('From EUR 50,000', 'mid'), 'from EUR 50,000');
+  assert.equal(moneyAt('EUR 50,000 of work', 'mid'), 'EUR 50,000 of work');
+  assert.equal(lowerFirst('Nov 12, then weekly'), 'Nov 12, then weekly');
+  assert.equal(lowerFirst('December 1'), 'December 1');
+  assert.equal(moneyAt('Up to $5,000', 'mid'), 'up to $5,000');
+});
