@@ -2718,8 +2718,8 @@ test('L23-1 (v6.1.16): a day after the standing-approval line, nothing sent: the
     const day = await mcpCall(c(new Date(NOW.getTime() + 25 * H)), 'find', { project: PROJECT });
     const show = day.reply!.show_to_builder as string;
     assert.match(show, /^Nothing was sent for [^\n]*Promise Grant[^\n]* since you said yes on Nov 4\. Say yes again and I apply now\.\n\n/);
-    // A gap line's own "do n" folds into the closing in Task 11 (L24-8); every other Say is the one.
-    assert.equal(show.replace(/Say "do \d+"/g, '').match(/\bSay\b/g)?.length, 1, show);
+    // L24-8 (v6.1.16 Task 11): a gap line's "do n" is folded into the closing, so one Say in all.
+    assert.equal(show.match(/\bSay\b/g)?.length, 1, show);
     assert.match(day.reply!.agent_note as string, /Nothing was sent for [^\n]*Promise Grant[^\n]* after the standing-approval line named them/);
     // Said once.
     const after = await mcpCall(c(new Date(NOW.getTime() + 26 * H)), 'find', { project: PROJECT });
@@ -2839,14 +2839,14 @@ test('Review Focus 12 (v6.1.16, L23-1): no pinned reply and no exported text pro
   for (const m of mods) for (const [k, v] of Object.entries(m)) for (const s of strings(v)) assert.doesNotMatch(s, banned, `${k}: ${s}`);
 });
 
-test('ONE_SAY_ORDER (v6.1.16, L23-21): no pinned reply carries two Says (a gap line\'s own "do n" folds into the closing in Task 11)', async () => {
+test('ONE_SAY_ORDER (v6.1.16, L23-21): no pinned reply carries two Says (L24-8, Task 11: the do offer is the closing\'s)', async () => {
   const { ONE_SAY_ORDER, oneSay, withoutSay } = await import('./reply');
   assert.deepEqual([...ONE_SAY_ORDER], ['not_sent', 'started_not_sent', 'record_sign_in', 'closing']);
   const say = oneSay();
   assert.equal(say('A: started Nov 3, nothing sent. Say yes to apply or say skip.'), 'A: started Nov 3, nothing sent. Say yes to apply or say skip.');
   assert.equal(say('Nothing is ready yet. Say "yes 2" if that rule fits you.'), 'Nothing is ready yet.');
   assert.equal(withoutSay('Say yes and I apply to all 3. Or say the numbers to skip.'), '');
-  const says = (t: string) => (t.replace(/Say "do \d+"/g, '').match(/\bSay\b/g) ?? []).length;
+  const says = (t: string) => (t.match(/\bSay\b/g) ?? []).length;
   for (const f of ['find.test.ts', 'reply.test.ts', 'track.test.ts']) for (const t of pinnedTexts(f)) assert.ok(says(t) <= 1, `${f}: ${t}`);
 });
 
