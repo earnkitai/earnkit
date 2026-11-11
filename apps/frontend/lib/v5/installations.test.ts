@@ -11,11 +11,11 @@ const NOW = new Date('2026-11-06T12:00:00Z');
 test('connectInstallation returns builderId null before linking and the builder after', async () => {
   const token = 'inst-' + Math.random();
   const id = await saveInstallation(token, 'Test Agent');
-  assert.deepEqual(await connectInstallation(token), { id, builderId: null });
+  assert.deepEqual(await connectInstallation(token), { id, builderId: null, audience: null });
   assert.equal(await builderOf(id), null);
   const b = await upsertBuilder({ github_id: 555_001, login: 'lin', name: null, avatar_url: null }, NOW);
   await linkInstallation(id, b.id, NOW);
-  assert.deepEqual(await connectInstallation(token), { id, builderId: b.id });
+  assert.deepEqual(await connectInstallation(token), { id, builderId: b.id, audience: null });
   assert.equal(await builderOf(id), b.id);
   assert.equal(await connectInstallation('no-such-token'), null);
   assert.equal(await builderOf(2 ** 30), null);
@@ -71,4 +71,15 @@ test('an agent name is cleaned at registration: control and format characters ou
   assert.equal(cleanClientName('Claude Code'), 'Claude Code');
   // 60 characters, not 60 UTF-16 units: an astral character is never cut in half.
   assert.equal(cleanClientName('\u{1F600}'.repeat(70)), '\u{1F600}'.repeat(60));
+});
+
+test('v6.1.16 Task 5: a revoked installation never connects; its audience is kept', async () => {
+  const { revokeInstallation } = await import('./installations');
+  const token = 'rev-' + Math.random();
+  const id = await saveInstallation(token, 'Agent', 'https://earnkit.test/mcp');
+  assert.deepEqual(await connectInstallation(token), { id, builderId: null, audience: 'https://earnkit.test/mcp' });
+  await revokeInstallation(token);
+  assert.equal(await connectInstallation(token), null);
+  const [row] = await sql()`SELECT revoked_at FROM installations WHERE id = ${id}`;
+  assert.ok(row.revoked_at instanceof Date);
 });

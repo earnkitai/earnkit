@@ -7,7 +7,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { isKnownChain } from '../v5/chains';
-import { readCapped } from '../v5/http';
+import { readBody } from '../v5/http';
 import { publicOrigin } from '../v5/oauth';
 import { cleanClientName } from '../v5/installations';
 import {
@@ -67,7 +67,9 @@ export async function meGet(request: Request, deps: Deps = {}): Promise<Response
 async function guard(request: Request, deps: Deps): Promise<Response | { builder: Builder; form: URLSearchParams; now: Date }> {
   const type = (request.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
   if (type !== 'application/x-www-form-urlencoded') return text(415, ME_ERRORS.form);
-  const body = await readCapped(request, MAX_BODY);
+  // A body slower than 5 s is a 408 with the page's line (v6.1.16 Task 5 fix round 1, I2).
+  const body = await readBody(request, MAX_BODY, () => text(408, ME_ERRORS.slow));
+  if (body instanceof Response) return body;
   if (body === null) return text(413, ME_ERRORS.large);
   const now = deps.now ?? new Date();
   const from = request.headers.get('origin');

@@ -34,8 +34,9 @@ export const ruleSentences = (rules: string[]): string =>
  * programs: the ready ones, then the gaps `inBlock` puts in the In person block (O2, v6.1.10: rule-only in person);
  * `ready` comes back with the in-person ones last, `gaps` in input order (stable). Pure.
  */
-export function numbered<P extends { in_person: boolean }, G>(ready: P[], gaps: G[], inBlock: (g: G) => boolean = () => false): { ready: (P & { n: number })[]; gaps: (G & { n: number })[] } {
-  const apply = ready.filter((p) => !p.in_person);
+export function numbered<P extends { in_person: boolean; claimed_since?: string }, G>(ready: P[], gaps: G[], inBlock: (g: G) => boolean = () => false): { ready: (P & { n: number })[]; gaps: (G & { n: number })[] } {
+  // L17-6 (v6.1.16): the ones this agent can send first, then those another agent holds (their own block), numbered on.
+  const apply = [...ready.filter((p) => !p.in_person && !p.claimed_since), ...ready.filter((p) => !p.in_person && p.claimed_since)];
   const attend = ready.filter((p) => p.in_person);
   const steps = gaps.filter((g) => !inBlock(g));
   const at = new Map<G, number>();
@@ -94,8 +95,8 @@ export function readyLine(p: ReadyProgram, linked: boolean, now: Date, alone = f
   const own = linked ? p.need_you.filter((x) => !named(x)) : p.needs.filter((x) => !p.setup.includes(x));
   const first = steps.length > 0 ? ` First: ${steps.join('; ')}.` : '';
   // Another agent of the builder's holds it: still numbered, so the builder can name it, but not in the yes count.
-  // C1 (v6.1.13): a claim for another project names it.
-  const held = p.held_for ? ` Being handled by your other agent for ${p.held_for}.` : p.claimed_since ? ` Being handled by your other agent since ${clock(p.claimed_since, now)}.` : '';
+  // C1 (v6.1.13), ruling 12 (v6.1.16): a claim for another project never names that project here.
+  const held = p.held_for ? ' Being handled by your other agent.' : p.claimed_since ? ` Being handled by your other agent since ${clock(p.claimed_since, now)}.` : '';
   return `${head}.${draftedSentence(p, linked, waits ? [] : own)}${first}${held}`;
 }
 
@@ -133,9 +134,9 @@ const THING = /^(a|an|the|your)\s/i;
  */
 export function inPersonLine(p: ReadyProgram, alone = false, now?: Date): string {
   const line = attendLine(p, alone);
-  // C1 (v6.1.13): held by another agent for another project, its line says so; L13-8 (v6.1.14): held with no project,
-  // since when, as a ready line says it.
-  if (p.held_for) return `${line} Being handled by your other agent for ${p.held_for}.`;
+  // C1 (v6.1.13): held by another agent for another project, its line says so, without that project's name (ruling 12,
+  // v6.1.16); L13-8 (v6.1.14): held with no project, since when, as a ready line says it.
+  if (p.held_for) return `${line} Being handled by your other agent.`;
   return p.claimed_since && now ? `${line} Being handled by your other agent since ${clock(p.claimed_since, now)}.` : line;
 }
 
@@ -631,7 +632,13 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   // The headlines count with parentheses (C56, 3.21); "step" covers a change and a rule to confirm.
   // Review Focus 1 (v6.1.14): a program whose needs the closing names reads them there only (not on tonight's send).
   const namedInClosing = new Set(tonight > 0 ? [] : waits.map((p) => p.program_id));
-  if (ready.length > 0) blocks.push([`Ready to apply (${ready.length}):`, ...ready.map((p) => readyLine(p, r.linked, now, false, named, namedInClosing.has(p.program_id)))].join('\n'));
+  // L17-6 (v6.1.16): Ready lists what this agent can send; another agent's held ones follow in their own block, whose
+  // heading says it, so their lines carry no held sentence.
+  if (free.length > 0) blocks.push([`Ready to apply (${free.length}):`, ...free.map((p) => readyLine(p, r.linked, now, false, named, namedInClosing.has(p.program_id)))].join('\n'));
+  const heldReady = ready.filter((p) => p.claimed_since);
+  if (heldReady.length > 0)
+    blocks.push([`Being handled by your other agent (${heldReady.length}):`,
+      ...heldReady.map((p) => readyLine({ ...p, claimed_since: undefined, held_for: undefined }, r.linked, now, false, named, namedInClosing.has(p.program_id)))].join('\n'));
   // Fix round 1 (v6.1.14, I1): a gap's own step the closing names is left off the lines.
   const stepRule = stepRuleOf(steps);
   const closed = tonight > 0 ? null : closingSetup({ ready: free.length, held: ready.length - free.length + heldInPerson, gaps: steps.length, firstRule, stepRule, firstStep });

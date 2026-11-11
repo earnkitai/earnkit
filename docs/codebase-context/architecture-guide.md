@@ -45,10 +45,15 @@ item exactly; screen's description names `ref` (required), `repo_url` and `live_
    missing name or description fails. `users` is true, false or null (not reported). A chain is a bare slug (`"base"`, mainnet) or an object;
    an object that leaves `mainnet` out is mainnet (v6.1.14 T1) unless it names a testnet in any form (`testnet: true`, a
    `network` or slug with a testnet word such as `base-sepolia`, or a testnet `chain_id`; fix round 1 F1), which is
-   mainnet false; an unknown `chain_id` or a `mainnet` that is not true or false drops it with a problem line.
+   mainnet false; an unknown `chain_id` or a `mainnet` that is not true or false drops it with a problem line
+   (`"true"` and `"false"` as text, trimmed, any case, read as the boolean, L16-15 v6.1.16).
    v6.1.14 L13-15: only a code host's link (`CODE_HOSTS`: github.com, gitlab.com, codeberg.org, bitbucket.org and their
-   subdomains; `isCodeHost`) is a repo; any other `repo_url` (a bit.ly link) is read as the live link, or dropped beside
-   one, with a problem line, and never keys the project by repo (`projectKeyOf`). Before any of this, find reads its
+   subdomains; `isCodeHost`) is a repo; any other `repo_url` is read as the live link, or dropped beside
+   one, with a problem line, and never keys the project by repo (`projectKeyOf`). v6.1.16 L16-8: a link on a shortener
+   (`SHORTENERS`: bit.ly, t.co, tinyurl.com, goo.gl, is.gd, cutt.ly, rb.gy, short.io and their subdomains; `isShortener`)
+   in `repo_url`, `live_url` or `demo_url` is never read ("{field} dropped: a shortened link", before the code-host
+   rule, so it never becomes the live link), and find's agent note adds `SHORT_LINK_NOTE` ("Shortened links are not
+   read; send the real one.") on every reply kind. Before any of this, find reads its
    arguments leniently (L13-4, `readLoosely` in `tool-input.ts`, shared with track; find is registered with
    `lenient(FindArgs)`): a null field is left out, a string project is no project (the open list), a numeric id is its
    text, an over-long id is cut (no match, the plain unknown line), `filter.all` "true" is true, a bad `filter.category`
@@ -176,6 +181,10 @@ The pipeline, in order:
    program, its `pool_usd` when set, else its `max_award_usd`. The landing shows six programs (`featuredTiles` in
    `landing.ts`: open, not investments, at least $10K; closing within 14 days with at least $25K first, then by money;
    one per organizer, at most three hackathons) and a link to /programs, which lists every one (`landingTiles`).
+   The pages read through `cachedRead` (`app/lib/cached.ts`, `unstable_cache`, 10 minutes, cleared by an API write);
+   v6.1.16 (S): its keys carry the build id (`cacheKey`, `BUILD_ID` from `EK_BUILD_ID`, which `next.config.ts` `env`
+   inlines at build from `RAILWAY_GIT_COMMIT_SHA`, else the build time), so a deploy never serves a page cached by the
+   build before it.
 
 ## The ledger
 
@@ -188,7 +197,7 @@ verifiable kinds are re-read from the repo.
 A done step belongs to one project (v6.1.10, L1c-1): `gaps_done` carries `project_key` and is unique on
 (owner, project_key, program_id, item). `projectKeyOf` (`project-input.ts`, pure) gives the key: the repo link in its
 one canonical form (an SSH clone link, `git@host:o/r.git` or `ssh://git@host/o/r`, read as https first by `sshAsHttps`, the one converter find, track and the screen share, FR-2; `canonicalRepoLink`, v6.1.13 B4: https, host lower-cased without `www.`, no port, no `user@`, no
-query or fragment, a trailing dot on the host dropped (L12-6, v6.1.14), on github.com owner and name only, on other hosts the path up to its first `-` segment (so `-/tree/...`, `-/blob/...`, `-/issues` fold and a subgroup named `tree` stays), no trailing slash or `.git`; an owner or group alone (`github.com/owner`), or one of GitHub's own pages (`orgs/`,
+query or fragment, a trailing dot on the host dropped (L12-6, v6.1.14), on github.com owner and name only, on bitbucket.org and codeberg.org the path up to its first `src` segment at index 2 or later (`/src/main/`, `/src/branch/main`, L16-6 v6.1.16), on other hosts the path up to its first `-` segment (so `-/tree/...`, `-/blob/...`, `-/issues` fold and a subgroup named `tree` stays), no trailing slash or `.git`; an owner or group alone (`github.com/owner`), or one of GitHub's own pages (`orgs/`,
 `users/`, `sponsors/`, `topics/` and the like), names no repo, has no repo key and is parsed as a plain link (`link`),
 neither the repo nor the live link, so it meets no bar and the project keys by name (L12-6; fix round 1, T7-F1, T7-F6);
 the repo read's cache key `repoKey` reads the same helper), else `name:` and the name NFKC and case-folded, else `''`
@@ -220,8 +229,8 @@ result is still refused ("That one already has a result here: ..."), the same re
 win with an amount over a win with one (L15-17, T8-F1 v6.1.14): marked a further payment (`payment: { key }`, the caller's own key, kept in
 `application_history.payment_key`; a repeated key is "Already tracked.") it adds to the total under the cap, answered
 "Tracked: ${n} more from {title}, ${total} in total."; unmarked, the same amount is "Already tracked." and another
-amount is a correction that replaces it ("Tracked: ${n} from {title}. Replaced the earlier amount."; one save verb, Tracked, v6.1.15 #8). Track keys are
-stored as `t:<key>`, screen keys as `s:<key>`. A program that is not open cannot be started
+amount is a correction that replaces it ("Tracked: ${n} from {title}. Replaced the earlier amount."; one save verb, Tracked, v6.1.15 #8). Before v6.1.16 track keys
+were stored as `t:<key>` and screen keys as `s:<key>`; from v6.1.16 both are stored bare and match the old ones. A program that is not open cannot be started
 ("{title} is not open; nothing to start."), and an already sent one says it was sent before that check. A win is
 capped at the program's `max_award_usd`, else its `pool_usd`, else 10,000,000, in whole dollars. A result for a
 program gone from the catalog keeps the title stored when it was sent. Another agent's live claim leaves the program
@@ -233,6 +242,22 @@ says to call find with program_id for their fields. L13-10: a program outside th
 blocker's `over_limit_usd`) reads "you say yes yourself to {titles}, over your {limit} limit". L13-18: the line reads
 "Your applications: {n} sent, {n} won ({$}), {n} rejected, {n} waiting{, n closing soon}." with each zero count left
 out. L13-17: the since line leaves out a close that a listed line already says.
+
+v6.1.16 Task 4 (lane 17 races): every skip and gap_done decision runs inside `record` under the per-program lock, so
+30 parallel skips write one row: a repeat answers "Already skipped." with no history row, a sent program "That one was
+already sent; nothing to skip.", and another agent's live claim "Your other agent is handling that one; nothing
+recorded." with the claim left in place (a skip still replaces the agent's own claim or a stale one). A history row is
+written only when the ledger changed, and names its `source` (`screen` or `builder`; NULL on older rows). A correction
+applies only when its event time is at or after the stored result's ("An earlier result; nothing changed."); the same
+result said again later moves the stored time on without a history row, so the latest event wins whatever the arrival
+order. An unmarked win of the stored amount, from either side, is "Already recorded; nothing new."; a further payment
+needs its mark, and payment keys share one space per application (track and screen send them unprefixed;
+`paymentKeyOf` reads a stored `s:`/`t:` key as the bare key, alias until v6.1.17). A send refused because its agent was
+unlinked meanwhile tells the agent the form went out with no record. The screen queue takes one lock per program and
+never queues an applicant an unread row of the program's live screens holds by identity (EarnKit id and repo key; for
+applicants with neither, the same reviewer's ref and site); the reviewer hears which row holds it. find lists held
+programs under "Being handled by your other agent ({n}):" after Ready, numbered on, and never names another project
+on a held line.
 
 ## Freshness and the daily job
 
@@ -266,12 +291,36 @@ minutes), no probe, sweep or digest.
 
 Copy lives in `site-copy.ts`, install steps in `agents.ts` (read by the site, `/docs` and `/llms.txt`), colours in
 `site-theme.ts` (mirrored in `globals.css`). See `apps/frontend/DESIGN.md`. OAuth (`oauth.ts`, `oauth-routes.ts`) is
-standard (PKCE, dynamic client registration) and approves at once; the issued token is the installation. A
+standard (PKCE, dynamic client registration) and approves at once; the issued token is the installation.
+v6.1.16 Task 5 (lane 19): a registered client_id is 128 random bits (22 base64url characters) kept in `oauth_clients`
+with its redirect URIs (at most 10, else `invalid_redirect_uri` `at most 10 redirect_uris`) and cleaned name; `clientOf`
+checks a URL first (CIMD), then `oauth_clients`, then a signed id from before v6.1.16 (an alias for one release). The
+code_verifier must be 43 to 128 unreserved characters (RFC 7636 4.1, else `invalid_grant`). A code is spent once:
+tokenPost writes its nonce to `oauth_codes_spent` in the same transaction as the installation (`installOnce`); a second
+exchange answers `invalid_grant` "Code already used; the token it gave is revoked." and sets the first installation's
+`revoked_at` (`connectInstallation` then answers null, so /mcp is 401); the daily cron sweeps spent rows over a day
+old (`swept_auth.oauth_codes`). `resource` (RFC 8707), when given at authorize or token, must be `EARNKIT_URL/mcp`
+(a trailing slash folded; `sameResource`), else `invalid_target`; the code carries it and the installation keeps it as
+`audience`; /mcp refuses (the usual 401) a token whose audience is set and is not its own resource (NULL, before
+v6.1.16, is accepted). /mcp serves JSON for an absent Accept, `*/*`, `application/*`, or one naming JSON or the event
+stream (406 `not_acceptable` otherwise); a JSON-RPC id that is an object, an array, a non-integer or beyond the safe
+integers answers -32600 with id null (400 alone, that member's answer in a batch). Every unserved method on /mcp,
+/oauth/* and /.well-known/* is 405 `method_not_allowed` with `Allow` (`notAllowed` in http.ts; /mcp `POST, DELETE,
+OPTIONS`, register and token `POST, OPTIONS`, authorize and discovery `GET, HEAD, OPTIONS`, authorize with its own
+OPTIONS); `proxy.ts` answers methods no route can export (PROPFIND and the like) the same way on /oauth/authorize and
+/.well-known only: a path the proxy matches has its whole body buffered by Next before the route runs, so /mcp,
+/oauth/token and /oauth/register stay out of its matcher (fix round 1). PROPFIND-class methods there, and TRACE and
+CONNECT everywhere (refused by Next's own Request first: a bare 500), are parked as an edge rule. `readCapped` gives up
+on a body not finished within 5 s (`BodyTimeoutError`); every caller answers 408 with one log line `[http] body read
+timed out`: /mcp, token and register `request_timeout` (JSON), /me posts `The request took too long. Try again.`,
+reviewers and the programs write `{ ok: false, error: 'the body came too slowly' }`, the cron `{ error }`
+(`readBody` in http.ts; a body over the cap stays a 413). Protected-resource metadata is served only at the exact path and its `/mcp` suffix; any other subpath is 404. A
 client_id that is an https URL is a client ID metadata document (CIMD, v6.1.15 Task 14; claude.ai's default; an
 http:// client_id goes to the same document check and is refused there):
 `cimdClient` fetches it through `safeFetchJson` (https, public addresses only, no redirects, 5 s, 10 KB, JSON), requires
 its `client_id` to equal the URL, lists the redirect URIs (at most 10) and takes `client_name` through `clientNameOf`
-and `reservedClientName`; cached in process 1 hour when good and 5 minutes when not (1,000 URLs). Fetches of URLs
+and `reservedClientName` (a name holding `earnkit` after look-alike letters fold, and v6.1.16 L16-10 digits and `l`
+read as letters, 0 o, 1 i, 3 e, 4 a, 5 s, 7 t, l i, so `earnk1t` and `earnklt` are refused); cached in process 1 hour when good and 5 minutes when not (1,000 URLs). Fetches of URLs
 are capped at 30 an hour per document host (`cimdFetch`; over it, no fetch and the failure page); only a refetch
 of a URL that still has a good copy is exempt, so a URL with a failed entry counts again after its 5 minute wait. A refetch that hits a transport error (DNS, connect, timeout, 5xx,
 `TransportError` in safe-fetch) keeps serving the last good copy for up to 6 hours from its last good read; any
@@ -284,7 +333,7 @@ registrations, `oauthRegisterBlock`, and 5,000 installs, `installBlock`, a day, 
 reach `installClientHosted`; over it, "Too many sign-ups from your network today. Try again tomorrow."; one ops log
 `[oauth] block near cap` as a block reaches 80 percent of its day). Hex IPv4-mapped IPv6 is unmapped to its IPv4. No ceiling is shared by every user of one hosted service, so one network
 rotating addresses never locks out another; the hosted tier (every redirect URI is a listed vendor's exact host and callback path, `HOSTED_REDIRECTS`) only raises
-the per-client ceiling (`installClientHosted`). `GET /mcp` is 405 (`Allow: POST, DELETE`): EarnKit never pushes. `rate-limit.ts` keeps fixed-window counters in Postgres. Each MCP tool call counts
+the per-client ceiling (`installClientHosted`). `GET /mcp` is 405 (`Allow: POST, DELETE, OPTIONS`): EarnKit never pushes. `rate-limit.ts` keeps fixed-window counters in Postgres. Each MCP tool call counts
 120 an hour per installation and 600 an hour per client IP; over either, the call answers the tool result "You have
 asked a lot this hour. Try again in about {n}." (v6.1.15; `{n}` in minutes, hours past 90 minutes; not a transport error, so clients show it). `secrets.ts` scrubs secret
 keys from tool-call bodies before anything sees them.
@@ -299,7 +348,7 @@ keys from tool-call bodies before anything sees them.
 | `program_changes` | Field-level changes, for `since` and the owner digest; a change to a form item's display-only words (`need`, `todo`, `guidance`, `description`) is not a form change (v6.1.15) |
 | `program_writes` | The write API's audit log and the pending writes |
 | `program_health` | The freshness probe: link status, page hash and text, failing days, changed_at |
-| `installations` | One row per issued token (hash only): client name, `last_seen_at`, `last_find_at`, `prev_find_at` (the find before; v6.1.9), `last_gaps` (the last find's gaps), `builder_id` and `linked_at` when linked, `unlinked_at` and `unlinked_reason` (set by an unlink on /me or the account's deletion, cleared by the next find or a new link) |
+| `installations` | One row per issued token (hash only): client name, `audience` and `revoked_at` (v6.1.16), `last_seen_at`, `last_find_at`, `prev_find_at` (the find before; v6.1.9), `last_gaps` (the last find's gaps), `builder_id` and `linked_at` when linked, `unlinked_at` and `unlinked_reason` (set by an unlink on /me or the account's deletion, cleared by the next find or a new link) |
 | `rate_windows` | Request counters |
 | `repo_cache` | Public repo facts, 7 days; swept after 30 |
 | `evidence_cache` | v6 evidence blocks per repo (`repo:<owner/name>`, with pushed_at) and per contract, used for 7 days; not swept yet |
@@ -524,8 +573,8 @@ apply." (at most three, then "and n more"; N3, v6.1.12), and any other ready pro
 builder submits reads the same in the draft wording (L1e-3, v6.1.13; list and detail alike): "Your yes stands for
 {title}: I draft it for you to send." and "{title} needs your {needs}; then I draft it for you to send.". A program
 that funds existing code (`needs_repo`, existing work allowed, not a hackathon or in person) is one step, `code in a
-repo` (`NEEDS_CODE`, item `repo`, re-checked by the read), from a project with no live link and no repo link or an
-empty repo (L1e-6, fix round 1 T3-R1: FUTO is an idea's one remote step); when that is the step program's only change,
+repo` (`NEEDS_CODE`, item `repo`, re-checked by the read), from a project with no repo link or an
+empty repo, whatever live site it has (L16-8, v6.1.16; a repo reported private is a repo, its step `PUBLIC_REPO`) (L1e-6, fix round 1 T3-R1: FUTO is an idea's one remote step); when that is the step program's only change,
 the closing is "Tell me when the code is in a repo and I look again." and the detail's action the same (L1f-2,
 v6.1.14: no rule yes before the code exists; the rule closing reads "if that rule fits you" everywhere). v6.1.14 L1f-1:
 a program file with `open_source: true` (its rule is an open source license or open source software; `programs:check`
@@ -593,8 +642,12 @@ createJob`: an applicant repeated exactly is kept once (Low 18, v6.1.13), pitche
 numbers from 0, L15-10 v6.1.14). L15-4, L15-22, L15-23 (v6.1.14): applicant keys the screen does not read are named in
 the agent note ("Unknown applicant fields ignored: github, website."); `mergeApplicants` merges one ref given twice
 (different EarnKit ids: the later renamed and named) and one repo under two refs when both carry the same id or none
-(else kept and named); `createJob` returns `notes` with these and "Contracts left out, not read: solana (r-3)." Repo
-links on GitLab, Bitbucket, Codeberg and SSH forms (`sshAsHttps`) are kept as `repo_url` with no `repo_key`. The promise is computed from the queue (v6.1.7 B14): the unread applicants of unexpired jobs created before this
+and their sites (`live_url`, parsed and lower-cased) agree or one is missing (else kept and named: `sameRepo` for the
+ids, `siteApart` for the sites, L16-5 v6.1.16); `createJob` returns `notes` with these and "Contracts left out, not
+read: solana (r-3)." Repo links on GitLab, Bitbucket, Codeberg and SSH forms (`sshAsHttps`) are kept as `repo_url` with
+no `repo_key`. v6.1.16 L16-13, L16-8: a repo link off a code host, or a shortened repo or site link, is not stored and
+`createJob` returns it in `dropped` ("repo_url dropped: not a code host (r-1)", "live_url dropped: a shortened link
+(r-2)"), which the queue's agent note names beside the unknown fields (with `SHORT_LINK_NOTE` for a shortened one). The promise is computed from the queue (v6.1.7 B14): the unread applicants of unexpired jobs created before this
 one (`queuedAhead`) plus this job's, against `SCREEN_BATCH` per daily run: "Results come in daily runs; the first by tomorrow morning." when they fit
 in one run, else "Results come in daily runs; {n} applicants ahead of yours, all within {d} days." (L15-13). The cron's `workQueue`
 (`screen-worker.ts`) takes each applicant atomically (`reading`, free again after 30 minutes), reads it as the pilot
@@ -605,7 +658,9 @@ the third) and stores tier, flags, because, line and public rows only (`github`,
 with `outcomes` it records the program's decisions (refs not in the job are named; L15-15, L15-16 v6.1.14: a win's
 amount is `amount_usd` or `amount` with a currency code, cents allowed (`amountOf`); an unreadable amount or a US dollar
 win over the cap refuses only that applicant, "Tell me the amount for {ref}." / "That is more than this program pays
-for {ref}; check the amount.", the rest recorded; US dollars reach the ledger rounded down with the note "rounded down
+for {ref}; check the amount.", the rest recorded; a dot used as a thousands separator ("2.500", `amountOf` answers
+`'ambiguous'`) reads "Amount not read: use a dot only for cents, no thousands separator." once, the refs in the agent
+note (L16-14, v6.1.16); US dollars reach the ledger rounded down with the note "rounded down
 to whole dollars from $2,500.50", another currency as a win with no amount and the note "amount in EUR, not
 converted"; `screen_outcomes.amount_given` and `currency` keep what was given), which also reach a builder's ledger only through the
 applicant row's `application_id`: the id `track started` answered the builder's agent with a note to put it in the

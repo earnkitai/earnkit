@@ -260,6 +260,7 @@ export const ME_ERRORS = {
   expired: 'This page expired. Reload it and try again.',
   form: 'Send this as a web form.',
   large: 'That is too long to save.',
+  slow: 'The request took too long. Try again.',
   field: 'That cannot be changed here.',
   confirm: 'Type your GitHub login to delete.',
   broken: 'Your record could not be read, so nothing was saved. Try again later.',

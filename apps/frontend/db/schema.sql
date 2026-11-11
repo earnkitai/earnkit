@@ -104,6 +104,24 @@ ALTER TABLE installations ADD COLUMN IF NOT EXISTS last_gaps jsonb;
 -- The find before the last one: an agent's send under standing approval puts last_find_at back to it, so the night
 -- routine's own find never takes the overnight report from the builder (v6.1.9).
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS prev_find_at timestamptz;
+-- v6.1.16 (Task 5, L19-5): the resource the token was issued for (EARNKIT_URL + /mcp; NULL before v6.1.16, accepted),
+-- and when a reused authorization code revoked it (L19-4; /mcp refuses a revoked installation).
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS audience text;
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS revoked_at timestamptz;
+-- v6.1.16 (Task 5, L19-8): registered OAuth clients; the client_id is 128 random bits, never derived from metadata.
+CREATE TABLE IF NOT EXISTS oauth_clients (
+  client_id     text PRIMARY KEY,
+  redirect_uris text[] NOT NULL,
+  client_name   text,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+-- v6.1.16 (Task 5, L19-4): each exchanged authorization code (its nonce) and the token it gave; a second exchange
+-- revokes that token. The daily cron sweeps rows over a day old (codes live 5 minutes).
+CREATE TABLE IF NOT EXISTS oauth_codes_spent (
+  nonce      text PRIMARY KEY,
+  token_hash text NOT NULL,
+  at         timestamptz NOT NULL
+);
 
 -- Fixed-window request counters. Old windows are deleted as new ones start.
 CREATE TABLE IF NOT EXISTS rate_windows (
@@ -333,6 +351,8 @@ ALTER TABLE application_history ADD COLUMN IF NOT EXISTS payment_key text;
 CREATE INDEX IF NOT EXISTS application_history_payment ON application_history (owner, program_id, payment_key) WHERE payment_key IS NOT NULL;
 -- v6.1.16 (L16-1, L16-2): a won or rejected over a different result replaces it as a correction; its history row says so.
 ALTER TABLE application_history ADD COLUMN IF NOT EXISTS corrected boolean NOT NULL DEFAULT false;
+-- v6.1.16 (L17-2): who wrote the history row, 'screen' (a program's outcome) or 'builder' (an agent's track); NULL before.
+ALTER TABLE application_history ADD COLUMN IF NOT EXISTS source text;
 -- T8-F2: a stable order for paging a screen's results (the order the rows were queued in).
 ALTER TABLE screen_applicants ADD COLUMN IF NOT EXISTS seq bigserial;
 -- T8-F1: the further-payment keys a screen outcome has added, so a retried one adds nothing.

@@ -5,7 +5,7 @@
 import { z } from 'zod';
 import { getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason } from '../v6/builders';
 import { DELETED_NOTICE } from '../v6/reply-words';
-import { UNLINKED_MEANWHILE, claim } from '../v6/claims';
+import { UNLINKED_MEANWHILE, UNLINKED_SEND_NOTE, claim } from '../v6/claims';
 import { APPROVAL_OFF, HAD_CLOSED, NIGHT_LIMIT, NOT_OPENED, REQUIRED_MISSING, STEP_AWAY, outsideApproval, readyAtSend, requiredLeftOut, storedRecordContext, storedSide } from '../v6/find-record';
 import { prefill, unvouchedRequired } from './prefill';
 import { cachedRepoFacts, reportOnlyFacts } from './repo-facts';
@@ -362,14 +362,15 @@ async function act(
   const applied = i.status === 'applied'
     ? { submitted_by: i.submitted_by, fields_used: i.fields_used, project_id: i.project_id ?? (project.key || undefined), autoApplied: standing && outside === null, ...(standing ? { maxPerNight: policy!.policy.max_per_night } : {}) }
     : {};
-  // Low 17 (v6.1.13): a program sent and waiting on its result has nothing to skip (one with a result says so in the ledger).
-  if (i.status === 'skipped' && (await sql()`SELECT 1 FROM applications WHERE owner = ${owner} AND program_id = ${i.program_id} AND status = 'applied'`).length > 0)
-    return refuse('That one was already sent; nothing to skip.');
-  // A second skip says so (v6.1.9, lane 8 simplify).
-  if (i.status === 'skipped' && (await sql()`SELECT 1 FROM applications WHERE owner = ${owner} AND program_id = ${i.program_id} AND status = 'skipped'`).length > 0)
-    return { show_to_builder: 'Already skipped.', agent_note: 'Call find again for the updated ledger.', ledger: await summary(owner, programs, ctx.now) };
+  // L17-1 (v6.1.16): a skip's checks (already sent, already skipped, another agent's live claim) run in record, under
+  // the per-program lock, so parallel skips write one row. L17-8: the payment key is the caller's, one space per application.
   const res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, amount_usd: i.amount_usd, note: i.note, item: i.item, projectKey: project.key, now: ctx.now, ...applied,
-    ...(i.status === 'won' && i.payment ? { payment: { key: `t:${i.payment.key}` } } : {}) });
+    ...(i.status === 'won' && i.payment ? { payment: { key: i.payment.key } } : {}) });
+  // A second skip says so (v6.1.9, lane 8 simplify).
+  if (res.ok && i.status === 'skipped' && 'repeated' in res)
+    return { show_to_builder: 'Already skipped.', agent_note: 'Call find again for the updated ledger.', ledger: await summary(owner, programs, ctx.now) };
+  // L17-9 (v6.1.16): a send refused as unlinked already went out; the agent tells the builder to keep a note.
+  if (!res.ok && i.status === 'applied' && res.note === UNLINKED_MEANWHILE) return refuse(UNLINKED_MEANWHILE, UNLINKED_SEND_NOTE);
   if (res.ok && 'night' in res) outside = NIGHT_LIMIT;
   if (res.ok && 'closed' in res) outside = HAD_CLOSED;
   // The find before a send under standing approval was the night routine's: it leaves the overnight report (v6.1.9).

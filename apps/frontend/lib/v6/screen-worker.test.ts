@@ -34,7 +34,8 @@ const queue = async (programId: string, applicants: Parameters<typeof createJob>
   await upsertProgram(programFixture({ id: programId }), 'file', NOW);
   // The job belongs to the program; builder 1 reads it as one of its reviewers (L15-12).
   await sql()`INSERT INTO program_reviewers (program_id, builder_id) VALUES (${programId}, 1) ON CONFLICT DO NOTHING`;
-  return createJob({ programId, builderId: 1, installationId: 1, applicants, now });
+  const j = await createJob({ programId, builderId: 1, installationId: 1, applicants, now });
+  return { ...j, id: j.id! };
 };
 
 test('the batch sizes and the trigger cap', () => {

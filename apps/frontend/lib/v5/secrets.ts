@@ -180,8 +180,11 @@ export const BODY_TOO_LARGE = {
   id: null,
 } as const;
 
-/** The request body as text, or null once it passes `max` bytes (http.ts readCapped). */
-export const readCapped = (request: Request, max = MAX_MCP_BODY_BYTES) => readCappedAt(request, max);
+/** The most time /mcp waits for a request body (L19-10): past it, BodyTimeoutError and a 408. */
+export const MCP_BODY_TIMEOUT_MS = 5_000;
+
+/** The request body as text, or null once it passes `max` bytes (http.ts readCapped); throws BodyTimeoutError past `timeoutMs`. */
+export const readCapped = (request: Request, max = MAX_MCP_BODY_BYTES, timeoutMs = MCP_BODY_TIMEOUT_MS) => readCappedAt(request, max, timeoutMs);
 
 type Id = string | number;
 

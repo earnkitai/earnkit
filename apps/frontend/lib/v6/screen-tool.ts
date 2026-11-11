@@ -327,13 +327,17 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
   if (!(await hit(`screenJobs:b:${ctx.builderId}`, limit, windowSeconds, ctx.now)).allowed) return line(SCREEN_TEXT.limit);
 
   const job = await createJob({ programId, builderId: ctx.builderId, installationId: ctx.installationId, applicants: input.applicants, thresholds: thresholds as Partial<Thresholds>, now: ctx.now });
+  // L17-5 (v6.1.16): applicants a live screen of the program already holds are not queued again; with none left, no job.
+  const k = job.already.length;
+  if (job.id === null)
+    return line(`Nothing new to queue for ${program.file.title}; ${k} already queued.`, [...job.notes, 'Nothing was queued; their results come with the screens that hold them.'].join(' '));
   const ahead = await queuedAhead(job.id, ctx.now);
   // L15-4 (v6.1.14): applicant fields the list carried that the screen does not read are named, never dropped silently.
   const ignored = ignoredFields(list);
   // L16-13, L16-8 (v6.1.16): a repo link off a code host, or a shortened link, is named beside the unknown fields.
   const dropped = job.dropped.length ? [`${job.dropped.join('; ')}.`, ...(job.dropped.some((d) => d.includes('shortened')) ? [SHORT_LINK_NOTE] : [])] : [];
   return {
-    show_to_builder: `Queued ${plural(job.total, 'applicant')} for ${program.file.title}. ${promiseLine(ahead, job.total)}`,
+    show_to_builder: `Queued ${plural(job.total, 'applicant')} for ${program.file.title}${k > 0 ? `; ${k} already queued` : ''}. ${promiseLine(ahead, job.total)}`,
     agent_note: [SCREEN_TEXT.queuedNote, ...(ignored.length ? [`Unknown applicant fields ignored: ${ignored.join(', ')}. Send the repo as repo_url, the site as live_url, contracts as [{ chain, address }].`] : []), ...dropped, ...job.notes].join(' '),
     job_id: job.id,
   };

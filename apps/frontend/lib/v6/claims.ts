@@ -18,6 +18,8 @@ export type ClaimResult = { ok: true } | { ok: false; already: Already } | { ok:
 
 /** T5-F4 (v6.1.14): a send or claim whose agent was unlinked from the builder meanwhile records nothing. */
 export const UNLINKED_MEANWHILE = 'This agent was just unlinked from your account; nothing recorded.';
+/** L17-9 (v6.1.16): the agent note when a send's record is refused as unlinked: the form already went out. */
+export const UNLINKED_SEND_NOTE = 'This agent was unlinked before the send was saved; the form went out but EarnKit holds no record of it. Tell the builder to keep their own note.';
 /**
  * T5-F4 (v6.1.14): inside the owner's per-program lock, whether the writing installation still belongs to a 'b:' owner.
  * The installation's row is read FOR SHARE, so an unlink (which updates it) waits for this write, or this write sees
@@ -79,8 +81,9 @@ export async function claim(owner: string, programId: string, projectId: string 
       const now2 = await read();
       return now2 ? { held: holder(now2), sent: now2.status !== 'started' } : { skipped: true as const };
     }
-    await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, note, at)
-      VALUES (${owner}, ${installationId}, ${programId}, 'started', NULL, NULL, ${now})`;
+    // L17-2 (v6.1.16): every history row names its source; a claim is always an agent's.
+    await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, note, at, source)
+      VALUES (${owner}, ${installationId}, ${programId}, 'started', NULL, NULL, ${now}, 'builder')`;
     return { ok: true as const };
   });
   if ('ok' in out) return { ok: true };

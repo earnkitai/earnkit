@@ -70,6 +70,8 @@ test('a reviewer queues a job and gets job_id; the eleventh screen in a day is r
   const [w] = await sql()`SELECT count FROM rate_windows WHERE key = ${`screenJobs:b:${c.builderId}`} AND window_start = ${windowStart(NOW, 86_400_000)}`;
   assert.equal(w.count, 1);
   await sql()`UPDATE rate_windows SET count = 9 WHERE key = ${`screenJobs:b:${c.builderId}`} AND window_start = ${windowStart(NOW, 86_400_000)}`;
+  // L17-5 (v6.1.16): read first, so the same applicants queue again.
+  await sql()`UPDATE screen_applicants SET status = 'done' WHERE job_id IN (SELECT id FROM screen_jobs WHERE builder_id = ${c.builderId})`;
   const tenth = await mcpCall(c, 'screen', { program_id: 'scr-queue', applicants: APPLICANTS });
   assert.ok(tenth.reply!.job_id, tenth.text);
   const over = await mcpCall(c, 'screen', { program_id: 'scr-queue', applicants: APPLICANTS });
@@ -537,4 +539,20 @@ test('L16-14 (v6.1.16): a dot used as a thousands separator is its own line, onc
   assert.match(r.reply!.agent_note as string, /Not recorded, a dot used as a thousands separator: a and b\. Send 2500 or 2,500; a dot is for cents only\./);
   const one = await mcpCall(c, 'screen', { job_id: q.reply!.job_id, outcomes: [{ ref: 'a', outcome: 'won', amount: '2.500' }] });
   assert.equal(one.reply!.show_to_builder, 'Recorded 0 outcomes. Amount not read: use a dot only for cents, no thousands separator.');
+});
+
+test('L17-5 (v6.1.16): applicants still queued are not queued again; the reply counts them apart, and with none new no job is made', async () => {
+  const c = await reviewerOf('scr-already');
+  const first = await mcpCall(c, 'screen', { program_id: 'scr-already', applicants: APPLICANTS });
+  assert.equal(first.isError, false, first.text);
+  const more = await mcpCall(c, 'screen', { program_id: 'scr-already', applicants: [...APPLICANTS, { ref: 'r-3', name: 'Third', repo_url: 'https://github.com/acme/third' }] });
+  // The promise after it depends on the shared queue ahead (other tests' rows), so only the head is pinned.
+  assert.match(more.reply!.show_to_builder as string, /^Queued 1 applicant for Grants scr-already; 2 already queued\. Results come in daily runs; /);
+  assert.match(more.reply!.agent_note as string, new RegExp(`Already queued: r-1 \\(row r-1 of screen ${first.reply!.job_id}\\) and r-2 \\(row r-2 of screen ${first.reply!.job_id}\\)\\.$`));
+  assert.ok(more.reply!.job_id);
+  const none = await mcpCall(c, 'screen', { program_id: 'scr-already', applicants: APPLICANTS });
+  assert.equal(none.reply!.show_to_builder, 'Nothing new to queue for Grants scr-already; 2 already queued.');
+  assert.equal(none.reply!.agent_note, `Already queued: r-1 (row r-1 of screen ${first.reply!.job_id}) and r-2 (row r-2 of screen ${first.reply!.job_id}). Nothing was queued; their results come with the screens that hold them.`);
+  assert.equal('job_id' in none.reply!, false);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs WHERE program_id = 'scr-already'`)[0].n, 2);
 });

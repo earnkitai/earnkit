@@ -625,7 +625,7 @@ test('a linked notice is the last sentence of the closing block', () => {
   assert.ok(!replyText(base({ linked: true }), false).includes('now linked'));
 });
 
-test('a program another agent of the builder holds says so on its line and leaves the count to say yes to (v6.1.7, C37)', () => {
+test('a program another agent of the builder holds goes in its own block after Ready and leaves the count to say yes to (v6.1.7, C37; L17-6 v6.1.16)', () => {
   const NOW = new Date('2026-11-04T12:00:00Z');
   const r = base({
     linked: true,
@@ -638,10 +638,10 @@ test('a program another agent of the builder holds says so on its line and leave
   });
   const text = replyText(r, false, NOW);
   const lines = text.split('\n');
-  assert.ok(lines.includes('Ready to apply (4):'), text);
-  assert.ok(lines.some((l) => /^2\. Held One, \$1K\. .* Being handled by your other agent since 10:00 UTC\.$/.test(l)), text);
-  assert.ok(lines.some((l) => /^4\. Held Two, \$1K\. .* Being handled by your other agent since Nov 3, 22:10 UTC\.$/.test(l)), text);
-  assert.ok(!/^1\. Free One.*Being handled/m.test(text), text);
+  // L17-6 (v6.1.16): Ready lists what this agent can send; the held ones follow under their own heading, numbered on,
+  // and their lines carry no held sentence (the heading says it).
+  assert.match(text, /^Ready to apply \(2\):\n1\. Free One, \$1K\.[^\n]*\n2\. Free Two, \$1K\.[^\n]*\n\nBeing handled by your other agent \(2\):\n3\. Held One, \$1K\.[^\n]*\n4\. Held Two, \$1K\./m, text);
+  assert.ok(!lines.some((l) => /^\d+\. .*Being handled/.test(l)), text);
   assert.match(text, /\n\nSay yes and I apply to all 2\. Or say the numbers to skip\.$/);
   // One free: the singular; none free: no yes at all, and nothing claims "nothing fits".
   const one = base({ linked: true, ready: [ready({ title: 'Free One' }), ready({ title: 'Held One', claimed_since: '2026-11-04T10:00:00.000Z' })] });
@@ -652,7 +652,7 @@ test('a program another agent of the builder holds says so on its line and leave
   assert.match(t, /\n\nYour other agent is handling these\.$/);
 });
 
-test('C1 (v6.1.13): a program held for another project names it on its line, remote or in person, and leaves the count to say yes to', () => {
+test('C1 (v6.1.13), ruling 12 (v6.1.16): a program held for another project never names it; remote it goes in the held block, in person its line says it is held; the count to say yes to leaves it', () => {
   const NOW = new Date('2026-11-04T12:00:00Z');
   const r = base({
     linked: true,
@@ -663,9 +663,11 @@ test('C1 (v6.1.13): a program held for another project names it on its line, rem
       ready({ title: 'Held Away', in_person: true, claimed_since: '2026-11-04T10:00:00.000Z', held_for: 'Rent Split' }),
     ],
   });
-  const lines = replyText(r, false, NOW).split('\n');
-  assert.ok(lines.some((l) => /^2\. Held One, \$1K\. .* Being handled by your other agent for Rent Split\.$/.test(l)), lines.join('\n'));
-  assert.ok(lines.some((l) => /^4\. Held Away, \$1K\..* Being handled by your other agent for Rent Split\.$/.test(l)), lines.join('\n'));
+  const text = replyText(r, false, NOW);
+  const lines = text.split('\n');
+  assert.doesNotMatch(text, /Rent Split/);
+  assert.match(text, /\n\nBeing handled by your other agent \(1\):\n3\. Held One, \$1K\.[^\n]*\n\n/);
+  assert.ok(lines.some((l) => /^4\. Held Away, \$1K\..* Being handled by your other agent\.$/.test(l)), text);
   assert.equal(lines.at(-1), 'Say yes and I apply to all 2. Or say the numbers to skip.');
 });
 
@@ -674,7 +676,8 @@ test('C1 fix round 1 (I2): one held in-person program and nothing else ready nev
   const NOW = new Date('2026-11-04T12:00:00Z');
   const r = base({ linked: true, ready: [ready({ title: 'Held Away', in_person: true, claimed_since: '2026-11-04T10:00:00.000Z', held_for: 'Rent Split' })] });
   const text = replyText(r, false, NOW);
-  assert.match(text, /In person \(1\):\n1\. Held Away, .* Being handled by your other agent for Rent Split\./);
+  assert.match(text, /In person \(1\):\n1\. Held Away, .* Being handled by your other agent\./);
+  assert.doesNotMatch(text, /Rent Split/);
   assert.notEqual(text.split('\n').at(-1), IN_PERSON_CLOSING);
   assert.doesNotMatch(text, /Say yes/);
 });
@@ -688,7 +691,9 @@ test('I1 (v6.1.8 final fix): one ready program held by another agent and one gap
     gaps: [gap({ n: 2, title: 'Rule Grant', gap: RULE })],
   });
   const t = replyText(r, false, NOW);
-  assert.match(t, /^Ready to apply \(1\):/m, t);
+  // L17-6 (v6.1.16): the held one has its own block; nothing is under Ready.
+  assert.match(t, /^Being handled by your other agent \(1\):\n1\. Held One/m, t);
+  assert.doesNotMatch(t, /Ready to apply/, t);
   assert.match(t, /^One step away \(1\):/m, t);
   assert.doesNotMatch(t, /Nothing is ready yet/, t);
   assert.match(t, /\n\nYour other agent is handling these\.$/, t);
@@ -1140,4 +1145,19 @@ test('L1g-5 fix round 1 (v6.1.16, I1): a below-bar tier gap, a feature and a use
   assert.equal(gapAction(gap({ title: 'Kiro Prize', gap: FEATURE })), 'Tell me when a Kiro folder in the repo is in and I look again.');
   // The unlinked proof and the proof being read keep their own sentences: no clause.
   assert.equal(stepClause({ ...TIER_GAP, what: 'proof that real people use it' }), null);
+});
+
+test('R38 (L17-6, v6.1.16): 25 programs held by agent A; agent B reads its own under Ready and the 25 in the held block, numbered on', () => {
+  const NOW = new Date('2026-11-04T12:00:00Z');
+  const held = Array.from({ length: 25 }, (_, k) => ready({ title: `Held ${k + 1}`, claimed_since: '2026-11-04T10:00:00.000Z' }));
+  const r = base({ linked: true, ready: [...held.slice(0, 12), ready({ title: 'Mine A' }), ...held.slice(12), ready({ title: 'Mine B' })] });
+  const blocks = replyText(r, false, NOW).split('\n\n');
+  const readyBlock = blocks.find((b) => b.startsWith('Ready to apply'))!.split('\n');
+  assert.deepEqual(readyBlock.map((l) => l.split(',')[0]), ['Ready to apply (2):', '1. Mine A', '2. Mine B']);
+  const heldBlock = blocks.find((b) => b.startsWith('Being handled by your other agent ('))!.split('\n');
+  assert.equal(heldBlock[0], 'Being handled by your other agent (25):');
+  assert.equal(heldBlock.length, 26);
+  assert.deepEqual(heldBlock.slice(1).map((l) => Number(l.split('.')[0])), Array.from({ length: 25 }, (_, k) => k + 3));
+  assert.equal(blocks.indexOf(blocks.find((b) => b.startsWith('Being handled'))!), blocks.indexOf(blocks.find((b) => b.startsWith('Ready'))!) + 1);
+  assert.equal(blocks.at(-1), 'Say yes and I apply to all 2. Or say the numbers to skip.');
 });

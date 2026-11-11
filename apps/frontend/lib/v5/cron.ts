@@ -7,7 +7,7 @@
 import { sweepScreens } from '../v6/screen-jobs';
 import { SCREEN_BATCH, SCREEN_DAILY_MS, SCREEN_TRIGGER_MAX, SCREEN_TRIGGER_MS, workQueue } from '../v6/screen-worker';
 import { sql } from './db';
-import { bearerMatches, json, readCapped } from './http';
+import { bearerMatches, json, readBody } from './http';
 import { runHealth } from './health';
 import type { Mailer } from './mail';
 import { sendOwnerDigest } from './owner-digest';
@@ -27,9 +27,13 @@ export type CronDeps = {
   workQueue?: typeof workQueue;
 };
 
-/** The job id of an owner-triggered run; null for an empty body (the daily run); 'bad' for any other body. */
-async function triggeredJob(request: Request): Promise<{ jobId: string } | null | 'bad'> {
-  const text = await readCapped(request, 1_024).catch(() => null);
+/**
+ * The job id of an owner-triggered run; null for an empty body (the daily run); 'bad' for any other body; a 408
+ * Response for a body slower than 5 s (v6.1.16 Task 5 fix round 1, I2).
+ */
+async function triggeredJob(request: Request): Promise<{ jobId: string } | null | 'bad' | Response> {
+  const text = await readBody(request, 1_024, () => json({ error: 'the body came too slowly' }, 408));
+  if (text instanceof Response) return text;
   if (text === null) return 'bad';
   if (!text.trim()) return null;
   try {
@@ -48,12 +52,16 @@ const failed = (step: string, err: unknown): Response => {
   return json({ error: `${step} failed` }, 500);
 };
 
-/** Link codes and sessions that expired over a day ago; returns how many of each went. */
-async function sweepAuth(now: Date): Promise<{ link_codes: number; sessions: number }> {
+/**
+ * Link codes and sessions that expired over a day ago, and spent OAuth codes exchanged over a day ago (v6.1.16 Task 5:
+ * a code lives 5 minutes, so its spent row is no longer needed); returns how many of each went.
+ */
+async function sweepAuth(now: Date): Promise<{ link_codes: number; sessions: number; oauth_codes: number }> {
   const cutoff = new Date(now.getTime() - 86_400_000);
   const codes = await sql()`DELETE FROM link_codes WHERE expires_at < ${cutoff}`;
   const sessions = await sql()`DELETE FROM sessions WHERE expires_at < ${cutoff}`;
-  return { link_codes: codes.count, sessions: sessions.count };
+  const spent = await sql()`DELETE FROM oauth_codes_spent WHERE at < ${cutoff}`;
+  return { link_codes: codes.count, sessions: sessions.count, oauth_codes: spent.count };
 }
 
 export async function cronPost(request: Request, deps: CronDeps = {}): Promise<Response> {
@@ -70,6 +78,7 @@ export async function cronPost(request: Request, deps: CronDeps = {}): Promise<R
   const work = deps.workQueue ?? workQueue;
   const trigger = await triggeredJob(request);
   if (trigger === 'bad') return json({ error: 'bad body' }, 400);
+  if (trigger instanceof Response) return trigger;
   if (trigger) {
     const { jobId } = trigger;
     try {
@@ -97,7 +106,7 @@ export async function cronPost(request: Request, deps: CronDeps = {}): Promise<R
     return failed('sweep', err);
   }
 
-  let screen: Awaited<ReturnType<typeof workQueue>> & { swept: number; swept_auth: { link_codes: number; sessions: number } };
+  let screen: Awaited<ReturnType<typeof workQueue>> & { swept: number; swept_auth: { link_codes: number; sessions: number; oauth_codes: number } };
   try {
     // Jobs past the 90-day window of the counts across programs go first.
     const screensSwept = await sweepScreens(now);

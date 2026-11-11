@@ -104,12 +104,12 @@ test('C35: a request the MCP library rejects is one plain line in error.message;
   }
 });
 
-test('B6: GET /mcp is 405 with Allow: POST, DELETE and the usual CORS headers; no stream is opened', async () => {
+test('B6: GET /mcp is 405 with Allow: POST, DELETE, OPTIONS (v6.1.16 L19-1) and the usual CORS headers; no stream is opened', async () => {
   const { GET } = await import('../../app/mcp/route');
   for (const auth of [{ authorization: `Bearer ${token}` }, {} as Record<string, string>]) {
     const r = await GET(new Request('https://earnkit.test/mcp', { headers: { accept: 'text/event-stream', ...auth } }));
     assert.equal(r.status, 405);
-    assert.equal(r.headers.get('allow'), 'POST, DELETE');
+    assert.equal(r.headers.get('allow'), 'POST, DELETE, OPTIONS');
     assert.equal(r.headers.get('access-control-allow-origin'), '*');
     assert.match(r.headers.get('content-type') ?? '', /application\/json/);
     const body = (await r.json()) as { error: string; error_description: string };
@@ -134,4 +134,85 @@ test('B6: DELETE /mcp is unchanged: the same handler as POST; no token is the 40
   assert.equal(signed.status, 200);
   assert.equal(signed.headers.get('access-control-allow-origin'), '*');
   assert.equal(await signed.text(), '');
+});
+
+// v6.1.16 Task 5 (lane 19): MCP edges.
+const ALLOW = 'POST, DELETE, OPTIONS';
+
+test('L19-1: PATCH and PUT on /mcp are 405 with Allow: POST, DELETE, OPTIONS; the proxy never matches /mcp (fix round 1, I1)', async () => {
+  const route = await import('../../app/mcp/route');
+  for (const r of [route.PATCH(), route.PUT()]) {
+    assert.equal(r.status, 405);
+    assert.equal(r.headers.get('allow'), ALLOW);
+    assert.equal(r.headers.get('access-control-allow-origin'), '*');
+    assert.deepEqual(await r.json(), { error: 'method_not_allowed' });
+  }
+  // A matched path has its whole body buffered by Next before the route runs (no 5 s timeout, no early 413), so the
+  // body-carrying endpoints stay out of the proxy; their unusual methods are an edge rule.
+  const { config } = await import('../../proxy');
+  assert.deepEqual(config.matcher, ['/me', '/oauth/authorize', '/.well-known/:path*']);
+});
+
+const accepting = (accept: string | null) => {
+  const h: Record<string, string> = { 'content-type': 'application/json', authorization: `Bearer ${token}` };
+  if (accept !== null) h.accept = accept;
+  return POST(new Request('https://earnkit.test/mcp', { method: 'POST', headers: h, body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/list' }) }));
+};
+
+test('L19-3: Accept */*, none or application/json alone are served JSON; text/plain is 406', async () => {
+  await saveInstallation(token, null);
+  for (const accept of ['*/*', null, 'application/json', 'text/event-stream', 'application/json;q=0.9, text/html']) {
+    const r = await accepting(accept);
+    assert.equal(r.status, 200, String(accept));
+    assert.match(r.headers.get('content-type') ?? '', /application\/json/);
+    assert.equal(((await r.json()) as { id: number }).id, 3);
+  }
+  const r = await accepting('text/plain');
+  assert.equal(r.status, 406);
+  assert.deepEqual(await r.json(), { error: 'not_acceptable', error_description: 'Accept application/json.' });
+});
+
+test('L19-7: an object, 1.5 or 1e30 id is -32600 invalid request; "a" and 7 get their reply; a batch answers per member', async () => {
+  await saveInstallation(token, null);
+  const INVALID = { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'I could not read that request.' } };
+  for (const id of ['{"x":1}', '[1]', '1.5', '1e30']) {
+    const r = await raw(`{"jsonrpc":"2.0","id":${id},"method":"tools/list"}`);
+    assert.equal(r.status, 400, id);
+    assert.deepEqual(await r.json(), INVALID);
+  }
+  for (const id of ['"a"', '7']) {
+    const r = await raw(`{"jsonrpc":"2.0","id":${id},"method":"tools/list"}`);
+    assert.equal(r.status, 200, id);
+    const m = (await r.json()) as { id: unknown; result: { tools: unknown[] } };
+    assert.equal(m.id, JSON.parse(id));
+    assert.ok(m.result.tools.length > 0);
+  }
+  const b = await raw('[{"jsonrpc":"2.0","id":1.5,"method":"tools/list"},{"jsonrpc":"2.0","id":8,"method":"tools/list"}]');
+  assert.equal(b.status, 200);
+  const all = (await b.json()) as { id: unknown; error?: unknown; result?: unknown }[];
+  assert.equal(all.length, 2);
+  assert.deepEqual(all.find((m) => m.id === null), INVALID);
+  assert.ok(all.find((m) => m.id === 8)?.result);
+  // A batch of bad ids alone: each answered.
+  const only = await raw('[{"jsonrpc":"2.0","id":{},"method":"tools/list"}]');
+  assert.deepEqual(await only.json(), [INVALID]);
+});
+
+test('L19-10: a /mcp body that sends one byte and stalls answers 408 within 6 s, with one log line', async () => {
+  await saveInstallation(token, null);
+  const body = new ReadableStream<Uint8Array>({ start: (c) => c.enqueue(new Uint8Array([123])) });
+  const logs: string[] = [];
+  const warn = console.warn;
+  console.warn = (...a: unknown[]) => void logs.push(a.join(' '));
+  const t0 = Date.now();
+  let r: Response;
+  try {
+    r = await POST(new Request('https://earnkit.test/mcp', { method: 'POST', headers, body, duplex: 'half' } as RequestInit));
+  } finally {
+    console.warn = warn;
+  }
+  assert.ok(Date.now() - t0 < 6_000);
+  assert.equal(r.status, 408);
+  assert.deepEqual(await r.json(), { error: 'request_timeout', error_description: 'The request body came too slowly.' });
+  assert.deepEqual(logs, ['[http] body read timed out']);
 });

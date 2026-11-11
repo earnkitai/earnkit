@@ -315,3 +315,13 @@ test('row C (v6.1.15): builder text says result, Your applications and Rolling, 
   assert.equal(copy.CTA_INSTALL, 'Add EarnKit to your agent');
   assert.equal(copy.ME_LEDGER_TITLE, 'Your applications');
 });
+
+test('S (v6.1.16): the page cache keys carry the build id, so a deploy never serves a page cached by the build before it', async () => {
+  const { BUILD_ID, cacheKey } = await import('../../app/lib/cached');
+  assert.equal(BUILD_ID, process.env.EK_BUILD_ID || 'dev');
+  assert.deepEqual(cacheKey(['landing-v6.2']), ['landing-v6.2', BUILD_ID]);
+  assert.equal(cacheKey(['landing-v6.2'], 'abc123').at(-1), 'abc123');
+  assert.notDeepEqual(cacheKey(['landing-v6.2'], 'abc123'), cacheKey(['landing-v6.2'], 'def456'));
+  const config = readFileSync(join(ROOT, 'apps/frontend/next.config.ts'), 'utf8');
+  assert.match(config, /env: \{ EK_BUILD_ID: process\.env\.RAILWAY_GIT_COMMIT_SHA \|\| String\(Date\.now\(\)\) \}/);
+});

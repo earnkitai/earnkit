@@ -90,7 +90,7 @@ test('cronPost: a plain run works the queue with SCREEN_BATCH after the sweep an
   const body = (await res.json()) as { screen: unknown; digest: string };
   const { swept_auth, ...rest } = body.screen as { swept_auth: Record<string, number> };
   assert.deepEqual(rest, { swept: 0, read: 0, jobs_finished: [] });
-  assert.deepEqual(Object.keys(swept_auth).sort(), ['link_codes', 'sessions']);
+  assert.deepEqual(Object.keys(swept_auth).sort(), ['link_codes', 'oauth_codes', 'sessions']);
   assert.deepEqual(calls.map((c) => [c.limit, c.jobId]), [[200, undefined]]);
   // The daily share is 300 s: the workflow's curl allows 540 s for the whole run.
   assert.ok(calls[0].deadline! > Date.now() + 290_000 && calls[0].deadline! <= Date.now() + 300_000);
@@ -130,14 +130,17 @@ test('cronPost: a body that is not { job_id } answers 400 and runs nothing', asy
   assert.equal(ran, 0);
 });
 
-test('cronPost: the plain run sweeps link codes and sessions expired over a day ago; a triggered run sweeps nothing', async () => {
+test('cronPost: the plain run sweeps link codes, sessions and spent OAuth codes over a day old; a triggered run sweeps nothing', async () => {
   // A day in 2000, so no other file's rows fall in the window.
   const now = new Date('2000-01-10T06:00:00Z');
   const at = (hours: number) => new Date(now.getTime() + hours * 3_600_000);
   const rows = { 'cr-old': at(-48), 'cr-grace': at(-12), 'cr-live': at(1) };
   await sql()`DELETE FROM link_codes WHERE code LIKE 'cr-%'`;
   await sql()`DELETE FROM sessions WHERE token_hash LIKE 'cr-%'`;
+  await sql()`DELETE FROM oauth_codes_spent WHERE nonce LIKE 'cr-%'`;
   for (const [key, exp] of Object.entries(rows)) {
+    // v6.1.16 Task 5: a spent code's row is kept a day from its exchange (at), then swept.
+    await sql()`INSERT INTO oauth_codes_spent (nonce, token_hash, at) VALUES (${key}, ${key}, ${new Date(exp.getTime() - 3_600_000)})`;
     await sql()`INSERT INTO link_codes (code, installation_id, created_at, expires_at) VALUES (${key}, 1, ${at(-72)}, ${exp})`;
     await sql()`INSERT INTO sessions (token_hash, builder_id, created_at, expires_at, last_seen_at) VALUES (${key}, 1, ${at(-72)}, ${exp}, ${at(-72)})`;
   }
@@ -151,8 +154,10 @@ test('cronPost: the plain run sweeps link codes and sessions expired over a day 
   assert.equal((await sql()`SELECT 1 FROM link_codes WHERE code LIKE 'cr-%'`).length, 3);
   const res = await cronPost(req(`Bearer ${SECRET}`), quiet);
   assert.equal(res.status, 200);
-  const body = (await res.json()) as { screen: { swept_auth: { link_codes: number; sessions: number } } };
-  assert.deepEqual(body.screen.swept_auth, { link_codes: 1, sessions: 1 });
+  const body = (await res.json()) as { screen: { swept_auth: { link_codes: number; sessions: number; oauth_codes: number } } };
+  assert.deepEqual(body.screen.swept_auth, { link_codes: 1, sessions: 1, oauth_codes: 1 });
+  assert.deepEqual((await sql()`SELECT nonce FROM oauth_codes_spent WHERE nonce LIKE 'cr-%' ORDER BY nonce`).map((r) => r.nonce), ['cr-grace', 'cr-live']);
+  await sql()`DELETE FROM oauth_codes_spent WHERE nonce LIKE 'cr-%'`;
   assert.deepEqual((await sql()`SELECT code FROM link_codes WHERE code LIKE 'cr-%' ORDER BY code`).map((r) => r.code), ['cr-grace', 'cr-live']);
   assert.deepEqual((await sql()`SELECT token_hash FROM sessions WHERE token_hash LIKE 'cr-%' ORDER BY token_hash`).map((r) => r.token_hash), ['cr-grace', 'cr-live']);
   await sql()`DELETE FROM link_codes WHERE code LIKE 'cr-%'`;
