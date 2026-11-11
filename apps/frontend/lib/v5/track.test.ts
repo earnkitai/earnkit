@@ -837,7 +837,9 @@ test('F1 fix round 2 (v6.1.10): find and track judge one fixture by the same lis
   const project = { name: 'Same App', description: 'An app.', live_url: 'https://same.example' };
   const r = (await find({ ...c, builderId: b.id }, { project, filter: { all: true } })) as unknown as { ready: { program_id: string; fields: never[]; need_you: string[] }[]; show_to_builder: string };
   const ready = r.ready.find((p) => p.program_id === 'fr2-same')!;
-  const fromFind = unvouchedRequired(ready.fields).map((f: { key: string }) => f.key);
+  // L26-4 (v6.1.16 Task 12): the full list's fields are key, label, value and source; the program's own find has the rest.
+  const one = (await find({ ...c, builderId: b.id }, { program_id: 'fr2-same', project })) as unknown as { fields: never[] };
+  const fromFind = unvouchedRequired(one.fields).map((f: { key: string }) => f.key);
   assert.deepEqual(fromFind, ['problem', 'linkedin']);
   assert.deepEqual(ready.need_you, ['the problem', 'your LinkedIn']);
   assert.doesNotMatch(r.show_to_builder.split('\n').at(-1)!, /Same Grant/);

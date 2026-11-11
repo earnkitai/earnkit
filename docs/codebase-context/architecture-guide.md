@@ -381,8 +381,13 @@ reach `installClientHosted`; over it, "Too many sign-ups from your network today
 `[oauth] block near cap` as a block reaches 80 percent of its day). Hex IPv4-mapped IPv6 is unmapped to its IPv4. No ceiling is shared by every user of one hosted service, so one network
 rotating addresses never locks out another; the hosted tier (every redirect URI is a listed vendor's exact host and callback path, `HOSTED_REDIRECTS`) only raises
 the per-client ceiling (`installClientHosted`). `GET /mcp` is 405 (`Allow: POST, DELETE, OPTIONS`): EarnKit never pushes. `rate-limit.ts` keeps fixed-window counters in Postgres. Each MCP tool call counts
-120 an hour per installation and 600 an hour per client IP; over either, the call answers the tool result "You have
-asked a lot this hour. Try again in about {n}." (v6.1.15; `{n}` in minutes, hours past 90 minutes; not a transport error, so clients show it). `secrets.ts` scrubs secret
+120 an hour per installation and 600 an hour per client IP. v6.1.16 Task 12 (L26-1, L26-5): `refusedFor` checks the
+installation's own window first and a call it refuses never reaches the address window, so one looping agent never
+locks out its colleagues; the own cap answers "Your agent has used this hour's limit. Try again in about {n} minutes."
+(`LIMIT_OWN`), the address window "Too many calls from your network this hour. Try again in about {n} minutes."
+(`LIMIT_ADDRESS`), minutes only, and every refused call carries `structuredContent.retry_after_seconds` (not a transport
+error, so clients show it). The per-address floors for register, token (`installHour`) and authorize are 200 an hour
+(L26-3, owner call); a per-address refusal never counts on the block window (enforce throws before `enforceBlock`). `secrets.ts` scrubs secret
 keys from tool-call bodies before anything sees them.
 
 ## Database
@@ -668,8 +673,13 @@ short word names an id or title word or the id's initials, never an organizer's 
 passed, track's and the detail's first line names it ("Started: {title}.", "Tracked: {title}."; `namedFirst`); several answer "Did you mean {title one} or {title two}?" alone (L1e-1, v6.1.13) (the first two by `byLookupRank`: open, then upcoming, then the rest; larger award; sooner close);
 none, "I don't know that program." alone (a word naming no program is never a guess from the others: "Combinator Labs", "base-nope"; L12-3). Track records nothing on such a name; a result on an id the ledger
 holds as sent is that id, before any matching (final fix, v6.1.12). Find's record line reads "Still missing for
-these programs: ..." (what these forms need); `record get` keeps "Your record is missing: ..." (every fact), and both
-`record get` and `set` carry an agent note. `/me/policy` refuses auto apply with no
+these programs: ..." (what these forms need); `record get` and `set` say what the next application needs (L29-11), and both
+carry an agent note. v6.1.16 Task 12 (L26-2, L26-7): `record get` (true) returns `summary` (the facts without the
+answers, and per answer kind its length, first 120 characters and approval), `get: {kind}` that kind's answers in full,
+`brief` the brief and `missing` with no record; every record reply is capped at 20 KB (`recordReplyCap`: the longest
+texts cut to 120 characters, then "Ask for one kind at a time for the rest."). The save line reads "Saved {a} answers
+and {f} facts. Approve the answers at earnkit.com/me and they go into drafts." (zero parts left out); a kind with an
+unapproved answer is not missing, and the reply says "{n} answers wait for your approval." `/me/policy` refuses auto apply with no
 category ticked ("Pick at least one category.", C43).
 
 **The four tools** (`lib/v5/mcp.ts`):
@@ -701,7 +711,10 @@ no `repo_key`. v6.1.16 L16-13, L16-8: a repo link off a code host, or a shortene
 `createJob` returns it in `dropped` ("repo_url dropped: not a code host (r-1)", "live_url dropped: a shortened link
 (r-2)"), which the queue's agent note names beside the unknown fields (with `SHORT_LINK_NOTE` for a shortened one). The promise is computed from the queue (v6.1.7 B14): the unread applicants of unexpired jobs created before this
 one (`queuedAhead`) plus this job's, against `SCREEN_BATCH` per daily run: "Results come in daily runs; the first by tomorrow morning." when they fit
-in one run, else "Results come in daily runs; {n} applicants ahead of yours, all within {d} days." (L15-13). The cron's `workQueue`
+in one run, else "Results within {d} days." (L26-6, v6.1.16 Task 12: the rows queued before it in the shared queue count
+for the days, never as "ahead of yours"; the one-day promise is "Results come once a day, within 24 hours."). A call
+that queues nothing new is taken back off the reviewer's ten a day (`uncountHit`); over ten: "You can queue ten
+screens a day. Try again tomorrow." (L26-12). The cron's `workQueue`
 (`screen-worker.ts`) takes each applicant atomically (`reading`, free again after 30 minutes), reads it as the pilot
 does (a GitHub budget stop puts it back and ends the run; a tierless read worth a retry is queued again, `failed` at
 the third) and stores tier, flags, because, line and public rows only (`github`, `explorer`, `site`, `earnkit`, never
@@ -746,7 +759,8 @@ the rest of the batch goes on. A win marked a further payment (`payment: { key }
 ledger's total once per key (`screen_outcomes.payment_keys`; a retry whose key the screen already kept still goes to
 the ledger with the same `s:` key, a no-op once written, so a ledger write that failed is delivered once, FR-4); a total over the program's cap writes nothing and the
 owner hears the over-cap line naming the ref (T8-F3, L15-16); unmarked, another amount replaces the first in both (T8-F1).
-Results come 25 applicants a page (`PAGE_SIZE`, `page` from 1); pages follow the queued order (`screen_applicants.seq`)
+Results come 10 applicants a page (`PAGE_SIZE`, `page` from 1; L26-4 v6.1.16: each applicant carries `read_at` once and
+a row its own only when read earlier); pages follow the queued order (`screen_applicants.seq`)
 with pending rows in place, sorted by tier only inside a page, so a read landing between pages moves no row (T8-F2);
 the totals line ends "Ask for page {n} for the rest." and the reply carries `next_page`, null on the last (L15-3).
 Rows read
@@ -765,7 +779,7 @@ recorded outcome the screen held back: "Recorded {n} outcome(s); not passed to a
 Fix round 1 (C1): the reviewer never learns a builder's own record. `paymentRefused` comes only from the screen's own
 refusal; any refusal from `ledger.record` is one generic "Not passed on; the builder's record stands." (refs in the
 agent note, `stands`), its detail (owner, program, note, current result) in a `[screen] ledger refused` server log line.
-A page past the last reads "{totals} No more results." (L16-12). `xpCounts` gives each read the program's own earlier screens in 90 days sharing the repo
+A page past the last reads "{totals} That screen has {n} pages." (L16-12, L26-12). `xpCounts` gives each read the program's own earlier screens in 90 days sharing the repo
 or a deployer and the outcomes it reported ("seen in n earlier screens of this program in 90 days", never a flag);
 another program's screens and outcomes are never counted or shown (L15-11 v6.1.14, as the terms say). Marking a
 reviewer again without a contact keeps the saved one (L15-2).
@@ -1023,3 +1037,23 @@ means what the last `Say` offered.
 - Merge ledgers across a builder's agents (v6.1 does, once the builder signs in with GitHub).
 - Show aggregate outcomes (the tables are shaped for it).
 - Archive or flag off old code; deleted code lives in git history.
+
+## Limits and reply sizes (v6.1.16 Task 12, lane 26)
+
+- Find replies are capped (`findReplyCap` in `find.ts`): 30 KB for a list (`FIND_CAP_ALL`), 20 KB for one program
+  (`FIND_CAP_ONE`), pinned over all 52 catalog programs. `filter.all` fields carry key, label, value and from only
+  (`slimLists`); a list over its cap drops the lowest-ranked programs' fields, then their details past the money and
+  first gap, and adds "More programs than fit here; ask for one by name for its details." A one-program reply carries
+  the first two guide rules ("The rest of the rules are on https://earnkit.com/programs/{id}." when the note points at
+  guide.rules); over its cap it cuts long field sources, the program file's copy of the form (keeping `todo`/`need`),
+  sources, descriptions, then the guide's form, and names the guide page.
+- GitHub reads (`github.ts`): one 20 s budget for the whole read (`readBudget`, `READ_BUDGET_MS`); the first commit runs
+  beside the tree and its raw files; past it, `GitHubSlow`, and find says "GitHub was slow; matched on what you told me.
+  I read it again next time." (note `slow`). In `repo-facts.ts` a 404 or private answer is kept in `repo_cache` as
+  `{ miss }` for 30 minutes (`MISS_KEEP_MS`), a slow one for 10 (`SLOW_KEEP_MS`), answered with no call and no count;
+  a fresh miss or slow read gives the day's real read back and counts on `repoMiss` (20 a day per installation,
+  controller ruling), over which the reply is the paused line.
+- Indexes: `installations_builder` (partial, builder_id), `applications_program`, `screen_jobs_program`; an `i:<n>`
+  owner is looked up by id (`installationOwner` in `screen-jobs.ts`), never `'i:' || id`.
+- `markFind` stamps with `GREATEST`: parallel finds never move `last_find_at` back, and `prev_find_at` moves only when
+  this find's `now` is newer.

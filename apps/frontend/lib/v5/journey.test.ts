@@ -161,8 +161,10 @@ test('the owner, linked: record set, approved on /me, find fills from it, starte
   assert.equal(set.show_to_builder, 'Saved 1 answer and 6 facts. Approve the answer at earnkit.com/me and it goes into drafts.');
   // v6.1.4: Z Fellows is the fourth in-person program, past the default two, so the full list shows it.
   const before = await call(NOW, 'find', { project: { ...p, live_url: 'https://earnkit.com', users: true }, filter: { all: true } });
-  const z0 = (allReady(before) as { program_id: string; fields: { key: string; from: string }[] }[]).find((x) => x.program_id === 'z-fellows')!;
-  assert.notEqual(z0.fields.find((f) => f.key === 'problem')!.from, 'record');
+  assert.ok((allReady(before) as { program_id: string }[]).some((x) => x.program_id === 'z-fellows'));
+  // L26-4 (v6.1.16 Task 12): a program's fields in full come with its own find.
+  const zFields = async (now: Date) => ((await call(now, 'find', { program_id: 'z-fellows', project: { ...p, live_url: 'https://earnkit.com', users: true } })).fields as { key: string; from: string; value: string | null }[]);
+  assert.notEqual((await zFields(NOW)).find((f) => f.key === 'problem')!.from, 'record');
 
   // The builder approves on /me and turns standing approval on there.
   let record = mergeRecord(await getRecord(b.id), { policy: { auto_apply: true, max_per_night: 3 } }, 'builder', NOW).record;
@@ -174,7 +176,7 @@ test('the owner, linked: record set, approved on /me, find fills from it, starte
   const first = await call(t1, 'find', { project: { ...p, live_url: 'https://earnkit.com', users: true }, filter: { all: true } });
   assert.equal(first.linked, true);
   const z = (allReady(first) as { program_id: string; from_record: number; fields: { key: string; from: string; value: string | null }[] }[]).find((x) => x.program_id === 'z-fellows')!;
-  assert.deepEqual(z.fields.find((f) => f.key === 'problem')!.value, 'Builders lose weeks on grant forms.');
+  assert.deepEqual((await zFields(t1)).find((f) => f.key === 'problem')!.value, 'Builders lose weeks on grant forms.');
   assert.ok(z.from_record >= 2);
   // L29-26 (v6.1.16 Task 15): the full view is names and money; the counts are in the JSON.
   assert.equal((first.show_to_builder as string).split('\n').find((l) => l.startsWith('1. ')), '1. Arbitrum Mentorship Program: Cohort 2, up to $100,000.');
