@@ -21,7 +21,7 @@ export type ListedProgram = {
   category: Category;
   chains: string[];
   any_chain: boolean;
-  /** The card's money: "$840,000 in prizes", else "$5,000" per winner (a range "$10,000 to $900,000"), else the summary's amount. */
+  /** The card's money (`moneyOf`): the summary's money phrase in full figures, else the pool or the award. */
   money: string;
   status: 'active' | 'upcoming';
   /** ISO, or null for a rolling program. */
@@ -77,21 +77,24 @@ export function lowerFirst(text: string, names: Iterable<string> = []): string {
 /** A money threshold the builder must reach (" at $10M USDG TVL"), never money paid (v6.1.14). */
 const THRESHOLD = /\s+at\s+[$€£]\s?[\d.,]+\s?[KMB]?\b.*$/i;
 
+/** A bare figure ("$500,000", "up to $10,000"): an investment program's names the kind after it. */
+const BARE_FIGURE = /^(up to )?[$€£]?[\d.,]+[KM]?$/i;
+
 /**
- * The money a program card shows: the pool first, then the per-winner award, then the summary (v6.1.6), in full
- * figures (lane 22, v6.1.15). A range keeps its low ("$10,000 to $900,000"); a summary that says "up to" with no low
- * reads "Up to $5,000" (v6.1.14). The summary's money never carries a threshold the builder must reach, and starts
- * with a capital (#12). The tile, the list API and the guide header all show this one string. Pure.
+ * The money of a program, one reader for the tile, the list API, the guide header and (lowercase) the find reply
+ * (fix round 2, v6.1.15): the summary's money phrase whenever it has a figure ("$250,000 over two years", "Up to
+ * $100,000 by tier, more by DAO vote"), in full figures (the catalog check refuses K or M); else the pool ("$N in
+ * grants" or "$N in prizes"), then the per-winner award ("$10,000 to $900,000" keeps a range's low); else the
+ * summary's words ("Milestone grants, amount not stated"). The phrase never carries a threshold the builder must
+ * reach (v6.1.14), and starts with a capital (#12). Pure.
  */
 export function moneyOf(p: Pick<Program, 'title' | 'summary' | 'investment' | 'max_award_usd' | 'pool_usd' | 'min_award_usd'>): string {
-  const prize = p.summary.split(' · ')[0];
-  if (p.pool_usd) return `${usdFull(p.pool_usd)} in ${/\bgrants?\b/i.test(p.title) ? 'grants' : 'prizes'}`;
-  if (p.max_award_usd) {
-    if (p.min_award_usd) return `${usdFull(p.min_award_usd)} to ${usdFull(p.max_award_usd)}`;
-    return /^up to\b/i.test(prize) ? `Up to ${usdFull(p.max_award_usd)}` : usdFull(p.max_award_usd);
+  const phrase = p.summary.split(' · ')[0].replace(THRESHOLD, '');
+  if (!/\d/.test(phrase)) {
+    if (p.pool_usd) return `${usdFull(p.pool_usd)} in ${/\bgrants?\b/i.test(p.title) ? 'grants' : 'prizes'}`;
+    if (p.max_award_usd) return p.min_award_usd ? `${usdFull(p.min_award_usd)} to ${usdFull(p.max_award_usd)}` : usdFull(p.max_award_usd);
   }
-  const award = prize.replace(THRESHOLD, '');
-  return moneyAt(p.investment && !/\binvestment\b/i.test(award) ? `${award} investment` : award, 'tile');
+  return moneyAt(p.investment && BARE_FIGURE.test(phrase) ? `${phrase} investment` : phrase, 'tile');
 }
 
 const closesIn = (status: ListedProgram['status'], closesAt: string | null, now: Date) =>

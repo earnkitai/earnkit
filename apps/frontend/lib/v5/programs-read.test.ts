@@ -104,7 +104,7 @@ test('readListedPrograms: listed programs from the table, with money and links',
     NOW,
   );
   await upsertProgram(
-    programFixture({ id: 't-read-pool', title: 'Test Hackathon', reward: '$50,000 in prizes', pool_usd: 50_000, summary: '$50K in prizes', category: 'hackathon' }),
+    programFixture({ id: 't-read-pool', title: 'Test Hackathon', reward: '$50,000 in prizes', pool_usd: 50_000, summary: '$50,000 in prizes', category: 'hackathon' }),
     'file',
     NOW,
   );
@@ -156,24 +156,25 @@ test('readListedPrograms carries the catalog fields and never reviewers_contact'
   assert.ok(!(await res.text()).includes('reviewers_contact'));
 });
 
-test('moneyOf: the pool first, then the per-winner award, then the summary (v6.1.6, one amount per program; full figures, lane 22)', () => {
-  const base = { title: 'Meta Horizon VR Competition', summary: '$100K top prize · $1M in prizes', investment: false };
+test('moneyOf (fix round 2, v6.1.15): the summary\'s money phrase whenever it has a figure; else the pool, then the award', () => {
+  const base = { title: 'Meta Horizon VR Competition', summary: 'Prizes for VR apps · rolling', investment: false };
   assert.equal(moneyOf({ ...base, max_award_usd: 100_000, pool_usd: 1_000_000 }), '$1,000,000 in prizes');
   assert.equal(moneyOf({ ...base, title: 'Arc Builder Grants', max_award_usd: 25_000, pool_usd: 250_000 }), '$250,000 in grants');
   assert.equal(moneyOf({ ...base, max_award_usd: 100_000, pool_usd: undefined }), '$100,000');
-  assert.equal(moneyOf({ title: 'Fund', summary: '$500K · rolling', investment: true, max_award_usd: 0, pool_usd: undefined }), '$500K investment');
+  assert.equal(moneyOf({ ...base, max_award_usd: 900_000, min_award_usd: 10_000 }), '$10,000 to $900,000');
+  // The phrase wins over the figures, so no word of it is lost.
+  assert.equal(moneyOf({ ...base, summary: '$1,000,000 in prizes · Dec 1', max_award_usd: 100_000, pool_usd: 1_000_000 }), '$1,000,000 in prizes');
   assert.equal(moneyOf({ title: 'PayPal AI Hackathon', summary: '$67,500 in prizes · Dec 1', investment: false, pool_usd: 67_500 }), '$67,500 in prizes');
-});
-
-test('moneyOf (v6.1.14, lane 22 v6.1.15): a range keeps its low; "up to" with no low reads Up to; a threshold is never money', () => {
-  assert.equal(moneyOf({ title: 'OTF Internet Freedom Fund', summary: '$10,000 to $900,000 · rolling', investment: false, max_award_usd: 900_000, min_award_usd: 10_000 }), '$10,000 to $900,000');
-  assert.equal(moneyOf({ title: 'Antler US Residency', summary: '$500K to $1M investment · rolling', investment: true, max_award_usd: 1_000_000, min_award_usd: 500_000 }), '$500,000 to $1,000,000');
+  assert.equal(moneyOf({ title: 'Lido', summary: 'Up to $100,000 by tier, more by DAO vote · no deadline stated', investment: false, max_award_usd: 100_000 }), 'Up to $100,000 by tier, more by DAO vote');
+  assert.equal(moneyOf({ title: 'Thiel Fellowship', summary: '$250,000 over two years · rolling', investment: false, max_award_usd: 250_000 }), '$250,000 over two years');
+  assert.equal(moneyOf({ title: 'Alliance', summary: '$400,000 at admission · Nov 18', investment: true, max_award_usd: 400_000 }), '$400,000 at admission');
+  assert.equal(moneyOf({ title: 'Y Combinator', summary: '$500,000 investment · rolling', investment: true, max_award_usd: 500_000 }), '$500,000 investment');
+  // An investment's bare figure names the kind.
+  assert.equal(moneyOf({ title: 'Fund', summary: '$500,000 · rolling', investment: true, max_award_usd: 0, pool_usd: undefined }), '$500,000 investment');
   assert.equal(moneyOf({ title: 'Base Builder Grants', summary: 'up to $5,000 · rolling', investment: false, max_award_usd: 5000 }), 'Up to $5,000');
-  // One amount is the award.
-  assert.equal(moneyOf({ title: 'Thiel Fellowship', summary: '$250,000 over two years · rolling', investment: false, max_award_usd: 250_000 }), '$250,000');
-  assert.equal(moneyOf({ title: 'Goose Grant Program', summary: '$100,000 per grant · rolling', investment: false, max_award_usd: 100_000 }), '$100,000');
+  assert.equal(moneyOf({ title: 'OTF Internet Freedom Fund', summary: '$10,000 to $900,000 · rolling', investment: false, max_award_usd: 900_000, min_award_usd: 10_000 }), '$10,000 to $900,000');
   // The Arbitrum Stablecoin tile: the award, never the TVL the builder must reach, with a capital (#12).
-  assert.equal(moneyOf({ title: 'Arbitrum Stablecoin Growth Program', summary: 'incentives + 200K ARB at $10M USDG TVL · no deadline stated', investment: false }), 'Incentives + 200K ARB');
+  assert.equal(moneyOf({ title: 'Arbitrum Stablecoin Growth Program', summary: 'incentives + 200,000 ARB at $10M USDG TVL · no deadline stated', investment: false }), 'Incentives + 200,000 ARB');
   assert.equal(moneyOf({ title: 'Sovereign Tech Fund', summary: 'funds work from EUR 50,000 · rolling', investment: false }), 'Funds work from EUR 50,000');
 });
 

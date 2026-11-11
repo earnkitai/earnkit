@@ -217,9 +217,9 @@ test('v6.1.14 catalog truth: Thiel has no repo bar; money lines never show a thr
   assert.ok(arb.rules.some((r) => r.includes('$10M of USDG TVL')));
 
   const lido = ProgramFile.parse(read('lido-lego-grants.json'));
-  assert.equal(moneyOf(lido), 'Up to $100,000');
-  // I2 (fix round 1): the reply reads the tile's words.
-  assert.equal(reply(lido), 'up to $100,000');
+  assert.equal(moneyOf(lido), 'Up to $100,000 by tier, more by DAO vote');
+  // Fix round 2: one reader, the summary's money phrase on every surface.
+  assert.equal(reply(lido), 'up to $100,000 by tier, more by DAO vote');
 
   // Lane 20: the EUR 50,000 is a minimum project cost, not an award floor.
   const stf = ProgramFile.parse(read('sovereign-tech-fund.json'));

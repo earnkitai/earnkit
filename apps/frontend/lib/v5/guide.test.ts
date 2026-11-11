@@ -183,8 +183,13 @@ test('Review Focus 4 (v6.1.15): for every program the guide money is the tile mo
   assert.equal(guideText(real('spc-founder-fellowship-spring-2027'), NOW).money, "$1,000,000 investment on the last round's terms");
   assert.equal(guideText(real('ethglobal-mumbai'), NOW).money, 'Up to $15,000 per partner prize');
   assert.equal(guideText(real('arbitrum-stablecoin-growth-program'), NOW).money, 'Incentives, plus 200,000 ARB for the first 10 teams');
-  assert.equal(replyMoney(real('y-combinator').file), '$500,000');
-  assert.equal(replyMoney(real('lido-lego-grants').file), 'up to $100,000');
+  assert.equal(replyMoney(real('y-combinator').file), '$500,000 investment');
+  // Fix round 2: the summary's money phrase on every surface.
+  assert.equal(replyMoney(real('lido-lego-grants').file), 'up to $100,000 by tier, more by DAO vote');
+  assert.equal(guideText(real('lido-lego-grants'), NOW).money, 'Up to $100,000 by tier, more by DAO vote');
+  assert.equal(guideText(real('thiel-fellowship'), NOW).money, '$250,000 over two years');
+  assert.equal(replyMoney(real('alliance-all19').file), '$400,000 at admission');
+  assert.equal(guideText(real('monad-blitz-oregon'), NOW).money, '$4,600 in prizes');
 });
 
 test('#9 (v6.1.15): every guide string is a sentence with no path and no ISO date', () => {
