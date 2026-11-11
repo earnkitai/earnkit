@@ -11,16 +11,20 @@ import { sql } from '../v5/db';
 import { CHAIN_REGISTRY, isKnownChain } from '../v5/chains';
 import { record, resultWords, winCapOf } from '../v5/ledger';
 import { getProgram } from '../v5/programs';
-import { canonicalRepoLink, isCodeHost } from '../v5/project-input';
+import { canonicalRepoLink, isCodeHost, nameKeyOf, sshAsHttps } from '../v5/project-input';
 import { repoKey } from '../v5/repo-facts';
 import { type Applicant, identicalPitches } from './applicants';
+import { getRecord } from './builders';
 import type { Row } from './evidence';
 import { listWords } from './reply-words';
 import { type Flag, type Thresholds, type Tier, TIERS } from './tiers';
 
+/** An applicant's ref, as the program gives it and as an outcome names it (screen-tool's outcome ref cap). */
+export const REF_MAX = 60;
+
 export const ScreenApplicant = z
   .object({
-    ref: z.string().trim().min(1).max(60).describe("The program's own id for the applicant"),
+    ref: z.string().trim().min(1).max(REF_MAX).describe("The program's own id for the applicant"),
     name: z.string().trim().max(120).optional(),
     repo_url: z.string().trim().max(300).optional(),
     live_url: z.string().trim().max(300).optional(),
@@ -82,13 +86,6 @@ const CACHE_DAYS = 7;
 /** Not read yet: queued, or taken by a worker that has not written it. */
 export const UNREAD = ['queued', 'reading'];
 
-/** L15-5 (v6.1.14): an SSH clone link, `git@host:owner/repo(.git)` or `ssh://git@host/owner/repo`, as https. Pure. */
-export function sshAsHttps(raw: string): string {
-  const scp = /^[\w.-]+@([\w.-]+):(?!\/)(.+)$/.exec(raw);
-  if (scp) return `https://${scp[1]}/${scp[2]}`;
-  const ssh = /^(?:ssh|git\+ssh):\/\/(?:[\w.-]+@)?([\w.-]+)(?::\d+)?\/(.+)$/i.exec(raw);
-  return ssh ? `https://${ssh[1]}/${ssh[2]}` : raw;
-}
 /**
  * The applicant's repo link: a github.com repo as https://github.com/owner/name with its key; L15-5 (v6.1.14): a repo
  * or an account on another code host (CODE_HOSTS: GitLab, Codeberg, Bitbucket) and SSH forms kept as a link with no
@@ -177,7 +174,8 @@ export function mergeApplicants(list: ScreenApplicant[]): { list: ScreenApplican
   const renamed: string[] = [];
   const named = out.map((a) => {
     let ref = a.ref;
-    for (let k = 2; refs.has(ref); k++) ref = `${a.ref} (${k})`;
+    // FR-5 (final fix): the base is cut so the renamed ref still fits the 60-character cap an outcome's ref has.
+    for (let k = 2; refs.has(ref); k++) ref = `${a.ref.slice(0, REF_MAX - ` (${k})`.length)} (${k})`;
     refs.add(ref);
     if (ref !== a.ref) renamed.push(`${a.ref} as ${ref}`);
     return ref === a.ref ? a : { ...a, ref };
@@ -358,6 +356,10 @@ export const OUTCOME_NOTES = {
   own: (refs: string[]) => `Not recorded, the reviewer's own application: ${listWords(refs, 10)}.`,
   /** Task 8 security follow-up: an earlier row a later row's requeue names; it reaches no ledger. */
   superseded: (refs: string[]) => `Not passed on, a requeued row in a later screen carries its EarnKit id now: ${listWords(refs, 10)}.`,
+  /** FR-3 (v6.1.14 final fix): the id is for an application of another project (repo, else name); nothing is written. */
+  otherProject: (refs: string[]) => `Not passed on, the EarnKit id belongs to another project: ${listWords(refs, 10)}.`,
+  /** FR-3: the application names no project, so the row cannot be matched to it; nothing is written. */
+  noProject: (refs: string[]) => `Not passed on, the EarnKit application names no project to match: ${listWords(refs, 10)}.`,
   /** T5-F3 (v6.1.14): one id on more than one applicant of the program; each group names every row carrying it. */
   ambiguous: (groups: string[]) => `Not passed on, one EarnKit id on more than one applicant: ${groups.join('; ')}.`,
 } as const;
@@ -366,12 +368,40 @@ export const OWN_APPLICATION = 'You applied to this one; another reviewer posts 
 
 /** The application with this EarnKit id for the program, any status, and whether it is this builder's own. */
 async function applicationOf(applicationId: string, programId: string, builderId: number) {
-  const [app] = await sql()<{ owner: string; installation_id: number; status: string; own: boolean }[]>`
-    SELECT a.owner, a.installation_id, a.status,
+  const [app] = await sql()<{ owner: string; installation_id: number; status: string; own: boolean; project_id: string | null }[]>`
+    SELECT a.owner, a.installation_id, a.status, a.project_id,
       (a.owner = ${`b:${builderId}`} OR EXISTS (SELECT 1 FROM installations i WHERE a.owner = 'i:' || i.id AND i.builder_id = ${builderId})) AS own
     FROM applications a WHERE a.application_id = ${applicationId} AND a.program_id = ${programId}`;
   return app;
 }
+
+type ProjectSide = { repo: string | null; name: string | null };
+/** The canonical repo key of a link (SSH forms read as https), or null. Pure. */
+const repoSide = (v: string | null | undefined): string | null => (v ? canonicalRepoLink(sshAsHttps(v.trim())) : null);
+/** The folded name of a project, as nameKeyOf folds it, or null. Pure. */
+const nameSide = (v: string | null | undefined): string | null => nameKeyOf({ name: v ?? '' }).slice(5) || null;
+
+/**
+ * FR-3 (v6.1.14 final fix): the project an application is for, from its project_id: a repo key, a `name:` key, or
+ * the id of a project in its builder's record (that project's repo and name). Null when none is known.
+ */
+async function applicationProject(owner: string, projectId: string | null): Promise<ProjectSide | null> {
+  if (!projectId) return null;
+  if (projectId.startsWith('name:')) return { repo: null, name: projectId.slice(5) || null };
+  const repo = repoSide(projectId);
+  if (repo) return { repo, name: null };
+  const builder = owner.startsWith('b:')
+    ? Number(owner.slice(2))
+    : ((await sql()<{ builder_id: number | null }[]>`SELECT builder_id FROM installations WHERE 'i:' || id = ${owner}`)[0]?.builder_id ?? null);
+  if (builder === null || !Number.isSafeInteger(builder)) return null;
+  const p = (await getRecord(builder)).projects.find((x) => x.id === projectId);
+  if (!p) return null;
+  const side = { repo: repoSide(p.repo_url), name: nameSide(p.name) };
+  return side.repo || side.name ? side : null;
+}
+/** Whether the screen row and the application are one project: the repo when both have one, else the name. Pure. */
+const sameProject = (row: ProjectSide, app: ProjectSide): boolean =>
+  row.repo && app.repo ? row.repo === app.repo : row.name !== null && app.name !== null && row.name === app.name;
 
 /**
  * The program's decisions, on a job of a program this builder reviews (any of its reviewers, L15-12). Each is kept for
@@ -382,7 +412,8 @@ async function applicationOf(applicationId: string, programId: string, builderId
  * only when that application is for this program: never by repo or site, since a record or an applicant list can name
  * any repo. It is written as that application's own installation, through ledger.record so its caps and its one result
  * per program hold; a win with no amount is passed on as a win with none (L13-13). An outcome on the reviewer's own
- * application is not written at all (L15-1). An id another live row of the program carries too reaches no ledger
+ * application is not written at all (L15-1). FR-3 (final fix): nor one whose row is another project than the application's
+(the repo when both have one, else the name), so a copied id on a single row reaches no ledger. An id another live row of the program carries too reaches no ledger
  * (T5-F3); only a row a later row's requeue names is not live. Shortlisted writes no ledger row. `notes` are for the
  * reviewer's agent: what the screen did, never whether a ledger took it; `own`, when any, the refs of the reviewer's own.
  */
@@ -402,12 +433,14 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
   const superseded: string[] = [];
   const own: string[] = [];
   const overCap: string[] = [];
+  const otherProject: string[] = [];
+  const noProject: string[] = [];
   const cap = winCapOf(await getProgram(job.program_id));
   const once = (list: string[], ref: string) => void (list.includes(ref) || list.push(ref));
   const key = (x: { job_id: string; ref: string }) => `${x.job_id}\n${x.ref}`;
   for (const o of outcomes) {
-    const [a] = await sql()<{ application_id: string | null }[]>`
-      SELECT application_id FROM screen_applicants WHERE job_id = ${jobId} AND ref = ${o.ref}`;
+    const [a] = await sql()<{ application_id: string | null; name: string; repo_url: string | null }[]>`
+      SELECT application_id, name, repo_url FROM screen_applicants WHERE job_id = ${jobId} AND ref = ${o.ref}`;
     if (!a) {
       once(notFound, o.ref);
       continue;
@@ -442,23 +475,25 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
         WHERE EXCLUDED.at >= screen_outcomes.at RETURNING ref`;
       return { before: b, kept: k.length > 0, total: sum };
     })) as { repeat: true } | { overCap: true } | { before: Before | undefined; kept: boolean; total: number | null };
-    if ('repeat' in w) {
-      recorded++;
-      continue;
-    }
     if ('overCap' in w) {
       once(overCap, o.ref);
       continue;
     }
-    const { before, kept, total } = w;
-    if (!kept) {
-      once(older, o.ref);
-      continue;
+    // FR-4 (final fix): a payment key the screen already kept is a retry. It still goes on to the ledger with the same
+    // key (the ledger's own key check makes that a no-op once written), so a ledger write that failed after the screen's
+    // commit is delivered on the retry, once.
+    if ('repeat' in w) recorded++;
+    else {
+      const { before, kept, total } = w;
+      if (!kept) {
+        once(older, o.ref);
+        continue;
+      }
+      recorded++;
+      const same = before && before.outcome === o.outcome && (before.amount_usd === null ? null : Number(before.amount_usd)) === amount;
+      if (total !== null) added.push(`${o.ref} (now ${resultWords('won', String(total))})`);
+      else if (before && !same) replaced.push(`${o.ref} (was ${before.outcome === 'shortlisted' ? 'shortlisted' : resultWords(before.outcome, before.amount_usd)})`);
     }
-    recorded++;
-    const same = before && before.outcome === o.outcome && (before.amount_usd === null ? null : Number(before.amount_usd)) === amount;
-    if (total !== null) added.push(`${o.ref} (now ${resultWords('won', String(total))})`);
-    else if (before && !same) replaced.push(`${o.ref} (was ${before.outcome === 'shortlisted' ? 'shortlisted' : resultWords(before.outcome, before.amount_usd)})`);
     if (o.outcome === 'shortlisted') continue;
     // T5-F3 (v6.1.14) and the Task 8 security follow-up: an id given to a program can be copied, with the applicant's
     // repo, site and contracts, so an id another live row of the program carries (any screen, expired too) is
@@ -488,6 +523,16 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
       once(unmatched, o.ref);
       continue;
     }
+    // FR-3 (final fix): the row must be the application's own project, so an id copied onto one row reaches no ledger.
+    const appProject = await applicationProject(app.owner, app.project_id);
+    if (!appProject) {
+      once(noProject, o.ref);
+      continue;
+    }
+    if (!sameProject({ repo: repoSide(a.repo_url), name: nameSide(a.name) }, appProject)) {
+      once(otherProject, o.ref);
+      continue;
+    }
     if (o.outcome === 'won' && amount === null && !o.given) once(noAmount, o.ref);
     const ledgerNote = ledgerAmountNote(o);
     await record(app.owner, job.program_id, o.outcome, {
@@ -502,6 +547,8 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
     ...(noAmount.length ? [OUTCOME_NOTES.noAmount(noAmount)] : []),
     ...(unmatched.length ? [OUTCOME_NOTES.unmatched(unmatched)] : []),
     ...(ambiguous.length ? [OUTCOME_NOTES.ambiguous(ambiguous)] : []),
+    ...(otherProject.length ? [OUTCOME_NOTES.otherProject(otherProject)] : []),
+    ...(noProject.length ? [OUTCOME_NOTES.noProject(noProject)] : []),
     ...(superseded.length ? [OUTCOME_NOTES.superseded(superseded)] : []),
     ...(own.length ? [OUTCOME_NOTES.own(own)] : []),
     ...(overCap.length ? [OUTCOME_NOTES.overCap(overCap)] : []),

@@ -150,7 +150,8 @@ test('C17: an unknown project_id is ignored, and named in the agent note', async
   const a = await track(c, { program_id: 't6-p', status: 'applied', submitted_by: 'agent', project: { name: 'App' }, project_id: 'nope' });
   assert.match(a.agent_note, /project_id nope is not known; ignored\.$/);
   const [row] = await sql()`SELECT project_id FROM applications WHERE program_id = 't6-p' AND installation_id = ${c.installationId}`;
-  assert.equal(row.project_id, null);
+  // FR-3 (v6.1.14 final fix): the unknown id is never stored; the send keeps its project key, as a claim does.
+  assert.equal(row.project_id, 'name:app');
 });
 
 let gh = 931_000;
@@ -1241,4 +1242,32 @@ test('T5-F4 (v6.1.14): a send or claim in flight from an agent unlinked meanwhil
   const claimed = await track(a, { program_id: 'f4-claim', status: 'started' });
   assert.equal(claimed.show_to_builder, 'This agent was just unlinked from your account; nothing recorded.');
   assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${owner}`)[0].n, 0);
+});
+
+test('FR-2 (v6.1.14 final fix): track reads an SSH repo link as find does and keys its step by the https repo', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 'fr2-a', title: 'SSH Grant', eligibility: [{ kind: 'users' }] }), 'file', NOW);
+  for (const repo_url of ['git@github.com:Acme/App.git', 'ssh://git@gitlab.com/o/r.git']) {
+    const r = await track(c, { program_id: 'fr2-a', status: 'gap_done', item: 'users', project: { name: 'App', repo_url } });
+    assert.equal(r.show_to_builder, 'Noted.');
+    assert.doesNotMatch(r.agent_note, /not a web link/);
+  }
+  const rows = await sql()`SELECT project_key FROM gaps_done WHERE owner = ${'i:' + c.installationId} AND program_id = 'fr2-a' ORDER BY project_key`;
+  assert.deepEqual(rows.map((r) => r.project_key), ['https://github.com/acme/app', 'https://gitlab.com/o/r']);
+});
+
+test('FR-6 (v6.1.14 final fix): with standing approval turned off since the find, a send the builder confirmed (submitted_by builder) has the plain line, never the outside-approval clause', async () => {
+  const { linkInstallation, saveRecord, upsertBuilder } = await import('../v6/builders');
+  const { EMPTY_RECORD, mergeRecord } = await import('../v6/record');
+  const { markFindAuto } = await import('./installations');
+  const c = await ctx();
+  const b = await upsertBuilder({ github_id: 930_618, login: 'fr6', name: 'B', avatar_url: null }, NOW);
+  await linkInstallation(c.installationId, b.id, NOW);
+  await saveRecord(b.id, mergeRecord(EMPTY_RECORD, { policy: { auto_apply: false } }, 'builder', NOW).record, NOW);
+  await upsertProgram(programFixture({ id: 'fr6-a', title: 'Confirmed Grant', category: 'grant' }), 'file', NOW);
+  await markFindAuto(c.installationId, true);
+  const r = await track({ ...c, builderId: b.id }, { program_id: 'fr6-a', status: 'applied', submitted_by: 'builder', project: { name: 'App' }, fields_used: ['project_name'] });
+  assert.equal(r.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.doesNotMatch(r.show_to_builder, /standing approval/);
+  assert.doesNotMatch(r.agent_note, /not under standing approval/);
 });

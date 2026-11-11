@@ -356,3 +356,16 @@ test('T6-F3 (v6.1.14 fix round 1): canonicalRepoLink keys code hosts only; bit.l
   assert.equal(canonicalRepoLink('https://example.com/a/b'), null);
   assert.equal(canonicalRepoLink('https://codeberg.org/A/B.git'), 'https://codeberg.org/a/b');
 });
+
+test('FR-2 (v6.1.14 final fix): an SSH clone link is the repo, keyed as its https form', () => {
+  for (const ssh of ['git@github.com:Acme/App.git', 'ssh://git@github.com/Acme/App.git']) {
+    const r = parseProject({ ...base, repo_url: ssh });
+    assert.ok(r.ok);
+    assert.equal(r.project.repo_url, 'https://github.com/Acme/App.git');
+    assert.deepEqual(r.problems, []);
+    assert.equal(projectKeyOf(r.project), 'https://github.com/acme/app');
+    assert.equal(projectKeyOf({ repo_url: ssh }), 'https://github.com/acme/app');
+  }
+  assert.equal(projectKeyOf({ repo_url: 'ssh://git@gitlab.com/o/r.git' }), projectKeyOf({ repo_url: 'https://gitlab.com/o/r' }));
+  assert.equal(projectKeyOf({ repo_url: 'https://github.com/Acme/App' }), 'https://github.com/acme/app');
+});

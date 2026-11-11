@@ -324,10 +324,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS applications_application_id ON applications (a
 ALTER TABLE screen_applicants ADD COLUMN IF NOT EXISTS application_id text;
 -- v6.1.14 (Task 8, the round 3 security follow-up): a requeued row names the exact earlier row it supersedes, a row of
 -- a screen of the same program carrying the same application id (checked when queued). The blind flag is gone.
--- T8-F5: the old `requeue` boolean stays through this release, nullable and ignored, so a build still serving during the
--- deploy can insert it; drop it in a later release.
-ALTER TABLE screen_applicants ADD COLUMN IF NOT EXISTS requeue boolean;
-ALTER TABLE screen_applicants ALTER COLUMN requeue DROP NOT NULL;
 ALTER TABLE screen_applicants ADD COLUMN IF NOT EXISTS requeue_job_id text;
 ALTER TABLE screen_applicants ADD COLUMN IF NOT EXISTS requeue_ref text;
 -- v6.1.14 (L15-18): a program's screens and outcomes belong to the program; a reviewer's delete leaves them, unowned.

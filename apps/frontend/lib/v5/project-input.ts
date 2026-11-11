@@ -87,6 +87,19 @@ const webUrl = (v: unknown): string | null => {
   }
 };
 
+/**
+ * L15-5 (v6.1.14): an SSH clone link, `git@host:owner/repo(.git)` or `ssh://git@host/owner/repo`, as https; anything
+ * else as given. FR-2 (final fix): the one definition, so find, track and the screen read one repo key. Pure.
+ */
+export function sshAsHttps(raw: string): string {
+  const scp = /^[\w.-]+@([\w.-]+):(?!\/)(.+)$/.exec(raw);
+  if (scp) return `https://${scp[1]}/${scp[2]}`;
+  const ssh = /^(?:ssh|git\+ssh):\/\/(?:[\w.-]+@)?([\w.-]+)(?::\d+)?\/(.+)$/i.exec(raw);
+  return ssh ? `https://${ssh[1]}/${ssh[2]}` : raw;
+}
+/** A repo link as a web link: an SSH clone link read as https first (FR-2). */
+const repoWebUrl = (v: unknown): string | null => webUrl(typeof v === 'string' && v.length <= 500 ? sshAsHttps(clean(v).trim()) : v);
+
 /** Words that name a testnet in a chain slug or a network (v6.1.14 fix round 1, F1). */
 const TESTNET_WORDS = new Set(['sepolia', 'goerli', 'holesky', 'hoodi', 'testnet', 'devnet', 'amoy', 'mumbai', 'fuji', 'moderato']);
 /** A testnet named alone: the chain it belongs to. */
@@ -146,7 +159,7 @@ export function parseProject(v: unknown, now = new Date(), o: { partial?: boolea
   const urlProblems: string[] = [];
   for (const k of URL_FIELDS) {
     if (raw[k] == null) continue;
-    const url = webUrl(raw[k]);
+    const url = k === 'repo_url' ? repoWebUrl(raw[k]) : webUrl(raw[k]);
     if (url) out[k] = url;
     else urlProblems.push(`${k} dropped: not a web link`);
   }
@@ -301,7 +314,8 @@ const nameFold = (s: string) => s.normalize('NFKC').toUpperCase().toLowerCase();
  */
 export function projectKeyOf(project: { name?: unknown; repo_url?: unknown } | null | undefined): string {
   // Only a code host's link keys by repo (L13-15, v6.1.14; canonicalRepoLink holds the list), as parseProject reads it.
-  const repo = webUrl(project?.repo_url) ? canonicalRepoLink(project?.repo_url) : null;
+  const url = repoWebUrl(project?.repo_url);
+  const repo = url ? canonicalRepoLink(url) : null;
   if (repo) return repo;
   return nameKeyOf(project);
 }

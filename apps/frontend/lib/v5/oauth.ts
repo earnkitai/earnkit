@@ -77,12 +77,18 @@ export function clientNameOf(v: unknown): string | null {
 /** L13-16 (v6.1.14): a client may not register or install under EarnKit's own name. */
 export const INVALID_CLIENT_NAME = "client_name may not be EarnKit's own name; send the agent's name.";
 
-/** T6-F1 (v6.1.14): Cyrillic and Greek letters that read as Latin ones, folded before the reserved-name check. */
+/** T6-F1 (v6.1.14): Cyrillic, Greek and other letters that read as Latin ones, folded before the reserved-name check. */
 const LOOKALIKES: Record<string, string> = {
   а: 'a', е: 'e', о: 'o', р: 'p', с: 'c', у: 'y', х: 'x', к: 'k', і: 'i', ј: 'j', ѕ: 's', т: 't', н: 'h', м: 'm', в: 'b',
   А: 'a', Е: 'e', О: 'o', Р: 'p', С: 'c', У: 'y', Х: 'x', К: 'k', І: 'i', Ј: 'j', Ѕ: 's', Т: 't', Н: 'h', М: 'm', В: 'b',
   α: 'a', ε: 'e', ο: 'o', ρ: 'p', τ: 't', υ: 'u', κ: 'k', ι: 'i', ν: 'v',
   Α: 'a', Ε: 'e', Ο: 'o', Ρ: 'p', Τ: 't', Υ: 'y', Κ: 'k', Ι: 'i', Ν: 'n', Β: 'b', Η: 'h', Μ: 'm', Χ: 'x', Ζ: 'z',
+  // FR-9 (final fix): letters NFKD leaves whole: the dotless i and j, Latin alpha and iota, more Cyrillic, Armenian,
+  // and the Latin small capitals.
+  ı: 'i', ȷ: 'j', ɑ: 'a', ɩ: 'i', һ: 'h', ӏ: 'l', Ӏ: 'l', ԛ: 'q', ԝ: 'w', ԁ: 'd',
+  օ: 'o', ո: 'n', ս: 'u', հ: 'h', ց: 'g', զ: 'q', Օ: 'o', Ս: 'u',
+  ᴀ: 'a', ʙ: 'b', ᴄ: 'c', ᴅ: 'd', ᴇ: 'e', ꜰ: 'f', ɢ: 'g', ʜ: 'h', ɪ: 'i', ᴊ: 'j', ᴋ: 'k', ʟ: 'l', ᴍ: 'm', ɴ: 'n',
+  ᴏ: 'o', ᴘ: 'p', ʀ: 'r', ꜱ: 's', ᴛ: 't', ᴜ: 'u', ᴠ: 'v', ᴡ: 'w', ʏ: 'y', ᴢ: 'z',
 };
 
 /**

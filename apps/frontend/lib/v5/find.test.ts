@@ -1191,7 +1191,9 @@ test('C60, C1, N-2 (v6.1.8, v6.1.9): the VR persona (a public repo with code, us
   );
   assert.equal((hidden.reply!.show_to_builder as string).match(/make the repo public/g)!.length, 1);
   const one = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss', project: { ...VR, private: true } });
-  assert.equal(one.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000: a public repo. First: make the repo public; publish a funding manifest on your site or repo.', 'Tell me when the repo is public and I look again.'].join('\n'));
+  assert.equal(one.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000: a public repo. First: publish a funding manifest on your site or repo.', 'Tell me when the repo is public and I look again.'].join('\n'));
+  // FR-1 (final fix): the one-program reply names the step once too.
+  assert.doesNotMatch(one.reply!.show_to_builder as string, /make the repo public/);
   assert.ok((hidden.reply!.agent_note as string).split('\n').includes(REPO_STEP_NOTE));
 });
 
@@ -1447,9 +1449,11 @@ test('L1f-3 (v6.1.14, persona 12): an archived repo is never asked the users que
   assert.ok((r.reply!.agent_note as string).split('\n').includes(REPO_STEP_NOTE));
   const one = await mcpCall(c, 'find', { program_id: 'herodevs', project: ATOM });
   assert.equal(one.reply!.show_to_builder, [
-    'HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: the repo is archived. First: tell me the live repo. Their rule: an OSI-approved open source license.',
+    // FR-1 (final fix): the telling step is the action, so the line leaves it out.
+    'HeroDevs Open Source Sustainability Fund, $2,500 to $15,000: the repo is archived. Their rule: an OSI-approved open source license.',
     'Tell me the live repo and I look again.',
   ].join('\n'));
+  assert.equal((one.reply!.show_to_builder as string).match(/ell me the live repo/g)!.length, 1);
 });
 
 test('B20c (v6.1.9, Review Focus 1): a repo-less idea and an empty repo are never asked the users question, and a yes never makes FLOSS/fund ready', async () => {
@@ -2330,4 +2334,15 @@ test('L13-9 (v6.1.14): one tonight list, the same by default and in filter.all; 
   } finally {
     await sql()`DELETE FROM programs WHERE id LIKE 'l139-%'`;
   }
+});
+
+test('FR-2 (v6.1.14 final fix): find reads an SSH repo link as the repo, the same reply and project key as its https form', async () => {
+  const https = await mcpCall(ctx(await installation()), 'find', { project: PROJECT });
+  const sshId = await installation();
+  const ssh = await mcpCall(ctx(sshId), 'find', { project: { ...PROJECT, repo_url: `git@github.com:${rec.repo}.git` } });
+  assert.equal(ssh.isError, false, ssh.text);
+  assert.ok(!((ssh.reply!.problems as string[] | undefined) ?? []).some((p) => /repo_url/.test(p)));
+  assert.equal(ssh.reply!.show_to_builder, https.reply!.show_to_builder);
+  const [row] = await sql()`SELECT last_project_key FROM installations WHERE id = ${sshId}`;
+  assert.equal(row.last_project_key, `https://github.com/${rec.repo}`.toLowerCase());
 });

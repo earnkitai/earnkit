@@ -10,7 +10,7 @@ import { getProgram } from '../v5/programs';
 import { LIMITS, hit } from '../v5/rate-limit';
 import { listWords, signInLink } from './record-tool';
 import { reviewerPrograms } from './reviewers';
-import { badRequeues, createJob, jobResults, jobStatus, type Outcome, OWN_APPLICATION, queuedAhead, recordOutcomes, ScreenApplicant, type ScreenResults } from './screen-jobs';
+import { badRequeues, createJob, jobResults, jobStatus, type Outcome, OWN_APPLICATION, queuedAhead, recordOutcomes, REF_MAX, ScreenApplicant, type ScreenResults } from './screen-jobs';
 import { SCREEN_BATCH } from './screen-worker';
 import { DEFAULT_THRESHOLDS, RATIO_THRESHOLDS, TIERS, type Thresholds } from './tiers';
 
@@ -24,7 +24,7 @@ export const ScreenInput = z
     outcomes: z
       .array(
         z.object({
-          ref: z.string().max(60), outcome: z.enum(['won', 'rejected', 'shortlisted']), amount_usd: z.number().finite().optional(),
+          ref: z.string().max(REF_MAX), outcome: z.enum(['won', 'rejected', 'shortlisted']), amount_usd: z.number().finite().optional(),
           // L15-15 (v6.1.14): an amount in any currency, cents allowed, as a number or text ("2,500.50", "2000 EUR").
           amount: z.union([z.number().finite(), z.string().trim().max(40)]).optional(),
           currency: z.string().trim().max(10).optional(),
@@ -89,7 +89,9 @@ export function totalsLine(r: ScreenResults): string {
 function thresholdsOf(given: Record<string, number> | undefined): Partial<Thresholds> | { show: string; note: string } {
   if (!given) return {};
   for (const [k, v] of Object.entries(given)) {
-    if (!Object.hasOwn(DEFAULT_THRESHOLDS, k)) return { show: `Unknown threshold ${k}. Known: ${Object.keys(DEFAULT_THRESHOLDS).join(', ')}.`, note: SCREEN_TEXT.stopNote };
+    // FR-10 (final fix): the caller's key is echoed only as a plain name (letters, digits, underscores, hyphens), cut to 40.
+    if (!Object.hasOwn(DEFAULT_THRESHOLDS, k))
+      return { show: `Unknown threshold${/^[A-Za-z0-9_-]+$/.test(k) ? ` ${k.slice(0, 40)}` : ''}. Known: ${Object.keys(DEFAULT_THRESHOLDS).join(', ')}.`, note: SCREEN_TEXT.stopNote };
     const ratio = (RATIO_THRESHOLDS as readonly string[]).includes(k);
     if (ratio && !(v >= 0 && v <= 1)) return { show: SCREEN_TEXT.ratio, note: `Nothing was queued. ${k} is a share from 0 to 1 (${v} given; for 20% send 0.2).` };
     if (!ratio && !(Number.isInteger(v) && v >= 0)) return { show: SCREEN_TEXT.count, note: `Nothing was queued. ${k} is a whole number from 0 up (${v} given).` };

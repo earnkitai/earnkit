@@ -184,7 +184,7 @@ refused, and the agent note lists the program's items. It is trusted only for ki
 verifiable kinds are re-read from the repo.
 A done step belongs to one project (v6.1.10, L1c-1): `gaps_done` carries `project_key` and is unique on
 (owner, project_key, program_id, item). `projectKeyOf` (`project-input.ts`, pure) gives the key: the repo link in its
-one canonical form (`canonicalRepoLink`, v6.1.13 B4: https, host lower-cased without `www.`, no port, no `user@`, no
+one canonical form (an SSH clone link, `git@host:o/r.git` or `ssh://git@host/o/r`, read as https first by `sshAsHttps`, the one converter find, track and the screen share, FR-2; `canonicalRepoLink`, v6.1.13 B4: https, host lower-cased without `www.`, no port, no `user@`, no
 query or fragment, a trailing dot on the host dropped (L12-6, v6.1.14), on github.com owner and name only, on other hosts the path up to its first `-` segment (so `-/tree/...`, `-/blob/...`, `-/issues` fold and a subgroup named `tree` stays), no trailing slash or `.git`; an owner or group alone (`github.com/owner`), or one of GitHub's own pages (`orgs/`,
 `users/`, `sponsors/`, `topics/` and the like), names no repo, has no repo key and is parsed as a plain link (`link`),
 neither the repo nor the live link, so it meets no bar and the project keys by name (L12-6; fix round 1, T7-F1, T7-F6);
@@ -231,7 +231,7 @@ out. L13-17: the since line leaves out a close that a listed line already says.
 `.github/workflows/earnkit-cron.yml` posts to `/api/cron` once a day with `CRON_SECRET` (v6.1.14 L13-11: a secret under
 32 characters answers 503 "cron is not set up" with one `[cron]` ops log line, never 401). `cron.ts` runs the probe
 (`health.ts`), the `repo_cache` sweep (rows over 30 days, answered as `swept`), the screen queue's daily share
-(screen jobs over 90 days deleted with their rows, then `workQueue` with `SCREEN_BATCH` 200 within 5 minutes,
+(screen jobs over 180 days deleted with their rows, then `workQueue` with `SCREEN_BATCH` 200 within 5 minutes,
 answered as `screen` with `swept`), then the owner's digest (`owner-digest.ts`: programs closed by deadline, failed links, changed pages
 and every change to live programs since the last digest, with revert links; nothing happened, nothing sent). Mail is
 `mail.ts` over Resend, to the owner only. A step that throws answers 500 with its name. The owner triggers one
@@ -288,7 +288,7 @@ keys from tool-call bodies before anything sees them.
 | `project_reports` | The project as reported at the owner's last find, per owner and project key (v6.1.13; a find with a repo writes its name key too), read by a send's check and `resolvedKey`; moved on link, deleted with the account, swept after 180 days without a find |
 | `owner_digests` | The days a digest covered |
 | `program_reviewers` | Builders the owner marked as a program's reviewers (may call `screen`) |
-| `screen_jobs`, `screen_applicants`, `screen_outcomes` | Screen jobs (30 days), each applicant's tier, because, line, public rows and deployers (no pitch column), and the program's outcomes; they belong to the program (`builder_id` NULL once its reviewer deleted their account); the program's own counts read only these |
+| `screen_jobs`, `screen_applicants`, `screen_outcomes` | Screen jobs (180 days), each applicant's tier, because, line, public rows and deployers (no pitch column), and the program's outcomes; they belong to the program (`builder_id` NULL once its reviewer deleted their account); the program's own counts read only these |
 
 v4 tables stay in the production database, unread. `pnpm db:v4-tables` lists them with row counts and prints
 DROP statements; it never runs them. Dropping is an owner step after a backup.
@@ -578,18 +578,23 @@ program (any other row in any screen of it, expired too; facts and refs never ma
 ambiguous and reaches no ledger (T5-F3). A row is not live only when a later row's `requeue: { job_id, ref }` names it
 exactly; `badRequeues` refuses the whole list when the named row is not in a screen of the same program with the same
 id (or the requeued row has none), so a copied id always clashes (Task 8 security follow-up, v6.1.14); an earlier row a
-requeue names is answered as superseded. Jobs and outcomes belong to the program (L15-12): `jobStatus`, `jobResults`
+requeue names is answered as superseded. The row must also be the application's own project (FR-3, final fix): the
+canonical repo key when both have one (SSH links read as https), else the folded name; the application's project is
+its `project_id` (a repo key, a `name:` key, or a project of its builder's record; a send with no `project_id` keeps
+its project key, as a claim does). Otherwise the result stays on the screen row and the note says the id belongs to
+another project, or that the application names no project to match. Jobs and outcomes belong to the program (L15-12): `jobStatus`, `jobResults`
 and `recordOutcomes` take any reviewer marked on the job's program (`program_reviewers`), so a colleague reads,
 continues and requeues the program's rows; `deleteBuilder` leaves them, `screen_jobs.builder_id` set to NULL (L15-18).
 An outcome on the reviewer's own application (owner `b:` the reviewer, or `i:` an installation linked to them) is not
 written and the owner hears "You applied to this one; another reviewer posts its result." (L15-1, Review Focus 10);
 the rest of the batch goes on. A win marked a further payment (`payment: { key }`) adds to the screen's and the
-ledger's total once per key (`screen_outcomes.payment_keys`); a total over the program's cap writes nothing and the
+ledger's total once per key (`screen_outcomes.payment_keys`; a retry whose key the screen already kept still goes to
+the ledger with the same `s:` key, a no-op once written, so a ledger write that failed is delivered once, FR-4); a total over the program's cap writes nothing and the
 owner hears the over-cap line naming the ref (T8-F3, L15-16); unmarked, another amount replaces the first in both (T8-F1).
 Results come 25 applicants a page (`PAGE_SIZE`, `page` from 1); pages follow the queued order (`screen_applicants.seq`)
 with pending rows in place, sorted by tier only inside a page, so a read landing between pages moves no row (T8-F2);
 the totals line ends "Ask for page {n} for the rest." and the reply carries `next_page`, null on the last (L15-3).
-The old `requeue` boolean column stays nullable and ignored through v6.1.14 (T8-F5) and is dropped later. Rows read
+Rows read
 before v6.1.14 may carry the old cross-program `xp.*` values until they expire (now 180 days, `KEEP_DAYS`, L15-14; T8-F4 accepted). The CSV path reads an
 `application_id` column too (T5-F2). A row without one is named in the note as "Not matched to an
 EarnKit application"; a win with no amount is passed on as a win with none (`amount not given`, L13-13); a second

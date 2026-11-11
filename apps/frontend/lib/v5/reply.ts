@@ -243,6 +243,20 @@ export function gapAction(g: GapProgram, signIn: string | null = null): string |
   return 'Tell me when that is done and I apply.';
 }
 
+/**
+ * FR-1 (v6.1.14 final fix): the gap's own setup step that `gapAction` closes on (make the repo public, a telling
+ * step), so the one-program line leaves it out and the reply says it once, as the list reply does. Else null. Pure.
+ */
+export function gapActionStep(g: GapProgram, signIn: string | null = null): string | null {
+  const action = gapAction(g, signIn);
+  if (action === null) return null;
+  const real = [g.gap, ...g.also].filter((x) => x.kind !== 'rule');
+  const pub = real.find((x) => x.item === 'repo:public');
+  if (pub && action === 'Tell me when the repo is public and I look again.') return pub.setup ?? null;
+  if (real.length === 1 && real[0].setup && telling(real[0].setup) && action === `T${real[0].setup.slice(1)} and I look again.`) return real[0].setup;
+  return null;
+}
+
 /** Whether every real gap (rules aside) is the unlinked proof, settled by signing in. Pure. */
 export const signInOnly = (gaps: Gap[]): boolean => {
   const real = gaps.filter((x) => x.kind !== 'rule');

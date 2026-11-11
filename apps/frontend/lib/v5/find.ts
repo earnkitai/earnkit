@@ -23,7 +23,7 @@ import { ProjectArg, nameKeyOf, parseProject, projectKeyOf, type Project } from 
 import { readLoosely, type LooseRules } from './tool-input';
 import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
 import { repoFacts, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
-import { AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, contractLookedAgain, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyText, ruleSentence, hasProof, signInOnly, tonightOf } from './reply';
+import { AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, contractLookedAgain, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyText, ruleSentence, hasProof, signInOnly, tonightOf } from './reply';
 import { since, type Since } from './since';
 
 /**
@@ -316,7 +316,8 @@ function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram
     const g = { ...gapOf(row, v, o.done, o.now), n: 0 };
     // Review Focus 2 (v6.1.14): the proof gap's sign-in is asked once, last; when it is the only step it is the action.
     const signLast = o.signIn && !signInOnly([g.gap, ...g.also]) ? o.signIn : null;
-    return [gapLine(g, true), ...o.rules, gapAction(g, o.signIn), signLast].filter((l): l is string => l !== null);
+    // FR-1 (final fix): the step the action closes on is said there only, as in the list reply.
+    return [gapLine(g, true, gapActionStep(g, o.signIn)), ...o.rules, gapAction(g, o.signIn), signLast].filter((l): l is string => l !== null);
   }
   const r = { ...ready(), n: 0 };
   if (r.in_person) return [inPersonLine(r, true), ...o.rules];
