@@ -2978,3 +2978,36 @@ test('L24-1 (ruling 12): another agent\'s project name never reaches this agent\
   for (const w of ['Neutral', 'Stand', 'neutral words']) assert.ok(!all.includes(w), w);
   assert.match(r.reply!.show_to_builder as string, /Y Combinator[^\n]* Being handled by your other agent\./);
 });
+
+test('Review Focus 15 (v6.1.16 Task 11): hidden characters in a name, a description, a record answer, a track note and a client name reach no surface; a Persian joiner survives', async () => {
+  const HIDDEN = /[\u0000\u000d‮​﻿⁠]|[A-Za-z]‍[A-Za-z]/;
+  const PERSIAN = 'می‌خواهم';
+  const { id, builderId } = await linkedWith(OWNER_RECORD);
+  await sql()`UPDATE installations SET client_name = ${'Agent‮​Name'} WHERE id = ${id}`;
+  const dirty = (s: string) => `${s}‮​A‍B\u0000\r\n${PERSIAN}`;
+  const project = { ...PROJECT, name: dirty('Timer'), description: dirty('A timer for builders.') };
+  const c = { ...ctx(id), builderId, evidence: LIVE };
+  const rec = await mcpCall(c, 'record', { set: { answers: { problem: { text: dirty('Builders miss grants.') } } } });
+  const f = await mcpCall(c, 'find', { project });
+  const one = await mcpCall(c, 'find', { program_id: 'y-combinator', project });
+  const t = await mcpCall(c, 'track', { program_id: 'y-combinator', status: 'started', note: dirty('note'), project });
+  for (const r of [rec, f, one, t]) {
+    assert.doesNotMatch(r.reply!.show_to_builder as string, HIDDEN);
+    assert.doesNotMatch(r.reply!.agent_note as string, HIDDEN);
+    assert.doesNotMatch(JSON.stringify(r.reply), /\\u0000|\\r|\\u202e|\\u200b/);
+  }
+  const { getRecord } = await import('../v6/builders');
+  const stored = (await getRecord(builderId)).answers.problem!.text;
+  assert.doesNotMatch(stored, HIDDEN);
+  assert.ok(stored.includes(PERSIAN), stored);
+  const [row] = await sql()`SELECT note FROM applications WHERE owner = ${'b:' + builderId} AND program_id = 'y-combinator'`;
+  assert.doesNotMatch(row.note as string, HIDDEN);
+  assert.ok((row.note as string).includes(PERSIAN));
+  const { meData } = await import('../v6/me-view');
+  const was = process.env.EARNKIT_AUTH_SECRET;
+  process.env.EARNKIT_AUTH_SECRET ??= 'find-test-secret-0123456789abcdef';
+  const me = await meData({ id: builderId, login: 'x', name: null } as never, NOW, 'sess').finally(() => {
+    if (was === undefined) delete process.env.EARNKIT_AUTH_SECRET;
+  });
+  assert.doesNotMatch(JSON.stringify(me), /\\u0000|\\u202e|\\u200b|‮|​/);
+});

@@ -21,7 +21,7 @@ import { sql } from './db';
 import { inputDetail, readLoosely, type LooseRules } from './tool-input';
 import { AMOUNT_DOT, AMOUNT_UNREAD, readAmount } from './amount';
 import { amountsText, moneyText } from './programs-read';
-import { quoteName } from './controls';
+import { cleanText, quoteName } from './controls';
 
 /** The most field keys a send keeps (v6.1.13, B6); the rest are dropped, never refused. */
 export const FIELDS_KEPT = 200;
@@ -43,7 +43,8 @@ export const TrackInput = z
     payment: z.object({ key: z.string().trim().min(1).max(80) }).strict().optional(),
     /** L13-3 (v6.1.14): the form already went out, so a long note is cut to NOTE_KEPT characters, never refused. */
     // L25-24 (v6.1.16): described, and kept on started too.
-    note: z.string().transform((x) => x.slice(0, NOTE_KEPT)).optional().describe('What you want remembered about this send.'),
+    // L24-7 (v6.1.16 Task 11): cleaned like every other written text.
+    note: z.string().transform((x) => cleanText(x, NOTE_KEPT)).optional().describe('What you want remembered about this send.'),
     item: z.string().max(80).optional(),
     project_id: z.string().max(40).optional(),
     submitted_by: z.enum(['agent', 'builder']).optional(),
