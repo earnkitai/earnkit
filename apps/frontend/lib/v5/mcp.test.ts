@@ -36,7 +36,7 @@ test('four tools, their descriptions and the server instructions, verbatim', asy
   assert.ok(props(1).status.enum?.includes('started'));
   assert.equal(
     RECORD_DESCRIPTION,
-    "The builder's record: facts, links, documents and answers, kept once and read by every agent of theirs. Call it with get after find, once find's reply has linked true: get true reads the facts and each answer kind's length and start, and get with an answer kind reads that kind's answers in full; call it with set for every new fact the builder gives (a partial record: person, company, traction, answers keyed by kind, each { text }, and projects); with brief for the question and facts behind one answer kind. Standing approval (policy) is set on earnkit.com/me only, never here.",
+    "The builder's record: facts, links, documents and answers, kept once and read by every agent of theirs. Call it with get after find, once find's reply has linked true: get true reads the facts and each answer kind's length and start, and get with an answer kind reads that kind's answers in full, a page at a time (page, from 1); call it with set for every new fact the builder gives (a partial record: person, company, traction, answers keyed by kind, each { text }, and projects); with brief for the question and facts behind one answer kind. Standing approval (policy) is set on earnkit.com/me only, never here.",
   );
   assert.equal(tools[2].description, RECORD_DESCRIPTION);
   assert.equal(

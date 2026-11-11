@@ -8,7 +8,7 @@ import { detectIntegrations } from '../v6/integrations';
 import { builderCodesIn, KNOWN_TOKEN_ADDRESSES } from './code-signals';
 import { CHAIN_REGISTRY, chainOfId } from './chains';
 import { sql } from './db';
-import { GitHubError, GitHubSlow, RepoPrivateError, readRepo, readRepoObject, type RepoRead } from './github';
+import { GitHubError, GitHubSlow, RepoPrivateError, readBudget, readRepo, readRepoObject, type RepoRead } from './github';
 import { LIMITS, hit, uncountHit } from './rate-limit';
 import { addressKey, canonicalRepoLink, type Project } from './project-input';
 import { cleanText } from './controls';
@@ -295,6 +295,8 @@ async function cachedCodeFacts(key: string, f: Fetch, now: Date, installationId?
       throw new GitHubError(`GitHub: /repos/${key} not found (or private)`, 404);
     }
   }
+  // L26-8 (fix round 1, I1): one budget for the whole GitHub read, the cached row's push check included.
+  const budget = readBudget();
   if (row && complete(row.facts)) {
     const age = now.getTime() - row.fetched_at.getTime();
     const checked = Math.max(row.fetched_at.getTime(), Date.parse(row.facts.checked_at ?? '') || 0);
@@ -303,7 +305,8 @@ async function cachedCodeFacts(key: string, f: Fetch, now: Date, installationId?
     if (age >= 0 && age < 7 * DAY_MS && (row.pushed_at || stale)) {
       let live;
       try {
-        live = await readRepoObject(key, undefined, f);
+        // The check's own 15 s, inside the read's one budget; slow or failed, the cached copy stands (below).
+        live = await readRepoObject(key, undefined, f, AbortSignal.any([budget, AbortSignal.timeout(15_000)]));
       } catch (err) {
         // Gone or private: unreadable, so the cached copy must not outlive it. Anything else is transient.
         if (err instanceof GitHubError && err.status === 404) {
@@ -325,13 +328,17 @@ async function cachedCodeFacts(key: string, f: Fetch, now: Date, installationId?
   await countRead(installationId, now);
   let read: RepoRead;
   try {
-    read = await readRepo(key, { fetch: f });
+    read = await readRepo(key, { fetch: f, signal: budget });
   } catch (err) {
     // L26-8, L26-9: a timed-out read and a missing or private repo never count against the day's reads; the miss is kept.
     const miss: Miss['miss'] | null = err instanceof GitHubSlow ? 'slow' : err instanceof RepoPrivateError ? 'private' : err instanceof GitHubError && err.status === 404 ? 'gone' : null;
+    // N1 (fix round 1): a slow read over a complete cached row answers with that row, kept, and counts no read.
+    if (miss === 'slow' && row && complete(row.facts)) {
+      if (installationId !== undefined) await uncountHit(`repoRead:${installationId}`, LIMITS.repoRead.windowSeconds, now);
+      return withIntegrations(row.facts);
+    }
     if (miss) {
-      // A slow read keeps a cached copy of the facts (when there is one) rather than replace it with the marker.
-      if (miss !== 'slow' || !row || isMiss(row.facts)) await keepMiss(miss);
+      await keepMiss(miss);
       await missRead(installationId, now);
     }
     throw err;

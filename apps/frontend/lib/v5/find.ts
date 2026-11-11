@@ -700,8 +700,9 @@ const size = (v: unknown) => Buffer.byteLength(JSON.stringify(v));
  * L26-4 (v6.1.16 Task 12): a find reply under `cap` bytes serialized (show_to_builder, agent_note and data). A list
  * reply over it drops the field details of its lowest-ranked programs first (the highest number), never a program's
  * money or gap, and adds MORE_THAN_FITS to the agent note. A one-program reply carries the first GUIDE_RULES_SHOWN
- * guide rules (the rest on its guide page); over the cap it drops the copies of its form (the program file's and the
- * guide's), then cuts its fields' sources and descriptions, the last fields first, and names the guide page. Pure.
+ * guide rules (the rest on its guide page); over the cap it cuts long sources, the copies of its form (the program
+ * file's to EarnKit's hints, the guide's), then its fields' sources and descriptions, the last fields first, never a
+ * select's options, and names the guide page. Pure.
  */
 export function findReplyCap<T extends FindReply | ProgramReply>(reply: T, cap: number): T {
   if ('program' in reply) return programCap(reply, cap) as T;
@@ -745,7 +746,7 @@ function programCap(reply: ProgramReply, cap: number): ProgramReply {
   const fields = out.fields.map((f) => ({ ...f }));
   out = { ...out, fields };
   // The last fields first, each step only as far as it must go: long sources cut, the program file's copy of the
-  // form cut to EarnKit's hints, sources dropped, descriptions dropped, then the guide's copy of the form.
+  // form cut to EarnKit's hints, the guide's copy of the form dropped, then sources, then descriptions; never options.
   const eachField = (step: (f: Field) => void) => () => {
     for (let k = fields.length - 1; k >= 0 && !room(); k--) step(fields[k]);
   };
@@ -758,9 +759,10 @@ function programCap(reply: ProgramReply, cap: number): ProgramReply {
         out = { ...out, program: { ...out.program, submission_requirements: slim as typeof out.program.submission_requirements } };
       }
     },
-    eachField((f) => { delete f.sources; }),
-    eachField((f) => { delete f.guidance; delete f.style; delete f.options; }),
+    // Fix round 1 (M1): the guide's copy of the form goes before anything a field needs; a select's options never go.
     () => { if (out.guide) out = { ...out, guide: { ...out.guide, fields: [] } }; },
+    eachField((f) => { delete f.sources; }),
+    eachField((f) => { delete f.guidance; delete f.style; }),
   ];
   for (const step of steps) {
     if (room()) break;
@@ -947,7 +949,7 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
   // L29-26 (v6.1.16 Task 15): what the default view left out goes to the agent, and `more` says so.
   const reply = {
     show_to_builder: said.text,
-    agent_note: [agentNote(r, { more, description, hidden: said.hidden }), unreadNote(unread)].filter(Boolean).join('\n'),
+    agent_note: [agentNote(r, { more, description, hidden: said.hidden, all }), unreadNote(unread)].filter(Boolean).join('\n'),
     ...jsonLists(r),
     more: more > 0 || said.hidden.length > 0,
   };

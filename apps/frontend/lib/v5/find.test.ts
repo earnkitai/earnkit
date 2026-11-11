@@ -8,7 +8,7 @@ import { mcpCall } from './fixtures/mcp-call';
 import { lastGaps } from './installations';
 import { shownReadyOf } from './find';
 import { parseProject } from './project-input';
-import { REPO_STEP_NOTE, gapLine, inPersonLine, readyLine } from './reply';
+import { FULL_LIST_STYLE_NOTE, REPO_STEP_NOTE, gapLine, inPersonLine, readyLine } from './reply';
 import type { GapProgram, ReadyProgram } from './find';
 /** L29-7 (v6.1.16 Task 15): every ready program of a find reply: what the agent may send, in person and the builder's to send. */
 const allReady = (r: Record<string, unknown>): unknown[] => [...((r.ready as unknown[]) ?? []), ...((r.in_person as unknown[]) ?? []), ...((r.you_send as unknown[]) ?? [])];
@@ -650,7 +650,8 @@ test('linked: record fields, what the record lacks, blockers, and the own tier r
   assert.doesNotMatch(d, /Still missing for these programs/);
   assert.doesNotMatch(d.split('\n').find((b) => b.startsWith('Before applying: '))!, /Y Combinator/);
   assert.doesNotMatch(show, /Sign in once at/);
-  assert.match(reply.agent_note as string, /Fit approved answers by cutting, never by adding; the style contract travels on each field\./);
+  // Fix round 1 (M2): the full list points at the program's own find for the style.
+  assert.ok((reply.agent_note as string).includes(FULL_LIST_STYLE_NOTE));
   assert.doesNotMatch(reply.agent_note as string, /blockers; name them once|Submit only/);
   assert.equal(reads, 1);
 
@@ -3179,9 +3180,20 @@ test('Review Focus 17 (L26-4): a one-program find is under 20 KB for each of the
       assert.equal(r.isError, false, `${id}: ${r.text.slice(0, 200)}`);
       assert.ok(Buffer.byteLength(r.text) < 20_480, `${id}: ${Buffer.byteLength(r.text)}`);
       assert.ok((r.reply!.show_to_builder as string).length > 0, id);
+      // Fix round 1 (M1): every select keeps its options under the cap (uniswap-foundation-security-fund and
+      // ethereum-security-subsidy-program lost them before).
+      const file = (await getProgram(id))!.file;
+      const fields = r.reply!.fields as { key: string; options?: string[] }[];
+      for (const req of file.submission_requirements.filter((q) => q.options && q.options.length > 0))
+        assert.deepEqual(fields.find((f) => f.key === req.key)?.options, req.options, `${id} ${req.key} ${c.builderId === null ? 'unlinked' : 'linked'}`);
     }
     const all = await mcpCall(c, 'find', { project: FULL_PROJECT, filter: { all: true } });
     assert.ok(Buffer.byteLength(all.text) < 30_720, `${Buffer.byteLength(all.text)}`);
+    // Fix round 1 (M2): the full list's fields carry no style, and its note says where the style is.
+    if (c.builderId !== null) {
+      assert.ok((all.reply!.agent_note as string).includes(FULL_LIST_STYLE_NOTE), all.reply!.agent_note as string);
+      assert.doesNotMatch(all.reply!.agent_note as string, /style contract travels on each field/);
+    }
     // Never a listed program's money or gap: every listed program keeps both.
     for (const g of all.reply!.gaps as GapProgram[]) assert.ok(g.money && g.gap.what, g.program_id);
     for (const p of allReady(all.reply!) as ReadyProgram[]) assert.ok(p.money, p.program_id);

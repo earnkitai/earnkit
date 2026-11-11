@@ -1064,3 +1064,9 @@ means what the last `Say` offered.
   owner is looked up by id (`installationOwner` in `screen-jobs.ts`), never `'i:' || id`.
 - `markFind` stamps with `GREATEST`: parallel finds never move `last_find_at` back, and `prev_find_at` moves only when
   this find's `now` is newer.
+- Task 12 fix round 1: one `readBudget` per `cachedCodeFacts` covers the cached row's push check (its own 15 s inside
+  the budget) and the read; a slow read over a complete cached row answers with that row, uncounted. `record get` with
+  a kind pages whole answers into replies under 20 KB (`page`, `kindPage`, agent line "Ask for {kind} page {n} for the
+  rest."), never cutting one. The one-program cap drops the guide's copy of the form before any field detail and never
+  drops a select's options. The full list's linked note reads `FULL_LIST_STYLE_NOTE`. OAuth counts the block last:
+  token is address, client, then block; a reserved client name is refused before any limit.

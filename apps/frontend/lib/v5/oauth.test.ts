@@ -225,6 +225,33 @@ test('Review Focus 16 (L26-1, L26-3): refused registrations, authorizes and toke
   assert.deepEqual(await blockCount(), before);
 });
 
+test('Task 12 fix round 1 (M3): a token the per-client ceiling refuses and a reserved-name registration never move the block count', async () => {
+  const ip = `10.81.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
+  const now = new Date();
+  const day = new Date(Math.floor(now.getTime() / 86_400_000) * 86_400_000);
+  const block = async (name: string) => Number((await sql()`SELECT count FROM rate_windows WHERE key = ${`${name}:10.81.0.0/16`} AND window_start = ${day}`)[0]?.count ?? 0);
+  const id = (await registerClient({ redirect_uris: [redirect] })).client_id;
+  await sql()`INSERT INTO rate_windows (key, window_start, count) VALUES (${'installClient:' + registrationLimitKey(id)}, ${day}, 500)
+    ON CONFLICT (key, window_start) DO UPDATE SET count = 500`;
+  const installs = await block('installBlock');
+  const regs = await block('oauthRegisterBlock');
+  for (let i = 0; i < 3; i++) {
+    const tok = await tokenPost(new Request('https://earnkit.test/oauth/token', {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-real-ip': ip }, body: tokenForm(id, await codeOf(id, redirect), verifier, redirect).toString(),
+    }));
+    assert.equal(tok.status, 429);
+    const reg = await registerPost(new Request('https://earnkit.test/oauth/register', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-real-ip': ip }, body: JSON.stringify({ redirect_uris: [redirect], client_name: 'EarnKit Official' }),
+    }));
+    assert.equal(reg.status, 400);
+    assert.deepEqual(await reg.json(), { error: 'invalid_client_metadata', error_description: INVALID_CLIENT_NAME });
+  }
+  assert.equal(await block('installBlock'), installs);
+  assert.equal(await block('oauthRegisterBlock'), regs);
+  // A reserved name spends no per-address registration either.
+  assert.equal((await sql()`SELECT 1 FROM rate_windows WHERE key = ${'oauthRegister:' + ip}`).length, 0);
+});
+
 test('B5: the hosted tier only raises the per-client install limit', async () => {
   const ip = `10.78.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
   const id = (await registerClient({ redirect_uris: [hosted] })).client_id;

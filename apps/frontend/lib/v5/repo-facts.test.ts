@@ -559,3 +559,28 @@ test('controller ruling (L26-8 review): a slow repo is kept 10 minutes: the next
     clearTimeout(keep);
   }
 });
+
+test('fix round 1 (I1, N1): one 20 s budget covers the cached repo\'s push check too; slow over a cached repo answers with its facts', async () => {
+  const keep = setTimeout(() => {}, 30_000);
+  try {
+    const id = 7_800 + Math.floor(Math.random() * 100);
+    await sql()`DELETE FROM rate_windows WHERE key IN (${`repoRead:${id}`}, ${`repoMiss:${id}`})`;
+    const rec = replayFetch('nextjs-dashboard');
+    const p = project({ repo_url: `https://github.com/${rec.repo}` });
+    assert.equal((await repoFacts(p, { gh: rec.fetch, now: NOW, installationId: id })).public, true);
+    // Two hours on, the repo was pushed since: the push check, then the read, each request 14 s.
+    const pushed = replayFetch('nextjs-dashboard', (u, b) => (u.endsWith(`/repos/${rec.repo.toLowerCase()}`) ? b.replace(/"pushed_at":\s*"[^"]+"/, '"pushed_at":"2030-01-01T00:00:00Z"') : b));
+    const slow14 = ((u: RequestInfo | URL, i?: RequestInit) => new Promise((ok) => setTimeout(ok, 14_000)).then(() => pushed.fetch(u, i))) as typeof fetch;
+    const t = Date.now();
+    const f = await repoFacts(p, { gh: slow14, now: new Date(NOW.getTime() + 2 * 3_600_000), installationId: id });
+    const ms = Date.now() - t;
+    assert.ok(Math.abs(ms - 20_000) <= 1_000, `${ms}`);
+    assert.equal(f.public, true);
+    assert.deepEqual(f.notes, []);
+    assert.equal(await reads(id), 1);
+    assert.equal(await cached(), 1);
+    assert.ok(!(await kept()).some((x) => (x as { miss?: string }).miss));
+  } finally {
+    clearTimeout(keep);
+  }
+});

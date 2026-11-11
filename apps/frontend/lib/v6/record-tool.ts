@@ -26,6 +26,8 @@ export const RecordInput = z
     // L26-2 (v6.1.16 Task 12): true reads the summary (facts, and each answer kind's length and start); a kind reads that kind in full.
     get: z.union([z.boolean(), z.enum(ANSWER_KINDS)]).optional().describe('true for the record\'s facts and each answer kind\'s length and start; an answer kind for that kind\'s answers in full'),
     brief: z.enum(ANSWER_KINDS).optional().describe('One answer kind: the question, the facts to use, the length and the style'),
+    // Fix round 1 (I2): one kind's answers come in whole answers, a page at a time.
+    page: z.number().int().min(1).max(100).optional().describe('With get and an answer kind: the page of that kind\'s answers, from 1'),
   })
   .strict();
 
@@ -70,6 +72,9 @@ export type RecordReply = {
   summary?: RecordSummary;
   /** L26-2: `get` with a kind: that kind's answers in full, the record's first, then each project's. */
   answers?: KindAnswer[];
+  /** Fix round 1 (I2): the page of the kind's answers and how many there are. */
+  page?: number;
+  pages?: number;
   missing?: string[];
   problems?: string[];
   brief?: ReturnType<typeof answerBrief>;
@@ -341,7 +346,37 @@ export function withoutSecrets(value: unknown, depth = 0): { value: unknown; ski
 }
 
 export async function recordTool(ctx: { installationId: number; builderId: number | null; now: Date }, input: unknown): Promise<RecordReply> {
-  return recordReplyCap(await recordReply(ctx, input));
+  const r = await recordReply(ctx, input);
+  const i = RecordInput.safeParse(input);
+  const kind = i.success && typeof i.data.get === 'string' ? i.data.get : null;
+  return recordReplyCap(kind && r.answers ? kindPage(r, kind, i.success ? (i.data.page ?? 1) : 1) : r);
+}
+
+/** Fix round 1 (I2): the agent line when a kind has more answers past this page. */
+export const KIND_MORE = (kind: string, page: number) => `Ask for ${kind} page ${page} for the rest.`;
+
+/**
+ * Fix round 1 (I2): one kind's answers in whole answers, packed into pages that each fit RECORD_REPLY_CAP, so no
+ * answer is ever cut; the agent note names the next page while more remain. Pure.
+ */
+export function kindPage(reply: RecordReply, kind: string, page: number, cap = RECORD_REPLY_CAP): RecordReply {
+  const all = reply.answers ?? [];
+  const base = { ...reply, answers: [] as KindAnswer[], page: 100, pages: 100 };
+  const room = cap - bytes(base) - Buffer.byteLength(` ${KIND_MORE(kind, 100)}`);
+  const pages: KindAnswer[][] = [[]];
+  let used = 0;
+  for (const a of all) {
+    const n = bytes(a) + 1;
+    if (pages.at(-1)!.length > 0 && used + n > room) {
+      pages.push([]);
+      used = 0;
+    }
+    pages.at(-1)!.push(a);
+    used += n;
+  }
+  const at = Math.min(page, pages.length);
+  const more = page < pages.length ? [KIND_MORE(kind, page + 1)] : [];
+  return { ...reply, answers: page > pages.length ? [] : pages[at - 1], page, pages: pages.length, agent_note: [reply.agent_note, ...more].filter(Boolean).join(' ') };
 }
 
 async function recordReply(ctx: { installationId: number; builderId: number | null; now: Date }, input: unknown): Promise<RecordReply> {

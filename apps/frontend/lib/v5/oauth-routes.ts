@@ -67,14 +67,15 @@ export async function tokenPost(request: Request, deps: TokenDeps = {}) {
     try {
       const ip = clientIp(request.headers);
       await enforce('installHour', ip, TOO_MANY);
-      // B1 (v6.1.13): each address block a day, so one network never spends another's installs.
-      limit = 'installBlock';
-      await enforceBlock('installBlock', ip);
       limit = hostedHost ? 'installClientHosted' : 'installClient';
       // A client document is one client for all its users (claude.ai's is everyone's), so its ceiling is per
       // document host and address block: one network never spends another's installs (v6.1.13 B1, v6.1.15 Task 14).
       const key = limitKey.startsWith('client:host:') ? `${limitKey}:${blockOf(ip)}` : limitKey;
       await enforce(limit as 'installClient' | 'installClientHosted', key, TOO_MANY_CLIENT);
+      // B1 (v6.1.13): each address block a day, so one network never spends another's installs. Task 12 fix round 1
+      // (M3): counted last, so a call any other limit refuses never spends the block's day.
+      limit = 'installBlock';
+      await enforceBlock('installBlock', ip);
     } catch (err) {
       if (err instanceof RateLimitError) logLimited('token', limit, hostedHost ? `host:${hostedHost}` : limitKey);
       throw err;
@@ -131,10 +132,11 @@ export async function registerPost(request: Request) {
     const uris = Array.isArray(metadata.redirect_uris) ? metadata.redirect_uris.filter((u): u is string => typeof u === 'string') : [];
     key = clientLimitKey(uris);
     const ip = clientIp(request.headers);
+    // Task 12 fix round 1 (M3): a reserved name is refused before any limit, so it never spends the block's day.
+    if (reservedClientName(metadata.client_name)) throw new OAuthError('invalid_client_metadata', INVALID_CLIENT_NAME);
     await enforce('oauthRegister', ip, 'Too many client registrations from this address.');
     limit = 'oauthRegisterBlock';
     await enforceBlock('oauthRegisterBlock', ip);
-    if (reservedClientName(metadata.client_name)) throw new OAuthError('invalid_client_metadata', INVALID_CLIENT_NAME);
     return json(await registerClient(metadata), 201);
   } catch (err) {
     if (err instanceof BodyTimeoutError) return bodyTimedOut();

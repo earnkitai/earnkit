@@ -957,7 +957,10 @@ export function droppedNote(problems: string[] | undefined): string | null {
   return dropped.length > 0 ? `Some project facts were dropped: ${dropped.join('; ')}. Send them corrected next time.` : null;
 }
 
-export function agentNote(r: R, o: { more: number; description?: 'readme' | 'none' | null; hidden?: string[] }): string {
+/** Fix round 1 (M2, v6.1.16 Task 12): the full list's style line. */
+export const FULL_LIST_STYLE_NOTE = 'Fit approved answers by cutting, never by adding. Call find with program_id for a field\'s style before drafting it.';
+
+export function agentNote(r: R, o: { more: number; description?: 'readme' | 'none' | null; hidden?: string[]; all?: boolean }): string {
   // L29-29 (v6.1.16 Task 15): only the lines that apply; an empty reply has a one-line note.
   if (r.ready.length === 0 && r.gaps.length === 0)
     return "Show find's reply as given. Nothing is listed for this project now; pass users, live_url and chains whenever you know them, and call find again when the builder asks.";
@@ -1011,7 +1014,8 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
     lines.push(`The reply asks how each went: ${r.ask_outcome.map((a) => a.title).join(', ')}. Pass each answer to track (won with amount_usd, rejected or no_result).`);
   if (r.not_sent && r.not_sent.programs.length > 0)
     lines.push(`Nothing was sent for ${r.not_sent.programs.map((p) => p.title).join(', ')} after the standing-approval line named them; on the builder's yes, send them now within the limits.`);
-  if (r.linked) lines.push('Fit approved answers by cutting, never by adding; the style contract travels on each field.');
+  // Fix round 1 (M2): the full list's fields carry no style (L26-4); the program's own find has it.
+  if (r.linked) lines.push(o.all ? FULL_LIST_STYLE_NOTE : 'Fit approved answers by cutting, never by adding; the style contract travels on each field.');
   if (r.record_missing.length > 0)
     lines.push('Ask for the missing record items once, all together, and save each with record. record_missing names only what these programs need; record get names everything the record lacks.');
   if (r.ready.some((p) => p.claimed_since)) lines.push('A ready program with claimed_since is claimed by another of the builder\'s agents: do not submit it.');

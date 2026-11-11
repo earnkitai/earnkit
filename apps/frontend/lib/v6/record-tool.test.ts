@@ -410,12 +410,29 @@ test('Review Focus 17 (L26-2, L26-7): a 154-answer record: get under 20 KB, brie
   assert.ok(br.reply!.brief);
   const one = await mcpCall(c, 'record', { get: 'problem' });
   assert.ok(Buffer.byteLength(one.text) < 20_480, `${Buffer.byteLength(one.text)}`);
-  const all = one.reply!.answers as { project: string | null; text: string }[];
-  assert.equal(all[0].project, null);
-  assert.equal(all[0].text, text('problem', 0));
-  assert.equal(all.length, 11);
-  // Eleven 2,000-character answers pass the cap: the last are cut first, and the agent is told to ask again.
-  assert.ok((one.reply!.agent_note as string).endsWith(RECORD_CUT_NOTE));
+  // Fix round 1 (I2): eleven 2,000-character answers pass the cap: they come in pages of whole answers, never cut.
+  const seen: { project: string | null; text: string; short: string | null }[] = [];
+  const pages = one.reply!.pages as number;
+  assert.ok(pages >= 2, String(pages));
+  for (let p = 1; p <= pages; p++) {
+    const r = p === 1 ? one : await mcpCall(c, 'record', { get: 'problem', page: p });
+    assert.ok(Buffer.byteLength(r.text) < 20_480, `${p}: ${Buffer.byteLength(r.text)}`);
+    assert.equal(r.reply!.page, p);
+    const note = r.reply!.agent_note as string;
+    if (p < pages) assert.ok(note.endsWith(`Ask for problem page ${p + 1} for the rest.`), note);
+    else assert.doesNotMatch(note, /page \d+ for the rest/);
+    assert.doesNotMatch(note, /Ask for one kind at a time/);
+    seen.push(...(r.reply!.answers as typeof seen));
+  }
+  assert.equal(seen.length, 11);
+  assert.deepEqual(seen.map((a) => a.project), [null, ...Array.from({ length: 10 }, (_, i) => `p${i}`)]);
+  for (const [i, a] of seen.entries()) {
+    assert.equal(a.text, text('problem', i).trim());
+    assert.equal(a.short, text('problem', i).slice(0, 270).trim());
+  }
+  // The summary still points at one kind at a time when it is cut; a page past the end is empty.
+  const past = await mcpCall(c, 'record', { get: 'problem', page: pages + 1 });
+  assert.deepEqual(past.reply!.answers, []);
 });
 
 test('L26-2: recordReplyCap cuts the longest texts first, never the builder or agent lines, and says so once', () => {
