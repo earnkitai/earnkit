@@ -555,3 +555,17 @@ test('L17-5 (v6.1.16): applicants still queued are not queued again; the reply c
   assert.equal('job_id' in none.reply!, false);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs WHERE program_id = 'scr-already'`)[0].n, 2);
 });
+
+test('v6.1.16 Task 16: when the last daily run stopped at its deadline, the results line says how many of the job were read', async () => {
+  const c = await reviewerOf('scr-budget');
+  const list = Array.from({ length: 5 }, (_, i) => ({ ref: `b-${i}`, name: `B${i}`, live_url: `https://b${i}.example/` }));
+  const jobId = (await mcpCall(c, 'screen', { program_id: 'scr-budget', applicants: list })).reply!.job_id as string;
+  let t = 0;
+  const slow = async (): Promise<Evidence> => ((t += 1_000), evidence({ live: liveRows({ url: 'https://b.example/', url_ok: true }) }));
+  await workQueue({ now: NOW, limit: 200, jobId, deadline: 2_000, clock: () => t, deps: { evidence: slow } });
+  const r = await mcpCall(c, 'screen', { job_id: jobId });
+  assert.equal(r.reply!.show_to_builder, '5 applicants: 0 used, 2 live, 0 building, 0 unverified, 0 flagged; 3 pending. 2 of 5 read today; the rest tomorrow.');
+  await workQueue({ now: NOW, limit: 200, jobId, deadline: 1_000_000, clock: () => t, deps: { evidence: slow } });
+  const done = await mcpCall(c, 'screen', { job_id: jobId });
+  assert.equal(done.reply!.show_to_builder, '5 applicants: 0 used, 5 live, 0 building, 0 unverified, 0 flagged; 0 pending.');
+});

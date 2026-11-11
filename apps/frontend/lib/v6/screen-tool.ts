@@ -71,6 +71,8 @@ export const SCREEN_TEXT = {
   stopNote: 'Show this line and stop.',
   /** L15-3 (v6.1.14): the last line of a page with more to come. */
   nextPage: (n: number) => `Ask for page ${n} for the rest.`,
+  /** v6.1.16 Task 16 (L30 time budget): the last daily run stopped at its deadline before this job was all read. */
+  readToday: (n: number, m: number) => `${n} of ${m} read today; the rest tomorrow.`,
   /** L16-12 (v6.1.16): a results page past the last. */
   noMore: 'No more results.',
   /** Fix round 1 (C1): an outcome a builder's ledger did not take; the refs are in the agent note. */
@@ -296,8 +298,9 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
     // the last says so.
     const more = results.next_page !== null ? ` ${SCREEN_TEXT.nextPage(results.next_page)}`
       : results.page > 1 && results.applicants.length === 0 ? ` ${SCREEN_TEXT.noMore}` : '';
+    const short = results.last_run_left > 0 ? ` ${SCREEN_TEXT.readToday(results.done, results.total)}` : '';
     return {
-      show_to_builder: `${totalsLine(results)}${more}`,
+      show_to_builder: `${totalsLine(results)}${short}${more}`,
       agent_note: [results.finished ? SCREEN_TEXT.sortNote : SCREEN_TEXT.pendingNote, ...(results.next_page !== null ? [`Call screen with job_id and page ${results.next_page} for the next 25.`] : [])].join(' '),
       job_id: results.job_id,
       results,

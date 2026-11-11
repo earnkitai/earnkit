@@ -78,13 +78,15 @@ export type ScreenResults = {
   total: number;
   done: number;
   finished: boolean;
+  /** v6.1.16 Task 16: rows of this job the last daily run left when it stopped at its deadline (0: none). */
+  last_run_left: number;
   /** L15-3 (v6.1.14): the page these applicants are (1-based, PAGE_SIZE each) and the next one, null on the last. */
   page: number;
   next_page: number | null;
   totals: Record<Tier | 'pending', number>;
   applicants: { ref: string; name: string; tier: Tier | null; flags: Flag[]; because: string[]; line: string | null; rows?: Row[] }[];
 };
-export type JobStatus = { id: string; program_id: string; total: number; done: number; finished: boolean; expired: boolean };
+export type JobStatus = { id: string; program_id: string; total: number; done: number; finished: boolean; expired: boolean; last_run_left: number };
 
 const DAY = 86_400_000;
 /** L15-14 (v6.1.14): a screen's results and the decisions on it are kept this long; grants decide weeks after closing. */
@@ -362,10 +364,13 @@ const reviewedBy = (builderId: number) =>
 
 /** The job's progress, when it is a job of a program this builder reviews; `expired` past its KEEP_DAYS. */
 export async function jobStatus(id: string, builderId: number, now: Date = new Date()): Promise<JobStatus | null> {
-  const [j] = await sql()<{ id: string; program_id: string; total: number; done: number; finished_at: Date | null; expires_at: Date }[]>`
-    SELECT id, program_id, total, done, finished_at, expires_at FROM screen_jobs WHERE id = ${id} AND ${reviewedBy(builderId)}`;
+  const [j] = await sql()<{ id: string; program_id: string; total: number; done: number; finished_at: Date | null; expires_at: Date; last_run_left: number }[]>`
+    SELECT id, program_id, total, done, finished_at, expires_at, last_run_left FROM screen_jobs WHERE id = ${id} AND ${reviewedBy(builderId)}`;
   if (!j) return null;
-  return { id: j.id, program_id: j.program_id, total: j.total, done: j.done, finished: j.finished_at !== null, expired: j.expires_at <= now };
+  return {
+    id: j.id, program_id: j.program_id, total: j.total, done: j.done, finished: j.finished_at !== null, expired: j.expires_at <= now,
+    last_run_left: j.finished_at !== null ? 0 : j.last_run_left,
+  };
 }
 
 type ApplicantRow = { ref: string; name: string; status: string; tier: string | null; flags: Flag[] | null; because: string[] | null; line: string | null; rows: Row[] | null };
@@ -403,7 +408,7 @@ export async function jobResults(id: string, builderId: number, now: Date = new 
       };
     })
     .sort((a, b) => ORDER.indexOf(a.tier) - ORDER.indexOf(b.tier));
-  return { job_id: s.id, program_id: s.program_id, total: s.total, done: s.done, finished: s.finished, page, next_page, totals, applicants };
+  return { job_id: s.id, program_id: s.program_id, total: s.total, done: s.done, finished: s.finished, last_run_left: s.last_run_left, page, next_page, totals, applicants };
 }
 
 /**

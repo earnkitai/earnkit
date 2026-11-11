@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS installations (
   last_seen_at timestamptz NOT NULL DEFAULT now(),
   last_find_at timestamptz
 );
+-- v6.1.16 (Task 16): clientKeyOf(client_id), the first 32 hex of its sha256; the oauth_clients sweep keeps a client named here.
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS client_key text;
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS client_name text;
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS last_find_at timestamptz;
@@ -109,6 +110,7 @@ ALTER TABLE installations ADD COLUMN IF NOT EXISTS prev_find_at timestamptz;
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS audience text;
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS revoked_at timestamptz;
 -- v6.1.16 (Task 5, L19-8): registered OAuth clients; the client_id is 128 random bits, never derived from metadata.
+-- Task 16: the daily run sweeps one registered over 30 days ago that no installation's client_key names.
 CREATE TABLE IF NOT EXISTS oauth_clients (
   client_id     text PRIMARY KEY,
   redirect_uris text[] NOT NULL,
@@ -264,6 +266,9 @@ CREATE TABLE IF NOT EXISTS owner_digests (
   day     text PRIMARY KEY,
   sent_at timestamptz NOT NULL
 );
+-- v6.1.16 (Task 16): the hash of the last body sent that day, so the same body is never mailed twice and a changed one
+-- goes under a new idempotency key.
+ALTER TABLE owner_digests ADD COLUMN IF NOT EXISTS body_hash text;
 
 -- v6 evidence read once per repo (code, team, depth with its pushed_at) and per contract (onchain rows);
 -- used for 7 days, a repo only while pushed_at is unchanged. Partial reads are never stored.
@@ -324,6 +329,10 @@ ALTER TABLE screen_applicants ADD COLUMN IF NOT EXISTS taken_at timestamptz;
 -- Reads worth a retry (a timeout, a rate limit) go back to the queue; the third is final.
 ALTER TABLE screen_applicants ADD COLUMN IF NOT EXISTS attempts int NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS screen_jobs_created ON screen_jobs (created_at);
+-- v6.1.16 (Task 16): what the last run that reached the job read of it, and how many of its rows that run left for
+-- the next when it stopped at its deadline (the results reply then says "{n} of {m} read today; the rest tomorrow.").
+ALTER TABLE screen_jobs ADD COLUMN IF NOT EXISTS last_run_read int NOT NULL DEFAULT 0;
+ALTER TABLE screen_jobs ADD COLUMN IF NOT EXISTS last_run_left int NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS screen_applicants_repo ON screen_applicants (repo_key, read_at);
 CREATE INDEX IF NOT EXISTS screen_applicants_status ON screen_applicants (status, job_id);
 CREATE INDEX IF NOT EXISTS screen_applicants_deployers ON screen_applicants USING gin (deployers);

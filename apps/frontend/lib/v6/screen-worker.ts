@@ -13,12 +13,15 @@ import { PUBLIC_BASES, UNREAD, xpCounts } from './screen-jobs';
 import { reviewerLine } from './tier-words';
 import { DEFAULT_THRESHOLDS, place, type Thresholds } from './tiers';
 
-/** The daily cron's share of the queue (v6.1.7 B14: 200; SCREEN_DAILY_MS still bounds the run). The screen promise counts on it. */
+/** The daily cron's share of the queue (v6.1.7 B14: 200; the run's deadline still bounds it). The screen promise counts on it. */
 export const SCREEN_BATCH = 200;
 /** An owner-triggered run: at most this many applicants, within SCREEN_TRIGGER_MS. */
 export const SCREEN_TRIGGER_MAX = 300;
 export const SCREEN_TRIGGER_MS = 600_000;
-/** The daily run's share of time: the workflow's curl allows 540 s for the whole run (probe, sweep, queue, digest). */
+/**
+ * The daily run's share of time at most: the run's own deadline (cron's RUN_BUDGET_MS, v6.1.16 Task 16) cuts it
+ * shorter when health took longer (the cron passes min(start + this, the run's deadline)).
+ */
 export const SCREEN_DAILY_MS = 300_000;
 /** A taken applicant not written in this long belongs to a run that died: it is free again. */
 const TAKEN_MS = 30 * 60_000;
@@ -72,9 +75,14 @@ async function advance(jobId: string, now: Date): Promise<boolean> {
  * Works up to `limit` queued applicants of unexpired jobs, oldest job first, or only `jobId`'s; each is
  * taken ('reading') before it is read, so overlapping runs never read one twice. A GitHub budget stop puts
  * the applicant back and ends the call; a null tier worth a retry is queued again, final at the third.
- * `deadline` (epoch ms) is checked between applicants. Never throws for an applicant's read.
+ * `deadline` (epoch ms on `clock`, default Date.now) is checked between applicants. Never throws for an applicant's read.
+ * `left` counts the selected applicants not reached because the call stopped (deadline or budget); each job it
+ * reached or left rows of stores `last_run_read` and `last_run_left` (v6.1.16 Task 16).
  */
-export async function workQueue(o: { now: Date; limit: number; jobId?: string; deadline?: number; deps?: WorkDeps }): Promise<{ read: number; jobs_finished: string[] }> {
+export async function workQueue(o: {
+  now: Date; limit: number; jobId?: string; deadline?: number; deps?: WorkDeps; clock?: () => number;
+}): Promise<{ read: number; left: number; jobs_finished: string[] }> {
+  const clock = o.clock ?? Date.now;
   const { evidence: read = readEvidence, ...rest } = o.deps ?? {};
   // One allowance for the call: once it stops, later repos wait (their copies under 7 days stand).
   const budget: Budget = rest.budget ?? { remaining: null, stopped: false };
@@ -89,9 +97,12 @@ export async function workQueue(o: { now: Date; limit: number; jobId?: string; d
     ORDER BY j.created_at, a.job_id, a.ref
     LIMIT ${o.limit}`;
   let count = 0;
+  let reached = 0;
   const finished: string[] = [];
+  const readOf = new Map<string, number>();
   for (const a of queued) {
-    if (o.deadline !== undefined && Date.now() >= o.deadline) break;
+    if (o.deadline !== undefined && clock() >= o.deadline) break;
+    reached++;
     // Taken atomically: a run that overlaps this one skips what this one holds.
     const taken = await sql()`UPDATE screen_applicants a SET status = 'reading', taken_at = ${o.now}
       WHERE a.job_id = ${a.job_id} AND a.ref = ${a.ref} AND ${free()} RETURNING a.ref`;
@@ -109,6 +120,7 @@ export async function workQueue(o: { now: Date; limit: number; jobId?: string; d
           read_at = CASE WHEN attempts + 1 >= ${MAX_BUDGET_STOPS} THEN ${o.now}::timestamptz ELSE NULL END,
           line = CASE WHEN attempts + 1 >= ${MAX_BUDGET_STOPS} THEN 'no tier: the read failed.' ELSE NULL END
           WHERE job_id = ${a.job_id} AND ref = ${a.ref} AND status = 'reading'`;
+        reached--;
         break;
       }
       const key = repo ? repoKey(repo) : null;
@@ -151,7 +163,13 @@ export async function workQueue(o: { now: Date; limit: number; jobId?: string; d
         WHERE job_id = ${a.job_id} AND ref = ${a.ref} AND status = 'reading'`;
     }
     count++;
+    readOf.set(a.job_id, (readOf.get(a.job_id) ?? 0) + 1);
     if (await advance(a.job_id, o.now)) finished.push(a.job_id);
   }
-  return { read: count, jobs_finished: finished };
+  // What this run read of each job it touched, and what it left of each when it stopped short.
+  const leftOf = new Map<string, number>();
+  for (const a of queued.slice(reached)) leftOf.set(a.job_id, (leftOf.get(a.job_id) ?? 0) + 1);
+  for (const id of new Set([...readOf.keys(), ...leftOf.keys()]))
+    await sql()`UPDATE screen_jobs SET last_run_read = ${readOf.get(id) ?? 0}, last_run_left = ${leftOf.get(id) ?? 0} WHERE id = ${id}`;
+  return { read: count, left: queued.length - reached, jobs_finished: finished };
 }
