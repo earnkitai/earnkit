@@ -9,7 +9,7 @@ import { closeDay, closesLead, programZone } from './deadline';
 import { CLOSED, NOT_OPEN_YET, ROLLING, heroChipText, programKind } from './site-copy';
 import { moneyOf } from './programs-read';
 import type { Program } from './program-file';
-import { closedAt, isOpenAt, listListedPrograms, type ProgramRow } from './programs';
+import { closedAt, isOpenAt, listListedPrograms, statusAt, type ProgramRow } from './programs';
 import { readStats, type Stats } from './stats';
 
 export type Tile = {
@@ -25,6 +25,8 @@ export type Tile = {
   /** The close (ISO) when it has a day, else null (rolling); with `zone`, what a render re-derives `when` from. */
   closes_at: string | null;
   zone: string;
+  /** Fix round 1 (M1): an upcoming program's start (ISO) when it opens by date (it has a form), else null. */
+  opens_at?: string | null;
   kind: string;
   status: 'active' | 'upcoming';
   /** A file under public/, or null (no logo, or the file is missing). */
@@ -71,17 +73,22 @@ const BIG = /^(Up to )?\$[\d,]+$/;
 
 /** A tile's close words at `now` (L23-2, L23-22, v6.1.16): Closed once past, the closes wording (`closesLead`), Rolling
  *  or Not open yet. Pure. */
-function whenOf(t: Pick<Tile, 'status' | 'closes_at' | 'zone'>, now: Date): string {
+function whenOf(t: Pick<Tile, 'status' | 'closes_at' | 'zone'> & Partial<Pick<Tile, 'opens_at'>>, now: Date): string {
   if (t.closes_at !== null && Date.parse(t.closes_at) <= now.getTime()) return CLOSED;
-  if (t.status === 'upcoming') return NOT_OPEN_YET;
+  if (statusOf(t, now) === 'upcoming') return NOT_OPEN_YET;
   return t.closes_at ? closesLead(t.closes_at, now, t.zone) : ROLLING;
 }
+
+/** A tile's status at `now` (fix round 1, M1): an upcoming tile whose start has passed reads active. Pure. */
+const statusOf = (t: Pick<Tile, 'status'> & Partial<Pick<Tile, 'opens_at'>>, now: Date): Tile['status'] =>
+  t.status === 'upcoming' && t.opens_at && Date.parse(t.opens_at) <= now.getTime() ? 'active' : t.status;
 
 function tileOf(p: Program, now: Date): Tile {
   const money = moneyOf(p);
   const closes_at = closeDay(p, now) && p.ends_at ? new Date(p.ends_at).toISOString() : null;
   const zone = programZone(p);
-  const status = p.status === 'upcoming' ? 'upcoming' : 'active';
+  const status = statusAt(p, now) === 'upcoming' ? 'upcoming' : 'active';
+  const opens_at = status === 'upcoming' && p.starts_at && p.submission_requirements.length > 0 ? new Date(p.starts_at).toISOString() : null;
   return {
     id: p.id,
     title: p.title,
@@ -91,6 +98,7 @@ function tileOf(p: Program, now: Date): Tile {
     when: closedAt(p, now) ? CLOSED : whenOf({ status, closes_at, zone }, now),
     closes_at,
     zone,
+    opens_at,
     kind: programKind(p),
     status,
     logo: logoOf(p),
@@ -105,7 +113,7 @@ export function landingTiles(rows: ProgramRow[], now: Date): Tile[] {
 /** The cached landing at `now` (L23-2, v6.1.16): every tile's close words re-derived from the clock at render, so a tile
  *  cached open reads Closed once its close passes. Pure. */
 export function landingAt(l: Landing, now: Date): Landing {
-  const at = (t: Tile): Tile => ({ ...t, when: t.when === CLOSED ? CLOSED : whenOf(t, now) });
+  const at = (t: Tile): Tile => ({ ...t, status: statusOf(t, now), when: t.when === CLOSED ? CLOSED : whenOf(t, now) });
   return { ...l, tiles: l.tiles.map(at), featured: l.featured.map(at) };
 }
 

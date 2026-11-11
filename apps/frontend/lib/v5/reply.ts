@@ -347,7 +347,7 @@ export function sinceLine(r: Pick<R, 'since' | 'ready'> & Partial<Pick<R, 'gaps'
   if (s.new.length > 0) parts.push(`${s.new.length} new ${s.new.length === 1 ? 'program' : 'programs'} you fit`);
   for (const c of s.changed) parts.push(`${c.title}: ${c.what}`);
   // L23-9, L23-11 (v6.1.16): the one closes wording and the one date formatter.
-  for (const c of closing) parts.push(`${c.title} ${closesWords(c.closes_at, now, 'UTC')}`);
+  for (const c of closing) parts.push(`${c.title} ${closesWords(c.closes_at, now, c.zone ?? 'UTC')}`);
   return `Since ${dayWords(new Date(s.from), now)}: ${parts.join('; ')}.`;
 }
 

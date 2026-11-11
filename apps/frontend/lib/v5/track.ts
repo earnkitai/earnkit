@@ -11,7 +11,7 @@ import { prefill, unvouchedRequired } from './prefill';
 import { cachedRepoFacts, reportOnlyFacts } from './repo-facts';
 import { findAutoWas, forgetGap, lastGaps, lastProjectKey, unmarkNightFind } from './installations';
 import { PROJECT_DESCRIPTION, ProjectArg, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
-import { closedAt, getProgram, listOpenPrograms, programByName, unknownProgramLine } from './programs';
+import { closedAt, statusAt, getProgram, listOpenPrograms, programByName, unknownProgramLine } from './programs';
 import { closeDay, dayWords } from './deadline';
 import { OTHER_CLAIM_NOTE, doneItems, record, reportOf, resolvedKey, resultOf, summary, titleOf, type Ledger, type Status } from './ledger';
 import { clock } from './reply';
@@ -382,7 +382,7 @@ async function act(
   // L13-6 (v6.1.14): a program that has not opened is never sent under it. L13-7: an agent's send after the builder
   // turned it off since this agent's last find (which saw it on) says it was off.
   let outside = standing && row
-    ? (row.file.status === 'upcoming' ? NOT_OPENED : (outsideApproval(policy!, row) ?? (await notApprovedAtSend(ctx, owner, i, row, project.key))))
+    ? (statusAt(row.file, ctx.now) === 'upcoming' ? NOT_OPENED : (outsideApproval(policy!, row) ?? (await notApprovedAtSend(ctx, owner, i, row, project.key))))
     : policy && row && (await findAutoWas(ctx.installationId)) ? APPROVAL_OFF : null;
   // FR-3 (final fix): a send with no project_id keeps the project key, as a claim does, so a screen can match it.
   const applied = i.status === 'applied'

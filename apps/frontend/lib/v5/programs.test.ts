@@ -95,7 +95,10 @@ test('L23-2 (v6.1.16): isOpenAt is the one open test: active and not past ends_a
   assert.equal(isOpenAt(p, NOW), true);
   assert.equal(isOpenAt(p, new Date('2026-11-06T00:00:00Z')), false);
   assert.equal(isOpenAt({ ...p, status: 'closed' }, NOW), false);
-  assert.equal(isOpenAt({ ...p, status: 'upcoming', starts_at: '2026-11-01T00:00:00Z' }, NOW), false);
+  // Fix round 1 (M1): an upcoming program is open from its start, as dateStatus opens it; not before.
+  assert.equal(isOpenAt({ ...p, status: 'upcoming', starts_at: '2026-11-01T00:00:00Z' }, NOW), true);
+  assert.equal(isOpenAt({ ...p, status: 'upcoming', starts_at: '2026-11-04T12:01:00Z' }, NOW), false);
+  assert.equal(isOpenAt({ ...p, status: 'upcoming', starts_at: null }, NOW), false);
   assert.equal(isOpenAt({ ...p, ends_at: null }, NOW), true);
   // An active program one minute past its close, before any run: closed, as the run would write it.
   const past = { ...p, ends_at: new Date(NOW.getTime() - 60_000).toISOString() };

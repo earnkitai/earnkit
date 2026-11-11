@@ -4,7 +4,7 @@
  * 7 days. Empty on the first find.
  */
 import { sql } from './db';
-import { closeDay, dayWords } from './deadline';
+import { closeDay, dayWords, programZone } from './deadline';
 import { programsById, type ProgramRow } from './programs';
 
 export type Since = {
@@ -12,7 +12,8 @@ export type Since = {
   from: string | null;
   new: { program_id: string; title: string }[];
   changed: { program_id: string; title: string; what: string }[];
-  closing: { program_id: string; title: string; closes_at: string }[];
+  /** `zone`: the program's own (fix round 1, N2), so the since line says the close as every other surface does. */
+  closing: { program_id: string; title: string; closes_at: string; zone?: string }[];
 };
 
 const DAY = 86_400_000;
@@ -80,7 +81,7 @@ export async function since(
   for (const id of ready) {
     const e = byId.get(id)?.file.ends_at;
     const t = e ? Date.parse(e) : NaN;
-    if (t > now.getTime() && t <= now.getTime() + 7 * DAY) closing.push({ program_id: id, title: byId.get(id)!.file.title, closes_at: new Date(t).toISOString() });
+    if (t > now.getTime() && t <= now.getTime() + 7 * DAY) closing.push({ program_id: id, title: byId.get(id)!.file.title, closes_at: new Date(t).toISOString(), zone: programZone(byId.get(id)!.file) });
   }
   return {
     from: lastFindAt.toISOString(),

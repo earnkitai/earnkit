@@ -27,6 +27,8 @@ export type RecordSide = {
   tier: Tier | null;
   summary: { tier: string | null; line: string } | null;
   problems: string[];
+  /** Task 9 fix round 1: after a failed read the summary line says so; the tier gate reads its Next from this line. */
+  tier_line?: string;
 };
 export type Blocker = {
   program_id: string; sign_in: string | null; needs_click: boolean; needs: string[];
@@ -67,6 +69,8 @@ const isTier = (t: string | undefined): t is Tier => (TIERS as readonly string[]
 /** Loads the record and, for a project with a repo or site, the builder's own tier under the 24-hour rule. */
 /** v6.1.16 Task 9 (controller ruling): days a stored tier stands after a failed re-read of the same repo. */
 export const READ_GRACE_DAYS = 14;
+/** The unverified tier's line a bar gap reads its step from after a failed read past the grace (fix round 1). */
+const UNREAD_TIER_LINE = 'Your project is unverified, with nothing recent EarnKit could check. Next: a public repo EarnKit can read.';
 
 export async function recordSide(
   o: { builderId: number; now: Date; projectId?: string; facts: RepoFacts; read: (s: Subject) => Promise<Evidence> },
@@ -90,30 +94,35 @@ export async function recordSide(
     ...(project.live_url ? { live_url: project.live_url } : {}),
     ...(o.facts.contracts.length > 0 ? { contracts: o.facts.contracts.map((c) => ({ chain: c.chain, address: c.address })) } : {}),
   };
+  // L23-14 (v6.1.16): the read failed (a `not read` repo note, or the reader threw: fix round 1, M2). Controller ruling:
+  // the stored tier stands only within READ_GRACE_DAYS of its read and only for what it was read from (the same repo, or
+  // no repo on either side); else the project reads unverified. Nothing is written, so evidence_read_at stays and the next
+  // find tries again. With no stored tier there is nothing to keep: null, and the path goes on as before Task 9.
+  const failed = (): RecordSide | null => {
+    if (!stored || !side.summary) return null;
+    const readAt = stored?.read_at ? Date.parse(stored.read_at) : NaN;
+    const sameRepo = subject.repo_url ? stored?.repo_url === subject.repo_url : !stored?.repo_url;
+    const fresh = Number.isFinite(readAt) && o.now.getTime() - readAt <= READ_GRACE_DAYS * 86_400_000;
+    if (side.summary && stored && sameRepo && fresh)
+      return {
+        ...side,
+        summary: { tier: side.summary.tier, line: `I could not read your repo today; using what I read on ${dayWords(new Date(readAt), o.now)}.` },
+        tier_line: side.summary.line,
+        problems: [...side.problems, EVIDENCE_NOT_READ],
+      };
+    return { ...side, tier: 'unverified', summary: { tier: 'unverified', line: 'I could not read your repo today.' }, tier_line: UNREAD_TIER_LINE, verifiedUsage: null, problems: [...side.problems, EVIDENCE_NOT_READ] };
+  };
   let evidence: Evidence | null;
   try {
     const r = await ownEvidence(subject, { read: o.read, now: o.now, lastReadAt: project.evidence_read_at ?? null });
     if (!r.read) return side;
     evidence = r.evidence;
   } catch {
-    // The stored tier and line stand; nothing new is stored.
-    return { ...side, problems: [EVIDENCE_NOT_READ] };
+    // Nothing stored to keep: no tier, one problem, nothing written.
+    return failed() ?? { ...side, problems: [...side.problems, EVIDENCE_NOT_READ] };
   }
-  // L23-14 (v6.1.16): the repo read failed (private or missing, a 404, a timeout). Controller ruling: the stored tier
-  // stands only within READ_GRACE_DAYS of its read and only for the repo it was read from; else the project reads
-  // unverified. Nothing is written, so evidence_read_at stays and the next find tries again.
-  if (evidence && subject.repo_url && evidence.code === null && evidence.notes.some((n) => n.startsWith('not read'))) {
-    const readAt = stored?.read_at ? Date.parse(stored.read_at) : NaN;
-    const sameRepo = !!stored?.repo_url && stored.repo_url === subject.repo_url;
-    const fresh = Number.isFinite(readAt) && o.now.getTime() - readAt <= READ_GRACE_DAYS * 86_400_000;
-    if (side.summary && stored && sameRepo && fresh)
-      return {
-        ...side,
-        summary: { tier: side.summary.tier, line: `I could not read your repo today; using what I read on ${dayWords(new Date(readAt), o.now)}.` },
-        problems: [...side.problems, EVIDENCE_NOT_READ],
-      };
-    return { ...side, tier: 'unverified', summary: { tier: 'unverified', line: 'I could not read your repo today.' }, verifiedUsage: null, problems: [...side.problems, EVIDENCE_NOT_READ] };
-  }
+  const notRead = evidence && subject.repo_url && evidence.code === null && evidence.notes.some((n) => n.startsWith('not read')) ? failed() : null;
+  if (notRead) return notRead;
   const p = place(evidence, { identical_pitch: 0, shared_contributors: 0 }, undefined, o.now);
   const summary = evidence ? evidenceSummary(p, evidence) : null;
   const usage = evidence ? usageLine(evidence, o.now) : null;
@@ -204,7 +213,7 @@ export function gateFor(side: RecordSide | null, facts: RepoFacts): (v: Verdict,
   const provisional = provisionalTier(facts);
   const onchain = facts.chains.length > 0;
   return (v, row) => side?.tier
-    ? tierGate(v, row, side.tier, side.summary?.line, onchain)
+    ? tierGate(v, row, side.tier, side.tier_line ?? side.summary?.line, onchain)
     : codeStep(v, row, facts, provisional) ?? provisionalGate(v, row, provisional, { onchain, linked: side !== null, noProject: side !== null && side.projectId === null });
 }
 

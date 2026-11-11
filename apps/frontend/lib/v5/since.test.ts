@@ -46,7 +46,7 @@ test('new, changed and closing, only for programs shown or in the ledger', async
     s.changed.map((c) => [c.program_id, c.what]).sort(),
     [['s-applied', 'closed'], ['s-old', 'deadline moved to Nov 20']],
   );
-  assert.deepEqual(s.closing, [{ program_id: 's-soon', title: 'Soon Grant', closes_at: at(72).toISOString() }]);
+  assert.deepEqual(s.closing, [{ program_id: 's-soon', title: 'Soon Grant', closes_at: at(72).toISOString(), zone: 'UTC' }]);
 });
 
 test('an amount and a form change', async () => {

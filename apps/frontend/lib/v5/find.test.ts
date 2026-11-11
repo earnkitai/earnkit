@@ -694,7 +694,7 @@ test('I1 (v6.1.15 fix round 1): a tier line stored before v6.1.15 reads in today
       await withRecord(builderId, NOW, (cur) => {
         const mine = cur.projects[0];
         mine.evidence_read_at = readAt.toISOString();
-        mine.last_tier = { tier: 'live', line: OLD, read_at: readAt.toISOString() };
+        mine.last_tier = { tier: 'live', line: OLD, read_at: readAt.toISOString(), repo_url: mine.repo_url ?? undefined };
         return { record: cur, result: null };
       });
       let reads = 0;
@@ -706,8 +706,11 @@ test('I1 (v6.1.15 fix round 1): a tier line stored before v6.1.15 reads in today
       assert.equal(g.gap.what, 'about 25 outside users in 90 days; I count 4', name);
       const show = r.reply!.show_to_builder as string;
       assert.match(show, new RegExp(`^${g.n}\\. Old Line Grant, up to \\$5,000: about 25 outside users in 90 days; I count 4\\.$`, 'm'), name);
-      assert.ok(show.includes(`\n\n${NEW}`), name);
-      assert.equal((r.reply!.evidence_summary as { line: string }).line, NEW, name);
+      // Task 9 fix round 1 (M2): a failed re-read within 14 days of the same repo keeps the tier and says so; the gate still
+      // reads the stored line in today's words.
+      const summaryLine = readFails ? 'I could not read your repo today; using what I read on Nov 2.' : NEW;
+      assert.ok(show.includes(`\n\n${summaryLine}`), name);
+      assert.equal((r.reply!.evidence_summary as { line: string }).line, summaryLine, name);
       assert.doesNotMatch(show.split('\n\n').filter((b) => b.startsWith('Your project')).join('\n'), /deployer|senders|mainnet|unfunded/, name);
     }
   } finally {
@@ -2839,4 +2842,50 @@ test('ONE_SAY_ORDER (v6.1.16, L23-21): no pinned reply carries two Says (a gap l
   assert.equal(withoutSay('Say yes and I apply to all 3. Or say the numbers to skip.'), '');
   const says = (t: string) => (t.replace(/Say "do \d+"/g, '').match(/\bSay\b/g) ?? []).length;
   for (const f of ['find.test.ts', 'reply.test.ts', 'track.test.ts']) for (const t of pinnedTexts(f)) assert.ok(says(t) <= 1, `${f}: ${t}`);
+});
+
+test('Task 9 fix round 1 (M1): an upcoming program at its start date reads open on every surface before the run flips it; one with no form stays not open yet', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  const { isOpenAt, listOpenPrograms } = await import('./programs');
+  const { landingAt, landingTiles } = await import('./landing');
+  const { guideTextById } = await import('./guide-page');
+  const { readListedPrograms } = await import('./programs-read');
+  // NLnet open call style: upcoming, a form, the next window starting now.
+  const start = new Date(NOW.getTime() - 60_000).toISOString();
+  const file = programFixture({ id: 'tt-opens', title: 'Opens Call', status: 'upcoming', summary: 'Up to $5,000', starts_at: start,
+    ends_at: new Date(NOW.getTime() + 20 * 24 * H).toISOString(), opens_note: 'Opens on its next call date' });
+  await upsertProgram(file, 'file', new Date(NOW.getTime() - 24 * H));
+  await upsertProgram(programFixture({ id: 'tt-noform', title: 'No Form Call', status: 'upcoming', starts_at: start, submission_requirements: [], opens_note: 'Form to come' }), 'file', new Date(NOW.getTime() - 24 * H));
+  try {
+    assert.equal(isOpenAt(file, NOW), true);
+    assert.equal(isOpenAt(file, new Date(NOW.getTime() - 2 * 60_000)), false);
+    assert.ok((await listOpenPrograms(NOW)).some((r) => r.id === 'tt-opens'));
+    assert.ok(!(await listOpenPrograms(NOW)).some((r) => r.id === 'tt-noform'));
+    const one = await mcpCall(ctx(await installation()), 'find', { program_id: 'tt-opens' });
+    assert.match(one.reply!.show_to_builder as string, /^Opens Call, up to \$5,000, closes Nov 24\./);
+    assert.match((await mcpCall(ctx(await installation()), 'find', { program_id: 'tt-noform' })).reply!.show_to_builder as string, /Not open yet: Form to come\./);
+    const row = (await getProgram('tt-opens'))!;
+    const tile = landingTiles([row], NOW)[0];
+    assert.deepEqual([tile.status, tile.when], ['active', 'Closes Nov 24']);
+    // A tile cached a minute before the start flips at render.
+    const cached = landingTiles([row], new Date(NOW.getTime() - 2 * 60_000))[0];
+    assert.deepEqual([cached.status, cached.when], ['upcoming', 'Not open yet']);
+    const l = landingAt({ chip: null, tiles: [cached], featured: [], total: 1 }, NOW);
+    assert.deepEqual([l.tiles[0].status, l.tiles[0].when], ['active', 'Closes Nov 24']);
+    const page = (await guideTextById('tt-opens', NOW))!;
+    assert.deepEqual([page.status, page.opens_note, page.guide.closes, page.submission_url !== ''], ['active', null, 'Closes Nov 24.', true]);
+    assert.equal((await readListedPrograms(NOW)).find((p) => p.id === 'tt-opens')?.status, 'active');
+  } finally {
+    await sql()`DELETE FROM programs WHERE id IN ('tt-opens', 'tt-noform')`;
+  }
+});
+
+test('Task 9 fix round 1 (N5): unlinking an agent clears its kept standing-approval promise', async () => {
+  const { markPromised, promisedOf } = await import('./installations');
+  const { unlinkInstallation } = await import('../v6/builders');
+  const { id, builderId } = await linkedWith(OWNER_RECORD);
+  await markPromised(id, [{ program_id: 'x', title: 'X Grant' }], NOW);
+  assert.ok(await promisedOf(id));
+  assert.equal(await unlinkInstallation(id, builderId, NOW), true);
+  assert.equal(await promisedOf(id), null);
 });

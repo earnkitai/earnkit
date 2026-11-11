@@ -2,7 +2,7 @@
 import { sql } from './db';
 import { guideText, type Guide } from './guide';
 import { logoOf } from './landing';
-import { closedAt, getProgram, listListedPrograms, type ProgramRow } from './programs';
+import { closedAt, getProgram, listListedPrograms, statusAt, type ProgramRow } from './programs';
 
 export type GuidePage = {
   guide: Guide;
@@ -49,11 +49,13 @@ export async function guideRowById(id: string, now: Date = new Date()): Promise<
 export function guidePageOf(row: ProgramRow, now: Date): GuidePage {
   const p = row.file;
   const closed = closedAt(p, now);
+  // Fix round 1 (M1): open from its start date, before the run flips it.
+  const status = statusAt(p, now);
   return {
     guide: guideText(row, now),
     logo: logoOf(p),
-    status: closed ? 'closed' : p.status,
-    opens_note: !closed && p.status === 'upcoming' ? (p.opens_note ?? null) : null,
+    status,
+    opens_note: status === 'upcoming' ? (p.opens_note ?? null) : null,
     submission_url: closed ? '' : p.submission_url,
     organizer: p.organizer,
   };

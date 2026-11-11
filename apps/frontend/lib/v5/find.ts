@@ -19,7 +19,7 @@ import { clearPromised, lastFindAt, lastList, listHash, markFind, markFindAuto, 
 import { askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, markAsked, outcomeAsksDue, rekeyProject, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
 import { prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
-import { closedAt, isOpenAt, listOpenPrograms, programByName, unknownProgramLine, type ProgramRow } from './programs';
+import { closedAt, isOpenAt, statusAt, listOpenPrograms, programByName, unknownProgramLine, type ProgramRow } from './programs';
 import { moneyAt, moneyOf as tileMoney } from './programs-read';
 import { ProjectArg, SHORT_LINK_NOTE, isShortener, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
 import { readLoosely, type LooseRules } from './tool-input';
@@ -385,7 +385,9 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   // L23-2 (v6.1.16): open or closed from the clock (`isOpenAt`, `closedAt`), whatever status the daily run last wrote.
   const open = isOpenAt(p, ctx.now);
   const closed = closedAt(p, ctx.now);
-  const when = closed ? 'closed' : p.status === 'upcoming' ? null : left ? `closes ${left}` : 'rolling';
+  // Fix round 1 (M1): an upcoming program past its start reads open, as isOpenAt says.
+  const upcoming = statusAt(p, ctx.now) === 'upcoming';
+  const when = closed ? 'closed' : upcoming ? null : left ? `closes ${left}` : 'rolling';
   const guide = guideText(row, ctx.now);
   // The rules list stays in guide.rules; the builder sees it only with no project (no verdict to give) or on asking.
   const guideRules = !project || ask === 'rules' ? guideLines(guide) : [];
@@ -422,7 +424,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
     ? sent
       ? [`${p.title}, ${moneyOf(p)}.`, `Closed. You applied ${dayWords(sent, ctx.now)}; results ${due ? dayWords(due, ctx.now) : 'not announced'}.`]
       : [`${p.title}, ${moneyOf(p)}, ${when}.`]
-    : p.status === 'upcoming'
+    : upcoming
       ? [`${p.title}, ${moneyOf(p)}. Not open yet: ${opens}.`, ...rules.map(ruleSentence), ...guideRules]
       : verdict
         ? verdictText(row, verdict, () => readyOf(row, verdict, facts, ctx.now, rec, ownDone), { linked: ctx.builderId !== null, now: ctx.now, draftOnly, rules: guideRules, signIn, done })

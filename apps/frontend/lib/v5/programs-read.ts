@@ -8,7 +8,7 @@ import { CHAIN_REGISTRY } from './chains';
 import { closeDay, closesWords, programZone } from './deadline';
 import { json } from './http';
 import { PROGRAM_CATEGORIES, categoryOf, type Category, type Program } from './program-file';
-import { listListedPrograms } from './programs';
+import { listListedPrograms, statusAt } from './programs';
 
 /** The cache tag on the public list; an API write expires it. */
 export const PROGRAMS_TAG = 'programs';
@@ -186,7 +186,8 @@ const closesIn = (status: ListedProgram['status'], closesAt: string | null, now:
 /** Every listed program, unsorted and unfiltered. */
 export async function readListedPrograms(now = new Date()): Promise<ListedProgram[]> {
   return (await listListedPrograms(now)).map(({ file: p, source }) => {
-    const status = p.status === 'upcoming' ? 'upcoming' : 'active';
+    // Fix round 1 (M1): an upcoming program past its start is listed open.
+    const status = statusAt(p, now) === 'upcoming' ? 'upcoming' : 'active';
     // Rolling (no ends_at, or the summary says rolling) is null, as the card says "Rolling".
     const closes_at = closeDay(p, now) ? new Date(p.ends_at!).toISOString() : null;
     const zone = programZone(p);

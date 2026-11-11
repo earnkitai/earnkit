@@ -93,7 +93,8 @@ export async function linkInstallation(installationId: number, builderId: number
     const [inst] = await tx<{ builder_id: number | null }[]>`SELECT builder_id FROM installations WHERE id = ${installationId} FOR UPDATE`;
     if (inst?.builder_id != null && inst.builder_id !== builderId) throw new LinkRefused('other_builder');
     if (inst?.builder_id == null)
-      await tx`UPDATE installations SET builder_id = ${builderId}, linked_at = ${now}, unlinked_at = NULL, unlinked_reason = NULL WHERE id = ${installationId}`;
+      // Task 9 fix round 1 (N5): a promise kept before the link was never this builder's.
+      await tx`UPDATE installations SET builder_id = ${builderId}, linked_at = ${now}, unlinked_at = NULL, unlinked_reason = NULL, promised = NULL, promised_at = NULL WHERE id = ${installationId}`;
     // Rows of both ledgers are locked in a stable order, so two links to one builder never interleave.
     await tx`SELECT 1 FROM applications WHERE owner IN (${from}, ${to}) ORDER BY owner, program_id FOR UPDATE`;
     // T5-F6 (v6.1.14): the dropped row's application id, carried onto the kept row when that one has none.
@@ -145,7 +146,8 @@ export async function unlinkInstallation(installationId: number, builderId: numb
     const held = await tx<{ program_id: string }[]>`SELECT program_id FROM applications
       WHERE owner = ${owner} AND status = 'started' AND claimed_by = ${installationId} ORDER BY program_id`;
     for (const h of held) await tx`SELECT pg_advisory_xact_lock(hashtext(${owner + ':' + h.program_id}))`;
-    const r = await tx`UPDATE installations SET builder_id = NULL, linked_at = NULL, unlinked_at = ${now}, unlinked_reason = 'unlinked'
+    // Task 9 fix round 1 (N5): the standing-approval promise was the builder's, so it goes with the link.
+    const r = await tx`UPDATE installations SET builder_id = NULL, linked_at = NULL, unlinked_at = ${now}, unlinked_reason = 'unlinked', promised = NULL, promised_at = NULL
       WHERE id = ${installationId} AND builder_id = ${builderId}`;
     if (r.count === 0) return false;
     await tx`DELETE FROM applications WHERE owner = ${owner} AND status = 'started' AND claimed_by = ${installationId}`;

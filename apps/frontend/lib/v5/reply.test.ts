@@ -1210,3 +1210,9 @@ test('v6.1.16 Task 9 (lane 23): nothing new, not sent since yes, started not sen
   assert.match(agentNote({ ...one, ask_outcome: [{ program_id: 'q', title: 'Q Grant', due_at: '2026-11-01T00:00:00.000Z' }] }, { more: 0 }), /The reply asks how each went: Q Grant\./);
   assert.match(agentNote({ ...one, released: released.slice(0, 2) }, { more: 0 }), /Claims left unsent for 24 hours were released: A Grant, B Grant\./);
 });
+
+test('Task 9 fix round 1 (N2): the since line says a close in the program zone, as its tile does, near midnight', () => {
+  const at = new Date('2026-11-04T09:00:00Z'); // Nov 4, 01:00 in Los Angeles
+  const r = base({ since: { from: '2026-11-02T09:00:00.000Z', new: [], changed: [], closing: [{ program_id: 'z', title: 'Zone Grant', closes_at: '2026-11-05T07:30:00.000Z', zone: 'America/Los_Angeles' }] } });
+  assert.match(replyText(r, false, at), /^Since Nov 2: Zone Grant closes today\.$/m);
+});

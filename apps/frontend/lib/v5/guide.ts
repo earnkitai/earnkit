@@ -8,7 +8,7 @@ import { closeDay, closesLead, dayWords, programZone } from './deadline';
 import { withoutOpenWindow } from './program-checks';
 import { CLOSED, NOT_OPEN_YET, ROLLING } from './site-copy';
 import { MIN_TIER, NEEDS, eligibilityOf, type EligibilityItem, type Program } from './program-file';
-import { closedAt, type ProgramRow } from './programs';
+import { closedAt, statusAt, type ProgramRow } from './programs';
 import { lowerFirst, moneyOf } from './programs-read';
 
 export type Guide = {
@@ -124,7 +124,7 @@ export function closesSentence(p: Pick<Program, 'summary' | 'tz' | 'ends_at'>, n
 /** When it closes, in words: `closesSentence`, rolling, not open yet or closed, read from the clock (`closedAt`). */
 function closesOf(p: Program, now: Date): string {
   if (closedAt(p, now)) return CLOSED;
-  if (p.status === 'upcoming') return NOT_OPEN_YET;
+  if (statusAt(p, now) === 'upcoming') return NOT_OPEN_YET;
   return closesSentence(p, now);
 }
 
@@ -187,7 +187,7 @@ export function guideText(row: ProgramRow, now: Date = new Date()): Guide {
     eligibility: eligibilityList(eligibilityOf(p), now),
     fields: p.submission_requirements.map((r) => ({ label: r.label, todo: sentence(r.todo ?? (r.required ? r.label.toLowerCase() : 'optional')) })),
     // A closed program takes no entries: no word on who submits (v6.1.7 C7); nor one not open yet (Low 21, v6.1.13).
-    submit: closes === CLOSED || p.status === 'upcoming' ? null : p.submit === 'builder' ? 'You send it.' : 'Your agent sends it.',
+    submit: closes === CLOSED || closes === NOT_OPEN_YET ? null : p.submit === 'builder' ? 'You send it.' : 'Your agent sends it.',
     sign_in: signInOf(p),
     needs: p.needs.map((n) => NEEDS_WORDS[n]),
     bar: p.min_tier ? BAR_WORDS[p.min_tier] : null,
