@@ -66,11 +66,12 @@ test('register, authorize and token through the routes: straight to the client, 
   const [row] = await sql()`SELECT client_key, client_name FROM installations WHERE id = ${caller.id}`;
   assert.equal(row.client_key, null);
   assert.equal(row.client_name, 'Claude Code');
-  // A replayed code is the same installation.
+  // L19-4 (v6.1.16): a code is one-time; a reuse is invalid_grant (pinned with the revoke below).
   const replay = await tokenPost(new Request('https://earnkit.test/oauth/token', {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: tokenForm(client_id, code).toString(),
   }));
-  assert.equal(((await replay.json()) as { access_token: string }).access_token, access_token);
+  assert.equal(replay.status, 400);
+  assert.equal(((await replay.json()) as { error: string }).error, 'invalid_grant');
   // Re-authorizing the same client is a second installation (a fresh ledger); the first token keeps working.
   const again = await tokenPost(new Request('https://earnkit.test/oauth/token', {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: tokenForm(client_id, await codeOf(client_id)).toString(),
@@ -78,7 +79,9 @@ test('register, authorize and token through the routes: straight to the client, 
   const second = ((await again.json()) as { access_token: string }).access_token;
   const other = await connectInstallation(second);
   assert.ok(other && other.id !== caller.id);
-  assert.equal((await connectInstallation(access_token))?.id, caller.id);
+  // The reuse revoked the first token; the second installation is untouched.
+  assert.equal(await connectInstallation(access_token), null);
+  assert.equal((await connectInstallation(second))?.id, other.id);
 });
 
 test('register: every address counts on its per-address floor and its block; no shared hosted ceiling (v6.1.13, B1)', async () => {
@@ -110,7 +113,7 @@ test('B1 (v6.1.13, Review Focus 1): ten thousand registrations from one address 
     method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify({ redirect_uris: [hosted] }),
   }));
   const token = async (ip: string) => {
-    const id = registerClient({ redirect_uris: [hosted] }).client_id;
+    const id = (await registerClient({ redirect_uris: [hosted] })).client_id;
     return tokenPost(new Request('https://earnkit.test/oauth/token', {
       method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-forwarded-for': ip }, body: tokenForm(id, await codeOf(id, hosted), verifier, hosted).toString(),
     }));
@@ -188,8 +191,8 @@ test('B5 (Review Focus 4): a hosted-redirect client from an address over its flo
   const token = async (id: string, uri: string) => tokenPost(new Request('https://earnkit.test/oauth/token', {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-real-ip': ip }, body: tokenForm(id, await codeOf(id, uri), verifier, uri).toString(),
   }));
-  const a = registerClient({ redirect_uris: [redirect] }).client_id;
-  const b = registerClient({ redirect_uris: [hosted] }).client_id;
+  const a = (await registerClient({ redirect_uris: [redirect] })).client_id;
+  const b = (await registerClient({ redirect_uris: [hosted] })).client_id;
   const ta = await token(a, redirect);
   const tb = await token(b, hosted);
   assert.equal(ta.status, 429);
@@ -199,7 +202,7 @@ test('B5 (Review Focus 4): a hosted-redirect client from an address over its flo
 
 test('B5: the hosted tier only raises the per-client install limit', async () => {
   const ip = `10.78.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
-  const id = registerClient({ redirect_uris: [hosted] }).client_id;
+  const id = (await registerClient({ redirect_uris: [hosted] })).client_id;
   const r = await tokenPost(new Request('https://earnkit.test/oauth/token', {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-real-ip': ip }, body: tokenForm(id, await codeOf(id, hosted), verifier, hosted).toString(),
   }));
@@ -227,7 +230,7 @@ test('/mcp without a token, or with an unknown one, is 401 with the resource met
 });
 
 test('/mcp with a token lists the four tools; a body over 1 MB is 413', async () => {
-  const { client_id } = registerClient({ redirect_uris: [redirect] });
+  const { client_id } = await registerClient({ redirect_uris: [redirect] });
   const { token, clientName } = await exchangeCode(tokenForm(client_id, await codeOf(client_id)));
   const { saveInstallation } = await import('./installations');
   await saveInstallation(token, clientName);
@@ -249,17 +252,17 @@ test('/mcp with a token lists the four tools; a body over 1 MB is 413', async ()
 });
 
 test('full flow: register, authorize, token; replay is the same token', async () => {
-  const { client_id } = registerClient({ redirect_uris: [redirect], client_name: 'Cursor' });
+  const { client_id } = await registerClient({ redirect_uris: [redirect], client_name: 'Cursor' });
   const code = await codeOf(client_id);
   assert.equal((await exchangeCode(tokenForm(client_id, code))).token, (await exchangeCode(tokenForm(client_id, code))).token);
   assert.match((await exchangeCode(tokenForm(client_id, code))).token, /^ek_/);
 });
 
 test('wrong PKCE, another client, a forged id or an unregistered redirect are refused', async () => {
-  const { client_id } = registerClient({ redirect_uris: [redirect] });
+  const { client_id } = await registerClient({ redirect_uris: [redirect] });
   const code = await codeOf(client_id);
   await assert.rejects(exchangeCode(tokenForm(client_id, code, 'wrong')), (e) => e instanceof OAuthError && e.code === 'invalid_grant');
-  const b = registerClient({ redirect_uris: [redirect] }).client_id;
+  const b = (await registerClient({ redirect_uris: [redirect] })).client_id;
   await assert.rejects(exchangeCode(tokenForm(b, code)), (e) => e instanceof OAuthError && e.code === 'invalid_grant');
   await assert.rejects(authorize(params(client_id, { redirect_uri: 'https://evil.example/cb' })), (e) => e instanceof OAuthError && e.code === 'invalid_redirect_uri');
   await assert.rejects(authorize(params(client_id.slice(0, -3) + 'AAA')), (e) => e instanceof OAuthError && e.code === 'invalid_client');
@@ -267,20 +270,20 @@ test('wrong PKCE, another client, a forged id or an unregistered redirect are re
 });
 
 test('missing PKCE goes back to the client as invalid_request', async () => {
-  const { client_id } = registerClient({ redirect_uris: [redirect] });
+  const { client_id } = await registerClient({ redirect_uris: [redirect] });
   const back = await authorize(params(client_id, { code_challenge: '' }));
   assert.equal(back.searchParams.get('error'), 'invalid_request');
   assert.equal(back.searchParams.get('code'), null);
 });
 
-test('redirect URI policy and classes', () => {
+test('redirect URI policy and classes', async () => {
   assert.ok(isAllowedRedirectUri('https://x.com/cb'));
   assert.ok(isAllowedRedirectUri('http://localhost:33418/callback'));
   assert.ok(isAllowedRedirectUri('cursor://anysphere.cursor-retrieval/oauth/callback'));
   assert.ok(!isAllowedRedirectUri('http://evil.example/cb'));
   assert.ok(!isAllowedRedirectUri('javascript:alert(1)'));
   assert.ok(!isAllowedRedirectUri('https://x.com/cb#frag'));
-  assert.throws(() => registerClient({ redirect_uris: [] }));
+  await assert.rejects(registerClient({ redirect_uris: [] }), OAuthError);
   assert.equal(redirectClass(redirect).cls, 'loopback');
   assert.equal(redirectClass('cursor://x/cb').cls, 'app');
   assert.equal(redirectClass('https://claude.ai/api/mcp/auth_callback').cls, 'agent_host');
@@ -288,8 +291,8 @@ test('redirect URI policy and classes', () => {
 });
 
 test('each registration is its own client; every token is its own installation', async () => {
-  const a = registerClient({ redirect_uris: [redirect] }).client_id;
-  const b = registerClient({ redirect_uris: [redirect] }).client_id;
+  const a = (await registerClient({ redirect_uris: [redirect] })).client_id;
+  const b = (await registerClient({ redirect_uris: [redirect] })).client_id;
   assert.notEqual(clientKeyOf(a), clientKeyOf(b));
   const first = await exchangeCode(tokenForm(a, await codeOf(a)));
   const second = await exchangeCode(tokenForm(a, await codeOf(a)));
@@ -404,7 +407,7 @@ test('FR-9 (v6.1.14 final fix): the dotless i, Armenian and small-capital look-a
   }));
   assert.equal(r.status, 400);
   assert.deepEqual(await r.json(), { error: 'invalid_client_metadata', error_description: INVALID_CLIENT_NAME });
-  const { client_id } = registerClient({ redirect_uris: [redirect], client_name: 'earnkıt' });
+  const { client_id } = await registerClient({ redirect_uris: [redirect], client_name: 'earnkıt' });
   const tok = await tokenPost(new Request('https://earnkit.test/oauth/token', {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-real-ip': '10.9.2.10' },
     body: tokenForm(client_id, await codeOf(client_id)).toString(),
@@ -416,8 +419,8 @@ test('FR-9 (v6.1.14 final fix): the dotless i, Armenian and small-capital look-a
 });
 
 test('T6-F2 (v6.1.14 fix round 1): a client id registered before the check, carrying a reserved name, cannot install', async () => {
-  // registerClient signs any name, as registration did before v6.1.14.
-  const { client_id } = registerClient({ redirect_uris: [redirect], client_name: 'EarnKit' });
+  // registerClient keeps any name, as registration did before v6.1.14.
+  const { client_id } = await registerClient({ redirect_uris: [redirect], client_name: 'EarnKit' });
   const before = (await sql()`SELECT count(*)::int AS n FROM installations`)[0].n as number;
   const tok = await tokenPost(new Request('https://earnkit.test/oauth/token', {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-real-ip': '10.9.2.2' },
@@ -453,4 +456,152 @@ test('L16-10 (v6.1.16): digits and l that read as letters fold before the reserv
     assert.equal(reservedClientName(name), true, name);
   for (const name of ['Cursor', 'Claude', 'Kit Earner', 'Claude Code (earnk1t)', 'Agent 47'])
     assert.equal(reservedClientName(name), false, name);
+});
+
+// v6.1.16 Task 5 (lane 19): OAuth edges.
+const tokenReq = (form: URLSearchParams, ip = `10.19.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`) =>
+  tokenPost(new Request('https://earnkit.test/oauth/token', {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-real-ip': ip }, body: form.toString(),
+  }));
+/** A code whose challenge is this verifier's. */
+const codeWith = async (clientId: string, v: string) =>
+  (await authorize(params(clientId, { code_challenge: createHash('sha256').update(v).digest('base64url') }))).searchParams.get('code')!;
+const mcpWith = (token: string) => mcpPost(new Request('https://earnkit.test/mcp', {
+  method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json', authorization: `Bearer ${token}` },
+  body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+}));
+
+test('L19-2 (Review Focus 8): a code_verifier of 42 or 129 characters, or outside the unreserved set, never mints a token; 43 and 128 do', async () => {
+  const { client_id } = await registerClient({ redirect_uris: [redirect] });
+  for (const v of ['a'.repeat(42), 'a'.repeat(129), 'a'.repeat(42) + '!', 'a'.repeat(42) + ' ']) {
+    const r = await tokenReq(tokenForm(client_id, await codeWith(client_id, v), v));
+    assert.equal(r.status, 400, `${v.length}`);
+    assert.deepEqual(await r.json(), { error: 'invalid_grant', error_description: 'code_verifier must be 43 to 128 unreserved characters' });
+  }
+  for (const v of ['a'.repeat(43), 'Az09-._~'.repeat(16)]) {
+    assert.equal(v.length === 43 || v.length === 128, true);
+    const r = await tokenReq(tokenForm(client_id, await codeWith(client_id, v), v));
+    assert.equal(r.status, 200, `${v.length}`);
+  }
+});
+
+test('L19-4 (Review Focus 8): a second exchange of one code is invalid_grant and revokes the token the first gave', async () => {
+  const { client_id } = await registerClient({ redirect_uris: [redirect] });
+  const code = await codeOf(client_id);
+  const first = await tokenReq(tokenForm(client_id, code));
+  assert.equal(first.status, 200);
+  const { access_token } = (await first.json()) as { access_token: string };
+  assert.equal((await mcpWith(access_token)).status, 200);
+  const before = (await sql()`SELECT count(*)::int AS n FROM installations`)[0].n as number;
+  const again = await tokenReq(tokenForm(client_id, code));
+  assert.equal(again.status, 400);
+  assert.deepEqual(await again.json(), { error: 'invalid_grant', error_description: 'Code already used; the token it gave is revoked.' });
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM installations`)[0].n, before);
+  const refused = await mcpWith(access_token);
+  assert.equal(refused.status, 401);
+  assert.equal(refused.headers.get('www-authenticate'), 'Bearer resource_metadata="https://earnkit.test/.well-known/oauth-protected-resource/mcp"');
+  // A third exchange is refused the same way; nothing is restored.
+  assert.equal((await tokenReq(tokenForm(client_id, code))).status, 400);
+  assert.equal((await mcpWith(access_token)).status, 401);
+});
+
+test('L19-4: two parallel exchanges of one code mint at most one live token', async () => {
+  const { client_id } = await registerClient({ redirect_uris: [redirect] });
+  const code = await codeOf(client_id);
+  const rs = await Promise.all([tokenReq(tokenForm(client_id, code)), tokenReq(tokenForm(client_id, code))]);
+  assert.deepEqual(rs.map((r) => r.status).sort(), [200, 400]);
+  const { access_token } = (await rs.find((r) => r.status === 200)!.json()) as { access_token: string };
+  // The loser's reuse revoked the winner's token.
+  assert.equal(await connectInstallation(access_token), null);
+});
+
+test('L19-5: resource and audience', async () => {
+  const { resourceOf, sameResource } = await import('./oauth');
+  assert.equal(resourceOf('https://earnkit.test'), 'https://earnkit.test/mcp');
+  assert.equal(sameResource('https://earnkit.test/mcp/', 'https://earnkit.test'), true);
+  assert.equal(sameResource('https://earnkit.test/mcp', 'https://earnkit.test'), true);
+  assert.equal(sameResource('https://earnkit.test', 'https://earnkit.test'), false);
+  assert.equal(sameResource('https://evil.example/mcp', 'https://earnkit.test'), false);
+  const { client_id } = await registerClient({ redirect_uris: [redirect] });
+  // Refused at authorize: back to the client with invalid_target, no code.
+  const bad = await authorize(params(client_id, { resource: 'https://evil.example' }));
+  assert.equal(bad.searchParams.get('error'), 'invalid_target');
+  assert.equal(bad.searchParams.get('state'), 'xyz');
+  assert.equal(bad.searchParams.get('code'), null);
+  // A trailing slash and an absent resource are accepted; the token carries the audience.
+  for (const extra of [{ resource: 'https://earnkit.test/mcp/' }, {} as Record<string, string>]) {
+    const back = await authorize(params(client_id, extra));
+    const code = back.searchParams.get('code');
+    assert.ok(code, JSON.stringify(extra));
+    const r = await tokenReq(new URLSearchParams({ ...Object.fromEntries(tokenForm(client_id, code)), ...extra }));
+    assert.equal(r.status, 200);
+    const { access_token } = (await r.json()) as { access_token: string };
+    assert.equal((await connectInstallation(access_token))?.audience, 'https://earnkit.test/mcp');
+    assert.equal((await mcpWith(access_token)).status, 200);
+  }
+  // Refused at the token exchange: 400 invalid_target.
+  const t = await tokenReq(new URLSearchParams({ ...Object.fromEntries(tokenForm(client_id, await codeOf(client_id))), resource: 'https://evil.example/mcp' }));
+  assert.equal(t.status, 400);
+  assert.equal(((await t.json()) as { error: string }).error, 'invalid_target');
+  // /mcp refuses a token issued for another resource; a null audience (before v6.1.16) is accepted.
+  const { saveInstallation } = await import('./installations');
+  const other = 'ek_aud_' + Math.random();
+  await saveInstallation(other, null, 'https://other.example/mcp');
+  const r = await mcpWith(other);
+  assert.equal(r.status, 401);
+  assert.equal(r.headers.get('www-authenticate'), 'Bearer resource_metadata="https://earnkit.test/.well-known/oauth-protected-resource/mcp"');
+  const old = 'ek_aud_null_' + Math.random();
+  await saveInstallation(old, null);
+  assert.equal((await mcpWith(old)).status, 200);
+});
+
+test('L19-8: a client_id is 128 random bits, kept with its URIs; more than 10 redirect URIs are refused', async () => {
+  const reg = await registerClient({ redirect_uris: [redirect], client_name: 'Cursor' });
+  assert.match(reg.client_id, /^[A-Za-z0-9_-]{22}$/);
+  assert.notEqual((await registerClient({ redirect_uris: [redirect], client_name: 'Cursor' })).client_id, reg.client_id);
+  const [row] = await sql()`SELECT redirect_uris, client_name FROM oauth_clients WHERE client_id = ${reg.client_id}`;
+  assert.deepEqual(row, { redirect_uris: [redirect], client_name: 'Cursor' });
+  const eleven = Array.from({ length: 11 }, (_, i) => `http://127.0.0.1:${4000 + i}/cb`);
+  await assert.rejects(registerClient({ redirect_uris: eleven }), (e) => e instanceof OAuthError && e.code === 'invalid_redirect_uri' && e.message === 'at most 10 redirect_uris');
+  const r = await registerPost(new Request('https://earnkit.test/oauth/register', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-real-ip': '10.19.8.1' }, body: JSON.stringify({ redirect_uris: eleven }),
+  }));
+  assert.equal(r.status, 400);
+  assert.deepEqual(await r.json(), { error: 'invalid_redirect_uri', error_description: 'at most 10 redirect_uris' });
+  assert.equal((await registerClient({ redirect_uris: eleven.slice(0, 10) })).redirect_uris.length, 10);
+});
+
+test('L19-8: a signed client_id from v6.1.14 still authorizes and installs, under its signed name', async () => {
+  const { createHmac } = await import('node:crypto');
+  const body = Buffer.from(JSON.stringify({ r: [redirect], n: 'old-nonce-' + Math.random(), cn: 'Old Agent' })).toString('base64url');
+  const signed = `${body}.${createHmac('sha256', 'test-secret').update(`client:${body}`).digest('base64url')}`;
+  const r = await tokenReq(tokenForm(signed, await codeOf(signed)));
+  assert.equal(r.status, 200);
+  const { access_token } = (await r.json()) as { access_token: string };
+  const caller = await connectInstallation(access_token);
+  assert.ok(caller);
+  assert.equal((await sql()`SELECT client_name FROM installations WHERE id = ${caller.id}`)[0].client_name, 'Old Agent');
+  // A tampered signature is unknown.
+  await assert.rejects(authorize(params(`${body}.AAAA`)), (e) => e instanceof OAuthError && e.code === 'invalid_client');
+});
+
+test('L19-10: a token or register body that stalls answers 408 within 6 s, with one log line', async () => {
+  const stalled = () => new ReadableStream<Uint8Array>({ start: (c) => c.enqueue(new Uint8Array([97])) });
+  const req = (path: string, type: string) =>
+    new Request(`https://earnkit.test${path}`, { method: 'POST', headers: { 'content-type': type, 'x-real-ip': '10.19.10.1' }, body: stalled(), duplex: 'half' } as RequestInit);
+  const logs: string[] = [];
+  const warn = console.warn;
+  console.warn = (...a: unknown[]) => void logs.push(a.join(' '));
+  const t0 = Date.now();
+  try {
+    const rs = await Promise.all([tokenPost(req('/oauth/token', 'application/x-www-form-urlencoded')), registerPost(req('/oauth/register', 'application/json'))]);
+    assert.ok(Date.now() - t0 < 6_000);
+    for (const r of rs) {
+      assert.equal(r.status, 408);
+      assert.deepEqual(await r.json(), { error: 'request_timeout', error_description: 'The request body came too slowly.' });
+    }
+  } finally {
+    console.warn = warn;
+  }
+  assert.deepEqual(logs, ['[http] body read timed out', '[http] body read timed out']);
 });

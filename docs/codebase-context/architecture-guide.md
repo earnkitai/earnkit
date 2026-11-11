@@ -266,7 +266,30 @@ minutes), no probe, sweep or digest.
 
 Copy lives in `site-copy.ts`, install steps in `agents.ts` (read by the site, `/docs` and `/llms.txt`), colours in
 `site-theme.ts` (mirrored in `globals.css`). See `apps/frontend/DESIGN.md`. OAuth (`oauth.ts`, `oauth-routes.ts`) is
-standard (PKCE, dynamic client registration) and approves at once; the issued token is the installation. A
+standard (PKCE, dynamic client registration) and approves at once; the issued token is the installation.
+v6.1.16 Task 5 (lane 19): a registered client_id is 128 random bits (22 base64url characters) kept in `oauth_clients`
+with its redirect URIs (at most 10, else `invalid_redirect_uri` `at most 10 redirect_uris`) and cleaned name; `clientOf`
+checks a URL first (CIMD), then `oauth_clients`, then a signed id from before v6.1.16 (an alias for one release). The
+code_verifier must be 43 to 128 unreserved characters (RFC 7636 4.1, else `invalid_grant`). A code is spent once:
+tokenPost writes its nonce to `oauth_codes_spent` in the same transaction as the installation (`installOnce`); a second
+exchange answers `invalid_grant` "Code already used; the token it gave is revoked." and sets the first installation's
+`revoked_at` (`connectInstallation` then answers null, so /mcp is 401); the daily cron sweeps spent rows over a day
+old (`swept_auth.oauth_codes`). `resource` (RFC 8707), when given at authorize or token, must be `EARNKIT_URL/mcp`
+(a trailing slash folded; `sameResource`), else `invalid_target`; the code carries it and the installation keeps it as
+`audience`; /mcp refuses (the usual 401) a token whose audience is set and is not its own resource (NULL, before
+v6.1.16, is accepted). /mcp serves JSON for an absent Accept, `*/*`, `application/*`, or one naming JSON or the event
+stream (406 `not_acceptable` otherwise); a JSON-RPC id that is an object, an array, a non-integer or beyond the safe
+integers answers -32600 with id null (400 alone, that member's answer in a batch). Every unserved method on /mcp,
+/oauth/* and /.well-known/* is 405 `method_not_allowed` with `Allow` (`notAllowed` in http.ts; /mcp `POST, DELETE,
+OPTIONS`, register and token `POST, OPTIONS`, authorize and discovery `GET, HEAD, OPTIONS`, authorize with its own
+OPTIONS); `proxy.ts` answers methods no route can export (PROPFIND and the like) the same way on /oauth/authorize and
+/.well-known only: a path the proxy matches has its whole body buffered by Next before the route runs, so /mcp,
+/oauth/token and /oauth/register stay out of its matcher (fix round 1). PROPFIND-class methods there, and TRACE and
+CONNECT everywhere (refused by Next's own Request first: a bare 500), are parked as an edge rule. `readCapped` gives up
+on a body not finished within 5 s (`BodyTimeoutError`); every caller answers 408 with one log line `[http] body read
+timed out`: /mcp, token and register `request_timeout` (JSON), /me posts `The request took too long. Try again.`,
+reviewers and the programs write `{ ok: false, error: 'the body came too slowly' }`, the cron `{ error }`
+(`readBody` in http.ts; a body over the cap stays a 413). Protected-resource metadata is served only at the exact path and its `/mcp` suffix; any other subpath is 404. A
 client_id that is an https URL is a client ID metadata document (CIMD, v6.1.15 Task 14; claude.ai's default; an
 http:// client_id goes to the same document check and is refused there):
 `cimdClient` fetches it through `safeFetchJson` (https, public addresses only, no redirects, 5 s, 10 KB, JSON), requires
@@ -284,7 +307,7 @@ registrations, `oauthRegisterBlock`, and 5,000 installs, `installBlock`, a day, 
 reach `installClientHosted`; over it, "Too many sign-ups from your network today. Try again tomorrow."; one ops log
 `[oauth] block near cap` as a block reaches 80 percent of its day). Hex IPv4-mapped IPv6 is unmapped to its IPv4. No ceiling is shared by every user of one hosted service, so one network
 rotating addresses never locks out another; the hosted tier (every redirect URI is a listed vendor's exact host and callback path, `HOSTED_REDIRECTS`) only raises
-the per-client ceiling (`installClientHosted`). `GET /mcp` is 405 (`Allow: POST, DELETE`): EarnKit never pushes. `rate-limit.ts` keeps fixed-window counters in Postgres. Each MCP tool call counts
+the per-client ceiling (`installClientHosted`). `GET /mcp` is 405 (`Allow: POST, DELETE, OPTIONS`): EarnKit never pushes. `rate-limit.ts` keeps fixed-window counters in Postgres. Each MCP tool call counts
 120 an hour per installation and 600 an hour per client IP; over either, the call answers the tool result "You have
 asked a lot this hour. Try again in about {n}." (v6.1.15; `{n}` in minutes, hours past 90 minutes; not a transport error, so clients show it). `secrets.ts` scrubs secret
 keys from tool-call bodies before anything sees them.
@@ -299,7 +322,7 @@ keys from tool-call bodies before anything sees them.
 | `program_changes` | Field-level changes, for `since` and the owner digest; a change to a form item's display-only words (`need`, `todo`, `guidance`, `description`) is not a form change (v6.1.15) |
 | `program_writes` | The write API's audit log and the pending writes |
 | `program_health` | The freshness probe: link status, page hash and text, failing days, changed_at |
-| `installations` | One row per issued token (hash only): client name, `last_seen_at`, `last_find_at`, `prev_find_at` (the find before; v6.1.9), `last_gaps` (the last find's gaps), `builder_id` and `linked_at` when linked, `unlinked_at` and `unlinked_reason` (set by an unlink on /me or the account's deletion, cleared by the next find or a new link) |
+| `installations` | One row per issued token (hash only): client name, `audience` and `revoked_at` (v6.1.16), `last_seen_at`, `last_find_at`, `prev_find_at` (the find before; v6.1.9), `last_gaps` (the last find's gaps), `builder_id` and `linked_at` when linked, `unlinked_at` and `unlinked_reason` (set by an unlink on /me or the account's deletion, cleared by the next find or a new link) |
 | `rate_windows` | Request counters |
 | `repo_cache` | Public repo facts, 7 days; swept after 30 |
 | `evidence_cache` | v6 evidence blocks per repo (`repo:<owner/name>`, with pushed_at) and per contract, used for 7 days; not swept yet |

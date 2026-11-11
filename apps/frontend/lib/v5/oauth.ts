@@ -1,11 +1,13 @@
 /**
  * OAuth for the hosted MCP endpoint: OAuth 2.1 with PKCE and dynamic client registration, as MCP
  * clients expect. Anonymous: the authorize step approves at once. The issued token is the
- * installation; client ids and codes are signed with EARNKIT_AUTH_SECRET, so nothing is stored
- * until the token exchange. A client_id that is an https URL is a client ID metadata document (CIMD, v6.1.15 Task 14):
+ * installation. A registered client_id is 128 random bits kept in `oauth_clients` (v6.1.16 Task 5); a signed id from
+ * before v6.1.16 still verifies for one release. Codes are signed with EARNKIT_AUTH_SECRET and spent once
+ * (`oauth_codes_spent`). A client_id that is an https URL is a client ID metadata document (CIMD, v6.1.15 Task 14):
  * fetched through the SSRF-safe JSON fetch and cached in process.
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { sql } from './db';
 import { RateLimitError, enforce } from './rate-limit';
 import { type Resolver, type Transport, TransportError, safeFetchJson } from './safe-fetch';
 
@@ -13,7 +15,7 @@ const CODE_TTL_MS = 5 * 60 * 1000;
 
 export class OAuthError extends Error {
   constructor(
-    public code: 'invalid_request' | 'invalid_client' | 'invalid_grant' | 'unsupported_grant_type' | 'invalid_redirect_uri' | 'invalid_client_metadata',
+    public code: 'invalid_request' | 'invalid_client' | 'invalid_grant' | 'unsupported_grant_type' | 'invalid_redirect_uri' | 'invalid_client_metadata' | 'invalid_target',
     message: string,
   ) {
     super(message);
@@ -50,6 +52,9 @@ function verify<T>(purpose: string, value: string): T | null {
   }
 }
 
+/** The most redirect URIs a registration or a client document may list (L19-8). */
+const MAX_REDIRECT_URIS = 10;
+
 const BLOCKED_SCHEMES = ['javascript:', 'data:', 'file:', 'vbscript:'];
 
 /** https, http on loopback (native apps), or a custom app scheme. Pure. */
@@ -68,7 +73,19 @@ export function isAllowedRedirectUri(uri: string) {
 
 /** `r`: the redirect URIs; `n`: the registration nonce; `cn`: the registered name, cleaned. */
 export type ClientPayload = { r: string[]; n?: string; cn?: string };
-type CodePayload = { c: string; r: string; ch: string; e: number; n: string };
+/** `a`: the resource (audience) the code was issued for; absent in codes from before v6.1.16. */
+type CodePayload = { c: string; r: string; ch: string; e: number; n: string; a?: string };
+
+/** The MCP resource URL for an origin (RFC 8707): what a token is issued for. Pure. */
+export const resourceOf = (origin: string) => `${origin}/mcp`;
+
+/** Whether a `resource` names this origin's MCP resource, one trailing slash folded (L19-5). Pure. */
+export function sameResource(given: string, origin: string): boolean {
+  return given.replace(/\/$/, '') === resourceOf(origin.replace(/\/$/, ''));
+}
+
+/** RFC 7636 4.1: 43 to 128 characters of the unreserved set. */
+const VERIFIER = /^[A-Za-z0-9\-._~]{43,128}$/;
 
 /** A registered client name as stored: letters, digits, spaces and a few marks, at most 40 characters, or null. Pure. */
 export function clientNameOf(v: unknown): string | null {
@@ -181,17 +198,33 @@ export function clientLimitKey(uris: readonly string[], clientId?: string): stri
   return clientId ? registrationLimitKey(clientId) : null;
 }
 
-/** RFC 7591 dynamic client registration. The client id carries its redirect URIs and a 128-bit nonce. */
-export function registerClient(metadata: { redirect_uris?: unknown; client_name?: unknown }) {
+export type RegisteredClient = {
+  client_id: string;
+  client_id_issued_at: number;
+  redirect_uris: string[];
+  client_name?: string;
+  grant_types: string[];
+  response_types: string[];
+  token_endpoint_auth_method: string;
+};
+
+/**
+ * RFC 7591 dynamic client registration. The client id is 128 random bits (22 base64url characters), never derived from
+ * the metadata; it is stored in `oauth_clients` with its redirect URIs (at most 10) and its cleaned name (L19-8).
+ */
+export async function registerClient(metadata: { redirect_uris?: unknown; client_name?: unknown }): Promise<RegisteredClient> {
   const uris = metadata.redirect_uris;
   if (!Array.isArray(uris) || uris.length === 0 || !uris.every((u) => typeof u === 'string'))
     throw new OAuthError('invalid_redirect_uri', 'redirect_uris must be a non-empty list of URIs');
+  if (uris.length > MAX_REDIRECT_URIS) throw new OAuthError('invalid_redirect_uri', `at most ${MAX_REDIRECT_URIS} redirect_uris`);
   const bad = uris.find((u) => !isAllowedRedirectUri(u));
   if (bad) throw new OAuthError('invalid_redirect_uri', `redirect_uri not allowed: ${bad}`);
   const cn = clientNameOf(metadata.client_name);
+  // Every registration is its own client: apps with one fixed redirect URI for all users never share one.
+  const clientId = randomBytes(16).toString('base64url');
+  await sql()`INSERT INTO oauth_clients (client_id, redirect_uris, client_name) VALUES (${clientId}, ${uris}, ${cn})`;
   return {
-    // The nonce makes every registration its own client: apps with one fixed redirect URI for all users never share one.
-    client_id: sign('client', { r: uris, n: randomBytes(16).toString('base64url'), ...(cn && { cn }) } satisfies ClientPayload),
+    client_id: clientId,
     client_id_issued_at: Math.floor(Date.now() / 1000),
     redirect_uris: uris,
     ...(typeof metadata.client_name === 'string' && { client_name: metadata.client_name }),
@@ -210,7 +243,8 @@ export const AGENT_REDIRECT_URIS = [
 /** Known agent apps' custom schemes: the OS hands the code to that app on the builder's machine. */
 export const AGENT_APP_SCHEMES = ['cursor', 'vscode', 'vscode-insiders', 'windsurf', 'claude'] as const;
 
-export type PendingAuthorize = { client_id: string; redirect_uri: string; state: string | null; code_challenge: string };
+/** `resource`: the resource the code is for (RFC 8707; the MCP resource URL), carried into the code as its audience. */
+export type PendingAuthorize = { client_id: string; redirect_uri: string; state: string | null; code_challenge: string; resource?: string };
 export type RedirectClass = 'loopback' | 'app' | 'agent_host' | 'other';
 export type CheckedAuthorize = { req: PendingAuthorize; redirectClass: RedirectClass; host: string | null };
 
@@ -248,7 +282,6 @@ const CIMD_FAILED_MS = 5 * 60 * 1000;
 /** How long the last good copy is served when a refetch hits a transport error (fix rounds 1 and 2: stale-if-error). */
 const CIMD_STALE_MS = 6 * 60 * 60 * 1000;
 const CIMD_CACHE_MAX = 1_000;
-const MAX_REDIRECT_URIS = 10;
 /** `at`: when it was last read good; `failedAt`: the last refetch that could not be made, while the good copy is served. */
 type CimdEntry = { at: number; ok: ClientPayload; failedAt?: number } | { at: number; failed: true };
 const cimdCache = new Map<string, CimdEntry>();
@@ -333,21 +366,35 @@ export async function cimdClient(url: string, deps: ClientDeps = {}): Promise<Cl
   return client;
 }
 
+/** A registered id's shape: 22 base64url characters (128 random bits). */
+const REGISTERED_ID = /^[A-Za-z0-9_-]{22}$/;
+
 /**
  * The client behind a client_id: a URL goes to its client ID metadata document (checked first, only for a value that
- * parses as a URL, so a registered id never reaches it); else a signed id is verified as before. Null when unknown.
+ * parses as a URL, so a registered id never reaches it); a registered id is read from `oauth_clients` (v6.1.16 Task 5);
+ * else a signed id from before v6.1.16 is verified (an alias for one release, so connected agents re-authorize without
+ * registering again). Null when unknown.
  */
 export async function clientOf(clientId: string, deps: ClientDeps = {}): Promise<ClientPayload | null> {
   if (isCimdClientId(clientId)) return cimdClient(clientId, deps);
+  if (REGISTERED_ID.test(clientId)) {
+    const [row] = await sql()<{ redirect_uris: string[]; client_name: string | null }[]>`
+      SELECT redirect_uris, client_name FROM oauth_clients WHERE client_id = ${clientId}`;
+    return row ? { r: row.redirect_uris, ...(row.client_name && { cn: row.client_name }) } : null;
+  }
   return verify<ClientPayload>('client', clientId);
 }
+
+/** The origin when a caller passes none: EARNKIT_URL (tests and dev may fall back to localhost). */
+const defaultOrigin = () => originFor(process.env, 'http://localhost');
 
 /**
  * Validates an authorize request: an unknown client or unregistered redirect throws (shown on our
  * page, never redirected); one without response_type=code and a PKCE S256 challenge goes back to
- * the redirect with invalid_request.
+ * the redirect with invalid_request; a `resource` other than this origin's MCP resource goes back with
+ * invalid_target (L19-5; absent is allowed). `origin`: the public origin (publicOrigin).
  */
-export async function checkAuthorize(params: URLSearchParams, deps: ClientDeps = {}): Promise<CheckedAuthorize | { error: URL }> {
+export async function checkAuthorize(params: URLSearchParams, deps: ClientDeps = {}, origin = defaultOrigin()): Promise<CheckedAuthorize | { error: URL }> {
   const clientId = params.get('client_id') ?? '';
   const redirectUri = params.get('redirect_uri') ?? '';
   const client = await clientOf(clientId, deps);
@@ -366,8 +413,20 @@ export async function checkAuthorize(params: URLSearchParams, deps: ClientDeps =
     back.searchParams.set('error_description', 'Requires response_type=code and a PKCE S256 code_challenge');
     return { error: back };
   }
+  const resource = params.get('resource');
+  if (resource !== null && !sameResource(resource, origin)) {
+    const back = new URL(redirectUri);
+    if (state) back.searchParams.set('state', state);
+    back.searchParams.set('error', 'invalid_target');
+    back.searchParams.set('error_description', `resource must be ${resourceOf(origin)}`);
+    return { error: back };
+  }
   const { cls, host } = redirectClass(redirectUri);
-  return { req: { client_id: clientId, redirect_uri: redirectUri, state, code_challenge: challenge }, redirectClass: cls, host };
+  return {
+    req: { client_id: clientId, redirect_uri: redirectUri, state, code_challenge: challenge, resource: resourceOf(origin) },
+    redirectClass: cls,
+    host,
+  };
 }
 
 /** The redirect with a code (and RFC 9207's iss). `_who` is always null: the approval is anonymous. */
@@ -379,20 +438,29 @@ export async function issueCode(req: PendingAuthorize, _who: null, issuer?: stri
   if (issuer) back.searchParams.set('iss', issuer);
   back.searchParams.set(
     'code',
-    sign('code', { c: req.client_id, r: req.redirect_uri, ch: req.code_challenge, e: Date.now() + CODE_TTL_MS, n: randomBytes(12).toString('base64url') } satisfies CodePayload),
+    sign('code', {
+      c: req.client_id,
+      r: req.redirect_uri,
+      ch: req.code_challenge,
+      e: Date.now() + CODE_TTL_MS,
+      n: randomBytes(12).toString('base64url'),
+      a: req.resource ?? resourceOf(issuer ?? defaultOrigin()),
+    } satisfies CodePayload),
   );
   return back;
 }
 
 /**
- * Exchanges a code for the installation token. The token is derived from the code, so a replayed
- * code yields the same token. Each token is its own installation: a re-authorization starts a
- * fresh ledger (nothing proves two tokens are one builder).
+ * Exchanges a code for the installation token. The token is derived from the code; the caller spends the code's
+ * `nonce` once (tokenPost, `oauth_codes_spent`), so a second exchange is refused and revokes the token (L19-4). Each
+ * token is its own installation: a re-authorization starts a fresh ledger (nothing proves two tokens are one builder).
+ * A `resource` field must name this origin's MCP resource (invalid_target); `audience` is the code's resource.
  */
 export async function exchangeCode(
   form: URLSearchParams,
   deps: ClientDeps = {},
-): Promise<{ token: string; limitKey: string; hostedHost: string | null; clientName: string | null }> {
+  origin = defaultOrigin(),
+): Promise<{ token: string; limitKey: string; hostedHost: string | null; clientName: string | null; nonce: string; audience: string }> {
   if (form.get('grant_type') !== 'authorization_code') throw new OAuthError('unsupported_grant_type', 'Only authorization_code is supported');
   const code = form.get('code') ?? '';
   const payload = verify<CodePayload>('code', code);
@@ -401,8 +469,12 @@ export async function exchangeCode(
   if (clientId && clientId !== payload.c) throw new OAuthError('invalid_grant', 'Code was issued to another client');
   const redirectUri = form.get('redirect_uri');
   if (redirectUri && redirectUri !== payload.r) throw new OAuthError('invalid_grant', 'redirect_uri does not match');
-  if (b64(createHash('sha256').update(form.get('code_verifier') ?? '').digest()) !== payload.ch)
-    throw new OAuthError('invalid_grant', 'PKCE verification failed');
+  const verifier = form.get('code_verifier') ?? '';
+  // L19-2: RFC 7636 4.1, before the hash compare.
+  if (!VERIFIER.test(verifier)) throw new OAuthError('invalid_grant', 'code_verifier must be 43 to 128 unreserved characters');
+  if (b64(createHash('sha256').update(verifier).digest()) !== payload.ch) throw new OAuthError('invalid_grant', 'PKCE verification failed');
+  const resource = form.get('resource');
+  if (resource !== null && !sameResource(resource, origin)) throw new OAuthError('invalid_target', `resource must be ${resourceOf(origin)}`);
 
   // The code keeps the client_id; a document is re-read through its cache (a failed read refuses the exchange).
   const client = await clientOf(payload.c, deps);
@@ -411,6 +483,8 @@ export async function exchangeCode(
     limitKey: registrationLimitKey(payload.c),
     hostedHost: hostedRedirectHost(client?.r ?? [payload.r]),
     clientName: clientNameOf(client?.cn),
+    nonce: payload.n,
+    audience: payload.a ?? resourceOf(origin),
   };
 }
 
@@ -430,7 +504,7 @@ export function authorizationServerMetadata(origin: string) {
 }
 
 export function protectedResourceMetadata(origin: string) {
-  return { resource: `${origin}/mcp`, authorization_servers: [origin], bearer_methods_supported: ['header'], resource_name: 'EarnKit' };
+  return { resource: resourceOf(origin), authorization_servers: [origin], bearer_methods_supported: ['header'], resource_name: 'EarnKit' };
 }
 
 /**

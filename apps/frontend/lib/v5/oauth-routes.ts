@@ -3,8 +3,8 @@
  * rate limited per IP and per client. Authorize approves at once and redirects with a code.
  * Refusals are logged by limit and redirect host only, never a client id or token.
  */
-import { json, readCapped, readParams } from './http';
-import { installationExists, saveInstallation } from './installations';
+import { BodyTimeoutError, bodyTimedOut, json, readCapped, readParams } from './http';
+import { codeSpent, installOnce, revokeInstallation } from './installations';
 import { CIMD_FAILED, type ClientDeps, INVALID_CLIENT_NAME, OAuthError, checkAuthorize, clientLimitKey, exchangeCode, issueCode, publicOrigin, registerClient, reservedClientName } from './oauth';
 
 export { INVALID_CLIENT_NAME, reservedClientName };
@@ -43,6 +43,12 @@ const tooMany = (err: RateLimitError) =>
 const page = (text: string, status: number, headers: Record<string, string> = {}) =>
   new Response(text, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', ...headers } });
 
+/** L19-4 (OAuth 2.1 4.1.3): a code exchanged twice revokes the token its first exchange gave. */
+async function codeReused(token: string) {
+  await revokeInstallation(token);
+  return json({ error: 'invalid_grant', error_description: 'Code already used; the token it gave is revoked.' }, 400);
+}
+
 /** `client`: the client document fetch (tests inject a fixture; no test touches the network). */
 type TokenDeps = { client?: ClientDeps };
 
@@ -50,33 +56,34 @@ export async function tokenPost(request: Request, deps: TokenDeps = {}) {
   try {
     const params = await readParams(request, MAX_OAUTH_BODY);
     if (params === null) return tooLarge();
-    const { token, limitKey, hostedHost, clientName } = await exchangeCode(params, deps.client);
+    const { token, limitKey, hostedHost, clientName, nonce, audience } = await exchangeCode(params, deps.client, publicOrigin(request));
     // T6-F2 (v6.1.14): a client id signed before the check may carry a reserved name; it never installs (saveInstallation
     // refuses too). Checked before the limits, so a refusal spends none.
     if (reservedClientName(clientName)) throw new OAuthError('invalid_client_metadata', INVALID_CLIENT_NAME);
-    // A replayed code is free.
-    if (!(await installationExists(token))) {
-      // Every address counts on the one floor first; a hosted client only gets a higher per-client ceiling (v6.1.7, B5).
-      let limit = 'installHour';
-      try {
-        const ip = clientIp(request.headers);
-        await enforce('installHour', ip, TOO_MANY);
-        // B1 (v6.1.13): each address block a day, so one network never spends another's installs.
-        limit = 'installBlock';
-        await enforceBlock('installBlock', ip);
-        limit = hostedHost ? 'installClientHosted' : 'installClient';
-        // A client document is one client for all its users (claude.ai's is everyone's), so its ceiling is per
-        // document host and address block: one network never spends another's installs (v6.1.13 B1, v6.1.15 Task 14).
-        const key = limitKey.startsWith('client:host:') ? `${limitKey}:${blockOf(ip)}` : limitKey;
-        await enforce(limit as 'installClient' | 'installClientHosted', key, TOO_MANY_CLIENT);
-      } catch (err) {
-        if (err instanceof RateLimitError) logLimited('token', limit, hostedHost ? `host:${hostedHost}` : limitKey);
-        throw err;
-      }
+    // L19-4: a code is spent once. A reuse is refused before the limits (it spends none) and revokes the first token.
+    if (await codeSpent(nonce)) return await codeReused(token);
+    // Every address counts on the one floor first; a hosted client only gets a higher per-client ceiling (v6.1.7, B5).
+    let limit = 'installHour';
+    try {
+      const ip = clientIp(request.headers);
+      await enforce('installHour', ip, TOO_MANY);
+      // B1 (v6.1.13): each address block a day, so one network never spends another's installs.
+      limit = 'installBlock';
+      await enforceBlock('installBlock', ip);
+      limit = hostedHost ? 'installClientHosted' : 'installClient';
+      // A client document is one client for all its users (claude.ai's is everyone's), so its ceiling is per
+      // document host and address block: one network never spends another's installs (v6.1.13 B1, v6.1.15 Task 14).
+      const key = limitKey.startsWith('client:host:') ? `${limitKey}:${blockOf(ip)}` : limitKey;
+      await enforce(limit as 'installClient' | 'installClientHosted', key, TOO_MANY_CLIENT);
+    } catch (err) {
+      if (err instanceof RateLimitError) logLimited('token', limit, hostedHost ? `host:${hostedHost}` : limitKey);
+      throw err;
     }
-    await saveInstallation(token, clientName);
+    // The nonce is spent and the installation saved in one transaction; a parallel exchange that spent it first wins.
+    if ((await installOnce(token, nonce, clientName, audience)) === null) return await codeReused(token);
     return json({ access_token: token, token_type: 'Bearer' });
   } catch (err) {
+    if (err instanceof BodyTimeoutError) return bodyTimedOut();
     if (err instanceof RateLimitError) return tooMany(err);
     if (err instanceof OAuthError) return json({ error: err.code, error_description: err.message }, 400);
     throw err;
@@ -90,7 +97,7 @@ const authorizeLimit = (request: Request) => enforce('oauthAuthorize', clientIp(
 export async function authorizeGet(request: Request, deps: AuthorizeDeps = {}) {
   try {
     await (deps.limit ?? authorizeLimit)(request);
-    const checked = await checkAuthorize(new URL(request.url).searchParams, deps.client);
+    const checked = await checkAuthorize(new URL(request.url).searchParams, deps.client, publicOrigin(request));
     if ('error' in checked) return Response.redirect(checked.error, 302);
     return Response.redirect(await issueCode(checked.req, null, publicOrigin(request), deps.client), 302);
   } catch (err) {
@@ -128,8 +135,9 @@ export async function registerPost(request: Request) {
     limit = 'oauthRegisterBlock';
     await enforceBlock('oauthRegisterBlock', ip);
     if (reservedClientName(metadata.client_name)) throw new OAuthError('invalid_client_metadata', INVALID_CLIENT_NAME);
-    return json(registerClient(metadata), 201);
+    return json(await registerClient(metadata), 201);
   } catch (err) {
+    if (err instanceof BodyTimeoutError) return bodyTimedOut();
     if (err instanceof RateLimitError) {
       logLimited('register', limit, key);
       return tooMany(err);
