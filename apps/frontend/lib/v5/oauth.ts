@@ -286,8 +286,8 @@ function cimdPayload(url: string, doc: unknown): ClientPayload | null {
  * Cached per URL, at most 1,000 URLs (oldest dropped first): a good document 1 hour. A refetch that hits a transport
  * error (DNS, connect, timeout, 5xx) keeps serving the last good copy for up to 6 hours from its last good read and
  * waits 5 minutes before trying again. A definitive answer (any 4xx, a redirect, a non-JSON or invalid body, a failed
- * check) is a withdrawal: it drops the good copy and caches the failure 5 minutes. Only a URL with no cache entry
- * counts on the per-host fetch cap. Any failure throws `invalid_client` with CIMD_FAILED.
+ * check) is a withdrawal: it drops the good copy and caches the failure 5 minutes. Only a refetch of a URL with a
+ * good copy is exempt from the per-host fetch cap; every other fetch counts. Any failure throws `invalid_client` with CIMD_FAILED.
  */
 export async function cimdClient(url: string, deps: ClientDeps = {}): Promise<ClientPayload> {
   const now = (deps.now ?? Date.now)();
@@ -296,7 +296,9 @@ export async function cimdClient(url: string, deps: ClientDeps = {}): Promise<Cl
   if (good && (now - good.at < CIMD_OK_MS || (good.failedAt !== undefined && now - good.failedAt < CIMD_FAILED_MS))) return good.ok;
   if (hit && 'failed' in hit && now - hit.at < CIMD_FAILED_MS) throw new OAuthError('invalid_client', CIMD_FAILED);
   const refused = () => new OAuthError('invalid_client', CIMD_FAILED);
-  if (!hit) {
+  // Security review (round 2): only a refetch of a URL with a good copy is exempt from the per-host cap; a URL
+  // with a failed entry counts again, so failed cache-busting URLs cannot be refetched for free every 5 minutes.
+  if (!good) {
     try {
       await (deps.fetchLimit ?? cimdFetchLimit)(new URL(url).host);
     } catch (err) {

@@ -216,7 +216,7 @@ test('fix round 1, M1: at most 30 uncached document fetches per host an hour; ov
   const [row] = await sql()`SELECT count FROM rate_windows WHERE key = 'cimdFetch:client.example'`;
   assert.equal(row.count, 31);
   // Cache-busting URLs that spent the cap never stop a cached document being refetched (fix round 2).
-  let at = Date.now() + 2 * 60 * 60 * 1000;
+  const at = Date.now() + 2 * 60 * 60 * 1000;
   const later = { ...f, now: () => at };
   assert.equal((await authorize(`${DOC_URL}?n=1`, later)).status, 302);
   assert.equal(f.requests.length, 32, 'a cached URL past its hour is refetched over the cap');
@@ -249,15 +249,24 @@ test('fix round 2: the last good document is kept up to 6 hours on transport err
   at += 2;
   assert.equal((await authorize(DOC_URL, f)).status, 302);
   assert.equal(f.requests.length, 3);
-  // A refetch never counts on the per-host cap: with the cap spent it still goes through.
+  // A refetch of a URL with a good copy never counts on the per-host cap: with the cap spent it still goes through.
   const capped = { ...f, fetchLimit: async () => { throw new RateLimitError('cap', 60); } };
   answer = { body: doc() };
   at += 5 * 60 * 1000;
   assert.equal((await authorize(DOC_URL, capped)).status, 302);
   assert.equal(f.requests.length, 4);
+  const lastGood = at;
+  // A URL with only a failed entry counts again once its 5 minute wait is over: with the cap spent, no request.
+  answer = { status: 404, body: {} };
+  const badUrl = `${DOC_URL}?bad=1`;
+  await assertFailed(await authorize(badUrl, f), 'first failed read');
+  const before = f.requests.length;
+  at += 5 * 60 * 1000 + 1;
+  await assertFailed(await authorize(badUrl, capped), 'failed entry refetch under a spent cap');
+  assert.equal(f.requests.length, before, 'no request for a failed entry under a spent cap');
+  answer = { body: doc() };
   // 6 hours after the last good read, an outage no longer keeps the copy.
   answer = { status: 500, body: {} };
-  const lastGood = at;
   at = lastGood + 6 * 60 * 60 * 1000 - 1;
   assert.equal((await authorize(DOC_URL, f)).status, 302, 'just inside 6 hours');
   at = lastGood + 6 * 60 * 60 * 1000;
@@ -287,9 +296,11 @@ test('fix round 2: the last good document is kept up to 6 hours on transport err
     at += 5 * 60 * 1000 - 1;
     await assertFailed(await authorize(DOC_URL, f), `${what}: cached`);
     assert.equal(f.requests.length, before, what);
-    // After the backoff it is read again, outside the cap.
+    // After the backoff it is read again; with no good copy left it counts on the cap (refused under a spent cap).
     at += 2;
-    assert.equal((await authorize(DOC_URL, capped)).status, 302, `${what}: refetched`);
+    await assertFailed(await authorize(DOC_URL, capped), `${what}: refetch under a spent cap`);
+    assert.equal(f.requests.length, before, `${what}: no request under a spent cap`);
+    assert.equal((await authorize(DOC_URL, f)).status, 302, `${what}: refetched`);
   }
   // A valid document with a new redirect list replaces the old one: the dropped callback is refused at once.
   clearCimdCache();

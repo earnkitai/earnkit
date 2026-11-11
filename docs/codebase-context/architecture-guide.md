@@ -263,8 +263,8 @@ http:// client_id goes to the same document check and is refused there):
 `cimdClient` fetches it through `safeFetchJson` (https, public addresses only, no redirects, 5 s, 10 KB, JSON), requires
 its `client_id` to equal the URL, lists the redirect URIs (at most 10) and takes `client_name` through `clientNameOf`
 and `reservedClientName`; cached in process 1 hour when good and 5 minutes when not (1,000 URLs). Fetches of URLs
-with no cache entry are capped at 30 an hour per document host (`cimdFetch`; over it, no fetch and the failure page); a
-refetch of a cached URL never counts. A refetch that hits a transport error (DNS, connect, timeout, 5xx,
+are capped at 30 an hour per document host (`cimdFetch`; over it, no fetch and the failure page); only a refetch
+of a URL that still has a good copy is exempt, so a URL with a failed entry counts again after its 5 minute wait. A refetch that hits a transport error (DNS, connect, timeout, 5xx,
 `TransportError` in safe-fetch) keeps serving the last good copy for up to 6 hours from its last good read; any
 definitive answer (4xx, redirect, non-JSON or invalid body, failed check) drops it and caches the failure. Any failed check
 shows only "Connecting EarnKit failed. Your agent's client document could not be read." (`CIMD_FAILED`). Its
