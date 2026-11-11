@@ -195,6 +195,41 @@ The pipeline, in order:
 
 ## The ledger
 
+**Shared projects and teams (v6.1.16 Task 14, lane 28).** An application is keyed by (owner, program, project key):
+`applications_owner_program_project` is unique on `(owner, program_id, COALESCE(project_id, ''))` and `project_id` is
+always the project key (`projectKeyOf`: the canonical repo link, else `name:`), never a record project id (track takes
+the record project's key when `project_id` is passed; old rows keyed by a record id with a github repo were re-keyed by
+the schema run). Every row read by owner and program picks the project's row with `pickRow` (the key's row, else a
+keyless or single row only where it fits; a result, hold or unskip takes the owner's one row for the program). Rows
+carry `repo_key` and `repo_id`; across builders one application exists per repo key per program: `record` (applied, and a
+win with no application) and `claim` take `repoLock` and `sentForRepo` after the owner's lock, and another owner's sent
+row refuses with `ALREADY_SENT_REPO`, which names no other account (`Already sent for this repo by another builder on
+{date}.`) unless the caller's own tie is strong (owner, or committer by a real read): then `... on {date} by "{login}".`;
+never the other builder's result. Ownership (`repoTie`/`ownsRepo` in `repo-facts.ts`) fails closed: the owner segment of
+a github.com link, a committer in the read's contributor list (`readRepo` now reads one page of contributors; a cached
+row without them is read once, under the read budget, and kept), or a public org member (`isPublicMember`, kept in the
+row's `members`); no login, another host, a private or unread repo, a failed read: not theirs. Track refuses a claim and an
+agent's send with `NOT_YOUR_REPO` (unlinked, with the sign-in sentence); a builder-submitted send (L23-3) is kept under the
+project's name key with no repo key and `off_repo` naming the repo it was kept off (`NAME_ONLY_NOTE`; a repo another account
+sent: `NAME_ONLY_SENT_NOTE`), and a win with no application on a repo not theirs likewise, so neither reserves the repo nor
+takes its screen result. Find prefixes `NOT_YOUR_REPO` only on evidence (a read's contributor list without the login).
+The same project sent twice by the owner answers `Already sent on {date}.`; a claim on a sent project names it
+(`ALREADY_SENT_PROJECT`). Unlink moves nothing and sets `installations.former_builder_id`, used only as a yes or no for the
+duplicate-send check: the unlinked agent's send of that project answers `ALREADY_SENT_UNLINKED` and it never reads the
+builder's rows; a link or the builder's delete clears it. The screen keys a result to the repo's application (the earliest
+sent row for the repo key) only when both owners are shown to share the repo (cache only), checks the reviewer's own
+application on both rows, accepts a renamed repo by its cached repo id or redirect (`renamedTo`), and never passes a row
+for a repo an application was kept off. `/api/stats` counts a win once per repo key and program (`wonOnce`). Find: a
+name-only project holding sends or steps that meets a repo by its name is never merged silently (`heldUnder`); a signed-in
+owner of the repo is asked `JOIN_QUESTION` and the yes (`track` gap_done, item `join:{name}`, any program id) runs
+`rekeyProject`; two record projects on one repo with no project_id ask `WHICH_PROJECT` and fill from neither
+(`sharedRepoProjects`, `pickProject`); a repo read under a new link whose id the owner's rows hold moves them
+(`rekeyByRepoId`) and the record project takes the new link and `repo_id`. Team questions read their own record facts:
+kinds `team_size`, `team_roles`, `team_full_time`, `team_links`, `team_usernames`, `cofounder_email` (`teamKindOf` reads
+a `team` field's label; `programs:check` refuses a one-fact `team` field), choices matched by count or yes/no, none
+`from: builder` with `todo: 'Needs your answer.'`; names fill only a field that asks who is on the team; a username is
+never a name and a second founder's email comes from the team. Team members gain `full_time` and `link`.
+
 `applications` holds one row per installation and program (latest status wins); `application_history` keeps every
 change; `gaps_done` records closed gap items. It is keyed by installation only: v5 has no proof of who a login
 belongs to, so a re-authorization starts a fresh ledger and a builder with two agents has two. `gap_done` takes only
