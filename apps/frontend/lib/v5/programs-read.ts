@@ -3,6 +3,7 @@
  * site shows of each, filtered by ?category= and ?status=, in the list's order. The JSON shape is
  * the one the owner's Grok Bot and other readers already parse.
  */
+import { CHAIN_REGISTRY } from './chains';
 import { closeDay, timeLeftWords } from './deadline';
 import { json } from './http';
 import { PROGRAM_CATEGORIES, categoryOf, type Category, type Program } from './program-file';
@@ -45,19 +46,33 @@ export const usdFull = (usd: number): string => `$${Math.round(usd).toLocaleStri
 
 /**
  * A money phrase at its place (#12, L1g-4, v6.1.15): `tile` starts it with a capital ("Funds work from EUR 50,000");
- * `mid` lower-cases a plain capitalised first word for mid-sentence ("funds work from EUR 50,000"), so "EUR", "USDC", "NYC"
- * and "$" stay as written. Pure.
+ * `mid` lower-cases a plain capitalised first word for mid-sentence ("funds work from EUR 50,000"). Both leave alone a
+ * word whose second letter is a capital ("iOS", "DeFi", "EUR", "NYC"), and `mid` keeps a chain's name ("Ethereum
+ * grants"). Pure.
  */
 export function moneyAt(text: string, at: 'tile' | 'mid'): string {
-  return at === 'tile' ? text.charAt(0).toUpperCase() + text.slice(1) : lowerFirst(text);
+  return at === 'tile' ? upperFirst(text) : lowerFirst(text);
 }
+
+/** The text with its first letter upper-cased, unless the first word's second letter is a capital ("iOS"). Pure. */
+export const upperFirst = (text: string): string => (/^[a-z][A-Z]/.test(text) ? text : text.charAt(0).toUpperCase() + text.slice(1));
 
 /** A plain capitalised first word ("Up", "Pre-seed", "Milestone"), never an acronym or a mixed-case name ("EUR", "NYC",
  *  "DeFi", "PayPal"). */
 const PLAIN_CAPITAL = /^[A-Z][a-z]*(?:[-'][a-z]+)*(?=$|[\s,:;.])/;
 
-/** The text with a plain capitalised first word lower-cased, for mid-sentence; else as written. Pure. */
-export const lowerFirst = (text: string): string => (PLAIN_CAPITAL.test(text) ? text.charAt(0).toLowerCase() + text.slice(1) : text);
+/** Every word of a registered chain's name ("Ethereum", "Robinhood", "Chain"): a phrase opening with one keeps it. */
+export const CHAIN_WORDS: ReadonlySet<string> = new Set(Object.values(CHAIN_REGISTRY).flatMap((c) => c.name.split(/\s+/)));
+
+/**
+ * The text for mid-sentence (one rule wherever a phrase is lower-cased, v6.1.15): a plain capitalised first word is
+ * lower-cased, unless it is "I", a chain's name or one of `names` (an ecosystem's words); else as written. Pure.
+ */
+export function lowerFirst(text: string, names: Iterable<string> = []): string {
+  const first = text.split(/[\s,:;.]/)[0];
+  if (!PLAIN_CAPITAL.test(text) || first === 'I' || CHAIN_WORDS.has(first) || new Set(names).has(first)) return text;
+  return text.charAt(0).toLowerCase() + text.slice(1);
+}
 
 /** A money threshold the builder must reach (" at $10M USDG TVL"), never money paid (v6.1.14). */
 const THRESHOLD = /\s+at\s+[$€£]\s?[\d.,]+\s?[KMB]?\b.*$/i;

@@ -3,7 +3,7 @@
  * words, the form's fields as to-dos, the rules, what they want, past rounds, best bet, sources.
  */
 import { integrationLabel } from '../v6/integrations';
-import { CHAIN_REGISTRY, chainName } from './chains';
+import { chainName } from './chains';
 import { closeDay } from './deadline';
 import { CLOSED, NOT_OPEN_YET, ROLLING } from './site-copy';
 import { MIN_TIER, NEEDS, eligibilityOf, type EligibilityItem, type Program } from './program-file';
@@ -128,20 +128,12 @@ export function guidePills(g: Pick<Guide, 'submit' | 'sign_in' | 'needs' | 'bar'
 
 const joinAnd = (xs: string[]): string => (xs.length <= 1 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
 
-/** The names a focus area may start with and keep its capital: every chain's and the ecosystem's words. */
-const CHAIN_WORDS = new Set(Object.values(CHAIN_REGISTRY).flatMap((c) => c.name.split(/\s+/)));
-
 /** "PayPal wants AI agents that pay or get paid, new payment experiences built with AI and business tools on PayPal
- *  APIs." Each area lower-cased only when it starts with a plain capitalised word, so "AI" and "DeFi" stay (#9); a chain's or
- *  the ecosystem's name ("Uniswap v4 hooks", "Ethereum liquid staking") keeps its capital. Pure. */
+ *  APIs." (#9): each area through `lowerFirst`, so "AI" and "DeFi" stay and a chain's or the ecosystem's name
+ *  ("Uniswap v4 hooks", "Ethereum liquid staking") keeps its capital. Pure. */
 function focusOf(f: NonNullable<Program['focus']>, eco: string): string {
-  const own = new Set((f.ecosystem ?? '').split(/\s+/));
-  const named = (a: string) => {
-    const first = a.split(/[\s:,]/)[0];
-    return CHAIN_WORDS.has(first) || own.has(first);
-  };
-  const areas = f.areas.map((a) => (named(a) ? a : lowerFirst(a)));
-  return sentence(`${eco} wants ${joinAnd(areas)}`);
+  const own = (f.ecosystem ?? '').split(/\s+/);
+  return sentence(`${eco} wants ${joinAnd(f.areas.map((a) => lowerFirst(a, own)))}`);
 }
 
 /** The guide of one program. Pure. */

@@ -76,8 +76,8 @@ test('first find has no since', async () => {
       '4. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.',
       '',
       'In person (2):',
-      '5. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.',
-      "6. Alliance ALL19, $400K at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
+      '5. Y Combinator Winter 2027 Batch, $500,000. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.',
+      "6. Alliance ALL19, $400,000, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
       '',
       'Say yes and I apply.',
     ].join('\n'),
@@ -222,7 +222,7 @@ test('find with program_id: the fields and the verdict; no link and no rules lis
   assert.equal((reply.program as { submission_url: string }).submission_url, 'https://alliance.xyz/apply');
   assert.ok(reply.verdict);
   // In person and ready: the in-person line of the list without its number, and no action (attending is in the line).
-  assert.equal(reply.show_to_builder, "Alliance ALL19, $400K at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.");
+  assert.equal(reply.show_to_builder, "Alliance ALL19, $400,000, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.");
   const bare = await mcpCall(ctx(id), 'find', { program_id: 'alliance-all19' });
   assert.ok((bare.reply!.fields as { value: unknown }[]).every((f) => f.value === null));
   const none = await mcpCall(ctx(id), 'find', { program_id: 'no-such-program' });
@@ -234,7 +234,7 @@ test('find with program_id for YC: in person, the line says what attending takes
   const id = await installation();
   const r = await mcpCall(ctx(id), 'find', { program_id: 'y-combinator', project: PROJECT });
   assert.equal(r.isError, false, r.text);
-  assert.equal(r.reply!.show_to_builder, 'Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.');
+  assert.equal(r.reply!.show_to_builder, 'Y Combinator Winter 2027 Batch, $500,000. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.');
 });
 
 test('find with program_id and no project: the money, the rules list, no link and no draft offer; the agent is told to pass the project (v6.1.8, 1b)', async () => {
@@ -254,7 +254,7 @@ test('#12, L1g-4 (v6.1.15): the reply reads the money lowercase mid-sentence; EU
   const id = await installation();
   const first = async (program_id: string) => ((await mcpCall(ctx(id), 'find', { program_id })).reply!.show_to_builder as string).split('\n')[0];
   assert.equal(await first('sovereign-tech-fund'), 'Sovereign Tech Fund, funds work from EUR 50,000, rolling.');
-  assert.match(await first('lido-lego-grants'), /^LEGO: Lido Ecosystem Grants Organization, up to \$100,000 by tier, more by DAO vote, /);
+  assert.match(await first('lido-lego-grants'), /^LEGO: Lido Ecosystem Grants Organization, up to \$100,000, /);
   assert.equal(await first('base-builder-grants'), 'Base Builder Grant Program, up to $5,000, rolling.');
   assert.match(await first('uniswap-foundation-open-grants'), /^Uniswap Foundation Open Grants, amount not stated, set by milestone budget, /);
 });
@@ -429,7 +429,7 @@ test('find with no project: the open list and the ask for the project', async ()
   assert.equal(r.isError, false, r.text);
   const show = r.reply!.show_to_builder as string;
   assert.match(show, /^Open now:\n/);
-  assert.ok(show.includes('Alliance ALL19, $400K at admission, closes in'), show);
+  assert.ok(show.includes('Alliance ALL19, $400,000, closes in'), show);
   const lines = show.split('\n');
   for (const line of lines.slice(1)) assert.ok(line.endsWith('.'), line);
   assert.equal(lines.at(-1), "Tell me which project and I'll match it.");
@@ -1125,8 +1125,8 @@ const PROJECT_C = { name: 'My notes', description: 'Personal markdown notes and 
  *  (its file says so), so its line names them for every project; `_noRepo` is kept for the callers. */
 const inPersonBlock = (n: number, _noRepo = false) => [
   'In person (2):',
-  `${n}. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.`,
-  `${n + 1}. Alliance ALL19, $400K at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.`,
+  `${n}. Y Combinator Winter 2027 Batch, $500,000. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.`,
+  `${n + 1}. Alliance ALL19, $400,000, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.`,
 ];
 /** L1e-6 (v6.1.13): 14 days out, its list line says when it closes, as its detail does. */
 const META_VR_LINE = (n: number) => `${n}. Meta VR Start Developer Competition 2026, $1,000,000 in prizes, closes in 14 days: a demo video. First: join the Meta VR Start program; turn on Developer Access for your Meta account; join the competition with a Devpost account. Their rule: a hands-first experience for Meta VR devices, entered by a Meta VR Start member.`;
@@ -1142,7 +1142,7 @@ const IDEA_REPLY = (notes: string[] = []) => ['One step away (1):', FUTO_CODE, '
 /** The closing on a rule-only program the reply lists first. */
 const THAT_RULE_FIRST = 'Nothing is ready yet. Say "yes 1" if that rule fits you.';
 /** L1d-2 (v6.1.11, Review Focus 2): Colosseum's line names its account and sprint, never "a demo video" alone. */
-const COLOSSEUM_LINE = (n: number) => `${n}. Colosseum Eternal, $25,000 award: a demo video. First: sign up for a Colosseum account; start the four-week sprint in the Eternal dashboard. Their rules: a crypto product built during the four-week sprint; the team has not raised venture capital for the startup it submits.`;
+const COLOSSEUM_LINE = (n: number) => `${n}. Colosseum Eternal, $25,000: a demo video. First: sign up for a Colosseum account; start the four-week sprint in the Eternal dashboard. Their rules: a crypto product built during the four-week sprint; the team has not raised venture capital for the startup it submits.`;
 /** Fix round 1 (v6.1.10): a remote step shown closes the reply with its own step, in-person programs listed or not. */
 const RULE_FIRST = 'Nothing is ready yet. Say "yes 1" if that rule fits you.';
 /** L1f-2 (v6.1.14): the only step needs code first, so the closing asks for that, never the rule yes. */
@@ -1168,8 +1168,8 @@ test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets
       '4. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.',
       '',
       'In person (2):',
-      '5. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.',
-      "6. Alliance ALL19, $400K at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
+      '5. Y Combinator Winter 2027 Batch, $500,000. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.',
+      "6. Alliance ALL19, $400,000, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
       '',
       'Say yes and I apply.',
     ].join('\n'),
@@ -1350,7 +1350,7 @@ test('N-3 (v6.1.9, Review Focus 2): the VR persona marks the demo video done and
 const STARTER = { name: 'Next.js SaaS Starter', description: 'SaaS starter with Stripe subscriptions, team billing and a dashboard', repo_url: `https://github.com/${dash.repo}`, live_url: 'https://next-saas-start.vercel.app', users: true };
 const STUDENT = { name: 'micrograd', description: 'My student side project: a tiny scalar autograd engine and neural net library', repo_url: `https://github.com/${dash.repo}` };
 const RIPGREP = { name: 'ripgrep', description: 'Recursively searches directories for a regex pattern while respecting gitignore', repo_url: `https://github.com/${dash.repo}` };
-const THIEL_LINE = 'Thiel Fellowship, $250,000 over two years. Their rule: applicant aged 22 or younger with no university degree, who will drop out of college if selected.';
+const THIEL_LINE = 'Thiel Fellowship, $250,000. Their rule: applicant aged 22 or younger with no university degree, who will drop out of college if selected.';
 
 test('L1e-2 (v6.1.13, Review Focus 7, persona 1): a company never sees Thiel; a ready FLOSS/fund leaves exactly one "Say"', async () => {
   const r = await mcpCall(await dashCtx(), 'find', { project: STARTER });
@@ -1406,8 +1406,8 @@ test('L1e-3 (v6.1.13, Review Focus 8, personas 8 and 15): after the Thiel rule y
   assert.deepEqual(lines[0], lines[1]);
   assert.deepEqual(lines[0], [
     // Review Focus 1 (v6.1.14): the closing names the answers, so the line does not.
-    ['Thiel Fellowship, $250,000 over two years. Long odds: many apply, few are taken.', 'Thiel Fellowship needs your online application answers; then I draft it for you to send.'].join('\n'),
-    '1. Thiel Fellowship, $250,000 over two years. Long odds: many apply, few are taken.',
+    ['Thiel Fellowship, $250,000. Long odds: many apply, few are taken.', 'Thiel Fellowship needs your online application answers; then I draft it for you to send.'].join('\n'),
+    '1. Thiel Fellowship, $250,000. Long odds: many apply, few are taken.',
     // Fix round 1 (T3-R1): FUTO is one real step away, code in a repo, with no yes of its own (T3-R5).
     FUTO_CODE.replace(/^1\./, '2.'),
     'Thiel Fellowship needs your online application answers; then I draft it for you to send.',
@@ -1434,8 +1434,8 @@ test('L12-7 (v6.1.14), Review Focus 9: a Solana project with no repo sees Solana
       '1. Solana Foundation Grants, milestone grants, amount not stated: code in a repo. Their rule: a public good, meaning a significant open source contribution to the Solana ecosystem or a free community offering.',
       '',
       'In person (2):',
-      '2. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.',
-      "3. Alliance ALL19, $400K at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
+      '2. Y Combinator Winter 2027 Batch, $500,000. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.',
+      "3. Alliance ALL19, $400,000, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
       '',
       'Nothing is ready yet. Tell me when the code is in a repo and I look again.',
     ].join('\n'),
@@ -1491,7 +1491,7 @@ test('L12-7 (v6.1.14): a keyword hit whose only change is code in a repo shows o
   for (const chains of [[{ chain: 'base', mainnet: true }], ['solana']]) {
     const r = await mcpCall(ctx(await installation()), 'find', { project: { name: 'Campus Pay', description: 'A college student app for splitting bills', chains } });
     assert.ok(ids(r.reply!.gaps).includes('thiel-fellowship'), r.reply!.show_to_builder as string);
-    assert.match(r.reply!.show_to_builder as string, /\d\. Thiel Fellowship, \$250,000 over two years\. Their rule: applicant aged 22 or younger/);
+    assert.match(r.reply!.show_to_builder as string, /\d\. Thiel Fellowship, \$250,000\. Their rule: applicant aged 22 or younger/);
   }
   // A program on another chain or no keyword hit keeps its bar: Z Fellows (no rule) is still no fit on a chain with no code.
   assert.ok(!ids(onEth.reply!.gaps).includes('z-fellows'));
@@ -1847,7 +1847,7 @@ test('R18d: under filter.all, Antler (in person, rule only) says its rule and wh
   assert.ok(g, JSON.stringify(ids(r.reply!.gaps)));
   assert.equal(
     lineOf(r.reply!.show_to_builder as string, g.n),
-    `${g.n}. Antler US Residency, $500K to $1M investment. Their rule: at least one co-founder already has independent US work authorization; no visa sponsorship. First: work in person at Antler's NYC, SF or Austin office for up to 3 months.`,
+    `${g.n}. Antler US Residency, $500,000 to $1,000,000. Their rule: at least one co-founder already has independent US work authorization; no visa sponsorship. First: work in person at Antler's NYC, SF or Austin office for up to 3 months.`,
   );
 });
 
@@ -2100,7 +2100,7 @@ test('N-5 (v6.1.9): a step marked done that the read still misses is said once p
   const noted = await mcpCall(c, 'track', { program_id: 'n5-live', status: 'gap_done', item: 'live_product' });
   // F6 (v6.1.12): the project has no repo, so there is none to check.
   assert.equal(noted.reply!.show_to_builder, 'Tracked. Tell me when it is live and I look again.');
-  assert.equal((await one('n5-live')).split('\n')[0], `Live Link Grant, up to $5,000: put a live link up. ${LOOKED}`);
+  assert.equal((await one('n5-live')).split('\n')[0], `Live Link Grant, up to $4,000: put a live link up. ${LOOKED}`);
   // In the full list, after that program's line, once per find, every find while it is missing.
   for (let k = 0; k < 2; k++) {
     const all = (await mcpCall(c, 'find', { project, filter: { all: true } })).reply!.show_to_builder as string;
@@ -2277,7 +2277,7 @@ test('O4 (v6.1.10): the no-project open list marks each in-person program', asyn
   const r = await mcpCall(ctx(await installation()), 'find', {});
   const show = r.reply!.show_to_builder as string;
   const lines = show.split('\n');
-  for (const l of ['Monad Blitz Oregon, $4,600 prize pool, closes in 6 days, in person.', 'Alliance ALL19, $400K at admission, closes in 14 days, in person.', 'Solana Incubator Cohort 6, NYC incubator with relocation stipend, amount not stated, closes in 30 days, in person.', 'Kiroween 2026, $100,000 in prizes, closes in 30 days.'])
+  for (const l of ['Monad Blitz Oregon, $4,600 in prizes, closes in 6 days, in person.', 'Alliance ALL19, $400,000, closes in 14 days, in person.', 'Solana Incubator Cohort 6, NYC incubator with relocation stipend, amount not stated, closes in 30 days, in person.', 'Kiroween 2026, $100,000 in prizes, closes in 30 days.'])
     assert.ok(lines.includes(l), show);
 });
 
@@ -2297,7 +2297,7 @@ test('F1, F2, lane 8 #1, #8, #10 (v6.1.10): the problem the record lacks holds t
   const bare = await mcpCall(c, 'find', { project: { name: 'Night App', description: 'Night shifts for nurses.', live_url: 'https://night.example' } });
   const show = bare.reply!.show_to_builder as string;
   const line = show.split('\n').find((l) => l.includes('Night Grant'))!;
-  assert.equal(line, '1. Night Grant, up to $5,000. Drafted: 3 of 4 answers. Needs your problem.');
+  assert.equal(line, '1. Night Grant, up to $900,000. Drafted: 3 of 4 answers. Needs your problem.');
   const night = (bare.reply!.ready as { program_id: string; need_you: string[]; needs: string[] }[]).find((p) => p.program_id === 'f1-night')!;
   assert.deepEqual([night.need_you, night.needs], [['the problem'], ['the problem']]);
   // Off the tonight list, named as waiting (F1).

@@ -59,6 +59,8 @@ export function programProblems(p: Program, now: Date = new Date()): string[] {
   const piece = q.summary.split(' · ')[0];
   if (!/\d/.test(piece) && !/amount not stated/i.test(piece))
     problems.push(`summary: the money "${piece}" needs a number or "Amount not stated"`);
+  // Lane 22 (v6.1.15): full figures on every surface, never K or M.
+  if (/\d[KM]\b/.test(piece)) problems.push(`summary: the money "${piece}" must be in full figures ("$100,000", never "$100K" or "$1M")`);
   if (Date.parse(`${q.verified_at}T00:00:00Z`) > now.getTime()) problems.push(`verified_at: ${q.verified_at} is in the future`);
   return problems;
 }

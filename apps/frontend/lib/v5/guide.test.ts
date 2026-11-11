@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readdirSync } from 'node:fs';
 import { moneyOf as replyMoney } from './find';
+import { lowerFirst, moneyAt } from './programs-read';
 import { guideLines, guideText, sentence } from './guide';
 import { landingTiles } from './landing';
 import { ProgramFile } from './program-file';
@@ -164,15 +165,26 @@ test('Review Focus 4 (v6.1.15): for every program the guide money is the tile mo
     const g = guideText(row, NOW);
     assert.equal(g.money, landingTiles([row], NOW)[0].money, row.id);
     assert.match(g.money, /^[A-Z$€£\d]/, row.id);
-    // Lane 22: never K or M on a tile or a guide, unless the program's own words say so.
-    if (row.file.pool_usd || row.file.max_award_usd) assert.doesNotMatch(g.money, /\$[\d.]+[KM]\b/, row.id);
-    assert.doesNotMatch(replyMoney(row.file), /^[A-Z][a-z]/, row.id);
+    // Lane 22 (fix round 1, I1, I2): never K or M on a tile, a guide or a reply, for every program; the reply reads
+    // the tile's words, lowercase mid-sentence.
+    const tile = landingTiles([row], NOW)[0].money;
+    const reply = replyMoney(row.file);
+    for (const m of [g.money, tile, reply]) assert.doesNotMatch(m, /\d[KM]\b/, `${row.id}: ${m}`);
+    assert.equal(reply, moneyAt(tile, 'mid'), row.id);
+    assert.equal(moneyAt(reply, 'tile'), tile, row.id);
+    // Lowercase mid-sentence: nothing left for lowerFirst to lower (a chain's name or an acronym may lead).
+    assert.equal(lowerFirst(reply), reply, row.id);
   }
   assert.equal(guideText(real('sovereign-tech-fund'), NOW).money, 'Funds work from EUR 50,000');
   assert.equal(replyMoney(real('sovereign-tech-fund').file), 'funds work from EUR 50,000');
   assert.equal(guideText(real('otf-internet-freedom-fund'), NOW).money, '$10,000 to $900,000');
   assert.equal(guideText(real('base-builder-grants'), NOW).money, 'Up to $5,000');
   assert.equal(guideText(real('arbitrum-mentorship-cohort-2'), NOW).money, 'Up to $100,000');
+  assert.equal(guideText(real('spc-founder-fellowship-spring-2027'), NOW).money, "$1,000,000 investment on the last round's terms");
+  assert.equal(guideText(real('ethglobal-mumbai'), NOW).money, 'Up to $15,000 per partner prize');
+  assert.equal(guideText(real('arbitrum-stablecoin-growth-program'), NOW).money, 'Incentives, plus 200,000 ARB for the first 10 teams');
+  assert.equal(replyMoney(real('y-combinator').file), '$500,000');
+  assert.equal(replyMoney(real('lido-lego-grants').file), 'up to $100,000');
 });
 
 test('#9 (v6.1.15): every guide string is a sentence with no path and no ISO date', () => {

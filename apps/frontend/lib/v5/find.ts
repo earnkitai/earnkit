@@ -20,7 +20,7 @@ import { askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, markA
 import { prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
 import { isOpen, listOpenPrograms, programByName, unknownProgramLine, type ProgramRow } from './programs';
-import { moneyAt } from './programs-read';
+import { moneyAt, moneyOf as tileMoney } from './programs-read';
 import { ProjectArg, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
 import { readLoosely, type LooseRules } from './tool-input';
 import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
@@ -241,8 +241,9 @@ export function shownReadyOf<T>(readyV: T[], all: boolean, inPerson: (v: T) => b
 /** Whose ledger this find reads: the builder's once linked, else the installation's. Pure. */
 const ownerOf = (ctx: FindContext) => ownerKey(ctx.installationId, ctx.builderId);
 
-/** The money in the program's own words: its summary's first part, lowercase mid-sentence (#12, v6.1.15). Pure. */
-export const moneyOf = (p: Program): string => moneyAt(p.summary.split(' · ')[0], 'mid');
+/** The money as the tile and the guide show it (`moneyOf` in programs-read), lowercase mid-sentence (#12, I2,
+ *  v6.1.15): one reader, so a reply, a tile and a guide never disagree. Pure. */
+export const moneyOf = (p: Program): string => moneyAt(tileMoney(p), 'mid');
 const closesIn = (p: Program, now: Date) => (p.ends_at ? timeLeftWords(p.ends_at, now) : null);
 const EMPTY_FACTS: RepoFacts = {
   name: '', description: '', repo_url: null, repo_url_basis: null, live_url_basis: null, demo_url_basis: null, public: false, as_reported: true, live_url: null, demo_url: null, chains: [], contracts: [],

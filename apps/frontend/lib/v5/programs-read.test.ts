@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
-import { moneyAt, moneyOf, programsListGet, usdFull, readListedPrograms, type ListedProgram } from './programs-read';
+import { lowerFirst, moneyAt, moneyOf, upperFirst, programsListGet, usdFull, readListedPrograms, type ListedProgram } from './programs-read';
 
 after(() => sql().end());
 
@@ -203,4 +203,18 @@ test('usdFull (v6.1.15, lane 22): whole dollars with en-US grouping, never K or 
   assert.equal(usdFull(67_500), '$67,500');
   assert.equal(usdFull(750), '$750');
   assert.equal(usdFull(1_000_000), '$1,000,000');
+});
+
+test('fix round 1 (v6.1.15, M1): one lower-casing rule; a chain name, "I" and a word with a capital second letter never change', () => {
+  assert.equal(moneyAt('Ethereum grants', 'mid'), 'Ethereum grants');
+  assert.equal(moneyAt('Solana Mobile grants', 'mid'), 'Solana Mobile grants');
+  assert.equal(moneyAt('I fund work', 'mid'), 'I fund work');
+  assert.equal(moneyAt('iOS app grants', 'tile'), 'iOS app grants');
+  assert.equal(moneyAt('iOS app grants', 'mid'), 'iOS app grants');
+  assert.equal(moneyAt('DeFi grants', 'tile'), 'DeFi grants');
+  assert.equal(moneyAt('DeFi grants', 'mid'), 'DeFi grants');
+  assert.equal(upperFirst('up to $5,000'), 'Up to $5,000');
+  assert.equal(lowerFirst('Uniswap v4 hooks'), 'uniswap v4 hooks');
+  assert.equal(lowerFirst('Uniswap v4 hooks', ['Uniswap']), 'Uniswap v4 hooks');
+  assert.equal(lowerFirst('Ethereum liquid staking'), 'Ethereum liquid staking');
 });

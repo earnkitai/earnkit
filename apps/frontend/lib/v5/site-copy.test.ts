@@ -58,6 +58,8 @@ test('formatters', () => {
   assert.equal(copy.heroUsdText(2_000_000), '$2M');
   assert.equal(copy.heroUsdText(950_000), '$950,000');
   assert.equal(copy.heroUsdText(750), '$750');
+  // M4: under a million it is usdFull's figure, rounded down to the dollar.
+  assert.equal(copy.heroUsdText(950_000.9), '$950,000');
   assert.equal(copy.heroChipText(0), null);
   assert.equal(copy.heroChipText(3_159_600), '$3.1M in grants and prizes open now');
   assert.equal(copy.heroChipText(105_000), '$105,000 in grants and prizes open now');
