@@ -4,7 +4,8 @@
  * gaps, with their setup, and are never in the count to apply to. Linked, the record's blocks follow. Pure.
  */
 import { EVIDENCE_NOT_READ, NO_RECORD_PROJECT, isConfirmWhat, isProofReadingWhat, listWords, signInSentence } from '../v6/reply-words';
-import { rulesOnly, type Gap } from './eligibility';
+import { NEEDS_CODE, rulesOnly, type Gap } from './eligibility';
+import { chainName } from './chains';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
 import { READS_PAUSED, type RepoNote } from './repo-facts';
 
@@ -189,48 +190,70 @@ const doVerb = (real: Gap[], named: boolean): string =>
 const usersQuestion = (x: Gap) => x.kind === 'users' && x.effort === 'hours';
 /** T3-R1 (v6.1.13): the code-in-a-repo step of a grant for existing code (eligibility's NEEDS_CODE). Pure. */
 const needsCode = (x: Gap) => x.kind === 'repo' && x.item === 'repo';
-/** L1f-2 (v6.1.14): the closing when the step's only change is code in a repo: one action, no rule yes before the code exists. */
-export const CODE_CLOSING = 'Tell me when the code is in a repo and I look again.';
-/** L1f-3 (v6.1.14): a step the builder takes by telling (the live repo): asked as one. Pure. */
+/** A step the builder takes by telling (the live repo): asked as one (L1f-3, v6.1.14). Pure. */
 const telling = (step: string) => /^tell me /.test(step);
 /** O3 (v6.1.10): the "tell me when you started this" question: a date the builder gives, not work. Pure. */
 export const startedQuestion = (x: Gap) => x.kind === 'new_work_after' && x.effort === 'minutes';
 
 /**
- * The one action under a one-program gap line (v6.1.8, 1b), or null: rules only, a yes that drafts; EarnKit can make
- * every real gap, "do" and it makes that change first; the users question, a yes; else the builder makes the change
- * and says when. Signing in is the only real step and there is a link (`signIn`, fix round 1): the sign-in sentence
- * with the link. In person: none, the line already says to attend. Pure.
+ * L1g-5 (v6.1.16): the step a gap closes on, as the clause after "Tell me when": the code in a repo, the repo public,
+ * the contract on a chain, the live link, the demo video; a gap's own setup step (not a telling one) as "you {setup}";
+ * else null. Pure.
  */
-export function gapAction(g: GapProgram, signIn: string | null = null): string | null {
-  if (g.in_person) return null;
-  if (ruleOnlyGap(g)) return 'Say yes if that is you and I draft it.';
-  const real = [g.gap, ...g.also].filter((x) => x.kind !== 'rule');
-  if (signIn && signInOnly([g.gap, ...g.also])) return signIn;
-  if (real.every((x) => x.kind === 'tier' && isProofReadingWhat(x.what))) return null;
-  if (canDo(real)) return `Say "do" and I ${doVerb(real, true)} first.`;
-  if (real.every(usersQuestion)) return 'Say yes if they do and I draft it.';
-  if (real.every(startedQuestion)) return 'Tell me when you started and I check it.';
-  if (real.every(needsCode)) return CODE_CLOSING;
-  // L1f-1 (v6.1.14): a private repo for an open source program: the repo made public comes first, then a look again.
-  if (real.some((x) => x.item === 'repo:public')) return 'Tell me when the repo is public and I look again.';
-  // L1f-3 (v6.1.14): a step that is telling (the live repo) is asked as one.
-  if (real.length === 1 && real[0].setup && telling(real[0].setup)) return `T${real[0].setup.slice(1)} and I look again.`;
-  return 'Tell me when that is done and I apply.';
+export function stepClause(x: Gap): string | null {
+  if (x.item === 'repo') return 'the code is in a repo';
+  if (x.item === 'repo:public') return 'the repo is public';
+  if (x.kind === 'chain' || x.kind === 'contract_on')
+    return `the contract is on ${chainName(x.details?.chain ?? x.item.split(':')[1] ?? '')}${/\bmainnet\b/.test(x.what) ? ' mainnet' : ''}`;
+  if (x.kind === 'live_product') return 'the live link is up';
+  if (x.kind === 'demo_video') return 'the demo video is ready';
+  if (x.setup && !telling(x.setup)) return `you ${x.setup}`;
+  return null;
 }
 
+/** L1g-5 (v6.1.16): the one closing shape for a single step: "Tell me when {step} and I look again."; a telling step
+ *  ("tell me the live repo") takes the place of "when {step}". Pure. */
+export function singleStepClosing(x: Gap): string {
+  if (x.setup && telling(x.setup)) return `T${x.setup.slice(1)} and I look again.`;
+  return `Tell me when ${stepClause(x) ?? 'that is done'} and I look again.`;
+}
+
+/** L1f-2 (v6.1.14): the closing when the step's only change is code in a repo: one action, no rule yes before the code exists. */
+export const CODE_CLOSING = singleStepClosing(NEEDS_CODE);
+/** The started question's closing (O3, v6.1.10; L1g-5). */
+const STARTED_CLOSING = 'Tell me when you started and I check it.';
+
 /**
- * FR-1 (v6.1.14 final fix): the gap's own setup step that `gapAction` closes on (make the repo public, a telling
- * step), so the one-program line leaves it out and the reply says it once, as the list reply does. Else null. Pure.
+ * The one action under a one-program gap line (v6.1.8, 1b), or null, with the gap whose step it closes on (L1g-5,
+ * v6.1.16): rules only, a yes that drafts; EarnKit can make every real gap, "do" and it makes that change first; the
+ * users question, a yes; the started question; one real step (code in a repo, the repo public, a single change),
+ * `singleStepClosing`; else the builder makes the changes and says when. Signing in is the only real step and there is
+ * a link (`signIn`, fix round 1): the sign-in sentence with the link. In person: none. Pure.
+ */
+function gapActionOf(g: GapProgram, signIn: string | null): { action: string | null; step?: Gap } {
+  if (g.in_person) return { action: null };
+  if (ruleOnlyGap(g)) return { action: 'Say yes if that is you and I draft it.' };
+  const real = [g.gap, ...g.also].filter((x) => x.kind !== 'rule');
+  if (signIn && signInOnly([g.gap, ...g.also])) return { action: signIn };
+  if (real.every((x) => x.kind === 'tier' && isProofReadingWhat(x.what))) return { action: null };
+  if (canDo(real)) return { action: `Say "do" and I ${doVerb(real, true)} first.` };
+  if (real.every(usersQuestion)) return { action: 'Say yes if they do and I draft it.' };
+  if (real.every(startedQuestion)) return { action: STARTED_CLOSING };
+  // L1f-1 (v6.1.14): a private repo for an open source program: the repo made public comes first, then a look again.
+  const step = real.every(needsCode) ? real[0] : (real.find((x) => x.item === 'repo:public') ?? (real.length === 1 ? real[0] : null));
+  if (step) return { action: singleStepClosing(step), step };
+  return { action: 'Tell me when that is done and I apply.' };
+}
+
+/** The one action under a one-program gap line, or null (see `gapActionOf`). Pure. */
+export const gapAction = (g: GapProgram, signIn: string | null = null): string | null => gapActionOf(g, signIn).action;
+
+/**
+ * FR-1 (v6.1.14 final fix), L1g-5 (v6.1.16): the gap's own setup step that `gapAction` closes on (make the repo public,
+ * a telling step, any setup step it names), so the one-program line leaves it out and the reply says it once. Else null. Pure.
  */
 export function gapActionStep(g: GapProgram, signIn: string | null = null): string | null {
-  const action = gapAction(g, signIn);
-  if (action === null) return null;
-  const real = [g.gap, ...g.also].filter((x) => x.kind !== 'rule');
-  const pub = real.find((x) => x.item === 'repo:public');
-  if (pub && action === 'Tell me when the repo is public and I look again.') return pub.setup ?? null;
-  if (real.length === 1 && real[0].setup && telling(real[0].setup) && action === `T${real[0].setup.slice(1)} and I look again.`) return real[0].setup;
-  return null;
+  return gapActionOf(g, signIn).step?.setup ?? null;
 }
 
 /** Whether every real gap (rules aside) is the unlinked proof, settled by signing in. Pure. */
@@ -368,7 +391,7 @@ function beforeTonight(r: R, tonight: number): string | null {
 export type YesWait = { title: string; needs: string[]; draft?: true };
 
 /** The step the closing offers (M1, v6.1.9): the users question, or what to make. */
-export type FirstStep = { users: true; more?: true } | { users: false; what: string; started?: true; code?: true; setup?: true };
+export type FirstStep = { users: true; more?: true } | { users: false; what: string; started?: true; code?: true; setup?: true; gap?: Gap };
 
 /**
  * The first shown gap program's step the builder takes, for the closing when nothing is ready and no rule-only program
@@ -397,16 +420,17 @@ export function firstStepOf(gaps: GapProgram[]): FirstStep | null {
     // Fix round 1 (M3): code in a repo is flagged by its kind; a gap's own step (I1) is flagged so the lines leave it out.
     if (x)
       return {
-        users: false, what: x.setup ?? x.what,
+        users: false, what: x.setup ?? x.what, gap: x,
         ...(startedQuestion(x) ? { started: true as const } : {}), ...(needsCode(x) ? { code: true as const } : {}), ...(x.setup ? { setup: true as const } : {}),
       };
   }
   return null;
 }
 
-/** I2 (v6.1.9 final): the number of the only step program shown when it has an unconfirmed rule (not in person), else null. Pure. */
+/** I2 (v6.1.9 final): the number of the only step program shown when it has an unconfirmed rule (not in person), else
+ *  null. L1g-8b (v6.1.16): never a program not ready for this repo (`public_first`): its rule is no step yet. Pure. */
 export const stepRuleOf = (gaps: GapProgram[]): number | null =>
-  gaps.length === 1 && !gaps[0].in_person && [gaps[0].gap, ...gaps[0].also].some((x) => x.kind === 'rule') &&
+  gaps.length === 1 && !gaps[0].in_person && !gaps[0].public_first && [gaps[0].gap, ...gaps[0].also].some((x) => x.kind === 'rule') &&
   // L1f-2 (v6.1.14): a rule yes cannot make a program with no code ready, so its code step closes instead.
   ![gaps[0].gap, ...gaps[0].also].filter((x) => x.kind !== 'rule').every(needsCode)
     ? gaps[0].n
@@ -432,7 +456,7 @@ export const IN_PERSON_CLOSING = 'Nothing remote is ready yet. Say yes and I sta
  * programs listed, IN_PERSON_CLOSING (O2, fix round 1). The gap lines carry their own "do n"; no line asks its own yes (T3-R5).
  * `inPerson`: the in-person programs listed, ready or rule-only. Pure.
  */
-export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number; firstRule: number | null; inPerson: number; held: number; firstStep?: FirstStep | null; yesStands?: string[]; draftStands?: string[]; yesWaits?: YesWait[]; stepRule?: number | null }): string {
+export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number; firstRule: number | null; inPerson: number; held: number; firstStep?: FirstStep | null; yesStands?: string[]; draftStands?: string[]; yesWaits?: YesWait[]; stepRule?: number | null; title?: string }): string {
   // v6.1.9: the builder's yes to a rule already stands for the program it made ready: no second yes is asked for it.
   // N3 (v6.1.12): nor for one that still needs answers: the closing names them instead. L1e-3 (v6.1.13): a program
   // the builder submits reads the same with the draft wording (`draftStands`, a wait's `draft`).
@@ -449,7 +473,8 @@ export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number
     return left > 0 ? `${said} ${closingLine({ ...o, ready: left, yesStands: [], draftStands: [], yesWaits: [] })}` : said;
   }
   const { ready, draftOnly } = o;
-  if (ready === 1) return draftOnly ? 'Say yes and I draft it for you to send.' : 'Say yes and I apply.';
+  // L16-11 (v6.1.16): one ready program is named; "all {n}" only for several.
+  if (ready === 1) return draftOnly ? 'Say yes and I draft it for you to send.' : o.title ? `Say yes and I apply to ${o.title}.` : 'Say yes and I apply.';
   if (ready > 1) return `${draftOnly ? `Say yes and I draft all ${ready} for you to send.` : `Say yes and I apply to all ${ready}.`} Or say the numbers to skip.`;
   // Ready programs held by another agent are listed as ready, so the reply never says nothing is ready (I1).
   // v6.1.14: no promise to write first.
@@ -462,10 +487,9 @@ export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number
     if (step?.users) return `Nothing is ready yet. Do real people use it? Say yes and ${step.more ? 'I look again' : 'I apply'}.`;
     // I3 (v6.1.9 final): "First:" reads as a sentence for a noun or a verb phrase.
     // O3 (v6.1.10): the started question is asked as one.
-    if (step && !step.users && step.started) return 'Nothing is ready yet. First: tell me when you started this, and I look again.';
-    if (step && step.code) return `Nothing is ready yet. ${CODE_CLOSING}`;
-    if (step && telling(step.what)) return `Nothing is ready yet. First: ${step.what}, and I look again.`;
-    if (step) return `Nothing is ready yet. First: ${step.what}. Tell me when it is done and I look again.`;
+    if (step && !step.users && step.started) return `Nothing is ready yet. ${STARTED_CLOSING}`;
+    // L1g-5 (v6.1.16): one closing shape for every single step, the gap line names the gap.
+    if (step && !step.users) return `Nothing is ready yet. ${step.gap ? singleStepClosing(step.gap) : `Tell me when ${step.what} is done and I look again.`}`;
     // A reply that lists in-person programs never ends on the bare line (O2, v6.1.10).
     return o.inPerson > 0 ? IN_PERSON_CLOSING : 'Nothing is ready yet.';
   }
@@ -563,7 +587,11 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   const free = ready.filter((p) => !p.claimed_since);
   // With nothing ready to say yes to, the closing names a rule-only gap (1a): a keyword hit when one is listed (L1e-5,
   // v6.1.13: its words make the rule likely), else the first in list order.
-  const firstRule = (steps.find((g) => ruleOnlyGap(g) && g.keyword_hit) ?? steps.find(ruleOnlyGap))?.n ?? null;
+  // L1g-8b (v6.1.16): a program not ready for this repo (`public_first`) never lends its rule; an unlikely one (full
+  // list) only when no step is shown to close on.
+  const stepShown = firstStepOf(steps) !== null;
+  const askable = steps.filter((g) => ruleOnlyGap(g) && !g.public_first && !(g.unlikely && stepShown));
+  const firstRule = (askable.find((g) => g.keyword_hit) ?? askable[0])?.n ?? null;
   const named = namedBefore(r);
   // One condition for the heading and the closing: the agent sends tonight (never unlinked, where auto_apply is false).
   const { list: tonightList, limitUsed } = tonightIn(r);
@@ -606,7 +634,9 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   blocks.push(...reportLines(r));
   if (r.evidence_summary) blocks.push(r.evidence_summary.line);
   // What the read was, once each, just before the closing (money first stays first).
-  const notes = [...new Set(r.repo_notes ?? [])];
+  // L1g-5 (v6.1.16): a shown line that reads the archive says it, so the archived note is left out.
+  const archivedShown = r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.item === 'repo:archived'));
+  const notes = [...new Set(r.repo_notes ?? [])].filter((n) => !(n === 'archived' && archivedShown));
   if (notes.length > 0) blocks.push(repoNoteText(notes));
   const closing =
     tonight > 0
@@ -617,6 +647,8 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
           closingLine({
             // Fix round 1 (I2): an in-person program held for another project is listed, never a yes.
             ready: free.length, draftOnly, gaps: steps.length, firstRule, inPerson: attendCount - heldInPerson, held: ready.length - free.length + heldInPerson, firstStep, stepRule,
+            // L16-11 (v6.1.16): the one ready program left to say yes to, by name.
+            ...(unsaid.length === 1 ? { title: unsaid[0].title } : {}),
             yesStands: stands.filter((p) => !click.has(p.program_id)).map((p) => p.title),
             draftStands: stands.filter((p) => click.has(p.program_id)).map((p) => p.title),
             // N3 (v6.1.12): one that still needs answers names them (the email once, F5), never a second yes.
