@@ -9,7 +9,7 @@ import { ledgerCounts, summary } from '../v5/ledger';
 import { ANSWER_KINDS, PROGRAM_CATEGORIES } from '../v5/program-file';
 import { nameKeyOf, projectKeyOf } from '../v5/project-input';
 import { usdFull } from '../v5/programs-read';
-import { cleanClientName } from '../v5/installations';
+import { cleanClientName, displayName } from '../v5/installations';
 import {
   ME_AN_AGENT, ME_BLOCKS, ME_LABELS, ME_LINK_EXPIRED_TITLE, ME_LINK_NOT, ME_LINK_PARTS, ME_LINK_TITLE, ME_LINK_USED, ME_PROJECT_SEEN, ME_REVIEWS, ME_STATUS,
   ME_TEAM, UNKNOWN_CODE, monthDay,
@@ -239,7 +239,8 @@ async function linkBanner(code: string | null | undefined, builderId: number, no
     return (await codeState(code, now)) === 'unknown' ? dead(UNKNOWN_CODE) : dead(ME_LINK_EXPIRED_TITLE, EXPIRED_REST);
   }
   if (live.builder_id !== null && Number(live.builder_id) !== builderId) return dead(ME_LINK_NOT, OTHER);
-  const name = cleanClientName(live.client_name);
+  // L25-1 (v6.1.16): the shown name drops a trailing "(earnkit)".
+  const name = displayName(live.client_name);
   const parts = ME_LINK_PARTS(name, monthDay(live.created_at));
   return { title: ME_LINK_TITLE, code, text: parts.join(''), parts: name ? parts : null };
 }
@@ -268,7 +269,7 @@ export async function agentList(builderId: number): Promise<MeData['installation
   const labels = new Map<number, string>();
   // Numbered in the order they were linked, so the later one of a day carries the (2).
   for (const r of [...rows].reverse()) {
-    const name = cleanClientName(r.client_name);
+    const name = displayName(r.client_name);
     if (name) {
       labels.set(r.id, name);
       continue;

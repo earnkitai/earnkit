@@ -24,6 +24,17 @@ export function cleanClientName(name: string | null | undefined): string | null 
 }
 
 /**
+ * The agent's name as /me and the replies show it (L25-1, v6.1.16): the cleaned name with one trailing "(...)" group
+ * dropped, so "Claude Code (earnkit)" shows as "Claude Code"; a name that is only the group keeps it. The stored
+ * `client_name` is untouched. Pure.
+ */
+export function displayName(name: string | null | undefined): string | null {
+  const s = cleanClientName(name);
+  if (s === null) return null;
+  return s.replace(/\s*\([^()]*\)$/, '').trim() || s;
+}
+
+/**
  * Records the installation for a newly issued token: one row per token (a re-authorization is a
  * new installation with a fresh ledger). Idempotent for one token (tokenPost spends each code once, installOnce). The agent's name is cleaned first. Returns its id.
  */

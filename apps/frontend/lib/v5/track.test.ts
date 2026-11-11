@@ -1368,3 +1368,18 @@ test('R10 (L17-9): a send in flight when its agent is unlinked: the builder hear
   assert.equal(sent.agent_note, 'This agent was unlinked before the send was saved; the form went out but EarnKit holds no record of it. Tell the builder to keep their own note.');
   assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${owner} AND program_id = 'r10-unlink'`)[0].n, 0);
 });
+
+test('L25-24 (v6.1.16): track started keeps a note, cut to 280 characters, on the claim', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 't25-note', title: 'Note Grant' }), 'file', NOW);
+  const r = await track(c, { program_id: 't25-note', status: 'started', note: 'n'.repeat(300) });
+  assert.equal(r.already_started, undefined);
+  const [row] = await sql()`SELECT status, note FROM applications WHERE installation_id = ${c.installationId} AND program_id = 't25-note'`;
+  assert.equal(row.status, 'started');
+  assert.equal(row.note, 'n'.repeat(280));
+  const [h] = await sql()`SELECT note FROM application_history WHERE installation_id = ${c.installationId} AND program_id = 't25-note' AND status = 'started'`;
+  assert.equal(h.note, 'n'.repeat(280));
+  // A renewed claim with no note keeps the one it has.
+  await track(c, { program_id: 't25-note', status: 'started' });
+  assert.equal((await sql()`SELECT note FROM applications WHERE installation_id = ${c.installationId} AND program_id = 't25-note'`)[0].note, 'n'.repeat(280));
+});

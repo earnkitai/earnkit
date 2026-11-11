@@ -33,7 +33,8 @@ export const TrackInput = z
     /** T8-F1 (v6.1.14): won only: a further payment of a win already recorded, with the caller's own key (a repeat adds nothing). */
     payment: z.object({ key: z.string().trim().min(1).max(80) }).strict().optional(),
     /** L13-3 (v6.1.14): the form already went out, so a long note is cut to NOTE_KEPT characters, never refused. */
-    note: z.string().transform((x) => x.slice(0, NOTE_KEPT)).optional(),
+    // L25-24 (v6.1.16): described, and kept on started too.
+    note: z.string().transform((x) => x.slice(0, NOTE_KEPT)).optional().describe('What you want remembered about this send.'),
     item: z.string().max(80).optional(),
     project_id: z.string().max(40).optional(),
     submitted_by: z.enum(['agent', 'builder']).optional(),
@@ -297,7 +298,7 @@ async function act(
     if (!programs.some((p) => p.id === program.id))
       return refuse(`${program.file.title} is not open; nothing to start.`, 'Do not submit this one; call find for what is open.');
     // L1d-1 (v6.1.11): with no project_id the claim stores the project key, so find pins it on that project only.
-    const c = await claim(owner, i.program_id, i.project_id ?? (project.key || null), ctx.installationId, ctx.now);
+    const c = await claim(owner, i.program_id, i.project_id ?? (project.key || null), ctx.installationId, ctx.now, i.note ?? null);
     if (!c.ok && 'unlinked' in c) return refuse(UNLINKED_MEANWHILE);
     if (!c.ok && 'skipped' in c)
       return {
