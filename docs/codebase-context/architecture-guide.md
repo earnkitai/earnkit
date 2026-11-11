@@ -579,7 +579,7 @@ a repo: it is a gap of `code in a repo` (`NEEDS_CODE`) and its rules (`codeStep`
 Solana project with no repo sees Solana Foundation Grants as its step; any other program with a bar is still no fit.
 `gap_done` takes the code step (`repo`) on any program (fix round 1, T7-F2), answered "Tracked. Tell me when it is live
 and I look again." with no repo; the read settles it. The unlinked path names `blockersOf` against `EMPTY_RECORD` under
-"Before applying:" as one sentence naming the programs per thing the builder does ("you sign in by email and press submit yourself on X"; under standing approval the answers a send waits on are a clause of the same line, v6.1.16 Task 15 L29-18: one label), and keeps the closing line as the one action with the sign-in as its second sentence (v6.1.8: "Say yes and I apply to all n. Or say the numbers to skip.", "Say yes and I apply." (v6.1.16 L16-11: "Say yes and I apply to {title}." for the one ready program, `closingLine`'s `title`, also after a yes that stands or waits; a program with a result shows its title and money, then "Won $3,000." / "Rejected." / "No result." and no yes, step or sign-in, from `resultOf` in `ledger.ts`, L16-7), "Nothing is ready yet." with the first rule's yes (v6.1.9: also the rule of the only step program shown, "if that rule fits you"; else, from v6.1.16 L1g-5, "Tell me when {step} and I look again." through `singleStepClosing`), "Under your standing approval: {titles}. I apply the next time your agent checks; say stop to hold any." (v6.1.16 Task 9); each gap line carries its own "Say \"do n\"" only when EarnKit can make every real gap, and each rule-only line its own "Say \"yes n\" if that is you."). The first `find` (and `record`) on an unlinked installation carries a one-time link
+"Before applying:" as one sentence naming the programs per thing the builder does ("you sign in by email and press submit yourself on X"; under standing approval the answers a send waits on are a clause of the same line, v6.1.16 Task 15 L29-18: one label), and keeps the closing line as the one action with the sign-in as its second sentence (v6.1.8: "Say yes and I apply to all n. Or say the numbers to skip.", "Say yes and I apply." (v6.1.16 L16-11: "Say yes and I apply to {title}." for the one ready program, `closingLine`'s `title`, also after a yes that stands or waits; a program with a result shows its title and money, then "Won $3,000." / "Rejected." / "No result." and no yes, step or sign-in, from `resultOf` in `ledger.ts`, L16-7), "Nothing is ready yet." with the first rule's yes (v6.1.9: also the rule of the only step program shown, "if that rule fits you"; else, from v6.1.16 L1g-5, "Tell me when {step} and I look again." through `singleStepClosing`), "Applying now to {titles} under your standing approval. Say stop and I hold any of them." (`standingLine`; v6.1.16 Tasks 9 and 11, ruling 32); each gap line carries its own "Say \"do n\"" only when EarnKit can make every real gap, and each rule-only line its own "Say \"yes n\" if that is you."). The first `find` (and `record`) on an unlinked installation carries a one-time link
 `earnkit.com/link/<code>` (15 minutes, hash stored, `link-routes.ts`); the builder continues, signs in with GitHub
 (`read:user`, `github-auth.ts`), and the callback only starts a 30-day session (`sessions.ts`; v6.1.16 Task 17, L31-6:
 the cookie is `__Host-ek_me` in production, so Secure, Path=/ and no Domain, and `ek_me` on local http; for one
@@ -629,9 +629,8 @@ the last 24 hours, and the program not closed more than an hour before the send 
 `ledger.record`: such a send is recorded as not, and track's reason is "it had closed"; F8, v6.1.12). The count reads `applications.sent_at` (v6.1.9 N2): set on `applied`, never rewritten by a result,
 so recording an old win today uses none of the daily limit; a row from before it has none and counts by `at`
 (`autoSentSince`). Find's standing-approval list subtracts the same count: none left, the closing reads "Your daily limit
-is used; the next sends wait until 24 hours have passed." (N1; v6.1.16 Task 9). With sends to make, the steps block reads
-"The send goes ahead. These would add {n} more: ..." (N4) and the closing "Under your standing approval: {titles}. I
-apply the next time your agent checks; say stop to hold any." (Task 9; Task 11 re-pins). `gap_done` on a code-checked item (chain, contract_on, builder_codes, live_product,
+is used; the next sends wait until 24 hours have passed." (N1; v6.1.16 Task 9). With sends to make, the closing is
+"Applying now to {titles} under your standing approval. Say stop and I hold any of them." (`standingLine`; Task 9, re-pinned by Task 11). `gap_done` on a code-checked item (chain, contract_on, builder_codes, live_product,
 integration) answers "Tracked. I check the repo on the next look." (on a project with no repo, its key a name or
 none: "Tracked. Tell me when it is live and I look again.", F6 v6.1.12; Tracked since v6.1.15 #8) and, while the read still misses it, the next find
 adds "I looked again and did not find {what}; it stays a step." after that program's line; any other item is the
@@ -651,8 +650,7 @@ the name and links falling back to the record project's and the last find's key;
 (`cachedRepoFacts`, no fetch), else the report alone through find's own merge (`reportOnlyFacts` in `repo-facts.ts`),
 so reported contracts, Builder Codes and commit dates count; `sendCheck` is the one path production and
 `unvouchedAtSend` share),
-and find's standing note says "Under standing approval, send only when every required answer is filled; otherwise wait
-for the builder." The ready-at-send rule (v6.1.13 B2): with every required answer vouched, the send counts as under
+and find's standing note (`standingNote`) ends "send only when every required answer is filled." The ready-at-send rule (v6.1.13 B2): with every required answer vouched, the send counts as under
 standing approval only when the program's verdict for that project is ready at send time: find's `evaluate` and gate
 (`readyAtSend` and `storedSide` in `find-record.ts`: the stored tier, no evidence read) over the same facts, with the
 owner's done steps and confirmed rules on that project; a closed program is judged as it stood at its close (F8 then
@@ -664,8 +662,8 @@ approval: it was off." (`APPROVAL_OFF`, `findAutoWas`); the builder's own submit
 the plain line. L12-4: track reads its arguments with find's `readLoosely`, so a null project is the last find's
 project (its done step lands under `last_project_key`), a string one is dropped and named, a numeric id is its text.
 `fields_used` keeps its first 200 keys, each cut to 60, and is never refused (B6): the form already went out. Find holds the same line: a ready program with a required builder answer still empty leaves the
-standing-approval list and is named in its own block, "Before I send (nothing is sent until these are in): your
-{answers} for {titles}." (no standing line when nothing can go). A contract the read still does not find adds "Pass the contract
+standing-approval list and is named in its own block, a clause of "Before applying:" (`waitingClauses`): "your
+{answers} for {titles}" (no standing line when nothing can go). A contract the read still does not find adds "Pass the contract
 address if it is on chain." to the agent note. A send that does count as under standing approval puts the installation's `last_find_at` back to
 `prev_find_at` (`unmarkNightFind`): the find before it was the night routine's, so the morning find still reports every
 overnight send (a builder's daytime find followed by an in-chat send repeats its since line once; a night with no
@@ -702,7 +700,7 @@ the one-program line keeps it), and the code closing is picked by the gap's kind
 read itself finds private (`RepoPrivateError` from `github.ts`, fresh or on the cached row's re-check) is private, never
 gone (M1); neither is closed by gap_done: the agent passes `private: false` or the live `repo_url` (`REPO_STEP_NOTE`).
 track's started reply after a gap ends on the gap ("...one change away: {what}."). The email the
-"Before applying" block names (`record_missing`) is named once per reply: the drafted line, the Before I send line and
+"Before applying" block names (`record_missing`) is named once per reply: the drafted line, the waiting clause of the Before block and
 the N3 closing leave it out unless it is the only need (`namedBefore`, F5, v6.1.12). A new-work program (`new_work_after`) with no first-commit date is
 the question step "tell me when you started this" (minutes, never the agent's, never a reason to refuse; O3, v6.1.10):
 a later find with `first_commit_at` or `gap_done` with its item settles it. The no-project open list ends each
@@ -741,11 +739,13 @@ category ticked ("Pick at least one category.", C43).
 | `record` | `get`, `set` (merged as the agent, never approved), `brief` (the question and facts behind one answer kind, `answer-brief.ts`). Unlinked: the sign-in link. |
 | `screen` | A program's reviewer only: queue an applicant list, read the results by `job_id`, record `outcomes`. An applicant's old `repo` key, as text, reads as `repo_url` when that is not given (v6.1.14 T6); a `repo` that is not text is refused by that key. A find with `program_id` carries `linked` too (F3). |
 
-**The claim rule.** Before filling, the agent tracks `started` (`claims.ts`): one claim per owner and program (an
-advisory lock); another agent of the same builder within 24 hours gets `already` with the claiming agent's name; a
+**The claim rule.** Before filling, the agent tracks `started` (`claims.ts`): one claim per owner, program and project (an
+advisory lock per owner and program; Task 14); another agent of the same builder within 24 hours gets `already` with the claiming agent's name; a
 claim with no `applied` after 24 hours is released. A skip stands over a claim. An `applied` from another agent of the
-owner while the claim is live writes nothing and answers "Your other agent is handling that one; nothing recorded."
-(v6.1.13 B3, `OTHER_AGENT_HOLDS` in `ledger.ts`); the holder's own send is unchanged.
+owner while the claim is live is always recorded (L23-3, v6.1.16): the claim is cleared and the agent note says
+`OTHER_CLAIM_NOTE` ("Recorded. Another agent had started this one too; tell the builder so it is not sent twice."). Only a skip or a
+`started` over another agent's live claim is refused with "Your other agent is handling that one; nothing recorded."
+(`OTHER_AGENT_HOLDS` in `ledger.ts`, v6.1.13 B3); the holder's own send is unchanged.
 
 **The screen queue and the cron trigger.** `screen` (`screen-tool.ts`) is for a reviewer: a signed-in builder the
 owner adds with `POST /api/programs/reviewers`. With `applicants` (up to 200; over that, or over 200 outcomes, one line:
@@ -760,9 +760,9 @@ read: solana (r-3)." Repo links on GitLab, Bitbucket, Codeberg and SSH forms (`s
 no `repo_key`. v6.1.16 L16-13, L16-8: a repo link off a code host, or a shortened repo or site link, is not stored and
 `createJob` returns it in `dropped` ("repo_url dropped: not a code host (r-1)", "live_url dropped: a shortened link
 (r-2)"), which the queue's agent note names beside the unknown fields (with `SHORT_LINK_NOTE` for a shortened one). The promise is computed from the queue (v6.1.7 B14): the unread applicants of unexpired jobs created before this
-one (`queuedAhead`) plus this job's, against `SCREEN_BATCH` per daily run: "Results come in daily runs; the first by tomorrow morning." when they fit
+one (`queuedAhead`) plus this job's, against `SCREEN_BATCH` per daily run: "Results come once a day, within 24 hours." when they fit
 in one run, else "Results within {d} days." (L26-6, v6.1.16 Task 12: the rows queued before it in the shared queue count
-for the days, never as "ahead of yours"; the one-day promise is "Results come once a day, within 24 hours."). A call
+for the days, never as "ahead of yours"). A call
 that queues nothing new is taken back off the reviewer's ten a day (`uncountHit`); over ten: "You can queue ten
 screens a day. Try again tomorrow." (L26-12). The cron's `workQueue`
 (`screen-worker.ts`) takes each applicant atomically (`reading`, free again after 30 minutes), reads it as the pilot
@@ -924,8 +924,8 @@ not keep, and every open or closed decision is read from the clock at request ti
   days in the program's zone, up to 14), else `closes {dayWords}`; `closesLead` capitalises it for tiles and guides;
   `closes_in` (find, /api/programs) is it without `closes `. `timeLeftWords`, `monthDay`, ledger `dayOf` and
   Task 7's `closesIn14` are gone.
-- **Standing approval.** The closing reads `Under your standing approval: {list}. I apply the next time your agent
-  checks; say stop to hold any.` (Task 11 re-pins); `The send(s) go ahead.`, `Before I send (...)`, LIMIT_USED `Your
+- **Standing approval.** The closing reads `Applying now to {titles} under your standing approval. Say stop and I hold any of them.`
+  (`standingLine`, Task 11 re-pins); LIMIT_USED `Your
   daily limit is used; the next sends wait until 24 hours have passed.`, track's `Done for now.`. Find keeps the named
   programs in `installations.promised` / `promised_at` (a still-open promise keeps its first time); more than 24 hours
   later, those with no application row lead the reply once: `Nothing was sent for {titles} since you said yes on
@@ -946,7 +946,7 @@ not keep, and every open or closed decision is read from the clock at request ti
   since line starts `Nothing new since {date}.`.
 - **One Say.** `ONE_SAY_ORDER` (reply.ts): the not-sent line, the started-not-sent lines, the record sign-in line, the
   closing; only the first that carries a `Say` keeps it (`oneSay`, `withoutSay`). A gap line's own `Say "do n"` is
-  Task 11's to fold. Record get unlinked with no link: `Nothing saved yet. Say yes to sign in and I keep your record.`.
+  Task 11's to fold. Record get unlinked with no link: `Sign in once and I remember you.` (`REMEMBER_YOU`).
 - **Sweeps.** `sweepReports` deletes only cached evidence past `REPORT_DAYS` (repo_cache, evidence_cache), never
   `project_reports` or `gaps_done`. `sweepScreens` deletes applicants and outcomes at `KEEP_DAYS` and keeps the job row
   as a tombstone until `TOMBSTONE_DAYS` (365), so the screen answers `That screen has expired; queue the list again.`.
@@ -989,7 +989,7 @@ means what the last `Say` offered.
   ready program over the cap (the Before block's outside-approval clause is gone); a gap EarnKit can make is offered by
   the closing (`, or "do {m}" and I add the codes first.`, or `Say "do {m}" and I ...` when nothing is ready), never on
   its line (`doOfferOf`).
-- **Standing approval, one line.** `Applying to {titles} under your standing approval. Say stop and I hold any of them.`,
+- **Standing approval, one line.** `Applying now to {titles} under your standing approval. Say stop and I hold any of them.`,
   or `... Say yes and I also apply to {outside titles}.`; the agent note adds `On stop, call track held for each one.`
   The one-program reply for a program on that list closes `Under your standing approval; I apply when your agent next
   checks. Say stop and I hold it.` with the list's standing note. /me shows `On: up to {n} a day, {kinds}, up to {cap}.`
@@ -1000,8 +1000,7 @@ means what the last `Say` offered.
   standing list, listed under `On hold until you say go (n):` with `held: true`; `started` from any installation lifts
   it; an `applied` on it is recorded with `The builder held this one; tell them it went out.`
 - **Track.** The lookup is strict (`programByName(..., { strict: true })`): an exact id or title, or title words with one
-  outside `COMMON_WORDS`; else `Which program? Say its name.` and nothing is written. `Started {title}.` (the 24 hours in
-  the agent note), `Skipped {title} for good. Say unskip to bring it back.`, and gap_done with no item on a rules-only
+  outside `COMMON_WORDS`; else `Which program do you mean?` (`WHICH_PROGRAM`) and nothing is written. Started has no builder text (its agent note opens `Started {title}.` and carries the 24 hours), `Skipped {title} for good. Say bring it back and I list it again.`, and gap_done with no item on a rules-only
   program asks `Which rule fits you? Say the program.`
 - **Record.** Own keys only (`allowedKey`): `"__proto__" is not something I keep`; every policy spelling is one
   `standing approval is yours to set on earnkit.com/me`; a length refusal names the limit (`risks is at most 2,000
