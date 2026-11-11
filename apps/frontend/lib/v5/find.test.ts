@@ -305,14 +305,15 @@ test('C1 (v6.1.8 final fix, B20b): FLOSS/fund for a chainless CLI asks the users
   // With no live link and the repo not read, nothing EarnKit can see exists (B20c, v6.1.9): not a fit, even on a yes.
   const { live_url: _l, ...bare } = CLI;
   const bareYes = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: { ...bare, users: true } });
-  assert.deepEqual([(bareYes.reply!.verdict as { status: string }).status, bareYes.reply!.show_to_builder], ['no', 'FLOSS/fund, $10,000 to $100,000. Not a fit: needs a product people use.']);
+  assert.deepEqual([(bareYes.reply!.verdict as { status: string }).status, bareYes.reply!.show_to_builder], ['no', 'FLOSS/fund, $10,000 to $100,000. Not a fit: needs code in a repo or a live link.']);
 });
 
 test('1b (v6.1.8): FLOSS/fund for a CLI on Base: not a fit with no live link, sign in to confirm users, then ready with one yes', async () => {
   const CLI = { name: 'ripgrep', description: 'A line-oriented search tool for the command line.', users: true, chains: [{ chain: 'base', mainnet: true }] };
   const no = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: CLI });
-  // B20c (v6.1.9): nothing EarnKit can see exists, so the users bar is not a fit before any tier.
-  assert.equal(no.reply!.show_to_builder, 'FLOSS/fund, $10,000 to $100,000. Not a fit: needs a product people use.');
+  // B20c (v6.1.9): nothing EarnKit can see exists, so the users bar is not a fit before any tier; L1g-6 (v6.1.15): users
+  // were reported, so the reason asks for something to read.
+  assert.equal(no.reply!.show_to_builder, 'FLOSS/fund, $10,000 to $100,000. Not a fit: needs code in a repo or a live link.');
   const live = { ...CLI, live_url: 'https://ripgrep.dev' };
   const gap = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: live });
   // F2 (fix round 1, v6.1.14): no link in this context and nothing read: the sign-in is the one action, without a link.
@@ -371,6 +372,34 @@ test('a 2,000-character description is cut, not refused: find still answers read
   assert.doesNotMatch(r.reply!.show_to_builder as string, /^Open now/);
 });
 
+test('L1g-6 (v6.1.15): users reported but nothing to read: the not-fit reason asks for code or a live link (personas 21, 30)', async () => {
+  type NotFit = { program_id: string; reason: string }[];
+  const reason = async (project: Record<string, unknown>) =>
+    ((await mcpCall(ctx(await installation()), 'find', { project, filter: { all: true } })).reply!.not_fit as NotFit).find((n) => n.program_id === 'floss-fund-zerodha')?.reason;
+  assert.equal(await reason({ name: 'Roomly', description: 'A booking app for small hotels.', users: true }), 'needs code in a repo or a live link');
+  assert.equal(await reason({ name: 'Quest Runner', description: 'Command line runner for team quests', repo_url: 'git@github.com:o/r.git', users: true }), 'needs code in a repo or a live link');
+  assert.equal(await reason({ name: 'Roomly', description: 'A booking app for small hotels.' }), 'needs a product people use');
+});
+
+test('L1g-7 (v6.1.15): a contract reported on a testnet only is asked onto that chain\'s mainnet (persona 26)', async () => {
+  const dash = replayFetch('nextjs-dashboard');
+  const project = { name: 'Vault', description: 'deployed on Sepolia testnet only', repo_url: `https://github.com/${dash.repo}`, chains: [{ chain: 'ethereum', mainnet: false, contract: '0x2222222222222222222222222222222222222222' }] };
+  const r = await mcpCall({ ...ctx(await installation()), gh: dash.fetch }, 'find', { project, program_id: 'ethereum-security-subsidy-program' });
+  const show = r.reply!.show_to_builder as string;
+  assert.ok(show.includes(': deploy the contract on Ethereum mainnet.'), show);
+  assert.ok(!show.includes('deploy the contract on Ethereum.'), show);
+});
+
+test('L1g-2 (v6.1.15): a name-only project gets the open list, closing on what it does or its repo, by name', async () => {
+  const id = await installation();
+  const r = await mcpCall(ctx(id), 'find', { project: { name: 'Lumen' } });
+  assert.equal(r.isError, false, r.text);
+  const show = r.reply!.show_to_builder as string;
+  assert.match(show, /^Open now:\n/);
+  assert.equal(show.split('\n').find((l) => l.startsWith('Tell me')), 'Tell me what Lumen does in a line, or its repo link, and I match it.');
+  assert.ok(!show.includes('Tell me which project'));
+});
+
 test('find with no project: the open list and the ask for the project', async () => {
   const id = await installation();
   const r = await mcpCall(ctx(id), 'find', {});
@@ -381,6 +410,9 @@ test('find with no project: the open list and the ask for the project', async ()
   const lines = show.split('\n');
   for (const line of lines.slice(1)) assert.ok(line.endsWith('.'), line);
   assert.equal(lines.at(-1), "Tell me which project and I'll match it.");
+  // Template row 12 (v6.1.15): the overflow is its own sentence, with a capital.
+  assert.match(lines.at(-2)!, /^And \d+ more\.$/);
+  assert.ok(!lines.some((l) => /^and \d+ more/.test(l)));
   assert.match(r.reply!.agent_note as string, /project/);
   // A find with no project is a find too (v6.1.8 C47).
   const [row] = await sql()`SELECT last_find_at, last_gaps FROM installations WHERE id = ${id}`;
@@ -1477,9 +1509,9 @@ test('B20c (v6.1.9, Review Focus 1): a repo-less idea and an empty repo are neve
     await mcpCall(c, 'track', { program_id: 'floss-fund-zerodha', status: 'gap_done', item: 'users' });
     const yes = await mcpCall(c, 'find', { project: { ...project, users: true }, filter: { all: true } });
     assert.ok(!ids(yes.reply!.ready).includes('floss-fund-zerodha') && !ids(yes.reply!.gaps).includes('floss-fund-zerodha'), yes.reply!.show_to_builder as string);
-    assert.equal((yes.reply!.not_fit as { program_id: string; reason: string }[]).find((n) => n.program_id === 'floss-fund-zerodha')?.reason, 'needs a product people use');
+    assert.equal((yes.reply!.not_fit as { program_id: string; reason: string }[]).find((n) => n.program_id === 'floss-fund-zerodha')?.reason, 'needs code in a repo or a live link');
     const one = await mcpCall(c, 'find', { program_id: 'floss-fund-zerodha', project: { ...project, users: true } });
-    assert.equal(one.reply!.show_to_builder, 'FLOSS/fund, $10,000 to $100,000. Not a fit: needs a product people use.');
+    assert.equal(one.reply!.show_to_builder, 'FLOSS/fund, $10,000 to $100,000. Not a fit: needs code in a repo or a live link.');
     assert.doesNotMatch(yes.reply!.show_to_builder as string, /real people use it/);
   }
 });

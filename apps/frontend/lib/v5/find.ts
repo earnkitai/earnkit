@@ -4,6 +4,7 @@
  * open list. Linked, it also reads the builder's record (lib/v6/find-record.ts). EarnKit writes no prose.
  */
 import { z } from 'zod';
+import { dropControls } from './controls';
 import { getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason } from '../v6/builders';
 import { appliedOvernight, CLAIM_HOURS, releaseStale } from '../v6/claims';
 import { readEvidence, type Evidence, type Subject } from '../v6/evidence';
@@ -424,19 +425,22 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   };
 }
 
-/** The open programs as a list, for a find with no project. */
-async function openList(ctx: FindContext, problem: string | null): Promise<FindReply> {
+/** The open programs as a list, for a find with no project. `name` (L1g-2, v6.1.15): the name a project that could not
+ *  be read still gave, so the closing asks for what it does by that name. */
+async function openList(ctx: FindContext, problem: string | null, name: string | null = null): Promise<FindReply> {
   const programs = await listOpenPrograms(ctx.now);
   const lines = programs.slice(0, MAX_LISTED).map((r) => {
     const left = closesIn(r.file, ctx.now);
     // O4 (v6.1.10): an in-person program says so on its line.
     return `${r.file.title}, ${moneyOf(r.file)}${left ? `, closes ${left}` : ''}${r.file.in_person ? ', in person' : ''}.`;
   });
-  if (programs.length > MAX_LISTED) lines.push(`and ${programs.length - MAX_LISTED} more.`);
+  // Template row 12 (v6.1.15): its own sentence, so it starts with a capital.
+  if (programs.length > MAX_LISTED) lines.push(`And ${programs.length - MAX_LISTED} more.`);
   const ledger = await summary(ownerOf(ctx), programs, ctx.now);
   const link = ctx.builderId === null ? await linkOf(ctx) : null;
   const notice = await linkedNotice(ctx, link);
-  const list = programs.length > 0 ? `Open now:\n${lines.join('\n')}\nTell me which project and I'll match it.` : 'Nothing is open right now. Ask again any time and I show what is new.';
+  const ask = name ? `Tell me what ${name} does in a line, or its repo link, and I match it.` : "Tell me which project and I'll match it.";
+  const list = programs.length > 0 ? `Open now:\n${lines.join('\n')}\n${ask}` : 'Nothing is open right now. Ask again any time and I show what is new.';
   // After an unlink the notice carries the link, in place of the plain sign-in line.
   const unlinkedNow = ctx.builderId === null && notice !== null;
   // Linked, the report a project find would give from this agent's last find (fix round 1): what moved, the answers
@@ -523,6 +527,13 @@ function linkedPart(side: RecordSide, rows: ProgramRow[], released: string[], ov
   };
 }
 
+/** The name a project report gave, as text and cut to 80 characters, or null (L1g-2, v6.1.15). Pure. */
+function rawName(project: unknown): string | null {
+  const name = project && typeof project === 'object' ? (project as { name?: unknown }).name : undefined;
+  const t = typeof name === 'string' ? dropControls(name).trim().slice(0, 80).trim() : '';
+  return t || null;
+}
+
 /** The agent's line for arguments find could not read (L13-4, v6.1.14), or ''. Pure. */
 const unreadNote = (unread: string[]) => (unread.length > 0 ? `Some arguments were not read: ${unread.join('; ')}.` : '');
 
@@ -549,7 +560,7 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
     for (const k of new Set([key, projectKeyOf(project), nameKeyOf(project)])) await saveReport(ownerOf(ctx), k, report as Project, ctx.now);
   }
   if (i.program_id) return oneProgram(ctx, i.program_id, project, i.project_id, i.ask, key);
-  if (!project) return openList(ctx, parsed && !parsed.ok ? parsed.problem : null);
+  if (!project) return openList(ctx, parsed && !parsed.ok ? parsed.problem : null, rawName(i.project));
 
   const facts = await factsOf(project, ctx, key);
   problems.push(...(facts.problems ?? []));

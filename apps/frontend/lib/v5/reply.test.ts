@@ -313,7 +313,7 @@ test('the "Before applying" paragraph groups the sign-ins, names the clicks and 
   const before = text.split('\n\n').find((b) => b.startsWith('Before applying: '))!;
   assert.equal(
     before,
-    "Before applying: you sign in to Google on your agent's computer for Base Builder Grant and Google Two; you sign in to Avalanche Builder Hub for Avalanche Team1; you sign in by email and press submit yourself on Click Grant. Still missing for these programs: your founder video link, an approved answer on the problem, your deck link and 1 more.",
+    "Before applying: you sign in to Google in your agent's browser for Base Builder Grant and Google Two; you sign in to Avalanche Builder Hub for Avalanche Team1; you sign in by email and press submit yourself on Click Grant. Still missing for these programs: your founder video link, an approved answer on the problem, your deck link and 1 more.",
   );
   const blocks = text.split('\n\n');
   assert.deepEqual(blocks.slice(-4), [
@@ -331,7 +331,7 @@ test('the "Before applying" paragraph groups the sign-ins, names the clicks and 
   const tonight = replyText(free, false);
   // N4 (v6.1.9): tonight waits on none of the builder's steps; they would add more.
   assert.ok(tonight.split('\n\n').includes(
-    "Tonight's send goes ahead. These would add 4 more: you sign in to Google on your agent's computer for Base Builder Grant and Google Two; you sign in to Avalanche Builder Hub for Avalanche Team1; you sign in by email and press submit yourself on Click Grant. Still missing for these programs: your founder video link, an approved answer on the problem, your deck link and 1 more.",
+    "Tonight's send goes ahead. These would add 4 more: you sign in to Google in your agent's browser for Base Builder Grant and Google Two; you sign in to Avalanche Builder Hub for Avalanche Team1; you sign in by email and press submit yourself on Click Grant. Still missing for these programs: your founder video link, an approved answer on the problem, your deck link and 1 more.",
   ), tonight);
   assert.doesNotMatch(tonight, /Before tonight|nothing is sent until/);
   assert.match(tonight, /\n\nApplying tonight to Free\. Say stop to hold any\.$/);

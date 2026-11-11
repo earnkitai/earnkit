@@ -305,9 +305,9 @@ export function sinceLine(r: Pick<R, 'since' | 'ready'> & Partial<Pick<R, 'gaps'
   return `Since ${day}: ${parts.join('; ')}.`;
 }
 
-/** "you sign in to Google on your agent's computer", "you sign in by email". Pure. */
+/** "you sign in to Google in your agent's browser" (#14, v6.1.15), "you sign in by email". Pure. */
 function signInWords(kind: string): string {
-  if (kind === 'google' || kind === 'github') return `you sign in to ${kind === 'google' ? 'Google' : 'GitHub'} on your agent's computer`;
+  if (kind === 'google' || kind === 'github') return `you sign in to ${kind === 'google' ? 'Google' : 'GitHub'} in your agent's browser`;
   if (kind === 'email') return 'you sign in by email';
   return `you sign in to ${kind}`;
 }
@@ -524,10 +524,11 @@ export function tonightIn(r: Pick<R, 'auto_apply' | 'max_per_night' | 'auto_sent
   return r.tonight ? { list: r.tonight.programs, limitUsed: r.tonight.limit_used } : tonightOf(r);
 }
 
-/** The one sentence for each thing the builder is told about the repo read (v6.1.8, B20 and C59); a repo link not read gets exactly one of the first three. */
+/** The one sentence for each thing the builder is told about the repo read (v6.1.8, B20 and C59); a repo link not read gets exactly one of the first four. */
 export const REPO_NOTE: Record<RepoNote, string> = {
   paused: 'Repo reads are paused until tomorrow; matched on what you told me.',
   private: 'Private repo: matched on what you told me.',
+  other_host: 'I read GitHub repos only; matched on what you told me.',
   unread: 'I could not read the repo; matched on what you told me.',
   fork: 'This repo is a fork; programs judge the original.',
   archived: 'This repo is archived; programs want active work.',

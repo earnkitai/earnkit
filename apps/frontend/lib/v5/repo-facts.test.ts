@@ -1,5 +1,6 @@
 import { after, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { REPO_NOTE } from './reply';
 import { sql } from './db';
 import { detectCode, repoFacts, sweepRepoCache } from './repo-facts';
 import { parseProject } from './project-input';
@@ -353,7 +354,11 @@ test('B20 (v6.1.8): reads paused and a private repo are named once, each its own
   const rec = replayFetch('nextjs-dashboard');
   const gone = await repoFacts(project({ repo_url: `https://github.com/${rec.repo}` }), { gh: failing(rec, /api\.github\.com\/repos\/[^/]+\/[^/]+$/, 404), now: NOW });
   assert.deepEqual([gone.as_reported, gone.notes], [true, ['unread']]);
-  assert.deepEqual((await repoFacts(project({ repo_url: 'https://gitlab.com/a/b' }), { now: NOW })).notes, ['unread']);
+  // L1g-3 (v6.1.15): a public repo on another code host is not an error: EarnKit reads GitHub only.
+  assert.deepEqual((await repoFacts(project({ repo_url: 'https://gitlab.com/a/b' }), { now: NOW })).notes, ['other_host']);
+  assert.deepEqual((await repoFacts(project({ repo_url: 'https://codeberg.org/a/b' }), { now: NOW })).notes, ['other_host']);
+  assert.deepEqual((await repoFacts(project({ repo_url: 'https://gitlab.com/a/b', private: true }), { now: NOW })).notes, ['private']);
+  assert.equal(REPO_NOTE.other_host, 'I read GitHub repos only; matched on what you told me.');
   const down = (async () => { throw new Error('network down'); }) as unknown as typeof fetch;
   assert.deepEqual((await repoFacts(project({ repo_url: `https://github.com/${rec.repo}` }), { gh: down, now: NOW })).notes, ['unread']);
 });

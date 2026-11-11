@@ -50,11 +50,13 @@ const chainDetails = (chain: string) => {
   return { chain, rpc: c?.rpc ?? null, explorer: c?.explorer ?? null };
 };
 
-function gapOf(i: EligibilityItem): Gap {
+/** One item's gap. `testnetOnly` (L1g-7, v6.1.15): the project reports the item's chain on a testnet only, so the
+ *  deploy step names its mainnet. */
+function gapOf(i: EligibilityItem, testnetOnly = false): Gap {
   const base = { kind: i.kind, item: itemKey(i), effort: EFFORT[i.kind], agent_can: false };
   const v = i.value ?? '';
   switch (i.kind) {
-    case 'chain': return { ...base, what: `deploy the contract on ${chainName(v)}`, details: chainDetails(v) };
+    case 'chain': return { ...base, what: `deploy the contract on ${chainName(v)}${testnetOnly ? ' mainnet' : ''}`, details: chainDetails(v) };
     case 'contract_on': return { ...base, what: `a contract on ${chainName(v)}`, details: chainDetails(v) };
     case 'builder_codes': return { ...base, what: 'add Base Builder Codes to the app', agent_can: true };
     case 'live_product': return { ...base, what: 'put a live link up' };
@@ -146,7 +148,9 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
   const onchain = items.find((i) => i.kind === 'chain' || i.kind === 'contract_on');
   if (onchain && facts.chains.length === 0) return out('no', [], `needs a contract on ${chainName(onchain.value ?? '')}`);
   // B20c (v6.1.9): a program that wants used software (a used bar or a users item) asks only a project that exists.
-  if ((p.min_tier === 'used' || own.some((i) => i.kind === 'users')) && !exists(facts)) return out('no', [], 'needs a product people use');
+  // L1g-6 (v6.1.15): when the builder said real people use it, what is missing is something to read.
+  if ((p.min_tier === 'used' || own.some((i) => i.kind === 'users')) && !exists(facts))
+    return out('no', [], facts.users === true ? 'needs code in a repo or a live link' : 'needs a product people use');
   const gaps: Gap[] = [];
   // L1e-6 (v6.1.13, fix round 1 T3-R1): a grant for existing code (needs_repo, existing work welcome, not a hackathon or
   // an event) is one step from a project with nothing to show (no live link, and no repo link or a repo the read found
@@ -162,7 +166,10 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
   let inPerson = false;
   const chainItems = items.filter((i) => i.kind === 'chain');
   const mainnets = new Set(facts.chains.filter((c) => c.mainnet).map((c) => c.chain));
-  if (chainItems.length > 0 && !chainItems.some((i) => mainnets.has(i.value ?? ''))) gaps.push(gapOf(chainItems[0]));
+  if (chainItems.length > 0 && !chainItems.some((i) => mainnets.has(i.value ?? ''))) {
+    const v = chainItems[0].value ?? '';
+    gaps.push(gapOf(chainItems[0], facts.chains.some((c) => c.chain === v && !c.mainnet)));
+  }
 
   for (const i of items) {
     const v = i.value ?? '';

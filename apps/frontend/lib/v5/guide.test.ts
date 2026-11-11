@@ -37,7 +37,7 @@ test('a closed program says nothing about who submits (v6.1.7 C7)', () => {
   assert.equal(guideText(rowOf(programFixture({ id: 'a-d', status: 'closed' }))).submit, null);
   assert.equal(guideText(rowOf(programFixture({ id: 'a-e', status: 'closed', submit: 'builder' }))).submit, null);
   assert.equal(guideText(rowOf(programFixture({ id: 'a-f', ends_at: '2020-01-01T00:00:00Z' }))).submit, null);
-  assert.equal(guideText(rowOf(programFixture({ id: 'a-g' }))).submit, 'Your agent may submit');
+  assert.equal(guideText(rowOf(programFixture({ id: 'a-g' }))).submit, 'Your agent sends it.');
   // Low 21 (v6.1.13): nor one not open yet.
   assert.equal(guideText(rowOf(programFixture({ id: 'a-h', status: 'upcoming', opens_note: 'Opens in January' }))).submit, null);
 });
@@ -83,18 +83,24 @@ test('catalog words: submit, sign-in, needs, bar and the integration item', () =
     id: 'a-h', sign_in: 'platform', platform_name: 'Avalanche Builder Hub', needs: ['founder_video'], min_tier: 'live',
     eligibility: [{ kind: 'integration', value: 'smart_wallet' }],
   })));
-  assert.equal(g.submit, 'Your agent may submit');
-  assert.equal(g.sign_in, 'Sign-in: Avalanche Builder Hub');
+  assert.equal(g.submit, 'Your agent sends it.');
+  assert.equal(g.sign_in, 'Form needs an Avalanche Builder Hub account.');
   assert.deepEqual(g.needs, ['a founder video']);
-  assert.equal(g.bar, 'Needs a live product');
+  assert.equal(g.bar, 'Needs a live product.');
   // No "Bar": EarnKit's own word (lane 5, 3.31).
-  assert.equal(guideText(rowOf(programFixture({ id: 'a-k', min_tier: 'used' }))).bar, 'Needs a used product');
-  assert.equal(guideText(rowOf(programFixture({ id: 'a-l', min_tier: 'building' }))).bar, 'Needs a repo with recent commits');
+  assert.equal(guideText(rowOf(programFixture({ id: 'a-k', min_tier: 'used' }))).bar, 'Needs a used product.');
+  assert.equal(guideText(rowOf(programFixture({ id: 'a-l', min_tier: 'building' }))).bar, 'Needs a repo with recent commits.');
   assert.deepEqual(g.eligibility, ['uses Smart Wallet']);
   const plain = guideText(rowOf(programFixture({ id: 'a-i', submit: 'builder' })));
-  assert.equal(plain.submit, 'You press submit yourself');
+  assert.equal(plain.submit, 'You send it.');
   assert.equal(plain.sign_in, null);
   assert.deepEqual(plain.needs, []);
   assert.equal(plain.bar, null);
-  assert.equal(guideText(rowOf(programFixture({ id: 'a-j', sign_in: 'github', min_tier: 'used' }))).sign_in, 'Sign-in: GitHub');
+  assert.equal(guideText(rowOf(programFixture({ id: 'a-j', sign_in: 'github', min_tier: 'used' }))).sign_in, 'Form needs a GitHub account.');
+  // #14, template row 16 (v6.1.15): the program's form login, as a sentence; never EarnKit's own sign-in.
+  assert.equal(guideText(rowOf(programFixture({ id: 'a-m', sign_in: 'google' }))).sign_in, 'Form needs a Google account.');
+  assert.equal(guideText(rowOf(programFixture({ id: 'a-n', sign_in: 'email' }))).sign_in, 'Form needs an email login.');
+  assert.equal(guideText(rowOf(programFixture({ id: 'a-p', sign_in: 'platform', platform_name: 'Devpost' }))).sign_in, 'Form needs a Devpost account.');
+  // The catalog check refuses a platform with no name; the guide still reads a sentence if one slips through.
+  assert.equal(guideText(rowOf({ ...programFixture({ id: 'a-o' }), sign_in: 'platform' })).sign_in, "Form needs an account on the program's site.");
 });

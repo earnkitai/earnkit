@@ -17,13 +17,13 @@ export type Guide = {
   rules: string[];
   eligibility: string[];
   fields: { label: string; todo: string }[];
-  /** Who submits, short: "Your agent may submit" or "You press submit yourself". */
+  /** Who sends it, as a sentence: "Your agent sends it." or "You send it." (v6.1.15, #4). */
   submit: string | null;
-  /** "Sign-in: Google", or null when the form needs none. */
+  /** The program form's own login, as a sentence: "Form needs a Google account.", or null when it needs none (#14). */
   sign_in: string | null;
   /** Extra material, in words: "a founder video". */
   needs: string[];
-  /** "Needs a live product", or null when the program sets none. */
+  /** "Needs a live product.", or null when the program sets none. */
   bar: string | null;
   focus: string | null;
   past_rounds: string[];
@@ -87,14 +87,24 @@ const NEEDS_WORDS: Record<(typeof NEEDS)[number], string> = {
   founder_video: 'a founder video', demo_video: 'a demo video', resume: 'a resume', deck: 'a deck', pitch_pdf: 'a pitch PDF',
 };
 const BAR_WORDS: Record<(typeof MIN_TIER)[number], string> = {
-  used: 'Needs a used product', live: 'Needs a live product', building: 'Needs a repo with recent commits',
+  used: 'Needs a used product.', live: 'Needs a live product.', building: 'Needs a repo with recent commits.',
 };
-const SIGN_IN_WORDS: Record<'google' | 'github' | 'email', string> = { google: 'Google', github: 'GitHub', email: 'email' };
+const SIGN_IN_WORDS: Record<'google' | 'github' | 'email', string> = {
+  google: 'Form needs a Google account.', github: 'Form needs a GitHub account.', email: 'Form needs an email login.',
+};
 
-/** Who signs in with what, in a short phrase; null when the form needs no sign-in. Pure. */
+/** What the program's form needs to sign in, as a sentence (#14, template row 16, v6.1.15); null when it needs none. Pure. */
 function signInOf(p: Program): string | null {
   if (p.sign_in === 'none') return null;
-  return `Sign-in: ${p.sign_in === 'platform' ? p.platform_name ?? 'the program platform' : SIGN_IN_WORDS[p.sign_in]}`;
+  if (p.sign_in !== 'platform') return SIGN_IN_WORDS[p.sign_in];
+  const name = p.platform_name?.trim();
+  return name ? `Form needs ${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name} account.` : "Form needs an account on the program's site.";
+}
+
+/** The pills under a guide's title, each a sentence (template row 7, v6.1.15): who sends it, the form's login, the
+ *  extra material ("Needs a founder video.") and the bar. Pure. */
+export function guidePills(g: Pick<Guide, 'submit' | 'sign_in' | 'needs' | 'bar'>): string[] {
+  return [g.submit, g.sign_in, ...g.needs.map((n) => `Needs ${n}.`), g.bar].filter((t): t is string => Boolean(t));
 }
 
 /** The guide of one program. Pure. */
@@ -116,7 +126,7 @@ export function guideText(row: ProgramRow, now: Date = new Date()): Guide {
     eligibility: eligibilityList(eligibilityOf(p)),
     fields: p.submission_requirements.map((r) => ({ label: r.label, todo: r.todo ?? (r.required ? r.label.toLowerCase() : 'optional') })),
     // A closed program takes no entries: no word on who submits (v6.1.7 C7); nor one not open yet (Low 21, v6.1.13).
-    submit: closes === CLOSED || p.status === 'upcoming' ? null : p.submit === 'builder' ? 'You press submit yourself' : 'Your agent may submit',
+    submit: closes === CLOSED || p.status === 'upcoming' ? null : p.submit === 'builder' ? 'You send it.' : 'Your agent sends it.',
     sign_in: signInOf(p),
     needs: p.needs.map((n) => NEEDS_WORDS[n]),
     bar: p.min_tier ? BAR_WORDS[p.min_tier] : null,

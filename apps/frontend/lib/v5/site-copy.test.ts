@@ -206,3 +206,76 @@ test('/llms.txt keeps the label before a second command: "Then approve it:" sits
   assert.ok(LLMS_TEXT.includes('    Then approve it:\n    codex mcp login earnkit'), LLMS_TEXT);
   assert.ok(LLMS_TEXT.includes('    Then approve it:\n    hermes mcp login earnkit'), LLMS_TEXT);
 });
+
+/**
+ * Review Focus 2 (v6.1.15): every builder sentence ends in a full stop (or ? or !). Labels are listed by name; a line
+ * that ends in a colon is a heading that introduces a list ("Ready to apply (3):", "Open now:", "Rules:") and is skipped.
+ */
+const LABELS = new Set([
+  'CTA_INSTALL', 'NAV_INSTALL', 'EARN_TITLE', 'EARN_ALL', 'ROLLING', 'NOT_OPEN_YET', 'CLOSED', 'PROGRAMS_TITLE', 'ALL_PROGRAMS', 'ART_CREDIT',
+  'GUIDE_FIELDS_TITLE', 'GUIDE_RULES_TITLE', 'GUIDE_ELIGIBILITY_TITLE', 'GUIDE_FOCUS_TITLE', 'GUIDE_ROUNDS_TITLE', 'GUIDE_BEST_BET_TITLE',
+  'GUIDE_SOURCES_TITLE', 'NOT_FOUND_BIG', 'NOT_FOUND_HOME', 'NOT_FOUND_TITLE', 'NOT_FOUND_METADATA', 'DOCS_NAV', 'DOCS_INSTALL_TITLE',
+  'DOCS_SESSION.title', 'DOCS_RECORD.title', 'DOCS_SCREEN.title', 'DOCS_PROGRAMS.title', 'DOCS_CHECKED.title', 'DOCS_TERMS.title', 'DOCS_TERMS.link',
+  'TERMS_TITLE', 'TERMS_SECTIONS.title', 'TERMS_LINKS', 'ME_TITLE', 'ME_SIGN_OUT', 'ME_SAVE', 'ME_APPROVE', 'ME_UNAPPROVE', 'ME_BY_AGENT',
+  'ME_PENDING_TITLE', 'ME_TEAM.name', 'ME_TEAM.role', 'ME_TEAM.add', 'ME_LEDGER_TITLE', 'ME_AGENTS_TITLE', 'ME_AN_AGENT', 'ME_UNLINK',
+  'ME_LINK_PARTS', 'ME_LINK_YES', 'ME_LINK_NO', 'ME_DELETE_TITLE', 'ME_DELETE', 'ME_NOT_SET', 'ME_YES', 'ME_NO', 'ME_BLOCKS', 'ME_LABELS',
+  'ME_CHOICES', 'ME_STATUS', 'ME_VALUE_WORDS', 'heroChipText', 'monthDay', 'compactUsd', 'programKind',
+]);
+/** Sample arguments for the exported templates; a template not listed is called with none. */
+const SAMPLES: Record<string, unknown[]> = {
+  EARN_ALL: [45], GUIDE_ASK: ['Base Builder Grants'], ME_SIGNED_IN: ['ada'], ME_APPROVED: ['Nov 6'], ME_LINKED: ['Nov 6'],
+  ME_LINK_PARTS: [null, 'Nov 6'], ME_LINK_LINE: [null, 'Nov 6'], ME_LINK_DONE: [null], 'ME_TEAM.name': [1], 'ME_TEAM.role': [1],
+  heroChipText: [105_000], monthDay: [new Date('2026-11-04T12:00:00Z')], compactUsd: [5000], programKind: [{}],
+  'ME_VALUE_WORDS.under': [300], 'ME_VALUE_WORDS.atMost': [5], 'ME_VALUE_WORDS.range': [1, 10, true],
+};
+/** Every string under an export, by its path ("DOCS_SESSION.text"), templates called with their samples. */
+function texts(path: string, v: unknown, out: [string, string][] = []): [string, string][] {
+  const top = path.split('.')[0];
+  if (typeof v === 'string') out.push([path, v]);
+  else if (typeof v === 'function') texts(path, (v as (...a: unknown[]) => unknown)(...(SAMPLES[path] ?? [])), out);
+  else if (Array.isArray(v)) for (const x of v) texts(path, x, out);
+  else if (v instanceof Date || v == null) return out;
+  else if (typeof v === 'object') for (const [k, x] of Object.entries(v)) texts(/^[A-Z_]+$/.test(top) && !Array.isArray(v) ? `${path}.${k}` : path, x, out);
+  return out;
+}
+const isLabel = (path: string) => LABELS.has(path) || LABELS.has(path.split('.')[0]) || LABELS.has(path.split('.').slice(0, 2).join('.'));
+/** The sentence lines of a text: every line but the blank ones and the headings that end in a colon. */
+const sentenceLines = (s: string) => s.split('\n').map((l) => l.trim()).filter((l) => l !== '' && !l.endsWith(':'));
+const endsAsSentence = (l: string) => /[.?!]$/.test(l);
+
+async function builderTexts(): Promise<[string, string][]> {
+  const reply = await import('./reply');
+  const { guideText, guidePills } = await import('./guide');
+  const { ProgramFile } = await import('./program-file');
+  const { readdirSync } = await import('node:fs');
+  const out: [string, string][] = Object.entries(copy).flatMap(([k, v]) => texts(k, v)).filter(([p]) => !isLabel(p));
+  for (const k of ['NOTHING_FITS', 'IN_PERSON_CLOSING', 'CODE_CLOSING', 'LIMIT_USED', 'EMPTY_NO_CODES'] as const) out.push([k, reply[k]]);
+  for (const [k, v] of Object.entries(reply.REPO_NOTE)) out.push([`REPO_NOTE.${k}`, v]);
+  const dir = join(ROOT, 'programs');
+  const files = readdirSync(dir).filter((f) => f.endsWith('.json'));
+  assert.equal(files.length, 52);
+  for (const f of files) {
+    const file = ProgramFile.parse(JSON.parse(readFileSync(join(dir, f), 'utf8')));
+    const g = guideText({ id: file.id, file, source: 'file', created_at: new Date(0), updated_at: new Date(0), verified_at: null, stale_since: null }, new Date('2026-11-11T12:00:00Z'));
+    for (const pill of guidePills(g)) out.push([`${file.id} pill`, pill]);
+    for (const [k, v] of [['sign_in', g.sign_in], ['bar', g.bar], ['submit', g.submit]] as const) if (v) out.push([`${file.id} ${k}`, v]);
+  }
+  return out;
+}
+
+test('Review Focus 2 (v6.1.15): every exported builder sentence, reply constant and guide pill ends in a full stop', async () => {
+  const all = await builderTexts();
+  assert.ok(all.length > 150, `${all.length}`);
+  for (const [name, s] of all) for (const l of sentenceLines(s)) assert.ok(endsAsSentence(l), `${name}: "${l}"`);
+  // The headings keep their colon.
+  assert.deepEqual(sentenceLines('Ready to apply (3):\n1. A, $1K.\n\nOpen now:\nRules:'), ['1. A, $1K.']);
+  assert.ok(isLabel('ROLLING') && isLabel('DOCS_TERMS.link') && !isLabel('DOCS_TERMS.text'));
+});
+
+test('row C (v6.1.15): builder text says result, Your applications and Rolling, never outcome, ledger or "Rolling,"', async () => {
+  const all = [...(await builderTexts()), ...Object.entries(copy).flatMap(([k, v]) => texts(k, v))];
+  for (const [name, s] of all) assert.ok(!/\boutcomes?\b|\bledger\b|Rolling,/i.test(s), `${name}: "${s}"`);
+  assert.equal(copy.ROLLING, 'Rolling');
+  assert.equal(copy.CTA_INSTALL, 'Add EarnKit to your agent');
+  assert.equal(copy.ME_LEDGER_TITLE, 'Your applications');
+});

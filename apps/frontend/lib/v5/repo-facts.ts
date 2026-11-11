@@ -15,10 +15,11 @@ import { addressKey, canonicalRepoLink, type Project } from './project-input';
 export type Basis = 'code' | 'reported';
 /**
  * What the builder is told about the read, one sentence each (v6.1.8, B20 and C59): reads paused for the day, a
- * private repo, any other repo link not read (a 404, a non-GitHub link, an outage; fix round 1), a fork, an archived repo (counts as not live), an empty repo,
+ * private repo, a public repo on another code host (EarnKit reads GitHub only, L1g-3 v6.1.15), any other repo link not
+ * read (a 404, an outage; fix round 1), a fork, an archived repo (counts as not live), an empty repo,
  * Builder Codes reported but not in the code read (v6.1.9).
  */
-export type RepoNote = 'paused' | 'private' | 'unread' | 'fork' | 'archived' | 'empty' | 'no_builder_codes';
+export type RepoNote = 'paused' | 'private' | 'other_host' | 'unread' | 'fork' | 'archived' | 'empty' | 'no_builder_codes';
 export type RepoFacts = {
   name: string;
   description: string;
@@ -343,6 +344,15 @@ export async function cachedRepoFacts(project: Project): Promise<RepoFacts | nul
 /** The agent's report alone as facts, merged as find merges a report with no repo read (v6.1.13, Task 1 review I2). Pure. */
 export const reportOnlyFacts = (project: Project): RepoFacts => mergedFacts(project, null, false);
 
+/** Whether a repo link is on github.com, the one code host EarnKit reads (L1g-3, v6.1.15). Pure. */
+function onGitHub(url: string): boolean {
+  try {
+    return /^(www\.)?github\.com$/i.test(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
 /** The code read (or none) and the agent's report as one set of facts (repoFacts' merge rules). Pure. */
 function mergedFacts(project: Project, code: CodeFacts | null, paused: boolean): RepoFacts {
   const chains: RepoFacts['chains'] = (code?.chains ?? []).map((c) => ({ ...c }));
@@ -357,7 +367,7 @@ function mergedFacts(project: Project, code: CodeFacts | null, paused: boolean):
   const archived = code?.archived === true;
   const homeLive = archived ? null : (code?.homepage ?? null);
   // A repo link given and not read is said once, with the one reason that applies.
-  const unread: RepoNote[] = !project.repo_url || code ? [] : [paused ? 'paused' : project.private ? 'private' : 'unread'];
+  const unread: RepoNote[] = !project.repo_url || code ? [] : [paused ? 'paused' : project.private ? 'private' : onGitHub(project.repo_url) ? 'unread' : 'other_host'];
   const notes: RepoNote[] = [
     ...unread,
     ...(code?.fork ? (['fork'] as const) : []),

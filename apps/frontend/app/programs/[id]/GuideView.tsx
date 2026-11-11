@@ -6,6 +6,7 @@ import Money from '../../components/site/Money';
 import { CARD_PANEL, PAGE_COL, PILL_WHITE } from '../../components/site/ui';
 import AskAgent from './AskAgent';
 import type { GuidePage } from '../../../lib/v5/guide-page';
+import { guidePills } from '../../../lib/v5/guide';
 import {
   ALL_PROGRAMS, GUIDE_ASK, GUIDE_BEST_BET_TITLE, GUIDE_ELIGIBILITY_TITLE, GUIDE_FIELDS_TITLE, GUIDE_FOCUS_TITLE, GUIDE_NO_ELIGIBILITY,
   GUIDE_ROUNDS_TITLE, GUIDE_RULES_TITLE, GUIDE_SOURCES_TITLE,
@@ -36,7 +37,7 @@ const List = ({ items }: { items: string[] }) => (
 export default function GuideView({ id, page }: { id: string; page: GuidePage }) {
   const g = page.guide;
   const open = page.status === 'active' && g.closes !== 'Closed';
-  const pills = [g.submit, g.sign_in, ...g.needs.map((n) => `Needs ${n}`), g.bar].filter((t): t is string => Boolean(t));
+  const pills = guidePills(g);
   const sources = g.sources.filter((s) => s.url.startsWith('https://'));
   return (
     <>
