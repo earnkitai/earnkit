@@ -155,8 +155,10 @@ test('L19-1: PATCH and PUT on /mcp are 405 with Allow: POST, DELETE, OPTIONS; th
   // L25-20 (v6.1.16): a fourth entry for capitalised page paths, which never matches /mcp or /oauth (proxy.test.ts
   // checks it through Next's own matcher parser).
   assert.deepEqual(config.matcher.slice(0, 3), ['/me', '/oauth/authorize', '/.well-known/:path*']);
-  assert.equal(config.matcher.length, 4);
-  assert.ok(config.matcher[3].includes('[Mm][Cc][Pp]') && config.matcher[3].includes('[Oo][Aa][Uu][Tt][Hh]/'));
+  // L27-3, L27-4 (v6.1.16): a guide path and a /link page (one segment, no dot) for the 404 rewrite and the 405.
+  assert.deepEqual(config.matcher.slice(3, 5), ['/programs/:id([^/.]+)', '/link/:code([^/.]+)']);
+  assert.equal(config.matcher.length, 6);
+  assert.ok(config.matcher[5].includes('[Mm][Cc][Pp]') && config.matcher[5].includes('[Oo][Aa][Uu][Tt][Hh]/'));
 });
 
 const accepting = (accept: string | null) => {
