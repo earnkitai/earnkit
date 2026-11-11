@@ -7,6 +7,7 @@ import { EVIDENCE_NOT_READ, NO_RECORD_PROJECT, isConfirmWhat, isProofReadingWhat
 import { NEEDS_CODE, rulesOnly, type Gap } from './eligibility';
 import { chainName } from './chains';
 import type { FindReply, GapProgram, ReadyProgram } from './find';
+import { ledgerCounts } from './ledger';
 import { READS_PAUSED, type RepoNote } from './repo-facts';
 
 type R = Omit<FindReply, 'show_to_builder' | 'agent_note'>;
@@ -644,15 +645,8 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   if (steps.length > 0) blocks.push([`One step away (${steps.length}):`, ...steps.map((g) => gapLine(g, false, closed))].join('\n'));
   if (attendCount > 0) blocks.push([`In person (${attendCount}):`, ...inPerson.map((p) => inPersonLine(p, false, now)), ...attendRules.map((g) => gapLine(g))].join('\n'));
   const l = r.ledger;
-  if (l.applied > 0) {
-    const soon = l.closing_soon.length > 0 ? `, ${l.closing_soon.length} closing soon` : '';
-    // What was won, never what was asked (v6.1.8, 3.6).
-    const won = l.won > 0 && l.won_usd > 0 ? ` (${dollars(l.won_usd)})` : '';
-    // v6.1.14: the /me page's name for it, never the internal "ledger". L13-18: a rejection counts too; a count of
-    // none is left out (waiting is said whenever any wait).
-    const counts = [`${l.applied} sent`, ...(l.won > 0 ? [`${l.won} won${won}`] : []), ...(l.rejected > 0 ? [`${l.rejected} rejected`] : []), ...(l.pending > 0 ? [`${l.pending} waiting${soon}`] : [])];
-    blocks.push(`Your applications: ${counts.join(', ')}.`);
-  }
+  // v6.1.14: the /me page's name for it, never the internal "ledger"; L21-1 (v6.1.16): /me's totals line is the same words.
+  if (l.applied > 0) blocks.push(`Your applications: ${ledgerCounts(l)}`);
   const before = beforeTonight(r, tonight);
   if (before) blocks.push(before);
   const waiting = waitingLine(r);

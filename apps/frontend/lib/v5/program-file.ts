@@ -221,6 +221,13 @@ export const ProgramFile = z
       .refine((t) => !/\u2014/.test(t), 'opens_note: no em dashes')
       .optional(),
     in_person: z.boolean().default(false),
+    /** Where an in-person program is held, from its own text: 1 to 40 characters, no links (L21-16, v6.1.16). */
+    city: z
+      .string()
+      .min(1)
+      .max(40)
+      .refine((t) => !/https?:\/\/|www\.|\b[a-z0-9-]+\.(com|xyz|io|org|app|net)\b/i.test(t), 'city has no links')
+      .optional(),
     /** The day these facts were last checked against source_url (YYYY-MM-DD). */
     verified_at: z.string().date(),
     /** Whether work built before the program counts: never guessed. */

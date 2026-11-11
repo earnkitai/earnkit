@@ -20,6 +20,7 @@
   "investment": true,
   "category": "investment",
   "in_person": true,
+  "city": "San Francisco",
   "tag": "long shot",
   "eligibility": [
     { "kind": "in_person", "note": "live and work in San Francisco for the first three months (strongly encouraged; required for the second $125,000)" }

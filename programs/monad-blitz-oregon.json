@@ -21,6 +21,7 @@
   "verified_at": "2026-11-09",
   "status": "closed",
   "in_person": true,
+  "city": "Eugene",
   "existing_work": "unknown",
   "needs_repo": false,
   "chains": ["monad"],

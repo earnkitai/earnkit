@@ -1,8 +1,8 @@
 import { CARD_NAVY, CARD_PANEL, CARD_RUST, H1_SITE, PAGE_COL, PILL_WHITE } from '../components/site/ui';
 import {
-  ME_AGENTS_EMPTY, ME_AGENTS_TITLE, ME_AN_AGENT, ME_APPROVE, ME_APPROVED, ME_BY_AGENT, ME_CHOICES, ME_DELETE, ME_DELETE_HINT,
-  ME_DELETE_LINE, ME_DELETE_TITLE, ME_HINTS, ME_LABELS, ME_LEDGER_EMPTY, ME_LEDGER_TITLE, ME_LINK_NO, ME_LINK_TITLE, ME_LINK_YES, ME_LINKED, ME_NO, ME_NO_PROJECTS, ME_NOT_SET,
-  ME_PENDING_LINE, ME_PENDING_TITLE, ME_POLICY_LINE, ME_SAVE, ME_SHORT_LABEL, ME_SIGN_OUT, ME_SIGNED_IN, ME_TEAM, ME_TITLE, ME_UNAPPROVE, ME_UNLINK, ME_YES,
+  ME_AGENTS_EMPTY, ME_AGENTS_TITLE, ME_APPROVE, ME_APPROVED, ME_BY_AGENT, ME_CHOICES, ME_DELETE, ME_DELETE_HINT,
+  ME_DELETE_LINE, ME_DELETE_TITLE, ME_HINTS, ME_LABELS, ME_LEDGER_EMPTY, ME_LEDGER_TITLE, ME_LINK_NO, ME_LINK_YES, ME_LINKED, ME_NO, ME_NO_PROJECTS, ME_NOT_SET,
+  ME_PENDING_LINE, ME_PENDING_TITLE, ME_POLICY_LINE, ME_SAVE, ME_SAVED, ME_SHORT_LABEL, ME_SIGN_OUT, ME_SIGNED_IN, ME_TEAM, ME_TITLE, ME_UNAPPROVE, ME_UNLINK, ME_YES,
 } from '../../lib/v5/site-copy';
 import { approvalPathOf, type MeData, type MeField } from '../../lib/v6/me-view';
 
@@ -12,6 +12,15 @@ const INPUT = 'min-h-11 w-full rounded-[16px] border border-s-line bg-s-panel-in
 const SAVE = PILL_WHITE.replace('px-6', 'px-5');
 const GHOST = 'inline-flex min-h-11 items-center justify-center rounded-full border border-s-line-hover px-5 text-[15px] text-s-text hover:bg-s-panel-hover';
 const META = 'text-[13px] text-s-muted';
+
+/** `Saved.` beside the control that saved (L21-11, v6.1.16). */
+function Saved({ on }: { on: boolean }) {
+  return on ? (
+    <span role="status" className="self-center text-[15px] text-s-good-text">
+      {ME_SAVED}
+    </span>
+  ) : null;
+}
 
 function Csrf({ token }: { token: string }) {
   return <input type="hidden" name="csrf" value={token} />;
@@ -69,7 +78,7 @@ function Short({ text, tone = META }: { text: string | undefined; tone?: string 
 }
 
 /** One row: the label, the input and Save; an approvable field with a value gets its approval control. */
-function Field({ f, csrf }: { f: MeField; csrf: string }) {
+function Field({ f, csrf, saved = null }: { f: MeField; csrf: string; saved?: string | null }) {
   const id = `f-${f.path}`;
   // The empty add row has no one to remove (v6.1.9 N10).
   const hint = /^team\.\d+\.name$/.test(f.path) && f.value === '' ? undefined : hintOf(f.path);
@@ -90,6 +99,7 @@ function Field({ f, csrf }: { f: MeField; csrf: string }) {
           <button type="submit" className={`${SAVE} self-start`}>
             {ME_SAVE}
           </button>
+          <Saved on={saved === f.path} />
         </form>
         <Short text={f.short} />
         {f.approvable && f.value !== '' && (
@@ -112,8 +122,9 @@ function Card({ id, title, card = CARD_PANEL, children }: { id: string; title: s
 }
 
 /** The projects block: one inner card per project. */
-function Projects({ fields, csrf }: { fields: MeField[]; csrf: string }) {
-  if (fields.length === 0) return <p className="text-[15px] text-s-muted">{ME_NO_PROJECTS}</p>;
+function Projects({ fields, seen, csrf, saved }: { fields: MeField[]; seen: MeData['projects_seen']; csrf: string; saved: string | null }) {
+  // L21-12 (v6.1.16): the empty line only when the record holds no project and no application names one.
+  if (fields.length === 0 && seen.length === 0) return <p className="text-[15px] text-s-muted">{ME_NO_PROJECTS}</p>;
   const byId = new Map<string, MeField[]>();
   for (const f of fields) {
     const id = f.path.split('.')[1];
@@ -125,16 +136,26 @@ function Projects({ fields, csrf }: { fields: MeField[]; csrf: string }) {
         <div key={id} className="rounded-[24px] bg-s-panel-inner px-4 py-2 md:px-6">
           <h3 className="ek-serif pt-3 text-[24px] leading-none">{fs.find((f) => f.path.endsWith('.name'))?.value || id}</h3>
           {fs.map((f) => (
-            <Field key={f.path} f={f} csrf={csrf} />
+            <Field key={f.path} f={f} csrf={csrf} saved={saved} />
           ))}
         </div>
       ))}
+      {seen.length > 0 && (
+        <ul className="flex flex-col gap-1 px-1">
+          {seen.map((p) => (
+            <li key={p.key} className="text-[15px] text-s-muted">
+              <bdi>{p.label}</bdi>
+              {p.line.slice(p.label.length)}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
 
 /** The standing approval: one form for the switch and the limits, then the skip list as its own row. */
-function Policy({ fields, csrf }: { fields: MeField[]; csrf: string }) {
+function Policy({ fields, csrf, saved }: { fields: MeField[]; csrf: string; saved: string | null }) {
   const v = (key: string) => fields.find((f) => f.path === `policy.${key}`)?.value ?? '';
   const cats = v('categories').split(', ');
   const L = ME_LABELS;
@@ -173,21 +194,30 @@ function Policy({ fields, csrf }: { fields: MeField[]; csrf: string }) {
           <input type="checkbox" name="agent_may_submit" defaultChecked={v('agent_may_submit') === 'true'} className="h-5 w-5 accent-s-blue" />
           {L['policy.agent_may_submit']}
         </label>
-        <button type="submit" className={`${SAVE} self-start`}>
-          {ME_SAVE}
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <button type="submit" className={`${SAVE} self-start`}>
+            {ME_SAVE}
+          </button>
+          <Saved on={saved === 'policy'} />
+        </div>
       </form>
       {fields.filter((f) => f.path === 'policy.never').map((f) => (
-        <Field key={f.path} f={f} csrf={csrf} />
+        <Field key={f.path} f={f} csrf={csrf} saved={saved} />
       ))}
     </>
   );
 }
 
-export default function MeView({ data, problem, note = null }: { data: MeData; problem: string | null; note?: string | null }) {
+/**
+ * `saved`: the path (or 'policy') a save came back from; its `Saved.` shows beside that control, not as a banner.
+ * With a linked agent the page carries `data-me-linked`, so the header hides its install pill (L21-22, v6.1.16).
+ */
+export default function MeView({ data, problem, note = null, saved = null }: { data: MeData; problem: string | null; note?: string | null; saved?: string | null }) {
   const { csrf } = data;
+  const savedAt = note === ME_SAVED ? saved : null;
+  const banner = savedAt ? null : note;
   return (
-    <div className={`${PAGE_COL} flex flex-col gap-4 pb-10 pt-6 md:pt-10`}>
+    <div {...(data.installations.length > 0 ? { 'data-me-linked': '' } : {})} className={`${PAGE_COL} flex flex-col gap-4 pb-10 pt-6 md:pt-10`}>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-col gap-2">
           <h1 className={H1_SITE}>{ME_TITLE}</h1>
@@ -207,15 +237,15 @@ export default function MeView({ data, problem, note = null }: { data: MeData; p
         </p>
       )}
 
-      {note && (
+      {banner && (
         <p role="status" className={`${CARD_PANEL.replace('rounded-[36px]', 'rounded-[24px]')} px-5 py-4 text-[15px] text-s-good-text`}>
-          {note}
+          {banner}
         </p>
       )}
 
       {data.link && (
-        <Card id="link" title={ME_LINK_TITLE} card={CARD_NAVY}>
-          <p className="text-[15px] leading-[1.6] text-s-on-navy-soft">
+        <Card id="link" title={data.link.title} card={CARD_NAVY}>
+          {data.link.text && <p className="text-[15px] leading-[1.6] text-s-on-navy-soft">
             {data.link.parts ? (
               <>
                 {data.link.parts[0]}
@@ -225,7 +255,7 @@ export default function MeView({ data, problem, note = null }: { data: MeData; p
             ) : (
               data.link.text
             )}
-          </p>
+          </p>}
           {data.link.code && (
             <div className="flex flex-wrap gap-3">
               {(['link', 'deny'] as const).map((action) => (
@@ -262,13 +292,13 @@ export default function MeView({ data, problem, note = null }: { data: MeData; p
       {data.blocks.map((b) => (
         <Card key={b.key} id={b.key} title={b.title}>
           {b.key === 'projects' ? (
-            <Projects fields={b.fields} csrf={csrf} />
+            <Projects fields={b.fields} seen={data.projects_seen} csrf={csrf} saved={savedAt} />
           ) : b.key === 'policy' ? (
-            <Policy fields={b.fields} csrf={csrf} />
+            <Policy fields={b.fields} csrf={csrf} saved={savedAt} />
           ) : (
             <div>
               {b.fields.map((f) => (
-                <Field key={f.path} f={f} csrf={csrf} />
+                <Field key={f.path} f={f} csrf={csrf} saved={savedAt} />
               ))}
             </div>
           )}
@@ -276,6 +306,7 @@ export default function MeView({ data, problem, note = null }: { data: MeData; p
       ))}
 
       <Card id="ledger" title={ME_LEDGER_TITLE}>
+        {data.ledger_line && <p className="text-[15px]">{data.ledger_line}</p>}
         {data.ledger.length === 0 ? (
           <p className="text-[15px] text-s-muted">{ME_LEDGER_EMPTY}</p>
         ) : (
@@ -283,9 +314,7 @@ export default function MeView({ data, problem, note = null }: { data: MeData; p
             {data.ledger.map((l, i) => (
               <li key={i} className="flex flex-wrap items-baseline justify-between gap-x-4 border-t border-s-line py-3 text-[15px] first:border-t-0">
                 <span className="min-w-0">{l.title}</span>
-                <span className="text-s-muted">
-                  {l.status}, {l.at}.
-                </span>
+                <span className="text-s-muted">{l.words}</span>
               </li>
             ))}
           </ul>
@@ -300,7 +329,7 @@ export default function MeView({ data, problem, note = null }: { data: MeData; p
             {data.installations.map((a) => (
               <li key={a.id} className="flex flex-wrap items-center justify-between gap-3 border-t border-s-line py-3 text-[15px] first:border-t-0">
                 <span className="flex flex-col">
-                  <bdi>{a.client_name ?? ME_AN_AGENT}</bdi>
+                  <bdi>{a.label}</bdi>
                   {a.linked_at && <span className={META}>{ME_LINKED(a.linked_at)}</span>}
                 </span>
                 <form method="post" action="/me/unlink">
@@ -314,6 +343,11 @@ export default function MeView({ data, problem, note = null }: { data: MeData; p
             ))}
           </ul>
         )}
+        {data.reviews.map((line) => (
+          <p key={line} className="text-[15px] text-s-muted">
+            {line}
+          </p>
+        ))}
       </Card>
 
       <Card id="delete" title={ME_DELETE_TITLE} card={CARD_RUST}>

@@ -198,13 +198,31 @@ test('no install copy mentions signing in, X, GitHub or a wallet', async () => {
 test('the /me words: verbatim lines, sentences end with a full stop, no path in a label', () => {
   assert.equal(copy.ME_TITLE, 'Your record');
   assert.equal(copy.ME_PENDING_LINE, 'Read these, then approve each: an unapproved answer is never sent.');
-  assert.equal(copy.ME_DELETE_LINE, 'This removes your record, your applications and your sign-ins. Screens you ran for a program stay with that program. Your agents keep working, unsigned.');
+  // L21-8 (v6.1.16).
+  assert.equal(copy.ME_DELETE_LINE, 'Deleting your account unlinks your agents, ends your reviewer access and removes your applications. Programs keep their screens.');
+  // L21-9, L21-19, L21-21, L21-26 (v6.1.16).
+  assert.equal(copy.ME_DELETED, 'Your account is deleted.');
+  assert.equal(copy.ME_ERRORS.confirm, 'Type your GitHub login to delete.');
+  assert.equal(copy.ME_LINK_NO, 'This is not me.');
+  assert.equal(copy.ALL_PROGRAMS, 'See all programs.');
+  assert.equal(copy.NOT_FOUND_HOME, 'Go home.');
+  assert.equal(copy.NOT_FOUND_TITLE, 'Not found · EarnKit');
+  // L21-10, L21-7, L21-15, L21-11, L21-13, L21-17 (v6.1.16).
+  assert.equal(copy.ME_AN_AGENT('Nov 6'), 'An agent linked Nov 6');
+  assert.equal(copy.ME_UNLINKED('an agent linked Nov 6'), 'Unlinked an agent linked Nov 6.');
+  assert.equal(copy.ME_UNLINKED('Claude Code'), 'Unlinked Claude Code.');
+  assert.equal(copy.ME_UNLINK_NOT_YOURS, 'That agent is not on your account.');
+  assert.equal(copy.ME_SAVED, 'Saved.');
+  assert.equal(copy.ME_REVIEWS('Base Builder Grants'), 'You review Base Builder Grants. Results come through your agent.');
+  assert.equal(copy.UNKNOWN_CODE, 'This link is not one of ours.');
+  assert.equal(copy.ME_ERRORS.linkExpired, 'This link has expired. Ask your agent for a new one.');
   assert.equal(copy.ME_LABELS['policy.auto_apply'], 'Apply overnight without asking, within these limits');
-  assert.equal(copy.ME_LABELS['policy.agent_may_submit'], 'Press submit for me');
+  // L21-18 (v6.1.16, controller ruling): the label says when; the stored default stays on.
+  assert.equal(copy.ME_LABELS['policy.agent_may_submit'], 'Press submit for me when I say yes.');
   assert.equal(copy.ME_LABELS['policy.max_ask_usd'], 'Skip awards above (USD)');
   assert.equal(copy.ME_LABELS['traction.line_pre_launch'], 'Your one line on traction');
   assert.equal(copy.ME_HINTS['policy.never'], 'One program per line, by its title (for example Base Builder Grants).');
-  assert.equal(copy.ME_LINK_LINE(null, 'Nov 6'), 'Your agent, first seen Nov 6, asked for this link. If you did not ask your agent for this just now, choose Not me.');
+  assert.equal(copy.ME_LINK_LINE(null, 'Nov 6'), 'Your agent, first seen Nov 6, asked for this link. If you did not ask your agent for this just now, choose This is not me.');
   // No slug, path or file name in a /me hint (lane 5, 3.27).
   for (const s of Object.values(copy.ME_HINTS)) assert.ok(!/[a-z]+-[a-z]+-[a-z]+|\/me\b/.test(s), s);
   assert.equal(copy.ME_APPROVED('Nov 7'), 'Approved Nov 7.');
@@ -213,7 +231,8 @@ test('the /me words: verbatim lines, sentences end with a full stop, no path in 
   const sentences = [copy.ME_DESCRIPTION, copy.ME_APPROVED('Nov 7'), copy.ME_LINKED('Nov 7'), ...Object.values(copy.ME_ERRORS).filter((e) => /^[A-Z]/.test(e)), ...Object.values(copy.ME_HINTS), copy.ME_PENDING_LINE, copy.ME_DELETE_LINE, copy.ME_DELETE_HINT, copy.ME_NO_PROJECTS, copy.ME_LEDGER_EMPTY, copy.ME_AGENTS_EMPTY, copy.ME_POLICY_LINE, copy.DOCS_RECORD.text, copy.DOCS_SCREEN.text, ...copy.TERMS_SECTIONS.flatMap((s) => s.lines)];
   for (const s of sentences) assert.match(s, /\.$/, s);
   for (const [name, s] of [...strings('ME_BLOCKS', copy.ME_BLOCKS), ...strings('ME_LABELS', copy.ME_LABELS)]) {
-    assert.ok(!/[._]/.test(s), `${name}: "${s}"`);
+    // A label may end as a sentence (L21-18, v6.1.16); no dot or underscore inside it, so no path.
+    assert.ok(!/[._]/.test(s.replace(/\.$/, '')), `${name}: "${s}"`);
     assert.equal(s[0], s[0].toUpperCase(), `${name}: sentence case "${s}"`);
     assert.ok(!/\s[A-Z][a-z]/.test(s.replace(/\b(USD|X|LinkedIn)\b/g, '')), `${name}: sentence case "${s}"`);
   }
@@ -229,19 +248,19 @@ test('/llms.txt keeps the label before a second command: "Then approve it:" sits
  * that ends in a colon is a heading that introduces a list ("Ready to apply (3):", "Open now:", "Rules:") and is skipped.
  */
 const LABELS = new Set([
-  'CTA_INSTALL', 'NAV_INSTALL', 'EARN_TITLE', 'EARN_ALL', 'ROLLING', 'NOT_OPEN_YET', 'CLOSED', 'PROGRAMS_TITLE', 'ALL_PROGRAMS', 'ART_CREDIT',
+  'CTA_INSTALL', 'NAV_INSTALL', 'EARN_TITLE', 'EARN_ALL', 'ROLLING', 'NOT_OPEN_YET', 'CLOSED', 'PROGRAMS_TITLE', 'ART_CREDIT',
   'GUIDE_FIELDS_TITLE', 'GUIDE_RULES_TITLE', 'GUIDE_ELIGIBILITY_TITLE', 'GUIDE_FOCUS_TITLE', 'GUIDE_ROUNDS_TITLE', 'GUIDE_BEST_BET_TITLE',
-  'GUIDE_SOURCES_TITLE', 'NOT_FOUND_BIG', 'NOT_FOUND_HOME', 'NOT_FOUND_TITLE', 'NOT_FOUND_METADATA', 'DOCS_NAV', 'DOCS_INSTALL_TITLE',
+  'GUIDE_SOURCES_TITLE', 'NOT_FOUND_BIG', 'NOT_FOUND_TITLE', 'NOT_FOUND_METADATA', 'DOCS_NAV', 'DOCS_INSTALL_TITLE',
   'DOCS_SESSION.title', 'DOCS_RECORD.title', 'DOCS_SCREEN.title', 'DOCS_PROGRAMS.title', 'DOCS_CHECKED.title', 'DOCS_TERMS.title', 'DOCS_TERMS.link',
   'TERMS_TITLE', 'TERMS_SECTIONS.title', 'TERMS_LINKS', 'ME_TITLE', 'ME_SIGN_OUT', 'ME_SAVE', 'ME_APPROVE', 'ME_UNAPPROVE', 'ME_BY_AGENT',
   'ME_PENDING_TITLE', 'ME_TEAM.name', 'ME_TEAM.role', 'ME_TEAM.add', 'ME_LEDGER_TITLE', 'ME_AGENTS_TITLE', 'ME_AN_AGENT', 'ME_UNLINK',
-  'ME_LINK_PARTS', 'ME_LINK_YES', 'ME_LINK_NO', 'ME_DELETE_TITLE', 'ME_DELETE', 'ME_NOT_SET', 'ME_YES', 'ME_NO', 'ME_BLOCKS', 'ME_LABELS',
+  'ME_LINK_PARTS', 'ME_LINK_YES', 'ME_DELETE_TITLE', 'ME_DELETE', 'ME_NOT_SET', 'ME_YES', 'ME_NO', 'ME_BLOCKS', 'ME_LABELS',
   'ME_CHOICES', 'ME_STATUS', 'ME_VALUE_WORDS', 'heroChipText', 'monthDay', 'heroUsdText', 'programKind',
 ]);
 /** Sample arguments for the exported templates; a template not listed is called with none. */
 const SAMPLES: Record<string, unknown[]> = {
   EARN_ALL: [45], GUIDE_ASK: ['Base Builder Grants'], ME_SIGNED_IN: ['ada'], ME_APPROVED: ['Nov 6'], ME_LINKED: ['Nov 6'],
-  ME_LINK_PARTS: [null, 'Nov 6'], ME_LINK_LINE: [null, 'Nov 6'], ME_LINK_DONE: [null], 'ME_TEAM.name': [1], 'ME_TEAM.role': [1],
+  ME_LINK_PARTS: [null, 'Nov 6'], ME_AN_AGENT: ['Nov 6'], ME_REVIEWS: ['Base Builder Grants'], ME_UNLINKED: ['Claude Code'], ME_PROJECT_SEEN: ['github.com/ada/kit', 2], ME_LINK_LINE: [null, 'Nov 6'], ME_LINK_DONE: [null], 'ME_TEAM.name': [1], 'ME_TEAM.role': [1],
   heroChipText: [105_000], monthDay: [new Date('2026-11-04T12:00:00Z')], heroUsdText: [3_159_600], programKind: [{}],
   'ME_VALUE_WORDS.under': [300], 'ME_VALUE_WORDS.atMost': [5], 'ME_VALUE_WORDS.range': [1, 10, true],
 };

@@ -34,5 +34,6 @@
   "submission_requirements": [
     { "key": "email", "label": "Email (1st Founder)", "kind": "contact", "todo": "the first founder's email", "type": "email", "required": true, "description": "Primary POC for the Alliance application. Application updates will be sent to this address. The rest of the application follows; its questions are not public.", "from": "builder" }
   ],
-  "in_person": true
+  "in_person": true,
+  "city": "New York City"
 }

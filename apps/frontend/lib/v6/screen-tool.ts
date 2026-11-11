@@ -11,7 +11,7 @@ import { SHORT_LINK_NOTE } from '../v5/project-input';
 import { LIMITS, hit } from '../v5/rate-limit';
 import { listWords, signInLink } from './record-tool';
 import { reviewerPrograms } from './reviewers';
-import { badRequeues, createJob, jobResults, jobStatus, NOT_PASSED, type Outcome, OUTCOME_NOTES, OWN_APPLICATION, queuedAhead, recordOutcomes, REF_MAX, ScreenApplicant, type ScreenResults } from './screen-jobs';
+import { badRequeues, createJob, jobResults, jobStatus, NOT_PASSED, type Outcome, PAGE_SIZE, OUTCOME_NOTES, OWN_APPLICATION, queuedAhead, recordOutcomes, REF_MAX, ScreenApplicant, type ScreenResults } from './screen-jobs';
 import { SCREEN_BATCH } from './screen-worker';
 import { DEFAULT_THRESHOLDS, RATIO_THRESHOLDS, TIERS, type Thresholds } from './tiers';
 
@@ -299,8 +299,11 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
     const more = results.next_page !== null ? ` ${SCREEN_TEXT.nextPage(results.next_page)}`
       : results.page > 1 && results.applicants.length === 0 ? ` ${SCREEN_TEXT.noMore}` : '';
     const short = results.last_run_left > 0 ? ` ${SCREEN_TEXT.readToday(results.done, results.total)}` : '';
+    // L21-27 (v6.1.16): with more than one page, a page that exists leads with where it is: "Page 2 of 3."
+    const pages = Math.ceil(results.total / PAGE_SIZE);
+    const at = pages > 1 && results.page <= pages ? `Page ${results.page} of ${pages}. ` : '';
     return {
-      show_to_builder: `${totalsLine(results)}${short}${more}`,
+      show_to_builder: `${at}${totalsLine(results)}${short}${more}`,
       agent_note: [results.finished ? SCREEN_TEXT.sortNote : SCREEN_TEXT.pendingNote, ...(results.next_page !== null ? [`Call screen with job_id and page ${results.next_page} for the next 25.`] : [])].join(' '),
       job_id: results.job_id,
       results,

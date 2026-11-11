@@ -15,6 +15,7 @@ import { codeChecked, itemKey } from './eligibility';
 import { getProgram, programsById, type ProgramRow } from './programs';
 import { CLAIM_HOURS, UNLINKED_MEANWHILE, newApplicationId, stillLinked } from '../v6/claims';
 import { projectKeyOf, type Project } from './project-input';
+import { usdFull } from './programs-read';
 
 /** gap_done without a known item (v6.1.8, 3.10): the builder names the change, the agent gets the item keys. */
 export const WHICH_CHANGE = 'Which change did you finish? Say the program and the change.';
@@ -340,6 +341,18 @@ export async function summary(owner: string, programs: ProgramRow[], now: Date):
   }
   l.closing_soon = soon.sort((a, b) => a.at - b.at).map((s) => ({ program_id: s.program_id, title: s.title, closes_at: new Date(s.at).toISOString() }));
   return l;
+}
+
+/**
+ * The counts after "Your applications: " (L21-1, v6.1.16): "6 sent, 3 won ($12,000), 1 rejected, 2 waiting." The find
+ * reply and /me's totals line share it, so the two always agree (Review Focus 9). What was won, never what was asked
+ * (v6.1.8, 3.6); a count of none is left out, waiting is said whenever any wait (L13-18). Pure.
+ */
+export function ledgerCounts(l: Ledger): string {
+  const soon = l.closing_soon.length > 0 ? `, ${l.closing_soon.length} closing soon` : '';
+  const won = l.won > 0 && l.won_usd > 0 ? ` (${usdFull(l.won_usd)})` : '';
+  const counts = [`${l.applied} sent`, ...(l.won > 0 ? [`${l.won} won${won}`] : []), ...(l.rejected > 0 ? [`${l.rejected} rejected`] : []), ...(l.pending > 0 ? [`${l.pending} waiting${soon}`] : [])];
+  return `${counts.join(', ')}.`;
 }
 
 /** L16-7 (v6.1.16): the program's result for this owner (won, rejected or no result), or null when it has none. */

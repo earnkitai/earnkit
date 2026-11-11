@@ -267,3 +267,52 @@ test('lane 20 audit (v6.1.16): circle money in full figures; Sovereign Tech fund
   assert.equal(landingTiles([sovereign], NOW)[0].money, 'Funds work from EUR 50,000');
   assert.equal(replyMoney(sovereign.file), 'funds work from EUR 50,000');
 });
+
+test('L21-24 (v6.1.16): closesIn14 says tomorrow under 24 hours, in n days under 14, else the day', async () => {
+  const { closesIn14 } = await import('./guide');
+  const p = programFixture({ id: 'c14', ends_at: '2026-11-30T20:00:00Z', summary: 'Up to $5,000 · 11:59 PM PT' });
+  assert.equal(closesIn14(p, new Date('2026-11-30T08:00:00Z')), 'Closes tomorrow.');
+  assert.equal(closesIn14(p, new Date('2026-11-25T20:00:00Z')), 'Closes in 5 days.');
+  assert.equal(closesIn14(p, new Date('2026-11-25T08:00:00Z')), 'Closes in 6 days.');
+  assert.equal(closesIn14(p, new Date('2026-11-01T00:00:00Z')), 'Closes Nov 30');
+  assert.equal(closesIn14(programFixture({ id: 'c14r' }), new Date('2026-11-01T00:00:00Z')), 'Rolling');
+  assert.equal(guideText(rowOf(p), new Date('2026-11-25T20:00:00Z')).closes, 'Closes in 5 days.');
+});
+
+test('L21-3 (v6.1.16): the guide meta reads the page close, lower-cased, one full stop', async () => {
+  const { guideMeta } = await import('./guide');
+  assert.equal(guideMeta({ money: '$67,500 in prizes', closes: 'Closes Nov 12', closed_on: null }), '$67,500 in prizes, closes Nov 12. Who can apply, what the form asks and the rules.');
+  assert.equal(guideMeta({ money: '$67,500 in prizes', closes: 'Closes tomorrow.', closed_on: null }), '$67,500 in prizes, closes tomorrow. Who can apply, what the form asks and the rules.');
+  assert.equal(guideMeta({ money: 'Up to $5,000', closes: 'Rolling', closed_on: null }), 'Up to $5,000, rolling. Who can apply, what the form asks and the rules.');
+  assert.equal(guideMeta({ money: 'Up to $5,000', closes: 'Closed', closed_on: 'Closed on 1 Nov 2026.' }), 'Up to $5,000, closed. Who can apply, what the form asks and the rules.');
+});
+
+test('L21-25 (v6.1.16): the guide money equals the find reply money for every catalog program, figures included', () => {
+  const dir = join(import.meta.dirname, '../../../../programs');
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.json'))) {
+    const row = real(f.replace(/\.json$/, ''));
+    const g = guideText(row, new Date('2026-11-11T12:00:00Z'));
+    assert.equal(moneyAt(g.money, 'mid'), replyMoney(row.file), f);
+    assert.deepEqual(g.money.match(/[\d,.]+/g), replyMoney(row.file).match(/[\d,.]+/g), f);
+  }
+});
+
+test('L21-23, L21-16 (v6.1.16): Base and PayPal guide fragments end in a full stop; in-person pills name the city', async () => {
+  const { guidePills } = await import('./guide');
+  const now = new Date('2026-11-11T12:00:00Z');
+  for (const id of ['base-builder-grants', 'paypal-ai-hackathon']) {
+    const g = guideText(real(id), now);
+    const lines = [g.description, ...g.eligibility, ...guidePills(g), ...(g.focus ? [g.focus] : []), ...(g.best_bet ? [g.best_bet] : []), ...g.past_rounds, ...g.fields.map((x) => x.todo)];
+    for (const l of lines) assert.match(l, /[.?!]$/, `${id}: ${l}`);
+  }
+  const alliance = guideText(real('alliance-all19'), now);
+  assert.equal(guidePills(alliance)[0], 'In person: New York City.');
+  assert.equal(guidePills(guideText(rowOf(programFixture({ id: 'ip-none', in_person: true })), now))[0], 'In person.');
+  assert.ok(!guidePills(guideText(real('base-builder-grants'), now)).some((t) => t.startsWith('In person')));
+  // Every in-person catalog file names its city (programs:check refuses one without).
+  const dir = join(import.meta.dirname, '../../../../programs');
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.json'))) {
+    const row = real(f.replace(/\.json$/, ''));
+    if (row.file.in_person) assert.match(guidePills(guideText(row, now))[0], /^In person: .+\.$/, f);
+  }
+});

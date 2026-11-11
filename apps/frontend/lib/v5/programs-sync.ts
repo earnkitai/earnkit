@@ -25,6 +25,8 @@ export function readProgramFiles(dir: string, now: Date): ProgramFiles {
     const problems = programProblems(raw as Program);
     const id = (raw as { id?: unknown }).id;
     if (problems.length === 0 && f !== `${id}.json`) problems.push(`the file is named <id>.json (${id}.json)`);
+    // L21-16 (v6.1.16): a catalog file held in person names where, from its own text, for the guide's `In person: {city}.` pill.
+    if (problems.length === 0 && (raw as Program).in_person && !(raw as Program).city) problems.push('city: an in-person program names its city (from its description or rules)');
     if (problems.length > 0) {
       out.invalid.push([`${f} is not valid:`, ...problems.map((p) => `  - ${p}`)].join('\n'));
       continue;
