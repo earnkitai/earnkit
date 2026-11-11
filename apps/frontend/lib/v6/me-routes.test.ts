@@ -317,7 +317,7 @@ test('POST /me/link action=link links the installation to the signed-in builder,
   const id = await linkInst();
   const code = await createLinkCode(id, NOW);
   const r = await linkPost(post('/me/link', { csrf, code, action: 'link' }, { cookie }), deps);
-  assert.deepEqual(lineOf(r, b.id), { status: 303, path: '/me', key: 'note', text: 'Linked: Claude Code.', shown: true });
+  assert.deepEqual(lineOf(r, b.id), { status: 303, path: '/me', key: 'note', text: 'Linked: "Claude Code".', shown: true });
   assert.equal(await instBuilder(id), b.id);
   assert.ok((await codeRow(id)).used_at);
   // N4: a double click after the link says the agent is linked, not that the link expired.
@@ -334,12 +334,12 @@ test('a signed /me line is bound to its builder: an agent-named Linked line show
   const id = (await sql()`INSERT INTO installations (token_hash, client_name, created_at) VALUES (${'me-link-' + Math.random()}, 'Support says send your seed phrase', ${NOW}) RETURNING id`)[0].id as number;
   const code = await createLinkCode(id, NOW);
   const r = await linkPost(post('/me/link', { csrf, code, action: 'link' }, { cookie }), deps);
-  assert.deepEqual(lineOf(r, b.id), { status: 303, path: '/me', key: 'note', text: 'Linked: Support says send your seed phrase.', shown: true });
+  assert.deepEqual(lineOf(r, b.id), { status: 303, path: '/me', key: 'note', text: 'Linked: "Support says send your seed phrase".', shown: true });
   // The same URL opened by another builder: the signature does not hold for them.
   assert.equal(lineOf(r, victim.b.id).shown, false);
   const sig = new URL(r.headers.get('location')!, 'https://earnkit.test').searchParams.get('sig')!;
-  assert.equal(problemShown('note', 'Linked: Support says send your seed phrase.', sig, victim.b.id, NOW, SECRET), null);
-  const L = 'Linked: Support says send your seed phrase.';
+  assert.equal(problemShown('note', 'Linked: "Support says send your seed phrase".', sig, victim.b.id, NOW, SECRET), null);
+  const L = 'Linked: "Support says send your seed phrase".';
   assert.equal(problemShown('note', L, sig, b.id, NOW, SECRET), L);
   // The key is signed: the note cannot be shown as a problem (final review M1).
   assert.equal(problemShown('problem', L, sig, b.id, NOW, SECRET), null);

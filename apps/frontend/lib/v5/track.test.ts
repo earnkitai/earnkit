@@ -1574,7 +1574,7 @@ test('L24-17: gap_done with no item on a rule program asks which rule; the note 
 });
 
 test('L24-1: another agent named in a track line goes through quoteName', async () => {
-  const { a, c } = await twoAgents('Evil‮ Name "quoted" and a very long tail of words');
+  const { a, c } = await twoAgents('Evil\u202e Name "quoted" and a very long tail of words');
   await upsertProgram(programFixture({ id: 'l24t-q', title: 'Quote Grant' }), 'file', NOW);
   await track(a, { program_id: 'l24t-q', status: 'started' });
   const r = await track(c, { program_id: 'l24t-q', status: 'started' });

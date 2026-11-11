@@ -863,14 +863,22 @@ test('R15 (L17-2): 25 screen wins of $1,000 against 25 builder wins of $2,000 at
 
 test('L24-7 (v6.1.16 Task 11, Review Focus 15): refs, names, links and contracts are cleaned at queue time; stored and echoed clean', async () => {
   const r = await reviewer('jobs-l24');
-  const RLO = '‮', ZWSP = '​';
+  const RLO = '\u202e', ZWSP = '\u200b';
   const j = await job(r, [
     { ref: `a3${RLO}gnp`, name: `Timer${RLO}gnp.exe${ZWSP}`, live_url: `https://t${ZWSP}imer.example/` },
     { ref: 'b4', name: 'Comma, "quote"\nnew\r\nrow\u0000' },
   ]);
   const rows = await sql()<{ ref: string; name: string; live_url: string | null }[]>`SELECT ref, name, live_url FROM screen_applicants WHERE job_id = ${j.id} ORDER BY ref`;
   assert.deepEqual(rows.map((x) => [x.ref, x.name]), [['a3gnp', 'Timergnp.exe'], ['b4', 'Comma, "quote" new row']]);
-  for (const x of rows) assert.doesNotMatch(`${x.ref}${x.name}${x.live_url ?? ''}`, /[\u0000-\u001f​-‏‪-‮⁦-⁩﻿]/);
+  for (const x of rows) assert.doesNotMatch(`${x.ref}${x.name}${x.live_url ?? ''}`, /[\u0000-\u001f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/);
   const res = await jobResults(j.id, r.builderId, NOW);
-  assert.doesNotMatch(JSON.stringify(res), /\\u202e|‮|​/);
+  assert.doesNotMatch(JSON.stringify(res), /\\u202e|\u202e|\u200b/);
+});
+
+test('Task 11 fix round 1 (N3): a row queued before v6.1.16 is cleaned when its results are read', async () => {
+  const r = await reviewer('jobs-l24-old');
+  const j = await job(r, [{ ref: 'old-1', name: 'Plain' }]);
+  await sql()`UPDATE screen_applicants SET name = ${'Ti\u202emer\u200b'} WHERE job_id = ${j.id}`;
+  const res = await jobResults(j.id, r.builderId, NOW);
+  assert.equal(res!.applicants[0].name, 'Timer');
 });

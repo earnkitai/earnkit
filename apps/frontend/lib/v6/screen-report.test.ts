@@ -95,11 +95,11 @@ test('L22-12 (v6.1.16): the CSV carries the outcome and its amount after the tie
 });
 
 test('L24-20 (v6.1.16 Task 11): applicant text in a heading is a code span; the CSV is cleaned and the formula guard stays', () => {
-  const rows = [row(app({ ref: `a3‮gnp`, name: '<b>x</b> [Click](https://evil.example) `tick`' }), null), row(app({ ref: 'f1', name: '=HYPERLINK("x")​' }), null)];
+  const rows = [row(app({ ref: `a3\u202egnp`, name: '<b>x</b> [Click](https://evil.example) `tick`' }), null), row(app({ ref: 'f1', name: '=HYPERLINK("x")\u200b' }), null)];
   const md = markdownReport('p', rows, NOW);
   assert.ok(md.includes('### `` <b>x</b> [Click](https://evil.example) `tick` `` (`a3gnp`)'), md);
-  assert.doesNotMatch(md, /‮/);
+  assert.doesNotMatch(md, /\u202e/);
   const csv = csvReport(rows);
-  assert.doesNotMatch(csv, /[‮​]/);
+  assert.doesNotMatch(csv, /[\u202e\u200b]/);
   assert.ok(csv.includes(`'=HYPERLINK(""x"")`) || csv.includes(`"'=HYPERLINK(""x"")"`), csv);
 });

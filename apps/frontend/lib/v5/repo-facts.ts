@@ -11,6 +11,7 @@ import { sql } from './db';
 import { GitHubError, RepoPrivateError, readRepo, readRepoObject, type RepoRead } from './github';
 import { LIMITS, hit } from './rate-limit';
 import { addressKey, canonicalRepoLink, type Project } from './project-input';
+import { cleanText } from './controls';
 
 export type Basis = 'code' | 'reported';
 /**
@@ -173,7 +174,9 @@ export function readmeExcerpt(md: string | null, keepCode = false): string | nul
     .replace(/[*_`~|#]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
-  return text ? text.slice(0, 2048) : null;
+  // Task 11 fix round 1 (I1): repo text is builder-written text: no control, bidi or zero-width character.
+  const clean = cleanText(text, 2048);
+  return clean || null;
 }
 
 /** The first sentence of the README's first prose paragraph (no heading, badge, list, table or HTML), up to 280
@@ -214,7 +217,7 @@ function codeFactsOf(r: RepoRead): CodeFacts {
     first_commit_at: r.first_commit_at ?? r.repo.created_at,
     last_commit_at: r.repo.pushed_at,
     readme_excerpt: readmeExcerpt(r.readme),
-    homepage: r.repo.homepage?.trim() || null,
+    homepage: r.repo.homepage ? cleanText(r.repo.homepage, 500) || null : null,
     topics: (r.repo.topics ?? []).filter((t): t is string => typeof t === 'string').slice(0, 20),
     html_url: r.repo.html_url,
     pushed_at: r.repo.pushed_at,
@@ -365,7 +368,11 @@ function mergedFacts(project: Project, code: CodeFacts | null, paused: boolean):
     if (address && !contracts.some((x) => x.address === address)) contracts.push({ chain: c.chain, address, basis: 'reported' });
   }
   const archived = code?.archived === true;
-  const homeLive = archived ? null : (code?.homepage ?? null);
+  // Task 11 fix round 1 (I1): repo text cleaned on read too, so a read cached before v6.1.16 is clean.
+  const homepage = code?.homepage ? cleanText(code.homepage, 500) || null : null;
+  const readme = code?.readme_excerpt ? cleanText(code.readme_excerpt, 2048) || null : null;
+  const lead = code?.readme_lead ? cleanText(code.readme_lead, 280) || null : null;
+  const homeLive = archived ? null : homepage;
   // A repo link given and not read is said once, with the one reason that applies.
   const unread: RepoNote[] = !project.repo_url || code ? [] : [paused ? 'paused' : project.private ? 'private' : onGitHub(project.repo_url) ? 'unread' : 'other_host'];
   const notes: RepoNote[] = [
@@ -377,7 +384,7 @@ function mergedFacts(project: Project, code: CodeFacts | null, paused: boolean):
   ];
   return {
     name: project.name,
-    description: project.description || (code ? (code.readme_lead ?? readmeLead(code.readme_excerpt)) : null) || '',
+    description: project.description || (code ? (lead ?? readmeLead(readme)) : null) || '',
     repo_url: code ? code.html_url : (project.repo_url ?? null),
     repo_url_basis: code ? 'code' : project.repo_url ? 'reported' : null,
     live_url_basis: project.live_url ? 'reported' : homeLive ? 'code' : null,
@@ -394,8 +401,8 @@ function mergedFacts(project: Project, code: CodeFacts | null, paused: boolean):
     users: project.users ?? null,
     first_commit_at: code?.first_commit_at ?? project.first_commit_at ?? null,
     last_commit_at: code?.last_commit_at ?? project.last_commit_at ?? null,
-    readme_excerpt: code?.readme_excerpt ?? null,
-    homepage: code?.homepage ?? null,
+    readme_excerpt: readme,
+    homepage,
     ...(code?.topics && code.topics.length > 0 ? { topics: code.topics } : {}),
     ...(paused ? { problems: [READS_PAUSED] } : {}),
     notes,

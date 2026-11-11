@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cleanProse, cleanText, dropControls, quoteName } from './controls';
 
-const RLO = '‮', LRI = '⁦', PDI = '⁩', ZWSP = '​', ZWJ = '‍', ZWNJ = '‌', BOM = '﻿', WJ = '⁠', NUL = '\u0000';
+const RLO = '\u202e', LRI = '\u2066', PDI = '\u2069', ZWSP = '\u200b', ZWJ = '\u200d', ZWNJ = '\u200c', BOM = '\ufeff', WJ = '\u2060', NUL = '\u0000';
 
 test('L24-24: Ti{ZWSP}mer{ZWJ}{BOM}{WJ}App reads TimerApp', () => {
   assert.equal(cleanText(`Ti${ZWSP}mer${ZWJ}${BOM}${WJ}App`, 80), 'TimerApp');
@@ -40,4 +40,10 @@ test('quoteName: cleaned, at most 40, inside straight double quotes, inner quote
   assert.equal(quoteName(`Timer${RLO}App`), '"TimerApp"');
   assert.equal(quoteName('a "b" c'), `"a 'b' c"`);
   assert.equal(quoteName('x'.repeat(60)), `"${'x'.repeat(40)}"`);
+});
+
+test('Task 11 fix round 1 (M2): NEL and the line and paragraph separators read as a space; Hangul fillers are dropped', () => {
+  assert.equal(cleanText('a\u2028b\u2029c\u0085d', 80), 'a b c d');
+  assert.equal(cleanText('Ti\u3164mer\u115f\u1160\uffa0', 80), 'Timer');
+  assert.equal(cleanProse('one\u2028two'), 'one\ntwo');
 });

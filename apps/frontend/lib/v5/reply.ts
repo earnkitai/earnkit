@@ -464,6 +464,9 @@ export function closingSetup(o: { ready: number; held: number; gaps: number; fir
   return o.ready === 0 && o.held === 0 && o.gaps > 0 && o.firstRule === null && o.stepRule == null ? step.what : null;
 }
 
+/** Task 11 fix round 1 (M1): the closing when every ready program is held by the builder. */
+export const HOLD_CLOSING = 'On hold until you say go. Say go and I apply.';
+
 /** The closing when nothing fits (v6.1.14): EarnKit never writes first, so the builder asks again. */
 export const NOTHING_FITS = 'Nothing fits yet. Ask again any time and I show what is new.';
 
@@ -501,6 +504,8 @@ export function closingLine(o: {
   yesNeeds?: string[];
   /** L29-34 (v6.1.16 Task 15): unlinked, the users question says the sign-in that checks it. */
   linked?: boolean;
+  /** Task 11 fix round 1 (M1): ready programs the builder held; with none other ready, the reply closes on the hold. */
+  onHold?: number;
 }): Closing {
   // v6.1.9: the builder's yes to a rule already stands for the program it made ready: no second yes is asked for it.
   // N3 (v6.1.12): nor for one that still needs answers: the closing names them instead. L1e-3 (v6.1.13): a program
@@ -540,6 +545,8 @@ export function closingLine(o: {
   const withDo = (c: Closing): Closing => (c.offer === null && doPart ? { text: `${c.text} Say ${doPart}.`, offer: 'do' } : c);
   // Ready programs held by another agent are listed as ready, so the reply never says nothing is ready (I1).
   // v6.1.14: no promise to write first.
+  // Task 11 fix round 1 (M1): every ready program is on hold: the reply closes on lifting it.
+  if (o.held === 0 && (o.onHold ?? 0) > 0) return { text: HOLD_CLOSING, offer: 'apply' };
   if (o.held > 0) return withDo({ text: 'Your other agent is handling these.', offer: null });
   if (o.gaps > 0) {
     // L29-28 (v6.1.16 Task 15): the rule Say says what the yes does.
@@ -784,6 +791,7 @@ export function replyParts(r: R, first: boolean, now: Date = new Date(), lastOff
             doOffer,
             yesNeeds,
             linked: r.linked,
+            onHold: onHold.length,
           });
           // N1 (v6.1.9, fix round 1): the used limit takes the tonight list's place; the builder can still say yes.
           return { text: [...(limitUsed ? [LIMIT_USED] : []), c.text].join(' '), offer: c.offer };

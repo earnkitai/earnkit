@@ -20,7 +20,16 @@ export const cleanLine = (s: string): string => cleanText(s, Infinity);
 const line = (max: number) => z.string().overwrite(cleanLine).max(max);
 /** Prose keeps its line breaks; every other control or format character (NUL, bidi, zero-width) is dropped (L24-21). */
 const prose = (max: number) => z.string().overwrite(cleanProse).max(max);
-const https = line(500).pipe(z.url({ protocol: /^https$/ }));
+/** Task 11 fix round 1 (N3): a record link carrying a user name or password is refused, as a project link is dropped. */
+const noUserInfo = (s: string) => {
+  try {
+    const u = new URL(s);
+    return u.username === '' && u.password === '';
+  } catch {
+    return true;
+  }
+};
+const https = line(500).pipe(z.url({ protocol: /^https$/ })).refine(noUserInfo, 'a link with no user name or password');
 const githubRepo = line(300).regex(/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/?$/, 'must be an https://github.com/<owner>/<repo> link');
 const email = line(200).pipe(z.email());
 const isoDate = line(10).refine((s) => {

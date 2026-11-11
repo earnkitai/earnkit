@@ -103,8 +103,8 @@ test('C14: a commit date after now plus one day is dropped with a problem; today
 });
 
 test('C15: control and format characters are stripped from every project string; nothing left is missing', () => {
-  assert.deepEqual(parseProject({ name: '​‌‍﻿', description: 'd' }), { ok: false, problem: 'name: missing' });
-  const r = parseProject({ name: '‮Tip\u0000jar​', description: 'Tips\u0007 for⁦ creators.', repo_url: 'https://github.com/a/b​', chains: ['ba​se'] });
+  assert.deepEqual(parseProject({ name: '\u200b\u200c\u200d\ufeff', description: 'd' }), { ok: false, problem: 'name: missing' });
+  const r = parseProject({ name: '\u202eTip\u0000jar\u200b', description: 'Tips\u0007 for\u2066 creators.', repo_url: 'https://github.com/a/b\u200b', chains: ['ba\u200bse'] });
   assert.ok(r.ok);
   assert.equal(r.project.name, 'Tipjar');
   assert.equal(r.project.description, 'Tips for creators.');

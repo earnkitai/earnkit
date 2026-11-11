@@ -4,6 +4,7 @@
  */
 import { categoryOf } from './program-file';
 import { usdFull } from './programs-read';
+import { quoteName } from './controls';
 
 /** L23-11 (v6.1.16): the one date formatter in builder text, "Nov 6" in the current year and "Nov 6, 2025" in any other. */
 export { dayWords } from './deadline';
@@ -227,11 +228,12 @@ export const ME_LINK_TITLE = 'Link an agent to this account?';
 /** The link banner in three parts: the words before the agent's own name, the name (shown isolated, it is the agent's text) and the rest. */
 export const ME_LINK_PARTS = (agent: string | null, day: string): [string, string, string] => {
   const rest = `, first seen ${day}, asked for this link. If you did not ask your agent for this just now, choose This is not me.`;
-  return agent ? ['The agent calling itself ', agent, rest] : ['Your agent', '', rest];
+  // Task 11 fix round 1 (N3): the agent's own name through quoteName, as the /link page shows it.
+  return agent ? ['The agent calling itself ', quoteName(agent), rest] : ['Your agent', '', rest];
 };
 export const ME_LINK_LINE = (agent: string | null, day: string): string => ME_LINK_PARTS(agent, day).join('');
 /** After POST /me/link (v6.1.7 C2). */
-export const ME_LINK_DONE = (agent: string | null): string => `Linked: ${agent ?? 'your agent'}.`;
+export const ME_LINK_DONE = (agent: string | null): string => `Linked: ${agent ? quoteName(agent) : 'your agent'}.`;
 export const ME_LINK_NOT = 'Not linked.';
 /** The banner's title for a code this builder used (L21-6, v6.1.16). */
 export const ME_LINK_USED = 'Linked.';

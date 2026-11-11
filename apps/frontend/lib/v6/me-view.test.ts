@@ -78,12 +78,13 @@ test('/me?link=<code> with a live code shows the link banner with the agent name
     (await sql()`INSERT INTO installations (token_hash, client_name, created_at) VALUES (${'mv-' + Math.random()}, ${name}, ${NOW}) RETURNING id`)[0].id as number;
   const code = await createLinkCode(await inst('Claude <Code>'), NOW);
   const d = await meData(b, NOW, 'sess', code);
-  const text = 'The agent calling itself Claude <Code>, first seen Nov 6, asked for this link. If you did not ask your agent for this just now, choose This is not me.';
-  assert.deepEqual(d.link, { title: 'Link an agent to this account?', code, text, parts: ['The agent calling itself ', 'Claude <Code>', text.slice('The agent calling itself Claude <Code>'.length)] });
+  // Task 11 fix round 1 (N3): the name quoted as the /link page quotes it.
+  const text = 'The agent calling itself "Claude <Code>", first seen Nov 6, asked for this link. If you did not ask your agent for this just now, choose This is not me.';
+  assert.deepEqual(d.link, { title: 'Link an agent to this account?', code, text, parts: ['The agent calling itself ', '"Claude <Code>"', text.slice('The agent calling itself "Claude <Code>"'.length)] });
   const html = renderToStaticMarkup(MeView({ data: d, problem: null }));
   assert.ok(html.includes('Link an agent to this account?'), html);
   // The agent's own name sits isolated, so its text cannot turn the sentence around (v6.1.7 C1).
-  assert.ok(html.includes(text.replace('Claude <Code>', '<bdi>Claude &lt;Code&gt;</bdi>')), html);
+  assert.ok(html.includes(text.replace('"Claude <Code>"', '<bdi>&quot;Claude &lt;Code&gt;&quot;</bdi>')), html);
   assert.ok(!html.includes('<Code>'));
   for (const action of ['link', 'deny']) {
     const form = html.match(new RegExp(`<form action="/me/link" method="post">(?:(?!</form>).)*value="${action}"(?:(?!</form>).)*</form>`))?.[0] ?? '';
@@ -153,7 +154,7 @@ test('an agent name with bidi and zero-width marks is cleaned on read and isolat
   const code = await createLinkCode(id, NOW);
   const d = await meData(b, NOW, 'sess', code);
   const name = `Evilagent<img src=x>${'z'.repeat(80)}`.slice(0, 60);
-  assert.equal(d.link?.parts?.[1], name);
+  assert.equal(d.link?.parts?.[1], `"${name.slice(0, 40)}"`);
   assert.ok(!/[\u202E\u200B]/.test(d.link?.text ?? ''));
   await sql()`UPDATE installations SET builder_id = ${b.id}, linked_at = ${NOW} WHERE id = ${id}`;
   const linked = await meData(b, NOW, 'sess');
@@ -307,7 +308,7 @@ test('L25-1 (v6.1.16): /me and the link banner show "Claude Code (earnkit)" as "
   const b = await upsertBuilder({ github_id: 810_251, login: 'paren', name: null, avatar_url: null }, NOW);
   const id = (await sql()`INSERT INTO installations (token_hash, client_name, created_at) VALUES (${'mv-' + Math.random()}, ${'Claude Code (earnkit)'}, ${NOW}) RETURNING id`)[0].id as number;
   const code = await createLinkCode(id, NOW);
-  assert.equal((await meData(b, NOW, 'sess', code)).link?.parts?.[1], 'Claude Code');
+  assert.equal((await meData(b, NOW, 'sess', code)).link?.parts?.[1], '"Claude Code"');
   await sql()`UPDATE installations SET builder_id = ${b.id}, linked_at = ${NOW} WHERE id = ${id}`;
   const linked = await meData(b, NOW, 'sess');
   assert.equal(linked.installations[0].label, 'Claude Code');

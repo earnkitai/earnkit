@@ -426,7 +426,8 @@ export async function jobResults(id: string, builderId: number, now: Date = new 
       const read = !UNREAD.includes(r.status);
       return {
         // M2 (v6.1.15 fix round 1): a row read before v6.1.15 carries the rule `unfunded`; it reads as today's id. alias until v6.1.16
-        ref: r.ref, name: r.name, tier: tierOf(r), flags: (r.flags ?? []).map((f) => (f.rule === 'unfunded' ? { ...f, rule: 'self_funded_users' } : f)),
+        // Task 11 fix round 1 (N3): a row queued before v6.1.16 is cleaned when read.
+        ref: cleanText(r.ref, REF_MAX) || r.ref, name: r.name === null ? r.name : cleanText(r.name, 80), tier: tierOf(r), flags: (r.flags ?? []).map((f) => (f.rule === 'unfunded' ? { ...f, rule: 'self_funded_users' } : f)),
         because: r.because ?? [],
         line: read ? (r.line != null ? currentReviewerLine(r.line) : 'no tier: the read failed.') : null,
         result: r.outcome ?? null,

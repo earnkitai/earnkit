@@ -1317,3 +1317,17 @@ test('L1h-8: the needs line for a builder missing a company start date, the stag
   assert.equal(line, '1. Solana Incubator Cohort 6, NYC incubator with relocation stipend, amount not stated. Attend in person. Needs your company start date, stage, active users with 6-month growth and 4 more.');
   assert.equal(line.split('Needs your')[1].match(/ and /g)?.length, 1);
 });
+
+test('Task 11 fix round 1 (M1): every ready program held: the reply closes on the hold, one Say, last', () => {
+  const r = base({
+    linked: true, auto_apply: true, max_per_night: 5,
+    ready: [ready({ title: 'Alpha', held: true }), ready({ title: 'Beta', held: true })],
+    gaps: [gap({ title: 'Step', gap: VIDEO })],
+  });
+  const { ready: shown, gaps } = numbered(r.ready, r.gaps);
+  const parts = replyParts({ ...r, ready: shown, gaps }, true);
+  assert.equal(parts.text.split('\n').at(-1), 'On hold until you say go. Say go and I apply.');
+  assert.equal(parts.offer, 'apply');
+  assert.equal(parts.text.match(/\bSay\b/g)?.length, 1, parts.text);
+  assert.doesNotMatch(parts.text, /Nothing is ready yet|Nothing fits yet/);
+});

@@ -349,7 +349,7 @@ test('L24-21: a refusal for length names the limit; a NUL in prose is dropped an
   const c = await linked();
   const r = await mcpCall(c, 'record', { set: { answers: { risks: { text: 'x'.repeat(2_100) } } } });
   assert.equal(r.reply!.show_to_builder, 'Not saved: risks is at most 2,000 characters.');
-  const p = await mcpCall(c, 'record', { set: { person: { bio: 'Hi\u0000there ‮builder', location: 'Pu\u0000ne' } } });
+  const p = await mcpCall(c, 'record', { set: { person: { bio: 'Hi\u0000there \u202ebuilder', location: 'Pu\u0000ne' } } });
   assert.equal(p.reply!.show_to_builder, 'Tracked 2 facts.');
   const rec = await getRecord(c.builderId);
   assert.equal(rec.person.bio, 'Hithere builder');

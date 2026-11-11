@@ -2995,11 +2995,11 @@ test('L24-1 (ruling 12): another agent\'s project name never reaches this agent\
 });
 
 test('Review Focus 15 (v6.1.16 Task 11): hidden characters in a name, a description, a record answer, a track note and a client name reach no surface; a Persian joiner survives', async () => {
-  const HIDDEN = /[\u0000\u000d‮​﻿⁠]|[A-Za-z]‍[A-Za-z]/;
-  const PERSIAN = 'می‌خواهم';
+  const HIDDEN = /[\u0000\u000d\u202e\u200b\ufeff\u2060]|[A-Za-z]\u200d[A-Za-z]/;
+  const PERSIAN = 'می\u200cخواهم';
   const { id, builderId } = await linkedWith(OWNER_RECORD);
-  await sql()`UPDATE installations SET client_name = ${'Agent‮​Name'} WHERE id = ${id}`;
-  const dirty = (s: string) => `${s}‮​A‍B\u0000\r\n${PERSIAN}`;
+  await sql()`UPDATE installations SET client_name = ${'Agent\u202e\u200bName'} WHERE id = ${id}`;
+  const dirty = (s: string) => `${s}\u202e\u200bA\u200dB\u0000\r\n${PERSIAN}`;
   const project = { ...PROJECT, name: dirty('Timer'), description: dirty('A timer for builders.') };
   const c = { ...ctx(id), builderId, evidence: LIVE };
   const rec = await mcpCall(c, 'record', { set: { answers: { problem: { text: dirty('Builders miss grants.') } } } });
@@ -3024,7 +3024,7 @@ test('Review Focus 15 (v6.1.16 Task 11): hidden characters in a name, a descript
   const me = await meData({ id: builderId, login: 'x', name: null } as never, NOW, 'sess').finally(() => {
     if (was === undefined) delete process.env.EARNKIT_AUTH_SECRET;
   });
-  assert.doesNotMatch(JSON.stringify(me), /\\u0000|\\u202e|\\u200b|‮|​/);
+  assert.doesNotMatch(JSON.stringify(me), /\\u0000|\\u202e|\\u200b|\u202e|\u200b/);
 });
 
 // v6.1.16 Task 15 (L29-26, Review Focus 21): the default find is at most ten lines with one Say, the last.

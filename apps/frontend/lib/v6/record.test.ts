@@ -304,3 +304,11 @@ test('L21-18 (v6.1.16, controller ruling): Press submit stays on by default; onl
   assert.equal(EMPTY_RECORD.policy.agent_may_submit, true);
   assert.equal(ME_LABELS['policy.agent_may_submit'], 'Press submit for me when I say yes.');
 });
+
+test('Task 11 fix round 1 (N3): a record link carrying a user name or password is refused; a plain one saves', () => {
+  const m = mergeRecord(EMPTY_RECORD, { docs: { deck_url: 'https://user:pass@deck.example/d', resume_url: 'https://me@cv.example/r', founder_video_url: 'https://video.example/v' } }, 'agent', new Date('2026-11-06T12:00:00Z'));
+  assert.equal(m.record.docs.deck_url, undefined);
+  assert.equal(m.record.docs.resume_url, undefined);
+  assert.equal(m.record.docs.founder_video_url, 'https://video.example/v');
+  assert.equal(m.problems.filter((p) => /no user name or password/.test(p)).length, 2, m.problems.join('\n'));
+});

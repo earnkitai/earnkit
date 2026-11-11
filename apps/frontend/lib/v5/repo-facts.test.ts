@@ -429,3 +429,26 @@ test('F7 (v6.1.12): after a code step the unpushed repo is checked once; the row
   const [fresh] = await sql()<{ checked: string | null; fetched_at: Date }[]>`SELECT facts->>'checked_at' AS checked, fetched_at FROM repo_cache`;
   assert.deepEqual([fresh.checked, fresh.fetched_at.toISOString()], [null, at(21).toISOString()]);
 });
+
+test('Task 11 fix round 1 (I1): README text and the homepage are cleaned, read fresh or from a cache written before', async () => {
+  const { readmeExcerpt, readmeLead, cachedRepoFacts } = await import('./repo-facts');
+  const { prefill } = await import('./prefill');
+  const { programFixture } = await import('./fixtures/program');
+  const HIDDEN = /[\u0000\u202e\u200b]/;
+  const md = '# Timer\u202egnp\n\nKeeps\u200b time for\u0000 builders who ship. More.';
+  assert.doesNotMatch(readmeExcerpt(md)!, HIDDEN);
+  assert.equal(readmeLead(md), 'Keeps time for builders who ship.');
+  // A cached read holding the hidden characters (written before this release) is cleaned when read (jsonb holds no NUL).
+  const rec = replayFetch('earnkit');
+  const repo_url = `https://github.com/${rec.repo}`;
+  await repoFacts(project({ repo_url }), { gh: rec.fetch, now: NOW });
+  await sql()`UPDATE repo_cache SET facts = facts || ${sql().json({ readme_excerpt: 'Keeps\u200b time \u202eok.', readme_lead: 'Keeps\u200b time for builders \u202enow.', homepage: 'https://ti\u200bmer.example/' })}`;
+  const f = (await cachedRepoFacts({ ...project({ repo_url }), description: '' }))!;
+  assert.doesNotMatch(`${f.readme_excerpt}${f.description}${f.homepage}${f.live_url}`, HIDDEN);
+  assert.equal(f.description, 'Keeps time for builders now.');
+  const file = programFixture({ id: 'rf-i1', title: 'I1 Grant' });
+  const row = { id: 'rf-i1', file: { ...file, submission_requirements: [{ key: 'tagline', label: 'Tagline', type: 'text', required: true, kind: 'one_liner', from: 'project' }, { key: 'story', label: 'Story', type: 'text', required: false, kind: 'how_it_works', from: 'project' }] } } as never;
+  const fields = prefill(row, f).fields;
+  assert.doesNotMatch(JSON.stringify(fields), /\\u0000|\\u202e|\\u200b|\u202e|\u200b/);
+  assert.equal(fields.find((x) => x.key === 'tagline')!.value, 'Keeps time for builders now.');
+});
