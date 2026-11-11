@@ -48,12 +48,16 @@ const failed = (step: string, err: unknown): Response => {
   return json({ error: `${step} failed` }, 500);
 };
 
-/** Link codes and sessions that expired over a day ago; returns how many of each went. */
-async function sweepAuth(now: Date): Promise<{ link_codes: number; sessions: number }> {
+/**
+ * Link codes and sessions that expired over a day ago, and spent OAuth codes exchanged over a day ago (v6.1.16 Task 5:
+ * a code lives 5 minutes, so its spent row is no longer needed); returns how many of each went.
+ */
+async function sweepAuth(now: Date): Promise<{ link_codes: number; sessions: number; oauth_codes: number }> {
   const cutoff = new Date(now.getTime() - 86_400_000);
   const codes = await sql()`DELETE FROM link_codes WHERE expires_at < ${cutoff}`;
   const sessions = await sql()`DELETE FROM sessions WHERE expires_at < ${cutoff}`;
-  return { link_codes: codes.count, sessions: sessions.count };
+  const spent = await sql()`DELETE FROM oauth_codes_spent WHERE at < ${cutoff}`;
+  return { link_codes: codes.count, sessions: sessions.count, oauth_codes: spent.count };
 }
 
 export async function cronPost(request: Request, deps: CronDeps = {}): Promise<Response> {
@@ -97,7 +101,7 @@ export async function cronPost(request: Request, deps: CronDeps = {}): Promise<R
     return failed('sweep', err);
   }
 
-  let screen: Awaited<ReturnType<typeof workQueue>> & { swept: number; swept_auth: { link_codes: number; sessions: number } };
+  let screen: Awaited<ReturnType<typeof workQueue>> & { swept: number; swept_auth: { link_codes: number; sessions: number; oauth_codes: number } };
   try {
     // Jobs past the 90-day window of the counts across programs go first.
     const screensSwept = await sweepScreens(now);

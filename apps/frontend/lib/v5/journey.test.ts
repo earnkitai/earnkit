@@ -38,7 +38,7 @@ const seen: string[] = [];
 
 /** Registers a client, issues a token and connects it as /mcp does; returns the installation id. */
 async function stranger(): Promise<number> {
-  registerClient({ redirect_uris: ['http://127.0.0.1:8123/callback'], client_name: 'Journey Agent' });
+  await registerClient({ redirect_uris: ['http://127.0.0.1:8123/callback'], client_name: 'Journey Agent' });
   const token = 'journey-' + Math.random();
   await saveInstallation(token, 'Journey Agent');
   const caller = await connectInstallation(token);

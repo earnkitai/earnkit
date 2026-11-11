@@ -4,11 +4,12 @@
  * last_find_at and its gaps.
  */
 import { createHash } from 'node:crypto';
-import { sql } from './db';
+import { type Db, sql } from './db';
 import { dropControls } from './controls';
 import { INVALID_CLIENT_NAME, OAuthError, reservedClientName } from './oauth';
 
-export type Caller = { id: number; builderId: number | null };
+/** `audience`: the resource the token was issued for (null for installations from before v6.1.16). */
+export type Caller = { id: number; builderId: number | null; audience: string | null };
 
 const hash = (token: string) => createHash('sha256').update(token).digest('hex');
 
@@ -30,23 +31,55 @@ export function cleanClientName(name: string | null | undefined): string | null 
 
 /**
  * Records the installation for a newly issued token: one row per token (a re-authorization is a
- * new installation with a fresh ledger). Idempotent for a replayed code. The agent's name is cleaned first. Returns its id.
+ * new installation with a fresh ledger). Idempotent for one token (tokenPost spends each code once, installOnce). The agent's name is cleaned first. Returns its id.
  */
-export async function saveInstallation(token: string, clientName: string | null = null): Promise<number> {
+export async function saveInstallation(token: string, clientName: string | null = null, audience: string | null = null, db: Db = sql()): Promise<number> {
   // T6-F2 (v6.1.14): no installation is saved under EarnKit's own name, whoever calls this.
   if (reservedClientName(clientName)) throw new OAuthError('invalid_client_metadata', INVALID_CLIENT_NAME);
-  const [r] = await sql()<{ id: number }[]>`
-    INSERT INTO installations (token_hash, client_name) VALUES (${hash(token)}, ${cleanClientName(clientName)})
-    ON CONFLICT (token_hash) DO UPDATE SET client_name = COALESCE(EXCLUDED.client_name, installations.client_name)
+  const [r] = await db<{ id: number }[]>`
+    INSERT INTO installations (token_hash, client_name, audience) VALUES (${hash(token)}, ${cleanClientName(clientName)}, ${audience})
+    ON CONFLICT (token_hash) DO UPDATE SET client_name = COALESCE(EXCLUDED.client_name, installations.client_name),
+      audience = COALESCE(EXCLUDED.audience, installations.audience)
     RETURNING id`;
   return r.id;
 }
 
-/** The installation this token belongs to and its builder (its last_seen_at moves to now), or null. */
+/**
+ * The token exchange's write (L19-4): spends the code's nonce and saves the installation in one transaction. Null when
+ * the nonce was already spent: nothing is saved, and the caller revokes the token that exchange gave (spentToken).
+ */
+export async function installOnce(token: string, nonce: string, clientName: string | null, audience: string | null): Promise<number | null> {
+  return sql().begin(async (tx) => {
+    const spent = await tx`INSERT INTO oauth_codes_spent (nonce, token_hash, at) VALUES (${nonce}, ${hash(token)}, now())
+      ON CONFLICT DO NOTHING RETURNING nonce`;
+    if (spent.length === 0) return null;
+    return saveInstallation(token, clientName, audience, tx);
+  }) as Promise<number | null>;
+}
+
+/** Whether a code's nonce was already exchanged. */
+export async function codeSpent(nonce: string): Promise<boolean> {
+  const [row] = await sql()`SELECT 1 FROM oauth_codes_spent WHERE nonce = ${nonce}`;
+  return Boolean(row);
+}
+
+/** A reused code (L19-4, OAuth 2.1 4.1.3): revokes the token its first exchange gave. */
+export async function revokeSpentCode(nonce: string): Promise<void> {
+  await sql()`UPDATE installations SET revoked_at = COALESCE(revoked_at, now())
+    WHERE token_hash = (SELECT token_hash FROM oauth_codes_spent WHERE nonce = ${nonce})`;
+}
+
+/** Revokes this token's installation: /mcp refuses it from now on (connectInstallation answers null). */
+export async function revokeInstallation(token: string): Promise<void> {
+  await sql()`UPDATE installations SET revoked_at = COALESCE(revoked_at, now()) WHERE token_hash = ${hash(token)}`;
+}
+
+/** The installation this token belongs to and its builder (its last_seen_at moves to now), or null (none, or revoked). */
 export async function connectInstallation(token: string): Promise<Caller | null> {
-  const [row] = await sql()<{ id: number; builder_id: number | null }[]>`
-    UPDATE installations SET last_seen_at = now() WHERE token_hash = ${hash(token)} RETURNING id, builder_id`;
-  return row ? { id: row.id, builderId: row.builder_id } : null;
+  const [row] = await sql()<{ id: number; builder_id: number | null; audience: string | null }[]>`
+    UPDATE installations SET last_seen_at = now() WHERE token_hash = ${hash(token)} AND revoked_at IS NULL
+    RETURNING id, builder_id, audience`;
+  return row ? { id: row.id, builderId: row.builder_id, audience: row.audience } : null;
 }
 
 /** The builder this installation is linked to, or null. */
