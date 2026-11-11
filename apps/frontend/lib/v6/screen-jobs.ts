@@ -14,10 +14,10 @@ import { CONFIRMED, amountsOf, record, resultWords, winCapOf } from '../v5/ledge
 import { amountsOverCap } from '../v5/amount';
 import { amountsText, plusAmount, sameAmounts, type Amounts } from '../v5/programs-read';
 import { getProgram } from '../v5/programs';
-import { canonicalRepoLink, isCodeHost, isShortener, nameKeyOf, sshAsHttps } from '../v5/project-input';
-import { cachedRepoId, cachedRepoLink, repoKey } from '../v5/repo-facts';
+import { canonicalRepoLink, isCodeHost, isShortener, nameKeyOf, sshAsHttps, type Project } from '../v5/project-input';
+import { cachedRepoFacts, cachedRepoId, cachedRepoLink, ownsRepo, repoKey } from '../v5/repo-facts';
 import { type Applicant, identicalPitches } from './applicants';
-import { getRecord } from './builders';
+import { getBuilder, getRecord } from './builders';
 import type { Row } from './evidence';
 import { listWords } from './reply-words';
 import { currentReviewerLine } from './tier-words';
@@ -516,20 +516,34 @@ async function ownerInstallationBuilder(owner: string): Promise<number | null> {
 }
 
 async function applicationOf(applicationId: string, programId: string, builderId: number) {
-  type App = { owner: string; installation_id: number; status: string; project_id: string | null; repo_key: string | null; repo_id: string | null };
+  type App = { owner: string; installation_id: number; status: string; project_id: string | null; repo_key: string | null; repo_id: string | null; off_repo: string | null };
   const [byId] = await sql()<App[]>`
-    SELECT a.owner, a.installation_id, a.status, a.project_id, a.repo_key, a.repo_id FROM applications a WHERE a.application_id = ${applicationId} AND a.program_id = ${programId}`;
+    SELECT a.owner, a.installation_id, a.status, a.project_id, a.repo_key, a.repo_id, a.off_repo FROM applications a WHERE a.application_id = ${applicationId} AND a.program_id = ${programId}`;
   if (!byId) return byId;
   // L28-11 (v6.1.16 Task 14): a result is keyed to the repo's application, the earliest sent row for that repo key and
   // program, so co-founders' ids (rows from before one application per repo) share one result.
   const [first] = byId.repo_key && byId.status !== 'started' && byId.status !== 'skipped'
-    ? await sql()<App[]>`SELECT a.owner, a.installation_id, a.status, a.project_id, a.repo_key, a.repo_id FROM applications a
+    ? await sql()<App[]>`SELECT a.owner, a.installation_id, a.status, a.project_id, a.repo_key, a.repo_id, a.off_repo FROM applications a
         WHERE a.program_id = ${programId} AND a.repo_key = ${byId.repo_key} AND a.status = ANY(${['applied', 'won', 'rejected', 'no_result']})
         ORDER BY COALESCE(a.sent_at, a.at), a.owner LIMIT 1`
     : [];
-  const app = first ?? byId;
-  const own = app.owner === `b:${builderId}` || (await ownerInstallationBuilder(app.owner)) === builderId;
+  // Controller ruling: redirected only when both owners are shown to share the repo (owner, org member or committer,
+  // by the cached read alone), never by the repo key alone.
+  const shares = first && first.owner !== byId.owner ? (await tiedOwner(byId.owner, byId.repo_key!)) && (await tiedOwner(first.owner, byId.repo_key!)) : false;
+  const app = shares ? first! : byId;
+  // The reviewer's own application is refused whether it is the id's row or the row it redirects to.
+  const mine = async (owner: string) => owner === `b:${builderId}` || (await ownerInstallationBuilder(owner)) === builderId;
+  const own = (await mine(byId.owner)) || (app !== byId && (await mine(app.owner)));
   return { ...app, own };
+}
+
+/** L28-11 (controller ruling): whether an owner's GitHub login is tied to the repo by the cached read (no fetch). */
+async function tiedOwner(owner: string, repo: string): Promise<boolean> {
+  const builder = owner.startsWith('b:') ? Number(owner.slice(2)) : await ownerInstallationBuilder(owner);
+  if (builder === null || !Number.isSafeInteger(builder)) return false;
+  const login = (await getBuilder(builder))?.login ?? null;
+  const facts = (await cachedRepoFacts({ name: '', description: '', repo_url: repo } as Project)) ?? { repo_url: repo };
+  return ownsRepo(login, facts, { repoUrl: repo, noFetch: true });
 }
 
 type ProjectSide = { repo: string | null; name: string | null };
@@ -781,7 +795,8 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
       continue;
     }
     const sideOf = (x: { name: string; repo_url: string | null }): ProjectSide => ({ repo: repoSide(x.repo_url), name: nameSide(x.name) });
-    if (!sameProject(sideOf(a), appProject) && !(await renamedTo({ ...appProject, repo_id: app.repo_id === null ? null : Number(app.repo_id) }, sideOf(a)))) {
+    // L28-3 (v6.1.16 Task 14): a send kept off a repo (not the builder's) never takes that repo's result.
+    if ((app.off_repo !== null && sideOf(a).repo === app.off_repo) || (!sameProject(sideOf(a), appProject) && !(await renamedTo({ ...appProject, repo_id: app.repo_id === null ? null : Number(app.repo_id) }, sideOf(a))))) {
       skip(otherProject, NOT_PASSED.otherProject);
       continue;
     }

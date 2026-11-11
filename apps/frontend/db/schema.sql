@@ -432,6 +432,9 @@ WHERE a.ctid = k.row_id AND NOT EXISTS (
   SELECT 1 FROM applications c WHERE c.owner = a.owner AND c.program_id = a.program_id AND COALESCE(c.project_id, '') = k.key);
 -- The backfill: a row keyed by a repo link (projectKeyOf writes it canonical) carries it as its repo key.
 UPDATE applications SET repo_key = project_id WHERE repo_key IS NULL AND project_id LIKE 'https://%';
+-- v6.1.16 Task 14 (L28-3, L28-1): a builder-submitted send kept under the project's name only names the repo it was
+-- kept off (not theirs, or another account's application), so a screen row for that repo never reaches it.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS off_repo text;
 -- v6.1.16 Task 14 (L28-10): the builder an installation was unlinked from, so its later calls still see what that
 -- builder sent (read only) and never send it twice. Cleared when it links again.
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS former_builder_id int;

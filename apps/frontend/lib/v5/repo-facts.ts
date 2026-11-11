@@ -8,7 +8,7 @@ import { detectIntegrations } from '../v6/integrations';
 import { builderCodesIn, KNOWN_TOKEN_ADDRESSES } from './code-signals';
 import { CHAIN_REGISTRY, chainOfId } from './chains';
 import { sql } from './db';
-import { GitHubError, GitHubSlow, RepoPrivateError, isPublicMember, readBudget, readRepo, readRepoObject, type RepoRead } from './github';
+import { GitHubError, GitHubSlow, RepoPrivateError, gh, isPublicMember, readBudget, readRepo, readRepoObject, type RepoRead } from './github';
 import { LIMITS, hit, uncountHit } from './rate-limit';
 import { addressKey, canonicalRepoLink, type Project } from './project-input';
 import { cleanText } from './controls';
@@ -500,28 +500,53 @@ export async function cachedRepoLink(repoUrl: string | null | undefined): Promis
   return row && !isMiss(row.facts) && typeof row.facts.html_url === 'string' ? canonicalRepoLink(row.facts.html_url) : null;
 }
 
+/** L28-3 (v6.1.16 Task 14): how a login is tied to a repo: its owner, a committer, a public org member; null for none. */
+export type RepoTie = 'owner' | 'committer' | 'member' | null;
+
+/** L28-3: the cached read's row for a github.com repo key, or null (a miss, or none). */
+async function cachedRow(key: string | null): Promise<CodeFacts | null> {
+  if (!key) return null;
+  const [row] = await sql()<{ facts: CodeFacts }[]>`SELECT facts FROM repo_cache WHERE repo = ${key}`;
+  return row && !isMiss(row.facts) ? row.facts : null;
+}
+
 /**
- * L28-3 (v6.1.16 Task 14): whether the repo counts as this login's: the login (any case) is the repo's owner segment, is
- * among the read's contributor logins, or is a public member of the owner organization (GitHub's public_members, 204;
- * under the read's budget, the answer cached with the read). No login (unlinked) is never the builder's for a send. A
- * repo with no contributor list (not read: private, another host, a read cached before v6.1.16) gives no evidence
- * against the builder and counts by its owner segment or as theirs.
+ * L28-3 (v6.1.16 Task 14, controller ruling: fails closed): how `login` is tied to the repo, by evidence only. `owner`:
+ * the login is the owner segment of a github.com link. `committer`: among the contributor logins of a real read (the
+ * cached read's, else one read of GitHub's contributors under the read's budget, kept with the cached row). `member`: a
+ * public member of the owner organization (GitHub's public_members, 204; kept with the cached row). No login, another
+ * host, a private or unread repo, a failed read: null, so no claim or send is made with it. `noFetch`: cache only.
  */
-export async function ownsRepo(login: string | null | undefined, facts: Pick<RepoFacts, 'repo_url' | 'contributors' | 'owner_type'>, deps: { gh?: Fetch; repoUrl?: string | null } = {}): Promise<boolean> {
-  if (!login) return false;
+export async function repoTie(login: string | null | undefined, facts: Pick<RepoFacts, 'repo_url' | 'contributors' | 'owner_type'>, deps: { gh?: Fetch; repoUrl?: string | null; noFetch?: boolean } = {}): Promise<RepoTie> {
+  if (!login) return null;
   const me = login.toLowerCase();
-  const link = canonicalRepoLink(deps.repoUrl ?? facts.repo_url ?? undefined);
-  const owner = link ? link.replace(/^https:\/\/[^/]+\//, '').split('/')[0] : null;
-  if (owner === me) return true;
-  if (!facts.contributors) return true;
-  if (facts.contributors.includes(me)) return true;
-  if (facts.owner_type !== 'Organization' || !owner) return false;
   const key = repoKey(deps.repoUrl ?? facts.repo_url ?? undefined);
-  const [row] = key ? await sql()<{ facts: CodeFacts }[]>`SELECT facts FROM repo_cache WHERE repo = ${key}` : [];
-  const kept = row && !isMiss(row.facts) ? row.facts.members?.[me] : undefined;
-  if (typeof kept === 'boolean') return kept;
+  if (!key) return null;
+  const owner = key.split('/')[0];
+  if (owner === me) return 'owner';
+  const row = await cachedRow(key);
+  let contributors: string[] | null = facts.contributors ?? (Array.isArray(row?.contributors) ? row!.contributors! : null);
+  if (contributors === null && !deps.noFetch) {
+    try {
+      const rows = await gh<unknown>(`/repos/${key}/contributors?per_page=100`, undefined, deps.gh ?? fetch, readBudget());
+      contributors = Array.isArray(rows) ? rows.flatMap((r) => (r && typeof r === 'object' && typeof (r as { login?: unknown }).login === 'string' ? [(r as { login: string }).login.toLowerCase()] : [])) : null;
+    } catch {
+      contributors = null;
+    }
+    if (contributors && row) await sql()`UPDATE repo_cache SET facts = jsonb_set(facts, '{contributors}', ${sql().json(contributors)}) WHERE repo = ${key}`;
+  }
+  if (contributors?.map((c) => c.toLowerCase()).includes(me)) return 'committer';
+  if ((facts.owner_type ?? row?.owner_type) !== 'Organization') return null;
+  const kept = row?.members?.[me];
+  if (typeof kept === 'boolean') return kept ? 'member' : null;
+  if (deps.noFetch) return null;
   const member = await isPublicMember(owner, me, { fetch: deps.gh ?? fetch });
-  if (member === null) return false;
-  if (key && row) await sql()`UPDATE repo_cache SET facts = jsonb_set(facts, '{members}', COALESCE(facts->'members', '{}'::jsonb) || jsonb_build_object(${me}::text, ${member}::boolean)) WHERE repo = ${key}`;
-  return member;
+  if (member === null) return null;
+  if (row) await sql()`UPDATE repo_cache SET facts = jsonb_set(facts, '{members}', COALESCE(facts->'members', '{}'::jsonb) || jsonb_build_object(${me}::text, ${member}::boolean)) WHERE repo = ${key}`;
+  return member ? 'member' : null;
+}
+
+/** L28-3 (v6.1.16 Task 14): whether the repo counts as this login's (`repoTie`, fails closed). */
+export async function ownsRepo(login: string | null | undefined, facts: Pick<RepoFacts, 'repo_url' | 'contributors' | 'owner_type'>, deps: { gh?: Fetch; repoUrl?: string | null; noFetch?: boolean } = {}): Promise<boolean> {
+  return (await repoTie(login, facts, deps)) !== null;
 }

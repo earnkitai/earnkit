@@ -840,7 +840,11 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
   }
   const login = ctx.builderId === null ? null : (await getBuilder(ctx.builderId))?.login ?? null;
   const facts = login ? await cachedRepoFacts(project!) : null;
-  const mine = login ? await ownsRepo(login, facts ?? { repo_url: key }, { repoUrl: key, ...(ctx.gh ? { gh: ctx.gh } : {}) }) : null;
+  const tied = login ? await ownsRepo(login, facts ?? { repo_url: key }, { repoUrl: key, ...(ctx.gh ? { gh: ctx.gh } : {}) }) : null;
+  // The builder hears "not yours" only on evidence against them: a read's contributor list without their login. With
+  // none (not read, private, another host) nothing is said here; a claim or a send still fails closed (track).
+  const read = tied === false ? (await cachedRepoFacts(project!))?.contributors : undefined;
+  const mine = tied === false && read === undefined ? null : tied;
   // Unlinked, a join could never be done (the repo is not shown to be theirs), so it is not asked.
   if (pre.join && mine === true) return ask(pre.join, JOIN_NOTE(project!.name));
   if (mine === false) return { ...r, show_to_builder: [NOT_YOUR_REPO, r.show_to_builder].filter(Boolean).join('\n'), agent_note: [NOT_YOUR_REPO_NOTE, r.agent_note].filter(Boolean).join('\n') };

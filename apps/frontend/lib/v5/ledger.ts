@@ -132,9 +132,15 @@ export const resultWords = (status: string, amounts: Amounts | null) =>
   status === 'won' ? (amounts === null ? `won, ${AMOUNT_NOT_GIVEN}` : `won ${amountsText(amounts)}`) : status === 'no_result' ? 'no result' : status;
 export { newApplicationId };
 
-/** L28-1 (v6.1.16 Task 14): another builder sent this repo to the program; nothing is written. The login through quoteName. */
+/**
+ * L28-1 (v6.1.16 Task 14): another builder sent this repo to the program; nothing is written. Controller ruling: no
+ * other account and no result is named, except the other builder's login (through quoteName) when the caller's own tie
+ * to the repo is strong evidence (owner, or committer by a real read).
+ */
 export const ALREADY_SENT_REPO = (date: string, login: string | null): string =>
-  login ? `Already sent for this repo on ${date} by ${quoteName(login)}.` : `Already sent for this repo on ${date} from another account.`;
+  login ? `Already sent for this repo on ${date} by ${quoteName(login)}.` : `Already sent for this repo by another builder on ${date}.`;
+/** L28-10 (controller ruling): an unlinked agent's send of what the builder it was linked to sent; no date, row or count of theirs. */
+export const ALREADY_SENT_UNLINKED = 'Already sent from your account; nothing recorded. Sign in again to see it.';
 /** L28-3 (v6.1.16 Task 14): the builder's login is not the repo's owner, in its org, or among its committers. */
 export const NOT_YOUR_REPO = 'This repo is not yours; I apply only with repos you commit to.';
 /** L28-3: the agent note when a builder-submitted send with a repo that is not theirs is kept under the name only. */
@@ -145,8 +151,6 @@ export const NAME_ONLY_SENT_NOTE = 'Another account already sent this repo; reco
 export const ALREADY_SENT_PROJECT = (title: string, project: string): string => `${title} was already sent for ${project}.`;
 /** L28-10 (v6.1.16 Task 14): a send of what this builder already sent (from any agent, linked now or before). */
 export const ALREADY_SENT = (date: string): string => `Already sent on ${date}.`;
-/** L28-2 (v6.1.16 Task 14): a co-founder's win on a repo whose application another account holds, already won. */
-export const COFOUNDER_WON = 'Your co-founder already recorded this win.';
 
 /** The repo key a project key names (a canonical repo link), or null for a `name:` key, '' or a record id. Pure. */
 export const repoKeyOf = (key: string | null | undefined): string | null => (key && /^https:\/\//.test(key) ? key : null);
@@ -188,8 +192,9 @@ export async function sentForRepo(tx: Db, programId: string, repoKey: string, ow
 export const repoLock = (tx: Db, repoKey: string, programId: string) => tx`SELECT pg_advisory_xact_lock(hashtext(${'repo:' + repoKey + ':' + programId}))`;
 
 /**
- * L28-10 (v6.1.16 Task 14): for an unlinked installation's own ledger (`i:`), when the builder it was linked to before
- * sent this program for this project: that send's time (read only), else null.
+ * L28-10 (v6.1.16 Task 14): for an unlinked installation's own ledger (`i:`), whether the builder it was linked to
+ * before sent this program for this project. Controller ruling: used only as this yes or no for the duplicate-send
+ * check (the time is never shown to the unlinked agent); null when not.
  */
 export async function formerSentAt(tx: Db, owner: string, programId: string, key: string): Promise<Date | null> {
   const inst = installationOf(owner);
@@ -234,6 +239,10 @@ export async function record(
     submitted_by?: 'agent' | 'builder'; fields_used?: string[]; project_id?: string;
     /** L28-6 (v6.1.16 Task 14): GitHub's id of the application's repo, kept with its repo key. */
     repoId?: number | null;
+    /** L28-1 (controller ruling): the caller's tie to the repo is strong, so a refusal may name the other builder. */
+    showLogin?: boolean;
+    /** applied only, L28-3 and L28-1 (v6.1.16 Task 14): the repo a send kept under the name only was kept off. */
+    offRepo?: string | null;
     /** applied only: the builder's standing approval covered this send when it was tracked (track checks the policy). */
     autoApplied?: boolean;
     /** applied with autoApplied: the policy's max_per_night. Counted here under the owner's lock: a send past it is
@@ -308,15 +317,12 @@ export async function record(
     if (repoKey && (status === 'applied' || (status === 'won' && o.outsideWin === true && !o.fromScreen)) && (!row || row.status === 'started' || row.status === 'skipped')) {
       await repoLock(tx, repoKey, programId);
       const other = await sentForRepo(tx, programId, repoKey, owner);
-      if (other) {
-        if (status === 'won') return { ok: false, note: other.status === 'won' ? COFOUNDER_WON : ALREADY_SENT_REPO(dayWords(other.at, now), other.login) } as const;
-        return { ok: false, note: ALREADY_SENT_REPO(dayWords(other.at, now), other.login), repo_taken: true } as const;
-      }
+      // Controller ruling: never the other builder's result; their login only on the caller's strong tie.
+      if (other) return { ok: false, note: ALREADY_SENT_REPO(dayWords(other.at, now), o.showLogin ? other.login : null), repo_taken: true } as const;
     }
     // L28-10 (v6.1.16 Task 14): an unlinked agent never sends again what the builder it was linked to sent.
     if (status === 'applied' && (!row || row.status === 'started' || row.status === 'skipped')) {
-      const before = await formerSentAt(tx, owner, programId, rk);
-      if (before) return { ok: false, note: ALREADY_SENT(dayWords(before, now)) } as const;
+      if (await formerSentAt(tx, owner, programId, rk)) return { ok: false, note: ALREADY_SENT_UNLINKED } as const;
     }
     // A send for this project over a row from before projects were kept (no key) takes the row as this project's.
     if (row && rk === '' && key !== '' && status === 'applied') {
@@ -445,13 +451,14 @@ export async function record(
       // The title is kept, so a result still reads once the program leaves the catalog.
       // sent_at is the send time: a result later moves `at`, never this (v6.1.9 N2).
       // L13-1 (v6.1.14): the application's own id, kept when the row already has one.
-      await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, amounts, note, at, sent_at, submitted_by, fields_used, project_id, auto_applied, title, application_id, repo_key, repo_id)
-        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, NULL, ${note}, ${now}, ${now}, ${o.submitted_by ?? null}, ${o.fields_used ?? null}, ${pk}, ${auto}, ${program!.file.title}, ${newApplicationId()}, ${repoKey}, ${o.repoId ?? null})
+      await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, amounts, note, at, sent_at, submitted_by, fields_used, project_id, auto_applied, title, application_id, repo_key, repo_id, off_repo)
+        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, NULL, ${note}, ${now}, ${now}, ${o.submitted_by ?? null}, ${o.fields_used ?? null}, ${pk}, ${auto}, ${program!.file.title}, ${newApplicationId()}, ${repoKey}, ${o.repoId ?? null}, ${o.offRepo ?? null})
         ON CONFLICT (owner, program_id, (COALESCE(project_id, ''))) DO UPDATE
           SET installation_id = EXCLUDED.installation_id, status = 'applied', amount_usd = NULL, amounts = NULL, note = EXCLUDED.note, at = EXCLUDED.at, sent_at = EXCLUDED.sent_at,
               application_id = COALESCE(applications.application_id, EXCLUDED.application_id),
               submitted_by = EXCLUDED.submitted_by, fields_used = EXCLUDED.fields_used, auto_applied = EXCLUDED.auto_applied, title = EXCLUDED.title, held_at = NULL,
-              repo_key = COALESCE(EXCLUDED.repo_key, applications.repo_key), repo_id = COALESCE(EXCLUDED.repo_id, applications.repo_id)`;
+              repo_key = COALESCE(EXCLUDED.repo_key, applications.repo_key), repo_id = COALESCE(EXCLUDED.repo_id, applications.repo_id),
+              off_repo = COALESCE(EXCLUDED.off_repo, applications.off_repo)`;
       if (otherClaim) await tx`UPDATE applications SET claimed_at = NULL, claimed_by = NULL WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ${rk}`;
     } else if (status === 'skipped' && row?.status === 'started') {
       // A skip over a claim replaces it: the claim is gone, the skip stays.
@@ -578,13 +585,10 @@ export type ApplicationItem = {
  * left unsent is released and said by Task 9's started-not-sent line).
  */
 export async function applicationsOf(owner: string): Promise<ApplicationItem[]> {
-  // L28-10 (v6.1.16 Task 14): an unlinked agent also reads, never writes, what the builder it was linked to sent.
-  const inst = installationOf(owner);
-  const former = inst === undefined ? null : (await sql()<{ f: number | null }[]>`SELECT former_builder_id AS f FROM installations WHERE id = ${inst}`)[0]?.f ?? null;
-  const owners = former ? [owner, `b:${former}`] : [owner];
+  const owners = [owner];
   const rows = await sql()<{ program_id: string; status: string; title: string | null; sent_at: Date | null; at: Date; held_at: Date | null; amount_usd: string | null; amounts: unknown; submitted_by: string | null }[]>`
     SELECT program_id, status, title, sent_at, at, held_at, amount_usd, amounts, submitted_by FROM applications
-    WHERE owner = ANY(${owners}) AND status <> 'skipped' AND (status <> 'started' OR held_at IS NOT NULL) AND (owner = ${owner} OR status <> 'started')
+    WHERE owner = ANY(${owners}) AND status <> 'skipped' AND (status <> 'started' OR held_at IS NOT NULL)
     ORDER BY COALESCE(sent_at, held_at, at) DESC, program_id`;
   const titles = new Map((await programsById(rows.filter((r) => !r.title).map((r) => r.program_id))).map((p) => [p.id, p.file.title]));
   return rows.map((r) => {

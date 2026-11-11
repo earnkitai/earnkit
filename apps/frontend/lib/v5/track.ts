@@ -10,12 +10,12 @@ import { DELETED_NOTICE } from '../v6/reply-words';
 import { UNLINKED_MEANWHILE, UNLINKED_SEND_NOTE, claim } from '../v6/claims';
 import { APPROVAL_OFF, HAD_CLOSED, NIGHT_LIMIT, NOT_OPENED, REQUIRED_MISSING, STEP_AWAY, outsideApproval, readyAtSend, requiredLeftOut, storedRecordContext, storedSide } from '../v6/find-record';
 import { prefill, unvouchedRequired } from './prefill';
-import { cachedRepoFacts, cachedRepoId, ownsRepo, reportOnlyFacts } from './repo-facts';
+import { cachedRepoFacts, cachedRepoId, repoTie, reportOnlyFacts, type RepoTie } from './repo-facts';
 import { findAutoWas, forgetGap, lastGaps, lastListIds, lastProjectKey, unmarkNightFind } from './installations';
 import { PROJECT_DESCRIPTION, ProjectArg, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
 import { closedAt, statusAt, getProgram, listOpenPrograms, programByName, unknownProgramLine } from './programs';
 import { closeDay, dayWords } from './deadline';
-import { ALREADY_SENT, ALREADY_SENT_PROJECT, ALREADY_SENT_REPO, HELD_SENT_NOTE, NAME_ONLY_NOTE, NAME_ONLY_SENT_NOTE, NOT_YOUR_REPO, OTHER_CLAIM_NOTE, doneItems, pickRow, projectWords, rekeyProject, repoKeyOf, record, reportOf, saveReport, resolvedKey, resultOf, summary, titleOf, type Ledger, type Status } from './ledger';
+import { ALREADY_SENT_PROJECT, ALREADY_SENT_REPO, ALREADY_SENT_UNLINKED, HELD_SENT_NOTE, NAME_ONLY_NOTE, NAME_ONLY_SENT_NOTE, NOT_YOUR_REPO, OTHER_CLAIM_NOTE, doneItems, pickRow, projectWords, rekeyProject, repoKeyOf, record, reportOf, saveReport, resolvedKey, resultOf, summary, titleOf, type Ledger, type Status } from './ledger';
 import { clock } from './reply';
 import { codeChecked, itemKey } from './eligibility';
 import { eligibilityOf } from './program-file';
@@ -89,13 +89,19 @@ const loginOf = async (builderId: number): Promise<string | null> => (await getB
  * public tie by the cached read (`ownsRepo`). A key that names no repo is never "not theirs".
  */
 async function repoNotMine(ctx: TrackContext, key: string): Promise<boolean> {
-  const repo = repoKeyOf(key);
-  if (!repo) return false;
-  const login = ctx.builderId === null ? null : await loginOf(ctx.builderId);
-  if (!login) return true;
-  const facts = (await cachedRepoFacts({ name: '', description: '', repo_url: repo } as Project)) ?? { repo_url: repo };
-  return !(await ownsRepo(login, facts, { repoUrl: repo }));
+  return repoKeyOf(key) !== null && (await tieOf(ctx, key)) === null;
 }
+
+/** L28-3 (v6.1.16 Task 14, controller ruling: fails closed): the builder's tie to the repo a project key names, or null. */
+async function tieOf(ctx: TrackContext, key: string): Promise<RepoTie> {
+  const repo = repoKeyOf(key);
+  if (!repo || ctx.builderId === null) return null;
+  const login = await loginOf(ctx.builderId);
+  const facts = (await cachedRepoFacts({ name: '', description: '', repo_url: repo } as Project)) ?? { repo_url: repo };
+  return repoTie(login, facts, { repoUrl: repo });
+}
+/** L28-1 (controller ruling): the other builder's login is said only on the caller's strong tie (owner or committer). */
+const strong = (t: RepoTie) => t === 'owner' || t === 'committer';
 
 /** L28-5 (v6.1.16 Task 14): the item a builder's yes to the join question is tracked with: `join:` and the name. */
 export const JOIN_ITEM = /^join:(.+)$/s;
@@ -482,8 +488,8 @@ async function act(
     const c = await claim(owner, i.program_id, appKey || null, ctx.installationId, ctx.now, i.note ?? null, { repoId: await repoIdOf(appKey) });
     if (!c.ok && 'unlinked' in c) return refuse(UNLINKED_MEANWHILE);
     // L28-1 (v6.1.16 Task 14): another account sent this repo; L28-10: the builder this agent was linked to sent it.
-    if (!c.ok && 'repo' in c) return refuse(ALREADY_SENT_REPO(dayWords(c.repo.at, ctx.now), c.repo.login), 'Nothing was recorded. Do not submit this one: another EarnKit account already sent this repo to the program.');
-    if (!c.ok && 'former' in c) return refuse(ALREADY_SENT(dayWords(c.former.at, ctx.now)), 'Nothing was recorded. Do not submit this one; the builder already sent it.');
+    if (!c.ok && 'repo' in c) return refuse(ALREADY_SENT_REPO(dayWords(c.repo.at, ctx.now), strong(await tieOf(ctx, appKey)) ? c.repo.login : null), 'Nothing was recorded. Do not submit this one: another EarnKit account already sent this repo to the program.');
+    if (!c.ok && 'former' in c) return refuse(ALREADY_SENT_UNLINKED, 'Nothing was recorded. Do not submit this one; the builder already sent it.');
     // L29-27 (v6.1.16 Task 15): the builder's words, not the status name.
     if (!c.ok && 'skipped' in c)
       return refused({
@@ -544,7 +550,9 @@ async function act(
   }
   // L28-3: a send the builder made with a repo that is not theirs is kept (L23-3), under the project's name only, so it
   // never matches a screen row for that repo and never takes the repo's place.
+  let offRepo: string | null = null;
   if (i.status === 'applied' && sender === 'builder' && (await notMine())) {
+    offRepo = repoKeyOf(appKey);
     appKey = await nameKey();
     nameOnly = NAME_ONLY_NOTE;
   }
@@ -562,8 +570,10 @@ async function act(
     : policy && row && (await findAutoWas(ctx.installationId)) ? APPROVAL_OFF : null;
   // FR-3 (final fix): a send with no project_id keeps the project key, as a claim does, so a screen can match it.
   const applied = i.status === 'applied'
-    ? { submitted_by: sender, fields_used: i.fields_used, autoApplied: standing && outside === null, ...(standing ? { maxPerNight: policy!.policy.max_per_night } : {}), repoId: await repoIdOf(appKey) }
+    ? { submitted_by: sender, fields_used: i.fields_used, autoApplied: standing && outside === null, ...(standing ? { maxPerNight: policy!.policy.max_per_night } : {}), repoId: await repoIdOf(appKey), offRepo }
     : {};
+  // L28-1 (controller ruling): a refusal names the other builder only on this builder's strong tie to the repo.
+  const showLogin = (i.status === 'applied' || i.status === 'won') && repoKeyOf(appKey) !== null && strong(await tieOf(ctx, appKey));
   // L17-1 (v6.1.16): a skip's checks (already sent, already skipped, another agent's live claim) run in record, under
   // the per-program lock, so parallel skips write one row. L17-8: the payment key is the caller's, one space per application.
   // L22-6 (v6.1.16): a win's amount through the shared reader; any other status ignores it, as before.
@@ -572,14 +582,15 @@ async function act(
   if (amount === 'ambiguous') return refuse(AMOUNT_DOT, 'Nothing was recorded. Send 5000 or 5,000; a dot is for cents only.');
   // L29-3 (v6.1.16 Task 15): a win with no application here is recorded as the builder's own send, then the win.
   // L28-4 (v6.1.16 Task 14): every status names its project key (FR-3: the key, never the record id).
-  let res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, ...(amount && { amount }), note: i.note, item: i.item, projectKey: project.key, project_id: i.status === 'gap_done' ? undefined : appKey, now: ctx.now, ...applied,
+  let res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, ...(amount && { amount }), note: i.note, item: i.item, projectKey: project.key, project_id: i.status === 'gap_done' ? undefined : appKey, now: ctx.now, ...applied, showLogin,
     ...(i.status === 'won' ? { outsideWin: true as const } : {}),
     ...(i.status === 'won' && i.payment ? { payment: { key: i.payment.key } } : {}) });
   // L28-1 (v6.1.16 Task 14): a send the builder made of a repo another account sent is kept under the name only.
   if (!res.ok && res.repo_taken && sender === 'builder' && i.status === 'applied' && !nameOnly) {
+    const taken = repoKeyOf(appKey);
     appKey = await nameKey();
     nameOnly = NAME_ONLY_SENT_NOTE;
-    res = await record(owner, i.program_id, 'applied', { installationId: ctx.installationId, note: i.note, projectKey: project.key, project_id: appKey, now: ctx.now, ...applied, repoId: null });
+    res = await record(owner, i.program_id, 'applied', { installationId: ctx.installationId, note: i.note, projectKey: project.key, project_id: appKey, now: ctx.now, ...applied, repoId: null, offRepo: taken });
   }
   // A second skip says so (v6.1.9, lane 8 simplify).
   if (res.ok && i.status === 'skipped' && 'repeated' in res)
