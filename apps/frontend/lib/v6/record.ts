@@ -6,21 +6,20 @@
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { isKnownChain } from '../v5/chains';
-import { dropControls } from '../v5/controls';
+import { cleanProse, cleanText } from '../v5/controls';
 import { ANSWER_KINDS, PROGRAM_CATEGORIES, type AnswerKind, type FieldKind } from '../v5/program-file';
 
 /** Each value once, in first order (F10, v6.1.12): the one de-duplication /me and the record tool share. Pure. */
 export const onceEach = <T>(xs: readonly T[]): T[] => [...new Set(xs)];
 
-/** Newlines and tabs are fine in prose; other control characters are not. */
-const CONTROL_PROSE = /[\u0000-\u0008\u000b-\u001f\u007f]/;
 /**
  * One line as saved (v6.1.7 S4): tabs and line breaks become a plain space, every other control or format character
  * (bidi overrides, zero-width marks) is dropped, and runs of spaces collapse to one. Pure.
  */
-export const cleanLine = (s: string): string => dropControls(s);
+export const cleanLine = (s: string): string => cleanText(s, Infinity);
 const line = (max: number) => z.string().overwrite(cleanLine).max(max);
-const prose = (max: number) => z.string().max(max).refine((s) => !CONTROL_PROSE.test(s), 'no control characters');
+/** Prose keeps its line breaks; every other control or format character (NUL, bidi, zero-width) is dropped (L24-21). */
+const prose = (max: number) => z.string().overwrite(cleanProse).max(max);
 const https = line(500).pipe(z.url({ protocol: /^https$/ }));
 const githubRepo = line(300).regex(/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/?$/, 'must be an https://github.com/<owner>/<repo> link');
 const email = line(200).pipe(z.email());

@@ -4,7 +4,7 @@
  * open list. Linked, it also reads the builder's record (lib/v6/find-record.ts). EarnKit writes no prose.
  */
 import { z } from 'zod';
-import { dropControls } from './controls';
+import { cleanText, quoteName } from './controls';
 import { getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason } from '../v6/builders';
 import { appliedOvernight, CLAIM_HOURS, releaseStale, type Released } from '../v6/claims';
 import { readEvidence, type Evidence, type Subject } from '../v6/evidence';
@@ -574,7 +574,7 @@ function linkedPart(side: RecordSide, rows: ProgramRow[], released: Released[], 
 /** The name a project report gave, as text and cut to 80 characters, or null (L1g-2, v6.1.15). Pure. */
 function rawName(project: unknown): string | null {
   const name = project && typeof project === 'object' ? (project as { name?: unknown }).name : undefined;
-  const t = typeof name === 'string' ? dropControls(name).trim().slice(0, 80).trim() : '';
+  const t = typeof name === 'string' ? cleanText(name, 80) : '';
   return t || null;
 }
 

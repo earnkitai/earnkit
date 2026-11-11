@@ -8,7 +8,8 @@ import { githubOAuthFetch } from './fixtures/github-oauth';
 import { verifyState } from './github-auth';
 import { renderToStaticMarkup } from 'react-dom/server';
 import * as React from 'react';
-import { FAILED_PATH, LINK_STATES, callbackGet, consumeLinkCode, createLinkCode, linkDocTitle, linkPost, linkState, shortName } from './link-routes';
+import { FAILED_PATH, LINK_STATES, callbackGet, consumeLinkCode, createLinkCode, linkDocTitle, linkPost, linkState } from './link-routes';
+import { quoteName } from '../v5/controls';
 import { sessionBuilder } from './sessions';
 import LinkView from '../../app/link/[code]/LinkView';
 
@@ -112,8 +113,8 @@ test('GET /link renders the confirm page: the h1 Connect {agent}?, the agent nam
   const html = r.html;
   // L27-26 (v6.1.16): one h1, the agent's name isolated.
   assert.equal((html.match(/<h1/g) ?? []).length, 1);
-  assert.match(html, /<h1[^>]*>Connect <bdi>Claude &lt;Code&gt;<\/bdi>\?<\/h1>/);
-  assert.equal(r.s.title, 'Connect Claude <Code>?');
+  assert.match(html, /<h1[^>]*>Connect <bdi>&quot;Claude &lt;Code&gt;&quot;<\/bdi>\?<\/h1>/);
+  assert.equal(r.s.title, 'Connect "Claude <Code>"?');
   assert.ok(html.includes('Link the agent calling itself <strong><bdi>Claude &lt;Code&gt;</bdi></strong>, first seen Nov 6, to your GitHub account?'), html);
   assert.ok(html.includes(`<form action="/link/${code}/confirm" method="post">`));
   assert.ok(html.includes('Continue with GitHub'));
@@ -128,16 +129,14 @@ test('GET /link renders the confirm page: the h1 Connect {agent}?, the agent nam
   assert.match(plain, /<h1[^>]*>Connect your agent\?<\/h1>/);
 });
 
-test('L27-26 (v6.1.16): a long agent name in the h1 is cut at 40 characters on a whole word; the line keeps it whole', async () => {
+test('L27-26 (v6.1.16, Task 11 quoteName): a long agent name in the h1 is quoted and cut at 40 characters; the line keeps it whole', async () => {
   const long = 'An agent with a very long name that someone chose for it';
-  assert.equal(shortName(long), 'An agent with a very long name that...');
-  assert.ok(shortName(long).length <= 43);
-  assert.equal(shortName('Claude Code'), 'Claude Code');
-  assert.equal(shortName('x'.repeat(50)), `${'x'.repeat(40)}...`);
+  assert.equal(quoteName(long), '"An agent with a very long name that some"');
+  assert.equal(quoteName('Claude Code'), '"Claude Code"');
   const code = await createLinkCode(await install(long), NOW);
   const r = await linkGet(req(`/link/${code}`), code, { now: NOW });
-  assert.equal(r.s.title, `Connect ${shortName(long)}?`);
-  assert.equal(linkDocTitle(r.s.title), `Connect ${shortName(long)}? · EarnKit`);
+  assert.equal(r.s.title, `Connect ${quoteName(long)}?`);
+  assert.equal(linkDocTitle(r.s.title), `Connect ${quoteName(long)}? · EarnKit`);
   assert.ok(r.html.includes(`<bdi>${long}</bdi></strong>`));
 });
 
@@ -351,6 +350,6 @@ test('L25-1 (v6.1.16, fix round 1): the confirm page names "Claude Code (earnkit
   const code = await createLinkCode(await install('Claude Code (earnkit)'), NOW);
   const html = await (await linkGet(req(`/link/${code}`), code, { now: NOW })).text();
   assert.ok(html.includes('Link the agent calling itself <strong><bdi>Claude Code</bdi></strong>, first seen Nov 6, to your GitHub account?'), html);
-  assert.match(html, /<h1[^>]*>Connect <bdi>Claude Code<\/bdi>\?<\/h1>/);
+  assert.match(html, /<h1[^>]*>Connect <bdi>&quot;Claude Code&quot;<\/bdi>\?<\/h1>/);
   assert.ok(!html.includes('(earnkit)'));
 });

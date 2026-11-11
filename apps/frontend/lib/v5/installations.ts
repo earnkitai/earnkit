@@ -5,7 +5,7 @@
  */
 import { createHash } from 'node:crypto';
 import { type Db, sql } from './db';
-import { dropControls } from './controls';
+import { cleanText } from './controls';
 import { INVALID_CLIENT_NAME, OAuthError, reservedClientName } from './oauth';
 
 /** `audience`: the resource the token was issued for (null for installations from before v6.1.16). */
@@ -19,7 +19,7 @@ const hash = (token: string) => createHash('sha256').update(token).digest('hex')
  */
 export function cleanClientName(name: string | null | undefined): string | null {
   if (!name) return null;
-  const s = Array.from(dropControls(name).replace(/\s+/g, ' ').trim()).slice(0, 60).join('').trim();
+  const s = cleanText(name.replace(/\s+/g, ' '), 60);
   return s || null;
 }
 

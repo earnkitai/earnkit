@@ -10,6 +10,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import { sql } from '../v5/db';
 import { publicOrigin } from '../v5/oauth';
 import { displayName } from '../v5/installations';
+import { quoteName } from '../v5/controls';
 import { RateLimitError, clientIp, enforce } from '../v5/rate-limit';
 import { ME_ERRORS, ME_LINK_EXPIRED_TITLE, ME_LINK_USED, UNKNOWN_CODE } from '../v5/site-copy';
 import { LinkRefused, linkInstallation, upsertBuilder } from './builders';
@@ -108,17 +109,6 @@ async function guarded(request: Request, fn: () => Promise<Response>): Promise<R
 
 const day = (d: Date) => new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(d);
 
-/**
- * An agent's name as a heading shows it (L27-26, v6.1.16): at most 40 characters, cut at a whole word with "..." when
- * longer (Task 11's quoteName rule; swap to it when that lands). Pure.
- */
-export function shortName(name: string, max = 40): string {
-  if (name.length <= max) return name;
-  const cut = name.slice(0, max + 1);
-  const at = cut.lastIndexOf(' ');
-  return `${(at > 0 ? cut.slice(0, at) : name.slice(0, max)).trimEnd()}...`;
-}
-
 export type LinkStateName = 'live' | 'used' | 'expired' | 'unknown' | 'failed' | 'limited' | 'not_set_up';
 /**
  * What a /link page shows (L27-4, L27-26, v6.1.16): the state, its title (the page's one h1, full stop or `?` kept),
@@ -166,7 +156,7 @@ export async function linkState(code: string, now: Date, headers: Headers = new 
   const name = displayName(live.client_name);
   return {
     state: 'live',
-    title: `Connect ${name ? shortName(name) : 'your agent'}?`,
+    title: `Connect ${name ? quoteName(name) : 'your agent'}?`,
     line: 'Once linked, it can read and change your record and apply to programs in your name.',
     agent: name,
     seen: day(live.created_at),

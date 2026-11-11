@@ -6,7 +6,7 @@
  */
 import { z } from 'zod';
 import { CHAIN_REGISTRY, chainOfId, isKnownChain } from './chains';
-import { dropControls } from './controls';
+import { cleanText } from './controls';
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 /** A Solana account or program id: base58 (no 0, O, I or l), 32 to 44 characters (B21, v6.1.8). */
@@ -66,7 +66,7 @@ const MAX = { name: 80, description: 280 } as const;
  * Control and format characters (zero-width, bidi overrides, NUL) are never part of a project string (v6.1.7, C15);
  * a tab or line break becomes a space so two lines keep their word boundary.
  */
-const clean = dropControls;
+const clean = (s: string) => cleanText(s, Infinity);
 const text = (v: unknown) => (typeof v === 'string' ? clean(v).trim() : '');
 /** The chains read from one report; the rest are named, not read. */
 const MAX_CHAINS = 20;
