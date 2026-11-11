@@ -96,7 +96,6 @@ CREATE TABLE IF NOT EXISTS installations (
   last_seen_at timestamptz NOT NULL DEFAULT now(),
   last_find_at timestamptz
 );
--- v6.1.16 (Task 16): clientKeyOf(client_id), the first 32 hex of its sha256; the oauth_clients sweep keeps a client named here.
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS client_key text;
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS client_name text;
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS last_find_at timestamptz;
@@ -110,13 +109,14 @@ ALTER TABLE installations ADD COLUMN IF NOT EXISTS prev_find_at timestamptz;
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS audience text;
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS revoked_at timestamptz;
 -- v6.1.16 (Task 5, L19-8): registered OAuth clients; the client_id is 128 random bits, never derived from metadata.
--- Task 16: the daily run sweeps one registered over 30 days ago that no installation's client_key names.
+-- Task 16: `used_at` is its first code exchange; the daily run sweeps one registered over 30 days ago that never exchanged one.
 CREATE TABLE IF NOT EXISTS oauth_clients (
   client_id     text PRIMARY KEY,
   redirect_uris text[] NOT NULL,
   client_name   text,
   created_at    timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS used_at timestamptz;
 -- v6.1.16 (Task 5, L19-4): each exchanged authorization code (its nonce) and the token it gave; a second exchange
 -- revokes that token. The daily cron sweeps rows over a day old (codes live 5 minutes).
 CREATE TABLE IF NOT EXISTS oauth_codes_spent (

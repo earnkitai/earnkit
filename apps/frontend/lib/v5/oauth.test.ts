@@ -605,3 +605,13 @@ test('L19-10: a token or register body that stalls answers 408 within 6 s, with 
   }
   assert.deepEqual(logs, ['[http] body read timed out', '[http] body read timed out']);
 });
+
+test('v6.1.16 Task 16: a code exchange marks the registered client used, once, so the daily run keeps it', async () => {
+  const id = (await registerClient({ redirect_uris: [redirect] })).client_id;
+  assert.equal((await sql()`SELECT used_at FROM oauth_clients WHERE client_id = ${id}`)[0].used_at, null);
+  await exchangeCode(tokenForm(id, await codeOf(id)));
+  const first = (await sql()`SELECT used_at FROM oauth_clients WHERE client_id = ${id}`)[0].used_at as Date;
+  assert.ok(first instanceof Date);
+  await exchangeCode(tokenForm(id, await codeOf(id)));
+  assert.equal(((await sql()`SELECT used_at FROM oauth_clients WHERE client_id = ${id}`)[0].used_at as Date).getTime(), first.getTime());
+});
