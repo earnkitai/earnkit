@@ -271,7 +271,10 @@ on a held line.
 ## Freshness and the daily job
 
 `.github/workflows/earnkit-cron.yml` posts to `/api/cron` once a day with `CRON_SECRET` (v6.1.14 L13-11: a secret under
-32 characters answers 503 "cron is not set up" with one `[cron]` ops log line, never 401). v6.1.16 Task 16 (lane 30):
+32 characters answers 503 "cron is not set up" with one `[cron]` ops log line, never 401; v6.1.16 Task 17: in
+production such a secret stops the server at start, `instrumentation.ts` `register()` logging `[boot] CRON_SECRET
+must be at least 32 characters.` and exiting 1, because a throw alone left `next start` up answering 500; unset still
+boots and the cron answers 503). v6.1.16 Task 16 (lane 30):
 `cron.ts` runs its steps in order, each in its own try: `health` (`health.ts`: every listed program, 10 at once
 (`PROBE_PARALLEL`), 8 s per link (`PROBE_MS`), one GET per link whose page also gives the source text; status moves by
 date, each program's probe-and-write and its status move in separate tries), the sweeps (`sweep_repo` repo cache over
@@ -347,7 +350,14 @@ OPTIONS`, register and token `POST, OPTIONS`, authorize and discovery `GET, HEAD
 OPTIONS); `proxy.ts` answers methods no route can export (PROPFIND and the like) the same way on /oauth/authorize and
 /.well-known only: a path the proxy matches has its whole body buffered by Next before the route runs, so /mcp,
 /oauth/token and /oauth/register stay out of its matcher (fix round 1). PROPFIND-class methods there, and TRACE and
-CONNECT everywhere (refused by Next's own Request first: a bare 500), are parked as an edge rule. `readCapped` gives up
+CONNECT everywhere (refused by Next's own Request first: a bare 500), are parked as an edge rule. v6.1.16 Task 17
+(L31-1): every other route answers an unserved method the same way, from one table, `METHODS_BY_ROUTE`
+(`lib/v5/route-methods.ts`): pages `GET, HEAD`, `/me/*` `GET, POST` (a GET is a 303 to /me), `/link/<code>` `GET`,
+its `/confirm` `POST`, each /api route its own exports. The proxy matches every page path (a fifth matcher entry,
+never /_next, /api/, /mcp, /oauth/, /me/, /link/ or /auth/) and answers there; every route file with a body exports a
+405 handler (`refuseFor`) for each method it does not serve, so Next's own empty-Allow 405 never answers (OPTIONS
+included: Next's automatic OPTIONS would list them). `route-methods.test.ts` walks `app/**/route.ts` against the
+table. A page POST is now buffered by Next before the proxy's 405; pages read no body. `readCapped` gives up
 on a body not finished within 5 s (`BodyTimeoutError`); every caller answers 408 with one log line `[http] body read
 timed out`: /mcp, token and register `request_timeout` (JSON), /me posts `The request took too long. Try again.`,
 reviewers and the programs write `{ ok: false, error: 'the body came too slowly' }`, the cron `{ error }`
@@ -516,7 +526,11 @@ Solana project with no repo sees Solana Foundation Grants as its step; any other
 and I look again." with no repo; the read settles it. The unlinked path names `blockersOf` against `EMPTY_RECORD` under
 "Before applying:" as one sentence naming the programs per thing the builder does ("you sign in by email and press submit yourself on X"; "Before tonight (nothing is sent until these are in):" when the agent sends tonight under standing approval, or when nothing can go), and keeps the closing line as the one action with the sign-in as its second sentence (v6.1.8: "Say yes and I apply to all n. Or say the numbers to skip.", "Say yes and I apply." (v6.1.16 L16-11: "Say yes and I apply to {title}." for the one ready program, `closingLine`'s `title`, also after a yes that stands or waits; a program with a result shows its title and money, then "Won $3,000." / "Rejected." / "No result." and no yes, step or sign-in, from `resultOf` in `ledger.ts`, L16-7), "Nothing is ready yet." with the first rule's yes (v6.1.9: also the rule of the only step program shown, "if that rule fits you"; else, from v6.1.16 L1g-5, "Tell me when {step} and I look again." through `singleStepClosing`), "Applying tonight to {titles}."; each gap line carries its own "Say \"do n\"" only when EarnKit can make every real gap, and each rule-only line its own "Say \"yes n\" if that is you."). The first `find` (and `record`) on an unlinked installation carries a one-time link
 `earnkit.com/link/<code>` (15 minutes, hash stored, `link-routes.ts`); the builder continues, signs in with GitHub
-(`read:user`, `github-auth.ts`), and the callback only starts a 30-day session (`ek_me` cookie, `sessions.ts`) and lands
+(`read:user`, `github-auth.ts`), and the callback only starts a 30-day session (`sessions.ts`; v6.1.16 Task 17, L31-6:
+the cookie is `__Host-ek_me` in production, so Secure, Path=/ and no Domain, and `ek_me` on local http; for one
+release a session under the old `ek_me` is still read (`sessionToken`), the /me gate moves it to the new name
+(`renewedCookies`), the callback expires any old one, and sign-out and delete end the session behind each cookie
+present and expire both names) and lands
 on `/me?link=<code>` (v6.1.6, security H1: a sent link plus one click no longer links a stranger's agent). There a banner
 names the agent and its first-seen day; Link this agent (`POST /me/link`, session and csrf) marks the code used and
 links the installation in one transaction (`consumeLinkCode`), Not me ends the code (`denyLinkCode`). The first `find`
@@ -698,7 +712,9 @@ tomorrow." (read so far, the job's total); `POST /api/cron` with `{ "job_id": ".
 with `outcomes` it records the program's decisions (refs not in the job are named; L15-15, L15-16 v6.1.14: a win's
 amount is `amount_usd` or `amount` with a currency code, read by the one shared reader `readAmount` (`lib/v5/amount.ts`,
 track uses it too, v6.1.16 Task 8: `5k`, `$5,000`, `5000 USD`, `USD 5000`, `5,000.00`, `€5000`, `£5000`; cents kept);
-an unreadable amount or a win over the cap refuses only that applicant, "Tell me the amount for {ref}." / "Over the
+an unreadable amount or a win over the cap refuses only that applicant, "Tell me the amount as a number, like 5000
+for $5,000." (v6.1.16 Task 17, L31-5: `AMOUNT_UNREAD` in amount.ts, track's line too, once, refs in the agent note;
+Task 15 owns its words) / "Over the
 program's $10,000 cap: {ref} at {amount}. Nothing recorded for it.", the rest recorded; a dot used as a thousands
 separator ("2.500", `'ambiguous'`) reads "Amount not read: use a dot only for cents, no thousands separator." once,
 the refs in the agent note (L16-14, v6.1.16). L22-3 to L22-5 (v6.1.16): the money is kept as given, by currency, never
@@ -759,7 +775,9 @@ block in builder words (no path is shown), standing approval, applications, link
 Plain HTML forms, no client script. Every POST (`/me/edit`, `approve`, `policy`, `unlink`, `delete`, `signout`)
 needs a web form under 64 KB (else 415 or 413), a session and the day's csrf token (an HMAC of the builder id, the
 session cookie's value and the UTC day with `EARNKIT_AUTH_SECRET`, today's or yesterday's; another session's token
-fails). No session is a 403 with the sign-in line; a failed csrf check is a 303 to `/me` with the signed line "This
+fails). v6.1.16 Task 17 (L31-3): first, the post must come from EarnKit's page (`sameOrigin`: an Origin equal to the
+public origin, or with no Origin a Referer on it), else 403 `That form did not come from EarnKit.`. No session is a
+403 with the sign-in line; a failed csrf check is a 303 to `/me` with the signed line "This
 page expired. Reload it and try again." and no change. Edits merge as the builder under
 the row lock; a problem comes back as a signed `?problem=` line (a crafted one is not shown).
 
