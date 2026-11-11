@@ -8,6 +8,7 @@ import { randomBytes } from 'node:crypto';
 import type { Db } from '../v5/db';
 import { displayName } from '../v5/installations';
 import { programsById } from '../v5/programs';
+import { formerSentAt, pickRow, repoKeyOf, repoLock, sentForRepo } from '../v5/ledger';
 
 export const CLAIM_HOURS = 24;
 /** L13-1, T5-F1 (v6.1.14): a new application's own id, issued with the claim (else with the send). */
@@ -15,7 +16,10 @@ export const newApplicationId = () => `ek-${randomBytes(9).toString('base64url')
 const HOUR = 3_600_000;
 /** `sent`: the row is an application already sent, not a live claim. */
 type Already = { since: string; by: string | null; sent: boolean };
-export type ClaimResult = { ok: true } | { ok: false; already: Already } | { ok: false; skipped: true } | { ok: false; unlinked: true };
+export type ClaimResult =
+  | { ok: true } | { ok: false; already: Already } | { ok: false; skipped: true } | { ok: false; unlinked: true }
+  /** L28-1 (v6.1.16 Task 14): another account sent this repo to the program; L28-10: the builder this agent was linked to sent it. */
+  | { ok: false; repo: { at: Date; login: string | null } } | { ok: false; former: { at: Date } };
 
 /** T5-F4 (v6.1.14): a send or claim whose agent was unlinked from the builder meanwhile records nothing. */
 export const UNLINKED_MEANWHILE = 'This agent was just unlinked from your account; nothing recorded.';
@@ -35,7 +39,7 @@ export async function stillLinked(tx: Db, owner: string, installationId: number)
   const [r] = await tx<{ builder_id: number | null }[]>`SELECT builder_id FROM installations WHERE id = ${installationId} FOR SHARE`;
   return r !== undefined && r.builder_id !== null && r.builder_id === Number(owner.slice(2));
 }
-type Row = { status: string; claimed_at: Date | null; claimed_by: number | null; installation_id: number; at: Date; held_at: Date | null };
+type Row = { project_id: string | null; status: string; claimed_at: Date | null; claimed_by: number | null; installation_id: number; at: Date; held_at: Date | null };
 
 const clientOf = async (installationId: number | null): Promise<string | null> => {
   if (installationId === null) return null;
@@ -52,39 +56,54 @@ const holder = (row: Row) => (row.status === 'started' ? { since: row.claimed_at
  * already sent answers `already` with when and which agent; a skip answers `skipped`; a stale claim is taken
  * over, and the claiming installation's own live claim is renewed (claimed_at moves to now).
  */
-export async function claim(owner: string, programId: string, projectId: string | null, installationId: number, now: Date, note: string | null = null): Promise<ClaimResult> {
+export async function claim(owner: string, programId: string, projectId: string | null, installationId: number, now: Date, note: string | null = null, o: { repoId?: number | null } = {}): Promise<ClaimResult> {
   const stale = new Date(now.getTime() - CLAIM_HOURS * HOUR);
+  // L28-4 (v6.1.16 Task 14): the claim is (owner, program, project key).
+  const key = projectId ?? '';
   const out = await sql().begin(async (tx) => {
     // One claim decision at a time per owner and program, even when no row exists yet.
     await tx`SELECT pg_advisory_xact_lock(hashtext(${owner + ':' + programId}))`;
     if (!(await stillLinked(tx, owner, installationId))) return { unlinked: true as const };
     const read = async () =>
-      (await tx<Row[]>`SELECT status, claimed_at, claimed_by, installation_id, at, held_at FROM applications WHERE owner = ${owner} AND program_id = ${programId} FOR UPDATE`)[0];
+      pickRow(await tx<Row[]>`SELECT project_id, status, claimed_at, claimed_by, installation_id, at, held_at FROM applications WHERE owner = ${owner} AND program_id = ${programId} FOR UPDATE`, key);
     const row = await read();
+    const rk = row ? (row.project_id ?? '') : key;
+    const repoKey = repoKeyOf(rk || key);
+    // L28-1 (v6.1.16 Task 14): one application per repo key per program across owners, under the repo's lock.
+    if (repoKey && (!row || row.status === 'started')) {
+      await repoLock(tx, repoKey, programId);
+      const other = await sentForRepo(tx, programId, repoKey, owner);
+      if (other) return { repo: { at: other.at, login: other.login } };
+    }
+    // L28-10: an unlinked agent never claims what the builder it was linked to sent.
+    if (!row) {
+      const before = await formerSentAt(tx, owner, programId, key);
+      if (before) return { former: { at: before } };
+    }
     if (row?.status === 'skipped') return { skipped: true as const };
     // L24-4 (v6.1.16 Task 11): a started by any installation lifts the builder's hold and takes the claim.
     if (row?.status === 'started' && row.held_at !== null) {
       await tx`UPDATE applications SET held_at = NULL, claimed_at = ${now}, claimed_by = ${installationId}, installation_id = ${installationId},
           note = COALESCE(${note}, note), application_id = COALESCE(application_id, ${newApplicationId()})
-        WHERE owner = ${owner} AND program_id = ${programId}`;
+        WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ${rk}`;
       await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, note, at, source)
         VALUES (${owner}, ${installationId}, ${programId}, 'started', NULL, ${note}, ${now}, 'builder')`;
       return { ok: true as const };
     }
     if (row?.status === 'started' && row.claimed_at && row.claimed_at > stale && row.claimed_by === installationId) {
       await tx`UPDATE applications SET claimed_at = ${now}, note = COALESCE(${note}, note), application_id = COALESCE(application_id, ${newApplicationId()})
-        WHERE owner = ${owner} AND program_id = ${programId}`;
+        WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ${rk}`;
       return { ok: true as const };
     }
     if (row && !(row.status === 'started' && row.claimed_at && row.claimed_at <= stale)) return { held: holder(row), sent: row.status !== 'started' };
     // T5-F1 (v6.1.14): the application's own id is issued with the claim, before the form is filled, so the agent
     // can put it in the form; a stale claim taken over keeps its id; the send keeps it (ledger.record).
-    const won = await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, note, at, project_id, claimed_at, claimed_by, application_id)
-      VALUES (${owner}, ${installationId}, ${programId}, 'started', NULL, ${note}, ${now}, ${projectId}, ${now}, ${installationId}, ${newApplicationId()})
-      ON CONFLICT (owner, program_id) DO UPDATE
+    const won = await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, note, at, project_id, claimed_at, claimed_by, application_id, repo_key, repo_id)
+      VALUES (${owner}, ${installationId}, ${programId}, 'started', NULL, ${note}, ${now}, ${rk || null}, ${now}, ${installationId}, ${newApplicationId()}, ${repoKey}, ${o.repoId ?? null})
+      ON CONFLICT (owner, program_id, (COALESCE(project_id, ''))) DO UPDATE
         SET installation_id = EXCLUDED.installation_id, status = 'started', amount_usd = NULL, note = EXCLUDED.note, at = EXCLUDED.at,
             application_id = COALESCE(applications.application_id, EXCLUDED.application_id),
-            project_id = EXCLUDED.project_id, claimed_at = EXCLUDED.claimed_at, claimed_by = EXCLUDED.claimed_by,
+            repo_key = EXCLUDED.repo_key, repo_id = COALESCE(EXCLUDED.repo_id, applications.repo_id), claimed_at = EXCLUDED.claimed_at, claimed_by = EXCLUDED.claimed_by,
             submitted_by = NULL, fields_used = NULL, auto_applied = false
         WHERE applications.status = 'started' AND applications.claimed_at <= ${stale}
       RETURNING program_id`;
@@ -100,6 +119,8 @@ export async function claim(owner: string, programId: string, projectId: string 
   if ('ok' in out) return { ok: true };
   if ('unlinked' in out) return { ok: false, unlinked: true };
   if ('skipped' in out) return { ok: false, skipped: true };
+  if ('repo' in out && out.repo) return { ok: false, repo: out.repo };
+  if ('former' in out && out.former) return { ok: false, former: out.former };
   return { ok: false, already: { since: out.held.since.toISOString(), by: await clientOf(out.held.by), sent: out.sent } };
 }
 

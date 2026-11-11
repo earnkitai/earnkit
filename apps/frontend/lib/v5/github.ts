@@ -79,6 +79,9 @@ export type Repo = {
   /** The repo's topics, lower-case (v6.1.10). */
   topics?: string[];
   parent?: { full_name: string; default_branch: string };
+  /** GitHub's repo id: the same through a rename or a transfer (L28-6, v6.1.16 Task 14). */
+  id?: number;
+  owner?: { login?: string; type?: string };
 };
 export type TreeEntry = { path: string; type: string; size?: number };
 export type RepoRead = {
@@ -89,7 +92,35 @@ export type RepoRead = {
   first_commit_at: string | null;
   /** A tree or file read failed: the facts are incomplete and must not be cached. */
   partial: boolean;
+  /** L28-3 (v6.1.16 Task 14): the logins of the repo's contributors (the first 100), lower-case; null when not read. */
+  contributors?: string[] | null;
 };
+
+/** L28-3 (v6.1.16 Task 14): the repo's contributor logins (one page of 100), lower-case; null when the read fails. */
+async function contributorsOf(fullName: string, token: string | undefined, f: Fetch, signal: AbortSignal): Promise<string[] | null> {
+  try {
+    const rows = await gh<unknown>(`/repos/${fullName}/contributors?per_page=100`, token, f, signal);
+    if (!Array.isArray(rows)) return null;
+    return rows.map((r) => (r && typeof r === 'object' && typeof (r as { login?: unknown }).login === 'string' ? (r as { login: string }).login.toLowerCase() : '')).filter(Boolean);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * L28-3 (v6.1.16 Task 14): whether `login` is a public member of the organization `org` (GitHub answers 204 for a member,
+ * 404 otherwise); null when the read fails. Under the read's budget when given.
+ */
+export async function isPublicMember(org: string, login: string, o: { token?: string; fetch?: Fetch; signal?: AbortSignal } = {}): Promise<boolean | null> {
+  const f = o.fetch ?? fetch;
+  const token = o.token ?? process.env.GITHUB_TOKEN;
+  try {
+    await ghResponse(`/orgs/${encodeURIComponent(org)}/public_members/${encodeURIComponent(login)}`, token, f, o.signal ?? readBudget());
+    return true;
+  } catch (err) {
+    return err instanceof GitHubError && err.status === 404 ? false : null;
+  }
+}
 
 
 /** GET one GitHub API path as JSON; 404 and other failures throw GitHubError; past the read's budget, GitHubSlow. */
@@ -214,7 +245,7 @@ export async function readRepo(fullName: string, o: { token?: string; fetch?: Fe
     if (readmePath && readme === null) partial = true;
     return { tree, readme, files };
   };
-  const [{ tree, readme, files }, first] = await Promise.all([treeAndFiles(), firstCommit(fullName, token, f, signal)]);
+  const [{ tree, readme, files }, first, contributors] = await Promise.all([treeAndFiles(), firstCommit(fullName, token, f, signal), repo.size === 0 ? null : contributorsOf(fullName, token, f, signal)]);
   if (signal.aborted) throw new GitHubSlow();
-  return { repo, tree, readme, files, first_commit_at: first, partial };
+  return { repo, tree, readme, files, first_commit_at: first, partial, contributors };
 }

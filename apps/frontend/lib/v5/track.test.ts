@@ -62,7 +62,7 @@ test('one application and one result per program, in builder words (v6.1.7, B8, 
   await upsertProgram(programFixture({ id: 't7-one', title: 'One Grant' }), 'file', NOW);
   await track(a, { program_id: 't7-one', status: 'applied', submitted_by: 'agent', project: { name: 'App' } });
   const second = await track(c, { program_id: 't7-one', status: 'applied', submitted_by: 'agent', project: { name: 'App' } });
-  assert.equal(second.show_to_builder, 'Already sent here on Nov 4 by "Claude Code"; nothing recorded.');
+  assert.equal(second.show_to_builder, 'Already sent on Nov 4.');
   assert.equal(second.agent_note, 'Nothing was recorded.');
   assert.equal((await track(a, { program_id: 't7-one', status: 'won', amount_usd: 0 })).show_to_builder, 'Tell me the amount as a number, like 5000 for $5,000.' /* L31-5 */);
   assert.equal((await track(a, { program_id: 't7-one', status: 'won', amount_usd: 3000 })).show_to_builder, 'Tracked: $3,000 from One Grant.');
@@ -118,7 +118,7 @@ test('Review Focus 1, re-pinned by L23-3 (v6.1.16): A started, B applied is reco
   assert.equal(over.agent_note, 'Recorded. Another agent had started this one too; tell the builder so it is not sent twice.');
   assert.equal(over.ledger.applied, 1);
   const again = await track({ ...a, now: new Date(NOW.getTime() + 2 * 3_600_000) }, { program_id: 't7-rf1', status: 'applied', submitted_by: 'agent', project: { name: 'App' } });
-  assert.equal(again.show_to_builder, 'Already sent here on Nov 4 by "Codex"; nothing recorded.');
+  assert.equal(again.show_to_builder, 'Already sent on Nov 4.');
   assert.equal(again.agent_note, 'Nothing was recorded.');
   assert.equal(again.ledger.applied, 1);
   const rows = await sql()`SELECT status, installation_id, claimed_at, claimed_by FROM applications WHERE owner = ${owner} AND program_id = 't7-rf1'`;
@@ -164,7 +164,8 @@ test('started then applied: the claim, then what was sent and by whom; the recor
   assert.equal(a.ledger.applied, 1);
   assert.doesNotMatch(a.agent_note, /not known/);
   const [row] = await sql()`SELECT status, submitted_by, fields_used, project_id, claimed_at FROM applications WHERE program_id = 't6-s' AND installation_id = ${c.installationId}`;
-  assert.deepEqual([row.status, row.submitted_by, row.fields_used, row.project_id], ['applied', 'agent', ['project_name'], 'earnkit']);
+  // L28-4 (v6.1.16 Task 14): the row is keyed by the record project's key, never its id.
+  assert.deepEqual([row.status, row.submitted_by, row.fields_used, row.project_id], ['applied', 'agent', ['project_name'], 'name:earnkit']);
   assert.equal((row.claimed_at as Date).toISOString(), NOW.toISOString());
 });
 
@@ -747,7 +748,12 @@ test('gap_done marks the step on its project: the one passed, else the last find
 });
 
 test('started on the last find\'s project keeps the remembered remark (v6.1.10, L1c-1)', async () => {
-  const c = await ctx();
+  // L28-3 (v6.1.16 Task 14): a claim with a repo needs the repo's own builder: signed in as its owner.
+  const { linkInstallation, upsertBuilder } = await import('../v6/builders');
+  const u = await ctx();
+  const b = await upsertBuilder({ github_id: 930_281, login: 'acme', name: 'Acme', avatar_url: null }, NOW);
+  await linkInstallation(u.installationId, b.id, NOW);
+  const c = { ...u, builderId: b.id as number | null };
   await upsertProgram(programFixture({ id: 't10-pk2', title: 'Remark Grant', eligibility: [{ kind: 'demo_video' }] }), 'file', NOW);
   await markFind(c.installationId, NOW, { 't10-pk2': { what: 'a demo video', kind: 'demo_video', item: 'demo_video' } }, 'https://github.com/acme/alpha');
   const s = await track(c, { program_id: 't10-pk2', status: 'started', project: { repo_url: 'https://github.com/Acme/Alpha.git' } });
@@ -1064,16 +1070,17 @@ test('B3 (v6.1.13), re-pinned by L23-3 (v6.1.16): applied over another agent\'s 
   assert.equal((await track(a, { program_id: 'b3-claim', status: 'started', project: { name: 'Xproj' } })).show_to_builder, '');
   const history = async () => (await sql()`SELECT count(*)::int AS n FROM application_history WHERE owner = ${owner} AND program_id = 'b3-claim'`)[0].n;
   const before = await history();
-  const other = await track({ ...c, now: new Date(NOW.getTime() + 3_600_000) }, { program_id: 'b3-claim', status: 'applied', submitted_by: 'agent', project: { name: 'Yproj' }, fields_used: ['project_name'] });
+  // L28-4 (v6.1.16 Task 14): the same project (another project is another application).
+  const other = await track({ ...c, now: new Date(NOW.getTime() + 3_600_000) }, { program_id: 'b3-claim', status: 'applied', submitted_by: 'agent', project: { name: 'Xproj' }, fields_used: ['project_name'] });
   assert.equal(other.show_to_builder, 'Sent Claim Grant.');
   assert.equal(other.agent_note, 'Recorded. Another agent had started this one too; tell the builder so it is not sent twice.');
   assert.equal(other.ledger.applied, 1);
   assert.equal(await history(), before + 1);
   const [sent] = await sql()`SELECT status, installation_id, claimed_by, project_id FROM applications WHERE owner = ${owner} AND program_id = 'b3-claim'`;
-  assert.deepEqual([sent.status, sent.installation_id, sent.claimed_by, sent.project_id], ['applied', c.installationId, null, 'name:yproj']);
+  assert.deepEqual([sent.status, sent.installation_id, sent.claimed_by, sent.project_id], ['applied', c.installationId, null, 'name:xproj']);
   // The holder's send after it hears it was already sent; nothing changes.
   const mine = await track({ ...a, now: new Date(NOW.getTime() + 2 * 3_600_000) }, { program_id: 'b3-claim', status: 'applied', submitted_by: 'agent', project: { name: 'Xproj' }, fields_used: ['project_name'] });
-  assert.match(mine.show_to_builder, /^Already sent here on Nov 4 by .+; nothing recorded\.$/);
+  assert.match(mine.show_to_builder, /^Already sent on Nov 4\.$/);
   assert.equal(await history(), before + 1);
   // A claim past its 24 hours holds nothing: another agent's send is recorded.
   await upsertProgram(programFixture({ id: 'b3-stale', title: 'Stale Grant' }), 'file', NOW);
@@ -1251,14 +1258,15 @@ test('L13-2 (v6.1.14, Review Focus 8): an unlink on /me releases that agent\'s c
   const sent = await track(later, { program_id: 'l13-unl', status: 'applied', submitted_by: 'agent' });
   assert.equal(sent.show_to_builder, 'Sent Race 4.');
   assert.doesNotMatch(JSON.stringify(sent), /other agent/i);
-  // The unlinked agent's own send lands in its own ledger, never the builder's.
+  // L28-10 (v6.1.16 Task 14, re-pinned): the unlinked agent never sends again what its builder sent; nothing is written
+  // in its own ledger, and the builder's row stays.
   const own = await track({ ...a, builderId: null, now: later.now }, { program_id: 'l13-unl', status: 'applied', submitted_by: 'agent' });
-  assert.equal(own.show_to_builder, 'Sent Race 4.');
-  assert.equal(own.ledger.applied, 1);
+  assert.equal(own.show_to_builder, 'Already sent on Nov 4.');
+  assert.equal(own.refused, true);
+  assert.equal(own.ledger.applied, 0);
   const [b] = await sql()`SELECT status, installation_id FROM applications WHERE owner = ${owner} AND program_id = 'l13-unl'`;
   assert.deepEqual([b.status, b.installation_id], ['applied', c.installationId]);
-  const [i] = await sql()`SELECT status FROM applications WHERE owner = ${'i:' + a.installationId} AND program_id = 'l13-unl'`;
-  assert.equal(i.status, 'applied');
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${'i:' + a.installationId} AND program_id = 'l13-unl'`)[0].n, 0);
 });
 
 test('L13-6 (v6.1.14): a send under standing approval to a program that has not opened is recorded outside it: it has not opened yet', async () => {

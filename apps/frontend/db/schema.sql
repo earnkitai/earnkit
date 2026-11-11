@@ -232,9 +232,15 @@ BEGIN
     END IF;
   END LOOP;
 END $$;
+-- v6.1.16 Task 14 (L28-4): an application is keyed by (owner, program, project key), no longer (owner, program). The
+-- project column comes first so a fresh database and one with the old index both dedupe and index the same way: only
+-- true repeats of one project are merged, and the old index (one row per owner and program) is dropped for good.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS project_id text;
 DELETE FROM applications a USING applications b
-WHERE a.owner = b.owner AND a.program_id = b.program_id AND (a.at < b.at OR (a.at = b.at AND a.ctid < b.ctid));
-CREATE UNIQUE INDEX IF NOT EXISTS applications_owner_program ON applications (owner, program_id);
+WHERE a.owner = b.owner AND a.program_id = b.program_id AND COALESCE(a.project_id, '') = COALESCE(b.project_id, '')
+  AND (a.at < b.at OR (a.at = b.at AND a.ctid < b.ctid));
+DROP INDEX IF EXISTS applications_owner_program;
+CREATE UNIQUE INDEX IF NOT EXISTS applications_owner_program_project ON applications (owner, program_id, (COALESCE(project_id, '')));
 CREATE INDEX IF NOT EXISTS application_history_owner ON application_history (owner, program_id, at DESC);
 -- v6.1.10 (L1c-1): a done step belongs to one project, keyed by projectKeyOf (repo link, else name:, else ''). Rows from
 -- before stay at '' (the old global step). The project's index replaces the owner's, so a rerun merges only true repeats.
@@ -409,3 +415,23 @@ ALTER TABLE installations ADD COLUMN IF NOT EXISTS next_needs jsonb;
 CREATE INDEX IF NOT EXISTS installations_builder ON installations (builder_id) WHERE builder_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS applications_program ON applications (program_id);
 CREATE INDEX IF NOT EXISTS screen_jobs_program ON screen_jobs (program_id);
+-- v6.1.16 Task 14 (L28-1, L28-6): an application's repo (the canonical repo key, `canonicalRepoLink`) and GitHub's repo
+-- id, so one application exists per repo key per program across builders and a renamed repo keeps its application.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS repo_key text, ADD COLUMN IF NOT EXISTS repo_id bigint;
+CREATE INDEX IF NOT EXISTS applications_program_repo ON applications (program_id, repo_key) WHERE repo_key IS NOT NULL;
+-- A row keyed by a record project id ('mono-web', before v6.1.16) is keyed by that project's repo key when it has one
+-- (record repo links are github.com links, so lower case without a trailing slash or .git is canonicalRepoLink's form).
+UPDATE applications a SET project_id = k.key
+FROM (
+  SELECT a2.ctid AS row_id, lower(regexp_replace(regexp_replace(p->>'repo_url', '/+$', ''), '(\.git)+$', '', 'i')) AS key
+  FROM applications a2 JOIN builders b ON a2.owner = 'b:' || b.id, jsonb_array_elements(COALESCE(b.record->'projects', '[]'::jsonb)) p
+  WHERE a2.project_id IS NOT NULL AND a2.project_id NOT LIKE 'https://%' AND a2.project_id NOT LIKE 'name:%'
+    AND p->>'id' = a2.project_id AND COALESCE(p->>'repo_url', '') LIKE 'https://github.com/%'
+) k
+WHERE a.ctid = k.row_id AND NOT EXISTS (
+  SELECT 1 FROM applications c WHERE c.owner = a.owner AND c.program_id = a.program_id AND COALESCE(c.project_id, '') = k.key);
+-- The backfill: a row keyed by a repo link (projectKeyOf writes it canonical) carries it as its repo key.
+UPDATE applications SET repo_key = project_id WHERE repo_key IS NULL AND project_id LIKE 'https://%';
+-- v6.1.16 Task 14 (L28-10): the builder an installation was unlinked from, so its later calls still see what that
+-- builder sent (read only) and never send it twice. Cleared when it links again.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS former_builder_id int;

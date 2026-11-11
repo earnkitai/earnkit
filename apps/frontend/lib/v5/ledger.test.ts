@@ -67,7 +67,7 @@ test('applied twice is one row and one history row: the second is refused (v6.1.
   const i = await install();
   await prog('l-twice');
   await record(o(i), 'l-twice', 'applied', { now: NOW });
-  assert.deepEqual(await record(o(i), 'l-twice', 'applied', { now: new Date(NOW.getTime() + DAY) }), { ok: false, note: 'Already sent here on Nov 4 by another agent; nothing recorded.' });
+  assert.deepEqual(await record(o(i), 'l-twice', 'applied', { now: new Date(NOW.getTime() + DAY) }), { ok: false, note: 'Already sent on Nov 4.' });
   assert.deepEqual(await counts(i), { apps: 1, hist: 1 });
 });
 
@@ -87,14 +87,14 @@ test('a second applied from another agent of the owner names the first and keeps
   await prog('l-b13');
   await record(b, 'l-b13', 'applied', { installationId: one, submitted_by: 'agent', fields_used: ['a'], now: new Date('2026-11-03T22:10:00Z') });
   const r = await record(b, 'l-b13', 'applied', { installationId: two, submitted_by: 'builder', now: NOW });
-  assert.deepEqual(r, { ok: false, note: 'Already sent here on Nov 3 by "Claude Code"; nothing recorded.' });
+  assert.deepEqual(r, { ok: false, note: 'Already sent on Nov 3.' });
   const [row] = await sql()`SELECT installation_id, submitted_by, fields_used, at FROM applications WHERE owner = ${b} AND program_id = 'l-b13'`;
   assert.deepEqual([row.installation_id, row.submitted_by, row.fields_used, (row.at as Date).toISOString()], [one, 'agent', ['a'], '2026-11-03T22:10:00.000Z']);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM application_history WHERE owner = ${b} AND program_id = 'l-b13'`)[0].n, 1);
   // The other way round: the unnamed agent sent it first.
   await prog('l-b13b');
   await record(b, 'l-b13b', 'applied', { installationId: two, now: NOW });
-  assert.deepEqual(await record(b, 'l-b13b', 'applied', { installationId: one, now: NOW }), { ok: false, note: 'Already sent here on Nov 4 by another agent; nothing recorded.' });
+  assert.deepEqual(await record(b, 'l-b13b', 'applied', { installationId: one, now: NOW }), { ok: false, note: 'Already sent on Nov 4.' });
 });
 
 test('a win has an amount above 0 (v6.1.7, B8); L25-13, L22-6 (v6.1.16): cents are kept', async () => {

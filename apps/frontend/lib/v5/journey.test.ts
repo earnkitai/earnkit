@@ -102,7 +102,8 @@ test('the owner: ready or the builder codes gap, then applied and won on the led
   if (inGaps) assert.match(JSON.stringify(gaps.find((g) => g.program_id === 'base-builder-grants')), /builder_codes|Builder Codes/);
 
   const top = ready[0];
-  const t = await track(id, { program_id: top, status: 'applied' });
+  // L28-3 (v6.1.16 Task 14): unsigned in, the agent never sends with the repo; the builder's own send is kept by name.
+  const t = await track(id, { program_id: top, status: 'applied', submitted_by: 'builder' });
   assert.equal((t.ledger as { applied: number }).applied, 1);
   const after1 = await find(id, 'earnkit', { live_url: 'https://earnkit.com', users: true });
   // L29-1 (v6.1.16 Task 15): the applications by name.

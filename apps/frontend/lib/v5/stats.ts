@@ -34,6 +34,12 @@ export const openMoneyUsd = (rows: ProgramRow[]): number =>
 /** The statuses of an application the builder sent: applied, or any result. */
 const SENT = ['applied', 'won', 'rejected', 'no_result'];
 
+/** L28-2 (v6.1.16 Task 14): every application with `counted`: false only for a later win of a repo key's program. */
+const wonOnce = (db: ReturnType<typeof sql>) => db`
+  SELECT status, at, amounts, amount_usd,
+         (repo_key IS NULL OR status <> 'won' OR row_number() OVER (PARTITION BY program_id, repo_key, (status = 'won') ORDER BY at, owner) = 1) AS counted
+  FROM applications`;
+
 export async function readStats(now: Date = new Date()): Promise<Stats> {
   const db = sql();
   const week = new Date(now.getTime() - WEEK_MS);
@@ -44,17 +50,21 @@ export async function readStats(now: Date = new Date()): Promise<Stats> {
              count(*) FILTER (WHERE last_seen_at >= ${week}) AS active,
              count(*) FILTER (WHERE last_find_at >= ${week}) AS finds
       FROM installations`,
+    // L28-2 (v6.1.16 Task 14): a win counts once per repo key and program (its earliest win row), plus once per row
+    // with no repo key; `counted` marks those rows.
     db<{ sent: string; sent_week: string; won: string; won_usd: string | null; won_none: string }[]>`
+      WITH a AS (${wonOnce(db)})
       SELECT count(*) FILTER (WHERE status = ANY(${SENT})) AS sent,
              count(*) FILTER (WHERE status = ANY(${SENT}) AND at >= ${week}) AS sent_week,
-             count(*) FILTER (WHERE status = 'won') AS won,
-             sum(COALESCE((amounts->>'USD')::numeric, CASE WHEN amounts IS NULL THEN amount_usd END)) FILTER (WHERE status = 'won') AS won_usd,
-             count(*) FILTER (WHERE status = 'won' AND (amounts IS NULL OR amounts = '{}'::jsonb) AND amount_usd IS NULL) AS won_none
-      FROM applications`,
+             count(*) FILTER (WHERE status = 'won' AND counted) AS won,
+             sum(COALESCE((amounts->>'USD')::numeric, CASE WHEN amounts IS NULL THEN amount_usd END)) FILTER (WHERE status = 'won' AND counted) AS won_usd,
+             count(*) FILTER (WHERE status = 'won' AND counted AND (amounts IS NULL OR amounts = '{}'::jsonb) AND amount_usd IS NULL) AS won_none
+      FROM a`,
   ]);
   const other = await db<{ currency: string; amount: string }[]>`
-    SELECT e.key AS currency, sum(e.value::numeric) AS amount FROM applications a, jsonb_each_text(a.amounts) e
-    WHERE a.status = 'won' AND a.amounts IS NOT NULL AND e.key <> 'USD' GROUP BY e.key ORDER BY e.key`;
+    WITH w AS (${wonOnce(db)})
+    SELECT e.key AS currency, sum(e.value::numeric) AS amount FROM w a, jsonb_each_text(a.amounts) e
+    WHERE a.status = 'won' AND a.counted AND a.amounts IS NOT NULL AND e.key <> 'USD' GROUP BY e.key ORDER BY e.key`;
   return {
     programs_open: open.length,
     open_money_usd: openMoneyUsd(open),

@@ -51,7 +51,11 @@ const Person = z.object({
   timezone: line(64).refine(isTimeZone, 'must be an IANA time zone'), phone: line(30), bio: prose(280),
   technical: z.boolean(), based_country: line(2).regex(/^[A-Z]{2}$/, 'two capital letters, like US'),
 }).partial().strip();
-const TeamMember = z.object({ name: line(80), role: line(80).optional(), github: line(40).optional(), x: line(40).optional(), email: email.optional() }).strip();
+// L28-8, L28-9 (v6.1.16 Task 14): `full_time` and `link` (a profile link) for the team fields that ask them.
+const TeamMember = z.object({
+  name: line(80), role: line(80).optional(), github: line(40).optional(), x: line(40).optional(), email: email.optional(),
+  full_time: z.boolean().optional(), link: https.optional(),
+}).strip();
 const Company = z.object({
   name: line(120), incorporated: z.boolean(), jurisdiction: line(80), raised_usd: z.number().min(0).max(1e9), raised_from: prose(280),
   stage: z.enum(['idea', 'building', 'pre_launch', 'launched']), launch_date: isoDate,
@@ -73,6 +77,8 @@ const Project = z.object({
   evidence_read_at: iso.optional(),
   // v6.1.16 Task 9 (controller ruling): `repo_url`, the repo the tier was read from, so a failed re-read keeps it only for that repo.
   last_tier: z.object({ tier: line(40), line: line(280), read_at: line(40), usage: line(280).optional(), repo_url: line(300).optional() }).strip().optional(),
+  /** L28-6 (v6.1.16 Task 14): GitHub's id of the repo, kept with its link by find's read, so a rename keeps the project. */
+  repo_id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
 }).strip();
 export type Project = z.infer<typeof Project>;
 const Docs = z.object({

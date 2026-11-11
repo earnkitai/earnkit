@@ -15,7 +15,7 @@ import { amountsOverCap } from '../v5/amount';
 import { amountsText, plusAmount, sameAmounts, type Amounts } from '../v5/programs-read';
 import { getProgram } from '../v5/programs';
 import { canonicalRepoLink, isCodeHost, isShortener, nameKeyOf, sshAsHttps } from '../v5/project-input';
-import { repoKey } from '../v5/repo-facts';
+import { cachedRepoId, cachedRepoLink, repoKey } from '../v5/repo-facts';
 import { type Applicant, identicalPitches } from './applicants';
 import { getRecord } from './builders';
 import type { Row } from './evidence';
@@ -516,9 +516,18 @@ async function ownerInstallationBuilder(owner: string): Promise<number | null> {
 }
 
 async function applicationOf(applicationId: string, programId: string, builderId: number) {
-  const [app] = await sql()<{ owner: string; installation_id: number; status: string; project_id: string | null }[]>`
-    SELECT a.owner, a.installation_id, a.status, a.project_id FROM applications a WHERE a.application_id = ${applicationId} AND a.program_id = ${programId}`;
-  if (!app) return app;
+  type App = { owner: string; installation_id: number; status: string; project_id: string | null; repo_key: string | null; repo_id: string | null };
+  const [byId] = await sql()<App[]>`
+    SELECT a.owner, a.installation_id, a.status, a.project_id, a.repo_key, a.repo_id FROM applications a WHERE a.application_id = ${applicationId} AND a.program_id = ${programId}`;
+  if (!byId) return byId;
+  // L28-11 (v6.1.16 Task 14): a result is keyed to the repo's application, the earliest sent row for that repo key and
+  // program, so co-founders' ids (rows from before one application per repo) share one result.
+  const [first] = byId.repo_key && byId.status !== 'started' && byId.status !== 'skipped'
+    ? await sql()<App[]>`SELECT a.owner, a.installation_id, a.status, a.project_id, a.repo_key, a.repo_id FROM applications a
+        WHERE a.program_id = ${programId} AND a.repo_key = ${byId.repo_key} AND a.status = ANY(${['applied', 'won', 'rejected', 'no_result']})
+        ORDER BY COALESCE(a.sent_at, a.at), a.owner LIMIT 1`
+    : [];
+  const app = first ?? byId;
   const own = app.owner === `b:${builderId}` || (await ownerInstallationBuilder(app.owner)) === builderId;
   return { ...app, own };
 }
@@ -552,6 +561,19 @@ async function applicationProject(owner: string, projectId: string | null): Prom
  */
 const sameProject = (row: ProjectSide, app: ProjectSide): boolean =>
   app.repo ? row.repo === app.repo : row.name !== null && app.name !== null && row.name === app.name;
+
+/**
+ * L28-6 (v6.1.16 Task 14): the row's repo is the application's repo renamed or transferred: the GitHub id the
+ * application keeps (or the old link's cached read) is the row link's cached read's, or the old link's cached read now
+ * answers with the row's link. Cache reads only.
+ */
+async function renamedTo(app: ProjectSide & { repo_id?: number | null }, row: ProjectSide): Promise<boolean> {
+  if (!app.repo || !row.repo || app.repo === row.repo) return false;
+  const rowId = await cachedRepoId(row.repo);
+  const appId = app.repo_id ?? (await cachedRepoId(app.repo));
+  if (rowId !== null && appId !== null) return rowId === appId;
+  return (await cachedRepoLink(app.repo)) === row.repo;
+}
 
 /** L16-9 (v6.1.16): why an outcome reached no builder's ledger, in the words of the agent note and the show line. */
 export const NOT_PASSED = {
@@ -759,7 +781,7 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
       continue;
     }
     const sideOf = (x: { name: string; repo_url: string | null }): ProjectSide => ({ repo: repoSide(x.repo_url), name: nameSide(x.name) });
-    if (!sameProject(sideOf(a), appProject)) {
+    if (!sameProject(sideOf(a), appProject) && !(await renamedTo({ ...appProject, repo_id: app.repo_id === null ? null : Number(app.repo_id) }, sideOf(a)))) {
       skip(otherProject, NOT_PASSED.otherProject);
       continue;
     }
@@ -776,8 +798,9 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
     }
     // Fix round 1 (I1, L17-2): a repeat is judged at the kept outcome's own time, never its arrival, so a resend never
     // overwrites a builder's later correction. L22-3 (v6.1.16): the amount goes as given, in its currency.
+    // L28-4 (v6.1.16 Task 14): the application's own row, by its project key.
     const res = await record(app.owner, job.program_id, o.outcome, {
-      installationId: app.installation_id, now: 'repeat' in w ? w.at : now, fromScreen: true, ...(pkey !== null && { payment: { key: pkey } }),
+      project_id: app.project_id ?? '', installationId: app.installation_id, now: 'repeat' in w ? w.at : now, fromScreen: true, ...(pkey !== null && { payment: { key: pkey } }),
       ...(o.outcome !== 'won' ? {} : given === null ? { amountNotGiven: true as const } : { amount: given }),
     });
     // Fix round 1 (C1): the reviewer hears only what the screen did. A repeat is a repeat whatever the ledger answers

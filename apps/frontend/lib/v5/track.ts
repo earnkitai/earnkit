@@ -3,17 +3,19 @@
  * with one line for the builder, one for the agent, and the updated ledger.
  */
 import { z } from 'zod';
-import { getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason } from '../v6/builders';
+import { getBuilder, getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason } from '../v6/builders';
+import { signInLink } from '../v6/record-tool';
+import { signInSentence } from '../v6/reply-words';
 import { DELETED_NOTICE } from '../v6/reply-words';
 import { UNLINKED_MEANWHILE, UNLINKED_SEND_NOTE, claim } from '../v6/claims';
 import { APPROVAL_OFF, HAD_CLOSED, NIGHT_LIMIT, NOT_OPENED, REQUIRED_MISSING, STEP_AWAY, outsideApproval, readyAtSend, requiredLeftOut, storedRecordContext, storedSide } from '../v6/find-record';
 import { prefill, unvouchedRequired } from './prefill';
-import { cachedRepoFacts, reportOnlyFacts } from './repo-facts';
+import { cachedRepoFacts, cachedRepoId, ownsRepo, reportOnlyFacts } from './repo-facts';
 import { findAutoWas, forgetGap, lastGaps, lastListIds, lastProjectKey, unmarkNightFind } from './installations';
 import { PROJECT_DESCRIPTION, ProjectArg, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
 import { closedAt, statusAt, getProgram, listOpenPrograms, programByName, unknownProgramLine } from './programs';
 import { closeDay, dayWords } from './deadline';
-import { HELD_SENT_NOTE, OTHER_CLAIM_NOTE, doneItems, record, reportOf, resolvedKey, resultOf, summary, titleOf, type Ledger, type Status } from './ledger';
+import { ALREADY_SENT, ALREADY_SENT_PROJECT, ALREADY_SENT_REPO, HELD_SENT_NOTE, NAME_ONLY_NOTE, NAME_ONLY_SENT_NOTE, NOT_YOUR_REPO, OTHER_CLAIM_NOTE, doneItems, pickRow, projectWords, rekeyProject, repoKeyOf, record, reportOf, saveReport, resolvedKey, resultOf, summary, titleOf, type Ledger, type Status } from './ledger';
 import { clock } from './reply';
 import { codeChecked, itemKey } from './eligibility';
 import { eligibilityOf } from './program-file';
@@ -67,18 +69,65 @@ const repoLess = (key: string) => key === '' || key.startsWith('name:');
 /** A passed project fact as text, or null. Pure. */
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v : null);
 
-/** True when the owner's row for the program is an application already sent (applied or with a result). */
-async function sentHere(owner: string, programId: string): Promise<boolean> {
-  const [r] = await sql()<{ status: string }[]>`SELECT status FROM applications WHERE owner = ${owner} AND program_id = ${programId}`;
+/** The owner's row for the program and project key (L28-4, v6.1.16 Task 14: `pickRow`; `anyProject` for a result). */
+async function rowHere(owner: string, programId: string, key: string, anyProject = false) {
+  return pickRow(await sql()<{ project_id: string | null; status: string; application_id: string | null }[]>`
+    SELECT project_id, status, application_id FROM applications WHERE owner = ${owner} AND program_id = ${programId}`, key, anyProject);
+}
+
+/** True when the owner's row for the program and project is an application already sent (applied or with a result). */
+async function sentHere(owner: string, programId: string, key: string, anyProject = false): Promise<boolean> {
+  const r = await rowHere(owner, programId, key, anyProject);
   return r !== undefined && r.status !== 'started' && r.status !== 'skipped';
 }
+
+/** L28-3 (v6.1.16 Task 14): the linked builder's GitHub login, or null. */
+const loginOf = async (builderId: number): Promise<string | null> => (await getBuilder(builderId))?.login ?? null;
+
+/**
+ * L28-3 (v6.1.16 Task 14): whether a project key is a repo that is not the builder's: no login (unlinked), or no
+ * public tie by the cached read (`ownsRepo`). A key that names no repo is never "not theirs".
+ */
+async function repoNotMine(ctx: TrackContext, key: string): Promise<boolean> {
+  const repo = repoKeyOf(key);
+  if (!repo) return false;
+  const login = ctx.builderId === null ? null : await loginOf(ctx.builderId);
+  if (!login) return true;
+  const facts = (await cachedRepoFacts({ name: '', description: '', repo_url: repo } as Project)) ?? { repo_url: repo };
+  return !(await ownsRepo(login, facts, { repoUrl: repo }));
+}
+
+/** L28-5 (v6.1.16 Task 14): the item a builder's yes to the join question is tracked with: `join:` and the name. */
+export const JOIN_ITEM = /^join:(.+)$/s;
+/** L28-5: the builder line after a join. */
+export const JOINED = (name: string, repo: string): string => `Joined ${quoteName(name)} with ${repo}.`;
+
+/**
+ * L28-5 (v6.1.16 Task 14): the builder's yes to the join question: the name-only project's sends, steps and confirmed
+ * rules move to the repo's key (`rekeyProject`), and the name reads as the repo from now on. Never for a repo that is
+ * not the builder's; the program id is not read.
+ */
+async function joinProject(ctx: TrackContext, owner: string, name: string, project: Project | undefined, refuse: (note: string, agentNote?: string) => Promise<Result>, programs: Awaited<ReturnType<typeof listOpenPrograms>>): Promise<Result> {
+  const passed = projectKeyOf(project);
+  const to = repoKeyOf(passed) ? passed : await lastProjectKey(ctx.installationId);
+  const from = nameKeyOf({ name });
+  if (!repoKeyOf(to) || !from) return refuse('Tell me the repo link and I join them.', 'Nothing was joined. Call track gap_done with item join:<name> and the project with its repo_url.');
+  if (await repoNotMine(ctx, to)) return refuse(NOT_YOUR_REPO, 'Nothing was joined: the repo is not the builder\'s.');
+  await rekeyProject(owner, from, to);
+  const report = await reportOf(owner, to);
+  if (report) await saveReport(owner, from, report, ctx.now);
+  return { show_to_builder: JOINED(name, to.replace(/^https:\/\//, '')), agent_note: 'Call find again with the project.', ledger: await summary(owner, programs, ctx.now) };
+}
+
+/** L28-6 (v6.1.16 Task 14): the GitHub id of the project's repo from its cached read (no fetch), or null. */
+const repoIdOf = async (key: string): Promise<number | null> => (repoKeyOf(key) ? await cachedRepoId(key) : null);
 
 /** T5-F1 (v6.1.14): the agent note a claim adds, so the id goes in the form. */
 export const APPLICATION_ID_NOTE = "If the form has a reference field, put application_id in it, so the program's result reaches these applications.";
 
 /** The sent application's own id (L13-1, v6.1.14), as the reply field; none for a row without one. */
-async function applicationIdOf(owner: string, programId: string): Promise<{ application_id?: string }> {
-  const [r] = await sql()<{ application_id: string | null }[]>`SELECT application_id FROM applications WHERE owner = ${owner} AND program_id = ${programId}`;
+async function applicationIdOf(owner: string, programId: string, key: string): Promise<{ application_id?: string }> {
+  const r = await rowHere(owner, programId, key);
   return r?.application_id ? { application_id: r.application_id } : {};
 }
 
@@ -248,10 +297,13 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   const projectProblems = read?.ok ? read.problems : [];
   const given: TrackIn = { ...parsed.data, project: read?.ok ? read.project : undefined };
   // L29-15 (v6.1.16 Task 15): a number from this installation's last find list is that program's id.
+  // L28-5 (v6.1.16 Task 14): the yes to the join question names no program.
+  const joining = given.status === 'gap_done' ? JOIN_ITEM.exec(given.item ?? '') : null;
+  if (joining) return joinProject(ctx, owner, cleanText(joining[1], 80), given.project, refuse, programs);
   const listed = /^\d{1,3}$/.test(given.program_id.trim()) ? (await lastListIds(ctx.installationId))[Number(given.program_id.trim()) - 1] : undefined;
   if (listed) given.program_id = listed;
   const raw = given.program_id;
-  const sentRow = RESULT_STATUSES.includes(given.status) && (await sentHere(owner, raw));
+  const sentRow = RESULT_STATUSES.includes(given.status) && (await sentHere(owner, raw, '', true));
   // L24-3 (v6.1.16 Task 11): the strict lookup: an exact id or title, or title words with one that is not a common word.
   const { row, suggest } = sentRow ? { row: null, suggest: [] } : await programByName(raw, ctx.now, { strict: true });
   const data = row ? { ...given, program_id: row.id } : given;
@@ -373,6 +425,25 @@ async function act(
   i: TrackIn,
 ): Promise<Result> {
   const project = await projectOf(ctx, i);
+  // L28-4 (v6.1.16 Task 14): the application's project key: the record project's named by project_id, else the project's.
+  const recorded = i.project_id !== undefined && ctx.builderId !== null ? projectKeyOf((await getRecord(ctx.builderId)).projects.find((x) => x.id === i.project_id)) : '';
+  let appKey = recorded ? await resolvedKey(owner, recorded) : project.key;
+  /** L28-3 (v6.1.16 Task 14): the application's repo is not this builder's (no login, or no public evidence of theirs). */
+  const notMine = (): Promise<boolean> => repoNotMine(ctx, appKey);
+  /** L28-3: the refusal; unlinked, it carries the sign-in sentence (the builder signs in first). */
+  const notYours = async (): Promise<Result> => {
+    const link = ctx.builderId === null ? await signInLink(ctx.installationId, ctx.now) : null;
+    return refuse(ctx.builderId === null ? `${NOT_YOUR_REPO} ${signInSentence(link, true, true)}` : NOT_YOUR_REPO,
+      'Nothing was recorded. Do not submit this one with this repo: apply only with a repo the builder owns or commits to.');
+  };
+  /** L28-1, L28-3: the project's name key, for a builder-submitted send kept under the name only. */
+  const nameKey = async (): Promise<string> => {
+    const named = nameKeyOf(i.project);
+    if (named) return named;
+    const rec = i.project_id !== undefined && ctx.builderId !== null ? (await getRecord(ctx.builderId)).projects.find((x) => x.id === i.project_id) : undefined;
+    return nameKeyOf(rec) || nameKeyOf(await reportOf(owner, appKey));
+  };
+  let nameOnly: string | null = null;
   // The last find's gaps are its project's: another project passed here is not that one.
   const sameAsLast = !project.given || project.key === (await lastProjectKey(ctx.installationId));
   // L29-23 (v6.1.16 Task 15): an applied with no submitted_by is the agent's.
@@ -388,24 +459,31 @@ async function act(
     const program = await getProgram(i.program_id);
     if (!program) return refuse(WHICH_PROGRAM, WHICH_PROGRAM_NOTE);
     // L29-9 (v6.1.16 Task 15): already sent is a refusal (isError), its text unchanged.
+    // L28-4 (v6.1.16 Task 14): the line names the project it was sent for.
     const sentAlready = {
-      show_to_builder: `${program.file.title} was already sent.`,
+      show_to_builder: appKey ? ALREADY_SENT_PROJECT(program.file.title, projectWords(appKey, i.project?.name)) : `${program.file.title} was already sent.`,
       agent_note: 'Do not submit this one; it was already sent.',
       refused: true as const,
     };
     // The same open list find reads (active, not past its close, not stale): a program not in it is never claimed.
     // An application already sent says so first, even when its program has since closed (v6.1.7).
-    if (!programs.some((p) => p.id === program.id) && (await sentHere(owner, program.id)))
+    if (!programs.some((p) => p.id === program.id) && (await sentHere(owner, program.id, appKey)))
       return { ...sentAlready, ledger: await summary(owner, programs, ctx.now), already_started: true };
     if (!programs.some((p) => p.id === program.id))
       return refuse(`${program.file.title} is not open; nothing to start.`, 'Do not submit this one; call find for what is open.');
-    if (!(await sentHere(owner, program.id))) {
+    if (!(await sentHere(owner, program.id, appKey))) {
       const rule = await ruleFirst();
       if (rule) return rule;
+      // L28-3 (v6.1.16 Task 14): a repo that is not the builder's is never claimed.
+      if (await notMine()) return notYours();
     }
     // L1d-1 (v6.1.11): with no project_id the claim stores the project key, so find pins it on that project only.
-    const c = await claim(owner, i.program_id, i.project_id ?? (project.key || null), ctx.installationId, ctx.now, i.note ?? null);
+    // L28-4 (v6.1.16 Task 14): the claim is keyed by the project key, always.
+    const c = await claim(owner, i.program_id, appKey || null, ctx.installationId, ctx.now, i.note ?? null, { repoId: await repoIdOf(appKey) });
     if (!c.ok && 'unlinked' in c) return refuse(UNLINKED_MEANWHILE);
+    // L28-1 (v6.1.16 Task 14): another account sent this repo; L28-10: the builder this agent was linked to sent it.
+    if (!c.ok && 'repo' in c) return refuse(ALREADY_SENT_REPO(dayWords(c.repo.at, ctx.now), c.repo.login), 'Nothing was recorded. Do not submit this one: another EarnKit account already sent this repo to the program.');
+    if (!c.ok && 'former' in c) return refuse(ALREADY_SENT(dayWords(c.former.at, ctx.now)), 'Nothing was recorded. Do not submit this one; the builder already sent it.');
     // L29-27 (v6.1.16 Task 15): the builder's words, not the status name.
     if (!c.ok && 'skipped' in c)
       return refused({
@@ -426,7 +504,7 @@ async function act(
         already_started: true as const,
       });
     // T5-F1 (v6.1.14): the claim carries the application's own id, for the form's reference field.
-    const id = await applicationIdOf(owner, program.id);
+    const id = await applicationIdOf(owner, program.id, appKey);
     // L24-27 (v6.1.16 Task 11): the 24-hour rule is the agent's to know, linked only.
     const hours = ctx.builderId === null ? '' : ` ${CLAIM_HOURS_NOTE}`;
     const started = (r: Result): Result => {
@@ -455,12 +533,20 @@ async function act(
   // an agent's own submission; a form the builder sent is never one. With the policy on, the send counts as approved
   // only within every limit (v6.1.8 B18): `outside` says why not; the nightly count is the ledger's, under its lock.
   const row = i.status === 'applied' ? await getProgram(i.program_id) : null;
-  if (i.status === 'applied' && sender === 'agent' && row && !(await sentHere(owner, row.id))) {
+  if (i.status === 'applied' && sender === 'agent' && row && !(await sentHere(owner, row.id, appKey))) {
     // L29-7 (v6.1.16 Task 15): an in-person program is the builder's to apply to; an agent has nothing to send.
     if (row.file.in_person)
       return refuse(IN_PERSON_SEND(row.file.title), 'Nothing was recorded. When the builder has applied in person, call track applied with submitted_by builder.');
     const rule = await ruleFirst();
     if (rule) return rule;
+    // L28-3 (v6.1.16 Task 14): an agent never sends with a repo that is not the builder's.
+    if (await notMine()) return notYours();
+  }
+  // L28-3: a send the builder made with a repo that is not theirs is kept (L23-3), under the project's name only, so it
+  // never matches a screen row for that repo and never takes the repo's place.
+  if (i.status === 'applied' && sender === 'builder' && (await notMine())) {
+    appKey = await nameKey();
+    nameOnly = NAME_ONLY_NOTE;
   }
   const policy = i.status === 'applied' && sender === 'agent' && ctx.builderId !== null ? await getRecord(ctx.builderId) : null;
   const standing = policy?.policy.auto_apply === true;
@@ -476,7 +562,7 @@ async function act(
     : policy && row && (await findAutoWas(ctx.installationId)) ? APPROVAL_OFF : null;
   // FR-3 (final fix): a send with no project_id keeps the project key, as a claim does, so a screen can match it.
   const applied = i.status === 'applied'
-    ? { submitted_by: sender, fields_used: i.fields_used, project_id: i.project_id ?? (project.key || undefined), autoApplied: standing && outside === null, ...(standing ? { maxPerNight: policy!.policy.max_per_night } : {}) }
+    ? { submitted_by: sender, fields_used: i.fields_used, autoApplied: standing && outside === null, ...(standing ? { maxPerNight: policy!.policy.max_per_night } : {}), repoId: await repoIdOf(appKey) }
     : {};
   // L17-1 (v6.1.16): a skip's checks (already sent, already skipped, another agent's live claim) run in record, under
   // the per-program lock, so parallel skips write one row. L17-8: the payment key is the caller's, one space per application.
@@ -485,9 +571,16 @@ async function act(
   if (amount === 'bad') return refuse(AMOUNT_UNREAD, 'Nothing was recorded. Send amount_usd as a number (5000 or 1234.56; convert 5k to 5000), or amount with currency for another currency.');
   if (amount === 'ambiguous') return refuse(AMOUNT_DOT, 'Nothing was recorded. Send 5000 or 5,000; a dot is for cents only.');
   // L29-3 (v6.1.16 Task 15): a win with no application here is recorded as the builder's own send, then the win.
-  const res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, ...(amount && { amount }), note: i.note, item: i.item, projectKey: project.key, now: ctx.now, ...applied,
+  // L28-4 (v6.1.16 Task 14): every status names its project key (FR-3: the key, never the record id).
+  let res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, ...(amount && { amount }), note: i.note, item: i.item, projectKey: project.key, project_id: i.status === 'gap_done' ? undefined : appKey, now: ctx.now, ...applied,
     ...(i.status === 'won' ? { outsideWin: true as const } : {}),
     ...(i.status === 'won' && i.payment ? { payment: { key: i.payment.key } } : {}) });
+  // L28-1 (v6.1.16 Task 14): a send the builder made of a repo another account sent is kept under the name only.
+  if (!res.ok && res.repo_taken && sender === 'builder' && i.status === 'applied' && !nameOnly) {
+    appKey = await nameKey();
+    nameOnly = NAME_ONLY_SENT_NOTE;
+    res = await record(owner, i.program_id, 'applied', { installationId: ctx.installationId, note: i.note, projectKey: project.key, project_id: appKey, now: ctx.now, ...applied, repoId: null });
+  }
   // A second skip says so (v6.1.9, lane 8 simplify).
   if (res.ok && i.status === 'skipped' && 'repeated' in res)
     return { show_to_builder: 'Already skipped.', agent_note: 'Call find again for the updated applications.', ledger: await summary(owner, programs, ctx.now) };
@@ -499,7 +592,9 @@ async function act(
   if (res.ok && i.status === 'applied' && standing && outside === null) await unmarkNightFind(ctx.installationId);
   if (!res.ok)
     return res.items ? await gapItemRefusal(owner, i, project.key, res.note, res.items, refuse)
-      : res.agent_note ? refuse(res.note, `Nothing was recorded. ${res.agent_note}`) : refuse(res.note);
+      : res.agent_note ? refuse(res.note, `Nothing was recorded. ${res.agent_note}`)
+      : res.repo_taken ? refuse(res.note, 'Nothing was recorded. Another EarnKit account already sent this repo to the program; tell the builder.')
+      : refuse(res.note);
   if (i.status === 'gap_done' && sameAsLast) await forgetGap(ctx.installationId, i.program_id);
   if (i.status === 'gap_done') {
     // A repeat says so (v6.1.7, C26); a rule is confirmed, not re-read from the repo (m3).
@@ -520,7 +615,9 @@ async function act(
   }
   const title = await titleOf(owner, i.program_id);
   // The win as the ledger now holds it (its currency resolved there); a further payment names its own currency.
-  const kept = i.status === 'won' ? (await resultOf(owner, i.program_id))?.amounts ?? null : null;
+  // L28-4 (v6.1.16 Task 14): the row just written, read back by its own project key.
+  const rowKey = (await rowHere(owner, i.program_id, appKey, RESULT_STATUSES.includes(i.status)))?.project_id ?? appKey;
+  const kept = i.status === 'won' ? (await resultOf(owner, i.program_id, rowKey))?.amounts ?? null : null;
   const wonText = kept ? amountsText(kept) : amount ? moneyText(amount.value, amount.currency) : '';
   const wonCurrency = (total: Record<string, number>) =>
     amount && amount.currency ? amount.currency : Object.keys(total).length === 1 ? Object.keys(total)[0] : 'USD';
@@ -559,17 +656,17 @@ async function act(
   // L29-9 (v6.1.16 Task 15): a send outside the standing approval is recorded, and answered as a refusal (isError).
   if (i.status === 'applied' && outside)
     return refused({
-      ...(await applicationIdOf(owner, i.program_id)),
+      ...(await applicationIdOf(owner, i.program_id, rowKey)),
       // L23-20 (v6.1.16): one closed sentence, never two.
       show_to_builder: outside === HAD_CLOSED && closedDay
         ? `${row!.file.title} closed on ${closedDay}; recorded anyway, not under your standing approval.`
         : [closed, `Sent, but outside your standing approval: ${outside}.`].filter(Boolean).join(' '),
-      agent_note: [...(otherClaim ? [OTHER_CLAIM_NOTE] : []), ...(heldSent ? [HELD_SENT_NOTE] : []), 'Recorded as applied, not under standing approval. Send nothing else alone that falls outside the limits; ask the builder first. Call find again for the updated applications.'].join(' '),
+      agent_note: [...(nameOnly ? [nameOnly] : []), ...(otherClaim ? [OTHER_CLAIM_NOTE] : []), ...(heldSent ? [HELD_SENT_NOTE] : []), 'Recorded as applied, not under standing approval. Send nothing else alone that falls outside the limits; ask the builder first. Call find again for the updated applications.'].join(' '),
       ledger: await summary(owner, programs, ctx.now),
     });
   // I1 (v6.1.9 final): after a send under standing approval the agent does not find again, so the morning report stays.
-  return {
-    ...(i.status === 'applied' ? await applicationIdOf(owner, i.program_id) : {}),
+  const done: Result = {
+    ...(i.status === 'applied' ? await applicationIdOf(owner, i.program_id, rowKey) : {}),
     show_to_builder: closed ?? lines[i.status],
     agent_note: otherClaim
       ? OTHER_CLAIM_NOTE
@@ -585,4 +682,6 @@ async function act(
         : 'Call find again for the updated applications.',
     ledger: await summary(owner, programs, ctx.now),
   };
+  // L28-1, L28-3 (v6.1.16 Task 14): a send kept under the project's name only says so to the agent first.
+  return nameOnly ? { ...done, agent_note: `${nameOnly} ${done.agent_note}` } : done;
 }

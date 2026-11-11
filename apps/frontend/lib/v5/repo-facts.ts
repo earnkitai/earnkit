@@ -8,7 +8,7 @@ import { detectIntegrations } from '../v6/integrations';
 import { builderCodesIn, KNOWN_TOKEN_ADDRESSES } from './code-signals';
 import { CHAIN_REGISTRY, chainOfId } from './chains';
 import { sql } from './db';
-import { GitHubError, GitHubSlow, RepoPrivateError, readBudget, readRepo, readRepoObject, type RepoRead } from './github';
+import { GitHubError, GitHubSlow, RepoPrivateError, isPublicMember, readBudget, readRepo, readRepoObject, type RepoRead } from './github';
 import { LIMITS, hit, uncountHit } from './rate-limit';
 import { addressKey, canonicalRepoLink, type Project } from './project-input';
 import { cleanText } from './controls';
@@ -52,6 +52,12 @@ export type RepoFacts = {
   notes?: RepoNote[];
   /** v6.1.14 L1f-1: the agent reported the repo private (a public read never sees a private repo: it reads as gone). */
   private?: true;
+  /** L28-6 (v6.1.16 Task 14): GitHub's repo id, from the read; none when not read. */
+  repo_id?: number;
+  /** L28-3 (v6.1.16 Task 14): the read's contributor logins, lower-case; none when not read (unknown). */
+  contributors?: string[];
+  /** L28-3: 'Organization' when the repo's owner is an organization. */
+  owner_type?: string;
 };
 
 type CodeFacts = Pick<RepoFacts, 'chains' | 'contracts' | 'builder_codes' | 'integrations' | 'first_commit_at' | 'last_commit_at' | 'readme_excerpt' | 'homepage' | 'topics'> & {
@@ -65,6 +71,13 @@ type CodeFacts = Pick<RepoFacts, 'chains' | 'contracts' | 'builder_codes' | 'int
   readme_lead?: string | null;
   /** When a code step sent this row back to GitHub and the repo was found unpushed (F7, v6.1.12); a new read has none. */
   checked_at?: string;
+  /** L28-6, L28-3 (v6.1.16 Task 14): the repo id, the contributor logins and the owner's type, from the read. A row
+   *  seeded or cached with `id` reads it as the repo id. `members`: public org membership answers, by login. */
+  repo_id?: number;
+  id?: number;
+  contributors?: string[];
+  owner_type?: string;
+  members?: Record<string, boolean>;
 };
 type Fetch = typeof fetch;
 
@@ -225,6 +238,9 @@ function codeFactsOf(r: RepoRead): CodeFacts {
     archived: r.repo.archived === true,
     empty: r.repo.size === 0,
     readme_lead: readmeLead(r.readme),
+    ...(typeof r.repo.id === 'number' ? { repo_id: r.repo.id } : {}),
+    ...(r.contributors ? { contributors: r.contributors } : {}),
+    ...(r.repo.owner?.type ? { owner_type: r.repo.owner.type } : {}),
   };
 }
 
@@ -456,5 +472,56 @@ function mergedFacts(project: Project, code: CodeFacts | null, paused: Unread): 
     ...(paused === 'paused' ? { problems: [READS_PAUSED] } : {}),
     notes,
     ...(project.private ? { private: true as const } : {}),
+    ...(code && repoIdIn(code) !== null ? { repo_id: repoIdIn(code)! } : {}),
+    ...(code && Array.isArray(code.contributors) ? { contributors: code.contributors.filter((x): x is string => typeof x === 'string').map((x) => x.toLowerCase()) } : {}),
+    ...(code?.owner_type ? { owner_type: code.owner_type } : {}),
   };
+}
+
+/** A cached read's repo id (`repo_id`, else `id`), or null. Pure. */
+const repoIdIn = (f: Pick<CodeFacts, 'repo_id' | 'id'>): number | null => {
+  const v = f.repo_id ?? f.id;
+  return typeof v === 'number' && Number.isSafeInteger(v) && v > 0 ? v : null;
+};
+
+/** L28-6 (v6.1.16 Task 14): the repo id the cached read of this repo link holds, or null (never a fetch). */
+export async function cachedRepoId(repoUrl: string | null | undefined): Promise<number | null> {
+  const key = repoKey(repoUrl ?? undefined);
+  if (!key) return null;
+  const [row] = await sql()<{ facts: CodeFacts }[]>`SELECT facts FROM repo_cache WHERE repo = ${key}`;
+  return row && !isMiss(row.facts) ? repoIdIn(row.facts) : null;
+}
+
+/** L28-6: the canonical repo link the cached read of this repo link answers with (its html_url after a rename), or null. */
+export async function cachedRepoLink(repoUrl: string | null | undefined): Promise<string | null> {
+  const key = repoKey(repoUrl ?? undefined);
+  if (!key) return null;
+  const [row] = await sql()<{ facts: CodeFacts }[]>`SELECT facts FROM repo_cache WHERE repo = ${key}`;
+  return row && !isMiss(row.facts) && typeof row.facts.html_url === 'string' ? canonicalRepoLink(row.facts.html_url) : null;
+}
+
+/**
+ * L28-3 (v6.1.16 Task 14): whether the repo counts as this login's: the login (any case) is the repo's owner segment, is
+ * among the read's contributor logins, or is a public member of the owner organization (GitHub's public_members, 204;
+ * under the read's budget, the answer cached with the read). No login (unlinked) is never the builder's for a send. A
+ * repo with no contributor list (not read: private, another host, a read cached before v6.1.16) gives no evidence
+ * against the builder and counts by its owner segment or as theirs.
+ */
+export async function ownsRepo(login: string | null | undefined, facts: Pick<RepoFacts, 'repo_url' | 'contributors' | 'owner_type'>, deps: { gh?: Fetch; repoUrl?: string | null } = {}): Promise<boolean> {
+  if (!login) return false;
+  const me = login.toLowerCase();
+  const link = canonicalRepoLink(deps.repoUrl ?? facts.repo_url ?? undefined);
+  const owner = link ? link.replace(/^https:\/\/[^/]+\//, '').split('/')[0] : null;
+  if (owner === me) return true;
+  if (!facts.contributors) return true;
+  if (facts.contributors.includes(me)) return true;
+  if (facts.owner_type !== 'Organization' || !owner) return false;
+  const key = repoKey(deps.repoUrl ?? facts.repo_url ?? undefined);
+  const [row] = key ? await sql()<{ facts: CodeFacts }[]>`SELECT facts FROM repo_cache WHERE repo = ${key}` : [];
+  const kept = row && !isMiss(row.facts) ? row.facts.members?.[me] : undefined;
+  if (typeof kept === 'boolean') return kept;
+  const member = await isPublicMember(owner, me, { fetch: deps.gh ?? fetch });
+  if (member === null) return false;
+  if (key && row) await sql()`UPDATE repo_cache SET facts = jsonb_set(facts, '{members}', COALESCE(facts->'members', '{}'::jsonb) || jsonb_build_object(${me}::text, ${member}::boolean)) WHERE repo = ${key}`;
+  return member;
 }

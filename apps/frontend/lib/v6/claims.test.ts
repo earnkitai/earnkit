@@ -108,14 +108,17 @@ test("skips and claims: a skip replaces the agent's own claim, never another age
   assert.equal(still.status, 'skipped');
 });
 
-test('L1d-1 (v6.1.11): claimed returns each claim\'s stored project; the hold stays per owner and program across projects', async () => {
+test('L1d-1 (v6.1.11): claimed returns each claim\'s stored project; L28-4 (v6.1.16 Task 14): another project claims on its own', async () => {
   await upsertProgram(programFixture({ id: 'cl-proj', title: 'Project Grant' }), 'file', NOW);
   const { owner, a, c } = await builderWithTwoAgents();
   assert.deepEqual(await claim(owner, 'cl-proj', 'https://github.com/x/a', a, NOW), { ok: true });
   assert.deepEqual((await claimed(owner)).get('cl-proj'), { since: NOW.toISOString(), by: a, project: 'https://github.com/x/a' });
-  // Another project of the same builder is still held off for 24 hours.
+  // L28-4 (v6.1.16 Task 14, re-pinned): another project of the same builder is another application: its own claim.
   const other = await claim(owner, 'cl-proj', 'https://github.com/x/b', c, new Date(NOW.getTime() + H));
-  assert.equal(other.ok, false);
+  assert.equal(other.ok, true);
+  // The same project from the other agent is still held off for 24 hours.
+  assert.equal((await claim(owner, 'cl-proj', 'https://github.com/x/a', c, new Date(NOW.getTime() + H))).ok, false);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${owner} AND program_id = 'cl-proj'`)[0].n, 2);
 });
 
 test('L25-1 (v6.1.16): a claim held by "Claude Code (earnkit)" names it "Claude Code"; the stored name is unchanged', async () => {

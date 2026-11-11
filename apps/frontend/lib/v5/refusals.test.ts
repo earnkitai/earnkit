@@ -83,7 +83,7 @@ test('track: already sent, both forms; the in-person send; the unconfirmed rule;
   assert.equal(sent.isError, false, sent.text);
   assert.equal(sent.reply!.show_to_builder, 'Sent rf-sent.');
   refused(await a.call('track', { program_id: 'rf-sent', status: 'started' }), 'rf-sent was already sent.');
-  refused(await a.call('track', { program_id: 'rf-sent', status: 'applied', submitted_by: 'builder' }), /^Already sent here on [^;]+; nothing recorded\.$/);
+  refused(await a.call('track', { program_id: 'rf-sent', status: 'applied', submitted_by: 'builder' }), /^Already sent on [^.]+\.$/);
   refused(await a.call('track', { program_id: 'rf-sent', status: 'held' }), 'That one was already sent; nothing to hold.');
   // L29-7: an agent's send on an in-person program.
   await p('rf-room', { in_person: true, title: 'Room Summit' });
