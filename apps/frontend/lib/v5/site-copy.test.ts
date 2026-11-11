@@ -25,27 +25,29 @@ test('copy rules: no emoji, no em dash, none of the banned words', () => {
   for (const [name, s] of ALL) {
     assert.ok(!EMOJI.test(s), `${name}: emoji in "${s}"`);
     assert.ok(!s.includes('—'), `${name}: em dash in "${s}"`);
-    // The terms page alone may say "launch a token".
-    const text = name.startsWith('TERMS_') ? s.replaceAll('launch a token', '') : s;
-    assert.ok(!BANNED.test(text), `${name}: banned word in "${s}"`);
+    // L25-22 (v6.1.16): the terms drop "launch a token", so no exception remains.
+    assert.ok(!BANNED.test(s), `${name}: banned word in "${s}"`);
   }
-  assert.ok(ALL.some(([n, s]) => n.startsWith('TERMS_') && s.includes('launch a token')));
 });
 
 test('the hero and the steps are verbatim', () => {
   assert.equal(copy.HERO_TITLE, 'Get funded for what you ship.');
-  assert.equal(copy.HERO_SUB, 'Your agent finds the grants and prizes you fit and fills the forms. Free.');
+  // L25-2 (v6.1.16): one line everywhere.
+  assert.equal(copy.ONE_LINE, 'Your agent finds the grants and prizes your repo fits and fills the forms. Free.');
+  assert.equal(copy.HERO_SUB, copy.ONE_LINE);
   assert.equal(copy.CTA_INSTALL, 'Add EarnKit to your agent');
   assert.deepEqual(copy.STEPS, ['Add EarnKit to your agent.', 'Ask your agent: What can I earn?', 'Say yes. It fills the form and sends it, or hands you the draft to send.']);
   // #13 (v6.1.15): one first ask and one install label, everywhere.
   assert.equal(copy.NAV_INSTALL, copy.CTA_INSTALL);
   assert.deepEqual(copy.DOCS_STEPS, ['Add EarnKit to your agent.', 'Ask your agent: What can I earn?']);
-  assert.equal(copy.DOCS_SESSION.text, 'Ask your agent: What can I earn? It drafts every fit with the facts from the repo. Say yes. It fills the form and sends it, or hands you the draft to send. It tracks the result.');
+  // L25-9 (v6.1.16): who submits, in one sentence.
+  assert.equal(copy.DOCS_SESSION.text, 'Ask your agent: What can I earn? It drafts every fit with the facts from the repo. You say yes and it submits, or hands you the draft to send, and tracks the result.');
   assert.ok(!('STEPS_TITLE' in copy));
   assert.equal(copy.EARN_TITLE, 'Open now');
-  // v6.1.14: no bounty is listed, ten investments are.
-  assert.equal(copy.PROGRAMS_DESCRIPTION, 'Every grant, hackathon and investment EarnKit lists, with the money and the close date.');
-  assert.equal(copy.EARN_ALL(45), 'See all 45 programs');
+  // L25-19 (v6.1.16): grants, prizes and investments.
+  assert.equal(copy.PROGRAMS_DESCRIPTION, 'Every grant, prize and investment EarnKit lists, with the money and the close date.');
+  // L25-15 (v6.1.16): no count.
+  assert.equal(copy.EARN_ALL, 'See all programs.');
   assert.equal(copy.FOOT_CTA, 'Ask your agent: What can I earn?');
   assert.equal(copy.PROGRAMS_TITLE, 'Programs');
 });
@@ -79,22 +81,27 @@ test('the docs say the seven sections and stay short', () => {
     .join(' ').split(/\s+/).filter(Boolean).length;
   // #15 (v6.1.15): the ruled tier glosses add 36 words to the screening text (223 now); the cap moves from 220 to 230.
   assert.ok(words < 230, `docs copy is ${words} words`);
-  assert.equal(copy.DOCS_RECORD.text, 'Sign in once with GitHub and your agents share one record: your facts, links, documents and the answers you approved. Once you are signed in, nothing is sent that you did not approve. Delete it any time. Ask your agent for your sign-in link.');
+  // L25-8 (v6.1.16): the approval sentence.
+  assert.equal(copy.APPROVAL_LINE, 'Your agent sends nothing you did not say yes to, and saved answers wait for your approval on your record page.');
+  assert.equal(copy.DOCS_RECORD.text, "Sign in once with GitHub from your agent's link, and your agents share one record: facts, links, documents and answers. Your agent sends nothing you did not say yes to, and saved answers wait for your approval on your record page. Delete it any time.");
+  // L25-12 (v6.1.16): no weekly; how long a dead page stays listed.
+  assert.equal(copy.DOCS_CHECKED.text, 'EarnKit and a research bot check every program. Links are probed daily; a program whose page stays down leaves the list within about two weeks.');
   assert.equal(copy.DOCS_SCREEN.text, "Hand your applicant list to your agent and EarnKit sorts it into five tiers with public evidence: used (people outside the team use it), live (a site that loads, or a contract in use), building (recent code), unverified (nothing public we could check) and flagged (looks copied, or most of its users are wallets the team funded itself). We read the repo, the chain and the site. We never show a builder's record, another program's name, screens or results, or another applicant's text. A program's reviewers share its screens, and they stay with the program when a reviewer leaves.");
-  // #4 (v6.1.15): the session sentence is landing step 3, word for word.
-  assert.ok(copy.DOCS_SESSION.text.includes(` ${copy.STEPS[2]} `));
-  assert.equal(copy.DOCS_SESSION.text.split(/(?<=\.)\s+/).length, 4);
+  assert.equal(copy.DOCS_SESSION.text.split(/(?<=[.?])\s+/).length, 3);
 });
 
 test('L15-20 (v6.1.14): the program owners section says the five things, in plain sentences', () => {
   assert.equal(copy.DOCS_PROGRAMS.title, 'For program owners');
   assert.deepEqual([...copy.DOCS_PROGRAMS.items], [
-    "Sign in once with GitHub and ask EarnKit to mark you as your program's reviewer. Your team is marked the same way and shares your screens.",
-    "A screen reads only public evidence: the repo, the chain and the site. It never reads a builder's record or another applicant's text.",
-    "Tell your agent who won. A result reaches a builder only through the EarnKit id on their application, and never from your own application.",
-    'Other programs see nothing of your screens, results or decisions.',
-    'Results come in daily runs, the first by the next morning, and are kept 180 days with your decisions.',
+    'Sign in once with GitHub and ask for reviewer access through the X link below. Your team is marked the same way and shares your screens.',
+    "A screen reads only public evidence, never a builder's record or another applicant's text.",
+    'Tell your agent who won; results reach builders only through the EarnKit id on their application, never on your own.',
+    'Other programs never see your screens, results or decisions.',
+    'Results come once a day, within 24 hours, and are kept 180 days with your decisions.',
   ]);
+  // L25-10 (v6.1.16): the reviewer line, shared with the screen tool's words.
+  assert.equal(copy.REVIEWER_ACCESS, 'Sign in once with GitHub and ask for reviewer access through the X link below.');
+  assert.ok(copy.DOCS_PROGRAMS.items[0].startsWith(copy.REVIEWER_ACCESS));
   for (const t of copy.DOCS_PROGRAMS.items) {
     assert.match(t, /\.$/, t);
     assert.doesNotMatch(t, /\u2014|\u2013|[_{}]|\b(score|rank|grade|points?|coins?|tokens?|streaks?)\b/i, t);
@@ -108,7 +115,7 @@ test('the terms are five sections', () => {
   const rec = copy.TERMS_SECTIONS[3].lines.join(' ');
   for (const w of ['private', 'delete']) assert.ok(rec.toLowerCase().includes(w), w);
   assert.deepEqual(copy.TERMS_SECTIONS[3].lines.slice(1), [
-    'Only you and your linked agents see it. Nothing your agent wrote is sent until you approve it.',
+    'Only you and your linked agents see it. Your agent sends nothing you did not say yes to, and saved answers wait for your approval on your record page.',
     'You can edit or delete it any time on your record page.',
   ]);
   assert.deepEqual(copy.TERMS_LINKS, [['your record page', '/me']]);
@@ -117,8 +124,16 @@ test('the terms are five sections', () => {
   // No path, no ledger and no second copy of the delete line on the terms (lane 5, 2 and 3.29 to 3.30).
   const all = copy.TERMS_SECTIONS.flatMap((s) => s.lines).join(' ');
   assert.ok(!/\/me\b|ledger|Delete removes|own GitHub access|own linked/.test(all), all);
-  const never = copy.TERMS_SECTIONS[2].lines.join(' ');
-  for (const w of ['submit', 'hold a wallet', 'launch a token', 'sell data', 'email builders']) assert.ok(never.includes(w), w);
+  // L25-2, L25-22 (v6.1.16): who submits, and no token clause.
+  assert.deepEqual([...copy.TERMS_SECTIONS[2].lines], ['EarnKit never submits for you; your agent does, or you do. It never holds a wallet, sells data or emails builders.']);
+  assert.ok(!/\btokens?\b/i.test(all), all);
+  // L25-16 (v6.1.16): what it stores, in full.
+  assert.deepEqual([...copy.TERMS_SECTIONS[1].lines], [
+    'An anonymous installation for each connected agent.',
+    "The agent's name, your GitHub login once you sign in, and your address for at most two days to stop abuse.",
+    'The applications you tell it about.',
+    'Program data.',
+  ]);
 });
 
 test('the llms text names the connect line, the tools and the API', () => {
@@ -132,6 +147,10 @@ test('the llms text names the connect line, the tools and the API', () => {
   assert.ok(!/two tools/i.test(LLMS_TEXT));
   assert.match(LLMS_TEXT, /https:\/\/earnkit\.com\/api\/programs/);
   assert.match(LLMS_TEXT, /https:\/\/earnkit\.com\/programs\/</);
+  // L25-7, L25-8 (v6.1.16): find first, record once signed in; the approval sentence; VS Code through its tab.
+  assert.ok(LLMS_TEXT.includes('1. The agent calls find with the project it is in; once signed in, record with get. EarnKit reads the public repo;'));
+  assert.ok(LLMS_TEXT.includes(copy.APPROVAL_LINE));
+  assert.ok(LLMS_TEXT.includes(`- VS Code:\n    code --add-mcp '{"name":"earnkit","type":"http","url":"https://earnkit.com/mcp"}'\n    Sign in when it asks.`));
 });
 
 test('the OpenClaw and Claude connect steps match their docs', async () => {
@@ -143,14 +162,24 @@ test('the OpenClaw and Claude connect steps match their docs', async () => {
   assert.equal(open.afterCode, undefined);
   assert.equal(open.last, 'On a server with no browser, run the --code command the login prints.');
   const claude = AGENTS.find((a) => a.name === 'Claude')!;
+  // L25-23 (v6.1.16): four steps; v6.1.15's client document signs in, so the third is Sign in now alone.
   assert.deepEqual(claude.steps, [
-    'In claude.ai or the desktop app, open "Customize", then "Connectors".',
-    'Choose "+ Add", then "Add custom connector".',
-    'Name it EarnKit, paste the EarnKit link, choose "Continue".',
+    'Customize, Connectors, Add, Add custom connector.',
+    'Paste https://earnkit.com/mcp and press Continue.',
     'Choose Sign in now.',
-    'Choose "Add".',
-    'In a chat, choose "+", then "Connectors", and turn EarnKit on.',
+    'In a chat, open Connectors and turn EarnKit on.',
   ]);
+  assert.equal(claude.note, "Claude's Free plan allows one custom connector.");
+  // L25-4 (v6.1.16): VS Code follows Cursor.
+  const names = AGENTS.map((a) => a.name);
+  assert.equal(names.indexOf('VS Code'), names.indexOf('Cursor') + 1);
+  const vs = AGENTS.find((a) => a.name === 'VS Code')!;
+  assert.deepEqual(vs.steps, ['Run this in your terminal:']);
+  assert.equal(vs.code, `code --add-mcp '{"name":"earnkit","type":"http","url":"https://earnkit.com/mcp"}'`);
+  assert.equal(vs.after, 'Sign in when it asks.');
+  assert.equal(vs.icon, '/images/agents/vscode.svg');
+  assert.ok(readFileSync(join(ROOT, 'apps/frontend/public/images/agents/vscode.svg'), 'utf8').startsWith('<svg'));
+  assert.ok(!names.includes('ChatGPT' as never) && !names.includes('Windsurf' as never));
   // v6.1.15 Task 14: claude.ai signs in with its client document, so no copy asks the builder to register a client.
   for (const [name, text] of [['llms', LLMS_TEXT], ['README', readFileSync(join(ROOT, 'README.md'), 'utf8')]] as const) {
     assert.ok(!/Register automatically|OAuth client/i.test(text), `${name}: no OAuth client step`);
@@ -174,15 +203,18 @@ test('every copy of the connect steps carries the approve and reload steps', () 
 });
 
 test('no install copy mentions signing in, X, GitHub or a wallet', async () => {
-  const { AGENTS, GROK_BOT_PROMPT, MUSE_MESSAGE } = await import('./agents');
-  const BAD = /sign in|sign-in|x\.com|github|wallet/i;
-  const all = [...AGENTS.flatMap((a) => strings(a.name, [a.note, a.installNote, a.stepsLead, a.message, a.code, a.after, a.afterCode, a.last, a.steps])), ...strings('docs', copy.DOCS_STEPS), ['prompt', GROK_BOT_PROMPT] as [string, string], ['muse', MUSE_MESSAGE] as [string, string]];
+  const { AGENTS, GROK_BOT_PROMPT, MUSE_MESSAGE, OTHER_AGENT_LINE } = await import('./agents');
+  const SIGN_IN = /sign in|sign-in/i;
+  const BAD = /x\.com|github|wallet/i;
+  const all = [...AGENTS.flatMap((a) => strings(a.name, [a.note, a.installNote, a.stepsLead, a.message, a.code, a.after, a.afterCode, a.last, a.steps])), ...strings('docs', copy.DOCS_STEPS), ['prompt', GROK_BOT_PROMPT] as [string, string], ['muse', MUSE_MESSAGE] as [string, string], ['other', OTHER_AGENT_LINE] as [string, string]];
   assert.ok(all.length > 20);
-  // v6.1.15 Task 14: Claude's own button label, Sign in now, is the one exception (its client document signs in); no
-  // other line asks the builder to sign in.
-  const claudeButton = ([name, s]: [string, string]) => name === 'Claude' && s === 'Choose Sign in now.';
-  assert.equal(all.filter(claudeButton).length, 1);
-  for (const [name, s] of all.filter((x) => !claudeButton(x))) assert.ok(!BAD.test(s), `${name}: "${s}"`);
+  // Ruling 7 (v6.1.16): sign-in words only in the three ruled lines, by exact text (Claude's button, VS Code's after
+  // line, the other-agent line); X, GitHub and a wallet stay banned everywhere.
+  const RULED = new Set(['Claude\0Choose Sign in now.', 'VS Code\0Sign in when it asks.', 'other\0Another agent? Add https://earnkit.com/mcp as a remote MCP server and sign in.']);
+  const ruled = ([name, s]: [string, string]) => RULED.has(`${name}\0${s}`);
+  assert.equal(all.filter(ruled).length, 3);
+  for (const [name, s] of all.filter((x) => !ruled(x))) assert.ok(!SIGN_IN.test(s), `${name}: "${s}"`);
+  for (const [name, s] of all) assert.ok(!BAD.test(s), `${name}: "${s}"`);
   // R6: the authorize endpoint approves at once (a 302 with the code), so no copy asks the builder to approve a page.
   for (const [name, s] of all) assert.ok(!s.includes('Approve it when the page opens'), `${name}: "${s}"`);
   // Said once, in the intro line above the tabs, never again in a tab (lane 5, 2).

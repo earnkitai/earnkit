@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import Footer from '../components/common/Footer';
+import { pageMeta } from '../lib/meta';
 import { CARD_PANEL, H1_SITE, PAGE_COL } from '../components/site/ui';
 import { TERMS_DESCRIPTION, TERMS_LINKS, TERMS_SECTIONS, TERMS_TITLE } from '../../lib/v5/site-copy';
 
@@ -20,12 +21,9 @@ function withLinks(line: string) {
   );
 }
 
+/** L25-22 (v6.1.16): "Terms · EarnKit", like every other page. */
 export function generateMetadata() {
-  return {
-    title: TERMS_TITLE,
-    description: TERMS_DESCRIPTION,
-    alternates: { canonical: 'https://earnkit.com/terms' },
-  };
+  return pageMeta({ path: '/terms', title: `${TERMS_TITLE} · EarnKit`, description: TERMS_DESCRIPTION });
 }
 
 /** The one legal page: what EarnKit reads, what it stores, what it never does. */

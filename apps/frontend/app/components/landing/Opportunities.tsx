@@ -108,7 +108,7 @@ export default function Opportunities({ programs, total, full = false }: { progr
       {!full && total > 0 ? (
         <div className="flex justify-center">
           <Link href="/programs" className={PILL_WHITE}>
-            {EARN_ALL(total)}
+            {EARN_ALL}
           </Link>
         </div>
       ) : null}

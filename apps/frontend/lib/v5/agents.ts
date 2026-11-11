@@ -14,7 +14,7 @@ export function tabKeyTarget(key: string, at: number, n: number): number | null 
   return null;
 }
 
-export type AgentName = 'Grok Bot' | 'Muse' | 'OpenClaw' | 'Hermes' | 'Claude' | 'Claude Code' | 'Cursor' | 'Codex';
+export type AgentName = 'Grok Bot' | 'Muse' | 'OpenClaw' | 'Hermes' | 'Claude' | 'Claude Code' | 'Cursor' | 'VS Code' | 'Codex';
 
 /**
  * What the Grok Bot button types into Grok Bot's composer (the builder presses Enter, then "Add it" and
@@ -33,6 +33,9 @@ export const grokBotPromptLink = (text: string): string => {
 };
 
 /** The message a Muse builder sends (Muse builds connectors in chat; it has no add-server form). */
+/** The line under the install tabs, for any agent without a tab (L25-4, v6.1.16). */
+export const OTHER_AGENT_LINE = `Another agent? Add ${MCP_URL} as a remote MCP server and sign in.`;
+
 export const MUSE_MESSAGE = `Build a custom connector to ${MCP_URL} (Streamable HTTP). Sign me in, test it, then save it as a skill.`;
 
 export type Agent = {
@@ -85,6 +88,9 @@ export type Agent = {
  *   (muse.ai is the site Meta's announcement names: https://about.fb.com/news/2026/09/introducing-muse-personal-ai-agent/),
  *   the same path; its blue gradient fill is flattened to its middle stop (#0064E0), since the
  *   logo checks refuse url() and the tab draws the mark in one color anyway.
+ * - vscode.svg: a plain code glyph (two angle brackets), drawn for EarnKit: VS Code's own mark is not stored here.
+ *   VS Code per https://code.visualstudio.com/docs/copilot/customization/mcp-servers (code --add-mcp with a JSON
+ *   server config; "type": "http" for a remote server; VS Code asks to sign in on first use).
  * - openclaw.svg: OpenClaw's lobster mark from its official site, https://openclaw.ai/favicon.svg, the same paths;
  *   its gradient fill flattened to one color and the eyes dropped (the tab draws the mark in one color).
  *
@@ -101,7 +107,7 @@ export type Agent = {
  * its icon is the same Claude Spark as Claude Code's. ChatGPT has no tab: OpenAI's official pages could not be read
  * on 2026-10-22, so its steps are unconfirmed.
  * The owner's order: the personal agents first (Grok Bot, Muse, OpenClaw, Hermes), then
- * Claude, Claude Code, Cursor, Codex. Instinct documents no way to add an MCP server, so it has no tab.
+ * Claude, Claude Code, Cursor, VS Code, Codex. Instinct documents no way to add an MCP server, so it has no tab.
  * One-click links only where the agent has one: Grok Bot's prompt link (grokBotPromptLink, read from the Grok Bot app:
  * it types GROK_BOT_PROMPT and the builder presses Enter) and Cursor's MCP install deep link (Cursor docs, "Add to
  * Cursor" links: cursor://anysphere.cursor-deeplink/mcp/install?name=<name>&config=<base64 of the server's config>),
@@ -153,13 +159,12 @@ export const AGENTS: Agent[] = [
     name: 'Claude',
     icon: '/images/agents/claude-code.svg',
     note: "Claude's Free plan allows one custom connector.",
+    // L25-23 (v6.1.16): four steps. v6.1.15's client document signs in, so no OAuth client step.
     steps: [
-      'In claude.ai or the desktop app, open "Customize", then "Connectors".',
-      'Choose "+ Add", then "Add custom connector".',
-      'Name it EarnKit, paste the EarnKit link, choose "Continue".',
+      'Customize, Connectors, Add, Add custom connector.',
+      `Paste ${MCP_URL} and press Continue.`,
       'Choose Sign in now.',
-      'Choose "Add".',
-      'In a chat, choose "+", then "Connectors", and turn EarnKit on.',
+      'In a chat, open Connectors and turn EarnKit on.',
     ],
   },
   {
@@ -179,6 +184,13 @@ export const AGENTS: Agent[] = [
       null,
       2,
     ),
+  },
+  {
+    name: 'VS Code',
+    icon: '/images/agents/vscode.svg',
+    steps: ['Run this in your terminal:'],
+    code: `code --add-mcp '${JSON.stringify({ name: 'earnkit', type: 'http', url: MCP_URL })}'`,
+    after: 'Sign in when it asks.',
   },
   {
     name: 'Codex',
