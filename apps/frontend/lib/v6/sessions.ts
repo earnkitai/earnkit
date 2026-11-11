@@ -5,12 +5,18 @@ import { createHash, randomBytes } from 'node:crypto';
 import { sql } from '../v5/db';
 import { getBuilder, type Builder } from './builders';
 
-export const COOKIE = 'ek_me';
+/** The session cookie's old name, read for one release (drop in v6.1.17) so signed-in builders stay signed in. */
+export const OLD_COOKIE = 'ek_me';
+/**
+ * The session cookie's name (L31-6, v6.1.16 Task 17): `__Host-ek_me` in production, so the browser takes it only with
+ * Secure, Path=/ and no Domain (no subdomain can set or shadow it); `ek_me` on local http, where Secure cannot be set.
+ */
+export const cookieName = (): string => (process.env.NODE_ENV === 'production' ? '__Host-ek_me' : OLD_COOKIE);
 export const SESSION_DAYS = 30;
 const DAY = 86_400_000;
 
 const hash = (token: string) => createHash('sha256').update(token).digest('hex');
-/** A Set-Cookie value: HttpOnly, SameSite=Lax, Path=/, and Secure in production. */
+/** A Set-Cookie value: HttpOnly, SameSite=Lax, Path=/, and Secure in production; never a Domain. */
 export const cookieOf = (name: string, value: string, maxAge: number) =>
   `${name}=${value}; Path=/; HttpOnly${process.env.NODE_ENV === 'production' ? '; Secure' : ''}; SameSite=Lax; Max-Age=${maxAge}`;
 
@@ -22,13 +28,26 @@ export function cookieValue(cookieHeader: string | null, name: string): string |
   }
   return null;
 }
-const tokenOf = (cookieHeader: string | null) => cookieValue(cookieHeader, COOKIE);
+/** The session token in a Cookie header: the current name first, else the old one (L31-6, one release). Pure. */
+export const sessionToken = (cookieHeader: string | null): string | null =>
+  cookieValue(cookieHeader, cookieName()) ?? cookieValue(cookieHeader, OLD_COOKIE);
+const tokenOf = sessionToken;
+
+/**
+ * L31-6 (v6.1.16 Task 17): for a request carrying the session only under the old name, the Set-Cookie values that
+ * move it to the new one (the same token, a fresh Max-Age) and clear the old; none otherwise. Pure.
+ */
+export function renewedCookies(cookieHeader: string | null): string[] {
+  if (cookieName() === OLD_COOKIE || cookieValue(cookieHeader, cookieName())) return [];
+  const old = cookieValue(cookieHeader, OLD_COOKIE);
+  return old ? [cookieOf(cookieName(), old, SESSION_DAYS * 86_400), cookieOf(OLD_COOKIE, '', 0)] : [];
+}
 
 export async function createSession(builderId: number, now: Date): Promise<{ token: string; cookie: string }> {
   const token = randomBytes(32).toString('base64url');
   await sql()`INSERT INTO sessions (token_hash, builder_id, created_at, expires_at, last_seen_at)
     VALUES (${hash(token)}, ${builderId}, ${now}, ${new Date(now.getTime() + SESSION_DAYS * DAY)}, ${now})`;
-  return { token, cookie: cookieOf(COOKIE, token, SESSION_DAYS * 86_400) };
+  return { token, cookie: cookieOf(cookieName(), token, SESSION_DAYS * 86_400) };
 }
 
 /** The signed-in builder (the session's last_seen_at moves to now), or null when absent or expired. */
@@ -46,4 +65,4 @@ export async function endSession(cookieHeader: string | null): Promise<void> {
 }
 
 /** The Set-Cookie value that removes the session cookie. Pure. */
-export const clearCookie = (): string => cookieOf(COOKIE, '', 0);
+export const clearCookie = (): string => cookieOf(cookieName(), '', 0);

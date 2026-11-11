@@ -17,7 +17,7 @@ import { type Builder, deleteBuilder, getRecord, unlinkInstallation, withRecord 
 import { ALREADY_LINKED, OTHER, codeShaped, codeState, consumeLinkCode, deniedCode, denyLinkCode, linkedBy, liveCode } from './link-routes';
 import { type MeField, agentList, authSecret, problemSig, recordBlocks, seenOf, utcDay, verifyCsrf } from './me-view';
 import { APPROVABLE, type BuilderRecord, approvePath, fieldSchema, mergeRecord, onceEach, unapprovePath } from './record';
-import { COOKIE, clearCookie, cookieValue, endSession, sessionBuilder } from './sessions';
+import { clearCookie, endSession, sessionBuilder, sessionToken } from './sessions';
 
 type Deps = { now?: Date };
 const MAX_BODY = 64 * 1024;
@@ -97,7 +97,7 @@ async function guard(request: Request, deps: Deps): Promise<Response | { builder
   const builder = await sessionBuilder(request.headers.get('cookie'), now);
   if (!builder) return text(403, ME_ERRORS.signin);
   const form = new URLSearchParams(body);
-  const session = cookieValue(request.headers.get('cookie'), COOKIE) ?? '';
+  const session = sessionToken(request.headers.get('cookie')) ?? '';
   if (!verifyCsrf(form.get('csrf') ?? '', builder.id, now, authSecret(), session)) return problemAt({ builder, now }, ME_ERRORS.expired);
   return { builder, form, now };
 }

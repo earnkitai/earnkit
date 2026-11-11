@@ -157,7 +157,7 @@ test('L27-16, L27-17: signed in the nav shows Your record to /me; under 360px th
   assert.match(signed, new RegExp(`<a[^>]*href="/me"[^>]*>${NAV_RECORD}</a>`));
   assert.ok(signed.includes('<span class="hidden max-[360px]:inline">Add</span>'));
   assert.ok(signed.includes('max-[360px]:gap-x-4'));
-  assert.ok(read('layout.tsx').includes('<Header signedIn={Boolean((await cookies()).get(COOKIE)?.value)} />'));
+  assert.ok(read('layout.tsx').includes("<Header signedIn={Boolean(sessionToken((await headers()).get('cookie')))} />"));
 });
 
 test('L27-23, L27-24: a tile without a logo shows the organizer initials; the organizer chip wraps to two lines, no ellipsis', () => {

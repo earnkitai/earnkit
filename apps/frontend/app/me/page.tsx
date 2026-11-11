@@ -4,7 +4,7 @@ import Footer from '../components/common/Footer';
 import MeView from './MeView';
 import { ME_DESCRIPTION, ME_TITLE } from '../../lib/v5/site-copy';
 import { authSecret, meData, problemShown } from '../../lib/v6/me-view';
-import { COOKIE, cookieValue, sessionBuilder } from '../../lib/v6/sessions';
+import { sessionBuilder, sessionToken } from '../../lib/v6/sessions';
 
 export const dynamic = 'force-dynamic';
 /** L27-21 (v6.1.16): noindex and no canonical (no `alternates`; the layout sets none). */
@@ -16,9 +16,10 @@ const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
 export default async function MePage({ searchParams }: { searchParams: Promise<Query> }) {
   const now = new Date();
-  // One parser for the session cookie (v6.1.7 B2): the first ek_me in the raw header, as the gate and every post read it.
+  // One parser for the session cookie (v6.1.7 B2): the first session cookie in the raw header (the
+  // __Host- name, else the old ek_me for one release, L31-6), as the gate and every post read it.
   const cookie = (await headers()).get('cookie');
-  const token = cookieValue(cookie, COOKIE);
+  const token = sessionToken(cookie);
   const builder = token ? await sessionBuilder(cookie, now) : null;
   if (!token || !builder) redirect('/docs#record');
   const q = await searchParams;

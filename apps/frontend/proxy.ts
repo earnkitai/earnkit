@@ -21,6 +21,7 @@
 import { NextResponse } from 'next/server';
 import { notAllowed } from './lib/v5/http';
 import { meGet } from './lib/v6/me-routes';
+import { renewedCookies } from './lib/v6/sessions';
 import { publicOrigin } from './lib/v5/oauth';
 import { listGuideIds } from './lib/v5/guide-page';
 import { allowOf, serves } from './lib/v5/route-methods';
@@ -82,7 +83,12 @@ export async function proxy(request: Request) {
   // Read on the lower-case path, so a capitalised route path (/Me/Edit) keeps its 308 for the methods it serves.
   const allow = allowOf(pathname.toLowerCase());
   if (!serves(allow, request.method)) return notAllowed(allow);
-  if (pathname === '/me') return meGet(request);
+  if (pathname === '/me') {
+    const res = await meGet(request);
+    // L31-6 (v6.1.16 Task 17): signed in under the old cookie name only, the page's response moves it to the new one.
+    if (res.status !== 302) for (const c of renewedCookies(request.headers.get('cookie'))) res.headers.append('Set-Cookie', c);
+    return res;
+  }
   const lower = NOT_A_PAGE.test(pathname) ? null : lowerPath(url);
   if (lower) return new Response(null, { status: 308, headers: { Location: `${publicOrigin(request)}${lower.pathname}${lower.search}` } });
   const gone = await guideGate(url, guideIds);
