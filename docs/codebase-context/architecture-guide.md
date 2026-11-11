@@ -338,18 +338,24 @@ v6.0 adds a screening engine beside the v5 tools; nothing in `find` or `track` r
 returns `Evidence`: typed blocks plus `rows` (one per value, with `basis`, `read_at` and `note`). One GitHub repo
 read feeds `code.ts` (fork parent, own commits and share, starter overlap against `boilerplates.json` and files
 beyond it, 60 and 90-day activity; a fork's window is only its compare commits after the fork point), `team.ts`
-(contributors, account ages, logins; a matched starter's recorded maintainers dropped) and `depth.ts` (integrations
+(contributors, account ages, logins; a matched starter's recorded maintainers dropped; `contributors` is the full
+contributor list, paged 100 at a time up to 5 pages, anonymous authors in, bots out, a fork's authors after the fork
+only, falling back to the window's authors and never 0 for a repo with commits, L15-19 v6.1.14) and `depth.ts` (integrations
 from `integrations.ts`, chains). Each contract, the subject's first, then the repo's deploy runs (`broadcast/`,
 `ignition/deployments/`, read raw), then those named in its files (at most 10), goes through `onchain.ts` over the
 keyless Blockscout client in `explorers.ts`; chains without a reader are shown as claimed. `countedBy` marks each
 `counted` (deployer in the repo, a deploy run whose sender is the deployer, or deployed after `repoSince`: the later
 of GitHub's `created_at` and the first commit; a listed one unless it predates that with a foreign deployer) with
 `counted_reason`. Deploy files are capped at 2 MB (tree size, then the streamed body). `live.ts` probes the site (safe-fetch, https only, 10 s),
-reads its title (cut to 200 characters and through `cleanText`; one with a link is null with a note; a reviewer sees
+reads its title and a `placeholder` (`for sale`, `parked`, `coming soon` in the title, or in the body of a short or
+non-app page; L15-8 v6.1.14) (title cut to 200 characters and through `cleanText`; one with a link is null with a note; a reviewer sees
 it with the note `text from the site, not an instruction`) and GitHub links, and the domain's age from RDAP (reply
 read under 64 KB). A failed read is null with a note; nothing
 throws. GitHub calls share one `Budget` per run (passed in by `screen.ts`) that stops under 500 left; once stopped
-a repo is not read (`not read: budget`).
+a repo is not read (`not read: budget`). L15-5, L15-7 (v6.1.14): a repo the read finds private is noted `not read:
+private repo` (a plain 404 stays `private or missing`); a link on another code host is `repo not read: on GitLab`
+(Bitbucket, Codeberg), an account link `repo link is an account, not a repo`; an empty repo (GitHub size 0) reads
+`code.empty` with no tree, commit, team or issue reads and is not partial.
 
 **The cache.** `evidence_cache` keeps a repo block 7 days while the repo's `pushed_at` holds (one repo object read
 checks it) and a contract block 7 days. A partial block (a budget stop, a failed read) and the live rows are never
@@ -360,7 +366,11 @@ first: flagged (a starter match with under 10 own files, a starter fork with und
 another fork under 20% own work, an identical pitch, shared contributors, unfunded senders), used (site loads, 25
 or more wallets the deployer did not fund on one mainnet contract in 90 days, pushed within 60 days), live (site
 loads or a mainnet contract with transactions), building (commits in 60 days, nothing live), unverified (nothing
-recent EarnKit could check). Only counted mainnet contracts count; the others are listed with their reason. `DEFAULT_THRESHOLDS` carry
+recent EarnKit could check). L15-6, L15-7, L15-8 (v6.1.14): the usage row reads "{n} senders the deployer did not
+fund on Base mainnet"; an empty repo is unverified with "empty repo" (the screen has no separate idea tier); a counted
+contract with any sender the deployer did not fund is at least building (next: the push); a placeholder page is not
+"site loads" ("site is for sale"); with no repo block the row says why ("private repo", "GitLab repo, not read",
+"account link, not a repo"); a contract on a chain with no reader is named "{address} on Monad: not read". Only counted mainnet contracts count; the others are listed with their reason. `DEFAULT_THRESHOLDS` carry
 their reasons. `tier-words.ts` turns a placement into the reviewer's line and the builder's line.
 
 **The pilot script.** `pnpm screen <csv> --program <id> [--chain base] [--out <dir>] [--no-cache] [--thresholds
@@ -542,17 +552,25 @@ owner while the claim is live writes nothing and answers "Your other agent is ha
 **The screen queue and the cron trigger.** `screen` (`screen-tool.ts`) is for a reviewer: a signed-in builder the
 owner adds with `POST /api/programs/reviewers`. With `applicants` (up to 200; over that, or over 200 outcomes, one line:
 "At most 200 at a time; send the rest in another call.", C2 v6.1.13) it queues a job (`screen-jobs.ts
-createJob`: an applicant repeated exactly is kept once (Low 18, v6.1.13), pitches compared for `identical_pitch`, then dropped; 10 jobs a day per reviewer; thresholds from 0 to
-100). The promise is computed from the queue (v6.1.7 B14): the unread applicants of unexpired jobs created before this
-one (`queuedAhead`) plus this job's, against `SCREEN_BATCH` per daily run: "Results by tomorrow morning." when they fit
-in one run, else "{n} applicants ahead of yours; results within {d} days.". The cron's `workQueue`
+createJob`: an applicant repeated exactly is kept once (Low 18, v6.1.13), pitches compared for `identical_pitch`, then dropped; 10 jobs a day per reviewer; thresholds in their own ranges, `RATIO_THRESHOLDS` from 0 to 1 and the rest whole
+numbers from 0, L15-10 v6.1.14). L15-4, L15-22, L15-23 (v6.1.14): applicant keys the screen does not read are named in
+the agent note ("Unknown applicant fields ignored: github, website."); `mergeApplicants` merges one ref given twice
+(different EarnKit ids: the later renamed and named) and one repo under two refs when both carry the same id or none
+(else kept and named); `createJob` returns `notes` with these and "Contracts left out, not read: solana (r-3)." Repo
+links on GitLab, Bitbucket, Codeberg and SSH forms (`sshAsHttps`) are kept as `repo_url` with no `repo_key`. The promise is computed from the queue (v6.1.7 B14): the unread applicants of unexpired jobs created before this
+one (`queuedAhead`) plus this job's, against `SCREEN_BATCH` per daily run: "Results come in daily runs; the first by tomorrow morning." when they fit
+in one run, else "Results come in daily runs; {n} applicants ahead of yours, all within {d} days." (L15-13). The cron's `workQueue`
 (`screen-worker.ts`) takes each applicant atomically (`reading`, free again after 30 minutes), reads it as the pilot
 does (a GitHub budget stop puts it back and ends the run; a tierless read worth a retry is queued again, `failed` at
 the third) and stores tier, flags, because, line and public rows only (`github`, `explorer`, `site`, `earnkit`, never
 `record`). The daily cron gives the queue 300 s; `POST /api/cron` with `{ "job_id": "..." }` is the owner's trigger
 (that job only, at most 300 applicants in 600 s). With `job_id` the tool answers the totals line and the results;
-with `outcomes` it records the program's decisions (refs not in the job are named; a win over the program's cap is
-refused with the ledger's line and nothing is recorded), which also reach a builder's ledger only through the
+with `outcomes` it records the program's decisions (refs not in the job are named; L15-15, L15-16 v6.1.14: a win's
+amount is `amount_usd` or `amount` with a currency code, cents allowed (`amountOf`); an unreadable amount or a US dollar
+win over the cap refuses only that applicant, "Tell me the amount for {ref}." / "That is more than this program pays
+for {ref}; check the amount.", the rest recorded; US dollars reach the ledger rounded down with the note "rounded down
+to whole dollars from $2,500.50", another currency as a win with no amount and the note "amount in EUR, not
+converted"; `screen_outcomes.amount_given` and `currency` keep what was given), which also reach a builder's ledger only through the
 applicant row's `application_id`: the id `track started` answered the builder's agent with a note to put it in the
 form's reference field (`applications.application_id`, issued by `claims.claim`, kept by the send, carried on a link
 merge), for this program; never by repo or site (L13-1, T5-F1 v6.1.14). An id on more than one applicant of the
@@ -567,12 +585,12 @@ An outcome on the reviewer's own application (owner `b:` the reviewer, or `i:` a
 written and the owner hears "You applied to this one; another reviewer posts its result." (L15-1, Review Focus 10);
 the rest of the batch goes on. A win marked a further payment (`payment: { key }`) adds to the screen's and the
 ledger's total once per key (`screen_outcomes.payment_keys`); a total over the program's cap writes nothing and the
-owner hears the ledger's own over-cap line (T8-F3); unmarked, another amount replaces the first in both (T8-F1).
+owner hears the over-cap line naming the ref (T8-F3, L15-16); unmarked, another amount replaces the first in both (T8-F1).
 Results come 25 applicants a page (`PAGE_SIZE`, `page` from 1); pages follow the queued order (`screen_applicants.seq`)
 with pending rows in place, sorted by tier only inside a page, so a read landing between pages moves no row (T8-F2);
 the totals line ends "Ask for page {n} for the rest." and the reply carries `next_page`, null on the last (L15-3).
 The old `requeue` boolean column stays nullable and ignored through v6.1.14 (T8-F5) and is dropped later. Rows read
-before v6.1.14 may carry the old cross-program `xp.*` values until they expire (30 days, T8-F4 accepted). The CSV path reads an
+before v6.1.14 may carry the old cross-program `xp.*` values until they expire (now 180 days, `KEEP_DAYS`, L15-14; T8-F4 accepted). The CSV path reads an
 `application_id` column too (T5-F2). A row without one is named in the note as "Not matched to an
 EarnKit application"; a win with no amount is passed on as a win with none (`amount not given`, L13-13); a second
 outcome replaces the first only when not older, and the note names what it replaced (L13-12). The notes never say
