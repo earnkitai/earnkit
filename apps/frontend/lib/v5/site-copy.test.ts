@@ -62,8 +62,8 @@ test('formatters', () => {
   assert.equal(copy.programKind({}), 'grant');
 });
 
-test('the docs say the six sections and stay short', () => {
-  assert.deepEqual(copy.DOCS_NAV.map(([, label]) => label), ['Install', 'How a session goes', 'Your record', 'Screening, for programs', 'How programs are checked', 'Terms']);
+test('the docs say the seven sections and stay short', () => {
+  assert.deepEqual(copy.DOCS_NAV.map(([, label]) => label), ['Install', 'How a session goes', 'Your record', 'Screening, for programs', 'For program owners', 'How programs are checked', 'Terms']);
   assert.deepEqual(copy.DOCS_NAV.map(([href]) => href).slice(2, 4), ['#record', '#screening']);
   const words = [copy.DOCS_INSTALL_TITLE, copy.DOCS_SESSION.title, copy.DOCS_SESSION.text, copy.DOCS_RECORD.title, copy.DOCS_RECORD.text, copy.DOCS_SCREEN.title, copy.DOCS_SCREEN.text, copy.DOCS_CHECKED.title, copy.DOCS_CHECKED.text, copy.DOCS_TERMS.title, copy.DOCS_TERMS.text]
     .join(' ').split(/\s+/).filter(Boolean).length;
@@ -71,6 +71,23 @@ test('the docs say the six sections and stay short', () => {
   assert.equal(copy.DOCS_RECORD.text, 'Sign in once with GitHub and your agents share one record: your facts, links, documents and the answers you approved. Once you are signed in, nothing is sent that you did not approve. Delete it any time. Ask your agent for your sign-in link.');
   assert.equal(copy.DOCS_SCREEN.text, "Hand your applicant list to your agent and EarnKit returns it in five tiers with public evidence: used, live, building, unverified, flagged. We read the repo, the chain and the site. We never show a builder's record, another program's name, screens or results, or another applicant's text. A program's reviewers share its screens, and they stay with the program when a reviewer leaves.");
   assert.equal(copy.DOCS_SESSION.text.split(/(?<=\.)\s+/).length, 3);
+});
+
+test('L15-20 (v6.1.14): the program owners section says the five things, in plain sentences', () => {
+  assert.equal(copy.DOCS_PROGRAMS.title, 'For program owners');
+  assert.deepEqual([...copy.DOCS_PROGRAMS.items], [
+    "Sign in once with GitHub and ask EarnKit to mark you as your program's reviewer. Your team is marked the same way and shares your screens.",
+    "A screen reads only public evidence: the repo, the chain and the site. It never reads a builder's record or another applicant's text.",
+    "Tell your agent who won. A result reaches a builder only through the EarnKit id on their application, and never from your own application.",
+    'Other programs see nothing of your screens, results or decisions.',
+    'Results come in daily runs, the first by the next morning, and are kept 180 days with your decisions.',
+  ]);
+  for (const t of copy.DOCS_PROGRAMS.items) {
+    assert.match(t, /\.$/, t);
+    assert.doesNotMatch(t, /\u2014|\u2013|[_{}]|\b(score|rank|grade|points?|coins?|tokens?|streaks?)\b/i, t);
+    assert.doesNotMatch(t, /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u, t);
+  }
+  assert.ok(copy.DOCS_NAV.some(([href, label]) => href === '#programs' && label === 'For program owners'));
 });
 
 test('the terms are five sections', () => {

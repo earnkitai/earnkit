@@ -65,7 +65,8 @@ site, contracts, pitch). Each comes back used, live, building, unverified or fla
 evidence behind it: the repo, the chain and the site, 25 applicants a page. A reviewer never sees a
 builder's record, another program's name, screens or results, or another applicant's text. A
 program's reviewers share its screens and results, which stay with the program when a reviewer
-leaves. A reviewer never posts the result of their own application.
+leaves. A reviewer never posts the result of their own application. Results come in daily runs and
+are kept 180 days with the program's decisions.
 
 ## Program pages
 

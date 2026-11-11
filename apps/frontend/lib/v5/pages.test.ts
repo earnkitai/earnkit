@@ -201,14 +201,15 @@ test('/programs/<id> is a 404 for an unknown id and for a record that no longer 
   assert.match(String((await guideMetadata(params('nope'))).title), /Not found/);
 });
 
-test('/docs: the six sections, under 330 words, the copy rules', () => {
+test('/docs: the seven sections, under 420 words, the copy rules', () => {
   const m = html(DocsPage());
   const t = textOf(m);
-  for (const s of ['Install', 'How a session goes', 'Your record', 'Screening, for programs', 'How programs are checked', 'Terms']) assert.ok(t.includes(s), s);
+  for (const s of ['Install', 'How a session goes', 'Your record', 'Screening, for programs', 'For program owners', 'How programs are checked', 'Terms']) assert.ok(t.includes(s), s);
   assert.ok(m.includes('href="/terms"'));
   assert.ok(!/selector/i.test(t));
   const words = t.split(' ').length;
-  assert.ok(words < 330, `docs page is ${words} words`);
+  // L15-20 (v6.1.14): the program owners' five lines add about 90 words to the old 330.
+  assert.ok(words < 420, `docs page is ${words} words`);
   assert.ok(!BANNED.test(t), t.match(BANNED)?.[0]);
   assert.ok(!t.includes('—'));
 });

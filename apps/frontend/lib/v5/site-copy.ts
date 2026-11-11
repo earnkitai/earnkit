@@ -65,10 +65,11 @@ export const DOCS_NAV: [string, string][] = [
   ['#session', 'How a session goes'],
   ['#record', 'Your record'],
   ['#screening', 'Screening, for programs'],
+  ['#programs', 'For program owners'],
   ['#checked', 'How programs are checked'],
   ['#terms', 'Terms'],
 ];
-export const DOCS_DESCRIPTION = 'How to add EarnKit to your agent, how a session goes, your record, screening for programs, and how programs are checked.';
+export const DOCS_DESCRIPTION = 'How to add EarnKit to your agent, how a session goes, your record, screening for programs, what program owners need to know, and how programs are checked.';
 export const DOCS_INSTALL_TITLE = 'Add EarnKit to your agent';
 /** The intro line above the install tabs already says it connects at once, so no step says it again (v6.1.8, Task 6). */
 export const DOCS_STEPS = ['Add EarnKit', 'Ask what this repo can earn.'];
@@ -84,6 +85,17 @@ export const DOCS_SCREEN = {
   title: 'Screening, for programs',
   text: "Hand your applicant list to your agent and EarnKit returns it in five tiers with public evidence: used, live, building, unverified, flagged. We read the repo, the chain and the site. We never show a builder's record, another program's name, screens or results, or another applicant's text. A program's reviewers share its screens, and they stay with the program when a reviewer leaves.",
 };
+/** L15-20 (v6.1.14): what a program owner needs before trusting a screen, one line each. */
+export const DOCS_PROGRAMS = {
+  title: 'For program owners',
+  items: [
+    "Sign in once with GitHub and ask EarnKit to mark you as your program's reviewer. Your team is marked the same way and shares your screens.",
+    "A screen reads only public evidence: the repo, the chain and the site. It never reads a builder's record or another applicant's text.",
+    "Tell your agent who won. A result reaches a builder only through the EarnKit id on their application, and never from your own application.",
+    'Other programs see nothing of your screens, results or decisions.',
+    'Results come in daily runs, the first by the next morning, and are kept 180 days with your decisions.',
+  ],
+} as const;
 export const DOCS_CHECKED = {
   title: 'How programs are checked',
   text: 'The owner and a research bot curate the list. Every program is re-checked weekly and its links are probed daily. Stale programs drop off.',

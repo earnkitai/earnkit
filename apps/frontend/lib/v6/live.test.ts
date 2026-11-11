@@ -68,7 +68,7 @@ test('a null url gives all nulls and no live url', async () => {
   const site = fakeSite();
   const l = await readLive(null, { probe: site.probe, rdap: fakeRdap().rdap, now: NOW });
   assert.deepEqual(l, {
-    url: null, url_ok: null, status: null, is_app: null, domain: null, domain_age_days: null, title: null, github_links: [], note: 'no live url',
+    url: null, url_ok: null, status: null, is_app: null, domain: null, domain_age_days: null, title: null, placeholder: null, github_links: [], note: 'no live url',
   });
   assert.equal(site.calls.length, 0);
 });
@@ -157,4 +157,17 @@ test('rdapOrg reads at most 64 KB of the reply (security L10)', async () => {
   await assert.rejects(rdapOrg('earnkit.com', huge), /rdap reply too large/);
   const declared = (async () => new Response('{}', { headers: { 'content-length': '999999' } })) as typeof fetch;
   await assert.rejects(rdapOrg('earnkit.com', declared), /rdap reply too large/);
+});
+
+test('L15-8: a page whose title or short body says for sale, parked or coming soon is a placeholder; an app naming a feature coming soon is not', async () => {
+  const { placeholderOf } = await import('./live');
+  assert.equal(placeholderOf('example.com is for sale', '', false), 'for sale');
+  assert.equal(placeholderOf('Welcome', 'This domain is parked free, courtesy of the registrar.', true), 'parked');
+  assert.equal(placeholderOf('Acme', 'Coming soon. Sign up for updates.', false), 'coming soon');
+  assert.equal(placeholderOf('Acme', `${'Trade on Base. '.repeat(100)} Mobile app coming soon.`, true), null);
+  assert.equal(placeholderOf('Acme', 'A parking app for your car.', false), null);
+  const site = fakeSite({ 'https://sale.example.org/': { status: 200, body: '<html><head><title>sale.example.org is for sale</title></head><body>Buy this domain.</body></html>' } });
+  const l = await readLive('https://sale.example.org/', { probe: site.probe, rdap: fakeRdap({ 'example.org': { registered_at: null } }).rdap, now: NOW });
+  assert.equal(l.url_ok, true);
+  assert.equal(l.placeholder, 'for sale');
 });

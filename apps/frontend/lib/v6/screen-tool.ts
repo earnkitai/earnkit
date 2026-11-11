@@ -5,14 +5,14 @@
  */
 import { z } from 'zod';
 import { inputDetail } from '../v5/tool-input';
-import { OVER_CAP, WHOLE_DOLLARS, winCapOf } from '../v5/ledger';
+import { winCapOf } from '../v5/ledger';
 import { getProgram } from '../v5/programs';
 import { LIMITS, hit } from '../v5/rate-limit';
 import { listWords, signInLink } from './record-tool';
 import { reviewerPrograms } from './reviewers';
-import { badRequeues, createJob, jobResults, jobStatus, OWN_APPLICATION, queuedAhead, recordOutcomes, ScreenApplicant, type ScreenResults } from './screen-jobs';
+import { badRequeues, createJob, jobResults, jobStatus, type Outcome, OWN_APPLICATION, queuedAhead, recordOutcomes, ScreenApplicant, type ScreenResults } from './screen-jobs';
 import { SCREEN_BATCH } from './screen-worker';
-import { DEFAULT_THRESHOLDS, TIERS, type Thresholds } from './tiers';
+import { DEFAULT_THRESHOLDS, RATIO_THRESHOLDS, TIERS, type Thresholds } from './tiers';
 
 export const ScreenInput = z
   .object({
@@ -25,11 +25,14 @@ export const ScreenInput = z
       .array(
         z.object({
           ref: z.string().max(60), outcome: z.enum(['won', 'rejected', 'shortlisted']), amount_usd: z.number().finite().optional(),
+          // L15-15 (v6.1.14): an amount in any currency, cents allowed, as a number or text ("2,500.50", "2000 EUR").
+          amount: z.union([z.number().finite(), z.string().trim().max(40)]).optional(),
+          currency: z.string().trim().max(10).optional(),
           payment: z.object({ key: z.string().trim().min(1).max(80) }).strict().optional(),
         }).strict(),
       )
       .optional()
-      .describe('With job_id: the decisions, by ref; a further payment of a win already posted: won with that amount and payment: { key }, a key of your own'),
+      .describe('With job_id: the decisions, by ref; a win\'s amount as amount_usd, or amount with a currency code (cents allowed; US dollars are rounded down to whole dollars for the builder\'s ledger, other currencies kept as given and not converted); a further payment of a win already posted: won with that amount and payment: { key }, a key of your own'),
   })
   .strict();
 /** The most applicants or outcomes one call reads (C2, v6.1.13); 200 is read, 201 refused. */
@@ -51,6 +54,15 @@ export const SCREEN_TEXT = {
   /** C2 (v6.1.13): over SCREEN_MAX applicants or outcomes in one call. */
   overMax: 'At most 200 at a time; send the rest in another call.',
   queuedNote: 'Call screen with job_id for progress and results. Tell the builder what each tier means: used, live, building, unverified, flagged.',
+  /** L15-13 (v6.1.14): the results promise when the whole list fits the next daily run. */
+  promise: 'Results come in daily runs; the first by tomorrow morning.',
+  /** L15-15 (v6.1.14): a win whose amount cannot be read, owner-shaped; only those applicants are not recorded. */
+  amountFor: (refs: string) => `Tell me the amount for ${refs}.`,
+  /** L15-16 (v6.1.14): a win over what the program pays; only those applicants are not recorded. */
+  overCapFor: (refs: string) => `That is more than this program pays for ${refs}; check the amount.`,
+  /** L15-10 (v6.1.14): a share threshold is a ratio, a count threshold a whole number. */
+  ratio: 'That threshold is a share from 0 to 1, for example 0.2 for a fifth.',
+  count: 'That threshold is a whole number, 0 or more.',
   sortNote: 'Sort: used, then live, then building; flagged last with the rule named.',
   pendingNote: 'Call screen with job_id again later for the rest.',
   stopNote: 'Show this line and stop.',
@@ -60,8 +72,6 @@ export const SCREEN_TEXT = {
   badRequeue: (refs: string) => `Not queued: the earlier row named for ${refs} is not in this program's screens with the same EarnKit id.`,
 } as const;
 
-/** L13-5 (v6.1.14): a refused outcomes call writes none of them. */
-const OUTCOMES_UNWRITTEN = 'Nothing was recorded. Show this line and stop.';
 const line = (show: string, agent_note: string = SCREEN_TEXT.stopNote): ScreenReply => ({ show_to_builder: show, agent_note });
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -72,15 +82,60 @@ export function totalsLine(r: ScreenResults): string {
   return `${plural(r.total, 'applicant')}: ${tiers}; ${r.totals.pending} pending${unread > 0 ? `; ${unread} could not be read` : ''}.`;
 }
 
-/** Known threshold names only, each from 0 to 100 (v6.1.7 C39); the first that is not is the refusal line. Pure. */
-function thresholdsOf(given: Record<string, number> | undefined): Partial<Thresholds> | string {
+/**
+ * Known threshold names only (v6.1.7 C39), each in its own range (L15-10, v6.1.14): a share from 0 to 1, a count or a
+ * number of days a whole number from 0 up. The first that is not is the refusal: the line and the agent's note. Pure.
+ */
+function thresholdsOf(given: Record<string, number> | undefined): Partial<Thresholds> | { show: string; note: string } {
   if (!given) return {};
   for (const [k, v] of Object.entries(given)) {
-    if (!Object.hasOwn(DEFAULT_THRESHOLDS, k)) return `Unknown threshold ${k}. Known: ${Object.keys(DEFAULT_THRESHOLDS).join(', ')}.`;
-    if (!(v >= 0 && v <= 100)) return `Threshold ${k} must be from 0 to 100.`;
+    if (!Object.hasOwn(DEFAULT_THRESHOLDS, k)) return { show: `Unknown threshold ${k}. Known: ${Object.keys(DEFAULT_THRESHOLDS).join(', ')}.`, note: SCREEN_TEXT.stopNote };
+    const ratio = (RATIO_THRESHOLDS as readonly string[]).includes(k);
+    if (ratio && !(v >= 0 && v <= 1)) return { show: SCREEN_TEXT.ratio, note: `Nothing was queued. ${k} is a share from 0 to 1 (${v} given; for 20% send 0.2).` };
+    if (!ratio && !(Number.isInteger(v) && v >= 0)) return { show: SCREEN_TEXT.count, note: `Nothing was queued. ${k} is a whole number from 0 up (${v} given).` };
   }
   return given as Partial<Thresholds>;
 }
+
+/** ISO 4217-style code: three letters, upper case. */
+const CODE = /^[A-Za-z]{3}$/;
+const SYMBOLS: Record<string, string> = { $: 'USD', '€': 'EUR', '£': 'GBP' };
+/**
+ * L15-15 (v6.1.14): a win's amount as the owner gave it: a number or text with cents, thousands commas, a symbol or a
+ * three-letter code ("2,500.50", "$2,500.50", "2000 EUR"); `amount_usd` is US dollars. The amount and its upper-case
+ * currency, null when no amount was given, 'bad' when it cannot be read or is not above 0. Pure.
+ */
+export function amountOf(o: { amount_usd?: number; amount?: number | string; currency?: string }): { value: number; currency: string } | null | 'bad' {
+  if (o.amount_usd != null && o.amount != null) return 'bad';
+  const given = o.currency?.trim().toUpperCase() || null;
+  if (given && !CODE.test(given)) return 'bad';
+  if (o.amount_usd != null) return given && given !== 'USD' ? 'bad' : o.amount_usd > 0 ? { value: o.amount_usd, currency: 'USD' } : 'bad';
+  if (o.amount == null) return given ? 'bad' : null;
+  let value: number;
+  let code = given;
+  if (typeof o.amount === 'number') value = o.amount;
+  else {
+    let t = o.amount.trim().toUpperCase();
+    const sym = Object.keys(SYMBOLS).find((x) => t.startsWith(x));
+    if (sym) {
+      if (code && code !== SYMBOLS[sym]) return 'bad';
+      code = SYMBOLS[sym];
+      t = t.slice(sym.length).trim();
+    }
+    const m = /^(?:([A-Z]{3})\s*)?(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?(?:\s*([A-Z]{3}))?$/.exec(t);
+    if (!m || (m[1] && m[4])) return 'bad';
+    const word = m[1] ?? m[4];
+    if (word) {
+      if (code && code !== word) return 'bad';
+      code = word;
+    }
+    value = Number(`${m[2].replace(/,/g, '')}${m[3] ?? ''}`);
+  }
+  if (!(Number.isFinite(value) && value > 0)) return 'bad';
+  return { value, currency: code ?? 'USD' };
+}
+const usd = (v: number) => `$${v.toLocaleString('en-US', { minimumFractionDigits: Number.isInteger(v) ? 0 : 2, maximumFractionDigits: 2 })}`;
+const given = (v: number, code: string) => `${v.toLocaleString('en-US', { minimumFractionDigits: Number.isInteger(v) ? 0 : 2, maximumFractionDigits: 2 })} ${code}`;
 
 /**
  * When the results come (v6.1.7 B14): the daily run reads SCREEN_BATCH applicants, oldest job first, so the job
@@ -88,7 +143,22 @@ function thresholdsOf(given: Record<string, number> | undefined): Partial<Thresh
  */
 export function promiseLine(ahead: number, total: number): string {
   const days = Math.ceil((ahead + total) / SCREEN_BATCH);
-  return days <= 1 ? 'Results by tomorrow morning.' : `${plural(ahead, 'applicant')} ahead of yours; results within ${days} days.`;
+  return days <= 1 ? SCREEN_TEXT.promise : `Results come in daily runs; ${plural(ahead, 'applicant')} ahead of yours, all within ${days} days.`;
+}
+
+/** The applicant fields ScreenApplicant reads; `repo` reads as repo_url when that is not given (T6). */
+const KNOWN_FIELDS = new Set(Object.keys(ScreenApplicant.shape));
+/** L15-4 (v6.1.14): the applicant keys the list carried that the screen does not read, once each, in order. Pure. */
+export function ignoredFields(list: unknown[]): string[] {
+  const out: string[] = [];
+  for (const a of list) {
+    if (!a || typeof a !== 'object') continue;
+    for (const k of Object.keys(a)) {
+      const read = KNOWN_FIELDS.has(k) || (k === 'repo' && !('repo_url' in a));
+      if (!read && !out.includes(k)) out.push(k);
+    }
+  }
+  return out.slice(0, 20);
 }
 
 export async function screenTool(ctx: { installationId: number; builderId: number | null; now: Date }, raw: unknown): Promise<ScreenReply> {
@@ -119,19 +189,62 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
     if (!s || !programs.includes(s.program_id)) return line(SCREEN_TEXT.noJob);
     if (s.expired) return line(SCREEN_TEXT.expired);
     if (input.outcomes) {
-      // A win over what the program pays is refused as the ledger refuses it, and nothing is recorded (v6.1.7 C38).
-      // Low 19 (v6.1.13): a win is whole dollars, at least 1, as the ledger takes it.
-      if (input.outcomes.some((o) => o.outcome === 'won' && o.amount_usd != null && !(Number.isInteger(o.amount_usd) && o.amount_usd >= 1))) return line(WHOLE_DOLLARS, OUTCOMES_UNWRITTEN);
+      // L15-15, L15-16 (v6.1.14): a win's amount is read per applicant (cents and a currency code allowed); one that
+      // cannot be read, or a US dollar win over what the program pays, refuses only that applicant and names it, the
+      // rest are recorded. US dollars go to the builder's ledger rounded down to whole dollars; another currency is
+      // kept as given and reaches the ledger as a win with its amount not converted.
       const cap = winCapOf(await getProgram(s.program_id));
-      // L13-5 (v6.1.14): any amount over the cap, however large, is this line, as the ledger answers it.
-      if (input.outcomes.some((o) => o.outcome === 'won' && o.amount_usd != null && o.amount_usd > cap)) return line(OVER_CAP, OUTCOMES_UNWRITTEN);
-      const { recorded, notFound, notes, own, overCap } = await recordOutcomes(input.job_id, ctx.builderId, input.outcomes, ctx.now);
+      const badAmount: string[] = [];
+      const overCapRefs: string[] = [];
+      const rounded: string[] = [];
+      const foreign: string[] = [];
+      const take: Outcome[] = [];
+      for (const o of input.outcomes) {
+        const a = o.outcome === 'won' ? amountOf(o) : null;
+        if (a === 'bad') {
+          if (!badAmount.includes(o.ref)) badAmount.push(o.ref);
+          continue;
+        }
+        const out: Outcome = { ref: o.ref, outcome: o.outcome, ...(o.payment && { payment: o.payment }) };
+        if (a && a.currency === 'USD') {
+          const whole = Math.floor(a.value);
+          if (whole < 1) {
+            if (!badAmount.includes(o.ref)) badAmount.push(o.ref);
+            continue;
+          }
+          if (whole > cap) {
+            if (!overCapRefs.includes(o.ref)) overCapRefs.push(o.ref);
+            continue;
+          }
+          out.amount_usd = whole;
+          if (whole !== a.value) {
+            out.rounded = { from: a.value };
+            rounded.push(`${o.ref} (${usd(a.value)} as ${usd(whole)})`);
+          }
+        } else if (a) {
+          out.given = { amount: a.value, currency: a.currency };
+          foreign.push(`${o.ref} (${given(a.value, a.currency)})`);
+        }
+        take.push(out);
+      }
+      const { recorded, notFound, notes, own, overCap } = await recordOutcomes(input.job_id, ctx.builderId, take, ctx.now);
       // The refs not in this screen are named (C19); L15-1 (v6.1.14): an outcome on the reviewer's own application is refused in one line.
       const counted = notFound.length > 0 ? `Recorded ${plural(recorded, 'outcome')}; not found: ${listWords(notFound, 10)}.` : `Recorded ${plural(recorded, 'outcome')}.`;
-      // T8-F3 (v6.1.14): a further payment over the program's cap is refused with the ledger's own line.
-      const show = [counted, ...(own ? [OWN_APPLICATION] : []), ...(overCap ? [OVER_CAP] : [])].join(' ');
+      // T8-F3 (v6.1.14): a further payment whose total is over the program's cap is named with the over-cap applicants.
+      const over = [...overCapRefs, ...(overCap ?? []).filter((r) => !overCapRefs.includes(r))];
+      const show = [
+        counted, ...(own ? [OWN_APPLICATION] : []),
+        ...(badAmount.length ? [SCREEN_TEXT.amountFor(listWords(badAmount, 10))] : []),
+        ...(over.length ? [SCREEN_TEXT.overCapFor(listWords(over, 10))] : []),
+      ].join(' ');
       const note = notFound.length > 0 ? 'Tell the builder the outcomes are recorded, and which refs this screen does not hold.' : 'Tell the builder the outcomes are recorded.';
-      return { ...line(show, [note, ...notes].join(' ')), recorded };
+      const amountNotes = [
+        ...(badAmount.length ? [`Not recorded, the amount could not be read: ${listWords(badAmount, 10)}. Send amount_usd, or amount with a three-letter currency code, above 0.`] : []),
+        ...(overCapRefs.length ? [`Not recorded, over what this program pays: ${listWords(overCapRefs, 10)}.`] : []),
+        ...(rounded.length ? [`Rounded down to whole dollars for the builder's ledger: ${listWords(rounded, 10)}.`] : []),
+        ...(foreign.length ? [`Kept as given, not converted to US dollars: ${listWords(foreign, 10)}.`] : []),
+      ];
+      return { ...line(show, [note, ...notes, ...amountNotes].join(' ')), recorded };
     }
     const results = await jobResults(input.job_id, ctx.builderId, ctx.now, input.page ?? 1);
     if (!results) return line(SCREEN_TEXT.expired);
@@ -154,7 +267,7 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
   if (!programs.includes(programId)) return line(SCREEN_TEXT.notReviewer);
   if (!input.applicants.length) return line(SCREEN_TEXT.empty);
   const thresholds = thresholdsOf(input.thresholds);
-  if (typeof thresholds === 'string') return line(thresholds);
+  if ('show' in thresholds && typeof thresholds.show === 'string') return line(thresholds.show, thresholds.note as string);
   const program = await getProgram(programId);
   if (!program) return line(SCREEN_TEXT.notReviewer);
   // Task 8 security follow-up (v6.1.14): a requeue must name an earlier row of this program carrying the same id.
@@ -164,11 +277,13 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
   const { limit, windowSeconds } = LIMITS.screenJobs;
   if (!(await hit(`screenJobs:b:${ctx.builderId}`, limit, windowSeconds, ctx.now)).allowed) return line(SCREEN_TEXT.limit);
 
-  const job = await createJob({ programId, builderId: ctx.builderId, installationId: ctx.installationId, applicants: input.applicants, thresholds, now: ctx.now });
+  const job = await createJob({ programId, builderId: ctx.builderId, installationId: ctx.installationId, applicants: input.applicants, thresholds: thresholds as Partial<Thresholds>, now: ctx.now });
   const ahead = await queuedAhead(job.id, ctx.now);
+  // L15-4 (v6.1.14): applicant fields the list carried that the screen does not read are named, never dropped silently.
+  const ignored = ignoredFields(list);
   return {
     show_to_builder: `Queued ${plural(job.total, 'applicant')} for ${program.file.title}. ${promiseLine(ahead, job.total)}`,
-    agent_note: SCREEN_TEXT.queuedNote,
+    agent_note: [SCREEN_TEXT.queuedNote, ...(ignored.length ? [`Unknown applicant fields ignored: ${ignored.join(', ')}. Send the repo as repo_url, the site as live_url, contracts as [{ chain, address }].`] : []), ...job.notes].join(' '),
     job_id: job.id,
   };
 }

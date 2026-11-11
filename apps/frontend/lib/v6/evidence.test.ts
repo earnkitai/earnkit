@@ -118,7 +118,7 @@ test('a repo link not on GitHub is no repo; a chain without a reader is noted, n
   );
   assert.equal(e.repo, null);
   assert.equal(e.code, null);
-  assert.deepEqual(e.notes, ['repo not on github']);
+  assert.deepEqual(e.notes, ['repo not read: on GitLab']);
   assert.equal(e.onchain[0].mainnet, null);
   assert.equal(e.onchain[0].note, 'not read: no explorer for avalanche');
   assert.equal(e.partial, false);
@@ -417,4 +417,35 @@ test('a deploy file whose raw read fails is named in a note, the read is partial
   assert.ok(calls.includes('https://raw.githubusercontent.com/a/b/release/v2/broadcast/D.s.sol/8453/run-latest.json'), calls.filter((u) => u.includes('raw.')).join(' '));
   assert.deepEqual(e.notes, ['deploy file not read: broadcast/D.s.sol/8453/run-latest.json']);
   assert.equal(e.partial, true);
+});
+
+test('L15-5: a repo the read finds private is noted as private; other code hosts and account links are named', async () => {
+  const gh = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === 'https://api.github.com/repos/a/secret') return Response.json({ full_name: 'a/secret', html_url: 'https://github.com/a/secret', homepage: null, default_branch: 'main', private: true, created_at: '2026-01-01T00:00:00Z', pushed_at: '2026-11-01T00:00:00Z' });
+    return new Response('not found', { status: 404 });
+  }) as typeof fetch;
+  const p = await readEvidence({ repo_url: 'https://github.com/a/secret' }, deps(gh, replayExplorer('onchain-reaction').fetch));
+  assert.deepEqual(p.notes, ['not read: private repo']);
+  assert.equal(p.partial, false);
+  const note = async (repo_url: string) => (await readEvidence({ repo_url }, deps(gh, replayExplorer('onchain-reaction').fetch))).notes;
+  assert.deepEqual(await note('https://bitbucket.org/a/b'), ['repo not read: on Bitbucket']);
+  assert.deepEqual(await note('https://codeberg.org/a/b'), ['repo not read: on Codeberg']);
+  assert.deepEqual(await note('https://github.com/someone'), ['repo link is an account, not a repo']);
+  assert.deepEqual(await note('https://example.com/a/b'), ['repo not on github']);
+});
+
+test('L15-7: an empty repo reads as empty, with no tree, commit or contributor reads, not partial', async () => {
+  const calls: string[] = [];
+  const gh = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    calls.push(url);
+    if (url === 'https://api.github.com/repos/a/empty') return Response.json({ full_name: 'a/empty', html_url: 'https://github.com/a/empty', homepage: null, default_branch: 'main', private: false, size: 0, created_at: '2026-11-05T00:00:00Z', pushed_at: '2026-11-05T00:00:00Z' });
+    return Response.json({ message: 'Git Repository is empty.' }, { status: 409 });
+  }) as typeof fetch;
+  const e = await readEvidence({ repo_url: 'https://github.com/a/empty' }, deps(gh, replayExplorer('onchain-reaction').fetch));
+  assert.equal(e.code?.empty, true);
+  assert.equal(e.team?.contributors, 0);
+  assert.equal(e.partial, false);
+  assert.ok(!calls.some((u) => /\/contributors|\/commits\?since=|\/releases|search\/issues/.test(u)), calls.join('\n'));
 });

@@ -41,7 +41,7 @@ test('every line: no em dash, no banned word, ends with a full stop', () => {
 test('reviewer line for used reads like the design example, with thousands separators and the chain name', () => {
   const e = usedE();
   const line = reviewerLine(place(e, X, undefined, NOW), e);
-  assert.equal(line, `used: 1,240 funded senders on ${chainName('base')} mainnet, site loads, pushed 12 days ago, 3 contributors, no flags.`);
+  assert.equal(line, `used: 1,240 senders the deployer did not fund on ${chainName('base')} mainnet, site loads, pushed 12 days ago, 3 contributors, no flags.`);
   assert.ok(line.includes('Base mainnet'));
 });
 

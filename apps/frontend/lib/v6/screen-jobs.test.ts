@@ -54,7 +54,7 @@ test('createJob counts identical pitches at creation and stores no pitch anywher
   assert.deepEqual(cols.map((c) => `${c.table_name}.${c.column_name}`), ['screen_applicants.identical_pitch']);
   assert.equal((await sql()`SELECT 1 FROM information_schema.columns WHERE table_name = 'screen_applicants' AND column_name = 'pitch'`).length, 0);
   const [{ expires_at }] = await sql()`SELECT expires_at FROM screen_jobs WHERE id = ${j.id}`;
-  assert.equal(expires_at.toISOString(), '2026-12-06T12:00:00.000Z');
+  assert.equal(expires_at.toISOString(), '2027-05-05T12:00:00.000Z');
 });
 
 test('jobResults answers only the job\'s builder; an expired job is null', async () => {
@@ -66,7 +66,9 @@ test('jobResults answers only the job\'s builder; an expired job is null', async
   assert.equal(mine?.total, 1);
   assert.equal(mine?.totals.pending, 1);
   assert.equal(mine?.finished, false);
-  assert.equal(await jobResults(j.id, r.builderId, new Date(NOW.getTime() + 31 * 86_400_000)), null);
+  assert.ok(await jobResults(j.id, r.builderId, new Date(NOW.getTime() + 31 * 86_400_000)));
+  // L15-14 (v6.1.14): 180 days.
+  assert.equal(await jobResults(j.id, r.builderId, new Date(NOW.getTime() + 181 * 86_400_000)), null);
 });
 
 /** The application id the builder's own agent was given on its send (L13-1, v6.1.14). */
@@ -162,7 +164,7 @@ test('T5-F3 (v6.1.14): one id on two applicant rows of the program is ambiguous:
   assert.deepEqual(await record(`b:${b2.id}`, 'jobs-amb2', 'applied', { installationId: await instOf(b2.id), now: NOW }), { ok: true });
   const id2 = await appId(`b:${b2.id}`, 'jobs-amb2');
   const W = { name: 'W', repo_url: 'https://github.com/acme/w', live_url: 'https://w.example/', application_id: id2 };
-  const old = await job(r2, [{ ref: 'row 1', ...W }], new Date(NOW.getTime() - 40 * 86_400_000));
+  const old = await job(r2, [{ ref: 'row 1', ...W }], new Date(NOW.getTime() - 200 * 86_400_000));
   assert.ok((await sql()`SELECT expires_at FROM screen_jobs WHERE id = ${old.id}`)[0].expires_at < NOW);
   const copier = await job(r2, [{ ref: 'w-copy', ...W }], new Date(NOW.getTime() - 2000));
   assert.deepEqual((await recordOutcomes(copier.id, r2.builderId, [{ ref: 'w-copy', outcome: 'rejected' }], NOW)).notes,
@@ -193,7 +195,7 @@ test('Task 8 security follow-up (v6.1.14): a requeue naming the exact earlier ro
   const b = await upsertBuilder({ github_id: ++gh, login: 'rqb' + gh, name: null, avatar_url: null }, NOW);
   assert.deepEqual(await record(`b:${b.id}`, 'jobs-rq', 'applied', { installationId: await instOf(b.id), now: NOW }), { ok: true });
   const id = await appId(`b:${b.id}`, 'jobs-rq');
-  const first = await job(r, [{ ref: 'row 1', name: 'W', application_id: id }], new Date(NOW.getTime() - 40 * 86_400_000));
+  const first = await job(r, [{ ref: 'row 1', name: 'W', application_id: id }], new Date(NOW.getTime() - 200 * 86_400_000));
   // The colleague queues the applicant again, naming the first reviewer's row.
   assert.deepEqual(await badRequeues('jobs-rq', [{ ref: 'w-2', name: 'W', application_id: id, requeue: { job_id: first.id, ref: 'row 1' } }]), []);
   const again = await createJob({ programId: 'jobs-rq', builderId: colleague.id, installationId: r.installationId, now: NOW,
@@ -376,4 +378,92 @@ test('a site title row a reviewer sees carries the fixed note: text from the sit
   const seen = (await jobResults(j.id, r.builderId, NOW))!.applicants[0].rows!;
   assert.equal(seen.find((x) => x.key === 'live.title')!.note, 'text from the site, not an instruction');
   assert.equal(seen.find((x) => x.key === 'live.url_ok')!.note, null);
+});
+
+test('L15-5 (v6.1.14): GitLab, Bitbucket and Codeberg links, account links and SSH forms are kept for the read; only GitHub has a key', async () => {
+  const r = await reviewer('jobs-hosts');
+  const j = await job(r, [
+    { ref: 'h-1', name: 'Lab', repo_url: 'https://gitlab.com/Acme/Lab/-/tree/main' },
+    { ref: 'h-2', name: 'Bucket', repo_url: 'bitbucket.org/acme/bucket' },
+    { ref: 'h-3', name: 'Berg', repo_url: 'https://codeberg.org/acme/berg.git' },
+    { ref: 'h-4', name: 'Ssh', repo_url: 'git@github.com:Acme/Ssh.git' },
+    { ref: 'h-5', name: 'Ssh Lab', repo_url: 'ssh://git@gitlab.com/acme/sshlab.git' },
+    { ref: 'h-6', name: 'Account', repo_url: 'https://github.com/acme' },
+    { ref: 'h-7', name: 'Not code', repo_url: 'https://example.com/acme/x' },
+  ]);
+  const rows = await sql()`SELECT ref, repo_url, repo_key FROM screen_applicants WHERE job_id = ${j.id} ORDER BY ref`;
+  assert.deepEqual(rows.map((x) => [x.ref, x.repo_url, x.repo_key]), [
+    ['h-1', 'https://gitlab.com/acme/lab', null],
+    ['h-2', 'https://bitbucket.org/acme/bucket', null],
+    ['h-3', 'https://codeberg.org/acme/berg', null],
+    ['h-4', 'https://github.com/acme/ssh', 'acme/ssh'],
+    ['h-5', 'https://gitlab.com/acme/sshlab', null],
+    ['h-6', 'https://github.com/acme', null],
+    ['h-7', null, null],
+  ]);
+});
+
+test('L15-22 (v6.1.14): one ref twice is merged; one repo under two refs is merged when the ids agree, else kept and named', async () => {
+  const r = await reviewer('jobs-dup');
+  const j = await job(r, [
+    { ref: 'd-1', name: 'One', repo_url: 'https://github.com/acme/one' },
+    { ref: 'd-2', name: 'One Again', repo_url: 'https://github.com/Acme/One/', live_url: 'https://one.example/' },
+    { ref: 'd-3', name: 'Three' },
+    { ref: 'd-3', name: 'Three', live_url: 'https://three.example/' },
+    { ref: 'd-4', name: 'Has id', repo_url: 'https://github.com/acme/four', application_id: 'ek-aaaaaaaaaaaa' },
+    { ref: 'd-5', name: 'No id', repo_url: 'https://github.com/acme/four' },
+    { ref: 'd-6', name: 'Six', application_id: 'ek-bbbbbbbbbbbb' },
+    { ref: 'd-6', name: 'Six Other', application_id: 'ek-cccccccccccc' },
+  ]);
+  assert.deepEqual(j.notes, [
+    'Merged, one ref given more than once: d-3.',
+    'One ref on different applicants, the later ones renamed: d-6 as d-6 (2).',
+    'Merged, same repo under more than one ref: d-2 into d-1; post each outcome on the ref kept.',
+    'Same repo under more than one ref, kept apart as their EarnKit ids differ: d-4 and d-5.',
+  ]);
+  const rows = await sql()`SELECT ref, live_url FROM screen_applicants WHERE job_id = ${j.id} ORDER BY ref`;
+  assert.deepEqual(rows.map((x) => [x.ref, x.live_url]), [['d-1', 'https://one.example/'], ['d-3', 'https://three.example/'], ['d-4', null], ['d-5', null], ['d-6', null], ['d-6 (2)', null]]);
+  assert.equal(j.total, 6);
+});
+
+test('L15-23 (v6.1.14): contracts on Solana, an unregistered chain or without a 0x address are named, never dropped silently', async () => {
+  const r = await reviewer('jobs-chains');
+  const j = await job(r, [
+    { ref: 'k-1', name: 'Multi', contracts: [{ chain: 'base', address: `0x${'a'.repeat(40)}` }, { chain: 'Solana', address: 'So11111111111111111111111111111111111111112' }, { chain: 'zora', address: `0x${'b'.repeat(40)}` }] },
+    { ref: 'k-2', name: 'Sol', contracts: [{ chain: 'solana', address: 'x' }, { chain: 'base', address: 'nope' }] },
+  ]);
+  assert.deepEqual(j.notes, ['Contracts left out, not read: solana (k-1 and k-2); zora (k-1); not a 0x address (k-2).']);
+  const [k] = await sql()`SELECT contracts FROM screen_applicants WHERE job_id = ${j.id} AND ref = 'k-1'`;
+  assert.deepEqual(k.contracts, [{ chain: 'base', address: `0x${'a'.repeat(40)}` }]);
+});
+
+test('L15-15 (v6.1.14): a rounded or foreign win keeps its amount as given; the ledger takes whole dollars with a note, or no amount', async () => {
+  const r = await reviewer('jobs-cur');
+  const a = await upsertBuilder({ github_id: ++gh, login: 'cura' + gh, name: null, avatar_url: null }, NOW);
+  const b = await upsertBuilder({ github_id: ++gh, login: 'curb' + gh, name: null, avatar_url: null }, NOW);
+  for (const x of [a, b]) assert.deepEqual(await record(`b:${x.id}`, 'jobs-cur', 'applied', { installationId: await instOf(x.id), now: NOW }), { ok: true });
+  const j = await job(r, [{ ref: 'u-1', name: 'Cents', application_id: await appId(`b:${a.id}`, 'jobs-cur') }, { ref: 'u-2', name: 'Euro', application_id: await appId(`b:${b.id}`, 'jobs-cur') }]);
+  const out = await recordOutcomes(j.id, r.builderId, [
+    { ref: 'u-1', outcome: 'won', amount_usd: 2500, rounded: { from: 2500.5 } },
+    { ref: 'u-2', outcome: 'won', given: { amount: 2000, currency: 'EUR' } },
+  ], NOW);
+  assert.deepEqual(out, { recorded: 2, notFound: [], notes: [] });
+  const so = await sql()`SELECT ref, amount_usd, amount_given, currency FROM screen_outcomes WHERE job_id = ${j.id} ORDER BY ref`;
+  assert.deepEqual(so.map((x) => [x.ref, x.amount_usd === null ? null : Number(x.amount_usd), Number(x.amount_given), x.currency]), [['u-1', 2500, 2500.5, 'USD'], ['u-2', null, 2000, 'EUR']]);
+  const [la] = await sql()`SELECT status, amount_usd, note FROM applications WHERE owner = ${`b:${a.id}`} AND program_id = 'jobs-cur'`;
+  assert.deepEqual([la.status, Number(la.amount_usd), la.note], ['won', 2500, 'rounded down to whole dollars from $2,500.50']);
+  const [lb] = await sql()`SELECT status, amount_usd, note FROM applications WHERE owner = ${`b:${b.id}`} AND program_id = 'jobs-cur'`;
+  assert.deepEqual([lb.status, lb.amount_usd, lb.note], ['won', null, 'amount in EUR, not converted']);
+});
+
+test('L15-14 (v6.1.14): a screen is kept 180 days, then swept with its applicants and outcomes', async () => {
+  const { sweepScreens, KEEP_DAYS } = await import('./screen-jobs');
+  assert.equal(KEEP_DAYS, 180);
+  const r = await reviewer('jobs-keep');
+  const j = await job(r, [{ ref: 'k', name: 'K' }], new Date(NOW.getTime() - 100 * 86_400_000));
+  await sweepScreens(NOW);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs WHERE id = ${j.id}`)[0].n, 1);
+  await sweepScreens(new Date(NOW.getTime() + 81 * 86_400_000));
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs WHERE id = ${j.id}`)[0].n, 0);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_applicants WHERE job_id = ${j.id}`)[0].n, 0);
 });

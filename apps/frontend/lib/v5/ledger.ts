@@ -105,7 +105,7 @@ export async function record(
      *  recorded as not under standing approval and answers `night` (v6.1.8 B18). */
     maxPerNight?: number;
     /** won only, from a program's screen (L13-13, v6.1.14): the program gave no amount; the win is kept with none,
-     *  its note AMOUNT_NOT_GIVEN. A later win with the amount completes it. */
+     *  its note AMOUNT_NOT_GIVEN (or `note`: L15-15, an amount in another currency, not converted). A later win with the amount completes it. */
     amountNotGiven?: true;
     /** won only (T8-F1, v6.1.14): a further payment of a win, its caller's idempotency key; adds to the total once per key. */
     payment?: { key: string };
@@ -136,7 +136,8 @@ export async function record(
   if (status === 'gap_done' && !o.item) return { ok: false, note: WHICH_CHANGE };
   if (status === 'started') throw new Error('a claim is written by claims.claim');
   const amount = status === 'won' && !noAmount ? o.amount_usd! : null;
-  const note = noAmount ? AMOUNT_NOT_GIVEN : o.note ?? null;
+  // L15-15 (v6.1.14): a program's win in another currency is kept with no amount and its own note ("amount in EUR, not converted").
+  const note = noAmount ? o.note ?? AMOUNT_NOT_GIVEN : o.note ?? null;
   let repeated = false;
   let night = false;
   let closed = false;

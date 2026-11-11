@@ -1,6 +1,6 @@
 /**
  * POST /api/cron, once a day: the freshness probe, the repo cache sweep (rows over 30 days), the screen
- * jobs over 90 days swept, link codes and sessions expired over a day ago swept, and the queue's share
+ * jobs over 180 days swept (L15-14), link codes and sessions expired over a day ago swept, and the queue's share
  * (5 minutes at most), then the owner's digest. A JSON body { job_id } is the owner's trigger: that job's queue
  * only. Bearer CRON_SECRET only (503 while it is unset). A step that throws answers 500 with its name.
  */

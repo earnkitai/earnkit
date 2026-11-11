@@ -6,7 +6,8 @@
  */
 import { chainOfId } from '../v5/chains';
 import { sql } from '../v5/db';
-import { GitHubError, rateRemaining, readRepo, readRepoObject, type RepoRead } from '../v5/github';
+import { GitHubError, rateRemaining, readRepo, readRepoObject, type RepoRead, RepoPrivateError } from '../v5/github';
+import { canonicalRepoLink, isCodeHost } from '../v5/project-input';
 import { detectCode, repoKey } from '../v5/repo-facts';
 import { safeProbePage } from '../v5/safe-fetch';
 import { type Budget, type CodeRows, forkRef, noteBudget, readCode, starterMaintainers } from './code';
@@ -74,7 +75,27 @@ const CACHE_DAYS = 7;
 const MAX_CONTRACTS = 10;
 const ZERO = `0x${'0'.repeat(40)}`;
 /** Notes that say a read failed but a retry cannot change: no reader for the chain, a private repo. */
-const FINAL = [/^not read: no explorer for /, /^not read: private or missing$/, /^not read: parent gone$/];
+const FINAL = [/^not read: no explorer for /, /^not read: private or missing$/, /^not read: private repo$/, /^not read: parent gone$/];
+/** L15-5 (v6.1.14): the read found the repo private (the repo object says so), not merely missing. */
+export const PRIVATE_REPO = 'not read: private repo';
+/** The code hosts EarnKit has no reader for, by name (L15-5). */
+const HOST_NAMES: [string, string][] = [['gitlab.com', 'GitLab'], ['codeberg.org', 'Codeberg'], ['bitbucket.org', 'Bitbucket']];
+
+/**
+ * Why a repo link has no GitHub repo to read (L15-5, v6.1.14), as a note: a repo on another code host
+ * (`repo not read: on GitLab`), an account or group link (`repo link is an account, not a repo`), anything else
+ * `repo not on github`. Pure.
+ */
+export function repoLinkNote(url: string): string {
+  if (isCodeHost(url)) {
+    const link = canonicalRepoLink(url);
+    if (!link) return 'repo link is an account, not a repo';
+    const host = new URL(link).hostname;
+    const name = HOST_NAMES.find(([h]) => host === h || host.endsWith(`.${h}`))?.[1];
+    if (name) return `repo not read: on ${name}`;
+  }
+  return 'repo not on github';
+}
 
 /** Whether a note holds a failed read worth retrying: a segment starting "not read". Pure. */
 export function retryable(note: string | null): boolean {
@@ -146,6 +167,7 @@ async function cacheForget(key: string): Promise<void> {
 /** Why the repo could not be read. */
 const repoWhy = (e: unknown): string => {
   if (!(e instanceof GitHubError)) return 'not read: github unreachable';
+  if (e instanceof RepoPrivateError) return PRIVATE_REPO;
   if (e.status === 404) return 'not read: private or missing';
   if ((e.status === 403 || e.status === 429) && e.remaining === 0) return 'not read: budget';
   return `not read: github ${e.status ?? 'error'}`;
@@ -324,7 +346,7 @@ export async function readEvidence(s: Subject, o: EvidenceDeps): Promise<Evidenc
 
   // ---- the repo: code, team and depth from one read ----
   const key = typeof s.repo_url === 'string' ? repoKey(s.repo_url) : null;
-  if (s.repo_url && !key) notes.push('repo not on github');
+  if (s.repo_url && !key) notes.push(repoLinkNote(s.repo_url));
   let block: RepoBlock | null = null;
   let repoReadAt: string | null = null;
   if (key) {
@@ -337,7 +359,7 @@ export async function readEvidence(s: Subject, o: EvidenceDeps): Promise<Evidenc
     else if (hit) {
       try {
         const obj = await readRepoObject(key, token, gh);
-        if (obj.private) stop = 'not read: private or missing';
+        if (obj.private) stop = PRIVATE_REPO;
         else keep = obj.pushed_at === hit.pushed_at;
       } catch (e) {
         if (e instanceof GitHubError && e.status === 404) stop = 'not read: private or missing';
@@ -356,7 +378,10 @@ export async function readEvidence(s: Subject, o: EvidenceDeps): Promise<Evidenc
         const read = await readRepo(key, { fetch: gh, token });
         const g = { gh, token, now, budget };
         const code = await readCode(read, g);
-        const team = await readTeam(read.repo.full_name, g, { fork: forkRef(read), drop: starterMaintainers(code.template_name) });
+        // L15-7 (v6.1.14): an empty repo has nobody's commits to read.
+        const team = code.empty
+          ? { contributors_90d: 0, top_share: null, account_ages_days: [], prior_repos_used: null, logins: [], contributors: 0, note: null }
+          : await readTeam(read.repo.full_name, g, { fork: forkRef(read), drop: starterMaintainers(code.template_name) });
         const paths = read.tree.filter((t) => t.type === 'blob').map((t) => t.path);
         const deploy = await readDeployContracts(read, read.tree.filter((t) => t.type === 'blob'), gh);
         block = {
@@ -372,11 +397,12 @@ export async function readEvidence(s: Subject, o: EvidenceDeps): Promise<Evidenc
         };
         repoReadAt = read_at;
         // A budget stop, a failed tree, file or deploy-run read, or any other failed read: kept, never cached.
-        if (read.partial || deploy.failed || retryable(code.note) || retryable(team.note)) partial = true;
+        // An empty repo's failed tree read is the whole answer (as repo-facts caches it, v6.1.10 L1c-4).
+        if ((read.partial && !code.empty) || deploy.failed || retryable(code.note) || retryable(team.note)) partial = true;
         else if (useCache) await cachePut(ck, 'repo', block, read.repo.pushed_at, now);
       } catch (e) {
         stop = repoWhy(e);
-        if (hit && stop === 'not read: private or missing') await cacheForget(ck);
+        if (hit && (stop === 'not read: private or missing' || stop === PRIVATE_REPO)) await cacheForget(ck);
       }
     }
     if (stop) {

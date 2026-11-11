@@ -339,6 +339,10 @@ CREATE INDEX IF NOT EXISTS application_history_payment ON application_history (o
 ALTER TABLE screen_applicants ADD COLUMN IF NOT EXISTS seq bigserial;
 -- T8-F1: the further-payment keys a screen outcome has added, so a retried one adds nothing.
 ALTER TABLE screen_outcomes ADD COLUMN IF NOT EXISTS payment_keys text[] NOT NULL DEFAULT '{}';
+-- v6.1.14 (L15-15): a win's amount as the program gave it (cents, another currency) beside the whole US dollars kept in
+-- amount_usd (rounded down; NULL for another currency, which is never converted).
+ALTER TABLE screen_outcomes ADD COLUMN IF NOT EXISTS amount_given numeric;
+ALTER TABLE screen_outcomes ADD COLUMN IF NOT EXISTS currency text;
 -- v6.1.13 (Task 1 review I1): the project as the agent reported it at its last find, per owner and project key
 -- (projectKeyOf), so a send under standing approval is never judged on less than the find was.
 CREATE TABLE IF NOT EXISTS project_reports (

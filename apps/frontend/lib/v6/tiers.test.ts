@@ -29,7 +29,7 @@ test('used: site up, 30 funded senders on a mainnet contract, pushed 10 days ago
   assert.equal(p.tier, 'used');
   assert.deepEqual(p.flags, []);
   assert.equal(p.next, null);
-  assert.ok(p.because.includes('30 funded senders on Base mainnet'), p.because.join(' | '));
+  assert.ok(p.because.includes('30 senders the deployer did not fund on Base mainnet'), p.because.join(' | '));
   assert.ok(p.because.includes('pushed 10 days ago'));
   assert.ok(p.because.includes('3 contributors'));
   assert.ok(p.because.includes('no flags'));
@@ -55,7 +55,7 @@ test('next for live reports the top counted contract, never a sum', () => {
   ];
   const p = at(e);
   assert.equal(p.next, '25 funded wallets on mainnet in 90 days; you have 6.');
-  assert.ok(p.because.includes('6 funded senders on Arbitrum mainnet'), p.because.join(' | '));
+  assert.ok(p.because.includes('6 senders the deployer did not fund on Arbitrum mainnet'), p.because.join(' | '));
   assert.ok(p.because.includes('3 counted contracts'));
 });
 
@@ -93,13 +93,13 @@ test('usage is one contract: two with 15 each are live, not used', () => {
   assert.equal(p.tier, 'live');
   assert.equal(p.gap, 'funded_senders');
   assert.equal(p.next, '25 funded wallets on mainnet in 90 days; you have 15.');
-  assert.ok(p.because.includes('15 funded senders on Base mainnet'), p.because.join(' | '));
+  assert.ok(p.because.includes('15 senders the deployer did not fund on Base mainnet'), p.because.join(' | '));
   assert.ok(p.because.includes('2 counted contracts'));
   assert.ok(!p.because.some((b) => b.includes('across')));
   e.onchain[1] = { ...e.onchain[1], funded_senders_90d: 25 };
   const q = at(e);
   assert.equal(q.tier, 'used');
-  assert.ok(q.because.includes('25 funded senders on Base mainnet'), q.because.join(' | '));
+  assert.ok(q.because.includes('25 senders the deployer did not fund on Base mainnet'), q.because.join(' | '));
 });
 
 test('live with no push date: its own next, never 0 days ago', () => {
@@ -372,4 +372,78 @@ test('the program\'s own earlier screens show in because, never as a flag; zero 
   assert.ok(seen.because.includes('seen in 7 earlier screens of this program in 90 days'));
   assert.ok(at(used(), xp(1)).because.includes('seen in 1 earlier screen of this program in 90 days'));
   assert.ok(!at(used(), xp(0)).because.some((b) => b.startsWith('seen in')));
+});
+
+test('L15-6: the usage row names what it counts, senders the deployer did not fund', () => {
+  const p = at(used());
+  assert.ok(p.because.includes('30 senders the deployer did not fund on Base mainnet'), p.because.join(' | '));
+  assert.ok(!p.because.some((b) => /funded sender/.test(b)));
+  const one = used();
+  one.onchain = [contract({ tx_90d: 2, senders_90d: 1, funded_senders_90d: 1, funded_sample: 1 })];
+  assert.ok(at(one).because.includes('1 sender the deployer did not fund on Base mainnet'), at(one).because.join(' | '));
+});
+
+test('L15-7: an empty repo is unverified with "empty repo", never building on its push date', () => {
+  const e = evidence({ repo: 'a/empty', code: codeRows({ empty: true, last_push_at: daysAgo(1), commits_90d: 0, commits_60d: 0 }), team: teamRows({ contributors: 0, contributors_90d: 0 }) });
+  const p = at(e);
+  assert.equal(p.tier, 'unverified');
+  assert.deepEqual(p.because, ['no site', 'no mainnet contract read', 'empty repo', 'no flags']);
+  assert.equal(p.next, 'Code pushed to your public repo, or a live product EarnKit can read.');
+  // A site that loads still makes it live.
+  assert.equal(at({ ...e, live: up }).tier, 'live');
+});
+
+test('L15-7: verified onchain users on a stale repo are at least building, with the push as the next step', () => {
+  const e = evidence({
+    repo: 'a/b',
+    onchain: [contract({ tx_90d: 80, senders_90d: 60, funded_senders_90d: 50, funded_sample: 50 })],
+    code: codeRows({ last_push_at: daysAgo(200), commits_90d: 0 }),
+    team: teamRows({ contributors: 2 }),
+  });
+  const p = at(e);
+  assert.equal(p.tier, 'building');
+  assert.deepEqual(p.because, ['80 transactions in 90 days on Base mainnet', '50 senders the deployer did not fund on Base mainnet', 'pushed 200 days ago', '2 contributors', 'no flags']);
+  assert.equal(p.next, 'A push to the repo in the last 60 days; the last was 200 days ago.');
+  assert.equal(p.gap, 'push');
+  // With no repo at all, the contract in use is live (no push date to hold against it).
+  assert.equal(at(evidence({ onchain: e.onchain })).tier, 'live');
+  // Transactions alone (no sender read as outside the deployer) do not.
+  assert.equal(at({ ...e, onchain: [contract({ tx_90d: 80, senders_90d: 60, funded_senders_90d: 0, funded_sample: 50 })] }).tier, 'unverified');
+});
+
+test('L15-8: a page that loads but says for sale, parked or coming soon is not live', () => {
+  for (const [word, row] of [['for sale', 'site is for sale'], ['parked', 'site is parked'], ['coming soon', 'site says coming soon']]) {
+    const p = at(evidence({ live: liveRows({ url: 'https://x.example', url_ok: true, placeholder: word }) }));
+    assert.equal(p.tier, 'unverified', word);
+    assert.equal(p.because[0], row);
+  }
+});
+
+test('L15-5: the repo row says why there is no repo block', () => {
+  const words = (notes: string[], repo: string | null = null) => at(evidence({ repo, notes })).because[2];
+  assert.equal(words(['not read: private repo'], 'a/b'), 'private repo');
+  assert.equal(words(['not read: private or missing'], 'a/b'), 'repo private or missing');
+  assert.equal(words(['repo not read: on GitLab']), 'GitLab repo, not read');
+  assert.equal(words(['repo not read: on Bitbucket']), 'Bitbucket repo, not read');
+  assert.equal(words(['repo link is an account, not a repo']), 'account link, not a repo');
+  assert.equal(words(['not read: github 502'], 'a/b'), 'repo not read');
+  assert.equal(words([]), 'no public repo');
+});
+
+test('L15-19: contributors are everyone who committed, never 0, and a full list reads as a floor', () => {
+  const e = used();
+  e.team = teamRows({ contributors: 30, contributors_90d: 5 });
+  assert.ok(at(e).because.includes('30 contributors'), at(e).because.join(' | '));
+  e.team = teamRows({ contributors: 500, contributors_more: true });
+  assert.ok(at(e).because.includes('500+ contributors'));
+  e.team = teamRows({ contributors: 0, contributors_90d: 0 });
+  assert.ok(!at(e).because.some((b) => /contributor/.test(b)));
+  // A row cached before the list was read: the window's count, still never 0.
+  e.team = teamRows({ contributors_90d: 2 });
+  assert.ok(at(e).because.includes('2 contributors'));
+});
+
+test('L15-23: a contract on a chain with no reader is named in the line', () => {
+  const e = evidence({ live: up, onchain: [contract({ chain: 'monad', address: `0x${'a'.repeat(40)}`, mainnet: null, is_contract: null, note: 'not read: no explorer for monad', counted: true })] });
+  assert.ok(at(e).because.includes('0xaaaa...aaaa on Monad: not read'), at(e).because.join(' | '));
 });

@@ -8,7 +8,7 @@ import type { Placement, Tier } from './tiers';
 
 const rules = (p: Placement) => [...new Set(p.flags.map((f) => f.rule.replace(/_/g, ' ')))].join(', ');
 
-/** "used: 1,240 funded senders on Base mainnet, 3 contributors, no flags." Pure. */
+/** "used: 1,240 senders the deployer did not fund on Base mainnet, 3 contributors, no flags." Pure. */
 export function reviewerLine(p: Placement, e: Evidence | null): string {
   if (!p.tier) return e ? 'no tier: the read failed, worth a retry.' : 'no tier: not read yet.';
   const head = p.tier === 'flagged' ? `flagged (${rules(p)})` : p.tier;
@@ -18,7 +18,8 @@ export function reviewerLine(p: Placement, e: Evidence | null): string {
 const READS: Record<Tier, (p: Placement) => string> = {
   used: () => 'Your project is in use: wallets the deployer did not fund use it on mainnet.',
   live: (p) => (p.gap === 'funded_senders' ? 'Your project is live, with no verified usage yet.' : 'Your project is live.'),
-  building: () => 'Your project has code, with nothing live yet.',
+  // L15-7 (v6.1.14): building on verified onchain users alone (no recent push, or no repo).
+  building: (p) => (p.gap === 'push' || (p.gap === 'site' && p.because.some((b) => b.includes('the deployer did not fund'))) ? 'Your project has onchain users, with no recent code.' : 'Your project has code, with nothing live yet.'),
   unverified: () => 'Your project is unverified, with nothing recent EarnKit could check.',
   flagged: (p) => `Your project is flagged on the ${rules(p)} rule${new Set(p.flags.map((f) => f.rule)).size > 1 ? 's' : ''}.`,
 };
