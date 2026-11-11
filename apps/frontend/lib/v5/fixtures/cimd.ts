@@ -14,6 +14,8 @@ export type CimdResponse = {
   noLength?: boolean;
   /** Never answers until the fetch is aborted. */
   stall?: boolean;
+  /** The connection fails (a reset). */
+  reset?: boolean;
 };
 
 export function cimdFixture(response: CimdResponse | ((url: URL) => CimdResponse), address = '93.184.216.34') {
@@ -26,6 +28,7 @@ export function cimdFixture(response: CimdResponse | ((url: URL) => CimdResponse
   const transport: Transport = async ({ url, signal }) => {
     requests.push(url.href);
     const r = typeof response === 'function' ? response(url) : response;
+    if (r.reset) throw new Error('read ECONNRESET');
     if (r.stall)
       return new Promise((_, reject) => signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
     const text = typeof r.body === 'string' ? r.body : JSON.stringify(r.body ?? {});
