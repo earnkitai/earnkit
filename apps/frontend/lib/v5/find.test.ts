@@ -1654,8 +1654,8 @@ test('L1d-2 (v6.1.11, Review Focus 2 and 3): an idea or an empty repo naming no 
   assert.ok(c, show);
   assert.equal(lineOf(show, c.n), COLOSSEUM_LINE(c.n));
   assert.doesNotMatch(show, /a demo video\. Their rule: the team has not raised/);
-  // Fix round 1 (v6.1.16): with bare "crypto" gone, the crypto phrases still hit with no "onchain" in the text.
-  for (const description of ['An idea: a crypto app that splits rent between roommates', 'An idea: crypto payments for shops', 'An idea: a crypto exchange for students']) {
+  // Fix round 1 (v6.1.16): with bare "crypto" gone, a crypto app, a DeFi and an NFT idea still hit with no "onchain" in the text.
+  for (const description of ['An idea: a crypto app that splits rent between roommates', 'An idea: a DeFi lending pool for students', 'An idea: an NFT ticket for concerts']) {
     const r = await mcpCall(await ideaCtx(), 'find', { project: { name: 'Rent Split', description } });
     const x = (r.reply!.gaps as G[]).find((y) => y.program_id === 'colosseum-eternal');
     assert.ok(x, `${description}: ${r.reply!.show_to_builder as string}`);
