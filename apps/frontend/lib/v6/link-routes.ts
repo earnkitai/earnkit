@@ -8,7 +8,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { sql } from '../v5/db';
 import { publicOrigin } from '../v5/oauth';
-import { cleanClientName } from '../v5/installations';
+import { displayName } from '../v5/installations';
 import { escapeHtml } from '../v5/programs-pending';
 import { RateLimitError, clientIp, enforce } from '../v5/rate-limit';
 import { ME_ERRORS, UNKNOWN_CODE } from '../v5/site-copy';
@@ -111,7 +111,8 @@ const day = (d: Date) => new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', mon
 /** The confirm page: one button, no script, never framed. `origin` names where /me is. Pure. */
 function confirmPage(live: Live, origin: string): Response {
   const host = escapeHtml(origin.replace(/^https?:\/\//, ''));
-  const name = cleanClientName(live.client_name);
+  // L25-1 (v6.1.16): the shown name drops a trailing "(earnkit)".
+  const name = displayName(live.client_name);
   const who = name ? `the agent calling itself <strong><bdi>${escapeHtml(name)}</bdi></strong>` : 'your agent';
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Link your agent</title></head>
 <body style="margin:0;background:${SITE.page};color:#E8EAF2;font-family:system-ui,sans-serif">

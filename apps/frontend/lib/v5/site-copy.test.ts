@@ -95,7 +95,7 @@ test('L15-20 (v6.1.14): the program owners section says the five things, in plai
   assert.deepEqual([...copy.DOCS_PROGRAMS.items], [
     'Sign in once with GitHub and ask for reviewer access through the X link below. Your team is marked the same way and shares your screens.',
     "A screen reads only public evidence, never a builder's record or another applicant's text.",
-    'Tell your agent who won; results reach builders only through the EarnKit id on their application, never on your own.',
+    'Tell your agent who won; results reach builders only through the EarnKit id on their application, never through yours.',
     'Other programs never see your screens, results or decisions.',
     'Results come once a day, within 24 hours, and are kept 180 days with your decisions.',
   ]);
@@ -185,7 +185,11 @@ test('the OpenClaw and Claude connect steps match their docs', async () => {
     assert.ok(!/Register automatically|OAuth client/i.test(text), `${name}: no OAuth client step`);
   }
   assert.ok(LLMS_TEXT.includes(`- Claude: ${claude.steps.join(' ')}`), 'llms: the Claude block is the tab\'s steps');
-  assert.ok(readFileSync(join(ROOT, 'README.md'), 'utf8').includes('Continue, Sign in now, Add'), 'README: the Claude row');
+  // Fix round 1 (v6.1.16): the README rows follow the tabs: no final Add for Claude, and a VS Code row.
+  const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
+  assert.ok(readme.includes('| Claude | Customize, Connectors, Add, Add custom connector, paste the URL, Continue, Sign in now, then turn EarnKit on under Connectors in a chat |'), 'README: the Claude row');
+  assert.ok(!readme.includes('Sign in now, Add'), 'README: no old final Add');
+  assert.ok(readme.includes(`| VS Code | \`${vs.code}\`, then sign in when it asks |`), 'README: the VS Code row');
 });
 
 test('every copy of the connect steps carries the approve and reload steps', () => {

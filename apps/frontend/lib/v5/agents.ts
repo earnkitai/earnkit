@@ -32,10 +32,10 @@ export const grokBotPromptLink = (text: string): string => {
   return `grokbot://app/v1/prompt?text=${encodeURIComponent(text)}`;
 };
 
-/** The message a Muse builder sends (Muse builds connectors in chat; it has no add-server form). */
 /** The line under the install tabs, for any agent without a tab (L25-4, v6.1.16). */
 export const OTHER_AGENT_LINE = `Another agent? Add ${MCP_URL} as a remote MCP server and sign in.`;
 
+/** The message a Muse builder sends (Muse builds connectors in chat; it has no add-server form). */
 export const MUSE_MESSAGE = `Build a custom connector to ${MCP_URL} (Streamable HTTP). Sign me in, test it, then save it as a skill.`;
 
 export type Agent = {

@@ -107,7 +107,7 @@ export const DOCS_PROGRAMS = {
   items: [
     `${REVIEWER_ACCESS} Your team is marked the same way and shares your screens.`,
     "A screen reads only public evidence, never a builder's record or another applicant's text.",
-    'Tell your agent who won; results reach builders only through the EarnKit id on their application, never on your own.',
+    'Tell your agent who won; results reach builders only through the EarnKit id on their application, never through yours.',
     'Other programs never see your screens, results or decisions.',
     'Results come once a day, within 24 hours, and are kept 180 days with your decisions.',
   ],

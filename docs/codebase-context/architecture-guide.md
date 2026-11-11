@@ -302,7 +302,8 @@ form (`lowerPath`, query kept, public origin); its fourth matcher entry matches 
 /_next, /api, /mcp and /oauth in any case. The install tabs add VS Code (`code --add-mcp`), Claude's tab is four steps,
 and /docs says under the tabs `Another agent? Add https://earnkit.com/mcp as a remote MCP server and sign in.`
 (`OTHER_AGENT_LINE`). tools/list gives each tool a `title`, and find `readOnlyHint: true`; /mcp's 401 reads `Sign in to
-EarnKit from your agent to use it.`; /me, the link banner and a claim's holder show an agent's name without one
+EarnKit from your agent to use it.`; /me, the link banner, the /link confirm page, the `Linked:` note, the ledger's
+`Already sent here ... by` line and a claim's holder show an agent's name without one
 trailing `(...)` (`displayName`: `Claude Code (earnkit)` shows as `Claude Code`, the stored name unchanged). OAuth (`oauth.ts`, `oauth-routes.ts`) is
 standard (PKCE, dynamic client registration) and approves at once; the issued token is the installation.
 v6.1.16 Task 5 (lane 19): a registered client_id is 128 random bits (22 base64url characters) kept in `oauth_clients`
