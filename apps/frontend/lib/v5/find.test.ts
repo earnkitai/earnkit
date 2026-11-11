@@ -304,7 +304,11 @@ test('1b (v6.1.8): Solana Foundation Grants for a Solana dapp names the one rule
 });
 
 test('C1 (v6.1.8 final fix, B20b): FLOSS/fund for a chainless CLI asks the users question, never the sign-in bar; a yes makes it ready', async () => {
-  const CLI = { name: 'ripgrep', description: 'A line-oriented search tool for the command line.', live_url: 'https://ripgrep.dev' };
+  // L16-8 (v6.1.16): a live site alone never clears FLOSS/fund's code step, so the CLI names its repo (not read here).
+  const SITE = { name: 'ripgrep', description: 'A line-oriented search tool for the command line.', live_url: 'https://ripgrep.dev' };
+  const site = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: SITE });
+  assert.equal(site.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000: code in a repo and tell me if real people use it. First: publish a funding manifest on your site or repo.', 'Tell me when that is done and I apply.'].join('\n'));
+  const CLI = { ...SITE, repo_url: 'https://github.com/BurntSushi/ripgrep' };
   const ask = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: CLI });
   assert.equal(ask.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.', 'Say yes if they do and I draft it.'].join('\n'));
   const yes = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: { ...CLI, users: true } });
@@ -312,7 +316,7 @@ test('C1 (v6.1.8 final fix, B20b): FLOSS/fund for a chainless CLI asks the users
   assert.equal((yes.reply!.verdict as { status: string }).status, 'ready');
   assert.equal(yes.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000. Needs your funding manifest link. First: publish a funding manifest on your site or repo.', 'Say yes and I apply to FLOSS/fund.'].join('\n'));
   // With no live link and the repo not read, nothing EarnKit can see exists (B20c, v6.1.9): not a fit, even on a yes.
-  const { live_url: _l, ...bare } = CLI;
+  const { live_url: _l, repo_url: _r, ...bare } = CLI;
   const bareYes = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: { ...bare, users: true } });
   assert.deepEqual([(bareYes.reply!.verdict as { status: string }).status, bareYes.reply!.show_to_builder], ['no', 'FLOSS/fund, $10,000 to $100,000. Not a fit: needs code in a repo or a live link.']);
 });
@@ -323,7 +327,8 @@ test('1b (v6.1.8): FLOSS/fund for a CLI on Base: not a fit with no live link, si
   // B20c (v6.1.9): nothing EarnKit can see exists, so the users bar is not a fit before any tier; L1g-6 (v6.1.15): users
   // were reported, so the reason asks for something to read.
   assert.equal(no.reply!.show_to_builder, 'FLOSS/fund, $10,000 to $100,000. Not a fit: needs code in a repo or a live link.');
-  const live = { ...CLI, live_url: 'https://ripgrep.dev' };
+  // L16-8 (v6.1.16): with its repo named (not read here), so the live site is not all FLOSS/fund sees.
+  const live = { ...CLI, live_url: 'https://ripgrep.dev', repo_url: 'https://github.com/BurntSushi/ripgrep' };
   const gap = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project: live });
   // F2 (fix round 1, v6.1.14): no link in this context and nothing read: the sign-in is the one action, without a link.
   assert.equal(gap.reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000: proof that real people use it. First: publish a funding manifest on your site or repo.', 'Sign in once and I remember you.'].join('\n'));
@@ -2370,7 +2375,8 @@ test('F1, F2, lane 8 #1, #8, #10 (v6.1.10): the problem the record lacks holds t
 });
 
 test('F3 and fix round 1 (v6.1.10), N3 (v6.1.12): the users yes and the rule yes stand for a fully ready program; with answers missing the closing names them', async () => {
-  const CLI = { name: 'ripgrep', description: 'A line-oriented search tool for the command line.', live_url: 'https://ripgrep.dev' };
+  // L16-8 (v6.1.16): the repo is named (not read here), so FLOSS/fund's code step is not asked.
+  const CLI = { name: 'ripgrep', description: 'A line-oriented search tool for the command line.', live_url: 'https://ripgrep.dev', repo_url: 'https://github.com/BurntSushi/ripgrep' };
   const c = ctx(await installation());
   const ask = await mcpCall(c, 'find', { program_id: 'floss-fund-zerodha', project: CLI });
   assert.equal((ask.reply!.show_to_builder as string).split('\n').at(-1), 'Say yes if they do and I draft it.');
@@ -2555,4 +2561,41 @@ test('L16-7 (v6.1.16, Review Focus 2): a program with a result shows the result 
   assert.equal((await view(lost)).reply!.show_to_builder, ['FLOSS/fund, $10,000 to $100,000.', 'Rejected.'].join('\n'));
   // No project: the program's own view, not the result.
   assert.doesNotMatch((await mcpCall(lost, 'find', { program_id: 'floss-fund-zerodha' })).reply!.show_to_builder as string, /Rejected/);
+});
+
+test('L16-8 (v6.1.16, Review Focus 5): a bit.ly link never clears FUTO\'s code step, nor does a live site; the agent hears to send the real link', async () => {
+  const { SHORT_LINK_NOTE } = await import('./project-input');
+  const FUTO_LINE = 'FUTO Microgrants, $1,000 to $5,000: code in a repo.';
+  for (const project of [
+    { name: 'Rent Split', description: 'An app that splits rent.', repo_url: 'https://bit.ly/3xYz' },
+    { name: 'Rent Split', description: 'An app that splits rent.', live_url: 'https://rentsplit.app' },
+  ]) {
+    const r = await mcpCall(ctx(await installation()), 'find', { program_id: 'futo-microgrants', project });
+    assert.ok((r.reply!.show_to_builder as string).startsWith(FUTO_LINE), r.reply!.show_to_builder as string);
+    assert.equal((r.reply!.agent_note as string).includes(SHORT_LINK_NOTE), project.repo_url !== undefined, r.reply!.agent_note as string);
+    // The list says the same, and the shortened link is named for the agent there too.
+    const list = await mcpCall(ctx(await installation()), 'find', { project });
+    assert.ok((list.reply!.show_to_builder as string).includes('code in a repo'), list.reply!.show_to_builder as string);
+    assert.equal((list.reply!.agent_note as string).split('\n').filter((l) => l === SHORT_LINK_NOTE).length, project.repo_url !== undefined ? 1 : 0);
+  }
+  const short = await mcpCall(ctx(await installation()), 'find', { project: { name: 'Rent Split', description: 'An app that splits rent.', repo_url: 'https://bit.ly/3xYz' } });
+  assert.deepEqual(short.reply!.problems, ['repo_url dropped: a shortened link']);
+});
+
+test('L16-6 (v6.1.16, lane 16 N41, Review Focus 5): a Codeberg browse link and its clone link share one done step', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  await upsertProgram(programFixture({ id: 'n41-demo', title: 'Berg Grant', max_award_usd: 4000, eligibility: [{ kind: 'demo_video' }] }), 'file', NOW);
+  const status = async (c: ReturnType<typeof ctx>, p: Record<string, unknown>) =>
+    ((await mcpCall(c, 'find', { program_id: 'n41-demo', project: p })).reply!.verdict as { status: string }).status;
+  for (const [browse, clone] of [
+    ['https://codeberg.org/acme/berg/src/branch/main', 'https://codeberg.org/acme/berg.git'],
+    ['https://bitbucket.org/acme/bucket/src/main/', 'git@bitbucket.org:acme/bucket.git'],
+  ]) {
+    const c = ctx(await installation());
+    const P = { name: 'Berg', description: 'A tool.', repo_url: browse };
+    assert.equal(await status(c, P), 'gap', browse);
+    const done = await mcpCall(c, 'track', { program_id: 'n41-demo', status: 'gap_done', item: 'demo_video', project: { ...P, repo_url: clone } });
+    assert.equal(done.isError, false, done.text);
+    assert.equal(await status(c, P), 'ready', browse);
+  }
 });

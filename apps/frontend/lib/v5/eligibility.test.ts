@@ -287,7 +287,7 @@ test('C1 (v6.1.8 final fix, B20b): a used bar on a chainless project is the user
   assert.equal(evaluate(toRow(programFixture({ id: 'p-live', min_tier: 'live', tag: undefined })), chainless, new Set(), NOW).status, 'ready');
 });
 
-test('L1e-6 fix round 1 (v6.1.13, T3-R1): a needs_repo grant for existing code is one step, code in a repo, from an idea or an empty repo; a repo with code or a live link has none', async () => {
+test('L1e-6 fix round 1 (v6.1.13, T3-R1): a needs_repo grant for existing code is one step, code in a repo, from an idea or an empty repo; a repo with code has none, a live link alone does not (L16-8)', async () => {
   const futo = fromFile('futo-microgrants');
   const parsed = parseProject({ name: 'Rent Split', description: 'An idea: an app that splits rent.' });
   assert.ok(parsed.ok);
@@ -302,7 +302,8 @@ test('L1e-6 fix round 1 (v6.1.13, T3-R1): a needs_repo grant for existing code i
   assert.equal(evaluate(futo, idea, new Set(['repo']), NOW).gaps[0].kind, 'repo');
   const code = { ...(await factsOf('nextjs-dashboard')), chains: [] };
   assert.ok(!evaluate(futo, code, new Set(), NOW).gaps.some((g) => g.kind === 'repo'));
-  assert.ok(!evaluate(futo, { ...idea, live_url: 'https://rentsplit.app' }, new Set(), NOW).gaps.some((g) => g.kind === 'repo'));
+  // L16-8 (v6.1.16): a live site never clears it; only a repo with code does.
+  assert.equal(evaluate(futo, { ...idea, live_url: 'https://rentsplit.app' }, new Set(), NOW).gaps[0].what, 'code in a repo');
   // Hackathons are exempt.
   const qnx = fromFile('qnx-global-hackathon-2026');
   assert.ok(!evaluate(qnx, idea, new Set(), NOW).gaps.some((g) => g.kind === 'repo'));
@@ -326,8 +327,9 @@ test('B20c, B20d (v6.1.9, Review Focus 1, fix rounds 1 and 2): the users questio
   // A repo read with code, a live link given, or a private repo (the builder's word) keeps the question.
   const code = { ...(await factsOf('nextjs-dashboard')), chains: [] };
   assert.deepEqual(evaluate(floss, code, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
+  // L16-8 (v6.1.16): a live link alone keeps the question, and the grant for existing code asks for the code too.
   const live = { ...idea, live_url: 'https://rentsplit.app' };
-  assert.deepEqual(evaluate(floss, live, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
+  assert.deepEqual(evaluate(floss, live, new Set(), NOW).gaps.map((g) => g.what), ['code in a repo', 'tell me if real people use it']);
   const pp = parseProject({ name: 'Billing Core', description: 'Usage-based billing.', repo_url: 'https://github.com/acme-private/billing-core', private: true });
   assert.ok(pp.ok);
   const priv = await repoFacts(pp.project, { now: NOW });
@@ -337,7 +339,8 @@ test('B20c, B20d (v6.1.9, Review Focus 1, fix rounds 1 and 2): the users questio
   assert.deepEqual(evaluate(usersOnly, priv, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
   assert.equal(evaluate(usersOnly, { ...priv, users: true }, new Set(), NOW).status, 'ready');
   assert.equal(evaluate(floss, { ...priv, users: true }, new Set(), NOW).status, 'gap');
-  assert.equal(evaluate(floss, { ...empty, live_url: 'https://x.dev', users: true }, new Set(), NOW).status, 'ready');
+  // L16-8 (v6.1.16): an empty repo with a live site still has no code in a repo.
+  assert.deepEqual(evaluate(floss, { ...empty, live_url: 'https://x.dev', users: true }, new Set(), NOW).gaps.map((g) => g.what), ['code in a repo']);
   // B20d (fix round 2): reads paused for the day keeps the builder's word; a repo link that was not read (a 404 or a
   // failed read) does not exist for the question.
   const named = { ...idea, repo_url: 'https://github.com/a/b' };

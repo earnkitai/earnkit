@@ -446,3 +446,11 @@ test('v6.1.15 Task 14: the authorization-server metadata (RFC 8414) advertises c
   });
   assert.equal(CIMD_FAILED, "Connecting EarnKit failed. Your agent's client document could not be read.");
 });
+
+test('L16-10 (v6.1.16): digits and l that read as letters fold before the reserved-name check', async () => {
+  const { reservedClientName } = await import('./oauth-routes');
+  for (const name of ['earnk1t', 'earnklt', 'E4RNK1T', 'earn-k1t', '34rnk17', 'Claude Code (x) earnk1t'])
+    assert.equal(reservedClientName(name), true, name);
+  for (const name of ['Cursor', 'Claude', 'Kit Earner', 'Claude Code (earnk1t)', 'Agent 47'])
+    assert.equal(reservedClientName(name), false, name);
+});

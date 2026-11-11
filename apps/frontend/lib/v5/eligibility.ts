@@ -154,9 +154,11 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
     return out('no', [], facts.users === true ? 'needs code in a repo or a live link' : 'needs a product people use');
   const gaps: Gap[] = [];
   // L1e-6 (v6.1.13, fix round 1 T3-R1): a grant for existing code (needs_repo, existing work welcome, not a hackathon or
-  // an event) is one step from a project with nothing to show (no live link, and no repo link or a repo the read found
+  // an event) is one step from a project with no code to show (no repo link, or a repo the read found
   // empty): code in a repo, a real change competing in the ordinary step slots. The read settles it.
-  if (p.needs_repo && forExistingCode(p) && !facts.live_url && (!facts.repo_url || (facts.notes ?? []).includes('empty'))) gaps.push(NEEDS_CODE);
+  // L16-8 (v6.1.16): a live site never clears it; only a repo with code does. A repo reported private is a repo: its
+  // step is making it public (L1f-1), and the read settles the code then.
+  if (p.needs_repo && forExistingCode(p) && !facts.private && (!facts.repo_url || (facts.notes ?? []).includes('empty'))) gaps.push(NEEDS_CODE);
   // L1f-1 (v6.1.14): an open source program is never ready for a private repo (reported private, or a link not read
   // for being private): its step is making the repo public.
   if (p.open_source && (facts.private || (facts.notes ?? []).includes('private'))) gaps.push(PUBLIC_REPO);

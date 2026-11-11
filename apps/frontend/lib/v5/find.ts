@@ -21,7 +21,7 @@ import { prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
 import { isOpen, listOpenPrograms, programByName, unknownProgramLine, type ProgramRow } from './programs';
 import { moneyAt, moneyOf as tileMoney } from './programs-read';
-import { ProjectArg, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
+import { ProjectArg, SHORT_LINK_NOTE, isShortener, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
 import { readLoosely, type LooseRules } from './tool-input';
 import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
 import { repoFacts, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
@@ -555,11 +555,20 @@ function rawName(project: unknown): string | null {
 /** The agent's line for arguments find could not read (L13-4, v6.1.14), or ''. Pure. */
 const unreadNote = (unread: string[]) => (unread.length > 0 ? `Some arguments were not read: ${unread.join('; ')}.` : '');
 
+/** Whether the project report gives a shortened link in any link field (L16-8, v6.1.16). Pure. */
+function shortLinkIn(project: unknown): boolean {
+  if (!project || typeof project !== 'object') return false;
+  const o = project as Record<string, unknown>;
+  return ['repo_url', 'live_url', 'demo_url'].some((k) => isShortener(o[k]));
+}
+
 export async function find(ctx: FindContext, input: unknown): Promise<FindReply | ProgramReply> {
   const { i, unread } = findInputOf(input);
   const r = await findWith(ctx, i, unread);
   // The one-program and open-list replies take the line here; the match's agent note has it in place.
-  return unread.length > 0 && !r.agent_note.includes(unreadNote(unread)) ? { ...r, agent_note: [r.agent_note, unreadNote(unread)].join('\n') } : r;
+  const withUnread = unread.length > 0 && !r.agent_note.includes(unreadNote(unread)) ? { ...r, agent_note: [r.agent_note, unreadNote(unread)].join('\n') } : r;
+  // L16-8 (v6.1.16): a shortened link was dropped: the agent hears to send the real one, on every reply kind.
+  return shortLinkIn(i.project) && !withUnread.agent_note.includes(SHORT_LINK_NOTE) ? { ...withUnread, agent_note: [withUnread.agent_note, SHORT_LINK_NOTE].filter(Boolean).join('\n') } : withUnread;
 }
 
 async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: string[]): Promise<FindReply | ProgramReply> {

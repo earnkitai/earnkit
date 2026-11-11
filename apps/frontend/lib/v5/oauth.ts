@@ -96,8 +96,8 @@ const LOOKALIKES: Record<string, string> = {
 
 /**
  * Whether a client name is EarnKit's own (L13-16, T6-F1): NFKC (widths), NFKD with combining marks dropped (accents),
- * Cyrillic and Greek look-alikes folded to Latin, lower case, letters and digits only, holding `earnkit`. A trailing
- * `(server name)` is dropped first (L25-1). Pure.
+ * Cyrillic and Greek look-alikes folded to Latin, lower case, letters and digits only, then digits and `l` read as
+ * letters and the rest dropped (L16-10), holding `earnkit`. A trailing `(server name)` is dropped first (L25-1). Pure.
  */
 export function reservedClientName(v: unknown): boolean {
   if (typeof v !== 'string') return false;
@@ -105,8 +105,12 @@ export function reservedClientName(v: unknown): boolean {
   // `earnkit`, so a trailing parenthetical is the builder's server label, not the agent's name. Drop one before
   // the check, unless fewer than two letters or digits would be left (so `x (EarnKit)` is still refused).
   const own = fold(v.replace(/\s*\([^()]*\)\s*$/u, ''));
-  return (own.length >= 2 ? own : fold(v)).includes('earnkit');
+  return leet(own.length >= 2 ? own : fold(v)).includes('earnkit');
 }
+
+/** L16-10 (v6.1.16): digits and `l` that read as letters (0 o, 1 i, 3 e, 4 a, 5 s, 7 t, l i), then letters only. */
+const LEET: Record<string, string> = { '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's', '7': 't', l: 'i' };
+const leet = (folded: string): string => folded.replace(/[013457l]/g, (ch) => LEET[ch]).replace(/[^\p{L}]/gu, '');
 
 /** NFKC, NFKD with marks dropped, look-alikes to Latin, lower case, letters and digits only. */
 function fold(v: string): string {

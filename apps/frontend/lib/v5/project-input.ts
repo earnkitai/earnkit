@@ -136,9 +136,16 @@ function networkOf(o: Record<string, unknown>): { chain: string; mainnet: unknow
       if (!chain) chain = known.chain;
       if (!known.mainnet) testnet = true;
     } else if (EXTRA_TESTNET_IDS.has(id)) testnet = true;
-    else return { chain, mainnet: o.mainnet, problem: `chain ${chain || '?'} dropped: chain_id ${String(rawId).slice(0, 20)} is not a known network; send mainnet true or false` };
+    else return { chain, mainnet: boolText(o.mainnet), problem: `chain ${chain || '?'} dropped: chain_id ${String(rawId).slice(0, 20)} is not a known network; send mainnet true or false` };
   }
-  return { chain, mainnet: testnet ? false : (o.mainnet ?? true) };
+  return { chain, mainnet: testnet ? false : (boolText(o.mainnet) ?? true) };
+}
+
+/** L16-15 (v6.1.16): `mainnet` given as the text `"true"` or `"false"` (trimmed, any case) reads as the boolean. Pure. */
+function boolText(v: unknown): unknown {
+  if (typeof v !== 'string') return v;
+  const t = v.trim().toLowerCase();
+  return t === 'true' ? true : t === 'false' ? false : v;
 }
 
 /**
@@ -160,7 +167,9 @@ export function parseProject(v: unknown, now = new Date(), o: { partial?: boolea
   for (const k of URL_FIELDS) {
     if (raw[k] == null) continue;
     const url = k === 'repo_url' ? repoWebUrl(raw[k]) : webUrl(raw[k]);
-    if (url) out[k] = url;
+    // L16-8 (v6.1.16): a shortened link is never read (not the repo, not the live link), before the code-host rule.
+    if (url && isShortener(url)) urlProblems.push(`${k} dropped: a shortened link`);
+    else if (url) out[k] = url;
     else urlProblems.push(`${k} dropped: not a web link`);
   }
   // L12-6 (v6.1.14), fix round 1 (T7-F1, T7-F6): a code host's link that names no repo (an owner's page,
@@ -250,6 +259,24 @@ export function parseProject(v: unknown, now = new Date(), o: { partial?: boolea
 /** The hosts whose links are code in a repo (L13-15, v6.1.14), each with its subdomains. */
 export const CODE_HOSTS = ['github.com', 'gitlab.com', 'codeberg.org', 'bitbucket.org'] as const;
 
+/** Link shorteners (L16-8, v6.1.16): a link on one is never a live link or a repo. */
+export const SHORTENERS = ['bit.ly', 't.co', 'tinyurl.com', 'goo.gl', 'is.gd', 'cutt.ly', 'rb.gy', 'short.io'] as const;
+
+/** The agent's line when a shortened link was dropped (L16-8, v6.1.16). */
+export const SHORT_LINK_NOTE = 'Shortened links are not read; send the real one.';
+
+/** Whether `v` is a link on a shortener (SHORTENERS or a subdomain of one), any scheme. Pure. */
+export function isShortener(v: unknown): boolean {
+  if (typeof v !== 'string') return false;
+  let host: string;
+  try {
+    host = hostOf(new URL(clean(v).trim()));
+  } catch {
+    return false;
+  }
+  return SHORTENERS.some((h) => host === h || host.endsWith(`.${h}`));
+}
+
 /** github.com first segments that are GitHub's own pages, never an owner (fix round 1, T7-F6). */
 const GITHUB_PAGES = new Set(['orgs', 'users', 'sponsors', 'topics', 'marketplace', 'settings', 'apps', 'collections', 'features', 'explore', 'search', 'notifications', 'organizations', 'enterprises', 'login', 'about', 'pricing']);
 
@@ -273,7 +300,7 @@ export function isCodeHost(v: unknown): boolean {
 /**
  * The one canonical form of a repo link (v6.1.13, B4), shared by projectKeyOf and the repo read's cache key
  * (repo-facts `repoKey`): https, the host lower-cased without `www.`, no port, no `user@`, no query or fragment, no
- * `/tree/...` or `/blob/...` suffix (on github.com only owner and name; elsewhere the path up to its first `-` segment), no trailing slash or `.git`, all lower case;
+ * `/tree/...` or `/blob/...` suffix (on github.com only owner and name; on bitbucket.org and codeberg.org the path up to its first `src` segment, L16-6; elsewhere the path up to its first `-` segment), no trailing slash or `.git`, all lower case;
  * a trailing dot on the host dropped (L12-6, v6.1.14); null for anything that is not an http or https link on a code
  * host, or that names no repo (an owner or group alone, L12-6). No length cap here (projectKeyOf caps as parseProject does). Pure.
  */
@@ -296,7 +323,10 @@ export function canonicalRepoLink(v: unknown): string | null {
   if (parts.length < 2 || (host === 'github.com' && GITHUB_PAGES.has(parts[0].toLowerCase()))) return null;
   // github.com: owner and name only. Elsewhere (GitLab and the like) the project ends at its first `-` segment, so
   // `-/tree/...`, `-/blob/...` and `-/issues` fold, and a subgroup that happens to be named `tree` stays (fix round 1, M1).
-  const dash = parts.findIndex((x, i) => i >= 2 && x === '-');
+  // L16-6 (v6.1.16): on bitbucket.org and codeberg.org the browse path starts at `src` (`/src/main/`,
+  // `/src/branch/main`), cut as `-` is on GitLab.
+  const cut = host === 'bitbucket.org' || host === 'codeberg.org' ? 'src' : '-';
+  const dash = parts.findIndex((x, i) => i >= 2 && x === cut);
   parts = host === 'github.com' ? parts.slice(0, 2) : dash >= 0 ? parts.slice(0, dash) : parts;
   const path = parts.join('/').replace(/(\.git)+$/i, '');
   return `https://${host}${path ? `/${path}` : ''}`.toLowerCase();
