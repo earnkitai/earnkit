@@ -119,7 +119,7 @@ async function handle(incoming: Request) {
   // L19-5: a token issued for another resource is refused like no token; a null audience (before v6.1.16) is accepted.
   if (caller === null || (caller.audience !== null && caller.audience !== resourceOf(publicOrigin(request)))) {
     const metadata = `${publicOrigin(request)}/.well-known/oauth-protected-resource/mcp`;
-    return json({ error: 'invalid_token', error_description: 'Connect EarnKit to get a token' }, 401, {
+    return json({ error: 'invalid_token', error_description: 'Sign in to EarnKit from your agent to use it.' }, 401, {
       'WWW-Authenticate': `Bearer resource_metadata="${metadata}"`,
     });
   }

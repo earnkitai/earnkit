@@ -53,7 +53,8 @@ test('screen needs a reviewer: unlinked and linked non-reviewer each answer one 
   assert.equal(u.reply!.show_to_builder, 'Screening is for program reviewers.');
   const c = await linked();
   const n = await mcpCall(c, 'screen', { program_id: 'scr-none', applicants: APPLICANTS });
-  assert.equal(n.reply!.show_to_builder, 'Screening is for program reviewers, and you do not review that program.');
+  // L25-10 (v6.1.16): how to ask for access.
+  assert.equal(n.reply!.show_to_builder, 'Screening is for program reviewers, and you do not review that program. Ask for reviewer access through the X link on earnkit.com/docs.');
   assert.equal('job_id' in n.reply!, false);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs`)[0].n, 0);
   // A refused non-reviewer never counts against the daily limit.
@@ -65,7 +66,7 @@ test('a reviewer queues a job and gets job_id; the eleventh screen in a day is r
   const r = await mcpCall(c, 'screen', { program_id: 'scr-queue', applicants: APPLICANTS });
   assert.equal(r.isError, false, r.text);
   assert.match(r.reply!.job_id as string, /^[A-Za-z0-9_-]{16}$/);
-  assert.equal(r.reply!.show_to_builder, 'Queued 2 applicants for Grants scr-queue. Results come in daily runs; the first by tomorrow morning.');
+  assert.equal(r.reply!.show_to_builder, 'Queued 2 applicants for Grants scr-queue. Results come once a day, within 24 hours.');
   assert.equal(r.reply!.agent_note, 'Call screen with job_id for progress and results. Tell the builder what each tier means: used, live, building, unverified, flagged.');
   const [w] = await sql()`SELECT count FROM rate_windows WHERE key = ${`screenJobs:b:${c.builderId}`} AND window_start = ${windowStart(NOW, 86_400_000)}`;
   assert.equal(w.count, 1);
@@ -145,7 +146,7 @@ test('R7 screen unlinked with sign-in configured: the installation link, one lin
     const u = await mcpCall({ installationId: inst!.id, builderId: null, now: NOW }, 'screen', { program_id: 'scr-none', applicants: APPLICANTS });
     assert.equal(u.isError, false, u.text);
     const show = u.reply!.show_to_builder as string;
-    assert.match(show, /^Sign in once at https:\/\/earnkit\.test\/link\/[A-Za-z0-9_-]{16,} so EarnKit knows which program you review for\.$/);
+    assert.match(show, /^Sign in once at https:\/\/earnkit\.test\/link\/[A-Za-z0-9_-]{16,}, then ask for reviewer access through the X link on earnkit\.com\/docs\.$/);
     assert.ok(!/owner/i.test(show), show);
     assert.equal((await sql()`SELECT count(*)::int AS n FROM link_codes WHERE installation_id = ${inst!.id}`)[0].n, 1);
   } finally {
@@ -172,7 +173,7 @@ test('C18: a signed-in builder who reviews no program, with no program named, is
   for (const args of [{}, { applicants: APPLICANTS }]) {
     const r = await mcpCall(c, 'screen', args);
     assert.equal(r.isError, false, r.text);
-    assert.equal(r.reply!.show_to_builder, 'You review no program yet.');
+    assert.equal(r.reply!.show_to_builder, 'You review no program yet. Ask for reviewer access through the X link on earnkit.com/docs.');
   }
 });
 
@@ -229,7 +230,7 @@ test('B14: the promise counts the queue ahead against the daily run of SCREEN_BA
   const a = await reviewerOf('scr-big');
   const many = Array.from({ length: 200 }, (_, k) => ({ ref: `m-${k}`, name: `App ${k}` }));
   const first = await mcpCall({ ...a, now: EARLY }, 'screen', { program_id: 'scr-big', applicants: many });
-  assert.equal(first.reply!.show_to_builder, 'Queued 200 applicants for Grants scr-big. Results come in daily runs; the first by tomorrow morning.');
+  assert.equal(first.reply!.show_to_builder, 'Queued 200 applicants for Grants scr-big. Results come once a day, within 24 hours.');
   const b = await reviewerOf('scr-after');
   const second = await mcpCall({ ...b, now: new Date(EARLY.getTime() + 60_000) }, 'screen', { program_id: 'scr-after', applicants: APPLICANTS });
   assert.equal(second.reply!.show_to_builder, 'Queued 2 applicants for Grants scr-after. Results come in daily runs; 200 applicants ahead of yours, all within 2 days.');
