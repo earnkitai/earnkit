@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from '../v5/db';
 import { replayFetch } from '../v5/fixtures/github';
 import { blockscout, type Explorer } from './explorers';
-import { countedBy, deployFiles, deployRun, flattenRows, MAX_DEPLOY_BYTES, readCapped, readEvidence, repoSince } from './evidence';
+import { countedBy, deployFiles, deployRun, EVIDENCE_KEEP_DAYS, flattenRows, MAX_DEPLOY_BYTES, readCapped, readEvidence, repoSince, sweepEvidence } from './evidence';
 import { contract } from './fixtures/evidence-builder';
 import { replayExplorer } from './fixtures/explorer';
 import { fakeRdap, fakeSite } from './fixtures/site';
@@ -459,4 +459,15 @@ test('M6 (v6.1.14 fix round 1): a size of 0 with files in the tree is not an emp
   assert.notEqual(full.empty, true);
   const bare = await readCode({ repo, tree: [], readme: null, files: [], first_commit_at: null, partial: true }, o);
   assert.equal(bare.empty, true);
+});
+
+test('v6.1.16 Task 16 (L30-17): sweepEvidence keeps a row read 1 ms inside 180 days and drops one read 1 ms past', async () => {
+  const now = new Date('2026-11-12T06:15:00Z');
+  const at = (ms: number) => new Date(now.getTime() - 180 * 86_400_000 + ms);
+  await sql()`DELETE FROM evidence_cache WHERE key LIKE 'sweep:%'`;
+  for (const [key, read] of [['sweep:inside', at(1)], ['sweep:edge', at(0)], ['sweep:past', at(-1)]] as const)
+    await sql()`INSERT INTO evidence_cache (key, kind, rows, read_at) VALUES (${key}, 'repo', '[]', ${read})`;
+  assert.equal(EVIDENCE_KEEP_DAYS, 180);
+  assert.equal(await sweepEvidence(now), 1);
+  assert.deepEqual((await sql()`SELECT key FROM evidence_cache WHERE key LIKE 'sweep:%' ORDER BY key`).map((r) => r.key), ['sweep:edge', 'sweep:inside']);
 });

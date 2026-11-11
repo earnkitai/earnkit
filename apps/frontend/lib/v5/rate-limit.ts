@@ -145,11 +145,12 @@ export function clientIp(headers: Headers, remoteAddress?: string): string {
   return ip ? ipKey(ip) : 'unknown';
 }
 
-/** Whether this first hit also sweeps old windows (one in a hundred); replaceable in tests. */
-let sweep = (): boolean => Math.random() < 0.01;
-/** Tests only: sets the sweep's chance (true always, false never); undefined restores it. */
-export function setSweepForTests(always: boolean | undefined): void {
-  sweep = always === undefined ? () => Math.random() < 0.01 : () => always;
+/**
+ * The daily run's sweep (v6.1.16 Task 16, L30-17): windows that started over 2 days before `now` (no window is over a
+ * day, so each one ended over a day ago). Against the caller's clock. The windows deleted.
+ */
+export async function sweepWindows(now: Date): Promise<number> {
+  return (await sql()`DELETE FROM rate_windows WHERE window_start < ${new Date(now.getTime() - 2 * 86_400_000)}`).count;
 }
 
 /** Counts one request for `key` in the current `windowSeconds` window; the window's count so far. */
@@ -159,13 +160,8 @@ export async function countHit(key: string, windowSeconds: number, now = new Dat
     INSERT INTO rate_windows (key, window_start, count) VALUES (${key}, ${start}, 1)
     ON CONFLICT (key, window_start) DO UPDATE SET count = rate_windows.count + 1
     RETURNING count`;
-  if (row.count === 1) {
-    await sql()`DELETE FROM rate_windows WHERE key = ${key} AND window_start < ${start}`;
-    // Keys that never come back (one-off IPs) are swept now and then; no window is over a day. Against the caller's
-    // clock, not the database's, so a fixed clock keeps its windows (v6.1.9 final I5).
-    if (sweep())
-      await sql()`DELETE FROM rate_windows WHERE window_start < ${new Date(now.getTime() - 2 * 86_400_000)}`;
-  }
+  // Keys that never come back (one-off IPs) go in the daily run's sweepWindows.
+  if (row.count === 1) await sql()`DELETE FROM rate_windows WHERE key = ${key} AND window_start < ${start}`;
   return row.count;
 }
 

@@ -1,7 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
-import { LIMITS, blockOf, busyText, clientIp, countHit, setSweepForTests } from './rate-limit';
+import { LIMITS, blockOf, busyText, clientIp, countHit, sweepWindows } from './rate-limit';
 import { BUSY } from './mcp';
 
 after(() => sql().end());
@@ -27,22 +27,21 @@ test('B5: no hosted per-address tier; the hosted tier only raises the per-client
   assert.ok(LIMITS.installClientHosted.limit > LIMITS.installClient.limit);
 });
 
-test('I5 (v6.1.9 final): the sweep compares windows against the caller\'s clock, so a fixed old clock keeps its counts', async () => {
+test('I5 (v6.1.9 final), v6.1.16 Task 16: a hit never sweeps other keys; sweepWindows keeps a window 1 ms inside 2 days of the caller\'s clock and drops one 1 ms past', async () => {
   const old = new Date('2026-01-01T12:00:00Z');
-  setSweepForTests(true);
-  try {
-    assert.equal(await countHit('i5-a', 3600, old), 1);
-    assert.equal(await countHit('i5-a', 3600, old), 2);
-    // A first hit of another window sweeps; the first window is not two days older than the caller's clock.
-    assert.equal(await countHit('i5-b', 3600, old), 1);
-    assert.equal(await countHit('i5-a', 3600, old), 3);
-    // Three days later by the caller's clock, the old windows are swept.
-    await countHit('i5-c', 3600, new Date(old.getTime() + 3 * 86_400_000));
-    const left = await sql()<{ key: string }[]>`SELECT key FROM rate_windows WHERE key IN ('i5-a', 'i5-b')`;
-    assert.equal(left.length, 0);
-  } finally {
-    setSweepForTests(undefined);
-  }
+  assert.equal(await countHit('i5-a', 3600, old), 1);
+  assert.equal(await countHit('i5-a', 3600, old), 2);
+  // Another key's hits, days later, leave i5-a alone: only the daily run sweeps.
+  await countHit('i5-c', 3600, new Date(old.getTime() + 3 * 86_400_000));
+  assert.equal(await countHit('i5-a', 3600, old), 3);
+  const start = new Date('2026-01-01T12:00:00Z'); // i5-a's hour window starts here
+  const twoDays = 2 * 86_400_000;
+  assert.equal(await sweepWindows(new Date(start.getTime() + twoDays - 1)), 0);
+  assert.equal(await sweepWindows(new Date(start.getTime() + twoDays)), 0);
+  assert.equal((await sql()`SELECT 1 FROM rate_windows WHERE key = 'i5-a'`).length, 1);
+  assert.equal(await sweepWindows(new Date(start.getTime() + twoDays + 1)), 1);
+  assert.equal((await sql()`SELECT 1 FROM rate_windows WHERE key = 'i5-a'`).length, 0);
+  assert.equal((await sql()`SELECT 1 FROM rate_windows WHERE key = 'i5-c'`).length, 1);
 });
 
 test('B1 (v6.1.13): the shared hosted ceiling is gone; each address block has a daily cap of 5,000 sign-ups and 5,000 installs', () => {
