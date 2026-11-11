@@ -22,6 +22,7 @@ import { projectKeyOf, type Project } from './project-input';
 import { amountsText, moneyText, plusAmount, sameAmounts, totalText, type Amounts } from './programs-read';
 import { UNKNOWN_CURRENCY_NOTE, amountsOverCap, comparable, overCap } from './amount';
 import { displayName } from './installations';
+import { quoteName } from './controls';
 
 /** gap_done without a known item (v6.1.8, 3.10): the builder names the change, the agent gets the item keys. */
 export const WHICH_CHANGE = 'Which change did you finish? Say the program and the change.';
@@ -45,7 +46,11 @@ export const ALREADY_SENT_SKIP = 'That one was already sent; nothing to skip.';
 export const paymentKeyOf = (key: string): string => key.replace(/^[st]:/, '');
 
 /** 'started' is a claim (lib/v6/claims.ts): not an application yet, so the summary leaves it out. */
-export type Status = 'started' | 'applied' | 'won' | 'rejected' | 'no_result' | 'skipped' | 'unskip' | 'gap_done';
+export type Status = 'started' | 'applied' | 'won' | 'rejected' | 'no_result' | 'skipped' | 'unskip' | 'gap_done' | 'held';
+/** L24-4 (v6.1.16 Task 11): `held` over an application already sent or with a result. */
+export const NOTHING_TO_HOLD = 'That one was already sent; nothing to hold.';
+/** L24-4: the agent note when a send lands on a program the builder held: recorded (L23-3, never refused). */
+export const HELD_SENT_NOTE = 'The builder held this one; tell them it went out.';
 export type Ledger = {
   applied: number;
   asked_usd: number;
@@ -213,10 +218,25 @@ export async function record(
     // T5-F4 (v6.1.14, fix round 2): no call of an agent unlinked meanwhile lands in the builder's ledger, whatever its
     // status; a program's screen outcome (`fromScreen`) is written as the application's own installation and skips it.
     if (!o.fromScreen && !(await stillLinked(tx, owner, installationId))) return { ok: false, note: UNLINKED_MEANWHILE } as const;
-    const [row] = await tx<{ status: string; amount_usd: string | null; amounts: unknown; note: string | null; at: Date; client_name: string | null; claimed_at: Date | null; claimed_by: number | null }[]>`
-      SELECT a.status, a.amount_usd, a.amounts, a.note, a.at, i.client_name, a.claimed_at, a.claimed_by FROM applications a LEFT JOIN installations i ON i.id = a.installation_id
+    const [row] = await tx<{ status: string; amount_usd: string | null; amounts: unknown; note: string | null; at: Date; client_name: string | null; claimed_at: Date | null; claimed_by: number | null; held_at: Date | null }[]>`
+      SELECT a.status, a.amount_usd, a.amounts, a.note, a.at, i.client_name, a.claimed_at, a.claimed_by, a.held_at FROM applications a LEFT JOIN installations i ON i.id = a.installation_id
       WHERE a.owner = ${owner} AND a.program_id = ${programId} FOR UPDATE OF a`;
     if (!program && !row) return unknown;
+    // L24-4 (v6.1.16 Task 11): the builder's hold. On a claim (any installation's, live or not) it sets held_at; with no
+    // row it writes a claim for this installation, held, so a program the standing-approval line named can be held
+    // before any agent started it. A program sent, with a result or skipped has nothing to hold.
+    if (status === 'held') {
+      if (row?.status === 'skipped') return { ok: false, note: 'You skipped that one; nothing to hold.' } as const;
+      if (row && row.status !== 'started') return { ok: false, note: NOTHING_TO_HOLD } as const;
+      if (row?.held_at) return { ok: true, repeated: true } as const;
+      if (row) await tx`UPDATE applications SET held_at = ${now} WHERE owner = ${owner} AND program_id = ${programId}`;
+      else
+        await tx`INSERT INTO applications (owner, installation_id, program_id, status, note, at, project_id, claimed_at, claimed_by, application_id, held_at)
+          VALUES (${owner}, ${installationId}, ${programId}, 'started', ${note}, ${now}, ${o.projectKey || null}, ${now}, ${installationId}, ${newApplicationId()}, ${now})`;
+      await tx`INSERT INTO application_history (owner, installation_id, program_id, status, note, at, source)
+        VALUES (${owner}, ${installationId}, ${programId}, 'held', ${note}, ${now}, ${source})`;
+      return { ok: true } as const;
+    }
     const kept = row?.status === 'won' ? amountsOf(row) : null;
     // L22-2 (v6.1.16): a win with no currency named, over a win held in one other currency, is in that currency.
     const keptCodes = Object.keys(kept ?? {});
@@ -237,7 +257,7 @@ export async function record(
     // a sent program has nothing to skip, and another agent's live claim stays.
     if (status === 'skipped' && row?.status === 'skipped') return { ok: true, repeated: true } as const;
     if (status === 'skipped' && row?.status === 'applied') return { ok: false, note: ALREADY_SENT_SKIP } as const;
-    if (status === 'skipped' && row?.status === 'started' && row.claimed_by !== null && row.claimed_by !== installationId
+    if (status === 'skipped' && row?.status === 'started' && row.held_at === null && row.claimed_by !== null && row.claimed_by !== installationId
       && row.claimed_at !== null && row.claimed_at.getTime() > now.getTime() - CLAIM_HOURS * 3_600_000)
       return { ok: false, note: OTHER_AGENT_HOLDS } as const;
     const hasResult = row !== undefined && RESULTS.includes(row.status);
@@ -274,10 +294,12 @@ export async function record(
     if (resulted && (status === 'applied' || RESULTS.includes(status)))
       return { ok: false, note: `That one already has a result here: ${resultWords(row.status, kept)}.` } as const;
     if (status === 'applied' && row?.status === 'applied')
-      return { ok: false, note: `Already sent here on ${dayWords(row.at, now)} by ${displayName(row.client_name) ?? 'another agent'}; nothing recorded.` } as const;
+      // L24-1 (v6.1.16 Task 11): an agent's own name reaches the builder through quoteName.
+      return { ok: false, note: `Already sent here on ${dayWords(row.at, now)} by ${row.client_name ? quoteName(displayName(row.client_name) ?? row.client_name) : 'another agent'}; nothing recorded.` } as const;
     // B3 (v6.1.13) holds only a claim (claims.claim) and a skip (above). L23-3 (v6.1.16): a send over another
     // installation's live claim is never refused or lost: it is recorded, the claim cleared, and `other_claim` said.
-    const otherClaim = status === 'applied' && row?.status === 'started' && row.claimed_by !== null && row.claimed_by !== installationId
+    const heldSend = status === 'applied' && row?.status === 'started' && row.held_at !== null;
+    const otherClaim = status === 'applied' && row?.status === 'started' && !heldSend && row.claimed_by !== null && row.claimed_by !== installationId
       && row.claimed_at !== null && row.claimed_at.getTime() > now.getTime() - CLAIM_HOURS * 3_600_000;
     if (RESULTS.includes(status) && (!row || row.status === 'skipped' || row.status === 'started')) return { ok: false, note: "You haven't applied to that one here." } as const;
     if (status === 'unskip') {
@@ -315,7 +337,7 @@ export async function record(
         ON CONFLICT (owner, program_id) DO UPDATE
           SET installation_id = EXCLUDED.installation_id, status = 'applied', amount_usd = NULL, amounts = NULL, note = EXCLUDED.note, at = EXCLUDED.at, sent_at = EXCLUDED.sent_at,
               application_id = COALESCE(applications.application_id, EXCLUDED.application_id),
-              submitted_by = EXCLUDED.submitted_by, fields_used = EXCLUDED.fields_used, auto_applied = EXCLUDED.auto_applied, title = EXCLUDED.title,
+              submitted_by = EXCLUDED.submitted_by, fields_used = EXCLUDED.fields_used, auto_applied = EXCLUDED.auto_applied, title = EXCLUDED.title, held_at = NULL,
               project_id = COALESCE(EXCLUDED.project_id, applications.project_id)`;
       if (otherClaim) await tx`UPDATE applications SET claimed_at = NULL, claimed_by = NULL WHERE owner = ${owner} AND program_id = ${programId}`;
     } else if (status === 'skipped' && row?.status === 'started') {
@@ -340,9 +362,10 @@ export async function record(
     if (!repeated)
       await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, amount, currency, note, at, payment_key, corrected, source)
         VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${currency === 'USD' ? value : null}, ${value}, ${value === null ? null : currency}, ${note}, ${now}, ${paymentKey}, ${corrects}, ${source})`;
-    const other = otherClaim ? ({ other_claim: true } as const) : {};
+    const other = otherClaim ? ({ other_claim: true } as const) : heldSend ? ({ held: true } as const) : {};
     return repeated ? ({ ok: true, repeated: true } as const) : night ? ({ ok: true, night: true, ...other } as const) : closed ? ({ ok: true, closed: true, ...other } as const)
       : otherClaim ? ({ ok: true, other_claim: true } as const)
+      : heldSend ? ({ ok: true, held: true } as const)
       : total !== null ? ({ ok: true, total } as const)
       : corrects ? ({ ok: true, corrected: true, ...(replacedFrom !== null && { replaced: replacedFrom }) } as const)
       : ({ ok: true } as const);
@@ -354,7 +377,7 @@ export async function record(
  * correction replaced) are by currency (L22-3, v6.1.16); `agent_note` names why a refusal's currency could not be compared.
  */
 export type RecordResult =
-  | { ok: true; repeated?: true; night?: true; closed?: true; total?: Amounts; replaced?: Amounts; corrected?: true; other_claim?: true }
+  | { ok: true; repeated?: true; night?: true; closed?: true; total?: Amounts; replaced?: Amounts; corrected?: true; other_claim?: true; held?: true }
   | { ok: false; note: string; items?: string[]; current?: string; agent_note?: string };
 
 /**
@@ -609,8 +632,9 @@ export async function markAsked(owner: string, programIds: string[], now: Date):
  * The owner's live claims by program: when, by which installation, and for which project (the record project id or the
  * project key the claim stored; null for a row from before v6.1.11, which matches no project).
  */
-export async function claimed(owner: string): Promise<Map<string, { since: string; by: number | null; project: string | null }>> {
-  const rows = await sql()<{ program_id: string; claimed_at: Date | null; claimed_by: number | null; project_id: string | null }[]>`
-    SELECT program_id, claimed_at, claimed_by, project_id FROM applications WHERE owner = ${owner} AND status = 'started'`;
-  return new Map(rows.map((r) => [r.program_id, { since: (r.claimed_at ?? new Date(0)).toISOString(), by: r.claimed_by, project: r.project_id }]));
+export async function claimed(owner: string): Promise<Map<string, { since: string; by: number | null; project: string | null; held?: true }>> {
+  const rows = await sql()<{ program_id: string; claimed_at: Date | null; claimed_by: number | null; project_id: string | null; held_at: Date | null }[]>`
+    SELECT program_id, claimed_at, claimed_by, project_id, held_at FROM applications WHERE owner = ${owner} AND status = 'started'`;
+  // L24-4 (v6.1.16 Task 11): `held`: the builder held it (track held); no agent sends it until a started lifts it.
+  return new Map(rows.map((r) => [r.program_id, { since: (r.claimed_at ?? new Date(0)).toISOString(), by: r.claimed_by, project: r.project_id, ...(r.held_at ? { held: true as const } : {}) }]));
 }

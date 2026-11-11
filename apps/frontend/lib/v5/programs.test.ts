@@ -188,3 +188,18 @@ test('L31-4 (v6.1.16 Task 17): program ids are matched after NFKC folding; the r
   // NFD accents are not compatibility forms: no match (lane 31's t-7 stays).
   assert.equal(await getProgram('cafe\u0301-grant'), null);
 });
+
+test('L24-3 (v6.1.16 Task 11): the strict lookup takes an id, an exact title or title words with one uncommon word', async () => {
+  const { COMMON_WORDS, programByName, upsertProgram: up } = await import('./programs');
+  const { programFixture: fx } = await import('./fixtures/program');
+  const now = new Date('2026-11-04T12:00:00Z');
+  await up(fx({ id: 'l24p-second', title: 'Second Grant' }), 'file', now);
+  assert.equal(COMMON_WORDS.size, 14);
+  for (const w of ['next', 'build', 'start', 'first', 'open', 'apply'])
+    assert.equal((await programByName(w, now, { strict: true })).row, null, w);
+  assert.equal((await programByName('Second Grant', now, { strict: true })).row?.id, 'l24p-second');
+  assert.equal((await programByName('paypal', now, { strict: true })).row?.id, 'paypal-ai-hackathon');
+  assert.equal((await programByName('yc', now, { strict: true })).row, null);
+  // find's lookup is unchanged.
+  assert.equal((await programByName('yc', now)).row?.id, 'y-combinator');
+});

@@ -129,6 +129,32 @@ export function unknownProgramLine(suggest: readonly string[]): string {
 }
 
 /**
+ * L24-3 (v6.1.16 Task 11): words that never name a program on their own in a strict lookup (what an agent passes on
+ * when the builder says "apply to the next one", "start", "build it").
+ */
+export const COMMON_WORDS: ReadonlySet<string> = new Set(['next', 'build', 'start', 'first', 'open', 'grant', 'program', 'apply', 'fund', 'app', 'labs', 'dev', 'ai', 'web']);
+/** Small words a strict lookup drops before matching ("the PayPal hackathon"). */
+const ARTICLES = new Set(['the', 'and', 'for', 'of', 'a', 'an', 'to']);
+
+/**
+ * The strict lookup track uses (L24-3): the exact id (already tried), the exact folded title, or the one title whose
+ * words hold every lookup word (articles and years dropped) with at least one of them outside COMMON_WORDS. Several
+ * fitting are `suggest`; none is no program. Pure over `rows`.
+ */
+function strictMatch(rows: ProgramRow[], words: string, now: Date): { row: ProgramRow | null; suggest: string[] } {
+  const titled = rows.filter((r) => plain(r.file.title) === words);
+  if (titled.length === 1) return { row: titled[0], suggest: [] };
+  const asked = words.split(' ').filter((w) => w && !ARTICLES.has(w) && !YEAR.test(w));
+  if (asked.length === 0 || asked.every((w) => COMMON_WORDS.has(w))) return { row: null, suggest: [] };
+  const fit = titled.length > 1 ? titled : rows.filter((r) => {
+    const own = new Set(plain(r.file.title).split(' '));
+    return asked.every((w) => own.has(w));
+  });
+  if (fit.length === 1) return { row: fit[0], suggest: [] };
+  return { row: null, suggest: byLookupRank(fit, now).slice(0, 2).map((r) => r.file.title) };
+}
+
+/**
  * A program by what the builder calls it, the one resolver find and track share (v6.1.9; F4, v6.1.12): its id as given,
  * else, case, spaces and punctuation ignored, the first of these that any program fits: its whole id or title, or its
  * id's initials ("yc"); the start of its title or id, four characters at least ("monad", "Base"; never "fi"), an
@@ -138,13 +164,14 @@ export function unknownProgramLine(suggest: readonly string[]): string {
  * L12-5, v6.1.14). Exactly one program fitting is the `row`; several are `suggest`, the first two by byLookupRank;
  * none, `suggest` is empty ("I don't know that program.").
  */
-export async function programByName(name: string, now: Date = new Date()): Promise<{ row: ProgramRow | null; suggest: string[] }> {
+export async function programByName(name: string, now: Date = new Date(), o: { strict?: boolean } = {}): Promise<{ row: ProgramRow | null; suggest: string[] }> {
   const exact = await getProgram(name);
   if (exact) return { row: exact, suggest: [] };
   const words = plain(name);
   const q = words.replace(/ /g, '');
   if (!q) return { row: null, suggest: [] };
   const rows = parseRows(await sql()<RawRow[]>`SELECT id, file, source, created_at, updated_at, verified_at, stale_since FROM programs ORDER BY id`);
+  if (o.strict) return strictMatch(rows, words, now);
   const prefix = q.length >= MIN_PREFIX;
   // Final fix (v6.1.12, I2): the first word of an organizer that is not its whole name ("ethereum" for the Ethereum
   // Foundation) names the organizer: a start of a title on it is weighed beside that organizer's other programs

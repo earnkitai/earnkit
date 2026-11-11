@@ -13,7 +13,7 @@ import { findAutoWas, forgetGap, lastGaps, lastProjectKey, unmarkNightFind } fro
 import { PROJECT_DESCRIPTION, ProjectArg, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
 import { closedAt, statusAt, getProgram, listOpenPrograms, programByName, unknownProgramLine } from './programs';
 import { closeDay, dayWords } from './deadline';
-import { OTHER_CLAIM_NOTE, doneItems, record, reportOf, resolvedKey, resultOf, summary, titleOf, type Ledger, type Status } from './ledger';
+import { HELD_SENT_NOTE, OTHER_CLAIM_NOTE, doneItems, record, reportOf, resolvedKey, resultOf, summary, titleOf, type Ledger, type Status } from './ledger';
 import { clock } from './reply';
 import { codeChecked, itemKey } from './eligibility';
 import { eligibilityOf } from './program-file';
@@ -21,6 +21,7 @@ import { sql } from './db';
 import { inputDetail, readLoosely, type LooseRules } from './tool-input';
 import { AMOUNT_DOT, AMOUNT_UNREAD, readAmount } from './amount';
 import { amountsText, moneyText } from './programs-read';
+import { quoteName } from './controls';
 
 /** The most field keys a send keeps (v6.1.13, B6); the rest are dropped, never refused. */
 export const FIELDS_KEPT = 200;
@@ -30,7 +31,7 @@ export const NOTE_KEPT = 280;
 export const TrackInput = z
   .object({
     program_id: z.string().min(1).max(80),
-    status: z.enum(['started', 'applied', 'won', 'rejected', 'no_result', 'skipped', 'unskip', 'gap_done']),
+    status: z.enum(['started', 'applied', 'won', 'rejected', 'no_result', 'skipped', 'unskip', 'gap_done', 'held']),
     /** L13-5 (v6.1.14): no ceiling here; the ledger answers a win over the program's pay with its own line. L22-6
      *  (v6.1.16): US dollars, cents kept; an alias of `amount` with currency USD. */
     amount_usd: z.number().finite().min(0).optional(),
@@ -95,6 +96,14 @@ const RESULT_STATUSES: readonly string[] = ['won', 'rejected', 'no_result'];
 const TRACK_LOOSE: LooseRules = { text: ['program_id', 'project_id', 'item'], objects: ['project'] };
 
 export const TRACK_UNREAD = 'I could not read that. Send the program, a status, and for a win the amount.';
+/** L24-3 (v6.1.16 Task 11): a name that is no one program by the strict lookup; nothing is written. */
+export const WHICH_PROGRAM = 'Which program? Say its name.';
+/** L24-17 (v6.1.16 Task 11): gap_done with no item on a program whose open items are all rules. */
+export const WHICH_RULE = 'Which rule fits you? Say the program.';
+/** L24-4 (v6.1.16 Task 11): the agent note after track held. */
+export const HELD_NOTE = 'Held: do not send it. When the builder says go, call track started and then send.';
+/** L24-27 (v6.1.16 Task 11): the claim's 24 hours, in the agent note only. */
+export const CLAIM_HOURS_NOTE = 'Other agents of this builder leave it alone for 24 hours.';
 export { AMOUNT_DOT, AMOUNT_UNREAD };
 
 /**
@@ -132,6 +141,23 @@ async function givenProjectOf(ctx: TrackContext, i: { project?: Project; project
 /** Whether `projectId` is one of the linked builder's record projects (an unlinked installation has none). */
 async function knownProject(builderId: number | null, projectId: string): Promise<boolean> {
   return builderId !== null && (await getRecord(builderId)).projects.some((p) => p.id === projectId);
+}
+
+/**
+ * A gap_done refused for its item (v6.1.8, 3.10): with no item on a program whose open items are all rules, the
+ * builder is asked which rule fits (L24-17, v6.1.16 Task 11) and the note names the rule item; else the change. The
+ * item keys go to the agent only.
+ */
+async function gapItemRefusal(owner: string, i: TrackIn, projectKey: string, note: string, items: string[], refuse: (note: string, agentNote?: string) => Promise<Result>): Promise<Result> {
+  const program = i.item === undefined ? await getProgram(i.program_id) : null;
+  if (program) {
+    const done = await doneItems(owner, program.id, projectKey);
+    const open = eligibilityOf(program.file).filter((x) => !done.has(itemKey(x)));
+    const rules = [...new Set(open.filter((x) => x.kind === 'rule').map(itemKey))];
+    if (rules.length > 0 && open.every((x) => x.kind === 'rule'))
+      return refuse(WHICH_RULE, `${rules.length === 1 ? `The rule item is ${rules[0]}.` : `The rule items are ${rules.join(', ')}.`} Call track gap_done with it once the builder names the program.`);
+  }
+  return refuse(note, `Items for this program: ${items.join(', ')}. Call track gap_done with one of them.`);
 }
 
 /** The agent's next step on a program the builder presses submit on (in person, or builder-only; v6.1.9). */
@@ -187,14 +213,15 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   const projectProblems = read?.ok ? read.problems : [];
   const given: TrackIn = { ...parsed.data, project: read?.ok ? read.project : undefined };
   const raw = given.program_id;
-  const held = RESULT_STATUSES.includes(given.status) && (await sentHere(owner, raw));
-  const { row, suggest } = held ? { row: null, suggest: [] } : await programByName(raw, ctx.now);
+  const sentRow = RESULT_STATUSES.includes(given.status) && (await sentHere(owner, raw));
+  // L24-3 (v6.1.16 Task 11): the strict lookup: an exact id or title, or title words with one that is not a common word.
+  const { row, suggest } = sentRow ? { row: null, suggest: [] } : await programByName(raw, ctx.now, { strict: true });
   const data = row ? { ...given, program_id: row.id } : given;
   // An unknown project_id is dropped, and named for the agent (v6.1.7, C17).
   const { project_id, ...rest } = data;
   const known = project_id === undefined || (await knownProject(ctx.builderId, project_id));
-  const acted = !row && !held
-    ? await refuse(unknownProgramLine(suggest))
+  const acted = !row && !sentRow
+    ? await refuse(suggest.length > 0 ? unknownProgramLine(suggest) : WHICH_PROGRAM)
     : await act(ctx, owner, programs, refuse, known ? data : rest);
   // Final fix (v6.1.12, I2): matched by another name, the first line says which program it was.
   const r = row && row.id !== raw
@@ -336,7 +363,8 @@ async function act(
         ...(c.already.sent
           ? sentAlready
           : {
-              show_to_builder: `${program.file.title} is already being handled since ${clock(c.already.since, ctx.now)} by ${c.already.by ?? 'another agent'}.`,
+              // L24-1 (v6.1.16 Task 11): another agent's own name through quoteName.
+              show_to_builder: `${program.file.title} is already being handled since ${clock(c.already.since, ctx.now)} by ${c.already.by ? quoteName(c.already.by) : 'another agent'}.`,
               agent_note: 'Do not submit this one; call find again later.',
             }),
         ledger: await summary(owner, programs, ctx.now),
@@ -344,7 +372,13 @@ async function act(
       };
     // T5-F1 (v6.1.14): the claim carries the application's own id, for the form's reference field.
     const id = await applicationIdOf(owner, program.id);
-    const started = (r: Result): Result => (id.application_id ? { ...r, ...id, agent_note: `${r.agent_note} ${APPLICATION_ID_NOTE}` } : r);
+    // L24-27 (v6.1.16 Task 11): the 24-hour rule is the agent's to know, linked only.
+    const hours = ctx.builderId === null ? '' : ` ${CLAIM_HOURS_NOTE}`;
+    const started = (r: Result): Result => {
+      const s = { ...r, agent_note: `${r.agent_note}${hours}` };
+      return id.application_id ? { ...s, ...id, agent_note: `${s.agent_note} ${APPLICATION_ID_NOTE}` } : s;
+    };
+    const head = `Started ${program.file.title}.`;
     // The last find called this one a gap: say what was still missing, so it is fixed before the form goes in. Not
     // when the builder (through any of their agents) has since closed that item (v6.1.7, C23).
     const builderSubmits = program.file.in_person || program.file.submit === 'builder';
@@ -352,18 +386,18 @@ async function act(
     if (gap && !(gap.item && (await doneItems(owner, program.id, project.key)).has(gap.item)))
       return started(gap.kind === 'rule'
         ? {
-            show_to_builder: `Started. When I last looked it still had a rule to confirm: ${gap.what}. Say yes if that is you.`,
+            show_to_builder: `${head} When I last looked it still had a rule to confirm: ${gap.what}. Say yes if that is you.`,
             agent_note: "If the builder says the rule fits, call track gap_done with that gap's item, then find again. Otherwise skip the program.",
             ledger: await summary(owner, programs, ctx.now),
           }
         : {
-            show_to_builder: `Started. When I last looked it was still one change away: ${gap.what}.`,
+            show_to_builder: `${head} When I last looked it was still one change away: ${gap.what}.`,
             agent_note: `Make the change before you submit, or call find again to check it. ${builderSubmits ? sendNote(true) : 'Then fill the form from the fields, submit, and call track with applied, submitted_by and fields_used.'}`,
             ledger: await summary(owner, programs, ctx.now),
           });
     return started({
-      // N11 (v6.1.9): an unlinked agent has no other agents to speak of.
-      show_to_builder: ctx.builderId === null ? 'Started.' : 'Started. Your other agents leave this one alone for 24 hours.',
+      // L24-27 (v6.1.16 Task 11): the title, linked or not; the 24 hours are in the agent note.
+      show_to_builder: head,
       agent_note: sendNote(builderSubmits),
       ledger: await summary(owner, programs, ctx.now),
     });
@@ -406,7 +440,7 @@ async function act(
   // The find before a send under standing approval was the night routine's: it leaves the overnight report (v6.1.9).
   if (res.ok && i.status === 'applied' && standing && outside === null) await unmarkNightFind(ctx.installationId);
   if (!res.ok)
-    return res.items ? refuse(res.note, `Items for this program: ${res.items.join(', ')}. Call track gap_done with one of them.`)
+    return res.items ? await gapItemRefusal(owner, i, project.key, res.note, res.items, refuse)
       : res.agent_note ? refuse(res.note, `Nothing was recorded. ${res.agent_note}`) : refuse(res.note);
   if (i.status === 'gap_done' && sameAsLast) await forgetGap(ctx.installationId, i.program_id);
   if (i.status === 'gap_done') {
@@ -433,6 +467,8 @@ async function act(
   const wonCurrency = (total: Record<string, number>) =>
     amount && amount.currency ? amount.currency : Object.keys(total).length === 1 ? Object.keys(total)[0] : 'USD';
   const lines: Record<Exclude<Status, 'started' | 'gap_done'>, string> = {
+    // L24-4 (v6.1.16 Task 11): the builder's hold; started again lifts it.
+    held: `Held ${title}. Say go when you want it sent.`,
     // #8 (v6.1.15): one verb, Tracked, wherever a fact is saved for the builder.
     applied: 'Tracked. Ask me how it went once results are out.',
     // L15-17, T8-F1 (v6.1.14): a further payment adds and the line reads the total; an unmarked other amount corrects.
@@ -444,7 +480,8 @@ async function act(
         : `Tracked: ${wonText} from ${title}.`,
     rejected: 'Tracked. On to the next one.',
     no_result: 'Tracked.',
-    skipped: `Skipped ${title}. I won't bring it up again.`,
+    // L24-4 (v6.1.16 Task 11): a skip is for good, and says so.
+    skipped: `Skipped ${title} for good. Say unskip to bring it back.`,
     unskip: `Unskipped ${title}. It can come back in the list.`,
   };
   // v6.1.9: a send after the program closed is still recorded, and says so. L23-2 (v6.1.16): closed from the clock.
@@ -455,6 +492,8 @@ async function act(
   const closed = closedDay ? `${row!.file.title} closed on ${closedDay}; recorded anyway.` : null;
   // L23-3 (v6.1.16): a send over another agent's live claim is recorded; the agent hears to tell the builder.
   const otherClaim = res.ok && 'other_claim' in res;
+  // L24-4 (v6.1.16 Task 11): a send on a held program is recorded; the agent tells the builder.
+  const heldSent = res.ok && 'held' in res;
   if (i.status === 'applied' && outside)
     return {
       ...(await applicationIdOf(owner, i.program_id)),
@@ -462,7 +501,7 @@ async function act(
       show_to_builder: outside === HAD_CLOSED && closedDay
         ? `${row!.file.title} closed on ${closedDay}; recorded anyway, not under your standing approval.`
         : [closed, `Sent, but outside your standing approval: ${outside}.`].filter(Boolean).join(' '),
-      agent_note: [...(otherClaim ? [OTHER_CLAIM_NOTE] : []), 'Recorded as applied, not under standing approval. Send nothing else alone that falls outside the limits; ask the builder first. Call find again for the updated ledger.'].join(' '),
+      agent_note: [...(otherClaim ? [OTHER_CLAIM_NOTE] : []), ...(heldSent ? [HELD_SENT_NOTE] : []), 'Recorded as applied, not under standing approval. Send nothing else alone that falls outside the limits; ask the builder first. Call find again for the updated ledger.'].join(' '),
       ledger: await summary(owner, programs, ctx.now),
     };
   // I1 (v6.1.9 final): after a send under standing approval the agent does not find again, so the morning report stays.
@@ -471,6 +510,10 @@ async function act(
     show_to_builder: closed ?? lines[i.status],
     agent_note: otherClaim
       ? OTHER_CLAIM_NOTE
+      : heldSent
+        ? HELD_SENT_NOTE
+      : i.status === 'held'
+        ? ('repeated' in res ? `Already held. ${HELD_NOTE}` : HELD_NOTE)
       : i.status === 'applied' && standing && outside === null
         // L23-1 (v6.1.16): no night is promised.
         ? "Done for now. The builder's next find reports it; do not call find again until they ask."

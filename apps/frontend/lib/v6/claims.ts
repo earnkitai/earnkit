@@ -35,7 +35,7 @@ export async function stillLinked(tx: Db, owner: string, installationId: number)
   const [r] = await tx<{ builder_id: number | null }[]>`SELECT builder_id FROM installations WHERE id = ${installationId} FOR SHARE`;
   return r !== undefined && r.builder_id !== null && r.builder_id === Number(owner.slice(2));
 }
-type Row = { status: string; claimed_at: Date | null; claimed_by: number | null; installation_id: number; at: Date };
+type Row = { status: string; claimed_at: Date | null; claimed_by: number | null; installation_id: number; at: Date; held_at: Date | null };
 
 const clientOf = async (installationId: number | null): Promise<string | null> => {
   if (installationId === null) return null;
@@ -59,9 +59,18 @@ export async function claim(owner: string, programId: string, projectId: string 
     await tx`SELECT pg_advisory_xact_lock(hashtext(${owner + ':' + programId}))`;
     if (!(await stillLinked(tx, owner, installationId))) return { unlinked: true as const };
     const read = async () =>
-      (await tx<Row[]>`SELECT status, claimed_at, claimed_by, installation_id, at FROM applications WHERE owner = ${owner} AND program_id = ${programId} FOR UPDATE`)[0];
+      (await tx<Row[]>`SELECT status, claimed_at, claimed_by, installation_id, at, held_at FROM applications WHERE owner = ${owner} AND program_id = ${programId} FOR UPDATE`)[0];
     const row = await read();
     if (row?.status === 'skipped') return { skipped: true as const };
+    // L24-4 (v6.1.16 Task 11): a started by any installation lifts the builder's hold and takes the claim.
+    if (row?.status === 'started' && row.held_at !== null) {
+      await tx`UPDATE applications SET held_at = NULL, claimed_at = ${now}, claimed_by = ${installationId}, installation_id = ${installationId},
+          note = COALESCE(${note}, note), application_id = COALESCE(application_id, ${newApplicationId()})
+        WHERE owner = ${owner} AND program_id = ${programId}`;
+      await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, note, at, source)
+        VALUES (${owner}, ${installationId}, ${programId}, 'started', NULL, ${note}, ${now}, 'builder')`;
+      return { ok: true as const };
+    }
     if (row?.status === 'started' && row.claimed_at && row.claimed_at > stale && row.claimed_by === installationId) {
       await tx`UPDATE applications SET claimed_at = ${now}, note = COALESCE(${note}, note), application_id = COALESCE(application_id, ${newApplicationId()})
         WHERE owner = ${owner} AND program_id = ${programId}`;
@@ -98,13 +107,13 @@ export async function claim(owner: string, programId: string, projectId: string 
 export type Released = { program_id: string; title: string; started_at: string };
 
 /**
- * Deletes the owner's claims older than 24 hours that never became 'applied'; returns them with their titles and when
+ * Deletes the owner's claims older than 24 hours (never one the builder held, L24-4) that never became 'applied'; returns them with their titles and when
  * they were started (L23-7, v6.1.16), by program id.
  */
 export async function releaseStale(owner: string, now: Date): Promise<Released[]> {
   const stale = new Date(now.getTime() - CLAIM_HOURS * HOUR);
   const rows = await sql()<{ program_id: string; title: string | null; claimed_at: Date | null }[]>`
-    DELETE FROM applications WHERE owner = ${owner} AND status = 'started' AND claimed_at <= ${stale} RETURNING program_id, title, claimed_at`;
+    DELETE FROM applications WHERE owner = ${owner} AND status = 'started' AND held_at IS NULL AND claimed_at <= ${stale} RETURNING program_id, title, claimed_at`;
   const byId = new Map((await programsById(rows.map((r) => r.program_id))).map((p) => [p.id, p]));
   return rows
     .map((r) => ({ program_id: r.program_id, title: byId.get(r.program_id)?.file.title ?? r.title ?? r.program_id, started_at: (r.claimed_at ?? now).toISOString() }))

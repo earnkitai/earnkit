@@ -395,3 +395,8 @@ ALTER TABLE application_history ADD COLUMN IF NOT EXISTS amount numeric, ADD COL
 -- v6.1.16 (L22-3): a screen outcome's money by currency, in place of the single amount_given/currency pair (kept
 -- readable for one release, dropped in v6.1.17).
 ALTER TABLE screen_outcomes ADD COLUMN IF NOT EXISTS amounts jsonb;
+-- v6.1.16 Task 11 (L24-2): the kind of the last Say this installation's find offered (apply, look_again, draft, rule,
+-- do, stop), so "Your yes stands" is said only after an apply offer.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS last_offer text, ADD COLUMN IF NOT EXISTS last_offer_at timestamptz;
+-- v6.1.16 Task 11 (L24-4): a builder's hold on a started claim; the agent must not send while it is set.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS held_at timestamptz;

@@ -87,7 +87,7 @@ test('a second applied from another agent of the owner names the first and keeps
   await prog('l-b13');
   await record(b, 'l-b13', 'applied', { installationId: one, submitted_by: 'agent', fields_used: ['a'], now: new Date('2026-11-03T22:10:00Z') });
   const r = await record(b, 'l-b13', 'applied', { installationId: two, submitted_by: 'builder', now: NOW });
-  assert.deepEqual(r, { ok: false, note: 'Already sent here on Nov 3 by Claude Code; nothing recorded.' });
+  assert.deepEqual(r, { ok: false, note: 'Already sent here on Nov 3 by "Claude Code"; nothing recorded.' });
   const [row] = await sql()`SELECT installation_id, submitted_by, fields_used, at FROM applications WHERE owner = ${b} AND program_id = 'l-b13'`;
   assert.deepEqual([row.installation_id, row.submitted_by, row.fields_used, (row.at as Date).toISOString()], [one, 'agent', ['a'], '2026-11-03T22:10:00.000Z']);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM application_history WHERE owner = ${b} AND program_id = 'l-b13'`)[0].n, 1);
