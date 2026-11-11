@@ -12,6 +12,7 @@ import { cachedRepoFacts, reportOnlyFacts } from './repo-facts';
 import { findAutoWas, forgetGap, lastGaps, lastProjectKey, unmarkNightFind } from './installations';
 import { PROJECT_DESCRIPTION, ProjectArg, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
 import { getProgram, isOpen, listOpenPrograms, programByName, unknownProgramLine } from './programs';
+import { closeDay } from './deadline';
 import { dayOf, doneItems, record, reportOf, resolvedKey, summary, titleOf, type Ledger, type Status } from './ledger';
 import { clock } from './reply';
 import { codeChecked, itemKey } from './eligibility';
@@ -412,7 +413,8 @@ async function act(
   };
   // v6.1.9: a send after the program closed is still recorded, and says so.
   const closed = i.status === 'applied' && row && !isOpen(row.file, ctx.now) && row.file.ends_at && Date.parse(row.file.ends_at) <= ctx.now.getTime()
-    ? `${row.file.title} closed on ${dayOf(new Date(row.file.ends_at))}; recorded anyway.`
+    // v6.1.16 Task 16 (ruling 40): the day in the program's zone, as its Closes line says it (Task 9's dayWords absorbs this).
+    ? `${row.file.title} closed on ${closeDay(row.file) ?? dayOf(new Date(row.file.ends_at))}; recorded anyway.`
     : null;
   if (i.status === 'applied' && outside)
     return {

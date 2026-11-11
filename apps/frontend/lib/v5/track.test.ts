@@ -1,6 +1,11 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { sql } from './db';
+import { closeDay } from './deadline';
+import { ProgramFile } from './program-file';
+import { findProgramsDir } from './programs-api';
 import { upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
 import { namedFirst, track } from './track';
@@ -618,6 +623,24 @@ test('v6.1.9: applied as the first call after the account was deleted answers th
   // The notice is said once; the next send is this installation's own.
   const again = await track(c, { program_id: 'del-a', status: 'applied', submitted_by: 'agent', project: { name: 'App' } });
   assert.equal(again.show_to_builder, "Tracked. Ask me how it went once results are out.");
+});
+
+test('v6.1.16 Task 16 (ruling 40): the closed line names the day in the program\'s zone, as its Closes line does; the 9 catalog programs whose UTC day differs', async () => {
+  const days: Record<string, string> = {
+    'a16z-speedrun': 'Nov 1', 'arc-microgrants-studio': 'Nov 1', 'arc-microgrants': 'Oct 14', 'colosseum-eternal': 'Mar 20',
+    'colosseum-worlds-fair': 'Oct 12', 'monad-blitz-oregon': 'Nov 10', 'monad-metropolis': 'Oct 13',
+    'solana-incubator-cohort-6': 'Dec 4', 'ugreen-ai-nas-hackathon-2026': 'Nov 15',
+  };
+  const dir = findProgramsDir()!;
+  for (const [id, day] of Object.entries(days)) {
+    const file = ProgramFile.parse(JSON.parse(readFileSync(join(dir, `${id}.json`), 'utf8')));
+    assert.equal(closeDay(file), day, id);
+  }
+  const c = await ctx();
+  const oregon = ProgramFile.parse(JSON.parse(readFileSync(join(dir, 'monad-blitz-oregon.json'), 'utf8')));
+  await upsertProgram({ ...oregon, id: 'tz-oregon', status: 'active' }, 'file', NOW);
+  const r = await track({ ...c, now: new Date('2026-11-12T12:00:00Z') }, { program_id: 'tz-oregon', status: 'applied', submitted_by: 'builder' });
+  assert.equal(r.show_to_builder, `${oregon.title} closed on Nov 10; recorded anyway.`);
 });
 
 test('v6.1.9: applied after the program closed is recorded and says so', async () => {
