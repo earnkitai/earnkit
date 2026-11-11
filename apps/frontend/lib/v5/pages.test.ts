@@ -208,12 +208,16 @@ test('L25-6 (v6.1.16, Review Focus 13): every page has its own share card: og:ur
 
 test('L25-21 (v6.1.16): the 404 has no canonical and one robots noindex', async () => {
   assert.equal(layoutMetadata.alternates, undefined);
+  assert.equal(layoutMetadata.robots, undefined);
   assert.equal((layoutMetadata.openGraph as { url?: string }).url, undefined);
-  for (const m of [notFoundMetadata, await guideMetadata(params('nope'))]) {
-    assert.equal(m.title, 'Not found · EarnKit');
-    assert.deepEqual(m.robots, { index: false });
-    assert.equal('alternates' in m, false);
-  }
+  // The unmatched-path 404: Next adds its own noindex to a 404 response, so the page sets none (one meta, checked on
+  // the built server); the unknown guide answers 200 and carries the one noindex itself.
+  assert.deepEqual(notFoundMetadata, { title: 'Not found · EarnKit' });
+  const guide = await guideMetadata(params('nope'));
+  assert.equal(guide.title, 'Not found · EarnKit');
+  assert.deepEqual(guide.robots, { index: false });
+  assert.equal('alternates' in guide, false);
+  assert.equal('openGraph' in guide, false);
 });
 
 test('no rust look remains in the landing components (v6.2.0)', () => {

@@ -41,7 +41,8 @@ export function pageMeta(o: PageMeta): Metadata {
 
 /**
  * The layout's metadata (L25-2): the one line on the description and the default card. No canonical and no og:url:
- * each page sets its own through pageMeta, so a page without one (the 404, L25-21) has none.
+ * each page sets its own through pageMeta, so a page without one (the 404, L25-21) has none. No robots either:
+ * indexing is the default, and Next's own noindex on a 404 must stay the page's only robots meta.
  */
 export const SITE_METADATA: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -49,7 +50,6 @@ export const SITE_METADATA: Metadata = {
   description: ONE_LINE,
   keywords: ['grants', 'hackathons', 'builder programs', 'developer grants', 'ecosystem programs', 'MCP'],
   authors: [{ name: 'EarnKit' }],
-  robots: 'index, follow',
   openGraph: { ...OG_BASE, images: [...OG_BASE.images], title: SITE_TITLE, description: ONE_LINE },
   twitter: { ...TWITTER_BASE, images: [...TWITTER_BASE.images], title: SITE_TITLE, description: ONE_LINE },
 };
