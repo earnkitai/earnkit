@@ -229,8 +229,8 @@ result is still refused ("That one already has a result here: ..."), the same re
 win with an amount over a win with one (L15-17, T8-F1 v6.1.14): marked a further payment (`payment: { key }`, the caller's own key, kept in
 `application_history.payment_key`; a repeated key is "Already tracked.") it adds to the total under the cap, answered
 "Tracked: ${n} more from {title}, ${total} in total."; unmarked, the same amount is "Already tracked." and another
-amount is a correction that replaces it ("Tracked: ${n} from {title}. Replaced the earlier amount."; one save verb, Tracked, v6.1.15 #8). Track keys are
-stored as `t:<key>`, screen keys as `s:<key>`. A program that is not open cannot be started
+amount is a correction that replaces it ("Tracked: ${n} from {title}. Replaced the earlier amount."; one save verb, Tracked, v6.1.15 #8). Before v6.1.16 track keys
+were stored as `t:<key>` and screen keys as `s:<key>`; from v6.1.16 both are stored bare and match the old ones. A program that is not open cannot be started
 ("{title} is not open; nothing to start."), and an already sent one says it was sent before that check. A win is
 capped at the program's `max_award_usd`, else its `pool_usd`, else 10,000,000, in whole dollars. A result for a
 program gone from the catalog keeps the title stored when it was sent. Another agent's live claim leaves the program
@@ -242,6 +242,22 @@ says to call find with program_id for their fields. L13-10: a program outside th
 blocker's `over_limit_usd`) reads "you say yes yourself to {titles}, over your {limit} limit". L13-18: the line reads
 "Your applications: {n} sent, {n} won ({$}), {n} rejected, {n} waiting{, n closing soon}." with each zero count left
 out. L13-17: the since line leaves out a close that a listed line already says.
+
+v6.1.16 Task 4 (lane 17 races): every skip and gap_done decision runs inside `record` under the per-program lock, so
+30 parallel skips write one row: a repeat answers "Already skipped." with no history row, a sent program "That one was
+already sent; nothing to skip.", and another agent's live claim "Your other agent is handling that one; nothing
+recorded." with the claim left in place (a skip still replaces the agent's own claim or a stale one). A history row is
+written only when the ledger changed, and names its `source` (`screen` or `builder`; NULL on older rows). A correction
+applies only when its event time is at or after the stored result's ("An earlier result; nothing changed."); the same
+result said again later moves the stored time on without a history row, so the latest event wins whatever the arrival
+order. An unmarked win of the stored amount, from either side, is "Already recorded; nothing new."; a further payment
+needs its mark, and payment keys share one space per application (track and screen send them unprefixed;
+`paymentKeyOf` reads a stored `s:`/`t:` key as the bare key, alias until v6.1.17). A send refused because its agent was
+unlinked meanwhile tells the agent the form went out with no record. The screen queue takes one lock per program and
+never queues an applicant an unread row of the program's live screens holds by identity (EarnKit id and repo key; for
+applicants with neither, the same reviewer's ref and site); the reviewer hears which row holds it. find lists held
+programs under "Being handled by your other agent ({n}):" after Ready, numbered on, and never names another project
+on a held line.
 
 ## Freshness and the daily job
 
