@@ -1,6 +1,7 @@
 /**
  * The link from agent to builder: a one-time code the agent shows (/link/<code>) opens a confirm
- * page; its button (POST) binds this browser with a nonce cookie and goes to GitHub sign-in; the
+ * page (app/link/[code]/page.tsx, in the site shell, from `linkState`); its button (POST /link/<code>/confirm) binds
+ * this browser with a nonce cookie and goes to GitHub sign-in; the
  * callback checks the nonce, starts a session and lands on /me?link=<code>, where the signed-in
  * builder confirms the link (POST /me/link: consumeLinkCode) or refuses it (denyLinkCode). Rate
  * limited per IP; only the code's hash is stored; nothing logs a token, a code or a secret.
@@ -9,21 +10,21 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import { sql } from '../v5/db';
 import { publicOrigin } from '../v5/oauth';
 import { displayName } from '../v5/installations';
-import { escapeHtml } from '../v5/programs-pending';
 import { RateLimitError, clientIp, enforce } from '../v5/rate-limit';
-import { ME_ERRORS, UNKNOWN_CODE } from '../v5/site-copy';
-import { SITE } from '../v5/site-theme';
+import { ME_ERRORS, ME_LINK_EXPIRED_TITLE, ME_LINK_USED, UNKNOWN_CODE } from '../v5/site-copy';
 import { LinkRefused, linkInstallation, upsertBuilder } from './builders';
 import { GitHubAuthError, type GitHubUser, authorizeUrl, exchangeCode, oauthConfigured, signState, verifyState } from './github-auth';
 import { cookieOf, cookieValue, createSession } from './sessions';
 
 const TTL_MS = 15 * 60_000;
 const LINK_COOKIE = 'ek_link';
-const NOT_SET_UP = 'GitHub sign-in is not set up yet.';
+export const NOT_SET_UP = 'GitHub sign-in is not set up yet.';
 /** One expired wording everywhere (L21-17, v6.1.16): /me's alert and the /link pages say the same. */
 export const EXPIRED = ME_ERRORS.linkExpired;
 export { UNKNOWN_CODE };
-const FAILED = 'Sign-in failed. Ask your agent for a new link.';
+export const FAILED = 'Sign-in failed. Ask your agent for a new link.';
+/** The /link page every refused POST and callback lands on (L27-4, v6.1.16): no code is 6 characters. */
+export const FAILED_PATH = '/link/failed';
 export const OTHER = 'This agent is already linked to another account. Install EarnKit again for a fresh link.';
 /** A used code whose agent is linked to this builder: a second click on "Link this agent" (v6.1.7 N4). */
 export const ALREADY_LINKED = 'This agent is linked.';
@@ -33,8 +34,9 @@ const CODE_SHAPE = /^[A-Za-z0-9_-]{22}$/;
 export const codeShaped = (code: string): boolean => CODE_SHAPE.test(code);
 
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
-const page = (text: string, status: number, headers: Record<string, string> = {}) =>
-  new Response(text, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', ...headers } });
+/** A 303 to a /link page, which renders the state in the site shell (L27-4, v6.1.16). */
+const toPage = (path: string, headers: Record<string, string> = {}) =>
+  new Response(null, { status: 303, headers: { Location: path, 'Cache-Control': 'no-store', ...headers } });
 
 function secret() {
   const s = process.env.EARNKIT_AUTH_SECRET;
@@ -80,9 +82,6 @@ export async function codeState(code: string, now: Date): Promise<'live' | 'used
   return r.expires_at.getTime() > now.getTime() ? 'live' : 'expired';
 }
 
-/** The page line for a code that is not live: one of ours that ended, or not one of ours. */
-const deadText = async (code: string, now: Date) => ((await codeState(code, now)) === 'unknown' ? UNKNOWN_CODE : EXPIRED);
-
 /** The unused, unexpired code's installation (with the builder it is already linked to, if any), or null. */
 export async function liveCode(code: string, now: Date): Promise<Live | null> {
   if (!CODE_SHAPE.test(code)) return null;
@@ -92,15 +91,16 @@ export async function liveCode(code: string, now: Date): Promise<Live | null> {
   return r ?? null;
 }
 
-const limit = (request: Request) => enforce('linkGet', clientIp(request.headers), 'Too many sign-ins from this address.');
+const limit = (headers: Headers) => enforce('linkGet', clientIp(headers), LIMITED_LINE);
+const LIMITED_LINE = 'Too many sign-ins from this address.';
 
-/** Runs a route behind the setup check and the IP limit. */
+/** Runs a POST or the callback behind the setup check and the IP limit; a refusal goes to the failed page. */
 async function guarded(request: Request, fn: () => Promise<Response>): Promise<Response> {
-  if (!oauthConfigured()) return page(NOT_SET_UP, 503);
+  if (!oauthConfigured()) return toPage(FAILED_PATH);
   try {
-    await limit(request);
+    await limit(request.headers);
   } catch (err) {
-    if (err instanceof RateLimitError) return page(err.message, 429, { 'Retry-After': String(err.retryAfter) });
+    if (err instanceof RateLimitError) return toPage(FAILED_PATH, { 'Retry-After': String(err.retryAfter) });
     throw err;
   }
   return fn();
@@ -108,55 +108,84 @@ async function guarded(request: Request, fn: () => Promise<Response>): Promise<R
 
 const day = (d: Date) => new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(d);
 
-/** The confirm page: one button, no script, never framed. `origin` names where /me is. Pure. */
-function confirmPage(live: Live, origin: string): Response {
-  const host = escapeHtml(origin.replace(/^https?:\/\//, ''));
+/**
+ * An agent's name as a heading shows it (L27-26, v6.1.16): at most 40 characters, cut at a whole word with "..." when
+ * longer (Task 11's quoteName rule; swap to it when that lands). Pure.
+ */
+export function shortName(name: string, max = 40): string {
+  if (name.length <= max) return name;
+  const cut = name.slice(0, max + 1);
+  const at = cut.lastIndexOf(' ');
+  return `${(at > 0 ? cut.slice(0, at) : name.slice(0, max)).trimEnd()}...`;
+}
+
+export type LinkStateName = 'live' | 'used' | 'expired' | 'unknown' | 'failed' | 'limited' | 'not_set_up';
+/**
+ * What a /link page shows (L27-4, L27-26, v6.1.16): the state, its title (the page's one h1, full stop or `?` kept),
+ * its line, the agent's shown name and first-seen day for the live confirm, and the HTTP status the state means (a page
+ * answers 200: Next sets no other status from a page, see app/link/[code]/page.tsx).
+ */
+export type LinkState = { state: LinkStateName; title: string; line: string; agent?: string | null; seen?: string; status: number; retryAfter?: number };
+
+/** The document title for a state: its title without a trailing full stop, then ` · EarnKit` (L27-4). Pure. */
+export const linkDocTitle = (title: string): string => `${title.replace(/\.$/, '')} · EarnKit`;
+
+/** A line without its leading title sentence ("This link has expired. Ask ..." under "This link has expired."). Pure. */
+const after = (line: string, title: string) => (line.startsWith(title) ? line.slice(title.length).trim() : line);
+
+/** Each state but live, as data (pure): Task 7's texts, the title as the h1 and the rest as the line. */
+export const LINK_STATES = {
+  used: { state: 'used', title: ME_LINK_USED, line: ALREADY_LINKED, status: 404 },
+  expired: { state: 'expired', title: ME_LINK_EXPIRED_TITLE, line: after(EXPIRED, ME_LINK_EXPIRED_TITLE), status: 404 },
+  unknown: { state: 'unknown', title: UNKNOWN_CODE, line: 'Ask your agent for a new link.', status: 404 },
+  failed: { state: 'failed', title: 'Sign-in failed.', line: after(FAILED, 'Sign-in failed.'), status: 400 },
+  limited: { state: 'limited', title: 'Too many sign-ins.', line: `${LIMITED_LINE} Try again later.`, status: 429 },
+  not_set_up: { state: 'not_set_up', title: 'Sign-in is not set up yet.', line: NOT_SET_UP, status: 503 },
+} as const satisfies Record<Exclude<LinkStateName, 'live'>, LinkState>;
+
+/**
+ * The state of /link/<code> for this visitor (L27-4, v6.1.16): not set up, rate limited (one count per page view, by
+ * `headers`' address), the failed page (`failed`, where refused posts and callbacks land), then Task 7's codeState:
+ * live (the confirm, `Connect {agent}?`), used, expired or unknown.
+ */
+export async function linkState(code: string, now: Date, headers: Headers = new Headers()): Promise<LinkState> {
+  if (!oauthConfigured()) return LINK_STATES.not_set_up;
+  try {
+    await limit(headers);
+  } catch (err) {
+    if (err instanceof RateLimitError) return { ...LINK_STATES.limited, line: err.message, retryAfter: err.retryAfter };
+    throw err;
+  }
+  if (code === 'failed') return LINK_STATES.failed;
+  const live = await liveCode(code, now);
+  if (!live) {
+    const dead = await codeState(code, now);
+    return dead === 'used' ? LINK_STATES.used : dead === 'unknown' ? LINK_STATES.unknown : LINK_STATES.expired;
+  }
   // L25-1 (v6.1.16): the shown name drops a trailing "(earnkit)".
   const name = displayName(live.client_name);
-  const who = name ? `the agent calling itself <strong><bdi>${escapeHtml(name)}</bdi></strong>` : 'your agent';
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Link your agent</title></head>
-<body style="margin:0;background:${SITE.page};color:#E8EAF2;font-family:system-ui,sans-serif">
-<main style="max-width:480px;margin:15vh auto 0;padding:0 16px">
-<p style="color:#9AA0B4;font-size:14px;letter-spacing:0.04em;margin:0 0 8px">EarnKit</p>
-<p style="font-size:18px;line-height:1.5">Link ${who}, first seen ${day(live.created_at)}, to your GitHub account?</p>
-<p style="color:#9AA0B4;font-size:15px;line-height:1.5">Once linked, it can read and change your record and apply to programs in your name. You can unlink it any time at ${host}/me.</p>
-<form method="post"><button type="submit" style="background:${SITE.blue};color:#fff;border:0;border-radius:8px;padding:12px 20px;font-size:16px;cursor:pointer">Continue with GitHub</button></form>
-<p style="color:#9AA0B4;font-size:14px;line-height:1.5">After you sign in, you confirm the link on your record page. If you did not ask your agent for this just now, close this page.</p>
-</main></body></html>`;
-  return new Response(html, {
+  return {
+    state: 'live',
+    title: `Connect ${name ? shortName(name) : 'your agent'}?`,
+    line: 'Once linked, it can read and change your record and apply to programs in your name.',
+    agent: name,
+    seen: day(live.created_at),
     status: 200,
-    headers: {
-      'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'no-store',
-      // same-origin: the code never reaches GitHub in a Referer, and the confirm POST keeps its real Origin
-      // (no-referrer would make browsers send "Origin: null", which the check below refuses).
-      'Referrer-Policy': 'same-origin',
-      'X-Frame-Options': 'DENY',
-      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://github.com; frame-ancestors 'none'",
-    },
-  });
+  };
 }
 
-/** GET /link/<code>: the confirm page for a live code. */
-export function linkGet(request: Request, code: string, deps: { now?: Date } = {}): Promise<Response> {
-  return guarded(request, async () => {
-    if (!codeShaped(code)) return page(UNKNOWN_CODE, 404);
-    const now = deps.now ?? new Date();
-    const live = await liveCode(code, now);
-    return live ? confirmPage(live, publicOrigin(request)) : page(await deadText(code, now), 404);
-  });
-}
-
-/** POST /link/<code>: binds this browser (the ek_link nonce, in a cookie and the signed state) and goes to GitHub. */
+/**
+ * POST /link/<code>/confirm (the confirm page's button): binds this browser (the ek_link nonce, in a cookie and the
+ * signed state) and goes to GitHub. A post from another site goes to the failed page; a dead code back to its /link page.
+ */
 export function linkPost(request: Request, code: string, deps: { now?: Date } = {}): Promise<Response> {
   return guarded(request, async () => {
     const now = deps.now ?? new Date();
     const origin = publicOrigin(request);
     // The button is on our page; a form posted from another site is refused.
     const from = request.headers.get('origin');
-    if (from && from !== origin) return page(FAILED, 403);
-    if (!codeShaped(code)) return page(UNKNOWN_CODE, 404);
-    if (!(await liveCode(code, now))) return page(await deadText(code, now), 404);
+    if (from && from !== origin) return toPage(FAILED_PATH);
+    if (!codeShaped(code) || !(await liveCode(code, now))) return toPage(codeShaped(code) ? `/link/${code}` : FAILED_PATH);
     const nonce = randomBytes(16).toString('base64url');
     const state = signState({ code, nonce, exp: now.getTime() + TTL_MS }, secret());
     return new Response(null, {
@@ -219,16 +248,16 @@ export function callbackGet(request: Request, deps: { now?: Date; gh?: typeof fe
     const linked = verifyState(q.get('state') ?? '', secret(), now);
     const nonce = cookieValue(request.headers.get('cookie'), LINK_COOKIE);
     const ghCode = q.get('code');
-    if (!linked || !nonce || !same(nonce, linked.nonce) || !ghCode) return page(FAILED, 400);
+    if (!linked || !nonce || !same(nonce, linked.nonce) || !ghCode) return toPage(FAILED_PATH);
     // The state proves the code was live at /link; here it only has to be unused.
-    if ((await sql()`SELECT 1 FROM link_codes WHERE code = ${hash(linked.code)} AND used_at IS NULL AND expires_at > ${now}`).length === 0) return page(FAILED, 400);
+    if ((await sql()`SELECT 1 FROM link_codes WHERE code = ${hash(linked.code)} AND used_at IS NULL AND expires_at > ${now}`).length === 0) return toPage(FAILED_PATH);
     let user: GitHubUser;
     try {
       user = await exchangeCode(ghCode, publicOrigin(request), process.env, deps.gh ?? fetch);
     } catch (err) {
       if (!(err instanceof GitHubAuthError)) throw err;
       console.warn(`[link] ${err.message}`);
-      return page(FAILED, 400);
+      return toPage(FAILED_PATH);
     }
     const builder = await upsertBuilder(user, now);
     const { cookie } = await createSession(builder.id, now);

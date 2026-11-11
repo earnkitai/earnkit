@@ -32,7 +32,8 @@ import MeView from '../../app/me/MeView';
 import { getRecord, saveRecord, upsertBuilder } from '../v6/builders';
 import { meData } from '../v6/me-view';
 import { mergeRecord } from '../v6/record';
-import { linkGet } from '../v6/link-routes';
+import { linkDocTitle, linkState } from '../v6/link-routes';
+import LinkView from '../../app/link/[code]/LinkView';
 import nextConfig from '../../next.config';
 
 // tsx compiles the components without the automatic JSX runtime, so they need React in scope.
@@ -399,21 +400,30 @@ test('/me without a cookie is a redirect to /docs#record, on the public origin',
   }
 });
 
-test('/link/nope is 404 text when sign-in is set up and 503 when not', async () => {
+test('L27-4 (v6.1.16): /link/nope is a page: 404 in the data with its h1 when sign-in is set up, 503 when not; a POST to it is 405', async () => {
   const keys = ['GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET', 'EARNKIT_AUTH_SECRET'] as const;
   const saved = keys.map((k) => process.env[k]);
+  const view = (s: Awaited<ReturnType<typeof linkState>>) => html(React.createElement(LinkView, { s, code: 'nope', host: 'earnkit.com' }));
   try {
     for (const k of keys) delete process.env[k];
-    const off = await linkGet(new Request('https://earnkit.com/link/nope', { headers: { 'x-real-ip': '198.51.100.201' } }), 'nope');
+    const off = await linkState('nope', new Date(), new Headers({ 'x-real-ip': '198.51.100.201' }));
     assert.equal(off.status, 503);
+    assert.match(view(off), /<h1[^>]*>Sign-in is not set up yet\.<\/h1>/);
     Object.assign(process.env, { GITHUB_OAUTH_CLIENT_ID: 'Iv1.x', GITHUB_OAUTH_CLIENT_SECRET: 'shh', EARNKIT_AUTH_SECRET: 'pages-secret-0123456789abcdef0123456789' });
-    const on = await linkGet(new Request('https://earnkit.com/link/nope', { headers: { 'x-real-ip': '198.51.100.202' } }), 'nope');
+    const on = await linkState('nope', new Date(), new Headers({ 'x-real-ip': '198.51.100.202' }));
     assert.equal(on.status, 404);
-    assert.match(on.headers.get('content-type') ?? '', /^text\/plain/);
-    assert.equal(await on.text(), 'This link is not one of ours.');
+    assert.match(view(on), /<h1[^>]*>This link is not one of ours\.<\/h1>/);
+    assert.equal(linkDocTitle(on.title), 'This link is not one of ours · EarnKit');
   } finally {
     keys.forEach((k, i) => (saved[i] === undefined ? delete process.env[k] : (process.env[k] = saved[i])));
   }
+  // The page's old POST moved to /link/<code>/confirm (Task 5's helper: 405 with Allow).
+  const post = await proxy(new Request('https://earnkit.com/link/nope', { method: 'POST' }) as never);
+  assert.equal(post.status, 405);
+  assert.equal(post.headers.get('allow'), 'GET');
+  // A sign-in code is case-sensitive: never lower-cased (Task 10's 308 skips /link).
+  const get = await proxy(new Request('https://earnkit.com/link/AbCdEfGhIjKlMnOpQrStUv') as never);
+  assert.notEqual(get.status, 308);
 });
 
 test('no response names the framework: X-Powered-By is off (v6.1.7 S5)', () => {

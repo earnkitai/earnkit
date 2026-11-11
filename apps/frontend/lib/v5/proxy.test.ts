@@ -50,7 +50,9 @@ test('L25-20 (v6.1.16): a capitalised page path is a 308 to its lower-case form 
 });
 
 test('L25-20 (v6.1.16): the matcher picks capitalised page paths and never /mcp, /oauth/token, /oauth/register, /api or files', () => {
-  for (const p of ['/Programs', '/programs/Thiel-Fellowship', '/DOCS', '/Terms', '/Me', '/Link/ABC']) assert.ok(matched(p), p);
+  for (const p of ['/Programs', '/programs/Thiel-Fellowship', '/DOCS', '/Terms', '/Me']) assert.ok(matched(p), p);
+  // L27-4 (v6.1.16): /link/<code> is matched for its 405 on POST, never by the case entry (a code is case-sensitive).
+  assert.ok(matched('/link/AbCdEfGhIjKlMnOpQrStUv') && !matched('/Link/ABC') && !matched('/link/AbC/confirm'));
   for (const p of ['/mcp', '/MCP', '/Mcp/x', '/oauth/token', '/oauth/register', '/OAuth/Token', '/api/Programs', '/API/programs', '/_next/static/AbC/x.js', '/images/agents/Foo.svg', '/docs', '/programs', '/programs/thiel-fellowship/x', '/programs/thiel-fellowship.svg', '/'])
     assert.ok(!matched(p), p);
   // Task 5's entries stay; L27-3 (v6.1.16): a guide path is matched for the unknown-id 404 rewrite.
