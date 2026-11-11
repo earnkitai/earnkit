@@ -169,9 +169,10 @@ export async function record(
       && (await tx`SELECT 1 FROM application_history WHERE owner = ${owner} AND program_id = ${programId} AND payment_key = ${paymentKey}`).length > 0)
       return { ok: false, note: 'Already tracked.' } as const;
     const hasResult = row !== undefined && RESULTS.includes(row.status);
-    // L16-1, L16-2 (v6.1.16): a further payment needs a win to add to; over another result nothing is written.
-    if (paymentKey !== null && hasResult && row.status !== 'won') {
-      const current = resultWords(row.status, null);
+    // L16-1, L16-2 (v6.1.16): a further payment needs a win to add to; over another result, or over a send with no
+    // result yet (fix round 1, M1: `none`, as the screen says), nothing is written.
+    if (paymentKey !== null && row !== undefined && (row.status === 'applied' || (hasResult && row.status !== 'won'))) {
+      const current = row.status === 'applied' ? 'none' : resultWords(row.status, null);
       return { ok: false, note: FURTHER_PAYMENT_REFUSED(current), current } as const;
     }
     // L15-17, T8-F1 (v6.1.14): a win with an amount over a win with an amount, marked a further payment, adds (the

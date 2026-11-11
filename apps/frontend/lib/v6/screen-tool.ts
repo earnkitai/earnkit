@@ -70,6 +70,8 @@ export const SCREEN_TEXT = {
   nextPage: (n: number) => `Ask for page ${n} for the rest.`,
   /** L16-12 (v6.1.16): a results page past the last. */
   noMore: 'No more results.',
+  /** Fix round 1 (C1): an outcome a builder's ledger did not take; the refs are in the agent note. */
+  builderStands: "Not passed on; the builder's record stands.",
   /** L16-16 (v6.1.16): every outcome of the call was already recorded. */
   nothingNew: 'Already recorded; nothing new.',
   /** Task 8 security follow-up (v6.1.14): a requeue that names no earlier row of the program with the same EarnKit id. */
@@ -242,7 +244,7 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
         }
         take.push(out);
       }
-      const { recorded, notFound, notes, own, overCap, passed, reasons, notPassed, repeats, paymentRefused } = await recordOutcomes(input.job_id, ctx.builderId, take, ctx.now);
+      const { recorded, notFound, notes, own, overCap, passed, reasons, notPassed, repeats, paymentRefused, stands } = await recordOutcomes(input.job_id, ctx.builderId, take, ctx.now);
       // L16-16 (v6.1.16): a call whose every outcome is a repeat says so alone.
       if (repeats.length > 0 && repeats.length === new Set(input.outcomes.map((o) => o.ref)).size)
         return { ...line(SCREEN_TEXT.nothingNew, OUTCOME_NOTES.repeats(repeats)), recorded: 0 };
@@ -257,6 +259,8 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
         ...(over.length ? [SCREEN_TEXT.overCapFor(listWords(over, 10))] : []),
         // L16-1 (v6.1.16): one sentence per kept result a further payment was refused over; the refs are in the agent note.
         ...[...new Set(paymentRefused.map((x) => x.status))].map(FURTHER_PAYMENT_REFUSED),
+        // Fix round 1 (C1): a builder's ledger did not take it; no status, amount or reason reaches the reviewer.
+        ...(stands ? [SCREEN_TEXT.builderStands] : []),
       ].join(' ');
       // L16-9, L22-10 (v6.1.16): the outcomes are recorded for the builder only when one reached a ledger.
       const missed = [

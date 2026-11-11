@@ -172,6 +172,12 @@ test('L16-1, L16-2 (v6.1.16, Review Focus 3): the ledger keeps the latest result
   assert.deepEqual([e.won, e.won_usd], [1, 0]);
   // A no_result over a result is still refused.
   assert.deepEqual(await record(o(i), 'l-mirror', 'no_result', { now: NOW }), { ok: false, note: 'That one already has a result here: won, amount not given.' });
+  // Fix round 1 (M1): a further payment over a send with no result yet is refused too, as the screen refuses it.
+  await prog('l-m1');
+  await record(o(i), 'l-m1', 'applied', { now: NOW });
+  assert.deepEqual(await record(o(i), 'l-m1', 'won', { amount_usd: 10, payment: { key: 't:p1' }, now: NOW }),
+    { ok: false, note: 'Further payment refused: the current result is none; post a win first.', current: 'none' });
+  assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${o(i)} AND program_id = 'l-m1'`)[0].status, 'applied');
 });
 
 test('a skip over a result is refused (v6.1.7, C28)', async () => {

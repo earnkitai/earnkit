@@ -587,8 +587,8 @@ test('FR-4 (v6.1.14 final fix): a further payment whose ledger write fails is de
   }
   assert.equal(await ledger(), 500);
   assert.deepEqual((await sql()`SELECT payment_keys FROM screen_outcomes WHERE job_id = ${j.id} AND ref = 'pay'`)[0].payment_keys, ['p2']);
-  // The retry delivers it; a second retry adds nothing.
-  assert.deepEqual(await told(j.id, r.builderId, pay, at(2)), { recorded: 1, notFound: [], notes: [] });
+  // The retry delivers it, silently (fix round 1, C1: a repeat reads the same whatever the ledger answers); a second retry adds nothing.
+  assert.deepEqual(await told(j.id, r.builderId, pay, at(2)), { recorded: 0, notFound: [], notes: ['Already recorded, nothing new: pay.'] });
   assert.equal(await ledger(), 800);
   assert.deepEqual(await told(j.id, r.builderId, pay, at(2)), { recorded: 0, notFound: [], notes: ['Already recorded, nothing new: pay.'] });
   assert.equal(await ledger(), 800);
@@ -707,4 +707,16 @@ test('L16-3 (v6.1.16, Review Focus 4): a copied EarnKit id on a row of another p
   const c = await recordOutcomes(live.id, r.builderId, [{ ref: 'copy 2', outcome: 'rejected' }], NOW);
   assert.deepEqual([c.passed, c.notes, c.notPassed], [0, ['Not passed on, the EarnKit id belongs to another project: copy 2.'], ["copy 2 (the id is another project's)"]]);
   assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${owner} AND program_id = 'jobs-l163'`)[0].status, 'won');
+});
+
+test('fix round 1 (M2): after a further payment the kept amount as given is the total, so a resend of the total is a repeat', async () => {
+  const r = await reviewer('jobs-m2');
+  const j = await job(r, [{ ref: 'v', name: 'V' }]);
+  await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 100 }], NOW);
+  assert.deepEqual((await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 10, payment: { key: 'p2' } }], NOW)).notes,
+    ['Added to the win recorded before: v (now won $110).', 'Not matched to an EarnKit application: v.']);
+  const [o] = await sql()`SELECT amount_usd, amount_given, currency FROM screen_outcomes WHERE job_id = ${j.id} AND ref = 'v'`;
+  assert.deepEqual([Number(o.amount_usd), Number(o.amount_given), o.currency], [110, 110, 'USD']);
+  const again = await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 110 }], NOW);
+  assert.deepEqual([again.recorded, again.repeats, again.notes], [0, ['v'], ['Not matched to an EarnKit application: v.', 'Already recorded, nothing new: v.']]);
 });

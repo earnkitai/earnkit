@@ -215,7 +215,7 @@ nothing recorded." v6.1.16 (L16-1, L16-2): the ledger holds the latest result. A
 different result (won and rejected either way, a win with another amount or currency note, or over "no result"),
 from the program's screen or the builder's own track, is a correction: it replaces status, amount and note, its
 history row has `corrected` true, and `record` returns `corrected: true`. A further payment over a result that is not
-a win writes nothing: "Further payment refused: the current result is {status}; post a win first." `no_result` over a
+a win, or over a send with no result yet (`none`, fix round 1 M1), writes nothing: "Further payment refused: the current result is {status}; post a win first." `no_result` over a
 result is still refused ("That one already has a result here: ..."), the same result is "Already tracked.". A second
 win with an amount over a win with one (L15-17, T8-F1 v6.1.14): marked a further payment (`payment: { key }`, the caller's own key, kept in
 `application_history.payment_key`; a repeated key is "Already tracked.") it adds to the total under the cap, answered
@@ -639,12 +639,15 @@ EarnKit application"; a win with no amount is passed on as a win with none (`amo
 outcome replaces the first only when not older, and the note names what it replaced (L13-12; an earlier win in another
 currency as given, "(was won EUR 2,500)", L16-4). v6.1.16: a further payment over no kept win (`none`, `rejected`,
 `shortlisted`) writes nothing and the show line adds "Further payment refused: the current result is {status}; post a
-win first." (L16-1); a payment key retry or the outcome kept already is a repeat, not counted as recorded unless the
-ledger took it (FR-4), and a call of repeats only reads "Already recorded; nothing new." (L16-16); an id's ambiguity
+win first." (L16-1); a payment key retry or the outcome kept already is a repeat, never counted as recorded, whatever the
+ledger answers (FR-4 still delivers it, silently), and a call of repeats only reads "Already recorded; nothing new." (L16-16; after a further payment the kept `amount_given` is the total, so a resend of the total repeats, fix round 1 M2); an id's ambiguity
 counts only rows of the application's own project (L16-3). `recordOutcomes` returns `passed` (outcomes a ledger holds)
 and `reasons`/`notPassed` in `NOT_PASSED` words; the agent note leads "Tell the builder the outcomes are recorded."
 only when one passed, else "Nothing reached a builder: {ref}: {why} ..." (L16-9), and the show line names each
-recorded outcome that reached no builder: "Recorded {n} outcome(s); not passed to a builder: {ref} ({why})." (L22-11).
+recorded outcome the screen held back: "Recorded {n} outcome(s); not passed to a builder: {ref} ({why})." (L22-11).
+Fix round 1 (C1): the reviewer never learns a builder's own record. `paymentRefused` comes only from the screen's own
+refusal; any refusal from `ledger.record` is one generic "Not passed on; the builder's record stands." (refs in the
+agent note, `stands`), its detail (owner, program, note, current result) in a `[screen] ledger refused` server log line.
 A page past the last reads "{totals} No more results." (L16-12). `xpCounts` gives each read the program's own earlier screens in 90 days sharing the repo
 or a deployer and the outcomes it reported ("seen in n earlier screens of this program in 90 days", never a flag);
 another program's screens and outcomes are never counted or shown (L15-11 v6.1.14, as the terms say). Marking a

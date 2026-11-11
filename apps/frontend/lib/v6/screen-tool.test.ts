@@ -470,3 +470,42 @@ test('L22-11 b22 (v6.1.16): a row whose name is not the application\'s project i
   assert.equal(r.reply!.agent_note, "Nothing reached a builder: beta: the id is another project's. Not passed on, the EarnKit id belongs to another project: beta.");
   assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${a.builderId}`} AND program_id = 'scr-b22'`)[0].status, 'applied');
 });
+
+test('fix round 1 (C1): the reviewer never learns the builder\'s own record: a correction, a refusal or a total reads the same generic line', async () => {
+  await upsertProgram(programFixture({ id: 'scr-c1', title: 'Grants scr-c1', max_award_usd: 1000 }), 'file', NOW);
+  const c = await linked();
+  await addReviewer('scr-c1', c.login, null);
+  const v = await applied('scr-c1', 'name:vee');
+  const w = await applied('scr-c1', 'name:wee');
+  const q = await mcpCall(c, 'screen', { program_id: 'scr-c1', applicants: [{ ref: 'v', name: 'Vee', application_id: v.application_id }, { ref: 'w', name: 'Wee', application_id: w.application_id }] });
+  const jobId = q.reply!.job_id as string;
+  const { record } = await import('../v5/ledger');
+  const at = (m: number) => ({ ...c, now: new Date(NOW.getTime() + m * 60_000) });
+  const post = (m: number, outcomes: unknown[]) => mcpCall(at(m), 'screen', { job_id: jobId, outcomes });
+  const leaks = /rejected|later|over what the program pays|more than this program pays|none|no result/;
+  const clean = (r: Awaited<ReturnType<typeof post>>) => {
+    assert.doesNotMatch(r.reply!.show_to_builder as string, leaks);
+    assert.doesNotMatch(r.reply!.agent_note as string, leaks);
+  };
+  assert.equal((await post(1, [{ ref: 'v', outcome: 'won', amount_usd: 100 }, { ref: 'w', outcome: 'won', amount_usd: 100 }])).reply!.show_to_builder, 'Recorded 2 outcomes.');
+  // The review's probe: the builder corrects their own ledger to rejected; the reviewer's further payment is kept on the
+  // screen, and the reviewer hears only that the builder's record stands.
+  assert.deepEqual(await record(`b:${v.builderId}`, 'scr-c1', 'rejected', { installationId: v.installationId, now: at(2).now }), { ok: true, corrected: true });
+  const pay = await post(3, [{ ref: 'v', outcome: 'won', amount_usd: 10, payment: { key: 'p2' } }]);
+  assert.equal(pay.reply!.show_to_builder, "Recorded 1 outcome. Not passed on; the builder's record stands.");
+  assert.equal(pay.reply!.agent_note, "Nothing reached a builder: v: the builder's record stands. Added to the win recorded before: v (now won $110). Not passed on; the builder's record stands: v.");
+  clean(pay);
+  assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${v.builderId}`} AND program_id = 'scr-c1'`)[0].status, 'rejected');
+  // A total the builder raised with their own payment: the reviewer's payment would pass the cap there; the same line.
+  assert.deepEqual(await record(`b:${w.builderId}`, 'scr-c1', 'won', { installationId: w.installationId, amount_usd: 850, payment: { key: 't:own' }, now: at(4).now }), { ok: true, total_usd: 950 });
+  const over = await post(5, [{ ref: 'w', outcome: 'won', amount_usd: 100, payment: { key: 'p2' } }]);
+  assert.equal(over.reply!.show_to_builder, "Recorded 1 outcome. Not passed on; the builder's record stands.");
+  clean(over);
+  // An identical resend reads the same whether or not the builder corrected their record.
+  assert.deepEqual(await record(`b:${w.builderId}`, 'scr-c1', 'rejected', { installationId: w.installationId, now: at(6).now }), { ok: true, corrected: true });
+  for (const [m, ref, amount] of [[7, 'v', 110], [8, 'w', 200]] as const) {
+    const again = await post(m, [{ ref, outcome: 'won', amount_usd: amount }]);
+    assert.equal(again.reply!.show_to_builder, 'Already recorded; nothing new.');
+    assert.equal(again.reply!.agent_note, `Already recorded, nothing new: ${ref}.`);
+  }
+});

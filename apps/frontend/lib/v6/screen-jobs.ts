@@ -9,7 +9,7 @@ import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { sql } from '../v5/db';
 import { CHAIN_REGISTRY, isKnownChain } from '../v5/chains';
-import { OVER_CAP, record, resultWords, winCapOf } from '../v5/ledger';
+import { record, resultWords, winCapOf } from '../v5/ledger';
 import { getProgram } from '../v5/programs';
 import { canonicalRepoLink, isCodeHost, nameKeyOf, sshAsHttps } from '../v5/project-input';
 import { repoKey } from '../v5/repo-facts';
@@ -374,6 +374,8 @@ export const OUTCOME_NOTES = {
   ambiguous: (groups: string[]) => `Not passed on, one EarnKit id on more than one applicant: ${groups.join('; ')}.`,
   /** L16-1 (v6.1.16): a further payment over a result that is not a win; nothing is written for it. */
   paymentRefused: (refs: string[]) => `Not recorded, a further payment needs a win first: ${listWords(refs, 10)}.`,
+  /** Fix round 1 (C1): a builder's ledger did not take it; the reason stays with the builder (the server log has it). */
+  stands: (refs: string[]) => `Not passed on; the builder's record stands: ${listWords(refs, 10)}.`,
   /** L16-16 (v6.1.16): a payment key retry, or the outcome kept already; nothing new. */
   repeats: (refs: string[]) => `Already recorded, nothing new: ${listWords(refs, 10)}.`,
 } as const;
@@ -435,6 +437,8 @@ export const NOT_PASSED = {
   shortlisted: 'shortlisted only',
   notFound: 'not in this screen',
   paymentRefused: 'further payment refused',
+  /** Fix round 1 (C1): the builder's ledger refused it; nothing more is said to a program. */
+  builderStands: "the builder's record stands",
 } as const;
 export type NotPassedWhy = (typeof NOT_PASSED)[keyof typeof NOT_PASSED];
 
@@ -453,8 +457,9 @@ const screenStatusWords = (outcome: string | undefined): string => (outcome === 
  * says which it replaced (L16-4: an earlier win in another currency as given, `EUR 2,500`); a win marked a further
  * payment adds to the first, once per key and never over the program's cap (L15-17, T8-F1, T8-F3), in the screen and
  * the ledger, and only over a kept win (L16-1: else nothing is written and it is named in `paymentRefused` with the
- * kept result); an unmarked win with another amount is a correction. A payment key retry or an outcome identical to
- * the kept one is a repeat (L16-16): it is not counted in `recorded` unless the ledger took something from it (FR-4).
+ * screen's kept result); an unmarked win with another amount is a correction. A payment key retry or an outcome
+ * identical to the kept one is a repeat (L16-16), never counted in `recorded`, whatever the ledger answers (FR-4: it is
+ * still delivered, silently).
  * A won or rejected one also goes to the ledger of the application the applicant row names by its EarnKit id (L13-1),
  * only when that application is for this program: never by repo or site, since a record or an applicant list can name
  * any repo. It is written as that application's own installation, through ledger.record, which mirrors the kept
@@ -464,11 +469,13 @@ const screenStatusWords = (outcome: string | undefined): string => (outcome === 
  * a copied id on a single row reaches no ledger. An id another live row of the same project carries too reaches no
  * ledger (T5-F3; L16-3: rows of another project are never candidates); only a row a later row's requeue names is not
  * live. Shortlisted writes no ledger row. `passed` counts the outcomes a ledger holds; `reasons` names each that did
- * not (`{ref}: {why}`), `notPassed` the recorded ones among them (`{ref} ({why})`, L22-11).
+ * not (`{ref}: {why}`), `notPassed` the recorded ones the screen itself held back (`{ref} ({why})`, L22-11). Fix round 1
+ * (C1): what a builder's ledger holds never reaches the reviewer; a ledger refusal is named only in `stands` ("the
+ * builder's record stands"), its detail in a `[screen]` server log line.
  */
 export async function recordOutcomes(jobId: string, builderId: number, outcomes: Outcome[], now: Date): Promise<{
   recorded: number; notFound: string[]; notes: string[]; own?: string[]; overCap?: string[];
-  passed: number; reasons: string[]; notPassed: string[]; repeats: string[]; paymentRefused: { ref: string; status: string }[];
+  passed: number; reasons: string[]; notPassed: string[]; repeats: string[]; paymentRefused: { ref: string; status: string }[]; stands?: string[];
 }> {
   const [job] = await sql()<{ program_id: string; installation_id: number }[]>`
     SELECT program_id, installation_id FROM screen_jobs WHERE id = ${jobId} AND ${reviewedBy(builderId)} AND expires_at > ${now}`;
@@ -492,6 +499,8 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
   const paymentRefused: { ref: string; status: string }[] = [];
   const reasons: string[] = [];
   const notPassed: string[] = [];
+  /** Fix round 1 (C1): refs a builder's ledger did not take; the reviewer hears only that the builder's record stands. */
+  const stands: string[] = [];
   const once = (list: string[], ref: string) => void (list.includes(ref) || list.push(ref));
   /** L16-9, L22-11: an outcome that reached no ledger; `kept` when the screen recorded it. */
   const miss = (ref: string, why: NotPassedWhy, kept: boolean) => {
@@ -538,8 +547,10 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
       const sum = pkey !== null && b && b.outcome === 'won' && b.amount_usd !== null && amount !== null ? Number(b.amount_usd) + amount : null;
       if (sum !== null && sum > cap) return { overCap: true as const };
       const keys = [...(b?.payment_keys ?? []), ...(pkey !== null ? [pkey] : [])];
+      // Fix round 1 (M2): after a further payment the amount as given is the total too, so a resend of the total repeats.
+      const given = sum !== null && givenAmount !== null ? Number(b!.amount_given ?? b!.amount_usd) + givenAmount : givenAmount;
       const k = await tx`INSERT INTO screen_outcomes (job_id, ref, outcome, amount_usd, at, payment_keys, amount_given, currency)
-        VALUES (${jobId}, ${o.ref}, ${o.outcome}, ${sum ?? amount}, ${now}, ${keys}, ${givenAmount}, ${currency})
+        VALUES (${jobId}, ${o.ref}, ${o.outcome}, ${sum ?? amount}, ${now}, ${keys}, ${given}, ${currency})
         ON CONFLICT (job_id, ref) DO UPDATE SET outcome = EXCLUDED.outcome, amount_usd = EXCLUDED.amount_usd, at = EXCLUDED.at, payment_keys = EXCLUDED.payment_keys,
           amount_given = EXCLUDED.amount_given, currency = EXCLUDED.currency
         WHERE EXCLUDED.at >= screen_outcomes.at RETURNING ref`;
@@ -621,25 +632,23 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
       else miss(o.ref, NOT_PASSED.ambiguous, true);
       continue;
     }
-    if (o.outcome === 'won' && amount === null && !o.given && !repeat) once(noAmount, o.ref);
     const ledgerNote = ledgerAmountNote(o);
     const res = await record(app.owner, job.program_id, o.outcome, {
       installationId: app.installation_id, now, fromScreen: true, ...(pkey !== null && { payment: { key: `s:${pkey}` } }), ...(amount === null ? (o.outcome === 'won' ? { amountNotGiven: true as const } : {}) : { amount_usd: amount }),
       ...(ledgerNote && { note: ledgerNote }),
     });
-    if (res.ok) {
+    // Fix round 1 (C1): the reviewer hears only what the screen did. A repeat is a repeat whatever the ledger answers
+    // (an FR-4 delivery stays silent), and any ledger refusal is one generic reason, its detail in the server log, so
+    // the builder's own corrections, results and totals never reach a program.
+    if (repeat) repeated();
+    else if (res.ok || res.note === 'Already tracked.') {
       passed++;
-      if (repeat) recorded++;
-    } else if (res.note === 'Already tracked.') {
-      // The ledger holds this result already: a repeat on both sides changes nothing; a new screen result agrees with it.
-      if (repeat) repeated();
-      else passed++;
-    } else if (res.current !== undefined) {
-      if (!paymentRefused.some((x) => x.ref === o.ref)) paymentRefused.push({ ref: o.ref, status: res.current });
-      if (repeat) repeated();
-      else miss(o.ref, NOT_PASSED.paymentRefused, true);
-    } else if (repeat) repeated();
-    else miss(o.ref, res.note === OVER_CAP ? NOT_PASSED.overCap : NOT_PASSED.older, true);
+      if (o.outcome === 'won' && amount === null && !o.given) once(noAmount, o.ref);
+    } else {
+      console.warn('[screen] ledger refused', JSON.stringify({ job: jobId, ref: o.ref, owner: app.owner, program: job.program_id, note: res.note, current: res.current ?? null }));
+      once(stands, o.ref);
+      once(reasons, `${o.ref}: ${NOT_PASSED.builderStands}`);
+    }
   }
   const notes = [
     ...(replaced.length ? [OUTCOME_NOTES.replaced(replaced)] : []),
@@ -654,11 +663,12 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
     ...(own.length ? [OUTCOME_NOTES.own(own)] : []),
     ...(overCap.length ? [OUTCOME_NOTES.overCap(overCap)] : []),
     ...(paymentRefused.length ? [OUTCOME_NOTES.paymentRefused(paymentRefused.map((x) => x.ref))] : []),
+    ...(stands.length ? [OUTCOME_NOTES.stands(stands)] : []),
     ...(repeats.length ? [OUTCOME_NOTES.repeats(repeats)] : []),
   ];
   return {
     recorded, notFound, notes, ...(own.length > 0 && { own }), ...(overCap.length > 0 && { overCap }),
-    passed, reasons, notPassed, repeats, paymentRefused,
+    passed, reasons, notPassed, repeats, paymentRefused, ...(stands.length > 0 && { stands }),
   };
 }
 
