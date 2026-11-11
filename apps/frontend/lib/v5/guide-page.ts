@@ -13,7 +13,6 @@ export type GuidePage = {
   /** Empty for a closed program: its page has no Apply link. */
   submission_url: string;
   organizer: string;
-  description: string;
 };
 
 const ID = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -42,7 +41,6 @@ export async function guideTextById(id: string, now: Date = new Date()): Promise
     opens_note: p.status === 'upcoming' ? (p.opens_note ?? null) : null,
     submission_url: closed ? '' : p.submission_url,
     organizer: p.organizer,
-    description: p.description,
   };
 }
 

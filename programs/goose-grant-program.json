@@ -2,12 +2,12 @@
   "id": "goose-grant-program",
   "organizer": "Block",
   "title": "goose grant program",
-  "description": "Block's grant program for developers building with goose, its open source AI agent. Grants of $100,000 USD over 12 months for individuals or small teams whose work is not already funded by an employer or client, in integrations and extensions, tooling and infrastructure, research, and education. Proposals are reviewed on a rolling basis with quarterly progress reviews and payouts.",
+  "description": "Block's grant program for developers building with goose, its open source AI agent. Grants of $100,000 USD over 12 months for individuals or small teams whose work is not already funded by an employer or client, in integrations and extensions, tooling and infrastructure, research, and education. Proposals were reviewed on a rolling basis, with quarterly progress reviews and payouts.",
   "source_url": "https://goose-docs.ai/grants",
   "submission_url": "https://docs.google.com/forms/d/e/1FAIpQLSd1MEYZDpjY6l6ickAIahg651wi2Y96PTWJJecHdG9Nn-KrWA/viewform",
   "official_url": "https://opensource.block.xyz/blog/goose-grant-program",
   "reward": "$100,000 USD per grant over a 12-month project (the July 2025 announcement listed grants from $10,000 to $100,000 by project size)",
-  "summary": "$100,000 per grant · rolling",
+  "summary": "$100,000 per grant",
   "max_award_usd": 100000,
   "starts_at": null,
   "ends_at": null,
@@ -27,7 +27,7 @@
     "a proposal with deliverables and milestones"
   ],
   "rules": [
-    "Rolling: proposals are reviewed on a rolling basis and there is no fixed deadline.",
+    "Proposals were reviewed on a rolling basis, with no fixed deadline.",
     "Anyone can apply: individuals working on their own or in small teams. The work must not already be funded by an employer or client. Prior open source experience is a plus, not a requirement.",
     "Each grant is $100,000 USD for a 12-month project. Progress is reviewed quarterly by the goose team and selected external reviewers, and payouts are made quarterly.",
     "Each project defines its own deliverables and milestones. The program looks for clear, compelling and ambitious ideas aligned with goose, built with an open-source-first mindset.",

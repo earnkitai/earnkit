@@ -572,6 +572,11 @@ test('lane 20 audit (v6.1.16): narrowed keywords miss look-alike projects and st
   assert.equal(hit('solana-mobile-builder-grants', 'a Solana Mobile dApp Store app'), true);
   assert.equal(hit('avalanche-team1-mini-grants', 'an Avalanche L1'), true);
   assert.equal(hit('colosseum-eternal', 'a crypto wallet'), true);
+  // Fix round 1 (v6.1.16): the Solana Mobile device names only with Solana; the crypto phrases hit Colosseum.
+  assert.equal(hit('solana-mobile-builder-grants', 'uses redux-saga for side effects'), false);
+  assert.equal(hit('solana-mobile-builder-grants', 'a seeker profile'), false);
+  assert.equal(hit('solana-mobile-builder-grants', 'an app for the Solana Seeker'), true);
+  for (const t of ['a crypto app that splits rent', 'crypto payments for shops', 'a crypto exchange']) assert.equal(hit('colosseum-eternal', t), true, t);
   // OTF keeps "privacy": it is the program's target.
   assert.ok(eligibilityKeywords('otf-internet-freedom-fund').includes('privacy'));
 });

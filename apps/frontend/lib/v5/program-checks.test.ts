@@ -56,13 +56,27 @@ test('FR-6 (v6.1.15): rules and eligibility notes in K or M are refused; the cat
 test('L21-2 (v6.1.16): a closed program carries no open-window sentence; the same file active passes', () => {
   const NOW = new Date('2026-11-11T00:00:00Z');
   const rules = ['Applications are open until Dec 6.', 'Winners are named in January.'];
-  assert.deepEqual(programProblems(programFixture({ id: 'p-closed-open', status: 'closed', rules }), NOW), [
+  assert.deepEqual(programProblems(programFixture({ id: 'p-closed-open', status: 'closed', summary: 'Up to $5,000', rules }), NOW), [
     'status: a closed program carries no open-window sentence: "Applications are open until Dec 6."',
   ]);
   assert.deepEqual(programProblems(programFixture({ id: 'p-active-open', status: 'active', rules }), NOW), []);
   assert.deepEqual(
-    programProblems(programFixture({ id: 'p-closed-desc', status: 'closed', description: 'A grant. Apply now on the portal.' }), NOW),
+    programProblems(programFixture({ id: 'p-closed-desc', status: 'closed', summary: 'Up to $5,000', description: 'A grant. Apply now on the portal.' }), NOW),
     ['status: a closed program carries no open-window sentence: "Apply now on the portal."'],
   );
-  assert.deepEqual(programProblems(programFixture({ id: 'p-closed-past', status: 'closed', rules: ['SR008 applications ran October 12 to November 1, 2026, 11:59 PM PT.'] }), NOW), []);
+  assert.deepEqual(programProblems(programFixture({ id: 'p-closed-past', status: 'closed', summary: 'Up to $5,000', rules: ['SR008 applications ran October 12 to November 1, 2026, 11:59 PM PT.'] }), NOW), []);
+});
+
+test('fix round 1 (v6.1.16): a closed program carries no present rolling sentence and no rolling summary; the past passes', () => {
+  const NOW = new Date('2026-11-11T00:00:00Z');
+  const rules = ['Rolling: proposals are reviewed on a rolling basis and there is no fixed deadline.'];
+  assert.deepEqual(programProblems(programFixture({ id: 'p-closed-rolling', status: 'closed', summary: 'Up to $5,000', rules }), NOW), [
+    'status: a closed program carries no rolling-window sentence: "Rolling: proposals are reviewed on a rolling basis and there is no fixed deadline."',
+  ]);
+  assert.deepEqual(programProblems(programFixture({ id: 'p-closed-nofixed', status: 'closed', summary: 'Up to $5,000', description: 'A grant. There is no fixed deadline.' }), NOW), [
+    'status: a closed program carries no rolling-window sentence: "There is no fixed deadline."',
+  ]);
+  assert.deepEqual(programProblems(programFixture({ id: 'p-active-rolling', status: 'active', rules }), NOW), []);
+  assert.deepEqual(programProblems(programFixture({ id: 'p-closed-past', status: 'closed', summary: 'Up to $5,000', rules: ['Proposals were reviewed on a rolling basis, with no fixed deadline.'] }), NOW), []);
+  assert.deepEqual(programProblems(programFixture({ id: 'p-closed-summary', status: 'closed', summary: 'Up to $5,000 · rolling' }), NOW), ['summary: a closed program is not rolling']);
 });
