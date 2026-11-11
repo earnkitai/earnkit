@@ -1,23 +1,29 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
-import { LIMITS, blockOf, busyText, clientIp, countHit, sweepWindows } from './rate-limit';
+import { LIMITS, LIMIT_ADDRESS, LIMIT_OWN, blockOf, clientIp, countHit, sweepWindows } from './rate-limit';
 import { BUSY } from './mcp';
 
 after(() => sql().end());
 
-test('C8, #11 (v6.1.15): the hourly limit names itself and says how long the window has left, in minutes rounded up, hours over 90 minutes', () => {
-  assert.equal(busyText(1), 'You have asked a lot this hour. Try again in about 1 minute.');
-  assert.equal(busyText(60), 'You have asked a lot this hour. Try again in about 1 minute.');
-  assert.equal(busyText(61), 'You have asked a lot this hour. Try again in about 2 minutes.');
-  assert.equal(busyText(671), 'You have asked a lot this hour. Try again in about 12 minutes.');
-  assert.equal(busyText(3_600), 'You have asked a lot this hour. Try again in about 60 minutes.');
-  assert.equal(busyText(5_400), 'You have asked a lot this hour. Try again in about 90 minutes.');
-  assert.equal(busyText(5_401), 'You have asked a lot this hour. Try again in about 2 hours.');
-  assert.equal(busyText(86_400), 'You have asked a lot this hour. Try again in about 24 hours.');
+test('C8, #11 (v6.1.15), L26-5 (v6.1.16): the two hourly limit lines name the limit and the minutes left, rounded up, never hours', () => {
+  const own = (m: string) => `Your agent has used this hour's limit. Try again in about ${m}.`;
+  const net = (m: string) => `Too many calls from your network this hour. Try again in about ${m}.`;
+  for (const [s, m] of [[1, '1 minute'], [60, '1 minute'], [61, '2 minutes'], [671, '12 minutes'], [3_600, '60 minutes'], [5_400, '90 minutes'], [5_401, '91 minutes'], [86_400, '1440 minutes']] as const) {
+    assert.equal(LIMIT_OWN(s), own(m));
+    assert.equal(LIMIT_ADDRESS(s), net(m));
+  }
   // `busy` stays only for errors.
   assert.equal(BUSY, 'EarnKit is busy. Try again in a minute.');
-  assert.ok(!busyText(60).includes('busy'));
+  assert.ok(!LIMIT_OWN(60).includes('busy') && !LIMIT_ADDRESS(60).includes('busy'));
+});
+
+test('L26-3 (v6.1.16, owner call): the per-address floors are 200 an hour for register, token and authorize; the block caps stay', () => {
+  assert.deepEqual(LIMITS.oauthRegister, { limit: 200, windowSeconds: 3_600 });
+  assert.deepEqual(LIMITS.installHour, { limit: 200, windowSeconds: 3_600 });
+  assert.deepEqual(LIMITS.oauthAuthorize, { limit: 200, windowSeconds: 3_600 });
+  assert.deepEqual(LIMITS.oauthRegisterBlock, { limit: 5_000, windowSeconds: 86_400 });
+  assert.deepEqual(LIMITS.installBlock, { limit: 5_000, windowSeconds: 86_400 });
 });
 
 test('B5: no hosted per-address tier; the hosted tier only raises the per-client install limit', async () => {

@@ -171,7 +171,7 @@ test('B5 (Review Focus 4): a hosted-redirect client from an address over its flo
   const now = new Date();
   const start = (secs: number) => new Date(Math.floor(now.getTime() / (secs * 1000)) * secs * 1000);
   await sql()`DELETE FROM rate_windows WHERE key LIKE ${'%' + ip}`;
-  await sql()`INSERT INTO rate_windows (key, window_start, count) VALUES (${'oauthRegister:' + ip}, ${start(3_600)}, 50), (${'installHour:' + ip}, ${start(3_600)}, 50)`;
+  await sql()`INSERT INTO rate_windows (key, window_start, count) VALUES (${'oauthRegister:' + ip}, ${start(3_600)}, 200), (${'installHour:' + ip}, ${start(3_600)}, 200)`;
   const reg = (uris: string[]) => registerPost(new Request('https://earnkit.test/oauth/register', {
     method: 'POST', headers: { 'content-type': 'application/json', 'x-real-ip': ip }, body: JSON.stringify({ redirect_uris: uris }),
   }));
@@ -198,6 +198,31 @@ test('B5 (Review Focus 4): a hosted-redirect client from an address over its flo
   assert.equal(ta.status, 429);
   assert.equal(tb.status, 429);
   assert.equal(((await tb.json()) as { error_description: string }).error_description, ((await ta.json()) as { error_description: string }).error_description);
+});
+
+test('Review Focus 16 (L26-1, L26-3): refused registrations, authorizes and tokens never move the block count', async () => {
+  const ip = `10.79.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
+  const now = new Date();
+  const start = (secs: number) => new Date(Math.floor(now.getTime() / (secs * 1000)) * secs * 1000);
+  await sql()`DELETE FROM rate_windows WHERE key LIKE ${'%' + ip}`;
+  await sql()`INSERT INTO rate_windows (key, window_start, count) VALUES (${'oauthRegister:' + ip}, ${start(3_600)}, 200), (${'installHour:' + ip}, ${start(3_600)}, 200), (${'oauthAuthorize:' + ip}, ${start(3_600)}, 200)`;
+  const blockCount = async () =>
+    Object.fromEntries((await sql()<{ key: string; count: number }[]>`SELECT key, count FROM rate_windows WHERE key IN ('oauthRegisterBlock:10.79.0.0/16', 'installBlock:10.79.0.0/16') AND window_start = ${start(86_400)}`).map((r) => [r.key, r.count]));
+  const before = await blockCount();
+  const id = (await registerClient({ redirect_uris: [redirect] })).client_id;
+  for (let i = 0; i < 5; i++) {
+    const reg = await registerPost(new Request('https://earnkit.test/oauth/register', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-real-ip': ip }, body: JSON.stringify({ redirect_uris: [redirect] }),
+    }));
+    assert.equal(reg.status, 429);
+    const tok = await tokenPost(new Request('https://earnkit.test/oauth/token', {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-real-ip': ip }, body: tokenForm(id, await codeOf(id, redirect), verifier, redirect).toString(),
+    }));
+    assert.equal(tok.status, 429);
+    const auth = await authorizeGet(new Request(`https://earnkit.test/oauth/authorize?${params(id)}`, { headers: { 'x-real-ip': ip } }));
+    assert.equal(auth.status, 429);
+  }
+  assert.deepEqual(await blockCount(), before);
 });
 
 test('B5: the hosted tier only raises the per-client install limit', async () => {

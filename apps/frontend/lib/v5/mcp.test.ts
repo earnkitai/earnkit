@@ -2,7 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import { mcpCall, mcpInstructions, mcpListTools } from './fixtures/mcp-call';
-import { FIND_DESCRIPTION, RECORD_DESCRIPTION, SCREEN_DESCRIPTION, SERVER_INSTRUCTIONS, TRACK_DESCRIPTION } from './mcp';
+import { FIND_DESCRIPTION, RECORD_DESCRIPTION, SCREEN_DESCRIPTION, SERVER_INSTRUCTIONS, TRACK_DESCRIPTION, limitReply, refusedFor } from './mcp';
 import { SESSION_START } from './tool-text';
 import { PROJECT_DESCRIPTION } from './project-input';
 import { clientIp, windowStart } from './rate-limit';
@@ -197,31 +197,64 @@ test('a database error is the busy line', async () => {
 
 const seed = (key: string, count: number) =>
   sql()`INSERT INTO rate_windows (key, window_start, count) VALUES (${key}, ${windowStart(NOW, 3_600_000)}, ${count})`;
-const BUSY_HOUR = 'You have asked a lot this hour. Try again in about 60 minutes.';
+const OWN_LIMIT = "Your agent has used this hour's limit. Try again in about 60 minutes.";
+const ADDRESS_LIMIT = 'Too many calls from your network this hour. Try again in about 60 minutes.';
 
-test('the 121st tool call in an hour is the busy reply, as a tool result', async () => {
+test('L26-5 (v6.1.16): the 121st tool call in an hour is the own-limit line, as a tool result with retry_after_seconds', async () => {
   const c = await ctx();
   await seed(`mcp:${c.installationId}`, 119);
   const ok = await mcpCall(c, 'track', { program_id: 'no-such', status: 'skipped' });
   assert.equal(ok.reply!.show_to_builder, 'Which program do you mean?', ok.text);
   const busy = await mcpCall(c, 'track', { program_id: 'no-such', status: 'skipped' });
   assert.equal(busy.isError, true);
-  assert.equal(busy.text, BUSY_HOUR);
+  assert.equal(busy.text, OWN_LIMIT);
+  assert.deepEqual(busy.structured, { retry_after_seconds: 3_600 });
   const f = await mcpCall(c, 'find', {});
-  assert.equal(f.text, BUSY_HOUR);
+  assert.equal(f.text, OWN_LIMIT);
   const later = await mcpCall({ ...c, now: new Date(NOW.getTime() + 48 * 60_000) }, 'find', {});
-  assert.equal(later.text, 'You have asked a lot this hour. Try again in about 12 minutes.');
+  assert.equal(later.text, "Your agent has used this hour's limit. Try again in about 12 minutes.");
+  assert.deepEqual(later.structured, { retry_after_seconds: 720 });
   const next = await mcpCall({ ...c, now: new Date(NOW.getTime() + 3_600_000) }, 'track', { program_id: 'no-such', status: 'skipped' });
   assert.equal(next.reply!.show_to_builder, 'Which program do you mean?', next.text);
 });
 
-test('the per-IP floor: the 601st call from one address in an hour is busy, whatever the installation', async () => {
+test('the per-IP floor: the 601st call from one address in an hour is the address line, whatever the installation', async () => {
   const c = await ctx();
   await seed('mcpIp:203.0.113.9', 600);
   const busy = await mcpCall({ ...c, ip: '203.0.113.9' }, 'track', { program_id: 'no-such', status: 'skipped' });
-  assert.equal(busy.text, BUSY_HOUR);
+  assert.equal(busy.isError, true);
+  assert.equal(busy.text, ADDRESS_LIMIT);
+  assert.deepEqual(busy.structured, { retry_after_seconds: 3_600 });
   const other = await mcpCall({ ...c, ip: '203.0.113.10' }, 'track', { program_id: 'no-such', status: 'skipped' });
   assert.equal(other.reply!.show_to_builder, 'Which program do you mean?', other.text);
+});
+
+test('Review Focus 16 (L26-1): 600 calls from one installation; the 480 it refuses never count on the address, and a colleague is served', async () => {
+  const a = await ctx();
+  const b = await ctx();
+  const ip = `203.0.113.${100 + Math.floor(Math.random() * 100)}`;
+  await sql()`DELETE FROM rate_windows WHERE key = ${'mcpIp:' + ip}`;
+  const texts = new Map<string, number>();
+  for (let i = 1; i <= 600; i++) {
+    const r = await refusedFor({ ...a, ip }, NOW);
+    if (i <= 120) assert.equal(r, null, `call ${i}`);
+    else {
+      assert.deepEqual(r, { retryAfter: 3_600, who: 'installation' }, `call ${i}`);
+      const text = limitReply(r!).content[0].text;
+      texts.set(text, (texts.get(text) ?? 0) + 1);
+    }
+  }
+  assert.deepEqual([...texts], [[OWN_LIMIT, 480]]);
+  const [w] = await sql()`SELECT count FROM rate_windows WHERE key = ${'mcpIp:' + ip} AND window_start = ${windowStart(NOW, 3_600_000)}`;
+  assert.equal(w.count, 120);
+  // Through the server: A is refused with the line and retry_after_seconds; B on the same address is served.
+  const refused = await mcpCall({ ...a, ip }, 'track', { program_id: 'no-such', status: 'skipped' });
+  assert.equal(refused.text, OWN_LIMIT);
+  assert.deepEqual(refused.structured, { retry_after_seconds: 3_600 });
+  const mate = await mcpCall({ ...b, ip }, 'track', { program_id: 'no-such', status: 'skipped' });
+  assert.equal(mate.reply!.show_to_builder, 'Which program do you mean?', mate.text);
+  const [w2] = await sql()`SELECT count FROM rate_windows WHERE key = ${'mcpIp:' + ip} AND window_start = ${windowStart(NOW, 3_600_000)}`;
+  assert.equal(w2.count, 121);
 });
 
 test('clientIp: the rightmost x-forwarded-for entry wins; x-real-ip only without one; then the socket (security M3)', () => {

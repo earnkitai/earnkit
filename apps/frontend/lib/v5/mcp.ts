@@ -1,14 +1,14 @@
 /**
  * The MCP server: four tools, find, track, record and screen, and the server instructions. Built per request
- * (the route is stateless). Each tool call counts against the installation's and the IP's hourly
- * limits; over either it is the busy result, with the minutes the window has left. A tool's reply is its JSON;
+ * (the route is stateless). Each tool call counts against the installation's hourly limit, and only when that allows
+ * it, the IP's; over either it is that limit's line, with the minutes the window has left and retry_after_seconds. A tool's reply is its JSON;
  * arguments nested past MAX_ARG_DEPTH are an input error; a refusal (L29-9, v6.1.16) is isError true with its usual JSON; an unexpected error (a database blip) is one plain
  * line, logged by name only.
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { FindArgs, find, type FindContext } from './find';
-import { LIMITS, busyText, hit } from './rate-limit';
+import { LIMITS, LIMIT_ADDRESS, LIMIT_OWN, hit } from './rate-limit';
 import { MAX_ARG_DEPTH, tooDeep } from './secrets';
 import { TOO_DEEP_NOTE, inputError, isRefused, lenient } from './tool-input';
 import pkg from '../../package.json';
@@ -32,19 +32,29 @@ export type McpContext = {
 /** The server's own words live in tool-text.ts, shared with llms.txt (v6.1.15); every importer keeps importing them here. */
 export { SERVER_INSTRUCTIONS, FIND_DESCRIPTION, TRACK_DESCRIPTION, RECORD_DESCRIPTION, SCREEN_DESCRIPTION } from './tool-text';
 export const BUSY = 'EarnKit is busy. Try again in a minute.';
-/** Over an hourly limit: the window's seconds left as minutes (or hours) (v6.1.7, C8). */
-export const BUSY_HOUR = busyText;
 
-/** Counts one tool call against the IP floor and the installation's limit; the seconds to wait when over either, else null. */
-async function refusedFor(ctx: McpContext, now: Date): Promise<number | null> {
+/**
+ * Counts one tool call against the installation's own hourly limit first, then the IP floor (v6.1.16 Task 12, L26-1):
+ * a call the installation's own limit refuses returns before the address window, so one looping agent never locks out
+ * its colleagues on the same network. Who refused and the seconds to wait, else null.
+ */
+export async function refusedFor(ctx: McpContext, now: Date): Promise<{ retryAfter: number; who: 'installation' | 'address' } | null> {
   const count = (name: 'mcp' | 'mcpIp', who: string | number) => hit(`${name}:${who}`, LIMITS[name].limit, LIMITS[name].windowSeconds, now);
+  const own = await count('mcp', ctx.installationId);
+  if (!own.allowed) return { retryAfter: own.retryAfter, who: 'installation' };
   if (ctx.ip) {
     const ip = await count('mcpIp', ctx.ip);
-    if (!ip.allowed) return ip.retryAfter;
+    if (!ip.allowed) return { retryAfter: ip.retryAfter, who: 'address' };
   }
-  const own = await count('mcp', ctx.installationId);
-  return own.allowed ? null : own.retryAfter;
+  return null;
 }
+
+/** A refused call (L26-5): its limit line, with the seconds to wait for agents in `structuredContent`. */
+export const limitReply = (r: { retryAfter: number; who: 'installation' | 'address' }) => ({
+  content: [{ type: 'text' as const, text: (r.who === 'installation' ? LIMIT_OWN : LIMIT_ADDRESS)(r.retryAfter) }],
+  structuredContent: { retry_after_seconds: r.retryAfter },
+  isError: true,
+});
 
 /** L29-9 (v6.1.16 Task 15): a refusal (`refuse`, `inputError`) is isError true with the same content. */
 const reply = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(value) }], ...(isRefused(value) ? { isError: true } : {}) });
@@ -53,8 +63,8 @@ async function run(ctx: McpContext, name: string, args: unknown, fn: () => Promi
   try {
     // Before any walk of the arguments (v6.1.7, B4); the route refuses these before the transport too.
     if (tooDeep(args, MAX_ARG_DEPTH)) return reply(inputError(TOO_DEEP_NOTE));
-    const wait = await refusedFor(ctx, ctx.now ?? new Date());
-    if (wait !== null) return { content: [{ type: 'text' as const, text: BUSY_HOUR(wait) }], isError: true };
+    const refused = await refusedFor(ctx, ctx.now ?? new Date());
+    if (refused !== null) return limitReply(refused);
     return reply(await fn());
   } catch (err) {
     if (err instanceof z.ZodError)

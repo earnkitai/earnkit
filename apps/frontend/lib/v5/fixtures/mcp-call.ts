@@ -7,7 +7,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createMcpServer, type McpContext } from '../mcp';
 
-export type McpResult = { isError: boolean; text: string; reply: Record<string, unknown> | null };
+export type McpResult = { isError: boolean; text: string; reply: Record<string, unknown> | null; structured?: Record<string, unknown> };
 
 async function connected(ctx: McpContext) {
   const server = createMcpServer(ctx);
@@ -32,7 +32,7 @@ export async function mcpCall(ctx: McpContext, name: string, args: Record<string
     } catch {
       reply = null;
     }
-    return { isError: r.isError === true, text, reply };
+    return { isError: r.isError === true, text, reply, ...(r.structuredContent ? { structured: r.structuredContent as Record<string, unknown> } : {}) };
   } finally {
     await client.close();
   }
