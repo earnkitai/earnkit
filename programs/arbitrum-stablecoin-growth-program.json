@@ -70,7 +70,7 @@
     { "key": "audits", "label": "Audits", "type": "text", "required": false, "from": "project", "kind": "links", "description": "Auditor names and links to the reports." },
     { "key": "contracts", "label": "Existing Smart Contracts", "type": "text", "required": true, "from": "project", "kind": "links", "todo": "deployed contract links by chain" },
     { "key": "deck", "label": "Deck or Docs", "type": "file", "required": false, "from": "builder", "kind": "other" },
-    { "key": "heard_from", "label": "How Did You Hear About Us", "type": "choice", "required": true, "from": "builder", "kind": "other", "todo": "the way you heard about it", "options": ["Referral", "Twitter / X", "Event", "Newsletter", "Other"] },
+    { "key": "heard_from", "label": "How Did You Hear About Us", "type": "choice", "required": true, "from": "builder", "kind": "other", "todo": "the way you heard about it", "need": "referral source", "options": ["Referral", "Twitter / X", "Event", "Newsletter", "Other"] },
     { "key": "terms", "label": "I confirm I have read and accept the terms and conditions", "type": "choice", "required": true, "from": "builder", "kind": "other", "todo": "the acceptance of the terms", "options": ["I confirm"] }
   ],
   "focus": {

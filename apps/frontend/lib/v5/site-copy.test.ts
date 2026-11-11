@@ -253,7 +253,8 @@ async function builderTexts(): Promise<[string, string][]> {
   for (const [k, v] of Object.entries(reply.REPO_NOTE)) out.push([`REPO_NOTE.${k}`, v]);
   const dir = join(ROOT, 'programs');
   const files = readdirSync(dir).filter((f) => f.endsWith('.json'));
-  assert.equal(files.length, 52);
+  // The catalog's size is read from the directory, so a new program file never fails a copy test (M6).
+  assert.ok(files.length >= 52, `${files.length}`);
   for (const f of files) {
     const file = ProgramFile.parse(JSON.parse(readFileSync(join(dir, f), 'utf8')));
     const g = guideText({ id: file.id, file, source: 'file', created_at: new Date(0), updated_at: new Date(0), verified_at: null, stale_since: null }, new Date('2026-11-11T12:00:00Z'));

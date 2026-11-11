@@ -7,8 +7,9 @@ import { NAV_INSTALL } from '../../../lib/v5/site-copy';
 
 /**
  * The one site header on every page, transparent and not sticky: the wordmark (home), Programs and Docs
- * (NavLinks marks the current one), and the blue pill that opens the install sheet. On a phone the
- * wordmark and the pill share the first row and the links take the second.
+ * (NavLinks marks the current one), and the blue pill that opens the install sheet. The rows wrap: on a wide phone
+ * the wordmark and the pill share the first row; on a narrow one (about 375px) the pill ("Add EarnKit to your agent",
+ * no wrap) takes its own row, right-aligned. The links always take the last row on a phone.
  */
 export default function Header() {
   return (

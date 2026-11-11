@@ -60,7 +60,7 @@
     { "key": "gtm_plan", "label": "What's your GTM plan for the next 3 months?", "kind": "milestones", "todo": "your GTM plan for the next 3 months", "type": "text", "required": true, "from": "builder" },
     { "key": "builder_code", "label": "What's your Base Builder Code?", "kind": "other", "todo": "your Base Builder Code", "type": "text", "required": true, "from": "builder" },
     { "key": "primary_challenge", "label": "What is the primary challenge or bottleneck you are currently facing as you grow your project?", "kind": "other", "todo": "your main challenge right now", "type": "multi_choice", "required": true, "description": "Pick one or more, joined by \"; \".", "options": ["User acquisition", "Go-to-market strategy", "Smart contract security/auditing", "Liquidity bootstrapping", "UI/UX improvements", "Regulatory compliance guidance"], "from": "builder" },
-    { "key": "credits", "label": "Which credits would be most useful for you as you build? (e.g. Privy, AWS, etc.)", "kind": "other", "todo": "the credits you want", "type": "text", "required": true, "from": "builder" },
+    { "key": "credits", "label": "Which credits would be most useful for you as you build? (e.g. Privy, AWS, etc.)", "kind": "other", "todo": "the credits you want", "need": "preferred credits", "type": "text", "required": true, "from": "builder" },
     { "key": "what_changed", "label": "If you're applying for the Second time, What changed from the last application?", "kind": "other", "type": "text", "required": false, "from": "builder" }
   ],
   "logo": {

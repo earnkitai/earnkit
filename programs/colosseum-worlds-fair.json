@@ -62,7 +62,7 @@
       "key": "chains_and_tools",
       "label": "Which blockchains and tools are being integrated",
       "kind": "how_it_works",
-      "todo": "the chains and tools you integrate",
+      "todo": "the chains and tools you integrate", "need": "chains and tools",
       "type": "text",
       "required": true,
       "from": "project"

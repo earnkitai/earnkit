@@ -278,7 +278,7 @@ export function prefill(
     if (rec && (isProse(r.kind) || r.kind === 'other')) return { ...base, value: null, from: 'builder', sources: [...sources, ASK_ONCE] };
     return { ...base, value: null, from: 'agent', sources };
   });
-  const todo = new Map(file.submission_requirements.map((r) => [r.key, r.todo]));
+  const need = new Map(file.submission_requirements.map((r) => [r.key, needOf(r)]));
   return {
     fields,
     filled: fields.filter((f) => f.from === 'earnkit' || f.from === 'record').length,
@@ -288,9 +288,12 @@ export function prefill(
     total: fields.filter((f) => f.required).length,
     // Lane 8 #8 (v6.1.10): one list, the unvouched required fields (fix round 2); the agent's drafts with sources
     // (a told fact included, F2) are never "need you".
-    need_you: unvouchedRequired(fields).map((f) => todo.get(f.key) ?? f.label.toLowerCase()),
+    need_you: unvouchedRequired(fields).map((f) => need.get(f.key) ?? f.label.toLowerCase()),
   };
 }
+
+/** What a field reads as after "Needs your" (M4, v6.1.15 fix round 1): its need word, else its to-do, else its label. Pure. */
+export const needOf = (r: Pick<SubmissionRequirement, 'need' | 'todo' | 'label'>): string => r.need ?? r.todo ?? r.label.toLowerCase();
 
 /**
  * The one vouched-field rule (F1, v6.1.10, fix round 2): every required field whose value EarnKit cannot vouch for: a

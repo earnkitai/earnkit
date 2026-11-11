@@ -550,7 +550,7 @@ test('O1 (v6.1.10): a step closing within 7 days says so after its money', () =>
 test('R20/R21: an in-person line says its odds, then what attending takes, then what it needs from you (v6.1.6)', () => {
   const yc = ready({
     title: 'Y Combinator Winter 2027 Batch', money: '$500K investment', in_person: true, long_shot: 'many apply, few are taken',
-    setup: ['a YC account'], needs: ['a YC account', 'your application answers', 'the batch you want'],
+    setup: ['a YC account'], needs: ['a YC account', 'your application answers', 'batch preference'],
   });
   const alliance = ready({
     title: 'Alliance ALL19', money: '$400K at admission', closes_in: 'in 14 days', in_person: true,
@@ -562,7 +562,7 @@ test('R20/R21: an in-person line says its odds, then what attending takes, then 
     text.split('\n\n')[0],
     [
       'In person (3):',
-      '1. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and the batch you want.',
+      '1. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.',
       "2. Alliance ALL19, $400K at admission, closes in 14 days. First: start the application with the first founder's email; your passport.",
       '3. Bare Summit, $5K. Attend in person.',
     ].join('\n'),

@@ -76,7 +76,7 @@ test('first find has no since', async () => {
       '4. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.',
       '',
       'In person (2):',
-      '5. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and the batch you want.',
+      '5. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.',
       "6. Alliance ALL19, $400K at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
       '',
       'Say yes and I apply.',
@@ -234,7 +234,7 @@ test('find with program_id for YC: in person, the line says what attending takes
   const id = await installation();
   const r = await mcpCall(ctx(id), 'find', { program_id: 'y-combinator', project: PROJECT });
   assert.equal(r.isError, false, r.text);
-  assert.equal(r.reply!.show_to_builder, 'Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and the batch you want.');
+  assert.equal(r.reply!.show_to_builder, 'Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.');
 });
 
 test('find with program_id and no project: the money, the rules list, no link and no draft offer; the agent is told to pass the project (v6.1.8, 1b)', async () => {
@@ -379,6 +379,20 @@ test('L1g-6 (v6.1.15): users reported but nothing to read: the not-fit reason as
   assert.equal(await reason({ name: 'Roomly', description: 'A booking app for small hotels.', users: true }), 'needs code in a repo or a live link');
   assert.equal(await reason({ name: 'Quest Runner', description: 'Command line runner for team quests', repo_url: 'git@github.com:o/r.git', users: true }), 'needs code in a repo or a live link');
   assert.equal(await reason({ name: 'Roomly', description: 'A booking app for small hotels.' }), 'needs a product people use');
+});
+
+test('I1 (v6.1.15 fix round 1): a public GitLab repo with users is the builder\'s word: one line about the host, never "needs code in a repo"', async () => {
+  const project = { name: 'Pad', description: 'A note-taking CLI.', repo_url: 'https://gitlab.com/acme/pad', users: true };
+  const r = await mcpCall(ctx(await installation()), 'find', { program_id: 'floss-fund-zerodha', project });
+  const show = r.reply!.show_to_builder as string;
+  assert.notEqual((r.reply!.verdict as { status: string }).status, 'no', show);
+  assert.equal(show, ['FLOSS/fund, $10,000 to $100,000. Needs your funding manifest link. First: publish a funding manifest on your site or repo.', 'Say yes and I apply.'].join('\n'));
+  // The project reply: the host said once, and nothing says the code is missing.
+  const all = await mcpCall(ctx(await installation()), 'find', { project, filter: { all: true } });
+  const text = all.reply!.show_to_builder as string;
+  assert.equal(text.match(/I read GitHub repos only; matched on what you told me\./g)?.length, 1, text);
+  assert.ok(!/needs code in a repo|I could not read the repo|code in a repo\./.test(text), text);
+  assert.ok(!(all.reply!.not_fit as { reason: string }[]).some((n) => n.reason === 'needs code in a repo or a live link'));
 });
 
 test('L1g-7 (v6.1.15): a contract reported on a testnet only is asked onto that chain\'s mainnet (persona 26)', async () => {
@@ -1044,7 +1058,7 @@ const PROJECT_C = { name: 'My notes', description: 'Personal markdown notes and 
  *  (its file says so), so its line names them for every project; `_noRepo` is kept for the callers. */
 const inPersonBlock = (n: number, _noRepo = false) => [
   'In person (2):',
-  `${n}. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and the batch you want.`,
+  `${n}. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.`,
   `${n + 1}. Alliance ALL19, $400K at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.`,
 ];
 /** L1e-6 (v6.1.13): 14 days out, its list line says when it closes, as its detail does. */
@@ -1087,7 +1101,7 @@ test('R18e: project A (Base mainnet; its replayed repo also reads Arbitrum) gets
       '4. FLOSS/fund, $10,000 to $100,000: tell me if real people use it. First: publish a funding manifest on your site or repo.',
       '',
       'In person (2):',
-      '5. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and the batch you want.',
+      '5. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.',
       "6. Alliance ALL19, $400K at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
       '',
       'Say yes and I apply.',
@@ -1353,7 +1367,7 @@ test('L12-7 (v6.1.14), Review Focus 9: a Solana project with no repo sees Solana
       '1. Solana Foundation Grants, milestone grants: code in a repo. Their rule: a public good, meaning a significant open source contribution to the Solana ecosystem or a free community offering.',
       '',
       'In person (2):',
-      '2. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and the batch you want.',
+      '2. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.',
       "3. Alliance ALL19, $400K at admission, closes in 14 days. Long odds: many apply, few are taken. First: open the application with the first founder's email.",
       '',
       'Nothing is ready yet. Tell me when the code is in a repo and I look again.',

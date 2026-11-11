@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
-import { prefill, unvouchedRequired } from './prefill';
+import { needOf, prefill, unvouchedRequired } from './prefill';
 import { repoFacts, type RepoFacts } from './repo-facts';
 import { parseProject } from './project-input';
 import { ProgramFile } from './program-file';
@@ -480,4 +480,35 @@ test('lane 8 #8 (v6.1.10): need_you is every required builder field without a re
   assert.deepEqual(unlinked.need_you, ['your phone']);
   const linked = prefill(row, facts, rec(recordWith({ person: { email: 'a@example.com' } })));
   assert.deepEqual(linked.need_you, ['the problem', 'your phone']);
+});
+
+/** Words that end a clause, not a noun phrase, in the catalog's to-dos (M4, v6.1.15 fix round 1). */
+const CLAUSE_END = new Set(['want', 'target', 'solve', 'build', 'integrate', 'touch', 'compare', 'win', 'explore', 'deliver', 'found', 'apply',
+  'how', 'it', 'up', 'on', 'in', 'to', 'of', 'for', 'about', 'why', 'whom', 'apart', 'is', 'are']);
+
+test('M4 (v6.1.15 fix round 1): every required field reads as a noun phrase after "Needs your"', async () => {
+  const { readdirSync } = await import('node:fs');
+  const dir = join(import.meta.dirname, '../../../../programs');
+  let n = 0;
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.json'))) {
+    const file = ProgramFile.parse(JSON.parse(readFileSync(join(dir, f), 'utf8')));
+    for (const r of file.submission_requirements) {
+      if (!r.required) continue;
+      n++;
+      const phrase = needOf(r).replace(/^(your|a|an|the)\s+/i, '');
+      assert.ok(!/\b(you|they|we)\b/i.test(phrase), `${file.id}.${r.key}: "${phrase}"`);
+      assert.ok(!CLAUSE_END.has(phrase.split(/\s+/).at(-1)!.toLowerCase()), `${file.id}.${r.key}: "${phrase}"`);
+    }
+  }
+  assert.ok(n > 400, `${n}`);
+  // The need word, else the to-do, else the label.
+  const base = { key: 'k', label: 'What problem are you solving?', type: 'text', required: true, from: 'project', kind: 'problem' } as const;
+  assert.equal(needOf({ ...base, todo: 'the problem you solve', need: 'problem statement' }), 'problem statement');
+  assert.equal(needOf({ ...base, todo: 'your email' }), 'your email');
+  assert.equal(needOf({ ...base }), 'what problem are you solving?');
+});
+
+test('M4: a need_you item reads the need word (Z Fellows problem)', () => {
+  const zf = ProgramFile.parse(JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/z-fellows.json'), 'utf8')));
+  assert.equal(needOf(zf.submission_requirements.find((r) => r.key === 'problem')!), 'problem statement');
 });

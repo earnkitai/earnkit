@@ -36,7 +36,7 @@
   ],
   "submission_requirements": [
     { "key": "company_name", "label": "Company Name", "kind": "name", "todo": "a company name", "type": "text", "required": true, "project_field": "name", "from": "project" },
-    { "key": "building", "label": "What are you building?", "kind": "one_liner", "todo": "the description of what you build", "type": "text", "required": true, "description": "Describe your product or service.", "project_field": "description", "from": "project" },
+    { "key": "building", "label": "What are you building?", "kind": "one_liner", "todo": "the description of what you build", "need": "product description", "type": "text", "required": true, "description": "Describe your product or service.", "project_field": "description", "from": "project" },
     { "key": "website_url", "label": "Website URL", "kind": "links", "todo": "a website link", "type": "url", "required": true, "project_field": "live_url", "from": "project" },
     { "key": "x_url", "label": "X URL", "kind": "links", "todo": "the company's X link", "type": "url", "required": true, "description": "An x.com or twitter.com link.", "from": "builder" },
     { "key": "founder_name", "label": "Founder 1: Name", "kind": "contact", "todo": "the founder's full name", "type": "text", "required": true, "description": "The form takes one to four founders; each has the same six fields.", "from": "builder" },
@@ -47,7 +47,7 @@
     { "key": "founder_linkedin", "label": "Founder 1: LinkedIn", "kind": "contact", "todo": "the founder's LinkedIn link", "type": "url", "required": true, "description": "A linkedin.com link.", "from": "builder" },
     { "key": "team_size", "label": "Team Size", "kind": "team", "todo": "your team size", "type": "choice", "required": true, "options": ["1–5", "6–10", "11–25", "26–50", "51+"], "from": "builder" },
     { "key": "location", "label": "Location", "kind": "contact", "todo": "your location", "type": "text", "required": true, "description": "e.g. San Francisco, CA", "from": "builder" },
-    { "key": "problem", "label": "What is the problem you are solving?", "kind": "problem", "todo": "the problem you solve", "type": "text", "required": true, "description": "Describe the problem and who it affects.", "from": "project" },
+    { "key": "problem", "label": "What is the problem you are solving?", "kind": "problem", "todo": "the problem you solve", "need": "problem statement", "type": "text", "required": true, "description": "Describe the problem and who it affects.", "from": "project" },
     { "key": "why_idea", "label": "Why are you working on this idea?", "kind": "why_you", "todo": "the reason for this idea", "type": "text", "required": true, "description": "What motivates you to solve this problem?", "from": "builder" },
     { "key": "how_long", "label": "How long have you been working on this company idea?", "kind": "other", "todo": "the time spent on it so far", "type": "choice", "required": true, "options": ["Less than a year", "1-3 years", "4-5 years", "5+ years"], "from": "builder" },
     { "key": "traction", "label": "What's your current traction?", "kind": "traction", "todo": "your current traction", "type": "text", "required": true, "description": "If pre-traction, please indicate what you have built to date.", "from": "project" },

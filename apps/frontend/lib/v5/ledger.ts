@@ -160,7 +160,7 @@ export async function record(
     // T8-F1 (v6.1.14): a payment key already kept for this application changes nothing (a retried call).
     if (paymentKey !== null && row?.status === 'won'
       && (await tx`SELECT 1 FROM application_history WHERE owner = ${owner} AND program_id = ${programId} AND payment_key = ${paymentKey}`).length > 0)
-      return { ok: false, note: 'Already recorded.' } as const;
+      return { ok: false, note: 'Already tracked.' } as const;
     // L15-17, T8-F1 (v6.1.14): a win with an amount over a win with an amount: marked a further payment, it adds (the
     // total under the cap); unmarked, another amount is a correction that replaces it (the same amount is already recorded).
     const bothWon = row?.status === 'won' && row.amount_usd !== null && status === 'won' && amount !== null;
@@ -174,7 +174,7 @@ export async function record(
     const resulted = row && RESULTS.includes(row.status) && !completes && !adds && !corrects;
     if (resulted && status === 'skipped') return { ok: false, note: 'That one already has a result here; nothing to skip.' } as const;
     if (resulted && RESULTS.includes(status) && row.status === status && (status !== 'won' || (row.amount_usd === null ? null : Number(row.amount_usd)) === amount))
-      return { ok: false, note: 'Already recorded.' } as const;
+      return { ok: false, note: 'Already tracked.' } as const;
     if (resulted && (status === 'applied' || RESULTS.includes(status)))
       return { ok: false, note: `That one already has a result here: ${resultWords(row.status, row.amount_usd)}.` } as const;
     if (status === 'applied' && row?.status === 'applied')

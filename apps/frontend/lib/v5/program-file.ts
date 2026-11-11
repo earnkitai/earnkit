@@ -95,6 +95,15 @@ export const SubmissionRequirement = z
       .refine((s) => !/[.?:!;,]$/.test(s), 'no trailing punctuation')
       .refine((s) => s === s.trim() && !/^\p{Lu}(\p{Ll}|\s)/u.test(s), 'lowercase start, no outer spaces')
       .optional(),
+    /** M4 (v6.1.15 fix round 1): the noun phrase read after "Needs your" when the to-do is a clause ("the problem you
+     *  solve" reads "problem statement"); the to-do otherwise. */
+    need: z
+      .string()
+      .min(1)
+      .max(40)
+      .refine((s) => !/[.?:!;,]$/.test(s), 'no trailing punctuation')
+      .refine((s) => s === s.trim() && !/\byou\b/i.test(s), 'a noun phrase, no "you", no outer spaces')
+      .optional(),
     project_field: z.enum(PROJECT_FIELDS).optional(),
     /** "project": drafted from the project itself; "builder": personal, asked of the builder. */
     from: z.enum(['project', 'builder']),
