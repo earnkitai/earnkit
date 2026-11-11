@@ -4,7 +4,8 @@
  */
 import { integrationLabel } from '../v6/integrations';
 import { chainName } from './chains';
-import { closeDay } from './deadline';
+import { closeDay, programZone } from './deadline';
+import { withoutOpenWindow } from './program-checks';
 import { CLOSED, NOT_OPEN_YET, ROLLING } from './site-copy';
 import { MIN_TIER, NEEDS, eligibilityOf, type EligibilityItem, type Program } from './program-file';
 import { isOpen, type ProgramRow } from './programs';
@@ -14,6 +15,10 @@ export type Guide = {
   title: string;
   money: string;
   closes: string;
+  /** "Closed on 1 Nov 2026.": the window line of a closed program (L21-2, v6.1.16); null while open or not open yet. */
+  closed_on: string | null;
+  /** The program's description; a closed program's drops each sentence that reads as still taking entries. */
+  description: string;
   rules: string[];
   eligibility: string[];
   fields: { label: string; todo: string }[];
@@ -94,6 +99,23 @@ function roundLine(r: Program['past_rounds'][number]): string {
   return [`${r.label}${counts ? `: ${counts}` : ''}`, themes, examples].filter(Boolean).map(sentence).join(' ');
 }
 
+/** "1 Nov 2026": an instant's day in a zone. */
+function dayMonYear(d: Date, zone: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: zone, day: 'numeric', month: 'short', year: 'numeric' }).formatToParts(d);
+  const part = (t: string) => parts.find((x) => x.type === t)?.value ?? '';
+  return `${part('day')} ${part('month')} ${part('year')}`;
+}
+
+/**
+ * "Closed on 1 Nov 2026." (L21-2, v6.1.16): for a closed program (`status: closed`, or `ends_at` passed), the day of
+ * `ends_at` in the program's zone, else the day of `verified_at`; null while open or not open yet. Pure.
+ */
+export function closedOn(p: Program, now: Date): string | null {
+  if (p.status === 'upcoming' || isOpen(p, now)) return null;
+  const day = p.ends_at ? dayMonYear(new Date(p.ends_at), programZone(p)) : plainDate(p.verified_at);
+  return `Closed on ${day}.`;
+}
+
 /** When it closes, in words: a date in the program's own zone, rolling, not open yet or closed. */
 function closesOf(p: Program, now: Date): string {
   if (p.status === 'upcoming') return NOT_OPEN_YET;
@@ -147,11 +169,15 @@ export function guideText(row: ProgramRow, now: Date = new Date()): Guide {
   ];
   const seen = new Set<string>();
   const closes = closesOf(p, now);
+  const closed_on = closedOn(p, now);
   return {
     title: p.title,
     money: moneyOf(p),
     closes,
-    rules: p.rules,
+    closed_on,
+    // L21-2 (v6.1.16): a closed program's text never reads as still taking entries.
+    description: closed_on ? withoutOpenWindow(p.description) : p.description,
+    rules: closed_on ? p.rules.map(withoutOpenWindow).filter(Boolean) : p.rules,
     eligibility: eligibilityList(eligibilityOf(p)),
     fields: p.submission_requirements.map((r) => ({ label: r.label, todo: sentence(r.todo ?? (r.required ? r.label.toLowerCase() : 'optional')) })),
     // A closed program takes no entries: no word on who submits (v6.1.7 C7); nor one not open yet (Low 21, v6.1.13).

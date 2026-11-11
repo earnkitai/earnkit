@@ -42,10 +42,10 @@ test('eligibilityOf base-builder-grants: its explicit four items', () => {
   assert.deepEqual(eligibilityOf(p), [{ kind: 'live_product' }, { kind: 'chain', value: 'base' }, { kind: 'builder_codes' }, { kind: 'users' }]);
 });
 
-test('eligibilityOf circle-developer-grants: derived, live product then chain arc', () => {
+test('eligibilityOf circle-developer-grants: derived, chain arc (lane 20, v6.1.16: no live product needed)', () => {
   const p = ProgramFile.parse(read('circle-developer-grants.json'));
   assert.equal(p.eligibility, undefined);
-  assert.deepEqual(eligibilityOf(p), [{ kind: 'live_product' }, { kind: 'chain', value: 'arc' }]);
+  assert.deepEqual(eligibilityOf(p), [{ kind: 'chain', value: 'arc' }]);
 });
 
 test('eligibilityOf: an explicit list wins; derived items for contract, new work and in person', () => {
@@ -157,7 +157,7 @@ test('L1c-2 (v6.1.10): the catalog keywords are on the domain rules, none on lic
   assert.deepEqual(kw('paypal-ai-hackathon'), ['paypal']);
   assert.deepEqual(kw('farcaster-developer-rewards'), ['farcaster', 'mini app', 'warpcast']);
   assert.deepEqual(kw('kiroween-2026'), ['kiro']);
-  assert.deepEqual(kw('solana-mobile-builder-grants'), ['solana mobile', 'seeker', 'saga', 'android']);
+  assert.deepEqual(kw('solana-mobile-builder-grants'), ['solana mobile', 'solana saga', 'solana seeker', 'dapp store']);
   assert.deepEqual(kw('ugreen-ai-nas-hackathon-2026'), ['ugreen', 'nas']);
   assert.deepEqual(kw('otf-internet-freedom-fund'), ['censorship', 'circumvention', 'privacy', 'vpn', 'tor']);
   assert.deepEqual(kw('goose-grant-program'), ['goose']);
@@ -170,7 +170,7 @@ test('L1c-2 (v6.1.10): the catalog keywords are on the domain rules, none on lic
   for (const f of files) assert.ok(!eligibilityOf(ProgramFile.parse(read(f))).some((i) => (i.keywords ?? []).some((k) => ['hook', 'v4', 'meta', 'forge'].includes(k))), f);
   // L1e-2 (v6.1.13, fix round 1 T3-R2): who the age rule is for, never a bare number or "fellowship"; Avalanche's ecosystem rule names its chain.
   assert.deepEqual(kw('thiel-fellowship'), ['student', 'students', 'college', 'university', 'dropout', 'drop out', 'undergrad']);
-  assert.deepEqual(kw('avalanche-team1-mini-grants'), ['avalanche', 'avax', 'team1', 'subnet']);
+  assert.deepEqual(kw('avalanche-team1-mini-grants'), ['avalanche', 'avax', 'team1', 'avalanche subnet', 'avalanche l1']);
   for (const f of ['antler-us-residency', 'github-secure-open-source-fund', 'herodevs-sustainability-fund', 'sovereign-tech-fund'])
     assert.deepEqual(kw(f), [], f);
 });

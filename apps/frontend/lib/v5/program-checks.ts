@@ -41,6 +41,20 @@ export function poolStated(pool: number, text: string): boolean {
   return after !== null && POOL_WORDS.test(after);
 }
 
+/** A sentence that says the program takes entries now (L21-2, v6.1.16): wrong on a closed program. */
+export const OPEN_WINDOW: RegExp = /\b(applications?|registration|submissions?|entries)\s+(are|is)\s+(now\s+)?open\b|\bapply\s+(now|by)\b|\bopen\s+(until|through)\b/i;
+
+/** A sentence that says the program reviews entries with no end (fix round 1, v6.1.16): wrong on a closed program
+ *  unless it is in the past ("Proposals were reviewed on a rolling basis."). */
+export const ROLLING_WINDOW: RegExp = /\brolling\b|\bno fixed deadline\b/i;
+const PAST = /\b(was|were|ran|had)\b/i;
+
+/** The sentences of `text`, split after a full stop, question or exclamation mark. Pure. */
+export const sentencesOf = (text: string): string[] => text.split(/(?<=[.!?])\s+/).map((t) => t.trim()).filter(Boolean);
+
+/** `text` without its open-window sentences (L21-2, v6.1.16). Pure. */
+export const withoutOpenWindow = (text: string): string => sentencesOf(text).filter((t) => !OPEN_WINDOW.test(t)).join(' ');
+
 /** Each problem as "<path or (program)>: <message>"; empty when the program may be written. */
 export function programProblems(p: Program, now: Date = new Date()): string[] {
   const parsed = ProgramFile.safeParse(p);
@@ -68,6 +82,14 @@ export function programProblems(p: Program, now: Date = new Date()): string[] {
   (q.eligibility ?? []).forEach((e, i) => {
     if (e.note && /\d[KM]\b/.test(e.note)) problems.push(`eligibility.${i}.note: money must be in full figures ("$1,000,000", never "$1M")`);
   });
+  // L21-2 (v6.1.16): a closed program says nothing that reads as still taking entries.
+  if (q.status === 'closed')
+    for (const t of [q.description, ...q.rules].flatMap(sentencesOf)) {
+      if (OPEN_WINDOW.test(t)) problems.push(`status: a closed program carries no open-window sentence: "${t}"`);
+      else if (ROLLING_WINDOW.test(t) && !PAST.test(t)) problems.push(`status: a closed program carries no rolling-window sentence: "${t}"`);
+    }
+  if (q.status === 'closed' && q.summary.split(' · ').slice(1).some((x) => ROLLING_WINDOW.test(x)))
+    problems.push('summary: a closed program is not rolling');
   if (Date.parse(`${q.verified_at}T00:00:00Z`) > now.getTime()) problems.push(`verified_at: ${q.verified_at} is in the future`);
   return problems;
 }

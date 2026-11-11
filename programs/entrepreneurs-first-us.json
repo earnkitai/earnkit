@@ -22,7 +22,7 @@
   "in_person": true,
   "tag": "long shot",
   "eligibility": [
-    { "kind": "in_person", "note": "live and work in San Francisco for the first three months" }
+    { "kind": "in_person", "note": "live and work in San Francisco for the first three months (strongly encouraged; required for the second $125,000)" }
   ],
   "setup": [],
   "each_time": [],
@@ -31,7 +31,7 @@
     "Shortlisted applicants go through interviews with EF's U.S. team, advisors, alumni and leadership.",
     "The $250,000 path: $125,000 via a post-money SAFE for 8% from EF, plus an optional $125,000 uncapped MFN SAFE from EF and Transpose Platform if you relocate to San Francisco and incorporate as a Delaware C-Corp.",
     "The Fellowship Residency: an equity-free $10,000 grant and housing for three months to explore ideas and cofounders, with a path to EF's full investment.",
-    "Founders live and work in San Francisco for the first three months, with a founder house, coaching and a Demo Day for U.S. investors.",
+    "Living and working in San Francisco for the first three months is strongly encouraged and required for the second $125,000; residents get a founder house, coaching and a Demo Day for U.S. investors.",
     "You do not need a cofounder or an idea to apply. If you already have a cofounder, mention it and ask them to apply too."
   ],
   "submission_requirements": [

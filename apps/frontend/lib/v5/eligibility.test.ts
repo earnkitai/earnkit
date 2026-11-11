@@ -582,3 +582,20 @@ test('L1g-1 (v6.1.16, Review Focus 1): Meta VR keywords are phrases; "Quest Runn
     assert.equal(keywordHit(vr, f, gapsOf(f)), true, description);
   }
 });
+
+test('lane 20 audit (v6.1.16): narrowed keywords miss look-alike projects and still hit the real ones', () => {
+  const hit = (slug: string, text: string) => eligibilityKeywords(slug).some((k) => names(text, k));
+  assert.equal(hit('colosseum-eternal', 'A crypto library for elliptic curves'), false);
+  assert.equal(hit('solana-mobile-builder-grants', 'an Android photo app'), false);
+  assert.equal(hit('avalanche-team1-mini-grants', 'a subnet calculator'), false);
+  assert.equal(hit('solana-mobile-builder-grants', 'a Solana Mobile dApp Store app'), true);
+  assert.equal(hit('avalanche-team1-mini-grants', 'an Avalanche L1'), true);
+  assert.equal(hit('colosseum-eternal', 'a crypto wallet'), true);
+  // Fix round 1 (v6.1.16): the Solana Mobile device names only with Solana; the crypto phrases hit Colosseum.
+  assert.equal(hit('solana-mobile-builder-grants', 'uses redux-saga for side effects'), false);
+  assert.equal(hit('solana-mobile-builder-grants', 'a seeker profile'), false);
+  assert.equal(hit('solana-mobile-builder-grants', 'an app for the Solana Seeker'), true);
+  for (const t of ['a crypto app that splits rent', 'a DeFi lending pool', 'an NFT marketplace']) assert.equal(hit('colosseum-eternal', t), true, t);
+  // OTF keeps "privacy": it is the program's target.
+  assert.ok(eligibilityKeywords('otf-internet-freedom-fund').includes('privacy'));
+});

@@ -98,6 +98,15 @@ test('isOpen: active and not past ends_at', () => {
   assert.equal(isOpen({ ...p, ends_at: null }, NOW), true);
 });
 
+test('lane 20 audit (v6.1.16): paypal-ai-hackathon closes at 2026-11-12 12:00 PT, on time', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const p = JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/paypal-ai-hackathon.json'), 'utf8'));
+  assert.equal(Date.parse(p.ends_at), Date.parse('2026-11-12T20:00:00Z'));
+  assert.equal(isOpen(p, new Date('2026-11-12T19:59:59Z')), true);
+  assert.equal(isOpen(p, new Date('2026-11-12T20:00:01Z')), false);
+});
+
 test('Review Focus 3 (v6.1.12, F4): a program by its id, title or organizer, any case, spaces and punctuation ignored', async () => {
   const one = async (name: string) => {
     const r = await programByName(name, NOW);
@@ -123,8 +132,9 @@ test('Review Focus 3 (v6.1.12, F4): a program by its id, title or organizer, any
   for (const name of ['aws', 'fi', 'kir']) assert.deepEqual(await one(name), { id: null, line: "I don't know that program." }, name);
   // Several: the first two by rank (open first, then the larger award, the sooner close), as a question.
   assert.deepEqual(await one('Base'), { id: null, line: "Did you mean Base Builder Grant Program or Base Ecosystem Fund?" });
-  assert.deepEqual(await one('monad'), { id: null, line: "Did you mean Monad Blitz Oregon or Monad Blitz @广州 (Guangzhou)?" });
-  assert.deepEqual(await one('Monad Blitz'), { id: null, line: "Did you mean Monad Blitz Oregon or Monad Blitz @广州 (Guangzhou)?" });
+  // Lane 20 (v6.1.16): Monad Blitz Oregon is closed, so the open ones lead.
+  assert.deepEqual(await one('monad'), { id: null, line: "Did you mean Monad Blitz @广州 (Guangzhou) or Monad Nitro?" });
+  assert.deepEqual(await one('Monad Blitz'), { id: null, line: "Did you mean Monad Blitz @广州 (Guangzhou) or Monad Blitz Oregon?" });
   assert.deepEqual(await one('uniswap'), { id: null, line: "Did you mean Uniswap Foundation Open Grants or Uniswap Foundation Security Fund (UFSF) Audit Subsidies?" });
   // None.
   for (const name of ['qqq-unknown', '', '  ', '?!']) assert.deepEqual(await one(name), { id: null, line: "I don't know that program." }, name);

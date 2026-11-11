@@ -1252,10 +1252,11 @@ test('R18e, R18f, C54, B20, B20c, B20d: projects B (dotfiles, repo link answers 
     assert.ok((r.reply!.gaps as { in_person: boolean }[]).every((g) => !g.in_person), JSON.stringify(ids(r.reply!.gaps)));
     assert.doesNotMatch(r.reply!.show_to_builder as string, /deploy the contract|a contract on/);
   }
-  // filter.all still lists the in-person ones; the Monad Blitz pair needs a contract on Monad, so it is not a fit.
+  // filter.all still lists the in-person ones; Monad Blitz Guangzhou needs a contract on Monad, so it is not a fit
+  // (Monad Blitz Oregon is closed since lane 20, v6.1.16).
   const all = await mcpCall(ctx(await installation()), 'find', { project: PROJECT_C, filter: { all: true } });
   const notFit = all.reply!.not_fit as { program_id: string; reason: string }[];
-  assert.deepEqual(notFit.filter((n) => n.program_id.startsWith('monad-blitz')).map((n) => n.reason), ['needs a contract on Monad', 'needs a contract on Monad']);
+  assert.deepEqual(notFit.filter((n) => n.program_id.startsWith('monad-blitz')).map((n) => n.reason), ['needs a contract on Monad']);
   assert.ok(ids(all.reply!.gaps).includes('antler-us-residency'), JSON.stringify(ids(all.reply!.gaps)));
 });
 
@@ -1486,7 +1487,7 @@ test('L12-7 (v6.1.14), Review Focus 9: a Solana project with no repo sees Solana
   // The full list keeps the other chains' deploys, and the own chain's programs with their real gaps.
   const all = await mcpCall(ctx(await installation()), 'find', { project: SOL, filter: { all: true } });
   const shown = all.reply!.show_to_builder as string;
-  for (const id of ['solana-foundation-grants', 'solana-incubator-cohort-6', 'base-ecosystem-fund', 'monad-blitz-oregon']) assert.ok(ids(all.reply!.gaps).includes(id), id);
+  for (const id of ['solana-foundation-grants', 'solana-incubator-cohort-6', 'base-ecosystem-fund', 'monad-blitz-guangzhou']) assert.ok(ids(all.reply!.gaps).includes(id), id);
   assert.match(shown, /\d+\. Base Ecosystem Fund, pre-seed and seed investment, amount not stated: deploy the contract on Base\. /);
   assert.match(shown, /\d+\. Solana Incubator Cohort 6, NYC incubator with relocation stipend, amount not stated: code in a repo\. /);
   // The own chain's grant carries code in a repo as its real gap.
@@ -1660,6 +1661,13 @@ test('L1d-2 (v6.1.11, Review Focus 2 and 3): an idea or an empty repo naming no 
   assert.ok(c, show);
   assert.equal(lineOf(show, c.n), COLOSSEUM_LINE(c.n));
   assert.doesNotMatch(show, /a demo video\. Their rule: the team has not raised/);
+  // Fix round 1 (v6.1.16): with bare "crypto" gone, a crypto app, a DeFi and an NFT idea still hit with no "onchain" in the text.
+  for (const description of ['An idea: a crypto app that splits rent between roommates', 'An idea: a DeFi lending pool for students', 'An idea: an NFT ticket for concerts']) {
+    const r = await mcpCall(await ideaCtx(), 'find', { project: { name: 'Rent Split', description } });
+    const x = (r.reply!.gaps as G[]).find((y) => y.program_id === 'colosseum-eternal');
+    assert.ok(x, `${description}: ${r.reply!.show_to_builder as string}`);
+    assert.equal(lineOf(r.reply!.show_to_builder as string, x.n), COLOSSEUM_LINE(x.n));
+  }
 });
 
 test('L1c-2 (v6.1.10, Review Focus 3): an idea that names no VR word never opens with the VR competition; one whose description says "Meta Quest" does', async () => {
@@ -2188,8 +2196,9 @@ test('v6.1.9: find with program_id takes the id or the name in any case; L12-3 (
   }
   for (const [name, line] of [
     ['Base', "Did you mean Base Builder Grant Program or Base Ecosystem Fund?"],
-    ['monad', "Did you mean Monad Blitz Oregon or Monad Blitz @广州 (Guangzhou)?"],
-    ['Monad Blitz', "Did you mean Monad Blitz Oregon or Monad Blitz @广州 (Guangzhou)?"],
+    // Lane 20 (v6.1.16): Monad Blitz Oregon is closed, so the open ones lead.
+    ['monad', "Did you mean Monad Blitz @广州 (Guangzhou) or Monad Nitro?"],
+    ['Monad Blitz', "Did you mean Monad Blitz @广州 (Guangzhou) or Monad Blitz Oregon?"],
     ['uniswap', "Did you mean Uniswap Foundation Open Grants or Uniswap Foundation Security Fund (UFSF) Audit Subsidies?"],
     // Final fix (v6.1.12, I2): a bracketed parent organizer, two letters: no program.
     ['aws', "I don't know that program."],
@@ -2324,7 +2333,8 @@ test('O4 (v6.1.10): the no-project open list marks each in-person program', asyn
   const r = await mcpCall(ctx(await installation()), 'find', {});
   const show = r.reply!.show_to_builder as string;
   const lines = show.split('\n');
-  for (const l of ['Monad Blitz Oregon, $4,600 in prizes, closes in 6 days, in person.', 'Alliance ALL19, $400,000 at admission, closes in 14 days, in person.', 'Solana Incubator Cohort 6, NYC incubator with relocation stipend, amount not stated, closes in 30 days, in person.', 'Kiroween 2026, $100,000 in prizes, closes in 30 days.'])
+  // Lane 20 (v6.1.16): Monad Blitz Oregon is closed; Guangzhou is the open Monad Blitz.
+  for (const l of ['Monad Blitz @广州 (Guangzhou), $1,500 in prizes, closes in 16 days, in person.', 'Alliance ALL19, $400,000 at admission, closes in 14 days, in person.', 'Solana Incubator Cohort 6, NYC incubator with relocation stipend, amount not stated, closes in 30 days, in person.', 'Kiroween 2026, $100,000 in prizes, closes in 30 days.'])
     assert.ok(lines.includes(l), show);
 });
 

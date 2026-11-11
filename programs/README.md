@@ -35,7 +35,7 @@ states; leave out what it does not. Never guess a reward, a deadline or a requir
 | `max_award_usd` | the most one winner gets, only when stated; `min_award_usd` only for a stated range |
 | `pool_usd` | the total pool, only when stated; `reward` must state it followed by a pool word (`"$840,000 in prizes"`); `pool_source_url` when that is not `source_url` |
 | `starts_at`, `ends_at` | ISO 8601 with offset; `ends_at: null` is rolling. `tz` (IANA) when the summary's suffix does not name the zone |
-| `status` | `active`, `upcoming` (needs `opens_note`: one line, no links) or `closed` |
+| `status` | `active`, `upcoming` (needs `opens_note`: one line, no links) or `closed`. A closed program's `description` and `rules` say nothing that reads as still taking entries (`Applications are open`, `apply now`, `open until`, or a present `rolling` or `no fixed deadline`), and its summary drops `· rolling`; `programs:check` refuses it, so write the window in the past (`SR008 applications ran October 12 to November 1, 2026, 11:59 PM PT.`) |
 | `verified_at` | the day the facts were checked (`YYYY-MM-DD`), never ahead of today |
 | `existing_work` | `allowed`, `new_work_only` or `unknown` |
 | `needs_repo` | whether entering needs a repo or a live product |
