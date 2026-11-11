@@ -30,6 +30,9 @@ export const NOINDEX_PATHS = ['/me', '/me/:path*', '/link/:path*', '/auth/:path*
 const nextConfig: NextConfig = {
   // No X-Powered-By: the framework is nobody's business (v6.1.7 S5).
   poweredByHeader: false,
+  // S (v6.1.16): the build id, inlined at build, keys the page cache (app/lib/cached.ts) so a deploy never serves a
+  // page cached by the build before it. `railway up` may leave the git SHA unset, so the build time stands in.
+  env: { EK_BUILD_ID: process.env.RAILWAY_GIT_COMMIT_SHA || String(Date.now()) },
   async redirects() {
     return LEGAL_REDIRECTS;
   },

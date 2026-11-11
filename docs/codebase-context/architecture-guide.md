@@ -45,10 +45,15 @@ item exactly; screen's description names `ref` (required), `repo_url` and `live_
    missing name or description fails. `users` is true, false or null (not reported). A chain is a bare slug (`"base"`, mainnet) or an object;
    an object that leaves `mainnet` out is mainnet (v6.1.14 T1) unless it names a testnet in any form (`testnet: true`, a
    `network` or slug with a testnet word such as `base-sepolia`, or a testnet `chain_id`; fix round 1 F1), which is
-   mainnet false; an unknown `chain_id` or a `mainnet` that is not true or false drops it with a problem line.
+   mainnet false; an unknown `chain_id` or a `mainnet` that is not true or false drops it with a problem line
+   (`"true"` and `"false"` as text, trimmed, any case, read as the boolean, L16-15 v6.1.16).
    v6.1.14 L13-15: only a code host's link (`CODE_HOSTS`: github.com, gitlab.com, codeberg.org, bitbucket.org and their
-   subdomains; `isCodeHost`) is a repo; any other `repo_url` (a bit.ly link) is read as the live link, or dropped beside
-   one, with a problem line, and never keys the project by repo (`projectKeyOf`). Before any of this, find reads its
+   subdomains; `isCodeHost`) is a repo; any other `repo_url` is read as the live link, or dropped beside
+   one, with a problem line, and never keys the project by repo (`projectKeyOf`). v6.1.16 L16-8: a link on a shortener
+   (`SHORTENERS`: bit.ly, t.co, tinyurl.com, goo.gl, is.gd, cutt.ly, rb.gy, short.io and their subdomains; `isShortener`)
+   in `repo_url`, `live_url` or `demo_url` is never read ("{field} dropped: a shortened link", before the code-host
+   rule, so it never becomes the live link), and find's agent note adds `SHORT_LINK_NOTE` ("Shortened links are not
+   read; send the real one.") on every reply kind. Before any of this, find reads its
    arguments leniently (L13-4, `readLoosely` in `tool-input.ts`, shared with track; find is registered with
    `lenient(FindArgs)`): a null field is left out, a string project is no project (the open list), a numeric id is its
    text, an over-long id is cut (no match, the plain unknown line), `filter.all` "true" is true, a bad `filter.category`
@@ -176,6 +181,10 @@ The pipeline, in order:
    program, its `pool_usd` when set, else its `max_award_usd`. The landing shows six programs (`featuredTiles` in
    `landing.ts`: open, not investments, at least $10K; closing within 14 days with at least $25K first, then by money;
    one per organizer, at most three hackathons) and a link to /programs, which lists every one (`landingTiles`).
+   The pages read through `cachedRead` (`app/lib/cached.ts`, `unstable_cache`, 10 minutes, cleared by an API write);
+   v6.1.16 (S): its keys carry the build id (`cacheKey`, `BUILD_ID` from `EK_BUILD_ID`, which `next.config.ts` `env`
+   inlines at build from `RAILWAY_GIT_COMMIT_SHA`, else the build time), so a deploy never serves a page cached by the
+   build before it.
 
 ## The ledger
 
@@ -188,7 +197,7 @@ verifiable kinds are re-read from the repo.
 A done step belongs to one project (v6.1.10, L1c-1): `gaps_done` carries `project_key` and is unique on
 (owner, project_key, program_id, item). `projectKeyOf` (`project-input.ts`, pure) gives the key: the repo link in its
 one canonical form (an SSH clone link, `git@host:o/r.git` or `ssh://git@host/o/r`, read as https first by `sshAsHttps`, the one converter find, track and the screen share, FR-2; `canonicalRepoLink`, v6.1.13 B4: https, host lower-cased without `www.`, no port, no `user@`, no
-query or fragment, a trailing dot on the host dropped (L12-6, v6.1.14), on github.com owner and name only, on other hosts the path up to its first `-` segment (so `-/tree/...`, `-/blob/...`, `-/issues` fold and a subgroup named `tree` stays), no trailing slash or `.git`; an owner or group alone (`github.com/owner`), or one of GitHub's own pages (`orgs/`,
+query or fragment, a trailing dot on the host dropped (L12-6, v6.1.14), on github.com owner and name only, on bitbucket.org and codeberg.org the path up to its first `src` segment at index 2 or later (`/src/main/`, `/src/branch/main`, L16-6 v6.1.16), on other hosts the path up to its first `-` segment (so `-/tree/...`, `-/blob/...`, `-/issues` fold and a subgroup named `tree` stays), no trailing slash or `.git`; an owner or group alone (`github.com/owner`), or one of GitHub's own pages (`orgs/`,
 `users/`, `sponsors/`, `topics/` and the like), names no repo, has no repo key and is parsed as a plain link (`link`),
 neither the repo nor the live link, so it meets no bar and the project keys by name (L12-6; fix round 1, T7-F1, T7-F6);
 the repo read's cache key `repoKey` reads the same helper), else `name:` and the name NFKC and case-folded, else `''`
@@ -294,7 +303,8 @@ client_id that is an https URL is a client ID metadata document (CIMD, v6.1.15 T
 http:// client_id goes to the same document check and is refused there):
 `cimdClient` fetches it through `safeFetchJson` (https, public addresses only, no redirects, 5 s, 10 KB, JSON), requires
 its `client_id` to equal the URL, lists the redirect URIs (at most 10) and takes `client_name` through `clientNameOf`
-and `reservedClientName`; cached in process 1 hour when good and 5 minutes when not (1,000 URLs). Fetches of URLs
+and `reservedClientName` (a name holding `earnkit` after look-alike letters fold, and v6.1.16 L16-10 digits and `l`
+read as letters, 0 o, 1 i, 3 e, 4 a, 5 s, 7 t, l i, so `earnk1t` and `earnklt` are refused); cached in process 1 hour when good and 5 minutes when not (1,000 URLs). Fetches of URLs
 are capped at 30 an hour per document host (`cimdFetch`; over it, no fetch and the failure page); only a refetch
 of a URL that still has a good copy is exempt, so a URL with a failed entry counts again after its 5 minute wait. A refetch that hits a transport error (DNS, connect, timeout, 5xx,
 `TransportError` in safe-fetch) keeps serving the last good copy for up to 6 hours from its last good read; any
@@ -547,8 +557,8 @@ apply." (at most three, then "and n more"; N3, v6.1.12), and any other ready pro
 builder submits reads the same in the draft wording (L1e-3, v6.1.13; list and detail alike): "Your yes stands for
 {title}: I draft it for you to send." and "{title} needs your {needs}; then I draft it for you to send.". A program
 that funds existing code (`needs_repo`, existing work allowed, not a hackathon or in person) is one step, `code in a
-repo` (`NEEDS_CODE`, item `repo`, re-checked by the read), from a project with no live link and no repo link or an
-empty repo (L1e-6, fix round 1 T3-R1: FUTO is an idea's one remote step); when that is the step program's only change,
+repo` (`NEEDS_CODE`, item `repo`, re-checked by the read), from a project with no repo link or an
+empty repo, whatever live site it has (L16-8, v6.1.16; a repo reported private is a repo, its step `PUBLIC_REPO`) (L1e-6, fix round 1 T3-R1: FUTO is an idea's one remote step); when that is the step program's only change,
 the closing is "Tell me when the code is in a repo and I look again." and the detail's action the same (L1f-2,
 v6.1.14: no rule yes before the code exists; the rule closing reads "if that rule fits you" everywhere). v6.1.14 L1f-1:
 a program file with `open_source: true` (its rule is an open source license or open source software; `programs:check`
@@ -616,8 +626,12 @@ createJob`: an applicant repeated exactly is kept once (Low 18, v6.1.13), pitche
 numbers from 0, L15-10 v6.1.14). L15-4, L15-22, L15-23 (v6.1.14): applicant keys the screen does not read are named in
 the agent note ("Unknown applicant fields ignored: github, website."); `mergeApplicants` merges one ref given twice
 (different EarnKit ids: the later renamed and named) and one repo under two refs when both carry the same id or none
-(else kept and named); `createJob` returns `notes` with these and "Contracts left out, not read: solana (r-3)." Repo
-links on GitLab, Bitbucket, Codeberg and SSH forms (`sshAsHttps`) are kept as `repo_url` with no `repo_key`. The promise is computed from the queue (v6.1.7 B14): the unread applicants of unexpired jobs created before this
+and their sites (`live_url`, parsed and lower-cased) agree or one is missing (else kept and named: `sameRepo` for the
+ids, `siteApart` for the sites, L16-5 v6.1.16); `createJob` returns `notes` with these and "Contracts left out, not
+read: solana (r-3)." Repo links on GitLab, Bitbucket, Codeberg and SSH forms (`sshAsHttps`) are kept as `repo_url` with
+no `repo_key`. v6.1.16 L16-13, L16-8: a repo link off a code host, or a shortened repo or site link, is not stored and
+`createJob` returns it in `dropped` ("repo_url dropped: not a code host (r-1)", "live_url dropped: a shortened link
+(r-2)"), which the queue's agent note names beside the unknown fields (with `SHORT_LINK_NOTE` for a shortened one). The promise is computed from the queue (v6.1.7 B14): the unread applicants of unexpired jobs created before this
 one (`queuedAhead`) plus this job's, against `SCREEN_BATCH` per daily run: "Results come in daily runs; the first by tomorrow morning." when they fit
 in one run, else "Results come in daily runs; {n} applicants ahead of yours, all within {d} days." (L15-13). The cron's `workQueue`
 (`screen-worker.ts`) takes each applicant atomically (`reading`, free again after 30 minutes), reads it as the pilot
@@ -628,7 +642,9 @@ the third) and stores tier, flags, because, line and public rows only (`github`,
 with `outcomes` it records the program's decisions (refs not in the job are named; L15-15, L15-16 v6.1.14: a win's
 amount is `amount_usd` or `amount` with a currency code, cents allowed (`amountOf`); an unreadable amount or a US dollar
 win over the cap refuses only that applicant, "Tell me the amount for {ref}." / "That is more than this program pays
-for {ref}; check the amount.", the rest recorded; US dollars reach the ledger rounded down with the note "rounded down
+for {ref}; check the amount.", the rest recorded; a dot used as a thousands separator ("2.500", `amountOf` answers
+`'ambiguous'`) reads "Amount not read: use a dot only for cents, no thousands separator." once, the refs in the agent
+note (L16-14, v6.1.16); US dollars reach the ledger rounded down with the note "rounded down
 to whole dollars from $2,500.50", another currency as a win with no amount and the note "amount in EUR, not
 converted"; `screen_outcomes.amount_given` and `currency` keep what was given), which also reach a builder's ledger only through the
 applicant row's `application_id`: the id `track started` answered the builder's agent with a note to put it in the
