@@ -21,6 +21,12 @@ export class HttpStatusError extends SafeFetchError {
   }
 }
 
+/**
+ * The fetch could not be made: DNS, connect, the deadline, or a 5xx (v6.1.15 Task 14 fix round 2). Every other
+ * refusal is a definitive answer from the host. Same messages as before.
+ */
+export class TransportError extends SafeFetchError {}
+
 /** A 3xx response: the status and, when the server sent one, the Location header. */
 export class RedirectError extends SafeFetchError {
   constructor(
@@ -376,14 +382,14 @@ async function safeFetch(
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       controller.abort();
-      reject(new SafeFetchError(`no answer within ${timeoutMs / 1000} s`));
+      reject(new TransportError(`no answer within ${timeoutMs / 1000} s`));
     }, timeoutMs);
   });
   let close: (() => void) | undefined;
   const run = async () => {
     const addresses = await resolve(u.hostname, controller.signal);
     if (addresses.length === 0)
-      throw new SafeFetchError(`${u.hostname} doesn't resolve`);
+      throw new TransportError(`${u.hostname} doesn't resolve`);
     // Every address must be public, so no answer in the set can point inside.
     const bad = addresses.find((a) => !isPublicAddress(a.address));
     if (bad)
@@ -421,7 +427,7 @@ async function safeFetch(
       return { body: Buffer.concat(chunks), contentType: res.contentType };
     }
     if (res.status !== 200)
-      throw new SafeFetchError(`answered ${res.status}, not 200`);
+      throw new (res.status >= 500 ? TransportError : SafeFetchError)(`answered ${res.status}, not 200`);
     if (res.contentLength !== undefined && res.contentLength > maxBytes)
       throw new SafeFetchError(`larger than ${maxBytes} bytes`);
     const chunks: Uint8Array[] = [];
@@ -439,7 +445,7 @@ async function safeFetch(
   } catch (err) {
     controller.abort();
     if (err instanceof SafeFetchError) throw err;
-    throw new SafeFetchError(
+    throw new TransportError(
       `couldn't fetch it (${(err instanceof Error ? err.message : String(err)).slice(0, 120)})`,
     );
   } finally {

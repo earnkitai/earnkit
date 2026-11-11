@@ -215,19 +215,27 @@ test('fix round 1, M1: at most 30 uncached document fetches per host an hour; ov
   assert.equal(f.requests.length, 31);
   const [row] = await sql()`SELECT count FROM rate_windows WHERE key = 'cimdFetch:client.example'`;
   assert.equal(row.count, 31);
+  // Cache-busting URLs that spent the cap never stop a cached document being refetched (fix round 2).
+  let at = Date.now() + 2 * 60 * 60 * 1000;
+  const later = { ...f, now: () => at };
+  assert.equal((await authorize(`${DOC_URL}?n=1`, later)).status, 302);
+  assert.equal(f.requests.length, 32, 'a cached URL past its hour is refetched over the cap');
+  await assertFailed(await authorize(`${DOC_URL}?n=31`, later), 'a new URL is still capped');
+  assert.equal(f.requests.length, 32);
   // A refusal by the cap is not cached as the document's failure: once the window allows, it is fetched.
   await sql()`DELETE FROM rate_windows WHERE key LIKE 'cimdFetch:%'`;
   assert.equal((await authorize(`${DOC_URL}?n=30`, f)).status, 302);
-  assert.equal(f.requests.length, 32);
+  assert.equal(f.requests.length, 33);
 });
 
-test('fix round 1, M2: a failed refetch keeps the last good document for up to 24 hours; a failing check replaces it', async () => {
-  let at = 2_000_000_000_000;
+test('fix round 2: the last good document is kept up to 6 hours on transport errors only; a definitive answer withdraws it', async () => {
+  const base = 2_000_000_000_000;
+  let at = base;
   const now = () => at;
   let answer: CimdResponse = { body: doc() };
   const f = { ...cimdFixture(() => answer), now };
   assert.equal((await authorize(DOC_URL, f)).status, 302);
-  // An hour on, the document's host answers 503: the last good copy still signs builders in.
+  // An hour on, the document's host answers 503 (an outage): the last good copy still signs builders in.
   answer = { status: 503, body: {} };
   at += 60 * 60 * 1000 + 1;
   assert.equal((await authorize(DOC_URL, f)).status, 302);
@@ -236,26 +244,59 @@ test('fix round 1, M2: a failed refetch keeps the last good document for up to 2
   at += 5 * 60 * 1000 - 1;
   assert.equal((await authorize(DOC_URL, f)).status, 302);
   assert.equal(f.requests.length, 2);
-  // Then it tries again, and a timeout-like failure (here a redirect) still serves the good copy.
-  answer = { status: 302, location: 'https://public.example/x.json' };
+  // Then it tries again; a reset connection and a timeout are outages too.
+  answer = { reset: true };
   at += 2;
   assert.equal((await authorize(DOC_URL, f)).status, 302);
   assert.equal(f.requests.length, 3);
-  // Over the fetch cap, the good copy is served too, with no request.
+  // A refetch never counts on the per-host cap: with the cap spent it still goes through.
   const capped = { ...f, fetchLimit: async () => { throw new RateLimitError('cap', 60); } };
+  answer = { body: doc() };
   at += 5 * 60 * 1000;
   assert.equal((await authorize(DOC_URL, capped)).status, 302);
-  assert.equal(f.requests.length, 3);
-  // 24 hours after the last good read, the stale copy is gone: the failure page.
-  at = 2_000_000_000_000 + 24 * 60 * 60 * 1000;
-  await assertFailed(await authorize(DOC_URL, f), 'stale past 24 hours');
   assert.equal(f.requests.length, 4);
+  // 6 hours after the last good read, an outage no longer keeps the copy.
+  answer = { status: 500, body: {} };
+  const lastGood = at;
+  at = lastGood + 6 * 60 * 60 * 1000 - 1;
+  assert.equal((await authorize(DOC_URL, f)).status, 302, 'just inside 6 hours');
+  at = lastGood + 6 * 60 * 60 * 1000;
+  await assertFailed(await authorize(DOC_URL, f), 'stale past 6 hours');
 
-  // A document read but failing a check replaces the good copy at once.
+  // Definitive answers drop the good copy at once and cache the failure.
+  const withdrawals: [string, CimdResponse][] = [
+    ['404', { status: 404, body: {} }],
+    ['410', { status: 410, body: {} }],
+    ['403', { status: 403, body: {} }],
+    ['a redirect', { status: 302, location: 'https://public.example/x.json' }],
+    ['text/html', { body: doc(), contentType: 'text/html' }],
+    ['invalid JSON', { body: '{"client_id":' }],
+    ['a failed check (another client_id)', { body: doc({ client_id: 'https://other.example/cimd.json' }) }],
+    ['a failed check (EarnKit as the name)', { body: doc({ client_name: 'EarnKit' }) }],
+  ];
+  for (const [what, response] of withdrawals) {
+    clearCimdCache();
+    answer = { body: doc() };
+    assert.equal((await authorize(DOC_URL, f)).status, 302, what);
+    answer = response;
+    at += 60 * 60 * 1000 + 1;
+    await assertFailed(await authorize(DOC_URL, f), what);
+    // The failure is cached: even a good document is not read again within 5 minutes.
+    const before: number = f.requests.length;
+    answer = { body: doc() };
+    at += 5 * 60 * 1000 - 1;
+    await assertFailed(await authorize(DOC_URL, f), `${what}: cached`);
+    assert.equal(f.requests.length, before, what);
+    // After the backoff it is read again, outside the cap.
+    at += 2;
+    assert.equal((await authorize(DOC_URL, capped)).status, 302, `${what}: refetched`);
+  }
+  // A valid document with a new redirect list replaces the old one: the dropped callback is refused at once.
   clearCimdCache();
   answer = { body: doc() };
   assert.equal((await authorize(DOC_URL, f)).status, 302);
   answer = { body: doc({ redirect_uris: ['https://elsewhere.example/cb'] }) };
   at += 60 * 60 * 1000 + 1;
-  await assertFailed(await authorize(DOC_URL, f), 'changed document');
+  await assertFailed(await authorize(DOC_URL, f), 'callback withdrawn');
+  assert.equal((await authorize(DOC_URL, f, 'https://elsewhere.example/cb')).status, 302);
 });
