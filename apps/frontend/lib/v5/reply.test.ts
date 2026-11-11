@@ -1115,3 +1115,29 @@ test('L16-11 (v6.1.16): one ready program is named in the yes; several are "all 
     'L16 Rule Grant needs your demo video; then I apply. Say yes and I apply to L16 Need Grant.',
   );
 });
+
+test('L1g-5 fix round 1 (v6.1.16, I1): a below-bar tier gap, a feature and a users gap of weeks each name their step in a list closing', () => {
+  const TIER_GAP = { kind: 'tier' as const, item: 'tier:used', what: 'about 25 outside users in 90 days; I count 4', effort: 'weeks' as const, agent_can: false, details: { tier: 'live', min_tier: 'used' } };
+  const FEATURE = { kind: 'feature' as const, item: 'feature:kiro', what: 'a Kiro folder in the repo', effort: 'days' as const, agent_can: false };
+  const USERS_WEEKS = { kind: 'users' as const, item: 'users', what: 'live for 4 weeks with real users', effort: 'weeks' as const, agent_can: false };
+  const USERS_FIRST = { kind: 'users' as const, item: 'users', what: 'real users first', effort: 'weeks' as const, agent_can: false };
+  // A second line shown: a change EarnKit makes ("do 2"), so the closing still names the first program's step.
+  const codes = gap({ title: 'Base Batches', gap: { kind: 'builder_codes', item: 'builder_codes', what: 'add Base Builder Codes to the app', effort: 'minutes', agent_can: true }, n: 2 });
+  const list = (first: GapProgram) => replyText(base({ gaps: [first, codes] }), true).split('\n');
+  const tier = list(gap({ title: 'Used Grant', gap: TIER_GAP, n: 1 }));
+  assert.equal(tier[1], '1. Used Grant, $1K: about 25 outside users in 90 days; I count 4.');
+  assert.equal(tier.at(-1), 'Nothing is ready yet. Tell me when people outside the team use it live and I look again.');
+  assert.match(tier[2], /^2\. Base Batches/);
+  const feature = list(gap({ title: 'Kiro Prize', gap: FEATURE, n: 1 }));
+  assert.equal(feature[1], '1. Kiro Prize, $1K: a Kiro folder in the repo.');
+  assert.equal(feature.at(-1), 'Nothing is ready yet. Tell me when a Kiro folder in the repo is in and I look again.');
+  const weeks = list(gap({ title: 'Live Grant', gap: USERS_WEEKS, n: 1 }));
+  assert.equal(weeks.at(-1), 'Nothing is ready yet. Tell me when it has been live for 4 weeks and I look again.');
+  // No number of weeks given: the step is still named.
+  assert.equal(list(gap({ title: 'Users Grant', gap: USERS_FIRST, n: 1 })).at(-1), 'Nothing is ready yet. Tell me when real people use it and I look again.');
+  for (const x of [TIER_GAP, FEATURE, USERS_WEEKS, USERS_FIRST]) assert.notEqual(stepClause(x), null);
+  // The one-program action reads the same.
+  assert.equal(gapAction(gap({ title: 'Kiro Prize', gap: FEATURE })), 'Tell me when a Kiro folder in the repo is in and I look again.');
+  // The unlinked proof and the proof being read keep their own sentences: no clause.
+  assert.equal(stepClause({ ...TIER_GAP, what: 'proof that real people use it' }), null);
+});

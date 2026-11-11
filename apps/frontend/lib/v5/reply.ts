@@ -197,8 +197,9 @@ export const startedQuestion = (x: Gap) => x.kind === 'new_work_after' && x.effo
 
 /**
  * L1g-5 (v6.1.16): the step a gap closes on, as the clause after "Tell me when": the code in a repo, the repo public,
- * the contract on a chain, the live link, the demo video; a gap's own setup step (not a telling one) as "you {setup}";
- * else null. Pure.
+ * the contract on a chain, the live link, the demo video; fix round 1 (I1): a below-bar tier gap ("people outside the
+ * team use it live"), a feature ("{feature} is in"), a users gap of weeks ("it has been live for {n} weeks"); a gap's
+ * own setup step (not a telling one) as "you {setup}"; else null. Pure.
  */
 export function stepClause(x: Gap): string | null {
   if (x.item === 'repo') return 'the code is in a repo';
@@ -208,8 +209,20 @@ export function stepClause(x: Gap): string | null {
   if (x.kind === 'live_product') return 'the live link is up';
   if (x.kind === 'demo_video') return 'the demo video is ready';
   if (x.setup && !telling(x.setup)) return `you ${x.setup}`;
+  // Fix round 1 (I1): the three kinds with no clause get their own, so the one shape holds everywhere.
+  if (x.kind === 'tier' && !ownSentenceGap(x)) return 'people outside the team use it live';
+  if (x.kind === 'feature') return `${x.what} is in`;
+  if (x.kind === 'users' && x.effort === 'weeks') {
+    const n = weeksOf(x);
+    return n !== null ? `it has been live for ${n} weeks` : 'real people use it';
+  }
   return null;
 }
+/** The weeks a users gap asks the product to have been live, when its words say ("4 weeks"), else null. Pure. */
+const weeksOf = (x: Gap): number | null => {
+  const m = /(\d+)\s*weeks?\b/.exec(x.what);
+  return m ? Number(m[1]) : null;
+};
 
 /** L1g-5 (v6.1.16): the one closing shape for a single step: "Tell me when {step} and I look again."; a telling step
  *  ("tell me the live repo") takes the place of "when {step}". Pure. */
@@ -595,8 +608,9 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   // v6.1.13: its words make the rule likely), else the first in list order.
   // L1g-8b (v6.1.16): a program not ready for this repo (`public_first`) never lends its rule; an unlikely one (full
   // list) only when no step is shown to close on.
-  const stepShown = firstStepOf(steps) !== null;
-  const askable = steps.filter((g) => ruleOnlyGap(g) && !g.public_first && !(g.unlikely && stepShown));
+  // A `public_first` program holds the public repo gap, so it is never rule-only: `stepRuleOf` is its guard.
+  const firstStep = firstStepOf(steps);
+  const askable = steps.filter((g) => ruleOnlyGap(g) && !(g.unlikely && firstStep !== null));
   const firstRule = (askable.find((g) => g.keyword_hit) ?? askable[0])?.n ?? null;
   const named = namedBefore(r);
   // One condition for the heading and the closing: the agent sends tonight (never unlinked, where auto_apply is false).
@@ -618,7 +632,6 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   const namedInClosing = new Set(tonight > 0 ? [] : waits.map((p) => p.program_id));
   if (ready.length > 0) blocks.push([`Ready to apply (${ready.length}):`, ...ready.map((p) => readyLine(p, r.linked, now, false, named, namedInClosing.has(p.program_id)))].join('\n'));
   // Fix round 1 (v6.1.14, I1): a gap's own step the closing names is left off the lines.
-  const firstStep = firstStepOf(steps);
   const stepRule = stepRuleOf(steps);
   const closed = tonight > 0 ? null : closingSetup({ ready: free.length, held: ready.length - free.length + heldInPerson, gaps: steps.length, firstRule, stepRule, firstStep });
   if (steps.length > 0) blocks.push([`One step away (${steps.length}):`, ...steps.map((g) => gapLine(g, false, closed))].join('\n'));
