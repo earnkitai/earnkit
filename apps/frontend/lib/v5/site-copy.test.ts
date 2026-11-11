@@ -75,7 +75,7 @@ test('the docs say the seven sections and stay short', () => {
   assert.deepEqual(copy.DOCS_NAV.map(([href]) => href).slice(2, 4), ['#record', '#screening']);
   const words = [copy.DOCS_INSTALL_TITLE, copy.DOCS_SESSION.title, copy.DOCS_SESSION.text, copy.DOCS_RECORD.title, copy.DOCS_RECORD.text, copy.DOCS_SCREEN.title, copy.DOCS_SCREEN.text, copy.DOCS_CHECKED.title, copy.DOCS_CHECKED.text, copy.DOCS_TERMS.title, copy.DOCS_TERMS.text]
     .join(' ').split(/\s+/).filter(Boolean).length;
-  // #15 (v6.1.15): the ruled tier glosses add 30 words to the screening text (223 now); the cap moves from 220 to 230.
+  // #15 (v6.1.15): the ruled tier glosses add 36 words to the screening text (223 now); the cap moves from 220 to 230.
   assert.ok(words < 230, `docs copy is ${words} words`);
   assert.equal(copy.DOCS_RECORD.text, 'Sign in once with GitHub and your agents share one record: your facts, links, documents and the answers you approved. Once you are signed in, nothing is sent that you did not approve. Delete it any time. Ask your agent for your sign-in link.');
   assert.equal(copy.DOCS_SCREEN.text, "Hand your applicant list to your agent and EarnKit sorts it into five tiers with public evidence: used (people outside the team use it), live (a site that loads, or a contract in use), building (recent code), unverified (nothing public we could check) and flagged (looks copied, or most of its users are wallets the team funded itself). We read the repo, the chain and the site. We never show a builder's record, another program's name, screens or results, or another applicant's text. A program's reviewers share its screens, and they stay with the program when a reviewer leaves.");
