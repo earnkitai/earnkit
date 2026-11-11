@@ -3,6 +3,7 @@
  * linked), the repo facts, the agent (prose with sources), the builder (files, consents, handles).
  * EarnKit writes no prose. `facts_from_repo` counts only values the code read gave, never anything the agent passed. Pure.
  */
+import { moneyText } from './programs-read';
 import { STYLE_CONTRACT } from '../v6/answer-brief';
 import { answerFor, isApproved, type BuilderRecord } from '../v6/record';
 import { chainName } from './chains';
@@ -151,7 +152,6 @@ function sourcesOf(facts: RepoFacts, guidance: string | undefined): string[] {
 export type RecordContext = { record: BuilderRecord; projectId: string | null; verifiedUsage: string | null };
 type FromRecord = { value: string; prose: boolean } | null;
 
-const usd = (n: number) => '$' + Math.round(n).toLocaleString('en-US');
 const isProse = (kind: string) => kind === 'how_it_works' || (ANSWER_KINDS as readonly string[]).includes(kind);
 
 /** A contact field from the record's person: name (first, last or whole), email and X; other handles stay the builder's. */
@@ -186,7 +186,7 @@ function recordValue(r: SubmissionRequirement, rec: RecordContext): FromRecord {
     case 'raised': {
       if (!isApproved(record, 'company.raised')) return null;
       const { raised_usd, raised_from } = record.company;
-      return fact([raised_usd !== undefined ? usd(raised_usd) : null, raised_from ? `from ${raised_from}` : null].filter(Boolean).join(' ') || null);
+      return fact([raised_usd !== undefined ? moneyText(raised_usd) : null, raised_from ? `from ${raised_from}` : null].filter(Boolean).join(' ') || null);
     }
     case 'traction':
       if (rec.verifiedUsage) return { value: rec.verifiedUsage, prose: false };

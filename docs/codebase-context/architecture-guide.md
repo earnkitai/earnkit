@@ -240,7 +240,7 @@ win with an amount over a win with one (L15-17, T8-F1 v6.1.14): marked a further
 amount is a correction that replaces it ("Tracked: ${n} from {title}. Replaced the earlier amount."; one save verb, Tracked, v6.1.15 #8). Before v6.1.16 track keys
 were stored as `t:<key>` and screen keys as `s:<key>`; from v6.1.16 both are stored bare and match the old ones. A program that is not open cannot be started
 ("{title} is not open; nothing to start."), and an already sent one says it was sent before that check. A win is
-capped at the program's `max_award_usd`, else its `pool_usd`, else 10,000,000, in whole dollars. A result for a
+capped at the program's `max_award_usd`, else its `pool_usd`, else 10,000,000; cents kept, another currency converted for the check only (`overCap`, compared on the given value before it is rounded to the cent). A result for a
 program gone from the catalog keeps the title stored when it was sent. Another agent's live claim leaves the program
 out of tonight's count (N) and is shown as being handled by the other agent; an agent's own claim counts toward N.
 v6.1.14 L13-9: tonight's list is computed once per find over every ready program, acted-on first (`tonightAll` in

@@ -70,9 +70,9 @@ export type ListedProgram = {
   max_award_usd: number;
 };
 
-/** A number with en-US grouping, cents only when it has them ("5,000", "2,500.50"). Pure. */
+/** A number with en-US grouping, cents only when it has them to the cent ("5,000", "2,500.50"; 10000.004 reads "10,000"). Pure. */
 const grouped = (n: number): string =>
-  n.toLocaleString('en-US', { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 });
+  n.toLocaleString('en-US', { minimumFractionDigits: Number.isInteger(Math.round(n * 100) / 100) ? 0 : 2, maximumFractionDigits: 2 });
 
 /**
  * The one money format (lane 22, v6.1.15; currencies and cents, L22-14 v6.1.16): US dollars as `$5,000` or `$2,500.50`

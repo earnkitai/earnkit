@@ -37,3 +37,8 @@ test('L22-4, L22-5 (v6.1.16): the cap compares the given amount before rounding;
   for (const [code, rate] of Object.entries(CAP_RATES)) assert.ok(rate > 0, code);
   assert.ok(CAP_RATES.EUR >= 1.2 && CAP_RATES.GBP >= 1.4);
 });
+
+test('M2 (v6.1.16 Task 8 fix round 1): the reader keeps the given value unrounded, so the cap reads it first', () => {
+  assert.deepEqual(readAmount({ amount: '10000.004' }), { value: 10000.004, currency: 'USD' });
+  assert.equal(overCap(10000.004, 'USD', 10_000), true);
+});

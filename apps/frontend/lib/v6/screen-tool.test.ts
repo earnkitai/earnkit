@@ -729,3 +729,18 @@ test('L22-12 (v6.1.16): a results page carries each applicant\'s posted result a
   const row = (res.reply!.results as { applicants: { ref: string; result: string | null; amount: string | null }[] }).applicants.find((a) => a.ref === 'm')!;
   assert.deepEqual([row.result, row.amount], ['won', '$2,500.50']);
 });
+
+test('M2 (v6.1.16 Task 8 fix round 1): 10000.004 on a $10,000 cap is refused on track and on the screen; the cap reads before rounding', async () => {
+  const { b, post } = await sentTo(['m2-a', 'm2-b'], 10_000);
+  for (const amount of [10000.004, '10000.004']) {
+    const s = await post('m2-a', [{ outcome: 'won', amount }]);
+    assert.equal(s.reply.show_to_builder, "Recorded 0 outcomes. Over the program's $10,000 cap: m at $10,000. Nothing recorded for it.");
+  }
+  for (const args of [{ amount_usd: 10000.004 }, { amount: '10000.004' }]) {
+    const t = await mcpCall(b, 'track', { program_id: 'm2-b', status: 'won', ...args });
+    assert.equal(t.reply!.show_to_builder, "Over the program's $10,000 cap; nothing recorded.");
+  }
+  assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${b.builderId}`} AND program_id = 'm2-b'`)[0].status, 'applied');
+  // Under the cap a sub-cent amount is stored to the cent.
+  assert.equal((await mcpCall(b, 'track', { program_id: 'm2-b', status: 'won', amount_usd: 9999.994 })).reply!.show_to_builder, 'Tracked: $9,999.99 from Grants m2-b.');
+});

@@ -512,3 +512,25 @@ test('M4: a need_you item reads the need word (Z Fellows problem)', () => {
   const zf = ProgramFile.parse(JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/z-fellows.json'), 'utf8')));
   assert.equal(needOf(zf.submission_requirements.find((r) => r.key === 'problem')!), 'problem statement');
 });
+
+test('M1 (v6.1.16 Task 8 fix round 1): money raised keeps its cents ($1,500.50), through the one formatter', async () => {
+  const facts = await factsOf('earnkit');
+  const record = recordWith(
+    {
+      team: [{ name: 'Jenil', role: 'founder' }, { name: 'Ada' }],
+      company: { raised_usd: 1500.5, raised_from: 'angels' },
+      projects: [{ id: 'earnkit', repo_url: 'https://github.com/jenil/earnkit', live_url: 'https://earnkit.com', answers: { solution: { text: 'Project solution.' } } }],
+      answers: { solution: { text: 'Record solution.' } },
+    },
+    ['company.raised', 'answers.solution', 'projects.earnkit.answers.solution'],
+  );
+  const row = rowWith([
+    req({ key: 'team', label: 'Team', type: 'text', kind: 'team', todo: 'the team' }),
+    req({ key: 'raised', label: 'Raised so far', type: 'text', kind: 'raised', todo: 'money raised' }),
+    req({ key: 'links', label: 'Links', type: 'text', kind: 'links', todo: 'links' }),
+    req({ key: 'how', label: 'How it works', type: 'text', kind: 'how_it_works', todo: 'how it works' }),
+  ]);
+  const by = Object.fromEntries(prefill(row, facts, { record, projectId: 'earnkit', verifiedUsage: null }).fields.map((f) => [f.key, f]));
+  assert.equal(by.team.value, 'Jenil (founder), Ada');
+  assert.equal(by.raised.value, '$1,500.50 from angels');
+});

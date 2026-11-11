@@ -44,7 +44,6 @@ export function readAmount(o: { amount_usd?: number; amount?: number | string; c
       code = word;
     }
     value = Number(`${m[2].replace(/,/g, '')}${m[3] ?? ''}`) * (m[4] ? 1000 : 1);
-    value = Math.round(value * 100) / 100;
   }
   if (!(Number.isFinite(value) && value > 0)) return 'bad';
   return { value, currency: code ?? 'USD' };

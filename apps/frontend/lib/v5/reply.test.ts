@@ -356,6 +356,9 @@ test('the "Before applying" paragraph groups the sign-ins, names the clicks and 
   // L13-10 (v6.1.14): over the builder's limit, the reason is named.
   const over = base({ ...free, record_missing: [], blockers: [{ program_id: 'av', sign_in: null, needs_click: false, needs: [], outside_approval: true, over_limit_usd: 10_000 }] });
   assert.ok(replyText(over, false).split('\n\n').includes("The sends go ahead. These would add 1 more: you say yes yourself to Avalanche Team1, over your $10,000 limit."), replyText(over, false));
+  // M1 (v6.1.16 Task 8 fix round 1): the limit through the one formatter, cents kept.
+  const cents = base({ ...free, record_missing: [], blockers: [{ program_id: 'av', sign_in: null, needs_click: false, needs: [], outside_approval: true, over_limit_usd: 1500.5 }] });
+  assert.ok(replyText(cents, false).includes('over your $1,500.50 limit.'), replyText(cents, false));
   const note = agentNote(LINKED, { more: 0 });
   assert.ok(note.includes('Fit approved answers by cutting, never by adding; the style contract travels on each field.'));
   // The Before block names the sign-ins and the submits; the note does not repeat them, nor the submit rule (v6.1.8).

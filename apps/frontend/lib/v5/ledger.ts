@@ -193,7 +193,9 @@ export async function record(
   }
   if (status === 'gap_done' && !o.item) return { ok: false, note: WHICH_CHANGE };
   if (status === 'started') throw new Error('a claim is written by claims.claim');
-  const value = status === 'won' && !noAmount ? Math.round(given!.value * 100) / 100 : null;
+  // L22-5 (v6.1.16, fix round 1): the cap reads the given value; it is rounded to the cent only to be stored.
+  const givenValue = status === 'won' && !noAmount ? given!.value : null;
+  const value = givenValue === null ? null : Math.round(givenValue * 100) / 100;
   const cap = winCapOf(program);
   const note = noAmount ? o.note ?? AMOUNT_NOT_GIVEN : o.note ?? null;
   let repeated = false;
@@ -222,7 +224,7 @@ export async function record(
     const money: Amounts | null = value === null ? null : { [currency]: value };
     // L22-4, L22-5 (v6.1.16): the given amount against the cap, before any rounding; another currency converted for the check only.
     const overNote = { ok: false, note: OVER_CAP(cap), ...(!comparable(currency) && { agent_note: UNKNOWN_CURRENCY_NOTE }) } as const;
-    if (value !== null && overCap(value, currency, cap)) return overNote;
+    if (givenValue !== null && overCap(givenValue, currency, cap)) return overNote;
     // L13-13 (v6.1.14): a win kept without its amount takes the amount once; nothing else replaces a result.
     const completes = row?.status === 'won' && kept === null && status === 'won' && money !== null;
     // T8-F1 (v6.1.14): a payment key already kept for this application changes nothing (a retried call).
@@ -251,7 +253,7 @@ export async function record(
     const adds = bothWon && paymentKey !== null;
     if (adds) {
       total = plusAmount(kept, value, currency);
-      if (amountsOverCap(total, cap)) return overNote;
+      if (amountsOverCap({ ...kept, [currency]: (kept?.[currency] ?? 0) + givenValue! }, cap)) return overNote;
     }
     // The same result: the same status and money (a win kept with no amount also by its note).
     const same = hasResult && row.status === status && sameAmounts(row.status === 'won' ? kept : null, money)

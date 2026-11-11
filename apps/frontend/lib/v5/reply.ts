@@ -3,6 +3,7 @@
  * `agentNote` (what the agent does next). In-person programs get their own block after ready and
  * gaps, with their setup, and are never in the count to apply to. Linked, the record's blocks follow. Pure.
  */
+import { moneyText } from './programs-read';
 import { EVIDENCE_NOT_READ, NO_RECORD_PROJECT, isConfirmWhat, isProofReadingWhat, listWords, signInSentence } from '../v6/reply-words';
 import { NEEDS_CODE, rulesOnly, type Gap } from './eligibility';
 import { chainName } from './chains';
@@ -60,7 +61,6 @@ export const clock = (iso: string, now: Date) => {
 };
 
 /** "$25,000". Pure. */
-const dollars = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
 
 /** "a, b and c". Pure. */
 const joinAnd = (xs: string[]): string => (xs.length <= 1 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
@@ -394,7 +394,7 @@ function beforeTonight(r: R, tonight: number): string | null {
     }
     const yes = [
       ...(plainOutside.length > 0 ? [`you say yes yourself to ${listWords(plainOutside, plainOutside.length)}`] : []),
-      ...[...overBy].filter(([, t]) => t.length > 0).map(([cap, t]) => `you say yes yourself to ${listWords(t, t.length)}, over your ${dollars(cap)} limit`),
+      ...[...overBy].filter(([, t]) => t.length > 0).map(([cap, t]) => `you say yes yourself to ${listWords(t, t.length)}, over your ${moneyText(cap)} limit`),
     ];
     const steps = [...clauses, ...yes];
     const more = new Set([...groups.values(), outside].flat()).size;
