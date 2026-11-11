@@ -157,7 +157,7 @@ export const AGENTS: Agent[] = [
       'In claude.ai or the desktop app, open "Customize", then "Connectors".',
       'Choose "+ Add", then "Add custom connector".',
       'Name it EarnKit, paste the EarnKit link, choose "Continue".',
-      'Keep the connection settings it detected and choose "Continue" again.',
+      'Choose Sign in now.',
       'Choose "Add".',
       'In a chat, choose "+", then "Connectors", and turn EarnKit on.',
     ],

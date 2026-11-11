@@ -263,7 +263,7 @@ client_id that is an https URL is a client ID metadata document (CIMD, v6.1.15 T
 its `client_id` to equal the URL, lists the redirect URIs (at most 10) and takes `client_name` through `clientNameOf`
 and `reservedClientName`; cached in process 1 hour when good and 5 minutes when not (1,000 URLs). Any failed check
 shows only "Connecting EarnKit failed. Your agent's client document could not be read." (`CIMD_FAILED`). Its
-installs count against `client:host:{document host}`; the metadata advertises `client_id_metadata_document_supported`. A
+installs count against `client:host:{document host}:{address block}` after the per-address and per-block floors (no ceiling shared by every user of one document); the metadata advertises `client_id_metadata_document_supported`. A
 many-builder hosted registration gets no client key. Every register and token request counts on the one per-IP floor
 (an hour) and on its address block's daily cap (v6.1.13 B1: IPv4 /16, IPv6 /48, `blockOf` in `rate-limit.ts`; 5,000
 registrations, `oauthRegisterBlock`, and 5,000 installs, `installBlock`, a day, so one hosted vendor's /16 can still

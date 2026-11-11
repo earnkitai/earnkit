@@ -174,7 +174,7 @@ test('a signed (registered) client_id still authorizes and exchanges unchanged, 
   assert.equal(f.requests.length, 0);
 });
 
-test('limits: two client documents on one host count against one client key', async () => {
+test('limits: two client documents on one host count against one client key per address block; another block has its own', async () => {
   const host = `shared${Math.floor(Math.random() * 1e9)}.example`;
   const a = `https://${host}/a.json`;
   const b = `https://${host}/b.json`;
@@ -183,9 +183,17 @@ test('limits: two client documents on one host count against one client key', as
   const f = cimdFixture((u) => ({ body: doc({}, u.href) }));
   for (const id of [a, b]) {
     const code = new URL((await authorize(id, f)).headers.get('location')!).searchParams.get('code')!;
-    assert.equal((await token(id, code, f)).status, 200);
+    assert.equal((await token(id, code, f, `10.62.1.${Math.floor(Math.random() * 250)}`)).status, 200);
   }
-  // The claude.ai callback is a hosted service's, so the hosted ceiling applies, keyed by the document's host.
-  const rows = await sql()<{ key: string; count: number }[]>`SELECT key, count FROM rate_windows WHERE key LIKE ${'%' + host}`;
-  assert.deepEqual(rows.map((r) => [r.key, r.count]), [[`installClientHosted:client:host:${host}`, 2]]);
+  const code = new URL((await authorize(a, f)).headers.get('location')!).searchParams.get('code')!;
+  assert.equal((await token(a, code, f, '10.63.1.1')).status, 200);
+  // The claude.ai callback is a hosted service's, so the hosted ceiling applies, keyed by document host and block;
+  // the per-address and per-block floors counted first.
+  const rows = await sql()<{ key: string; count: number }[]>`SELECT key, count FROM rate_windows WHERE key LIKE ${'%client:host:' + host + '%'} ORDER BY key`;
+  assert.deepEqual(rows.map((r) => [r.key, r.count]), [
+    [`installClientHosted:client:host:${host}:10.62.0.0/16`, 2],
+    [`installClientHosted:client:host:${host}:10.63.0.0/16`, 1],
+  ]);
+  assert.equal((await sql()`SELECT 1 FROM rate_windows WHERE key = 'installHour:10.63.1.1'`).length, 1);
+  assert.equal((await sql()`SELECT 1 FROM rate_windows WHERE key = 'installBlock:10.63.0.0/16'`).length, 1);
 });

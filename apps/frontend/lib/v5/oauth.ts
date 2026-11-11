@@ -163,7 +163,8 @@ export const clientKeyOf = (clientId: string) => createHash('sha256').update(cli
 
 /**
  * What a new installation counts against besides its IP: its own registration, or for a client ID metadata document
- * the document's host (`client:host:{host}`), so one hosted service's users share one per-client ceiling. Pure.
+ * the document's host (`client:host:{host}`; tokenPost adds the caller's address block, so no ceiling is shared by
+ * every user of one document). Pure.
  */
 export const registrationLimitKey = (clientId: string) =>
   isCimdClientId(clientId) ? `client:host:${new URL(clientId).host}` : `client:${clientKeyOf(clientId)}`;

@@ -147,7 +147,7 @@ test('the OpenClaw and Claude connect steps match their docs', async () => {
     'In claude.ai or the desktop app, open "Customize", then "Connectors".',
     'Choose "+ Add", then "Add custom connector".',
     'Name it EarnKit, paste the EarnKit link, choose "Continue".',
-    'Keep the connection settings it detected and choose "Continue" again.',
+    'Choose Sign in now.',
     'Choose "Add".',
     'In a chat, choose "+", then "Connectors", and turn EarnKit on.',
   ]);
@@ -156,7 +156,7 @@ test('the OpenClaw and Claude connect steps match their docs', async () => {
     assert.ok(!/Register automatically|OAuth client/i.test(text), `${name}: no OAuth client step`);
   }
   assert.ok(LLMS_TEXT.includes(`- Claude: ${claude.steps.join(' ')}`), 'llms: the Claude block is the tab\'s steps');
-  assert.ok(readFileSync(join(ROOT, 'README.md'), 'utf8').includes('Continue, Continue again, Add'), 'README: the Claude row');
+  assert.ok(readFileSync(join(ROOT, 'README.md'), 'utf8').includes('Continue, Sign in now, Add'), 'README: the Claude row');
 });
 
 test('every copy of the connect steps carries the approve and reload steps', () => {
@@ -178,7 +178,11 @@ test('no install copy mentions signing in, X, GitHub or a wallet', async () => {
   const BAD = /sign in|sign-in|x\.com|github|wallet/i;
   const all = [...AGENTS.flatMap((a) => strings(a.name, [a.note, a.installNote, a.stepsLead, a.message, a.code, a.after, a.afterCode, a.last, a.steps])), ...strings('docs', copy.DOCS_STEPS), ['prompt', GROK_BOT_PROMPT] as [string, string], ['muse', MUSE_MESSAGE] as [string, string]];
   assert.ok(all.length > 20);
-  for (const [name, s] of all) assert.ok(!BAD.test(s), `${name}: "${s}"`);
+  // v6.1.15 Task 14: Claude's own button label, Sign in now, is the one exception (its client document signs in); no
+  // other line asks the builder to sign in.
+  const claudeButton = ([name, s]: [string, string]) => name === 'Claude' && s === 'Choose Sign in now.';
+  assert.equal(all.filter(claudeButton).length, 1);
+  for (const [name, s] of all.filter((x) => !claudeButton(x))) assert.ok(!BAD.test(s), `${name}: "${s}"`);
   // R6: the authorize endpoint approves at once (a 302 with the code), so no copy asks the builder to approve a page.
   for (const [name, s] of all) assert.ok(!s.includes('Approve it when the page opens'), `${name}: "${s}"`);
   // Said once, in the intro line above the tabs, never again in a tab (lane 5, 2).

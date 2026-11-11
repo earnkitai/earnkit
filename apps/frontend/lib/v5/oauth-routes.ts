@@ -65,7 +65,10 @@ export async function tokenPost(request: Request, deps: TokenDeps = {}) {
         limit = 'installBlock';
         await enforceBlock('installBlock', ip);
         limit = hostedHost ? 'installClientHosted' : 'installClient';
-        await enforce(limit as 'installClient' | 'installClientHosted', limitKey, TOO_MANY_CLIENT);
+        // A client document is one client for all its users (claude.ai's is everyone's), so its ceiling is per
+        // document host and address block: one network never spends another's installs (v6.1.13 B1, v6.1.15 Task 14).
+        const key = limitKey.startsWith('client:host:') ? `${limitKey}:${blockOf(ip)}` : limitKey;
+        await enforce(limit as 'installClient' | 'installClientHosted', key, TOO_MANY_CLIENT);
       } catch (err) {
         if (err instanceof RateLimitError) logLimited('token', limit, hostedHost ? `host:${hostedHost}` : limitKey);
         throw err;
