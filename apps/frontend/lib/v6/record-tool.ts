@@ -15,7 +15,9 @@ import { createLinkCode } from './link-routes';
 import { DELETED_NOTICE, listWords, signInLine } from './reply-words';
 
 export { listWords, signInLine };
-import { APPROVABLE, type BuilderRecord, KIND_WORDS, mergeRecord, recordItems } from './record';
+import { APPROVABLE, type BuilderRecord, KIND_WORDS, allowedKey, mergeRecord, recordItems } from './record';
+import { quoteName } from '../v5/controls';
+import { ME_VALUE_WORDS } from '../v5/site-copy';
 
 export const RecordInput = z
   .object({
@@ -122,20 +124,33 @@ export function refusedWords(problem: string): string {
   const parts = path.split('.');
   const answer = /(^|\.)answers\.([a-z_]+)/.exec(path)?.[2];
   const leaf = parts.filter((x) => x !== 'text' && !/^\d+$/.test(x)).at(-1) ?? path;
+  const project = parts[0] === 'projects' && leaf !== 'projects' ? 'project ' : '';
+  const known = answer && allowedKey(KIND_WORDS, answer) ? KIND_WORDS[answer as keyof typeof KIND_WORDS] : null;
   const what =
     path === 'set' ? 'what was sent'
-    : answer && Object.hasOwn(KIND_WORDS, answer) ? `the answer on ${KIND_WORDS[answer as keyof typeof KIND_WORDS]}`
-    : `${parts[0] === 'projects' && leaf !== 'projects' ? 'project ' : ''}${LEAF_WORDS[leaf] ?? leaf.replace(/_/g, ' ')}`;
-  if (why === 'not a field') return `${what} is not something I keep`;
+    : known ? `the answer on ${known}`
+    // L24-5 (v6.1.16 Task 11): own keys only, so an inherited name never reads as JavaScript.
+    : `${project}${allowedKey(LEAF_WORDS, leaf) ? LEAF_WORDS[leaf] : leaf.replace(/_/g, ' ')}`;
+  // L24-5: a key EarnKit does not keep is named as sent, quoted and cleaned.
+  if (why === 'not a field') return `${project}${quoteName(leaf)} is not something I keep`;
+  // L24-21 (v6.1.16 Task 11): a refusal for length names the limit, in /me's words.
+  const max = /^Too big: expected string to have <=(\d+) characters$/.exec(why)?.[1];
+  if (max) return `${known ?? what} is ${ME_VALUE_WORDS.under(Number(max))}`;
   if (why.startsWith('set by EarnKit')) return `${what} is set by EarnKit only`;
   if (why.startsWith('set by the builder')) return `${what} is yours to set on earnkit.com/me`;
   return `${what} was not valid`;
 }
 
+/** L24-16 (v6.1.16 Task 11): the one refusal for an agent setting standing approval, whatever the spelling. */
+export const STANDING_APPROVAL_YOURS = 'standing approval is yours to set on earnkit.com/me';
+
 /** "Tracked 2 facts.", "Tracked 1 fact; 1 not saved: email was not valid." (one save verb, v6.1.15 #8), "Not saved: ..." (only when nothing was, v6.1.8 N1),
  *  "Nothing new to save." (C29). Pure. */
 export function savedLine(saved: number, problems: string[], secrets: number): string {
-  const reasons = [...problems.map(refusedWords), ...(secrets > 0 ? [secrets === 1 ? 'one looked like a secret' : `${secrets} looked like secrets`] : [])];
+  // L24-16 (v6.1.16 Task 11): any policy-shaped key (policy, Policy, policy.auto_apply, a nested policy) is one line.
+  const policyShaped = (p: string) => /policy/i.test(p.slice(0, Math.max(0, p.indexOf(': ')) || p.length));
+  const policy = problems.some(policyShaped) ? [STANDING_APPROVAL_YOURS] : [];
+  const reasons = [...policy, ...problems.filter((p) => !policyShaped(p)).map(refusedWords), ...(secrets > 0 ? [secrets === 1 ? 'one looked like a secret' : `${secrets} looked like secrets`] : [])];
   const refused = problems.length + secrets;
   const kept = `Tracked ${saved} ${saved === 1 ? 'fact' : 'facts'}`;
   if (saved > 0) return refused > 0 ? `${kept}; ${refused} not saved: ${listWords(reasons)}.` : `${kept}.`;

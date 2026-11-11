@@ -132,6 +132,11 @@ const issue = (path: string, err: z.ZodError) => {
   return bad(i.path.length ? `${path}.${i.path.join('.')}` : path, i.message);
 };
 const EARNKIT_ONLY = new Set(['evidence_read_at', 'last_tier']);
+/**
+ * L24-5 (v6.1.16 Task 11): whether `key` is one of `obj`'s own keys, never an inherited name (__proto__, constructor,
+ * toString): every record reader and word lookup goes through it. Pure.
+ */
+export const allowedKey = (obj: object, key: string): boolean => Object.hasOwn(obj, key);
 /** company.raised_usd and raised_from share one path. */
 const metaPath = (path: string) => (path === 'company.raised_usd' || path === 'company.raised_from' ? 'company.raised' : path);
 
@@ -150,7 +155,7 @@ function mergeFields(cur: { [k: string]: unknown }, patch: unknown, shape: z.Zod
       continue;
     }
     // Own keys only: an inherited name (__proto__, constructor, toString) is not a field (security L1).
-    const schema = Object.hasOwn(shape, key) ? (shape[key] as z.ZodType) : undefined;
+    const schema = allowedKey(shape, key) ? (shape[key] as z.ZodType) : undefined;
     if (!schema) {
       problems.push(bad(path, 'not a field'));
       continue;
@@ -268,7 +273,7 @@ export function mergeRecord(current: BuilderRecord, patch: unknown, by: By, now:
     if (key === 'meta' || key === 'evidence_read_at') problems.push(bad(key, 'set by EarnKit only'));
     // Standing approval and its limits are the builder's consent, given on /me only.
     else if (key === 'policy' && by === 'agent') problems.push(bad('policy', 'set by the builder on earnkit.com/me only'));
-    else if (Object.hasOwn(BLOCKS, key)) {
+    else if (allowedKey(BLOCKS, key)) {
       const block = BLOCKS[key as keyof typeof BLOCKS];
       leaves.push(...mergeFields(rec[key as keyof typeof BLOCKS] as { [k: string]: unknown }, value, block.shape, key, problems));
     } else if (key === 'team') {

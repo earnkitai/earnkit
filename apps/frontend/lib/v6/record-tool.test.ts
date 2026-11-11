@@ -305,3 +305,34 @@ test('#8 (v6.1.15): one save verb, Tracked, with what was kept; the refusals kee
   assert.equal(savedLine(0, ['person.email: not valid'], 0), 'Not saved: email was not valid.');
   assert.equal(savedLine(0, [], 0), 'Nothing new to save.');
 });
+
+// v6.1.16 Task 11 (lane 24).
+
+test('L24-5, L24-16: inherited names and every policy spelling are refused in plain words; the policy stays off', async () => {
+  const c = await linked();
+  const set = JSON.parse('{"__proto__":{"policy":{"auto_apply":true}},"constructor":{"policy":{"auto_apply":true}},"Policy":{"auto_apply":true},"policy.auto_apply":true,"policy":{"auto_apply":true}}');
+  const r = await mcpCall(c, 'record', { set });
+  const show = r.reply!.show_to_builder as string;
+  assert.match(show, /^Not saved: standing approval is yours to set on earnkit\.com\/me, "__proto__" is not something I keep and "constructor" is not something I keep\. /);
+  assert.equal(show.match(/standing approval/g)?.length, 1);
+  assert.doesNotMatch(show, /\[object Object\]|native code|function/);
+  assert.equal((await getRecord(c.builderId)).policy.auto_apply, false);
+  assert.equal(savedLine(0, ['projects.p1.policy: not a field'], 0), 'Not saved: standing approval is yours to set on earnkit.com/me.');
+});
+
+test('L24-21: a refusal for length names the limit; a NUL in prose is dropped and the field saves', async () => {
+  const c = await linked();
+  const r = await mcpCall(c, 'record', { set: { answers: { risks: { text: 'x'.repeat(2_100) } } } });
+  assert.match(r.reply!.show_to_builder as string, /^Not saved: risks is at most 2,000 characters\. /);
+  const p = await mcpCall(c, 'record', { set: { person: { bio: 'Hi\u0000there ‮builder', location: 'Pu\u0000ne' } } });
+  assert.match(p.reply!.show_to_builder as string, /^Tracked 2 facts\. /);
+  const rec = await getRecord(c.builderId);
+  assert.equal(rec.person.bio, 'Hithere builder');
+  assert.equal(rec.person.location, 'Pune');
+});
+
+test('L24-5: refusedWords never reads an inherited name', () => {
+  assert.equal(refusedWords('__proto__: not a field'), '"__proto__" is not something I keep');
+  assert.equal(refusedWords('toString: bad'), 'toString was not valid');
+  assert.equal(refusedWords('person.constructor: not a field'), '"constructor" is not something I keep');
+});
