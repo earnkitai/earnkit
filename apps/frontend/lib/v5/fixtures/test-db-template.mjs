@@ -43,6 +43,10 @@ const alive = (pid) => {
  * leftover ek_t_* databases whose process is gone (a crashed earlier run); nothing else. Serialized by an
  * advisory lock, so concurrent first files wait for one build.
  */
+/** The clock the template's catalog sync reads: the tests' own NOW, so a close date passing in real time never
+ *  closes a program the tests read as open (Monad Blitz Oregon closed at 2026-11-11T07:59Z). */
+const SYNC_NOW = '2026-11-04T12:00:00Z';
+
 export async function buildTemplate(adminUrl, { fresh = false, ifMissing = false } = {}) {
   assertLocalPostgres(adminUrl);
   const schema = readFileSync(join(FRONTEND, 'db', 'schema.sql'), 'utf8');
@@ -72,7 +76,7 @@ export async function buildTemplate(adminUrl, { fresh = false, ifMissing = false
       await db.end();
     }
     execFileSync('pnpm', ['-s', 'exec', 'tsx', join(FRONTEND, 'scripts', 'programs-sync.mts')], {
-      cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'], env: { ...process.env, DATABASE_URL: at(adminUrl, TEMPLATE_NAME) },
+      cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'], env: { ...process.env, DATABASE_URL: at(adminUrl, TEMPLATE_NAME), EARNKIT_SYNC_NOW: SYNC_NOW },
     });
     // Tagged last: a build that died half way is not a valid template, so the next use rebuilds it.
     await admin.unsafe(`COMMENT ON DATABASE "${TEMPLATE_NAME}" IS '${templateTag}'`);

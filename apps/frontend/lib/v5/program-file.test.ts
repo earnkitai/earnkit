@@ -214,7 +214,7 @@ test('v6.1.14 catalog truth: Thiel has no repo bar; money lines never show a thr
   const arb = ProgramFile.parse(read('arbitrum-stablecoin-growth-program.json'));
   assert.equal(reply(arb), 'incentives, plus 200,000 ARB for the first 10 teams');
   assert.equal(moneyOf(arb), 'Incentives, plus 200,000 ARB for the first 10 teams');
-  assert.ok(arb.rules.some((r) => r.includes('$10M of USDG TVL')));
+  assert.ok(arb.rules.some((r) => r.includes('$10,000,000 of USDG TVL')));
 
   const lido = ProgramFile.parse(read('lido-lego-grants.json'));
   assert.equal(moneyOf(lido), 'Up to $100,000 by tier, more by DAO vote');

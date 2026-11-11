@@ -45,3 +45,10 @@ test('Task 1 N1 (v6.1.15 fix round 1, M3): the program write lints a requirement
   const bad = apiTextProblems({ ...base, submission_requirements: [{ ...req, need: 'Kiro\u202ewrite-up' }] });
   assert.ok(bad.some((p) => p.startsWith('submission_requirements.0.need:')), JSON.stringify(bad));
 });
+
+test('FR-6 (v6.1.15): rules and eligibility notes in K or M are refused; the catalog\'s rules are in full figures', () => {
+  const NOW = new Date('2026-11-11T00:00:00Z');
+  assert.deepEqual(programProblems(programFixture({ id: 'p-rule-k', rules: ['Deal: up to $1M on a SAFE.'] }), NOW), ['rules.0: money must be in full figures ("$1,000,000", never "$1M")']);
+  assert.deepEqual(programProblems(programFixture({ id: 'p-note-k', eligibility: [{ kind: 'users', note: 'at least $1M in balances' }] }), NOW), ['eligibility.0.note: money must be in full figures ("$1,000,000", never "$1M")']);
+  assert.deepEqual(programProblems(programFixture({ id: 'p-rule-full', rules: ['Deal: up to $1,000,000 on a SAFE.'] }), NOW), []);
+});

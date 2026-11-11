@@ -191,8 +191,21 @@ function canonical(v: unknown): string {
   ) ?? 'undefined';
 }
 
+/** A form item's words for the builder and the agent, not the form itself: a change to them is no form change. */
+const DISPLAY_ONLY = new Set(['need', 'todo', 'guidance', 'description']);
+
+/** The form's fields without their display-only words (v6.1.15 FR-1), so a reworded to-do never reads "form changed". */
+const formShape = (v: unknown): unknown =>
+  Array.isArray(v)
+    ? v.map((r) => (r && typeof r === 'object' ? Object.fromEntries(Object.entries(r as Record<string, unknown>).filter(([k]) => !DISPLAY_ONLY.has(k))) : r))
+    : v;
+
 const sameField = (k: (typeof CHANGE_FIELDS)[number], a: unknown, b: unknown): boolean =>
-  k === 'ends_at' && typeof a === 'string' && typeof b === 'string' ? Date.parse(a) === Date.parse(b) : canonical(a) === canonical(b);
+  k === 'ends_at' && typeof a === 'string' && typeof b === 'string'
+    ? Date.parse(a) === Date.parse(b)
+    : k === 'submission_requirements'
+      ? canonical(formShape(a)) === canonical(formShape(b))
+      : canonical(a) === canonical(b);
 
 /**
  * Writes the program (parsed first, so the stored record always parses). 'unchanged' when the

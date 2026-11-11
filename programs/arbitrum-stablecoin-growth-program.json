@@ -28,7 +28,7 @@
   "eligibility": [
     { "kind": "live_product" },
     { "kind": "chain", "value": "arbitrum" },
-    { "kind": "users", "note": "at least $1M in stablecoin balances at application, verified on DefiLlama" },
+    { "kind": "users", "note": "at least $1,000,000 in stablecoin balances at application, verified on DefiLlama" },
     { "kind": "rule", "note": "stablecoins at the core of the product, with audited contracts" }
   ],
   "setup": [
@@ -40,12 +40,12 @@
   ],
   "rules": [
     "No deadline is stated. The Arbitrum team reviews every application and contacts teams that are a fit.",
-    "Eligible: at least $1M in stablecoin balances at the time of application, verified on DefiLlama.",
+    "Eligible: at least $1,000,000 in stablecoin balances at the time of application, verified on DefiLlama.",
     "Stablecoins at the core of the product, with a live product and audited contracts.",
     "A commitment to building on Arbitrum, with new deployments and launches happening there.",
-    "USDG as the primary stablecoin on Arbitrum, with at least $1M of TVL moving into USDG.",
+    "USDG as the primary stablecoin on Arbitrum, with at least $1,000,000 of TVL moving into USDG.",
     "Accepted teams may get performance-based incentives linked to growth on the Arbitrum Platform, plus marketing, partner introductions, technical support and potential DRIP incentives.",
-    "The first 10 teams to reach $10M of USDG TVL, measured as a 30-day average, each receive 200K ARB.",
+    "The first 10 teams to reach $10,000,000 of USDG TVL, measured as a 30-day average, each receive 200,000 ARB.",
     "Participation is subject to eligibility, approval by the Arbitrum Foundation and the Program Terms and Conditions."
   ],
   "submission_requirements": [

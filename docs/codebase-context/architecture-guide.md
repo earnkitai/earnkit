@@ -126,7 +126,7 @@ whose capitalised part is a keyword (`AR/VR`, `VR-ready`, `Uniswap-based`; fix r
    the agent with sources (`from: agent`), and fields only the builder can give (`from: builder`, a demo video or
    a file, or an `other` answer the program file marks `from: builder`, unlinked: Thiel's and YC's application
    answers, Base's revenue; L1e-3, v6.1.13, so an idea and an empty repo read the same need). Blank beats a wrong guess. `facts_from_repo` counts only values the public code read gave (its repo link,
-   homepage, contracts and chains with basis `code`), never anything the agent passed; the reply says "Drafted: N facts from the repo." only when N is above zero.
+   homepage, contracts and chains with basis `code`), never anything the agent passed; the reply's one Drafted shape (v6.1.15 #3, linked and unlinked) is "Drafted: {n} of {m} answers. Needs your {needs}.", the needs sentence left out when there are none or the closing names them (`draftedSentence` in `reply.ts`).
 6. `since.ts` lists programs new, changed (deadline, amount, status, form) and closing within 7 days since this
    installation's `last_find_at`. Empty on the first call.
 7. `ledger.ts` summarises the installation's applications; results past due become `ask_outcome`. A program with no
@@ -209,9 +209,9 @@ Ledger invariants (v6.1.7, `ledger.ts record`, every write under one advisory lo
 second `applied` from any of the builder's agents records nothing and answers "Already sent here on {day} by {agent};
 nothing recorded." A second result answers that it already has one, except a second win with an amount over a win
 with one (L15-17, T8-F1 v6.1.14): marked a further payment (`payment: { key }`, the caller's own key, kept in
-`application_history.payment_key`; a repeated key is "Already recorded.") it adds to the total under the cap, answered
-"Recorded: ${n} more from {title}, ${total} in total."; unmarked, the same amount is "Already recorded." and another
-amount is a correction that replaces it ("Recorded: ${n} from {title}. Replaced the earlier amount."). Track keys are
+`application_history.payment_key`; a repeated key is "Already tracked.") it adds to the total under the cap, answered
+"Tracked: ${n} more from {title}, ${total} in total."; unmarked, the same amount is "Already tracked." and another
+amount is a correction that replaces it ("Tracked: ${n} from {title}. Replaced the earlier amount."; one save verb, Tracked, v6.1.15 #8). Track keys are
 stored as `t:<key>`, screen keys as `s:<key>`. A program that is not open cannot be started
 ("{title} is not open; nothing to start."), and an already sent one says it was sent before that check. A win is
 capped at the program's `max_award_usd`, else its `pool_usd`, else 10,000,000, in whole dollars. A result for a
@@ -265,8 +265,8 @@ reach `installClientHosted`; over it, "Too many sign-ups from your network today
 `[oauth] block near cap` as a block reaches 80 percent of its day). Hex IPv4-mapped IPv6 is unmapped to its IPv4. No ceiling is shared by every user of one hosted service, so one network
 rotating addresses never locks out another; the hosted tier (every redirect URI is a listed vendor's exact host and callback path, `HOSTED_REDIRECTS`) only raises
 the per-client ceiling (`installClientHosted`). `GET /mcp` is 405 (`Allow: POST, DELETE`): EarnKit never pushes. `rate-limit.ts` keeps fixed-window counters in Postgres. Each MCP tool call counts
-120 an hour per installation and 600 an hour per client IP; over either, the call answers the tool result "EarnKit
-is busy. Try again in about {n} minutes." (hours past 90 minutes; not a transport error, so clients show it). `secrets.ts` scrubs secret
+120 an hour per installation and 600 an hour per client IP; over either, the call answers the tool result "You have
+asked a lot this hour. Try again in about {n}." (v6.1.15; `{n}` in minutes, hours past 90 minutes; not a transport error, so clients show it). `secrets.ts` scrubs secret
 keys from tool-call bodies before anything sees them.
 
 ## Database
@@ -276,7 +276,7 @@ keys from tool-call bodies before anything sees them.
 | Table | Holds |
 |---|---|
 | `programs` | Every program: the whole record in `file`, plus mirrored columns and source (`file` or `api`) |
-| `program_changes` | Field-level changes, for `since` and the owner digest |
+| `program_changes` | Field-level changes, for `since` and the owner digest; a change to a form item's display-only words (`need`, `todo`, `guidance`, `description`) is not a form change (v6.1.15) |
 | `program_writes` | The write API's audit log and the pending writes |
 | `program_health` | The freshness probe: link status, page hash and text, failing days, changed_at |
 | `installations` | One row per issued token (hash only): client name, `last_seen_at`, `last_find_at`, `prev_find_at` (the find before; v6.1.9), `last_gaps` (the last find's gaps), `builder_id` and `linked_at` when linked, `unlinked_at` and `unlinked_reason` (set by an unlink on /me or the account's deletion, cleared by the next find or a new link) |
@@ -406,7 +406,7 @@ not read (B20): building when a repo or live link is reported, a reported live l
 `building` bar never hides a program on one of the project's own chains, or a keyword hit, whose only change is code in
 a repo: it is a gap of `code in a repo` (`NEEDS_CODE`) and its rules (`codeStep` in `gateFor`, L12-7, v6.1.14), so a
 Solana project with no repo sees Solana Foundation Grants as its step; any other program with a bar is still no fit.
-`gap_done` takes the code step (`repo`) on any program (fix round 1, T7-F2), answered "Noted. Tell me when it is live
+`gap_done` takes the code step (`repo`) on any program (fix round 1, T7-F2), answered "Tracked. Tell me when it is live
 and I look again." with no repo; the read settles it. The unlinked path names `blockersOf` against `EMPTY_RECORD` under
 "Before applying:" as one sentence naming the programs per thing the builder does ("you sign in by email and press submit yourself on X"; "Before tonight (nothing is sent until these are in):" when the agent sends tonight under standing approval, or when nothing can go), and keeps the closing line as the one action with the sign-in as its second sentence (v6.1.8: "Say yes and I apply to all n. Or say the numbers to skip.", "Say yes and I apply.", "Nothing is ready yet." with the first rule's yes (v6.1.9: also the rule of the only step program shown, "if that rule fits you"; else "First: {step}. Tell me when it is done and I look again."), "Applying tonight to {titles}."; each gap line carries its own "Say \"do n\"" only when EarnKit can make every real gap, and each rule-only line its own "Say \"yes n\" if that is you."). The first `find` (and `record`) on an unlinked installation carries a one-time link
 `earnkit.com/link/<code>` (15 minutes, hash stored, `link-routes.ts`); the builder continues, signs in with GitHub
@@ -456,10 +456,10 @@ so recording an old win today uses none of tonight's limit; a row from before it
 (`autoSentSince`). Find's tonight list subtracts the same count: none left, the closing reads "Tonight's limit is used;
 the next sends wait until tomorrow." (N1). With sends tonight, the steps block reads "Tonight's send goes ahead. These
 would add {n} more: ..." (N4). `gap_done` on a code-checked item (chain, contract_on, builder_codes, live_product,
-integration) answers "Noted. I check the repo on the next look." (on a project with no repo, its key a name or
-none: "Noted. Tell me when it is live and I look again.", F6 v6.1.12) and, while the read still misses it, the next find
+integration) answers "Tracked. I check the repo on the next look." (on a project with no repo, its key a name or
+none: "Tracked. Tell me when it is live and I look again.", F6 v6.1.12; Tracked since v6.1.15 #8) and, while the read still misses it, the next find
 adds "I looked again and did not find {what}; it stays a step." after that program's line; any other item is the
-builder's word, answers "Noted." and counts done (N-5). Otherwise the row is recorded with `auto_applied: false` and the builder line reads "Sent, but outside
+builder's word, answers "Tracked." and counts done (N-5). Otherwise the row is recorded with `auto_applied: false` and the builder line reads "Sent, but outside
 your standing approval: {reason}." (`outsideApproval` in `find-record.ts`). The required-answer rule (v6.1.9 S6): within
 every limit, a send under standing approval also needs every required field of the program's form in `fields_used`
 (`requiredLeftOut`); one left out (or no `fields_used`) is recorded the same way with "a required answer was missing",

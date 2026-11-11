@@ -68,7 +68,11 @@ drafted from the project; `builder`: only the builder can answer) and `kind` (`n
 also needs `todo`: a short noun phrase for what the builder gives, lowercase start, at most 40
 characters, no trailing punctuation or links (`"a live link on Arc mainnet"`, `"the YC application
 answers"`). It reads after "Needs your", so never start it with a verb or a question word
-(`"the stage"`, not `"how far along you are"`). Optional: `description`, `project_field`,
+(`"the stage"`, not `"how far along you are"`). When the `todo` is a clause that does not read well after
+"Needs your" (`"the problem you solve"`), add `need`: the noun phrase said there instead (`"problem statement"`,
+`"Kiro write-up"`), at most 40 characters, no trailing punctuation, never the word "you". The guide still shows the
+`todo`. Changing `need`, `todo`, `description` or `guidance` alone is not a form change: no builder is told the form
+changed. Optional: `description`, `project_field`,
 `max_chars` (only a stated limit), `guidance` (the program's own advice, with `source_url`).
 
 ### `eligibility`

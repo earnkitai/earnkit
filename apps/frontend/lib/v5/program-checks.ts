@@ -61,6 +61,13 @@ export function programProblems(p: Program, now: Date = new Date()): string[] {
     problems.push(`summary: the money "${piece}" needs a number or "Amount not stated"`);
   // Lane 22 (v6.1.15): full figures on every surface, never K or M.
   if (/\d[KM]\b/.test(piece)) problems.push(`summary: the money "${piece}" must be in full figures ("$100,000", never "$100K" or "$1M")`);
+  // FR-6 (v6.1.15): the rules the guide and the reply show are in full figures too.
+  q.rules.forEach((r, i) => {
+    if (/\d[KM]\b/.test(r)) problems.push(`rules.${i}: money must be in full figures ("$1,000,000", never "$1M")`);
+  });
+  (q.eligibility ?? []).forEach((e, i) => {
+    if (e.note && /\d[KM]\b/.test(e.note)) problems.push(`eligibility.${i}.note: money must be in full figures ("$1,000,000", never "$1M")`);
+  });
   if (Date.parse(`${q.verified_at}T00:00:00Z`) > now.getTime()) problems.push(`verified_at: ${q.verified_at} is in the future`);
   return problems;
 }

@@ -7,7 +7,7 @@ import { cachedRead } from '../../lib/cached';
  */
 export const dynamic = 'force-dynamic';
 
-const cached = cachedRead(() => readListedPrograms(), ['programs-list-v5'], 60);
+const cached = cachedRead(() => readListedPrograms(), ['programs-list-v6.1.15'], 60);
 
 export async function GET(request: Request) {
   return programsListGet(request, cached);
