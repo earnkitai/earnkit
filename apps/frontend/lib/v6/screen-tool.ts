@@ -6,7 +6,7 @@
 import { z } from 'zod';
 import { inputDetail } from '../v5/tool-input';
 import { FURTHER_PAYMENT_REFUSED, OVER_CAP_FOR, winCapOf } from '../v5/ledger';
-import { UNKNOWN_CURRENCY_NOTE, comparable, overCap, readAmount } from '../v5/amount';
+import { AMOUNT_DOT, AMOUNT_UNREAD, UNKNOWN_CURRENCY_NOTE, comparable, overCap, readAmount } from '../v5/amount';
 import { moneyText } from '../v5/programs-read';
 import { getProgram } from '../v5/programs';
 import { SHORT_LINK_NOTE } from '../v5/project-input';
@@ -62,10 +62,11 @@ export const SCREEN_TEXT = {
   queuedNote: 'Call screen with job_id for progress and results. Tell the builder what each tier means: used, live, building, unverified, flagged.',
   /** L15-13 (v6.1.14): the results promise when the whole list fits the next daily run; L25-11 (v6.1.16): the /docs words. */
   promise: 'Results come once a day, within 24 hours.',
-  /** L15-15 (v6.1.14): a win whose amount cannot be read, owner-shaped; only those applicants are not recorded. */
-  amountFor: (refs: string) => `Tell me the amount for ${refs}.`,
+  /** L15-15 (v6.1.14), L31-5 (v6.1.16 Task 17): a win whose amount cannot be read, track's one line, shown once; the
+   *  refs are in the agent note and only those applicants are not recorded. */
+  amountUnread: AMOUNT_UNREAD,
   /** L16-14 (v6.1.16): a dot-thousands amount ("2.500"), shown once; the refs are in the agent note. */
-  amountDot: 'Amount not read: use a dot only for cents, no thousands separator.',
+  amountDot: AMOUNT_DOT,
   /** L15-10 (v6.1.14): a share threshold is a ratio, a count threshold a whole number. */
   ratio: 'That threshold is a share from 0 to 1, for example 0.2 for a fifth.',
   count: 'That threshold is a whole number, 0 or more.',
@@ -217,7 +218,7 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
       const over = [...overLines, ...(overCapAt ?? []).filter((x) => !overCapRefs.includes(x.ref)).map((x) => OVER_CAP_FOR(cap, x.ref, x.at))];
       const show = [
         counted, ...(own ? [OWN_APPLICATION] : []),
-        ...(badAmount.length ? [SCREEN_TEXT.amountFor(listWords(badAmount, 10))] : []),
+        ...(badAmount.length ? [SCREEN_TEXT.amountUnread] : []),
         ...(dotAmount.length ? [SCREEN_TEXT.amountDot] : []),
         ...over,
         // L16-1 (v6.1.16): one sentence per kept result a further payment was refused over; the refs are in the agent note.

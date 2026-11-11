@@ -19,7 +19,7 @@ import { codeChecked, itemKey } from './eligibility';
 import { eligibilityOf } from './program-file';
 import { sql } from './db';
 import { inputDetail, readLoosely, type LooseRules } from './tool-input';
-import { readAmount } from './amount';
+import { AMOUNT_DOT, AMOUNT_UNREAD, readAmount } from './amount';
 import { amountsText, moneyText } from './programs-read';
 
 /** The most field keys a send keeps (v6.1.13, B6); the rest are dropped, never refused. */
@@ -95,8 +95,7 @@ const RESULT_STATUSES: readonly string[] = ['won', 'rejected', 'no_result'];
 const TRACK_LOOSE: LooseRules = { text: ['program_id', 'project_id', 'item'], objects: ['project'] };
 
 export const TRACK_UNREAD = 'I could not read that. Send the program, a status, and for a win the amount.';
-/** L16-14, L22-6 (v6.1.16): a dot used as a thousands separator ("5.000"), as the screen says it. */
-export const AMOUNT_DOT = 'Amount not read: use a dot only for cents, no thousands separator.';
+export { AMOUNT_DOT, AMOUNT_UNREAD };
 
 /**
  * A win's amount for the ledger (L22-2, L22-6, v6.1.16): read by the shared reader, its currency left out when the
@@ -175,7 +174,11 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   // last find's), a string one is dropped and named, a numeric id is its text.
   const loose = readLoosely(input, TRACK_LOOSE);
   const parsed = TrackInput.safeParse(loose.args);
-  if (!parsed.success) return refuse(TRACK_UNREAD, `Nothing was recorded. ${inputDetail(parsed.error)}`);
+  if (!parsed.success) {
+    // L31-5 (v6.1.16 Task 17): a win whose only unread arguments are its amount gets the one bad-amount line.
+    const amountOnly = (loose.args as { status?: unknown }).status === 'won' && parsed.error.issues.every((x) => ['amount_usd', 'amount', 'currency'].includes(String(x.path[0])));
+    return refuse(amountOnly ? AMOUNT_UNREAD : TRACK_UNREAD, `Nothing was recorded. ${inputDetail(parsed.error)}`);
+  }
   // F4 (v6.1.12): the program by what the builder calls it, as find takes it. A name that is no one program records
   // nothing, except a result on an id the ledger holds as sent, whose program may have left the catalog since.
   // Final fix (v6.1.12, Task 2 I1): a result on an id the ledger holds as sent is that one, before any matching.
@@ -389,7 +392,7 @@ async function act(
   // the per-program lock, so parallel skips write one row. L17-8: the payment key is the caller's, one space per application.
   // L22-6 (v6.1.16): a win's amount through the shared reader; any other status ignores it, as before.
   const amount = i.status === 'won' ? trackAmount(i) : null;
-  if (amount === 'bad') return refuse(TRACK_UNREAD, 'Nothing was recorded. Send amount as a number or text ("5000", "$2,500.50", "2000 EUR"), with currency for another currency.');
+  if (amount === 'bad') return refuse(AMOUNT_UNREAD, 'Nothing was recorded. Send amount as a number or text ("5000", "$2,500.50", "2000 EUR"), with currency for another currency.');
   if (amount === 'ambiguous') return refuse(AMOUNT_DOT, 'Nothing was recorded. Send 5000 or 5,000; a dot is for cents only.');
   const res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, ...(amount && { amount }), note: i.note, item: i.item, projectKey: project.key, now: ctx.now, ...applied,
     ...(i.status === 'won' && i.payment ? { payment: { key: i.payment.key } } : {}) });
