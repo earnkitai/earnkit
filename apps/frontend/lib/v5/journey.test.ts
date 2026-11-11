@@ -158,7 +158,7 @@ test('the owner, linked: record set, approved on /me, find fills from it, starte
       traction: { line_pre_launch: 'Pre-launch, launching 2026-12-01.' },
     },
   });
-  assert.equal(set.show_to_builder, 'Tracked 7 facts.');
+  assert.equal(set.show_to_builder, 'Saved 1 answer and 6 facts. Approve the answer at earnkit.com/me and it goes into drafts.');
   // v6.1.4: Z Fellows is the fourth in-person program, past the default two, so the full list shows it.
   const before = await call(NOW, 'find', { project: { ...p, live_url: 'https://earnkit.com', users: true }, filter: { all: true } });
   const z0 = (allReady(before) as { program_id: string; fields: { key: string; from: string }[] }[]).find((x) => x.program_id === 'z-fellows')!;

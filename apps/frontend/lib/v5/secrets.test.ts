@@ -34,8 +34,8 @@ test('B9: looksSecret holds for a key shape and for the scrubbed placeholder, no
 test('N1: a record set that saved something still opens with Saved; the roll advice follows; nothing saved keeps the scrub line first', () => {
   const reply = (show: string) => ({ jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: JSON.stringify({ show_to_builder: show }) }] } });
   const showOf = (m: unknown) => JSON.parse((m as { result: { content: { text: string }[] } }).result.content[0].text).show_to_builder as string;
-  const saved = showOf(withScrubNote(reply('Tracked 1 fact; 1 not saved: one looked like a secret. Still missing: your email.')));
-  assert.equal(saved, `Tracked 1 fact; 1 not saved: one looked like a secret. Still missing: your email.\n\n${SCRUB_ROLL}`);
+  const saved = showOf(withScrubNote(reply('Saved 1 fact; 1 not saved: one looked like a secret. Still missing: your email.')));
+  assert.equal(saved, `Saved 1 fact; 1 not saved: one looked like a secret. Still missing: your email.\n\n${SCRUB_ROLL}`);
   assert.doesNotMatch(saved, /saved nothing/);
   assert.equal(showOf(withScrubNote(reply('Not saved: one looked like a secret.'))), `${SCRUB_LINE}\n\nNot saved: one looked like a secret.`);
 });

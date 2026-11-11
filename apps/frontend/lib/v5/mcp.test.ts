@@ -36,7 +36,7 @@ test('four tools, their descriptions and the server instructions, verbatim', asy
   assert.ok(props(1).status.enum?.includes('started'));
   assert.equal(
     RECORD_DESCRIPTION,
-    "The builder's record: facts, links, documents and answers, kept once and read by every agent of theirs. Call it with get after find, once find's reply has linked true; call it with set for every new fact the builder gives (a partial record: person, company, traction, answers keyed by kind, each { text }, and projects); with brief for the question and facts behind one answer kind. Standing approval (policy) is set on earnkit.com/me only, never here.",
+    "The builder's record: facts, links, documents and answers, kept once and read by every agent of theirs. Call it with get after find, once find's reply has linked true: get true reads the facts and each answer kind's length and start, and get with an answer kind reads that kind's answers in full; call it with set for every new fact the builder gives (a partial record: person, company, traction, answers keyed by kind, each { text }, and projects); with brief for the question and facts behind one answer kind. Standing approval (policy) is set on earnkit.com/me only, never here.",
   );
   assert.equal(tools[2].description, RECORD_DESCRIPTION);
   assert.equal(
@@ -97,7 +97,10 @@ test('track, record and screen advertise the same strict schemas they enforce in
   assert.equal(schema(1).additionalProperties, false);
   assert.equal(schema(1).properties.amount_usd.type, 'number');
   assert.equal(schema(2).additionalProperties, false);
-  assert.equal(schema(2).properties.get.type, 'boolean');
+  // L26-2 (v6.1.16): get is true (the summary) or an answer kind (that kind in full).
+  const get = schema(2).properties.get as { anyOf?: { type?: string; enum?: string[] }[] };
+  assert.deepEqual(get.anyOf?.map((x) => x.type), ['boolean', 'string']);
+  assert.ok(get.anyOf?.[1].enum?.includes('problem'));
   assert.equal(schema(3).additionalProperties, false);
   assert.equal(schema(3).properties.job_id.type, 'string');
 });

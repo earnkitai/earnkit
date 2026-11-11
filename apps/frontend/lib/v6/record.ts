@@ -398,12 +398,14 @@ export const hasDoc = (record: BuilderRecord, need: string): boolean => NEED_DOC
 /** The record item for a project with a link (lane 8 #10, v6.1.10: never missing on a find that passed a repo). */
 export const PROJECT_ITEM = 'a project with its repo or site';
 
-type Asks = { needs: string[]; kinds: string[]; verifiedUsage?: boolean };
+type Asks = { needs: string[]; kinds: string[]; verifiedUsage?: boolean; anyAnswer?: boolean };
 
 /**
  * The items the open programs ask of the record (`total`) and the ones it lacks, in builder words (`missing`). `needs`:
  * the programs' needs; `kinds`: the answer kinds their forms ask; `verifiedUsage`: usage numbers exist, so no traction
  * line is needed. A traction field reads the usage or the line, never the bank: traction is one item (v6.1.8 C49).
+ * `anyAnswer` (v6.1.16 Task 12, L26-7): a saved answer counts though it waits for approval, so only a kind with no
+ * answer at all is missing.
  */
 export function recordItems(record: BuilderRecord, o: Asks): { total: number; missing: string[] } {
   const items: [boolean, string][] = [];
@@ -413,8 +415,10 @@ export function recordItems(record: BuilderRecord, o: Asks): { total: number; mi
   if (!o.verifiedUsage) items.push([isApproved(record, 'traction.line_pre_launch'), 'one approved line on traction']);
   const kinds = [...new Set(o.kinds.map((k) => answerKindOf(k as FieldKind)).filter((k): k is AnswerKind => k !== null && k !== 'traction'))];
   for (const k of ANSWER_KINDS.filter((x) => kinds.includes(x))) {
-    const any = answerFor(record, null, k) ?? record.projects.map((p) => answerFor(record, p.id, k)).find(Boolean);
-    items.push([Boolean(any), `an approved answer on ${KIND_WORDS[k]}`]);
+    const any = o.anyAnswer
+      ? record.answers[k] ?? record.projects.find((p) => p.answers[k])
+      : answerFor(record, null, k) ?? record.projects.map((p) => answerFor(record, p.id, k)).find(Boolean);
+    items.push([Boolean(any), `${o.anyAnswer ? 'an answer' : 'an approved answer'} on ${KIND_WORDS[k]}`]);
   }
   for (const d of NEED_DOCS) if (o.needs.includes(d.need)) items.push([d.has(record), d.words]);
   return { total: items.length, missing: items.filter(([has]) => !has).map(([, words]) => words) };

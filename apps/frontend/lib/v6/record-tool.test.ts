@@ -7,7 +7,8 @@ import { connectInstallation, markNextNeeds, saveInstallation } from '../v5/inst
 import { upsertProgram } from '../v5/programs';
 import { deleteBuilder, getRecord, linkInstallation, saveRecord, upsertBuilder } from './builders';
 import { EMPTY_RECORD, approvePath } from './record';
-import { refusedWords, savedLine } from './record-tool';
+import { ANSWER_KINDS } from '../v5/program-file';
+import { RECORD_CUT_NOTE, recordReplyCap, recordSummary, refusedWords, savedLine } from './record-tool';
 
 after(() => sql().end());
 
@@ -80,13 +81,13 @@ test('linked: set saves, get reads it back; before any find nothing is asked (L2
   assert.equal(s.reply!.linked, true);
   assert.deepEqual(s.reply!.missing, []);
   // Name, email and the project's repo: three facts (a new project is not a fourth).
-  assert.equal(s.reply!.show_to_builder, 'Tracked 3 facts.');
+  assert.equal(s.reply!.show_to_builder, 'Saved 3 facts.');
   assert.equal((await getRecord(c.builderId)).person.name, 'Ada');
   const [row] = await sql()`SELECT record_updated_at FROM builders WHERE id = ${c.builderId}`;
   assert.equal((row.record_updated_at as Date).toISOString(), NOW.toISOString());
 
   const g = await mcpCall(c, 'record', { get: true });
-  const rec = g.reply!.record as { person: { name: string }; meta: Record<string, { set_by: string }> };
+  const rec = (g.reply!.summary as { facts: { person: { name: string }; meta: Record<string, { set_by: string }> } }).facts;
   assert.equal(rec.person.name, 'Ada');
   assert.equal(rec.meta['person.name'].set_by, 'agent');
   // C30: get and set read one list; L29-11: never the whole lack.
@@ -105,7 +106,7 @@ test('L29-11 (v6.1.16 Task 15): after a find, record get and set ask for at most
   assert.equal(g.reply!.agent_note, 'The next application needs your email and the problem: ask the builder for them and save with record set. Ask for nothing else now.');
   assert.doesNotMatch(g.reply!.agent_note as string, /all together/);
   const s = await mcpCall(c, 'record', { set: { person: { location: 'London' } } });
-  assert.equal(s.reply!.show_to_builder, 'Tracked 1 fact. Still missing: your email and the problem.');
+  assert.equal(s.reply!.show_to_builder, 'Saved 1 fact. Still missing: your email and the problem.');
   await markNextNeeds(c.installationId, []);
   const none = await mcpCall(c, 'record', { get: true });
   assert.deepEqual(none.reply!.missing, []);
@@ -115,7 +116,7 @@ test('L29-11 (v6.1.16 Task 15): after a find, record get and set ask for at most
 test('the Saved line: three missing items, then "and n more"; the approval note only when an approvable path changed', async () => {
   const c = await linked();
   const plain = await mcpCall(c, 'record', { set: { person: { location: 'London' } } });
-  assert.equal(plain.reply!.show_to_builder, 'Tracked 1 fact.');
+  assert.equal(plain.reply!.show_to_builder, 'Saved 1 fact.');
   assert.equal(plain.reply!.agent_note, 'Call find with the project; it names what the next application needs.');
   const ans = await mcpCall(c, 'record', { set: { answers: { problem: { text: 'Fees are high.' } } } });
   assert.match(ans.reply!.agent_note as string, /^Approved answers come from earnkit\.com\/me, where the builder reads and approves each one; an unapproved answer is never used in a form\. Call find with the project/);
@@ -134,7 +135,7 @@ test('set with meta or evidence_read_at: a problem line and no change', async ()
   assert.deepEqual(await getRecord(c.builderId), before);
 });
 
-test('brief: the brief for the kind plus the record; an approved answer survives a get', async () => {
+test('brief: the brief for the kind and no record (L26-2); an approved answer survives a get', async () => {
   const c = await linked();
   await mcpCall(c, 'record', { set: { answers: { problem: { text: 'Fees.' } } } });
   await saveRecord(c.builderId, approvePath(await getRecord(c.builderId), 'answers.problem', NOW), NOW);
@@ -142,8 +143,12 @@ test('brief: the brief for the kind plus the record; an approved answer survives
   const brief = r.reply!.brief as { question: string; kind: string };
   assert.equal(brief.kind, 'problem');
   assert.equal(brief.question, 'What problem do you solve, for whom, and how do they handle it today?');
-  const rec = r.reply!.record as { meta: Record<string, { approved_at?: string }> };
-  assert.equal(rec.meta['answers.problem'].approved_at, NOW.toISOString());
+  assert.equal(r.reply!.record, undefined);
+  assert.equal(r.reply!.summary, undefined);
+  const g = await mcpCall(c, 'record', { get: 'problem' });
+  assert.deepEqual(g.reply!.answers, [{ kind: 'problem', project: null, text: 'Fees.', short: null, approved: true }]);
+  const sum = await mcpCall(c, 'record', { get: true });
+  assert.deepEqual((sum.reply!.summary as { answers: unknown[] }).answers, [{ kind: 'problem', length: 5, start: 'Fees.', approved: true }]);
 });
 
 test('the input is strict: an approve key is refused with one line, the detail in the agent note (C35)', async () => {
@@ -166,7 +171,7 @@ test('B9: a set field that looks like a secret is skipped, never stored; the lin
   const key = 'sk_live_' + 'a1'.repeat(12);
   const r = await mcpCall(c, 'record', { set: { person: { name: key, email: 'ada@example.com' } } });
   assert.equal(r.isError, false, r.text);
-  assert.equal(r.reply!.show_to_builder, 'Tracked 1 fact; 1 not saved: one looked like a secret.');
+  assert.equal(r.reply!.show_to_builder, 'Saved 1 fact; 1 not saved: one looked like a secret.');
   const rec = await getRecord(c.builderId);
   assert.equal(rec.person.name, undefined);
   assert.equal(rec.person.email, 'ada@example.com');
@@ -184,7 +189,7 @@ test('the record is private: another builder reads only their own', async () => 
   const b = await linked();
   await mcpCall(a, 'record', { set: { person: { name: 'Ada' } } });
   const g = await mcpCall(b, 'record', { get: true });
-  assert.equal((g.reply!.record as { person: { name?: string } }).person.name, undefined);
+  assert.equal((g.reply!.summary as { facts: { person: { name?: string } } }).facts.person.name, undefined);
 });
 
 test('two concurrent sets on different paths both land (the row lock)', async () => {
@@ -216,7 +221,7 @@ test('an unreadable stored record is never overwritten by a set; get reads it as
     assert.deepEqual(row.record, { person: { name: 42 }, keep: 'me' });
     assert.equal(row.record_updated_at, null);
     const g = await mcpCall(c, 'record', { get: true });
-    assert.deepEqual(g.reply!.record, JSON.parse(JSON.stringify(EMPTY_RECORD)));
+    assert.deepEqual(g.reply!.summary, JSON.parse(JSON.stringify(recordSummary(EMPTY_RECORD))));
     assert.deepEqual(g.reply!.problems, ['stored record could not be read']);
   } finally {
     console.error = orig;
@@ -262,7 +267,7 @@ test('a projects entry without an id: a problem line and no change', async () =>
 test('C29: record set counts what it saved and names what it did not; never a bare Saved. when something was refused', async () => {
   const c = await linked();
   const r = await mcpCall(c, 'record', { set: { person: { name: 'Ada', email: 'not-an-email' } } });
-  assert.equal(r.reply!.show_to_builder, 'Tracked 1 fact; 1 not saved: email was not valid.');
+  assert.equal(r.reply!.show_to_builder, 'Saved 1 fact; 1 not saved: email was not valid.');
   assert.equal((await getRecord(c.builderId)).person.name, 'Ada');
   const t = await mcpCall(c, 'record', { set: { team: { lead: 'x' } } });
   assert.equal(t.reply!.show_to_builder, 'Not saved: team was not valid.');
@@ -305,7 +310,7 @@ test('C50 and B17: a brief counts items, not blocks; an answer the builder rewro
   const c = await linked();
   await mcpCall(c, 'record', { set: { answers: { problem: { text: 'Fees.' } } } });
   const r = await mcpCall(c, 'record', { brief: 'problem' });
-  assert.match(r.reply!.show_to_builder as string, /^Your record has \d+ of \d+ items\.$/);
+  assert.match(r.reply!.show_to_builder as string, /^Your record has \d+ of \d+ items\. 1 answer waits for your approval\.$/);
   assert.doesNotMatch(r.reply!.show_to_builder as string, /blocks/);
   assert.match(r.reply!.agent_note as string, /no short form: draft one of at most 280 characters/);
   await mcpCall(c, 'record', { set: { answers: { problem: { short: 'Fees.' } } } });
@@ -321,12 +326,17 @@ test('v6.1.9: record get and set always say what to do next', async () => {
   assert.equal(nothing.reply!.agent_note, 'Call find with the project; it names what the next application needs.');
 });
 
-test('#8 (v6.1.15): one save verb, Tracked, with what was kept; the refusals keep Not saved', () => {
-  assert.equal(savedLine(1, [], 0), 'Tracked 1 fact.');
-  assert.equal(savedLine(2, [], 0), 'Tracked 2 facts.');
-  assert.equal(savedLine(2, ['person.email: not valid'], 1), 'Tracked 2 facts; 2 not saved: email was not valid and one looked like a secret.');
-  assert.equal(savedLine(0, ['person.email: not valid'], 0), 'Not saved: email was not valid.');
-  assert.equal(savedLine(0, [], 0), 'Nothing new to save.');
+test('#8 (v6.1.15), L26-7 (v6.1.16): one save verb, Saved, answers and facts counted apart; the refusals keep Not saved', () => {
+  assert.equal(savedLine({ answers: 154, facts: 22 }, [], 0), 'Saved 154 answers and 22 facts. Approve the answers at earnkit.com/me and they go into drafts.');
+  assert.equal(savedLine({ answers: 154, facts: 0 }, [], 0), 'Saved 154 answers. Approve the answers at earnkit.com/me and they go into drafts.');
+  assert.equal(savedLine({ answers: 1, facts: 3 }, [], 0), 'Saved 1 answer and 3 facts. Approve the answer at earnkit.com/me and it goes into drafts.');
+  assert.equal(savedLine({ answers: 2, facts: 0 }, ['person.email: not valid'], 0), 'Saved 2 answers; 1 not saved: email was not valid. Approve the answers at earnkit.com/me and they go into drafts.');
+  assert.equal(savedLine({ answers: 0, facts: 3 }, [], 0), 'Saved 3 facts.');
+  assert.equal(savedLine({ answers: 0, facts: 1 }, [], 0), 'Saved 1 fact.');
+  assert.equal(savedLine({ answers: 0, facts: 2 }, [], 0), 'Saved 2 facts.');
+  assert.equal(savedLine({ answers: 0, facts: 2 }, ['person.email: not valid'], 1), 'Saved 2 facts; 2 not saved: email was not valid and one looked like a secret.');
+  assert.equal(savedLine({ answers: 0, facts: 0 }, ['person.email: not valid'], 0), 'Not saved: email was not valid.');
+  assert.equal(savedLine({ answers: 0, facts: 0 }, [], 0), 'Nothing new to save.');
 });
 
 // v6.1.16 Task 11 (lane 24).
@@ -342,7 +352,7 @@ test('L24-5, L24-16: inherited names and every policy spelling are refused in pl
   assert.equal(show.match(/[Ss]tanding approval/g)?.length, 1);
   assert.doesNotMatch(show, /\[object Object\]|native code|function/);
   assert.equal((await getRecord(c.builderId)).policy.auto_apply, false);
-  assert.equal(savedLine(0, ['projects.p1.policy: not a field'], 0), 'Not saved: standing approval is yours to set on earnkit.com/me.');
+  assert.equal(savedLine({ answers: 0, facts: 0 }, ['projects.p1.policy: not a field'], 0), 'Not saved: standing approval is yours to set on earnkit.com/me.');
 });
 
 test('L24-21: a refusal for length names the limit; a NUL in prose is dropped and the field saves', async () => {
@@ -350,7 +360,7 @@ test('L24-21: a refusal for length names the limit; a NUL in prose is dropped an
   const r = await mcpCall(c, 'record', { set: { answers: { risks: { text: 'x'.repeat(2_100) } } } });
   assert.equal(r.reply!.show_to_builder, 'Not saved: risks is at most 2,000 characters.');
   const p = await mcpCall(c, 'record', { set: { person: { bio: 'Hi\u0000there \u202ebuilder', location: 'Pu\u0000ne' } } });
-  assert.equal(p.reply!.show_to_builder, 'Tracked 2 facts.');
+  assert.equal(p.reply!.show_to_builder, 'Saved 2 facts.');
   const rec = await getRecord(c.builderId);
   assert.equal(rec.person.bio, 'Hithere builder');
   assert.equal(rec.person.location, 'Pune');
@@ -373,4 +383,48 @@ test('L29-4, L29-5, L29-20 (v6.1.16 Task 15): an agent\'s policy set, linked and
   const u = await mcpCall({ installationId: await installation(), builderId: null, now: NOW }, 'record', { set: { policy: { auto_apply: false } } });
   assert.equal(u.isError, true);
   assert.equal(u.reply!.show_to_builder, 'There is no standing approval on this agent.');
+});
+
+test('Review Focus 17 (L26-2, L26-7): a 154-answer record: get under 20 KB, brief under 8 KB, get with a kind in full; the save line counts answers', async () => {
+  const c = await linked();
+  await markNextNeeds(c.installationId, ['the problem', 'your email']);
+  const text = (k: string, i: number) => (`${k} ${i}: ` + 'We build a timer that keeps teams on track and ships weekly. ').repeat(40).slice(0, 2000);
+  const answers = (i: number) => Object.fromEntries(ANSWER_KINDS.map((k) => [k, { text: text(k, i), short: text(k, i).slice(0, 270) }]));
+  const projects = Array.from({ length: 10 }, (_, i) => ({ id: `p${i}`, name: `Project ${i}`, live_url: `https://p${i}.example.com`, answers: answers(i + 1) }));
+  const s = await mcpCall(c, 'record', { set: { answers: answers(0), projects, person: { name: 'Ada', email: 'ada@example.com' } } });
+  assert.equal(s.isError, false, s.text);
+  // 14 kinds on the record and on each of 10 projects; the facts: name, email, and each project's name and link.
+  // The problem has an answer now (waiting): only the email is still missing (L26-7).
+  assert.equal(s.reply!.show_to_builder, 'Saved 154 answers and 22 facts. Approve the answers at earnkit.com/me and they go into drafts. Still missing: your email.');
+  const g = await mcpCall(c, 'record', { get: true });
+  assert.ok(Buffer.byteLength(g.text) < 20_480, `${Buffer.byteLength(g.text)}`);
+  const sum = g.reply!.summary as { facts: { projects: object[] }; answers: { kind: string; length: number; start: string }[] };
+  assert.equal(sum.answers.length, 14);
+  assert.deepEqual(sum.answers[0], { kind: 'one_liner', length: 2000, start: text('one_liner', 0).slice(0, 120).trim(), approved: false });
+  assert.equal(sum.facts.projects.length, 10);
+  // L26-7: saved answers waiting for approval are not missing; the wait is named.
+  assert.match(g.reply!.show_to_builder as string, /^Your record has \d+ of \d+ items\. 154 answers wait for your approval\. The next application needs your email\.$/);
+  assert.deepEqual(g.reply!.missing, ['your email']);
+  const br = await mcpCall(c, 'record', { brief: 'problem' });
+  assert.ok(Buffer.byteLength(br.text) < 8_192, `${Buffer.byteLength(br.text)}`);
+  assert.ok(br.reply!.brief);
+  const one = await mcpCall(c, 'record', { get: 'problem' });
+  assert.ok(Buffer.byteLength(one.text) < 20_480, `${Buffer.byteLength(one.text)}`);
+  const all = one.reply!.answers as { project: string | null; text: string }[];
+  assert.equal(all[0].project, null);
+  assert.equal(all[0].text, text('problem', 0));
+  assert.equal(all.length, 11);
+  // Eleven 2,000-character answers pass the cap: the last are cut first, and the agent is told to ask again.
+  assert.ok((one.reply!.agent_note as string).endsWith(RECORD_CUT_NOTE));
+});
+
+test('L26-2: recordReplyCap cuts the longest texts first, never the builder or agent lines, and says so once', () => {
+  const r = { show_to_builder: 'x'.repeat(300), agent_note: 'Note.', a: 'a'.repeat(5_000), b: ['b'.repeat(3_000), 'c'.repeat(200)] };
+  assert.equal(recordReplyCap(r, 20_480), r);
+  const cut = recordReplyCap(r, 4_000);
+  assert.ok(Buffer.byteLength(JSON.stringify(cut)) <= 4_000);
+  assert.equal(cut.a.length, 120);
+  assert.equal(cut.b[0], r.b[0]);
+  assert.equal(cut.show_to_builder, r.show_to_builder);
+  assert.equal(cut.agent_note, `Note. ${RECORD_CUT_NOTE}`);
 });

@@ -16,14 +16,15 @@ import { createLinkCode } from './link-routes';
 import { DELETED_NOTICE, listWords, signInLine, signInSentence } from './reply-words';
 
 export { listWords, signInLine };
-import { APPROVABLE, type BuilderRecord, KIND_WORDS, allowedKey, mergeRecord, recordItems } from './record';
-import { quoteName } from '../v5/controls';
+import { APPROVABLE, type Answer, type BuilderRecord, KIND_WORDS, allowedKey, isApproved, mergeRecord, recordItems } from './record';
+import { cleanText, quoteName } from '../v5/controls';
 import { ME_VALUE_WORDS } from '../v5/site-copy';
 
 export const RecordInput = z
   .object({
     set: z.unknown().optional().describe('A partial record to merge: person, team, company, docs, traction, answers, and projects as a list of { id (a lowercase slug), name, repo_url, live_url, answers }, merged by id'),
-    get: z.boolean().optional().describe('true to read the record and what it still lacks'),
+    // L26-2 (v6.1.16 Task 12): true reads the summary (facts, and each answer kind's length and start); a kind reads that kind in full.
+    get: z.union([z.boolean(), z.enum(ANSWER_KINDS)]).optional().describe('true for the record\'s facts and each answer kind\'s length and start; an answer kind for that kind\'s answers in full'),
     brief: z.enum(ANSWER_KINDS).optional().describe('One answer kind: the question, the facts to use, the length and the style'),
   })
   .strict();
@@ -65,11 +66,103 @@ export type RecordReply = {
   agent_note: string;
   linked: boolean;
   sign_in?: string;
-  record?: BuilderRecord;
+  /** L26-2 (v6.1.16 Task 12): `get` with no kind: the facts, and per answer kind its length and first 120 characters. */
+  summary?: RecordSummary;
+  /** L26-2: `get` with a kind: that kind's answers in full, the record's first, then each project's. */
+  answers?: KindAnswer[];
   missing?: string[];
   problems?: string[];
   brief?: ReturnType<typeof answerBrief>;
 };
+
+/** The facts of a record: everything but the answers (and the answers' approval rows). */
+export type RecordFacts = Omit<BuilderRecord, 'answers' | 'projects'> & { projects: Omit<BuilderRecord['projects'][number], 'answers'>[] };
+export type RecordSummary = { facts: RecordFacts; answers: { kind: string; length: number; start: string; approved: boolean }[] };
+export type KindAnswer = { kind: string; project: string | null; text: string; short: string | null; approved: boolean };
+
+/** L26-2: the cap on every record reply, serialized (v6.1.16 Task 12). */
+export const RECORD_REPLY_CAP = 20_480;
+/** L26-2: the agent line when a record reply was cut to its cap. */
+export const RECORD_CUT_NOTE = 'Ask for one kind at a time for the rest.';
+
+const answerPath = (path: string) => /^answers\.[a-z_]+$/.test(path) || /^projects\.[^.]+\.answers\.[a-z_]+$/.test(path);
+
+/** Every saved answer of the record: its kind, its project (null for the record's own) and its path. Pure. */
+function answersOf(record: BuilderRecord): { kind: AnswerKind; project: string | null; path: string; answer: Answer }[] {
+  const out: { kind: AnswerKind; project: string | null; path: string; answer: Answer }[] = [];
+  for (const k of ANSWER_KINDS) {
+    const a = record.answers[k];
+    if (a) out.push({ kind: k, project: null, path: `answers.${k}`, answer: a });
+    for (const p of record.projects) {
+      const b = p.answers[k];
+      if (b) out.push({ kind: k, project: p.id, path: `projects.${p.id}.answers.${k}`, answer: b });
+    }
+  }
+  return out;
+}
+
+/**
+ * L26-2 (v6.1.16 Task 12): the record's summary: its facts (the answers' approval rows left out), and one line per
+ * answer kind: the record's own answer, else the first project's, as its length and first 120 characters. Pure.
+ */
+export function recordSummary(record: BuilderRecord): RecordSummary {
+  const { answers: _a, projects, meta, ...rest } = record;
+  const facts: RecordFacts = {
+    ...rest,
+    projects: projects.map(({ answers: _p, ...p }) => p),
+    meta: Object.fromEntries(Object.entries(meta).filter(([path]) => !answerPath(path))),
+  };
+  const all = answersOf(record);
+  const answers = ANSWER_KINDS.flatMap((k) => {
+    const a = all.find((x) => x.kind === k);
+    return a ? [{ kind: k, length: a.answer.text.length, start: cleanText(a.answer.text, 120), approved: isApproved(record, a.path) }] : [];
+  });
+  return { facts, answers };
+}
+
+/** L26-2: one kind's answers in full, the record's own first. Pure. */
+export const kindAnswers = (record: BuilderRecord, kind: AnswerKind): KindAnswer[] =>
+  answersOf(record).filter((a) => a.kind === kind).map((a) => ({ kind, project: a.project, text: a.answer.text, short: a.answer.short ?? null, approved: isApproved(record, a.path) }));
+
+/** Answers saved with no approval yet (L26-7). Pure. */
+export const waitingAnswers = (record: BuilderRecord): number => answersOf(record).filter((a) => !isApproved(record, a.path)).length;
+
+/** L26-7: `{n} answers wait for your approval.`; null at none. Pure. */
+export const waitingLine = (n: number): string | null => (n === 0 ? null : n === 1 ? '1 answer waits for your approval.' : `${n} answers wait for your approval.`);
+
+const bytes = (v: unknown) => Buffer.byteLength(JSON.stringify(v));
+
+/**
+ * L26-2 (v6.1.16 Task 12): a record reply under `cap` bytes serialized. Over it, the longest texts (past the builder and
+ * agent lines) are cut to their first 120 characters, the longest first and, among equals, the last first, until it
+ * fits; then the agent note gains RECORD_CUT_NOTE. Pure.
+ */
+export function recordReplyCap<T extends { agent_note: string }>(reply: T, cap = RECORD_REPLY_CAP): T {
+  if (bytes(reply) <= cap) return reply;
+  const out = structuredClone(reply) as T & Record<string, unknown>;
+  const target = cap - Buffer.byteLength(` ${RECORD_CUT_NOTE}`);
+  const leaves: { at: Record<string, unknown> | unknown[]; key: string | number; len: number; order: number }[] = [];
+  const walk = (v: unknown, top: boolean) => {
+    if (!v || typeof v !== 'object') return;
+    for (const [k, x] of Object.entries(v)) {
+      if (top && (k === 'show_to_builder' || k === 'agent_note')) continue;
+      if (typeof x === 'string' && x.length > 120) leaves.push({ at: v as Record<string, unknown>, key: Array.isArray(v) ? Number(k) : k, len: Buffer.byteLength(x), order: leaves.length });
+      else walk(x, false);
+    }
+  };
+  walk(out, true);
+  leaves.sort((a, b) => b.len - a.len || b.order - a.order);
+  let size = bytes(out);
+  for (const l of leaves) {
+    if (size <= target) break;
+    const at = l.at as Record<string | number, string>;
+    const before = Buffer.byteLength(JSON.stringify(at[l.key]));
+    at[l.key] = cleanText(at[l.key], 120);
+    size -= before - Buffer.byteLength(JSON.stringify(at[l.key]));
+  }
+  out.agent_note = [out.agent_note, RECORD_CUT_NOTE].filter(Boolean).join(' ');
+  return out;
+}
 
 const SIGN_IN_NOTE = 'Show the link once. Ask for a personal fact only when the next form needs it; nothing is saved until the builder has signed in. Call record with get afterwards.';
 /** L29-20 (v6.1.16 Task 15): an unlinked record get. */
@@ -190,17 +283,24 @@ export function refusedWords(problem: string): string {
 /** L24-16 (v6.1.16 Task 11): the one refusal for an agent setting standing approval, whatever the spelling. */
 export const STANDING_APPROVAL_YOURS = 'standing approval is yours to set on earnkit.com/me';
 
-/** "Tracked 2 facts.", "Tracked 1 fact; 1 not saved: email was not valid." (one save verb, v6.1.15 #8), "Not saved: ..." (only when nothing was, v6.1.8 N1),
- *  "Nothing new to save." (C29). Pure. */
-export function savedLine(saved: number, problems: string[], secrets: number): string {
+/**
+ * The save line (v6.1.16 Task 12, L26-7): "Saved 154 answers and 22 facts. Approve the answers at earnkit.com/me and
+ * they go into drafts.", a zero part left out ("Saved 3 facts.", "Saved 154 answers."), the approval sentence only when
+ * answers were saved; refused parts after a semicolon ("Saved 1 fact; 1 not saved: email was not valid."); "Not saved:
+ * ..." only when nothing was (v6.1.8 N1); "Nothing new to save." (C29). Pure.
+ */
+export function savedLine(saved: { answers: number; facts: number }, problems: string[], secrets: number): string {
   // L24-16 (v6.1.16 Task 11): any policy-shaped key (policy, Policy, policy.auto_apply, a nested policy) is one line.
   const policyShaped = (p: string) => /policy/i.test(p.slice(0, Math.max(0, p.indexOf(': ')) || p.length));
   const policy = problems.some(policyShaped) ? [STANDING_APPROVAL_YOURS] : [];
   const reasons = [...policy, ...problems.filter((p) => !policyShaped(p)).map(refusedWords), ...(secrets > 0 ? [secrets === 1 ? 'one looked like a secret' : `${secrets} looked like secrets`] : [])];
   const refused = problems.length + secrets;
-  const kept = `Tracked ${saved} ${saved === 1 ? 'fact' : 'facts'}`;
-  if (saved > 0) return refused > 0 ? `${kept}; ${refused} not saved: ${listWords(reasons)}.` : `${kept}.`;
-  return refused > 0 ? `Not saved: ${listWords(reasons)}.` : 'Nothing new to save.';
+  const count = (n: number, one: string) => `${n} ${n === 1 ? one : `${one}s`}`;
+  const parts = [saved.answers > 0 ? count(saved.answers, 'answer') : null, saved.facts > 0 ? count(saved.facts, 'fact') : null].filter(Boolean);
+  if (parts.length === 0) return refused > 0 ? `Not saved: ${listWords(reasons)}.` : 'Nothing new to save.';
+  const kept = `Saved ${parts.join(' and ')}`;
+  const approve = saved.answers === 0 ? '' : saved.answers === 1 ? ' Approve the answer at earnkit.com/me and it goes into drafts.' : ' Approve the answers at earnkit.com/me and they go into drafts.';
+  return `${refused > 0 ? `${kept}; ${refused} not saved: ${listWords(reasons)}.` : `${kept}.`}${approve}`;
 }
 
 /** An answer sent as plain text (C20): the shape the record takes, for the agent. */
@@ -241,6 +341,10 @@ export function withoutSecrets(value: unknown, depth = 0): { value: unknown; ski
 }
 
 export async function recordTool(ctx: { installationId: number; builderId: number | null; now: Date }, input: unknown): Promise<RecordReply> {
+  return recordReplyCap(await recordReply(ctx, input));
+}
+
+async function recordReply(ctx: { installationId: number; builderId: number | null; now: Date }, input: unknown): Promise<RecordReply> {
   // The MCP layer passes anything through (tool-input.ts): this is the only check, with the detail for the agent.
   const parsed = RecordInput.safeParse(input);
   // L29-10 (v6.1.16 Task 15): an input error has no builder text.
@@ -270,11 +374,16 @@ export async function recordTool(ctx: { installationId: number; builderId: numbe
     if (read.broken) problems.push('stored record could not be read');
   }
   const brief = i.brief ? briefFor(i.brief, record) : undefined;
+  // L26-2 (v6.1.16 Task 12): get reads the summary, get with a kind that kind in full; a brief carries no record.
+  const read = i.get === true ? { summary: recordSummary(record) } : typeof i.get === 'string' ? { answers: kindAnswers(record, i.get) } : {};
 
-  const items = recordItems(record, asks);
+  // L26-7: an answer saved and waiting for approval counts as there; only a kind with no answer at all is missing.
+  const items = recordItems(record, { ...asks, anyAnswer: true });
+  const answered = new Set(answersOf(record).map((a) => KIND_WORDS[a.kind]));
+  const waiting = waitingAnswers(record);
   // L29-11 (v6.1.16 Task 15): what the next send needs (the last find's first ready program, at most two), never the
   // whole list; before any linked project find, nothing is asked yet.
-  const needs = await nextNeedsOf(ctx.installationId);
+  const needs = (await nextNeedsOf(ctx.installationId))?.filter((n) => !answered.has(n)) ?? null;
   const missing = needs ?? [];
   const briefNote = i.brief ? [BRIEF_NOTE, shortNote(i.brief, record)].filter(Boolean).join(' ') : '';
   // v6.1.9: every get and set says what to do next.
@@ -286,28 +395,31 @@ export async function recordTool(ctx: { installationId: number; builderId: numbe
   if (m) {
     // Facts saved: a new project counts by its facts, not once more for itself.
     const facts = m.changed.filter((p) => !m!.changed.some((q) => q.startsWith(`${p}.`)));
+    const answers = facts.filter(answerPath).length;
+    const counts = { answers, facts: facts.length - answers };
     // L29-4 (v6.1.16 Task 15): a policy set is the one line, with no missing list; a refusal when nothing else was saved.
     const policy = m.problems.some((p) => /policy/i.test(p.slice(0, Math.max(0, p.indexOf(': ')) || p.length)));
     const others = m.problems.filter((p) => !/policy/i.test(p.slice(0, Math.max(0, p.indexOf(': ')) || p.length)));
     if (policy) {
-      const head = facts.length > 0 || others.length > 0 || secrets > 0 ? `${savedLine(facts.length, others, secrets)} ` : '';
+      const head = facts.length > 0 || others.length > 0 || secrets > 0 ? `${savedLine(counts, others, secrets)} ` : '';
       const r: RecordReply = {
         show_to_builder: `${head}${STANDING_YOURS}`,
         agent_note: `${facts.length > 0 ? '' : 'Nothing was saved. '}${STOP_HELD_NOTE}`,
         linked: true,
         problems: m.problems,
-        ...(i.get || brief ? { record } : {}),
+        ...read,
       };
       return facts.length > 0 ? r : refuse(r);
     }
-    const head = savedLine(facts.length, m.problems, secrets);
+    const head = savedLine(counts, m.problems, secrets);
     const r: RecordReply = {
-      show_to_builder: [head, missingLine(missing)].filter(Boolean).join(' '),
+      // L26-7: answers already waiting are named when this set saved none (its own line says to approve them).
+      show_to_builder: [head, answers === 0 ? waitingLine(waiting) : null, missingLine(missing)].filter(Boolean).join(' '),
       agent_note: [m.changed.some(APPROVABLE) ? APPROVAL_NOTE : briefNote, answerShapeNote(m.problems), next].filter(Boolean).join(' '),
       linked: true,
       missing,
       ...(m.problems.length > 0 ? { problems: m.problems } : {}),
-      ...(i.get || brief ? { record } : {}),
+      ...read,
       ...(brief ? { brief } : {}),
     };
     // L29-9: a set that saved nothing and refused a part is a refusal.
@@ -316,12 +428,12 @@ export async function recordTool(ctx: { installationId: number; builderId: numbe
 
   // One sentence (v6.1.8): how much the record holds (C50), then (L29-11) what the next application needs, at most two.
   const have = items.total - items.missing.length;
-  const holds = `Your record has ${have} of ${items.total} ${items.total === 1 ? 'item' : 'items'}.`;
+  const holds = [`Your record has ${have} of ${items.total} ${items.total === 1 ? 'item' : 'items'}.`, waitingLine(waiting)].filter(Boolean).join(' ');
   return {
     show_to_builder: !brief && missing.length > 0 ? `${holds} The next application needs ${listWords(missing, 2)}.` : holds,
     agent_note: briefNote || next,
     linked: true,
-    record,
+    ...(brief ? {} : i.get === undefined || i.get === false ? { summary: recordSummary(record) } : read),
     missing,
     ...(problems.length > 0 ? { problems } : {}),
     ...(brief ? { brief } : {}),

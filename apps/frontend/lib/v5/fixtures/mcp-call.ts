@@ -32,7 +32,7 @@ export async function mcpCall(ctx: McpContext, name: string, args: Record<string
     } catch {
       reply = null;
     }
-    return { isError: r.isError === true, text, reply, ...(r.structuredContent ? { structured: r.structuredContent as Record<string, unknown> } : {}) };
+    return { isError: r.isError === true, text, reply, ...('structuredContent' in r && r.structuredContent ? { structured: r.structuredContent as Record<string, unknown> } : {}) };
   } finally {
     await client.close();
   }

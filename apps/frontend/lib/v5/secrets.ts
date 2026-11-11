@@ -218,8 +218,8 @@ export function scrubToolCalls(body: unknown): { body: unknown; removed: number;
 const withShowLine = (r: Record<string, unknown>) => {
   const show = r.show_to_builder;
   const out: Record<string, unknown> = { scrub_note: SCRUB_LINE, ...r };
-  // A record set that saved the rest opens with its own "Tracked n facts" line, which already names the key (v6.1.8 N1).
-  if (typeof show === 'string') out.show_to_builder = /^Tracked \d/.test(show) ? `${show}\n\n${SCRUB_ROLL}` : show ? `${SCRUB_LINE}\n\n${show}` : SCRUB_LINE;
+  // A record set that saved the rest opens with its own "Saved n facts" line, which already names the key (v6.1.8 N1, v6.1.16 L26-7).
+  if (typeof show === 'string') out.show_to_builder = /^Saved \d/.test(show) ? `${show}\n\n${SCRUB_ROLL}` : show ? `${SCRUB_LINE}\n\n${show}` : SCRUB_LINE;
   return out;
 };
 export function withScrubNote(message: unknown): unknown {
