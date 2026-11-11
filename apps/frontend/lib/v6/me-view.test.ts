@@ -347,7 +347,7 @@ test('L24-14 (v6.1.16 Task 11): /me says in words whether standing approval is o
   await sql()`INSERT INTO applications (owner, installation_id, program_id, status, at, auto_applied) VALUES (${'b:' + b.id}, 0, 'l24-me-p', 'applied', ${NOW}, true)`;
   const on = await meData(b, NOW, 'sess');
   assert.deepEqual(on.policy_status, ['On: up to 1 a day, grants, up to $4,500.', 'Sent under it: 1.']);
-  const html = renderToStaticMarkup(MeView({ data: on }));
+  const html = renderToStaticMarkup(MeView({ data: on, problem: null }));
   assert.ok(html.includes('On: up to 1 a day, grants, up to $4,500. Sent under it: 1.'), html);
   assert.doesNotMatch(html.replace(/<[^>]*>/g, " "), /\b(a|per) night|overnight/i);
 });

@@ -97,3 +97,14 @@ test('L1h-1 (v6.1.16): K or M in a description, reward, past round or todo is re
   const { findProgramsDir } = await import('./programs-api');
   assert.deepEqual(readProgramFiles(findProgramsDir()!, NOW).invalid, []);
 });
+
+test('L24-25 (v6.1.16 Task 11): EarnKit\'s own files never use the copy-rule words; a third party\'s wording passes', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  const base = programFixture({ id: 'l24-own', title: 'Own Campaign' });
+  const req = { key: 'contracts', label: 'Contract addresses to score', type: 'text' as const, required: true, kind: 'other' as const, todo: 'your token address', from: 'project' as const };
+  const own = programProblems({ ...base, organizer: 'EarnKit', submission_requirements: [req] } as never);
+  assert.ok(own.some((p) => p.startsWith('submission_requirements.0.label: ')), own.join('\n'));
+  assert.ok(own.some((p) => p.startsWith('submission_requirements.0.todo: ')), own.join('\n'));
+  const theirs = programProblems({ ...base, organizer: 'Some Foundation', submission_requirements: [req] } as never);
+  assert.ok(!theirs.some((p) => /copy never says/.test(p)), theirs.join('\n'));
+});

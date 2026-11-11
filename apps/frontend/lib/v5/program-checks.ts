@@ -55,6 +55,9 @@ export const sentencesOf = (text: string): string[] => text.split(/(?<=[.!?])\s+
 /** `text` without its open-window sentences (L21-2, v6.1.16). Pure. */
 export const withoutOpenWindow = (text: string): string => sentencesOf(text).filter((t) => !OPEN_WINDOW.test(t)).join(' ');
 
+/** L24-25 (v6.1.16 Task 11): the copy rule's banned words, as whole words (plurals too). */
+const COPY_BANNED = /\b(score|rank|grade|points?|coins?|tokens?|streaks?)(s|d|ing)?\b/i;
+
 /** A K or M money figure ("$100K", "$325k", "2M ARB", "$1.5M"): the catalog writes full figures (lane 22, L1h-1). */
 const KM = /\d(?:\.\d+)?\s?[KkMm]\b/;
 
@@ -106,5 +109,19 @@ export function programProblems(p: Program, now: Date = new Date()): string[] {
   if (q.status === 'closed' && q.summary.split(' · ').slice(1).some((x) => ROLLING_WINDOW.test(x)))
     problems.push('summary: a closed program is not rolling');
   if (Date.parse(`${q.verified_at}T00:00:00Z`) > now.getTime()) problems.push(`verified_at: ${q.verified_at} is in the future`);
+  // L24-25 (v6.1.16 Task 11): EarnKit's own files follow the copy rule in their labels, to-dos and rules; a third
+  // party's wording is theirs and passes.
+  if (q.organizer.trim().toLowerCase() === 'earnkit') {
+    const said = (path: string, text: string | undefined) => {
+      const hit = text ? COPY_BANNED.exec(text) : null;
+      if (hit) problems.push(`${path}: EarnKit's own copy never says "${hit[0]}"`);
+    };
+    q.rules.forEach((r, i) => said(`rules.${i}`, r));
+    (q.eligibility ?? []).forEach((e, i) => said(`eligibility.${i}.note`, e.note));
+    q.submission_requirements.forEach((r, i) => {
+      said(`submission_requirements.${i}.label`, r.label);
+      said(`submission_requirements.${i}.todo`, r.todo);
+    });
+  }
   return problems;
 }
