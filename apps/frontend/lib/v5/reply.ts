@@ -218,7 +218,8 @@ export function stepClause(x: Gap): string | null {
   if (x.setup && !telling(x.setup)) return `you ${x.setup}`;
   // Fix round 1 (I1): the three kinds with no clause get their own, so the one shape holds everywhere.
   if (x.kind === 'tier' && !ownSentenceGap(x)) return 'people outside the team use it live';
-  if (x.kind === 'feature') return `${x.what} is in`;
+  // L1h-3 (v6.1.16): a note that opens with its verb ("use ...") gives way to the feature's own name (its value).
+  if (x.kind === 'feature') return `${/^(use|add) /.test(x.what) && x.item.startsWith('feature:') ? x.item.slice(8) : x.what} is in`;
   if (x.kind === 'users' && x.effort === 'weeks') {
     const n = weeksOf(x);
     return n !== null ? `it has been live for ${n} weeks` : 'real people use it';

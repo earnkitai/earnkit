@@ -7,6 +7,7 @@ import { sql } from './db';
 import { getProgram } from './programs';
 import { programFixture } from './fixtures/program';
 import { readProgramFiles, syncFiles } from './programs-sync';
+import { watchCatalogRevalidation } from './programs-read';
 
 after(() => sql().end());
 
@@ -53,4 +54,15 @@ test('L21-16 (v6.1.16): the check refuses an in-person file without its city', (
   const r = readProgramFiles(dirWith(programFixture({ id: 's-ip', in_person: true }), programFixture({ id: 's-ip-city', in_person: true, city: 'Eugene' })), NOW);
   assert.deepEqual(r.invalid, ['s-ip.json is not valid:\n  - city: an in-person program names its city (from its description or rules)']);
   assert.deepEqual(r.programs.map((x) => x.f), ['s-ip-city.json']);
+});
+
+test('L22-13 (v6.1.16): a sync that writes expires every catalog surface once (revalidateCatalog)', async () => {
+  let n = 0;
+  watchCatalogRevalidation(() => n++);
+  try {
+    await syncFiles(dirWith(programFixture({ id: 's-reval', ends_at: '2026-12-01T00:00:00Z' })), NOW);
+    assert.equal(n, 1);
+  } finally {
+    watchCatalogRevalidation(null);
+  }
 });

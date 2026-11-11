@@ -313,3 +313,10 @@ test('L25-1 (v6.1.16): /me and the link banner show "Claude Code (earnkit)" as "
   assert.ok(renderToStaticMarkup(MeView({ data: linked, problem: null })).includes('<bdi>Claude Code</bdi>'));
   assert.equal((await sql()`SELECT client_name FROM installations WHERE id = ${id}`)[0].client_name, 'Claude Code (earnkit)');
 });
+
+test('ledgerRowWords (L22-7, v6.1.16): cents and currencies in the one format', async () => {
+  const { ledgerRowWords } = await import('./me-view');
+  assert.equal(ledgerRowWords('won', { USD: 2500.5 }, false, 'Nov 11'), 'Won $2,500.50, Nov 11.');
+  assert.equal(ledgerRowWords('won', { EUR: 2000 }, false, 'Nov 11'), 'Won EUR 2,000, Nov 11.');
+  assert.equal(ledgerRowWords('won', { USD: 1000, EUR: 500 }, true, 'Nov 11'), 'Won $1,000 and EUR 500 in all, Nov 11.');
+});

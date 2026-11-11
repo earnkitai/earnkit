@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import type { Mailer } from './mail';
 import { getProgram } from './programs';
-import { programsListGet } from './programs-read';
+import { programsListGet, watchCatalogRevalidation } from './programs-read';
 import { approveExpiry, approveToken, pendingMailText, revertExpiry, revertToken } from './programs-pending';
-import { approveGet, approvePost, revertGet, revertPost, writePost, writesGet } from './programs-api';
+import { approveGet, approvePost, programsChanged, revertGet, revertPost, writePost, writesGet } from './programs-api';
 
 after(() => sql().end());
 
@@ -416,4 +416,15 @@ test('a pending write caused by form.url shows every link, in the email and on t
   const html = await page.text();
   assert.ok(html.includes(`<p>Form link: ${formUrl} (did not check out)</p>`), html);
   assert.ok(html.includes('<p>Submission link: https://www.base.org/form-links/apply</p>'), html);
+});
+
+test('L22-13 (v6.1.16): an API write expires every catalog surface through revalidateCatalog', () => {
+  let n = 0;
+  watchCatalogRevalidation(() => n++);
+  try {
+    programsChanged('any-id');
+    assert.equal(n, 1);
+  } finally {
+    watchCatalogRevalidation(null);
+  }
 });

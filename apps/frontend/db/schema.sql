@@ -382,3 +382,11 @@ CREATE TABLE IF NOT EXISTS project_reports (
 -- v6.1.14 (L13-7): whether standing approval was on at this installation's last find with a project, so an agent's
 -- send after the builder turned it off says so.
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS last_find_auto boolean;
+-- v6.1.16 (L22-1 to L22-3): a win's money by currency ({"USD": 3500.5, "EUR": 2000}), cents kept, never converted;
+-- amount_usd keeps the US dollar part for the readers that sum dollars (stats, the cap). Backfilled from amount_usd.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS amounts jsonb;
+UPDATE applications SET amounts = jsonb_build_object('USD', amount_usd) WHERE amounts IS NULL AND amount_usd IS NOT NULL;
+ALTER TABLE application_history ADD COLUMN IF NOT EXISTS amount numeric, ADD COLUMN IF NOT EXISTS currency text;
+-- v6.1.16 (L22-3): a screen outcome's money by currency, in place of the single amount_given/currency pair (kept
+-- readable for one release, dropped in v6.1.17).
+ALTER TABLE screen_outcomes ADD COLUMN IF NOT EXISTS amounts jsonb;

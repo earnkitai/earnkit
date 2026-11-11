@@ -6,8 +6,11 @@
  * win with another amount, from the program's screen or the builder's own track) is a correction that replaces it,
  * its history row marked `corrected`, so the ledger holds the latest result; `no_result` over a result is refused. A
  * win marked a further payment (`payment.key`, kept in the history; a repeated key changes nothing) adds to a win's
- * total under the cap (L15-17, T8-F1 v6.1.14) and is refused over a result that is not a win. A win is whole dollars; one over the program's stated maximum, else
- * its pool, else 10,000,000, is refused; investments are never "asked".
+ * total under the cap (L15-17, T8-F1 v6.1.14) and is refused over a result that is not a win. A win's money is kept by
+ * currency (`applications.amounts`, cents kept, never converted; L22-1 to L22-3 v6.1.16) with its US dollar part in
+ * `amount_usd`; a further payment adds within its currency and keeps both across currencies. A win over the program's
+ * stated maximum, else its pool, else 10,000,000, is refused (`overCap`, converted for the check only); investments
+ * are never "asked".
  */
 import { sql, type Db } from './db';
 import { categoryOf, eligibilityOf } from './program-file';
@@ -15,7 +18,8 @@ import { codeChecked, itemKey } from './eligibility';
 import { getProgram, programsById, type ProgramRow } from './programs';
 import { CLAIM_HOURS, UNLINKED_MEANWHILE, newApplicationId, stillLinked } from '../v6/claims';
 import { projectKeyOf, type Project } from './project-input';
-import { usdFull } from './programs-read';
+import { amountsText, moneyText, plusAmount, sameAmounts, totalText, type Amounts } from './programs-read';
+import { UNKNOWN_CURRENCY_NOTE, amountsOverCap, comparable, overCap } from './amount';
 import { displayName } from './installations';
 
 /** gap_done without a known item (v6.1.8, 3.10): the builder names the change, the agent gets the item keys. */
@@ -42,7 +46,13 @@ export type Ledger = {
   applied: number;
   asked_usd: number;
   won: number;
+  /** The US dollar part of the wins (L22-1, v6.1.16). */
   won_usd: number;
+  /** The wins' money in other currencies, summed per code, never converted (L22-1). */
+  won_other: { currency: string; amount: number }[];
+  /** Wins kept with no amount (L22-1). */
+  won_no_amount: number;
+  /** Sent and waiting: applied, and no result (L22-8). */
   pending: number;
   rejected: number;
   skipped: number;
@@ -54,8 +64,10 @@ const RESULTS = ['won', 'rejected', 'no_result'];
 const MAX_WIN_USD = 10_000_000;
 /** The most a win in this program can be: its maximum, else its pool, else MAX_WIN_USD. Pure. */
 export const winCapOf = (program: ProgramRow | null | undefined): number => program?.file.max_award_usd ?? program?.file.pool_usd ?? MAX_WIN_USD;
-/** A win over the program's cap is refused with this line, in the ledger and in a program's screen outcomes (v6.1.7 C38). */
-export const OVER_CAP = "That's more than this program pays; check the amount.";
+/** L22-9 (v6.1.16): the builder's line for a win over the program's cap; nothing is written. */
+export const OVER_CAP = (capUsd: number): string => `Over the program's ${moneyText(capUsd)} cap; nothing recorded.`;
+/** L22-9 (v6.1.16): the owner's (a reviewer's) line for a win over the program's cap, one per applicant. */
+export const OVER_CAP_FOR = (capUsd: number, ref: string, at: string): string => `Over the program's ${moneyText(capUsd)} cap: ${ref} at ${at}. Nothing recorded for it.`;
 /**
  * L16-1, L16-2 (v6.1.16): a further payment over a result that is not a win (`rejected`, `no result`; on a screen also
  * `shortlisted`, or `none` when nothing is kept) writes nothing.
@@ -63,8 +75,8 @@ export const OVER_CAP = "That's more than this program pays; check the amount.";
 export const FURTHER_PAYMENT_REFUSED = (status: string) =>
   // Fix round 1b: no result yet is said in words, never as the status `none`.
   status === 'none' ? 'Further payment refused: no result yet; post a win first.' : `Further payment refused: the current result is ${status}; post a win first.`;
-/** A win that is not whole dollars of at least 1 (the screen's outcomes say the same, v6.1.13 Low 19). */
-export const WHOLE_DOLLARS = 'Tell me how much you won, as whole dollars.';
+/** A win with no amount above 0 (L22-6, v6.1.16: cents are kept, so a win is no longer whole dollars only). */
+export const WHOLE_DOLLARS = 'Tell me how much you won.';
 const DAY = 86_400_000;
 /** How long after its close a send still counts under standing approval (F8, v6.1.12). */
 export const CLOSED_GRACE_MS = 3_600_000;
@@ -88,14 +100,27 @@ async function withOwn(ids: string[], programs: ProgramRow[]): Promise<Map<strin
 /** The installation an 'i:' owner names. Pure. */
 const installationOf = (owner: string): number | undefined => (/^i:(\d+)$/.exec(owner) ? Number(owner.slice(2)) : undefined);
 
-const usd = (n: number) => '$' + Math.round(n).toLocaleString('en-US');
+/**
+ * A row's win money (L22-3, v6.1.16): `amounts` when set, else the US dollars of a row written before it, else null.
+ * Pure.
+ */
+export function amountsOf(r: { amounts?: unknown; amount_usd?: string | number | null }): Amounts | null {
+  if (r.amounts && typeof r.amounts === 'object') {
+    const out = Object.fromEntries(Object.entries(r.amounts as Record<string, unknown>).map(([c, v]) => [c, Number(v)]).filter(([, v]) => Number.isFinite(v) && (v as number) > 0));
+    return Object.keys(out).length > 0 ? out : null;
+  }
+  return r.amount_usd === null || r.amount_usd === undefined ? null : { USD: Number(r.amount_usd) };
+}
 /** "Nov 4": a day in UTC. Pure. */
 export const dayOf = (d: Date) => new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(d);
 /** L13-13 (v6.1.14): a program's win passed on without its amount, as the row's note says. */
 export const AMOUNT_NOT_GIVEN = 'amount not given';
-/** "won $3,000", "won, amount not given", "rejected", "no result": a row's result in words. Pure. */
-export const resultWords = (status: string, amount: string | null) =>
-  status === 'won' ? (amount === null ? `won, ${AMOUNT_NOT_GIVEN}` : `won ${usd(Number(amount))}`) : status === 'no_result' ? 'no result' : status;
+/**
+ * "won $2,500.50", "won EUR 2,000", "won $1,000 and EUR 500", "won, amount not given", "rejected", "no result": a row's
+ * result in words, its money through the one format (L22-7, v6.1.16). Pure.
+ */
+export const resultWords = (status: string, amounts: Amounts | null) =>
+  status === 'won' ? (amounts === null ? `won, ${AMOUNT_NOT_GIVEN}` : `won ${amountsText(amounts)}`) : status === 'no_result' ? 'no result' : status;
 export { newApplicationId };
 
 /** The program's title: the catalog's, else the one stored when it was sent, else the id. */
@@ -117,7 +142,12 @@ export async function record(
   programId: string,
   status: Status,
   o: {
-    installationId?: number; amount_usd?: number; note?: string; item?: string; now?: Date;
+    installationId?: number; note?: string; item?: string; now?: Date;
+    /** won only: US dollars (an alias of `amount` with currency USD). */
+    amount_usd?: number;
+    /** won only (L22-2, v6.1.16): the amount, cents kept; `currency` (upper-case code) left out when the builder named
+     *  none, so a win over a result held in one other currency takes that currency. */
+    amount?: { value: number; currency?: string };
     /** gap_done only: the project the step belongs to (projectKeyOf; '' for none, v6.1.10 L1c-1). */
     projectKey?: string;
     /** applied only: who pressed submit, the field keys sent and the record's project. */
@@ -128,14 +158,14 @@ export async function record(
      *  recorded as not under standing approval and answers `night` (v6.1.8 B18). */
     maxPerNight?: number;
     /** won only, from a program's screen (L13-13, v6.1.14): the program gave no amount; the win is kept with none,
-     *  its note AMOUNT_NOT_GIVEN (or `note`: L15-15, an amount in another currency, not converted). A later win with the amount completes it. */
+     *  its note AMOUNT_NOT_GIVEN (or `note`). A later win with the amount completes it. */
     amountNotGiven?: true;
     /** won only (T8-F1, v6.1.14): a further payment of a win, its caller's idempotency key; adds to the total once per key. */
     payment?: { key: string };
     /** A program's screen outcome (screen-jobs.recordOutcomes): not an agent's call, so the link check is skipped. */
     fromScreen?: true;
   } = {},
-): Promise<{ ok: true; repeated?: true; night?: true; closed?: true; total_usd?: number; replaced_usd?: number; corrected?: true } | { ok: false; note: string; items?: string[]; current?: string }> {
+): Promise<RecordResult> {
   const installationId = o.installationId ?? installationOf(owner);
   if (installationId === undefined) throw new Error('record needs the writing installation');
   const now = o.now ?? new Date();
@@ -143,10 +173,10 @@ export async function record(
   const unknown = { ok: false, note: "I don't know that program." } as const;
   // A result may land after the program left the catalog, when the owner's ledger holds it (checked below).
   if (!program && !RESULTS.includes(status)) return unknown;
-  const noAmount = status === 'won' && o.amountNotGiven === true && o.amount_usd === undefined;
-  if (status === 'won' && !noAmount && !(typeof o.amount_usd === 'number' && Number.isInteger(o.amount_usd) && o.amount_usd >= 1))
+  const given = o.amount ?? (o.amount_usd !== undefined ? { value: o.amount_usd, currency: 'USD' } : undefined);
+  const noAmount = status === 'won' && o.amountNotGiven === true && given === undefined;
+  if (status === 'won' && !noAmount && !(given && typeof given.value === 'number' && Number.isFinite(given.value) && given.value > 0))
     return { ok: false, note: WHOLE_DOLLARS };
-  if (status === 'won' && !noAmount && o.amount_usd! > winCapOf(program)) return { ok: false, note: OVER_CAP };
   if (status === 'gap_done' && program) {
     // Only one of the program's own items; the unknown-users gap ('users') only when it has a users item (v6.1.7, C27).
     const items = eligibilityOf(program.file);
@@ -158,14 +188,14 @@ export async function record(
   }
   if (status === 'gap_done' && !o.item) return { ok: false, note: WHICH_CHANGE };
   if (status === 'started') throw new Error('a claim is written by claims.claim');
-  const amount = status === 'won' && !noAmount ? o.amount_usd! : null;
-  // L15-15 (v6.1.14): a program's win in another currency is kept with no amount and its own note ("amount in EUR, not converted").
+  const value = status === 'won' && !noAmount ? Math.round(given!.value * 100) / 100 : null;
+  const cap = winCapOf(program);
   const note = noAmount ? o.note ?? AMOUNT_NOT_GIVEN : o.note ?? null;
   let repeated = false;
   let night = false;
   let closed = false;
-  let total: number | null = null;
-  let replacedFrom: number | null = null;
+  let total: Amounts | null = null;
+  let replacedFrom: Amounts | null = null;
   const paymentKey = status === 'won' && o.payment ? paymentKeyOf(o.payment.key) : null;
   // L17-2 (v6.1.16): every history row names who wrote it.
   const source = o.fromScreen ? 'screen' : 'builder';
@@ -176,12 +206,20 @@ export async function record(
     // T5-F4 (v6.1.14, fix round 2): no call of an agent unlinked meanwhile lands in the builder's ledger, whatever its
     // status; a program's screen outcome (`fromScreen`) is written as the application's own installation and skips it.
     if (!o.fromScreen && !(await stillLinked(tx, owner, installationId))) return { ok: false, note: UNLINKED_MEANWHILE } as const;
-    const [row] = await tx<{ status: string; amount_usd: string | null; note: string | null; at: Date; client_name: string | null; claimed_at: Date | null; claimed_by: number | null }[]>`
-      SELECT a.status, a.amount_usd, a.note, a.at, i.client_name, a.claimed_at, a.claimed_by FROM applications a LEFT JOIN installations i ON i.id = a.installation_id
+    const [row] = await tx<{ status: string; amount_usd: string | null; amounts: unknown; note: string | null; at: Date; client_name: string | null; claimed_at: Date | null; claimed_by: number | null }[]>`
+      SELECT a.status, a.amount_usd, a.amounts, a.note, a.at, i.client_name, a.claimed_at, a.claimed_by FROM applications a LEFT JOIN installations i ON i.id = a.installation_id
       WHERE a.owner = ${owner} AND a.program_id = ${programId} FOR UPDATE OF a`;
     if (!program && !row) return unknown;
+    const kept = row?.status === 'won' ? amountsOf(row) : null;
+    // L22-2 (v6.1.16): a win with no currency named, over a win held in one other currency, is in that currency.
+    const keptCodes = Object.keys(kept ?? {});
+    const currency = given?.currency ?? (keptCodes.length === 1 && keptCodes[0] !== 'USD' ? keptCodes[0] : 'USD');
+    const money: Amounts | null = value === null ? null : { [currency]: value };
+    // L22-4, L22-5 (v6.1.16): the given amount against the cap, before any rounding; another currency converted for the check only.
+    const overNote = { ok: false, note: OVER_CAP(cap), ...(!comparable(currency) && { agent_note: UNKNOWN_CURRENCY_NOTE }) } as const;
+    if (value !== null && overCap(value, currency, cap)) return overNote;
     // L13-13 (v6.1.14): a win kept without its amount takes the amount once; nothing else replaces a result.
-    const completes = row?.status === 'won' && row.amount_usd === null && status === 'won' && amount !== null;
+    const completes = row?.status === 'won' && kept === null && status === 'won' && money !== null;
     // T8-F1 (v6.1.14): a payment key already kept for this application changes nothing (a retried call).
     // L17-8 (v6.1.16): one key space per application; a key stored with a legacy prefix matches the same key now.
     if (paymentKey !== null && row?.status === 'won'
@@ -203,16 +241,16 @@ export async function record(
       return { ok: false, note: FURTHER_PAYMENT_REFUSED(current), current } as const;
     }
     // L15-17, T8-F1 (v6.1.14): a win with an amount over a win with an amount, marked a further payment, adds (the
-    // total under the cap).
-    const bothWon = row?.status === 'won' && row.amount_usd !== null && status === 'won' && amount !== null;
+    // total under the cap). L22-3 (v6.1.16): within its currency; across currencies the win keeps both, never replaced.
+    const bothWon = row?.status === 'won' && kept !== null && status === 'won' && value !== null;
     const adds = bothWon && paymentKey !== null;
     if (adds) {
-      total = Number(row.amount_usd) + amount;
-      if (total > winCapOf(program)) return { ok: false, note: OVER_CAP } as const;
+      total = plusAmount(kept, value, currency);
+      if (amountsOverCap(total, cap)) return overNote;
     }
-    // The same result: the same status and amount (a win kept with no amount also by its note, which names the currency).
-    const same = hasResult && row.status === status && (row.amount_usd === null ? null : Number(row.amount_usd)) === amount
-      && (status !== 'won' || amount !== null || (row.note ?? null) === note);
+    // The same result: the same status and money (a win kept with no amount also by its note).
+    const same = hasResult && row.status === status && sameAmounts(row.status === 'won' ? kept : null, money)
+      && (status !== 'won' || money !== null || (row.note ?? null) === note);
     // L16-1, L16-2 (v6.1.16): a won or rejected, unmarked, over a different result is a correction: the latest result
     // replaces it, whether the program's screen or the builder's own track sends it (T8-F1's other amount among them).
     const corrects = hasResult && (status === 'won' || status === 'rejected') && paymentKey === null && !completes && !same;
@@ -221,13 +259,13 @@ export async function record(
     // Fix round 1 (I1): a repeat never moves the stored time; the stored time stays the original result's.
     // L17-8 (v6.1.16): the stored win again, with no further-payment mark, from the screen or the builder: a confirmation.
     if (same && status === 'won' && paymentKey === null) return { ok: false, note: CONFIRMED } as const;
-    if (corrects && row.status === 'won' && row.amount_usd !== null && amount !== null) replacedFrom = Number(row.amount_usd);
+    if (corrects && row.status === 'won' && kept !== null && money !== null) replacedFrom = kept;
     const resulted = hasResult && !completes && !adds && !corrects;
     if (resulted && status === 'skipped') return { ok: false, note: 'That one already has a result here; nothing to skip.' } as const;
-    if (resulted && RESULTS.includes(status) && row.status === status && (status !== 'won' || (row.amount_usd === null ? null : Number(row.amount_usd)) === amount))
+    if (resulted && RESULTS.includes(status) && row.status === status && (status !== 'won' || sameAmounts(kept, money)))
       return { ok: false, note: 'Already tracked.' } as const;
     if (resulted && (status === 'applied' || RESULTS.includes(status)))
-      return { ok: false, note: `That one already has a result here: ${resultWords(row.status, row.amount_usd)}.` } as const;
+      return { ok: false, note: `That one already has a result here: ${resultWords(row.status, kept)}.` } as const;
     if (status === 'applied' && row?.status === 'applied')
       return { ok: false, note: `Already sent here on ${dayOf(row.at)} by ${displayName(row.client_name) ?? 'another agent'}; nothing recorded.` } as const;
     // B3 (v6.1.13): a live claim of another installation of this owner holds the program; only its holder sends it.
@@ -265,10 +303,10 @@ export async function record(
       // The title is kept, so a result still reads once the program leaves the catalog.
       // sent_at is the send time: a result later moves `at`, never this (v6.1.9 N2).
       // L13-1 (v6.1.14): the application's own id, kept when the row already has one.
-      await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, note, at, sent_at, submitted_by, fields_used, project_id, auto_applied, title, application_id)
-        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, ${note}, ${now}, ${now}, ${o.submitted_by ?? null}, ${o.fields_used ?? null}, ${o.project_id ?? null}, ${auto}, ${program!.file.title}, ${newApplicationId()})
+      await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, amounts, note, at, sent_at, submitted_by, fields_used, project_id, auto_applied, title, application_id)
+        VALUES (${owner}, ${installationId}, ${programId}, 'applied', NULL, NULL, ${note}, ${now}, ${now}, ${o.submitted_by ?? null}, ${o.fields_used ?? null}, ${o.project_id ?? null}, ${auto}, ${program!.file.title}, ${newApplicationId()})
         ON CONFLICT (owner, program_id) DO UPDATE
-          SET installation_id = EXCLUDED.installation_id, status = 'applied', amount_usd = NULL, note = EXCLUDED.note, at = EXCLUDED.at, sent_at = EXCLUDED.sent_at,
+          SET installation_id = EXCLUDED.installation_id, status = 'applied', amount_usd = NULL, amounts = NULL, note = EXCLUDED.note, at = EXCLUDED.at, sent_at = EXCLUDED.sent_at,
               application_id = COALESCE(applications.application_id, EXCLUDED.application_id),
               submitted_by = EXCLUDED.submitted_by, fields_used = EXCLUDED.fields_used, auto_applied = EXCLUDED.auto_applied, title = EXCLUDED.title,
               project_id = COALESCE(EXCLUDED.project_id, applications.project_id)`;
@@ -278,26 +316,36 @@ export async function record(
         claimed_at = NULL, claimed_by = NULL WHERE owner = ${owner} AND program_id = ${programId}`;
     } else if (total !== null) {
       // L17-2: `at` never moves backwards.
-      await tx`UPDATE applications SET installation_id = ${installationId}, amount_usd = ${total}, at = GREATEST(at, ${now}) WHERE owner = ${owner} AND program_id = ${programId}`;
-    } else if (corrects) {
-      await tx`UPDATE applications SET installation_id = ${installationId}, status = ${status}, amount_usd = ${amount}, note = ${note}, at = ${now}
+      await tx`UPDATE applications SET installation_id = ${installationId}, amount_usd = ${total.USD ?? null}, amounts = ${tx.json(total)}, at = GREATEST(at, ${now})
         WHERE owner = ${owner} AND program_id = ${programId}`;
+    } else if (corrects) {
+      await tx`UPDATE applications SET installation_id = ${installationId}, status = ${status}, amount_usd = ${money?.USD ?? null}, amounts = ${money ? tx.json(money) : null},
+        note = ${note}, at = ${now} WHERE owner = ${owner} AND program_id = ${programId}`;
     } else if (!(status === 'skipped' && row)) {
       // A skip on a program already in the ledger hides nothing new: the application stays as it is.
-      await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, note, at)
-        VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${amount}, ${note}, ${now})
+      await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, amounts, note, at)
+        VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${money?.USD ?? null}, ${money ? tx.json(money) : null}, ${note}, ${now})
         ON CONFLICT (owner, program_id) DO UPDATE
-          SET installation_id = EXCLUDED.installation_id, status = EXCLUDED.status, amount_usd = EXCLUDED.amount_usd, note = EXCLUDED.note, at = EXCLUDED.at`;
+          SET installation_id = EXCLUDED.installation_id, status = EXCLUDED.status, amount_usd = EXCLUDED.amount_usd, amounts = EXCLUDED.amounts, note = EXCLUDED.note, at = EXCLUDED.at`;
     }
     // L17-1 (v6.1.16): a history row only when the ledger changed (a repeated gap_done changed nothing).
     if (!repeated)
-      await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, note, at, payment_key, corrected, source)
-        VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${amount}, ${note}, ${now}, ${paymentKey}, ${corrects}, ${source})`;
+      await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, amount, currency, note, at, payment_key, corrected, source)
+        VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${currency === 'USD' ? value : null}, ${value}, ${value === null ? null : currency}, ${note}, ${now}, ${paymentKey}, ${corrects}, ${source})`;
     return repeated ? ({ ok: true, repeated: true } as const) : night ? ({ ok: true, night: true } as const) : closed ? ({ ok: true, closed: true } as const)
-      : total !== null ? ({ ok: true, total_usd: total } as const)
-      : corrects ? ({ ok: true, corrected: true, ...(replacedFrom !== null && { replaced_usd: replacedFrom }) } as const) : ({ ok: true } as const);
-  })) as { ok: true; repeated?: true; night?: true; closed?: true; total_usd?: number; replaced_usd?: number; corrected?: true } | { ok: false; note: string; current?: string };
+      : total !== null ? ({ ok: true, total } as const)
+      : corrects ? ({ ok: true, corrected: true, ...(replacedFrom !== null && { replaced: replacedFrom }) } as const)
+      : ({ ok: true } as const);
+  })) as RecordResult;
 }
+
+/**
+ * What `record` answers. `total` (a further payment added) and `replaced` (the win a
+ * correction replaced) are by currency (L22-3, v6.1.16); `agent_note` names why a refusal's currency could not be compared.
+ */
+export type RecordResult =
+  | { ok: true; repeated?: true; night?: true; closed?: true; total?: Amounts; replaced?: Amounts; corrected?: true }
+  | { ok: false; note: string; items?: string[]; current?: string; agent_note?: string };
 
 /**
  * Sends under standing approval since `since` (by the send time; a row from before v6.1.9 without one reads its
@@ -310,10 +358,11 @@ export async function autoSentSince(owner: string, since: Date, db: Db = sql(), 
 }
 
 export async function summary(owner: string, programs: ProgramRow[], now: Date): Promise<Ledger> {
-  const rows = await sql()<{ program_id: string; status: string; amount_usd: string | null }[]>`
-    SELECT program_id, status, amount_usd FROM applications WHERE owner = ${owner}`;
+  const rows = await sql()<{ program_id: string; status: string; amount_usd: string | null; amounts: unknown }[]>`
+    SELECT program_id, status, amount_usd, amounts FROM applications WHERE owner = ${owner}`;
   const byId = await withOwn(rows.map((r) => r.program_id), programs);
-  const l: Ledger = { applied: 0, asked_usd: 0, won: 0, won_usd: 0, pending: 0, rejected: 0, skipped: 0, closing_soon: [] };
+  const l: Ledger = { applied: 0, asked_usd: 0, won: 0, won_usd: 0, won_other: [], won_no_amount: 0, pending: 0, rejected: 0, skipped: 0, closing_soon: [] };
+  let won: Amounts = {};
   const soon: { program_id: string; title: string; at: number }[] = [];
   for (const r of rows) {
     if (r.status === 'started') continue;
@@ -326,8 +375,13 @@ export async function summary(owner: string, programs: ProgramRow[], now: Date):
     if (p && !p.file.investment && categoryOf(p.file) !== 'investment') l.asked_usd += p.file.max_award_usd ?? 0;
     if (r.status === 'won') {
       l.won++;
-      l.won_usd += Number(r.amount_usd ?? 0);
+      // L22-1 (v6.1.16): every currency kept apart, never converted; a win with none is counted by itself.
+      const a = amountsOf(r);
+      if (a === null) l.won_no_amount++;
+      else for (const [c, v] of Object.entries(a)) won = plusAmount(won, v, c);
     } else if (r.status === 'rejected') l.rejected++;
+    // L22-8 (v6.1.16): no result counts as waiting, so the parts always sum to the sent count.
+    else if (r.status === 'no_result') l.pending++;
     else if (r.status === 'applied') {
       l.pending++;
       if (!p) continue;
@@ -337,6 +391,8 @@ export async function summary(owner: string, programs: ProgramRow[], now: Date):
       if (dates.length > 0) soon.push({ program_id: p.id, title: p.file.title, at: Math.min(...dates) });
     }
   }
+  l.won_usd = won.USD ?? 0;
+  l.won_other = Object.entries(won).filter(([c]) => c !== 'USD').sort(([a], [b]) => a.localeCompare(b)).map(([currency, amount]) => ({ currency, amount }));
   l.closing_soon = soon.sort((a, b) => a.at - b.at).map((s) => ({ program_id: s.program_id, title: s.title, closes_at: new Date(s.at).toISOString() }));
   return l;
 }
@@ -344,20 +400,22 @@ export async function summary(owner: string, programs: ProgramRow[], now: Date):
 /**
  * The counts after "Your applications: " (L21-1, v6.1.16): "6 sent, 3 won ($12,000), 1 rejected, 2 waiting." The find
  * reply and /me's totals line share it, so the two always agree (Review Focus 9). What was won, never what was asked
- * (v6.1.8, 3.6); a count of none is left out, waiting is said whenever any wait (L13-18). Pure.
+ * (v6.1.8, 3.6), as `totalText` writes it (L22-1: "3 won ($3,500.50 and EUR 2,000)", "2 won ($5,000, one amount not
+ * given)"); a count of none is left out, waiting is said whenever any wait (L13-18). Pure.
  */
 export function ledgerCounts(l: Ledger): string {
   const soon = l.closing_soon.length > 0 ? `, ${l.closing_soon.length} closing soon` : '';
-  const won = l.won > 0 && l.won_usd > 0 ? ` (${usdFull(l.won_usd)})` : '';
+  const total = totalText({ usd: l.won_usd, other: l.won_other ?? [], noAmount: l.won_no_amount ?? 0 });
+  const won = l.won > 0 && total ? ` (${total})` : '';
   const counts = [`${l.applied} sent`, ...(l.won > 0 ? [`${l.won} won${won}`] : []), ...(l.rejected > 0 ? [`${l.rejected} rejected`] : []), ...(l.pending > 0 ? [`${l.pending} waiting${soon}`] : [])];
   return `${counts.join(', ')}.`;
 }
 
 /** L16-7 (v6.1.16): the program's result for this owner (won, rejected or no result), or null when it has none. */
-export async function resultOf(owner: string, programId: string): Promise<{ status: 'won' | 'rejected' | 'no_result'; amount_usd: string | null; note: string | null } | null> {
-  const [r] = await sql()<{ status: 'won' | 'rejected' | 'no_result'; amount_usd: string | null; note: string | null }[]>`
-    SELECT status, amount_usd, note FROM applications WHERE owner = ${owner} AND program_id = ${programId} AND status = ANY(${RESULTS})`;
-  return r ?? null;
+export async function resultOf(owner: string, programId: string): Promise<{ status: 'won' | 'rejected' | 'no_result'; amount_usd: string | null; amounts: Amounts | null; note: string | null } | null> {
+  const [r] = await sql()<{ status: 'won' | 'rejected' | 'no_result'; amount_usd: string | null; amounts: unknown; note: string | null }[]>`
+    SELECT status, amount_usd, amounts, note FROM applications WHERE owner = ${owner} AND program_id = ${programId} AND status = ANY(${RESULTS})`;
+  return r ? { ...r, amounts: r.status === 'won' ? amountsOf(r) : null } : null;
 }
 
 /** Program ids the builder applied to or skipped: they leave the list. A claimed ('started') one stays, marked. */

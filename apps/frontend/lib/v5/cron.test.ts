@@ -7,6 +7,7 @@ import { SafeFetchError } from './safe-fetch';
 import type { Mailer } from './mail';
 import { programFixture } from './fixtures/program';
 import { upsertProgram } from './programs';
+import { watchCatalogRevalidation } from './programs-read';
 import { workQueue } from '../v6/screen-worker';
 import { evidence, liveRows } from '../v6/fixtures/evidence-builder';
 
@@ -382,4 +383,17 @@ test('errorCode: by class, never by message', () => {
   assert.equal(errorCode(new Error('timeout')), 'timeout');
   assert.equal(errorCode(new Error('postgresql://u:p@h/db')), 'error');
   assert.equal(errorCode('x'), 'error');
+});
+
+test('L22-13 (v6.1.16): the daily status flip expires every catalog surface (revalidateCatalog per changed program)', async () => {
+  let n = 0;
+  watchCatalogRevalidation(() => n++);
+  try {
+    const flip = async () => ({ checked: 2, stale: [], changed: [], closed: ['cr-a'], opened: ['cr-b'], failed: [] });
+    const res = await cronPost(req(`Bearer ${SECRET}`), { ...deps, runHealth: flip, workQueue: idleQueue });
+    assert.equal(res.status, 200);
+    assert.equal(n, 2);
+  } finally {
+    watchCatalogRevalidation(null);
+  }
 });

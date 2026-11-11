@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { programProblems } from './program-checks';
 import type { Program } from './program-file';
 import { upsertProgram } from './programs';
+import { revalidateCatalog } from './programs-read';
 
 export type ProgramFiles = { invalid: string[]; programs: { f: string; p: Program }[]; warnings: string[] };
 
@@ -46,5 +47,7 @@ export async function syncFiles(dir: string, now: Date): Promise<ProgramFiles & 
   const written: string[] = [];
   if (files.invalid.length > 0) return { ...files, written };
   for (const { f, p } of files.programs) written.push(`${f}: ${await upsertProgram(p, 'file', now)}`);
+  // L22-13 (v6.1.16): the synced files expire every catalog surface at once.
+  if (written.length > 0) revalidateCatalog();
   return { ...files, written };
 }

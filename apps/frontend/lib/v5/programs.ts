@@ -94,6 +94,9 @@ const wordsOfProgram = (r: ProgramRow) => new Set([r.id, r.file.title, r.file.or
 /** The words a short word (under four characters) may name (fix round 1, T7-F3): the id's and title's words and the
  *  id's initials ("arc", "yc"), never an organizer's ("aws" from "Kiro (AWS)"). Pure. */
 const shortWordsOfProgram = (r: ProgramRow) => new Set([...[r.id, r.file.title].flatMap((x) => plain(x).split(' ')), initials(r.id)].filter(Boolean));
+/** L1h-2 (v6.1.16): a program's rule keywords as catalog words a short lookup may name ("otf"). Pure. */
+const keywordsOfProgram = (r: ProgramRow) =>
+  new Set((r.file.eligibility ?? []).flatMap((e) => (e.kind === 'rule' ? e.keywords ?? [] : [])).map((k) => squash(k)));
 /** The money a program puts up: the larger of its top award and its pool, -1 when it states neither. Pure. */
 const awardOf = (p: Program) => Math.max(p.max_award_usd ?? -1, p.pool_usd ?? -1);
 
@@ -140,7 +143,8 @@ export async function programByName(name: string, now: Date = new Date()): Promi
   const led = (r: ProgramRow) => organizerLeads(r.file.organizer).includes(words);
   const orgWord = rows.some((r) => led(r) && !organizers(r.file.organizer).includes(q));
   const tests: [(r: ProgramRow) => boolean, boolean][] = [
-    [(r) => squash(r.id) === q || squash(r.file.title) === q || (!words.includes(' ') && q.length >= 2 && initials(r.id) === q), true],
+    // L1h-2 (v6.1.16): a short word (under four characters) may also be one of the program's rule keywords ("otf").
+    [(r) => squash(r.id) === q || squash(r.file.title) === q || (!words.includes(' ') && q.length >= 2 && (initials(r.id) === q || (q.length < MIN_PREFIX && keywordsOfProgram(r).has(q)))), true],
     [(r) => prefix && (squash(r.file.title).startsWith(q) || squash(r.id).startsWith(q)), !orgWord],
     [(r) => organizers(r.file.organizer).includes(q), true],
   ];

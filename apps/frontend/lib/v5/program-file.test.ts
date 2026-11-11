@@ -159,7 +159,7 @@ test('L1c-2 (v6.1.10): the catalog keywords are on the domain rules, none on lic
   assert.deepEqual(kw('kiroween-2026'), ['kiro']);
   assert.deepEqual(kw('solana-mobile-builder-grants'), ['solana mobile', 'solana saga', 'solana seeker', 'dapp store']);
   assert.deepEqual(kw('ugreen-ai-nas-hackathon-2026'), ['ugreen', 'nas']);
-  assert.deepEqual(kw('otf-internet-freedom-fund'), ['censorship', 'circumvention', 'privacy', 'vpn', 'tor']);
+  assert.deepEqual(kw('otf-internet-freedom-fund'), ['censorship', 'circumvention', 'privacy', 'vpn', 'tor', 'otf']);
   assert.deepEqual(kw('goose-grant-program'), ['goose']);
   assert.deepEqual(kw('filecoin-open-grants'), ['filecoin', 'fvm', 'ipfs']);
   assert.deepEqual(kw('lido-lego-grants'), ['lido', 'steth']);

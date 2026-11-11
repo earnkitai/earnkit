@@ -2606,3 +2606,23 @@ test('L16-6 (v6.1.16, lane 16 N41, Review Focus 5): a Codeberg browse link and i
     assert.equal(await status(c, P), 'ready', browse);
   }
 });
+
+test('L1h-1, L1h-2 (v6.1.16): the lookup JSON carries full figures; "otf" and "OTF" name the OTF fund, "internet freedom" still does', async () => {
+  const id = await installation();
+  for (const program_id of ['arbitrum-mentorship-cohort-2', 'alliance-all19']) {
+    const r = await mcpCall(ctx(id), 'find', { program_id });
+    const p = r.reply!.program as { description: string; reward: string };
+    for (const t of [p.description, p.reward, JSON.stringify(r.reply!.guide)]) assert.doesNotMatch(t, /\d[KkMm]\b/, `${program_id}: ${t}`);
+  }
+  assert.match(JSON.stringify((await mcpCall(ctx(id), 'find', { program_id: 'alliance-all19' })).reply!.program), /\$400,000 upon admission/);
+  for (const name of ['otf', 'OTF', 'internet freedom'])
+    assert.equal(((await mcpCall(ctx(id), 'find', { program_id: name })).reply!.program as { id: string } | null)?.id, 'otf-internet-freedom-fund', name);
+  assert.equal((await mcpCall(ctx(id), 'find', { program_id: 'zzqx' })).reply!.show_to_builder, "I don't know that program.");
+});
+
+test('L1h-1 (v6.1.16): EarnKit\'s own hint for the Solana Incubator reads in full figures', async () => {
+  const id = await installation();
+  const r = await mcpCall(ctx(id), 'find', { program_id: 'solana-incubator-cohort-6', project: { name: 'Pay App', description: 'Payments for coffee shops on Solana.', chains: ['solana'] } });
+  assert.ok(r.text.includes('your path to $10,000,000 annual revenue'), r.text.slice(0, 400));
+  assert.doesNotMatch(r.text.replace(/generating \$10M/g, ''), /path to \$10M/);
+});

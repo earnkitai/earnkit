@@ -71,13 +71,13 @@ test('csv: the header and one line per applicant, commas and quotes quoted, no p
   const lines = csv.trimEnd().split('\n');
   assert.equal(
     lines[0],
-    'ref,name,tier,flags,outside_senders_90d,funded_senders_90d,senders_90d,chains_mainnet,last_push_at,contributors_90d,template_name,template_overlap,own_share,url_ok,line,problems',
+    'ref,name,tier,result,amount,flags,outside_senders_90d,funded_senders_90d,senders_90d,chains_mainnet,last_push_at,contributors_90d,template_name,template_overlap,own_share,url_ok,line,problems',
   );
   assert.equal(lines.length, ROWS.length + 1);
   // #15 (v6.1.15): outside_senders_90d and its alias funded_senders_90d carry the same value side by side.
-  assert.ok(lines[1].startsWith('u1,"Used, Inc.",used,,40,40,90,base,'), lines[1]);
+  assert.ok(lines[1].startsWith('u1,"Used, Inc.",used,,,,40,40,90,base,'), lines[1]);
   assert.ok(lines[2].startsWith('l1,"Live ""One""",live,'));
-  assert.ok(lines[4].startsWith('f1,Copy,flagged,template,'));
+  assert.ok(lines[4].startsWith('f1,Copy,flagged,,,template,'));
   assert.ok(!csv.includes('SECRET PITCH'));
   assert.ok(!/—/.test(csv));
 });
@@ -85,4 +85,11 @@ test('csv: the header and one line per applicant, commas and quotes quoted, no p
 test('csv: a cell that a spreadsheet would run as a formula is defused', () => {
   const csv = csvReport([row(app({ ref: 'x', name: '=HYPERLINK("http://evil")' }), evidence())]);
   assert.ok(csv.split('\n')[1].startsWith(`x,"'=HYPERLINK(""http://evil"")"`));
+});
+
+test('L22-12 (v6.1.16): the CSV carries the outcome and its amount after the tier', () => {
+  const csv = csvReport([{ ...ROWS[0], result: 'won', amount: '$1,000 and EUR 500' }, { ...ROWS[1], result: 'rejected', amount: null }]);
+  const lines = csv.trimEnd().split('\n');
+  assert.ok(lines[1].startsWith('u1,"Used, Inc.",used,won,"$1,000 and EUR 500",'), lines[1]);
+  assert.ok(lines[2].startsWith('l1,"Live ""One""",live,rejected,,'), lines[2]);
 });

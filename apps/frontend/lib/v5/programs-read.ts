@@ -3,6 +3,7 @@
  * site shows of each, filtered by ?category= and ?status=, in the list's order. The JSON shape is
  * the one the owner's Grok Bot and other readers already parse.
  */
+import { revalidatePath, revalidateTag } from 'next/cache';
 import { CHAIN_REGISTRY } from './chains';
 import { closeDay, timeLeftWords } from './deadline';
 import { json } from './http';
@@ -11,6 +12,31 @@ import { listListedPrograms } from './programs';
 
 /** The cache tag on the public list; an API write expires it. */
 export const PROGRAMS_TAG = 'programs';
+
+let catalogWatcher: (() => void) | null = null;
+/** Tests only: a function called on every `revalidateCatalog` (null to stop). */
+export const watchCatalogRevalidation = (f: (() => void) | null): void => {
+  catalogWatcher = f;
+};
+
+/**
+ * L22-13 (v6.1.16): every catalog surface (stats, the landing, /programs, every guide, the sitemap) expires at once, on
+ * every program write: the API's, the file sync's upserts and deletes, and the cron's status flip. They share one tag
+ * (`cachedRead`, keyed by build). Outside a Next request (a script, a test) it does nothing.
+ */
+export function revalidateCatalog(): void {
+  catalogWatcher?.();
+  try {
+    revalidateTag(PROGRAMS_TAG, { expire: 0 });
+    revalidatePath('/');
+    revalidatePath('/programs');
+    revalidatePath('/programs/[id]', 'page');
+    revalidatePath('/sitemap.xml');
+    revalidatePath('/api/stats');
+  } catch {
+    // No Next request context.
+  }
+}
 export const PROGRAMS_LIST_MAX = 200;
 export const PROGRAM_STATUSES = ['active', 'upcoming'] as const;
 
@@ -41,8 +67,57 @@ export type ListedProgram = {
   max_award_usd: number;
 };
 
-/** "$10,000": whole dollars with en-US grouping, never K or M (lane 22, v6.1.15). Pure. */
-export const usdFull = (usd: number): string => `$${Math.round(usd).toLocaleString('en-US')}`;
+/** A number with en-US grouping, cents only when it has them ("5,000", "2,500.50"). Pure. */
+const grouped = (n: number): string =>
+  n.toLocaleString('en-US', { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 });
+
+/**
+ * The one money format (lane 22, v6.1.15; currencies and cents, L22-14 v6.1.16): US dollars as `$5,000` or `$2,500.50`
+ * (cents only when given), another currency code first and never converted (`EUR 2,000`, `USDC 115,000`); never K or
+ * M (the landing hero's `heroUsdText` alone rounds). Pure.
+ */
+export function moneyText(amount: number, currency = 'USD'): string {
+  const code = currency.trim().toUpperCase() || 'USD';
+  return code === 'USD' ? `$${grouped(amount)}` : `${code} ${grouped(amount)}`;
+}
+
+/** "$10,000": `moneyText` in US dollars (lane 22, v6.1.15). Pure. */
+export const usdFull = (usd: number): string => moneyText(usd);
+
+/** A win's money by currency code (`{ USD: 3500.5, EUR: 2000 }`), never converted (L22-3, v6.1.16). */
+export type Amounts = Readonly<Record<string, number>>;
+
+/** Two amounts added to the cent, so 0.1 + 0.2 stays 0.30. Pure. */
+export const addMoney = (a: number, b: number): number => Math.round((a + b) * 100) / 100;
+
+/** The amounts plus one more in its currency (a further payment adds within its currency). Pure. */
+export const plusAmount = (a: Amounts | null, value: number, currency: string): Amounts => ({ ...a, [currency]: addMoney(a?.[currency] ?? 0, value) });
+
+/** Whether two amounts hold the same money in every currency. Pure. */
+export function sameAmounts(a: Amounts | null, b: Amounts | null): boolean {
+  const ka = Object.keys(a ?? {}).filter((k) => a![k] !== 0);
+  const kb = Object.keys(b ?? {}).filter((k) => b![k] !== 0);
+  return ka.length === kb.length && ka.every((k) => b?.[k] === a![k]);
+}
+
+/**
+ * A total in the one format (L22-1, v6.1.16): US dollars first, then each other currency in code order, joined with
+ * `and`; wins with no amount named after a comma: `$3,500.50 and EUR 2,000`, `$5,000, one amount not given`,
+ * `amount not given` alone. Empty when there is nothing to say. Pure.
+ */
+export function totalText(t: { usd: number; other: readonly { currency: string; amount: number }[]; noAmount: number }): string {
+  const parts = [
+    ...(t.usd > 0 ? [moneyText(t.usd)] : []),
+    ...[...t.other].filter((o) => o.amount > 0).sort((a, b) => a.currency.localeCompare(b.currency)).map((o) => moneyText(o.amount, o.currency)),
+  ];
+  const missing = t.noAmount <= 0 ? '' : parts.length === 0 ? (t.noAmount === 1 ? 'amount not given' : `${t.noAmount} amounts not given`)
+    : `${t.noAmount === 1 ? 'one amount' : `${t.noAmount} amounts`} not given`;
+  return [parts.join(' and '), missing].filter(Boolean).join(', ');
+}
+
+/** A win's amounts in the one format (`$1,000 and EUR 500`); empty for none. Pure. */
+export const amountsText = (a: Amounts | null): string =>
+  totalText({ usd: a?.USD ?? 0, other: Object.entries(a ?? {}).filter(([c]) => c !== 'USD').map(([currency, amount]) => ({ currency, amount })), noAmount: 0 });
 
 /**
  * A money phrase at its place (#12, L1g-4, v6.1.15): `tile` starts it with a capital ("Funds work from EUR 50,000");

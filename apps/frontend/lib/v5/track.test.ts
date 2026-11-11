@@ -64,7 +64,7 @@ test('one application and one result per program, in builder words (v6.1.7, B8, 
   const second = await track(c, { program_id: 't7-one', status: 'applied', submitted_by: 'agent', project: { name: 'App' } });
   assert.equal(second.show_to_builder, 'Already sent here on Nov 4 by Claude Code; nothing recorded.');
   assert.equal(second.agent_note, 'Nothing was recorded.');
-  assert.equal((await track(a, { program_id: 't7-one', status: 'won', amount_usd: 0.4 })).show_to_builder, 'Tell me how much you won, as whole dollars.');
+  assert.equal((await track(a, { program_id: 't7-one', status: 'won', amount_usd: 0 })).show_to_builder, 'I could not read that. Send the program, a status, and for a win the amount.');
   assert.equal((await track(a, { program_id: 't7-one', status: 'won', amount_usd: 3000 })).show_to_builder, 'Tracked: $3,000 from One Grant.');
   // L16-2 (v6.1.16): no_result over a result is refused; a rejection would be a correction (the next test).
   const rej = await track(c, { program_id: 't7-one', status: 'no_result' });
@@ -359,7 +359,7 @@ test('TrackInput caps: program_id and item at 80, amount_usd finite and at least
   assert.equal(n, 0);
   // Any amount passes the input check and meets the program's own limit instead (L13-5: 1e12 too).
   for (const amount_usd of [100_000_000, 100_000_001, 1e12])
-    assert.equal((await track(c, { program_id: 't6-cap', status: 'won', amount_usd })).show_to_builder, "That's more than this program pays; check the amount.");
+    assert.equal((await track(c, { program_id: 't6-cap', status: 'won', amount_usd })).show_to_builder, "Over the program's $10,000,000 cap; nothing recorded.");
 });
 
 const RULE = 'a team of two or more';
@@ -1405,4 +1405,36 @@ test('L25-24 (v6.1.16): track started keeps a note, cut to 280 characters, on th
   // A renewed claim with no note keeps the one it has.
   await track(c, { program_id: 't25-note', status: 'started' });
   assert.equal((await sql()`SELECT note FROM applications WHERE installation_id = ${c.installationId} AND program_id = 't25-note'`)[0].note, 'n'.repeat(280));
+});
+
+test('L22-2, L22-3, L22-7, L25-13 (v6.1.16): track takes amount and currency; a win with no currency keeps the win\'s own; cents kept', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 't22-eur', title: 'Euro Grant', max_award_usd: 100_000 }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 't22-cents', title: 'Cents Grant', max_award_usd: 100_000 }), 'file', NOW);
+  const say = async (input: Record<string, unknown>) => (await track(c, input)).show_to_builder;
+  for (const id of ['t22-eur', 't22-cents']) await say({ program_id: id, status: 'applied' });
+  assert.equal(await say({ program_id: 't22-eur', status: 'won', amount: 2000, currency: 'EUR' }), 'Tracked: EUR 2,000 from Euro Grant.');
+  assert.equal(await say({ program_id: 't22-eur', status: 'rejected' }), 'Tracked. On to the next one.');
+  assert.equal(await say({ program_id: 't22-eur', status: 'won', amount: '€2,000' }), 'Tracked: EUR 2,000 from Euro Grant.');
+  assert.equal(await say({ program_id: 't22-eur', status: 'no_result' }), 'That one already has a result here: won EUR 2,000.');
+  // No currency named over a win held in EUR: EUR is assumed, a correction and a further payment alike.
+  assert.equal(await say({ program_id: 't22-eur', status: 'won', amount: 2500 }), 'Tracked: EUR 2,500 from Euro Grant. Replaced the earlier amount.');
+  assert.equal(await say({ program_id: 't22-eur', status: 'won', amount: 500, payment: { key: 'p2' } }), 'Tracked: EUR 500 more from Euro Grant, EUR 3,000 in total.');
+  // Named dollars keep both currencies, never replacing (L22-3).
+  assert.equal(await say({ program_id: 't22-eur', status: 'won', amount_usd: 1000, payment: { key: 'p3' } }), 'Tracked: $1,000 more from Euro Grant, $1,000 and EUR 3,000 in total.');
+  const r = await track(c, { program_id: 't22-cents', status: 'won', amount_usd: 1234.56 });
+  assert.equal(r.show_to_builder, 'Tracked: $1,234.56 from Cents Grant.');
+  assert.deepEqual([r.ledger.won_usd, r.ledger.won_other], [2234.56, [{ currency: 'EUR', amount: 3000 }]]);
+  const [row] = await sql()`SELECT amount_usd, amounts FROM applications WHERE installation_id = ${c.installationId} AND program_id = 't22-cents'`;
+  assert.deepEqual([Number(row.amount_usd), row.amounts], [1234.56, { USD: 1234.56 }]);
+  const h = await sql()`SELECT amount, currency FROM application_history WHERE installation_id = ${c.installationId} AND program_id = 't22-eur' AND status = 'won' ORDER BY at, amount`;
+  assert.deepEqual(h.map((x) => `${Number(x.amount)} ${x.currency}`).sort(), ['1000 USD', '2000 EUR', '2000 EUR', '2500 EUR', '500 EUR']);
+  // L22-6: a dot-thousands amount has its own line; an unreadable one the unread line.
+  assert.equal(await say({ program_id: 't22-cents', status: 'won', amount: '5.000' }), 'Amount not read: use a dot only for cents, no thousands separator.');
+  assert.equal(await say({ program_id: 't22-cents', status: 'won', amount: 'lots' }), 'I could not read that. Send the program, a status, and for a win the amount.');
+});
+
+test('L25-13 (v6.1.16): the track description says amount_usd may carry cents', async () => {
+  const { TRACK_DESCRIPTION } = await import('./tool-text');
+  assert.match(TRACK_DESCRIPTION, /amount_usd may carry cents/);
 });

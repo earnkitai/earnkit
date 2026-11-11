@@ -9,7 +9,9 @@ import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { sql } from '../v5/db';
 import { CHAIN_REGISTRY, isKnownChain } from '../v5/chains';
-import { CONFIRMED, record, resultWords, winCapOf } from '../v5/ledger';
+import { CONFIRMED, amountsOf, record, resultWords, winCapOf } from '../v5/ledger';
+import { amountsOverCap } from '../v5/amount';
+import { amountsText, plusAmount, sameAmounts, type Amounts } from '../v5/programs-read';
 import { getProgram } from '../v5/programs';
 import { canonicalRepoLink, isCodeHost, isShortener, nameKeyOf, sshAsHttps } from '../v5/project-input';
 import { repoKey } from '../v5/repo-facts';
@@ -58,17 +60,15 @@ const shown = (x: Row): Row[] => {
 };
 /** `payment` (T8-F1, v6.1.14): a won that is a further payment of a win already posted, with the reviewer's own key. */
 export type Outcome = {
-  ref: string; outcome: 'won' | 'rejected' | 'shortlisted'; amount_usd?: number; payment?: { key: string };
-  /** L15-15 (v6.1.14): a US dollar amount with cents, given as `from`, rounded down to `amount_usd` for the ledger. */
-  rounded?: { from: number };
-  /** L15-15: a win in another currency, kept as given (no amount_usd); the ledger's win carries no amount. */
-  given?: { amount: number; currency: string };
+  ref: string; outcome: 'won' | 'rejected' | 'shortlisted'; payment?: { key: string };
+  /** US dollars (a shortcut for `money` in USD). */
+  amount_usd?: number;
+  /** L22-6 (v6.1.16): a win's amount as given (`readAmount`), cents and currency kept, never converted. */
+  money?: { value: number; currency: string };
 };
-/** L15-15 (v6.1.14): the ledger note of a win whose amount was rounded down, or given in another currency. Pure. */
-export const ledgerAmountNote = (o: Outcome): string | null =>
-  o.given ? `amount in ${o.given.currency}, not converted`
-  : o.rounded ? `rounded down to whole dollars from $${o.rounded.from.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-  : null;
+/** A won outcome's money by currency, or null when none was given. Pure. */
+const moneyOf = (o: Outcome): Amounts | null =>
+  o.outcome !== 'won' ? null : o.money ? { [o.money.currency]: o.money.value } : o.amount_usd != null ? { USD: o.amount_usd } : null;
 /** Applicants per page of a screen's results (L15-3, v6.1.14). */
 export const PAGE_SIZE = 25;
 export type XpCounts = { applications_90d: number; outcomes: { won: number; rejected: number } };
@@ -84,7 +84,8 @@ export type ScreenResults = {
   page: number;
   next_page: number | null;
   totals: Record<Tier | 'pending', number>;
-  applicants: { ref: string; name: string; tier: Tier | null; flags: Flag[]; because: string[]; line: string | null; rows?: Row[] }[];
+  /** `result` and `amount` (L22-12, v6.1.16): the program's outcome posted for the applicant, its money in the one format. */
+  applicants: { ref: string; name: string; tier: Tier | null; flags: Flag[]; because: string[]; line: string | null; result: 'won' | 'rejected' | 'shortlisted' | null; amount: string | null; rows?: Row[] }[];
 };
 export type JobStatus = { id: string; program_id: string; total: number; done: number; finished: boolean; expired: boolean; last_run_left: number };
 
@@ -373,7 +374,10 @@ export async function jobStatus(id: string, builderId: number, now: Date = new D
   };
 }
 
-type ApplicantRow = { ref: string; name: string; status: string; tier: string | null; flags: Flag[] | null; because: string[] | null; line: string | null; rows: Row[] | null };
+type ApplicantRow = {
+  ref: string; name: string; status: string; tier: string | null; flags: Flag[] | null; because: string[] | null; line: string | null; rows: Row[] | null;
+  outcome: 'won' | 'rejected' | 'shortlisted' | null; amount_usd: string | null; amounts: unknown; amount_given: string | null; currency: string | null;
+};
 const ORDER: (Tier | null)[] = ['used', 'live', 'building', 'unverified', 'flagged', null];
 
 /**
@@ -386,7 +390,8 @@ export async function jobResults(id: string, builderId: number, now: Date = new 
   const s = await jobStatus(id, builderId, now);
   if (!s || s.expired) return null;
   const rows = await sql()<ApplicantRow[]>`
-    SELECT ref, name, status, tier, flags, because, line, rows FROM screen_applicants WHERE job_id = ${id} ORDER BY seq`;
+    SELECT x.ref, x.name, x.status, x.tier, x.flags, x.because, x.line, x.rows, o.outcome, o.amount_usd, o.amounts, o.amount_given, o.currency
+    FROM screen_applicants x LEFT JOIN screen_outcomes o ON o.job_id = x.job_id AND o.ref = x.ref WHERE x.job_id = ${id} ORDER BY x.seq`;
   const totals = Object.fromEntries([...TIERS, 'pending'].map((t) => [t, 0])) as ScreenResults['totals'];
   const tierOf = (r: ApplicantRow): Tier | null => ((TIERS as readonly string[]).includes(r.tier ?? '') ? (r.tier as Tier) : null);
   for (const r of rows) {
@@ -404,6 +409,8 @@ export async function jobResults(id: string, builderId: number, now: Date = new 
         ref: r.ref, name: r.name, tier: tierOf(r), flags: (r.flags ?? []).map((f) => (f.rule === 'unfunded' ? { ...f, rule: 'self_funded_users' } : f)),
         because: r.because ?? [],
         line: read ? (r.line != null ? currentReviewerLine(r.line) : 'no tier: the read failed.') : null,
+        result: r.outcome ?? null,
+        amount: r.outcome === 'won' ? amountsText(keptAmounts({ ...r, outcome: 'won' })) || null : null,
         ...(read && { rows: (r.rows ?? []).filter((x) => PUBLIC_BASES.has(x.basis)).flatMap(shown) }),
       };
     })
@@ -518,10 +525,19 @@ export const NOT_PASSED = {
 export type NotPassedWhy = (typeof NOT_PASSED)[keyof typeof NOT_PASSED];
 
 /** "won $3,000", "won EUR 2,500" (L16-4: an earlier win in another currency with its amount as given). Pure. */
-const keptWords = (b: { outcome: string; amount_usd: string | null; amount_given: string | null; currency: string | null }): string =>
-  b.outcome === 'shortlisted' ? 'shortlisted'
-  : b.outcome === 'won' && b.currency && b.currency !== 'USD' && b.amount_given !== null ? `won ${b.currency} ${Number(b.amount_given).toLocaleString('en-US')}`
-  : resultWords(b.outcome, b.amount_usd);
+const keptWords = (b: KeptOutcome): string => (b.outcome === 'shortlisted' ? 'shortlisted' : resultWords(b.outcome, keptAmounts(b)));
+
+type KeptOutcome = { outcome: string; amount_usd: string | null; amounts: unknown; amount_given: string | null; currency: string | null };
+/**
+ * A kept outcome's money (L22-3, v6.1.16): `amounts`, else the single pair written before v6.1.16 (`amount_given` in
+ * `currency`, readable for one release), else its US dollars. Pure.
+ */
+export function keptAmounts(b: KeptOutcome): Amounts | null {
+  if (b.outcome !== 'won') return null;
+  if (b.amounts) return amountsOf({ amounts: b.amounts });
+  if (b.amount_given !== null && b.currency) return { [b.currency]: Number(b.amount_given) };
+  return amountsOf({ amount_usd: b.amount_usd });
+}
 
 /** The screen's result word for a further payment's refusal (L16-1): `none` when nothing is kept. Pure. */
 const screenStatusWords = (outcome: string | undefined): string => (outcome === undefined ? 'none' : outcome === 'no_result' ? 'no result' : outcome);
@@ -549,7 +565,7 @@ const screenStatusWords = (outcome: string | undefined): string => (outcome === 
  * builder's record stands"), its detail in a `[screen]` server log line.
  */
 export async function recordOutcomes(jobId: string, builderId: number, outcomes: Outcome[], now: Date): Promise<{
-  recorded: number; notFound: string[]; notes: string[]; own?: string[]; overCap?: string[];
+  recorded: number; notFound: string[]; notes: string[]; own?: string[]; overCap?: string[]; overCapAt?: { ref: string; at: string }[];
   passed: number; reasons: string[]; notPassed: string[]; repeats: string[]; paymentRefused: { ref: string; status: string }[]; stands?: string[];
 }> {
   const [job] = await sql()<{ program_id: string; installation_id: number }[]>`
@@ -568,6 +584,8 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
   const superseded: string[] = [];
   const own: string[] = [];
   const overCap: string[] = [];
+  /** L22-9 (v6.1.16): each further payment over the cap with the total it would have made, for the owner's line. */
+  const overCapAt: { ref: string; at: string }[] = [];
   const otherProject: string[] = [];
   const noProject: string[] = [];
   const repeats: string[] = [];
@@ -599,40 +617,41 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
       miss(o.ref, NOT_PASSED.own, false);
       continue;
     }
-    const amount = o.outcome === 'won' && o.amount_usd != null ? o.amount_usd : null;
+    // L22-6 (v6.1.16): the amount as given, cents and currency kept.
+    const money = moneyOf(o);
+    const given = o.outcome !== 'won' ? null : o.money ?? (o.amount_usd != null ? { value: o.amount_usd, currency: 'USD' } : null);
     const pkey = o.outcome === 'won' && o.payment ? o.payment.key : null;
-    // L15-15 (v6.1.14): the amount as the owner gave it (cents, another currency) is kept beside the whole dollars.
-    const givenAmount = o.outcome !== 'won' ? null : o.given ? o.given.amount : o.rounded ? o.rounded.from : amount;
-    const currency = o.outcome !== 'won' || givenAmount === null ? null : o.given ? o.given.currency : 'USD';
-    type Before = { outcome: string; amount_usd: string | null; amount_given: string | null; currency: string | null; at: Date; payment_keys: string[] };
+    type Before = KeptOutcome & { at: Date; payment_keys: string[] };
     // T5-F5 (v6.1.14): the outcome it replaces is read under the row's lock, in the upsert's transaction.
     const w = (await sql().begin(async (tx) => {
       const [b] = await tx<Before[]>`
-        SELECT outcome, amount_usd, amount_given, currency, at, payment_keys FROM screen_outcomes WHERE job_id = ${jobId} AND ref = ${o.ref} FOR UPDATE`;
+        SELECT outcome, amount_usd, amounts, amount_given, currency, at, payment_keys FROM screen_outcomes WHERE job_id = ${jobId} AND ref = ${o.ref} FOR UPDATE`;
       // T8-F1: a payment key this outcome already added is a retry: nothing changes.
       if (pkey !== null && b?.payment_keys.includes(pkey)) return { repeat: true as const, at: b.at };
       // L16-1, L16-2 (v6.1.16): a further payment adds only to a kept win; over anything else nothing is written.
       if (pkey !== null && b?.outcome !== 'won') return { refused: screenStatusWords(b?.outcome) };
       // L16-16 (v6.1.16): the outcome kept already, the same in every part: nothing changes.
-      if (pkey === null && b && b.outcome === o.outcome && (b.amount_usd === null ? null : Number(b.amount_usd)) === amount
-        && (b.amount_given === null ? null : Number(b.amount_given)) === givenAmount && (b.currency ?? null) === currency)
-        return { repeat: true as const, at: b.at };
-      // L15-17, T8-F1: a further payment over a win with an amount is kept as the total; T8-F3: over the cap, as the
-      // ledger refuses it, nothing is written. Unmarked, another amount replaces the first.
-      const sum = pkey !== null && b && b.outcome === 'won' && b.amount_usd !== null && amount !== null ? Number(b.amount_usd) + amount : null;
-      if (sum !== null && sum > cap) return { overCap: true as const };
+      const kept = b ? keptAmounts(b) : null;
+      if (pkey === null && b && b.outcome === o.outcome && sameAmounts(kept, money)) return { repeat: true as const, at: b.at };
+      // L15-17, T8-F1: a further payment over a win with an amount is kept as the total, within its currency and keeping
+      // both across currencies (L22-3, v6.1.16; never a replace); T8-F3, L22-4: over the cap, each currency converted
+      // for the check only, nothing is written. Unmarked, another amount replaces the first.
+      const sum = pkey !== null && b?.outcome === 'won' && kept !== null && given !== null ? plusAmount(kept, given.value, given.currency) : null;
+      if (sum !== null && amountsOverCap(sum, cap)) return { overCap: amountsText(sum) };
       const keys = [...(b?.payment_keys ?? []), ...(pkey !== null ? [pkey] : [])];
-      // Fix round 1 (M2): after a further payment the amount as given is the total too, so a resend of the total repeats.
-      const given = sum !== null && givenAmount !== null ? Number(b!.amount_given ?? b!.amount_usd) + givenAmount : givenAmount;
-      const k = await tx`INSERT INTO screen_outcomes (job_id, ref, outcome, amount_usd, at, payment_keys, amount_given, currency)
-        VALUES (${jobId}, ${o.ref}, ${o.outcome}, ${sum ?? amount}, ${now}, ${keys}, ${given}, ${currency})
-        ON CONFLICT (job_id, ref) DO UPDATE SET outcome = EXCLUDED.outcome, amount_usd = EXCLUDED.amount_usd, at = EXCLUDED.at, payment_keys = EXCLUDED.payment_keys,
-          amount_given = EXCLUDED.amount_given, currency = EXCLUDED.currency
+      const now$ = sum ?? money;
+      // The single pair (amount_given, currency) is still written for a one-currency amount, readable for one release.
+      const single = now$ && Object.keys(now$).length === 1 ? Object.entries(now$)[0] : null;
+      const k = await tx`INSERT INTO screen_outcomes (job_id, ref, outcome, amount_usd, amounts, at, payment_keys, amount_given, currency)
+        VALUES (${jobId}, ${o.ref}, ${o.outcome}, ${now$?.USD ?? null}, ${now$ ? tx.json(now$) : null}, ${now}, ${keys}, ${single?.[1] ?? null}, ${single?.[0] ?? null})
+        ON CONFLICT (job_id, ref) DO UPDATE SET outcome = EXCLUDED.outcome, amount_usd = EXCLUDED.amount_usd, amounts = EXCLUDED.amounts, at = EXCLUDED.at,
+          payment_keys = EXCLUDED.payment_keys, amount_given = EXCLUDED.amount_given, currency = EXCLUDED.currency
         WHERE EXCLUDED.at >= screen_outcomes.at RETURNING ref`;
       return { before: b, kept: k.length > 0, total: sum };
-    })) as { repeat: true; at: Date } | { refused: string } | { overCap: true } | { before: Before | undefined; kept: boolean; total: number | null };
+    })) as { repeat: true; at: Date } | { refused: string } | { overCap: string } | { before: Before | undefined; kept: boolean; total: Amounts | null };
     if ('overCap' in w) {
       once(overCap, o.ref);
+      overCapAt.push({ ref: o.ref, at: w.overCap });
       miss(o.ref, NOT_PASSED.overCap, false);
       continue;
     }
@@ -653,7 +672,7 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
         continue;
       }
       recorded++;
-      if (total !== null) added.push(`${o.ref} (now ${resultWords('won', String(total))})`);
+      if (total !== null) added.push(`${o.ref} (now ${resultWords('won', total)})`);
       else if (before) replaced.push(`${o.ref} (was ${keptWords(before)})`);
     }
     // A repeat whose ledger write changes nothing is named in `repeats`; one the ledger takes counts as recorded.
@@ -707,12 +726,11 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
       else miss(o.ref, NOT_PASSED.ambiguous, true);
       continue;
     }
-    const ledgerNote = ledgerAmountNote(o);
     // Fix round 1 (I1, L17-2): a repeat is judged at the kept outcome's own time, never its arrival, so a resend never
-    // overwrites a builder's later correction.
+    // overwrites a builder's later correction. L22-3 (v6.1.16): the amount goes as given, in its currency.
     const res = await record(app.owner, job.program_id, o.outcome, {
-      installationId: app.installation_id, now: 'repeat' in w ? w.at : now, fromScreen: true, ...(pkey !== null && { payment: { key: pkey } }), ...(amount === null ? (o.outcome === 'won' ? { amountNotGiven: true as const } : {}) : { amount_usd: amount }),
-      ...(ledgerNote && { note: ledgerNote }),
+      installationId: app.installation_id, now: 'repeat' in w ? w.at : now, fromScreen: true, ...(pkey !== null && { payment: { key: pkey } }),
+      ...(o.outcome !== 'won' ? {} : given === null ? { amountNotGiven: true as const } : { amount: given }),
     });
     // Fix round 1 (C1): the reviewer hears only what the screen did. A repeat is a repeat whatever the ledger answers
     // (an FR-4 delivery stays silent), and any ledger refusal is one generic reason, its detail in the server log, so
@@ -720,7 +738,7 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
     if (repeat) repeated();
     else if (res.ok || res.note === 'Already tracked.' || res.note === CONFIRMED) {
       passed++;
-      if (o.outcome === 'won' && amount === null && !o.given) once(noAmount, o.ref);
+      if (o.outcome === 'won' && money === null) once(noAmount, o.ref);
     } else {
       console.warn('[screen] ledger refused', JSON.stringify({ job: jobId, ref: o.ref, owner: app.owner, program: job.program_id, note: res.note, current: res.current ?? null }));
       once(stands, o.ref);
@@ -744,7 +762,7 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
     ...(repeats.length ? [OUTCOME_NOTES.repeats(repeats)] : []),
   ];
   return {
-    recorded, notFound, notes, ...(own.length > 0 && { own }), ...(overCap.length > 0 && { overCap }),
+    recorded, notFound, notes, ...(own.length > 0 && { own }), ...(overCap.length > 0 && { overCap, overCapAt }),
     passed, reasons, notPassed, repeats, paymentRefused, ...(stands.length > 0 && { stands }),
   };
 }

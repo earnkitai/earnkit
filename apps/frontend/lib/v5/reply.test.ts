@@ -45,7 +45,7 @@ const gap = (over: Partial<GapProgram> & { title: string }): GapProgram => ({
   n: 0,
   ...over,
 });
-const LEDGER0: Ledger = { applied: 0, asked_usd: 0, won: 0, won_usd: 0, pending: 0, rejected: 0, skipped: 0, closing_soon: [] };
+const LEDGER0: Ledger = { applied: 0, asked_usd: 0, won: 0, won_usd: 0, won_other: [], won_no_amount: 0, pending: 0, rejected: 0, skipped: 0, closing_soon: [] };
 const NO_SINCE = { from: null, new: [], changed: [], closing: [] };
 /** A reply with its lists numbered as find numbers them. */
 const base = (over: Partial<R> = {}): R => {
@@ -1160,4 +1160,17 @@ test('R38 (L17-6, v6.1.16): 25 programs held by agent A; agent B reads its own u
   assert.deepEqual(heldBlock.slice(1).map((l) => Number(l.split('.')[0])), Array.from({ length: 25 }, (_, k) => k + 3));
   assert.equal(blocks.indexOf(blocks.find((b) => b.startsWith('Being handled'))!), blocks.indexOf(blocks.find((b) => b.startsWith('Ready'))!) + 1);
   assert.equal(blocks.at(-1), 'Say yes and I apply to all 2. Or say the numbers to skip.');
+});
+
+test('L1h-3 (v6.1.16): two gap phrases join with ", and" when one holds " and"; the feature reads its note, the closing its name', () => {
+  const MWA = { kind: 'feature' as const, item: 'feature:Mobile Wallet Adapter and Seed Vault in an Android app', what: 'use Mobile Wallet Adapter and Seed Vault in an Android app', effort: 'days' as const, agent_can: false };
+  const SOL = { kind: 'chain' as const, item: 'chain:solana', what: 'deploy the contract on Solana', effort: 'hours' as const, agent_can: false };
+  const title = 'Solana Mobile Builder Grants';
+  const money = 'milestone grants, requests of $10,000 to $50,000';
+  assert.equal(gapLine(gap({ title, money, gap: SOL, also: [MWA] }), true), `${title}, ${money}: deploy the contract on Solana, and use Mobile Wallet Adapter and Seed Vault in an Android app.`);
+  assert.equal(gapLine(gap({ title, money, gap: MWA }), true), `${title}, ${money}: use Mobile Wallet Adapter and Seed Vault in an Android app.`);
+  assert.doesNotMatch(gapLine(gap({ title, money, gap: SOL, also: [MWA] }), true), /on Solana and Mobile Wallet Adapter/);
+  // Without " and" in either phrase the join is as before.
+  assert.equal(gapLine(gap({ title: 'Two', gap: SOL, also: [{ ...SOL, item: 'chain:base', what: 'deploy the contract on Base' }] }), true), 'Two, $1K: deploy the contract on Solana and deploy the contract on Base.');
+  assert.equal(singleStepClosing(MWA), 'Tell me when Mobile Wallet Adapter and Seed Vault in an Android app is in and I look again.');
 });
