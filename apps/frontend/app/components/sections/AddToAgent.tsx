@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AGENTS, CONNECTOR_LINE, Command, MCP_URL, tabKeyTarget } from './agents';
 import { segRail, segTab } from '../site/SegTabs';
+import { useFocusTrap } from '../site/useFocusTrap';
 
 export { AGENTS, Command };
 export type { Agent, AgentName } from './agents';
@@ -53,7 +54,11 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
   const [active, setActive] = useState(0);
   const tabs = useRef<(HTMLButtonElement | null)[]>([]);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const agent = AGENTS[active];
+
+  // L27-2 (v6.1.16): focus stays inside the modal and the page behind it is inert (before the focus-return effect).
+  useFocusTrap(dialogRef, true);
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -73,6 +78,7 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
   // only opens in the browser; a server render (tests) gets it inline.
   const dialog = (
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="add-to-agent-title"

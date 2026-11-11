@@ -2,8 +2,8 @@
 import { useEffect, useState } from 'react';
 
 /**
- * L21-9 (v6.1.16): after a delete /me lands on /?deleted=1, and the home page says the account is deleted. Read in the
- * browser, so the home page stays static. The words come from the server (`ME_DELETED`): site-copy is not client code.
+ * L21-9, L27-11 (v6.1.16): after a delete /me lands on /?deleted=1, and the home page says `Your record is deleted.` Read in the
+ * browser, so the home page stays static. The words come from the server (`ME_DELETED_LINE`): site-copy is not client code.
  */
 export default function DeletedNote({ text }: { text: string }) {
   const [shown, setShown] = useState(false);

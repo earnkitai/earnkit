@@ -61,7 +61,8 @@ export const COPY_SAID = { idle: '', copied: 'Copied', failed: 'Copy failed' } a
 function Code({ text }: { text: string }) {
   return (
     <div className={CODE_BOX}>
-      <pre data-ek-code="" className="min-w-0 flex-1 self-center overflow-x-auto whitespace-pre-wrap py-1 font-mono text-[14px] leading-[1.6]">
+      {/* L27-30 (v6.1.16): the scroll region takes focus (tabIndex 0) and shows the ring, so a keyboard can scroll it. */}
+      <pre data-ek-code="" tabIndex={0} role="region" aria-label="Command" className="min-w-0 flex-1 self-center overflow-x-auto whitespace-pre-wrap rounded-[8px] py-1 font-mono text-[14px] leading-[1.6]">
         <Command text={text} />
       </pre>
       <CopyButton text={text} />

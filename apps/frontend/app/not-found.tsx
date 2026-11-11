@@ -5,8 +5,8 @@ import { NOT_FOUND_BIG, NOT_FOUND_HOME, NOT_FOUND_TEXT, NOT_FOUND_TITLE } from '
 
 /**
  * L25-21 (v6.1.16): the title only. Next writes its own robots noindex into a 404 response's head, so a second one
- * here made two; no canonical either (the layout sets none). A guide for an unknown id answers 200 with this content,
- * so its generateMetadata returns NOT_FOUND_METADATA, which carries the one noindex itself.
+ * here made two; no canonical either (the layout sets none). A guide for an unknown id calls notFound() (L27-3, v6.1.16),
+ * a 404 with this page in its server HTML; its generateMetadata returns NOT_FOUND_METADATA as well.
  */
 export const metadata = { title: NOT_FOUND_TITLE };
 
