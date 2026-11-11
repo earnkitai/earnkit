@@ -610,13 +610,13 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
       const [b] = await tx<Before[]>`
         SELECT outcome, amount_usd, amount_given, currency, at, payment_keys FROM screen_outcomes WHERE job_id = ${jobId} AND ref = ${o.ref} FOR UPDATE`;
       // T8-F1: a payment key this outcome already added is a retry: nothing changes.
-      if (pkey !== null && b?.payment_keys.includes(pkey)) return { repeat: true as const };
+      if (pkey !== null && b?.payment_keys.includes(pkey)) return { repeat: true as const, at: b.at };
       // L16-1, L16-2 (v6.1.16): a further payment adds only to a kept win; over anything else nothing is written.
       if (pkey !== null && b?.outcome !== 'won') return { refused: screenStatusWords(b?.outcome) };
       // L16-16 (v6.1.16): the outcome kept already, the same in every part: nothing changes.
       if (pkey === null && b && b.outcome === o.outcome && (b.amount_usd === null ? null : Number(b.amount_usd)) === amount
         && (b.amount_given === null ? null : Number(b.amount_given)) === givenAmount && (b.currency ?? null) === currency)
-        return { repeat: true as const };
+        return { repeat: true as const, at: b.at };
       // L15-17, T8-F1: a further payment over a win with an amount is kept as the total; T8-F3: over the cap, as the
       // ledger refuses it, nothing is written. Unmarked, another amount replaces the first.
       const sum = pkey !== null && b && b.outcome === 'won' && b.amount_usd !== null && amount !== null ? Number(b.amount_usd) + amount : null;
@@ -630,7 +630,7 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
           amount_given = EXCLUDED.amount_given, currency = EXCLUDED.currency
         WHERE EXCLUDED.at >= screen_outcomes.at RETURNING ref`;
       return { before: b, kept: k.length > 0, total: sum };
-    })) as { repeat: true } | { refused: string } | { overCap: true } | { before: Before | undefined; kept: boolean; total: number | null };
+    })) as { repeat: true; at: Date } | { refused: string } | { overCap: true } | { before: Before | undefined; kept: boolean; total: number | null };
     if ('overCap' in w) {
       once(overCap, o.ref);
       miss(o.ref, NOT_PASSED.overCap, false);
@@ -708,8 +708,10 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
       continue;
     }
     const ledgerNote = ledgerAmountNote(o);
+    // Fix round 1 (I1, L17-2): a repeat is judged at the kept outcome's own time, never its arrival, so a resend never
+    // overwrites a builder's later correction.
     const res = await record(app.owner, job.program_id, o.outcome, {
-      installationId: app.installation_id, now, fromScreen: true, ...(pkey !== null && { payment: { key: pkey } }), ...(amount === null ? (o.outcome === 'won' ? { amountNotGiven: true as const } : {}) : { amount_usd: amount }),
+      installationId: app.installation_id, now: 'repeat' in w ? w.at : now, fromScreen: true, ...(pkey !== null && { payment: { key: pkey } }), ...(amount === null ? (o.outcome === 'won' ? { amountNotGiven: true as const } : {}) : { amount_usd: amount }),
       ...(ledgerNote && { note: ledgerNote }),
     });
     // Fix round 1 (C1): the reviewer hears only what the screen did. A repeat is a repeat whatever the ledger answers

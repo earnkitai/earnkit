@@ -844,9 +844,13 @@ test('R15 (L17-2): 25 screen wins of $1,000 against 25 builder wins of $2,000 at
   const res = await Promise.allSettled(order.map((x) => x.c()));
   assert.equal(res.filter((x) => x.status === 'rejected').length, 0);
   const [row] = await sql()`SELECT status, amount_usd, at FROM applications WHERE owner = ${a.owner} AND program_id = 'jobs-r15'`;
-  assert.deepEqual([row.status, Number(row.amount_usd), row.at.getTime()], ['won', 2000, at(49).getTime()]);
   const hist = await sql()`SELECT amount_usd, at, source FROM application_history WHERE owner = ${a.owner} AND program_id = 'jobs-r15' AND status = 'won' ORDER BY id`;
   for (const h of hist) assert.equal(h.source, Number(h.amount_usd) === 1000 ? 'screen' : 'builder');
-  // Each result written is at or after the one before it.
+  // Each result written is at or after the one before it, so at never moves back.
   for (let k = 1; k < hist.length; k++) assert.ok(hist[k].at.getTime() >= hist[k - 1].at.getTime());
+  // Fix round 1 (I1): a repeat never moves the stored time, so what is kept is the latest result written, at that
+  // result's own time (the newest event time any write carried), never an older one.
+  const last = hist.at(-1)!;
+  assert.deepEqual([row.status, Number(row.amount_usd), row.at.getTime()], ['won', Number(last.amount_usd), last.at.getTime()]);
+  assert.equal(row.at.getTime(), Math.max(...hist.map((h) => h.at.getTime())));
 });

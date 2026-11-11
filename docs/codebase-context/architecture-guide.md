@@ -91,9 +91,13 @@ item exactly; screen's description names `ref` (required), `repo_url` and `live_
    deploys). Within each, real changes before rule-only ones (rule-only ones naming a project mainnet first, then
    chain-agnostic, then the rest: R18e), then fewest gaps, lowest effort, larger award. `shownGapsOf` picks the shown
    gaps: first the acted-on programs (N-3; a claim counts only on the project it stored, its record id or project key,
-   and never pins another project: L1d-1, v6.1.11; another agent's claim for another project still marks the program's
-   line `Being handled by your other agent for {project name}.`, in the default list and `filter.all`, and leaves the yes
-   count: C1, v6.1.13, `held_for`, the name from the record project, else the owner's report for that key, else the `name:` key or the repo path; a held in-person program is listed under In person with its line but is no yes in the closing, counting as held; L13-8 and L12-1, v6.1.14: a claim with no project holds the program on every project's list, by default and in `filter.all`, as "Being handled by your other agent since {time}." on its ready or in-person line, out of the yes), then every program closing within 7 days that the project fits (O1, ahead
+   and never pins another project: L1d-1, v6.1.11; another agent's claim for another project still marks the program as
+   held, in the default list and `filter.all`, and leaves the yes count (C1, v6.1.13, `held_for`); ruling 12 (v6.1.16):
+   no line names that project. A held remote program goes in the block `Being handled by your other agent ({n}):`
+   right after Ready, numbered on, its line with no held sentence (L17-6); a held in-person program is listed under In
+   person with `Being handled by your other agent.` (or "since {time}" for a claim with no project) but is no yes in the
+   closing, counting as held; L13-8 and L12-1, v6.1.14: a claim with no project holds the program on every project's
+   list, by default and in `filter.all`, out of the yes), then every program closing within 7 days that the project fits (O1, ahead
    of the cap; its line says `closes in {n} days`), then at most one rule-bearing program among rule-free ones. That
    one, on the project's chains, takes its rank place; off them it is shown only after `max - 1` others or alone
    (N-2). A project with a chain, reported or read, never sees a deploy on another chain by default (`offChain`,
@@ -228,10 +232,11 @@ different result (won and rejected either way, a win with another amount or curr
 from the program's screen or the builder's own track, is a correction: it replaces status, amount and note, its
 history row has `corrected` true, and `record` returns `corrected: true`. A further payment over a result that is not
 a win, or over a send with no result yet (fix round 1 M1; it reads "Further payment refused: no result yet; post a win first."), writes nothing: "Further payment refused: the current result is {status}; post a win first." `no_result` over a
-result is still refused ("That one already has a result here: ..."), the same result is "Already tracked.". A second
+result is still refused ("That one already has a result here: ..."), the same result is "Already tracked." (an unmarked win of the
+stored amount is "Already recorded; nothing new.", v6.1.16 L17-8). A second
 win with an amount over a win with one (L15-17, T8-F1 v6.1.14): marked a further payment (`payment: { key }`, the caller's own key, kept in
 `application_history.payment_key`; a repeated key is "Already tracked.") it adds to the total under the cap, answered
-"Tracked: ${n} more from {title}, ${total} in total."; unmarked, the same amount is "Already tracked." and another
+"Tracked: ${n} more from {title}, ${total} in total."; unmarked, the same amount is "Already recorded; nothing new." and another
 amount is a correction that replaces it ("Tracked: ${n} from {title}. Replaced the earlier amount."; one save verb, Tracked, v6.1.15 #8). Before v6.1.16 track keys
 were stored as `t:<key>` and screen keys as `s:<key>`; from v6.1.16 both are stored bare and match the old ones. A program that is not open cannot be started
 ("{title} is not open; nothing to start."), and an already sent one says it was sent before that check. A win is
@@ -251,9 +256,10 @@ v6.1.16 Task 4 (lane 17 races): every skip and gap_done decision runs inside `re
 already sent; nothing to skip.", and another agent's live claim "Your other agent is handling that one; nothing
 recorded." with the claim left in place (a skip still replaces the agent's own claim or a stale one). A history row is
 written only when the ledger changed, and names its `source` (`screen` or `builder`; NULL on older rows). A correction
-applies only when its event time is at or after the stored result's ("An earlier result; nothing changed."); the same
-result said again later moves the stored time on without a history row, so the latest event wins whatever the arrival
-order. An unmarked win of the stored amount, from either side, is "Already recorded; nothing new."; a further payment
+applies only when its event time is at or after the stored result's ("An earlier result; nothing changed."); a repeat
+never moves the stored time, which stays the original result's (fix round 1, I1); a screen's resent result or payment
+retry reaches the ledger at the kept outcome's own time, never its arrival, so it never overwrites a builder's later
+correction (the reviewer hears "Already recorded; nothing new."). An unmarked win of the stored amount, from either side, is "Already recorded; nothing new."; a further payment
 needs its mark, and payment keys share one space per application (track and screen send them unprefixed;
 `paymentKeyOf` reads a stored `s:`/`t:` key as the bare key, alias until v6.1.17). A send refused because its agent was
 unlinked meanwhile tells the agent the form went out with no record. The screen queue takes one lock per program and

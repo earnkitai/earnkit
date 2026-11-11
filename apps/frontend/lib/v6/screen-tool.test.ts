@@ -570,3 +570,23 @@ test('v6.1.16 Task 16: when the last daily run stopped at its deadline, the resu
   const done = await mcpCall(c, 'screen', { job_id: jobId });
   assert.equal(done.reply!.show_to_builder, '5 applicants: 0 used, 5 live, 0 building, 0 unverified, 0 flagged; 0 pending.');
 });
+
+test('Task 4 fix round 1 (I1, L17-2): a resent screen result carries its own time, so it never overwrites the builder\'s later correction', async () => {
+  const c = await reviewerOf('scr-i1');
+  const v = await applied('scr-i1', 'name:eye');
+  const owner = `b:${v.builderId}`;
+  const q = await mcpCall(c, 'screen', { program_id: 'scr-i1', applicants: [{ ref: 'one', name: 'Eye', application_id: v.application_id }] });
+  const T = (m: number) => new Date(NOW.getTime() + m * 60_000);
+  const won = await mcpCall({ ...c, now: T(1) }, 'screen', { job_id: q.reply!.job_id, outcomes: [{ ref: 'one', outcome: 'won', amount_usd: 1000 }] });
+  assert.equal(won.reply!.show_to_builder, 'Recorded 1 outcome.');
+  const { record } = await import('../v5/ledger');
+  assert.deepEqual(await record(owner, 'scr-i1', 'won', { installationId: v.installationId, amount_usd: 2000, now: T(2) }), { ok: true, corrected: true, replaced_usd: 1000 });
+  const hist = async () => (await sql()`SELECT count(*)::int AS n FROM application_history WHERE owner = ${owner} AND program_id = 'scr-i1'`)[0].n;
+  const before = await hist();
+  const again = await mcpCall({ ...c, now: T(3) }, 'screen', { job_id: q.reply!.job_id, outcomes: [{ ref: 'one', outcome: 'won', amount_usd: 1000 }] });
+  assert.equal(again.reply!.show_to_builder, 'Already recorded; nothing new.');
+  assert.equal(again.reply!.agent_note, 'Already recorded, nothing new: one.');
+  const [row] = await sql()`SELECT status, amount_usd, at FROM applications WHERE owner = ${owner} AND program_id = 'scr-i1'`;
+  assert.deepEqual([row.status, Number(row.amount_usd), row.at.getTime()], ['won', 2000, T(2).getTime()]);
+  assert.equal(await hist(), before);
+});
