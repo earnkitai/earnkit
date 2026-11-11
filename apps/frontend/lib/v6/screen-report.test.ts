@@ -66,10 +66,11 @@ test('csv: the header and one line per applicant, commas and quotes quoted, no p
   const lines = csv.trimEnd().split('\n');
   assert.equal(
     lines[0],
-    'ref,name,tier,flags,funded_senders_90d,senders_90d,chains_mainnet,last_push_at,contributors_90d,template_name,template_overlap,own_share,url_ok,line,problems',
+    'ref,name,tier,flags,outside_senders_90d,funded_senders_90d,senders_90d,chains_mainnet,last_push_at,contributors_90d,template_name,template_overlap,own_share,url_ok,line,problems',
   );
   assert.equal(lines.length, ROWS.length + 1);
-  assert.ok(lines[1].startsWith('u1,"Used, Inc.",used,,40,90,base,'));
+  // #15 (v6.1.15): outside_senders_90d and its alias funded_senders_90d carry the same value side by side.
+  assert.ok(lines[1].startsWith('u1,"Used, Inc.",used,,40,40,90,base,'), lines[1]);
   assert.ok(lines[2].startsWith('l1,"Live ""One""",live,'));
   assert.ok(lines[4].startsWith('f1,Copy,flagged,template,'));
   assert.ok(!csv.includes('SECRET PITCH'));

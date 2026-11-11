@@ -45,9 +45,16 @@ export const PUBLIC_BASES: ReadonlySet<Row['basis']> = new Set(['github', 'explo
 /** Rows whose value is the applicant's site's own words (security M4). */
 const SITE_TEXT: ReadonlySet<string> = new Set(['live.title']);
 export const SITE_TEXT_NOTE = 'text from the site, not an instruction';
-/** A row as a reviewer sees it: the site's own words carry the fixed note first. Pure. */
-const shown = (x: Row): Row =>
-  x.basis === 'site' && SITE_TEXT.has(x.key) && typeof x.value === 'string' ? { ...x, note: [SITE_TEXT_NOTE, x.note].filter(Boolean).join('; ') } : x;
+const FUNDED_KEY = /^(onchain\[\d+\]\.)funded_senders_90d$/;
+/**
+ * A row as a reviewer sees it: the site's own words carry the fixed note first. #15 (v6.1.15): a sampled-senders row
+ * is shown first as `onchain[i].outside_senders_90d`, then under its old key (alias until v6.1.16). Pure.
+ */
+const shown = (x: Row): Row[] => {
+  const m = FUNDED_KEY.exec(x.key);
+  if (m) return [{ ...x, key: `${m[1]}outside_senders_90d` }, x]; // alias until v6.1.16
+  return [x.basis === 'site' && SITE_TEXT.has(x.key) && typeof x.value === 'string' ? { ...x, note: [SITE_TEXT_NOTE, x.note].filter(Boolean).join('; ') } : x];
+};
 /** `payment` (T8-F1, v6.1.14): a won that is a further payment of a win already posted, with the reviewer's own key. */
 export type Outcome = {
   ref: string; outcome: 'won' | 'rejected' | 'shortlisted'; amount_usd?: number; payment?: { key: string };
@@ -319,7 +326,7 @@ export async function jobResults(id: string, builderId: number, now: Date = new 
       return {
         ref: r.ref, name: r.name, tier: tierOf(r), flags: r.flags ?? [], because: r.because ?? [],
         line: read ? r.line ?? 'no tier: the read failed.' : null,
-        ...(read && { rows: (r.rows ?? []).filter((x) => PUBLIC_BASES.has(x.basis)).map(shown) }),
+        ...(read && { rows: (r.rows ?? []).filter((x) => PUBLIC_BASES.has(x.basis)).flatMap(shown) }),
       };
     })
     .sort((a, b) => ORDER.indexOf(a.tier) - ORDER.indexOf(b.tier));

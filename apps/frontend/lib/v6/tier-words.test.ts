@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { chainName } from '../v5/chains';
 import { codeRows, contract, daysAgo, evidence, liveRows, NOW, teamRows } from './fixtures/evidence-builder';
-import { builderLine, reviewerLine } from './tier-words';
+import { builderLine, reviewerLine, RULE_WORDS } from './tier-words';
 import { DEFAULT_THRESHOLDS, place, type Placement } from './tiers';
 
 const X = { identical_pitch: 0, shared_contributors: 0 };
@@ -68,18 +68,42 @@ test('no line says paying their own gas', () => {
 
 test('builder line for live matches the design example', () => {
   const p = place(evidence({ live: up, onchain: [contract({ tx_90d: 9, funded_senders_90d: 4 })] }), X, undefined, NOW);
-  assert.equal(builderLine(p), 'Your project is live, with no verified usage yet. Next: 25 senders the deployer did not fund, on mainnet in 90 days; you have 4.');
+  // #6 (v6.1.15): the builder reads the usage gap in plain words; the reviewer line keeps the exact rows.
+  assert.equal(builderLine(p), 'Your project is live, with no verified usage yet. Next: about 25 outside users in 90 days; I count 4.');
+  assert.equal(p.next, '25 senders the deployer did not fund, on mainnet in 90 days; you have 4.');
+  assert.equal(reviewerLine(p, null), 'live: site loads, 9 transactions in 90 days on Base mainnet, 4 senders the deployer did not fund on Base mainnet, no flags.');
+  // A placement stored before v6.1.15 has no builder_next: the line falls back to next.
+  const { builder_next: _, ...old } = p;
+  assert.equal(builderLine(old as Placement), 'Your project is live, with no verified usage yet. Next: 25 senders the deployer did not fund, on mainnet in 90 days; you have 4.');
+});
+
+test('#15 (v6.1.15): the flag rule reads self-funded users, and a stored unfunded flag reads the same', () => {
+  const e = evidence({ live: up, onchain: [contract({ tx_90d: 2_000, senders_90d: 1_500, funded_sample: 50, funded_senders_90d: 3 })] });
+  const p = place(e, X, undefined, NOW);
+  assert.deepEqual(p.flags.map((f) => f.rule), ['self_funded_users']);
+  assert.match(reviewerLine(p, e), /^flagged \(self-funded users\): /);
+  assert.equal(builderLine(p).split(' Next: ')[0], 'Your project is flagged on the self-funded users rule.');
+  const legacy: Placement = { ...p, flags: p.flags.map((f) => ({ ...f, rule: 'unfunded' })) };
+  assert.equal(reviewerLine(legacy, e), reviewerLine(p, e));
+  assert.equal(builderLine(legacy), builderLine(p));
+  // Both ids together are one rule, never "rules".
+  const both: Placement = { ...p, flags: [...p.flags, ...legacy.flags] };
+  assert.equal(builderLine(both).split(' Next: ')[0], 'Your project is flagged on the self-funded users rule.');
+  assert.deepEqual(RULE_WORDS, { self_funded_users: 'self-funded users', unfunded: 'self-funded users' });
+  // Any other id reads with _ as a space.
+  assert.match(reviewerLine({ ...p, flags: [{ rule: 'identical_pitch', detail: 'x' }] }, e), /^flagged \(identical pitch\): /);
 });
 
 test('builder head for live branches on gap, not on the next words', () => {
   const p = place(evidence({ live: up, onchain: [contract({ tx_90d: 9, funded_senders_90d: 4 })] }), X, undefined, NOW);
-  assert.equal(builderLine({ ...p, gap: 'push', next: 'Push to the repo; EarnKit found no push date.' }), 'Your project is live. Next: push to the repo; EarnKit found no push date.');
-  assert.match(builderLine({ ...p, next: 'Anything at all.' }), /^Your project is live, with no verified usage yet\./);
+  const push = 'Push to the repo; EarnKit found no push date.';
+  assert.equal(builderLine({ ...p, gap: 'push', next: push, builder_next: push }), 'Your project is live. Next: push to the repo; EarnKit found no push date.');
+  assert.match(builderLine({ ...p, next: 'Anything at all.', builder_next: 'Anything at all.' }), /^Your project is live, with no verified usage yet\./);
 });
 
 test('numbers carry thousands separators in the builder line', () => {
   const p = place(evidence({ live: up, onchain: [contract({ tx_90d: 9, funded_senders_90d: 4 })] }), X, { ...DEFAULT_THRESHOLDS, used_funded_senders: 2_500 }, NOW);
-  assert.match(builderLine(p), /2,500 senders the deployer did not fund/);
+  assert.match(builderLine(p), /about 2,500 outside users in 90 days; I count 4\./);
 });
 
 test('no tier yet reads plainly', () => {
@@ -102,5 +126,5 @@ test('M1 (v6.1.14 fix round 1): building on onchain users with no recent commit 
   assert.equal(noRepo.gap, 'site');
   assert.equal(builderLine(noRepo), 'Your project has onchain users, with no recent code. Next: a site that loads for your product.');
   // Commits, not users: the code line, whatever the because rows say.
-  assert.equal(builderLine({ tier: 'building', flags: [], because: ['50 senders the deployer did not fund on Base mainnet'], next: null, gap: 'site' }), 'Your project has code, with nothing live yet.');
+  assert.equal(builderLine({ tier: 'building', flags: [], because: ['50 senders the deployer did not fund on Base mainnet'], next: null, builder_next: null, gap: 'site' }), 'Your project has code, with nothing live yet.');
 });

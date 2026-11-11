@@ -87,7 +87,8 @@ export const DOCS_RECORD = {
 };
 export const DOCS_SCREEN = {
   title: 'Screening, for programs',
-  text: "Hand your applicant list to your agent and EarnKit returns it in five tiers with public evidence: used, live, building, unverified, flagged. We read the repo, the chain and the site. We never show a builder's record, another program's name, screens or results, or another applicant's text. A program's reviewers share its screens, and they stay with the program when a reviewer leaves.",
+  // #15 (v6.1.15): each tier glossed in plain words.
+  text: "Hand your applicant list to your agent and EarnKit sorts it into five tiers with public evidence: used (people outside the team use it), live (a site that loads, or a contract in use), building (recent code), unverified (nothing public we could check) and flagged (looks copied, or most of its users are wallets the team funded itself). We read the repo, the chain and the site. We never show a builder's record, another program's name, screens or results, or another applicant's text. A program's reviewers share its screens, and they stay with the program when a reviewer leaves.",
 };
 /** L15-20 (v6.1.14): what a program owner needs before trusting a screen, one line each. */
 export const DOCS_PROGRAMS = {

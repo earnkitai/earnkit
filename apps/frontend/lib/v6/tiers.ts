@@ -48,8 +48,13 @@ export const RATIO_THRESHOLDS = ['flag_own_share', 'flag_unfunded_ratio'] as con
 export type Flag = { rule: string; detail: string };
 /** What stands between a placement and the tier above: the condition `next` names. */
 export type Gap = 'funded_senders' | 'site' | 'push' | 'commits' | 'repo_or_site' | 'flag';
-/** `on_users` (M1, v6.1.14 fix round 1): building on verified onchain users alone, with no recent commit. */
-export type Placement = { tier: Tier | null; flags: Flag[]; because: string[]; next: string | null; gap: Gap | null; on_users?: true };
+/**
+ * `on_users` (M1, v6.1.14 fix round 1): building on verified onchain users alone, with no recent commit.
+ * `next` is the exact rule (agent and owner words); `builder_next` (#6, v6.1.15) is the builder's form of it, null
+ * when `next` is null. It differs only where `next` names deployer, senders or mainnet (the live usage gap, the
+ * building gap and the self-funded users flag; Review Focus 5); every other gap's equals `next`.
+ */
+export type Placement = { tier: Tier | null; flags: Flag[]; because: string[]; next: string | null; builder_next: string | null; gap: Gap | null; on_users?: true };
 /** The counts across applicants; `xp`: the program's own earlier screens in 90 days (shown, never a flag; L15-11). */
 export type Counts = {
   identical_pitch: number;
@@ -89,7 +94,7 @@ const others = (v: number) => `${plural(v, 'other applicant')} ${v === 1 ? 'shar
 const most = <T>(xs: T[], by: (x: T) => number): T | undefined => xs.reduce<T | undefined>((a, x) => (a === undefined || by(x) > by(a) ? x : a), undefined);
 
 function flagsOf(e: Evidence, counted: OnchainRows[], x: Counts, t: Thresholds) {
-  const out: (Flag & { next: string })[] = [];
+  const out: (Flag & { next: string; builder_next?: string })[] = [];
   const c = e.code;
   if (c?.template_name && c.template_overlap != null && c.files_own != null && c.files_own < t.flag_template_max_own_files) {
     out.push({
@@ -135,9 +140,12 @@ function flagsOf(e: Evidence, counted: OnchainRows[], x: Counts, t: Thresholds) 
   );
   if (farmed) {
     out.push({
-      rule: 'unfunded',
+      // #15 (v6.1.15): was 'unfunded'; rows stored before read the same (tier-words RULE_WORDS).
+      rule: 'self_funded_users',
       detail: `${n(farmed.funded_senders_90d!)} of ${n(farmed.funded_sample!)} sampled senders ${onMainnet(farmed)} are wallets the deployer did not fund (${n(farmed.senders_90d!)} senders in 90 days)`,
       next: `At least ${pct(t.flag_unfunded_ratio)} of sampled wallets not funded by the deployer; ${n(farmed.funded_senders_90d!)} of ${n(farmed.funded_sample!)} are.`,
+      // Review Focus 5 (v6.1.15): the builder's form names no deployer, senders or mainnet.
+      builder_next: `At least ${pct(t.flag_unfunded_ratio)} of sampled users from outside the team; I count ${n(farmed.funded_senders_90d!)} of ${n(farmed.funded_sample!)}.`,
     });
   }
   return out;
@@ -153,6 +161,13 @@ export function place(
   t: Thresholds = DEFAULT_THRESHOLDS,
   now: Date = new Date(),
 ): Placement {
+  const p = placed(e, x, t, now);
+  return { ...p, builder_next: p.builder_next ?? p.next };
+}
+
+type Placed = Omit<Placement, 'builder_next'> & { builder_next?: string };
+
+function placed(e: Evidence | null, x: Counts, t: Thresholds, now: Date): Placed {
   if (!e) return { tier: null, flags: [], because: [], next: null, gap: null };
   const nothingRead = !e.code && !e.team && !e.depth && e.onchain.length === 0 && e.live.url_ok == null;
   if (e.partial && nothingRead) return { tier: null, flags: [], because: ['read was partial'], next: null, gap: null };
@@ -202,6 +217,7 @@ export function place(
       flags: flags.map(({ rule, detail }) => ({ rule, detail })),
       because: [...flags.map((f) => f.detail), ...tail(true)],
       next: flags[0].next,
+      ...(flags[0].builder_next && { builder_next: flags[0].builder_next }),
       gap: 'flag',
     };
   }
@@ -225,7 +241,9 @@ export function place(
       : gap === 'site' ? 'A site that loads for your product.'
       : pushDays == null ? 'Push to the repo; EarnKit found no push date.'
       : `A push to the repo in the last ${plural(t.push_within_days, 'day')}; the last was ${plural(pushDays, 'day')} ago.`;
-    return { tier: 'live', flags: [], because: [...rows, ...tail(false)], next, gap };
+    // #6 (v6.1.15): the builder reads the usage gap in plain words; agents and owners keep the exact rule in `next`.
+    const builder_next = gap === 'funded_senders' ? `about ${n(t.used_funded_senders)} outside users in 90 days; I count ${n(topCount)}.` : undefined;
+    return { tier: 'live', flags: [], because: [...rows, ...tail(false)], next, ...(builder_next && { builder_next }), gap };
   }
 
   const c = e.code;
@@ -236,7 +254,11 @@ export function place(
   const building = c && !empty && ((c.commits_60d ?? 0) > 0 || (c.commits_60d == null && pushDays != null && pushDays <= t.push_within_days));
   if (building) {
     const rows = [...(c.commits_60d ? [`${plural(c.commits_60d, 'commit')} in 60 days`] : []), ...pushRow];
-    return { tier: 'building', flags: [], because: [...rows, ...tail(false)], next: 'A live product: a site that loads or a mainnet contract in use.', gap: 'site' };
+    // Review Focus 5 (v6.1.15): the builder's form drops "mainnet"; the agent's keeps the exact rule.
+    return {
+      tier: 'building', flags: [], because: [...rows, ...tail(false)], next: 'A live product: a site that loads or a mainnet contract in use.',
+      builder_next: 'A live product: a site that loads or a contract in use.', gap: 'site',
+    };
   }
   if (topCount > 0) {
     const rows = [...(topActive ? [`${plural(topActive.tx_90d!, 'transaction')} in 90 days ${onMainnet(topActive)}`] : []), ...fundedRow, ...pushRow];

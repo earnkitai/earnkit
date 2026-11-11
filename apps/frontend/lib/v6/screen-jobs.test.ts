@@ -383,6 +383,27 @@ test('a site title row a reviewer sees carries the fixed note: text from the sit
   assert.equal(seen.find((x) => x.key === 'live.url_ok')!.note, null);
 });
 
+test('#15 (v6.1.15): a sampled-senders row is shown as outside_senders_90d, then under its old key (alias until v6.1.16)', async () => {
+  const r = await reviewer('jobs-alias');
+  const j = await job(r, [{ ref: 'o-1', name: 'Outside', live_url: 'https://outside.example/' }]);
+  const at = NOW.toISOString();
+  const rows = [
+    { key: 'onchain[0].senders_90d', value: 90, basis: 'explorer', read_at: at, note: null },
+    { key: 'onchain[0].funded_senders_90d', value: 40, basis: 'explorer', read_at: at, note: 'sampled 50' },
+    { key: 'onchain[1].funded_senders_90d', value: 3, basis: 'explorer', read_at: at, note: null },
+  ];
+  await markRead(j.id, 'o-1');
+  await sql()`UPDATE screen_applicants SET rows = ${sql().json(rows)} WHERE job_id = ${j.id} AND ref = 'o-1'`;
+  const seen = (await jobResults(j.id, r.builderId, NOW))!.applicants[0].rows!;
+  assert.deepEqual(seen.map((x) => [x.key, x.value, x.note]), [
+    ['onchain[0].senders_90d', 90, null],
+    ['onchain[0].outside_senders_90d', 40, 'sampled 50'],
+    ['onchain[0].funded_senders_90d', 40, 'sampled 50'],
+    ['onchain[1].outside_senders_90d', 3, null],
+    ['onchain[1].funded_senders_90d', 3, null],
+  ]);
+});
+
 test('L15-5 (v6.1.14): GitLab, Bitbucket and Codeberg links, account links and SSH forms are kept for the read; only GitHub has a key', async () => {
   const r = await reviewer('jobs-hosts');
   const j = await job(r, [

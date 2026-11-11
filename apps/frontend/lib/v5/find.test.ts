@@ -634,7 +634,7 @@ test('min_tier above the project tier moves the program to gaps with kind tier; 
     const gaps = r.reply!.gaps as { program_id: string; gap: { kind: string; item: string; what: string; effort: string; agent_can: boolean } }[];
     const g = gaps.find((x) => x.program_id === 'f-tier');
     assert.ok(g, JSON.stringify(gaps.map((x) => x.program_id)));
-    assert.deepEqual(g.gap, { kind: 'tier', item: 'tier:used', what: '25 senders the deployer did not fund, on mainnet in 90 days; you have 0', effort: 'weeks', agent_can: false, details: { tier: 'live', min_tier: 'used' } });
+    assert.deepEqual(g.gap, { kind: 'tier', item: 'tier:used', what: 'about 25 outside users in 90 days; I count 0', effort: 'weeks', agent_can: false, details: { tier: 'live', min_tier: 'used' } });
     assert.ok(!ids(r.reply!.ready).includes('f-tier'));
     // A read that fails leaves the own tier unknown: the bar falls back to the provisional one (R3c), building here.
     const other = await linkedWith(OWNER_RECORD);
@@ -655,6 +655,64 @@ test('min_tier above the project tier moves the program to gaps with kind tier; 
     assert.deepEqual((nothing.reply!.not_fit as { program_id: string; reason: string }[]).find((n) => n.program_id === 'f-tier')?.reason, 'needs a product people use');
   } finally {
     await sql()`DELETE FROM programs WHERE id = 'f-tier'`;
+  }
+});
+
+test('#6 (v6.1.15): a linked tier gap reads in plain words with one full stop', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  const { contract, evidence, liveRows } = await import('../v6/fixtures/evidence-builder');
+  await upsertProgram(programFixture({ id: 'f-tier4', title: 'Tier Grant', min_tier: 'used' }), 'file', NOW);
+  try {
+    const { id, builderId } = await linkedWith(OWNER_RECORD);
+    const four = async () => evidence({ live: liveRows({ url: 'https://earnkit.com', url_ok: true }), onchain: [contract({ tx_90d: 9, senders_90d: 4, funded_senders_90d: 4, funded_sample: 4 })] });
+    const r = await mcpCall({ ...ctx(id), builderId, evidence: four }, 'find', { project: PROJECT, filter: { all: true } });
+    assert.equal(r.isError, false, r.text);
+    const g = (r.reply!.gaps as { program_id: string; n: number; gap: { kind: string; what: string } }[]).find((x) => x.program_id === 'f-tier4')!;
+    assert.deepEqual([g.gap.kind, g.gap.what], ['tier', 'about 25 outside users in 90 days; I count 4']);
+    assert.match(r.reply!.show_to_builder as string, new RegExp(`^${g.n}\\. Tier Grant, up to \\$5,000: about 25 outside users in 90 days; I count 4\\.$`, 'm'));
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'f-tier4'`;
+  }
+});
+
+test('Review Focus 5 (v6.1.15): every linked tier gap holds no deployer, senders or mainnet; the reviewer line keeps the rule', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  const { codeRows, contract, daysAgo, evidence, liveRows } = await import('../v6/fixtures/evidence-builder');
+  const { place } = await import('../v6/tiers');
+  const { reviewerLine } = await import('../v6/tier-words');
+  const site = liveRows({ url: 'https://earnkit.com', url_ok: true });
+  const users = (k: number) => [contract({ tx_90d: 9, senders_90d: k, funded_senders_90d: k, funded_sample: k })];
+  const cases = [
+    { name: 'live, no users', e: evidence({ live: site, onchain: users(0) }), rule: true },
+    { name: 'live, 4 users', e: evidence({ live: site, onchain: users(4) }), rule: true },
+    { name: 'live by contract', e: evidence({ onchain: users(7), code: codeRows({ last_push_at: daysAgo(3), commits_90d: 2 }) }), rule: true },
+    { name: 'building', e: evidence({ repo: 'a/b', onchain: [contract()], code: codeRows({ last_push_at: daysAgo(3), commits_90d: 2 }) }), rule: false },
+    { name: 'unverified', e: evidence({ onchain: [contract()] }), rule: false },
+    { name: 'flagged self-funded', e: evidence({ live: site, onchain: [contract({ tx_90d: 900, senders_90d: 150, funded_sample: 50, funded_senders_90d: 5 })] }), rule: true },
+  ];
+  for (const min of ['used', 'live'] as const) await upsertProgram(programFixture({ id: `rf5-${min}`, title: `Bar ${min} Grant`, min_tier: min }), 'file', NOW);
+  try {
+    let seen = 0;
+    for (const c of cases) {
+      const { id, builderId } = await linkedWith(OWNER_RECORD);
+      const r = await mcpCall({ ...ctx(id), builderId, evidence: async () => c.e }, 'find', { project: PROJECT, filter: { all: true } });
+      assert.equal(r.isError, false, r.text);
+      const show = r.reply!.show_to_builder as string;
+      for (const x of r.reply!.gaps as { n: number; gap: { kind: string; what: string } }[]) {
+        if (x.gap.kind !== 'tier') continue;
+        seen++;
+        assert.doesNotMatch(x.gap.what, /deployer|senders|mainnet/, `${c.name}: ${x.gap.what}`);
+        const lines = show.split('\n').filter((l) => l.startsWith(`${x.n}. `));
+        assert.ok(lines.length, `${c.name}: no line ${x.n}`);
+        // The line carries the gap's own words (a program's quoted rule may say mainnet; that is the program's text).
+        assert.ok(lines.some((l) => l.includes(x.gap.what)), `${c.name}: ${lines.join(' | ')}`);
+      }
+      for (const b of show.split('\n\n').filter((x) => x.startsWith('Your project is'))) assert.doesNotMatch(b, /deployer|senders|mainnet/, `${c.name}: ${b}`);
+      if (c.rule) assert.match(reviewerLine(place(c.e, { identical_pitch: 0, shared_contributors: 0 }, undefined, NOW), c.e), /(senders|wallets) the deployer did not fund/, c.name);
+    }
+    assert.ok(seen >= cases.length, `tier gaps seen: ${seen}`);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id IN ('rf5-used', 'rf5-live')`;
   }
 });
 

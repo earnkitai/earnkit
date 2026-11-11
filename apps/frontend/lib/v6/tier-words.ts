@@ -6,7 +6,10 @@
 import type { Evidence } from './evidence';
 import type { Placement, Tier } from './tiers';
 
-const rules = (p: Placement) => [...new Set(p.flags.map((f) => f.rule.replace(/_/g, ' ')))].join(', ');
+/** #15 (v6.1.15): a rule's words; `unfunded` is the id rows stored before v6.1.15 carry. Any other id reads with `_` as a space. */
+export const RULE_WORDS: Record<string, string> = { self_funded_users: 'self-funded users', unfunded: 'self-funded users' };
+const ruleWords = (rule: string) => RULE_WORDS[rule] ?? rule.replace(/_/g, ' ');
+const rules = (p: Placement) => [...new Set(p.flags.map((f) => ruleWords(f.rule)))].join(', ');
 
 /** "used: 1,240 senders the deployer did not fund on Base mainnet, 3 contributors, no flags." Pure. */
 export function reviewerLine(p: Placement, e: Evidence | null): string {
@@ -21,12 +24,16 @@ const READS: Record<Tier, (p: Placement) => string> = {
   // L15-7 (v6.1.14): building on verified onchain users alone (no recent push, or no repo).
   building: (p) => (p.on_users ? 'Your project has onchain users, with no recent code.' : 'Your project has code, with nothing live yet.'),
   unverified: () => 'Your project is unverified, with nothing recent EarnKit could check.',
-  flagged: (p) => `Your project is flagged on the ${rules(p)} rule${new Set(p.flags.map((f) => f.rule)).size > 1 ? 's' : ''}.`,
+  flagged: (p) => `Your project is flagged on the ${rules(p)} rule${new Set(p.flags.map((f) => ruleWords(f.rule))).size > 1 ? 's' : ''}.`,
 };
 
-/** "Your project is live, with no verified usage yet. Next: 25 senders the deployer did not fund, on mainnet in 90 days; you have 4." Pure. */
+/**
+ * "Your project is live, with no verified usage yet. Next: about 25 outside users in 90 days; I count 4." Reads the
+ * builder's form of the next step (`builder_next`, #6 v6.1.15), falling back to `next` for a placement stored before. Pure.
+ */
 export function builderLine(p: Placement): string {
   if (!p.tier) return 'Your project is not read yet.';
   const head = READS[p.tier](p);
-  return p.next ? `${head} Next: ${p.next[0].toLowerCase()}${p.next.slice(1)}` : head;
+  const next = p.builder_next ?? p.next;
+  return next ? `${head} Next: ${next[0].toLowerCase()}${next.slice(1)}` : head;
 }
