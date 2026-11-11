@@ -290,7 +290,20 @@ minutes), no probe, sweep or digest.
 | `/mcp`, `/oauth/*`, `/.well-known/*` | The MCP endpoint and anonymous OAuth |
 
 Copy lives in `site-copy.ts`, install steps in `agents.ts` (read by the site, `/docs` and `/llms.txt`), colours in
-`site-theme.ts` (mirrored in `globals.css`). See `apps/frontend/DESIGN.md`. OAuth (`oauth.ts`, `oauth-routes.ts`) is
+`site-theme.ts` (mirrored in `globals.css`). See `apps/frontend/DESIGN.md`.
+v6.1.16 Task 10 (lane 25): one line about EarnKit, `ONE_LINE` ("Your agent finds the grants and prizes your repo fits
+and fills the forms. Free."), is the hero, the meta description, every default share card and SchemaOrg. Each page's
+metadata goes through `pageMeta` (`app/lib/meta.ts`): canonical and og:url the same address, the page's own title and
+description on the card (/docs `Add EarnKit to your agent · EarnKit`, /programs, /terms `Terms · EarnKit`; a guide's
+og:title `{Title}: {money}` over its description's first sentence). The layout (`SITE_METADATA`) sets no canonical,
+og:url or robots, so the 404 has none and Next's own noindex is its one robots meta; an unknown guide (200) carries
+`NOT_FOUND_METADATA`'s noindex. `proxy.ts` answers a page path with an upper-case letter with a 308 to its lower-case
+form (`lowerPath`, query kept, public origin); its fourth matcher entry matches only such paths with no dot, outside
+/_next, /api, /mcp and /oauth in any case. The install tabs add VS Code (`code --add-mcp`), Claude's tab is four steps,
+and /docs says under the tabs `Another agent? Add https://earnkit.com/mcp as a remote MCP server and sign in.`
+(`OTHER_AGENT_LINE`). tools/list gives each tool a `title`, and find `readOnlyHint: true`; /mcp's 401 reads `Sign in to
+EarnKit from your agent to use it.`; /me, the link banner and a claim's holder show an agent's name without one
+trailing `(...)` (`displayName`: `Claude Code (earnkit)` shows as `Claude Code`, the stored name unchanged). OAuth (`oauth.ts`, `oauth-routes.ts`) is
 standard (PKCE, dynamic client registration) and approves at once; the issued token is the installation.
 v6.1.16 Task 5 (lane 19): a registered client_id is 128 random bits (22 base64url characters) kept in `oauth_clients`
 with its redirect URIs (at most 10, else `invalid_redirect_uri` `at most 10 redirect_uris`) and cleaned name; `clientOf`
