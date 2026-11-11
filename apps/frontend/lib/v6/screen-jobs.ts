@@ -11,7 +11,7 @@ import { sql } from '../v5/db';
 import { CHAIN_REGISTRY, isKnownChain } from '../v5/chains';
 import { record, resultWords, winCapOf } from '../v5/ledger';
 import { getProgram } from '../v5/programs';
-import { canonicalRepoLink, isCodeHost, nameKeyOf, sshAsHttps } from '../v5/project-input';
+import { canonicalRepoLink, isCodeHost, isShortener, nameKeyOf, sshAsHttps } from '../v5/project-input';
 import { repoKey } from '../v5/repo-facts';
 import { type Applicant, identicalPitches } from './applicants';
 import { getRecord } from './builders';
@@ -97,16 +97,37 @@ export const UNREAD = ['queued', 'reading'];
 /**
  * The applicant's repo link: a github.com repo as https://github.com/owner/name with its key; L15-5 (v6.1.14): a repo
  * or an account on another code host (CODE_HOSTS: GitLab, Codeberg, Bitbucket) and SSH forms kept as a link with no
- * key, so the read names it (`GitLab repo, not read`, `account link, not a repo`) instead of dropping it. Pure.
+ * key, so the read names it (`GitLab repo, not read`, `account link, not a repo`) instead of dropping it. L16-13,
+ * L16-8 (v6.1.16): a link off a code host is `dropped` (a shortened one `short`), so the queue's note names it. Pure.
  */
-function repoOf(raw: string | undefined): { url: string | null; key: string | null } {
-  if (!raw) return { url: null, key: null };
+function repoOf(raw: string | undefined): { url: string | null; key: string | null; dropped?: 'host' | 'short' } {
+  if (!raw?.trim()) return { url: null, key: null };
   const href = sshAsHttps(raw.trim());
   const full = /^[a-z][a-z\d+.-]*:\/\//i.test(href) ? href : `https://${href}`;
+  if (isShortener(full)) return { url: null, key: null, dropped: 'short' };
   const key = repoKey(full);
   if (key) return { url: `https://github.com/${key}`, key };
-  if (!isCodeHost(full)) return { url: null, key: null };
+  if (!isCodeHost(full)) return { url: null, key: null, dropped: 'host' };
   return { url: canonicalRepoLink(full) ?? full, key: null };
+}
+
+/** An applicant's site as compared and kept: trimmed, null when missing or a shortened link (L16-8, v6.1.16). Pure. */
+function siteOf(raw: string | undefined): string | null {
+  const t = raw?.trim();
+  if (!t) return null;
+  const full = /^[a-z][a-z\d+.-]*:\/\//i.test(t) ? t : `https://${t}`;
+  return isShortener(full) ? null : t;
+}
+
+/** A site as two rows compare it (L16-5, v6.1.16): the parsed link, lower case; null when missing. Pure. */
+function siteKey(raw: string | undefined): string | null {
+  const t = siteOf(raw);
+  if (!t) return null;
+  try {
+    return new URL(/^[a-z][a-z\d+.-]*:\/\//i.test(t) ? t : `https://${t}`).toString().toLowerCase();
+  } catch {
+    return t.toLowerCase();
+  }
 }
 type Contract = NonNullable<ScreenApplicant['contracts']>[number];
 /** Known chains and 40-hex addresses only, lowercased. Pure. */
@@ -125,6 +146,7 @@ export const QUEUE_NOTES = {
   renamedRef: (items: string[]) => `One ref on different applicants, the later ones renamed: ${listWords(items, 10)}.`,
   mergedRepo: (items: string[]) => `Merged, same repo under more than one ref: ${listWords(items, 10)}; post each outcome on the ref kept.`,
   sameRepo: (groups: string[]) => `Same repo under more than one ref, kept apart as their EarnKit ids differ: ${groups.join('; ')}.`,
+  siteApart: (groups: string[]) => `Same repo under more than one ref, kept apart as their sites differ: ${groups.join('; ')}.`,
   contracts: (groups: string[]) => `Contracts left out, not read: ${groups.join('; ')}.`,
 } as const;
 
@@ -147,8 +169,8 @@ function fill(a: ScreenApplicant, b: ScreenApplicant): ScreenApplicant {
 /**
  * L15-22 (v6.1.14): one ref given more than once is one applicant (merged, the first entry's fields kept and gaps filled
  * from the later), unless they carry different EarnKit ids (the later renamed "r-1 (2)"); one repo under more than one
- * ref is merged into the first ref the same way when both carry the same EarnKit id or neither does, else kept and
- * named. The notes name each. Pure.
+ * ref is merged into the first ref the same way when both carry the same EarnKit id or neither does and their sites
+ * agree or one is missing (L16-5, v6.1.16), else kept and named. The notes name each. Pure.
  */
 export function mergeApplicants(list: ScreenApplicant[]): { list: ScreenApplicant[]; notes: string[] } {
   const byRef: ScreenApplicant[] = [];
@@ -163,18 +185,23 @@ export function mergeApplicants(list: ScreenApplicant[]): { list: ScreenApplican
   const out: ScreenApplicant[] = [];
   const mergedRepo: string[] = [];
   const sameRepo: string[] = [];
+  const siteApart: string[] = [];
   const repoOfEntry = (a: ScreenApplicant) => repoOf(a.repo_url).url;
   for (const a of byRef) {
     const repo = repoOfEntry(a);
     const i = repo ? out.findIndex((x) => x.ref !== a.ref && repoOfEntry(x) === repo) : -1;
     // One repo is one applicant only when both carry the same EarnKit id (or neither does): a row with another's repo
     // and no id is never folded into the row that has one, so no outcome meant for one reaches the other's ledger.
-    if (i >= 0 && !a.requeue && (out[i].application_id ?? null) === (a.application_id ?? null)) {
+    const ids = i >= 0 && !a.requeue && (out[i].application_id ?? null) === (a.application_id ?? null);
+    // L16-5 (v6.1.16): two sites that differ are two projects on one repo (a fork's deploy, a team's two apps).
+    const [s1, s2] = i >= 0 ? [siteKey(out[i].live_url), siteKey(a.live_url)] : [null, null];
+    const sites = s1 === null || s2 === null || s1 === s2;
+    if (ids && sites) {
       mergedRepo.push(`${a.ref} into ${out[i].ref}`);
       out[i] = fill(out[i], a);
       continue;
     }
-    if (i >= 0) sameRepo.push(listWords([out[i].ref, a.ref], 10));
+    if (i >= 0) (ids ? siteApart : sameRepo).push(listWords([out[i].ref, a.ref], 10));
     out.push(a);
   }
   // Refs still repeated (different EarnKit ids) are renamed, "r-1 (2)", and named.
@@ -193,6 +220,7 @@ export function mergeApplicants(list: ScreenApplicant[]): { list: ScreenApplican
     ...(renamed.length ? [QUEUE_NOTES.renamedRef(renamed)] : []),
     ...(mergedRepo.length ? [QUEUE_NOTES.mergedRepo(mergedRepo)] : []),
     ...(sameRepo.length ? [QUEUE_NOTES.sameRepo(sameRepo)] : []),
+    ...(siteApart.length ? [QUEUE_NOTES.siteApart(siteApart)] : []),
   ];
   return { list: named, notes };
 }
@@ -229,7 +257,7 @@ export async function createJob(o: {
   applicants: ScreenApplicant[];
   thresholds?: Partial<Thresholds>;
   now: Date;
-}): Promise<{ id: string; total: number; cached: number; notes: string[] }> {
+}): Promise<{ id: string; total: number; cached: number; notes: string[]; dropped: string[] }> {
   const id = randomBytes(12).toString('base64url');
   // Low 18 (v6.1.13): an applicant repeated exactly (same ref and every field) is screened once.
   const seen = new Set<string>();
@@ -240,11 +268,17 @@ export async function createJob(o: {
   const merged = mergeApplicants(unique);
   const left = contractsLeftOut(merged.list);
   const notes = [...merged.notes, ...(left.length ? [QUEUE_NOTES.contracts(left)] : [])];
+  // L16-13, L16-8 (v6.1.16): links not read, by why, with the refs ("repo_url dropped: not a code host (r-1, r-2)").
+  const droppedBy = new Map<string, string[]>();
+  const drop = (why: string, ref: string) => droppedBy.set(why, [...(droppedBy.get(why) ?? []), ref]);
   const list = merged.list.map((a) => {
     const ref = a.ref;
     const repo = repoOf(a.repo_url);
+    if (repo.dropped) drop(repo.dropped === 'short' ? 'repo_url dropped: a shortened link' : 'repo_url dropped: not a code host', ref);
+    const site = siteOf(a.live_url);
+    if (a.live_url?.trim() && !site) drop('live_url dropped: a shortened link', ref);
     return {
-      ref, name: a.name || ref, repo_url: repo.url, repo_key: repo.key, live_url: a.live_url || null,
+      ref, name: a.name || ref, repo_url: repo.url, repo_key: repo.key, live_url: site,
       contracts: contractsOf(a.contracts), applied_at: a.applied_at ?? null, pitch: a.pitch ?? null, application_id: a.application_id ?? null,
       requeue_job_id: a.requeue?.job_id ?? null, requeue_ref: a.requeue?.ref ?? null,
     };
@@ -266,7 +300,8 @@ export async function createJob(o: {
           ${a.requeue_job_id}, ${a.requeue_ref})`;
     }
   });
-  return { id, total: list.length, cached, notes };
+  const dropped = [...droppedBy].map(([why, refs]) => `${why} (${listWords(refs, 10)})`);
+  return { id, total: list.length, cached, notes, dropped };
 }
 
 /**

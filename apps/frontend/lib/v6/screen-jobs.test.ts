@@ -720,3 +720,37 @@ test('fix round 1 (M2): after a further payment the kept amount as given is the 
   const again = await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 110 }], NOW);
   assert.deepEqual([again.recorded, again.repeats, again.notes], [0, ['v'], ['Not matched to an EarnKit application: v.', 'Already recorded, nothing new: v.']]);
 });
+
+test('L16-5 (v6.1.16, lane 16 N28): one repo under two refs with different sites is two rows, named; one site missing merges', async () => {
+  const r = await reviewer('jobs-sites');
+  const j = await job(r, [
+    { ref: 's-1', name: 'App A', repo_url: 'https://github.com/acme/mono', live_url: 'https://a.example/' },
+    { ref: 's-2', name: 'App B', repo_url: 'https://github.com/acme/mono', live_url: 'https://b.example/' },
+    { ref: 's-3', name: 'Lone', repo_url: 'https://github.com/acme/lone', live_url: 'https://Lone.example' },
+    { ref: 's-4', name: 'Lone Again', repo_url: 'https://github.com/acme/lone' },
+    { ref: 's-5', name: 'Same Site', repo_url: 'https://github.com/acme/lone', live_url: 'https://lone.example/' },
+  ]);
+  assert.deepEqual(j.notes, [
+    'Merged, same repo under more than one ref: s-4 into s-3 and s-5 into s-3; post each outcome on the ref kept.',
+    'Same repo under more than one ref, kept apart as their sites differ: s-1 and s-2.',
+  ]);
+  const rows = await sql()`SELECT ref FROM screen_applicants WHERE job_id = ${j.id} ORDER BY ref`;
+  assert.deepEqual(rows.map((x) => x.ref), ['s-1', 's-2', 's-3']);
+  const { QUEUE_NOTES } = await import('./screen-jobs');
+  assert.equal(QUEUE_NOTES.siteApart(['a and b']), 'Same repo under more than one ref, kept apart as their sites differ: a and b.');
+});
+
+test('L16-13, L16-8 (v6.1.16): a repo link off a code host and a shortened link are dropped and named by ref', async () => {
+  const r = await reviewer('jobs-drop');
+  const j = await job(r, [
+    { ref: 'x-1', name: 'Site', repo_url: 'https://example.com/acme/x' },
+    { ref: 'x-2', name: 'Site Two', repo_url: 'example.org/y' },
+    { ref: 'x-3', name: 'Short', repo_url: 'https://bit.ly/abc', live_url: 'https://t.co/xyz' },
+    { ref: 'x-4', name: 'Fine', repo_url: 'https://codeberg.org/acme/fine/src/branch/main', live_url: 'https://fine.example/' },
+  ]);
+  assert.deepEqual(j.dropped, ['repo_url dropped: not a code host (x-1 and x-2)', 'repo_url dropped: a shortened link (x-3)', 'live_url dropped: a shortened link (x-3)']);
+  const rows = await sql()`SELECT ref, repo_url, live_url FROM screen_applicants WHERE job_id = ${j.id} ORDER BY ref`;
+  assert.deepEqual(rows.map((x) => [x.ref, x.repo_url, x.live_url]), [
+    ['x-1', null, null], ['x-2', null, null], ['x-3', null, null], ['x-4', 'https://codeberg.org/acme/fine', 'https://fine.example/'],
+  ]);
+});

@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { inputDetail } from '../v5/tool-input';
 import { FURTHER_PAYMENT_REFUSED, winCapOf } from '../v5/ledger';
 import { getProgram } from '../v5/programs';
+import { SHORT_LINK_NOTE } from '../v5/project-input';
 import { LIMITS, hit } from '../v5/rate-limit';
 import { listWords, signInLink } from './record-tool';
 import { reviewerPrograms } from './reviewers';
@@ -58,6 +59,8 @@ export const SCREEN_TEXT = {
   promise: 'Results come in daily runs; the first by tomorrow morning.',
   /** L15-15 (v6.1.14): a win whose amount cannot be read, owner-shaped; only those applicants are not recorded. */
   amountFor: (refs: string) => `Tell me the amount for ${refs}.`,
+  /** L16-14 (v6.1.16): a dot-thousands amount ("2.500"), shown once; the refs are in the agent note. */
+  amountDot: 'Amount not read: use a dot only for cents, no thousands separator.',
   /** L15-16 (v6.1.14): a win over what the program pays; only those applicants are not recorded. */
   overCapFor: (refs: string) => `That is more than this program pays for ${refs}; check the amount.`,
   /** L15-10 (v6.1.14): a share threshold is a ratio, a count threshold a whole number. */
@@ -111,9 +114,10 @@ const SYMBOLS: Record<string, string> = { $: 'USD', '€': 'EUR', '£': 'GBP' };
 /**
  * L15-15 (v6.1.14): a win's amount as the owner gave it: a number or text with cents, thousands commas, a symbol or a
  * three-letter code ("2,500.50", "$2,500.50", "2000 EUR"); `amount_usd` is US dollars. The amount and its upper-case
- * currency, null when no amount was given, 'bad' when it cannot be read or is not above 0. Pure.
+ * currency, null when no amount was given, 'ambiguous' for a dot used as a thousands separator ("2.500", L16-14,
+ * v6.1.16), 'bad' when it cannot be read otherwise or is not above 0. Pure.
  */
-export function amountOf(o: { amount_usd?: number; amount?: number | string; currency?: string }): { value: number; currency: string } | null | 'bad' {
+export function amountOf(o: { amount_usd?: number; amount?: number | string; currency?: string }): { value: number; currency: string } | null | 'bad' | 'ambiguous' {
   if (o.amount_usd != null && o.amount != null) return 'bad';
   const given = o.currency?.trim().toUpperCase() || null;
   if (given && !CODE.test(given)) return 'bad';
@@ -131,7 +135,7 @@ export function amountOf(o: { amount_usd?: number; amount?: number | string; cur
       t = t.slice(sym.length).trim();
     }
     // M3 (fix round 1): "2.500" may be 2,500 written with a European separator: ambiguous, so refused.
-    if (/^(?:[A-Z]{3}\s*)?\d{1,3}\.\d{3}(?:\s*[A-Z]{3})?$/.test(t)) return 'bad';
+    if (/^(?:[A-Z]{3}\s*)?\d{1,3}(?:\.\d{3})+(?:\s*[A-Z]{3})?$/.test(t)) return 'ambiguous';
     const m = /^(?:([A-Z]{3})\s*)?(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?(?:\s*([A-Z]{3}))?$/.exec(t);
     if (!m || (m[1] && m[4])) return 'bad';
     const word = m[1] ?? m[4];
@@ -212,6 +216,7 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
       // kept as given and reaches the ledger as a win with its amount not converted.
       const cap = winCapOf(await getProgram(s.program_id));
       const badAmount: string[] = [];
+      const dotAmount: string[] = [];
       const overCapRefs: string[] = [];
       const rounded: string[] = [];
       const foreign: string[] = [];
@@ -220,6 +225,10 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
         const a = o.outcome === 'won' ? amountOf(o) : null;
         if (a === 'bad') {
           if (!badAmount.includes(o.ref)) badAmount.push(o.ref);
+          continue;
+        }
+        if (a === 'ambiguous') {
+          if (!dotAmount.includes(o.ref)) dotAmount.push(o.ref);
           continue;
         }
         const out: Outcome = { ref: o.ref, outcome: o.outcome, ...(o.payment && { payment: o.payment }) };
@@ -256,6 +265,7 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
       const show = [
         counted, ...(own ? [OWN_APPLICATION] : []),
         ...(badAmount.length ? [SCREEN_TEXT.amountFor(listWords(badAmount, 10))] : []),
+        ...(dotAmount.length ? [SCREEN_TEXT.amountDot] : []),
         ...(over.length ? [SCREEN_TEXT.overCapFor(listWords(over, 10))] : []),
         // L16-1 (v6.1.16): one sentence per kept result a further payment was refused over; the refs are in the agent note.
         ...[...new Set(paymentRefused.map((x) => x.status))].map(FURTHER_PAYMENT_REFUSED),
@@ -265,7 +275,7 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
       // L16-9, L22-10 (v6.1.16): the outcomes are recorded for the builder only when one reached a ledger.
       const missed = [
         ...reasons,
-        ...badAmount.map((r) => `${r}: ${NOT_PASSED.badAmount}`),
+        ...[...badAmount, ...dotAmount].map((r) => `${r}: ${NOT_PASSED.badAmount}`),
         ...overCapRefs.map((r) => `${r}: ${NOT_PASSED.overCap}`),
       ];
       const note = passed > 0
@@ -273,6 +283,7 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
         : missed.length > 0 ? `Nothing reached a builder: ${listWords(missed, 10)}.` : null;
       const amountNotes = [
         ...(badAmount.length ? [`Not recorded, the amount could not be read: ${listWords(badAmount, 10)}. Send amount_usd, or amount with a three-letter currency code, above 0.`] : []),
+        ...(dotAmount.length ? [`Not recorded, a dot used as a thousands separator: ${listWords(dotAmount, 10)}. Send 2500 or 2,500; a dot is for cents only.`] : []),
         ...(overCapRefs.length ? [`Not recorded, over what this program pays: ${listWords(overCapRefs, 10)}.`] : []),
         ...(rounded.length ? [`Rounded down to whole dollars for the builder's ledger: ${listWords(rounded, 10)}.`] : []),
         ...(foreign.length ? [`Kept as given, not converted to US dollars: ${listWords(foreign, 10)}.`] : []),
@@ -316,9 +327,11 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
   const ahead = await queuedAhead(job.id, ctx.now);
   // L15-4 (v6.1.14): applicant fields the list carried that the screen does not read are named, never dropped silently.
   const ignored = ignoredFields(list);
+  // L16-13, L16-8 (v6.1.16): a repo link off a code host, or a shortened link, is named beside the unknown fields.
+  const dropped = job.dropped.length ? [`${job.dropped.join('; ')}.`, ...(job.dropped.some((d) => d.includes('shortened')) ? [SHORT_LINK_NOTE] : [])] : [];
   return {
     show_to_builder: `Queued ${plural(job.total, 'applicant')} for ${program.file.title}. ${promiseLine(ahead, job.total)}`,
-    agent_note: [SCREEN_TEXT.queuedNote, ...(ignored.length ? [`Unknown applicant fields ignored: ${ignored.join(', ')}. Send the repo as repo_url, the site as live_url, contracts as [{ chain, address }].`] : []), ...job.notes].join(' '),
+    agent_note: [SCREEN_TEXT.queuedNote, ...(ignored.length ? [`Unknown applicant fields ignored: ${ignored.join(', ')}. Send the repo as repo_url, the site as live_url, contracts as [{ chain, address }].`] : []), ...dropped, ...job.notes].join(' '),
     job_id: job.id,
   };
 }
