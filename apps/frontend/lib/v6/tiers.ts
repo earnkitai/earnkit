@@ -48,7 +48,8 @@ export const RATIO_THRESHOLDS = ['flag_own_share', 'flag_unfunded_ratio'] as con
 export type Flag = { rule: string; detail: string };
 /** What stands between a placement and the tier above: the condition `next` names. */
 export type Gap = 'funded_senders' | 'site' | 'push' | 'commits' | 'repo_or_site' | 'flag';
-export type Placement = { tier: Tier | null; flags: Flag[]; because: string[]; next: string | null; gap: Gap | null };
+/** `on_users` (M1, v6.1.14 fix round 1): building on verified onchain users alone, with no recent commit. */
+export type Placement = { tier: Tier | null; flags: Flag[]; because: string[]; next: string | null; gap: Gap | null; on_users?: true };
 /** The counts across applicants; `xp`: the program's own earlier screens in 90 days (shown, never a flag; L15-11). */
 export type Counts = {
   identical_pitch: number;
@@ -220,7 +221,7 @@ export function place(
     ];
     const gap: Gap = !usedBy ? 'funded_senders' : !siteUp ? 'site' : 'push';
     const next =
-      gap === 'funded_senders' ? `${n(t.used_funded_senders)} funded wallets on mainnet in 90 days; you have ${n(topCount)}.`
+      gap === 'funded_senders' ? `${n(t.used_funded_senders)} senders the deployer did not fund, on mainnet in 90 days; you have ${n(topCount)}.`
       : gap === 'site' ? 'A site that loads for your product.'
       : pushDays == null ? 'Push to the repo; EarnKit found no push date.'
       : `A push to the repo in the last ${plural(t.push_within_days, 'day')}; the last was ${plural(pushDays, 'day')} ago.`;
@@ -240,7 +241,7 @@ export function place(
   if (topCount > 0) {
     const rows = [...(topActive ? [`${plural(topActive.tx_90d!, 'transaction')} in 90 days ${onMainnet(topActive)}`] : []), ...fundedRow, ...pushRow];
     const next = pushDays == null ? 'A site that loads for your product.' : `A push to the repo in the last ${plural(t.push_within_days, 'day')}; the last was ${plural(pushDays, 'day')} ago.`;
-    return { tier: 'building', flags: [], because: [...rows, ...tail(false)], next, gap: pushDays == null ? 'site' : 'push' };
+    return { tier: 'building', flags: [], because: [...rows, ...tail(false)], next, gap: pushDays == null ? 'site' : 'push', on_users: true };
   }
 
   const rows = [

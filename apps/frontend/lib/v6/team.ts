@@ -69,9 +69,10 @@ export async function readTeam(
   const done = (rows: Omit<TeamRows, 'note'>): TeamRows => ({ ...rows, note: notes.length ? notes.join('; ') : null });
 
   const drop = new Set((x.drop ?? []).map((l) => l.toLowerCase()));
-  // A fork's list holds its parent's people: a fork counts its own authors after the fork only.
-  const list = x.fork ? null : await contributorList(fullName, o, drop);
   const window = await readCommitWindow(fullName, o, x.fork ?? null);
+  // M7 (fix round 1): the list after the window, so a tight budget serves the window first. A fork's list holds its
+  // parent's people: a fork counts its own authors after the fork only.
+  const list = x.fork ? null : await contributorList(fullName, o, drop);
   if (!window.ok) {
     miss(window.why);
     return done({

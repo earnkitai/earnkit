@@ -171,3 +171,10 @@ test('L15-8: a page whose title or short body says for sale, parked or coming so
   assert.equal(l.url_ok, true);
   assert.equal(l.placeholder, 'for sale');
 });
+
+test('M2 (v6.1.14 fix round 1): "example.com for sale" is a placeholder title; "Bikes for sale" is not', async () => {
+  const { placeholderOf } = await import('./live');
+  assert.equal(placeholderOf('example.com for sale', '', true), 'for sale');
+  assert.equal(placeholderOf('my-app.xyz is now for sale', '', true), 'for sale');
+  assert.equal(placeholderOf('Bikes for sale', `${'Browse our bikes. '.repeat(100)}`, true), null);
+});

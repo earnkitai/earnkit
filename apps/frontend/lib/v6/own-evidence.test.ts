@@ -9,7 +9,13 @@ const X0 = { identical_pitch: 0, shared_contributors: 0 };
 
 test('usageLine: the fixed template from one counted mainnet contract', () => {
   const e = evidence({ onchain: [contract({ funded_senders_90d: 1240, tx_90d: 12300, deployed_at: '2026-08-02T10:00:00Z' })] });
-  assert.equal(usageLine(e, NOW), '1,240 distinct funded wallets in 90 days on Base, 12,300 transactions, live since 2026-08-02');
+  assert.equal(usageLine(e, NOW), '1,240 distinct senders the deployer did not fund in 90 days on Base, 12,300 transactions, live since 2026-08-02');
+});
+
+test('I1 (v6.1.14 fix round 1): the draft usage line names senders the deployer did not fund, never funded wallets', () => {
+  const e = evidence({ onchain: [contract({ funded_senders_90d: 3, tx_90d: 40 })] });
+  assert.match(usageLine(e, NOW)!, /^3 distinct senders the deployer did not fund in 90 days on Base, /);
+  assert.doesNotMatch(usageLine(e, NOW)!, /funded wallets/);
 });
 
 test('usageLine: null with zero funded senders, an uncounted or a testnet contract; never a sentence', () => {
@@ -39,6 +45,6 @@ test('evidenceSummary: the tier and the builder line; null when nothing was plac
   const e = evidence({ live: liveRows({ url: 'https://x.dev', url_ok: true }) });
   const s = evidenceSummary(place(e, X0, undefined, NOW), e);
   assert.equal(s?.tier, 'live');
-  assert.match(s!.line, /^Your project is live, with no verified usage yet\. Next: 25 funded wallets on mainnet in 90 days; you have 0\.$/);
+  assert.match(s!.line, /^Your project is live, with no verified usage yet\. Next: 25 senders the deployer did not fund, on mainnet in 90 days; you have 0\.$/);
   assert.equal(evidenceSummary(place(null, X0), null), null);
 });

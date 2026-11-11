@@ -122,6 +122,8 @@ export function amountOf(o: { amount_usd?: number; amount?: number | string; cur
       code = SYMBOLS[sym];
       t = t.slice(sym.length).trim();
     }
+    // M3 (fix round 1): "2.500" may be 2,500 written with a European separator: ambiguous, so refused.
+    if (/^(?:[A-Z]{3}\s*)?\d{1,3}\.\d{3}(?:\s*[A-Z]{3})?$/.test(t)) return 'bad';
     const m = /^(?:([A-Z]{3})\s*)?(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?(?:\s*([A-Z]{3}))?$/.exec(t);
     if (!m || (m[1] && m[4])) return 'bad';
     const word = m[1] ?? m[4];
@@ -148,17 +150,24 @@ export function promiseLine(ahead: number, total: number): string {
 
 /** The applicant fields ScreenApplicant reads; `repo` reads as repo_url when that is not given (T6). */
 const KNOWN_FIELDS = new Set(Object.keys(ScreenApplicant.shape));
-/** L15-4 (v6.1.14): the applicant keys the list carried that the screen does not read, once each, in order. Pure. */
+/**
+ * L15-4 (v6.1.14): the applicant keys the list carried that the screen does not read, once each, in order. M4 (fix
+ * round 1): only names of letters, digits, underscores and hyphens are echoed, each cut to 40 characters, at most 10;
+ * any other key is left out, so no caller text reaches the agent note. Pure.
+ */
 export function ignoredFields(list: unknown[]): string[] {
   const out: string[] = [];
   for (const a of list) {
     if (!a || typeof a !== 'object') continue;
     for (const k of Object.keys(a)) {
       const read = KNOWN_FIELDS.has(k) || (k === 'repo' && !('repo_url' in a));
-      if (!read && !out.includes(k)) out.push(k);
+      if (read || !/^[A-Za-z0-9_-]+$/.test(k)) continue;
+      const name = k.slice(0, 40);
+      if (!out.includes(name)) out.push(name);
+      if (out.length >= 10) return out;
     }
   }
-  return out.slice(0, 20);
+  return out;
 }
 
 export async function screenTool(ctx: { installationId: number; builderId: number | null; now: Date }, raw: unknown): Promise<ScreenReply> {

@@ -42,7 +42,7 @@ const BUNDLE = /\/_next\/|\.js\?|chunk|bundle|main\./i;
 const WALLET = /wagmi|walletconnect|rainbowkit|onchainkit|@solana\/wallet-adapter|connect wallet/i;
 /** L15-8 (v6.1.14): the words of a page that is no product yet, in the order they are named. */
 const PLACEHOLDERS: [string, RegExp][] = [
-  ['for sale', /\b(?:is|be|are|domain|website|site)\s+(?:now\s+)?for\s+sale\b|\bbuy\s+this\s+domain\b|^for\s+sale\b/i],
+  ['for sale', /\b[\w-]+\.[a-z]{2,}\s+(?:is\s+)?(?:now\s+)?for\s+sale\b|\b(?:is|be|are|domain|website|site)\s+(?:now\s+)?for\s+sale\b|\bbuy\s+this\s+domain\b|^for\s+sale\b/i],
   ['parked', /\b(?:domain|page|site|website)\s+(?:is\s+)?(?:now\s+)?parked\b|\bparked\s+(?:domain|page|free|by)\b|\bdomain\s+parking\b|\bparking\s+page\b/i],
   ['coming soon', /\bcoming\s+soon\b|\blaunching\s+soon\b|\bunder\s+construction\b/i],
 ];

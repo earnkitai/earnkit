@@ -224,7 +224,7 @@ test('traction: verified usage wins over the pre-launch line; neither leaves it 
   const facts = await factsOf('earnkit');
   const row = rowWith([req({ key: 'traction', label: 'Traction', type: 'text', kind: 'traction', todo: 'your traction' })]);
   const withLine = recordWith({ traction: { line_pre_launch: 'Pre-launch, launching 2026-12-01, 140 on the waitlist.' } }, ['traction.line_pre_launch']);
-  const usage = '1,240 distinct funded wallets in 90 days on Base, 12,300 transactions, live since 2026-08-02';
+  const usage = '1,240 distinct senders the deployer did not fund in 90 days on Base, 12,300 transactions, live since 2026-08-02';
   const verified = prefill(row, facts, rec(withLine, usage)).fields[0];
   assert.deepEqual([verified.from, verified.value, verified.style], ['record', usage, undefined]);
   const line = prefill(row, facts, rec(withLine)).fields[0];

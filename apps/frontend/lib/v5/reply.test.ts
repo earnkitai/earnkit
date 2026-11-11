@@ -304,7 +304,7 @@ const LINKED = base({
   ],
   record_missing: ['your founder video link', 'an approved answer on the problem', 'your deck link', 'your resume link'],
   applied_overnight: [{ program_id: 'x', title: 'Alliance ALL19' }, { program_id: 'y', title: 'Arc Builders Fund' }],
-  evidence_summary: { tier: 'live', line: 'Your project is live, with no verified usage yet. Next: 25 funded wallets on mainnet in 90 days; you have 4.' },
+  evidence_summary: { tier: 'live', line: 'Your project is live, with no verified usage yet. Next: 25 senders the deployer did not fund, on mainnet in 90 days; you have 4.' },
 });
 
 test('the "Before applying" paragraph groups the sign-ins, names the clicks and the first three missing; "Before tonight" only when the agent sends tonight (R5b)', () => {
@@ -318,7 +318,7 @@ test('the "Before applying" paragraph groups the sign-ins, names the clicks and 
   assert.deepEqual(blocks.slice(-4), [
     before,
     'Applied under your standing approval: Alliance ALL19, Arc Builders Fund.',
-    'Your project is live, with no verified usage yet. Next: 25 funded wallets on mainnet in 90 days; you have 4.',
+    'Your project is live, with no verified usage yet. Next: 25 senders the deployer did not fund, on mainnet in 90 days; you have 4.',
     'Say yes and I apply to all 4. Or say the numbers to skip.',
   ]);
   assert.doesNotMatch(text.replace(/Click Grant/g, ''), /click/i);

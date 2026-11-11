@@ -313,8 +313,9 @@ export async function readCode(read: RepoRead, o: GhRead): Promise<CodeRows> {
   };
   const { repo } = read;
   const full = repo.full_name;
-  // L15-7 (v6.1.14): an empty repo has no tree or commits to read; it reads as empty, not as a partial read.
-  if (repo.size === 0) {
+  // L15-7 (v6.1.14): an empty repo has no tree or commits to read; it reads as empty, not as a partial read. M6 (fix
+  // round 1): GitHub sets size lazily, so a size of 0 is empty only when the tree read found nothing too.
+  if (repo.size === 0 && read.tree.length === 0) {
     return {
       fork_of: repo.fork && repo.parent ? repo.parent.full_name : null, template_overlap: null, template_name: null, own_share: null, commits_own: null,
       files_own: null, first_commit_at: null, last_push_at: repo.pushed_at ?? null, commits_90d: 0, commits_60d: 0, active_weeks_90d: 0, releases: null,

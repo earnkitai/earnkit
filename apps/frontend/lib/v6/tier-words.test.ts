@@ -68,7 +68,7 @@ test('no line says paying their own gas', () => {
 
 test('builder line for live matches the design example', () => {
   const p = place(evidence({ live: up, onchain: [contract({ tx_90d: 9, funded_senders_90d: 4 })] }), X, undefined, NOW);
-  assert.equal(builderLine(p), 'Your project is live, with no verified usage yet. Next: 25 funded wallets on mainnet in 90 days; you have 4.');
+  assert.equal(builderLine(p), 'Your project is live, with no verified usage yet. Next: 25 senders the deployer did not fund, on mainnet in 90 days; you have 4.');
 });
 
 test('builder head for live branches on gap, not on the next words', () => {
@@ -79,7 +79,7 @@ test('builder head for live branches on gap, not on the next words', () => {
 
 test('numbers carry thousands separators in the builder line', () => {
   const p = place(evidence({ live: up, onchain: [contract({ tx_90d: 9, funded_senders_90d: 4 })] }), X, { ...DEFAULT_THRESHOLDS, used_funded_senders: 2_500 }, NOW);
-  assert.match(builderLine(p), /2,500 funded wallets/);
+  assert.match(builderLine(p), /2,500 senders the deployer did not fund/);
 });
 
 test('no tier yet reads plainly', () => {
@@ -90,3 +90,17 @@ test('no tier yet reads plainly', () => {
   assert.match(reviewerLine(place(partial, X, undefined, NOW), partial), /retry/);
 });
 
+
+test('M1 (v6.1.14 fix round 1): building on onchain users with no recent commit reads so, from the placement, not the row text', async () => {
+  const { place } = await import('./tiers');
+  const { codeRows, contract, daysAgo, evidence, NOW } = await import('./fixtures/evidence-builder');
+  const users = [contract({ tx_90d: 0, senders_90d: 60, funded_senders_90d: 50, funded_sample: 50 })];
+  const stale = place(evidence({ repo: 'a/b', onchain: users, code: codeRows({ last_push_at: daysAgo(200), commits_90d: 0 }) }), { identical_pitch: 0, shared_contributors: 0 }, undefined, NOW);
+  assert.equal(stale.gap, 'push');
+  assert.equal(builderLine(stale).split(' Next: ')[0], 'Your project has onchain users, with no recent code.');
+  const noRepo = place(evidence({ onchain: users }), { identical_pitch: 0, shared_contributors: 0 }, undefined, NOW);
+  assert.equal(noRepo.gap, 'site');
+  assert.equal(builderLine(noRepo), 'Your project has onchain users, with no recent code. Next: a site that loads for your product.');
+  // Commits, not users: the code line, whatever the because rows say.
+  assert.equal(builderLine({ tier: 'building', flags: [], because: ['50 senders the deployer did not fund on Base mainnet'], next: null, gap: 'site' }), 'Your project has code, with nothing live yet.');
+});

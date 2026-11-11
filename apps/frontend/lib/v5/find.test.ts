@@ -575,7 +575,7 @@ test('min_tier above the project tier moves the program to gaps with kind tier; 
     const gaps = r.reply!.gaps as { program_id: string; gap: { kind: string; item: string; what: string; effort: string; agent_can: boolean } }[];
     const g = gaps.find((x) => x.program_id === 'f-tier');
     assert.ok(g, JSON.stringify(gaps.map((x) => x.program_id)));
-    assert.deepEqual(g.gap, { kind: 'tier', item: 'tier:used', what: '25 funded wallets on mainnet in 90 days; you have 0', effort: 'weeks', agent_can: false, details: { tier: 'live', min_tier: 'used' } });
+    assert.deepEqual(g.gap, { kind: 'tier', item: 'tier:used', what: '25 senders the deployer did not fund, on mainnet in 90 days; you have 0', effort: 'weeks', agent_can: false, details: { tier: 'live', min_tier: 'used' } });
     assert.ok(!ids(r.reply!.ready).includes('f-tier'));
     // A read that fails leaves the own tier unknown: the bar falls back to the provisional one (R3c), building here.
     const other = await linkedWith(OWNER_RECORD);

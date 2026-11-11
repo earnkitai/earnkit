@@ -23,7 +23,7 @@ export async function ownEvidence(
 
 const n = (v: number) => v.toLocaleString('en-US');
 
-/** "1,240 distinct funded wallets in 90 days on Base, 12,300 transactions, live since 2026-08-02"; null when nothing counted is funded. Pure. */
+/** "1,240 distinct senders the deployer did not fund in 90 days on Base, 12,300 transactions, live since 2026-08-02"; null when nothing counted is funded. Pure. */
 export function usageLine(e: Evidence, _now: Date): string | null {
   const funded = e.onchain.filter((c) => c.counted === true && c.mainnet === true && c.is_contract === true && (c.funded_senders_90d ?? 0) >= 1);
   if (funded.length === 0) return null;
@@ -31,7 +31,7 @@ export function usageLine(e: Evidence, _now: Date): string | null {
   const top = funded.reduce((a, b) => (b.funded_senders_90d! > a.funded_senders_90d! ? b : a));
   const since = top.deployed_at ?? top.first_tx_at;
   return [
-    `${n(top.funded_senders_90d!)} distinct funded wallets in 90 days on ${chainName(top.chain)}`,
+    `${n(top.funded_senders_90d!)} distinct senders the deployer did not fund in 90 days on ${chainName(top.chain)}`,
     ...(top.tx_90d != null ? [`${n(top.tx_90d)} transactions`] : []),
     ...(since ? [`live since ${since.slice(0, 10)}`] : []),
   ].join(', ');

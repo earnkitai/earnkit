@@ -19,12 +19,12 @@ const READS: Record<Tier, (p: Placement) => string> = {
   used: () => 'Your project is in use: wallets the deployer did not fund use it on mainnet.',
   live: (p) => (p.gap === 'funded_senders' ? 'Your project is live, with no verified usage yet.' : 'Your project is live.'),
   // L15-7 (v6.1.14): building on verified onchain users alone (no recent push, or no repo).
-  building: (p) => (p.gap === 'push' || (p.gap === 'site' && p.because.some((b) => b.includes('the deployer did not fund'))) ? 'Your project has onchain users, with no recent code.' : 'Your project has code, with nothing live yet.'),
+  building: (p) => (p.on_users ? 'Your project has onchain users, with no recent code.' : 'Your project has code, with nothing live yet.'),
   unverified: () => 'Your project is unverified, with nothing recent EarnKit could check.',
   flagged: (p) => `Your project is flagged on the ${rules(p)} rule${new Set(p.flags.map((f) => f.rule)).size > 1 ? 's' : ''}.`,
 };
 
-/** "Your project is live, with no verified usage yet. Next: 25 funded wallets on mainnet in 90 days; you have 4." Pure. */
+/** "Your project is live, with no verified usage yet. Next: 25 senders the deployer did not fund, on mainnet in 90 days; you have 4." Pure. */
 export function builderLine(p: Placement): string {
   if (!p.tier) return 'Your project is not read yet.';
   const head = READS[p.tier](p);

@@ -449,3 +449,14 @@ test('L15-7: an empty repo reads as empty, with no tree, commit or contributor r
   assert.equal(e.partial, false);
   assert.ok(!calls.some((u) => /\/contributors|\/commits\?since=|\/releases|search\/issues/.test(u)), calls.join('\n'));
 });
+
+test('M6 (v6.1.14 fix round 1): a size of 0 with files in the tree is not an empty repo', async () => {
+  const { readCode } = await import('./code');
+  const repo = { full_name: 'a/fresh', html_url: 'https://github.com/a/fresh', homepage: null, default_branch: 'main', private: false, size: 0, created_at: '2026-11-05T00:00:00Z', pushed_at: '2026-11-05T00:00:00Z' };
+  const gh = (async () => new Response('[]', { status: 200 })) as typeof fetch;
+  const o = { gh, now: NOW, budget: { remaining: null, stopped: false } };
+  const full = await readCode({ repo, tree: [{ path: 'src/index.ts', type: 'blob' }], readme: null, files: [], first_commit_at: null, partial: false }, o);
+  assert.notEqual(full.empty, true);
+  const bare = await readCode({ repo, tree: [], readme: null, files: [], first_commit_at: null, partial: true }, o);
+  assert.equal(bare.empty, true);
+});

@@ -40,7 +40,7 @@ test('live: the contract has 4 funded senders; next names the rule with the coun
   e.onchain = [contract({ tx_90d: 9, senders_90d: 4, funded_senders_90d: 4, funded_sample: 4 })];
   const p = at(e);
   assert.equal(p.tier, 'live');
-  assert.equal(p.next, '25 funded wallets on mainnet in 90 days; you have 4.');
+  assert.equal(p.next, '25 senders the deployer did not fund, on mainnet in 90 days; you have 4.');
   assert.equal(p.gap, 'funded_senders');
   assert.ok(p.because.includes('site loads'), p.because.join(' | '));
 });
@@ -54,7 +54,7 @@ test('next for live reports the top counted contract, never a sum', () => {
     contract({ address: `0x${'4'.repeat(40)}`, tx_90d: 3, funded_senders_90d: null }),
   ];
   const p = at(e);
-  assert.equal(p.next, '25 funded wallets on mainnet in 90 days; you have 6.');
+  assert.equal(p.next, '25 senders the deployer did not fund, on mainnet in 90 days; you have 6.');
   assert.ok(p.because.includes('6 senders the deployer did not fund on Arbitrum mainnet'), p.because.join(' | '));
   assert.ok(p.because.includes('3 counted contracts'));
 });
@@ -63,7 +63,7 @@ test('site only is live', () => {
   const p = at(evidence({ live: up }));
   assert.equal(p.tier, 'live');
   assert.ok(p.because.includes('site loads'));
-  assert.equal(p.next, '25 funded wallets on mainnet in 90 days; you have 0.');
+  assert.equal(p.next, '25 senders the deployer did not fund, on mainnet in 90 days; you have 0.');
 });
 
 test('live by a contract alone: transactions in 90 days, repo pushed recently', () => {
@@ -92,7 +92,7 @@ test('usage is one contract: two with 15 each are live, not used', () => {
   const p = at(e);
   assert.equal(p.tier, 'live');
   assert.equal(p.gap, 'funded_senders');
-  assert.equal(p.next, '25 funded wallets on mainnet in 90 days; you have 15.');
+  assert.equal(p.next, '25 senders the deployer did not fund, on mainnet in 90 days; you have 15.');
   assert.ok(p.because.includes('15 senders the deployer did not fund on Base mainnet'), p.because.join(' | '));
   assert.ok(p.because.includes('2 counted contracts'));
   assert.ok(!p.because.some((b) => b.includes('across')));
@@ -177,7 +177,7 @@ test('is_contract false or mainnet null contracts never count', () => {
   }
   const site = at(evidence({ live: up, onchain: [contract({ ...big, is_contract: false })] }));
   assert.equal(site.tier, 'live');
-  assert.equal(site.next, '25 funded wallets on mainnet in 90 days; you have 0.');
+  assert.equal(site.next, '25 senders the deployer did not fund, on mainnet in 90 days; you have 0.');
 });
 
 test('tx_90d of null or 0 is no activity', () => {
@@ -281,7 +281,7 @@ test('only counted contracts place; one not counted is shown with its reason', (
   ];
   const p = at(e);
   assert.equal(p.tier, 'live');
-  assert.equal(p.next, '25 funded wallets on mainnet in 90 days; you have 0.');
+  assert.equal(p.next, '25 senders the deployer did not fund, on mainnet in 90 days; you have 0.');
   assert.ok(p.because.includes('0xabab...abab on Base: named in the repo, not counted'), p.because.join(' | '));
   e.onchain.push(contract({ tx_90d: 40, funded_senders_90d: 30, funded_sample: 40 }));
   assert.equal(at(e).tier, 'used');
@@ -446,4 +446,12 @@ test('L15-19: contributors are everyone who committed, never 0, and a full list 
 test('L15-23: a contract on a chain with no reader is named in the line', () => {
   const e = evidence({ live: up, onchain: [contract({ chain: 'monad', address: `0x${'a'.repeat(40)}`, mainnet: null, is_contract: null, note: 'not read: no explorer for monad', counted: true })] });
   assert.ok(at(e).because.includes('0xaaaa...aaaa on Monad: not read'), at(e).because.join(' | '));
+});
+
+test('I1 (v6.1.14 fix round 1): the builder next step names what is counted, senders the deployer did not fund', () => {
+  const e = used();
+  e.onchain = [contract({ tx_90d: 9, senders_90d: 8, funded_senders_90d: 8, funded_sample: 8 })];
+  const p = at(e);
+  assert.equal(p.next, '25 senders the deployer did not fund, on mainnet in 90 days; you have 8.');
+  assert.doesNotMatch(p.next!, /funded wallets|funded_/);
 });
