@@ -331,6 +331,8 @@ ALTER TABLE screen_jobs ALTER COLUMN builder_id DROP NOT NULL;
 -- v6.1.14 (T8-F1): a further payment of a win carries its caller's key, kept once per application (a repeat is a no-op).
 ALTER TABLE application_history ADD COLUMN IF NOT EXISTS payment_key text;
 CREATE INDEX IF NOT EXISTS application_history_payment ON application_history (owner, program_id, payment_key) WHERE payment_key IS NOT NULL;
+-- v6.1.16 (L16-1, L16-2): a won or rejected over a different result replaces it as a correction; its history row says so.
+ALTER TABLE application_history ADD COLUMN IF NOT EXISTS corrected boolean NOT NULL DEFAULT false;
 -- T8-F2: a stable order for paging a screen's results (the order the rows were queued in).
 ALTER TABLE screen_applicants ADD COLUMN IF NOT EXISTS seq bigserial;
 -- T8-F1: the further-payment keys a screen outcome has added, so a retried one adds nothing.

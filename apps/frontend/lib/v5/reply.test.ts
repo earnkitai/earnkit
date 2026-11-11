@@ -115,6 +115,8 @@ test('the since line: only when something changed, never on the first find', () 
   assert.ok(!replyText(r, true).includes('Since'));
   // A win shows what was won, never what was asked (3.6).
   assert.match(replyText({ ...r, ledger: { ...r.ledger, won_usd: 25000 } }, false), /^Your applications: 2 sent, 1 won \(\$25,000\), 1 waiting, 1 closing soon\.$/m);
+  // L16-2 (v6.1.16): a builder's own win that corrected a rejection reads as the one win.
+  assert.match(replyText({ ...r, ledger: { ...LEDGER0, applied: 1, won: 1, won_usd: 150 } }, false), /^Your applications: 1 sent, 1 won \(\$150\)\.$/m);
   // L13-17: a close that is on no shown line keeps its date; with nothing else moved and every close shown, no since line.
   const away = { ...r, since: { ...r.since, closing: [...r.since.closing, { program_id: 'e', title: 'Elsewhere Grant', closes_at: '2026-11-09T00:00:00.000Z' }] } };
   assert.match(replyText(away, false), /^Since Nov 2: 2 new programs you fit; Circle Developer Grants: deadline moved to Nov 20; Elsewhere Grant closes 2026-11-09\.$/m);

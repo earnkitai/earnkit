@@ -61,7 +61,8 @@ test('one application and one result per program, in builder words (v6.1.7, B8, 
   assert.equal(second.agent_note, 'Nothing was recorded.');
   assert.equal((await track(a, { program_id: 't7-one', status: 'won', amount_usd: 0.4 })).show_to_builder, 'Tell me how much you won, as whole dollars.');
   assert.equal((await track(a, { program_id: 't7-one', status: 'won', amount_usd: 3000 })).show_to_builder, 'Tracked: $3,000 from One Grant.');
-  const rej = await track(c, { program_id: 't7-one', status: 'rejected' });
+  // L16-2 (v6.1.16): no_result over a result is refused; a rejection would be a correction (the next test).
+  const rej = await track(c, { program_id: 't7-one', status: 'no_result' });
   assert.equal(rej.show_to_builder, 'That one already has a result here: won $3,000.');
   assert.equal(rej.ledger.won_usd, 3000);
   // T8-F1 (v6.1.14): a resend is already recorded; another amount corrects; a marked further payment adds once.
@@ -78,6 +79,27 @@ test('one application and one result per program, in builder words (v6.1.7, B8, 
   assert.equal(retry.show_to_builder, 'Already tracked.');
   assert.equal(retry.ledger.won_usd, 3250);
   assert.equal((await track(c, { program_id: 't7-one', status: 'skipped' })).show_to_builder, 'That one already has a result here; nothing to skip.');
+});
+
+test('L16-1, L16-2 (v6.1.16, Review Focus 3): won $100, rejected, a further payment refused, then the builder\'s own win corrects the rejection', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 't7-fix', title: 'Fix Grant', max_award_usd: 5000 }), 'file', NOW);
+  await track(c, { program_id: 't7-fix', status: 'applied' });
+  assert.equal((await track(c, { program_id: 't7-fix', status: 'won', amount_usd: 100 })).show_to_builder, 'Tracked: $100 from Fix Grant.');
+  const rej = await track(c, { program_id: 't7-fix', status: 'rejected' });
+  assert.equal(rej.show_to_builder, 'Tracked. On to the next one.');
+  assert.deepEqual([rej.ledger.won, rej.ledger.rejected], [0, 1]);
+  const hist = async () => (await sql()`SELECT count(*)::int AS n FROM application_history WHERE installation_id = ${c.installationId} AND program_id = 't7-fix'`)[0].n as number;
+  const before = await hist();
+  const pay = await track(c, { program_id: 't7-fix', status: 'won', amount_usd: 10, payment: { key: 'p2' } });
+  assert.equal(pay.show_to_builder, 'Further payment refused: the current result is rejected; post a win first.');
+  assert.equal(pay.agent_note, 'Nothing was recorded.');
+  assert.equal(await hist(), before);
+  const won = await track(c, { program_id: 't7-fix', status: 'won', amount_usd: 150 });
+  assert.equal(won.show_to_builder, 'Tracked: $150 from Fix Grant.');
+  assert.deepEqual([won.ledger.applied, won.ledger.won, won.ledger.won_usd, won.ledger.rejected], [1, 1, 150, 0]);
+  const rows = await sql()`SELECT status, amount_usd, corrected FROM application_history WHERE installation_id = ${c.installationId} AND program_id = 't7-fix' ORDER BY id OFFSET ${before}`;
+  assert.deepEqual(rows.map((x) => [x.status, Number(x.amount_usd), x.corrected]), [['won', 150, true]]);
 });
 
 test('Review Focus 1, tightened by v6.1.13 B3: A started, B applied records nothing, A applied is the one application; B hears it was already sent', async () => {

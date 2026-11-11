@@ -1,10 +1,12 @@
 /**
  * The builder's ledger, keyed by its owner ('b:<builder>' once linked, else 'i:<installation>'):
  * applications (one row per program, plus an append-only history), closed gap items, and the
- * summary `track` and `find` show. One application and one result per program: a second `applied`, or a result
- * over a result, is refused and changes nothing, except a second win (L15-17, T8-F1 v6.1.14): marked a further
- * payment (`payment.key`, kept in the history; a repeated key changes nothing) it adds to the total under the cap;
- * unmarked, the same amount is already recorded and another amount is a correction that replaces it. A win is whole dollars; one over the program's stated maximum, else
+ * summary `track` and `find` show. One application and one result per program: a second `applied` is refused and
+ * changes nothing. A won or rejected over a different result (L16-1, L16-2 v6.1.16: won and rejected either way, a
+ * win with another amount, from the program's screen or the builder's own track) is a correction that replaces it,
+ * its history row marked `corrected`, so the ledger holds the latest result; `no_result` over a result is refused. A
+ * win marked a further payment (`payment.key`, kept in the history; a repeated key changes nothing) adds to a win's
+ * total under the cap (L15-17, T8-F1 v6.1.14) and is refused over a result that is not a win. A win is whole dollars; one over the program's stated maximum, else
  * its pool, else 10,000,000, is refused; investments are never "asked".
  */
 import { sql, type Db } from './db';
@@ -40,6 +42,11 @@ const MAX_WIN_USD = 10_000_000;
 export const winCapOf = (program: ProgramRow | null | undefined): number => program?.file.max_award_usd ?? program?.file.pool_usd ?? MAX_WIN_USD;
 /** A win over the program's cap is refused with this line, in the ledger and in a program's screen outcomes (v6.1.7 C38). */
 export const OVER_CAP = "That's more than this program pays; check the amount.";
+/**
+ * L16-1, L16-2 (v6.1.16): a further payment over a result that is not a win (`rejected`, `no result`; on a screen also
+ * `shortlisted`, or `none` when nothing is kept) writes nothing.
+ */
+export const FURTHER_PAYMENT_REFUSED = (status: string) => `Further payment refused: the current result is ${status}; post a win first.`;
 /** A win that is not whole dollars of at least 1 (the screen's outcomes say the same, v6.1.13 Low 19). */
 export const WHOLE_DOLLARS = 'Tell me how much you won, as whole dollars.';
 const DAY = 86_400_000;
@@ -112,7 +119,7 @@ export async function record(
     /** A program's screen outcome (screen-jobs.recordOutcomes): not an agent's call, so the link check is skipped. */
     fromScreen?: true;
   } = {},
-): Promise<{ ok: true; repeated?: true; night?: true; closed?: true; total_usd?: number; replaced_usd?: number } | { ok: false; note: string; items?: string[] }> {
+): Promise<{ ok: true; repeated?: true; night?: true; closed?: true; total_usd?: number; replaced_usd?: number; corrected?: true } | { ok: false; note: string; items?: string[]; current?: string }> {
   const installationId = o.installationId ?? installationOf(owner);
   if (installationId === undefined) throw new Error('record needs the writing installation');
   const now = o.now ?? new Date();
@@ -151,8 +158,8 @@ export async function record(
     // T5-F4 (v6.1.14, fix round 2): no call of an agent unlinked meanwhile lands in the builder's ledger, whatever its
     // status; a program's screen outcome (`fromScreen`) is written as the application's own installation and skips it.
     if (!o.fromScreen && !(await stillLinked(tx, owner, installationId))) return { ok: false, note: UNLINKED_MEANWHILE } as const;
-    const [row] = await tx<{ status: string; amount_usd: string | null; at: Date; client_name: string | null; claimed_at: Date | null; claimed_by: number | null }[]>`
-      SELECT a.status, a.amount_usd, a.at, i.client_name, a.claimed_at, a.claimed_by FROM applications a LEFT JOIN installations i ON i.id = a.installation_id
+    const [row] = await tx<{ status: string; amount_usd: string | null; note: string | null; at: Date; client_name: string | null; claimed_at: Date | null; claimed_by: number | null }[]>`
+      SELECT a.status, a.amount_usd, a.note, a.at, i.client_name, a.claimed_at, a.claimed_by FROM applications a LEFT JOIN installations i ON i.id = a.installation_id
       WHERE a.owner = ${owner} AND a.program_id = ${programId} FOR UPDATE OF a`;
     if (!program && !row) return unknown;
     // L13-13 (v6.1.14): a win kept without its amount takes the amount once; nothing else replaces a result.
@@ -161,17 +168,28 @@ export async function record(
     if (paymentKey !== null && row?.status === 'won'
       && (await tx`SELECT 1 FROM application_history WHERE owner = ${owner} AND program_id = ${programId} AND payment_key = ${paymentKey}`).length > 0)
       return { ok: false, note: 'Already tracked.' } as const;
-    // L15-17, T8-F1 (v6.1.14): a win with an amount over a win with an amount: marked a further payment, it adds (the
-    // total under the cap); unmarked, another amount is a correction that replaces it (the same amount is already recorded).
+    const hasResult = row !== undefined && RESULTS.includes(row.status);
+    // L16-1, L16-2 (v6.1.16): a further payment needs a win to add to; over another result nothing is written.
+    if (paymentKey !== null && hasResult && row.status !== 'won') {
+      const current = resultWords(row.status, null);
+      return { ok: false, note: FURTHER_PAYMENT_REFUSED(current), current } as const;
+    }
+    // L15-17, T8-F1 (v6.1.14): a win with an amount over a win with an amount, marked a further payment, adds (the
+    // total under the cap).
     const bothWon = row?.status === 'won' && row.amount_usd !== null && status === 'won' && amount !== null;
     const adds = bothWon && paymentKey !== null;
-    const corrects = bothWon && paymentKey === null && Number(row.amount_usd) !== amount;
     if (adds) {
       total = Number(row.amount_usd) + amount;
       if (total > winCapOf(program)) return { ok: false, note: OVER_CAP } as const;
     }
-    if (corrects) replacedFrom = Number(row.amount_usd);
-    const resulted = row && RESULTS.includes(row.status) && !completes && !adds && !corrects;
+    // The same result: the same status and amount (a win kept with no amount also by its note, which names the currency).
+    const same = hasResult && row.status === status && (row.amount_usd === null ? null : Number(row.amount_usd)) === amount
+      && (status !== 'won' || amount !== null || (row.note ?? null) === note);
+    // L16-1, L16-2 (v6.1.16): a won or rejected, unmarked, over a different result is a correction: the latest result
+    // replaces it, whether the program's screen or the builder's own track sends it (T8-F1's other amount among them).
+    const corrects = hasResult && (status === 'won' || status === 'rejected') && paymentKey === null && !completes && !same;
+    if (corrects && row.status === 'won' && row.amount_usd !== null && amount !== null) replacedFrom = Number(row.amount_usd);
+    const resulted = hasResult && !completes && !adds && !corrects;
     if (resulted && status === 'skipped') return { ok: false, note: 'That one already has a result here; nothing to skip.' } as const;
     if (resulted && RESULTS.includes(status) && row.status === status && (status !== 'won' || (row.amount_usd === null ? null : Number(row.amount_usd)) === amount))
       return { ok: false, note: 'Already tracked.' } as const;
@@ -225,8 +243,11 @@ export async function record(
       // A skip over a claim replaces it: the claim is gone, the skip stays.
       await tx`UPDATE applications SET installation_id = ${installationId}, status = 'skipped', note = ${note}, at = ${now},
         claimed_at = NULL, claimed_by = NULL WHERE owner = ${owner} AND program_id = ${programId}`;
-    } else if (total !== null || replacedFrom !== null) {
-      await tx`UPDATE applications SET installation_id = ${installationId}, amount_usd = ${total ?? amount}, at = ${now} WHERE owner = ${owner} AND program_id = ${programId}`;
+    } else if (total !== null) {
+      await tx`UPDATE applications SET installation_id = ${installationId}, amount_usd = ${total}, at = ${now} WHERE owner = ${owner} AND program_id = ${programId}`;
+    } else if (corrects) {
+      await tx`UPDATE applications SET installation_id = ${installationId}, status = ${status}, amount_usd = ${amount}, note = ${note}, at = ${now}
+        WHERE owner = ${owner} AND program_id = ${programId}`;
     } else if (!(status === 'skipped' && row)) {
       // A skip on a program already in the ledger hides nothing new: the application stays as it is.
       await tx`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, note, at)
@@ -234,11 +255,12 @@ export async function record(
         ON CONFLICT (owner, program_id) DO UPDATE
           SET installation_id = EXCLUDED.installation_id, status = EXCLUDED.status, amount_usd = EXCLUDED.amount_usd, note = EXCLUDED.note, at = EXCLUDED.at`;
     }
-    await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, note, at, payment_key)
-      VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${amount}, ${note}, ${now}, ${paymentKey})`;
+    await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, note, at, payment_key, corrected)
+      VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${amount}, ${note}, ${now}, ${paymentKey}, ${corrects})`;
     return repeated ? ({ ok: true, repeated: true } as const) : night ? ({ ok: true, night: true } as const) : closed ? ({ ok: true, closed: true } as const)
-      : total !== null ? ({ ok: true, total_usd: total } as const) : replacedFrom !== null ? ({ ok: true, replaced_usd: replacedFrom } as const) : ({ ok: true } as const);
-  })) as { ok: true; repeated?: true; night?: true; closed?: true; total_usd?: number; replaced_usd?: number } | { ok: false; note: string };
+      : total !== null ? ({ ok: true, total_usd: total } as const)
+      : corrects ? ({ ok: true, corrected: true, ...(replacedFrom !== null && { replaced_usd: replacedFrom }) } as const) : ({ ok: true } as const);
+  })) as { ok: true; repeated?: true; night?: true; closed?: true; total_usd?: number; replaced_usd?: number; corrected?: true } | { ok: false; note: string; current?: string };
 }
 
 /**
