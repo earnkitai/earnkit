@@ -16,7 +16,7 @@ import { timeLeftWords } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
 import { lastFindAt, markFind, markFindAuto, newlyLinkedLogin, rememberProject } from './installations';
-import { askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, markAsked, rekeyProject, reportOf, resolvedKey, saveReport, summary, type Ledger } from './ledger';
+import { askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, markAsked, rekeyProject, reportOf, resolvedKey, resultOf, resultWords, saveReport, summary, type Ledger } from './ledger';
 import { prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
 import { isOpen, listOpenPrograms, programByName, unknownProgramLine, type ProgramRow } from './programs';
@@ -141,6 +141,10 @@ export type GapProgram = {
   closes_in?: string;
   /** L1e-5 (v6.1.13): its rule's keywords are in the project's words, so the closing's rule question names it first. */
   keyword_hit?: true;
+  /** L1g-8b (v6.1.16): its gaps hold the public repo: not ready for this repo, so its rule is never the closing's question. */
+  public_first?: true;
+  /** L1g-8b (v6.1.16): its keyword rule is named nowhere in the project (full list only), so its rule is asked only when no step is shown. */
+  unlikely?: true;
 };
 export type FindReply = {
   show_to_builder: string;
@@ -295,7 +299,7 @@ function readyOf(row: ProgramRow, v: Verdict, facts: RepoFacts, now: Date, side:
   };
 }
 
-const gapOf = (row: ProgramRow, v: Verdict, done: Set<string> = new Set(), now?: Date, hit = false): Omit<GapProgram, 'n'> => {
+const gapOf = (row: ProgramRow, v: Verdict, done: Set<string> = new Set(), now?: Date, hit = false, unlikelyHere = false): Omit<GapProgram, 'n'> => {
   const again = lookedAgain(v.gaps, done);
   const left = now && closesWithinDate(row.file, now) ? closesIn(row.file, now) : null;
   return {
@@ -304,6 +308,8 @@ const gapOf = (row: ProgramRow, v: Verdict, done: Set<string> = new Set(), now?:
     in_person: row.file.in_person, setup: row.file.setup, ...(again.length > 0 ? { looked_again: again } : {}),
     ...(left ? { closes_in: left } : {}),
     ...(hit ? { keyword_hit: true as const } : {}),
+    ...(v.gaps.some((x) => x.item === 'repo:public') ? { public_first: true as const } : {}),
+    ...(unlikelyHere ? { unlikely: true as const } : {}),
   };
 };
 
@@ -332,7 +338,7 @@ function verdictText(row: ProgramRow, v: Verdict, ready: () => Omit<ReadyProgram
   // N3 (v6.1.12): the yes stands for one that still needs answers too; the closing names them, never a second yes.
   const yesWaits = r.rule_yes && r.need_you.length > 0 ? [{ title: r.title, needs: r.need_you, ...(o.draftOnly ? { draft: true as const } : {}) }] : [];
   // Review Focus 1 (v6.1.14): the closing names the needs of a yes that waits, so the line does not.
-  return [readyLine(r, o.linked, o.now, true, () => false, yesWaits.length > 0), ...o.rules, closingLine({ ready: 1, draftOnly: o.draftOnly, gaps: 0, firstRule: null, inPerson: 0, held: 0, yesStands, draftStands, yesWaits })];
+  return [readyLine(r, o.linked, o.now, true, () => false, yesWaits.length > 0), ...o.rules, closingLine({ ready: 1, draftOnly: o.draftOnly, gaps: 0, firstRule: null, inPerson: 0, held: 0, yesStands, draftStands, yesWaits, title: r.title })];
 }
 
 /** One program: its file, its fields (for the project, when given) and the verdict, said as the find line says it. */
@@ -375,6 +381,16 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   const guideRules = !project || ask === 'rules' ? guideLines(guide) : [];
   // Their rules: what the program requires that EarnKit cannot check, each its own line after the money (v6.1.6).
   const rules = ruleNotes(p);
+  // L16-7 (v6.1.16): a program with a result shows the result, never a yes, a step or a sign-in.
+  const result = project ? await resultOf(ownerOf(ctx), id) : null;
+  if (result) {
+    const words = resultWords(result.status, result.amount_usd);
+    return {
+      show_to_builder: [`${p.title}, ${moneyOf(p)}.`, `${words[0].toUpperCase()}${words.slice(1)}.`].join('\n'),
+      agent_note: 'This program already has a result; nothing to send.',
+      program: pub, fields, guide, ...(verdict ? { verdict } : {}), rules, linked: ctx.builderId !== null,
+    };
+  }
   // An upcoming program opens with when it opens, and offers nowhere to apply yet (v6.1.7, C10).
   const opens = (p.opens_note ?? 'no date announced').trim().replace(/\.+$/, '');
   // The builder presses submit: yes drafts it for them to send (C44).
@@ -650,7 +666,7 @@ async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: 
       const other = hold && hold.project !== null && !here(hold.project) ? heldProjectName(hold.project, side!, heldReports.get(hold.project) ?? null) : null;
       return hold ? { ...r, claimed_since: hold.since, ...(other ? { held_for: other } : {}) } : r;
     }),
-    shownGaps.map((v) => gapOf(byId.get(v.program_id)!, v, done.of(v.program_id), ctx.now, hit(v))),
+    shownGaps.map((v) => gapOf(byId.get(v.program_id)!, v, done.of(v.program_id), ctx.now, hit(v), all && unlikelyV(v))),
     (g) => g.in_person && rulesOnly([g.gap, ...g.also]),
   );
 

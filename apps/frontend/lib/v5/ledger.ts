@@ -283,6 +283,13 @@ export async function summary(owner: string, programs: ProgramRow[], now: Date):
   return l;
 }
 
+/** L16-7 (v6.1.16): the program's result for this owner (won, rejected or no result), or null when it has none. */
+export async function resultOf(owner: string, programId: string): Promise<{ status: 'won' | 'rejected' | 'no_result'; amount_usd: string | null; note: string | null } | null> {
+  const [r] = await sql()<{ status: 'won' | 'rejected' | 'no_result'; amount_usd: string | null; note: string | null }[]>`
+    SELECT status, amount_usd, note FROM applications WHERE owner = ${owner} AND program_id = ${programId} AND status = ANY(${RESULTS})`;
+  return r ?? null;
+}
+
 /** Program ids the builder applied to or skipped: they leave the list. A claimed ('started') one stays, marked. */
 export async function excluded(owner: string): Promise<Set<string>> {
   const rows = await sql()<{ program_id: string }[]>`SELECT program_id FROM applications WHERE owner = ${owner} AND status <> 'started'`;

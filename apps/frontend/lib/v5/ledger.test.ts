@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { getProgram, upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
-import { askOutcome, codeDoneAt, doneItems, doneOn, excluded, markAsked, record, summary, titleOf } from './ledger';
+import { askOutcome, codeDoneAt, doneItems, doneOn, excluded, markAsked, record, resultOf, summary, titleOf } from './ledger';
 
 after(() => sql().end());
 
@@ -400,4 +400,22 @@ test('fix round 2 (v6.1.14): a b: ledger takes only calls of an installation lin
   await sql()`UPDATE installations SET builder_id = NULL WHERE id = ${linked}`;
   assert.deepEqual(await record(`b:${B}`, 'l-fr2', 'won', { installationId: linked, amount_usd: 10, now: NOW }), { ok: false, note: UNL });
   assert.deepEqual(await record(`b:${B}`, 'l-fr2', 'won', { installationId: linked, amount_usd: 10, now: NOW, fromScreen: true }), { ok: true });
+});
+
+test('L16-7 (v6.1.16): resultOf reads a won, rejected or no-result row, else null', async () => {
+  const i = await install();
+  await prog('l-ro-a', { max_award_usd: 10_000 });
+  await prog('l-ro-b', { max_award_usd: 10_000 });
+  assert.equal(await resultOf(o(i), 'l-ro-a'), null);
+  await record(o(i), 'l-ro-a', 'applied', { now: NOW });
+  assert.equal(await resultOf(o(i), 'l-ro-a'), null);
+  await record(o(i), 'l-ro-a', 'won', { amount_usd: 3000, now: NOW });
+  const won = await resultOf(o(i), 'l-ro-a');
+  assert.equal(won?.status, 'won');
+  assert.equal(Number(won?.amount_usd), 3000);
+  await record(o(i), 'l-ro-b', 'applied', { now: NOW });
+  await record(o(i), 'l-ro-b', 'rejected', { now: NOW });
+  assert.deepEqual(await resultOf(o(i), 'l-ro-b'), { status: 'rejected', amount_usd: null, note: null });
+  // Another owner's row is not this one's.
+  assert.equal(await resultOf(o(i + 100000), 'l-ro-a'), null);
 });

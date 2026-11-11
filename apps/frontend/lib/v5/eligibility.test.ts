@@ -377,10 +377,13 @@ test('L1c-2 (v6.1.10): a rule with keywords is unlikely unless the project names
   assert.equal(unlikely(vr, idea, gapsOf(idea)), true);
   for (const f of [
     facts({ name: 'Rent Split', description: 'A hands-first game for Meta Quest 3' }),
-    facts({ name: 'QUEST runner', description: 'x' }),
+    facts({ name: 'META QUEST runner', description: 'x' }),
     facts({ name: 'x', description: 'y', readme_excerpt: 'Built for Oculus headsets.' }),
     facts({ name: 'x', description: 'y', topics: ['vr', 'unity'] }),
   ]) assert.equal(unlikely(vr, f, gapsOf(f)), false, f.description + (f.readme_excerpt ?? ''));
+  // L1g-1 (v6.1.16): a multi-word keyword matches only as a whole phrase: a bare "Quest" names no Meta VR.
+  const runner = facts({ name: 'QUEST runner', description: 'x' });
+  assert.equal(unlikely(vr, runner, gapsOf(runner)), true);
   // Whole words only: "Conquest" and "vram" name no keyword.
   const near = facts({ name: 'Conquest', description: 'A vram profiler' });
   assert.equal(unlikely(vr, near, gapsOf(near)), true);
@@ -430,7 +433,7 @@ test('C3 (v6.1.13): keywords inside links, code blocks and inline code are not t
     assert.equal(keywordHit(vr, f, gapsOf(f)), false);
   }
   // Prose next to a link still counts.
-  const prose = facts({ name: 'Log viewer', description: 'A Quest game. See https://x.example/docs' });
+  const prose = facts({ name: 'Log viewer', description: 'A Meta Quest game. See https://x.example/docs' });
   assert.equal(keywordHit(vr, prose, gapsOf(prose)), true);
   // The README excerpt drops inline code spans, so a package name in backticks is never read as prose.
   assert.equal(readmeExcerpt('Reads logs. Install with `npm i quest-cli` today.'), 'Reads logs. Install with today.');
@@ -452,7 +455,7 @@ test('L12-2 (v6.1.14): identifiers in prose (package names, paths, dotted or mix
     assert.equal(unlikely(vr, f, evaluate(vr, f, new Set(), NOW).gaps), true, description);
   }
   // The words themselves in prose still count, punctuation around them a boundary.
-  for (const description of ['A Quest game for hands.', 'A game for Meta (Quest) headsets.', 'A hands-first demo.'])
+  for (const description of ['A Meta Quest game for hands.', 'A game for (Meta Quest) headsets.', 'A hands-first demo.'])
     assert.equal(hitOf(vr, facts({ name: 'Game', description })), true, description);
   // An identifier-like token that is itself a keyword, or a word of one, stays: mini-app, web3, team1, v4 hook.
   const fc = fromFile('farcaster-developer-rewards');
@@ -468,7 +471,7 @@ test('L12-2 (v6.1.14): identifiers in prose (package names, paths, dotted or mix
   for (const description of ['Install quest-cli today.', 'See src/quest for more.'])
     assert.equal(hitOf(vr, facts({ name: 'Log Viewer', description })), false, description);
   // Topics are tags, not prose: a hyphenated topic still names its words.
-  assert.equal(hitOf(vr, facts({ name: 'Game', description: 'A game.', topics: ['quest-game'] })), true);
+  assert.equal(hitOf(vr, facts({ name: 'Game', description: 'A game.', topics: ['meta-quest-game'] })), true);
 });
 
 test('L1c-2 final (v6.1.10): the keyword matcher takes punctuation as a boundary, a hyphen as a space, and a phrase only whole', () => {
@@ -562,4 +565,20 @@ test('M1 (v6.1.14 fix round 1): a repo the read finds private is private, never 
   const c = await repoFacts(pp(pub.repo), { gh: turned('nextjs-dashboard').fetch, now: later });
   assert.deepEqual([c.private, c.notes], [true, ['private']]);
   assert.notEqual(evaluate(floss, c, new Set(), later).status, 'ready');
+});
+
+test('L1g-1 (v6.1.16, Review Focus 1): Meta VR keywords are phrases; "Quest Runner" sees no Meta VR in either list, "Meta Quest 3" hits', async () => {
+  const vr = fromFile('meta-vr-start-competition-2026');
+  const keywords = eligibilityOf(vr.file).filter((i) => i.kind === 'rule').flatMap((i) => i.keywords ?? []);
+  assert.deepEqual(keywords, ['vr', 'meta quest', 'quest 3', 'horizon os', 'hands-first', 'oculus']);
+  const base = await repoFacts({ name: 'x', description: '' }, { now: NOW });
+  const facts = (over: Partial<RepoFacts>): RepoFacts => ({ ...base, ...over });
+  const gapsOf = (f: RepoFacts) => evaluate(vr, f, new Set(), NOW).gaps;
+  const quest = facts({ name: 'Quest Runner', description: 'Command line runner for team quests' });
+  assert.equal(unlikely(vr, quest, gapsOf(quest)), true);
+  assert.equal(keywordHit(vr, quest, gapsOf(quest)), false);
+  for (const description of ['Built for Meta Quest 3', 'A game on Quest 3.', 'An app for Horizon OS.']) {
+    const f = facts({ name: 'Game', description });
+    assert.equal(keywordHit(vr, f, gapsOf(f)), true, description);
+  }
 });

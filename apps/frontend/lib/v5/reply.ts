@@ -401,6 +401,12 @@ export type FirstStep = { users: true; more?: true } | { users: false; what: str
  * read), already says its action, so the next program is looked at. Null when none has such a step. Pure.
  */
 export function firstStepOf(gaps: GapProgram[]): FirstStep | null {
+  // L1g-8b (v6.1.16): a program whose rule the project names nowhere (`unlikely`, full list) closes only when no other does.
+  const likely = gaps.filter((g) => !g.unlikely);
+  return (likely.length < gaps.length ? stepOf(likely) : null) ?? stepOf(gaps);
+}
+
+function stepOf(gaps: GapProgram[]): FirstStep | null {
   const shown = gaps.filter((g) => !g.in_person && !ruleOnlyGap(g));
   const steps = shown.map((g) => [g.gap, ...g.also].filter((x) => x.kind !== 'rule'));
   // Fix round 1 (v6.1.12): the cheapest step shown closes the reply: a question (the users question, the started

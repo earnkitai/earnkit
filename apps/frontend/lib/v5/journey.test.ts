@@ -23,7 +23,8 @@ const H = 3_600_000;
 const CLOSINGS = [
   // v6.1.8 (1a): one action. The gap lines carry their own "do n" and "yes n".
   /Say yes and I apply to all \d+\. Or say the numbers to skip\.$/,
-  /Say yes and I apply\.$/,
+  // L16-11 (v6.1.16): one ready program is named.
+  /Say yes and I apply to (?!all \d+\. )[^\n]+\.$/,
   /Say yes and I draft all \d+ for you to send\. Or say the numbers to skip\.$/,
   /Say yes and I draft it for you to send\.$/,
   /Nothing is ready yet\.( Say "yes \d+" if that rule fits you\.)?$/,
