@@ -1,5 +1,7 @@
 import { after, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { sql } from './db';
 import { getProgram, upsertProgram } from './programs';
 import { guideText } from './guide';
@@ -1641,7 +1643,6 @@ test('L1d-1 (v6.1.11), C1 (v6.1.13), ruling 12 (v6.1.16): another agent\'s claim
   assert.ok(ids(ready).includes('y-combinator'));
   assert.equal(ready.find((p) => p.program_id === 'y-combinator')?.claimed_since, new Date(NOW.getTime() - H).toISOString());
   assert.equal(ready.find((p) => p.program_id === 'alliance-all19')?.claimed_since, new Date(NOW.getTime() - H).toISOString());
-  const show = r.reply!.show_to_builder as string;
   // L29-26 (v6.1.16 Task 15): something is ready, so the in-person lines are the agent's (Not shown).
   const both = seen(r.reply!);
   const line = both.split('\n').find((l) => /^\d+\. Y Combinator/.test(l))!;
@@ -2888,8 +2889,6 @@ test('L23-16 (v6.1.16), lane 23 A1 and A2: the same list 10 hours later starts w
 
 /** Every string literal on an assert line of a test file: the pinned replies and their parts. */
 function pinnedTexts(file: string): string[] {
-  const { readFileSync } = require('node:fs') as typeof import('node:fs');
-  const { join } = require('node:path') as typeof import('node:path');
   const src = readFileSync(join(import.meta.dirname, file), 'utf8');
   return src.split('\n').filter((l) => /\bassert\./.test(l) && !/^\s*\/\//.test(l)).flatMap((l) => l.match(/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`/g) ?? []);
 }
