@@ -3,7 +3,7 @@
  * `agentNote` (what the agent does next). In-person programs get their own block after ready and
  * gaps, with their setup, and are never in the count to apply to. Linked, the record's blocks follow. Pure.
  */
-import { moneyText } from './programs-read';
+import { EARNKIT_CUT_NOTE } from './prefill';
 import { EVIDENCE_NOT_READ, NO_RECORD_PROJECT, isConfirmWhat, isProofReadingWhat, listWords, signInSentence } from '../v6/reply-words';
 import { NEEDS_CODE, rulesOnly, type Gap } from './eligibility';
 import { chainName } from './chains';
@@ -862,6 +862,8 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
     r.linked
       ? `Draft each ready program from its fields: 'record' and 'earnkit' values as given, ${CUT_NOTE}; ${AGENT_FIELDS}`
       : `Draft each ready program from its fields: 'earnkit' values as given; ${AGENT_FIELDS}`,
+    // L24-6 (v6.1.16 Task 11): an EarnKit value was cut to its field.
+    ...(r.ready.some((p) => p.fields.some((f) => f.from === 'earnkit' && f.fit === 'cut')) ? [EARNKIT_CUT_NOTE] : []),
     ...(r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.kind === 'rule')) ? [RULE_NOTE] : []),
     // With standing approval the agent does not wait for a yes; the limits replace it.
     // The submit rule itself is in the server instructions, once (v6.1.8); here only what this reply adds.

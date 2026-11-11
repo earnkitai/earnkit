@@ -411,3 +411,15 @@ test('L16-15 (v6.1.16): mainnet given as the text true or false reads as the boo
   assert.deepEqual(r.project.chains, [{ chain: 'base', mainnet: true }, { chain: 'arbitrum', mainnet: false }]);
   assert.deepEqual(r.problems, ['chain optimism dropped: mainnet must be true or false']);
 });
+
+test('L24-23 (v6.1.16 Task 11): a link carrying a password is dropped with its problem; a user name alone is kept', () => {
+  const r = parseProject({ name: 'Timer', description: 'A timer.', live_url: 'https://user:pass@example.com/?q=x', repo_url: 'https://me:secret@github.com/a/b', demo_url: 'https://a:b@video.example/v' });
+  assert.ok(r.ok);
+  if (!r.ok) return;
+  assert.equal(r.project.live_url, undefined);
+  assert.equal(r.project.repo_url, undefined);
+  assert.equal(r.project.demo_url, undefined);
+  assert.deepEqual(r.problems, ['the repo link carried a password and was dropped', 'the live link carried a password and was dropped', 'the demo link carried a password and was dropped']);
+  const named = parseProject({ name: 'Timer', description: 'A timer.', repo_url: 'https://me@github.com/a/b' });
+  assert.ok(named.ok && named.project.repo_url);
+});

@@ -1296,3 +1296,10 @@ test('L24-1, ruling 12: a held line never names a project or a time', () => {
   const t = replyText(base({ ready: [ready({ title: 'In', in_person: true, claimed_since: '2026-11-04T10:00:00.000Z' })] }), true);
   assert.match(t, /1\. In, \$1K\. Attend in person\. Being handled by your other agent\.$/m);
 });
+
+test('L24-6: the agent note names an EarnKit cut once', () => {
+  const field = { key: 'tagline', label: 'Tagline', type: 'text' as const, required: true, kind: 'one_liner' as const, value: 'A', from: 'earnkit' as const, fit: 'cut' as const, fit_note: 'x', max_chars: 1 };
+  const note = agentNote(base({ ready: [ready({ title: 'A', fields: [field] }), ready({ title: 'B', fields: [field] })] }), { more: 0 });
+  assert.equal(note.split('Use EarnKit values as given; where a cut is named, read the full text in your draft.').length, 2);
+  assert.doesNotMatch(agentNote(base({ ready: [ready({ title: 'A' })] }), { more: 0 }), /where a cut is named/);
+});

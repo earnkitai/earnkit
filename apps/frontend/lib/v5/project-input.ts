@@ -141,6 +141,19 @@ function networkOf(o: Record<string, unknown>): { chain: string; mainnet: unknow
   return { chain, mainnet: testnet ? false : (boolText(o.mainnet) ?? true) };
 }
 
+/** L24-23 (v6.1.16 Task 11): the link fields by name, for the dropped-password problem. */
+const LINK_WORDS: Record<string, string> = { repo_url: 'repo link', live_url: 'live link', demo_url: 'demo link' };
+/** L24-23: a link whose user info holds a password ("https://user:pass@host"). A user name alone is kept. Pure. */
+function carriesPassword(v: unknown): boolean {
+  if (typeof v !== 'string') return false;
+  const t = v.trim();
+  try {
+    return new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(t) ? t : `https://${t}`).password !== '';
+  } catch {
+    return /^(?:[a-z][a-z0-9+.-]*:\/\/)?[^/@\s]*:[^/@\s]*@/i.test(t);
+  }
+}
+
 /** L16-15 (v6.1.16): `mainnet` given as the text `"true"` or `"false"` (trimmed, any case) reads as the boolean. Pure. */
 function boolText(v: unknown): unknown {
   if (typeof v !== 'string') return v;
@@ -166,6 +179,11 @@ export function parseProject(v: unknown, now = new Date(), o: { partial?: boolea
   const urlProblems: string[] = [];
   for (const k of URL_FIELDS) {
     if (raw[k] == null) continue;
+    // L24-23 (v6.1.16 Task 11): a link carrying a password is never passed on, whatever else it names.
+    if (carriesPassword(raw[k])) {
+      urlProblems.push(`the ${LINK_WORDS[k] ?? k} carried a password and was dropped`);
+      continue;
+    }
     const url = k === 'repo_url' ? repoWebUrl(raw[k]) : webUrl(raw[k]);
     // L16-8 (v6.1.16): a shortened link is never read (not the repo, not the live link), before the code-host rule.
     if (url && isShortener(url)) urlProblems.push(`${k} dropped: a shortened link`);
