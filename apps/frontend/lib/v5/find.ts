@@ -657,7 +657,111 @@ export async function find(ctx: FindContext, input: unknown): Promise<FindReply 
   // The one-program and open-list replies take the line here; the match's agent note has it in place.
   const withUnread = unread.length > 0 && !r.agent_note.includes(unreadNote(unread)) ? { ...r, agent_note: [r.agent_note, unreadNote(unread)].join('\n') } : r;
   // L16-8 (v6.1.16): a shortened link was dropped: the agent hears to send the real one, on every reply kind.
-  return shortLinkIn(i.project) && !withUnread.agent_note.includes(SHORT_LINK_NOTE) ? { ...withUnread, agent_note: [withUnread.agent_note, SHORT_LINK_NOTE].filter(Boolean).join('\n') } : withUnread;
+  const noted = shortLinkIn(i.project) && !withUnread.agent_note.includes(SHORT_LINK_NOTE) ? { ...withUnread, agent_note: [withUnread.agent_note, SHORT_LINK_NOTE].filter(Boolean).join('\n') } : withUnread;
+  // L26-4 (v6.1.16 Task 12): every reply under its cap.
+  return 'program' in noted ? findReplyCap(noted, FIND_CAP_ONE) : findReplyCap(i.filter?.all === true ? slimLists(noted) : noted, FIND_CAP_ALL);
+}
+
+/** L26-4 (v6.1.16 Task 12): a find reply's caps, serialized: the list (full or default) and one program. */
+export const FIND_CAP_ALL = 30_720;
+export const FIND_CAP_ONE = 20_480;
+/** L26-4: the agent line when a list reply dropped field details to fit. */
+export const MORE_THAN_FITS = 'More programs than fit here; ask for one by name for its details.';
+/** L26-4: the agent line when a one-program reply dropped field details to fit. */
+export const FIELDS_CUT_NOTE = (id: string) => `Some field details were left out to fit; the full form is on https://earnkit.com/programs/${id}.`;
+/** L26-4: how many guide rules a one-program reply carries; the rest are on the guide page. */
+export const GUIDE_RULES_SHOWN = 2;
+export const RULES_REST_NOTE = (id: string) => `The rest of the rules are on https://earnkit.com/programs/${id}.`;
+
+type ListKey = 'ready' | 'in_person' | 'you_send' | 'gaps';
+const LIST_KEYS: ListKey[] = ['ready', 'in_person', 'you_send', 'gaps'];
+/** A field as the full list carries it (L26-4): its key, label, value and source, no descriptions or sources. Pure. */
+const slimField = (f: Field): Field => ({ key: f.key, label: f.label, value: f.value, from: f.from } as Field);
+
+/** L26-4: the full list's programs keep their money and gap; each field only its key, label, value and source. Pure. */
+export function slimLists(r: FindReply): FindReply {
+  const out = { ...r };
+  const lists = out as unknown as Record<ListKey, { fields?: Field[] }[] | undefined>;
+  for (const k of LIST_KEYS) {
+    const list = lists[k];
+    if (Array.isArray(list)) lists[k] = list.map((p) => (p.fields ? { ...p, fields: p.fields.map(slimField) } : p));
+  }
+  return out;
+}
+
+const size = (v: unknown) => Buffer.byteLength(JSON.stringify(v));
+
+/**
+ * L26-4 (v6.1.16 Task 12): a find reply under `cap` bytes serialized (show_to_builder, agent_note and data). A list
+ * reply over it drops the field details of its lowest-ranked programs first (the highest number), never a program's
+ * money or gap, and adds MORE_THAN_FITS to the agent note. A one-program reply carries the first GUIDE_RULES_SHOWN
+ * guide rules (the rest on its guide page); over the cap it drops the copies of its form (the program file's and the
+ * guide's), then cuts its fields' sources and descriptions, the last fields first, and names the guide page. Pure.
+ */
+export function findReplyCap<T extends FindReply | ProgramReply>(reply: T, cap: number): T {
+  if ('program' in reply) return programCap(reply, cap) as T;
+  if (size(reply) <= cap) return reply;
+  const out = { ...reply } as FindReply;
+  const lists = out as unknown as Record<ListKey, { n: number; fields?: Field[] }[] | undefined>;
+  const programs = LIST_KEYS.flatMap((k) => (lists[k] ?? []).map((p, at) => ({ k, at, n: p.n }))).sort((a, b) => b.n - a.n);
+  for (const k of LIST_KEYS) if (lists[k]) lists[k] = lists[k]!.map((p) => ({ ...p }));
+  const room = () => size(out) + Buffer.byteLength(`\n${MORE_THAN_FITS}`) <= cap;
+  type Row = { fields?: Field[]; also?: unknown[]; rules?: unknown[]; setup?: unknown[]; needs?: unknown[]; gap?: Record<string, unknown> };
+  // The lowest-ranked first, each step only as far as it must go: the fields, then the details past the money and the
+  // first gap (its other gaps, rules, setup and needs, and the gap's own docs).
+  const steps: ((row: Row) => void)[] = [
+    (row) => { if (row.fields && row.fields.length > 0) row.fields = []; },
+    (row) => {
+      for (const k of ['also', 'rules', 'setup', 'needs'] as const) if (Array.isArray(row[k]) && row[k]!.length > 0) row[k] = [];
+      if (row.gap) row.gap = Object.fromEntries(Object.entries(row.gap).filter(([k]) => ['kind', 'item', 'what', 'effort', 'agent_can'].includes(k)));
+    },
+  ];
+  for (const step of steps) {
+    for (const p of programs) {
+      if (room()) break;
+      step(lists[p.k]![p.at] as Row);
+    }
+    if (room()) break;
+  }
+  out.agent_note = [out.agent_note, MORE_THAN_FITS].filter(Boolean).join('\n');
+  return out as T;
+}
+
+function programCap(reply: ProgramReply, cap: number): ProgramReply {
+  let out: ProgramReply = reply;
+  const id = reply.program?.id;
+  if (reply.guide && reply.guide.rules.length > GUIDE_RULES_SHOWN && id) {
+    const told = reply.agent_note.includes('guide.rules');
+    out = { ...out, guide: { ...reply.guide, rules: reply.guide.rules.slice(0, GUIDE_RULES_SHOWN) }, ...(told ? { agent_note: [out.agent_note, RULES_REST_NOTE(id)].join('\n') } : {}) };
+  }
+  if (size(out) <= cap || !id) return out;
+  const note = FIELDS_CUT_NOTE(id);
+  const room = () => size(out) + Buffer.byteLength(`\n${note}`) <= cap;
+  const fields = out.fields.map((f) => ({ ...f }));
+  out = { ...out, fields };
+  // The last fields first, each step only as far as it must go: long sources cut, the program file's copy of the
+  // form cut to EarnKit's hints, sources dropped, descriptions dropped, then the guide's copy of the form.
+  const eachField = (step: (f: Field) => void) => () => {
+    for (let k = fields.length - 1; k >= 0 && !room(); k--) step(fields[k]);
+  };
+  const steps: (() => void)[] = [
+    eachField((f) => { if (f.sources) f.sources = f.sources.map((s) => (s.length > 280 ? `${s.slice(0, 277)}...` : s)); }),
+    // The fields carry the form; the program file's copy keeps only EarnKit's own hint for each (`todo`, `need`).
+    () => {
+      if (out.program) {
+        const slim = out.program.submission_requirements.map((r) => ({ key: r.key, ...(r.todo ? { todo: r.todo } : {}), ...(r.need ? { need: r.need } : {}) }));
+        out = { ...out, program: { ...out.program, submission_requirements: slim as typeof out.program.submission_requirements } };
+      }
+    },
+    eachField((f) => { delete f.sources; }),
+    eachField((f) => { delete f.guidance; delete f.style; delete f.options; }),
+    () => { if (out.guide) out = { ...out, guide: { ...out.guide, fields: [] } }; },
+  ];
+  for (const step of steps) {
+    if (room()) break;
+    step();
+  }
+  return { ...out, agent_note: [out.agent_note, note].filter(Boolean).join('\n') };
 }
 
 async function findWith(ctx: FindContext, i: z.infer<typeof FindInput>, unread: string[]): Promise<FindReply | ProgramReply> {

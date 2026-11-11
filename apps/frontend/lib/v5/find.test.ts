@@ -2,6 +2,7 @@ import { after, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import { getProgram, upsertProgram } from './programs';
+import { guideText } from './guide';
 import { replayFetch } from './fixtures/github';
 import { mcpCall } from './fixtures/mcp-call';
 import { lastGaps } from './installations';
@@ -270,7 +271,10 @@ test('find with program_id and no project: the money, the rules list, no link an
   const guide = r.reply!.guide as { title: string; rules: string[]; eligibility: string[] };
   assert.equal(guide.title, 'Base Builder Grant Program');
   assert.ok(guide.rules.length > 0 && guide.eligibility.includes('A live product.'));
-  assert.equal(r.reply!.show_to_builder, ['Base Builder Grant Program, up to $5,000, rolling.', 'Rules:', ...guide.rules.map((x) => `- ${x}`)].join('\n'));
+  // L26-4 (v6.1.16 Task 12): the builder lines keep every rule; guide.rules carries the first two.
+  const every = guideText((await getProgram('base-builder-grants'))!, NOW).rules;
+  assert.deepEqual(guide.rules, every.slice(0, 2));
+  assert.equal(r.reply!.show_to_builder, ['Base Builder Grant Program, up to $5,000, rolling.', 'Rules:', ...every.map((x) => `- ${x}`)].join('\n'));
   assert.equal(r.reply!.agent_note, 'Call find with the project for whether you fit.');
   const none = await mcpCall(ctx(id), 'find', { program_id: 'no-such-program' });
   assert.equal(none.reply!.guide, null);
@@ -305,7 +309,9 @@ test('1b (v6.1.8): Base Builder Grants for a web2 SaaS says it is not a fit, as 
   const asked = await mcpCall({ ...c, installationId: await installation() }, 'find', {
     program_id: 'base-builder-grants', ask: 'rules', project: { ...saas, live_url: 'https://dash.example.com', users: true, chains: [{ chain: 'base', mainnet: true }] },
   });
-  const rules = (asked.reply!.guide as { rules: string[] }).rules;
+  // L26-4 (v6.1.16 Task 12): guide.rules carries two; the builder lines every rule.
+  const rules = guideText((await getProgram('base-builder-grants'))!, NOW).rules;
+  assert.deepEqual((asked.reply!.guide as { rules: string[] }).rules, rules.slice(0, 2));
   assert.equal(asked.reply!.show_to_builder, ['Base Builder Grant Program, up to $5,000: add Base Builder Codes to the app.', 'Rules:', ...rules.map((x) => `- ${x}`), 'Say "do" and I add Base Builder Codes to the app first.'].join('\n'));
   assert.doesNotMatch(asked.reply!.agent_note as string, /ask 'rules'/);
 });
@@ -618,9 +624,13 @@ test('linked: record fields, what the record lacks, blockers, and the own tier r
   const ready = allReady(reply) as { program_id: string; from_record: number; fields: { key: string; from: string; value: string | null; style?: string }[]; need_you: string[] }[];
   const z = ready.find((p) => p.program_id === 'z-fellows')!;
   assert.ok(z.from_record > 0, JSON.stringify(z));
-  const problem = z.fields.find((f) => f.key === 'problem')!;
+  // L26-4 (v6.1.16 Task 12): the full list's fields carry key, label, value and source only; the details come with the program.
+  for (const f of z.fields) assert.deepEqual(Object.keys(f).sort(), ['from', 'key', 'label', 'value']);
+  const zOne = (await mcpCall({ ...ctx(id), builderId, evidence }, 'find', { program_id: 'z-fellows', project: PROJECT })).reply!;
+  const zFields = zOne.fields as { key: string; from: string; value: string | null; style?: string }[];
+  const problem = zFields.find((f) => f.key === 'problem')!;
   assert.deepEqual([problem.from, problem.value, typeof problem.style], ['record', 'Builders lose weeks on grant forms.', 'string']);
-  assert.equal(z.fields.find((f) => f.key === 'email')!.value, 'jenil@example.com');
+  assert.equal(zFields.find((f) => f.key === 'email')!.value, 'jenil@example.com');
   assert.ok((reply.record_missing as string[]).includes('your founder video link'), JSON.stringify(reply.record_missing));
   const blockers = reply.blockers as { program_id: string; sign_in: string | null; needs_click: boolean; needs: string[] }[];
   // v6.1.2: Avalanche now carries an eligibility gap; Y Combinator is the ready program with a platform sign-in (and a click).
@@ -1265,6 +1275,8 @@ test('R18e, R18f, C54, B20, B20c, B20d: projects B (dotfiles, repo link answers 
   const { hit, LIMITS } = await import('./rate-limit');
   const capped = await installation();
   for (let n = 0; n < LIMITS.repoRead.limit; n++) await hit(`repoRead:${capped}`, LIMITS.repoRead.limit, LIMITS.repoRead.windowSeconds, NOW);
+  // L26-9 (v6.1.16 Task 12): the 404 above is kept 30 minutes and answers unread with no read; a fresh read is paused.
+  await sql()`DELETE FROM repo_cache`;
   const paused = await mcpCall(ctx(capped), 'find', { project: PROJECT_B });
   assert.deepEqual(paused.reply!.repo_notes, ['paused']);
   assert.equal(
@@ -3135,3 +3147,46 @@ test('L29-7, L29-13, L29-14: ready is what the agent may send; in person and you
   const odd = await mcpCall(ctx(await installation()), 'find', { repo_url: PROJECT.repo_url, filter: { category: 'grants' } });
   assert.match(odd.reply!.agent_note as string, /Some arguments were not read: category "grants" was not read: use grant, hackathon, investment or bounty; repo_url belongs inside project\./);
 }));
+
+// v6.1.16 Task 12 (L26-4, Review Focus 17): every find reply under its cap, over the whole catalog.
+const FULL_PROJECT = {
+  ...PROJECT, description: 'Grants for builders: an agent that finds the grants your repo fits and fills the forms.', demo_url: 'https://earnkit.com/demo', users: true, first_commit_at: '2025-01-01',
+  chains: [{ chain: 'base', mainnet: true, contract: '0x1111111111111111111111111111111111111111' }, { chain: 'ethereum', mainnet: true, contract: '0x2222222222222222222222222222222222222222' }, { chain: 'solana', mainnet: true }],
+};
+const LANE_26_OVER = ['uniswap-foundation-security-fund', 'ethereum-security-subsidy-program', 'github-secure-open-source-fund', 'arbitrum-security-program', 'solana-incubator-cohort-6', 'sovereign-tech-fund', 'nlnet-open-call', 'z-fellows'];
+test('Review Focus 17 (L26-4): a one-program find is under 20 KB for each of the 52 programs, the full list under 30 KB, unlinked and linked', async () => {
+  const { readdirSync } = await import('node:fs');
+  const { FIND_CAP_ALL, FIND_CAP_ONE } = await import('./find');
+  assert.deepEqual([FIND_CAP_ONE, FIND_CAP_ALL], [20_480, 30_720]);
+  const ids = readdirSync(new URL('../../../../programs/', import.meta.url)).filter((f) => f.endsWith('.json')).map((f) => f.replace(/\.json$/, ''));
+  assert.equal(ids.length, 52);
+  for (const id of LANE_26_OVER) assert.ok(ids.includes(id), id);
+  const linked = await linkedWith(OWNER_RECORD, ['projects.earnkit.answers.problem']);
+  for (const c of [ctx(await installation()), { ...ctx(linked.id), builderId: linked.builderId, evidence: LIVE }]) {
+    for (const id of ids) {
+      const r = await mcpCall(c, 'find', { program_id: id, project: FULL_PROJECT });
+      assert.equal(r.isError, false, `${id}: ${r.text.slice(0, 200)}`);
+      assert.ok(Buffer.byteLength(r.text) < 20_480, `${id}: ${Buffer.byteLength(r.text)}`);
+      assert.ok((r.reply!.show_to_builder as string).length > 0, id);
+    }
+    const all = await mcpCall(c, 'find', { project: FULL_PROJECT, filter: { all: true } });
+    assert.ok(Buffer.byteLength(all.text) < 30_720, `${Buffer.byteLength(all.text)}`);
+    // Never a listed program's money or gap: every listed program keeps both.
+    for (const g of all.reply!.gaps as GapProgram[]) assert.ok(g.money && g.gap.what, g.program_id);
+    for (const p of allReady(all.reply!) as ReadyProgram[]) assert.ok(p.money, p.program_id);
+  }
+});
+
+test('L26-4: a one-program reply carries two guide rules and points at the guide page; one past its cap names the page', async () => {
+  const { findReplyCap, FIELDS_CUT_NOTE, MORE_THAN_FITS } = await import('./find');
+  const r = await mcpCall(ctx(await installation()), 'find', { program_id: 'base-builder-grants', project: PROJECT });
+  assert.equal((r.reply!.guide as { rules: string[] }).rules.length, 2);
+  assert.match(r.reply!.agent_note as string, /\nThe rest of the rules are on https:\/\/earnkit\.com\/programs\/base-builder-grants\.$/);
+  const capped = findReplyCap(r.reply as never, 2_000) as unknown as { agent_note: string; fields: { sources?: string[] }[] };
+  assert.ok(capped.agent_note.endsWith(FIELDS_CUT_NOTE('base-builder-grants')));
+  assert.ok(capped.fields.every((f) => f.sources === undefined));
+  const list = await mcpCall(ctx(await installation()), 'find', { project: PROJECT, filter: { all: true } });
+  const cut = findReplyCap(list.reply as never, 4_000) as unknown as { agent_note: string; gaps: GapProgram[] };
+  assert.ok(cut.agent_note.endsWith(MORE_THAN_FITS));
+  assert.equal(cut.gaps.length, (list.reply!.gaps as unknown[]).length);
+});
