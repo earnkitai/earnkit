@@ -5,7 +5,8 @@
  * no installation, the evidence cache over 180 days, rate windows over 2 days), the queue's share (5 minutes at most,
  * within the run's budget), then the owner's digest. One `deadline = start + RUN_BUDGET_MS`; health and the queue
  * start only before it (else `failed` with `budget`); the sweeps and the digest always run. Every failure is in
- * `failed: [{ id, step, error }]` (a program's id, or null for a whole step); the answer is 200 with the list, 500 only
+ * `failed: [{ id, step, error }]` (a program's id, or null for a whole step; `error` one of db, fetch, timeout, budget,
+ * error by the error's class, the message only in the server log); the answer is 200 with the list, 500 only
  * when every step failed. A JSON body { job_id } is the owner's trigger: that job's queue only. Bearer CRON_SECRET only
  * (503 while it is unset).
  */
@@ -14,7 +15,7 @@ import { sweepScreens } from '../v6/screen-jobs';
 import { SCREEN_BATCH, SCREEN_DAILY_MS, SCREEN_TRIGGER_MAX, SCREEN_TRIGGER_MS, workQueue } from '../v6/screen-worker';
 import { sql } from './db';
 import { bearerMatches, json, readBody } from './http';
-import { errorWords, runHealth, type HealthRun, type LinkCheck } from './health';
+import { errorCode, errorWords, runHealth, type ErrorCode, type HealthRun, type LinkCheck } from './health';
 import type { Mailer } from './mail';
 import { sendOwnerDigest } from './owner-digest';
 import { programsChanged } from './programs-api';
@@ -31,7 +32,8 @@ const SCREEN_TAIL_MS = 20_000;
 
 export type Step = 'health' | 'sweep_repo' | 'sweep_reports' | 'sweep_screens' | 'sweep_auth' | 'sweep_evidence' | 'sweep_windows' | 'screen' | 'digest';
 const STEPS: Step[] = ['health', 'sweep_repo', 'sweep_reports', 'sweep_screens', 'sweep_auth', 'sweep_evidence', 'sweep_windows', 'screen', 'digest'];
-export type RunFailure = { id: string | null; step: Step; error: string };
+/** `error` is a code from a fixed set chosen by the error's class; the message is only in the server log. */
+export type RunFailure = { id: string | null; step: Step; error: ErrorCode };
 
 export type CronDeps = {
   /** The link check of the walk (tests); else probeLink over `resolve` and `transport`. */
@@ -122,9 +124,8 @@ export async function cronPost(request: Request, deps: CronDeps = {}): Promise<R
     try {
       return await run();
     } catch (err) {
-      const error = errorWords(err);
-      console.error(`[cron] ${name} failed: ${error}`);
-      fails.push({ id: null, step: name, error });
+      console.error(`[cron] ${name} failed: ${errorWords(err)}`);
+      fails.push({ id: null, step: name, error: errorCode(err) });
       return null;
     }
   };

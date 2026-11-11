@@ -23,7 +23,8 @@ jobs:
           test -n "$CRON_SECRET" || { echo "::notice::CRON_SECRET is not set; skipping."; exit 0; }
           # A run that answers 5xx, or no answer within 540 s, fails the job (curl's own exit code), and the failed run
           # emails the owner. A 200 lists every failure of the run in `failed` (a program's id, or null for a whole
-          # step): any entry fails the job too, so the owner sees it; the next run retries.
+          # step, and an error code: db, fetch, timeout, budget or error; the message stays in the server log): any
+          # entry fails the job too, so the owner sees it; the next run retries.
           curl -sS --fail-with-body --max-time 540 -X POST \
             -H "Authorization: Bearer $CRON_SECRET" \
             -o body.json \

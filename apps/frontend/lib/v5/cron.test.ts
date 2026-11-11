@@ -2,6 +2,8 @@ import { after, afterEach, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import { cronPost, RUN_BUDGET_MS } from './cron';
+import { errorCode } from './health';
+import { SafeFetchError } from './safe-fetch';
 import type { Mailer } from './mail';
 import { programFixture } from './fixtures/program';
 import { upsertProgram } from './programs';
@@ -90,7 +92,7 @@ test('W3 (v6.1.13 final round): the sweep drops a project report no find updated
   assert.deepEqual((await sql()`SELECT project_key FROM project_reports WHERE owner = 'i:1'`).map((r) => r.project_key), ['name:recent']);
 });
 
-test('L30-4: a health error is listed and the sweeps, the queue and the digest still run; the error is a name and a short message only', async () => {
+test('L30-4: a health error is listed and the sweeps, the queue and the digest still run; the error is a code only', async () => {
   let queued = 0;
   const res = await quietLog(() => cronPost(req(`Bearer ${SECRET}`), {
     ...deps,
@@ -100,7 +102,7 @@ test('L30-4: a health error is listed and the sweeps, the queue and the digest s
   assert.equal(res.status, 200);
   const body = (await res.json()) as Body;
   assert.equal(body.health, null);
-  assert.deepEqual(body.failed, [{ id: null, step: 'health', error: 'TypeError: bad https://x.example/p' }]);
+  assert.deepEqual(body.failed, [{ id: null, step: 'health', error: 'error' }]);
   assert.equal(queued, 1);
   assert.ok(['sent', 'none'].includes(body.digest!));
 });
@@ -117,7 +119,7 @@ test('L30-4: a sweep error still lets the screen step and the digest run, with f
     }));
     assert.equal(res.status, 200);
     const body = (await res.json()) as Body;
-    assert.deepEqual(body.failed, [{ id: null, step: 'sweep_repo', error: 'PostgresError: refused' }]);
+    assert.deepEqual(body.failed, [{ id: null, step: 'sweep_repo', error: 'db' }]);
     assert.equal(body.swept.repo_cache, null);
     assert.equal(typeof body.swept.reports, 'number');
     assert.deepEqual([queued, digests, body.screen!.read, body.digest], [1, 1, 5, 'none']);
@@ -135,7 +137,7 @@ test('L30-3: a health write refused for one program closes the others and that o
     const res = await quietLog(() => cronPost(req(`Bearer ${SECRET}`), { ...deps, workQueue: idleQueue }));
     assert.equal(res.status, 200);
     const body = (await res.json()) as Body;
-    assert.deepEqual(body.failed, [{ id: 'cr-w2', step: 'health', error: 'PostgresError: refused' }]);
+    assert.deepEqual(body.failed, [{ id: 'cr-w2', step: 'health', error: 'db' }]);
     assert.equal(body.health!.closed, 3);
     const st = await sql()`SELECT id, status FROM programs WHERE id LIKE 'cr-w%' ORDER BY id`;
     assert.deepEqual(st.map((r) => r.status), ['closed', 'closed', 'closed']);
@@ -149,7 +151,7 @@ test('L30-4: a digest error after the closes reads failed digest with status 200
   assert.equal(res.status, 200);
   const body = (await res.json()) as Body;
   assert.equal(body.digest, null);
-  assert.deepEqual(body.failed, [{ id: null, step: 'digest', error: 'Error: x' }]);
+  assert.deepEqual(body.failed, [{ id: null, step: 'digest', error: 'error' }]);
 });
 
 test('L30-4: 500 only when every step failed', async () => {
@@ -263,7 +265,7 @@ test('cronPost: a plain run works the queue with SCREEN_BATCH after the sweeps a
   assert.ok(calls[0].deadline! > Date.now() + 290_000 && calls[0].deadline! <= Date.now() + 300_000);
   const boom = await quietLog(() => cronPost(req(`Bearer ${SECRET}`), { ...deps, workQueue: async () => { throw new Error('x'); } }));
   assert.equal(boom.status, 200);
-  assert.deepEqual(((await boom.json()) as Body).failed, [{ id: null, step: 'screen', error: 'Error: x' }]);
+  assert.deepEqual(((await boom.json()) as Body).failed, [{ id: null, step: 'screen', error: 'error' }]);
 });
 
 test('cronPost: the plain run sweeps screen jobs over 180 days old with their rows (L15-14); a triggered run sweeps nothing', async () => {
@@ -349,4 +351,35 @@ test('L13-11 (v6.1.14): a CRON_SECRET under 32 characters answers 503 with one o
   assert.equal(logged.length, 2);
   assert.match(logged[0], /^\[cron\] CRON_SECRET is under 32 characters/);
   assert.doesNotMatch(logged[0], new RegExp(short));
+});
+
+test('controller ruling: a database error with a connection string in its message leaves only db in the answer; the message is in the server log only', async () => {
+  const leak = Object.assign(new Error('connect failed postgresql://admin:hunter2@10.1.2.3:5432/earnkit'), { name: 'PostgresError' });
+  const logged: string[] = [];
+  const was = console.error;
+  console.error = (...a: unknown[]) => void logged.push(a.map(String).join(' '));
+  let res: Response;
+  try {
+    res = await cronPost(req(`Bearer ${SECRET}`), {
+      ...deps, workQueue: idleQueue,
+      runHealth: async () => { throw leak; },
+      sendDigest: async () => { throw Object.assign(new Error('timeout'), { name: 'TimeoutError' }); },
+    });
+  } finally {
+    console.error = was;
+  }
+  const text = await res.text();
+  assert.deepEqual((JSON.parse(text) as Body).failed, [{ id: null, step: 'health', error: 'db' }, { id: null, step: 'digest', error: 'timeout' }]);
+  for (const bit of ['hunter2', '10.1.2.3', 'postgresql', 'admin']) assert.ok(!text.includes(bit), bit);
+  assert.ok(logged.some((l) => l.startsWith('[cron] health failed: PostgresError: connect failed')));
+});
+
+test('errorCode: by class, never by message', () => {
+  assert.equal(errorCode(Object.assign(new Error('x'), { name: 'PostgresError' })), 'db');
+  assert.equal(errorCode(Object.assign(new Error('x'), { code: 'CONNECTION_CLOSED' })), 'db');
+  assert.equal(errorCode(new SafeFetchError('down 10.0.0.1')), 'fetch');
+  assert.equal(errorCode(Object.assign(new Error('Mail failed: 0'), { name: 'MailError' })), 'fetch');
+  assert.equal(errorCode(new Error('timeout')), 'timeout');
+  assert.equal(errorCode(new Error('postgresql://u:p@h/db')), 'error');
+  assert.equal(errorCode('x'), 'error');
 });

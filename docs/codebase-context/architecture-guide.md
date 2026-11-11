@@ -277,7 +277,8 @@ that never exchanged a code (`oauth_clients.used_at`), `sweep_evidence` the evid
 RUN_BUDGET_MS` (420 s; curl waits 540): health and the queue start only before it, else they are listed with error
 `budget`; a probe starts only when it can finish before it; the sweeps and the digest always run. The answer is
 `{ health, swept: {per table}, screen: { read, left, jobs_finished }, digest, failed: [{ id, step, error }] }`
-(`id` a program's, or null for a whole step; `error` the error's name and a short message, a URL's query cut), 200 with
+(`id` a program's, or null for a whole step; `error` a code by the error's class: `db`, `fetch`, `timeout`, `budget` or
+`error`, never the message, which goes only to the `[cron]`/`[health]` server log line), 200 with
 the list, 500 only when every step failed. The workflow prints the body and fails the job when curl fails (5xx, no
 answer in 540 s) or `failed` is not empty, one `::error::` line per entry; the next run retries. The owner's digest
 (`owner-digest.ts`: programs closed by deadline, programs opened by start date, failed links, changed pages and every

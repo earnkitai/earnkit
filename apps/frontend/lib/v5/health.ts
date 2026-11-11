@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import { sql } from './db';
 import { ProgramFile, type Program } from './program-file';
 import { upsertProgram } from './programs';
-import { probeLink, visibleText, type ProbeResult, type Resolver, type Transport } from './safe-fetch';
+import { probeLink, SafeFetchError, visibleText, type ProbeResult, type Resolver, type Transport } from './safe-fetch';
 
 /** One link's check (default: probeLink over the real resolver and transport). */
 export type LinkCheck = (url: string, timeoutMs: number) => Promise<ProbeResult>;
@@ -29,7 +29,7 @@ export type HealthDeps = {
   /** Per link (default PROBE_MS). */
   probeMs?: number;
 };
-export type Failed = { id: string | null; step: string; error: string };
+export type Failed = { id: string | null; step: string; error: ErrorCode };
 
 /** v6.1.16 Task 16: 8 s per link, 10 programs at once. */
 export const PROBE_MS = 8_000;
@@ -39,12 +39,25 @@ const FAIL_DAYS_STALE = 2;
 const SAME_WORDS = 0.8;
 const MAX_TEXT = 65_536;
 
-/** An error as the run reports it: its name and a short message, no stack, no URL query. Pure. */
+/** The run's error codes (controller ruling, v6.1.16 Task 16): the JSON and the Actions log carry only these. */
+export type ErrorCode = 'db' | 'fetch' | 'timeout' | 'budget' | 'error';
+
+/** The full error for the server log only: its name and a short message, a URL's query cut, no stack. Pure. */
 export function errorWords(err: unknown): string {
   if (!(err instanceof Error)) return 'unknown';
   const name = err.name.replace(/[^\w]/g, '').slice(0, 40) || 'Error';
   const msg = err.message.replace(/https?:\/\/\S+/g, (u) => u.replace(/[?#].*$/, '')).replace(/\s+/g, ' ').trim().slice(0, 120);
   return msg ? `${name}: ${msg}` : name;
+}
+
+/** An error's code by its class, never its message (which can hold a connection string or an address). Pure. */
+export function errorCode(err: unknown): ErrorCode {
+  if (!(err instanceof Error)) return 'error';
+  const code = String((err as { code?: unknown }).code ?? '');
+  if (err.name === 'PostgresError' || /^CONNECT(ION)?_/.test(code)) return 'db';
+  if (err.name === 'TimeoutError' || err.name === 'AbortError' || /^(timeout|no answer within)/.test(err.message)) return 'timeout';
+  if (err instanceof SafeFetchError || err.name === 'MailError' || (err instanceof TypeError && err.message === 'fetch failed')) return 'fetch';
+  return 'error';
 }
 
 const bounded = <T>(work: Promise<T>, ms: number): Promise<T> => {
@@ -151,10 +164,10 @@ export async function runHealth(
     ORDER BY h.checked_at ASC NULLS FIRST, p.id
     LIMIT ${limit}`;
   const out: HealthRun = { checked: 0, stale: [], changed: [], closed: [], opened: [], failed: [] };
+  // The full reason goes to the server log only; the run's answer carries the code.
   const fail = (id: string, err: unknown) => {
-    const error = typeof err === 'string' ? err : errorWords(err);
-    console.error(`[health] ${id} failed: ${error}`);
-    out.failed.push({ id, step: 'health', error });
+    console.error(`[health] ${id} failed: ${typeof err === 'string' ? err : errorWords(err)}`);
+    out.failed.push({ id, step: 'health', error: typeof err === 'string' ? 'error' : errorCode(err) });
   };
 
   const walk = async (r: Walked): Promise<void> => {
