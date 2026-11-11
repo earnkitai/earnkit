@@ -5,7 +5,7 @@
 import { z } from 'zod';
 import { sql } from '../v5/db';
 import { json, readBody } from '../v5/http';
-import { getProgram } from '../v5/programs';
+import { foldId, getProgram } from '../v5/programs';
 import { authFailure } from '../v5/programs-api';
 
 export type ReviewerResult = { ok: true; builder_id: number } | { ok: false; reason: string };
@@ -14,6 +14,7 @@ const NO_BUILDER = 'no builder with that GitHub login has signed in';
 const NO_BUILDER_ID = 'no builder with that GitHub id has signed in';
 const AMBIGUOUS = 'two accounts have used that login; send github_id';
 const NO_PROGRAM = 'unknown program';
+const NOT_REVIEWER = 'that builder is not a reviewer of that program';
 const MAX_BODY = 4_096;
 
 /**
@@ -50,8 +51,11 @@ export async function removeReviewer(programId: string, githubLogin: string | nu
   const b = await builderOf(githubLogin, githubId);
   if ('reason' in b) return { ok: false, reason: b.reason };
   const id = b.id;
-  await sql()`DELETE FROM program_reviewers WHERE program_id = ${programId} AND builder_id = ${id}`;
-  return { ok: true, builder_id: id };
+  // L31-4 (v6.1.16 Task 17, controller ruling): the id as addReviewer stores it (the catalog program's own, else
+  // folded); nothing deleted is ok:false, so a revocation is never reported that did not happen.
+  const canonical = (await getProgram(programId))?.id ?? foldId(programId);
+  const gone = await sql()`DELETE FROM program_reviewers WHERE program_id = ${canonical} AND builder_id = ${id} RETURNING program_id`;
+  return gone.length > 0 ? { ok: true, builder_id: id } : { ok: false, reason: NOT_REVIEWER };
 }
 
 /** The program ids this builder reviews. */
