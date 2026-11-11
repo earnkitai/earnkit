@@ -11,9 +11,9 @@ const NOW = new Date('2026-11-04T12:00:00Z');
 const DAY = 86_400_000;
 const ago = (days: number) => new Date(NOW.getTime() - days * DAY);
 
-test('the nine keys, in order', async () => {
+test('the keys, in order (L22-1, v6.1.16: won_other and won_without_amount after won_usd)', async () => {
   const s = await readStats(NOW);
-  assert.deepEqual(Object.keys(s), ['programs_open', 'open_money_usd', 'installs', 'installs_active_7d', 'finds_7d', 'applications', 'applications_7d', 'won', 'won_usd']);
+  assert.deepEqual(Object.keys(s), ['programs_open', 'open_money_usd', 'installs', 'installs_active_7d', 'finds_7d', 'applications', 'applications_7d', 'won', 'won_usd', 'won_other', 'won_without_amount']);
   assert.deepEqual(Object.keys(s), [...STATS_KEYS]);
 });
 
@@ -70,17 +70,36 @@ test('installs, finds and applications count what happened, with their windows',
   assert.equal(now.applications_7d - before.applications_7d, 2);
   assert.equal(now.won - before.won, 2);
   assert.equal(now.won_usd - before.won_usd, 750.5);
-  for (const v of Object.values(now)) assert.equal(typeof v, 'number');
+  for (const [k, v] of Object.entries(now)) assert.equal(typeof v, k === 'won_other' ? 'object' : 'number', k);
 });
 
-test('statsGet answers the nine keys, and a failed read is a 503 that is never cached', async () => {
+test('statsGet answers the eleven keys, and a failed read is a 503 that is never cached', async () => {
   const ok = await statsGet(() => readStats(NOW));
   assert.equal(ok.status, 200);
-  assert.equal(Object.keys((await ok.json()) as object).length, 9);
+  assert.equal(Object.keys((await ok.json()) as object).length, 11);
   const bad = await statsGet(async () => {
     throw new Error('db down');
   });
   assert.equal(bad.status, 503);
   assert.equal(bad.headers.get('cache-control'), 'no-store');
   assert.deepEqual(Object.keys((await bad.json()) as object), ['error']);
+});
+
+test('L22-1 (v6.1.16): won_usd is the US dollar part only; other currencies are summed per code; a win with no amount is counted', async () => {
+  const db = sql();
+  const eur = (x: { won_other: { currency: string; amount: number }[] }) => x.won_other.find((o) => o.currency === 'EUR')?.amount ?? 0;
+  const before = await readStats(NOW);
+  const [r] = await db<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`stat-${Math.random()}`}) RETURNING id`;
+  const app = (program: string, amounts: Record<string, number> | null) =>
+    db`INSERT INTO applications (owner, installation_id, program_id, status, amount_usd, amounts, at)
+      VALUES (${`i:${r.id}`}, ${r.id}, ${program}, 'won', ${amounts?.USD ?? null}, ${amounts ? db.json(amounts) : null}, ${ago(1)})`;
+  await app('w1', { USD: 1000 });
+  await app('w2', { USD: 2500.5 });
+  await app('w3', { EUR: 2000 });
+  await app('w4', null);
+  const now = await readStats(NOW);
+  assert.equal(now.won - before.won, 4);
+  assert.equal(now.won_usd - before.won_usd, 3500.5);
+  assert.equal(eur(now) - eur(before), 2000);
+  assert.equal(now.won_without_amount - before.won_without_amount, 1);
 });

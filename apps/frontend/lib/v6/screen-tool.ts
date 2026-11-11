@@ -5,7 +5,9 @@
  */
 import { z } from 'zod';
 import { inputDetail } from '../v5/tool-input';
-import { FURTHER_PAYMENT_REFUSED, winCapOf } from '../v5/ledger';
+import { FURTHER_PAYMENT_REFUSED, OVER_CAP_FOR, winCapOf } from '../v5/ledger';
+import { UNKNOWN_CURRENCY_NOTE, comparable, overCap, readAmount } from '../v5/amount';
+import { moneyText } from '../v5/programs-read';
 import { getProgram } from '../v5/programs';
 import { SHORT_LINK_NOTE } from '../v5/project-input';
 import { LIMITS, hit } from '../v5/rate-limit';
@@ -26,14 +28,14 @@ export const ScreenInput = z
       .array(
         z.object({
           ref: z.string().max(REF_MAX), outcome: z.enum(['won', 'rejected', 'shortlisted']), amount_usd: z.number().finite().optional(),
-          // L15-15 (v6.1.14): an amount in any currency, cents allowed, as a number or text ("2,500.50", "2000 EUR").
+          // L15-15 (v6.1.14), L22-6 (v6.1.16): an amount in any currency, cents kept, as a number or text, read by `readAmount`.
           amount: z.union([z.number().finite(), z.string().trim().max(40)]).optional(),
           currency: z.string().trim().max(10).optional(),
           payment: z.object({ key: z.string().trim().min(1).max(80) }).strict().optional(),
         }).strict(),
       )
       .optional()
-      .describe('With job_id: the decisions, by ref; a win\'s amount as amount_usd, or amount with a currency code (cents allowed; US dollars are rounded down to whole dollars for the builder\'s ledger, other currencies kept as given and not converted); a further payment of a win already posted: won with that amount and payment: { key }, a key of your own'),
+      .describe('With job_id: the decisions, by ref; a win\'s amount as amount_usd, or amount with a currency code ("5k", "$2,500.50", "2000 EUR", "€2000"; cents kept, other currencies kept as given and never converted); a further payment of a win already posted: won with that amount and payment: { key }, a key of your own'),
   })
   .strict();
 /** The most applicants or outcomes one call reads (C2, v6.1.13); 200 is read, 201 refused. */
@@ -64,8 +66,6 @@ export const SCREEN_TEXT = {
   amountFor: (refs: string) => `Tell me the amount for ${refs}.`,
   /** L16-14 (v6.1.16): a dot-thousands amount ("2.500"), shown once; the refs are in the agent note. */
   amountDot: 'Amount not read: use a dot only for cents, no thousands separator.',
-  /** L15-16 (v6.1.14): a win over what the program pays; only those applicants are not recorded. */
-  overCapFor: (refs: string) => `That is more than this program pays for ${refs}; check the amount.`,
   /** L15-10 (v6.1.14): a share threshold is a ratio, a count threshold a whole number. */
   ratio: 'That threshold is a share from 0 to 1, for example 0.2 for a fifth.',
   count: 'That threshold is a whole number, 0 or more.',
@@ -74,6 +74,8 @@ export const SCREEN_TEXT = {
   stopNote: 'Show this line and stop.',
   /** L15-3 (v6.1.14): the last line of a page with more to come. */
   nextPage: (n: number) => `Ask for page ${n} for the rest.`,
+  /** v6.1.16 Task 16 (L30 time budget): the last daily run stopped at its deadline before this job was all read. */
+  readToday: (n: number, m: number) => `${n} of ${m} read today; the rest tomorrow.`,
   /** L16-12 (v6.1.16): a results page past the last. */
   noMore: 'No more results.',
   /** Fix round 1 (C1): an outcome a builder's ledger did not take; the refs are in the agent note. */
@@ -110,49 +112,6 @@ function thresholdsOf(given: Record<string, number> | undefined): Partial<Thresh
   }
   return given as Partial<Thresholds>;
 }
-
-/** ISO 4217-style code: three letters, upper case. */
-const CODE = /^[A-Za-z]{3}$/;
-const SYMBOLS: Record<string, string> = { $: 'USD', '€': 'EUR', '£': 'GBP' };
-/**
- * L15-15 (v6.1.14): a win's amount as the owner gave it: a number or text with cents, thousands commas, a symbol or a
- * three-letter code ("2,500.50", "$2,500.50", "2000 EUR"); `amount_usd` is US dollars. The amount and its upper-case
- * currency, null when no amount was given, 'ambiguous' for a dot used as a thousands separator ("2.500", L16-14,
- * v6.1.16), 'bad' when it cannot be read otherwise or is not above 0. Pure.
- */
-export function amountOf(o: { amount_usd?: number; amount?: number | string; currency?: string }): { value: number; currency: string } | null | 'bad' | 'ambiguous' {
-  if (o.amount_usd != null && o.amount != null) return 'bad';
-  const given = o.currency?.trim().toUpperCase() || null;
-  if (given && !CODE.test(given)) return 'bad';
-  if (o.amount_usd != null) return given && given !== 'USD' ? 'bad' : o.amount_usd > 0 ? { value: o.amount_usd, currency: 'USD' } : 'bad';
-  if (o.amount == null) return given ? 'bad' : null;
-  let value: number;
-  let code = given;
-  if (typeof o.amount === 'number') value = o.amount;
-  else {
-    let t = o.amount.trim().toUpperCase();
-    const sym = Object.keys(SYMBOLS).find((x) => t.startsWith(x));
-    if (sym) {
-      if (code && code !== SYMBOLS[sym]) return 'bad';
-      code = SYMBOLS[sym];
-      t = t.slice(sym.length).trim();
-    }
-    // M3 (fix round 1): "2.500" may be 2,500 written with a European separator: ambiguous, so refused.
-    if (/^(?:[A-Z]{3}\s*)?\d{1,3}(?:\.\d{3})+(?:\s*[A-Z]{3})?$/.test(t)) return 'ambiguous';
-    const m = /^(?:([A-Z]{3})\s*)?(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?(?:\s*([A-Z]{3}))?$/.exec(t);
-    if (!m || (m[1] && m[4])) return 'bad';
-    const word = m[1] ?? m[4];
-    if (word) {
-      if (code && code !== word) return 'bad';
-      code = word;
-    }
-    value = Number(`${m[2].replace(/,/g, '')}${m[3] ?? ''}`);
-  }
-  if (!(Number.isFinite(value) && value > 0)) return 'bad';
-  return { value, currency: code ?? 'USD' };
-}
-const usd = (v: number) => `$${v.toLocaleString('en-US', { minimumFractionDigits: Number.isInteger(v) ? 0 : 2, maximumFractionDigits: 2 })}`;
-const given = (v: number, code: string) => `${v.toLocaleString('en-US', { minimumFractionDigits: Number.isInteger(v) ? 0 : 2, maximumFractionDigits: 2 })} ${code}`;
 
 /**
  * When the results come (v6.1.7 B14): the daily run reads SCREEN_BATCH applicants, oldest job first, so the job
@@ -213,19 +172,19 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
     if (!s || !programs.includes(s.program_id)) return line(SCREEN_TEXT.noJob);
     if (s.expired) return line(SCREEN_TEXT.expired);
     if (input.outcomes) {
-      // L15-15, L15-16 (v6.1.14): a win's amount is read per applicant (cents and a currency code allowed); one that
-      // cannot be read, or a US dollar win over what the program pays, refuses only that applicant and names it, the
-      // rest are recorded. US dollars go to the builder's ledger rounded down to whole dollars; another currency is
-      // kept as given and reaches the ledger as a win with its amount not converted.
+      // L15-15, L15-16 (v6.1.14): a win's amount is read per applicant; one that cannot be read, or a win over what the
+      // program pays, refuses only that applicant and names it, the rest are recorded. L22-4 to L22-6 (v6.1.16): the
+      // shared reader (`readAmount`), cents and currency kept as given and never converted; the cap compares the given
+      // amount before any rounding, another currency converted for the check only.
       const cap = winCapOf(await getProgram(s.program_id));
       const badAmount: string[] = [];
       const dotAmount: string[] = [];
       const overCapRefs: string[] = [];
-      const rounded: string[] = [];
-      const foreign: string[] = [];
+      const overLines: string[] = [];
+      const unknownCode: string[] = [];
       const take: Outcome[] = [];
       for (const o of input.outcomes) {
-        const a = o.outcome === 'won' ? amountOf(o) : null;
+        const a = o.outcome === 'won' ? readAmount(o) : null;
         if (a === 'bad') {
           if (!badAmount.includes(o.ref)) badAmount.push(o.ref);
           continue;
@@ -235,41 +194,32 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
           continue;
         }
         const out: Outcome = { ref: o.ref, outcome: o.outcome, ...(o.payment && { payment: o.payment }) };
-        if (a && a.currency === 'USD') {
-          const whole = Math.floor(a.value);
-          if (whole < 1) {
-            if (!badAmount.includes(o.ref)) badAmount.push(o.ref);
-            continue;
+        if (a && overCap(a.value, a.currency, cap)) {
+          if (!overCapRefs.includes(o.ref)) {
+            overCapRefs.push(o.ref);
+            overLines.push(OVER_CAP_FOR(cap, o.ref, moneyText(a.value, a.currency)));
+            if (!comparable(a.currency)) unknownCode.push(o.ref);
           }
-          if (whole > cap) {
-            if (!overCapRefs.includes(o.ref)) overCapRefs.push(o.ref);
-            continue;
-          }
-          out.amount_usd = whole;
-          if (whole !== a.value) {
-            out.rounded = { from: a.value };
-            rounded.push(`${o.ref} (${usd(a.value)} as ${usd(whole)})`);
-          }
-        } else if (a) {
-          out.given = { amount: a.value, currency: a.currency };
-          foreign.push(`${o.ref} (${given(a.value, a.currency)})`);
+          continue;
         }
+        if (a) out.money = a;
         take.push(out);
       }
-      const { recorded, notFound, notes, own, overCap, passed, reasons, notPassed, repeats, paymentRefused, stands } = await recordOutcomes(input.job_id, ctx.builderId, take, ctx.now);
+      const { recorded, notFound, notes, own, overCapAt, passed, reasons, notPassed, repeats, paymentRefused, stands } = await recordOutcomes(input.job_id, ctx.builderId, take, ctx.now);
       // L16-16 (v6.1.16): a call whose every outcome is a repeat says so alone.
       if (repeats.length > 0 && repeats.length === new Set(input.outcomes.map((o) => o.ref)).size)
         return { ...line(SCREEN_TEXT.nothingNew, OUTCOME_NOTES.repeats(repeats)), recorded: 0 };
       // The refs not in this screen are named (C19); L22-11 (v6.1.16): a recorded outcome that reached no builder's
       // ledger is named with why; L15-1 (v6.1.14): an outcome on the reviewer's own application is refused in one line.
       const counted = `Recorded ${plural(recorded, 'outcome')}${notPassed.length > 0 ? `; not passed to a builder: ${listWords(notPassed, 10)}` : ''}${notFound.length > 0 ? `; not found: ${listWords(notFound, 10)}` : ''}.`;
-      // T8-F3 (v6.1.14): a further payment whose total is over the program's cap is named with the over-cap applicants.
-      const over = [...overCapRefs, ...(overCap ?? []).filter((r) => !overCapRefs.includes(r))];
+      // T8-F3 (v6.1.14): a further payment whose total is over the program's cap is named with the over-cap applicants;
+      // L22-9 (v6.1.16): one line each, with the cap and the amount (the total, for a further payment).
+      const over = [...overLines, ...(overCapAt ?? []).filter((x) => !overCapRefs.includes(x.ref)).map((x) => OVER_CAP_FOR(cap, x.ref, x.at))];
       const show = [
         counted, ...(own ? [OWN_APPLICATION] : []),
         ...(badAmount.length ? [SCREEN_TEXT.amountFor(listWords(badAmount, 10))] : []),
         ...(dotAmount.length ? [SCREEN_TEXT.amountDot] : []),
-        ...(over.length ? [SCREEN_TEXT.overCapFor(listWords(over, 10))] : []),
+        ...over,
         // L16-1 (v6.1.16): one sentence per kept result a further payment was refused over; the refs are in the agent note.
         ...[...new Set(paymentRefused.map((x) => x.status))].map(FURTHER_PAYMENT_REFUSED),
         // Fix round 1 (C1): a builder's ledger did not take it; no status, amount or reason reaches the reviewer.
@@ -288,8 +238,7 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
         ...(badAmount.length ? [`Not recorded, the amount could not be read: ${listWords(badAmount, 10)}. Send amount_usd, or amount with a three-letter currency code, above 0.`] : []),
         ...(dotAmount.length ? [`Not recorded, a dot used as a thousands separator: ${listWords(dotAmount, 10)}. Send 2500 or 2,500; a dot is for cents only.`] : []),
         ...(overCapRefs.length ? [`Not recorded, over what this program pays: ${listWords(overCapRefs, 10)}.`] : []),
-        ...(rounded.length ? [`Rounded down to whole dollars for the builder's ledger: ${listWords(rounded, 10)}.`] : []),
-        ...(foreign.length ? [`Kept as given, not converted to US dollars: ${listWords(foreign, 10)}.`] : []),
+        ...(unknownCode.length ? [`${listWords(unknownCode, 10)}: ${UNKNOWN_CURRENCY_NOTE}`] : []),
       ];
       return { ...line(show, [...(note ? [note] : []), ...notes, ...amountNotes].join(' ')), recorded };
     }
@@ -299,11 +248,12 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
     // the last says so.
     const more = results.next_page !== null ? ` ${SCREEN_TEXT.nextPage(results.next_page)}`
       : results.page > 1 && results.applicants.length === 0 ? ` ${SCREEN_TEXT.noMore}` : '';
+    const short = results.last_run_left > 0 ? ` ${SCREEN_TEXT.readToday(results.done, results.total)}` : '';
     // L21-27 (v6.1.16): with more than one page, a page that exists leads with where it is: "Page 2 of 3."
     const pages = Math.ceil(results.total / PAGE_SIZE);
     const at = pages > 1 && results.page <= pages ? `Page ${results.page} of ${pages}. ` : '';
     return {
-      show_to_builder: `${at}${totalsLine(results)}${more}`,
+      show_to_builder: `${at}${totalsLine(results)}${short}${more}`,
       agent_note: [results.finished ? SCREEN_TEXT.sortNote : SCREEN_TEXT.pendingNote, ...(results.next_page !== null ? [`Call screen with job_id and page ${results.next_page} for the next 25.`] : [])].join(' '),
       job_id: results.job_id,
       results,

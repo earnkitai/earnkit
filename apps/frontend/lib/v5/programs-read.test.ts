@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
-import { lowerFirst, moneyAt, moneyOf, upperFirst, programsListGet, usdFull, readListedPrograms, type ListedProgram } from './programs-read';
+import { amountsText, lowerFirst, moneyAt, moneyOf, moneyText, totalText, upperFirst, programsListGet, usdFull, readListedPrograms, revalidateCatalog, watchCatalogRevalidation, type ListedProgram } from './programs-read';
 
 after(() => sql().end());
 
@@ -218,4 +218,29 @@ test('fix round 1 (v6.1.15, M1): one lower-casing rule; a chain name, "I" and a 
   assert.equal(lowerFirst('Uniswap v4 hooks'), 'uniswap v4 hooks');
   assert.equal(lowerFirst('Uniswap v4 hooks', ['Uniswap']), 'Uniswap v4 hooks');
   assert.equal(lowerFirst('Ethereum liquid staking'), 'Ethereum liquid staking');
+});
+
+test('moneyText, totalText (L22-1, L22-14 v6.1.16): one format; cents only when given; another code first, never converted', () => {
+  assert.equal(moneyText(5000), '$5,000');
+  assert.equal(moneyText(2500.5), '$2,500.50');
+  assert.equal(moneyText(2000, 'EUR'), 'EUR 2,000');
+  assert.equal(moneyText(115_000, 'usdc'), 'USDC 115,000');
+  assert.equal(usdFull(1234.56), moneyText(1234.56));
+  assert.equal(totalText({ usd: 3500.5, other: [{ currency: 'EUR', amount: 2000 }], noAmount: 0 }), '$3,500.50 and EUR 2,000');
+  assert.equal(totalText({ usd: 5000, other: [], noAmount: 1 }), '$5,000, one amount not given');
+  assert.equal(totalText({ usd: 3500.5, other: [{ currency: 'GBP', amount: 10 }, { currency: 'EUR', amount: 2000 }], noAmount: 2 }), '$3,500.50 and EUR 2,000 and GBP 10, 2 amounts not given');
+  assert.equal(totalText({ usd: 0, other: [], noAmount: 1 }), 'amount not given');
+  assert.equal(totalText({ usd: 0, other: [], noAmount: 0 }), '');
+  assert.equal(amountsText({ USD: 1000, EUR: 500 }), '$1,000 and EUR 500');
+});
+
+test('L22-13 (v6.1.16): revalidateCatalog runs on every catalog write, outside Next too', () => {
+  let n = 0;
+  watchCatalogRevalidation(() => n++);
+  try {
+    revalidateCatalog();
+    assert.equal(n, 1);
+  } finally {
+    watchCatalogRevalidation(null);
+  }
 });

@@ -91,9 +91,13 @@ item exactly; screen's description names `ref` (required), `repo_url` and `live_
    deploys). Within each, real changes before rule-only ones (rule-only ones naming a project mainnet first, then
    chain-agnostic, then the rest: R18e), then fewest gaps, lowest effort, larger award. `shownGapsOf` picks the shown
    gaps: first the acted-on programs (N-3; a claim counts only on the project it stored, its record id or project key,
-   and never pins another project: L1d-1, v6.1.11; another agent's claim for another project still marks the program's
-   line `Being handled by your other agent for {project name}.`, in the default list and `filter.all`, and leaves the yes
-   count: C1, v6.1.13, `held_for`, the name from the record project, else the owner's report for that key, else the `name:` key or the repo path; a held in-person program is listed under In person with its line but is no yes in the closing, counting as held; L13-8 and L12-1, v6.1.14: a claim with no project holds the program on every project's list, by default and in `filter.all`, as "Being handled by your other agent since {time}." on its ready or in-person line, out of the yes), then every program closing within 7 days that the project fits (O1, ahead
+   and never pins another project: L1d-1, v6.1.11; another agent's claim for another project still marks the program as
+   held, in the default list and `filter.all`, and leaves the yes count (C1, v6.1.13, `held_for`); ruling 12 (v6.1.16):
+   no line names that project. A held remote program goes in the block `Being handled by your other agent ({n}):`
+   right after Ready, numbered on, its line with no held sentence (L17-6); a held in-person program is listed under In
+   person with `Being handled by your other agent.` (or "since {time}" for a claim with no project) but is no yes in the
+   closing, counting as held; L13-8 and L12-1, v6.1.14: a claim with no project holds the program on every project's
+   list, by default and in `filter.all`, out of the yes), then every program closing within 7 days that the project fits (O1, ahead
    of the cap; its line says `closes in {n} days`), then at most one rule-bearing program among rule-free ones. That
    one, on the project's chains, takes its rank place; off them it is shown only after `max - 1` others or alone
    (N-2). A project with a chain, reported or read, never sees a deploy on another chain by default (`offChain`,
@@ -171,13 +175,16 @@ The pipeline, in order:
 3. Files: `programs/*.json` is the owner's override and wins over an API row with the same id. `pnpm programs:check`
    validates them; `pnpm programs:sync` writes them before each deploy.
 4. Freshness: the daily cron (`health.ts`) probes each listed program's links and source page, flags a program
-   stale after two failing days, and closes an active program whose deadline passed. A source page sharing fewer
+   stale after two failing days, closes an active or upcoming program whose deadline passed and opens an upcoming one
+   at its `starts_at` (v6.1.16 Task 16, L30-1; one without submission requirements stays upcoming and is listed in the
+   run's `failed` until its file has them; a closed program may have none). A redirect to another host counts as alive
+   (L30-2: `probeLink`, never followed; `[health] {id} redirects to {host}`). A source page sharing fewer
    than 80% of its words with the text stored the day before (`program_health.body_text`) counts as changed: it is
    listed in the owner's digest and never marks the program stale. A program unverified or stale for 14 days leaves
-   the open list. The deploy's sync writes an active file past its `ends_at` as closed, with a warning, so a deploy
-   never reopens it. There is no LLM in the cron.
+   the open list. The deploy's sync moves a file by the run's own rule (`movedByDate`, Task 16 fix round 1: past `ends_at` closed,
+   an upcoming one past `starts_at` active with opens_note dropped, one warning each), so a deploy never undoes a move. There is no LLM in the cron.
 5. Readers: `programs-read.ts` serves public `GET /api/programs`; `landing.ts`, `guide.ts`, `guide-page.ts` and
-   `stats.ts` feed the site. A program card shows the summary's money phrase whenever it has a figure ("$250,000 over two years", "Up to $100,000 by tier, more by DAO vote", v6.1.15 fix round 2), never a threshold the builder must reach (" at $10M USDG TVL" is cut); with no figure in the phrase, the pool (`pool_usd`, as "$N in grants" or "$N in prizes"), then the per-winner `max_award_usd` ("$10,000 to $900,000" with a `min_award_usd`), else the phrase's words; a big tile, one lone figure, draws "Up to" small above it (`moneyOf` in `programs-read.ts`). v6.1.15 (lane 22, #12): money is in full figures on every surface (tile, list API, guide, reply), never K or M; only the hero chip rounds, down, to one decimal (`heroUsdText`, "$3.1M"). The tile, the list API, the guide header and the find reply share `moneyOf`'s string: with a capital on the tile and guide, and lowercase mid-sentence in the reply (find's `moneyOf` is `moneyAt(moneyOf(p), 'mid')`), keeping "EUR", "NYC", "$", "iOS", "DeFi" and chain names (`lowerFirst`, one rule wherever a phrase is lower-cased). `programs:check` refuses a summary money with no number and no "amount not stated", and one with K or M. v6.1.16 (L21-2): `programs:check` refuses a closed program whose description or rules carry an open-window sentence (`OPEN_WINDOW` in `program-checks.ts`: "applications are open", "apply now", "open until"); a closed program's guide (status closed, or `ends_at` passed) reads `Closed on 1 Nov 2026.` (`closedOn`: the `ends_at` day in the program's zone, else `verified_at`) as its window line, and its description and rules drop each open-window sentence, so a date-closed file still marked active reads right. Guide lines (who can apply, field to-dos, focus, past rounds, best bet, source labels) are sentences (`sentence()` in `guide.ts`). v6.1.16 (Task 7): an open guide's close reads `Closes tomorrow.` under 24 hours and `Closes in {n} days.` under 14 (`closesIn14`), its meta description is `guideMeta` ("$67,500 in prizes, closes Nov 12. ..."), its description ends as a sentence, and an in-person program's first pill is `In person: {city}.` (`city` on the file; `programs:check` refuses an in-person file without one). An unknown guide id is a true 404 (v6.1.16 Task 13, L27-3): `proxy.ts` (`guideGate`, the listed ids read at most once a minute) rewrites `/programs/<id>` for an id no list shows to a path no route serves (`NOT_A_ROUTE`), so `app/not-found.tsx` renders inside the layout (lang, main, the h1) with status 404; the page's own `notFound()` stays only as the fallback, because on Next 16.4.1 a thrown `notFound()` reaches the browser as the empty `__next_error__` shell. The landing copy (`site-copy.ts`) promises what the replies deliver (v6.1.14): "fills the forms", step 3 "It fills the form and sends it, or hands you the draft to send.", the six under "Open now". The hero chip ("$3.1M in grants and prizes open now") sums, per open non-investment
+   `stats.ts` feed the site. A program card shows the summary's money phrase whenever it has a figure ("$250,000 over two years", "Up to $100,000 by tier, more by DAO vote", v6.1.15 fix round 2), never a threshold the builder must reach (" at $10M USDG TVL" is cut); with no figure in the phrase, the pool (`pool_usd`, as "$N in grants" or "$N in prizes"), then the per-winner `max_award_usd` ("$10,000 to $900,000" with a `min_award_usd`), else the phrase's words; a big tile, one lone figure, draws "Up to" small above it (`moneyOf` in `programs-read.ts`). v6.1.15 (lane 22, #12): money is in full figures on every surface (tile, list API, guide, reply), never K or M; only the hero chip rounds, down, to one decimal (`heroUsdText`, "$3.1M"). The tile, the list API, the guide header and the find reply share `moneyOf`'s string: with a capital on the tile and guide, and lowercase mid-sentence in the reply (find's `moneyOf` is `moneyAt(moneyOf(p), 'mid')`), keeping "EUR", "NYC", "$", "iOS", "DeFi" and chain names (`lowerFirst`, one rule wherever a phrase is lower-cased). `programs:check` refuses a summary money with no number and no "amount not stated", and one with K or M; v6.1.16 (L1h-1) also K or M (any case: `$325k`, `2M ARB`) in the description, the reward, every past round (label, themes, examples) and each requirement's `todo`, so the guide, the lookup JSON and the needs lists carry full figures; a requirement's `label` is the program's own question and keeps its words. v6.1.16 Task 8 (lane 22): one money format for the ledger too: `moneyText(amount, currency)` in `programs-read.ts` (`$5,000`, `$2,500.50` with cents only when given, `EUR 2,000` code first and never converted; `usdFull` is `moneyText` in USD) and `totalText` for totals (`$3,500.50 and EUR 2,000`, `$5,000, one amount not given`); find's applications line, track's lines, /me's rows and totals and the screen's notes all use them. `/api/stats` keeps `won_usd` (the US dollar part only) and adds `won_other` (`[{ currency, amount }]`) and `won_without_amount`; the landing reads `open_money_usd` only. Every catalog write (the API's, `syncFiles`, the cron's status flip) calls `revalidateCatalog()` (`programs-read.ts`), which expires the shared `PROGRAMS_TAG` (stats, landing, list, guides) and the catalog paths at once. v6.1.16 (L21-2): `programs:check` refuses a closed program whose description or rules carry an open-window sentence (`OPEN_WINDOW` in `program-checks.ts`: "applications are open", "apply now", "open until"); a closed program's guide (status closed, or `ends_at` passed) reads `Closed on 1 Nov 2026.` (`closedOn`: the `ends_at` day in the program's zone, else `verified_at`) as its window line, and its description and rules drop each open-window sentence, so a date-closed file still marked active reads right. Guide lines (who can apply, field to-dos, focus, past rounds, best bet, source labels) are sentences (`sentence()` in `guide.ts`). v6.1.16 (Task 7): an open guide's close reads `Closes tomorrow.` under 24 hours and `Closes in {n} days.` under 14 (`closesIn14`), its meta description is `guideMeta` ("$67,500 in prizes, closes Nov 12. ..."), its description ends as a sentence, and an in-person program's first pill is `In person: {city}.` (`city` on the file; `programs:check` refuses an in-person file without one). An unknown guide id is a true 404 (v6.1.16 Task 13, L27-3): `proxy.ts` (`guideGate`, the listed ids read at most once a minute) rewrites `/programs/<id>` for an id no list shows to a path no route serves (`NOT_A_ROUTE`), so `app/not-found.tsx` renders inside the layout (lang, main, the h1) with status 404; the page's own `notFound()` stays only as the fallback, because on Next 16.4.1 a thrown `notFound()` reaches the browser as the empty `__next_error__` shell. The landing copy (`site-copy.ts`) promises what the replies deliver (v6.1.14): "fills the forms", step 3 "It fills the form and sends it, or hands you the draft to send.", the six under "Open now". The hero chip ("$3.1M in grants and prizes open now") sums, per open non-investment
    program, its `pool_usd` when set, else its `max_award_usd`. The landing shows six programs (`featuredTiles` in
    `landing.ts`: open, not investments, at least $10K; closing within 14 days with at least $25K first, then by money;
    one per organizer, at most three hackathons) and a link to /programs, which lists every one (`landingTiles`).
@@ -225,10 +232,11 @@ different result (won and rejected either way, a win with another amount or curr
 from the program's screen or the builder's own track, is a correction: it replaces status, amount and note, its
 history row has `corrected` true, and `record` returns `corrected: true`. A further payment over a result that is not
 a win, or over a send with no result yet (fix round 1 M1; it reads "Further payment refused: no result yet; post a win first."), writes nothing: "Further payment refused: the current result is {status}; post a win first." `no_result` over a
-result is still refused ("That one already has a result here: ..."), the same result is "Already tracked.". A second
+result is still refused ("That one already has a result here: ..."), the same result is "Already tracked." (an unmarked win of the
+stored amount is "Already recorded; nothing new.", v6.1.16 L17-8). A second
 win with an amount over a win with one (L15-17, T8-F1 v6.1.14): marked a further payment (`payment: { key }`, the caller's own key, kept in
 `application_history.payment_key`; a repeated key is "Already tracked.") it adds to the total under the cap, answered
-"Tracked: ${n} more from {title}, ${total} in total."; unmarked, the same amount is "Already tracked." and another
+"Tracked: ${n} more from {title}, ${total} in total."; unmarked, the same amount is "Already recorded; nothing new." and another
 amount is a correction that replaces it ("Tracked: ${n} from {title}. Replaced the earlier amount."; one save verb, Tracked, v6.1.15 #8). Before v6.1.16 track keys
 were stored as `t:<key>` and screen keys as `s:<key>`; from v6.1.16 both are stored bare and match the old ones. A program that is not open cannot be started
 ("{title} is not open; nothing to start."), and an already sent one says it was sent before that check. A win is
@@ -248,9 +256,10 @@ v6.1.16 Task 4 (lane 17 races): every skip and gap_done decision runs inside `re
 already sent; nothing to skip.", and another agent's live claim "Your other agent is handling that one; nothing
 recorded." with the claim left in place (a skip still replaces the agent's own claim or a stale one). A history row is
 written only when the ledger changed, and names its `source` (`screen` or `builder`; NULL on older rows). A correction
-applies only when its event time is at or after the stored result's ("An earlier result; nothing changed."); the same
-result said again later moves the stored time on without a history row, so the latest event wins whatever the arrival
-order. An unmarked win of the stored amount, from either side, is "Already recorded; nothing new."; a further payment
+applies only when its event time is at or after the stored result's ("An earlier result; nothing changed."); a repeat
+never moves the stored time, which stays the original result's (fix round 1, I1); a screen's resent result or payment
+retry reaches the ledger at the kept outcome's own time, never its arrival, so it never overwrites a builder's later
+correction (the reviewer hears "Already recorded; nothing new."). An unmarked win of the stored amount, from either side, is "Already recorded; nothing new."; a further payment
 needs its mark, and payment keys share one space per application (track and screen send them unprefixed;
 `paymentKeyOf` reads a stored `s:`/`t:` key as the bare key, alias until v6.1.17). A send refused because its agent was
 unlinked meanwhile tells the agent the form went out with no record. The screen queue takes one lock per program and
@@ -262,14 +271,28 @@ on a held line.
 ## Freshness and the daily job
 
 `.github/workflows/earnkit-cron.yml` posts to `/api/cron` once a day with `CRON_SECRET` (v6.1.14 L13-11: a secret under
-32 characters answers 503 "cron is not set up" with one `[cron]` ops log line, never 401). `cron.ts` runs the probe
-(`health.ts`), the `repo_cache` sweep (rows over 30 days, answered as `swept`), the screen queue's daily share
-(screen jobs over 180 days deleted with their rows, then `workQueue` with `SCREEN_BATCH` 200 within 5 minutes,
-answered as `screen` with `swept`), then the owner's digest (`owner-digest.ts`: programs closed by deadline, failed links, changed pages
-and every change to live programs since the last digest, with revert links; nothing happened, nothing sent). Mail is
-`mail.ts` over Resend, to the owner only. A step that throws answers 500 with its name. The owner triggers one
-screen job with the same route and a JSON body `{ "job_id": "..." }`: only that queue runs (300 applicants or 10
-minutes), no probe, sweep or digest.
+32 characters answers 503 "cron is not set up" with one `[cron]` ops log line, never 401). v6.1.16 Task 16 (lane 30):
+`cron.ts` runs its steps in order, each in its own try: `health` (`health.ts`: every listed program, 10 at once
+(`PROBE_PARALLEL`), 8 s per link (`PROBE_MS`), one GET per link whose page also gives the source text; status moves by
+date, each program's probe-and-write and its status move in separate tries), the sweeps (`sweep_repo` repo cache over
+30 days, `sweep_reports` project reports over 180, `sweep_screens` screen jobs over 180 with their rows, `sweep_auth`
+link codes and sessions expired over a day, spent OAuth codes over a day and registered OAuth clients over 30 days
+that never exchanged a code (`oauth_clients.used_at`), `sweep_evidence` the evidence cache read over 180 days,
+`sweep_windows` rate windows started over 2 days ago; the per-hit random sweep is gone), `screen` (`workQueue` with
+`SCREEN_BATCH` 200 until `min(start + 300 s, deadline - 20 s)`), then `digest`. One `deadline = start +
+RUN_BUDGET_MS` (420 s; curl waits 540), the walk's own share `HEALTH_BUDGET_MS` 180 s (fix round 1, so the queue keeps at least 220 s): health and the queue start only before it, else they are listed with error
+`budget`; a probe starts only when it can finish before it; the sweeps and the digest always run. The answer is
+`{ health, swept: {per table}, screen: { read, left, jobs_finished }, digest, failed: [{ id, step, error }] }`
+(`id` a program's, or null for a whole step; `error` a code by the error's class: `db`, `fetch`, `timeout`, `budget`, `catalog` (a program its file keeps from opening or closing), `parse` (a stored file that no longer parses) or
+`error`, never the message, which goes only to the `[cron]`/`[health]` server log line), 200 with
+the list, 500 only when every step failed. The workflow prints the body and fails the job when curl fails (5xx, no
+answer in 540 s) or `failed` is not empty, one `::error::` line per entry; the next run retries. The owner's digest
+(`owner-digest.ts`: programs closed by deadline, programs opened by start date, failed links, changed pages and every
+change to live programs since the last digest, with revert links; nothing happened, nothing sent) answers `sent`,
+`none` (nothing, or this body already sent today) or `mail off` (`RESEND_API_KEY` unset); its idempotency key is
+`owner-digest:{day}:{first 16 hex of the body's sha256}` and `owner_digests.body_hash` keeps the last body sent that
+day. Mail is `mail.ts` over Resend, to the owner only. The owner triggers one screen job with the same route and a
+JSON body `{ "job_id": "..." }`: only that queue runs (300 applicants or 10 minutes), no probe, sweep or digest.
 
 ## The site
 
@@ -363,12 +386,12 @@ keys from tool-call bodies before anything sees them.
 | `program_writes` | The write API's audit log and the pending writes |
 | `program_health` | The freshness probe: link status, page hash and text, failing days, changed_at |
 | `installations` | One row per issued token (hash only): client name, `audience` and `revoked_at` (v6.1.16), `last_seen_at`, `last_find_at`, `prev_find_at` (the find before; v6.1.9), `last_gaps` (the last find's gaps), `builder_id` and `linked_at` when linked, `unlinked_at` and `unlinked_reason` (set by an unlink on /me or the account's deletion, cleared by the next find or a new link) |
-| `rate_windows` | Request counters |
+| `rate_windows` | Request counters; the daily run sweeps windows started over 2 days ago |
 | `repo_cache` | Public repo facts, 7 days; swept after 30 |
-| `evidence_cache` | v6 evidence blocks per repo (`repo:<owner/name>`, with pushed_at) and per contract, used for 7 days; not swept yet |
+| `evidence_cache` | v6 evidence blocks per repo (`repo:<owner/name>`, with pushed_at) and per contract, used for 7 days; the daily run sweeps rows read over 180 days |
 | `applications`, `application_history`, `gaps_done` | The ledger |
 | `project_reports` | The project as reported at the owner's last find, per owner and project key (v6.1.13; a find with a repo writes its name key too), read by a send's check and `resolvedKey`; moved on link, deleted with the account, swept after 180 days without a find |
-| `owner_digests` | The days a digest covered |
+| `owner_digests` | The days a digest covered, with the last body's hash (`body_hash`) |
 | `program_reviewers` | Builders the owner marked as a program's reviewers (may call `screen`) |
 | `screen_jobs`, `screen_applicants`, `screen_outcomes` | Screen jobs (180 days), each applicant's tier, because, line, public rows and deployers (no pitch column), and the program's outcomes; they belong to the program (`builder_id` NULL once its reviewer deleted their account); the program's own counts read only these |
 
@@ -667,16 +690,24 @@ in one run, else "Results come in daily runs; {n} applicants ahead of yours, all
 (`screen-worker.ts`) takes each applicant atomically (`reading`, free again after 30 minutes), reads it as the pilot
 does (a GitHub budget stop puts it back and ends the run; a tierless read worth a retry is queued again, `failed` at
 the third) and stores tier, flags, because, line and public rows only (`github`, `explorer`, `site`, `earnkit`, never
-`record`). The daily cron gives the queue 300 s; `POST /api/cron` with `{ "job_id": "..." }` is the owner's trigger
+`record`). The daily cron gives the queue 300 s at most, cut to its run's deadline (v6.1.16 Task 16): `workQueue`
+returns `read` and `left` (the share not reached when it stopped) and each job stores `last_run_read` and
+`last_run_left`; while a job's `last_run_left` is over 0 its results line adds "{n} of {m} read today; the rest
+tomorrow." (read so far, the job's total); `POST /api/cron` with `{ "job_id": "..." }` is the owner's trigger
 (that job only, at most 300 applicants in 600 s). With `job_id` the tool answers the totals line and the results;
 with `outcomes` it records the program's decisions (refs not in the job are named; L15-15, L15-16 v6.1.14: a win's
-amount is `amount_usd` or `amount` with a currency code, cents allowed (`amountOf`); an unreadable amount or a US dollar
-win over the cap refuses only that applicant, "Tell me the amount for {ref}." / "That is more than this program pays
-for {ref}; check the amount.", the rest recorded; a dot used as a thousands separator ("2.500", `amountOf` answers
-`'ambiguous'`) reads "Amount not read: use a dot only for cents, no thousands separator." once, the refs in the agent
-note (L16-14, v6.1.16); US dollars reach the ledger rounded down with the note "rounded down
-to whole dollars from $2,500.50", another currency as a win with no amount and the note "amount in EUR, not
-converted"; `screen_outcomes.amount_given` and `currency` keep what was given), which also reach a builder's ledger only through the
+amount is `amount_usd` or `amount` with a currency code, read by the one shared reader `readAmount` (`lib/v5/amount.ts`,
+track uses it too, v6.1.16 Task 8: `5k`, `$5,000`, `5000 USD`, `USD 5000`, `5,000.00`, `€5000`, `£5000`; cents kept);
+an unreadable amount or a win over the cap refuses only that applicant, "Tell me the amount for {ref}." / "Over the
+program's $10,000 cap: {ref} at {amount}. Nothing recorded for it.", the rest recorded; a dot used as a thousands
+separator ("2.500", `'ambiguous'`) reads "Amount not read: use a dot only for cents, no thousands separator." once,
+the refs in the agent note (L16-14, v6.1.16). L22-3 to L22-5 (v6.1.16): the money is kept as given, by currency, never
+rounded or converted (`screen_outcomes.amounts` and `applications.amounts`, `{ "USD": 2500.5, "EUR": 2000 }`; the old
+`amount_given`/`currency` pair is still written for a one-currency amount and read for rows before it, until
+v6.1.17); a further payment adds within its currency and keeps both across currencies; the cap check (`overCap`,
+`amountsOverCap`) compares the given amount before any rounding and converts another currency only for the check with
+the static high-side `CAP_RATES` (EUR, GBP, CHF, CAD, AUD, JPY, INR, SGD, BRL); an unknown code is weighed by its number
+and the agent note says `Not a currency I can compare; its number is over the cap.`), which also reach a builder's ledger only through the
 applicant row's `application_id`: the id `track started` answered the builder's agent with a note to put it in the
 form's reference field (`applications.application_id`, issued by `claims.claim`, kept by the send, carried on a link
 merge), for this program; never by repo or site (L13-1, T5-F1 v6.1.14). An id on more than one applicant of the

@@ -7,7 +7,7 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { revalidatePath, revalidateTag } from 'next/cache';
+import { revalidatePath } from 'next/cache';
 import type postgres from 'postgres';
 import { z } from 'zod';
 import { apiTextProblems, apiUrlProblems, notWritableFields } from './api-text';
@@ -35,7 +35,7 @@ import {
   uncheckedLink,
   type LinkTarget,
 } from './programs-pending';
-import { PROGRAMS_TAG } from './programs-read';
+import { revalidateCatalog } from './programs-read';
 import { RateLimitError, enforce } from './rate-limit';
 import { FETCH_TIMEOUT_MS, HttpStatusError, safeProbe, type Probe } from './safe-fetch';
 
@@ -84,14 +84,12 @@ export function authFailure(request: Request): Response | null {
   return null;
 }
 
-/** An API write changed `id`: the cached list and pages expire now. Outside a Next request it does nothing. */
+/** A program write changed `id` (the API's, the cron's status flip): every catalog surface expires now (`revalidateCatalog`). Outside a Next request it does nothing. */
 export function programsChanged(id: string): void {
+  // L22-13 (v6.1.16): one expiry for every catalog surface.
+  revalidateCatalog();
   try {
-    revalidateTag(PROGRAMS_TAG, { expire: 0 });
-    revalidatePath('/');
     revalidatePath(`/programs/${id}`);
-    revalidatePath('/sitemap.xml');
-    revalidatePath('/api/stats');
   } catch {
     // No Next request context.
   }

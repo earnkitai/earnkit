@@ -48,8 +48,8 @@ test('Task 1 N1 (v6.1.15 fix round 1, M3): the program write lints a requirement
 
 test('FR-6 (v6.1.15): rules and eligibility notes in K or M are refused; the catalog\'s rules are in full figures', () => {
   const NOW = new Date('2026-11-11T00:00:00Z');
-  assert.deepEqual(programProblems(programFixture({ id: 'p-rule-k', rules: ['Deal: up to $1M on a SAFE.'] }), NOW), ['rules.0: money must be in full figures ("$1,000,000", never "$1M")']);
-  assert.deepEqual(programProblems(programFixture({ id: 'p-note-k', eligibility: [{ kind: 'users', note: 'at least $1M in balances' }] }), NOW), ['eligibility.0.note: money must be in full figures ("$1,000,000", never "$1M")']);
+  assert.deepEqual(programProblems(programFixture({ id: 'p-rule-k', rules: ['Deal: up to $1M on a SAFE.'] }), NOW), ['rules.0: money must be in full figures ("$100,000", never "$100K")']);
+  assert.deepEqual(programProblems(programFixture({ id: 'p-note-k', eligibility: [{ kind: 'users', note: 'at least $1M in balances' }] }), NOW), ['eligibility.0.note: money must be in full figures ("$100,000", never "$100K")']);
   assert.deepEqual(programProblems(programFixture({ id: 'p-rule-full', rules: ['Deal: up to $1,000,000 on a SAFE.'] }), NOW), []);
 });
 
@@ -79,4 +79,21 @@ test('fix round 1 (v6.1.16): a closed program carries no present rolling sentenc
   assert.deepEqual(programProblems(programFixture({ id: 'p-active-rolling', status: 'active', rules }), NOW), []);
   assert.deepEqual(programProblems(programFixture({ id: 'p-closed-past', status: 'closed', summary: 'Up to $5,000', rules: ['Proposals were reviewed on a rolling basis, with no fixed deadline.'] }), NOW), []);
   assert.deepEqual(programProblems(programFixture({ id: 'p-closed-summary', status: 'closed', summary: 'Up to $5,000 · rolling' }), NOW), ['summary: a closed program is not rolling']);
+});
+
+test('L1h-1 (v6.1.16): K or M in a description, reward, past round or todo is refused (any case); a requirement label is the program\'s own', async () => {
+  const NOW = new Date('2026-11-11T00:00:00Z');
+  const msg = (path: string) => `${path}: money must be in full figures ("$100,000", never "$100K")`;
+  const round = { label: 'Round one: $325k to 9 projects', source_url: 'https://example.org/r' };
+  assert.deepEqual(programProblems(programFixture({ id: 'p-d', description: 'Invests $100K per team.' }), NOW), [msg('description')]);
+  assert.deepEqual(programProblems(programFixture({ id: 'p-r', reward: 'Up to 2M ARB' }), NOW), [msg('reward')]);
+  assert.deepEqual(programProblems(programFixture({ id: 'p-p', past_rounds: [round] }), NOW), [msg('past_rounds.0.label')]);
+  const req = { key: 'path', label: 'What is the path to $10M?', type: 'text', required: true, from: 'builder', kind: 'what_next', todo: 'your path to $10M' } as const;
+  assert.deepEqual(programProblems(programFixture({ id: 'p-t', submission_requirements: [req] }), NOW), [msg('submission_requirements.0.todo')]);
+  // The program's own question keeps its wording.
+  assert.deepEqual(programProblems(programFixture({ id: 'p-l', submission_requirements: [{ ...req, todo: 'your path to $10,000,000' }] }), NOW), []);
+  // The whole catalog passes.
+  const { readProgramFiles } = await import('./programs-sync');
+  const { findProgramsDir } = await import('./programs-api');
+  assert.deepEqual(readProgramFiles(findProgramsDir()!, NOW).invalid, []);
 });

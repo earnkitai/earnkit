@@ -109,12 +109,14 @@ ALTER TABLE installations ADD COLUMN IF NOT EXISTS prev_find_at timestamptz;
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS audience text;
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS revoked_at timestamptz;
 -- v6.1.16 (Task 5, L19-8): registered OAuth clients; the client_id is 128 random bits, never derived from metadata.
+-- Task 16: `used_at` is its first code exchange; the daily run sweeps one registered over 30 days ago that never exchanged one.
 CREATE TABLE IF NOT EXISTS oauth_clients (
   client_id     text PRIMARY KEY,
   redirect_uris text[] NOT NULL,
   client_name   text,
   created_at    timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS used_at timestamptz;
 -- v6.1.16 (Task 5, L19-4): each exchanged authorization code (its nonce) and the token it gave; a second exchange
 -- revokes that token. The daily cron sweeps rows over a day old (codes live 5 minutes).
 CREATE TABLE IF NOT EXISTS oauth_codes_spent (
@@ -264,6 +266,9 @@ CREATE TABLE IF NOT EXISTS owner_digests (
   day     text PRIMARY KEY,
   sent_at timestamptz NOT NULL
 );
+-- v6.1.16 (Task 16): the hash of the last body sent that day, so the same body is never mailed twice and a changed one
+-- goes under a new idempotency key.
+ALTER TABLE owner_digests ADD COLUMN IF NOT EXISTS body_hash text;
 
 -- v6 evidence read once per repo (code, team, depth with its pushed_at) and per contract (onchain rows);
 -- used for 7 days, a repo only while pushed_at is unchanged. Partial reads are never stored.
@@ -324,6 +329,10 @@ ALTER TABLE screen_applicants ADD COLUMN IF NOT EXISTS taken_at timestamptz;
 -- Reads worth a retry (a timeout, a rate limit) go back to the queue; the third is final.
 ALTER TABLE screen_applicants ADD COLUMN IF NOT EXISTS attempts int NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS screen_jobs_created ON screen_jobs (created_at);
+-- v6.1.16 (Task 16): what the last run that reached the job read of it, and how many of its rows that run left for
+-- the next when it stopped at its deadline (the results reply then says "{n} of {m} read today; the rest tomorrow.").
+ALTER TABLE screen_jobs ADD COLUMN IF NOT EXISTS last_run_read int NOT NULL DEFAULT 0;
+ALTER TABLE screen_jobs ADD COLUMN IF NOT EXISTS last_run_left int NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS screen_applicants_repo ON screen_applicants (repo_key, read_at);
 CREATE INDEX IF NOT EXISTS screen_applicants_status ON screen_applicants (status, job_id);
 CREATE INDEX IF NOT EXISTS screen_applicants_deployers ON screen_applicants USING gin (deployers);
@@ -373,3 +382,11 @@ CREATE TABLE IF NOT EXISTS project_reports (
 -- v6.1.14 (L13-7): whether standing approval was on at this installation's last find with a project, so an agent's
 -- send after the builder turned it off says so.
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS last_find_auto boolean;
+-- v6.1.16 (L22-1 to L22-3): a win's money by currency ({"USD": 3500.5, "EUR": 2000}), cents kept, never converted;
+-- amount_usd keeps the US dollar part for the readers that sum dollars (stats, the cap). Backfilled from amount_usd.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS amounts jsonb;
+UPDATE applications SET amounts = jsonb_build_object('USD', amount_usd) WHERE amounts IS NULL AND amount_usd IS NOT NULL;
+ALTER TABLE application_history ADD COLUMN IF NOT EXISTS amount numeric, ADD COLUMN IF NOT EXISTS currency text;
+-- v6.1.16 (L22-3): a screen outcome's money by currency, in place of the single amount_given/currency pair (kept
+-- readable for one release, dropped in v6.1.17).
+ALTER TABLE screen_outcomes ADD COLUMN IF NOT EXISTS amounts jsonb;

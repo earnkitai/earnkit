@@ -12,12 +12,15 @@ import { cachedRepoFacts, reportOnlyFacts } from './repo-facts';
 import { findAutoWas, forgetGap, lastGaps, lastProjectKey, unmarkNightFind } from './installations';
 import { PROJECT_DESCRIPTION, ProjectArg, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
 import { getProgram, isOpen, listOpenPrograms, programByName, unknownProgramLine } from './programs';
-import { dayOf, doneItems, record, reportOf, resolvedKey, summary, titleOf, type Ledger, type Status } from './ledger';
+import { closeDay } from './deadline';
+import { dayOf, doneItems, record, reportOf, resolvedKey, resultOf, summary, titleOf, type Ledger, type Status } from './ledger';
 import { clock } from './reply';
 import { codeChecked, itemKey } from './eligibility';
 import { eligibilityOf } from './program-file';
 import { sql } from './db';
 import { inputDetail, readLoosely, type LooseRules } from './tool-input';
+import { readAmount } from './amount';
+import { amountsText, moneyText } from './programs-read';
 
 /** The most field keys a send keeps (v6.1.13, B6); the rest are dropped, never refused. */
 export const FIELDS_KEPT = 200;
@@ -28,8 +31,13 @@ export const TrackInput = z
   .object({
     program_id: z.string().min(1).max(80),
     status: z.enum(['started', 'applied', 'won', 'rejected', 'no_result', 'skipped', 'unskip', 'gap_done']),
-    /** L13-5 (v6.1.14): no ceiling here; the ledger answers a win over the program's pay with its own line. */
+    /** L13-5 (v6.1.14): no ceiling here; the ledger answers a win over the program's pay with its own line. L22-6
+     *  (v6.1.16): US dollars, cents kept; an alias of `amount` with currency USD. */
     amount_usd: z.number().finite().min(0).optional(),
+    /** L22-2, L22-6 (v6.1.16): won only: the amount as a number or text ("5k", "$2,500.50", "2000 EUR", "€2000"). */
+    amount: z.union([z.number().finite(), z.string().trim().max(40)]).optional(),
+    /** L22-2 (v6.1.16): won only: the amount's three-letter currency code, default USD (or the win's own currency). */
+    currency: z.string().trim().max(10).optional(),
     /** T8-F1 (v6.1.14): won only: a further payment of a win already recorded, with the caller's own key (a repeat adds nothing). */
     payment: z.object({ key: z.string().trim().min(1).max(80) }).strict().optional(),
     /** L13-3 (v6.1.14): the form already went out, so a long note is cut to NOTE_KEPT characters, never refused. */
@@ -54,7 +62,6 @@ type TrackIn = Omit<z.infer<typeof TrackInput>, 'project'> & { project?: Project
 const repoLess = (key: string) => key === '' || key.startsWith('name:');
 /** A passed project fact as text, or null. Pure. */
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v : null);
-const usd = (n: number) => '$' + Math.round(n).toLocaleString('en-US');
 
 /** True when the owner's row for the program is an application already sent (applied or with a result). */
 async function sentHere(owner: string, programId: string): Promise<boolean> {
@@ -88,6 +95,19 @@ const RESULT_STATUSES: readonly string[] = ['won', 'rejected', 'no_result'];
 const TRACK_LOOSE: LooseRules = { text: ['program_id', 'project_id', 'item'], objects: ['project'] };
 
 export const TRACK_UNREAD = 'I could not read that. Send the program, a status, and for a win the amount.';
+/** L16-14, L22-6 (v6.1.16): a dot used as a thousands separator ("5.000"), as the screen says it. */
+export const AMOUNT_DOT = 'Amount not read: use a dot only for cents, no thousands separator.';
+
+/**
+ * A win's amount for the ledger (L22-2, L22-6, v6.1.16): read by the shared reader, its currency left out when the
+ * builder named none (so the win's own currency is kept). Pure.
+ */
+export function trackAmount(i: { amount_usd?: number; amount?: number | string; currency?: string }): { value: number; currency?: string } | null | 'bad' | 'ambiguous' {
+  const a = readAmount(i);
+  if (a === null || a === 'bad' || a === 'ambiguous') return a;
+  const named = i.currency !== undefined || i.amount_usd !== undefined || (typeof i.amount === 'string' && /[$€£]|[A-Za-z]{3}/.test(i.amount));
+  return named ? a : { value: a.value };
+}
 
 /**
  * The project this track is about (projectKeyOf, v6.1.10 L1c-1): the project passed, else the record project named by
@@ -365,7 +385,11 @@ async function act(
     : {};
   // L17-1 (v6.1.16): a skip's checks (already sent, already skipped, another agent's live claim) run in record, under
   // the per-program lock, so parallel skips write one row. L17-8: the payment key is the caller's, one space per application.
-  const res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, amount_usd: i.amount_usd, note: i.note, item: i.item, projectKey: project.key, now: ctx.now, ...applied,
+  // L22-6 (v6.1.16): a win's amount through the shared reader; any other status ignores it, as before.
+  const amount = i.status === 'won' ? trackAmount(i) : null;
+  if (amount === 'bad') return refuse(TRACK_UNREAD, 'Nothing was recorded. Send amount as a number or text ("5000", "$2,500.50", "2000 EUR"), with currency for another currency.');
+  if (amount === 'ambiguous') return refuse(AMOUNT_DOT, 'Nothing was recorded. Send 5000 or 5,000; a dot is for cents only.');
+  const res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, ...(amount && { amount }), note: i.note, item: i.item, projectKey: project.key, now: ctx.now, ...applied,
     ...(i.status === 'won' && i.payment ? { payment: { key: i.payment.key } } : {}) });
   // A second skip says so (v6.1.9, lane 8 simplify).
   if (res.ok && i.status === 'skipped' && 'repeated' in res)
@@ -377,7 +401,8 @@ async function act(
   // The find before a send under standing approval was the night routine's: it leaves the overnight report (v6.1.9).
   if (res.ok && i.status === 'applied' && standing && outside === null) await unmarkNightFind(ctx.installationId);
   if (!res.ok)
-    return res.items ? refuse(res.note, `Items for this program: ${res.items.join(', ')}. Call track gap_done with one of them.`) : refuse(res.note);
+    return res.items ? refuse(res.note, `Items for this program: ${res.items.join(', ')}. Call track gap_done with one of them.`)
+      : res.agent_note ? refuse(res.note, `Nothing was recorded. ${res.agent_note}`) : refuse(res.note);
   if (i.status === 'gap_done' && sameAsLast) await forgetGap(ctx.installationId, i.program_id);
   if (i.status === 'gap_done') {
     // A repeat says so (v6.1.7, C26); a rule is confirmed, not re-read from the repo (m3).
@@ -397,15 +422,21 @@ async function act(
     return { show_to_builder: show, agent_note: note, ledger: await summary(owner, programs, ctx.now) };
   }
   const title = await titleOf(owner, i.program_id);
+  // The win as the ledger now holds it (its currency resolved there); a further payment names its own currency.
+  const kept = i.status === 'won' ? (await resultOf(owner, i.program_id))?.amounts ?? null : null;
+  const wonText = kept ? amountsText(kept) : amount ? moneyText(amount.value, amount.currency) : '';
+  const wonCurrency = (total: Record<string, number>) =>
+    amount && amount.currency ? amount.currency : Object.keys(total).length === 1 ? Object.keys(total)[0] : 'USD';
   const lines: Record<Exclude<Status, 'started' | 'gap_done'>, string> = {
     // #8 (v6.1.15): one verb, Tracked, wherever a fact is saved for the builder.
     applied: 'Tracked. Ask me how it went once results are out.',
     // L15-17, T8-F1 (v6.1.14): a further payment adds and the line reads the total; an unmarked other amount corrects.
-    won: 'total_usd' in res && res.total_usd !== undefined
-      ? `Tracked: ${usd(i.amount_usd ?? 0)} more from ${title}, ${usd(res.total_usd)} in total.`
-      : 'replaced_usd' in res && res.replaced_usd !== undefined
-        ? `Tracked: ${usd(i.amount_usd ?? 0)} from ${title}. Replaced the earlier amount.`
-        : `Tracked: ${usd(i.amount_usd ?? 0)} from ${title}.`,
+    // L22-7 (v6.1.16): the money in the one format, in the win's own currency (L22-2: assumed when none was named).
+    won: 'total' in res && res.total !== undefined
+      ? `Tracked: ${moneyText(amount ? amount.value : 0, wonCurrency(res.total))} more from ${title}, ${amountsText(res.total)} in total.`
+      : 'replaced' in res && res.replaced !== undefined
+        ? `Tracked: ${wonText} from ${title}. Replaced the earlier amount.`
+        : `Tracked: ${wonText} from ${title}.`,
     rejected: 'Tracked. On to the next one.',
     no_result: 'Tracked.',
     skipped: `Skipped ${title}. I won't bring it up again.`,
@@ -413,7 +444,8 @@ async function act(
   };
   // v6.1.9: a send after the program closed is still recorded, and says so.
   const closed = i.status === 'applied' && row && !isOpen(row.file, ctx.now) && row.file.ends_at && Date.parse(row.file.ends_at) <= ctx.now.getTime()
-    ? `${row.file.title} closed on ${dayOf(new Date(row.file.ends_at))}; recorded anyway.`
+    // v6.1.16 Task 16 (ruling 40): the day in the program's zone, as its Closes line says it (Task 9's dayWords absorbs this).
+    ? `${row.file.title} closed on ${closeDay(row.file) ?? dayOf(new Date(row.file.ends_at))}; recorded anyway.`
     : null;
   if (i.status === 'applied' && outside)
     return {

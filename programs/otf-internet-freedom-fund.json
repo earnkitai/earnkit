@@ -10,7 +10,7 @@
   "summary": "$10,000 to $900,000 · rolling",
   "min_award_usd": 10000,
   "eligibility": [
-    { "kind": "rule", "note": "advances internet freedom for people in repressive environments: circumvention, safe communication or access to blocked information", "keywords": ["censorship", "circumvention", "privacy", "vpn", "tor"] }
+    { "kind": "rule", "note": "advances internet freedom for people in repressive environments: circumvention, safe communication or access to blocked information", "keywords": ["censorship", "circumvention", "privacy", "vpn", "tor", "otf"] }
   ],
   "max_award_usd": 900000,
   "category": "grant",

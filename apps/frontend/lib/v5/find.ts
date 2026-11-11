@@ -384,7 +384,7 @@ async function oneProgram(ctx: FindContext, id: string, project: Project | null,
   // L16-7 (v6.1.16): a program with a result shows the result, never a yes, a step or a sign-in.
   const result = project ? await resultOf(ownerOf(ctx), id) : null;
   if (result) {
-    const words = resultWords(result.status, result.amount_usd);
+    const words = resultWords(result.status, result.amounts);
     return {
       show_to_builder: [`${p.title}, ${moneyOf(p)}.`, `${words[0].toUpperCase()}${words.slice(1)}.`].join('\n'),
       agent_note: 'This program already has a result; nothing to send.',

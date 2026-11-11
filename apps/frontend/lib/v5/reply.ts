@@ -62,6 +62,11 @@ const dollars = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
 
 /** "a, b and c". Pure. */
 const joinAnd = (xs: string[]): string => (xs.length <= 1 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
+/**
+ * Gap phrases joined (L1h-3, v6.1.16): with `, and ` before the last when any phrase already holds ` and ` ("deploy the
+ * contract on Solana, and use Mobile Wallet Adapter and Seed Vault in an Android app"), else as `joinAnd`. Pure.
+ */
+const joinGaps = (xs: string[]): string => (xs.length > 1 && xs.some((x) => x.includes(' and ')) ? `${xs.slice(0, -1).join(', ')}, and ${xs.at(-1)}` : joinAnd(xs));
 
 /** At most NEEDS_SHOWN needs, then "{n} more" (fix round 1, v6.1.12): the ready line and the N3 closing. Pure. */
 const capped = (needs: string[]): string[] => (needs.length > NEEDS_SHOWN ? [...needs.slice(0, NEEDS_SHOWN), `${needs.length - NEEDS_SHOWN} more`] : needs);
@@ -213,7 +218,8 @@ export function stepClause(x: Gap): string | null {
   if (x.setup && !telling(x.setup)) return `you ${x.setup}`;
   // Fix round 1 (I1): the three kinds with no clause get their own, so the one shape holds everywhere.
   if (x.kind === 'tier' && !ownSentenceGap(x)) return 'people outside the team use it live';
-  if (x.kind === 'feature') return `${x.what} is in`;
+  // L1h-3 (v6.1.16): a note that opens with its verb ("use ...") gives way to the feature's own name (its value).
+  if (x.kind === 'feature') return `${/^(use|add) /.test(x.what) && x.item.startsWith('feature:') ? x.item.slice(8) : x.what} is in`;
   if (x.kind === 'users' && x.effort === 'weeks') {
     const n = weeksOf(x);
     return n !== null ? `it has been live for ${n} weeks` : 'real people use it';
@@ -311,7 +317,7 @@ export function gapLine(g: GapProgram, alone = false, closed: string | null = nu
   // v6.1.14: the unlinked proof is listed with the other gaps; its sign-in is the closing's.
   const listed = real.filter((x) => !readingGap(x));
   const confirm = real.filter(readingGap).map((x) => ` ${x.what}.`).join('');
-  const head = `${num(g.n, alone)}${g.title}, ${money}${listed.length > 0 ? `: ${joinAnd(listed.map((x) => x.what))}` : ''}.`;
+  const head = `${num(g.n, alone)}${g.title}, ${money}${listed.length > 0 ? `: ${joinGaps(listed.map((x) => x.what))}` : ''}.`;
   return `${head}${alone ? '' : doSentence(g.n, real)}${confirm}${first}${rules}${attend}${lookedAgainSentences(g)}`;
 }
 

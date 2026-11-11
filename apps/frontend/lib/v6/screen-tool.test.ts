@@ -210,12 +210,12 @@ test('C19, C38: outcomes name the refs not found; a win over the program\'s cap 
   const jobId = q.reply!.job_id as string;
   // L15-16 (v6.1.14): only the over-cap applicant is refused, by ref; the rest of the batch is recorded.
   const over = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'r-2', outcome: 'rejected' }, { ref: 'r-1', outcome: 'won', amount_usd: 5001 }] });
-  assert.equal(over.reply!.show_to_builder, 'Recorded 1 outcome; not passed to a builder: r-2 (no EarnKit application). That is more than this program pays for r-1; check the amount.');
+  assert.equal(over.reply!.show_to_builder, "Recorded 1 outcome; not passed to a builder: r-2 (no EarnKit application). Over the program's $5,000 cap: r-1 at $5,001. Nothing recorded for it.");
   assert.match(over.reply!.agent_note as string, /Not recorded, over what this program pays: r-1\./);
   assert.deepEqual((await sql()`SELECT ref FROM screen_outcomes WHERE job_id = ${jobId}`).map((x) => x.ref), ['r-2']);
   // L13-5 (v6.1.14): a win far past the schema's old ceiling is the same line, not an unread input.
   const huge = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'r-1', outcome: 'won', amount_usd: 1e12 }] });
-  assert.equal(huge.reply!.show_to_builder, 'Recorded 0 outcomes. That is more than this program pays for r-1; check the amount.');
+  assert.equal(huge.reply!.show_to_builder, "Recorded 0 outcomes. Over the program's $5,000 cap: r-1 at $1,000,000,000,000. Nothing recorded for it.");
   const r = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'r-1', outcome: 'won', amount_usd: 5000 }, { ref: 'zz', outcome: 'rejected' }, { ref: 'yy', outcome: 'shortlisted' }] });
   assert.equal(r.reply!.show_to_builder, 'Recorded 1 outcome; not passed to a builder: r-1 (no EarnKit application); not found: zz and yy.');
   assert.equal(r.reply!.recorded, 1);
@@ -256,14 +256,14 @@ test('C2 (v6.1.13): over 200 applicants or outcomes is one line that says to sen
     + 'c-5 (no EarnKit application), c-6 (no EarnKit application), c-7 (no EarnKit application), c-8 (no EarnKit application), c-9 (no EarnKit application) and 190 more.');
 });
 
-test('Low 18 (v6.1.13), L15-15 (v6.1.14): an applicant repeated exactly is screened once; a win whose amount is under $1 or unreadable is refused for that applicant, owner-shaped', async () => {
+test('Low 18 (v6.1.13), L15-15 (v6.1.14): an applicant repeated exactly is screened once; a win whose amount is not above 0 or unreadable is refused for that applicant, owner-shaped (L22-6, v6.1.16: cents are kept, so $0.40 is read)', async () => {
   const c = await reviewerOf('scr-rep');
   const same = [...Array.from({ length: 199 }, () => ({ ref: 'same', name: 'Same' })), { name: 'Same', ref: 'same' }];
   const q = await mcpCall(c, 'screen', { program_id: 'scr-rep', applicants: same });
   assert.match(q.reply!.show_to_builder as string, /^Queued 1 applicant for Grants scr-rep\. /);
   const jobId = q.reply!.job_id as string;
   assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_applicants WHERE job_id = ${jobId}`)[0].n, 1);
-  for (const amount of [{ amount_usd: 0.4 }, { amount_usd: 0 }, { amount_usd: -5 }, { amount: 'lots' }, { amount: '2,000', currency: 'euros' }, { amount_usd: 5, currency: 'EUR' }]) {
+  for (const amount of [{ amount_usd: 0 }, { amount_usd: -5 }, { amount: 'lots' }, { amount: '2,000', currency: 'euros' }, { amount_usd: 5, currency: 'EUR' }]) {
     const r = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'same', outcome: 'won', ...amount }] });
     assert.equal(r.reply!.show_to_builder, 'Recorded 0 outcomes. Tell me the amount for same.', JSON.stringify(amount));
     assert.doesNotMatch(r.reply!.show_to_builder as string, /you won|whole dollars/);
@@ -388,20 +388,20 @@ test('L15-15, L15-16 (v6.1.14): cents and currency codes are read; only a bad or
     { ref: 'f', outcome: 'rejected' },
   ] });
   assert.equal(r.reply!.show_to_builder, 'Recorded 4 outcomes; not passed to a builder: a (no EarnKit application), b (no EarnKit application), c (no EarnKit application) and f (no EarnKit application). '
-    + 'Tell me the amount for e. That is more than this program pays for d; check the amount.');
+    + "Tell me the amount for e. Over the program's $5,000 cap: d at $6,000. Nothing recorded for it.");
   assert.equal(r.reply!.agent_note, 'Nothing reached a builder: a: no EarnKit application, b: no EarnKit application, c: no EarnKit application, f: no EarnKit application, e: amount not read and d: over what the program pays. '
     + 'Not matched to an EarnKit application: a, b, c and f. '
     + 'Not recorded, the amount could not be read: e. Send amount_usd, or amount with a three-letter currency code, above 0. '
-    + 'Not recorded, over what this program pays: d. Rounded down to whole dollars for the builder\'s ledger: a ($2,500.50 as $2,500). '
-    + 'Kept as given, not converted to US dollars: b (2,000 EUR) and c (1,200 GBP).');
-  const so = await sql()`SELECT ref, amount_usd, amount_given, currency FROM screen_outcomes WHERE job_id = ${jobId} ORDER BY ref`;
-  assert.deepEqual(so.map((x) => [x.ref, x.amount_usd === null ? null : Number(x.amount_usd), x.amount_given === null ? null : Number(x.amount_given), x.currency]),
-    [['a', 2500, 2500.5, 'USD'], ['b', null, 2000, 'EUR'], ['c', null, 1200, 'GBP'], ['f', null, null, null]]);
+    + 'Not recorded, over what this program pays: d.');
+  // L22-6 (v6.1.16): cents and currencies kept as given, never rounded or converted.
+  const so = await sql()`SELECT ref, amount_usd, amounts FROM screen_outcomes WHERE job_id = ${jobId} ORDER BY ref`;
+  assert.deepEqual(so.map((x) => [x.ref, x.amount_usd === null ? null : Number(x.amount_usd), x.amounts]),
+    [['a', 2500.5, { USD: 2500.5 }], ['b', null, { EUR: 2000 }], ['c', null, { GBP: 1200 }], ['f', null, null]]);
   for (const t of [r.reply!.show_to_builder as string]) assert.doesNotMatch(t, /—|amount_usd|you won/);
 });
 
 test('L15-15 (v6.1.14): amountOf reads numbers, text, symbols and codes; anything else is bad', async () => {
-  const { amountOf } = await import('./screen-tool');
+  const { readAmount: amountOf } = await import('../v5/amount');
   assert.deepEqual(amountOf({ amount_usd: 10 }), { value: 10, currency: 'USD' });
   assert.deepEqual(amountOf({ amount: '2,500.50' }), { value: 2500.5, currency: 'USD' });
   assert.deepEqual(amountOf({ amount: '€1,000' }), { value: 1000, currency: 'EUR' });
@@ -413,7 +413,8 @@ test('L15-15 (v6.1.14): amountOf reads numbers, text, symbols and codes; anythin
 });
 
 test('M3, M4 (v6.1.14 fix round 1): a European thousands separator is refused; echoed field names are short, plain and at most 10', async () => {
-  const { amountOf, ignoredFields } = await import('./screen-tool');
+  const { ignoredFields } = await import('./screen-tool');
+  const { readAmount: amountOf } = await import('../v5/amount');
   // L16-14 (v6.1.16): now 'ambiguous', with its own line.
   for (const amount of ['2.500', '1.234 EUR', 'EUR 2.500']) assert.equal(amountOf({ amount }), 'ambiguous', amount);
   assert.deepEqual(amountOf({ amount: '2.50' }), { value: 2.5, currency: 'USD' });
@@ -502,7 +503,7 @@ test('fix round 1 (C1): the reviewer never learns the builder\'s own record: a c
   clean(pay);
   assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${v.builderId}`} AND program_id = 'scr-c1'`)[0].status, 'rejected');
   // A total the builder raised with their own payment: the reviewer's payment would pass the cap there; the same line.
-  assert.deepEqual(await record(`b:${w.builderId}`, 'scr-c1', 'won', { installationId: w.installationId, amount_usd: 850, payment: { key: 't:own' }, now: at(4).now }), { ok: true, total_usd: 950 });
+  assert.deepEqual(await record(`b:${w.builderId}`, 'scr-c1', 'won', { installationId: w.installationId, amount_usd: 850, payment: { key: 't:own' }, now: at(4).now }), { ok: true, total: { USD: 950 } });
   const over = await post(5, [{ ref: 'w', outcome: 'won', amount_usd: 100, payment: { key: 'p2' } }]);
   assert.equal(over.reply!.show_to_builder, "Recorded 1 outcome. Not passed on; the builder's record stands.");
   clean(over);
@@ -528,7 +529,7 @@ test('L16-13, L16-8 (v6.1.16): the queue note names a repo link off a code host 
 });
 
 test('L16-14 (v6.1.16): a dot used as a thousands separator is its own line, once, the refs in the agent note; other bad amounts keep theirs', async () => {
-  const { amountOf } = await import('./screen-tool');
+  const { readAmount: amountOf } = await import('../v5/amount');
   for (const amount of ['2.500', '1.234 EUR', 'EUR 2.500', '$1.234.567']) assert.equal(amountOf({ amount }), 'ambiguous', amount);
   assert.equal(amountOf({ amount: 'lots' }), 'bad');
   const c = await reviewerOf('scr-dot');
@@ -556,4 +557,166 @@ test('L17-5 (v6.1.16): applicants still queued are not queued again; the reply c
   assert.equal(none.reply!.agent_note, `Already queued: r-1 (row r-1 of screen ${first.reply!.job_id}) and r-2 (row r-2 of screen ${first.reply!.job_id}). Nothing was queued; their results come with the screens that hold them.`);
   assert.equal('job_id' in none.reply!, false);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs WHERE program_id = 'scr-already'`)[0].n, 2);
+});
+
+test('v6.1.16 Task 16: when the last daily run stopped at its deadline, the results line says how many of the job were read', async () => {
+  const c = await reviewerOf('scr-budget');
+  const list = Array.from({ length: 5 }, (_, i) => ({ ref: `b-${i}`, name: `B${i}`, live_url: `https://b${i}.example/` }));
+  const jobId = (await mcpCall(c, 'screen', { program_id: 'scr-budget', applicants: list })).reply!.job_id as string;
+  let t = 0;
+  const slow = async (): Promise<Evidence> => ((t += 1_000), evidence({ live: liveRows({ url: 'https://b.example/', url_ok: true }) }));
+  await workQueue({ now: NOW, limit: 200, jobId, deadline: 2_000, clock: () => t, deps: { evidence: slow } });
+  const r = await mcpCall(c, 'screen', { job_id: jobId });
+  assert.equal(r.reply!.show_to_builder, '5 applicants: 0 used, 2 live, 0 building, 0 unverified, 0 flagged; 3 pending. 2 of 5 read today; the rest tomorrow.');
+  await workQueue({ now: NOW, limit: 200, jobId, deadline: 1_000_000, clock: () => t, deps: { evidence: slow } });
+  const done = await mcpCall(c, 'screen', { job_id: jobId });
+  assert.equal(done.reply!.show_to_builder, '5 applicants: 0 used, 5 live, 0 building, 0 unverified, 0 flagged; 0 pending.');
+});
+
+test('Task 4 fix round 1 (I1, L17-2): a resent screen result carries its own time, so it never overwrites the builder\'s later correction', async () => {
+  const c = await reviewerOf('scr-i1');
+  const v = await applied('scr-i1', 'name:eye');
+  const owner = `b:${v.builderId}`;
+  const q = await mcpCall(c, 'screen', { program_id: 'scr-i1', applicants: [{ ref: 'one', name: 'Eye', application_id: v.application_id }] });
+  const T = (m: number) => new Date(NOW.getTime() + m * 60_000);
+  const won = await mcpCall({ ...c, now: T(1) }, 'screen', { job_id: q.reply!.job_id, outcomes: [{ ref: 'one', outcome: 'won', amount_usd: 1000 }] });
+  assert.equal(won.reply!.show_to_builder, 'Recorded 1 outcome.');
+  const { record } = await import('../v5/ledger');
+  assert.deepEqual(await record(owner, 'scr-i1', 'won', { installationId: v.installationId, amount_usd: 2000, now: T(2) }), { ok: true, corrected: true, replaced: { USD: 1000 } });
+  const hist = async () => (await sql()`SELECT count(*)::int AS n FROM application_history WHERE owner = ${owner} AND program_id = 'scr-i1'`)[0].n;
+  const before = await hist();
+  const again = await mcpCall({ ...c, now: T(3) }, 'screen', { job_id: q.reply!.job_id, outcomes: [{ ref: 'one', outcome: 'won', amount_usd: 1000 }] });
+  assert.equal(again.reply!.show_to_builder, 'Already recorded; nothing new.');
+  assert.equal(again.reply!.agent_note, 'Already recorded, nothing new: one.');
+  const [row] = await sql()`SELECT status, amount_usd, at FROM applications WHERE owner = ${owner} AND program_id = 'scr-i1'`;
+  assert.deepEqual([row.status, Number(row.amount_usd), row.at.getTime()], ['won', 2000, T(2).getTime()]);
+  assert.equal(await hist(), before);
+});
+
+/** A builder with one sent application per program, on one project, and each program's reviewer. */
+async function sentTo(programIds: string[], cap = 100_000) {
+  const b = await linked();
+  const { record } = await import('../v5/ledger');
+  const apps: Record<string, string> = {};
+  for (const id of programIds) {
+    await upsertProgram(programFixture({ id, title: `Grants ${id}`, max_award_usd: cap }), 'file', NOW);
+    assert.deepEqual(await record(`b:${b.builderId}`, id, 'applied', { installationId: b.installationId, now: NOW, project_id: 'name:money app' }), { ok: true });
+    apps[id] = (await sql()`SELECT application_id FROM applications WHERE owner = ${`b:${b.builderId}`} AND program_id = ${id}`)[0].application_id as string;
+  }
+  const r = await linked();
+  for (const id of programIds) await addReviewer(id, r.login, null);
+  /** Queues the builder as one applicant of `id` and posts the outcomes on it. */
+  const post = async (id: string, outcomes: Record<string, unknown>[], at = NOW) => {
+    const q = await mcpCall(r, 'screen', { program_id: id, applicants: [{ ref: 'm', name: 'Money App', application_id: apps[id] }] });
+    const job = (q.reply!.job_id as string | undefined) ?? (await sql()`SELECT job_id FROM screen_applicants WHERE application_id = ${apps[id]} LIMIT 1`)[0].job_id as string;
+    return { job, reply: (await mcpCall({ ...r, now: at }, 'screen', { job_id: job, outcomes: outcomes.map((o) => ({ ref: 'm', ...o })) })).reply! };
+  };
+  return { b, r, post };
+}
+const appsLine = (text: string) => text.split('\n').find((l) => l.startsWith('Your applications:'));
+
+test('Review Focus 11 (v6.1.16): $1,000 tracked + $2,500.50 and EUR 2,000 screened read one total on find, track and /me; stats split by currency', async () => {
+  const { readStats } = await import('../v5/stats');
+  const { meData } = await import('./me-view');
+  const { getBuilder } = await import('./builders');
+  const before = await readStats(NOW);
+  const { b, post } = await sentTo(['rf11-a', 'rf11-b', 'rf11-c']);
+  const t = await mcpCall(b, 'track', { program_id: 'rf11-a', status: 'won', amount_usd: 1000 });
+  assert.equal(t.reply!.show_to_builder, 'Tracked: $1,000 from Grants rf11-a.');
+  const cents = await post('rf11-b', [{ outcome: 'won', amount: '$2,500.50' }]);
+  assert.equal(cents.reply.show_to_builder, 'Recorded 1 outcome.');
+  const eur = await post('rf11-c', [{ outcome: 'won', amount: 2000, currency: 'EUR' }]);
+  assert.equal(eur.reply.show_to_builder, 'Recorded 1 outcome.');
+  const line = 'Your applications: 3 sent, 3 won ($3,500.50 and EUR 2,000).';
+  const f = await mcpCall(b, 'find', { project: { name: 'Money App', description: 'Payments for coffee shops.' } });
+  assert.equal(appsLine(f.reply!.show_to_builder as string), line);
+  const again = await mcpCall(b, 'track', { program_id: 'rf11-a', status: 'won', amount_usd: 1000 });
+  const { ledgerCounts } = await import('../v5/ledger');
+  assert.equal(`Your applications: ${ledgerCounts(again.reply!.ledger as never)}`, line);
+  const secret = process.env.EARNKIT_AUTH_SECRET;
+  process.env.EARNKIT_AUTH_SECRET ??= 's'.repeat(40);
+  const d = await meData((await getBuilder(b.builderId))!, NOW, 'sess').finally(() => {
+    if (secret === undefined) delete process.env.EARNKIT_AUTH_SECRET;
+  });
+  assert.equal(`Your applications: ${d.ledger_line}`, line);
+  assert.deepEqual(d.ledger.map((x) => x.words).sort(), ['Won $1,000, Nov 6.', 'Won $2,500.50, Nov 6.', 'Won EUR 2,000, Nov 6.']);
+  // The program view after a win names the win in the one format (L22-7).
+  const one = await mcpCall(b, 'find', { program_id: 'rf11-c', project: { name: 'Money App', description: 'Payments for coffee shops.' } });
+  assert.match(one.reply!.show_to_builder as string, /^Won EUR 2,000\.$/m);
+  const after = await readStats(NOW);
+  assert.equal(after.won_usd - before.won_usd, 3500.5);
+  const eurOf = (s: typeof after) => s.won_other.find((x) => x.currency === 'EUR')?.amount ?? 0;
+  assert.equal(eurOf(after) - eurOf(before), 2000);
+  assert.equal(after.won_without_amount - before.won_without_amount, 0);
+});
+
+test('L22-1 (v6.1.16): a screened win with no amount is counted and named: 2 won ($5,000, one amount not given)', async () => {
+  const { b, post } = await sentTo(['l221-a', 'l221-b']);
+  await post('l221-a', [{ outcome: 'won', amount_usd: 5000 }]);
+  await post('l221-b', [{ outcome: 'won' }]);
+  const f = await mcpCall(b, 'find', { project: { name: 'Money App', description: 'Payments for coffee shops.' } });
+  assert.equal(appsLine(f.reply!.show_to_builder as string), 'Your applications: 2 sent, 2 won ($5,000, one amount not given).');
+});
+
+test('L22-4, L22-5, L22-9 (v6.1.16): $10,000.99 and 50000 EUR are refused on a $10,000 cap with the owner line; nothing stored', async () => {
+  const { b, post } = await sentTo(['l224-a', 'l224-b', 'l224-c'], 10_000);
+  const usd = await post('l224-a', [{ outcome: 'won', amount: '$10,000.99' }]);
+  assert.equal(usd.reply.show_to_builder, "Recorded 0 outcomes. Over the program's $10,000 cap: m at $10,000.99. Nothing recorded for it.");
+  const eur = await post('l224-b', [{ outcome: 'won', amount: '50000 EUR' }]);
+  assert.equal(eur.reply.show_to_builder, "Recorded 0 outcomes. Over the program's $10,000 cap: m at EUR 50,000. Nothing recorded for it.");
+  const odd = await post('l224-c', [{ outcome: 'won', amount: 10_001, currency: 'XYZ' }]);
+  assert.match(odd.reply.agent_note as string, /m: Not a currency I can compare; its number is over the cap\./);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_outcomes WHERE job_id = ANY(${[usd.job, eur.job, odd.job]})`)[0].n, 0);
+  // The builder's own agent hears the builder line, and the same refusals hold on track.
+  for (const [amount, currency] of [['$10,000.99', undefined], ['50000', 'EUR']] as const) {
+    const t = await mcpCall(b, 'track', { program_id: 'l224-a', status: 'won', amount, ...(currency && { currency }) });
+    assert.equal(t.reply!.show_to_builder, "Over the program's $10,000 cap; nothing recorded.");
+  }
+  const t = await mcpCall(b, 'track', { program_id: 'l224-a', status: 'won', amount: 10_001, currency: 'XYZ' });
+  assert.equal(t.reply!.agent_note, 'Nothing was recorded. Not a currency I can compare; its number is over the cap.');
+  assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${b.builderId}`} AND program_id = 'l224-a'`)[0].status, 'applied');
+});
+
+test('L22-6 (v6.1.16): the seven spellings read the same on the screen as on track', async () => {
+  const spellings = ['5k', '$5,000', '5000 USD', 'USD 5000', '5,000.00', '€5000', '£5000'];
+  const ids = spellings.map((_, i) => `l226-s${i}`);
+  const { post } = await sentTo(ids);
+  const kept: unknown[] = [];
+  for (const [i, amount] of spellings.entries()) {
+    const p = await post(ids[i], [{ outcome: 'won', amount }]);
+    kept.push((await sql()`SELECT amounts FROM screen_outcomes WHERE job_id = ${p.job}`)[0].amounts);
+  }
+  assert.deepEqual(kept, [{ USD: 5000 }, { USD: 5000 }, { USD: 5000 }, { USD: 5000 }, { USD: 5000 }, { EUR: 5000 }, { GBP: 5000 }]);
+  const { b } = await sentTo(ids.map((x) => `${x}-t`));
+  const tracked: string[] = [];
+  for (const [i, amount] of spellings.entries()) tracked.push((await mcpCall(b, 'track', { program_id: `${ids[i]}-t`, status: 'won', amount })).reply!.show_to_builder as string);
+  assert.deepEqual(tracked, [
+    ...['$5,000', '$5,000', '$5,000', '$5,000', '$5,000', 'EUR 5,000', 'GBP 5,000'].map((m, i) => `Tracked: ${m} from Grants ${ids[i]}-t.`),
+  ]);
+  const dot = await mcpCall(b, 'track', { program_id: `${ids[0]}-t`, status: 'won', amount: '5.000', payment: { key: 'x' } });
+  assert.equal(dot.reply!.show_to_builder, 'Amount not read: use a dot only for cents, no thousands separator.');
+});
+
+test('L22-3 (v6.1.16): a further payment adds within one currency and keeps both across currencies, on the screen and the ledger', async () => {
+  const { b, post } = await sentTo(['l223-a', 'l223-b']);
+  await post('l223-a', [{ outcome: 'won', amount: 2000, currency: 'EUR' }]);
+  const add = await post('l223-a', [{ outcome: 'won', amount: '500 EUR', payment: { key: 'e2' } }], new Date(NOW.getTime() + 60_000));
+  assert.match(add.reply.agent_note as string, /Added to the win recorded before: m \(now won EUR 2,500\)\./);
+  await post('l223-b', [{ outcome: 'won', amount_usd: 1000 }]);
+  const mix = await post('l223-b', [{ outcome: 'won', amount: '€500', payment: { key: 'e3' } }], new Date(NOW.getTime() + 60_000));
+  assert.match(mix.reply.agent_note as string, /now won \$1,000 and EUR 500\)/);
+  const screen = await sql()`SELECT amounts FROM screen_outcomes WHERE job_id = ANY(${[add.job, mix.job]}) ORDER BY amount_usd NULLS FIRST`;
+  assert.deepEqual(screen.map((x) => x.amounts), [{ EUR: 2500 }, { USD: 1000, EUR: 500 }]);
+  const ledger = await sql()`SELECT program_id, amounts FROM applications WHERE owner = ${`b:${b.builderId}`} ORDER BY program_id`;
+  assert.deepEqual(ledger.map((x) => x.amounts), [{ EUR: 2500 }, { USD: 1000, EUR: 500 }]);
+  const f = await mcpCall(b, 'find', { project: { name: 'Money App', description: 'Payments for coffee shops.' } });
+  assert.equal(appsLine(f.reply!.show_to_builder as string), 'Your applications: 2 sent, 2 won ($1,000 and EUR 3,000).');
+});
+
+test('L22-12 (v6.1.16): a results page carries each applicant\'s posted result and amount', async () => {
+  const { r, post } = await sentTo(['l2212-a']);
+  const p = await post('l2212-a', [{ outcome: 'won', amount: '$2,500.50' }]);
+  const res = await mcpCall(r, 'screen', { job_id: p.job });
+  const row = (res.reply!.results as { applicants: { ref: string; result: string | null; amount: string | null }[] }).applicants.find((a) => a.ref === 'm')!;
+  assert.deepEqual([row.result, row.amount], ['won', '$2,500.50']);
 });

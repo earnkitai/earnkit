@@ -135,6 +135,14 @@ function isOnchainRows(v: unknown): v is OnchainRows {
   return hasKeys(v, ONCHAIN_KEYS) && typeof (v as OnchainRows).chain === 'string' && typeof (v as OnchainRows).address === 'string';
 }
 
+/** v6.1.16 Task 16 (L30-17): the daily run drops cache rows read over this many days ago. */
+export const EVIDENCE_KEEP_DAYS = 180;
+
+/** Deletes evidence_cache rows read over EVIDENCE_KEEP_DAYS before `now` (the daily run); the rows deleted. */
+export async function sweepEvidence(now: Date): Promise<number> {
+  return (await sql()`DELETE FROM evidence_cache WHERE read_at < ${new Date(now.getTime() - EVIDENCE_KEEP_DAYS * DAY)}`).count;
+}
+
 /** A cache row under 7 days old whose rows have the expected shape; anything else is a miss. */
 async function cacheGet<T>(key: string, now: Date, valid: (v: unknown) => v is T): Promise<{ rows: T; pushed_at: string | null; read_at: Date } | null> {
   try {

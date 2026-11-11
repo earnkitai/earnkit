@@ -5,10 +5,10 @@
  */
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { sql } from '../v5/db';
-import { ledgerCounts, summary } from '../v5/ledger';
+import { amountsOf, ledgerCounts, summary } from '../v5/ledger';
 import { ANSWER_KINDS, PROGRAM_CATEGORIES } from '../v5/program-file';
 import { nameKeyOf, projectKeyOf } from '../v5/project-input';
-import { usdFull } from '../v5/programs-read';
+import { amountsText, usdFull, type Amounts } from '../v5/programs-read';
 import { cleanClientName, displayName } from '../v5/installations';
 import {
   ME_AN_AGENT, ME_BLOCKS, ME_LABELS, ME_LINK_EXPIRED_TITLE, ME_LINK_NOT, ME_LINK_PARTS, ME_LINK_TITLE, ME_LINK_USED, ME_PROJECT_SEEN, ME_REVIEWS, ME_STATUS,
@@ -248,12 +248,14 @@ async function linkBanner(code: string | null | undefined, builderId: number, no
 /**
  * A ledger row's result as a sentence (L21-1, L21-19, v6.1.16): "Won $5,000, Nov 11.", "Won $3,500 in all, Nov 11."
  * when the win holds a further payment, "Won, amount not given, Nov 11.", "Applied, Nov 11.", "Rejected, Nov 11.".
- * A corrected win shows the current amount (the row holds it). Money through `usdFull`, the one formatter. Pure.
+ * A corrected win shows the current amount (the row holds it). Money through the one format (L22-7, v6.1.16: cents
+ * and currencies kept, "Won $1,000 and EUR 500 in all, Nov 11."); a number is US dollars. Pure.
  */
-export function ledgerRowWords(status: string, amount_usd: number | string | null, paid_more: boolean, day: string): string {
+export function ledgerRowWords(status: string, amounts: Amounts | number | string | null, paid_more: boolean, day: string): string {
   if (status === 'won') {
-    if (amount_usd === null) return `Won, amount not given, ${day}.`;
-    return `Won ${usdFull(Number(amount_usd))}${paid_more ? ' in all' : ''}, ${day}.`;
+    const a = amounts === null || typeof amounts === 'object' ? amounts : amountsOf({ amount_usd: amounts });
+    if (a === null) return `Won, amount not given, ${day}.`;
+    return `Won ${amountsText(a)}${paid_more ? ' in all' : ''}, ${day}.`;
   }
   return `${ME_STATUS[status] ?? cap(status.replaceAll('_', ' '))}, ${day}.`;
 }
@@ -302,8 +304,8 @@ export async function meData(builder: Builder, now: Date, session: string, link?
   const owner = `b:${builder.id}`;
   // L21-1 (v6.1.16): the current amount (a correction replaced it; a further payment added to it) and whether a further
   // payment came after the last correction, so the row reads "in all".
-  const ledger = await sql()<{ title: string | null; program_id: string; status: string; at: Date; amount_usd: string | null; paid_more: boolean }[]>`
-    SELECT COALESCE(p.file->>'title', a.title) AS title, a.program_id, a.status, a.at, a.amount_usd,
+  const ledger = await sql()<{ title: string | null; program_id: string; status: string; at: Date; amount_usd: string | null; amounts: unknown; paid_more: boolean }[]>`
+    SELECT COALESCE(p.file->>'title', a.title) AS title, a.program_id, a.status, a.at, a.amount_usd, a.amounts,
       EXISTS (SELECT 1 FROM application_history h WHERE h.owner = a.owner AND h.program_id = a.program_id AND h.payment_key IS NOT NULL
         AND h.at >= COALESCE((SELECT max(c.at) FROM application_history c WHERE c.owner = a.owner AND c.program_id = a.program_id AND c.corrected), '-infinity'::timestamptz)) AS paid_more
     FROM applications a LEFT JOIN programs p ON p.id = a.program_id
@@ -325,8 +327,8 @@ export async function meData(builder: Builder, now: Date, session: string, link?
       title: r.title ?? r.program_id,
       status: ME_STATUS[r.status] ?? cap(r.status.replaceAll('_', ' ')),
       at: monthDay(r.at),
-      money: r.status === 'won' && r.amount_usd !== null ? usdFull(Number(r.amount_usd)) : null,
-      words: ledgerRowWords(r.status, r.amount_usd, r.paid_more, monthDay(r.at)),
+      money: r.status === 'won' ? amountsText(amountsOf(r)) || null : null,
+      words: ledgerRowWords(r.status, r.status === 'won' ? amountsOf(r) : null, r.paid_more, monthDay(r.at)),
     })),
     ledger_line: counts.applied > 0 ? ledgerCounts(counts) : null,
     installations: await agentList(builder.id),

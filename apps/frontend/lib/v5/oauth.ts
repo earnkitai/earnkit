@@ -478,6 +478,8 @@ export async function exchangeCode(
 
   // The code keeps the client_id; a document is re-read through its cache (a failed read refuses the exchange).
   const client = await clientOf(payload.c, deps);
+  // v6.1.16 Task 16: a registered client that exchanged a code is kept; the daily run sweeps the unused ones over 30 days.
+  if (client && !isCimdClientId(payload.c)) await sql()`UPDATE oauth_clients SET used_at = now() WHERE client_id = ${payload.c} AND used_at IS NULL`;
   return {
     token: `ek_${mac('token', code)}`,
     limitKey: registrationLimitKey(payload.c),

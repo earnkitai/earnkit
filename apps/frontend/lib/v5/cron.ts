@@ -1,26 +1,54 @@
 /**
- * POST /api/cron, once a day: the freshness probe, the repo cache sweep (rows over 30 days), the screen
- * jobs over 180 days swept (L15-14), link codes and sessions expired over a day ago swept, and the queue's share
- * (5 minutes at most), then the owner's digest. A JSON body { job_id } is the owner's trigger: that job's queue
- * only. Bearer CRON_SECRET only (503 while it is unset). A step that throws answers 500 with its name.
+ * POST /api/cron, once a day (v6.1.16 Task 16: the daily run tells the truth). Steps, in order, each in its own try:
+ * the freshness walk (links, page changes, status moves by date), the sweeps (repo cache over 30 days, project reports
+ * over 180, screen jobs over 180, link codes, sessions and spent OAuth codes over a day, OAuth clients over 30 days that
+ * never exchanged a code, the evidence cache over 180 days, rate windows over 2 days), the queue's share (5 minutes at
+ * most, within the run's budget), then the owner's digest. One `deadline = start + RUN_BUDGET_MS`; the walk has its own
+ * share (HEALTH_BUDGET_MS); health and the queue start only before the deadline (else `failed` with `budget`); the
+ * sweeps and the digest always run. Every failure is in `failed: [{ id, step, error }]` (a program's id, or null for a
+ * whole step; `error` one of db, fetch, timeout, budget, catalog, parse, error by the error's class, the message only
+ * in the server log); the answer is 200 with the list, 500 only when every step failed. A JSON body { job_id } is the
+ * owner's trigger: that job's queue only. Bearer CRON_SECRET only (503 while it is unset).
  */
+import { sweepEvidence } from '../v6/evidence';
 import { sweepScreens } from '../v6/screen-jobs';
 import { SCREEN_BATCH, SCREEN_DAILY_MS, SCREEN_TRIGGER_MAX, SCREEN_TRIGGER_MS, workQueue } from '../v6/screen-worker';
 import { sql } from './db';
 import { bearerMatches, json, readBody } from './http';
-import { runHealth } from './health';
+import { errorCode, errorWords, runHealth, type ErrorCode, type HealthRun, type LinkCheck } from './health';
 import type { Mailer } from './mail';
 import { sendOwnerDigest } from './owner-digest';
 import { programsChanged } from './programs-api';
+import { sweepWindows } from './rate-limit';
 import { sweepRepoCache } from './repo-facts';
 import { sweepReports } from './ledger';
-import type { Probe } from './safe-fetch';
+import type { Resolver, Transport } from './safe-fetch';
+
+/** v6.1.16 Task 16: the whole daily run's budget (the workflow's curl waits 540 s). */
+export const RUN_BUDGET_MS = 420_000;
+export { PROBE_MS, PROBE_PARALLEL } from './health';
+/** The queue's share ends this long before the run's deadline, for its last read and the digest. */
+const SCREEN_TAIL_MS = 20_000;
+/**
+ * Fix round 1 (M1): the walk's own share of the run. Its probes end by `start + HEALTH_BUDGET_MS` (a probe starts only
+ * when it can finish), so the queue always keeps at least RUN_BUDGET_MS - HEALTH_BUDGET_MS - SCREEN_TAIL_MS (220 s).
+ */
+export const HEALTH_BUDGET_MS = 180_000;
+
+export type Step = 'health' | 'sweep_repo' | 'sweep_reports' | 'sweep_screens' | 'sweep_auth' | 'sweep_evidence' | 'sweep_windows' | 'screen' | 'digest';
+const STEPS: Step[] = ['health', 'sweep_repo', 'sweep_reports', 'sweep_screens', 'sweep_auth', 'sweep_evidence', 'sweep_windows', 'screen', 'digest'];
+/** `error` is a code from a fixed set chosen by the error's class; the message is only in the server log. */
+export type RunFailure = { id: string | null; step: Step; error: ErrorCode };
 
 export type CronDeps = {
-  probe?: Probe;
-  page?: (url: string) => Promise<string>;
+  /** The link check of the walk (tests); else probeLink over `resolve` and `transport`. */
+  link?: LinkCheck;
+  resolve?: Resolver;
+  transport?: Transport;
   mailer?: Mailer;
   now?: Date;
+  /** Epoch ms for the budget (default Date.now); tests pass a fake clock. */
+  clock?: () => number;
   limit?: number;
   runHealth?: typeof runHealth;
   sendDigest?: typeof sendOwnerDigest;
@@ -52,16 +80,20 @@ const failed = (step: string, err: unknown): Response => {
   return json({ error: `${step} failed` }, 500);
 };
 
+const DAY = 86_400_000;
+
 /**
- * Link codes and sessions that expired over a day ago, and spent OAuth codes exchanged over a day ago (v6.1.16 Task 5:
- * a code lives 5 minutes, so its spent row is no longer needed); returns how many of each went.
+ * Link codes and sessions that expired over a day ago, spent OAuth codes exchanged over a day ago (v6.1.16 Task 5: a
+ * code lives 5 minutes), and registered OAuth clients over 30 days old that never exchanged a code (Task 16: no
+ * installation came from them; `used_at` is set at the first exchange); how many of each went.
  */
-async function sweepAuth(now: Date): Promise<{ link_codes: number; sessions: number; oauth_codes: number }> {
-  const cutoff = new Date(now.getTime() - 86_400_000);
+async function sweepAuth(now: Date): Promise<{ link_codes: number; sessions: number; oauth_codes: number; oauth_clients: number }> {
+  const cutoff = new Date(now.getTime() - DAY);
   const codes = await sql()`DELETE FROM link_codes WHERE expires_at < ${cutoff}`;
   const sessions = await sql()`DELETE FROM sessions WHERE expires_at < ${cutoff}`;
   const spent = await sql()`DELETE FROM oauth_codes_spent WHERE at < ${cutoff}`;
-  return { link_codes: codes.count, sessions: sessions.count, oauth_codes: spent.count };
+  const clients = await sql()`DELETE FROM oauth_clients WHERE created_at < ${new Date(now.getTime() - 30 * DAY)} AND used_at IS NULL`;
+  return { link_codes: codes.count, sessions: sessions.count, oauth_codes: spent.count, oauth_clients: clients.count };
 }
 
 export async function cronPost(request: Request, deps: CronDeps = {}): Promise<Response> {
@@ -75,6 +107,7 @@ export async function cronPost(request: Request, deps: CronDeps = {}): Promise<R
   }
   if (!bearerMatches(request.headers.get('authorization'), secret)) return json({ error: 'unauthorized' }, 401);
   const now = deps.now ?? new Date();
+  const clock = deps.clock ?? Date.now;
   const work = deps.workQueue ?? workQueue;
   const trigger = await triggeredJob(request);
   if (trigger === 'bad') return json({ error: 'bad body' }, 400);
@@ -82,45 +115,66 @@ export async function cronPost(request: Request, deps: CronDeps = {}): Promise<R
   if (trigger) {
     const { jobId } = trigger;
     try {
-      const screen = await work({ now, limit: SCREEN_TRIGGER_MAX, jobId, deadline: Date.now() + SCREEN_TRIGGER_MS });
+      const screen = await work({ now, limit: SCREEN_TRIGGER_MAX, jobId, deadline: clock() + SCREEN_TRIGGER_MS, clock });
       return json({ screen });
     } catch (err) {
       return failed('screen', err);
     }
   }
 
-  let health: Awaited<ReturnType<typeof runHealth>>;
-  try {
-    health = await (deps.runHealth ?? runHealth)({ probe: deps.probe, page: deps.page, now }, deps.limit);
-  } catch (err) {
-    return failed('health', err);
-  }
-  for (const id of health.closed) programsChanged(id);
+  const start = clock();
+  const deadline = start + RUN_BUDGET_MS;
+  const fails: RunFailure[] = [];
+  /** Runs one step in its own try; a throw is listed and the run goes on. */
+  const step = async <T>(name: Step, run: () => Promise<T>): Promise<T | null> => {
+    try {
+      return await run();
+    } catch (err) {
+      console.error(`[cron] ${name} failed: ${errorWords(err)}`);
+      fails.push({ id: null, step: name, error: errorCode(err) });
+      return null;
+    }
+  };
+  /** Health and the queue start only before the deadline. */
+  const inBudget = (name: Step): boolean => {
+    if (clock() < deadline) return true;
+    fails.push({ id: null, step: name, error: 'budget' });
+    return false;
+  };
 
-  let swept: number;
-  try {
-    swept = await sweepRepoCache(now);
-    // W3 (final round): reports no find has updated for 180 days.
-    await sweepReports(now);
-  } catch (err) {
-    return failed('sweep', err);
+  let health: HealthRun | null = null;
+  if (inBudget('health')) {
+    health = await step('health', () => (deps.runHealth ?? runHealth)(now, {
+      link: deps.link, resolve: deps.resolve, transport: deps.transport, limit: deps.limit, deadline: start + HEALTH_BUDGET_MS, clock,
+    }));
+    if (health) {
+      for (const f of health.failed) fails.push({ ...f, step: 'health' });
+      for (const id of [...health.closed, ...health.opened]) programsChanged(id);
+    }
   }
 
-  let screen: Awaited<ReturnType<typeof workQueue>> & { swept: number; swept_auth: { link_codes: number; sessions: number; oauth_codes: number } };
-  try {
-    // Jobs past the 90-day window of the counts across programs go first.
-    const screensSwept = await sweepScreens(now);
-    const swept_auth = await sweepAuth(now);
-    screen = { swept: screensSwept, swept_auth, ...(await work({ now, limit: SCREEN_BATCH, deadline: Date.now() + SCREEN_DAILY_MS })) };
-  } catch (err) {
-    return failed('screen', err);
-  }
+  const swept = {
+    repo_cache: await step('sweep_repo', () => sweepRepoCache(now)),
+    reports: await step('sweep_reports', () => sweepReports(now)),
+    screens: await step('sweep_screens', () => sweepScreens(now)),
+    ...((await step('sweep_auth', () => sweepAuth(now))) ?? { link_codes: null, sessions: null, oauth_codes: null, oauth_clients: null }),
+    evidence: await step('sweep_evidence', () => sweepEvidence(now)),
+    windows: await step('sweep_windows', () => sweepWindows(now)),
+  };
 
-  let digest: 'sent' | 'none';
-  try {
-    digest = await (deps.sendDigest ?? sendOwnerDigest)(now, deps.mailer);
-  } catch (err) {
-    return failed('digest', err);
-  }
-  return json({ health: { checked: health.checked, stale: health.stale.length, changed: health.changed.length, closed: health.closed.length }, swept, screen, digest });
+  const screen = inBudget('screen')
+    ? await step('screen', () => work({
+      now, limit: SCREEN_BATCH, clock,
+      deadline: Math.min(clock() + SCREEN_DAILY_MS, deadline - SCREEN_TAIL_MS),
+    }))
+    : null;
+
+  const digest = await step('digest', () => (deps.sendDigest ?? sendOwnerDigest)(now, deps.mailer));
+
+  const whole = new Set(fails.filter((f) => f.id === null).map((f) => f.step));
+  const status = STEPS.every((s) => whole.has(s)) ? 500 : 200;
+  return json({
+    health: health && { checked: health.checked, stale: health.stale.length, changed: health.changed.length, closed: health.closed.length, opened: health.opened.length },
+    swept, screen, digest, failed: fails,
+  }, status);
 }
