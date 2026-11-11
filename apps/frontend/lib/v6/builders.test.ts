@@ -358,3 +358,27 @@ test('T5-F6 (v6.1.14): on link the stronger row stays and carries the dropped ro
   await linkInstallation(three, b.id, NOW);
   assert.equal((await sql()`SELECT application_id FROM applications WHERE owner = ${`b:${b.id}`} AND program_id = 'bl-carry2'`)[0].application_id, own.application_id);
 });
+
+test('L28-10 (v6.1.16 Task 14, controller ruling): unlink moves nothing and marks the former builder for the duplicate-send check only; a link or the builder\'s delete clears it', async () => {
+  const b = await upsertBuilder({ github_id: ++gh, login: 'l28u' + gh, name: null, avatar_url: null }, NOW);
+  const i = await install();
+  await linkInstallation(i, b.id, NOW);
+  await prog('bl-l28');
+  assert.deepEqual(await record(`b:${b.id}`, 'bl-l28', 'applied', { installationId: i, now: NOW, project_id: 'name:x' }), { ok: true });
+  assert.equal(await unlinkInstallation(i, b.id, NOW), true);
+  const former = async () => (await sql()`SELECT former_builder_id AS f FROM installations WHERE id = ${i}`)[0].f;
+  assert.equal(await former(), b.id);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${`b:${b.id}`}`)[0].n, 1);
+  // The unlinked agent's own ledger is empty and its send of that project is refused, with nothing of the builder's.
+  assert.deepEqual(await record(`i:${i}`, 'bl-l28', 'applied', { installationId: i, now: NOW, project_id: 'name:x' }),
+    { ok: false, note: 'Already sent from your account; nothing recorded. Sign in again to see it.' });
+  assert.equal((await summary(`i:${i}`, [], NOW)).applied, 0);
+  await deleteBuilder(b.id, NOW);
+  assert.equal(await former(), null);
+  const b2 = await upsertBuilder({ github_id: ++gh, login: 'l28v' + gh, name: null, avatar_url: null }, NOW);
+  const j = await install();
+  await linkInstallation(j, b2.id, NOW);
+  await unlinkInstallation(j, b2.id, NOW);
+  await linkInstallation(j, b2.id, NOW);
+  assert.equal((await sql()`SELECT former_builder_id AS f FROM installations WHERE id = ${j}`)[0].f, null);
+});

@@ -138,7 +138,7 @@ test('a Solana repo gets a reply, no crash, and nothing is taken as reported', a
 
 test('the owner, linked: record set, approved on /me, find fills from it, started, applied; a send the record cannot fill is outside the standing approval (F1)', async () => {
   const id = await stranger();
-  const b = await upsertBuilder({ github_id: 990_001, login: 'jenil', name: 'Jenil', avatar_url: null }, NOW);
+  const b = await upsertBuilder({ github_id: 990_001, login: 'earnkitai' /* L28-3 (v6.1.16 Task 14): the repo's owner */, name: 'Jenil', avatar_url: null }, NOW);
   await linkInstallation(id, b.id, NOW);
   const { rec, project: p } = project('earnkit');
   const live = async () => evidence({ live: liveRows({ url: 'https://earnkit.com', url_ok: true }) });

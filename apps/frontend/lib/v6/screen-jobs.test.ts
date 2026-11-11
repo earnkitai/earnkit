@@ -920,3 +920,93 @@ test('L26-10 (v6.1.16): an i:<n> owner is looked up by id, a builder\'s agents a
   const { installationOwner } = await import('./screen-jobs');
   assert.deepEqual(['i:42', 'i:0042', 'b:42', 'i:', 'i:4x', 'i:99999999999999999999'].map(installationOwner), [42, 42, null, null, null, null]);
 });
+
+// ---- v6.1.16 Task 14: shared projects (lane 28) ----
+
+/** A complete cached read of github.com/{key} with these contributors and repo id. */
+async function seedRead(key: string, contributors: string[] = [], id?: number) {
+  const facts = {
+    chains: [], contracts: [], builder_codes: false, integrations: [], first_commit_at: '2026-06-01T00:00:00Z', last_commit_at: NOW.toISOString(),
+    readme_excerpt: null, homepage: null, html_url: `https://github.com/${key}`, pushed_at: NOW.toISOString(), fork: false, archived: false, empty: false,
+    readme_lead: 'It keeps time.', contributors, ...(id ? { repo_id: id } : {}),
+  };
+  await sql()`INSERT INTO repo_cache (repo, facts, fetched_at, pushed_at) VALUES (${key}, ${sql().json(facts)}, ${NOW}, ${NOW})
+    ON CONFLICT (repo) DO UPDATE SET facts = EXCLUDED.facts, fetched_at = EXCLUDED.fetched_at`;
+}
+
+test('Review Focus 20, L28-11 (v6.1.16 Task 14): one repo, one application: the second builder is refused, a co-founder\'s older row takes the repo\'s result, stats count one win, a reviewer co-founder never posts it', async () => {
+  const { readStats } = await import('../v5/stats');
+  const r = await reviewer('jobs-l28');
+  await upsertProgram(programFixture({ id: 'jobs-l28', title: 'jobs-l28 title', max_award_usd: 5000 }), 'file', NOW);
+  const a = await upsertBuilder({ github_id: ++gh, login: 'scr-a', name: null, avatar_url: null }, NOW);
+  const b = await upsertBuilder({ github_id: ++gh, login: 'scr-b', name: null, avatar_url: null }, NOW);
+  await seedRead('org/scr', ['scr-a', 'scr-b']);
+  const repo = 'https://github.com/org/scr';
+  assert.deepEqual(await record(`b:${a.id}`, 'jobs-l28', 'applied', { installationId: await instOf(a.id), now: NOW, project_id: repo }), { ok: true });
+  assert.deepEqual(await record(`b:${b.id}`, 'jobs-l28', 'applied', { installationId: await instOf(b.id), now: NOW, project_id: repo }),
+    { ok: false, note: 'Already sent for this repo by another builder on Nov 6.', repo_taken: true });
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE program_id = 'jobs-l28'`)[0].n, 1);
+  // A co-founder's row from before one application per repo (sent later), as lane 28 found them.
+  await sql()`INSERT INTO applications (owner, installation_id, program_id, status, at, sent_at, project_id, repo_key, application_id, title)
+    VALUES (${`b:${b.id}`}, ${await instOf(b.id)}, 'jobs-l28', 'applied', ${new Date(NOW.getTime() + 3_600_000)}, ${new Date(NOW.getTime() + 3_600_000)}, ${repo}, ${repo}, 'ek-l28-legacy-b', 'jobs-l28 title')`;
+  const before = await readStats(NOW);
+  const j = await job(r, [
+    { ref: 'r-a', name: 'Scr', repo_url: repo, application_id: await appId(`b:${a.id}`, 'jobs-l28') },
+    { ref: 'r-b', name: 'Scr', repo_url: `${repo}.git`, application_id: 'ek-l28-legacy-b' },
+  ]);
+  await told(j.id, r.builderId, [{ ref: 'r-a', outcome: 'won', amount_usd: 3000 }, { ref: 'r-b', outcome: 'won', amount_usd: 3000 }], NOW);
+  const status = async (owner: string) => (await sql()`SELECT status, amount_usd FROM applications WHERE owner = ${owner} AND program_id = 'jobs-l28'`)
+    .map((x) => [x.status, x.amount_usd === null ? null : Number(x.amount_usd)])[0];
+  assert.deepEqual(await status(`b:${a.id}`), ['won', 3000]);
+  assert.deepEqual(await status(`b:${b.id}`), ['applied', null]);
+  // Stats count the repo's win once, even if both rows read won.
+  await sql()`UPDATE applications SET status = 'won', amount_usd = 3000, amounts = '{"USD": 3000}' WHERE owner = ${`b:${b.id}`} AND program_id = 'jobs-l28'`;
+  const after = await readStats(NOW);
+  assert.equal(after.won - before.won, 1);
+  assert.equal(after.won_usd - before.won_usd, 3000);
+  // Controller ruling: the reviewer's own check runs on the id's row and the row it redirects to.
+  await sql()`UPDATE applications SET status = 'applied', amount_usd = NULL, amounts = NULL WHERE owner = ${`b:${b.id}`} AND program_id = 'jobs-l28'`;
+  await sql()`INSERT INTO program_reviewers (program_id, builder_id) VALUES ('jobs-l28', ${b.id}) ON CONFLICT DO NOTHING`;
+  const mine = await job({ ...r, builderId: b.id }, [{ ref: 'r-b2', name: 'Scr', repo_url: repo, application_id: 'ek-l28-legacy-b' }]);
+  const res = await recordOutcomes(mine.id, b.id, [{ ref: 'r-b2', outcome: 'rejected' }], NOW);
+  assert.equal(res.passed, 0);
+  assert.deepEqual(await status(`b:${a.id}`), ['won', 3000]);
+});
+
+test('L28-11 (controller ruling): a row is redirected to the repo\'s application only when both owners are shown to share the repo', async () => {
+  const r = await reviewer('jobs-l28x');
+  const a = await upsertBuilder({ github_id: ++gh, login: 'x-a', name: null, avatar_url: null }, NOW);
+  const z = await upsertBuilder({ github_id: ++gh, login: 'x-z', name: null, avatar_url: null }, NOW);
+  await seedRead('org/x28', ['x-a']);
+  const repo = 'https://github.com/org/x28';
+  await record(`b:${a.id}`, 'jobs-l28x', 'applied', { installationId: await instOf(a.id), now: NOW, project_id: repo });
+  await sql()`INSERT INTO applications (owner, installation_id, program_id, status, at, sent_at, project_id, repo_key, application_id)
+    VALUES (${`b:${z.id}`}, ${await instOf(z.id)}, 'jobs-l28x', 'applied', ${new Date(NOW.getTime() + 60_000)}, ${new Date(NOW.getTime() + 60_000)}, ${repo}, ${repo}, 'ek-l28-z')`;
+  const j = await job(r, [{ ref: 'z', name: 'X', repo_url: repo, application_id: 'ek-l28-z' }]);
+  await told(j.id, r.builderId, [{ ref: 'z', outcome: 'won', amount_usd: 100 }], NOW);
+  // x-z is no committer: the result stays on its own row, never the committer's application.
+  assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${a.id}`} AND program_id = 'jobs-l28x'`)[0].status, 'applied');
+  assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${z.id}`} AND program_id = 'jobs-l28x'`)[0].status, 'won');
+});
+
+test('L28-6 (v6.1.16 Task 14): a renamed repo keeps its application: the result listed under the new link lands', async () => {
+  const r = await reviewer('jobs-l28r');
+  const c = await upsertBuilder({ github_id: ++gh, login: 'carol28', name: null, avatar_url: null }, NOW);
+  await seedRead('carol28/newname', [], 733066);
+  await record(`b:${c.id}`, 'jobs-l28r', 'applied', { installationId: await instOf(c.id), now: NOW, project_id: 'https://github.com/carol28/oldname', repoId: 733066 });
+  const j = await job(r, [{ ref: 'clock', name: 'Clock', repo_url: 'https://github.com/carol28/newname', application_id: await appId(`b:${c.id}`, 'jobs-l28r') }]);
+  assert.deepEqual(await told(j.id, r.builderId, [{ ref: 'clock', outcome: 'won', amount_usd: 1500 }], NOW), { recorded: 1, notFound: [], notes: [] });
+  assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${c.id}`} AND program_id = 'jobs-l28r'`)[0].status, 'won');
+});
+
+test('L28-3 (v6.1.16 Task 14): a send kept under the name only, off a repo that is not the builder\'s, never takes that repo\'s result', async () => {
+  const r = await reviewer('jobs-l28o');
+  const d = await upsertBuilder({ github_id: ++gh, login: 'dave28', name: null, avatar_url: null }, NOW);
+  await record(`b:${d.id}`, 'jobs-l28o', 'applied', { installationId: await instOf(d.id), now: NOW, project_id: 'name:theirs', submitted_by: 'builder', offRepo: 'https://github.com/org/theirs' });
+  const [row] = await sql()`SELECT project_id, repo_key, off_repo FROM applications WHERE owner = ${`b:${d.id}`} AND program_id = 'jobs-l28o'`;
+  assert.deepEqual([row.project_id, row.repo_key, row.off_repo], ['name:theirs', null, 'https://github.com/org/theirs']);
+  const j = await job(r, [{ ref: 'theirs', name: 'Theirs', repo_url: 'https://github.com/org/theirs', application_id: await appId(`b:${d.id}`, 'jobs-l28o') }]);
+  assert.deepEqual(await told(j.id, r.builderId, [{ ref: 'theirs', outcome: 'won', amount_usd: 500 }], NOW),
+    { recorded: 1, notFound: [], notes: ['Not passed on, the EarnKit id belongs to another project: theirs.'] });
+  assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${d.id}`} AND program_id = 'jobs-l28o'`)[0].status, 'applied');
+});

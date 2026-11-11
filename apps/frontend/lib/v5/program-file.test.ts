@@ -265,3 +265,22 @@ test('L21-16 (v6.1.16): city is optional, 1 to 40 characters, no links', () => {
   assert.equal(ProgramFile.parse({ ...without, in_person: false }).city, undefined);
   for (const bad of ['', 'x'.repeat(41), 'see https://example.com', 'eugene.com']) assert.equal(ProgramFile.safeParse({ ...base, city: bad }).success, false, bad);
 });
+
+test('L28-8 (v6.1.16 Task 14): teamKindOf reads the one fact a team label asks; whole-team questions stay team; no catalog file keeps a one-fact team field', async () => {
+  const { teamKindOf } = await import('./program-file');
+  const cases: [string, string | null][] = [
+    ['Team size', 'team_size'], ['Number of founders/ contributors', 'team_size'], ['How large is the core team?', 'team_size'],
+    ['Including co-founders, how many full-time employees / contractors does your company have?', 'team_size'],
+    ['Are you all working full-time on this?', 'team_full_time'], ['Commitment', 'team_full_time'],
+    ['Roles', 'team_roles'], ['What is your role in the project?', 'team_roles'], ['Founders and Roles', 'team_roles'],
+    ['Team links', 'team_links'], ['Team Member LinkedIn Profiles', 'team_links'],
+    ['GitHub usernames', 'team_usernames'], ['Co-founder email', 'cofounder_email'],
+    ['Founding team - Full names & Background', null], ['Name(s), email(s), and role(s) for each team member', null],
+    ['Tell us about the founding team', null], ['What is the equity/token breakdown between founders', null],
+  ];
+  for (const [label, kind] of cases) assert.equal(teamKindOf(label), kind, label);
+  const dir = join(import.meta.dirname, '../../../../programs');
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.json')))
+    for (const r of JSON.parse(readFileSync(join(dir, f), 'utf8')).submission_requirements ?? [])
+      if (r.kind === 'team') assert.equal(teamKindOf(r.label), null, `${f} ${r.key}`);
+});

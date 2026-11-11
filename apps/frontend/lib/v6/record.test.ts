@@ -312,3 +312,12 @@ test('Task 11 fix round 1 (N3): a record link carrying a user name or password i
   assert.equal(m.record.docs.founder_video_url, 'https://video.example/v');
   assert.equal(m.problems.filter((p) => /no user name or password/.test(p)).length, 2, m.problems.join('\n'));
 });
+
+test('L28-6, L28-8 (v6.1.16 Task 14): a project keeps its repo id; a team member says full time and a profile link', async () => {
+  const { BuilderRecord, EMPTY_RECORD, mergeRecord } = await import('./record');
+  const r = BuilderRecord.parse({ projects: [{ id: 'clock', name: 'Clock', repo_url: 'https://github.com/carol/newname', repo_id: 733066 }] });
+  assert.equal(r.projects[0].repo_id, 733066);
+  const m = mergeRecord(EMPTY_RECORD, { team: [{ name: 'Uma Lane', full_time: true, link: 'https://linkedin.com/in/uma' }] }, 'builder', NOW);
+  assert.deepEqual(m.problems, []);
+  assert.deepEqual(m.record.team, [{ name: 'Uma Lane', full_time: true, link: 'https://linkedin.com/in/uma' }]);
+});

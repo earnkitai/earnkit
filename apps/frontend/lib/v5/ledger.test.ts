@@ -550,3 +550,53 @@ test('L23-12 (v6.1.16), lane 23 K7: 181 days on, the sweep keeps the name key, i
   assert.deepEqual([...(await doneItems(o(i), 'l-k7', repoKey))], ['repo']);
   assert.equal((await sql()`SELECT 1 FROM repo_cache WHERE repo = 'lane23/keeper-k7'`).length, 0);
 });
+
+// ---- v6.1.16 Task 14: the application key (lane 28) ----
+
+test('L28-4 (v6.1.16 Task 14): pickRow takes this project\'s row; a keyless or single row only where it fits', async () => {
+  const { pickRow } = await import('./ledger');
+  const rows = [{ project_id: 'https://github.com/a/x', s: 1 }, { project_id: 'name:y', s: 2 }];
+  assert.equal(pickRow(rows, 'name:y')?.s, 2);
+  assert.equal(pickRow(rows, 'name:z'), undefined);
+  assert.equal(pickRow(rows, ''), undefined);
+  assert.equal(pickRow([{ project_id: null, s: 3 }], 'name:z')?.s, 3);
+  assert.equal(pickRow([{ project_id: 'name:y', s: 4 }], 'name:z'), undefined);
+  assert.equal(pickRow([{ project_id: 'name:y', s: 4 }], 'name:z', true)?.s, 4);
+});
+
+test('L28-4 (v6.1.16 Task 14): two projects of one owner apply to one program; a result reaches its own project\'s row; excluded hides a send from its own project only', async () => {
+  const i = await install();
+  await prog('l28-k');
+  assert.deepEqual(await record(o(i), 'l28-k', 'applied', { now: NOW, project_id: 'name:one' }), { ok: true });
+  assert.deepEqual(await record(o(i), 'l28-k', 'applied', { now: NOW, project_id: 'name:two' }), { ok: true });
+  assert.deepEqual(await record(o(i), 'l28-k', 'won', { now: NOW, project_id: 'name:two', amount_usd: 100 }), { ok: true });
+  const rows = await sql()`SELECT project_id, status FROM applications WHERE owner = ${o(i)} AND program_id = 'l28-k' ORDER BY project_id`;
+  assert.deepEqual(rows.map((r) => [r.project_id, r.status]), [['name:one', 'applied'], ['name:two', 'won']]);
+  assert.equal((await resultOf(o(i), 'l28-k', 'name:one')), null);
+  assert.equal((await resultOf(o(i), 'l28-k', 'name:two'))?.status, 'won');
+  assert.ok((await excluded(o(i), (p) => p === 'name:one')).has('l28-k'));
+  await prog('l28-k2');
+  await record(o(i), 'l28-k2', 'applied', { now: NOW, project_id: 'name:one' });
+  assert.equal((await excluded(o(i), (p) => p === 'name:three')).has('l28-k2'), false);
+});
+
+test('L28-4 (v6.1.16 Task 14): the schema run twice turns the old (owner, program) index into the project key one and backfills the repo key', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const schema = readFileSync(join(import.meta.dirname, '../../db/schema.sql'), 'utf8');
+  const i = await install();
+  await prog('l28-idx');
+  await sql()`DROP INDEX IF EXISTS applications_owner_program_project`;
+  await sql()`DELETE FROM applications WHERE program_id = 'l28-idx'`;
+  // The state before Task 14: one row per owner and program.
+  await sql()`DELETE FROM applications a USING applications b WHERE a.owner = b.owner AND a.program_id = b.program_id AND a.ctid < b.ctid`;
+  await sql()`CREATE UNIQUE INDEX applications_owner_program ON applications (owner, program_id)`;
+  await sql()`INSERT INTO applications (owner, installation_id, program_id, status, project_id) VALUES (${o(i)}, ${i}, 'l28-idx', 'applied', 'https://github.com/a/idx')`;
+  await sql().unsafe(schema);
+  await sql().unsafe(schema);
+  const idx = (await sql()`SELECT indexname FROM pg_indexes WHERE tablename = 'applications' AND indexname LIKE 'applications_owner_program%'`).map((r) => r.indexname);
+  assert.deepEqual(idx, ['applications_owner_program_project']);
+  const [row] = await sql()`SELECT project_id, repo_key FROM applications WHERE program_id = 'l28-idx'`;
+  assert.deepEqual([row.project_id, row.repo_key], ['https://github.com/a/idx', 'https://github.com/a/idx']);
+  assert.deepEqual(await record(o(i), 'l28-idx', 'applied', { now: NOW, project_id: 'name:other' }), { ok: true });
+});

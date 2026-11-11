@@ -766,7 +766,7 @@ test('F1 fix round 2 (v6.1.10): five real programs, a send naming every key is o
   const { getProgram } = await import('./programs');
   const { unvouchedAtSend } = await import('./track');
   const c = await ctx();
-  const b = await upsertBuilder({ github_id: 930_301, login: 'fr2', name: 'F', avatar_url: null }, NOW);
+  const b = await upsertBuilder({ github_id: 930_301, login: 'ada' /* L28-3 (v6.1.16 Task 14): the repo's owner */, name: 'F', avatar_url: null }, NOW);
   await linkInstallation(c.installationId, b.id, NOW);
   await saveRecord(b.id, mergeRecord(EMPTY_RECORD, { person: { name: 'Ada Lovelace', email: 'ada@example.com' }, policy: { auto_apply: true, max_per_night: 10, categories: ['grant', 'hackathon', 'investment', 'bounty'] } }, 'builder', NOW).record, NOW);
   const linked = { ...c, builderId: b.id };
@@ -863,7 +863,7 @@ test('I3 final (v6.1.10): a required contract find filled from the cached repo r
   const { unvouchedAtSend } = await import('./track');
   const { unvouchedRequired } = await import('./prefill');
   const c = await ctx();
-  const b = await upsertBuilder({ github_id: 930_304, login: 'fr3', name: 'F', avatar_url: null }, NOW);
+  const b = await upsertBuilder({ github_id: 930_304, login: 'ada' /* L28-3 (v6.1.16 Task 14): the repo's owner */, name: 'F', avatar_url: null }, NOW);
   await linkInstallation(c.installationId, b.id, NOW);
   await saveRecord(b.id, mergeRecord(EMPTY_RECORD, { policy: { auto_apply: true, max_per_night: 10, categories: ['grant'] } }, 'builder', NOW).record, NOW);
   const fields = [
@@ -1140,7 +1140,7 @@ test('Task 1 review I1 and I2 (v6.1.13): the send is judged on the find\'s repor
   const { EMPTY_RECORD, mergeRecord } = await import('../v6/record');
   const { find } = await import('./find');
   const c = await ctx();
-  const b = await upsertBuilder({ github_id: 930_414, login: 'b2r', name: 'B', avatar_url: null }, NOW);
+  const b = await upsertBuilder({ github_id: 930_414, login: 'ada' /* L28-3 (v6.1.16 Task 14): the repo's owner */, name: 'B', avatar_url: null }, NOW);
   await linkInstallation(c.installationId, b.id, NOW);
   await saveRecord(b.id, mergeRecord(EMPTY_RECORD, { policy: { auto_apply: true, max_per_night: 20, categories: ['grant'] } }, 'builder', NOW).record, NOW);
   const linked = { ...c, builderId: b.id };
@@ -1201,7 +1201,7 @@ test('W1 and W2 (v6.1.13 final round): a project known by its repo, named alone 
   const { ruleItem } = await import('./eligibility');
   const { find } = await import('./find');
   const c = await ctx();
-  const b = await upsertBuilder({ github_id: 930_415, login: 'w1', name: 'W', avatar_url: null }, NOW);
+  const b = await upsertBuilder({ github_id: 930_415, login: 'ada' /* L28-3 (v6.1.16 Task 14): the repo's owner */, name: 'W', avatar_url: null }, NOW);
   await linkInstallation(c.installationId, b.id, NOW);
   await saveRecord(b.id, mergeRecord(EMPTY_RECORD, { policy: { auto_apply: true, max_per_night: 20, categories: ['grant'] } }, 'builder', NOW).record, NOW);
   const linked = { ...c, builderId: b.id };
@@ -1261,7 +1261,8 @@ test('L13-2 (v6.1.14, Review Focus 8): an unlink on /me releases that agent\'s c
   // L28-10 (v6.1.16 Task 14, re-pinned): the unlinked agent never sends again what its builder sent; nothing is written
   // in its own ledger, and the builder's row stays.
   const own = await track({ ...a, builderId: null, now: later.now }, { program_id: 'l13-unl', status: 'applied', submitted_by: 'agent' });
-  assert.equal(own.show_to_builder, 'Already sent on Nov 4.');
+  // Controller ruling: the unlinked agent hears no date or row of the builder's.
+  assert.equal(own.show_to_builder, 'Already sent from your account; nothing recorded. Sign in again to see it.');
   assert.equal(own.refused, true);
   assert.equal(own.ledger.applied, 0);
   const [b] = await sql()`SELECT status, installation_id FROM applications WHERE owner = ${owner} AND program_id = 'l13-unl'`;
@@ -1641,4 +1642,140 @@ test('L29-15, L29-21, L29-23, L29-32: a list number, any case, agent by default;
   const s = await track(c, { program_id: '1', status: 'STARTED', submitted_by: 'Agent' });
   assert.equal(s.show_to_builder, '');
   assert.match(s.agent_note, /^Matched list number 1 to l2915-a\. Started Number One Grant\. /);
+});
+
+// ---- v6.1.16 Task 14: shared projects and teams (lane 28) ----
+
+let l28 = 940_000;
+/** A builder with this GitHub login and one agent linked to it. */
+async function signedIn(login: string) {
+  const { linkInstallation, upsertBuilder } = await import('../v6/builders');
+  const b = await upsertBuilder({ github_id: ++l28, login, name: login, avatar_url: null }, NOW);
+  const [r] = await sql()`INSERT INTO installations (token_hash, client_name) VALUES (${'l28-' + Math.random()}, 'Claude Code') RETURNING id`;
+  await linkInstallation(r.id as number, b.id, NOW);
+  return { installationId: r.id as number, builderId: b.id as number | null, now: NOW, owner: `b:${b.id}` };
+}
+/** A complete cached read of github.com/{key}, with these contributors (lower-case logins) and repo id. */
+async function seedRead(key: string, contributors?: string[], id?: number) {
+  const facts = {
+    chains: [], contracts: [], builder_codes: false, integrations: [], first_commit_at: '2026-06-01T00:00:00Z', last_commit_at: NOW.toISOString(),
+    readme_excerpt: null, homepage: null, html_url: `https://github.com/${key}`, pushed_at: NOW.toISOString(), fork: false, archived: false, empty: false,
+    readme_lead: 'It keeps time.', ...(contributors ? { contributors } : {}), ...(id ? { repo_id: id } : {}),
+  };
+  await sql()`INSERT INTO repo_cache (repo, facts, fetched_at, pushed_at) VALUES (${key}, ${sql().json(facts)}, ${NOW}, ${NOW})
+    ON CONFLICT (repo) DO UPDATE SET facts = EXCLUDED.facts, fetched_at = EXCLUDED.fetched_at`;
+}
+const send = (c: { installationId: number; builderId: number | null; now: Date }, programId: string, project: Record<string, unknown>, by: 'agent' | 'builder' = 'agent') =>
+  track(c, { program_id: programId, status: 'applied', submitted_by: by, fields_used: ['project_name'], project });
+const rowsOf = async (owner: string, programId: string) =>
+  sql()`SELECT status, project_id, repo_key, off_repo FROM applications WHERE owner = ${owner} AND program_id = ${programId} ORDER BY at`;
+
+test('Review Focus 20 (L28-1, v6.1.16 Task 14): two committers on one repo make one application; the second hears who sent it and nothing is written', async () => {
+  await seedRead('org/r', ['a1', 'a2']);
+  await upsertProgram(programFixture({ id: 'l28-one', title: 'Team Grant' }), 'file', NOW);
+  const a1 = await signedIn('a1');
+  const a2 = await signedIn('a2');
+  const R = { name: 'R', description: 'Keeps time for teams.', repo_url: 'https://github.com/org/r' };
+  assert.equal((await track(a1, { program_id: 'l28-one', status: 'started', project: R })).show_to_builder, '');
+  assert.equal((await send(a1, 'l28-one', R)).show_to_builder, 'Sent Team Grant.');
+  const later = { ...a2, now: new Date(NOW.getTime() + 3_600_000) };
+  const started = await track(later, { program_id: 'l28-one', status: 'started', project: R });
+  assert.equal(started.show_to_builder, 'Already sent for this repo on Nov 4 by "a1".');
+  assert.equal(started.refused, true);
+  const sent = await send(later, 'l28-one', R);
+  assert.equal(sent.show_to_builder, 'Already sent for this repo on Nov 4 by "a1".');
+  assert.equal(sent.refused, true);
+  assert.equal((await rowsOf(a2.owner, 'l28-one')).length, 0);
+  assert.deepEqual((await rowsOf(a1.owner, 'l28-one')).map((r) => [r.status, r.project_id, r.repo_key]), [['applied', 'https://github.com/org/r', 'https://github.com/org/r']]);
+  // A co-founder's win on that repo adds nothing once the team's win is in.
+  assert.equal((await track(a1, { program_id: 'l28-one', status: 'won', amount_usd: 3000, project: R })).show_to_builder, 'Tracked: $3,000 from Team Grant.');
+  // Controller ruling: never the other builder's result; the committer's strong tie names the sender only.
+  const won = await track(later, { program_id: 'l28-one', status: 'won', amount_usd: 3000, project: R });
+  assert.equal(won.show_to_builder, 'Already sent for this repo on Nov 4 by "a1".');
+  assert.equal(won.refused, true);
+  assert.equal((await rowsOf(a2.owner, 'l28-one')).length, 0);
+});
+
+test('Review Focus 20 (L28-1, v6.1.16 Task 14): 20 parallel sends from each of two committers leave one application', async () => {
+  await seedRead('org/race', ['b1', 'b2']);
+  await upsertProgram(programFixture({ id: 'l28-race', title: 'Race Grant' }), 'file', NOW);
+  const b1 = await signedIn('b1');
+  const b2 = await signedIn('b2');
+  const R = { name: 'Race', description: 'Races.', repo_url: 'https://github.com/org/race' };
+  const all = await Promise.all(Array.from({ length: 40 }, (_, k) => send(k % 2 ? b1 : b2, 'l28-race', R)));
+  assert.equal(all.filter((r) => !r.refused).length, 1);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE program_id = 'l28-race'`)[0].n, 1);
+});
+
+test('L28-3 (v6.1.16 Task 14): a login that is not owner, org member or committer is refused on started and an agent\'s applied; the builder\'s own send is kept under the name only', async () => {
+  await seedRead('org/theirs', ['c1']);
+  await upsertProgram(programFixture({ id: 'l28-mine', title: 'Mine Grant' }), 'file', NOW);
+  const d = await signedIn('dave');
+  const T = { name: 'Theirs', description: 'Not dave\'s.', repo_url: 'https://github.com/org/theirs' };
+  const started = await track(d, { program_id: 'l28-mine', status: 'started', project: T });
+  assert.equal(started.show_to_builder, 'This repo is not yours; I apply only with repos you commit to.');
+  assert.equal(started.refused, true);
+  const agent = await send(d, 'l28-mine', T);
+  assert.equal(agent.show_to_builder, 'This repo is not yours; I apply only with repos you commit to.');
+  assert.equal(agent.refused, true);
+  assert.equal((await rowsOf(d.owner, 'l28-mine')).length, 0);
+  // L23-3 holds: a send the builder made is recorded, under the project's name only, kept off the repo.
+  const own = await send(d, 'l28-mine', T, 'builder');
+  assert.equal(own.show_to_builder, 'Sent Mine Grant.');
+  assert.match(own.agent_note, /^The repo is not yours; recorded under the project name only\. /);
+  assert.deepEqual((await rowsOf(d.owner, 'l28-mine')).map((r) => [r.status, r.project_id, r.repo_key, r.off_repo]), [['applied', 'name:theirs', null, 'https://github.com/org/theirs']]);
+  // It takes no repo slot: a committer still applies.
+  const c1 = await signedIn('c1');
+  assert.equal((await send(c1, 'l28-mine', T)).show_to_builder, 'Sent Mine Grant.');
+  // The owner segment counts as the builder's; unlinked, nothing with a repo is sent (the sign-in sentence follows).
+  const org = await signedIn('org');
+  assert.equal((await send(org, 'l28-mine', T)).show_to_builder, 'Already sent for this repo on Nov 4 by "c1".');
+  const [u] = await sql()`INSERT INTO installations (token_hash) VALUES (${'l28-u-' + Math.random()}) RETURNING id`;
+  const unlinked = await send({ installationId: u.id as number, builderId: null, now: NOW }, 'l28-mine', T);
+  assert.match(unlinked.show_to_builder, /^This repo is not yours; I apply only with repos you commit to\. Sign in once/);
+  assert.equal(unlinked.refused, true);
+});
+
+test('L28-4 (v6.1.16 Task 14): one builder, two projects, one program: two applications; the same project twice names it', async () => {
+  await seedRead('carol/app');
+  await seedRead('carol/clock');
+  await upsertProgram(programFixture({ id: 'l28-two', title: 'Two Grant' }), 'file', NOW);
+  const c = await signedIn('carol');
+  const app = { name: 'App', description: 'An app.', repo_url: 'https://github.com/carol/app' };
+  const clock = { name: 'Clock', description: 'A clock.', repo_url: 'https://github.com/carol/clock' };
+  assert.equal((await send(c, 'l28-two', app)).show_to_builder, 'Sent Two Grant.');
+  assert.equal((await track(c, { program_id: 'l28-two', status: 'started', project: clock })).show_to_builder, '');
+  assert.equal((await send(c, 'l28-two', clock)).show_to_builder, 'Sent Two Grant.');
+  assert.deepEqual((await rowsOf(c.owner, 'l28-two')).map((r) => r.project_id), ['https://github.com/carol/app', 'https://github.com/carol/clock']);
+  const again = await track(c, { program_id: 'l28-two', status: 'started', project: app });
+  assert.equal(again.show_to_builder, 'Two Grant was already sent for "App".');
+  assert.equal(again.refused, true);
+  assert.equal((await send(c, 'l28-two', app)).show_to_builder, 'Already sent on Nov 4.');
+});
+
+test('L28-10 (v6.1.16 Task 14): unlinking moves nothing; the unlinked agent never sends the earlier send again and never reads it; a newly linked agent hears it was sent', async () => {
+  const { unlinkInstallation, linkInstallation } = await import('../v6/builders');
+  const { find } = await import('./find');
+  await upsertProgram(programFixture({ id: 'l28-relink', title: 'Relink Grant' }), 'file', NOW);
+  const e = await signedIn('eve');
+  const P = { name: 'Eve App', description: 'Helps eve.' };
+  assert.equal((await send(e, 'l28-relink', P)).show_to_builder, 'Sent Relink Grant.');
+  assert.equal(await unlinkInstallation(e.installationId, e.builderId!, NOW), true);
+  assert.equal((await rowsOf(e.owner, 'l28-relink')).length, 1);
+  const laptop = { installationId: e.installationId, builderId: null, now: new Date(NOW.getTime() + 3_600_000) };
+  // Controller ruling: the unlinked agent never reads the builder's rows, lines or counts; the send is still refused.
+  const seen = await find({ ...laptop, linkUrl: async () => null }, { project: P });
+  assert.doesNotMatch(JSON.stringify(seen), /Relink Grant \(sent/);
+  assert.deepEqual((seen as { applications: unknown[] }).applications, []);
+  const again = await send(laptop, 'l28-relink', P);
+  assert.equal(again.show_to_builder, 'Already sent from your account; nothing recorded. Sign in again to see it.');
+  assert.equal(again.refused, true);
+  assert.equal((await rowsOf(`i:${e.installationId}`, 'l28-relink')).length, 0);
+  // A new agent linked to the builder: the same send answers when it was sent; nothing is written.
+  const [n] = await sql()`INSERT INTO installations (token_hash) VALUES (${'l28-n-' + Math.random()}) RETURNING id`;
+  await linkInstallation(n.id as number, e.builderId!, NOW);
+  const fresh = await send({ installationId: n.id as number, builderId: e.builderId, now: laptop.now }, 'l28-relink', P);
+  assert.equal(fresh.show_to_builder, 'Already sent on Nov 4.');
+  assert.equal(fresh.refused, true);
+  assert.equal((await rowsOf(e.owner, 'l28-relink')).length, 1);
 });

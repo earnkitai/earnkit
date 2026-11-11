@@ -544,14 +544,14 @@ const LIVE = async () => {
 };
 let ghId = 920_000;
 /** A linked installation whose builder holds `patch` (merged by the builder, `approve` approved). */
-async function linkedWith(patch: Record<string, unknown>, approve: string[] = []) {
+async function linkedWith(patch: Record<string, unknown>, approve: string[] = [], login?: string) {
   const { saveInstallation, connectInstallation } = await import('./installations');
   const { linkInstallation, saveRecord, upsertBuilder } = await import('../v6/builders');
   const { EMPTY_RECORD, approvePath, mergeRecord } = await import('../v6/record');
   const token = 'find-linked-' + Math.random();
   await saveInstallation(token, 'Claude Code');
   const id = (await connectInstallation(token))!.id;
-  const b = await upsertBuilder({ github_id: ++ghId, login: 'fl' + ghId, name: 'FL', avatar_url: null }, NOW);
+  const b = await upsertBuilder({ github_id: ++ghId, login: login ?? 'fl' + ghId, name: 'FL', avatar_url: null }, NOW);
   await linkInstallation(id, b.id, NOW);
   const m = mergeRecord(EMPTY_RECORD, patch, 'builder', NOW);
   assert.deepEqual(m.problems, []);
@@ -3041,7 +3041,8 @@ test('L24-1 (ruling 12): another agent\'s project name never reaches this agent\
 test('Review Focus 15 (v6.1.16 Task 11): hidden characters in a name, a description, a record answer, a track note and a client name reach no surface; a Persian joiner survives', async () => {
   const HIDDEN = /[\u0000\u000d\u202e\u200b\ufeff\u2060]|[A-Za-z]\u200d[A-Za-z]/;
   const PERSIAN = 'می\u200cخواهم';
-  const { id, builderId } = await linkedWith(OWNER_RECORD);
+  // L28-3 (v6.1.16 Task 14): the claim needs the repo's own builder.
+  const { id, builderId } = await linkedWith(OWNER_RECORD, [], PROJECT.repo_url.split('/')[3]);
   await sql()`UPDATE installations SET client_name = ${'Agent\u202e\u200bName'} WHERE id = ${id}`;
   const dirty = (s: string) => `${s}\u202e\u200bA\u200dB\u0000\r\n${PERSIAN}`;
   const project = { ...PROJECT, name: dirty('Timer'), description: dirty('A timer for builders.') };
@@ -3233,4 +3234,33 @@ test('L26-4: a one-program reply carries two guide rules and points at the guide
   const cut = findReplyCap(list.reply as never, 4_000) as unknown as { agent_note: string; gaps: GapProgram[] };
   assert.ok(cut.agent_note.endsWith(MORE_THAN_FITS));
   assert.equal(cut.gaps.length, (list.reply!.gaps as unknown[]).length);
+});
+
+test('L28-7 (v6.1.16 Task 14): two record projects on one repo and no project_id: asked which, nothing filled from either; with the id, its own value', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  await upsertProgram(programFixture({ id: 'l28-links', title: 'Links Grant', submission_requirements: [
+    { key: 'live', label: 'Live link', type: 'url', required: true, from: 'project', kind: 'links', project_field: 'live_url', todo: 'the live link' } as never] }), 'file', NOW);
+  const { id, builderId } = await linkedWith({ projects: [
+    { id: 'mono-web', name: 'Mono Web', repo_url: `https://github.com/${rec.repo}`, live_url: 'https://web.example.com' },
+    { id: 'mono-api', name: 'Mono API', repo_url: `https://github.com/${rec.repo}`, live_url: 'https://api.example.com' }] });
+  const c = { ...ctx(id), builderId, evidence: LIVE };
+  const r = await mcpCall(c, 'find', { program_id: 'l28-links', project: { name: 'Mono API', repo_url: `https://github.com/${rec.repo}` } });
+  assert.equal(r.reply!.show_to_builder, 'Which project: "Mono Web" or "Mono API"?');
+  assert.match(r.reply!.agent_note as string, /^Two record projects share this repo, so nothing was filled from either\./);
+  const live = (r.reply!.fields as { key: string; value: string | null; from: string }[]).find((f) => f.key === 'live')!;
+  assert.notEqual(live.value, 'https://web.example.com');
+  assert.notEqual(live.from, 'record');
+  const own = await mcpCall(c, 'find', { program_id: 'l28-links', project_id: 'mono-api', project: { name: 'Mono API', repo_url: `https://github.com/${rec.repo}` } });
+  assert.equal((own.reply!.fields as { key: string; value: string | null }[]).find((f) => f.key === 'live')!.value, 'https://api.example.com');
+});
+
+test('L28-3 (v6.1.16 Task 14): a signed-in builder whose login a read shows is no committer hears it first; with no evidence nothing is said', async () => {
+  const { id, builderId } = await linkedWith({});
+  const c = { ...ctx(id), builderId, evidence: LIVE };
+  const quiet = await mcpCall(c, 'find', { project: PROJECT });
+  assert.doesNotMatch(quiet.reply!.show_to_builder as string, /not yours/);
+  await sql()`UPDATE repo_cache SET facts = jsonb_set(facts, '{contributors}', '["someone"]'::jsonb) WHERE repo = ${rec.repo.toLowerCase()}`;
+  const told = await mcpCall(c, 'find', { project: PROJECT });
+  assert.equal((told.reply!.show_to_builder as string).split('\n')[0], 'This repo is not yours; I apply only with repos you commit to.');
+  assert.match(told.reply!.agent_note as string, /^The signed-in GitHub account is not the repo owner/);
 });

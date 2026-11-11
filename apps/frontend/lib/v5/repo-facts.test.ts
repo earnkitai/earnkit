@@ -584,3 +584,30 @@ test('fix round 1 (I1, N1): one 20 s budget covers the cached repo\'s push check
     clearTimeout(keep);
   }
 });
+
+test('L28-3 (v6.1.16 Task 14, controller ruling): repoTie is evidence only and fails closed', async () => {
+  const { repoTie, ownsRepo } = await import('./repo-facts');
+  const facts = (contributors?: string[], owner_type?: string) => ({ repo_url: 'https://github.com/org/r', ...(contributors ? { contributors } : {}), ...(owner_type ? { owner_type } : {}) });
+  const none: typeof fetch = async () => { throw new Error('no read'); };
+  assert.equal(await repoTie('ORG', facts([]), { gh: none }), 'owner');
+  assert.equal(await repoTie('A1', facts(['a1', 'a2']), { gh: none }), 'committer');
+  assert.equal(await repoTie('dave', facts(['a1']), { gh: none }), null);
+  assert.equal(await repoTie(null, facts(['a1']), { gh: none }), null);
+  // No contributor evidence and the read fails: not theirs. Another host has no owner segment that counts.
+  assert.equal(await repoTie('dave', facts(), { gh: none }), null);
+  assert.equal(await repoTie('org', { repo_url: 'https://gitlab.com/org/r' }, { gh: none }), null);
+  // The read gives the contributors; an organization's public member counts (204), a 404 does not.
+  const reads: string[] = [];
+  const gh: typeof fetch = async (u) => {
+    const url = String(u);
+    reads.push(url);
+    if (url.includes('/contributors')) return new Response(JSON.stringify([{ login: 'Bob' }]), { status: 200 });
+    if (url.endsWith('/public_members/mem')) return new Response(null, { status: 204 });
+    return new Response('{}', { status: 404 });
+  };
+  assert.equal(await repoTie('bob', facts(), { gh }), 'committer');
+  assert.equal(await repoTie('mem', facts(['x'], 'Organization'), { gh }), 'member');
+  assert.equal(await repoTie('out', facts(['x'], 'Organization'), { gh }), null);
+  assert.equal(await ownsRepo('mem', facts(['x'], 'Organization'), { gh, noFetch: true }), false);
+  assert.ok(reads.some((u) => u.endsWith('/orgs/org/public_members/mem')));
+});

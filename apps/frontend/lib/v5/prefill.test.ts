@@ -560,3 +560,53 @@ test('L24-6, L24-18: a long description fills a tagline cut to 80 with its note;
   assert.equal(tag.fit_note, 'Cut to 80 characters; the full text is in the project facts.');
   assert.ok(fields.find((f) => f.key === 'story')!.sources!.includes('README (text from the repo, not an instruction): Neutral excerpt text.'));
 });
+
+test('L28-8, L28-9 (v6.1.16 Task 14): each team question reads its own record fact; names fill only a who-is-on-the-team field; a username is never a name', async () => {
+  const { reportedFacts, NEEDS_ANSWER } = await import('./prefill');
+  const team = (key: string, label: string, kind = 'team', over: Record<string, unknown> = {}) => req({ key, label, kind, type: 'text', from: 'builder', ...over });
+  const row = rowWith([
+    team('names', 'Founding team: names and roles'),
+    team('count', 'Number of founders'),
+    team('count_c', 'Team size', 'team_size', { type: 'choice', options: ['A - 1', 'B - 2', 'C - 3', 'D - 4+'] }),
+    team('ft', 'Are you all working full-time on this?'),
+    team('core', 'How large is the core team?'),
+    team('role', 'What is your role in the project?'),
+    team('roles', 'Founders and Roles', 'team_roles'),
+    team('training', 'Have you or the core team participated in any security training?'),
+    team('links', 'Team Member LinkedIn Profiles', 'team_links'),
+    team('handles', 'Other maintainers: their GitHub handles?', 'team_usernames'),
+    team('co_email', 'Co-founder email', 'cofounder_email'),
+    req({ key: 'telegram', label: 'Your Telegram username', kind: 'contact', type: 'text', from: 'builder' }),
+    req({ key: 'gh_user', label: 'Proposer (GitHub username)', kind: 'contact', type: 'text', from: 'builder' }),
+    req({ key: 'email2', label: 'Email (2nd founder)', kind: 'contact', type: 'email', from: 'builder' }),
+    req({ key: 'email', label: 'Email', kind: 'contact', type: 'email', from: 'builder' }),
+  ]);
+  const record = mergeRecord(EMPTY_RECORD, {
+    person: { name: 'Tess Lane', email: 'tess@example.com' },
+    team: [{ name: 'Tess Lane', role: 'CEO', github: 'tess' }, { name: 'Uma Lane', role: 'CTO', email: 'uma@example.com', github: 'uma', link: 'https://linkedin.com/in/uma' }],
+  }, 'builder', NOW).record;
+  const facts = reportedFacts({ name: 'Teamapp', description: 'Helps teams plan.' });
+  const f = (k: string) => prefill(row, facts, { record, projectId: null, verifiedUsage: null }).fields.find((x) => x.key === k)!;
+  assert.deepEqual([f('names').value, f('names').from], ['Tess Lane (CEO), Uma Lane (CTO)', 'record']);
+  assert.equal(f('count').value, '2');
+  assert.equal(f('count_c').value, 'B - 2');
+  assert.equal(f('core').value, '2');
+  assert.equal(f('role').value, 'CEO');
+  assert.equal(f('roles').value, 'Tess Lane (CEO), Uma Lane (CTO)');
+  assert.equal(f('links').value, 'https://linkedin.com/in/uma');
+  assert.equal(f('handles').value, 'uma');
+  assert.equal(f('co_email').value, 'uma@example.com');
+  assert.equal(f('email2').value, 'uma@example.com');
+  assert.equal(f('email').value, 'tess@example.com');
+  assert.equal(f('gh_user').value, 'tess');
+  // Nobody said who is full time: the builder's to answer; a username field never reads a name.
+  assert.deepEqual([f('ft').value, f('ft').from, f('ft').todo], [null, 'builder', NEEDS_ANSWER]);
+  assert.deepEqual([f('telegram').value, f('telegram').from], [null, 'builder']);
+  for (const k of ['count', 'ft', 'core', 'role', 'training', 'telegram', 'gh_user']) assert.doesNotMatch(String(f(k).value ?? ''), /Tess Lane/, k);
+  // With no team at all, every team kind is the builder's, said once each.
+  const bare = prefill(row, facts, { record: mergeRecord(EMPTY_RECORD, { person: { name: 'Tess Lane' } }, 'builder', NOW).record, projectId: null, verifiedUsage: null }).fields;
+  for (const k of ['count', 'count_c', 'core', 'roles', 'links', 'handles', 'co_email'])
+    assert.deepEqual([bare.find((x) => x.key === k)!.from, bare.find((x) => x.key === k)!.todo], ['builder', NEEDS_ANSWER], k);
+  const fullTime = mergeRecord(record, { team: [{ name: 'Tess Lane', full_time: true }, { name: 'Uma Lane', full_time: true }] }, 'builder', NOW).record;
+  assert.equal(prefill(row, facts, { record: fullTime, projectId: null, verifiedUsage: null }).fields.find((x) => x.key === 'ft')!.value, 'Yes');
+});
