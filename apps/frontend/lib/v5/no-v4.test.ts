@@ -20,6 +20,9 @@ const ENV_ALLOWED = new Set([
   'EARNKIT_SCREEN_OUT',
   // GitHub sign-in for builders (lib/v6/github-auth.ts).
   'GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET',
+  // v6.1.16 (S): the build id keying the page cache (app/lib/cached.ts), inlined at build by next.config.ts from
+  // Railway's git SHA; a deploy never sets EK_BUILD_ID itself.
+  'EK_BUILD_ID', 'RAILWAY_GIT_COMMIT_SHA',
 ]);
 const REMOVED_DEPS = ['@anthropic-ai/sdk', '@huggingface/transformers', 'aws4fetch', 'fflate', 'ox', 'viem'];
 
