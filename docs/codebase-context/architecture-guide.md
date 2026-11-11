@@ -171,7 +171,10 @@ The pipeline, in order:
 3. Files: `programs/*.json` is the owner's override and wins over an API row with the same id. `pnpm programs:check`
    validates them; `pnpm programs:sync` writes them before each deploy.
 4. Freshness: the daily cron (`health.ts`) probes each listed program's links and source page, flags a program
-   stale after two failing days, and closes an active program whose deadline passed. A source page sharing fewer
+   stale after two failing days, closes an active or upcoming program whose deadline passed and opens an upcoming one
+   at its `starts_at` (v6.1.16 Task 16, L30-1; one without submission requirements stays upcoming and is listed in the
+   run's `failed` until its file has them; a closed program may have none). A redirect to another host counts as alive
+   (L30-2: `probeLink`, never followed; `[health] {id} redirects to {host}`). A source page sharing fewer
    than 80% of its words with the text stored the day before (`program_health.body_text`) counts as changed: it is
    listed in the owner's digest and never marks the program stale. A program unverified or stale for 14 days leaves
    the open list. The deploy's sync writes an active file past its `ends_at` as closed, with a warning, so a deploy
@@ -262,14 +265,27 @@ on a held line.
 ## Freshness and the daily job
 
 `.github/workflows/earnkit-cron.yml` posts to `/api/cron` once a day with `CRON_SECRET` (v6.1.14 L13-11: a secret under
-32 characters answers 503 "cron is not set up" with one `[cron]` ops log line, never 401). `cron.ts` runs the probe
-(`health.ts`), the `repo_cache` sweep (rows over 30 days, answered as `swept`), the screen queue's daily share
-(screen jobs over 180 days deleted with their rows, then `workQueue` with `SCREEN_BATCH` 200 within 5 minutes,
-answered as `screen` with `swept`), then the owner's digest (`owner-digest.ts`: programs closed by deadline, failed links, changed pages
-and every change to live programs since the last digest, with revert links; nothing happened, nothing sent). Mail is
-`mail.ts` over Resend, to the owner only. A step that throws answers 500 with its name. The owner triggers one
-screen job with the same route and a JSON body `{ "job_id": "..." }`: only that queue runs (300 applicants or 10
-minutes), no probe, sweep or digest.
+32 characters answers 503 "cron is not set up" with one `[cron]` ops log line, never 401). v6.1.16 Task 16 (lane 30):
+`cron.ts` runs its steps in order, each in its own try: `health` (`health.ts`: every listed program, 10 at once
+(`PROBE_PARALLEL`), 8 s per link (`PROBE_MS`), one GET per link whose page also gives the source text; status moves by
+date, each program's probe-and-write and its status move in separate tries), the sweeps (`sweep_repo` repo cache over
+30 days, `sweep_reports` project reports over 180, `sweep_screens` screen jobs over 180 with their rows, `sweep_auth`
+link codes and sessions expired over a day, spent OAuth codes over a day and registered OAuth clients over 30 days
+that never exchanged a code (`oauth_clients.used_at`), `sweep_evidence` the evidence cache read over 180 days,
+`sweep_windows` rate windows started over 2 days ago; the per-hit random sweep is gone), `screen` (`workQueue` with
+`SCREEN_BATCH` 200 until `min(start + 300 s, deadline - 20 s)`), then `digest`. One `deadline = start +
+RUN_BUDGET_MS` (420 s; curl waits 540): health and the queue start only before it, else they are listed with error
+`budget`; a probe starts only when it can finish before it; the sweeps and the digest always run. The answer is
+`{ health, swept: {per table}, screen: { read, left, jobs_finished }, digest, failed: [{ id, step, error }] }`
+(`id` a program's, or null for a whole step; `error` the error's name and a short message, a URL's query cut), 200 with
+the list, 500 only when every step failed. The workflow prints the body and fails the job when curl fails (5xx, no
+answer in 540 s) or `failed` is not empty, one `::error::` line per entry; the next run retries. The owner's digest
+(`owner-digest.ts`: programs closed by deadline, programs opened by start date, failed links, changed pages and every
+change to live programs since the last digest, with revert links; nothing happened, nothing sent) answers `sent`,
+`none` (nothing, or this body already sent today) or `mail off` (`RESEND_API_KEY` unset); its idempotency key is
+`owner-digest:{day}:{first 16 hex of the body's sha256}` and `owner_digests.body_hash` keeps the last body sent that
+day. Mail is `mail.ts` over Resend, to the owner only. The owner triggers one screen job with the same route and a
+JSON body `{ "job_id": "..." }`: only that queue runs (300 applicants or 10 minutes), no probe, sweep or digest.
 
 ## The site
 
@@ -349,12 +365,12 @@ keys from tool-call bodies before anything sees them.
 | `program_writes` | The write API's audit log and the pending writes |
 | `program_health` | The freshness probe: link status, page hash and text, failing days, changed_at |
 | `installations` | One row per issued token (hash only): client name, `audience` and `revoked_at` (v6.1.16), `last_seen_at`, `last_find_at`, `prev_find_at` (the find before; v6.1.9), `last_gaps` (the last find's gaps), `builder_id` and `linked_at` when linked, `unlinked_at` and `unlinked_reason` (set by an unlink on /me or the account's deletion, cleared by the next find or a new link) |
-| `rate_windows` | Request counters |
+| `rate_windows` | Request counters; the daily run sweeps windows started over 2 days ago |
 | `repo_cache` | Public repo facts, 7 days; swept after 30 |
-| `evidence_cache` | v6 evidence blocks per repo (`repo:<owner/name>`, with pushed_at) and per contract, used for 7 days; not swept yet |
+| `evidence_cache` | v6 evidence blocks per repo (`repo:<owner/name>`, with pushed_at) and per contract, used for 7 days; the daily run sweeps rows read over 180 days |
 | `applications`, `application_history`, `gaps_done` | The ledger |
 | `project_reports` | The project as reported at the owner's last find, per owner and project key (v6.1.13; a find with a repo writes its name key too), read by a send's check and `resolvedKey`; moved on link, deleted with the account, swept after 180 days without a find |
-| `owner_digests` | The days a digest covered |
+| `owner_digests` | The days a digest covered, with the last body's hash (`body_hash`) |
 | `program_reviewers` | Builders the owner marked as a program's reviewers (may call `screen`) |
 | `screen_jobs`, `screen_applicants`, `screen_outcomes` | Screen jobs (180 days), each applicant's tier, because, line, public rows and deployers (no pitch column), and the program's outcomes; they belong to the program (`builder_id` NULL once its reviewer deleted their account); the program's own counts read only these |
 
@@ -653,7 +669,10 @@ in one run, else "Results come in daily runs; {n} applicants ahead of yours, all
 (`screen-worker.ts`) takes each applicant atomically (`reading`, free again after 30 minutes), reads it as the pilot
 does (a GitHub budget stop puts it back and ends the run; a tierless read worth a retry is queued again, `failed` at
 the third) and stores tier, flags, because, line and public rows only (`github`, `explorer`, `site`, `earnkit`, never
-`record`). The daily cron gives the queue 300 s; `POST /api/cron` with `{ "job_id": "..." }` is the owner's trigger
+`record`). The daily cron gives the queue 300 s at most, cut to its run's deadline (v6.1.16 Task 16): `workQueue`
+returns `read` and `left` (the share not reached when it stopped) and each job stores `last_run_read` and
+`last_run_left`; while a job's `last_run_left` is over 0 its results line adds "{n} of {m} read today; the rest
+tomorrow." (read so far, the job's total); `POST /api/cron` with `{ "job_id": "..." }` is the owner's trigger
 (that job only, at most 300 applicants in 600 s). With `job_id` the tool answers the totals line and the results;
 with `outcomes` it records the program's decisions (refs not in the job are named; L15-15, L15-16 v6.1.14: a win's
 amount is `amount_usd` or `amount` with a currency code, cents allowed (`amountOf`); an unreadable amount or a US dollar
