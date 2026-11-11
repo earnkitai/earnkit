@@ -16,11 +16,16 @@ test('L13-11 (v6.1.16 Task 17): in production a CRON_SECRET under 32 characters 
   try {
     (process.env as Record<string, string>).NODE_ENV = 'production';
     delete process.env.CRON_SECRET;
-    assert.doesNotThrow(() => register());
+    const exits: number[] = [];
+    const exit = (code: number) => void exits.push(code);
+    assert.doesNotThrow(() => register({ exit }));
+    assert.deepEqual(exits, []);
     const r = await cronPost(new Request('https://earnkit.test/api/cron', { method: 'POST', headers: { authorization: 'Bearer x' } }));
     assert.equal(r.status, 503);
     process.env.CRON_SECRET = 'y'.repeat(20);
-    assert.throws(() => register(), { message: CRON_SECRET_SHORT });
+    // A throw alone leaves next start up answering 500, so the process exits with code 1.
+    assert.throws(() => register({ exit }), { message: CRON_SECRET_SHORT });
+    assert.deepEqual(exits, [1]);
   } finally {
     (process.env as Record<string, string | undefined>).NODE_ENV = saved.node;
     if (saved.secret === undefined) delete process.env.CRON_SECRET;

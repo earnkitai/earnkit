@@ -14,7 +14,7 @@ import { RateLimitError, clientIp, enforce } from '../v5/rate-limit';
 import { ME_ERRORS, ME_LINK_EXPIRED_TITLE, ME_LINK_USED, UNKNOWN_CODE } from '../v5/site-copy';
 import { LinkRefused, linkInstallation, upsertBuilder } from './builders';
 import { GitHubAuthError, type GitHubUser, authorizeUrl, exchangeCode, oauthConfigured, signState, verifyState } from './github-auth';
-import { cookieOf, cookieValue, createSession } from './sessions';
+import { cookieOf, cookieValue, createSession, legacyClear } from './sessions';
 
 const TTL_MS = 15 * 60_000;
 const LINK_COOKIE = 'ek_link';
@@ -264,6 +264,8 @@ export function callbackGet(request: Request, deps: { now?: Date; gh?: typeof fe
     // Nothing is linked here: a link someone else sent would otherwise bind their agent on one click.
     const headers = new Headers({ Location: `/me?link=${encodeURIComponent(linked.code)}`, 'Cache-Control': 'no-store' });
     headers.append('Set-Cookie', cookie);
+    // L31-6 (v6.1.16 Task 17): the new __Host- cookie replaces any old ek_me.
+    for (const c of legacyClear()) headers.append('Set-Cookie', c);
     headers.append('Set-Cookie', cookieOf(LINK_COOKIE, '', 0));
     return new Response(null, { status: 302, headers });
   });

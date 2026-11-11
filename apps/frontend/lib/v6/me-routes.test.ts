@@ -6,7 +6,7 @@ import { csrfToken, problemShown, seenOf } from './me-view';
 import { createLinkCode } from './link-routes';
 import { approvePost, deletePost, editPost, linkPost, meGet, policyPost, signoutPost, unlinkPost } from './me-routes';
 import { answerFor, mergeRecord } from './record';
-import { createSession } from './sessions';
+import { createSession, sessionBuilder } from './sessions';
 
 after(() => sql().end());
 
@@ -605,4 +605,35 @@ test('L31-3 (v6.1.16 Task 17): every /me post needs a same-origin Origin or Refe
   const byOrigin = await editPost(post('/me/edit', { csrf, path: 'person.name', value: 'Origin Test' }, { cookie }), deps);
   assert.equal(byOrigin.status, 303);
   assert.equal((await getRecord(b.id)).person.name, 'Origin Test');
+});
+
+test('L31-6 (v6.1.16 Task 17, controller ruling): with both cookies, sign-out ends both sessions and expires both names; after delete neither token works', async () => {
+  const saved = process.env.NODE_ENV;
+  (process.env as Record<string, string>).NODE_ENV = 'production';
+  try {
+    for (const handler of [signoutPost, deletePost]) {
+      const { b, token: oldToken } = await signedIn();
+      const { token } = await createSession(b.id, NOW);
+      const cookie = `ek_me=${oldToken}; __Host-ek_me=${token}`;
+      const csrf = csrfToken(b.id, DAY, SECRET, token);
+      const r = await handler(post(handler === deletePost ? '/me/delete' : '/me/signout', { csrf, confirm: b.login }, { cookie }), deps);
+      assert.equal(r.status, 303);
+      const set = r.headers.getSetCookie();
+      assert.ok(set.includes('__Host-ek_me=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0'), JSON.stringify(set));
+      assert.ok(set.includes('ek_me=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0'), JSON.stringify(set));
+      for (const t of [token, oldToken]) {
+        assert.equal(await sessionBuilder(`__Host-ek_me=${t}`, NOW), null);
+        assert.equal(await sessionBuilder(`ek_me=${t}`, NOW), null);
+      }
+    }
+    // An old cookie of another builder beside this one's is ended too.
+    const one = await signedIn();
+    const other = await signedIn();
+    const { token } = await createSession(one.b.id, NOW);
+    const r = await signoutPost(post('/me/signout', { csrf: csrfToken(one.b.id, DAY, SECRET, token) }, { cookie: `ek_me=${other.token}; __Host-ek_me=${token}` }), deps);
+    assert.equal(r.status, 303);
+    assert.equal(await sessionBuilder(`ek_me=${other.token}`, NOW), null);
+  } finally {
+    (process.env as Record<string, string | undefined>).NODE_ENV = saved;
+  }
 });

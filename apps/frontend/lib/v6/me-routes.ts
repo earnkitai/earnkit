@@ -17,7 +17,7 @@ import { type Builder, deleteBuilder, getRecord, unlinkInstallation, withRecord 
 import { ALREADY_LINKED, OTHER, codeShaped, codeState, consumeLinkCode, deniedCode, denyLinkCode, linkedBy, liveCode } from './link-routes';
 import { type MeField, agentList, authSecret, problemSig, recordBlocks, seenOf, utcDay, verifyCsrf } from './me-view';
 import { APPROVABLE, type BuilderRecord, approvePath, fieldSchema, mergeRecord, onceEach, unapprovePath } from './record';
-import { clearCookie, endSession, sessionBuilder, sessionToken } from './sessions';
+import { clearCookies, endSession, sessionBuilder, sessionToken } from './sessions';
 
 type Deps = { now?: Date };
 const MAX_BODY = 64 * 1024;
@@ -26,6 +26,12 @@ const text = (status: number, body: string, headers: Record<string, string> = {}
   new Response(body, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', ...headers } });
 const back = (location: string, headers: Record<string, string> = {}) =>
   new Response(null, { status: 303, headers: { Location: location, 'Cache-Control': 'no-store', ...headers } });
+/** A 303 that expires every session cookie name (L31-6, v6.1.16 Task 17: the old ek_me too, for one release). */
+const signedOut = (location: string) => {
+  const res = back(location);
+  for (const c of clearCookies()) res.headers.append('Set-Cookie', c);
+  return res;
+};
 /** Who a line is for and when it was written. */
 type For = { builder: { id: number }; now: Date };
 /**
@@ -404,8 +410,10 @@ export async function deletePost(request: Request, deps: Deps = {}): Promise<Res
   // L27-9 (v6.1.16): a refused delete comes back to the delete card with its line beside the form.
   if ((g.form.get('confirm') ?? '').trim().toLowerCase() !== g.builder.login.toLowerCase()) return problemAt(g, ME_ERRORS.confirm, 'delete');
   await deleteBuilder(g.builder.id, g.now);
+  // L31-6 (v6.1.16 Task 17): and the session behind any other cookie the request carries; both names expire.
+  await endSession(request.headers.get('cookie'));
   // L21-9 (v6.1.16): the home page says the account is deleted.
-  return back('/?deleted=1', { 'Set-Cookie': clearCookie() });
+  return signedOut('/?deleted=1');
 }
 
 /** POST /me/signout: csrf; ends this session. */
@@ -413,5 +421,5 @@ export async function signoutPost(request: Request, deps: Deps = {}): Promise<Re
   const g = await guard(request, deps);
   if (g instanceof Response) return g;
   await endSession(request.headers.get('cookie'));
-  return back('/', { 'Set-Cookie': clearCookie() });
+  return signedOut('/');
 }

@@ -12,6 +12,16 @@ export function checkBootEnv(env: NodeJS.ProcessEnv = process.env): void {
   if (env.NODE_ENV === 'production' && secret && secret.length < CRON_SECRET_MIN) throw new Error(CRON_SECRET_SHORT);
 }
 
-export function register(): void {
-  checkBootEnv();
+/**
+ * Next calls this once at start. A throw here only logs, and the server would stay up answering 500 to every request
+ * (seen on `next start`, Next 16.4.1), so a refused secret logs its line and exits the process with code 1.
+ */
+export function register(deps: { exit: (code: number) => void } = { exit: (code) => process.exit(code) }): void {
+  try {
+    checkBootEnv();
+  } catch (err) {
+    console.error(`[boot] ${err instanceof Error ? err.message : String(err)}`);
+    deps.exit(1);
+    throw err;
+  }
 }

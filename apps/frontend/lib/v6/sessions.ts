@@ -59,10 +59,18 @@ export async function sessionBuilder(cookieHeader: string | null, now: Date): Pr
   return r ? getBuilder(r.builder_id) : null;
 }
 
+/**
+ * Ends the database session behind each session cookie present (L31-6 controller ruling, v6.1.16 Task 17): the
+ * current name and, for one release, the old ek_me, which may hold another token.
+ */
 export async function endSession(cookieHeader: string | null): Promise<void> {
-  const token = tokenOf(cookieHeader);
-  if (token) await sql()`DELETE FROM sessions WHERE token_hash = ${hash(token)}`;
+  const tokens = [...new Set([cookieValue(cookieHeader, cookieName()), cookieValue(cookieHeader, OLD_COOKIE)].filter((t): t is string => Boolean(t)))];
+  if (tokens.length > 0) await sql()`DELETE FROM sessions WHERE token_hash = ANY(${tokens.map(hash)})`;
 }
 
 /** The Set-Cookie value that removes the session cookie. Pure. */
 export const clearCookie = (): string => cookieOf(cookieName(), '', 0);
+/** In production, the Set-Cookie value that expires the old ek_me (sign-in, sign-out, delete); none on local http. Pure. */
+export const legacyClear = (): string[] => (cookieName() === OLD_COOKIE ? [] : [cookieOf(OLD_COOKIE, '', 0)]);
+/** The Set-Cookie values that expire every session cookie name (L31-6 controller ruling). Pure. */
+export const clearCookies = (): string[] => [clearCookie(), ...legacyClear()];
