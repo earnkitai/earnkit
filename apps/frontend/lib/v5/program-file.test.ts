@@ -257,3 +257,11 @@ test('v6.1.15 money lines (#12, L1g-8c): each ruled summary money, on the tile a
   assert.equal(programKind(mentor), 'grant');
   assert.equal(replyMoney(ProgramFile.parse(read('sovereign-tech-fund.json'))), 'funds work from EUR 50,000');
 });
+
+test('L21-16 (v6.1.16): city is optional, 1 to 40 characters, no links', () => {
+  const base = JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/alliance-all19.json'), 'utf8'));
+  assert.equal(ProgramFile.parse(base).city, 'New York City');
+  const { city: _drop, ...without } = base;
+  assert.equal(ProgramFile.parse({ ...without, in_person: false }).city, undefined);
+  for (const bad of ['', 'x'.repeat(41), 'see https://example.com', 'eugene.com']) assert.equal(ProgramFile.safeParse({ ...base, city: bad }).success, false, bad);
+});

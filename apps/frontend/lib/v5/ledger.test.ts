@@ -454,3 +454,10 @@ test('L16-7 (v6.1.16): resultOf reads a won, rejected or no-result row, else nul
   // Another owner's row is not this one's.
   assert.equal(await resultOf(o(i + 100000), 'l-ro-a'), null);
 });
+
+test('ledgerCounts (L21-1, v6.1.16): the counts the find reply and /me share', async () => {
+  const { ledgerCounts } = await import('./ledger');
+  const l = { applied: 6, asked_usd: 0, won: 3, won_usd: 12_000, pending: 2, rejected: 1, skipped: 0, closing_soon: [] };
+  assert.equal(ledgerCounts(l), '6 sent, 3 won ($12,000), 1 rejected, 2 waiting.');
+  assert.equal(ledgerCounts({ ...l, won: 0, won_usd: 0, rejected: 0, pending: 6 }), '6 sent, 6 waiting.');
+});

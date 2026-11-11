@@ -20,6 +20,7 @@
   "investment": true,
   "category": "investment",
   "in_person": true,
+  "city": "San Francisco, New York or Bangalore",
   "tag": "long shot",
   "eligibility": [
     { "kind": "in_person", "note": "work from SPC's San Francisco, New York City or Bangalore office during the eight-week bootcamp" }

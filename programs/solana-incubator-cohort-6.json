@@ -22,6 +22,7 @@
   "verified_at": "2026-11-09",
   "status": "active",
   "in_person": true,
+  "city": "New York City",
   "existing_work": "allowed",
   "needs_repo": false,
   "chains": ["solana"],

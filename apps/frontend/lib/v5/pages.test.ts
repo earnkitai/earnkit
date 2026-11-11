@@ -47,7 +47,6 @@ const textOf = (markup: string) =>
     .replace(/\s+/g, ' ')
     .trim();
 const params = (id: string) => ({ params: Promise.resolve({ id }) });
-const isNotFound = (e: unknown) => (e as { digest?: string })?.digest?.includes('404') === true;
 
 before(async () => {
   const now = new Date();
@@ -207,10 +206,17 @@ test('/programs/<id>: an upcoming and a closed program still render', async () =
   assert.ok(textOf(html(await ProgramGuidePage(params('zz-page-shut')))).includes('Closed'));
 });
 
-test('/programs/<id> is a 404 for an unknown id and for a record that no longer parses', async () => {
-  for (const id of ['nope', 'zz-page-broken', 'Not A Slug'])
-    await assert.rejects(() => ProgramGuidePage(params(id)) as Promise<unknown>, isNotFound, id);
-  assert.match(String((await guideMetadata(params('nope'))).title), /Not found/);
+test('/programs/<id>: an unknown id and a record that no longer parses render the site\'s not-found text server-side (L21-4)', async () => {
+  // L21-4 (v6.1.16): notFound() here left the production body empty (the text only in the script payload), so the
+  // page renders the not-found content itself: one h1, the same text and link as /nope, noindex.
+  for (const id of ['nope', 'zz-page-broken', 'Not A Slug']) {
+    const m = html(await ProgramGuidePage(params(id)));
+    assert.equal((m.match(/<h1/g) ?? []).length, 1, id);
+    assert.ok(textOf(m).includes('Nothing shipped here.') && m.includes('href="/"') && textOf(m).includes('Go home.'), id);
+  }
+  const meta = await guideMetadata(params('nope'));
+  assert.match(String(meta.title), /Not found · EarnKit/);
+  assert.equal((meta.robots as { index?: boolean }).index, false);
 });
 
 test('/docs: the seven sections, under 460 words, the copy rules', () => {
@@ -273,7 +279,7 @@ test('a stale API program has no guide; a closed file program says Closed and ha
   const old = new Date(Date.now() - 40 * 86_400_000).toISOString().slice(0, 10);
   await upsertProgram(programFixture({ id: 'zz-page-stale', title: 'Page Stale Grants', verified_at: old }), 'api', new Date());
   await sql()`UPDATE programs SET verified_at = ${old} WHERE id = 'zz-page-stale'`;
-  await assert.rejects(() => ProgramGuidePage(params('zz-page-stale')) as Promise<unknown>, isNotFound);
+  assert.ok(textOf(html(await ProgramGuidePage(params('zz-page-stale')))).includes('Nothing shipped here.'));
   const m = html(await ProgramGuidePage(params('zz-page-shut')));
   assert.ok(textOf(m).includes('Closed'));
   assert.ok(!m.includes('https://example.com/apply') && !textOf(m).includes('Apply on the program site'));

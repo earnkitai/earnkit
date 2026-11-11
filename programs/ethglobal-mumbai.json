@@ -12,6 +12,7 @@
   "verified_at": "2026-10-20",
   "status": "closed",
   "in_person": true,
+  "city": "Mumbai",
   "existing_work": "allowed",
   "needs_repo": true,
   "chains": [],

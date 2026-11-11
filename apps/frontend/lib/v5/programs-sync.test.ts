@@ -48,3 +48,9 @@ test('an invalid file writes nothing', async () => {
   assert.deepEqual(r.written, []);
   assert.equal(await getProgram('s-ok'), null);
 });
+
+test('L21-16 (v6.1.16): the check refuses an in-person file without its city', () => {
+  const r = readProgramFiles(dirWith(programFixture({ id: 's-ip', in_person: true }), programFixture({ id: 's-ip-city', in_person: true, city: 'Eugene' })), NOW);
+  assert.deepEqual(r.invalid, ['s-ip.json is not valid:\n  - city: an in-person program names its city (from its description or rules)']);
+  assert.deepEqual(r.programs.map((x) => x.f), ['s-ip-city.json']);
+});

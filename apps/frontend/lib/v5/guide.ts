@@ -30,6 +30,8 @@ export type Guide = {
   needs: string[];
   /** "Needs a live product.", or null when the program sets none. */
   bar: string | null;
+  /** "In person: New York City." or "In person." for an in-person program; null otherwise (L21-16, v6.1.16). */
+  in_person: string | null;
   focus: string | null;
   past_rounds: string[];
   best_bet: string | null;
@@ -116,12 +118,27 @@ export function closedOn(p: Program, now: Date): string | null {
   return `Closed on ${day}.`;
 }
 
-/** When it closes, in words: a date in the program's own zone, rolling, not open yet or closed. */
+const DAY_MS = 86_400_000;
+
+/**
+ * An open program's close in words (L21-24, v6.1.16): `Closes tomorrow.` under 24 hours, `Closes in {n} days.` under
+ * 14 days (whole days, rounded up), else `Closes {day}` in the program's own zone; `Rolling` without a close. Task 9's
+ * `closesWords` folds it in. Pure.
+ */
+export function closesIn14(p: Pick<Program, 'summary' | 'tz' | 'ends_at'>, now: Date): string {
+  const day = closeDay(p);
+  if (!day || !p.ends_at) return ROLLING;
+  const left = Date.parse(p.ends_at) - now.getTime();
+  if (left > 0 && left < DAY_MS) return 'Closes tomorrow.';
+  if (left > 0 && left < 14 * DAY_MS) return `Closes in ${Math.ceil(left / DAY_MS)} days.`;
+  return `Closes ${day}`;
+}
+
+/** When it closes, in words: soon (`closesIn14`), a date in the program's own zone, rolling, not open yet or closed. */
 function closesOf(p: Program, now: Date): string {
   if (p.status === 'upcoming') return NOT_OPEN_YET;
   if (p.status === 'closed' || !isOpen(p, now)) return CLOSED;
-  const day = closeDay(p);
-  return day ? `Closes ${day}` : ROLLING;
+  return closesIn14(p, now);
 }
 
 const NEEDS_WORDS: Record<(typeof NEEDS)[number], string> = {
@@ -142,10 +159,11 @@ function signInOf(p: Program): string | null {
   return name ? `Form needs ${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name} account.` : "Form needs an account on the program's site.";
 }
 
-/** The pills under a guide's title, each a sentence (template row 7, v6.1.15): who sends it, the form's login, the
- *  extra material ("Needs a founder video.") and the bar. Pure. */
-export function guidePills(g: Pick<Guide, 'submit' | 'sign_in' | 'needs' | 'bar'>): string[] {
-  return [g.submit, g.sign_in, ...g.needs.map((n) => `Needs ${n}.`), g.bar].filter((t): t is string => Boolean(t));
+/** The pills under a guide's title, each a sentence (template row 7, v6.1.15): where it is held when in person
+ *  (`In person: New York City.`, or `In person.` when the file names no city; L21-16, v6.1.16), who sends it, the form's
+ *  login, the extra material ("Needs a founder video.") and the bar. Pure. */
+export function guidePills(g: Pick<Guide, 'submit' | 'sign_in' | 'needs' | 'bar'> & Partial<Pick<Guide, 'in_person'>>): string[] {
+  return [g.in_person ?? null, g.submit, g.sign_in, ...g.needs.map((n) => `Needs ${n}.`), g.bar].filter((t): t is string => Boolean(t)).map(sentence);
 }
 
 const joinAnd = (xs: string[]): string => (xs.length <= 1 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
@@ -176,7 +194,8 @@ export function guideText(row: ProgramRow, now: Date = new Date()): Guide {
     closes,
     closed_on,
     // L21-2 (v6.1.16): a closed program's text never reads as still taking entries.
-    description: closed_on ? withoutOpenWindow(p.description) : p.description,
+    // L21-23 (v6.1.16): the description ends as a sentence.
+    description: sentence(closed_on ? withoutOpenWindow(p.description) : p.description),
     rules: closed_on ? p.rules.map(withoutOpenWindow).filter(Boolean) : p.rules,
     eligibility: eligibilityList(eligibilityOf(p)),
     fields: p.submission_requirements.map((r) => ({ label: r.label, todo: sentence(r.todo ?? (r.required ? r.label.toLowerCase() : 'optional')) })),
@@ -185,11 +204,21 @@ export function guideText(row: ProgramRow, now: Date = new Date()): Guide {
     sign_in: signInOf(p),
     needs: p.needs.map((n) => NEEDS_WORDS[n]),
     bar: p.min_tier ? BAR_WORDS[p.min_tier] : null,
+    in_person: p.in_person ? (p.city ? `In person: ${p.city}.` : 'In person.') : null,
     focus: p.focus ? focusOf(p.focus, p.focus.ecosystem || (p.chains[0] ? chainName(p.chains[0]) : p.title)) : null,
     past_rounds: p.past_rounds.map(roundLine),
     best_bet: p.best_bet ? sentence(p.best_bet) : null,
     sources: sources.filter((s) => !seen.has(s.url) && seen.add(s.url)),
   };
+}
+
+/**
+ * The guide page's meta description (L21-3, v6.1.16): "$67,500 in prizes, closes Nov 12. Who can apply, what the form
+ * asks and the rules.", the close in the page's own words, its first letter lower-cased; a closed program "..., closed.". Pure.
+ */
+export function guideMeta(g: Pick<Guide, 'money' | 'closes' | 'closed_on'>): string {
+  const closes = (g.closed_on ? CLOSED : g.closes).replace(/\.$/, '');
+  return `${g.money}, ${closes.charAt(0).toLowerCase()}${closes.slice(1)}. Who can apply, what the form asks and the rules.`;
 }
 
 /** The guide's rules as reply lines ("Rules:" then one per line); none without rules. */

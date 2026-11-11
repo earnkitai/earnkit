@@ -21,6 +21,7 @@
   "investment": true,
   "category": "investment",
   "in_person": true,
+  "city": "New York City, San Francisco or Austin",
   "tag": "long shot",
   "eligibility": [
     { "kind": "in_person", "note": "work in person at Antler's NYC, SF or Austin office for up to 3 months" },

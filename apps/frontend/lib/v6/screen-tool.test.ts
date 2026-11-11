@@ -298,12 +298,13 @@ test('L15-3 (v6.1.14): results come 25 a page; the last line asks for the next p
   const q = await mcpCall(c, 'screen', { program_id: 'scr-pages', applicants: list });
   const jobId = q.reply!.job_id as string;
   const one = await mcpCall(c, 'screen', { job_id: jobId });
-  assert.equal(one.reply!.show_to_builder, '30 applicants: 0 used, 0 live, 0 building, 0 unverified, 0 flagged; 30 pending. Ask for page 2 for the rest.');
+  // L21-27 (v6.1.16): a page that exists leads with where it is.
+  assert.equal(one.reply!.show_to_builder, 'Page 1 of 2. 30 applicants: 0 used, 0 live, 0 building, 0 unverified, 0 flagged; 30 pending. Ask for page 2 for the rest.');
   assert.equal(one.reply!.next_page, 2);
   assert.equal((one.reply!.results as { applicants: unknown[] }).applicants.length, 25);
   assert.match(one.reply!.agent_note as string, /Call screen with job_id and page 2 for the next 25\.$/);
   const two = await mcpCall(c, 'screen', { job_id: jobId, page: 2 });
-  assert.equal(two.reply!.show_to_builder, '30 applicants: 0 used, 0 live, 0 building, 0 unverified, 0 flagged; 30 pending.');
+  assert.equal(two.reply!.show_to_builder, 'Page 2 of 2. 30 applicants: 0 used, 0 live, 0 building, 0 unverified, 0 flagged; 30 pending.');
   assert.equal(two.reply!.next_page, null);
   assert.equal((two.reply!.results as { applicants: unknown[] }).applicants.length, 5);
   // L16-12 (v6.1.16): a page past the last says so.

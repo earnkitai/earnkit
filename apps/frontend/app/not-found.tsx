@@ -7,7 +7,7 @@ export const metadata = NOT_FOUND_METADATA;
 
 /**
  * Launch ready L10: every unknown page and handle gets the site's own 404 (never Next's white default).
- * v3.1 site Task 10 (NotFound board): the rust card, "404" big in the rust accent, one line, "Back home"; the full footer.
+ * v3.1 site Task 10 (NotFound board): the rust card, "404" big in the rust accent, one line, "Go home." (L21-21, v6.1.16); the full footer.
  * QA item 13: its own title, once. The metadata export titles the unmatched-path 404. A route that calls notFound() keeps
  * its own metadata in the browser (the layout's title), so each such route's generateMetadata returns NOT_FOUND_METADATA
  * when its entity is missing; the component renders no `<title>`, which would be a second one in <head>.

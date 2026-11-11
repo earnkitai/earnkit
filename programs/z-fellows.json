@@ -67,5 +67,6 @@
   ],
   "form": { "platform": "google", "url": "https://docs.google.com/forms/d/e/1FAIpQLSeKZ2LFKJFxACeeBN9WXA-lAaT6BelMCSjzD4lb5waJqNadyA/viewform", "fields": {"first_name": "entry.1014228544", "last_name": "entry.2033648051", "company_name": "entry.41513773", "phone": "entry.1387847630", "technical": "entry.341795595", "applied_before": "entry.1373492472", "based": "entry.804178553", "school_or_work": "entry.796707688", "project": "entry.1187976181", "problem": "entry.1658936460", "expertise": "entry.2134887499", "competitors": "entry.840223092", "past_work": "entry.1489446468", "nerdiest": "entry.259843681", "drives_you": "entry.1594346963", "non_traditional": "entry.1657349600", "risk": "entry.2053766246", "links": "entry.1833430170", "achievements": "entry.1650194729", "intro_video": "entry.227098789", "dream_cofounder": "entry.859064531", "heard_about": "entry.1737331105", "help_needed": "entry.347047419", "friend_1_name": "entry.1134776430", "friend_1_email": "entry.2090736119", "friend_2_name": "entry.1700741102", "friend_2_email": "entry.1107386667", "friend_3_name": "entry.446236525", "friend_3_email": "entry.480537178"} },
   "needs": ["founder_video"],
-  "in_person": true
+  "in_person": true,
+  "city": "San Francisco or New York"
 }

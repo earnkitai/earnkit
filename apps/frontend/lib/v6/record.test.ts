@@ -297,3 +297,10 @@ test('final fix (v6.1.12, F10): the record tool saves each chain once, in first 
   assert.deepEqual(problems, []);
   assert.deepEqual(record.projects[0].chains_claimed, ['base', 'arc']);
 });
+
+test('L21-18 (v6.1.16, controller ruling): Press submit stays on by default; only its label changed', async () => {
+  const { EMPTY_RECORD } = await import('./record');
+  const { ME_LABELS } = await import('../v5/site-copy');
+  assert.equal(EMPTY_RECORD.policy.agent_may_submit, true);
+  assert.equal(ME_LABELS['policy.agent_may_submit'], 'Press submit for me when I say yes.');
+});
