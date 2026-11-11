@@ -45,6 +45,9 @@ const lineOf = (r: Response, who: number) => {
  *  anchor: "person.name#person". Empty when it is not a signed Saved. for this builder. */
 const savedTo = (r: Response, who = 0) => {
   const loc = new URL(r.headers.get('location') ?? '/', 'https://earnkit.test');
+  // L27-10 (v6.1.16): a section's Save (and the policy form) is /me?saved={section}#{section}, unsigned.
+  const section = loc.searchParams.get('saved');
+  if (r.status === 303 && loc.pathname === '/me' && section) return `${section}${loc.hash}`;
   const ok = r.status === 303 && loc.pathname === '/me' && loc.searchParams.get('note') === 'Saved.' && (who === 0 || problemShown('note', 'Saved.', loc.searchParams.get('sig') ?? '', who, NOW, SECRET) === 'Saved.');
   return ok ? `${loc.searchParams.get('at')}${loc.hash}` : '';
 };
@@ -502,4 +505,55 @@ test('L13-14 (v6.1.14): /me chains one per line read as commas do; an unknown on
   assert.equal(savedTo(await editPost(post('/me/edit', { csrf, path: 'projects.kit.chains_claimed', value: 'base\nsolana\r\nArc, base' }, { cookie }), deps)), 'projects.kit.chains_claimed#projects');
   assert.deepEqual((await getRecord(b.id)).projects[0].chains_claimed, ['base', 'solana', 'arc']);
   refused(b.id, await editPost(post('/me/edit', { csrf, path: 'projects.kit.chains_claimed', value: 'base\nnotachain' }, { cookie }), deps), 'Not a known chain: notachain.');
+});
+
+/** Where a 303 to /me lands: the query's `at` or `saved` and the anchor. */
+const placeOf = (r: Response) => {
+  const loc = new URL(r.headers.get('location') ?? '/', 'https://earnkit.test');
+  return { at: loc.searchParams.get('at'), saved: loc.searchParams.get('saved'), hash: loc.hash };
+};
+
+test('L27-8, L27-10 (v6.1.16): one Save per section: the changed fields save together, untouched ones keep who set them, and the page says Saved. there', async () => {
+  const { b, cookie, csrf } = await signedIn();
+  await saveRecord(b.id, mergeRecord(await getRecord(b.id), { person: { email: 'agent@example.com' } }, 'agent', NOW).record, NOW);
+  const r = await editPost(post('/me/edit', { csrf, section: 'person', 'person.name': 'Ada Lovelace', 'person.location': 'London', 'person.email': 'agent@example.com', 'person.bio': '' }, { cookie }), deps);
+  assert.equal(r.status, 303);
+  assert.equal(r.headers.get('location'), '/me?saved=person#person');
+  const rec = await getRecord(b.id);
+  assert.equal(rec.person.name, 'Ada Lovelace');
+  assert.equal(rec.person.location, 'London');
+  // The email was not changed on the page: it stays the agent's.
+  assert.equal(rec.meta['person.email'].set_by, 'agent');
+  assert.equal(rec.meta['person.name'].set_by, 'builder');
+  // Nothing changed is still Saved. there.
+  assert.equal((await editPost(post('/me/edit', { csrf, section: 'person', 'person.name': 'Ada Lovelace' }, { cookie }), deps)).headers.get('location'), '/me?saved=person#person');
+});
+
+test('L27-8, L27-9 (v6.1.16): a bad field saves none of the section and its line comes back beside that section; a failed delete beside the delete form', async () => {
+  const { b, cookie, csrf } = await signedIn();
+  const before = await getRecord(b.id);
+  const r = await editPost(post('/me/edit', { csrf, section: 'person', 'person.name': 'Grace', 'person.linkedin': 'not a link' }, { cookie }), deps);
+  refused(b.id, r, 'LinkedIn: a link starting with https://.');
+  assert.deepEqual(placeOf(r), { at: 'person', saved: null, hash: '#person' });
+  assert.deepEqual(await getRecord(b.id), before);
+  // Standing approval has its own form; an unknown section changes nothing.
+  refused(b.id, await editPost(post('/me/edit', { csrf, section: 'policy', 'policy.auto_apply': 'true' }, { cookie }), deps), FIELD);
+  refused(b.id, await editPost(post('/me/edit', { csrf, section: 'nope' }, { cookie }), deps), FIELD);
+  const d = await deletePost(post('/me/delete', { csrf, confirm: 'someone-else' }, { cookie }), deps);
+  refused(b.id, d, 'Type your GitHub login to delete.');
+  assert.deepEqual(placeOf(d), { at: 'delete', saved: null, hash: '#delete' });
+  assert.ok(await getBuilder(b.id));
+});
+
+test('L27-8 (v6.1.16): team rows save together, a removed member last so the other rows keep their numbers; the skip list saves with the policy form', async () => {
+  const { b, cookie, csrf } = await signedIn();
+  await saveRecord(b.id, mergeRecord(await getRecord(b.id), { team: [{ name: 'One' }, { name: 'Two', role: 'CTO' }] }, 'agent', NOW).record, NOW);
+  const r = await editPost(post('/me/edit', { csrf, section: 'team', 'team.0.name': '', 'team.1.role': 'CEO', 'team.2.name': 'Three' }, { cookie }), deps);
+  assert.equal(r.headers.get('location'), '/me?saved=team#team');
+  assert.deepEqual((await getRecord(b.id)).team.map((m) => [m.name, m.role ?? null]), [['Two', 'CEO'], ['Three', null]]);
+  const p = await policyPost(post('/me/policy', { csrf, max_per_night: '3', never: 'Base Builder Grants\nzz-other' }, { cookie }), deps);
+  assert.equal(p.headers.get('location'), '/me?saved=policy#policy');
+  assert.deepEqual((await getRecord(b.id)).policy.never, ['Base Builder Grants', 'zz-other']);
+  const bad = await policyPost(post('/me/policy', { csrf, max_per_night: '50' }, { cookie }), deps);
+  assert.deepEqual(placeOf(bad), { at: 'policy', saved: null, hash: '#policy' });
 });

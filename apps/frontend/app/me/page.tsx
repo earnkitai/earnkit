@@ -7,10 +7,11 @@ import { authSecret, meData, problemShown } from '../../lib/v6/me-view';
 import { COOKIE, cookieValue, sessionBuilder } from '../../lib/v6/sessions';
 
 export const dynamic = 'force-dynamic';
+/** L27-21 (v6.1.16): noindex and no canonical (no `alternates`; the layout sets none). */
 export const metadata = { title: `${ME_TITLE} · EarnKit`, description: ME_DESCRIPTION, robots: { index: false, follow: false } };
 
 /** The signed-in builder's record (proxy.ts sends a visitor without a session to /docs#record first). */
-type Query = { problem?: string | string[]; note?: string | string[]; sig?: string | string[]; link?: string | string[]; at?: string | string[] };
+type Query = { problem?: string | string[]; note?: string | string[]; sig?: string | string[]; link?: string | string[]; at?: string | string[]; saved?: string | string[] };
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
 export default async function MePage({ searchParams }: { searchParams: Promise<Query> }) {
@@ -27,7 +28,8 @@ export default async function MePage({ searchParams }: { searchParams: Promise<Q
   const data = await meData(builder, now, token, one(q.link));
   return (
     <>
-      <MeView data={data} problem={problem} note={note} saved={one(q.at) ?? null} />
+      {/* L27-9, L27-10 (v6.1.16): `saved` and `at` name a section (unsigned: they only place `Saved.` and a signed line). */}
+      <MeView data={data} problem={problem} note={note} saved={one(q.saved) ?? null} at={one(q.at) ?? null} />
       {/* L21-22 (v6.1.16): with a linked agent the install pill goes; the Ask line stays. */}
       <Footer linked={data.installations.length > 0} />
     </>
