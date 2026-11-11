@@ -77,14 +77,23 @@ const URL_FIELDS = ['repo_url', 'live_url', 'demo_url'] as const;
 const DATE_FIELDS = ['last_commit_at', 'first_commit_at'] as const;
 
 /** An https or http URL as given, or null. */
-const webUrl = (v: unknown): string | null => {
+/** A web link parsed as given (cleaned), user info kept so the caller can refuse it (L24-23), or null. Pure. */
+function webLink(v: unknown): URL | null {
   if (typeof v !== 'string' || v.length > 500) return null;
   try {
     const u = new URL(clean(v).trim());
-    return u.protocol === 'https:' || u.protocol === 'http:' ? u.toString() : null;
+    return u.protocol === 'https:' || u.protocol === 'http:' ? u : null;
   } catch {
     return null;
   }
+}
+/** A web link as text, never carrying a user name or password (L24-23, v6.1.16 Task 11), or null. Pure. */
+const webUrl = (v: unknown): string | null => {
+  const u = webLink(v);
+  if (!u) return null;
+  u.username = '';
+  u.password = '';
+  return u.toString();
 };
 
 /**
@@ -98,7 +107,8 @@ export function sshAsHttps(raw: string): string {
   return ssh ? `https://${ssh[1]}/${ssh[2]}` : raw;
 }
 /** A repo link as a web link: an SSH clone link read as https first (FR-2). */
-const repoWebUrl = (v: unknown): string | null => webUrl(typeof v === 'string' && v.length <= 500 ? sshAsHttps(clean(v).trim()) : v);
+const repoInput = (v: unknown): unknown => (typeof v === 'string' && v.length <= 500 ? sshAsHttps(clean(v).trim()) : v);
+const repoWebUrl = (v: unknown): string | null => webUrl(repoInput(v));
 
 /** Words that name a testnet in a chain slug or a network (v6.1.14 fix round 1, F1). */
 const TESTNET_WORDS = new Set(['sepolia', 'goerli', 'holesky', 'hoodi', 'testnet', 'devnet', 'amoy', 'mumbai', 'fuji', 'moderato']);
@@ -143,17 +153,6 @@ function networkOf(o: Record<string, unknown>): { chain: string; mainnet: unknow
 
 /** L24-23 (v6.1.16 Task 11): the link fields by name, for the dropped-password problem. */
 const LINK_WORDS: Record<string, string> = { repo_url: 'repo link', live_url: 'live link', demo_url: 'demo link' };
-/** L24-23: a link whose user info holds a password ("https://user:pass@host"). A user name alone is kept. Pure. */
-function carriesPassword(v: unknown): boolean {
-  if (typeof v !== 'string') return false;
-  const t = v.trim();
-  try {
-    return new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(t) ? t : `https://${t}`).password !== '';
-  } catch {
-    return /^(?:[a-z][a-z0-9+.-]*:\/\/)?[^/@\s]*:[^/@\s]*@/i.test(t);
-  }
-}
-
 /** L16-15 (v6.1.16): `mainnet` given as the text `"true"` or `"false"` (trimmed, any case) reads as the boolean. Pure. */
 function boolText(v: unknown): unknown {
   if (typeof v !== 'string') return v;
@@ -179,9 +178,11 @@ export function parseProject(v: unknown, now = new Date(), o: { partial?: boolea
   const urlProblems: string[] = [];
   for (const k of URL_FIELDS) {
     if (raw[k] == null) continue;
-    // L24-23 (v6.1.16 Task 11): a link carrying a password is never passed on, whatever else it names.
-    if (carriesPassword(raw[k])) {
-      urlProblems.push(`the ${LINK_WORDS[k] ?? k} carried a password and was dropped`);
+    // L24-23 (v6.1.16 Task 11, controller ruling): the link as the consumer reads it (cleaned, an SSH link converted)
+    // carrying a user name or password is never passed on, whatever else it names.
+    const parsed = webLink(k === 'repo_url' ? repoInput(raw[k]) : raw[k]);
+    if (parsed && (parsed.username || parsed.password)) {
+      urlProblems.push(`the ${LINK_WORDS[k] ?? k} carried ${parsed.password ? 'a password' : 'a user name'} and was dropped`);
       continue;
     }
     const url = k === 'repo_url' ? repoWebUrl(raw[k]) : webUrl(raw[k]);

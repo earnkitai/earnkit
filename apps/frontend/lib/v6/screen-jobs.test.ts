@@ -860,3 +860,17 @@ test('R15 (L17-2): 25 screen wins of $1,000 against 25 builder wins of $2,000 at
   assert.deepEqual([row.status, Number(row.amount_usd), row.at.getTime()], ['won', Number(last.amount_usd), last.at.getTime()]);
   assert.equal(row.at.getTime(), Math.max(...hist.map((h) => h.at.getTime())));
 });
+
+test('L24-7 (v6.1.16 Task 11, Review Focus 15): refs, names, links and contracts are cleaned at queue time; stored and echoed clean', async () => {
+  const r = await reviewer('jobs-l24');
+  const RLO = '‮', ZWSP = '​';
+  const j = await job(r, [
+    { ref: `a3${RLO}gnp`, name: `Timer${RLO}gnp.exe${ZWSP}`, live_url: `https://t${ZWSP}imer.example/` },
+    { ref: 'b4', name: 'Comma, "quote"\nnew\r\nrow\u0000' },
+  ]);
+  const rows = await sql()<{ ref: string; name: string; live_url: string | null }[]>`SELECT ref, name, live_url FROM screen_applicants WHERE job_id = ${j.id} ORDER BY ref`;
+  assert.deepEqual(rows.map((x) => [x.ref, x.name]), [['a3gnp', 'Timergnp.exe'], ['b4', 'Comma, "quote" new row']]);
+  for (const x of rows) assert.doesNotMatch(`${x.ref}${x.name}${x.live_url ?? ''}`, /[\u0000-\u001f​-‏‪-‮⁦-⁩﻿]/);
+  const res = await jobResults(j.id, r.builderId, NOW);
+  assert.doesNotMatch(JSON.stringify(res), /\\u202e|‮|​/);
+});

@@ -6,6 +6,7 @@ import { replayFetch } from './fixtures/github';
 import { mcpCall } from './fixtures/mcp-call';
 import { lastGaps } from './installations';
 import { shownReadyOf } from './find';
+import { parseProject } from './project-input';
 import { REPO_STEP_NOTE } from './reply';
 
 after(() => sql().end());
@@ -2439,8 +2440,11 @@ test('Review Focus 3 (v6.1.13, B4): a done step survives any spelling of the sam
   const [owner, name] = rec.repo.split('/');
   const spellings = [
     `https://www.github.com/${rec.repo}`, `${repo}/tree/main`, `${repo}?tab=readme-ov-file`, `${repo}#readme`, repo.replace('https:', 'http:'),
-    `https://github.com:8443/${rec.repo}`, `${repo}.git?x=1`, `https://me@github.com/${rec.repo}`, `https://GitHub.com/${owner.toUpperCase()}/${name}/`,
+    `https://github.com:8443/${rec.repo}`, `${repo}.git?x=1`, `https://GitHub.com/${owner.toUpperCase()}/${name}/`,
   ];
+  // L24-23 (v6.1.16 Task 11, controller ruling): a link carrying a user name is dropped, never read as the repo.
+  const parsedMe = parseProject({ ...PROJECT, repo_url: `https://me@github.com/${rec.repo}` });
+  assert.ok(parsedMe.ok && parsedMe.project.repo_url === undefined && parsedMe.problems.includes('the repo link carried a user name and was dropped'));
   for (const spelled of spellings) {
     const c = ctx(await installation());
     assert.equal(await status(c, 'rf3-demo', PROJECT), 'gap', spelled);

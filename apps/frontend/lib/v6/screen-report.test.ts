@@ -40,7 +40,7 @@ test('markdown: one heading per tier present in order, totals that add up, probl
   const sum = totals.filter((m) => m[1] !== 'all').reduce((s, m) => s + Number(m[2]), 0);
   assert.equal(sum, ROWS.length);
   assert.equal(totals.find((m) => m[1] === 'all')?.[2], String(ROWS.length));
-  assert.match(md, /### Used, Inc\. \(u1\)\n\nused: /);
+  assert.match(md, /### `Used, Inc\.` \(`u1`\)\n\nused: /);
   assert.match(md, /- flag: template, 80% of files match the create-next-app starter/);
   // M1 (v6.1.15 fix round 1): the flag line reads the rule's words, the same as the tier head.
   const self = row(app({ ref: 's1', name: 'Self' }), evidence({ live: liveRows({ url: 'https://s.example', url_ok: true }), onchain: [contract({ tx_90d: 900, senders_90d: 150, funded_sample: 50, funded_senders_90d: 5 })] }));
@@ -92,4 +92,14 @@ test('L22-12 (v6.1.16): the CSV carries the outcome and its amount after the tie
   const lines = csv.trimEnd().split('\n');
   assert.ok(lines[1].startsWith('u1,"Used, Inc.",used,won,"$1,000 and EUR 500",'), lines[1]);
   assert.ok(lines[2].startsWith('l1,"Live ""One""",live,rejected,,'), lines[2]);
+});
+
+test('L24-20 (v6.1.16 Task 11): applicant text in a heading is a code span; the CSV is cleaned and the formula guard stays', () => {
+  const rows = [row(app({ ref: `a3‮gnp`, name: '<b>x</b> [Click](https://evil.example) `tick`' }), null), row(app({ ref: 'f1', name: '=HYPERLINK("x")​' }), null)];
+  const md = markdownReport('p', rows, NOW);
+  assert.ok(md.includes('### `` <b>x</b> [Click](https://evil.example) `tick` `` (`a3gnp`)'), md);
+  assert.doesNotMatch(md, /‮/);
+  const csv = csvReport(rows);
+  assert.doesNotMatch(csv, /[‮​]/);
+  assert.ok(csv.includes(`'=HYPERLINK(""x"")`) || csv.includes(`"'=HYPERLINK(""x"")"`), csv);
 });

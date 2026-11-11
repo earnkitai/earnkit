@@ -8,6 +8,7 @@
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { sql } from '../v5/db';
+import { cleanText } from '../v5/controls';
 import { CHAIN_REGISTRY, isKnownChain } from '../v5/chains';
 import { CONFIRMED, amountsOf, record, resultWords, winCapOf } from '../v5/ledger';
 import { amountsOverCap } from '../v5/amount';
@@ -247,6 +248,20 @@ function contractsLeftOut(list: ScreenApplicant[]): string[] {
   return [...by].map(([why, refs]) => `${why} (${listWords(refs, 10)})`);
 }
 
+/** L24-7 (v6.1.16 Task 11): an applicant with its ref (60), name (80), links (500) and contracts through `cleanText`;
+ *  a ref left empty by the cleaning reads "applicant". Pure. */
+export function cleanApplicant(a: ScreenApplicant): ScreenApplicant {
+  const opt = (s: string | undefined, max: number) => (s === undefined ? undefined : cleanText(s, max));
+  return {
+    ...a,
+    ref: cleanText(a.ref, REF_MAX) || 'applicant',
+    ...(a.name !== undefined ? { name: opt(a.name, 80) } : {}),
+    ...(a.repo_url !== undefined ? { repo_url: opt(a.repo_url, 500) } : {}),
+    ...(a.live_url !== undefined ? { live_url: opt(a.live_url, 500) } : {}),
+    ...(a.contracts ? { contracts: a.contracts.map((c) => ({ chain: cleanText(c.chain, 40), address: cleanText(c.address, 80) })) } : {}),
+  };
+}
+
 /** JSON with every object's keys sorted, so one applicant sent with its keys in another order is the same (fix round 1, M5). Pure. */
 const canonicalJson = (v: unknown): string =>
   Array.isArray(v) ? `[${v.map(canonicalJson).join(',')}]`
@@ -266,9 +281,12 @@ export async function createJob(o: {
   now: Date;
 }): Promise<{ id: string | null; total: number; already: string[]; cached: number; notes: string[]; dropped: string[] }> {
   const id = randomBytes(12).toString('base64url');
+  // L24-7 (v6.1.16 Task 11): every applicant-written string is cleaned at queue time, so results and the CSV show the
+  // cleaned text: no bidi, zero-width or control character is stored or echoed.
+  const cleaned = o.applicants.map(cleanApplicant);
   // Low 18 (v6.1.13): an applicant repeated exactly (same ref and every field) is screened once.
   const seen = new Set<string>();
-  const unique = o.applicants.filter((a) => {
+  const unique = cleaned.filter((a) => {
     const k = canonicalJson(a);
     return !seen.has(k) && Boolean(seen.add(k));
   });

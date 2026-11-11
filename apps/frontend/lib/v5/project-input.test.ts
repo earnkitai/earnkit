@@ -420,6 +420,13 @@ test('L24-23 (v6.1.16 Task 11): a link carrying a password is dropped with its p
   assert.equal(r.project.repo_url, undefined);
   assert.equal(r.project.demo_url, undefined);
   assert.deepEqual(r.problems, ['the repo link carried a password and was dropped', 'the live link carried a password and was dropped', 'the demo link carried a password and was dropped']);
+  // Controller ruling: judged on the link as read (cleaned, an SSH link converted); a user name alone is dropped too.
   const named = parseProject({ name: 'Timer', description: 'A timer.', repo_url: 'https://me@github.com/a/b' });
-  assert.ok(named.ok && named.project.repo_url);
+  assert.ok(named.ok && named.project.repo_url === undefined && named.problems.includes('the repo link carried a user name and was dropped'));
+  const hidden = parseProject({ name: 'Timer', description: 'A timer.', live_url: 'https://u:p@exa\u200bmple.com/' });
+  assert.ok(hidden.ok && hidden.project.live_url === undefined && hidden.problems.includes('the live link carried a password and was dropped'));
+  const ssh = parseProject({ name: 'Timer', description: 'A timer.', repo_url: 'git@github.com:a/b.git' });
+  assert.ok(ssh.ok && ssh.project.repo_url, 'an SSH clone link names no web user');
+  const plain = parseProject({ name: 'Timer', description: 'A timer.', live_url: 'https://example.com/a', repo_url: 'https://github.com/a/b' });
+  assert.ok(plain.ok && plain.project.live_url === 'https://example.com/a' && plain.project.repo_url && plain.problems.length === 0);
 });
