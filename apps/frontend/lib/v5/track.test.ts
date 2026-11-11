@@ -1957,3 +1957,35 @@ test('C2, C4 (Task 14 fix round 2, probes P6, P7): a repo id never moves a stran
   const vic = await signedIn('vic6');
   assert.equal((await send(vic, 'l28-p6', VIC)).show_to_builder, 'Sent P6 Grant.');
 });
+
+// ---- v6.1.16 Task 14 fix round 3 ----
+
+test('M4 (Task 14 fix round 3): once the tie is shown, the owner\'s own keyless send, claim or hold is that repo\'s one application', async () => {
+  await seedRead('own4/app', []);
+  const R = { name: 'App', description: 'An app.', repo_url: 'https://github.com/own4/app' };
+  const o4 = await signedIn('own4');
+  const all = async (id: string) => (await sql()`SELECT status, project_id, repo_key FROM applications WHERE owner = ${o4.owner} AND program_id = ${id}`).map((r) => [r.status, r.project_id, r.repo_key]);
+  await upsertProgram(programFixture({ id: 'l28-m4a', title: 'M4 Sent' }), 'file', NOW);
+  assert.equal((await track(o4, { program_id: 'l28-m4a', status: 'applied', submitted_by: 'agent', fields_used: ['project_name'] })).show_to_builder, 'Sent M4 Sent.');
+  const again = await send(o4, 'l28-m4a', R);
+  assert.equal(again.show_to_builder, 'Already sent on Nov 4.');
+  assert.deepEqual(await all('l28-m4a'), [['applied', 'https://github.com/own4/app', 'https://github.com/own4/app']]);
+  for (const first of ['started', 'held'] as const) {
+    const id = `l28-m4-${first}`;
+    await upsertProgram(programFixture({ id, title: `M4 ${first}` }), 'file', NOW);
+    assert.equal((await track(o4, { program_id: id, status: first })).refused, undefined, first);
+    assert.equal((await send(o4, id, R)).show_to_builder, `Sent M4 ${first}.`, first);
+    assert.deepEqual(await all(id), [['applied', 'https://github.com/own4/app', 'https://github.com/own4/app']], first);
+  }
+});
+
+test('N5a (Task 14 fix round 3): a signed-out find of a ready program ends on the sign-in line with its link', async () => {
+  const { find } = await import('./find');
+  await seedRead('org/n5a', ['someone']);
+  await upsertProgram(programFixture({ id: 'l28-n5a', title: 'N5a Grant' }), 'file', NOW);
+  const [u] = await sql()`INSERT INTO installations (token_hash) VALUES (${'l28-n5a-' + Math.random()}) RETURNING id`;
+  const r = await find({ installationId: u.id as number, builderId: null, now: NOW, linkUrl: async () => 'https://earnkit.test/link/n5a' }, { program_id: 'l28-n5a', project: { name: 'N5a', description: 'A repo.', repo_url: 'https://github.com/org/n5a' } });
+  assert.equal(r.show_to_builder.split('\n').at(-1), 'Sign in once at https://earnkit.test/link/n5a and I check the repo is yours; then say yes.');
+  assert.equal((r as { sign_in?: string }).sign_in, 'https://earnkit.test/link/n5a');
+  assert.equal(r.show_to_builder.match(/Sign in once/g)!.length, 1);
+});

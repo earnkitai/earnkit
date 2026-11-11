@@ -253,6 +253,12 @@ project's `repo_id` is EarnKit-only (a patch setting it is dropped with `set by 
 with a repo shows one sign-in line: the reply's own sign-in sentence gives way to `Sign in once at {link} and I check the
 repo is yours; then say yes.` (without the link when the reply has none, or the unlinked notice already carries it).
 
+Task 14 fix round 3: once track's gate shows the tie, `record` (applied, held; `tied`) and `claim` (`tied`) take over the
+builder's own keyless row for the program (its key and repo key set, only when no other owner holds that repo), so a
+keyless send then a repo send reads `Already sent on {date}.` and no orphan claim or hold is left. A signed-out find that
+ends on the sign-in line always fetches the link (never after the record was deleted) and carries it as `sign_in`; right
+after an unlink the notice keeps only `This agent was unlinked from your account.` and the closing carries the link.
+
 `applications` holds one row per installation and program (latest status wins); `application_history` keeps every
 change; `gaps_done` records closed gap items. It is keyed by installation only: v5 has no proof of who a login
 belongs to, so a re-authorization starts a fresh ledger and a builder with two agents has two. `gap_done` takes only

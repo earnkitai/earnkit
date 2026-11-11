@@ -255,6 +255,9 @@ export async function record(
     repoId?: number | null;
     /** L28-1 (controller ruling): the caller's tie to the repo is strong, so a refusal may name the other builder. */
     showLogin?: boolean;
+    /** Fix round 3 (M4): the caller showed the builder's tie to this repo key, so the owner's own keyless row for the
+     *  program is taken over (one application, no orphan claim). */
+    tied?: boolean;
     /** applied only, L28-3 and L28-1 (v6.1.16 Task 14): the repo a send kept under the name only was kept off. */
     offRepo?: string | null;
     /** applied only: the builder's standing approval covered this send when it was tracked (track checks the policy). */
@@ -325,7 +328,10 @@ export async function record(
     // Fix round 2 (C3): a send or hold keyed by a repo takes only that key's own row, never a keyless one (the ownership
     // gate ran for this key, not for the row it would rewrite).
     const exactOnly = repoKeyOf(key) !== null && (status === 'applied' || status === 'held');
-    const row = exactOnly ? rows.find((r) => (r.project_id ?? '') === key) : pickRow(rows, key, RESULTS.includes(status) || status === 'held' || status === 'unskip');
+    // Fix round 3 (M4): once the tie is shown, the owner's own keyless row is this project's.
+    const row = exactOnly
+      ? rows.find((r) => (r.project_id ?? '') === key) ?? (o.tied ? pickRow(rows.filter((r) => (r.project_id ?? '') === ''), '') : undefined)
+      : pickRow(rows, key, RESULTS.includes(status) || status === 'held' || status === 'unskip');
     if (!program && !row) return unknown;
     // The key every write below uses: the row's own when one was picked, else this project's.
     let rk = row ? (row.project_id ?? '') : key;
@@ -342,8 +348,13 @@ export async function record(
       if (await formerSentAt(tx, owner, programId, rk)) return { ok: false, note: ALREADY_SENT_UNLINKED } as const;
     }
     // A send for this project over a row from before projects were kept (no key) takes the row as this project's.
-    if (row && rk === '' && key !== '' && status === 'applied') {
-      await tx`UPDATE applications SET project_id = ${key} WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ''`;
+    // Fix round 3 (M4): a repo key takes the row over only on the caller's shown tie, and only when no other owner holds
+    // that repo (the row then keeps its key); it carries the repo key.
+    const takeOver = row && rk === '' && key !== '' && (status === 'applied' || (status === 'held' && o.tied === true))
+      && (!repoKeyOf(key) || (o.tied === true && !(await repoLock(tx, key, programId, o.repoId ?? null).then(() => sentForRepo(tx, programId, key, owner, o.repoId ?? null)))));
+    if (takeOver) {
+      await tx`UPDATE applications SET project_id = ${key}, repo_key = COALESCE(${repoKeyOf(key)}, repo_key), repo_id = COALESCE(${o.repoId ?? null}::bigint, repo_id)
+        WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ''`;
       rk = key;
     }
     const pk = rk || null;

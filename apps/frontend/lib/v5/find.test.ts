@@ -2037,9 +2037,10 @@ test('B10: the first find after an unlink says so with the sign-in link, once; t
   assert.equal(first.isError, false, first.text);
   assert.equal(first.reply!.linked_notice, line);
   const show = first.reply!.show_to_builder as string;
-  assert.ok(show.includes(`\n${line}`), show);
-  // The notice carries the link: the closing block offers it once.
+  // N5b (Task 14 fix round 3): with a repo, one sign-in sentence: the notice keeps its first sentence, the closing the link.
+  assert.ok(show.includes('\nThis agent was unlinked from your account.\n'), show);
   assert.equal(show.split(link).length, 2, show);
+  assert.equal(show.match(/Sign in once/g)!.length, 1, show);
   const second = await mcpCall({ ...ctx(id, new Date(later.getTime() + H)), linkUrl: async () => link }, 'find', { project: PROJECT });
   assert.equal(second.reply!.linked_notice, null);
   assert.ok(!(second.reply!.show_to_builder as string).includes('unlinked'));

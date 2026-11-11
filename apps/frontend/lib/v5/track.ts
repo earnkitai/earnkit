@@ -519,7 +519,8 @@ async function act(
     if (await notMine()) return notYours();
     // L1d-1 (v6.1.11): with no project_id the claim stores the project key, so find pins it on that project only.
     // L28-4 (v6.1.16 Task 14): the claim is keyed by the project key, always.
-    const c = await claim(owner, i.program_id, appKey || null, ctx.installationId, ctx.now, i.note ?? null, { repoId: await repoIdOf(appKey) });
+    // Fix round 3 (M4): the tie was shown just above, so the builder's own keyless row is taken over.
+    const c = await claim(owner, i.program_id, appKey || null, ctx.installationId, ctx.now, i.note ?? null, { repoId: await repoIdOf(appKey), tied: repoKeyOf(appKey) !== null });
     if (!c.ok && 'unlinked' in c) return refuse(UNLINKED_MEANWHILE);
     // L28-1 (v6.1.16 Task 14): another account sent this repo; L28-10: the builder this agent was linked to sent it.
     if (!c.ok && 'repo' in c) return refuse(ALREADY_SENT_REPO(dayWords(c.repo.at, ctx.now), strong(await tieOf(ctx, appKey)) ? c.repo.login : null), 'Nothing was recorded. Do not submit this one: another EarnKit account already sent this repo to the program.');
@@ -627,7 +628,9 @@ async function act(
   if (amount === 'ambiguous') return refuse(AMOUNT_DOT, 'Nothing was recorded. Send 5000 or 5,000; a dot is for cents only.');
   // L29-3 (v6.1.16 Task 15): a win with no application here is recorded as the builder's own send, then the win.
   // L28-4 (v6.1.16 Task 14): every status names its project key (FR-3: the key, never the record id).
-  let res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, ...(amount && { amount }), note: i.note, item: i.item, projectKey: project.key, project_id: i.status === 'gap_done' ? undefined : appKey, now: ctx.now, ...applied, showLogin,
+  // Fix round 3 (M4): the builder's tie to the repo key this row is written under, shown by the gate.
+  const tied = repoKeyOf(appKey) !== null && (i.status === 'applied' || i.status === 'held') && !(await repoNotMine(ctx, appKey));
+  let res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, ...(amount && { amount }), note: i.note, item: i.item, projectKey: project.key, project_id: i.status === 'gap_done' ? undefined : appKey, now: ctx.now, ...applied, showLogin, tied,
     ...(i.status === 'won' ? { outsideWin: true as const, offRepo } : {}),
     ...(i.status === 'won' && i.payment ? { payment: { key: i.payment.key } } : {}) });
   // L28-1 (v6.1.16 Task 14): a send the builder made of a repo another account sent is kept under the name only.

@@ -871,13 +871,16 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
     if (!offersApply(r.show_to_builder)) return r;
     await markOffer(ctx.installationId, null, ctx.now);
     // Fix round 2 (N5): one sign-in line: the reply's own sign-in sentence gives way to this one, its link kept.
-    const link = (r as { sign_in?: string }).sign_in;
-    const kept = withoutApply(r.show_to_builder).filter((l) => !/^Sign in once\b/.test(l));
-    // A line still carrying the link (the unlinked notice) keeps it; the closing then needs none.
-    const linked = link && !kept.some((l) => l.includes(link));
+    // Fix round 3 (N5a): the closing always carries the sign-in link when one can be made, a proof gap or not.
+    // Never after the record was deleted (final review M8: that reply offers no link).
+    const link = (r as { sign_in?: string }).sign_in ?? (r.show_to_builder.includes(DELETED_NOTICE) ? null : await linkOf(ctx));
+    // N5b: one sign-in sentence: the unlink notice keeps only its first sentence, and the closing carries the link.
+    const kept = withoutApply(r.show_to_builder).filter((l) => !/^Sign in once\b/.test(l))
+      .map((l) => l.replace(/ Sign in once at \S+ to link it again\.$/, ''));
     return {
       ...r,
-      show_to_builder: [...kept, linked ? SIGN_IN_FIRST_LINK(link) : SIGN_IN_FIRST_SAY].join('\n'),
+      show_to_builder: [...kept, link ? SIGN_IN_FIRST_LINK(link) : SIGN_IN_FIRST_SAY].join('\n'),
+      ...(link ? { sign_in: link } : {}),
       agent_note: [r.agent_note, SIGN_IN_FIRST_NOTE].filter(Boolean).join('\n'),
     };
   }

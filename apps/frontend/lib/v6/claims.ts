@@ -56,7 +56,7 @@ const holder = (row: Row) => (row.status === 'started' ? { since: row.claimed_at
  * already sent answers `already` with when and which agent; a skip answers `skipped`; a stale claim is taken
  * over, and the claiming installation's own live claim is renewed (claimed_at moves to now).
  */
-export async function claim(owner: string, programId: string, projectId: string | null, installationId: number, now: Date, note: string | null = null, o: { repoId?: number | null } = {}): Promise<ClaimResult> {
+export async function claim(owner: string, programId: string, projectId: string | null, installationId: number, now: Date, note: string | null = null, o: { repoId?: number | null; tied?: boolean } = {}): Promise<ClaimResult> {
   const stale = new Date(now.getTime() - CLAIM_HOURS * HOUR);
   // L28-4 (v6.1.16 Task 14): the claim is (owner, program, project key).
   const key = projectId ?? '';
@@ -67,16 +67,23 @@ export async function claim(owner: string, programId: string, projectId: string 
     // Fix round 2 (C3): a claim keyed by a repo takes only that key's own row, never a keyless one.
     const read = async () => {
       const rows = await tx<Row[]>`SELECT project_id, status, claimed_at, claimed_by, installation_id, at, held_at FROM applications WHERE owner = ${owner} AND program_id = ${programId} FOR UPDATE`;
-      return repoKeyOf(key) ? rows.find((r) => (r.project_id ?? '') === key) : pickRow(rows, key);
+      // Fix round 3 (M4): with the tie shown, the owner's own keyless row is this project's.
+      return repoKeyOf(key) ? rows.find((r) => (r.project_id ?? '') === key) ?? (o.tied ? pickRow(rows.filter((r) => (r.project_id ?? '') === ''), '') : undefined) : pickRow(rows, key);
     };
     const row = await read();
-    const rk = row ? (row.project_id ?? '') : key;
+    let rk = row ? (row.project_id ?? '') : key;
     const repoKey = repoKeyOf(rk || key);
     // L28-1 (v6.1.16 Task 14): one application per repo key per program across owners, under the repo's lock.
     if (repoKey && (!row || row.status === 'started')) {
       await repoLock(tx, repoKey, programId, o.repoId ?? null);
       const other = await sentForRepo(tx, programId, repoKey, owner, o.repoId ?? null);
       if (other) return { repo: { at: other.at, login: other.login } };
+    }
+    // Fix round 3 (M4): the keyless row taken over carries this project's key and repo.
+    if (row && rk === '' && repoKeyOf(key) && o.tied && !(await sentForRepo(tx, programId, key, owner, o.repoId ?? null))) {
+      await tx`UPDATE applications SET project_id = ${key}, repo_key = ${repoKeyOf(key)}, repo_id = COALESCE(${o.repoId ?? null}::bigint, repo_id)
+        WHERE owner = ${owner} AND program_id = ${programId} AND COALESCE(project_id, '') = ''`;
+      rk = key;
     }
     // L28-10: an unlinked agent never claims what the builder it was linked to sent.
     if (!row) {
