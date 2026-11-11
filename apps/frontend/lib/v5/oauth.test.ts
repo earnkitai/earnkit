@@ -376,7 +376,7 @@ test('L25-1 (v6.1.14.1): a trailing (server name) is the builder\'s label, so Cl
   const { reservedClientName } = await import('./oauth-routes');
   for (const name of ['Claude Code (earnkit)', 'Windsurf (EarnKit)', 'Cursor (earn kit)', 'Claude Code (ЕarnКit)', 'Codex (earnkit) '])
     assert.equal(reservedClientName(name), false, name);
-  for (const name of ['EarnKit (prod)', '(earnkit)', 'earnkit (x) (y)', 'EarnKit (a) bot', 'Claude Code (earnkit) earnkit'])
+  for (const name of ['EarnKit (prod)', '(earnkit)', 'earnkit (x) (y)', 'EarnKit (a) bot', 'Claude Code (earnkit) earnkit', 'x (EarnKit)', '- (earnkit)', '. . (ЕarnКit)', 'é (earnkit)'])
     assert.equal(reservedClientName(name), true, name);
   let n = 0;
   const reg = (client_name: string) =>
