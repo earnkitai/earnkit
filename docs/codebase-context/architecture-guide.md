@@ -372,11 +372,15 @@ contract with any sender the deployer did not fund is at least building (next: t
 "account link, not a repo"); a contract on a chain with no reader is named "{address} on Monad: not read". Only counted mainnet contracts count; the others are listed with their reason. `DEFAULT_THRESHOLDS` carry
 their reasons. `tier-words.ts` turns a placement into the reviewer's line and the builder's line.
 v6.1.15 (#6, #15): a placement carries `next` (the exact rule, agent and owner words) and `builder_next` (the builder's
-form, which `builderLine` reads, falling back to `next` for a stored placement): the live usage gap reads "about 25
+form, which `builderLine` reads): the live usage gap reads "About 25
 outside users in 90 days; I count {M}.", the building gap "A live product: a site that loads or a contract in use.",
 and the flag "At least 20% of sampled users from outside the team; I count {M} of {S}."; every other gap's equals
-`next`. The find tier gap is cut from the stored builder line, so a linked builder's gap never names deployer, senders
-or mainnet. The farmed-wallet flag's rule id is `self_funded_users` (read "self-funded users"; a row stored as
+`next`. The used head reads "People outside the team use it live." and building on users alone "Your project has
+people using it live, with no recent code.". The find tier gap is cut from the stored builder line, and a line stored
+before v6.1.15 is reworded on read (`currentBuilderLine`, a small table of the old templates, in `recordSide` and
+`storedSide`, so also while re-reads fail), so a linked builder's gap and summary never name deployer, senders or
+mainnet. A screen row read before v6.1.15 reads on a results page with the rule `self_funded_users` and the head
+`flagged (self-funded users)` (`currentReviewerLine`; alias until v6.1.16); the markdown report's flag lines use `ruleWords`. The farmed-wallet flag's rule id is `self_funded_users` (read "self-funded users"; a row stored as
 `unfunded` reads the same, `RULE_WORDS`); the threshold names are unchanged. The CSV and the results rows show the
 count as `outside_senders_90d`, with `funded_senders_90d` beside it as an alias until v6.1.16.
 

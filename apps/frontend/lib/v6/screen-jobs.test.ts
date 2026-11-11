@@ -404,6 +404,22 @@ test('#15 (v6.1.15): a sampled-senders row is shown as outside_senders_90d, then
   ]);
 });
 
+test('M2 (v6.1.15 fix round 1): a row read before v6.1.15 reads with today\'s rule id and words on a results page', async () => {
+  const r = await reviewer('jobs-legacy');
+  const j = await job(r, [{ ref: 'g-1', name: 'Legacy' }, { ref: 'g-2', name: 'Today' }]);
+  const detail = '5 of 50 sampled senders on Base mainnet are wallets the deployer did not fund (150 senders in 90 days)';
+  await markRead(j.id, 'g-1');
+  await markRead(j.id, 'g-2');
+  await sql()`UPDATE screen_applicants SET tier = 'flagged', flags = ${sql().json([{ rule: 'unfunded', detail }])}, line = ${`flagged (unfunded): ${detail}.`} WHERE job_id = ${j.id} AND ref = 'g-1'`;
+  await sql()`UPDATE screen_applicants SET tier = 'flagged', flags = ${sql().json([{ rule: 'self_funded_users', detail }])}, line = ${`flagged (self-funded users): ${detail}.`} WHERE job_id = ${j.id} AND ref = 'g-2'`;
+  const seen = (await jobResults(j.id, r.builderId, NOW))!.applicants;
+  assert.equal(seen.length, 2);
+  for (const a of seen) {
+    assert.deepEqual(a.flags, [{ rule: 'self_funded_users', detail }], a.ref);
+    assert.equal(a.line, `flagged (self-funded users): ${detail}.`, a.ref);
+  }
+});
+
 test('L15-5 (v6.1.14): GitLab, Bitbucket and Codeberg links, account links and SSH forms are kept for the read; only GitHub has a key', async () => {
   const r = await reviewer('jobs-hosts');
   const j = await job(r, [

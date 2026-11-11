@@ -42,7 +42,7 @@ test('live: the contract has 4 funded senders; next names the rule with the coun
   assert.equal(p.tier, 'live');
   assert.equal(p.next, '25 senders the deployer did not fund, on mainnet in 90 days; you have 4.');
   // #6 (v6.1.15): the builder's form of the usage gap; agents and owners keep the exact rule in next.
-  assert.equal(p.builder_next, 'about 25 outside users in 90 days; I count 4.');
+  assert.equal(p.builder_next, 'About 25 outside users in 90 days; I count 4.');
   assert.equal(p.gap, 'funded_senders');
   assert.ok(p.because.includes('site loads'), p.because.join(' | '));
 });
@@ -462,7 +462,7 @@ test('I1 (v6.1.14 fix round 1): the builder next step names what is counted, sen
 test('#6 (v6.1.15): builder_next words the usage and building gaps plainly; every other gap equals next, null with no next', () => {
   const live = place(evidence({ live: liveRows({ url: 'https://a.example', url_ok: true }) }), X, undefined, NOW);
   assert.equal(live.gap, 'funded_senders');
-  assert.equal(live.builder_next, 'about 25 outside users in 90 days; I count 0.');
+  assert.equal(live.builder_next, 'About 25 outside users in 90 days; I count 0.');
   const building = place(evidence({ repo: 'a/b', code: codeRows({ last_push_at: daysAgo(3), commits_90d: 2 }) }), X, undefined, NOW);
   assert.equal(building.next, 'A live product: a site that loads or a mainnet contract in use.');
   assert.equal(building.builder_next, 'A live product: a site that loads or a contract in use.');

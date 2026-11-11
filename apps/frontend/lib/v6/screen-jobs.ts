@@ -17,6 +17,7 @@ import { type Applicant, identicalPitches } from './applicants';
 import { getRecord } from './builders';
 import type { Row } from './evidence';
 import { listWords } from './reply-words';
+import { currentReviewerLine } from './tier-words';
 import { type Flag, type Thresholds, type Tier, TIERS } from './tiers';
 
 /** An applicant's ref, as the program gives it and as an outcome names it (screen-tool's outcome ref cap). */
@@ -324,8 +325,10 @@ export async function jobResults(id: string, builderId: number, now: Date = new 
     .map((r) => {
       const read = !UNREAD.includes(r.status);
       return {
-        ref: r.ref, name: r.name, tier: tierOf(r), flags: r.flags ?? [], because: r.because ?? [],
-        line: read ? r.line ?? 'no tier: the read failed.' : null,
+        // M2 (v6.1.15 fix round 1): a row read before v6.1.15 carries the rule `unfunded`; it reads as today's id. alias until v6.1.16
+        ref: r.ref, name: r.name, tier: tierOf(r), flags: (r.flags ?? []).map((f) => (f.rule === 'unfunded' ? { ...f, rule: 'self_funded_users' } : f)),
+        because: r.because ?? [],
+        line: read ? (r.line != null ? currentReviewerLine(r.line) : 'no tier: the read failed.') : null,
         ...(read && { rows: (r.rows ?? []).filter((x) => PUBLIC_BASES.has(x.basis)).flatMap(shown) }),
       };
     })

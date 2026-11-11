@@ -42,6 +42,11 @@ test('markdown: one heading per tier present in order, totals that add up, probl
   assert.equal(totals.find((m) => m[1] === 'all')?.[2], String(ROWS.length));
   assert.match(md, /### Used, Inc\. \(u1\)\n\nused: /);
   assert.match(md, /- flag: template, 80% of files match the create-next-app starter/);
+  // M1 (v6.1.15 fix round 1): the flag line reads the rule's words, the same as the tier head.
+  const self = row(app({ ref: 's1', name: 'Self' }), evidence({ live: liveRows({ url: 'https://s.example', url_ok: true }), onchain: [contract({ tx_90d: 900, senders_90d: 150, funded_sample: 50, funded_senders_90d: 5 })] }));
+  const smd = markdownReport('p', [self], NOW);
+  assert.match(smd, /- flag: self-funded users, 5 of 50 sampled senders/);
+  assert.doesNotMatch(smd, /self_funded_users/);
   assert.match(md, /- problem: repo link not on GitHub/);
   assert.match(md, /- repo: a\/used/);
 });

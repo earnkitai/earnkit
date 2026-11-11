@@ -6,6 +6,7 @@
 import type { Applicant } from './applicants';
 import type { Evidence } from './evidence';
 import type { Placement, Tier } from './tiers';
+import { ruleWords } from './tier-words';
 
 export type ScreenRow = { applicant: Applicant; evidence: Evidence | null; placement: Placement; line: string };
 
@@ -44,7 +45,7 @@ export function markdownReport(program: string, rows: ScreenRow[], now: Date): s
       const bullets = [
         // A flag's detail opens `because`; it is shown once, as the flag.
         ...r.placement.because.filter((b) => !r.placement.flags.some((f) => f.detail === b)),
-        ...r.placement.flags.map((f) => `flag: ${f.rule}, ${f.detail}`),
+        ...r.placement.flags.map((f) => `flag: ${ruleWords(f.rule)}, ${f.detail}`),
         ...a.problems.map((p) => `problem: ${p}`),
         ...(r.evidence?.repo ? [`repo: ${r.evidence.repo}`] : []),
         ...(r.evidence?.live.url ? [`site: ${r.evidence.live.url}`] : []),

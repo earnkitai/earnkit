@@ -675,6 +675,39 @@ test('#6 (v6.1.15): a linked tier gap reads in plain words with one full stop', 
   }
 });
 
+test('I1 (v6.1.15 fix round 1): a tier line stored before v6.1.15 reads in today\'s words, fresh or with the re-read failing', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  const { withRecord } = await import('../v6/builders');
+  const OLD = 'Your project is live, with no verified usage yet. Next: 25 senders the deployer did not fund, on mainnet in 90 days; you have 4.';
+  const NEW = 'Your project is live, with no verified usage yet. Next: about 25 outside users in 90 days; I count 4.';
+  await upsertProgram(programFixture({ id: 'f-tier-old', title: 'Old Line Grant', min_tier: 'used' }), 'file', NOW);
+  try {
+    for (const [name, readAt, readFails] of [['fresh', NOW, false], ['re-read fails', new Date(NOW.getTime() - 48 * H), true]] as const) {
+      const { id, builderId } = await linkedWith(OWNER_RECORD);
+      await withRecord(builderId, NOW, (cur) => {
+        const mine = cur.projects[0];
+        mine.evidence_read_at = readAt.toISOString();
+        mine.last_tier = { tier: 'live', line: OLD, read_at: readAt.toISOString() };
+        return { record: cur, result: null };
+      });
+      let reads = 0;
+      const evidence = async () => { reads++; if (readFails) throw new Error('down'); return LIVE(); };
+      const r = await mcpCall({ ...ctx(id), builderId, evidence }, 'find', { project: PROJECT, filter: { all: true } });
+      assert.equal(r.isError, false, r.text);
+      assert.equal(reads, readFails ? 1 : 0, name);
+      const g = (r.reply!.gaps as { program_id: string; n: number; gap: { what: string } }[]).find((x) => x.program_id === 'f-tier-old')!;
+      assert.equal(g.gap.what, 'about 25 outside users in 90 days; I count 4', name);
+      const show = r.reply!.show_to_builder as string;
+      assert.match(show, new RegExp(`^${g.n}\\. Old Line Grant, up to \\$5,000: about 25 outside users in 90 days; I count 4\\.$`, 'm'), name);
+      assert.ok(show.includes(`\n\n${NEW}`), name);
+      assert.equal((r.reply!.evidence_summary as { line: string }).line, NEW, name);
+      assert.doesNotMatch(show.split('\n\n').filter((b) => b.startsWith('Your project')).join('\n'), /deployer|senders|mainnet|unfunded/, name);
+    }
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'f-tier-old'`;
+  }
+});
+
 test('Review Focus 5 (v6.1.15): every linked tier gap holds no deployer, senders or mainnet; the reviewer line keeps the rule', async () => {
   const { programFixture } = await import('./fixtures/program');
   const { codeRows, contract, daysAgo, evidence, liveRows } = await import('../v6/fixtures/evidence-builder');
@@ -707,6 +740,8 @@ test('Review Focus 5 (v6.1.15): every linked tier gap holds no deployer, senders
         // The line carries the gap's own words (a program's quoted rule may say mainnet; that is the program's text).
         assert.ok(lines.some((l) => l.includes(x.gap.what)), `${c.name}: ${lines.join(' | ')}`);
       }
+      const summary = (r.reply!.evidence_summary as { line: string } | null)?.line;
+      if (summary) assert.doesNotMatch(summary, /deployer|senders|mainnet/, `${c.name}: ${summary}`);
       for (const b of show.split('\n\n').filter((x) => x.startsWith('Your project is'))) assert.doesNotMatch(b, /deployer|senders|mainnet/, `${c.name}: ${b}`);
       if (c.rule) assert.match(reviewerLine(place(c.e, { identical_pitch: 0, shared_contributors: 0 }, undefined, NOW), c.e), /(senders|wallets) the deployer did not fund/, c.name);
     }

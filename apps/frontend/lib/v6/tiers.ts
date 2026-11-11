@@ -242,7 +242,7 @@ function placed(e: Evidence | null, x: Counts, t: Thresholds, now: Date): Placed
       : pushDays == null ? 'Push to the repo; EarnKit found no push date.'
       : `A push to the repo in the last ${plural(t.push_within_days, 'day')}; the last was ${plural(pushDays, 'day')} ago.`;
     // #6 (v6.1.15): the builder reads the usage gap in plain words; agents and owners keep the exact rule in `next`.
-    const builder_next = gap === 'funded_senders' ? `about ${n(t.used_funded_senders)} outside users in 90 days; I count ${n(topCount)}.` : undefined;
+    const builder_next = gap === 'funded_senders' ? `About ${n(t.used_funded_senders)} outside users in 90 days; I count ${n(topCount)}.` : undefined;
     return { tier: 'live', flags: [], because: [...rows, ...tail(false)], next, ...(builder_next && { builder_next }), gap };
   }
 
