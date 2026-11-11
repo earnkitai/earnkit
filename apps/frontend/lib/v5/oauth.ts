@@ -100,12 +100,16 @@ export function reservedClientName(v: unknown): boolean {
   if (typeof v !== 'string') return false;
   // L25-1 (v6.1.14.1): Claude Code registers as `Claude Code (<server name>)` and the docs name the server
   // `earnkit`, so a trailing parenthetical is the builder's server label, not the agent's name. Drop one before
-  // the check, unless nothing would be left.
-  const own = v.replace(/\s*\([^()]*\)\s*$/u, '');
-  const named = own.trim() ? own : v;
-  const bare = named.normalize('NFKC').normalize('NFKD').replace(/\p{M}/gu, '');
+  // the check, unless fewer than two letters or digits would be left (so `x (EarnKit)` is still refused).
+  const own = fold(v.replace(/\s*\([^()]*\)\s*$/u, ''));
+  return (own.length >= 2 ? own : fold(v)).includes('earnkit');
+}
+
+/** NFKC, NFKD with marks dropped, look-alikes to Latin, lower case, letters and digits only. */
+function fold(v: string): string {
+  const bare = v.normalize('NFKC').normalize('NFKD').replace(/\p{M}/gu, '');
   const latin = [...bare].map((ch) => LOOKALIKES[ch] ?? ch).join('');
-  return latin.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '').includes('earnkit');
+  return latin.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
 }
 
 /**
