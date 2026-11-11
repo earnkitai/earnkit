@@ -250,7 +250,7 @@ export const ProgramFile = z
     tag: z.enum(['long shot', 'needs a live product']).optional(),
     ideas: z.array(Idea).max(3).default([]),
     rules: z.array(z.string().min(1)),
-    /** At least one, except on an upcoming program. */
+    /** At least one, except on an upcoming or closed program. */
     submission_requirements: z.array(SubmissionRequirement),
     eligibility: z.array(EligibilityItemSchema).max(10).optional(),
     logo: GuideLogo.optional(),
@@ -279,8 +279,10 @@ export const ProgramFile = z
       if (e.kind === 'integration' && !isIntegrationKey(e.value ?? '')) issue(`eligibility integration: "${e.value ?? ''}" is not an integration key`);
     if (p.status === 'upcoming' && !p.opens_note) issue('an upcoming program needs opens_note');
     if (p.status !== 'upcoming' && p.opens_note) issue('opens_note is only for an upcoming program');
-    if (p.status !== 'upcoming' && p.submission_requirements.length === 0)
-      issue('submission_requirements needs at least one item (only an upcoming program may have none)');
+    // v6.1.16 Task 16 (L30-1): a closed program may have none too, so the daily run can close an upcoming program whose
+    // window passed before its requirements were published.
+    if (p.status === 'active' && p.submission_requirements.length === 0)
+      issue('submission_requirements needs at least one item (only an upcoming or closed program may have none)');
     if (p.any_chain && p.chains.length > 0) issue('any_chain programs list no chains');
     if (!p.any_chain && p.chains.length === 0) issue('chains needs at least one chain (or any_chain: true)');
     if (p.chain_required && (p.any_chain || p.chains.length === 0)) issue('chain_required needs the chains it requires (never any_chain)');

@@ -1,6 +1,6 @@
 import { mock, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSON_MAX_BYTES, RedirectError, SafeFetchError, safeFetchJson } from './safe-fetch';
+import { JSON_MAX_BYTES, probeLink, RedirectError, SafeFetchError, safeFetchJson, safeProbePage } from './safe-fetch';
 import { cimdFixture } from './fixtures/cimd';
 
 const URL_ = 'https://client.example/cimd.json';
@@ -64,4 +64,46 @@ test('safeFetchJson gives up after 5 s: a 5,001 ms stall is refused, 4,999 ms is
   } finally {
     mock.timers.reset();
   }
+});
+
+// v6.1.16 Task 16 (L30-2, Review Focus 22): the stale check's probe.
+
+const PAGE = '<html><p>Grants for builders</p></html>';
+const site = (answer: Parameters<typeof cimdFixture>[0]) => cimdFixture(answer);
+
+test('probeLink: a 302 to another host is alive with that host and is never requested; safeProbePage (the builder live-link reader) still refuses it', async () => {
+  for (const status of [301, 302, 303, 307, 308]) {
+    const f = site({ status, location: 'https://docs.google.com/forms/d/x/viewform?usp=sf_link', body: '' });
+    assert.deepEqual(await probeLink('https://forms.example/apply', f), { ok: true, redirect: 'docs.google.com' }, String(status));
+    assert.deepEqual(f.requests, ['https://forms.example/apply']);
+  }
+  const f = site({ status: 302, location: 'https://docs.google.com/forms', body: '' });
+  await assert.rejects(safeProbePage('https://forms.example/apply', f), /redirects to another site \(docs\.google\.com\)/);
+  assert.deepEqual(f.requests, ['https://forms.example/apply']);
+});
+
+test('probeLink: a same-site redirect is followed once and its page read; a 3xx with no Location and a second redirect are alive', async () => {
+  const hop = site((u) => (u.hostname === 'grants.example' ? { status: 301, location: 'https://www.grants.example/new', body: '' } : { status: 200, contentType: 'text/html', body: PAGE }));
+  const r = await probeLink('https://grants.example/old', hop);
+  assert.equal(r.ok, true);
+  assert.ok(r.ok && r.page?.includes('Grants for builders') && !r.redirect);
+  assert.deepEqual(hop.requests, ['https://grants.example/old', 'https://www.grants.example/new']);
+  assert.deepEqual(await probeLink('https://grants.example/x', site({ status: 302, body: '' })), { ok: true });
+  const twice = site((u) => (u.pathname === '/a' ? { status: 302, location: '/b', body: '' } : { status: 302, location: 'https://login.other.example/', body: '' }));
+  assert.deepEqual(await probeLink('https://grants.example/a', twice), { ok: true, redirect: 'login.other.example' });
+  assert.equal(twice.requests.length, 2);
+});
+
+test('probeLink: 401, 403 and 429 are alive; 404 and an error page are 4xx, 500 is 5xx, no address is dns, a stall is timeout, a private address is refused', async () => {
+  for (const status of [401, 403, 429]) assert.deepEqual(await probeLink('https://w.example/', site({ status, body: '' })), { ok: true }, String(status));
+  assert.deepEqual(await probeLink('https://w.example/', site({ status: 404, body: '' })), { ok: false, why: '4xx' });
+  assert.deepEqual(await probeLink('https://w.example/', site({ status: 200, contentType: 'text/html', body: '<html><title>x</title>Page not found</html>' })), { ok: false, why: '4xx' });
+  assert.deepEqual(await probeLink('https://w.example/', site({ status: 500, body: '' })), { ok: false, why: '5xx' });
+  const f = site({ status: 200, body: '' });
+  assert.deepEqual(await probeLink('https://w.example/', { ...f, resolve: async () => [] }), { ok: false, why: 'dns' });
+  assert.deepEqual(await probeLink('https://w.example/', { ...site({ stall: true }), timeoutMs: 30 }), { ok: false, why: 'timeout' });
+  const inside = cimdFixture({ status: 200, body: '' }, '10.0.0.5');
+  assert.deepEqual(await probeLink('https://w.example/', inside), { ok: false, why: 'refused' });
+  assert.equal(inside.requests.length, 0);
+  assert.deepEqual(await probeLink('http://w.example/', f), { ok: false, why: 'refused' });
 });
