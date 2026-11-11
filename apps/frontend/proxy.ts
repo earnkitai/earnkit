@@ -1,7 +1,9 @@
 /**
  * The /me gate: no live session is a 302 to /docs#record before the page renders (lib/v6/me-routes.ts).
- * On /mcp, /oauth and /.well-known: a method no route can export (TRACE, CONNECT, any other) is 405 with that path's
- * Allow before the route runs (L19-1); the rest go on to the route.
+ * On /mcp, /oauth and /.well-known: a method no route can export (PROPFIND and any other) is 405 with that path's
+ * Allow before the route runs (L19-1); the rest go on to the route. TRACE and CONNECT never get here on `next start`:
+ * Next builds a fetch Request first, which refuses them, and answers a bare 500 (no stack) on any route handler with
+ * or without this proxy. Refusing those two needs the edge in front (v6.1.16 Task 5 report).
  */
 import { NextResponse } from 'next/server';
 import { notAllowed } from './lib/v5/http';
