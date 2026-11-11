@@ -1303,3 +1303,68 @@ test('#8 (v6.1.15): namedFirst names the program after Tracked and Already track
   assert.equal(namedFirst('Already skipped.', 'Alpha Grant'), 'Already skipped: Alpha Grant.');
   assert.equal(namedFirst('Started.', 'Alpha Grant'), 'Started: Alpha Grant.');
 });
+
+// L17-1 (v6.1.16, Review Focus 6): races. Parallel calls against the test database, as lane 17 ran them.
+const histOf = async (owner: string, programId: string) =>
+  (await sql()<{ status: string; installation_id: number; source: string | null }[]>`
+    SELECT status, installation_id, source FROM application_history WHERE owner = ${owner} AND program_id = ${programId} ORDER BY id`).map((r) => ({ ...r }));
+
+test("R6, R7 (L17-1): 30 skips by agent B over agent A's live claim record nothing and leave the claim; A then sends", async () => {
+  const { a, c, owner } = await twoAgents();
+  await upsertProgram(programFixture({ id: 'r6-held', title: 'Held Grant' }), 'file', NOW);
+  await track(a, { program_id: 'r6-held', status: 'started' });
+  const later = { ...c, now: new Date(NOW.getTime() + 3_600_000) };
+  const out = await Promise.all(Array.from({ length: 30 }, () => track(later, { program_id: 'r6-held', status: 'skipped' })));
+  assert.deepEqual([...new Set(out.map((r) => r.show_to_builder))], ['Your other agent is handling that one; nothing recorded.']);
+  const [row] = await sql()`SELECT status, claimed_by FROM applications WHERE owner = ${owner} AND program_id = 'r6-held'`;
+  assert.deepEqual({ ...row }, { status: 'started', claimed_by: a.installationId });
+  const sent = await track({ ...a, now: new Date(NOW.getTime() + 2 * 3_600_000) }, { program_id: 'r6-held', status: 'applied', submitted_by: 'agent' });
+  assert.equal(sent.show_to_builder, 'Tracked. Ask me how it went once results are out.');
+  // A's claim and A's send only: B's skips wrote nothing.
+  assert.deepEqual(await histOf(owner, 'r6-held'), [
+    { status: 'started', installation_id: a.installationId, source: 'builder' },
+    { status: 'applied', installation_id: a.installationId, source: 'builder' },
+  ]);
+});
+
+test('R8 (L17-1): 30 parallel skips by one agent on a fresh program write one row and one Skipped reply', async () => {
+  const { a, owner } = await twoAgents();
+  await upsertProgram(programFixture({ id: 'r8-skip', title: 'Skip Race' }), 'file', NOW);
+  const out = await Promise.all(Array.from({ length: 30 }, () => track(a, { program_id: 'r8-skip', status: 'skipped' })));
+  const says = out.map((r) => r.show_to_builder);
+  assert.equal(says.filter((s) => s === "Skipped Skip Race. I won't bring it up again.").length, 1);
+  assert.equal(says.filter((s) => s === 'Already skipped.').length, 29);
+  assert.deepEqual((await histOf(owner, 'r8-skip')).map((h) => h.status), ['skipped']);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${owner} AND program_id = 'r8-skip'`)[0].n, 1);
+});
+
+test('R9 (L17-1): 30 parallel skips after a send write no skip row, each answered as already sent', async () => {
+  const { a, c, owner } = await twoAgents();
+  await upsertProgram(programFixture({ id: 'r9-sent', title: 'Sent Race' }), 'file', NOW);
+  await track(a, { program_id: 'r9-sent', status: 'applied', submitted_by: 'agent' });
+  const out = await Promise.all(Array.from({ length: 30 }, (_, k) => track(k % 2 ? a : c, { program_id: 'r9-sent', status: 'skipped' })));
+  assert.deepEqual([...new Set(out.map((r) => r.show_to_builder))], ['That one was already sent; nothing to skip.']);
+  assert.deepEqual((await histOf(owner, 'r9-sent')).map((h) => h.status), ['applied']);
+  const [row] = await sql()`SELECT status FROM applications WHERE owner = ${owner} AND program_id = 'r9-sent'`;
+  assert.equal(row.status, 'applied');
+});
+
+test('R22 (L17-1): 20 parallel gap_done on one item write one history row', async () => {
+  const { a, c, owner } = await twoAgents();
+  await upsertProgram(programFixture({ id: 'r22-gap', title: 'Gap Race', eligibility: [{ kind: 'users' }] }), 'file', NOW);
+  const out = await Promise.all(Array.from({ length: 20 }, (_, k) => track(k % 2 ? a : c, { program_id: 'r22-gap', status: 'gap_done', item: 'users' })));
+  assert.equal(out.filter((r) => r.show_to_builder === 'Already tracked.').length, 19);
+  assert.equal((await histOf(owner, 'r22-gap')).length, 1);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM gaps_done WHERE owner = ${owner} AND program_id = 'r22-gap'`)[0].n, 1);
+});
+
+test('R10 (L17-9): a send in flight when its agent is unlinked: the builder hears nothing recorded, the agent is told the form went out', async () => {
+  const { unlinkInstallation } = await import('../v6/builders');
+  const { a, c, owner } = await twoAgents();
+  await upsertProgram(programFixture({ id: 'r10-unlink', title: 'Unlink Race' }), 'file', NOW);
+  assert.equal(await unlinkInstallation(a.installationId, c.builderId!, NOW), true);
+  const sent = await track(a, { program_id: 'r10-unlink', status: 'applied', submitted_by: 'agent' });
+  assert.equal(sent.show_to_builder, 'This agent was just unlinked from your account; nothing recorded.');
+  assert.equal(sent.agent_note, 'This agent was unlinked before the send was saved; the form went out but EarnKit holds no record of it. Tell the builder to keep their own note.');
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${owner} AND program_id = 'r10-unlink'`)[0].n, 0);
+});

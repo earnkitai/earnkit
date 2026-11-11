@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { getProgram, upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
-import { CONFIRMED, EARLIER_RESULT, OTHER_AGENT_HOLDS, paymentKeyOf, askOutcome, codeDoneAt, doneItems, doneOn, excluded, markAsked, record, resultOf, summary, titleOf } from './ledger';
+import { CONFIRMED, EARLIER_RESULT, paymentKeyOf, askOutcome, codeDoneAt, doneItems, doneOn, excluded, markAsked, record, resultOf, summary, titleOf } from './ledger';
 
 after(() => sql().end());
 
@@ -455,4 +455,31 @@ test('L16-7 (v6.1.16): resultOf reads a won, rejected or no-result row, else nul
   assert.deepEqual(await resultOf(o(i), 'l-ro-b'), { status: 'rejected', amount_usd: null, note: null });
   // Another owner's row is not this one's.
   assert.equal(await resultOf(o(i + 100000), 'l-ro-a'), null);
+});
+
+test('L17-8 (v6.1.16): paymentKeyOf strips a legacy s: or t: prefix only', () => {
+  assert.equal(paymentKeyOf('final'), 'final');
+  assert.equal(paymentKeyOf('s:final'), 'final');
+  assert.equal(paymentKeyOf('t:final'), 'final');
+  assert.equal(paymentKeyOf('x:final'), 'x:final');
+  assert.equal(paymentKeyOf('t:s:final'), 's:final');
+});
+
+test('L17-2, L17-8 (v6.1.16): an older correction changes nothing; a key stored with a legacy prefix matches; history names its source', async () => {
+  const i = await install();
+  await prog('l-time', { max_award_usd: 10_000 });
+  await record(o(i), 'l-time', 'applied', { now: NOW });
+  const t = (h: number) => new Date(NOW.getTime() + h * 3_600_000);
+  assert.equal((await record(o(i), 'l-time', 'won', { amount_usd: 1000, now: t(5), fromScreen: true })).ok, true);
+  assert.deepEqual(await record(o(i), 'l-time', 'rejected', { now: t(4) }), { ok: false, note: EARLIER_RESULT });
+  assert.deepEqual(await record(o(i), 'l-time', 'won', { amount_usd: 2000, now: t(3) }), { ok: false, note: EARLIER_RESULT });
+  // At the same time it applies.
+  assert.deepEqual(await record(o(i), 'l-time', 'won', { amount_usd: 2000, now: t(5) }), { ok: true, corrected: true, replaced_usd: 1000 });
+  // A key kept before v6.1.16 with the track prefix is the same key now, from either side.
+  await sql()`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, at, payment_key) VALUES (${o(i)}, ${i}, 'l-time', 'won', 100, ${t(6)}, 't:final')`;
+  assert.deepEqual(await record(o(i), 'l-time', 'won', { amount_usd: 100, payment: { key: 'final' }, now: t(7), fromScreen: true }), { ok: false, note: 'Already tracked.' });
+  const h = await sql()`SELECT status, source FROM application_history WHERE owner = ${o(i)} AND program_id = 'l-time' AND payment_key IS NULL ORDER BY id`;
+  assert.deepEqual(h.map((r) => [r.status, r.source]), [['applied', 'builder'], ['won', 'screen'], ['won', 'builder']]);
+  const [row] = await sql()`SELECT amount_usd, at FROM applications WHERE owner = ${o(i)} AND program_id = 'l-time'`;
+  assert.deepEqual([Number(row.amount_usd), row.at.getTime()], [2000, t(5).getTime()]);
 });

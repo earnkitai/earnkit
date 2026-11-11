@@ -81,8 +81,9 @@ export async function claim(owner: string, programId: string, projectId: string 
       const now2 = await read();
       return now2 ? { held: holder(now2), sent: now2.status !== 'started' } : { skipped: true as const };
     }
-    await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, note, at)
-      VALUES (${owner}, ${installationId}, ${programId}, 'started', NULL, NULL, ${now})`;
+    // L17-2 (v6.1.16): every history row names its source; a claim is always an agent's.
+    await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, note, at, source)
+      VALUES (${owner}, ${installationId}, ${programId}, 'started', NULL, NULL, ${now}, 'builder')`;
     return { ok: true as const };
   });
   if ('ok' in out) return { ok: true };
