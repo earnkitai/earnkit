@@ -320,3 +320,19 @@ test('ledgerRowWords (L22-7, v6.1.16): cents and currencies in the one format', 
   assert.equal(ledgerRowWords('won', { EUR: 2000 }, false, 'Nov 11'), 'Won EUR 2,000, Nov 11.');
   assert.equal(ledgerRowWords('won', { USD: 1000, EUR: 500 }, true, 'Nov 11'), 'Won $1,000 and EUR 500 in all, Nov 11.');
 });
+
+test('L23-7, L23-11 (v6.1.16): a claim past 24 hours with no send reads Started, not sent; another year carries its year', async () => {
+  const b = await upsertBuilder({ github_id: 923_007, login: 'l23me', name: null, avatar_url: null }, NOW);
+  const owner = `b:${b.id}`;
+  for (const id of ['mv-stale', 'mv-live', 'mv-old']) await upsertProgram(programFixture({ id, title: `${id} Grant` }), 'file', NOW);
+  const row = (id: string, status: string, at: Date) => sql()`INSERT INTO applications (owner, installation_id, program_id, status, at, claimed_at, claimed_by)
+    VALUES (${owner}, 1, ${id}, ${status}, ${at}, ${status === 'started' ? at : null}, ${status === 'started' ? 1 : null})`;
+  await row('mv-stale', 'started', new Date(NOW.getTime() - 30 * 3_600_000));
+  await row('mv-live', 'started', new Date(NOW.getTime() - 3_600_000));
+  await row('mv-old', 'applied', new Date('2025-11-06T12:00:00Z'));
+  const words = new Map((await meData(b, NOW, 'sess')).ledger.map((r) => [r.title, r.words]));
+  assert.equal(words.get('mv-stale Grant'), 'Started, not sent, Nov 5.');
+  assert.equal(words.get('mv-live Grant'), 'Started, Nov 6.');
+  assert.equal(words.get('mv-old Grant'), 'Applied, Nov 6, 2025.');
+  await sql()`DELETE FROM applications WHERE owner = ${owner}`;
+});

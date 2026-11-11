@@ -2631,3 +2631,212 @@ test('L1h-1 (v6.1.16): EarnKit\'s own hint for the Solana Incubator reads in ful
   assert.ok(r.text.includes('your path to $10,000,000 annual revenue'), r.text.slice(0, 400));
   assert.doesNotMatch(r.text.replace(/generating \$10M/g, ''), /path to \$10M/);
 });
+
+// ---- v6.1.16 Task 9: time truth (lane 23) ----
+
+test('Review Focus 12 (v6.1.16, L23-2): a program past ends_at reads closed on find, its tile, its guide (200, Closed on), the lists and the ledger before any run', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  const { landingAt, landingTiles } = await import('./landing');
+  const { gatedGuidePage, guideTextById, listGuideIds } = await import('./guide-page');
+  const { programsListGet, readListedPrograms } = await import('./programs-read');
+  const { summary } = await import('./ledger');
+  const minuteAgo = new Date(NOW.getTime() - 60_000).toISOString();
+  const file = programFixture({ id: 'tt-past', title: 'Past Grant', summary: 'Up to $5,000', ends_at: minuteAgo });
+  await upsertProgram(file, 'file', new Date(NOW.getTime() - 2 * H));
+  try {
+    // Find: one line, closed, no yes.
+    const one = await mcpCall(ctx(await installation()), 'find', { program_id: 'tt-past', project: PROJECT });
+    assert.equal(one.reply!.show_to_builder, 'Past Grant, up to $5,000, closed.');
+    // The tile, fresh and from a cache made before the close.
+    const row = (await getProgram('tt-past'))!;
+    assert.equal(landingTiles([row], NOW)[0].when, 'Closed');
+    const cached = landingTiles([row], new Date(NOW.getTime() - 2 * 60_000))[0];
+    assert.equal(cached.when, 'Closes in under an hour');
+    const l = landingAt({ chip: null, tiles: [cached], featured: [cached], total: 1 }, NOW);
+    assert.deepEqual([l.tiles[0].when, l.featured[0].when], ['Closed', 'Closed']);
+    // The guide: listed, rendered closed, no Apply link.
+    assert.ok((await listGuideIds(NOW)).includes('tt-past'));
+    const page = await gatedGuidePage('tt-past', () => listGuideIds(NOW), (id) => guideTextById(id, NOW));
+    assert.ok(page);
+    assert.deepEqual([page.status, page.submission_url, page.guide.closed_on, page.guide.closes, page.guide.submit], ['closed', '', 'Closed on Nov 4.', 'Closed', null]);
+    // The list: gone from a fresh read and from a cached one.
+    assert.ok(!(await readListedPrograms(NOW)).some((p) => p.id === 'tt-past'));
+    const before = await readListedPrograms(new Date(NOW.getTime() - 2 * 60_000));
+    assert.ok(before.some((p) => p.id === 'tt-past'));
+    const body = (await (await programsListGet(new Request('https://earnkit.test/api/programs'), async () => before, NOW)).json()) as { programs: { id: string }[] };
+    assert.ok(!body.programs.some((p) => p.id === 'tt-past'));
+    // The ledger (find and /me): never closing soon.
+    assert.deepEqual((await summary('i:0', [row], NOW)).closing_soon, []);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'tt-past'`;
+  }
+});
+
+test('L23-9, L23-22 (v6.1.16): one minute before a close, find, the tile and the guide all say closes in under an hour', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  const { landingTiles } = await import('./landing');
+  const { guideTextById } = await import('./guide-page');
+  const soon = new Date(NOW.getTime() + 60_000).toISOString();
+  await upsertProgram(programFixture({ id: 'tt-soon', title: 'Soon Grant', summary: 'Up to $5,000', ends_at: soon }), 'file', NOW);
+  try {
+    const one = await mcpCall(ctx(await installation()), 'find', { program_id: 'tt-soon' });
+    assert.match(one.reply!.show_to_builder as string, /^Soon Grant, up to \$5,000, closes in under an hour\./);
+    const list = await mcpCall(ctx(await installation()), 'find', {});
+    assert.match(list.reply!.show_to_builder as string, /^Open now:\nSoon Grant, up to \$5,000, closes in under an hour\.$/m);
+    assert.equal(landingTiles([(await getProgram('tt-soon'))!], NOW)[0].when, 'Closes in under an hour');
+    assert.equal((await guideTextById('tt-soon', NOW))!.guide.closes, 'Closes in under an hour.');
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'tt-soon'`;
+  }
+});
+
+test('L23-1 (v6.1.16): a day after the standing-approval line, nothing sent: the next find says so first, once, and keeps one Say', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  await upsertProgram(programFixture({ id: 'tt-promise', title: 'Promise Grant', category: 'grant' }), 'file', NOW);
+  try {
+    const { id, builderId } = await linkedWith({ ...OWNER_RECORD, policy: { auto_apply: true, max_per_night: 20, categories: ['grant'] } });
+    const c = (now: Date) => ({ ...ctx(id, now), builderId, evidence: LIVE });
+    const first = await mcpCall(c(NOW), 'find', { project: PROJECT });
+    const named = (first.reply!.tonight as { programs: { program_id: string; title: string }[] }).programs;
+    assert.ok(ids(named).includes('tt-promise'));
+    assert.match(first.reply!.show_to_builder as string, /Under your standing approval: [^\n]*\. I apply the next time your agent checks; say stop to hold any\./);
+    const [kept] = await sql()`SELECT promised, promised_at FROM installations WHERE id = ${id}`;
+    assert.deepEqual(ids(kept.promised), ids(named));
+    // Within 24 hours nothing is said.
+    const soon = await mcpCall(c(new Date(NOW.getTime() + 10 * H)), 'find', { project: PROJECT });
+    assert.doesNotMatch(soon.reply!.show_to_builder as string, /Nothing was sent/);
+    // A day later, nothing recorded since: said first, the closing loses its Say.
+    const day = await mcpCall(c(new Date(NOW.getTime() + 25 * H)), 'find', { project: PROJECT });
+    const show = day.reply!.show_to_builder as string;
+    assert.match(show, /^Nothing was sent for [^\n]*Promise Grant[^\n]* since you said yes on Nov 4\. Say yes again and I apply now\.\n\n/);
+    // A gap line's own "do n" folds into the closing in Task 11 (L24-8); every other Say is the one.
+    assert.equal(show.replace(/Say "do \d+"/g, '').match(/\bSay\b/g)?.length, 1, show);
+    assert.match(day.reply!.agent_note as string, /Nothing was sent for [^\n]*Promise Grant[^\n]* after the standing-approval line named them/);
+    // Said once.
+    const after = await mcpCall(c(new Date(NOW.getTime() + 26 * H)), 'find', { project: PROJECT });
+    assert.doesNotMatch(after.reply!.show_to_builder as string, /Nothing was sent/);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'tt-promise'`;
+  }
+});
+
+test('L23-4 (v6.1.16): two agents of one builder each ask about a result past due once a day, in builder text', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  const { saveInstallation, connectInstallation } = await import('./installations');
+  const { linkInstallation } = await import('../v6/builders');
+  await upsertProgram(programFixture({ id: 'tt-due', title: 'Due Two Grant', results_due: { date: '2026-11-01' } }), 'file', NOW);
+  try {
+    const { id, builderId } = await linkedWith(OWNER_RECORD);
+    const token = 'tt-second-' + Math.random();
+    await saveInstallation(token, 'Cursor');
+    const second = (await connectInstallation(token))!.id;
+    await linkInstallation(second, builderId, NOW);
+    const t = await mcpCall({ ...ctx(id), builderId }, 'track', { program_id: 'tt-due', status: 'applied' });
+    assert.equal(t.isError, false, t.text);
+    const LINE = /\nResults for Due Two Grant were due Nov 1\. Did you hear back\?\n/;
+    const at = (inst: number, now: Date) => mcpCall({ ...ctx(inst, now), builderId, evidence: LIVE }, 'find', { project: PROJECT });
+    const later = new Date(NOW.getTime() + H);
+    assert.match((await at(id, NOW)).reply!.show_to_builder as string, LINE);
+    assert.doesNotMatch((await at(id, later)).reply!.show_to_builder as string, LINE);
+    assert.match((await at(second, later)).reply!.show_to_builder as string, LINE);
+    assert.doesNotMatch((await at(second, later)).reply!.show_to_builder as string, LINE);
+    const tomorrow = new Date(NOW.getTime() + 24 * H);
+    assert.match((await at(id, tomorrow)).reply!.show_to_builder as string, LINE);
+    assert.match((await at(second, tomorrow)).reply!.show_to_builder as string, LINE);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'tt-due'`;
+  }
+});
+
+test('L23-8 (v6.1.16): a one-program find of a program another agent of the builder started says so in place of the yes', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  const { claim } = await import('../v6/claims');
+  const { saveInstallation, connectInstallation } = await import('./installations');
+  const { linkInstallation } = await import('../v6/builders');
+  await upsertProgram(programFixture({ id: 'tt-held', title: 'Held Grant' }), 'file', NOW);
+  try {
+    const { id, builderId } = await linkedWith(OWNER_RECORD);
+    const token = 'tt-holder-' + Math.random();
+    await saveInstallation(token, 'Cursor');
+    const other = (await connectInstallation(token))!.id;
+    await linkInstallation(other, builderId, NOW);
+    const before = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { program_id: 'tt-held', project: PROJECT });
+    assert.match(before.reply!.show_to_builder as string, /\nSay yes and I apply to Held Grant\.$/);
+    await claim(`b:${builderId}`, 'tt-held', 'earnkit', other, new Date(NOW.getTime() - 60_000));
+    const r = await mcpCall({ ...ctx(id), builderId, evidence: LIVE }, 'find', { program_id: 'tt-held', project: PROJECT });
+    const show = r.reply!.show_to_builder as string;
+    assert.match(show, /\nAnother agent of yours started this one on Nov 4\.$/);
+    assert.doesNotMatch(show, /\bSay yes\b/);
+    assert.match(r.reply!.agent_note as string, /Claimed by another of the builder's agents: do not submit it\./);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = 'tt-held'`;
+  }
+});
+
+test('L23-18 (v6.1.16): a closed program the builder sent says when, and when results come (or that none are announced)', async () => {
+  const { programFixture } = await import('./fixtures/program');
+  const closes = new Date(NOW.getTime() + 2 * H).toISOString();
+  await upsertProgram(programFixture({ id: 'tt-sent', title: 'Sent Grant', summary: 'Up to $5,000', ends_at: closes, results_due: { date: '2026-12-01' } }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'tt-sent2', title: 'Sent Two Grant', summary: 'Up to $5,000', ends_at: closes }), 'file', NOW);
+  try {
+    const id = await installation();
+    for (const p of ['tt-sent', 'tt-sent2']) assert.equal((await mcpCall(ctx(id), 'track', { program_id: p, status: 'applied' })).isError, false);
+    const later = new Date(NOW.getTime() + 3 * 24 * H);
+    const a = await mcpCall(ctx(id, later), 'find', { program_id: 'tt-sent' });
+    assert.equal(a.reply!.show_to_builder, 'Sent Grant, up to $5,000.\nClosed. You applied Nov 4; results Dec 1.');
+    const b = await mcpCall(ctx(id, later), 'find', { program_id: 'tt-sent2' });
+    assert.equal(b.reply!.show_to_builder, 'Sent Two Grant, up to $5,000.\nClosed. You applied Nov 4; results not announced.');
+    assert.equal((b.reply!.show_to_builder as string).match(/closed/gi)?.length, 1);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id IN ('tt-sent', 'tt-sent2')`;
+  }
+});
+
+test('L23-16 (v6.1.16), lane 23 A1 and A2: the same list 10 hours later starts with Nothing new since and keeps the money lines', async () => {
+  const id = await installation();
+  const first = await mcpCall(ctx(id), 'find', { project: PROJECT });
+  assert.doesNotMatch(first.reply!.show_to_builder as string, /Nothing new/);
+  const again = await mcpCall(ctx(id, new Date(NOW.getTime() + 10 * H)), 'find', { project: PROJECT });
+  assert.equal(again.reply!.nothing_new_since, NOW.toISOString());
+  // With nothing else moved (the since line empty), the reply leads with it, then the money lines (pinned in reply.test).
+  const show = again.reply!.show_to_builder as string;
+  assert.ok(show.startsWith('Nothing new since Nov 4.\n\n') || show.startsWith('Since '), show);
+  const [row] = await sql()`SELECT last_list_hash, last_list_at FROM installations WHERE id = ${id}`;
+  assert.match(row.last_list_hash, /^[0-9a-f]{64}$/);
+  assert.equal(row.last_list_at.toISOString(), new Date(NOW.getTime() + 10 * H).toISOString());
+  // A linked agent too (A1).
+  const { id: linkedId, builderId } = await linkedWith(OWNER_RECORD);
+  const lc = (now: Date) => ({ ...ctx(linkedId, now), builderId, evidence: LIVE });
+  await mcpCall(lc(NOW), 'find', { project: PROJECT });
+  assert.equal((await mcpCall(lc(new Date(NOW.getTime() + 10 * H)), 'find', { project: PROJECT })).reply!.nothing_new_since, NOW.toISOString());
+  // Another list: not said.
+  const other = await mcpCall(ctx(id, new Date(NOW.getTime() + 11 * H)), 'find', { project: { name: 'Notes', description: 'Personal markdown notes' } });
+  assert.equal(other.reply!.nothing_new_since, undefined);
+});
+
+/** Every string literal on an assert line of a test file: the pinned replies and their parts. */
+function pinnedTexts(file: string): string[] {
+  const { readFileSync } = require('node:fs') as typeof import('node:fs');
+  const { join } = require('node:path') as typeof import('node:path');
+  const src = readFileSync(join(import.meta.dirname, file), 'utf8');
+  return src.split('\n').filter((l) => /\bassert\./.test(l) && !/^\s*\/\//.test(l)).flatMap((l) => l.match(/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`/g) ?? []);
+}
+
+test('Review Focus 12 (v6.1.16, L23-1): no pinned reply and no exported text promises a send tonight or by tomorrow morning', async () => {
+  const banned = /\btonight\b|by tomorrow morning/i;
+  for (const f of ['find.test.ts', 'reply.test.ts', 'track.test.ts']) for (const t of pinnedTexts(f)) assert.doesNotMatch(t.replace(/\$\{[^}]*\}/g, ''), banned, `${f}: ${t}`);
+  const mods = [await import('./reply'), await import('./site-copy'), await import('./tool-text'), await import('./llms'), await import('./ledger'), await import('../v6/find-record'), await import('../v6/screen-tool')];
+  const strings = (v: unknown): string[] => typeof v === 'string' ? [v] : Array.isArray(v) ? v.flatMap(strings) : v && typeof v === 'object' ? Object.values(v).flatMap(strings) : [];
+  for (const m of mods) for (const [k, v] of Object.entries(m)) for (const s of strings(v)) assert.doesNotMatch(s, banned, `${k}: ${s}`);
+});
+
+test('ONE_SAY_ORDER (v6.1.16, L23-21): no pinned reply carries two Says (a gap line\'s own "do n" folds into the closing in Task 11)', async () => {
+  const { ONE_SAY_ORDER, oneSay, withoutSay } = await import('./reply');
+  assert.deepEqual([...ONE_SAY_ORDER], ['not_sent', 'started_not_sent', 'record_sign_in', 'closing']);
+  const say = oneSay();
+  assert.equal(say('A: started Nov 3, nothing sent. Say yes to apply or say skip.'), 'A: started Nov 3, nothing sent. Say yes to apply or say skip.');
+  assert.equal(say('Nothing is ready yet. Say "yes 2" if that rule fits you.'), 'Nothing is ready yet.');
+  assert.equal(withoutSay('Say yes and I apply to all 3. Or say the numbers to skip.'), '');
+  const says = (t: string) => (t.replace(/Say "do \d+"/g, '').match(/\bSay\b/g) ?? []).length;
+  for (const f of ['find.test.ts', 'reply.test.ts', 'track.test.ts']) for (const t of pinnedTexts(f)) assert.ok(says(t) <= 1, `${f}: ${t}`);
+});

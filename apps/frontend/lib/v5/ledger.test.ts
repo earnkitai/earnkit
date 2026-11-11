@@ -535,3 +535,18 @@ test('L22-8 (v6.1.16): no result counts as waiting, so the parts always sum to t
   }
   assert.equal(ledgerCounts({ ...base, applied: 3, won: 3, won_usd: 3500.5, won_other: [{ currency: 'EUR', amount: 2000 }] }), '3 sent, 3 won ($3,500.50 and EUR 2,000).');
 });
+
+test('L23-12 (v6.1.16), lane 23 K7: 181 days on, the sweep keeps the name key, its repo and the rule yes; only cached evidence goes', async () => {
+  const { resolvedKey, saveReport, sweepReports } = await import('./ledger');
+  const i = await install();
+  await prog('l-k7');
+  const repoKey = 'https://github.com/lane23/keeper';
+  await saveReport(o(i), 'name:keeper', { name: 'Keeper', repo_url: repoKey } as never, NOW);
+  assert.equal((await record(o(i), 'l-k7', 'gap_done', { item: 'repo', projectKey: repoKey, now: NOW })).ok, true);
+  await sql()`INSERT INTO repo_cache (repo, facts, fetched_at) VALUES ('lane23/keeper-k7', '{}', ${NOW})`;
+  const later = new Date(NOW.getTime() + 181 * DAY);
+  assert.ok((await sweepReports(later)) >= 1);
+  assert.equal(await resolvedKey(o(i), 'name:keeper'), repoKey);
+  assert.deepEqual([...(await doneItems(o(i), 'l-k7', repoKey))], ['repo']);
+  assert.equal((await sql()`SELECT 1 FROM repo_cache WHERE repo = 'lane23/keeper-k7'`).length, 0);
+});

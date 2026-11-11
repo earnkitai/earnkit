@@ -1177,3 +1177,33 @@ test('L1h-3 (v6.1.16): two gap phrases join with ", and" when one holds " and"; 
   assert.equal(gapLine(gap({ title: 'Two', gap: SOL, also: [{ ...SOL, item: 'chain:base', what: 'deploy the contract on Base' }] }), true), 'Two, $1K: deploy the contract on Solana and deploy the contract on Base.');
   assert.equal(singleStepClosing(MWA), 'Tell me when Mobile Wallet Adapter and Seed Vault in an Android app is in and I look again.');
 });
+
+test('v6.1.16 Task 9 (lane 23): nothing new, not sent since yes, started not sent, results due and the results question; one Say in all', () => {
+  const NOW = new Date('2026-11-06T12:00:00Z');
+  const one = base({ ready: [ready({ title: 'Alpha Grant', filled: 1, facts_from_repo: 1, repo_required: 1, total: 1 })] });
+  // L23-16: the same list as last time leads with Nothing new, then the money lines.
+  assert.equal(replyText({ ...one, nothing_new_since: '2026-11-05T09:00:00.000Z' }, false, NOW),
+    'Nothing new since Nov 5.\n\nReady to apply (1):\n1. Alpha Grant, $1K. Drafted: 1 of 1 answer.\n\nSay yes and I apply to Alpha Grant.');
+  // Never on a first find, and never beside a since line.
+  assert.doesNotMatch(replyText({ ...one, nothing_new_since: '2026-11-05T09:00:00.000Z' }, true, NOW), /Nothing new/);
+  // L23-7: the started-not-sent lines (three, then the count); ONE_SAY_ORDER keeps the first Say only.
+  const released = ['A', 'B', 'C', 'D', 'E'].map((t, i) => ({ program_id: t, title: `${t} Grant`, started_at: `2026-11-0${i + 1}T10:00:00.000Z` }));
+  const started = replyText({ ...one, released }, false, NOW);
+  assert.ok(started.startsWith([
+    'A Grant: started Nov 1, nothing sent. Say yes to apply or say skip.',
+    'B Grant: started Nov 2, nothing sent.',
+    'C Grant: started Nov 3, nothing sent.',
+    'And 2 more started, nothing sent.',
+  ].join('\n') + '\n\n'), started);
+  assert.equal(started.match(/\bSay\b/g)?.length, 1, started);
+  // L23-1 first, then L23-7; a date 370 days back has its year (L23-11).
+  const both = replyText({ ...one, released: released.slice(0, 1), not_sent: { programs: [{ program_id: 'x', title: 'X Grant' }], since: '2025-11-01T00:00:00.000Z' } }, false, NOW);
+  assert.ok(both.startsWith('Nothing was sent for X Grant since you said yes on Nov 1, 2025. Say yes again and I apply now.\n\nA Grant: started Nov 1, nothing sent.\n\n'), both);
+  assert.equal(both.match(/\bSay\b/g)?.length, 1, both);
+  // L23-6 and L23-4: results due soon on its own line; the results question once per program.
+  const sent = replyText({ ...one, ledger: { ...LEDGER0, applied: 2, pending: 2, results_soon: [{ program_id: 'r', title: 'R Grant', results_at: '2026-11-09T00:00:00.000Z' }] },
+    ask_outcome: [{ program_id: 'q', title: 'Q Grant', due_at: '2026-11-01T00:00:00.000Z' }] }, false, NOW);
+  assert.ok(sent.includes('\n\nYour applications: 2 sent, 2 waiting.\n\nResults due soon: R Grant.\n\nResults for Q Grant were due Nov 1. Did you hear back?\n\n'), sent);
+  assert.match(agentNote({ ...one, ask_outcome: [{ program_id: 'q', title: 'Q Grant', due_at: '2026-11-01T00:00:00.000Z' }] }, { more: 0 }), /The reply asks how each went: Q Grant\./);
+  assert.match(agentNote({ ...one, released: released.slice(0, 2) }, { more: 0 }), /Claims left unsent for 24 hours were released: A Grant, B Grant\./);
+});
