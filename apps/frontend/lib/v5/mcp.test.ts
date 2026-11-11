@@ -110,6 +110,14 @@ test('T5, T6 (v6.1.14): find and track take one project schema; screen names ref
   assert.equal(props(1).project.description, PROJECT_DESCRIPTION);
   assert.deepEqual(Object.keys(props(1).project.properties ?? {}), Object.keys(props(0).project.properties ?? {}));
   assert.deepEqual(Object.keys(props(0).project.properties ?? {}), ['name', 'description', 'repo_url', 'live_url', 'demo_url', 'chains', 'first_commit_at', 'last_commit_at', 'private', 'builder_codes', 'users']);
+  // L29-12 (v6.1.16 Task 15): every project property is typed, the name is required, and the description says when one is needed.
+  for (const i of [0, 1]) {
+    const project = props(i).project as unknown as { required?: string[]; description?: string; properties: Record<string, { type?: string }> };
+    assert.deepEqual(project.required, ['name'], String(i));
+    for (const [k, v] of Object.entries(project.properties)) assert.ok(v.type, `${i} ${k}`);
+    assert.match(project.description ?? '', /A project needs a description when it has no repo_url/);
+  }
+  assert.equal((props(0).project as unknown as { properties: Record<string, { type?: string }> }).properties.users.type, 'boolean');
   for (const k of ['ref', 'repo_url', 'live_url']) assert.ok(SCREEN_DESCRIPTION.includes(k), k);
   assert.match(SCREEN_DESCRIPTION, /ref \(your id for them, required\)/);
   assert.deepEqual(props(3).applicants.items?.required, ['ref']);
@@ -291,4 +299,12 @@ test('T6-F4 (v6.1.14 fix round 1): a field find still cannot read after the leni
     assert.doesNotMatch(r.text, /MCP error|Input validation|Invalid input|-32602/);
     assert.match(r.reply!.agent_note as string, /Some arguments were not read: program_id dropped: not text\./);
   }
+});
+
+test('L29-30 (v6.1.16 Task 15): serverInfo.version is the package version', async () => {
+  const { mcpServerInfo } = await import('./fixtures/mcp-call');
+  const { default: pkg } = await import('../../package.json', { with: { type: 'json' } });
+  const info = await mcpServerInfo(await ctx());
+  assert.deepEqual([info?.name, info?.version], ['earnkit', pkg.version]);
+  assert.equal(pkg.version, '6.1.16');
 });

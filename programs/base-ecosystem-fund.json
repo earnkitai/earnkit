@@ -55,7 +55,7 @@
     { "key": "runway", "label": "What's your current runway?", "kind": "other", "todo": "your current runway", "type": "text", "required": true, "description": "e.g. 12 months", "from": "builder" },
     { "key": "fundraising_goals", "label": "What are your current fundraising goals?", "kind": "other", "todo": "your fundraising goals", "type": "text", "required": true, "description": "Amount, timeline, and how you plan to use the funds.", "from": "builder" },
     { "key": "on_base", "label": "What aspects of your company / product are on Base?", "kind": "how_it_works", "todo": "the parts of the product on Base", "type": "text", "required": true, "description": "Describe your onchain presence and integration with Base.", "from": "project" },
-    { "key": "why_bef", "label": "Why are you interested in BEF / Base?", "kind": "other", "todo": "the reason for BEF and Base", "type": "text", "required": true, "description": "What draws you to the Base ecosystem?", "from": "project" },
+    { "key": "why_bef", "label": "Why are you interested in BEF / Base?", "kind": "other", "todo": "the reason for BEF and Base", "need": "reason for choosing Base", "type": "text", "required": true, "description": "What draws you to the Base ecosystem?", "from": "project" },
     { "key": "pitch_deck", "label": "Pitch Deck URL", "kind": "links", "type": "url", "required": false, "description": "Optional. A Docsend or Google Drive link.", "from": "builder" }
   ]
 }

@@ -1306,3 +1306,14 @@ test('L24-6: the agent note names an EarnKit cut once', () => {
   assert.equal(note.split('Use EarnKit values as given; where a cut is named, read the full text in your draft.').length, 2);
   assert.doesNotMatch(agentNote(base({ ready: [ready({ title: 'A' })] }), { more: 0 }), /where a cut is named/);
 });
+
+// L1h-8 (v6.1.16 Task 15): a needs line never carries two "and"s; the catalog's need words read "with".
+test('L1h-8: the needs line for a builder missing a company start date, the stage, active users and four more', () => {
+  const solana = ready({
+    title: 'Solana Incubator Cohort 6', money: 'NYC incubator with relocation stipend, amount not stated', in_person: true,
+    setup: [], needs: ['the company start date', 'the stage', 'active users with 6-month growth', 'revenue with its growth', 'the amount raised', 'your runway in months', 'the answer on moving to NYC'],
+  });
+  const line = replyText(base({ ready: [solana] }), true).split('\n')[1];
+  assert.equal(line, '1. Solana Incubator Cohort 6, NYC incubator with relocation stipend, amount not stated. Attend in person. Needs your company start date, stage, active users with 6-month growth and 4 more.');
+  assert.equal(line.split('Needs your')[1].match(/ and /g)?.length, 1);
+});

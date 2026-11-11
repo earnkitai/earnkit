@@ -100,6 +100,13 @@ export function programProblems(p: Program, now: Date = new Date()): string[] {
     });
   });
   q.submission_requirements.forEach((r, i) => full(`submission_requirements.${i}.todo`, r.todo));
+  // L1h-8 (v6.1.16 Task 15): a needs list never carries two "and"s: a required field's need (or the todo standing in
+  // for it) holds none of its own.
+  q.submission_requirements.forEach((r) => {
+    if (!r.required) return;
+    const which = r.need !== undefined ? 'need' : r.todo !== undefined ? 'todo' : null;
+    if (which && / and /.test(r[which]!)) problems.push(`submission_requirements.${r.key}.need: one need, no "and"; use "with" or split the field`);
+  });
   // L21-2 (v6.1.16): a closed program says nothing that reads as still taking entries.
   if (q.status === 'closed')
     for (const t of [q.description, ...q.rules].flatMap(sentencesOf)) {

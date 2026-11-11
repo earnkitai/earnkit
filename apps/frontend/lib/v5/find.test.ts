@@ -3026,3 +3026,112 @@ test('Review Focus 15 (v6.1.16 Task 11): hidden characters in a name, a descript
   });
   assert.doesNotMatch(JSON.stringify(me), /\\u0000|\\u202e|\\u200b|‮|​/);
 });
+
+// v6.1.16 Task 15 (L29-26, Review Focus 21): the default find is at most ten lines with one Say, the last.
+const sayLines = (show: string) => show.split('\n').filter((l) => /(^|[.?!] )(Or )?[Ss]ay\b/.test(l));
+test('Review Focus 21: each of the 52 catalog programs as the only ready one, with every other line a reply can carry, reads at most 10 lines and one Say, last', async () => {
+  const { readdirSync, readFileSync } = await import('node:fs');
+  const { ProgramFile } = await import('./program-file');
+  const { prefill } = await import('./prefill');
+  const { reportOnlyFacts } = await import('./repo-facts');
+  const { moneyOf } = await import('./find');
+  const { replyParts, numbered, attendRuleGap } = await import('./reply');
+  const dir = new URL('../../../../programs/', import.meta.url);
+  const files = readdirSync(dir).filter((f) => f.endsWith('.json'));
+  assert.equal(files.length, 52);
+  const facts = reportOnlyFacts({ name: 'App', description: 'An app.' } as never);
+  const gap = (n: string): GapProgram => ({
+    program_id: n, title: `${n} Grant`, money: '$1,000', max_award_usd: 1000, category: 'grant', closes_at: null, rules: [], in_person: false, setup: [], n: 0,
+    gap: { kind: 'chain', item: 'chain:arc', what: 'deploy the contract on Arc', effort: 'hours', agent_can: false }, also: [],
+  });
+  const apps = ['A', 'B', 'C', 'D', 'E', 'F', 'G'].map((t) => ({ program_id: t, title: `${t} Grant`, status: 'waiting' as const, sent_at: '2026-11-01T10:00:00.000Z', result_at: null, amount: null }));
+  for (const f of files) {
+    const file = ProgramFile.parse(JSON.parse(readFileSync(new URL(f, dir), 'utf8')));
+    const row = { id: file.id, file } as never;
+    const pre = prefill(row, facts, null);
+    const one: ReadyProgram = {
+      program_id: file.id, title: file.title, money: moneyOf(file), max_award_usd: file.max_award_usd ?? null, category: 'grant', closes_at: null, closes_in: null,
+      long_shot: null, in_person: file.in_person, submission_url: file.submission_url, fields: pre.fields, filled: pre.filled, from_record: 0, repo_required: pre.repo_required,
+      need_you: pre.need_you, facts_from_repo: pre.facts_from_repo, total: pre.total, needs: [...file.setup, ...pre.need_you], setup: file.setup, rules: [], n: 0,
+    };
+    for (const linked of [false, true]) {
+      const r = {
+        since: { from: '2026-11-01T00:00:00.000Z', new: [{ program_id: 'x', title: 'X' }], changed: [], closing: [] }, ready: [one], gaps: ['P', 'Q', 'R', 'S'].map(gap),
+        ledger: { applied: 7, asked_usd: 0, won: 0, won_usd: 0, won_other: [], won_no_amount: 0, pending: 7, rejected: 0, skipped: 0, closing_soon: [], results_soon: [{ program_id: 'r', title: 'R Grant', results_at: '' }] },
+        applications: apps, ask_outcome: [{ program_id: 'q', title: 'Q Grant', due_at: '2026-11-01T00:00:00.000Z' }], as_reported: false, linked,
+        record_missing: linked ? ['your email'] : [], blockers: [], evidence_summary: linked ? { tier: 'live', line: 'Your project is live, with no verified usage yet.' } : null,
+        applied_overnight: [], released: [{ program_id: 'z', title: 'Z Grant', started_at: '2026-11-02T10:00:00.000Z' }], auto_apply: false,
+        repo_notes: ['private' as const], linked_notice: linked ? 'This agent is now linked to GitHub account ada. Unlink any time at earnkit.com/me.' : null,
+        ...(linked ? {} : { sign_in: 'https://earnkit.test/link/abc' }),
+      };
+      const shown = { ...r, ...numbered(r.ready, r.gaps, attendRuleGap) };
+      const { text, hidden } = replyParts(shown as never, false, NOW);
+      const lines = text.split('\n');
+      assert.ok(lines.length <= 10, `${f} ${linked}: ${lines.length}\n${text}`);
+      assert.equal(sayLines(text).length, 1, `${f} ${linked}\n${text}`);
+      assert.match(lines.at(-1)!, /(^|[.?!] )[Ss]ay\b/, `${f} ${linked}\n${text}`);
+      for (const l of lines) assert.match(l, /[.:?]$/, `${f}: ${l}`);
+      assert.doesNotMatch(text, /—|\b(score|rank|grade|points|coin|token|streak)s?\b/i);
+      assert.ok(hidden.length > 0, f);
+    }
+  }
+});
+
+test('Review Focus 21: the persona finds read at most 10 lines with one Say, last; filter.all is names and money only', async () => {
+  const cases: [Parameters<typeof mcpCall>[0], Record<string, unknown>][] = [
+    [ctx(await installation()), PROJECT], [ctx(await installation()), PROJECT_A], [ctx(await installation()), PROJECT_B], [ctx(await installation()), PROJECT_C],
+    [await dashCtx(), VR], [await dashCtx(), { name: 'Rent Split', description: 'An idea: an app that splits rent and bills between roommates' }],
+  ];
+  for (const [c, project] of cases) {
+    const r = await mcpCall(c, 'find', { project });
+    const show = r.reply!.show_to_builder as string;
+    const lines = show.split('\n');
+    assert.ok(lines.length <= 10, show);
+    assert.ok(sayLines(show).length <= 1, show);
+    if (sayLines(show).length === 1) assert.equal(sayLines(show)[0], lines.at(-1), show);
+    const all = await mcpCall(c, 'find', { project, filter: { all: true } });
+    const listed = (all.reply!.show_to_builder as string).split('\n').filter((l) => /^\d+\. /.test(l));
+    assert.ok(listed.length > 0);
+    for (const l of listed) assert.match(l, /^\d+\. [^\n]+, [^\n]+\.$/, l);
+    for (const l of listed) assert.doesNotMatch(l, /You give:|First:|Their rule|Long odds|Needs /, l);
+  }
+});
+
+test('L29-1, L29-2: the applications by name on every find with applications, project or not; the JSON lists them all', async () => {
+  const id = await installation();
+  const { track } = await import('./track');
+  await upsertProgram((await import('./fixtures/program')).programFixture({ id: 'l291-a', title: 'L291 Builder Grant' }), 'file', NOW);
+  await upsertProgram((await import('./fixtures/program')).programFixture({ id: 'l291-b', title: 'L291 Starter Grant' }), 'file', NOW);
+  const t = { installationId: id, builderId: null, now: NOW };
+  await track(t, { program_id: 'l291-a', status: 'applied', submitted_by: 'builder' });
+  await track({ ...t, now: new Date(NOW.getTime() + H) }, { program_id: 'l291-b', status: 'won', amount_usd: 5000 });
+  const f = await mcpCall(ctx(id, new Date(NOW.getTime() + 2 * H)), 'find', { project: PROJECT });
+  const line = (f.reply!.show_to_builder as string).split('\n').find((l) => l.startsWith('Your applications:'));
+  assert.equal(line, 'Your applications: L291 Starter Grant (sent Nov 4, won $5,000), L291 Builder Grant (sent Nov 4, waiting).');
+  const apps = f.reply!.applications as { program_id: string; title: string; status: string; sent_at: string; result_at: string | null; amount: string | null }[];
+  assert.deepEqual(apps.map((a) => [a.program_id, a.status, a.amount]), [['l291-b', 'won', '$5,000'], ['l291-a', 'waiting', null]]);
+  assert.ok(apps.every((a) => typeof a.sent_at === 'string'));
+  // No project, and a name alone: the line, then the one ask for the project.
+  for (const args of [{}, { project: { name: 'Timer' } }]) {
+    const o = await mcpCall(ctx(id, new Date(NOW.getTime() + 3 * H)), 'find', args);
+    const show = (o.reply!.show_to_builder as string).split('\n');
+    assert.equal(show[0], line, JSON.stringify(args));
+    assert.match(show[1], /^Tell me (which project and I'll match it|what Timer does in a line, or its repo link, and I match it)\.$/);
+    assert.equal((o.reply!.applications as unknown[]).length, 2);
+  }
+});
+
+test('L29-7, L29-13, L29-14: ready is what the agent may send; in person and you send apart; unread arguments named', async () => withInPerson(async () => {
+  const r = await mcpCall(ctx(await installation()), 'find', { project: PROJECT, filter: { all: true, category: 'Grant' } });
+  const ready = r.reply!.ready as { in_person: boolean; program_id: string }[];
+  const inPerson = r.reply!.in_person as { in_person: boolean }[];
+  assert.ok(ready.every((p) => !p.in_person));
+  assert.ok(inPerson.every((p) => p.in_person));
+  const blockers = r.reply!.blockers as { program_id: string; needs_click: boolean }[];
+  assert.ok(ready.every((p) => !blockers.some((b) => b.program_id === p.program_id && b.needs_click)));
+  assert.ok((r.reply!.you_send as { program_id: string }[]).every((p) => blockers.some((b) => b.program_id === p.program_id && b.needs_click)));
+  const all = await mcpCall(ctx(await installation()), 'find', { project: PROJECT, filter: { all: true } });
+  assert.ok((all.reply!.in_person as unknown[]).length > 0);
+  const odd = await mcpCall(ctx(await installation()), 'find', { repo_url: PROJECT.repo_url, filter: { category: 'grants' } });
+  assert.match(odd.reply!.agent_note as string, /Some arguments were not read: category "grants" was not read: use grant, hackathon, investment or bounty; repo_url belongs inside project\./);
+}));

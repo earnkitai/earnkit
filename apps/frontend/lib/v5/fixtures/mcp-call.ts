@@ -47,6 +47,16 @@ export async function mcpListTools(ctx: McpContext) {
   }
 }
 
+/** The server's name and version as a client sees them after initialize (L29-30, v6.1.16 Task 15). */
+export async function mcpServerInfo(ctx: McpContext) {
+  const client = await connected(ctx);
+  try {
+    return client.getServerVersion();
+  } finally {
+    await client.close();
+  }
+}
+
 /** The server's instructions as a client sees them after initialize. */
 export async function mcpInstructions(ctx: McpContext) {
   const client = await connected(ctx);

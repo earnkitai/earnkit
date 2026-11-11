@@ -41,7 +41,7 @@
   ],
   "submission_requirements": [
     { "key": "business", "label": "Details on your business", "kind": "solution", "todo": "details on your business", "type": "text", "required": true, "from": "project" },
-    { "key": "integrations", "label": "Your Circle and Arc integrations", "kind": "other", "todo": "your Circle and Arc integrations", "type": "text", "required": true, "from": "builder" },
+    { "key": "integrations", "label": "Your Circle and Arc integrations", "kind": "other", "todo": "your Circle and Arc integrations", "need": "Circle integrations on Arc", "type": "text", "required": true, "from": "builder" },
     { "key": "roadmap", "label": "Product roadmap", "kind": "milestones", "todo": "a product roadmap", "type": "text", "required": true, "from": "project" },
     { "key": "milestones", "label": "Proposed grant milestones", "kind": "milestones", "todo": "proposed grant milestones", "type": "text", "required": true, "from": "project" }
   ],

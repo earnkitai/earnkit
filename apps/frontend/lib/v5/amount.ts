@@ -9,8 +9,8 @@ const CODE = /^[A-Za-z]{3}$/;
 const SYMBOLS: Record<string, string> = { $: 'USD', '€': 'EUR', '£': 'GBP' };
 
 /**
- * The one refusal for an amount that cannot be read, on track and on the screen (L31-5, ruling 43, v6.1.16 Task 17).
- * Task 15 (L29-25) owns this text and its schema words; keep this the only copy when it lands.
+ * The one refusal for an amount that cannot be read, on track and on the screen (L31-5, ruling 43, v6.1.16 Task 17;
+ * Task 15's ruled text, L29-25). The schema words beside it are track's `amount_usd` description. The only copy.
  */
 export const AMOUNT_UNREAD = 'Tell me the amount as a number, like 5000 for $5,000.';
 /** L16-14 (v6.1.16): a dot used as a thousands separator ("5.000"), the one form with its own line. */

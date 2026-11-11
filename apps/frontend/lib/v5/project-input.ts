@@ -36,9 +36,11 @@ export const ProjectInput = z.object({
 });
 export type Project = z.infer<typeof ProjectInput>;
 
-/** find's and track's project (v6.1.14 T5): one description, so the two never drift. */
-export const PROJECT_DESCRIPTION = 'The project you are in; pass track the same object you passed to find, unchanged';
-const any = (what: string) => z.unknown().optional().describe(what);
+/** find's and track's project (v6.1.14 T5): one description, so the two never drift. L29-12 (v6.1.16 Task 15): it says
+ *  when a description is needed. */
+export const PROJECT_DESCRIPTION = 'The project you are in; pass track the same object you passed to find, unchanged. A project needs a description when it has no repo_url';
+/** L29-12 (v6.1.16 Task 15): each field read leniently (`parseProject`) but advertised with its JSON type. */
+const any = (what: string, type: Record<string, unknown> = { type: 'string' }) => z.unknown().optional().describe(what).meta(type);
 /**
  * The project as find and track advertise it (one schema, v6.1.14 T5). Every field reads leniently (`parseProject`):
  * a bad field is dropped and named, never a refusal.
@@ -52,14 +54,16 @@ export const ProjectArg = z
     demo_url: any('A demo video link'),
     chains: any(
       'Chains the code deploys to, as a list: "base" alone is Base mainnet, or { "chain": "base", "mainnet": true, "contract": "0x4200000000000000000000000000000000000006" }; an 0x address on EVM chains, base58 on solana, as { "chain": "solana", "mainnet": true, "contract": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc" }. mainnet defaults to true; send false (or the testnet name or chain id) for a testnet. Pass contract addresses whenever the deploy config has them (chain: base, arc, monad, solana...)',
+      { type: 'array', items: { anyOf: [{ type: 'string' }, { type: 'object', properties: { chain: { type: 'string' }, mainnet: { type: 'boolean' }, contract: { type: 'string' } }, required: ['chain'] }] } },
     ),
     first_commit_at: any('ISO 8601, from git log --reverse'),
     last_commit_at: any('ISO 8601, from git log'),
-    private: any('true when the repo is private: EarnKit then matches on what you report'),
-    builder_codes: any('true when the app sends Base Builder Codes'),
-    users: any('true when real people use it, false when not; omit it when you do not know'),
+    private: any('true when the repo is private: EarnKit then matches on what you report', { type: 'boolean' }),
+    builder_codes: any('true when the app sends Base Builder Codes', { type: 'boolean' }),
+    users: any('true when real people use it, false when not; omit it when you do not know', { type: 'boolean' }),
   })
-  .describe(PROJECT_DESCRIPTION);
+  .describe(PROJECT_DESCRIPTION)
+  .meta({ required: ['name'] });
 
 const MAX = { name: 80, description: 280 } as const;
 /**

@@ -1580,3 +1580,48 @@ test('L24-1: another agent named in a track line goes through quoteName', async 
   const r = await track(c, { program_id: 'l24t-q', status: 'started' });
   assert.equal(r.show_to_builder, `Quote Grant is already being handled since 12:00 UTC by "Evil Name 'quoted' and a very long tail".`);
 });
+
+// v6.1.16 Task 15 (lane 29).
+
+test('L29-3: a win on a program with no application records the builder\'s own send and the win in one call', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 'l293-pp', title: 'PayPal Like Hackathon', max_award_usd: 10000 }), 'file', NOW);
+  const r = await track(c, { program_id: 'l293-pp', status: 'won', amount: '5k' });
+  assert.equal(r.show_to_builder, 'Recorded: PayPal Like Hackathon won, $5,000. Noted as sent by you outside EarnKit.');
+  assert.equal(r.refused, undefined);
+  const [row] = await sql()`SELECT status, amount_usd, submitted_by, sent_at FROM applications WHERE installation_id = ${c.installationId} AND program_id = 'l293-pp'`;
+  assert.deepEqual([row.status, Number(row.amount_usd), row.submitted_by], ['won', 5000, 'builder']);
+  assert.ok(row.sent_at);
+  const hist = await sql()`SELECT status FROM application_history WHERE installation_id = ${c.installationId} AND program_id = 'l293-pp' ORDER BY id`;
+  assert.deepEqual(hist.map((h) => h.status), ['applied', 'won']);
+  assert.equal(r.ledger.won, 1);
+  // A rejection with no application is still refused (only a win is noted as the builder's own).
+  await upsertProgram(programFixture({ id: 'l293-no', title: 'No App Grant' }), 'file', NOW);
+  const no = await track(c, { program_id: 'l293-no', status: 'rejected' });
+  assert.equal(no.refused, true);
+  assert.equal(no.show_to_builder, "You haven't applied to that one here.");
+  // The amount schema reads dollars as a number.
+  const { TrackInput } = await import('./track');
+  assert.equal(TrackInput.shape.amount_usd.description, 'dollars as a number (5000 or 1234.56)');
+});
+
+test('L29-15, L29-21, L29-23, L29-32: a list number, any case, agent by default; applied names the send', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 'l2915-a', title: 'Number One Grant' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'l2915-b', title: 'Number Two Grant' }), 'file', NOW);
+  const { markList, lastListIds } = await import('./installations');
+  await markList(c.installationId, 'h', NOW, ['l2915-a', 'l2915-b']);
+  assert.deepEqual(await lastListIds(c.installationId), ['l2915-a', 'l2915-b']);
+  const r = await track(c, { program_id: '2', status: 'Applied' });
+  assert.equal(r.show_to_builder, 'Sent Number Two Grant.');
+  assert.match(r.agent_note, /^Matched list number 2 to l2915-b\. /);
+  assert.match(r.agent_note, /Pass fields_used next time; nothing was checked against your record\./);
+  const [row] = await sql()`SELECT submitted_by FROM applications WHERE installation_id = ${c.installationId} AND program_id = 'l2915-b'`;
+  assert.equal(row.submitted_by, 'agent');
+  // A number past the list asks which; started has no builder text, its note names it.
+  const far = await track(c, { program_id: '9', status: 'started' });
+  assert.equal(far.show_to_builder, 'Which program do you mean?');
+  const s = await track(c, { program_id: '1', status: 'STARTED', submitted_by: 'Agent' });
+  assert.equal(s.show_to_builder, '');
+  assert.match(s.agent_note, /^Matched list number 1 to l2915-a\. Started Number One Grant\. /);
+});

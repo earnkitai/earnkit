@@ -53,7 +53,7 @@ export const TrackInput = z
     /** B6 (v6.1.13): the form already went out, so a long list is never refused: the first FIELDS_KEPT keys, each cut to 60. */
     fields_used: z.array(z.string()).transform((xs) => xs.slice(0, FIELDS_KEPT).map((x) => x.slice(0, 60))).optional(),
     /** The project find was called with (v6.1.10 L1c-1), find's own schema (v6.1.14 T5), read by find's parser and limits (v6.1.13 B5): cut and dropped, never refused. */
-    project: ProjectArg.loose().describe(PROJECT_DESCRIPTION).optional(),
+    project: ProjectArg.loose().describe(PROJECT_DESCRIPTION).meta({ required: ['name'] }).optional(),
   })
   .strict();
 

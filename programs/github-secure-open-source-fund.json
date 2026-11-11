@@ -49,7 +49,7 @@
     { "key": "state", "label": "State or Province", "kind": "contact", "todo": "your state or province", "type": "text", "required": true, "from": "builder" },
     { "key": "country", "label": "Country", "kind": "contact", "todo": "your country", "type": "text", "required": true, "from": "builder" },
     { "key": "github_handle", "label": "What is your GitHub Handle? (e.g. @mona)", "kind": "contact", "todo": "your GitHub handle", "type": "text", "required": true, "from": "builder" },
-    { "key": "project", "label": "What is your project? Please include the functionality the project provides and the type of project (application or library).", "kind": "how_it_works", "todo": "the project summary and type", "type": "text", "required": true, "from": "project" },
+    { "key": "project", "label": "What is your project? Please include the functionality the project provides and the type of project (application or library).", "kind": "how_it_works", "todo": "the project summary and type", "need": "project summary with type", "type": "text", "required": true, "from": "project" },
     { "key": "repo_url", "label": "What is the repository URL?  (e.g. www.github.com/mona)", "kind": "links", "todo": "the repository URL", "type": "url", "required": true, "project_field": "repo_url", "from": "project" },
     { "key": "license", "label": "What is the license for this project?", "kind": "other", "todo": "the project license", "type": "text", "required": true, "from": "project" },
     { "key": "core_team_size", "label": "How large is the core team?", "kind": "team", "todo": "the core team size", "type": "text", "required": true, "from": "builder" },

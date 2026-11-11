@@ -108,3 +108,19 @@ test('L24-25 (v6.1.16 Task 11): EarnKit\'s own files never use the copy-rule wor
   const theirs = programProblems({ ...base, organizer: 'Some Foundation', submission_requirements: [req] } as never);
   assert.ok(!theirs.some((p) => /copy never says/.test(p)), theirs.join('\n'));
 });
+
+test('L1h-8 (v6.1.16 Task 15): a required field\'s need (or the todo standing in for it) holds no "and"; every catalog file passes', async () => {
+  const NOW = new Date('2026-11-11T00:00:00Z');
+  const req = (over: Record<string, unknown>) => ({ key: 'q1', label: 'Question one', type: 'text', required: true, from: 'builder', kind: 'other', ...over });
+  const p = (over: Record<string, unknown>) => programProblems(programFixture({ id: 'p-need', submission_requirements: [req(over)] as never }), NOW);
+  assert.deepEqual(p({ todo: 'the problem and your solution' }), ['submission_requirements.q1.need: one need, no "and"; use "with" or split the field']);
+  assert.deepEqual(p({ todo: 'the problem and your solution', need: 'problem with your solution' }), []);
+  assert.deepEqual(p({ todo: 'the chains you use', need: 'chains and tools' }), ['submission_requirements.q1.need: one need, no "and"; use "with" or split the field']);
+  assert.deepEqual(p({ required: false, todo: 'a and b' }), []);
+  const { readdirSync, readFileSync } = await import('node:fs');
+  const dir = new URL('../../../../programs/', import.meta.url);
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.json'))) {
+    const file = JSON.parse(readFileSync(new URL(f, dir), 'utf8')) as { submission_requirements: { required: boolean; need?: string; todo?: string; key: string }[] };
+    for (const r of file.submission_requirements.filter((x) => x.required)) assert.doesNotMatch(r.need ?? r.todo ?? '', / and /, `${f} ${r.key}`);
+  }
+});
