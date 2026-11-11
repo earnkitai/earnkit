@@ -55,6 +55,9 @@ export const sentencesOf = (text: string): string[] => text.split(/(?<=[.!?])\s+
 /** `text` without its open-window sentences (L21-2, v6.1.16). Pure. */
 export const withoutOpenWindow = (text: string): string => sentencesOf(text).filter((t) => !OPEN_WINDOW.test(t)).join(' ');
 
+/** A K or M money figure ("$100K", "$325k", "2M ARB", "$1.5M"): the catalog writes full figures (lane 22, L1h-1). */
+const KM = /\d(?:\.\d+)?\s?[KkMm]\b/;
+
 /** Each problem as "<path or (program)>: <message>"; empty when the program may be written. */
 export function programProblems(p: Program, now: Date = new Date()): string[] {
   const parsed = ProgramFile.safeParse(p);
@@ -74,14 +77,26 @@ export function programProblems(p: Program, now: Date = new Date()): string[] {
   if (!/\d/.test(piece) && !/amount not stated/i.test(piece))
     problems.push(`summary: the money "${piece}" needs a number or "Amount not stated"`);
   // Lane 22 (v6.1.15): full figures on every surface, never K or M.
-  if (/\d[KM]\b/.test(piece)) problems.push(`summary: the money "${piece}" must be in full figures ("$100,000", never "$100K" or "$1M")`);
-  // FR-6 (v6.1.15): the rules the guide and the reply show are in full figures too.
-  q.rules.forEach((r, i) => {
-    if (/\d[KM]\b/.test(r)) problems.push(`rules.${i}: money must be in full figures ("$1,000,000", never "$1M")`);
+  if (KM.test(piece)) problems.push(`summary: the money "${piece}" must be in full figures ("$100,000", never "$100K" or "$1M")`);
+  // FR-6 (v6.1.15): the rules the guide and the reply show are in full figures too. L1h-1 (v6.1.16): and the
+  // description, the reward, every past round (label, themes, examples) and each requirement's `todo`, which the
+  // guide, the lookup and the needs lists carry; a requirement's `label` is the program's own question and kept.
+  const full = (path: string, text: string | undefined) => {
+    if (text && KM.test(text)) problems.push(`${path}: money must be in full figures ("$100,000", never "$100K")`);
+  };
+  q.rules.forEach((r, i) => full(`rules.${i}`, r));
+  (q.eligibility ?? []).forEach((e, i) => full(`eligibility.${i}.note`, e.note));
+  full('description', q.description);
+  full('reward', q.reward);
+  q.past_rounds.forEach((r, i) => {
+    full(`past_rounds.${i}.label`, r.label);
+    (r.themes ?? []).forEach((t, j) => full(`past_rounds.${i}.themes.${j}`, t.theme));
+    (r.examples ?? []).forEach((x, j) => {
+      full(`past_rounds.${i}.examples.${j}.name`, x.name);
+      full(`past_rounds.${i}.examples.${j}.what`, x.what);
+    });
   });
-  (q.eligibility ?? []).forEach((e, i) => {
-    if (e.note && /\d[KM]\b/.test(e.note)) problems.push(`eligibility.${i}.note: money must be in full figures ("$1,000,000", never "$1M")`);
-  });
+  q.submission_requirements.forEach((r, i) => full(`submission_requirements.${i}.todo`, r.todo));
   // L21-2 (v6.1.16): a closed program says nothing that reads as still taking entries.
   if (q.status === 'closed')
     for (const t of [q.description, ...q.rules].flatMap(sentencesOf)) {
