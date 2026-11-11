@@ -372,6 +372,26 @@ test('T6-F1 (v6.1.14 fix round 1): look-alike letters and accents fold before th
   assert.deepEqual(await r.json(), { error: 'invalid_client_metadata', error_description: INVALID_CLIENT_NAME });
 });
 
+test('L25-1 (v6.1.14.1): a trailing (server name) is the builder\'s label, so Claude Code (earnkit) registers; EarnKit (prod) does not', async () => {
+  const { reservedClientName } = await import('./oauth-routes');
+  for (const name of ['Claude Code (earnkit)', 'Windsurf (EarnKit)', 'Cursor (earn kit)', 'Claude Code (ЕarnКit)', 'Codex (earnkit) '])
+    assert.equal(reservedClientName(name), false, name);
+  for (const name of ['EarnKit (prod)', '(earnkit)', 'earnkit (x) (y)', 'EarnKit (a) bot', 'Claude Code (earnkit) earnkit', 'x (EarnKit)', '- (earnkit)', '. . (ЕarnКit)', 'é (earnkit)'])
+    assert.equal(reservedClientName(name), true, name);
+  let n = 0;
+  const reg = (client_name: string) =>
+    registerPost(new Request('https://earnkit.test/oauth/register', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-real-ip': `10.9.3.${++n}` },
+      body: JSON.stringify({ redirect_uris: [redirect], client_name }),
+    }));
+  const ok = await reg('Claude Code (earnkit)');
+  assert.equal(ok.status, 201);
+  assert.equal((await ok.json()).client_name, 'Claude Code (earnkit)');
+  const bad = await reg('EarnKit (prod)');
+  assert.equal(bad.status, 400);
+  assert.deepEqual(await bad.json(), { error: 'invalid_client_metadata', error_description: INVALID_CLIENT_NAME });
+});
+
 test('FR-9 (v6.1.14 final fix): the dotless i, Armenian and small-capital look-alikes are folded; earnkıt is refused at register and install', async () => {
   const { reservedClientName } = await import('./oauth-routes');
   for (const name of ['earnkıt', 'EARNKıT', 'earnkɩt', 'eaʀnkit', 'ᴇᴀʀɴᴋɪᴛ', 'earոkit', 'ɑrnkit'.replace('ɑ', 'eɑ')]) assert.equal(reservedClientName(name), true, name);
