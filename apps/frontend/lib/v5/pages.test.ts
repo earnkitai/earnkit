@@ -73,7 +73,7 @@ test('/ shows the hero, the steps, at most six programs, the link to all of them
   const t = textOf(m);
   assert.ok(t.includes(HERO_TITLE));
   for (const step of STEPS) assert.ok(t.includes(step), step);
-  assert.ok(t.includes('This week'));
+  assert.ok(t.includes('Open now'));
   assert.ok(cardLinks(m).length <= 6, String(cardLinks(m).length));
   assert.match(t, /See all \d+ programs/);
   assert.ok(!m.includes('href="/programs/zz-page-soon"') && !m.includes('href="/programs/zz-page-shut"'));
@@ -114,7 +114,7 @@ test('the landing grid is 1, 2 then 3 columns; /programs keeps auto-fit (v6.2.0)
 
 test('no featured programs but some listed: the title, "Nothing is open right now." and the pill (v6.2.0)', () => {
   const t = textOf(html(React.createElement(Opportunities, { programs: [], total: 45 })));
-  assert.equal(t, `This week ${EARN_EMPTY} ${EARN_ALL(45)}`);
+  assert.equal(t, `Open now ${EARN_EMPTY} ${EARN_ALL(45)}`);
   assert.equal(EARN_EMPTY, 'Nothing is open right now.');
 });
 
@@ -139,7 +139,7 @@ test('a failed read: the hero and the steps, no programs and no link (v6.2.0)', 
   const t = textOf(m);
   assert.ok(t.includes(HERO_TITLE));
   for (const step of STEPS) assert.ok(t.includes(step), step);
-  assert.ok(!t.includes('This week') && !/See all/.test(t));
+  assert.ok(!t.includes('Open now') && !/See all/.test(t));
   assert.deepEqual(cardLinks(m), []);
 });
 
@@ -201,14 +201,15 @@ test('/programs/<id> is a 404 for an unknown id and for a record that no longer 
   assert.match(String((await guideMetadata(params('nope'))).title), /Not found/);
 });
 
-test('/docs: the six sections, under 330 words, the copy rules', () => {
+test('/docs: the seven sections, under 420 words, the copy rules', () => {
   const m = html(DocsPage());
   const t = textOf(m);
-  for (const s of ['Install', 'How a session goes', 'Your record', 'Screening, for programs', 'How programs are checked', 'Terms']) assert.ok(t.includes(s), s);
+  for (const s of ['Install', 'How a session goes', 'Your record', 'Screening, for programs', 'For program owners', 'How programs are checked', 'Terms']) assert.ok(t.includes(s), s);
   assert.ok(m.includes('href="/terms"'));
   assert.ok(!/selector/i.test(t));
   const words = t.split(' ').length;
-  assert.ok(words < 330, `docs page is ${words} words`);
+  // L15-20 (v6.1.14): the program owners' five lines add about 90 words to the old 330.
+  assert.ok(words < 420, `docs page is ${words} words`);
   assert.ok(!BANNED.test(t), t.match(BANNED)?.[0]);
   assert.ok(!t.includes('—'));
 });
@@ -336,7 +337,7 @@ test('/me renders the record in builder words: approvals first, plain forms, no 
   assert.ok(!/<script/i.test(m));
   assert.ok(m.includes('&lt;b&gt;Email: bad.&lt;/b&gt;'), 'the problem line is escaped');
   assert.ok(t.indexOf('Read these, then approve each: an unapproved answer is never sent.') < t.indexOf('About you'));
-  assert.ok(t.lastIndexOf('This removes your record, your applications and your sign-ins. Your agents keep working, unsigned.') > t.indexOf('Your agents'));
+  assert.ok(t.lastIndexOf('This removes your record, your applications and your sign-ins. Screens you ran for a program stay with that program. Your agents keep working, unsigned.') > t.indexOf('Your agents'));
   for (const w of ['About you', 'Your projects', 'The company', 'Your documents', 'Traction', 'Your answers', 'Standing approval', 'Apply overnight without asking, within these limits', 'Press submit for me', 'Skip awards above (USD)', 'Your one line on traction'])
     assert.ok(t.includes(w), w);
   assert.ok(!/\b(person|company|traction|policy|answers)\.[a-z_]+\b/.test(t), 'no path is shown');

@@ -64,7 +64,19 @@ test('one application and one result per program, in builder words (v6.1.7, B8, 
   const rej = await track(c, { program_id: 't7-one', status: 'rejected' });
   assert.equal(rej.show_to_builder, 'That one already has a result here: won $3,000.');
   assert.equal(rej.ledger.won_usd, 3000);
+  // T8-F1 (v6.1.14): a resend is already recorded; another amount corrects; a marked further payment adds once.
   assert.equal((await track(c, { program_id: 't7-one', status: 'won', amount_usd: 3000 })).show_to_builder, 'Already recorded.');
+  const fixed = await track(c, { program_id: 't7-one', status: 'won', amount_usd: 2000 });
+  assert.equal(fixed.show_to_builder, 'Recorded: $2,000 from One Grant. Replaced the earlier amount.');
+  assert.equal(fixed.ledger.won_usd, 2000);
+  const more = await track(c, { program_id: 't7-one', status: 'won', amount_usd: 1250, payment: { key: 'second' } });
+  assert.equal(more.show_to_builder, 'Recorded: $1,250 more from One Grant, $3,250 in total.');
+  assert.equal(more.ledger.won_usd, 3250);
+  assert.equal(more.ledger.won, 1);
+  // A retried call with the same key adds nothing.
+  const retry = await track(a, { program_id: 't7-one', status: 'won', amount_usd: 1250, payment: { key: 'second' } });
+  assert.equal(retry.show_to_builder, 'Already recorded.');
+  assert.equal(retry.ledger.won_usd, 3250);
   assert.equal((await track(c, { program_id: 't7-one', status: 'skipped' })).show_to_builder, 'That one already has a result here; nothing to skip.');
 });
 
@@ -106,8 +118,6 @@ test('refusals say so and record nothing', async () => {
   const u = await track(c, { program_id: 'nope-x', status: 'applied', extra: 1 });
   assert.equal(u.show_to_builder, 'I could not read that. Send the program, a status, and for a win the amount.');
   assert.equal(u.agent_note, 'Nothing was recorded. input: Unrecognized key: "extra".');
-  const long = await track(c, { program_id: 'nope-x', status: 'applied', note: 'x'.repeat(281) });
-  assert.equal(long.agent_note, 'Nothing was recorded. note: Too big: expected string to have <=280 characters.');
   const n = (await sql()`SELECT count(*)::int AS n FROM application_history WHERE installation_id = ${c.installationId}`)[0].n;
   assert.equal(n, 0);
 });
@@ -136,11 +146,12 @@ test('C17: an unknown project_id is ignored, and named in the agent note', async
   await upsertProgram(programFixture({ id: 't6-p', title: 'Project Grant' }), 'file', NOW);
   const s = await track(c, { program_id: 't6-p', status: 'started', project_id: 'nope' });
   assert.equal(s.show_to_builder, 'Started.');
-  assert.equal(s.agent_note, 'Fill the form from the fields, submit, then call track with applied, submitted_by and fields_used. project_id nope is not known; ignored.');
+  assert.equal(s.agent_note, 'Fill the form from the fields, submit, then call track with applied, submitted_by and fields_used. If the form has a reference field, put application_id in it, so the program\'s result reaches this ledger. project_id nope is not known; ignored.');
   const a = await track(c, { program_id: 't6-p', status: 'applied', submitted_by: 'agent', project: { name: 'App' }, project_id: 'nope' });
   assert.match(a.agent_note, /project_id nope is not known; ignored\.$/);
   const [row] = await sql()`SELECT project_id FROM applications WHERE program_id = 't6-p' AND installation_id = ${c.installationId}`;
-  assert.equal(row.project_id, null);
+  // FR-3 (v6.1.14 final fix): the unknown id is never stored; the send keeps its project key, as a claim does.
+  assert.equal(row.project_id, 'name:app');
 });
 
 let gh = 931_000;
@@ -257,8 +268,8 @@ test('started on a program the last find called a gap says so', async () => {
   await upsertProgram(programFixture({ id: 't6-gap', title: 'Gap Grant' }), 'file', NOW);
   await markFind(two.a.installationId, NOW, { 't6-gap': { what: 'add Base Builder Codes', kind: 'builder_codes', item: 'builder_codes' } });
   const r = await track(two.a, { program_id: 't6-gap', status: 'started' });
-  assert.equal(r.show_to_builder, 'Started. When I last looked it was still one change away: add Base Builder Codes. Make sure that is done first.');
-  assert.equal(r.agent_note, 'Make the change before you submit, or call find again to check it. Then fill the form from the fields, submit, and call track with applied, submitted_by and fields_used.');
+  assert.equal(r.show_to_builder, 'Started. When I last looked it was still one change away: add Base Builder Codes.');
+  assert.equal(r.agent_note, 'Make the change before you submit, or call find again to check it. Then fill the form from the fields, submit, and call track with applied, submitted_by and fields_used. If the form has a reference field, put application_id in it, so the program\'s result reaches this ledger.');
   assert.equal('already_started' in r, false);
   const other = await track({ ...two.c, now: new Date(NOW.getTime() + 3_600_000) }, { program_id: 't6-gap', status: 'started' });
   assert.equal(other.already_started, true);
@@ -270,7 +281,7 @@ test('started on a program the last find did not call a gap keeps the plain line
   await markFind(c.installationId, NOW, { 'some-other-program': { what: 'add Base Builder Codes', kind: 'builder_codes', item: 'builder_codes' } });
   const r = await track(c, { program_id: 't6-nogap', status: 'started' });
   assert.equal(r.show_to_builder, 'Started.');
-  assert.equal(r.agent_note, 'Fill the form from the fields, submit, then call track with applied, submitted_by and fields_used.');
+  assert.equal(r.agent_note, 'Fill the form from the fields, submit, then call track with applied, submitted_by and fields_used. If the form has a reference field, put application_id in it, so the program\'s result reaches this ledger.');
 });
 
 test('gap_done forgets the remembered gap, so started keeps the plain line', async () => {
@@ -291,25 +302,24 @@ test('gap_done with an item the program does not have is refused, and the rememb
   await markFind(c.installationId, NOW, { 't6-gapbad': arc });
   const r = await track(c, { program_id: 't6-gapbad', status: 'gap_done', item: 'nope' });
   assert.equal(r.show_to_builder, 'Which change did you finish? Say the program and the change.');
-  assert.equal(r.agent_note, 'Items for this program: chain:arc. Call track gap_done with one of them.');
+  assert.equal(r.agent_note, 'Items for this program: chain:arc, repo. Call track gap_done with one of them.');
   assert.deepEqual(await lastGaps(c.installationId), { 't6-gapbad': arc });
   // C27 (v6.1.7): users only when the program has a users item.
   const u = await track(c, { program_id: 't6-gapbad', status: 'gap_done', item: 'users' });
-  assert.deepEqual([u.show_to_builder, u.agent_note], ['Which change did you finish? Say the program and the change.', 'Items for this program: chain:arc. Call track gap_done with one of them.']);
+  assert.deepEqual([u.show_to_builder, u.agent_note], ['Which change did you finish? Say the program and the change.', 'Items for this program: chain:arc, repo. Call track gap_done with one of them.']);
   // C11 (v6.1.7): without an item, the agent gets the same list.
   const none = await track(c, { program_id: 't6-gapbad', status: 'gap_done' });
-  assert.deepEqual([none.show_to_builder, none.agent_note], ['Which change did you finish? Say the program and the change.', 'Items for this program: chain:arc. Call track gap_done with one of them.']);
+  assert.deepEqual([none.show_to_builder, none.agent_note], ['Which change did you finish? Say the program and the change.', 'Items for this program: chain:arc, repo. Call track gap_done with one of them.']);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM gaps_done WHERE installation_id = ${c.installationId}`)[0].n, 0);
 });
 
-test('TrackInput caps: program_id and item at 80, amount_usd finite and between 0 and 100,000,000 (security L2)', async () => {
+test('TrackInput caps: program_id and item at 80, amount_usd finite and at least 0 (security L2; L13-5 v6.1.14: no ceiling in the input)', async () => {
   const c = await ctx();
   await upsertProgram(programFixture({ id: 't6-cap', title: 'Cap Grant' }), 'file', NOW);
   const refused = [
     { program_id: 'x'.repeat(81), status: 'applied' },
     { program_id: 't6-cap', status: 'gap_done', item: 'i'.repeat(81) },
     { program_id: 't6-cap', status: 'won', amount_usd: -1 },
-    { program_id: 't6-cap', status: 'won', amount_usd: 100_000_001 },
     { program_id: 't6-cap', status: 'won', amount_usd: Number.POSITIVE_INFINITY },
     { program_id: 't6-cap', status: 'won', amount_usd: Number.NaN },
   ];
@@ -320,8 +330,9 @@ test('TrackInput caps: program_id and item at 80, amount_usd finite and between 
   }
   const n = (await sql()`SELECT count(*)::int AS n FROM application_history WHERE installation_id = ${c.installationId}`)[0].n;
   assert.equal(n, 0);
-  // The cap itself passes the input check and meets the program's own limit instead.
-  assert.equal((await track(c, { program_id: 't6-cap', status: 'won', amount_usd: 100_000_000 })).show_to_builder, "That's more than this program pays; check the amount.");
+  // Any amount passes the input check and meets the program's own limit instead (L13-5: 1e12 too).
+  for (const amount_usd of [100_000_000, 100_000_001, 1e12])
+    assert.equal((await track(c, { program_id: 't6-cap', status: 'won', amount_usd })).show_to_builder, "That's more than this program pays; check the amount.");
 });
 
 const RULE = 'a team of two or more';
@@ -333,7 +344,7 @@ test('started on a remembered rule gap says it still had a rule to confirm (v6.1
   await markFind(c.installationId, NOW, { 't7-rule': { what: RULE, kind: 'rule', item: await ruleWhat() } });
   const r = await track(c, { program_id: 't7-rule', status: 'started' });
   assert.equal(r.show_to_builder, `Started. When I last looked it still had a rule to confirm: ${RULE}. Say yes if that is you.`);
-  assert.equal(r.agent_note, 'If the builder says the rule fits, call track gap_done with that gap\'s item, then find again. Otherwise skip the program.');
+  assert.equal(r.agent_note, 'If the builder says the rule fits, call track gap_done with that gap\'s item, then find again. Otherwise skip the program. If the form has a reference field, put application_id in it, so the program\'s result reaches this ledger.');
 });
 
 test('a legacy last_gaps string reads as kind other and keeps the change line (v6.1.7, m2)', async () => {
@@ -342,7 +353,7 @@ test('a legacy last_gaps string reads as kind other and keeps the change line (v
   await sql()`UPDATE installations SET last_gaps = ${sql().json({ 't7-legacy': 'a demo video' })} WHERE id = ${c.installationId}`;
   assert.deepEqual(await lastGaps(c.installationId), { 't7-legacy': { what: 'a demo video', kind: 'other' } });
   const r = await track(c, { program_id: 't7-legacy', status: 'started' });
-  assert.equal(r.show_to_builder, 'Started. When I last looked it was still one change away: a demo video. Make sure that is done first.');
+  assert.equal(r.show_to_builder, 'Started. When I last looked it was still one change away: a demo video.');
 });
 
 test("another agent's confirmation of the remembered gap skips the remark (v6.1.7, C23)", async () => {
@@ -567,7 +578,7 @@ test('v6.1.9: started on an in-person or builder-only program tells the agent th
     assert.doesNotMatch(r.agent_note, /fields, submit,/);
   }
   const plain = await track(c, { program_id: 'bs-agent', status: 'started' });
-  assert.equal(plain.agent_note, 'Fill the form from the fields, submit, then call track with applied, submitted_by and fields_used.');
+  assert.equal(plain.agent_note, 'Fill the form from the fields, submit, then call track with applied, submitted_by and fields_used. If the form has a reference field, put application_id in it, so the program\'s result reaches this ledger.');
 });
 
 test('v6.1.9: applied as the first call after the account was deleted answers the notice alone and writes nothing', async () => {
@@ -677,7 +688,7 @@ test('started on the last find\'s project keeps the remembered remark (v6.1.10, 
   await upsertProgram(programFixture({ id: 't10-pk2', title: 'Remark Grant', eligibility: [{ kind: 'demo_video' }] }), 'file', NOW);
   await markFind(c.installationId, NOW, { 't10-pk2': { what: 'a demo video', kind: 'demo_video', item: 'demo_video' } }, 'https://github.com/acme/alpha');
   const s = await track(c, { program_id: 't10-pk2', status: 'started', project: { repo_url: 'https://github.com/Acme/Alpha.git' } });
-  assert.equal(s.show_to_builder, 'Started. When I last looked it was still one change away: a demo video. Make sure that is done first.');
+  assert.equal(s.show_to_builder, 'Started. When I last looked it was still one change away: a demo video.');
 });
 
 test('F1 fix round 2 (v6.1.10): five real programs, a send naming every key is outside approval; the field no record or project holds is the reason', async () => {
@@ -806,7 +817,6 @@ test('I3 final (v6.1.10): a required contract find filled from the cached repo r
 });
 
 test('final round (v6.1.10), B5 (v6.1.13): the track project is read as find reads it (cut and dropped, never refused) and keyed as find keys it', async () => {
-  const { TRACK_UNREAD } = await import('./track');
   const c = await ctx();
   await upsertProgram(programFixture({ id: 'fcap-a', title: 'Cap Grant', eligibility: [{ kind: 'users' }] }), 'file', NOW);
   const long = await track(c, { program_id: 'fcap-a', status: 'started', project: { name: 'n'.repeat(121) } });
@@ -821,8 +831,10 @@ test('final round (v6.1.10), B5 (v6.1.13): the track project is read as find rea
   assert.equal((await track(c, { program_id: 'fcap-a', status: 'gap_done', item: 'users', project: { name: 'My  App' } })).show_to_builder, 'Noted.');
   const rows = await sql()`SELECT project_key FROM gaps_done WHERE owner = ${'i:' + c.installationId} AND program_id = 'fcap-a' ORDER BY project_key`;
   assert.deepEqual(rows.map((r) => r.project_key), ['name:a', 'name:my app']);
-  // A project that is not an object is still not read.
-  assert.equal((await track(c, { program_id: 'fcap-a', status: 'skipped', project: 'My App' })).show_to_builder, TRACK_UNREAD);
+  // L13-4 (v6.1.14): a project that is not an object is dropped and named for the agent; the step still records.
+  const str = await track(c, { program_id: 'fcap-a', status: 'skipped', project: 'My App' });
+  assert.equal(str.show_to_builder, "Skipped Cap Grant. I won't bring it up again.");
+  assert.match(str.agent_note, / Some arguments were not read: project dropped: not an object\.$/);
 });
 
 test('Review Focus 4 (v6.1.13, B5): the find\'s own project, however long, is accepted by track', async () => {
@@ -1118,4 +1130,144 @@ test('W1 and W2 (v6.1.13 final round): a project known by its repo, named alone 
   assert.ok(byName.includes('w2-rule'), byName.join(','));
   // And the next find with the repo still sees it.
   assert.ok((await readyIds(P)).includes('w2-rule'));
+});
+
+test('L13-3 (v6.1.14): a send with a note over 280 characters is tracked, its note cut to 280', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 'l13-note', title: 'Note Grant' }), 'file', NOW);
+  const r = await track(c, { program_id: 'l13-note', status: 'applied', note: 'n'.repeat(352) });
+  assert.equal(r.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  const [row] = await sql()`SELECT status, note FROM applications WHERE owner = ${'i:' + c.installationId} AND program_id = 'l13-note'`;
+  assert.deepEqual([row.status, row.note], ['applied', 'n'.repeat(280)]);
+});
+
+test('L13-1 (v6.1.14): a recorded send answers its own application id, kept on the row; a refused send has none', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 'l13-id', title: 'Id Grant' }), 'file', NOW);
+  const r = await track(c, { program_id: 'l13-id', status: 'applied' });
+  assert.match(r.application_id ?? '', /^ek-[A-Za-z0-9_-]{12}$/);
+  const [row] = await sql()`SELECT application_id FROM applications WHERE owner = ${'i:' + c.installationId} AND program_id = 'l13-id'`;
+  assert.equal(row.application_id, r.application_id);
+  const again = await track(c, { program_id: 'l13-id', status: 'applied' });
+  assert.equal('application_id' in again, false);
+  assert.equal('application_id' in (await track(c, { program_id: 'l13-id', status: 'won', amount_usd: 10 })), false);
+});
+
+test('L13-2 (v6.1.14, Review Focus 8): an unlink on /me releases that agent\'s claims; its later send is under no builder', async () => {
+  const { unlinkInstallation } = await import('../v6/builders');
+  const { a, c, owner } = await twoAgents();
+  await upsertProgram(programFixture({ id: 'l13-unl', title: 'Race 4' }), 'file', NOW);
+  assert.equal((await track(a, { program_id: 'l13-unl', status: 'started' })).show_to_builder, 'Started. Your other agents leave this one alone for 24 hours.');
+  assert.equal(await unlinkInstallation(a.installationId, c.builderId!, NOW), true);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${owner} AND program_id = 'l13-unl'`)[0].n, 0);
+  // The builder's other agent sends at once, with no other agent line.
+  const later = { ...c, now: new Date(NOW.getTime() + 3_600_000) };
+  const sent = await track(later, { program_id: 'l13-unl', status: 'applied', submitted_by: 'agent' });
+  assert.equal(sent.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.doesNotMatch(JSON.stringify(sent), /other agent/i);
+  // The unlinked agent's own send lands in its own ledger, never the builder's.
+  const own = await track({ ...a, builderId: null, now: later.now }, { program_id: 'l13-unl', status: 'applied', submitted_by: 'agent' });
+  assert.match(own.show_to_builder, /Tracked\./);
+  assert.equal(own.ledger.applied, 1);
+  const [b] = await sql()`SELECT status, installation_id FROM applications WHERE owner = ${owner} AND program_id = 'l13-unl'`;
+  assert.deepEqual([b.status, b.installation_id], ['applied', c.installationId]);
+  const [i] = await sql()`SELECT status FROM applications WHERE owner = ${'i:' + a.installationId} AND program_id = 'l13-unl'`;
+  assert.equal(i.status, 'applied');
+});
+
+test('L13-6 (v6.1.14): a send under standing approval to a program that has not opened is recorded outside it: it has not opened yet', async () => {
+  const { linkInstallation, saveRecord, upsertBuilder } = await import('../v6/builders');
+  const { EMPTY_RECORD, mergeRecord } = await import('../v6/record');
+  const c = await ctx();
+  const b = await upsertBuilder({ github_id: 930_614, login: 'l136', name: 'B', avatar_url: null }, NOW);
+  await linkInstallation(c.installationId, b.id, NOW);
+  await saveRecord(b.id, mergeRecord(EMPTY_RECORD, { policy: { auto_apply: true, max_per_night: 20, categories: ['grant'] } }, 'builder', NOW).record, NOW);
+  await upsertProgram(programFixture({ id: 'l136-soon', title: 'Soon Grant', category: 'grant', status: 'upcoming', opens_note: 'Opens Nov 11' }), 'file', NOW);
+  const r = await track({ ...c, builderId: b.id }, { program_id: 'l136-soon', status: 'applied', submitted_by: 'agent', project: { name: 'App' }, fields_used: ['project_name'] });
+  assert.equal(r.show_to_builder, 'Sent, but outside your standing approval: it has not opened yet.');
+  assert.match(r.agent_note, /^Recorded as applied, not under standing approval\./);
+  const [row] = await sql()`SELECT status, auto_applied FROM applications WHERE owner = ${'b:' + b.id} AND program_id = 'l136-soon'`;
+  assert.deepEqual({ ...row }, { status: 'applied', auto_applied: false });
+});
+
+test('L13-7 (v6.1.14): an agent send after the builder turned standing approval off since the find says it was off; with it never on, the plain line', async () => {
+  const { linkInstallation, saveRecord, upsertBuilder } = await import('../v6/builders');
+  const { EMPTY_RECORD, mergeRecord } = await import('../v6/record');
+  const { markFindAuto } = await import('./installations');
+  const c = await ctx();
+  const b = await upsertBuilder({ github_id: 930_617, login: 'l137', name: 'B', avatar_url: null }, NOW);
+  await linkInstallation(c.installationId, b.id, NOW);
+  await saveRecord(b.id, mergeRecord(EMPTY_RECORD, { policy: { auto_apply: false } }, 'builder', NOW).record, NOW);
+  await upsertProgram(programFixture({ id: 'l137-a', title: 'Off Grant A', category: 'grant' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'l137-b', title: 'Off Grant B', category: 'grant' }), 'file', NOW);
+  const linked = { ...c, builderId: b.id };
+  const send = (id: string, by = 'agent') => track(linked, { program_id: id, status: 'applied', submitted_by: by, project: { name: 'App' }, fields_used: ['project_name'] });
+  // The last find saw standing approval on; it is off now.
+  await markFindAuto(c.installationId, true);
+  const off = await send('l137-a');
+  assert.equal(off.show_to_builder, 'Sent, but outside your standing approval: it was off.');
+  assert.match(off.agent_note, /^Recorded as applied, not under standing approval\./);
+  // The builder's own submit, or a find that saw it off: the plain line.
+  assert.equal((await send('l137-b', 'builder')).show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  await sql()`DELETE FROM applications WHERE program_id = 'l137-b'`;
+  await markFindAuto(c.installationId, false);
+  assert.equal((await send('l137-b')).show_to_builder, "Tracked. I'll ask how it went when results are due.");
+});
+
+test('T5-F1 (v6.1.14): started answers the application id with the note to put it in the form; applied keeps that id', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 'f1-start', title: 'Start Grant' }), 'file', NOW);
+  const s = await track(c, { program_id: 'f1-start', status: 'started' });
+  assert.match(s.application_id ?? '', /^ek-[A-Za-z0-9_-]{12}$/);
+  assert.equal(s.agent_note, "Fill the form from the fields, submit, then call track with applied, submitted_by and fields_used. If the form has a reference field, put application_id in it, so the program's result reaches this ledger.");
+  assert.doesNotMatch(s.show_to_builder, /application|ek-/);
+  // A renewed claim keeps it; the send answers the same id.
+  assert.equal((await track(c, { program_id: 'f1-start', status: 'started' })).application_id, s.application_id);
+  const a = await track(c, { program_id: 'f1-start', status: 'applied' });
+  assert.equal(a.application_id, s.application_id);
+  // A claim refused (already sent) carries none.
+  assert.equal('application_id' in (await track(c, { program_id: 'f1-start', status: 'started' })), false);
+});
+
+test('T5-F4 (v6.1.14): a send or claim in flight from an agent unlinked meanwhile never lands in the builder\'s ledger', async () => {
+  const { unlinkInstallation } = await import('../v6/builders');
+  const { a, c, owner } = await twoAgents();
+  await upsertProgram(programFixture({ id: 'f4-send', title: 'Send Grant' }), 'file', NOW);
+  await upsertProgram(programFixture({ id: 'f4-claim', title: 'Claim Grant' }), 'file', NOW);
+  await track(a, { program_id: 'f4-send', status: 'started' });
+  assert.equal(await unlinkInstallation(a.installationId, c.builderId!, NOW), true);
+  // `a` still carries the builder id it was read with before the unlink.
+  const sent = await track(a, { program_id: 'f4-send', status: 'applied', submitted_by: 'agent' });
+  assert.deepEqual([sent.show_to_builder, sent.agent_note], ['This agent was just unlinked from your account; nothing recorded.', 'Nothing was recorded.']);
+  const claimed = await track(a, { program_id: 'f4-claim', status: 'started' });
+  assert.equal(claimed.show_to_builder, 'This agent was just unlinked from your account; nothing recorded.');
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${owner}`)[0].n, 0);
+});
+
+test('FR-2 (v6.1.14 final fix): track reads an SSH repo link as find does and keys its step by the https repo', async () => {
+  const c = await ctx();
+  await upsertProgram(programFixture({ id: 'fr2-a', title: 'SSH Grant', eligibility: [{ kind: 'users' }] }), 'file', NOW);
+  for (const repo_url of ['git@github.com:Acme/App.git', 'ssh://git@gitlab.com/o/r.git']) {
+    const r = await track(c, { program_id: 'fr2-a', status: 'gap_done', item: 'users', project: { name: 'App', repo_url } });
+    assert.equal(r.show_to_builder, 'Noted.');
+    assert.doesNotMatch(r.agent_note, /not a web link/);
+  }
+  const rows = await sql()`SELECT project_key FROM gaps_done WHERE owner = ${'i:' + c.installationId} AND program_id = 'fr2-a' ORDER BY project_key`;
+  assert.deepEqual(rows.map((r) => r.project_key), ['https://github.com/acme/app', 'https://gitlab.com/o/r']);
+});
+
+test('FR-6 (v6.1.14 final fix): with standing approval turned off since the find, a send the builder confirmed (submitted_by builder) has the plain line, never the outside-approval clause', async () => {
+  const { linkInstallation, saveRecord, upsertBuilder } = await import('../v6/builders');
+  const { EMPTY_RECORD, mergeRecord } = await import('../v6/record');
+  const { markFindAuto } = await import('./installations');
+  const c = await ctx();
+  const b = await upsertBuilder({ github_id: 930_618, login: 'fr6', name: 'B', avatar_url: null }, NOW);
+  await linkInstallation(c.installationId, b.id, NOW);
+  await saveRecord(b.id, mergeRecord(EMPTY_RECORD, { policy: { auto_apply: false } }, 'builder', NOW).record, NOW);
+  await upsertProgram(programFixture({ id: 'fr6-a', title: 'Confirmed Grant', category: 'grant' }), 'file', NOW);
+  await markFindAuto(c.installationId, true);
+  const r = await track({ ...c, builderId: b.id }, { program_id: 'fr6-a', status: 'applied', submitted_by: 'builder', project: { name: 'App' }, fields_used: ['project_name'] });
+  assert.equal(r.show_to_builder, "Tracked. I'll ask how it went when results are due.");
+  assert.doesNotMatch(r.show_to_builder, /standing approval/);
+  assert.doesNotMatch(r.agent_note, /not under standing approval/);
 });

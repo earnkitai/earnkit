@@ -34,11 +34,13 @@ test('copy rules: no emoji, no em dash, none of the banned words', () => {
 
 test('the hero and the steps are verbatim', () => {
   assert.equal(copy.HERO_TITLE, 'Get funded for what you ship.');
-  assert.equal(copy.HERO_SUB, 'Your agent finds the grants and prizes you fit and applies. Free.');
+  assert.equal(copy.HERO_SUB, 'Your agent finds the grants and prizes you fit and fills the forms. Free.');
   assert.equal(copy.CTA_INSTALL, 'Add EarnKit to your agent');
-  assert.deepEqual(copy.STEPS, ['Add EarnKit to your agent.', 'Ask what this repo can earn.', 'Say yes. It applies and tracks the result.']);
+  assert.deepEqual(copy.STEPS, ['Add EarnKit to your agent.', 'Ask what this repo can earn.', 'Say yes. It fills the form and sends it, or hands you the draft to send.']);
   assert.ok(!('STEPS_TITLE' in copy));
-  assert.equal(copy.EARN_TITLE, 'This week');
+  assert.equal(copy.EARN_TITLE, 'Open now');
+  // v6.1.14: no bounty is listed, ten investments are.
+  assert.equal(copy.PROGRAMS_DESCRIPTION, 'Every grant, hackathon and investment EarnKit lists, with the money and the close date.');
   assert.equal(copy.EARN_ALL(45), 'See all 45 programs');
   assert.equal(copy.FOOT_CTA, 'Ask your agent what you can earn.');
   assert.equal(copy.PROGRAMS_TITLE, 'Programs');
@@ -60,15 +62,32 @@ test('formatters', () => {
   assert.equal(copy.programKind({}), 'grant');
 });
 
-test('the docs say the six sections and stay short', () => {
-  assert.deepEqual(copy.DOCS_NAV.map(([, label]) => label), ['Install', 'How a session goes', 'Your record', 'Screening, for programs', 'How programs are checked', 'Terms']);
+test('the docs say the seven sections and stay short', () => {
+  assert.deepEqual(copy.DOCS_NAV.map(([, label]) => label), ['Install', 'How a session goes', 'Your record', 'Screening, for programs', 'For program owners', 'How programs are checked', 'Terms']);
   assert.deepEqual(copy.DOCS_NAV.map(([href]) => href).slice(2, 4), ['#record', '#screening']);
   const words = [copy.DOCS_INSTALL_TITLE, copy.DOCS_SESSION.title, copy.DOCS_SESSION.text, copy.DOCS_RECORD.title, copy.DOCS_RECORD.text, copy.DOCS_SCREEN.title, copy.DOCS_SCREEN.text, copy.DOCS_CHECKED.title, copy.DOCS_CHECKED.text, copy.DOCS_TERMS.title, copy.DOCS_TERMS.text]
     .join(' ').split(/\s+/).filter(Boolean).length;
   assert.ok(words < 220, `docs copy is ${words} words`);
   assert.equal(copy.DOCS_RECORD.text, 'Sign in once with GitHub and your agents share one record: your facts, links, documents and the answers you approved. Once you are signed in, nothing is sent that you did not approve. Delete it any time. Ask your agent for your sign-in link.');
-  assert.equal(copy.DOCS_SCREEN.text, "Hand your applicant list to your agent and EarnKit returns it in five tiers with public evidence: used, live, building, unverified, flagged. We read the repo, the chain and the site. We never show a builder's record, another program's name or another applicant's text.");
+  assert.equal(copy.DOCS_SCREEN.text, "Hand your applicant list to your agent and EarnKit returns it in five tiers with public evidence: used, live, building, unverified, flagged. We read the repo, the chain and the site. We never show a builder's record, another program's name, screens or results, or another applicant's text. A program's reviewers share its screens, and they stay with the program when a reviewer leaves.");
   assert.equal(copy.DOCS_SESSION.text.split(/(?<=\.)\s+/).length, 3);
+});
+
+test('L15-20 (v6.1.14): the program owners section says the five things, in plain sentences', () => {
+  assert.equal(copy.DOCS_PROGRAMS.title, 'For program owners');
+  assert.deepEqual([...copy.DOCS_PROGRAMS.items], [
+    "Sign in once with GitHub and ask EarnKit to mark you as your program's reviewer. Your team is marked the same way and shares your screens.",
+    "A screen reads only public evidence: the repo, the chain and the site. It never reads a builder's record or another applicant's text.",
+    "Tell your agent who won. A result reaches a builder only through the EarnKit id on their application, and never from your own application.",
+    'Other programs see nothing of your screens, results or decisions.',
+    'Results come in daily runs, the first by the next morning, and are kept 180 days with your decisions.',
+  ]);
+  for (const t of copy.DOCS_PROGRAMS.items) {
+    assert.match(t, /\.$/, t);
+    assert.doesNotMatch(t, /\u2014|\u2013|[_{}]|\b(score|rank|grade|points?|coins?|tokens?|streaks?)\b/i, t);
+    assert.doesNotMatch(t, /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u, t);
+  }
+  assert.ok(copy.DOCS_NAV.some(([href, label]) => href === '#programs' && label === 'For program owners'));
 });
 
 test('the terms are five sections', () => {
@@ -144,9 +163,9 @@ test('no install copy mentions signing in, X, GitHub or a wallet', async () => {
   // R6: the authorize endpoint approves at once (a 302 with the code), so no copy asks the builder to approve a page.
   for (const [name, s] of all) assert.ok(!s.includes('Approve it when the page opens'), `${name}: "${s}"`);
   // Said once, in the intro line above the tabs, never again in a tab (lane 5, 2).
-  assert.equal(all.filter(([, s]) => s.includes('connects at once') || s.includes('No account needed')).length, 0);
+  assert.equal(all.filter(([, s]) => s.includes('connects at once') || s.includes('needs no account')).length, 0);
   const { CONNECTOR_LINE } = await import('./agents');
-  assert.equal(CONNECTOR_LINE, 'A connector lets your AI use EarnKit. It connects at once. No account needed.');
+  assert.equal(CONNECTOR_LINE, 'A connector lets your AI use EarnKit. It connects at once. The connect prompt needs no account.');
   const grok = AGENTS.find((a) => a.name === 'Grok Bot')!;
   assert.equal(grok.installNote, 'Press Enter, then "Add it" and "Authorize".');
   assert.equal(grok.steps[1], `Server URL https://earnkit.com/mcp, "Save", then "Authenticate".`);
@@ -156,7 +175,7 @@ test('no install copy mentions signing in, X, GitHub or a wallet', async () => {
 test('the /me words: verbatim lines, sentences end with a full stop, no path in a label', () => {
   assert.equal(copy.ME_TITLE, 'Your record');
   assert.equal(copy.ME_PENDING_LINE, 'Read these, then approve each: an unapproved answer is never sent.');
-  assert.equal(copy.ME_DELETE_LINE, 'This removes your record, your applications and your sign-ins. Your agents keep working, unsigned.');
+  assert.equal(copy.ME_DELETE_LINE, 'This removes your record, your applications and your sign-ins. Screens you ran for a program stay with that program. Your agents keep working, unsigned.');
   assert.equal(copy.ME_LABELS['policy.auto_apply'], 'Apply overnight without asking, within these limits');
   assert.equal(copy.ME_LABELS['policy.agent_may_submit'], 'Press submit for me');
   assert.equal(copy.ME_LABELS['policy.max_ask_usd'], 'Skip awards above (USD)');

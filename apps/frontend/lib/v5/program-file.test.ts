@@ -3,7 +3,13 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { programProblems } from './program-checks';
-import { ProgramFile, eligibilityOf } from './program-file';
+import { ProgramFile, categoryOf, eligibilityOf, ruleNotes } from './program-file';
+import { moneyOf as replyMoney } from './find';
+import { guideText } from './guide';
+import { landingTiles } from './landing';
+import type { ProgramRow } from './programs';
+import { moneyOf } from './programs-read';
+import { programKind } from './site-copy';
 import { programFixture } from './fixtures/program';
 
 const DIR = join(import.meta.dirname, '..', '..', '..', '..', 'programs');
@@ -167,4 +173,54 @@ test('L1c-2 (v6.1.10): the catalog keywords are on the domain rules, none on lic
   assert.deepEqual(kw('avalanche-team1-mini-grants'), ['avalanche', 'avax', 'team1', 'subnet']);
   for (const f of ['antler-us-residency', 'github-secure-open-source-fund', 'herodevs-sustainability-fund', 'sovereign-tech-fund'])
     assert.deepEqual(kw(f), [], f);
+});
+
+test('Review Focus 5 (v6.1.14): the three re-kinded programs read as grants on /programs and in replies, never hackathons', () => {
+  for (const f of ['arbitrum-stablecoin-growth-program', 'arbitrum-mentorship-cohort-2', 'solana-incubator-cohort-6']) {
+    const p = ProgramFile.parse(read(`${f}.json`));
+    assert.equal(p.category, 'grant', f);
+    assert.equal(categoryOf(p), 'grant', f);
+    assert.equal(programKind(p), 'grant', f);
+  }
+  // The file's own category is the tile's kind, never the reward words; a grant in USDC says so.
+  assert.equal(programKind({ category: 'grant', reward: '$100K in prizes' }), 'grant');
+  assert.equal(programKind({ category: 'grant', reward: 'Up to 500 USDC' }), 'grant, in USDC');
+  // Fix round 1 (I1): three hackathons with a pool and a top prize carry their category.
+  for (const f of ['arbitrum-open-house-sao-paulo', 'colosseum-worlds-fair', 'monad-metropolis'])
+    assert.equal(ProgramFile.parse(read(`${f}.json`)).category, 'hackathon', f);
+});
+
+test('I1 (v6.1.14): every catalog program has one kind on the landing tile, /programs and replies', () => {
+  const ps = files.map((f) => ProgramFile.parse(read(f)));
+  const rows = ps.map((file) => ({ id: file.id, file, source: 'file' }) as unknown as ProgramRow);
+  const tiles = new Map(landingTiles(rows, new Date('2026-11-11T00:00:00Z')).map((t) => [t.id, t.kind]));
+  for (const p of ps) {
+    const kind = categoryOf(p);
+    assert.equal(tiles.get(p.id)?.replace(', in USDC', ''), kind, p.id);
+    assert.equal(programKind(p).replace(', in USDC', ''), kind, p.id);
+  }
+});
+
+test('v6.1.14 catalog truth: Thiel has no repo bar; money lines never show a threshold or a floor as the award', () => {
+  const thiel = ProgramFile.parse(read('thiel-fellowship.json'));
+  assert.equal(thiel.min_tier, undefined);
+  assert.equal(thiel.needs_repo, false);
+  const row = { id: thiel.id, file: thiel, source: 'file', created_at: new Date(0), updated_at: new Date(0), verified_at: null, stale_since: null } as ProgramRow;
+  assert.equal(guideText(row).bar, null);
+  assert.deepEqual(ruleNotes(thiel), ['applicant aged 22 or younger with no university degree, who will drop out of college if selected']);
+  const reply = replyMoney;
+
+  const arb = ProgramFile.parse(read('arbitrum-stablecoin-growth-program.json'));
+  assert.equal(reply(arb), 'incentives + 200K ARB for the first 10 teams');
+  assert.equal(moneyOf(arb), 'incentives + 200K ARB for the first 10 teams');
+  assert.ok(arb.rules.some((r) => r.includes('$10M of USDG TVL')));
+
+  const lido = ProgramFile.parse(read('lido-lego-grants.json'));
+  assert.equal(moneyOf(lido), 'Up to $100K');
+  assert.equal(reply(lido), 'Up to $100,000 by tier, more by DAO vote');
+
+  const stf = ProgramFile.parse(read('sovereign-tech-fund.json'));
+  assert.equal(stf.max_award_usd, undefined);
+  assert.equal(moneyOf(stf), 'From EUR 50,000 of work, no maximum stated');
+  assert.equal(reply(stf), 'From EUR 50,000 of work, no maximum stated');
 });

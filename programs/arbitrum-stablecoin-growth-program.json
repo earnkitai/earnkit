@@ -7,7 +7,8 @@
   "submission_url": "https://airtable.com/appNPlINVhkcwnyaZ/shrHJBg8jQdc3sJEa",
   "official_url": "https://arbitrum.foundation/grants",
   "reward": "Performance-based incentives linked to growth on Arbitrum, plus 200K ARB each for the first 10 teams to reach $10M of USDG TVL (2M ARB prize pool)",
-  "summary": "incentives + 200K ARB at $10M USDG TVL · no deadline stated",
+  "summary": "incentives + 200K ARB for the first 10 teams · no deadline stated",
+  "category": "grant",
   "ideas": [
     "A lending market with USDG as main collateral",
     "A payments app settling in USDG on Arbitrum",

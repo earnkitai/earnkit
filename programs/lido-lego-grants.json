@@ -6,7 +6,8 @@
   "source_url": "https://lido.fi/lego",
   "submission_url": "https://lido.fi/lego",
   "reward": "Sandgrain up to 1,000 USD; Pebble up to 10,000 USD; Boulder up to 100,000 USD; Mountain 100,000 USD and up",
-  "summary": "$1,000 to $100,000+ by tier · no deadline stated",
+  "summary": "Up to $100,000 by tier, more by DAO vote · no deadline stated",
+  "max_award_usd": 100000,
   "ideas": [
     "Developer tooling for stETH and wstETH integrations",
     "Node operator or validator monitoring tooling",

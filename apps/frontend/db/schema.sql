@@ -317,6 +317,28 @@ CREATE TABLE IF NOT EXISTS screen_outcomes (
   at         timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (job_id, ref)
 );
+-- v6.1.14 (L13-1): the application's own id, given to the builder's agent when it tracked the send. A screen outcome
+-- reaches a ledger only through it (never by repo): the applicant row carries it, the outcome goes to that row's owner.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS application_id text;
+CREATE UNIQUE INDEX IF NOT EXISTS applications_application_id ON applications (application_id) WHERE application_id IS NOT NULL;
+ALTER TABLE screen_applicants ADD COLUMN IF NOT EXISTS application_id text;
+-- v6.1.14 (Task 8, the round 3 security follow-up): a requeued row names the exact earlier row it supersedes, a row of
+-- a screen of the same program carrying the same application id (checked when queued). The blind flag is gone.
+ALTER TABLE screen_applicants ADD COLUMN IF NOT EXISTS requeue_job_id text;
+ALTER TABLE screen_applicants ADD COLUMN IF NOT EXISTS requeue_ref text;
+-- v6.1.14 (L15-18): a program's screens and outcomes belong to the program; a reviewer's delete leaves them, unowned.
+ALTER TABLE screen_jobs ALTER COLUMN builder_id DROP NOT NULL;
+-- v6.1.14 (T8-F1): a further payment of a win carries its caller's key, kept once per application (a repeat is a no-op).
+ALTER TABLE application_history ADD COLUMN IF NOT EXISTS payment_key text;
+CREATE INDEX IF NOT EXISTS application_history_payment ON application_history (owner, program_id, payment_key) WHERE payment_key IS NOT NULL;
+-- T8-F2: a stable order for paging a screen's results (the order the rows were queued in).
+ALTER TABLE screen_applicants ADD COLUMN IF NOT EXISTS seq bigserial;
+-- T8-F1: the further-payment keys a screen outcome has added, so a retried one adds nothing.
+ALTER TABLE screen_outcomes ADD COLUMN IF NOT EXISTS payment_keys text[] NOT NULL DEFAULT '{}';
+-- v6.1.14 (L15-15): a win's amount as the program gave it (cents, another currency) beside the whole US dollars kept in
+-- amount_usd (rounded down; NULL for another currency, which is never converted).
+ALTER TABLE screen_outcomes ADD COLUMN IF NOT EXISTS amount_given numeric;
+ALTER TABLE screen_outcomes ADD COLUMN IF NOT EXISTS currency text;
 -- v6.1.13 (Task 1 review I1): the project as the agent reported it at its last find, per owner and project key
 -- (projectKeyOf), so a send under standing approval is never judged on less than the find was.
 CREATE TABLE IF NOT EXISTS project_reports (
@@ -326,3 +348,6 @@ CREATE TABLE IF NOT EXISTS project_reports (
   at          timestamptz NOT NULL,
   PRIMARY KEY (owner, project_key)
 );
+-- v6.1.14 (L13-7): whether standing approval was on at this installation's last find with a project, so an agent's
+-- send after the builder turned it off says so.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS last_find_auto boolean;

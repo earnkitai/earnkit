@@ -6,6 +6,7 @@
  */
 import { chainName } from '../v5/chains';
 import { isStarterRepo } from './code';
+import { CONTRIBUTOR_PAGES } from './team';
 import type { Evidence } from './evidence';
 import type { OnchainRows } from './onchain';
 
@@ -42,11 +43,14 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   /** Under 100 senders the ratio is too noisy to flag on. */
   flag_unfunded_min_senders: 100,
 };
+/** L15-10 (v6.1.14): the thresholds that are shares, from 0 to 1; every other one is a count (or days), 0 and up. */
+export const RATIO_THRESHOLDS = ['flag_own_share', 'flag_unfunded_ratio'] as const;
 export type Flag = { rule: string; detail: string };
 /** What stands between a placement and the tier above: the condition `next` names. */
 export type Gap = 'funded_senders' | 'site' | 'push' | 'commits' | 'repo_or_site' | 'flag';
-export type Placement = { tier: Tier | null; flags: Flag[]; because: string[]; next: string | null; gap: Gap | null };
-/** The counts across applicants; `xp`: screens by other programs in 90 days (shown, never a flag). */
+/** `on_users` (M1, v6.1.14 fix round 1): building on verified onchain users alone, with no recent commit. */
+export type Placement = { tier: Tier | null; flags: Flag[]; because: string[]; next: string | null; gap: Gap | null; on_users?: true };
+/** The counts across applicants; `xp`: the program's own earlier screens in 90 days (shown, never a flag; L15-11). */
 export type Counts = {
   identical_pitch: number;
   shared_contributors: number;
@@ -64,6 +68,23 @@ const pushedRow = (days: number) => (days <= 0 ? 'pushed today' : `pushed ${plur
 const short = (a: string) => (a.length > 12 ? `${a.slice(0, 6)}...${a.slice(-4)}` : a);
 /** Contracts shown at most, by address, as not counted. */
 const NOT_COUNTED_SHOWN = 3;
+/** L15-8 (v6.1.14): a page that says it is no product yet, in reviewer words. */
+const PLACEHOLDER_WORDS: Record<string, string> = { 'for sale': 'site is for sale', parked: 'site is parked', 'coming soon': 'site says coming soon' };
+/**
+ * L15-5 (v6.1.14): why there is no repo block, in reviewer words, from the read's notes: a private repo, one private or
+ * missing, a repo on another code host, an account link; else no repo was given (or it could not be read). Pure.
+ */
+function noRepoWords(e: Evidence): string {
+  const notes = e.notes;
+  if (notes.includes('not read: private repo')) return 'private repo';
+  if (notes.includes('not read: private or missing')) return 'repo private or missing';
+  const host = notes.find((x) => x.startsWith('repo not read: on '));
+  if (host) return `${host.slice('repo not read: on '.length)} repo, not read`;
+  if (notes.includes('repo link is an account, not a repo')) return 'account link, not a repo';
+  if (notes.includes('repo not on github')) return 'repo link not on a code host';
+  if (e.repo) return 'repo not read';
+  return 'no public repo';
+}
 const others = (v: number) => `${plural(v, 'other applicant')} ${v === 1 ? 'shares' : 'share'}`;
 const most = <T>(xs: T[], by: (x: T) => number): T | undefined => xs.reduce<T | undefined>((a, x) => (a === undefined || by(x) > by(a) ? x : a), undefined);
 
@@ -140,7 +161,9 @@ export function place(
   const counted = real.filter((c) => c.counted === true);
   const notCounted = real.filter((c) => c.counted !== true);
   const active = counted.filter((c) => (c.tx_90d ?? 0) > 0);
-  const siteUp = e.live.url_ok === true;
+  // L15-8 (v6.1.14): a page saying it is for sale, parked or coming soon loads, but is no product.
+  const placeholder = e.live.url_ok === true && e.live.placeholder ? e.live.placeholder : null;
+  const siteUp = e.live.url_ok === true && !placeholder;
   const pushMs = e.code?.last_push_at ? Date.parse(e.code.last_push_at) : NaN;
   const pushDays = Number.isFinite(pushMs) ? Math.floor((now.getTime() - pushMs) / DAY) : null;
   // No code block passes: a repo-less project, and also a repo whose read failed (the note says so; no push date to hold against it).
@@ -152,16 +175,23 @@ export function place(
   const topActive = most(active, (c) => c.tx_90d!);
 
   const context: string[] = [];
-  if (e.team?.contributors_90d != null) context.push(plural(e.team.contributors_90d, 'contributor'));
-  if (x.xp && x.xp.applications_90d > 0) context.push(`seen in ${plural(x.xp.applications_90d, 'other screen')} in 90 days`);
+  // L15-19 (v6.1.14): everyone who committed (a row cached before reads the window's count); never 0 shown.
+  const people = e.team ? e.team.contributors ?? e.team.contributors_90d : null;
+  if (people != null && people > 0) context.push(e.team?.contributors_more ? `${n(CONTRIBUTOR_PAGES * 100)}+ contributors` : plural(people, 'contributor'));
+  if (x.xp && x.xp.applications_90d > 0) context.push(`seen in ${plural(x.xp.applications_90d, 'earlier screen')} of this program in 90 days`);
+  // L15-23 (v6.1.14): a contract on a chain EarnKit has no reader for is named, never silently left out.
+  const unread = e.onchain.filter((c) => c.mainnet == null && /^not read: no explorer for /.test(c.note ?? ''));
   const skipped = [
     ...notCounted.slice(0, NOT_COUNTED_SHOWN).map((k) => `${short(k.address)} on ${chainName(k.chain)}: ${k.counted_reason ?? 'not counted'}`),
     ...(notCounted.length > NOT_COUNTED_SHOWN ? [`${plural(notCounted.length - NOT_COUNTED_SHOWN, 'more contract')} not counted`] : []),
+    ...unread.slice(0, NOT_COUNTED_SHOWN).map((k) => `${short(k.address)} on ${chainName(k.chain)}: not read`),
+    ...(unread.length > NOT_COUNTED_SHOWN ? [`${plural(unread.length - NOT_COUNTED_SHOWN, 'more contract')} not read`] : []),
   ];
   const tail = (flagged: boolean) => [...skipped, ...context, ...(flagged ? [] : ['no flags']), ...(e.partial ? ['read was partial'] : [])];
   const pushRow = pushDays != null ? [pushedRow(pushDays)] : [];
   const fundedRow = [
-    ...(topFunded ? [`${plural(topCount, 'funded sender')} ${onMainnet(topFunded)}`] : []),
+    // L15-6 (v6.1.14): the count is of sampled senders the deployer did NOT fund, and the row says so.
+    ...(topFunded ? [`${plural(topCount, 'sender')} the deployer did not fund ${onMainnet(topFunded)}`] : []),
     ...(counted.length > 1 ? [`${n(counted.length)} counted contracts`] : []),
   ];
 
@@ -191,7 +221,7 @@ export function place(
     ];
     const gap: Gap = !usedBy ? 'funded_senders' : !siteUp ? 'site' : 'push';
     const next =
-      gap === 'funded_senders' ? `${n(t.used_funded_senders)} funded wallets on mainnet in 90 days; you have ${n(topCount)}.`
+      gap === 'funded_senders' ? `${n(t.used_funded_senders)} senders the deployer did not fund, on mainnet in 90 days; you have ${n(topCount)}.`
       : gap === 'site' ? 'A site that loads for your product.'
       : pushDays == null ? 'Push to the repo; EarnKit found no push date.'
       : `A push to the repo in the last ${plural(t.push_within_days, 'day')}; the last was ${plural(pushDays, 'day')} ago.`;
@@ -199,19 +229,27 @@ export function place(
   }
 
   const c = e.code;
-  // Building is commits in the last 60 days; the window read is 90, so the count is the dates inside 60.
-  const building = c && ((c.commits_60d ?? 0) > 0 || (c.commits_60d == null && pushDays != null && pushDays <= t.push_within_days));
+  // Building is commits in the last 60 days; the window read is 90, so the count is the dates inside 60. L15-7
+  // (v6.1.14): an empty repo is never building (its push date is its creation), and verified onchain users (senders
+  // the deployer did not fund, on a counted mainnet contract) are at least building, however old the repo.
+  const empty = c?.empty === true;
+  const building = c && !empty && ((c.commits_60d ?? 0) > 0 || (c.commits_60d == null && pushDays != null && pushDays <= t.push_within_days));
   if (building) {
     const rows = [...(c.commits_60d ? [`${plural(c.commits_60d, 'commit')} in 60 days`] : []), ...pushRow];
     return { tier: 'building', flags: [], because: [...rows, ...tail(false)], next: 'A live product: a site that loads or a mainnet contract in use.', gap: 'site' };
   }
+  if (topCount > 0) {
+    const rows = [...(topActive ? [`${plural(topActive.tx_90d!, 'transaction')} in 90 days ${onMainnet(topActive)}`] : []), ...fundedRow, ...pushRow];
+    const next = pushDays == null ? 'A site that loads for your product.' : `A push to the repo in the last ${plural(t.push_within_days, 'day')}; the last was ${plural(pushDays, 'day')} ago.`;
+    return { tier: 'building', flags: [], because: [...rows, ...tail(false)], next, gap: pushDays == null ? 'site' : 'push', on_users: true };
+  }
 
   const rows = [
-    e.live.url_ok === false ? 'site does not load' : e.live.url ? 'site not read' : 'no site',
+    placeholder ? PLACEHOLDER_WORDS[placeholder] ?? 'site is a placeholder' : e.live.url_ok === false ? 'site does not load' : e.live.url ? 'site not read' : 'no site',
     topActive ? `${plural(topActive.tx_90d!, 'transaction')} in 90 days ${onMainnet(topActive)}`
       : counted.length ? 'no transactions in 90 days on mainnet' : notCounted.length ? 'no counted mainnet contract' : 'no mainnet contract read',
-    ...(c ? ['no commits in 60 days', ...pushRow] : ['no public repo']),
+    ...(empty ? ['empty repo'] : c ? ['no commits in 60 days', ...pushRow] : [noRepoWords(e)]),
   ];
-  const next = c ? 'Recent commits in your public repo or a live product EarnKit can read.' : 'A public repo or a live product EarnKit can read.';
+  const next = empty ? 'Code pushed to your public repo, or a live product EarnKit can read.' : c ? 'Recent commits in your public repo or a live product EarnKit can read.' : 'A public repo or a live product EarnKit can read.';
   return { tier: 'unverified', flags: [], because: [...rows, ...tail(false)], next, gap: c ? 'commits' : 'repo_or_site' };
 }

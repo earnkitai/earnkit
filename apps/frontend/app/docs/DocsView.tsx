@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { CARD_BLUE, CARD_LIGHT, CARD_NAVY, CARD_PANEL, CARD_RUST, PAGE_COL } from '../components/site/ui';
-import { DOCS_CHECKED, DOCS_INSTALL_TITLE, DOCS_NAV, DOCS_RECORD, DOCS_SCREEN, DOCS_SESSION, DOCS_STEPS, DOCS_TERMS } from '../../lib/v5/site-copy';
+import { DOCS_CHECKED, DOCS_INSTALL_TITLE, DOCS_NAV, DOCS_PROGRAMS, DOCS_RECORD, DOCS_SCREEN, DOCS_SESSION, DOCS_STEPS, DOCS_TERMS } from '../../lib/v5/site-copy';
 import DocsNav from './DocsNav';
 import InstallCard from './InstallCard';
 
@@ -21,7 +21,7 @@ function InfoCard({ id, card, soft, title, text, children }: { id: string; card:
   );
 }
 
-/** The docs: the side nav (a wrapping row above the article on a phone), the install card, then five cards. */
+/** The docs: the side nav (a wrapping row above the article on a phone), the install card, then six cards (the program owners' one full width). */
 export default function DocsView() {
   return (
     <div className={`${PAGE_COL} flex flex-col gap-4 pb-6 pt-2 lg:flex-row lg:items-start`}>
@@ -47,6 +47,16 @@ export default function DocsView() {
           <InfoCard id="session" card={CARD_NAVY} soft="text-s-on-navy-soft" title={DOCS_SESSION.title} text={DOCS_SESSION.text} />
           <InfoCard id="record" card={CARD_BLUE} soft="text-s-on-blue-soft" title={DOCS_RECORD.title} text={DOCS_RECORD.text} />
           <InfoCard id="screening" card={CARD_PANEL} soft="text-s-muted" title={DOCS_SCREEN.title} text={DOCS_SCREEN.text} />
+          <section id="programs" aria-labelledby="programs-title" className={`${r32(CARD_PANEL)} col-span-full flex scroll-mt-24 flex-col gap-2.5 p-7`}>
+            <h2 id="programs-title" className={CARD_TITLE}>
+              {DOCS_PROGRAMS.title}
+            </h2>
+            <ul className="flex list-disc flex-col gap-1.5 pl-5 text-[15px] leading-[1.6] text-s-muted">
+              {DOCS_PROGRAMS.items.map((t) => (
+                <li key={t}>{t}</li>
+              ))}
+            </ul>
+          </section>
           <InfoCard id="checked" card={CARD_RUST} soft="text-s-rust-sub" title={DOCS_CHECKED.title} text={DOCS_CHECKED.text} />
           <InfoCard id="terms" card={CARD_PANEL} soft="text-s-muted" title={DOCS_TERMS.title} text={DOCS_TERMS.text}>
             <Link href="/terms" className="inline-flex min-h-11 items-center text-[15px] text-s-text underline underline-offset-4">

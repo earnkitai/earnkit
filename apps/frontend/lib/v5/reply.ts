@@ -93,13 +93,14 @@ export const namedBefore = (r: Pick<R, 'record_missing'>): Named =>
 /** "3. " before a list line; nothing on the one-program reply (`alone`, v6.1.8 1b), which shows the line alone. Pure. */
 const num = (n: number, alone: boolean) => (alone ? '' : `${n}. `);
 
-/** A ready program's line; `alone` leaves out the list number (the one-program reply). Pure. */
-export function readyLine(p: ReadyProgram, linked: boolean, now: Date, alone = false, named: Named = () => false): string {
+/** A ready program's line; `alone` leaves out the list number (the one-program reply). `waits` (v6.1.14): the closing
+ *  names this program's needs ("X needs your ...; then I apply."), so the line does not. Pure. */
+export function readyLine(p: ReadyProgram, linked: boolean, now: Date, alone = false, named: Named = () => false, waits = false): string {
   let head = `${num(p.n, alone)}${p.title}, ${p.money}`;
   if (p.closes_in) head += `, closes ${p.closes_in}`;
   // The long odds are their own sentence after the head, never a label on the money.
   if (p.long_shot) head += `. Long odds: ${p.long_shot}`;
-  const fromRecord = linked ? recordDrafted(p, named) : null;
+  const fromRecord = linked ? recordDrafted(p, waits ? () => true : named) : null;
   // Setup items are steps ("sign in to ..."), the rest are things ("a Loom demo"): each reads its own way.
   const steps = p.needs.filter((x) => p.setup.includes(x));
   // Linked, the k that need the builder are already named.
@@ -109,7 +110,7 @@ export function readyLine(p: ReadyProgram, linked: boolean, now: Date, alone = f
   // Another agent of the builder's holds it: still numbered, so the builder can name it, but not in the yes count.
   // C1 (v6.1.13): a claim for another project names it.
   const held = p.held_for ? ` Being handled by your other agent for ${p.held_for}.` : p.claimed_since ? ` Being handled by your other agent since ${clock(p.claimed_since, now)}.` : '';
-  return `${head}.${fromRecord ? ` ${fromRecord}` : drafted(p, linked, needs.length, shown)}${first}${held}`;
+  return `${head}.${fromRecord ? ` ${fromRecord}` : drafted(p, linked, needs.length, waits ? [] : shown)}${first}${held}`;
 }
 
 /**
@@ -120,7 +121,8 @@ function drafted(p: ReadyProgram, linked: boolean, b: number, shown: string[]): 
   const total = p.total;
   const n = Math.min(p.repo_required + (linked ? p.from_record : 0), total);
   const k = Math.max(total - n - b, 0);
-  const needsYour = b > 0 ? ` Needs your ${joinAnd(shown)}.` : '';
+  // `shown` is empty when the closing names the needs (v6.1.14): the counts stay, the names go.
+  const needsYour = b > 0 && shown.length > 0 ? ` Needs your ${joinAnd(shown)}.` : '';
   if (total > 0 && n === total) return total === 1 ? ' Drafted: the one answer from the repo.' : ` Drafted: all ${total} answers from the repo.`;
   if (n > 0) {
     const head = ` Drafted: ${n} of ${total} answers from the repo`;
@@ -151,10 +153,12 @@ const THING = /^(a|an|the|your)\s/i;
  * An in-person program: the money, the close, the odds, what attending takes, then what it needs from the builder.
  * When attending takes things (a YC account), those and the builder's needs are one "Needs" sentence (v6.1.8). Pure.
  */
-export function inPersonLine(p: ReadyProgram, alone = false): string {
+export function inPersonLine(p: ReadyProgram, alone = false, now?: Date): string {
   const line = attendLine(p, alone);
-  // C1 (v6.1.13): held by another agent for another project, its line says so.
-  return p.held_for ? `${line} Being handled by your other agent for ${p.held_for}.` : line;
+  // C1 (v6.1.13): held by another agent for another project, its line says so; L13-8 (v6.1.14): held with no project,
+  // since when, as a ready line says it.
+  if (p.held_for) return `${line} Being handled by your other agent for ${p.held_for}.`;
+  return p.claimed_since && now ? `${line} Being handled by your other agent since ${clock(p.claimed_since, now)}.` : line;
 }
 
 /** The in-person line before any hold: head, odds, the attend step and the needs. Pure. */
@@ -180,11 +184,17 @@ export const ruleOnlyGap = (g: GapProgram) => rulesOnly([g.gap, ...g.also]);
 /** O2 (v6.1.10): an in-person program that needs only its rule confirmed: listed in the In person block. Pure. */
 export const attendRuleGap = (g: GapProgram) => g.in_person && ruleOnlyGap(g);
 
-/** The unlinked tier gap ("Sign in once so EarnKit can confirm ..."). */
+/** The unlinked tier gap ("proof that real people use it"); its sign-in is asked once, in the closing (v6.1.14). */
 const confirmGap = (x: Gap) => x.kind === 'tier' && isConfirmWhat(x.what);
-/** A tier gap said as its own sentence, never after the colon (C57): the unlinked one, or the linked "proof is still
- *  being read" (I2). */
-const ownSentenceGap = (x: Gap) => confirmGap(x) || (x.kind === 'tier' && isProofReadingWhat(x.what));
+/** Whether a reply's gaps show the unlinked proof gap, so its closing says what signing in checks (v6.1.14). Pure. */
+export const showsProof = (gaps: Pick<GapProgram, 'gap' | 'also'>[]): boolean => gaps.some((g) => hasProof([g.gap, ...g.also]));
+/** Whether one program's gaps hold the unlinked proof. Pure. */
+export const hasProof = (gaps: Gap[]): boolean => gaps.some(confirmGap);
+/** A tier gap whose action is not a change the closing names: the unlinked proof (signing in, in the closing), or the
+ *  linked "proof is still being read" (I2). */
+const ownSentenceGap = (x: Gap) => confirmGap(x) || readingGap(x);
+/** The linked "proof is still being read" (I2): its own sentence, never after the colon (C57). */
+const readingGap = (x: Gap) => x.kind === 'tier' && isProofReadingWhat(x.what);
 /** What EarnKit does on "do n", by the gap's kind (v6.1.8, 1a). A contract deploy is never EarnKit's: it needs the
  *  builder's keys and gas, so chain gaps are not agent_can. */
 const DO_VERB: Partial<Record<Gap['kind'], string>> = { builder_codes: 'add them', integration: 'add it' };
@@ -201,6 +211,12 @@ const doVerb = (real: Gap[], named: boolean): string =>
   real.length > 1 ? 'make both changes' : named ? real[0].what : (DO_VERB[real[0].kind] ?? 'make the change');
 /** The "tell me if real people use it" question: a yes, not work (the same gap the agent note names). Pure. */
 const usersQuestion = (x: Gap) => x.kind === 'users' && x.effort === 'hours';
+/** T3-R1 (v6.1.13): the code-in-a-repo step of a grant for existing code (eligibility's NEEDS_CODE). Pure. */
+const needsCode = (x: Gap) => x.kind === 'repo' && x.item === 'repo';
+/** L1f-2 (v6.1.14): the closing when the step's only change is code in a repo: one action, no rule yes before the code exists. */
+export const CODE_CLOSING = 'Tell me when the code is in a repo and I look again.';
+/** L1f-3 (v6.1.14): a step the builder takes by telling (the live repo): asked as one. Pure. */
+const telling = (step: string) => /^tell me /.test(step);
 /** O3 (v6.1.10): the "tell me when you started this" question: a date the builder gives, not work. Pure. */
 export const startedQuestion = (x: Gap) => x.kind === 'new_work_after' && x.effort === 'minutes';
 
@@ -219,10 +235,29 @@ export function gapAction(g: GapProgram, signIn: string | null = null): string |
   if (canDo(real)) return `Say "do" and I ${doVerb(real, true)} first.`;
   if (real.every(usersQuestion)) return 'Say yes if they do and I draft it.';
   if (real.every(startedQuestion)) return 'Tell me when you started and I check it.';
+  if (real.every(needsCode)) return CODE_CLOSING;
+  // L1f-1 (v6.1.14): a private repo for an open source program: the repo made public comes first, then a look again.
+  if (real.some((x) => x.item === 'repo:public')) return 'Tell me when the repo is public and I look again.';
+  // L1f-3 (v6.1.14): a step that is telling (the live repo) is asked as one.
+  if (real.length === 1 && real[0].setup && telling(real[0].setup)) return `T${real[0].setup.slice(1)} and I look again.`;
   return 'Tell me when that is done and I apply.';
 }
 
-/** Whether every real gap (rules aside) is the unlinked "Sign in once so EarnKit can confirm ..." step. Pure. */
+/**
+ * FR-1 (v6.1.14 final fix): the gap's own setup step that `gapAction` closes on (make the repo public, a telling
+ * step), so the one-program line leaves it out and the reply says it once, as the list reply does. Else null. Pure.
+ */
+export function gapActionStep(g: GapProgram, signIn: string | null = null): string | null {
+  const action = gapAction(g, signIn);
+  if (action === null) return null;
+  const real = [g.gap, ...g.also].filter((x) => x.kind !== 'rule');
+  const pub = real.find((x) => x.item === 'repo:public');
+  if (pub && action === 'Tell me when the repo is public and I look again.') return pub.setup ?? null;
+  if (real.length === 1 && real[0].setup && telling(real[0].setup) && action === `T${real[0].setup.slice(1)} and I look again.`) return real[0].setup;
+  return null;
+}
+
+/** Whether every real gap (rules aside) is the unlinked proof, settled by signing in. Pure. */
 export const signInOnly = (gaps: Gap[]): boolean => {
   const real = gaps.filter((x) => x.kind !== 'rule');
   return real.length > 0 && real.every(confirmGap);
@@ -244,19 +279,24 @@ export const lookedAgainSentences = (g: Pick<GapProgram, 'looked_again'>): strin
  * come as "First: ..." before the rules (L1d-2). `alone` (the one-program reply,
  * v6.1.8 1b): no number and no "do n", since `gapAction` gives the action on its own line.
  */
-export function gapLine(g: GapProgram, alone = false): string {
+export function gapLine(g: GapProgram, alone = false, closed: string | null = null): string {
   const all = [g.gap, ...g.also];
   const rules = ruleSentences(all.filter((x) => x.kind === 'rule').map((x) => x.what));
-  const attend = g.in_person ? attendSentence(g.setup) : '';
+  // v6.1.14 (L1f-1, L1f-3): a gap's own step (make the repo public, tell me the live repo) leads the setup steps;
+  // fix round 1 (I1): the step the closing names (`closed`) is said there only.
+  const own = all.flatMap((x) => (x.setup ? [x.setup] : []));
+  const setup = [...own.filter((x) => x !== closed), ...g.setup];
+  const attend = g.in_person ? attendSentence([...own, ...g.setup]) : '';
   // L1d-2 (v6.1.11): the setup steps (an account, a sprint) after the gaps and before the rules, as on a ready line;
   // in person, the attend sentence already says them.
-  const first = !g.in_person && g.setup.length > 0 ? ` First: ${g.setup.join('; ')}.` : '';
+  const first = !g.in_person && setup.length > 0 ? ` First: ${setup.join('; ')}.` : '';
   // O1 (v6.1.10): a program closing within 7 days says so after the money.
   const money = `${g.money}${g.closes_in ? `, closes ${g.closes_in}` : ''}`;
   if (ruleOnlyGap(g)) return `${num(g.n, alone)}${g.title}, ${money}.${first}${rules}${attend}`;
   const real = all.filter((x) => x.kind !== 'rule');
-  const listed = real.filter((x) => !ownSentenceGap(x));
-  const confirm = real.filter(ownSentenceGap).map((x) => ` ${x.what}.`).join('');
+  // v6.1.14: the unlinked proof is listed with the other gaps; its sign-in is the closing's.
+  const listed = real.filter((x) => !readingGap(x));
+  const confirm = real.filter(readingGap).map((x) => ` ${x.what}.`).join('');
   const head = `${num(g.n, alone)}${g.title}, ${money}${listed.length > 0 ? `: ${joinAnd(listed.map((x) => x.what))}` : ''}.`;
   return `${head}${alone ? '' : doSentence(g.n, real)}${confirm}${first}${rules}${attend}${lookedAgainSentences(g)}`;
 }
@@ -275,16 +315,16 @@ export function reportLines(r: Pick<R, 'approvals_again' | 'applied_overnight'>)
   return out;
 }
 
-export function sinceLine(r: Pick<R, 'since' | 'ready'>): string | null {
+export function sinceLine(r: Pick<R, 'since' | 'ready'> & Partial<Pick<R, 'gaps'>>): string | null {
   const s = r.since;
-  if (!s.from || s.new.length + s.changed.length + s.closing.length === 0) return null;
+  // L13-17 (v6.1.14): a close a listed line already says ("closes in 3 days") is not repeated here.
+  const onLine = new Set([...r.ready, ...(r.gaps ?? [])].filter((p) => p.closes_in).map((p) => p.program_id));
+  const closing = s.closing.filter((c) => !onLine.has(c.program_id));
+  if (!s.from || s.new.length + s.changed.length + closing.length === 0) return null;
   const parts: string[] = [];
   if (s.new.length > 0) parts.push(`${s.new.length} new ${s.new.length === 1 ? 'program' : 'programs'} you fit`);
   for (const c of s.changed) parts.push(`${c.title}: ${c.what}`);
-  for (const c of s.closing) {
-    const inWords = r.ready.find((p) => p.program_id === c.program_id)?.closes_in;
-    parts.push(`${c.title} closes ${inWords ?? new Date(c.closes_at).toISOString().slice(0, 10)}`);
-  }
+  for (const c of closing) parts.push(`${c.title} closes ${new Date(c.closes_at).toISOString().slice(0, 10)}`);
   const day = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(new Date(s.from));
   return `Since ${day}: ${parts.join('; ')}.`;
 }
@@ -322,7 +362,19 @@ function beforeTonight(r: R, tonight: number): string | null {
   // What these programs' forms need (v6.1.9); record get names everything the record lacks.
   const missing = r.record_missing.length > 0 ? `Still missing for these programs: ${listWords(r.record_missing)}.` : null;
   if (tonight > 0) {
-    const steps = [...clauses, ...(outside.length > 0 ? [`you say yes yourself to ${listWords(outside, outside.length)}`] : [])];
+    // L13-10 (v6.1.14): an ask over the builder's limit names the limit.
+    const overBy = new Map<number, string[]>();
+    const plainOutside: string[] = [];
+    for (const b of remote.filter((x) => x.outside_approval && !x.needs_click)) {
+      const t = titlesOf(r, [b]);
+      if (b.over_limit_usd !== undefined) overBy.set(b.over_limit_usd, [...(overBy.get(b.over_limit_usd) ?? []), ...t]);
+      else plainOutside.push(...t);
+    }
+    const yes = [
+      ...(plainOutside.length > 0 ? [`you say yes yourself to ${listWords(plainOutside, plainOutside.length)}`] : []),
+      ...[...overBy].filter(([, t]) => t.length > 0).map(([cap, t]) => `you say yes yourself to ${listWords(t, t.length)}, over your ${dollars(cap)} limit`),
+    ];
+    const steps = [...clauses, ...yes];
     const more = new Set([...groups.values(), outside].flat()).size;
     const head = tonight === 1 ? "Tonight's send goes ahead." : "Tonight's sends go ahead.";
     const add = steps.length > 0 ? `These would add ${more} more: ${steps.join('; ')}.` : null;
@@ -340,7 +392,7 @@ function beforeTonight(r: R, tonight: number): string | null {
 export type YesWait = { title: string; needs: string[]; draft?: true };
 
 /** The step the closing offers (M1, v6.1.9): the users question, or what to make. */
-export type FirstStep = { users: true; more?: true } | { users: false; what: string; started?: true };
+export type FirstStep = { users: true; more?: true } | { users: false; what: string; started?: true; code?: true; setup?: true };
 
 /**
  * The first shown gap program's step the builder takes, for the closing when nothing is ready and no rule-only program
@@ -365,14 +417,34 @@ export function firstStepOf(gaps: GapProgram[]): FirstStep | null {
   for (const real of steps) {
     if (canDo(real)) continue;
     const x = real.find((y) => !ownSentenceGap(y) && !usersQuestion(y));
-    if (x) return { users: false, what: x.what, ...(startedQuestion(x) ? { started: true as const } : {}) };
+    // v6.1.14 (L1f-1, L1f-3): a gap with its own step (make the repo public) closes on that step.
+    // Fix round 1 (M3): code in a repo is flagged by its kind; a gap's own step (I1) is flagged so the lines leave it out.
+    if (x)
+      return {
+        users: false, what: x.setup ?? x.what,
+        ...(startedQuestion(x) ? { started: true as const } : {}), ...(needsCode(x) ? { code: true as const } : {}), ...(x.setup ? { setup: true as const } : {}),
+      };
   }
   return null;
 }
 
 /** I2 (v6.1.9 final): the number of the only step program shown when it has an unconfirmed rule (not in person), else null. Pure. */
 export const stepRuleOf = (gaps: GapProgram[]): number | null =>
-  gaps.length === 1 && !gaps[0].in_person && [gaps[0].gap, ...gaps[0].also].some((x) => x.kind === 'rule') ? gaps[0].n : null;
+  gaps.length === 1 && !gaps[0].in_person && [gaps[0].gap, ...gaps[0].also].some((x) => x.kind === 'rule') &&
+  // L1f-2 (v6.1.14): a rule yes cannot make a program with no code ready, so its code step closes instead.
+  ![gaps[0].gap, ...gaps[0].also].filter((x) => x.kind !== 'rule').every(needsCode)
+    ? gaps[0].n
+    : null;
+
+/** Fix round 1 (v6.1.14, I1): the gap's own step the closing names (closingLine's first-step branch), or null. Pure. */
+export function closingSetup(o: { ready: number; held: number; gaps: number; firstRule: number | null; stepRule?: number | null; firstStep?: FirstStep | null }): string | null {
+  const step = o.firstStep;
+  if (!step || step.users || !step.setup) return null;
+  return o.ready === 0 && o.held === 0 && o.gaps > 0 && o.firstRule === null && o.stepRule == null ? step.what : null;
+}
+
+/** The closing when nothing fits (v6.1.14): EarnKit never writes first, so the builder asks again. */
+export const NOTHING_FITS = 'Nothing fits yet. Ask again any time and I show what is new.';
 
 /** O2 (v6.1.10): the closing when in-person programs are listed and nothing remote is ready. */
 export const IN_PERSON_CLOSING = 'Nothing remote is ready yet. Say yes and I start the in-person applications.';
@@ -404,22 +476,26 @@ export function closingLine(o: { ready: number; draftOnly: boolean; gaps: number
   if (ready === 1) return draftOnly ? 'Say yes and I draft it for you to send.' : 'Say yes and I apply.';
   if (ready > 1) return `${draftOnly ? `Say yes and I draft all ${ready} for you to send.` : `Say yes and I apply to all ${ready}.`} Or say the numbers to skip.`;
   // Ready programs held by another agent are listed as ready, so the reply never says nothing is ready (I1).
-  if (o.held > 0) return "Your other agent is handling these; I'll say when something new opens.";
+  // v6.1.14: no promise to write first.
+  if (o.held > 0) return 'Your other agent is handling these.';
   if (o.gaps > 0) {
     if (o.firstRule !== null) return `Nothing is ready yet. Say "yes ${o.firstRule}" if that rule fits you.`;
     // I2 (v6.1.9 final): the only step program shown carries a rule beside its change: the rule is asked first.
-    if (o.stepRule != null) return `Nothing is ready yet. Say "yes ${o.stepRule}" if its rule fits you.`;
+    if (o.stepRule != null) return `Nothing is ready yet. Say "yes ${o.stepRule}" if that rule fits you.`;
     const step = o.firstStep ?? null;
     if (step?.users) return `Nothing is ready yet. Do real people use it? Say yes and ${step.more ? 'I look again' : 'I apply'}.`;
     // I3 (v6.1.9 final): "First:" reads as a sentence for a noun or a verb phrase.
     // O3 (v6.1.10): the started question is asked as one.
     if (step && !step.users && step.started) return 'Nothing is ready yet. First: tell me when you started this, and I look again.';
+    if (step && step.code) return `Nothing is ready yet. ${CODE_CLOSING}`;
+    if (step && telling(step.what)) return `Nothing is ready yet. First: ${step.what}, and I look again.`;
     if (step) return `Nothing is ready yet. First: ${step.what}. Tell me when it is done and I look again.`;
     // A reply that lists in-person programs never ends on the bare line (O2, v6.1.10).
     return o.inPerson > 0 ? IN_PERSON_CLOSING : 'Nothing is ready yet.';
   }
   if (o.inPerson > 0) return IN_PERSON_CLOSING;
-  return "Nothing fits yet. I'll say when something opens.";
+  // v6.1.14: nothing is pushed to the builder, so nothing is promised.
+  return NOTHING_FITS;
 }
 
 /** The required answers only the builder gives, still empty, as to-dos ("the problem"): `needs` past the setup steps. Pure. */
@@ -464,6 +540,14 @@ export function tonightOf(r: Pick<R, 'auto_apply' | 'max_per_night' | 'auto_sent
   return { list: can.slice(0, room), limitUsed: can.length > 0 && room === 0 };
 }
 
+/**
+ * Tonight's list as the reply reads it (L13-9, v6.1.14): find's one computation over every ready program when the reply
+ * carries it, else `tonightOf` over the listed ones. Pure.
+ */
+export function tonightIn(r: Pick<R, 'auto_apply' | 'max_per_night' | 'auto_sent_today' | 'ready' | 'blockers' | 'tonight'>): { list: { program_id: string; title: string }[]; limitUsed: boolean } {
+  return r.tonight ? { list: r.tonight.programs, limitUsed: r.tonight.limit_used } : tonightOf(r);
+}
+
 /** The one sentence for each thing the builder is told about the repo read (v6.1.8, B20 and C59); a repo link not read gets exactly one of the first three. */
 export const REPO_NOTE: Record<RepoNote, string> = {
   paused: 'Repo reads are paused until tomorrow; matched on what you told me.',
@@ -505,7 +589,7 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   const firstRule = (steps.find((g) => ruleOnlyGap(g) && g.keyword_hit) ?? steps.find(ruleOnlyGap))?.n ?? null;
   const named = namedBefore(r);
   // One condition for the heading and the closing: the agent sends tonight (never unlinked, where auto_apply is false).
-  const { list: tonightList, limitUsed } = tonightOf(r);
+  const { list: tonightList, limitUsed } = tonightIn(r);
   const tonight = tonightList.length;
   const click = new Set(r.blockers.filter((b) => b.needs_click).map((b) => b.program_id));
   // The builder's yes stands for these (a rule or the users question): never asked again. L1e-3 (v6.1.13): a program
@@ -519,15 +603,24 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   const stands = yesd.filter((p) => p.need_you.length === 0);
   const waits = yesd.filter((p) => p.need_you.length > 0);
   // The headlines count with parentheses (C56, 3.21); "step" covers a change and a rule to confirm.
-  if (ready.length > 0) blocks.push([`Ready to apply (${ready.length}):`, ...ready.map((p) => readyLine(p, r.linked, now, false, named))].join('\n'));
-  if (steps.length > 0) blocks.push([`One step away (${steps.length}):`, ...steps.map((g) => gapLine(g))].join('\n'));
-  if (attendCount > 0) blocks.push([`In person (${attendCount}):`, ...inPerson.map((p) => inPersonLine(p)), ...attendRules.map((g) => gapLine(g))].join('\n'));
+  // Review Focus 1 (v6.1.14): a program whose needs the closing names reads them there only (not on tonight's send).
+  const namedInClosing = new Set(tonight > 0 ? [] : waits.map((p) => p.program_id));
+  if (ready.length > 0) blocks.push([`Ready to apply (${ready.length}):`, ...ready.map((p) => readyLine(p, r.linked, now, false, named, namedInClosing.has(p.program_id)))].join('\n'));
+  // Fix round 1 (v6.1.14, I1): a gap's own step the closing names is left off the lines.
+  const firstStep = firstStepOf(steps);
+  const stepRule = stepRuleOf(steps);
+  const closed = tonight > 0 ? null : closingSetup({ ready: free.length, held: ready.length - free.length + heldInPerson, gaps: steps.length, firstRule, stepRule, firstStep });
+  if (steps.length > 0) blocks.push([`One step away (${steps.length}):`, ...steps.map((g) => gapLine(g, false, closed))].join('\n'));
+  if (attendCount > 0) blocks.push([`In person (${attendCount}):`, ...inPerson.map((p) => inPersonLine(p, false, now)), ...attendRules.map((g) => gapLine(g))].join('\n'));
   const l = r.ledger;
   if (l.applied > 0) {
     const soon = l.closing_soon.length > 0 ? `, ${l.closing_soon.length} closing soon` : '';
     // What was won, never what was asked (v6.1.8, 3.6).
     const won = l.won > 0 && l.won_usd > 0 ? ` (${dollars(l.won_usd)})` : '';
-    blocks.push(`Ledger: ${l.applied} applied, ${l.won} won${won}, ${l.pending} pending${soon}.`);
+    // v6.1.14: the /me page's name for it, never the internal "ledger". L13-18: a rejection counts too; a count of
+    // none is left out (waiting is said whenever any wait).
+    const counts = [`${l.applied} sent`, ...(l.won > 0 ? [`${l.won} won${won}`] : []), ...(l.rejected > 0 ? [`${l.rejected} rejected`] : []), ...(l.pending > 0 ? [`${l.pending} waiting${soon}`] : [])];
+    blocks.push(`Your applications: ${counts.join(', ')}.`);
   }
   const before = beforeTonight(r, tonight);
   if (before) blocks.push(before);
@@ -546,7 +639,7 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
           ...(limitUsed ? [LIMIT_USED] : []),
           closingLine({
             // Fix round 1 (I2): an in-person program held for another project is listed, never a yes.
-            ready: free.length, draftOnly, gaps: steps.length, firstRule, inPerson: attendCount - heldInPerson, held: ready.length - free.length + heldInPerson, firstStep: firstStepOf(steps), stepRule: stepRuleOf(steps),
+            ready: free.length, draftOnly, gaps: steps.length, firstRule, inPerson: attendCount - heldInPerson, held: ready.length - free.length + heldInPerson, firstStep, stepRule,
             yesStands: stands.filter((p) => !click.has(p.program_id)).map((p) => p.title),
             draftStands: stands.filter((p) => click.has(p.program_id)).map((p) => p.title),
             // N3 (v6.1.12): one that still needs answers names them (the email once, F5), never a second yes.
@@ -560,7 +653,15 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
   // The first find after a link names the account it linked to, last (security M2); after an unlink the notice
   // carries the sign-in link itself, so the sign-in sentence is left out (v6.1.7 B10).
   // An empty repo was read but gave nothing to prove: the sign-in promises only to remember (C59).
-  const signIn = r.sign_in && !r.linked && !r.linked_notice ? signInSentence(r.sign_in, !r.as_reported && !notes.includes('empty')) : null;
+  // Fix round 1 (v6.1.14, F2): with a proof gap shown and no link to give (linkOf failed, or the account was deleted),
+  // the sign-in is still the action, said once without a link.
+  const read = !r.as_reported && !notes.includes('empty');
+  const proof = showsProof(r.gaps);
+  const signIn = r.linked
+    ? null
+    : r.sign_in
+      ? (r.linked_notice ? null : signInSentence(r.sign_in, read, proof))
+      : proof ? signInSentence(null, read, true) : null;
   blocks.push([closing, signIn, r.linked_notice].filter(Boolean).join(' '));
   return blocks.join('\n\n');
 }
@@ -569,6 +670,10 @@ export function replyText(r: R, first: boolean, now: Date = new Date()): string 
 export const CONTRACT_NOTE = 'Pass the contract address if it is on chain.';
 /** Whether the gap's "looked again" names a contract. Pure. */
 export const contractLookedAgain = (g: Pick<GapProgram, 'looked_again'>): boolean => (g.looked_again ?? []).some((w) => /contract on /.test(w));
+
+/** v6.1.14 (L1f-1, L1f-3): the public repo and archive steps are settled by the next report, never by gap_done. */
+export const REPO_STEP_NOTE =
+  'A public repo or an archived repo is settled by the project you pass, not by gap_done: when the builder makes the repo public, pass private: false next time; for an archived repo, pass the live repo_url they give.';
 
 /** C41 (v6.1.8): no record project matched, so only record-level answers were used; also on the one-program detail (N9, v6.1.9). */
 export const NO_PROJECT_NOTE =
@@ -593,7 +698,11 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
     // With standing approval the agent does not wait for a yes; the limits replace it.
     // The submit rule itself is in the server instructions, once (v6.1.8); here only what this reply adds.
     ...(r.auto_apply ? [standing] : ['Fill field by field; form_id names the form field when given.']),
-    ...(tonightOf(r).limitUsed ? ['Tonight\'s limit is used: send nothing alone until 24 hours after the last send under standing approval.'] : []),
+    ...(tonightIn(r).limitUsed ? ['Tonight\'s limit is used: send nothing alone until 24 hours after the last send under standing approval.'] : []),
+    // L13-9 (v6.1.14): tonight's list is over every ready program, so it may name ones past the shown list.
+    ...(tonightIn(r).list.some((t) => !r.ready.some((p) => p.program_id === t.program_id))
+      ? ["Tonight's list names programs past the shown list: call find with program_id for each one's fields before you send it."]
+      : []),
     'Call track with won (amount_usd), rejected or no_result after each result; skipped for a number they skip.',
     'Pass users and live_url in the project whenever you know them; never invent them.',
     'The numbers the builder says are each item\'s n in ready and gaps ("skip 4" is the item with n 4), not its place in the list.',
@@ -607,6 +716,8 @@ export function agentNote(r: R, o: { more: number; description?: 'readme' | 'non
         : 'The builder makes each change (never deploy a contract for them); when they say it is done, call track with gap_done and the gap\'s item, then call find again.',
     );
   if (r.gaps.length > 0) lines.push(SAME_PROJECT);
+  if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.item === 'repo:public' || x.item === 'repo:archived')))
+    lines.push(REPO_STEP_NOTE);
   if (r.gaps.some(contractLookedAgain)) lines.push(CONTRACT_NOTE);
   if (r.gaps.some((g) => [g.gap, ...g.also].some((x) => x.kind === 'users' && x.effort === 'hours')))
     lines.push('"Tell me if real people use it" is a question, not work: ask the builder once; on yes, pass users: true next time or call track with gap_done and item users.');

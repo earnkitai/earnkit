@@ -8,6 +8,7 @@
   "reward": "115,000 USDC prize pool: Overall 40,000 / 20,000 / 10,000; Promising Products 7,000 / 5,000 / 3,000; up to 30,000 USDC in milestone-based grants",
   "summary": "115,000 USDC prize pool · submissions Feb 8 to Mar 1, 2027",
   "max_award_usd": 40000,
+  "category": "hackathon",
   "pool_usd": 115000,
   "tag": "long shot",
   "min_tier": "building",

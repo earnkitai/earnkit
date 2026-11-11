@@ -15,6 +15,7 @@
   "status": "active",
   "existing_work": "new_work_only",
   "needs_repo": true,
+  "open_source": true,
   "chains": [],
   "any_chain": true,
   "tag": "long shot",

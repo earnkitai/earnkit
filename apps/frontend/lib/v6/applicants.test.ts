@@ -142,3 +142,12 @@ test('resolveRepo: starter and SDK owners are skipped; a link sharing a word wit
   // The project name counts too, and a joined name holds the domain word.
   assert.equal(resolveRepo(app({ name: 'Onchain Reaction' }), liveRows({ domain: 'onchainreaction.vercel.app', github_links: ['https://github.com/a/b', 'https://github.com/shijas786/onchain-reaction'] })), 'https://github.com/shijas786/onchain-reaction');
 });
+
+test('T5-F2 (v6.1.14): an application_id column, by any of its names, is carried on each applicant; none is null', () => {
+  for (const h of ['application_id', 'EarnKit ID', 'earnkit-application-id']) {
+    const [a, b] = parseApplicants(`ref,repo,${h}\nr-1,github.com/acme/one,ek-abcdefghijkl\nr-2,github.com/acme/two,\n`);
+    assert.equal(a.application_id, 'ek-abcdefghijkl', h);
+    assert.equal(b.application_id, null, h);
+  }
+  assert.equal(parseApplicants('ref,repo\nr-1,github.com/acme/one\n')[0].application_id, null);
+});

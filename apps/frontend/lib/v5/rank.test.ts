@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rankGaps, rankReady, shownGapsOf } from './rank';
+import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
 import type { Gap, Verdict } from './eligibility';
 import type { ProgramRow } from './programs';
 import { programFixture } from './fixtures/program';
@@ -325,4 +325,21 @@ test('N1 (v6.1.12, Review Focus 1): a rule-bearing keyword hit takes its own slo
   assert.deepEqual(shownGapsOf(plain, false, 3, remote).map((x) => x.program_id), ['floss']);
   // filter.all is rank order, unchanged.
   assert.deepEqual(shownGapsOf(ranked, true, 3, remote, [], () => false, () => false, { hit }), ranked);
+});
+
+test('L12-7 (v6.1.14): a deploy on another chain is left out of the default list unless acted on, closing soon or not; the full list keeps it', () => {
+  const programs = new Map([
+    row('own', { chains: ['solana'] }), row('other', { chains: ['base'] }), row('any', { chains: [], any_chain: true }),
+  ].map((r) => [r.id, r]));
+  const chains = ['solana'];
+  assert.deepEqual(['own', 'other', 'any'].map((id) => offChain(v(id), programs, chains)), [false, true, false]);
+  // No chain of its own: nothing is another chain.
+  assert.equal(offChain(v('other'), programs, []), false);
+  const list = ['own', 'other', 'any'].map((id) => v(id, { status: 'gap', gaps: [gap('days')] }));
+  const off = (x: Verdict) => offChain(x, programs, chains);
+  const ids = (xs: Verdict[]) => xs.map((x) => x.program_id);
+  assert.deepEqual(ids(shownGapsOf(list, false, 3, () => false, chains, () => false, () => false, { offChain: off })), ['own', 'any']);
+  assert.deepEqual(ids(shownGapsOf(list, false, 3, () => false, chains, () => false, () => false, { offChain: off, soon: (x) => x.program_id === 'other' })), ['own', 'any']);
+  assert.deepEqual(ids(shownGapsOf(list, false, 3, () => false, chains, () => false, (x) => x.program_id === 'other', { offChain: off })), ['other', 'own', 'any']);
+  assert.deepEqual(ids(shownGapsOf(list, true, 3, () => false, chains, () => false, () => false, { offChain: off })), ['own', 'other', 'any']);
 });

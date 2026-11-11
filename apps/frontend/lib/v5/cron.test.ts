@@ -98,11 +98,11 @@ test('cronPost: a plain run works the queue with SCREEN_BATCH after the sweep an
   assert.deepEqual(await boom.json(), { error: 'screen failed' });
 });
 
-test('cronPost: the plain run sweeps screen jobs over 90 days old with their rows; a triggered run sweeps nothing', async () => {
+test('cronPost: the plain run sweeps screen jobs over 180 days old with their rows (L15-14); a triggered run sweeps nothing', async () => {
   const at = (days: number) => new Date(deps.now.getTime() - days * 86_400_000);
-  for (const [id, days] of [['old-job', 91], ['young-job', 89]] as const) {
+  for (const [id, days] of [['old-job', 181], ['young-job', 179]] as const) {
     await sql()`INSERT INTO screen_jobs (id, program_id, builder_id, installation_id, created_at, total, expires_at)
-      VALUES (${id}, 'p', 1, 1, ${at(days)}, 1, ${at(days - 30)})`;
+      VALUES (${id}, 'p', 1, 1, ${at(days)}, 1, ${at(days - 180)})`;
     await sql()`INSERT INTO screen_applicants (job_id, ref, name, status) VALUES (${id}, 'r', 'R', 'done')`;
     await sql()`INSERT INTO screen_outcomes (job_id, ref, outcome) VALUES (${id}, 'r', 'won')`;
   }
@@ -157,4 +157,23 @@ test('cronPost: the plain run sweeps link codes and sessions expired over a day 
   assert.deepEqual((await sql()`SELECT token_hash FROM sessions WHERE token_hash LIKE 'cr-%' ORDER BY token_hash`).map((r) => r.token_hash), ['cr-grace', 'cr-live']);
   await sql()`DELETE FROM link_codes WHERE code LIKE 'cr-%'`;
   await sql()`DELETE FROM sessions WHERE token_hash LIKE 'cr-%'`;
+});
+
+test('L13-11 (v6.1.14): a CRON_SECRET under 32 characters answers 503 with one ops log line, the right secret too', async () => {
+  const short = 's'.repeat(20);
+  process.env.CRON_SECRET = short;
+  const logged: string[] = [];
+  const was = console.error;
+  console.error = (...a: unknown[]) => void logged.push(a.map(String).join(' '));
+  try {
+    const r = await cronPost(req(`Bearer ${short}`), deps);
+    assert.equal(r.status, 503);
+    assert.deepEqual(await r.json(), { error: 'cron is not set up' });
+    assert.equal((await cronPost(req('Bearer nope'), deps)).status, 503);
+  } finally {
+    console.error = was;
+  }
+  assert.equal(logged.length, 2);
+  assert.match(logged[0], /^\[cron\] CRON_SECRET is under 32 characters/);
+  assert.doesNotMatch(logged[0], new RegExp(short));
 });

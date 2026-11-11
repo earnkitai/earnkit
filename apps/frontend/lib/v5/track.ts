@@ -5,41 +5,47 @@
 import { z } from 'zod';
 import { getRecord, ownerKey, takeUnlinkedNotice, unlinkedReason } from '../v6/builders';
 import { DELETED_NOTICE } from '../v6/reply-words';
-import { claim } from '../v6/claims';
-import { HAD_CLOSED, NIGHT_LIMIT, REQUIRED_MISSING, STEP_AWAY, outsideApproval, readyAtSend, requiredLeftOut, storedRecordContext, storedSide } from '../v6/find-record';
+import { UNLINKED_MEANWHILE, claim } from '../v6/claims';
+import { APPROVAL_OFF, HAD_CLOSED, NIGHT_LIMIT, NOT_OPENED, REQUIRED_MISSING, STEP_AWAY, outsideApproval, readyAtSend, requiredLeftOut, storedRecordContext, storedSide } from '../v6/find-record';
 import { prefill, unvouchedRequired } from './prefill';
 import { cachedRepoFacts, reportOnlyFacts } from './repo-facts';
-import { forgetGap, lastGaps, lastProjectKey, unmarkNightFind } from './installations';
-import { nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
+import { findAutoWas, forgetGap, lastGaps, lastProjectKey, unmarkNightFind } from './installations';
+import { PROJECT_DESCRIPTION, ProjectArg, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
 import { getProgram, isOpen, listOpenPrograms, programByName, unknownProgramLine } from './programs';
 import { dayOf, doneItems, record, reportOf, resolvedKey, summary, titleOf, type Ledger, type Status } from './ledger';
 import { clock } from './reply';
 import { codeChecked, itemKey } from './eligibility';
 import { eligibilityOf } from './program-file';
 import { sql } from './db';
-import { inputDetail } from './tool-input';
+import { inputDetail, readLoosely, type LooseRules } from './tool-input';
 
 /** The most field keys a send keeps (v6.1.13, B6); the rest are dropped, never refused. */
 export const FIELDS_KEPT = 200;
+/** The most characters of a send's note the ledger keeps (L13-3, v6.1.14). */
+export const NOTE_KEPT = 280;
 
 export const TrackInput = z
   .object({
     program_id: z.string().min(1).max(80),
     status: z.enum(['started', 'applied', 'won', 'rejected', 'no_result', 'skipped', 'unskip', 'gap_done']),
-    amount_usd: z.number().finite().min(0).max(100_000_000).optional(),
-    note: z.string().max(280).optional(),
+    /** L13-5 (v6.1.14): no ceiling here; the ledger answers a win over the program's pay with its own line. */
+    amount_usd: z.number().finite().min(0).optional(),
+    /** T8-F1 (v6.1.14): won only: a further payment of a win already recorded, with the caller's own key (a repeat adds nothing). */
+    payment: z.object({ key: z.string().trim().min(1).max(80) }).strict().optional(),
+    /** L13-3 (v6.1.14): the form already went out, so a long note is cut to NOTE_KEPT characters, never refused. */
+    note: z.string().transform((x) => x.slice(0, NOTE_KEPT)).optional(),
     item: z.string().max(80).optional(),
     project_id: z.string().max(40).optional(),
     submitted_by: z.enum(['agent', 'builder']).optional(),
     /** B6 (v6.1.13): the form already went out, so a long list is never refused: the first FIELDS_KEPT keys, each cut to 60. */
     fields_used: z.array(z.string()).transform((xs) => xs.slice(0, FIELDS_KEPT).map((x) => x.slice(0, 60))).optional(),
-    /** The project find was called with (v6.1.10 L1c-1), read by find's own parser and limits (v6.1.13 B5): cut and dropped, never refused. */
-    project: z.object({}).passthrough().optional()
-      .describe('The project exactly as you passed it to find (name, description, repo_url, live_url, chains with contracts, users), so its steps and checks stay with it'),
+    /** The project find was called with (v6.1.10 L1c-1), find's own schema (v6.1.14 T5), read by find's parser and limits (v6.1.13 B5): cut and dropped, never refused. */
+    project: ProjectArg.loose().describe(PROJECT_DESCRIPTION).optional(),
   })
   .strict();
 
-type Result = { show_to_builder: string; agent_note: string; ledger: Ledger; already_started?: true };
+/** `application_id` (L13-1, T5-F1 v6.1.14): on a claim and on a send recorded, the application's own id; a program's screen matches its outcome by it. */
+type Result = { show_to_builder: string; agent_note: string; ledger: Ledger; already_started?: true; application_id?: string };
 /** The track input with its project parsed as find parses it (`parseProject`, partial: v6.1.13 B5). */
 type TrackIn = Omit<z.infer<typeof TrackInput>, 'project'> & { project?: Project };
 
@@ -55,6 +61,15 @@ async function sentHere(owner: string, programId: string): Promise<boolean> {
   return r !== undefined && r.status !== 'started' && r.status !== 'skipped';
 }
 
+/** T5-F1 (v6.1.14): the agent note a claim adds, so the id goes in the form. */
+export const APPLICATION_ID_NOTE = "If the form has a reference field, put application_id in it, so the program's result reaches this ledger.";
+
+/** The sent application's own id (L13-1, v6.1.14), as the reply field; none for a row without one. */
+async function applicationIdOf(owner: string, programId: string): Promise<{ application_id?: string }> {
+  const [r] = await sql()<{ application_id: string | null }[]>`SELECT application_id FROM applications WHERE owner = ${owner} AND program_id = ${programId}`;
+  return r?.application_id ? { application_id: r.application_id } : {};
+}
+
 /** The program's rules the owner has not confirmed yet. */
 async function rulesLeft(owner: string, programId: string, projectKey: string): Promise<number> {
   const program = await getProgram(programId);
@@ -67,6 +82,9 @@ export type TrackContext = { installationId: number; builderId: number | null; n
 
 /** The statuses a ledger row may take after its program left the catalog. */
 const RESULT_STATUSES: readonly string[] = ['won', 'rejected', 'no_result'];
+
+/** L12-4, L13-4 (v6.1.14): how track reads wrong-typed arguments before TrackInput (`readLoosely`). */
+const TRACK_LOOSE: LooseRules = { text: ['program_id', 'project_id', 'item'], objects: ['project'] };
 
 export const TRACK_UNREAD = 'I could not read that. Send the program, a status, and for a win the amount.';
 
@@ -132,7 +150,10 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
     ledger: await summary(owner, programs, ctx.now),
   });
   // The MCP layer passes anything through (tool-input.ts): this is the only check, with the detail for the agent.
-  const parsed = TrackInput.safeParse(input);
+  // L12-4, L13-4 (v6.1.14): read leniently first, as find reads its arguments: a null project is no project (the
+  // last find's), a string one is dropped and named, a numeric id is its text.
+  const loose = readLoosely(input, TRACK_LOOSE);
+  const parsed = TrackInput.safeParse(loose.args);
   if (!parsed.success) return refuse(TRACK_UNREAD, `Nothing was recorded. ${inputDetail(parsed.error)}`);
   // F4 (v6.1.12): the program by what the builder calls it, as find takes it. A name that is no one program records
   // nothing, except a result on an id the ledger holds as sent, whose program may have left the catalog since.
@@ -155,7 +176,8 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
   const r = row && row.id !== raw
     ? { ...acted, show_to_builder: namedFirst(acted.show_to_builder, row.file.title), agent_note: `Matched ${row.id}. ${acted.agent_note}` }
     : acted;
-  const p = projectProblems.length > 0 ? { ...r, agent_note: `${r.agent_note} Project: ${projectProblems.join('; ')}.`.trim() } : r;
+  const p0 = projectProblems.length > 0 ? { ...r, agent_note: `${r.agent_note} Project: ${projectProblems.join('; ')}.`.trim() } : r;
+  const p = loose.problems.length > 0 ? { ...p0, agent_note: `${p0.agent_note} Some arguments were not read: ${loose.problems.join('; ')}.` } : p0;
   return known ? p : { ...p, agent_note: `${p.agent_note} project_id ${project_id} is not known; ignored.`.trim() };
 }
 
@@ -276,6 +298,7 @@ async function act(
       return refuse(`${program.file.title} is not open; nothing to start.`, 'Do not submit this one; call find for what is open.');
     // L1d-1 (v6.1.11): with no project_id the claim stores the project key, so find pins it on that project only.
     const c = await claim(owner, i.program_id, i.project_id ?? (project.key || null), ctx.installationId, ctx.now);
+    if (!c.ok && 'unlinked' in c) return refuse(UNLINKED_MEANWHILE);
     if (!c.ok && 'skipped' in c)
       return {
         show_to_builder: 'You skipped that one. Say unskip to bring it back.',
@@ -293,28 +316,31 @@ async function act(
         ledger: await summary(owner, programs, ctx.now),
         already_started: true,
       };
+    // T5-F1 (v6.1.14): the claim carries the application's own id, for the form's reference field.
+    const id = await applicationIdOf(owner, program.id);
+    const started = (r: Result): Result => (id.application_id ? { ...r, ...id, agent_note: `${r.agent_note} ${APPLICATION_ID_NOTE}` } : r);
     // The last find called this one a gap: say what was still missing, so it is fixed before the form goes in. Not
     // when the builder (through any of their agents) has since closed that item (v6.1.7, C23).
     const builderSubmits = program.file.in_person || program.file.submit === 'builder';
     const gap = sameAsLast ? (await lastGaps(ctx.installationId))[program.id] : undefined;
     if (gap && !(gap.item && (await doneItems(owner, program.id, project.key)).has(gap.item)))
-      return gap.kind === 'rule'
+      return started(gap.kind === 'rule'
         ? {
             show_to_builder: `Started. When I last looked it still had a rule to confirm: ${gap.what}. Say yes if that is you.`,
             agent_note: "If the builder says the rule fits, call track gap_done with that gap's item, then find again. Otherwise skip the program.",
             ledger: await summary(owner, programs, ctx.now),
           }
         : {
-            show_to_builder: `Started. When I last looked it was still one change away: ${gap.what}. Make sure that is done first.`,
+            show_to_builder: `Started. When I last looked it was still one change away: ${gap.what}.`,
             agent_note: `Make the change before you submit, or call find again to check it. ${builderSubmits ? sendNote(true) : 'Then fill the form from the fields, submit, and call track with applied, submitted_by and fields_used.'}`,
             ledger: await summary(owner, programs, ctx.now),
-          };
-    return {
+          });
+    return started({
       // N11 (v6.1.9): an unlinked agent has no other agents to speak of.
       show_to_builder: ctx.builderId === null ? 'Started.' : 'Started. Your other agents leave this one alone for 24 hours.',
       agent_note: sendNote(builderSubmits),
       ledger: await summary(owner, programs, ctx.now),
-    };
+    });
   }
   // Sent under standing approval: the builder's policy at this moment (never for an unlinked installation), and only
   // an agent's own submission; a form the builder sent is never one. With the policy on, the send counts as approved
@@ -327,9 +353,14 @@ async function act(
   // find holds the tonight list on), over the program prefilled with the stored record and the send's project, whatever
   // keys fields_used names.
   // B2 (v6.1.13): and the program's verdict for this project must be ready, as find would list it now.
-  let outside = standing && row ? (outsideApproval(policy!, row) ?? (await notApprovedAtSend(ctx, owner, i, row, project.key))) : null;
+  // L13-6 (v6.1.14): a program that has not opened is never sent under it. L13-7: an agent's send after the builder
+  // turned it off since this agent's last find (which saw it on) says it was off.
+  let outside = standing && row
+    ? (row.file.status === 'upcoming' ? NOT_OPENED : (outsideApproval(policy!, row) ?? (await notApprovedAtSend(ctx, owner, i, row, project.key))))
+    : policy && row && (await findAutoWas(ctx.installationId)) ? APPROVAL_OFF : null;
+  // FR-3 (final fix): a send with no project_id keeps the project key, as a claim does, so a screen can match it.
   const applied = i.status === 'applied'
-    ? { submitted_by: i.submitted_by, fields_used: i.fields_used, project_id: i.project_id, autoApplied: standing && outside === null, ...(standing ? { maxPerNight: policy!.policy.max_per_night } : {}) }
+    ? { submitted_by: i.submitted_by, fields_used: i.fields_used, project_id: i.project_id ?? (project.key || undefined), autoApplied: standing && outside === null, ...(standing ? { maxPerNight: policy!.policy.max_per_night } : {}) }
     : {};
   // Low 17 (v6.1.13): a program sent and waiting on its result has nothing to skip (one with a result says so in the ledger).
   if (i.status === 'skipped' && (await sql()`SELECT 1 FROM applications WHERE owner = ${owner} AND program_id = ${i.program_id} AND status = 'applied'`).length > 0)
@@ -337,7 +368,8 @@ async function act(
   // A second skip says so (v6.1.9, lane 8 simplify).
   if (i.status === 'skipped' && (await sql()`SELECT 1 FROM applications WHERE owner = ${owner} AND program_id = ${i.program_id} AND status = 'skipped'`).length > 0)
     return { show_to_builder: 'Already skipped.', agent_note: 'Call find again for the updated ledger.', ledger: await summary(owner, programs, ctx.now) };
-  const res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, amount_usd: i.amount_usd, note: i.note, item: i.item, projectKey: project.key, now: ctx.now, ...applied });
+  const res = await record(owner, i.program_id, i.status as Status, { installationId: ctx.installationId, amount_usd: i.amount_usd, note: i.note, item: i.item, projectKey: project.key, now: ctx.now, ...applied,
+    ...(i.status === 'won' && i.payment ? { payment: { key: `t:${i.payment.key}` } } : {}) });
   if (res.ok && 'night' in res) outside = NIGHT_LIMIT;
   if (res.ok && 'closed' in res) outside = HAD_CLOSED;
   // The find before a send under standing approval was the night routine's: it leaves the overnight report (v6.1.9).
@@ -365,7 +397,12 @@ async function act(
   const title = await titleOf(owner, i.program_id);
   const lines: Record<Exclude<Status, 'started' | 'gap_done'>, string> = {
     applied: "Tracked. I'll ask how it went when results are due.",
-    won: `Recorded: ${usd(i.amount_usd ?? 0)} from ${title}.`,
+    // L15-17, T8-F1 (v6.1.14): a further payment adds and the line reads the total; an unmarked other amount corrects.
+    won: 'total_usd' in res && res.total_usd !== undefined
+      ? `Recorded: ${usd(i.amount_usd ?? 0)} more from ${title}, ${usd(res.total_usd)} in total.`
+      : 'replaced_usd' in res && res.replaced_usd !== undefined
+        ? `Recorded: ${usd(i.amount_usd ?? 0)} from ${title}. Replaced the earlier amount.`
+        : `Recorded: ${usd(i.amount_usd ?? 0)} from ${title}.`,
     rejected: 'Recorded. On to the next one.',
     no_result: 'Recorded.',
     skipped: `Skipped ${title}. I won't bring it up again.`,
@@ -377,12 +414,14 @@ async function act(
     : null;
   if (i.status === 'applied' && outside)
     return {
+      ...(await applicationIdOf(owner, i.program_id)),
       show_to_builder: [closed, `Sent, but outside your standing approval: ${outside}.`].filter(Boolean).join(' '),
       agent_note: 'Recorded as applied, not under standing approval. Send nothing else alone that falls outside the limits; ask the builder first. Call find again for the updated ledger.',
       ledger: await summary(owner, programs, ctx.now),
     };
   // I1 (v6.1.9 final): after a send under standing approval the agent does not find again, so the morning report stays.
   return {
+    ...(i.status === 'applied' ? await applicationIdOf(owner, i.program_id) : {}),
     show_to_builder: closed ?? lines[i.status],
     agent_note: i.status === 'applied' && standing && outside === null
       ? "Done for tonight. The builder's next find reports it; do not call find again until they ask."

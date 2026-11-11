@@ -11,7 +11,7 @@ function connectLines(a: Agent): string {
 
 export const LLMS_TEXT = `# EarnKit
 
-EarnKit finds the grants, hackathons and bounties a builder's repo fits, pre-fills every
+EarnKit finds the grants, hackathons and investments a builder's repo fits, pre-fills every
 application from the repo, and tracks the result. It runs inside the builder's own agent.
 Free. Nothing to sign up for.
 
@@ -62,8 +62,11 @@ also edit or delete everything. Unlinked agents keep working with no sign-in.
 
 A program's reviewer is marked by EarnKit. Their agent calls screen with the applicants (name, repo,
 site, contracts, pitch). Each comes back used, live, building, unverified or flagged, with the public
-evidence behind it: the repo, the chain and the site. A reviewer never sees a builder's record,
-another program's name or another applicant's text.
+evidence behind it: the repo, the chain and the site, 25 applicants a page. A reviewer never sees a
+builder's record, another program's name, screens or results, or another applicant's text. A
+program's reviewers share its screens and results, which stay with the program when a reviewer
+leaves. A reviewer never posts the result of their own application. Results come in daily runs and
+are kept 180 days with the program's decisions.
 
 ## Program pages
 

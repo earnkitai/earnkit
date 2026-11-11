@@ -32,6 +32,8 @@ const fakes = (): Partial<EvidenceDeps> => ({
 });
 const queue = async (programId: string, applicants: Parameters<typeof createJob>[0]['applicants'], now = NOW) => {
   await upsertProgram(programFixture({ id: programId }), 'file', NOW);
+  // The job belongs to the program; builder 1 reads it as one of its reviewers (L15-12).
+  await sql()`INSERT INTO program_reviewers (program_id, builder_id) VALUES (${programId}, 1) ON CONFLICT DO NOTHING`;
   return createJob({ programId, builderId: 1, installationId: 1, applicants, now });
 };
 
@@ -102,7 +104,7 @@ test('a site-only applicant is read again with the repo its page links', async (
   assert.equal(a.repo_key, 'acme/thing');
 });
 
-test('applicants sharing contributors within a job count each other; a later screen of the same repo by another program shows in because', async () => {
+test('applicants sharing contributors within a job count each other; a later screen of the same repo by the same program shows in because, by another program never (L15-11)', async () => {
   const j = await queue('work-e', [
     { ref: 'e1', name: 'One', repo_url: 'https://github.com/acme/one' },
     { ref: 'e2', name: 'Two', repo_url: 'https://github.com/acme/two' },
@@ -111,11 +113,17 @@ test('applicants sharing contributors within a job count each other; a later scr
   await workQueue({ now: NOW, limit: 5, deps: { evidence: fake } });
   const shared = await sql()`SELECT ref, shared_contributors FROM screen_applicants WHERE job_id = ${j.id} ORDER BY ref`;
   assert.deepEqual(shared.map((r) => r.shared_contributors), [0, 1]);
-  const k = await queue('work-f', [{ ref: 'f1', name: 'One', repo_url: 'https://github.com/acme/one' }]);
+  const k = await queue('work-e', [{ ref: 'f1', name: 'One', repo_url: 'https://github.com/acme/one' }]);
+  const elsewhere = await queue('work-f', [{ ref: 'f2', name: 'One', repo_url: 'https://github.com/acme/one' }]);
   await workQueue({ now: NOW, limit: 5, deps: { evidence: fake } });
   const [f] = await sql()`SELECT because, rows FROM screen_applicants WHERE job_id = ${k.id}`;
-  assert.ok(f.because.includes('seen in 1 other screen in 90 days'), JSON.stringify(f.because));
-  assert.equal(f.rows.find((r: { key: string }) => r.key === 'xp.applications_90d')?.basis, 'earnkit');
+  assert.ok(f.because.includes('seen in 1 earlier screen of this program in 90 days'), JSON.stringify(f.because));
+  const xp = f.rows.find((r: { key: string }) => r.key === 'xp.applications_90d');
+  assert.deepEqual([xp?.basis, xp?.value, xp?.note], ['earnkit', 1, 'earlier screens by this program in 90 days']);
+  // Another program's screen of the same repo sees none of program work-e's.
+  const [g] = await sql()`SELECT because, rows FROM screen_applicants WHERE job_id = ${elsewhere.id}`;
+  assert.ok(!g.because.some((b: string) => b.startsWith('seen in')), JSON.stringify(g.because));
+  assert.equal(g.rows.find((r: { key: string }) => r.key === 'xp.applications_90d')?.value, 0);
 });
 
 test('two overlapping runs read each applicant exactly once; a taken row over 30 minutes old is free again; reading counts as pending', async () => {

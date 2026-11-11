@@ -19,7 +19,7 @@ import { APPROVABLE, type BuilderRecord, KIND_WORDS, mergeRecord, recordItems } 
 
 export const RecordInput = z
   .object({
-    set: z.unknown().optional().describe('A partial record to merge: person, team, company, projects (by id), docs, traction, answers'),
+    set: z.unknown().optional().describe('A partial record to merge: person, team, company, docs, traction, answers, and projects as a list of { id (a lowercase slug), name, repo_url, live_url, answers }, merged by id'),
     get: z.boolean().optional().describe('true to read the record and what it still lacks'),
     brief: z.enum(ANSWER_KINDS).optional().describe('One answer kind: the question, the facts to use, the length and the style'),
   })

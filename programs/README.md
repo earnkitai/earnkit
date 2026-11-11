@@ -31,7 +31,7 @@ states; leave out what it does not. Never guess a reward, a deadline or a requir
 | `organizer`, `title`, `description` | as the source names and describes it |
 | `source_url`, `submission_url` | the program page and where builders apply; `official_url` when the organizer's site is neither |
 | `reward` | the reward in the source's words |
-| `summary` | one line, at most 90 characters: reward and deadline (`"Up to $5,000 · rolling"`) |
+| `summary` | one line, at most 90 characters: reward and deadline (`"Up to $5,000 · rolling"`). It is the reply's money line: a range reads `Up to {top}`, a floor `From {low}`, and a bar the builder must reach (a TVL or user target) goes in `rules`, never here |
 | `max_award_usd` | the most one winner gets, only when stated; `min_award_usd` only for a stated range |
 | `pool_usd` | the total pool, only when stated; `reward` must state it followed by a pool word (`"$840,000 in prizes"`); `pool_source_url` when that is not `source_url` |
 | `starts_at`, `ends_at` | ISO 8601 with offset; `ends_at: null` is rolling. `tz` (IANA) when the summary's suffix does not name the zone |
@@ -39,11 +39,12 @@ states; leave out what it does not. Never guess a reward, a deadline or a requir
 | `verified_at` | the day the facts were checked (`YYYY-MM-DD`), never ahead of today |
 | `existing_work` | `allowed`, `new_work_only` or `unknown` |
 | `needs_repo` | whether entering needs a repo or a live product |
+| `open_source` | `true` when the program's rule is an open source license or open source software (a rule or a `rules` line must say so; `programs:check` refuses it otherwise); a private repo is then one step from it, `a public repo`, never ready. Leave it out (false) when open source is judged on, not required, or only the funded work must be released open |
 | `chains`, `any_chain` | registered chain slugs, or `any_chain: true` and none |
 | `chain_required` | `true` only when the source requires one of `chains` at the project's core |
 | `needs_contract` | a chain (one of `chains`) where a deployed mainnet contract is required |
 | `tag` | `"long shot"` or `"needs a live product"` |
-| `in_person`, `investment`, `category` | attended in person; the award is an investment; `grant`, `hackathon`, `investment` or `bounty` (derived when left out) |
+| `in_person`, `investment`, `category` | attended in person; the award is an investment; `grant`, `hackathon`, `investment` or `bounty` (derived when left out; set it when the reward says "prizes" but the program is not a hackathon, as the tile reads prize words as a hackathon) |
 | `setup`, `each_time` | what only the builder can do once, and for every entry |
 | `rules` | the program's rules in short sentences (shown in the guide) |
 | `submission_requirements` | the form, field by field (below); none only on an `upcoming` program |

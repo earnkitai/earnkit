@@ -5,7 +5,9 @@
  */
 import { json, readCapped, readParams } from './http';
 import { installationExists, saveInstallation } from './installations';
-import { OAuthError, checkAuthorize, clientLimitKey, exchangeCode, issueCode, publicOrigin, registerClient } from './oauth';
+import { INVALID_CLIENT_NAME, OAuthError, checkAuthorize, clientLimitKey, exchangeCode, issueCode, publicOrigin, registerClient, reservedClientName } from './oauth';
+
+export { INVALID_CLIENT_NAME, reservedClientName };
 import { BLOCK_LIMITED, BLOCK_WARN_SHARE, LIMITS, RateLimitError, blockOf, clientIp, enforce } from './rate-limit';
 
 const TOO_MANY = 'Too many new EarnKit connections from this address.';
@@ -45,6 +47,9 @@ export async function tokenPost(request: Request) {
     const params = await readParams(request, MAX_OAUTH_BODY);
     if (params === null) return tooLarge();
     const { token, limitKey, hostedHost, clientName } = exchangeCode(params);
+    // T6-F2 (v6.1.14): a client id signed before the check may carry a reserved name; it never installs (saveInstallation
+    // refuses too). Checked before the limits, so a refusal spends none.
+    if (reservedClientName(clientName)) throw new OAuthError('invalid_client_metadata', INVALID_CLIENT_NAME);
     // A replayed code is free.
     if (!(await installationExists(token))) {
       // Every address counts on the one floor first; a hosted client only gets a higher per-client ceiling (v6.1.7, B5).
@@ -113,6 +118,7 @@ export async function registerPost(request: Request) {
     await enforce('oauthRegister', ip, 'Too many client registrations from this address.');
     limit = 'oauthRegisterBlock';
     await enforceBlock('oauthRegisterBlock', ip);
+    if (reservedClientName(metadata.client_name)) throw new OAuthError('invalid_client_metadata', INVALID_CLIENT_NAME);
     return json(registerClient(metadata), 201);
   } catch (err) {
     if (err instanceof RateLimitError) {

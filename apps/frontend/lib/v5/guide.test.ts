@@ -16,7 +16,7 @@ const real = (id: string): ProgramRow =>
 test('base-builder-grants: money, closes, eligibility in plain words, fields, rules', () => {
   const g = guideText(real('base-builder-grants'));
   assert.equal(g.title, 'Base Builder Grant Program');
-  assert.equal(g.money, '$5K');
+  assert.equal(g.money, 'Up to $5K');
   assert.equal(g.closes, 'Rolling');
   assert.ok(g.eligibility.includes('a live product'));
   assert.ok(g.eligibility.includes('on Base'));

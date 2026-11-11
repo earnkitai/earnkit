@@ -26,6 +26,8 @@ export type CodeRows = {
   has_ci: boolean | null;
   issues_open: number | null;
   issues_answered_90d: number | null;
+  /** L15-7 (v6.1.14): the repo has no commits (GitHub's size 0); nothing else is read. Absent on rows cached before. */
+  empty?: boolean;
   note: string | null;
 };
 
@@ -311,6 +313,15 @@ export async function readCode(read: RepoRead, o: GhRead): Promise<CodeRows> {
   };
   const { repo } = read;
   const full = repo.full_name;
+  // L15-7 (v6.1.14): an empty repo has no tree or commits to read; it reads as empty, not as a partial read. M6 (fix
+  // round 1): GitHub sets size lazily, so a size of 0 is empty only when the tree read found nothing too.
+  if (repo.size === 0 && read.tree.length === 0) {
+    return {
+      fork_of: repo.fork && repo.parent ? repo.parent.full_name : null, template_overlap: null, template_name: null, own_share: null, commits_own: null,
+      files_own: null, first_commit_at: null, last_push_at: repo.pushed_at ?? null, commits_90d: 0, commits_60d: 0, active_weeks_90d: 0, releases: null,
+      has_tests: null, has_ci: null, issues_open: null, issues_answered_90d: null, empty: true, note: null,
+    };
+  }
   const paths = read.tree.filter((t) => t.type === 'blob').map((t) => t.path);
   // A failed tree read is an empty tree; a failed README or file read (partial) leaves the tree usable.
   const treeRead = paths.length > 0;

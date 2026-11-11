@@ -8,7 +8,7 @@ import { detectIntegrations } from '../v6/integrations';
 import { builderCodesIn, KNOWN_TOKEN_ADDRESSES } from './code-signals';
 import { CHAIN_REGISTRY, chainOfId } from './chains';
 import { sql } from './db';
-import { GitHubError, readRepo, readRepoObject, type RepoRead } from './github';
+import { GitHubError, RepoPrivateError, readRepo, readRepoObject, type RepoRead } from './github';
 import { LIMITS, hit } from './rate-limit';
 import { addressKey, canonicalRepoLink, type Project } from './project-input';
 
@@ -48,6 +48,8 @@ export type RepoFacts = {
   problems?: string[];
   /** What the builder is told about the read, in this order; none when absent (built by hand). */
   notes?: RepoNote[];
+  /** v6.1.14 L1f-1: the agent reported the repo private (a public read never sees a private repo: it reads as gone). */
+  private?: true;
 };
 
 type CodeFacts = Pick<RepoFacts, 'chains' | 'contracts' | 'builder_codes' | 'integrations' | 'first_commit_at' | 'last_commit_at' | 'readme_excerpt' | 'homepage' | 'topics'> & {
@@ -274,7 +276,7 @@ async function cachedCodeFacts(key: string, f: Fetch, now: Date, installationId?
       }
       if (live.private === true) {
         await forget();
-        throw new GitHubError('GitHub: repo is private', 404);
+        throw new RepoPrivateError();
       }
       if (row.pushed_at && Date.parse(live.pushed_at) === row.pushed_at.getTime()) {
         if (stale) await sql()`UPDATE repo_cache SET facts = jsonb_set(facts, '{checked_at}', to_jsonb(${now.toISOString()}::text)) WHERE repo = ${key}`;
@@ -312,15 +314,18 @@ export async function repoFacts(project: Project, deps: { gh?: Fetch; now?: Date
   const key = project.private ? null : repoKey(project.repo_url);
   let code: CodeFacts | null = null;
   let paused = false;
+  // M1 (v6.1.14 fix round 1): a repo the read finds private is private, never gone, report or not.
+  let found = false;
   if (key) {
     try {
       code = await cachedCodeFacts(key, deps.gh ?? fetch, deps.now ?? new Date(), deps.installationId, deps.staleAfter);
     } catch (err) {
       paused = err instanceof ReadsPaused;
+      found = err instanceof RepoPrivateError;
       code = null;
     }
   }
-  return mergedFacts(project, code, paused);
+  return mergedFacts(found ? { ...project, private: true } : project, code, paused);
 }
 
 /**
@@ -384,5 +389,6 @@ function mergedFacts(project: Project, code: CodeFacts | null, paused: boolean):
     ...(code?.topics && code.topics.length > 0 ? { topics: code.topics } : {}),
     ...(paused ? { problems: [READS_PAUSED] } : {}),
     notes,
+    ...(project.private ? { private: true as const } : {}),
   };
 }

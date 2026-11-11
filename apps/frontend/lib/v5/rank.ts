@@ -101,6 +101,15 @@ export function rankGaps(v: Verdict[], programs: Programs, mainnets: ReadonlySet
 }
 
 /**
+ * L12-7 (v6.1.14): a deploy on another chain: the program names chains, takes no other chain, and names none of the
+ * project's own `chains` (reported, then read); never one when the project has no chain. Pure.
+ */
+export const offChain = (v: Verdict, m: Programs, chains: readonly string[]): boolean => {
+  const f = m.get(v.program_id)?.file;
+  return chains.length > 0 && !!f && !f.any_chain && f.chains.length > 0 && !f.chains.some((c) => chains.includes(c));
+};
+
+/**
  * The gap list shown (R18b, v6.1.8 fix rounds 2 and 3, v6.1.9, v6.1.10): all of it when `all`. Else, first the
  * programs the builder acted on (`pinned`: a step marked done or a live claim, N-3), in rank order, whatever they
  * carry; then every program closing soon (`soon`, O1: within 7 days), ahead of the cap; then at most one program that
@@ -113,16 +122,19 @@ export function rankGaps(v: Verdict[], programs: Programs, mainnets: ReadonlySet
  * project's chains it takes its place in rank order (L1c-3). Off them it is shown only after `max - 1` other programs,
  * or alone as a list of one when nothing else is shown (N-2); with some others but fewer than that, the list is those
  * and leaves it to `filter.all`. In-person programs never appear here (R18d, R18f; a rule-only one is in the In person
- * block, find.ts); `filter.all` shows them and `more` counts every program left out. Input in rankGaps order. Pure.
+ * block, find.ts); `filter.all` shows them and `more` counts every program left out. A deploy on another chain
+ * (`offChain`, L12-7, v6.1.14) is left out too unless acted on, closing soon or not: `filter.all` shows it. Input in
+ * rankGaps order. Pure.
  */
 export function shownGapsOf(
   gapV: Verdict[], all: boolean, max: number, inPerson: (v: Verdict) => boolean,
   chains: readonly string[] = [], names: (v: Verdict, chain: string) => boolean = () => false,
   pinned: (v: Verdict) => boolean = () => false,
-  o: { unlikely?: (v: Verdict) => boolean; soon?: (v: Verdict) => boolean; hit?: Hit } = {},
+  o: { unlikely?: (v: Verdict) => boolean; soon?: (v: Verdict) => boolean; hit?: Hit; offChain?: (v: Verdict) => boolean } = {},
 ): Verdict[] {
   if (all) return gapV;
-  const unlikely = o.unlikely ?? (() => false);
+  const off = o.offChain ?? (() => false);
+  const unlikely = (v: Verdict) => off(v) || (o.unlikely ?? (() => false))(v);
   const soon = o.soon ?? (() => false);
   const hit = o.hit ?? (() => false);
   // The one rule slot is for rule-bearing programs with no keyword hit; a hit competes as a rule-free step.

@@ -58,7 +58,7 @@ function parseArgs(argv: string[]): Args | string {
     }
     if (typeof given !== 'object' || given === null || Array.isArray(given)) return 'The thresholds must be a JSON object.';
     for (const [k, v] of Object.entries(given)) {
-      if (!Object.hasOwn(DEFAULT_THRESHOLDS, k)) return `Unknown threshold ${k}. Known: ${Object.keys(DEFAULT_THRESHOLDS).join(', ')}.`;
+      if (!Object.hasOwn(DEFAULT_THRESHOLDS, k)) return `Unknown threshold${/^[A-Za-z0-9_-]+$/.test(k) ? ` ${k.slice(0, 40)}` : ''}. Known: ${Object.keys(DEFAULT_THRESHOLDS).join(', ')}.`;
       if (typeof v !== 'number' || !Number.isFinite(v)) return `Threshold ${k} must be a number.`;
       t[k as keyof Thresholds] = v;
     }

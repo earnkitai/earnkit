@@ -16,7 +16,7 @@ import {
   registerClient,
   registrationLimitKey,
 } from './oauth';
-import { authorizeGet, registerPost, tokenPost } from './oauth-routes';
+import { INVALID_CLIENT_NAME, authorizeGet, registerPost, tokenPost } from './oauth-routes';
 import { connectInstallation } from './installations';
 import { GET as mcpGet, POST as mcpPost } from '../../app/mcp/route';
 
@@ -342,4 +342,69 @@ test('register and token read at most 16 KB: over the cap is 413 in the JSON err
     method: 'POST', headers: { 'content-type': 'application/json', 'x-real-ip': '10.9.9.3' }, body: JSON.stringify({ redirect_uris: [redirect], pad: 'x'.repeat(15_000) }),
   }));
   assert.equal(ok.status, 201);
+});
+
+test("L13-16 (v6.1.14): a client name that is EarnKit's own, in any case or spelling, is refused at registration", async () => {
+  const reg = (client_name: string, ip: string) =>
+    registerPost(new Request('https://earnkit.test/oauth/register', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-real-ip': ip },
+      body: JSON.stringify({ redirect_uris: [redirect], client_name }),
+    }));
+  let n = 0;
+  for (const name of ['EarnKit', 'earnkit', 'Earn Kit', 'EARN-KIT', 'e.a.r.n.k.i.t', 'EarnKit Agent', 'My earnkit bot', 'ＥａｒｎＫｉｔ']) {
+    const r = await reg(name, `10.9.0.${++n}`);
+    assert.equal(r.status, 400, name);
+    assert.deepEqual(await r.json(), { error: 'invalid_client_metadata', error_description: INVALID_CLIENT_NAME }, name);
+  }
+  for (const name of ['Claude Code', 'Cursor', 'Kit', 'Earn']) assert.equal((await reg(name, `10.9.1.${++n}`)).status, 201, name);
+});
+
+test('T6-F1 (v6.1.14 fix round 1): look-alike letters and accents fold before the reserved-name check', async () => {
+  const { reservedClientName } = await import('./oauth-routes');
+  for (const name of ['ЕarnКit', 'Εarnkιt', 'éarnkit', 'Earn Kit', 'EАRNKІT', 'εαrnκιτ', 'ЕАRNКIТ bot'])
+    assert.equal(reservedClientName(name), true, name);
+  for (const name of ['Claude Code', 'Cursor', 'Ёлка', 'Ελληνικά', 'Earn', 'Kit']) assert.equal(reservedClientName(name), false, name);
+  const r = await registerPost(new Request('https://earnkit.test/oauth/register', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-real-ip': '10.9.2.1' },
+    body: JSON.stringify({ redirect_uris: [redirect], client_name: 'ЕarnКit' }),
+  }));
+  assert.equal(r.status, 400);
+  assert.deepEqual(await r.json(), { error: 'invalid_client_metadata', error_description: INVALID_CLIENT_NAME });
+});
+
+test('FR-9 (v6.1.14 final fix): the dotless i, Armenian and small-capital look-alikes are folded; earnkıt is refused at register and install', async () => {
+  const { reservedClientName } = await import('./oauth-routes');
+  for (const name of ['earnkıt', 'EARNKıT', 'earnkɩt', 'eaʀnkit', 'ᴇᴀʀɴᴋɪᴛ', 'earոkit', 'ɑrnkit'.replace('ɑ', 'eɑ')]) assert.equal(reservedClientName(name), true, name);
+  for (const name of ['Claude Code', 'Kıt', 'Earn', 'Հայերեն']) assert.equal(reservedClientName(name), false, name);
+  const r = await registerPost(new Request('https://earnkit.test/oauth/register', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-real-ip': '10.9.2.9' },
+    body: JSON.stringify({ redirect_uris: [redirect], client_name: 'earnkıt' }),
+  }));
+  assert.equal(r.status, 400);
+  assert.deepEqual(await r.json(), { error: 'invalid_client_metadata', error_description: INVALID_CLIENT_NAME });
+  const { client_id } = registerClient({ redirect_uris: [redirect], client_name: 'earnkıt' });
+  const tok = await tokenPost(new Request('https://earnkit.test/oauth/token', {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-real-ip': '10.9.2.10' },
+    body: tokenForm(client_id, codeOf(client_id)).toString(),
+  }));
+  assert.equal(tok.status, 400);
+  assert.deepEqual(await tok.json(), { error: 'invalid_client_metadata', error_description: INVALID_CLIENT_NAME });
+  const { saveInstallation } = await import('./installations');
+  await assert.rejects(saveInstallation('ek_reserved_' + Math.random(), 'earnkıt'), (e) => e instanceof OAuthError && e.message === INVALID_CLIENT_NAME);
+});
+
+test('T6-F2 (v6.1.14 fix round 1): a client id registered before the check, carrying a reserved name, cannot install', async () => {
+  // registerClient signs any name, as registration did before v6.1.14.
+  const { client_id } = registerClient({ redirect_uris: [redirect], client_name: 'EarnKit' });
+  const before = (await sql()`SELECT count(*)::int AS n FROM installations`)[0].n as number;
+  const tok = await tokenPost(new Request('https://earnkit.test/oauth/token', {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-real-ip': '10.9.2.2' },
+    body: tokenForm(client_id, codeOf(client_id)).toString(),
+  }));
+  assert.equal(tok.status, 400);
+  assert.deepEqual(await tok.json(), { error: 'invalid_client_metadata', error_description: INVALID_CLIENT_NAME });
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM installations`)[0].n, before);
+  // saveInstallation refuses it too, whatever calls it.
+  const { saveInstallation } = await import('./installations');
+  await assert.rejects(saveInstallation('ek_reserved_' + Math.random(), 'Earn Kit'), (e) => e instanceof OAuthError && e.message === INVALID_CLIENT_NAME);
 });

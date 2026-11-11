@@ -467,3 +467,11 @@ test('v6.1.9 N7 and N8: renaming a team member drops the old github, x and email
     assert.deepEqual((await getRecord(b.id)).projects[0].chains_claimed, saved, value);
   }
 });
+
+test('L13-14 (v6.1.14): /me chains one per line read as commas do; an unknown one is still named alone', async () => {
+  const { b, cookie, csrf } = await signedIn();
+  await saveRecord(b.id, mergeRecord(await getRecord(b.id), { projects: [{ id: 'kit', name: 'Kit' }] }, 'agent', NOW).record, NOW);
+  assert.equal((await editPost(post('/me/edit', { csrf, path: 'projects.kit.chains_claimed', value: 'base\nsolana\r\nArc, base' }, { cookie }), deps)).headers.get('location'), '/me#projects');
+  assert.deepEqual((await getRecord(b.id)).projects[0].chains_claimed, ['base', 'solana', 'arc']);
+  refused(b.id, await editPost(post('/me/edit', { csrf, path: 'projects.kit.chains_claimed', value: 'base\nnotachain' }, { cookie }), deps), 'Not a known chain: notachain.');
+});

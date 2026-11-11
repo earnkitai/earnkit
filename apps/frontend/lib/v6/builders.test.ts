@@ -7,6 +7,7 @@ import { getProgram, upsertProgram } from '../v5/programs';
 import { LinkRefused, deleteBuilder, getBuilder, hasUnlinkedNotice, linkInstallation, ownerKey, takeUnlinkedNotice, unlinkInstallation, unlinkedReason, upsertBuilder } from './builders';
 import { createSession } from './sessions';
 import { createLinkCode } from './link-routes';
+import { jobStatus } from './screen-jobs';
 
 after(() => sql().end());
 // createLinkCode derives codes with the auth secret.
@@ -175,7 +176,7 @@ test('a record under b:A from X does not raise beside an orphan i:X row for the 
   assert.deepEqual(await rows(`i:${x}`), [{ program_id: 'bl-orphan', status: 'applied' }]);
 });
 
-test('B11: deleteBuilder also removes their reviewer rows, screen jobs, applicants and outcomes; another reviewer keeps theirs', async () => {
+test('B11, L15-18 (v6.1.14): deleteBuilder removes their reviewer rows; the program keeps their screens, applicants and outcomes, unowned, and its other reviewer reads them', async () => {
   const b = await builder('rev');
   const other = await builder('rev2');
   const one = await install();
@@ -190,8 +191,16 @@ test('B11: deleteBuilder also removes their reviewer rows, screen jobs, applican
   const n = async (q: Promise<{ n: number }[]>) => (await q)[0].n;
   assert.equal(await n(sql()`SELECT count(*)::int AS n FROM program_reviewers WHERE builder_id = ${b.id}`), 0);
   assert.equal(await n(sql()`SELECT count(*)::int AS n FROM screen_jobs WHERE builder_id = ${b.id}`), 0);
-  assert.equal(await n(sql()`SELECT count(*)::int AS n FROM screen_applicants WHERE job_id = 'bl-job-a'`), 0);
-  assert.equal(await n(sql()`SELECT count(*)::int AS n FROM screen_outcomes WHERE job_id = 'bl-job-a'`), 0);
+  // L15-18: the program's history stays: the job, its applicant and its outcome, the job tied to no builder.
+  const [kept] = await sql()`SELECT program_id, builder_id FROM screen_jobs WHERE id = 'bl-job-a'`;
+  assert.deepEqual([kept.program_id, kept.builder_id], ['bl-del-rev', null]);
+  assert.equal(await n(sql()`SELECT count(*)::int AS n FROM screen_applicants WHERE job_id = 'bl-job-a'`), 1);
+  assert.equal(await n(sql()`SELECT count(*)::int AS n FROM screen_outcomes WHERE job_id = 'bl-job-a'`), 1);
+  // The program's other reviewer reads the job the deleted one queued (L15-12).
+  assert.equal((await jobStatus('bl-job-a', other.id, NOW))?.program_id, 'bl-del-rev');
+  // Deleting again, or another delete, changes nothing more.
+  await deleteBuilder(b.id);
+  assert.equal(await n(sql()`SELECT count(*)::int AS n FROM screen_outcomes WHERE job_id = 'bl-job-a'`), 1);
   // The other reviewer's rows stay.
   assert.equal(await n(sql()`SELECT count(*)::int AS n FROM screen_jobs WHERE builder_id = ${other.id}`), 1);
   assert.equal(await n(sql()`SELECT count(*)::int AS n FROM screen_applicants WHERE job_id = 'bl-job-b'`), 1);
@@ -323,4 +332,29 @@ test('C51: deleteBuilder marks each linked installation, so its next call says t
   await linkInstallation(two, c.id, NOW);
   await unlinkInstallation(two, c.id, NOW);
   assert.equal(await unlinkedReason(two), 'unlinked');
+});
+
+test('T5-F6 (v6.1.14): on link the stronger row stays and carries the dropped row\'s application id when it has none', async () => {
+  const b = await builder('carry');
+  const one = await install();
+  await prog('bl-carry');
+  await linkInstallation(one, b.id, NOW);
+  assert.deepEqual(await record(`b:${b.id}`, 'bl-carry', 'applied', { installationId: one, now: NOW }), { ok: true });
+  assert.deepEqual(await record(`b:${b.id}`, 'bl-carry', 'won', { installationId: one, amount_usd: 100, now: NOW }), { ok: true });
+  // A win from before v6.1.14 has no id.
+  await sql()`UPDATE applications SET application_id = NULL WHERE owner = ${`b:${b.id}`} AND program_id = 'bl-carry'`;
+  const two = await install();
+  assert.deepEqual(await record(`i:${two}`, 'bl-carry', 'applied', { installationId: two, now: new Date(NOW.getTime() + DAY) }), { ok: true });
+  const [i] = await sql()`SELECT application_id FROM applications WHERE owner = ${`i:${two}`} AND program_id = 'bl-carry'`;
+  await linkInstallation(two, b.id, new Date(NOW.getTime() + DAY));
+  const kept = await sql()`SELECT status, application_id FROM applications WHERE owner = ${`b:${b.id}`} AND program_id = 'bl-carry'`;
+  assert.deepEqual(kept.map((r) => [r.status, r.application_id]), [['won', i.application_id]]);
+  // A kept row with its own id keeps it.
+  await prog('bl-carry2');
+  assert.deepEqual(await record(`b:${b.id}`, 'bl-carry2', 'applied', { installationId: one, now: NOW }), { ok: true });
+  const [own] = await sql()`SELECT application_id FROM applications WHERE owner = ${`b:${b.id}`} AND program_id = 'bl-carry2'`;
+  const three = await install();
+  assert.deepEqual(await record(`i:${three}`, 'bl-carry2', 'skipped', { installationId: three, now: NOW }), { ok: true });
+  await linkInstallation(three, b.id, NOW);
+  assert.equal((await sql()`SELECT application_id FROM applications WHERE owner = ${`b:${b.id}`} AND program_id = 'bl-carry2'`)[0].application_id, own.application_id);
 });

@@ -75,7 +75,7 @@ test('an account created 10 days before now is not counted; unlinked commits cou
   assert.deepEqual(t.account_ages_days, [900, 10]);
   assert.equal(t.top_share, 0.6);
   assert.deepEqual(t.logins, ['old', 'fresh']);
-  assert.ok(!calls.some((u) => u.includes('/contributors')));
+  assert.equal(calls.filter((u) => u.includes('/contributors?anon=1')).length, 1);
 });
 
 test('only the top 5 window authors are read; the rest are noted', async () => {
@@ -177,4 +177,32 @@ test("a clone of a starter: the starter's maintainers are dropped and noted, the
   // Without the starter named, the same window is one team led by its maintainer.
   const all = await readTeam('a/b', { gh: f, now: NOW, budget: budget() });
   assert.equal(all.logins[0], m1);
+});
+
+test('L15-19: the full contributor list, paged, anonymous included, bots and starter maintainers dropped', async () => {
+  const page = (n: number, from: number) => [...Array(n)].map((_, i) => (i % 3 === 0 ? { type: 'Anonymous', email: `p${from + i}@x` } : { login: `u${from + i}`, type: 'User' }));
+  const { f, calls } = fakeTeam([{ login: 'old', commits: 2 }], (url) => {
+    if (url.includes('/contributors?anon=1&per_page=100&page=2')) return Response.json([...page(29, 100), { login: 'dependabot[bot]', type: 'Bot' }, { login: 'Maint', type: 'User' }]);
+    if (url.includes('/contributors?anon=1&per_page=100')) return Response.json(page(100, 0));
+    return null;
+  });
+  const t = await readTeam('a/b', { gh: f, now: NOW, budget: budget() }, { drop: ['maint'] });
+  assert.equal(t.contributors, 129);
+  assert.equal(t.contributors_more, undefined);
+  assert.equal(calls.filter((u) => u.includes('/contributors')).length, 2);
+});
+
+test('L15-19: a solo account under 30 days old still reads 1 contributor; a long list is a floor', async () => {
+  const solo = fakeTeam([{ login: 'new', commits: 40, created_days_ago: 4 }]);
+  const t = await readTeam('a/b', { gh: solo.f, now: NOW, budget: budget() });
+  assert.equal(t.contributors_90d, 0);
+  assert.equal(t.contributors, 1);
+  const big = fakeTeam([{ login: 'old', commits: 1 }], (url) => (url.includes('/contributors') ? Response.json([...Array(100)].map((_, i) => ({ login: `x${i}`, type: 'User' }))) : null));
+  const b = await readTeam('a/b', { gh: big.f, now: NOW, budget: budget() });
+  assert.equal(b.contributors, 500);
+  assert.equal(b.contributors_more, true);
+  // A fork counts only its own authors after the fork: its list is not read.
+  const fork = fakeTeam([{ login: 'old', commits: 1 }]);
+  await readTeam('a/b', { gh: fork.f, now: NOW, budget: budget() }, { fork: { parent: 'p/q', parent_branch: 'main', branch: 'main' } }).catch(() => null);
+  assert.ok(!fork.calls.some((u) => u.includes('/contributors')));
 });

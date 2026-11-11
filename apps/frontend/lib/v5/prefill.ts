@@ -212,7 +212,8 @@ export const cutNote = (n: number) => `Cut to ${n} characters, keeping the meani
 
 /** The source of a fact the agent reported and no repo read confirmed (v6.1.9 S12). */
 export const TOLD_SOURCE = 'what the builder told you';
-const CONTACT_SOURCES = ['git config and the environment', TOLD_SOURCE];
+/** L13-20 (v6.1.14): only the places a contact (an email, a name) can sit; never the repo link, chains or commit dates. */
+const CONTACT_SOURCES = ['git config and the environment', TOLD_SOURCE, 'the README', 'the package manifests', 'the GitHub profile'];
 const ASK_ONCE = 'the builder, once: store the answer with record before using it';
 
 /**
@@ -249,7 +250,7 @@ export function prefill(
     // works for (never asks a stranger who they are, never invents).
     if (r.kind === 'contact') {
       if (rec) return { ...base, value: null, from: 'builder' };
-      return { ...base, value: null, from: 'agent', sources: [...CONTACT_SOURCES, ...sourcesOf(facts, guidance)] };
+      return { ...base, value: null, from: 'agent', sources: [...CONTACT_SOURCES] };
     }
     const filled = valueOf(r, file, facts);
     // S12 (v6.1.9): with no repo read to confirm it (none, or an empty repo), what the agent reported is never EarnKit's

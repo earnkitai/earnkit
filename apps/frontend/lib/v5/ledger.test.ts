@@ -81,6 +81,8 @@ test('a second applied from another agent of the owner names the first and keeps
   const one = await named('Claude Code');
   const two = await named(null);
   const b = `b:${2 ** 30 + 7}`;
+  // Both agents are linked to the owner's builder (fix round 2: only a linked agent writes a b: ledger).
+  await sql()`UPDATE installations SET builder_id = ${2 ** 30 + 7} WHERE id IN (${one}, ${two})`;
   await prog('l-b13');
   await record(b, 'l-b13', 'applied', { installationId: one, submitted_by: 'agent', fields_used: ['a'], now: new Date('2026-11-03T22:10:00Z') });
   const r = await record(b, 'l-b13', 'applied', { installationId: two, submitted_by: 'builder', now: NOW });
@@ -104,7 +106,7 @@ test('a win is whole dollars, at least 1 (v6.1.7, B8)', async () => {
   assert.equal((await record(o(i), 'l-whole', 'won', { amount_usd: 1, now: NOW })).ok, true);
 });
 
-test('a result over a result is refused and changes nothing; the same one again is already recorded (v6.1.7, B8, B12)', async () => {
+test('a result over a result is refused and changes nothing; the same win again is already recorded; another amount corrects; a marked payment adds once (v6.1.7, B8, B12; L15-17, T8-F1)', async () => {
   const i = await install();
   await prog('l-res', { max_award_usd: 10_000 });
   await record(o(i), 'l-res', 'applied', { now: NOW });
@@ -113,13 +115,25 @@ test('a result over a result is refused and changes nothing; the same one again 
   const won = { ok: false, note: 'That one already has a result here: won $3,000.' };
   assert.deepEqual(await record(o(i), 'l-res', 'rejected', { now: NOW }), won);
   assert.deepEqual(await record(o(i), 'l-res', 'no_result', { now: NOW }), won);
-  assert.deepEqual(await record(o(i), 'l-res', 'won', { amount_usd: 5000, now: NOW }), won);
   assert.deepEqual(await record(o(i), 'l-res', 'applied', { now: NOW }), won);
-  assert.deepEqual(await record(o(i), 'l-res', 'won', { amount_usd: 3000, now: NOW }), { ok: false, note: 'Already recorded.' });
   assert.deepEqual(await counts(i), before);
+  // T8-F1 (v6.1.14): the same win resent is already recorded; another amount, unmarked, is a correction that replaces it.
+  assert.deepEqual(await record(o(i), 'l-res', 'won', { amount_usd: 3000, now: NOW }), { ok: false, note: 'Already recorded.' });
+  assert.deepEqual(await record(o(i), 'l-res', 'won', { amount_usd: 2500, now: NOW }), { ok: true, replaced_usd: 3000 });
+  assert.equal((await summary(o(i), [], NOW)).won_usd, 2500);
+  // A further payment, marked with its key, adds once (L15-17); a repeat of the key changes nothing; the total stays under the cap.
+  assert.deepEqual(await record(o(i), 'l-res', 'won', { amount_usd: 2500, payment: { key: 'tranche-2' }, now: NOW }), { ok: true, total_usd: 5000 });
+  assert.deepEqual(await record(o(i), 'l-res', 'won', { amount_usd: 2500, payment: { key: 'tranche-2' }, now: NOW }), { ok: false, note: 'Already recorded.' });
+  assert.deepEqual(await record(o(i), 'l-res', 'won', { amount_usd: 6000, payment: { key: 'tranche-3' }, now: NOW }), { ok: false, note: "That's more than this program pays; check the amount." });
+  assert.deepEqual(await record(o(i), 'l-res', 'won', { amount_usd: 1000, payment: { key: 'tranche-3' }, now: NOW }), { ok: true, total_usd: 6000 });
   const [row] = await sql()`SELECT status, amount_usd FROM applications WHERE installation_id = ${i} AND program_id = 'l-res'`;
-  assert.deepEqual([row.status, Number(row.amount_usd)], ['won', 3000]);
-  assert.equal((await summary(o(i), [], NOW)).won_usd, 3000);
+  assert.deepEqual([row.status, Number(row.amount_usd)], ['won', 6000]);
+  assert.equal((await summary(o(i), [], NOW)).won, 1);
+  assert.equal((await summary(o(i), [], NOW)).won_usd, 6000);
+  // Each payment is kept in the history, its key with it.
+  const paid = await sql()`SELECT amount_usd, payment_key FROM application_history WHERE owner = ${o(i)} AND program_id = 'l-res' AND status = 'won' ORDER BY at, amount_usd`;
+  assert.deepEqual(paid.map((x) => `${Number(x.amount_usd)} ${x.payment_key ?? '-'}`).sort(), ['1000 tranche-3', '2500 -', '2500 tranche-2', '3000 -']);
+  assert.deepEqual(await record(o(i), 'l-res', 'rejected', { now: NOW }), { ok: false, note: 'That one already has a result here: won $6,000.' });
   await prog('l-rej');
   await record(o(i), 'l-rej', 'applied', { now: NOW });
   await record(o(i), 'l-rej', 'rejected', { now: NOW });
@@ -229,10 +243,10 @@ test('gap_done refuses an item that is not one of the program\'s, names the real
   const i = await install();
   await prog('l-gap-arc', { eligibility: [{ kind: 'chain', value: 'arc' }] });
   const r = await record(o(i), 'l-gap-arc', 'gap_done', { item: 'nope', now: NOW });
-  assert.deepEqual(r, { ok: false, note: 'Which change did you finish? Say the program and the change.', items: ['chain:arc'] });
+  assert.deepEqual(r, { ok: false, note: 'Which change did you finish? Say the program and the change.', items: ['chain:arc', 'repo'] });
   // users only when the program has a users item (v6.1.7, C27); without an item the keys come back too (C11).
-  assert.deepEqual(await record(o(i), 'l-gap-arc', 'gap_done', { item: 'users', now: NOW }), { ok: false, note: 'Which change did you finish? Say the program and the change.', items: ['chain:arc'] });
-  assert.deepEqual(await record(o(i), 'l-gap-arc', 'gap_done', { now: NOW }), { ok: false, note: 'Which change did you finish? Say the program and the change.', items: ['chain:arc'] });
+  assert.deepEqual(await record(o(i), 'l-gap-arc', 'gap_done', { item: 'users', now: NOW }), { ok: false, note: 'Which change did you finish? Say the program and the change.', items: ['chain:arc', 'repo'] });
+  assert.deepEqual(await record(o(i), 'l-gap-arc', 'gap_done', { now: NOW }), { ok: false, note: 'Which change did you finish? Say the program and the change.', items: ['chain:arc', 'repo'] });
   assert.deepEqual(await counts(i), { apps: 0, hist: 0 });
   assert.deepEqual([...(await doneItems(o(i), 'l-gap-arc', ''))], []);
   assert.equal((await record(o(i), 'l-gap-arc', 'gap_done', { item: 'chain:arc', now: NOW })).ok, true);
@@ -327,6 +341,7 @@ test('a record under one b: owner from two installations is one row, written by 
   const two = await install();
   // Past the builders sequence, so no other file's builder shares it.
   const b = `b:${2 ** 30}`;
+  await sql()`UPDATE installations SET builder_id = ${2 ** 30} WHERE id IN (${one}, ${two})`;
   await prog('l-b1', { eligibility: [{ kind: 'users' }] });
   await record(b, 'l-b1', 'applied', { installationId: one, now: NOW });
   await record(b, 'l-b1', 'won', { installationId: two, amount_usd: 100, now: new Date(NOW.getTime() + DAY) });
@@ -358,4 +373,31 @@ test('v6.1.9: with no results date, EarnKit asks 30 days after the send', async 
   await markAsked(o(i), ['ao-nodate-a'], NOW);
   assert.deepEqual(await askOutcome(o(i), [a, b], NOW), []);
   assert.deepEqual((await askOutcome(o(i), [a, b], new Date(NOW.getTime() + 2 * DAY))).map((x) => x.program_id), ['ao-nodate-b']);
+});
+
+test('fix round 2 (v6.1.14): a b: ledger takes only calls of an installation linked to that builder; i: only its own', async () => {
+  const { stillLinked } = await import('../v6/claims');
+  const linked = await install();
+  const unlinked = await install();
+  const B = 2 ** 30 + 11;
+  await sql()`UPDATE installations SET builder_id = ${B} WHERE id = ${linked}`;
+  const at = (owner: string, i: number) => sql().begin((tx) => stillLinked(tx, owner, i)) as Promise<boolean>;
+  assert.equal(await at(`b:${B}`, linked), true);
+  assert.equal(await at(`b:${B + 1}`, linked), false);
+  // NULL builder_id refuses whatever unlinked_at says; a missing row refuses.
+  assert.equal(await at(`b:${B}`, unlinked), false);
+  assert.equal(await at(`b:${B}`, 2 ** 30), false);
+  assert.equal(await at(o(unlinked), unlinked), true);
+  assert.equal(await at(o(linked), unlinked), false);
+  // Every agent status is refused with the one line; nothing is written.
+  await prog('l-fr2');
+  const UNL = 'This agent was just unlinked from your account; nothing recorded.';
+  for (const [status, extra] of [['applied', {}], ['won', { amount_usd: 10 }], ['skipped', {}], ['rejected', {}], ['no_result', {}]] as const)
+    assert.deepEqual(await record(`b:${B}`, 'l-fr2', status, { installationId: unlinked, now: NOW, ...extra }), { ok: false, note: UNL }, status);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE owner = ${`b:${B}`}`)[0].n, 0);
+  // The linked one writes; a program's screen outcome (fromScreen) lands as the application's own installation.
+  assert.deepEqual(await record(`b:${B}`, 'l-fr2', 'applied', { installationId: linked, now: NOW }), { ok: true });
+  await sql()`UPDATE installations SET builder_id = NULL WHERE id = ${linked}`;
+  assert.deepEqual(await record(`b:${B}`, 'l-fr2', 'won', { installationId: linked, amount_usd: 10, now: NOW }), { ok: false, note: UNL });
+  assert.deepEqual(await record(`b:${B}`, 'l-fr2', 'won', { installationId: linked, amount_usd: 10, now: NOW, fromScreen: true }), { ok: true });
 });

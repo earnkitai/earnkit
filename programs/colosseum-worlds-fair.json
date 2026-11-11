@@ -8,6 +8,7 @@
   "reward": "$840,000 in prizes: $30,000 grand prize, $15,000 each for the next 20 teams, plus a $100,000 Solana Ecosystem track (10 winners at $10,000 each). Base, Tempo, and Robinhood Chain also have dedicated ecosystem tracks; the page doesn't state a per-track prize amount for them.",
   "summary": "$840K in prizes · closes Oct 12, 11:59 PM PT",
   "max_award_usd": 30000,
+  "category": "hackathon",
   "pool_usd": 840000,
   "ideas": [
     "A new startup built on Base during the hackathon",

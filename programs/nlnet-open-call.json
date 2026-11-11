@@ -20,6 +20,7 @@
   "opens_note": "Submissions are paused after the last deadline; the next deadline is January 3, 2027 at 12:00 CET",
   "existing_work": "allowed",
   "needs_repo": false,
+  "open_source": true,
   "chains": [],
   "any_chain": true,
   "setup": [

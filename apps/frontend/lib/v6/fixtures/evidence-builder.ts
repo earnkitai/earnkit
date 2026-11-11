@@ -13,7 +13,7 @@ const DAY = 86_400_000;
 export const daysAgo = (n: number) => new Date(NOW.getTime() - n * DAY).toISOString();
 
 export const liveRows = (o: Partial<LiveRows> = {}): LiveRows => ({
-  url: null, url_ok: null, status: null, is_app: null, domain: null, domain_age_days: null, title: null, github_links: [], note: null, ...o,
+  url: null, url_ok: null, status: null, is_app: null, domain: null, domain_age_days: null, title: null, placeholder: null, github_links: [], note: null, ...o,
 });
 export const contract = (o: Partial<OnchainRows> = {}): OnchainRows => ({
   chain: 'base', address: `0x${'1'.repeat(40)}`, mainnet: true, is_contract: true, verified_source: true, deployer: null,

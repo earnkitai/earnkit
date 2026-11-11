@@ -6,6 +6,7 @@
 import { createHash } from 'node:crypto';
 import { sql } from './db';
 import { dropControls } from './controls';
+import { INVALID_CLIENT_NAME, OAuthError, reservedClientName } from './oauth';
 
 export type Caller = { id: number; builderId: number | null };
 
@@ -32,6 +33,8 @@ export function cleanClientName(name: string | null | undefined): string | null 
  * new installation with a fresh ledger). Idempotent for a replayed code. The agent's name is cleaned first. Returns its id.
  */
 export async function saveInstallation(token: string, clientName: string | null = null): Promise<number> {
+  // T6-F2 (v6.1.14): no installation is saved under EarnKit's own name, whoever calls this.
+  if (reservedClientName(clientName)) throw new OAuthError('invalid_client_metadata', INVALID_CLIENT_NAME);
   const [r] = await sql()<{ id: number }[]>`
     INSERT INTO installations (token_hash, client_name) VALUES (${hash(token)}, ${cleanClientName(clientName)})
     ON CONFLICT (token_hash) DO UPDATE SET client_name = COALESCE(EXCLUDED.client_name, installations.client_name)
@@ -83,6 +86,17 @@ export async function unmarkNightFind(id: number): Promise<void> {
   // No find before it: a moment before the night's find, so its sends still count as after it.
   await sql()`UPDATE installations SET last_find_at = COALESCE(prev_find_at, last_find_at - interval '1 millisecond')
     WHERE id = ${id} AND last_find_at IS NOT NULL AND last_find_at IS DISTINCT FROM prev_find_at`;
+}
+
+/** L13-7 (v6.1.14): stamps whether standing approval was on at this find (a linked find with a project). */
+export async function markFindAuto(id: number, on: boolean): Promise<void> {
+  await sql()`UPDATE installations SET last_find_auto = ${on} WHERE id = ${id}`;
+}
+
+/** Whether standing approval was on at this installation's last find with a project (false before any). */
+export async function findAutoWas(id: number): Promise<boolean> {
+  const [row] = await sql()<{ on: boolean | null }[]>`SELECT last_find_auto AS on FROM installations WHERE id = ${id}`;
+  return row?.on === true;
 }
 
 /**

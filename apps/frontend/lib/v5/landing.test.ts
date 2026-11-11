@@ -33,7 +33,7 @@ test('every program is a tile: no cap, money, closes, kind', () => {
   const tiles = landingTiles(rows, NOW);
   assert.equal(tiles.length, 9);
   const dated = tiles.find((t) => t.id === 'n-0')!;
-  assert.equal(dated.money, '$5K');
+  assert.equal(dated.money, 'Up to $5K');
   assert.equal(dated.when, 'Closes Dec 1');
   assert.equal(dated.big, true);
   assert.equal(dated.kind, 'grant');
@@ -44,6 +44,20 @@ test('a tile with a pool and a per-winner award shows the pool, and a pool tile 
   const [t] = landingTiles([rowOf({ id: 'meta-vr', title: 'Meta Horizon VR Competition', summary: '$100K top prize · $1M in prizes', max_award_usd: 100_000, pool_usd: 1_000_000 })], NOW);
   assert.equal(t.money, '$1M in prizes');
   assert.equal(t.big, false);
+});
+
+test('Review Focus 4 (v6.1.14): a featured range tile reads Up to its top, big; a threshold is never its money', () => {
+  const rows = [
+    rowOf({ id: 'otf', title: 'OTF Internet Freedom Fund', organizer: 'Open Technology Fund', summary: '$10,000 to $900,000 · rolling', max_award_usd: 900_000, min_award_usd: 10_000, ends_at: null }),
+    rowOf({ id: 'circle', title: 'Circle Developer Grants', organizer: 'Circle', summary: '$5,000 to $100,000 USDC grants · rolling', reward: 'USDC grants from $5,000 to $100,000', max_award_usd: 100_000, min_award_usd: 5000, ends_at: null }),
+    rowOf({ id: 'floss', title: 'FLOSS/fund', organizer: 'FLOSS/fund (Zerodha)', summary: '$10,000 to $100,000 · rolling', max_award_usd: 100_000, min_award_usd: 10_000, ends_at: null }),
+  ];
+  const six = featuredTiles(rows, NOW);
+  assert.deepEqual(six.map((t) => [t.id, t.money, t.big]), [['otf', 'Up to $900K', true], ['circle', 'Up to $100K', true], ['floss', 'Up to $100K', true]]);
+  const [arb] = landingTiles([rowOf({ id: 'arb', title: 'Arbitrum Stablecoin Growth Program', summary: 'incentives + 200K ARB at $10M USDG TVL · no deadline stated', ends_at: null })], NOW);
+  assert.equal(arb.money, 'incentives + 200K ARB');
+  assert.doesNotMatch(arb.money, /\$10M/);
+  assert.equal(arb.big, false);
 });
 
 test('an upcoming program reads Not open yet', () => {
@@ -92,7 +106,7 @@ test('featuredTiles: six by the rule (v6.2.0)', () => {
   ];
   const six = featuredTiles(rows, NOW);
   assert.deepEqual(six.map((t) => t.id), ['f-soon-first', 'f-soon-later', 'f-big-pool', 'f-big-award', 'f-mid-pool', 'f-soon-small']);
-  assert.deepEqual(six.map((t) => t.money), ['$25K', '$30K', '$1M in grants', '$100K', '$20K in grants', '$12K']);
+  assert.deepEqual(six.map((t) => t.money), ['Up to $25K', 'Up to $30K', '$1M in grants', 'Up to $100K', '$20K in grants', 'Up to $12K']);
   assert.equal(six[0].when, 'Closes Nov 9');
   assert.ok(six.every((t) => t.status === 'active' && t.kind !== 'investment'));
   const l = landingFrom(rows, STATS, NOW);

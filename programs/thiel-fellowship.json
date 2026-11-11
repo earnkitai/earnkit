@@ -18,7 +18,6 @@
   "chains": [],
   "any_chain": true,
   "tag": "long shot",
-  "min_tier": "building",
   "eligibility": [
     { "kind": "rule", "note": "applicant aged 22 or younger with no university degree, who will drop out of college if selected", "keywords": ["student", "students", "college", "university", "dropout", "drop out", "undergrad"] }
   ],

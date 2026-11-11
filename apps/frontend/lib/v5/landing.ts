@@ -18,7 +18,7 @@ export type Tile = {
   /** Who runs it; the title when the record has no organizer. */
   organizer: string;
   money: string;
-  /** True when the money is one short figure ("$5K"), shown large. */
+  /** True when the money is one short figure ("$5K", or a range's "Up to $900K"), shown large. */
   big: boolean;
   /** "Closes Nov 18", "Rolling" or "Not open yet". */
   when: string;
@@ -62,6 +62,9 @@ export function byRelevance(a: Program, b: Program): number {
   return later(a) - later(b) || reach(a) - reach(b) || inv(a) - inv(b) || at(a) - at(b) || (b.max_award_usd ?? -1) - (a.max_award_usd ?? -1) || a.id.localeCompare(b.id);
 }
 
+/** One short figure, with a range's "Up to " (v6.1.14); the tile draws "Up to" small above the figure. */
+const BIG = /^(Up to )?\$[\d.]+[KM]?$/;
+
 function tileOf(p: Program): Tile {
   const money = moneyOf(p);
   const day = closeDay(p);
@@ -70,7 +73,7 @@ function tileOf(p: Program): Tile {
     title: p.title,
     organizer: p.organizer.trim() || p.title,
     money,
-    big: /^\$[\d.]+[KM]?$/.test(money),
+    big: BIG.test(money),
     when: p.status === 'upcoming' ? NOT_OPEN_YET : day ? `Closes ${day}` : ROLLING,
     kind: programKind(p),
     status: p.status === 'upcoming' ? 'upcoming' : 'active',

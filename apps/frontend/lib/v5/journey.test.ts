@@ -31,7 +31,7 @@ const CLOSINGS = [
   /Nothing is ready yet\. Do real people use it\? Say yes and I look again\.$/,
   // O2 (v6.1.10): in-person programs listed and nothing remote ready.
   /Nothing remote is ready yet\. Say yes and I start the in-person applications\.$/,
-  /Nothing fits yet\. I'll say when something opens\.$/,
+  /Nothing fits yet\. Ask again any time and I show what is new\.$/,
   /Applying tonight to [^\n]+\. Say stop to hold any\.$/,
 ];
 const seen: string[] = [];
@@ -71,7 +71,7 @@ test('a stranger with an app on no chain gets gaps or "Nothing fits yet" and no 
   const reply = await find(id, 'nextjs-dashboard');
   const show = reply.show_to_builder as string;
   const gaps = reply.gaps as unknown[];
-  assert.ok(gaps.length > 0 || /Nothing fits yet\. I'll say when something opens\.$/.test(show), show);
+  assert.ok(gaps.length > 0 || /Nothing fits yet\. Ask again any time and I show what is new\.$/.test(show), show);
   // A program's own setup steps ("First: sign in to its hub") and its blockers ("Before applying: Sign in once to
   // its hub", v6.1.3 R4) are the program's, not EarnKit asking who they are.
   const ours = show.replace(/ First: [^\n]*/g, '').replace(/^Before applying: [^\n]*/m, '').replace(/^In person \(\d+\):\n(\d+\. [^\n]*\n?)+/m, '');
@@ -92,12 +92,12 @@ test('the owner: ready or the builder codes gap, then applied and won on the led
   const t = await track(id, { program_id: top, status: 'applied' });
   assert.equal((t.ledger as { applied: number }).applied, 1);
   const after1 = await find(id, 'earnkit', { live_url: 'https://earnkit.com', users: true });
-  assert.match(after1.show_to_builder as string, /Ledger: 1 applied/);
+  assert.match(after1.show_to_builder as string, /Your applications: 1 sent/);
 
   const w = await track(id, { program_id: top, status: 'won', amount_usd: 5000 });
   assert.equal((w.ledger as { won: number }).won, 1);
   const after2 = await find(id, 'earnkit', { live_url: 'https://earnkit.com', users: true });
-  assert.match(after2.show_to_builder as string, /Ledger: 1 applied.*, 1 won/);
+  assert.match(after2.show_to_builder as string, /Your applications: 1 sent.*, 1 won/);
 });
 
 test('a program closing in 3 days appears in since.closing on the second call', async () => {
@@ -198,7 +198,9 @@ test('every line the builder saw follows the copy rules and ends with one closin
     }
     if (!isReply) continue;
     // The first find after a link adds the linked notice to the closing line (security M2).
-    const last = show.split('\n').at(-1)!.replace(/ This agent is now linked to GitHub account \S+\. Unlink any time at earnkit\.com\/me\.$/, '');
+    // Fix round 1 (v6.1.14, F2): a proof gap with no link to give adds the linkless sign-in to the closing line.
+    const last = show.split('\n').at(-1)!.replace(/ This agent is now linked to GitHub account \S+\. Unlink any time at earnkit\.com\/me\.$/, '').replace(/ Sign in once and I (check that|remember you)\.$/, '');
+    if (/^\d+\. .*: proof that /m.test(show)) assert.match(show.split('\n').at(-1)!, /Sign in once\b/, show);
     assert.equal(CLOSINGS.filter((c) => c.test(last)).length, 1, show);
     assert.equal(show.split('\n').filter((l) => /^(Say yes|Say "do|Say "yes|Nothing fits yet|Nothing is ready yet|Nothing remote is ready yet|Applying tonight)/.test(l)).length, 1, show);
     // Each "yes n" and "do n" is said once (v6.1.8, 1a).

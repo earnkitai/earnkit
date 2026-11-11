@@ -21,6 +21,7 @@
   "status": "active",
   "existing_work": "allowed",
   "needs_repo": true,
+  "open_source": true,
   "chains": [],
   "any_chain": true,
   "setup": [

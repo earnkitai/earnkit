@@ -4,7 +4,7 @@
  * and what the record still lacks for the ready programs. Only find calls this. Unlinked (v6.1.3), find uses
  * only `provisionalTier`, `tierGate` and `blockersOf` against the empty record; nothing here is stored.
  */
-import { evaluate, rulesOnly, type Gap, type Verdict } from '../v5/eligibility';
+import { NEEDS_CODE, evaluate, keywordHit, rulesOnly, type Gap, type Verdict } from '../v5/eligibility';
 import { categoryOf } from '../v5/program-file';
 import type { RecordContext } from '../v5/prefill';
 import type { ProgramRow } from '../v5/programs';
@@ -30,6 +30,8 @@ export type Blocker = {
   program_id: string; sign_in: string | null; needs_click: boolean; needs: string[];
   /** With auto_apply: outside the standing approval's categories or max_ask_usd, so the builder says yes to it. */
   outside_approval?: true;
+  /** L13-10 (v6.1.14): outside it only by its award, over the builder's max_ask_usd: that limit. */
+  over_limit_usd?: number;
 };
 
 const sameRepo = (a: string | null | undefined, b: string | null | undefined) =>
@@ -151,7 +153,8 @@ export function provisionalTier(facts: RepoFacts): Tier | null {
   return 'building';
 }
 
-/** `tierGate` without the builder's own tier: unlinked, the gap names signing in and the bar (R3b); linked (no own
+/** `tierGate` without the builder's own tier: unlinked, the gap names the bar (`proof that ...`, R3b) and the reply asks
+ *  the sign-in once (v6.1.14); linked (no own
  *  tier read yet), that the proof is still being read (I2), or, when no project in the record matches the find
  *  (`noProject`), to add it so its proof can be read (I2 nuance, v6.1.9). Pure. */
 export const provisionalGate = (v: Verdict, row: ProgramRow, tier: Tier | null, o: { onchain: boolean; linked: boolean; noProject?: boolean }): Verdict =>
@@ -159,14 +162,29 @@ export const provisionalGate = (v: Verdict, row: ProgramRow, tier: Tier | null, 
     ? tierGate(v, row, tier, ` Next: ${o.linked ? (o.noProject ? ADD_PROJECT : PROOF_READING) : confirmLine(row.file.min_tier)}`, o.onchain)
     : v;
 
+/**
+ * L12-7 (v6.1.14): with no tier at all (nothing read, no repo or live link) a `building` bar asks for code, so a program
+ * on one of the project's own chains, or one whose rule keyword the project names (a keyword hit), is never hidden by
+ * it when code in a repo is its only change: it is a gap of `code in a repo` (NEEDS_CODE) and its rules, never a no.
+ * Anything else is null (the bar decides as before). Pure.
+ */
+function codeStep(v: Verdict, row: ProgramRow, facts: RepoFacts, tier: Tier | null): Verdict | null {
+  if (tier || row.file.min_tier !== 'building' || v.status === 'no' || facts.chains.length === 0) return null;
+  if (!v.gaps.every((g) => g.kind === 'rule' || g.item === NEEDS_CODE.item)) return null;
+  const own = row.file.chains.some((c) => facts.chains.some((f) => f.chain === c));
+  if (!own && !keywordHit(row, facts, v.gaps)) return null;
+  return { ...v, status: 'gap', gaps: [NEEDS_CODE, ...v.gaps.filter((g) => g.item !== NEEDS_CODE.item)], reason: null };
+}
+
 /** The one gate the list and the one-program reply share (I3): the builder's own tier when read, else the provisional
- *  one. A project's bars apply only when it has a chain (B20b). Pure. */
+ *  one. A project's bars apply only when it has a chain (B20b); with no tier, an own-chain or keyword-hit program asks
+ *  for code in a repo instead (L12-7, v6.1.14: `codeStep`). Pure. */
 export function gateFor(side: RecordSide | null, facts: RepoFacts): (v: Verdict, row: ProgramRow) => Verdict {
   const provisional = provisionalTier(facts);
   const onchain = facts.chains.length > 0;
   return (v, row) => side?.tier
     ? tierGate(v, row, side.tier, side.summary?.line, onchain)
-    : provisionalGate(v, row, provisional, { onchain, linked: side !== null, noProject: side !== null && side.projectId === null });
+    : codeStep(v, row, facts, provisional) ?? provisionalGate(v, row, provisional, { onchain, linked: side !== null, noProject: side !== null && side.projectId === null });
 }
 
 /** The programs the builder lists: everything but the never list, matched on the title or the slug, any case (v6.1.8:
@@ -216,6 +234,12 @@ export const HAD_CLOSED = 'it had closed';
 /** The reason when the program's verdict for the project was not ready at send time (v6.1.13, B2). */
 export const STEP_AWAY = 'it was still a step away';
 
+/** The reason when the program had not opened at send time (L13-6, v6.1.14). */
+export const NOT_OPENED = 'it has not opened yet';
+
+/** The reason when the builder turned standing approval off after the agent's last find saw it on (L13-7, v6.1.14). */
+export const APPROVAL_OFF = 'it was off';
+
 /** The record side from the stored record alone (no evidence read, nothing stored): the picked project's stored tier. Pure. */
 export function storedSide(rec: RecordContext): RecordSide {
   const stored = rec.record.projects.find((p) => p.id === rec.projectId)?.last_tier;
@@ -248,8 +272,12 @@ export function blockersOf(rows: ProgramRow[], record: BuilderRecord): Blocker[]
     const needs = row.file.needs.filter((n) => !hasDoc(record, n));
     const sign_in = signInOf(row);
     const outside = record.policy.auto_apply && !within(row);
+    const overLimit = outside && categoryIn(record, row) && record.policy.max_ask_usd !== undefined;
     if (sign_in || needs_click || needs.length > 0 || outside)
-      out.push({ program_id: row.id, sign_in, needs_click, needs, ...(outside ? { outside_approval: true as const } : {}) });
+      out.push({
+        program_id: row.id, sign_in, needs_click, needs,
+        ...(outside ? { outside_approval: true as const } : {}), ...(overLimit ? { over_limit_usd: record.policy.max_ask_usd } : {}),
+      });
   }
   return out;
 }

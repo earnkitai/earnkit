@@ -84,8 +84,16 @@ const organizers = (x: string) => organizerParts(x).flatMap((o) => [squash(o), s
 const organizerLeads = (x: string) => organizerParts(x).map((o) => plain(unbracketed(o)).split(' ')[0]).filter(Boolean);
 /** The shortest start of a title or id that names a program (final fix, v6.1.12, I2): "fi" or "aws" name none. */
 const MIN_PREFIX = 4;
-/** Words that say nothing about which program it is. */
-const COMMON = new Set(['the', 'and', 'for', 'of', 'a', 'an', 'program', 'programs', 'grant', 'grants', 'fund', 'batch', 'cohort', 'foundation']);
+/** Words that say nothing about which program it is, dropped from a lookup of other words too (L12-3, v6.1.14). */
+const COMMON = new Set(['the', 'and', 'for', 'of', 'a', 'an', 'program', 'programs', 'grant', 'grants', 'fund', 'batch', 'cohort']);
+/** A year in a lookup ("thiel fellowship 2027") says when, not which (L12-3, v6.1.14). */
+const YEAR = /^\d{4}$/;
+/** The words a program answers to (L12-3, L12-5, v6.1.14): those of its id, title and organizer, brackets included
+ *  ("FLOSS/fund (Zerodha)" answers to "zerodha"). Pure. */
+const wordsOfProgram = (r: ProgramRow) => new Set([r.id, r.file.title, r.file.organizer].flatMap((x) => plain(x).split(' ')).filter(Boolean));
+/** The words a short word (under four characters) may name (fix round 1, T7-F3): the id's and title's words and the
+ *  id's initials ("arc", "yc"), never an organizer's ("aws" from "Kiro (AWS)"). Pure. */
+const shortWordsOfProgram = (r: ProgramRow) => new Set([...[r.id, r.file.title].flatMap((x) => plain(x).split(' ')), initials(r.id)].filter(Boolean));
 /** The money a program puts up: the larger of its top award and its pool, -1 when it states neither. Pure. */
 const awardOf = (p: Program) => Math.max(p.max_award_usd ?? -1, p.pool_usd ?? -1);
 
@@ -112,9 +120,10 @@ export function unknownProgramLine(suggest: readonly string[]): string {
  * else, case, spaces and punctuation ignored, the first of these that any program fits: its whole id or title, or its
  * id's initials ("yc"); the start of its title or id, four characters at least ("monad", "Base"; never "fi"), an
  * organizer's first word only when that organizer runs no other program ("floss", "thiel"; L1e-1, v6.1.13); one of its
- * organizers' whole names ("Thiel Foundation", "Kiro", never "aws"). Exactly one program fitting is the `row`; several
- * are `suggest`, the first two by byLookupRank; none, `suggest` holds the titles sharing a word with the name (two at
- * most, by rank).
+ * organizers' whole names ("Thiel Foundation", "Kiro", never "aws"); else every word of the name (stopwords and years
+ * dropped) among one program's id, title and organizer words, brackets included ("paypal hackathon", "zerodha"; L12-3,
+ * L12-5, v6.1.14). Exactly one program fitting is the `row`; several are `suggest`, the first two by byLookupRank;
+ * none, `suggest` is empty ("I don't know that program.").
  */
 export async function programByName(name: string, now: Date = new Date()): Promise<{ row: ProgramRow | null; suggest: string[] }> {
   const exact = await getProgram(name);
@@ -144,8 +153,21 @@ export async function programByName(name: string, now: Date = new Date()): Promi
     if (!takes && fit.length > 0) return { row: null, suggest: titles(fit) };
     if (hits.length > 1) return { row: null, suggest: titles(hits) };
   }
-  const named = new Set(words.split(' ').filter((w) => w.length >= 2 && !COMMON.has(w)));
-  return { row: null, suggest: titles(rows.filter((r) => plain(r.file.title).split(' ').some((w) => named.has(w)))) };
+  // L12-3 (v6.1.14): every word of the name, stopwords and years dropped, in one program's id, title or organizer
+  // (L12-5: brackets included). A single typed word names a program only at four characters or more ("zerodha", never
+  // "aws"); beside another typed word a short word may name an id or title word or the id's initials ("arc grants",
+  // "yc batch"; fix round 1, T7-F3). Only stopwords, years or "foundation" name none (T7-F4). One program is the row,
+  // several are asked about, none is no program.
+  const all = words.split(' ');
+  const asked = all.filter((w) => !COMMON.has(w) && !YEAR.test(w));
+  if (asked.every((w) => w === 'foundation') || (all.length === 1 && asked[0].length < MIN_PREFIX)) return { row: null, suggest: [] };
+  const fit = rows.filter((r) => {
+    const own = wordsOfProgram(r);
+    const short = shortWordsOfProgram(r);
+    return asked.every((w) => (w.length < MIN_PREFIX ? short : own).has(w));
+  });
+  if (fit.length === 1) return { row: fit[0], suggest: [] };
+  return { row: null, suggest: titles(fit) };
 }
 
 /** The programs with these ids, whatever their status, deadline or staleness. */

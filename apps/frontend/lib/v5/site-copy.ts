@@ -2,6 +2,7 @@
  * Every string the site shows that is not data, and the pure formatters the cards use.
  * Plain words: no emoji, no em dash. The terms page alone may say "launch a token".
  */
+import { categoryOf } from './program-file';
 import { compactUsd } from './programs-read';
 
 export { compactUsd };
@@ -15,21 +16,22 @@ export const monthDay = (d: Date): string => `${MONTHS[d.getUTCMonth()]} ${d.get
 export const heroChipText = (usd: number): string | null =>
   usd > 0 ? `${compactUsd(usd)} in grants and prizes open now` : null;
 
-/** "grant", "grant, in USDC", "hackathon" or "investment". Pure. */
-export function programKind(c: { investment?: boolean; in_person?: boolean; reward?: string }): string {
-  if (c.investment) return 'investment';
-  if (c.in_person === true || /\bprizes?\b/i.test(c.reward ?? '')) return 'hackathon';
-  return /\bUSDC\b/.test(c.reward ?? '') ? 'grant, in USDC' : 'grant';
+/** The program's kind: `categoryOf` (one rule for the landing, /programs and replies, v6.1.14), a grant paid in
+ *  USDC as "grant, in USDC". Pure. */
+export function programKind(p: Partial<Parameters<typeof categoryOf>[0]> & { reward?: string }): string {
+  const c = categoryOf({ ...p, investment: p.investment ?? false, in_person: p.in_person ?? false });
+  return c === 'grant' && /\bUSDC\b/.test(p.reward ?? '') ? 'grant, in USDC' : c;
 }
 
 export const HERO_TITLE = 'Get funded for what you ship.';
-export const HERO_SUB = 'Your agent finds the grants and prizes you fit and applies. Free.';
+export const HERO_SUB = 'Your agent finds the grants and prizes you fit and fills the forms. Free.';
 export const CTA_INSTALL = 'Add EarnKit to your agent';
 export const NAV_INSTALL = 'Add to your agent';
 /** One line each, no titles (v6.2.0). */
-export const STEPS = ['Add EarnKit to your agent.', 'Ask what this repo can earn.', 'Say yes. It applies and tracks the result.'];
+export const STEPS = ['Add EarnKit to your agent.', 'Ask what this repo can earn.', 'Say yes. It fills the form and sends it, or hands you the draft to send.'];
 
-export const EARN_TITLE = 'This week';
+/** Several of the six are rolling, so not "this week" (v6.1.14). */
+export const EARN_TITLE = 'Open now';
 /** The link under the landing's six to /programs. */
 export const EARN_ALL = (n: number): string => `See all ${n} programs`;
 export const EARN_EMPTY = 'Nothing is open right now.';
@@ -37,7 +39,7 @@ export const ROLLING = 'Rolling';
 export const NOT_OPEN_YET = 'Not open yet';
 export const CLOSED = 'Closed';
 export const PROGRAMS_TITLE = 'Programs';
-export const PROGRAMS_DESCRIPTION = 'Every grant, hackathon and bounty EarnKit lists, with the money and the close date.';
+export const PROGRAMS_DESCRIPTION = 'Every grant, hackathon and investment EarnKit lists, with the money and the close date.';
 export const ALL_PROGRAMS = 'All programs';
 export const FOOT_CTA = 'Ask your agent what you can earn.';
 export const ART_CREDIT = 'Art: C.W. Eckersberg, 1815 · G.P. Panini, c. 1734';
@@ -63,10 +65,11 @@ export const DOCS_NAV: [string, string][] = [
   ['#session', 'How a session goes'],
   ['#record', 'Your record'],
   ['#screening', 'Screening, for programs'],
+  ['#programs', 'For program owners'],
   ['#checked', 'How programs are checked'],
   ['#terms', 'Terms'],
 ];
-export const DOCS_DESCRIPTION = 'How to add EarnKit to your agent, how a session goes, your record, screening for programs, and how programs are checked.';
+export const DOCS_DESCRIPTION = 'How to add EarnKit to your agent, how a session goes, your record, screening for programs, what program owners need to know, and how programs are checked.';
 export const DOCS_INSTALL_TITLE = 'Add EarnKit to your agent';
 /** The intro line above the install tabs already says it connects at once, so no step says it again (v6.1.8, Task 6). */
 export const DOCS_STEPS = ['Add EarnKit', 'Ask what this repo can earn.'];
@@ -80,8 +83,19 @@ export const DOCS_RECORD = {
 };
 export const DOCS_SCREEN = {
   title: 'Screening, for programs',
-  text: "Hand your applicant list to your agent and EarnKit returns it in five tiers with public evidence: used, live, building, unverified, flagged. We read the repo, the chain and the site. We never show a builder's record, another program's name or another applicant's text.",
+  text: "Hand your applicant list to your agent and EarnKit returns it in five tiers with public evidence: used, live, building, unverified, flagged. We read the repo, the chain and the site. We never show a builder's record, another program's name, screens or results, or another applicant's text. A program's reviewers share its screens, and they stay with the program when a reviewer leaves.",
 };
+/** L15-20 (v6.1.14): what a program owner needs before trusting a screen, one line each. */
+export const DOCS_PROGRAMS = {
+  title: 'For program owners',
+  items: [
+    "Sign in once with GitHub and ask EarnKit to mark you as your program's reviewer. Your team is marked the same way and shares your screens.",
+    "A screen reads only public evidence: the repo, the chain and the site. It never reads a builder's record or another applicant's text.",
+    "Tell your agent who won. A result reaches a builder only through the EarnKit id on their application, and never from your own application.",
+    'Other programs see nothing of your screens, results or decisions.',
+    'Results come in daily runs, the first by the next morning, and are kept 180 days with your decisions.',
+  ],
+} as const;
 export const DOCS_CHECKED = {
   title: 'How programs are checked',
   text: 'The owner and a research bot curate the list. Every program is re-checked weekly and its links are probed daily. Stale programs drop off.',
@@ -122,7 +136,7 @@ export const TERMS_SECTIONS = [
     title: 'Programs',
     lines: [
       'A program that screens its applicants sees only public evidence: the repo, the chain and the site.',
-      "It never sees your record, the other programs you applied to or another applicant's text.",
+      "It never sees your record, the other programs you applied to, what another program decided or another applicant's text.",
     ],
   },
 ] as const;
@@ -174,7 +188,7 @@ export const ME_LINK_NOT = 'Not linked.';
 export const ME_LINK_YES = 'Link this agent';
 export const ME_LINK_NO = 'Not me';
 export const ME_DELETE_TITLE = 'Delete your record';
-export const ME_DELETE_LINE = 'This removes your record, your applications and your sign-ins. Your agents keep working, unsigned.';
+export const ME_DELETE_LINE = 'This removes your record, your applications and your sign-ins. Screens you ran for a program stay with that program. Your agents keep working, unsigned.';
 export const ME_DELETE_HINT = 'Type your GitHub login to confirm.';
 export const ME_DELETE = 'Delete everything';
 export const ME_NOT_SET = 'Not set';

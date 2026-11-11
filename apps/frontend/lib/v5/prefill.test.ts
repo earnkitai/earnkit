@@ -52,7 +52,8 @@ test('base-builder-grants: facts fill; prose, team and contacts go to the agent;
   assert.equal(by.founding_team.value, null);
   assert.ok((by.founding_team.sources ?? []).length > 0);
   assert.equal(by.email.from, 'agent');
-  assert.deepEqual(by.email.sources?.slice(0, 2), ['git config and the environment', 'what the builder told you']);
+  // L13-20 (v6.1.14): only where an email can sit; never the repo link, the chains or the commit dates.
+  assert.deepEqual(by.email.sources, ['git config and the environment', 'what the builder told you', 'the README', 'the package manifests', 'the GitHub profile']);
   assert.equal(by.usage_numbers.from, 'builder');
   assert.equal(by.usage_numbers.value, null);
   assert.equal(by.full_name.from, 'agent');
@@ -223,7 +224,7 @@ test('traction: verified usage wins over the pre-launch line; neither leaves it 
   const facts = await factsOf('earnkit');
   const row = rowWith([req({ key: 'traction', label: 'Traction', type: 'text', kind: 'traction', todo: 'your traction' })]);
   const withLine = recordWith({ traction: { line_pre_launch: 'Pre-launch, launching 2026-12-01, 140 on the waitlist.' } }, ['traction.line_pre_launch']);
-  const usage = '1,240 distinct funded wallets in 90 days on Base, 12,300 transactions, live since 2026-08-02';
+  const usage = '1,240 distinct senders the deployer did not fund in 90 days on Base, 12,300 transactions, live since 2026-08-02';
   const verified = prefill(row, facts, rec(withLine, usage)).fields[0];
   assert.deepEqual([verified.from, verified.value, verified.style], ['record', usage, undefined]);
   const line = prefill(row, facts, rec(withLine)).fields[0];

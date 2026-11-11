@@ -227,6 +227,9 @@ export const ProgramFile = z
     investment: z.boolean().default(false),
     category: z.enum(PROGRAM_CATEGORIES).optional(),
     needs_repo: z.boolean().optional(),
+    /** v6.1.14 L1f-1: the program's rule is an open source license or open source software, so a private repo is one
+     *  step (a public repo) from it, never ready. */
+    open_source: z.boolean().default(false),
     /** A deployed contract on this chain's mainnet is required. */
     needs_contract: chainSlug.optional(),
     min_product_score: z.number().int().min(0).max(6).default(0),

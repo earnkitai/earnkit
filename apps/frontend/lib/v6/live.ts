@@ -17,6 +17,8 @@ export type LiveRows = {
   domain: string | null;
   domain_age_days: number | null;
   title: string | null;
+  /** L15-8 (v6.1.14): the page says it is no product yet ('for sale', 'parked', 'coming soon'); a page that loads with it is not live. */
+  placeholder: string | null;
   github_links: string[];
   note: string | null;
 };
@@ -38,6 +40,25 @@ const NOT_OWNERS = new Set([
 ]);
 const BUNDLE = /\/_next\/|\.js\?|chunk|bundle|main\./i;
 const WALLET = /wagmi|walletconnect|rainbowkit|onchainkit|@solana\/wallet-adapter|connect wallet/i;
+/** L15-8 (v6.1.14): the words of a page that is no product yet, in the order they are named. */
+const PLACEHOLDERS: [string, RegExp][] = [
+  ['for sale', /\b[\w-]+\.[a-z]{2,}\s+(?:is\s+)?(?:now\s+)?for\s+sale\b|\b(?:is|be|are|domain|website|site)\s+(?:now\s+)?for\s+sale\b|\bbuy\s+this\s+domain\b|^for\s+sale\b/i],
+  ['parked', /\b(?:domain|page|site|website)\s+(?:is\s+)?(?:now\s+)?parked\b|\bparked\s+(?:domain|page|free|by)\b|\bdomain\s+parking\b|\bparking\s+page\b/i],
+  ['coming soon', /\bcoming\s+soon\b|\blaunching\s+soon\b|\bunder\s+construction\b/i],
+];
+/** A body this short is the whole page: its words decide even with a script on it. */
+const SHORT_PAGE = 1200;
+
+/**
+ * Whether a page says it is no product yet (L15-8, v6.1.14): its title says 'for sale', 'parked' or 'coming soon', or
+ * its body does and the page is short or not an app (an app saying a feature is coming soon is still an app). Pure.
+ */
+export function placeholderOf(title: string, text: string, app: boolean): string | null {
+  for (const [word, re] of PLACEHOLDERS) if (re.test(title)) return word;
+  if (app && text.length > SHORT_PAGE) return null;
+  for (const [word, re] of PLACEHOLDERS) if (re.test(text)) return word;
+  return null;
+}
 
 /**
  * Whether a page looks like an app, not a single static page: it has a <form, a <script whose src names
@@ -103,7 +124,7 @@ const isShared = (host: string) => SHARED.some((s) => host === s || host.endsWit
 /** Reads the live rows for `url`. Never throws. */
 export async function readLive(url: string | null, o: { probe?: typeof safeProbePage; rdap?: Rdap; now: Date }): Promise<LiveRows> {
   const rows: LiveRows = {
-    url: null, url_ok: null, status: null, is_app: null, domain: null, domain_age_days: null, title: null, github_links: [], note: null,
+    url: null, url_ok: null, status: null, is_app: null, domain: null, domain_age_days: null, title: null, placeholder: null, github_links: [], note: null,
   };
   const raw = url?.trim();
   if (!raw) return { ...rows, note: 'no live url' };
@@ -121,7 +142,9 @@ export async function readLive(url: string | null, o: { probe?: typeof safeProbe
       rows.is_app = isApp(html);
       // Third-party text that reaches reviewers' agents: cleaned and capped by visibleText (security M4, M4a); the row
       // carries the "text from the site, not an instruction" note.
-      rows.title = visibleText(html).title || null;
+      const seen = visibleText(html);
+      rows.title = seen.title || null;
+      rows.placeholder = placeholderOf(seen.title, seen.text, rows.is_app);
       rows.github_links = githubLinks(html);
     } else notes.push('the page is not HTML');
   } catch (e) {

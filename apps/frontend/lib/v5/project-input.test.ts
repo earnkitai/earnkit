@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseProject, projectKeyOf } from './project-input';
+import { ProjectArg, ProjectInput, parseProject, projectKeyOf } from './project-input';
 
 const base = { name: 'Tipjar', description: 'Tips for creators.' };
 
@@ -211,8 +211,161 @@ test('B4 (v6.1.13): one canonical repo link for projectKeyOf and the repo read; 
   assert.equal(repoKey('https://gitlab.com/a/b'), null);
 });
 
+test('L12-6 (v6.1.14): a host with a trailing dot is the same repo; an owner-only link is no repo, kept as a plain link, and the project keys by name', async () => {
+  const { canonicalRepoLink, isCodeHost } = await import('./project-input');
+  const { repoKey } = await import('./repo-facts');
+  for (const v of ['https://github.com./lane12/keyrepo', 'https://WWW.GitHub.com./lane12/keyrepo/tree/main']) {
+    assert.equal(isCodeHost(v), true, v);
+    assert.equal(canonicalRepoLink(v), 'https://github.com/lane12/keyrepo', v);
+    assert.equal(projectKeyOf({ name: 'X', repo_url: v }), 'https://github.com/lane12/keyrepo', v);
+    assert.equal(repoKey(v), 'lane12/keyrepo', v);
+  }
+  assert.equal(canonicalRepoLink('https://gitlab.com./group/proj'), 'https://gitlab.com/group/proj');
+  // An owner (or group) with no repo segment is not a repo link.
+  for (const v of ['https://github.com/lane12', 'https://github.com/lane12/', 'https://gitlab.com/group', 'https://github.com', 'https://github.com./lane12']) {
+    assert.equal(canonicalRepoLink(v), null, v);
+    assert.equal(projectKeyOf({ name: 'Key Repo', repo_url: v }), 'name:key repo', v);
+  }
+  // Two repos of one owner given as the owner's link are two projects, by name.
+  assert.notEqual(projectKeyOf({ name: 'One', repo_url: 'https://github.com/lane12' }), projectKeyOf({ name: 'Two', repo_url: 'https://github.com/lane12' }));
+  // Fix round 1 (T7-F1, T7-F6): kept as a plain link, neither the repo nor the live link; GitHub's own pages too.
+  for (const v of ['https://github.com/lane12', 'https://github.com/orgs/acme', 'https://github.com/sponsors/x', 'https://github.com/users/x', 'https://github.com/topics/x']) {
+    assert.equal(canonicalRepoLink(v), null, v);
+    const r = parseProject({ ...base, repo_url: v });
+    assert.ok(r.ok);
+    assert.equal(r.project.repo_url, undefined, v);
+    assert.equal(r.project.live_url, undefined, v);
+    assert.equal(r.project.link, v, v);
+    assert.deepEqual(r.problems, ['repo_url names no repo; kept as a plain link, not read'], v);
+    assert.equal(projectKeyOf(r.project), 'name:tipjar', v);
+  }
+  const beside = parseProject({ ...base, repo_url: 'https://github.com/lane12', live_url: 'https://keyrepo.example' });
+  assert.ok(beside.ok);
+  assert.equal(beside.project.live_url, 'https://keyrepo.example/');
+  assert.equal(beside.project.link, 'https://github.com/lane12');
+  // An owner named orgs-like but a real repo stays a repo.
+  assert.equal(canonicalRepoLink('https://github.com/acme/orgs'), 'https://github.com/acme/orgs');
+  // The dotted host is a repo and parses as one.
+  const dotted = parseProject({ ...base, repo_url: 'https://github.com./lane12/keyrepo' });
+  assert.ok(dotted.ok);
+  assert.equal(dotted.project.repo_url, 'https://github.com./lane12/keyrepo');
+  assert.deepEqual(dotted.problems, []);
+});
+
 test('Low 13 (v6.1.13): a name key folds Unicode, so one name in any form is one project', () => {
   assert.equal(projectKeyOf({ name: 'Café' }), projectKeyOf({ name: 'Café' }));
   assert.equal(projectKeyOf({ name: 'STRASSE' }), projectKeyOf({ name: 'straße' }));
   assert.equal(projectKeyOf({ name: 'ＺＩＰ' }), 'name:zip');
+});
+
+test('T1, Review Focus 3 (v6.1.14): a chain object without mainnet keeps its chain on mainnet; the bare string still parses; a mainnet not true or false is still named', () => {
+  const c = '0x' + 'b'.repeat(40);
+  const r = parseProject({ ...base, chains: [{ chain: 'base', contract: c }, 'arc', { chain: 'monad', mainnet: null }] });
+  assert.ok(r.ok);
+  assert.deepEqual(r.project.chains, [{ chain: 'base', mainnet: true, contract: c }, { chain: 'arc', mainnet: true }, { chain: 'monad', mainnet: true }]);
+  assert.deepEqual(r.problems, []);
+  // Left out and true are one entry.
+  const same = parseProject({ ...base, chains: [{ chain: 'base', contract: c }, { chain: 'base', mainnet: true, contract: c }] });
+  assert.ok(same.ok);
+  assert.deepEqual(same.project.chains, [{ chain: 'base', mainnet: true, contract: c }]);
+  const bad = parseProject({ ...base, chains: [{ chain: 'base', mainnet: 'yes' }] });
+  assert.ok(bad.ok);
+  assert.equal(bad.project.chains, undefined);
+  assert.deepEqual(bad.problems, ['chain base dropped: mainnet must be true or false']);
+  assert.equal(ProjectInput.shape.chains.parse([{ chain: 'base' }])![0].mainnet, true);
+});
+
+test('F1 (v6.1.14 fix round 1): a chain object that names a testnet in any form is a testnet, with no problem line', () => {
+  const c = '0x' + 'd'.repeat(40);
+  const forms: [unknown, string][] = [
+    [{ chain: 'base', testnet: true, contract: c }, 'base'],
+    [{ chain: 'base', network: 'sepolia', contract: c }, 'base'],
+    [{ chain: 'base', network: 'base-sepolia', contract: c }, 'base'],
+    [{ chain: 'base', chain_id: 84532, contract: c }, 'base'],
+    [{ chain: 'base', chainId: '84532', contract: c }, 'base'],
+    [{ chain: 'base-sepolia', contract: c }, 'base'],
+    [{ chain: 'base', mainnet: true, testnet: true, contract: c }, 'base'],
+    [{ chain: 'sepolia', contract: c }, 'ethereum'],
+    [{ chain: 'ethereum', chain_id: 11155111, contract: c }, 'ethereum'],
+    [{ chain: 'ethereum', network: 'holesky', contract: c }, 'ethereum'],
+    [{ chain: 'ethereum', chain_id: 17000, contract: c }, 'ethereum'],
+    [{ chain: 'arbitrum', chain_id: 421614, contract: c }, 'arbitrum'],
+    [{ chain: 'polygon', network: 'amoy', contract: c }, 'polygon'],
+    [{ chain: 'polygon', chain_id: 80002, contract: c }, 'polygon'],
+    [{ chain: 'avalanche', network: 'fuji', contract: c }, 'avalanche'],
+    [{ chain: 'avalanche', chain_id: 43113, contract: c }, 'avalanche'],
+    [{ chain: 'monad-testnet', contract: c }, 'monad'],
+    [{ chain_id: 84532, contract: c }, 'base'],
+    ['base-sepolia', 'base'],
+  ];
+  for (const [entry, chain] of forms) {
+    const r = parseProject({ ...base, chains: [entry] });
+    assert.ok(r.ok);
+    assert.deepEqual(r.problems, [], JSON.stringify(entry));
+    assert.deepEqual(r.project.chains?.map((x) => [x.chain, x.mainnet]), [[chain, false]], JSON.stringify(entry));
+  }
+  const sol = parseProject({ ...base, chains: [{ chain: 'solana', network: 'devnet' }, 'solana-devnet'] });
+  assert.ok(sol.ok);
+  assert.deepEqual(sol.project.chains, [{ chain: 'solana', mainnet: false }]);
+  // A mainnet id or network stays mainnet; an unknown id is named, not guessed.
+  const main = parseProject({ ...base, chains: [{ chain: 'base', chain_id: 8453, contract: c }, { chain: 'base', network: 'mainnet' }] });
+  assert.ok(main.ok);
+  assert.deepEqual(main.project.chains, [{ chain: 'base', mainnet: true, contract: c }, { chain: 'base', mainnet: true }]);
+  const odd = parseProject({ ...base, chains: [{ chain: 'base', chain_id: 999999, contract: c }] });
+  assert.ok(odd.ok);
+  assert.equal(odd.project.chains, undefined);
+  assert.deepEqual(odd.problems, ['chain base dropped: chain_id 999999 is not a known network; send mainnet true or false']);
+});
+
+test('F4 (v6.1.14 fix round 1): the chains examples in the description parse as written', () => {
+  const desc = (ProjectArg.shape.chains.description ?? '') as string;
+  const examples = [...desc.matchAll(/\{ "chain"[^}]*\}/g)].map((m) => JSON.parse(m[0]));
+  assert.equal(examples.length, 2);
+  const r = parseProject({ ...base, chains: ['base', ...examples] });
+  assert.ok(r.ok);
+  assert.deepEqual(r.problems, []);
+  assert.deepEqual(r.project.chains?.map((x) => [x.chain, x.mainnet, Boolean(x.contract)]), [['base', true, false], ['base', true, true], ['solana', true, true]]);
+});
+
+test('L13-15 (v6.1.14): only a code host is a repo; any other link is the live link, and a shortener never counts as code', async () => {
+  const { isCodeHost } = await import('./project-input');
+  for (const u of ['https://github.com/a/b', 'https://gitlab.com/g/p', 'https://codeberg.org/a/b', 'https://bitbucket.org/a/b', 'https://gitlab.example.gitlab.com/a/b', 'https://www.github.com/a/b', 'https://gist.github.com/a/1'])
+    assert.equal(isCodeHost(u), true, u);
+  for (const u of ['https://bit.ly/3xYz', 'https://example.com/a/b', 'https://notgithub.com/a/b', 'https://github.com.evil.io/a/b', 'not a link'])
+    assert.equal(isCodeHost(u), false, u);
+  // The bit.ly case (lane 13, S14): read as the live link, named for the agent; no repo, no repo key.
+  const r = parseProject({ name: 'FUTO thing', description: 'An app', repo_url: 'https://bit.ly/3xYz' });
+  assert.ok(r.ok);
+  assert.equal(r.project.repo_url, undefined);
+  assert.equal(r.project.live_url, 'https://bit.ly/3xYz');
+  assert.deepEqual(r.problems, ['repo_url is not a code host; read as the live link']);
+  assert.equal(projectKeyOf({ name: 'FUTO thing', repo_url: 'https://bit.ly/3xYz' }), 'name:futo thing');
+  // A live link given too stays; the other link is dropped.
+  const both = parseProject({ name: 'X', description: 'd', repo_url: 'https://example.com/x', live_url: 'https://x.app' });
+  assert.ok(both.ok);
+  assert.equal(both.project.live_url, 'https://x.app/');
+  assert.equal(both.project.repo_url, undefined);
+  assert.deepEqual(both.problems, ['repo_url dropped: not a code host']);
+  // With no description, a link that is not a code host does not stand in for it.
+  assert.deepEqual(parseProject({ name: 'X', repo_url: 'https://bit.ly/3xYz' }), { ok: false, problem: 'description: missing' });
+});
+
+test('T6-F3 (v6.1.14 fix round 1): canonicalRepoLink keys code hosts only; bit.ly never gets a repo key', async () => {
+  const { canonicalRepoLink } = await import('./project-input');
+  assert.equal(canonicalRepoLink('https://bit.ly/x'), null);
+  assert.equal(canonicalRepoLink('https://example.com/a/b'), null);
+  assert.equal(canonicalRepoLink('https://codeberg.org/A/B.git'), 'https://codeberg.org/a/b');
+});
+
+test('FR-2 (v6.1.14 final fix): an SSH clone link is the repo, keyed as its https form', () => {
+  for (const ssh of ['git@github.com:Acme/App.git', 'ssh://git@github.com/Acme/App.git']) {
+    const r = parseProject({ ...base, repo_url: ssh });
+    assert.ok(r.ok);
+    assert.equal(r.project.repo_url, 'https://github.com/Acme/App.git');
+    assert.deepEqual(r.problems, []);
+    assert.equal(projectKeyOf(r.project), 'https://github.com/acme/app');
+    assert.equal(projectKeyOf({ repo_url: ssh }), 'https://github.com/acme/app');
+  }
+  assert.equal(projectKeyOf({ repo_url: 'ssh://git@gitlab.com/o/r.git' }), projectKeyOf({ repo_url: 'https://gitlab.com/o/r' }));
+  assert.equal(projectKeyOf({ repo_url: 'https://github.com/Acme/App' }), 'https://github.com/acme/app');
 });
