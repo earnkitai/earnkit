@@ -14,14 +14,19 @@ export function checkBootEnv(env: NodeJS.ProcessEnv = process.env): void {
 
 /**
  * Next calls this once at start. A throw here only logs, and the server would stay up answering 500 to every request
- * (seen on `next start`, Next 16.4.1), so a refused secret logs its line and exits the process with code 1.
+ * (seen on `next start`, Next 16.4.1), so a refused secret logs its line and exits the process with code 1. Next builds
+ * this file for the Edge runtime too, where process.exit does not exist: the check runs on the Node runtime only
+ * (fix round 1, M1), the server EarnKit runs on.
  */
-export function register(deps: { exit: (code: number) => void } = { exit: (code) => process.exit(code) }): void {
-  try {
-    checkBootEnv();
-  } catch (err) {
-    console.error(`[boot] ${err instanceof Error ? err.message : String(err)}`);
-    deps.exit(1);
-    throw err;
+export function register(deps?: { exit: (code: number) => void }): void {
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    const exit = deps?.exit ?? ((code: number) => process.exit(code));
+    try {
+      checkBootEnv();
+    } catch (err) {
+      console.error(`[boot] ${err instanceof Error ? err.message : String(err)}`);
+      exit(1);
+      throw err;
+    }
   }
 }
