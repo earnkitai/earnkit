@@ -34,6 +34,14 @@ async function instOf(builderId: number): Promise<number> {
   }
   return insts.get(builderId)!;
 }
+/**
+ * What the reviewer's agent is told, without the v6.1.16 counts (`passed`, `reasons`, `notPassed`, `repeats`,
+ * `paymentRefused`), which the L16 tests pin on their own.
+ */
+async function told(...args: Parameters<typeof recordOutcomes>) {
+  const { passed: _p, reasons: _r, notPassed: _n, repeats: _x, paymentRefused: _f, ...rest } = await recordOutcomes(...args);
+  return rest;
+}
 /** Marks an applicant read, as the worker would. */
 const markRead = (jobId: string, ref: string, at = NOW, deployers: string[] = []) =>
   sql()`UPDATE screen_applicants SET status = 'done', tier = 'live', read_at = ${at}, deployers = ${deployers} WHERE job_id = ${jobId} AND ref = ${ref}`;
@@ -107,6 +115,12 @@ test('L13-1 (v6.1.14): recordOutcomes writes a ledger only through the applicati
     recorded: 6,
     notFound: ['nope'],
     notes: ['Passed on as a win, amount not given: c-4.', 'Not matched to an EarnKit application: c-2, c-5 and c-6.'],
+    // L16-9, L22-11 (v6.1.16): how many reached a ledger, and why each other did not.
+    passed: 2,
+    reasons: ['c-2: no EarnKit application', 'c-3: shortlisted only', 'c-5: no EarnKit application', 'c-6: no EarnKit application', 'nope: not in this screen'],
+    notPassed: ['c-2 (no EarnKit application)', 'c-3 (shortlisted only)', 'c-5 (no EarnKit application)', 'c-6 (no EarnKit application)'],
+    repeats: [],
+    paymentRefused: [],
   });
   const [a] = await sql()`SELECT status, amount_usd, installation_id FROM applications WHERE owner = ${`b:${applied.id}`} AND program_id = 'jobs-c'`;
   assert.deepEqual([a.status, Number(a.amount_usd), a.installation_id], ['won', 5000, await instOf(applied.id)]);
@@ -118,12 +132,13 @@ test('L13-1 (v6.1.14): recordOutcomes writes a ledger only through the applicati
   // The amount, once the builder gives it, completes that win; another amount after it is a correction (T8-F1).
   assert.deepEqual(await record(`b:${noAmount.id}`, 'jobs-c', 'won', { installationId: await instOf(noAmount.id), amount_usd: 700, now: NOW }), { ok: true });
   assert.equal((await summary(`b:${noAmount.id}`, [], NOW)).won_usd, 700);
-  assert.deepEqual(await record(`b:${noAmount.id}`, 'jobs-c', 'won', { installationId: await instOf(noAmount.id), amount_usd: 800, now: NOW }), { ok: true, replaced_usd: 700 });
-  assert.deepEqual(await record(`b:${noAmount.id}`, 'jobs-c', 'rejected', { installationId: await instOf(noAmount.id), now: NOW }), { ok: false, note: 'That one already has a result here: won $800.' });
+  assert.deepEqual(await record(`b:${noAmount.id}`, 'jobs-c', 'won', { installationId: await instOf(noAmount.id), amount_usd: 800, now: NOW }), { ok: true, corrected: true, replaced_usd: 700 });
+  // L16-2 (v6.1.16): no_result over a result is refused (a rejection would be a correction).
+  assert.deepEqual(await record(`b:${noAmount.id}`, 'jobs-c', 'no_result', { installationId: await instOf(noAmount.id), now: NOW }), { ok: false, note: 'That one already has a result here: won $800.' });
   const [e] = await sql()`SELECT status FROM applications WHERE owner = ${`b:${elsewhere.id}`} AND program_id = 'jobs-c-other'`;
   assert.equal(e.status, 'applied');
   const other = await reviewer('jobs-c2');
-  assert.deepEqual(await recordOutcomes(j.id, other.builderId, [{ ref: 'c-1', outcome: 'rejected' }], NOW), { recorded: 0, notFound: [], notes: [] });
+  assert.deepEqual(await told(j.id, other.builderId, [{ ref: 'c-1', outcome: 'rejected' }], NOW), { recorded: 0, notFound: [], notes: [] });
 });
 
 test('L13-1 (v6.1.14, Review Focus 7): a fake applicant with a victim\'s repo leaves the victim\'s ledger unchanged; a win reaches the builder whose application it is', async () => {
@@ -154,17 +169,18 @@ test('L13-1 (v6.1.14, Review Focus 7): a fake applicant with a victim\'s repo le
 test('T5-F3 (v6.1.14): one id on two applicant rows of the program is ambiguous: neither reaches a ledger, the note names both', async () => {
   const r = await reviewer('jobs-amb');
   const victim = await upsertBuilder({ github_id: ++gh, login: 'ambv' + gh, name: null, avatar_url: null }, NOW);
-  assert.deepEqual(await record(`b:${victim.id}`, 'jobs-amb', 'applied', { installationId: await instOf(victim.id), now: NOW }), { ok: true });
+  // L16-3 (v6.1.16): only rows of the application's own project are candidates, so both rows name it.
+  assert.deepEqual(await record(`b:${victim.id}`, 'jobs-amb', 'applied', { installationId: await instOf(victim.id), now: NOW, project_id: 'name:v' }), { ok: true });
   const id = await appId(`b:${victim.id}`, 'jobs-amb');
-  const j = await job(r, [{ ref: 'victim', name: 'V', application_id: id }, { ref: 'imposter', name: 'I', application_id: id }]);
-  assert.deepEqual(await recordOutcomes(j.id, r.builderId, [{ ref: 'imposter', outcome: 'rejected' }, { ref: 'victim', outcome: 'won', amount_usd: 900 }], NOW),
+  const j = await job(r, [{ ref: 'victim', name: 'V', application_id: id }, { ref: 'imposter', name: 'V', application_id: id }]);
+  assert.deepEqual(await told(j.id, r.builderId, [{ ref: 'imposter', outcome: 'rejected' }, { ref: 'victim', outcome: 'won', amount_usd: 900 }], NOW),
     { recorded: 2, notFound: [], notes: ['Not passed on, one EarnKit id on more than one applicant: imposter and victim.'] });
   assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${victim.id}`} AND program_id = 'jobs-amb'`)[0].status, 'applied');
   // Task 8 security follow-up: facts never make two rows one applicant, and no blind mark does. A copier's row with the
   // victim's id, repo and site in a second screen (the first one expired) is ambiguous.
   const r2 = await reviewer('jobs-amb2');
   const b2 = await upsertBuilder({ github_id: ++gh, login: 'ambw' + gh, name: null, avatar_url: null }, NOW);
-  assert.deepEqual(await record(`b:${b2.id}`, 'jobs-amb2', 'applied', { installationId: await instOf(b2.id), now: NOW }), { ok: true });
+  assert.deepEqual(await record(`b:${b2.id}`, 'jobs-amb2', 'applied', { installationId: await instOf(b2.id), now: NOW, project_id: 'https://github.com/acme/w' }), { ok: true });
   const id2 = await appId(`b:${b2.id}`, 'jobs-amb2');
   const W = { name: 'W', repo_url: 'https://github.com/acme/w', live_url: 'https://w.example/', application_id: id2 };
   const old = await job(r2, [{ ref: 'row 1', ...W }], new Date(NOW.getTime() - 200 * 86_400_000));
@@ -203,7 +219,7 @@ test('Task 8 security follow-up (v6.1.14): a requeue naming the exact earlier ro
   assert.deepEqual(await badRequeues('jobs-rq', [{ ref: 'w-2', name: 'W', application_id: id, requeue: { job_id: first.id, ref: 'row 1' } }]), []);
   const again = await createJob({ programId: 'jobs-rq', builderId: colleague.id, installationId: r.installationId, now: NOW,
     applicants: [{ ref: 'w-2', name: 'W', application_id: id, requeue: { job_id: first.id, ref: 'row 1' } }] });
-  assert.deepEqual(await recordOutcomes(again.id, colleague.id, [{ ref: 'w-2', outcome: 'won', amount_usd: 50 }], NOW), { recorded: 1, notFound: [], notes: [] });
+  assert.deepEqual(await told(again.id, colleague.id, [{ ref: 'w-2', outcome: 'won', amount_usd: 50 }], NOW), { recorded: 1, notFound: [], notes: [] });
   assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${b.id}`} AND program_id = 'jobs-rq'`)[0].status, 'won');
   const late = new Date(NOW.getTime() + 1000);
   const [{ expires_at }] = await sql()`SELECT expires_at FROM screen_jobs WHERE id = ${first.id}`;
@@ -238,28 +254,28 @@ test('L13-12, L15-17, T8-F1, T8-F3 (v6.1.14): a newer outcome replaces the first
   const at = (h: number) => new Date(NOW.getTime() + h * 3_600_000);
   const shown = async () => Number((await sql()`SELECT amount_usd FROM screen_outcomes WHERE job_id = ${j.id} AND ref = 'v'`)[0].amount_usd);
   const ledger = async () => (await summary(`b:${b.id}`, [], NOW)).won_usd;
-  assert.deepEqual(await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 500 }], at(1)), { recorded: 1, notFound: [], notes: [] });
-  // A resend: nothing changes, nothing to name.
-  assert.deepEqual(await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 500 }], at(1)), { recorded: 1, notFound: [], notes: [] });
+  assert.deepEqual(await told(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 500 }], at(1)), { recorded: 1, notFound: [], notes: [] });
+  // A resend: nothing changes (L16-16, v6.1.16: a repeat, not counted as recorded).
+  assert.deepEqual(await told(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 500 }], at(1)), { recorded: 0, notFound: [], notes: ['Already recorded, nothing new: v.'] });
   assert.deepEqual([await shown(), await ledger()], [500, 500]);
   // Another amount, unmarked: a correction, in the screen and the ledger.
-  assert.deepEqual(await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 900 }], at(2)),
+  assert.deepEqual(await told(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 900 }], at(2)),
     { recorded: 1, notFound: [], notes: ['Replaced the outcome recorded before: v (was won $500).'] });
   assert.deepEqual([await shown(), await ledger()], [900, 900]);
   // A further payment, marked with its key: added once, a retry of the key adds nothing.
-  assert.deepEqual(await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 300, payment: { key: 'p2' } }], at(3)),
+  assert.deepEqual(await told(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 300, payment: { key: 'p2' } }], at(3)),
     { recorded: 1, notFound: [], notes: ['Added to the win recorded before: v (now won $1,200).'] });
-  assert.deepEqual(await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 300, payment: { key: 'p2' } }], at(3)), { recorded: 1, notFound: [], notes: [] });
+  assert.deepEqual(await told(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 300, payment: { key: 'p2' } }], at(3)), { recorded: 0, notFound: [], notes: ['Already recorded, nothing new: v.'] });
   assert.deepEqual([await shown(), await ledger()], [1200, 1200]);
   // T8-F3: a payment whose total is over the cap writes nothing, the screen and the ledger agree.
-  assert.deepEqual(await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 900, payment: { key: 'p3' } }], at(4)),
+  assert.deepEqual(await told(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 900, payment: { key: 'p3' } }], at(4)),
     { recorded: 0, notFound: [], notes: ['Not recorded, the total would be over what this program pays: v.'], overCap: ['v'] });
   assert.deepEqual([await shown(), await ledger()], [1200, 1200]);
-  assert.deepEqual(await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'shortlisted' }], at(5)),
+  assert.deepEqual(await told(j.id, r.builderId, [{ ref: 'v', outcome: 'shortlisted' }], at(5)),
     { recorded: 1, notFound: [], notes: ['Replaced the outcome recorded before: v (was won $1,200).'] });
   // The same outcome again replaces nothing worth naming; an older one is not kept.
-  assert.deepEqual(await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'shortlisted' }], at(6)), { recorded: 1, notFound: [], notes: [] });
-  assert.deepEqual(await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'rejected' }], at(2)),
+  assert.deepEqual(await told(j.id, r.builderId, [{ ref: 'v', outcome: 'shortlisted' }], at(6)), { recorded: 0, notFound: [], notes: ['Already recorded, nothing new: v.'] });
+  assert.deepEqual(await told(j.id, r.builderId, [{ ref: 'v', outcome: 'rejected' }], at(2)),
     { recorded: 0, notFound: [], notes: ['Not recorded, a later outcome is already kept: v.'] });
   const [o] = await sql()`SELECT outcome FROM screen_outcomes WHERE job_id = ${j.id} AND ref = 'v'`;
   assert.equal(o.outcome, 'shortlisted');
@@ -301,7 +317,7 @@ test('L15-1 (v6.1.14, Review Focus 10): a reviewer never posts an outcome on the
     { ref: 'me', name: 'Me', application_id: await appId(`b:${r.builderId}`, 'jobs-own') },
     { ref: 'rival', name: 'Rival', application_id: await appId(`b:${rival.id}`, 'jobs-own') },
   ]);
-  const out = await recordOutcomes(j.id, r.builderId, [{ ref: 'me', outcome: 'won', amount_usd: 5000 }, { ref: 'rival', outcome: 'rejected' }], NOW);
+  const out = await told(j.id, r.builderId, [{ ref: 'me', outcome: 'won', amount_usd: 5000 }, { ref: 'rival', outcome: 'rejected' }], NOW);
   assert.deepEqual(out, { recorded: 1, notFound: [], notes: ["Not recorded, the reviewer's own application: me."], own: ['me'] });
   assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${r.builderId}`} AND program_id = 'jobs-own'`)[0].status, 'applied');
   assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_outcomes WHERE job_id = ${j.id} AND ref = 'me'`)[0].n, 0);
@@ -309,7 +325,7 @@ test('L15-1 (v6.1.14, Review Focus 10): a reviewer never posts an outcome on the
   // Another reviewer of the program posts it.
   const other = await upsertBuilder({ github_id: ++gh, login: 'own2' + gh, name: null, avatar_url: null }, NOW);
   await sql()`INSERT INTO program_reviewers (program_id, builder_id) VALUES ('jobs-own', ${other.id})`;
-  assert.deepEqual(await recordOutcomes(j.id, other.id, [{ ref: 'me', outcome: 'won', amount_usd: 500 }], NOW), { recorded: 1, notFound: [], notes: [] });
+  assert.deepEqual(await told(j.id, other.id, [{ ref: 'me', outcome: 'won', amount_usd: 500 }], NOW), { recorded: 1, notFound: [], notes: [] });
   assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${r.builderId}`} AND program_id = 'jobs-own'`)[0].status, 'won');
 });
 
@@ -329,13 +345,13 @@ test('L15-12 (v6.1.14): reviewers of one program share its jobs and outcomes; a 
   const j = await job(a, [{ ref: 't-1', name: 'One' }, { ref: 't-2', name: 'Two' }]);
   assert.equal((await jobStatus(j.id, bee.id, NOW))?.program_id, 'jobs-team');
   assert.equal((await jobResults(j.id, bee.id, NOW))?.total, 2);
-  assert.deepEqual(await recordOutcomes(j.id, bee.id, [{ ref: 't-1', outcome: 'shortlisted' }], NOW), { recorded: 1, notFound: [], notes: [] });
+  assert.deepEqual(await told(j.id, bee.id, [{ ref: 't-1', outcome: 'shortlisted' }], NOW), { recorded: 1, notFound: [], notes: [] });
   // The first reviewer continues it and sees the colleague's outcome replaced.
   assert.deepEqual((await recordOutcomes(j.id, a.builderId, [{ ref: 't-1', outcome: 'rejected' }], new Date(NOW.getTime() + 1000))).notes,
     ['Replaced the outcome recorded before: t-1 (was shortlisted).', 'Not matched to an EarnKit application: t-1.']);
   assert.equal(await jobStatus(j.id, stranger.builderId, NOW), null);
   assert.equal(await jobResults(j.id, stranger.builderId, NOW), null);
-  assert.deepEqual(await recordOutcomes(j.id, stranger.builderId, [{ ref: 't-2', outcome: 'rejected' }], NOW), { recorded: 0, notFound: [], notes: [] });
+  assert.deepEqual(await told(j.id, stranger.builderId, [{ ref: 't-2', outcome: 'rejected' }], NOW), { recorded: 0, notFound: [], notes: [] });
   // A reviewer taken off the program reads it no more.
   await sql()`DELETE FROM program_reviewers WHERE program_id = 'jobs-team' AND builder_id = ${bee.id}`;
   assert.equal(await jobStatus(j.id, bee.id, NOW), null);
@@ -483,7 +499,7 @@ test('L15-15 (v6.1.14): a rounded or foreign win keeps its amount as given; the 
   const b = await upsertBuilder({ github_id: ++gh, login: 'curb' + gh, name: null, avatar_url: null }, NOW);
   for (const [x, pid] of [[a, 'name:cents'], [b, 'name:euro']] as const) assert.deepEqual(await record(`b:${x.id}`, 'jobs-cur', 'applied', { installationId: await instOf(x.id), now: NOW, project_id: pid }), { ok: true });
   const j = await job(r, [{ ref: 'u-1', name: 'Cents', application_id: await appId(`b:${a.id}`, 'jobs-cur') }, { ref: 'u-2', name: 'Euro', application_id: await appId(`b:${b.id}`, 'jobs-cur') }]);
-  const out = await recordOutcomes(j.id, r.builderId, [
+  const out = await told(j.id, r.builderId, [
     { ref: 'u-1', outcome: 'won', amount_usd: 2500, rounded: { from: 2500.5 } },
     { ref: 'u-2', outcome: 'won', given: { amount: 2000, currency: 'EUR' } },
   ], NOW);
@@ -518,7 +534,7 @@ test('FR-3 (v6.1.14 final fix): a copier\'s single row with the victim\'s id and
     (await sql()`SELECT status, amount_usd FROM applications WHERE owner = ${`b:${b.id}`} AND program_id = ${programId}`).map((x) => [x.status, x.amount_usd === null ? null : Number(x.amount_usd)])[0];
   // The copier's one row: the victim's id, the copier's repo (and even the victim's name). Nothing reaches the victim.
   const copy = await job(r, [{ ref: 'copy', name: 'Vee', repo_url: 'https://github.com/copier/app', application_id: id }]);
-  assert.deepEqual(await recordOutcomes(copy.id, r.builderId, [{ ref: 'copy', outcome: 'rejected' }], NOW),
+  assert.deepEqual(await told(copy.id, r.builderId, [{ ref: 'copy', outcome: 'rejected' }], NOW),
     { recorded: 1, notFound: [], notes: ['Not passed on, the EarnKit id belongs to another project: copy.'] });
   assert.deepEqual(await status(victim, 'jobs-fr3'), ['applied', null]);
   assert.equal((await sql()`SELECT outcome FROM screen_outcomes WHERE job_id = ${copy.id} AND ref = 'copy'`)[0].outcome, 'rejected');
@@ -526,7 +542,7 @@ test('FR-3 (v6.1.14 final fix): a copier\'s single row with the victim\'s id and
   const r2 = await reviewer('jobs-fr3b');
   assert.deepEqual(await record(`b:${victim.id}`, 'jobs-fr3b', 'applied', { installationId: await instOf(victim.id), now: NOW, project_id: 'v' }), { ok: true });
   const real = await job(r2, [{ ref: 'real', name: 'Other name', repo_url: 'git@github.com:Vee/App.git', application_id: await appId(`b:${victim.id}`, 'jobs-fr3b') }]);
-  assert.deepEqual(await recordOutcomes(real.id, r2.builderId, [{ ref: 'real', outcome: 'won', amount_usd: 4000 }], NOW), { recorded: 1, notFound: [], notes: [] });
+  assert.deepEqual(await told(real.id, r2.builderId, [{ ref: 'real', outcome: 'won', amount_usd: 4000 }], NOW), { recorded: 1, notFound: [], notes: [] });
   assert.deepEqual(await status(victim, 'jobs-fr3b'), ['won', 4000]);
   // With no repo on one side the folded name decides; an application with no project matches no row.
   const r3 = await reviewer('jobs-fr3c');
@@ -572,9 +588,9 @@ test('FR-4 (v6.1.14 final fix): a further payment whose ledger write fails is de
   assert.equal(await ledger(), 500);
   assert.deepEqual((await sql()`SELECT payment_keys FROM screen_outcomes WHERE job_id = ${j.id} AND ref = 'pay'`)[0].payment_keys, ['p2']);
   // The retry delivers it; a second retry adds nothing.
-  assert.deepEqual(await recordOutcomes(j.id, r.builderId, pay, at(2)), { recorded: 1, notFound: [], notes: [] });
+  assert.deepEqual(await told(j.id, r.builderId, pay, at(2)), { recorded: 1, notFound: [], notes: [] });
   assert.equal(await ledger(), 800);
-  assert.deepEqual(await recordOutcomes(j.id, r.builderId, pay, at(2)), { recorded: 1, notFound: [], notes: [] });
+  assert.deepEqual(await told(j.id, r.builderId, pay, at(2)), { recorded: 0, notFound: [], notes: ['Already recorded, nothing new: pay.'] });
   assert.equal(await ledger(), 800);
 });
 
@@ -600,13 +616,95 @@ test('FR-3 security follow-up (v6.1.14): an application with a repo matches only
   const status = async (programId: string) =>
     (await sql()`SELECT status, amount_usd FROM applications WHERE owner = ${`b:${victim.id}`} AND program_id = ${programId}`).map((x) => [x.status, x.amount_usd === null ? null : Number(x.amount_usd)])[0];
   const copy = await job(r, [{ ref: 'copy', name: 'Vee', application_id: await appId(`b:${victim.id}`, 'jobs-fr3s') }]);
-  assert.deepEqual(await recordOutcomes(copy.id, r.builderId, [{ ref: 'copy', outcome: 'rejected' }], NOW),
+  assert.deepEqual(await told(copy.id, r.builderId, [{ ref: 'copy', outcome: 'rejected' }], NOW),
     { recorded: 1, notFound: [], notes: ['Not passed on, the EarnKit id belongs to another project: copy.'] });
   assert.deepEqual(await status('jobs-fr3s'), ['applied', null]);
   // The real applicant's row with the same repo still gets the win.
   const r2 = await reviewer('jobs-fr3s2');
   assert.deepEqual(await record(`b:${victim.id}`, 'jobs-fr3s2', 'applied', { installationId: await instOf(victim.id), now: NOW, project_id: 'v' }), { ok: true });
   const real = await job(r2, [{ ref: 'real', name: 'Vee', repo_url: 'https://github.com/Vee/App', application_id: await appId(`b:${victim.id}`, 'jobs-fr3s2') }]);
-  assert.deepEqual(await recordOutcomes(real.id, r2.builderId, [{ ref: 'real', outcome: 'won', amount_usd: 2500 }], NOW), { recorded: 1, notFound: [], notes: [] });
+  assert.deepEqual(await told(real.id, r2.builderId, [{ ref: 'real', outcome: 'won', amount_usd: 2500 }], NOW), { recorded: 1, notFound: [], notes: [] });
   assert.deepEqual(await status('jobs-fr3s2'), ['won', 2500]);
+});
+
+test('L16-1, L16-2 (v6.1.16, Review Focus 3): won $100, rejected, a further payment refused; screen and ledger agree at every step; the builder\'s own win corrects', async () => {
+  const r = await reviewer('jobs-rf3');
+  await upsertProgram(programFixture({ id: 'jobs-rf3', title: 'jobs-rf3 title', max_award_usd: 5000 }), 'file', NOW);
+  const b = await upsertBuilder({ github_id: ++gh, login: 'rf3' + gh, name: null, avatar_url: null }, NOW);
+  const owner = `b:${b.id}`;
+  assert.deepEqual(await record(owner, 'jobs-rf3', 'applied', { installationId: await instOf(b.id), now: NOW, project_id: 'name:v' }), { ok: true });
+  const j = await job(r, [{ ref: 'v', name: 'V', application_id: await appId(owner, 'jobs-rf3') }]);
+  const at = (h: number) => new Date(NOW.getTime() + h * 3_600_000);
+  const screen = async () => (await sql()`SELECT outcome, amount_usd FROM screen_outcomes WHERE job_id = ${j.id} AND ref = 'v'`)
+    .map((x) => [x.outcome, x.amount_usd === null ? null : Number(x.amount_usd)])[0];
+  const ledger = async () => (await sql()`SELECT status, amount_usd, note FROM applications WHERE owner = ${owner} AND program_id = 'jobs-rf3'`)
+    .map((x) => [x.status, x.amount_usd === null ? null : Number(x.amount_usd), x.note])[0];
+  const hist = async () => (await sql()`SELECT status, amount_usd, corrected FROM application_history WHERE owner = ${owner} AND program_id = 'jobs-rf3' ORDER BY id`)
+    .map((x) => [x.status, x.amount_usd === null ? null : Number(x.amount_usd), x.corrected]);
+  assert.equal((await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 100 }], at(1))).passed, 1);
+  assert.deepEqual([await screen(), await ledger()], [['won', 100], ['won', 100, null]]);
+  const rej = await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'rejected' }], at(2));
+  assert.deepEqual([rej.recorded, rej.passed, rej.notes], [1, 1, ['Replaced the outcome recorded before: v (was won $100).']]);
+  assert.deepEqual([await screen(), await ledger()], [['rejected', null], ['rejected', null, null]]);
+  // The further payment over the rejection: refused, nothing written on either side.
+  const pay = await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 10, payment: { key: 'p2' } }], at(3));
+  assert.deepEqual(pay, {
+    recorded: 0, notFound: [], notes: ['Not recorded, a further payment needs a win first: v.'],
+    passed: 0, reasons: ['v: further payment refused'], notPassed: [], repeats: [], paymentRefused: [{ ref: 'v', status: 'rejected' }],
+  });
+  assert.deepEqual([await screen(), await ledger()], [['rejected', null], ['rejected', null, null]]);
+  assert.deepEqual((await sql()`SELECT payment_keys FROM screen_outcomes WHERE job_id = ${j.id} AND ref = 'v'`)[0].payment_keys, []);
+  // The builder's own win replaces the rejection in the ledger: one corrected history row.
+  assert.deepEqual(await record(owner, 'jobs-rf3', 'won', { installationId: await instOf(b.id), amount_usd: 150, now: at(4) }), { ok: true, corrected: true });
+  assert.deepEqual(await ledger(), ['won', 150, null]);
+  assert.deepEqual(await hist(), [['applied', null, false], ['won', 100, false], ['rejected', null, true], ['won', 150, true]]);
+  const l = await summary(owner, [], NOW);
+  assert.deepEqual([l.applied, l.won, l.won_usd, l.rejected], [1, 1, 150, 0]);
+  // A program's rejection after a win moves the ledger to rejected.
+  assert.equal((await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 400 }], at(5))).passed, 1);
+  assert.deepEqual(await ledger(), ['won', 400, null]);
+  assert.equal((await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'rejected' }], at(6))).passed, 1);
+  assert.deepEqual([await screen(), await ledger()], [['rejected', null], ['rejected', null, null]]);
+  // A correction in EUR after a dollar win: won with the EUR note, no dollar amount for the builder.
+  await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 300 }], at(7));
+  assert.equal((await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', given: { amount: 2500, currency: 'EUR' } }], at(8))).passed, 1);
+  assert.deepEqual(await ledger(), ['won', null, 'amount in EUR, not converted']);
+  const e = await summary(owner, [], NOW);
+  assert.deepEqual([e.won, e.won_usd], [1, 0]);
+  // L16-4: the replaced note shows the earlier amount with its currency.
+  assert.deepEqual((await recordOutcomes(j.id, r.builderId, [{ ref: 'v', outcome: 'won', amount_usd: 2000 }], at(9))).notes,
+    ['Replaced the outcome recorded before: v (was won EUR 2,500).']);
+  assert.deepEqual(await ledger(), ['won', 2000, null]);
+});
+
+test('L16-1 (v6.1.16): a further payment with nothing kept, or over a shortlist, is refused with the screen\'s result', async () => {
+  const r = await reviewer('jobs-payn');
+  const j = await job(r, [{ ref: 'a', name: 'A' }, { ref: 's', name: 'S' }]);
+  await recordOutcomes(j.id, r.builderId, [{ ref: 's', outcome: 'shortlisted' }], NOW);
+  const out = await recordOutcomes(j.id, r.builderId, [
+    { ref: 'a', outcome: 'won', amount_usd: 10, payment: { key: 'k' } },
+    { ref: 's', outcome: 'won', amount_usd: 10, payment: { key: 'k' } },
+  ], NOW);
+  assert.deepEqual(out.paymentRefused, [{ ref: 'a', status: 'none' }, { ref: 's', status: 'shortlisted' }]);
+  assert.equal(out.recorded, 0);
+  assert.deepEqual((await sql()`SELECT ref, outcome FROM screen_outcomes WHERE job_id = ${j.id} ORDER BY ref`).map((x) => [x.ref, x.outcome]), [['s', 'shortlisted']]);
+});
+
+test('L16-3 (v6.1.16, Review Focus 4): a copied EarnKit id on a row of another project, in an expired screen too, never blocks the real applicant\'s win', async () => {
+  const r = await reviewer('jobs-l163');
+  const b = await upsertBuilder({ github_id: ++gh, login: 'l163' + gh, name: null, avatar_url: null }, NOW);
+  const owner = `b:${b.id}`;
+  assert.deepEqual(await record(owner, 'jobs-l163', 'applied', { installationId: await instOf(b.id), now: NOW, project_id: 'https://github.com/real/app' }), { ok: true });
+  const id = await appId(owner, 'jobs-l163');
+  const old = await job(r, [{ ref: 'copy', name: 'Real App', repo_url: 'https://github.com/copier/app', application_id: id }], new Date(NOW.getTime() - 200 * 86_400_000));
+  assert.ok((await sql()`SELECT expires_at FROM screen_jobs WHERE id = ${old.id}`)[0].expires_at < NOW);
+  const live = await job(r, [{ ref: 'copy 2', name: 'Real App', repo_url: 'https://github.com/copier/app', application_id: id }], new Date(NOW.getTime() - 2000));
+  const real = await job(r, [{ ref: 'real', name: 'Real App', repo_url: 'https://github.com/real/app', application_id: id }]);
+  const out = await recordOutcomes(real.id, r.builderId, [{ ref: 'real', outcome: 'won', amount_usd: 700 }], NOW);
+  assert.deepEqual([out.passed, out.notes, out.reasons], [1, [], []]);
+  assert.deepEqual((await sql()`SELECT status, amount_usd FROM applications WHERE owner = ${owner} AND program_id = 'jobs-l163'`).map((x) => [x.status, Number(x.amount_usd)]), [['won', 700]]);
+  // The copy's own outcome is its project's: named, never passed on.
+  const c = await recordOutcomes(live.id, r.builderId, [{ ref: 'copy 2', outcome: 'rejected' }], NOW);
+  assert.deepEqual([c.passed, c.notes, c.notPassed], [0, ['Not passed on, the EarnKit id belongs to another project: copy 2.'], ["copy 2 (the id is another project's)"]]);
+  assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${owner} AND program_id = 'jobs-l163'`)[0].status, 'won');
 });

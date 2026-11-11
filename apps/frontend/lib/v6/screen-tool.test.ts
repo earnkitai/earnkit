@@ -114,16 +114,16 @@ test('results carry public evidence only; outcomes record', async () => {
   assert.equal('results' in nosy.reply!, false);
 
   const o = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'r-1', outcome: 'won', amount_usd: 2000 }, { ref: 'r-2', outcome: 'rejected' }] });
-  // Nothing about whether a builder's ledger was reached: a builder's ledger never reaches a program.
-  assert.equal(o.reply!.show_to_builder, 'Recorded 2 outcomes.');
-  // L13-1 (v6.1.14): rows with no EarnKit application id are named as unmatched; nothing about any ledger.
-  assert.equal(o.reply!.agent_note, 'Tell the builder the outcomes are recorded. Not matched to an EarnKit application: r-1 and r-2.');
+  // L22-11 (v6.1.16): an outcome recorded on the screen that reached no builder is named with why.
+  assert.equal(o.reply!.show_to_builder, 'Recorded 2 outcomes; not passed to a builder: r-1 (no EarnKit application) and r-2 (no EarnKit application).');
+  // L13-1 (v6.1.14): rows with no EarnKit application id are named as unmatched; L16-9 (v6.1.16): with none passed on, the note says so first.
+  assert.equal(o.reply!.agent_note, 'Nothing reached a builder: r-1: no EarnKit application and r-2: no EarnKit application. Not matched to an EarnKit application: r-1 and r-2.');
   assert.equal(o.reply!.recorded, 2);
   assert.doesNotMatch(JSON.stringify(o.reply), /ledger/i);
   const one = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'r-2', outcome: 'won' }] });
-  assert.equal(one.reply!.show_to_builder, 'Recorded 1 outcome.');
+  assert.equal(one.reply!.show_to_builder, 'Recorded 1 outcome; not passed to a builder: r-2 (no EarnKit application).');
   // L13-12 (v6.1.14): the note names the outcome it replaced.
-  assert.equal(one.reply!.agent_note, 'Tell the builder the outcomes are recorded. Replaced the outcome recorded before: r-2 (was rejected). Not matched to an EarnKit application: r-2.');
+  assert.equal(one.reply!.agent_note, 'Nothing reached a builder: r-2: no EarnKit application. Replaced the outcome recorded before: r-2 (was rejected). Not matched to an EarnKit application: r-2.');
   assert.doesNotMatch(JSON.stringify(one.reply), /ledger|usable/i);
   // L15-14 (v6.1.14): results and decisions keep 180 days.
   const month = await mcpCall({ ...c, now: new Date(NOW.getTime() + 31 * 86_400_000) }, 'screen', { job_id: jobId });
@@ -207,14 +207,14 @@ test('C19, C38: outcomes name the refs not found; a win over the program\'s cap 
   const jobId = q.reply!.job_id as string;
   // L15-16 (v6.1.14): only the over-cap applicant is refused, by ref; the rest of the batch is recorded.
   const over = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'r-2', outcome: 'rejected' }, { ref: 'r-1', outcome: 'won', amount_usd: 5001 }] });
-  assert.equal(over.reply!.show_to_builder, 'Recorded 1 outcome. That is more than this program pays for r-1; check the amount.');
+  assert.equal(over.reply!.show_to_builder, 'Recorded 1 outcome; not passed to a builder: r-2 (no EarnKit application). That is more than this program pays for r-1; check the amount.');
   assert.match(over.reply!.agent_note as string, /Not recorded, over what this program pays: r-1\./);
   assert.deepEqual((await sql()`SELECT ref FROM screen_outcomes WHERE job_id = ${jobId}`).map((x) => x.ref), ['r-2']);
   // L13-5 (v6.1.14): a win far past the schema's old ceiling is the same line, not an unread input.
   const huge = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'r-1', outcome: 'won', amount_usd: 1e12 }] });
   assert.equal(huge.reply!.show_to_builder, 'Recorded 0 outcomes. That is more than this program pays for r-1; check the amount.');
   const r = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'r-1', outcome: 'won', amount_usd: 5000 }, { ref: 'zz', outcome: 'rejected' }, { ref: 'yy', outcome: 'shortlisted' }] });
-  assert.equal(r.reply!.show_to_builder, 'Recorded 1 outcome; not found: zz and yy.');
+  assert.equal(r.reply!.show_to_builder, 'Recorded 1 outcome; not passed to a builder: r-1 (no EarnKit application); not found: zz and yy.');
   assert.equal(r.reply!.recorded, 1);
   const none = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'zz', outcome: 'rejected' }] });
   assert.equal(none.reply!.show_to_builder, 'Recorded 0 outcomes; not found: zz.');
@@ -248,7 +248,9 @@ test('C2 (v6.1.13): over 200 applicants or outcomes is one line that says to sen
   const tooMany = await mcpCall(c, 'screen', { job_id: jobId, outcomes: outcomes(201) });
   assert.equal(tooMany.reply!.show_to_builder, CAP);
   assert.match(tooMany.reply!.agent_note as string, /^Nothing was recorded\./);
-  assert.equal((await mcpCall(c, 'screen', { job_id: jobId, outcomes: outcomes(200) })).reply!.show_to_builder, 'Recorded 200 outcomes.');
+  assert.equal((await mcpCall(c, 'screen', { job_id: jobId, outcomes: outcomes(200) })).reply!.show_to_builder,
+    'Recorded 200 outcomes; not passed to a builder: c-0 (no EarnKit application), c-1 (no EarnKit application), c-2 (no EarnKit application), c-3 (no EarnKit application), c-4 (no EarnKit application), '
+    + 'c-5 (no EarnKit application), c-6 (no EarnKit application), c-7 (no EarnKit application), c-8 (no EarnKit application), c-9 (no EarnKit application) and 190 more.');
 });
 
 test('Low 18 (v6.1.13), L15-15 (v6.1.14): an applicant repeated exactly is screened once; a win whose amount is under $1 or unreadable is refused for that applicant, owner-shaped', async () => {
@@ -304,6 +306,10 @@ test('L15-3 (v6.1.14): results come 25 a page; the last line asks for the next p
   assert.equal(two.reply!.show_to_builder, '30 applicants: 0 used, 0 live, 0 building, 0 unverified, 0 flagged; 30 pending.');
   assert.equal(two.reply!.next_page, null);
   assert.equal((two.reply!.results as { applicants: unknown[] }).applicants.length, 5);
+  // L16-12 (v6.1.16): a page past the last says so.
+  const past = await mcpCall(c, 'screen', { job_id: jobId, page: 3 });
+  assert.equal(past.reply!.show_to_builder, '30 applicants: 0 used, 0 live, 0 building, 0 unverified, 0 flagged; 30 pending. No more results.');
+  assert.equal(past.reply!.next_page, null);
   const bad = await mcpCall(c, 'screen', { job_id: jobId, page: 0 });
   assert.equal(bad.reply!.show_to_builder, "I could not read that. Send the applicant list, or a screen's id for its results.");
 });
@@ -321,7 +327,7 @@ test('L15-1 and L15-12 (v6.1.14): a colleague reads and continues the job; the r
   const read = await mcpCall(mate, 'screen', { job_id: jobId });
   assert.equal(read.reply!.show_to_builder, '2 applicants: 0 used, 0 live, 0 building, 0 unverified, 0 flagged; 2 pending.');
   const own = await mcpCall(mate, 'screen', { job_id: jobId, outcomes: [{ ref: 'mate', outcome: 'won', amount_usd: 500 }, { ref: 'x', outcome: 'rejected' }] });
-  assert.equal(own.reply!.show_to_builder, 'Recorded 1 outcome. You applied to this one; another reviewer posts its result.');
+  assert.equal(own.reply!.show_to_builder, 'Recorded 1 outcome; not passed to a builder: x (no EarnKit application). You applied to this one; another reviewer posts its result.');
   assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${mate.builderId}`} AND program_id = 'scr-team'`)[0].status, 'applied');
   const posted = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'mate', outcome: 'won', amount_usd: 500 }] });
   assert.equal(posted.reply!.show_to_builder, 'Recorded 1 outcome.');
@@ -377,8 +383,10 @@ test('L15-15, L15-16 (v6.1.14): cents and currency codes are read; only a bad or
     { ref: 'e', outcome: 'won', amount: 'a lot' },
     { ref: 'f', outcome: 'rejected' },
   ] });
-  assert.equal(r.reply!.show_to_builder, 'Recorded 4 outcomes. Tell me the amount for e. That is more than this program pays for d; check the amount.');
-  assert.equal(r.reply!.agent_note, 'Tell the builder the outcomes are recorded. Not matched to an EarnKit application: a, b, c and f. '
+  assert.equal(r.reply!.show_to_builder, 'Recorded 4 outcomes; not passed to a builder: a (no EarnKit application), b (no EarnKit application), c (no EarnKit application) and f (no EarnKit application). '
+    + 'Tell me the amount for e. That is more than this program pays for d; check the amount.');
+  assert.equal(r.reply!.agent_note, 'Nothing reached a builder: a: no EarnKit application, b: no EarnKit application, c: no EarnKit application, f: no EarnKit application, e: amount not read and d: over what the program pays. '
+    + 'Not matched to an EarnKit application: a, b, c and f. '
     + 'Not recorded, the amount could not be read: e. Send amount_usd, or amount with a three-letter currency code, above 0. '
     + 'Not recorded, over what this program pays: d. Rounded down to whole dollars for the builder\'s ledger: a ($2,500.50 as $2,500). '
     + 'Kept as given, not converted to US dollars: b (2,000 EUR) and c (1,200 GBP).');
@@ -415,4 +423,50 @@ test('M3, M4 (v6.1.14 fix round 1): a European thousands separator is refused; e
   assert.equal(out[0], `k${'x'.repeat(39)}`);
   assert.ok(out.every((k) => /^[A-Za-z0-9_-]{1,40}$/.test(k)), out.join(','));
   assert.ok(!out.some((k) => k.includes('ignore')));
+});
+
+/** A builder's application to the program, named by its project, and the EarnKit id its agent was given. */
+async function applied(programId: string, projectId: string) {
+  const b = await linked();
+  const { record } = await import('../v5/ledger');
+  assert.deepEqual(await record(`b:${b.builderId}`, programId, 'applied', { installationId: b.installationId, now: NOW, project_id: projectId }), { ok: true });
+  const [{ application_id }] = await sql()`SELECT application_id FROM applications WHERE owner = ${`b:${b.builderId}`} AND program_id = ${programId}`;
+  return { ...b, application_id: application_id as string };
+}
+
+test('L16-1, L16-9, L16-16, L22-11 (v6.1.16): a refused further payment, a call of repeats, and the note says recorded only when one reached a builder', async () => {
+  const c = await reviewerOf('scr-l16');
+  const v = await applied('scr-l16', 'name:vee');
+  const q = await mcpCall(c, 'screen', { program_id: 'scr-l16', applicants: [{ ref: 'v', name: 'Vee', application_id: v.application_id }, { ref: 'x', name: 'X' }] });
+  const jobId = q.reply!.job_id as string;
+  const won = await mcpCall(c, 'screen', { job_id: jobId, outcomes: [{ ref: 'v', outcome: 'won', amount_usd: 100 }] });
+  assert.equal(won.reply!.show_to_builder, 'Recorded 1 outcome.');
+  assert.equal(won.reply!.agent_note, 'Tell the builder the outcomes are recorded.');
+  // L16-16: the same outcome again is a repeat; with every outcome a repeat, one line.
+  const again = await mcpCall({ ...c, now: new Date(NOW.getTime() + 60_000) }, 'screen', { job_id: jobId, outcomes: [{ ref: 'v', outcome: 'won', amount_usd: 100 }] });
+  assert.equal(again.reply!.show_to_builder, 'Already recorded; nothing new.');
+  assert.equal(again.reply!.agent_note, 'Already recorded, nothing new: v.');
+  assert.equal(again.reply!.recorded, 0);
+  // Some repeats: the count is of the new ones; L22-11: a recorded one that reached no builder is named.
+  const some = await mcpCall({ ...c, now: new Date(NOW.getTime() + 120_000) }, 'screen', { job_id: jobId, outcomes: [{ ref: 'v', outcome: 'won', amount_usd: 100 }, { ref: 'x', outcome: 'rejected' }] });
+  assert.equal(some.reply!.show_to_builder, 'Recorded 1 outcome; not passed to a builder: x (no EarnKit application).');
+  assert.equal(some.reply!.agent_note, 'Nothing reached a builder: x: no EarnKit application. Not matched to an EarnKit application: x. Already recorded, nothing new: v.');
+  // L16-1: rejected, then a further payment: refused, the screen and the ledger both keep the rejection.
+  await mcpCall({ ...c, now: new Date(NOW.getTime() + 180_000) }, 'screen', { job_id: jobId, outcomes: [{ ref: 'v', outcome: 'rejected' }] });
+  const pay = await mcpCall({ ...c, now: new Date(NOW.getTime() + 240_000) }, 'screen', { job_id: jobId, outcomes: [{ ref: 'v', outcome: 'won', amount_usd: 10, payment: { key: 'p2' } }] });
+  assert.equal(pay.reply!.show_to_builder, 'Recorded 0 outcomes. Further payment refused: the current result is rejected; post a win first.');
+  assert.equal(pay.reply!.agent_note, 'Nothing reached a builder: v: further payment refused. Not recorded, a further payment needs a win first: v.');
+  assert.equal((await sql()`SELECT outcome FROM screen_outcomes WHERE job_id = ${jobId} AND ref = 'v'`)[0].outcome, 'rejected');
+  assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${v.builderId}`} AND program_id = 'scr-l16'`)[0].status, 'rejected');
+  for (const r of [won, again, some, pay]) assert.doesNotMatch(r.reply!.show_to_builder as string, /—|amount_usd|payment_key|ledger/);
+});
+
+test('L22-11 b22 (v6.1.16): a row whose name is not the application\'s project is recorded on the screen and named as not passed on', async () => {
+  const c = await reviewerOf('scr-b22');
+  const a = await applied('scr-b22', 'name:alpha app');
+  const q = await mcpCall(c, 'screen', { program_id: 'scr-b22', applicants: [{ ref: 'beta', name: 'Beta', application_id: a.application_id }] });
+  const r = await mcpCall(c, 'screen', { job_id: q.reply!.job_id as string, outcomes: [{ ref: 'beta', outcome: 'won', amount_usd: 500 }] });
+  assert.equal(r.reply!.show_to_builder, "Recorded 1 outcome; not passed to a builder: beta (the id is another project's).");
+  assert.equal(r.reply!.agent_note, "Nothing reached a builder: beta: the id is another project's. Not passed on, the EarnKit id belongs to another project: beta.");
+  assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${a.builderId}`} AND program_id = 'scr-b22'`)[0].status, 'applied');
 });

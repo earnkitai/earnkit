@@ -5,12 +5,12 @@
  */
 import { z } from 'zod';
 import { inputDetail } from '../v5/tool-input';
-import { winCapOf } from '../v5/ledger';
+import { FURTHER_PAYMENT_REFUSED, winCapOf } from '../v5/ledger';
 import { getProgram } from '../v5/programs';
 import { LIMITS, hit } from '../v5/rate-limit';
 import { listWords, signInLink } from './record-tool';
 import { reviewerPrograms } from './reviewers';
-import { badRequeues, createJob, jobResults, jobStatus, type Outcome, OWN_APPLICATION, queuedAhead, recordOutcomes, REF_MAX, ScreenApplicant, type ScreenResults } from './screen-jobs';
+import { badRequeues, createJob, jobResults, jobStatus, NOT_PASSED, type Outcome, OUTCOME_NOTES, OWN_APPLICATION, queuedAhead, recordOutcomes, REF_MAX, ScreenApplicant, type ScreenResults } from './screen-jobs';
 import { SCREEN_BATCH } from './screen-worker';
 import { DEFAULT_THRESHOLDS, RATIO_THRESHOLDS, TIERS, type Thresholds } from './tiers';
 
@@ -68,6 +68,10 @@ export const SCREEN_TEXT = {
   stopNote: 'Show this line and stop.',
   /** L15-3 (v6.1.14): the last line of a page with more to come. */
   nextPage: (n: number) => `Ask for page ${n} for the rest.`,
+  /** L16-12 (v6.1.16): a results page past the last. */
+  noMore: 'No more results.',
+  /** L16-16 (v6.1.16): every outcome of the call was already recorded. */
+  nothingNew: 'Already recorded; nothing new.',
   /** Task 8 security follow-up (v6.1.14): a requeue that names no earlier row of the program with the same EarnKit id. */
   badRequeue: (refs: string) => `Not queued: the earlier row named for ${refs} is not in this program's screens with the same EarnKit id.`,
 } as const;
@@ -238,29 +242,45 @@ export async function screenTool(ctx: { installationId: number; builderId: numbe
         }
         take.push(out);
       }
-      const { recorded, notFound, notes, own, overCap } = await recordOutcomes(input.job_id, ctx.builderId, take, ctx.now);
-      // The refs not in this screen are named (C19); L15-1 (v6.1.14): an outcome on the reviewer's own application is refused in one line.
-      const counted = notFound.length > 0 ? `Recorded ${plural(recorded, 'outcome')}; not found: ${listWords(notFound, 10)}.` : `Recorded ${plural(recorded, 'outcome')}.`;
+      const { recorded, notFound, notes, own, overCap, passed, reasons, notPassed, repeats, paymentRefused } = await recordOutcomes(input.job_id, ctx.builderId, take, ctx.now);
+      // L16-16 (v6.1.16): a call whose every outcome is a repeat says so alone.
+      if (repeats.length > 0 && repeats.length === new Set(input.outcomes.map((o) => o.ref)).size)
+        return { ...line(SCREEN_TEXT.nothingNew, OUTCOME_NOTES.repeats(repeats)), recorded: 0 };
+      // The refs not in this screen are named (C19); L22-11 (v6.1.16): a recorded outcome that reached no builder's
+      // ledger is named with why; L15-1 (v6.1.14): an outcome on the reviewer's own application is refused in one line.
+      const counted = `Recorded ${plural(recorded, 'outcome')}${notPassed.length > 0 ? `; not passed to a builder: ${listWords(notPassed, 10)}` : ''}${notFound.length > 0 ? `; not found: ${listWords(notFound, 10)}` : ''}.`;
       // T8-F3 (v6.1.14): a further payment whose total is over the program's cap is named with the over-cap applicants.
       const over = [...overCapRefs, ...(overCap ?? []).filter((r) => !overCapRefs.includes(r))];
       const show = [
         counted, ...(own ? [OWN_APPLICATION] : []),
         ...(badAmount.length ? [SCREEN_TEXT.amountFor(listWords(badAmount, 10))] : []),
         ...(over.length ? [SCREEN_TEXT.overCapFor(listWords(over, 10))] : []),
+        // L16-1 (v6.1.16): one sentence per kept result a further payment was refused over; the refs are in the agent note.
+        ...[...new Set(paymentRefused.map((x) => x.status))].map(FURTHER_PAYMENT_REFUSED),
       ].join(' ');
-      const note = notFound.length > 0 ? 'Tell the builder the outcomes are recorded, and which refs this screen does not hold.' : 'Tell the builder the outcomes are recorded.';
+      // L16-9, L22-10 (v6.1.16): the outcomes are recorded for the builder only when one reached a ledger.
+      const missed = [
+        ...reasons,
+        ...badAmount.map((r) => `${r}: ${NOT_PASSED.badAmount}`),
+        ...overCapRefs.map((r) => `${r}: ${NOT_PASSED.overCap}`),
+      ];
+      const note = passed > 0
+        ? notFound.length > 0 ? 'Tell the builder the outcomes are recorded, and which refs this screen does not hold.' : 'Tell the builder the outcomes are recorded.'
+        : missed.length > 0 ? `Nothing reached a builder: ${listWords(missed, 10)}.` : null;
       const amountNotes = [
         ...(badAmount.length ? [`Not recorded, the amount could not be read: ${listWords(badAmount, 10)}. Send amount_usd, or amount with a three-letter currency code, above 0.`] : []),
         ...(overCapRefs.length ? [`Not recorded, over what this program pays: ${listWords(overCapRefs, 10)}.`] : []),
         ...(rounded.length ? [`Rounded down to whole dollars for the builder's ledger: ${listWords(rounded, 10)}.`] : []),
         ...(foreign.length ? [`Kept as given, not converted to US dollars: ${listWords(foreign, 10)}.`] : []),
       ];
-      return { ...line(show, [note, ...notes, ...amountNotes].join(' ')), recorded };
+      return { ...line(show, [...(note ? [note] : []), ...notes, ...amountNotes].join(' ')), recorded };
     }
     const results = await jobResults(input.job_id, ctx.builderId, ctx.now, input.page ?? 1);
     if (!results) return line(SCREEN_TEXT.expired);
-    // L15-3 (v6.1.14): one page of 25; the last line asks for the next when there is one.
-    const more = results.next_page !== null ? ` ${SCREEN_TEXT.nextPage(results.next_page)}` : '';
+    // L15-3 (v6.1.14): one page of 25; the last line asks for the next when there is one. L16-12 (v6.1.16): a page past
+    // the last says so.
+    const more = results.next_page !== null ? ` ${SCREEN_TEXT.nextPage(results.next_page)}`
+      : results.page > 1 && results.applicants.length === 0 ? ` ${SCREEN_TEXT.noMore}` : '';
     return {
       show_to_builder: `${totalsLine(results)}${more}`,
       agent_note: [results.finished ? SCREEN_TEXT.sortNote : SCREEN_TEXT.pendingNote, ...(results.next_page !== null ? [`Call screen with job_id and page ${results.next_page} for the next 25.`] : [])].join(' '),

@@ -9,7 +9,7 @@ import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { sql } from '../v5/db';
 import { CHAIN_REGISTRY, isKnownChain } from '../v5/chains';
-import { record, resultWords, winCapOf } from '../v5/ledger';
+import { OVER_CAP, record, resultWords, winCapOf } from '../v5/ledger';
 import { getProgram } from '../v5/programs';
 import { canonicalRepoLink, isCodeHost, nameKeyOf, sshAsHttps } from '../v5/project-input';
 import { repoKey } from '../v5/repo-facts';
@@ -372,6 +372,10 @@ export const OUTCOME_NOTES = {
   noProject: (refs: string[]) => `Not passed on, the EarnKit application names no project to match: ${listWords(refs, 10)}.`,
   /** T5-F3 (v6.1.14): one id on more than one applicant of the program; each group names every row carrying it. */
   ambiguous: (groups: string[]) => `Not passed on, one EarnKit id on more than one applicant: ${groups.join('; ')}.`,
+  /** L16-1 (v6.1.16): a further payment over a result that is not a win; nothing is written for it. */
+  paymentRefused: (refs: string[]) => `Not recorded, a further payment needs a win first: ${listWords(refs, 10)}.`,
+  /** L16-16 (v6.1.16): a payment key retry, or the outcome kept already; nothing new. */
+  repeats: (refs: string[]) => `Already recorded, nothing new: ${listWords(refs, 10)}.`,
 } as const;
 /** L15-1 (v6.1.14): the owner-facing line when a reviewer posts on their own application. */
 export const OWN_APPLICATION = 'You applied to this one; another reviewer posts its result.';
@@ -417,25 +421,60 @@ async function applicationProject(owner: string, projectId: string | null): Prom
 const sameProject = (row: ProjectSide, app: ProjectSide): boolean =>
   app.repo ? row.repo === app.repo : row.name !== null && app.name !== null && row.name === app.name;
 
+/** L16-9 (v6.1.16): why an outcome reached no builder's ledger, in the words of the agent note and the show line. */
+export const NOT_PASSED = {
+  unmatched: 'no EarnKit application',
+  otherProject: "the id is another project's",
+  noProject: 'the application names no project',
+  ambiguous: 'the id is on more than one applicant',
+  superseded: 'a later row replaces it',
+  own: 'your own application',
+  overCap: 'over what the program pays',
+  badAmount: 'amount not read',
+  older: 'a later result is kept',
+  shortlisted: 'shortlisted only',
+  notFound: 'not in this screen',
+  paymentRefused: 'further payment refused',
+} as const;
+export type NotPassedWhy = (typeof NOT_PASSED)[keyof typeof NOT_PASSED];
+
+/** "won $3,000", "won EUR 2,500" (L16-4: an earlier win in another currency with its amount as given). Pure. */
+const keptWords = (b: { outcome: string; amount_usd: string | null; amount_given: string | null; currency: string | null }): string =>
+  b.outcome === 'shortlisted' ? 'shortlisted'
+  : b.outcome === 'won' && b.currency && b.currency !== 'USD' && b.amount_given !== null ? `won ${b.currency} ${Number(b.amount_given).toLocaleString('en-US')}`
+  : resultWords(b.outcome, b.amount_usd);
+
+/** The screen's result word for a further payment's refusal (L16-1): `none` when nothing is kept. Pure. */
+const screenStatusWords = (outcome: string | undefined): string => (outcome === undefined ? 'none' : outcome === 'no_result' ? 'no result' : outcome);
+
 /**
  * The program's decisions, on a job of a program this builder reviews (any of its reviewers, L15-12). Each is kept for
  * the program's own counts; a second one for an applicant replaces the first only when newer (L13-12), and the note
- * says which it replaced; a win marked a further payment adds to the first, once per key and never over the program's
- * cap (L15-17, T8-F1, T8-F3), in the screen and the ledger; an unmarked win with another amount is a correction.
+ * says which it replaced (L16-4: an earlier win in another currency as given, `EUR 2,500`); a win marked a further
+ * payment adds to the first, once per key and never over the program's cap (L15-17, T8-F1, T8-F3), in the screen and
+ * the ledger, and only over a kept win (L16-1: else nothing is written and it is named in `paymentRefused` with the
+ * kept result); an unmarked win with another amount is a correction. A payment key retry or an outcome identical to
+ * the kept one is a repeat (L16-16): it is not counted in `recorded` unless the ledger took something from it (FR-4).
  * A won or rejected one also goes to the ledger of the application the applicant row names by its EarnKit id (L13-1),
  * only when that application is for this program: never by repo or site, since a record or an applicant list can name
- * any repo. It is written as that application's own installation, through ledger.record so its caps and its one result
- * per program hold; a win with no amount is passed on as a win with none (L13-13). An outcome on the reviewer's own
- * application is not written at all (L15-1). FR-3 (final fix): nor one whose row is another project than the application's
-(the repo when both have one, else the name), so a copied id on a single row reaches no ledger. An id another live row of the program carries too reaches no ledger
- * (T5-F3); only a row a later row's requeue names is not live. Shortlisted writes no ledger row. `notes` are for the
- * reviewer's agent: what the screen did, never whether a ledger took it; `own`, when any, the refs of the reviewer's own.
+ * any repo. It is written as that application's own installation, through ledger.record, which mirrors the kept
+ * result (L16-1, L16-2: a different won or rejected is a correction there too); a win with no amount is passed on as a
+ * win with none (L13-13). An outcome on the reviewer's own application is not written at all (L15-1). FR-3 (final
+ * fix): nor one whose row is another project than the application's (the repo when both have one, else the name), so
+ * a copied id on a single row reaches no ledger. An id another live row of the same project carries too reaches no
+ * ledger (T5-F3; L16-3: rows of another project are never candidates); only a row a later row's requeue names is not
+ * live. Shortlisted writes no ledger row. `passed` counts the outcomes a ledger holds; `reasons` names each that did
+ * not (`{ref}: {why}`), `notPassed` the recorded ones among them (`{ref} ({why})`, L22-11).
  */
-export async function recordOutcomes(jobId: string, builderId: number, outcomes: Outcome[], now: Date): Promise<{ recorded: number; notFound: string[]; notes: string[]; own?: string[]; overCap?: string[] }> {
+export async function recordOutcomes(jobId: string, builderId: number, outcomes: Outcome[], now: Date): Promise<{
+  recorded: number; notFound: string[]; notes: string[]; own?: string[]; overCap?: string[];
+  passed: number; reasons: string[]; notPassed: string[]; repeats: string[]; paymentRefused: { ref: string; status: string }[];
+}> {
   const [job] = await sql()<{ program_id: string; installation_id: number }[]>`
     SELECT program_id, installation_id FROM screen_jobs WHERE id = ${jobId} AND ${reviewedBy(builderId)} AND expires_at > ${now}`;
-  if (!job) return { recorded: 0, notFound: [], notes: [] };
+  if (!job) return { recorded: 0, notFound: [], notes: [], passed: 0, reasons: [], notPassed: [], repeats: [], paymentRefused: [] };
   let recorded = 0;
+  let passed = 0;
   // Refs not in this screen, in the order given, once each (v6.1.7 C19).
   const notFound: string[] = [];
   const unmatched: string[] = [];
@@ -449,110 +488,158 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
   const overCap: string[] = [];
   const otherProject: string[] = [];
   const noProject: string[] = [];
-  const cap = winCapOf(await getProgram(job.program_id));
+  const repeats: string[] = [];
+  const paymentRefused: { ref: string; status: string }[] = [];
+  const reasons: string[] = [];
+  const notPassed: string[] = [];
   const once = (list: string[], ref: string) => void (list.includes(ref) || list.push(ref));
+  /** L16-9, L22-11: an outcome that reached no ledger; `kept` when the screen recorded it. */
+  const miss = (ref: string, why: NotPassedWhy, kept: boolean) => {
+    once(reasons, `${ref}: ${why}`);
+    if (kept) once(notPassed, `${ref} (${why})`);
+  };
+  const cap = winCapOf(await getProgram(job.program_id));
   const key = (x: { job_id: string; ref: string }) => `${x.job_id}\n${x.ref}`;
   for (const o of outcomes) {
     const [a] = await sql()<{ application_id: string | null; name: string; repo_url: string | null }[]>`
       SELECT application_id, name, repo_url FROM screen_applicants WHERE job_id = ${jobId} AND ref = ${o.ref}`;
     if (!a) {
       once(notFound, o.ref);
+      miss(o.ref, NOT_PASSED.notFound, false);
       continue;
     }
     const app = a.application_id ? await applicationOf(a.application_id, job.program_id, builderId) : undefined;
     // L15-1 (v6.1.14): never on the reviewer's own application; nothing is written for it, the rest go on.
     if (app?.own) {
       once(own, o.ref);
+      miss(o.ref, NOT_PASSED.own, false);
       continue;
     }
     const amount = o.outcome === 'won' && o.amount_usd != null ? o.amount_usd : null;
     const pkey = o.outcome === 'won' && o.payment ? o.payment.key : null;
-    type Before = { outcome: string; amount_usd: string | null; at: Date; payment_keys: string[] };
+    // L15-15 (v6.1.14): the amount as the owner gave it (cents, another currency) is kept beside the whole dollars.
+    const givenAmount = o.outcome !== 'won' ? null : o.given ? o.given.amount : o.rounded ? o.rounded.from : amount;
+    const currency = o.outcome !== 'won' || givenAmount === null ? null : o.given ? o.given.currency : 'USD';
+    type Before = { outcome: string; amount_usd: string | null; amount_given: string | null; currency: string | null; at: Date; payment_keys: string[] };
     // T5-F5 (v6.1.14): the outcome it replaces is read under the row's lock, in the upsert's transaction.
     const w = (await sql().begin(async (tx) => {
       const [b] = await tx<Before[]>`
-        SELECT outcome, amount_usd, at, payment_keys FROM screen_outcomes WHERE job_id = ${jobId} AND ref = ${o.ref} FOR UPDATE`;
+        SELECT outcome, amount_usd, amount_given, currency, at, payment_keys FROM screen_outcomes WHERE job_id = ${jobId} AND ref = ${o.ref} FOR UPDATE`;
       // T8-F1: a payment key this outcome already added is a retry: nothing changes.
       if (pkey !== null && b?.payment_keys.includes(pkey)) return { repeat: true as const };
+      // L16-1, L16-2 (v6.1.16): a further payment adds only to a kept win; over anything else nothing is written.
+      if (pkey !== null && b?.outcome !== 'won') return { refused: screenStatusWords(b?.outcome) };
+      // L16-16 (v6.1.16): the outcome kept already, the same in every part: nothing changes.
+      if (pkey === null && b && b.outcome === o.outcome && (b.amount_usd === null ? null : Number(b.amount_usd)) === amount
+        && (b.amount_given === null ? null : Number(b.amount_given)) === givenAmount && (b.currency ?? null) === currency)
+        return { repeat: true as const };
       // L15-17, T8-F1: a further payment over a win with an amount is kept as the total; T8-F3: over the cap, as the
       // ledger refuses it, nothing is written. Unmarked, another amount replaces the first.
       const sum = pkey !== null && b && b.outcome === 'won' && b.amount_usd !== null && amount !== null ? Number(b.amount_usd) + amount : null;
       if (sum !== null && sum > cap) return { overCap: true as const };
       const keys = [...(b?.payment_keys ?? []), ...(pkey !== null ? [pkey] : [])];
-      // L15-15 (v6.1.14): the amount as the owner gave it (cents, another currency) is kept beside the whole dollars.
-      const givenAmount = o.outcome !== 'won' ? null : o.given ? o.given.amount : o.rounded ? o.rounded.from : amount;
-      const currency = o.outcome !== 'won' || givenAmount === null ? null : o.given ? o.given.currency : 'USD';
       const k = await tx`INSERT INTO screen_outcomes (job_id, ref, outcome, amount_usd, at, payment_keys, amount_given, currency)
         VALUES (${jobId}, ${o.ref}, ${o.outcome}, ${sum ?? amount}, ${now}, ${keys}, ${givenAmount}, ${currency})
         ON CONFLICT (job_id, ref) DO UPDATE SET outcome = EXCLUDED.outcome, amount_usd = EXCLUDED.amount_usd, at = EXCLUDED.at, payment_keys = EXCLUDED.payment_keys,
           amount_given = EXCLUDED.amount_given, currency = EXCLUDED.currency
         WHERE EXCLUDED.at >= screen_outcomes.at RETURNING ref`;
       return { before: b, kept: k.length > 0, total: sum };
-    })) as { repeat: true } | { overCap: true } | { before: Before | undefined; kept: boolean; total: number | null };
+    })) as { repeat: true } | { refused: string } | { overCap: true } | { before: Before | undefined; kept: boolean; total: number | null };
     if ('overCap' in w) {
       once(overCap, o.ref);
+      miss(o.ref, NOT_PASSED.overCap, false);
+      continue;
+    }
+    if ('refused' in w) {
+      if (!paymentRefused.some((x) => x.ref === o.ref)) paymentRefused.push({ ref: o.ref, status: w.refused });
+      miss(o.ref, NOT_PASSED.paymentRefused, false);
       continue;
     }
     // FR-4 (final fix): a payment key the screen already kept is a retry. It still goes on to the ledger with the same
     // key (the ledger's own key check makes that a no-op once written), so a ledger write that failed after the screen's
-    // commit is delivered on the retry, once.
-    if ('repeat' in w) recorded++;
-    else {
+    // commit is delivered on the retry, once. L16-16: it counts as recorded only when the ledger took it.
+    const repeat = 'repeat' in w;
+    if (!repeat) {
       const { before, kept, total } = w;
       if (!kept) {
         once(older, o.ref);
+        miss(o.ref, NOT_PASSED.older, false);
         continue;
       }
       recorded++;
-      const same = before && before.outcome === o.outcome && (before.amount_usd === null ? null : Number(before.amount_usd)) === amount;
       if (total !== null) added.push(`${o.ref} (now ${resultWords('won', String(total))})`);
-      else if (before && !same) replaced.push(`${o.ref} (was ${before.outcome === 'shortlisted' ? 'shortlisted' : resultWords(before.outcome, before.amount_usd)})`);
+      else if (before) replaced.push(`${o.ref} (was ${keptWords(before)})`);
     }
-    if (o.outcome === 'shortlisted') continue;
-    // T5-F3 (v6.1.14) and the Task 8 security follow-up: an id given to a program can be copied, with the applicant's
-    // repo, site and contracts, so an id another live row of the program carries (any screen, expired too) is
-    // ambiguous and reaches no ledger. A row is not live only when a later row's requeue names it exactly (checked when
-    // queued: a row of this program with the same id), so only a reviewer's deliberate requeue separates a requeue from
-    // a copy. Two rows of one screen are always two applicants.
-    if (a.application_id) {
-      const rows = await sql()<{ job_id: string; ref: string; requeue_job_id: string | null; requeue_ref: string | null }[]>`
-        SELECT x.job_id, x.ref, x.requeue_job_id, x.requeue_ref FROM screen_applicants x JOIN screen_jobs j ON j.id = x.job_id
-        WHERE x.application_id = ${a.application_id} AND j.program_id = ${job.program_id}`;
-      const named = new Set(rows.filter((x) => x.requeue_job_id && x.requeue_ref).map((x) => key({ job_id: x.requeue_job_id!, ref: x.requeue_ref! })));
-      const me = key({ job_id: jobId, ref: o.ref });
-      if (named.has(me)) {
-        once(superseded, o.ref);
-        continue;
-      }
-      const clash = rows.filter((x) => key(x) !== me && !named.has(key(x)));
-      if (clash.length > 0) {
-        const here = [o.ref, ...clash.filter((x) => x.job_id === jobId).map((x) => x.ref)].sort();
-        const group = listWords([...here, ...clash.filter((x) => x.job_id !== jobId).map((x) => `${x.ref} (another screen)`).sort()], 10);
-        if (!ambiguous.includes(group)) ambiguous.push(group);
-        continue;
-      }
+    // A repeat whose ledger write changes nothing is named in `repeats`; one the ledger takes counts as recorded.
+    const repeated = () => once(repeats, o.ref);
+    if (o.outcome === 'shortlisted') {
+      if (repeat) repeated();
+      else miss(o.ref, NOT_PASSED.shortlisted, true);
+      continue;
     }
+    const skip = (list: string[], why: NotPassedWhy) => {
+      once(list, o.ref);
+      if (repeat) repeated();
+      else miss(o.ref, why, true);
+    };
     // The application the applicant row names, for this program only; a sent one (applied, or with a result the ledger keeps).
     if (!app || app.status === 'started' || app.status === 'skipped') {
-      once(unmatched, o.ref);
+      skip(unmatched, NOT_PASSED.unmatched);
+      continue;
+    }
+    // T5-F3 (v6.1.14) and the Task 8 security follow-up: an id given to a program can be copied, so a requeued row is
+    // not live; only a reviewer's deliberate requeue (checked when queued) separates a requeue from a copy.
+    const rows = await sql()<{ job_id: string; ref: string; name: string; repo_url: string | null; requeue_job_id: string | null; requeue_ref: string | null }[]>`
+      SELECT x.job_id, x.ref, x.name, x.repo_url, x.requeue_job_id, x.requeue_ref FROM screen_applicants x JOIN screen_jobs j ON j.id = x.job_id
+      WHERE x.application_id = ${a.application_id} AND j.program_id = ${job.program_id}`;
+    const named = new Set(rows.filter((x) => x.requeue_job_id && x.requeue_ref).map((x) => key({ job_id: x.requeue_job_id!, ref: x.requeue_ref! })));
+    const me = key({ job_id: jobId, ref: o.ref });
+    if (named.has(me)) {
+      skip(superseded, NOT_PASSED.superseded);
       continue;
     }
     // FR-3 (final fix): the row must be the application's own project, so an id copied onto one row reaches no ledger.
+    // L16-3 (v6.1.16): computed before the ambiguity check, so a copy of another project never blocks the real row.
     const appProject = await applicationProject(app.owner, app.project_id);
     if (!appProject) {
-      once(noProject, o.ref);
+      skip(noProject, NOT_PASSED.noProject);
       continue;
     }
-    if (!sameProject({ repo: repoSide(a.repo_url), name: nameSide(a.name) }, appProject)) {
-      once(otherProject, o.ref);
+    const sideOf = (x: { name: string; repo_url: string | null }): ProjectSide => ({ repo: repoSide(x.repo_url), name: nameSide(x.name) });
+    if (!sameProject(sideOf(a), appProject)) {
+      skip(otherProject, NOT_PASSED.otherProject);
       continue;
     }
-    if (o.outcome === 'won' && amount === null && !o.given) once(noAmount, o.ref);
+    // An id another live row of the same project carries (any screen, expired too) is ambiguous; two rows of one screen
+    // are always two applicants.
+    const clash = rows.filter((x) => key(x) !== me && !named.has(key(x)) && sameProject(sideOf(x), appProject));
+    if (clash.length > 0) {
+      const here = [o.ref, ...clash.filter((x) => x.job_id === jobId).map((x) => x.ref)].sort();
+      const group = listWords([...here, ...clash.filter((x) => x.job_id !== jobId).map((x) => `${x.ref} (another screen)`).sort()], 10);
+      if (!ambiguous.includes(group)) ambiguous.push(group);
+      if (repeat) repeated();
+      else miss(o.ref, NOT_PASSED.ambiguous, true);
+      continue;
+    }
+    if (o.outcome === 'won' && amount === null && !o.given && !repeat) once(noAmount, o.ref);
     const ledgerNote = ledgerAmountNote(o);
-    await record(app.owner, job.program_id, o.outcome, {
+    const res = await record(app.owner, job.program_id, o.outcome, {
       installationId: app.installation_id, now, fromScreen: true, ...(pkey !== null && { payment: { key: `s:${pkey}` } }), ...(amount === null ? (o.outcome === 'won' ? { amountNotGiven: true as const } : {}) : { amount_usd: amount }),
       ...(ledgerNote && { note: ledgerNote }),
     });
+    if (res.ok) {
+      passed++;
+      if (repeat) recorded++;
+    } else if (res.note === 'Already tracked.') {
+      // The ledger holds this result already: a repeat on both sides changes nothing; a new screen result agrees with it.
+      if (repeat) repeated();
+      else passed++;
+    } else if (res.current !== undefined) {
+      if (!paymentRefused.some((x) => x.ref === o.ref)) paymentRefused.push({ ref: o.ref, status: res.current });
+      if (repeat) repeated();
+      else miss(o.ref, NOT_PASSED.paymentRefused, true);
+    } else if (repeat) repeated();
+    else miss(o.ref, res.note === OVER_CAP ? NOT_PASSED.overCap : NOT_PASSED.older, true);
   }
   const notes = [
     ...(replaced.length ? [OUTCOME_NOTES.replaced(replaced)] : []),
@@ -566,8 +653,13 @@ export async function recordOutcomes(jobId: string, builderId: number, outcomes:
     ...(superseded.length ? [OUTCOME_NOTES.superseded(superseded)] : []),
     ...(own.length ? [OUTCOME_NOTES.own(own)] : []),
     ...(overCap.length ? [OUTCOME_NOTES.overCap(overCap)] : []),
+    ...(paymentRefused.length ? [OUTCOME_NOTES.paymentRefused(paymentRefused.map((x) => x.ref))] : []),
+    ...(repeats.length ? [OUTCOME_NOTES.repeats(repeats)] : []),
   ];
-  return { recorded, notFound, notes, ...(own.length > 0 && { own }), ...(overCap.length > 0 && { overCap }) };
+  return {
+    recorded, notFound, notes, ...(own.length > 0 && { own }), ...(overCap.length > 0 && { overCap }),
+    passed, reasons, notPassed, repeats, paymentRefused,
+  };
 }
 
 /**
