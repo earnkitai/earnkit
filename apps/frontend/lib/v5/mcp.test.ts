@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { mcpCall, mcpInstructions, mcpListTools } from './fixtures/mcp-call';
 import { FIND_DESCRIPTION, RECORD_DESCRIPTION, SCREEN_DESCRIPTION, SERVER_INSTRUCTIONS, TRACK_DESCRIPTION } from './mcp';
+import { SESSION_START } from './tool-text';
 import { PROJECT_DESCRIPTION } from './project-input';
 import { clientIp, windowStart } from './rate-limit';
 
@@ -45,9 +46,11 @@ test('four tools, their descriptions and the server instructions, verbatim', asy
   assert.equal(tools[3].description, SCREEN_DESCRIPTION);
   assert.equal(
     SERVER_INSTRUCTIONS,
-    "Call find first in every session with the project you are in, unless the builder is only screening applicants. Call record with get after that, and only when find's reply has linked true. Open with find's reply in your own words. Draft every form from find's fields: 'earnkit' and 'record' values as given, 'agent' values you draft from the field's sources, 'builder' values you ask the builder for once, all together; approved answers fitted by cutting, never by adding. Anything the builder tells you that a form could ask, save with record before using it. Submit in your own browser only after track started, and only when the builder said yes or their standing approval covers it. After each submission call track applied. When find's reply carries a sign-in link, show it once as the reply gives it; until the builder signs in, nothing is saved across agents. Never write a sentence about traction yourself. Never name tools, fields or files. Never invent an amount, a deadline or a rule.",
+    "Call find first in every session with the project you are in, unless the builder is only screening applicants. Call record with get after that, and only when find's reply has linked true. Show find's reply as given; shorten if you must, keep money first and the last action. Draft every form from find's fields: 'earnkit' and 'record' values as given, 'agent' values you draft from the field's sources, 'builder' values you ask the builder for once, all together; approved answers fitted by cutting, never by adding. Anything the builder tells you that a form could ask, save with record before using it. Submit in your own browser only after track started, and only when the builder said yes or their standing approval covers it. After each submission call track applied. When find's reply carries a sign-in link, show it once as the reply gives it; until the builder signs in, nothing is saved across agents. Never write a sentence about traction yourself. Never name tools, fields or files. Never invent an amount, a deadline or a rule.",
   );
   assert.equal(await mcpInstructions(c), SERVER_INSTRUCTIONS);
+  assert.ok(SERVER_INSTRUCTIONS.startsWith(SESSION_START));
+  assert.ok(!SERVER_INSTRUCTIONS.includes('in your own words'));
 });
 
 test('find strips unknown keys; track refuses them with its one line, the detail in the agent note (C35, C21)', async () => {
@@ -165,7 +168,7 @@ test('a database error is the busy line', async () => {
 
 const seed = (key: string, count: number) =>
   sql()`INSERT INTO rate_windows (key, window_start, count) VALUES (${key}, ${windowStart(NOW, 3_600_000)}, ${count})`;
-const BUSY_HOUR = 'EarnKit is busy. Try again in about 60 minutes.';
+const BUSY_HOUR = 'You have asked a lot this hour. Try again in about 60 minutes.';
 
 test('the 121st tool call in an hour is the busy reply, as a tool result', async () => {
   const c = await ctx();
@@ -178,7 +181,7 @@ test('the 121st tool call in an hour is the busy reply, as a tool result', async
   const f = await mcpCall(c, 'find', {});
   assert.equal(f.text, BUSY_HOUR);
   const later = await mcpCall({ ...c, now: new Date(NOW.getTime() + 48 * 60_000) }, 'find', {});
-  assert.equal(later.text, 'EarnKit is busy. Try again in about 12 minutes.');
+  assert.equal(later.text, 'You have asked a lot this hour. Try again in about 12 minutes.');
   const next = await mcpCall({ ...c, now: new Date(NOW.getTime() + 3_600_000) }, 'track', { program_id: 'no-such', status: 'skipped' });
   assert.equal(next.isError, false, next.text);
 });

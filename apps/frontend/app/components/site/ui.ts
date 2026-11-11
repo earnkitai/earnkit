@@ -19,7 +19,7 @@ export const CARD_PANEL = 'rounded-[36px] bg-s-panel text-s-text';
 /** White pill (hero CTA, Back home): ink on white, 44px tall. */
 export const PILL_WHITE =
   'inline-flex min-h-11 items-center justify-center rounded-full bg-s-light px-6 text-[15px] font-bold text-s-ink motion-safe:transition-colors duration-200 hover:bg-s-light-hover';
-/** Blue pill (the nav's "Add to your agent"): white on blue, 14px/600, 44px tall. */
+/** Blue pill (the nav's "Add EarnKit to your agent"): white on blue, 14px/600, 44px tall. */
 export const PILL_BLUE =
   'inline-flex h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-full bg-s-blue px-5 text-[14px] font-semibold text-s-on-blue motion-safe:transition-colors duration-200 hover:bg-s-blue-top';
 

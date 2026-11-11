@@ -26,9 +26,10 @@ export function programKind(p: Partial<Parameters<typeof categoryOf>[0]> & { rew
 export const HERO_TITLE = 'Get funded for what you ship.';
 export const HERO_SUB = 'Your agent finds the grants and prizes you fit and fills the forms. Free.';
 export const CTA_INSTALL = 'Add EarnKit to your agent';
-export const NAV_INSTALL = 'Add to your agent';
+/** The nav pill says the CTA's words: one install action (v6.1.15, #13). */
+export const NAV_INSTALL = CTA_INSTALL;
 /** One line each, no titles (v6.2.0). */
-export const STEPS = ['Add EarnKit to your agent.', 'Ask what this repo can earn.', 'Say yes. It fills the form and sends it, or hands you the draft to send.'];
+export const STEPS = ['Add EarnKit to your agent.', 'Ask your agent: What can I earn?', 'Say yes. It fills the form and sends it, or hands you the draft to send.'];
 
 /** Several of the six are rolling, so not "this week" (v6.1.14). */
 export const EARN_TITLE = 'Open now';
@@ -41,7 +42,7 @@ export const CLOSED = 'Closed';
 export const PROGRAMS_TITLE = 'Programs';
 export const PROGRAMS_DESCRIPTION = 'Every grant, hackathon and investment EarnKit lists, with the money and the close date.';
 export const ALL_PROGRAMS = 'All programs';
-export const FOOT_CTA = 'Ask your agent what you can earn.';
+export const FOOT_CTA = 'Ask your agent: What can I earn?';
 export const ART_CREDIT = 'Art: C.W. Eckersberg, 1815 · G.P. Panini, c. 1734';
 
 export const GUIDE_FIELDS_TITLE = 'What the form asks';
@@ -72,10 +73,11 @@ export const DOCS_NAV: [string, string][] = [
 export const DOCS_DESCRIPTION = 'How to add EarnKit to your agent, how a session goes, your record, screening for programs, what program owners need to know, and how programs are checked.';
 export const DOCS_INSTALL_TITLE = 'Add EarnKit to your agent';
 /** The intro line above the install tabs already says it connects at once, so no step says it again (v6.1.8, Task 6). */
-export const DOCS_STEPS = ['Add EarnKit', 'Ask what this repo can earn.'];
+export const DOCS_STEPS = ['Add EarnKit to your agent.', 'Ask your agent: What can I earn?'];
 export const DOCS_SESSION = {
   title: 'How a session goes',
-  text: 'Your agent asks what the repo can earn. It drafts every fit with the facts from the repo. You say yes and it submits in its own browser and tracks the result.',
+  // #4 (v6.1.15): the yes sentence is landing step 3, word for word.
+  text: `Ask your agent: What can I earn? It drafts every fit with the facts from the repo. ${STEPS[2]} It tracks the result.`,
 };
 export const DOCS_RECORD = {
   title: 'Your record',
@@ -98,7 +100,8 @@ export const DOCS_PROGRAMS = {
 } as const;
 export const DOCS_CHECKED = {
   title: 'How programs are checked',
-  text: 'The owner and a research bot curate the list. Every program is re-checked weekly and its links are probed daily. Stale programs drop off.',
+  // v6.1.15: never "owner" for EarnKit (concept picks); shorter, so the docs stay under 420 words with the longer steps.
+  text: 'EarnKit and a research bot check every program weekly and its links daily. Stale ones drop off.',
 };
 export const DOCS_TERMS = { title: 'Terms', text: 'What EarnKit reads, stores and never does.', link: 'Read the terms' };
 

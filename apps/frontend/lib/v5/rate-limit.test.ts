@@ -2,18 +2,22 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import { LIMITS, blockOf, busyText, clientIp, countHit, setSweepForTests } from './rate-limit';
+import { BUSY } from './mcp';
 
 after(() => sql().end());
 
-test('C8: the busy line says how long the window has left, in minutes rounded up, hours over 90 minutes', () => {
-  assert.equal(busyText(1), 'EarnKit is busy. Try again in about 1 minute.');
-  assert.equal(busyText(60), 'EarnKit is busy. Try again in about 1 minute.');
-  assert.equal(busyText(61), 'EarnKit is busy. Try again in about 2 minutes.');
-  assert.equal(busyText(671), 'EarnKit is busy. Try again in about 12 minutes.');
-  assert.equal(busyText(3_600), 'EarnKit is busy. Try again in about 60 minutes.');
-  assert.equal(busyText(5_400), 'EarnKit is busy. Try again in about 90 minutes.');
-  assert.equal(busyText(5_401), 'EarnKit is busy. Try again in about 2 hours.');
-  assert.equal(busyText(86_400), 'EarnKit is busy. Try again in about 24 hours.');
+test('C8, #11 (v6.1.15): the hourly limit names itself and says how long the window has left, in minutes rounded up, hours over 90 minutes', () => {
+  assert.equal(busyText(1), 'You have asked a lot this hour. Try again in about 1 minute.');
+  assert.equal(busyText(60), 'You have asked a lot this hour. Try again in about 1 minute.');
+  assert.equal(busyText(61), 'You have asked a lot this hour. Try again in about 2 minutes.');
+  assert.equal(busyText(671), 'You have asked a lot this hour. Try again in about 12 minutes.');
+  assert.equal(busyText(3_600), 'You have asked a lot this hour. Try again in about 60 minutes.');
+  assert.equal(busyText(5_400), 'You have asked a lot this hour. Try again in about 90 minutes.');
+  assert.equal(busyText(5_401), 'You have asked a lot this hour. Try again in about 2 hours.');
+  assert.equal(busyText(86_400), 'You have asked a lot this hour. Try again in about 24 hours.');
+  // `busy` stays only for errors.
+  assert.equal(BUSY, 'EarnKit is busy. Try again in a minute.');
+  assert.ok(!busyText(60).includes('busy'));
 });
 
 test('B5: no hosted per-address tier; the hosted tier only raises the per-client install limit', async () => {

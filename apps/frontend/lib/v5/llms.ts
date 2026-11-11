@@ -1,5 +1,6 @@
 /** The text at /llms.txt: what EarnKit is and how an agent or a researcher uses it. */
 import { AGENTS, MCP_URL, type Agent } from './agents';
+import { FIND_DESCRIPTION, RECORD_DESCRIPTION, SCREEN_DESCRIPTION, SESSION_START, TRACK_DESCRIPTION } from './tool-text';
 
 /** One agent's way in: its commands and the steps after them when it has commands, its message, else its steps. */
 function connectLines(a: Agent): string {
@@ -31,8 +32,7 @@ Then ask your agent: "What can I earn?"
 
 ## How a session goes
 
-1. The agent calls record with get, then find with the project it is in. EarnKit reads the public
-   repo; for a private repo it uses what the agent reports.
+1. ${SESSION_START} EarnKit reads the public repo; for a private repo it uses what the agent reports.
 2. The reply lists every program the repo fits, money first, with the application pre-filled from
    the record and the repo, and what is one change away.
 3. The builder says yes. The agent calls track with started, drafts and submits in its own browser,
@@ -41,15 +41,10 @@ Then ask your agent: "What can I earn?"
 
 ## The four tools
 
-- find: what the project can earn now, what is one change away, what moved since the last find,
-  and the ledger. With program_id: one program's details and guide.
-- track: records what happened to an application (started, applied, won, rejected, no result,
-  skipped, unskip) or a change the builder made.
-- record: the builder's record, kept once and shared by every agent of theirs: facts, links,
-  documents, answers and standing approval. get reads it, set adds facts, brief gives the question
-  and facts behind one answer.
-- screen: for a program's reviewer. Hand it the applicant list and get it back in five tiers with
-  public evidence; with job_id, the results; with outcomes, who won.
+- find: ${FIND_DESCRIPTION}
+- track: ${TRACK_DESCRIPTION}
+- record: ${RECORD_DESCRIPTION}
+- screen: ${SCREEN_DESCRIPTION}
 
 ## The record
 
@@ -60,8 +55,8 @@ also edit or delete everything. Unlinked agents keep working with no sign-in.
 
 ## Screening
 
-A program's reviewer is marked by EarnKit. Their agent calls screen with the applicants (name, repo,
-site, contracts, pitch). Each comes back used, live, building, unverified or flagged, with the public
+A program's reviewer is marked by EarnKit.
+Their agent calls screen with the applicant list, as its description above says. Each comes back used, live, building, unverified or flagged, with the public
 evidence behind it: the repo, the chain and the site, 25 applicants a page. A reviewer never sees a
 builder's record, another program's name, screens or results, or another applicant's text. A
 program's reviewers share its screens and results, which stay with the program when a reviewer

@@ -75,13 +75,13 @@ export function retryText(seconds: number) {
 }
 
 /**
- * The busy line for a refused tool call, from its window's seconds left (v6.1.7, C8): minutes rounded up (at least
- * one), hours rounded up once over 90 minutes. Pure.
+ * The hourly-limit line for a refused tool call, from its window's seconds left (v6.1.7, C8): minutes rounded up (at
+ * least one), hours rounded up once over 90 minutes. It names the limit; "busy" is only for errors (v6.1.15, #11). Pure.
  */
 export function busyText(seconds: number) {
   const minutes = Math.max(1, Math.ceil(seconds / 60));
   const wait = minutes > 90 ? `${Math.ceil(seconds / 3_600)} hours` : minutes === 1 ? '1 minute' : `${minutes} minutes`;
-  return `EarnKit is busy. Try again in about ${wait}.`;
+  return `You have asked a lot this hour. Try again in about ${wait}.`;
 }
 
 /**

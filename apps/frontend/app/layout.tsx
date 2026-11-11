@@ -4,6 +4,7 @@ import './globals.css';
 import SchemaOrg from '@/app/components/ui/SchemaOrg';
 import Header from '@/app/components/common/Header';
 import { SITE } from '@/lib/v5/site-theme';
+import { CTA_INSTALL, HERO_SUB } from '@/lib/v5/site-copy';
 
 // Self-hosted (SIL OFL 1.1, app/fonts/OFL.txt), so a Google Fonts outage can't fail a build.
 const funnelDisplay = localFont({
@@ -29,8 +30,8 @@ const kaftan = localFont({
 });
 
 const TITLE = 'EarnKit | Get funded for what you ship.';
-const DESCRIPTION =
-  'Add EarnKit to your AI agent and ask "What can I earn?". It finds the grants and prizes your repo fits and applies. Free.';
+// #1 (v6.1.15): the hero line's own words, so the meta never says more than the page.
+const DESCRIPTION = `${CTA_INSTALL} and ask: What can I earn? ${HERO_SUB}`;
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://earnkit.com'),

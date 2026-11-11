@@ -8,7 +8,8 @@ import { upsertProgram } from './programs';
 import { gatedGuidePage, guideTextById, listGuideIds } from './guide-page';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { EARN_ALL, EARN_EMPTY, HERO_TITLE, PROGRAMS_DESCRIPTION, STEPS } from './site-copy';
+import { CTA_INSTALL, EARN_ALL, EARN_EMPTY, HERO_SUB, HERO_TITLE, PROGRAMS_DESCRIPTION, STEPS } from './site-copy';
+import SchemaOrg from '../../app/components/ui/SchemaOrg';
 import type { Landing, Tile } from './landing';
 import Home from '../../app/page';
 import HomeView from '../../app/HomeView';
@@ -154,6 +155,17 @@ test('the steps: one card, an ordered list of the three lines with serif numeral
     assert.equal(textOf(li.replace(/<span[^>]*ek-serif[^>]*>\d<\/span>/, '')), STEPS[i]);
   });
   assert.equal(textOf(m), STEPS.map((s, i) => `${i + 1} ${s}`).join(' '));
+});
+
+test('#1 (v6.1.15): the meta description and SchemaOrg copy the hero line: it fills the forms, never applies', () => {
+  const layout = readFileSync(join(import.meta.dirname, '..', '..', 'app', 'layout.tsx'), 'utf8');
+  assert.ok(layout.includes('const DESCRIPTION = `${CTA_INSTALL} and ask: What can I earn? ${HERO_SUB}`;'));
+  assert.equal(`${CTA_INSTALL} and ask: What can I earn? ${HERO_SUB}`, 'Add EarnKit to your agent and ask: What can I earn? Your agent finds the grants and prizes you fit and fills the forms. Free.');
+  assert.ok(!layout.includes('applies'));
+  const ld = JSON.parse(/<script[^>]*>([\s\S]*)<\/script>/.exec(html(React.createElement(SchemaOrg)))![1]) as { description: string };
+  assert.equal(ld.description, 'Your agent finds the grants and prizes you fit and fills the forms. Free. Agents connect at https://earnkit.com/mcp.');
+  assert.ok(ld.description.startsWith(HERO_SUB));
+  assert.ok(!ld.description.includes('applies'));
 });
 
 test('no rust look remains in the landing components (v6.2.0)', () => {

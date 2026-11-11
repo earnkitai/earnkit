@@ -36,13 +36,17 @@ test('the hero and the steps are verbatim', () => {
   assert.equal(copy.HERO_TITLE, 'Get funded for what you ship.');
   assert.equal(copy.HERO_SUB, 'Your agent finds the grants and prizes you fit and fills the forms. Free.');
   assert.equal(copy.CTA_INSTALL, 'Add EarnKit to your agent');
-  assert.deepEqual(copy.STEPS, ['Add EarnKit to your agent.', 'Ask what this repo can earn.', 'Say yes. It fills the form and sends it, or hands you the draft to send.']);
+  assert.deepEqual(copy.STEPS, ['Add EarnKit to your agent.', 'Ask your agent: What can I earn?', 'Say yes. It fills the form and sends it, or hands you the draft to send.']);
+  // #13 (v6.1.15): one first ask and one install label, everywhere.
+  assert.equal(copy.NAV_INSTALL, copy.CTA_INSTALL);
+  assert.deepEqual(copy.DOCS_STEPS, ['Add EarnKit to your agent.', 'Ask your agent: What can I earn?']);
+  assert.equal(copy.DOCS_SESSION.text, 'Ask your agent: What can I earn? It drafts every fit with the facts from the repo. Say yes. It fills the form and sends it, or hands you the draft to send. It tracks the result.');
   assert.ok(!('STEPS_TITLE' in copy));
   assert.equal(copy.EARN_TITLE, 'Open now');
   // v6.1.14: no bounty is listed, ten investments are.
   assert.equal(copy.PROGRAMS_DESCRIPTION, 'Every grant, hackathon and investment EarnKit lists, with the money and the close date.');
   assert.equal(copy.EARN_ALL(45), 'See all 45 programs');
-  assert.equal(copy.FOOT_CTA, 'Ask your agent what you can earn.');
+  assert.equal(copy.FOOT_CTA, 'Ask your agent: What can I earn?');
   assert.equal(copy.PROGRAMS_TITLE, 'Programs');
 });
 
@@ -70,7 +74,9 @@ test('the docs say the seven sections and stay short', () => {
   assert.ok(words < 220, `docs copy is ${words} words`);
   assert.equal(copy.DOCS_RECORD.text, 'Sign in once with GitHub and your agents share one record: your facts, links, documents and the answers you approved. Once you are signed in, nothing is sent that you did not approve. Delete it any time. Ask your agent for your sign-in link.');
   assert.equal(copy.DOCS_SCREEN.text, "Hand your applicant list to your agent and EarnKit returns it in five tiers with public evidence: used, live, building, unverified, flagged. We read the repo, the chain and the site. We never show a builder's record, another program's name, screens or results, or another applicant's text. A program's reviewers share its screens, and they stay with the program when a reviewer leaves.");
-  assert.equal(copy.DOCS_SESSION.text.split(/(?<=\.)\s+/).length, 3);
+  // #4 (v6.1.15): the session sentence is landing step 3, word for word.
+  assert.ok(copy.DOCS_SESSION.text.includes(` ${copy.STEPS[2]} `));
+  assert.equal(copy.DOCS_SESSION.text.split(/(?<=\.)\s+/).length, 4);
 });
 
 test('L15-20 (v6.1.14): the program owners section says the five things, in plain sentences', () => {
@@ -169,7 +175,7 @@ test('no install copy mentions signing in, X, GitHub or a wallet', async () => {
   const grok = AGENTS.find((a) => a.name === 'Grok Bot')!;
   assert.equal(grok.installNote, 'Press Enter, then "Add it" and "Authorize".');
   assert.equal(grok.steps[1], `Server URL https://earnkit.com/mcp, "Save", then "Authenticate".`);
-  assert.deepEqual(copy.DOCS_STEPS, ['Add EarnKit', 'Ask what this repo can earn.']);
+  assert.deepEqual(copy.DOCS_STEPS, ['Add EarnKit to your agent.', 'Ask your agent: What can I earn?']);
 });
 
 test('the /me words: verbatim lines, sentences end with a full stop, no path in a label', () => {
