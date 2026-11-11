@@ -33,7 +33,7 @@ test('every program is a tile: no cap, money, closes, kind', () => {
   const tiles = landingTiles(rows, NOW);
   assert.equal(tiles.length, 9);
   const dated = tiles.find((t) => t.id === 'n-0')!;
-  assert.equal(dated.money, 'Up to $5K');
+  assert.equal(dated.money, 'Up to $5,000');
   assert.equal(dated.when, 'Closes Dec 1');
   assert.equal(dated.big, true);
   assert.equal(dated.kind, 'grant');
@@ -41,21 +41,22 @@ test('every program is a tile: no cap, money, closes, kind', () => {
 });
 
 test('a tile with a pool and a per-winner award shows the pool, and a pool tile is not big (v6.1.6)', () => {
-  const [t] = landingTiles([rowOf({ id: 'meta-vr', title: 'Meta Horizon VR Competition', summary: '$100K top prize · $1M in prizes', max_award_usd: 100_000, pool_usd: 1_000_000 })], NOW);
-  assert.equal(t.money, '$1M in prizes');
+  // Fix round 2 (v6.1.15): a summary with no figure falls back to the pool, before the per-winner award.
+  const [t] = landingTiles([rowOf({ id: 'meta-vr', title: 'Meta Horizon VR Competition', summary: 'Prizes for VR apps · rolling', max_award_usd: 100_000, pool_usd: 1_000_000 })], NOW);
+  assert.equal(t.money, '$1,000,000 in prizes');
   assert.equal(t.big, false);
 });
 
-test('Review Focus 4 (v6.1.14): a featured range tile reads Up to its top, big; a threshold is never its money', () => {
+test('Review Focus 4 (v6.1.14, lane 22 v6.1.15): a featured range tile keeps its low in full figures, not big; a threshold is never its money', () => {
   const rows = [
     rowOf({ id: 'otf', title: 'OTF Internet Freedom Fund', organizer: 'Open Technology Fund', summary: '$10,000 to $900,000 · rolling', max_award_usd: 900_000, min_award_usd: 10_000, ends_at: null }),
     rowOf({ id: 'circle', title: 'Circle Developer Grants', organizer: 'Circle', summary: '$5,000 to $100,000 USDC grants · rolling', reward: 'USDC grants from $5,000 to $100,000', max_award_usd: 100_000, min_award_usd: 5000, ends_at: null }),
     rowOf({ id: 'floss', title: 'FLOSS/fund', organizer: 'FLOSS/fund (Zerodha)', summary: '$10,000 to $100,000 · rolling', max_award_usd: 100_000, min_award_usd: 10_000, ends_at: null }),
   ];
   const six = featuredTiles(rows, NOW);
-  assert.deepEqual(six.map((t) => [t.id, t.money, t.big]), [['otf', 'Up to $900K', true], ['circle', 'Up to $100K', true], ['floss', 'Up to $100K', true]]);
+  assert.deepEqual(six.map((t) => [t.id, t.money, t.big]), [['otf', '$10,000 to $900,000', false], ['circle', '$5,000 to $100,000 USDC grants', false], ['floss', '$10,000 to $100,000', false]]);
   const [arb] = landingTiles([rowOf({ id: 'arb', title: 'Arbitrum Stablecoin Growth Program', summary: 'incentives + 200K ARB at $10M USDG TVL · no deadline stated', ends_at: null })], NOW);
-  assert.equal(arb.money, 'incentives + 200K ARB');
+  assert.equal(arb.money, 'Incentives + 200K ARB');
   assert.doesNotMatch(arb.money, /\$10M/);
   assert.equal(arb.big, false);
 });
@@ -77,7 +78,7 @@ test('a logo file that is missing is no logo; one that exists is its path', () =
 
 test('landingFrom: the chip is the stats money; none at zero', () => {
   const l = landingFrom([rowOf({ id: 'c-1' })], STATS, NOW);
-  assert.equal(l.chip, '$105K in grants and prizes open now');
+  assert.equal(l.chip, '$105,000 in grants and prizes open now');
   assert.equal(l.tiles.length, 1);
   assert.deepEqual(l.featured.map((t) => t.id), []);
   assert.equal(l.total, 1);
@@ -88,25 +89,27 @@ const DAY = 86_400_000;
 const inDays = (n: number) => new Date(NOW.getTime() + n * DAY).toISOString();
 
 const DATED = 'Up to $1,000 · 11:59 PM UTC';
+/** A dated summary whose money matches the award (fix round 2: the tile reads the summary's money phrase). */
+const dated = (usd: number) => `Up to $${usd.toLocaleString('en-US')} · 11:59 PM UTC`;
 
 test('featuredTiles: six by the rule (v6.2.0)', () => {
   const rows = [
-    rowOf({ id: 'f-big-pool', organizer: 'Cee Labs', title: 'C Grants', pool_usd: 1_000_000, max_award_usd: 10_000 }),
-    rowOf({ id: 'f-soon-later', organizer: 'Bee Org', max_award_usd: 30_000, ends_at: inDays(10), summary: DATED }),
+    rowOf({ id: 'f-big-pool', organizer: 'Cee Labs', title: 'C Grants', pool_usd: 1_000_000, max_award_usd: 10_000, summary: '$1,000,000 in grants · rolling' }),
+    rowOf({ id: 'f-soon-later', organizer: 'Bee Org', max_award_usd: 30_000, ends_at: inDays(10), summary: dated(30_000) }),
     rowOf({ id: 'f-soon-tiny', organizer: 'Tiny Org', title: 'Tiny Hack', in_person: true, pool_usd: 4600, ends_at: inDays(1), summary: DATED }),
-    rowOf({ id: 'f-soon-small', organizer: 'Small Org', max_award_usd: 12_000, ends_at: inDays(2), summary: DATED }),
+    rowOf({ id: 'f-soon-small', organizer: 'Small Org', max_award_usd: 12_000, ends_at: inDays(2), summary: dated(12_000) }),
     rowOf({ id: 'f-invest', organizer: 'Inv Org', investment: true, max_award_usd: 500_000 }),
-    rowOf({ id: 'f-big-award', organizer: 'Dee Org', max_award_usd: 100_000, ends_at: inDays(40), summary: DATED }),
+    rowOf({ id: 'f-big-award', organizer: 'Dee Org', max_award_usd: 100_000, ends_at: inDays(40), summary: dated(100_000) }),
     rowOf({ id: 'f-upcoming', organizer: 'Up Org', status: 'upcoming', opens_note: 'Opens in January', submission_requirements: [], max_award_usd: 900_000 }),
     rowOf({ id: 'f-c-hack', organizer: '  cee Labs ', title: 'C Hackathon', in_person: true, pool_usd: 500_000 }),
     rowOf({ id: 'f-prose', organizer: 'Prose Org', summary: 'Credits and support · rolling' }),
-    rowOf({ id: 'f-soon-first', organizer: 'Ay Org', max_award_usd: 25_000, ends_at: inDays(5), summary: DATED }),
-    rowOf({ id: 'f-mid-pool', organizer: 'Eff Org', pool_usd: 20_000 }),
+    rowOf({ id: 'f-soon-first', organizer: 'Ay Org', max_award_usd: 25_000, ends_at: inDays(5), summary: dated(25_000) }),
+    rowOf({ id: 'f-mid-pool', organizer: 'Eff Org', pool_usd: 20_000, summary: '$20,000 in grants · rolling' }),
     rowOf({ id: 'f-small', organizer: 'Gee Org', max_award_usd: 10_000 }),
   ];
   const six = featuredTiles(rows, NOW);
   assert.deepEqual(six.map((t) => t.id), ['f-soon-first', 'f-soon-later', 'f-big-pool', 'f-big-award', 'f-mid-pool', 'f-soon-small']);
-  assert.deepEqual(six.map((t) => t.money), ['Up to $25K', 'Up to $30K', '$1M in grants', 'Up to $100K', '$20K in grants', 'Up to $12K']);
+  assert.deepEqual(six.map((t) => t.money), ['Up to $25,000', 'Up to $30,000', '$1,000,000 in grants', 'Up to $100,000', '$20,000 in grants', 'Up to $12,000']);
   assert.equal(six[0].when, 'Closes Nov 9');
   assert.ok(six.every((t) => t.status === 'active' && t.kind !== 'investment'));
   const l = landingFrom(rows, STATS, NOW);
@@ -169,4 +172,19 @@ test('readLanding lists the open and upcoming programs of the database', async (
   assert.ok(ids.includes('zz-landing-open') && ids.includes('zz-landing-soon'));
   assert.ok(!ids.includes('zz-landing-shut'));
   assert.ok(l.chip === null || l.chip.endsWith(' in grants and prizes open now'));
+});
+
+test('lane 22 (v6.1.15): a lone full figure is big, "Up to" draws small above it; never K or M on a tile', () => {
+  const [one, upTo, range] = landingTiles([
+    rowOf({ id: 'b-1', summary: '$1,000,000 · rolling', max_award_usd: 1_000_000, ends_at: null }),
+    rowOf({ id: 'b-2', summary: 'up to $100,000 · rolling', max_award_usd: 100_000, ends_at: null }),
+    rowOf({ id: 'b-3', summary: '$1,000 to $5,000 · rolling', max_award_usd: 5000, min_award_usd: 1000, ends_at: null }),
+  ], NOW).sort((a, b) => a.id.localeCompare(b.id));
+  assert.deepEqual([one.money, one.big], ['$1,000,000', true]);
+  assert.deepEqual([upTo.money, upTo.big], ['Up to $100,000', true]);
+  assert.deepEqual([range.money, range.big], ['$1,000 to $5,000', false]);
+  for (const t of [one, upTo, range]) assert.doesNotMatch(t.money, /\d[KM]\b/);
+  // Fix round 2: the summary's phrase leads; a phrase longer than a figure is a small tile.
+  const [phrase] = landingTiles([rowOf({ id: 'b-4', summary: '$1,000,000 per team · rolling', max_award_usd: 1_000_000, ends_at: null })], NOW);
+  assert.deepEqual([phrase.money, phrase.big], ['$1,000,000 per team', false]);
 });

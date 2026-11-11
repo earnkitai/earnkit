@@ -136,6 +136,7 @@ function textParts(p: Program): Part[] {
       ...one(`submission_requirements.${i}.label`, r.label),
       ...one(`submission_requirements.${i}.description`, r.description),
       ...one(`submission_requirements.${i}.todo`, r.todo),
+      ...one(`submission_requirements.${i}.need`, r.need),
       ...many(`submission_requirements.${i}.options`, r.options),
       ...one(`submission_requirements.${i}.guidance.judges`, r.guidance?.judges),
       ...many(`submission_requirements.${i}.guidance.questions`, r.guidance?.questions),

@@ -55,3 +55,19 @@ test('L12-7 (v6.1.14): with no tier, a building bar on an own-chain or keyword-h
   assert.equal(gate({ program_id: 'own', status: 'ready', gaps: [], reason: null, long_shot: null, rules: [] }, prog('own', { chains: ['solana'], any_chain: false, min_tier: 'live' })).status, 'no');
   assert.equal(gate({ program_id: 'any', status: 'gap', gaps: [rule], reason: null, long_shot: null, rules: [] }, prog('any', {})).status, 'no');
 });
+
+test('#6 (v6.1.15): the tier gap takes the builder form from the stored line, one full stop; the fallback is unchanged', async () => {
+  const { tierGate } = await import('./find-record');
+  const { builderLine } = await import('./tier-words');
+  const { place } = await import('./tiers');
+  const { contract, evidence, liveRows, NOW } = await import('./fixtures/evidence-builder');
+  const e = evidence({ live: liveRows({ url: 'https://a.example', url_ok: true }), onchain: [contract({ tx_90d: 9, senders_90d: 4, funded_senders_90d: 4, funded_sample: 4 })] });
+  const line = builderLine(place(e, { identical_pitch: 0, shared_contributors: 0 }, undefined, NOW));
+  const prog = { id: 'base-builder-grants', file: { title: 'Base Builder Grant Program', min_tier: 'used', chains: ['base'], eligibility: [] } } as unknown as ProgramRow;
+  const ready = { program_id: 'base-builder-grants', status: 'ready' as const, gaps: [], reason: null, long_shot: null, rules: [] };
+  const g = tierGate(ready, prog, 'live', line, true).gaps[0] as Gap;
+  assert.equal(g.what, 'about 25 outside users in 90 days; I count 4');
+  assert.equal(`Base Builder Grant Program, up to $5,000: ${g.what}.`, 'Base Builder Grant Program, up to $5,000: about 25 outside users in 90 days; I count 4.');
+  assert.doesNotMatch(g.what, /deployer|senders|mainnet/);
+  assert.equal((tierGate(ready, prog, 'live', undefined, true).gaps[0] as Gap).what, 'the project reading as used');
+});

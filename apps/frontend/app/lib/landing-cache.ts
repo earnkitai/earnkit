@@ -4,9 +4,9 @@ import { readLanding, type Landing } from '../../lib/v5/landing';
 import { gatedGuidePage, guideTextById, listGuideIds, type GuidePage } from '../../lib/v5/guide-page';
 import { cachedRead } from './cached';
 
-const landing = cachedRead(() => readLanding(), ['landing-v6.2']);
+const landing = cachedRead(() => readLanding(), ['landing-v6.3']);
 const guideIds = cachedRead(() => listGuideIds(), ['guide-ids-v5']);
-const guide = cachedRead((id: string) => guideTextById(id), ['guide-v5']);
+const guide = cachedRead((id: string) => guideTextById(id), ['guide-v6.1.15']);
 
 /** The landing and /programs data, or null when the read failed (the page then shows no live parts). */
 export async function getLanding(): Promise<Landing | null> {

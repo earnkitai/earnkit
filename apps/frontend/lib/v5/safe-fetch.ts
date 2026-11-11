@@ -21,6 +21,12 @@ export class HttpStatusError extends SafeFetchError {
   }
 }
 
+/**
+ * The fetch could not be made: DNS, connect, the deadline, or a 5xx (v6.1.15 Task 14 fix round 2). Every other
+ * refusal is a definitive answer from the host. Same messages as before.
+ */
+export class TransportError extends SafeFetchError {}
+
 /** A 3xx response: the status and, when the server sent one, the Location header. */
 export class RedirectError extends SafeFetchError {
   constructor(
@@ -33,7 +39,7 @@ export class RedirectError extends SafeFetchError {
 
 type Resolved = { address: string; family: 4 | 6 };
 /** Resolves `host` to its addresses; must stop when `signal` aborts (the overall deadline). */
-type Resolver = (
+export type Resolver = (
   host: string,
   signal: AbortSignal,
 ) => Promise<Resolved[]>;
@@ -49,7 +55,7 @@ type TransportResponse = {
   close?: () => void;
 };
 /** Connects to `address` (already vetted) while speaking TLS and HTTP to `url.hostname`. */
-type Transport = (req: {
+export type Transport = (req: {
   url: URL;
   address: string;
   family: 4 | 6;
@@ -376,14 +382,14 @@ async function safeFetch(
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       controller.abort();
-      reject(new SafeFetchError(`no answer within ${timeoutMs / 1000} s`));
+      reject(new TransportError(`no answer within ${timeoutMs / 1000} s`));
     }, timeoutMs);
   });
   let close: (() => void) | undefined;
   const run = async () => {
     const addresses = await resolve(u.hostname, controller.signal);
     if (addresses.length === 0)
-      throw new SafeFetchError(`${u.hostname} doesn't resolve`);
+      throw new TransportError(`${u.hostname} doesn't resolve`);
     // Every address must be public, so no answer in the set can point inside.
     const bad = addresses.find((a) => !isPublicAddress(a.address));
     if (bad)
@@ -421,7 +427,7 @@ async function safeFetch(
       return { body: Buffer.concat(chunks), contentType: res.contentType };
     }
     if (res.status !== 200)
-      throw new SafeFetchError(`answered ${res.status}, not 200`);
+      throw new (res.status >= 500 ? TransportError : SafeFetchError)(`answered ${res.status}, not 200`);
     if (res.contentLength !== undefined && res.contentLength > maxBytes)
       throw new SafeFetchError(`larger than ${maxBytes} bytes`);
     const chunks: Uint8Array[] = [];
@@ -439,7 +445,7 @@ async function safeFetch(
   } catch (err) {
     controller.abort();
     if (err instanceof SafeFetchError) throw err;
-    throw new SafeFetchError(
+    throw new TransportError(
       `couldn't fetch it (${(err instanceof Error ? err.message : String(err)).slice(0, 120)})`,
     );
   } finally {
@@ -486,4 +492,32 @@ export async function safeProbePage(
   const phrase = errorPageText(page);
   if (phrase) throw new ErrorPageError(phrase);
   return page;
+}
+
+/** The most a JSON document may be (an OAuth client ID metadata document, v6.1.15 Task 14). */
+export const JSON_MAX_BYTES = 10_240;
+
+/**
+ * Fetches a small JSON document (v6.1.15 Task 14: an OAuth client ID metadata document) and returns it parsed. The same
+ * guarded GET as every other fetch here: https on 443, every resolved address public, the connection pinned to it, 5 s
+ * for the whole fetch. Any 3xx throws `RedirectError` and is never followed (no second request; safeProbePage's
+ * same-site hop is not on this path). A body over `maxBytes` (default 10,240), a content type that is not
+ * application/json (parameters allowed), or invalid JSON throws `SafeFetchError`.
+ */
+export async function safeFetchJson(
+  url: string,
+  deps: { resolve?: Resolver; transport?: Transport; timeoutMs?: number; maxBytes?: number } = {},
+): Promise<unknown> {
+  const { body, contentType } = await safeFetch(url, {
+    ...deps,
+    maxBytes: deps.maxBytes ?? JSON_MAX_BYTES,
+    accept: 'application/json',
+    userAgent: 'EarnKit-oauth/1',
+  });
+  if (!contentType || !/^\s*application\/json\s*(;|$)/i.test(contentType)) throw new SafeFetchError('not a JSON document');
+  try {
+    return JSON.parse(body.toString('utf8'));
+  } catch {
+    throw new SafeFetchError('not valid JSON');
+  }
 }

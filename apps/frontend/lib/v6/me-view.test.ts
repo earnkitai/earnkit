@@ -94,7 +94,7 @@ test('/me?link=<code> with a live code shows the link banner with the agent name
   assert.ok(html.indexOf('Link an agent to this account?') < html.indexOf('id="person"'));
   // The ledger rows show the program's title only, never its slug (lane 5, 3.27).
   const rows = renderToStaticMarkup(MeView({ data: { ...d, link: null, ledger: [{ title: 'Base Builder Grants', status: 'Applied', at: 'Nov 6' }] }, problem: null }));
-  assert.ok(rows.includes('Base Builder Grants') && rows.includes('Applied, Nov 6'), rows);
+  assert.ok(rows.includes('Base Builder Grants') && rows.includes('Applied, Nov 6.'), rows);
   assert.ok(!/base-builder-grants/.test(rows), rows);
 
   const unnamed = await createLinkCode(await inst(null), NOW);

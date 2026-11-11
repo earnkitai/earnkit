@@ -7,7 +7,7 @@
   "submission_url": "https://airtable.com/appNPlINVhkcwnyaZ/shrHJBg8jQdc3sJEa",
   "official_url": "https://arbitrum.foundation/grants",
   "reward": "Performance-based incentives linked to growth on Arbitrum, plus 200K ARB each for the first 10 teams to reach $10M of USDG TVL (2M ARB prize pool)",
-  "summary": "incentives + 200K ARB for the first 10 teams · no deadline stated",
+  "summary": "Incentives, plus 200,000 ARB for the first 10 teams · no deadline stated",
   "category": "grant",
   "ideas": [
     "A lending market with USDG as main collateral",
@@ -28,7 +28,7 @@
   "eligibility": [
     { "kind": "live_product" },
     { "kind": "chain", "value": "arbitrum" },
-    { "kind": "users", "note": "at least $1M in stablecoin balances at application, verified on DefiLlama" },
+    { "kind": "users", "note": "at least $1,000,000 in stablecoin balances at application, verified on DefiLlama" },
     { "kind": "rule", "note": "stablecoins at the core of the product, with audited contracts" }
   ],
   "setup": [
@@ -40,12 +40,12 @@
   ],
   "rules": [
     "No deadline is stated. The Arbitrum team reviews every application and contacts teams that are a fit.",
-    "Eligible: at least $1M in stablecoin balances at the time of application, verified on DefiLlama.",
+    "Eligible: at least $1,000,000 in stablecoin balances at the time of application, verified on DefiLlama.",
     "Stablecoins at the core of the product, with a live product and audited contracts.",
     "A commitment to building on Arbitrum, with new deployments and launches happening there.",
-    "USDG as the primary stablecoin on Arbitrum, with at least $1M of TVL moving into USDG.",
+    "USDG as the primary stablecoin on Arbitrum, with at least $1,000,000 of TVL moving into USDG.",
     "Accepted teams may get performance-based incentives linked to growth on the Arbitrum Platform, plus marketing, partner introductions, technical support and potential DRIP incentives.",
-    "The first 10 teams to reach $10M of USDG TVL, measured as a 30-day average, each receive 200K ARB.",
+    "The first 10 teams to reach $10,000,000 of USDG TVL, measured as a 30-day average, each receive 200,000 ARB.",
     "Participation is subject to eligibility, approval by the Arbitrum Foundation and the Program Terms and Conditions."
   ],
   "submission_requirements": [
@@ -70,7 +70,7 @@
     { "key": "audits", "label": "Audits", "type": "text", "required": false, "from": "project", "kind": "links", "description": "Auditor names and links to the reports." },
     { "key": "contracts", "label": "Existing Smart Contracts", "type": "text", "required": true, "from": "project", "kind": "links", "todo": "deployed contract links by chain" },
     { "key": "deck", "label": "Deck or Docs", "type": "file", "required": false, "from": "builder", "kind": "other" },
-    { "key": "heard_from", "label": "How Did You Hear About Us", "type": "choice", "required": true, "from": "builder", "kind": "other", "todo": "the way you heard about it", "options": ["Referral", "Twitter / X", "Event", "Newsletter", "Other"] },
+    { "key": "heard_from", "label": "How Did You Hear About Us", "type": "choice", "required": true, "from": "builder", "kind": "other", "todo": "the way you heard about it", "need": "referral source", "options": ["Referral", "Twitter / X", "Event", "Newsletter", "Other"] },
     { "key": "terms", "label": "I confirm I have read and accept the terms and conditions", "type": "choice", "required": true, "from": "builder", "kind": "other", "todo": "the acceptance of the terms", "options": ["I confirm"] }
   ],
   "focus": {

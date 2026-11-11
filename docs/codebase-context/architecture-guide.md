@@ -126,7 +126,7 @@ whose capitalised part is a keyword (`AR/VR`, `VR-ready`, `Uniswap-based`; fix r
    the agent with sources (`from: agent`), and fields only the builder can give (`from: builder`, a demo video or
    a file, or an `other` answer the program file marks `from: builder`, unlinked: Thiel's and YC's application
    answers, Base's revenue; L1e-3, v6.1.13, so an idea and an empty repo read the same need). Blank beats a wrong guess. `facts_from_repo` counts only values the public code read gave (its repo link,
-   homepage, contracts and chains with basis `code`), never anything the agent passed; the reply says "Drafted: N facts from the repo." only when N is above zero.
+   homepage, contracts and chains with basis `code`), never anything the agent passed; the reply's one Drafted shape (v6.1.15 #3, linked and unlinked) is "Drafted: {n} of {m} answers. Needs your {needs}.", the needs sentence left out when there are none or the closing names them (`draftedSentence` in `reply.ts`).
 6. `since.ts` lists programs new, changed (deadline, amount, status, form) and closing within 7 days since this
    installation's `last_find_at`. Empty on the first call.
 7. `ledger.ts` summarises the installation's applications; results past due become `ask_outcome`. A program with no
@@ -168,8 +168,7 @@ The pipeline, in order:
    the open list. The deploy's sync writes an active file past its `ends_at` as closed, with a warning, so a deploy
    never reopens it. There is no LLM in the cron.
 5. Readers: `programs-read.ts` serves public `GET /api/programs`; `landing.ts`, `guide.ts`, `guide-page.ts` and
-   `stats.ts` feed the site. A program card shows the pool first (`pool_usd`, as "$N in grants" or "$N in prizes"),
-   then the per-winner `max_award_usd` ("Up to $900K" for a range: a `min_award_usd` or a summary that says "up to", v6.1.14; a big tile draws "Up to" small above the figure), then the summary, never a threshold the builder must reach (" at $10M USDG TVL" is cut) (`moneyOf` in `programs-read.ts`). The landing copy (`site-copy.ts`) promises what the replies deliver (v6.1.14): "fills the forms", step 3 "It fills the form and sends it, or hands you the draft to send.", the six under "Open now". The hero chip ("$N in grants and prizes open now") sums, per open non-investment
+   `stats.ts` feed the site. A program card shows the summary's money phrase whenever it has a figure ("$250,000 over two years", "Up to $100,000 by tier, more by DAO vote", v6.1.15 fix round 2), never a threshold the builder must reach (" at $10M USDG TVL" is cut); with no figure in the phrase, the pool (`pool_usd`, as "$N in grants" or "$N in prizes"), then the per-winner `max_award_usd` ("$10,000 to $900,000" with a `min_award_usd`), else the phrase's words; a big tile, one lone figure, draws "Up to" small above it (`moneyOf` in `programs-read.ts`). v6.1.15 (lane 22, #12): money is in full figures on every surface (tile, list API, guide, reply), never K or M; only the hero chip rounds, down, to one decimal (`heroUsdText`, "$3.1M"). The tile, the list API, the guide header and the find reply share `moneyOf`'s string: with a capital on the tile and guide, and lowercase mid-sentence in the reply (find's `moneyOf` is `moneyAt(moneyOf(p), 'mid')`), keeping "EUR", "NYC", "$", "iOS", "DeFi" and chain names (`lowerFirst`, one rule wherever a phrase is lower-cased). `programs:check` refuses a summary money with no number and no "amount not stated", and one with K or M. Guide lines (who can apply, field to-dos, focus, past rounds, best bet, source labels) are sentences (`sentence()` in `guide.ts`). The landing copy (`site-copy.ts`) promises what the replies deliver (v6.1.14): "fills the forms", step 3 "It fills the form and sends it, or hands you the draft to send.", the six under "Open now". The hero chip ("$3.1M in grants and prizes open now") sums, per open non-investment
    program, its `pool_usd` when set, else its `max_award_usd`. The landing shows six programs (`featuredTiles` in
    `landing.ts`: open, not investments, at least $10K; closing within 14 days with at least $25K first, then by money;
    one per organizer, at most three hackathons) and a link to /programs, which lists every one (`landingTiles`).
@@ -210,9 +209,9 @@ Ledger invariants (v6.1.7, `ledger.ts record`, every write under one advisory lo
 second `applied` from any of the builder's agents records nothing and answers "Already sent here on {day} by {agent};
 nothing recorded." A second result answers that it already has one, except a second win with an amount over a win
 with one (L15-17, T8-F1 v6.1.14): marked a further payment (`payment: { key }`, the caller's own key, kept in
-`application_history.payment_key`; a repeated key is "Already recorded.") it adds to the total under the cap, answered
-"Recorded: ${n} more from {title}, ${total} in total."; unmarked, the same amount is "Already recorded." and another
-amount is a correction that replaces it ("Recorded: ${n} from {title}. Replaced the earlier amount."). Track keys are
+`application_history.payment_key`; a repeated key is "Already tracked.") it adds to the total under the cap, answered
+"Tracked: ${n} more from {title}, ${total} in total."; unmarked, the same amount is "Already tracked." and another
+amount is a correction that replaces it ("Tracked: ${n} from {title}. Replaced the earlier amount."; one save verb, Tracked, v6.1.15 #8). Track keys are
 stored as `t:<key>`, screen keys as `s:<key>`. A program that is not open cannot be started
 ("{title} is not open; nothing to start."), and an already sent one says it was sent before that check. A win is
 capped at the program's `max_award_usd`, else its `pool_usd`, else 10,000,000, in whole dollars. A result for a
@@ -259,6 +258,17 @@ minutes), no probe, sweep or digest.
 Copy lives in `site-copy.ts`, install steps in `agents.ts` (read by the site, `/docs` and `/llms.txt`), colours in
 `site-theme.ts` (mirrored in `globals.css`). See `apps/frontend/DESIGN.md`. OAuth (`oauth.ts`, `oauth-routes.ts`) is
 standard (PKCE, dynamic client registration) and approves at once; the issued token is the installation. A
+client_id that is an https URL is a client ID metadata document (CIMD, v6.1.15 Task 14; claude.ai's default; an
+http:// client_id goes to the same document check and is refused there):
+`cimdClient` fetches it through `safeFetchJson` (https, public addresses only, no redirects, 5 s, 10 KB, JSON), requires
+its `client_id` to equal the URL, lists the redirect URIs (at most 10) and takes `client_name` through `clientNameOf`
+and `reservedClientName`; cached in process 1 hour when good and 5 minutes when not (1,000 URLs). Fetches of URLs
+are capped at 30 an hour per document host (`cimdFetch`; over it, no fetch and the failure page); only a refetch
+of a URL that still has a good copy is exempt, so a URL with a failed entry counts again after its 5 minute wait. A refetch that hits a transport error (DNS, connect, timeout, 5xx,
+`TransportError` in safe-fetch) keeps serving the last good copy for up to 6 hours from its last good read; any
+definitive answer (4xx, redirect, non-JSON or invalid body, failed check) drops it and caches the failure. Any failed check
+shows only "Connecting EarnKit failed. Your agent's client document could not be read." (`CIMD_FAILED`). Its
+installs count against `client:host:{document host}:{address block}` after the per-address and per-block floors (no ceiling shared by every user of one document); the metadata advertises `client_id_metadata_document_supported`. A
 many-builder hosted registration gets no client key. Every register and token request counts on the one per-IP floor
 (an hour) and on its address block's daily cap (v6.1.13 B1: IPv4 /16, IPv6 /48, `blockOf` in `rate-limit.ts`; 5,000
 registrations, `oauthRegisterBlock`, and 5,000 installs, `installBlock`, a day, so one hosted vendor's /16 can still
@@ -266,8 +276,8 @@ reach `installClientHosted`; over it, "Too many sign-ups from your network today
 `[oauth] block near cap` as a block reaches 80 percent of its day). Hex IPv4-mapped IPv6 is unmapped to its IPv4. No ceiling is shared by every user of one hosted service, so one network
 rotating addresses never locks out another; the hosted tier (every redirect URI is a listed vendor's exact host and callback path, `HOSTED_REDIRECTS`) only raises
 the per-client ceiling (`installClientHosted`). `GET /mcp` is 405 (`Allow: POST, DELETE`): EarnKit never pushes. `rate-limit.ts` keeps fixed-window counters in Postgres. Each MCP tool call counts
-120 an hour per installation and 600 an hour per client IP; over either, the call answers the tool result "EarnKit
-is busy. Try again in about {n} minutes." (hours past 90 minutes; not a transport error, so clients show it). `secrets.ts` scrubs secret
+120 an hour per installation and 600 an hour per client IP; over either, the call answers the tool result "You have
+asked a lot this hour. Try again in about {n}." (v6.1.15; `{n}` in minutes, hours past 90 minutes; not a transport error, so clients show it). `secrets.ts` scrubs secret
 keys from tool-call bodies before anything sees them.
 
 ## Database
@@ -277,7 +287,7 @@ keys from tool-call bodies before anything sees them.
 | Table | Holds |
 |---|---|
 | `programs` | Every program: the whole record in `file`, plus mirrored columns and source (`file` or `api`) |
-| `program_changes` | Field-level changes, for `since` and the owner digest |
+| `program_changes` | Field-level changes, for `since` and the owner digest; a change to a form item's display-only words (`need`, `todo`, `guidance`, `description`) is not a form change (v6.1.15) |
 | `program_writes` | The write API's audit log and the pending writes |
 | `program_health` | The freshness probe: link status, page hash and text, failing days, changed_at |
 | `installations` | One row per issued token (hash only): client name, `last_seen_at`, `last_find_at`, `prev_find_at` (the find before; v6.1.9), `last_gaps` (the last find's gaps), `builder_id` and `linked_at` when linked, `unlinked_at` and `unlinked_reason` (set by an unlink on /me or the account's deletion, cleared by the next find or a new link) |
@@ -363,7 +373,7 @@ cached. `--no-cache` on the script skips the table both ways.
 
 **The tiers.** `tiers.ts` `place(evidence, counts, thresholds?, now?)` is pure and names one of five tiers, flags
 first: flagged (a starter match with under 10 own files, a starter fork with under 20 commits after the fork or
-another fork under 20% own work, an identical pitch, shared contributors, unfunded senders), used (site loads, 25
+another fork under 20% own work, an identical pitch, shared contributors, self-funded users), used (site loads, 25
 or more wallets the deployer did not fund on one mainnet contract in 90 days, pushed within 60 days), live (site
 loads or a mainnet contract with transactions), building (commits in 60 days, nothing live), unverified (nothing
 recent EarnKit could check). L15-6, L15-7, L15-8 (v6.1.14): the usage row reads "{n} senders the deployer did not
@@ -372,6 +382,18 @@ contract with any sender the deployer did not fund is at least building (next: t
 "site loads" ("site is for sale"); with no repo block the row says why ("private repo", "GitLab repo, not read",
 "account link, not a repo"); a contract on a chain with no reader is named "{address} on Monad: not read". Only counted mainnet contracts count; the others are listed with their reason. `DEFAULT_THRESHOLDS` carry
 their reasons. `tier-words.ts` turns a placement into the reviewer's line and the builder's line.
+v6.1.15 (#6, #15): a placement carries `next` (the exact rule, agent and owner words) and `builder_next` (the builder's
+form, which `builderLine` reads): the live usage gap reads "About 25
+outside users in 90 days; I count {M}.", the building gap "A live product: a site that loads or a contract in use.",
+and the flag "At least 20% of sampled users from outside the team; I count {M} of {S}."; every other gap's equals
+`next`. The used head reads "People outside the team use it live." and building on users alone "Your project has
+people using it live, with no recent code.". The find tier gap is cut from the stored builder line, and a line stored
+before v6.1.15 is reworded on read (`currentBuilderLine`, a small table of the old templates, in `recordSide` and
+`storedSide`, so also while re-reads fail), so a linked builder's gap and summary never name deployer, senders or
+mainnet. A screen row read before v6.1.15 reads on a results page with the rule `self_funded_users` and the head
+`flagged (self-funded users)` (`currentReviewerLine`; alias until v6.1.16); the markdown report's flag lines use `ruleWords`. The farmed-wallet flag's rule id is `self_funded_users` (read "self-funded users"; a row stored as
+`unfunded` reads the same, `RULE_WORDS`); the threshold names are unchanged. The CSV and the results rows show the
+count as `outside_senders_90d`, with `funded_senders_90d` beside it as an alias until v6.1.16.
 
 **The pilot script.** `pnpm screen <csv> --program <id> [--chain base] [--out <dir>] [--no-cache] [--thresholds
 <json>]` (`scripts/screen.mts` over `lib/v6/screen.ts`). `applicants.ts` parses the CSV (columns by name; a bad
@@ -395,7 +417,7 @@ not read (B20): building when a repo or live link is reported, a reported live l
 `building` bar never hides a program on one of the project's own chains, or a keyword hit, whose only change is code in
 a repo: it is a gap of `code in a repo` (`NEEDS_CODE`) and its rules (`codeStep` in `gateFor`, L12-7, v6.1.14), so a
 Solana project with no repo sees Solana Foundation Grants as its step; any other program with a bar is still no fit.
-`gap_done` takes the code step (`repo`) on any program (fix round 1, T7-F2), answered "Noted. Tell me when it is live
+`gap_done` takes the code step (`repo`) on any program (fix round 1, T7-F2), answered "Tracked. Tell me when it is live
 and I look again." with no repo; the read settles it. The unlinked path names `blockersOf` against `EMPTY_RECORD` under
 "Before applying:" as one sentence naming the programs per thing the builder does ("you sign in by email and press submit yourself on X"; "Before tonight (nothing is sent until these are in):" when the agent sends tonight under standing approval, or when nothing can go), and keeps the closing line as the one action with the sign-in as its second sentence (v6.1.8: "Say yes and I apply to all n. Or say the numbers to skip.", "Say yes and I apply.", "Nothing is ready yet." with the first rule's yes (v6.1.9: also the rule of the only step program shown, "if that rule fits you"; else "First: {step}. Tell me when it is done and I look again."), "Applying tonight to {titles}."; each gap line carries its own "Say \"do n\"" only when EarnKit can make every real gap, and each rule-only line its own "Say \"yes n\" if that is you."). The first `find` (and `record`) on an unlinked installation carries a one-time link
 `earnkit.com/link/<code>` (15 minutes, hash stored, `link-routes.ts`); the builder continues, signs in with GitHub
@@ -445,10 +467,10 @@ so recording an old win today uses none of tonight's limit; a row from before it
 (`autoSentSince`). Find's tonight list subtracts the same count: none left, the closing reads "Tonight's limit is used;
 the next sends wait until tomorrow." (N1). With sends tonight, the steps block reads "Tonight's send goes ahead. These
 would add {n} more: ..." (N4). `gap_done` on a code-checked item (chain, contract_on, builder_codes, live_product,
-integration) answers "Noted. I check the repo on the next look." (on a project with no repo, its key a name or
-none: "Noted. Tell me when it is live and I look again.", F6 v6.1.12) and, while the read still misses it, the next find
+integration) answers "Tracked. I check the repo on the next look." (on a project with no repo, its key a name or
+none: "Tracked. Tell me when it is live and I look again.", F6 v6.1.12; Tracked since v6.1.15 #8) and, while the read still misses it, the next find
 adds "I looked again and did not find {what}; it stays a step." after that program's line; any other item is the
-builder's word, answers "Noted." and counts done (N-5). Otherwise the row is recorded with `auto_applied: false` and the builder line reads "Sent, but outside
+builder's word, answers "Tracked." and counts done (N-5). Otherwise the row is recorded with `auto_applied: false` and the builder line reads "Sent, but outside
 your standing approval: {reason}." (`outsideApproval` in `find-record.ts`). The required-answer rule (v6.1.9 S6): within
 every limit, a send under standing approval also needs every required field of the program's form in `fields_used`
 (`requiredLeftOut`); one left out (or no `fields_used`) is recorded the same way with "a required answer was missing",

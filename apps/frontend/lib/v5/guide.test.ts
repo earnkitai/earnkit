@@ -2,7 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { guideLines, guideText } from './guide';
+import { readdirSync } from 'node:fs';
+import { moneyOf as replyMoney } from './find';
+import { lowerFirst, moneyAt } from './programs-read';
+import { guideLines, guideText, sentence } from './guide';
+import { landingTiles } from './landing';
 import { ProgramFile } from './program-file';
 import type { ProgramRow } from './programs';
 import { programFixture } from './fixtures/program';
@@ -16,14 +20,14 @@ const real = (id: string): ProgramRow =>
 test('base-builder-grants: money, closes, eligibility in plain words, fields, rules', () => {
   const g = guideText(real('base-builder-grants'));
   assert.equal(g.title, 'Base Builder Grant Program');
-  assert.equal(g.money, 'Up to $5K');
+  assert.equal(g.money, 'Up to $5,000');
   assert.equal(g.closes, 'Rolling');
-  assert.ok(g.eligibility.includes('a live product'));
-  assert.ok(g.eligibility.includes('on Base'));
+  assert.ok(g.eligibility.includes('A live product.'));
+  assert.ok(g.eligibility.includes('On Base.'));
   assert.ok(g.fields.length > 0);
-  assert.deepEqual(g.fields[0], { label: 'Full name', todo: 'your full name' });
+  assert.deepEqual(g.fields[0], { label: 'Full name', todo: 'Your full name.' });
   assert.equal(g.rules.length, 7);
-  assert.ok(g.sources.some((s) => s.label === 'program page' && s.url === 'https://docs.base.org/get-started/builders'));
+  assert.ok(g.sources.some((s) => s.label === 'Program page.' && s.url === 'https://docs.base.org/get-started/builders'));
 });
 
 test('closes: a date, rolling, not open yet, closed', () => {
@@ -37,7 +41,7 @@ test('a closed program says nothing about who submits (v6.1.7 C7)', () => {
   assert.equal(guideText(rowOf(programFixture({ id: 'a-d', status: 'closed' }))).submit, null);
   assert.equal(guideText(rowOf(programFixture({ id: 'a-e', status: 'closed', submit: 'builder' }))).submit, null);
   assert.equal(guideText(rowOf(programFixture({ id: 'a-f', ends_at: '2020-01-01T00:00:00Z' }))).submit, null);
-  assert.equal(guideText(rowOf(programFixture({ id: 'a-g' }))).submit, 'Your agent may submit');
+  assert.equal(guideText(rowOf(programFixture({ id: 'a-g' }))).submit, 'Your agent sends it.');
   // Low 21 (v6.1.13): nor one not open yet.
   assert.equal(guideText(rowOf(programFixture({ id: 'a-h', status: 'upcoming', opens_note: 'Opens in January' }))).submit, null);
 });
@@ -50,11 +54,11 @@ test('past rounds, focus, best bet and sources come from the record', () => {
     best_bet: 'a payments agent',
   })));
   assert.equal(g.past_rounds.length, 1);
-  assert.match(g.past_rounds[0], /Round 1: 20 of about 400 entries won/);
-  assert.match(g.past_rounds[0], /payments \(5\)/);
-  assert.equal(g.focus, 'Base wants payments, agents');
-  assert.equal(g.best_bet, 'a payments agent');
-  assert.deepEqual(g.sources.map((s) => s.label), ['program page', 'past winners', 'priorities']);
+  // #9 (v6.1.15): each part a sentence.
+  assert.equal(g.past_rounds[0], 'Round 1: 20 of about 400 entries won. Payments (5).');
+  assert.equal(g.focus, 'Base wants payments and agents.');
+  assert.equal(g.best_bet, 'A payments agent.');
+  assert.deepEqual(g.sources.map((s) => s.label), ['Program page.', 'Past winners.', 'Priorities.']);
 });
 
 test('a program with nothing extra has empty lists and nulls', () => {
@@ -75,7 +79,7 @@ test('guideLines: the rules, one per line', () => {
 
 test('a focus with no ecosystem and no chains names the program, not an empty word', () => {
   const g = guideText(rowOf(programFixture({ id: 'a-g', title: 'Any Grants', chains: [], any_chain: true, focus: { areas: ['agents'], source_url: 'https://example.com/f' } })));
-  assert.equal(g.focus, 'Any Grants wants agents');
+  assert.equal(g.focus, 'Any Grants wants agents.');
 });
 
 test('catalog words: submit, sign-in, needs, bar and the integration item', () => {
@@ -83,18 +87,128 @@ test('catalog words: submit, sign-in, needs, bar and the integration item', () =
     id: 'a-h', sign_in: 'platform', platform_name: 'Avalanche Builder Hub', needs: ['founder_video'], min_tier: 'live',
     eligibility: [{ kind: 'integration', value: 'smart_wallet' }],
   })));
-  assert.equal(g.submit, 'Your agent may submit');
-  assert.equal(g.sign_in, 'Sign-in: Avalanche Builder Hub');
+  assert.equal(g.submit, 'Your agent sends it.');
+  assert.equal(g.sign_in, 'Form needs an Avalanche Builder Hub account.');
   assert.deepEqual(g.needs, ['a founder video']);
-  assert.equal(g.bar, 'Needs a live product');
+  assert.equal(g.bar, 'Needs a live product.');
   // No "Bar": EarnKit's own word (lane 5, 3.31).
-  assert.equal(guideText(rowOf(programFixture({ id: 'a-k', min_tier: 'used' }))).bar, 'Needs a used product');
-  assert.equal(guideText(rowOf(programFixture({ id: 'a-l', min_tier: 'building' }))).bar, 'Needs a repo with recent commits');
-  assert.deepEqual(g.eligibility, ['uses Smart Wallet']);
+  assert.equal(guideText(rowOf(programFixture({ id: 'a-k', min_tier: 'used' }))).bar, 'Needs a used product.');
+  assert.equal(guideText(rowOf(programFixture({ id: 'a-l', min_tier: 'building' }))).bar, 'Needs a repo with recent commits.');
+  assert.deepEqual(g.eligibility, ['Uses Smart Wallet.']);
   const plain = guideText(rowOf(programFixture({ id: 'a-i', submit: 'builder' })));
-  assert.equal(plain.submit, 'You press submit yourself');
+  assert.equal(plain.submit, 'You send it.');
   assert.equal(plain.sign_in, null);
   assert.deepEqual(plain.needs, []);
   assert.equal(plain.bar, null);
-  assert.equal(guideText(rowOf(programFixture({ id: 'a-j', sign_in: 'github', min_tier: 'used' }))).sign_in, 'Sign-in: GitHub');
+  assert.equal(guideText(rowOf(programFixture({ id: 'a-j', sign_in: 'github', min_tier: 'used' }))).sign_in, 'Form needs a GitHub account.');
+  // #14, template row 16 (v6.1.15): the program's form login, as a sentence; never EarnKit's own sign-in.
+  assert.equal(guideText(rowOf(programFixture({ id: 'a-m', sign_in: 'google' }))).sign_in, 'Form needs a Google account.');
+  assert.equal(guideText(rowOf(programFixture({ id: 'a-n', sign_in: 'email' }))).sign_in, 'Form needs an email login.');
+  assert.equal(guideText(rowOf(programFixture({ id: 'a-p', sign_in: 'platform', platform_name: 'Devpost' }))).sign_in, 'Form needs a Devpost account.');
+  // The catalog check refuses a platform with no name; the guide still reads a sentence if one slips through.
+  assert.equal(guideText(rowOf({ ...programFixture({ id: 'a-o' }), sign_in: 'platform' })).sign_in, "Form needs an account on the program's site.");
+});
+
+test('#9 (v6.1.15): sentence() capitalises and ends with a full stop', () => {
+  assert.equal(sentence('a live product'), 'A live product.');
+  assert.equal(sentence('Real users.'), 'Real users.');
+  assert.equal(sentence('optional'), 'Optional.');
+  assert.equal(sentence('is it live?'), 'Is it live?');
+});
+
+test('#9 (v6.1.15): every eligibility kind as a sentence; a date in plain words; a feature reads its note', () => {
+  const g = guideText(rowOf(programFixture({
+    id: 'a-q', chains: ['base', 'tempo'], chain_required: true,
+    eligibility: [
+      { kind: 'live_product' }, { kind: 'chain', value: 'base' }, { kind: 'chain', value: 'tempo' }, { kind: 'contract_on', value: 'base' },
+      { kind: 'builder_codes' }, { kind: 'users' }, { kind: 'new_work_after', value: '2026-10-30T07:00:00Z' }, { kind: 'demo_video' },
+      { kind: 'in_person' }, { kind: 'integration', value: 'smart_wallet' },
+    ],
+  })));
+  assert.deepEqual(g.eligibility, [
+    'A live product.', 'On Base or Tempo.', 'A contract on Base.', 'Base Builder Codes in the app.', 'Real users.',
+    'New work started after 30 Oct 2026.', 'A demo video.', 'In person.', 'Uses Smart Wallet.',
+  ]);
+  const f = guideText(rowOf(programFixture({
+    id: 'a-s',
+    eligibility: [
+      { kind: 'feature', value: '/.kiro directory at the repo root', note: 'a Kiro folder in the repo, not ignored by git' },
+      { kind: 'feature', value: 'a mobile app' },
+    ],
+  })));
+  assert.deepEqual(f.eligibility, ['A Kiro folder in the repo, not ignored by git.', 'A mobile app.']);
+  assert.equal(guideText(rowOf(programFixture({ id: 'a-r', submission_requirements: [{ key: 'notes', label: 'Notes', kind: 'other', type: 'text', required: false, from: 'builder' }] }))).fields[0].todo, 'Optional.');
+});
+
+test('#9 (v6.1.15): focus joins with "and", lower-casing a plain first word only; a chain or ecosystem name keeps its capital', () => {
+  const pp = guideText(real('paypal-ai-hackathon'));
+  assert.match(pp.focus!, / wants AI agents that pay or get paid, new payment experiences built with AI and business tools on PayPal APIs\.$/);
+  assert.match(guideText(real('lido-lego-grants')).focus!, /^Lido wants Ethereum liquid staking/);
+  assert.match(guideText(real('uniswap-foundation-security-fund')).focus!, /^Uniswap wants Uniswap v4 hooks/);
+  assert.match(guideText(real('base-builder-grants')).focus!, /and DeFi 2\.0/);
+});
+
+test('L1g-4 (v6.1.15): Kiroween\'s folder rule reads as words on the guide; the form asks for the Kiro folder', () => {
+  const g = guideText(real('kiroween-2026'));
+  assert.ok(g.eligibility.includes('A Kiro folder in the repo, not ignored by git.'));
+  assert.equal(g.fields.find((f) => f.label === 'URL to your public GitHub')!.todo, 'A public GitHub repo with a Kiro folder.');
+});
+
+const catalog = (): ProgramRow[] =>
+  readdirSync(join(import.meta.dirname, '../../../../programs')).filter((f) => f.endsWith('.json')).map((f) => real(f.replace(/\.json$/, '')));
+
+test('Review Focus 4 (v6.1.15): for every program the guide money is the tile money, full figures, a capital; the reply reads it lowercase', () => {
+  const NOW = new Date('2026-11-11T12:00:00Z');
+  const rows = catalog();
+  assert.ok(rows.length >= 52, `${rows.length}`);
+  for (const row of rows) {
+    const g = guideText(row, NOW);
+    assert.equal(g.money, landingTiles([row], NOW)[0].money, row.id);
+    assert.match(g.money, /^[A-Z$€£\d]/, row.id);
+    // Lane 22 (fix round 1, I1, I2): never K or M on a tile, a guide or a reply, for every program; the reply reads
+    // the tile's words, lowercase mid-sentence.
+    const tile = landingTiles([row], NOW)[0].money;
+    const reply = replyMoney(row.file);
+    for (const m of [g.money, tile, reply]) assert.doesNotMatch(m, /\d[KM]\b/, `${row.id}: ${m}`);
+    assert.equal(reply, moneyAt(tile, 'mid'), row.id);
+    assert.equal(moneyAt(reply, 'tile'), tile, row.id);
+    // Lowercase mid-sentence: nothing left for lowerFirst to lower (a chain's name or an acronym may lead).
+    assert.equal(lowerFirst(reply), reply, row.id);
+  }
+  assert.equal(guideText(real('sovereign-tech-fund'), NOW).money, 'Funds work from EUR 50,000');
+  assert.equal(replyMoney(real('sovereign-tech-fund').file), 'funds work from EUR 50,000');
+  assert.equal(guideText(real('otf-internet-freedom-fund'), NOW).money, '$10,000 to $900,000');
+  assert.equal(guideText(real('base-builder-grants'), NOW).money, 'Up to $5,000');
+  assert.equal(guideText(real('arbitrum-mentorship-cohort-2'), NOW).money, 'Up to $100,000');
+  assert.equal(guideText(real('spc-founder-fellowship-spring-2027'), NOW).money, "$1,000,000 investment on the last round's terms");
+  assert.equal(guideText(real('ethglobal-mumbai'), NOW).money, 'Up to $15,000 per partner prize');
+  assert.equal(guideText(real('arbitrum-stablecoin-growth-program'), NOW).money, 'Incentives, plus 200,000 ARB for the first 10 teams');
+  assert.equal(replyMoney(real('y-combinator').file), '$500,000 investment');
+  // Fix round 2: the summary's money phrase on every surface.
+  assert.equal(replyMoney(real('lido-lego-grants').file), 'up to $100,000 by tier, more by DAO vote');
+  assert.equal(guideText(real('lido-lego-grants'), NOW).money, 'Up to $100,000 by tier, more by DAO vote');
+  assert.equal(guideText(real('thiel-fellowship'), NOW).money, '$250,000 over two years');
+  assert.equal(replyMoney(real('alliance-all19').file), '$400,000 at admission');
+  assert.equal(guideText(real('monad-blitz-oregon'), NOW).money, '$4,600 in prizes');
+});
+
+test('#9 (v6.1.15): every guide string is a sentence with no path and no ISO date', () => {
+  const NOW = new Date('2026-11-11T12:00:00Z');
+  for (const row of catalog()) {
+    const g = guideText(row, NOW);
+    const parts: [string, string][] = [
+      ...g.eligibility.map((t): [string, string] => ['eligibility', t]),
+      ...g.fields.map((f): [string, string] => [`field ${f.label}`, f.todo]),
+      ...(g.focus ? [['focus', g.focus] as [string, string]] : []),
+      ...g.past_rounds.map((t): [string, string] => ['past_rounds', t]),
+      ...(g.best_bet ? [['best_bet', g.best_bet] as [string, string]] : []),
+      ...g.sources.map((s): [string, string] => ['source', s.label]),
+    ];
+    for (const [k, t] of parts) {
+      assert.match(t, /[.?!]$/, `${row.id} ${k}: "${t}"`);
+      assert.match(t, /^[A-Z0-9$€£"']/, `${row.id} ${k}: "${t}"`);
+      assert.doesNotMatch(t, /(^|\s)\/\./, `${row.id} ${k}: "${t}"`);
+      assert.doesNotMatch(t, /\d{4}-\d{2}-\d{2}/, `${row.id} ${k}: "${t}"`);
+    }
+  }
 });

@@ -8,7 +8,9 @@ import { join } from 'node:path';
  */
 const checkOnly = process.argv.includes('--check');
 const dir = join(import.meta.dirname, '..', '..', '..', 'programs');
-const now = new Date();
+// The test template pins its clock (EARNKIT_SYNC_NOW), so a catalog close date passing in real time never changes
+// what the tests read; a deploy never sets it.
+const now = process.env.EARNKIT_SYNC_NOW ? new Date(process.env.EARNKIT_SYNC_NOW) : new Date();
 const { readProgramFiles } = await import('../lib/v5/programs-sync');
 
 const files = readProgramFiles(dir, now);

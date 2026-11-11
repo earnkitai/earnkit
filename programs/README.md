@@ -31,7 +31,7 @@ states; leave out what it does not. Never guess a reward, a deadline or a requir
 | `organizer`, `title`, `description` | as the source names and describes it |
 | `source_url`, `submission_url` | the program page and where builders apply; `official_url` when the organizer's site is neither |
 | `reward` | the reward in the source's words |
-| `summary` | one line, at most 90 characters: reward and deadline (`"Up to $5,000 · rolling"`). It is the reply's money line: a range reads `Up to {top}`, a floor `From {low}`, and a bar the builder must reach (a TVL or user target) goes in `rules`, never here |
+| `summary` | one line, at most 90 characters: reward and deadline (`"Up to $5,000 · rolling"`). The part before ` · ` is the money line, in the source's words; when it holds a figure it is what the tile, the guide and the reply show (else the pool or award fields do), so write it to read with a capital on a tile and lowercase mid-sentence in a reply. It holds a number in full figures (`Up to $100,000`, `$10,000 to $900,000`, `Up to 100% of the audit cost`; never `$100K` or `$1M`) or says `amount not stated` (`Milestone grants, amount not stated`); `programs:check` refuses bare words and K or M. Never invent an amount. A bar the builder must reach (a TVL or user target) goes in `rules`, never here. A minimum project cost is never written as an award floor (`From EUR 50,000`): name it as what the program funds (`Funds work from EUR 50,000`), or put it in `rules` |
 | `max_award_usd` | the most one winner gets, only when stated; `min_award_usd` only for a stated range |
 | `pool_usd` | the total pool, only when stated; `reward` must state it followed by a pool word (`"$840,000 in prizes"`); `pool_source_url` when that is not `source_url` |
 | `starts_at`, `ends_at` | ISO 8601 with offset; `ends_at: null` is rolling. `tz` (IANA) when the summary's suffix does not name the zone |
@@ -68,7 +68,11 @@ drafted from the project; `builder`: only the builder can answer) and `kind` (`n
 also needs `todo`: a short noun phrase for what the builder gives, lowercase start, at most 40
 characters, no trailing punctuation or links (`"a live link on Arc mainnet"`, `"the YC application
 answers"`). It reads after "Needs your", so never start it with a verb or a question word
-(`"the stage"`, not `"how far along you are"`). Optional: `description`, `project_field`,
+(`"the stage"`, not `"how far along you are"`). When the `todo` is a clause that does not read well after
+"Needs your" (`"the problem you solve"`), add `need`: the noun phrase said there instead (`"problem statement"`,
+`"Kiro write-up"`), at most 40 characters, no trailing punctuation, never the word "you". The guide still shows the
+`todo`. Changing `need`, `todo`, `description` or `guidance` alone is not a form change: no builder is told the form
+changed. Optional: `description`, `project_field`,
 `max_chars` (only a stated limit), `guidance` (the program's own advice, with `source_url`).
 
 ### `eligibility`
@@ -93,7 +97,7 @@ characters) are optional. `rule` is a requirement the source states that EarnKit
 licence, a stage, who the team is); shown to the builder as 'Their rule' and confirmed once with track
 gap_done; it never counts toward the two-gap limit. It needs a
 `note` (the rule as a phrase, no trailing full stop) and takes no `value`. `feature` is a capability
-the project must have (`value`), a gap the builder or the agent can build.
+the project must have (`value`), a gap the builder or the agent can build; a `note` on it is what the guide and the reply say instead of the `value` (`"a Kiro folder in the repo, not ignored by git"` for `/.kiro directory at the repo root`), so no path reaches the builder. The guide shows every item as a sentence.
 
 ```json
 { "kind": "rule", "note": "a clear open source license on the repo" }

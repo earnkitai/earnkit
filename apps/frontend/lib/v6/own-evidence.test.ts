@@ -45,6 +45,6 @@ test('evidenceSummary: the tier and the builder line; null when nothing was plac
   const e = evidence({ live: liveRows({ url: 'https://x.dev', url_ok: true }) });
   const s = evidenceSummary(place(e, X0, undefined, NOW), e);
   assert.equal(s?.tier, 'live');
-  assert.match(s!.line, /^Your project is live, with no verified usage yet\. Next: 25 senders the deployer did not fund, on mainnet in 90 days; you have 0\.$/);
+  assert.match(s!.line, /^Your project is live, with no verified usage yet\. Next: about 25 outside users in 90 days; I count 0\.$/);
   assert.equal(evidenceSummary(place(null, X0), null), null);
 });

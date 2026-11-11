@@ -8,7 +8,8 @@ import { upsertProgram } from './programs';
 import { gatedGuidePage, guideTextById, listGuideIds } from './guide-page';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { EARN_ALL, EARN_EMPTY, HERO_TITLE, PROGRAMS_DESCRIPTION, STEPS } from './site-copy';
+import { CTA_INSTALL, EARN_ALL, EARN_EMPTY, HERO_SUB, HERO_TITLE, PROGRAMS_DESCRIPTION, STEPS } from './site-copy';
+import SchemaOrg from '../../app/components/ui/SchemaOrg';
 import type { Landing, Tile } from './landing';
 import Home from '../../app/page';
 import HomeView from '../../app/HomeView';
@@ -156,6 +157,17 @@ test('the steps: one card, an ordered list of the three lines with serif numeral
   assert.equal(textOf(m), STEPS.map((s, i) => `${i + 1} ${s}`).join(' '));
 });
 
+test('#1 (v6.1.15): the meta description and SchemaOrg copy the hero line: it fills the forms, never applies', () => {
+  const layout = readFileSync(join(import.meta.dirname, '..', '..', 'app', 'layout.tsx'), 'utf8');
+  assert.ok(layout.includes('const DESCRIPTION = `${CTA_INSTALL} and ask: What can I earn? ${HERO_SUB}`;'));
+  assert.equal(`${CTA_INSTALL} and ask: What can I earn? ${HERO_SUB}`, 'Add EarnKit to your agent and ask: What can I earn? Your agent finds the grants and prizes you fit and fills the forms. Free.');
+  assert.ok(!layout.includes('applies'));
+  const ld = JSON.parse(/<script[^>]*>([\s\S]*)<\/script>/.exec(html(React.createElement(SchemaOrg)))![1]) as { description: string };
+  assert.equal(ld.description, 'Your agent finds the grants and prizes you fit and fills the forms. Free. Agents connect at https://earnkit.com/mcp.');
+  assert.ok(ld.description.startsWith(HERO_SUB));
+  assert.ok(!ld.description.includes('applies'));
+});
+
 test('no rust look remains in the landing components (v6.2.0)', () => {
   for (const f of ['Opportunities.tsx', 'Steps.tsx']) {
     const src = readFileSync(join(import.meta.dirname, '../../app/components/landing', f), 'utf8');
@@ -178,10 +190,10 @@ test('/programs is a page with every listed program, the title and the descripti
 test('/programs/<id> renders the guide; a missing logo file renders no image', async () => {
   const m = html(await ProgramGuidePage(params('zz-page-open')));
   const t = textOf(m);
-  assert.ok(t.includes('Page Open Grants') && /\$\s?5K/.test(t));
-  assert.ok(t.includes('Project name') && t.includes('a project name'));
+  assert.ok(t.includes('Page Open Grants') && /\$\s?5,000/.test(t));
+  assert.ok(t.includes('Project name') && t.includes('A project name.'));
   assert.ok(t.includes('Apply from a public repo.'));
-  assert.ok(t.includes('https://example.com/grants') || t.includes('program page'));
+  assert.ok(t.includes('https://example.com/grants') || t.includes('Program page.'));
   assert.ok(!m.includes('/programs/zz-page-open.svg'), 'no image for a logo file that does not exist');
   assert.ok(!/<img[^>]+programs\/zz/.test(m));
   // One text node, so no gap before the colon (lane 5, 4).
@@ -201,7 +213,7 @@ test('/programs/<id> is a 404 for an unknown id and for a record that no longer 
   assert.match(String((await guideMetadata(params('nope'))).title), /Not found/);
 });
 
-test('/docs: the seven sections, under 420 words, the copy rules', () => {
+test('/docs: the seven sections, under 460 words, the copy rules', () => {
   const m = html(DocsPage());
   const t = textOf(m);
   for (const s of ['Install', 'How a session goes', 'Your record', 'Screening, for programs', 'For program owners', 'How programs are checked', 'Terms']) assert.ok(t.includes(s), s);
@@ -209,7 +221,8 @@ test('/docs: the seven sections, under 420 words, the copy rules', () => {
   assert.ok(!/selector/i.test(t));
   const words = t.split(' ').length;
   // L15-20 (v6.1.14): the program owners' five lines add about 90 words to the old 330.
-  assert.ok(words < 420, `docs page is ${words} words`);
+  // #15 (v6.1.15): the ruled tier glosses add 36 words to the screening text (455 now).
+  assert.ok(words < 460, `docs page is ${words} words`);
   assert.ok(!BANNED.test(t), t.match(BANNED)?.[0]);
   assert.ok(!t.includes('—'));
 });

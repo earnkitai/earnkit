@@ -41,6 +41,8 @@ test('live: the contract has 4 funded senders; next names the rule with the coun
   const p = at(e);
   assert.equal(p.tier, 'live');
   assert.equal(p.next, '25 senders the deployer did not fund, on mainnet in 90 days; you have 4.');
+  // #6 (v6.1.15): the builder's form of the usage gap; agents and owners keep the exact rule in next.
+  assert.equal(p.builder_next, 'About 25 outside users in 90 days; I count 4.');
   assert.equal(p.gap, 'funded_senders');
   assert.ok(p.because.includes('site loads'), p.because.join(' | '));
 });
@@ -318,10 +320,11 @@ test('shared contributors: 5 fires, 4 does not', () => {
   assert.equal(at(used(), { identical_pitch: 0, shared_contributors: 4 }).tier, 'used');
 });
 
-test('unfunded: 150 senders, 5 of 50 sampled funded fires; 50 senders does not', () => {
+test('self-funded users (#15, v6.1.15, was unfunded): 150 senders, 5 of 50 sampled funded fires; 50 senders does not', () => {
   const e = used();
   e.onchain = [contract({ tx_90d: 900, senders_90d: 150, funded_sample: 50, funded_senders_90d: 5 })];
-  const p = flagged('unfunded', e);
+  const p = flagged('self_funded_users', e);
+  assert.equal(p.builder_next, 'At least 20% of sampled users from outside the team; I count 5 of 50.');
   assert.ok(p.because.some((b) => b.includes('5 of 50') && b.includes('wallets the deployer did not fund')), p.because.join(' | '));
   assert.equal(p.next, 'At least 20% of sampled wallets not funded by the deployer; 5 of 50 are.');
   const few = used();
@@ -454,4 +457,25 @@ test('I1 (v6.1.14 fix round 1): the builder next step names what is counted, sen
   const p = at(e);
   assert.equal(p.next, '25 senders the deployer did not fund, on mainnet in 90 days; you have 8.');
   assert.doesNotMatch(p.next!, /funded wallets|funded_/);
+});
+
+test('#6 (v6.1.15): builder_next words the usage and building gaps plainly; every other gap equals next, null with no next', () => {
+  const live = place(evidence({ live: liveRows({ url: 'https://a.example', url_ok: true }) }), X, undefined, NOW);
+  assert.equal(live.gap, 'funded_senders');
+  assert.equal(live.builder_next, 'About 25 outside users in 90 days; I count 0.');
+  const building = place(evidence({ repo: 'a/b', code: codeRows({ last_push_at: daysAgo(3), commits_90d: 2 }) }), X, undefined, NOW);
+  assert.equal(building.next, 'A live product: a site that loads or a mainnet contract in use.');
+  assert.equal(building.builder_next, 'A live product: a site that loads or a contract in use.');
+  const same = [
+    place(evidence(), X, undefined, NOW),
+    place(evidence({ live: liveRows({ url: 'https://a.example', url_ok: true }), onchain: [contract({ funded_senders_90d: 30 })], code: codeRows({ last_push_at: daysAgo(200) }) }), X, undefined, NOW),
+    place(evidence({ repo: 'a/b', code: codeRows({ fork_of: 'x/y', own_share: 0.1 }) }), X, undefined, NOW),
+    place(evidence({ repo: 'a/b' }), { identical_pitch: 3, shared_contributors: 0 }, undefined, NOW),
+  ];
+  for (const p of same) assert.equal(p.builder_next, p.next, JSON.stringify(p));
+  assert.equal(same[1].gap, 'push');
+  assert.equal(same[2].gap, 'flag');
+  const none = place(null, X, undefined, NOW);
+  assert.deepEqual([none.next, none.builder_next], [null, null]);
+  assert.equal(at(used()).builder_next, null);
 });

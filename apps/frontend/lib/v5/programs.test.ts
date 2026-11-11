@@ -32,6 +32,20 @@ test('upsert: a change outside the named fields is updated with no program_chang
   assert.equal((await sql()`SELECT count(*)::int AS n FROM program_changes WHERE program_id = 't-desc'`)[0].n, 0);
 });
 
+test('FR-1 (v6.1.15): a need, todo, guidance or description edit inside the form records no change; a real field change does', async () => {
+  const p = programFixture({ id: 't-need' });
+  await upsertProgram(p, 'file', NOW);
+  const req = p.submission_requirements[0];
+  const reworded = { ...req, need: 'project name', todo: 'the project name', description: 'As on the site.', guidance: { judges: 'clarity', source_url: 'https://example.com/judging' } };
+  assert.equal(await upsertProgram({ ...p, submission_requirements: [reworded, ...p.submission_requirements.slice(1)] }, 'file', NOW), 'updated');
+  const count = async () => (await sql()`SELECT count(*)::int AS n FROM program_changes WHERE program_id = 't-need'`)[0].n;
+  assert.equal(await count(), 0);
+  // A new label, a required flag or a new field is a form change.
+  assert.equal(await upsertProgram({ ...p, submission_requirements: [{ ...reworded, label: 'Your project' }, ...p.submission_requirements.slice(1)] }, 'file', NOW), 'updated');
+  assert.equal(await count(), 1);
+  assert.deepEqual((await sql()`SELECT fields FROM program_changes WHERE program_id = 't-need'`).map((c) => c.fields), [['submission_requirements']]);
+});
+
 test('getProgram: null for an unknown id', async () => {
   assert.equal(await getProgram('t-nope'), null);
 });

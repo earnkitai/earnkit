@@ -143,7 +143,7 @@ test('the owner, linked: record set, approved on /me, find fills from it, starte
       traction: { line_pre_launch: 'Pre-launch, launching 2026-12-01.' },
     },
   });
-  assert.match(set.show_to_builder as string, /^Saved 7\. /);
+  assert.match(set.show_to_builder as string, /^Tracked 7 facts\. /);
   // v6.1.4: Z Fellows is the fourth in-person program, past the default two, so the full list shows it.
   const before = await call(NOW, 'find', { project: { ...p, live_url: 'https://earnkit.com', users: true }, filter: { all: true } });
   const z0 = (before.ready as { program_id: string; fields: { key: string; from: string }[] }[]).find((x) => x.program_id === 'z-fellows')!;
@@ -161,7 +161,7 @@ test('the owner, linked: record set, approved on /me, find fills from it, starte
   const z = (first.ready as { program_id: string; from_record: number; fields: { key: string; from: string; value: string | null }[] }[]).find((x) => x.program_id === 'z-fellows')!;
   assert.deepEqual(z.fields.find((f) => f.key === 'problem')!.value, 'Builders lose weeks on grant forms.');
   assert.ok(z.from_record >= 2);
-  assert.match(first.show_to_builder as string, /\d+ from your record, \d+ from the repo/);
+  assert.equal((first.show_to_builder as string).split('\n').find((l) => l.startsWith('1. ')), '1. Arbitrum Mentorship Program: Cohort 2, up to $100,000, closes in 2 days. Long odds: few prizes for many entries. Drafted: 17 of 22 answers. Needs your Telegram link, stage now and in 6 months, founder names and backgrounds and 2 more.');
 
   const topReady = (first.ready as { program_id: string; fields: { key: string; required: boolean }[] }[])[0];
   const top = topReady.program_id;

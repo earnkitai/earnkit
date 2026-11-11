@@ -44,7 +44,7 @@
   "submission_requirements": [
     { "key": "project_name", "label": "Project Name", "type": "text", "required": true, "from": "project", "kind": "name", "todo": "a project name", "project_field": "name" },
     { "key": "category", "label": "Proposal Category", "type": "choice", "required": true, "from": "project", "kind": "other", "todo": "a proposal category", "options": ["Developer and data tooling", "Integrations", "Research & protocols", "Storage", "Retrieval", "FVM", "Other"] },
-    { "key": "individual_or_entity", "label": "Individual or Entity Name", "type": "text", "required": true, "from": "builder", "kind": "contact", "todo": "the signer (you or your entity)", "description": "Is the proposal on behalf of an individual, or an entity/organization? The agreement and any payments must be completed by the same party." },
+    { "key": "individual_or_entity", "label": "Individual or Entity Name", "type": "text", "required": true, "from": "builder", "kind": "contact", "todo": "the signer (you or your entity)", "need": "signer type", "description": "Is the proposal on behalf of an individual, or an entity/organization? The agreement and any payments must be completed by the same party." },
     { "key": "proposer", "label": "Proposer (GitHub username)", "type": "text", "required": true, "from": "builder", "kind": "contact", "todo": "your GitHub username" },
     { "key": "repos", "label": "Project Repo(s)", "type": "url", "required": true, "from": "project", "kind": "links", "todo": "the project's GitHub repos", "project_field": "repo_url" },
     { "key": "affiliations", "label": "(Optional) Filecoin ecosystem affiliations", "type": "text", "required": false, "from": "builder", "kind": "other", "description": "Disclose existing work relationships with Protocol Labs Network organizations, including Protocol Labs, Filecoin Foundation and Filecoin Foundation for the Decentralized Web." },
@@ -63,7 +63,7 @@
     { "key": "team_website", "label": "Team Website", "type": "url", "required": true, "from": "project", "kind": "links", "todo": "a team website link", "project_field": "live_url" },
     { "key": "experience", "label": "Relevant Experience", "type": "text", "required": true, "from": "builder", "kind": "why_you", "todo": "the team fit for this work" },
     { "key": "team_repos", "label": "Team code repositories", "type": "text", "required": true, "from": "builder", "kind": "past_work", "todo": "links to prior related repos" },
-    { "key": "additional", "label": "Additional Information", "type": "text", "required": true, "from": "builder", "kind": "contact", "todo": "the way you heard of it and an email", "description": "How you learned about Open Grants, the best email for the grant agreement, and anything else useful." }
+    { "key": "additional", "label": "Additional Information", "type": "text", "required": true, "from": "builder", "kind": "contact", "todo": "the way you heard of it and an email", "need": "referral source and email", "description": "How you learned about Open Grants, the best email for the grant agreement, and anything else useful." }
   ],
   "focus": {
     "areas": ["Developer and data tooling", "Filecoin integrations into existing tools", "Storage, retrieval and FVM projects"],

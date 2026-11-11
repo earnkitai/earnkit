@@ -6,6 +6,7 @@
 import type { Applicant } from './applicants';
 import type { Evidence } from './evidence';
 import type { Placement, Tier } from './tiers';
+import { ruleWords } from './tier-words';
 
 export type ScreenRow = { applicant: Applicant; evidence: Evidence | null; placement: Placement; line: string };
 
@@ -44,7 +45,7 @@ export function markdownReport(program: string, rows: ScreenRow[], now: Date): s
       const bullets = [
         // A flag's detail opens `because`; it is shown once, as the flag.
         ...r.placement.because.filter((b) => !r.placement.flags.some((f) => f.detail === b)),
-        ...r.placement.flags.map((f) => `flag: ${f.rule}, ${f.detail}`),
+        ...r.placement.flags.map((f) => `flag: ${ruleWords(f.rule)}, ${f.detail}`),
         ...a.problems.map((p) => `problem: ${p}`),
         ...(r.evidence?.repo ? [`repo: ${r.evidence.repo}`] : []),
         ...(r.evidence?.live.url ? [`site: ${r.evidence.live.url}`] : []),
@@ -62,7 +63,8 @@ export function markdownReport(program: string, rows: ScreenRow[], now: Date): s
 }
 
 const HEADER = [
-  'ref', 'name', 'tier', 'flags', 'funded_senders_90d', 'senders_90d', 'chains_mainnet', 'last_push_at', 'contributors_90d',
+  // #15 (v6.1.15): outside_senders_90d names the count; funded_senders_90d carries the same value. alias until v6.1.16
+  'ref', 'name', 'tier', 'flags', 'outside_senders_90d', 'funded_senders_90d', 'senders_90d', 'chains_mainnet', 'last_push_at', 'contributors_90d',
   'template_name', 'template_overlap', 'own_share', 'url_ok', 'line', 'problems',
 ];
 
@@ -84,7 +86,7 @@ export function csvReport(rows: ScreenRow[]): string {
     lines.push(
       [
         r.applicant.ref, r.applicant.name, r.placement.tier ?? NO_TIER, [...new Set(r.placement.flags.map((f) => f.rule))].join(' '),
-        top?.funded_senders_90d, top?.senders_90d, e?.depth?.chains_mainnet.join(' '), e?.code?.last_push_at,
+        top?.funded_senders_90d, top?.funded_senders_90d /* alias until v6.1.16 */, top?.senders_90d, e?.depth?.chains_mainnet.join(' '), e?.code?.last_push_at,
         e?.team?.contributors_90d, e?.code?.template_name, e?.code?.template_overlap, e?.code?.own_share, e?.live.url_ok,
         r.line, r.applicant.problems.join('; '),
       ].map(cell).join(','),

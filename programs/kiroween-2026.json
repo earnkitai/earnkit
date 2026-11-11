@@ -23,7 +23,7 @@
   "eligibility": [
     { "kind": "new_work_after", "value": "2026-10-30T09:00:00-07:00" },
     { "kind": "demo_video" },
-    { "kind": "feature", "value": "/.kiro directory at the repo root" },
+    { "kind": "feature", "value": "/.kiro directory at the repo root", "note": "a Kiro folder in the repo, not ignored by git" },
     { "kind": "rule", "note": "built with Kiro", "keywords": ["kiro"] }
   ],
   "setup": [
@@ -47,11 +47,11 @@
   ],
   "submission_requirements": [
     { "key": "category", "label": "Category", "kind": "other", "todo": "a category", "type": "choice", "required": true, "options": ["Resurrection", "Frankenstein", "Skeleton Crew", "Costume Contest"], "description": "Also select any Bonus Prizes you want to be considered for.", "from": "project" },
-    { "key": "repo_url", "label": "URL to your public GitHub", "kind": "links", "todo": "a public GitHub repo with /.kiro", "type": "url", "required": true, "project_field": "repo_url", "description": "Must contain all source code, assets and instructions, a visible open source license, and the /.kiro directory at the root.", "from": "project" },
+    { "key": "repo_url", "label": "URL to your public GitHub", "kind": "links", "todo": "a public GitHub repo with a Kiro folder", "type": "url", "required": true, "project_field": "repo_url", "description": "Must contain all source code, assets and instructions, a visible open source license, and the /.kiro directory at the root.", "from": "project" },
     { "key": "app_url", "label": "URL to your working app(s)", "kind": "links", "todo": "a link to the working app", "type": "url", "required": true, "project_field": "live_url", "description": "Add any login credentials and instructions in the submission form; they are shown to judges only.", "from": "project" },
     { "key": "description", "label": "Text description that explains the features and functionality of your project", "kind": "how_it_works", "todo": "a features and functionality description", "type": "text", "required": true, "from": "project" },
     { "key": "demo_video", "label": "Demo video of your project", "kind": "demo_video", "todo": "a public YouTube demo under 3 minutes", "type": "url", "required": true, "project_field": "demo_url", "description": "Under three minutes, showing the project working on the device it was built for, uploaded to YouTube and public.", "from": "builder" },
-    { "key": "kiro_writeup", "label": "Provide a write-up on how Kiro was used", "kind": "how_it_works", "todo": "a write-up on how you used Kiro", "type": "text", "required": true, "description": "For example custom agents, agent hooks, spec-driven development, steering docs, MCP, property-based testing and Kiro powers.", "from": "project" },
+    { "key": "kiro_writeup", "label": "Provide a write-up on how Kiro was used", "kind": "how_it_works", "todo": "a write-up on how you used Kiro", "need": "Kiro write-up", "type": "text", "required": true, "description": "For example custom agents, agent hooks, spec-driven development, steering docs, MCP, property-based testing and Kiro powers.", "from": "project" },
     { "key": "bonus_details", "label": "Bonus Prize details", "kind": "other", "type": "text", "required": false, "description": "Per bonus: Best Startup Project needs founder confirmation, LinkedIn and startup website; Social Blitz and Bonus Blog need the post URL; Best Kiro Crew App needs its public repo URL.", "from": "builder" }
   ],
   "focus": {

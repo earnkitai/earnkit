@@ -8,7 +8,7 @@ import { upsertProgram } from '../v5/programs';
 import { deleteBuilder, getRecord, linkInstallation, saveRecord, upsertBuilder } from './builders';
 import { EMPTY_RECORD, approvePath } from './record';
 import { listWords } from './reply-words';
-import { refusedWords } from './record-tool';
+import { refusedWords, savedLine } from './record-tool';
 
 after(() => sql().end());
 
@@ -75,7 +75,7 @@ test('linked: set saves, get reads it back; missing lists the founder video when
   const missing = s.reply!.missing as string[];
   assert.ok(missing.includes('your founder video link'), missing.join('|'));
   // Name, email and the project's repo: three facts (a new project is not a fourth).
-  assert.match(s.reply!.show_to_builder as string, /^Saved 3\. Still missing: [^.]+\.$/);
+  assert.match(s.reply!.show_to_builder as string, /^Tracked 3 facts\. Still missing: [^.]+\.$/);
   assert.equal((await getRecord(c.builderId)).person.name, 'Ada');
   const [row] = await sql()`SELECT record_updated_at FROM builders WHERE id = ${c.builderId}`;
   assert.equal((row.record_updated_at as Date).toISOString(), NOW.toISOString());
@@ -93,7 +93,7 @@ test('linked: set saves, get reads it back; missing lists the founder video when
 test('the Saved line: three missing items, then "and n more"; the approval note only when an approvable path changed', async () => {
   const c = await linked();
   const plain = await mcpCall(c, 'record', { set: { person: { location: 'London' } } });
-  assert.match(plain.reply!.show_to_builder as string, /^Saved 1\. Still missing: your name, your email, a project with its repo or site and \d+ more\.$/);
+  assert.match(plain.reply!.show_to_builder as string, /^Tracked 1 fact\. Still missing: your name, your email, a project with its repo or site and \d+ more\.$/);
   assert.equal(plain.reply!.agent_note, 'Ask the builder once, all together, for what missing lists, and save each with record set; then call find with the project.');
   const ans = await mcpCall(c, 'record', { set: { answers: { problem: { text: 'Fees are high.' } } } });
   assert.match(ans.reply!.agent_note as string, /^Approved answers come from earnkit\.com\/me, where the builder reads and approves each one; an unapproved answer is never used in a form\. Ask the builder once/);
@@ -142,7 +142,7 @@ test('B9: a set field that looks like a secret is skipped, never stored; the lin
   const key = 'sk_live_' + 'a1'.repeat(12);
   const r = await mcpCall(c, 'record', { set: { person: { name: key, email: 'ada@example.com' } } });
   assert.equal(r.isError, false, r.text);
-  assert.match(r.reply!.show_to_builder as string, /^Saved 1; 1 not saved: one looked like a secret\. Still missing: /);
+  assert.match(r.reply!.show_to_builder as string, /^Tracked 1 fact; 1 not saved: one looked like a secret\. Still missing: /);
   const rec = await getRecord(c.builderId);
   assert.equal(rec.person.name, undefined);
   assert.equal(rec.person.email, 'ada@example.com');
@@ -235,7 +235,7 @@ test('a projects entry without an id: a problem line and no change', async () =>
 test('C29: record set counts what it saved and names what it did not; never a bare Saved. when something was refused', async () => {
   const c = await linked();
   const r = await mcpCall(c, 'record', { set: { person: { name: 'Ada', email: 'not-an-email' } } });
-  assert.match(r.reply!.show_to_builder as string, /^Saved 1; 1 not saved: email was not valid\. Still missing: /);
+  assert.match(r.reply!.show_to_builder as string, /^Tracked 1 fact; 1 not saved: email was not valid\. Still missing: /);
   assert.equal((await getRecord(c.builderId)).person.name, 'Ada');
   const t = await mcpCall(c, 'record', { set: { team: { lead: 'x' } } });
   assert.match(t.reply!.show_to_builder as string, /^Not saved: team was not valid\. /);
@@ -292,4 +292,12 @@ test('v6.1.9: record get and set always say what to do next', async () => {
   assert.equal(get.reply!.agent_note, 'Ask the builder once, all together, for what missing lists, and save each with record set; then call find with the project.');
   const nothing = await mcpCall(c, 'record', { set: {} });
   assert.match(nothing.reply!.agent_note as string, /call find with the project\.$/);
+});
+
+test('#8 (v6.1.15): one save verb, Tracked, with what was kept; the refusals keep Not saved', () => {
+  assert.equal(savedLine(1, [], 0), 'Tracked 1 fact.');
+  assert.equal(savedLine(2, [], 0), 'Tracked 2 facts.');
+  assert.equal(savedLine(2, ['person.email: not valid'], 1), 'Tracked 2 facts; 2 not saved: email was not valid and one looked like a secret.');
+  assert.equal(savedLine(0, ['person.email: not valid'], 0), 'Not saved: email was not valid.');
+  assert.equal(savedLine(0, [], 0), 'Nothing new to save.');
 });

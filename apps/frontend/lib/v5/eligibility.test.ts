@@ -68,6 +68,8 @@ test('an app on another chain vs a chain_required Base program is a gap', async 
   const v = evaluate(toRow(programFixture({ id: 'p', chain_required: true })), await factsOf('nextjs-dashboard', { chains: [{ chain: 'arbitrum', mainnet: true }] }), new Set(), NOW);
   assert.equal(v.status, 'gap');
   assert.equal(v.gaps[0].what, 'deploy the contract on Base');
+  // L1g-7 (v6.1.15): a chain with no report keeps the plain step.
+  assert.ok(!v.gaps[0].what.includes('mainnet'));
 });
 
 test('C54: a project with no chain reported and none in the code is not a fit for a chain or contract program, never a gap', async () => {
@@ -197,7 +199,8 @@ test('a testnet-only chain does not meet a Base chain_required program', async (
   const f = { ...(await factsOf('nextjs-dashboard')), chains: [{ chain: 'base', mainnet: false, basis: 'reported' as const }] };
   const v = evaluate(toRow(programFixture({ id: 'p', chain_required: true })), f, new Set(), NOW);
   assert.equal(v.status, 'gap');
-  assert.equal(v.gaps[0].what, 'deploy the contract on Base');
+  // L1g-7 (v6.1.15): reported on that chain's testnet only, so the step names the mainnet.
+  assert.equal(v.gaps[0].what, 'deploy the contract on Base mainnet');
 });
 
 test('two unmet chain items give one gap naming the first', async () => {
@@ -316,7 +319,8 @@ test('B20c, B20d (v6.1.9, Review Focus 1, fix rounds 1 and 2): the users questio
   for (const facts of [idea, empty, { ...idea, users: true }, { ...empty, users: true }]) {
     for (const p of [floss, usersOnly]) {
       const v = evaluate(p, facts, new Set(['users']), NOW);
-      assert.deepEqual([v.status, v.reason, v.gaps], ['no', 'needs a product people use', []], p.id);
+      // L1g-6 (v6.1.15): with users reported, the reason names what is missing to read.
+      assert.deepEqual([v.status, v.reason, v.gaps], ['no', facts.users === true ? 'needs code in a repo or a live link' : 'needs a product people use', []], p.id);
     }
   }
   // A repo read with code, a live link given, or a private repo (the builder's word) keeps the question.
@@ -338,7 +342,9 @@ test('B20c, B20d (v6.1.9, Review Focus 1, fix rounds 1 and 2): the users questio
   // failed read) does not exist for the question.
   const named = { ...idea, repo_url: 'https://github.com/a/b' };
   assert.deepEqual(evaluate(floss, { ...named, notes: ['paused'] }, new Set(), NOW).gaps.map((g) => g.what), ['tell me if real people use it']);
-  assert.deepEqual(evaluate(floss, { ...named, notes: ['unread'], users: true }, new Set(), NOW).reason, 'needs a product people use');
+  // L1g-6 (v6.1.15): the builder said it has users, so what is missing is something to read.
+  assert.deepEqual(evaluate(floss, { ...named, notes: ['unread'], users: true }, new Set(), NOW).reason, 'needs code in a repo or a live link');
+  assert.deepEqual(evaluate(floss, { ...named, notes: ['unread'] }, new Set(), NOW).reason, 'needs a product people use');
   // I4 (final review): a repo-less project with a mainnet contract (reported) exists; a testnet one does not.
   const pc = parseProject({ name: 'Vault', description: 'A closed-source vault.', chains: [{ chain: 'base', mainnet: true, contract: '0x1111111111111111111111111111111111111111' }] });
   assert.ok(pc.ok);

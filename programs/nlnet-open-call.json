@@ -40,7 +40,7 @@
     "Submitting needs a security code, requested by email from NLnet."
   ],
   "submission_requirements": [
-    { "key": "fund", "label": "Which of our funds are you applying for?", "kind": "other", "todo": "the fund you apply to", "type": "choice", "required": true, "options": ["Restack Fund", "CodeSupply Fund", "Other / open call"], "from": "project" },
+    { "key": "fund", "label": "Which of our funds are you applying for?", "kind": "other", "todo": "the fund you apply to", "need": "fund choice", "type": "choice", "required": true, "options": ["Restack Fund", "CodeSupply Fund", "Other / open call"], "from": "project" },
     { "key": "proposal_title", "label": "Proposal title", "kind": "name", "todo": "a proposal title", "type": "text", "required": true, "max_chars": 100, "from": "project" },
     { "key": "websites", "label": "Project website(s) / repositories", "kind": "links", "type": "url", "required": false, "project_field": "repo_url", "description": "Up to four links.", "from": "project" },
     { "key": "abstract", "label": "Please summarise the proposed project and its expected results in a few lines.", "kind": "one_liner", "todo": "a short summary and expected results", "type": "text", "required": true, "max_chars": 1000, "from": "project" },

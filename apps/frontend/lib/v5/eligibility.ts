@@ -50,17 +50,19 @@ const chainDetails = (chain: string) => {
   return { chain, rpc: c?.rpc ?? null, explorer: c?.explorer ?? null };
 };
 
-function gapOf(i: EligibilityItem): Gap {
+/** One item's gap. `testnetOnly` (L1g-7, v6.1.15): the project reports the item's chain on a testnet only, so the
+ *  deploy step names its mainnet. */
+function gapOf(i: EligibilityItem, testnetOnly = false): Gap {
   const base = { kind: i.kind, item: itemKey(i), effort: EFFORT[i.kind], agent_can: false };
   const v = i.value ?? '';
   switch (i.kind) {
-    case 'chain': return { ...base, what: `deploy the contract on ${chainName(v)}`, details: chainDetails(v) };
+    case 'chain': return { ...base, what: `deploy the contract on ${chainName(v)}${testnetOnly ? ' mainnet' : ''}`, details: chainDetails(v) };
     case 'contract_on': return { ...base, what: `a contract on ${chainName(v)}`, details: chainDetails(v) };
     case 'builder_codes': return { ...base, what: 'add Base Builder Codes to the app', agent_can: true };
     case 'live_product': return { ...base, what: 'put a live link up' };
     case 'demo_video': return { ...base, what: 'a demo video' };
     case 'integration': return { ...base, what: `add ${integrationLabel(v) ?? v}`, agent_can: true, details: { docs: integrationDocs(v) } };
-    case 'feature': return { ...base, what: v || i.note || 'a feature the program asks for' };
+    case 'feature': return { ...base, what: i.note || v || 'a feature the program asks for' };
     case 'rule': return { ...base, what: i.note ?? '' };
     default: return { ...base, what: 'real users first' };
   }
@@ -103,15 +105,16 @@ const USERS_UNKNOWN: Gap = { kind: 'users', item: 'users', what: 'tell me if rea
 
 /**
  * B20d (v6.1.9, fix round 2): whether the project exists for the users question: a repo read that holds code (not
- * empty), a live link, a private repo, or a repo whose read was paused for the day (the repo likely exists; the
- * builder's word stands, marked as reported), or a contract on a mainnet (reported or read; v6.1.9 final I4). A repo
+ * empty), a live link, a private repo, a public repo on another code host (EarnKit reads GitHub only; I1, v6.1.15 fix
+ * round 1), or a repo whose read was paused for the day (the repo likely exists; the builder's word stands, marked as
+ * reported), or a contract on a mainnet (reported or read; v6.1.9 final I4). A repo
  * link that was not read (a 404, a failed read), an empty repo or no repo at all is not. Pure.
  */
 export const exists = (facts: RepoFacts): boolean => {
   const notes = facts.notes ?? [];
   if (facts.live_url) return true;
   if (facts.contracts.some((c) => facts.chains.some((x) => x.chain === c.chain && x.mainnet))) return true;
-  if (notes.includes('private') || notes.includes('paused')) return true;
+  if (notes.includes('private') || notes.includes('paused') || notes.includes('other_host')) return true;
   return facts.public && !facts.as_reported && !notes.includes('empty');
 };
 
@@ -146,7 +149,9 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
   const onchain = items.find((i) => i.kind === 'chain' || i.kind === 'contract_on');
   if (onchain && facts.chains.length === 0) return out('no', [], `needs a contract on ${chainName(onchain.value ?? '')}`);
   // B20c (v6.1.9): a program that wants used software (a used bar or a users item) asks only a project that exists.
-  if ((p.min_tier === 'used' || own.some((i) => i.kind === 'users')) && !exists(facts)) return out('no', [], 'needs a product people use');
+  // L1g-6 (v6.1.15): when the builder said real people use it, what is missing is something to read.
+  if ((p.min_tier === 'used' || own.some((i) => i.kind === 'users')) && !exists(facts))
+    return out('no', [], facts.users === true ? 'needs code in a repo or a live link' : 'needs a product people use');
   const gaps: Gap[] = [];
   // L1e-6 (v6.1.13, fix round 1 T3-R1): a grant for existing code (needs_repo, existing work welcome, not a hackathon or
   // an event) is one step from a project with nothing to show (no live link, and no repo link or a repo the read found
@@ -162,7 +167,10 @@ export function evaluate(program: ProgramRow, facts: RepoFacts, done: Set<string
   let inPerson = false;
   const chainItems = items.filter((i) => i.kind === 'chain');
   const mainnets = new Set(facts.chains.filter((c) => c.mainnet).map((c) => c.chain));
-  if (chainItems.length > 0 && !chainItems.some((i) => mainnets.has(i.value ?? ''))) gaps.push(gapOf(chainItems[0]));
+  if (chainItems.length > 0 && !chainItems.some((i) => mainnets.has(i.value ?? ''))) {
+    const v = chainItems[0].value ?? '';
+    gaps.push(gapOf(chainItems[0], facts.chains.some((c) => c.chain === v && !c.mainnet)));
+  }
 
   for (const i of items) {
     const v = i.value ?? '';

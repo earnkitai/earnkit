@@ -62,8 +62,9 @@ export function byRelevance(a: Program, b: Program): number {
   return later(a) - later(b) || reach(a) - reach(b) || inv(a) - inv(b) || at(a) - at(b) || (b.max_award_usd ?? -1) - (a.max_award_usd ?? -1) || a.id.localeCompare(b.id);
 }
 
-/** One short figure, with a range's "Up to " (v6.1.14); the tile draws "Up to" small above the figure. */
-const BIG = /^(Up to )?\$[\d.]+[KM]?$/;
+/** One full figure, with a range's "Up to " (v6.1.14; full figures, lane 22, v6.1.15); the tile draws "Up to" small
+ *  above the figure. */
+const BIG = /^(Up to )?\$[\d,]+$/;
 
 function tileOf(p: Program): Tile {
   const money = moneyOf(p);

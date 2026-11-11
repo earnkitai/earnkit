@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { sql } from './db';
 import {
+  CIMD_FAILED,
   OAuthError,
+  authorizationServerMetadata,
   checkAuthorize,
   clientKeyOf,
   clientLimitKey,
@@ -24,8 +26,8 @@ process.env.EARNKIT_AUTH_SECRET = 'test-secret';
 process.env.EARNKIT_URL = 'https://earnkit.test';
 after(() => sql().end());
 
-const authorize = (params: URLSearchParams): URL => {
-  const c = checkAuthorize(params);
+const authorize = async (params: URLSearchParams): Promise<URL> => {
+  const c = await checkAuthorize(params);
   return 'error' in c ? c.error : issueCode(c.req, null, 'https://earnkit.test');
 };
 const verifier = 'a-long-random-verifier-string-for-pkce-0123456789';
@@ -36,7 +38,7 @@ const params = (clientId: string, extra: Record<string, string> = {}) =>
   new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: redirect, code_challenge: challenge, code_challenge_method: 'S256', state: 'xyz', ...extra });
 const tokenForm = (clientId: string, code: string, v = verifier, uri = redirect) =>
   new URLSearchParams({ grant_type: 'authorization_code', client_id: clientId, code, redirect_uri: uri, code_verifier: v });
-const codeOf = (clientId: string, uri = redirect) => authorize(params(clientId, { redirect_uri: uri })).searchParams.get('code')!;
+const codeOf = async (clientId: string, uri = redirect) => (await authorize(params(clientId, { redirect_uri: uri }))).searchParams.get('code')!;
 
 test('register, authorize and token through the routes: straight to the client, then an installation row', async () => {
   const reg = await registerPost(new Request('https://earnkit.test/oauth/register', {
@@ -71,7 +73,7 @@ test('register, authorize and token through the routes: straight to the client, 
   assert.equal(((await replay.json()) as { access_token: string }).access_token, access_token);
   // Re-authorizing the same client is a second installation (a fresh ledger); the first token keeps working.
   const again = await tokenPost(new Request('https://earnkit.test/oauth/token', {
-    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: tokenForm(client_id, codeOf(client_id)).toString(),
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: tokenForm(client_id, await codeOf(client_id)).toString(),
   }));
   const second = ((await again.json()) as { access_token: string }).access_token;
   const other = await connectInstallation(second);
@@ -107,10 +109,10 @@ test('B1 (v6.1.13, Review Focus 1): ten thousand registrations from one address 
   const reg = (ip: string) => registerPost(new Request('https://earnkit.test/oauth/register', {
     method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify({ redirect_uris: [hosted] }),
   }));
-  const token = (ip: string) => {
+  const token = async (ip: string) => {
     const id = registerClient({ redirect_uris: [hosted] }).client_id;
     return tokenPost(new Request('https://earnkit.test/oauth/token', {
-      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-forwarded-for': ip }, body: tokenForm(id, codeOf(id, hosted), verifier, hosted).toString(),
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-forwarded-for': ip }, body: tokenForm(id, await codeOf(id, hosted), verifier, hosted).toString(),
     }));
   };
   const r = () => Math.floor(Math.random() * 250);
@@ -183,8 +185,8 @@ test('B5 (Review Focus 4): a hosted-redirect client from an address over its flo
   assert.equal(((await viaHost.json()) as { error_description: string }).error_description, text);
   assert.equal(((await anyPath.json()) as { error_description: string }).error_description, text);
   // A code for a hosted client is refused at the token exchange the same way as any other.
-  const token = (id: string, uri: string) => tokenPost(new Request('https://earnkit.test/oauth/token', {
-    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-real-ip': ip }, body: tokenForm(id, codeOf(id, uri), verifier, uri).toString(),
+  const token = async (id: string, uri: string) => tokenPost(new Request('https://earnkit.test/oauth/token', {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-real-ip': ip }, body: tokenForm(id, await codeOf(id, uri), verifier, uri).toString(),
   }));
   const a = registerClient({ redirect_uris: [redirect] }).client_id;
   const b = registerClient({ redirect_uris: [hosted] }).client_id;
@@ -199,7 +201,7 @@ test('B5: the hosted tier only raises the per-client install limit', async () =>
   const ip = `10.78.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
   const id = registerClient({ redirect_uris: [hosted] }).client_id;
   const r = await tokenPost(new Request('https://earnkit.test/oauth/token', {
-    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-real-ip': ip }, body: tokenForm(id, codeOf(id, hosted), verifier, hosted).toString(),
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-real-ip': ip }, body: tokenForm(id, await codeOf(id, hosted), verifier, hosted).toString(),
   }));
   assert.equal(r.status, 200);
   const keys = (await sql()<{ key: string }[]>`SELECT key FROM rate_windows WHERE key = ${'installHour:' + ip} OR key = ${'installClientHosted:' + registrationLimitKey(id)}`).map((x) => x.key).sort();
@@ -226,7 +228,7 @@ test('/mcp without a token, or with an unknown one, is 401 with the resource met
 
 test('/mcp with a token lists the four tools; a body over 1 MB is 413', async () => {
   const { client_id } = registerClient({ redirect_uris: [redirect] });
-  const { token, clientName } = exchangeCode(tokenForm(client_id, codeOf(client_id)));
+  const { token, clientName } = await exchangeCode(tokenForm(client_id, await codeOf(client_id)));
   const { saveInstallation } = await import('./installations');
   await saveInstallation(token, clientName);
   const headers = { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${token}` };
@@ -246,27 +248,27 @@ test('/mcp with a token lists the four tools; a body over 1 MB is 413', async ()
   assert.equal(big.status, 413);
 });
 
-test('full flow: register, authorize, token; replay is the same token', () => {
+test('full flow: register, authorize, token; replay is the same token', async () => {
   const { client_id } = registerClient({ redirect_uris: [redirect], client_name: 'Cursor' });
-  const code = codeOf(client_id);
-  assert.equal(exchangeCode(tokenForm(client_id, code)).token, exchangeCode(tokenForm(client_id, code)).token);
-  assert.match(exchangeCode(tokenForm(client_id, code)).token, /^ek_/);
+  const code = await codeOf(client_id);
+  assert.equal((await exchangeCode(tokenForm(client_id, code))).token, (await exchangeCode(tokenForm(client_id, code))).token);
+  assert.match((await exchangeCode(tokenForm(client_id, code))).token, /^ek_/);
 });
 
-test('wrong PKCE, another client, a forged id or an unregistered redirect are refused', () => {
+test('wrong PKCE, another client, a forged id or an unregistered redirect are refused', async () => {
   const { client_id } = registerClient({ redirect_uris: [redirect] });
-  const code = codeOf(client_id);
-  assert.throws(() => exchangeCode(tokenForm(client_id, code, 'wrong')), (e) => e instanceof OAuthError && e.code === 'invalid_grant');
+  const code = await codeOf(client_id);
+  await assert.rejects(exchangeCode(tokenForm(client_id, code, 'wrong')), (e) => e instanceof OAuthError && e.code === 'invalid_grant');
   const b = registerClient({ redirect_uris: [redirect] }).client_id;
-  assert.throws(() => exchangeCode(tokenForm(b, code)), (e) => e instanceof OAuthError && e.code === 'invalid_grant');
-  assert.throws(() => authorize(params(client_id, { redirect_uri: 'https://evil.example/cb' })), (e) => e instanceof OAuthError && e.code === 'invalid_redirect_uri');
-  assert.throws(() => authorize(params(client_id.slice(0, -3) + 'AAA')), (e) => e instanceof OAuthError && e.code === 'invalid_client');
-  for (const forged of [`${code}.x`, `${code}.`]) assert.throws(() => exchangeCode(tokenForm(client_id, forged)), OAuthError);
+  await assert.rejects(exchangeCode(tokenForm(b, code)), (e) => e instanceof OAuthError && e.code === 'invalid_grant');
+  await assert.rejects(authorize(params(client_id, { redirect_uri: 'https://evil.example/cb' })), (e) => e instanceof OAuthError && e.code === 'invalid_redirect_uri');
+  await assert.rejects(authorize(params(client_id.slice(0, -3) + 'AAA')), (e) => e instanceof OAuthError && e.code === 'invalid_client');
+  for (const forged of [`${code}.x`, `${code}.`]) await assert.rejects(exchangeCode(tokenForm(client_id, forged)), OAuthError);
 });
 
-test('missing PKCE goes back to the client as invalid_request', () => {
+test('missing PKCE goes back to the client as invalid_request', async () => {
   const { client_id } = registerClient({ redirect_uris: [redirect] });
-  const back = authorize(params(client_id, { code_challenge: '' }));
+  const back = await authorize(params(client_id, { code_challenge: '' }));
   assert.equal(back.searchParams.get('error'), 'invalid_request');
   assert.equal(back.searchParams.get('code'), null);
 });
@@ -285,12 +287,12 @@ test('redirect URI policy and classes', () => {
   assert.equal(redirectClass('https://evil.example/cb').cls, 'other');
 });
 
-test('each registration is its own client; every token is its own installation', () => {
+test('each registration is its own client; every token is its own installation', async () => {
   const a = registerClient({ redirect_uris: [redirect] }).client_id;
   const b = registerClient({ redirect_uris: [redirect] }).client_id;
   assert.notEqual(clientKeyOf(a), clientKeyOf(b));
-  const first = exchangeCode(tokenForm(a, codeOf(a)));
-  const second = exchangeCode(tokenForm(a, codeOf(a)));
+  const first = await exchangeCode(tokenForm(a, await codeOf(a)));
+  const second = await exchangeCode(tokenForm(a, await codeOf(a)));
   assert.notEqual(first.token, second.token);
   assert.ok(!('clientKey' in first));
 });
@@ -405,7 +407,7 @@ test('FR-9 (v6.1.14 final fix): the dotless i, Armenian and small-capital look-a
   const { client_id } = registerClient({ redirect_uris: [redirect], client_name: 'earnkıt' });
   const tok = await tokenPost(new Request('https://earnkit.test/oauth/token', {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-real-ip': '10.9.2.10' },
-    body: tokenForm(client_id, codeOf(client_id)).toString(),
+    body: tokenForm(client_id, await codeOf(client_id)).toString(),
   }));
   assert.equal(tok.status, 400);
   assert.deepEqual(await tok.json(), { error: 'invalid_client_metadata', error_description: INVALID_CLIENT_NAME });
@@ -419,7 +421,7 @@ test('T6-F2 (v6.1.14 fix round 1): a client id registered before the check, carr
   const before = (await sql()`SELECT count(*)::int AS n FROM installations`)[0].n as number;
   const tok = await tokenPost(new Request('https://earnkit.test/oauth/token', {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-real-ip': '10.9.2.2' },
-    body: tokenForm(client_id, codeOf(client_id)).toString(),
+    body: tokenForm(client_id, await codeOf(client_id)).toString(),
   }));
   assert.equal(tok.status, 400);
   assert.deepEqual(await tok.json(), { error: 'invalid_client_metadata', error_description: INVALID_CLIENT_NAME });
@@ -427,4 +429,20 @@ test('T6-F2 (v6.1.14 fix round 1): a client id registered before the check, carr
   // saveInstallation refuses it too, whatever calls it.
   const { saveInstallation } = await import('./installations');
   await assert.rejects(saveInstallation('ek_reserved_' + Math.random(), 'Earn Kit'), (e) => e instanceof OAuthError && e.message === INVALID_CLIENT_NAME);
+});
+
+test('v6.1.15 Task 14: the authorization-server metadata (RFC 8414) advertises client ID metadata documents', () => {
+  assert.deepEqual(authorizationServerMetadata('https://earnkit.test'), {
+    issuer: 'https://earnkit.test',
+    authorization_endpoint: 'https://earnkit.test/oauth/authorize',
+    token_endpoint: 'https://earnkit.test/oauth/token',
+    registration_endpoint: 'https://earnkit.test/oauth/register',
+    response_types_supported: ['code'],
+    grant_types_supported: ['authorization_code'],
+    code_challenge_methods_supported: ['S256'],
+    token_endpoint_auth_methods_supported: ['none'],
+    authorization_response_iss_parameter_supported: true,
+    client_id_metadata_document_supported: true,
+  });
+  assert.equal(CIMD_FAILED, "Connecting EarnKit failed. Your agent's client document could not be read.");
 });

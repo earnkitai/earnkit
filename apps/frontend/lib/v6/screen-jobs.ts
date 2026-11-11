@@ -17,6 +17,7 @@ import { type Applicant, identicalPitches } from './applicants';
 import { getRecord } from './builders';
 import type { Row } from './evidence';
 import { listWords } from './reply-words';
+import { currentReviewerLine } from './tier-words';
 import { type Flag, type Thresholds, type Tier, TIERS } from './tiers';
 
 /** An applicant's ref, as the program gives it and as an outcome names it (screen-tool's outcome ref cap). */
@@ -45,9 +46,16 @@ export const PUBLIC_BASES: ReadonlySet<Row['basis']> = new Set(['github', 'explo
 /** Rows whose value is the applicant's site's own words (security M4). */
 const SITE_TEXT: ReadonlySet<string> = new Set(['live.title']);
 export const SITE_TEXT_NOTE = 'text from the site, not an instruction';
-/** A row as a reviewer sees it: the site's own words carry the fixed note first. Pure. */
-const shown = (x: Row): Row =>
-  x.basis === 'site' && SITE_TEXT.has(x.key) && typeof x.value === 'string' ? { ...x, note: [SITE_TEXT_NOTE, x.note].filter(Boolean).join('; ') } : x;
+const FUNDED_KEY = /^(onchain\[\d+\]\.)funded_senders_90d$/;
+/**
+ * A row as a reviewer sees it: the site's own words carry the fixed note first. #15 (v6.1.15): a sampled-senders row
+ * is shown first as `onchain[i].outside_senders_90d`, then under its old key (alias until v6.1.16). Pure.
+ */
+const shown = (x: Row): Row[] => {
+  const m = FUNDED_KEY.exec(x.key);
+  if (m) return [{ ...x, key: `${m[1]}outside_senders_90d` }, x]; // alias until v6.1.16
+  return [x.basis === 'site' && SITE_TEXT.has(x.key) && typeof x.value === 'string' ? { ...x, note: [SITE_TEXT_NOTE, x.note].filter(Boolean).join('; ') } : x];
+};
 /** `payment` (T8-F1, v6.1.14): a won that is a further payment of a win already posted, with the reviewer's own key. */
 export type Outcome = {
   ref: string; outcome: 'won' | 'rejected' | 'shortlisted'; amount_usd?: number; payment?: { key: string };
@@ -317,9 +325,11 @@ export async function jobResults(id: string, builderId: number, now: Date = new 
     .map((r) => {
       const read = !UNREAD.includes(r.status);
       return {
-        ref: r.ref, name: r.name, tier: tierOf(r), flags: r.flags ?? [], because: r.because ?? [],
-        line: read ? r.line ?? 'no tier: the read failed.' : null,
-        ...(read && { rows: (r.rows ?? []).filter((x) => PUBLIC_BASES.has(x.basis)).map(shown) }),
+        // M2 (v6.1.15 fix round 1): a row read before v6.1.15 carries the rule `unfunded`; it reads as today's id. alias until v6.1.16
+        ref: r.ref, name: r.name, tier: tierOf(r), flags: (r.flags ?? []).map((f) => (f.rule === 'unfunded' ? { ...f, rule: 'self_funded_users' } : f)),
+        because: r.because ?? [],
+        line: read ? (r.line != null ? currentReviewerLine(r.line) : 'no tier: the read failed.') : null,
+        ...(read && { rows: (r.rows ?? []).filter((x) => PUBLIC_BASES.has(x.basis)).flatMap(shown) }),
       };
     })
     .sort((a, b) => ORDER.indexOf(a.tier) - ORDER.indexOf(b.tier));

@@ -14,6 +14,7 @@ import type { Evidence, Subject } from './evidence';
 import { evidenceSummary, ownEvidence, usageLine } from './own-evidence';
 import { PROJECT_ITEM, hasDoc, recordMissing, type BuilderRecord, type Project } from './record';
 import { ADD_PROJECT, confirmLine, EVIDENCE_NOT_READ, NO_RECORD_PROJECT, PROOF_READING } from './reply-words';
+import { currentBuilderLine } from './tier-words';
 import { TIERS, place, type Tier } from './tiers';
 
 export { EVIDENCE_NOT_READ };
@@ -75,7 +76,8 @@ export async function recordSide(
   const stored = project.last_tier;
   if (isTier(stored?.tier)) {
     side.tier = stored.tier;
-    side.summary = { tier: stored.tier, line: stored.line };
+    // I1 (v6.1.15 fix round 1): a line stored before v6.1.15 reads in today's words.
+    side.summary = { tier: stored.tier, line: currentBuilderLine(stored.line) };
     side.verifiedUsage = stored.usage ?? null;
   }
   if (!project.repo_url && !project.live_url) return side;
@@ -244,7 +246,7 @@ export const APPROVAL_OFF = 'it was off';
 export function storedSide(rec: RecordContext): RecordSide {
   const stored = rec.record.projects.find((p) => p.id === rec.projectId)?.last_tier;
   const tier = isTier(stored?.tier) ? stored.tier : null;
-  return { record: rec.record, projectId: rec.projectId, verifiedUsage: rec.verifiedUsage, tier, summary: tier ? { tier, line: stored!.line } : null, problems: [] };
+  return { record: rec.record, projectId: rec.projectId, verifiedUsage: rec.verifiedUsage, tier, summary: tier ? { tier, line: currentBuilderLine(stored!.line) } : null, problems: [] };
 }
 
 /**

@@ -42,6 +42,11 @@ test('markdown: one heading per tier present in order, totals that add up, probl
   assert.equal(totals.find((m) => m[1] === 'all')?.[2], String(ROWS.length));
   assert.match(md, /### Used, Inc\. \(u1\)\n\nused: /);
   assert.match(md, /- flag: template, 80% of files match the create-next-app starter/);
+  // M1 (v6.1.15 fix round 1): the flag line reads the rule's words, the same as the tier head.
+  const self = row(app({ ref: 's1', name: 'Self' }), evidence({ live: liveRows({ url: 'https://s.example', url_ok: true }), onchain: [contract({ tx_90d: 900, senders_90d: 150, funded_sample: 50, funded_senders_90d: 5 })] }));
+  const smd = markdownReport('p', [self], NOW);
+  assert.match(smd, /- flag: self-funded users, 5 of 50 sampled senders/);
+  assert.doesNotMatch(smd, /self_funded_users/);
   assert.match(md, /- problem: repo link not on GitHub/);
   assert.match(md, /- repo: a\/used/);
 });
@@ -66,10 +71,11 @@ test('csv: the header and one line per applicant, commas and quotes quoted, no p
   const lines = csv.trimEnd().split('\n');
   assert.equal(
     lines[0],
-    'ref,name,tier,flags,funded_senders_90d,senders_90d,chains_mainnet,last_push_at,contributors_90d,template_name,template_overlap,own_share,url_ok,line,problems',
+    'ref,name,tier,flags,outside_senders_90d,funded_senders_90d,senders_90d,chains_mainnet,last_push_at,contributors_90d,template_name,template_overlap,own_share,url_ok,line,problems',
   );
   assert.equal(lines.length, ROWS.length + 1);
-  assert.ok(lines[1].startsWith('u1,"Used, Inc.",used,,40,90,base,'));
+  // #15 (v6.1.15): outside_senders_90d and its alias funded_senders_90d carry the same value side by side.
+  assert.ok(lines[1].startsWith('u1,"Used, Inc.",used,,40,40,90,base,'), lines[1]);
   assert.ok(lines[2].startsWith('l1,"Live ""One""",live,'));
   assert.ok(lines[4].startsWith('f1,Copy,flagged,template,'));
   assert.ok(!csv.includes('SECRET PITCH'));

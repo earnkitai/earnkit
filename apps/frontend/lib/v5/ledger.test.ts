@@ -118,12 +118,12 @@ test('a result over a result is refused and changes nothing; the same win again 
   assert.deepEqual(await record(o(i), 'l-res', 'applied', { now: NOW }), won);
   assert.deepEqual(await counts(i), before);
   // T8-F1 (v6.1.14): the same win resent is already recorded; another amount, unmarked, is a correction that replaces it.
-  assert.deepEqual(await record(o(i), 'l-res', 'won', { amount_usd: 3000, now: NOW }), { ok: false, note: 'Already recorded.' });
+  assert.deepEqual(await record(o(i), 'l-res', 'won', { amount_usd: 3000, now: NOW }), { ok: false, note: 'Already tracked.' });
   assert.deepEqual(await record(o(i), 'l-res', 'won', { amount_usd: 2500, now: NOW }), { ok: true, replaced_usd: 3000 });
   assert.equal((await summary(o(i), [], NOW)).won_usd, 2500);
   // A further payment, marked with its key, adds once (L15-17); a repeat of the key changes nothing; the total stays under the cap.
   assert.deepEqual(await record(o(i), 'l-res', 'won', { amount_usd: 2500, payment: { key: 'tranche-2' }, now: NOW }), { ok: true, total_usd: 5000 });
-  assert.deepEqual(await record(o(i), 'l-res', 'won', { amount_usd: 2500, payment: { key: 'tranche-2' }, now: NOW }), { ok: false, note: 'Already recorded.' });
+  assert.deepEqual(await record(o(i), 'l-res', 'won', { amount_usd: 2500, payment: { key: 'tranche-2' }, now: NOW }), { ok: false, note: 'Already tracked.' });
   assert.deepEqual(await record(o(i), 'l-res', 'won', { amount_usd: 6000, payment: { key: 'tranche-3' }, now: NOW }), { ok: false, note: "That's more than this program pays; check the amount." });
   assert.deepEqual(await record(o(i), 'l-res', 'won', { amount_usd: 1000, payment: { key: 'tranche-3' }, now: NOW }), { ok: true, total_usd: 6000 });
   const [row] = await sql()`SELECT status, amount_usd FROM applications WHERE installation_id = ${i} AND program_id = 'l-res'`;
@@ -138,7 +138,7 @@ test('a result over a result is refused and changes nothing; the same win again 
   await record(o(i), 'l-rej', 'applied', { now: NOW });
   await record(o(i), 'l-rej', 'rejected', { now: NOW });
   assert.deepEqual(await record(o(i), 'l-rej', 'won', { amount_usd: 100, now: NOW }), { ok: false, note: 'That one already has a result here: rejected.' });
-  assert.deepEqual(await record(o(i), 'l-rej', 'rejected', { now: NOW }), { ok: false, note: 'Already recorded.' });
+  assert.deepEqual(await record(o(i), 'l-rej', 'rejected', { now: NOW }), { ok: false, note: 'Already tracked.' });
   await prog('l-nr');
   await record(o(i), 'l-nr', 'applied', { now: NOW });
   await record(o(i), 'l-nr', 'no_result', { now: NOW });

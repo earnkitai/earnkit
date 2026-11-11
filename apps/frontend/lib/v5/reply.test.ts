@@ -73,8 +73,8 @@ test('the Monday text: two ready, one gap, a ledger with one applied', () => {
     replyText(MONDAY, false),
     [
       'Ready to apply (2):',
-      "1. Alliance ALL19, $400K at admission, closes in 14 days. Drafted: 2 of 9 answers from the repo, 6 more by your agent. Needs your first founder's email.",
-      '2. Arc Builders Fund, investment from Circle Ventures. Long odds: an investment program with no stated amount. Your agent drafts all 5 answers.',
+      "1. Alliance ALL19, $400K at admission, closes in 14 days. Drafted: 8 of 9 answers. Needs your first founder's email.",
+      '2. Arc Builders Fund, investment from Circle Ventures. Long odds: an investment program with no stated amount. Drafted: 5 of 5 answers.',
       '',
       'One step away (1):',
       '3. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
@@ -104,7 +104,7 @@ test('the since line: only when something changed, never on the first find', () 
       'Since Nov 2: 2 new programs you fit; Circle Developer Grants: deadline moved to Nov 20.',
       '',
       'Ready to apply (1):',
-      "1. Alliance ALL19, $400K at admission, closes in 3 days. Drafted: 1 of 4 answers from the repo, the rest by your agent.",
+      "1. Alliance ALL19, $400K at admission, closes in 3 days. Drafted: 4 of 4 answers.",
       '',
       'Your applications: 2 sent, 1 won, 1 waiting, 1 closing soon.',
       '',
@@ -182,8 +182,8 @@ test('in person: its own block after ready and gaps, with the setup, and never i
     replyText(r, false),
     [
       'Ready to apply (2):',
-      "1. Alliance ALL19, $400K at admission, closes in 14 days. Drafted: 2 of 9 answers from the repo, 6 more by your agent. Needs your first founder's email.",
-      '2. Arc Builders Fund, investment from Circle Ventures. Long odds: an investment program with no stated amount. Your agent drafts all 5 answers.',
+      "1. Alliance ALL19, $400K at admission, closes in 14 days. Drafted: 8 of 9 answers. Needs your first founder's email.",
+      '2. Arc Builders Fund, investment from Circle Ventures. Long odds: an investment program with no stated amount. Drafted: 5 of 5 answers.',
       '',
       'One step away (1):',
       '3. Circle Developer Grants, $5,000 to $100,000 USDC grants: deploy the contract on Arc.',
@@ -237,55 +237,56 @@ test('repo reads paused: its own agent line, never "send them corrected"', () =>
   assert.ok(both.includes('Some project facts were dropped: live_url dropped: not a web link. Send them corrected next time.'));
 });
 
-test('a reported-only program with passed links reads "Your agent drafts the one answer."', () => {
-  assert.match(replyText(base({ ready: [ready({ title: 'R', filled: 3, facts_from_repo: 0 })] }), false), /^1\. R, \$1K\. Your agent drafts the one answer\.$/m);
+test('a reported-only program with passed links reads "Drafted: 1 of 1 answer."', () => {
+  assert.match(replyText(base({ ready: [ready({ title: 'R', filled: 3, facts_from_repo: 0 })] }), false), /^1\. R, \$1K\. Drafted: 1 of 1 answer\.$/m);
 });
 
-test('the ready line is honest about the answers (R2c): n from the repo, k by the agent, the builder\'s named, never above total', () => {
+test('#3 (v6.1.15): one Drafted shape (R2c): n of the required m, all but the builder\'s, which are named, never above total', () => {
   const line = (over: Partial<ReadyProgram>) => replyText(base({ ready: [ready({ title: 'Z Fellows', money: '$10K', ...over })] }), false).split('\n')[1];
-  assert.equal(line({ repo_required: 2, total: 9, needs: ['your email'] }), '1. Z Fellows, $10K. Drafted: 2 of 9 answers from the repo, 6 more by your agent. Needs your email.');
-  assert.equal(line({ repo_required: 2, total: 23 }), '1. Z Fellows, $10K. Drafted: 2 of 23 answers from the repo, the rest by your agent.');
-  assert.equal(line({ repo_required: 1, total: 2, needs: ['your birthday'] }), '1. Z Fellows, $10K. Drafted: 1 of 2 answers from the repo. Needs your birthday.');
-  assert.equal(line({ repo_required: 0, total: 23, needs: ['your birthday', 'your phone number'] }), '1. Z Fellows, $10K. Your agent drafts 21 answers. Needs your birthday and phone number.');
-  assert.equal(line({ total: 2, needs: ['your birthday'] }), '1. Z Fellows, $10K. Your agent drafts 1 answer. Needs your birthday.');
-  assert.equal(line({ total: 23 }), '1. Z Fellows, $10K. Your agent drafts all 23 answers.');
+  assert.equal(line({ repo_required: 2, total: 9, needs: ['your email'] }), '1. Z Fellows, $10K. Drafted: 8 of 9 answers. Needs your email.');
+  assert.equal(line({ repo_required: 2, total: 23 }), '1. Z Fellows, $10K. Drafted: 23 of 23 answers.');
+  assert.equal(line({ repo_required: 1, total: 2, needs: ['your birthday'] }), '1. Z Fellows, $10K. Drafted: 1 of 2 answers. Needs your birthday.');
+  assert.equal(line({ repo_required: 0, total: 23, needs: ['your birthday', 'your phone number'] }), '1. Z Fellows, $10K. Drafted: 21 of 23 answers. Needs your birthday and phone number.');
+  assert.equal(line({ total: 2, needs: ['your birthday'] }), '1. Z Fellows, $10K. Drafted: 1 of 2 answers. Needs your birthday.');
+  assert.equal(line({ total: 23 }), '1. Z Fellows, $10K. Drafted: 23 of 23 answers.');
   assert.equal(line({ total: 1, needs: ['your birthday'] }), '1. Z Fellows, $10K. Needs your birthday.');
-  assert.equal(line({ repo_required: 4, total: 4 }), '1. Z Fellows, $10K. Drafted: all 4 answers from the repo.');
+  assert.equal(line({ repo_required: 4, total: 4 }), '1. Z Fellows, $10K. Drafted: 4 of 4 answers.');
+  assert.equal(line({ total: 0 }), '1. Z Fellows, $10K.');
   // Never above total; optional fields read from the repo (facts_from_repo) are not in the count.
-  assert.equal(line({ repo_required: 6, facts_from_repo: 9, total: 4 }), '1. Z Fellows, $10K. Drafted: all 4 answers from the repo.');
+  assert.equal(line({ repo_required: 6, facts_from_repo: 9, total: 4 }), '1. Z Fellows, $10K. Drafted: 4 of 4 answers.');
   assert.equal(
     line({ total: 3, setup: ['sign in to the Hub'], needs: ['sign in to the Hub', 'your birthday'] }),
-    '1. Z Fellows, $10K. Your agent drafts 2 answers. Needs your birthday. First: sign in to the Hub.',
+    '1. Z Fellows, $10K. Drafted: 2 of 3 answers. Needs your birthday. First: sign in to the Hub.',
   );
 });
 
 test('one required answer reads in the singular', () => {
   const line = (repo_required: number) => replyText(base({ ready: [ready({ title: 'One', money: '$1K', repo_required, total: 1 })] }), false).split('\n')[1];
-  assert.equal(line(1), '1. One, $1K. Drafted: the one answer from the repo.');
-  assert.equal(line(0), '1. One, $1K. Your agent drafts the one answer.');
+  assert.equal(line(1), '1. One, $1K. Drafted: 1 of 1 answer.');
+  assert.equal(line(0), '1. One, $1K. Drafted: 1 of 1 answer.');
 });
 
 const BANNED = /—|\p{Extended_Pictographic}|\b(score|rank|grade|points|coin|token|streak)s?\b/iu;
 
-test('linked: the ready line names what the record and the repo give and who else is needed', () => {
+test('#3 (v6.1.15) linked: the same Drafted shape, the builder\'s own answers named', () => {
   const r = base({
     linked: true,
     // facts_from_repo counts optional fields too (v5's count); the linked line reads the required ones only.
     ready: [ready({ title: 'Z Fellows', money: '$10K', from_record: 3, facts_from_repo: 4, repo_required: 2, total: 6, need_you: ['your Telegram username'], needs: ['your Telegram username'] })],
   });
-  assert.equal(replyText(r, false).split('\n')[1], '1. Z Fellows, $10K. 3 from your record, 2 from the repo, 1 needs you: your Telegram username.');
+  assert.equal(replyText(r, false).split('\n')[1], '1. Z Fellows, $10K. Drafted: 5 of 6 answers. Needs your Telegram username.');
   const none = base({ linked: true, ready: [ready({ title: 'A', from_record: 2, facts_from_repo: 1, repo_required: 1, total: 3 })] });
-  assert.equal(replyText(none, false).split('\n')[1], '1. A, $1K. 2 from your record, 1 from the repo.');
+  assert.equal(replyText(none, false).split('\n')[1], '1. A, $1K. Drafted: 3 of 3 answers.');
   const four = base({ linked: true, ready: [ready({ title: 'B', from_record: 1, total: 6, need_you: ['your phone', 'your birthday', 'where you are based', 'your Telegram username'] })] });
-  assert.equal(replyText(four, false).split('\n')[1], '1. B, $1K. 1 from your record, 0 from the repo, 1 by your agent, 4 need you: your phone, your birthday, where you are based and 1 more.');
-  // F2 (v6.1.10): the name and tagline the agent passed are its drafts, never "need you".
+  assert.equal(replyText(four, false).split('\n')[1], '1. B, $1K. Drafted: 2 of 6 answers. Needs your phone, birthday, where you are based and 1 more.');
+  // F2 (v6.1.10): the name and tagline the agent passed are its drafts, never the builder's.
   const told = base({ linked: true, ready: [ready({ title: 'N', from_record: 1, total: 4, need_you: ['the problem'], needs: ['the problem'] })] });
-  assert.equal(replyText(told, false).split('\n')[1], '1. N, $1K. 1 from your record, 0 from the repo, 2 by your agent, 1 needs you: the problem.');
+  assert.equal(replyText(told, false).split('\n')[1], '1. N, $1K. Drafted: 3 of 4 answers. Needs your problem.');
   const zero = base({ linked: true, ready: [ready({ title: 'C', total: 4 })] });
-  assert.equal(replyText(zero, false).split('\n')[1], '1. C, $1K. Your agent drafts all 4 answers.');
-  // Unlinked: the repo's count only, whatever the record counts say.
+  assert.equal(replyText(zero, false).split('\n')[1], '1. C, $1K. Drafted: 4 of 4 answers.');
+  // Unlinked: the builder's answers are the non-setup needs, whatever need_you holds.
   const unlinked = base({ ready: [ready({ title: 'Z Fellows', money: '$10K', from_record: 3, facts_from_repo: 2, repo_required: 2, total: 6, need_you: ['x'] })] });
-  assert.equal(replyText(unlinked, false).split('\n')[1], '1. Z Fellows, $10K. Drafted: 2 of 6 answers from the repo, the rest by your agent.');
+  assert.equal(replyText(unlinked, false).split('\n')[1], '1. Z Fellows, $10K. Drafted: 6 of 6 answers.');
 });
 
 const LINKED = base({
@@ -304,7 +305,7 @@ const LINKED = base({
   ],
   record_missing: ['your founder video link', 'an approved answer on the problem', 'your deck link', 'your resume link'],
   applied_overnight: [{ program_id: 'x', title: 'Alliance ALL19' }, { program_id: 'y', title: 'Arc Builders Fund' }],
-  evidence_summary: { tier: 'live', line: 'Your project is live, with no verified usage yet. Next: 25 senders the deployer did not fund, on mainnet in 90 days; you have 4.' },
+  evidence_summary: { tier: 'live', line: 'Your project is live, with no verified usage yet. Next: about 25 outside users in 90 days; I count 4.' },
 });
 
 test('the "Before applying" paragraph groups the sign-ins, names the clicks and the first three missing; "Before tonight" only when the agent sends tonight (R5b)', () => {
@@ -312,13 +313,13 @@ test('the "Before applying" paragraph groups the sign-ins, names the clicks and 
   const before = text.split('\n\n').find((b) => b.startsWith('Before applying: '))!;
   assert.equal(
     before,
-    "Before applying: you sign in to Google on your agent's computer for Base Builder Grant and Google Two; you sign in to Avalanche Builder Hub for Avalanche Team1; you sign in by email and press submit yourself on Click Grant. Still missing for these programs: your founder video link, an approved answer on the problem, your deck link and 1 more.",
+    "Before applying: you sign in to Google in your agent's browser for Base Builder Grant and Google Two; you sign in to Avalanche Builder Hub for Avalanche Team1; you sign in by email and press submit yourself on Click Grant. Still missing for these programs: your founder video link, an approved answer on the problem, your deck link and 1 more.",
   );
   const blocks = text.split('\n\n');
   assert.deepEqual(blocks.slice(-4), [
     before,
     'Applied under your standing approval: Alliance ALL19, Arc Builders Fund.',
-    'Your project is live, with no verified usage yet. Next: 25 senders the deployer did not fund, on mainnet in 90 days; you have 4.',
+    'Your project is live, with no verified usage yet. Next: about 25 outside users in 90 days; I count 4.',
     'Say yes and I apply to all 4. Or say the numbers to skip.',
   ]);
   assert.doesNotMatch(text.replace(/Click Grant/g, ''), /click/i);
@@ -330,7 +331,7 @@ test('the "Before applying" paragraph groups the sign-ins, names the clicks and 
   const tonight = replyText(free, false);
   // N4 (v6.1.9): tonight waits on none of the builder's steps; they would add more.
   assert.ok(tonight.split('\n\n').includes(
-    "Tonight's send goes ahead. These would add 4 more: you sign in to Google on your agent's computer for Base Builder Grant and Google Two; you sign in to Avalanche Builder Hub for Avalanche Team1; you sign in by email and press submit yourself on Click Grant. Still missing for these programs: your founder video link, an approved answer on the problem, your deck link and 1 more.",
+    "Tonight's send goes ahead. These would add 4 more: you sign in to Google in your agent's browser for Base Builder Grant and Google Two; you sign in to Avalanche Builder Hub for Avalanche Team1; you sign in by email and press submit yourself on Click Grant. Still missing for these programs: your founder video link, an approved answer on the problem, your deck link and 1 more.",
   ), tonight);
   assert.doesNotMatch(tonight, /Before tonight|nothing is sent until/);
   assert.match(tonight, /\n\nApplying tonight to Free\. Say stop to hold any\.$/);
@@ -431,7 +432,7 @@ test('rules (R18a): ready and in-person lines show none; a gap line shows its ru
     replyText(r, true),
     [
       'Ready to apply (1):',
-      '1. Base Ecosystem Fund, pre-seed and seed investment. Long odds: an investment program with no stated amount. Your agent drafts all 2 answers. First: sign in to the portal.',
+      '1. Base Ecosystem Fund, pre-seed and seed investment. Long odds: an investment program with no stated amount. Drafted: 2 of 2 answers. First: sign in to the portal.',
       '',
       'One step away (2):',
       '2. Goose Grants, $10K. Their rules: a project built with or for goose; work not already funded by an employer or client.',
@@ -549,7 +550,7 @@ test('O1 (v6.1.10): a step closing within 7 days says so after its money', () =>
 test('R20/R21: an in-person line says its odds, then what attending takes, then what it needs from you (v6.1.6)', () => {
   const yc = ready({
     title: 'Y Combinator Winter 2027 Batch', money: '$500K investment', in_person: true, long_shot: 'many apply, few are taken',
-    setup: ['a YC account'], needs: ['a YC account', 'your application answers', 'the batch you want'],
+    setup: ['a YC account'], needs: ['a YC account', 'your application answers', 'batch preference'],
   });
   const alliance = ready({
     title: 'Alliance ALL19', money: '$400K at admission', closes_in: 'in 14 days', in_person: true,
@@ -561,7 +562,7 @@ test('R20/R21: an in-person line says its odds, then what attending takes, then 
     text.split('\n\n')[0],
     [
       'In person (3):',
-      '1. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and the batch you want.',
+      '1. Y Combinator Winter 2027 Batch, $500K investment. Long odds: many apply, few are taken. Needs a YC account, your application answers and batch preference.',
       "2. Alliance ALL19, $400K at admission, closes in 14 days. First: start the application with the first founder's email; your passport.",
       '3. Bare Summit, $5K. Attend in person.',
     ].join('\n'),
@@ -889,7 +890,7 @@ test('F5 (v6.1.12): the missing email is named once per reply: the Before block 
   const p = ready({ title: 'Prose Grant', total: 4, from_record: 1, repo_required: 0, need_you: ['the problem', 'your email'], needs: ['the problem', 'your email'] });
   const show = replyText(base({ linked: true, record_missing: ['your email'], ready: [p] }), true);
   assert.equal(show.match(/email/g)!.length, 1, show);
-  assert.match(show, /^1\. Prose Grant, \$1K\. 1 from your record, 0 from the repo, 1 by your agent, 1 needs you: the problem\.$/m);
+  assert.match(show, /^1\. Prose Grant, \$1K\. Drafted: 2 of 4 answers\. Needs your problem\.$/m);
   assert.match(show, /Before applying: Still missing for these programs: your email\./);
   // With standing approval, the wait names the problem only.
   const auto = replyText(base({ linked: true, auto_apply: true, max_per_night: 5, auto_sent_today: 0, record_missing: ['your email'], ready: [p] }), true);
@@ -899,9 +900,15 @@ test('F5 (v6.1.12): the missing email is named once per reply: the Before block 
   const only = ready({ title: 'Mail Grant', total: 2, from_record: 1, need_you: ['your email'], needs: ['your email'] });
   const one = replyText(base({ linked: true, record_missing: ['your email'], ready: [only] }), true);
   assert.equal(one.match(/email/g)!.length, 1, one);
-  assert.match(one, /^1\. Mail Grant, \$1K\. 1 from your record, 0 from the repo\.$/m);
+  assert.match(one, /^1\. Mail Grant, \$1K\. Drafted: 1 of 2 answers\.$/m);
   // The record holds the email (not in the Before block): the drafted line names it, as before.
-  assert.match(replyText(base({ linked: true, ready: [p] }), true), /2 need you: the problem and your email\./);
+  assert.match(replyText(base({ linked: true, ready: [p] }), true), /^1\. Prose Grant, \$1K\. Drafted: 2 of 4 answers\. Needs your problem and email\.$/m);
+});
+
+test('#3 (v6.1.15): reply.ts holds no other Drafted wording', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('./reply.ts', import.meta.url), 'utf8');
+  for (const old of ['from the repo', 'by your agent', 'Your agent drafts', 'need you:']) assert.ok(!src.includes(old), old);
 });
 
 test('F9 (v6.1.12): the empty-repo note and the Builder Codes note are one sentence', () => {
@@ -959,9 +966,9 @@ test('Review Focus 1 (v6.1.14): a reply whose closing names the needs never repe
   const show = replyText(base({ ready: [sol] }), true);
   assert.equal(show, ['Ready to apply (1):', '1. Solana Foundation Grants, $1K.', '', 'Solana Foundation Grants needs your website link and requested amount; then I apply.'].join('\n'));
   assert.equal(show.match(/website link/g)!.length, 1, show);
-  // Linked: the drafted counts stay, the "need you" part goes to the closing.
+  // Linked: the drafted counts stay, the needs go to the closing.
   const linked = replyText(base({ linked: true, ready: [{ ...sol, total: 3, from_record: 1 }] }), true);
-  assert.match(linked, /^1\. Solana Foundation Grants, \$1K\. 1 from your record, 0 from the repo\.$/m);
+  assert.match(linked, /^1\. Solana Foundation Grants, \$1K\. Drafted: 1 of 3 answers\.$/m);
   assert.equal(linked.match(/website link/g)!.length, 1, linked);
   // No yes given: the closing asks the yes, so the line keeps its needs.
   const other = ready({ title: 'Other Grant', needs: ['your website link'] });
