@@ -94,12 +94,21 @@ export async function claim(owner: string, programId: string, projectId: string 
   return { ok: false, already: { since: out.held.since.toISOString(), by: await clientOf(out.held.by), sent: out.sent } };
 }
 
-/** Deletes the owner's claims older than 24 hours that never became 'applied'; returns their program ids. */
-export async function releaseStale(owner: string, now: Date): Promise<string[]> {
+/** A released claim (L23-7, v6.1.16): the program, its title and when it was started. */
+export type Released = { program_id: string; title: string; started_at: string };
+
+/**
+ * Deletes the owner's claims older than 24 hours that never became 'applied'; returns them with their titles and when
+ * they were started (L23-7, v6.1.16), by program id.
+ */
+export async function releaseStale(owner: string, now: Date): Promise<Released[]> {
   const stale = new Date(now.getTime() - CLAIM_HOURS * HOUR);
-  const rows = await sql()<{ program_id: string }[]>`
-    DELETE FROM applications WHERE owner = ${owner} AND status = 'started' AND claimed_at <= ${stale} RETURNING program_id`;
-  return rows.map((r) => r.program_id).sort();
+  const rows = await sql()<{ program_id: string; title: string | null; claimed_at: Date | null }[]>`
+    DELETE FROM applications WHERE owner = ${owner} AND status = 'started' AND claimed_at <= ${stale} RETURNING program_id, title, claimed_at`;
+  const byId = new Map((await programsById(rows.map((r) => r.program_id))).map((p) => [p.id, p]));
+  return rows
+    .map((r) => ({ program_id: r.program_id, title: byId.get(r.program_id)?.file.title ?? r.title ?? r.program_id, started_at: (r.claimed_at ?? now).toISOString() }))
+    .sort((a, b) => (a.program_id < b.program_id ? -1 : a.program_id > b.program_id ? 1 : 0));
 }
 
 /** Applications sent under the builder's standing approval after `since` (the last find); none when there was no find. */

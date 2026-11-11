@@ -191,7 +191,9 @@ export async function deleteBuilder(id: number, now: Date = new Date()): Promise
     await tx`DELETE FROM application_history WHERE owner = ${owner}`;
     await tx`DELETE FROM gaps_done WHERE owner = ${owner}`;
     await tx`DELETE FROM project_reports WHERE owner = ${owner}`;
-    await tx`UPDATE installations SET builder_id = NULL, linked_at = NULL, unlinked_at = ${now}, unlinked_reason = 'deleted' WHERE builder_id = ${id}`;
+    // v6.1.16 Task 9: the results-question markers and the promised sends go with the account.
+    await tx`DELETE FROM outcome_asks WHERE owner = ${owner}`;
+    await tx`UPDATE installations SET builder_id = NULL, linked_at = NULL, unlinked_at = ${now}, unlinked_reason = 'deleted', promised = NULL, promised_at = NULL WHERE builder_id = ${id}`;
     await tx`DELETE FROM builders WHERE id = ${id}`;
   });
 }

@@ -133,6 +133,15 @@ test('results carry public evidence only; outcomes record', async () => {
   assert.match(month.reply!.show_to_builder as string, /^2 applicants: /);
   const late = await mcpCall({ ...c, now: new Date(NOW.getTime() + 181 * 86_400_000) }, 'screen', { job_id: jobId });
   assert.equal(late.reply!.show_to_builder, 'That screen has expired; queue the list again.');
+  // L23-13 (v6.1.16), lane 23 V5 and V6: after the daily sweep the job row stays as a tombstone, so reading it and
+  // posting a further payment on it still say it expired, never that the screen is unknown.
+  const { sweepScreens } = await import('./screen-jobs');
+  const swept = new Date(NOW.getTime() + 182 * 86_400_000);
+  await sweepScreens(swept);
+  const v5 = await mcpCall({ ...c, now: swept }, 'screen', { job_id: jobId });
+  assert.equal(v5.reply!.show_to_builder, 'That screen has expired; queue the list again.');
+  const v6 = await mcpCall({ ...c, now: swept }, 'screen', { job_id: jobId, outcomes: [{ ref: 'r-1', outcome: 'won', amount_usd: 500, payment: { key: 'v6' } }] });
+  assert.equal(v6.reply!.show_to_builder, 'That screen has expired; queue the list again.');
 });
 
 test('R7 screen unlinked with sign-in configured: the installation link, one line ending with a full stop', async () => {

@@ -108,6 +108,11 @@ ALTER TABLE installations ADD COLUMN IF NOT EXISTS prev_find_at timestamptz;
 -- and when a reused authorization code revoked it (L19-4; /mcp refuses a revoked installation).
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS audience text;
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS revoked_at timestamptz;
+-- v6.1.16 (Task 9, L23-1): the programs a find's standing-approval line named and when, so the next find a day later
+-- says which were not sent. L23-16: the hash of the last project find's program ids and when, for "Nothing new since".
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS promised jsonb, ADD COLUMN IF NOT EXISTS promised_at timestamptz, ADD COLUMN IF NOT EXISTS last_list_hash text, ADD COLUMN IF NOT EXISTS last_list_at timestamptz;
+-- v6.1.16 (Task 9, L23-4): the day each installation last showed a program's results question (at most once a day each).
+CREATE TABLE IF NOT EXISTS outcome_asks (installation_id bigint NOT NULL, owner text NOT NULL, program_id text NOT NULL, asked_on date NOT NULL, PRIMARY KEY (installation_id, program_id));
 -- v6.1.16 (Task 5, L19-8): registered OAuth clients; the client_id is 128 random bits, never derived from metadata.
 -- Task 16: `used_at` is its first code exchange; the daily run sweeps one registered over 30 days ago that never exchanged one.
 CREATE TABLE IF NOT EXISTS oauth_clients (

@@ -519,16 +519,22 @@ test('L15-15 (v6.1.14), L22-3 (v6.1.16): a win with cents or in another currency
   assert.deepEqual([lb.status, lb.amount_usd, lb.amounts, lb.note], ['won', null, { EUR: 2000 }, null]);
 });
 
-test('L15-14 (v6.1.14): a screen is kept 180 days, then swept with its applicants and outcomes', async () => {
-  const { sweepScreens, KEEP_DAYS } = await import('./screen-jobs');
-  assert.equal(KEEP_DAYS, 180);
+test('L15-14 (v6.1.14), L23-13 (v6.1.16): a screen is kept 180 days, then its applicants and outcomes are swept; the job row stays a tombstone until 365 days', async () => {
+  const { sweepScreens, KEEP_DAYS, TOMBSTONE_DAYS } = await import('./screen-jobs');
+  assert.deepEqual([KEEP_DAYS, TOMBSTONE_DAYS], [180, 365]);
   const r = await reviewer('jobs-keep');
   const j = await job(r, [{ ref: 'k', name: 'K' }], new Date(NOW.getTime() - 100 * 86_400_000));
+  const jobs = async () => (await sql()`SELECT count(*)::int AS n FROM screen_jobs WHERE id = ${j.id}`)[0].n;
   await sweepScreens(NOW);
-  assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs WHERE id = ${j.id}`)[0].n, 1);
-  await sweepScreens(new Date(NOW.getTime() + 81 * 86_400_000));
-  assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs WHERE id = ${j.id}`)[0].n, 0);
+  assert.equal(await jobs(), 1);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_applicants WHERE job_id = ${j.id}`)[0].n, 1);
+  const swept = new Date(NOW.getTime() + 81 * 86_400_000);
+  await sweepScreens(swept);
+  assert.equal(await jobs(), 1);
   assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_applicants WHERE job_id = ${j.id}`)[0].n, 0);
+  assert.equal((await jobStatus(j.id, r.builderId, swept))?.expired, true);
+  await sweepScreens(new Date(NOW.getTime() + 266 * 86_400_000));
+  assert.equal(await jobs(), 0);
 });
 
 test('FR-3 (v6.1.14 final fix): a copier\'s single row with the victim\'s id and another repo leaves the victim\'s ledger unchanged; the real applicant\'s own project gets the result', async () => {

@@ -85,12 +85,19 @@ test('cronPost: the sweep after health drops a repo_cache row over 30 days old a
   assert.deepEqual((await sql()`SELECT repo FROM repo_cache`).map((r) => r.repo), ['c/new']);
 });
 
-test('W3 (v6.1.13 final round): the sweep drops a project report no find updated for 180 days and keeps a recent one', async () => {
+test('W3 (v6.1.13 final round), re-pinned by L23-12 (v6.1.16): the 180-day sweep keeps every project report and confirmed step; only cached evidence goes', async () => {
   const day = 86_400_000;
   await sql()`INSERT INTO project_reports (owner, project_key, report, at) VALUES
     ('i:1', 'name:old', '{}', ${new Date(deps.now.getTime() - 181 * day)}), ('i:1', 'name:recent', '{}', ${new Date(deps.now.getTime() - 10 * day)})`;
-  await cronPost(req(`Bearer ${SECRET}`), deps);
-  assert.deepEqual((await sql()`SELECT project_key FROM project_reports WHERE owner = 'i:1'`).map((r) => r.project_key), ['name:recent']);
+  await sql()`INSERT INTO gaps_done (owner, installation_id, project_key, program_id, item, at) VALUES ('i:1', 1, 'name:old', 'p', 'rule:abc', ${new Date(deps.now.getTime() - 181 * day)})`;
+  await sql()`INSERT INTO evidence_cache (key, kind, rows, read_at) VALUES ('w3:old', 'repo', '[]', ${new Date(deps.now.getTime() - 181 * day)})`;
+  const body = (await (await cronPost(req(`Bearer ${SECRET}`), { ...deps, runHealth: quietHealth, workQueue: idleQueue })).json()) as Body;
+  assert.equal(body.swept.reports, 1);
+  assert.deepEqual((await sql()`SELECT project_key FROM project_reports WHERE owner = 'i:1' ORDER BY 1`).map((r) => r.project_key), ['name:old', 'name:recent']);
+  assert.equal((await sql()`SELECT 1 FROM gaps_done WHERE owner = 'i:1' AND project_key = 'name:old'`).length, 1);
+  assert.equal((await sql()`SELECT 1 FROM evidence_cache WHERE key = 'w3:old'`).length, 0);
+  await sql()`DELETE FROM gaps_done WHERE owner = 'i:1'`;
+  await sql()`DELETE FROM project_reports WHERE owner = 'i:1'`;
 });
 
 test('L30-4: a health error is listed and the sweeps, the queue and the digest still run; the error is a code only', async () => {
@@ -120,9 +127,11 @@ test('L30-4: a sweep error still lets the screen step and the digest run, with f
     }));
     assert.equal(res.status, 200);
     const body = (await res.json()) as Body;
-    assert.deepEqual(body.failed, [{ id: null, step: 'sweep_repo', error: 'db' }]);
+    // L23-12 (v6.1.16): the 180-day sweep of cached evidence reads repo_cache too, so it fails with it; the rest run.
+    assert.deepEqual(body.failed, [{ id: null, step: 'sweep_repo', error: 'db' }, { id: null, step: 'sweep_reports', error: 'db' }]);
     assert.equal(body.swept.repo_cache, null);
-    assert.equal(typeof body.swept.reports, 'number');
+    assert.equal(body.swept.reports, null);
+    assert.equal(typeof body.swept.screens, 'number');
     assert.deepEqual([queued, digests, body.screen!.read, body.digest], [1, 1, 5, 'none']);
   } finally {
     await allowDeletes('repo_cache');
@@ -231,7 +240,8 @@ test('sweeps: evidence past 180 days, rate windows past 2 days, and OAuth client
   for (const [id, days, used] of [['cr-c-old', 31, null], ['cr-c-used', 31, new Date(now.getTime() - 31 * day)], ['cr-c-young', 29, null]] as const)
     await sql()`INSERT INTO oauth_clients (client_id, redirect_uris, created_at, used_at) VALUES (${id}, ${['https://c.example/cb']}, ${new Date(now.getTime() - days * day)}, ${used})`;
   const body = (await (await cronPost(req(`Bearer ${SECRET}`), { ...deps, runHealth: quietHealth, workQueue: idleQueue })).json()) as Body;
-  assert.deepEqual([body.swept.evidence, body.swept.windows, body.swept.oauth_clients], [1, 1, 1]);
+  // L23-12 (v6.1.16): the cached evidence past 180 days goes in the reports step, which runs first.
+  assert.deepEqual([body.swept.reports, body.swept.evidence, body.swept.windows, body.swept.oauth_clients], [1, 0, 1, 1]);
   assert.deepEqual((await sql()`SELECT key FROM evidence_cache WHERE key LIKE 'cr:%'`).map((r) => r.key), ['cr:new']);
   assert.deepEqual((await sql()`SELECT key FROM rate_windows WHERE key LIKE 'cr-%'`).map((r) => r.key), ['cr-new']);
   assert.deepEqual((await sql()`SELECT client_id FROM oauth_clients WHERE client_id LIKE 'cr-c-%' ORDER BY 1`).map((r) => r.client_id), ['cr-c-used', 'cr-c-young']);
@@ -269,9 +279,9 @@ test('cronPost: a plain run works the queue with SCREEN_BATCH after the sweeps a
   assert.deepEqual(((await boom.json()) as Body).failed, [{ id: null, step: 'screen', error: 'error' }]);
 });
 
-test('cronPost: the plain run sweeps screen jobs over 180 days old with their rows (L15-14); a triggered run sweeps nothing', async () => {
+test('cronPost: the plain run sweeps the rows of screen jobs over 180 days old (L15-14), keeps the job row until 365 days (L23-13); a triggered run sweeps nothing', async () => {
   const at = (days: number) => new Date(deps.now.getTime() - days * 86_400_000);
-  for (const [id, days] of [['old-job', 181], ['young-job', 179]] as const) {
+  for (const [id, days] of [['dead-job', 366], ['old-job', 181], ['young-job', 179]] as const) {
     await sql()`INSERT INTO screen_jobs (id, program_id, builder_id, installation_id, created_at, total, expires_at)
       VALUES (${id}, 'p', 1, 1, ${at(days)}, 1, ${at(days - 180)})`;
     await sql()`INSERT INTO screen_applicants (job_id, ref, name, status) VALUES (${id}, 'r', 'R', 'done')`;
@@ -281,12 +291,13 @@ test('cronPost: the plain run sweeps screen jobs over 180 days old with their ro
   await cronPost(jsonReq({ job_id: 'old-job' }), idle);
   assert.equal((await sql()`SELECT 1 FROM screen_jobs WHERE id = 'old-job'`).length, 1);
   const body = (await (await cronPost(req(`Bearer ${SECRET}`), idle)).json()) as Body;
-  assert.equal(body.swept.screens, 1);
+  assert.equal(body.swept.screens, 2);
   for (const t of ['screen_jobs', 'screen_applicants', 'screen_outcomes']) {
     const col = t === 'screen_jobs' ? 'id' : 'job_id';
     const ids = (await sql()`SELECT ${sql()(col)} AS id FROM ${sql()(t)} ORDER BY 1`).map((r) => r.id);
-    assert.deepEqual(ids, ['young-job'], t);
+    assert.deepEqual(ids, t === 'screen_jobs' ? ['old-job', 'young-job'] : ['young-job'], t);
   }
+  await sql()`DELETE FROM screen_jobs WHERE id = 'old-job'`;
 });
 
 test('cronPost: a body that is not { job_id } answers 400 and runs nothing', async () => {

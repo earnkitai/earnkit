@@ -6,6 +6,7 @@
  */
 import { NEEDS_CODE, evaluate, keywordHit, rulesOnly, type Gap, type Verdict } from '../v5/eligibility';
 import { categoryOf } from '../v5/program-file';
+import { dayWords } from '../v5/deadline';
 import type { RecordContext } from '../v5/prefill';
 import type { ProgramRow } from '../v5/programs';
 import type { RepoFacts } from '../v5/repo-facts';
@@ -94,6 +95,22 @@ export async function recordSide(
   } catch {
     // The stored tier and line stand; nothing new is stored.
     return { ...side, problems: [EVIDENCE_NOT_READ] };
+  }
+  // L23-14 (v6.1.16): the repo read failed (private or missing, a 404, a timeout): the stored tier and its date stand,
+  // and the builder hears that today's read failed and which read it uses.
+  if (evidence && subject.repo_url && evidence.code === null && evidence.notes.some((n) => n.startsWith('not read')) && side.summary && stored?.read_at) {
+    const at = o.now.toISOString();
+    await withRecord(o.builderId, o.now, (cur) => {
+      const mine = cur.projects.find((x) => x.id === project.id);
+      if (!mine) return { record: null, result: null };
+      mine.evidence_read_at = at;
+      return { record: cur, result: null };
+    });
+    return {
+      ...side,
+      summary: { tier: side.summary.tier, line: `I could not read your repo today; using what I read on ${dayWords(new Date(stored.read_at), o.now)}.` },
+      problems: [...side.problems, EVIDENCE_NOT_READ],
+    };
   }
   const p = place(evidence, { identical_pitch: 0, shared_contributors: 0 }, undefined, o.now);
   const summary = evidence ? evidenceSummary(p, evidence) : null;
@@ -227,7 +244,7 @@ export function outsideApproval(record: BuilderRecord, row: ProgramRow): string 
   return null;
 }
 /** The reason when the night's sends under standing approval already reached max_per_night. */
-export const NIGHT_LIMIT = 'the nightly limit was reached';
+export const NIGHT_LIMIT = 'the daily limit was reached';
 /** The reason when an agent's send under standing approval left a required answer out (v6.1.9 S6). */
 export const REQUIRED_MISSING = 'a required answer was missing';
 /** The reason when the program had closed over an hour before the send (F8, v6.1.12; the ledger's record-time check). */

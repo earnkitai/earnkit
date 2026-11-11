@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { getProgram, upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
-import { CONFIRMED, EARLIER_RESULT, paymentKeyOf, askOutcome, codeDoneAt, doneItems, doneOn, excluded, markAsked, record, resultOf, summary, titleOf } from './ledger';
+import { CONFIRMED, EARLIER_RESULT, paymentKeyOf, askOutcome, outcomeAsksDue, codeDoneAt, doneItems, doneOn, excluded, markAsked, record, resultOf, summary, titleOf } from './ledger';
 
 after(() => sql().end());
 
@@ -292,26 +292,46 @@ test('gap_done refuses an item that is not one of the program\'s, names the real
   assert.deepEqual([...(await doneItems(o(i), 'l-gap-arc', ''))], ['chain:arc']);
 });
 
-test('askOutcome lists a passed results date once asked is marked', async () => {
+test('L23-4 (v6.1.16): askOutcome lists every passed results date with no result on every find; each installation asks once a day', async () => {
   const i = await install();
+  const j = await install();
   const past = await prog('l-ask', { results_due: { date: '2026-11-03' } });
   const future = await prog('l-ask-f', { results_due: { date: '2026-12-30' } });
   await record(o(i), 'l-ask', 'applied', { now: NOW });
   await record(o(i), 'l-ask-f', 'applied', { now: NOW });
   const list = await askOutcome(o(i), [past, future], NOW);
-  assert.deepEqual(list.map((x) => x.program_id), ['l-ask']);
+  assert.deepEqual(list, [{ program_id: 'l-ask', title: 'Test Grants', due_at: '2026-11-03T00:00:00.000Z' }]);
+  // asked_outcome_at is kept for the record only: the next find still lists it.
   await markAsked(o(i), ['l-ask'], NOW);
-  assert.deepEqual(await askOutcome(o(i), [past, future], NOW), []);
+  assert.deepEqual((await askOutcome(o(i), [past, future], NOW)).map((x) => x.program_id), ['l-ask']);
+  // Two installations of one owner: each shows it once on the same day, and both again the next day.
+  const later = new Date(NOW.getTime() + 3_600_000);
+  assert.deepEqual((await outcomeAsksDue(i, o(i), list, NOW)).map((x) => x.program_id), ['l-ask']);
+  assert.deepEqual(await outcomeAsksDue(i, o(i), list, later), []);
+  assert.deepEqual((await outcomeAsksDue(j, o(i), list, later)).map((x) => x.program_id), ['l-ask']);
+  assert.deepEqual(await outcomeAsksDue(j, o(i), list, later), []);
+  const tomorrow = new Date(NOW.getTime() + DAY);
+  assert.deepEqual((await outcomeAsksDue(i, o(i), list, tomorrow)).map((x) => x.program_id), ['l-ask']);
+  assert.deepEqual((await outcomeAsksDue(j, o(i), list, tomorrow)).map((x) => x.program_id), ['l-ask']);
+  // A result recorded ends it.
+  await record(o(i), 'l-ask', 'rejected', { now: tomorrow });
+  assert.deepEqual(await askOutcome(o(i), [past, future], tomorrow), []);
 });
 
-test('closing_soon: applied programs within 7 days, soonest first', async () => {
+test('L23-6 (v6.1.16): closing soon is open programs not sent, by ends_at only; results due soon is its own list', async () => {
   const i = await install();
   const a = await prog('l-cs-a', { ends_at: new Date(NOW.getTime() + 5 * DAY).toISOString() });
   const b = await prog('l-cs-b', { ends_at: new Date(NOW.getTime() + 2 * DAY).toISOString() });
   const c = await prog('l-cs-c', { ends_at: new Date(NOW.getTime() + 20 * DAY).toISOString() });
-  for (const id of ['l-cs-a', 'l-cs-b', 'l-cs-c']) await record(o(i), id, 'applied', { now: NOW });
-  const s = await summary(o(i), [a, b, c], NOW);
+  const d = await prog('l-cs-d', { ends_at: new Date(NOW.getTime() + 3 * DAY).toISOString(), results_due: { date: '2026-11-09' } });
+  const e = await prog('l-cs-e', { ends_at: new Date(NOW.getTime() + 20 * DAY).toISOString(), results_due: { date: '2026-11-07' } });
+  for (const id of ['l-cs-d', 'l-cs-e']) await record(o(i), id, 'applied', { now: NOW });
+  const s = await summary(o(i), [a, b, c, d, e], NOW);
   assert.deepEqual(s.closing_soon.map((x) => x.program_id), ['l-cs-b', 'l-cs-a']);
+  assert.deepEqual(s.results_soon!.map((x) => x.program_id), ['l-cs-e', 'l-cs-d']);
+  // The applications line never counts programs not sent.
+  const { ledgerCounts } = await import('./ledger');
+  assert.equal(ledgerCounts(s), '2 sent, 2 waiting.');
 });
 
 test('a closed program still counts: asked_usd, closing_soon and askOutcome read its own row', async () => {
@@ -321,7 +341,9 @@ test('a closed program still counts: asked_usd, closing_soon and askOutcome read
   await upsertProgram(programFixture({ id: 'l-closed', max_award_usd: 5000, results_due: { date: '2026-11-08' }, ends_at: new Date(NOW.getTime() - 3 * DAY).toISOString() }), 'file', NOW);
   const s = await summary(o(i), [], NOW);
   assert.equal(s.asked_usd, 5000);
-  assert.deepEqual(s.closing_soon.map((x) => x.program_id), ['l-closed']);
+  // L23-6 (v6.1.16): sent and closed, so never closing soon; its results date is due soon.
+  assert.deepEqual(s.closing_soon, []);
+  assert.deepEqual(s.results_soon!.map((x) => x.program_id), ['l-closed']);
   assert.deepEqual(await askOutcome(o(i), [], NOW), []);
   const later = new Date(NOW.getTime() + 5 * DAY);
   assert.deepEqual((await askOutcome(o(i), [], later)).map((x) => x.program_id), ['l-closed']);
@@ -410,9 +432,10 @@ test('v6.1.9: with no results date, EarnKit asks 30 days after the send', async 
   await record(o(i), 'ao-nodate-a', 'applied', { now: new Date(NOW.getTime() - 31 * DAY) });
   await record(o(i), 'ao-nodate-b', 'applied', { now: new Date(NOW.getTime() - 29 * DAY) });
   assert.deepEqual((await askOutcome(o(i), [a, b], NOW)).map((x) => x.program_id), ['ao-nodate-a']);
+  // L23-4 (v6.1.16): asking marks nothing away; every find lists it until a result.
   await markAsked(o(i), ['ao-nodate-a'], NOW);
-  assert.deepEqual(await askOutcome(o(i), [a, b], NOW), []);
-  assert.deepEqual((await askOutcome(o(i), [a, b], new Date(NOW.getTime() + 2 * DAY))).map((x) => x.program_id), ['ao-nodate-b']);
+  assert.deepEqual((await askOutcome(o(i), [a, b], NOW)).map((x) => x.program_id), ['ao-nodate-a']);
+  assert.deepEqual((await askOutcome(o(i), [a, b], new Date(NOW.getTime() + 2 * DAY))).map((x) => x.program_id), ['ao-nodate-a', 'ao-nodate-b']);
 });
 
 test('fix round 2 (v6.1.14): a b: ledger takes only calls of an installation linked to that builder; i: only its own', async () => {

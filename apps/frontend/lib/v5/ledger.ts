@@ -15,7 +15,8 @@
 import { sql, type Db } from './db';
 import { categoryOf, eligibilityOf } from './program-file';
 import { codeChecked, itemKey } from './eligibility';
-import { getProgram, programsById, type ProgramRow } from './programs';
+import { getProgram, isOpenAt, programsById, type ProgramRow } from './programs';
+import { dayWords } from './deadline';
 import { CLAIM_HOURS, UNLINKED_MEANWHILE, newApplicationId, stillLinked } from '../v6/claims';
 import { projectKeyOf, type Project } from './project-input';
 import { amountsText, moneyText, plusAmount, sameAmounts, totalText, type Amounts } from './programs-read';
@@ -25,8 +26,11 @@ import { displayName } from './installations';
 /** gap_done without a known item (v6.1.8, 3.10): the builder names the change, the agent gets the item keys. */
 export const WHICH_CHANGE = 'Which change did you finish? Say the program and the change.';
 
-/** An agent's send over another of the owner's agents' live claim (v6.1.13, B3): nothing is written. */
+/** A skip or a claim over another of the owner's agents' live claim (v6.1.13, B3): nothing is written. L23-3 (v6.1.16):
+ *  never a send, which is always recorded (`other_claim`). */
 export const OTHER_AGENT_HOLDS = 'Your other agent is handling that one; nothing recorded.';
+/** L23-3 (v6.1.16): the agent note when a send landed over another agent's live claim: recorded, the claim cleared. */
+export const OTHER_CLAIM_NOTE = 'Recorded. Another agent had started this one too; tell the builder so it is not sent twice.';
 
 /** L17-2 (v6.1.16): a correction whose event time is before the stored result's: nothing changes. */
 export const EARLIER_RESULT = 'An earlier result; nothing changed.';
@@ -56,7 +60,10 @@ export type Ledger = {
   pending: number;
   rejected: number;
   skipped: number;
+  /** L23-6 (v6.1.16): open programs (`isOpenAt`) this owner has not applied to or skipped, closing within 7 days. */
   closing_soon: { program_id: string; title: string; closes_at: string }[];
+  /** L23-6 (v6.1.16): applied programs whose results date falls in the next 7 days, said on their own line. */
+  results_soon?: { program_id: string; title: string; results_at: string }[];
 };
 
 const RESULTS = ['won', 'rejected', 'no_result'];
@@ -82,7 +89,7 @@ const DAY = 86_400_000;
 export const CLOSED_GRACE_MS = 3_600_000;
 
 /** When results are due: the file's date, else the close plus the weeks after, else null. */
-function resultsDate(p: ProgramRow): Date | null {
+export function resultsDateOf(p: ProgramRow): Date | null {
   const r = p.file.results_due;
   if (r?.date) return new Date(r.date);
   if (r?.weeks_after_close !== undefined && p.file.ends_at) return new Date(Date.parse(p.file.ends_at) + r.weeks_after_close * 7 * DAY);
@@ -111,8 +118,6 @@ export function amountsOf(r: { amounts?: unknown; amount_usd?: string | number |
   }
   return r.amount_usd === null || r.amount_usd === undefined ? null : { USD: Number(r.amount_usd) };
 }
-/** "Nov 4": a day in UTC. Pure. */
-export const dayOf = (d: Date) => new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(d);
 /** L13-13 (v6.1.14): a program's win passed on without its amount, as the row's note says. */
 export const AMOUNT_NOT_GIVEN = 'amount not given';
 /**
@@ -267,11 +272,11 @@ export async function record(
     if (resulted && (status === 'applied' || RESULTS.includes(status)))
       return { ok: false, note: `That one already has a result here: ${resultWords(row.status, kept)}.` } as const;
     if (status === 'applied' && row?.status === 'applied')
-      return { ok: false, note: `Already sent here on ${dayOf(row.at)} by ${displayName(row.client_name) ?? 'another agent'}; nothing recorded.` } as const;
-    // B3 (v6.1.13): a live claim of another installation of this owner holds the program; only its holder sends it.
-    if (status === 'applied' && row?.status === 'started' && row.claimed_by !== null && row.claimed_by !== installationId
-      && row.claimed_at !== null && row.claimed_at.getTime() > now.getTime() - CLAIM_HOURS * 3_600_000)
-      return { ok: false, note: OTHER_AGENT_HOLDS } as const;
+      return { ok: false, note: `Already sent here on ${dayWords(row.at, now)} by ${displayName(row.client_name) ?? 'another agent'}; nothing recorded.` } as const;
+    // B3 (v6.1.13) holds only a claim (claims.claim) and a skip (above). L23-3 (v6.1.16): a send over another
+    // installation's live claim is never refused or lost: it is recorded, the claim cleared, and `other_claim` said.
+    const otherClaim = status === 'applied' && row?.status === 'started' && row.claimed_by !== null && row.claimed_by !== installationId
+      && row.claimed_at !== null && row.claimed_at.getTime() > now.getTime() - CLAIM_HOURS * 3_600_000;
     if (RESULTS.includes(status) && (!row || row.status === 'skipped' || row.status === 'started')) return { ok: false, note: "You haven't applied to that one here." } as const;
     if (status === 'unskip') {
       // Only a skipped row can be unskipped: the row goes, and the program can come back in the list.
@@ -310,6 +315,7 @@ export async function record(
               application_id = COALESCE(applications.application_id, EXCLUDED.application_id),
               submitted_by = EXCLUDED.submitted_by, fields_used = EXCLUDED.fields_used, auto_applied = EXCLUDED.auto_applied, title = EXCLUDED.title,
               project_id = COALESCE(EXCLUDED.project_id, applications.project_id)`;
+      if (otherClaim) await tx`UPDATE applications SET claimed_at = NULL, claimed_by = NULL WHERE owner = ${owner} AND program_id = ${programId}`;
     } else if (status === 'skipped' && row?.status === 'started') {
       // A skip over a claim replaces it: the claim is gone, the skip stays.
       await tx`UPDATE applications SET installation_id = ${installationId}, status = 'skipped', note = ${note}, at = ${now},
@@ -332,7 +338,9 @@ export async function record(
     if (!repeated)
       await tx`INSERT INTO application_history (owner, installation_id, program_id, status, amount_usd, amount, currency, note, at, payment_key, corrected, source)
         VALUES (${owner}, ${installationId}, ${programId}, ${status}, ${currency === 'USD' ? value : null}, ${value}, ${value === null ? null : currency}, ${note}, ${now}, ${paymentKey}, ${corrects}, ${source})`;
-    return repeated ? ({ ok: true, repeated: true } as const) : night ? ({ ok: true, night: true } as const) : closed ? ({ ok: true, closed: true } as const)
+    const other = otherClaim ? ({ other_claim: true } as const) : {};
+    return repeated ? ({ ok: true, repeated: true } as const) : night ? ({ ok: true, night: true, ...other } as const) : closed ? ({ ok: true, closed: true, ...other } as const)
+      : otherClaim ? ({ ok: true, other_claim: true } as const)
       : total !== null ? ({ ok: true, total } as const)
       : corrects ? ({ ok: true, corrected: true, ...(replacedFrom !== null && { replaced: replacedFrom }) } as const)
       : ({ ok: true } as const);
@@ -344,7 +352,7 @@ export async function record(
  * correction replaced) are by currency (L22-3, v6.1.16); `agent_note` names why a refusal's currency could not be compared.
  */
 export type RecordResult =
-  | { ok: true; repeated?: true; night?: true; closed?: true; total?: Amounts; replaced?: Amounts; corrected?: true }
+  | { ok: true; repeated?: true; night?: true; closed?: true; total?: Amounts; replaced?: Amounts; corrected?: true; other_claim?: true }
   | { ok: false; note: string; items?: string[]; current?: string; agent_note?: string };
 
 /**
@@ -361,9 +369,10 @@ export async function summary(owner: string, programs: ProgramRow[], now: Date):
   const rows = await sql()<{ program_id: string; status: string; amount_usd: string | null; amounts: unknown }[]>`
     SELECT program_id, status, amount_usd, amounts FROM applications WHERE owner = ${owner}`;
   const byId = await withOwn(rows.map((r) => r.program_id), programs);
-  const l: Ledger = { applied: 0, asked_usd: 0, won: 0, won_usd: 0, won_other: [], won_no_amount: 0, pending: 0, rejected: 0, skipped: 0, closing_soon: [] };
+  const l: Ledger = { applied: 0, asked_usd: 0, won: 0, won_usd: 0, won_other: [], won_no_amount: 0, pending: 0, rejected: 0, skipped: 0, closing_soon: [], results_soon: [] };
   let won: Amounts = {};
-  const soon: { program_id: string; title: string; at: number }[] = [];
+  const week = (d: Date | null) => d !== null && d.getTime() >= now.getTime() && d.getTime() <= now.getTime() + 7 * DAY;
+  const results: { program_id: string; title: string; at: number }[] = [];
   for (const r of rows) {
     if (r.status === 'started') continue;
     if (r.status === 'skipped') {
@@ -384,16 +393,20 @@ export async function summary(owner: string, programs: ProgramRow[], now: Date):
     else if (r.status === 'no_result') l.pending++;
     else if (r.status === 'applied') {
       l.pending++;
-      if (!p) continue;
-      const dates = [p.file.ends_at ? new Date(p.file.ends_at) : null, resultsDate(p)]
-        .filter((d): d is Date => d !== null && d.getTime() >= now.getTime() && d.getTime() <= now.getTime() + 7 * DAY)
-        .map((d) => d.getTime());
-      if (dates.length > 0) soon.push({ program_id: p.id, title: p.file.title, at: Math.min(...dates) });
+      // L23-6 (v6.1.16): a sent program's results date in the next 7 days, never its close.
+      const due = p ? resultsDateOf(p) : null;
+      if (p && week(due)) results.push({ program_id: p.id, title: p.file.title, at: due!.getTime() });
     }
   }
+  // L23-6 (v6.1.16): closing soon is by ends_at only, over the open programs this owner has no application for.
+  const has = new Set(rows.filter((r) => r.status !== 'started').map((r) => r.program_id));
+  const soon = programs
+    .filter((p) => !has.has(p.id) && isOpenAt(p.file, now) && p.file.ends_at && week(new Date(p.file.ends_at)))
+    .map((p) => ({ program_id: p.id, title: p.file.title, at: Date.parse(p.file.ends_at!) }));
   l.won_usd = won.USD ?? 0;
   l.won_other = Object.entries(won).filter(([c]) => c !== 'USD').sort(([a], [b]) => a.localeCompare(b)).map(([currency, amount]) => ({ currency, amount }));
   l.closing_soon = soon.sort((a, b) => a.at - b.at).map((s) => ({ program_id: s.program_id, title: s.title, closes_at: new Date(s.at).toISOString() }));
+  l.results_soon = results.sort((a, b) => a.at - b.at).map((s) => ({ program_id: s.program_id, title: s.title, results_at: new Date(s.at).toISOString() }));
   return l;
 }
 
@@ -404,11 +417,17 @@ export async function summary(owner: string, programs: ProgramRow[], now: Date):
  * given)"); a count of none is left out, waiting is said whenever any wait (L13-18). Pure.
  */
 export function ledgerCounts(l: Ledger): string {
-  const soon = l.closing_soon.length > 0 ? `, ${l.closing_soon.length} closing soon` : '';
   const total = totalText({ usd: l.won_usd, other: l.won_other ?? [], noAmount: l.won_no_amount ?? 0 });
   const won = l.won > 0 && total ? ` (${total})` : '';
-  const counts = [`${l.applied} sent`, ...(l.won > 0 ? [`${l.won} won${won}`] : []), ...(l.rejected > 0 ? [`${l.rejected} rejected`] : []), ...(l.pending > 0 ? [`${l.pending} waiting${soon}`] : [])];
+  const counts = [`${l.applied} sent`, ...(l.won > 0 ? [`${l.won} won${won}`] : []), ...(l.rejected > 0 ? [`${l.rejected} rejected`] : []), ...(l.pending > 0 ? [`${l.pending} waiting`] : [])];
   return `${counts.join(', ')}.`;
+}
+
+/** L23-18 (v6.1.16): when this owner sent the program (an `applied` row waiting on its result), or null. */
+export async function sentOf(owner: string, programId: string): Promise<Date | null> {
+  const [r] = await sql()<{ sent: Date }[]>`
+    SELECT COALESCE(sent_at, at) AS sent FROM applications WHERE owner = ${owner} AND program_id = ${programId} AND status = 'applied'`;
+  return r?.sent ?? null;
 }
 
 /** L16-7 (v6.1.16): the program's result for this owner (won, rejected or no result), or null when it has none. */
@@ -484,11 +503,19 @@ export async function saveReport(owner: string, projectKey: string, report: Proj
     ON CONFLICT (owner, project_key) DO UPDATE SET report = EXCLUDED.report, at = EXCLUDED.at`;
 }
 
-/** Days a report stays without a find that updates it (W3, final round): the cron's sweep drops older ones. */
+/** Days cached evidence stays (W3, final round; L23-12 v6.1.16: the evidence only, never the report). */
 export const REPORT_DAYS = 180;
-/** Deletes the reports no find has updated for REPORT_DAYS days; the count deleted. */
+/**
+ * L23-12 (v6.1.16): the 180-day sweep removes cached evidence only: `repo_cache` and `evidence_cache` rows read over
+ * REPORT_DAYS ago, never a `project_reports` row (the project key, its repo) or a `gaps_done` row (a confirmed rule), so
+ * a find past 180 days re-reads its evidence and says nothing extra. It runs before `sweepEvidence` (the same 180 days),
+ * which then finds nothing past it. The rows deleted.
+ */
 export async function sweepReports(now: Date): Promise<number> {
-  return (await sql()`DELETE FROM project_reports WHERE at < ${new Date(now.getTime() - REPORT_DAYS * DAY)}`).count;
+  const before = new Date(now.getTime() - REPORT_DAYS * DAY);
+  const repo = (await sql()`DELETE FROM repo_cache WHERE fetched_at < ${before}`).count;
+  const evidence = (await sql()`DELETE FROM evidence_cache WHERE read_at < ${before}`).count;
+  return repo + evidence;
 }
 
 /**
@@ -527,26 +554,49 @@ export async function doneOn(owner: string, projectKey: string): Promise<Done> {
 /** Days after the send EarnKit asks how it went, for a program with no results date (v6.1.9). */
 export const ASK_AFTER_DAYS = 30;
 
+/** An applied program past its results date with no result yet (L23-4, v6.1.16): when the results were due. */
+export type OutcomeDue = { program_id: string; title: string; due_at: string };
+
 /**
- * Applied programs whose results date has passed and that the builder has not been asked about. A program with no
- * results date is asked about ASK_AFTER_DAYS after the send (its sent_at, else its at for a row from before v6.1.9).
+ * L23-4 (v6.1.16): every applied program whose results date has passed (`results_due`, else ASK_AFTER_DAYS after the
+ * send: its sent_at, else its at for a row from before v6.1.9) and that has no result yet, on every find until one is
+ * recorded. Which installation shows it today is `outcomeAsksDue`; `asked_outcome_at` stays for the record only.
  */
-export async function askOutcome(owner: string, programs: ProgramRow[], now: Date): Promise<{ program_id: string; title: string }[]> {
+export async function askOutcome(owner: string, programs: ProgramRow[], now: Date): Promise<OutcomeDue[]> {
   const rows = await sql()<{ program_id: string; sent: Date }[]>`
     SELECT program_id, COALESCE(sent_at, at) AS sent FROM applications
-    WHERE owner = ${owner} AND status = 'applied' AND asked_outcome_at IS NULL`;
+    WHERE owner = ${owner} AND status = 'applied' ORDER BY COALESCE(sent_at, at), program_id`;
   const sent = new Map(rows.map((r) => [r.program_id, r.sent]));
   const byId = await withOwn([...sent.keys()], programs);
   return [...sent.keys()]
     .map((id) => byId.get(id))
     .filter((p): p is ProgramRow => p !== undefined)
-    .filter((p) => {
-      const d = resultsDate(p) ?? new Date(sent.get(p.id)!.getTime() + ASK_AFTER_DAYS * DAY);
-      return d.getTime() <= now.getTime();
-    })
-    .map((p) => ({ program_id: p.id, title: p.file.title }));
+    .map((p) => ({ p, d: resultsDateOf(p) ?? new Date(sent.get(p.id)!.getTime() + ASK_AFTER_DAYS * DAY) }))
+    .filter(({ d }) => d.getTime() <= now.getTime())
+    .map(({ p, d }) => ({ program_id: p.id, title: p.file.title, due_at: d.toISOString() }));
 }
 
+/** The UTC day of `now`, as the outcome-ask marker stores it. Pure. */
+const utcDate = (now: Date) => now.toISOString().slice(0, 10);
+
+/**
+ * L23-4 (v6.1.16): of `due`, the ones this installation has not shown today (its own `outcome_asks` row for the
+ * program is from an earlier day, or there is none), marked as shown today in the same call: each installation asks
+ * at most once a day per program, and a second installation of the same builder asks on its own.
+ */
+export async function outcomeAsksDue<T extends { program_id: string }>(installationId: number, owner: string, due: T[], now: Date): Promise<T[]> {
+  if (due.length === 0) return [];
+  const day = utcDate(now);
+  const rows = await sql()<{ program_id: string }[]>`
+    INSERT INTO outcome_asks ${sql()(due.map((d) => ({ installation_id: installationId, owner, program_id: d.program_id, asked_on: day })))}
+    ON CONFLICT (installation_id, program_id) DO UPDATE SET owner = EXCLUDED.owner, asked_on = EXCLUDED.asked_on
+      WHERE outcome_asks.asked_on < EXCLUDED.asked_on
+    RETURNING program_id`;
+  const shown = new Set(rows.map((r) => r.program_id));
+  return due.filter((d) => shown.has(d.program_id));
+}
+
+/** Stamps `asked_outcome_at` for the record (L23-4: it no longer gates the question). */
 export async function markAsked(owner: string, programIds: string[], now: Date): Promise<void> {
   if (programIds.length === 0) return;
   await sql()`UPDATE applications SET asked_outcome_at = ${now}

@@ -39,7 +39,8 @@ test("a second claim is refused across the builder's agents", async () => {
   // Inside 24 hours nothing is released; after 25 the claim goes and a new one succeeds.
   assert.deepEqual(await releaseStale(owner, new Date(NOW.getTime() + 23 * H)), []);
   const later = new Date(NOW.getTime() + 25 * H);
-  assert.deepEqual(await releaseStale(owner, later), ['cl-1']);
+  // L23-7 (v6.1.16): with its title and when it was started.
+  assert.deepEqual((await releaseStale(owner, later)).map((x) => [x.program_id, x.title]), [['cl-1', 'Claim Grant']]);
   assert.deepEqual(await claim(owner, 'cl-1', 'earnkit', c, later), { ok: true });
 });
 

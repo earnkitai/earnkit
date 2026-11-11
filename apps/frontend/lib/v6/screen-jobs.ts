@@ -418,19 +418,27 @@ export async function jobResults(id: string, builderId: number, now: Date = new 
   return { job_id: s.id, program_id: s.program_id, total: s.total, done: s.done, finished: s.finished, last_run_left: s.last_run_left, page, next_page, totals, applicants };
 }
 
+/** L23-13 (v6.1.16): days a swept job's own row is kept as a tombstone, so its id still answers expired. */
+export const TOMBSTONE_DAYS = 365;
+
 /**
- * Deletes jobs created over KEEP_DAYS ago (L15-14, v6.1.14: past their results and decisions, and past the counts'
- * 90 days) with their applicants and outcomes; the jobs deleted.
+ * Deletes the applicants and outcomes of jobs created over KEEP_DAYS ago (L15-14, v6.1.14: past their results and
+ * decisions, and past the counts' 90 days); the `screen_jobs` row stays as a tombstone until TOMBSTONE_DAYS (L23-13,
+ * v6.1.16), so `jobStatus` answers expired and the reply is "That screen has expired; queue the list again.", never
+ * "I don't have that screen.". The jobs whose rows were swept (tombstoned or deleted).
  */
 export async function sweepScreens(now: Date): Promise<number> {
   const before = new Date(now.getTime() - Math.max(KEEP_DAYS, XP_DAYS) * DAY);
+  const gone = new Date(now.getTime() - TOMBSTONE_DAYS * DAY);
   return sql().begin(async (tx) => {
-    const ids = (await tx<{ id: string }[]>`DELETE FROM screen_jobs WHERE created_at < ${before} RETURNING id`).map((r) => r.id);
+    const ids = (await tx<{ id: string }[]>`SELECT id FROM screen_jobs WHERE created_at < ${before}`).map((r) => r.id);
+    const swept = new Set<string>();
     if (ids.length) {
-      await tx`DELETE FROM screen_applicants WHERE job_id = ANY(${ids})`;
-      await tx`DELETE FROM screen_outcomes WHERE job_id = ANY(${ids})`;
+      for (const r of await tx<{ job_id: string }[]>`DELETE FROM screen_applicants WHERE job_id = ANY(${ids}) RETURNING job_id`) swept.add(r.job_id);
+      for (const r of await tx<{ job_id: string }[]>`DELETE FROM screen_outcomes WHERE job_id = ANY(${ids}) RETURNING job_id`) swept.add(r.job_id);
     }
-    return ids.length;
+    for (const r of await tx<{ id: string }[]>`DELETE FROM screen_jobs WHERE created_at < ${gone} RETURNING id`) swept.add(r.id);
+    return swept.size;
   }) as Promise<number>;
 }
 

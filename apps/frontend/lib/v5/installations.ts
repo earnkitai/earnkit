@@ -175,3 +175,36 @@ export async function lastFindAt(id: number): Promise<Date | null> {
   const [row] = await sql()<{ last_find_at: Date | null }[]>`SELECT last_find_at FROM installations WHERE id = ${id}`;
   return row?.last_find_at ?? null;
 }
+
+/** L23-1 (v6.1.16): a program the standing-approval line named. */
+export type Promised = { program_id: string; title: string };
+
+/** L23-1 (v6.1.16): stores the programs this find's standing-approval line named and when (replacing the last). */
+export async function markPromised(id: number, programs: Promised[], now: Date): Promise<void> {
+  await sql()`UPDATE installations SET promised = ${sql().json(programs)}, promised_at = ${now} WHERE id = ${id}`;
+}
+
+/** The programs the last standing-approval line named and when, or null when none is kept. */
+export async function promisedOf(id: number): Promise<{ programs: Promised[]; at: Date } | null> {
+  const [row] = await sql()<{ promised: Promised[] | null; promised_at: Date | null }[]>`SELECT promised, promised_at FROM installations WHERE id = ${id}`;
+  return row?.promised && row.promised_at && Array.isArray(row.promised) && row.promised.length > 0 ? { programs: row.promised, at: row.promised_at } : null;
+}
+
+/** Clears the kept promise (said once, L23-1). */
+export async function clearPromised(id: number): Promise<void> {
+  await sql()`UPDATE installations SET promised = NULL, promised_at = NULL WHERE id = ${id}`;
+}
+
+/** L23-16 (v6.1.16): sha256 of the sorted program ids a find showed. Pure. */
+export const listHash = (ids: string[]): string => createHash('sha256').update([...new Set(ids)].sort().join('\n')).digest('hex');
+
+/** The last project find's list hash and when, or null before any. */
+export async function lastList(id: number): Promise<{ hash: string; at: Date } | null> {
+  const [row] = await sql()<{ h: string | null; at: Date | null }[]>`SELECT last_list_hash AS h, last_list_at AS at FROM installations WHERE id = ${id}`;
+  return row?.h && row.at ? { hash: row.h, at: row.at } : null;
+}
+
+/** Stores this project find's list hash and time (after each project find). */
+export async function markList(id: number, hash: string, now: Date): Promise<void> {
+  await sql()`UPDATE installations SET last_list_hash = ${hash}, last_list_at = ${now} WHERE id = ${id}`;
+}
