@@ -216,6 +216,10 @@ export async function record(
     const corrects = hasResult && (status === 'won' || status === 'rejected') && paymentKey === null && !completes && !same;
     // L17-2 (v6.1.16): a correction applies only when its event is at or after the stored result's; an older one changes nothing.
     if (corrects && now.getTime() < row.at.getTime()) return { ok: false, note: EARLIER_RESULT } as const;
+    // L17-2 (v6.1.16): the same result said again later moves its time on (no history row), so an older correction
+    // arriving after it is still older than what is kept.
+    if (same && paymentKey === null && now.getTime() > row.at.getTime())
+      await tx`UPDATE applications SET at = ${now} WHERE owner = ${owner} AND program_id = ${programId}`;
     // L17-8 (v6.1.16): the stored win again, with no further-payment mark, from the screen or the builder: a confirmation.
     if (same && status === 'won' && paymentKey === null) return { ok: false, note: CONFIRMED } as const;
     if (corrects && row.status === 'won' && row.amount_usd !== null && amount !== null) replacedFrom = Number(row.amount_usd);

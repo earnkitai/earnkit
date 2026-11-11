@@ -23,8 +23,11 @@ async function reviewer(programId: string) {
   await sql()`INSERT INTO program_reviewers (program_id, builder_id) VALUES (${programId}, ${b.id}) ON CONFLICT DO NOTHING`;
   return { programId, builderId: b.id, installationId: inst!.id };
 }
-const job = (r: Awaited<ReturnType<typeof reviewer>>, applicants: Parameters<typeof createJob>[0]['applicants'], now = NOW) =>
-  createJob({ programId: r.programId, builderId: r.builderId, installationId: r.installationId, applicants, now });
+/** A job that queued at least one applicant (its id is set). */
+const job = async (r: Awaited<ReturnType<typeof reviewer>>, applicants: Parameters<typeof createJob>[0]['applicants'], now = NOW) => {
+  const j = await createJob({ programId: r.programId, builderId: r.builderId, installationId: r.installationId, applicants, now });
+  return { ...j, id: j.id! };
+};
 /** The builder's own agent, linked to them: only a linked agent writes a b: ledger (v6.1.14 fix round 2). */
 const insts = new Map<number, number>();
 async function instOf(builderId: number): Promise<number> {
@@ -190,6 +193,8 @@ test('T5-F3 (v6.1.14): one id on two applicant rows of the program is ambiguous:
     ['Not passed on, one EarnKit id on more than one applicant: w-copy and row 1 (another screen).']);
   assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${b2.id}`} AND program_id = 'jobs-amb2'`)[0].status, 'applied');
   // A requeue naming the earlier row supersedes only that row: the copier's row still clashes, and nothing lands.
+  // (L17-5, v6.1.16: the copier's row is read first, so it no longer holds the queue.)
+  await markRead(copier.id, 'w-copy');
   const named = await job(r2, [{ ref: 'w-2', ...W, requeue: { job_id: old.id, ref: 'row 1' } }], new Date(NOW.getTime() - 1000));
   assert.deepEqual((await recordOutcomes(named.id, r2.builderId, [{ ref: 'w-2', outcome: 'won', amount_usd: 50 }], NOW)).notes,
     ['Not passed on, one EarnKit id on more than one applicant: w-2 and w-copy (another screen).']);
@@ -219,7 +224,7 @@ test('Task 8 security follow-up (v6.1.14): a requeue naming the exact earlier ro
   assert.deepEqual(await badRequeues('jobs-rq', [{ ref: 'w-2', name: 'W', application_id: id, requeue: { job_id: first.id, ref: 'row 1' } }]), []);
   const again = await createJob({ programId: 'jobs-rq', builderId: colleague.id, installationId: r.installationId, now: NOW,
     applicants: [{ ref: 'w-2', name: 'W', application_id: id, requeue: { job_id: first.id, ref: 'row 1' } }] });
-  assert.deepEqual(await told(again.id, colleague.id, [{ ref: 'w-2', outcome: 'won', amount_usd: 50 }], NOW), { recorded: 1, notFound: [], notes: [] });
+  assert.deepEqual(await told(again.id!, colleague.id, [{ ref: 'w-2', outcome: 'won', amount_usd: 50 }], NOW), { recorded: 1, notFound: [], notes: [] });
   assert.equal((await sql()`SELECT status FROM applications WHERE owner = ${`b:${b.id}`} AND program_id = 'jobs-rq'`)[0].status, 'won');
   const late = new Date(NOW.getTime() + 1000);
   const [{ expires_at }] = await sql()`SELECT expires_at FROM screen_jobs WHERE id = ${first.id}`;
@@ -289,6 +294,8 @@ test('L15-11 (v6.1.14): xpCounts counts only the program\'s own earlier screens 
   const p2 = await reviewer('jobs-x2');
   const deployer = '0x' + 'd'.repeat(40);
   const j1 = await job(p1, [{ ref: 'x', name: 'Shared', repo_url: 'https://github.com/acme/shared' }, { ref: 'y', name: 'Dep', live_url: 'https://dep.example/' }]);
+  // L17-5 (v6.1.16): read before the program screens it again, so the later screen queues it.
+  await markRead(j1.id, 'x');
   const j1b = await job(p1, [{ ref: 'x', name: 'Shared again', repo_url: 'https://github.com/acme/shared' }]);
   const j2 = await job(p2, [{ ref: 'x2', name: 'Shared', repo_url: 'https://github.com/acme/shared' }]);
   await markRead(j1.id, 'x');
@@ -753,4 +760,71 @@ test('L16-13, L16-8 (v6.1.16): a repo link off a code host and a shortened link 
   assert.deepEqual(rows.map((x) => [x.ref, x.repo_url, x.live_url]), [
     ['x-1', null, null], ['x-2', null, null], ['x-3', null, null], ['x-4', 'https://codeberg.org/acme/fine', 'https://fine.example/'],
   ]);
+});
+
+// L17 (v6.1.16): races, with parallel calls against the test database as lane 17 ran them.
+/** A builder who applied to the program with a repo project, and the application's id. */
+async function applicantOf(programId: string, repo: string) {
+  const b = await upsertBuilder({ github_id: ++gh, login: 'race' + gh, name: null, avatar_url: null }, NOW);
+  const owner = `b:${b.id}`;
+  const inst = await instOf(b.id);
+  assert.deepEqual(await record(owner, programId, 'applied', { installationId: inst, now: NOW, project_id: repo }), { ok: true });
+  return { owner, inst, id: await appId(owner, programId) };
+}
+
+test('R24, R26 (L17-5, Review Focus 7): 30 parallel screens of one applicant, by one reviewer then by three, leave one live row and its win is passed on', async () => {
+  const r = await reviewer('jobs-r24');
+  const others = [r, await reviewer('jobs-r24'), await reviewer('jobs-r24')];
+  const a = await applicantOf('jobs-r24', 'https://github.com/race/one');
+  const A = { ref: 'one', name: 'One', repo_url: 'https://github.com/race/one', application_id: a.id };
+  const one = await Promise.all(Array.from({ length: 30 }, () => job(r, [A])));
+  assert.equal(one.filter((j) => j.total === 1).length, 1);
+  assert.deepEqual([...new Set(one.filter((j) => j.total === 0).map((j) => [j.id, j.already.join(), j.notes.join()].join('|')))], ['|one|Already queued: one.']);
+  const three = await Promise.all(Array.from({ length: 30 }, (_, k) => job(others[k % 3], [{ ...A, ref: `one-${k}` }])));
+  assert.equal(three.filter((j) => j.total > 0).length, 0);
+  const rows = await sql()`SELECT x.job_id, x.ref FROM screen_applicants x JOIN screen_jobs j ON j.id = x.job_id WHERE j.program_id = 'jobs-r24'`;
+  assert.equal(rows.length, 1);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM screen_jobs WHERE program_id = 'jobs-r24'`)[0].n, 1);
+  const out = await recordOutcomes(rows[0].job_id, r.builderId, [{ ref: 'one', outcome: 'won', amount_usd: 500 }], NOW);
+  assert.deepEqual([out.passed, out.notes], [1, []]);
+  assert.deepEqual((await sql()`SELECT status, amount_usd FROM applications WHERE owner = ${a.owner} AND program_id = 'jobs-r24'`).map((x) => [x.status, Number(x.amount_usd)]), [['won', 500]]);
+  // A mixed list queues the new one and names the one already queued.
+  const mixed = await job(r, [A, { ref: 'two', name: 'Two', repo_url: 'https://github.com/race/two' }]);
+  assert.deepEqual([mixed.total, mixed.already, mixed.notes], [1, ['one'], ['Already queued: one.']]);
+});
+
+test('R23 (L17-8): key final, $100, from the screen 15 times and from the builder 15 times adds $100 once', async () => {
+  const r = await reviewer('jobs-r23');
+  await upsertProgram(programFixture({ id: 'jobs-r23', title: 'jobs-r23 title', max_award_usd: 10_000 }), 'file', NOW);
+  const a = await applicantOf('jobs-r23', 'https://github.com/race/pay');
+  const j = await job(r, [{ ref: 'pay', name: 'Pay', repo_url: 'https://github.com/race/pay', application_id: a.id }]);
+  assert.equal((await recordOutcomes(j.id, r.builderId, [{ ref: 'pay', outcome: 'won', amount_usd: 1000 }], NOW)).passed, 1);
+  const later = new Date(NOW.getTime() + 60_000);
+  await Promise.all(Array.from({ length: 30 }, (_, k) => k % 2
+    ? recordOutcomes(j.id, r.builderId, [{ ref: 'pay', outcome: 'won', amount_usd: 100, payment: { key: 'final' } }], later)
+    : record(a.owner, 'jobs-r23', 'won', { installationId: a.inst, amount_usd: 100, payment: { key: 'final' }, now: later })));
+  assert.equal(Number((await sql()`SELECT amount_usd FROM applications WHERE owner = ${a.owner} AND program_id = 'jobs-r23'`)[0].amount_usd), 1100);
+  assert.equal((await sql()`SELECT count(*)::int AS n FROM application_history WHERE owner = ${a.owner} AND program_id = 'jobs-r23' AND payment_key IS NOT NULL`)[0].n, 1);
+  assert.equal(Number((await sql()`SELECT amount_usd FROM screen_outcomes WHERE job_id = ${j.id} AND ref = 'pay'`)[0].amount_usd), 1100);
+});
+
+test('R15 (L17-2): 25 screen wins of $1,000 against 25 builder wins of $2,000 at interleaved times keep the latest; at never moves back; history names its source', async () => {
+  const r = await reviewer('jobs-r15');
+  const a = await applicantOf('jobs-r15', 'https://github.com/race/time');
+  const j = await job(r, [{ ref: 'time', name: 'Time', repo_url: 'https://github.com/race/time', application_id: a.id }]);
+  const at = (k: number) => new Date(NOW.getTime() + 1000 * (k + 1));
+  // Screen at the even seconds, the builder at the odd ones; the last (second 50) is the builder's.
+  const calls = Array.from({ length: 50 }, (_, k) => k % 2 === 0
+    ? () => recordOutcomes(j.id, r.builderId, [{ ref: 'time', outcome: 'won', amount_usd: 1000 }], at(k))
+    : () => record(a.owner, 'jobs-r15', 'won', { installationId: a.inst, amount_usd: 2000, now: at(k) }));
+  // Shuffled, so arrival order differs from event order.
+  const order = calls.map((c, k) => ({ c, s: (k * 37) % 50 })).sort((x, y) => x.s - y.s);
+  const res = await Promise.allSettled(order.map((x) => x.c()));
+  assert.equal(res.filter((x) => x.status === 'rejected').length, 0);
+  const [row] = await sql()`SELECT status, amount_usd, at FROM applications WHERE owner = ${a.owner} AND program_id = 'jobs-r15'`;
+  assert.deepEqual([row.status, Number(row.amount_usd), row.at.getTime()], ['won', 2000, at(49).getTime()]);
+  const hist = await sql()`SELECT amount_usd, at, source FROM application_history WHERE owner = ${a.owner} AND program_id = 'jobs-r15' AND status = 'won' ORDER BY id`;
+  for (const h of hist) assert.equal(h.source, Number(h.amount_usd) === 1000 ? 'screen' : 'builder');
+  // Each result written is at or after the one before it.
+  for (let k = 1; k < hist.length; k++) assert.ok(hist[k].at.getTime() >= hist[k - 1].at.getTime());
 });
