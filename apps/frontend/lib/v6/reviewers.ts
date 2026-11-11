@@ -34,7 +34,10 @@ async function builderOf(githubLogin: string | null, githubId?: number): Promise
 /** Marks the builder (by GitHub id, else by login) a reviewer of the program; again updates the contact when one is
  *  sent and keeps the saved one when none is (L15-2, v6.1.14). */
 export async function addReviewer(programId: string, githubLogin: string | null, contact: string | null, githubId?: number): Promise<ReviewerResult> {
-  if (!(await getProgram(programId))) return { ok: false, reason: NO_PROGRAM };
+  // L31-4 (v6.1.16 Task 17): getProgram folds the id, so the stored id is the program's own.
+  const program = await getProgram(programId);
+  if (!program) return { ok: false, reason: NO_PROGRAM };
+  programId = program.id;
   const b = await builderOf(githubLogin, githubId);
   if ('reason' in b) return { ok: false, reason: b.reason };
   const id = b.id;

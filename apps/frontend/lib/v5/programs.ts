@@ -59,9 +59,16 @@ async function listWhere(now: Date, withUpcoming: boolean): Promise<ProgramRow[]
   return parseRows(rows);
 }
 
+/**
+ * A program id as ids are compared (L31-4, v6.1.16 Task 17): NFKC (fullwidth and other compatibility forms), lower
+ * case, trimmed. Stored ids are lower-case ASCII, so they are their own folded form. Pure.
+ */
+export const foldId = (s: string): string => s.normalize('NFKC').toLowerCase().trim();
+
+/** The program whose id matches `id` once both are folded (`foldId`), or null. */
 export async function getProgram(id: string): Promise<ProgramRow | null> {
   const rows = await sql()<RawRow[]>`
-    SELECT id, file, source, created_at, updated_at, verified_at, stale_since FROM programs WHERE id = ${id}`;
+    SELECT id, file, source, created_at, updated_at, verified_at, stale_since FROM programs WHERE id = ${foldId(id)}`;
   return parseRows(rows)[0] ?? null;
 }
 

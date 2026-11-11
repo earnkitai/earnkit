@@ -1,7 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
-import { getProgram, isOpen, listListedPrograms, listOpenPrograms, programByName, unknownProgramLine, upsertProgram } from './programs';
+import { foldId, getProgram, isOpen, listListedPrograms, listOpenPrograms, programByName, unknownProgramLine, upsertProgram } from './programs';
 import { programFixture } from './fixtures/program';
 
 after(() => sql().end());
@@ -166,4 +166,14 @@ test('L12-3, L12-5 (v6.1.14): every word of a lookup names one program, organize
     assert.deepEqual(await one(name), { id: null, line: "I don't know that program." }, name);
   for (const name of ['l12-nope', 'base-nope', 'monad-xyz', 'Combinator Labs', 'paypal qqq', '2027'])
     assert.deepEqual(await one(name), { id: null, line: "I don't know that program." }, name);
+});
+
+test('L31-4 (v6.1.16 Task 17): program ids are matched after NFKC folding; the row names the real id', async () => {
+  assert.equal(foldId(' ｂａｓｅ-ｂｕｉｌｄｅｒ-ｇｒａｎｔｓ '), 'base-builder-grants');
+  assert.equal(foldId('Base-Builder-Grants'), 'base-builder-grants');
+  assert.equal((await getProgram('ｂａｓｅ-ｂｕｉｌｄｅｒ-ｇｒａｎｔｓ'))?.id, 'base-builder-grants');
+  const { row } = await programByName('ｂａｓｅ-ｂｕｉｌｄｅｒ-ｇｒａｎｔｓ', NOW);
+  assert.equal(row?.id, 'base-builder-grants');
+  // NFD accents are not compatibility forms: no match (lane 31's t-7 stays).
+  assert.equal(await getProgram('cafe\u0301-grant'), null);
 });

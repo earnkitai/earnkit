@@ -198,7 +198,9 @@ async function answer(ctx: TrackContext, input: unknown): Promise<Result> {
     ? { ...acted, show_to_builder: namedFirst(acted.show_to_builder, row.file.title), agent_note: `Matched ${row.id}. ${acted.agent_note}` }
     : acted;
   const p0 = projectProblems.length > 0 ? { ...r, agent_note: `${r.agent_note} Project: ${projectProblems.join('; ')}.`.trim() } : r;
-  const p = loose.problems.length > 0 ? { ...p0, agent_note: `${p0.agent_note} Some arguments were not read: ${loose.problems.join('; ')}.` } : p0;
+  // L31-4 (v6.1.16 Task 17): an id with any non-ASCII character was matched after NFKC folding; the problems line names it.
+  const problems = row && /[^\x00-\x7f]/.test(raw) ? [...loose.problems, `program id read as ${row.id}`] : loose.problems;
+  const p = problems.length > 0 ? { ...p0, agent_note: `${p0.agent_note} Some arguments were not read: ${problems.join('; ')}.` } : p0;
   return known ? p : { ...p, agent_note: `${p.agent_note} project_id ${project_id} is not known; ignored.`.trim() };
 }
 

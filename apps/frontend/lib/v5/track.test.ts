@@ -1438,3 +1438,14 @@ test('L25-13 (v6.1.16): the track description says amount_usd may carry cents', 
   const { TRACK_DESCRIPTION } = await import('./tool-text');
   assert.match(TRACK_DESCRIPTION, /amount_usd may carry cents/);
 });
+
+test('L31-4 (v6.1.16 Task 17): a fullwidth program id is read as the real one, named in the reply and the problems line', async () => {
+  const c = await ctx();
+  const title = (await sql()<{ t: string }[]>`SELECT file->>'title' AS t FROM programs WHERE id = 'base-builder-grants'`)[0].t;
+  const r = await track(c, { program_id: 'ｂａｓｅ-ｂｕｉｌｄｅｒ-ｇｒａｎｔｓ', status: 'skipped' });
+  assert.ok(r.show_to_builder.includes(title), r.show_to_builder);
+  assert.match(r.agent_note, /Some arguments were not read: program id read as base-builder-grants\./);
+  // An ASCII id gets no problems line.
+  const plain = await track(await ctx(), { program_id: 'base-builder-grants', status: 'skipped' });
+  assert.doesNotMatch(plain.agent_note, /program id read as/);
+});
