@@ -1907,3 +1907,53 @@ test('N1 (Task 14 fix round 1): a join onto a repo another builder already sent 
   assert.equal(joined.show_to_builder, 'Joined "App" with github.com/jn-n1/app.');
   assert.deepEqual((await rowsOf(jn.owner, 'l28-n1')).map((r) => [r.project_id, r.repo_key, r.off_repo]), [['name:app', null, 'https://github.com/jn-n1/app']]);
 });
+
+// ---- v6.1.16 Task 14 fix round 2 ----
+
+test('C3 (Task 14 fix round 2, probes P4, P4b, P5): a keyless or name claim never unlocks a send with someone else\'s repo', async () => {
+  await seedRead('vic/p4', ['vic']);
+  const R = { name: 'P4', description: 'Victim app.', repo_url: 'https://github.com/vic/p4' };
+  for (const [id, by] of [['l28-p4', 'agent'], ['l28-p4b', 'builder']] as const) {
+    await upsertProgram(programFixture({ id, title: `${id} Grant` }), 'file', NOW);
+    const d = await signedIn(`dave-${id}`);
+    assert.equal((await track(d, { program_id: id, status: 'started' })).show_to_builder, '');
+    const r = await send(d, id, R, by);
+    if (by === 'agent') {
+      assert.equal(r.show_to_builder, 'This repo is not yours; I apply only with repos you commit to.');
+      assert.equal(r.refused, true);
+    } else assert.match(r.agent_note, /^The repo is not yours; recorded under the project name only\./);
+    assert.equal((await sql()`SELECT count(*)::int AS n FROM applications WHERE program_id = ${id} AND repo_key IS NOT NULL`)[0].n, 0, id);
+    assert.ok((await rowsOf(d.owner, id)).every((x) => x.project_id === null || x.project_id === 'name:p4'), id);
+    const vic = await signedIn('vic');
+    assert.equal((await send(vic, id, R)).show_to_builder, `Sent ${id} Grant.`);
+  }
+  await upsertProgram(programFixture({ id: 'l28-p5', title: 'P5 Grant' }), 'file', NOW);
+  const d5 = await signedIn('dave-p5');
+  await track(d5, { program_id: 'l28-p5', status: 'started', project: { name: 'P4' } });
+  assert.equal((await send(d5, 'l28-p5', R)).refused, true);
+});
+
+test('C2, C4 (Task 14 fix round 2, probes P6, P7): a repo id never moves a stranger\'s rows onto another repo; a refused call moves nothing', async () => {
+  const { find } = await import('./find');
+  const { getRecord, saveRecord } = await import('../v6/builders');
+  const { mergeRecord } = await import('../v6/record');
+  await seedRead('vic6/app', ['vic6'], 6060);
+  await seedRead('dave6/mine', [], 7070);
+  await upsertProgram(programFixture({ id: 'l28-p6', title: 'P6 Grant' }), 'file', NOW);
+  const d = await signedIn('dave6');
+  // An agent cannot set a project's repo id.
+  const patched = mergeRecord(await getRecord(d.builderId!), { projects: [{ id: 'mine', repo_url: 'https://github.com/dave6/mine', repo_id: 6060 }] }, 'agent', NOW);
+  assert.ok(patched.problems.some((p) => /repo_id/.test(p) && /EarnKit only/.test(p)), patched.problems.join('; '));
+  assert.equal(patched.record.projects[0]?.repo_id, undefined);
+  // Even a record that holds it (written behind EarnKit's back) moves nothing: dave6/mine's own read carries another id.
+  await saveRecord(d.builderId!, { ...patched.record, projects: [{ ...patched.record.projects[0], repo_id: 6060 }] }, NOW);
+  const MINE = { name: 'Mine', description: 'Mine.', repo_url: 'https://github.com/dave6/mine' };
+  assert.equal((await send(d, 'l28-p6', MINE)).show_to_builder, 'Sent P6 Grant.');
+  const VIC = { name: 'App', description: 'Victim app.', repo_url: 'https://github.com/vic6/app' };
+  const refused = await track(d, { program_id: 'l28-p6', status: 'started', project: VIC });
+  assert.equal(refused.refused, true);
+  await find({ ...d, linkUrl: async () => null }, { project: VIC });
+  assert.deepEqual((await rowsOf(d.owner, 'l28-p6')).map((r) => [r.project_id, r.repo_key]), [['https://github.com/dave6/mine', 'https://github.com/dave6/mine']]);
+  const vic = await signedIn('vic6');
+  assert.equal((await send(vic, 'l28-p6', VIC)).show_to_builder, 'Sent P6 Grant.');
+});

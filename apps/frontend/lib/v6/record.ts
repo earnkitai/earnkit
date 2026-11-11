@@ -102,6 +102,7 @@ export function fieldSchema(path: string): z.ZodType | null {
   if (block === 'team') return /^\d+$/.test(a ?? '') && (b === 'name' || b === 'role') ? TeamMember.shape.name : null;
   const shape: z.ZodRawShape | undefined = block === 'projects' ? Project.shape : LEAF_BLOCKS[block]?.shape;
   const key = block === 'projects' ? b : a;
+  if (key !== undefined && EARNKIT_ONLY.has(key)) return null;
   return shape && key !== undefined && Object.hasOwn(shape, key) ? (shape[key] as z.ZodType) : null;
 }
 /** unapproved_at: when an agent's change dropped an approval the builder had given (v6.1.8 C48); cleared on approval. */
@@ -146,7 +147,8 @@ const issue = (path: string, err: z.ZodError) => {
   const i = err.issues[0];
   return bad(i.path.length ? `${path}.${i.path.join('.')}` : path, i.message);
 };
-const EARNKIT_ONLY = new Set(['evidence_read_at', 'last_tier']);
+// Fix round 2 (C2): a project's GitHub repo id is EarnKit's own (find's read), never a patch's.
+const EARNKIT_ONLY = new Set(['evidence_read_at', 'last_tier', 'repo_id']);
 /**
  * L24-5 (v6.1.16 Task 11): whether `key` is one of `obj`'s own keys, never an inherited name (__proto__, constructor,
  * toString): every record reader and word lookup goes through it. Pure.

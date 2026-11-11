@@ -604,10 +604,9 @@ test('unlinked with sign-in configured: the closing line, then the sign-in as it
   const lines = show.split('\n');
   const link = r.reply!.sign_in as string;
   assert.match(link, /\/link\//);
-  // L29-33 (v6.1.16 Task 15): the sign-in is its own line, just before the Say.
-  assert.equal(lines.at(-2), `Sign in once at ${link} and I read your repo for proof and remember you.`);
-  assert.ok(CLOSINGS.some((c) => c.test(lines.at(-1)!)), show);
-  assert.equal(show.match(/Sign in once at/g)!.length, 1);
+  // FR-1, N5 (v6.1.16 Task 14 fix rounds 1 and 2): signed out with a repo, one sign-in line, with its link, is the closing.
+  assert.equal(lines.at(-1), `Sign in once at ${link} and I check the repo is yours; then say yes.`);
+  assert.equal(show.match(/Sign in once/g)!.length, 1);
   assert.equal(r.reply!.linked, false);
 }));
 
@@ -2310,7 +2309,8 @@ test('v6.1.9: after the builder says yes to the rule, the program comes back rea
   // L29-33 (v6.1.16 Task 15): the sign-in its own line, before the closing.
   // FR-1 (v6.1.16 Task 14 fix round 1): signed out with a repo, the apply offers give way to the sign-in.
   assert.equal(show.split('\n').at(-1), 'Sign in once and I check the repo is yours; then say yes.');
-  assert.ok(show.split('\n').includes('Sign in once and I check that.'), show);
+  // N5 (fix round 2): one sign-in line.
+  assert.equal(show.match(/Sign in once/g)!.length, 1, show);
 });
 
 test('N9 (v6.1.9): the one-program detail tells the agent to pass project_id when the project is not in the record', async () => {

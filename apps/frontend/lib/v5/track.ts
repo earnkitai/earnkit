@@ -69,9 +69,12 @@ const repoLess = (key: string) => key === '' || key.startsWith('name:');
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v : null);
 
 /** The owner's row for the program and project key (L28-4, v6.1.16 Task 14: `pickRow`; `anyProject` for a result). */
+async function rowsHere(owner: string, programId: string) {
+  return sql()<{ project_id: string | null; off_repo: string | null; status: string; application_id: string | null; claimed_by: number | null; claimed_at: Date | null }[]>`
+    SELECT project_id, off_repo, status, application_id, claimed_by, claimed_at FROM applications WHERE owner = ${owner} AND program_id = ${programId}`;
+}
 async function rowHere(owner: string, programId: string, key: string, anyProject = false) {
-  return pickRow(await sql()<{ project_id: string | null; off_repo: string | null; status: string; application_id: string | null; claimed_by: number | null; claimed_at: Date | null }[]>`
-    SELECT project_id, off_repo, status, application_id, claimed_by, claimed_at FROM applications WHERE owner = ${owner} AND program_id = ${programId}`, key, anyProject);
+  return pickRow(await rowsHere(owner, programId), key, anyProject);
 }
 
 /** True when the owner's row for the program and project is an application already sent (applied or with a result). */
@@ -457,8 +460,9 @@ async function act(
   const recorded = i.project_id !== undefined && ctx.builderId !== null ? projectKeyOf((await getRecord(ctx.builderId)).projects.find((x) => x.id === i.project_id)) : '';
   let appKey = recorded ? await resolvedKey(owner, recorded) : project.key;
   // Fix round 1 (M3): a renamed or transferred repo, read under its current link, takes its old keys' rows, steps and
-  // confirmed rules first (only the cached read's own link, so an old link never pulls them back).
-  await followRepoId(ctx, owner, appKey);
+  // confirmed rules first (only the cached read's own link, so an old link never pulls them back). Fix round 2 (C4):
+  // only once this builder's tie to the repo is shown, so a refused call moves nothing.
+  if (repoKeyOf(appKey) && !(await repoNotMine(ctx, appKey))) await followRepoId(ctx, owner, appKey);
   /** L28-3 (v6.1.16 Task 14): the application's repo is not this builder's (no login, or no public evidence of theirs). */
   const notMine = (): Promise<boolean> => repoNotMine(ctx, appKey);
   /** L28-3: the refusal. Fix round 1 (M1): "not yours" only on evidence against the builder; with none, "could not
@@ -579,7 +583,8 @@ async function act(
   // L28-3 (v6.1.16 Task 14; fix round 1, C1): an agent never sends, and nobody holds, with a repo that is not the
   // builder's, whatever this project's row says. FR-4: a send over this agent's own live claim on this project was
   // checked at the start, so it is recorded (the form went out) whatever a read now answers.
-  const own = i.status === 'applied' ? await rowHere(owner, i.program_id, appKey) : undefined;
+  // Fix round 2 (C3): this project's own claim only, by an exact key match (a keyless claim never unlocks a repo send).
+  const own = i.status === 'applied' ? (await rowsHere(owner, i.program_id)).find((r) => (r.project_id ?? '') === appKey) : undefined;
   const ownClaim = own?.status === 'started' && own.claimed_by === ctx.installationId && own.claimed_at !== null
     && own.claimed_at.getTime() > ctx.now.getTime() - CLAIM_HOURS * 3_600_000;
   if (((i.status === 'applied' && sender === 'agent' && !ownClaim) || i.status === 'held') && (await notMine())) return notYours();

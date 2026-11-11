@@ -147,6 +147,8 @@ export const NOT_YOUR_REPO = 'This repo is not yours; I apply only with repos yo
 export const SIGN_IN_FIRST = 'Sign in first so I can check the repo is yours.';
 /** FR-1: find's one Say for a signed-out builder with a repo: no apply offer until linked. */
 export const SIGN_IN_FIRST_SAY = 'Sign in once and I check the repo is yours; then say yes.';
+/** FR-1, N5 (fix round 2): the same line with the sign-in link when the reply has one (one sign-in line, never two). */
+export const SIGN_IN_FIRST_LINK = (link: string): string => `Sign in once at ${link} and I check the repo is yours; then say yes.`;
 /** L28-3 (fix round 1, M1): no evidence either way (another host, a private or unread repo): never "not yours". */
 export const CANT_CONFIRM_REPO = 'I could not confirm this repo is yours; tell me your GitHub login on it or send it yourself.';
 /** L28-3: the agent note when a builder-submitted send with a repo that is not theirs is kept under the name only. */
@@ -320,7 +322,10 @@ export async function record(
       SELECT a.project_id, a.status, a.amount_usd, a.amounts, a.note, a.at, a.sent_at, i.client_name, a.claimed_at, a.claimed_by, a.held_at FROM applications a LEFT JOIN installations i ON i.id = a.installation_id
       WHERE a.owner = ${owner} AND a.program_id = ${programId} FOR UPDATE OF a`;
     // L28-4 (v6.1.16 Task 14): this project's row; a result, a hold or an unskip takes the owner's one row for the program.
-    const row = pickRow(rows, key, RESULTS.includes(status) || status === 'held' || status === 'unskip');
+    // Fix round 2 (C3): a send or hold keyed by a repo takes only that key's own row, never a keyless one (the ownership
+    // gate ran for this key, not for the row it would rewrite).
+    const exactOnly = repoKeyOf(key) !== null && (status === 'applied' || status === 'held');
+    const row = exactOnly ? rows.find((r) => (r.project_id ?? '') === key) : pickRow(rows, key, RESULTS.includes(status) || status === 'held' || status === 'unskip');
     if (!program && !row) return unknown;
     // The key every write below uses: the row's own when one was picked, else this project's.
     let rk = row ? (row.project_id ?? '') : key;
@@ -781,7 +786,8 @@ export async function rekeyByRepoId(owner: string, repoId: number, to: string, a
   for (const k of new Set([...held.map((r) => r.k), ...alsoKeys])) {
     if (keys.has(k) || k === to) continue;
     const [c] = await sql()<{ id: string | null }[]>`SELECT COALESCE(facts->>'repo_id', facts->>'id') AS id FROM repo_cache WHERE repo = ${k.replace(/^https:\/\/github\.com\//, '')}`;
-    if (alsoKeys.includes(k) || (c?.id && Number(c.id) === repoId)) keys.add(k);
+    // Fix round 2 (C2): every candidate, a record project's too, only when its own cached read carries the same id.
+    if (c?.id && Number(c.id) === repoId) keys.add(k);
   }
   keys.delete(to);
   for (const k of keys) await rekeyProject(owner, k, to);

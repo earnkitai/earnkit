@@ -64,8 +64,11 @@ export async function claim(owner: string, programId: string, projectId: string 
     // One claim decision at a time per owner and program, even when no row exists yet.
     await tx`SELECT pg_advisory_xact_lock(hashtext(${owner + ':' + programId}))`;
     if (!(await stillLinked(tx, owner, installationId))) return { unlinked: true as const };
-    const read = async () =>
-      pickRow(await tx<Row[]>`SELECT project_id, status, claimed_at, claimed_by, installation_id, at, held_at FROM applications WHERE owner = ${owner} AND program_id = ${programId} FOR UPDATE`, key);
+    // Fix round 2 (C3): a claim keyed by a repo takes only that key's own row, never a keyless one.
+    const read = async () => {
+      const rows = await tx<Row[]>`SELECT project_id, status, claimed_at, claimed_by, installation_id, at, held_at FROM applications WHERE owner = ${owner} AND program_id = ${programId} FOR UPDATE`;
+      return repoKeyOf(key) ? rows.find((r) => (r.project_id ?? '') === key) : pickRow(rows, key);
+    };
     const row = await read();
     const rk = row ? (row.project_id ?? '') : key;
     const repoKey = repoKeyOf(rk || key);

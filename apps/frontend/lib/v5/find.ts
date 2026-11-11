@@ -16,7 +16,7 @@ import { closesWords, dayWords, programZone } from './deadline';
 import { evaluate, keywordHit, lookedAgain, rulesOnly, unlikely, type Gap, type Verdict } from './eligibility';
 import { guideLines, guideText, type Guide } from './guide';
 import { clearPromised, lastFindAt, lastList, lastOfferOf, listHash, markFind, markFindAuto, markList, markNextNeeds, markOffer, markPromised, newlyLinkedLogin, promisedOf, rememberProject, type Promised } from './installations';
-import { applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, markAsked, NOT_YOUR_REPO, CANT_CONFIRM_REPO, SIGN_IN_FIRST_SAY, outcomeAsksDue, rekeyByRepoId, rekeyProject, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
+import { applicationsLine, applicationsOf, type ApplicationItem, askOutcome, autoSentSince, claimed, codeDoneAt, doneOn, excluded, heldUnder, markAsked, NOT_YOUR_REPO, CANT_CONFIRM_REPO, SIGN_IN_FIRST_LINK, SIGN_IN_FIRST_SAY, outcomeAsksDue, rekeyByRepoId, rekeyProject, repoKeyOf, reportOf, resolvedKey, resultOf, resultWords, resultsDateOf, saveReport, sentOf, summary, type Ledger, type OutcomeDue } from './ledger';
 import { EARNKIT_CUT_NOTE, prefill, type Field, type RecordContext } from './prefill';
 import { PROGRAM_CATEGORIES, categoryOf, eligibilityOf, ruleNotes, type Category, type Program } from './program-file';
 import { closedAt, isOpenAt, statusAt, listOpenPrograms, programByName, unknownProgramLine, type ProgramRow } from './programs';
@@ -24,7 +24,7 @@ import { moneyAt, moneyOf as tileMoney } from './programs-read';
 import { ProjectArg, SHORT_LINK_NOTE, isShortener, nameKeyOf, parseProject, projectKeyOf, type Project } from './project-input';
 import { readLoosely, refuse, type LooseRules } from './tool-input';
 import { offChain, rankGaps, rankReady, shownGapsOf } from './rank';
-import { cachedRepoFacts, cachedRepoId, cachedRepoLink, repoEvidence, repoFacts, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
+import { cachedRepoFacts, cachedRepoId, cachedRepoLink, repoEvidence, repoFacts, repoTie, reportOnlyFacts, type RepoFacts, type RepoNote } from './repo-facts';
 import { sendableOf, AGENT_FIELDS, CONTRACT_NOTE, SAME_PROJECT, CUT_NOTE, NO_PROJECT_NOTE, standingNote, STANDING_ONE, STOP_NOTE, contractLookedAgain, droppedNote, RULE_NOTE, reportLines, sinceLine, agentNote, canDo, closingLine, gapAction, gapActionStep, gapLine, inPersonLine, notFitLine, numbered, readyLine, replyParts, ruleSentence, hasProof, signInOnly, tonightOf, yesStands, type OfferKind } from './reply';
 import { since, type Since } from './since';
 
@@ -698,6 +698,12 @@ type BeforeSend = { join: string | null };
 async function followRename(ctx: FindContext, project: Project | null): Promise<void> {
   const to = project ? projectKeyOf(project) : '';
   if (!repoKeyOf(to)) return;
+  // Fix round 2 (C4): only for a signed-in builder whose tie to the repo is shown (cache only here; the reply's own check
+  // reads the repo when it must).
+  if (ctx.builderId === null) return;
+  const login = (await getBuilder(ctx.builderId))?.login ?? null;
+  const facts = (await cachedRepoFacts(project!)) ?? { repo_url: to };
+  if ((await repoTie(login, facts, { repoUrl: to, noFetch: true })) === null) return;
   // Fix round 1 (M3): only from the cached read's own (current) link, with the record projects that keep the id.
   if ((await cachedRepoLink(to)) !== to) return;
   const id = await cachedRepoId(to);
@@ -864,9 +870,14 @@ async function beforeSend<T extends FindReply | ProgramReply>(ctx: FindContext, 
     // FR-1 (fix round 1): signed out with a repo, sign-in comes first: no apply offer until linked.
     if (!offersApply(r.show_to_builder)) return r;
     await markOffer(ctx.installationId, null, ctx.now);
+    // Fix round 2 (N5): one sign-in line: the reply's own sign-in sentence gives way to this one, its link kept.
+    const link = (r as { sign_in?: string }).sign_in;
+    const kept = withoutApply(r.show_to_builder).filter((l) => !/^Sign in once\b/.test(l));
+    // A line still carrying the link (the unlinked notice) keeps it; the closing then needs none.
+    const linked = link && !kept.some((l) => l.includes(link));
     return {
       ...r,
-      show_to_builder: [...withoutApply(r.show_to_builder), SIGN_IN_FIRST_SAY].join('\n'),
+      show_to_builder: [...kept, linked ? SIGN_IN_FIRST_LINK(link) : SIGN_IN_FIRST_SAY].join('\n'),
       agent_note: [r.agent_note, SIGN_IN_FIRST_NOTE].filter(Boolean).join('\n'),
     };
   }

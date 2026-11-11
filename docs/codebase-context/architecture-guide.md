@@ -245,6 +245,14 @@ follow. `rekeyProject` runs the cross-builder check under the repo lock and keep
 repo. `application_history.project_id` keys a history row to its application (the further-payment repeat check and
 /me's paid-more flag, FR-5). The join yes is `track` with `program_id: join` (named in the tool description).
 
+Task 14 fix round 2: a send or hold keyed by a repo (in `record`) and a claim keyed by a repo (in `claim`) take only that
+key's own row, never a keyless one, and track's own-claim exception (FR-4) counts only an exact project-key match. A
+project's `repo_id` is EarnKit-only (a patch setting it is dropped with `set by EarnKit only`; /me never edits it), and
+`rekeyByRepoId` moves a key only when that key's own cached read carries the same id. Track's `followRepoId` and find's
+`followRename` run only once the builder's tie to the repo is shown, so a refused call moves nothing. A signed-out find
+with a repo shows one sign-in line: the reply's own sign-in sentence gives way to `Sign in once at {link} and I check the
+repo is yours; then say yes.` (without the link when the reply has none, or the unlinked notice already carries it).
+
 `applications` holds one row per installation and program (latest status wins); `application_history` keeps every
 change; `gaps_done` records closed gap items. It is keyed by installation only: v5 has no proof of who a login
 belongs to, so a re-authorization starts a fresh ledger and a builder with two agents has two. `gap_done` takes only
